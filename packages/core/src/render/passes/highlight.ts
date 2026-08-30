@@ -1,6 +1,26 @@
+import type { StructView, WgslStruct } from "@downdraft/shader-graph";
+import { f32, wgsl } from "@downdraft/shader-graph";
 import { PassType, type FrameGraphBuilder, type GraphRenderContext, type TextureHandle } from "../frame-graph";
 import { createUniformBuffer } from "../gpu-utils";
 import { RenderPass } from "../render-pass";
+
+const BlurUniforms: WgslStruct = wgsl.struct("BlurUniforms", {
+  texelSizeX: f32,
+  texelSizeY: f32,
+  directionX: f32,
+  directionY: f32,
+  blurRadius: f32,
+  _pad0: f32,
+  _pad1: f32,
+  _pad2: f32,
+});
+
+const CompositeUniforms: WgslStruct = wgsl.struct("CompositeUniforms", {
+  intensity: f32,
+  innerOpacity: f32,
+  _pad0: f32,
+  _pad1: f32,
+});
 
 const FULLSCREEN_VS = /* wgsl */ `
 struct VertexOutput {
@@ -20,16 +40,7 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VertexOutput {
 `;
 
 const HIGHLIGHT_BLUR_FS = /* wgsl */ `
-struct BlurUniforms {
-  texelSizeX: f32,
-  texelSizeY: f32,
-  directionX: f32,
-  directionY: f32,
-  blurRadius: f32,
-  _pad0: f32,
-  _pad1: f32,
-  _pad2: f32,
-};
+${BlurUniforms.wgsl}
 
 @group(0) @binding(0) var<uniform> u: BlurUniforms;
 @group(0) @binding(1) var maskTex: texture_2d<f32>;
@@ -52,12 +63,7 @@ fn highlight_blur_fs(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 `;
 
 const HIGHLIGHT_COMPOSITE_FS = /* wgsl */ `
-struct CompositeUniforms {
-  intensity: f32,
-  innerOpacity: f32,
-  _pad0: f32,
-  _pad1: f32,
-};
+${CompositeUniforms.wgsl}
 
 @group(0) @binding(0) var<uniform> u: CompositeUniforms;
 @group(0) @binding(1) var colorTex: texture_2d<f32>;
@@ -127,6 +133,10 @@ export class HighlightPass extends RenderPass {
   private compositeUniformBuffer: GPUBuffer | null = null;
   private maskUniformBuffer: GPUBuffer | null = null;
   private sampler: GPUSampler | null = null;
+  private _blurView: StructView | null = null;
+  private _blurBuf: Float32Array | null = null;
+  private _compositeView: StructView | null = null;
+  private _compositeBuf: Float32Array | null = null;
 
   private maskTexture: GPUTexture | null = null;
   private maskView: GPUTextureView | null = null;
@@ -153,6 +163,10 @@ export class HighlightPass extends RenderPass {
     this.blurUniformBuffer = createUniformBuffer(this.device, 32);
     this.compositeUniformBuffer = createUniformBuffer(this.device, 16);
     this.maskUniformBuffer = createUniformBuffer(this.device, 16);
+    this._blurBuf = new Float32Array(BlurUniforms.floatCount);
+    this._blurView = BlurUniforms.view(this._blurBuf);
+    this._compositeBuf = new Float32Array(CompositeUniforms.floatCount);
+    this._compositeView = CompositeUniforms.view(this._compositeBuf);
 
     const vsModule = this.device.createShaderModule({ code: FULLSCREEN_VS });
     const blurFsModule = this.device.createShaderModule({ code: HIGHLIGHT_BLUR_FS });
@@ -224,22 +238,25 @@ fn mask_vs(@location(0) position: vec3<f32>) -> MaskVertexOutput {
   }
 
   private writeBlurUniforms(dirX: number, dirY: number): void {
-    const data = new Float32Array(8);
-    data[0] = this.width > 0 ? 1.0 / this.width : 0.0;
-    data[1] = this.height > 0 ? 1.0 / this.height : 0.0;
-    data[2] = dirX;
-    data[3] = dirY;
-    data[4] = this.settings.blurRadius;
-    data[5] = 0; data[6] = 0; data[7] = 0;
-    this.device.queue.writeBuffer(this.blurUniformBuffer!, 0, data as unknown as BufferSource);
+    const view = this._blurView!;
+    view.set("texelSizeX", this.width > 0 ? 1.0 / this.width : 0.0);
+    view.set("texelSizeY", this.height > 0 ? 1.0 / this.height : 0.0);
+    view.set("directionX", dirX);
+    view.set("directionY", dirY);
+    view.set("blurRadius", this.settings.blurRadius);
+    view.set("_pad0", 0);
+    view.set("_pad1", 0);
+    view.set("_pad2", 0);
+    this.device.queue.writeBuffer(this.blurUniformBuffer!, 0, this._blurBuf as unknown as BufferSource);
   }
 
   private writeCompositeUniforms(): void {
-    const data = new Float32Array(4);
-    data[0] = this.settings.intensity;
-    data[1] = this.settings.innerOpacity;
-    data[2] = 0; data[3] = 0;
-    this.device.queue.writeBuffer(this.compositeUniformBuffer!, 0, data as unknown as BufferSource);
+    const view = this._compositeView!;
+    view.set("intensity", this.settings.intensity);
+    view.set("innerOpacity", this.settings.innerOpacity);
+    view.set("_pad0", 0);
+    view.set("_pad1", 0);
+    this.device.queue.writeBuffer(this.compositeUniformBuffer!, 0, this._compositeBuf as unknown as BufferSource);
   }
 
   setup(builder: FrameGraphBuilder): void {
@@ -374,5 +391,9 @@ fn mask_vs(@location(0) position: vec3<f32>) -> MaskVertexOutput {
     this.maskTexture?.destroy();
     this.blurTempTexture?.destroy();
     this.blurTempTexture2?.destroy();
+    this._blurView = null;
+    this._blurBuf = null;
+    this._compositeView = null;
+    this._compositeBuf = null;
   }
 }

@@ -1,3 +1,6 @@
+import type { WgslStruct } from "@downdraft/shader-graph";
+import { f32, u32, vec3f, wgsl } from "@downdraft/shader-graph";
+
 export interface AtmosphereConfig {
   planetRadius: number;
   atmosphereRadius: number;
@@ -93,17 +96,19 @@ export function computeSkyColor(
   ];
 }
 
-export const ATMOSPHERE_SHADER_CHUNK = /* wgsl */ `
-struct AtmosphereUniforms {
+const AtmosphereUniforms: WgslStruct = wgsl.struct("AtmosphereUniforms", {
   planetRadius: f32,
   atmosphereRadius: f32,
   sunIntensity: f32,
   mieG: f32,
-  rayleighCoeffs: vec3<f32>,
+  rayleighCoeffs: vec3f,
   mieCoefficient: f32,
-  sunDirection: vec3<f32>,
+  sunDirection: vec3f,
   samples: u32,
-};
+});
+
+export const ATMOSPHERE_SHADER_CHUNK = /* wgsl */ `
+${AtmosphereUniforms.wgsl}
 
 fn atmosphereDensity(altitude: f32, planetRadius: f32, atmosphereRadius: f32) -> f32 {
   let height = altitude - planetRadius;

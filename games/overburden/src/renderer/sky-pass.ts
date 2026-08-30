@@ -8,16 +8,21 @@
 // ============================================================================
 
 import { DEPTH_FORMAT } from "@downdraft/core";
+import type { StructView, WgslStruct } from "@downdraft/shader-graph";
+import { vec2f, vec4f, wgsl } from "@downdraft/shader-graph";
 
-const SKY_WGSL = /* wgsl */ `
-struct SkyUniforms {
-  // Gradient colors (linear RGB, 0-1)
-  topColor: vec4f,     // zenith color
-  bottomColor: vec4f,  // horizon color
-  // Screen dimensions
+// ─── Uniform struct (single source of truth for layout) ────────────────────
+const SkyUniformsStruct: WgslStruct = wgsl.struct("SkyUniforms", {
+  topColor: vec4f,
+  bottomColor: vec4f,
   screenSize: vec2f,
   _pad: vec2f,
-};
+});
+
+const UNIFORM_SIZE = SkyUniformsStruct.size;
+
+const SKY_WGSL = /* wgsl */ `
+${SkyUniformsStruct.wgsl}
 
 @group(0) @binding(0) var<uniform> u: SkyUniforms;
 
@@ -41,8 +46,6 @@ fn fs_main(@builtin(position) fragCoord: vec4f) -> @location(0) vec4f {
 }
 `;
 
-const UNIFORM_SIZE = 48; // 2 vec4s + 1 vec4 (screenSize + pad)
-
 
 export class SkyPass {
   private device: GPUDevice;
@@ -52,7 +55,8 @@ export class SkyPass {
   private bindGroup: GPUBindGroup | null = null;
   private uniformBuffer: GPUBuffer | null = null;
   // Preallocated uniform array (avoid per-frame allocation)
-  private _uniform: Float32Array<ArrayBuffer> = new Float32Array(12);
+  private _uniformBuf: Float32Array<ArrayBuffer> | null = null;
+  private _uniformView: StructView | null = null;
 
   constructor(device: GPUDevice, format: GPUTextureFormat, depthFormat: GPUTextureFormat = DEPTH_FORMAT) {
     this.device = device;
@@ -65,6 +69,8 @@ export class SkyPass {
       size: UNIFORM_SIZE,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+    this._uniformBuf = new Float32Array(SkyUniformsStruct.floatCount);
+    this._uniformView = SkyUniformsStruct.view(this._uniformBuf);
 
     const shader = this.device.createShaderModule({ code: SKY_WGSL });
 
@@ -147,20 +153,12 @@ export class SkyPass {
       botB = dayBottom[2];
     }
 
-    const data = this._uniform;
-    data[0] = topR;
-    data[1] = topG;
-    data[2] = topB;
-    data[3] = 1.0;
-    data[4] = botR;
-    data[5] = botG;
-    data[6] = botB;
-    data[7] = 1.0;
-    data[8] = canvasW;
-    data[9] = canvasH;
-    data[10] = 0;
-    data[11] = 0;
-    this.device.queue.writeBuffer(this.uniformBuffer, 0, data);
+    const view = this._uniformView!;
+    view.set("topColor", [topR, topG, topB, 1.0]);
+    view.set("bottomColor", [botR, botG, botB, 1.0]);
+    view.set("screenSize", [canvasW, canvasH]);
+    view.set("_pad", [0, 0]);
+    this.device.queue.writeBuffer(this.uniformBuffer, 0, this._uniformBuf!);
   }
 
   render(pass: GPURenderPassEncoder): void {
@@ -172,5 +170,7 @@ export class SkyPass {
 
   destroy(): void {
     this.uniformBuffer?.destroy();
+    this._uniformBuf = null;
+    this._uniformView = null;
   }
 }

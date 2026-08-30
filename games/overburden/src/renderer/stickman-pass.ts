@@ -9,21 +9,22 @@
 // ============================================================================
 
 import { DEPTH_FORMAT } from "@downdraft/core";
+import type { StructView, WgslStruct } from "@downdraft/shader-graph";
+import { mat4x4f, vec4f, wgsl } from "@downdraft/shader-graph";
 
 import { type Mat4 } from "./matrix";
 
-// Uniform layout (must match the WGSL below):
-//   viewProj: mat4x4           -> 64 bytes
-//   color:    vec4             -> 16 bytes
-// Total = 80 bytes = 20 float32s.
-const UNIFORM_SIZE = 80;
-const UNIFORM_FLOATS = 20;
+// ─── Uniform struct (single source of truth for layout) ────────────────────
+const BoxUniformsStruct: WgslStruct = wgsl.struct("BoxUniforms", {
+  viewProj: mat4x4f,
+  color: vec4f,
+});
+
+const UNIFORM_SIZE = BoxUniformsStruct.size;
+const UNIFORM_FLOATS = BoxUniformsStruct.floatCount;
 
 const BOX_WGSL = /* wgsl */ `
-struct BoxUniforms {
-  viewProj: mat4x4<f32>,
-  color: vec4<f32>,
-};
+${BoxUniformsStruct.wgsl}
 
 @group(0) @binding(0) var<uniform> u: BoxUniforms;
 
@@ -92,7 +93,8 @@ export class StickmanPass {
   private uniformBuffer: GPUBuffer | null = null;
   private vertexBuffer: GPUBuffer | null = null;
   // Preallocated uniform + vertex arrays (avoid per-frame allocation)
-  private _uniform: Float32Array<ArrayBuffer> = new Float32Array(UNIFORM_FLOATS);
+  private _uniformBuf: Float32Array<ArrayBuffer> | null = null;
+  private _uniformView: StructView | null = null;
   private _verts: Float32Array<ArrayBuffer> = new Float32Array(36 * 3);
 
   constructor(device: GPUDevice, format: GPUTextureFormat, depthFormat: GPUTextureFormat = DEPTH_FORMAT) {
@@ -106,6 +108,8 @@ export class StickmanPass {
       size: UNIFORM_SIZE,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+    this._uniformBuf = new Float32Array(UNIFORM_FLOATS);
+    this._uniformView = BoxUniformsStruct.view(this._uniformBuf);
 
     // 36 vertices (12 triangles), each vec3 = 12 bytes
     this.vertexBuffer = this.device.createBuffer({
@@ -235,15 +239,12 @@ export class StickmanPass {
       b = 0.0;
     }
 
-    const data = this._uniform;
+    const view = this._uniformView!;
     // viewProj (column-major, 16 floats)
-    for (let i = 0; i < 16; i++) data[i] = viewProj[i];
+    view.set("viewProj", viewProj as Float32Array);
     // color (vec4)
-    data[16] = r;
-    data[17] = g;
-    data[18] = b;
-    data[19] = 1.0; // alpha
-    this.device.queue.writeBuffer(this.uniformBuffer, 0, data);
+    view.set("color", [r, g, b, 1.0]);
+    this.device.queue.writeBuffer(this.uniformBuffer, 0, this._uniformBuf!);
   }
 
   render(pass: GPURenderPassEncoder): void {
@@ -257,5 +258,7 @@ export class StickmanPass {
   destroy(): void {
     this.uniformBuffer?.destroy();
     this.vertexBuffer?.destroy();
+    this._uniformBuf = null;
+    this._uniformView = null;
   }
 }

@@ -19,29 +19,36 @@
 // ============================================================================
 
 import { DEPTH_FORMAT } from "@downdraft/core";
+import type { StructView, WgslStruct } from "@downdraft/shader-graph";
+import { f32, mat4x4f, wgsl } from "@downdraft/shader-graph";
 
 import { CROP_LOOKUP, getCropByBlock, getWildCropByBlock } from "../shared/crops";
 import { type Mat4 } from "./matrix";
 
-const CROP_WGSL = `
-struct Uniforms {
-  viewProj : mat4x4f,
-  canvasW : f32,
-  canvasH : f32,
-  cropCount : f32,
-  _pad : f32,
-};
+// ─── Uniform/storage structs (single source of truth for layout) ───────────
+const UniformsStruct: WgslStruct = wgsl.struct("Uniforms", {
+  viewProj: mat4x4f,
+  canvasW: f32,
+  canvasH: f32,
+  cropCount: f32,
+  _pad: f32,
+});
 
-struct CropInstance {
-  x : f32,
-  y : f32,
-  size : f32,
-  r : f32,
-  g : f32,
-  b : f32,
-  _pad1 : f32,
-  _pad2 : f32,
-};
+const CropInstanceStruct: WgslStruct = wgsl.struct("CropInstance", {
+  x: f32,
+  y: f32,
+  size: f32,
+  r: f32,
+  g: f32,
+  b: f32,
+  _pad1: f32,
+  _pad2: f32,
+});
+
+const CROP_WGSL = `
+${UniformsStruct.wgsl}
+
+${CropInstanceStruct.wgsl}
 
 @group(0) @binding(0) var<uniform> uniforms : Uniforms;
 @group(0) @binding(1) var<storage, read> crops : array<CropInstance>;
@@ -128,7 +135,8 @@ export class CropSpritePass {
   private exploredView: GPUTextureView | null = null;
   private cropCount = 0;
   // Preallocated uniform + instance arrays (avoid per-frame allocation)
-  private _uniform: Float32Array<ArrayBuffer> = new Float32Array(20);
+  private _uniformBuf: Float32Array<ArrayBuffer> | null = null;
+  private _uniformView: StructView | null = null;
   private _instanceData: Float32Array<ArrayBuffer> = new Float32Array(MAX_CROP_INSTANCES * CROP_INSTANCE_STRIDE);
 
   constructor(device: GPUDevice, format: GPUTextureFormat) {
@@ -173,6 +181,8 @@ export class CropSpritePass {
       size: 80,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+    this._uniformBuf = new Float32Array(UniformsStruct.floatCount);
+    this._uniformView = UniformsStruct.view(this._uniformBuf);
 
     // Instance storage buffer
     this.instanceBuffer = this.device.createBuffer({
@@ -258,15 +268,16 @@ export class CropSpritePass {
         }
 
         const off = count * CROP_INSTANCE_STRIDE;
+        const view = CropInstanceStruct.view(data.subarray(off, off + CROP_INSTANCE_STRIDE));
         // Center the quad on the cell (x + 0.5, y + 0.5)
-        data[off + 0] = x + 0.5;
-        data[off + 1] = y + 0.5;
-        data[off + 2] = size;
-        data[off + 3] = color[0] / 255;
-        data[off + 4] = color[1] / 255;
-        data[off + 5] = color[2] / 255;
-        data[off + 6] = 0;
-        data[off + 7] = 0;
+        view.set("x", x + 0.5);
+        view.set("y", y + 0.5);
+        view.set("size", size);
+        view.set("r", color[0] / 255);
+        view.set("g", color[1] / 255);
+        view.set("b", color[2] / 255);
+        view.set("_pad1", 0);
+        view.set("_pad2", 0);
         count++;
       }
     }
@@ -293,13 +304,13 @@ export class CropSpritePass {
     canvasH: number,
   ): void {
     if (!this.uniformBuffer) return;
-    const u = this._uniform; // 16 (mat4) + 4
-    u.set(viewProj, 0);
-    u[16] = canvasW;
-    u[17] = canvasH;
-    u[18] = this.cropCount;
-    u[19] = 0;
-    this.device.queue.writeBuffer(this.uniformBuffer, 0, u);
+    const view = this._uniformView!;
+    view.set("viewProj", viewProj as Float32Array);
+    view.set("canvasW", canvasW);
+    view.set("canvasH", canvasH);
+    view.set("cropCount", this.cropCount);
+    view.set("_pad", 0);
+    this.device.queue.writeBuffer(this.uniformBuffer, 0, this._uniformBuf!);
   }
 
   render(pass: GPURenderPassEncoder): void {
@@ -312,5 +323,7 @@ export class CropSpritePass {
   destroy(): void {
     this.uniformBuffer?.destroy();
     this.instanceBuffer?.destroy();
+    this._uniformBuf = null;
+    this._uniformView = null;
   }
 }

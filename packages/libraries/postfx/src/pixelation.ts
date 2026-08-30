@@ -7,7 +7,16 @@
 // ============================================================================
 
 import { DEPTH_FORMAT } from "@downdraft/core";
+import type { StructView } from "@downdraft/shader-graph";
+import { wgsl } from "@downdraft/shader-graph";
 import PIXELATION_WGSL from "./shaders/pixelation.wgsl?raw";
+
+// --- Typed uniform struct (validate against pixelation.wgsl) ---
+export const PostProcessUniformsStruct = wgsl.struct("PostProcessUniforms", {
+  texelSize: wgsl.vec2f,
+  depthEdgeStrength: wgsl.f32,
+  normalEdgeStrength: wgsl.f32,
+});
 
 export interface PixelationViewportRect {
   x: number;
@@ -36,6 +45,8 @@ export class PixelationSystem {
   private depthEdgeStrength = 0.4;
   private normalEdgeStrength = 0.3;
   private enabled = false;
+  private _uniformView: StructView | null = null;
+  private _uniformBuf: Float32Array | null = null;
 
   constructor(device: GPUDevice, format: GPUTextureFormat) {
     this.device = device;
@@ -56,6 +67,8 @@ export class PixelationSystem {
       size: 16,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+    this._uniformBuf = new Float32Array(PostProcessUniformsStruct.floatCount);
+    this._uniformView = PostProcessUniformsStruct.view(this._uniformBuf);
 
     this.bindGroupLayout = this.device.createBindGroupLayout({
       entries: [
@@ -168,12 +181,11 @@ export class PixelationSystem {
     canvasWidth: number,
     canvasHeight: number,
   ): void {
-    const uniforms = new Float32Array(4);
-    uniforms[0] = 1.0 / this.lowResWidth;
-    uniforms[1] = 1.0 / this.lowResHeight;
-    uniforms[2] = this.depthEdgeStrength;
-    uniforms[3] = this.normalEdgeStrength;
-    this.device.queue.writeBuffer(this.uniformBuffer!, 0, uniforms);
+    const v = this._uniformView!;
+    v.set("texelSize", [1.0 / this.lowResWidth, 1.0 / this.lowResHeight]);
+    v.set("depthEdgeStrength", this.depthEdgeStrength);
+    v.set("normalEdgeStrength", this.normalEdgeStrength);
+    this.device.queue.writeBuffer(this.uniformBuffer!, 0, this._uniformBuf! as unknown as GPUAllowSharedBufferSource);
 
     const passEncoder = encoder.beginRenderPass({
       colorAttachments: [
@@ -209,5 +221,7 @@ export class PixelationSystem {
     // GPUBindGroup and GPUBindGroupLayout have no destroy() — just null them.
     this.bindGroup = null;
     this.bindGroupLayout = null;
+    this._uniformView = null;
+    this._uniformBuf = null;
   }
 }

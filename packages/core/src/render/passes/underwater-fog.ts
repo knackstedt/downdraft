@@ -1,13 +1,18 @@
+import type { StructView, WgslStruct } from "@downdraft/shader-graph";
+import { f32, wgsl } from "@downdraft/shader-graph";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
 import { RenderPass } from "../render-pass";
 
-const UNDERWATER_FOG_SHADER = /* wgsl */ `
-struct Uniforms {
+// ─── Uniform structs (single source of truth for layout) ───────────────────
+const Uniforms: WgslStruct = wgsl.struct("Uniforms", {
   depth: f32,
   time: f32,
   _pad0: f32,
   _pad1: f32,
-};
+});
+
+const UNDERWATER_FOG_SHADER = /* wgsl */ `
+${Uniforms.wgsl}
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 
@@ -90,6 +95,8 @@ export class UnderwaterFogPass extends RenderPass {
   private msaaSampleCount: number = 1;
   private depth: number = 0;
   private time: number = 0;
+  private _uniformView: StructView | null = null;
+  private _uniformBuf: Float32Array | null = null;
 
   constructor(device: GPUDevice, surfaceFormat: GPUTextureFormat, msaaSampleCount = 1) {
     super();
@@ -107,6 +114,8 @@ export class UnderwaterFogPass extends RenderPass {
       size: 32,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+    this._uniformBuf = new Float32Array(Uniforms.floatCount);
+    this._uniformView = Uniforms.view(this._uniformBuf);
 
     this.pipeline = this.device.createRenderPipeline({
       layout: "auto",
@@ -144,10 +153,10 @@ export class UnderwaterFogPass extends RenderPass {
     this.depth = depth;
     this.time = time;
     if (!this.uniformBuffer) return;
-    const data = new Float32Array(4);
-    data[0] = depth;
-    data[1] = time;
-    this.device.queue.writeBuffer(this.uniformBuffer, 0, data);
+    const view = this._uniformView!;
+    view.set("depth", depth);
+    view.set("time", time);
+    this.device.queue.writeBuffer(this.uniformBuffer, 0, this._uniformBuf! as unknown as BufferSource);
   }
 
   setup(builder: FrameGraphBuilder): void {
@@ -169,5 +178,7 @@ export class UnderwaterFogPass extends RenderPass {
     this.pipeline = null;
     this.shaderModule = null;
     this.bindGroup = null;
+    this._uniformView = null;
+    this._uniformBuf = null;
   }
 }

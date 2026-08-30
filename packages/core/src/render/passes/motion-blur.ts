@@ -1,5 +1,14 @@
+import type { StructView, WgslStruct } from "@downdraft/shader-graph";
+import { f32, wgsl } from "@downdraft/shader-graph";
 import { PassType, type FrameGraphBuilder, type GraphRenderContext, type TextureHandle } from "../frame-graph";
 import { RenderPass } from "../render-pass";
+
+const MotionBlurUniforms: WgslStruct = wgsl.struct("MotionBlurUniforms", {
+  intensity: f32,
+  maxSamples: f32,
+  _pad0: f32,
+  _pad1: f32,
+});
 
 const FULLSCREEN_VS = /* wgsl */ `
 struct VertexOutput {
@@ -19,12 +28,7 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VertexOutput {
 `;
 
 const MOTION_BLUR_FS = /* wgsl */ `
-struct MotionBlurUniforms {
-  intensity: f32,
-  maxSamples: f32,
-  _pad0: f32,
-  _pad1: f32,
-};
+${MotionBlurUniforms.wgsl}
 
 @group(0) @binding(0) var<uniform> u: MotionBlurUniforms;
 @group(0) @binding(1) var colorTex: texture_2d<f32>;
@@ -85,6 +89,8 @@ export class MotionBlurPass extends RenderPass {
   private pipeline: GPURenderPipeline | null = null;
   private uniformBuffer: GPUBuffer | null = null;
   private sampler: GPUSampler | null = null;
+  private _uniformView: StructView | null = null;
+  private _uniformBuf: Float32Array | null = null;
 
 
   constructor(device: GPUDevice, settings: Partial<MotionBlurSettings> = {}) {
@@ -105,6 +111,8 @@ export class MotionBlurPass extends RenderPass {
       size: 16,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+    this._uniformBuf = new Float32Array(MotionBlurUniforms.floatCount);
+    this._uniformView = MotionBlurUniforms.view(this._uniformBuf);
 
     this.pipeline = this.device.createRenderPipeline({
       layout: "auto",
@@ -136,8 +144,12 @@ export class MotionBlurPass extends RenderPass {
     const depthView = this.depthHandle ? ctx.getView(this.depthHandle) : colorView;
     const outputView = ctx.getView(this.outputHandle);
 
-    const uniformData = new Float32Array([this.settings.intensity, this.settings.maxSamples, 0, 0]);
-    this.device.queue.writeBuffer(this.uniformBuffer!, 0, uniformData as unknown as BufferSource);
+    const view = this._uniformView!;
+    view.set("intensity", this.settings.intensity);
+    view.set("maxSamples", this.settings.maxSamples);
+    view.set("_pad0", 0.0);
+    view.set("_pad1", 0.0);
+    this.device.queue.writeBuffer(this.uniformBuffer!, 0, this._uniformBuf as unknown as BufferSource);
 
     const bindGroup = this.device.createBindGroup({
       layout: this.pipeline.getBindGroupLayout(0),
@@ -168,5 +180,7 @@ export class MotionBlurPass extends RenderPass {
 
   destroy(): void {
     this.uniformBuffer?.destroy();
+    this._uniformView = null;
+    this._uniformBuf = null;
   }
 }

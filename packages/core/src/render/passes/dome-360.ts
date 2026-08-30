@@ -1,15 +1,19 @@
+import type { WgslStruct } from "@downdraft/shader-graph";
+import { f32, mat4x4f, vec3f, wgsl } from "@downdraft/shader-graph";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
 import { RenderPass } from "../render-pass";
 
-const DOME_360_SHADER = /* wgsl */ `
-struct DomeUniforms {
-  viewProj: mat4x4<f32>,
-  cameraPos: vec3<f32>,
+const DomeUniforms: WgslStruct = wgsl.struct("DomeUniforms", {
+  viewProj: mat4x4f,
+  cameraPos: vec3f,
   fov: f32,
   aspect: f32,
   _pad0: f32,
   _pad1: f32,
-};
+});
+
+const DOME_360_SHADER = /* wgsl */ `
+${DomeUniforms.wgsl}
 
 @group(0) @binding(0) var<uniform> u: DomeUniforms;
 @group(0) @binding(1) var equirectTex: texture_2d<f32>;

@@ -1,3 +1,6 @@
+import type { WgslStruct } from "@downdraft/shader-graph";
+import { f32, mat4x4f, vec3f, wgsl } from "@downdraft/shader-graph";
+
 export interface GaussianSplat {
   id: string;
   position: Float32Array;  // x, y, z per splat
@@ -157,16 +160,18 @@ export function packSplatToVertexBuffer(splat: GaussianSplat): Float32Array {
   return buf;
 }
 
-export const GAUSSIAN_SPLAT_SHADER = /* wgsl */ `
-struct SplatUniforms {
-  viewProj: mat4x4<f32>,
-  cameraPos: vec3<f32>,
+const SplatUniforms: WgslStruct = wgsl.struct("SplatUniforms", {
+  viewProj: mat4x4f,
+  cameraPos: vec3f,
   splatSize: f32,
   _pad0: f32,
   _pad1: f32,
   _pad2: f32,
   _pad3: f32,
-};
+});
+
+export const GAUSSIAN_SPLAT_SHADER = /* wgsl */ `
+${SplatUniforms.wgsl}
 
 struct SplatVertex {
   @location(0) position: vec3<f32>,

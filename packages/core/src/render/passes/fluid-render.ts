@@ -1,6 +1,24 @@
+import type { WgslStruct } from "@downdraft/shader-graph";
+import { f32, u32, wgsl } from "@downdraft/shader-graph";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
 import { PassType } from "../frame-graph";
 import { RenderPass } from "../render-pass";
+
+const FluidUniforms: WgslStruct = wgsl.struct("FluidUniforms", {
+  gridSize: u32,
+  dt: f32,
+  viscosity: f32,
+  diffusion: f32,
+  _pad0: u32,
+  _pad1: u32,
+});
+
+const RenderUniforms: WgslStruct = wgsl.struct("RenderUniforms", {
+  gridSize: f32,
+  _pad0: f32,
+  _pad1: f32,
+  _pad2: f32,
+});
 
 export interface FluidConfig {
   gridResolution: number;
@@ -21,14 +39,7 @@ export const DEFAULT_FLUID_CONFIG: FluidConfig = {
 };
 
 const FLUID_ADVECT_SHADER = /* wgsl */ `
-struct FluidUniforms {
-  gridSize: u32,
-  dt: f32,
-  viscosity: f32,
-  diffusion: f32,
-  _pad0: u32,
-  _pad1: u32,
-};
+${FluidUniforms.wgsl}
 
 @group(0) @binding(0) var<uniform> u: FluidUniforms;
 @group(0) @binding(1) var velocityTex: texture_2d<f32>;
@@ -57,12 +68,7 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
 `;
 
 const FLUID_RENDER_SHADER = /* wgsl */ `
-struct RenderUniforms {
-  gridSize: f32,
-  _pad0: f32,
-  _pad1: f32,
-  _pad2: f32,
-};
+${RenderUniforms.wgsl}
 
 @group(0) @binding(0) var<uniform> u: RenderUniforms;
 @group(0) @binding(1) var densityTex: texture_2d<f32>;

@@ -14,6 +14,7 @@
     "@downdraft/library-stickman": "workspace:*",
     "@downdraft/library-persistence": "workspace:*",
     "@downdraft/plugin-devtools": "workspace:*",
+    "@downdraft/shader-graph": "workspace:*",
     "@downdraft/library-models": "workspace:*",
     "@downdraft/ui": "workspace:*",
     "react": "^19.2.8",

@@ -1,4 +1,4 @@
-export { PixelationSystem } from "./pixelation";
+export { PixelationSystem, PostProcessUniformsStruct } from "./pixelation";
 export type { PixelationViewportRect } from "./pixelation";
 
 // Declarative library descriptor

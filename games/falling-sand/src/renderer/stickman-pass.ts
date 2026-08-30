@@ -9,14 +9,19 @@ import {
     STICKMAN_WGSL,
     type ThickLineGeometry,
 } from "@downdraft/library-stickman";
+import type { StructView, WgslStruct } from "@downdraft/shader-graph";
+import { f32, vec2f, vec3f, vec4f, wgsl } from "@downdraft/shader-graph";
 
-// Uniform layout (must match StickmanUniforms in STICKMAN_WGSL):
-//   transform: vec4  (scaleX, scaleY, offsetX, offsetY)
-//   screenSize: vec2 + lineWidth: f32 + pad: f32   -> 16 bytes
-//   color: vec3 + pad: f32                          -> 16 bytes
-// Total = 48 bytes = 12 float32s.
-const UNIFORM_SIZE = 48;
-const UNIFORM_FLOATS = 12;
+// ─── Uniform struct (must match StickmanUniforms in STICKMAN_WGSL) ──────────
+const StickmanUniformsStruct: WgslStruct = wgsl.struct("StickmanUniforms", {
+  transform: vec4f,
+  screenSize: vec2f,
+  lineWidth: f32,
+  color: vec3f,
+});
+
+const UNIFORM_SIZE = StickmanUniformsStruct.size;
+const UNIFORM_FLOATS = StickmanUniformsStruct.floatCount;
 
 export class StickmanPass {
   private device: GPUDevice;
@@ -31,6 +36,10 @@ export class StickmanPass {
   private dummyLightView: GPUTextureView | null = null;
   gridW: number;
   gridH: number;
+
+  // Preallocated uniform buffer (avoid per-frame allocation)
+  private _uniformBuf: Float32Array<ArrayBuffer> | null = null;
+  private _uniformView: StructView | null = null;
 
   // Reused each frame to avoid allocation.
   private skeleton: Float32Array;
@@ -50,6 +59,8 @@ export class StickmanPass {
       size: UNIFORM_SIZE,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+    this._uniformBuf = new Float32Array(UNIFORM_FLOATS);
+    this._uniformView = StickmanUniformsStruct.view(this._uniformBuf);
 
     // 1x1 dummy white textures for the light + volumetric bindings.
     // falling-sand has no light-accum pass, so lighting is identity (white).
@@ -160,20 +171,12 @@ export class StickmanPass {
       b = 0.0;
     }
 
-    const data = new Float32Array(UNIFORM_FLOATS);
-    data[0] = scaleX;
-    data[1] = scaleY;
-    data[2] = offsetX;
-    data[3] = offsetY;
-    data[4] = this.gridW;
-    data[5] = this.gridH;
-    data[6] = DEFAULT_LINE_WIDTH;
-    data[7] = 0; // pad
-    data[8] = r;
-    data[9] = g;
-    data[10] = b;
-    data[11] = 0; // pad
-    this.device.queue.writeBuffer(this.uniformBuffer, 0, data);
+    const view = this._uniformView!;
+    view.set("transform", [scaleX, scaleY, offsetX, offsetY]);
+    view.set("screenSize", [this.gridW, this.gridH]);
+    view.set("lineWidth", DEFAULT_LINE_WIDTH);
+    view.set("color", [r, g, b]);
+    this.device.queue.writeBuffer(this.uniformBuffer, 0, this._uniformBuf!);
   }
 
   render(pass: GPURenderPassEncoder): void {
@@ -190,5 +193,7 @@ export class StickmanPass {
     this.vertexBuffer?.destroy();
     this.indexBuffer?.destroy();
     this.dummyLight?.destroy();
+    this._uniformBuf = null;
+    this._uniformView = null;
   }
 }

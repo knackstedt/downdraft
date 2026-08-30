@@ -1,3 +1,5 @@
+import type { StructView, WgslStruct } from "@downdraft/shader-graph";
+import { f32, mat4x4f, u32, vec3f, vec3u, vec4f, wgsl } from "@downdraft/shader-graph";
 import { type Mat4 } from "wgpu-matrix";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
 import type { GBufferViews } from "../g-buffer";
@@ -7,28 +9,42 @@ import { packLightUniform } from "../lighting";
 import type { ClusterGrid } from "../lighting/cluster-grid";
 import { RenderPass } from "../render-pass";
 
-const IBL_CHUNK = createIBLShaderChunk(1, true);
-
-const CLUSTER_LIGHTING_SHADER = /* wgsl */ `
-${IBL_CHUNK}
-
-struct CameraUniforms {
-  viewProj: mat4x4<f32>,
-  prevViewProj: mat4x4<f32>,
-  invViewProj: mat4x4<f32>,
-  cameraPos: vec3<f32>,
+const CameraUniforms: WgslStruct = wgsl.struct("CameraUniforms", {
+  viewProj: mat4x4f,
+  prevViewProj: mat4x4f,
+  invViewProj: mat4x4f,
+  cameraPos: vec3f,
   _pad0: f32,
-};
+});
 
-struct ClusterUniforms {
-  clusterDims: vec3<u32>,
+const ClusterUniforms: WgslStruct = wgsl.struct("ClusterUniforms", {
+  clusterDims: vec3u,
   screenWidth: f32,
   screenHeight: f32,
   nearPlane: f32,
   farPlane: f32,
   numLights: u32,
   _pad: u32,
-};
+});
+
+const LightUniforms: WgslStruct = wgsl.struct("LightUniforms", {
+  dirDirection: vec4f,
+  dirColor: vec4f,
+  hemiDirIntensity: vec4f,
+  hemiSkyColor: vec4f,
+  hemiGroundColor: vec4f,
+  ambient: vec4f,
+  lightCount: vec4f,
+});
+
+const IBL_CHUNK = createIBLShaderChunk(1, true);
+
+const CLUSTER_LIGHTING_SHADER = /* wgsl */ `
+${IBL_CHUNK}
+
+${CameraUniforms.wgsl}
+
+${ClusterUniforms.wgsl}
 
 struct LightData {
   position: vec4<f32>,
@@ -42,15 +58,7 @@ struct ClusterEntry {
   count: u32,
 };
 
-struct LightUniforms {
-  dirDirection: vec4<f32>,
-  dirColor: vec4<f32>,
-  hemiDirIntensity: vec4<f32>,
-  hemiSkyColor: vec4<f32>,
-  hemiGroundColor: vec4<f32>,
-  ambient: vec4<f32>,
-  lightCount: vec4<f32>,
-};
+${LightUniforms.wgsl}
 
 @group(0) @binding(0) var<uniform> camera: CameraUniforms;
 @group(0) @binding(1) var albedoTex: texture_2d<f32>;
@@ -266,6 +274,8 @@ export class ClusterLightingPass extends RenderPass {
   private cameraBuffer: GPUBuffer | null = null;
   private lightBuffer: GPUBuffer | null = null;
   private lightViewProjBuffer: GPUBuffer | null = null;
+  private _cameraView: StructView | null = null;
+  private _cameraBuf: Float32Array | null = null;
   private bindGroup: GPUBindGroup | null = null;
   private clusterBindGroup: GPUBindGroup | null = null;
   private iblBindGroup: GPUBindGroup | null = null;
@@ -293,6 +303,8 @@ export class ClusterLightingPass extends RenderPass {
       size: 208,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+    this._cameraBuf = new Float32Array(CameraUniforms.floatCount);
+    this._cameraView = CameraUniforms.view(this._cameraBuf);
 
     this.lightBuffer = this.device.createBuffer({
       size: 128,
@@ -320,14 +332,13 @@ export class ClusterLightingPass extends RenderPass {
     invViewProj: Mat4,
     cameraPos: [number, number, number],
   ): void {
-    const data = new Float32Array(52);
-    data.set(viewProj as Float32Array, 0);
-    data.set(prevViewProj as Float32Array, 16);
-    data.set(invViewProj as Float32Array, 32);
-    data[48] = cameraPos[0];
-    data[49] = cameraPos[1];
-    data[50] = cameraPos[2];
-    this.device.queue.writeBuffer(this.cameraBuffer!, 0, data as unknown as BufferSource);
+    const view = this._cameraView!;
+    view.set("viewProj", viewProj as Float32Array);
+    view.set("prevViewProj", prevViewProj as Float32Array);
+    view.set("invViewProj", invViewProj as Float32Array);
+    view.set("cameraPos", cameraPos);
+    view.set("_pad0", 0.0);
+    this.device.queue.writeBuffer(this.cameraBuffer!, 0, this._cameraBuf as unknown as BufferSource);
   }
 
   updateLights(lightData: LightUniformData): void {
@@ -458,5 +469,7 @@ export class ClusterLightingPass extends RenderPass {
     this.lightBuffer?.destroy();
     this.lightViewProjBuffer?.destroy();
     this.dummyDepthTexture?.destroy();
+    this._cameraView = null;
+    this._cameraBuf = null;
   }
 }

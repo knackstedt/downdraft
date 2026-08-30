@@ -1,5 +1,20 @@
+import type { StructView, WgslStruct } from "@downdraft/shader-graph";
+import { f32, vec2f, vec3f, wgsl } from "@downdraft/shader-graph";
 import { PassType, type FrameGraphBuilder, type GraphRenderContext, type TextureHandle } from "../frame-graph";
 import { RenderPass } from "../render-pass";
+
+const LensFlareUniforms: WgslStruct = wgsl.struct("LensFlareUniforms", {
+  lightScreenPos: vec2f,
+  intensity: f32,
+  threshold: f32,
+  ghostCount: f32,
+  ghostSpacing: f32,
+  haloWidth: f32,
+  starSamples: f32,
+  _pad0: f32,
+  tint: vec3f,
+  _pad1: f32,
+});
 
 const FULLSCREEN_VS = /* wgsl */ `
 struct VertexOutput {
@@ -19,18 +34,7 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VertexOutput {
 `;
 
 const LENS_FLARE_FS = /* wgsl */ `
-struct LensFlareUniforms {
-  lightScreenPos: vec2<f32>,
-  intensity: f32,
-  threshold: f32,
-  ghostCount: f32,
-  ghostSpacing: f32,
-  haloWidth: f32,
-  starSamples: f32,
-  _pad0: f32,
-  tint: vec3<f32>,
-  _pad1: f32,
-};
+${LensFlareUniforms.wgsl}
 
 @group(0) @binding(0) var<uniform> u: LensFlareUniforms;
 @group(0) @binding(1) var colorTex: texture_2d<f32>;
@@ -131,6 +135,8 @@ export class LensFlarePass extends RenderPass {
   private pipeline: GPURenderPipeline | null = null;
   private uniformBuffer: GPUBuffer | null = null;
   private sampler: GPUSampler | null = null;
+  private _uniformView: StructView | null = null;
+  private _uniformBuf: Float32Array | null = null;
 
 
   constructor(device: GPUDevice, settings: Partial<LensFlareSettings> = {}) {
@@ -151,6 +157,8 @@ export class LensFlarePass extends RenderPass {
       size: 48,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+    this._uniformBuf = new Float32Array(LensFlareUniforms.floatCount);
+    this._uniformView = LensFlareUniforms.view(this._uniformBuf);
 
     const vsModule = this.device.createShaderModule({ code: FULLSCREEN_VS });
     const fsModule = this.device.createShaderModule({ code: LENS_FLARE_FS });
@@ -179,20 +187,18 @@ export class LensFlarePass extends RenderPass {
   }
 
   private writeUniforms(): void {
-    const data = new Float32Array(12);
-    data[0] = this.lightScreenPos[0];
-    data[1] = this.lightScreenPos[1];
-    data[2] = this.settings.intensity;
-    data[3] = this.settings.threshold;
-    data[4] = this.settings.ghostCount;
-    data[5] = this.settings.ghostSpacing;
-    data[6] = this.settings.haloWidth;
-    data[7] = this.settings.starSamples;
-    data[8] = this.settings.tint[0];
-    data[9] = this.settings.tint[1];
-    data[10] = this.settings.tint[2];
-    data[11] = 0.0;
-    this.device.queue.writeBuffer(this.uniformBuffer!, 0, data as unknown as BufferSource);
+    const view = this._uniformView!;
+    view.set("lightScreenPos", this.lightScreenPos);
+    view.set("intensity", this.settings.intensity);
+    view.set("threshold", this.settings.threshold);
+    view.set("ghostCount", this.settings.ghostCount);
+    view.set("ghostSpacing", this.settings.ghostSpacing);
+    view.set("haloWidth", this.settings.haloWidth);
+    view.set("starSamples", this.settings.starSamples);
+    view.set("_pad0", 0.0);
+    view.set("tint", this.settings.tint);
+    view.set("_pad1", 0.0);
+    this.device.queue.writeBuffer(this.uniformBuffer!, 0, this._uniformBuf as unknown as BufferSource);
   }
 
   setup(builder: FrameGraphBuilder): void {
@@ -239,5 +245,7 @@ export class LensFlarePass extends RenderPass {
 
   destroy(): void {
     this.uniformBuffer?.destroy();
+    this._uniformView = null;
+    this._uniformBuf = null;
   }
 }

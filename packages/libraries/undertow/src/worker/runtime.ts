@@ -298,8 +298,26 @@ export class WorkerRuntime {
         u32[valIdx + 2] = hi;
       }
     } else if (typeof v === "string") {
-      u32[kindIdx] = ArgKind.StringAtom;
-      u32[valIdx] = this.pool.intern(v);
+      const atom = this.pool.intern(v);
+      if (atom === 0) {
+        // String pool overflow (even after reset) — spill to payload heap.
+        // This handles strings too large for the pool, or the rare case where
+        // the pool can't be reset (e.g. concurrent interning from both sides).
+        const blob = encodePayload(v);
+        let off = 0;
+        try {
+          off = this.heap.writeBytes(blob);
+        } catch {
+          growDomSab(this.sab, this.sab.byteLength + blob.length + 4096);
+          off = this.heap.writeBytes(blob);
+        }
+        u32[kindIdx] = ArgKind.PayloadRef;
+        u32[valIdx] = off;
+        u32[valIdx + 2] = blob.length;
+      } else {
+        u32[kindIdx] = ArgKind.StringAtom;
+        u32[valIdx] = atom;
+      }
     } else {
       // Complex value — spill to payload, reference inline.
       const blob = encodePayload(v);

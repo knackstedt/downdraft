@@ -1,19 +1,33 @@
+import type { StructView, WgslStruct } from "@downdraft/shader-graph";
+import { f32, mat4x4f, u32, vec2f, vec3f, wgsl } from "@downdraft/shader-graph";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
 import { PassType } from "../frame-graph";
 import { RenderPass } from "../render-pass";
 import { DEFAULT_RSM_CONFIG, type RSMConfig, VPL_FLOATS, packVPLsToBuffer } from "./gi-types";
 
-const RSM_INJECT_SHADER = /* wgsl */ `
-struct RSMUniforms {
-  lightViewProj: mat4x4<f32>,
-  invLightViewProj: mat4x4<f32>,
+const RSMUniforms: WgslStruct = wgsl.struct("RSMUniforms", {
+  lightViewProj: mat4x4f,
+  invLightViewProj: mat4x4f,
   rsmResolution: u32,
   maxVPLs: u32,
   intensity: f32,
   rsmRadius: f32,
   _pad0: u32,
   _pad1: u32,
-};
+});
+
+const RSMEvalUniforms: WgslStruct = wgsl.struct("RSMEvalUniforms", {
+  cameraPos: vec3f,
+  numVPLs: u32,
+  viewProj: mat4x4f,
+  invViewProj: mat4x4f,
+  screenSize: vec2f,
+  _pad0: f32,
+  _pad1: f32,
+});
+
+const RSM_INJECT_SHADER = /* wgsl */ `
+${RSMUniforms.wgsl}
 
 struct VPL {
   position: vec4<f32>,
@@ -72,15 +86,7 @@ fn cs_main(@builtin(global_invocation_id) gid: u32) {
 `;
 
 const RSM_EVALUATE_SHADER = /* wgsl */ `
-struct RSMEvalUniforms {
-  cameraPos: vec3<f32>,
-  numVPLs: u32,
-  viewProj: mat4x4<f32>,
-  invViewProj: mat4x4<f32>,
-  screenSize: vec2<f32>,
-  _pad0: f32,
-  _pad1: f32,
-};
+${RSMEvalUniforms.wgsl}
 
 struct VPL {
   position: vec4<f32>,
@@ -147,6 +153,8 @@ export class RSMPass extends RenderPass {
   private injectBindGroup: GPUBindGroup | null = null;
   private vplBuffer: GPUBuffer | null = null;
   private rsmUniformBuffer: GPUBuffer | null = null;
+  private _uniformView: StructView | null = null;
+  private _uniformBuf: Float32Array | null = null;
 
   rsmDepthHandle: TextureHandle | null = null;
   rsmAlbedoHandle: TextureHandle | null = null;
@@ -173,9 +181,11 @@ export class RSMPass extends RenderPass {
 
     this.rsmUniformBuffer = device.createBuffer({
       label: "rsm-uniforms",
-      size: 96, // mat4x4 * 2 + 4 u32/f32
+      size: RSMUniforms.size,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+    this._uniformBuf = new Float32Array(RSMUniforms.floatCount);
+    this._uniformView = RSMUniforms.view(this._uniformBuf);
 
     const shader = device.createShaderModule({ code: RSM_INJECT_SHADER });
     this.injectPipeline = device.createComputePipeline({
@@ -191,12 +201,12 @@ export class RSMPass extends RenderPass {
   }
 
   updateUniforms(): void {
-    const buf = new Float32Array(24);
-    buf.set(this.lightViewProj, 0);
-    buf.set(this.invLightViewProj, 16);
+    const view = this._uniformView!;
+    view.set("lightViewProj", this.lightViewProj);
+    view.set("invLightViewProj", this.invLightViewProj);
 
     if (this.device && this.rsmUniformBuffer) {
-      this.device.queue.writeBuffer(this.rsmUniformBuffer, 0, buf as unknown as BufferSource);
+      this.device.queue.writeBuffer(this.rsmUniformBuffer, 0, this._uniformBuf as unknown as BufferSource);
     }
   }
 
@@ -231,5 +241,7 @@ export class RSMPass extends RenderPass {
   destroy(): void {
     this.vplBuffer?.destroy();
     this.rsmUniformBuffer?.destroy();
+    this._uniformView = null;
+    this._uniformBuf = null;
   }
 }

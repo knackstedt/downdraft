@@ -11,17 +11,20 @@
 // Freed material slots are returned to a free list and reused.
 // ============================================================================
 
+import type { StructView } from "@downdraft/shader-graph";
 import { createLogger } from "../../util/logger";
+import { BINDLESS_MATERIAL_FLOATS, BINDLESS_MATERIAL_SIZE, BindlessMaterialStruct } from "./bindless-struct";
 
 const log = createLogger();
 
 const STORAGE_USAGE = 0x80 | 0x08; // GPUBufferUsage.STORAGE | COPY_DST
 
 /**
- * WGSL `struct Material` layout — must match `BindlessMaterial` in
-// opaque.ts PBR_GBUFFER_SHADER. 80 bytes (20 floats), std140-friendly.
+ * Byte size of one BindlessMaterial struct (80). Re-exported from
+ * bindless-struct.ts for back-compat — the layout is now the single source of
+ * truth in `BindlessMaterialStruct`.
  */
-export const MATERIAL_STRUCT_SIZE = 80; // bytes
+export const MATERIAL_STRUCT_SIZE = BINDLESS_MATERIAL_SIZE;
 
 /**
  * Float view of one material struct (20 floats / 80 bytes).
@@ -79,10 +82,11 @@ export class BindlessMaterialManager {
   private capacity: number;
   private growthFactor: number;
   private maxCapacity: number;
-  /** Float32 view over the SSBO backing store (size = capacity * 20). */
+  /** Float32 view over the SSBO backing store (size = capacity * floatsPerMaterial). */
   private backing: Float32Array;
-  /** Uint32 view over the same ArrayBuffer as `backing` — for writing u32
-   *  texture handles so the shader reads correct u32 bit patterns. */
+  /** Uint32 view over the same ArrayBuffer as `backing` — kept for the flush
+   *  path and any direct u32 reads. Field writes go through StructView which
+   *  lazily creates its own Uint32Array view over the same buffer. */
   private backingU32: Uint32Array;
   /** Next free slot index, or -1 if none (then append). */
   private freeList: number[] = [];
@@ -95,7 +99,7 @@ export class BindlessMaterialManager {
     this.capacity = options.initialCapacity ?? DEFAULT_INITIAL_CAPACITY;
     this.growthFactor = options.growthFactor ?? DEFAULT_GROWTH_FACTOR;
     this.maxCapacity = options.maxCapacity ?? DEFAULT_MAX_CAPACITY;
-    this.backing = new Float32Array(this.capacity * 20);
+    this.backing = new Float32Array(this.capacity * BINDLESS_MATERIAL_FLOATS);
     this.backingU32 = new Uint32Array(this.backing.buffer);
     this.buffer = device.createBuffer({
       size: this.capacity * MATERIAL_STRUCT_SIZE,
@@ -152,7 +156,7 @@ export class BindlessMaterialManager {
   unregisterMaterial(index: number): void {
     if (index < 0 || index >= this.nextSlot) return;
     // Zero the slot so stale data isn't sampled.
-    this.backing.fill(0, index * 20, (index + 1) * 20);
+    this.backing.fill(0, index * BINDLESS_MATERIAL_FLOATS, (index + 1) * BINDLESS_MATERIAL_FLOATS);
     this.flushRange(index, 1);
     this.freeList.push(index);
   }
@@ -160,7 +164,7 @@ export class BindlessMaterialManager {
   /** Flush all pending writes to the GPU (call once per frame before draw). */
   flush(): void {
     if (this.nextSlot === 0) return;
-    this.device.queue.writeBuffer(this.buffer, 0, this.backing.buffer as unknown as BufferSource, 0, this.nextSlot * 20 * 4);
+    this.device.queue.writeBuffer(this.buffer, 0, this.backing.buffer as unknown as BufferSource, 0, this.nextSlot * BINDLESS_MATERIAL_FLOATS * 4);
   }
 
   destroy(): void {
@@ -170,40 +174,40 @@ export class BindlessMaterialManager {
   // ── internal ──────────────────────────────────────────────────────────
 
   private writeMaterial(index: number, p: MaterialParams): void {
-    const o = index * 20;
-    this.backing[o + 0] = p.baseColor[0];
-    this.backing[o + 1] = p.baseColor[1];
-    this.backing[o + 2] = p.baseColor[2];
-    this.backing[o + 3] = p.baseColor[3];
-    this.backing[o + 4] = p.roughness;
-    this.backing[o + 5] = p.metallic;
-    this.backing[o + 6] = p.emissiveIntensity;
-    this.backing[o + 7] = p.textureTransform ? 1.0 : 0.0; // hasTexTransform
-    // Handle fields are u32; write via the Uint32Array view so the shader
-    // reads correct u32 bit patterns (not float reinterpretations).
-    this.backingU32[o + 8] = p.albedoTexHandle >>> 0;
-    this.backingU32[o + 9] = p.normalTexHandle >>> 0;
-    this.backingU32[o + 10] = p.metallicRoughnessTexHandle >>> 0;
+    const o = index * BINDLESS_MATERIAL_FLOATS;
+    // Zero-copy subarray view over this slot's region of the backing store.
+    // StructView writes field values at computed offsets; u32 handle fields
+    // write through a shared Uint32Array view so the shader reads correct u32
+    // bit patterns (not float reinterpretations).
+    const view: StructView = BindlessMaterialStruct.view(
+      this.backing.subarray(o, o + BINDLESS_MATERIAL_FLOATS),
+    );
+    view.set("baseColor", p.baseColor);
+    view.set("roughness", p.roughness);
+    view.set("metallic", p.metallic);
+    view.set("emissiveIntensity", p.emissiveIntensity);
+    view.set("hasTexTransform", p.textureTransform ? 1.0 : 0.0);
+    view.setU32("albedoTex", p.albedoTexHandle >>> 0);
+    view.setU32("normalTex", p.normalTexHandle >>> 0);
+    view.setU32("metallicRoughnessTex", p.metallicRoughnessTexHandle >>> 0);
     // Pack ao (low 16) + emissive (high 16) into one u32.
-    this.backingU32[o + 11] =
-      ((p.aoTexHandle & 0xffff) | ((p.emissiveTexHandle & 0xffff) << 16)) >>> 0;
+    view.setU32(
+      "aoEmissiveTex",
+      ((p.aoTexHandle & 0xffff) | ((p.emissiveTexHandle & 0xffff) << 16)) >>> 0,
+    );
     // Texture transform (KHR_texture_transform)
     if (p.textureTransform) {
-      this.backing[o + 12] = p.textureTransform.offset[0];
-      this.backing[o + 13] = p.textureTransform.offset[1];
-      this.backing[o + 14] = p.textureTransform.scale[0];
-      this.backing[o + 15] = p.textureTransform.scale[1];
-      this.backing[o + 16] = p.textureTransform.rotation;
+      view.set("texOffset", p.textureTransform.offset);
+      view.set("texScale", p.textureTransform.scale);
+      view.set("texRotation", p.textureTransform.rotation);
     } else {
-      this.backing[o + 12] = 0;
-      this.backing[o + 13] = 0;
-      this.backing[o + 14] = 1;
-      this.backing[o + 15] = 1;
-      this.backing[o + 16] = 0;
+      view.set("texOffset", [0, 0]);
+      view.set("texScale", [1, 1]);
+      view.set("texRotation", 0);
     }
-    this.backing[o + 17] = 0; // _pad0
-    this.backing[o + 18] = 0; // _pad1
-    this.backing[o + 19] = 0; // _pad2
+    view.set("_pad0", 0);
+    view.set("_pad1", 0);
+    view.set("_pad2", 0);
     this.flushRange(index, 1);
   }
 
@@ -224,7 +228,7 @@ export class BindlessMaterialManager {
       throw new Error(`BindlessMaterialManager: maxCapacity ${this.maxCapacity} reached`);
     }
     const newCapacity = Math.min(Math.floor(this.capacity * this.growthFactor), this.maxCapacity);
-    const newBacking = new Float32Array(newCapacity * 20);
+    const newBacking = new Float32Array(newCapacity * BINDLESS_MATERIAL_FLOATS);
     newBacking.set(this.backing);
     const newBuffer = this.device.createBuffer({
       size: newCapacity * MATERIAL_STRUCT_SIZE,
@@ -232,7 +236,7 @@ export class BindlessMaterialManager {
       label: "bindless_material_ssbo",
     });
     // Copy old data into the new buffer.
-    this.device.queue.writeBuffer(newBuffer, 0, newBacking.buffer as unknown as BufferSource, 0, this.nextSlot * 20 * 4);
+    this.device.queue.writeBuffer(newBuffer, 0, newBacking.buffer as unknown as BufferSource, 0, this.nextSlot * BINDLESS_MATERIAL_FLOATS * 4);
     this.buffer.destroy();
     this.buffer = newBuffer;
     this.backing = newBacking;

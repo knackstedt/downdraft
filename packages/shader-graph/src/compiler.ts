@@ -459,6 +459,15 @@ ${returnLines.join("\n")}
   }
 
   private buildUniformStruct(profile: ShaderGraphProfile): string {
+    // When a typed WgslStruct is provided, use its WGSL emit directly.
+    // The struct name in the .wgsl output is whatever the profile defined.
+    if (profile.uniformStruct) {
+      const s = profile.uniformStruct;
+      return `${s.wgsl}
+
+@group(0) @binding(0) var<uniform> uniforms: ${s.name};`;
+    }
+    // Legacy: build from string-based uniformFields.
     const fields = profile.uniformFields.map((f) => `  ${f.name}: ${f.type},`).join("\n");
     return `struct Uniforms {
 ${fields}
@@ -584,8 +593,12 @@ ${lines.join("\n")}
   }
 
   private buildStandardVertexMain(profile: ShaderGraphProfile, hasUV: boolean, hasColor: boolean): string {
-    const hasModelMatrix = profile.uniformFields.some((f) => f.name === "modelMatrix");
-    const hasEntityTransform = profile.uniformFields.some((f) => f.name === "entityPos");
+    // Check for transform fields in either the typed struct or the legacy uniformFields.
+    const fieldNames = profile.uniformStruct
+      ? [...profile.uniformStruct.fieldMap.keys()]
+      : profile.uniformFields.map((f) => f.name);
+    const hasModelMatrix = fieldNames.includes("modelMatrix");
+    const hasEntityTransform = fieldNames.includes("entityPos");
 
     let transformCode: string;
     if (hasEntityTransform) {

@@ -1,5 +1,14 @@
+import type { StructView, WgslStruct } from "@downdraft/shader-graph";
+import { f32, wgsl } from "@downdraft/shader-graph";
 import { PassType, type FrameGraphBuilder, type GraphRenderContext, type TextureHandle } from "../frame-graph";
 import { RenderPass } from "../render-pass";
+
+const GrainUniforms: WgslStruct = wgsl.struct("GrainUniforms", {
+  intensity: f32,
+  size: f32,
+  time: f32,
+  luminanceAware: f32,
+});
 
 const FULLSCREEN_VS = /* wgsl */ `
 struct VertexOutput {
@@ -19,12 +28,7 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VertexOutput {
 `;
 
 const GRAIN_FS = /* wgsl */ `
-struct GrainUniforms {
-  intensity: f32,
-  size: f32,
-  time: f32,
-  luminanceAware: f32,
-};
+${GrainUniforms.wgsl}
 
 @group(0) @binding(0) var<uniform> u: GrainUniforms;
 @group(0) @binding(1) var colorTex: texture_2d<f32>;
@@ -88,6 +92,8 @@ export class GrainPass extends RenderPass {
   private pipeline: GPURenderPipeline | null = null;
   private uniformBuffer: GPUBuffer | null = null;
   private sampler: GPUSampler | null = null;
+  private _uniformView: StructView | null = null;
+  private _uniformBuf: Float32Array | null = null;
 
 
   constructor(device: GPUDevice, settings: Partial<GrainSettings> = {}) {
@@ -108,6 +114,8 @@ export class GrainPass extends RenderPass {
       size: 16,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+    this._uniformBuf = new Float32Array(GrainUniforms.floatCount);
+    this._uniformView = GrainUniforms.view(this._uniformBuf);
 
     const vsModule = this.device.createShaderModule({ code: FULLSCREEN_VS });
     const fsModule = this.device.createShaderModule({ code: GRAIN_FS });
@@ -133,13 +141,13 @@ export class GrainPass extends RenderPass {
   }
 
   private writeUniforms(): Float32Array {
-    const data = new Float32Array(4);
-    data[0] = this.settings.intensity;
-    data[1] = this.settings.size;
-    data[2] = this.time;
-    data[3] = this.settings.luminanceAware ? 1.0 : 0.0;
-    this.device.queue.writeBuffer(this.uniformBuffer!, 0, data as unknown as BufferSource);
-    return data;
+    const view = this._uniformView!;
+    view.set("intensity", this.settings.intensity);
+    view.set("size", this.settings.size);
+    view.set("time", this.time);
+    view.set("luminanceAware", this.settings.luminanceAware ? 1.0 : 0.0);
+    this.device.queue.writeBuffer(this.uniformBuffer!, 0, this._uniformBuf as unknown as BufferSource);
+    return this._uniformBuf!;
   }
 
   setup(builder: FrameGraphBuilder): void {
@@ -183,5 +191,7 @@ export class GrainPass extends RenderPass {
 
   destroy(): void {
     this.uniformBuffer?.destroy();
+    this._uniformView = null;
+    this._uniformBuf = null;
   }
 }

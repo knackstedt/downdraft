@@ -1,39 +1,39 @@
+import type { StructView, WgslStruct } from "@downdraft/shader-graph";
+import { mat4x4f, u32, vec3f, vec4f, wgsl } from "@downdraft/shader-graph";
 import { type Mat4 } from "wgpu-matrix";
 import type { MeshData } from "../../mesh/builder";
 import type { BindlessMaterialManager, BindlessTextureRegistry, MaterialParams } from "../bindless";
+import { BindlessMaterialStruct } from "../bindless";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
 import { RenderPass } from "../render-pass";
 
-const DECAL_SHADER = `
-struct CameraUniforms {
-  viewProj: mat4x4<f32>,
-  _pad: vec4<f32>,
-};
+// ─── Uniform structs (single source of truth for layout) ───────────────────
+const DecalCameraUniforms: WgslStruct = wgsl.struct("CameraUniforms", {
+  viewProj: mat4x4f,
+  _pad: vec4f,
+});
 
-struct DecalUniforms {
-  decalViewProj: mat4x4<f32>,
-  invViewProj: mat4x4<f32>,
-  position: vec3<f32>,
+const DecalUniforms: WgslStruct = wgsl.struct("DecalUniforms", {
+  decalViewProj: mat4x4f,
+  invViewProj: mat4x4f,
+  position: vec3f,
   materialIndex: u32,
-};
+});
+
+const DECAL_SHADER = `
+${DecalCameraUniforms.wgsl}
+
+${DecalUniforms.wgsl}
 
 @group(0) @binding(0) var<uniform> camera: CameraUniforms;
 @group(0) @binding(1) var<uniform> decal: DecalUniforms;
 @group(0) @binding(2) var depthTexture: texture_depth_2d;
 @group(0) @binding(3) var depthSampler: sampler;
 
-// Bindless material binding model (@group(3))
-struct BindlessMaterial {
-  baseColor: vec4<f32>,
-  roughness: f32,
-  metallic: f32,
-  emissiveIntensity: f32,
-  _pad0: f32,
-  albedoTex: u32,
-  normalTex: u32,
-  metallicRoughnessTex: u32,
-  aoEmissiveTex: u32,
-};
+// Bindless material binding model (@group(3)) — struct emitted from
+// BindlessMaterialStruct (single source of truth, shared with material-manager).
+// Uses the full 80-byte struct so the array stride matches the SSBO.
+${BindlessMaterialStruct.wgsl}
 
 @group(3) @binding(0) var<storage, read> bindlessMaterials: array<BindlessMaterial>;
 @group(3) @binding(1) var albedoArray0: texture_2d_array<f32>;
@@ -149,6 +149,11 @@ export class DecalPass extends RenderPass {
   private bindlessBindGroup: GPUBindGroup | null = null;
   /** Cached materialIndex per decal sourceId. */
   private decalMaterialIndex = new Map<string, number>();
+  // Preallocated typed views for uniform writes (avoid per-frame alloc).
+  private _camView: StructView | null = null;
+  private _camBuf: Float32Array | null = null;
+  private _decalView: StructView | null = null;
+  private _decalBuf: Float32Array | null = null;
 
   constructor(device: GPUDevice | null, surfaceFormat: GPUTextureFormat) {
     super();
@@ -181,12 +186,16 @@ export class DecalPass extends RenderPass {
         size: 80,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
+      this._camBuf = new Float32Array(DecalCameraUniforms.floatCount);
+      this._camView = DecalCameraUniforms.view(this._camBuf);
     }
     if (!this.decalBuffer && this.device) {
       this.decalBuffer = this.device.createBuffer({
         size: 192,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
+      this._decalBuf = new Float32Array(48);
+      this._decalView = DecalUniforms.view(this._decalBuf);
     }
     if (!this.depthSampler && this.device) {
       this.depthSampler = this.device.createSampler({
@@ -224,9 +233,9 @@ export class DecalPass extends RenderPass {
     this.ensurePipeline();
     if (!this.pipeline) return;
 
-    const camData = new Float32Array(20);
-    camData.set(ctx.viewProj as Float32Array, 0);
-    this.device.queue.writeBuffer(this.cameraBuffer!, 0, camData as unknown as BufferSource);
+    const camView = this._camView!;
+    camView.set("viewProj", ctx.viewProj as Float32Array);
+    this.device.queue.writeBuffer(this.cameraBuffer!, 0, this._camBuf! as unknown as BufferSource);
 
     const tracked = ctx.pass;
     tracked.setPipeline(this.pipeline);
@@ -249,17 +258,13 @@ export class DecalPass extends RenderPass {
     tracked.setBindGroup(0, this.bindGroup!);
 
     for (const item of this.items) {
-      const decalData = new Float32Array(48);
-      decalData.set(item.decalViewProj as Float32Array, 0);
-      decalData.set(ctx.viewProj as Float32Array, 16);
-      decalData[32] = item.modelMatrix[12];
-      decalData[33] = item.modelMatrix[13];
-      decalData[34] = item.modelMatrix[14];
-      // materialIndex (u32) at float slot 35 (byte offset 140).
+      const dv = this._decalView!;
+      dv.set("decalViewProj", item.decalViewProj as Float32Array);
+      dv.set("invViewProj", ctx.viewProj as Float32Array);
+      dv.set("position", [item.modelMatrix[12], item.modelMatrix[13], item.modelMatrix[14]]);
       const matIdx = this.getOrCreateDecalMaterialIndex(item);
-      const dv = new DataView(decalData.buffer);
-      dv.setUint32(140, matIdx, true);
-      this.device.queue.writeBuffer(this.decalBuffer!, 0, decalData as unknown as BufferSource);
+      dv.setU32("materialIndex", matIdx);
+      this.device.queue.writeBuffer(this.decalBuffer!, 0, this._decalBuf! as unknown as BufferSource);
 
       tracked.setVertexBuffer(0, this.getVertexBuffer(item.mesh));
       tracked.setIndexBuffer(this.getIndexBuffer(item.mesh), item.mesh.indices instanceof Uint16Array ? "uint16" : "uint32");
@@ -357,6 +362,10 @@ export class DecalPass extends RenderPass {
     this.decalBuffer?.destroy();
     this.pipeline?.destroy();
     this.shaderModule?.destroy();
+    this._camView = null;
+    this._camBuf = null;
+    this._decalView = null;
+    this._decalBuf = null;
     // GPUSampler has no destroy() — it's GC'd automatically.
     this.depthSampler = null;
     for (const buf of this.vertexBuffers.values()) buf.destroy();

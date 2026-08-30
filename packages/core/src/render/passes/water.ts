@@ -1,20 +1,13 @@
+import type { StructView, WgslStruct } from "@downdraft/shader-graph";
+import { f32, mat4x4f, u32, vec3f, wgsl } from "@downdraft/shader-graph";
 import { type Mat4 } from "wgpu-matrix";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
 import { RenderPass } from "../render-pass";
 
-const WATER_GRID = 256;
-const MAX_WAKES = 16;
-const MAX_SHORES = 128;
-const WAKE_FLOATS = 6;
-const SHORE_FLOATS = 4;
-
-const WATER_SHADER = /* wgsl */ `
-const MAX_POINT_LIGHTS = 32u;
-const MAX_SPOT_LIGHTS = 8u;
-
-struct Uniforms {
-  viewProj: mat4x4<f32>,
-  cameraPos: vec3<f32>,
+// ─── Uniform structs (single source of truth for layout) ───────────────────
+const Uniforms: WgslStruct = wgsl.struct("Uniforms", {
+  viewProj: mat4x4f,
+  cameraPos: vec3f,
   time: f32,
   gridSize: f32,
   patchSize: f32,
@@ -34,7 +27,19 @@ struct Uniforms {
   sunIntensity: f32,
   wakeCount: u32,
   shoreCount: u32,
-};
+});
+
+const WATER_GRID = 256;
+const MAX_WAKES = 16;
+const MAX_SHORES = 128;
+const WAKE_FLOATS = 6;
+const SHORE_FLOATS = 4;
+
+const WATER_SHADER = /* wgsl */ `
+const MAX_POINT_LIGHTS = 32u;
+const MAX_SPOT_LIGHTS = 8u;
+
+${Uniforms.wgsl}
 
 struct WakeSource {
   pos: vec2<f32>,
@@ -498,8 +503,8 @@ export class WaterPass extends RenderPass {
   private time = 0;
   private cachedNormalData: Uint8Array | null = null;
   private cachedHeightData: Float32Array | null = null;
-  private uniformData = new Float32Array(40);
-  private uniformU32View = new Uint32Array(this.uniformData.buffer);
+  private _uniformView: StructView | null = null;
+  private _uniformBuf: Float32Array | null = null;
 
   constructor(device: GPUDevice, surfaceFormat: GPUTextureFormat, depthFormat: GPUTextureFormat = "depth32float", msaaSampleCount = 1, gridSize = WATER_GRID) {
     super();
@@ -538,6 +543,8 @@ export class WaterPass extends RenderPass {
     const dev = this.device;
     this.shaderModule = dev.createShaderModule({ code: WATER_SHADER });
     this.uniformBuffer = dev.createBuffer({ size: 256, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this._uniformBuf = new Float32Array(40);
+    this._uniformView = Uniforms.view(this._uniformBuf);
     this.vertexBuffer = dev.createBuffer({ size: vertices.length * 4, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
     dev.queue.writeBuffer(this.vertexBuffer, 0, new Float32Array(vertices));
     this.indexBuffer = dev.createBuffer({ size: indices.length * 2, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
@@ -654,31 +661,29 @@ export class WaterPass extends RenderPass {
   setUniforms(u: WaterUniforms): void {
     if (!this.uniformBuffer) return;
     this.time = u.time;
-    const data = this.uniformData;
-    data.set(u.viewProj as Float32Array, 0);
-    data[16] = u.cameraPos[0];
-    data[17] = u.cameraPos[1];
-    data[18] = u.cameraPos[2];
-    data[19] = u.time;
-    data[20] = u.gridSize;
-    data[21] = u.patchSize;
-    data[22] = u.originX;
-    data[23] = u.originZ;
-    data[24] = u.visibility;
-    this.uniformU32View[25] = u.weatherType;
-    data[26] = u.timeOfDay;
-    data[27] = u.waveHeight;
-    data[28] = u.windSpeed;
-    data[29] = u.windDirX;
-    data[30] = u.windDirZ;
-    data[31] = u.weatherIntensity;
-    data[32] = u.sunDir[0];
-    data[33] = u.sunDir[1];
-    data[34] = u.sunDir[2];
-    data[35] = u.sunIntensity;
-    this.uniformU32View[36] = this.wakeCount;
-    this.uniformU32View[37] = this.shoreCount;
-    this.device.queue.writeBuffer(this.uniformBuffer, 0, data);
+    const view = this._uniformView!;
+    view.set("viewProj", u.viewProj as Float32Array);
+    view.set("cameraPos", u.cameraPos);
+    view.set("time", u.time);
+    view.set("gridSize", u.gridSize);
+    view.set("patchSize", u.patchSize);
+    view.set("originX", u.originX);
+    view.set("originZ", u.originZ);
+    view.set("visibility", u.visibility);
+    view.setU32("weatherType", u.weatherType);
+    view.set("timeOfDay", u.timeOfDay);
+    view.set("waveHeight", u.waveHeight);
+    view.set("windSpeed", u.windSpeed);
+    view.set("windDirX", u.windDirX);
+    view.set("windDirZ", u.windDirZ);
+    view.set("weatherIntensity", u.weatherIntensity);
+    view.set("sunDirX", u.sunDir[0]);
+    view.set("sunDirY", u.sunDir[1]);
+    view.set("sunDirZ", u.sunDir[2]);
+    view.set("sunIntensity", u.sunIntensity);
+    view.setU32("wakeCount", this.wakeCount);
+    view.setU32("shoreCount", this.shoreCount);
+    this.device.queue.writeBuffer(this.uniformBuffer, 0, this._uniformBuf! as unknown as BufferSource);
   }
 
   setup(builder: FrameGraphBuilder): void {
@@ -741,5 +746,7 @@ export class WaterPass extends RenderPass {
     this.bindGroupLayout = null;
     this.lightBindGroup = null;
     this.lightBindGroupLayout = null;
+    this._uniformView = null;
+    this._uniformBuf = null;
   }
 }
