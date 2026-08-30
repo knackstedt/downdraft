@@ -170,7 +170,7 @@ In packaged builds, the renderer loads via `win.loadFile()` → `file://` protoc
 
 **NEVER run `pkill -9 electron`, `pkill -f electron`, `killall electron`, or any other generic Electron-killing command.** The user's machine may have other Electron apps running (VS Code, Slack, Discord, other games, the Devin desktop app itself). A generic pkill will terminate all of them, destroying the user's work and your own session.
 
-Each game runs as an Electron process launched against its own `games/<game>/electron.vite.config.ts` entrypoint (dev mode: `draft dev --game=<game>` or `npx electron-vite dev --config games/<game>/electron.vite.config.ts` from the repo root; built mode: `npx electron .` from `games/<game>`). To kill a specific game instance, target **that game only**:
+Each game runs as an Electron process launched against its own `games/<game>/electron.vite.config.ts` entrypoint (dev mode: `draft dev` from inside `games/<game>/`, or `draft dev --game=<game>` / `npx electron-vite dev --config games/<game>/electron.vite.config.ts` from the repo root; built mode: `npx electron .` from `games/<game>`). To kill a specific game instance, target **that game only**:
 
 - **Match the per-game `--user-data-dir`** (each game sets a unique `downdraft-<game>` userData dir, visible in the process args):
   ```bash
@@ -525,7 +525,7 @@ Each Electron game owns:
 - `src/main.ts` — calls `createDowndraftApp({ window, switches, features, lifecycle, extend })`.
 - `src/preload.ts` — calls `createDowndraftBridge({ extend })`.
 
-Each game owns its own `games/<game>/electron.vite.config.ts` entrypoint, loaded directly by `draft dev --game=<game>` (or `npx electron-vite dev --config games/<game>/electron.vite.config.ts`). There is no root dispatcher or `DOWNDRAFT_GAME` env var.
+Each game owns its own `games/<game>/electron.vite.config.ts` entrypoint, loaded directly by `draft dev` (run from inside `games/<game>/`) or `draft dev --game=<game>` (from the repo root), or `npx electron-vite dev --config games/<game>/electron.vite.config.ts`. There is no root dispatcher or `DOWNDRAFT_GAME` env var.
 
 ### Config-driven features
 
