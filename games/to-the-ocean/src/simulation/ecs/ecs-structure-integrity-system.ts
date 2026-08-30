@@ -4,13 +4,15 @@
 // Query: shipsWithHealth (Transform + EntityMeta + EntityData + Health)
 // Filters by EntityType.Ship in loop body
 // BoatCellSystem passed via closure for stability calculation
+//
+// SoA components (SimEntityMeta, SimHealth) via [row].
 // ============================================================================
 
 import { hmrSwap, Stage, system, type Query, type SystemContext } from "@downdraft/core";
 import { EntityFlags, EntityType } from "@shared/types";
 import { SHIP_LEAK_THRESHOLD } from "../../shared/constants";
 import type { BoatCellSystem } from "../boat/boat-cell-system";
-import { SimEntityMeta, SimHealth } from "./components";
+import { type SimEntityMetaSoA, type SimHealthSoA } from "./components";
 
 export function createEcsStructureIntegritySystem(
   shipsQuery: Query,
@@ -23,30 +25,30 @@ export function createEcsStructureIntegritySystem(
       const dt = ctx.dt;
       const boatCellSystem = getBoatCellSystem();
 
-      shipsQuery.iterate(ctx.tick, (_entity, comps) => {
-        const meta = comps[1] as ReturnType<typeof SimEntityMeta.create>;
-        const health = comps[3] as ReturnType<typeof SimHealth.create>;
+      shipsQuery.iterate(ctx.tick, (_entity, comps, row) => {
+        const meta = comps[1] as unknown as SimEntityMetaSoA;
+        const health = comps[3] as unknown as SimHealthSoA;
 
-        if (meta.type !== EntityType.Ship) return;
+        if (meta.type[row] !== EntityType.Ship) return;
 
-        const integrityRatio = health.health / health.maxHealth;
+        const integrityRatio = health.health[row]! / health.maxHealth[row]!;
 
         if (integrityRatio < SHIP_LEAK_THRESHOLD / 100) {
-          meta.flags |= EntityFlags.Underwater;
-          health.health -= 0.5 * dt;
+          meta.flags[row] |= EntityFlags.Underwater;
+          health.health[row] -= 0.5 * dt;
 
-          if (health.health <= 0) {
-            health.health = 0;
-            meta.flags |= EntityFlags.Dead;
+          if (health.health[row]! <= 0) {
+            health.health[row] = 0;
+            meta.flags[row] |= EntityFlags.Dead;
           }
         } else {
-          meta.flags &= ~EntityFlags.Underwater;
+          meta.flags[row] &= ~EntityFlags.Underwater;
         }
 
         // Stability check
-        const stabilityFactor = calculateStability(meta.id, boatCellSystem);
+        const stabilityFactor = calculateStability(meta.id[row]!, boatCellSystem);
         if (stabilityFactor < 0.3) {
-          health.health -= 0.1 * dt;
+          health.health[row] -= 0.1 * dt;
         }
       });
     },

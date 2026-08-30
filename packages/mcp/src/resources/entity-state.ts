@@ -1,5 +1,6 @@
+import { getColumnValue } from "@downdraft/core";
 import type { EngineContext } from "../engine-context";
-import type { ResourceRegistration, MCPResourceResult } from "../types";
+import type { MCPResourceResult, ResourceRegistration } from "../types";
 
 function resourceJSON(uri: string, data: unknown): MCPResourceResult {
   return {
@@ -35,7 +36,7 @@ export function createEntityStateResource(ctx: EngineContext): ResourceRegistrat
                 (en) => en.index === e.index && en.generation === e.generation,
               );
               if (row >= 0) {
-                components[ctx.getComponentNameById(cid)] = col[row];
+                components[ctx.getComponentNameById(cid)] = getColumnValue(col, row);
               }
             }
           }

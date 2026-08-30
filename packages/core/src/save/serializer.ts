@@ -1,3 +1,4 @@
+import { getColumnValue } from "../ecs/archetype";
 import { getComponentName } from "../ecs/component";
 import type { Entity } from "../ecs/entity";
 import type { World } from "../ecs/world";
@@ -41,7 +42,7 @@ export class Serializer {
           (e) => e.index === entity.index && e.generation === entity.generation,
         );
         if (row >= 0) {
-          const data = col[row];
+          const data = getColumnValue(col, row);
           if (data instanceof ArrayBuffer) {
             const blobKey = `blob_${i}_${cid}`;
             binaryBlobs[blobKey] = data;

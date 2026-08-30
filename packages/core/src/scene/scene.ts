@@ -1,4 +1,4 @@
-import { findEntityRow } from "../ecs/archetype";
+import { findEntityRow, getColumnValue } from "../ecs/archetype";
 import { isRegisteredComponentId, type ComponentId } from "../ecs/component";
 import { entityEqual, isAlive, type Entity } from "../ecs/entity";
 import type { World } from "../ecs/world";
@@ -160,7 +160,7 @@ export class Scene {
       for (const [cid, col] of arch.columns) {
         const row = findEntityRow(arch, entity);
         if (row >= 0) {
-          components.push({ id: cid, data: col[row] });
+          components.push({ id: cid, data: getColumnValue(col, row) });
         }
       }
       entities.push({ index: entity.index, generation: entity.generation, components });

@@ -1,7 +1,5 @@
-import type { World } from "@downdraft/core";
-import type { Entity } from "@downdraft/core";
-import type { ComponentId } from "@downdraft/core";
-import { getComponentName } from "@downdraft/core";
+import type { ComponentId, Entity, World } from "@downdraft/core";
+import { getColumnValue, getComponentName } from "@downdraft/core";
 
 export interface InspectorField {
   name: string;
@@ -169,7 +167,7 @@ export class InspectorPanel {
       );
       if (row < 0) continue;
 
-      const data = arch.columns.get(cid)![row] as Record<string, unknown>;
+      const data = getColumnValue(arch.columns.get(cid), row) as Record<string, unknown>;
       const name = getComponentName(cid) ?? `Component_${cid}`;
       components.push({
         componentId: cid,

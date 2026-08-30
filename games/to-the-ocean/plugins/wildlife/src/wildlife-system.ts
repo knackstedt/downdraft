@@ -86,17 +86,18 @@ export function createWildlifeSystem(
       // --- Pre-collect ships (with health refs for DevilShrimp damage) ---
       const ships: WildlifeShip[] = [];
       const shipMap: Map<number, WildlifeShip> = new Map();
-      shipsQuery.iterate(ctx.tick, (_entity, comps) => {
+      shipsQuery.iterate(ctx.tick, (_entity, comps, row) => {
         const transform = comps[0] as WildlifeTransform;
         const meta = comps[1] as WildlifeEntityMeta;
         const data = comps[2] as WildlifeEntityData;
         const health = comps[3] as WildlifeHealth;
-        if (meta.type !== config.entityTypes.ship) return;
+        if (meta.type[row] !== config.entityTypes.ship) return;
         const ship: WildlifeShip = {
-          id: meta.id,
-          x: transform.x, y: transform.y, z: transform.z,
+          id: meta.id[row]!,
+          x: transform.x[row]!, y: transform.y[row]!, z: transform.z[row]!,
           data: data.data,
           health,
+          row,
         };
         ships.push(ship);
         shipMap.set(ship.id, ship);
@@ -104,23 +105,23 @@ export function createWildlifeSystem(
 
       // --- Pre-collect all wildlife entities ---
       const wildlifeList: WildlifeEntity[] = [];
-      wildlifeQuery.iterate(ctx.tick, (_entity, comps) => {
+      wildlifeQuery.iterate(ctx.tick, (_entity, comps, row) => {
         const transform = comps[0] as WildlifeTransform;
         const velocity = comps[1] as WildlifeVelocity;
         const meta = comps[2] as WildlifeEntityMeta;
         const data = comps[3] as WildlifeEntityData;
         const health = comps[4] as WildlifeHealth;
-        if (!isWildlifeType(meta.type, config)) return;
-        wildlifeList.push({ transform, velocity, meta, data, health });
+        if (!isWildlifeType(meta.type[row]!, config)) return;
+        wildlifeList.push({ transform, velocity, meta, data, health, row });
       });
 
       // Filter fish and sharks for FishAI
       const fishList: WildlifeEntity[] = [];
       const sharkPositions: { x: number; z: number }[] = [];
       for (const w of wildlifeList) {
-        if (w.meta.type === config.entityTypes.fish) fishList.push(w);
-        else if (w.meta.type === config.entityTypes.shark) {
-          sharkPositions.push({ x: w.transform.x, z: w.transform.z });
+        if (w.meta.type[w.row] === config.entityTypes.fish) fishList.push(w);
+        else if (w.meta.type[w.row] === config.entityTypes.shark) {
+          sharkPositions.push({ x: w.transform.x[w.row]!, z: w.transform.z[w.row]! });
         }
       }
 
@@ -129,12 +130,12 @@ export function createWildlifeSystem(
       fishGrid.clear();
       for (let i = 0; i < fishList.length; i++) {
         const f = fishList[i]!;
-        fishGrid.insert(i, f.transform.x, f.transform.z);
+        fishGrid.insert(i, f.transform.x[f.row]!, f.transform.z[f.row]!);
       }
 
       // --- Run AI for each wildlife entity ---
       for (const w of wildlifeList) {
-        const type = w.meta.type;
+        const type = w.meta.type[w.row]!;
         if (type === config.entityTypes.fish) {
           tickFishAI(w, fishList, fishGrid, fishNeighborOut, sharkPositions);
         } else if (type === config.entityTypes.shark) {
@@ -191,7 +192,7 @@ function trySpawnWildlife(
   // Count wildlife per biome (reusable instance-scoped map)
   biomeCounts.clear();
   for (const w of wildlifeList) {
-    const biome = deps.getBiomeAt(w.transform.x, w.transform.z);
+    const biome = deps.getBiomeAt(w.transform.x[w.row]!, w.transform.z[w.row]!);
     biomeCounts.set(biome, (biomeCounts.get(biome) ?? 0) + 1);
   }
 
@@ -271,13 +272,13 @@ function buildObstacleList(
     out.push({ x: ship.x, z: ship.z, clearance });
   }
   // Scan ports and islands once
-  allEntitiesQuery.iterate(tick, (_entity, comps) => {
+  allEntitiesQuery.iterate(tick, (_entity, comps, row) => {
     const transform = comps[0] as WildlifeTransform;
     const meta = comps[1] as WildlifeEntityMeta;
-    if (meta.type === et.port) {
-      out.push({ x: transform.x, z: transform.z, clearance: transform.scale + config.portClearanceMargin });
-    } else if (meta.type === et.island) {
-      out.push({ x: transform.x, z: transform.z, clearance: transform.scale + config.islandClearanceMargin });
+    if (meta.type[row] === et.port) {
+      out.push({ x: transform.x[row]!, z: transform.z[row]!, clearance: transform.scale[row]! + config.portClearanceMargin });
+    } else if (meta.type[row] === et.island) {
+      out.push({ x: transform.x[row]!, z: transform.z[row]!, clearance: transform.scale[row]! + config.islandClearanceMargin });
     }
   });
 }
@@ -303,20 +304,20 @@ function despawnDistantWildlife(
   spawnedIds: Set<number>,
 ): void {
   for (const w of wildlifeList) {
-    if (!spawnedIds.has(w.meta.id)) continue;
+    if (!spawnedIds.has(w.meta.id[w.row]!)) continue;
 
     let minDist = Infinity;
     for (const p of players) {
       if (!p.active) continue;
-      const dx = w.transform.x - p.x;
-      const dz = w.transform.z - p.z;
+      const dx = w.transform.x[w.row]! - p.x;
+      const dz = w.transform.z[w.row]! - p.z;
       const dist = Math.sqrt(dx * dx + dz * dz);
       if (dist < minDist) minDist = dist;
     }
 
     if (minDist > config.despawnRadius) {
-      spawnedIds.delete(w.meta.id);
-      deps.removeEntity(w.meta.id);
+      spawnedIds.delete(w.meta.id[w.row]!);
+      deps.removeEntity(w.meta.id[w.row]!);
     }
   }
 }

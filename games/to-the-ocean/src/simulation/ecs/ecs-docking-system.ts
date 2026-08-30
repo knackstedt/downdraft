@@ -4,11 +4,14 @@
 // Query: ships (Transform + Velocity + EntityMeta + EntityData) for ship positions
 // Query: smallCraft (Transform + Velocity + EntityMeta + EntityData) for craft
 // Dock state remains in the shipDocks Map (external state, not per-entity)
+//
+// SoA components (SimTransform, SimVelocity, SimEntityMeta) via [row].
+// AoS component (SimEntityData) as regular object.
 // ============================================================================
 
 import { hmrSwap, Stage, system, type Query, type SystemContext } from "@downdraft/core";
 import { EntityFlags, EntityType } from "@shared/types";
-import { SimEntityData, SimEntityMeta, SimTransform, SimVelocity } from "./components";
+import { SimEntityData, type SimEntityMetaSoA, type SimTransformSoA, type SimVelocitySoA } from "./components";
 
 enum DockState { Approach, Align, Locking, Docked, Released }
 
@@ -56,46 +59,50 @@ export function createEcsDockingSystem(shipsQuery: Query, smallCraftQuery: Query
 
       // Collect ship positions
       const shipList: { id: number; x: number; z: number }[] = [];
-      shipsQuery.iterate(ctx.tick, (_entity, comps) => {
-        const transform = comps[0] as ReturnType<typeof SimTransform.create>;
-        const meta = comps[2] as ReturnType<typeof SimEntityMeta.create>;
-        if (meta.type !== EntityType.Ship) return;
-        const docks = shipDocks.get(meta.id);
+      shipsQuery.iterate(ctx.tick, (_entity, comps, row) => {
+        const transform = comps[0] as unknown as SimTransformSoA;
+        const meta = comps[2] as unknown as SimEntityMetaSoA;
+        if (meta.type[row] !== EntityType.Ship) return;
+        const docks = shipDocks.get(meta.id[row]!);
         if (!docks || docks.length === 0) return;
-        shipList.push({ id: meta.id, x: transform.x, z: transform.z, });
+        shipList.push({ id: meta.id[row]!, x: transform.x[row]!, z: transform.z[row]!, });
       });
 
       if (shipList.length === 0) return;
 
       // Iterate small craft
-      smallCraftQuery.iterate(ctx.tick, (_entity, comps) => {
-        const transform = comps[0] as ReturnType<typeof SimTransform.create>;
-        const vel = comps[1] as ReturnType<typeof SimVelocity.create>;
-        const meta = comps[2] as ReturnType<typeof SimEntityMeta.create>;
+      smallCraftQuery.iterate(ctx.tick, (_entity, comps, row) => {
+        const transform = comps[0] as unknown as SimTransformSoA;
+        const vel = comps[1] as unknown as SimVelocitySoA;
+        const meta = comps[2] as unknown as SimEntityMetaSoA;
         const data = comps[3] as ReturnType<typeof SimEntityData.create>;
 
-        if (meta.type !== EntityType.SmallCraft) return;
+        if (meta.type[row] !== EntityType.SmallCraft) return;
+
+        const craftId = meta.id[row]!;
+        const craftX = transform.x[row]!;
+        const craftZ = transform.z[row]!;
 
         for (const ship of shipList) {
           const docks = shipDocks.get(ship.id);
           if (!docks) continue;
 
-          const dx = transform.x - ship.x;
-          const dz = transform.z - ship.z;
+          const dx = craftX - ship.x;
+          const dz = craftZ - ship.z;
           const dist = Math.sqrt(dx * dx + dz * dz);
 
           for (const dock of docks) {
-            if (dock.occupied && dock.craftId !== meta.id) continue;
+            if (dock.occupied && dock.craftId !== craftId) continue;
 
             if (dist < 15) {
               if (dock.state === DockState.Approach && !dock.occupied) {
                 dock.state = DockState.Align;
                 dock.alignProgress = 0;
-                dock.craftId = meta.id;
+                dock.craftId = craftId;
               }
 
               if (dock.state === DockState.Align) {
-                const speed = Math.sqrt(vel.vx ** 2 + vel.vz ** 2);
+                const speed = Math.sqrt(vel.vx[row]! ** 2 + vel.vz[row]! ** 2);
                 if (speed < 2) {
                   dock.alignProgress += dt * 0.5;
                   if (dock.alignProgress >= 1) {
@@ -109,13 +116,13 @@ export function createEcsDockingSystem(shipsQuery: Query, smallCraftQuery: Query
               if (dock.state === DockState.Locking) {
                 dock.state = DockState.Docked;
                 dock.occupied = true;
-                meta.flags |= EntityFlags.Docked;
-                transform.x = ship.x;
-                transform.z = ship.z;
-                vel.vx = 0;
-                vel.vz = 0;
+                meta.flags[row] |= EntityFlags.Docked;
+                transform.x[row] = ship.x;
+                transform.z[row] = ship.z;
+                vel.vx[row] = 0;
+                vel.vz[row] = 0;
               }
-            } else if (dock.craftId === meta.id && dock.state !== DockState.Docked) {
+            } else if (dock.craftId === craftId && dock.state !== DockState.Docked) {
               dock.state = DockState.Approach;
               dock.alignProgress = 0;
               dock.craftId = 0;
@@ -136,4 +143,3 @@ if (import.meta.hot) {
     if (newMod) hmrSwap("ecs-docking-system", newMod);
   });
 }
-

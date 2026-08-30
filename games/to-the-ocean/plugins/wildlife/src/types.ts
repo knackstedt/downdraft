@@ -12,26 +12,22 @@ import type { BiomeProvider, EntityProvider, SpawnOpts } from "@to-the-ocean/sha
 // Re-export SpawnOpts from the shared module for backward compatibility
 export type { SpawnOpts };
 
-// --- Component data interfaces (structurally compatible with ECS components) ---
+// --- Component data interfaces (SoA: TypedArray records indexed by row) ---
 
 export interface WildlifeTransform {
-  x: number; y: number; z: number;
-  rotX: number; rotY: number; rotZ: number; rotW: number;
-  scale: number;
+  x: Float32Array; y: Float32Array; z: Float32Array;
+  rotX: Float32Array; rotY: Float32Array; rotZ: Float32Array; rotW: Float32Array;
+  scale: Float32Array;
 }
 
 export interface WildlifeVelocity {
-  vx: number; vy: number; vz: number;
-  angVx: number; angVy: number; angVz: number;
+  vx: Float32Array; vy: Float32Array; vz: Float32Array;
+  angVx: Float32Array; angVy: Float32Array; angVz: Float32Array;
 }
 
 export interface WildlifeEntityMeta {
-  id: number;
-  type: number;
-  flags: number;
-  parentId: number;
-  chunkX: number;
-  chunkZ: number;
+  id: Uint32Array; type: Uint32Array; flags: Uint32Array;
+  parentId: Uint32Array; chunkX: Int32Array; chunkZ: Int32Array;
 }
 
 export interface WildlifeEntityData {
@@ -39,8 +35,8 @@ export interface WildlifeEntityData {
 }
 
 export interface WildlifeHealth {
-  health: number;
-  maxHealth: number;
+  health: Float32Array;
+  maxHealth: Float32Array;
 }
 
 export interface WildlifePlayerState {
@@ -76,6 +72,8 @@ export interface WildlifeEntity {
   meta: WildlifeEntityMeta;
   data: WildlifeEntityData;
   health: WildlifeHealth;
+  /** Row index into the SoA TypedArrays. */
+  row: number;
 }
 
 export interface WildlifePlayer {
@@ -92,7 +90,8 @@ export interface WildlifeShip {
   id: number;
   x: number; y: number; z: number;
   data: Float32Array;
-  health: { health: number; maxHealth: number };
+  health: { health: Float32Array; maxHealth: Float32Array };
+  row: number;
 }
 
 // --- Dependencies (provided by the game) ---

@@ -5,6 +5,10 @@
 // Query: players (PlayerState) for targeting
 // Spawn uses spawnEntity callback (passed via closure) to properly create
 // entities through the Simulation's lifecycle (fixes legacy bypass bug)
+//
+// SoA components (SimTransform, SimVelocity, SimEntityMeta, SimHealth) via [row].
+// AoS components (SimEntityData, SimPlayerState) as regular objects.
+// Helper function updatePirateAI receives `row` to index into SoA TypedArrays.
 // ============================================================================
 
 import { hmrSwap, Stage, system, type Query, type SystemContext } from "@downdraft/core";
@@ -15,7 +19,7 @@ import {
     PIRATE_SPAWN_SAFE_MULT,
     PIRATE_TREASURE_MAP_CHANCE,
 } from "../../shared/constants";
-import { SimEntityData, SimEntityMeta, SimHealth, SimPlayerState, SimTransform, SimVelocity } from "./components";
+import { SimEntityData, SimPlayerState, type SimEntityMetaSoA, type SimHealthSoA, type SimTransformSoA, type SimVelocitySoA } from "./components";
 
 enum PirateState { Patrol, Chase, Attack, Board, Flee }
 
@@ -79,19 +83,20 @@ export function createEcsPirateSystem(
       }
 
       // --- Update pirate AI ---
-      piratesQuery.iterate(ctx.tick, (_entity, comps) => {
-        const transform = comps[0] as ReturnType<typeof SimTransform.create>;
-        const vel = comps[1] as ReturnType<typeof SimVelocity.create>;
-        const meta = comps[2] as ReturnType<typeof SimEntityMeta.create>;
+      piratesQuery.iterate(ctx.tick, (_entity, comps, row) => {
+        const transform = comps[0] as unknown as SimTransformSoA;
+        const vel = comps[1] as unknown as SimVelocitySoA;
+        const meta = comps[2] as unknown as SimEntityMetaSoA;
         const data = comps[3] as ReturnType<typeof SimEntityData.create>;
-        const health = comps[4] as ReturnType<typeof SimHealth.create>;
+        const health = comps[4] as unknown as SimHealthSoA;
 
-        if (meta.type !== EntityType.Pirate && meta.type !== EntityType.PirateShip) return;
+        if (meta.type[row] !== EntityType.Pirate && meta.type[row] !== EntityType.PirateShip) return;
 
-        const pirate = pirates.get(meta.id);
+        const entityId = meta.id[row]!;
+        const pirate = pirates.get(entityId);
         if (!pirate) return;
 
-        updatePirateAI(transform, vel, data, health, pirate, dt, playerList, playersQuery, ctx);
+        updatePirateAI(transform, vel, data, health, pirate, dt, playerList, playersQuery, ctx, row);
       });
 
       // --- Remove dead pirates ---
@@ -170,25 +175,29 @@ function trySpawnPirates(
 }
 
 function updatePirateAI(
-  transform: ReturnType<typeof SimTransform.create>,
-  vel: ReturnType<typeof SimVelocity.create>,
+  transform: SimTransformSoA,
+  vel: SimVelocitySoA,
   data: ReturnType<typeof SimEntityData.create>,
-  health: ReturnType<typeof SimHealth.create>,
+  health: SimHealthSoA,
   pirate: PirateEntity,
   dt: number,
   playerList: { playerId: number; x: number; y: number; z: number; active: boolean }[],
   playersQuery: Query,
   ctx: SystemContext,
+  row: number,
 ): void {
   pirate.stateTimer -= dt;
+
+  const tx = transform.x[row]!;
+  const tz = transform.z[row]!;
 
   // Find nearest player
   let nearestDist = Infinity;
   let nearestIdx = -1;
   for (let p = 0; p < playerList.length; p++) {
     if (!playerList[p].active) continue;
-    const dx = playerList[p].x - transform.x;
-    const dz = playerList[p].z - transform.z;
+    const dx = playerList[p].x - tx;
+    const dz = playerList[p].z - tz;
     const dist = Math.sqrt(dx * dx + dz * dz);
     if (dist < nearestDist) {
       nearestDist = dist;
@@ -211,8 +220,8 @@ function updatePirateAI(
 
     case PirateState.Chase:
       if (nearestIdx >= 0) {
-        const dx = playerList[nearestIdx].x - transform.x;
-        const dz = playerList[nearestIdx].z - transform.z;
+        const dx = playerList[nearestIdx].x - tx;
+        const dz = playerList[nearestIdx].z - tz;
         data.data[0] = Math.atan2(dz, dx);
         if (nearestDist < 15) {
           pirate.state = PirateState.Attack;
@@ -243,8 +252,8 @@ function updatePirateAI(
 
     case PirateState.Flee:
       if (nearestIdx >= 0) {
-        const dx = transform.x - playerList[nearestIdx].x;
-        const dz = transform.z - playerList[nearestIdx].z;
+        const dx = tx - playerList[nearestIdx].x;
+        const dz = tz - playerList[nearestIdx].z;
         data.data[0] = Math.atan2(dz, dx);
       }
       if (pirate.stateTimer <= 0) {
@@ -258,11 +267,11 @@ function updatePirateAI(
   const heading = data.data[0];
   const speed = pirate.state === PirateState.Chase ? 5 :
                 pirate.state === PirateState.Flee ? 6 : 2;
-  vel.vx = Math.cos(heading) * speed;
-  vel.vz = Math.sin(heading) * speed;
+  vel.vx[row] = Math.cos(heading) * speed;
+  vel.vz[row] = Math.sin(heading) * speed;
 
   // Update health tracking
-  pirate.health = health.health;
+  pirate.health = health.health[row]!;
 }
 
 function dropLoot(pirate: PirateEntity): void {
@@ -284,4 +293,3 @@ if (import.meta.hot) {
     if (newMod) hmrSwap("ecs-pirate-system", newMod);
   });
 }
-
