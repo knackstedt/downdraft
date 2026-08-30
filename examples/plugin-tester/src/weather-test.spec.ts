@@ -170,18 +170,22 @@ describe("WeatherSystem", () => {
     it("should update wind speed towards target over time", () => {
       weather.setWeatherType(WeatherType.Storm);
       // setWeatherType doesn't set targetWindSpeed — only transitionWeather does.
-      // Tick enough to trigger a transition (duration expires), which sets a
-      // Storm target wind speed of 15-25. Then verify speed changes.
-      // Use small dt to avoid multiple transitions.
+      // transitionWeather picks a random weather type, each with its own target
+      // wind speed (2 for Clear/PartlyCloudy, 5 for Overcast/Snow, 8-12 for Rain,
+      // 15-25 for Storm/HellStorm). Trigger transitions repeatedly until one
+      // picks a target different from the current wind speed, then verify the
+      // lerp moves the speed towards it. This avoids depending on a single
+      // random roll (which could pick target=2 and show no movement).
       const initialSpeed = weather.getWindSpeed();
-      // Trigger transition by expiring duration + cooldown
-      weather.tick(10000, 0.5); // large dt to expire duration
-      // After transition, wind target changes. Tick a few more times to move towards it.
-      weather.tick(1.0, 0.5);
-      weather.tick(1.0, 0.5);
-      weather.tick(1.0, 0.5);
-      const newSpeed = weather.getWindSpeed();
-      // Wind speed should have changed from initial (2) towards the new target
+      let newSpeed = initialSpeed;
+      for (let i = 0; i < 50 && newSpeed === initialSpeed; i++) {
+        weather.tick(10000, 0.5); // expire duration + cooldown → transition
+        weather.tick(1.0, 0.5);   // lerp wind speed towards the new target
+        weather.tick(1.0, 0.5);
+        weather.tick(1.0, 0.5);
+        newSpeed = weather.getWindSpeed();
+      }
+      // Wind speed should have changed from initial (2) towards a new target
       expect(newSpeed).not.toBe(initialSpeed);
     });
 

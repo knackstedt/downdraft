@@ -326,6 +326,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@downdraft/core": "workspace:*",
+        "@downdraft/shader-graph": "workspace:*",
       },
     },
     "packages/libraries/lighting": {
@@ -428,6 +429,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@downdraft/core": "workspace:*",
+        "@downdraft/shader-graph": "workspace:*",
       },
     },
     "packages/libraries/sand": {
@@ -483,6 +485,7 @@
         "@downdraft/core": "workspace:*",
         "@downdraft/library-marching-cubes": "workspace:*",
         "@downdraft/library-weather": "workspace:*",
+        "@downdraft/shader-graph": "workspace:*",
       },
     },
     "packages/mcp": {

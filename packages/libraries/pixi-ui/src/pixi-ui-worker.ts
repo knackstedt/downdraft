@@ -30,16 +30,18 @@ if (typeof document === "undefined") {
   const origWidth = Object.getOwnPropertyDescriptor(proto, "width");
   const origHeight = Object.getOwnPropertyDescriptor(proto, "height");
   if (origWidth?.set) {
+    const origWidthSet = origWidth.set;
     Object.defineProperty(proto, "width", {
       get: origWidth.get,
-      set(v: any) { origWidth.set.call(this, Math.max(1, Math.floor(Number(v) || 1))); },
+      set(v: any) { origWidthSet.call(this, Math.max(1, Math.floor(Number(v) || 1))); },
       configurable: true,
     });
   }
   if (origHeight?.set) {
+    const origHeightSet = origHeight.set;
     Object.defineProperty(proto, "height", {
       get: origHeight.get,
-      set(v: any) { origHeight.set.call(this, Math.max(1, Math.floor(Number(v) || 1))); },
+      set(v: any) { origHeightSet.call(this, Math.max(1, Math.floor(Number(v) || 1))); },
       configurable: true,
     });
   }

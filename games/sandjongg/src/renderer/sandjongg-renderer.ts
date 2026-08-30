@@ -480,6 +480,18 @@ export class SandjonggRenderer extends GameRenderer {
     this.updateStatsFromSAB();
   }
 
+  /**
+   * Public board-state sync for MCP automation tools. Reads the current board
+   * dimensions + elements from the sim SharedArrayBuffer into the tile pass
+   * state. Needed because the render loop is paused in deterministic/test mode,
+   * so `drawFrame` (which normally calls `updateBoardFromSAB`) may not have run
+   * yet — without this, `get_game_state` reads stale `boardCols=0` even though
+   * the sim has generated the board.
+   */
+  syncBoardState(): void {
+    this.updateBoardFromSAB();
+  }
+
   private updateBoardFromSAB(): void {
     if (!this.gridReader || !this.tilePass) return;
     // Reuse cached Int32Array views to avoid per-frame allocations.

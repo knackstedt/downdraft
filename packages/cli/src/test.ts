@@ -172,15 +172,6 @@ export async function runTest(args: string[]): Promise<void> {
     env,
   });
 
-  child.on("exit", (code) => {
-    if (code === 0) {
-      log.info("test", "All tests passed.");
-    } else {
-      log.error("test", `Tests failed with exit code ${code}.`);
-    }
-    process.exit(code ?? 1);
-  });
-
   const shutdown = () => {
     try { child.kill("SIGINT"); } catch {}
     setTimeout(() => {
@@ -190,4 +181,26 @@ export async function runTest(args: string[]): Promise<void> {
   };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
+
+  // Await the child process so `draft test` blocks until the spec (and its
+  // spawned electron-vite/Electron) fully finishes + cleans up. Without this,
+  // the async function resolves immediately after spawning, `bun run` returns
+  // in ~1s while the game is still booting, and the next sequential e2e run
+  // starts concurrently — colliding on the Vite dev port (5173) and MCP port
+  // (9976), causing "Game process was killed before MCP health endpoint
+  // became ready" failures.
+  const exitCode = await new Promise<number>((resolve) => {
+    child.on("exit", (code) => resolve(code ?? 1));
+    child.on("error", (err) => {
+      log.error("test", `Failed to spawn test process: ${err.message}`);
+      resolve(1);
+    });
+  });
+
+  if (exitCode === 0) {
+    log.info("test", "All tests passed.");
+  } else {
+    log.error("test", `Tests failed with exit code ${exitCode}.`);
+  }
+  process.exit(exitCode);
 }
