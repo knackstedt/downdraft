@@ -117,15 +117,39 @@ export interface ErrorMessage {
   stack?: string;
 }
 
+/**
+ * The worker reports the bounding boxes of interactive UI regions to the host.
+ * Used by the host's pass-through mode: pointer events inside these regions
+ * are forwarded to the worker for PixiJS hit-testing; events outside are
+ * dispatched on the game canvas so the game keeps receiving input.
+ *
+ * Coordinates are in canvas pixels (top-left origin), matching the pointer
+ * event coordinate space. The host caches the latest regions and uses them
+ * for synchronous hit-testing on every pointer event.
+ */
+export interface InteractiveRegionsMessage {
+  kind: "interactiveRegions";
+  regions: Rect[];
+}
+
 export type WorkerToMainMessage =
   | ReadyMessage
   | SetInteractiveMessage
   | ActionMessage
   | SceneStateMessage
   | CaptureResultMessage
-  | ErrorMessage;
+  | ErrorMessage
+  | InteractiveRegionsMessage;
 
 // --- Shared types ---
+
+/** A rectangle in canvas pixel coordinates (top-left origin). */
+export interface Rect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
 
 /**
  * A game-specific event sent from the main thread to the worker via
@@ -194,6 +218,8 @@ export interface SerializedPixiUiConfig {
   sceneConfig?: unknown;
   /** Whether to enable PixiJS debug logging in the worker. */
   debug?: boolean;
+  /** Whether the host is in pass-through mode (interactive UI + game-canvas input). */
+  passThrough?: boolean;
 }
 
 /** Serialize a PixiUiLibConfig for postMessage (strips the scene factory fn). */
@@ -205,6 +231,7 @@ export function serializeConfig(config: PixiUiLibConfig): SerializedPixiUiConfig
     sceneExportName: config.sceneExportName,
     sceneConfig: config.sceneConfig,
     debug: config.debug ?? false,
+    passThrough: config.passThrough ?? false,
   };
 }
 

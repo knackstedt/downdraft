@@ -16,6 +16,7 @@ import {
     type PixiUiAction,
     type PixiUiEvent,
     type PointerMessage,
+    type Rect,
     type SceneStateMessage,
     type WorkerToMainMessage
 } from "./bridge-protocol";
@@ -30,6 +31,19 @@ export interface PixiUiHostOptions {
   /** CSS width/height in pixels. Default: window.innerWidth/innerHeight. */
   width?: number;
   height?: number;
+  /**
+   * Pass-through mode: the overlay canvas is always pointer-events: auto.
+   * Pointer events inside interactive regions (reported by the scene via
+   * getInteractiveRegions) are forwarded to the worker for PixiJS hit-testing;
+   * events outside all regions are dispatched as synthetic PointerEvents on
+   * the game canvas (layer 0) so the game keeps receiving mouse input.
+   *
+   * Use this for games where interactive UI elements coexist with game-canvas
+   * mouse input (e.g. a material toolbar + canvas painting). When false
+   * (default), the overlay is pointer-events: none unless the scene calls
+   * setInteractive(true) — the original modal-UI model.
+   */
+  passThrough?: boolean;
 }
 
 interface PendingQuery {
@@ -57,6 +71,9 @@ export class PixiUiHost {
   private queryCounter = 0;
   private resizeObserver: ResizeObserver | null = null;
   private canvasCreated = false;
+  private passThrough: boolean;
+  private interactiveRegions: Rect[] = [];
+  private gameCanvas: HTMLCanvasElement | null = null;
 
   /** Called when the worker requests a game action (pause, resume, save, ...). */
   onAction: ((action: PixiUiAction) => void) | null = null;
@@ -79,6 +96,7 @@ export class PixiUiHost {
     this.canvasId = config.canvasId ?? "pixi-ui-canvas";
     this.width = config.width ?? (typeof window !== "undefined" ? window.innerWidth : 1280);
     this.height = config.height ?? (typeof window !== "undefined" ? window.innerHeight : 720);
+    this.passThrough = config.passThrough ?? false;
     this.readyPromise = new Promise((resolve, reject) => {
       this.readyResolve = resolve;
       this.readyReject = reject;
@@ -119,10 +137,38 @@ export class PixiUiHost {
 
     // 1. Acquire or create the overlay canvas.
     this.canvas = this.acquireCanvas();
-    this.canvas.style.pointerEvents = "none"; // default: pass-through to game
+    // Ensure the overlay canvas is always positioned correctly, even if the
+    // game doesn't import downdraft-base.css. Without position:fixed, z-index
+    // has no effect and the canvas gets pushed below the viewport by the game
+    // canvas in normal flow.
+    this.canvas.style.position = "fixed";
+    this.canvas.style.top = "0";
+    this.canvas.style.left = "0";
+    this.canvas.style.width = "100vw";
+    this.canvas.style.height = "100vh";
+    this.canvas.style.display = "block";
+    // In pass-through mode the overlay is always interactive (pointer-events:
+    // auto); the host dispatches non-hit events to the game canvas. Otherwise
+    // default to pass-through (pointer-events: none) until the scene calls
+    // setInteractive(true).
+    this.canvas.style.pointerEvents = this.passThrough ? "auto" : "none";
+    if (this.passThrough) this.interactive = true;
     this.canvas.style.zIndex = "50"; // above game canvas (z 0), below DOM overlay (z 100)
     this.canvas.width = this.width;
     this.canvas.height = this.height;
+
+    // Ensure the game canvas (layer 0) is below the overlay. If the game
+    // doesn't import downdraft-base.css, the game canvas may lack
+    // position:fixed + z-index:0, causing stacking issues.
+    const gameCanvas = document.querySelector('canvas[data-dd-layer="0"]') as HTMLCanvasElement | null;
+    if (gameCanvas) {
+      gameCanvas.style.position = "fixed";
+      gameCanvas.style.top = "0";
+      gameCanvas.style.left = "0";
+      gameCanvas.style.width = "100vw";
+      gameCanvas.style.height = "100vh";
+      gameCanvas.style.zIndex = "0";
+    }
 
     // 2. Allocate the UiStatsSAB.
     this.uiStatsSab = allocateUiStatsSab(this.config.statsLayout!);
@@ -166,6 +212,21 @@ export class PixiUiHost {
 
     // 6. Wire pointer event forwarding (only active when interactive).
     this.wirePointerEvents();
+
+    // 6b. Wire keyboard event forwarding. Keyboard events are forwarded to
+    //     the worker as PixiUiEvents ({ kind: "keydown"/"keyup", key, code, ... })
+    //     so scenes can handle menu shortcuts (ESC, I, P, ...). The host does
+    //     NOT consume the events — the game's own keydown listeners still fire.
+    this.wireKeyEvents();
+
+    // In pass-through mode, find the game canvas (layer 0) for forwarding
+    // non-hit pointer events. Look up after a microtask so the framework's
+    // canvas creation has settled.
+    if (this.passThrough) {
+      queueMicrotask(() => {
+        this.gameCanvas = document.querySelector('canvas[data-dd-layer="0"]');
+      });
+    }
 
     // 7. Observe canvas size changes → forward resize to worker.
     if (typeof ResizeObserver !== "undefined") {
@@ -278,6 +339,7 @@ export class PixiUiHost {
       window.removeEventListener("resize", this.handleResize);
     }
     this.unwirePointerEvents();
+    this.unwireKeyEvents();
     if (this.canvasCreated && this.canvas?.parentNode) {
       this.canvas.parentNode.removeChild(this.canvas);
     }
@@ -335,13 +397,21 @@ export class PixiUiHost {
       case "action":
         this.onAction?.(msg.action);
         break;
-      case "sceneState":
+      case "sceneState": {
+        const pending = this.pendingQueries.get(msg.requestId);
+        if (pending) {
+          clearTimeout(pending.timer);
+          this.pendingQueries.delete(msg.requestId);
+          pending.resolve(msg.state);
+        }
+        break;
+      }
       case "captureResult": {
         const pending = this.pendingQueries.get(msg.requestId);
         if (pending) {
           clearTimeout(pending.timer);
           this.pendingQueries.delete(msg.requestId);
-          pending.resolve(msg);
+          pending.resolve({ png: msg.png, width: msg.width, height: msg.height });
         }
         break;
       }
@@ -349,11 +419,19 @@ export class PixiUiHost {
         console.error(`[PixiUI worker] ${msg.message}`, msg.stack ?? "");
         if (!this.ready) this.readyReject(new Error(msg.message));
         break;
+      case "interactiveRegions":
+        this.interactiveRegions = msg.regions;
+        break;
     }
   }
 
   private applyInteractive(interactive: boolean): void {
     if (this.interactive === interactive) return;
+    // In pass-through mode, the overlay is always interactive (pointer-events:
+    // auto) — the host filters by interactive region before forwarding. Ignore
+    // setInteractive requests from the worker so the overlay stays clickable
+    // (e.g. a pause button during gameplay) and forwardPointer keeps working.
+    if (this.passThrough) return;
     this.interactive = interactive;
     if (this.canvas) {
       this.canvas.style.pointerEvents = interactive ? "auto" : "none";
@@ -379,6 +457,44 @@ export class PixiUiHost {
   private onPointerUp = (e: PointerEvent): void => this.forwardPointer("pointerup", e);
   private onPointerLeave = (e: PointerEvent): void => this.forwardPointer("pointerleave", e);
 
+  // ── Keyboard event forwarding ──
+  //
+  // Forward keydown/keyup to the worker as PixiUiEvents so scenes can handle
+  // menu shortcuts (ESC, I, P, ...). The host does NOT preventDefault or
+  // stopPropagation — the game's own keyboard listeners still receive the
+  // events. Auto-repeat keydowns are skipped to reduce postMessage traffic.
+
+  private onKeyDown = (e: KeyboardEvent): void => {
+    if (e.repeat) return;
+    this.postEvent({
+      kind: "keydown",
+      key: e.key,
+      code: e.code,
+      modifiers: (e.shiftKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.altKey ? 4 : 0) | (e.metaKey ? 8 : 0),
+    });
+  };
+
+  private onKeyUp = (e: KeyboardEvent): void => {
+    this.postEvent({
+      kind: "keyup",
+      key: e.key,
+      code: e.code,
+      modifiers: (e.shiftKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.altKey ? 4 : 0) | (e.metaKey ? 8 : 0),
+    });
+  };
+
+  private wireKeyEvents(): void {
+    if (typeof window === "undefined") return;
+    window.addEventListener("keydown", this.onKeyDown);
+    window.addEventListener("keyup", this.onKeyUp);
+  }
+
+  private unwireKeyEvents(): void {
+    if (typeof window === "undefined") return;
+    window.removeEventListener("keydown", this.onKeyDown);
+    window.removeEventListener("keyup", this.onKeyUp);
+  }
+
   private wirePointerEvents(): void {
     // Always attached to the canvas; forwardPointer() checks interactive.
     // We attach to canvas (not window) so events only fire when the canvas
@@ -389,6 +505,14 @@ export class PixiUiHost {
     c.addEventListener("pointermove", this.onPointerMove);
     c.addEventListener("pointerup", this.onPointerUp);
     c.addEventListener("pointerleave", this.onPointerLeave);
+    // In pass-through mode the overlay captures right-clicks that would
+    // otherwise reach the game canvas beneath. Suppress the browser context
+    // menu for clicks outside interactive regions so games that use
+    // right-drag for input (e.g. sandjongg panning) keep working. Clicks
+    // inside interactive regions (UI elements) keep the default menu.
+    if (this.passThrough) {
+      c.addEventListener("contextmenu", this.onContextMenu);
+    }
   }
 
   private unwirePointerEvents(): void {
@@ -398,19 +522,96 @@ export class PixiUiHost {
     c.removeEventListener("pointermove", this.onPointerMove);
     c.removeEventListener("pointerup", this.onPointerUp);
     c.removeEventListener("pointerleave", this.onPointerLeave);
+    c.removeEventListener("contextmenu", this.onContextMenu);
   }
+
+  private onContextMenu = (e: MouseEvent): void => {
+    if (!this.canvas) return;
+    const rect = this.canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const inRegion = this.interactiveRegions.some(
+      (r) => x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height,
+    );
+    if (!inRegion) e.preventDefault();
+  };
 
   private forwardPointer(type: PointerMessage["type"], e: PointerEvent): void {
     if (!this.interactive || !this.worker) return;
     const rect = this.canvas!.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    // In pass-through mode, check if the event is inside an interactive
+    // region. If yes, forward to the worker for PixiJS hit-testing. If no,
+    // dispatch a synthetic PointerEvent on the game canvas so the game keeps
+    // receiving mouse input (e.g. painting on the game canvas).
+    if (this.passThrough) {
+      const inRegion = this.interactiveRegions.some(
+        (r) => x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height,
+      );
+      if (!inRegion) {
+        this.dispatchOnGameCanvas(type, e);
+        return;
+      }
+    }
+
     const msg: MainToWorkerMessage = {
       kind: "pointer",
       type,
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
+      x,
+      y,
       button: e.button,
       modifiers: (e.shiftKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.altKey ? 4 : 0) | (e.metaKey ? 8 : 0),
     };
     this.worker.postMessage(msg);
+  }
+
+  /**
+   * Dispatch a synthetic PointerEvent on the element beneath the overlay
+   * canvas so the game receives mouse input that didn't hit a PixiUI
+   * interactive region. Used in pass-through mode.
+   *
+   * Games may stack multiple canvases below the overlay (e.g. sandjongg has
+   * a Canvas2D tile-selection canvas at z-index 10 above the WebGPU sand
+   * canvas at z-index 0). Rather than hardcoding a specific canvas, we use
+   * document.elementsFromPoint() to find the topmost element at the event
+   * coordinates that is NOT the overlay canvas — i.e. what would have
+   * received the event if the overlay had pointer-events: none. This handles
+   * any number of stacked canvases correctly.
+   */
+  private dispatchOnGameCanvas(type: PointerMessage["type"], e: PointerEvent): void {
+    const overlay = this.canvas;
+    let target: Element | null = null;
+    if (typeof document !== "undefined" && typeof document.elementsFromPoint === "function") {
+      const stack = document.elementsFromPoint(e.clientX, e.clientY);
+      for (const el of stack) {
+        if (el !== overlay) { target = el; break; }
+      }
+    }
+    // Fallback to the cached game canvas (layer 0) if elementsFromPoint
+    // didn't yield a target (e.g. the event is off-screen).
+    if (!target) target = this.gameCanvas;
+    if (!target) return;
+    const rect = (target as HTMLElement).getBoundingClientRect();
+    // Only dispatch if the event is within the target's bounds.
+    if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) {
+      return;
+    }
+    const synthetic = new PointerEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      pointerId: e.pointerId,
+      pointerType: e.pointerType,
+      clientX: e.clientX,
+      clientY: e.clientY,
+      button: e.button,
+      buttons: e.buttons,
+      shiftKey: e.shiftKey,
+      ctrlKey: e.ctrlKey,
+      altKey: e.altKey,
+      metaKey: e.metaKey,
+    });
+    (target as EventTarget).dispatchEvent(synthetic);
   }
 }

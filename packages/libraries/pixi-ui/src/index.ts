@@ -32,7 +32,7 @@
 // ============================================================================
 
 // Engine library descriptor + DI token
-export { PixiUiLib, PixiUiHostTok } from "./library";
+export { PixiUiHostTok, PixiUiLib } from "./library";
 export type { PixiUiLibConfig, UiStatsLayout } from "./library";
 
 // Main-thread host
@@ -41,46 +41,44 @@ export type { PixiUiHostOptions } from "./host";
 
 // UiStatsSAB helpers (for direct reads by MCP tools / debug)
 export {
-  allocateUiStatsSab,
-  buildSlotMap,
-  readFrameCounter,
-  readUiStat,
-  readUiStats,
-  validateUiStatsSab,
-  writeUiStats,
-  HEADER_BYTES,
-  MAGIC,
-  VERSION,
+    allocateUiStatsSab,
+    buildSlotMap, HEADER_BYTES,
+    MAGIC, readFrameCounter,
+    readUiStat,
+    readUiStats,
+    validateUiStatsSab, VERSION, writeUiStats
 } from "./ui-stats-sab";
 
 // Bridge protocol types (for game event/action definitions)
 export {
-  DEFAULT_STATS_LAYOUT,
-  isInitMessage,
-  serializeConfig,
+    DEFAULT_STATS_LAYOUT,
+    isInitMessage,
+    serializeConfig
 } from "./bridge-protocol";
 export type {
-  CaptureResultMessage,
-  InitMessage,
-  MainToWorkerMessage,
-  PixiUiAction,
-  PixiUiEvent,
-  PointerMessage,
-  ReadyMessage,
-  SceneNodeSummary,
-  SceneStateMessage,
-  SceneStateSummary,
-  SerializedPixiUiConfig,
-  SetInteractiveMessage,
-  WorkerToMainMessage,
+    CaptureResultMessage,
+    InitMessage,
+    InteractiveRegionsMessage,
+    MainToWorkerMessage,
+    PixiUiAction,
+    PixiUiEvent,
+    PointerMessage,
+    ReadyMessage,
+    Rect,
+    SceneNodeSummary,
+    SceneStateMessage,
+    SceneStateSummary,
+    SerializedPixiUiConfig,
+    SetInteractiveMessage,
+    WorkerToMainMessage
 } from "./bridge-protocol";
 
 // Scene interface (games implement PixiUiScene)
 export type {
-  PixiUiScene,
-  PixiUiSceneContext,
-  PixiUiSceneFactory,
-  PixiUiUpdateData,
+    PixiUiScene,
+    PixiUiSceneContext,
+    PixiUiSceneFactory,
+    PixiUiUpdateData
 } from "./scene";
 
 // MCP automation tools

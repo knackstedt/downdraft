@@ -12,11 +12,11 @@
 
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import {
-  launchGame,
-  parseJsonContent,
-  sleep,
-  type GameProcess,
-  type McpToolResult,
+    launchGame,
+    parseJsonContent,
+    sleep,
+    type GameProcess,
+    type McpToolResult,
 } from "./harness";
 
 const MCP_PORT = parseInt(process.env.MCP_PORT ?? "9986", 10);
@@ -116,18 +116,18 @@ describe("pixi-ui-demo MCP automation smoke", () => {
     // Ensure interactive mode is on (so pointer events reach PixiJS).
     await game!.mcpClient.callTool("pixi_set_interactive", { interactive: true });
 
-    // The pause button is at (16, 80) with size 100x32.
-    // Click at the center: (66, 96).
+    // The pause button is at (16, 112) with size 120x36.
+    // Click at the center: (76, 130).
     await game!.mcpClient.callTool("pixi_dispatch_pointer", {
       type: "pointerdown",
-      x: 66,
-      y: 96,
+      x: 76,
+      y: 130,
       button: 0,
     });
     await game!.mcpClient.callTool("pixi_dispatch_pointer", {
       type: "pointerup",
-      x: 66,
-      y: 96,
+      x: 76,
+      y: 130,
       button: 0,
     });
 

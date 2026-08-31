@@ -54,7 +54,24 @@ if (typeof document === "undefined") {
       if (tag === "canvas") return new OffscreenCanvas(1, 1);
       return {};
     },
+    // PixiJS's isRenderingToScreen() calls document.body.contains(resource).
+    // In a worker, there's no DOM body — stub contains() to return false so
+    // PixiJS treats OffscreenCanvas renders as off-screen (which is correct).
+    body: { contains(_node: any): boolean { return false; } },
+    // Some libraries check document.documentElement for viewport sizing.
+    documentElement: { clientWidth: 1280, clientHeight: 720 },
   };
+}
+// React 19 references `window` during module init + useSyncExternalStore.
+// In a worker, `window` doesn't exist — alias it to `self`.
+if (typeof (self as any).window === "undefined") {
+  (self as any).window = self;
+}
+// @vitejs/plugin-react injects $RefreshReg$ / $RefreshSig$ calls for Fast
+// Refresh (HMR). These globals don't exist in a worker — stub them as no-ops.
+if (typeof (self as any).$RefreshReg$ === "undefined") {
+  (self as any).$RefreshReg$ = () => {};
+  (self as any).$RefreshSig$ = () => (fn: any) => fn;
 }
 // PixiJS v8 references these globals as type guards / fallback detection.
 // They don't exist in a worker; stub them so the WebGL/WebGPU path is taken.
@@ -66,17 +83,57 @@ if (typeof (self as any).HTMLCanvasElement === "undefined") {
 }
 
 import { Application, Container, Text, type Ticker } from "pixi.js";
+// Side-effect import: registers the EventSystem as a renderer extension so
+// that `app.renderer.events` is available. Without this, PixiJS v8's
+// tree-shaking omits the EventSystem and pointer hit-testing doesn't work.
+import "pixi.js/events";
 import {
     type InitMessage,
     type MainToWorkerMessage,
     type PixiUiAction,
     type PixiUiEvent,
+    type Rect,
     type SceneNodeSummary,
     type SerializedPixiUiConfig,
     type WorkerToMainMessage,
 } from "./bridge-protocol";
 import type { PixiUiScene, PixiUiSceneContext, PixiUiSceneFactory } from "./scene";
 import { readUiStats, validateUiStatsSab } from "./ui-stats-sab";
+
+// ── Worker environment stubs ──
+//
+// PixiJS's EventSystem._addEvents() registers DOM event listeners on
+// globalThis.document and globalThis — neither exists in a Web Worker.
+// We stub them with no-op addEventListener/removeEventListener so the
+// EventSystem is created (giving us `renderer.events` for hit-testing)
+// without crashing. We dispatch pointer events manually via _onPointerDown
+// etc., so the DOM listeners are unnecessary.
+//
+// These MUST be set at module level (before handleInit runs) so they're
+// in place when Application.init() triggers EventSystem.init().
+
+if (typeof (globalThis as any).document === "undefined" || typeof (globalThis as any).document?.addEventListener !== "function") {
+  (globalThis as any).document = {
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => true,
+    // PixiJS text rendering calls document.createElement('canvas') to get a
+    // 2D canvas for rasterizing text. In a worker, we return an OffscreenCanvas
+    // which supports getContext('2d') with the needed APIs (resetTransform, etc).
+    createElement: (tag: string) => {
+      if (tag.toLowerCase() === "canvas") return new OffscreenCanvas(1, 1);
+      return { style: {}, getContext: () => null };
+    },
+    // PixiJS's isRenderingToScreen() checks document.body.contains(canvas).
+    // In a worker, we're always rendering to the OffscreenCanvas (the "screen"),
+    // so return true from contains().
+    body: { contains: () => true },
+    style: {},
+  };
+}
+if (typeof (globalThis as any).window === "undefined") {
+  (globalThis as any).window = globalThis;
+}
 
 let app: Application | null = null;
 let scene: PixiUiScene | null = null;
@@ -106,8 +163,34 @@ function postAction(action: PixiUiAction): void {
 }
 
 function postSetInteractive(value: boolean): void {
+  // Skip if unchanged — scenes may call setInteractive() every frame in
+  // their sync/update loop, and posting an identical message each frame is
+  // wasteful (the host's applyInteractive also short-circuits, but the
+  // postMessage boundary crossing itself is the cost we avoid here).
+  if (interactive === value) return;
   interactive = value;
   postToMain({ kind: "setInteractive", interactive: value });
+}
+
+// ── Interactive regions reporting (for pass-through hit-testing) ──
+
+let lastRegionsKey = "";
+
+function postInteractiveRegionsIfChanged(): void {
+  if (!scene?.getInteractiveRegions) return;
+  let regions: Rect[];
+  try {
+    regions = scene.getInteractiveRegions();
+  } catch {
+    return;
+  }
+  // Serialize to a compact key for change detection (avoid posting every frame
+  // when regions are static). Rounding to integers keeps the key stable across
+  // sub-pixel layout jitter.
+  const key = regions.map((r) => `${Math.round(r.x)},${Math.round(r.y)},${Math.round(r.width)},${Math.round(r.height)}`).join("|");
+  if (key === lastRegionsKey) return;
+  lastRegionsKey = key;
+  postToMain({ kind: "interactiveRegions", regions });
 }
 
 // ── Error handling ──
@@ -121,8 +204,14 @@ self.addEventListener("unhandledrejection", (e: PromiseRejectionEvent) => {
 });
 
 // ── Message handler ──
+//
+// IMPORTANT: We use self.addEventListener("message", ...) instead of
+// self.onmessage = ... because PixiJS's internal worker code (e.g.
+// loadImageBitmap worker) overwrites self.onmessage during Application.init().
+// addEventListener handlers cannot be overwritten by assignment, so our
+// message handler survives the PixiJS init.
 
-self.onmessage = async (e: MessageEvent<MainToWorkerMessage>) => {
+const messageHandler = async (e: MessageEvent<MainToWorkerMessage>) => {
   const msg = e.data;
   try {
     switch (msg.kind) {
@@ -153,6 +242,8 @@ self.onmessage = async (e: MessageEvent<MainToWorkerMessage>) => {
   }
 };
 
+self.addEventListener("message", messageHandler as (e: MessageEvent) => void);
+
 // ── Init ──
 
 async function handleInit(msg: InitMessage): Promise<void> {
@@ -165,6 +256,7 @@ async function handleInit(msg: InitMessage): Promise<void> {
   // Create the PIXI.Application on the transferred OffscreenCanvas.
   // PixiJS v8 Application.init() is async; we use the static async factory.
   const preference = msg.config.backend === "webgpu" ? "webgpu" : msg.config.backend === "auto" ? undefined : "webgl";
+
   try {
     app = new Application();
     await app.init({
@@ -184,6 +276,14 @@ async function handleInit(msg: InitMessage): Promise<void> {
 
   const backend = (app.renderer as any).name ?? msg.config.backend ?? "unknown";
   if (config?.debug) postError(`[PixiUI] Backend: ${backend}`); // reuse error channel for debug logs
+
+  // In pass-through mode, the overlay is always interactive (the host sets
+  // pointer-events: auto). Set the worker's interactive flag to match so
+  // handlePointer doesn't return early. The scene can still toggle this off
+  // via ctx.setInteractive(false) if needed.
+  if (msg.config.passThrough) {
+    interactive = true;
+  }
 
   // Build the scene.
   const sceneCtx: PixiUiSceneContext = {
@@ -210,7 +310,7 @@ async function handleInit(msg: InitMessage): Promise<void> {
       if (typeof factory !== "function") {
         throw new Error(`Scene module "${msg.config.sceneModuleUrl}" export "${exportName}" is not a function`);
       }
-      scene = factory(sceneCtx);
+      scene = await factory(sceneCtx);
     } else {
       scene = createDefaultScene(sceneCtx);
     }
@@ -224,6 +324,11 @@ async function handleInit(msg: InitMessage): Promise<void> {
   startTime = performance.now();
   lastTime = startTime;
   if (app.ticker) {
+    // Remove the Application's automatic render callback from the ticker.
+    // If app.render() throws (e.g., WebGL context issues on OffscreenCanvas),
+    // the uncaught error would stop the ticker. We handle rendering ourselves
+    // in tick() with proper error handling.
+    app.ticker.remove(app.render, app);
     app.ticker.add((_ticker: Ticker) => tick());
   } else {
     // Fallback: manual rAF loop (shouldn't be needed in v8, but defensive).
@@ -243,29 +348,56 @@ let disposed = false;
 
 function tick(): void {
   if (!scene || !config || !uiStatsSab) return;
-  const now = performance.now();
-  const dt = (now - lastTime) / 1000;
-  lastTime = now;
-  const elapsedTime = (now - startTime) / 1000;
-
-  // Read per-frame scalars from the SAB.
-  const stats = readUiStats(uiStatsSab, config.statsLayout);
-
-  // Drain queued events.
-  const events = eventQueue;
-  eventQueue = [];
-
   try {
-    scene.update({ stats, events, dt, elapsedTime });
+    const now = performance.now();
+    const dt = (now - lastTime) / 1000;
+    lastTime = now;
+    const elapsedTime = (now - startTime) / 1000;
+
+    // Read per-frame scalars from the SAB.
+    const stats = readUiStats(uiStatsSab, config.statsLayout);
+
+    // Drain queued events.
+    const events = eventQueue;
+    eventQueue = [];
+
+    try {
+      scene.update({ stats, events, dt, elapsedTime });
+    } catch (err) {
+      postError(`Scene update error: ${(err as Error).message}`, (err as Error).stack);
+    }
+
+    // Render the PIXI stage to the OffscreenCanvas. We handle this here
+    // (instead of letting the Application's TickerPlugin do it) so that
+    // render errors are caught and don't stop the ticker.
+    try {
+      app?.render();
+    } catch (err) {
+      postError(`Render error: ${(err as Error).message}`, (err as Error).stack);
+    }
+
+    // After each update, report interactive regions to the host (for
+    // pass-through hit-testing). Only post if the regions changed since the
+    // last frame to avoid flooding the message channel.
+    postInteractiveRegionsIfChanged();
   } catch (err) {
-    postError(`Scene update error: ${(err as Error).message}`, (err as Error).stack);
+    // Catch ALL errors in tick to prevent the PixiJS ticker from stopping.
+    // If an uncaught error reaches the ticker's rAF callback, the ticker
+    // stops requesting new frames and the worker becomes unresponsive.
+    postError(`Tick error: ${(err as Error).message}`, (err as Error).stack);
   }
 }
 
 // ── Pointer handling ──
 
 function handlePointer(msg: { type: string; x: number; y: number; button: number; modifiers: number }): void {
-  if (!app || !interactive) return;
+  if (!app) return;
+  // In pass-through mode, the host already filters events by interactive
+  // region before forwarding — always process forwarded events. In
+  // non-pass-through mode, gate on the interactive flag (the host only
+  // forwards when the canvas has pointer-events: auto, but this is a safety
+  // check for the worker's own setInteractive state).
+  if (!interactive && !config?.passThrough) return;
   // PixiJS v8 event system: synthesize a pointer event on the renderer's canvas.
   // The EventSystem is automatically created by Application.init() when a canvas
   // is provided. We use the renderer's eventSystem to dispatch.
@@ -273,11 +405,22 @@ function handlePointer(msg: { type: string; x: number; y: number; button: number
   const eventSystem = renderer?.events;
   if (!eventSystem) return;
 
+  // PixiJS v8's EventSystem handler methods are underscore-prefixed:
+  //   _onPointerDown, _onPointerMove, _onPointerUp, _onPointerOverOut
+  // They are bound in the constructor and registered as DOM event listeners.
+  // We call them directly with a synthetic event.
+
   // Build a minimal PointerEvent-like object for PixiJS's EventSystem.
-  // PixiJS v8's EventSystem.onPointerDown etc. expect a native PointerEvent.
-  // Since we're in a worker, we construct a synthetic event and call the
-  // appropriate handler directly.
+  // The synthetic event must include `target` and `composedPath` because
+  // _onPointerUp checks `nativeEvent.target !== this.domElement` to decide
+  // whether the pointerup is "outside" (which prevents click registration).
+  const domElement = eventSystem.domElement;
   const syntheticEvent = {
+    // `type` is read by _bootstrapEvent: it checks event.type.startsWith("mouse")
+    // and replaces "mouse" with "pointer". We pass "pointerdown" etc. directly
+    // since supportsPointerEvents may be false (no globalThis.PointerEvent in
+    // a worker), which would route through the MouseEvent normalization path.
+    type: msg.type,
     pointerId: 1,
     pointerType: "mouse",
     clientX: msg.x,
@@ -297,17 +440,31 @@ function handlePointer(msg: { type: string; x: number; y: number; button: number
     offsetY: msg.y,
     pageX: msg.x,
     pageY: msg.y,
+    // _onPointerUp checks target === domElement to determine if the pointerup
+    // is "inside" (enabling click). Without these, pointerup becomes
+    // "pointerupoutside" and clicks never fire.
+    target: domElement,
+    composedPath: () => [domElement],
+    cancelable: true,
+    isPrimary: true,
+    width: 1,
+    height: 1,
+    tiltX: 0,
+    tiltY: 0,
+    pressure: 0.5,
+    twist: 0,
+    tangentialPressure: 0,
   };
 
   try {
-    if (msg.type === "pointerdown") eventSystem.onPointerDown(syntheticEvent as any);
-    else if (msg.type === "pointermove") eventSystem.onPointerMove(syntheticEvent as any);
-    else if (msg.type === "pointerup") eventSystem.onPointerUp(syntheticEvent as any);
-    else if (msg.type === "pointerleave") eventSystem.onPointerOut(syntheticEvent as any);
+    if (msg.type === "pointerdown") eventSystem._onPointerDown(syntheticEvent as any);
+    else if (msg.type === "pointermove") eventSystem._onPointerMove(syntheticEvent as any);
+    else if (msg.type === "pointerup") eventSystem._onPointerUp(syntheticEvent as any);
+    else if (msg.type === "pointerleave") eventSystem._onPointerOverOut(syntheticEvent as any);
   } catch (err) {
     // PixiJS event system can throw if the synthetic event shape is slightly off.
     // Log but don't crash the worker.
-    if (config?.debug) postError(`Pointer dispatch error: ${(err as Error).message}`);
+    postError(`Pointer dispatch error: ${(err as Error).message}`, (err as Error).stack);
   }
 }
 
@@ -317,17 +474,26 @@ function handleResize(width: number, height: number): void {
   if (!app?.renderer) return;
   app.renderer.resize(width, height);
   scene?.resize?.(width, height);
+  // Layout may have shifted — force a regions update on the next tick by
+  // clearing the cache so postInteractiveRegionsIfChanged re-posts.
+  lastRegionsKey = "";
 }
 
 // ── Scene state query (for MCP) ──
 
 function handleQueryScene(requestId: number): void {
-  const nodes = scene?.summarize?.() ?? summarizeScene(scene?.root ?? null);
-  postToMain({
-    kind: "sceneState",
-    requestId,
-    state: { nodes, interactive, backend: (app?.renderer as any)?.name ?? config?.backend ?? "unknown" },
-  });
+  try {
+    const nodes = scene?.summarize?.() ?? summarizeScene(scene?.root ?? null);
+    postToMain({
+      kind: "sceneState",
+      requestId,
+      state: { nodes, interactive, backend: (app?.renderer as any)?.name ?? config?.backend ?? "unknown" },
+    });
+  } catch (err) {
+    postError(`queryScene error: ${(err as Error).message}`, (err as Error).stack);
+    // Still respond so the host doesn't time out
+    postToMain({ kind: "sceneState", requestId, state: { nodes: [], interactive, backend: "error" } });
+  }
 }
 
 function summarizeScene(root: Container | null): SceneNodeSummary[] {
@@ -392,6 +558,7 @@ function handleDispose(): void {
   app = null;
   uiStatsSab = null;
   config = null;
+  lastRegionsKey = "";
 }
 
 // ── Default scene (when no sceneModuleUrl configured) ──
