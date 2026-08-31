@@ -86,6 +86,20 @@
       "filePattern": "games/sandjongg/**"
     },
     {
+      "label": "Dev: Visual Test Bench",
+      "type": "shell",
+      "command": "for p in $(pgrep -f \"user-data-dir=[^ ]*downdraft-visual-test-bench\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -TERM -\"$pgid\" 2>/dev/null; done; sleep 1; for p in $(pgrep -f \"user-data-dir=[^ ]*downdraft-visual-test-bench\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -9 -\"$pgid\" 2>/dev/null; done; npx electron-vite dev --config games/visual-test-bench/electron.vite.config.ts",
+      "runOptions": {
+        "instanceLimit": 2
+      },
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "isBackground": true,
+      "problemMatcher": [],
+      "filePattern": "games/visual-test-bench/**"
+    },
+    {
       "label": "Android: Sandjongg",
       "detail": "Build web bundle, assemble debug APK via Gradle, install + launch on connected device or emulator",
       "type": "shell",
