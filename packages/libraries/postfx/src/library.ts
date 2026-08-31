@@ -2,14 +2,15 @@
 // PostfxLib — declarative engine library descriptor for @downdraft/library-postfx
 //
 // Games declare `libraries: [PostfxLib]` (or with config override) in their
-// GameModule. The host creates the PixelationSystem and/or GaussianBlurSystem
-// (renderer-side) and exposes them via typed tokens.
+// GameModule. The host creates the PixelationSystem, GaussianBlurSystem,
+// and/or AsciiSystem (renderer-side) and exposes them via typed tokens.
 //
 // Games that need full control can still import the systems directly
 // (escape hatch).
 // ============================================================================
 
 import { resourceToken, type EngineLibrary } from "@downdraft/core";
+import { AsciiSystem } from "./ascii";
 import { GaussianBlurSystem } from "./gaussian-blur";
 import { PixelationSystem } from "./pixelation";
 
@@ -30,6 +31,14 @@ export interface PostfxLibConfig {
   gaussianBlurRadius?: number;
   /** Whether the Gaussian blur is enabled on startup. Default: false. */
   gaussianBlurEnabled?: boolean;
+  /** Whether to create the AsciiSystem. Default: false. */
+  ascii?: boolean;
+  /** Grid cell size in pixels for the ASCII effect. Default: 8. */
+  asciiCellSize?: number;
+  /** Whether the ASCII effect uses color (vs. green terminal). Default: false. */
+  asciiUseColor?: boolean;
+  /** Whether the ASCII effect is enabled on startup. Default: false. */
+  asciiEnabled?: boolean;
 }
 
 // ── Typed tokens (DI) ──
@@ -40,13 +49,16 @@ export const PostfxTok = resourceToken<PixelationSystem>("postfx:pixelation");
 /** Token for the renderer-side Gaussian blur post-process system. Inject in renderer passes. */
 export const GaussianBlurTok = resourceToken<GaussianBlurSystem>("postfx:gaussian-blur");
 
+/** Token for the renderer-side ASCII post-process system. Inject in renderer passes. */
+export const AsciiTok = resourceToken<AsciiSystem>("postfx:ascii");
+
 // ── Descriptor ──
 
 export const PostfxLib: EngineLibrary<PostfxLibConfig> = {
   name: "postfx",
   version: "1.0.0",
 
-  provides: [PostfxTok, GaussianBlurTok],
+  provides: [PostfxTok, GaussianBlurTok, AsciiTok],
 
   // Renderer-side only — no sim system.
 
@@ -69,13 +81,28 @@ export const PostfxLib: EngineLibrary<PostfxLibConfig> = {
         ctx.provide(GaussianBlurTok, blur);
       }
 
-      // Return a composite so dispose() can clean up both systems.
-      return { pixelation, blur };
+      let ascii: AsciiSystem | null = null;
+      if (config.ascii) {
+        ascii = new AsciiSystem(ctx.device, ctx.format);
+        ascii.init();
+        ascii.setCellSize(config.asciiCellSize ?? 8);
+        ascii.setUseColor(config.asciiUseColor ?? false);
+        ascii.setEnabled(config.asciiEnabled ?? false);
+        ctx.provide(AsciiTok, ascii);
+      }
+
+      // Return a composite so dispose() can clean up all systems.
+      return { pixelation, blur, ascii };
     },
     dispose(instance) {
-      const { pixelation, blur } = instance as { pixelation: PixelationSystem; blur: GaussianBlurSystem | null };
+      const { pixelation, blur, ascii } = instance as {
+        pixelation: PixelationSystem;
+        blur: GaussianBlurSystem | null;
+        ascii: AsciiSystem | null;
+      };
       pixelation.destroy();
       blur?.destroy();
+      ascii?.destroy();
     },
   },
 
@@ -87,5 +114,9 @@ export const PostfxLib: EngineLibrary<PostfxLibConfig> = {
     gaussianBlur: false,
     gaussianBlurRadius: 4,
     gaussianBlurEnabled: false,
+    ascii: false,
+    asciiCellSize: 8,
+    asciiUseColor: false,
+    asciiEnabled: false,
   },
 };
