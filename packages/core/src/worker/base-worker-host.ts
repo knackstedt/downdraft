@@ -84,6 +84,9 @@ export abstract class BaseWorkerHost<TApi extends WorkerApi> {
       this.syncHost.start();
     }
 
+    // Hook for subclasses to run setup before onInit (e.g. attaching profiling SAB).
+    await this.beforeInit();
+
     await this.onInit();
   }
 
@@ -132,6 +135,16 @@ export abstract class BaseWorkerHost<TApi extends WorkerApi> {
    *   await this.proxy!.proxy.init(this.sab, this.gridW, this.gridH);
    */
   protected abstract onInit(): Promise<void>;
+
+  /**
+   * Override to run setup before onInit(). Called after the worker is spawned
+   * and the proxy is set up, but before onInit(). InstrumentedWorkerHost uses
+   * this to attach the ProfilingSAB + patch prototypes before user code runs.
+   * Default: no-op.
+   */
+  protected beforeInit(): Promise<void> {
+    return Promise.resolve();
+  }
 
   /**
    * Override to declare buffer sync regions for the SAB polyfill (mobile).

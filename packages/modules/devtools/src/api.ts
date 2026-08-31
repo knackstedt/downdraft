@@ -15,6 +15,8 @@
 // API works in both realms.
 // ============================================================================
 
+import type { DebugViewDescriptor } from "./debug-view-descriptors";
+import { BUILTIN_VIEW_DESCRIPTORS } from "./debug-view-descriptors";
 import type { IDevToolsOverlayToggle, IDevToolsPanelExtension } from "./types";
 
 // --- Realm detection ---
@@ -146,6 +148,18 @@ export interface DevToolsAPI {
   /** Get the SAB layout. */
   getSABLayout(): DevToolsSABLayout | null;
 
+  // --- Profiling SAB management ---
+  /** Attach the global ProfilingSAB (renderer realm). Shared with all workers. */
+  attachProfilingSAB(sab: SharedArrayBuffer): void;
+  /** Get the global ProfilingSAB (shared with the profiler overlay + workers). */
+  getProfilingSAB(): SharedArrayBuffer | null;
+
+  // --- Debug view registration ---
+  /** Register a debug view descriptor (for the profiler overlay). */
+  registerView(view: DebugViewDescriptor): void;
+  /** Get all registered view descriptors (built-in + custom). */
+  getViews(): DebugViewDescriptor[];
+
   // --- Manifest (renderer fetches from worker via IPC) ---
   /** Get the full manifest: panels, toggles, data feed names, commands, SAB stats. */
   getManifest(): DevToolsManifest;
@@ -195,6 +209,9 @@ class DevToolsAPIImpl implements DevToolsAPI {
   private sabU8: Uint8Array | null = null;
   private sabF32: Float32Array | null = null;
   private sabI32: Int32Array | null = null;
+
+  private profilingSAB: SharedArrayBuffer | null = null;
+  private views = new Map<string, DebugViewDescriptor>();
 
   private manifestVersion = 0;
 
@@ -259,6 +276,27 @@ class DevToolsAPIImpl implements DevToolsAPI {
 
   getSABLayout(): DevToolsSABLayout | null {
     return this.sabLayout;
+  }
+
+  attachProfilingSAB(sab: SharedArrayBuffer): void {
+    this.profilingSAB = sab;
+  }
+
+  getProfilingSAB(): SharedArrayBuffer | null {
+    return this.profilingSAB;
+  }
+
+  registerView(view: DebugViewDescriptor): void {
+    this.views.set(view.id, view);
+    this.bumpManifest();
+  }
+
+  getViews(): DebugViewDescriptor[] {
+    // Merge built-in views with custom ones (custom takes precedence on id collision)
+    const merged = new Map<string, DebugViewDescriptor>();
+    for (const v of BUILTIN_VIEW_DESCRIPTORS) merged.set(v.id, v);
+    for (const v of this.views.values()) merged.set(v.id, v);
+    return Array.from(merged.values()).sort((a, b) => (a.order ?? 100) - (b.order ?? 100));
   }
 
   getManifest(): DevToolsManifest {
@@ -365,6 +403,8 @@ class DevToolsAPIImpl implements DevToolsAPI {
     this.dataFeedNames = [];
     this.commands.clear();
     this.sabStats.clear();
+    this.views.clear();
+    this.profilingSAB = null;
     this.bumpManifest();
   }
 

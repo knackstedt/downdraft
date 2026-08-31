@@ -17,6 +17,7 @@
 
 import { _devtoolsImpl, devtools } from "./api";
 import { DevToolsDataBridge } from "./data-bridge";
+import { ProfilingBridge, type ProfilingBridgeOptions } from "./profiling-bridge";
 import { createDevToolsRendererAdapter } from "./renderer-adapter";
 import { BaseSceneInspector } from "./scene-inspector";
 import type {
@@ -56,6 +57,12 @@ export interface InitDevToolsOptions {
   // --- Renderer ---
   /** The renderer instance. If omitted, uses an empty adapter (for testing). */
   renderer?: any;
+
+  // --- Profiling ---
+  /** Enable the profiling system (ProfilingSAB + ProfilingBridge + built-in views).
+   *  When true, a ProfilingBridge is created and the ProfilingSAB is shared
+   *  with all workers + the pixi-ui overlay. Default: false. */
+  profiling?: boolean | ProfilingBridgeOptions;
 }
 
 /**
@@ -129,6 +136,20 @@ export async function initDevTools(renderer: any, options: InitDevToolsOptions =
   //    game-declared ones; we augment the __sceneInspector API with
   //    plugin-registered data feeds and commands.
   mergeGlobalRegistrations(bridge);
+
+  // 8. Initialize the profiling system (if enabled)
+  if (options.profiling) {
+    const profilingOpts = typeof options.profiling === "object" ? options.profiling : {};
+    const profilingBridge = new ProfilingBridge(profilingOpts);
+    (bridge as any)._profilingBridge = profilingBridge;
+    // Expose the ProfilingSAB + views on __sceneInspector for the profiler overlay
+    const api = (window as any).__sceneInspector;
+    if (api) {
+      api.__getProfilingSAB = () => profilingBridge.getProfilingSAB();
+      api.__getProfilingBridge = () => profilingBridge;
+      api.__getViews = () => devtools.getViews();
+    }
+  }
 
   return bridge;
 }

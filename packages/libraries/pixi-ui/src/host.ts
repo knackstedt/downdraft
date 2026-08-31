@@ -45,6 +45,13 @@ export interface PixiUiHostOptions {
    * setInteractive(true) — the original modal-UI model.
    */
   passThrough?: boolean;
+  /**
+   * Additional SharedArrayBuffers to share into the worker. The worker's
+   * scene context will have these available as `ctx.extraSharedBuffers[name]`.
+   * Used by the profiler overlay to share the ProfilingSAB with the pixi-ui
+   * worker so the profiler scene can read profiling data directly.
+   */
+  extraSharedBuffers?: Record<string, SharedArrayBuffer>;
 }
 
 interface PendingQuery {
@@ -75,6 +82,7 @@ export class PixiUiHost {
   private passThrough: boolean;
   private interactiveRegions: Rect[] = [];
   private gameCanvas: HTMLCanvasElement | null = null;
+  private extraSharedBuffers: Record<string, SharedArrayBuffer> | null = null;
 
   /** Called when the worker requests a game action (pause, resume, save, ...). */
   onAction: ((action: PixiUiAction) => void) | null = null;
@@ -98,6 +106,7 @@ export class PixiUiHost {
     this.width = config.width ?? (typeof window !== "undefined" ? window.innerWidth : 1280);
     this.height = config.height ?? (typeof window !== "undefined" ? window.innerHeight : 720);
     this.passThrough = config.passThrough ?? false;
+    this.extraSharedBuffers = config.extraSharedBuffers ?? null;
     this.readyPromise = new Promise((resolve, reject) => {
       this.readyResolve = resolve;
       this.readyReject = reject;
@@ -154,7 +163,12 @@ export class PixiUiHost {
     // setInteractive(true).
     this.canvas.style.pointerEvents = this.passThrough ? "auto" : "none";
     if (this.passThrough) this.interactive = true;
-    this.canvas.style.zIndex = "50"; // above game canvas (z 0), below DOM overlay (z 100)
+    // Layer 1 (game UI) sits below the DOM overlay (z-index 100).
+    // Layer 2+ (debug overlays like the profiler) sit above the DOM overlay
+    // so they're not obscured by the game's React UI.
+    this.canvas.style.zIndex = this.canvasLayer >= 2
+      ? String(100 + this.canvasLayer * 10) // layer 2 → 120, layer 3 → 130, etc.
+      : String(40 + this.canvasLayer * 10); // layer 1 → 50
     this.canvas.width = this.width;
     this.canvas.height = this.height;
 
@@ -205,6 +219,7 @@ export class PixiUiHost {
       kind: "init",
       offscreenCanvas: offscreen,
       uiStatsSab: this.uiStatsSab,
+      extraSharedBuffers: this.extraSharedBuffers ?? undefined,
       config: serializeConfig(this.config),
       width: this.width,
       height: this.height,
@@ -563,8 +578,12 @@ export class PixiUiHost {
     let target: Element | null = null;
     if (typeof document !== "undefined" && typeof document.elementsFromPoint === "function") {
       const stack = document.elementsFromPoint(e.clientX, e.clientY);
+      // Skip ALL pixi-ui overlay canvases (data-dd-layer >= 1) to prevent
+      // infinite recursion when multiple overlays are stacked.
       for (const el of stack) {
-        if (el !== this.canvas) { target = el; break; }
+        if (this.isOverlayCanvas(el)) continue;
+        target = el;
+        break;
       }
     }
     if (!target) target = this.gameCanvas;
@@ -630,12 +649,18 @@ export class PixiUiHost {
    * any number of stacked canvases correctly.
    */
   private dispatchOnGameCanvas(type: PointerMessage["type"], e: PointerEvent): void {
-    const overlay = this.canvas;
     let target: Element | null = null;
     if (typeof document !== "undefined" && typeof document.elementsFromPoint === "function") {
       const stack = document.elementsFromPoint(e.clientX, e.clientY);
+      // Skip ALL pixi-ui overlay canvases (data-dd-layer >= 1) — when multiple
+      // PixiUiHost instances are stacked (e.g. game UI + profiler overlay),
+      // each canvas has its own pointer listener. Dispatching a synthetic event
+      // on another overlay canvas would re-trigger its forwardPointer →
+      // dispatchOnGameCanvas → infinite recursion.
       for (const el of stack) {
-        if (el !== overlay) { target = el; break; }
+        if (this.isOverlayCanvas(el)) continue;
+        target = el;
+        break;
       }
     }
     // Fallback to the cached game canvas (layer 0) if elementsFromPoint
@@ -664,12 +689,14 @@ export class PixiUiHost {
     const rect = this.canvas.getBoundingClientRect();
     const clientX = rect.left + msg.x;
     const clientY = rect.top + msg.y;
-    const overlay = this.canvas;
     let target: Element | null = null;
     if (typeof document !== "undefined" && typeof document.elementsFromPoint === "function") {
       const stack = document.elementsFromPoint(clientX, clientY);
+      // Skip ALL pixi-ui overlay canvases (see dispatchOnGameCanvas for rationale).
       for (const el of stack) {
-        if (el !== overlay) { target = el; break; }
+        if (this.isOverlayCanvas(el)) continue;
+        target = el;
+        break;
       }
     }
     if (!target) target = this.gameCanvas;
@@ -716,5 +743,18 @@ export class PixiUiHost {
       : pointerType === "pointermove" ? "mousemove"
       : "mouseleave";
     (target as EventTarget).dispatchEvent(new MouseEvent(mouseType, common));
+  }
+
+  /**
+   * Check if an element is a pixi-ui overlay canvas (data-dd-layer >= 1).
+   * Used to skip overlay canvases when dispatching synthetic pointer events
+   * on the game canvas beneath — prevents infinite recursion when multiple
+   * PixiUiHost instances are stacked (e.g. game UI + profiler overlay).
+   */
+  private isOverlayCanvas(el: Element): boolean {
+    const layer = el.getAttribute?.("data-dd-layer");
+    if (layer === null || layer === undefined) return false;
+    const n = Number(layer);
+    return n >= 1;
   }
 }

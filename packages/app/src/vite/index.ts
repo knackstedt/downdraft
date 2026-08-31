@@ -20,6 +20,7 @@ import { hotReloadPlugin } from "../../../core/src/vite/hot-reload-plugin";
 import { wgslHmrPlugin } from "../../../core/src/vite/wgsl-hmr-plugin";
 import { downdraftAssetBakePlugin, type AssetBakePluginOptions } from "./asset-bake-plugin";
 import { downdraftHtmlPlugin, type DowndraftHtmlOptions, type LayerSpec } from "./downdraft-html-plugin";
+import { profilingPreludePlugin } from "./profiling-prelude-plugin";
 import { silenceSourcemapWarningsPlugin } from "./silence-sourcemap-warnings-plugin";
 import { workerUrlGuardPlugin } from "./worker-url-guard-plugin";
 
@@ -97,6 +98,16 @@ export interface DowndraftViteConfigOptions {
    * `DOWNDRAFT_BAKE_FORCE=1`.
    */
   assetBake?: AssetBakePluginOptions | false;
+  /**
+   * Profiling system — injects the worker prelude into worker entries.
+   * - `true` (default in dev): injects `import "@downdraft/core/profiling/worker-prelude"`
+   *   into all worker-entry files, enabling IOPS patching, warning rules,
+   *   event-loop monitoring, and the in-game profiler overlay.
+   * - `false`: disables prelude injection (profiling off).
+   * - `"always"`: enables in both dev and prod builds.
+   * Pass an object to customize the plugin's include/exclude globs.
+   */
+  profiling?: boolean | "always" | ProfilingPreludePluginOptions;
 }
 
 export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): ReturnType<typeof defineConfig> {
@@ -186,6 +197,8 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
     { find: /^@downdraft\/library-undertow\//, replacement: resolve(repoRoot, "packages/libraries/undertow/src") + "/" },
     { find: /^@downdraft\/library-pixi-ui$/, replacement: resolve(repoRoot, "packages/libraries/pixi-ui/src/index.ts") },
     { find: /^@downdraft\/library-pixi-ui\//, replacement: resolve(repoRoot, "packages/libraries/pixi-ui/src") + "/" },
+    { find: /^@downdraft\/library-profiler$/, replacement: resolve(repoRoot, "packages/libraries/profiler/src/index.ts") },
+    { find: /^@downdraft\/library-profiler\//, replacement: resolve(repoRoot, "packages/libraries/profiler/src") + "/" },
     { find: /^node:fs$/, replacement: resolve(repoRoot, "packages/app/src/renderer-shims/fs.ts") },
     { find: /^fs$/, replacement: resolve(repoRoot, "packages/app/src/renderer-shims/fs.ts") },
     { find: /^node:path$/, replacement: resolve(repoRoot, "packages/app/src/renderer-shims/path.ts") },
@@ -408,6 +421,11 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
         // Guard against the silent prod-break pattern of assigning a worker
         // URL to a variable before `new Worker()`. Warns at build time.
         workerUrlGuardPlugin(),
+        // Profiling prelude — injects `import "@downdraft/core/profiling/worker-prelude"`
+        // into worker-entry files so IOPS patching, warning rules, and event-loop
+        // monitoring are active before any worker code runs. Enabled by default
+        // in dev; set `profiling: false` to disable, `profiling: "always"` for prod.
+        ...(shouldEnableProfiling(options.profiling) ? [profilingPreludePlugin(typeof options.profiling === "object" ? options.profiling : undefined)] : []),
         ...(options.rendererPlugins ?? []),
       ],
     },
@@ -418,4 +436,15 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
 export type { CanvasLayer, DomLayer, DowndraftHtmlOptions, LayerSpec } from "./downdraft-html-plugin";
 // Re-export asset bake types
 export type { AssetBakeOptions, AssetBakePluginOptions } from "./asset-bake-plugin";
+// Re-export profiling prelude types
+export type { ProfilingPreludePluginOptions } from "./profiling-prelude-plugin";
+
+/** Determine if profiling should be enabled based on the config option + env. */
+function shouldEnableProfiling(profiling: DowndraftViteConfigOptions["profiling"]): boolean {
+  if (profiling === false) return false;
+  if (profiling === "always") return true;
+  if (typeof profiling === "object") return true;
+  // Default: enabled in dev, disabled in prod
+  return process.env.NODE_ENV !== "production";
+}
 

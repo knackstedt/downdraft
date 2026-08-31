@@ -8,6 +8,7 @@
 // synchronously from the SAB. Only the manifest and commands use IPC.
 // ============================================================================
 
+import { exposeProfilingApi } from "@downdraft/core/worker/instrumented-worker-host";
 import type { WorkerApi } from "@downdraft/core/worker/rpc";
 import { _devtoolsImpl, devtools, type DevToolsManifest } from "./api";
 
@@ -22,7 +23,9 @@ export function exposeDevToolsApi<T extends WorkerApi>(api: T): T & {
   __devtoolsCallCommand(name: string, args: any[]): any;
   __devtoolsGetSAB(): SharedArrayBuffer | null;
 } {
-  return {
+  // Merge profiling RPC methods (attachProfilingSAB, addWarningRule, onWarning)
+  // with the devtools RPC methods.
+  return exposeProfilingApi({
     ...api,
     __devtoolsGetManifest: (): DevToolsManifest => {
       return devtools.getManifest();
@@ -33,7 +36,7 @@ export function exposeDevToolsApi<T extends WorkerApi>(api: T): T & {
     __devtoolsGetSAB: (): SharedArrayBuffer | null => {
       return devtools.getSAB();
     },
-  };
+  });
 }
 
 /**

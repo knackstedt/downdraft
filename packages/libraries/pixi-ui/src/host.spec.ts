@@ -106,6 +106,28 @@ describe("bridge-protocol", () => {
     expect(DEFAULT_STATS_LAYOUT.slots).toContain("health");
     expect(DEFAULT_STATS_LAYOUT.slots.length).toBeGreaterThan(10);
   });
+
+  it("serializeConfig includes extraSharedBufferKeys when extraSharedBuffers is set", () => {
+    const { serializeConfig } = require("./bridge-protocol");
+    const config = {
+      backend: "webgl2" as const,
+      statsLayout: DEFAULT_STATS_LAYOUT,
+      extraSharedBuffers: {
+        profiling: new SharedArrayBuffer(64),
+        devtools: new SharedArrayBuffer(128),
+      },
+    };
+    const serialized = serializeConfig(config);
+    expect(serialized.extraSharedBufferKeys).toBeDefined();
+    expect(serialized.extraSharedBufferKeys).toContain("profiling");
+    expect(serialized.extraSharedBufferKeys).toContain("devtools");
+  });
+
+  it("serializeConfig omits extraSharedBufferKeys when no extraSharedBuffers", () => {
+    const { serializeConfig } = require("./bridge-protocol");
+    const serialized = serializeConfig({ backend: "webgl2", statsLayout: DEFAULT_STATS_LAYOUT });
+    expect(serialized.extraSharedBufferKeys).toBeUndefined();
+  });
 });
 
 describe("PixiUiHost (logic, no worker spawn)", () => {

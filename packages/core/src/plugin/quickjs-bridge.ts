@@ -13,6 +13,7 @@
 
 import type { QuickJSContext, QuickJSWASMModule } from "quickjs-emscripten";
 import { getQuickJS as _getQuickJS } from "quickjs-emscripten";
+import { getWarningEngine, METRIC_TASK_LATENCY, recordTaskLatency } from "../profiling/worker-prelude";
 
 /** Re-export getQuickJS so consumers don't need a direct dep on quickjs-emscripten. */
 export const getQuickJS = _getQuickJS;
@@ -184,8 +185,12 @@ export function createQuickjsBridge(
       handles.push(fnDup);
       const cb = (dt: number, t: number) => {
         try {
+          const tickStart = performance.now();
           ctx.unwrapResult(ctx.callFunction(fnDup, ctx.undefined, ctx.newNumber(dt), ctx.newNumber(t)));
           runtime.executePendingJobs();
+          const durationUs = (performance.now() - tickStart) * 1000;
+          recordTaskLatency("quickjs", durationUs, "tick");
+          getWarningEngine()?.checkInstant(METRIC_TASK_LATENCY, durationUs);
         } catch { /* swallow */ }
       };
       unsubFns.push(hostApi.tick.onTick(cb));
@@ -233,7 +238,11 @@ export function createQuickjsBridge(
     ctx,
     eval(code, filename) {
       instructions = 0;
+      const evalStart = performance.now();
       const result = ctx.evalCode(code, filename);
+      const durationUs = (performance.now() - evalStart) * 1000;
+      recordTaskLatency("quickjs", durationUs, "eval");
+      getWarningEngine()?.checkInstant(METRIC_TASK_LATENCY, durationUs);
       if (result.error) {
         const err = ctx.dump(result.error);
         result.error.dispose();
@@ -251,7 +260,11 @@ export function createQuickjsBridge(
         throw new Error(`QuickJS: global "${fnName}" is not a function`);
       }
       const argHandles = args.map((a) => marshalToVm(ctx, a));
+      const callStart = performance.now();
       const result = ctx.callFunction(fn, ctx.undefined, ...argHandles);
+      const durationUs = (performance.now() - callStart) * 1000;
+      recordTaskLatency("quickjs", durationUs, fnName);
+      getWarningEngine()?.checkInstant(METRIC_TASK_LATENCY, durationUs);
       fn.dispose();
       for (const h of argHandles) { try { h.dispose?.(); } catch { /* */ } }
       if (result.error) {

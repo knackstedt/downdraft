@@ -40,8 +40,30 @@ export class GPUTimerPool {
     // writeTimestamp on GPURenderPassEncoder requires the inside-passes experimental feature
     if (!features.has("timestamp-query") || !features.has("chromium-experimental-timestamp-query-inside-passes")) {
       this.supported = false;
+      // Encoder-level timestamps may still be available (base "timestamp-query")
+      this.initEncoderTimestamps(device);
+      if (this.encoderTimestampSupported) {
+        // Allocate query set for encoder-level timestamps even if inside-pass is unsupported
+        try {
+          const queryCount = this.maxPasses * 2;
+          this.querySet = device.createQuerySet({ type: "timestamp", count: queryCount });
+          this.resolveBuffer = device.createBuffer({
+            size: queryCount * 8,
+            usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+          });
+          this.readBuffer = device.createBuffer({
+            size: queryCount * 8,
+            usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+          });
+        } catch {
+          this.encoderTimestampSupported = false;
+        }
+      }
       return;
     }
+
+    // Inside-pass timestamps supported → encoder timestamps also supported
+    this.initEncoderTimestamps(device);
 
     try {
       const queryCount = this.maxPasses * 2; // begin + end per pass
@@ -148,5 +170,52 @@ export class GPUTimerPool {
     this.resolveBuffer = null;
     this.readBuffer = null;
     this.supported = false;
+  }
+
+  // ─── Encoder-level timestamps (for blit/copy passes) ────────────────────
+  //
+  // Blit passes (buffer/texture copies, resolves) don't have a pass encoder —
+  // they're commands on the GPUCommandEncoder. The "timestamp-query-inside-encoder"
+  // feature (a.k.a. "timestamp-query" without the chromium-experimental variant)
+  // allows writing timestamps directly on the command encoder.
+  //
+  // On browsers that only support "timestamp-query" (not the inside-passes
+  // variant), begin()/end() above are no-ops, but these encoder methods work
+  // because they use commandEncoder.writeTimestamp (a top-level timestamp).
+  // We track encoder-level support separately.
+
+  private encoderTimestampSupported: boolean = false;
+
+  /** Check if encoder-level timestamps are available (for blit passes). */
+  isEncoderTimestampSupported(): boolean {
+    return this.encoderTimestampSupported;
+  }
+
+  /**
+   * Initialize encoder-level timestamp support. Called automatically by init()
+   * when the "timestamp-query" feature is present (even without the inside-passes
+   * variant). Can also be called manually after construction.
+   */
+  initEncoderTimestamps(device: GPUDevice): void {
+    // Encoder-level timestamps require "timestamp-query" (base feature).
+    // The chromium-experimental variant is only needed for inside-pass timestamps.
+    this.encoderTimestampSupported = device.features.has("timestamp-query");
+  }
+
+  /**
+   * Write a begin timestamp on the command encoder (for blit passes).
+   * Uses the same query set + pass index as begin().
+   */
+  beginEncoder(encoder: GPUCommandEncoder, passIdx: number): void {
+    if (!this.encoderTimestampSupported || !this.querySet || passIdx >= this.maxPasses) return;
+    (encoder as GPUCommandEncoder & { writeTimestamp(querySet: GPUQuerySet, queryIndex: number): void }).writeTimestamp(this.querySet, passIdx * 2);
+  }
+
+  /**
+   * Write an end timestamp on the command encoder (for blit passes).
+   */
+  endEncoder(encoder: GPUCommandEncoder, passIdx: number): void {
+    if (!this.encoderTimestampSupported || !this.querySet || passIdx >= this.maxPasses) return;
+    (encoder as GPUCommandEncoder & { writeTimestamp(querySet: GPUQuerySet, queryIndex: number): void }).writeTimestamp(this.querySet, passIdx * 2 + 1);
   }
 }

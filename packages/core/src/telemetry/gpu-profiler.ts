@@ -93,6 +93,7 @@ interface PassTimingEntry {
   pipelineSwitches: number;
   bindGroupChanges: number;
   bufferRebinds: number;
+  category: "render" | "compute" | "blit";
 }
 
 export class GPUProfiler {
@@ -209,6 +210,82 @@ export class GPUProfiler {
   }
 
   beginPass(name: string, passEncoder: GPURenderPassEncoder, viewportIdx: number): void {
+    this.beginPassInternal(name, passEncoder, viewportIdx, "render");
+  }
+
+  endPass(name: string, passEncoder: GPURenderPassEncoder, viewportIdx: number, drawCalls: number = 0, triangles: number = 0): void {
+    this.endPassInternal(name, passEncoder, viewportIdx, drawCalls, triangles, "render");
+  }
+
+  /**
+   * Begin timing a compute pass. Writes a GPU timestamp at the start of the
+   * pass (if supported) and records the CPU start time.
+   */
+  beginComputePass(name: string, passEncoder: GPUComputePassEncoder): void {
+    this.beginPassInternal(name, passEncoder, 0, "compute");
+  }
+
+  /**
+   * End timing a compute pass. Writes the end GPU timestamp and records the
+   * CPU duration. Workgroup count is stored in drawCalls for display.
+   */
+  endComputePass(name: string, passEncoder: GPUComputePassEncoder, workgroups: number = 0): void {
+    this.endPassInternal(name, passEncoder, 0, workgroups, 0, "compute");
+  }
+
+  /**
+   * Begin timing a blit pass (buffer/texture copies, resolves). Blit passes
+   * don't have a pass encoder — timestamps are written on the command encoder
+   * using the "timestamp-query" base feature (encoder-level timestamps).
+   */
+  beginBlitPass(name: string, encoder: GPUCommandEncoder): void {
+    if (this.passStartTimes.has(name)) return;
+    this.passStartTimes.set(name, performance.now());
+    if (!this.gpuTimerPool || !this.gpuTimerPool.isEncoderTimestampSupported()) return;
+    const maxPasses = this.gpuTimerPool.getMaxPasses();
+    const idx = this.gpuPassCounter++;
+    if (idx >= maxPasses) return;
+    this.passGpuIndices.set(name, idx);
+    this.gpuTimerPool.beginEncoder(encoder, idx);
+  }
+
+  /**
+   * End timing a blit pass. Writes the end timestamp on the command encoder.
+   */
+  endBlitPass(name: string, encoder: GPUCommandEncoder): void {
+    if (this.gpuTimerPool && this.gpuTimerPool.isEncoderTimestampSupported()) {
+      const idx = this.passGpuIndices.get(name);
+      if (idx !== undefined && idx < this.gpuTimerPool.getMaxPasses()) {
+        this.gpuTimerPool.endEncoder(encoder, idx);
+      }
+    }
+    const start = this.passStartTimes.get(name);
+    if (start === undefined) return;
+    const cpuMs = performance.now() - start;
+    const gpuIdx = this.passGpuIndices.get(name);
+    const gpuMs = (gpuIdx !== undefined && this.gpuTimerPool) ? this.gpuTimerPool.getPassGpuMs(gpuIdx) : 0;
+    if (!this.passTimings.has(name) && this.passTimings.size >= GPUProfiler.MAX_PASS_TIMINGS) {
+      const oldest = this.passTimings.keys().next().value;
+      if (oldest !== undefined) this.passTimings.delete(oldest);
+    }
+    this.passTimings.set(name, {
+      cpuMs,
+      gpuMs,
+      drawCalls: 0,
+      triangles: 0,
+      pipelineSwitches: 0,
+      bindGroupChanges: 0,
+      bufferRebinds: 0,
+      category: "blit",
+    });
+  }
+
+  private beginPassInternal(
+    name: string,
+    passEncoder: GPURenderPassEncoder | GPUComputePassEncoder,
+    viewportIdx: number,
+    category: "render" | "compute",
+  ): void {
     if (viewportIdx !== 0) return;
     this.passStartTimes.set(name, performance.now());
     this.passTracker.pipelineSwitches = 0;
@@ -224,7 +301,14 @@ export class GPUProfiler {
     this.gpuTimerPool.begin(passEncoder, idx);
   }
 
-  endPass(name: string, passEncoder: GPURenderPassEncoder, viewportIdx: number, drawCalls: number = 0, triangles: number = 0): void {
+  private endPassInternal(
+    name: string,
+    passEncoder: GPURenderPassEncoder | GPUComputePassEncoder,
+    viewportIdx: number,
+    drawCalls: number,
+    triangles: number,
+    category: "render" | "compute",
+  ): void {
     if (viewportIdx !== 0) return;
     // End GPU timer
     if (this.gpuTimerPool && this.gpuTimerPool.isSupported()) {
@@ -252,6 +336,7 @@ export class GPUProfiler {
       pipelineSwitches: this.passTracker.pipelineSwitches,
       bindGroupChanges: this.passTracker.bindGroupChanges,
       bufferRebinds: this.passTracker.bufferRebinds,
+      category,
     });
   }
 
@@ -280,6 +365,7 @@ export class GPUProfiler {
         pipelineSwitches: t.pipelineSwitches,
         bindGroupChanges: t.bindGroupChanges,
         bufferRebinds: t.bufferRebinds,
+        category: t.category,
       });
     }
     return result;

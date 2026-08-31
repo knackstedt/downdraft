@@ -50,6 +50,12 @@ export interface BootstrapDevToolsOptions {
   panels?: any[] | ((renderer: any) => any[]);
   /** Whether to enable scene inspector. Default: false. */
   sceneInspector?: boolean;
+  /**
+   * Enable the profiling system (ProfilingSAB + ProfilingBridge + built-in views).
+   * When true, a ProfilingBridge is created and the ProfilingSAB is shared
+   * with all workers + the pixi-ui overlay. Default: false.
+   */
+  profiling?: boolean;
 }
 
 export interface BootstrapGameOptions {
@@ -144,11 +150,9 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
       return;
     }
   }
-  if (opts.onRendererInit) {
-    await opts.onRendererInit(renderer);
-  }
 
-  // 4. Wire DevTools (if provided)
+  // 4. Wire DevTools (if provided) — runs BEFORE onRendererInit so that
+  //    games can access the ProfilingBridge + __sceneInspector API in onReady.
   if (opts.devtools) {
     const { initDevTools } = await import("@downdraft/module-devtools");
     const simStatsProvider = opts.devtools.createSimStatsProvider?.(renderer);
@@ -158,7 +162,15 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
     await initDevTools(renderer, {
       simStatsProvider,
       panels,
+      profiling: opts.devtools.profiling,
     });
+  }
+
+  // 4b. onRendererInit — library setup, sim start, game-specific wiring (onReady).
+  //     DevTools is already wired, so games can access __sceneInspector +
+  //     the ProfilingBridge from their onReady hook.
+  if (opts.onRendererInit) {
+    await opts.onRendererInit(renderer);
   }
 
   // 5. Start the render loop immediately — don't let a hung autosave load

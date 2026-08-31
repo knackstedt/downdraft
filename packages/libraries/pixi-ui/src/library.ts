@@ -66,6 +66,12 @@ export interface PixiUiLibConfig extends PixiUiHostOptions {
    * coexists with game-canvas mouse input. Default: false.
    */
   passThrough?: boolean;
+  /**
+   * Additional SharedArrayBuffers shared into the worker. The scene can
+   * access them via `ctx.extraSharedBuffers[name]`. Used by the profiler
+   * overlay to share the ProfilingSAB with the pixi-ui worker.
+   */
+  extraSharedBuffers?: Record<string, SharedArrayBuffer>;
 }
 
 // ── Typed tokens (DI) ──

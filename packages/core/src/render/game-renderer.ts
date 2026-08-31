@@ -8,6 +8,7 @@
 
 import { LayoutEngine, UIInputRouter, UIRenderer, UIRoot } from "../imui";
 import type { RendererModule } from "../module/renderer-module";
+import { disableRendererIndexedDb } from "../profiling/iops/renderer-idb-disable";
 import { TelemetryCollector } from "../telemetry/collector";
 import { DebugOverlay as ProfilingOverlay } from "../telemetry/debug-overlay";
 import type { GPUAdapterInfo as GPUAdapterInfoData } from "../telemetry/gpu-profiler";
@@ -72,6 +73,15 @@ export interface GameRendererConfig {
    * If null, the canvas is not cleared (the afterFrame callback must clear it).
    */
   clearColor?: GPUColor | null;
+  /**
+   * Whether to disable IndexedDB in the renderer thread by default.
+   * The renderer should not do I/O — all persistence goes through the save
+   * worker. Setting this to true (the default) patches IDBFactory.open to
+   * throw, catching accidental IDB usage in renderer-side code early.
+   * Set to false to allow renderer-side IDB (not recommended).
+   * Default: true.
+   */
+  disableRendererIndexedDb?: boolean;
 }
 
 export interface FrameCallbacks {
@@ -243,6 +253,13 @@ export class GameRenderer implements CanvasResizeHandler {
 
   async init(): Promise<boolean> {
     try {
+      // Disable IndexedDB in the renderer thread by default — the renderer
+      // should not do I/O. All persistence goes through the save worker.
+      // Games can opt out via config.disableRendererIndexedDb = false.
+      if (this.config.disableRendererIndexedDb !== false) {
+        disableRendererIndexedDb();
+      }
+
       // Adapter fallback chain: high-performance → low-power → any
       let adapter = await navigator.gpu.requestAdapter({
         powerPreference: "high-performance",
@@ -923,6 +940,11 @@ export class GameRenderer implements CanvasResizeHandler {
 
   setCallbacks(callbacks: FrameCallbacks): void {
     this.callbacks = callbacks;
+  }
+
+  /** Get the current frame callbacks (for wrapping/extending). */
+  getCallbacks(): FrameCallbacks {
+    return this.callbacks;
   }
 
   // --- Renderer plugins ---
