@@ -63,6 +63,7 @@ export type {
     PixiUiAction,
     PixiUiEvent,
     PointerMessage,
+    PointerMissedMessage,
     ReadyMessage,
     Rect,
     SceneNodeSummary,

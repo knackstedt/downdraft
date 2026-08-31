@@ -13,12 +13,18 @@
     "@downdraft/library-sand": "workspace:*",
     "@downdraft/library-stickman": "workspace:*",
     "@downdraft/library-persistence": "workspace:*",
+    "@downdraft/library-pixi-ui": "workspace:*",
     "@downdraft/module-devtools": "workspace:*",
     "@downdraft/shader-graph": "workspace:*",
     "@downdraft/library-models": "workspace:*",
     "@downdraft/ui": "workspace:*",
+    "@pixi/react": "^8.0.0",
+    "pixi.js": "8.18.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "zustand": "^5.0.2"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.0.0"
   }
 }

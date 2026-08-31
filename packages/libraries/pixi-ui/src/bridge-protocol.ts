@@ -132,6 +132,26 @@ export interface InteractiveRegionsMessage {
   regions: Rect[];
 }
 
+/**
+ * Worker → main: a forwarded pointer event did NOT hit any interactive
+ * PixiJS element (the hit-test returned null). The host should dispatch a
+ * synthetic PointerEvent on the element beneath the overlay so the game
+ * canvas receives the input. Used in pass-through mode when the scene
+ * reports a full-screen interactive region (e.g. @pixi/react scenes) —
+ * the host can't distinguish UI hits from empty space, so the worker
+ * does the hit-test and reports misses.
+ */
+export interface PointerMissedMessage {
+  kind: "pointerMissed";
+  /** The pointer event type that missed. */
+  type: "pointerdown" | "pointermove" | "pointerup" | "pointerleave";
+  /** Canvas pixel coordinates (top-left origin). */
+  x: number;
+  y: number;
+  button: number;
+  modifiers: number;
+}
+
 export type WorkerToMainMessage =
   | ReadyMessage
   | SetInteractiveMessage
@@ -139,7 +159,8 @@ export type WorkerToMainMessage =
   | SceneStateMessage
   | CaptureResultMessage
   | ErrorMessage
-  | InteractiveRegionsMessage;
+  | InteractiveRegionsMessage
+  | PointerMissedMessage;
 
 // --- Shared types ---
 

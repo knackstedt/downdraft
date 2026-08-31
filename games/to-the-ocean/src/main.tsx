@@ -1,18 +1,13 @@
 // ============================================================================
 // Renderer Entry Point — declarative GameModule + startGame()
 //
-// Migrated from bootstrapGame() callback-soup to the declarative startGame()
-// API. The common sequence (UI mount, renderer create+init, sim worker spawn,
-// SAB capture, event routing, save store init, render loop, FPS polling,
-// display info, hot-reload dispose, deterministic mode) is handled by
-// startGame(). Game-specific wiring (OSR billboard, DevTools/SceneInspector,
-// HUD polling, debug store subscriptions, hot-reload handlers) lives in the
-// onReady hook.
+// Migrated from React DOM overlay to PixiJS worker overlay (@pixi/react).
+// The UI is now rendered in a Web Worker on an OffscreenCanvas via
+// @downdraft/library-pixi-ui. State flows through:
+//   - UiStatsSAB (per-frame scalars: HUD, menu visibility, readiness)
+//   - postMessage events (structured data: inventory, bookmarks, recipes)
+//   - postAction (worker→main side effects: toggle menus, save, respawn)
 // ============================================================================
-
-import React from "react";
-import { createRoot } from "react-dom/client";
-import App from "./app";
 
 // Fonts — statically bundled via @fontsource (woff2/woff embedded in build, no CDN requests)
 import "@fontsource/doto/400.css";
@@ -26,6 +21,7 @@ import "@fontsource/wavefont/400.css";
 
 import { downdraft, startGame, type SimWorkerSeed } from "@downdraft/app/renderer";
 import { ENGINE_VERSION, ENT, PLR, PLR_FLAG, SimBufferReader, startGCProfiler, useHotReloadStore, type GCProfilerHandle, type GCStats } from "@downdraft/core";
+import { PixiUiHost } from "@downdraft/library-pixi-ui";
 import { WaterLib } from "@downdraft/library-water";
 import { initDevTools, useDebugStore } from "@downdraft/module-devtools";
 import { GAME_PLR } from "@shared/constants/buffer";
@@ -33,6 +29,7 @@ import { CameraMode, EntityType } from "@shared/types";
 import { SceneInspector } from "./engine/scene-inspector";
 import { SimWebWorker, type SimWebWorkerConfig } from "./engine/sim-web-worker";
 import { WebGPURenderer } from "./engine/webgpu-renderer";
+import { OCEAN_STATS_LAYOUT, type OceanAction } from "./pixi/bridge-protocol";
 import { createSimBridge } from "./sim-bridge";
 import { useGameStore } from "./stores/game-store";
 import "./styles/globals.css";
@@ -53,22 +50,14 @@ startGame({
   sim: (seed?: SimWorkerSeed) => new SimWebWorker(seed?.libraryBuffers),
   simConfig: { seed: 12345, gamemode: 0, rules: {}, isDev: !!(downdraft?.isDev) || import.meta.env.DEV },
 
-  // ── UI (React) ──
-  mountUI: (overlay) => {
-    const root = createRoot(overlay);
-    root.render(
-      <React.StrictMode>
-        <App />
-      </React.StrictMode>,
-    );
-  },
+  // ── UI (pixi-ui handles UI in a worker; DOM overlay is a no-op) ──
+  mountUI: () => { /* pixi-ui handles UI */ },
 
   // ── Sim→Renderer event routing (declarative) ──
   events: {
     ready: (_data, ctx) => {
       console.log("[Renderer] Sim Web Worker ready");
       useGameStore.getState().setSimReady(true);
-      // Mark isDev if the sim reports it
       if (ctx.isDev) useGameStore.getState().setIsDev(true);
     },
     error: (data) => {
@@ -129,8 +118,6 @@ startGame({
     },
     collision_log: (data) => useDebugStore.getState().setCollisionLog(data),
     saved: (data, ctx) => {
-      // In inline/worker mode, the save is already written to OPFS by the
-      // worker. Only forward to IPC in the fallback "ipc" mode.
       if (ctx.saveMode === "ipc" && ctx.bridge && data?.stateJson) {
         ctx.bridge.saveGameState(data.slotName, data.stateJson);
       }
@@ -164,14 +151,9 @@ startGame({
     }
     if (ctx.isDev) useGameStore.getState().setIsDev(true);
 
-    // Wait for the PBR BRDF LUT to finish generating before starting the render
-    // loop and spawning the player. The LUT computation is chunked across frames
-    // to avoid blocking the main thread — this shows the loading screen during
-    // that time for a smooth startup experience.
     await ctx.renderer.getLUTReady();
     useGameStore.getState().setLutReady(true);
 
-    // Add default player
     await ctx.sim!.addPlayer?.(0, "Player 1");
     return true;
   },
@@ -179,23 +161,126 @@ startGame({
   // ── Post-init wiring (bespoke game setup) ──
   onReady: async (ctx) => {
     const { renderer, extraBuffers } = ctx;
-    // ctx.sim/simSAB/inputSAB are guaranteed non-null because this module
-    // declares `sim`. The non-null assertions are safe.
     const sim = ctx.sim!;
     const simSAB = ctx.simSAB!;
     const inputSAB = ctx.inputSAB!;
 
-    // Mark renderer as ready early — the UI (key handlers, HUD, etc.) can
-    // activate before the save store finishes initializing.
     useGameStore.getState().setRenderer(renderer);
     useGameStore.getState().setReady(true);
 
-    // Register MCP automation harness early — before the save store init,
-    // which can hang in test environments (OPFS not available under
-    // SwiftShader). The harness exposes dispatch_key / get_ui_state (used by
-    // e2e UI tests) which only need the renderer + store, not the sim SAB.
-    // Tools that need the sim reader (get_world_state, get_player_state)
-    // gracefully return "not available" until setBuffers() wires the SAB.
+    // ── Start PixiUI overlay (escape hatch: manual PixiUiHost) ──
+    const pixiHost = new PixiUiHost({
+      backend: "webgl2",
+      statsLayout: OCEAN_STATS_LAYOUT,
+      sceneModuleUrl: new URL("./pixi-scene.tsx", import.meta.url).href,
+      passThrough: true,
+      canvasLayer: 1,
+      canvasId: "pixi-ui-canvas",
+    });
+    await pixiHost.start();
+
+    // Handle actions from the worker (menu toggles, save, respawn, etc.)
+    const store = useGameStore.getState();
+    pixiHost.onAction = ((action: any) => {
+      const a = action as OceanAction;
+      const s = useGameStore.getState();
+      switch (a.kind) {
+        case "toggleMenu":
+          switch (a.menu) {
+            case "inventory": s.toggleInventory(); break;
+            case "map": s.toggleMap(); break;
+            case "buildMenu": s.toggleBuildMenu(); break;
+            case "craftMenu": s.toggleCraftMenu(); break;
+            case "fishingMinigame": s.toggleFishingMinigame(); break;
+            case "tradeMenu": s.toggleTradeMenu(); break;
+            case "settings": s.toggleSettings(); break;
+            case "pauseMenu": s.togglePauseMenu(); break;
+            case "characterCustomization": s.toggleCharacterCustomization(); break;
+            case "credits": s.toggleCredits(); break;
+            case "builderWheel": s.setShowBuilderWheel(!s.showBuilderWheel); break;
+          }
+          break;
+        case "closeMenu":
+          switch (a.menu) {
+            case "inventory": if (s.showInventory) s.toggleInventory(); break;
+            case "map": if (s.showMap) s.toggleMap(); break;
+            case "buildMenu": if (s.showBuildMenu) s.toggleBuildMenu(); break;
+            case "craftMenu": if (s.showCraftMenu) s.toggleCraftMenu(); break;
+            case "fishingMinigame": if (s.showFishingMinigame) s.toggleFishingMinigame(); break;
+            case "tradeMenu": if (s.showTradeMenu) s.toggleTradeMenu(); break;
+            case "settings": if (s.showSettings) s.toggleSettings(); break;
+            case "pauseMenu": if (s.showPauseMenu) s.togglePauseMenu(); break;
+            case "characterCustomization": if (s.showCharacterCustomization) s.toggleCharacterCustomization(); break;
+            case "credits": if (s.showCredits) s.toggleCredits(); break;
+            case "builderWheel": s.setShowBuilderWheel(false); break;
+          }
+          break;
+        case "equipItem": s.equipItem(a.slot, a.itemId); break;
+        case "addBookmark": s.addBookmark(a.x, a.z, a.label); break;
+        case "removeBookmark": s.removeBookmark(a.id); break;
+        case "setWaypoint": s.setWaypoint(a.waypoint); break;
+        case "sendCommand": s.simBridge?.sendCommand(a.data); break;
+        case "saveGame": s.simBridge?.saveGame("autosave"); break;
+        case "loadGame": s.simBridge?.loadGame("autosave"); break;
+        case "resetGame": s.simBridge?.resetGame(); break;
+        case "quit": s.simBridge?.quit(); break;
+        case "respawn": s.simBridge?.respawnPlayer(s.playerDied?.playerId ?? 0); s.setPlayerDied(null); break;
+        case "setSetting": s.simBridge?.setSetting(a.key, a.value); break;
+        case "setBuilderCellType": s.setBuilderCellType(a.idx); break;
+        case "setBuilderRotation": s.setBuilderRotation(a.rotation); break;
+        case "setReticleSize": s.setReticleSize(a.size); break;
+        case "lockPointer": renderer.lockPointer(); break;
+        case "craft": s.simBridge?.sendCommand({ type: "craft", recipeId: a.recipeId }); break;
+        case "abortCraft": s.simBridge?.sendCommand({ type: "abortCraft", jobId: a.jobId }); break;
+        case "trade": s.simBridge?.sendCommand({ type: "trade", itemId: a.itemId, quantity: a.quantity, buy: a.buy }); break;
+        case "build": s.simBridge?.sendCommand({ type: "build", moduleId: a.moduleId }); break;
+        case "transferItem": s.simBridge?.sendCommand({ type: `transfer_to_${a.direction === "to_ship" ? "ship" : "from_ship"}`, itemId: a.itemId, quantity: a.quantity }); break;
+        case "openExternal": downdraft?.openExternal?.(a.url); break;
+      }
+    }) as any;
+
+    // ── Forward store changes to the worker via postMessage ──
+    // Subscribe to key store fields and post events when they change.
+    let lastShipHold = store.shipHoldData;
+    let lastBookmarks = store.bookmarks;
+    let lastWaypoint = store.waypoint;
+    let lastPlayerDied = store.playerDied;
+    let lastWeather = store.weather;
+    let lastEquipment = store.equipment;
+    let lastNotifications = store.notifications;
+
+    useGameStore.subscribe((s) => {
+      if (s.shipHoldData !== lastShipHold) {
+        lastShipHold = s.shipHoldData;
+        pixiHost.postEvent({ kind: "setShipHold", data: s.shipHoldData });
+      }
+      if (s.bookmarks !== lastBookmarks) {
+        lastBookmarks = s.bookmarks;
+        pixiHost.postEvent({ kind: "setBookmarks", bookmarks: s.bookmarks });
+      }
+      if (s.waypoint !== lastWaypoint) {
+        lastWaypoint = s.waypoint;
+        pixiHost.postEvent({ kind: "setWaypoint", waypoint: s.waypoint });
+      }
+      if (s.playerDied !== lastPlayerDied) {
+        lastPlayerDied = s.playerDied;
+        pixiHost.postEvent({ kind: "setPlayerDied", data: s.playerDied });
+      }
+      if (s.weather !== lastWeather) {
+        lastWeather = s.weather;
+        pixiHost.postEvent({ kind: "setWeather", data: s.weather });
+      }
+      if (s.equipment !== lastEquipment) {
+        lastEquipment = s.equipment;
+        pixiHost.postEvent({ kind: "setEquipment", equipment: s.equipment });
+      }
+      if (s.notifications !== lastNotifications) {
+        lastNotifications = s.notifications;
+        pixiHost.postEvent({ kind: "setNotifications", notifications: s.notifications });
+      }
+    });
+
+    // Register MCP automation harness early
     const { setupTtolMcp } = await import("./mcp/setup");
     setupTtolMcp(renderer, sim as SimWebWorker);
 
@@ -209,7 +294,6 @@ startGame({
             savedState = JSON.stringify(loadResult.state.components);
           }
         }
-        // IPC fallback or worker mode with no OPFS save — try legacy IPC
         if (!savedState && downdraft?.loadGameState) {
           savedState = await downdraft.loadGameState("autosave");
         }
@@ -217,7 +301,6 @@ startGame({
           if (ctx.saveMode !== "inline") {
             await sim.load?.("autosave", savedState);
           }
-          // Restore renderer meta if present
           try {
             const components = JSON.parse(savedState);
             if (components.renderer?.data && renderer.restoreRendererMeta) {
@@ -231,7 +314,7 @@ startGame({
       }
     }
 
-    // Restore hot-reload state if pending (renderer was reloaded after sim/engine code change)
+    // Restore hot-reload state if pending
     if (sessionStorage.getItem("hot-reload-pending")) {
       sessionStorage.removeItem("hot-reload-pending");
       try {
@@ -254,13 +337,11 @@ startGame({
       }
     }
 
-    // Set buffers on renderer — same SABs the sim worker writes to (zero-copy)
+    // Set buffers on renderer
     renderer.setBuffers(simSAB, extraBuffers.water, inputSAB, extraBuffers.boat);
     renderer.setupInputListeners();
 
     // --- Debug: Electron OSR billboard at helm position ---
-    // Creates a dedicated OSR renderer loading google.com and places a
-    // world-space billboard at the helm cell of the player's ship.
     {
       if (downdraft?.osr) {
         try {
@@ -290,16 +371,16 @@ startGame({
               uvScale: [1, 1],
             });
 
-            const sim = renderer.getSimReader();
-            if (sim) {
+            const simReader = renderer.getSimReader();
+            if (simReader) {
               let helmLogDone = false;
               const updateHelmBillboard = () => {
-                if (!sim.isValid()) { requestAnimationFrame(updateHelmBillboard); return; }
-                const entityCount = sim.getEntityCount();
+                if (!simReader.isValid()) { requestAnimationFrame(updateHelmBillboard); return; }
+                const entityCount = simReader.getEntityCount();
                 let shipX = 0, shipY = 0, shipZ = 0, shipHeading = 0;
                 let found = false;
                 for (let i = 0; i < entityCount; i++) {
-                  const es = sim.getEntitySlot(i);
+                  const es = simReader.getEntitySlot(i);
                   if (!es) continue;
                   if (es.u32[ENT.TYPE] !== EntityType.Ship) continue;
                   shipX = es.f32[ENT.POS_X];
@@ -360,11 +441,11 @@ startGame({
       }
     }
 
-    // Create the sim bridge with typed dependencies and store it for UI access.
+    // Create the sim bridge
     const bridge = createSimBridge({ worker: sim as SimWebWorker, renderer, downdraft, saveStore: ctx.saveStore, saveMode: ctx.saveMode });
     useGameStore.getState().setSimBridge(bridge);
 
-    // Initialize Scene Inspector for DevTools integration via initDevTools().
+    // Initialize Scene Inspector for DevTools integration
     const devtoolsProxy = (sim as SimWebWorker).getDevToolsProxy();
     const sceneInspector = await initDevTools(renderer, {
       bridgeClass: SceneInspector,
@@ -390,10 +471,8 @@ startGame({
     canvas.addEventListener("mouseup", gizmoMouseUpHandler);
     window.addEventListener("mouseup", gizmoMouseUpHandler);
 
-    // Input is zero-copy — the sim worker reads the input SAB directly.
     renderer.onInputProcessed = () => { /* no-op */ };
 
-    // Listen for display scale factor (DPR) changes
     try {
       if (downdraft?.onDisplayMetricsChanged) {
         downdraft.onDisplayMetricsChanged((data: { scaleFactor: number }) => {
@@ -405,7 +484,6 @@ startGame({
       console.warn("[Renderer] onDisplayMetricsChanged not available:", e);
     }
 
-    // Listen for main process performance stats
     try {
       if (downdraft?.onPerfStats) {
         downdraft.onPerfStats((data: any) => {
@@ -417,14 +495,17 @@ startGame({
       console.warn("[Renderer] onPerfStats not available:", e);
     }
 
-    // --- HUD state polling (main thread) ---
+    // --- HUD state polling (main thread) → write to PixiUI SAB + store ---
     hudInterval = setInterval(() => {
       const simReader = renderer.getSimReader() as SimBufferReader | null;
       if (!simReader || !simReader.isValid()) return;
       const playerSlot = simReader.getPlayerSlot(0);
       if (!playerSlot) return;
       const flags = playerSlot.u32[PLR.FLAGS];
-      useGameStore.getState().setHudState({
+      const s = useGameStore.getState();
+
+      // Write to the zustand store (for main-thread consumers + change detection)
+      s.setHudState({
         health: playerSlot.f32[PLR.HEALTH],
         maxHealth: playerSlot.f32[PLR.MAX_HEALTH],
         hunger: playerSlot.f32[PLR.HUNGER],
@@ -446,9 +527,54 @@ startGame({
         playerZ: playerSlot.f32[PLR.POS_Z],
         heading: playerSlot.f32[PLR.HEADING],
       });
+
+      // Write to PixiUI SAB (per-frame scalars for the worker)
+      const hud = s.hudState;
+      pixiHost.writeStats({
+        fps: s.fps,
+        ready: s.ready ? 1 : 0,
+        simReady: s.simReady ? 1 : 0,
+        lutReady: s.lutReady ? 1 : 0,
+        health: hud.health, maxHealth: hud.maxHealth,
+        hunger: hud.hunger, thirst: hud.thirst,
+        oxygen: hud.oxygen, maxOxygen: hud.maxOxygen,
+        temperature: hud.temperature, timeOfDay: hud.timeOfDay,
+        weatherType: hud.weatherType, biome: 0, security: 0,
+        cameraMode: hud.cameraMode,
+        isFishing: hud.isFishing ? 1 : 0,
+        fishingTension: hud.fishingTension,
+        fishingProgress: hud.fishingProgress,
+        activeSlot: hud.activeSlot,
+        isPiloting: hud.isPiloting ? 1 : 0,
+        isOnboard: hud.isOnboard ? 1 : 0,
+        gold: hud.gold,
+        playerX: hud.playerX, playerZ: hud.playerZ, heading: hud.heading,
+        showInventory: s.showInventory ? 1 : 0,
+        showMap: s.showMap ? 1 : 0,
+        showBuildMenu: s.showBuildMenu ? 1 : 0,
+        showCraftMenu: s.showCraftMenu ? 1 : 0,
+        showFishingMinigame: s.showFishingMinigame ? 1 : 0,
+        showTradeMenu: s.showTradeMenu ? 1 : 0,
+        showSettings: s.showSettings ? 1 : 0,
+        showPauseMenu: s.showPauseMenu ? 1 : 0,
+        showCharacterCustomization: s.showCharacterCustomization ? 1 : 0,
+        showCredits: s.showCredits ? 1 : 0,
+        showBuilderWheel: s.showBuilderWheel ? 1 : 0,
+        hudHidden: s.hudHidden ? 1 : 0,
+        pointerLocked: document.pointerLockElement ? 1 : 0,
+        playerDied: s.playerDied ? 1 : 0,
+        isDev: s.isDev ? 1 : 0,
+        suppressPauseMenu: s.suppressPauseMenu ? 1 : 0,
+        builderCellType: s.builderCellType,
+        builderRotation: s.builderRotation,
+        reticleSize: s.reticleSize,
+        canvasW: canvas.width,
+        canvasH: canvas.height,
+      });
+
       const camMode = playerSlot.u32[PLR.CAMERA_MODE];
-      if (camMode !== CameraMode.FreeCam && useGameStore.getState().hudHidden) {
-        useGameStore.getState().setHudHidden(false);
+      if (camMode !== CameraMode.FreeCam && s.hudHidden) {
+        s.setHudHidden(false);
       }
     }, 100);
 

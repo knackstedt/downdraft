@@ -1,85 +1,42 @@
 // ============================================================================
 // Renderer Entry Point — declarative GameModule + startGame()
 //
-// Migrated from bootstrapGame() to the declarative startGame() API. The
-// mining-rpg renderer (MiningRenderer) manages its own MiningWorkerHost
-// internally inside renderer.init() — it creates the worker, the SAB, the
-// sim reader, and the input handler. The MiningGameSim adapter below
-// satisfies the GameSimWorker interface that startGame() requires, but the
-// actual sim worker lifecycle is owned by the renderer. The adapter's
-// start() is a no-op (startGame() does not call it when onInit is provided)
-// and onEvent is a no-op (sim→renderer events are handled by the renderer's
-// internal worker host).
+// Migrated from Solid-in-worker UI to @pixi/react in PixiJS worker.
+// The UI is now rendered in a Web Worker on an OffscreenCanvas via
+// @downdraft/library-pixi-ui. State flows through:
+//   - UiStatsSAB (per-frame scalars: health, oxygen, depth, menu visibility)
+//   - postMessage events (structured data: inventory, achievements, snapshots)
+//   - postAction (worker→main side effects: pause, save, craft, teleport)
 // ============================================================================
 
 import { startGame, type GameSimWorker } from "@downdraft/app/renderer";
+import { PixiUiHost } from "@downdraft/library-pixi-ui";
 import { createSimStatsPanelExtension, createSimStatsProvider } from "@downdraft/module-devtools";
-import React from "react";
-import { createRoot } from "react-dom/client";
-import App from "./app";
+import { MINING_STATS_LAYOUT, type WorkerToMainAction } from "./pixi/bridge-protocol";
 import { MiningRenderer } from "./renderer/mining-renderer";
-import { PLAYER, WORLD_SEED } from "./shared/constants";
+import { PLAYER, STATS, WORLD_SEED } from "./shared/constants";
 import { allocateMiningSimBuffer } from "./shared/sim-buffer";
 import { useGameStore } from "./stores/game-store";
 import "./styles/globals.css";
 
-// --- Solid-in-worker UI host ---
-// The SolidHost implementation lives in ./solid/host, which is part of the
-// Solid tsconfig project (games/mining-rpg/src/solid/tsconfig.json). We use
-// a static import so Vite bundles it correctly, and suppress the TS6307
-// error (file not in web tsconfig's include) with @ts-ignore — the solid
-// files are type-checked by their own tsconfig.
-// @ts-ignore — solid/host.ts is in the solid tsconfig project, not web
-import { SolidHost } from "./solid/host";
-
-let solidHost: SolidHost | null = null;
+let pixiHost: PixiUiHost | null = null;
+let statsRafId = 0;
+let snapshotCounter = 0;
 
 /**
- * MiningGameSim — adapter that satisfies the GameSimWorker interface
- * required by startGame().
- *
- * The mining-rpg renderer creates and manages its own MiningWorkerHost
- * inside renderer.init() (it also creates the sim reader and input handler
- * there). This adapter provides the SAB that startGame() captures for
- * ctx.simSAB/ctx.inputSAB, but does NOT spawn a worker — the renderer's
- * internal worker is the real simulation.
- *
- * start() is never called by startGame() when an onInit hook is provided
- * (our onInit calls renderer.init() which starts the real worker). onEvent
- * is never called because no `events` map is declared in the GameModule.
+ * MiningGameSim — adapter that satisfies the GameSimWorker interface.
+ * The mining-rpg renderer manages its own worker internally.
  */
 class MiningGameSim implements GameSimWorker {
   private sab: SharedArrayBuffer;
-
-  constructor() {
-    this.sab = allocateMiningSimBuffer();
-  }
-
-  async start(_config: unknown): Promise<void> {
-    // No-op: the renderer creates and starts its own MiningWorkerHost
-    // inside renderer.init(). This adapter only provides the SAB interface.
-  }
-
-  onEvent(_cb: (msg: any) => void): void {
-    // No-op: sim→renderer events are handled by the renderer's internal
-    // MiningWorkerHost. Mining-rpg does not use the GameModule declarative
-    // events map.
-  }
-
-  getSimBuffer(): SharedArrayBuffer {
-    return this.sab;
-  }
-
-  getInputBuffer(): SharedArrayBuffer {
-    // Mining-rpg's input region is embedded in the sim SAB (at INPUT_OFFSET),
-    // not a separate buffer. Return the sim SAB — the renderer manages input
-    // internally via its own worker host.
-    return this.sab;
-  }
+  constructor() { this.sab = allocateMiningSimBuffer(); }
+  async start(_config: unknown): Promise<void> { /* no-op */ }
+  onEvent(_cb: (msg: any) => void): void { /* no-op */ }
+  getSimBuffer(): SharedArrayBuffer { return this.sab; }
+  getInputBuffer(): SharedArrayBuffer { return this.sab; }
 }
 
 startGame({
-  // ── Renderer + Sim ──
   renderer: (canvas) => {
     const deterministic = (globalThis as any).downdraft?.deterministic === true;
     return new MiningRenderer(canvas, deterministic);
@@ -87,71 +44,184 @@ startGame({
   sim: () => new MiningGameSim(),
   simConfig: {},
 
-  // ── UI (React fallback — only mounted if Solid failed) ──
-  // mountUI is only called if we didn't mount Solid. We handle this in
-  // onReady below, so we skip mountUI here unless USE_REACT_UI is set.
-  mountUI: (overlay) => {
-    if ((globalThis as any).__USE_REACT_UI === true) {
-      const root = createRoot(overlay);
-      root.render(
-        <React.StrictMode>
-          <App />
-        </React.StrictMode>,
-      );
-    }
-    // Otherwise: Solid UI was mounted in onReady, skip.
-  },
+  mountUI: () => { /* pixi-ui handles UI */ },
 
-  // ── Renderer init (creates + starts the internal sim worker) ──
   onInit: async (ctx) => {
     const ok = await ctx.renderer.init();
-    if (!ok) {
-      console.error("WebGPU initialization failed");
-      return false;
-    }
+    if (!ok) { console.error("WebGPU initialization failed"); return false; }
     return true;
   },
 
-  // ── Post-init wiring ──
   onReady: (ctx) => {
-    useGameStore.getState().setRenderer(ctx.renderer);
+    const renderer = ctx.renderer as MiningRenderer;
+    useGameStore.getState().setRenderer(renderer);
 
-    // --- UI mode: Solid-in-worker (default) or React fallback ---
-    const useReactUI = (globalThis as any).__USE_REACT_UI === true;
+    // --- Start PixiUI overlay ---
+    pixiHost = new PixiUiHost({
+      backend: "webgl2",
+      statsLayout: MINING_STATS_LAYOUT,
+      sceneModuleUrl: new URL("./pixi-scene.tsx", import.meta.url).href,
+      passThrough: true,
+      canvasLayer: 1,
+      canvasId: "pixi-ui-canvas",
+    });
 
-    if (!useReactUI) {
-      // --- Solid-in-worker path ---
-      try {
-        solidHost = new SolidHost({ renderer: ctx.renderer, reactStore: useGameStore });
-        solidHost.start().then(() => {
-          console.log("[main] Solid-in-worker UI started");
-        }).catch((e) => {
-          console.error("[main] Solid UI failed, falling back to React:", e);
-          solidHost?.dispose();
-          solidHost = null;
-          // Fall back to React
-          const root = createRoot(ctx.overlay);
-          root.render(
-            <React.StrictMode>
-              <App />
-            </React.StrictMode>,
-          );
-        });
-      } catch (e) {
-        console.error("[main] Solid UI failed, falling back to React:", e);
-        solidHost?.dispose();
-        solidHost = null;
-        const root = createRoot(ctx.overlay);
-        root.render(
-          <React.StrictMode>
-            <App />
-          </React.StrictMode>,
-        );
+    pixiHost.onAction = ((action: any) => {
+      const a = action as WorkerToMainAction;
+      const s = useGameStore.getState();
+      switch (a.kind) {
+        case "pause": s.setPaused(true); break;
+        case "resume": s.setPaused(false); break;
+        case "teleport": (renderer as any).teleport?.(); break;
+        case "respawn": (renderer as any).respawn?.(); break;
+        case "save": (renderer as any).saveNow?.(); break;
+        case "sellAll": s.sellAll(); break;
+        case "buyUpgrade": (renderer as any).purchaseUpgrade?.(a.config); break;
+        case "craft": s.craft(a.recipe); break;
+        case "toggleBuildMode": s.toggleBuildMode(); break;
+        case "selectBuild": s.selectBuild(a.type); break;
+        case "toggleHeadlamp": s.toggleHeadlamp(); break;
+        case "toggleNoclip": s.toggleNoclip(); break;
+        case "setZoom": s.setZoom(a.zoom); break;
+        case "buyBuildMaterial": (renderer as any).buyBuildMaterial?.(a.type, a.qty); break;
+        case "startGame": s.setShowTitleScreen(false); break;
+        case "setShowTitleScreen": s.setShowTitleScreen(a.show); break;
+        case "deleteSave": (renderer as any).deleteSave?.(); break;
+        case "toggleShop": s.toggleShop(); break;
+        case "setShowShop": s.setShowShop(a.show); break;
       }
-    }
+    }) as any;
+
+    pixiHost.start().then(() => {
+      console.log("[main] PixiJS UI worker started");
+    }).catch((e) => {
+      console.error("[main] PixiUI failed:", e);
+    });
+
+    // --- Forward store changes to the worker via postMessage ---
+    const init = useGameStore.getState();
+    let lastInventory = init.inventory;
+    let lastBuildMaterials = init.buildMaterials;
+    let lastCraftedItems = init.craftedItems;
+    let lastAchievements = init.unlockedAchievements;
+    let lastRecentAchievement = init.recentAchievement;
+    let lastGameOver = init.gameOver;
+    let lastSaveTime = init.lastSaveTime;
+
+    useGameStore.subscribe((st) => {
+      if (st.inventory !== lastInventory) {
+        lastInventory = st.inventory;
+        pixiHost?.postEvent({ kind: "setInventory", inventory: st.inventory });
+      }
+      if (st.buildMaterials !== lastBuildMaterials) {
+        lastBuildMaterials = st.buildMaterials;
+        pixiHost?.postEvent({ kind: "buildMaterials", mats: st.buildMaterials });
+      }
+      if (st.craftedItems !== lastCraftedItems) {
+        lastCraftedItems = st.craftedItems;
+      }
+      if (st.unlockedAchievements !== lastAchievements) {
+        lastAchievements = st.unlockedAchievements;
+      }
+      if (st.recentAchievement !== lastRecentAchievement) {
+        lastRecentAchievement = st.recentAchievement;
+        if (st.recentAchievement) {
+          pixiHost?.postEvent({ kind: "achievement", id: st.recentAchievement.id });
+        }
+      }
+      if (st.gameOver !== lastGameOver) {
+        lastGameOver = st.gameOver;
+        if (st.gameOver) {
+          pixiHost?.postEvent({ kind: "death", cause: st.deathCause, quip: st.deathQuip });
+        }
+      }
+      if (st.lastSaveTime !== lastSaveTime) {
+        lastSaveTime = st.lastSaveTime;
+        pixiHost?.postEvent({ kind: "savedAt", time: st.lastSaveTime });
+      }
+    });
+
+    // --- Per-frame stats loop: poll renderer → write SAB + post snapshot ---
+    const statsLoop = () => {
+      if (!pixiHost) return;
+      const r = renderer;
+      const playerPos = r.getPlayerPos();
+      const cam = r.getCamera();
+      const grid = r.getGridReader();
+      const tick = grid?.getStat(STATS.TICK) ?? 0;
+      const store = useGameStore.getState();
+      const host = (r as any).getWorkerHost?.();
+
+      pixiHost.writeStats({
+        fps: r.getFPS(),
+        health: host?.getPlayerI32?.(PLAYER.HEALTH) ?? 0,
+        oxygen: host?.getPlayerI32?.(PLAYER.OXYGEN) ?? 0,
+        depth: Math.floor(playerPos.y / 128),
+        loadedChunks: grid?.getStat(STATS.LOADED_CHUNKS) ?? 0,
+        activeChunks: grid?.getStat(STATS.LOADED_CHUNKS) ?? 0,
+        nearSignpost: store.nearSignpost ? 1 : 0,
+        onGround: (host?.getPlayerI32?.(PLAYER.ON_GROUND) ?? 0) !== 0 ? 1 : 0,
+        playerFacing: host?.getPlayerI32?.(PLAYER.FACING) ?? 1,
+        playerX: playerPos.x, playerY: playerPos.y,
+        playerVx: host?.getPlayerF32?.(PLAYER.VX) ?? 0,
+        playerVy: host?.getPlayerF32?.(PLAYER.VY) ?? 0,
+        deathCause: host?.getPlayerI32?.(PLAYER.DEATH_CAUSE) ?? 0,
+        simReady: tick > 0 ? 1 : 0,
+        tick, gameOver: store.gameOver ? 1 : 0,
+        zoom: cam.zoom,
+        glowstickCount: store.glowstickCount,
+        bombCount: store.bombCount,
+        teleportCooldown: store.teleportCooldown,
+        playerSpeed: store.playerSpeed,
+        showTitleScreen: store.showTitleScreen ? 1 : 0,
+        showInventory: store.showInventory ? 1 : 0,
+        showEscapeMenu: store.showEscapeMenu ? 1 : 0,
+        showStats: store.showStats ? 1 : 0,
+        showAchievements: store.showAchievements ? 1 : 0,
+        showMinimap: store.showMinimap ? 1 : 0,
+        showShop: store.showShop ? 1 : 0,
+        showHUD: store.showHUD ? 1 : 0,
+        showFPS: store.showFPS ? 1 : 0,
+        showHelp: store.showHelp ? 1 : 0,
+        paused: store.paused ? 1 : 0,
+        buildMode: store.buildMode ? 1 : 0,
+        headlampOn: store.headlampOn ? 1 : 0,
+        noclip: store.noclip ? 1 : 0,
+        currency: store.currency,
+        digRadius: store.digRadius,
+        goldFlashTime: store.goldFlashTime,
+        maxInventory: store.getMaxInventory(),
+        inventoryCount: store.getInventoryCount(),
+        canvasW: ctx.canvas.width,
+        canvasH: ctx.canvas.height,
+      });
+
+      // Post renderer snapshot every ~30fps (every other frame)
+      snapshotCounter++;
+      if (snapshotCounter >= 2) {
+        snapshotCounter = 0;
+        const origin = r.getActiveGridOrigin();
+        const hovered = r.getHoveredCell();
+        const mouse = r.getMouseScreenPos();
+        pixiHost.postEvent({
+          kind: "rendererSnapshot",
+          camX: cam.x, camY: cam.y, camZoom: cam.zoom,
+          camWidth: cam.width, camHeight: cam.height,
+          signpostX: 0, signpostY: 0, signpostVisible: false,
+          bombs: [], explosions: [], glowsticks: [], enemies: [],
+          hoveredMat: hovered?.mat ?? -1, mouseX: mouse.x, mouseY: mouse.y,
+          gridOriginX: origin.x, gridOriginY: origin.y,
+          gridOriginW: origin.w, gridOriginH: origin.h,
+          playerX: playerPos.x, playerY: playerPos.y,
+          npcSurfaceYs: [],
+        });
+      }
+
+      statsRafId = requestAnimationFrame(statsLoop);
+    };
+    statsRafId = requestAnimationFrame(statsLoop);
   },
 
-  // ── DevTools ──
   devtools: {
     createSimStatsProvider: (renderer) => createSimStatsProvider({
       getWorkerHost: () => renderer.getWorkerHost(),
@@ -213,19 +283,16 @@ startGame({
     ],
   },
 
-  // ── Display info → frame rate limiter ──
   onDisplayInfo: (refreshRate, ctx) => {
     const renderer = ctx.renderer as MiningRenderer;
     renderer.setFrameRateLimit(refreshRate);
-    solidHost?.setFrameRateLimit(refreshRate);
   },
 
-  // ── FPS polling ──
   onFpsUpdate: (fps) => useGameStore.getState().setFPS(fps),
 
-  // ── Hot reload dispose ──
   onDispose: async () => {
-    solidHost?.dispose();
+    if (statsRafId) cancelAnimationFrame(statsRafId);
+    pixiHost?.dispose();
     const renderer = useGameStore.getState().renderer as MiningRenderer | null;
     if (renderer) await renderer.stop();
   },

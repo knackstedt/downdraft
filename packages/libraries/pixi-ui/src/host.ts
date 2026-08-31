@@ -16,6 +16,7 @@ import {
     type PixiUiAction,
     type PixiUiEvent,
     type PointerMessage,
+    type PointerMissedMessage,
     type Rect,
     type SceneStateMessage,
     type WorkerToMainMessage
@@ -422,6 +423,12 @@ export class PixiUiHost {
       case "interactiveRegions":
         this.interactiveRegions = msg.regions;
         break;
+      case "pointerMissed":
+        // The worker hit-tested a pointerdown and it didn't hit any
+        // interactive PixiJS element. Dispatch a synthetic PointerEvent on
+        // the element beneath the overlay so the game canvas receives it.
+        this.dispatchPointerMissed(msg);
+        break;
     }
   }
 
@@ -512,6 +519,11 @@ export class PixiUiHost {
     // inside interactive regions (UI elements) keep the default menu.
     if (this.passThrough) {
       c.addEventListener("contextmenu", this.onContextMenu);
+      // Forward wheel events to the element beneath the overlay so games
+      // that listen for wheel on their canvas (e.g. overburden zoom) keep
+      // working. Without this, the overlay (pointer-events: auto) captures
+      // the wheel event and the game canvas beneath never sees it.
+      c.addEventListener("wheel", this.onWheel, { passive: false });
     }
   }
 
@@ -523,6 +535,7 @@ export class PixiUiHost {
     c.removeEventListener("pointerup", this.onPointerUp);
     c.removeEventListener("pointerleave", this.onPointerLeave);
     c.removeEventListener("contextmenu", this.onContextMenu);
+    c.removeEventListener("wheel", this.onWheel);
   }
 
   private onContextMenu = (e: MouseEvent): void => {
@@ -534,6 +547,42 @@ export class PixiUiHost {
       (r) => x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height,
     );
     if (!inRegion) e.preventDefault();
+  };
+
+  private onWheel = (e: WheelEvent): void => {
+    if (!this.canvas) return;
+    // Always forward wheel events to the element beneath the overlay in
+    // pass-through mode. Unlike pointer events (where PixiJS does its own
+    // hit-testing on forwarded events), wheel events have no PixiJS
+    // hit-testing — without forwarding, the overlay (pointer-events: auto)
+    // swallows them and the game canvas never sees zoom input. Some scenes
+    // (e.g. overburden's @pixi/react scene) return a full-screen interactive
+    // region, so gating on inRegion would block all wheel forwarding.
+    e.preventDefault();
+    // Find the element beneath the overlay (same logic as dispatchOnGameCanvas).
+    let target: Element | null = null;
+    if (typeof document !== "undefined" && typeof document.elementsFromPoint === "function") {
+      const stack = document.elementsFromPoint(e.clientX, e.clientY);
+      for (const el of stack) {
+        if (el !== this.canvas) { target = el; break; }
+      }
+    }
+    if (!target) target = this.gameCanvas;
+    if (!target) return;
+    (target as EventTarget).dispatchEvent(new WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      clientX: e.clientX,
+      clientY: e.clientY,
+      deltaX: e.deltaX,
+      deltaY: e.deltaY,
+      deltaZ: e.deltaZ,
+      deltaMode: e.deltaMode,
+      shiftKey: e.shiftKey,
+      ctrlKey: e.ctrlKey,
+      altKey: e.altKey,
+      metaKey: e.metaKey,
+    }));
   };
 
   private forwardPointer(type: PointerMessage["type"], e: PointerEvent): void {
@@ -598,20 +647,74 @@ export class PixiUiHost {
     if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) {
       return;
     }
-    const synthetic = new PointerEvent(type, {
-      bubbles: true,
-      cancelable: true,
-      pointerId: e.pointerId,
-      pointerType: e.pointerType,
-      clientX: e.clientX,
-      clientY: e.clientY,
-      button: e.button,
-      buttons: e.buttons,
-      shiftKey: e.shiftKey,
-      ctrlKey: e.ctrlKey,
-      altKey: e.altKey,
-      metaKey: e.metaKey,
-    });
-    (target as EventTarget).dispatchEvent(synthetic);
+    this.dispatchSyntheticOnTarget(target, type, e.clientX, e.clientY, e.button, e.buttons, e.shiftKey, e.ctrlKey, e.altKey, e.metaKey);
+  }
+
+  /**
+   * Handle a pointerMissed message from the worker: a forwarded pointerdown
+   * didn't hit any interactive PixiJS element. Dispatch a synthetic
+   * PointerEvent on the element beneath the overlay so the game canvas
+   * receives the click (e.g. for task queueing, mining, tile selection).
+   *
+   * The worker reports canvas-pixel coordinates; we convert to client
+   * coordinates using the overlay's bounding rect.
+   */
+  private dispatchPointerMissed(msg: PointerMissedMessage): void {
+    if (!this.canvas) return;
+    const rect = this.canvas.getBoundingClientRect();
+    const clientX = rect.left + msg.x;
+    const clientY = rect.top + msg.y;
+    const overlay = this.canvas;
+    let target: Element | null = null;
+    if (typeof document !== "undefined" && typeof document.elementsFromPoint === "function") {
+      const stack = document.elementsFromPoint(clientX, clientY);
+      for (const el of stack) {
+        if (el !== overlay) { target = el; break; }
+      }
+    }
+    if (!target) target = this.gameCanvas;
+    if (!target) return;
+    const targetRect = (target as HTMLElement).getBoundingClientRect();
+    if (clientX < targetRect.left || clientX > targetRect.right || clientY < targetRect.top || clientY > targetRect.bottom) {
+      return;
+    }
+    const shift = (msg.modifiers & 1) !== 0;
+    const ctrl = (msg.modifiers & 2) !== 0;
+    const alt = (msg.modifiers & 4) !== 0;
+    const meta = (msg.modifiers & 8) !== 0;
+    const buttons = msg.type === "pointerdown" ? (msg.button === 0 ? 1 : msg.button === 2 ? 2 : 4) : 0;
+    this.dispatchSyntheticOnTarget(target, msg.type, clientX, clientY, msg.button, buttons, shift, ctrl, alt, meta);
+  }
+
+  /**
+   * Dispatch synthetic pointer + mouse events on a target element. A real
+   * browser click generates both pointer and mouse events; game canvases may
+   * listen for either. Dispatching only a PointerEvent would miss listeners
+   * registered for "mousedown"/"mouseup"/"mousemove" (e.g. overburden's
+   * input handler), and dispatching only a MouseEvent would miss listeners
+   * for "pointerdown" (e.g. sandjongg's input handler). Dispatching both
+   * ensures all game canvas input handlers fire.
+   */
+  private dispatchSyntheticOnTarget(
+    target: Element,
+    pointerType: PointerMessage["type"],
+    clientX: number,
+    clientY: number,
+    button: number,
+    buttons: number,
+    shiftKey: boolean,
+    ctrlKey: boolean,
+    altKey: boolean,
+    metaKey: boolean,
+  ): void {
+    const common = { bubbles: true, cancelable: true, clientX, clientY, button, buttons, shiftKey, ctrlKey, altKey, metaKey };
+    // Pointer event (for games that listen for pointerdown/pointerup/pointermove)
+    (target as EventTarget).dispatchEvent(new PointerEvent(pointerType, { ...common, pointerId: 1, pointerType: "mouse" }));
+    // Corresponding mouse event (for games that listen for mousedown/mouseup/mousemove)
+    const mouseType: string = pointerType === "pointerdown" ? "mousedown"
+      : pointerType === "pointerup" ? "mouseup"
+      : pointerType === "pointermove" ? "mousemove"
+      : "mouseleave";
+    (target as EventTarget).dispatchEvent(new MouseEvent(mouseType, common));
   }
 }

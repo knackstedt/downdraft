@@ -68,9 +68,14 @@ export function createInputHandler(canvas: HTMLCanvasElement): InputHandler {
   const onPointerMove = (e: PointerEvent): void => {
     const pos = getCanvasPos(e);
     if (state.isPanning) {
-      const dpr = window.devicePixelRatio || 1;
-      state.panDeltaX += (e as any).movementX * dpr;
-      state.panDeltaY += (e as any).movementY * dpr;
+      // Compute the pan delta from the absolute position change rather than
+      // e.movementX/movementY. Synthetic PointerEvents (dispatched by the
+      // pixi-ui host in pass-through mode) always have movementX/Y = 0
+      // because the PointerEvent constructor doesn't accept them, so relying
+      // on movementX would break panning when events are forwarded from the
+      // overlay canvas. Position-delta is equivalent and works in both cases.
+      state.panDeltaX += pos.x - state.mouseX;
+      state.panDeltaY += pos.y - state.mouseY;
     }
     state.mouseX = pos.x;
     state.mouseY = pos.y;
