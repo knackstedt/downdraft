@@ -38,6 +38,32 @@ export const RecastAgent: ComponentDefinition<RecastAgentData> = Component.regis
 interface RecastCrowdConfig {
   maxAgents: number;
   maxAgentRadius: number;
+  /**
+   * Seconds an agent may make no appreciable progress toward its target before
+   * its state flips to `"stuck"`. Set to `0` (or `Infinity`) to disable stuck
+   * detection. Default: `2`.
+   */
+  stuckTimeout?: number;
+  /**
+   * Minimum per-tick displacement (metres) that counts as "making progress"
+   * for stuck detection. Default: `0.05`.
+   */
+  stuckMoveEpsilon?: number;
+  /**
+   * Horizontal distance (metres) from the snapped target at which an agent is
+   * considered to have arrived. Default: `0.5`.
+   */
+  arrivalDistance?: number;
+  /**
+   * When `setTarget` is called, the engine runs a `computePath` from the
+   * agent's current position to the requested target and rejects the target
+   * if the resulting path is partial (its final waypoint is farther than this
+   * from the snapped target — i.e. the target lies on a disconnected navmesh
+   * island, such as the top of an obstacle the agent cannot climb). Set to
+   * `0` to accept any target that snaps onto the navmesh without a
+   * reachability check. Default: `1.5`.
+   */
+  reachabilityTolerance?: number;
 }
 
 /**
@@ -59,10 +85,22 @@ export class RecastCrowdSystem {
   private query: Query | null = null;
   /** entity.index → recast CrowdAgent index, for write-back during tick. */
   private entityToAgent = new Map<number, number>();
+  /** Per-agent stuck-detection state, keyed by recast agent index. */
+  private stuckState = new Map<number, { lastPos: Vec3; timer: number }>();
+
+  // Resolved config (defaults applied once).
+  private readonly stuckTimeout: number;
+  private readonly stuckMoveEpsilon: number;
+  private readonly arrivalDistance: number;
+  private readonly reachabilityTolerance: number;
 
   constructor(backend: RecastBackend, config: RecastCrowdConfig) {
     this.backend = backend;
     this.config = config;
+    this.stuckTimeout = config.stuckTimeout ?? 2;
+    this.stuckMoveEpsilon = config.stuckMoveEpsilon ?? 0.05;
+    this.arrivalDistance = config.arrivalDistance ?? 0.5;
+    this.reachabilityTolerance = config.reachabilityTolerance ?? 1.5;
   }
 
   /**
@@ -112,16 +150,22 @@ export class RecastCrowdSystem {
           agent.velocity[0] = vel.x;
           agent.velocity[1] = vel.y;
           agent.velocity[2] = vel.z;
-          // State heuristic: arrived when velocity is near-zero and a target is set.
+          // State heuristic: arrived when within arrivalDistance of the
+          // (snapped) target; otherwise seeking, with stuck detection as a
+          // backstop for agents that make no progress (e.g. target on an
+          // unreachable navmesh island, or wedged against geometry).
           if (agent.target) {
             const dx = agent.target[0] - pos.x;
             const dz = agent.target[2] - pos.z;
             const distSq = dx * dx + dz * dz;
-            if (distSq < 0.25) {
+            if (distSq < this.arrivalDistance * this.arrivalDistance) {
               agent.state = "arrived";
+              this.stuckState.delete(agentIdx);
             } else {
-              agent.state = "seeking";
+              this.updateStuckState(agentIdx, agent, [pos.x, pos.y, pos.z], ctx.dt);
             }
+          } else {
+            this.stuckState.delete(agentIdx);
           }
         });
       },
@@ -162,10 +206,28 @@ export class RecastCrowdSystem {
       agent.maxAcceleration = params?.maxAcceleration ?? agent.maxAcceleration;
     }
     this.entityToAgent.set(entity.index, agentIdx);
+    this.stuckState.delete(agentIdx);
     return agentIdx;
   }
 
-  /** Sets a move target for the agent. The crowd will pathfind + steer to it. */
+  /**
+   * Sets a move target for the agent. The crowd will pathfind + steer to it.
+   *
+   * The requested target is validated before being issued:
+   *   1. It is snapped to the nearest walkable navmesh polygon.
+   *   2. A `computePath` is run from the agent's current position to the
+   *      snapped target. If the path is partial (its final waypoint is
+   *      farther than `reachabilityTolerance` from the target — i.e. the
+   *      target lies on a disconnected navmesh island such as the top of an
+   *      obstacle the agent cannot climb), the target is rejected and
+   *      `false` is returned. The agent's existing target is left untouched.
+   *
+   * On success, the *snapped, reachable* endpoint is stored as the agent's
+   * target (not the raw input) so the arrival heuristic measures distance to
+   * the actual goal rather than a point inside geometry.
+   *
+   * @returns `true` if the target was accepted and issued to the crowd.
+   */
   setTarget(entity: Entity, target: Vec3): boolean {
     if (!this.world) return false;
     const agent = this.world.getComponent<RecastAgentData>(entity, RecastAgent.id);
@@ -174,12 +236,81 @@ export class RecastCrowdSystem {
     if (!crowd) return false;
     const crowdAgent = crowd.getAgent(agent.agentId);
     if (!crowdAgent) return false;
-    const ok = crowdAgent.requestMoveTarget({ x: target[0], y: target[1], z: target[2] });
-    if (ok) {
-      agent.target = target;
+
+    // Snap the requested target to the nearest walkable polygon, then verify
+    // the agent can actually reach it. Without this, a target inside an
+    // obstacle snaps to the nearest navmesh polygon — which may be the
+    // obstacle's walkable *top*, a disconnected island the agent cannot climb
+    // to — and the crowd spends forever steering into the obstacle base.
+    if (this.reachabilityTolerance > 0 && this.backend.isBuilt()) {
+      const query = this.backend.getQuery();
+      const startPos = crowdAgent.position();
+      const path = query.computePath(
+        { x: startPos.x, y: startPos.y, z: startPos.z },
+        { x: target[0], y: target[1], z: target[2] },
+      );
+      if (!path.success || path.path.length === 0) return false;
+      const last = path.path[path.path.length - 1];
+      const dx = last.x - target[0];
+      const dz = last.z - target[2];
+      // Partial path → target is on a disconnected island. Reject it.
+      if (Math.hypot(dx, dz) > this.reachabilityTolerance) return false;
+      // Issue the move target at the reachable endpoint and store the snapped
+      // target so arrival detection is accurate.
+      const ok = crowdAgent.requestMoveTarget({ x: last.x, y: last.y, z: last.z });
+      if (!ok) return false;
+      agent.target = [last.x, last.y, last.z];
+    } else {
+      // Reachability check disabled: fall back to recast's built-in snapping.
+      const ok = crowdAgent.requestMoveTarget({ x: target[0], y: target[1], z: target[2] });
+      if (!ok) return false;
+      agent.target = [target[0], target[1], target[2]];
+    }
+
+    agent.state = "seeking";
+    this.stuckState.delete(agent.agentId);
+    return true;
+  }
+
+  /**
+   * Per-tick stuck detection. Uses a sliding window: every `stuckTimeout`
+   * seconds it checks whether the agent has made appreciable *net* progress
+   * from its position at the start of the window. Measuring net displacement
+   * (rather than per-tick movement) correctly classifies an agent that
+   * oscillates against an obstacle as stuck — it jittered but ended up back
+   * where it started. This is a backstop for cases the `setTarget`
+   * reachability check cannot catch (dynamic obstacles, crowd local minima,
+   * agents wedged against geometry).
+   */
+  private updateStuckState(agentIdx: number, agent: RecastAgentData, pos: Vec3, dt: number): void {
+    if (this.stuckTimeout <= 0 || !Number.isFinite(this.stuckTimeout)) {
+      agent.state = "seeking";
+      return;
+    }
+    let s = this.stuckState.get(agentIdx);
+    if (!s) {
+      s = { lastPos: [pos[0], pos[1], pos[2]], timer: 0 };
+      this.stuckState.set(agentIdx, s);
+    }
+    s.timer += dt;
+    if (s.timer >= this.stuckTimeout) {
+      // Window elapsed — evaluate net displacement from the window start.
+      const moved = Math.hypot(
+        pos[0] - s.lastPos[0], pos[1] - s.lastPos[1], pos[2] - s.lastPos[2],
+      );
+      if (moved < this.stuckMoveEpsilon) {
+        agent.state = "stuck";
+      } else {
+        // Made progress — start a fresh window from the current position.
+        s.lastPos[0] = pos[0];
+        s.lastPos[1] = pos[1];
+        s.lastPos[2] = pos[2];
+        s.timer = 0;
+        agent.state = "seeking";
+      }
+    } else {
       agent.state = "seeking";
     }
-    return ok;
   }
 
   /** Clears the agent's move target (it will decelerate to a stop). */
@@ -194,6 +325,7 @@ export class RecastCrowdSystem {
     crowdAgent.resetMoveTarget();
     agent.target = null;
     agent.state = "idle";
+    this.stuckState.delete(agent.agentId);
   }
 
   /** Removes an agent from the crowd. */
@@ -206,6 +338,7 @@ export class RecastCrowdSystem {
     agent.agentId = -1;
     agent.state = "idle";
     this.entityToAgent.delete(entity.index);
+    this.stuckState.delete(agent.agentId);
   }
 
   /** Releases the recast Crowd. The backend + navmesh are owned by RecastBackend. */
@@ -214,5 +347,6 @@ export class RecastCrowdSystem {
     this.world = null;
     this.query = null;
     this.entityToAgent.clear();
+    this.stuckState.clear();
   }
 }
