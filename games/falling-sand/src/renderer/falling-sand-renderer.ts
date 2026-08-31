@@ -110,7 +110,7 @@ export class FallingSandRenderer extends GameRenderer {
     this.gridReader = this.workerHost.getReader();
 
     this.keydownHandler = (e: KeyboardEvent) => {
-      if (e.key === "p" || e.key === "P") {
+      if (e.key === "p" || e.key === "P" || e.key === "Escape") {
         const s = useGameStore.getState();
         if (s.paused) {
           this.workerHost?.resume();

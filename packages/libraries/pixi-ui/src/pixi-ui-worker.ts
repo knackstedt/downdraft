@@ -304,7 +304,10 @@ async function handleInit(msg: InitMessage): Promise<void> {
 
   try {
     if (msg.config.sceneModuleUrl) {
-      const mod = await import(msg.config.sceneModuleUrl);
+      // The scene module URL is a runtime value passed from the host via
+      // postMessage (the game's scene module), so Vite cannot analyze it at
+      // build time. Suppress the dynamic-import warning intentionally.
+      const mod = await import(/* @vite-ignore */ msg.config.sceneModuleUrl);
       const exportName = msg.config.sceneExportName ?? "default";
       const factory = mod[exportName] as PixiUiSceneFactory | undefined;
       if (typeof factory !== "function") {
@@ -455,6 +458,26 @@ function handlePointer(msg: { type: string; x: number; y: number; button: number
     twist: 0,
     tangentialPressure: 0,
   };
+
+  // In pass-through mode, hit-test before dispatching. If the pointerdown
+  // doesn't hit any interactive PixiJS element, report a miss so the host
+  // can dispatch the event on the game canvas beneath the overlay. This is
+  // needed for scenes that report a full-screen interactive region (e.g.
+  // @pixi/react scenes) — the host can't distinguish UI hits from empty
+  // space, so the worker does the hit-test and reports misses.
+  if (config?.passThrough && msg.type === "pointerdown") {
+    const rootBoundary = eventSystem.rootBoundary;
+    if (rootBoundary && typeof rootBoundary.hitTest === "function") {
+      let hit: unknown = null;
+      try {
+        hit = rootBoundary.hitTest(msg.x, msg.y);
+      } catch { /* hit-test can throw on edge cases — treat as miss */ }
+      if (!hit) {
+        postToMain({ kind: "pointerMissed", type: msg.type, x: msg.x, y: msg.y, button: msg.button, modifiers: msg.modifiers });
+        return;
+      }
+    }
+  }
 
   try {
     if (msg.type === "pointerdown") eventSystem._onPointerDown(syntheticEvent as any);
