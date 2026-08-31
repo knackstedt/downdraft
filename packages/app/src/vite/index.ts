@@ -207,6 +207,8 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
     { find: /^@downdraft\/library-marching-cubes\//, replacement: resolve(repoRoot, "packages/libraries/marching-cubes/src") + "/" },
     { find: /^@downdraft\/library-navmesh$/, replacement: resolve(repoRoot, "packages/libraries/navmesh/src/index.ts") },
     { find: /^@downdraft\/library-navmesh\//, replacement: resolve(repoRoot, "packages/libraries/navmesh/src") + "/" },
+    { find: /^@downdraft\/library-recast$/, replacement: resolve(repoRoot, "packages/libraries/recast/src/index.ts") },
+    { find: /^@downdraft\/library-recast\//, replacement: resolve(repoRoot, "packages/libraries/recast/src") + "/" },
     { find: /^@downdraft\/library-water$/, replacement: resolve(repoRoot, "packages/libraries/water/src/index.ts") },
     { find: /^@downdraft\/library-water\//, replacement: resolve(repoRoot, "packages/libraries/water/src") + "/" },
     // Game-owned plugin aliases are registered by each game's own
@@ -270,7 +272,7 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
   return defineConfig({
     main: {
       plugins: [
-        externalizeDepsPlugin({ exclude: ["@dimforge/rapier3d-compat", "@downdraft/module-electron-osr", "@downdraft/library-persistence"] }),
+        externalizeDepsPlugin({ exclude: ["@dimforge/rapier3d-compat", "@downdraft/module-electron-osr", "@downdraft/library-persistence", "recast-navigation"] }),
         {
           name: "force-cjs-main",
           configResolved(config) {
@@ -368,7 +370,7 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
       // Excluding it lets Vite serve the original module with the correct
       // import.meta.url pointing into node_modules.
       optimizeDeps: {
-        exclude: ["@bokuweb/zstd-wasm", "@h00w/basis-universal-transcoder", ...(options.optimizeDepsExclude ?? [])],
+        exclude: ["@bokuweb/zstd-wasm", "@h00w/basis-universal-transcoder", "recast-navigation", ...(options.optimizeDepsExclude ?? [])],
         include: [...(options.optimizeDepsInclude ?? [])],
         esbuildOptions: {
           plugins: [...(options.optimizeDepsEsbuildPlugins ?? [])],
