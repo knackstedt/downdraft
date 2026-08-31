@@ -61,6 +61,9 @@
       "@downdraft/library-physics-rapier": [
         "./packages/libraries/physics-rapier/src/index.ts"
       ],
+      "@downdraft/library-recast": [
+        "./packages/libraries/recast/src/index.ts"
+      ],
       "@downdraft/library-audio-kira": [
         "./packages/libraries/audio-kira/src/index.ts"
       ],

@@ -227,6 +227,12 @@
       "@downdraft/library-navmesh/*": [
         "./packages/libraries/navmesh/src/*"
       ],
+      "@downdraft/library-recast": [
+        "./packages/libraries/recast/src/index.ts"
+      ],
+      "@downdraft/library-recast/*": [
+        "./packages/libraries/recast/src/*"
+      ],
       "@downdraft/app": [
         "./packages/app/src/index.ts"
       ],

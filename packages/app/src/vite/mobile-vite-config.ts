@@ -140,6 +140,8 @@ export function createDowndraftMobileViteConfig(
     { find: /^@downdraft\/library-marching-cubes\//, replacement: resolve(repoRoot, "packages/libraries/marching-cubes/src") + "/" },
     { find: /^@downdraft\/library-navmesh$/, replacement: resolve(repoRoot, "packages/libraries/navmesh/src/index.ts") },
     { find: /^@downdraft\/library-navmesh\//, replacement: resolve(repoRoot, "packages/libraries/navmesh/src") + "/" },
+    { find: /^@downdraft\/library-recast$/, replacement: resolve(repoRoot, "packages/libraries/recast/src/index.ts") },
+    { find: /^@downdraft\/library-recast\//, replacement: resolve(repoRoot, "packages/libraries/recast/src") + "/" },
     { find: /^@downdraft\/library-water$/, replacement: resolve(repoRoot, "packages/libraries/water/src/index.ts") },
     { find: /^@downdraft\/library-water\//, replacement: resolve(repoRoot, "packages/libraries/water/src") + "/" },
     // MCP (renderer-side harness, used by some games for dev automation)
@@ -187,7 +189,7 @@ export function createDowndraftMobileViteConfig(
       plugins: (() => options.workerPlugins ?? []) as any,
     },
     optimizeDeps: {
-      exclude: ["@bokuweb/zstd-wasm", "@h00w/basis-universal-transcoder", ...(options.optimizeDepsExclude ?? [])],
+      exclude: ["@bokuweb/zstd-wasm", "@h00w/basis-universal-transcoder", "recast-navigation", ...(options.optimizeDepsExclude ?? [])],
       include: [...(options.optimizeDepsInclude ?? [])],
     },
     build: {

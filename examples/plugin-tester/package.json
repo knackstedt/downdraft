@@ -8,6 +8,7 @@
     "@downdraft/mcp": "workspace:*",
     "@downdraft/library-lighting": "workspace:*",
     "@downdraft/library-navmesh": "workspace:*",
+    "@downdraft/library-recast": "workspace:*",
     "@downdraft/library-weather": "workspace:*",
     "@downdraft/library-water": "workspace:*",
     "@downdraft/library-networking": "workspace:*",
