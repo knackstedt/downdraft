@@ -30,6 +30,9 @@ import {
     isRandomizeRequested,
     isResetRequested,
     randomGroundPoint,
+    showMesh,
+    showObstacles,
+    showPaths,
 } from "../helpers/navmesh-test-state";
 import { buildObstacleScene, getObstacleBoxes } from "../helpers/obstacle-scene";
 
@@ -127,7 +130,7 @@ class RecastNavmeshRenderer implements ITestRenderer {
     for (const agent of this.agents) {
       const newStart = randomGroundPoint();
       const newTarget = randomGroundPoint();
-      const transform = this.world.getComponent<{ position: Vec3 }>(agent.entity, PhysicsTransform.id);
+      const transform = this.world.getComponent<{ position: Vec3; prevPosition: Vec3 }>(agent.entity, PhysicsTransform.id);
       if (transform) {
         transform.position = [...newStart] as Vec3;
         transform.prevPosition = [...newStart] as Vec3;
