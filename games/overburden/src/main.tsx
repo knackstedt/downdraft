@@ -19,6 +19,8 @@ import { setupBlockheadsMcp } from "./mcp/setup";
 import type { OverburdenAction, OverburdenEvent } from "./pixi/bridge-protocol";
 import { OVERBURDEN_STATS_LAYOUT } from "./pixi/bridge-protocol";
 import { BlockheadsRenderer } from "./renderer/blockheads-renderer";
+import { getBlockDef } from "./shared/block-registry";
+import { REGION_BLOCK_H, REGION_BLOCK_W, THUMB_H, THUMB_W } from "./shared/map-buffer";
 import { createSimBuffer } from "./shared/sim-buffer";
 import { getSeasonInfo } from "./simulation/season-system";
 import { useGameStore, type BlockheadUIState } from "./stores/game-store";
@@ -44,6 +46,7 @@ let pixiHost: PixiUiHost | null = null;
 let statsRafId = 0;
 let pollInterval: ReturnType<typeof setInterval> | null = null;
 let markerInterval: ReturnType<typeof setInterval> | null = null;
+let mapRegionInterval: ReturnType<typeof setInterval> | null = null;
 let guiKeyHandler: ((e: KeyboardEvent) => void) | null = null;
 
 startGame({
@@ -248,6 +251,15 @@ startGame({
         debugInspect: 0,
         canvasW: canvas?.width ?? window.innerWidth,
         canvasH: canvas?.height ?? window.innerHeight,
+        // Map-mode per-frame scalars for the 2D overlay (camera world pos,
+        // zoom, cross-fade opacity, player world pos + facing).
+        camWorldX: renderer.getCamWorld().x,
+        camWorldY: renderer.getCamWorld().y,
+        camZoom: renderer.getCamera().zoom,
+        mapOpacity: renderer.getMapOpacity(),
+        playerWorldX: renderer.getPlayerWorld().x,
+        playerWorldY: renderer.getPlayerWorld().y,
+        playerFacing: renderer.getPlayerFacing(),
       });
       statsRafId = requestAnimationFrame(statsLoop);
     };
@@ -433,6 +445,93 @@ startGame({
         }));
       } catch { /* ignore */ }
     }, 200);
+
+    // --- Map-region → pixi-ui worker (500ms) ---
+    // The renderer fetches a downsampled map region from the sim worker every
+    // 2s and caches it (getMapRegionData / isMapRegionDirty). Here we convert
+    // the cached region into a dense packed-color Uint32Array + station markers
+    // and forward it to the pixi-ui worker so the 2D map overlay can render the
+    // bitmap. Only posted when the map is visible (mapOpacity > 0) and the
+    // region has changed since the last post — avoids wasted postMessage
+    // traffic while in pure 3D block mode.
+    const SKY_COLOR = 0x1a1a2e; // explored air (matches the 3D clear color)
+    const STATION_COLOR = 0xffd700; // gold marker for crafting stations
+    const expectedCells = REGION_BLOCK_W * REGION_BLOCK_H;
+    // Track whether the map was visible last cycle — when it first appears,
+    // clear stale region data and force a fresh fetch so the bitmap is
+    // centered on the current camera position, not a stale fetch from a
+    // previous visibility period.
+    let mapWasVisible = false;
+    function postMapRegion(): void {
+      if (!pixiHost) return;
+      const opacity = renderer.getMapOpacity();
+      if (opacity <= 0) { mapWasVisible = false; return; }
+      // On first appearance (or re-appearance), clear the store's stale
+      // mapRegion so the MapOverview doesn't render the bitmap with a wrong
+      // cx0 (which would position it off-screen). The background still
+      // renders for the crossfade; the bitmap appears once fresh data
+      // arrives (~500ms when the async fetch completes).
+      if (!mapWasVisible) {
+        pixiHost.postEvent({
+          kind: "setMapRegion",
+          cells: new Uint32Array(0),
+          cx0: 0,
+          stations: [],
+        } as OverburdenEvent);
+        renderer.refreshMapRegion();
+        mapWasVisible = true;
+      }
+      // Always kick off a refresh so the region stays current while the map
+      // is visible (the renderer's own 2s timer is too slow during active
+      // panning). refreshMapRegion is a no-op if a fetch is already in flight.
+      renderer.refreshMapRegion();
+      if (!renderer.isMapRegionDirty()) return;
+      const region = renderer.getMapRegionData();
+      renderer.clearMapRegionDirty();
+      if (!region) return;
+      // Build the dense packed-color bitmap in image order (row-major over
+      // the REGION_BLOCK_W × REGION_BLOCK_H pixel grid) so the overlay can
+      // blit cells[i] straight into ImageData pixel i. The source grids are
+      // laid out as ((chunkRow * cols + chunkCol) * THUMB_H + thumbTy) *
+      // THUMB_W + thumbTx (see shared/map-buffer.ts thumbIndex), so we iterate
+      // in that order and compute the matching image index.
+      const cols = region.cols;
+      const rows = region.rows;
+      const cells = new Uint32Array(expectedCells);
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+          for (let ty = 0; ty < THUMB_H; ty++) {
+            const imgY = row * THUMB_H + ty;
+            const imgRowBase = imgY * REGION_BLOCK_W + col * THUMB_W;
+            const srcRowBase = ((row * cols + col) * THUMB_H + ty) * THUMB_W;
+            for (let tx = 0; tx < THUMB_W; tx++) {
+              const ti = srcRowBase + tx;
+              if (region.explored[ti] === 0) continue; // 0 = fog (unexplored)
+              const repBlock = region.blockIds[ti];
+              let packed: number;
+              if (repBlock === 0) {
+                packed = SKY_COLOR;
+              } else {
+                const def = getBlockDef(repBlock);
+                const c = def?.color ?? [0, 0, 0];
+                packed = (c[0] << 16) | (c[1] << 8) | c[2];
+              }
+              cells[imgRowBase + tx] = packed;
+            }
+          }
+        }
+      }
+      const stations = region.stations.map((s) => ({
+        x: s.wx, y: s.wy, color: STATION_COLOR,
+      }));
+      pixiHost.postEvent({
+        kind: "setMapRegion",
+        cells,
+        cx0: region.cx0,
+        stations,
+      } as OverburdenEvent);
+    }
+    mapRegionInterval = setInterval(postMapRegion, 500);
   },
 
   mcp: () => setupBlockheadsMcp(() => useGameStore.getState().renderer as BlockheadsRenderer | null),
@@ -456,6 +555,7 @@ startGame({
   onDispose: async () => {
     if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
     if (markerInterval) { clearInterval(markerInterval); markerInterval = null; }
+    if (mapRegionInterval) { clearInterval(mapRegionInterval); mapRegionInterval = null; }
     if (statsRafId) { cancelAnimationFrame(statsRafId); statsRafId = 0; }
     if (guiKeyHandler) { window.removeEventListener("keydown", guiKeyHandler); guiKeyHandler = null; }
     if (pixiHost) { pixiHost.dispose(); pixiHost = null; }

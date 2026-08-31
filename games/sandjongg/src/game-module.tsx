@@ -60,6 +60,7 @@ export class SandjonggGameSim implements GameSimWorker {
 
 // ── PixiUI host handle (shared between onReady and onDispose) ──
 let pixiHost: PixiUiHost | null = null;
+let profilerHost: PixiUiHost | null = null;
 let statsRafId = 0;
 let autosaveInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -124,6 +125,64 @@ export const sandjonggModule: GameModule<SandjonggGameSim> = {
   onReady: (ctx) => {
     const renderer = ctx.renderer as SandjonggRenderer;
     useGameStore.getState().setRenderer(renderer);
+
+    // --- Wire the ProfilingBridge into the render loop (if profiling is enabled) ---
+    // The ProfilingBridge is created by initDevTools({ profiling: true }) in
+    // bootstrapGame. It's exposed on window.__sceneInspector.__getProfilingBridge().
+    const profilingBridge = (window as any).__sceneInspector?.__getProfilingBridge?.();
+    if (profilingBridge) {
+      const prevCallbacks = renderer.getCallbacks?.() ?? {};
+      renderer.setCallbacks({
+        ...prevCallbacks,
+        beforeFrame: (dt: number, elapsedTime: number) => {
+          profilingBridge.tick();
+          prevCallbacks.beforeFrame?.(dt, elapsedTime);
+        },
+        afterFrame: (dt: number, elapsedTime: number) => {
+          prevCallbacks.afterFrame?.(dt, elapsedTime);
+          profilingBridge.endFrame();
+        },
+      });
+      // Share the ProfilingSAB with the sandjongg sim worker
+      const profilingSAB = profilingBridge.getProfilingSAB();
+      renderer.getWorkerHost()?.attachProfilingSAB?.(profilingSAB);
+
+      // --- Start the Profiler overlay (in-game profiling UI) ---
+      // A second PixiUiHost on canvas layer 2 (above the game's pixi-ui layer 1)
+      // that renders the ProfilerScene (memory/CPU/IOPS/flame-graph views +
+      // warning toasts + record/export bar). Toggle with F12.
+      profilerHost = new PixiUiHost({
+        backend: "webgl2",
+        sceneModuleUrl: new URL("./profiler-scene.ts", import.meta.url).href,
+        sceneConfig: {
+          views: (window as any).__sceneInspector?.__getViews?.() ?? [],
+          layout: profilingBridge.getLayoutParams?.(),
+        },
+        extraSharedBuffers: { profiling: profilingSAB },
+        passThrough: true,
+        canvasLayer: 2,
+        canvasId: "profiler-canvas",
+      });
+      profilerHost.start().then(() => {
+        console.log("[profiler] Profiler overlay started — press F10 to toggle");
+        // Hide the profiler canvas by default (toggle with F10)
+        const canvas = document.getElementById("profiler-canvas") as HTMLCanvasElement | null;
+        if (canvas) canvas.style.display = "none";
+      }, (e) => console.error("[profiler] Profiler overlay failed to start:", e));
+
+      // F10 toggles the profiler overlay visibility
+      const toggleProfiler = (e: KeyboardEvent) => {
+        if (e.key === "F10") {
+          e.preventDefault();
+          const canvas = document.getElementById("profiler-canvas") as HTMLCanvasElement | null;
+          if (canvas) {
+            const isHidden = canvas.style.display === "none";
+            canvas.style.display = isHidden ? "block" : "none";
+          }
+        }
+      };
+      window.addEventListener("keydown", toggleProfiler);
+    }
 
     // --- Start the PixiJS UI overlay ---
     pixiHost = new PixiUiHost({
@@ -371,6 +430,10 @@ export const sandjonggModule: GameModule<SandjonggGameSim> = {
     if (pixiHost) {
       pixiHost.dispose();
       pixiHost = null;
+    }
+    if (profilerHost) {
+      profilerHost.dispose();
+      profilerHost = null;
     }
   },
 

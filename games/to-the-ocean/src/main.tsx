@@ -450,8 +450,31 @@ startGame({
     const sceneInspector = await initDevTools(renderer, {
       bridgeClass: SceneInspector,
       workerHosts: devtoolsProxy ? [{ prefix: "sim", proxy: devtoolsProxy }] : [],
+      profiling: true,
     }) as SceneInspector;
     sceneInspector.setSimBridge(bridge);
+
+    // Wire the ProfilingBridge into the render loop (tick at frame start,
+    // endFrame at frame end). The bridge drains the warning ring from the
+    // ProfilingSAB + fires auto-trace + ingests snapshots into the trace writer.
+    const profilingBridge = (sceneInspector as any)._profilingBridge;
+    if (profilingBridge) {
+      const prevCallbacks = renderer.callbacks ?? {};
+      renderer.setCallbacks({
+        ...prevCallbacks,
+        beforeFrame: (dt: number, elapsedTime: number) => {
+          profilingBridge.tick();
+          prevCallbacks.beforeFrame?.(dt, elapsedTime);
+        },
+        afterFrame: (dt: number, elapsedTime: number) => {
+          prevCallbacks.afterFrame?.(dt, elapsedTime);
+          profilingBridge.endFrame();
+        },
+      });
+      // Share the ProfilingSAB with the sim worker (so it can claim a slot)
+      const profilingSAB = profilingBridge.getProfilingSAB();
+      (sim as SimWebWorker).attachProfilingSAB?.(profilingSAB);
+    }
 
     // Gizmo mouse interaction handlers on canvas
     const canvas = ctx.canvas;

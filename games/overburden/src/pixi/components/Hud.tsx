@@ -2,19 +2,18 @@
 // Hud — in-game HUD shell. Contains all sub-components.
 // ============================================================================
 
-import React from "react";
 import { useWorkerState } from "../worker-store";
-import { FpsBar } from "./FpsBar";
 import { AttributeBars } from "./AttributeBars";
 import { BlockheadSelector } from "./BlockheadSelector";
-import { Hotbar } from "./Hotbar";
-import { NotificationToast } from "./NotificationToast";
-import { PickupNotifications } from "./PickupNotifications";
+import { FpsBar } from "./FpsBar";
 import { GenderIndicator } from "./GenderIndicator";
+import { Hotbar } from "./Hotbar";
 import { InventoryPanel } from "./InventoryPanel";
+import { NotificationToast } from "./NotificationToast";
+import { PauseMenu } from "./PauseMenu";
+import { PickupNotifications } from "./PickupNotifications";
 import { StationPanel } from "./StationPanel";
 import { TaskQueueDisplay } from "./TaskQueueDisplay";
-import { PauseMenu } from "./PauseMenu";
 
 export function Hud({ width, height }: { width: number; height: number }) {
   const showInventoryPanel = useWorkerState((s) => s.showInventoryPanel);

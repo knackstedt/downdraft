@@ -129,6 +129,27 @@ export class SimWebWorker implements IHotReloadable, ISimWorker {
   isReady(): boolean { return this.ready; }
 
   /**
+   * Attach the global ProfilingSAB to the sim worker. Called by the renderer
+   * after initDevTools({ profiling: true }) creates the ProfilingBridge.
+   * The worker's profiling prelude claims a slot + patches prototypes +
+   * initializes the warning engine + event-loop monitor.
+   */
+  async attachProfilingSAB(sab: SharedArrayBuffer): Promise<void> {
+    if (!this.wp) return;
+    try {
+      await (this.wp.proxy as any).__profilingAttach?.(sab, {
+        workerTag: "sim",
+        runtime: 0,
+        opfs: true,
+        idb: true,
+        defaultWarningRules: true,
+      });
+    } catch (err) {
+      console.warn("[SimWebWorker] Profiling SAB attach failed:", err);
+    }
+  }
+
+  /**
    * Returns a DevToolsWorkerProxy for syncing the worker's devtools manifest
    * with the renderer-side registry. Used by initDevTools() via syncWorkerManifests().
    */

@@ -11,6 +11,7 @@
     "@downdraft/core": "workspace:*",
     "@downdraft/library-sand": "workspace:*",
     "@downdraft/library-pixi-ui": "workspace:*",
+    "@downdraft/library-profiler": "workspace:*",
     "@downdraft/module-devtools": "workspace:*",
     "@downdraft/ui": "workspace:*",
     "pixi.js": "8.18.0",

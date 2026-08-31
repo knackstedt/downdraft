@@ -15,6 +15,7 @@ self.addEventListener("unhandledrejection", (e: PromiseRejectionEvent) => {
 });
 
 import { createSimWorker, usingRealSAB, type BufferSyncConfig, type SimWorkerControl } from "@downdraft/core";
+import { flushProfilingTick, recordTaskLatency, setHeapProvider } from "@downdraft/core/profiling";
 import {
     DEFAULT_GRAVITY,
     FIELD,
@@ -24,6 +25,7 @@ import {
     SandStepPool,
     SandWorld,
 } from "@downdraft/library-sand";
+import { exposeDevToolsApi } from "@downdraft/module-devtools";
 import { MAX_LAYERS, MAX_TILES, TILE_CELL_SIZE, WALL_THICKNESS } from "../shared/constants";
 import {
     BOARD_ELEMENT_OFFSET,
@@ -159,6 +161,10 @@ createSimWorker({
   fixedDt: 1 / 60,
   maxStepsPerFrame: 5,
 
+  // Wrap the exposed API with devtools + profiling RPC methods so the
+  // renderer can sync manifests + attach a ProfilingSAB.
+  wrapExpose: (api) => exposeDevToolsApi(api),
+
   async onInit(sab: SharedArrayBuffer, control: SimWorkerControl, gridW: number, gridH: number): Promise<void> {
     sabRef = sab;
     sandW = gridW;
@@ -207,6 +213,17 @@ createSimWorker({
     }
     world.reseed(0x9e3779b9);
 
+    // Provide a heap estimator for the profiling prelude. Workers don't have
+    // performance.memory, so we estimate from known allocations.
+    setHeapProvider(() => {
+      const gridBytes = sandW * sandH * 4; // Uint32Array grid
+      const fieldBytes = sandW * sandH * 4; // Uint8Array fields (4 per cell)
+      const sabBytes = sabRef?.byteLength ?? 0;
+      const boardBytes = board ? board.remainingCount() * 8 : 0;
+      const estimated = gridBytes + fieldBytes + sabBytes + boardBytes + 2 * 1024 * 1024;
+      return { heapUsed: estimated, heapTotal: estimated, rss: estimated };
+    });
+
     // Generate the first level.
     startLevel(1, 12345);
   },
@@ -217,6 +234,8 @@ createSimWorker({
     tickCount = ctx.tickCount;
 
     processInput();
+
+    const tickStart = performance.now();
 
     const stepPool: SandStepPool | null = pool;
     if (!stepPool && !world) return;
@@ -248,6 +267,11 @@ createSimWorker({
     writer.writeFieldGrid(world.fields);
 
     writeStats();
+
+    // Record tick latency + flush profiling data to the ProfilingSAB
+    const tickUs = (performance.now() - tickStart) * 1000;
+    recordTaskLatency("js", tickUs, "tick");
+    flushProfilingTick();
   },
 
   onAfterTicks(ctx): void {
