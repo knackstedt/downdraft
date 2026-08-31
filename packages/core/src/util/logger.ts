@@ -245,8 +245,8 @@ function highlightText(text: string): string {
     let i = 0;
     while (i < text.length) {
         const ch = text[i];
-        // Skip JSON placeholders (e.g. __JSON_0__) so their digits aren't highlighted
-        if (text.startsWith("__JSON_", i)) {
+        // Skip placeholders (e.g. __JSON_0__, __LINK_0__) so their digits aren't highlighted
+        if (text.startsWith("__JSON_", i) || text.startsWith("__LINK_", i)) {
             const end = text.indexOf("__", i + 7);
             if (end !== -1) {
                 out += text.slice(i, end + 2);
@@ -344,23 +344,32 @@ function linkifyMessage(msg: string): string {
             msg.slice(blob.end);
     }
 
-    msg = msg.replace(/https?:\/\/[^\s\)]+/g, (url) => {
-        const shorthand = extractShorthand(url);
-        return makeTerminalLink(url, shorthand);
-    });
-
-    msg = msg.replace(/ember:\/\/[^\s\)]+/g, (url) => {
-        const shorthand = extractShorthand(url);
-        return makeTerminalLink(url, shorthand);
-    });
-
-    msg = msg.replace(new RegExp("\\/(?:[^\\s:]+/)+[^\\s:)]+:\\d+(?::\\d+)?", "g"), (path) => {
-        const shorthand = extractShorthand(path);
-        return makeTerminalLink(`file://${path}`, shorthand);
+    // Linkify URLs, ember:// URIs, and bare file paths in a single pass.
+    // Running these as separate regex passes would re-match file paths inside
+    // the OSC 8 escape sequences produced by the URL pass, producing nested
+    // \x1b]8;;...\x07 sequences that render as visible "8;;" / ";;" fragments.
+    const linkPattern = new RegExp(
+        "(https?://[^\\s\\)]+)" +                   // group 1: http(s) URLs
+        "|(ember://[^\\s\\)]+)" +                   // group 2: ember URIs
+        "|(/(?:[^\\s:]+/)+[^\\s:)]+:\\d+(?::\\d+)?)" // group 3: bare file paths
+        , "g"
+    );
+    const links: string[] = [];
+    msg = msg.replace(linkPattern, (_match, httpUrl: string | undefined, emberUrl: string | undefined, filePath: string | undefined) => {
+        const target = httpUrl ?? emberUrl ?? `file://${filePath}`;
+        const link = makeTerminalLink(target, extractShorthand(target));
+        links.push(link);
+        return `__LINK_${links.length - 1}__`;
     });
 
     // Highlight numbers and quoted strings in remaining text
     msg = highlightText(msg);
+
+    // Restore linkified spans after highlightText so color codes don't
+    // corrupt the OSC 8 escape sequences inside the links.
+    for (let i = 0; i < links.length; i++) {
+        msg = msg.replace(`__LINK_${i}__`, links[i]);
+    }
 
     // Restore JSON blobs with syntax highlighting
     for (let i = 0; i < placeholderIndex; i++) {
