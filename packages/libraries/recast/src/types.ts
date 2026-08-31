@@ -71,6 +71,16 @@ export interface RecastAgentData {
   maxSpeed: number;
   maxAcceleration: number;
   target: Vec3 | null;
-  state: "idle" | "seeking" | "arrived";
+  /**
+   * Lifecycle state of the agent's current move goal:
+   * - `idle`     — no move target.
+   * - `seeking`  — has a reachable target, crowd is steering toward it.
+   * - `arrived`  — within `arrivalDistance` of the (snapped) target.
+   * - `stuck`    — has a target but has made no appreciable progress for
+   *                `stuckTimeout` seconds (e.g. target snapped to an
+   *                unreachable navmesh island, or the agent is wedged against
+   *                geometry). Games should react by clearing / reassigning.
+   */
+  state: "idle" | "seeking" | "arrived" | "stuck";
   velocity: Vec3;
 }

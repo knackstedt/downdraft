@@ -25,6 +25,14 @@ export interface RecastLibConfig {
   maxAgents?: number;
   /** Max agent radius for the recast Crowd ctor. Default: 0.6. */
   maxAgentRadius?: number;
+  /** Seconds without progress before an agent flips to `stuck`. `0` disables. Default: 2. */
+  stuckTimeout?: number;
+  /** Min per-tick displacement (m) counting as progress for stuck detection. Default: 0.05. */
+  stuckMoveEpsilon?: number;
+  /** Horizontal distance (m) from the snapped target counted as arrived. Default: 0.5. */
+  arrivalDistance?: number;
+  /** Max distance (m) from path endpoint to target for it to count as reachable. `0` disables the reachability check. Default: 1.5. */
+  reachabilityTolerance?: number;
 }
 
 // ── Typed tokens (DI) ──
@@ -52,6 +60,10 @@ export const RecastLib: EngineLibrary<RecastLibConfig> = {
       const crowd = new RecastCrowdSystem(backend, {
         maxAgents: config.maxAgents ?? 512,
         maxAgentRadius: config.maxAgentRadius ?? 0.6,
+        stuckTimeout: config.stuckTimeout,
+        stuckMoveEpsilon: config.stuckMoveEpsilon,
+        arrivalDistance: config.arrivalDistance,
+        reachabilityTolerance: config.reachabilityTolerance,
       });
       ctx.provide(RecastNavMeshTok, backend);
       ctx.provide(RecastCrowdTok, crowd);
