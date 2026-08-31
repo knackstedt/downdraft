@@ -1,6 +1,6 @@
 # DownDraft Engine
 
-An AI-Driven Game Engine built on **Electron + electron-vite + WebGPU** (TypeScript-first, optional Rust native modules for audio), with a built-in MCP server enabling AI agents to design, build, debug, and manage assets for games via natural language prompts.
+A game engine built on **Electron + electron-vite + WebGPU** (TypeScript-first, optional Rust native modules for audio). It ships with a built-in MCP server so AI agents can help build your game — designing, building, debugging, and managing assets via natural language prompts — but AI is one workflow among many: the engine is fully usable by hand, end to end, without any AI tooling.
 
 ## Quick Start
 
