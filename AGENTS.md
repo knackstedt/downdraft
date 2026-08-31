@@ -69,6 +69,16 @@ Bare class exports remain as an escape hatch — games that need full control ca
 
 No engine package depends on any game package (verified). The `entities` library is an engine library (generic `ModelRenderer` used by multiple games). When adding a new game, create `games/<game>/modules/` for its game-specific modules and `games/<game>/libraries/` for its game-specific pure libraries.
 
+### Visual Test Bench (`games/visual-test-bench`)
+
+A graphical test program (modeled on `games/model-viewer`) for visually verifying engine effects and functional systems. Provides a React DOM menu of minimal tests, each with its own renderer factory. Extensible via a `TestRegistry` API — game authors add tests by creating `*.test.ts` files in `src/tests/` that call `registerTest()`. Vite glob import auto-discovers them.
+
+- **Run**: `cd games/visual-test-bench && ../../node_modules/.bin/electron-vite dev --config electron.vite.config.ts` (or `draft dev` from the game directory via cwd inference).
+- **Not in root workspaces** (follows model-viewer pattern: `@downdraft/*` resolved via vite aliases, not type-checked by root tsconfig).
+- **Test interface**: `VisualTest { id, name, category, description, createRenderer(canvas): ITestRenderer, getControls?(): TestControl[] }`. Each test owns its own GPU resources; the bench disposes + recreates the renderer when switching tests.
+- **Built-in tests**: navmesh (recast + legacy, with mesh wireframe + path debug viz), postfx (gaussian blur, pixelation, ASCII, and the PostProcessStack with FXAA/DOF/Bloom/Sobel/Afterimage/ASCII on a 3D scene).
+- **Adding a test**: create `games/visual-test-bench/src/tests/<category>/<name>.test.ts`, call `registerTest({ ... })` at module load. The Vite glob in `src/tests/index.ts` picks it up automatically.
+
 ### Typed DI (provide/inject + provides/requires)
 
 Modules use typed `ResourceToken<T>`-based dependency injection instead of stringly-typed resource names:
