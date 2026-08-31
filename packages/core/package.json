@@ -5,6 +5,8 @@
   "main": "src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./profiling": "./src/profiling/index.ts",
+    "./profiling/*": "./src/profiling/*.ts",
     "./*": "./src/*.ts"
   },
   "dependencies": {

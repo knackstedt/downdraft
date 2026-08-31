@@ -57,6 +57,15 @@ export { createSimStatsProvider } from "./sim-stats-provider";
 export { initDevTools } from "./init";
 export type { InitDevToolsOptions } from "./init";
 
+// Profiling bridge — wires the ProfilingSAB + renderer-side warning engine +
+// event-loop monitor + trace event writer + auto-trace + built-in view descriptors
+export { ProfilingBridge } from "./profiling-bridge";
+export type { ProfilingBridgeOptions, ProfilingBridgeSnapshot } from "./profiling-bridge";
+
+// Debug view descriptors — declarative registration of profiler overlay views
+export { BUILTIN_VIEW_DESCRIPTORS } from "./debug-view-descriptors";
+export type { BuiltinViewKind, DebugViewDescriptor } from "./debug-view-descriptors";
+
 // Material stats panel — reusable DevTools tab for the material system
 export { createMaterialStatsPanelExtension } from "./material-stats-panel";
 export type { MaterialStatsPanelOptions } from "./material-stats-panel";

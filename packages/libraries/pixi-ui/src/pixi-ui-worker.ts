@@ -92,6 +92,7 @@ import {
     type MainToWorkerMessage,
     type PixiUiAction,
     type PixiUiEvent,
+    type PointerMissedMessage,
     type Rect,
     type SceneNodeSummary,
     type SerializedPixiUiConfig,
@@ -139,10 +140,18 @@ let app: Application | null = null;
 let scene: PixiUiScene | null = null;
 let config: SerializedPixiUiConfig | null = null;
 let uiStatsSab: SharedArrayBuffer | null = null;
+let extraSharedBuffers: Record<string, SharedArrayBuffer> | null = null;
 let eventQueue: PixiUiEvent[] = [];
 let startTime = 0;
 let lastTime = 0;
 let interactive = false;
+// In pass-through mode, tracks whether the current pointer drag started as
+// a "miss" (no interactive PixiJS element was hit on pointerdown). While
+// true, pointermove/pointerup are reported as misses too so the host
+// dispatches them on the game canvas beneath the overlay — without this,
+// the game canvas receives pointerdown (via pointerMissed) but never
+// pointermove/pointerup, so click+drag (e.g. camera panning) doesn't work.
+let dragMissed = false;
 
 // ── Helpers: post messages to main thread ──
 
@@ -249,6 +258,7 @@ self.addEventListener("message", messageHandler as (e: MessageEvent) => void);
 async function handleInit(msg: InitMessage): Promise<void> {
   config = msg.config;
   uiStatsSab = msg.uiStatsSab;
+  extraSharedBuffers = msg.extraSharedBuffers ?? null;
 
   // Validate the SAB layout matches the config.
   validateUiStatsSab(msg.uiStatsSab, msg.config.statsLayout);
@@ -300,6 +310,7 @@ async function handleInit(msg: InitMessage): Promise<void> {
       else if (level === "warn") console.warn(`[PixiUI scene] ${text}`);
       else console.info(`[PixiUI scene] ${text}`);
     },
+    extraSharedBuffers: extraSharedBuffers ?? undefined,
   };
 
   try {
@@ -316,6 +327,12 @@ async function handleInit(msg: InitMessage): Promise<void> {
       scene = await factory(sceneCtx);
     } else {
       scene = createDefaultScene(sceneCtx);
+    }
+    // Add the scene's root to the stage so it's visible. The default scene
+    // does this itself, but custom scenes may not — do it here for all scenes
+    // so factories don't need to know about the app stage.
+    if (scene?.root && app?.stage && !app.stage.children.includes(scene.root)) {
+      app.stage.addChild(scene.root);
     }
   } catch (err) {
     postError(`Scene init failed: ${(err as Error).message}`, (err as Error).stack);
@@ -401,6 +418,18 @@ function handlePointer(msg: { type: string; x: number; y: number; button: number
   // forwards when the canvas has pointer-events: auto, but this is a safety
   // check for the worker's own setInteractive state).
   if (!interactive && !config?.passThrough) return;
+
+  // Queue pointer events as PixiUiEvents so scenes that recreate their
+  // display objects every frame (e.g. the ProfilerScene) can handle clicks
+  // in update() without relying on PixiJS hit-testing (which fails because
+  // the display objects are destroyed before clicks register).
+  eventQueue.push({
+    kind: msg.type,
+    x: msg.x,
+    y: msg.y,
+    button: msg.button,
+    modifiers: msg.modifiers,
+  } as PixiUiEvent);
   // PixiJS v8 event system: synthesize a pointer event on the renderer's canvas.
   // The EventSystem is automatically created by Application.init() when a canvas
   // is provided. We use the renderer's eventSystem to dispatch.
@@ -465,17 +494,31 @@ function handlePointer(msg: { type: string; x: number; y: number; button: number
   // needed for scenes that report a full-screen interactive region (e.g.
   // @pixi/react scenes) — the host can't distinguish UI hits from empty
   // space, so the worker does the hit-test and reports misses.
-  if (config?.passThrough && msg.type === "pointerdown") {
-    const rootBoundary = eventSystem.rootBoundary;
-    if (rootBoundary && typeof rootBoundary.hitTest === "function") {
-      let hit: unknown = null;
-      try {
-        hit = rootBoundary.hitTest(msg.x, msg.y);
-      } catch { /* hit-test can throw on edge cases — treat as miss */ }
-      if (!hit) {
-        postToMain({ kind: "pointerMissed", type: msg.type, x: msg.x, y: msg.y, button: msg.button, modifiers: msg.modifiers });
-        return;
+  //
+  // Once a pointerdown misses, all subsequent pointermove/pointerup in that
+  // drag gesture are also reported as misses — otherwise the game canvas
+  // receives pointerdown (via pointerMissed) but never pointermove, so
+  // click+drag (e.g. camera panning) doesn't work.
+  if (config?.passThrough) {
+    if (msg.type === "pointerdown") {
+      const rootBoundary = eventSystem.rootBoundary;
+      if (rootBoundary && typeof rootBoundary.hitTest === "function") {
+        let hit: unknown = null;
+        try {
+          hit = rootBoundary.hitTest(msg.x, msg.y);
+        } catch { /* hit-test can throw on edge cases — treat as miss */ }
+        if (!hit) {
+          dragMissed = true;
+          postToMain({ kind: "pointerMissed", type: msg.type, x: msg.x, y: msg.y, button: msg.button, modifiers: msg.modifiers });
+          return;
+        }
       }
+    } else if (dragMissed) {
+      // pointermove or pointerup during a drag that started as a miss.
+      // Forward to the game canvas so drag gestures (panning) work.
+      postToMain({ kind: "pointerMissed", type: msg.type as PointerMissedMessage["type"], x: msg.x, y: msg.y, button: msg.button, modifiers: msg.modifiers });
+      if (msg.type === "pointerup") dragMissed = false;
+      return;
     }
   }
 

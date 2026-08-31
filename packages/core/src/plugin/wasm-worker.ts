@@ -5,6 +5,7 @@
 // it with the host import module, calls register(), and forwards tick/dispose.
 // ============================================================================
 
+import { getWarningEngine, METRIC_TASK_LATENCY, recordTaskLatency } from "../profiling/worker-prelude";
 import {
     readStringFromMemory,
     WASM_PLUGIN_ABI_VERSION,
@@ -27,14 +28,24 @@ self.onmessage = async (ev: MessageEvent) => {
   }
   if (msg?.__wasmTick) {
     if (typeof exports.tick === "function") {
+      const tickStart = performance.now();
       exports.tick(msg.dt, msg.elapsedTime);
+      const durationUs = (performance.now() - tickStart) * 1000;
+      recordTaskLatency("wasm", durationUs, "tick");
+      getWarningEngine()?.checkInstant(METRIC_TASK_LATENCY, durationUs);
     }
   }
   if (msg?.__wasmEvent) {
     if (typeof exports.on_event === "function") {
       const json = JSON.stringify(msg.data);
       const [ptr, len] = writeBytesToMemory(exports, new TextEncoder().encode(json)) ?? [0, 0];
-      if (ptr !== 0) exports.on_event(msg.subId, ptr, len);
+      if (ptr !== 0) {
+        const evtStart = performance.now();
+        exports.on_event(msg.subId, ptr, len);
+        const durationUs = (performance.now() - evtStart) * 1000;
+        recordTaskLatency("wasm", durationUs, "on_event");
+        getWarningEngine()?.checkInstant(METRIC_TASK_LATENCY, durationUs);
+      }
     }
   }
 };

@@ -21,6 +21,9 @@ export interface InitMessage {
   offscreenCanvas: OffscreenCanvas;
   /** SharedArrayBuffer for high-frequency per-frame scalars. */
   uiStatsSab: SharedArrayBuffer;
+  /** Additional SharedArrayBuffers shared into the worker (e.g. ProfilingSAB).
+   *  These are shared (not transferred) — the key names let the scene identify them. */
+  extraSharedBuffers?: Record<string, SharedArrayBuffer>;
   /** Library config (backend, stats layout, scene factory id, etc.). */
   config: SerializedPixiUiConfig;
   /** Initial canvas CSS width/height in pixels. */
@@ -241,6 +244,9 @@ export interface SerializedPixiUiConfig {
   debug?: boolean;
   /** Whether the host is in pass-through mode (interactive UI + game-canvas input). */
   passThrough?: boolean;
+  /** Names of extra SharedArrayBuffers shared into the worker (keys of extraSharedBuffers).
+   *  The scene can access them via ctx.extraSharedBuffers[name]. */
+  extraSharedBufferKeys?: string[];
 }
 
 /** Serialize a PixiUiLibConfig for postMessage (strips the scene factory fn). */
@@ -253,6 +259,7 @@ export function serializeConfig(config: PixiUiLibConfig): SerializedPixiUiConfig
     sceneConfig: config.sceneConfig,
     debug: config.debug ?? false,
     passThrough: config.passThrough ?? false,
+    extraSharedBufferKeys: config.extraSharedBuffers ? Object.keys(config.extraSharedBuffers) : undefined,
   };
 }
 

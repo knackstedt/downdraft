@@ -83,6 +83,8 @@ export { BufferSyncHost, BufferSyncWorker, isBufferSyncMessage } from "./worker/
 export type { BufferRegion, BufferSyncConfig, BufferSyncMessage, BufferSyncRegions, SeqField } from "./worker/buffer-sync";
 export { CrashRecoveryManager, DEFAULT_RECOVERY_CONFIG } from "./worker/crash-recovery";
 export type { CrashRecoveryConfig, RecoveryState, SimWorkerLike } from "./worker/crash-recovery";
+export { exposeProfilingApi, InstrumentedWorkerHost } from "./worker/instrumented-worker-host";
+export type { InstrumentedWorkerHostOptions } from "./worker/instrumented-worker-host";
 export { expose, exposeEvents, getWorkerHost, wrap } from "./worker/rpc";
 export type { ExposeOptions, HostMessageHandler, WorkerApi, WorkerEventEmitter, WorkerHost, WorkerProxy } from "./worker/rpc";
 export { createSimWorker } from "./worker/sim-worker-base";
@@ -155,6 +157,29 @@ export { GPUTimerPool } from "./telemetry/gpu-timer-pool";
 export { DEFAULT_PROFILER_CONFIG, ProfilerOverlay } from "./telemetry/profiler-overlay";
 export type { ProfilerOverlayConfig } from "./telemetry/profiler-overlay";
 export { TelemetryReporter } from "./telemetry/reporter";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Profiling (in-game declarative profiling system)
+//
+// The full profiling API is available via the `@downdraft/core/profiling`
+// subpath. Here we re-export the most commonly used items for convenience.
+// Workers import the prelude via `import "@downdraft/core/profiling/worker-prelude"`.
+// ─────────────────────────────────────────────────────────────────────────────
+export {
+    DEFAULT_RENDERER_WARNING_RULES, DEFAULT_WORKER_WARNING_RULES, EventLoopMonitor,
+    TaskLatencyHistogram,
+    TraceEventWriter, WarningEngine
+} from "./profiling";
+export type {
+    AutoTraceConfig, EventLoopSnapshot,
+    IopsRecordSnapshot, ProfilingSABLayout,
+    ProfilingSnapshot,
+    SlotSnapshot,
+    ThreadMetricsSnapshot, TracePreset,
+    TraceSource, WarningCallback,
+    WarningContext,
+    WarningRecordData, WarningRecordSnapshot, WarningRule
+} from "./profiling";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Debug Draw

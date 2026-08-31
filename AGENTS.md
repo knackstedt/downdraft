@@ -6,7 +6,7 @@
 
 The engine is split into **core + libraries** (standard engine building blocks, used directly by games) vs **modules** (opt-in game features with lifecycle + typed DI + diagnostics). The `@downdraft/core` package also includes animation, particles, and imui subsystems directly (these were previously separate `@downdraft/library-*` packages but have been folded into core).
 
-- **Engine libraries** (namespace `@downdraft/library-*`, located in `packages/libraries/`): packages that export classes/functions without a module lifecycle. Games can either import and wire these directly, or declare them via `EngineLibrary` descriptors in `GameModule.libraries[]` for auto-wiring (SAB allocation, sim system creation, renderer pass creation, typed DI tokens). Engine libraries: water, physics-rapier, physics-native, marching-cubes, surface-nets, audio-kira, models, networking, weatherfx, undertow, pixi-ui, entities, lighting, weather, postfx, navmesh, persistence, gaussian-splats, sand, stickman.
+- **Engine libraries** (namespace `@downdraft/library-*`, located in `packages/libraries/`): packages that export classes/functions without a module lifecycle. Games can either import and wire these directly, or declare them via `EngineLibrary` descriptors in `GameModule.libraries[]` for auto-wiring (SAB allocation, sim system creation, renderer pass creation, typed DI tokens). Engine libraries: water, physics-rapier, physics-native, marching-cubes, surface-nets, audio-kira, models, networking, weatherfx, undertow, pixi-ui, entities, lighting, weather, postfx, navmesh, persistence, gaussian-splats, sand, stickman, profiler.
 - **Engine modules** (namespace `@downdraft/module-*`, located in `packages/modules/`): packages that implement the `Module` or `RendererModule` interface with a `register()` lifecycle + typed DI. Engine modules: camera-controls, devtools, electron-osr, mcp, xr, terrain, movement-3d, movement-2d, sailing.
 - **Game modules** (namespace `@to-the-ocean/module-*`, located in `games/<game>/modules/`): game-specific features with a module lifecycle. Game modules: crafting, inventory, buoyancy, collision, wildlife.
 - **Game libraries** (namespace `@to-the-ocean/library-*`, located in `games/<game>/libraries/`): game-specific pure libraries without a module lifecycle. Game libraries: boats, economy, fishing, items, survival.
@@ -1219,4 +1219,97 @@ The `downdraft doctor` devtools panel displays a plugins table (id, version, for
 - `games/overburden/plugins/crop-sprites-pack/` — asset data tier (texture + JSON).
 - `games/sandjongg/plugins/speed-mode/` — quickjs script tier (events + state + tick).
 - `games/sandjongg/plugins/custom-scorer/` — wasm native tier (ABI v2, Fibonacci scorer).
+
+## Profiling system (`@downdraft/core/profiling` + `@downdraft/library-profiler`)
+
+A comprehensive cross-thread profiling + tracing system with an in-game overlay (Puffin-style flame graph, memory/CPU/IOPS/event-loop/GC views, warning toasts, trace recording + export).
+
+### Architecture
+
+- **`@downdraft/core/profiling`** — the core profiling primitives:
+  - `ProfilingSAB` — a `SharedArrayBuffer` with a fixed layout: slot table (per-worker), per-slot metrics (ThreadMetrics), IOPS ring, event-loop block, warning ring, string table. Workers claim slots; the renderer reads all slots + drains the warning ring each frame.
+  - `ProfilingSABWriter` / `ProfilingSABReader` — writer (worker-side) + reader (renderer-side) for the SAB.
+  - `ThreadMetricsWriter` — writes heap/CPU/GC/task-latency metrics to the SAB each tick.
+  - `TaskLatencyHistogram` — fixed-bucket histogram for task/tick latency (p50/p95/p99/max) + a sample ring for the flame graph.
+  - `WarningEngine` — multi-level warning-rules engine. Rules fire in two modes: instantaneous (worker-side, `checkInstant()`) and windowed (renderer-side, `checkWindow()`). Supports auto-trace (starts recording on warning).
+  - `EventLoopMonitor` — rAF jitter, long-task detection, idle headroom measurement.
+  - `TraceEventWriter` — Chrome Trace Event / Perfetto / Spall format export.
+  - IOPS patches: `patchOpfsPrototypes()` + `patchIndexedDbPrototypes()` — wrap OPFS/IDB methods to record IOPS to the ring. `disableRendererIndexedDb()` — patches the renderer's `indexedDB.open` to throw (renderer should not do I/O).
+  - `worker-prelude.ts` — imported at the top of every instrumented worker. On load, detects worker realm, and if a ProfilingSAB is attached, claims a slot + initializes all writers + the warning engine + event-loop monitor + patches prototypes.
+- **`@downdraft/core/worker/instrumented-worker-host`** — `InstrumentedWorkerHost` (extends `BaseWorkerHost`) auto-attaches the ProfilingSAB before `onInit()`. `exposeProfilingApi()` merges `__profilingAttach` / `__profilingAddRule` / `__profilingOnWarning` RPC methods into a worker's `expose()` API.
+- **Vite plugin** — `profilingPreludePlugin` injects the worker prelude import at the top of worker files (configured via `DowndraftViteConfigOptions.profiling`).
+- **`@downdraft/module-devtools`** — extended with:
+  - `DebugViewDescriptor` + `registerView()` — declarative registration of profiler overlay views.
+  - `attachProfilingSAB()` / `getProfilingSAB()` — SAB management on the devtools API.
+  - `ProfilingBridge` — renderer-side bridge that creates the ProfilingSAB, runs the WarningEngine + EventLoopMonitor + TraceEventWriter, drains the warning ring each frame, fires auto-trace, and registers the 10 built-in view descriptors.
+  - `initDevTools({ profiling: true })` — creates the ProfilingBridge + exposes the ProfilingSAB on `__sceneInspector`.
+  - `exposeDevToolsApi()` — now merges `exposeProfilingApi()` so workers get both devtools + profiling RPC methods.
+- **`@downdraft/library-pixi-ui`** — extended with `extraSharedBuffers` in the scene context (for passing the ProfilingSAB to the pixi-ui overlay worker).
+- **`@downdraft/library-profiler`** — the profiler overlay library:
+  - `ProfilerLib` — `EngineLibrary` descriptor for declarative wiring via `GameModule.libraries[]`.
+  - `ProfilerOverlay` — main-thread host that wraps `PixiUiHost` with profiling-specific config.
+  - `ProfilerScene` — pixi-ui scene that renders the 10 built-in views (memory, CPU, task-latency, IOPS-OPFS, IOPS-IDB, event-loop, GC-heap, flame-graph, GPU-passes, warnings) + toast stack + record/export bar.
+
+### Built-in views (10)
+
+| View | Kind | Description |
+|------|------|-------------|
+| Memory | `memory` | Heap used / total per worker |
+| CPU | `cpu` | CPU percent + frame time per worker |
+| Task Latency | `task-latency` | p50/p95/p99/max task latency |
+| IOPS: OPFS | `iops-opfs` | OPFS I/O operations (op, tag, bytes, latency) |
+| IOPS: IDB | `iops-idb` | IndexedDB I/O operations |
+| Event Loop | `event-loop` | rAF jitter, long tasks, idle headroom |
+| GC & Heap | `gc-heap` | GC pauses, heap over time, snapshot + force-GC |
+| Flame Graph | `flame-graph` | Puffin-style task latency flame graph |
+| GPU Passes | `gpu-passes` | WebGPU pass timings (render/compute/blit) |
+| Warnings | `warnings` | Profiling warnings + auto-trace log |
+
+### WebGPU timestamp queries
+
+`GPUTimerPool` supports two levels of timestamp queries:
+- **Inside-pass timestamps** (render/compute passes) — requires `timestamp-query` + `chromium-experimental-timestamp-query-inside-passes`.
+- **Encoder-level timestamps** (blit/copy passes) — requires only `timestamp-query` (base feature). Uses `commandEncoder.writeTimestamp()`.
+
+`GPUProfiler` exposes `beginComputePass()` / `endComputePass()` / `beginBlitPass()` / `endBlitPass()` for compute + blit pass timing. `PassTiming.category` is `"render" | "compute" | "blit"`.
+
+### Task latency instrumentation
+
+The following execution paths are instrumented with `recordTaskLatency()` + `checkInstant(METRIC_TASK_LATENCY)`:
+- **Sim worker tick loop** (`sim-worker-base.ts`) — each `onTick()` call is timed.
+- **Task worker** (`task-worker.ts`) — each registered function call is timed.
+- **QuickJS bridge** (`quickjs-bridge.ts`) — `eval()`, `callGlobal()`, and tick callbacks are timed.
+- **WASM worker** (`wasm-worker.ts`) — `tick()` and `on_event()` calls are timed.
+
+### Renderer IndexedDB disabling
+
+`GameRenderer.init()` calls `disableRendererIndexedDb()` by default (patches `window.indexedDB.open` to throw for non-allowlisted databases). Games can opt out via `GameRendererConfig.disableRendererIndexedDb = false`.
+
+### Enabling profiling in a game
+
+1. **Vite config**: set `profiling: true` in `createDowndraftViteConfig()` to inject the worker prelude.
+2. **`initDevTools`**: pass `profiling: true` to create the `ProfilingBridge` + `ProfilingSAB`.
+3. **Render loop**: call `profilingBridge.tick()` in `beforeFrame` and `profilingBridge.endFrame()` in `afterFrame`.
+4. **Sim worker**: call `simWorker.attachProfilingSAB(bridge.getProfilingSAB())` to share the SAB with the sim worker.
+5. **Profiler overlay** (optional): declare `ProfilerLib` in `GameModule.libraries[]` for the in-game overlay.
+
+### Key files
+
+- `packages/core/src/profiling/profiling-sab.ts` — SAB layout + writer + reader.
+- `packages/core/src/profiling/warnings.ts` — WarningEngine + rules + auto-trace.
+- `packages/core/src/profiling/task-latency.ts` — TaskLatencyHistogram.
+- `packages/core/src/profiling/event-loop.ts` — EventLoopMonitor.
+- `packages/core/src/profiling/trace-event-writer.ts` — Chrome Trace Event export.
+- `packages/core/src/profiling/worker-prelude.ts` — worker prelude (auto-runs on import).
+- `packages/core/src/profiling/iops/opfs-patch.ts` — OPFS prototype patching.
+- `packages/core/src/profiling/iops/idb-patch.ts` — IndexedDB prototype patching.
+- `packages/core/src/profiling/iops/renderer-idb-disable.ts` — renderer IDB disabling.
+- `packages/core/src/worker/instrumented-worker-host.ts` — InstrumentedWorkerHost + exposeProfilingApi.
+- `packages/app/src/vite/profiling-prelude-plugin.ts` — Vite plugin.
+- `packages/modules/devtools/src/profiling-bridge.ts` — ProfilingBridge.
+- `packages/modules/devtools/src/debug-view-descriptors.ts` — DebugViewDescriptor + 10 built-in views.
+- `packages/libraries/profiler/src/profiler-scene.ts` — ProfilerScene (pixi-ui overlay).
+- `packages/libraries/profiler/src/library.ts` — ProfilerLib descriptor.
+- `packages/core/src/telemetry/gpu-timer-pool.ts` — GPUTimerPool (encoder-level timestamps).
+- `packages/core/src/telemetry/gpu-profiler.ts` — GPUProfiler (compute/blit pass timing).
 

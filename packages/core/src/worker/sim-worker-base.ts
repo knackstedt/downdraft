@@ -34,6 +34,7 @@
 
 // Import the SAB polyfill FIRST — it must execute before any code that
 // references SharedArrayBuffer. On desktop/Electron this is a no-op.
+import { flushProfilingTick, getWarningEngine, METRIC_TICK_LATENCY, recordTaskLatency } from "../profiling/worker-prelude";
 import "../sab/sab-polyfill";
 import { usingRealSAB } from "../sab/sab-polyfill";
 import type { BufferSyncConfig, BufferSyncWorker } from "./buffer-sync";
@@ -153,6 +154,18 @@ export interface CreateSimWorkerOptions {
    * e.g. { clear: () => { ... }, loadGrid: (grid, fields, w, h) => { ... } }
    */
   extraApi?: Record<string, (...args: any[]) => any>;
+
+  /**
+   * Wrap the exposed API with devtools + profiling RPC methods
+   * (__devtoolsGetManifest, __profilingAttach, etc.). When provided, the
+   * function is called with the assembled API and its return value is passed
+   * to expose(). Use this to add devtools + profiling RPC methods:
+   *
+   *   wrapExpose: (api) => exposeDevToolsApi(api)
+   *
+   * Default: undefined (expose(api) is called directly).
+   */
+  wrapExpose?: (api: WorkerApi) => WorkerApi;
 }
 
 /**
@@ -251,7 +264,13 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
           while (tickAccumulator >= 1 && steps < maxSteps) {
             tickCount++;
             stepInProgress = true;
+            const tickStart = performance.now();
             await opts.onTick(opts.fixedDt, { tickCount, frameCount, fps });
+            const tickDurationUs = (performance.now() - tickStart) * 1000;
+            // Record task latency for the flame graph + histogram
+            recordTaskLatency("js", tickDurationUs, "tick");
+            // Fire instantaneous tick-latency warning (if configured)
+            getWarningEngine()?.checkInstant(METRIC_TICK_LATENCY, tickDurationUs);
             stepInProgress = false;
             if (!loopActive) return; // resize/withLoopStopped interrupted
             tickAccumulator -= 1;
@@ -281,6 +300,9 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
             // SAB polyfill: sync written regions to the main thread after
             // each tick batch. No-op when real SAB is available (desktop).
             syncWorker?.syncToMain();
+
+            // Flush profiling data (ThreadMetrics + EventLoop + instant warnings)
+            flushProfilingTick();
           }
         }
       }
@@ -391,7 +413,10 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
   };
 
   const api: WorkerApi = { ...standardApi, ...(opts.extraApi ?? {}) };
-  expose(api);
+
+  // Optionally wrap the API before exposing (e.g. with exposeDevToolsApi
+  // to add devtools + profiling RPC methods).
+  expose(opts.wrapExpose ? opts.wrapExpose(api) : api);
 
   return control;
 }

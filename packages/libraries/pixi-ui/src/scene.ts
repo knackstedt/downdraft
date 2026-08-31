@@ -54,6 +54,13 @@ export interface PixiUiSceneContext {
   postAction(action: PixiUiAction): void;
   /** Post a debug log to the main thread console. */
   log(level: "info" | "warn" | "error", msg: string): void;
+  /**
+   * Additional SharedArrayBuffers shared into the worker by the host
+   * (e.g. the ProfilingSAB). Keys match the names passed in
+   * `PixiUiLibConfig.extraSharedBuffers`. Scenes that need direct SAB
+   * access (e.g. the profiler overlay reading profiling data) use this.
+   */
+  extraSharedBuffers?: Record<string, SharedArrayBuffer>;
 }
 
 /** Per-frame update data passed to PixiUiScene.update(). */

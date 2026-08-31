@@ -29,6 +29,8 @@ export interface PassTiming {
   pipelineSwitches: number;
   bindGroupChanges: number;
   bufferRebinds: number;
+  /** Pass category: "render" (default), "compute", or "blit" (copy/resolve). */
+  category?: "render" | "compute" | "blit";
 }
 
 export interface ResourceStats {

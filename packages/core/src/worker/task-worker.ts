@@ -3,6 +3,7 @@
 // and posts results back. Works in both Web Workers and Node.js worker_threads.
 // ============================================================================
 
+import { getWarningEngine, METRIC_TASK_LATENCY, recordTaskLatency } from "../profiling/worker-prelude";
 import { getWorkerHost } from "./rpc";
 
 // Function registry — workers register functions by string key
@@ -41,13 +42,20 @@ if (isWorkerContext) {
       }
 
       try {
+        const taskStart = performance.now();
         const result = fn(...args);
+        const handleResult = (r: unknown) => {
+          const durationUs = (performance.now() - taskStart) * 1000;
+          recordTaskLatency("js", durationUs, fnKey);
+          getWarningEngine()?.checkInstant(METRIC_TASK_LATENCY, durationUs);
+          host.postToHost({ __jobResult: true, id, result: r });
+        };
         if (result instanceof Promise) {
           result
-            .then((r) => host.postToHost({ __jobResult: true, id, result: r }))
+            .then(handleResult)
             .catch((e) => host.postToHost({ __jobResult: true, id, error: String(e) }));
         } else {
-          host.postToHost({ __jobResult: true, id, result });
+          handleResult(result);
         }
       } catch (e) {
         host.postToHost({ __jobResult: true, id, error: String(e) });

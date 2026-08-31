@@ -447,6 +447,16 @@
         "@downdraft/shader-graph": "workspace:*",
       },
     },
+    "packages/libraries/profiler": {
+      "name": "@downdraft/library-profiler",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+        "@downdraft/library-pixi-ui": "workspace:*",
+        "@downdraft/module-devtools": "workspace:*",
+        "pixi.js": "8.18.0",
+      },
+    },
     "packages/libraries/sand": {
       "name": "@downdraft/library-sand",
       "version": "0.1.0",
@@ -747,6 +757,8 @@
     "@downdraft/library-pixi-ui": ["@downdraft/library-pixi-ui@workspace:packages/libraries/pixi-ui"],
 
     "@downdraft/library-postfx": ["@downdraft/library-postfx@workspace:packages/libraries/postfx"],
+
+    "@downdraft/library-profiler": ["@downdraft/library-profiler@workspace:packages/libraries/profiler"],
 
     "@downdraft/library-sand": ["@downdraft/library-sand@workspace:packages/libraries/sand"],
 
