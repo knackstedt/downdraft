@@ -30,15 +30,24 @@ export class Camera {
   // Zoom limits (pixels per block).
   // MIN_ZOOM is small enough that the full map region (8192 blocks wide)
   // fits on a ≥2048px screen. The 3D scene cross-fades into the 2D map
-  // overview between MAP_FADE_START and MAP_FADE_END (see getMapOpacity).
+  // overview when zoom crosses MAP_FADE_THRESHOLD (see getMapOpacity +
+  // update).
   static readonly MIN_ZOOM = 0.25;
   static readonly MAX_ZOOM = 256;
 
-  // Map-mode fade band (px/block). Above MAP_FADE_START the view is pure 3D
-  // scene; below MAP_FADE_END it is pure 2D map. In between, both layers are
-  // blended by getMapOpacity() so the zoom-out gesture feels continuous.
-  static readonly MAP_FADE_START = 6;
-  static readonly MAP_FADE_END = 3;
+  // Map-mode transition threshold (px/block). When zoom drops below this,
+  // the view animates from 3D scene → 2D map. When zoom rises above it,
+  // it animates back. The transition is time-based (see MAP_FADE_DURATION),
+  // not tied to the exact zoom level — so there's no blended "half 3D / half
+  // map" state at rest, only during the animated transition.
+  static readonly MAP_FADE_THRESHOLD = 6;
+  // Crossfade duration in seconds.
+  static readonly MAP_FADE_DURATION = 0.3;
+
+  // Animated map opacity [0,1]. Tweens toward 0 (pure 3D) or 1 (pure map)
+  // at a constant rate determined by MAP_FADE_DURATION. Updated each frame
+  // by update(dt), called from the renderer's drawFrame.
+  private mapOpacity = 0;
 
   // Zoom levels — sorted descending so +/- stepping is monotonic in both
   // directions across the block-mode → map-mode boundary (256 → 6).
@@ -127,18 +136,36 @@ export class Camera {
   }
 
   /**
-   * Map-mode opacity in [0,1]. 0 in pure block mode (zoom >= MAP_FADE_START),
-   * 1 in pure map mode (zoom <= MAP_FADE_END), linearly interpolated between.
-   * Used to cross-fade the 3D canvas and drive the map overlay's rAF.
+   * Advance the animated map opacity toward its target. Called each frame
+   * from the renderer's drawFrame with the frame dt (seconds). The target is
+   * 0 (pure 3D) when zoom >= MAP_FADE_THRESHOLD, 1 (pure map) when below.
+   * The transition is a constant-speed tween over MAP_FADE_DURATION seconds
+   * so the crossfade plays as a smooth animation when zoom crosses the
+   * threshold, not as a static blend tied to the exact zoom level.
+   */
+  update(dt: number): void {
+    const target = this.zoom < Camera.MAP_FADE_THRESHOLD ? 1 : 0;
+    if (this.mapOpacity === target) return;
+    const step = dt / Camera.MAP_FADE_DURATION;
+    if (target > this.mapOpacity) {
+      this.mapOpacity = Math.min(target, this.mapOpacity + step);
+    } else {
+      this.mapOpacity = Math.max(target, this.mapOpacity - step);
+    }
+  }
+
+  /**
+   * Current animated map-mode opacity in [0,1]. 0 = pure 3D scene,
+   * 1 = pure 2D map. During the crossfade transition the value is between
+   * 0 and 1; at rest it is always exactly 0 or 1. Used to cross-fade the
+   * 3D canvas opacity and drive the map overlay's alpha.
    */
   getMapOpacity(): number {
-    if (this.zoom >= Camera.MAP_FADE_START) return 0;
-    if (this.zoom <= Camera.MAP_FADE_END) return 1;
-    return (Camera.MAP_FADE_START - this.zoom) / (Camera.MAP_FADE_START - Camera.MAP_FADE_END);
+    return this.mapOpacity;
   }
 
   /** True when the view is fully replaced by the 2D map overview. */
   isMapMode(): boolean {
-    return this.zoom <= Camera.MAP_FADE_END;
+    return this.mapOpacity >= 1;
   }
 }

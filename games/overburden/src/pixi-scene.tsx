@@ -7,12 +7,13 @@
 // Actions are sent back to the main thread via postAction.
 // ============================================================================
 
+import type { PixiUiScene, PixiUiSceneContext, Rect } from "@downdraft/library-pixi-ui";
 import { createPixiReactRoot } from "@downdraft/library-pixi-ui/react";
 import React from "react";
-import type { PixiUiScene, PixiUiSceneContext, Rect } from "@downdraft/library-pixi-ui";
 import type { OverburdenAction, OverburdenEvent } from "./pixi/bridge-protocol";
-import { setWorkerState, setPostAction } from "./pixi/worker-store";
 import { OverburdenApp } from "./pixi/components/OverburdenApp";
+import { MapOverlay } from "./pixi/map-overlay";
+import { setPostAction, setWorkerState } from "./pixi/worker-store";
 
 export default async function createOverburdenScene(ctx: PixiUiSceneContext): Promise<PixiUiScene> {
   const root = await createPixiReactRoot(ctx);
@@ -26,10 +27,18 @@ export default async function createOverburdenScene(ctx: PixiUiSceneContext): Pr
   let currentWidth = ctx.width;
   let currentHeight = ctx.height;
 
+  // Imperative map overlay (managed outside @pixi/react to avoid GC issues
+  // from per-frame Graphics draw callbacks during the crossfade transition).
+  const mapOverlay = new MapOverlay(ctx.app.stage);
+
   return {
     root: ctx.app.stage,
     update({ stats, events }) {
-      // Update SAB scalars → worker store
+      // Update SAB scalars → worker store. Map-mode stats (camWorldX/Y,
+      // camZoom, mapOpacity, playerWorldX/Y, playerFacing) are NOT stored
+      // here — they change every frame and would notify all React
+      // subscribers unnecessarily. The MapOverlay reads them directly from
+      // the SAB stats passed to mapOverlay.update() below.
       setWorkerState({
         fps: stats.fps ?? 0,
         health: stats.health ?? 100,
@@ -75,20 +84,28 @@ export default async function createOverburdenScene(ctx: PixiUiSceneContext): Pr
           case "setCraftQueue": setWorkerState({ craftQueue: ev.queue }); break;
           case "setTasks": setWorkerState({ tasks: ev.tasks }); break;
           case "setTaskMarkers": setWorkerState({ taskMarkers: ev.markers }); break;
-          case "setMapRegion":
-            setWorkerState({
-              mapRegion: {
-                cells: ev.cells,
-                playerX: ev.playerX, playerY: ev.playerY, playerFacing: ev.playerFacing,
-                cameraX: ev.cameraX, cameraY: ev.cameraY, cameraZoom: ev.cameraZoom,
-                mapOpacity: ev.mapOpacity,
-                activeGridX: ev.activeGridX, activeGridY: ev.activeGridY,
-                stations: ev.stations,
-              },
-            });
-            break;
+          // setMapRegion is handled by mapOverlay.update() below — it
+          // processes the event directly and redraws the bitmap imperatively.
         }
       }
+
+      // Update the imperative map overlay (background + bitmap + markers).
+      // This is outside @pixi/react to avoid GC issues from per-frame
+      // Graphics draw callbacks during the crossfade transition.
+      mapOverlay.update(
+        {
+          camWorldX: stats.camWorldX ?? 0,
+          camWorldY: stats.camWorldY ?? 0,
+          camZoom: stats.camZoom ?? 96,
+          mapOpacity: stats.mapOpacity ?? 0,
+          playerWorldX: stats.playerWorldX ?? 0,
+          playerWorldY: stats.playerWorldY ?? 0,
+          playerFacing: stats.playerFacing ?? 1,
+        },
+        events as OverburdenEvent[],
+        currentWidth,
+        currentHeight,
+      );
     },
     resize(width, height) {
       currentWidth = width;
@@ -118,6 +135,7 @@ export default async function createOverburdenScene(ctx: PixiUiSceneContext): Pr
       }));
     },
     dispose() {
+      mapOverlay.dispose();
       root.unmount();
     },
   };

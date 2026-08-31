@@ -203,6 +203,11 @@ export class BlockheadsRenderer extends GameRenderer {
     // 2D mode with viewportCount=0: we do custom rendering in afterFrame
     this.setViewportCount(0);
     this.camera = new Camera(canvas.width, canvas.height);
+    // Ensure the game canvas is at full opacity — the map overlay (on the
+    // pixi-ui canvas above) covers it with an opaque background, so the 3D
+    // canvas never needs to fade. Reset here in case a hot-reload left it
+    // at a non-1 value from a previous version of the crossfade code.
+    canvas.style.opacity = "1";
   }
 
   getFPS(): number {
@@ -361,6 +366,11 @@ export class BlockheadsRenderer extends GameRenderer {
   /** Interpolated player world position (for the map overlay marker). */
   getPlayerWorld(): { x: number; y: number } {
     return { x: this.interpWorldX, y: this.interpWorldY };
+  }
+
+  /** Camera center in world block coords (for the 2D map overlay alignment). */
+  getCamWorld(): { x: number; y: number } {
+    return { x: this.camWorldX, y: this.camWorldY };
   }
 
   /**
@@ -1178,15 +1188,17 @@ export class BlockheadsRenderer extends GameRenderer {
     if (!device || !context || !this.blockGridPass) return;
 
     // --- Map-mode cross-fade ---
-    // As the camera zooms out past MAP_FADE_START, fade the 3D canvas out so
-    // the 2D map overlay (components/map-overview.tsx) becomes visible. Only
-    // write the style when it changes to avoid per-frame DOM commits.
-    const mapOpacity = this.camera.getMapOpacity();
-    const targetCanvasOpacity = 1 - mapOpacity;
-    if (targetCanvasOpacity !== this.lastCanvasOpacity) {
-      canvas.style.opacity = String(targetCanvasOpacity);
-      this.lastCanvasOpacity = targetCanvasOpacity;
-    }
+    // Advance the animated map opacity toward its target (0 = pure 3D,
+    // 1 = pure 2D map). The target flips when zoom crosses MAP_FADE_THRESHOLD;
+    // the actual opacity tweens over MAP_FADE_DURATION seconds so the
+    // crossfade plays as a smooth animation, not a static blend at rest.
+    //
+    // The 3D canvas stays at opacity 1 — the map overlay (on the pixi-ui
+    // canvas at z-index 50) has an opaque full-screen background and fades
+    // in as a unit, covering the 3D scene. This avoids the compositing gap
+    // that occurs when both layers are semi-transparent on separate canvases
+    // (which would show the page background through the crossfade).
+    this.camera.update(dt);
 
     // --- Render SAB: check for new grid-builder build + cache render origin ---
     // This MUST happen before processCameraInput() and camera positioning so

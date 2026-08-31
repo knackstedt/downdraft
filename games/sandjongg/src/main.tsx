@@ -17,6 +17,7 @@ startGame({
 
   // ── DevTools (desktop-only) ──
   devtools: {
+    profiling: true,
     createSimStatsProvider: (renderer) => createSimStatsProvider({
       getWorkerHost: () => renderer.getWorkerHost(),
       getStorePaused: () => useGameStore.getState().paused,

@@ -50,6 +50,28 @@ export class SandjonggWorkerHost extends BaseWorkerHost<SandjonggWorkerApi> {
 
   getReader(): SimBufferReader { return this.reader; }
 
+  /**
+   * Attach the global ProfilingSAB to the sim worker. Called by the renderer
+   * after initDevTools({ profiling: true }) creates the ProfilingBridge.
+   * The worker's profiling prelude claims a slot + patches prototypes +
+   * initializes the warning engine + event-loop monitor.
+   */
+  async attachProfilingSAB(sab: SharedArrayBuffer): Promise<void> {
+    const proxy = this.getProxy();
+    if (!proxy) return;
+    try {
+      await (proxy.proxy as any).__profilingAttach?.(sab, {
+        workerTag: "sandjongg-sim",
+        runtime: 0,
+        opfs: true,
+        idb: true,
+        defaultWarningRules: true,
+      });
+    } catch (err) {
+      console.warn("[SandjonggWorkerHost] Profiling SAB attach failed:", err);
+    }
+  }
+
   /** Subscribe to worker events (matched, hint, noHint, matchFailed, deadEnd). */
   onEvents(handler: (kind: string, data?: unknown) => void): void {
     this.eventHandler = handler;

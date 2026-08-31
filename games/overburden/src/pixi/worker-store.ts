@@ -4,17 +4,17 @@
 // useSyncExternalStore for React integration.
 // ============================================================================
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 import type {
-  BlockheadUIState,
-  CraftQueueUI,
-  InventoryUI,
-  InventoryTab,
-  PickupToast,
-  RecipeUI,
-  Season,
-  TaskMarkerUI,
-  TaskUI,
+    BlockheadUIState,
+    CraftQueueUI,
+    InventoryTab,
+    InventoryUI,
+    PickupToast,
+    RecipeUI,
+    Season,
+    TaskMarkerUI,
+    TaskUI
 } from "./bridge-protocol";
 
 export interface OverburdenWorkerState {
@@ -58,14 +58,6 @@ export interface OverburdenWorkerState {
   craftQueue: CraftQueueUI | null;
   tasks: TaskUI[];
   taskMarkers: TaskMarkerUI[];
-  mapRegion: {
-    cells: { col: number; row: number; avgColor: number }[];
-    playerX: number; playerY: number; playerFacing: number;
-    cameraX: number; cameraY: number; cameraZoom: number;
-    mapOpacity: number;
-    activeGridX: number; activeGridY: number;
-    stations: { x: number; y: number; color: number }[];
-  } | null;
 }
 
 const initialState: OverburdenWorkerState = {
@@ -82,7 +74,7 @@ const initialState: OverburdenWorkerState = {
   inventory: new Array(54).fill(null),
   blockheads: [{ health: 100, hunger: 100, energy: 100, air: 100, happiness: 100, environment: 100 }],
   recipes: [], pickups: [], notification: null,
-  craftQueue: null, tasks: [], taskMarkers: [], mapRegion: null,
+  craftQueue: null, tasks: [], taskMarkers: [],
 };
 
 // ── Store implementation (singleton in the worker) ──

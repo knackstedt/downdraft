@@ -29,59 +29,76 @@ describe("Camera zoom limits", () => {
   });
 });
 
-describe("Camera.getMapOpacity", () => {
-  it("returns 0 at or above MAP_FADE_START (pure block mode)", () => {
+describe("Camera.getMapOpacity (animated)", () => {
+  it("starts at 0 (pure 3D)", () => {
     const cam = new Camera(1280, 720);
-    cam.zoom = Camera.MAP_FADE_START;
-    expect(cam.getMapOpacity()).toBe(0);
-    cam.zoom = Camera.MAP_FADE_START + 10;
     expect(cam.getMapOpacity()).toBe(0);
   });
 
-  it("returns 1 at or below MAP_FADE_END (pure map mode)", () => {
+  it("animates to 1 when zoom drops below MAP_FADE_THRESHOLD", () => {
     const cam = new Camera(1280, 720);
-    cam.zoom = Camera.MAP_FADE_END;
-    expect(cam.getMapOpacity()).toBe(1);
-    cam.zoom = Camera.MAP_FADE_END - 1;
+    cam.zoom = Camera.MAP_FADE_THRESHOLD - 1;
+    // Before any update, opacity is still 0.
+    expect(cam.getMapOpacity()).toBe(0);
+    // After enough update frames to complete the transition, opacity is 1.
+    const steps = Math.ceil(Camera.MAP_FADE_DURATION / 0.016);
+    for (let i = 0; i < steps; i++) cam.update(0.016);
     expect(cam.getMapOpacity()).toBe(1);
   });
 
-  it("interpolates linearly across the fade band", () => {
+  it("animates back to 0 when zoom rises above MAP_FADE_THRESHOLD", () => {
     const cam = new Camera(1280, 720);
-    const mid = (Camera.MAP_FADE_START + Camera.MAP_FADE_END) / 2;
-    cam.zoom = mid;
-    const opacity = cam.getMapOpacity();
-    // Should be ~0.5 (linear interpolation midpoint).
-    expect(opacity).toBeGreaterThan(0.4);
-    expect(opacity).toBeLessThan(0.6);
+    cam.zoom = Camera.MAP_FADE_THRESHOLD - 1;
+    const steps = Math.ceil(Camera.MAP_FADE_DURATION / 0.016);
+    for (let i = 0; i < steps; i++) cam.update(0.016);
+    expect(cam.getMapOpacity()).toBe(1);
+    // Zoom back in past the threshold.
+    cam.zoom = Camera.MAP_FADE_THRESHOLD + 10;
+    for (let i = 0; i < steps; i++) cam.update(0.016);
+    expect(cam.getMapOpacity()).toBe(0);
   });
 
-  it("is monotonic: opacity increases as zoom decreases", () => {
+  it("does not blend at rest — opacity is always exactly 0 or 1 when settled", () => {
     const cam = new Camera(1280, 720);
+    // Zoom to a level below the threshold but not at MIN_ZOOM.
+    cam.zoom = 4; // between MAP_FADE_THRESHOLD (6) and MIN_ZOOM (0.25)
+    const steps = Math.ceil(Camera.MAP_FADE_DURATION / 0.016);
+    for (let i = 0; i < steps; i++) cam.update(0.016);
+    // At rest, opacity should be exactly 1 (pure map), not a blend.
+    expect(cam.getMapOpacity()).toBe(1);
+    // Further updates should be no-ops.
+    cam.update(0.016);
+    expect(cam.getMapOpacity()).toBe(1);
+  });
+
+  it("is monotonic during the transition", () => {
+    const cam = new Camera(1280, 720);
+    cam.zoom = Camera.MAP_FADE_THRESHOLD - 1;
     let prev = 0;
-    for (let z = Camera.MAP_FADE_START; z >= Camera.MAP_FADE_END; z -= 0.1) {
-      cam.zoom = z;
-      const op = cam.getMapOpacity();
-      expect(op).toBeGreaterThanOrEqual(prev - 1e-9);
-      prev = op;
+    const steps = Math.ceil(Camera.MAP_FADE_DURATION / 0.016);
+    for (let i = 0; i < steps; i++) {
+      cam.update(0.016);
+      expect(cam.getMapOpacity()).toBeGreaterThanOrEqual(prev - 1e-9);
+      prev = cam.getMapOpacity();
     }
   });
 });
 
 describe("Camera.isMapMode", () => {
-  it("is true at or below MAP_FADE_END", () => {
+  it("is true only when the animated opacity has reached 1", () => {
     const cam = new Camera(1280, 720);
-    cam.zoom = Camera.MAP_FADE_END;
-    expect(cam.isMapMode()).toBe(true);
     cam.zoom = Camera.MIN_ZOOM;
+    expect(cam.isMapMode()).toBe(false); // not yet animated
+    const steps = Math.ceil(Camera.MAP_FADE_DURATION / 0.016);
+    for (let i = 0; i < steps; i++) cam.update(0.016);
     expect(cam.isMapMode()).toBe(true);
   });
 
-  it("is false above MAP_FADE_END", () => {
+  it("is false when zoom is above the threshold", () => {
     const cam = new Camera(1280, 720);
-    cam.zoom = Camera.MAP_FADE_END + 0.01;
-    expect(cam.isMapMode()).toBe(false);
     cam.zoom = 96;
+    const steps = Math.ceil(Camera.MAP_FADE_DURATION / 0.016);
+    for (let i = 0; i < steps; i++) cam.update(0.016);
     expect(cam.isMapMode()).toBe(false);
   });
 });
