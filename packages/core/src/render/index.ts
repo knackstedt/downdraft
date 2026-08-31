@@ -74,8 +74,6 @@ export { DEFAULT_EDGES_SETTINGS, EdgesPass } from "./passes/edges";
 export type { EdgesSettings } from "./passes/edges";
 export { DEFAULT_FLUID_CONFIG, FluidRenderPass } from "./passes/fluid-render";
 export type { FluidConfig } from "./passes/fluid-render";
-export { DEFAULT_SPLAT_CONFIG, GAUSSIAN_SPLAT_SHADER, packSplatToVertexBuffer, parsePlySplatData, sortSplatsByDepth, SPLAT_FLOATS_PER_VERTEX } from "./passes/gaussian-splat";
-export type { GaussianSplat, GaussianSplatConfig } from "./passes/gaussian-splat";
 export { DEFAULT_RSM_CONFIG, packVPLsToBuffer, sampleRSMToVPLs, VPL_FLOATS, VPL_SIZE } from "./passes/gi-types";
 export type { RSMConfig, VPLData } from "./passes/gi-types";
 export { DEFAULT_GLOW_SETTINGS, GlowPass } from "./passes/glow";

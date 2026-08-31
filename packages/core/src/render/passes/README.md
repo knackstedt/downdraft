@@ -95,7 +95,6 @@ Traditional forward-rendering passes (opaque, transparent, sky, etc.).
 | `reflection-probe.ts` | Reflection probe pass/types |
 | `rsm-pass.ts` | Reflective shadow map (RSM) pass for GI |
 | `volumetric-pass.ts` | Volumetric lighting/fog pass |
-| `gaussian-splat.ts` | Gaussian splatting render pass |
 | `sdf-text.ts` | SDF text rendering pass |
 | `ui-composite.ts` | UI composition pass |
 | `video-texture.ts` | Video texture source pass |

@@ -1,10 +1,17 @@
-import type { GaussianSplat, GaussianSplatData } from "./parser";
+import type { GaussianSplatData } from "./parser";
 
 export interface SortResult {
   indices: Uint32Array;
   distances: Float32Array;
 }
 
+/**
+ * CPU depth sort (back-to-front) for splats. Used as a fallback for small
+ * splat counts (below `GpuSplatSorter`'s threshold) and in tests.
+ *
+ * Returns indices sorted so that `indices[0]` is the FARTHEST splat from the
+ * camera (back-to-front order for alpha blending).
+ */
 export function sortSplats(
   data: GaussianSplatData,
   cameraPos: [number, number, number],
@@ -13,10 +20,12 @@ export function sortSplats(
   const distances = new Float32Array(count);
   const indices = new Uint32Array(count);
 
+  const pos = data.position;
   for (let i = 0; i < count; i++) {
-    const dx = data.splats[i].position[0] - cameraPos[0];
-    const dy = data.splats[i].position[1] - cameraPos[1];
-    const dz = data.splats[i].position[2] - cameraPos[2];
+    const i3 = i * 3;
+    const dx = pos[i3] - cameraPos[0];
+    const dy = pos[i3 + 1] - cameraPos[1];
+    const dz = pos[i3 + 2] - cameraPos[2];
     distances[i] = dx * dx + dy * dy + dz * dz;
     indices[i] = i;
   }
@@ -74,6 +83,10 @@ function merge(
   while (j <= right) indices[k++] = temp[j++];
 }
 
+/**
+ * Filter splats within `maxDistance` from `cameraPos`. Returns the indices of
+ * visible splats (unsorted — pair with `sortSplats` if sorted order is needed).
+ */
 export function filterByDistance(
   data: GaussianSplatData,
   cameraPos: [number, number, number],
@@ -81,11 +94,13 @@ export function filterByDistance(
 ): Uint32Array {
   const maxDistSq = maxDistance * maxDistance;
   const visible: number[] = [];
+  const pos = data.position;
 
   for (let i = 0; i < data.count; i++) {
-    const dx = data.splats[i].position[0] - cameraPos[0];
-    const dy = data.splats[i].position[1] - cameraPos[1];
-    const dz = data.splats[i].position[2] - cameraPos[2];
+    const i3 = i * 3;
+    const dx = pos[i3] - cameraPos[0];
+    const dy = pos[i3 + 1] - cameraPos[1];
+    const dz = pos[i3 + 2] - cameraPos[2];
     if (dx * dx + dy * dy + dz * dz <= maxDistSq) {
       visible.push(i);
     }

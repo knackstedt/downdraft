@@ -10,11 +10,11 @@
 // ============================================================================
 
 import { resourceToken, type EngineLibrary } from "@downdraft/core";
-import { GaussianSplatRenderer } from "./renderer";
+import { GaussianSplatRenderer, type GaussianSplatRendererConfig } from "./renderer";
 
 // ── Config ──
 
-export interface GaussianSplatsLibConfig {
+export interface GaussianSplatsLibConfig extends GaussianSplatRendererConfig {
   /** Surface texture format for the splat pipeline. Default: "bgra8unorm". */
   surfaceFormat?: GPUTextureFormat;
 }
@@ -37,7 +37,14 @@ export const GaussianSplatsLib: EngineLibrary<GaussianSplatsLibConfig> = {
   renderer: {
     init(config, ctx) {
       const format = config.surfaceFormat ?? ctx.format;
-      const renderer = new GaussianSplatRenderer(ctx.device, format);
+      const renderer = new GaussianSplatRenderer(ctx.device, format, {
+        maxSplats: config.maxSplats,
+        sortThreshold: config.sortThreshold,
+        sortFrequency: config.sortFrequency,
+        shDegree: config.shDegree,
+        tileRaster: config.tileRaster,
+        tileRasterOptions: config.tileRasterOptions,
+      });
       renderer.prepare(ctx.device);
       ctx.provide(GaussianSplatsTok, renderer);
       return renderer;
