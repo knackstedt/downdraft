@@ -145,21 +145,25 @@ export default function createDemoScene(ctx: PixiUiSceneContext): PixiUiScene {
     },
     summarize() {
       // Return a summary of the top-level children for MCP assertions.
-      return root.children.map((child) => {
+      const summarizeNode = (obj: any): any => {
         const summary: any = {
-          name: child.name ?? "",
-          type: child.constructor?.name ?? "unknown",
-          visible: child.visible,
-          x: child.x,
-          y: child.y,
-          width: child.width,
-          height: child.height,
+          name: obj.name ?? "",
+          type: obj.constructor?.name ?? "unknown",
+          visible: obj.visible,
+          x: obj.x,
+          y: obj.y,
+          width: obj.width,
+          height: obj.height,
         };
-        if ((child as any).text !== undefined) {
-          summary.text = String((child as any).text);
+        if (obj.text !== undefined) {
+          summary.text = String(obj.text);
+        }
+        if (obj.children?.length) {
+          summary.children = obj.children.slice(0, 20).map(summarizeNode);
         }
         return summary;
-      });
+      };
+      return root.children.map(summarizeNode);
     },
     dispose() {
       root.destroy({ children: true });

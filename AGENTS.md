@@ -133,12 +133,14 @@ A worker-hosted PixiJS UI overlay: the library spawns a Web Worker that renders 
 
 ### Architecture
 
-- **Canvas layering**: the overlay canvas is `data-dd-layer="1"` (z-index 50, above the game canvas at z 0, below the DOM overlay at z 100). The host acquires an existing canvas with `data-dd-layer="1"` or creates one if absent. CSS rules in `downdraft-base.css` set `pointer-events: none` for overlay canvas layers.
+- **Canvas layering**: the overlay canvas is `data-dd-layer="1"` (z-index 50, above the game canvas at z 0, below the DOM overlay at z 100). The host acquires an existing canvas with `data-dd-layer="1"` or creates one if absent. `PixiUiHost.start()` sets inline styles (`position: fixed; z-index: 50`) on the overlay canvas AND `position: fixed; z-index: 0` on the game canvas (layer 0) to ensure correct stacking even if the game doesn't import `downdraft-base.css`. Games MUST still `@import "@downdraft/app/renderer/downdraft-base.css"` in their globals.css for the full stacking rules (pointer-events, image-rendering, DOM overlay z-index 100). The `#root` div MUST have `background: transparent` so it doesn't cover the pixi-ui canvas.
 - **Worker lifecycle**: `PixiUiHost.start()` → `transferControlToOffscreen()` → spawn worker → send init message (OffscreenCanvas + UiStatsSAB + config, all transferable). Worker creates `PIXI.Application` on the OffscreenCanvas, dynamically imports the game's scene module, and runs a ticker loop.
+- **Worker message handler**: The worker uses `self.addEventListener("message", ...)` instead of `self.onmessage = ...` because PixiJS's internal worker code (e.g. `loadImageBitmap` worker) overwrites `self.onmessage` during `Application.init()`. `addEventListener` handlers cannot be overwritten by assignment, so the message handler survives PixiJS init. The worker also removes the Application's auto-render callback from the ticker and handles `app.render()` in its own `tick()` function with try/catch — if `app.render()` throws (e.g. WebGL context issues on OffscreenCanvas), the uncaught error would stop the PixiJS ticker and make the worker unresponsive.
+- **Worker EventSystem + document stub**: PixiJS v8's EventSystem is not loaded by default in the worker because `pixi.js/events` (the side-effect import that registers it as a renderer extension) is not imported. The worker explicitly imports `pixi.js/events` to register the EventSystem so `app.renderer.events` is available for pointer hit-testing. However, the EventSystem's `_addEvents()` method registers DOM event listeners on `globalThis.document` and `globalThis` — neither exists in a Web Worker. The worker stubs `globalThis.document` with no-op `addEventListener`/`removeEventListener`/`dispatchEvent`, `createElement('canvas')` returning an `OffscreenCanvas` (for PixiJS text rasterization), and `body.contains()` returning `true` (for `isRenderingToScreen()`). Pointer events are dispatched manually via `eventSystem._onPointerDown(syntheticEvent)` etc. (underscore-prefixed methods, not `onPointerDown`). The synthetic event must include `type`, `target`, `composedPath`, `cancelable`, `isPrimary`, `width`, `height`, `tiltX`, `tiltY`, `pressure`, `twist`, `tangentialPressure` — `_bootstrapEvent` reads these and `_onPointerUp` checks `target === domElement` to determine if the pointerup is "inside" (enabling click).
 - **Data model**: `UiStatsSAB` (fixed-layout `SharedArrayBuffer` with a 16-byte header + float32 slots) for high-frequency per-frame scalars (health, fps, positions). `postMessage` for event-driven/structured data (inventory, menu toggles, notifications). Games call `host.writeStats({...})` from their game loop and `host.postEvent({...})` for events.
 - **Input model**: worker calls `ctx.setInteractive(true/false)` → host toggles `canvas.style.pointerEvents` + forwards pointer events to worker for PixiJS `eventMode` hit-testing. Modal UI (menus, buttons) flips interactive on; display-only HUDs keep it off.
 - **Renderer backend**: WebGL2 by default. Games override via `backend: "webgl2" | "webgpu" | "auto"`. WebGL2 is most reliable for a 2D UI overlay (avoids dual-WebGPU-device concerns with the main game canvas).
-- **`@pixi/react` adapter**: optional `@downdraft/library-pixi-ui/react` module for declarative React components rendering to PixiJS. Games add `@pixi/react` + `react` to their deps and `@vitejs/plugin-react` to `workerPlugins` in their vite config. The core library does NOT depend on React.
+- **`@pixi/react` adapter**: optional `@downdraft/library-pixi-ui/react` module for declarative React components rendering to PixiJS. Games add `@pixi/react` + `react` to their deps and `@vitejs/plugin-react` to `workerPlugins` in their vite config. The core library does NOT depend on React. The adapter calls `extend()` to register PIXI components (Container, Graphics, Text, Sprite, etc.) in the `@pixi/react` catalogue (v8 requires explicit registration). It also patches the React fiber's `containerInfo` to point to the worker's existing PIXI.Application stage (createRoot creates a throwaway Application internally; without patching, React renders into the wrong stage and nothing appears). Components use the lowercase `<pixiContainer>`, `<pixiText>`, `<pixiGraphics>` convention (v8's `parseComponentType` converts `pixiX` → `X`). Event props use React naming: `onPointerDown`, `onPointerUp`, etc. (the adapter maps them to PixiJS event names).
 
 ### Declarative usage (via `GameModule.libraries[]`)
 
@@ -171,6 +173,62 @@ await host.start();
 ### Scene module
 
 Games implement a `PixiUiScene` factory (default export of the scene module). The worker dynamically imports it and calls it with a `PixiUiSceneContext` (PIXI.Application, width/height, setInteractive, postAction). The scene's `update()` is called each frame with the latest SAB stats + drained events.
+
+### Pass-through mode (interactive UI + game-canvas input)
+
+For games where interactive UI elements (toolbars, buttons, sliders) coexist with game-canvas mouse input (e.g. painting on a canvas), set `passThrough: true` in the `PixiUiLibConfig` / `PixiUiHostOptions`. In this mode:
+
+- The overlay canvas is always `pointer-events: auto` (it captures all pointer events).
+- The scene implements `getInteractiveRegions(): Rect[]` — bounding boxes of clickable/draggable UI elements in canvas pixel coordinates.
+- The host synchronously hit-tests each pointer event against the cached regions:
+  - **Inside a region** → forwarded to the worker for PixiJS `eventMode` hit-testing (normal interactive path).
+  - **Outside all regions** → dispatched as a synthetic `PointerEvent` on the game canvas (`data-dd-layer="0"`), so the game keeps receiving mouse input with zero postMessage latency.
+- The worker calls `scene.getInteractiveRegions()` after each `update()` and posts the regions to the host (only when changed, to avoid flooding the message channel).
+- The scene should return `[]` when no interactive elements are visible (display-only HUD).
+
+This replaces the original modal-UI model (`setInteractive(true/false)` toggling the whole canvas). Games that only have modal UIs (menus that capture all input) can still use the non-pass-through mode + `setInteractive`.
+
+### Data bridge convention (migrating from React/Solid DOM overlays)
+
+The pixi-ui worker **cannot read the main-thread zustand store directly**. State flows through three channels:
+
+1. **`UiStatsSAB`** (per-frame scalars, host→worker, zero-copy): the host calls `host.writeStats({ fps, health, ... })` each frame from a rAF loop or the game's `onFpsUpdate` hook. Each game declares its own `statsLayout` (slot name list) in `PixiUiLibConfig`. Slot names map to float32 offsets in the SAB. Booleans are encoded as 0/1.
+2. **`postMessage` events** (structured data, host→worker): `host.postEvent({ kind: "setInventory", items: [...] })` for non-scalar/event-driven data (inventory, saves, notifications, menu toggles). The host subscribes to zustand store changes and forwards them. Each game defines its own event `kind` strings in a `src/pixi/bridge-protocol.ts`.
+3. **`onAction`** (side-effect requests, worker→host): the scene calls `ctx.postAction({ kind: "pause" })` for main-thread side effects (pause, save, teleport, select material). The host's `onAction` handler dispatches into the zustand store / renderer / sim bridge.
+4. **Renderer snapshots** (optional, ~30fps): for overlays that need camera-transform positioning (signposts, minimap, reticule), the host posts a `PixiUiEvent` with kind `"snapshot"` carrying compact camera + entity arrays.
+
+A per-game **worker-side store mirror** (`src/pixi/store.ts`) holds the worker's copy of state, updated from SAB ticks + events. For `@pixi/react` games, this is a minimal reactive store (e.g. `useSyncExternalStore`) so React re-renders on event arrival. For raw PixiJS scenes, the scene reads directly from the `stats` object passed to `update()` and maintains its own state from events.
+
+### Migrating a React overlay to pixi-ui
+
+1. **Create `src/pixi/bridge-protocol.ts`** — define event kinds (main→worker) and action kinds (worker→main) by auditing every zustand store field the React components read (→ event or SAB slot) and every store mutation they trigger (→ action kind).
+2. **Create the scene module** (`src/pixi-scene.ts` for raw PixiJS, or `src/pixi/scene.tsx` + `src/pixi/components/*` for `@pixi/react`). Port each React component's visual structure to PIXI display objects (`Container`, `Graphics`, `Text`, `Sprite`). Replace `useGameStore` reads with SAB stats / worker store mirror reads. Replace `useGameStore` mutations with `ctx.postAction(...)`.
+3. **Rewire `main.tsx`**: replace `mountUI: (overlay) => createRoot(overlay).render(<App/>)` with the pixi-ui escape hatch (`new PixiUiHost(...)`) or declarative `libraries: [[PixiUiLib, config]]`. In `onReady`: get the host, set `onAction` to dispatch into the store/renderer, start a per-frame `host.writeStats(...)` loop (rAF or `onFpsUpdate`), subscribe to store changes → `host.postEvent(...)`. In `onDispose`: `host.dispose()`.
+4. **HTML layer spec** (`electron.vite.config.ts`): add the pixi overlay canvas layer (`{ type: "canvas", id: "pixi-ui-canvas" }`) above the game canvas. Import `@downdraft/app/renderer/downdraft-base.css`.
+5. **Dependencies**: add `@downdraft/library-pixi-ui` + `pixi.js` to game deps. For `@pixi/react` games, also add `@pixi/react`, `react`, `react-dom`, and `@vitejs/plugin-react` to `workerPlugins` in the vite config.
+6. **Delete** the old `src/app.tsx`, `src/components/*`, and UI-only CSS.
+7. **Interactive UI + game input**: if the game has clickable UI elements that coexist with game-canvas mouse input, set `passThrough: true` and implement `getInteractiveRegions()` in the scene. If the game only has modal menus (full-screen overlays that capture all input), use the default non-pass-through mode + `setInteractive(true)`.
+
+### Migration status (all games migrated to pixi-ui)
+
+All five games have been migrated from React/Solid DOM overlays to the worker-hosted PixiJS overlay:
+
+| Game | Renderer | Components | E2E tests | Notes |
+|---|---|---|---|---|
+| `falling-sand` | raw PixiJS | 1 scene | passing | Pilot migration; simplest game |
+| `sandjongg` | raw PixiJS | 1 scene | 6/6 pass | Raw PixiJS scene with tile sprites |
+| `overburden` | `@pixi/react` | 11 components | 15/15 pass | `passThrough: true` for hotbar + menus |
+| `to-the-ocean` | `@pixi/react` | 17 components | 6/6 pass | `passThrough: true`; renderer snapshots at ~30fps |
+| `mining-rpg` | `@pixi/react` | 24 components | no e2e test | Reused Solid bridge protocol types; `passThrough: true` |
+
+Dead code removed during migration:
+- `src/app.tsx` — deleted from all 5 games (was the React DOM root).
+- `src/components/` — deleted from all 5 games (old React DOM components).
+- `src/solid/` — deleted from mining-rpg (old Solid-in-worker path; bridge types moved to `src/pixi/bridge-protocol.ts`).
+- `solid-js` + `vite-plugin-solid` deps removed from mining-rpg `package.json`.
+- `@floating-ui/react`, `lucide-react`, `framer-motion` deps removed from to-the-ocean `package.json`.
+
+**Known test gap:** `tests/e2e/undertow-ui.spec.ts` tests to-the-ocean's DOM UI via `get_ui_state` / `get_element_bounds` MCP tools, which query the DOM. Since the UI moved to PixiJS, these DOM elements no longer exist. These tests need to be rewritten to use `pixi_get_scene_state` (which queries the PixiJS scene graph) instead of DOM queries.
 
 ### MCP automation tools
 

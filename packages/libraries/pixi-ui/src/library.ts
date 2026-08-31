@@ -18,8 +18,8 @@
 // ============================================================================
 
 import { resourceToken, type EngineLibrary } from "@downdraft/core";
-import { PixiUiHost, type PixiUiHostOptions } from "./host";
 import { DEFAULT_STATS_LAYOUT } from "./bridge-protocol";
+import { PixiUiHost, type PixiUiHostOptions } from "./host";
 
 // ── Config ──
 
@@ -58,6 +58,14 @@ export interface PixiUiLibConfig extends PixiUiHostOptions {
   sceneConfig?: unknown;
   /** Enable PixiJS debug logging in the worker. Default: false. */
   debug?: boolean;
+  /**
+   * Pass-through mode: the overlay canvas is always pointer-events: auto.
+   * Pointer events inside interactive regions (reported by the scene via
+   * getInteractiveRegions) are forwarded to the worker; events outside are
+   * dispatched on the game canvas. Use for games where interactive UI
+   * coexists with game-canvas mouse input. Default: false.
+   */
+  passThrough?: boolean;
 }
 
 // ── Typed tokens (DI) ──

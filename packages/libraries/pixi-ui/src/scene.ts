@@ -36,7 +36,7 @@
 // ============================================================================
 
 import type { Application, Container } from "pixi.js";
-import type { PixiUiAction, PixiUiEvent, SceneNodeSummary, StatsValues } from "./bridge-protocol";
+import type { PixiUiAction, PixiUiEvent, Rect, SceneNodeSummary, StatsValues } from "./bridge-protocol";
 
 /** Context passed to a scene factory. */
 export interface PixiUiSceneContext {
@@ -76,6 +76,18 @@ export interface PixiUiScene {
   update(data: PixiUiUpdateData): void;
   /** Called on resize — update layout for the new canvas dimensions. */
   resize?(width: number, height: number): void;
+  /**
+   * Report the bounding boxes of interactive UI elements (buttons, sliders,
+   * scrollable lists) in canvas pixel coordinates. The host uses these for
+   * pass-through hit-testing: pointer events inside a region are forwarded
+   * to the worker for PixiJS eventMode hit-testing; events outside all
+   * regions are dispatched on the game canvas so the game keeps its input.
+   *
+   * Called after each `update()` and after `resize()`. Return `[]` when no
+   * interactive elements are visible (e.g. display-only HUD). The host
+   * caches the latest result.
+   */
+  getInteractiveRegions?(): Rect[];
   /** Produce a scene-graph summary for MCP queryScene. Default: walk `root`. */
   summarize?(): SceneNodeSummary[];
   /** Called on dispose — destroy display objects, release resources. */
@@ -83,7 +95,7 @@ export interface PixiUiScene {
 }
 
 /** A factory function exported from the game's scene module. */
-export type PixiUiSceneFactory = (ctx: PixiUiSceneContext) => PixiUiScene;
+export type PixiUiSceneFactory = (ctx: PixiUiSceneContext) => PixiUiScene | Promise<PixiUiScene>;
 
 /**
  * Default no-op scene used when no sceneModuleUrl is configured. The worker
