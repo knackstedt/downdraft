@@ -30,7 +30,7 @@ export default function createDemoScene(ctx: PixiUiSceneContext): PixiUiScene {
   // ── Title ──
   const titleText = new Text({
     text: "PixiUI Demo Overlay",
-    style: { fill: 0x88aaff, fontSize: 18, fontFamily: "monospace", fontWeight: "bold" },
+    style: { fill: 0x88aaff, fontSize: Math.round(20 * ctx.fontScale), fontFamily: "monospace", fontWeight: "bold" },
   });
   titleText.name = "title-text";
   titleText.x = 16;
@@ -54,7 +54,7 @@ export default function createDemoScene(ctx: PixiUiSceneContext): PixiUiScene {
 
   const healthText = new Text({
     text: "HP 100/100",
-    style: { fill: 0xffffff, fontSize: 16, fontFamily: "monospace" },
+    style: { fill: 0xffffff, fontSize: Math.round(18 * ctx.fontScale), fontFamily: "monospace" },
   });
   healthText.name = "health-text";
   healthText.x = 8;
@@ -66,7 +66,7 @@ export default function createDemoScene(ctx: PixiUiSceneContext): PixiUiScene {
   // ── FPS counter ──
   const fpsText = new Text({
     text: "FPS: --",
-    style: { fill: 0x00ffaa, fontSize: 18, fontFamily: "monospace" },
+    style: { fill: 0x00ffaa, fontSize: Math.round(20 * ctx.fontScale), fontFamily: "monospace" },
   });
   fpsText.name = "fps-text";
   fpsText.x = 16;
@@ -89,7 +89,7 @@ export default function createDemoScene(ctx: PixiUiSceneContext): PixiUiScene {
 
   const buttonText = new Text({
     text: "Pause",
-    style: { fill: 0xffffff, fontSize: 16, fontFamily: "monospace" },
+    style: { fill: 0xffffff, fontSize: Math.round(18 * ctx.fontScale), fontFamily: "monospace" },
   });
   buttonText.name = "pause-button-text";
   buttonText.x = 28;

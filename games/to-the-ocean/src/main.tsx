@@ -21,7 +21,7 @@ import "@fontsource/wavefont/400.css";
 
 import { downdraft, startGame, type SimWorkerSeed } from "@downdraft/app/renderer";
 import { ENGINE_VERSION, ENT, PLR, PLR_FLAG, SimBufferReader, startGCProfiler, useHotReloadStore, type GCProfilerHandle, type GCStats } from "@downdraft/core";
-import { PixiUiHost } from "@downdraft/library-pixi-ui";
+import { PixiUiHost, getEffectiveFontScale, loadUserFontScale, saveUserFontScale } from "@downdraft/library-pixi-ui";
 import { WaterLib } from "@downdraft/library-water";
 import { initDevTools, useDebugStore } from "@downdraft/module-devtools";
 import { GAME_PLR } from "@shared/constants/buffer";
@@ -176,6 +176,7 @@ startGame({
       passThrough: true,
       canvasLayer: 1,
       canvasId: "pixi-ui-canvas",
+      fontScale: getEffectiveFontScale(loadUserFontScale()),
     });
     await pixiHost.start();
 
@@ -236,6 +237,12 @@ startGame({
         case "build": s.simBridge?.sendCommand({ type: "build", moduleId: a.moduleId }); break;
         case "transferItem": s.simBridge?.sendCommand({ type: `transfer_to_${a.direction === "to_ship" ? "ship" : "from_ship"}`, itemId: a.itemId, quantity: a.quantity }); break;
         case "openExternal": downdraft?.openExternal?.(a.url); break;
+        case "setFontScale": {
+          const scale = getEffectiveFontScale(a.scale);
+          pixiHost.setFontScale(scale);
+          saveUserFontScale(a.scale);
+          break;
+        }
       }
     }) as any;
 

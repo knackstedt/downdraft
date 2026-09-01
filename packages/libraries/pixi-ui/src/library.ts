@@ -59,6 +59,22 @@ export interface PixiUiLibConfig extends PixiUiHostOptions {
   /** Enable PixiJS debug logging in the worker. Default: false. */
   debug?: boolean;
   /**
+   * Render resolution (backing-store pixels per CSS pixel). Default:
+   * `window.devicePixelRatio` (crisp on HiDPI/Retina). Set to 1 to force
+   * 1× rendering (blurry on HiDPI but cheaper). Passed through to
+   * PIXI.Application.init as `resolution`.
+   */
+  resolution?: number;
+  /**
+   * Font scale multiplier for all text rendered by the pixi-ui overlay.
+   * Default: `max(1, detectSystemFontScale())` — respects the user's
+   * system/browser font size setting (accessibility). Games can let the
+   * user increase this further via a settings control; use
+   * `host.setFontScale()` to update at runtime and `loadUserFontScale()` /
+   * `saveUserFontScale()` for localStorage persistence.
+   */
+  fontScale?: number;
+  /**
    * Pass-through mode: the overlay canvas is always pointer-events: auto.
    * Pointer events inside interactive regions (reported by the scene via
    * getInteractiveRegions) are forwarded to the worker; events outside are

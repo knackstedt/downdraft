@@ -1,3 +1,4 @@
+import { ScaledText } from "../font-scale-context";
 import React from "react";
 import { useWorkerState } from "../worker-store";
 
@@ -12,7 +13,7 @@ export function NotificationStack({ width }: { width: number }) {
             const w = Math.max(200, n.text.length * 7 + 24);
             g.roundRect(0, 0, w, 24, 4).fill({ color: 0x1a1a2e, alpha: 0.9 }).stroke({ width: 1, color: n.type === "error" ? 0xe74c3c : 0x4fc3f7, alpha: 0.5 });
           }} />
-          <pixiText text={n.text} x={12} y={6} style={{ fill: 0xffffff, fontSize: 12, fontFamily: "sans-serif" }} />
+          <ScaledText text={n.text} x={12} y={6} style={{ fill: 0xffffff, fontSize: 14, fontFamily: "sans-serif" }} />
         </pixiContainer>
       ))}
     </pixiContainer>

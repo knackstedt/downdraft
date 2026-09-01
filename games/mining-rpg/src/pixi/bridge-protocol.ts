@@ -90,12 +90,13 @@ export interface SetShowTitleScreenAction { kind: "setShowTitleScreen"; show: bo
 export interface DeleteSaveAction { kind: "deleteSave" }
 export interface ToggleShopAction { kind: "toggleShop" }
 export interface SetShowShopAction { kind: "setShowShop"; show: boolean }
+export interface SetFontScaleAction { kind: "setFontScale"; scale: number }
 
 export type WorkerToMainAction =
   | PauseAction | ResumeAction | TeleportAction | RespawnAction | SaveAction
   | SellAllAction | BuyUpgradeAction | CraftAction | ToggleBuildModeAction
   | SelectBuildAction | ToggleHeadlampAction | ToggleNoclipAction | SetZoomAction
   | BuyBuildMaterialAction | StartGameAction | SetShowTitleScreenAction
-  | DeleteSaveAction | ToggleShopAction | SetShowShopAction;
+  | DeleteSaveAction | ToggleShopAction | SetShowShopAction | SetFontScaleAction;
 
 export type MiningAction = WorkerToMainAction;

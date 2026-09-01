@@ -9,8 +9,8 @@
 // ============================================================================
 
 import type { PixiUiAction, PixiUiEvent, UiStatsLayout } from "@downdraft/library-pixi-ui";
-import type { DebugTileInfo, GameMode } from "../shared/types";
 import type { TilesetId, TileTheme } from "../shared/tilesets";
+import type { DebugTileInfo, GameMode } from "../shared/types";
 
 // ── Per-frame scalar slots (UiStatsSAB) ──
 // Booleans encoded as 0/1; enums as their numeric index.
@@ -146,6 +146,11 @@ export interface ClosePanelAction extends PixiUiAction {
   panel: "help" | "settings";
 }
 
+export interface SetFontScaleAction extends PixiUiAction {
+  kind: "setFontScale";
+  scale: number;
+}
+
 export type SandjonggAction =
   | StartNewGameAction
   | ContinueModeAction
@@ -164,4 +169,5 @@ export type SandjonggAction =
   | SetTilesetAction
   | SetTileThemeAction
   | SetCustomDimsAction
-  | ClosePanelAction;
+  | ClosePanelAction
+  | SetFontScaleAction;

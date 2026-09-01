@@ -54,9 +54,49 @@ const COL_KNOB = 0xcccccc;
 
 // ── Style presets ──
 const FONT = "monospace";
-const FONT_SIZE = 12;
-const FONT_SIZE_SM = 10;
-const FONT_SIZE_LG = 14;
+const BASE_FONT_SIZE = 14;
+const BASE_FONT_SIZE_SM = 12;
+const BASE_FONT_SIZE_LG = 16;
+// Multiplied by the font scale (system-detected + user preference) at scene
+// init. Updated at runtime if the user changes the font scale setting.
+let FONT_SIZE = BASE_FONT_SIZE;
+let FONT_SIZE_SM = BASE_FONT_SIZE_SM;
+let FONT_SIZE_LG = BASE_FONT_SIZE_LG;
+
+/** Current font scale (set from ctx.fontScale at init, updated at runtime). */
+let _fontScale = 1;
+
+/** Apply the font scale to the font size variables. */
+function applyFontScale(scale: number): void {
+  _fontScale = scale;
+  FONT_SIZE = Math.round(BASE_FONT_SIZE * scale);
+  FONT_SIZE_SM = Math.round(BASE_FONT_SIZE_SM * scale);
+  FONT_SIZE_LG = Math.round(BASE_FONT_SIZE_LG * scale);
+}
+
+/**
+ * Walk a container tree and scale every Text's fontSize by the ratio
+ * newScale/oldScale. Called when the font scale changes at runtime so
+ * imperative scenes update without a full rebuild.
+ */
+function updateTextFontSizes(root: Container, oldScale: number, newScale: number): void {
+  if (oldScale === newScale) return;
+  const ratio = newScale / oldScale;
+  const walk = (container: Container) => {
+    for (const child of container.children) {
+      if (child instanceof Text) {
+        const cur = (child.style as any).fontSize;
+        if (typeof cur === "number") {
+          (child.style as any).fontSize = Math.round(cur * ratio);
+        }
+      }
+      if (child instanceof Container && child.children.length > 0) {
+        walk(child as Container);
+      }
+    }
+  };
+  walk(root);
+}
 
 function rgbToHex(r: number, g: number, b: number): number {
   return ((Math.round(r * 255) << 16) | (Math.round(g * 255) << 8) | Math.round(b * 255)) >>> 0;
@@ -284,6 +324,10 @@ function createPanelBg(w: number, h: number, radius = 4): Graphics {
 // ── The scene ──
 
 export default function createFallingSandScene(ctx: PixiUiSceneContext): PixiUiScene {
+  // Apply the font scale (system-detected + user preference) before building
+  // any UI so all text objects are created with scaled font sizes.
+  applyFontScale(ctx.fontScale);
+
   const root = new Container();
   root.name = "hud-root";
   ctx.app.stage.addChild(root);
@@ -538,7 +582,7 @@ export default function createFallingSandScene(ctx: PixiUiSceneContext): PixiUiS
   settingsPanel.name = "settings-panel";
   settingsPanel.visible = false;
   const SET_W = 280;
-  const SET_H = 120;
+  const SET_H = 200;
   settingsPanel.addChild(createPanelBg(SET_W, SET_H));
 
   const set_title = new Text({ text: "Impulse Settings", style: { fill: COL_TEXT, fontSize: FONT_SIZE, fontFamily: FONT, fontWeight: "bold" } });
@@ -552,6 +596,15 @@ export default function createFallingSandScene(ctx: PixiUiSceneContext): PixiUiS
   const forceSlider = createSlider("Force", 0, 5, 0.5, 1, 240, (v) => post({ kind: "setSettings", impulseStrength: v }));
   forceSlider.x = 12; forceSlider.y = 74;
   settingsPanel.addChild(forceSlider);
+
+  // Font scale slider
+  const fontScaleTitle = new Text({ text: "UI Font Scale", style: { fill: COL_TEXT, fontSize: FONT_SIZE, fontFamily: FONT, fontWeight: "bold" } });
+  fontScaleTitle.x = 12; fontScaleTitle.y = 114;
+  settingsPanel.addChild(fontScaleTitle);
+
+  const fontScaleSlider = createSlider("Scale", 1, 2.5, 0.05, _fontScale, 240, (v) => post({ kind: "setFontScale", scale: v }));
+  fontScaleSlider.x = 12; fontScaleSlider.y = 140;
+  settingsPanel.addChild(fontScaleSlider);
 
   root.addChild(settingsPanel);
 
@@ -774,6 +827,13 @@ export default function createFallingSandScene(ctx: PixiUiSceneContext): PixiUiS
   return {
     root,
     update({ stats, events }) {
+      // Check for font scale changes (the worker updates ctx.fontScale when
+      // a setFontScale message arrives from the host).
+      if (ctx.fontScale !== _fontScale) {
+        const oldScale = _fontScale;
+        applyFontScale(ctx.fontScale);
+        updateTextFontSizes(root, oldScale, ctx.fontScale);
+      }
       // Read SAB scalars
       state.fps = stats.fps ?? state.fps;
       state.health = stats.health ?? state.health;

@@ -12,7 +12,7 @@
 //
 
 import type { GameModule, GameSimWorker } from "@downdraft/app/renderer";
-import { PixiUiHost, type PixiUiAction } from "@downdraft/library-pixi-ui";
+import { PixiUiHost, getEffectiveFontScale, loadUserFontScale, saveUserFontScale, type PixiUiAction } from "@downdraft/library-pixi-ui";
 import type { SandjonggAction } from "./pixi/bridge-protocol";
 import { SANDJONGG_STATS_LAYOUT } from "./pixi/bridge-protocol";
 import { SandjonggRenderer } from "./renderer/sandjongg-renderer";
@@ -192,6 +192,7 @@ export const sandjonggModule: GameModule<SandjonggGameSim> = {
       passThrough: true, // interactive UI regions + tile-canvas clicks
       canvasLayer: 1,
       canvasId: "pixi-ui-canvas",
+      fontScale: getEffectiveFontScale(loadUserFontScale()),
     });
 
     // Handle worker→main actions (buttons, menu nav, game requests).
@@ -270,6 +271,12 @@ export const sandjonggModule: GameModule<SandjonggGameSim> = {
           if (a.panel === "help") useGameStore.setState({ showHelp: false });
           else if (a.panel === "settings") useGameStore.setState({ showSettings: false });
           break;
+        case "setFontScale": {
+          const scale = getEffectiveFontScale(a.scale);
+          pixiHost?.setFontScale(scale);
+          saveUserFontScale(a.scale);
+          break;
+        }
       }
     };
 

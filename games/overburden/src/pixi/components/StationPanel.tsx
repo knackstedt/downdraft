@@ -1,4 +1,5 @@
 // StationPanel — station craft queue + fuel + recipes (top-right)
+import { ScaledText } from "../font-scale-context";
 import React from "react";
 import { useWorkerState, postAction } from "../worker-store";
 
@@ -27,16 +28,16 @@ export function StationPanel() {
         }}
       />
       {/* Title + close */}
-      <pixiText text={stationName} x={16} y={10} style={{ fill: 0xfdcb6e, fontSize: 16, fontFamily: "sans-serif", fontWeight: "bold" }} />
+      <ScaledText text={stationName} x={16} y={10} style={{ fill: 0xfdcb6e, fontSize: 18, fontFamily: "sans-serif", fontWeight: "bold" }} />
       <pixiContainer x={PANEL_W - 32} y={8} eventMode="static" cursor="pointer" onPointerDown={() => postAction({ kind: "closeStation" })}>
         <pixiGraphics draw={(g) => { g.clear(); g.roundRect(0, 0, 24, 24, 4).fill({ color: 0x882222, alpha: 0.8 }).stroke({ width: 1, color: 0xe74c3c, alpha: 0.6 }); }} />
-        <pixiText text="×" x={12} y={12} anchor={0.5} style={{ fill: 0xffffff, fontSize: 16, fontFamily: "sans-serif" }} />
+        <ScaledText text="×" x={12} y={12} anchor={0.5} style={{ fill: 0xffffff, fontSize: 18, fontFamily: "sans-serif" }} />
       </pixiContainer>
 
       {/* Fuel bar */}
       {stationFueled && (
         <pixiContainer x={16} y={40}>
-          <pixiText text="Fuel" style={{ fill: 0x999999, fontSize: 10, fontFamily: "sans-serif" }} />
+          <ScaledText text="Fuel" style={{ fill: 0x999999, fontSize: 12, fontFamily: "sans-serif" }} />
           <pixiGraphics
             x={40}
             y={0}
@@ -48,14 +49,14 @@ export function StationPanel() {
               g.roundRect(0, 0, 200, 12, 3).stroke({ width: 1, color: 0x444444, alpha: 0.6 });
             }}
           />
-          <pixiText text={`${fuelCount}/${fuelMax}`} x={250} y={0} style={{ fill: 0xffffff, fontSize: 10, fontFamily: "monospace" }} />
+          <ScaledText text={`${fuelCount}/${fuelMax}`} x={250} y={0} style={{ fill: 0xffffff, fontSize: 12, fontFamily: "monospace" }} />
         </pixiContainer>
       )}
 
       {/* Active job */}
       {active && (
         <pixiContainer x={16} y={70}>
-          <pixiText text={active.recipeName} style={{ fill: 0xffffff, fontSize: 12, fontFamily: "sans-serif" }} />
+          <ScaledText text={active.recipeName} style={{ fill: 0xffffff, fontSize: 14, fontFamily: "sans-serif" }} />
           <pixiGraphics
             y={16}
             draw={(g) => {
@@ -67,12 +68,12 @@ export function StationPanel() {
           {active.rushable && (
             <pixiContainer x={200} y={32} eventMode="static" cursor="pointer" onPointerDown={() => postAction({ kind: "rushCraft", ax, ay, jobId: active.jobId })}>
               <pixiGraphics draw={(g) => { g.clear(); g.roundRect(0, 0, 60, 20, 4).fill({ color: 0xf39c12, alpha: 0.3 }).stroke({ width: 1, color: 0xf39c12, alpha: 0.6 }); }} />
-              <pixiText text="Rush" x={30} y={10} anchor={0.5} style={{ fill: 0xffffff, fontSize: 10, fontFamily: "sans-serif" }} />
+              <ScaledText text="Rush" x={30} y={10} anchor={0.5} style={{ fill: 0xffffff, fontSize: 12, fontFamily: "sans-serif" }} />
             </pixiContainer>
           )}
           <pixiContainer x={265} y={32} eventMode="static" cursor="pointer" onPointerDown={() => postAction({ kind: "abortCraft", ax, ay, jobId: active.jobId })}>
             <pixiGraphics draw={(g) => { g.clear(); g.roundRect(0, 0, 50, 20, 4).fill({ color: 0x882222, alpha: 0.3 }).stroke({ width: 1, color: 0xe74c3c, alpha: 0.6 }); }} />
-            <pixiText text="Abort" x={25} y={10} anchor={0.5} style={{ fill: 0xffffff, fontSize: 10, fontFamily: "sans-serif" }} />
+            <ScaledText text="Abort" x={25} y={10} anchor={0.5} style={{ fill: 0xffffff, fontSize: 12, fontFamily: "sans-serif" }} />
           </pixiContainer>
         </pixiContainer>
       )}
@@ -80,13 +81,13 @@ export function StationPanel() {
       {/* Queued jobs */}
       {queued.length > 0 && (
         <pixiContainer x={16} y={130}>
-          <pixiText text="Queued" style={{ fill: 0x999999, fontSize: 10, fontFamily: "sans-serif" }} />
+          <ScaledText text="Queued" style={{ fill: 0x999999, fontSize: 12, fontFamily: "sans-serif" }} />
           {queued.slice(0, 4).map((job, i) => (
             <pixiContainer key={job.jobId} y={20 + i * 24}>
-              <pixiText text={job.recipeName} x={0} y={4} style={{ fill: 0xffffff, fontSize: 11, fontFamily: "sans-serif" }} />
+              <ScaledText text={job.recipeName} x={0} y={4} style={{ fill: 0xffffff, fontSize: 13, fontFamily: "sans-serif" }} />
               <pixiContainer x={240} y={0} eventMode="static" cursor="pointer" onPointerDown={() => postAction({ kind: "abortCraft", ax, ay, jobId: job.jobId })}>
                 <pixiGraphics draw={(g) => { g.clear(); g.roundRect(0, 0, 50, 20, 4).fill({ color: 0x882222, alpha: 0.3 }).stroke({ width: 1, color: 0xe74c3c, alpha: 0.6 }); }} />
-                <pixiText text="Abort" x={25} y={10} anchor={0.5} style={{ fill: 0xffffff, fontSize: 10, fontFamily: "sans-serif" }} />
+                <ScaledText text="Abort" x={25} y={10} anchor={0.5} style={{ fill: 0xffffff, fontSize: 12, fontFamily: "sans-serif" }} />
               </pixiContainer>
             </pixiContainer>
           ))}
@@ -95,7 +96,7 @@ export function StationPanel() {
 
       {/* Recipes */}
       <pixiContainer x={16} y={250}>
-        <pixiText text="Recipes" style={{ fill: 0x999999, fontSize: 10, fontFamily: "sans-serif" }} />
+        <ScaledText text="Recipes" style={{ fill: 0x999999, fontSize: 12, fontFamily: "sans-serif" }} />
         {recipes.slice(0, 5).map((r, i) => (
           <pixiContainer
             key={r.id}
@@ -106,7 +107,7 @@ export function StationPanel() {
             onPointerDown={() => postAction({ kind: "craft", recipeId: r.id, ax, ay })}
           >
             <pixiGraphics draw={(g) => { g.clear(); g.roundRect(0, 0, 280, 20, 4).fill({ color: 0x222244, alpha: 0.6 }).stroke({ width: 1, color: 0x444466, alpha: 0.4 }); }} />
-            <pixiText text={r.name} x={8} y={4} style={{ fill: 0xffffff, fontSize: 11, fontFamily: "sans-serif" }} />
+            <ScaledText text={r.name} x={8} y={4} style={{ fill: 0xffffff, fontSize: 13, fontFamily: "sans-serif" }} />
           </pixiContainer>
         ))}
       </pixiContainer>

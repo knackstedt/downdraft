@@ -1,10 +1,11 @@
-// PauseMenu — pause overlay with Resume / Reset buttons
-import React from "react";
-import { useWorkerState, postAction } from "../worker-store";
+// PauseMenu — pause overlay with Resume / Reset buttons + font scale slider
+import { ScaledText, useFontScale } from "../font-scale-context";
+import { postAction } from "../worker-store";
 
 export function PauseMenu({ width, height }: { width: number; height: number }) {
+  const fontScale = useFontScale();
   const panelW = 260;
-  const panelH = 160;
+  const panelH = 230;
   const x0 = Math.round((width - panelW) / 2);
   const y0 = Math.round((height - panelH) / 2);
 
@@ -15,16 +16,41 @@ export function PauseMenu({ width, height }: { width: number; height: number }) 
       {/* Panel */}
       <pixiContainer x={x0} y={y0}>
         <pixiGraphics draw={(g) => { g.clear(); g.roundRect(0, 0, panelW, panelH, 8).fill({ color: 0x1a1a2e, alpha: 0.95 }).stroke({ width: 1, color: 0x333355, alpha: 0.7 }); }} />
-        <pixiText text="Paused" x={panelW / 2} y={16} anchor={{ x: 0.5, y: 0 }} style={{ fill: 0xfdcb6e, fontSize: 18, fontFamily: "sans-serif", fontWeight: "bold" }} />
+        <ScaledText text="Paused" x={panelW / 2} y={16} anchor={{ x: 0.5, y: 0 }} style={{ fill: 0xfdcb6e, fontSize: 20, fontFamily: "sans-serif", fontWeight: "bold" }} />
+        {/* Font scale slider */}
+        <ScaledText text="UI Font Scale" x={30} y={50} style={{ fill: 0xffffff, fontSize: 13, fontFamily: "sans-serif" }} />
+        <ScaledText text={`${fontScale.toFixed(2)}×`} x={panelW - 30} y={50} anchor={{ x: 1 }} style={{ fill: 0x4fc3f7, fontSize: 13, fontFamily: "sans-serif" }} />
+        <pixiContainer x={30} y={68} eventMode="static"
+          onPointerDown={(e: any) => {
+            const trackW = 200;
+            const pct = Math.max(0, Math.min(1, (e.global.x - x0 - 30) / trackW));
+            postAction({ kind: "setFontScale", scale: 1 + pct * 1.5 });
+          }}
+          onPointerMove={(e: any) => {
+            if (e.buttons === 0) return;
+            const trackW = 200;
+            const pct = Math.max(0, Math.min(1, (e.global.x - x0 - 30) / trackW));
+            postAction({ kind: "setFontScale", scale: 1 + pct * 1.5 });
+          }}
+        >
+          <pixiGraphics draw={(g) => {
+            g.clear();
+            const trackW = 200;
+            g.roundRect(0, 8, trackW, 4, 2).fill({ color: 0x333355 });
+            const pct = Math.max(0, Math.min(1, (fontScale - 1) / 1.5));
+            g.roundRect(0, 8, trackW * pct, 4, 2).fill({ color: 0x4fc3f7 });
+            g.circle(trackW * pct, 10, 8).fill({ color: 0xffffff });
+          }} />
+        </pixiContainer>
         {/* Resume */}
-        <pixiContainer x={30} y={56} eventMode="static" cursor="pointer" onPointerDown={() => postAction({ kind: "setPaused", paused: false })}>
+        <pixiContainer x={30} y={100} eventMode="static" cursor="pointer" onPointerDown={() => postAction({ kind: "setPaused", paused: false })}>
           <pixiGraphics draw={(g) => { g.clear(); g.roundRect(0, 0, 200, 32, 6).fill({ color: 0x6c5ce7, alpha: 0.9 }).stroke({ width: 1, color: 0xa29bfe, alpha: 0.7 }); }} />
-          <pixiText text="Resume" x={100} y={16} anchor={0.5} style={{ fill: 0xffffff, fontSize: 14, fontFamily: "sans-serif", fontWeight: "bold" }} />
+          <ScaledText text="Resume" x={100} y={16} anchor={0.5} style={{ fill: 0xffffff, fontSize: 16, fontFamily: "sans-serif", fontWeight: "bold" }} />
         </pixiContainer>
         {/* Reset */}
-        <pixiContainer x={30} y={96} eventMode="static" cursor="pointer" onPointerDown={() => postAction({ kind: "resetGame" })}>
+        <pixiContainer x={30} y={140} eventMode="static" cursor="pointer" onPointerDown={() => postAction({ kind: "resetGame" })}>
           <pixiGraphics draw={(g) => { g.clear(); g.roundRect(0, 0, 200, 32, 6).fill({ color: 0x882222, alpha: 0.5 }).stroke({ width: 1, color: 0xe74c3c, alpha: 0.6 }); }} />
-          <pixiText text="Reset Game" x={100} y={16} anchor={0.5} style={{ fill: 0xffffff, fontSize: 14, fontFamily: "sans-serif" }} />
+          <ScaledText text="Reset Game" x={100} y={16} anchor={0.5} style={{ fill: 0xffffff, fontSize: 16, fontFamily: "sans-serif" }} />
         </pixiContainer>
       </pixiContainer>
     </pixiContainer>

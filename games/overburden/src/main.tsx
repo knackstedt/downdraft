@@ -13,6 +13,9 @@
 import { startGame, type GameSimWorker } from "@downdraft/app/renderer";
 import {
     PixiUiHost,
+    getEffectiveFontScale,
+    loadUserFontScale,
+    saveUserFontScale,
     type PixiUiAction,
 } from "@downdraft/library-pixi-ui";
 import { setupBlockheadsMcp } from "./mcp/setup";
@@ -77,6 +80,7 @@ startGame({
       passThrough: true,
       canvasLayer: 1,
       canvasId: "pixi-ui-canvas",
+      fontScale: getEffectiveFontScale(loadUserFontScale()),
     });
 
     pixiHost.onAction = (action: PixiUiAction) => {
@@ -152,6 +156,12 @@ startGame({
         case "toggleCameraDetached":
           renderer.camera.detached = !renderer.camera.detached;
           break;
+        case "setFontScale": {
+          const scale = getEffectiveFontScale(a.scale);
+          pixiHost?.setFontScale(scale);
+          saveUserFontScale(a.scale);
+          break;
+        }
         default:
           break;
       }

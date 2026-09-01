@@ -10,7 +10,7 @@
 // ============================================================================
 
 import { startGame, type GameSimWorker } from "@downdraft/app/renderer";
-import { PixiUiHost } from "@downdraft/library-pixi-ui";
+import { PixiUiHost, getEffectiveFontScale, loadUserFontScale, saveUserFontScale } from "@downdraft/library-pixi-ui";
 import { createSimStatsPanelExtension, createSimStatsProvider } from "@downdraft/module-devtools";
 import { MINING_STATS_LAYOUT, type WorkerToMainAction } from "./pixi/bridge-protocol";
 import { MiningRenderer } from "./renderer/mining-renderer";
@@ -64,6 +64,7 @@ startGame({
       passThrough: true,
       canvasLayer: 1,
       canvasId: "pixi-ui-canvas",
+      fontScale: getEffectiveFontScale(loadUserFontScale()),
     });
 
     pixiHost.onAction = ((action: any) => {
@@ -89,6 +90,12 @@ startGame({
         case "deleteSave": (renderer as any).deleteSave?.(); break;
         case "toggleShop": s.toggleShop(); break;
         case "setShowShop": s.setShowShop(a.show); break;
+        case "setFontScale": {
+          const scale = getEffectiveFontScale(a.scale);
+          pixiHost?.setFontScale(scale);
+          saveUserFontScale(a.scale);
+          break;
+        }
       }
     }) as any;
 

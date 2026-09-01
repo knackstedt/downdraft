@@ -29,6 +29,20 @@ export interface InitMessage {
   /** Initial canvas CSS width/height in pixels. */
   width: number;
   height: number;
+  /**
+   * Render resolution (backing-store pixels per CSS pixel). Typically
+   * `window.devicePixelRatio` so text renders crisply on HiDPI displays.
+   * The host sets the canvas backing store to `width * resolution`; the
+   * worker passes this to PixiJS as `resolution` so glyphs are rasterized
+   * at full physical resolution. Default 1 (no upscaling).
+   */
+  resolution?: number;
+  /**
+   * Font scale multiplier (>= 1.0). The worker exposes this via
+   * PixiUiSceneContext.fontScale so scenes can scale their text. Default:
+   * the system-detected font scale (accessibility).
+   */
+  fontScale?: number;
 }
 
 export interface EventMessage {
@@ -51,6 +65,13 @@ export interface ResizeMessage {
   kind: "resize";
   width: number;
   height: number;
+  /**
+   * New resolution if `devicePixelRatio` changed (e.g. window dragged to a
+   * different-DPR monitor). Omitted when only the CSS size changed — the
+   * worker reuses its existing resolution. When present, the worker updates
+   * the renderer's resolution before resizing the backing store.
+   */
+  resolution?: number;
 }
 
 export interface QuerySceneMessage {
@@ -69,6 +90,12 @@ export interface DisposeMessage {
   kind: "dispose";
 }
 
+export interface SetFontScaleMessage {
+  kind: "setFontScale";
+  /** New font scale multiplier (>= 1.0). */
+  fontScale: number;
+}
+
 export type MainToWorkerMessage =
   | InitMessage
   | EventMessage
@@ -76,7 +103,8 @@ export type MainToWorkerMessage =
   | ResizeMessage
   | QuerySceneMessage
   | CaptureOverlayMessage
-  | DisposeMessage;
+  | DisposeMessage
+  | SetFontScaleMessage;
 
 // --- Worker → main ---
 

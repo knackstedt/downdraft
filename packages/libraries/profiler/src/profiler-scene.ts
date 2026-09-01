@@ -12,9 +12,9 @@
 // ============================================================================
 
 import {
-  ProfilingSABReader,
-  computeProfilingSABLayout,
-  type ProfilingSnapshot
+    ProfilingSABReader,
+    computeProfilingSABLayout,
+    type ProfilingSnapshot
 } from "@downdraft/core/profiling";
 import type { PixiUiScene, PixiUiSceneContext, PixiUiUpdateData } from "@downdraft/library-pixi-ui/scene";
 import type { DebugViewDescriptor } from "@downdraft/module-devtools";
@@ -35,6 +35,11 @@ const COLOR_TEXT = 0xcccccc;
 const COLOR_TEXT_DIM = 0x888888;
 const COLOR_HEADER = 0x00ff88;
 const FONT = "sans-serif";
+
+/** Font scale multiplier (set from ctx.fontScale at scene init). */
+let _fontScale = 1;
+/** Scale a base font size by the current font scale. */
+function fs(size: number): number { return Math.round(size * _fontScale); }
 
 const HISTORY_LEN = 120; // 120 samples
 const SAMPLE_INTERVAL_MS = 50; // record a sample every 50ms → 6s window
@@ -192,6 +197,7 @@ export class ProfilerScene implements PixiUiScene {
 
   constructor(ctx: PixiUiSceneContext) {
     this.ctx = ctx;
+    _fontScale = ctx.fontScale;
     this.root = new Container();
     this.contentContainer = new Container();
     this.viewSelectorContainer = new Container();
@@ -342,7 +348,7 @@ export class ProfilerScene implements PixiUiScene {
       const isActive = i === this.activeViewIdx;
       const tab = new Text({
         text: view.label,
-        style: { fontSize: 12, fill: isActive ? COLOR_GREEN : COLOR_TEXT_DIM, fontFamily: FONT },
+        style: { fontSize: fs(14), fill: isActive ? COLOR_GREEN : COLOR_TEXT_DIM, fontFamily: FONT },
       });
       tab.x = i * 80 + 5;
       tab.y = 14;
@@ -360,7 +366,7 @@ export class ProfilerScene implements PixiUiScene {
       const bg = new Graphics();
       const text = new Text({
         text: toast.text,
-        style: { fontSize: 10, fill: 0xffffff, fontFamily: FONT },
+        style: { fontSize: fs(12), fill: 0xffffff, fontFamily: FONT },
       });
       const w = Math.min(text.width + 20, this.ctx.width - 20);
       bg.roundRect(10, y - 25, w, 25, 4);
@@ -383,7 +389,7 @@ export class ProfilerScene implements PixiUiScene {
     const recordColor = this.recordBar.recording ? COLOR_RED : COLOR_GREEN;
     const recLabel = new Text({
       text: recordText,
-      style: { fontSize: 12, fill: recordColor, fontFamily: FONT },
+      style: { fontSize: fs(14), fill: recordColor, fontFamily: FONT },
     });
     recLabel.x = 10;
     recLabel.y = 44;
@@ -391,7 +397,7 @@ export class ProfilerScene implements PixiUiScene {
 
     const srcLabel = new Text({
       text: `Source: ${this.recordBar.source}`,
-      style: { fontSize: 12, fill: COLOR_TEXT_DIM, fontFamily: FONT },
+      style: { fontSize: fs(14), fill: COLOR_TEXT_DIM, fontFamily: FONT },
     });
     srcLabel.x = 120;
     srcLabel.y = 44;
@@ -401,7 +407,7 @@ export class ProfilerScene implements PixiUiScene {
       const elapsed = ((performance.now() - this.recordBar.startTime) / 1000).toFixed(1);
       const timeLabel = new Text({
         text: `${elapsed}s`,
-        style: { fontSize: 12, fill: COLOR_RED, fontFamily: FONT },
+        style: { fontSize: fs(14), fill: COLOR_RED, fontFamily: FONT },
       });
       timeLabel.x = 250;
       timeLabel.y = 44;
@@ -449,10 +455,10 @@ function makeBaseContainer(width: number, height: number): Container {
   return c;
 }
 
-function makeLabel(text: string, x: number, y: number, color: number, fontSize: number = 10): Text {
+function makeLabel(text: string, x: number, y: number, color: number, fontSize: number = 12): Text {
   return new Text({
     text,
-    style: { fontSize, fill: color, fontFamily: FONT },
+    style: { fontSize: fs(fontSize), fill: color, fontFamily: FONT },
     x, y,
   });
 }
@@ -534,7 +540,7 @@ function drawLineChart(
     const val = maxVal * (1 - i / 4);
     const lbl = new Text({
       text: val >= 1000 ? `${(val / 1000).toFixed(1)}k` : val.toFixed(0),
-      style: { fontSize: 10, fill: COLOR_TEXT_DIM, fontFamily: FONT },
+      style: { fontSize: fs(12), fill: COLOR_TEXT_DIM, fontFamily: FONT },
     });
     lbl.x = chartX - 30;
     lbl.y = gy - 5;
@@ -561,7 +567,7 @@ function drawLineChart(
   if (yLabel) {
     const yLbl = new Text({
       text: yLabel,
-      style: { fontSize: 10, fill: COLOR_TEXT_DIM, fontFamily: FONT },
+      style: { fontSize: fs(12), fill: COLOR_TEXT_DIM, fontFamily: FONT },
     });
     yLbl.x = x;
     yLbl.y = y + 5;
@@ -601,7 +607,7 @@ function drawLineChart(
     container.addChild(dot);
     const lbl = new Text({
       text: s.label,
-      style: { fontSize: 10, fill: s.color, fontFamily: FONT },
+      style: { fontSize: fs(12), fill: s.color, fontFamily: FONT },
     });
     lbl.x = legendX + 8;
     lbl.y = legendY;
@@ -652,7 +658,7 @@ function drawBarChart(
     const val = maxVal * (1 - i / 4);
     const lbl = new Text({
       text: val >= 1000 ? `${(val / 1000).toFixed(1)}k` : val.toFixed(0),
-      style: { fontSize: 10, fill: COLOR_TEXT_DIM, fontFamily: FONT },
+      style: { fontSize: fs(12), fill: COLOR_TEXT_DIM, fontFamily: FONT },
     });
     lbl.x = chartX - 30;
     lbl.y = gy - 5;
@@ -671,7 +677,7 @@ function drawBarChart(
   if (yLabel) {
     const yLbl = new Text({
       text: yLabel,
-      style: { fontSize: 10, fill: COLOR_TEXT_DIM, fontFamily: FONT },
+      style: { fontSize: fs(12), fill: COLOR_TEXT_DIM, fontFamily: FONT },
     });
     yLbl.x = x;
     yLbl.y = y + 5;
@@ -692,7 +698,7 @@ function drawBarChart(
     // Label
     const lbl = new Text({
       text: b.label,
-      style: { fontSize: 10, fill: COLOR_TEXT_DIM, fontFamily: FONT },
+      style: { fontSize: fs(12), fill: COLOR_TEXT_DIM, fontFamily: FONT },
     });
     lbl.x = bx;
     lbl.y = chartY + chartH + 3;
@@ -724,7 +730,7 @@ function getWorkerSeries(
 
 function renderMemoryView(ctx: ViewRendererContext): Container {
   const c = makeBaseContainer(ctx.width, 400);
-  c.addChild(makeLabel("Memory — Heap Used (one line per worker)", 10, 5, COLOR_HEADER, 12));
+  c.addChild(makeLabel("Memory — Heap Used (one line per worker)", 10, 5, COLOR_HEADER, 14));
 
   if (!ctx.snapshot || ctx.snapshot.slots.length === 0) {
     c.addChild(makeLabel("No profiling data (waiting for workers to claim slots...)", 10, 30, COLOR_TEXT_DIM));
@@ -735,13 +741,13 @@ function renderMemoryView(ctx: ViewRendererContext): Container {
   let y = 25;
 
   // Chart 1: Heap Used (one line per worker)
-  c.addChild(makeLabel("Heap Used", 10, y, COLOR_TEXT, 11));
+  c.addChild(makeLabel("Heap Used", 10, y, COLOR_TEXT, 13));
   y += 15;
   drawLineChart(c, getWorkerSeries(slots, s => s.heapUsed), 10, y, ctx.width - 20, CHART_HEIGHT, 0, "bytes", ctx.scrollOffset);
   y += CHART_HEIGHT + 10;
 
   // Chart 2: Heap Total (one line per worker)
-  c.addChild(makeLabel("Heap Total", 10, y, COLOR_TEXT, 11));
+  c.addChild(makeLabel("Heap Total", 10, y, COLOR_TEXT, 13));
   y += 15;
   drawLineChart(c, getWorkerSeries(slots, s => s.heapTotal), 10, y, ctx.width - 20, CHART_HEIGHT, 0, "bytes", ctx.scrollOffset);
   y += CHART_HEIGHT + 10;
@@ -752,7 +758,7 @@ function renderMemoryView(ctx: ViewRendererContext): Container {
     const lastUsed = sh.heapUsed.length > 0 ? sh.heapUsed[sh.heapUsed.length - 1] : 0;
     const lastTotal = sh.heapTotal.length > 0 ? sh.heapTotal[sh.heapTotal.length - 1] : 0;
     const pct = lastTotal > 0 ? (lastUsed / lastTotal) * 100 : 0;
-    c.addChild(makeLabel(`${name}: ${formatBytes(lastUsed)} / ${formatBytes(lastTotal)} (${pct.toFixed(0)}%)`, 10, y, COLOR_TEXT_DIM, 10));
+    c.addChild(makeLabel(`${name}: ${formatBytes(lastUsed)} / ${formatBytes(lastTotal)} (${pct.toFixed(0)}%)`, 10, y, COLOR_TEXT_DIM, 12));
     y += 14;
   }
 
@@ -761,7 +767,7 @@ function renderMemoryView(ctx: ViewRendererContext): Container {
 
 function renderCpuView(ctx: ViewRendererContext): Container {
   const c = makeBaseContainer(ctx.width, 400);
-  c.addChild(makeLabel("CPU — % over time (one line per worker)", 10, 5, COLOR_HEADER, 12));
+  c.addChild(makeLabel("CPU — % over time (one line per worker)", 10, 5, COLOR_HEADER, 14));
 
   if (!ctx.snapshot || ctx.snapshot.slots.length === 0) {
     c.addChild(makeLabel("No data", 10, 30, COLOR_TEXT_DIM));
@@ -778,7 +784,7 @@ function renderCpuView(ctx: ViewRendererContext): Container {
     const name = slotDisplayName(sh);
     const lastCpu = sh.cpuPercent.length > 0 ? sh.cpuPercent[sh.cpuPercent.length - 1] : 0;
     const lastTick = sh.tick.length > 0 ? sh.tick[sh.tick.length - 1] : 0;
-    c.addChild(makeLabel(`${name}: ${lastCpu.toFixed(1)}%  tick: ${lastTick}`, 10, y, COLOR_TEXT_DIM, 10));
+    c.addChild(makeLabel(`${name}: ${lastCpu.toFixed(1)}%  tick: ${lastTick}`, 10, y, COLOR_TEXT_DIM, 12));
     y += 14;
   }
 
@@ -787,7 +793,7 @@ function renderCpuView(ctx: ViewRendererContext): Container {
 
 function renderTaskLatencyView(ctx: ViewRendererContext): Container {
   const c = makeBaseContainer(ctx.width, 500);
-  c.addChild(makeLabel("Task Latency (one line per worker)", 10, 5, COLOR_HEADER, 12));
+  c.addChild(makeLabel("Task Latency (one line per worker)", 10, 5, COLOR_HEADER, 14));
 
   if (!ctx.snapshot || ctx.snapshot.slots.length === 0) {
     c.addChild(makeLabel("No data", 10, 30, COLOR_TEXT_DIM));
@@ -797,17 +803,17 @@ function renderTaskLatencyView(ctx: ViewRendererContext): Container {
   const slots = ctx.history.getSlots();
   let y = 25;
 
-  c.addChild(makeLabel("p50", 10, y, COLOR_TEXT, 11));
+  c.addChild(makeLabel("p50", 10, y, COLOR_TEXT, 13));
   y += 15;
   drawLineChart(c, getWorkerSeries(slots, s => s.taskLatencyP50), 10, y, ctx.width - 20, CHART_HEIGHT, 0, "us", ctx.scrollOffset);
   y += CHART_HEIGHT + 10;
 
-  c.addChild(makeLabel("p95", 10, y, COLOR_TEXT, 11));
+  c.addChild(makeLabel("p95", 10, y, COLOR_TEXT, 13));
   y += 15;
   drawLineChart(c, getWorkerSeries(slots, s => s.taskLatencyP95), 10, y, ctx.width - 20, CHART_HEIGHT, 0, "us", ctx.scrollOffset);
   y += CHART_HEIGHT + 10;
 
-  c.addChild(makeLabel("max", 10, y, COLOR_TEXT, 11));
+  c.addChild(makeLabel("max", 10, y, COLOR_TEXT, 13));
   y += 15;
   drawLineChart(c, getWorkerSeries(slots, s => s.taskLatencyMax), 10, y, ctx.width - 20, CHART_HEIGHT, 0, "us", ctx.scrollOffset);
   y += CHART_HEIGHT + 10;
@@ -817,7 +823,7 @@ function renderTaskLatencyView(ctx: ViewRendererContext): Container {
     const p50 = sh.taskLatencyP50.length > 0 ? sh.taskLatencyP50[sh.taskLatencyP50.length - 1] : 0;
     const p95 = sh.taskLatencyP95.length > 0 ? sh.taskLatencyP95[sh.taskLatencyP95.length - 1] : 0;
     const max = sh.taskLatencyMax.length > 0 ? sh.taskLatencyMax[sh.taskLatencyMax.length - 1] : 0;
-    c.addChild(makeLabel(`${name}: p50=${formatUs(p50)}  p95=${formatUs(p95)}  max=${formatUs(max)}`, 10, y, COLOR_TEXT_DIM, 10));
+    c.addChild(makeLabel(`${name}: p50=${formatUs(p50)}  p95=${formatUs(p95)}  max=${formatUs(max)}`, 10, y, COLOR_TEXT_DIM, 12));
     y += 14;
   }
 
@@ -827,7 +833,7 @@ function renderTaskLatencyView(ctx: ViewRendererContext): Container {
 function renderIopsView(store: number, ctx: ViewRendererContext): Container {
   const c = makeBaseContainer(ctx.width, 400);
   const storeName = store === 0 ? "OPFS" : "IDB";
-  c.addChild(makeLabel(`IOPS: ${storeName}`, 10, 5, COLOR_HEADER, 12));
+  c.addChild(makeLabel(`IOPS: ${storeName}`, 10, 5, COLOR_HEADER, 14));
 
   if (!ctx.snapshot || ctx.snapshot.slots.length === 0) {
     c.addChild(makeLabel("No data", 10, 30, COLOR_TEXT_DIM));
@@ -846,12 +852,12 @@ function renderIopsView(store: number, ctx: ViewRendererContext): Container {
     totalOps += records.length;
     slotBars.push({ label: name.slice(0, 8), value: records.length, color: WORKER_COLORS[i % WORKER_COLORS.length] });
 
-    c.addChild(makeLabel(`${name}: ${records.length} ops`, 10, y, COLOR_TEXT, 11));
+    c.addChild(makeLabel(`${name}: ${records.length} ops`, 10, y, COLOR_TEXT, 13));
     y += 15;
 
     for (const r of records.slice(0, 8)) {
       const tag = slot.tagTable.get(r.tagHash) ?? `hash:${r.tagHash}`;
-      c.addChild(makeLabel(`  op=${r.opKind} tag=${tag} bytes=${formatBytes(r.bytes)} latency=${formatUs(r.latencyUs)}`, 20, y, COLOR_TEXT_DIM, 10));
+      c.addChild(makeLabel(`  op=${r.opKind} tag=${tag} bytes=${formatBytes(r.bytes)} latency=${formatUs(r.latencyUs)}`, 20, y, COLOR_TEXT_DIM, 12));
       y += 12;
     }
     y += 5;
@@ -864,7 +870,7 @@ function renderIopsView(store: number, ctx: ViewRendererContext): Container {
 
   if (slotBars.length > 0) {
     y += 10;
-    c.addChild(makeLabel("Ops by worker", 10, y, COLOR_TEXT, 11));
+    c.addChild(makeLabel("Ops by worker", 10, y, COLOR_TEXT, 13));
     y += 15;
     drawBarChart(c, slotBars, 10, y, ctx.width - 20, 100, 0, "ops");
   }
@@ -874,7 +880,7 @@ function renderIopsView(store: number, ctx: ViewRendererContext): Container {
 
 function renderEventLoopView(ctx: ViewRendererContext): Container {
   const c = makeBaseContainer(ctx.width, 500);
-  c.addChild(makeLabel("Event Loop (one line per worker)", 10, 5, COLOR_HEADER, 12));
+  c.addChild(makeLabel("Event Loop (one line per worker)", 10, 5, COLOR_HEADER, 14));
 
   if (!ctx.snapshot || ctx.snapshot.slots.length === 0) {
     c.addChild(makeLabel("No data", 10, 30, COLOR_TEXT_DIM));
@@ -884,12 +890,12 @@ function renderEventLoopView(ctx: ViewRendererContext): Container {
   const slots = ctx.history.getSlots();
   let y = 25;
 
-  c.addChild(makeLabel("rAF Jitter p95", 10, y, COLOR_TEXT, 11));
+  c.addChild(makeLabel("rAF Jitter p95", 10, y, COLOR_TEXT, 13));
   y += 15;
   drawLineChart(c, getWorkerSeries(slots, s => s.rafJitterP95), 10, y, ctx.width - 20, CHART_HEIGHT, 0, "us", ctx.scrollOffset);
   y += CHART_HEIGHT + 10;
 
-  c.addChild(makeLabel("Idle Headroom", 10, y, COLOR_TEXT, 11));
+  c.addChild(makeLabel("Idle Headroom", 10, y, COLOR_TEXT, 13));
   y += 15;
   drawLineChart(c, getWorkerSeries(slots, s => s.idleHeadroom), 10, y, ctx.width - 20, CHART_HEIGHT, 16.67, "ms", ctx.scrollOffset);
   y += CHART_HEIGHT + 10;
@@ -898,7 +904,7 @@ function renderEventLoopView(ctx: ViewRendererContext): Container {
     const name = slotDisplayName(sh);
     const j95 = sh.rafJitterP95.length > 0 ? sh.rafJitterP95[sh.rafJitterP95.length - 1] : 0;
     const idle = sh.idleHeadroom.length > 0 ? sh.idleHeadroom[sh.idleHeadroom.length - 1] : 0;
-    c.addChild(makeLabel(`${name}: jitter p95=${formatUs(j95)} | idle=${idle.toFixed(1)}ms`, 10, y, COLOR_TEXT_DIM, 10));
+    c.addChild(makeLabel(`${name}: jitter p95=${formatUs(j95)} | idle=${idle.toFixed(1)}ms`, 10, y, COLOR_TEXT_DIM, 12));
     y += 14;
   }
 
@@ -907,7 +913,7 @@ function renderEventLoopView(ctx: ViewRendererContext): Container {
 
 function renderGcHeapView(ctx: ViewRendererContext): Container {
   const c = makeBaseContainer(ctx.width, 500);
-  c.addChild(makeLabel("GC & Heap (one line per worker)", 10, 5, COLOR_HEADER, 12));
+  c.addChild(makeLabel("GC & Heap (one line per worker)", 10, 5, COLOR_HEADER, 14));
 
   if (!ctx.snapshot || ctx.snapshot.slots.length === 0) {
     c.addChild(makeLabel("No data", 10, 30, COLOR_TEXT_DIM));
@@ -917,12 +923,12 @@ function renderGcHeapView(ctx: ViewRendererContext): Container {
   const slots = ctx.history.getSlots();
   let y = 25;
 
-  c.addChild(makeLabel("GC Max Pause", 10, y, COLOR_TEXT, 11));
+  c.addChild(makeLabel("GC Max Pause", 10, y, COLOR_TEXT, 13));
   y += 15;
   drawLineChart(c, getWorkerSeries(slots, s => s.gcPauseMax), 10, y, ctx.width - 20, CHART_HEIGHT, 0, "us", ctx.scrollOffset);
   y += CHART_HEIGHT + 10;
 
-  c.addChild(makeLabel("Heap Used", 10, y, COLOR_TEXT, 11));
+  c.addChild(makeLabel("Heap Used", 10, y, COLOR_TEXT, 13));
   y += 15;
   drawLineChart(c, getWorkerSeries(slots, s => s.heapUsed), 10, y, ctx.width - 20, CHART_HEIGHT, 0, "bytes", ctx.scrollOffset);
   y += CHART_HEIGHT + 10;
@@ -931,7 +937,7 @@ function renderGcHeapView(ctx: ViewRendererContext): Container {
     const name = slotDisplayName(sh);
     const gcMax = sh.gcPauseMax.length > 0 ? sh.gcPauseMax[sh.gcPauseMax.length - 1] : 0;
     const used = sh.heapUsed.length > 0 ? sh.heapUsed[sh.heapUsed.length - 1] : 0;
-    c.addChild(makeLabel(`${name}: gc max=${formatUs(gcMax)} | heap ${formatBytes(used)}`, 10, y, COLOR_TEXT_DIM, 10));
+    c.addChild(makeLabel(`${name}: gc max=${formatUs(gcMax)} | heap ${formatBytes(used)}`, 10, y, COLOR_TEXT_DIM, 12));
     y += 14;
   }
 
@@ -940,7 +946,7 @@ function renderGcHeapView(ctx: ViewRendererContext): Container {
 
 function renderFlameGraphView(ctx: ViewRendererContext): Container {
   const c = makeBaseContainer(ctx.width, 400);
-  c.addChild(makeLabel("Flame Graph — Task Latency Timeline (one row per worker)", 10, 5, COLOR_HEADER, 12));
+  c.addChild(makeLabel("Flame Graph — Task Latency Timeline (one row per worker)", 10, 5, COLOR_HEADER, 14));
 
   if (!ctx.snapshot || ctx.snapshot.slots.length === 0) {
     c.addChild(makeLabel("No data", 10, 30, COLOR_TEXT_DIM));
@@ -954,7 +960,7 @@ function renderFlameGraphView(ctx: ViewRendererContext): Container {
     const sh = slots[si];
     const name = slotDisplayName(sh);
     const color = WORKER_COLORS[si % WORKER_COLORS.length];
-    c.addChild(makeLabel(name, 10, y, color, 11));
+    c.addChild(makeLabel(name, 10, y, color, 13));
     y += 15;
 
     // Latency timeline: each sample is a vertical bar colored by magnitude
@@ -998,14 +1004,14 @@ function renderFlameGraphView(ctx: ViewRendererContext): Container {
     axes.stroke({ color: CHART_AXIS, width: 1 });
     c.addChild(axes);
 
-    c.addChild(makeLabel(formatAxisValue(maxLat), chartX - 35, chartY - 5, COLOR_TEXT_DIM, 10));
-    c.addChild(makeLabel("0", chartX - 15, chartY + chartH - 6, COLOR_TEXT_DIM, 10));
+    c.addChild(makeLabel(formatAxisValue(maxLat), chartX - 35, chartY - 5, COLOR_TEXT_DIM, 12));
+    c.addChild(makeLabel("0", chartX - 15, chartY + chartH - 6, COLOR_TEXT_DIM, 12));
 
     y += chartH + 15;
 
     const p50 = sh.taskLatencyP50.length > 0 ? sh.taskLatencyP50[sh.taskLatencyP50.length - 1] : 0;
     const max = sh.taskLatencyMax.length > 0 ? sh.taskLatencyMax[sh.taskLatencyMax.length - 1] : 0;
-    c.addChild(makeLabel(`p50=${formatUs(p50)}  max=${formatUs(max)}`, 10, y, COLOR_TEXT_DIM, 10));
+    c.addChild(makeLabel(`p50=${formatUs(p50)}  max=${formatUs(max)}`, 10, y, COLOR_TEXT_DIM, 12));
     y += 18;
   }
 
@@ -1014,7 +1020,7 @@ function renderFlameGraphView(ctx: ViewRendererContext): Container {
 
 function renderGpuPassesView(ctx: ViewRendererContext): Container {
   const c = makeBaseContainer(ctx.width, 200);
-  c.addChild(makeLabel("GPU Passes (render/compute/blit timings)", 10, 5, COLOR_HEADER, 12));
+  c.addChild(makeLabel("GPU Passes (render/compute/blit timings)", 10, 5, COLOR_HEADER, 14));
   const gpuPasses = (ctx.snapshot as any)?.gpuPasses ?? [];
   if (gpuPasses.length === 0) {
     c.addChild(makeLabel("No GPU pass data (requires TelemetryCollector wiring)", 10, 30, COLOR_TEXT_DIM));
@@ -1027,13 +1033,13 @@ function renderGpuPassesView(ctx: ViewRendererContext): Container {
     totalGpuMs += p.ms;
     y += 14;
   }
-  c.addChild(makeLabel(`Total GPU: ${totalGpuMs.toFixed(2)}ms`, 10, y + 5, COLOR_GREEN, 11));
+  c.addChild(makeLabel(`Total GPU: ${totalGpuMs.toFixed(2)}ms`, 10, y + 5, COLOR_GREEN, 13));
   return c;
 }
 
 function renderWarningsView(ctx: ViewRendererContext): Container {
   const c = makeBaseContainer(ctx.width, 400);
-  c.addChild(makeLabel("Warnings (recent)", 10, 5, COLOR_HEADER, 12));
+  c.addChild(makeLabel("Warnings (recent)", 10, 5, COLOR_HEADER, 14));
 
   if (!ctx.snapshot || ctx.snapshot.warnings.length === 0) {
     c.addChild(makeLabel("No warnings", 10, 30, COLOR_TEXT_DIM));
@@ -1046,7 +1052,7 @@ function renderWarningsView(ctx: ViewRendererContext): Container {
   for (const w of ctx.snapshot.warnings.slice(-20)) {
     const sev = sevNames[w.severity] ?? "UNKNOWN";
     const color = sevColors[w.severity] ?? COLOR_TEXT_DIM;
-    c.addChild(makeLabel(`[${sev}] metric=${w.metricKind} val=${w.value} threshold=${w.threshold}`, 10, y, color, 10));
+    c.addChild(makeLabel(`[${sev}] metric=${w.metricKind} val=${w.value} threshold=${w.threshold}`, 10, y, color, 12));
     y += 14;
   }
   return c;

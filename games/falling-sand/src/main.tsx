@@ -19,7 +19,10 @@
 import { captureCanvasThumbnail, createMcpHarness, startGame, type GameSimWorker } from "@downdraft/app/renderer";
 import {
     createPixiUiMcpTools,
+    getEffectiveFontScale,
+    loadUserFontScale,
     PixiUiHost,
+    saveUserFontScale,
     type PixiUiAction,
 } from "@downdraft/library-pixi-ui";
 import { createSimStatsPanelExtension, createSimStatsProvider } from "@downdraft/module-devtools";
@@ -159,6 +162,7 @@ startGame({
       passThrough: true, // interactive UI + game-canvas painting
       canvasLayer: 1,
       canvasId: "pixi-ui-canvas",
+      fontScale: getEffectiveFontScale(loadUserFontScale()),
     });
 
     // Handle worker→main actions (buttons, sliders, save/load/clear).
@@ -220,6 +224,13 @@ startGame({
         case "clear":
           renderer.clearAll();
           break;
+        case "setFontScale": {
+          const a = action as any;
+          const scale = getEffectiveFontScale(a.scale);
+          pixiHost?.setFontScale(scale);
+          saveUserFontScale(a.scale);
+          break;
+        }
       }
     };
 

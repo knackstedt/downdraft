@@ -170,6 +170,7 @@ export interface QueueTaskAction extends PixiUiAction { kind: "queueTask"; type:
 export interface CancelTaskAction extends PixiUiAction { kind: "cancelTask"; targetX: number; targetY: number }
 export interface MapZoomAction extends PixiUiAction { kind: "mapZoom"; delta: number }
 export interface ToggleCameraDetachedAction extends PixiUiAction { kind: "toggleCameraDetached" }
+export interface SetFontScaleAction extends PixiUiAction { kind: "setFontScale"; scale: number }
 
 export type OverburdenAction =
   | StartGameAction
@@ -192,4 +193,5 @@ export type OverburdenAction =
   | QueueTaskAction
   | CancelTaskAction
   | MapZoomAction
-  | ToggleCameraDetachedAction;
+  | ToggleCameraDetachedAction
+  | SetFontScaleAction;

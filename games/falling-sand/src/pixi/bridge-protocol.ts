@@ -8,7 +8,7 @@
 //   3. onAction   — worker→main side-effect requests (buttons, sliders)
 // ============================================================================
 
-import type { PixiUiEvent, PixiUiAction, UiStatsLayout } from "@downdraft/library-pixi-ui";
+import type { PixiUiAction, PixiUiEvent, UiStatsLayout } from "@downdraft/library-pixi-ui";
 import type { SaveMetadata } from "../stores/save-system";
 
 // ── Per-frame scalar slots (UiStatsSAB) ──
@@ -126,6 +126,11 @@ export interface ClearAction extends PixiUiAction {
   kind: "clear";
 }
 
+export interface SetFontScaleAction extends PixiUiAction {
+  kind: "setFontScale";
+  scale: number;
+}
+
 export type FallingSandAction =
   | SelectMaterialAction
   | SetBrushModeAction
@@ -138,4 +143,5 @@ export type FallingSandAction =
   | SaveAction
   | LoadAction
   | DeleteSaveAction
-  | ClearAction;
+  | ClearAction
+  | SetFontScaleAction;

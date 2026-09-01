@@ -1,4 +1,5 @@
 // PickupNotifications — top-right pickup toasts
+import { ScaledText } from "../font-scale-context";
 import React from "react";
 import { useWorkerState } from "../worker-store";
 
@@ -14,7 +15,7 @@ export function PickupNotifications({ width }: { width: number }) {
           g.roundRect(0, 0, 180, 24, 4).fill({ color: 0x1a1a2e, alpha: 0.9 }).stroke({ width: 1, color: 0x2ecc71, alpha: 0.5 });
         }}
       />
-      <pixiText text={`+${p.count} ${p.itemId}`} x={10} y={6} style={{ fill: 0x2ecc71, fontSize: 12, fontFamily: "sans-serif" }} />
+      <ScaledText text={`+${p.count} ${p.itemId}`} x={10} y={6} style={{ fill: 0x2ecc71, fontSize: 14, fontFamily: "sans-serif" }} />
     </pixiContainer>
   ));
 
