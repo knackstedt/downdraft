@@ -83,12 +83,6 @@
       "@downdraft/library-audio-kira": [
         "./packages/libraries/audio-kira/src/index.ts"
       ],
-      "@downdraft/library-postfx": [
-        "./packages/libraries/postfx/src/index.ts"
-      ],
-      "@downdraft/library-postfx/*": [
-        "./packages/libraries/postfx/src/*"
-      ],
       "@downdraft/library-sand": [
         "./packages/libraries/sand/src/index.ts"
       ],

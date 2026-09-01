@@ -442,14 +442,6 @@
         "react",
       ],
     },
-    "packages/libraries/postfx": {
-      "name": "@downdraft/library-postfx",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-        "@downdraft/shader-graph": "workspace:*",
-      },
-    },
     "packages/libraries/profiler": {
       "name": "@downdraft/library-profiler",
       "version": "0.1.0",
@@ -765,8 +757,6 @@
     "@downdraft/library-physics-rapier": ["@downdraft/library-physics-rapier@workspace:packages/libraries/physics-rapier"],
 
     "@downdraft/library-pixi-ui": ["@downdraft/library-pixi-ui@workspace:packages/libraries/pixi-ui"],
-
-    "@downdraft/library-postfx": ["@downdraft/library-postfx@workspace:packages/libraries/postfx"],
 
     "@downdraft/library-profiler": ["@downdraft/library-profiler@workspace:packages/libraries/profiler"],
 

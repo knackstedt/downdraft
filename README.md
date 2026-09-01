@@ -93,7 +93,6 @@ Engine libraries export `EngineLibrary` descriptors (e.g. `WaterLib`, `PhysicsRa
 | `@downdraft/library-weather` | Weather system |
 | `@downdraft/library-weatherfx` | Weather visual effects |
 | `@downdraft/library-lighting` | Lighting system |
-| `@downdraft/library-postfx` | Post-processing effects |
 | `@downdraft/library-entities` | Generic model renderer used by multiple games |
 | `@downdraft/library-models` | Model loading and management |
 | `@downdraft/library-navmesh` | Navigation mesh generation and pathfinding |
