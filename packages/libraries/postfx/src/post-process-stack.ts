@@ -22,7 +22,12 @@ import BLIT_FS from "./shaders/post-process/blit.wgsl?raw";
 import BLOOM_BLUR_FS from "./shaders/post-process/bloom-blur.wgsl?raw";
 import BLOOM_BRIGHT_FS from "./shaders/post-process/bloom-bright.wgsl?raw";
 import BLOOM_COMPOSITE_FS from "./shaders/post-process/bloom-composite.wgsl?raw";
+import BLOOM_DOWNSAMPLE_FS from "./shaders/post-process/bloom-downsample.wgsl?raw";
 import BLOOM_SOFT_FS from "./shaders/post-process/bloom-soft.wgsl?raw";
+import BLOOM_UPSAMPLE_FS from "./shaders/post-process/bloom-upsample.wgsl?raw";
+import CHANNEL_MIXER_FS from "./shaders/post-process/channel-mixer.wgsl?raw";
+import CHROMATIC_ABERRATION_FS from "./shaders/post-process/chromatic-aberration.wgsl?raw";
+import DITHERING_FS from "./shaders/post-process/dithering.wgsl?raw";
 import DOF_FS from "./shaders/post-process/dof.wgsl?raw";
 import EDGES_FS from "./shaders/post-process/edges.wgsl?raw";
 import VS from "./shaders/post-process/fullscreen-vs.wgsl?raw";
@@ -31,52 +36,78 @@ import GAUSSIAN_BLUR_FS from "./shaders/post-process/gaussian-blur.wgsl?raw";
 import GLOW_BLUR_FS from "./shaders/post-process/glow-blur.wgsl?raw";
 import GLOW_COMPOSITE_FS from "./shaders/post-process/glow-composite.wgsl?raw";
 import GRAIN_FS from "./shaders/post-process/grain.wgsl?raw";
+import HALFTONE_FS from "./shaders/post-process/halftone.wgsl?raw";
 import HIGHLIGHT_BLUR_FS from "./shaders/post-process/highlight-blur.wgsl?raw";
 import HIGHLIGHT_COMPOSITE_FS from "./shaders/post-process/highlight-composite.wgsl?raw";
+import LENS_DISTORTION_FS from "./shaders/post-process/lens-distortion.wgsl?raw";
 import LENS_FLARE_FS from "./shaders/post-process/lens-flare.wgsl?raw";
+import LUT_FS from "./shaders/post-process/lut.wgsl?raw";
 import MOTION_BLUR_FS from "./shaders/post-process/motion-blur.wgsl?raw";
 import OUTLINE_FS from "./shaders/post-process/outline.wgsl?raw";
 import PIXELATION_FS from "./shaders/post-process/pixelation.wgsl?raw";
 import SHARPEN_FS from "./shaders/post-process/sharpen.wgsl?raw";
 import SOBEL_FS from "./shaders/post-process/sobel.wgsl?raw";
+import SPLIT_TONE_FS from "./shaders/post-process/split-tone.wgsl?raw";
 import SSAO_BLUR_FS from "./shaders/post-process/ssao-blur.wgsl?raw";
 import SSAO_COMPOSITE_FS from "./shaders/post-process/ssao-composite.wgsl?raw";
 import SSAO_FS from "./shaders/post-process/ssao.wgsl?raw";
 import SSR_FS from "./shaders/post-process/ssr.wgsl?raw";
 import TAA_FS from "./shaders/post-process/taa.wgsl?raw";
 import TONEMAP_FS from "./shaders/post-process/tonemap.wgsl?raw";
+import WATERCOLOR_FS from "./shaders/post-process/watercolor.wgsl?raw";
+import WHITE_BALANCE_FS from "./shaders/post-process/white-balance.wgsl?raw";
 
 // ── Effect IDs ──────────────────────────────────────────────────────────────
 
 export type EffectId =
   | "taa" | "ssao" | "ssr" | "dof" | "motion-blur"
   | "bloom" | "bloom-soft" | "tonemap"
-  | "fxaa" | "sharpen" | "grain" | "sobel" | "edges" | "lens-flare"
+  // Color grading (LDR, post-tonemap)
+  | "lut" | "white-balance" | "channel-mixer" | "split-tone"
+  // Camera/lens (LDR)
+  | "fxaa" | "chromatic-aberration" | "lens-distortion" | "sharpen" | "grain"
+  // Stylized (LDR, late chain)
+  | "sobel" | "edges" | "lens-flare"
   | "pixelation" | "gaussian-blur" | "afterimage"
+  | "halftone" | "dithering" | "watercolor"
   | "outline" | "highlight" | "glow" | "ascii";
 
 const ALL_EFFECTS: EffectId[] = [
   "taa", "ssao", "ssr", "dof", "motion-blur",
   "bloom", "bloom-soft", "tonemap",
-  "fxaa", "sharpen", "grain", "sobel", "edges", "lens-flare",
+  "lut", "white-balance", "channel-mixer", "split-tone",
+  "fxaa", "chromatic-aberration", "lens-distortion", "sharpen", "grain",
+  "sobel", "edges", "lens-flare",
   "pixelation", "gaussian-blur", "afterimage",
+  "halftone", "dithering", "watercolor",
   "outline", "highlight", "glow", "ascii",
 ];
 
 const CHAIN_ORDER: EffectId[] = [
+  // HDR
   "taa", "ssao", "ssr", "dof", "motion-blur",
   "bloom", "bloom-soft", "tonemap",
-  "fxaa", "sharpen", "grain", "sobel", "edges", "lens-flare",
+  // Color grading (LDR, post-tonemap)
+  "lut", "white-balance", "channel-mixer", "split-tone",
+  // Camera/lens (LDR)
+  "fxaa", "chromatic-aberration", "lens-distortion", "sharpen", "grain",
+  // Stylized (LDR, late chain)
+  "sobel", "edges", "lens-flare",
   "pixelation", "gaussian-blur", "afterimage",
+  "halftone", "dithering", "watercolor",
   "outline", "highlight", "glow", "ascii",
 ];
 
 const EFFECT_NAMES: Record<EffectId, string> = {
   taa: "TAA", ssao: "SSAO", ssr: "SSR", dof: "DOF", "motion-blur": "Motion Blur",
   bloom: "Bloom", "bloom-soft": "Bloom (Soft)", tonemap: "Tonemap",
-  fxaa: "FXAA", sharpen: "Sharpen", grain: "Grain", sobel: "Sobel",
-  edges: "Edges", "lens-flare": "Lens Flare",
+  lut: "LUT (3D)", "white-balance": "White Balance", "channel-mixer": "Channel Mixer",
+  "split-tone": "Split Tone",
+  fxaa: "FXAA", "chromatic-aberration": "Chromatic Aberration",
+  "lens-distortion": "Lens Distortion", sharpen: "Sharpen", grain: "Grain",
+  sobel: "Sobel", edges: "Edges", "lens-flare": "Lens Flare",
   pixelation: "Pixelation", "gaussian-blur": "Gaussian Blur", afterimage: "Afterimage",
+  halftone: "Halftone", dithering: "Dithering", watercolor: "Watercolor",
   outline: "Outline", highlight: "Highlight", glow: "Glow", ascii: "ASCII",
 };
 
@@ -118,6 +149,7 @@ export class PostProcessStack {
   private bloomBright: GPUTexture | null = null;
   private bloomBlurH: GPUTexture | null = null;
   private bloomBlurV: GPUTexture | null = null;
+  private bloomMip: GPUTexture[] = [];          // multi-MIP pyramid (downsample cascade)
   private halfResA: GPUTexture | null = null;  // shared by bloom-soft
   private halfResB: GPUTexture | null = null;
   private ssaoA: GPUTexture | null = null;
@@ -154,11 +186,21 @@ export class PostProcessStack {
   private dofFocusDist = 0.5;
   private dofFocusRange = 0.3;
   private dofMaxBlur = 8.0;
+  private dofBokehShape = 0;       // 0=circle, 1=hexagon, 2=octagon
+  private dofSampleCount = 32;
+  private dofNearOnly = false;
+  private dofFarOnly = false;
+  private dofBladeRotation = 0.0;
   // Afterimage
   private afterimageDamp = 0.96;
   // Bloom
   private bloomThreshold = 0.8;
   private bloomStrength = 1.0;
+  private bloomMipCount = 5;       // number of downsample levels (full→½→¼→⅛→1/16)
+  private bloomTint: [number, number, number] = [1.0, 1.0, 1.0];
+  private bloomSoftKnee = 0.7;     // soft threshold knee for bright pass
+  // Per-MIP upsample weights (index 0 = largest MIP, last = smallest)
+  private bloomMipWeights: number[] = [0.0, 0.0, 0.4, 0.6, 0.8, 1.0];
   // Bloom-soft
   private bloomSoftThreshold = 1.0;
   private bloomSoftSoftThreshold = 0.5;
@@ -171,16 +213,25 @@ export class PostProcessStack {
   private vignette = 0.3;
   // TAA
   private taaBlendFactor = 0.1;
-  // SSAO
+  private taaVarianceClamp = false;
+  private taaJitterX = 0;
+  private taaJitterY = 0;
+  // SSAO (GTAO)
   private ssaoRadius = 0.5;
   private ssaoBias = 0.025;
-  private ssaoKernelSize = 32;
-  // SSR
+  private ssaoKernelSize = 32;      // compat alias → maps to ssaoDirections
+  private ssaoDirections = 4;       // GTAO slice directions
+  private ssaoSlices = 8;           // GTAO samples per slice
+  private ssaoPower = 1.5;          // AO contrast power
+  private ssaoThickness = 0.1;      // horizon depth thickness
+  // SSR (DDA + binary refinement)
   private ssrMaxSteps = 64;
   private ssrThickness = 0.05;
   private ssrMaxDistance = 100.0;
   private ssrFadeStart = 10.0;
   private ssrFadeEnd = 50.0;
+  private ssrBinarySteps = 10;
+  private ssrStride = 1.0;
   // Motion blur
   private motionBlurIntensity = 1.0;
   private motionBlurMaxSamples = 16;
@@ -220,6 +271,45 @@ export class PostProcessStack {
   // ASCII
   private asciiCellSize = 8;
   private asciiUseColor = 1.0;
+  // LUT (3D color grading)
+  private lutTexture: GPUTexture | null = null;
+  private lutView: GPUTextureView | null = null;
+  private lutSize = 32;
+  private lutEnabled = true;
+  private lutLayout!: GPUBindGroupLayout;
+  // White balance
+  private wbTemperature = 0.0;
+  private wbTint = 0.0;
+  // Channel mixer
+  private cmWeights: [number, number, number, number, number, number, number, number, number] = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+  private cmMonochrome = false;
+  // Split-tone
+  private stShadow: [number, number, number] = [0.0, 0.0, 0.0];
+  private stHighlight: [number, number, number] = [0.0, 0.0, 0.0];
+  private stBalance = 0.0;
+  // Chromatic aberration
+  private caIntensity = 0.5;
+  private caStart = 0.0;
+  private caEnd = 1.0;
+  private caCenterX = 0.5;
+  private caCenterY = 0.5;
+  // Lens distortion
+  private ldIntensity = 0.0;
+  private ldScale = 1.0;
+  private ldChromaSplit = 0.0;
+  // Halftone
+  private htCellSize = 8.0;
+  private htDotScale = 1.0;
+  private htAngle = 0.0;
+  private htMonochrome = true;
+  // Dithering
+  private dMode = 1;        // 0=off, 1=bayer, 2=bluenoise
+  private dStrength = 0.5;
+  private dLevels = 0;      // 0 = no quantization
+  // Watercolor
+  private wcEdgeStrength = 1.0;
+  private wcPaperScale = 2.0;
+  private wcBlend = 0.7;
 
   constructor(device: GPUDevice, format: GPUTextureFormat, options?: PostProcessStackOptions) {
     this.device = device;
@@ -273,6 +363,13 @@ export class PostProcessStack {
       { binding: 3, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "non-filtering" } },
       { binding: 4, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
     ]});
+    // LUT layout: color2D + lut3D + sampler + uniform
+    this.lutLayout = this.device.createBindGroupLayout({ entries: [
+      { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+      { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "3d" } },
+      { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+      { binding: 3, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
+    ]});
 
     // Dummy texture (1×1 black)
     this.dummyTex = this.device.createTexture({
@@ -288,10 +385,15 @@ export class PostProcessStack {
     // Uniform buffers — 48 bytes for simple effects, 256 for matrix effects
     const simpleKeys = [
       "fxaa", "dof", "sobel", "afterimage", "bloom-bright", "bloom-blur", "bloom-composite",
+      "bloom-downsample", "bloom-upsample",
       "ascii", "blit", "taa", "motion-blur", "bloom-soft", "tonemap", "sharpen", "grain",
       "edges", "lens-flare", "pixelation", "gaussian-blur", "outline",
       "ssao-blur", "ssao-composite", "highlight-blur", "highlight-composite",
       "glow-blur", "glow-composite",
+      // New effects
+      "lut", "white-balance", "channel-mixer", "split-tone",
+      "chromatic-aberration", "lens-distortion",
+      "halftone", "dithering", "watercolor",
     ];
     for (const k of simpleKeys) this.uniforms[k] = this.device.createBuffer({ size: 64, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.uniforms["ssao"] = this.device.createBuffer({ size: 256, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
@@ -308,8 +410,12 @@ export class PostProcessStack {
     this.pipelines["bloom-bright"] = mk(BLOOM_BRIGHT_FS, this.ccLayout);
     this.pipelines["bloom-blur"] = mk(BLOOM_BLUR_FS, this.ccLayout);
     this.pipelines["bloom-composite"] = mk(BLOOM_COMPOSITE_FS, this.ccLayout);
+    this.pipelines["bloom-downsample"] = mk(BLOOM_DOWNSAMPLE_FS, this.ccLayout);
+    this.pipelines["bloom-upsample"] = mk(BLOOM_UPSAMPLE_FS, this.ccLayout);
     this.pipelines["ascii"] = mk(ASCII_FS, this.ccLayout);
     this.pipelines["blit"] = mk(BLIT_FS, this.ccLayout, this.format);
+    // HDR blit variant for intermediate passes inside the HDR chain section
+    this.pipelines["blit-hdr"] = mk(BLIT_FS, this.ccLayout, HDR_FORMAT);
     this.pipelines["taa"] = mk(TAA_FS, this.cvvhLayout);
     this.pipelines["ssao"] = mk(SSAO_FS, this.dnfnLayout);
     this.pipelines["ssao-blur"] = mk(SSAO_BLUR_FS, this.cdLayout);
@@ -329,6 +435,16 @@ export class PostProcessStack {
     this.pipelines["highlight-composite"] = mk(HIGHLIGHT_COMPOSITE_FS, this.cvvhLayout);
     this.pipelines["glow-blur"] = mk(GLOW_BLUR_FS, this.ccLayout);
     this.pipelines["glow-composite"] = mk(GLOW_COMPOSITE_FS, this.ccLayout);
+    // New effects
+    this.pipelines["lut"] = mk(LUT_FS, this.lutLayout);
+    this.pipelines["white-balance"] = mk(WHITE_BALANCE_FS, this.ccLayout);
+    this.pipelines["channel-mixer"] = mk(CHANNEL_MIXER_FS, this.ccLayout);
+    this.pipelines["split-tone"] = mk(SPLIT_TONE_FS, this.ccLayout);
+    this.pipelines["chromatic-aberration"] = mk(CHROMATIC_ABERRATION_FS, this.ccLayout);
+    this.pipelines["lens-distortion"] = mk(LENS_DISTORTION_FS, this.ccLayout);
+    this.pipelines["halftone"] = mk(HALFTONE_FS, this.ccLayout);
+    this.pipelines["dithering"] = mk(DITHERING_FS, this.ccLayout);  // color + noise + sampler + uniform
+    this.pipelines["watercolor"] = mk(WATERCOLOR_FS, this.ccLayout);  // color + noise + sampler + uniform
 
     this.createGlyphAtlas();
     this.createNoiseTexture();
@@ -403,9 +519,18 @@ export class PostProcessStack {
   setDOFFocusDist(v: number): void { this.dofFocusDist = v; }
   setDOFFocusRange(v: number): void { this.dofFocusRange = v; }
   setDOFMaxBlur(v: number): void { this.dofMaxBlur = v; }
+  setDOFBokehShape(v: number): void { this.dofBokehShape = Math.floor(v); }
+  setDOFSampleCount(v: number): void { this.dofSampleCount = Math.floor(v); }
+  setDOFNearOnly(v: boolean): void { this.dofNearOnly = v; }
+  setDOFFarOnly(v: boolean): void { this.dofFarOnly = v; }
+  setDOFBladeRotation(v: number): void { this.dofBladeRotation = v; }
   setAfterimageDamp(v: number): void { this.afterimageDamp = v; }
   setBloomThreshold(v: number): void { this.bloomThreshold = v; }
   setBloomStrength(v: number): void { this.bloomStrength = v; }
+  setBloomMipCount(v: number): void { this.bloomMipCount = Math.max(1, Math.min(6, Math.floor(v))); }
+  setBloomTint(r: number, g: number, b: number): void { this.bloomTint = [r, g, b]; }
+  setBloomSoftKnee(v: number): void { this.bloomSoftKnee = v; }
+  setBloomMipWeights(weights: number[]): void { this.bloomMipWeights = weights; }
   setBloomSoftThreshold(v: number): void { this.bloomSoftThreshold = v; }
   setBloomSoftSoftThreshold(v: number): void { this.bloomSoftSoftThreshold = v; }
   setBloomSoftIntensity(v: number): void { this.bloomSoftIntensity = v; }
@@ -415,14 +540,22 @@ export class PostProcessStack {
   setSaturation(v: number): void { this.saturation = v; }
   setVignette(v: number): void { this.vignette = v; }
   setTAABlendFactor(v: number): void { this.taaBlendFactor = v; }
+  setTAAVarianceClamp(v: boolean): void { this.taaVarianceClamp = v; }
+  setJitter(x: number, y: number): void { this.taaJitterX = x; this.taaJitterY = y; }
   setSSAORadius(v: number): void { this.ssaoRadius = v; }
   setSSAOBias(v: number): void { this.ssaoBias = v; }
-  setSSAOKernelSize(v: number): void { this.ssaoKernelSize = Math.floor(v); }
+  setSSAOKernelSize(v: number): void { this.ssaoKernelSize = Math.floor(v); this.ssaoDirections = Math.floor(v); }
+  setSSAODirections(v: number): void { this.ssaoDirections = Math.floor(v); }
+  setSSAOSlices(v: number): void { this.ssaoSlices = Math.floor(v); }
+  setSSAOPower(v: number): void { this.ssaoPower = v; }
+  setSSAOThickness(v: number): void { this.ssaoThickness = v; }
   setSSRMaxSteps(v: number): void { this.ssrMaxSteps = Math.floor(v); }
   setSSRThickness(v: number): void { this.ssrThickness = v; }
   setSSRMaxDistance(v: number): void { this.ssrMaxDistance = v; }
   setSSRFadeStart(v: number): void { this.ssrFadeStart = v; }
   setSSRFadeEnd(v: number): void { this.ssrFadeEnd = v; }
+  setSSRBinarySteps(v: number): void { this.ssrBinarySteps = Math.floor(v); }
+  setSSRStride(v: number): void { this.ssrStride = v; }
   setMotionBlurIntensity(v: number): void { this.motionBlurIntensity = v; }
   setMotionBlurMaxSamples(v: number): void { this.motionBlurMaxSamples = Math.floor(v); }
   setSharpenSharpness(v: number): void { this.sharpenSharpness = v; }
@@ -452,6 +585,51 @@ export class PostProcessStack {
   setGlowBlurRadius(v: number): void { this.glowBlurRadius = v; }
   setASCIICellSize(v: number): void { this.asciiCellSize = Math.max(2, Math.floor(v)); }
   setASCIIUseColor(v: boolean): void { this.asciiUseColor = v ? 1.0 : 0.0; }
+  // ── New effect setters ──
+  setLUT(data: Uint8Array, size: number): void {
+    this.lutSize = size;
+    this.lutTexture?.destroy();
+    this.lutTexture = this.device.createTexture({
+      dimension: "3d",
+      size: [size, size, size], format: "rgba8unorm",
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    });
+    // Copy into a fresh ArrayBuffer to satisfy GPUAllowSharedBufferSource typing
+    const buf = new Uint8Array(data.length);
+    buf.set(data);
+    this.device.queue.writeTexture(
+      { texture: this.lutTexture }, buf.buffer,
+      { bytesPerRow: size * 4, rowsPerImage: size }, [size, size, size],
+    );
+    this.lutView = this.lutTexture.createView({ dimension: "3d" });
+  }
+  setLUTEnabled(v: boolean): void { this.lutEnabled = v; }
+  setWhiteBalance(temperature: number, tint: number): void { this.wbTemperature = temperature; this.wbTint = tint; }
+  setChannelMixer(rr: number, rg: number, rb: number, gr: number, gg: number, gb: number, br: number, bg: number, bb: number): void {
+    this.cmWeights = [rr, rg, rb, gr, gg, gb, br, bg, bb];
+  }
+  setChannelMixerMonochrome(v: boolean): void { this.cmMonochrome = v; }
+  setSplitTone(shadowR: number, shadowG: number, shadowB: number, highlightR: number, highlightG: number, highlightB: number, balance: number): void {
+    this.stShadow = [shadowR, shadowG, shadowB];
+    this.stHighlight = [highlightR, highlightG, highlightB];
+    this.stBalance = balance;
+  }
+  setChromaticAberration(intensity: number, start: number, end: number): void {
+    this.caIntensity = intensity; this.caStart = start; this.caEnd = end;
+  }
+  setChromaticAberrationCenter(x: number, y: number): void { this.caCenterX = x; this.caCenterY = y; }
+  setLensDistortion(intensity: number, scale: number, chromaSplit: number): void {
+    this.ldIntensity = intensity; this.ldScale = scale; this.ldChromaSplit = chromaSplit;
+  }
+  setHalftone(cellSize: number, dotScale: number, angle: number, monochrome: boolean): void {
+    this.htCellSize = cellSize; this.htDotScale = dotScale; this.htAngle = angle; this.htMonochrome = monochrome;
+  }
+  setDithering(mode: number, strength: number, levels: number): void {
+    this.dMode = Math.floor(mode); this.dStrength = strength; this.dLevels = Math.floor(levels);
+  }
+  setWatercolor(edgeStrength: number, paperScale: number, blend: number): void {
+    this.wcEdgeStrength = edgeStrength; this.wcPaperScale = paperScale; this.wcBlend = blend;
+  }
 
   // ── Public API: per-frame inputs ──────────────────────────────────────────
 
@@ -519,6 +697,14 @@ export class PostProcessStack {
       this.bloomBright = mkTex(HDR_FORMAT, hw, hh);
       this.bloomBlurH = mkTex(HDR_FORMAT, hw, hh);
       this.bloomBlurV = mkTex(HDR_FORMAT, hw, hh);
+      // Multi-MIP pyramid: bloomMip[0] = ½res, [1] = ¼res, [2] = ⅛res, [3] = 1/16, [4] = 1/32
+      this.bloomMip = [];
+      let mw = hw, mh = hh;
+      for (let i = 0; i < this.bloomMipCount; i++) {
+        this.bloomMip.push(mkTex(HDR_FORMAT, mw, mh));
+        mw = Math.max(1, mw >> 1);
+        mh = Math.max(1, mh >> 1);
+      }
     }
     if (this.enabled["bloom-soft"]) {
       const hw = Math.max(1, w >> 1), hh = Math.max(1, h >> 1);
@@ -542,6 +728,8 @@ export class PostProcessStack {
     destroy(this.bloomBright); this.bloomBright = null;
     destroy(this.bloomBlurH); this.bloomBlurH = null;
     destroy(this.bloomBlurV); this.bloomBlurV = null;
+    for (const m of this.bloomMip) m.destroy();
+    this.bloomMip = [];
     destroy(this.halfResA); this.halfResA = null;
     destroy(this.halfResB); this.halfResB = null;
     destroy(this.ssaoA); this.ssaoA = null;
@@ -637,7 +825,7 @@ export class PostProcessStack {
       case "sobel": this.applyCC(encoder, "sobel", inputView, outputView, w, h, [1/w, 1/h]); break;
       case "sharpen": this.applyCC(encoder, "sharpen", inputView, outputView, w, h, [1/w, 1/h, this.sharpenSharpness]); break;
       case "grain": this.applyCC(encoder, "grain", inputView, outputView, w, h, [1/w, 1/h, this.grainIntensity, this.grainSize, this.grainLuminanceAware ? 1 : 0, this.grainTime]); break;
-      case "dof": this.applyCD(encoder, "dof", inputView, outputView, depthView!, w, h, [1/w, 1/h, this.dofFocusDist, this.dofFocusRange, this.dofMaxBlur]); break;
+      case "dof": this.applyCD(encoder, "dof", inputView, outputView, depthView!, w, h, [1/w, 1/h, this.dofFocusDist, this.dofFocusRange, this.dofMaxBlur, this.dofBokehShape, this.dofSampleCount, this.dofNearOnly ? 1 : 0, this.dofFarOnly ? 1 : 0, this.dofBladeRotation, 0, 0, 0, 0, 0, 0]); break;
       case "pixelation": this.applyCD(encoder, "pixelation", inputView, outputView, depthView!, w, h, [1/w, 1/h, this.pixelationPixelSize, this.pixelationDepthEdgeStrength, w, h]); break;
       case "lens-flare": this.applyCD(encoder, "lens-flare", inputView, outputView, depthView!, w, h, [this.lightScreenPos[0], this.lightScreenPos[1], this.lensFlareIntensity, this.lensFlareThreshold, this.lensFlareGhostCount, this.lensFlareGhostSpacing, this.lensFlareHaloWidth, 16, 0, 0, 0, 0, ...this.lensFlareTint, 0]); break;
       case "afterimage": this.applyAfterimage(encoder, inputView, outputView, w, h); break;
@@ -654,6 +842,16 @@ export class PostProcessStack {
       case "outline": this.applyOutline(encoder, inputView, outputView, w, h); break;
       case "highlight": this.applyHighlight(encoder, inputView, outputView, w, h); break;
       case "glow": this.applyGlow(encoder, inputView, outputView, w, h); break;
+      // New effects
+      case "lut": this.applyLUT(encoder, inputView, outputView, w, h); break;
+      case "white-balance": this.applyCC(encoder, "white-balance", inputView, outputView, w, h, [this.wbTemperature, this.wbTint, 0, 0, 0, 0, 0, 0]); break;
+      case "channel-mixer": this.applyCC(encoder, "channel-mixer", inputView, outputView, w, h, [...this.cmWeights, this.cmMonochrome ? 1 : 0, 0, 0, 0]); break;
+      case "split-tone": this.applyCC(encoder, "split-tone", inputView, outputView, w, h, [...this.stShadow, ...this.stHighlight, this.stBalance, 0]); break;
+      case "chromatic-aberration": this.applyCC(encoder, "chromatic-aberration", inputView, outputView, w, h, [1/w, 1/h, this.caIntensity, this.caStart, this.caEnd, this.caCenterX, this.caCenterY, 0]); break;
+      case "lens-distortion": this.applyCC(encoder, "lens-distortion", inputView, outputView, w, h, [1/w, 1/h, this.ldIntensity, this.ldScale, this.ldChromaSplit, 0, 0, 0]); break;
+      case "halftone": this.applyCC(encoder, "halftone", inputView, outputView, w, h, [1/w, 1/h, this.htCellSize, this.htDotScale, this.htAngle, this.htMonochrome ? 1 : 0, 0, 0]); break;
+      case "dithering": this.applyDithering(encoder, inputView, outputView, w, h); break;
+      case "watercolor": this.applyWatercolor(encoder, inputView, outputView, w, h); break;
     }
   }
 
@@ -746,38 +944,83 @@ export class PostProcessStack {
     this.pass(encoder, this.pipelines["ascii"], bg, outputView, w, h);
   }
 
-  // ── Bloom (existing — bright + blur H + blur V + composite) ───────────────
+  // ── Bloom (multi-MIP pyramid: downsample cascade + upsample composite) ───
 
   private applyBloom(encoder: GPUCommandEncoder, inputView: GPUTextureView, outputView: GPUTextureView, w: number, h: number): void {
-    const hw = Math.max(1, w >> 1), hh = Math.max(1, h >> 1);
     const dummy = this.dummyTex.createView();
+    const mipCount = this.bloomMip.length;
+    if (mipCount === 0) {
+      // Fallback: no MIP targets allocated — blit input to output
+      this.applyBlitHDR(encoder, inputView, outputView, w, h);
+      return;
+    }
 
-    // Bright pass
-    this.wu("bloom-bright", new Float32Array([1/w, 1/h, this.bloomThreshold]));
-    this.pass(encoder, this.pipelines["bloom-bright"], this.bg(this.ccLayout, [
+    // Track dimensions for each MIP level
+    const mipW: number[] = [Math.max(1, w >> 1)];
+    const mipH: number[] = [Math.max(1, h >> 1)];
+    for (let i = 1; i < mipCount; i++) {
+      mipW.push(Math.max(1, mipW[i - 1] >> 1));
+      mipH.push(Math.max(1, mipH[i - 1] >> 1));
+    }
+
+    // ── Downsample cascade: full → ½ → ¼ → ⅛ → ... ──
+    // First downsample: bright-pass extraction from the full-res input
+    this.wu("bloom-downsample", new Float32Array([
+      1 / w, 1 / h, 1.0, this.bloomThreshold, this.bloomSoftKnee, 0, 0, 0,
+    ]));
+    this.pass(encoder, this.pipelines["bloom-downsample"], this.bg(this.ccLayout, [
       { binding: 0, resource: inputView }, { binding: 1, resource: dummy },
-      { binding: 2, resource: this.linearSampler }, { binding: 3, resource: { buffer: this.uniforms["bloom-bright"] } },
-    ]), this.bloomBright!.createView(), hw, hh);
+      { binding: 2, resource: this.linearSampler }, { binding: 3, resource: { buffer: this.uniforms["bloom-downsample"] } },
+    ]), this.bloomMip[0].createView(), mipW[0], mipH[0]);
 
-    // Blur H
-    this.wu("bloom-blur", new Float32Array([1/hw, 1/hh, 1.0, 0.0]));
-    this.pass(encoder, this.pipelines["bloom-blur"], this.bg(this.ccLayout, [
-      { binding: 0, resource: this.bloomBright!.createView() }, { binding: 1, resource: dummy },
-      { binding: 2, resource: this.linearSampler }, { binding: 3, resource: { buffer: this.uniforms["bloom-blur"] } },
-    ]), this.bloomBlurH!.createView(), hw, hh);
+    // Subsequent downsamples: plain downsample from previous MIP
+    for (let i = 1; i < mipCount; i++) {
+      const srcW = mipW[i - 1], srcH = mipH[i - 1];
+      this.wu("bloom-downsample", new Float32Array([
+        1 / srcW, 1 / srcH, 0.0, this.bloomThreshold, this.bloomSoftKnee, 0, 0, 0,
+      ]));
+      this.pass(encoder, this.pipelines["bloom-downsample"], this.bg(this.ccLayout, [
+        { binding: 0, resource: this.bloomMip[i - 1].createView() }, { binding: 1, resource: dummy },
+        { binding: 2, resource: this.linearSampler }, { binding: 3, resource: { buffer: this.uniforms["bloom-downsample"] } },
+      ]), this.bloomMip[i].createView(), mipW[i], mipH[i]);
+    }
 
-    // Blur V
-    this.wu("bloom-blur", new Float32Array([1/hw, 1/hh, 0.0, 1.0]));
-    this.pass(encoder, this.pipelines["bloom-blur"], this.bg(this.ccLayout, [
-      { binding: 0, resource: this.bloomBlurH!.createView() }, { binding: 1, resource: dummy },
-      { binding: 2, resource: this.linearSampler }, { binding: 3, resource: { buffer: this.uniforms["bloom-blur"] } },
-    ]), this.bloomBlurV!.createView(), hw, hh);
+    // ── Upsample cascade: smallest MIP → ... → ½ → composite to output ──
+    // Start from the smallest MIP, progressively upsample + additively blend
+    // into the next larger MIP. The upsample shader reads the lower-res MIP
+    // and adds it to the higher-res MIP (baseTex binding).
+    for (let i = mipCount - 1; i >= 1; i--) {
+      const srcW = mipW[i], srcH = mipH[i];
+      const dstW = mipW[i - 1], dstH = mipH[i - 1];
+      const weight = this.bloomMipWeights[Math.min(i, this.bloomMipWeights.length - 1)] ?? 0.5;
+      this.wu("bloom-upsample", new Float32Array([
+        1 / srcW, 1 / srcH, weight, 0,
+        this.bloomTint[0], this.bloomTint[1], this.bloomTint[2], 0,
+      ]));
+      this.pass(encoder, this.pipelines["bloom-upsample"], this.bg(this.ccLayout, [
+        { binding: 0, resource: this.bloomMip[i].createView() },
+        { binding: 1, resource: this.bloomMip[i - 1].createView() },
+        { binding: 2, resource: this.linearSampler },
+        { binding: 3, resource: { buffer: this.uniforms["bloom-upsample"] } },
+      ]), this.bloomMip[i - 1].createView(), dstW, dstH);
+    }
 
-    // Composite
-    this.wu("bloom-composite", new Float32Array([1/w, 1/h, this.bloomStrength]));
-    this.pass(encoder, this.pipelines["bloom-composite"], this.bg(this.ccLayout, [
-      { binding: 0, resource: inputView }, { binding: 1, resource: this.bloomBlurV!.createView() },
-      { binding: 2, resource: this.linearSampler }, { binding: 3, resource: { buffer: this.uniforms["bloom-composite"] } },
+    // Final composite: upsample ½-res bloom → full-res, add to scene color
+    const srcW = mipW[0], srcH = mipH[0];
+    const finalWeight = this.bloomStrength * (this.bloomMipWeights[0] ?? 0.5);
+    this.wu("bloom-upsample", new Float32Array([
+      1 / srcW, 1 / srcH, finalWeight, 0,
+      this.bloomTint[0], this.bloomTint[1], this.bloomTint[2], 0,
+    ]));
+    // For the final pass, baseTex = inputView (scene color), output = outputView
+    // We need to read inputView as base — but the upsample shader writes base+bloom.
+    // Use a temp: blit input to pingPong[0], then upsample into outputView.
+    this.applyBlitHDR(encoder, inputView, this.pingPong[0]!.createView(), w, h);
+    this.pass(encoder, this.pipelines["bloom-upsample"], this.bg(this.ccLayout, [
+      { binding: 0, resource: this.bloomMip[0].createView() },
+      { binding: 1, resource: this.pingPong[0]!.createView() },
+      { binding: 2, resource: this.linearSampler },
+      { binding: 3, resource: { buffer: this.uniforms["bloom-upsample"] } },
     ]), outputView, w, h);
   }
 
@@ -812,7 +1055,8 @@ export class PostProcessStack {
     this.bloomSoftResult = this.halfResA!.createView();
 
     // Blit input to output (bloom-soft doesn't composite — tonemap does that)
-    this.applyBlit(encoder, inputView, outputView, w, h);
+    // Use HDR blit since outputView is an HDR ping-pong texture in the chain
+    this.applyBlitHDR(encoder, inputView, outputView, w, h);
   }
 
   // ── Tonemap (color + bloom + ACES + exposure/gamma/contrast/sat/vignette) ─
@@ -834,7 +1078,7 @@ export class PostProcessStack {
   // ── TAA (color + velocity + history + YCoCg neighborhood clamp) ───────────
 
   private applyTAA(encoder: GPUCommandEncoder, inputView: GPUTextureView, outputView: GPUTextureView, w: number, h: number): void {
-    this.wu("taa", new Float32Array([1/w, 1/h, this.taaBlendFactor]));
+    this.wu("taa", new Float32Array([1/w, 1/h, this.taaBlendFactor, this.taaVarianceClamp ? 1 : 0, this.taaJitterX, this.taaJitterY, 0, 0]));
     const bg = this.bg(this.cvvhLayout, [
       { binding: 0, resource: inputView },
       { binding: 1, resource: this.sceneVelocity!.createView() },
@@ -883,18 +1127,22 @@ export class PostProcessStack {
   }
 
   private writeSSAOUniform(w: number, h: number): void {
-    // Layout: invProjection(16) + view(16) + projection(16) + kernelSize + radius + bias + noiseScale(2) + screenSize(2) + pad(2) = 52 floats
+    // Layout: invProjection(16) + view(16) + projection(16) + directions + radius + bias
+    //         + noiseScale(2) + screenSize(2) + power + thickness + slices + pad(2) = 56 floats
     const data = new Float32Array(64);
     if (this.camInvProj) data.set(this.camInvProj, 0);
     if (this.camView) data.set(this.camView, 16);
     if (this.camProj) data.set(this.camProj, 32);
-    data[48] = this.ssaoKernelSize;
+    data[48] = this.ssaoDirections;
     data[49] = this.ssaoRadius;
     data[50] = this.ssaoBias;
-    data[51] = 4; // noiseSize
-    data[52] = 4;
+    data[51] = 4; // noiseSize X
+    data[52] = 4; // noiseSize Y
     data[53] = w;
     data[54] = h;
+    data[55] = this.ssaoPower;
+    data[56] = this.ssaoThickness;
+    data[57] = this.ssaoSlices;
     this.device.queue.writeBuffer(this.uniforms["ssao"], 0, data as unknown as Float32Array<ArrayBuffer>);
   }
 
@@ -910,6 +1158,8 @@ export class PostProcessStack {
     data[50] = this.ssrMaxDistance;
     data[51] = this.ssrFadeStart;
     data[52] = this.ssrFadeEnd;
+    data[53] = this.ssrBinarySteps;
+    data[54] = this.ssrStride;
     this.device.queue.writeBuffer(this.uniforms["ssr"], 0, data as unknown as Float32Array<ArrayBuffer>);
 
     const bg = this.bg(this.cvdLayout, [
@@ -1044,6 +1294,50 @@ export class PostProcessStack {
     this.pass(encoder, this.pipelines["glow-composite"], bg, outputView, w, h);
   }
 
+  // ── LUT (3D color grading — dedicated lutLayout with texture_3d) ──────────
+
+  private applyLUT(encoder: GPUCommandEncoder, inputView: GPUTextureView, outputView: GPUTextureView, w: number, h: number): void {
+    if (!this.lutView) {
+      // No LUT loaded — blit input to output (HDR ping-pong in chain)
+      this.applyBlitHDR(encoder, inputView, outputView, w, h);
+      return;
+    }
+    this.wu("lut", new Float32Array([this.lutEnabled ? 1 : 0, this.lutSize, 0, 0]));
+    const bg = this.bg(this.lutLayout, [
+      { binding: 0, resource: inputView },
+      { binding: 1, resource: this.lutView },
+      { binding: 2, resource: this.linearSampler },
+      { binding: 3, resource: { buffer: this.uniforms["lut"] } },
+    ]);
+    this.pass(encoder, this.pipelines["lut"], bg, outputView, w, h);
+  }
+
+  // ── Dithering (color + noise + sampler + uniform, ccLayout) ───────────────
+
+  private applyDithering(encoder: GPUCommandEncoder, inputView: GPUTextureView, outputView: GPUTextureView, w: number, h: number): void {
+    this.wu("dithering", new Float32Array([1/w, 1/h, this.dMode, this.dStrength, this.dLevels, 0, 0, 0]));
+    const bg = this.bg(this.ccLayout, [
+      { binding: 0, resource: inputView },
+      { binding: 1, resource: this.noiseTex!.createView() },
+      { binding: 2, resource: this.linearSampler },
+      { binding: 3, resource: { buffer: this.uniforms["dithering"] } },
+    ]);
+    this.pass(encoder, this.pipelines["dithering"], bg, outputView, w, h);
+  }
+
+  // ── Watercolor (color + noise + sampler + uniform, ccLayout) ──────────────
+
+  private applyWatercolor(encoder: GPUCommandEncoder, inputView: GPUTextureView, outputView: GPUTextureView, w: number, h: number): void {
+    this.wu("watercolor", new Float32Array([1/w, 1/h, this.wcEdgeStrength, this.wcPaperScale, this.wcBlend, 0, 0, 0]));
+    const bg = this.bg(this.ccLayout, [
+      { binding: 0, resource: inputView },
+      { binding: 1, resource: this.noiseTex!.createView() },
+      { binding: 2, resource: this.linearSampler },
+      { binding: 3, resource: { buffer: this.uniforms["watercolor"] } },
+    ]);
+    this.pass(encoder, this.pipelines["watercolor"], bg, outputView, w, h);
+  }
+
   // ── Blit (copy rgba16float → canvas format) ───────────────────────────────
 
   private applyBlit(encoder: GPUCommandEncoder, inputView: GPUTextureView, outputView: GPUTextureView, w: number, h: number): void {
@@ -1057,6 +1351,18 @@ export class PostProcessStack {
     this.pass(encoder, this.pipelines["blit"], bg, outputView, w, h);
   }
 
+  /** HDR blit variant for intermediate chain passes (writes to rgba16float ping-pong). */
+  private applyBlitHDR(encoder: GPUCommandEncoder, inputView: GPUTextureView, outputView: GPUTextureView, w: number, h: number): void {
+    this.wu("blit", new Float32Array([1/w, 1/h]));
+    const bg = this.bg(this.ccLayout, [
+      { binding: 0, resource: inputView },
+      { binding: 1, resource: this.dummyTex.createView() },
+      { binding: 2, resource: this.linearSampler },
+      { binding: 3, resource: { buffer: this.uniforms["blit"] } },
+    ]);
+    this.pass(encoder, this.pipelines["blit-hdr"], bg, outputView, w, h);
+  }
+
   // ── Destroy ───────────────────────────────────────────────────────────────
 
   destroy(): void {
@@ -1064,6 +1370,7 @@ export class PostProcessStack {
     this.dummyTex?.destroy();
     this.glyphTex?.destroy();
     this.noiseTex?.destroy();
+    this.lutTexture?.destroy();
     for (const key in this.uniforms) this.uniforms[key]?.destroy();
     for (const key in this.pipelines) this.pipelines[key]?.destroy?.();
   }
