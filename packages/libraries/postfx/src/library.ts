@@ -9,9 +9,8 @@
 // (escape hatch) — this descriptor is a convenience for declarative wiring.
 // ============================================================================
 
-import { resourceToken } from "../ecs";
-import type { EngineLibrary } from "../library";
-import { PostProcessStack, type EffectId } from "./passes/post-process-stack";
+import { resourceToken, type EngineLibrary } from "@downdraft/core";
+import { PostProcessStack, type EffectId } from "./post-process-stack";
 
 // ── Config ──
 

@@ -40,13 +40,17 @@ Screen-space and fullscreen post-processing effects.
 | `outline.ts` | Object outline post-effect |
 | `motion-blur.ts` | Camera/object motion blur |
 | `lens-flare.ts` | Lens flare post-effect |
-| `lut3d.ts` | 3D LUT color grading pass |
 | `ssao.ts` | Screen-space ambient occlusion |
 | `ssr.ts` | Screen-space reflections |
 | `post-process.ts` | Generic post-process pass (tone mapping, etc.) |
-| `post-process-stack.ts` | Post-process chain/stack manager |
 | `underwater-fog.ts` | Underwater fog post-effect |
 | `debug-viz.ts` | Debug visualization overlays |
+
+> **Note:** The unified `PostProcessStack` (21+ chainable effects), its WGSL
+> shaders, the `PostfxLib` engine-library descriptor, and the `LUT3D` color
+> grading effect have moved to the dedicated `@downdraft/library-postfx`
+> package at `packages/libraries/postfx/`. The standalone `lut3d.ts`
+> frame-graph pass has been removed in favor of the in-chain `lut` effect.
 
 ### `passes/compute/` — Compute passes
 GPU compute shader passes (GPGPU).

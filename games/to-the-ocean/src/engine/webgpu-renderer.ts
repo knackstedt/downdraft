@@ -5,10 +5,11 @@
 // ============================================================================
 
 import type { TextureHandle } from "@downdraft/core";
-import { BindlessFrameBindings, BindlessMaterialManager, BindlessTextureRegistry, DEPTH_FORMAT, calculateViewProjInto as engineCalculateViewProjInto, ENT, Frustum, GameRenderer, GCController, GPUProfiler, IBLSystem, InputBufferWriter, MSAA_SAMPLE_COUNT, PassType, PBRSystem, PLR, PostProcessStack, RenderPass, SimBufferReader, SkyDomePass, TerrainPass, TrackedRenderPass, UnderwaterFogPass, WaterPass, type EffectId, type FrameGraphBuilder, type GCControllerConfig, type GCControllerStats, type IRendererStateProvider, type RenderContext } from "@downdraft/core";
+import { BindlessFrameBindings, BindlessMaterialManager, BindlessTextureRegistry, DEPTH_FORMAT, calculateViewProjInto as engineCalculateViewProjInto, ENT, Frustum, GameRenderer, GCController, GPUProfiler, IBLSystem, InputBufferWriter, MSAA_SAMPLE_COUNT, PassType, PBRSystem, PLR, RenderPass, SimBufferReader, SkyDomePass, TerrainPass, TrackedRenderPass, UnderwaterFogPass, WaterPass, type FrameGraphBuilder, type GCControllerConfig, type GCControllerStats, type IRendererStateProvider, type RenderContext } from "@downdraft/core";
 import { ModelRenderer } from "@downdraft/library-entities";
 import { LightSystem } from "@downdraft/library-lighting";
 import { loadModel, type MaterialData, type MeshData, type ModelData } from "@downdraft/library-models";
+import { PostProcessStack, type EffectId } from "@downdraft/library-postfx";
 import { WATER_GRID_SAB as WATER_GRID, WaterBufferReader } from "@downdraft/library-water";
 import { CloudSystem, COLLISION_RADIUS, MAX_VOXEL_FLOATS, ParticleSystem, type VoxelCollisionData } from "@downdraft/library-weatherfx";
 import { DebugOverlay, DebugRaycast, LabelOverlay, SceneSync, TransformGizmo, useSceneStore, type GizmoMode } from "@downdraft/module-devtools";

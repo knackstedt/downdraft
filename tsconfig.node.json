@@ -65,6 +65,12 @@
       "@downdraft/library-water/*": [
         "./packages/libraries/water/src/*"
       ],
+      "@downdraft/library-postfx": [
+        "./packages/libraries/postfx/src/index.ts"
+      ],
+      "@downdraft/library-postfx/*": [
+        "./packages/libraries/postfx/src/*"
+      ],
       "@downdraft/library-undertow": [
         "./packages/libraries/undertow/src/index.ts"
       ],
