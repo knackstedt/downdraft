@@ -4,10 +4,11 @@
 // ============================================================================
 
 import type { SimBufferReader } from "@downdraft/core";
-import { MaterialLibrary, MSAA_SAMPLE_COUNT, PLR, type EffectId, type GPUProfiler, type GPUResourceTracker, type LayoutEngine, type PBRSystem, type PostProcessStack, type DebugOverlay as ProfilingOverlay, type TelemetryCollector, type UIInputRouter, type UIRenderer, type UIRoot } from "@downdraft/core";
+import { MaterialLibrary, MSAA_SAMPLE_COUNT, PLR, type GPUProfiler, type GPUResourceTracker, type LayoutEngine, type PBRSystem, type DebugOverlay as ProfilingOverlay, type TelemetryCollector, type UIInputRouter, type UIRenderer, type UIRoot } from "@downdraft/core";
 import type { ModelRenderer } from "@downdraft/library-entities";
 import type { LightSystem } from "@downdraft/library-lighting";
 import { materialDataArrayToMaterials, type MaterialData, type MeshData } from "@downdraft/library-models";
+import type { EffectId, PostProcessStack } from "@downdraft/library-postfx";
 import type { WaterBufferReader } from "@downdraft/library-water";
 import type { ParticleSystem } from "@downdraft/library-weatherfx";
 import type { DebugOverlay, DebugRaycast, GizmoMode, TransformGizmo } from "@downdraft/module-devtools";

@@ -1,5 +1,5 @@
 // PostFX: Bloom & Tonemap — Bloom + Bloom-Soft + Tonemap
-import type { EffectId } from "@downdraft/core";
+import type { EffectId } from "@downdraft/library-postfx";
 import { registerTest, type TestControl } from "../../test-registry";
 import { PostfxTestRenderer } from "../helpers/postfx-test-renderer";
 

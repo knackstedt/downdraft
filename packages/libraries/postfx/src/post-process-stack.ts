@@ -16,35 +16,35 @@ export interface PostProcessStackOptions {
   depthFormat?: GPUTextureFormat;
 }
 
-import AFTERIMAGE_FS from "../shaders/post-process/afterimage.wgsl?raw";
-import ASCII_FS from "../shaders/post-process/ascii.wgsl?raw";
-import BLIT_FS from "../shaders/post-process/blit.wgsl?raw";
-import BLOOM_BLUR_FS from "../shaders/post-process/bloom-blur.wgsl?raw";
-import BLOOM_BRIGHT_FS from "../shaders/post-process/bloom-bright.wgsl?raw";
-import BLOOM_COMPOSITE_FS from "../shaders/post-process/bloom-composite.wgsl?raw";
-import BLOOM_SOFT_FS from "../shaders/post-process/bloom-soft.wgsl?raw";
-import DOF_FS from "../shaders/post-process/dof.wgsl?raw";
-import EDGES_FS from "../shaders/post-process/edges.wgsl?raw";
-import VS from "../shaders/post-process/fullscreen-vs.wgsl?raw";
-import FXAA_FS from "../shaders/post-process/fxaa.wgsl?raw";
-import GAUSSIAN_BLUR_FS from "../shaders/post-process/gaussian-blur.wgsl?raw";
-import GLOW_BLUR_FS from "../shaders/post-process/glow-blur.wgsl?raw";
-import GLOW_COMPOSITE_FS from "../shaders/post-process/glow-composite.wgsl?raw";
-import GRAIN_FS from "../shaders/post-process/grain.wgsl?raw";
-import HIGHLIGHT_BLUR_FS from "../shaders/post-process/highlight-blur.wgsl?raw";
-import HIGHLIGHT_COMPOSITE_FS from "../shaders/post-process/highlight-composite.wgsl?raw";
-import LENS_FLARE_FS from "../shaders/post-process/lens-flare.wgsl?raw";
-import MOTION_BLUR_FS from "../shaders/post-process/motion-blur.wgsl?raw";
-import OUTLINE_FS from "../shaders/post-process/outline.wgsl?raw";
-import PIXELATION_FS from "../shaders/post-process/pixelation.wgsl?raw";
-import SHARPEN_FS from "../shaders/post-process/sharpen.wgsl?raw";
-import SOBEL_FS from "../shaders/post-process/sobel.wgsl?raw";
-import SSAO_BLUR_FS from "../shaders/post-process/ssao-blur.wgsl?raw";
-import SSAO_COMPOSITE_FS from "../shaders/post-process/ssao-composite.wgsl?raw";
-import SSAO_FS from "../shaders/post-process/ssao.wgsl?raw";
-import SSR_FS from "../shaders/post-process/ssr.wgsl?raw";
-import TAA_FS from "../shaders/post-process/taa.wgsl?raw";
-import TONEMAP_FS from "../shaders/post-process/tonemap.wgsl?raw";
+import AFTERIMAGE_FS from "./shaders/post-process/afterimage.wgsl?raw";
+import ASCII_FS from "./shaders/post-process/ascii.wgsl?raw";
+import BLIT_FS from "./shaders/post-process/blit.wgsl?raw";
+import BLOOM_BLUR_FS from "./shaders/post-process/bloom-blur.wgsl?raw";
+import BLOOM_BRIGHT_FS from "./shaders/post-process/bloom-bright.wgsl?raw";
+import BLOOM_COMPOSITE_FS from "./shaders/post-process/bloom-composite.wgsl?raw";
+import BLOOM_SOFT_FS from "./shaders/post-process/bloom-soft.wgsl?raw";
+import DOF_FS from "./shaders/post-process/dof.wgsl?raw";
+import EDGES_FS from "./shaders/post-process/edges.wgsl?raw";
+import VS from "./shaders/post-process/fullscreen-vs.wgsl?raw";
+import FXAA_FS from "./shaders/post-process/fxaa.wgsl?raw";
+import GAUSSIAN_BLUR_FS from "./shaders/post-process/gaussian-blur.wgsl?raw";
+import GLOW_BLUR_FS from "./shaders/post-process/glow-blur.wgsl?raw";
+import GLOW_COMPOSITE_FS from "./shaders/post-process/glow-composite.wgsl?raw";
+import GRAIN_FS from "./shaders/post-process/grain.wgsl?raw";
+import HIGHLIGHT_BLUR_FS from "./shaders/post-process/highlight-blur.wgsl?raw";
+import HIGHLIGHT_COMPOSITE_FS from "./shaders/post-process/highlight-composite.wgsl?raw";
+import LENS_FLARE_FS from "./shaders/post-process/lens-flare.wgsl?raw";
+import MOTION_BLUR_FS from "./shaders/post-process/motion-blur.wgsl?raw";
+import OUTLINE_FS from "./shaders/post-process/outline.wgsl?raw";
+import PIXELATION_FS from "./shaders/post-process/pixelation.wgsl?raw";
+import SHARPEN_FS from "./shaders/post-process/sharpen.wgsl?raw";
+import SOBEL_FS from "./shaders/post-process/sobel.wgsl?raw";
+import SSAO_BLUR_FS from "./shaders/post-process/ssao-blur.wgsl?raw";
+import SSAO_COMPOSITE_FS from "./shaders/post-process/ssao-composite.wgsl?raw";
+import SSAO_FS from "./shaders/post-process/ssao.wgsl?raw";
+import SSR_FS from "./shaders/post-process/ssr.wgsl?raw";
+import TAA_FS from "./shaders/post-process/taa.wgsl?raw";
+import TONEMAP_FS from "./shaders/post-process/tonemap.wgsl?raw";
 
 // ── Effect IDs ──────────────────────────────────────────────────────────────
 

@@ -7,7 +7,7 @@
 // controls.
 // ============================================================================
 
-import { PostProcessStack, type EffectId } from "@downdraft/core";
+import { PostProcessStack, type EffectId } from "@downdraft/library-postfx";
 import type { ITestRenderer, TestContext } from "../../test-registry";
 import { MrtCubeRenderer, buildCubeGrid, buildCubeGridWithSelection, mat4LookAt, mat4Perspective, type CameraConfig, type CubeInstance } from "./mrt-cube-renderer";
 
