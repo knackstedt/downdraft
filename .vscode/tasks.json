@@ -4,12 +4,12 @@
     {
       "label": "Dev: Ocean",
       "type": "shell",
-      "command": "for p in $(pgrep -f \"user-data-dir=[^ ]*downdraft-to-the-ocean\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -TERM -\"$pgid\" 2>/dev/null; done; sleep 1; for p in $(pgrep -f \"user-data-dir=[^ ]*downdraft-to-the-ocean\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -9 -\"$pgid\" 2>/dev/null; done; npx electron-vite dev --config games/to-the-ocean/electron.vite.config.ts",
+      "command": "bun ../../packages/cli/src/index.ts dev",
       "runOptions": {
-        "instanceLimit": 2
+        "instanceLimit": 1
       },
       "options": {
-        "cwd": "${workspaceFolder}"
+        "cwd": "${workspaceFolder}/games/to-the-ocean"
       },
       "isBackground": true,
       "problemMatcher": [],
@@ -18,12 +18,12 @@
     {
       "label": "Dev: Model Viewer",
       "type": "shell",
-      "command": "for p in $(pgrep -f \"user-data-dir=[^ ]*downdraft-model-viewer\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -TERM -\"$pgid\" 2>/dev/null; done; sleep 1; for p in $(pgrep -f \"user-data-dir=[^ ]*downdraft-model-viewer\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -9 -\"$pgid\" 2>/dev/null; done; npx electron-vite dev --config games/model-viewer/electron.vite.config.ts",
+      "command": "bun ../../packages/cli/src/index.ts dev",
       "runOptions": {
-        "instanceLimit": 2
+        "instanceLimit": 1
       },
       "options": {
-        "cwd": "${workspaceFolder}"
+        "cwd": "${workspaceFolder}/games/model-viewer"
       },
       "isBackground": true,
       "problemMatcher": [],
@@ -32,12 +32,12 @@
     {
       "label": "Dev: Sand",
       "type": "shell",
-      "command": "for p in $(pgrep -f \"user-data-dir=[^ ]*downdraft-falling-sand\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -TERM -\"$pgid\" 2>/dev/null; done; sleep 1; for p in $(pgrep -f \"user-data-dir=[^ ]*downdraft-falling-sand\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -9 -\"$pgid\" 2>/dev/null; done; npx electron-vite dev --config games/falling-sand/electron.vite.config.ts",
+      "command": "bun ../../packages/cli/src/index.ts dev",
       "runOptions": {
-        "instanceLimit": 2
+        "instanceLimit": 1
       },
       "options": {
-        "cwd": "${workspaceFolder}"
+        "cwd": "${workspaceFolder}/games/falling-sand"
       },
       "isBackground": true,
       "problemMatcher": [],
@@ -46,12 +46,12 @@
     {
       "label": "Dev: Mining RPG",
       "type": "shell",
-      "command": "for p in $(pgrep -f \"user-data-dir=[^ ]*downdraft-mining-rpg\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -TERM -\"$pgid\" 2>/dev/null; done; sleep 1; for p in $(pgrep -f \"user-data-dir=[^ ]*downdraft-mining-rpg\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -9 -\"$pgid\" 2>/dev/null; done; npx electron-vite dev --config games/mining-rpg/electron.vite.config.ts",
+      "command": "bun ../../packages/cli/src/index.ts dev",
       "runOptions": {
-        "instanceLimit": 2
+        "instanceLimit": 1
       },
       "options": {
-        "cwd": "${workspaceFolder}"
+        "cwd": "${workspaceFolder}/games/mining-rpg"
       },
       "isBackground": true,
       "problemMatcher": [],
@@ -60,12 +60,12 @@
     {
       "label": "Dev: Overburden",
       "type": "shell",
-      "command": "for p in $(pgrep -f \"user-data-dir=[^ ]*downdraft-overburden\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -TERM -\"$pgid\" 2>/dev/null; done; sleep 1; for p in $(pgrep -f \"user-data-dir=[^ ]*downdraft-overburden\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -9 -\"$pgid\" 2>/dev/null; done; npx electron-vite dev --config games/overburden/electron.vite.config.ts",
+      "command": "bun ../../packages/cli/src/index.ts dev",
       "runOptions": {
-        "instanceLimit": 2
+        "instanceLimit": 1
       },
       "options": {
-        "cwd": "${workspaceFolder}"
+        "cwd": "${workspaceFolder}/games/overburden"
       },
       "isBackground": true,
       "problemMatcher": [],
@@ -74,12 +74,12 @@
     {
       "label": "Dev: Sandjongg",
       "type": "shell",
-      "command": "for p in $(pgrep -f \"user-data-dir=[^ ]*downdraft-sandjongg\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -TERM -\"$pgid\" 2>/dev/null; done; sleep 1; for p in $(pgrep -f \"user-data-dir=[^ ]*downdraft-sandjongg\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -9 -\"$pgid\" 2>/dev/null; done; npx electron-vite dev --config games/sandjongg/electron.vite.config.ts",
+      "command": "bun ../../packages/cli/src/index.ts dev",
       "runOptions": {
-        "instanceLimit": 2
+        "instanceLimit": 1
       },
       "options": {
-        "cwd": "${workspaceFolder}"
+        "cwd": "${workspaceFolder}/games/sandjongg"
       },
       "isBackground": true,
       "problemMatcher": [],
@@ -88,12 +88,12 @@
     {
       "label": "Dev: Visual Tests",
       "type": "shell",
-      "command": "for p in $(pgrep -f \"user-data-dir=[^ ]*downdraft-visual-test-bench\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -TERM -\"$pgid\" 2>/dev/null; done; sleep 1; for p in $(pgrep -f \"user-data-dir=[^ ]*downdraft-visual-test-bench\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -9 -\"$pgid\" 2>/dev/null; done; npx electron-vite dev --config games/visual-test-bench/electron.vite.config.ts",
+      "command": "bun ../../packages/cli/src/index.ts dev",
       "runOptions": {
-        "instanceLimit": 2
+        "instanceLimit": 1
       },
       "options": {
-        "cwd": "${workspaceFolder}"
+        "cwd": "${workspaceFolder}/games/visual-test-bench"
       },
       "isBackground": true,
       "problemMatcher": [],

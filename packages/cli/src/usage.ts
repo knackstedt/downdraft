@@ -87,10 +87,9 @@ export const COMMANDS: CommandEntry[] = [
   {
     name: "dev",
     usage: "draft dev [options]",
-    summary: "Start the dev server with HMR (electron-vite dev)",
+    summary: "Start the dev server with HMR (electron-vite dev). Run from a game directory (cwd inference) — the stale-instance kill is handled automatically.",
     schema: {
       flags: [
-        { name: "game", alias: "g", type: "string", description: "Game to run (loads games/<game>/electron.vite.config.ts). If omitted, infers the game from the current directory by walking up for electron.vite.config.ts." },
         { name: "entry", type: "string", description: "Game entrypoint file (reserved for future mobile support)" },
         { name: "port", type: "number", description: "MCP HTTP port (default: 9876)" },
         { name: "watch", type: "boolean", description: "Alias for HMR (always on; accepted for back-compat)" },

@@ -4,6 +4,9 @@
   "productName": "Downdraft Visual Test Bench",
   "private": true,
   "type": "module",
+  "scripts": {
+    "dev": "draft dev"
+  },
   "main": "dist/main/index.cjs",
   "dependencies": {
     "@downdraft/app": "workspace:*",
