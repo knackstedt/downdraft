@@ -311,18 +311,15 @@ In packaged builds, the renderer loads via `win.loadFile()` → `file://` protoc
 
 **NEVER run `pkill -9 electron`, `pkill -f electron`, `killall electron`, or any other generic Electron-killing command.** The user's machine may have other Electron apps running (VS Code, Slack, Discord, other games, the Devin desktop app itself). A generic pkill will terminate all of them, destroying the user's work and your own session.
 
-Each game runs as an Electron process launched against its own `games/<game>/electron.vite.config.ts` entrypoint (dev mode: `draft dev` from inside `games/<game>/`, or `draft dev --game=<game>` / `npx electron-vite dev --config games/<game>/electron.vite.config.ts` from the repo root; built mode: `npx electron .` from `games/<game>`). To kill a specific game instance, target **that game only**:
+Each game runs as an Electron process launched against its own `games/<game>/electron.vite.config.ts` entrypoint (dev mode: `draft dev` from inside `games/<game>/`, or `npx electron-vite dev --config games/<game>/electron.vite.config.ts` from the repo root; built mode: `npx electron .` from `games/<game>`). `draft dev` automatically kills any stale Electron instance from a previous run of the same game before spawning (cross-platform: Linux `/proc`, macOS/`ps`, Windows PowerShell) — you do not need to do this manually. To kill a specific game instance yourself, target **that game only**:
 
-- **Match the per-game `--user-data-dir`** (each game sets a unique `downdraft-<game>` userData dir, visible in the process args):
+- **Let `draft dev` handle it** — re-running `draft dev` from the game directory tears down the previous instance automatically. This is the preferred path.
+- **Match the per-game `--user-data-dir`** (each game sets a unique `downdraft-<game>` userData dir, visible in the process args) only if you need to kill a process you did not launch via `draft dev`:
   ```bash
   # Kill only the to-the-ocean game process and its children
   for pid in $(pgrep -f "user-data-dir=[^ ]*downdraft-to-the-ocean" 2>/dev/null); do
     kill -TERM "$pid" 2>/dev/null
   done
-  ```
-- **Match the specific game path / cwd** if you launched it from a known directory:
-  ```bash
-  pkill -9 -f 'games/to-the-ocean'
   ```
 - **Match the MCP port** if you know which port the game's MCP HTTP transport is bound to (default 9876 for dev, 9976 for `draft test`):
   ```bash
@@ -359,7 +356,7 @@ A plain browser cannot reproduce any of this, and Playwright driving a browser w
 The typical debug loop is:
 ```bash
 # 1. Launch the game with deterministic mode + a known MCP port
-DOWNDRAFT_GPU=swiftshader DOWNDRAFT_DETERMINISTIC=1 MCP_PORT=9876 draft dev --game=to-the-ocean &
+cd games/to-the-ocean && DOWNDRAFT_GPU=swiftshader DOWNDRAFT_DETERMINISTIC=1 MCP_PORT=9876 draft dev &
 # 2. Call ocean MCP tools (inject_input, get_player_state, capture_screenshot, ...)
 #    to drive the game and inspect state.
 # 3. When done, kill ONLY this game instance (see "Killing game processes" above).
@@ -666,7 +663,7 @@ Each Electron game owns:
 - `src/main.ts` — calls `createDowndraftApp({ window, switches, features, lifecycle, extend })`.
 - `src/preload.ts` — calls `createDowndraftBridge({ extend })`.
 
-Each game owns its own `games/<game>/electron.vite.config.ts` entrypoint, loaded directly by `draft dev` (run from inside `games/<game>/`) or `draft dev --game=<game>` (from the repo root), or `npx electron-vite dev --config games/<game>/electron.vite.config.ts`. There is no root dispatcher or `DOWNDRAFT_GAME` env var.
+Each game owns its own `games/<game>/electron.vite.config.ts` entrypoint, loaded directly by `draft dev` (run from inside `games/<game>/`) or `npx electron-vite dev --config games/<game>/electron.vite.config.ts` (from the repo root). There is no root dispatcher or `DOWNDRAFT_GAME` env var.
 
 ### Config-driven features
 
@@ -703,7 +700,7 @@ Input injection is merged with real DOM input in `processInput()` so the game lo
 The game's MCP HTTP transport (`packages/mcp/src/http-transport.ts`) supports both Streamable HTTP and HTTP+SSE transports. However, Devin's MCP client uses stdio for local servers. A stdio-to-HTTP bridge (`.devin/mcp-stdio-bridge.mjs`) forwards JSON-RPC messages from stdin/stdout to the game's HTTP endpoint.
 
 To connect:
-1. Start the game: `DOWNDRAFT_GPU=swiftshader DOWNDRAFT_DETERMINISTIC=1 MCP_PORT=9876 draft dev --game=to-the-ocean`
+1. Start the game: `cd games/to-the-ocean && DOWNDRAFT_GPU=swiftshader DOWNDRAFT_DETERMINISTIC=1 MCP_PORT=9876 draft dev`
 2. The MCP config (`.devin/mcp_config.json`) defines the `ocean` server using the bridge script.
 3. The bridge forwards `initialize`, `tools/list`, `tools/call` to `http://localhost:9876/mcp`.
 4. Notifications (messages without an `id` field, like `notifications/initialized`) are silently ignored by the bridge.

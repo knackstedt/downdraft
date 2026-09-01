@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { parseArgs, print, renderHelp } from "./args";
 import { formatGamesList } from "./list-games";
+import { killProcessTree, killStaleInstance } from "./process-utils";
 import { getCommand } from "./usage";
 
 const log = createLogger();
@@ -11,31 +12,21 @@ const ROOT = resolve(import.meta.dir, "../../..");
 const CONFIG_FILE = "electron.vite.config.ts";
 
 /**
- * Resolve the game's `electron.vite.config.ts` path.
+ * Resolve the game's `electron.vite.config.ts` path by walking up from
+ * `process.cwd()` looking for the config file. This lets games run `draft dev`
+ * from their own directory (the scaffolded `package.json` already sets
+ * `"dev": "draft dev"`).
  *
- * Resolution order:
- *  1. `--game <name>` — explicit; resolves `games/<name>/electron.vite.config.ts`
- *     relative to the engine root (back-compat with root-level invocation).
- *  2. cwd inference — walk up from `process.cwd()` looking for
- *     `electron.vite.config.ts`. This lets games run `draft dev` from their
- *     own directory (the scaffolded `package.json` already sets
- *     `"dev": "draft dev"`).
- *
- * Returns `{ game, configPath }` or `null` if no config could be found.
+ * Returns `{ game, gameDir, configPath }` or `null` if no config could be
+ * found.
  */
-function resolveGameConfig(gameArg: string | undefined): { game: string; configPath: string } | null {
-  // 1. Explicit --game: resolve against the engine root's games/ directory.
-  if (gameArg) {
-    const configPath = resolve(ROOT, "games", gameArg, CONFIG_FILE);
-    if (existsSync(configPath)) return { game: gameArg, configPath };
-    return null;
-  }
-
-  // 2. Cwd inference: walk up looking for electron.vite.config.ts.
+function resolveGameConfig(): { game: string; gameDir: string; configPath: string } | null {
   let dir = process.cwd();
   for (;;) {
     const candidate = resolve(dir, CONFIG_FILE);
-    if (existsSync(candidate)) return { game: basename(dir), configPath: candidate };
+    if (existsSync(candidate)) {
+      return { game: basename(dir), gameDir: dir, configPath: candidate };
+    }
     const parent = dirname(dir);
     if (parent === dir) break; // reached filesystem root
     dir = parent;
@@ -51,26 +42,31 @@ export async function dev(args: string[]): Promise<void> {
     return;
   }
 
-  const gameArg = (parsed.flags.game as string) || undefined;
-  const resolved = resolveGameConfig(gameArg);
+  const resolved = resolveGameConfig();
   if (!resolved) {
-    if (gameArg) {
-      log.error("DownDraft", `No electron.vite.config.ts found for game "${gameArg}" at ${resolve(ROOT, "games", gameArg, CONFIG_FILE)}`);
-    } else {
-      log.error("DownDraft", `No electron.vite.config.ts found in "${process.cwd()}" (or any parent directory).`);
-      log.error("DownDraft", `Run "draft dev" from a game directory, or use "--game <name>" from the engine root.`);
-    }
+    log.error("DownDraft", `No electron.vite.config.ts found in "${process.cwd()}" (or any parent directory).`);
+    log.error("DownDraft", `Run "draft dev" from a game directory.`);
     print(formatGamesList(ROOT));
     process.exit(1);
   }
 
-  const { game, configPath: gameConfig } = resolved;
+  const { game, gameDir, configPath: gameConfig } = resolved;
 
   const port = parsed.flags.port as number;
   const noHmr = parsed.flags["no-hmr"] as boolean;
   const noBake = parsed.flags["no-bake"] as boolean;
   const verbose = parsed.flags.verbose as boolean;
   const devEntry = parsed.flags.entry as string;
+
+  // Kill any stale Electron instance from a previous dev run before spawning.
+  // VS Code's task runner doesn't reliably tear down the detached electron
+  // process group when a task is stopped, so orphaned game windows accumulate
+  // and hold the per-game userData LevelDB locks. This replaces the per-game
+  // bash pgrep/kill loop that used to live in .vscode/tasks.json.
+  const killed = killStaleInstance(gameDir);
+  if (killed > 0) {
+    log.info("DownDraft", `Killed ${killed} stale process(es) from a previous run of "${game}".`);
+  }
 
   log.info("DownDraft", "Starting in dev mode...");
   log.info("DownDraft", `  Game: ${game}`);
@@ -90,29 +86,66 @@ export async function dev(args: string[]): Promise<void> {
   // Critical: Electron must NOT run as Node.js.
   delete env.ELECTRON_RUN_AS_NODE;
 
+  // Spawn in a new session (detached) so the child becomes a process-group
+  // leader. This protects it from signals sent to the parent's process group
+  // (e.g. when VS Code's task runner or the exec tool backgrounds the parent).
+  //
+  // We pipe stdout/stderr instead of inheriting them: with `stdio: "inherit"`
+  // + `detached: true`, the child tries to use the pty directly from a new
+  // session, which fails in VS Code's task runner (the child exits
+  // immediately). By piping, the parent — which IS connected to the pty —
+  // reads the child's output and writes it to its own stdout/stderr. This is
+  // the same pattern the e2e harness uses (tests/e2e/harness.ts).
   const child = spawn("npx", childArgs, {
     cwd: ROOT,
-    stdio: "inherit",
+    stdio: ["inherit", "pipe", "pipe"],
     env,
     detached: true,
   });
 
-  child.on("exit", (code) => {
-    process.exit(code ?? 0);
-  });
+  // Forward piped output to the parent's stdout/stderr.
+  child.stdout?.on("data", (data: Buffer) => process.stdout.write(data));
+  child.stderr?.on("data", (data: Buffer) => process.stderr.write(data));
 
-  let shuttingDown = false;
-  const shutdown = () => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    log.info("DownDraft", "Shutting down...");
-    child.kill("SIGINT");
-    setTimeout(() => {
-      // Kill entire process group (child + renderer) as fallback
-      try { process.kill(-child.pid!, "SIGKILL"); } catch {}
-      process.exit(130);
-    }, 2000);
-  };
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
+  // Wait for the child to exit before resolving. Without this, the CLI entry
+  // point (index.ts) calls `process.exit(0)` in its `main().then()` handler
+  // immediately after `dev()` returns, killing the parent before the child
+  // can produce any output.
+  return new Promise<void>((resolvePromise, reject) => {
+    child.on("error", (err) => {
+      log.error("DownDraft", `Failed to spawn electron-vite: ${err.message}`);
+      reject(err);
+    });
+
+    child.on("exit", (code, signal) => {
+      if (signal) {
+        process.exit(128 + (signal === "SIGINT" ? 2 : signal === "SIGTERM" ? 15 : 1));
+      }
+      process.exit(code ?? 0);
+    });
+
+    let shuttingDown = false;
+    const shutdown = () => {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      log.info("DownDraft", "Shutting down...");
+      // Kill the child's process group (works because detached: true made the
+      // child a group leader). Falls back to a descendant tree-walk for any
+      // helpers that called setsid.
+      try { child.kill("SIGINT"); } catch {}
+      if (child.pid) {
+        try { process.kill(-child.pid, "SIGTERM"); } catch {}
+      }
+      setTimeout(() => {
+        if (child.pid) {
+          try { process.kill(-child.pid, "SIGKILL"); } catch {}
+          killProcessTree(child.pid);
+        }
+        process.exit(130);
+      }, 2000);
+    };
+    process.on("SIGINT", shutdown);
+    process.on("SIGTERM", shutdown);
+    process.on("SIGHUP", shutdown);
+  });
 }

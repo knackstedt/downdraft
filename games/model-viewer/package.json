@@ -4,6 +4,9 @@
   "productName": "Model Viewer",
   "private": true,
   "type": "module",
+  "scripts": {
+    "dev": "draft dev"
+  },
   "dependencies": {
     "@downdraft/app": "workspace:*",
     "@downdraft/core": "workspace:*",
