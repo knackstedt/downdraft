@@ -1,4 +1,5 @@
 // Hotbar — bottom-center 9-slot hotbar
+import { ScaledText } from "../font-scale-context";
 import React from "react";
 import { useWorkerState } from "../worker-store";
 
@@ -26,9 +27,9 @@ export function Hotbar({ width, height }: { width: number; height: number }) {
             g.roundRect(0, 0, SLOT_SIZE, SLOT_SIZE, 4).fill({ color: isSelected ? 0x333366 : 0x222233, alpha: 0.9 }).stroke({ width: isSelected ? 2 : 1, color: isSelected ? 0x6c5ce7 : 0x444455, alpha: 0.8 });
           }}
         />
-        <pixiText text={String(i + 1)} x={4} y={2} style={{ fill: 0x666677, fontSize: 9, fontFamily: "monospace" }} />
+        <ScaledText text={String(i + 1)} x={4} y={2} style={{ fill: 0x666677, fontSize: 11, fontFamily: "monospace" }} />
         {slot && slot.count > 0 && (
-          <pixiText text={slot.count.toString()} x={SLOT_SIZE - 6} y={SLOT_SIZE - 14} anchor={1} style={{ fill: 0xffffff, fontSize: 11, fontFamily: "monospace", fontWeight: "bold" }} />
+          <ScaledText text={slot.count.toString()} x={SLOT_SIZE - 6} y={SLOT_SIZE - 14} anchor={1} style={{ fill: 0xffffff, fontSize: 13, fontFamily: "monospace", fontWeight: "bold" }} />
         )}
       </pixiContainer>,
     );

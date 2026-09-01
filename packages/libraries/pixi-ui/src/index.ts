@@ -39,6 +39,13 @@ export type { PixiUiLibConfig, UiStatsLayout } from "./library";
 export { PixiUiHost } from "./host";
 export type { PixiUiHostOptions } from "./host";
 
+// Font scale utilities (system detection + localStorage persistence)
+export {
+    detectSystemFontScale, FONT_SCALE_STORAGE_KEY, getEffectiveFontScale, getSystemFontScale,
+    loadUserFontScale,
+    saveUserFontScale
+} from "./font-scale";
+
 // UiStatsSAB helpers (for direct reads by MCP tools / debug)
 export {
     allocateUiStatsSab,

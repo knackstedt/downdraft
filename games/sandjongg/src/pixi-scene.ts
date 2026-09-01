@@ -29,11 +29,50 @@ const COL_GOLD = 0xfdcb6e;
 // ── Style presets ──
 const FONT = "monospace";
 const FONT_SANS = "sans-serif";
-const FONT_SIZE = 12;
-const FONT_SIZE_SM = 10;
-const FONT_SIZE_MD = 14;
-const FONT_SIZE_LG = 18;
-const FONT_SIZE_XL = 28;
+const BASE_FONT_SIZE = 14;
+const BASE_FONT_SIZE_SM = 12;
+const BASE_FONT_SIZE_MD = 16;
+const BASE_FONT_SIZE_LG = 20;
+const BASE_FONT_SIZE_XL = 30;
+// Scaled by ctx.fontScale at scene init; updated at runtime if the user
+// changes the font scale setting.
+let FONT_SIZE = BASE_FONT_SIZE;
+let FONT_SIZE_SM = BASE_FONT_SIZE_SM;
+let FONT_SIZE_MD = BASE_FONT_SIZE_MD;
+let FONT_SIZE_LG = BASE_FONT_SIZE_LG;
+let FONT_SIZE_XL = BASE_FONT_SIZE_XL;
+
+/** Current font scale (set from ctx.fontScale at init, updated at runtime). */
+let _fontScale = 1;
+
+function applyFontScale(scale: number): void {
+  _fontScale = scale;
+  FONT_SIZE = Math.round(BASE_FONT_SIZE * scale);
+  FONT_SIZE_SM = Math.round(BASE_FONT_SIZE_SM * scale);
+  FONT_SIZE_MD = Math.round(BASE_FONT_SIZE_MD * scale);
+  FONT_SIZE_LG = Math.round(BASE_FONT_SIZE_LG * scale);
+  FONT_SIZE_XL = Math.round(BASE_FONT_SIZE_XL * scale);
+}
+
+/** Walk a container tree and scale every Text's fontSize by newScale/oldScale. */
+function updateTextFontSizes(root: Container, oldScale: number, newScale: number): void {
+  if (oldScale === newScale) return;
+  const ratio = newScale / oldScale;
+  const walk = (container: Container) => {
+    for (const child of container.children) {
+      if (child instanceof Text) {
+        const cur = (child.style as any).fontSize;
+        if (typeof cur === "number") {
+          (child.style as any).fontSize = Math.round(cur * ratio);
+        }
+      }
+      if (child instanceof Container && child.children.length > 0) {
+        walk(child as Container);
+      }
+    }
+  };
+  walk(root);
+}
 
 // ── Constants matching app.tsx ──
 const COMBO_WINDOW_MS = 5000;
@@ -377,6 +416,9 @@ function createSegmented(
 // ── The scene ──
 
 export default function createSandjonggScene(ctx: PixiUiSceneContext): PixiUiScene {
+  // Apply the font scale before building any UI.
+  applyFontScale(ctx.fontScale);
+
   const root = new Container();
   root.label = "hud-root";
   ctx.app.stage.addChild(root);
@@ -730,6 +772,15 @@ export default function createSandjonggScene(ctx: PixiUiSceneContext): PixiUiSce
   setHint.x = 20; setHint.y = 300;
   setPanel.addChild(setHint);
 
+  // Font scale slider
+  const fontScaleLabel = new Text({ text: "UI Font Scale", style: { fill: COL_TEXT, fontSize: FONT_SIZE_SM, fontFamily: FONT_SANS, fontWeight: "bold" } });
+  fontScaleLabel.x = 20; fontScaleLabel.y = 340;
+  setPanel.addChild(fontScaleLabel);
+
+  const fontScaleSlider = createSlider("Scale", 1, 2.5, 0.05, _fontScale, 400, (v) => post({ kind: "setFontScale", scale: v }));
+  fontScaleSlider.x = 20; fontScaleSlider.y = 370;
+  setPanel.addChild(fontScaleSlider);
+
   const setClose = createButton("Close", 100, 32, () => post({ kind: "closePanel", panel: "settings" }), { primary: true });
   setClose.x = 250; setClose.y = 420;
   setPanel.addChild(setClose);
@@ -996,6 +1047,12 @@ export default function createSandjonggScene(ctx: PixiUiSceneContext): PixiUiSce
   return {
     root,
     update({ stats, events }) {
+      // Check for font scale changes.
+      if (ctx.fontScale !== _fontScale) {
+        const oldScale = _fontScale;
+        applyFontScale(ctx.fontScale);
+        updateTextFontSizes(root, oldScale, ctx.fontScale);
+      }
       // Read SAB scalars
       state.fps = stats.fps ?? state.fps;
       state.score = stats.score ?? state.score;

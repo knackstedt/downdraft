@@ -45,6 +45,16 @@ export interface PixiUiSceneContext {
   /** The canvas width/height in pixels (for layout). */
   width: number;
   height: number;
+  /**
+   * Font scale multiplier (>= 1.0). Scenes should multiply their base font
+   * sizes by this value. Defaults to the system-detected font scale
+   * (accessibility); the user can increase it via the game's settings.
+   * Updated at runtime via `setFontScale` messages from the host — scenes
+   * that cache font sizes should re-read this when it changes (the worker
+   * calls `scene.update()` after a font scale change so React scenes
+   * re-render via their store).
+   */
+  fontScale: number;
   /** The opaque scene config from PixiUiLibConfig.sceneConfig. */
   sceneConfig: unknown;
   /** Signal that the scene wants pointer events (flips the overlay canvas to

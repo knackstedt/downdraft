@@ -7,18 +7,38 @@ import { createPixiReactRoot } from "@downdraft/library-pixi-ui/react";
 import React from "react";
 import type { OceanAction, OceanEvent } from "./pixi/bridge-protocol";
 import { OceanApp } from "./pixi/components/OceanApp";
+import { FontScaleContext } from "./pixi/font-scale-context";
 import { getWorkerState, setPostAction, setWorkerState } from "./pixi/worker-store";
 
 export default async function createOceanScene(ctx: PixiUiSceneContext): Promise<PixiUiScene> {
   const root = await createPixiReactRoot(ctx);
   setPostAction((action: OceanAction) => ctx.postAction(action));
-  root.render(React.createElement(OceanApp, { width: ctx.width, height: ctx.height }));
+
+  let currentFontScale = ctx.fontScale;
+
+  function renderApp(width: number, height: number) {
+    root.render(
+      React.createElement(
+        FontScaleContext.Provider,
+        { value: currentFontScale },
+        React.createElement(OceanApp, { width, height }),
+      ),
+    );
+  }
+
+  renderApp(ctx.width, ctx.height);
 
   let w = ctx.width, h = ctx.height;
 
   return {
     root: ctx.app.stage,
     update({ stats, events }) {
+      // Re-render if font scale changed (the worker updates ctx.fontScale
+      // when a setFontScale message arrives from the host).
+      if (ctx.fontScale !== currentFontScale) {
+        currentFontScale = ctx.fontScale;
+        renderApp(w, h);
+      }
       setWorkerState({
         fps: stats.fps ?? 0,
         ready: (stats.ready ?? 0) !== 0,
@@ -87,7 +107,7 @@ export default async function createOceanScene(ctx: PixiUiSceneContext): Promise
     resize(width, height) {
       w = width; h = height;
       setWorkerState({ canvasW: width, canvasH: height });
-      root.render(React.createElement(OceanApp, { width, height }));
+      renderApp(width, height);
     },
     getInteractiveRegions(): Rect[] {
       return [{ x: 0, y: 0, width: w, height: h }];

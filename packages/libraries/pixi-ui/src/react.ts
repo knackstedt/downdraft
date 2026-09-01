@@ -137,6 +137,48 @@ export async function createPixiReactRoot(ctx: PixiUiSceneContext): Promise<Pixi
   };
 }
 
+// ── Font scale support for @pixi/react scenes ──
+
+/**
+ * React context providing the current font scale multiplier (>= 1.0).
+ * Scenes wrap their component tree in `<FontScaleProvider>` (done
+ * automatically by `createPixiReactRoot` via the `fontScale` field on
+ * PixiUiSceneContext). Components read it via `useFontScale()` and multiply
+ * their `fontSize` values, or use the `<ScaledText>` drop-in replacement
+ * for `<pixiText>` which scales automatically.
+ */
+export function createFontScaleHelpers(react: typeof import("react")) {
+  const FontScaleContext = react.createContext(1);
+
+  function useFontScale(): number {
+    return react.useContext(FontScaleContext);
+  }
+
+  /**
+   * Drop-in replacement for `<pixiText>` that automatically scales the
+   * `fontSize` in the `style` prop by the current font scale from context.
+   *
+   * Usage: replace `<pixiText style={{ fontSize: 14, ... }} />` with
+   * `<ScaledText style={{ fontSize: 14, ... }} />` — the fontSize is
+   * automatically multiplied by the font scale.
+   */
+  const ScaledText = react.memo(function ScaledText(props: any) {
+    const scale = react.useContext(FontScaleContext);
+    const { style, ...rest } = props;
+    const scaledStyle = style
+      ? {
+          ...style,
+          fontSize: typeof style.fontSize === "number"
+            ? Math.round(style.fontSize * scale)
+            : style.fontSize,
+        }
+      : style;
+    return react.createElement("pixiText", { ...rest, style: scaledStyle });
+  });
+
+  return { FontScaleContext, useFontScale, ScaledText };
+}
+
 export interface PixiReactRoot {
   /** Render a React element tree into the PixiJS scene graph. */
   render(element: React.ReactElement): void;

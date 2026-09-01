@@ -7,18 +7,36 @@ import { createPixiReactRoot } from "@downdraft/library-pixi-ui/react";
 import React from "react";
 import type { MainToWorkerEvent } from "./pixi/bridge-protocol";
 import { MiningApp } from "./pixi/components/MiningApp";
+import { FontScaleContext } from "./pixi/font-scale-context";
 import { getWorkerState, setPostAction, setWorkerState } from "./pixi/worker-store";
 
 export default async function createMiningScene(ctx: PixiUiSceneContext): Promise<PixiUiScene> {
   const root = await createPixiReactRoot(ctx);
   setPostAction((action: any) => ctx.postAction(action));
-  root.render(React.createElement(MiningApp, { width: ctx.width, height: ctx.height }));
+
+  let currentFontScale = ctx.fontScale;
+
+  function renderApp(width: number, height: number) {
+    root.render(
+      React.createElement(
+        FontScaleContext.Provider,
+        { value: currentFontScale },
+        React.createElement(MiningApp, { width, height }),
+      ),
+    );
+  }
+
+  renderApp(ctx.width, ctx.height);
 
   let w = ctx.width, h = ctx.height;
 
   return {
     root: ctx.app.stage,
     update({ stats, events }) {
+      if (ctx.fontScale !== currentFontScale) {
+        currentFontScale = ctx.fontScale;
+        renderApp(w, h);
+      }
       setWorkerState({
         fps: stats.fps ?? 0,
         health: stats.health ?? 100,
@@ -92,7 +110,7 @@ export default async function createMiningScene(ctx: PixiUiSceneContext): Promis
     resize(width, height) {
       w = width; h = height;
       setWorkerState({ canvasW: width, canvasH: height });
-      root.render(React.createElement(MiningApp, { width, height }));
+      renderApp(width, height);
     },
     getInteractiveRegions(): Rect[] {
       return [{ x: 0, y: 0, width: w, height: h }];

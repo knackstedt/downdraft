@@ -1,4 +1,5 @@
 // FpsBar — FPS, season/day/year, status indicators (top-left)
+import { ScaledText } from "../font-scale-context";
 import React from "react";
 import { useWorkerState } from "../worker-store";
 
@@ -17,14 +18,14 @@ export function FpsBar({ width }: { width: number }) {
 
   return (
     <pixiContainer x={8} y={8}>
-      <pixiText
+      <ScaledText
         text={`${Math.floor(fps)} FPS  |  ${SEASON_NAMES[seasonIdx] ?? "Spring"} ${dayInSeason} Y${year}`}
-        style={{ fill: 0xffffff, fontSize: 12, fontFamily: "monospace" }}
+        style={{ fill: 0xffffff, fontSize: 14, fontFamily: "monospace" }}
       />
-      <pixiText
+      <ScaledText
         text={`${paused ? "[PAUSED] " : ""}${taskMode ? "[TASK] " : ""}${cameraDetached ? "[CAM] " : ""}`}
         y={16}
-        style={{ fill: 0xfdcb6e, fontSize: 11, fontFamily: "monospace" }}
+        style={{ fill: 0xfdcb6e, fontSize: 13, fontFamily: "monospace" }}
       />
     </pixiContainer>
   );

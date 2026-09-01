@@ -1,4 +1,5 @@
 // AttributeBars — HP/Food/Energy/Air/Happy/Env bars (left side)
+import { ScaledText } from "../font-scale-context";
 import React from "react";
 import { useWorkerState } from "../worker-store";
 
@@ -25,7 +26,7 @@ export function AttributeBars() {
         const ratio = Math.max(0, Math.min(1, value / 100));
         return (
           <pixiContainer key={bar.key} y={i * (BAR_H + BAR_GAP)}>
-            <pixiText text={bar.label} x={0} y={0} style={{ fill: 0x999999, fontSize: 10, fontFamily: "sans-serif" }} />
+            <ScaledText text={bar.label} x={0} y={0} style={{ fill: 0x999999, fontSize: 12, fontFamily: "sans-serif" }} />
             <pixiGraphics
               x={50}
               y={0}
@@ -36,7 +37,7 @@ export function AttributeBars() {
                 g.roundRect(0, 0, BAR_W, BAR_H, 3).stroke({ width: 1, color: 0x444444, alpha: 0.6 });
               }}
             />
-            <pixiText text={Math.round(value).toString()} x={50 + BAR_W + 6} y={0} style={{ fill: 0xffffff, fontSize: 10, fontFamily: "monospace" }} />
+            <ScaledText text={Math.round(value).toString()} x={50 + BAR_W + 6} y={0} style={{ fill: 0xffffff, fontSize: 12, fontFamily: "monospace" }} />
           </pixiContainer>
         );
       })}

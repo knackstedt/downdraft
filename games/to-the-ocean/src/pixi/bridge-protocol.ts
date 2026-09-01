@@ -98,6 +98,7 @@ export interface TradeAction extends PixiUiAction { kind: "trade"; itemId: strin
 export interface BuildAction extends PixiUiAction { kind: "build"; moduleId: string }
 export interface TransferItemAction extends PixiUiAction { kind: "transferItem"; direction: "to_ship" | "from_ship"; itemId?: string; quantity?: number }
 export interface OpenExternalAction extends PixiUiAction { kind: "openExternal"; url: string }
+export interface SetFontScaleAction extends PixiUiAction { kind: "setFontScale"; scale: number }
 
 export type OceanAction =
   | ToggleMenuAction | CloseMenuAction | EquipItemAction
@@ -106,4 +107,4 @@ export type OceanAction =
   | QuitAction | RespawnAction | SetSettingAction | SetBuilderCellTypeAction
   | SetBuilderRotationAction | SetReticleSizeAction | LockPointerAction
   | CraftAction | AbortCraftAction | TradeAction | BuildAction
-  | TransferItemAction | OpenExternalAction;
+  | TransferItemAction | OpenExternalAction | SetFontScaleAction;

@@ -138,6 +138,7 @@ if (typeof (globalThis as any).window === "undefined") {
 
 let app: Application | null = null;
 let scene: PixiUiScene | null = null;
+let sceneCtx: PixiUiSceneContext | null = null;
 let config: SerializedPixiUiConfig | null = null;
 let uiStatsSab: SharedArrayBuffer | null = null;
 let extraSharedBuffers: Record<string, SharedArrayBuffer> | null = null;
@@ -145,6 +146,9 @@ let eventQueue: PixiUiEvent[] = [];
 let startTime = 0;
 let lastTime = 0;
 let interactive = false;
+// Font scale multiplier (>= 1.0). Set from the init message, updated via
+// setFontScale messages. Exposed to scenes via PixiUiSceneContext.fontScale.
+let fontScale = 1;
 // In pass-through mode, tracks whether the current pointer drag started as
 // a "miss" (no interactive PixiJS element was hit on pointerdown). While
 // true, pointermove/pointerup are reported as misses too so the host
@@ -234,7 +238,7 @@ const messageHandler = async (e: MessageEvent<MainToWorkerMessage>) => {
         handlePointer(msg);
         break;
       case "resize":
-        handleResize(msg.width, msg.height);
+        handleResize(msg.width, msg.height, msg.resolution);
         break;
       case "queryScene":
         handleQueryScene(msg.requestId);
@@ -244,6 +248,9 @@ const messageHandler = async (e: MessageEvent<MainToWorkerMessage>) => {
         break;
       case "dispose":
         handleDispose();
+        break;
+      case "setFontScale":
+        handleSetFontScale(msg.fontScale);
         break;
     }
   } catch (err) {
@@ -269,6 +276,11 @@ async function handleInit(msg: InitMessage): Promise<void> {
 
   try {
     app = new Application();
+    // Render at the host-supplied resolution (typically devicePixelRatio) so
+    // text is crisp on HiDPI/Retina displays. autoDensity is false because the
+    // host owns the DOM canvas CSS size (style.width/height = 100vw/100vh);
+    // PixiJS only manages the backing store (canvas.width/height = CSS × res).
+    const resolution = msg.resolution ?? 1;
     await app.init({
       canvas: msg.offscreenCanvas,
       width: msg.width,
@@ -276,7 +288,7 @@ async function handleInit(msg: InitMessage): Promise<void> {
       backgroundAlpha: 0, // transparent overlay
       preference, // "webgl" | "webgpu" | undefined (auto)
       antialias: true,
-      resolution: 1, // the host sets canvas width/height; we render 1:1
+      resolution,
       autoDensity: false,
     });
   } catch (err) {
@@ -296,10 +308,12 @@ async function handleInit(msg: InitMessage): Promise<void> {
   }
 
   // Build the scene.
-  const sceneCtx: PixiUiSceneContext = {
+  fontScale = msg.fontScale ?? 1;
+  sceneCtx = {
     app,
     width: msg.width,
     height: msg.height,
+    fontScale,
     sceneConfig: msg.config.sceneConfig,
     setInteractive: postSetInteractive,
     postAction,
@@ -536,12 +550,36 @@ function handlePointer(msg: { type: string; x: number; y: number; button: number
 
 // ── Resize ──
 
-function handleResize(width: number, height: number): void {
+function handleResize(width: number, height: number, resolution?: number): void {
   if (!app?.renderer) return;
-  app.renderer.resize(width, height);
+  // When the host reports a devicePixelRatio change (window moved between
+  // monitors), update the renderer's resolution before resizing so the
+  // backing store is rebuilt at the new pixel density. renderer.resize's
+  // optional third arg sets the resolution; omitting it reuses the current.
+  if (resolution !== undefined && resolution !== (app.renderer as any).resolution) {
+    app.renderer.resize(width, height, resolution);
+  } else {
+    app.renderer.resize(width, height);
+  }
   scene?.resize?.(width, height);
   // Layout may have shifted — force a regions update on the next tick by
   // clearing the cache so postInteractiveRegionsIfChanged re-posts.
+  lastRegionsKey = "";
+}
+
+// ── Font scale ──
+
+function handleSetFontScale(scale: number): void {
+  const clamped = Math.max(1, scale);
+  if (clamped === fontScale) return;
+  fontScale = clamped;
+  // Update the scene context so scenes that read ctx.fontScale see the new
+  // value. The scene's update() will be called on the next tick, which gives
+  // React scenes (via their worker store) a chance to re-render with the
+  // new scale. Imperative scenes that cache font sizes should re-create
+  // their text objects in response to a fontScale change.
+  if (sceneCtx) sceneCtx.fontScale = clamped;
+  // Force a regions update since text sizes may have changed.
   lastRegionsKey = "";
 }
 
@@ -635,7 +673,7 @@ function createDefaultScene(ctx: PixiUiSceneContext): PixiUiScene {
 
   const label = new Text({
     text: "PixiUI ready",
-    style: { fill: 0x00ffaa, fontSize: 24, fontFamily: "monospace" },
+    style: { fill: 0x00ffaa, fontSize: Math.round(26 * ctx.fontScale), fontFamily: "monospace" },
   });
   label.name = "ready-label";
   label.x = 16;
@@ -644,7 +682,7 @@ function createDefaultScene(ctx: PixiUiSceneContext): PixiUiScene {
 
   const fpsLabel = new Text({
     text: "FPS: --",
-    style: { fill: 0xffffff, fontSize: 16, fontFamily: "monospace" },
+    style: { fill: 0xffffff, fontSize: Math.round(18 * ctx.fontScale), fontFamily: "monospace" },
   });
   fpsLabel.name = "fps-label";
   fpsLabel.x = 16;

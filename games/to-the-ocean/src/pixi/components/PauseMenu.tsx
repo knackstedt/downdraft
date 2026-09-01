@@ -1,3 +1,4 @@
+import { ScaledText } from "../font-scale-context";
 import React from "react";
 import { postAction } from "../worker-store";
 
@@ -8,7 +9,7 @@ export function PauseMenu({ width, height }: { width: number; height: number }) 
   const btn = (label: string, action: any, y: number, danger = false) => (
     <pixiContainer x={20} y={y} eventMode="static" cursor="pointer" onPointerDown={() => postAction(action)}>
       <pixiGraphics draw={(g: any) => { g.clear(); g.roundRect(0, 0, 200, 30, 6).fill({ color: danger ? 0x882222 : 0x6c5ce7, alpha: 0.8 }).stroke({ width: 1, color: danger ? 0xe74c3c : 0xa29bfe, alpha: 0.6 }); }} />
-      <pixiText text={label} x={100} y={15} anchor={0.5} style={{ fill: 0xffffff, fontSize: 13, fontFamily: "sans-serif", fontWeight: "bold" }} />
+      <ScaledText text={label} x={100} y={15} anchor={0.5} style={{ fill: 0xffffff, fontSize: 15, fontFamily: "sans-serif", fontWeight: "bold" }} />
     </pixiContainer>
   );
   return (
@@ -16,7 +17,7 @@ export function PauseMenu({ width, height }: { width: number; height: number }) 
       <pixiGraphics draw={(g: any) => { g.clear(); g.rect(0, 0, width, height).fill({ color: 0x000000, alpha: 0.6 }); }} />
       <pixiContainer x={x0} y={y0}>
         <pixiGraphics draw={(g: any) => { g.clear(); g.roundRect(0, 0, pw, ph, 8).fill({ color: 0x1a1a2e, alpha: 0.95 }).stroke({ width: 1, color: 0x333355, alpha: 0.7 }); }} />
-        <pixiText text="Paused" x={pw / 2} y={14} anchor={{ x: 0.5, y: 0 }} style={{ fill: 0xfdcb6e, fontSize: 18, fontFamily: "sans-serif", fontWeight: "bold" }} />
+        <ScaledText text="Paused" x={pw / 2} y={14} anchor={{ x: 0.5, y: 0 }} style={{ fill: 0xfdcb6e, fontSize: 20, fontFamily: "sans-serif", fontWeight: "bold" }} />
         {btn("Resume", { kind: "closeMenu", menu: "pauseMenu" }, 48)}
         {btn("Save Game", { kind: "saveGame" }, 84)}
         {btn("Load Game", { kind: "loadGame" }, 120)}

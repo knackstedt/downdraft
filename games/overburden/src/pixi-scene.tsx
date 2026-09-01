@@ -12,6 +12,7 @@ import { createPixiReactRoot } from "@downdraft/library-pixi-ui/react";
 import React from "react";
 import type { OverburdenAction, OverburdenEvent } from "./pixi/bridge-protocol";
 import { OverburdenApp } from "./pixi/components/OverburdenApp";
+import { FontScaleContext } from "./pixi/font-scale-context";
 import { MapOverlay } from "./pixi/map-overlay";
 import { setPostAction, setWorkerState } from "./pixi/worker-store";
 
@@ -20,9 +21,19 @@ export default async function createOverburdenScene(ctx: PixiUiSceneContext): Pr
 
   setPostAction((action: OverburdenAction) => ctx.postAction(action));
 
-  root.render(
-    React.createElement(OverburdenApp, { width: ctx.width, height: ctx.height }),
-  );
+  let currentFontScale = ctx.fontScale;
+
+  function renderApp(width: number, height: number) {
+    root.render(
+      React.createElement(
+        FontScaleContext.Provider,
+        { value: currentFontScale },
+        React.createElement(OverburdenApp, { width, height }),
+      ),
+    );
+  }
+
+  renderApp(ctx.width, ctx.height);
 
   let currentWidth = ctx.width;
   let currentHeight = ctx.height;
@@ -34,6 +45,11 @@ export default async function createOverburdenScene(ctx: PixiUiSceneContext): Pr
   return {
     root: ctx.app.stage,
     update({ stats, events }) {
+      // Re-render if font scale changed.
+      if (ctx.fontScale !== currentFontScale) {
+        currentFontScale = ctx.fontScale;
+        renderApp(currentWidth, currentHeight);
+      }
       // Update SAB scalars → worker store. Map-mode stats (camWorldX/Y,
       // camZoom, mapOpacity, playerWorldX/Y, playerFacing) are NOT stored
       // here — they change every frame and would notify all React
@@ -111,8 +127,7 @@ export default async function createOverburdenScene(ctx: PixiUiSceneContext): Pr
       currentWidth = width;
       currentHeight = height;
       setWorkerState({ canvasW: width, canvasH: height });
-      // Re-render the app with new dimensions
-      root.render(React.createElement(OverburdenApp, { width, height }));
+      renderApp(width, height);
     },
     getInteractiveRegions(): Rect[] {
       // @pixi/react manages interactivity via eventMode on individual components.

@@ -21,6 +21,7 @@ import {
     type SceneStateMessage,
     type WorkerToMainMessage
 } from "./bridge-protocol";
+import { detectSystemFontScale } from "./font-scale";
 import type { PixiUiLibConfig } from "./library";
 import { allocateUiStatsSab, writeUiStats } from "./ui-stats-sab";
 
@@ -32,6 +33,20 @@ export interface PixiUiHostOptions {
   /** CSS width/height in pixels. Default: window.innerWidth/innerHeight. */
   width?: number;
   height?: number;
+  /**
+   * Render resolution (backing-store pixels per CSS pixel). Default:
+   * `window.devicePixelRatio` (or 1 in non-browser contexts). Set to 1 to
+   * force 1× rendering (blurry on HiDPI but cheaper). The canvas backing
+   * store is sized to `width * resolution`; PixiJS rasterizes at that
+   * resolution so text is crisp on Retina/HiDPI displays.
+   */
+  resolution?: number;
+  /**
+   * Font scale multiplier for all text in the overlay. Default:
+   * `max(1, detectSystemFontScale())`. Use `host.setFontScale()` to update
+   * at runtime (notifies the worker which re-renders with the new scale).
+   */
+  fontScale?: number;
   /**
    * Pass-through mode: the overlay canvas is always pointer-events: auto.
    * Pointer events inside interactive regions (reported by the scene via
@@ -69,6 +84,10 @@ export class PixiUiHost {
   private canvasId: string;
   private width: number;
   private height: number;
+  /** Render resolution (backing-store px per CSS px). Tracks devicePixelRatio. */
+  private resolution: number;
+  /** Font scale multiplier (system-detected default, user-increasable). */
+  private fontScale: number;
   private interactive = false;
   private disposed = false;
   private ready = false;
@@ -105,6 +124,16 @@ export class PixiUiHost {
     this.canvasId = config.canvasId ?? "pixi-ui-canvas";
     this.width = config.width ?? (typeof window !== "undefined" ? window.innerWidth : 1280);
     this.height = config.height ?? (typeof window !== "undefined" ? window.innerHeight : 720);
+    // Render at the display's physical pixel density so PixiJS text is crisp
+    // on HiDPI/Retina displays. The host sizes the canvas backing store to
+    // `width * resolution`; the worker passes this to PIXI.Application.init
+    // as `resolution` (with autoDensity: false, since the host owns the DOM
+    // canvas CSS size via style.width/height = 100vw/100vh).
+    this.resolution = config.resolution
+      ?? (typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1);
+    // Default to the system-detected font scale (accessibility). Games can
+    // override with a user preference loaded from localStorage.
+    this.fontScale = config.fontScale ?? detectSystemFontScale();
     this.passThrough = config.passThrough ?? false;
     this.extraSharedBuffers = config.extraSharedBuffers ?? null;
     this.readyPromise = new Promise((resolve, reject) => {
@@ -169,8 +198,12 @@ export class PixiUiHost {
     this.canvas.style.zIndex = this.canvasLayer >= 2
       ? String(100 + this.canvasLayer * 10) // layer 2 → 120, layer 3 → 130, etc.
       : String(40 + this.canvasLayer * 10); // layer 1 → 50
-    this.canvas.width = this.width;
-    this.canvas.height = this.height;
+    // Size the backing store to physical pixels (CSS size × resolution) so
+    // PixiJS renders at full DPI. The CSS size stays 100vw/100vh (set above),
+    // so the browser scales the backing store down to the display — crisp on
+    // HiDPI. PixiJS's autoDensity is off (we own the DOM canvas style).
+    this.canvas.width = Math.round(this.width * this.resolution);
+    this.canvas.height = Math.round(this.height * this.resolution);
 
     // Ensure the game canvas (layer 0) is below the overlay. If the game
     // doesn't import downdraft-base.css, the game canvas may lack
@@ -223,6 +256,8 @@ export class PixiUiHost {
       config: serializeConfig(this.config),
       width: this.width,
       height: this.height,
+      resolution: this.resolution,
+      fontScale: this.fontScale,
     };
     this.worker.postMessage(initMsg, [offscreen]);
 
@@ -461,14 +496,49 @@ export class PixiUiHost {
     this.onInteractiveChange?.(interactive);
   }
 
+  // ── Font scale ──
+
+  /** The current font scale multiplier (>= 1.0). */
+  get fontScaleValue(): number {
+    return this.fontScale;
+  }
+
+  /**
+   * Update the font scale at runtime. Notifies the worker, which updates the
+   * scene context and re-renders text at the new scale. Use
+   * `saveUserFontScale()` from `font-scale.ts` to persist the preference.
+   */
+  setFontScale(scale: number): void {
+    const clamped = Math.max(1, scale);
+    if (clamped === this.fontScale) return;
+    this.fontScale = clamped;
+    if (this.worker) {
+      const msg: MainToWorkerMessage = { kind: "setFontScale", fontScale: clamped };
+      this.worker.postMessage(msg);
+    }
+  }
+
   private handleResize = (): void => {
     if (!this.worker || !this.canvas) return;
     const w = this.canvas.clientWidth || window.innerWidth;
     const h = this.canvas.clientHeight || window.innerHeight;
-    if (w === this.width && h === this.height) return;
+    // Re-read devicePixelRatio — it can change when the window is dragged
+    // between monitors with different pixel densities.
+    const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+    const dprChanged = dpr !== this.resolution;
+    if (w === this.width && h === this.height && !dprChanged) return;
     this.width = w;
     this.height = h;
-    const msg: MainToWorkerMessage = { kind: "resize", width: w, height: h };
+    if (dprChanged) this.resolution = dpr;
+    // Keep the backing store in sync with the new CSS size × resolution.
+    this.canvas.width = Math.round(w * this.resolution);
+    this.canvas.height = Math.round(h * this.resolution);
+    const msg: MainToWorkerMessage = {
+      kind: "resize",
+      width: w,
+      height: h,
+      ...(dprChanged ? { resolution: this.resolution } : {}),
+    };
     this.worker.postMessage(msg);
   };
 

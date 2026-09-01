@@ -1,4 +1,5 @@
 // BlockheadSelector — multi-character tabs (top-center)
+import { ScaledText } from "../font-scale-context";
 import React from "react";
 import { useWorkerState, postAction } from "../worker-store";
 
@@ -26,7 +27,7 @@ export function BlockheadSelector() {
             g.roundRect(0, 0, 32, 32, 4).fill({ color: isActive ? 0x6c5ce7 : 0x222244, alpha: 0.9 }).stroke({ width: 1, color: isActive ? 0xa29bfe : 0x444466, alpha: 0.7 });
           }}
         />
-        <pixiText text={`B${i + 1}`} x={16} y={16} anchor={0.5} style={{ fill: 0xffffff, fontSize: 12, fontFamily: "sans-serif", fontWeight: "bold" }} />
+        <ScaledText text={`B${i + 1}`} x={16} y={16} anchor={0.5} style={{ fill: 0xffffff, fontSize: 14, fontFamily: "sans-serif", fontWeight: "bold" }} />
       </pixiContainer>,
     );
   }

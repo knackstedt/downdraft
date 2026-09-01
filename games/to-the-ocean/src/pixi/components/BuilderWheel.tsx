@@ -1,3 +1,4 @@
+import { ScaledText } from "../font-scale-context";
 import React from "react";
 import { useWorkerState, postAction } from "../worker-store";
 
@@ -20,7 +21,7 @@ export function BuilderWheel({ width, height }: { width: number; height: number 
           return (
             <pixiContainer key={cat} x={x} y={y} eventMode="static" cursor="pointer" onPointerDown={() => { postAction({ kind: "setBuilderCellType", idx: i }); postAction({ kind: "closeMenu", menu: "builderWheel" }); postAction({ kind: "lockPointer" }); }}>
               <pixiGraphics draw={(g: any) => { g.clear(); g.circle(0, 0, 24).fill({ color: isActive ? 0x6c5ce7 : 0x222244, alpha: 0.9 }).stroke({ width: 1, color: isActive ? 0xa29bfe : 0x444466, alpha: 0.7 }); }} />
-              <pixiText text={cat[0]} x={0} y={0} anchor={0.5} style={{ fill: 0xffffff, fontSize: 12, fontFamily: "sans-serif", fontWeight: "bold" }} />
+              <ScaledText text={cat[0]} x={0} y={0} anchor={0.5} style={{ fill: 0xffffff, fontSize: 14, fontFamily: "sans-serif", fontWeight: "bold" }} />
             </pixiContainer>
           );
         })}
