@@ -8,6 +8,11 @@ let bloomSoftEnabled = false;
 let tonemapEnabled = true;
 let bloomThreshold = 0.8;
 let bloomStrength = 1.0;
+let bloomMipCount = 5;
+let bloomSoftKnee = 0.7;
+let bloomTintR = 1.0;
+let bloomTintG = 1.0;
+let bloomTintB = 1.0;
 let bloomSoftThreshold = 1.0;
 let bloomSoftIntensity = 0.3;
 let exposure = 1.0;
@@ -38,6 +43,9 @@ registerTest({
         stack.setEnabled("tonemap", tonemapEnabled);
         stack.setBloomThreshold(bloomThreshold);
         stack.setBloomStrength(bloomStrength);
+        stack.setBloomMipCount(bloomMipCount);
+        stack.setBloomSoftKnee(bloomSoftKnee);
+        stack.setBloomTint(bloomTintR, bloomTintG, bloomTintB);
         stack.setBloomSoftThreshold(bloomSoftThreshold);
         stack.setBloomSoftIntensity(bloomSoftIntensity);
         stack.setExposure(exposure);
@@ -55,6 +63,11 @@ registerTest({
     { key: "bloom", label: "Bloom", type: "checkbox", value: bloomEnabled, onChange: (v) => { bloomEnabled = v as boolean; } },
     { key: "bT", label: "Bloom threshold", type: "slider", min: 0, max: 2, step: 0.05, value: bloomThreshold, onChange: (v) => { bloomThreshold = v as number; } },
     { key: "bS", label: "Bloom strength", type: "slider", min: 0, max: 3, step: 0.05, value: bloomStrength, onChange: (v) => { bloomStrength = v as number; } },
+    { key: "bMC", label: "Bloom MIP count", type: "slider", min: 1, max: 6, step: 1, value: bloomMipCount, onChange: (v) => { bloomMipCount = v as number; } },
+    { key: "bSK", label: "Bloom soft knee", type: "slider", min: 0, max: 1, step: 0.05, value: bloomSoftKnee, onChange: (v) => { bloomSoftKnee = v as number; } },
+    { key: "bTR", label: "Bloom tint R", type: "slider", min: 0, max: 2, step: 0.05, value: bloomTintR, onChange: (v) => { bloomTintR = v as number; } },
+    { key: "bTG", label: "Bloom tint G", type: "slider", min: 0, max: 2, step: 0.05, value: bloomTintG, onChange: (v) => { bloomTintG = v as number; } },
+    { key: "bTB", label: "Bloom tint B", type: "slider", min: 0, max: 2, step: 0.05, value: bloomTintB, onChange: (v) => { bloomTintB = v as number; } },
     { key: "bs", label: "Bloom-Soft", type: "checkbox", value: bloomSoftEnabled, onChange: (v) => { bloomSoftEnabled = v as boolean; } },
     { key: "bsT", label: "Bloom-Soft threshold", type: "slider", min: 0, max: 3, step: 0.05, value: bloomSoftThreshold, onChange: (v) => { bloomSoftThreshold = v as number; } },
     { key: "bsI", label: "Bloom-Soft intensity", type: "slider", min: 0, max: 2, step: 0.05, value: bloomSoftIntensity, onChange: (v) => { bloomSoftIntensity = v as number; } },
