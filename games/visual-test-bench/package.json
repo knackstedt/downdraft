@@ -4,12 +4,12 @@
   "productName": "Downdraft Visual Test Bench",
   "private": true,
   "type": "module",
+  "main": "dist/main/index.cjs",
   "dependencies": {
     "@downdraft/app": "workspace:*",
     "@downdraft/core": "workspace:*",
     "@downdraft/library-navmesh": "workspace:*",
     "@downdraft/library-recast": "workspace:*",
-    "@downdraft/library-postfx": "workspace:*",
     "@downdraft/module-camera-controls": "workspace:*",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

@@ -95,7 +95,6 @@ world.registerModule(myModule);
 - `@downdraft/library-lighting` — Lighting system
 - `@downdraft/library-weather` — Weather simulation
 - `@downdraft/library-weatherfx` — Cloud particle effects
-- `@downdraft/library-postfx` — Post-processing effects
 - `@downdraft/library-navmesh` — Navigation meshes
 - `@downdraft/library-persistence` — Save system (OPFS, File, IndexedDB)
 - `@downdraft/library-networking` — Multiplayer networking

@@ -214,7 +214,7 @@ export class LineRenderer {
     this.depthTexture?.destroy();
     this.vertexBuffer?.destroy();
     this.uniformBuffer?.destroy();
-    this.pipeline?.destroy();
+    try { this.pipeline?.destroy?.(); } catch { /* noop */ }
     this.depthTexture = null;
     this.vertexBuffer = null;
     this.uniformBuffer = null;

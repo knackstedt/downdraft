@@ -202,8 +202,13 @@ async function main(): Promise<void> {
       try {
         activeRenderer.render(ctx);
       } catch (e) {
-        state.error = `Render error in "${activeTest?.name}": ${(e as Error).message}`;
-        notify();
+        const msg = `Render error in "${activeTest?.name}": ${(e as Error).message}`;
+        console.error("[test-bench]", msg, e);
+        // Only set UI error once per test to avoid spamming the sidebar
+        if (state.error === null) {
+          state.error = msg;
+          notify();
+        }
       }
     }
 

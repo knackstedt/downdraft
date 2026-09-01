@@ -5,15 +5,14 @@
 // ============================================================================
 
 import type { TextureHandle } from "@downdraft/core";
-import { BindlessFrameBindings, BindlessMaterialManager, BindlessTextureRegistry, DEPTH_FORMAT, calculateViewProjInto as engineCalculateViewProjInto, ENT, Frustum, GameRenderer, GCController, GPUProfiler, IBLSystem, InputBufferWriter, MSAA_SAMPLE_COUNT, PassType, PBRSystem, PLR, PostProcessStack, RenderPass, SimBufferReader, SkyDomePass, TerrainPass, TrackedRenderPass, UnderwaterFogPass, WaterPass, type FrameGraphBuilder, type GCControllerConfig, type GCControllerStats, type IRendererStateProvider, type RenderContext } from "@downdraft/core";
+import { BindlessFrameBindings, BindlessMaterialManager, BindlessTextureRegistry, DEPTH_FORMAT, calculateViewProjInto as engineCalculateViewProjInto, ENT, Frustum, GameRenderer, GCController, GPUProfiler, IBLSystem, InputBufferWriter, MSAA_SAMPLE_COUNT, PassType, PBRSystem, PLR, PostProcessStack, RenderPass, SimBufferReader, SkyDomePass, TerrainPass, TrackedRenderPass, UnderwaterFogPass, WaterPass, type EffectId, type FrameGraphBuilder, type GCControllerConfig, type GCControllerStats, type IRendererStateProvider, type RenderContext } from "@downdraft/core";
 import { ModelRenderer } from "@downdraft/library-entities";
 import { LightSystem } from "@downdraft/library-lighting";
-import { PixelationSystem } from "@downdraft/library-postfx";
-import { DebugOverlay, DebugRaycast, LabelOverlay, SceneSync, TransformGizmo, useSceneStore, type GizmoMode } from "@downdraft/module-devtools";
-import { OSRManager, type CameraState as OSRCameraState, type OSRIPC } from "@downdraft/module-electron-osr";
 import { loadModel, type MaterialData, type MeshData, type ModelData } from "@downdraft/library-models";
 import { WATER_GRID_SAB as WATER_GRID, WaterBufferReader } from "@downdraft/library-water";
 import { CloudSystem, COLLISION_RADIUS, MAX_VOXEL_FLOATS, ParticleSystem, type VoxelCollisionData } from "@downdraft/library-weatherfx";
+import { DebugOverlay, DebugRaycast, LabelOverlay, SceneSync, TransformGizmo, useSceneStore, type GizmoMode } from "@downdraft/module-devtools";
+import { OSRManager, type CameraState as OSRCameraState, type OSRIPC } from "@downdraft/module-electron-osr";
 import { RuntimeBoatGeometry, type BoatDesign } from "@shared/boat-design";
 import { BOAT_CELL_WORLD_SIZE, BOAT_LAYER_HEIGHT, BoatCellType, ISLAND_DATA, PORT_DATA } from "@shared/constants";
 import { getCropByEncodedHash } from "@shared/data/crops";
@@ -84,7 +83,6 @@ export class WebGPURenderer extends GameRenderer implements IRendererStateProvid
   private pbrSystem: PBRSystem | null = null;
   private iblSystem: IBLSystem | null = null;
   private particleSystem: ParticleSystem | null = null;
-  private pixelationSystem: PixelationSystem | null = null;
   private postProcessStack: PostProcessStack | null = null;
   private underwaterFogPass: UnderwaterFogPass | null = null;
   private cloudSystem: CloudSystem | null = null;
@@ -417,9 +415,6 @@ export class WebGPURenderer extends GameRenderer implements IRendererStateProvid
 
       await this.particleSystem.init();
 
-      this.pixelationSystem = new PixelationSystem(device, format);
-      this.pixelationSystem.init();
-
       this.postProcessStack = new PostProcessStack(device, format, { depthFormat: DEPTH_FORMAT });
       this.postProcessStack.init();
 
@@ -475,7 +470,6 @@ export class WebGPURenderer extends GameRenderer implements IRendererStateProvid
       telemetryCollector: this.telemetryCollector,
       gpuProfiler: this.gpuProfiler,
       gpuResourceTracker: this.gpuResourceTracker,
-      pixelationSystem: this.pixelationSystem,
       postProcessStack: this.postProcessStack,
       boatReader: this.boatReader,
       canvas: this.getCanvas(),
@@ -751,15 +745,9 @@ export class WebGPURenderer extends GameRenderer implements IRendererStateProvid
         this.particleSystem.tick(commandEncoder, dt, dc, wt, wd.x * ws, wd.z * ws, vd);
       }
     }
-    const usePix = this.pixelationSystem?.isEnabled() ?? false;
     const usePP = this.postProcessStack?.hasEnabledEffects() ?? false;
     const vpCount = this.getViewportCount();
-    if (usePix) {
-      this.pixelationSystem!.ensureTargets(canvas.width, canvas.height);
-      for (let v = 0; v < vpCount; v++) { this.drawViewport(v, dt, "pixelation", commandEncoder); }
-      const cv = context.getCurrentTexture().createView();
-      this.pixelationSystem!.applyPostprocess(commandEncoder, cv, canvas.width, canvas.height);
-    } else if (usePP) {
+    if (usePP) {
       this.postProcessStack!.ensureTargets(canvas.width, canvas.height);
       for (let v = 0; v < vpCount; v++) { this.drawViewport(v, dt, "postprocess", commandEncoder); }
       const cv = context.getCurrentTexture().createView();
@@ -798,7 +786,7 @@ export class WebGPURenderer extends GameRenderer implements IRendererStateProvid
     this.scheduleRaf();
   }
 
-  private drawViewport(viewportIdx: number, dt: number, offscreenMode: "none" | "pixelation" | "postprocess" = "none", encoder: GPUCommandEncoder): void {
+  private drawViewport(viewportIdx: number, dt: number, offscreenMode: "none" | "postprocess" = "none", encoder: GPUCommandEncoder): void {
     if (!this.simReader) return;
     if (!this.getDevice()) return;
     if (!this.simReader.isValid()) {
@@ -809,7 +797,7 @@ export class WebGPURenderer extends GameRenderer implements IRendererStateProvid
     const origViewport = this.getViewports()[viewportIdx];
     if (!origViewport) return;
     const useOffscreen = offscreenMode !== "none";
-    const viewport = offscreenMode === "pixelation" ? this.pixelationSystem!.scaleViewport(origViewport) : origViewport;
+    const viewport = origViewport;
     const playerSlot = this.simReader.getPlayerSlot(viewportIdx);
     if (!playerSlot) {
       if (this.accessors.debugMode && performance.now() - (this.lastDebugLog ?? 0) > 1000) { console.log("[Render] No player slot for viewport", viewportIdx); this.lastDebugLog = performance.now(); }
@@ -1021,8 +1009,8 @@ export class WebGPURenderer extends GameRenderer implements IRendererStateProvid
     this.entityRenderer!.uploadInstanceData();
     // --- GPU render pass ---
     this.entityRenderer!.dispatchSkinningCompute(encoder);
-    const colorView = offscreenMode === "pixelation" ? this.pixelationSystem!.getOffscreenColorView() : offscreenMode === "postprocess" ? this.postProcessStack!.getSceneColorView() : this.getSurfaceView();
-    const depthView = offscreenMode === "pixelation" ? this.pixelationSystem!.getOffscreenDepthView() : offscreenMode === "postprocess" ? this.postProcessStack!.getSceneDepthView() : this.createDepthTextureView(origViewport.w, origViewport.h);
+    const colorView = offscreenMode === "postprocess" ? this.postProcessStack!.getSceneColorView() : this.getSurfaceView();
+    const depthView = offscreenMode === "postprocess" ? this.postProcessStack!.getSceneDepthView() : this.createDepthTextureView(origViewport.w, origViewport.h);
     const isFirst = viewportIdx === 0;
     const loadOp: GPULoadOp = useOffscreen && !isFirst ? "load" : "clear";
 
@@ -1403,7 +1391,7 @@ export class WebGPURenderer extends GameRenderer implements IRendererStateProvid
   setPixelationEnabled(e: boolean): void { this.accessors.setPixelationEnabled(e); }
   setPixelSize(s: number): void { this.accessors.setPixelSize(s); }
   setDepthEdgeStrength(s: number): void { this.accessors.setDepthEdgeStrength(s); }
-  setPostProcessEnabled(id: "fxaa" | "dof" | "sobel" | "afterimage" | "bloom" | "ascii", e: boolean): void { this.accessors.setPostProcessEnabled(id, e); }
+  setPostProcessEnabled(id: EffectId, e: boolean): void { this.accessors.setPostProcessEnabled(id, e); }
   setDOFFocusDist(v: number): void { this.accessors.setDOFFocusDist(v); }
   setDOFFocusRange(v: number): void { this.accessors.setDOFFocusRange(v); }
   setDOFMaxBlur(v: number): void { this.accessors.setDOFMaxBlur(v); }
@@ -1476,7 +1464,6 @@ export class WebGPURenderer extends GameRenderer implements IRendererStateProvid
     this.inputHandler.destroy();
     this.osrManager?.destroy();
     this.osrManager = null;
-    this.pixelationSystem?.destroy();
     this.postProcessStack?.destroy();
     this.modelRenderer?.destroy();
     this.bindlessFrameBindings?.destroy();

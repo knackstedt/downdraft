@@ -254,7 +254,7 @@ export class CubeRenderer {
     this.cubeIndexBuffer?.destroy();
     this.instanceBuffer?.destroy();
     this.uniformBuffer?.destroy();
-    this.pipeline?.destroy();
+    try { this.pipeline?.destroy?.(); } catch { /* noop */ }
     this.cubeVertexBuffer = null;
     this.cubeIndexBuffer = null;
     this.instanceBuffer = null;

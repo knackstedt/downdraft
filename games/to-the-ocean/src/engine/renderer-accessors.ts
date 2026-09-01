@@ -3,17 +3,15 @@
 // Extracted from WebGPURenderer for modularity
 // ============================================================================
 
-import { MaterialLibrary, MSAA_SAMPLE_COUNT, type GPUProfiler, type GPUResourceTracker, type LayoutEngine, type PBRSystem, type PostProcessStack, type DebugOverlay as ProfilingOverlay, type TelemetryCollector, type UIInputRouter, type UIRenderer, type UIRoot } from "@downdraft/core";
-import type { DebugOverlay, DebugRaycast, GizmoMode, TransformGizmo } from "@downdraft/module-devtools";
+import type { SimBufferReader } from "@downdraft/core";
+import { MaterialLibrary, MSAA_SAMPLE_COUNT, PLR, type EffectId, type GPUProfiler, type GPUResourceTracker, type LayoutEngine, type PBRSystem, type PostProcessStack, type DebugOverlay as ProfilingOverlay, type TelemetryCollector, type UIInputRouter, type UIRenderer, type UIRoot } from "@downdraft/core";
 import type { ModelRenderer } from "@downdraft/library-entities";
 import type { LightSystem } from "@downdraft/library-lighting";
 import { materialDataArrayToMaterials, type MaterialData, type MeshData } from "@downdraft/library-models";
-import type { PixelationSystem } from "@downdraft/library-postfx";
-import type { ParticleSystem } from "@downdraft/library-weatherfx";
-import type { BoatBufferReader } from "@to-the-ocean/library-boats/boat-sab";
-import type { SimBufferReader } from "@downdraft/core";
-import { PLR } from "@downdraft/core";
 import type { WaterBufferReader } from "@downdraft/library-water";
+import type { ParticleSystem } from "@downdraft/library-weatherfx";
+import type { DebugOverlay, DebugRaycast, GizmoMode, TransformGizmo } from "@downdraft/module-devtools";
+import type { BoatBufferReader } from "@to-the-ocean/library-boats/boat-sab";
 import type { CameraSystem } from "./camera-system";
 import type { EntityRenderer } from "./entity-renderer";
 
@@ -33,7 +31,6 @@ export class RendererAccessors {
   private telemetryCollector: TelemetryCollector | null = null;
   private gpuProfiler: GPUProfiler | null = null;
   private gpuResourceTracker: GPUResourceTracker | null = null;
-  private pixelationSystem: PixelationSystem | null = null;
   private postProcessStack: PostProcessStack | null = null;
   private boatReader: BoatBufferReader | null = null;
   private canvas: HTMLCanvasElement | null = null;
@@ -67,7 +64,6 @@ export class RendererAccessors {
     telemetryCollector: TelemetryCollector | null;
     gpuProfiler: GPUProfiler | null;
     gpuResourceTracker: GPUResourceTracker | null;
-    pixelationSystem: PixelationSystem | null;
     postProcessStack: PostProcessStack | null;
     boatReader: BoatBufferReader | null;
     canvas: HTMLCanvasElement | null;
@@ -92,7 +88,6 @@ export class RendererAccessors {
     this.telemetryCollector = refs.telemetryCollector;
     this.gpuProfiler = refs.gpuProfiler;
     this.gpuResourceTracker = refs.gpuResourceTracker;
-    this.pixelationSystem = refs.pixelationSystem;
     this.postProcessStack = refs.postProcessStack;
     this.boatReader = refs.boatReader;
     this.canvas = refs.canvas;
@@ -164,15 +159,15 @@ export class RendererAccessors {
   // --- Post-processing ---
   getPostProcessInfo(): { pixelationEnabled: boolean; pixelSize: number; postProcessEffects: string[] } {
     return {
-      pixelationEnabled: this.pixelationSystem?.isEnabled() ?? false,
-      pixelSize: this.pixelationSystem?.getPixelSize() ?? 4,
+      pixelationEnabled: this.postProcessStack?.isEnabled("pixelation") ?? false,
+      pixelSize: this.postProcessStack?.getPixelationPixelSize() ?? 4,
       postProcessEffects: this.postProcessStack?.getEnabledEffects() ?? [],
     };
   }
-  setPixelationEnabled(enabled: boolean): void { this.pixelationSystem?.setEnabled(enabled); }
-  setPixelSize(size: number): void { this.pixelationSystem?.setPixelSize(size); }
-  setDepthEdgeStrength(strength: number): void { this.pixelationSystem?.setDepthEdgeStrength(strength); }
-  setPostProcessEnabled(id: "fxaa" | "dof" | "sobel" | "afterimage" | "bloom" | "ascii", enabled: boolean): void { this.postProcessStack?.setEnabled(id, enabled); }
+  setPixelationEnabled(enabled: boolean): void { this.postProcessStack?.setEnabled("pixelation", enabled); }
+  setPixelSize(size: number): void { this.postProcessStack?.setPixelationPixelSize(size); }
+  setDepthEdgeStrength(strength: number): void { this.postProcessStack?.setPixelationDepthEdgeStrength(strength); }
+  setPostProcessEnabled(id: EffectId, enabled: boolean): void { this.postProcessStack?.setEnabled(id, enabled); }
   setDOFFocusDist(v: number): void { this.postProcessStack?.setDOFFocusDist(v); }
   setDOFFocusRange(v: number): void { this.postProcessStack?.setDOFFocusRange(v); }
   setDOFMaxBlur(v: number): void { this.postProcessStack?.setDOFMaxBlur(v); }
