@@ -100,6 +100,7 @@ export class PixiUiHost {
   private canvasCreated = false;
   private passThrough: boolean;
   private interactiveRegions: Rect[] = [];
+  private opaqueRegions: Rect[] = [];
   private gameCanvas: HTMLCanvasElement | null = null;
   private extraSharedBuffers: Record<string, SharedArrayBuffer> | null = null;
 
@@ -108,6 +109,10 @@ export class PixiUiHost {
 
   /** Called when the worker signals interactive mode changed. */
   onInteractiveChange: ((interactive: boolean) => void) | null = null;
+
+  /** Called when the worker reports opaque UI panel regions changed. The game
+   *  uses these to skip rendering the 3D scene + postfx under opaque panels. */
+  onOpaqueChange: ((regions: Rect[]) => void) | null = null;
 
   /** Called when the worker reports it's ready (PIXI.Application created). */
   onReady: (() => void) | null = null;
@@ -349,6 +354,11 @@ export class PixiUiHost {
     this.applyInteractive(interactive);
   }
 
+  /** Get the latest opaque panel regions reported by the worker (canvas px). */
+  getOpaqueRegions(): Rect[] {
+    return this.opaqueRegions;
+  }
+
   /**
    * Dispatch a synthetic pointer event to the worker (for MCP testing).
    * Temporarily enables interactive mode if needed. Coordinates are in
@@ -472,6 +482,10 @@ export class PixiUiHost {
         break;
       case "interactiveRegions":
         this.interactiveRegions = msg.regions;
+        break;
+      case "opaqueRegions":
+        this.opaqueRegions = msg.regions;
+        this.onOpaqueChange?.(msg.regions);
         break;
       case "pointerMissed":
         // The worker hit-tested a pointerdown and it didn't hit any

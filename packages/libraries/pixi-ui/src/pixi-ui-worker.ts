@@ -206,6 +206,24 @@ function postInteractiveRegionsIfChanged(): void {
   postToMain({ kind: "interactiveRegions", regions });
 }
 
+// ── Opaque regions reporting (for game-side occlusion culling) ──
+
+let lastOpaqueKey = "";
+
+function postOpaqueRegionsIfChanged(): void {
+  if (!scene?.getOpaqueRegions) return;
+  let regions: Rect[];
+  try {
+    regions = scene.getOpaqueRegions();
+  } catch {
+    return;
+  }
+  const key = regions.map((r) => `${Math.round(r.x)},${Math.round(r.y)},${Math.round(r.width)},${Math.round(r.height)}`).join("|");
+  if (key === lastOpaqueKey) return;
+  lastOpaqueKey = key;
+  postToMain({ kind: "opaqueRegions", regions });
+}
+
 // ── Error handling ──
 
 self.onerror = (e: any) => {
@@ -421,6 +439,9 @@ function tick(): void {
     // pass-through hit-testing). Only post if the regions changed since the
     // last frame to avoid flooding the message channel.
     postInteractiveRegionsIfChanged();
+    // Report opaque panel regions to the host (for game-side occlusion
+    // culling — skipping 3D + postfx under opaque UI panels).
+    postOpaqueRegionsIfChanged();
   } catch (err) {
     // Catch ALL errors in tick to prevent the PixiJS ticker from stopping.
     // If an uncaught error reaches the ticker's rAF callback, the ticker
@@ -572,6 +593,7 @@ function handleResize(width: number, height: number, resolution?: number): void 
   // Layout may have shifted — force a regions update on the next tick by
   // clearing the cache so postInteractiveRegionsIfChanged re-posts.
   lastRegionsKey = "";
+  lastOpaqueKey = "";
 }
 
 // ── Font scale ──
@@ -588,6 +610,7 @@ function handleSetFontScale(scale: number): void {
   if (sceneCtx) sceneCtx.fontScale = clamped;
   // Force a regions update since text sizes may have changed.
   lastRegionsKey = "";
+  lastOpaqueKey = "";
 }
 
 // ── Scene state query (for MCP) ──
@@ -670,6 +693,7 @@ function handleDispose(): void {
   uiStatsSab = null;
   config = null;
   lastRegionsKey = "";
+  lastOpaqueKey = "";
 }
 
 // ── Default scene (when no sceneModuleUrl configured) ──

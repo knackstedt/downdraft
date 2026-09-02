@@ -105,6 +105,21 @@ export interface PixiUiScene {
    * caches the latest result.
    */
   getInteractiveRegions?(): Rect[];
+  /**
+   * Report the bounding boxes of opaque UI panels (alpha ≈ 1.0 backgrounds)
+   * in canvas pixel coordinates. The host forwards these to the game via
+   * `onOpaqueChange`, and the game uses them to skip rendering the 3D scene +
+   * postfx under these rects (the overlay composites on top, so the game
+   * canvas under an opaque panel is never seen).
+   *
+   * Only report panels where the game canvas is NOT visible through the panel
+   * (alpha < 1.0 scrims/dims are NOT opaque). Return `[]` when no opaque
+   * panels are visible (e.g. display-only HUD with translucent elements).
+   *
+   * Called after each `update()` and after `resize()`. The host caches the
+   * latest result and only posts to the main thread when the rects change.
+   */
+  getOpaqueRegions?(): Rect[];
   /** Produce a scene-graph summary for MCP queryScene. Default: walk `root`. */
   summarize?(): SceneNodeSummary[];
   /** Called on dispose — destroy display objects, release resources. */
