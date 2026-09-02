@@ -14,7 +14,7 @@
 
 import react from "@vitejs/plugin-react";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "path";
 import { hotReloadPlugin } from "../../../core/src/vite/hot-reload-plugin";
 import { wgslHmrPlugin } from "../../../core/src/vite/wgsl-hmr-plugin";
@@ -23,6 +23,52 @@ import { downdraftHtmlPlugin, type DowndraftHtmlOptions, type LayerSpec } from "
 import { profilingPreludePlugin } from "./profiling-prelude-plugin";
 import { silenceSourcemapWarningsPlugin } from "./silence-sourcemap-warnings-plugin";
 import { workerUrlGuardPlugin } from "./worker-url-guard-plugin";
+
+// ---------------------------------------------------------------------------
+// Auto-include direct deps for Vite's dep pre-bundling (optimizeDeps.include)
+// ---------------------------------------------------------------------------
+//
+// Vite's dep scanner crawls HTML entries and follows static imports to
+// discover which node_modules packages need pre-bundling. It CANNOT see:
+//   - bare imports inside Web Workers (new Worker(new URL(...)))
+//   - dynamic imports (import("..."))
+//   - imports that only appear after plugin transforms
+//
+// When the browser later requests one of these undiscovered deps, Vite
+// re-runs the pre-bundler mid-session and does a FULL PAGE RELOAD (not HMR).
+// This is the #1 source of "why did my dev server just reload?" frustration.
+//
+// To prevent this, we auto-include all direct `dependencies` from both the
+// engine root package.json and the game's package.json. Workspace packages
+// (workspace:*) are filtered out because they're aliased to source — Vite
+// never resolves them from node_modules. Packages already in the exclude
+// list (e.g. WASM-loading packages) are also filtered to avoid conflicts.
+
+/**
+ * Read a package.json and return the names of its direct `dependencies`
+ * that should be pre-bundled by Vite's optimizeDeps. Filters out:
+ *  - `workspace:*` packages (aliased to source, not in node_modules)
+ *  - packages already in the exclude set (e.g. WASM-loading packages)
+ */
+export function collectDirectDeps(pkgJsonPath: string, excludeSet: Set<string>): string[] {
+  try {
+    const pkg = JSON.parse(readFileSync(pkgJsonPath, "utf-8"));
+    const deps: Record<string, string> = pkg.dependencies ?? {};
+    return Object.keys(deps).filter((name) => {
+      // Skip workspace packages — they're aliased to source in dev, so
+      // Vite never resolves them from node_modules. Including them in
+      // optimizeDeps.include would cause pre-bundling to fail or no-op.
+      if (deps[name] === "workspace:*") return false;
+      // Skip packages already in the exclude list — being in both include
+      // and exclude is contradictory and Vite warns about it.
+      if (excludeSet.has(name)) return false;
+      return true;
+    });
+  } catch {
+    // package.json missing or unreadable — no deps to contribute.
+    return [];
+  }
+}
 
 export interface DowndraftViteConfigOptions {
   /** The game directory (usually `__dirname` from the game's electron.vite.config.ts). */
@@ -117,6 +163,20 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
   const mainEntry = options.main ?? resolve(root, "src/main.ts");
   const preloadEntry = options.preload ?? resolve(root, "src/preload.ts");
   const rendererRoot = options.rendererRoot ?? root;
+
+  // --- Auto-include direct deps for optimizeDeps ---
+  // Collect direct `dependencies` from the engine root and the game's
+  // package.json so Vite pre-bundles them at startup. This prevents the
+  // mid-session re-optimization + full page reload that happens when a dep
+  // is imported from a worker or dynamic import the scanner can't see.
+  const optimizeDepsExcludeDefaults = [
+    "@bokuweb/zstd-wasm", "@h00w/basis-universal-transcoder", "recast-navigation",
+    ...(options.optimizeDepsExclude ?? []),
+  ];
+  const excludeSet = new Set(optimizeDepsExcludeDefaults);
+  const engineDeps = collectDirectDeps(resolve(repoRoot, "package.json"), excludeSet);
+  const gameDeps = collectDirectDeps(resolve(root, "package.json"), excludeSet);
+  const autoOptimizeDepsInclude = [...new Set([...engineDeps, ...gameDeps])];
 
   // --- Shared alias sets ---
 
@@ -370,8 +430,8 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
       // Excluding it lets Vite serve the original module with the correct
       // import.meta.url pointing into node_modules.
       optimizeDeps: {
-        exclude: ["@bokuweb/zstd-wasm", "@h00w/basis-universal-transcoder", "recast-navigation", ...(options.optimizeDepsExclude ?? [])],
-        include: [...(options.optimizeDepsInclude ?? [])],
+        exclude: optimizeDepsExcludeDefaults,
+        include: [...autoOptimizeDepsInclude, ...(options.optimizeDepsInclude ?? [])],
         esbuildOptions: {
           plugins: [...(options.optimizeDepsEsbuildPlugins ?? [])],
           conditions: options.optimizeDepsEsbuildConditions,

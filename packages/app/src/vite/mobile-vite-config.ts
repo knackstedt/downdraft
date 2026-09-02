@@ -31,6 +31,7 @@ import { defineConfig, type PluginOption } from "vite";
 import { wgslHmrPlugin } from "../../../core/src/vite/wgsl-hmr-plugin";
 import { downdraftAssetBakePlugin, type AssetBakePluginOptions } from "./asset-bake-plugin";
 import { downdraftHtmlPlugin, type DowndraftHtmlOptions, type LayerSpec } from "./downdraft-html-plugin";
+import { collectDirectDeps } from "./index";
 import { silenceSourcemapWarningsPlugin } from "./silence-sourcemap-warnings-plugin";
 import { workerUrlGuardPlugin } from "./worker-url-guard-plugin";
 
@@ -79,6 +80,16 @@ export function createDowndraftMobileViteConfig(
   const game = options.game ?? root.split("/").pop()!;
   const entry = options.entry ?? resolve(root, "src/mobile.tsx");
   const rendererRoot = options.rendererRoot ?? root;
+
+  // --- Auto-include direct deps for optimizeDeps (same as desktop config) ---
+  const optimizeDepsExcludeDefaults = [
+    "@bokuweb/zstd-wasm", "@h00w/basis-universal-transcoder", "recast-navigation",
+    ...(options.optimizeDepsExclude ?? []),
+  ];
+  const excludeSet = new Set(optimizeDepsExcludeDefaults);
+  const engineDeps = collectDirectDeps(resolve(repoRoot, "package.json"), excludeSet);
+  const gameDeps = collectDirectDeps(resolve(root, "package.json"), excludeSet);
+  const autoOptimizeDepsInclude = [...new Set([...engineDeps, ...gameDeps])];
 
   // --- Shared core aliases (same as the desktop config) ---
   const coreAliases = [
@@ -189,8 +200,8 @@ export function createDowndraftMobileViteConfig(
       plugins: (() => options.workerPlugins ?? []) as any,
     },
     optimizeDeps: {
-      exclude: ["@bokuweb/zstd-wasm", "@h00w/basis-universal-transcoder", "recast-navigation", ...(options.optimizeDepsExclude ?? [])],
-      include: [...(options.optimizeDepsInclude ?? [])],
+      exclude: optimizeDepsExcludeDefaults,
+      include: [...autoOptimizeDepsInclude, ...(options.optimizeDepsInclude ?? [])],
     },
     build: {
       outDir: "dist/mobile",
