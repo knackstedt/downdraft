@@ -82,7 +82,7 @@ if (typeof (self as any).HTMLCanvasElement === "undefined") {
   (self as any).HTMLCanvasElement = class HTMLCanvasElement {};
 }
 
-import { Application, Container, Text, type Ticker } from "pixi.js";
+import { Application, Container, Text, WebGLRenderer, type Ticker } from "pixi.js";
 // Side-effect import: registers the EventSystem as a renderer extension so
 // that `app.renderer.events` is available. Without this, PixiJS v8's
 // tree-shaking omits the EventSystem and pointer hit-testing doesn't work.
@@ -100,6 +100,40 @@ import {
 } from "./bridge-protocol";
 import type { PixiUiScene, PixiUiSceneContext, PixiUiSceneFactory } from "./scene";
 import { readUiStats, validateUiStatsSab } from "./ui-stats-sab";
+
+// ── Bypass autoDetectRenderer's dynamic import in the worker ──
+//
+// PixiJS v8's autoDetectRenderer() uses `await import('./gl/WebGLRenderer.mjs')`
+// to lazily load the WebGL renderer. When bundled by Vite (esbuild pre-bundling
+// in dev, Rollup in prod), this dynamic import is split into a separate chunk
+// (e.g. WebGLRenderer-XXXXX.js). In a Web Worker — especially in Electron with
+// file:// protocol or when the worker's import.meta.url doesn't resolve chunk
+// paths correctly — this chunk cannot be fetched, causing:
+//   "Failed to fetch dynamically imported module: WebGLRenderer-XXXXX.js"
+//
+// We statically import WebGLRenderer and patch Application.init() to create the
+// renderer directly, avoiding the dynamic import entirely for the WebGL backend
+// (the default and the only backend that reliably works in a worker). For
+// "webgpu" we fall back to the original init (which does the dynamic import —
+// WebGPU in a worker is rare and would need its own static import if used).
+const _originalAppInit = Application.prototype.init;
+Application.prototype.init = async function(this: Application, options: any) {
+  const preference = options?.preference;
+  if (preference === "webgl" || preference === undefined || preference === "webgl2") {
+    const opts = { ...options };
+    // Create the renderer directly from the statically imported class.
+    const renderer = new WebGLRenderer();
+    await renderer.init(opts);
+    (this as any).renderer = renderer;
+    // Run Application plugins (TickerPlugin, etc.) — same as the original init.
+    (Application as any)._plugins.forEach((plugin: any) => {
+      plugin.init.call(this, opts);
+    });
+  } else {
+    // WebGPU or other backends: fall back to original init (dynamic import).
+    return _originalAppInit.call(this, options);
+  }
+};
 
 // ── Worker environment stubs ──
 //

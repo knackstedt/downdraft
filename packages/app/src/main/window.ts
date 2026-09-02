@@ -395,7 +395,29 @@ export async function createWindow(opts: CreateWindowOptions): Promise<BrowserWi
   if (isDev) {
     const devServerUrl = process.env.ELECTRON_RENDERER_URL;
     if (devServerUrl) {
-      await win.loadURL(devServerUrl);
+      // Vite's HMR client may trigger a full-page reload during initial load
+      // (e.g. when the dev server re-optimizes deps or reconnects the
+      // WebSocket). This aborts the original navigation, causing loadURL() to
+      // reject with ERR_ABORTED (-3). The reload starts a new navigation that
+      // succeeds, but the rejected Promise propagates to init() and logs a
+      // spurious "Failed to initialize" error. Retry on ERR_ABORTED to
+      // swallow this transient abort.
+      const maxRetries = 3;
+      for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+          await win.loadURL(devServerUrl);
+          break;
+        } catch (err) {
+          const msg = (err as Error).message ?? "";
+          if (msg.includes("ERR_ABORTED") && attempt < maxRetries - 1) {
+            // The navigation was aborted (likely by a Vite HMR reload).
+            // Wait briefly for the new navigation to settle, then retry.
+            await new Promise((r) => setTimeout(r, 500));
+            continue;
+          }
+          throw err;
+        }
+      }
     } else {
       await win.loadFile(join(__dirname, "../renderer/index.html"));
     }
