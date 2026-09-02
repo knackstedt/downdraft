@@ -420,7 +420,10 @@ export class BlockWorld implements ChunkAccessor {
    */
   getMapRegion(
     centerCx: number,
-    target?: { blockIds: Uint16Array; explored: Uint8Array },
+    target?: {
+      foreground: Uint16Array; background: Uint16Array;
+      mask: Uint8Array; vfx: Uint32Array; explored: Uint8Array;
+    },
   ): MapRegionData {
     const cols = MAP_REGION_COLS;
     const rows = MAP_REGION_ROWS;
@@ -428,29 +431,30 @@ export class BlockWorld implements ChunkAccessor {
     const cx0 = ((centerCx - halfCols) % CHUNKS_X + CHUNKS_X) % CHUNKS_X;
 
     const totalCells = cols * rows * THUMB_CELLS;
-    const blockIds = target?.blockIds ?? new Uint16Array(totalCells);
+    const blockIds = target?.foreground ?? new Uint16Array(totalCells);
     const explored = target?.explored ?? new Uint8Array(totalCells);
     if (target) {
-      blockIds.fill(0);
-      explored.fill(0);
+      target.foreground.fill(0);
+      target.background.fill(0);
+      target.mask.fill(0);
+      target.vfx.fill(0);
+      target.explored.fill(0);
     }
     const stations: MapStation[] = [];
 
     for (let row = 0; row < rows; row++) {
-      const cy = row; // rows span the full world height (CHUNKS_Y = MAP_REGION_ROWS)
+      const cy = row;
       if (cy < 0 || cy >= CHUNKS_Y) continue;
       for (let col = 0; col < cols; col++) {
         const cx = (cx0 + col) % CHUNKS_X;
         const chunk = this.getChunk(cx, cy);
-        if (!chunk || !chunk.generated) continue; // fog
+        if (!chunk || !chunk.generated) continue;
 
-        // Per-block copy (THUMB_W=1 means each cell is one block).
-        // Write in image order: pixel (col*64+tx, row*64+ty) = (row*64+ty) * REGION_BLOCK_W + (col*64+tx)
-        // so the SAB can be blitted directly into an ImageData of size REGION_BLOCK_W × REGION_BLOCK_H.
+        // Per-block copy in image order (THUMB_W=1: one cell per block).
         const cellsPerRow = CHUNK_W / THUMB_W; // 64
         const cellsPerCol = CHUNK_H / THUMB_H; // 64
-        const imgYBase = row * cellsPerCol; // top-left Y of this chunk row in image space
-        const imgXBase = col * cellsPerRow;  // top-left X of this chunk col in image space
+        const imgYBase = row * cellsPerCol;
+        const imgXBase = col * cellsPerRow;
         for (let ty = 0; ty < cellsPerCol; ty++) {
           const imgRow = (imgYBase + ty) * REGION_BLOCK_W + imgXBase;
           const chunkRow = ty * CHUNK_W;
@@ -458,6 +462,11 @@ export class BlockWorld implements ChunkAccessor {
             const cellIdx = chunkRow + tx;
             const ti = imgRow + tx;
             blockIds[ti] = chunk.foreground[cellIdx];
+            if (target) {
+              target.background[ti] = chunk.background[cellIdx];
+              target.mask[ti] = chunk.mask[cellIdx];
+              target.vfx[ti] = chunk.vfx[cellIdx];
+            }
             explored[ti] = chunk.explored[cellIdx];
           }
         }

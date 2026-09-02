@@ -1455,16 +1455,21 @@ simControl = createSimWorker({
       cx0: 0, cols: 0, rows: 0,
       blockIds: new Uint16Array(0), explored: new Uint8Array(0), stations: [],
     });
-    // If the map SAB is available, write per-block data directly into it.
+    // If the map SAB is available, write all 4 planes directly into it.
     if (mapSab) {
       const views = getMapSabViews(mapSab);
       const region = world.getMapRegion(centerCx, {
-        blockIds: views.blockIds,
+        foreground: views.foreground,
+        background: views.background,
+        mask: views.mask,
+        vfx: views.vfx,
         explored: views.explored,
       });
       views.cx0[0] = region.cx0;
-      Atomics.add(views.seq, 0, 1); // increment sequence counter
-      // Return only stations (block data is in the SAB).
+      // Increment seq so the MapCanvas reader detects new data.
+      // The main thread reads the SAB directly (no postMessage barrier),
+      // so we use Atomics.store for a store-store ordering.
+      Atomics.store(views.seq, 0, (Atomics.load(views.seq, 0) + 1) | 0);
       return encodeMapRegion({
         cx0: region.cx0, cols: region.cols, rows: region.rows,
         blockIds: new Uint16Array(0), explored: new Uint8Array(0),
