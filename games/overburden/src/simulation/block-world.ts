@@ -20,8 +20,10 @@ import {
     CHUNKS_X, CHUNKS_Y, WORLD_W
 } from "../shared/constants";
 import {
-    MAP_REGION_COLS, MAP_REGION_ROWS, THUMB_H, THUMB_W,
-    type MapRegionData, type MapStation,
+    MAP_REGION_COLS, MAP_REGION_ROWS,
+    REGION_BLOCK_W,
+    THUMB_CELLS, THUMB_H, THUMB_W,
+    type MapRegionData, type MapStation
 } from "../shared/map-buffer";
 import type { Chunk } from "../shared/types";
 import { createChunk, getBlock, setBlock as setChunkBlock } from "./chunk";
@@ -398,32 +400,40 @@ export class BlockWorld implements ChunkAccessor {
   }
 
   /**
-   * Build a downsampled map-region snapshot centered on chunk column
+   * Build a per-block map-region snapshot centered on chunk column
    * `centerCx`. The region is MAP_REGION_COLS chunk columns wide ×
    * MAP_REGION_ROWS chunk rows tall (full world height), with horizontal
-   * cylinder wrap. Each chunk is downsampled to a THUMB_W × THUMB_H
-   * thumbnail (one representative block id + explored flag per 8×8 cell
-   * group). Only chunks that have been generated/loaded are included;
+   * cylinder wrap. With THUMB_W=1, each cell is a single block (no
+   * downsampling). Only chunks that have been generated/loaded are included;
    * missing chunks report all-zero block ids + explored=0 (fog).
    *
-   * The representative block for each thumbnail cell is the topmost
-   * (smallest Y) non-air foreground block in its 8×8 group — this gives a
-   * recognizable surface silhouette. Stations (workbench, furnace, ...) are
-   * collected separately as world-coord points so the overlay can draw them
-   * as distinct markers.
+   * The representative block for each cell is the topmost (smallest Y)
+   * non-air foreground block — but with THUMB_W=1 this is just the block
+   * itself. Stations (workbench, furnace, ...) are collected separately as
+   * world-coord points so the overlay can draw them as distinct markers.
    *
-   * This runs on the sim worker; the result is encoded into a single
-   * transferable ArrayBuffer by the caller (see blockheads-worker.ts).
+   * If `target` is provided (blockIds + explored arrays from the map SAB),
+   * data is written directly into those arrays instead of allocating new
+   * ones. The arrays must be sized REGION_BLOCK_W * REGION_BLOCK_H.
+   *
+   * This runs on the sim worker.
    */
-  getMapRegion(centerCx: number): MapRegionData {
+  getMapRegion(
+    centerCx: number,
+    target?: { blockIds: Uint16Array; explored: Uint8Array },
+  ): MapRegionData {
     const cols = MAP_REGION_COLS;
     const rows = MAP_REGION_ROWS;
     const halfCols = cols >> 1;
     const cx0 = ((centerCx - halfCols) % CHUNKS_X + CHUNKS_X) % CHUNKS_X;
 
-    const totalThumbCells = cols * rows * THUMB_W * THUMB_H;
-    const blockIds = new Uint16Array(totalThumbCells);
-    const explored = new Uint8Array(totalThumbCells);
+    const totalCells = cols * rows * THUMB_CELLS;
+    const blockIds = target?.blockIds ?? new Uint16Array(totalCells);
+    const explored = target?.explored ?? new Uint8Array(totalCells);
+    if (target) {
+      blockIds.fill(0);
+      explored.fill(0);
+    }
     const stations: MapStation[] = [];
 
     for (let row = 0; row < rows; row++) {
@@ -434,33 +444,21 @@ export class BlockWorld implements ChunkAccessor {
         const chunk = this.getChunk(cx, cy);
         if (!chunk || !chunk.generated) continue; // fog
 
-        // Downsample: for each 8×8 thumbnail cell, scan its block region.
-        // CHUNK_W / THUMB_W = 64/8 = 8 thumbnail cells across a chunk.
-        const cellsPerRow = CHUNK_W / THUMB_W; // 8
-        const cellsPerCol = CHUNK_H / THUMB_H; // 8
+        // Per-block copy (THUMB_W=1 means each cell is one block).
+        // Write in image order: pixel (col*64+tx, row*64+ty) = (row*64+ty) * REGION_BLOCK_W + (col*64+tx)
+        // so the SAB can be blitted directly into an ImageData of size REGION_BLOCK_W × REGION_BLOCK_H.
+        const cellsPerRow = CHUNK_W / THUMB_W; // 64
+        const cellsPerCol = CHUNK_H / THUMB_H; // 64
+        const imgYBase = row * cellsPerCol; // top-left Y of this chunk row in image space
+        const imgXBase = col * cellsPerRow;  // top-left X of this chunk col in image space
         for (let ty = 0; ty < cellsPerCol; ty++) {
+          const imgRow = (imgYBase + ty) * REGION_BLOCK_W + imgXBase;
+          const chunkRow = ty * CHUNK_W;
           for (let tx = 0; tx < cellsPerRow; tx++) {
-            const blockStartX = tx * THUMB_W;
-            const blockStartY = ty * THUMB_H;
-            let repBlock = 0; // 0 = air (fog if unexplored)
-            let anyExplored = 0;
-            // Pick the topmost (smallest Y) non-air foreground block.
-            for (let by = 0; by < THUMB_H; by++) {
-              for (let bx = 0; bx < THUMB_W; bx++) {
-                const lx = blockStartX + bx;
-                const ly = blockStartY + by;
-                const cellIdx = ly * CHUNK_W + lx;
-                if (chunk.explored[cellIdx] !== 0) anyExplored = 1;
-                if (repBlock === 0) {
-                  const id = chunk.foreground[cellIdx];
-                  if (id !== 0) repBlock = id;
-                }
-              }
-            }
-            // Thumbnail index: row-major over (row, col, ty, tx).
-            const ti = ((row * cols + col) * cellsPerCol + ty) * cellsPerRow + tx;
-            blockIds[ti] = repBlock;
-            explored[ti] = anyExplored;
+            const cellIdx = chunkRow + tx;
+            const ti = imgRow + tx;
+            blockIds[ti] = chunk.foreground[cellIdx];
+            explored[ti] = chunk.explored[cellIdx];
           }
         }
 

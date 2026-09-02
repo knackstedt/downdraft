@@ -100,14 +100,12 @@ export interface TaskUI {
   blockId: number;
   status: string;
 }
-// Map-region thumbnail bitmap sent to the overlay. `cells` is a dense
-// Uint32Array of packed 0xRRGGBB colors, one per thumbnail cell, laid out
-// row-major as ((row * MAP_REGION_COLS + col) * THUMB_H + ty) * THUMB_W + tx
-// (see shared/map-buffer.ts). Length = REGION_BLOCK_W * REGION_BLOCK_H
-// (1024 * 128 = 131072). 0x000000 = fog (unexplored); 0x1a1a2e = explored
-// air (sky); any other value = the topmost non-air block's palette color.
-// `cx0` is the leftmost chunk X of the strip (wrapped to [0, CHUNKS_X)) so
-// the overlay can convert world coords → strip-relative coords for alignment.
+// Map-region data sent to the overlay. Per-block data (blockIds + explored)
+// is streamed via the map SAB (SharedArrayBuffer shared between sim worker and
+// pixi worker). This event carries only the stations + cx0 (the leftmost chunk
+// X of the strip) so the overlay can position the bitmap and draw markers.
+// The pixi worker reads block data from the SAB and converts to colors using
+// the palette sent via setMapPalette.
 export interface MapStationUI {
   x: number; // world block X
   y: number; // world block Y
@@ -131,9 +129,12 @@ export interface SetTasksEvent extends PixiUiEvent { kind: "setTasks"; tasks: Ta
 export interface SetTaskMarkersEvent extends PixiUiEvent { kind: "setTaskMarkers"; markers: TaskMarkerUI[] }
 export interface SetMapRegionEvent extends PixiUiEvent {
   kind: "setMapRegion";
-  cells: Uint32Array; // packed 0xRRGGBB, length REGION_BLOCK_W*REGION_BLOCK_H
   cx0: number; // leftmost chunk X of the strip (wrapped to [0, CHUNKS_X))
   stations: MapStationUI[];
+}
+export interface SetMapPaletteEvent extends PixiUiEvent {
+  kind: "setMapPalette";
+  palette: Uint8Array; // RGBA per block ID (256 * 4 bytes), from getBlockPalette()
 }
 
 export type OverburdenEvent =
@@ -145,7 +146,8 @@ export type OverburdenEvent =
   | SetCraftQueueEvent
   | SetTasksEvent
   | SetTaskMarkersEvent
-  | SetMapRegionEvent;
+  | SetMapRegionEvent
+  | SetMapPaletteEvent;
 
 // ── Worker→main actions (side-effect requests) ──
 

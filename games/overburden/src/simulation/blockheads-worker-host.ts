@@ -159,6 +159,15 @@ export class BlockheadsWorkerHost extends BaseWorkerHost<BlockheadsWorkerApi> {
     );
   }
 
+  /**
+   * Share a map SAB with the sim worker so getMapRegion can write per-block
+   * data directly into it (streamed to the pixi-ui worker without postMessage).
+   * Must be called after start() resolves.
+   */
+  setMapSab(sab: SharedArrayBuffer): void {
+    this.worker!.postMessage({ __mapSab: true, sab });
+  }
+
   protected onEvent(kind: string, data?: unknown): void {
     if (kind === "ready") {
       this.ready = true;

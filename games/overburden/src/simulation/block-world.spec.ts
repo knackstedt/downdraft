@@ -8,14 +8,13 @@
 
 import { describe, expect, it } from "bun:test";
 import {
-  BLOCK_AIR, BLOCK_GRASS, BLOCK_STONE, BLOCK_WORKBENCH,
-  CHUNK_H, CHUNK_W, CHUNKS_X,
-  SURFACE_Y,
+    BLOCK_WORKBENCH,
+    CHUNKS_X,
+    SURFACE_Y
 } from "../shared/constants";
 import {
-  MAP_REGION_COLS, MAP_REGION_ROWS, THUMB_H, THUMB_W,
+    MAP_REGION_COLS, MAP_REGION_ROWS, THUMB_CELLS,
 } from "../shared/map-buffer";
-import { setBlock } from "./chunk";
 import { BlockWorld } from "./block-world";
 
 describe("BlockWorld.getMapRegion", () => {
@@ -107,7 +106,7 @@ describe("BlockWorld.getMapRegion", () => {
   it("thumbnail dimensions match constants", () => {
     const world = new BlockWorld(12345);
     const region = world.getMapRegion(0);
-    const expectedCells = MAP_REGION_COLS * MAP_REGION_ROWS * THUMB_W * THUMB_H;
+    const expectedCells = MAP_REGION_COLS * MAP_REGION_ROWS * THUMB_CELLS;
     expect(region.blockIds.length).toBe(expectedCells);
     expect(region.explored.length).toBe(expectedCells);
   });
