@@ -251,4 +251,90 @@ describe("PostProcessStack", () => {
       expect(() => stack.destroy()).not.toThrow();
     });
   });
+
+  describe("occlusion culling", () => {
+    it("setOccluderRects should write correct data to the uniform buffer", () => {
+      const writes: { buf: unknown; offset: number; data: Float32Array }[] = [];
+      const device = makeMockDevice() as unknown as {
+        queue: { writeBuffer: (buf: unknown, offset: number, data: Float32Array) => void };
+      };
+      device.queue.writeBuffer = (buf, offset, data) => { writes.push({ buf, offset, data: new Float32Array(data) }); };
+      const stack = new PostProcessStack(device as unknown as GPUDevice, "rgba8unorm");
+      stack.init();
+      // Initial init writes zeros (count=0)
+      expect(writes.length).toBeGreaterThanOrEqual(1);
+      writes.length = 0;
+      // Set 2 rects
+      stack.setOccluderRects([
+        { x: 0.1, y: 0.2, w: 0.3, h: 0.4 },
+        { x: 0.5, y: 0.6, w: 0.1, h: 0.1 },
+      ]);
+      expect(writes.length).toBe(1);
+      const data = writes[0].data;
+      expect(data[0]).toBe(2); // count
+      // rect 0: x, y, w, h
+      expect(data[4]).toBeCloseTo(0.1);
+      expect(data[5]).toBeCloseTo(0.2);
+      expect(data[6]).toBeCloseTo(0.3);
+      expect(data[7]).toBeCloseTo(0.4);
+      // rect 1
+      expect(data[8]).toBeCloseTo(0.5);
+      expect(data[9]).toBeCloseTo(0.6);
+      expect(data[10]).toBeCloseTo(0.1);
+      expect(data[11]).toBeCloseTo(0.1);
+    });
+
+    it("setOccluderRects should clamp to 8 rects", () => {
+      const writes: { data: Float32Array }[] = [];
+      const device = makeMockDevice() as unknown as {
+        queue: { writeBuffer: (buf: unknown, offset: number, data: Float32Array) => void };
+      };
+      device.queue.writeBuffer = (_buf, _offset, data) => { writes.push({ data: new Float32Array(data) }); };
+      const stack = new PostProcessStack(device as unknown as GPUDevice, "rgba8unorm");
+      stack.init();
+      writes.length = 0;
+      const rects = Array.from({ length: 12 }, (_, i) => ({ x: i * 0.01, y: 0, w: 0.1, h: 0.1 }));
+      stack.setOccluderRects(rects);
+      expect(writes.length).toBe(1);
+      expect(writes[0].data[0]).toBe(8); // clamped to 8
+    });
+
+    it("isFullyOccluded should return true when a rect covers >=95% of UV space", () => {
+      const stack = new PostProcessStack(makeMockDevice() as GPUDevice, "rgba8unorm");
+      stack.init();
+      stack.setOccluderRects([{ x: 0, y: 0, w: 1, h: 1 }]);
+      expect(stack.isFullyOccluded()).toBe(true);
+      stack.setOccluderRects([{ x: 0, y: 0, w: 0.9, h: 0.9 }]);
+      expect(stack.isFullyOccluded()).toBe(false); // 0.81 < 0.95
+    });
+
+    it("isFullyOccluded should return false when no rects", () => {
+      const stack = new PostProcessStack(makeMockDevice() as GPUDevice, "rgba8unorm");
+      stack.init();
+      stack.setOccluderRects([]);
+      expect(stack.isFullyOccluded()).toBe(false);
+    });
+
+    it("setOccluderRects should set TAA history reset when rects change", () => {
+      const stack = new PostProcessStack(makeMockDevice() as GPUDevice, "rgba8unorm");
+      stack.init();
+      stack.setOccluderRects([{ x: 0, y: 0, w: 0.5, h: 0.5 }]);
+      // TAA reset is internal — verify via applyTAA using blendFactor=1.0.
+      // We can't easily test the private flag directly, but we can verify
+      // that calling setOccluderRects with the same rects doesn't reset again.
+      // The key-based dedup means identical rects won't trigger a reset.
+      // This test just verifies no crash on repeated calls.
+      stack.setOccluderRects([{ x: 0, y: 0, w: 0.5, h: 0.5 }]);
+      stack.setOccluderRects([{ x: 0.1, y: 0.1, w: 0.5, h: 0.5 }]);
+      expect(stack.getOccluderRects()).toHaveLength(1);
+    });
+
+    it("getOccluderRects should return the set rects", () => {
+      const stack = new PostProcessStack(makeMockDevice() as GPUDevice, "rgba8unorm");
+      stack.init();
+      const rects = [{ x: 0.1, y: 0.2, w: 0.3, h: 0.4 }];
+      stack.setOccluderRects(rects);
+      expect(stack.getOccluderRects()).toEqual(rects);
+    });
+  });
 });

@@ -25,6 +25,7 @@ fn cellCoord(uv: vec2<f32>, cellSize: f32, angle: f32) -> vec2<f32> {
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+  if (isOccluded(input.uv)) { discard; }
   let uv = input.uv;
   let color = textureSample(colorTex, samp, uv).rgb;
   let dims = vec2<f32>(1.0 / u.texelSize.x, 1.0 / u.texelSize.y);

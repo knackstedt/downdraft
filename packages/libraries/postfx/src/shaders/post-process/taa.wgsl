@@ -36,6 +36,7 @@ fn yCoCgToRGB(ycocg: vec3<f32>) -> vec3<f32> {
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+  if (isOccluded(input.uv)) { discard; }
   let uv = input.uv;
   let jitter = vec2<f32>(u.jitterX, u.jitterY) * u.texelSize;
   // Current color — sample at jittered position (the scene was rendered with jitter)

@@ -43,6 +43,7 @@ import LENS_DISTORTION_FS from "./shaders/post-process/lens-distortion.wgsl?raw"
 import LENS_FLARE_FS from "./shaders/post-process/lens-flare.wgsl?raw";
 import LUT_FS from "./shaders/post-process/lut.wgsl?raw";
 import MOTION_BLUR_FS from "./shaders/post-process/motion-blur.wgsl?raw";
+import OCCLUDER_CHUNK from "./shaders/post-process/occluder-chunk.wgsl?raw";
 import OUTLINE_FS from "./shaders/post-process/outline.wgsl?raw";
 import PIXELATION_FS from "./shaders/post-process/pixelation.wgsl?raw";
 import SHARPEN_FS from "./shaders/post-process/sharpen.wgsl?raw";
@@ -133,6 +134,16 @@ export class PostProcessStack {
   // Pipelines + uniform buffers (keyed by pipeline name)
   private pipelines: Record<string, GPURenderPipeline> = {};
   private uniforms: Record<string, GPUBuffer> = {};
+
+  // Occlusion culling — shared bind group (group 1) bound on every pass.
+  // Contains up to 8 opaque UI panel rects in UV space; shaders discard
+  // fragments inside these rects to skip work where the output is invisible.
+  private occluderLayout!: GPUBindGroupLayout;
+  private occluderUniform!: GPUBuffer;
+  private occluderBindGroup!: GPUBindGroup;
+  private occluderRects: { x: number; y: number; w: number; h: number }[] = [];
+  private occluderKey = "";
+  private taaHistoryReset = false;
 
   // Render targets
   private sceneColor: GPUTexture | null = null;
@@ -382,6 +393,23 @@ export class PostProcessStack {
       { bytesPerRow: 4, rowsPerImage: 1 }, [1, 1],
     );
 
+    // Occlusion culling bind group (group 1, shared by all postfx pipelines).
+    // Layout: single uniform buffer at binding 0, FRAGMENT visibility.
+    // Buffer: 16-byte header (count + padding) + 8 × vec4 rects = 144 bytes.
+    this.occluderLayout = this.device.createBindGroupLayout({ entries: [
+      { binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
+    ]});
+    this.occluderUniform = this.device.createBuffer({
+      size: 144,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    this.occluderBindGroup = this.device.createBindGroup({
+      layout: this.occluderLayout,
+      entries: [{ binding: 0, resource: { buffer: this.occluderUniform } }],
+    });
+    // Initialize to zero occluders (no occlusion).
+    this.device.queue.writeBuffer(this.occluderUniform, 0, new Float32Array(36));
+
     // Uniform buffers — 48 bytes for simple effects, 256 for matrix effects
     const simpleKeys = [
       "fxaa", "dof", "sobel", "afterimage", "bloom-bright", "bloom-blur", "bloom-composite",
@@ -451,8 +479,8 @@ export class PostProcessStack {
   }
 
   private makePipeline(fsCode: string, layout: GPUBindGroupLayout, targetFormat: GPUTextureFormat): GPURenderPipeline {
-    const shader = this.device.createShaderModule({ code: VS + "\n" + fsCode });
-    const pl = this.device.createPipelineLayout({ bindGroupLayouts: [layout] });
+    const shader = this.device.createShaderModule({ code: VS + "\n" + OCCLUDER_CHUNK + "\n" + fsCode });
+    const pl = this.device.createPipelineLayout({ bindGroupLayouts: [layout, this.occluderLayout] });
     return this.device.createRenderPipeline({
       layout: pl,
       vertex: { module: shader, entryPoint: "vs_main" },
@@ -507,6 +535,43 @@ export class PostProcessStack {
   }
 
   isEnabled(id: EffectId): boolean { return this.enabled[id]; }
+
+  // ── Public API: occlusion culling ──────────────────────────────────────────
+
+  /**
+   * Set opaque UI panel rects (in UV space, 0-1, top-left origin) that the
+   * postfx shaders should skip. Up to 8 rects; extras are clamped. When the
+   * rects change, TAA history is reset for one frame to avoid stale-history
+   * artifacts in the previously-occluded region.
+   */
+  setOccluderRects(rects: { x: number; y: number; w: number; h: number }[]): void {
+    const clamped = rects.slice(0, 8);
+    const key = clamped.map(r => `${r.x.toFixed(4)},${r.y.toFixed(4)},${r.w.toFixed(4)},${r.h.toFixed(4)}`).join("|");
+    if (key !== this.occluderKey) {
+      this.occluderKey = key;
+      this.taaHistoryReset = true;
+    }
+    this.occluderRects = clamped;
+    // Build uniform data: [count, 0, 0, 0, rect0.xyzw, rect1.xyzw, ...]
+    const data = new Float32Array(36);
+    data[0] = clamped.length;
+    for (let i = 0; i < clamped.length && i < 8; i++) {
+      data[4 + i * 4] = clamped[i].x;
+      data[4 + i * 4 + 1] = clamped[i].y;
+      data[4 + i * 4 + 2] = clamped[i].w;
+      data[4 + i * 4 + 3] = clamped[i].h;
+    }
+    this.device.queue.writeBuffer(this.occluderUniform, 0, data as unknown as Float32Array<ArrayBuffer>);
+  }
+
+  /** Returns true if any single occluder rect covers ≥95% of UV space. */
+  isFullyOccluded(): boolean {
+    return this.occluderRects.some(r => r.w * r.h >= 0.95);
+  }
+
+  getOccluderRects(): { x: number; y: number; w: number; h: number }[] {
+    return this.occluderRects;
+  }
 
   // ── Public API: enable/disable ────────────────────────────────────────────
 
@@ -879,6 +944,7 @@ export class PostProcessStack {
     p.setScissorRect(0, 0, w, h);
     p.setPipeline(pipeline);
     p.setBindGroup(0, bindGroup);
+    p.setBindGroup(1, this.occluderBindGroup);
     p.draw(3);
     p.end();
   }
@@ -1078,7 +1144,11 @@ export class PostProcessStack {
   // ── TAA (color + velocity + history + YCoCg neighborhood clamp) ───────────
 
   private applyTAA(encoder: GPUCommandEncoder, inputView: GPUTextureView, outputView: GPUTextureView, w: number, h: number): void {
-    this.wu("taa", new Float32Array([1/w, 1/h, this.taaBlendFactor, this.taaVarianceClamp ? 1 : 0, this.taaJitterX, this.taaJitterY, 0, 0]));
+    // When occluder rects changed, use blendFactor=1.0 for one frame to
+    // ignore stale history in the previously-occluded region (standard TAA
+    // reset pattern, same as camera cuts).
+    const blend = this.taaHistoryReset ? 1.0 : this.taaBlendFactor;
+    this.wu("taa", new Float32Array([1/w, 1/h, blend, this.taaVarianceClamp ? 1 : 0, this.taaJitterX, this.taaJitterY, 0, 0]));
     const bg = this.bg(this.cvvhLayout, [
       { binding: 0, resource: inputView },
       { binding: 1, resource: this.sceneVelocity!.createView() },
@@ -1087,6 +1157,7 @@ export class PostProcessStack {
       { binding: 4, resource: { buffer: this.uniforms["taa"] } },
     ]);
     this.pass(encoder, this.pipelines["taa"], bg, outputView, w, h);
+    this.taaHistoryReset = false;
   }
 
   // ── SSAO (compute + blur + composite) ─────────────────────────────────────
@@ -1371,6 +1442,7 @@ export class PostProcessStack {
     this.glyphTex?.destroy();
     this.noiseTex?.destroy();
     this.lutTexture?.destroy();
+    this.occluderUniform?.destroy();
     for (const key in this.uniforms) this.uniforms[key]?.destroy();
     for (const key in this.pipelines) this.pipelines[key]?.destroy?.();
   }

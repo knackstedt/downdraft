@@ -16,6 +16,7 @@ struct U {
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+  if (isOccluded(input.uv)) { discard; }
   let color = textureSample(colorTex, samp, input.uv);
   let ao = textureSample(aoTex, samp, input.uv).r;
   return vec4<f32>(color.rgb * ao, color.a);

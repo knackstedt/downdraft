@@ -15,6 +15,7 @@ struct U {
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+  if (isOccluded(input.uv)) { discard; }
   let uv = input.uv;
   let centerDepth = textureSample(depthTex, samp, uv);
   var sum = 0.0;
