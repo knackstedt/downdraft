@@ -85,6 +85,8 @@ export class WebGPURenderer extends GameRenderer implements IRendererStateProvid
   private iblSystem: IBLSystem | null = null;
   private particleSystem: ParticleSystem | null = null;
   private postProcessStack: PostProcessStack | null = null;
+  /** When true, the pixi-ui overlay fully covers the canvas — skip 3D + postfx. */
+  private fullyOccluded = false;
   private underwaterFogPass: UnderwaterFogPass | null = null;
   private cloudSystem: CloudSystem | null = null;
   private modelRenderer: ModelRenderer | null = null;
@@ -748,7 +750,16 @@ export class WebGPURenderer extends GameRenderer implements IRendererStateProvid
     }
     const usePP = this.postProcessStack?.hasEnabledEffects() ?? false;
     const vpCount = this.getViewportCount();
-    if (usePP) {
+    if (this.fullyOccluded) {
+      // The pixi-ui overlay fully covers the canvas — skip the entire 3D
+      // pipeline + postfx. Just clear the canvas to black (the overlay
+      // composites on top, so the clear color is never seen).
+      const cv = context.getCurrentTexture().createView();
+      const clearPass = commandEncoder.beginRenderPass({
+        colorAttachments: [{ view: cv, clearValue: { r: 0, g: 0, b: 0, a: 1 }, loadOp: "clear" as GPULoadOp, storeOp: "store" as GPUStoreOp }],
+      });
+      clearPass.end();
+    } else if (usePP) {
       this.postProcessStack!.ensureTargets(canvas.width, canvas.height);
       for (let v = 0; v < vpCount; v++) { this.drawViewport(v, dt, "postprocess", commandEncoder); }
       const cv = context.getCurrentTexture().createView();
@@ -1342,6 +1353,18 @@ export class WebGPURenderer extends GameRenderer implements IRendererStateProvid
   setOSRForcedFocus(active: boolean): void { this.inputHandler.setOSRForcedFocus(active); }
   getInputHandler(): RendererInputHandler { return this.inputHandler; }
   getCanvas(): HTMLCanvasElement { return super.getCanvas(); }
+
+  /**
+   * Set opaque UI panel rects (UV space, 0-1, top-left origin) reported by the
+   * pixi-ui overlay. The postfx shaders discard fragments inside these rects
+   * to skip work where the output is invisible (the overlay composites on top).
+   * When a single rect covers ≥95% of the screen, the entire 3D + postfx
+   * pipeline is skipped for the frame (full-frame skip for modal screens).
+   */
+  setOccluderRects(rects: { x: number; y: number; w: number; h: number }[]): void {
+    this.postProcessStack?.setOccluderRects(rects);
+    this.fullyOccluded = rects.some(r => r.w * r.h >= 0.95);
+  }
 
   /** Capture the current canvas contents as a PNG blob. If the render loop
    *  is paused (test/headless mode), render a single frame first so the
