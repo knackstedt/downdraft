@@ -39,13 +39,24 @@ export const REGION_BLOCK_W = MAP_REGION_COLS * THUMB_CELLS_PER_ROW; // 8192 blo
 export const REGION_BLOCK_H = MAP_REGION_ROWS * THUMB_CELLS_PER_COL; // 1024 blocks tall
 
 // --- Map SAB layout ---
+// 4 chunk planes + explored, all per-block (REGION_BLOCK_W * REGION_BLOCK_H cells).
 // Header: cx0 (i32) + seq (i32) = 8 bytes.
+// Then 5 arrays in image-order (row-major over the full grid):
+//   foreground: u16[N] — block ID (0=air)
+//   background: u16[N] — backwall block ID (0=none)
+//   mask:       u8[N]  — bit flags (MASK_SOLID | MASK_LIQUID | ...)
+//   vfx:        u32[N] — packed particle/effect data
+//   explored:   u8[N]  — fog-of-war flag (0=unexplored)
+const MAP_SAB_N = REGION_BLOCK_W * REGION_BLOCK_H; // 8,388,608
 export const MAP_SAB_HEADER_BYTES = 8;
 export const MAP_SAB_CX0_OFFSET = 0;       // i32
 export const MAP_SAB_SEQ_OFFSET = 4;       // i32
-export const MAP_SAB_BLOCKIDS_OFFSET = 8;  // u16[REGION_BLOCK_W * REGION_BLOCK_H]
-export const MAP_SAB_EXPLORED_OFFSET = MAP_SAB_BLOCKIDS_OFFSET + REGION_BLOCK_W * REGION_BLOCK_H * 2;
-export const MAP_SAB_BYTES = MAP_SAB_EXPLORED_OFFSET + REGION_BLOCK_W * REGION_BLOCK_H;
+export const MAP_SAB_FG_OFFSET = 8;        // u16[N]
+export const MAP_SAB_BG_OFFSET = MAP_SAB_FG_OFFSET + MAP_SAB_N * 2;     // u16[N]
+export const MAP_SAB_MASK_OFFSET = MAP_SAB_BG_OFFSET + MAP_SAB_N * 2;   // u8[N]
+export const MAP_SAB_VFX_OFFSET = MAP_SAB_MASK_OFFSET + MAP_SAB_N;      // u32[N]
+export const MAP_SAB_EXPLORED_OFFSET = MAP_SAB_VFX_OFFSET + MAP_SAB_N * 4; // u8[N]
+export const MAP_SAB_BYTES = MAP_SAB_EXPLORED_OFFSET + MAP_SAB_N;
 
 // --- Legacy ArrayBuffer encode/decode (for station data via postMessage) ---
 // Header: 4 i32 = 16 bytes.
@@ -195,18 +206,25 @@ export function createMapSab(): SharedArrayBuffer {
 
 /** Typed views into the map SAB for reading/writing per-block data. */
 export interface MapSabViews {
-  cx0: Int32Array;     // [1] — leftmost chunk X
-  seq: Int32Array;     // [1] — sequence counter
-  blockIds: Uint16Array; // [REGION_BLOCK_W * REGION_BLOCK_H]
-  explored: Uint8Array;  // [REGION_BLOCK_W * REGION_BLOCK_H]
+  cx0: Int32Array;       // [1] — leftmost chunk X
+  seq: Int32Array;       // [1] — sequence counter
+  foreground: Uint16Array; // [N] — block IDs
+  background: Uint16Array; // [N] — backwall block IDs
+  mask: Uint8Array;        // [N] — bit flags
+  vfx: Uint32Array;        // [N] — packed effect data
+  explored: Uint8Array;    // [N] — fog-of-war flags
 }
 
 /** Create typed views into an existing map SAB. */
 export function getMapSabViews(sab: SharedArrayBuffer): MapSabViews {
+  const n = REGION_BLOCK_W * REGION_BLOCK_H;
   return {
     cx0: new Int32Array(sab, MAP_SAB_CX0_OFFSET, 1),
     seq: new Int32Array(sab, MAP_SAB_SEQ_OFFSET, 1),
-    blockIds: new Uint16Array(sab, MAP_SAB_BLOCKIDS_OFFSET, REGION_BLOCK_W * REGION_BLOCK_H),
-    explored: new Uint8Array(sab, MAP_SAB_EXPLORED_OFFSET, REGION_BLOCK_W * REGION_BLOCK_H),
+    foreground: new Uint16Array(sab, MAP_SAB_FG_OFFSET, n),
+    background: new Uint16Array(sab, MAP_SAB_BG_OFFSET, n),
+    mask: new Uint8Array(sab, MAP_SAB_MASK_OFFSET, n),
+    vfx: new Uint32Array(sab, MAP_SAB_VFX_OFFSET, n),
+    explored: new Uint8Array(sab, MAP_SAB_EXPLORED_OFFSET, n),
   };
 }

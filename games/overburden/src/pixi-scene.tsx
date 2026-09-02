@@ -13,7 +13,6 @@ import React from "react";
 import type { OverburdenAction, OverburdenEvent } from "./pixi/bridge-protocol";
 import { OverburdenApp } from "./pixi/components/OverburdenApp";
 import { FontScaleContext } from "./pixi/font-scale-context";
-import { MapOverlay } from "./pixi/map-overlay";
 import { setPostAction, setWorkerState } from "./pixi/worker-store";
 
 export default async function createOverburdenScene(ctx: PixiUiSceneContext): Promise<PixiUiScene> {
@@ -38,12 +37,6 @@ export default async function createOverburdenScene(ctx: PixiUiSceneContext): Pr
   let currentWidth = ctx.width;
   let currentHeight = ctx.height;
 
-  // Imperative map overlay (managed outside @pixi/react to avoid GC issues
-  // from per-frame Graphics draw callbacks during the crossfade transition).
-  // Pass the extraSharedBuffers (contains the map SAB) so the overlay can
-  // read per-block data directly from the SAB.
-  const mapOverlay = new MapOverlay(ctx.app.stage, ctx.extraSharedBuffers);
-
   return {
     root: ctx.app.stage,
     update({ stats, events }) {
@@ -52,11 +45,7 @@ export default async function createOverburdenScene(ctx: PixiUiSceneContext): Pr
         currentFontScale = ctx.fontScale;
         renderApp(currentWidth, currentHeight);
       }
-      // Update SAB scalars → worker store. Map-mode stats (camWorldX/Y,
-      // camZoom, mapOpacity, playerWorldX/Y, playerFacing) are NOT stored
-      // here — they change every frame and would notify all React
-      // subscribers unnecessarily. The MapOverlay reads them directly from
-      // the SAB stats passed to mapOverlay.update() below.
+      // Update SAB scalars → worker store.
       setWorkerState({
         fps: stats.fps ?? 0,
         health: stats.health ?? 100,
@@ -102,28 +91,10 @@ export default async function createOverburdenScene(ctx: PixiUiSceneContext): Pr
           case "setCraftQueue": setWorkerState({ craftQueue: ev.queue }); break;
           case "setTasks": setWorkerState({ tasks: ev.tasks }); break;
           case "setTaskMarkers": setWorkerState({ taskMarkers: ev.markers }); break;
-          // setMapRegion is handled by mapOverlay.update() below — it
-          // processes the event directly and redraws the bitmap imperatively.
+          // setMapRegion + setMapPalette are handled by the main-thread
+          // MapCanvas (2D canvas overlay), not the pixi worker.
         }
       }
-
-      // Update the imperative map overlay (background + bitmap + markers).
-      // This is outside @pixi/react to avoid GC issues from per-frame
-      // Graphics draw callbacks during the crossfade transition.
-      mapOverlay.update(
-        {
-          camWorldX: stats.camWorldX ?? 0,
-          camWorldY: stats.camWorldY ?? 0,
-          camZoom: stats.camZoom ?? 96,
-          mapOpacity: stats.mapOpacity ?? 0,
-          playerWorldX: stats.playerWorldX ?? 0,
-          playerWorldY: stats.playerWorldY ?? 0,
-          playerFacing: stats.playerFacing ?? 1,
-        },
-        events as OverburdenEvent[],
-        currentWidth,
-        currentHeight,
-      );
     },
     resize(width, height) {
       currentWidth = width;
@@ -132,14 +103,6 @@ export default async function createOverburdenScene(ctx: PixiUiSceneContext): Pr
       renderApp(width, height);
     },
     getInteractiveRegions(): Rect[] {
-      // @pixi/react manages interactivity via eventMode on individual components.
-      // Return a full-screen rect so the host forwards all events when interactive.
-      const s = ctx.app.stage;
-      // Check if any interactive elements are visible by looking at the store
-      // For pass-through mode, we need to report regions where interactive
-      // elements exist. @pixi/react sets eventMode on individual components,
-      // so the host's pass-through hit-testing will check PixiJS's own
-      // event system. Return full-screen to let PixiJS handle hit-testing.
       return [{ x: 0, y: 0, width: currentWidth, height: currentHeight }];
     },
     summarize() {
@@ -152,7 +115,6 @@ export default async function createOverburdenScene(ctx: PixiUiSceneContext): Pr
       }));
     },
     dispose() {
-      mapOverlay.dispose();
       root.unmount();
     },
   };

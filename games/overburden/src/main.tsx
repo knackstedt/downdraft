@@ -18,6 +18,7 @@ import {
     saveUserFontScale,
     type PixiUiAction,
 } from "@downdraft/library-pixi-ui";
+import { MapCanvas } from "./map-canvas";
 import { setupBlockheadsMcp } from "./mcp/setup";
 import type { OverburdenAction, OverburdenEvent } from "./pixi/bridge-protocol";
 import { OVERBURDEN_STATS_LAYOUT } from "./pixi/bridge-protocol";
@@ -46,6 +47,7 @@ class BlockheadsGameSim implements GameSimWorker {
 
 // ── Handles for hot-reload dispose ──
 let pixiHost: PixiUiHost | null = null;
+let mapCanvas: MapCanvas | null = null;
 let statsRafId = 0;
 let pollInterval: ReturnType<typeof setInterval> | null = null;
 let markerInterval: ReturnType<typeof setInterval> | null = null;
@@ -72,16 +74,22 @@ startGame({
     const renderer = ctx.renderer as BlockheadsRenderer;
     useGameStore.getState().setRenderer(renderer);
 
-    // --- Allocate the map SAB (shared between sim worker + pixi worker) ---
-    // The sim worker writes per-block map data into it; the pixi worker reads
-    // it and renders the bitmap at full block resolution (no downsampling).
+    // --- Allocate the map SAB (shared between sim worker + main thread) ---
+    // The sim worker writes per-block map data into it; the MapCanvas reads
+    // it directly and renders the bitmap at full block resolution.
     const mapSab = createMapSab();
 
     // Pass the map SAB to the sim worker so getMapRegion can write into it.
     const workerHost = renderer.getWorkerHost();
     if (workerHost) workerHost.setMapSab(mapSab);
 
-    // --- Start the PixiJS UI overlay ---
+    // --- Create the 2D canvas map overlay (main thread) ---
+    // Reads the map SAB directly, composites 4 planes into a bitmap, draws
+    // via putImageData. No pixi worker involved.
+    mapCanvas = new MapCanvas(mapSab, getBlockPalette());
+    mapCanvas.mount();
+
+    // --- Start the PixiJS UI overlay (HUD/menus, NOT the map) ---
     pixiHost = new PixiUiHost({
       backend: "webgl2",
       statsLayout: OVERBURDEN_STATS_LAYOUT,
@@ -90,16 +98,10 @@ startGame({
       canvasLayer: 1,
       canvasId: "pixi-ui-canvas",
       fontScale: getEffectiveFontScale(loadUserFontScale()),
-      extraSharedBuffers: { mapSab },
     });
 
-    // Send the block color palette to the pixi worker once (256 blocks × RGBA).
     pixiHost.start().then(() => {
       console.log("[main] PixiUI overlay started");
-      pixiHost?.postEvent({
-        kind: "setMapPalette",
-        palette: getBlockPalette(),
-      } as OverburdenEvent);
     }, (e) => console.error("[main] PixiUI overlay failed:", e));
 
     pixiHost.onAction = (action: PixiUiAction) => {
@@ -285,6 +287,19 @@ startGame({
         playerWorldY: renderer.getPlayerWorld().y,
         playerFacing: renderer.getPlayerFacing(),
       });
+
+      // Update the 2D canvas map overlay (reads SAB directly, draws via
+      // putImageData). Runs every frame for smooth camera tracking.
+      mapCanvas?.update({
+        camWorldX: renderer.getCamWorld().x,
+        camWorldY: renderer.getCamWorld().y,
+        camZoom: renderer.getCamera().zoom,
+        mapOpacity: renderer.getMapOpacity(),
+        playerWorldX: renderer.getPlayerWorld().x,
+        playerWorldY: renderer.getPlayerWorld().y,
+        playerFacing: renderer.getPlayerFacing(),
+      });
+
       statsRafId = requestAnimationFrame(statsLoop);
     };
     statsRafId = requestAnimationFrame(statsLoop);
@@ -470,39 +485,31 @@ startGame({
       } catch { /* ignore */ }
     }, 200);
 
-    // --- Map-region → pixi-ui worker (500ms) ---
+    // --- Map-region refresh (500ms) ---
     // The renderer fetches a map region from the sim worker (which writes
-    // per-block data directly into the map SAB) and caches station data.
-    // Here we forward just the stations + cx0 to the pixi-ui worker — the
-    // per-block bitmap data is read directly from the map SAB by the pixi
-    // worker's MapOverlay, so no large ArrayBuffers are postMessaged.
-    const STATION_COLOR = 0xffd700; // gold marker for crafting stations
+    // per-block data directly into the map SAB). We forward just the
+    // stations + cx0 to the MapCanvas — the per-block bitmap data is read
+    // directly from the map SAB by MapCanvas.update() each frame.
     let mapWasVisible = false;
     function postMapRegion(): void {
-      if (!pixiHost) return;
       const opacity = renderer.getMapOpacity();
       if (opacity <= 0) { mapWasVisible = false; return; }
       if (!mapWasVisible) {
         renderer.refreshMapRegion();
         mapWasVisible = true;
       }
-      // Kick off a refresh so the region stays current while the map is
-      // visible. refreshMapRegion is a no-op if a fetch is already in flight.
-      renderer.refreshMapRegion();
-      if (!renderer.isMapRegionDirty()) return;
+      // If we have new data, forward it. DON'T kick off a new refresh in the
+      // same call — that would make the sim worker write to the SAB while
+      // the main thread is reading it (torn read). The next 500ms cycle
+      // will kick off the refresh.
+      if (!renderer.isMapRegionDirty()) {
+        renderer.refreshMapRegion();
+        return;
+      }
       const region = renderer.getMapRegionData();
       renderer.clearMapRegionDirty();
       if (!region) return;
-      // Forward stations + cx0 to the pixi worker. Per-block data is in the
-      // map SAB — the pixi worker reads it directly.
-      const stations = region.stations.map((s) => ({
-        x: s.wx, y: s.wy, color: STATION_COLOR,
-      }));
-      pixiHost.postEvent({
-        kind: "setMapRegion",
-        cx0: region.cx0,
-        stations,
-      } as OverburdenEvent);
+      mapCanvas?.setRegion(region.cx0, region.stations);
     }
     mapRegionInterval = setInterval(postMapRegion, 500);
   },
@@ -532,6 +539,7 @@ startGame({
     if (statsRafId) { cancelAnimationFrame(statsRafId); statsRafId = 0; }
     if (guiKeyHandler) { window.removeEventListener("keydown", guiKeyHandler); guiKeyHandler = null; }
     if (pixiHost) { pixiHost.dispose(); pixiHost = null; }
+    if (mapCanvas) { mapCanvas.dispose(); mapCanvas = null; }
     const renderer = useGameStore.getState().renderer as BlockheadsRenderer | null;
     if (renderer) await renderer.shutdown();
   },
