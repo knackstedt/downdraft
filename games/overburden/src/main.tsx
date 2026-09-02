@@ -298,6 +298,7 @@ startGame({
         playerWorldX: renderer.getPlayerWorld().x,
         playerWorldY: renderer.getPlayerWorld().y,
         playerFacing: renderer.getPlayerFacing(),
+        skyColor: renderer.getSkyColor(),
       });
 
       statsRafId = requestAnimationFrame(statsLoop);

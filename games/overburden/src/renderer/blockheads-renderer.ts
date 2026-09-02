@@ -442,6 +442,33 @@ export class BlockheadsRenderer extends GameRenderer {
     return this.camera.getMapOpacity();
   }
 
+  /**
+   * Current sky color (horizon/bottom) based on daylight level.
+   * Returns [r, g, b] in 0-255 for the 2D map background.
+   */
+  getSkyColor(): [number, number, number] {
+    const daylight = this.simReader ? this.simReader.getDaylight() : 15;
+    const t = daylight / 15;
+    const dayBottom = [0.6, 0.8, 1.0];
+    const nightBottom = [0.05, 0.05, 0.12];
+    const duskBottom = [0.8, 0.4, 0.2];
+    let r: number, g: number, b: number;
+    if (t < 0.3) {
+      const s = t / 0.3;
+      r = nightBottom[0] + (duskBottom[0] - nightBottom[0]) * s;
+      g = nightBottom[1] + (duskBottom[1] - nightBottom[1]) * s;
+      b = nightBottom[2] + (duskBottom[2] - nightBottom[2]) * s;
+    } else if (t < 0.6) {
+      const s = (t - 0.3) / 0.3;
+      r = duskBottom[0] + (dayBottom[0] - duskBottom[0]) * s;
+      g = duskBottom[1] + (dayBottom[1] - duskBottom[1]) * s;
+      b = duskBottom[2] + (dayBottom[2] - duskBottom[2]) * s;
+    } else {
+      r = dayBottom[0]; g = dayBottom[1]; b = dayBottom[2];
+    }
+    return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+  }
+
   /** Cached map region snapshot (null if not yet fetched). */
   getMapRegionData(): MapRegionData | null {
     return this.mapRegion;
