@@ -180,6 +180,18 @@ startGame({
     });
     await pixiHost.start();
 
+    // Forward opaque UI panel rects to the renderer so it can skip 3D + postfx
+    // under opaque panels (the overlay composites on top, so the game canvas
+    // under an opaque panel is never seen by the user).
+    pixiHost.onOpaqueChange = (regions) => {
+      const cssW = window.innerWidth;
+      const cssH = window.innerHeight;
+      const uvRects = regions.map(r => ({
+        x: r.x / cssW, y: r.y / cssH, w: r.width / cssW, h: r.height / cssH,
+      }));
+      renderer.setOccluderRects(uvRects);
+    };
+
     // Handle actions from the worker (menu toggles, save, respawn, etc.)
     const store = useGameStore.getState();
     pixiHost.onAction = ((action: any) => {

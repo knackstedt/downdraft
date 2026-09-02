@@ -112,6 +112,51 @@ export default async function createOceanScene(ctx: PixiUiSceneContext): Promise
     getInteractiveRegions(): Rect[] {
       return [{ x: 0, y: 0, width: w, height: h }];
     },
+    getOpaqueRegions(): Rect[] {
+      const s = getWorkerState();
+      const regions: Rect[] = [];
+      // Only report panels with opaque (alpha >= 0.9) backgrounds.
+      // Translucent dim backdrops (alpha 0.6) are NOT opaque — the game
+      // canvas is visible through them.
+      const cx = s.canvasW, cy = s.canvasH;
+      // Settings panel: 400×480, centered, alpha 0.95
+      if (s.showSettings) {
+        regions.push({ x: Math.round((cx - 400) / 2), y: Math.round((cy - 480) / 2), width: 400, height: 480 });
+      }
+      // Pause menu panel body: 240×280, centered, alpha 0.95 (dim backdrop is 0.6, not opaque)
+      if (s.showPauseMenu) {
+        regions.push({ x: Math.round((cx - 240) / 2), y: Math.round((cy - 280) / 2), width: 240, height: 280 });
+      }
+      // Inventory: 400×360, centered, alpha 0.95
+      if (s.showInventory) {
+        regions.push({ x: Math.round((cx - 400) / 2), y: Math.round((cy - 360) / 2), width: 400, height: 360 });
+      }
+      // Craft menu: 400×420, centered, alpha 0.95
+      if (s.showCraftMenu) {
+        regions.push({ x: Math.round((cx - 400) / 2), y: Math.round((cy - 420) / 2), width: 400, height: 420 });
+      }
+      // Trade menu: 360×400, centered, alpha 0.95
+      if (s.showTradeMenu) {
+        regions.push({ x: Math.round((cx - 360) / 2), y: Math.round((cy - 400) / 2), width: 360, height: 400 });
+      }
+      // Build menu: 360×400, centered, alpha 0.95
+      if (s.showBuildMenu) {
+        regions.push({ x: Math.round((cx - 360) / 2), y: Math.round((cy - 400) / 2), width: 360, height: 400 });
+      }
+      // Character customization: 340×300, centered, alpha 0.95
+      if (s.showCharacterCustomization) {
+        regions.push({ x: Math.round((cx - 340) / 2), y: Math.round((cy - 300) / 2), width: 340, height: 300 });
+      }
+      // Map view: full-screen, alpha 0.9 (opaque enough to skip 3D)
+      if (s.showMap) {
+        regions.push({ x: 0, y: 0, width: cx, height: cy });
+      }
+      // Credits screen: full-screen, alpha 0.95
+      if (s.showCredits) {
+        regions.push({ x: 0, y: 0, width: cx, height: cy });
+      }
+      return regions;
+    },
     summarize() {
       return ctx.app.stage.children.map((c) => ({
         name: c.label ?? "", type: c.constructor?.name ?? "unknown",
