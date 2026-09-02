@@ -22,7 +22,6 @@ import {
 const BW = REGION_BLOCK_W; // 8192
 const BH = REGION_BLOCK_H; // 1024
 const REGION_WIDTH = MAP_REGION_COLS * CHUNK_W; // 8192
-const BG_COLOR = "#1a1a2e";
 const STATION_COLOR = "#ffd700"; // gold
 
 export interface MapCameraStats {
@@ -33,6 +32,7 @@ export interface MapCameraStats {
   playerWorldX: number;
   playerWorldY: number;
   playerFacing: number;
+  skyColor: [number, number, number];
 }
 
 export class MapCanvas {
@@ -112,8 +112,9 @@ export class MapCanvas {
 
     if (!this.region) return;
 
-    // Draw background.
-    this.ctx.fillStyle = BG_COLOR;
+    // Draw background (sky color from the renderer's daylight level).
+    const [sr, sg, sb] = stats.skyColor;
+    this.ctx.fillStyle = `rgb(${sr},${sg},${sb})`;
     this.ctx.fillRect(0, 0, w, h);
 
     // Draw the bitmap, positioned to align with the camera.
