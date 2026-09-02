@@ -98,6 +98,7 @@ export class PixiUiHost {
   private queryCounter = 0;
   private resizeObserver: ResizeObserver | null = null;
   private canvasCreated = false;
+  private transferred = false; // true after transferControlToOffscreen()
   private passThrough: boolean;
   private interactiveRegions: Rect[] = [];
   private opaqueRegions: Rect[] = [];
@@ -230,6 +231,7 @@ export class PixiUiHost {
     let offscreen: OffscreenCanvas;
     try {
       offscreen = this.canvas.transferControlToOffscreen();
+      this.transferred = true;
     } catch (err) {
       const e = err as Error & { name?: string };
       throw new Error(`PixiUiHost: transferControlToOffscreen failed — ${e.name ?? "Error"}: ${e.message ?? e}. Ensure the canvas hasn't already been used with getContext().`);
@@ -545,8 +547,13 @@ export class PixiUiHost {
     this.height = h;
     if (dprChanged) this.resolution = dpr;
     // Keep the backing store in sync with the new CSS size × resolution.
-    this.canvas.width = Math.round(w * this.resolution);
-    this.canvas.height = Math.round(h * this.resolution);
+    // After transferControlToOffscreen(), the canvas backing store is owned
+    // by the worker — we can't set width/height from the main thread. The
+    // worker handles the OffscreenCanvas resize via the resize message below.
+    if (!this.transferred) {
+      this.canvas.width = Math.round(w * this.resolution);
+      this.canvas.height = Math.round(h * this.resolution);
+    }
     const msg: MainToWorkerMessage = {
       kind: "resize",
       width: w,

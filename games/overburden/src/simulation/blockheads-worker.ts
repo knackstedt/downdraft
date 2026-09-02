@@ -21,7 +21,7 @@ import { getWildCropByBlock, isCropBlock, isWildCropBlock } from "../shared/crop
 import { decodeDropItem, encodeDropItem } from "../shared/drop-registry";
 import { Inventory } from "../shared/inventory";
 import { getItemDef, getItemForBlock } from "../shared/items";
-import { encodeMapRegion } from "../shared/map-buffer";
+import { encodeMapRegion, getMapSabViews } from "../shared/map-buffer";
 import { pseudoRandom } from "../shared/pseudo-random";
 import { getRecipe, recipesForStation, type CraftStation } from "../shared/recipes";
 import {
@@ -59,6 +59,9 @@ let simControl: SimWorkerControl | null = null;
 let world: BlockWorld | null = null;
 let writer: SimBufferWriter | null = null;
 let sabRef: SharedArrayBuffer | null = null;
+// Map SAB — shared with the pixi-ui worker for streaming per-block map data.
+// The renderer posts this via a __mapSab message; getMapRegion writes into it.
+let mapSab: SharedArrayBuffer | null = null;
 // Dedicated pather worker broker — offloads A* pathfinding to a separate
 // thread (not the sim thread, not the renderer thread). Constructed in onInit
 // once the SAB is available; disposed in onShutdown.
@@ -72,11 +75,17 @@ let tickCount = 0; // synced from ctx.tickCount in onTick (for helper functions)
 // We use addEventListener (not onmessage) so this coexists with the
 // expose() handler that createSimWorker() installs.
 self.addEventListener("message", (e: MessageEvent) => {
-  const data = e.data as { __patherPort?: boolean } | undefined;
-  if (!data?.__patherPort) return;
-  const port = e.ports[0];
-  if (!port || !pathBroker) return;
-  pathBroker.attachPort(port);
+  const data = e.data as { __patherPort?: boolean; __mapSab?: boolean } | undefined;
+  if (data?.__patherPort) {
+    const port = e.ports[0];
+    if (!port || !pathBroker) return;
+    pathBroker.attachPort(port);
+    return;
+  }
+  if (data?.__mapSab) {
+    mapSab = e.data.sab as SharedArrayBuffer;
+    return;
+  }
 });
 let lastSaveTime = 0;
 let autoSaveInFlight = false; // guards against overlapping auto-saves
@@ -1437,14 +1446,32 @@ simControl = createSimWorker({
   },
 
   // --- Map region snapshot (for zoomed-out map mode) ---
-  // Returns an encoded ArrayBuffer (see shared/map-buffer.ts) containing a
-  // downsampled thumbnail of the explored world around centerCx. The host
-  // decodes it via decodeMapRegion().
+  // Writes per-block map data directly into the map SAB (if available) and
+  // returns an encoded ArrayBuffer with station data only. The pixi-ui worker
+  // reads the block data from the SAB; the renderer reads stations from the
+  // returned buffer.
   getMapRegion(centerCx: number): ArrayBuffer {
     if (!world) return encodeMapRegion({
       cx0: 0, cols: 0, rows: 0,
       blockIds: new Uint16Array(0), explored: new Uint8Array(0), stations: [],
     });
+    // If the map SAB is available, write per-block data directly into it.
+    if (mapSab) {
+      const views = getMapSabViews(mapSab);
+      const region = world.getMapRegion(centerCx, {
+        blockIds: views.blockIds,
+        explored: views.explored,
+      });
+      views.cx0[0] = region.cx0;
+      Atomics.add(views.seq, 0, 1); // increment sequence counter
+      // Return only stations (block data is in the SAB).
+      return encodeMapRegion({
+        cx0: region.cx0, cols: region.cols, rows: region.rows,
+        blockIds: new Uint16Array(0), explored: new Uint8Array(0),
+        stations: region.stations,
+      });
+    }
+    // Fallback: no SAB, return full data via ArrayBuffer.
     const region = world.getMapRegion(centerCx);
     return encodeMapRegion(region);
   },

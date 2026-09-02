@@ -40,7 +40,9 @@ export default async function createOverburdenScene(ctx: PixiUiSceneContext): Pr
 
   // Imperative map overlay (managed outside @pixi/react to avoid GC issues
   // from per-frame Graphics draw callbacks during the crossfade transition).
-  const mapOverlay = new MapOverlay(ctx.app.stage);
+  // Pass the extraSharedBuffers (contains the map SAB) so the overlay can
+  // read per-block data directly from the SAB.
+  const mapOverlay = new MapOverlay(ctx.app.stage, ctx.extraSharedBuffers);
 
   return {
     root: ctx.app.stage,
