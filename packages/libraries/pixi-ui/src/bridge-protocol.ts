@@ -164,6 +164,22 @@ export interface InteractiveRegionsMessage {
 }
 
 /**
+ * The worker reports the bounding boxes of opaque UI panels (alpha ≈ 1.0
+ * backgrounds) to the host. The host forwards these to the game via
+ * `onOpaqueChange`, and the game uses them to skip rendering the 3D scene +
+ * postfx under these rects (the overlay composites on top, so the game canvas
+ * under an opaque panel is never seen).
+ *
+ * Only report panels where the game canvas is NOT visible through the panel
+ * (alpha < 1.0 scrims/dims are NOT opaque). Coordinates are in canvas pixels
+ * (top-left origin), matching the interactive-regions coordinate space.
+ */
+export interface OpaqueRegionsMessage {
+  kind: "opaqueRegions";
+  regions: Rect[];
+}
+
+/**
  * Worker → main: a forwarded pointer event did NOT hit any interactive
  * PixiJS element (the hit-test returned null). The host should dispatch a
  * synthetic PointerEvent on the element beneath the overlay so the game
@@ -191,6 +207,7 @@ export type WorkerToMainMessage =
   | CaptureResultMessage
   | ErrorMessage
   | InteractiveRegionsMessage
+  | OpaqueRegionsMessage
   | PointerMissedMessage;
 
 // --- Shared types ---

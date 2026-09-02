@@ -184,4 +184,34 @@ describe("PixiUiHost (logic, no worker spawn)", () => {
     await expect(host.queryScene()).rejects.toThrow(/not started/);
     host.dispose();
   });
+
+  it("getOpaqueRegions returns empty array initially", async () => {
+    const { PixiUiHost } = await import("./host");
+    const host = new PixiUiHost({
+      backend: "webgl2",
+      statsLayout: DEFAULT_STATS_LAYOUT,
+    });
+    expect(host.getOpaqueRegions()).toEqual([]);
+    host.dispose();
+  });
+
+  it("onOpaqueChange fires and getOpaqueRegions returns cached regions when worker sends opaqueRegions", async () => {
+    const { PixiUiHost } = await import("./host");
+    const host = new PixiUiHost({
+      backend: "webgl2",
+      statsLayout: DEFAULT_STATS_LAYOUT,
+    });
+    let received: { x: number; y: number; width: number; height: number }[] | null = null;
+    host.onOpaqueChange = (regions) => { received = regions; };
+    // Simulate the worker sending an opaqueRegions message by calling the
+    // private handler via a cast (the handler is the single entry point for
+    // worker messages).
+    const msg = { kind: "opaqueRegions" as const, regions: [
+      { x: 100, y: 200, width: 300, height: 400 },
+    ] };
+    (host as unknown as { handleWorkerMessage: (m: unknown) => void }).handleWorkerMessage(msg);
+    expect(received).toEqual([{ x: 100, y: 200, width: 300, height: 400 }]);
+    expect(host.getOpaqueRegions()).toEqual([{ x: 100, y: 200, width: 300, height: 400 }]);
+    host.dispose();
+  });
 });

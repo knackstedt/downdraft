@@ -67,6 +67,7 @@ export type {
     InitMessage,
     InteractiveRegionsMessage,
     MainToWorkerMessage,
+    OpaqueRegionsMessage,
     PixiUiAction,
     PixiUiEvent,
     PointerMessage,
