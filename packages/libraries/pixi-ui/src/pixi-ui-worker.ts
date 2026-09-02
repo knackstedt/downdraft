@@ -345,7 +345,14 @@ async function handleInit(msg: InitMessage): Promise<void> {
     // Add the scene's root to the stage so it's visible. The default scene
     // does this itself, but custom scenes may not — do it here for all scenes
     // so factories don't need to know about the app stage.
-    if (scene?.root && app?.stage && !app.stage.children.includes(scene.root)) {
+    //
+    // Guard against the scene root BEING the stage (or an ancestor/descendant
+    // of it): adding a container to itself creates a parent/child + render-group
+    // cycle, which makes PixiJS's GCSystem._updateInstructionGCTick recurse
+    // infinitely (Maximum call stack size exceeded) on the first render.
+    // Some scenes (e.g. the @pixi/react adapter scene) intentionally return
+    // `root: ctx.app.stage` because they render directly into the stage.
+    if (scene?.root && app?.stage && scene.root !== app.stage && !app.stage.children.includes(scene.root)) {
       app.stage.addChild(scene.root);
     }
   } catch (err) {
