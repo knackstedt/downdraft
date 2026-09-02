@@ -22,6 +22,7 @@ fn hash21(p: vec2<f32>) -> f32 {
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+  if (isOccluded(input.uv)) { discard; }
   let color = textureSample(colorTex, samp, input.uv).rgb;
   let grainUV = input.uv * u.size + u.time;
   let grain = hash21(grainUV) - 0.5;

@@ -18,6 +18,7 @@ struct U {
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+  if (isOccluded(input.uv)) { discard; }
   let uv = input.uv;
   let center = vec2<f32>(0.5, 0.5);
   let lightPos = u.lightScreenPos;

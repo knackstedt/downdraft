@@ -5,6 +5,7 @@ struct U { texelSize: vec2<f32>, dirX: f32, dirY: f32, _p0: f32, _p1: f32, _p2: 
 @group(0) @binding(3) var<uniform> u: U;
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+  if (isOccluded(input.uv)) { discard; }
   let uv = input.uv;
   let dir = vec2(u.dirX, u.dirY) * u.texelSize;
   var sum = textureSample(colorTex, samp, uv).rgb * 0.227027;

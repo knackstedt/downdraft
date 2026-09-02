@@ -17,6 +17,7 @@ struct U {
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+  if (isOccluded(input.uv)) { discard; }
   let uv = input.uv;
   // All textureSample calls must be in uniform control flow (before any branching).
   let velocity = textureSample(velocityTex, samp, uv).xy;

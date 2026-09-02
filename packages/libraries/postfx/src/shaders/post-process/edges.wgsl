@@ -20,6 +20,7 @@ fn decodeNormal(rgb: vec3<f32>) -> vec3<f32> {
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+  if (isOccluded(input.uv)) { discard; }
   let uv = input.uv;
   let texel = u.texelSize;
   let color = textureSample(colorTex, samp, uv).rgb;

@@ -5,6 +5,7 @@ struct U { texelSize: vec2<f32>, threshold: f32, _p0: f32, _p1: f32, _p2: f32, _
 @group(0) @binding(3) var<uniform> u: U;
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+  if (isOccluded(input.uv)) { discard; }
   let c = textureSample(colorTex, samp, input.uv);
   let l = lum(c.rgb);
   if (l > u.threshold) { return c; }

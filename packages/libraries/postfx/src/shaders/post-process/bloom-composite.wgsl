@@ -5,6 +5,7 @@ struct U { texelSize: vec2<f32>, strength: f32, _p0: f32, _p1: f32, _p2: f32, _p
 @group(0) @binding(3) var<uniform> u: U;
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+  if (isOccluded(input.uv)) { discard; }
   let c = textureSample(colorTex, samp, input.uv);
   let b = textureSample(brightTex, samp, input.uv);
   return vec4(c.rgb + b.rgb * u.strength, c.a);

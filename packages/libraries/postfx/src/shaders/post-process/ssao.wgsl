@@ -43,6 +43,7 @@ fn falloff(dist: f32) -> f32 {
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+  if (isOccluded(input.uv)) { discard; }
   let uv = input.uv;
   // All textureSample calls in uniform control flow
   let depth = textureSample(depthTex, samp, uv);

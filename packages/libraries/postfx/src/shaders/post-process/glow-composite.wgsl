@@ -16,6 +16,7 @@ struct U {
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+  if (isOccluded(input.uv)) { discard; }
   let color = textureSample(colorTex, samp, input.uv).rgb;
   let glow = textureSample(glowBlurTex, samp, input.uv).rgb;
   return vec4<f32>(color + glow * u.intensity, 1.0);

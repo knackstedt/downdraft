@@ -6,6 +6,7 @@ struct U { texelSize: vec2<f32>, cellSize: f32, useColor: f32, screenW: f32, scr
 const NUM_GLYPHS = 10.0;
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+  if (isOccluded(input.uv)) { discard; }
   let screen = vec2(u.screenW, u.screenH);
   let cellPx = u.cellSize;
   let cellCoord = floor(input.uv * screen / cellPx);
