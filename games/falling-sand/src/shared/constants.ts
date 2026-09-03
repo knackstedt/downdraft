@@ -1,3 +1,5 @@
+import { computeGridDims as computeGridDimsShared } from "@downdraft/library-sand";
+
 // Maximum grid dimensions — the SharedArrayBuffer is allocated at this size.
 // The actual grid dimensions are computed from the canvas buffer dimensions
 // and may be smaller than these maximums.
@@ -15,26 +17,13 @@ const BASE_CELL_PX = 2;
  * Uses a single `cellPx` value for both axes so cells are always square (1:1).
  * If the computed size exceeds MAX_GRID_W/H, both dimensions are scaled down
  * proportionally to preserve the aspect ratio.
+ *
+ * Delegates to the shared `computeGridDims` from @downdraft/library-sand.
  */
 export function computeGridDims(canvasW: number, canvasH: number): { w: number; h: number } {
-  const dpr = window.devicePixelRatio || 1;
-  const cellPx = BASE_CELL_PX * dpr;
-
-  // Target: one cell per cellPx canvas pixels, same for both axes
-  let w = Math.floor(canvasW / cellPx);
-  let h = Math.floor(canvasH / cellPx);
-
-  // Clamp to minimums
-  w = Math.max(32, w);
-  h = Math.max(32, h);
-
-  // If either dimension exceeds the max, scale BOTH proportionally
-  // to preserve aspect ratio (guarantees 1:1 cells).
-  if (w > MAX_GRID_W || h > MAX_GRID_H) {
-    const scale = Math.min(MAX_GRID_W / w, MAX_GRID_H / h);
-    w = Math.max(32, Math.floor(w * scale));
-    h = Math.max(32, Math.floor(h * scale));
-  }
-
-  return { w, h };
+  return computeGridDimsShared(canvasW, canvasH, {
+    baseCellPx: BASE_CELL_PX,
+    maxGridW: MAX_GRID_W,
+    maxGridH: MAX_GRID_H,
+  });
 }

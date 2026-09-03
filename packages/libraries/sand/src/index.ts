@@ -72,6 +72,8 @@ export {
     type GridSimBufferOffsets
 } from "./grid-sim-buffer";
 
+export { computeGridDims, type ComputeGridDimsOptions } from "./grid-dims";
+
 export { SandLib, SandWorldTok } from "./library";
 export type { SandLibConfig } from "./library";
 

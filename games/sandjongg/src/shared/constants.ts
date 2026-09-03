@@ -2,6 +2,8 @@
 // Sandjongg constants
 // ============================================================================
 
+import { computeGridDims as computeGridDimsShared } from "@downdraft/library-sand";
+
 // Maximum sand grid dimensions — the SharedArrayBuffer is allocated at this size.
 // Must be large enough for the board (MAX_COLS * TILE_CELL_SIZE) + walls + pit.
 // 24 cols * 20 cells = 480 + 4 walls = 484 → round up to 512.
@@ -47,29 +49,17 @@ const BASE_CELL_PX = 3;
 /**
  * Compute sand grid dimensions from the canvas buffer dimensions.
  * The grid is sized so that the board + pit fit within MAX_GRID_W/H.
+ * Delegates to the shared `computeGridDims` from @downdraft/library-sand.
  */
 export function computeGridDims(canvasW: number, canvasH: number): { w: number; h: number } {
-  const dpr = window.devicePixelRatio || 1;
-  const cellPx = BASE_CELL_PX * dpr;
-
-  let w = Math.floor(canvasW / cellPx);
-  let h = Math.floor(canvasH / cellPx);
-
-  w = Math.max(32, w);
-  h = Math.max(32, h);
-
-  if (w > MAX_GRID_W || h > MAX_GRID_H) {
-    const scale = Math.min(MAX_GRID_W / w, MAX_GRID_H / h);
-    w = Math.max(32, Math.floor(w * scale));
-    h = Math.max(32, Math.floor(h * scale));
-  }
-
-  // Align to 4 so that skipMaskBytes (W*H) is a multiple of 4, keeping
-  // the histogramOffset 4-byte aligned for Uint32Array views in SandStepPool.
-  w = Math.floor(w / 4) * 4;
-  h = Math.floor(h / 4) * 4;
-
-  return { w, h };
+  return computeGridDimsShared(canvasW, canvasH, {
+    baseCellPx: BASE_CELL_PX,
+    maxGridW: MAX_GRID_W,
+    maxGridH: MAX_GRID_H,
+    // Align to 4 so that skipMaskBytes (W*H) is a multiple of 4, keeping
+    // the histogramOffset 4-byte aligned for Uint32Array views in SandStepPool.
+    align: 4,
+  });
 }
 
 /**
