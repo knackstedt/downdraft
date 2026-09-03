@@ -116,12 +116,6 @@
       "@downdraft/library-postfx/*": [
         "./packages/libraries/postfx/src/*"
       ],
-      "@downdraft/library-undertow": [
-        "./packages/libraries/undertow/src/index.ts"
-      ],
-      "@downdraft/library-undertow/*": [
-        "./packages/libraries/undertow/src/*"
-      ],
       "@downdraft/library-pixi-ui": [
         "./packages/libraries/pixi-ui/src/index.ts"
       ],

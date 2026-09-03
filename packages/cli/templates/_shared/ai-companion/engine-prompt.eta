@@ -101,7 +101,6 @@ world.registerModule(myModule);
 - `@downdraft/library-gaussian-splats` — Gaussian splat rendering
 - `@downdraft/library-sand` — Falling-sand simulation
 - `@downdraft/library-stickman` — Stickman skeleton rendering
-- `@downdraft/library-undertow` — DOM proxy for Web Workers
 
 ### Engine Modules (`@downdraft/module-*`)
 - `@downdraft/module-devtools` — DevTools panel, scene inspector, GPU debugging

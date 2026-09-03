@@ -1,6 +1,6 @@
+import react from "@vitejs/plugin-react";
 import { resolve } from "path";
 import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
 
 const root = resolve("/home/knackstedt/Pivot/source/apophis/downdraft-engine/games/sandjongg");
 const repoRoot = resolve(root, "../..");
@@ -56,8 +56,6 @@ const rendererAliases = [
   { find: /^@downdraft\/plugin-sailing\//, replacement: resolve(repoRoot, "packages/plugins/sailing/src") + "/" },
   { find: /^@downdraft\/plugin-camera-controls$/, replacement: resolve(repoRoot, "packages/plugins/camera-controls/src/index.ts") },
   { find: /^@downdraft\/plugin-camera-controls\//, replacement: resolve(repoRoot, "packages/plugins/camera-controls/src") + "/" },
-  { find: /^@downdraft\/library-undertow$/, replacement: resolve(repoRoot, "packages/libraries/undertow/src/index.ts") },
-  { find: /^@downdraft\/library-undertow\//, replacement: resolve(repoRoot, "packages/libraries/undertow/src") + "/" },
   { find: /^node:fs$/, replacement: resolve(repoRoot, "packages/app/src/renderer-shims/fs.ts") },
   { find: /^fs$/, replacement: resolve(repoRoot, "packages/app/src/renderer-shims/fs.ts") },
   { find: /^node:path$/, replacement: resolve(repoRoot, "packages/app/src/renderer-shims/path.ts") },

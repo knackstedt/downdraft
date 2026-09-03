@@ -251,8 +251,6 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
     { find: /^@downdraft\/module-sailing\//, replacement: resolve(repoRoot, "packages/modules/sailing/src") + "/" },
     { find: /^@downdraft\/module-camera-controls$/, replacement: resolve(repoRoot, "packages/modules/camera-controls/src/index.ts") },
     { find: /^@downdraft\/module-camera-controls\//, replacement: resolve(repoRoot, "packages/modules/camera-controls/src") + "/" },
-    { find: /^@downdraft\/library-undertow$/, replacement: resolve(repoRoot, "packages/libraries/undertow/src/index.ts") },
-    { find: /^@downdraft\/library-undertow\//, replacement: resolve(repoRoot, "packages/libraries/undertow/src") + "/" },
     { find: /^@downdraft\/library-pixi-ui$/, replacement: resolve(repoRoot, "packages/libraries/pixi-ui/src/index.ts") },
     { find: /^@downdraft\/library-pixi-ui\//, replacement: resolve(repoRoot, "packages/libraries/pixi-ui/src") + "/" },
     { find: /^@downdraft\/library-profiler$/, replacement: resolve(repoRoot, "packages/libraries/profiler/src/index.ts") },
