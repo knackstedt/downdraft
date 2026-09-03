@@ -41,13 +41,13 @@ struct Camera {
 struct VertexInput {
   @location(0) localPos: vec3<f32>,   // cube-local position [0, 1]
   @location(1) normal: vec3<f32>,     // face normal
-  @location(2) faceId: f32,           // face index (0-5)
+  @location(2) faceId: f32,           // face index (0-5 cube, 6-9 chamfer)
 };
 
 // Per-instance data
 struct InstanceInput {
   @location(3) instancePos: vec3<f32>,  // world position (x, y, z)
-  @location(4) instanceData: vec2<f32>,  // x=blockId, y=faceMask
+  @location(4) instanceData: vec2<f32>,  // x=blockId, y=faceMask (bits 0-5 faces, 8-11 corners)
 };
 
 struct VSOut {
@@ -59,14 +59,64 @@ struct VSOut {
   @location(4) @interpolate(flat) gridCoords: vec2<i32>,
   @location(5) localPos: vec3<f32>,
   @location(6) @interpolate(flat) instanceZ: f32,
+  @location(7) @interpolate(flat) cornerMask: u32,
 };
+
+// Slope VFX: full diagonal slopes (corner to opposite corner).
+// Both top/bottom-side and side-side vertices retract by the full block
+// size (1.0), creating a diagonal from corner to opposite corner.
+// e.g. for TR cut: chamfer face from (0,0) to (1,1) — the full diagonal.
+const SLOPE_DEPTH_X = 1.0;
+const SLOPE_DEPTH_Y = 1.0;
 
 @vertex
 fn vs_main(v: VertexInput, inst: InstanceInput) -> VSOut {
-  // Check if this face is visible (face mask bit)
-  let faceMask = inst.instanceData.y;
-  let faceBit = 1u << u32(v.faceId);
-  if ((u32(faceMask) & faceBit) == 0u) {
+  let faceMask = u32(inst.instanceData.y);
+  // Corner mask: bits 8-11 of instanceData.y (TL=8, TR=9, BL=10, BR=11)
+  let cornerMask = (faceMask >> 8u) & 0xFu;
+  let fid = u32(v.faceId);
+
+  // Chamfer faces (faceId 6-9): visible only when the corresponding corner
+  // bit is set. Vertices are displaced to form a 45° slope.
+  if (fid >= 6u) {
+    let cornerBit = 1u << (fid - 6u);
+    if ((cornerMask & cornerBit) == 0u) {
+      // Corner not cut — degenerate (clipped)
+      var out: VSOut;
+      out.pos = vec4<f32>(0.0, 0.0, 2.0, 1.0);
+      return out;
+    }
+    // Displace vertices to form a full diagonal slope:
+    //   normal.y ≠ 0 (top/bottom-side): retract x by full width (1.0)
+    //   normal.x ≠ 0 (side-side):       retract y by full height (1.0)
+    // For TR corner (1,0): top-side → (0,0), side-side → (1,1)
+    // For TL corner (0,0): top-side → (1,0), side-side → (0,1)
+    var lp = v.localPos;
+    if (v.normal.y != 0.0) {
+      // Top/bottom-side vertex: retract x by full block width
+      lp.x = select(lp.x + SLOPE_DEPTH_X, lp.x - SLOPE_DEPTH_X, lp.x > 0.5);
+    }
+    if (v.normal.x != 0.0) {
+      // Side-side vertex: retract y by half block height
+      lp.y = select(lp.y + SLOPE_DEPTH_Y, lp.y - SLOPE_DEPTH_Y, lp.y > 0.5);
+    }
+    let worldPos = inst.instancePos + lp;
+    var out: VSOut;
+    out.pos = cam.viewProj * vec4<f32>(worldPos, 1.0);
+    out.worldPos = worldPos;
+    out.normal = v.normal;
+    out.faceId = v.faceId;
+    out.blockId = inst.instanceData.x;
+    out.gridCoords = vec2<i32>(i32(inst.instancePos.x), i32(inst.instancePos.y));
+    out.localPos = lp;
+    out.instanceZ = inst.instancePos.z;
+    out.cornerMask = cornerMask;
+    return out;
+  }
+
+  // Original cube faces (faceId 0-5): check face mask bit
+  let faceBit = 1u << fid;
+  if ((faceMask & faceBit) == 0u) {
     // Face not visible — degenerate triangle (will be clipped)
     var out: VSOut;
     out.pos = vec4<f32>(0.0, 0.0, 2.0, 1.0); // w=1, z=2 → outside clip [0,1]
@@ -86,6 +136,7 @@ fn vs_main(v: VertexInput, inst: InstanceInput) -> VSOut {
   out.gridCoords = vec2<i32>(i32(inst.instancePos.x), i32(inst.instancePos.y));
   out.localPos = v.localPos;
   out.instanceZ = inst.instancePos.z;
+  out.cornerMask = cornerMask;
   return out;
 }
 
@@ -121,9 +172,25 @@ fn faceUV(faceId: f32, lp: vec3<f32>) -> vec2<f32> {
   } else if (faceId < 2.5 || faceId < 3.5) {
     // +Y / -Y top/bottom: use X and Z
     return vec2<f32>(lp.x, lp.z);
-  } else {
+  } else if (faceId < 5.5) {
     // +Z / -Z front/back: use X and Y
     return vec2<f32>(lp.x, lp.y);
+  } else {
+    // Chamfer faces (6-9): in x-y plane, extruded in z.
+    // U = z (along extrusion), V = diagonal coordinate (varies per corner).
+    //   TL (6): x+y is constant (0.5), so use y-x
+    //   TR (7): x-y is constant (0.5), so use x+y
+    //   BL (8): y-x is constant (0.5), so use x+y
+    //   BR (9): x+y is constant (1.5), so use x-y
+    if (faceId < 6.5) {
+      return vec2<f32>(lp.z, lp.y - lp.x);  // TL
+    } else if (faceId < 7.5) {
+      return vec2<f32>(lp.z, lp.x + lp.y);  // TR
+    } else if (faceId < 8.5) {
+      return vec2<f32>(lp.z, lp.x + lp.y);  // BL
+    } else {
+      return vec2<f32>(lp.z, lp.x - lp.y);  // BR
+    }
   }
 }
 
@@ -134,6 +201,7 @@ fn faceUV(faceId: f32, lp: vec3<f32>) -> vec2<f32> {
 //   Front/back (±Z): both X and Y vary → full bilinear
 //   Side (±X): only Y varies → bilinear in Y
 //   Top/bottom (±Y): only X varies → bilinear in X
+//   Chamfer (6-9): both X and Y vary → full bilinear (same as front/back)
 fn gridPosForLight(faceId: f32, gridCoords: vec2<i32>, lp: vec3<f32>) -> vec2<f32> {
   if (faceId < 0.5 || faceId < 1.5) {
     // ±X side faces: X fixed at block edge, Y varies
@@ -142,7 +210,7 @@ fn gridPosForLight(faceId: f32, gridCoords: vec2<i32>, lp: vec3<f32>) -> vec2<f3
     // ±Y top/bottom: Y fixed at block edge, X varies
     return vec2<f32>(f32(gridCoords.x) + lp.x, f32(gridCoords.y));
   } else {
-    // ±Z front/back: both vary
+    // ±Z front/back + chamfer faces: both vary
     return vec2<f32>(f32(gridCoords.x) + lp.x, f32(gridCoords.y) + lp.y);
   }
 }
@@ -393,6 +461,74 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     return vec4<f32>(0.0, 0.0, 0.0, 1.0);
   }
 
+  // --- Slope VFX: discard fragments on existing cube faces that fall outside
+  // the filled region of the marching-squares contour. ---
+  // Each cut corner creates a full diagonal from that corner to the opposite
+  // corner. Fragments on the "air" side of the diagonal are discarded,
+  // revealing the chamfer slope face behind them.
+  //
+  // Corner mask bits: TL=0, TR=1, BL=2, BR=3
+  // Full diagonals (in cell-local x,y coordinates):
+  //   TL cut: diagonal (1,0)→(0,1), line x+y=1, air where x+y < 1
+  //   TR cut: diagonal (0,0)→(1,1), line y=x,   air where y < x
+  //   BL cut: diagonal (1,1)→(0,0), line y=x,   air where y > x
+  //   BR cut: diagonal (0,1)→(1,0), line x+y=1, air where x+y > 1
+  let cm = in.cornerMask;
+  let lp0 = in.localPos;
+  if (in.faceId < 0.5) {
+    // +X side (x=1): substitute x=1
+    //   TR: y < 1 → discard entire face except bottom edge
+    //   BR: 1+y > 1 → y > 0 → discard entire face except top edge
+    if ((cm & 2u) != 0u && lp0.y < 1.0) { discard; }
+    if ((cm & 8u) != 0u && lp0.y > 0.0) { discard; }
+  } else if (in.faceId < 1.5) {
+    // -X side (x=0): substitute x=0
+    //   TL: 0+y < 1 → y < 1 → discard entire face except bottom edge
+    //   BL: y > 0 → discard entire face except top edge
+    if ((cm & 1u) != 0u && lp0.y < 1.0) { discard; }
+    if ((cm & 4u) != 0u && lp0.y > 0.0) { discard; }
+  } else if (in.faceId < 2.5) {
+    // +Y bottom (y=1): substitute y=1
+    //   BL: 1 > x → x < 1 → discard entire face except right edge
+    //   BR: x+1 > 1 → x > 0 → discard entire face except left edge
+    if ((cm & 4u) != 0u && lp0.x < 1.0) { discard; }
+    if ((cm & 8u) != 0u && lp0.x > 0.0) { discard; }
+  } else if (in.faceId < 3.5) {
+    // -Y top (y=0): substitute y=0
+    //   TL: x+0 < 1 → x < 1 → discard entire face except right edge
+    //   TR: 0 < x → x > 0 → discard entire face except left edge
+    if ((cm & 1u) != 0u && lp0.x < 1.0) { discard; }
+    if ((cm & 2u) != 0u && lp0.x > 0.0) { discard; }
+  } else if (in.faceId < 5.5) {
+    // +Z / -Z front/back: full diagonal formulas (both x and y vary)
+    if ((cm & 1u) != 0u && lp0.x + lp0.y < 1.0) { discard; }
+    if ((cm & 2u) != 0u && lp0.y < lp0.x) { discard; }
+    if ((cm & 4u) != 0u && lp0.y > lp0.x) { discard; }
+    if ((cm & 8u) != 0u && lp0.x + lp0.y > 1.0) { discard; }
+  } else {
+    // Chamfer faces (6-9): clip when the adjacent corner on the same edge
+    // is also cut, preventing the two full-diagonal chamfer faces from
+    // crossing. Both diagonals cross at the cell center (0.5, 0.5).
+    // Discard the half that extends into the neighbor's air region.
+    if (in.faceId < 6.5) {
+      // TL chamfer: diagonal (1,0)→(0,1), lp.y ranges 0→1.
+      // When TR is also cut, keep only lp.y > 0.5 (the BL half).
+      if ((cm & 2u) != 0u && lp0.y < 0.5) { discard; }
+    } else if (in.faceId < 7.5) {
+      // TR chamfer: diagonal (0,0)→(1,1), lp.y ranges 0→1.
+      // When TL is also cut, keep only lp.y > 0.5 (the BR half).
+      if ((cm & 1u) != 0u && lp0.y < 0.5) { discard; }
+    } else if (in.faceId < 8.5) {
+      // BL chamfer: diagonal (1,1)→(0,0), lp.y ranges 1→0.
+      // When BR is also cut, keep only lp.y < 0.5 (the TL half).
+      if ((cm & 8u) != 0u && lp0.y > 0.5) { discard; }
+    } else {
+      // BR chamfer: diagonal (0,1)→(1,0), lp.y ranges 1→0.
+      // When BL is also cut, keep only lp.y < 0.5 (the TR half).
+      if ((cm & 4u) != 0u && lp0.y > 0.5) { discard; }
+    }
+  }
+
   // Sample block color from palette
   let blockColor = textureLoad(paletteTex, vec2<i32>(i32(blockId), 0), 0).rgb;
 
@@ -497,8 +633,9 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         }
       }
     }
-  } else {
+  } else if (in.faceId < 5.5) {
     // +Z / -Z front/back faces: all 4 edges
+    // (Chamfer faces 6-9 skip edge blending — they're interior to the block)
     let minEdge = min(min(lp.x, 1.0 - lp.x), min(lp.y, 1.0 - lp.y));
     if (minEdge < BLEND_WIDTH) {
       let nL = u32(textureLoad(fgGridTex, vec2<i32>(gc.x - 1, gc.y), 0).r * 255.0);
@@ -566,6 +703,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
 
   // Face-dependent shading (2.5D depth illusion)
   // faceId: 0=+X(right), 1=-X(left), 2=+Y(bottom), 3=-Y(top), 4=+Z(front), 5=-Z(back)
+  //         6-9=chamfer slopes (45° diagonal, between top and side brightness)
   var faceShade: f32;
   if (in.faceId < 0.5) {
     faceShade = 0.75;  // right side
@@ -577,8 +715,13 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     faceShade = 1.0;   // top (brightest — direct sunlight)
   } else if (in.faceId < 4.5) {
     faceShade = 0.9;   // front (facing camera)
-  } else {
+  } else if (in.faceId < 5.5) {
     faceShade = 0.4;   // back (darkest, usually not visible)
+  } else {
+    // Chamfer faces (6-9): 45° slope facing up-outward.
+    // Brighter than sides (0.75) but dimmer than top (1.0) — a 45° surface
+    // receives ~70% of direct sunlight. Use 0.85 for a stylized look.
+    faceShade = 0.85;
   }
 
   // Volumetric colored light — no ambient floor.
@@ -589,10 +732,13 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   // Edge bevel: slightly lighten edges of each face for a 3D beveled look.
   // Skip bevel when showing a blended neighbor color — the neighbor block has
   // its own bevel, and doubling up creates a visible bright line at the seam.
+  // Chamfer faces get a slightly stronger edge highlight (0.12 vs 0.08) to
+  // accentuate the slope edges.
   let edgeDist = min(min(lp.x, 1.0 - lp.x), min(lp.y, 1.0 - lp.y));
   let edgeDistZ = min(lp.z, 1.0 - lp.z);
   let minEdge = min(edgeDist, edgeDistZ);
-  let bevel = 1.0 + 0.08 * step(minEdge, 0.08) * (1.0 - blendMask);
+  let bevelStrength = select(0.12, 0.08, in.faceId < 5.5);
+  let bevel = 1.0 + bevelStrength * step(minEdge, 0.08) * (1.0 - blendMask);
 
   var color = finalBlockColor * texMul * faceShade * lightMul * bevel;
 

@@ -198,6 +198,36 @@ export const MASK_LIGHT_EMIT = 1 << 8; // emits light
 export const MASK_FLAMMABLE = 1 << 9; // can catch fire
 export const MASK_BACKWALL = 1 << 10; // this is a backwall-only block
 
+// --- Slope VFX (marching-squares full diagonal slopes) ---
+// Full diagonal slope faces are added at terrain-surface corners where filled
+// blocks meet air. Each cut corner creates a diagonal from that corner to the
+// opposite corner of the cell, splitting it into two triangles.
+// e.g. TR cut: diagonal (0,0) → (1,1), filled region is y > x (BL triangle).
+// The corner mask (4 bits, one per block corner) is packed into the upper bits
+// of the per-instance faceMask float (bits 8-11).
+// See block-grid-pass-3d.ts + block-render-3d.wgsl for the rendering side.
+export const SLOPE_DEPTH_X = 1.0; // top/bottom-side vertex retraction (full width)
+export const SLOPE_DEPTH_Y = 1.0; // side-side vertex retraction (full height)
+
+// Only terrain-style blocks get slopes. Structural/utility/crop blocks stay
+// blocky. Water is excluded (rendered in its own pass).
+export const SLOPE_ELIGIBLE: ReadonlySet<number> = new Set([
+  BLOCK_DIRT,
+  BLOCK_GRASS,
+  BLOCK_STONE,
+  BLOCK_SAND,
+  BLOCK_COAL_ORE,
+  BLOCK_COPPER_ORE,
+  BLOCK_TIN_ORE,
+  BLOCK_IRON_ORE,
+  BLOCK_GOLD_ORE,
+  BLOCK_BEDROCK,
+  BLOCK_CLAY,
+  BLOCK_GRAVEL,
+  BLOCK_FARMLAND,
+  BLOCK_COMPOST_FARMLAND,
+]);
+
 // --- Terrain generation ---
 export const SURFACE_Y = 700; // average surface height (0=top, WORLD_H=bottom)
 export const SEA_LEVEL = 720; // water fills up to this Y

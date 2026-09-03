@@ -11,7 +11,7 @@ import { DEPTH_FORMAT } from "@downdraft/core";
 import BLOCK_RENDER_3D_FS from "../shaders/block-render-3d.wgsl?raw";
 import { getBlockPalette } from "../shared/block-registry";
 import {
-    ACTIVE_GRID_CELLS, ACTIVE_GRID_H, ACTIVE_GRID_W, BLOCK_WATER
+    ACTIVE_GRID_CELLS, ACTIVE_GRID_H, ACTIVE_GRID_W, BLOCK_WATER, SLOPE_ELIGIBLE,
 } from "../shared/constants";
 import { CROP_LOOKUP } from "../shared/crops";
 import {
@@ -24,7 +24,16 @@ import { isTreeBlock } from "../shared/tree-species";
 import { lookAtIP, multiplyIP, perspectiveIP, type Mat4 } from "./matrix";
 
 // --- Cube geometry ---
-// 6 faces × 4 vertices = 24 vertices. Each vertex: localPos(3) + normal(3) + faceId(1) = 7 floats.
+// 6 faces × 4 vertices = 24 cube vertices + 4 chamfer faces × 4 vertices = 16 chamfer vertices.
+// Total: 40 vertices. Each vertex: localPos(3) + normal(3) + faceId(1) = 7 floats.
+//
+// Chamfer faces (faceId 6-9) are full diagonal slope faces at each block
+// corner. They are degenerate by default (all vertices at the undisplaced
+// corner position) and are displaced in the vertex shader when the
+// corresponding corner mask bit is set. The normal encodes which side of the
+// chamfer each vertex belongs to:
+//   normal.y ≠ 0 → top/bottom-side vertex (retracts in x by full width)
+//   normal.x ≠ 0 → side-side vertex (retracts in y by full height)
 const CUBE_VERTICES = new Float32Array([
   // Face 0: +X (right) — normal (1, 0, 0)
   1, 0, 0,  1, 0, 0,  0,
@@ -56,6 +65,30 @@ const CUBE_VERTICES = new Float32Array([
   0, 0, 0,  0, 0, -1,  5,
   0, 1, 0,  0, 0, -1,  5,
   1, 1, 0,  0, 0, -1,  5,
+  // Face 6: TL chamfer (corner at 0,0) — faceId 6
+  // Top-side (normal 0,-1,0): x retracts 0→1. Side-side (normal -1,0,0): y retracts 0→1.
+  0, 0, 0,  0, -1, 0,  6,  // v24: top-side, z=0
+  0, 0, 0,  -1, 0, 0,  6,  // v25: side-side, z=0
+  0, 0, 1,  -1, 0, 0,  6,  // v26: side-side, z=1
+  0, 0, 1,  0, -1, 0,  6,  // v27: top-side, z=1
+  // Face 7: TR chamfer (corner at 1,0) — faceId 7
+  // Top-side (normal 0,-1,0): x retracts 1→0. Side-side (normal 1,0,0): y retracts 0→1.
+  1, 0, 0,  0, -1, 0,  7,  // v28: top-side, z=0
+  1, 0, 0,  1, 0, 0,  7,   // v29: side-side, z=0
+  1, 0, 1,  1, 0, 0,  7,   // v30: side-side, z=1
+  1, 0, 1,  0, -1, 0,  7,  // v31: top-side, z=1
+  // Face 8: BL chamfer (corner at 0,1) — faceId 8
+  // Bottom-side (normal 0,1,0): x retracts 0→1. Side-side (normal -1,0,0): y retracts 1→0.
+  0, 1, 0,  0, 1, 0,  8,   // v32: bottom-side, z=0
+  0, 1, 0,  -1, 0, 0,  8,  // v33: side-side, z=0
+  0, 1, 1,  -1, 0, 0,  8,  // v34: side-side, z=1
+  0, 1, 1,  0, 1, 0,  8,   // v35: bottom-side, z=1
+  // Face 9: BR chamfer (corner at 1,1) — faceId 9
+  // Bottom-side (normal 0,1,0): x retracts 1→0. Side-side (normal 1,0,0): y retracts 1→0.
+  1, 1, 0,  0, 1, 0,  9,   // v36: bottom-side, z=0
+  1, 1, 0,  1, 0, 0,  9,   // v37: side-side, z=0
+  1, 1, 1,  1, 0, 0,  9,   // v38: side-side, z=1
+  1, 1, 1,  0, 1, 0,  9,   // v39: bottom-side, z=1
 ]);
 
 const CUBE_INDICES = new Uint16Array([
@@ -71,18 +104,65 @@ const CUBE_INDICES = new Uint16Array([
   16, 17, 18,  16, 18, 19,
   // Face 5: -Z
   20, 21, 22,  20, 22, 23,
+  // Face 6: TL chamfer
+  24, 25, 26,  24, 26, 27,
+  // Face 7: TR chamfer
+  28, 29, 30,  28, 30, 31,
+  // Face 8: BL chamfer
+  32, 33, 34,  32, 34, 35,
+  // Face 9: BR chamfer
+  36, 37, 38,  36, 38, 39,
 ]);
 
 const VERT_STRIDE = 7 * 4; // 7 floats per vertex
-const INSTANCE_STRIDE = 5 * 4; // 5 floats per instance (vec3 pos + vec2 data)
+// 5 floats per instance (vec3 pos + vec2 data). data.y packs:
+//   bits 0-5:  face mask (FACE_* bits below)
+//   bits 8-11: corner mask (CORNER_* bits below, for slope VFX)
+const INSTANCE_STRIDE = 5 * 4;
 
-// Face mask bits (must match shader)
+// Face mask bits (must match shader) — bits 0-5 of instanceData.y
 const FACE_RIGHT  = 1 << 0; // +X
 const FACE_LEFT   = 1 << 1; // -X
 const FACE_BOTTOM = 1 << 2; // +Y
 const FACE_TOP    = 1 << 3; // -Y
 const FACE_FRONT  = 1 << 4; // +Z
 const FACE_BACK   = 1 << 5; // -Z
+
+// Corner mask bits (must match shader) — bits 8-11 of instanceData.y
+// Each bit indicates that the corresponding block corner is cut (diagonal chamfer).
+// The corner is cut only when its 2×2 cell neighborhood has exactly 1 filled cell
+// (this cell itself) — the 3-filled case does NOT cut (the contour is split
+// across cells as edge segments, not a corner cut within one cell).
+const CORNER_TL = 1 << 8; // top-left corner (x=0, y=0)
+const CORNER_TR = 1 << 9; // top-right corner (x=1, y=0)
+const CORNER_BL = 1 << 10; // bottom-left corner (x=0, y=1)
+const CORNER_BR = 1 << 11; // bottom-right corner (x=1, y=1)
+
+/** Compute the 4-bit corner mask for marching-squares slope VFX.
+ *  A corner is cut (diagonal chamfer) only when its 2×2 cell neighborhood
+ *  has EXACTLY 1 filled cell (this cell itself) — the contour then passes
+ *  entirely within this one cell. The 3-filled case does NOT cut (the
+ *  contour is split across cells as edge segments, not a corner cut).
+ *
+ *  Parameters are the "solid" state of the 8 neighbors (cardinal + diagonal),
+ *  using whatever "solid" means for the calling layer (fg: !isAirOrCrop,
+ *  bg wall: isWall, bg tree/terrain: isSolid). `self` is always filled. */
+function computeCornerMask(
+  nSolid: boolean, eSolid: boolean, sSolid: boolean, wSolid: boolean,
+  nw: boolean, ne: boolean, sw: boolean, se: boolean,
+): number {
+  const self = 1; // this block is filled
+  let mask = 0;
+  // TL: nw, n, w, self — cut only if self is the sole filled cell
+  if (((nw ? 1 : 0) + (nSolid ? 1 : 0) + (wSolid ? 1 : 0) + self) === 1) mask |= CORNER_TL;
+  // TR: n, ne, self, e
+  if (((nSolid ? 1 : 0) + (ne ? 1 : 0) + self + (eSolid ? 1 : 0)) === 1) mask |= CORNER_TR;
+  // BL: w, self, sw, s
+  if (((wSolid ? 1 : 0) + self + (sw ? 1 : 0) + (sSolid ? 1 : 0)) === 1) mask |= CORNER_BL;
+  // BR: self, e, s, se
+  if ((self + (eSolid ? 1 : 0) + (sSolid ? 1 : 0) + (se ? 1 : 0)) === 1) mask |= CORNER_BR;
+  return mask;
+}
 
 /** A foreground neighbor is "transparent" for face-culling purposes if it's
  *  air OR a crop/wild forageable block (bushes, mushrooms, ...). Those are
@@ -524,10 +604,25 @@ export class BlockGridPass3D {
           if (blockId === BLOCK_WATER) continue;
 
           let faceMask = 0;
-          if (x >= W - 1 || isAirOrCrop(foreground[y * W + (x + 1)] & 0xFF)) faceMask |= FACE_RIGHT;
-          if (x <= 0 || isAirOrCrop(foreground[y * W + (x - 1)] & 0xFF)) faceMask |= FACE_LEFT;
-          if (y >= H - 1 || isAirOrCrop(foreground[(y + 1) * W + x] & 0xFF)) faceMask |= FACE_BOTTOM;
-          if (y <= 0 || isAirOrCrop(foreground[(y - 1) * W + x] & 0xFF)) faceMask |= FACE_TOP;
+          const e = x >= W - 1 || isAirOrCrop(foreground[y * W + (x + 1)] & 0xFF);
+          const w = x <= 0 || isAirOrCrop(foreground[y * W + (x - 1)] & 0xFF);
+          const s = y >= H - 1 || isAirOrCrop(foreground[(y + 1) * W + x] & 0xFF);
+          const n = y <= 0 || isAirOrCrop(foreground[(y - 1) * W + x] & 0xFF);
+          if (e) faceMask |= FACE_RIGHT;
+          if (w) faceMask |= FACE_LEFT;
+          if (s) faceMask |= FACE_BOTTOM;
+          if (n) faceMask |= FACE_TOP;
+
+          // --- Corner mask (marching-squares slope VFX) ---
+          // Only terrain-eligible blocks get slopes; structural/utility blocks
+          // stay blocky. See computeCornerMask for the neighborhood rule.
+          if (SLOPE_ELIGIBLE.has(blockId)) {
+            const nw = (x > 0 && y > 0) ? !isAirOrCrop(foreground[(y - 1) * W + (x - 1)] & 0xFF) : false;
+            const ne = (x < W - 1 && y > 0) ? !isAirOrCrop(foreground[(y - 1) * W + (x + 1)] & 0xFF) : false;
+            const sw = (x > 0 && y < H - 1) ? !isAirOrCrop(foreground[(y + 1) * W + (x - 1)] & 0xFF) : false;
+            const se = (x < W - 1 && y < H - 1) ? !isAirOrCrop(foreground[(y + 1) * W + (x + 1)] & 0xFF) : false;
+            faceMask |= computeCornerMask(!n, !e, !s, !w, nw, ne, sw, se);
+          }
 
           if (layer === 0) {
             // Front layer (Z=0): show front face (facing camera)
@@ -571,10 +666,23 @@ export class BlockGridPass3D {
         // Trees are in layer 3 (Z=-2), not layer 4 (Z=-3), so they don't occlude
         // back wall faces — depth testing handles inter-layer occlusion.
         const isWall = (v: number) => v !== 0 && !isTreeBlock(v);
-        if (y <= 0 || !isWall(background[(y - 1) * W + x] & 0xFF)) faceMask |= FACE_TOP;
-        if (y >= H - 1 || !isWall(background[(y + 1) * W + x] & 0xFF)) faceMask |= FACE_BOTTOM;
-        if (x >= W - 1 || !isWall(background[y * W + (x + 1)] & 0xFF)) faceMask |= FACE_RIGHT;
-        if (x <= 0 || !isWall(background[y * W + (x - 1)] & 0xFF)) faceMask |= FACE_LEFT;
+        const n = y <= 0 || !isWall(background[(y - 1) * W + x] & 0xFF);
+        const s = y >= H - 1 || !isWall(background[(y + 1) * W + x] & 0xFF);
+        const e = x >= W - 1 || !isWall(background[y * W + (x + 1)] & 0xFF);
+        const w = x <= 0 || !isWall(background[y * W + (x - 1)] & 0xFF);
+        if (n) faceMask |= FACE_TOP;
+        if (s) faceMask |= FACE_BOTTOM;
+        if (e) faceMask |= FACE_RIGHT;
+        if (w) faceMask |= FACE_LEFT;
+
+        // --- Corner mask (marching-squares slope VFX) ---
+        if (SLOPE_ELIGIBLE.has(blockId)) {
+          const nw = (x > 0 && y > 0) ? isWall(background[(y - 1) * W + (x - 1)] & 0xFF) : false;
+          const ne = (x < W - 1 && y > 0) ? isWall(background[(y - 1) * W + (x + 1)] & 0xFF) : false;
+          const sw = (x > 0 && y < H - 1) ? isWall(background[(y + 1) * W + (x - 1)] & 0xFF) : false;
+          const se = (x < W - 1 && y < H - 1) ? isWall(background[(y + 1) * W + (x + 1)] & 0xFF) : false;
+          faceMask |= computeCornerMask(!n, !e, !s, !w, nw, ne, sw, se);
+        }
 
         data[idx * 5 + 0] = x;
         data[idx * 5 + 1] = y;
@@ -597,10 +705,24 @@ export class BlockGridPass3D {
         let faceMask = 0;
         faceMask |= FACE_FRONT;
         const isSolid = (v: number) => v !== 0;
-        if (y <= 0 || !isSolid(background[(y - 1) * W + x] & 0xFF)) faceMask |= FACE_TOP;
-        if (y >= H - 1 || !isSolid(background[(y + 1) * W + x] & 0xFF)) faceMask |= FACE_BOTTOM;
-        if (x >= W - 1 || !isSolid(background[y * W + (x + 1)] & 0xFF)) faceMask |= FACE_RIGHT;
-        if (x <= 0 || !isSolid(background[y * W + (x - 1)] & 0xFF)) faceMask |= FACE_LEFT;
+        const n = y <= 0 || !isSolid(background[(y - 1) * W + x] & 0xFF);
+        const s = y >= H - 1 || !isSolid(background[(y + 1) * W + x] & 0xFF);
+        const e = x >= W - 1 || !isSolid(background[y * W + (x + 1)] & 0xFF);
+        const w = x <= 0 || !isSolid(background[y * W + (x - 1)] & 0xFF);
+        if (n) faceMask |= FACE_TOP;
+        if (s) faceMask |= FACE_BOTTOM;
+        if (e) faceMask |= FACE_RIGHT;
+        if (w) faceMask |= FACE_LEFT;
+
+        // --- Corner mask (marching-squares slope VFX) ---
+        // Trees are not in SLOPE_ELIGIBLE, so only terrain blocks get slopes.
+        if (SLOPE_ELIGIBLE.has(blockId)) {
+          const nw = (x > 0 && y > 0) ? isSolid(background[(y - 1) * W + (x - 1)] & 0xFF) : false;
+          const ne = (x < W - 1 && y > 0) ? isSolid(background[(y - 1) * W + (x + 1)] & 0xFF) : false;
+          const sw = (x > 0 && y < H - 1) ? isSolid(background[(y + 1) * W + (x - 1)] & 0xFF) : false;
+          const se = (x < W - 1 && y < H - 1) ? isSolid(background[(y + 1) * W + (x + 1)] & 0xFF) : false;
+          faceMask |= computeCornerMask(!n, !e, !s, !w, nw, ne, sw, se);
+        }
 
         data[idx * 5 + 0] = x;
         data[idx * 5 + 1] = y;
