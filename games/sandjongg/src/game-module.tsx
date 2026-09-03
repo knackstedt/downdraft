@@ -311,8 +311,8 @@ export const sandjonggModule: GameModule<SandjonggGameSim> = {
         customCols: s.customCols,
         customRows: s.customRows,
         lastMatchTime: s.lastMatchTime,
-        canvasW: canvas?.width ?? window.innerWidth,
-        canvasH: canvas?.height ?? window.innerHeight,
+        canvasW: canvas?.clientWidth ?? window.innerWidth,
+        canvasH: canvas?.clientHeight ?? window.innerHeight,
       });
       statsRafId = requestAnimationFrame(statsLoop);
     };

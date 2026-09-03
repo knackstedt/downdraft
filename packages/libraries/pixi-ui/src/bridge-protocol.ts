@@ -96,6 +96,20 @@ export interface SetFontScaleMessage {
   fontScale: number;
 }
 
+/**
+ * SAB polyfill fallback: when real SharedArrayBuffer is unavailable (Android
+ * WebView), the UiStatsSAB is a polyfilled ArrayBuffer that gets structured-
+ * cloned (not shared) when passed to the worker. The worker's copy never
+ * receives the host's writes, so the host posts the raw SAB bytes each frame
+ * via this message. The worker copies them into its local SAB so
+ * `readUiStats()` returns current values. Only sent when SAB is polyfilled.
+ */
+export interface StatsSyncMessage {
+  kind: "statsSync";
+  /** Raw SAB bytes (header + float32 slots) — copied into the worker's local SAB. */
+  data: ArrayBuffer;
+}
+
 export type MainToWorkerMessage =
   | InitMessage
   | EventMessage
@@ -104,7 +118,8 @@ export type MainToWorkerMessage =
   | QuerySceneMessage
   | CaptureOverlayMessage
   | DisposeMessage
-  | SetFontScaleMessage;
+  | SetFontScaleMessage
+  | StatsSyncMessage;
 
 // --- Worker → main ---
 

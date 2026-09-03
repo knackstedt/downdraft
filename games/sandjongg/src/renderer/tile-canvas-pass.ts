@@ -119,22 +119,28 @@ export class TileCanvasPass {
 
   /** Compute tile pixel size and board offset from canvas dimensions.
    *  Tile cells are rectangular when the active tileset has a non-square
-   *  aspect ratio (e.g. riichi portrait tiles): tileW = tileH * tileAspect. */
+   *  aspect ratio (e.g. riichi portrait tiles): tileW = tileH * tileAspect.
+   *  canvasW/canvasH are backing-store pixels (CSS size × DPR). */
   computeLayout(canvasW: number, canvasH: number): void {
     const { boardCols, boardRows, tileAspect } = this.state;
     if (boardCols === 0 || boardRows === 0) return;
+    // canvasW/H are backing-store pixels (CSS × DPR). Scale layout constants
+    // by DPR so they're expressed in CSS-pixel-equivalent units — without
+    // this, the 64px cap and 70px HUD margin are tiny on high-DPR mobile
+    // displays (e.g. DPR 2 → 32 CSS px cap → tiles fill ~5% of screen).
+    const dpr = typeof window !== "undefined" ? (window.devicePixelRatio || 1) : 1;
     // Reserve top 60% of canvas for board, bottom 40% for sand pit.
-    // The top HUD (level/score/combo/tiles) occupies roughly the top 70px,
+    // The top HUD (level/score/combo/tiles) occupies roughly the top 70 CSS px,
     // so the board area starts below it to avoid overlap.
-    const HUD_TOP_MARGIN = 70;
+    const HUD_TOP_MARGIN = 70 * dpr;
     const boardAreaTop = HUD_TOP_MARGIN;
     const boardAreaH = canvasH * 0.6 - boardAreaTop;
     const maxTileW = canvasW / boardCols;
     const maxTileH = boardAreaH / boardRows;
     // Compute tileH first, then derive tileW from the aspect ratio.
     // Constraints: tileH <= maxTileH, tileW = tileH * aspect <= maxTileW,
-    // tileH <= 64 (cap), tileH >= MIN_TILE_PX.
-    const cap = 64;
+    // tileH <= cap (64 CSS px × DPR), tileH >= MIN_TILE_PX.
+    const cap = 64 * dpr;
     const tileH = Math.floor(Math.max(
       TileCanvasPass.MIN_TILE_PX,
       Math.min(cap, maxTileH, maxTileW / tileAspect),

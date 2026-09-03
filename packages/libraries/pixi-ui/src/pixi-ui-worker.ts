@@ -96,6 +96,7 @@ import {
     type Rect,
     type SceneNodeSummary,
     type SerializedPixiUiConfig,
+    type StatsSyncMessage,
     type WorkerToMainMessage,
 } from "./bridge-protocol";
 import type { PixiUiScene, PixiUiSceneContext, PixiUiSceneFactory } from "./scene";
@@ -303,6 +304,9 @@ const messageHandler = async (e: MessageEvent<MainToWorkerMessage>) => {
         break;
       case "setFontScale":
         handleSetFontScale(msg.fontScale);
+        break;
+      case "statsSync":
+        handleStatsSync(msg);
         break;
     }
   } catch (err) {
@@ -546,6 +550,19 @@ function handlePointer(msg: { type: string; x: number; y: number; button: number
   // _onPointerUp checks `nativeEvent.target !== this.domElement` to decide
   // whether the pointerup is "outside" (which prevents click registration).
   const domElement = eventSystem.domElement;
+  // PixiJS's mapPositionToPoint() uses domElement.getBoundingClientRect() to
+  // map clientX/Y to scene coordinates. OffscreenCanvas (in a worker) has no
+  // getBoundingClientRect(), so PixiJS falls back to a rect with
+  // width=domElement.width (backing-store px, e.g. 2801) instead of CSS px
+  // (e.g. 1318). This makes the mapping: point = clientX * (1/resolution),
+  // which scales coordinates to ~47% of their correct value on HiDPI displays.
+  // To compensate, multiply the host's CSS-pixel coordinates by the renderer's
+  // resolution before passing them to PixiJS. The (1/resolution) in
+  // mapPositionToPoint then cancels out, yielding the correct CSS-pixel scene
+  // coordinates.
+  const resolution = (app.renderer as any).resolution ?? 1;
+  const px = msg.x * resolution;
+  const py = msg.y * resolution;
   const syntheticEvent = {
     // `type` is read by _bootstrapEvent: it checks event.type.startsWith("mouse")
     // and replaces "mouse" with "pointer". We pass "pointerdown" etc. directly
@@ -554,8 +571,8 @@ function handlePointer(msg: { type: string; x: number; y: number; button: number
     type: msg.type,
     pointerId: 1,
     pointerType: "mouse",
-    clientX: msg.x,
-    clientY: msg.y,
+    clientX: px,
+    clientY: py,
     button: msg.button,
     buttons: msg.type === "pointerdown" ? (msg.button === 0 ? 1 : msg.button === 2 ? 2 : 4) : 0,
     shiftKey: (msg.modifiers & 1) !== 0,
@@ -567,10 +584,12 @@ function handlePointer(msg: { type: string; x: number; y: number; button: number
     nativeEvent: null,
     isTrusted: true,
     // PixiJS reads offsetX/offsetY from the canvas; we pass clientX/Y as both.
-    offsetX: msg.x,
-    offsetY: msg.y,
-    pageX: msg.x,
-    pageY: msg.y,
+    // These are in backing-store px (CSS × resolution) to match the clientX/Y
+    // above — see the resolution comment for why this is necessary.
+    offsetX: px,
+    offsetY: py,
+    pageX: px,
+    pageY: py,
     // _onPointerUp checks target === domElement to determine if the pointerup
     // is "inside" (enabling click). Without these, pointerup becomes
     // "pointerupoutside" and clicks never fire.
@@ -668,6 +687,16 @@ function handleSetFontScale(scale: number): void {
   // Force a regions update since text sizes may have changed.
   lastRegionsKey = "";
   lastOpaqueKey = "";
+}
+
+// ── Stats sync (SAB polyfill fallback) ──
+
+function handleStatsSync(msg: StatsSyncMessage): void {
+  if (!uiStatsSab) return;
+  // SAB polyfill: the worker's UiStatsSAB is a separate ArrayBuffer (not
+  // shared with the main thread). Copy the received bytes into the local SAB
+  // so readUiStats() returns current values on the next tick.
+  new Uint8Array(uiStatsSab).set(new Uint8Array(msg.data));
 }
 
 // ── Scene state query (for MCP) ──

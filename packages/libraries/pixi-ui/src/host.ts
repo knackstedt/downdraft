@@ -9,6 +9,7 @@
 // using the escape hatch.
 // ============================================================================
 
+import { usingRealSAB } from "@downdraft/core/sab/sab-polyfill";
 import {
     DEFAULT_STATS_LAYOUT,
     serializeConfig,
@@ -308,6 +309,20 @@ export class PixiUiHost {
   writeStats(values: Record<string, number>): void {
     if (!this.uiStatsSab) return;
     writeUiStats(this.uiStatsSab, this.config.statsLayout!, values);
+    // SAB polyfill: the worker's UiStatsSAB is a separate ArrayBuffer (not
+    // shared memory), so writes here don't reach it. Post the raw bytes so
+    // the worker can copy them into its local SAB. On real SAB, the worker
+    // reads shared memory directly and this message is never sent.
+    if (!usingRealSAB && this.worker && !this.disposed) {
+      // Copy the SAB bytes into a standalone ArrayBuffer for transfer.
+      // (this.uiStatsSab is a polyfilled ArrayBuffer at runtime, but typed
+      // as SharedArrayBuffer — slice() returns SharedArrayBuffer which isn't
+      // assignable to ArrayBuffer, so we copy via Uint8Array.)
+      const bytes = new Uint8Array(this.uiStatsSab.byteLength);
+      bytes.set(new Uint8Array(this.uiStatsSab));
+      const msg: MainToWorkerMessage = { kind: "statsSync", data: bytes.buffer };
+      this.worker.postMessage(msg, [bytes.buffer]);
+    }
   }
 
   /** Post a game event to the worker (structured-clone postMessage). */
