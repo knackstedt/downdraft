@@ -40,12 +40,16 @@ import type { GameContext } from "../renderer/game-module";
 import { startGame, type GameModule, type GameSimWorker } from "../renderer/game-module";
 import { createMobileBridge } from "./mobile-bridge";
 import { TouchInputAdapter, type TouchInputScheme } from "./touch-input-adapter";
+import { InputBufferWriterSink, NullTouchInputSink, type TouchInputSink } from "./touch-input-sink";
+import { TouchOsd, type TouchOsdButtonId } from "./touch-osd";
 import { checkWebGpuAndIsolation, showUnsupportedDeviceScreen } from "./webgpu-guard";
 
 const log = createLogger("info");
 
 export { createMobileBridge } from "./mobile-bridge";
 export { TouchInputAdapter, type TouchInputScheme } from "./touch-input-adapter";
+export { InputBufferWriterSink, NullTouchInputSink, type MovementState, type TouchInputSink } from "./touch-input-sink";
+export { TouchOsd, type TouchOsdButtonId } from "./touch-osd";
 export { checkWebGpuAndIsolation, showUnsupportedDeviceScreen } from "./webgpu-guard";
 
 /**
@@ -71,6 +75,21 @@ export interface TouchInputConfig {
   joystickDeadZone?: number;
   /** Sensitivity multiplier for drag-look. Default: 1.0. */
   lookSensitivity?: number;
+  /** Game-provided custom sink (writes to game-specific input state instead
+   *  of the engine InputBufferWriter). Bypasses the default
+   *  `tryGetInputWriter` lookup. Use this when the sink can be constructed
+   *  without the game context. */
+  sink?: TouchInputSink;
+  /** Game-provided sink factory (deferred until `onReady`, when `ctx.renderer`
+   *  is available). Preferred over `sink` for games whose sink needs the
+   *  renderer (e.g. overburden's `BlockheadsInputSink`). */
+  sinkFactory?: (ctx: GameContext) => TouchInputSink;
+  /** Enable the on-screen display (joystick + action buttons).
+   *  - `true`: render the joystick + a default button set (jump, mine, place,
+   *    zoom-in, zoom-out).
+   *  - `TouchOsdButtonId[]`: render the joystick + the specified buttons.
+   *  - omitted/`false`: no OSD (joystick + buttons handled by touch alone). */
+  osd?: boolean | TouchOsdButtonId[];
 }
 
 /**
@@ -134,9 +153,12 @@ export async function createDowndraftMobileApp<Sim extends GameSimWorker>(
       }
     : config.module;
 
-  // 4. Wrap the module's onReady to attach touch input + call the mobile onReady.
+  // 4. Wrap the module's onReady to attach touch input + OSD + call the
+  //    mobile onReady. Also wrap onDispose to tear down the OSD.
   const originalOnReady = module.onReady;
+  const originalOnDispose = module.onDispose;
   let touchAdapter: TouchInputAdapter | null = null;
+  let touchOsd: TouchOsd | null = null;
 
   module.onReady = async (ctx: GameContext<Sim>) => {
     await originalOnReady?.(ctx);
@@ -144,22 +166,55 @@ export async function createDowndraftMobileApp<Sim extends GameSimWorker>(
     // Attach touch input adapter if configured.
     if (config.touchInput) {
       touchAdapter = new TouchInputAdapter(ctx.canvas, config.touchInput);
-      // The input writer is created by the game and exposed via ctx.
-      // Games typically store it on the renderer or a game-specific object.
-      // We attempt to get it from the renderer's input handler.
-      const writer = tryGetInputWriter(ctx);
-      if (writer) {
-        touchAdapter.attach(writer);
+
+      // Resolve the sink in priority order:
+      //   1. config.touchInput.sinkFactory(ctx)  — deferred, needs ctx.renderer
+      //   2. config.touchInput.sink              — static, constructed early
+      //   3. tryGetInputWriter(ctx) → InputBufferWriterSink  — engine SAB games
+      //   4. NullTouchInputSink                  — no-op (warn)
+      let sink: TouchInputSink | null = null;
+      if (config.touchInput.sinkFactory) {
+        sink = config.touchInput.sinkFactory(ctx);
+      } else if (config.touchInput.sink) {
+        sink = config.touchInput.sink;
+      } else {
+        const writer = tryGetInputWriter(ctx);
+        if (writer) {
+          sink = new InputBufferWriterSink(writer);
+        }
+      }
+
+      if (sink) {
+        touchAdapter.attachSink(sink);
       } else {
         log.warn(
           "mobile",
-          "TouchInputAdapter: could not find InputBufferWriter on the game context. " +
-            "Ensure the game exposes it via ctx.renderer.getInputWriter() or ctx.sim.",
+          "TouchInputAdapter: could not find an input sink. Provide `touchInput.sink`/" +
+            "`sinkFactory`, or ensure the game exposes an InputBufferWriter via " +
+            "ctx.renderer.getInputWriter() / .inputWriter / .inputHandler?.inputWriter. " +
+            "Falling back to a no-op sink — touch will not control the game.",
         );
+        touchAdapter.attachSink(new NullTouchInputSink());
+      }
+
+      // Attach the on-screen display if configured.
+      if (config.touchInput.osd) {
+        const buttons: TouchOsdButtonId[] = config.touchInput.osd === true
+          ? ["jump", "mine", "place", "zoom-in", "zoom-out"]
+          : config.touchInput.osd;
+        touchOsd = new TouchOsd({ adapter: touchAdapter, buttons });
       }
     }
 
     await config.onReady?.(ctx);
+  };
+
+  module.onDispose = async (ctx) => {
+    // Tear down mobile-only resources first (before the game's onDispose
+    // shuts down the renderer the adapter listens to).
+    if (touchOsd) { touchOsd.dispose(); touchOsd = null; }
+    if (touchAdapter) { touchAdapter.detach(); touchAdapter = null; }
+    await originalOnDispose?.(ctx);
   };
 
   // 5. Start the game.
