@@ -112,7 +112,7 @@ export type { XRControllerState } from "./input/state";
 export { VirtualFS } from "./platform/fs";
 export { HDRManager } from "./platform/hdr";
 export type { HDRConfig, HDRMode } from "./platform/hdr";
-export { HiDPIManager } from "./platform/hidpi";
+export { getDpr, HiDPIManager } from "./platform/hidpi";
 export { Lifecycle } from "./platform/lifecycle";
 export { RPC } from "./platform/rpc";
 export type { RPCHandler, RPCMessage, RPCMessageType } from "./platform/rpc";

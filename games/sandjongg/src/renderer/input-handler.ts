@@ -6,6 +6,8 @@
 // viewport. Pan deltas are accumulated and consumed by the renderer each frame.
 // ============================================================================
 
+import { getDpr } from "@downdraft/core";
+
 export interface InputHandler {
   mouseX: number;
   mouseY: number;
@@ -41,7 +43,7 @@ export function createInputHandler(canvas: HTMLCanvasElement): InputHandler {
 
   const getCanvasPos = (e: PointerEvent): { x: number; y: number } => {
     const rect = canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = getDpr();
     return {
       x: (e.clientX - rect.left) * dpr,
       y: (e.clientY - rect.top) * dpr,

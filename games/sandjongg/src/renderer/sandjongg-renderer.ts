@@ -2,7 +2,7 @@
 // SandjonggRenderer — orchestrates the WebGPU sand pass + Canvas2D tile pass.
 // ============================================================================
 
-import { GameRenderer } from "@downdraft/core";
+import { GameRenderer, getDpr } from "@downdraft/core";
 import { MATERIALS } from "@downdraft/library-sand";
 import { computeGridDims, MAX_LAYERS, MAX_TILES } from "../shared/constants";
 import { BOARD_ELEMENT_OFFSET, BOARD_META_OFFSET, SimBufferReader, STATS } from "../shared/sim-buffer";
@@ -337,7 +337,7 @@ export class SandjonggRenderer extends GameRenderer {
   }
 
   private resizeTileCanvas(): void {
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = getDpr();
     const w = Math.floor(window.innerWidth * dpr);
     const h = Math.floor(window.innerHeight * dpr);
     this.tileCanvas.width = w;

@@ -6,6 +6,7 @@
 // are drawn over the tile face for both kinds.
 // ============================================================================
 
+import { getDpr } from "@downdraft/core";
 import { MAX_LAYERS } from "../shared/constants";
 import { getTileDef, type TileTheme, type TilesetId } from "../shared/tilesets";
 import type { BoardPoint, GameMode, Path } from "../shared/types";
@@ -128,7 +129,7 @@ export class TileCanvasPass {
     // by DPR so they're expressed in CSS-pixel-equivalent units — without
     // this, the 64px cap and 70px HUD margin are tiny on high-DPR mobile
     // displays (e.g. DPR 2 → 32 CSS px cap → tiles fill ~5% of screen).
-    const dpr = typeof window !== "undefined" ? (window.devicePixelRatio || 1) : 1;
+    const dpr = getDpr();
     // Reserve top 60% of canvas for board, bottom 40% for sand pit.
     // The top HUD (level/score/combo/tiles) occupies roughly the top 70 CSS px,
     // so the board area starts below it to avoid overlap.
