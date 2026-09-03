@@ -52,12 +52,6 @@
       "@downdraft/library-water/*": [
         "./packages/libraries/water/src/*"
       ],
-      "@downdraft/library-undertow": [
-        "./packages/libraries/undertow/src/index.ts"
-      ],
-      "@downdraft/library-undertow/*": [
-        "./packages/libraries/undertow/src/*"
-      ],
       "@downdraft/library-physics-rapier": [
         "./packages/libraries/physics-rapier/src/index.ts"
       ],

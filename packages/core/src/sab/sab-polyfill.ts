@@ -19,7 +19,7 @@
 //     non-atomic reads/writes, which is correct for the copy-based protocol
 //     (each side has its own buffer copy — no concurrent access).
 //   - Only `Atomics.wait` throws on non-SAB arrays. It's only used in
-//     electron-osr (Electron-only) and undertow (not used by mobile games).
+//     electron-osr (Electron-only, not used by mobile games).
 //     We shim it to return "timed-out" as a safety net.
 //
 // This file must be imported BEFORE any code that references SharedArrayBuffer.
@@ -41,7 +41,7 @@ if (!usingRealSAB) {
 
   // Shim Atomics.wait — only wait throws on non-SAB arrays.
   // load/add/store/store/notify all work without throwing on ArrayBuffer.
-  // wait is only used by electron-osr and undertow (neither on mobile).
+  // wait is only used by electron-osr (not on mobile).
   (Atomics as any).wait = () => "timed-out" as const;
 
   // Debug identifier — detectable from console/devtools.

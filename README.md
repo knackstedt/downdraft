@@ -100,7 +100,6 @@ Engine libraries export `EngineLibrary` descriptors (e.g. `WaterLib`, `PhysicsRa
 | `@downdraft/library-gaussian-splats` | Gaussian splat rendering |
 | `@downdraft/library-sand` | Falling-sand simulation |
 | `@downdraft/library-stickman` | Stickman character system |
-| `@downdraft/library-undertow` | Worker-side UI (Solid-in-worker DOM sync) |
 
 ### Engine modules (`packages/modules/`)
 

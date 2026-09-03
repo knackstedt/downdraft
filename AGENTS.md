@@ -6,7 +6,7 @@
 
 The engine is split into **core + libraries** (standard engine building blocks, used directly by games) vs **modules** (opt-in game features with lifecycle + typed DI + diagnostics). The `@downdraft/core` package also includes animation, particles, and imui subsystems directly (these were previously separate `@downdraft/library-*` packages but have been folded into core).
 
-- **Engine libraries** (namespace `@downdraft/library-*`, located in `packages/libraries/`): packages that export classes/functions without a module lifecycle. Games can either import and wire these directly, or declare them via `EngineLibrary` descriptors in `GameModule.libraries[]` for auto-wiring (SAB allocation, sim system creation, renderer pass creation, typed DI tokens). Engine libraries: water, physics-rapier, physics-native, marching-cubes, surface-nets, audio-kira, models, networking, weatherfx, undertow, pixi-ui, entities, lighting, weather, navmesh, recast, persistence, gaussian-splats, sand, stickman, profiler.
+- **Engine libraries** (namespace `@downdraft/library-*`, located in `packages/libraries/`): packages that export classes/functions without a module lifecycle. Games can either import and wire these directly, or declare them via `EngineLibrary` descriptors in `GameModule.libraries[]` for auto-wiring (SAB allocation, sim system creation, renderer pass creation, typed DI tokens). Engine libraries: water, physics-rapier, physics-native, marching-cubes, surface-nets, audio-kira, models, networking, weatherfx, pixi-ui, entities, lighting, weather, navmesh, recast, persistence, gaussian-splats, sand, stickman, profiler.
 - **Engine modules** (namespace `@downdraft/module-*`, located in `packages/modules/`): packages that implement the `Module` or `RendererModule` interface with a `register()` lifecycle + typed DI. Engine modules: camera-controls, devtools, electron-osr, mcp, xr, terrain, movement-3d, movement-2d, sailing.
 - **Game modules** (namespace `@to-the-ocean/module-*`, located in `games/<game>/modules/`): game-specific features with a module lifecycle. Game modules: crafting, inventory, buoyancy, collision, wildlife.
 - **Game libraries** (namespace `@to-the-ocean/library-*`, located in `games/<game>/libraries/`): game-specific pure libraries without a module lifecycle. Game libraries: boats, economy, fishing, items, survival.
@@ -237,8 +237,6 @@ Dead code removed during migration:
 - `src/solid/` — deleted from mining-rpg (old Solid-in-worker path; bridge types moved to `src/pixi/bridge-protocol.ts`).
 - `solid-js` + `vite-plugin-solid` deps removed from mining-rpg `package.json`.
 - `@floating-ui/react`, `lucide-react`, `framer-motion` deps removed from to-the-ocean `package.json`.
-
-**Known test gap:** `tests/e2e/undertow-ui.spec.ts` tests to-the-ocean's DOM UI via `get_ui_state` / `get_element_bounds` MCP tools, which query the DOM. Since the UI moved to PixiJS, these DOM elements no longer exist. These tests need to be rewritten to use `pixi_get_scene_state` (which queries the PixiJS scene graph) instead of DOM queries.
 
 ### MCP automation tools
 
@@ -824,20 +822,16 @@ it("no uncaught JS errors during the test run", async () => {
 When verifying changes, always:
 1. Run `bun run tsc` — type-check both web and node configs
 2. Run the e2e test with `DOWNDRAFT_GPU=swiftshader` (CPU rendering for CI)
-3. Grep the full test output for error patterns: `grep -E "Uncaught|TypeError|ReferenceError|WrongDocumentError|is not a function|is not defined" /tmp/undertow-test-*.log`
-4. Do NOT ignore errors that appear "during teardown" — they may indicate real bugs (e.g. React trying to render on detached DOM nodes, uncaught Promise rejections from `requestPointerLock()`)
+3. Grep the full test output for error patterns: `grep -E "Uncaught|TypeError|ReferenceError|WrongDocumentError|is not a function|is not defined" /tmp/downdraft-test-*.log`
+4. Do NOT ignore errors that appear "during teardown" — they may indicate real bugs (e.g. uncaught Promise rejections from `requestPointerLock()`)
 
 Common false positives to filter out: Chromium storage errors (`ERROR:components/services/storage`, `ERROR:storage/browser`), GTK module warnings, WebSocket connection failures during teardown, `session.loadExtension` deprecation warnings.
 
 ### E2E test gotchas
 
 - **MCP port conflicts**: If a previous test run didn't clean up, port 9977 may still be in use. Free it with `fuser -k 9977/tcp`, then kill **only the specific game instance** as described in "Killing game processes" above — do NOT use a generic `pkill -9 -f electron` (it will kill unrelated Electron apps).
-- **Save store hangs in test environments**: `createSaveStore()` can hang when OPFS is not available (SwiftShader/headless). The MCP harness (`setupTtolMcp`) must be registered BEFORE the save store init so e2e tests can connect. The harness's `dispatch_key` / `get_ui_state` tools only need the renderer + store, not the sim SAB.
-- **Undertow worker event pump**: The worker's `onKey` handler reads `useGameStore.getState()` to decide which action to dispatch. Store-syncs from the main thread are async (throttled to ~16ms), so the worker may read stale state. The store bridge applies optimistic updates for toggle actions and skips syncing toggle state keys for 200ms after an optimistic update to prevent stale overwrites.
+- **Save store hangs in test environments**: `createSaveStore()` can hang when OPFS is not available (SwiftShader/headless). The MCP harness must be registered BEFORE the save store init so e2e tests can connect.
 - **`requestPointerLock()` returns a Promise in newer Chrome**: The Promise can reject with `WrongDocumentError` if the canvas was detached or during ESC cooldown. Always `.catch()` the return value to avoid uncaught rejections.
-- **Undertow DOM polyfill node type caching**: `wrapSyncNode` must NOT do a `callSync` round-trip for every uncached node — this adds seconds of latency when React renders a menu (dozens of elements). Instead, cache the node type in `createElement`/`createTextNode`/`createComment` and default to `SyncElement` for uncached handles (the most common case). `getSyncElement` must also upgrade cached `SyncNode`s to `SyncElement`s when accessed via `getSyncElement` (the cache may have a `SyncNode` from `firstChild`/`childNodes` that needs `setAttribute`).
-- **Renderer stub in worker**: The worker's `useGameStore` needs a Proxy-based renderer stub that forwards `lockPointer`/`exitPointerLock` to the main thread via `postMessage` and returns safe defaults for other methods (`getFPS` → 0, settings setters → no-op). Without this, `togglePauseMenu`'s `lockPointer()` call is a no-op in the worker, and `app.tsx`'s FPS polling throws `renderer.getFPS is not a function` every 500ms.
-- **Inventory panel height**: The inventory grid is 20×15 cells × 28px = ~8400px tall. The panel needs `max-h-[80vh] overflow-y-auto` to constrain it, otherwise it renders at 8k+ pixels.
 
 ### Why not a WebGL2 fallback?
 

@@ -141,8 +141,6 @@ export function createDowndraftMobileViteConfig(
     { find: /^@downdraft\/module-sailing\//, replacement: resolve(repoRoot, "packages/modules/sailing/src") + "/" },
     { find: /^@downdraft\/module-camera-controls$/, replacement: resolve(repoRoot, "packages/modules/camera-controls/src/index.ts") },
     { find: /^@downdraft\/module-camera-controls\//, replacement: resolve(repoRoot, "packages/modules/camera-controls/src") + "/" },
-    { find: /^@downdraft\/library-undertow$/, replacement: resolve(repoRoot, "packages/libraries/undertow/src/index.ts") },
-    { find: /^@downdraft\/library-undertow\//, replacement: resolve(repoRoot, "packages/libraries/undertow/src") + "/" },
     { find: /^node:fs$/, replacement: resolve(repoRoot, "packages/app/src/renderer-shims/fs.ts") },
     { find: /^fs$/, replacement: resolve(repoRoot, "packages/app/src/renderer-shims/fs.ts") },
     { find: /^node:path$/, replacement: resolve(repoRoot, "packages/app/src/renderer-shims/path.ts") },
