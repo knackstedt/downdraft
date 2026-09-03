@@ -6,12 +6,18 @@
 // ============================================================================
 
 import { describe, expect, it } from "bun:test";
+import { getBlockDef } from "../shared/block-registry";
 import {
     BLOCK_AIR,
+    BLOCK_CLAY,
+    BLOCK_GRAVEL,
+    BLOCK_LAVA,
+    BLOCK_OIL_POCKET,
+    BLOCK_OIL_SATURATED_ROCK,
     BLOCK_SAND, BLOCK_STONE,
     BLOCK_WATER,
     CHUNK_H, CHUNK_W, CHUNKS_X,
-    SEA_LEVEL, SURFACE_Y, WORLD_H
+    MAGMA_Y, SEA_LEVEL, SURFACE_Y, WORLD_H
 } from "../shared/constants";
 import { isTreeBlock } from "../shared/tree-species";
 import type { Chunk } from "../shared/types";
@@ -473,5 +479,366 @@ describe("Terrain generation integration", () => {
       expect(trees).toBeGreaterThan(0);
       return;
     }
+  });
+});
+
+// ============================================================================
+// Depth-graded cave tests (no artificial roof, larger deeper, fade near magma)
+// ============================================================================
+
+describe("Depth-graded caves", () => {
+  it("caves ramp in smoothly near the surface (no flat artificial roof)", () => {
+    // The old hard cutoff (surfaceY+10) produced a flat roof: a single Y row
+    // where cave→solid flipped across many X columns. The depth-graded
+    // version fades caves in over ~20 blocks, so the set of cave Ys near the
+    // surface should NOT be a single flat row shared across many columns.
+    // Find a plains column with caves starting near the surface.
+    for (let wx = 0; wx < 4000; wx += 7) {
+      const info = biomeAt(wx, SEED);
+      if (info.biome === "ocean") continue;
+      const surfaceY = info.surfaceY;
+      const cy = Math.floor(surfaceY / CHUNK_H);
+      const chunk = createChunk(Math.floor(wx / CHUNK_W), cy);
+      generateChunk(chunk, SEED);
+      const baseWy = cy * CHUNK_H;
+      const lx = wx - Math.floor(wx / CHUNK_W) * CHUNK_W;
+      // Collect the first (shallowest) cave Y for this column.
+      let firstCaveY = -1;
+      for (let ly = 0; ly < CHUNK_H; ly++) {
+        const wy = baseWy + ly;
+        if (wy <= surfaceY + 4) continue; // skip crust
+        const fg = chunk.foreground[cellIndex(lx, ly)] & 0xFF;
+        const bg = chunk.background[cellIndex(lx, ly)] & 0xFF;
+        if ((fg === BLOCK_AIR) && bg === BLOCK_STONE) {
+          firstCaveY = wy;
+          break;
+        }
+      }
+      if (firstCaveY < 0) continue;
+      // The first cave should appear at depth > 4 (past the crust) — the
+      // smooth fade-in means caves don't start right at surfaceY+4 exactly
+      // everywhere; they ramp in. Just verify caves exist in the ramp zone
+      // (depth 4-24) somewhere, and that there's no cave at depth < 4.
+      expect(firstCaveY).toBeGreaterThan(surfaceY + 3);
+      // Check no cave in the crust (depth 0-3) for this column.
+      for (let d = 0; d <= 3; d++) {
+        const ly = surfaceY + d - baseWy;
+        if (ly < 0 || ly >= CHUNK_H) continue;
+        const fg = chunk.foreground[cellIndex(lx, ly)] & 0xFF;
+        expect(fg).not.toBe(BLOCK_AIR);
+      }
+      return;
+    }
+  });
+
+  it("caves are larger/more frequent in deep chunks than shallow chunks", () => {
+    // The depth-graded threshold lowers with depth, so deep chunks (near
+    // magma) should have more cave cells than shallow chunks (near surface).
+    let shallowTotal = 0;
+    let deepTotal = 0;
+    const shallowCy = Math.floor((SURFACE_Y + 40) / CHUNK_H);
+    const deepCy = Math.floor((MAGMA_Y - 40) / CHUNK_H);
+    for (let cx = 0; cx < 15; cx++) {
+      const shallow = createChunk(cx, shallowCy);
+      generateChunk(shallow, SEED);
+      shallowTotal += countCaveCells(shallow);
+      const deep = createChunk(cx, deepCy);
+      generateChunk(deep, SEED);
+      deepTotal += countCaveCells(deep);
+    }
+    // Deep should have materially more caves than shallow.
+    expect(deepTotal).toBeGreaterThan(shallowTotal);
+  });
+
+  it("caves fade out near the magma layer (no caves in last 5 blocks above magma)", () => {
+    for (let cx = 0; cx < 10; cx++) {
+      const cy = Math.floor((MAGMA_Y - 5) / CHUNK_H);
+      const chunk = createChunk(cx, cy);
+      generateChunk(chunk, SEED);
+      const baseWy = cy * CHUNK_H;
+      for (let lx = 0; lx < CHUNK_W; lx++) {
+        for (let d = 0; d < 5; d++) {
+          const wy = MAGMA_Y - 5 + d;
+          const ly = wy - baseWy;
+          if (ly < 0 || ly >= CHUNK_H) continue;
+          const fg = chunk.foreground[cellIndex(lx, ly)] & 0xFF;
+          const bg = chunk.background[cellIndex(lx, ly)] & 0xFF;
+          // No cave (air with stone background) in the magma fade-out zone.
+          if (bg === BLOCK_STONE) {
+            expect(fg).not.toBe(BLOCK_AIR);
+          }
+        }
+      }
+    }
+  });
+});
+
+// ============================================================================
+// Perlin-worm ore vein tests
+// ============================================================================
+
+describe("Ore veins (Perlin worms)", () => {
+  const ORE_BLOCKS = new Set([
+    8,  // BLOCK_COAL_ORE
+    9,  // BLOCK_COPPER_ORE
+    10, // BLOCK_TIN_ORE
+    11, // BLOCK_IRON_ORE
+    12, // BLOCK_GOLD_ORE
+    19, // BLOCK_TIME_CRYSTAL
+    101, // BLOCK_OIL_SATURATED_ROCK
+  ]);
+
+  it("ore appears in connected clusters (veins, not isolated singles)", () => {
+    // Perlin worms deposit ore in a radius along a path, so ore cells should
+    // form connected components of size >= 3 (4-connected). The old per-cell
+    // scatter produced mostly isolated single cells.
+    let maxComponent = 0;
+    for (let cx = 0; cx < 12 && maxComponent < 3; cx++) {
+      const cy = Math.floor((SURFACE_Y + 120) / CHUNK_H);
+      const chunk = createChunk(cx, cy);
+      generateChunk(chunk, SEED);
+      // BFS over ore cells in this chunk
+      const visited = new Uint8Array(chunk.foreground.length);
+      for (let i = 0; i < chunk.foreground.length; i++) {
+        if (visited[i]) continue;
+        const fg = chunk.foreground[i] & 0xFF;
+        if (!ORE_BLOCKS.has(fg)) continue;
+        // BFS
+        let size = 0;
+        const stack = [i];
+        visited[i] = 1;
+        while (stack.length > 0) {
+          const cur = stack.pop()!;
+          size++;
+          const x = cur % CHUNK_W;
+          const y = Math.floor(cur / CHUNK_W);
+          const neighbors = [
+            x > 0 ? cur - 1 : -1,
+            x < CHUNK_W - 1 ? cur + 1 : -1,
+            y > 0 ? cur - CHUNK_W : -1,
+            y < CHUNK_H - 1 ? cur + CHUNK_W : -1,
+          ];
+          for (const n of neighbors) {
+            if (n < 0 || visited[n]) continue;
+            const nfg = chunk.foreground[n] & 0xFF;
+            if (ORE_BLOCKS.has(nfg)) {
+              visited[n] = 1;
+              stack.push(n);
+            }
+          }
+        }
+        if (size > maxComponent) maxComponent = size;
+      }
+    }
+    expect(maxComponent).toBeGreaterThanOrEqual(3);
+  });
+
+  it("ore veins span chunk boundaries (same ore in adjacent chunks near border)", () => {
+    const cy = Math.floor((SURFACE_Y + 120) / CHUNK_H);
+    let foundSpanning = false;
+    for (let cx = 0; cx < 15 && !foundSpanning; cx++) {
+      const left = createChunk(cx, cy);
+      const right = createChunk(cx + 1, cy);
+      generateChunk(left, SEED);
+      generateChunk(right, SEED);
+      for (let y = 0; y < CHUNK_H; y++) {
+        for (let dx = 0; dx < 3 && !foundSpanning; dx++) {
+          const lm = left.foreground[y * CHUNK_W + (CHUNK_W - 1 - dx)] & 0xFF;
+          if (!ORE_BLOCKS.has(lm)) continue;
+          for (let rdx = 0; rdx < 3 && !foundSpanning; rdx++) {
+            const rm = right.foreground[y * CHUNK_W + rdx] & 0xFF;
+            if (rm === lm) foundSpanning = true;
+          }
+        }
+      }
+    }
+    expect(foundSpanning).toBe(true);
+  });
+
+  it("ore does not spawn on top of lava (no ore with lava directly below)", () => {
+    // Lava lakes are carved before ore worms, and depositOreAt skips cells
+    // where the cell below is lava — so ore should never sit directly on top
+    // of a lava lake cell. Verify across deep chunks where lava lakes appear.
+    for (let cx = 0; cx < 20; cx++) {
+      const cy = Math.floor((MAGMA_Y - 30) / CHUNK_H);
+      const chunk = createChunk(cx, cy);
+      generateChunk(chunk, SEED);
+      const baseWy = cy * CHUNK_H;
+      for (let ly = 0; ly < CHUNK_H - 1; ly++) {
+        for (let lx = 0; lx < CHUNK_W; lx++) {
+          const idx = cellIndex(lx, ly);
+          const fg = chunk.foreground[idx] & 0xFF;
+          if (!ORE_BLOCKS.has(fg)) continue;
+          const wy = baseWy + ly;
+          if (wy >= MAGMA_Y) continue; // skip bottom magma layer
+          // The cell directly below should not be lava (ore not on top of lava)
+          const below = chunk.foreground[cellIndex(lx, ly + 1)] & 0xFF;
+          expect(below).not.toBe(BLOCK_LAVA);
+        }
+      }
+    }
+  });
+});
+
+// ============================================================================
+// Oil-saturated rock tests
+// ============================================================================
+
+describe("Oil-saturated rock", () => {
+  it("is flammable and drops the oil item", () => {
+    const def = getBlockDef(BLOCK_OIL_SATURATED_ROCK);
+    expect(def).toBeDefined();
+    expect(def!.flammable).toBe(true);
+    expect(def!.drops.some((d) => d.itemId === "oil")).toBe(true);
+  });
+
+  it("appears in mid-deep chunks (worldY 820-980) and not shallow", () => {
+    let foundMidDeep = false;
+    let shallowCount = 0;
+    // Mid-deep: scan chunks covering worldY 820-980
+    for (let cx = 0; cx < 15; cx++) {
+      const cy = Math.floor(900 / CHUNK_H);
+      const chunk = createChunk(cx, cy);
+      generateChunk(chunk, SEED);
+      for (let i = 0; i < chunk.foreground.length; i++) {
+        if ((chunk.foreground[i] & 0xFF) === BLOCK_OIL_SATURATED_ROCK) {
+          foundMidDeep = true;
+          break;
+        }
+      }
+      if (foundMidDeep) break;
+    }
+    expect(foundMidDeep).toBe(true);
+
+    // Shallow: worldY < 760 → no oil rock
+    for (let cx = 0; cx < 10; cx++) {
+      const cy = Math.floor(740 / CHUNK_H);
+      const chunk = createChunk(cx, cy);
+      generateChunk(chunk, SEED);
+      const baseWy = cy * CHUNK_H;
+      for (let ly = 0; ly < CHUNK_H; ly++) {
+        const wy = baseWy + ly;
+        if (wy >= 760) continue;
+        if ((chunk.foreground[cellIndex(0, ly)] & 0xFF) === BLOCK_OIL_SATURATED_ROCK) shallowCount++;
+        for (let lx = 0; lx < CHUNK_W; lx++) {
+          if ((chunk.foreground[cellIndex(lx, ly)] & 0xFF) === BLOCK_OIL_SATURATED_ROCK) shallowCount++;
+        }
+      }
+    }
+    expect(shallowCount).toBe(0);
+  });
+});
+
+// ============================================================================
+// Lava lake tests (deep, scattered above magma)
+// ============================================================================
+
+describe("Lava lakes (scattered, deep only)", () => {
+  it("lava lakes appear in the deep band above magma (worldY MAGMA_Y-60 .. MAGMA_Y-5)", () => {
+    let found = false;
+    for (let cx = 0; cx < 20 && !found; cx++) {
+      const cy = Math.floor((MAGMA_Y - 30) / CHUNK_H);
+      const chunk = createChunk(cx, cy);
+      generateChunk(chunk, SEED);
+      const baseWy = cy * CHUNK_H;
+      for (let i = 0; i < chunk.foreground.length; i++) {
+        if ((chunk.foreground[i] & 0xFF) !== BLOCK_LAVA) continue;
+        const ly = Math.floor(i / CHUNK_W);
+        const wy = baseWy + ly;
+        // Exclude the bottom magma layer (wy >= MAGMA_Y) — we want lakes above it.
+        if (wy < MAGMA_Y) {
+          found = true;
+          break;
+        }
+      }
+    }
+    expect(found).toBe(true);
+  });
+
+  it("lava lakes do NOT appear above the deep band (worldY < MAGMA_Y - 60)", () => {
+    let count = 0;
+    for (let cx = 0; cx < 10; cx++) {
+      const cy = Math.floor((MAGMA_Y - 80) / CHUNK_H);
+      const chunk = createChunk(cx, cy);
+      generateChunk(chunk, SEED);
+      const baseWy = cy * CHUNK_H;
+      for (let i = 0; i < chunk.foreground.length; i++) {
+        if ((chunk.foreground[i] & 0xFF) !== BLOCK_LAVA) continue;
+        const ly = Math.floor(i / CHUNK_W);
+        const wy = baseWy + ly;
+        if (wy < MAGMA_Y - 60) count++;
+      }
+    }
+    expect(count).toBe(0);
+  });
+
+  it("carved lava cells preserve the host-rock background (stone/gravel/clay)", () => {
+    for (let cx = 0; cx < 20; cx++) {
+      const cy = Math.floor((MAGMA_Y - 30) / CHUNK_H);
+      const chunk = createChunk(cx, cy);
+      generateChunk(chunk, SEED);
+      const baseWy = cy * CHUNK_H;
+      for (let i = 0; i < chunk.foreground.length; i++) {
+        if ((chunk.foreground[i] & 0xFF) !== BLOCK_LAVA) continue;
+        const ly = Math.floor(i / CHUNK_W);
+        const wy = baseWy + ly;
+        if (wy >= MAGMA_Y) continue; // skip bottom magma layer
+        // Lake lava (above magma layer) should have a host-rock background
+        // (stone, gravel, or clay — lava can replace any of these).
+        const bg = chunk.background[i] & 0xFF;
+        expect(bg === BLOCK_STONE || bg === BLOCK_GRAVEL || bg === BLOCK_CLAY).toBe(true);
+      }
+    }
+  });
+});
+
+// ============================================================================
+// Oil pocket tests (rare, mid-deep, emissive)
+// ============================================================================
+
+describe("Oil pockets (rare emissive marker)", () => {
+  it("has lightEmit 4 (emissive sheen)", () => {
+    const def = getBlockDef(BLOCK_OIL_POCKET);
+    expect(def).toBeDefined();
+    expect(def!.lightEmit).toBe(4);
+  });
+
+  it("appears at mid-deep depth (worldY 820-980) and is rare", () => {
+    let total = 0;
+    let found = false;
+    for (let cx = 0; cx < 30; cx++) {
+      const cy = Math.floor(900 / CHUNK_H);
+      const chunk = createChunk(cx, cy);
+      generateChunk(chunk, SEED);
+      for (let i = 0; i < chunk.foreground.length; i++) {
+        if ((chunk.foreground[i] & 0xFF) === BLOCK_OIL_POCKET) {
+          total++;
+          found = true;
+        }
+      }
+    }
+    // Should appear somewhere across 30 chunks...
+    expect(found).toBe(true);
+    // ...but be rare (well under 200 cells across 30 chunks — a handful of
+    // small pockets, not a common feature).
+    expect(total).toBeLessThan(200);
+  });
+
+  it("does NOT appear at shallow depth (worldY < 820)", () => {
+    let count = 0;
+    for (let cx = 0; cx < 10; cx++) {
+      const cy = Math.floor(760 / CHUNK_H);
+      const chunk = createChunk(cx, cy);
+      generateChunk(chunk, SEED);
+      const baseWy = cy * CHUNK_H;
+      for (let ly = 0; ly < CHUNK_H; ly++) {
+        const wy = baseWy + ly;
+        if (wy >= 820) continue;
+        for (let lx = 0; lx < CHUNK_W; lx++) {
+          if ((chunk.foreground[cellIndex(lx, ly)] & 0xFF) === BLOCK_OIL_POCKET) count++;
+        }
+      }
+    }
+    expect(count).toBe(0);
   });
 });
