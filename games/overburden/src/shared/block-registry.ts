@@ -28,6 +28,8 @@ import {
     BLOCK_LAVA,
     BLOCK_LEAVES,
     BLOCK_METALWORK_BENCH,
+    BLOCK_OIL_POCKET,
+    BLOCK_OIL_SATURATED_ROCK,
     BLOCK_ROPE,
     BLOCK_SAND,
     BLOCK_SAPLING,
@@ -391,6 +393,32 @@ const DEFS: BlockDef[] = [
     fuelValue: 0, liquidFlow: 0, drops: [{ itemId: "glass", count: 1, chance: 1 }],
     placeable: true, backwallProjection: false,
     isStation: false, lightPasses: true,
+  },
+
+  // --- Oil (terrain-generated, mid-deep) ---
+  // Oil-saturated rock: a flammable ore vein block. Spawns as Perlin-worm
+  // veins in the mid-deep stone band (worldY ~820-980). Mining drops the
+  // "oil" item (a fuel material). Non-placeable (terrain-generated only).
+  {
+    id: BLOCK_OIL_SATURATED_ROCK, name: "Oil-Saturated Rock", category: "solid",
+    hardness: 25, color: [45, 35, 25], textureVariant: 72,
+    lightEmit: 0, lightColor: [0, 0, 0], conductive: false, climbable: false, flammable: true,
+    fuelValue: 3, liquidFlow: 0, drops: [{ itemId: "oil", count: 1, chance: 1 }],
+    placeable: false, backwallProjection: false,
+    isStation: false,
+  },
+  // Oil pocket: a rare, glossy-black emissive blob with a clear visual
+  // indicator (dark amber glow so it stands out in dark caves). Spawns as
+  // small carved pockets at mid-deep depth. The special oil-pocket mechanic
+  // is TBD (intentionally just a rare marker + generous oil drop for now).
+  // Excluded from SLOPE_ELIGIBLE so it stays a distinct blocky marker.
+  {
+    id: BLOCK_OIL_POCKET, name: "Oil Pocket", category: "solid",
+    hardness: 30, color: [20, 18, 15], textureVariant: 73,
+    lightEmit: 4, lightColor: [120, 80, 30], conductive: false, climbable: false, flammable: true,
+    fuelValue: 4, liquidFlow: 0, drops: [{ itemId: "oil", count: 3, chance: 1 }],
+    placeable: false, backwallProjection: false,
+    isStation: false,
   },
 ];
 

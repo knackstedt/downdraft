@@ -185,6 +185,14 @@ export const BLOCK_SAPLING = 99;
 // so sky light and emitter light flow through it unobstructed.
 export const BLOCK_GLASS = 100;
 
+// --- Oil (terrain-generated, mid-deep) ---
+// Oil-saturated rock: a flammable ore vein block (drops the "oil" item) that
+// spawns as Perlin-worm veins in the mid-deep stone band. Oil pocket: a rare,
+// glossy-black emissive blob with a clear visual indicator (special mechanic
+// TBD). Both are non-placeable (terrain-generated only).
+export const BLOCK_OIL_SATURATED_ROCK = 101;
+export const BLOCK_OIL_POCKET = 102;
+
 // Mask flags (bitfield for the mask plane) ---
 export const MASK_SOLID = 1 << 0; // blocks movement
 export const MASK_CLIMBABLE = 1 << 1; // ladder, rope — allows vertical movement
@@ -226,6 +234,8 @@ export const SLOPE_ELIGIBLE: ReadonlySet<number> = new Set([
   BLOCK_GRAVEL,
   BLOCK_FARMLAND,
   BLOCK_COMPOST_FARMLAND,
+  BLOCK_OIL_SATURATED_ROCK, // terrain-style ore → gets slope VFX
+  // BLOCK_OIL_POCKET intentionally excluded: stays a distinct blocky marker.
 ]);
 
 // --- Terrain generation ---
@@ -233,5 +243,6 @@ export const SURFACE_Y = 700; // average surface height (0=top, WORLD_H=bottom)
 export const SEA_LEVEL = 720; // water fills up to this Y
 export const MAGMA_Y = 1000; // magma layer starts here
 export const DIRT_DEPTH = 8; // dirt layer thickness below surface
-export const CAVE_THRESHOLD = 0.45; // noise threshold for caves
-export const ORE_VEIN_CHANCE = 0.02; // chance per stone block to start an ore vein
+// Cave + ore generation tuning now lives in terrain-gen.ts (depth-graded
+// noise caves + Perlin-worm ore veins). The old CAVE_THRESHOLD /
+// ORE_VEIN_CHANCE constants here were dead (never read) and have been removed.

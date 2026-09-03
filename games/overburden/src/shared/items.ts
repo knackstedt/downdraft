@@ -121,6 +121,7 @@ const DEFS: ItemDef[] = [
   { id: "gold_ingot", name: "Gold Ingot", category: "material", placeBlock: 0, maxStack: 64 },
   { id: "steel_ingot", name: "Steel Ingot", category: "material", placeBlock: 0, maxStack: 64 },
   { id: "crystal", name: "Crystal", category: "material", placeBlock: 0, maxStack: 16 },
+  { id: "oil", name: "Oil", category: "material", placeBlock: 0, maxStack: 64 },
   { id: "spawn_egg", name: "Spawn Egg", category: "material", placeBlock: 0, maxStack: 1 },
 
   // --- Tools ---

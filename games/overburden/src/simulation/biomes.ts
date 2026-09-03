@@ -53,9 +53,9 @@ const DETAIL_SCALE = 0.005;     // higher freq surface detail (rolling hills)
 // Tuned for fbm2D with value noise, which tends to cluster around 0.5 and
 // rarely hits the extremes of [0, 1). These thresholds produce roughly:
 //   ~15% ocean, ~50% plains, ~20% desert, ~15% mountain
-const OCEAN_THRESHOLD = 0.38;    // elevation < this → ocean
-const MOUNTAIN_THRESHOLD = 0.62; // elevation > this → mountain
-const DESERT_THRESHOLD = 0.60;   // aridity > this (and land) → desert
+export const OCEAN_THRESHOLD = 0.38;    // elevation < this → ocean
+export const MOUNTAIN_THRESHOLD = 0.62; // elevation > this → mountain
+export const DESERT_THRESHOLD = 0.60;   // aridity > this (and land) → desert
 
 // --- Smoothstep ---
 function smoothstep(t: number): number {
