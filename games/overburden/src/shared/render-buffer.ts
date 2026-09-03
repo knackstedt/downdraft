@@ -33,6 +33,7 @@ import {
 const NUM_LAYERS = 4;
 export const MAX_INSTANCES = ACTIVE_GRID_CELLS * NUM_LAYERS;
 export const INSTANCE_STRIDE = 5; // 5 floats per instance (x, y, z, blockId, faceMask)
+// faceMask packing: bits 0-5 = face visibility, bits 8-11 = corner mask (slope VFX)
 
 // Padded row sizes (must be 256-byte aligned for WebGPU writeTexture).
 export const PADDED_GRID_ROW_BYTES = Math.ceil(ACTIVE_GRID_W / 256) * 256; // 512
