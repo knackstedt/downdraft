@@ -486,10 +486,21 @@ export default function createSandjonggScene(ctx: PixiUiSceneContext): PixiUiSce
   root.addChild(hud);
 
   // ════════════════════════════════════════════════════════════════════════
-  // Pause button (top-right)
+  // Pause button (top-right) — drawn with Graphics, not a Unicode glyph,
+  // because "⏸" doesn't render in the worker's PixiJS text on Android.
   // ════════════════════════════════════════════════════════════════════════
-  const pauseBtn = createButton("⏸", 36, 32, () => post({ kind: "openPauseMenu" }), { fontSize: FONT_SIZE_LG });
+  const pauseBtn = createButton("", 36, 32, () => post({ kind: "openPauseMenu" }));
   pauseBtn.label = "pause-button";
+  // Draw two vertical bars (the standard pause symbol) centered in the button
+  const pauseIcon = new Graphics();
+  const barW = 4;
+  const barH = 14;
+  const gap = 4;
+  const cx = 18; // center of 36-wide button
+  const cy = 16; // center of 32-tall button
+  pauseIcon.rect(cx - gap / 2 - barW, cy - barH / 2, barW, barH).fill({ color: COL_TEXT });
+  pauseIcon.rect(cx + gap / 2, cy - barH / 2, barW, barH).fill({ color: COL_TEXT });
+  pauseBtn.addChild(pauseIcon);
   root.addChild(pauseBtn);
 
   // ════════════════════════════════════════════════════════════════════════
@@ -971,6 +982,10 @@ export default function createSandjonggScene(ctx: PixiUiSceneContext): PixiUiSce
 
     // Pause button
     pauseBtn.visible = !state.showMainMenu;
+
+    // HUD — hide when any full-screen menu/modal is open (otherwise the
+    // 36px bar shows through the 0.95-alpha menu background as a "border")
+    hud.visible = !state.showMainMenu && !state.showPauseMenu && !state.showHelp && !state.showSettings;
 
     // Toolbar
     toolbar.visible = !state.showMainMenu && !state.showPauseMenu && !state.showHelp && !state.showSettings;

@@ -620,7 +620,7 @@ function handlePointer(msg: { type: string; x: number; y: number; button: number
   if (config?.passThrough) {
     if (msg.type === "pointerdown") {
       const rootBoundary = eventSystem.rootBoundary;
-      if (rootBoundary && typeof rootBoundary.hitTest === "function") {
+      if (rootBoundary && typeof rootBoundary.hitTest === "function" && rootBoundary.rootTarget) {
         let hit: unknown = null;
         try {
           hit = rootBoundary.hitTest(msg.x, msg.y);
@@ -630,6 +630,12 @@ function handlePointer(msg: { type: string; x: number; y: number; button: number
           postToMain({ kind: "pointerMissed", type: msg.type, x: msg.x, y: msg.y, button: msg.button, modifiers: msg.modifiers });
           return;
         }
+      } else {
+        // Scene not ready yet (rootTarget is null during initialization).
+        // Report a miss so the host dispatches on the game canvas.
+        dragMissed = true;
+        postToMain({ kind: "pointerMissed", type: msg.type, x: msg.x, y: msg.y, button: msg.button, modifiers: msg.modifiers });
+        return;
       }
     } else if (dragMissed) {
       // pointermove or pointerup during a drag that started as a miss.
