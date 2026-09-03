@@ -6,6 +6,12 @@ android {
     // The on-device package name is set via applicationId below (patched by draft mobile).
     namespace = "com.downdraft.shell"
     compileSdk = rootProject.ext.compileSdkVersion
+    // Enable BuildConfig generation (disabled by default in AGP 8+). The shell
+    // uses BuildConfig.DEBUG to gate WebView DevTools (CDP) + JS console→Logcat
+    // forwarding to debug builds only.
+    buildFeatures {
+        buildConfig = true
+    }
     defaultConfig {
         // Patched by `draft mobile` to the game's appId (e.g. com.downdraft.sandjongg).
         applicationId "__APP_ID__"

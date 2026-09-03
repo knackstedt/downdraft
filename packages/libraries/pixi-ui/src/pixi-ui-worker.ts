@@ -381,6 +381,29 @@ async function handleInit(msg: InitMessage): Promise<void> {
 
   try {
     if (msg.config.sceneModuleUrl) {
+      // Expose the worker's pixi.js instance on self.__pixi before importing
+      // the scene module. The sceneModuleUrlPlugin rewrites the scene's
+      // `import { Container, Graphics, Text } from "pixi.js"` to
+      // `const { ... } = self.__pixi;` so the scene uses THIS worker's pixi.js
+      // instance (not the renderer's). This prevents dual-instance bugs where
+      // PIXI v8 singleton comparisons (e.g. `fillStyle.texture === Texture.WHITE`
+      // in getCanvasFillStyle) fail because the scene's Texture.WHITE is a
+      // different object than the worker's.
+      //
+      // Use a dynamic import() to get the full pixi.js module namespace (all
+      // exports). A static `import * as PIXI` would be tree-shaken by Rollup
+      // because the only usage is this assignment. The dynamic import returns
+      // the already-loaded module (pixi.js is bundled into the worker), so
+      // there's no additional chunk or network request.
+      try {
+        (self as any).__pixi = await import("pixi.js");
+      } catch (err) {
+        throw new Error(
+          `Failed to load pixi.js module for self.__pixi: ${(err as Error).message}. ` +
+            `The scene module needs self.__pixi to use the worker's pixi.js instance.`,
+        );
+      }
+
       // The scene module URL is a runtime value passed from the host via
       // postMessage (the game's scene module), so Vite cannot analyze it at
       // build time. Suppress the dynamic-import warning intentionally.

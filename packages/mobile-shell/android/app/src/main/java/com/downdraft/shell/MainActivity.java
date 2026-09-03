@@ -4,7 +4,9 @@ import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Bundle;
 import android.util.Log;
+import android.webkit.ConsoleMessage;
 import android.webkit.RenderProcessGoneDetail;
+import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
@@ -32,6 +34,22 @@ public class MainActivity extends BridgeActivity {
 
     // Patched by `draft mobile` to the configured embedded server port.
     private static final int SERVER_PORT = __SERVER_PORT__;
+
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+        // Enable WebView Chrome DevTools (CDP) in debug builds BEFORE
+        // super.onCreate() — BridgeActivity.onCreate() calls setContentView()
+        // which inflates the WebView layout, and the static debugging flag must
+        // be set before the WebView is constructed. Exposes a
+        // @webview_devtools_remote_<pid> abstract socket forwardable via
+        // `adb forward tcp:9222 localabstract:webview_devtools_remote_<pid>`.
+        // Gated to debug builds (BuildConfig.DEBUG) so CDP is not exposed in
+        // release/production APKs.
+        if (BuildConfig.DEBUG) {
+            WebView.setWebContentsDebuggingEnabled(true);
+        }
+        super.onCreate(savedInstanceState);
+    }
 
     @Override
     protected void load() {
@@ -114,6 +132,39 @@ public class MainActivity extends BridgeActivity {
                     originalClient.onPageCommitVisible(view, url);
                 }
             });
+
+            // In debug builds, wrap Capacitor's WebChromeClient to forward JS
+            // console.* messages and uncaught errors to Logcat (tag "JS").
+            // Capacitor's own BridgeWebChromeClient routes console messages
+            // through its Logger, which is gated by config.isLoggingEnabled()
+            // (false in release builds), so JS console output would otherwise
+            // be silently dropped. We delegate everything except
+            // onConsoleMessage to the original client to preserve Capacitor
+            // functionality (file choosers, permissions, JS dialogs, etc.).
+            // Gated to BuildConfig.DEBUG to avoid log noise / overhead in prod.
+            if (BuildConfig.DEBUG) {
+                final WebChromeClient originalChromeClient = webView.getWebChromeClient();
+                Log.i(TAG, "Wrapping WebChromeClient to forward JS console -> Logcat");
+                webView.setWebChromeClient(new WebChromeClient() {
+                    @Override
+                    public boolean onConsoleMessage(ConsoleMessage consoleMessage) {
+                        String level = consoleMessage.messageLevel().name();
+                        String msg = "[" + level + "] " + consoleMessage.message()
+                            + " (" + consoleMessage.sourceId() + ":" + consoleMessage.lineNumber() + ")";
+                        if ("ERROR".equalsIgnoreCase(level)) {
+                            Log.e("JS", msg);
+                        } else if ("WARNING".equalsIgnoreCase(level)) {
+                            Log.w("JS", msg);
+                        } else if ("DEBUG".equalsIgnoreCase(level) || "TIP".equalsIgnoreCase(level)) {
+                            Log.d("JS", msg);
+                        } else {
+                            Log.i("JS", msg);
+                        }
+                        return originalChromeClient != null
+                            && originalChromeClient.onConsoleMessage(consoleMessage);
+                    }
+                });
+            }
 
             // Clear cache to prevent the WebView from using the cached response
             // from the first load (which had stripped COOP/COEP headers).

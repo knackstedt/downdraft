@@ -481,6 +481,9 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
         // Guard against the silent prod-break pattern of assigning a worker
         // URL to a variable before `new Worker()`. Warns at build time.
         workerUrlGuardPlugin(),
+        // Compile `new URL("./*.ts", import.meta.url)` scene-module references
+        // into bundled JS chunks (fixes pixi-ui overlay in prod builds).
+        sceneModuleUrlPlugin(),
         // Profiling prelude — injects `import "@downdraft/core/profiling/worker-prelude"`
         // into worker-entry files so IOPS patching, warning rules, and event-loop
         // monitoring are active before any worker code runs. Enabled by default
