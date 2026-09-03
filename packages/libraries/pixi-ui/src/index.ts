@@ -79,6 +79,7 @@ export type {
     SceneStateSummary,
     SerializedPixiUiConfig,
     SetInteractiveMessage,
+    StatsSyncMessage,
     WorkerToMainMessage
 } from "./bridge-protocol";
 

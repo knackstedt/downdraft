@@ -20,7 +20,8 @@ import { hotReloadPlugin } from "../../../core/src/vite/hot-reload-plugin";
 import { wgslHmrPlugin } from "../../../core/src/vite/wgsl-hmr-plugin";
 import { downdraftAssetBakePlugin, type AssetBakePluginOptions } from "./asset-bake-plugin";
 import { downdraftHtmlPlugin, type DowndraftHtmlOptions, type LayerSpec } from "./downdraft-html-plugin";
-import { profilingPreludePlugin } from "./profiling-prelude-plugin";
+import { profilingPreludePlugin, type ProfilingPreludePluginOptions } from "./profiling-prelude-plugin";
+import { sceneModuleUrlPlugin } from "./scene-module-url-plugin";
 import { silenceSourcemapWarningsPlugin } from "./silence-sourcemap-warnings-plugin";
 import { workerUrlGuardPlugin } from "./worker-url-guard-plugin";
 
