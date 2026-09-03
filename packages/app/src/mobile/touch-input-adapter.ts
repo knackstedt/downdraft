@@ -1,10 +1,10 @@
 // ============================================================================
-// TouchInputAdapter — maps touch/pointer events to InputBufferWriter
+// TouchInputAdapter — maps touch/pointer events to a TouchInputSink
 // ============================================================================
 //
 // Mobile devices have no keyboard, mouse, or pointer lock. This adapter
-// translates touch events into the engine's existing input buffer format
-// (the same InputBufferWriter that the desktop InputManager writes to).
+// translates touch events into a normalized input shape and forwards it to a
+// `TouchInputSink` (see touch-input-sink.ts).
 //
 // Schemes:
 //   - "dual-stick": Left half of screen = virtual movement joystick (W/A/S/D
@@ -17,8 +17,19 @@
 //
 // The adapter is additive — it does not alter the existing keyboard/mouse/
 // pointer-lock path. On desktop, it is never instantiated.
+//
+// The adapter exposes joystick state (getMoveJoystick) and action methods
+// (pressButton/releaseButton/pressJump/releaseJump/zoom/selectHotbarSlot) so
+// an on-screen display (TouchOsd) can both visualize the joystick and route
+// button presses back through the same sink.
 
 import { InputBufferWriter, KEY } from "@downdraft/core";
+import {
+    InputBufferWriterSink,
+    NullTouchInputSink,
+    type MovementState,
+    type TouchInputSink,
+} from "./touch-input-sink";
 
 export type TouchInputScheme = "dual-stick" | "tap-to-move" | "tap";
 
@@ -43,16 +54,27 @@ interface ActiveTouch {
   half: "left" | "right";
 }
 
+/** Snapshot of the movement joystick state, read by the OSD each frame. */
+export interface JoystickSnapshot {
+  active: boolean;
+  startX: number;
+  startY: number;
+  currentX: number;
+  currentY: number;
+}
+
 /**
- * Touch input adapter that writes to the engine's InputBufferWriter.
+ * Touch input adapter that forwards normalized input to a `TouchInputSink`.
  *
- * Attach to a canvas via `attach(writer)`. The adapter listens for
- * touchstart/touchmove/touchend on the canvas and translates them to
- * key presses, mouse deltas, and mouse button states in the input SAB.
+ * Attach via `attach(writer)` (engine SAB games — wraps the writer in an
+ * `InputBufferWriterSink`) or `attachSink(sink)` (games with custom input
+ * state). The adapter listens for touchstart/touchmove/touchend on the canvas
+ * and translates them to movement, pointer, look-delta, and mouse-button
+ * calls on the sink.
  */
 export class TouchInputAdapter {
   private canvas: HTMLCanvasElement;
-  private writer: InputBufferWriter | null = null;
+  private sink: TouchInputSink = new NullTouchInputSink();
   private scheme: TouchInputScheme;
   private deadZone: number;
   private lookSensitivity: number;
@@ -68,6 +90,11 @@ export class TouchInputAdapter {
   private rightTapTimer: ReturnType<typeof setTimeout> | null = null;
   private rightTapPending = false;
 
+  // Current movement state (kept so jump toggles and OSD reads are consistent).
+  private movement: MovementState = {
+    forward: false, back: false, left: false, right: false, jump: false,
+  };
+
   constructor(canvas: HTMLCanvasElement, options: TouchInputOptions) {
     this.canvas = canvas;
     this.scheme = options.scheme;
@@ -76,14 +103,23 @@ export class TouchInputAdapter {
   }
 
   /**
-   * Attach to an InputBufferWriter and start listening for touch events.
-   * The writer is the same one the desktop InputManager writes to.
+   * Attach to an `InputBufferWriter` (engine SAB games) and start listening
+   * for touch events. The writer is wrapped in an `InputBufferWriterSink`.
+   * Backward-compatible with the original API.
    */
   attach(writer: InputBufferWriter): void {
+    this.attachSink(new InputBufferWriterSink(writer));
+  }
+
+  /**
+   * Attach to a `TouchInputSink` (games with custom input state) and start
+   * listening for touch events.
+   */
+  attachSink(sink: TouchInputSink): void {
     if (this.attached) {
       this.detach();
     }
-    this.writer = writer;
+    this.sink = sink;
     this.attached = true;
 
     const add = (target: EventTarget, event: string, handler: EventListener) => {
@@ -91,8 +127,7 @@ export class TouchInputAdapter {
       this.listeners.push({ target, event, handler });
     };
 
-    // Use pointer events for unified mouse/touch/pen handling on mobile.
-    // touch events are the primary path; pointer events cover stylus.
+    // Use touch events as the primary path; pointer events cover stylus.
     add(this.canvas, "touchstart", this.onTouchStart as EventListener);
     add(this.canvas, "touchmove", this.onTouchMove as EventListener);
     add(this.canvas, "touchend", this.onTouchEnd as EventListener);
@@ -113,12 +148,62 @@ export class TouchInputAdapter {
     this.moveTouchId = null;
     this.lookTouchId = null;
     this.attached = false;
+    this.sink = new NullTouchInputSink();
+  }
+
+  // --- Joystick state (read by the OSD) ---
+
+  /** Snapshot of the movement joystick, or null if no move touch is active. */
+  getMoveJoystick(): JoystickSnapshot | null {
+    if (this.moveTouchId === null) return null;
+    const t = this.touches.get(this.moveTouchId);
+    if (!t) return null;
+    return {
+      active: true,
+      startX: t.startX,
+      startY: t.startY,
+      currentX: t.currentX,
+      currentY: t.currentY,
+    };
+  }
+
+  // --- Action methods (called by the OSD buttons) ---
+
+  /** Press a mouse button (0=left/mine, 1=middle, 2=right/place). */
+  pressButton(button: 0 | 1 | 2): void {
+    this.sink.setMouseButton?.(button, true);
+  }
+
+  /** Release a mouse button. */
+  releaseButton(button: 0 | 1 | 2): void {
+    this.sink.setMouseButton?.(button, false);
+  }
+
+  /** Press jump (sets the jump flag in the current movement state). */
+  pressJump(): void {
+    this.movement.jump = true;
+    this.sink.setMovement?.(this.movement);
+  }
+
+  /** Release jump. */
+  releaseJump(): void {
+    this.movement.jump = false;
+    this.sink.setMovement?.(this.movement);
+  }
+
+  /** Accumulate a zoom delta (positive = zoom in). */
+  zoom(delta: number): void {
+    this.sink.setZoom?.(delta);
+  }
+
+  /** Select a hotbar slot (0-indexed, 0..8). */
+  selectHotbarSlot(slot: number): void {
+    this.sink.setHotbarSlot?.(slot);
   }
 
   // --- Touch event handlers ---
 
   private onTouchStart = (e: TouchEvent): void => {
-    if (!this.writer) return;
     const rect = this.canvas.getBoundingClientRect();
     const w = rect.width;
 
@@ -144,12 +229,12 @@ export class TouchInputAdapter {
         } else if (half === "right" && this.lookTouchId === null) {
           this.lookTouchId = touch.identifier;
           // Tap = left mouse button (action)
-          this.writer.setMouseButton(0, 0, true);
+          this.sink.setMouseButton?.(0, true);
         }
       } else if (this.scheme === "tap-to-move" || this.scheme === "tap") {
         // Set mouse position and press left button
-        this.writer.setMousePos(0, x, y);
-        this.writer.setMouseButton(0, 0, true);
+        this.sink.setPointer?.(x, y);
+        this.sink.setMouseButton?.(0, true);
       }
     }
 
@@ -164,7 +249,6 @@ export class TouchInputAdapter {
   };
 
   private onTouchMove = (e: TouchEvent): void => {
-    if (!this.writer) return;
     const rect = this.canvas.getBoundingClientRect();
 
     for (const touch of Array.from(e.changedTouches)) {
@@ -183,7 +267,7 @@ export class TouchInputAdapter {
           // Drag-look: compute delta from last position, then update.
           const dx = (x - active.lastX) * this.lookSensitivity;
           const dy = (y - active.lastY) * this.lookSensitivity;
-          this.writer.setMouseDelta(0, dx, dy);
+          this.sink.setLookDelta?.(dx, dy);
           active.lastX = x;
           active.lastY = y;
           active.currentX = x;
@@ -191,7 +275,7 @@ export class TouchInputAdapter {
         }
       } else if (this.scheme === "tap-to-move") {
         // Drag = mouse movement
-        this.writer.setMousePos(0, x, y);
+        this.sink.setPointer?.(x, y);
         active.currentX = x;
         active.currentY = y;
       }
@@ -199,8 +283,6 @@ export class TouchInputAdapter {
   };
 
   private onTouchEnd = (e: TouchEvent): void => {
-    if (!this.writer) return;
-
     for (const touch of Array.from(e.changedTouches)) {
       const active = this.touches.get(touch.identifier);
       if (!active) continue;
@@ -208,24 +290,26 @@ export class TouchInputAdapter {
       if (this.scheme === "dual-stick") {
         if (touch.identifier === this.moveTouchId) {
           // Release all movement keys
-          this.writer.setKey(0, KEY.W, false);
-          this.writer.setKey(0, KEY.A, false);
-          this.writer.setKey(0, KEY.S, false);
-          this.writer.setKey(0, KEY.D, false);
+          this.movement.forward = false;
+          this.movement.back = false;
+          this.movement.left = false;
+          this.movement.right = false;
+          this.movement.jump = false;
+          this.sink.setMovement?.(this.movement);
           this.moveTouchId = null;
         } else if (touch.identifier === this.lookTouchId) {
-          this.writer.setMouseButton(0, 0, false);
-          this.writer.setMouseDelta(0, 0, 0);
+          this.sink.setMouseButton?.(0, false);
+          this.sink.setLookDelta?.(0, 0);
           this.lookTouchId = null;
         }
         // Two-finger tap release = right mouse
         if (this.rightTapPending && e.touches.length === 0) {
-          this.writer.setMouseButton(0, 2, true);
-          setTimeout(() => this.writer?.setMouseButton(0, 2, false), 100);
+          this.sink.setMouseButton?.(2, true);
+          setTimeout(() => this.sink.setMouseButton?.(2, false), 100);
           this.rightTapPending = false;
         }
       } else if (this.scheme === "tap-to-move" || this.scheme === "tap") {
-        this.writer.setMouseButton(0, 0, false);
+        this.sink.setMouseButton?.(0, false);
       }
 
       this.touches.delete(touch.identifier);
@@ -233,11 +317,10 @@ export class TouchInputAdapter {
   };
 
   /**
-   * Apply a virtual movement joystick to the input buffer.
-   * Maps joystick direction to W/A/S/D key presses.
+   * Apply a virtual movement joystick to the movement state.
+   * Maps joystick direction to forward/back/left/right.
    */
   private applyMovementJoystick(touch: ActiveTouch): void {
-    if (!this.writer) return;
     const dx = touch.currentX - touch.startX;
     const dy = touch.currentY - touch.startY;
     const dist = Math.hypot(dx, dy);
@@ -248,9 +331,14 @@ export class TouchInputAdapter {
     const left = dist > this.deadZone && dx < -this.deadZone;
     const right = dist > this.deadZone && dx > this.deadZone;
 
-    this.writer.setKey(0, KEY.W, forward);
-    this.writer.setKey(0, KEY.S, back);
-    this.writer.setKey(0, KEY.A, left);
-    this.writer.setKey(0, KEY.D, right);
+    this.movement.forward = forward;
+    this.movement.back = back;
+    this.movement.left = left;
+    this.movement.right = right;
+    // Preserve jump flag (set by pressJump, cleared by releaseJump).
+    this.sink.setMovement?.(this.movement);
   }
 }
+
+// Re-export KEY for backward-compat with any code that imported it from here.
+export { KEY };
