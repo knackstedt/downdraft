@@ -32,6 +32,7 @@ import { wgslHmrPlugin } from "../../../core/src/vite/wgsl-hmr-plugin";
 import { downdraftAssetBakePlugin, type AssetBakePluginOptions } from "./asset-bake-plugin";
 import { downdraftHtmlPlugin, type DowndraftHtmlOptions, type LayerSpec } from "./downdraft-html-plugin";
 import { collectDirectDeps } from "./index";
+import { sceneModuleUrlPlugin } from "./scene-module-url-plugin";
 import { silenceSourcemapWarningsPlugin } from "./silence-sourcemap-warnings-plugin";
 import { workerUrlGuardPlugin } from "./worker-url-guard-plugin";
 
@@ -240,6 +241,7 @@ export function createDowndraftMobileViteConfig(
       react({ exclude: "**/src/solid/**" }),
       wgslHmrPlugin(repoRoot),
       workerUrlGuardPlugin(),
+      sceneModuleUrlPlugin(),
       ...(options.rendererPlugins ?? []),
     ],
   });
