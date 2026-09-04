@@ -8,11 +8,16 @@
 // the GPU — no JS loops on the main thread.
 // ============================================================================
 
-import { BaseWorkerHost } from "@downdraft/core";
+import { BaseWorkerHost, type BufferSyncConfig } from "@downdraft/core";
 import {
-  createRenderBuffer,
-  RenderBufferReader,
+    createRenderBuffer,
+    RenderBufferReader,
 } from "../shared/render-buffer";
+
+// INPUT is the last region in the sim SAB (128 bytes). Compute its offset
+// from the buffer's byteLength at runtime — avoids importing computed
+// constants that Vite may tree-shake incorrectly in the mobile bundle.
+const INPUT_SIZE = 128;
 
 type GridBuilderWorkerApi = {
   init(simSab: SharedArrayBuffer, renderSab: SharedArrayBuffer): Promise<void>;
@@ -70,5 +75,54 @@ export class GridBuilderWorkerHost extends BaseWorkerHost<GridBuilderWorkerApi> 
   /** Force an immediate build (used for deterministic test mode). */
   async buildNow(): Promise<void> {
     await this.getProxy()?.proxy.buildNow();
+  }
+
+  /**
+   * SAB polyfill: declare buffer sync regions for the copy-based protocol.
+   *
+   * The grid builder uses two SABs:
+   *   1. sim SAB (read-only) — reads sim data written by the sim worker.
+   *      The main thread's copy is kept in sync by BlockheadsWorkerHost's
+   *      BufferSyncHost. This host re-syncs it to the grid builder worker.
+   *   2. render SAB (write-only) — the grid builder writes pre-built instance
+   *      data + padded textures. This host receives them and copies into the
+   *      main thread's render SAB copy.
+   *
+   * The render SAB's build-tick field (RENDER_HEADER_TICK at offset 0) is used
+   * as the sequence number for change gating — sync is skipped when the grid
+   * builder hasn't published a new build.
+   */
+  protected getSyncConfig(): BufferSyncConfig | null {
+    if (!this.simSab) return null;
+    const inputOffset = this.simSab.byteLength - INPUT_SIZE;
+    const renderSab = this.getSimBuffer();
+    return {
+      buffers: {
+        sim: this.simSab,
+        render: renderSab,
+      },
+      regions: {
+        // Sim SAB: main thread syncs sim data → grid builder (writeRegions).
+        // Grid builder doesn't write to the sim SAB, so no readRegions.
+        sim: {
+          writeRegions: [
+            { offset: 0, length: inputOffset, name: "sim-data" },
+          ],
+          readRegions: [],
+        },
+        // Render SAB: grid builder writes everything → main thread (readRegions).
+        // Main thread doesn't write to the render SAB, so no writeRegions.
+        render: {
+          writeRegions: [],
+          readRegions: [
+            { offset: 0, length: renderSab.byteLength, name: "render-data" },
+          ],
+        },
+      },
+      seqFields: {
+        sim: { offset: 0 },    // HDR_TICK (Uint32 at offset 0)
+        render: { offset: 0 }, // RENDER_HEADER_TICK (Uint32 at offset 0)
+      },
+    };
   }
 }

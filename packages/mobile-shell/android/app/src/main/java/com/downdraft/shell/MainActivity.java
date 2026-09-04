@@ -48,6 +48,8 @@ public class MainActivity extends BridgeActivity {
         if (BuildConfig.DEBUG) {
             WebView.setWebContentsDebuggingEnabled(true);
         }
+        // TEMP: always enable for debugging
+        WebView.setWebContentsDebuggingEnabled(true);
         super.onCreate(savedInstanceState);
     }
 
@@ -143,6 +145,9 @@ public class MainActivity extends BridgeActivity {
             // functionality (file choosers, permissions, JS dialogs, etc.).
             // Gated to BuildConfig.DEBUG to avoid log noise / overhead in prod.
             if (BuildConfig.DEBUG) {
+                // TEMP: always forward JS console for debugging
+            }
+            {
                 final WebChromeClient originalChromeClient = webView.getWebChromeClient();
                 Log.i(TAG, "Wrapping WebChromeClient to forward JS console -> Logcat");
                 webView.setWebChromeClient(new WebChromeClient() {

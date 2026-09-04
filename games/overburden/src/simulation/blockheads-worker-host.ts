@@ -6,11 +6,16 @@
 // the active grid + stats from the SAB.
 // ============================================================================
 
-import { BaseWorkerHost } from "@downdraft/core";
+import { BaseWorkerHost, type BufferSyncConfig } from "@downdraft/core";
 import { decodeMapRegion, type MapRegionData } from "../shared/map-buffer";
 import type { CraftStation } from "../shared/recipes";
 import { createSimBuffer, SimBufferReader } from "../shared/sim-buffer";
 import type { TaskType } from "./task-queue";
+
+// INPUT is the last region in the SAB (128 bytes). Compute its offset from
+// the buffer's byteLength at runtime — avoids importing computed constants
+// that Vite may tree-shake incorrectly in the mobile bundle.
+const INPUT_SIZE = 128;
 
 type InventorySlot = { itemId: string; count: number } | null;
 type TaskSummary = { id: number; type: TaskType; targetX: number; targetY: number; blockId: number; status: string; failReason?: string };
@@ -166,6 +171,44 @@ export class BlockheadsWorkerHost extends BaseWorkerHost<BlockheadsWorkerApi> {
    */
   setMapSab(sab: SharedArrayBuffer): void {
     this.worker!.postMessage({ __mapSab: true, sab });
+  }
+
+  /**
+   * SAB polyfill: declare buffer sync regions for the copy-based protocol.
+   *
+   * The main thread writes the INPUT region (128 bytes); the worker writes
+   * everything else (header + grid data + blockheads + drops). The sync
+   * manager copies only the declared write regions between threads.
+   *
+   * The tick field (HDR_TICK at offset 0) is used as the sequence number for
+   * change gating — the worker sync is skipped when the tick hasn't advanced,
+   * eliminating copy overhead when the sim is paused.
+   */
+  protected getSyncConfig(): BufferSyncConfig | null {
+    // INPUT is the last region in the SAB, so INPUT_OFFSET = byteLength - INPUT_SIZE.
+    const inputOffset = this.getSimBuffer().byteLength - INPUT_SIZE;
+    return {
+      buffers: { sim: this.getSimBuffer() },
+      regions: {
+        sim: {
+          // Main thread writes: input region only (128 bytes).
+          // clearAfterSend: zero local copy after sending so stale input
+          //   isn't re-sent every frame.
+          // skipIfAllZero: don't send zero-filled input — prevents
+          //   overwriting the worker's pending input with zeros.
+          writeRegions: [
+            { offset: inputOffset, length: INPUT_SIZE, name: "input", clearAfterSend: true, skipIfAllZero: true },
+          ],
+          // Worker writes: everything except the input region
+          readRegions: [
+            { offset: 0, length: inputOffset, name: "sim-data" },
+          ],
+        },
+      },
+      seqFields: {
+        sim: { offset: 0 }, // HDR_TICK (Uint32 at offset 0)
+      },
+    };
   }
 
   protected onEvent(kind: string, data?: unknown): void {

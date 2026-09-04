@@ -13,6 +13,8 @@
 // directly to the GPU — no JS loops on the main thread.
 // ============================================================================
 
+import { usingRealSAB, type BufferSyncConfig } from "@downdraft/core";
+import "@downdraft/core/sab/sab-polyfill";
 import { expose } from "@downdraft/core/worker/rpc";
 import {
     ACTIVE_GRID_H,
@@ -92,6 +94,8 @@ let renderWriter: RenderBufferWriter | null = null;
 let lastBuiltTick = -1;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let running = false;
+// SAB polyfill: buffer sync worker (only created when SAB is unavailable).
+let syncWorker: { syncToMain: () => void; start: () => void } | null = null;
 
 /** Build instance data + padded textures from the current sim SAB state. */
 function build(): void {
@@ -372,6 +376,10 @@ function build(): void {
     simReader.getOriginCx(), simReader.getOriginCy(), waterInstanceCount,
   );
   lastBuiltTick = tick;
+
+  // SAB polyfill: sync render data to the main thread after each build.
+  // No-op when real SAB is available (desktop).
+  syncWorker?.syncToMain();
 }
 
 /** Poll loop — checks for new sim ticks and builds when one arrives. */
@@ -381,13 +389,51 @@ function poll(): void {
 }
 
 const api = {
-  init(simSab: SharedArrayBuffer, renderSab: SharedArrayBuffer): void {
+  async init(simSab: SharedArrayBuffer, renderSab: SharedArrayBuffer): Promise<void> {
     simReader = new SimBufferReader(simSab);
     renderWriter = new RenderBufferWriter(renderSab);
     running = true;
+
+    // SAB polyfill: set up buffer sync if SAB is unavailable.
+    // The BufferSyncWorker receives sim data from the main thread (readRegions)
+    // and posts render data to the main thread (writeRegions) after each build.
+    if (!usingRealSAB) {
+      const { BufferSyncWorker } = await import("@downdraft/core/worker/buffer-sync");
+      const syncConfig: BufferSyncConfig = {
+        buffers: { sim: simSab, render: renderSab },
+        regions: {
+          // Sim SAB: main thread sends sim data (readRegions = what the
+          // grid builder reads from the main thread). Grid builder doesn't
+          // write to the sim SAB, so no writeRegions.
+          sim: {
+            writeRegions: [],
+            readRegions: [
+              { offset: 0, length: simSab.byteLength - 128, name: "sim-data" },
+            ],
+          },
+          // Render SAB: grid builder writes everything (writeRegions).
+          // Main thread doesn't write to the render SAB, so no readRegions.
+          render: {
+            writeRegions: [
+              { offset: 0, length: renderSab.byteLength, name: "render-data" },
+            ],
+            readRegions: [],
+          },
+        },
+        seqFields: {
+          render: { offset: 0 }, // RENDER_HEADER_TICK (Uint32 at offset 0)
+        },
+      };
+      syncWorker = new BufferSyncWorker(syncConfig);
+      syncWorker.start();
+    }
+
     // Poll at 2ms intervals — fast enough to catch 30Hz tick changes with
     // minimal latency, but not a tight busy-loop that burns CPU.
     pollTimer = setInterval(poll, 2);
+
+    // Build once immediately so the renderer has data on the first frame.
+    build();
   },
 
   shutdown(): void {
@@ -396,6 +442,7 @@ const api = {
       clearInterval(pollTimer);
       pollTimer = null;
     }
+    syncWorker = null;
     simReader = null;
     renderWriter = null;
     lastBuiltTick = -1;
