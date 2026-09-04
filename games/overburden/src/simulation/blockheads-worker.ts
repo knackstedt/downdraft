@@ -724,6 +724,33 @@ simControl = createSimWorker({
     await setupWorld(true);
   },
 
+  // SAB polyfill: declare buffer sync regions (worker side).
+  // The worker writes everything except the INPUT region; the main thread
+  // writes the INPUT region. The BufferSyncWorker posts written regions to
+  // the main thread after each tick batch. See buffer-sync.ts.
+  onSyncConfig(sab: SharedArrayBuffer): BufferSyncConfig {
+    // INPUT is the last region in the SAB (128 bytes).
+    const inputOffset = sab.byteLength - 128;
+    return {
+      buffers: { sim: sab },
+      regions: {
+        sim: {
+          // Worker writes: everything except the input region
+          writeRegions: [
+            { offset: 0, length: inputOffset, name: "sim-data" },
+          ],
+          // Main thread writes: input region only
+          readRegions: [
+            { offset: inputOffset, length: 128, name: "input" },
+          ],
+        },
+      },
+      seqFields: {
+        sim: { offset: 0 }, // HDR_TICK (Uint32 at offset 0)
+      },
+    };
+  },
+
   onTick(dt: number, ctx): void {
     if (!world) return;
     tickCount = ctx.tickCount;
