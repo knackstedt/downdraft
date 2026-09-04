@@ -59,6 +59,43 @@ const WORKER_PREFIX_RE = /new\s+Worker\s*\(\s*$/;
 // first `}`, preventing the regex from matching across multiple import statements.
 const PIXI_IMPORT_RE = /^import\s+(?!type\s)(\*\s+as\s+(\w+)|\{([^}]+)\})\s+from\s+["']pixi\.js["'];?\s*$/gm;
 
+// Matches dynamic imports of pixi.js:
+//   await import("pixi.js")
+//   import("pixi.js")
+// These are rewritten to Promise.resolve(self.__pixi) in scene-tree modules
+// so the scene uses the worker's pixi.js instance instead of the main bundle's.
+// The optional `typeof\s+` prefix capture is used to skip type annotations.
+const PIXI_DYNAMIC_IMPORT_RE = /(typeof\s+)?import\s*\(\s*["']pixi\.js["']\s*\)/g;
+
+// Matches dynamic imports of @pixi/react in scene-tree modules.
+// Rewritten to use the worker's @pixi/react instance (self.__pixiReact)
+// to avoid pulling the main bundle's pixi.js + @pixi/react into the worker
+// context (which would create duplicate Texture.WHITE etc).
+// The optional `typeof\s+` prefix capture is used to skip type annotations
+// like `typeof import("@pixi/react")` which should NOT be rewritten.
+const PIXI_REACT_DYNAMIC_IMPORT_RE = /(typeof\s+)?import\s*\(\s*["']@pixi\/react["']\s*\)/g;
+
+// Matches dynamic imports of react in scene-tree modules.
+// Rewritten to use the worker's React instance (self.__react) to avoid
+// a dual-React-instance problem: the @pixi/react reconciler in the worker
+// bundle sets the dispatcher on the worker's React, but scene components
+// calling hooks on a different React instance would get a null dispatcher.
+// The optional `typeof\s+` prefix skips type annotations like
+// `typeof import("react")` which should NOT be rewritten.
+const REACT_DYNAMIC_IMPORT_RE = /(typeof\s+)?import\s*\(\s*["']react["']\s*\)/g;
+
+// Matches static value imports from react (not type-only) in scene-tree
+// modules. Rewritten to `const { ... } = self.__react;` so the scene uses
+// the worker's React instance. This is needed because static imports
+// like `import { useSyncExternalStore } from "react"` would otherwise
+// resolve to the main bundle's React.
+// Handles: named imports, namespace imports, default imports, and mixed
+// default + named imports.
+const REACT_STATIC_IMPORT_RE = /^import\s+(?!type\s)(?:(\w+)\s*(?:,\s*)?)?(\*\s+as\s+(\w+)|\{([^}]+)\})\s+from\s+["']react["'];?\s*$/gm;
+
+// Matches default-only imports: `import React from "react"`
+const REACT_DEFAULT_IMPORT_RE = /^import\s+(\w+)\s+from\s+["']react["'];?\s*$/gm;
+
 export interface SceneModuleUrlPluginOptions {
   /** When true, throw on violations instead of warning. Default: false. */
   failOnError?: boolean;
@@ -207,6 +244,88 @@ export function sceneModuleUrlPlugin(_opts: SceneModuleUrlPluginOptions = {}): P
         if (pixiRewritten) {
           code = newCode;
         }
+      }
+
+      // Also rewrite dynamic `import("pixi.js")` in scene-tree modules to
+      // `Promise.resolve(self.__pixi)` so dynamic imports also use the worker's
+      // pixi.js instance. This handles the @pixi/react adapter's
+      // `await import("pixi.js")` pattern.
+      if (sceneTreeModules.has(bareId) && code && code.includes('import("pixi.js")')) {
+        PIXI_DYNAMIC_IMPORT_RE.lastIndex = 0;
+        const dynCode = code.replace(PIXI_DYNAMIC_IMPORT_RE, (full, typeofPrefix) => {
+          if (typeofPrefix) return full;
+          pixiRewritten = true;
+          return `Promise.resolve(self.__pixi)`;
+        });
+        code = dynCode;
+      }
+
+      // Rewrite dynamic `import("@pixi/react")` in scene-tree modules to
+      // use the worker's @pixi/react instance (exposed as self.__pixiReact
+      // by the worker before importing the scene). Without this, the scene
+      // chunk dynamically imports @pixi/react from the main bundle, which
+      // brings the main bundle's pixi.js into the worker context, creating
+      // duplicate Texture.WHITE.
+      if (sceneTreeModules.has(bareId) && code && code.includes('import("@pixi/react")')) {
+        PIXI_REACT_DYNAMIC_IMPORT_RE.lastIndex = 0;
+        code = code.replace(PIXI_REACT_DYNAMIC_IMPORT_RE, (full, typeofPrefix) => {
+          // Skip type annotations: `typeof import("@pixi/react")` should
+          // not be rewritten — it's a TypeScript type expression, not a
+          // runtime dynamic import.
+          if (typeofPrefix) return full;
+          pixiRewritten = true;
+          return `Promise.resolve(self.__pixiReact)`;
+        });
+      }
+
+      // Rewrite static `import { ... } from "react"` and `import React from "react"`
+      // in scene-tree modules to use self.__react so the scene uses the worker's
+      // React instance. This prevents a dual-React-instance problem where
+      // the @pixi/react reconciler sets the dispatcher on the worker's React
+      // but scene components call hooks on the main bundle's React.
+      if (sceneTreeModules.has(bareId) && code && (code.includes("from \"react\"") || code.includes("from 'react'"))) {
+        // Handle named + namespace + mixed default/named imports
+        REACT_STATIC_IMPORT_RE.lastIndex = 0;
+        let reactCode = code.replace(REACT_STATIC_IMPORT_RE, (full, defaultName, namespaceOrNamed, namespace, named) => {
+          pixiRewritten = true;
+          const parts: string[] = [];
+          if (defaultName) {
+            parts.push(`const ${defaultName} = self.__react.default ?? self.__react;`);
+          }
+          if (namespace) {
+            parts.push(`const ${namespace} = self.__react;`);
+          }
+          if (named) {
+            const cleanNamed = named!
+              .split(",")
+              .map((s: string) => s.trim())
+              .filter((s: string) => s && !s.startsWith("type "))
+              .join(", ");
+            if (cleanNamed) {
+              parts.push(`const { ${cleanNamed} } = self.__react;`);
+            }
+          }
+          return parts.join("\n");
+        });
+        // Handle default-only imports: `import React from "react"`
+        REACT_DEFAULT_IMPORT_RE.lastIndex = 0;
+        reactCode = reactCode.replace(REACT_DEFAULT_IMPORT_RE, (full, defaultName) => {
+          pixiRewritten = true;
+          return `const ${defaultName} = self.__react.default ?? self.__react;`;
+        });
+        code = reactCode;
+      }
+
+      // Rewrite dynamic `import("react")` in scene-tree modules to
+      // `Promise.resolve(self.__react)` (skipping `typeof import("react")`
+      // type annotations).
+      if (sceneTreeModules.has(bareId) && code && code.includes('import("react")')) {
+        REACT_DYNAMIC_IMPORT_RE.lastIndex = 0;
+        code = code.replace(REACT_DYNAMIC_IMPORT_RE, (full, typeofPrefix) => {
+          if (typeofPrefix) return full;
+          pixiRewritten = true;
+          return `Promise.resolve(self.__react)`;
+        });
       }
 
       if (isSceneModule) {

@@ -14,9 +14,9 @@
 //
 
 import { createDowndraftMobileApp, type TouchOsdButtonId } from "@downdraft/app/mobile";
-import { BlockheadsRenderer } from "./renderer/blockheads-renderer";
 import { overburdenModule } from "./game-module";
 import { BlockheadsInputSink } from "./mobile/blockheads-touch-sink";
+import { BlockheadsRenderer } from "./renderer/blockheads-renderer";
 
 // Full control set: movement joystick (left half, auto-rendered by the OSD) +
 // jump/mine/place/zoom buttons + hotbar slots 1-9.

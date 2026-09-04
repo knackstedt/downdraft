@@ -197,6 +197,27 @@ export function createDowndraftMobileViteConfig(
     worker: {
       format: "es",
       plugins: (() => options.workerPlugins ?? []) as any,
+      rollupOptions: {
+        output: {
+          // Force pixi.js + @pixi/react into a single chunk in the worker bundle.
+          // Without this, Vite splits pixi.js across the worker entry chunk and
+          // a shared chunk, creating duplicate Texture.WHITE instances. The
+          // TextStyle fill setter sets fill.texture = Texture.WHITE from one
+          // chunk, but getCanvasFillStyle compares against Texture.WHITE from
+          // the other chunk — the reference equality check fails, causing solid
+          // color fills to fall through to createPattern() with an invalid
+          // Uint8Array resource, which throws.
+          manualChunks(id) {
+            if (
+              id.includes("/pixi.js/") ||
+              id.includes("/@pixi/react/") ||
+              id.includes("/@downdraft/library-pixi-ui/")
+            ) {
+              return "pixi-worker-bundle";
+            }
+          },
+        },
+      },
     },
     optimizeDeps: {
       exclude: optimizeDepsExcludeDefaults,
@@ -231,6 +252,22 @@ export function createDowndraftMobileViteConfig(
         external: [
           /^@capacitor\//,
         ],
+        output: {
+          // Force pixi.js + @pixi/react into a single named chunk in the main
+          // bundle. This prevents Vite from creating a shared chunk that
+          // contains some pixi.js modules (with their own Texture.WHITE) which
+          // would then be imported by the worker, creating a duplicate
+          // Texture.WHITE reference. The worker has its own manualChunks in
+          // worker.rollupOptions that creates a separate pixi-worker-bundle.
+          manualChunks(id) {
+            if (
+              id.includes("/pixi.js/") ||
+              id.includes("/@pixi/react/")
+            ) {
+              return "pixi-main-bundle";
+            }
+          },
+        },
       },
     },
     plugins: [
