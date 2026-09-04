@@ -45,21 +45,62 @@ if (typeof document === "undefined") {
       configurable: true,
     });
   }
+  // Helper: create a stub DOM element that supports the methods PixiJS's
+  // AccessibilitySystem and other DOM-dependent code call on elements
+  // (addEventListener, removeEventListener, appendChild, etc.). In a worker
+  // there's no real DOM, so these are all no-ops.
+  function createStubElement(): any {
+    return {
+      style: {},
+      appendChild(_node: any): any { return _node; },
+      removeChild(_node: any): any { return _node; },
+      addEventListener(_type: string, _listener: any, _opts?: any): void {},
+      removeEventListener(_type: string, _listener: any, _opts?: any): void {},
+      dispatchEvent(_event: any): boolean { return true; },
+      setAttribute(_key: string, _value: string): void {},
+      getAttribute(_key: string): any { return null; },
+      contains(_node: any): boolean { return false; },
+      focus(): void {},
+      blur(): void {},
+      click(): void {},
+      remove(): void {},
+      getBoundingClientRect(): any { return { x: 0, y: 0, width: 0, height: 0, top: 0, left: 0, right: 0, bottom: 0 }; },
+    };
+  }
   (self as any).document = {
     createElement(tag: string): any {
       if (tag === "canvas") return new OffscreenCanvas(1, 1);
-      return {};
+      return createStubElement();
     },
     createElementNS(_ns: string, tag: string): any {
       if (tag === "canvas") return new OffscreenCanvas(1, 1);
-      return {};
+      return createStubElement();
     },
+    // PixiJS v8's worker environment adapter checks for
+    // document.addEventListener and overwrites document if it's missing.
+    // Include addEventListener/removeEventListener/dispatchEvent so our stub
+    // (with getElementsByTagName, querySelector, head, etc.) is preserved.
+    addEventListener(_type: string, _listener: any, _opts?: any): void {},
+    removeEventListener(_type: string, _listener: any, _opts?: any): void {},
+    dispatchEvent(_event: any): boolean { return true; },
     // PixiJS's isRenderingToScreen() calls document.body.contains(resource).
     // In a worker, there's no DOM body — stub contains() to return false so
     // PixiJS treats OffscreenCanvas renders as off-screen (which is correct).
-    body: { contains(_node: any): boolean { return false; } },
+    body: createStubElement(),
     // Some libraries check document.documentElement for viewport sizing.
-    documentElement: { clientWidth: 1280, clientHeight: 720 },
+    documentElement: { clientWidth: 1280, clientHeight: 720, ...createStubElement() },
+    // React 19 / @pixi/react / Vite's __vitePreload helper call these during
+    // init. In a worker there are no DOM elements — return empty/null.
+    getElementsByTagName(_name: string): any[] { return []; },
+    getElementsByClassName(_name: string): any[] { return []; },
+    getElementById(_id: string): any { return null; },
+    querySelector(_selector: string): any { return null; },
+    querySelectorAll(_selector: string): any[] { return []; },
+    head: createStubElement(),
+    // PixiJS's DOM adapter checks document.style for CSS property access.
+    style: {},
+    // Some libraries check document.readyState.
+    readyState: "complete",
   };
 }
 // React 19 references `window` during module init + useSyncExternalStore.
@@ -81,6 +122,29 @@ if (typeof (self as any).CanvasRenderingContext2D === "undefined") {
 if (typeof (self as any).HTMLCanvasElement === "undefined") {
   (self as any).HTMLCanvasElement = class HTMLCanvasElement {};
 }
+
+// ── Register PixiJS v8 WebWorkerAdapter ──
+//
+// PixiJS v8 defaults to BrowserAdapter, which uses document.createElement
+// and CanvasRenderingContext2D. In a worker, we need the WebWorkerAdapter
+// which uses OffscreenCanvas and OffscreenCanvasRenderingContext2D.
+// Without this, the text renderer patches the wrong prototype
+// (CanvasRenderingContext2D instead of OffscreenCanvasRenderingContext2D),
+// producing invalid texture resources that cause createPattern to fail.
+//
+// The import must come AFTER the document/window stubs above (so the
+// adapter's createCanvas fallback works during module init) but BEFORE
+// the main pixi.js import below (so DOMAdapter is set before any PixiJS
+// code runs). ES module imports are hoisted, but side-effect imports
+// from the same module are evaluated in source order.
+import { AccessibilitySystem, DOMAdapter, WebWorkerAdapter, extensions } from "pixi.js";
+DOMAdapter.set(WebWorkerAdapter);
+
+// Disable the AccessibilitySystem in the worker — it requires a real DOM
+// (creates button elements, calls focus/remove, etc.) which doesn't exist
+// in a Web Worker. Without this, every render frame throws errors when the
+// accessibility system's postrender hook tries to manipulate DOM elements.
+extensions.remove(AccessibilitySystem);
 
 import { Application, Container, Text, WebGLRenderer, type Ticker } from "pixi.js";
 // Side-effect import: registers the EventSystem as a renderer extension so
@@ -408,6 +472,22 @@ async function handleInit(msg: InitMessage): Promise<void> {
         );
       }
 
+      // Also expose @pixi/react and react on self so the scene module can use
+      // the worker's instances instead of importing from the main bundle.
+      // The sceneModuleUrlPlugin rewrites `import("@pixi/react")` and
+      // `import("react")` (both static and dynamic) to use self.__pixiReact
+      // and self.__react respectively. This prevents dual-instance bugs:
+      // - @pixi/react from the main bundle would bring the main bundle's pixi.js
+      //   into the worker, creating duplicate Texture.WHITE.
+      // - React from the main bundle would have a different dispatcher than the
+      //   worker's React, causing hooks to fail with null dispatcher errors.
+      try {
+        (self as any).__pixiReact = await import("@pixi/react");
+      } catch { /* @pixi/react may not be installed */ }
+      try {
+        (self as any).__react = await import("react");
+      } catch { /* react may not be installed */ }
+
       // The scene module URL is a runtime value passed from the host via
       // postMessage (the game's scene module), so Vite cannot analyze it at
       // build time. Suppress the dynamic-import warning intentionally.
@@ -433,6 +513,18 @@ async function handleInit(msg: InitMessage): Promise<void> {
     // `root: ctx.app.stage` because they render directly into the stage.
     if (scene?.root && app?.stage && scene.root !== app.stage && !app.stage.children.includes(scene.root)) {
       app.stage.addChild(scene.root);
+    }
+
+    // Fix: PixiJS v8's EventSystem._addEvents() sets rootBoundary.rootTarget
+    // to the renderer's root container. In a Web Worker, _addEvents() may not
+    // be called (or may fail silently) because the DOM event listeners it
+    // registers are no-ops on the stubbed document/window. Without rootTarget,
+    // the EventSystem's hitTest() returns null for all pointer events, so
+    // interactive UI elements (buttons, etc.) never receive clicks.
+    // Manually set rootTarget to the app's stage so hit-testing works.
+    const eventSystem = (app?.renderer as any)?.events;
+    if (eventSystem?.rootBoundary && !eventSystem.rootBoundary.rootTarget) {
+      eventSystem.rootBoundary.rootTarget = app?.stage ?? null;
     }
   } catch (err) {
     postError(`Scene init failed: ${(err as Error).message}`, (err as Error).stack);
@@ -647,7 +739,15 @@ function handlePointer(msg: { type: string; x: number; y: number; button: number
   }
 
   try {
-    if (msg.type === "pointerdown") eventSystem._onPointerDown(syntheticEvent as any);
+    if (msg.type === "pointerdown") {
+      // PixiJS v8 _onPointerDown sets rootBoundary.rootTarget = renderer.lastObjectRendered.
+      // In a worker, lastObjectRendered may be null/stale — ensure it's the stage.
+      const renderer = app.renderer as any;
+      if (renderer?.lastObjectRendered !== app?.stage) {
+        renderer.lastObjectRendered = app?.stage;
+      }
+      eventSystem._onPointerDown(syntheticEvent as any);
+    }
     else if (msg.type === "pointermove") eventSystem._onPointerMove(syntheticEvent as any);
     else if (msg.type === "pointerup") eventSystem._onPointerUp(syntheticEvent as any);
     else if (msg.type === "pointerleave") eventSystem._onPointerOverOut(syntheticEvent as any);
