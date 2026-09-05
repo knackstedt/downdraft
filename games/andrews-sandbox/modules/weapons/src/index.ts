@@ -3,8 +3,7 @@
 // Renderer-side weapon controllers that send commands to the sim worker.
 // ============================================================================
 
-import { SimBufferReader } from "@downdraft/core";
-import { ENT } from "@downdraft/core";
+import { ENT, SimBufferReader } from "@downdraft/core";
 import { EntityType, FunMode, ToolType, ToolgunContext } from "@sandbox/shared/types";
 
 /** Minimal sim API for weapon commands. */
@@ -22,6 +21,8 @@ export interface WeaponContext {
   sim: WeaponSimApi;
   renderer: WeaponRendererApi;
   simSAB: SharedArrayBuffer;
+  /** Returns the shape for a content id, or undefined if unknown. */
+  getShapeForContent?: (contentId: string) => "box" | "sphere" | undefined;
 }
 
 // ── Physgun ──
@@ -157,7 +158,8 @@ export class Toolgun {
           const dy = target[1] - cam[1];
           const dz = target[2] - cam[2];
           const dl = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
-          const shape = this.selectedContentId.includes("sphere") || this.selectedContentId.includes("ball") ? "sphere" : "box";
+          const shape = this.ctx.getShapeForContent?.(this.selectedContentId)
+            ?? (this.selectedContentId.includes("sphere") || this.selectedContentId.includes("ball") ? "sphere" : "box");
           this.ctx.sim.sendCommand({
             type: "spawn",
             contentId: this.selectedContentId,

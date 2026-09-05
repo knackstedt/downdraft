@@ -105,9 +105,10 @@ function createPropBody(
   friction: number,
   gravityScale: number,
   ccdEnabled: boolean = false,
+  entityIndex?: number,
 ): PhysicsBody {
   if (!physicsApi) throw new Error("Physics not initialized");
-  const entity: Entity = { index: nextSlotIdx, generation: 0 };
+  const entity: Entity = { index: entityIndex ?? nextSlotIdx, generation: 0 };
   const bodyDesc: BodyDesc = {
     type: "dynamic",
     position,
@@ -155,7 +156,7 @@ function spawnProp(
   const halfExt = 0.5 * propScale;
   const radius = 0.5 * propScale;
 
-  const body = createPropBody(position, rot, propShape, [halfExt, halfExt, halfExt], radius, mass, restitution, friction, gravityScale);
+  const body = createPropBody(position, rot, propShape, [halfExt, halfExt, halfExt], radius, mass, restitution, friction, gravityScale, false, slotIdx);
 
   // Write to SAB
   const f32 = simWriter!.getEntityF32(slotIdx);
@@ -272,7 +273,7 @@ function processCommand(cmd: SimCommand): void {
       // Spawn a projectile — entityId = slotIdx + 1 (same invariant as props)
       const slotIdx = freeSlots.length > 0 ? freeSlots.shift()! : nextSlotIdx++;
       const entityId = slotIdx + 1;
-      const body = createPropBody(cmd.origin, [0, 0, 0, 1], "sphere", [0.1, 0.1, 0.1], 0.1, 0.5, 0.5, 0.3, 0.5, true);
+      const body = createPropBody(cmd.origin, [0, 0, 0, 1], "sphere", [0.1, 0.1, 0.1], 0.1, 0.5, 0.5, 0.3, 0.5, true, slotIdx);
       physicsApi!.setLinearVelocity(body, [cmd.direction[0] * 50, cmd.direction[1] * 50, cmd.direction[2] * 50]);
 
       const f32 = simWriter!.getEntityF32(slotIdx);

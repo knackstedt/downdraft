@@ -769,11 +769,12 @@ export class WebGPURenderer extends GameRenderer {
     });
 
     // Instance buffer: model(64) + color(16) + hasPaint(4) + pad(12) = 96 bytes per entity
-    // Allocated for up to 256 entities with dynamic offsets (256-byte aligned)
+    // 256-byte aligned stride for dynamic offset alignment. Capacity matches
+    // the physics maxEntities (4096) so spawning many props doesn't overflow.
     this.cubeInstanceStride = 256; // 96 bytes data, padded to 256 for dynamic offset alignment
     this.cubeInstanceBuffer = device.createBuffer({
       label: "cube-instance",
-      size: this.cubeInstanceStride * 1024,
+      size: this.cubeInstanceStride * 4096,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
@@ -1373,12 +1374,14 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
       else cubes.push(i);
     }
 
-    const renderBatch = (indices: number[], pipeline: GPURenderPipeline, vertexBuffer: GPUBuffer, indexBuffer: GPUBuffer, indexCount: number) => {
+    const renderBatch = (indices: number[], pipeline: GPURenderPipeline, vertexBuffer: GPUBuffer, indexBuffer: GPUBuffer, indexCount: number, baseOffset: number) => {
       pass.setPipeline(pipeline);
       pass.setVertexBuffer(0, vertexBuffer);
       pass.setIndexBuffer(indexBuffer, "uint16");
       const stride = this.cubeInstanceStride;
-      for (let idx = 0; idx < indices.length; idx++) {
+      const maxInstances = this.cubeInstanceBuffer!.size / stride;
+      const drawCount = Math.min(indices.length, maxInstances - baseOffset);
+      for (let idx = 0; idx < drawCount; idx++) {
         const i = indices[idx];
         const slot = this.simReader!.getEntitySlot(i);
         const px = slot.f32[ENT.POS_X];
@@ -1390,20 +1393,20 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
         const rz = slot.f32[ENT.ROT_Z];
         const rw = slot.f32[ENT.ROT_W];
         const model = this.composeModelMatrix(px, py, pz, rx, ry, rz, rw, scale);
-        // Write instance model matrix at offset 64 (after the lightVP uniform)
         const instData = new Float32Array(16);
         instData.set(model, 0);
-        device.queue.writeBuffer(this.cubeInstanceBuffer!, idx * stride, instData);
+        device.queue.writeBuffer(this.cubeInstanceBuffer!, (baseOffset + idx) * stride, instData);
       }
-      for (let idx = 0; idx < indices.length; idx++) {
-        const bgKey = (pipeline === this.depthOnlyCubePipeline ? "depth-cube:" : "depth-sphere:") + idx;
+      for (let idx = 0; idx < drawCount; idx++) {
+        const absIdx = baseOffset + idx;
+        const bgKey = (pipeline === this.depthOnlyCubePipeline ? "depth-cube:" : "depth-sphere:") + absIdx;
         let bg = this.bg0Cache.get(bgKey);
         if (!bg) {
           bg = device.createBindGroup({
             layout: pipeline.getBindGroupLayout(0),
             entries: [
               { binding: 0, resource: { buffer: this.depthOnlyCubeUniformBuffer! } },
-              { binding: 1, resource: { buffer: this.cubeInstanceBuffer!, offset: idx * stride, size: 64 } },
+              { binding: 1, resource: { buffer: this.cubeInstanceBuffer!, offset: absIdx * stride, size: 64 } },
             ],
           });
           this.bg0Cache.set(bgKey, bg);
@@ -1414,10 +1417,10 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
     };
 
     if (cubes.length > 0) {
-      renderBatch(cubes, this.depthOnlyCubePipeline, this.cubeVertexBuffer, this.cubeIndexBuffer, this.cubeIndexCount);
+      renderBatch(cubes, this.depthOnlyCubePipeline, this.cubeVertexBuffer, this.cubeIndexBuffer, this.cubeIndexCount, 0);
     }
     if (spheres.length > 0 && this.depthOnlySpherePipeline && this.sphereVertexBuffer && this.sphereIndexBuffer) {
-      renderBatch(spheres, this.depthOnlySpherePipeline, this.sphereVertexBuffer, this.sphereIndexBuffer, this.sphereIndexCount);
+      renderBatch(spheres, this.depthOnlySpherePipeline, this.sphereVertexBuffer, this.sphereIndexBuffer, this.sphereIndexCount, cubes.length);
     }
   }
 
@@ -1512,11 +1515,13 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
 
     // Render cubes
     if (cubes.length > 0) {
-      this.renderShapeBatch(pass, device, cubes, this.cubePipeline!, this.cubeVertexBuffer!, this.cubeIndexBuffer!, this.cubeIndexCount, this.cubeLightingBg, this.cubeShadowBg);
+      this.renderShapeBatch(pass, device, cubes, this.cubePipeline!, this.cubeVertexBuffer!, this.cubeIndexBuffer!, this.cubeIndexCount, this.cubeLightingBg, this.cubeShadowBg, 0);
     }
-    // Render spheres
+    // Render spheres — offset instance data past the cube batch so they don't
+    // overwrite each other in the shared instance buffer (writeBuffer is a
+    // queue op that all executes before the command buffer submit).
     if (spheres.length > 0 && this.spherePipeline && this.sphereVertexBuffer && this.sphereIndexBuffer) {
-      this.renderShapeBatch(pass, device, spheres, this.spherePipeline, this.sphereVertexBuffer, this.sphereIndexBuffer, this.sphereIndexCount, this.sphereLightingBg, this.sphereShadowBg);
+      this.renderShapeBatch(pass, device, spheres, this.spherePipeline, this.sphereVertexBuffer, this.sphereIndexBuffer, this.sphereIndexCount, this.sphereLightingBg, this.sphereShadowBg, cubes.length);
     }
   }
 
@@ -1530,6 +1535,7 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
     indexCount: number,
     lightingBg: GPUBindGroup | null,
     shadowBg: GPUBindGroup | null,
+    baseOffset: number = 0,
   ): void {
     pass.setPipeline(pipeline);
     pass.setVertexBuffer(0, vertexBuffer);
@@ -1538,13 +1544,15 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
     if (shadowBg) pass.setBindGroup(3, shadowBg);
 
     const stride = this.cubeInstanceStride;
+    const maxInstances = this.cubeInstanceBuffer!.size / stride;
     const isCube = pipeline === this.cubePipeline;
     const defaultBg1 = isCube ? this.cubeDefaultBindGroup1 : this.sphereDefaultBindGroup1;
     const bg0Layout = pipeline.getBindGroupLayout(0);
     const bg1Layout = pipeline.getBindGroupLayout(1);
 
-    // Write all instance data first
-    for (let idx = 0; idx < indices.length; idx++) {
+    // Write all instance data first (clamp to buffer capacity)
+    const drawCount = Math.min(indices.length, maxInstances);
+    for (let idx = 0; idx < drawCount; idx++) {
       const i = indices[idx];
       const slot = this.simReader!.getEntitySlot(i);
       const type = slot.u32[ENT.TYPE];
@@ -1584,24 +1592,25 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
       instData[18] = color[2];
       instData[19] = color[3];
       instData[20] = hasPaint;
-      device.queue.writeBuffer(this.cubeInstanceBuffer!, idx * stride, instData);
+      device.queue.writeBuffer(this.cubeInstanceBuffer!, (baseOffset + idx) * stride, instData);
     }
 
-    // Draw using cached bind groups (keyed by slot index in the batch)
-    for (let idx = 0; idx < indices.length; idx++) {
+    // Draw using cached bind groups (keyed by absolute instance buffer offset)
+    for (let idx = 0; idx < drawCount; idx++) {
       const i = indices[idx];
       const entityId = i + 1;
       const paintTex = this.paintTextures.get(entityId);
+      const absIdx = baseOffset + idx;
 
-      // Bind group 0: per-instance uniform — cache by batch slot idx
-      const bg0Key = (isCube ? "c" : "s") + ":" + idx;
+      // Bind group 0: per-instance uniform — cache by absolute buffer offset
+      const bg0Key = (isCube ? "c" : "s") + ":" + absIdx;
       let bg0 = this.bg0Cache.get(bg0Key);
       if (!bg0) {
         bg0 = device.createBindGroup({
           layout: bg0Layout,
           entries: [
             { binding: 0, resource: { buffer: this.cubeUniformBuffer! } },
-            { binding: 1, resource: { buffer: this.cubeInstanceBuffer!, offset: idx * stride, size: 96 } },
+            { binding: 1, resource: { buffer: this.cubeInstanceBuffer!, offset: absIdx * stride, size: 96 } },
           ],
         });
         this.bg0Cache.set(bg0Key, bg0);

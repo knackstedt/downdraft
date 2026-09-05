@@ -12,7 +12,7 @@ import { WeaponController } from "@andrews-sandbox/module-weapons";
 import { downdraft, startGame, type SimWorkerSeed } from "@downdraft/app/renderer";
 import { ENGINE_VERSION, ENT, SimBufferReader } from "@downdraft/core";
 import { PixiUiHost } from "@downdraft/library-pixi-ui";
-import { FunMode, ToolType, ToolgunContext } from "@sandbox/shared/types";
+import { EntityType, FunMode, ToolType, ToolgunContext } from "@sandbox/shared/types";
 import { SimWebWorker, type SimWebWorkerConfig } from "./engine/sim-web-worker";
 import { WebGPURenderer } from "./engine/webgpu-renderer";
 import { SANDBOX_STATS_LAYOUT, type SandboxAction } from "./pixi/bridge-protocol";
@@ -127,7 +127,10 @@ startGame({
     physicsController = new PhysicsPropsController(sim);
 
     // ── Weapon controller ──
-    const weaponController = new WeaponController({ sim, renderer: renderer as WebGPURenderer, simSAB: simSAB! });
+    const weaponController = new WeaponController({
+      sim, renderer: renderer as WebGPURenderer, simSAB: simSAB!,
+      getShapeForContent: (id) => contentRegistry.get(id)?.shape,
+    });
 
     // ── Paint system ──
     paintSystem = new PaintSystem({ sim, renderer: renderer as WebGPURenderer, simSAB: simSAB! });
@@ -232,7 +235,7 @@ startGame({
           const dz = target[2] - cam[2];
           const dl = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
           const entry = contentRegistry.get(a.contentId);
-          const shape = a.contentId.includes("sphere") || a.contentId.includes("ball") ? "sphere" : "box";
+          const shape = entry?.shape ?? (a.contentId.includes("sphere") || a.contentId.includes("ball") ? "sphere" : "box");
           sim.sendCommand({
             type: "spawn",
             contentId: a.contentId,
@@ -393,46 +396,58 @@ startGame({
         vy = 0;
         onGround = true;
       }
-      // Player collision with props (simple AABB/sphere vs capsule)
+      // Player collision with props — check at feet and mid-body, not just eye height.
+      // The player is a capsule from y=0 to y=EYE_HEIGHT with PLAYER_RADIUS horizontal extent.
       const PLAYER_RADIUS = 0.6;
+      const playerFeetY = ny - EYE_HEIGHT;
+      const playerMidY = playerFeetY + EYE_HEIGHT * 0.5;
       const colliders = r.getPropColliders();
       for (const c of colliders) {
-        const dx = nx - c.pos[0];
-        const dy = ny - c.pos[1];
-        const dz = nz - c.pos[2];
         if (c.shape === 1) {
-          // Sphere collider
+          // Sphere collider — check against player's vertical capsule
+          // Find closest point on player's capsule axis to the sphere center
+          const capsuleTop = ny;
+          const capsuleBottom = playerFeetY;
+          const closestY = Math.max(capsuleBottom, Math.min(c.pos[1], capsuleTop));
+          const dx = nx - c.pos[0];
+          const dy = closestY - c.pos[1];
+          const dz = nz - c.pos[2];
           const distSq = dx * dx + dy * dy + dz * dz;
           const minDist = c.radius + PLAYER_RADIUS;
           if (distSq < minDist * minDist && distSq > 0.0001) {
             const dist = Math.sqrt(distSq);
             const push = (minDist - dist) / dist;
             nx += dx * push;
-            ny += dy * push;
             nz += dz * push;
-            // If pushed up, count as on ground
-            if (dy < -0.5 && dy * push > 0) {
+            // Only push vertically if the sphere is above the player's feet
+            if (c.pos[1] > playerFeetY + 0.1) {
+              ny += dy * push;
+            }
+            // If standing on top of the sphere
+            if (c.pos[1] > playerMidY && dy < 0) {
               vy = 0;
               onGround = true;
             }
           }
         } else if (c.halfExtents) {
-          // Box collider — AABB vs player sphere
+          // Box collider — AABB vs player's vertical capsule
           const hx = c.halfExtents[0], hy = c.halfExtents[1], hz = c.halfExtents[2];
-          // Closest point on AABB to player
+          // Check at player's mid-body height (more representative than eye height)
+          const checkY = playerMidY;
           const cx = Math.max(c.pos[0] - hx, Math.min(nx, c.pos[0] + hx));
-          const cy = Math.max(c.pos[1] - hy, Math.min(ny, c.pos[1] + hy));
+          const cy = Math.max(c.pos[1] - hy, Math.min(checkY, c.pos[1] + hy));
           const cz = Math.max(c.pos[2] - hz, Math.min(nz, c.pos[2] + hz));
-          const ddx = nx - cx, ddy = ny - cy, ddz = nz - cz;
+          const ddx = nx - cx, ddy = checkY - cy, ddz = nz - cz;
           const distSq = ddx * ddx + ddy * ddy + ddz * ddz;
           if (distSq < PLAYER_RADIUS * PLAYER_RADIUS && distSq > 0.0001) {
             const dist = Math.sqrt(distSq);
             const push = (PLAYER_RADIUS - dist) / dist;
+            // Push horizontally (don't let player walk through props)
             nx += ddx * push;
-            ny += ddy * push;
             nz += ddz * push;
-            // If standing on top
-            if (ddy > 0.5 && ny > c.pos[1] + hy - 0.1) {
+            // If the closest point is the top of the box, player can stand on it
+            if (cy >= c.pos[1] + hy - 0.01 && playerFeetY < c.pos[1] + hy + 0.1) {
+              ny = c.pos[1] + hy + EYE_HEIGHT;
               vy = 0;
               onGround = true;
             }
@@ -590,7 +605,7 @@ function buildDomHud(
         const dx = target[0] - cam[0], dy = target[1] - cam[1], dz = target[2] - cam[2];
         const dl = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
         const entry = registry.get(item.id);
-        const shape = item.id.includes("sphere") || item.id.includes("ball") ? "sphere" : "box";
+        const shape = entry?.shape ?? (item.id.includes("sphere") || item.id.includes("ball") ? "sphere" : "box");
         sim.sendCommand({
           type: "spawn",
           contentId: item.id,
