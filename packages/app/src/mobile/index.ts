@@ -34,6 +34,57 @@
 // ArrayBuffer subclass and shims Atomics.wait. See sab-polyfill.ts.
 import "@downdraft/core/sab/sab-polyfill";
 
+// --- rAF polyfill for Android WebView ---
+// Android WebView throttles requestAnimationFrame to ~7Hz when a WebGPU
+// context is active (the WebView ties rAF to the WebGPU swap chain's present
+// rate, which can be much lower than the display refresh rate). This makes
+// the game unplayable (~7fps). setTimeout(fn, 0) runs at ~230Hz on the same
+// device, so we replace rAF with setTimeout to bypass the throttling.
+//
+// We cap at ~120fps (8ms) to avoid burning CPU. The display runs at 120Hz,
+// so this matches the native refresh rate. cancelAnimationFrame is replaced
+// with clearTimeout to match.
+//
+// This polyfill is only applied on mobile (not desktop/Electron, where rAF
+// works correctly and is synchronized with the display).
+const rafTargetInterval = 1000 / 120; // 120fps cap
+let rafIdCounter = 0;
+const rafTimeoutMap = new Map<number, ReturnType<typeof setTimeout>>();
+
+const patchedRAF = (callback: FrameRequestCallback): number => {
+  const id = ++rafIdCounter;
+  const start = performance.now();
+  rafTimeoutMap.set(id, setTimeout(() => {
+    rafTimeoutMap.delete(id);
+    callback(performance.now() - start);
+  }, rafTargetInterval));
+  return id;
+};
+
+const patchedCancelRAF = (id: number): void => {
+  const timer = rafTimeoutMap.get(id);
+  if (timer !== undefined) {
+    clearTimeout(timer);
+    rafTimeoutMap.delete(id);
+  }
+};
+
+// Use Object.defineProperty in case the global is non-writable.
+try {
+  Object.defineProperty(globalThis, "requestAnimationFrame", {
+    value: patchedRAF,
+    writable: true,
+    configurable: true,
+  });
+  Object.defineProperty(globalThis, "cancelAnimationFrame", {
+    value: patchedCancelRAF,
+    writable: true,
+    configurable: true,
+  });
+} catch (e) {
+  console.warn(`[rAF Polyfill] Failed to override requestAnimationFrame: ${(e as Error).message}`);
+}
+
 import type { InputBufferWriter } from "@downdraft/core";
 import { createLogger } from "@downdraft/core/util/logger";
 import type { GameContext } from "../renderer/game-module";
@@ -45,6 +96,14 @@ import { TouchOsd, type TouchOsdButtonId } from "./touch-osd";
 import { checkWebGpuAndIsolation, showUnsupportedDeviceScreen } from "./webgpu-guard";
 
 const log = createLogger("info");
+
+// Diagnostic: log cross-origin isolation status + check COOP/COEP headers
+console.warn(`[SAB Diag] crossOriginIsolated=${self.crossOriginIsolated} SharedArrayBuffer=${typeof SharedArrayBuffer !== "undefined"} location=${self.location?.href}`);
+fetch(self.location.href).then(r => {
+  const coop = r.headers.get("Cross-Origin-Opener-Policy");
+  const coep = r.headers.get("Cross-Origin-Embedder-Policy");
+  console.warn(`[SAB Diag] Response headers: COOP=${coop} COEP=${coep} status=${r.status}`);
+}).catch(e => console.warn(`[SAB Diag] fetch failed: ${e.message}`));
 
 export { createMobileBridge } from "./mobile-bridge";
 export { TouchInputAdapter, type TouchInputScheme } from "./touch-input-adapter";
@@ -165,7 +224,20 @@ export async function createDowndraftMobileApp<Sim extends GameSimWorker>(
 
     // Attach touch input adapter if configured.
     if (config.touchInput) {
-      touchAdapter = new TouchInputAdapter(ctx.canvas, config.touchInput);
+      // When a pixi-ui pass-through overlay is present (z-index 50,
+      // pointer-events: auto), it captures all touch events — the game canvas
+      // never sees them. Find the pixi-ui overlay canvas and listen for touch
+      // events on it instead. Touch events and pointer events are separate
+      // event systems, so the TouchInputAdapter's touch listeners coexist with
+      // the pixi-ui host's pointer listeners on the same canvas.
+      let touchCanvas: HTMLCanvasElement = ctx.canvas;
+      const pixiCanvas = document.querySelector(
+        'canvas[data-dd-layer="1"]',
+      ) as HTMLCanvasElement | null;
+      if (pixiCanvas) {
+        touchCanvas = pixiCanvas;
+      }
+      touchAdapter = new TouchInputAdapter(touchCanvas, config.touchInput);
 
       // Resolve the sink in priority order:
       //   1. config.touchInput.sinkFactory(ctx)  — deferred, needs ctx.renderer

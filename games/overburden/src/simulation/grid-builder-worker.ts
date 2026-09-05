@@ -27,7 +27,7 @@ import {
     PADDED_EXPLORED_ROW_BYTES,
     PADDED_GRID_ROW_BYTES,
     PADDED_LIGHT_ROW_BYTES,
-    RenderBufferWriter,
+    RenderBufferWriter
 } from "../shared/render-buffer";
 import { SimBufferReader } from "../shared/sim-buffer";
 import { isTreeBlock } from "../shared/tree-species";
@@ -92,12 +92,21 @@ const isAirOrCrop = (id: number): boolean => id === 0 || CROP_LOOKUP[id] !== 0;
 let simReader: SimBufferReader | null = null;
 let renderWriter: RenderBufferWriter | null = null;
 let lastBuiltTick = -1;
-let pollTimer: ReturnType<typeof setInterval> | null = null;
 let running = false;
 // SAB polyfill: buffer sync worker (only created when SAB is unavailable).
-let syncWorker: { syncToMain: () => void; start: () => void } | null = null;
+let syncWorker: { syncToMain: (regionNames?: string[]) => void; start: (onAfterReceive?: () => void) => void } | null = null;
+// SAB polyfill: throttle render SAB sync. The render SAB is ~16MB; syncing it
+// every build (30Hz) would copy ~500MB/s on mobile. Instead, sync the render
+// header (32 bytes) every build so the renderer knows a new build exists, and
+// sync the full render data every N builds. The renderer renders with stale
+// data for a few frames between full syncs — acceptable for a block game.
+let renderSyncCounter = 0;
+const RENDER_SYNC_INTERVAL = 6; // sync textures every 6 builds (~375ms at 16 builds/s)
 
 /** Build instance data + padded textures from the current sim SAB state. */
+let buildProfTimer = 0;
+const buildProfTimes: number[] = [];
+
 function build(): void {
   if (!simReader || !renderWriter) return;
 
@@ -108,6 +117,7 @@ function build(): void {
   const tick = simReader.getTick();
   if (tick === lastBuiltTick) return; // no new sim tick
 
+  const buildStart = performance.now();
   const writer = renderWriter;
   const data = writer.instanceData;
   let idx = 0;
@@ -158,16 +168,19 @@ function build(): void {
   // Always pad the FULL grid — the shader samples neighbor block IDs and
   // light at arbitrary positions (including just outside the visible area
   // for edge blending), so partial textures would cause artifacts.
+  //
+  // Use typed array .set() with subarray for native-speed row copies instead
+  // of a per-element JS loop. Uint8Array.set(Uint16Array.subarray()) copies
+  // each element, truncating to uint8 (equivalent to & 0xFF) — but the engine
+  // uses optimized memcpy-like operations internally, making it ~10x faster
+  // than a per-element JS loop on mobile.
   const paddedFg = writer.paddedFgGrid;
   const paddedBg = writer.paddedBgGrid;
   const rowBytes = PADDED_GRID_ROW_BYTES;
   for (let y = 0; y < H; y++) {
     const srcOff = y * W;
-    const dstOff = y * rowBytes;
-    for (let x = 0; x < W; x++) {
-      paddedFg[dstOff + x] = foreground[srcOff + x] & 0xFF;
-      paddedBg[dstOff + x] = background[srcOff + x] & 0xFF;
-    }
+    paddedFg.set(foreground.subarray(srcOff, srcOff + W), y * rowBytes);
+    paddedBg.set(background.subarray(srcOff, srcOff + W), y * rowBytes);
   }
 
   // --- Foreground blocks (rendered at 2 Z depths: Z=0 and Z=-1) ---
@@ -379,13 +392,33 @@ function build(): void {
 
   // SAB polyfill: sync render data to the main thread after each build.
   // No-op when real SAB is available (desktop).
-  syncWorker?.syncToMain();
-}
+  // Throttled: sync the render header (32 bytes) every build so the renderer
+  // knows a new build exists, and sync the full render data (~16MB) every
+  // RENDER_SYNC_INTERVAL builds to avoid copying 500MB/s on mobile.
+  if (syncWorker) {
+    renderSyncCounter++;
+    if (renderSyncCounter >= RENDER_SYNC_INTERVAL) {
+      // Sync textures + instances together every RENDER_SYNC_INTERVAL builds.
+      // Instances are needed for the block grid to render at all.
+      syncWorker.syncToMain(["render-textures", "render-instances"]);
+      renderSyncCounter = 0;
+    }
+    // Sync the header every build so the renderer knows a new build exists.
+    syncWorker.syncToMain(["render-header"]);
+  }
 
-/** Poll loop — checks for new sim ticks and builds when one arrives. */
-function poll(): void {
-  if (!running || !simReader) return;
-  build();
+  // Build profiling: accumulate + log every 5s
+  const buildMs = performance.now() - buildStart;
+  buildProfTimes.push(buildMs);
+  const now = performance.now();
+  if (now - buildProfTimer >= 5000) {
+    buildProfTimer = now;
+    const count = buildProfTimes.length;
+    const avg = buildProfTimes.reduce((a, b) => a + b, 0) / count;
+    const max = Math.max(...buildProfTimes);
+    console.warn(`[GridBuilder Profiling] ${count} builds over 5s: avg=${avg.toFixed(2)}ms max=${max.toFixed(2)}ms`);
+    buildProfTimes.length = 0;
+  }
 }
 
 const api = {
@@ -399,23 +432,61 @@ const api = {
     // and posts render data to the main thread (writeRegions) after each build.
     if (!usingRealSAB) {
       const { BufferSyncWorker } = await import("@downdraft/core/worker/buffer-sync");
+      // Render SAB layout offsets — computed locally from byteLength to avoid
+      // importing constants that Vite tree-shakes incorrectly in the mobile bundle.
+      // Layout: HEADER(32) | INSTANCE_DATA | PADDED_FG | PADDED_BG | PADDED_LIGHT | PADDED_EXPLORED
+      // Texture sizes (ACTIVE_GRID_W=448, ACTIVE_GRID_H=448):
+      //   PADDED_GRID_ROW = ceil(448/256)*256 = 512; grid tex = 512*448 = 229376
+      //   PADDED_LIGHT_ROW = ceil(448*4/256)*256 = 1792; light tex = 1792*448 = 802816
+      //   Total textures = 2*229376 + 802816 + 229376 = 1490944
+      const R_HDR = 32;
+      const R_TEX_SIZE = 1490944;
+      const R_INSTANCE_OFFSET = R_HDR;
+      const R_TEXTURE_OFFSET = renderSab.byteLength - R_TEX_SIZE;
+      const R_TOTAL_COUNT_OFFSET = 16; // RENDER_HEADER_TOTAL_COUNT
+      const R_INSTANCE_STRIDE = 5;
       const syncConfig: BufferSyncConfig = {
         buffers: { sim: simSab, render: renderSab },
         regions: {
           // Sim SAB: main thread sends sim data (readRegions = what the
           // grid builder reads from the main thread). Grid builder doesn't
           // write to the sim SAB, so no writeRegions.
+          // Split into named regions to mirror the host's write regions.
           sim: {
             writeRegions: [],
             readRegions: [
-              { offset: 0, length: simSab.byteLength - 128, name: "sim-data" },
+              { offset: 0, length: 48, name: "header" },
+              { offset: 48, length: simSab.byteLength - 128 - 48 - 2048 - 16384, name: "grids" },
+              { offset: simSab.byteLength - 128 - 16384 - 2048, length: 2048, name: "blockheads" },
+              { offset: simSab.byteLength - 128 - 16384, length: 16384, name: "drops" },
             ],
           },
           // Render SAB: grid builder writes everything (writeRegions).
           // Main thread doesn't write to the render SAB, so no readRegions.
+          // Split into 3 regions for efficient sync:
+          //   render-header (32B): synced every build — tick + instance counts
+          //   render-instances (dynamic): synced every 3 builds — only active
+          //     instance data (typically 200-800KB vs 15.3MB full allocation)
+          //   render-textures (~1.5MB): synced every 3 builds — padded grid +
+          //     light + explored textures
           render: {
             writeRegions: [
-              { offset: 0, length: renderSab.byteLength, name: "render-data" },
+              { offset: 0, length: R_HDR, name: "render-header" },
+              {
+                offset: R_INSTANCE_OFFSET,
+                length: renderSab.byteLength - R_INSTANCE_OFFSET,
+                name: "render-instances",
+                // Dynamic length: only sync the active instances, not the
+                // full 15.3MB allocation. The actual count is in
+                // RENDER_HEADER_TOTAL_COUNT (Uint32 at offset 16).
+                lengthFieldOffset: R_TOTAL_COUNT_OFFSET,
+                lengthMultiplier: 4 * R_INSTANCE_STRIDE, // count * floats * bytes
+              },
+              {
+                offset: R_TEXTURE_OFFSET,
+                length: R_TEX_SIZE,
+                name: "render-textures",
+              },
             ],
             readRegions: [],
           },
@@ -425,12 +496,12 @@ const api = {
         },
       };
       syncWorker = new BufferSyncWorker(syncConfig);
-      syncWorker.start();
+      // Event-driven build: build immediately when new sim data arrives,
+      // instead of polling on a timer. This avoids Android WebView's
+      // timer throttling in workers (which can throttle setInterval to
+      // ~100ms+ intervals, causing the grid builder to miss 30Hz ticks).
+      syncWorker.start(() => { if (running) build(); });
     }
-
-    // Poll at 2ms intervals — fast enough to catch 30Hz tick changes with
-    // minimal latency, but not a tight busy-loop that burns CPU.
-    pollTimer = setInterval(poll, 2);
 
     // Build once immediately so the renderer has data on the first frame.
     build();
@@ -438,10 +509,6 @@ const api = {
 
   shutdown(): void {
     running = false;
-    if (pollTimer) {
-      clearInterval(pollTimer);
-      pollTimer = null;
-    }
     syncWorker = null;
     simReader = null;
     renderWriter = null;

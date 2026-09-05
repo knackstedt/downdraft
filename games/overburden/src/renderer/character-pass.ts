@@ -119,6 +119,7 @@ export class CharacterPass {
         const nodeId = `player:${gender}`;
 
         // Fetch and parse the FBX.
+        // Fetch and parse the FBX.
         const resp = await fetch(fbxUrl);
         if (!resp.ok) throw new Error(`Failed to fetch ${gender} FBX: ${resp.status}`);
         const buffer = await resp.arrayBuffer();

@@ -183,10 +183,22 @@ export class BlockheadsWorkerHost extends BaseWorkerHost<BlockheadsWorkerApi> {
    * The tick field (HDR_TICK at offset 0) is used as the sequence number for
    * change gating — the worker sync is skipped when the tick hasn't advanced,
    * eliminating copy overhead when the sim is paused.
+   *
+   * The worker's write regions are split into fast/slow for throttled sync
+   * (see blockheads-worker.ts onSyncFastRegions). The main thread's readRegions
+   * mirror the same split so the BufferSyncHost copies each region into the
+   * correct part of the local buffer.
    */
   protected getSyncConfig(): BufferSyncConfig | null {
-    // INPUT is the last region in the SAB, so INPUT_OFFSET = byteLength - INPUT_SIZE.
+    // Compute offsets from byteLength at runtime — avoids importing computed
+    // constants that Vite may tree-shake incorrectly in the mobile bundle.
+    const HEADER_SIZE = 48;
+    const DROPS_SIZE = 4 * 8 * 512;     // DROP_STRIDE(8) * MAX_DROPS(512) * 4
+    const BLOCKHEADS_SIZE = 4 * 16 * 32; // BH_STRIDE(16) * MAX_BLOCKHEADS(32) * 4
     const inputOffset = this.getSimBuffer().byteLength - INPUT_SIZE;
+    const dropsOffset = inputOffset - DROPS_SIZE;
+    const blockheadsOffset = dropsOffset - BLOCKHEADS_SIZE;
+    const gridsLength = blockheadsOffset - HEADER_SIZE;
     return {
       buffers: { sim: this.getSimBuffer() },
       regions: {
@@ -199,9 +211,12 @@ export class BlockheadsWorkerHost extends BaseWorkerHost<BlockheadsWorkerApi> {
           writeRegions: [
             { offset: inputOffset, length: INPUT_SIZE, name: "input", clearAfterSend: true, skipIfAllZero: true },
           ],
-          // Worker writes: everything except the input region
+          // Worker writes: split into fast + slow regions (mirror worker side)
           readRegions: [
-            { offset: 0, length: inputOffset, name: "sim-data" },
+            { offset: 0, length: HEADER_SIZE, name: "header" },
+            { offset: HEADER_SIZE, length: gridsLength, name: "grids" },
+            { offset: blockheadsOffset, length: BLOCKHEADS_SIZE, name: "blockheads" },
+            { offset: dropsOffset, length: DROPS_SIZE, name: "drops" },
           ],
         },
       },

@@ -35,8 +35,11 @@ createDowndraftMobileApp({
   module: overburdenModule,
 
   touchInput: {
-    // dual-stick: left half = movement joystick, right half = aim/mine.
-    scheme: "dual-stick",
+    // joystick-only: left half = movement joystick. Right-half taps are
+    // handled by the pixi-ui pass-through overlay, which dispatches synthetic
+    // mouse events on the game canvas for mining/placing. This avoids
+    // double-handling (adapter + pixi-ui both setting mouseDown).
+    scheme: "joystick-only",
     // Overburden's renderer exposes getInput() (BlockheadsInputState), not an
     // InputBufferWriter — provide a sink that writes to it.
     sinkFactory: (ctx) => new BlockheadsInputSink(ctx.renderer as BlockheadsRenderer),

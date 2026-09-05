@@ -386,9 +386,14 @@ export class GameRenderer implements CanvasResizeHandler {
   // --- CanvasResizeHandler ---
 
   onResize(cssWidth: number, cssHeight: number, dpr: number): void {
-    this.dpr = dpr;
-    const w = Math.round(cssWidth * dpr);
-    const h = Math.round(cssHeight * dpr);
+    // Cap DPR at 1.5 on mobile to reduce WebGPU compositing cost.
+    // Android WebView's compositor blocks the main thread proportionally
+    // to canvas pixel count. On a 3x DPR phone, capping to 1.5x reduces
+    // compositing work by ~4x with minimal visual quality loss.
+    const cappedDpr = Math.min(dpr, 1.5);
+    this.dpr = cappedDpr;
+    const w = Math.round(cssWidth * cappedDpr);
+    const h = Math.round(cssHeight * cappedDpr);
     if (this.canvas.width !== w) this.canvas.width = w;
     if (this.canvas.height !== h) this.canvas.height = h;
     this.updateViewports(this.viewportCount);
@@ -695,6 +700,9 @@ export class GameRenderer implements CanvasResizeHandler {
     this.callbacks.afterFrame?.(dt, this.elapsedTime);
     this.rendererModuleHost?.dispatchFrame("afterFrame", dt, this.elapsedTime);
 
+    const __rfTotal = performance.now() - now;
+    if (__rfTotal > 20) console.warn(`[GameRenderer] renderFrame took ${__rfTotal.toFixed(1)}ms`);
+
     this.currentRafId = this.rafSource ? this.rafSource(this.render) : requestAnimationFrame(this.render);
   }
 
@@ -749,6 +757,7 @@ export class GameRenderer implements CanvasResizeHandler {
     const isLast = viewportIdx === this.viewportCount - 1;
 
     // Determine color/depth views — XR provider takes precedence, then offscreen, then canvas
+    const __ctStart = performance.now();
     const colorView = xrProvider
       ? xrProvider.getColorView(viewportIdx)
       : (useOffscreen && offscreen)
@@ -758,6 +767,8 @@ export class GameRenderer implements CanvasResizeHandler {
         ? (offscreen.getSceneColorView?.() ?? this.context!.getCurrentTexture().createView())
         : this.context!.getCurrentTexture().createView())
       : this.context!.getCurrentTexture().createView();
+    const __ctMs = performance.now() - __ctStart;
+    if (__ctMs > 20) console.warn(`[GameRenderer] getCurrentTexture took ${__ctMs.toFixed(1)}ms`);
 
     const depthView = xrProvider
       ? xrProvider.getDepthView(viewportIdx, origViewport.w, origViewport.h)

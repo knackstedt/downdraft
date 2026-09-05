@@ -728,20 +728,40 @@ simControl = createSimWorker({
   // The worker writes everything except the INPUT region; the main thread
   // writes the INPUT region. The BufferSyncWorker posts written regions to
   // the main thread after each tick batch. See buffer-sync.ts.
+  //
+  // Regions are split into "fast" (synced every tick) and "slow" (synced every
+  // N ticks) to reduce per-tick copy overhead on mobile. The fast regions
+  // (header + blockheads + drops = ~18KB) carry data that changes every tick
+  // and is needed for responsive gameplay. The slow "grids" region (~1.76MB)
+  // carries grid data that changes less frequently and can tolerate a few
+  // ticks of staleness in the renderer.
   onSyncConfig(sab: SharedArrayBuffer): BufferSyncConfig {
-    // INPUT is the last region in the SAB (128 bytes).
-    const inputOffset = sab.byteLength - 128;
+    // Compute offsets from byteLength at runtime — avoids importing computed
+    // constants that Vite may tree-shake incorrectly in the mobile bundle.
+    const HEADER_SIZE = 48;
+    const DROPS_SIZE = 4 * 8 * 512;     // DROP_STRIDE(8) * MAX_DROPS(512) * 4
+    const BLOCKHEADS_SIZE = 4 * 16 * 32; // BH_STRIDE(16) * MAX_BLOCKHEADS(32) * 4
+    const INPUT_SIZE = 128;
+    const inputOffset = sab.byteLength - INPUT_SIZE;
+    const dropsOffset = inputOffset - DROPS_SIZE;
+    const blockheadsOffset = dropsOffset - BLOCKHEADS_SIZE;
+    const gridsLength = blockheadsOffset - HEADER_SIZE;
     return {
       buffers: { sim: sab },
       regions: {
         sim: {
-          // Worker writes: everything except the input region
+          // Worker writes: split into fast + slow regions
           writeRegions: [
-            { offset: 0, length: inputOffset, name: "sim-data" },
+            // Fast regions (synced every tick via onSyncFastRegions):
+            { offset: 0, length: HEADER_SIZE, name: "header" },
+            { offset: blockheadsOffset, length: BLOCKHEADS_SIZE, name: "blockheads" },
+            { offset: dropsOffset, length: DROPS_SIZE, name: "drops" },
+            // Slow region (synced every N ticks):
+            { offset: HEADER_SIZE, length: gridsLength, name: "grids" },
           ],
           // Main thread writes: input region only
           readRegions: [
-            { offset: inputOffset, length: 128, name: "input" },
+            { offset: inputOffset, length: INPUT_SIZE, name: "input" },
           ],
         },
       },
@@ -750,6 +770,12 @@ simControl = createSimWorker({
       },
     };
   },
+
+  // SAB polyfill: fast regions synced every tick. Slow regions (grids) are
+  // synced every onSyncSlowInterval tick batches (default 10 = 3Hz).
+  // This reduces per-tick copy from ~1.78MB to ~18KB on mobile.
+  onSyncFastRegions: ["header", "blockheads", "drops"],
+  onSyncSlowInterval: 30, // sync grids every 30 tick batches (~1s at 30Hz)
 
   onTick(dt: number, ctx): void {
     if (!world) return;

@@ -11,7 +11,7 @@
 import { BaseWorkerHost, type BufferSyncConfig } from "@downdraft/core";
 import {
     createRenderBuffer,
-    RenderBufferReader,
+    RenderBufferReader
 } from "../shared/render-buffer";
 
 // INPUT is the last region in the sim SAB (128 bytes). Compute its offset
@@ -94,8 +94,28 @@ export class GridBuilderWorkerHost extends BaseWorkerHost<GridBuilderWorkerApi> 
    */
   protected getSyncConfig(): BufferSyncConfig | null {
     if (!this.simSab) return null;
+    // Compute offsets from byteLength at runtime — avoids importing computed
+    // constants that Vite may tree-shake incorrectly in the mobile bundle.
+    const HEADER_SIZE = 48;
+    const DROPS_SIZE = 4 * 8 * 512;     // DROP_STRIDE(8) * MAX_DROPS(512) * 4
+    const BLOCKHEADS_SIZE = 4 * 16 * 32; // BH_STRIDE(16) * MAX_BLOCKHEADS(32) * 4
     const inputOffset = this.simSab.byteLength - INPUT_SIZE;
+    const dropsOffset = inputOffset - DROPS_SIZE;
+    const blockheadsOffset = dropsOffset - BLOCKHEADS_SIZE;
+    const gridsLength = blockheadsOffset - HEADER_SIZE;
     const renderSab = this.getSimBuffer();
+    // Render SAB layout offsets — computed locally to avoid importing
+    // constants that Vite may tree-shake incorrectly in the mobile bundle.
+    // Layout: HEADER(32) | INSTANCE_DATA | PADDED_FG | PADDED_BG | PADDED_LIGHT | PADDED_EXPLORED
+    // Texture sizes (computed from ACTIVE_GRID_W=448, ACTIVE_GRID_H=448):
+    //   PADDED_GRID_ROW = ceil(448/256)*256 = 512; grid tex = 512*448 = 229376
+    //   PADDED_LIGHT_ROW = ceil(448*4/256)*256 = 1792; light tex = 1792*448 = 802816
+    //   PADDED_EXPLORED = 512*448 = 229376
+    //   Total textures = 2*229376 + 802816 + 229376 = 1490944
+    const RENDER_HDR = 32;
+    const TEX_SIZE = 1490944; // PADDED_FG + PADDED_BG + PADDED_LIGHT + PADDED_EXPLORED
+    const INSTANCE_OFFSET = RENDER_HDR;
+    const TEXTURE_OFFSET = renderSab.byteLength - TEX_SIZE;
     return {
       buffers: {
         sim: this.simSab,
@@ -103,19 +123,30 @@ export class GridBuilderWorkerHost extends BaseWorkerHost<GridBuilderWorkerApi> 
       },
       regions: {
         // Sim SAB: main thread syncs sim data → grid builder (writeRegions).
-        // Grid builder doesn't write to the sim SAB, so no readRegions.
+        // Split into fast (header, synced every frame) + slow (grids, synced
+        // every 6 frames) to reduce copy overhead. The grid builder needs the
+        // header (tick) every frame to know when to build, but the grid data
+        // can tolerate several frames of staleness.
         sim: {
           writeRegions: [
-            { offset: 0, length: inputOffset, name: "sim-data" },
+            { offset: 0, length: HEADER_SIZE, name: "header" },
+            { offset: HEADER_SIZE, length: gridsLength, name: "grids", syncInterval: 18 },
+            { offset: blockheadsOffset, length: BLOCKHEADS_SIZE, name: "blockheads" },
+            { offset: dropsOffset, length: DROPS_SIZE, name: "drops" },
           ],
           readRegions: [],
         },
         // Render SAB: grid builder writes everything → main thread (readRegions).
         // Main thread doesn't write to the render SAB, so no writeRegions.
+        // Split into header + instances + textures to mirror the worker's
+        // write regions. The instances region uses dynamic length on the
+        // worker side; the host just copies whatever it receives.
         render: {
           writeRegions: [],
           readRegions: [
-            { offset: 0, length: renderSab.byteLength, name: "render-data" },
+            { offset: 0, length: RENDER_HDR, name: "render-header" },
+            { offset: INSTANCE_OFFSET, length: TEXTURE_OFFSET - INSTANCE_OFFSET, name: "render-instances" },
+            { offset: TEXTURE_OFFSET, length: TEX_SIZE, name: "render-textures" },
           ],
         },
       },
