@@ -85,6 +85,13 @@ export const overburdenModule: GameModule<BlockheadsGameSim> = {
     const renderer = ctx.renderer as BlockheadsRenderer;
     useGameStore.getState().setRenderer(renderer);
 
+    // Limit render rate to 60fps. Without this, the setTimeout-based rAF
+    // (monkey-patched on mobile) runs at ~230fps, calling getCurrentTexture()
+    // + queue.submit() 230 times/sec. The Android WebView compositor can only
+    // present at 60Hz, causing swap chain congestion that periodically blocks
+    // the main thread for 80-150ms.
+    renderer.setFrameRateLimit(30);
+
     // --- Allocate the map SAB (shared between sim worker + main thread) ---
     // The sim worker writes per-block map data into it; the MapCanvas reads
     // it directly and renders the bitmap at full block resolution.

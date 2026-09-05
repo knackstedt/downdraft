@@ -150,6 +150,24 @@ export interface CreateSimWorkerOptions {
   onSyncConfig?: (sab: SharedArrayBuffer) => BufferSyncConfig;
 
   /**
+   * SAB polyfill throttled sync: names of "fast" write regions that should be
+   * synced to the main thread EVERY tick batch (e.g. header, entities, drops).
+   * Large "slow" regions (e.g. grid data) are only synced every
+   * `onSyncSlowInterval` tick batches. This dramatically reduces per-tick copy
+   * overhead on mobile (e.g. 18KB/tick instead of 1.78MB/tick).
+   *
+   * If omitted, ALL write regions are synced every tick batch (original behavior).
+   */
+  onSyncFastRegions?: string[];
+
+  /**
+   * How often (in tick batches) to sync ALL write regions (including slow
+   * regions not listed in `onSyncFastRegions`). Default: 10. Only effective
+   * when `onSyncFastRegions` is provided.
+   */
+  onSyncSlowInterval?: number;
+
+  /**
    * Additional API methods to expose beyond the standard set.
    * e.g. { clear: () => { ... }, loadGrid: (grid, fields, w, h) => { ... } }
    */
@@ -202,6 +220,12 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
 
   // SAB polyfill: buffer sync worker (only created when SAB is unavailable).
   let syncWorker: BufferSyncWorker | null = null;
+  // SAB polyfill: throttled sync counter. When onSyncFastRegions is provided,
+  // fast regions are synced every tick batch, and ALL regions (including slow
+  // ones) are synced every onSyncSlowInterval tick batches.
+  let syncSlowCounter = 0;
+  const syncSlowInterval = opts.onSyncSlowInterval ?? 10;
+  const syncFastRegions = opts.onSyncFastRegions;
   // setTimeout truncates fractional milliseconds (e.g. 32.333 → 32), losing
   // ~frac(tickMs) ms per iteration. For tickMs = 33.333 (30Hz), that's 0.333ms
   // per iteration — after ~100 iterations (~3.3s) the deficit reaches one full
@@ -299,7 +323,21 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
 
             // SAB polyfill: sync written regions to the main thread after
             // each tick batch. No-op when real SAB is available (desktop).
-            syncWorker?.syncToMain();
+            // When onSyncFastRegions is provided, use throttled sync:
+            //   - Every tick batch: sync only fast regions (header, entities)
+            //   - Every N tick batches: sync ALL regions (including grids)
+            if (syncWorker) {
+              if (syncFastRegions) {
+                syncWorker.syncToMain(syncFastRegions);
+                syncSlowCounter++;
+                if (syncSlowCounter >= syncSlowInterval) {
+                  syncWorker.syncToMain();
+                  syncSlowCounter = 0;
+                }
+              } else {
+                syncWorker.syncToMain();
+              }
+            }
 
             // Flush profiling data (ThreadMetrics + EventLoop + instant warnings)
             flushProfilingTick();

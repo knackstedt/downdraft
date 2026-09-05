@@ -167,16 +167,22 @@ export function createDowndraftMobileViteConfig(
   ];
 
   // --- HTML generation ---
+  // The mobile entry is src/mobile.tsx (not src/main.tsx). Always inject the
+  // entry path into the HTML options, even when the game provides a custom
+  // html config (without an explicit entry, the HTML plugin would default to
+  // /src/main.tsx — the desktop entry — and the mobile touch/OSD code would
+  // never be bundled).
+  const mobileEntryPath = entry.replace(rendererRoot, "").replace(/\\/g, "/");
   const htmlOpts: DowndraftHtmlOptions | null = options.html === false
     ? null
-    : options.html ?? {
+    : {
         title: game,
         layers: options.layers ?? [
           { type: "canvas", id: "game-canvas" },
           { type: "dom", id: "root" },
         ],
-        // Mobile entry is src/mobile.tsx, not src/main.tsx
-        entry: entry.replace(rendererRoot, "").replace(/\\/g, "/"),
+        ...options.html,
+        entry: options.html?.entry ?? mobileEntryPath,
       };
 
   // Ensure index.html exists for the rollup input.

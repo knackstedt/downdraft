@@ -29,6 +29,7 @@ import android.content.Context;
 import android.content.res.AssetManager;
 import fi.iki.elonen.NanoHTTPD;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -68,6 +69,8 @@ public class EmbeddedServer extends NanoHTTPD {
         MIME_TYPES.put(".glb", "model/gltf-binary");
         MIME_TYPES.put(".gltf", "model/gltf+json");
         MIME_TYPES.put(".ktx2", "image/ktx2");
+        MIME_TYPES.put(".fbx", "application/octet-stream");
+        MIME_TYPES.put(".bin", "application/octet-stream");
     }
 
     public EmbeddedServer(Context context, int port) {
@@ -92,7 +95,12 @@ public class EmbeddedServer extends NanoHTTPD {
             is.close();
 
             String mimeType = getMimeType(uri);
-            Response response = newFixedLengthResponse(Response.Status.OK, mimeType, new String(data));
+            // Use InputStream overload to avoid String conversion which corrupts
+            // binary data (NanoHTTPD's String overload encodes as UTF-8, replacing
+            // invalid byte sequences with U+FFFD).
+            Response response = newFixedLengthResponse(
+                Response.Status.OK, mimeType,
+                new ByteArrayInputStream(data), data.length);
 
             // COOP/COEP headers for SharedArrayBuffer cross-origin isolation
             response.addHeader("Cross-Origin-Opener-Policy", "same-origin");

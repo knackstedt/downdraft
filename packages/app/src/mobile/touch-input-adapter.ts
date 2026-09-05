@@ -10,6 +10,12 @@
 //   - "dual-stick": Left half of screen = virtual movement joystick (W/A/S/D
 //     or gamepad axes). Right half = drag-look (mouse delta for camera).
 //     Tap right = left mouse (action). Two-finger tap right = right mouse.
+//   - "joystick-only": Left half = virtual movement joystick. Right half is
+//     not handled by the adapter — mining/placing is handled by the pixi-ui
+//     host's pass-through synthetic mouse events. Use this for games with a
+//     pixi-ui pass-through overlay (e.g. overburden) where the overlay captures
+//     all pointer events and dispatches synthetic mouse events on the game
+//     canvas for taps that miss PixiJS elements.
 //   - "tap-to-move": Single tap = left mouse at position. Drag = mouse delta.
 //     Used by 2D/3D games with click-to-move.
 //   - "tap": Pure tap = left mouse click at position. Used by 2D click-based
@@ -31,7 +37,7 @@ import {
     type TouchInputSink,
 } from "./touch-input-sink";
 
-export type TouchInputScheme = "dual-stick" | "tap-to-move" | "tap";
+export type TouchInputScheme = "dual-stick" | "joystick-only" | "tap-to-move" | "tap";
 
 export interface TouchInputOptions {
   scheme: TouchInputScheme;
@@ -136,6 +142,28 @@ export class TouchInputAdapter {
     // Prevent default to avoid scrolling/zooming on the canvas.
     add(this.canvas, "touchstart", ((e: TouchEvent) => e.preventDefault()) as EventListener);
     add(this.canvas, "touchmove", ((e: TouchEvent) => e.preventDefault()) as EventListener);
+
+    // When listening on a pixi-ui pass-through overlay canvas (z-index 50,
+    // pointer-events: auto), the overlay's pointer event listeners fire BEFORE
+    // our touch event listeners (pointer events precede touch events in the
+    // browser event sequence). This means a left-half touch would BOTH start
+    // the joystick (our touchstart) AND be forwarded by the pixi-ui host as a
+    // synthetic mousedown on the game canvas (causing unwanted mining).
+    //
+    // To prevent this, add capture-phase pointer event listeners that call
+    // stopPropagation() for left-half events. Capture phase fires before the
+    // target phase, so the pixi-ui host's target-phase pointer listeners never
+    // see left-half events. Right-half events pass through normally so the
+    // pixi-ui host can forward them for mining/placing.
+    if (this.scheme === "joystick-only") {
+      const captureOpts = { capture: true } as AddEventListenerOptions;
+      this.canvas.addEventListener("pointerdown", this.onPointerCapture, captureOpts);
+      this.canvas.addEventListener("pointermove", this.onPointerCapture, captureOpts);
+      this.canvas.addEventListener("pointerup", this.onPointerCapture, captureOpts);
+      this.listeners.push({ target: this.canvas, event: "pointerdown", handler: this.onPointerCapture });
+      this.listeners.push({ target: this.canvas, event: "pointermove", handler: this.onPointerCapture });
+      this.listeners.push({ target: this.canvas, event: "pointerup", handler: this.onPointerCapture });
+    }
   }
 
   /** Stop listening and release resources. */
@@ -203,6 +231,25 @@ export class TouchInputAdapter {
 
   // --- Touch event handlers ---
 
+  /**
+   * Capture-phase pointer event handler for "joystick-only" scheme.
+   *
+   * When listening on a pixi-ui pass-through overlay, this stops pointer
+   * events in the left half (joystick zone) from reaching the overlay's
+   * target-phase pointer listeners, preventing unwanted synthetic mouse
+   * events (mining) when the user is just moving with the joystick.
+   * Right-half events pass through to the pixi-ui host for mining/placing.
+   */
+  private onPointerCapture = (e: PointerEvent): void => {
+    if (e.eventPhase !== Event.CAPTURING_PHASE) return;
+    const rect = this.canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const w = rect.width;
+    if (x < w / 2) {
+      e.stopPropagation();
+    }
+  };
+
   private onTouchStart = (e: TouchEvent): void => {
     const rect = this.canvas.getBoundingClientRect();
     const w = rect.width;
@@ -230,6 +277,13 @@ export class TouchInputAdapter {
           this.lookTouchId = touch.identifier;
           // Tap = left mouse button (action)
           this.sink.setMouseButton?.(0, true);
+        }
+      } else if (this.scheme === "joystick-only") {
+        // Only handle left-half movement. Right-half touches are not handled
+        // by the adapter — the pixi-ui host's pass-through synthetic mouse
+        // events handle mining/placing for taps that miss PixiJS elements.
+        if (half === "left" && this.moveTouchId === null) {
+          this.moveTouchId = touch.identifier;
         }
       } else if (this.scheme === "tap-to-move" || this.scheme === "tap") {
         // Set mouse position and press left button
@@ -273,6 +327,12 @@ export class TouchInputAdapter {
           active.currentX = x;
           active.currentY = y;
         }
+      } else if (this.scheme === "joystick-only") {
+        if (touch.identifier === this.moveTouchId) {
+          active.currentX = x;
+          active.currentY = y;
+          this.applyMovementJoystick(active);
+        }
       } else if (this.scheme === "tap-to-move") {
         // Drag = mouse movement
         this.sink.setPointer?.(x, y);
@@ -307,6 +367,17 @@ export class TouchInputAdapter {
           this.sink.setMouseButton?.(2, true);
           setTimeout(() => this.sink.setMouseButton?.(2, false), 100);
           this.rightTapPending = false;
+        }
+      } else if (this.scheme === "joystick-only") {
+        if (touch.identifier === this.moveTouchId) {
+          // Release all movement keys
+          this.movement.forward = false;
+          this.movement.back = false;
+          this.movement.left = false;
+          this.movement.right = false;
+          this.movement.jump = false;
+          this.sink.setMovement?.(this.movement);
+          this.moveTouchId = null;
         }
       } else if (this.scheme === "tap-to-move" || this.scheme === "tap") {
         this.sink.setMouseButton?.(0, false);

@@ -10,7 +10,7 @@
 //      after the touch ends (show-on-touch, fade-when-idle). A faint hint ring
 //      in the left-half zone is drawn when fully idle.
 //
-//   2. DOM action buttons (z-index 45, pointer-events: auto) for jump, mine,
+//   2. DOM action buttons (z-index 60, pointer-events: auto) for jump, mine,
 //      place, zoom in/out, and hotbar slots 0-8. Buttons are semi-transparent
 //      circles styled with inline CSS (no external CSS dependency). Pressing a
 //      button routes through the TouchInputAdapter's action methods so the
@@ -21,9 +21,9 @@
 //
 // z-index stacking (see downdraft-base.css):
 //   game canvas     z 0   (pointer-events auto — touch adapter listens here)
-//   OSD joystick    z 40  (pointer-events none — touches pass through)
-//   OSD buttons     z 45  (pointer-events auto — buttons capture their taps)
-//   pixi-ui canvas  z 50  (pointer-events none/auto — menus above OSD)
+//   pixi-ui canvas  z 50  (pointer-events none/auto — pass-through overlay)
+//   OSD joystick    z 55  (pointer-events none — touches pass through)
+//   OSD buttons     z 60  (pointer-events auto — buttons capture their taps)
 //   DOM #root       z 100 (pointer-events none — React/Solid UI)
 
 import type { TouchInputAdapter } from "./touch-input-adapter";
@@ -77,14 +77,18 @@ export class TouchOsd {
     this.fadeOnIdle = options.fadeOnIdle ?? true;
     this.fadeDelayMs = options.fadeDelayMs ?? 250;
 
-    // --- Joystick canvas (z 40, pointer-events none) ---
+    // --- Joystick canvas (z 55, pointer-events none) ---
+    // z-index 55 sits above the pixi-ui overlay canvas (z 50) so the joystick
+    // is visible even when the overlay has pointer-events: auto (pass-through
+    // mode). The joystick canvas itself is pointer-events: none, so touches
+    // pass through to the pixi-ui canvas beneath.
     this.canvas = document.createElement("canvas");
     this.canvas.dataset.ddOsd = "joystick";
     this.canvas.style.position = "fixed";
     this.canvas.style.inset = "0";
     this.canvas.style.width = "100vw";
     this.canvas.style.height = "100vh";
-    this.canvas.style.zIndex = "40";
+    this.canvas.style.zIndex = "55";
     this.canvas.style.pointerEvents = "none";
     this.canvas.style.display = "block";
     document.body.appendChild(this.canvas);
@@ -93,7 +97,7 @@ export class TouchOsd {
     this.ctx = ctx;
     this.resizeCanvas();
 
-    // --- Action buttons (z 45, pointer-events auto) ---
+    // --- Action buttons (z 60, pointer-events auto) ---
     this.createButtons();
 
     // --- Start the render loop ---
@@ -217,7 +221,7 @@ export class TouchOsd {
       userSelect: "none",
       webkitUserSelect: "none",
       touchAction: "none",
-      zIndex: "45",
+      zIndex: "60",
       pointerEvents: "auto",
       transition: "background 80ms, transform 80ms",
     } as Partial<CSSStyleDeclaration>);

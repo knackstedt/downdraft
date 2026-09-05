@@ -157,6 +157,9 @@ export class BlockheadsRenderer extends GameRenderer {
   private gridBuilderHost: GridBuilderWorkerHost | null = null;
   private lastBuildTick = RENDER_TICK_SENTINEL;
   private lastCropTick = RENDER_TICK_SENTINEL;
+  // Frame profiling: accumulate frame times and log every 5s.
+  private frameTimes: number[] = [];
+  private frameProfilerTimer = 0;
   // Cached drop render data — only rebuilt when sim tick changes (30Hz),
   // not every render frame (60-360Hz). Avoids per-frame array + object
   // allocation in the drop loop.
@@ -569,7 +572,7 @@ export class BlockheadsRenderer extends GameRenderer {
 
     // Camera uses CSS pixel dimensions (not device pixels) so zoom=96
     // means 96 CSS pixels per block regardless of devicePixelRatio.
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = this.dpr || window.devicePixelRatio || 1;
     this.camera.resize(canvas.width / dpr, canvas.height / dpr);
 
     // Create render passes (3D block grid with depth buffer)
@@ -672,7 +675,7 @@ export class BlockheadsRenderer extends GameRenderer {
 
   private handleResize(): void {
     const canvas = this.getCanvas();
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = this.dpr || window.devicePixelRatio || 1;
     this.camera.resize(canvas.width / dpr, canvas.height / dpr);
   }
 
@@ -1214,6 +1217,8 @@ export class BlockheadsRenderer extends GameRenderer {
     const canvas = this.getCanvas();
     if (!device || !context || !this.blockGridPass) return;
 
+    const frameStart = performance.now();
+
     // --- Map-mode cross-fade ---
     // Advance the animated map opacity toward its target (0 = pure 3D,
     // 1 = pure 2D map). The target flips when zoom crosses MAP_FADE_THRESHOLD;
@@ -1366,7 +1371,7 @@ export class BlockheadsRenderer extends GameRenderer {
     }
 
     // Update canvas size if needed (camera uses CSS pixels)
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = this.dpr || window.devicePixelRatio || 1;
     const w = canvas.width / dpr;
     const h = canvas.height / dpr;
     if (this.camera.canvasW !== w || this.camera.canvasH !== h) {
@@ -1646,6 +1651,24 @@ export class BlockheadsRenderer extends GameRenderer {
       // The ResizeObserver will fire and reconfigure things; the next
       // frame should render normally.
       console.warn(`[Renderer] Frame skipped (surface invalid): ${(err as Error).message}`);
+    }
+
+    // Frame profiling: accumulate + log every 5s
+    const frameMs = performance.now() - frameStart;
+    this.frameTimes.push(frameMs);
+    const now = performance.now();
+    if (now - this.frameProfilerTimer >= 5000) {
+      this.frameProfilerTimer = now;
+      const times = this.frameTimes;
+      const count = times.length;
+      const avg = times.reduce((a, b) => a + b, 0) / count;
+      const max = Math.max(...times);
+      const min = Math.min(...times);
+      const fps = (1000 / avg).toFixed(1);
+      console.warn(
+        `[Renderer Profiling] ${count} frames over 5s: avg=${avg.toFixed(2)}ms min=${min.toFixed(2)}ms max=${max.toFixed(2)}ms (~${fps}fps)`,
+      );
+      this.frameTimes = [];
     }
   }
 }

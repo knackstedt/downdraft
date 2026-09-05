@@ -54,6 +54,22 @@ export interface BufferRegion {
    * the worker's tick loop processes it.
    */
   skipIfAllZero?: boolean;
+  /**
+   * Throttle: only sync this region every N rAF frames (host side only).
+   * Default 1 (every frame). Set to e.g. 3 for large grid data regions
+   * to reduce copy overhead on mobile. The worker side ignores this field
+   * (worker sync is event-driven, not rAF-based).
+   */
+  syncInterval?: number;
+  /**
+   * Dynamic length: if set, the actual region length is read from a Uint32
+   * field at this byte offset in the buffer, multiplied by `lengthMultiplier`.
+   * This enables syncing only the active portion of a fixed-size buffer
+   * (e.g. instance data where only the first N entries are used). The
+   * `length` field is treated as the maximum possible length.
+   */
+  lengthFieldOffset?: number;
+  lengthMultiplier?: number;
 }
 
 /** Declares which regions of a buffer each side writes. */
@@ -102,6 +118,55 @@ export function isBufferSyncMessage(msg: unknown): msg is BufferSyncMessage {
 // Main-thread side
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Profiling support (lightweight, no deps)
+// ---------------------------------------------------------------------------
+
+/** Accumulates timing samples and logs a summary every N calls. */
+class SyncProfiler {
+  private samples: Array<{ label: string; ms: number; bytes: number }> = [];
+  private logTimer = 0;
+  private logInterval: number;
+
+  constructor(logIntervalMs = 5000) {
+    this.logInterval = logIntervalMs;
+  }
+
+  /** Record a timed operation. Call begin() before, end() after. */
+  begin(): number { return performance.now(); }
+  end(label: string, start: number, bytes: number): void {
+    const ms = performance.now() - start;
+    this.samples.push({ label, ms, bytes });
+    const now = performance.now();
+    if (now - this.logTimer >= this.logInterval) {
+      this.logTimer = now;
+      this.flush();
+    }
+  }
+
+  private flush(): void {
+    if (this.samples.length === 0) return;
+    const byLabel: Record<string, { count: number; totalMs: number; totalBytes: number; maxMs: number }> = {};
+    for (const s of this.samples) {
+      const e = byLabel[s.label] ?? (byLabel[s.label] = { count: 0, totalMs: 0, totalBytes: 0, maxMs: 0 });
+      e.count++;
+      e.totalMs += s.ms;
+      e.totalBytes += s.bytes;
+      if (s.ms > e.maxMs) e.maxMs = s.ms;
+    }
+    const lines: string[] = [];
+    for (const [label, e] of Object.entries(byLabel)) {
+      const avgMs = (e.totalMs / e.count).toFixed(2);
+      const maxMs = e.maxMs.toFixed(2);
+      const totalKB = (e.totalBytes / 1024).toFixed(0);
+      const avgKB = (e.totalBytes / e.count / 1024).toFixed(1);
+      lines.push(`  ${label}: ${e.count}x avg=${avgMs}ms max=${maxMs}ms avgSize=${avgKB}KB total=${totalKB}KB`);
+    }
+    console.warn(`[BufferSync Profiling] ${this.samples.length} samples over last ${this.logInterval}ms:\n${lines.join("\n")}`);
+    this.samples = [];
+  }
+}
+
 /**
  * Main-thread buffer sync manager.
  *
@@ -112,6 +177,8 @@ export function isBufferSyncMessage(msg: unknown): msg is BufferSyncMessage {
 export class BufferSyncHost {
   private rafId = 0;
   private lastInputSeqs: Record<string, number> = {};
+  private frameCount = 0;
+  private profiler = new SyncProfiler(5000);
 
   constructor(
     private worker: Worker,
@@ -130,10 +197,14 @@ export class BufferSyncHost {
   /**
    * Sync input regions to the worker. Called on each rAF frame.
    * Copies only the writeRegions of each buffer, transfers the ArrayBuffers.
+   * Regions with syncInterval > 1 are only synced every N frames (throttled).
    */
   private syncInput = (): void => {
     const transfers: ArrayBuffer[] = [];
     const regions: Record<string, RegionCopy[]> = {};
+    this.frameCount++;
+    let totalBytes = 0;
+    const pStart = this.profiler.begin();
 
     for (const [name, buf] of Object.entries(this.config.buffers)) {
       const regionDef = this.config.regions[name];
@@ -150,6 +221,11 @@ export class BufferSyncHost {
 
       const copies: RegionCopy[] = [];
       for (const r of regionDef.writeRegions) {
+        // Throttle: skip regions with syncInterval > 1 on most frames.
+        // Only sync them every syncInterval frames.
+        if (r.syncInterval && r.syncInterval > 1) {
+          if (this.frameCount % r.syncInterval !== 0) continue;
+        }
         const src = new Uint8Array(buf, r.offset, r.length);
         // skipIfAllZero: don't send zero-filled regions (e.g. input with
         // ACTION=0 after clearAfterSend). This prevents overwriting the
@@ -165,6 +241,7 @@ export class BufferSyncHost {
         new Uint8Array(copy).set(src);
         copies.push({ offset: r.offset, data: copy });
         transfers.push(copy);
+        totalBytes += r.length;
         // Clear-after-send: zero the local region so we don't re-send stale
         // data on the next frame. Used for input regions (hand-off pattern).
         if (r.clearAfterSend) {
@@ -175,8 +252,11 @@ export class BufferSyncHost {
     }
 
     if (Object.keys(regions).length > 0) {
+      const postStart = performance.now();
       this.worker.postMessage({ __bufferSync: true, regions } as BufferSyncMessage, transfers);
+      this.profiler.end("host→worker postMessage", postStart, totalBytes);
     }
+    this.profiler.end("host→worker total", pStart, totalBytes);
 
     this.rafId = requestAnimationFrame(this.syncInput);
   };
@@ -188,13 +268,17 @@ export class BufferSyncHost {
   private onMessage(msg: unknown): void {
     if (!isBufferSyncMessage(msg)) return;
 
+    const pStart = this.profiler.begin();
+    let totalBytes = 0;
     for (const [name, regionList] of Object.entries(msg.regions)) {
       const local = this.config.buffers[name];
       if (!local) continue;
       for (const { offset, data } of regionList) {
         new Uint8Array(local, offset, data.byteLength).set(new Uint8Array(data));
+        totalBytes += data.byteLength;
       }
     }
+    this.profiler.end("worker→host onMessage", pStart, totalBytes);
   }
 }
 
@@ -211,21 +295,42 @@ export class BufferSyncHost {
  */
 export class BufferSyncWorker {
   private lastSimSeqs: Record<string, number> = {};
+  private profiler = new SyncProfiler(5000);
+  private onAfterReceive: (() => void) | null = null;
 
   constructor(private config: BufferSyncConfig) {}
 
-  start(): void {
-    self.addEventListener("message", (e: MessageEvent) => this.onMessage(e.data));
+  /**
+   * Start listening for sync messages from the main thread.
+   * @param onAfterReceive - Optional callback fired after each received
+   *   message is processed. Use this to trigger event-driven work (e.g.
+   *   the grid builder calls build() here instead of polling on a timer,
+   *   which avoids Android WebView's timer throttling in workers).
+   */
+  start(onAfterReceive?: () => void): void {
+    this.onAfterReceive = onAfterReceive ?? null;
+    self.addEventListener("message", (e: MessageEvent) => {
+      this.onMessage(e.data);
+      this.onAfterReceive?.();
+    });
   }
 
   /**
    * Post written regions to the main thread. Called after each tick batch.
    * Copies only the writeRegions of each buffer, transfers the ArrayBuffers.
    * Skips buffers whose sequence hasn't changed (if seqFields declared).
+   *
+   * @param regionNames - If provided, only sync write regions whose `name`
+   *   matches one of the given names. This enables throttled sync: sync small
+   *   "fast" regions (header, entities) every tick, and large "slow" regions
+   *   (grid data, render buffers) every N ticks. If omitted, sync all regions.
    */
-  syncToMain(): void {
+  syncToMain(regionNames?: string[]): void {
     const transfers: ArrayBuffer[] = [];
     const regions: Record<string, RegionCopy[]> = {};
+    const filter = regionNames ? new Set(regionNames) : null;
+    const pStart = this.profiler.begin();
+    let totalBytes = 0;
 
     for (const [name, buf] of Object.entries(this.config.buffers)) {
       const regionDef = this.config.regions[name];
@@ -242,16 +347,84 @@ export class BufferSyncWorker {
 
       const copies: RegionCopy[] = [];
       for (const r of regionDef.writeRegions) {
-        const copy = new ArrayBuffer(r.length);
-        new Uint8Array(copy).set(new Uint8Array(buf, r.offset, r.length));
-        copies.push({ offset: r.offset, data: copy });
-        transfers.push(copy);
+        // Region name filter: skip regions not in the filter set.
+        if (filter && !filter.has(r.name)) continue;
+        // Dynamic length: read actual length from a field in the buffer.
+        let len = r.length;
+        if (r.lengthFieldOffset !== undefined && r.lengthMultiplier) {
+          const count = new Uint32Array(buf, r.lengthFieldOffset, 1)[0];
+          len = Math.min(r.length, count * r.lengthMultiplier);
+        }
+        // Chunked transfer: if the region is large, split into chunks
+        // and send with setTimeout between them so the main thread
+        // can process rAF/render between chunks. This prevents 100-900ms
+        // main-thread blocks on Android WebView (where SAB is unavailable
+        // and postMessage structured clone is ~10MB/s).
+        const CHUNK_SIZE = 64 * 1024; // 64KB per chunk — small enough to avoid >50ms blocks
+        if (len > CHUNK_SIZE) {
+          const numChunks = Math.ceil(len / CHUNK_SIZE);
+          for (let i = 0; i < numChunks; i++) {
+            const chunkStart = i * CHUNK_SIZE;
+            const chunkLen = Math.min(CHUNK_SIZE, len - chunkStart);
+            const chunkCopy = new ArrayBuffer(chunkLen);
+            new Uint8Array(chunkCopy).set(new Uint8Array(buf, r.offset + chunkStart, chunkLen));
+            copies.push({ offset: r.offset + chunkStart, data: chunkCopy });
+            transfers.push(chunkCopy);
+            totalBytes += chunkLen;
+          }
+        } else {
+          const copy = new ArrayBuffer(len);
+          new Uint8Array(copy).set(new Uint8Array(buf, r.offset, len));
+          copies.push({ offset: r.offset, data: copy });
+          transfers.push(copy);
+          totalBytes += len;
+        }
       }
-      regions[name] = copies;
+      if (copies.length > 0) regions[name] = copies;
     }
 
     if (Object.keys(regions).length > 0) {
-      (self as any).postMessage({ __bufferSync: true, regions } as BufferSyncMessage, transfers);
+      const label = regionNames ? `worker→host syncToMain(${regionNames.join(",")})` : "worker→host syncToMain(all)";
+      // Send all chunks in a single postMessage. The host's onMessage
+      // handler copies each chunk to the correct offset in the local buffer.
+      // We don't use setTimeout between chunks because the postMessage
+      // itself is the blocking operation on the main thread — splitting
+      // into multiple postMessage calls with setTimeout would allow the
+      // main thread to render between them.
+      const allCopies = Object.values(regions).flat();
+      if (allCopies.length > 1 && totalBytes > 256 * 1024) {
+        // Large transfer: send chunks with setTimeout between them
+        // so the main thread can render between chunks.
+        let chunkIdx = 0;
+        const sendNextChunk = () => {
+          if (chunkIdx >= allCopies.length) return;
+          // Send 1 chunk per postMessage to minimize per-message block duration
+          const batchTransfers: ArrayBuffer[] = [];
+          const batchRegions: Record<string, RegionCopy[]> = {};
+          const copy = allCopies[chunkIdx];
+          // Find which buffer this chunk belongs to
+          for (const [name, regionList] of Object.entries(regions)) {
+            if (regionList.includes(copy)) {
+              if (!batchRegions[name]) batchRegions[name] = [];
+              batchRegions[name].push(copy);
+              break;
+            }
+          }
+          batchTransfers.push(copy.data);
+          chunkIdx++;
+          if (Object.keys(batchRegions).length > 0) {
+            (self as any).postMessage({ __bufferSync: true, regions: batchRegions } as BufferSyncMessage, batchTransfers);
+          }
+          if (chunkIdx < allCopies.length) {
+            setTimeout(sendNextChunk, 16); // 16ms delay lets main thread render between chunks
+          }
+        };
+        sendNextChunk();
+        this.profiler.end(label, pStart, totalBytes);
+      } else {
+        (self as any).postMessage({ __bufferSync: true, regions } as BufferSyncMessage, transfers);
+        this.profiler.end(label, pStart, totalBytes);
+      }
     }
   }
 
