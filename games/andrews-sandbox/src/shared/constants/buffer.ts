@@ -23,7 +23,8 @@ export const ENT_DATA = {
   RESTITUTION: 2,      // f32 idx 24 — physics bounciness
   FRICTION: 3,         // f32 idx 25 — physics friction
   GRAVITY_SCALE: 4,    // f32 idx 26 — physics gravity scale
-  // Indices 5–7 (f32 idx 27–29) reserved for future use
+  SHAPE: 5,            // u32 — 0 = box, 1 = sphere (stored as f32)
+  // Indices 6–7 (f32 idx 28–29) reserved for future use
 } as const;
 
 // --- Player slot game-specific extension (indices 31–63 = f32 padding) ---

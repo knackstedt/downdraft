@@ -194,12 +194,11 @@ startGame({
     // forwardPointer() returns early (no worker) and clicks are never forwarded
     // to the game canvas. Disable pointer events on the overlay so clicks reach
     // the game canvas directly — otherwise pointer lock and all mouse input break.
-    if (!pixiStarted) {
-      const overlay = pixiHost.overlayCanvas;
-      if (overlay) overlay.style.pointerEvents = "none";
-      // Build DOM fallback HUD since PixiUI is unavailable
-      buildDomHud(ctx, contentRegistry, weaponController, physicsController, paintSystem, sim);
-    }
+    // Always disable PixiUI overlay pointer events (we use DOM HUD instead)
+    const overlay = pixiHost.overlayCanvas;
+    if (overlay) overlay.style.pointerEvents = "none";
+    // Build DOM HUD (replaces PixiUI which has a broken worker)
+    buildDomHud(ctx, contentRegistry, weaponController, physicsController, paintSystem, sim);
 
     pixiHost.postEvent({ kind: "contentList", items: contentRegistry.listItems() });
     contentRegistry.onChange((items: ContentListItem[]) => {
@@ -343,15 +342,14 @@ startGame({
       keys.add(e.code);
       const s = useGameStore.getState();
       switch (e.code) {
-        case "KeyB": s.toggleContentBrowser(); break;
-        case "KeyQ": s.toggleToolWheel(); break;
-        case "KeyP": s.togglePaintPalette(); break;
+        case "KeyB": toggleDomPanel(ctx, "browser"); if (document.pointerLockElement) document.exitPointerLock(); break;
+        case "KeyP": toggleDomPanel(ctx, "palette"); if (document.pointerLockElement) document.exitPointerLock(); break;
         case "F5": e.preventDefault(); sim.save("autosave"); break;
         case "F9": e.preventDefault(); sim.load("autosave"); break;
-        case "Digit1": physicsController?.setFunMode(FunMode.Normal); break;
-        case "Digit2": physicsController?.setFunMode(FunMode.Moon); break;
-        case "Digit3": physicsController?.setFunMode(FunMode.ZeroG); break;
-        case "Digit4": physicsController?.setFunMode(FunMode.Bouncy); break;
+        case "Digit1": weaponController.setTool(ToolType.Physgun); s.setActiveTool(ToolType.Physgun); (ctx as any)._domHud?.updateToolBtns?.(); break;
+        case "Digit2": weaponController.setTool(ToolType.Toolgun); s.setActiveTool(ToolType.Toolgun); (ctx as any)._domHud?.updateToolBtns?.(); break;
+        case "Digit3": weaponController.setTool(ToolType.Pistol); s.setActiveTool(ToolType.Pistol); (ctx as any)._domHud?.updateToolBtns?.(); break;
+        case "Digit4": weaponController.setTool(ToolType.Paintgun); s.setActiveTool(ToolType.Paintgun); (ctx as any)._domHud?.updateToolBtns?.(); break;
         case "KeyV": vrModule?.toggleVR().catch((e) => console.warn("[VR] Failed to toggle VR:", e)); break;
         case "KeyR": weaponController.getToolgun().setContext(ToolgunContext.Remove); console.log("[Toolgun] Context: Remove"); break;
         case "KeyT": weaponController.getToolgun().setContext(ToolgunContext.Spawn); console.log("[Toolgun] Context: Spawn"); break;
@@ -453,7 +451,17 @@ function countProps(simSAB: SharedArrayBuffer): number {
   return props;
 }
 
-// ── DOM fallback HUD (used when PixiUI worker is unavailable) ──
+// Toggle a DOM HUD panel by name
+function toggleDomPanel(ctx: any, name: "browser" | "palette"): void {
+  const domHud = (ctx as any)._domHud as any;
+  if (!domHud) return;
+  const el = domHud[name] as HTMLElement;
+  if (!el) return;
+  const visible = el.style.display !== "none";
+  el.style.display = visible ? "none" : "block";
+}
+
+// ── DOM HUD (replaces PixiUI which has a broken worker) ──
 function buildDomHud(
   ctx: any,
   registry: ContentRegistry,
@@ -512,7 +520,7 @@ function buildDomHud(
   // Content browser
   const browser = document.createElement("div");
   browser.className = "sandbox-browser";
-  browser.style.display = "none";
+  browser.style.display = "block";
   const title = document.createElement("h3");
   title.textContent = "Content Browser (B)";
   browser.appendChild(title);
@@ -568,11 +576,11 @@ function buildDomHud(
   // Tool bar
   const toolbar = document.createElement("div");
   toolbar.className = "sandbox-toolbar";
-  const tools: Array<{type: ToolType, label: string, key: string}> = [
-    { type: ToolType.Physgun, label: "Physgun (1)", key: "1" },
-    { type: ToolType.Toolgun, label: "Toolgun (2)", key: "2" },
-    { type: ToolType.Pistol, label: "Pistol (3)", key: "3" },
-    { type: ToolType.Paintgun, label: "Paintgun (4)", key: "4" },
+  const tools: Array<{type: ToolType, label: string}> = [
+    { type: ToolType.Physgun, label: "Physgun [1]" },
+    { type: ToolType.Toolgun, label: "Toolgun [2]" },
+    { type: ToolType.Pistol, label: "Pistol [3]" },
+    { type: ToolType.Paintgun, label: "Paintgun [4]" },
   ];
   const toolBtns: HTMLButtonElement[] = [];
   for (const t of tools) {
@@ -593,11 +601,11 @@ function buildDomHud(
   // Fun mode bar
   const funbar = document.createElement("div");
   funbar.className = "sandbox-funmode";
-  const modes: Array<{mode: FunMode, label: string, key: string}> = [
-    { mode: FunMode.Normal, label: "Normal (1)", key: "1" },
-    { mode: FunMode.Moon, label: "Moon (2)", key: "2" },
-    { mode: FunMode.ZeroG, label: "ZeroG (3)", key: "3" },
-    { mode: FunMode.Bouncy, label: "Bouncy (4)", key: "4" },
+  const modes: Array<{mode: FunMode, label: string}> = [
+    { mode: FunMode.Normal, label: "Normal" },
+    { mode: FunMode.Moon, label: "Moon" },
+    { mode: FunMode.ZeroG, label: "ZeroG" },
+    { mode: FunMode.Bouncy, label: "Bouncy" },
   ];
   const modeBtns: HTMLButtonElement[] = [];
   for (const m of modes) {
@@ -647,26 +655,6 @@ function buildDomHud(
   palette.appendChild(sizeSlider);
   document.body.appendChild(palette);
 
-  // Wire keyboard shortcuts for DOM UI
-  window.addEventListener("keydown", (e) => {
-    const s = useGameStore.getState();
-    if (e.code === "KeyB") {
-      const visible = browser.style.display !== "none";
-      browser.style.display = visible ? "none" : "block";
-      s.toggleContentBrowser();
-    }
-    if (e.code === "KeyP") {
-      const visible = palette.style.display !== "none";
-      palette.style.display = visible ? "none" : "block";
-      s.togglePaintPalette();
-    }
-    // Tool number keys
-    if (e.code === "Digit1") { weapons.setTool(ToolType.Physgun); s.setActiveTool(ToolType.Physgun); updateToolBtns(); }
-    if (e.code === "Digit2") { weapons.setTool(ToolType.Toolgun); s.setActiveTool(ToolType.Toolgun); updateToolBtns(); }
-    if (e.code === "Digit3") { weapons.setTool(ToolType.Pistol); s.setActiveTool(ToolType.Pistol); updateToolBtns(); }
-    if (e.code === "Digit4") { weapons.setTool(ToolType.Paintgun); s.setActiveTool(ToolType.Paintgun); updateToolBtns(); }
-  });
-
   function updateToolBtns() {
     const s = useGameStore.getState();
     toolBtns.forEach((b, i) => {
@@ -674,8 +662,12 @@ function buildDomHud(
     });
   }
 
-  // Store references for cleanup
-  (ctx as any)._domHud = { hud, browser, toolbar, funbar, palette };
+  // Expose toggle + updateToolBtns for external keydown handler
+  (ctx as any)._domHud = {
+    hud, browser, toolbar, funbar, palette,
+    updateToolBtns,
+    tools,
+  };
 }
 
 function updateCamera(renderer: WebGPURenderer, yaw: number, pitch: number): void {

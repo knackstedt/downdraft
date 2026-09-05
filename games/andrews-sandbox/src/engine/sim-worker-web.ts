@@ -76,6 +76,20 @@ async function initPhysics(): Promise<void> {
     duplicateStatics: false,
   });
   physicsApi.reserveMemory(64 * 1024 * 1024);
+
+  // Create a static ground plane (large flat box) at y=0
+  const groundEntity: Entity = { index: 0xFFFF, generation: 0 };
+  const groundBody = physicsApi.createBody(groundEntity, {
+    type: "static",
+    position: [0, -0.5, 0],
+    rotation: [0, 0, 0, 1],
+    mass: 0,
+  });
+  physicsApi.addCollider(groundBody, {
+    shape: { type: "box", halfExtents: [500, 0.5, 500] },
+    restitution: 0.3,
+    friction: 0.8,
+  });
 }
 
 // ── Create a physics body for a prop ──
@@ -154,6 +168,7 @@ function spawnProp(
   f32[ENT_DATA.RESTITUTION + ENT.DATA] = restitution;
   f32[ENT_DATA.FRICTION + ENT.DATA] = friction;
   f32[ENT_DATA.GRAVITY_SCALE + ENT.DATA] = gravityScale;
+  f32[ENT_DATA.SHAPE + ENT.DATA] = propShape === "sphere" ? 1 : 0;
 
   simWriter!.setEntityCount(nextSlotIdx);
   simWriter!.markEntityDirty(slotIdx);
@@ -251,6 +266,7 @@ function processCommand(cmd: SimCommand): void {
       const f32 = simWriter!.getEntityF32(slotIdx);
       const u32 = simWriter!.getEntityU32(slotIdx);
       u32[ENT.TYPE] = EntityType.Projectile;
+      f32[ENT_DATA.SHAPE + ENT.DATA] = 1; // sphere
       u32[ENT.PARENT_ID] = body.id;
       f32[ENT.POS_X] = cmd.origin[0];
       f32[ENT.POS_Y] = cmd.origin[1];

@@ -13,6 +13,7 @@ import {
 import { ModelRenderer } from "@downdraft/library-entities";
 import { loadModel, type ModelData } from "@downdraft/library-models";
 import { EntityType } from "@sandbox/shared/types";
+import { ENT_DATA } from "@sandbox/shared/constants/buffer";
 
 // Simple skybox gradient shader (full-screen triangle at depth = far)
 const SKY_SHADER = /* wgsl */ `
@@ -31,9 +32,12 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
   let dims = vec2f(1920.0, 1080.0);
   let uv = pos.xy / dims;
   let t = clamp(uv.y, 0.0, 1.0);
-  let top = vec3f(0.35, 0.55, 0.85);
-  let bottom = vec3f(0.65, 0.8, 0.95);
-  return vec4f(mix(bottom, top, t), 1.0);
+  // Smooth sky gradient: horizon glow → blue → deep blue
+  let horizon = vec3f(0.75, 0.82, 0.92);
+  let mid = vec3f(0.42, 0.62, 0.88);
+  let zenith = vec3f(0.15, 0.30, 0.60);
+  let color = mix(horizon, mid, smoothstep(0.0, 0.5, t));
+  return vec4f(mix(color, zenith, smoothstep(0.4, 1.0, t)), 1.0);
 }
 `;
 
@@ -93,7 +97,7 @@ fn fs(in: VertexOut) -> @location(0) vec4f {
 }
 `;
 
-// Procedural cube shader with paint texture support.
+// Procedural cube shader with paint texture support + simple lighting.
 const CUBE_SHADER = /* wgsl */ `
 struct Uniforms {
   viewProj: mat4x4f,
@@ -112,62 +116,83 @@ struct Instance {
 @group(1) @binding(0) var paintTex: texture_2d<f32>;
 @group(1) @binding(1) var paintSampler: sampler;
 
-@vertex
-fn vs(@location(0) pos: vec3f, @location(1) uv: vec2f) -> VertexOut {
-  var out: VertexOut;
-  out.position = u.viewProj * inst.model * vec4f(pos, 1.0);
-  out.uv = uv;
-  return out;
-}
-
 struct VertexOut {
   @builtin(position) position: vec4f,
   @location(0) uv: vec2f,
+  @location(1) normal: vec3f,
+  @location(2) worldPos: vec3f,
+}
+
+@vertex
+fn vs(@location(0) pos: vec3f, @location(1) uv: vec2f, @location(2) normal: vec3f) -> VertexOut {
+  var out: VertexOut;
+  out.position = u.viewProj * inst.model * vec4f(pos, 1.0);
+  out.uv = uv;
+  // Transform normal by model matrix (assuming uniform scale)
+  let n = (inst.model * vec4f(normal, 0.0)).xyz;
+  out.normal = normalize(n);
+  out.worldPos = (inst.model * vec4f(pos, 1.0)).xyz;
+  return out;
 }
 
 @fragment
-fn fs(@location(0) uv: vec2f) -> @location(0) vec4f {
+fn fs(in: VertexOut) -> @location(0) vec4f {
   let baseColor = inst.color.rgb;
+  // Get paint color if available
+  var color = baseColor;
   if (inst.hasPaint == 1u) {
-    let paint = textureSample(paintTex, paintSampler, uv);
-    return vec4f(mix(baseColor, paint.rgb, paint.a), 1.0);
+    let paint = textureSample(paintTex, paintSampler, in.uv);
+    color = mix(baseColor, paint.rgb, paint.a);
   }
-  return vec4f(baseColor, 1.0);
+  // Simple directional lighting
+  let lightDir = normalize(vec3f(0.4, 0.8, 0.3));
+  let ambient = 0.35;
+  let diffuse = max(dot(in.normal, lightDir), 0.0) * 0.65;
+  // Subtle sky/ground ambient
+  let upAmbient = max(in.normal.y, 0.0) * 0.15;
+  let downAmbient = max(-in.normal.y, 0.0) * 0.05;
+  let lighting = ambient + diffuse + upAmbient + downAmbient;
+  // Distance fog
+  let dist = length(in.worldPos - u.cameraPos);
+  let fog = clamp(1.0 - dist / 400.0, 0.0, 1.0);
+  let fogColor = vec3f(0.55, 0.7, 0.9);
+  let litColor = color * lighting;
+  return vec4f(mix(fogColor, litColor, fog), 1.0);
 }
 `;
 
-// Cube vertices: position(3) + uv(2) per vertex, 24 vertices (4 per face)
+// Cube vertices: position(3) + uv(2) + normal(3) per vertex, 24 vertices (4 per face)
 const CUBE_VERTICES = new Float32Array([
-  // +X face
-   0.5, -0.5, -0.5,  0.0, 0.0,
-   0.5,  0.5, -0.5,  0.0, 1.0,
-   0.5,  0.5,  0.5,  1.0, 1.0,
-   0.5, -0.5,  0.5,  1.0, 0.0,
-  // -X face
-  -0.5, -0.5,  0.5,  0.0, 0.0,
-  -0.5,  0.5,  0.5,  0.0, 1.0,
-  -0.5,  0.5, -0.5,  1.0, 1.0,
-  -0.5, -0.5, -0.5,  1.0, 0.0,
-  // +Y face
-  -0.5,  0.5, -0.5,  0.0, 0.0,
-  -0.5,  0.5,  0.5,  0.0, 1.0,
-   0.5,  0.5,  0.5,  1.0, 1.0,
-   0.5,  0.5, -0.5,  1.0, 0.0,
-  // -Y face
-  -0.5, -0.5,  0.5,  0.0, 0.0,
-  -0.5, -0.5, -0.5,  0.0, 1.0,
-   0.5, -0.5, -0.5,  1.0, 1.0,
-   0.5, -0.5,  0.5,  1.0, 0.0,
-  // +Z face
-  -0.5, -0.5,  0.5,  0.0, 0.0,
-   0.5, -0.5,  0.5,  0.0, 1.0,
-   0.5,  0.5,  0.5,  1.0, 1.0,
-  -0.5,  0.5,  0.5,  1.0, 0.0,
-  // -Z face
-   0.5, -0.5, -0.5,  0.0, 0.0,
-  -0.5, -0.5, -0.5,  0.0, 1.0,
-  -0.5,  0.5, -0.5,  1.0, 1.0,
-   0.5,  0.5, -0.5,  1.0, 0.0,
+  // +X face (normal: 1,0,0)
+   0.5, -0.5, -0.5,  0.0, 0.0,  1.0, 0.0, 0.0,
+   0.5,  0.5, -0.5,  0.0, 1.0,  1.0, 0.0, 0.0,
+   0.5,  0.5,  0.5,  1.0, 1.0,  1.0, 0.0, 0.0,
+   0.5, -0.5,  0.5,  1.0, 0.0,  1.0, 0.0, 0.0,
+  // -X face (normal: -1,0,0)
+  -0.5, -0.5,  0.5,  0.0, 0.0,  -1.0, 0.0, 0.0,
+  -0.5,  0.5,  0.5,  0.0, 1.0,  -1.0, 0.0, 0.0,
+  -0.5,  0.5, -0.5,  1.0, 1.0,  -1.0, 0.0, 0.0,
+  -0.5, -0.5, -0.5,  1.0, 0.0,  -1.0, 0.0, 0.0,
+  // +Y face (normal: 0,1,0)
+  -0.5,  0.5, -0.5,  0.0, 0.0,  0.0, 1.0, 0.0,
+  -0.5,  0.5,  0.5,  0.0, 1.0,  0.0, 1.0, 0.0,
+   0.5,  0.5,  0.5,  1.0, 1.0,  0.0, 1.0, 0.0,
+   0.5,  0.5, -0.5,  1.0, 0.0,  0.0, 1.0, 0.0,
+  // -Y face (normal: 0,-1,0)
+  -0.5, -0.5,  0.5,  0.0, 0.0,  0.0, -1.0, 0.0,
+  -0.5, -0.5, -0.5,  0.0, 1.0,  0.0, -1.0, 0.0,
+   0.5, -0.5, -0.5,  1.0, 1.0,  0.0, -1.0, 0.0,
+   0.5, -0.5,  0.5,  1.0, 0.0,  0.0, -1.0, 0.0,
+  // +Z face (normal: 0,0,1)
+  -0.5, -0.5,  0.5,  0.0, 0.0,  0.0, 0.0, 1.0,
+   0.5, -0.5,  0.5,  0.0, 1.0,  0.0, 0.0, 1.0,
+   0.5,  0.5,  0.5,  1.0, 1.0,  0.0, 0.0, 1.0,
+  -0.5,  0.5,  0.5,  1.0, 0.0,  0.0, 0.0, 1.0,
+  // -Z face (normal: 0,0,-1)
+   0.5, -0.5, -0.5,  0.0, 0.0,  0.0, 0.0, -1.0,
+  -0.5, -0.5, -0.5,  0.0, 1.0,  0.0, 0.0, -1.0,
+  -0.5,  0.5, -0.5,  1.0, 1.0,  0.0, 0.0, -1.0,
+   0.5,  0.5, -0.5,  1.0, 0.0,  0.0, 0.0, -1.0,
 ]);
 
 const CUBE_INDICES = new Uint16Array([
@@ -178,6 +203,40 @@ const CUBE_INDICES = new Uint16Array([
   16, 17, 18, 16, 18, 19, // +Z
   20, 21, 22, 20, 22, 23, // -Z
 ]);
+
+// Generate sphere vertices: position(3) + uv(2) + normal(3) = 8 floats per vertex
+function generateSphere(radius: number, segments: number, rings: number): { vertices: Float32Array; indices: Uint16Array } {
+  const verts: number[] = [];
+  const idx: number[] = [];
+  for (let r = 0; r <= rings; r++) {
+    const theta = (r / rings) * Math.PI; // 0..PI
+    const sinT = Math.sin(theta), cosT = Math.cos(theta);
+    for (let s = 0; s <= segments; s++) {
+      const phi = (s / segments) * 2 * Math.PI; // 0..2PI
+      const sinP = Math.sin(phi), cosP = Math.cos(phi);
+      const x = radius * sinT * cosP;
+      const y = radius * cosT;
+      const z = radius * sinT * sinP;
+      const u = s / segments;
+      const v = r / rings;
+      // Normal = normalized position
+      const nx = sinT * cosP, ny = cosT, nz = sinT * sinP;
+      verts.push(x, y, z, u, v, nx, ny, nz);
+    }
+  }
+  for (let r = 0; r < rings; r++) {
+    for (let s = 0; s < segments; s++) {
+      const a = r * (segments + 1) + s;
+      const b = a + segments + 1;
+      idx.push(a, b, a + 1, b, b + 1, a + 1);
+    }
+  }
+  return { vertices: new Float32Array(verts), indices: new Uint16Array(idx) };
+}
+
+const SPHERE_GEO = generateSphere(0.5, 24, 16);
+const SPHERE_VERTICES = SPHERE_GEO.vertices;
+const SPHERE_INDICES = SPHERE_GEO.indices;
 
 const GROUND_SIZE = 512; // 512×512m ground plane
 
@@ -209,6 +268,10 @@ export class WebGPURenderer extends GameRenderer {
   private cubeInstanceBuffer: GPUBuffer | null = null;
   private cubeSampler: GPUSampler | null = null;
   private cubeDefaultTexture: GPUTexture | null = null;
+  private spherePipeline: GPURenderPipeline | null = null;
+  private sphereVertexBuffer: GPUBuffer | null = null;
+  private sphereIndexBuffer: GPUBuffer | null = null;
+  private sphereIndexCount = 0;
 
   // Render loop
   private rafHandle = 0;
@@ -278,6 +341,7 @@ export class WebGPURenderer extends GameRenderer {
       this.createSkyPipeline(device, format);
       this.createGroundPipeline(device, format);
       this.createCubePipeline(device, format);
+      this.createSpherePipeline(device, format);
 
       this.setViewportCount(1);
       this.sandboxRunning = true;
@@ -441,10 +505,53 @@ export class WebGPURenderer extends GameRenderer {
       vertex: {
         module: shader, entryPoint: "vs",
         buffers: [{
-          arrayStride: 20,
+          arrayStride: 32,
           attributes: [
             { shaderLocation: 0, offset: 0, format: "float32x3" },
             { shaderLocation: 1, offset: 12, format: "float32x2" },
+            { shaderLocation: 2, offset: 20, format: "float32x3" },
+          ],
+        }],
+      },
+      fragment: { module: shader, entryPoint: "fs", targets: [{ format }] },
+      primitive: { topology: "triangle-list", cullMode: "back" },
+      depthStencil: {
+        format: DEPTH_FORMAT as GPUTextureFormat,
+        depthWriteEnabled: true,
+        depthCompare: "less",
+      },
+    });
+  }
+
+  private createSpherePipeline(device: GPUDevice, format: GPUTextureFormat): void {
+    this.sphereVertexBuffer = device.createBuffer({
+      label: "sphere-vertices",
+      size: SPHERE_VERTICES.byteLength,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(this.sphereVertexBuffer, 0, SPHERE_VERTICES.buffer);
+
+    this.sphereIndexBuffer = device.createBuffer({
+      label: "sphere-indices",
+      size: SPHERE_INDICES.byteLength,
+      usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(this.sphereIndexBuffer, 0, SPHERE_INDICES.buffer);
+    this.sphereIndexCount = SPHERE_INDICES.length;
+
+    // Reuse the same shader, uniform buffer, instance buffer, sampler, and default texture
+    const shader = device.createShaderModule({ label: "sphere", code: CUBE_SHADER });
+    this.spherePipeline = device.createRenderPipeline({
+      label: "sphere",
+      layout: "auto",
+      vertex: {
+        module: shader, entryPoint: "vs",
+        buffers: [{
+          arrayStride: 32,
+          attributes: [
+            { shaderLocation: 0, offset: 0, format: "float32x3" },
+            { shaderLocation: 1, offset: 12, format: "float32x2" },
+            { shaderLocation: 2, offset: 20, format: "float32x3" },
           ],
         }],
       },
@@ -645,7 +752,7 @@ export class WebGPURenderer extends GameRenderer {
     }
   }
 
-  // ── Render builtin props (cube/sphere) as procedural cubes with paint texture ──
+  // ── Render builtin props (cubes + spheres) with paint texture + lighting ──
   private renderBuiltinProps(pass: GPURenderPassEncoder, viewProj: Float32Array): void {
     if (!this.simReader || !this.cubePipeline || !this.cubeVertexBuffer || !this.cubeIndexBuffer) return;
     if (!this.cubeUniformBuffer || !this.cubeInstanceBuffer || !this.cubeSampler) return;
@@ -653,7 +760,7 @@ export class WebGPURenderer extends GameRenderer {
     const count = this.simReader.getEntityCount();
     if (count === 0) return;
 
-    // Write shared uniforms (viewProj + cameraPos)
+    // Write shared uniforms (viewProj + cameraPos) — shared by both pipelines
     const uniformData = new Float32Array(20);
     uniformData.set(viewProj, 0);
     uniformData[16] = this.camPos[0];
@@ -661,25 +768,56 @@ export class WebGPURenderer extends GameRenderer {
     uniformData[18] = this.camPos[2];
     device.queue.writeBuffer(this.cubeUniformBuffer, 0, uniformData);
 
-    const bindGroup0 = device.createBindGroup({
-      layout: this.cubePipeline.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: this.cubeUniformBuffer } },
-        { binding: 1, resource: { buffer: this.cubeInstanceBuffer } },
-      ],
-    });
-
-    pass.setPipeline(this.cubePipeline);
-    pass.setBindGroup(0, bindGroup0);
-    pass.setVertexBuffer(0, this.cubeVertexBuffer);
-    pass.setIndexBuffer(this.cubeIndexBuffer, "uint16");
-
+    // Collect entities to render, split by shape
+    const cubes: number[] = [];
+    const spheres: number[] = [];
     for (let i = 0; i < count; i++) {
       const slot = this.simReader.getEntitySlot(i);
       const type = slot.u32[ENT.TYPE];
       if (type === 255 || (type !== EntityType.Prop && type !== EntityType.Mannequin && type !== EntityType.Projectile)) continue;
       const nodeIdRaw = slot.u32[ENT.ID];
-      if (nodeIdRaw !== 0) continue; // has a model — skip, rendered by renderProps
+      if (nodeIdRaw !== 0) continue; // has a model — skip
+      const shape = slot.f32[ENT_DATA.SHAPE + ENT.DATA];
+      if (shape === 1) spheres.push(i);
+      else cubes.push(i);
+    }
+
+    // Render cubes
+    if (cubes.length > 0) {
+      this.renderShapeBatch(pass, device, cubes, this.cubePipeline!, this.cubeVertexBuffer!, this.cubeIndexBuffer!, this.cubeIndexCount, false);
+    }
+    // Render spheres
+    if (spheres.length > 0 && this.spherePipeline && this.sphereVertexBuffer && this.sphereIndexBuffer) {
+      this.renderShapeBatch(pass, device, spheres, this.spherePipeline, this.sphereVertexBuffer, this.sphereIndexBuffer, this.sphereIndexCount, true);
+    }
+  }
+
+  private renderShapeBatch(
+    pass: GPURenderPassEncoder,
+    device: GPUDevice,
+    indices: number[],
+    pipeline: GPURenderPipeline,
+    vertexBuffer: GPUBuffer,
+    indexBuffer: GPUBuffer,
+    indexCount: number,
+    _isSphere: boolean,
+  ): void {
+    const bindGroup0 = device.createBindGroup({
+      layout: pipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: this.cubeUniformBuffer! } },
+        { binding: 1, resource: { buffer: this.cubeInstanceBuffer! } },
+      ],
+    });
+
+    pass.setPipeline(pipeline);
+    pass.setBindGroup(0, bindGroup0);
+    pass.setVertexBuffer(0, vertexBuffer);
+    pass.setIndexBuffer(indexBuffer, "uint16");
+
+    for (const i of indices) {
+      const slot = this.simReader!.getEntitySlot(i);
+      const type = slot.u32[ENT.TYPE];
 
       const px = slot.f32[ENT.POS_X];
       const py = slot.f32[ENT.POS_Y];
@@ -690,25 +828,25 @@ export class WebGPURenderer extends GameRenderer {
       const rz = slot.f32[ENT.ROT_Z];
       const rw = slot.f32[ENT.ROT_W];
 
-      // Build model matrix from TRS
       const model = this.composeModelMatrix(px, py, pz, rx, ry, rz, rw, scale);
 
-      // Color: projectile = red, mannequin = gray, prop = blue-ish
       let color: [number, number, number, number];
       if (type === EntityType.Projectile) {
-        color = [0.9, 0.2, 0.2, 1.0];
+        color = [0.95, 0.3, 0.15, 1.0];
       } else if (type === EntityType.Mannequin) {
-        color = [0.6, 0.6, 0.7, 1.0];
+        color = [0.7, 0.65, 0.55, 1.0];
       } else {
-        color = [0.5, 0.7, 0.9, 1.0];
+        const hue = (i * 0.15) % 1.0;
+        const r = 0.5 + 0.4 * Math.sin(hue * Math.PI * 2);
+        const g = 0.5 + 0.4 * Math.sin(hue * Math.PI * 2 + 2.094);
+        const b = 0.5 + 0.4 * Math.sin(hue * Math.PI * 2 + 4.189);
+        color = [r, g, b, 1.0];
       }
 
-      // Check if we have a paint texture for this entity
-      const entityId = i + 1; // entityId = slotIdx + 1
+      const entityId = i + 1;
       const paintTex = this.paintTextures.get(entityId);
       const hasPaint = paintTex ? 1 : 0;
 
-      // Write instance data: model(16) + color(4) + hasPaint(1) + pad(3) = 24 floats
       const instData = new Float32Array(24);
       instData.set(model, 0);
       instData[16] = color[0];
@@ -716,20 +854,19 @@ export class WebGPURenderer extends GameRenderer {
       instData[18] = color[2];
       instData[19] = color[3];
       instData[20] = hasPaint;
-      device.queue.writeBuffer(this.cubeInstanceBuffer, 0, instData);
+      device.queue.writeBuffer(this.cubeInstanceBuffer!, 0, instData);
 
-      // Bind group 1: paint texture or default
       const tex = paintTex ?? this.cubeDefaultTexture!;
       const bindGroup1 = device.createBindGroup({
-        layout: this.cubePipeline.getBindGroupLayout(1),
+        layout: pipeline.getBindGroupLayout(1),
         entries: [
           { binding: 0, resource: tex.createView() },
-          { binding: 1, resource: this.cubeSampler },
+          { binding: 1, resource: this.cubeSampler! },
         ],
       });
       pass.setBindGroup(1, bindGroup1);
 
-      pass.drawIndexed(this.cubeIndexCount);
+      pass.drawIndexed(indexCount);
     }
   }
 
