@@ -35,6 +35,8 @@ export interface MaterialData {
   textureUri?: string;
   textureData?: ArrayBuffer | null;
   normalTextureUri?: string;
+  /** Embedded normal texture data (from bufferView). */
+  normalTextureData?: ArrayBuffer | null;
   emissiveColor?: [number, number, number];
   /** KHR_texture_transform applied to the baseColor texture (UV transform). */
   textureTransform?: TextureTransform;

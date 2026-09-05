@@ -92,6 +92,11 @@ export class BindlessTextureRegistry {
   /** Default black 1x1 rgba8unorm handle. */
   defaultBlackHandle = 0;
 
+  // ── Mipmap generation (in-place blit into bucket page mip levels) ──
+  private mipPipelines: Map<GPUTextureFormat, GPURenderPipeline> = new Map();
+  private mipBindGroupLayout: GPUBindGroupLayout | null = null;
+  private mipSampler: GPUSampler | null = null;
+
   constructor(device: GPUDevice, options: TextureRegistryOptions = {}) {
     this.device = device;
     this.maxPagesPerBucket = options.maxPagesPerBucket ?? DEFAULT_MAX_PAGES;
@@ -142,12 +147,18 @@ export class BindlessTextureRegistry {
     bitmap: ImageBitmap,
     format: GPUTextureFormat = "rgba8unorm",
     mipCount = 1,
+    generateMips = false,
   ): RegisteredTexture {
+    // If generateMips is requested and mipCount wasn't explicitly set,
+    // compute the full mip chain.
+    const effectiveMipCount = generateMips && mipCount === 1
+      ? Math.floor(Math.log2(Math.max(bitmap.width, bitmap.height))) + 1
+      : mipCount;
     const key: TextureBucketKey = {
       format,
       width: bitmap.width,
       height: bitmap.height,
-      mipCount,
+      mipCount: effectiveMipCount,
       sampleCount: 1,
     };
     const b = this.getOrCreateBucket(key);
@@ -164,6 +175,10 @@ export class BindlessTextureRegistry {
       layerIndex: slot.layer,
     };
     b.sources.set(sourceId, reg);
+    // Generate mip levels 1..N in-place.
+    if (generateMips && effectiveMipCount > 1) {
+      this.generateMipmapsForSlot(b, slot.page, slot.layer);
+    }
     return reg;
   }
 
@@ -177,9 +192,138 @@ export class BindlessTextureRegistry {
         return false;
       }
       this.copyImageBitmapIntoLayer(bitmap, b, reg.pageIndex, reg.layerIndex, b.key);
+      // Regenerate mips if the bucket has more than 1 mip level.
+      if (b.key.mipCount > 1) this.generateMipmapsForSlot(b, reg.pageIndex, reg.layerIndex);
       return true;
     }
     return false;
+  }
+
+  /**
+   * Generate mip levels 1..N for a registered texture by successively
+   * downsampling mip N-1 → mip N with a 2×2 box filter. The bucket page must
+   * have been created with mipLevelCount > 1 (i.e. the bucket key's mipCount).
+   * Only rgba8unorm is supported (the common case for albedo/normal textures).
+   */
+  generateMipmaps(sourceId: unknown): boolean {
+    for (const b of this.buckets.values()) {
+      const reg = b.sources.get(sourceId);
+      if (!reg) continue;
+      if (b.key.mipCount <= 1) return false; // nothing to do
+      this.generateMipmapsForSlot(b, reg.pageIndex, reg.layerIndex);
+      return true;
+    }
+    return false;
+  }
+
+  private generateMipmapsForSlot(b: Bucket, page: number, layer: number): void {
+    const format = b.key.format;
+    const pipeline = this.getMipPipeline(format);
+    if (!pipeline) return;
+    const tex = b.pages[page];
+    const mipCount = b.key.mipCount;
+    const sampler = this.getMipSampler();
+    const layout = this.mipBindGroupLayout!;
+
+    const encoder = this.device.createCommandEncoder();
+    for (let mip = 1; mip < mipCount; mip++) {
+      const srcView = tex.createView({
+        dimension: "2d-array",
+        baseMipLevel: mip - 1,
+        mipLevelCount: 1,
+        baseArrayLayer: layer,
+        arrayLayerCount: 1,
+      });
+      const dstView = tex.createView({
+        dimension: "2d-array",
+        baseMipLevel: mip,
+        mipLevelCount: 1,
+        baseArrayLayer: layer,
+        arrayLayerCount: 1,
+      });
+      const bg = this.device.createBindGroup({
+        layout,
+        entries: [
+          { binding: 0, resource: srcView },
+          { binding: 1, resource: sampler },
+        ],
+      });
+      const mw = Math.max(1, b.key.width >> mip);
+      const mh = Math.max(1, b.key.height >> mip);
+      const pass = encoder.beginRenderPass({
+        colorAttachments: [{
+          view: dstView,
+          clearValue: { r: 0, g: 0, b: 0, a: 1 },
+          loadOp: "clear",
+          storeOp: "store",
+        }],
+      });
+      pass.setPipeline(pipeline);
+      pass.setBindGroup(0, bg);
+      pass.setViewport(0, 0, mw, mh, 0, 1);
+      pass.draw(3);
+      pass.end();
+    }
+    this.device.queue.submit([encoder.finish()]);
+  }
+
+  private getMipSampler(): GPUSampler {
+    if (this.mipSampler) return this.mipSampler;
+    this.mipSampler = this.device.createSampler({
+      magFilter: "linear",
+      minFilter: "linear",
+      addressModeU: "clamp-to-edge",
+      addressModeV: "clamp-to-edge",
+    });
+    return this.mipSampler;
+  }
+
+  private getMipPipeline(format: GPUTextureFormat): GPURenderPipeline | null {
+    const existing = this.mipPipelines.get(format);
+    if (existing) return existing;
+    // Only support color formats for mip generation.
+    if (format === "depth32float" || format.startsWith("depth")) return null;
+    if (!this.mipBindGroupLayout) {
+      this.mipBindGroupLayout = this.device.createBindGroupLayout({
+        entries: [
+          { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+          { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+        ],
+      });
+    }
+    const shader = this.device.createShaderModule({
+      label: "bindless-mip-blit",
+      code: /* wgsl */ `
+@vertex
+fn vs(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
+  var pos = array<vec2f, 3>(vec2f(-1.0,-1.0), vec2f(3.0,-1.0), vec2f(-1.0,3.0));
+  return vec4f(pos[vi], 0.0, 1.0);
+}
+@group(0) @binding(0) var srcTex: texture_2d_array<f32>;
+@group(0) @binding(1) var srcSampler: sampler;
+@fragment
+fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+  let dim = vec2f(textureDimensions(srcTex, 0).xy);
+  let uv = (pos.xy + 0.5) / dim;
+  // 2x2 box filter — sample 4 taps to downsample mip N-1 → mip N.
+  let texel = 1.0 / dim;
+  let c00 = textureSample(srcTex, srcSampler, uv + vec2f(-0.5, -0.5) * texel, 0u);
+  let c10 = textureSample(srcTex, srcSampler, uv + vec2f( 0.5, -0.5) * texel, 0u);
+  let c01 = textureSample(srcTex, srcSampler, uv + vec2f(-0.5,  0.5) * texel, 0u);
+  let c11 = textureSample(srcTex, srcSampler, uv + vec2f( 0.5,  0.5) * texel, 0u);
+  return (c00 + c10 + c01 + c11) * 0.25;
+}
+`,
+    });
+    const pipeline = this.device.createRenderPipeline({
+      label: `bindless-mip-${format}`,
+      layout: this.device.createPipelineLayout({ bindGroupLayouts: [this.mipBindGroupLayout] }),
+      vertex: { module: shader, entryPoint: "vs" },
+      fragment: { module: shader, entryPoint: "fs", targets: [{ format }] },
+      primitive: { topology: "triangle-list" },
+    });
+    this.mipPipelines.set(format, pipeline);
+    return pipeline;
   }
 
   /** Update an existing registration from an external GPUTexture. */

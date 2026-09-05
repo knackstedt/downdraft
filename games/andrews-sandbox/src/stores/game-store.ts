@@ -2,8 +2,8 @@
 // Game Store — zustand store for sandbox UI state
 // ============================================================================
 
-import { create } from "zustand";
 import { FunMode, ToolType } from "@sandbox/shared/types";
+import { create } from "zustand";
 
 interface GameStoreState {
   simReady: boolean;
@@ -20,6 +20,24 @@ interface GameStoreState {
   fps: number;
   propCount: number;
 
+  // Graphics settings state
+  showGraphicsPanel: boolean;
+  bloomEnabled: boolean;
+  bloomStrength: number;
+  bloomThreshold: number;
+  fxaaEnabled: boolean;
+  tonemapEnabled: boolean;
+  exposure: number;
+  vignetteEnabled: boolean;
+  vignetteStrength: number;
+  shadowsEnabled: boolean;
+  mipmapsEnabled: boolean;
+  pointLightsEnabled: boolean;
+  sunColorR: number;
+  sunColorG: number;
+  sunColorB: number;
+  ambientIntensity: number;
+
   setSimReady: (v: boolean) => void;
   setRendererReady: (v: boolean) => void;
   setIsDev: (v: boolean) => void;
@@ -33,6 +51,22 @@ interface GameStoreState {
   setPaintHardness: (h: number) => void;
   setFps: (fps: number) => void;
   setPropCount: (count: number) => void;
+
+  // Graphics settings setters
+  toggleGraphicsPanel: () => void;
+  setBloomEnabled: (v: boolean) => void;
+  setBloomStrength: (v: number) => void;
+  setBloomThreshold: (v: number) => void;
+  setFXAAEnabled: (v: boolean) => void;
+  setTonemapEnabled: (v: boolean) => void;
+  setExposure: (v: number) => void;
+  setVignetteEnabled: (v: boolean) => void;
+  setVignetteStrength: (v: number) => void;
+  setShadowsEnabled: (v: boolean) => void;
+  setMipmapsEnabled: (v: boolean) => void;
+  setPointLightsEnabled: (v: boolean) => void;
+  setSunColor: (r: number, g: number, b: number) => void;
+  setAmbientIntensity: (v: number) => void;
 }
 
 export const useGameStore = create<GameStoreState>((set) => ({
@@ -50,6 +84,24 @@ export const useGameStore = create<GameStoreState>((set) => ({
   fps: 0,
   propCount: 0,
 
+  // Graphics settings defaults (match the renderer's defaults)
+  showGraphicsPanel: false,
+  bloomEnabled: true,
+  bloomStrength: 0.6,
+  bloomThreshold: 0.85,
+  fxaaEnabled: true,
+  tonemapEnabled: true,
+  exposure: 1.1,
+  vignetteEnabled: true,
+  vignetteStrength: 0.25,
+  shadowsEnabled: true,
+  mipmapsEnabled: true,
+  pointLightsEnabled: true,
+  sunColorR: 1.0,
+  sunColorG: 0.95,
+  sunColorB: 0.85,
+  ambientIntensity: 0.4,
+
   setSimReady: (v) => set({ simReady: v }),
   setRendererReady: (v) => set({ rendererReady: v }),
   setIsDev: (v) => set({ isDev: v }),
@@ -63,4 +115,20 @@ export const useGameStore = create<GameStoreState>((set) => ({
   setPaintHardness: (h) => set({ paintHardness: h }),
   setFps: (fps) => set({ fps }),
   setPropCount: (count) => set({ propCount: count }),
+
+  // Graphics settings setters
+  toggleGraphicsPanel: () => set((s) => ({ showGraphicsPanel: !s.showGraphicsPanel })),
+  setBloomEnabled: (v) => set({ bloomEnabled: v }),
+  setBloomStrength: (v) => set({ bloomStrength: v }),
+  setBloomThreshold: (v) => set({ bloomThreshold: v }),
+  setFXAAEnabled: (v) => set({ fxaaEnabled: v }),
+  setTonemapEnabled: (v) => set({ tonemapEnabled: v }),
+  setExposure: (v) => set({ exposure: v }),
+  setVignetteEnabled: (v) => set({ vignetteEnabled: v }),
+  setVignetteStrength: (v) => set({ vignetteStrength: v }),
+  setShadowsEnabled: (v) => set({ shadowsEnabled: v }),
+  setMipmapsEnabled: (v) => set({ mipmapsEnabled: v }),
+  setPointLightsEnabled: (v) => set({ pointLightsEnabled: v }),
+  setSunColor: (r, g, b) => set({ sunColorR: r, sunColorG: g, sunColorB: b }),
+  setAmbientIntensity: (v) => set({ ambientIntensity: v }),
 }));

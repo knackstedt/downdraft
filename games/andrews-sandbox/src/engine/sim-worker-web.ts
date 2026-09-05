@@ -62,8 +62,8 @@ async function initPhysics(): Promise<void> {
     stepBudgetMs: 16,
     maxEntities: 4096,
     realmConfigs: {
-      near: { tickFrequency: 1, solverIterations: 4, promoteThreshold: Infinity, demoteThreshold: Infinity, demoteDwellTime: 1 },
-      mid: { tickFrequency: 1, solverIterations: 4, promoteThreshold: Infinity, demoteThreshold: Infinity, demoteDwellTime: 1 },
+      near: { tickFrequency: 1, solverIterations: 16, promoteThreshold: Infinity, demoteThreshold: Infinity, demoteDwellTime: 1 },
+      mid: { tickFrequency: 1, solverIterations: 8, promoteThreshold: Infinity, demoteThreshold: Infinity, demoteDwellTime: 1 },
       far: { tickFrequency: 1, solverIterations: 4, promoteThreshold: Infinity, demoteThreshold: Infinity, demoteDwellTime: 1 },
     },
     nanSweepInterval: 0,

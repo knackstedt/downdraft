@@ -21,6 +21,23 @@ struct Uniforms {
 // updateSkinMatrices(). Only bound when drawing skinned meshes.
 @group(1) @binding(0) var<storage, read> skinMatrices: array<mat4x4<f32>>;
 
+// Frame-global lighting (@group(2)): sun color, hemisphere ambient, point lights.
+// Games that want colored lighting provide a compatible uniform buffer; the
+// default bind group supplies a neutral white sun + no point lights so existing
+// consumers see no visual change.
+struct FrameLighting {
+  sunDir: vec3<f32>,
+  ambientIntensity: f32,
+  sunColor: vec3<f32>,
+  pointLightCount: u32,
+  skyAmbient: vec3<f32>,
+  _pad0: u32,
+  groundAmbient: vec3<f32>,
+  _pad1: u32,
+  pointLights: array<vec4<f32>, 16>,
+};
+@group(2) @binding(0) var<uniform> frameLighting: FrameLighting;
+
 // Bindless material binding model (@group(3)):
 //   binding 0: material SSBO (read-only storage)
 //   bindings 1..8: texture_2d_array pages (rgba8unorm color textures)
@@ -100,6 +117,35 @@ struct VertexOutput {
   @location(3) color: vec3<f32>,
 };
 
+// Build a tangent basis from screen-space derivatives (fallback when the
+// mesh has no explicit tangent attribute). Returns (T, B, N).
+fn buildTangentBasis(N: vec3<f32>, worldPos: vec4<f32>, uv: vec2<f32>) -> mat3x3<f32> {
+  let dpdx_val = dpdx(worldPos.xyz);
+  let dpdy_val = dpdy(worldPos.xyz);
+  let duvdx = dpdx(vec3<f32>(uv, 0.0)).xy;
+  let duvdy = dpdy(vec3<f32>(uv, 0.0)).xy;
+  let r = 1.0 / (duvdx.x * duvdy.y - duvdx.y * duvdy.x);
+  let T = normalize((dpdx_val * duvdy.y - dpdy_val * duvdx.y) * r);
+  let B = normalize((dpdy_val * duvdx.x - dpdx_val * duvdy.x) * r);
+  // Re-orthogonalize T and B against N (Gram-Schmidt)
+  let tOrtho = normalize(T - N * dot(N, T));
+  let bOrtho = normalize(B - N * dot(N, B) - tOrtho * dot(tOrtho, B));
+  return mat3x3<f32>(tOrtho, bOrtho, N);
+}
+
+// Sample the normal map and perturb the geometric normal. Returns the
+// perturbed world-space normal. If the material has no normal map (normalTex
+// points at the default white texture), the sampled tangent-space normal is
+// (0.5, 0.5, 1.0) → unpacked to (0, 0, 1) → no perturbation.
+fn perturbNormal(N: vec3<f32>, worldPos: vec4<f32>, uv: vec2<f32>, normalTexHandle: u32) -> vec3<f32> {
+  let arr = unpackArrayIndex(normalTexHandle);
+  let layer = unpackLayerIndex(normalTexHandle);
+  let sampled = sampleBindlessArray(arr, uv, layer);
+  let tangentNormal = sampled.xyz * 2.0 - 1.0;
+  let basis = buildTangentBasis(N, worldPos, uv);
+  return normalize(basis * tangentNormal);
+}
+
 fn qrotate(q: vec4<f32>, v: vec3<f32>) -> vec3<f32> {
   return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v);
 }
@@ -161,13 +207,34 @@ fn vs_skinned(input: SkinnedVertexInput) -> VertexOutput {
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-  let lightDir = normalize(vec3<f32>(uniforms.lightDirX, uniforms.lightDirY, uniforms.lightDirZ));
-  let ndotl = max(dot(normalize(input.normal), lightDir), 0.0);
-  let lighting = uniforms.lightAmbient + ndotl * uniforms.lightIntensity;
+  let geometricN = normalize(input.normal);
+
+  // Bindless material lookup (needed for normal map handle + albedo).
+  let m = bindlessMaterials[uniforms.materialIndex];
+
+  // Perturb the normal using the material's normal map (if any). Materials
+  // without a normal map use the default white texture → no perturbation.
+  let N = perturbNormal(geometricN, vec4<f32>(input.worldPos, 1.0), input.uv, m.normalTex);
+
+  // Colored directional sun light from the frame-lighting UBO. Fall back to
+  // the per-draw lightDir/ambient/intensity (set via setLightState) for the
+  // directional *direction* and a baseline ambient — this keeps backward
+  // compatibility for callers that only use setLightState() — while the
+  // frame-lighting UBO tints the sun and adds hemisphere ambient + point lights.
+  let perDrawDir = normalize(vec3<f32>(uniforms.lightDirX, uniforms.lightDirY, uniforms.lightDirZ));
+  let frameDir = normalize(frameLighting.sunDir);
+  let sunDir = frameDir;
+  let ndotl = max(dot(N, sunDir), 0.0);
+  let sunDiffuse = ndotl * frameLighting.sunColor * uniforms.lightIntensity;
+
+  // Hemisphere ambient: blend sky/ground based on normal.y. Scaled by the
+  // frame-lighting ambientIntensity and the per-draw ambient baseline.
+  let hemiMix = N.y * 0.5 + 0.5;
+  let hemisphere = mix(frameLighting.groundAmbient, frameLighting.skyAmbient, hemiMix);
+  let ambient = hemisphere * frameLighting.ambientIntensity + uniforms.lightAmbient * 0.35;
 
   // Bindless albedo sample: index the material SSBO by materialIndex, then
   // sample the texture_2d_array page/layer the material points at.
-  let m = bindlessMaterials[uniforms.materialIndex];
   let arr = unpackArrayIndex(m.albedoTex);
   let layer = unpackLayerIndex(m.albedoTex);
   let texColor = sampleBindlessArray(arr, input.uv, layer);
@@ -175,11 +242,31 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
   // All inputs are sRGB: texture (rgba8unorm), vertex color (white), and
   // baseColor (parser converts FBX linear DiffuseColor to sRGB). The swapchain
   // is non-sRGB (bgra8unorm), so output sRGB directly.
-  var color = texColor.rgb * input.color * lighting * m.baseColor.rgb;
+  let baseColor = texColor.rgb * input.color * m.baseColor.rgb;
+  var litColor = baseColor * (ambient + sunDiffuse);
 
+  // Point lights (up to 8). Each light is 2 vec4s: (pos.xyz, radius) + (color.rgb, intensity).
+  let plCount = frameLighting.pointLightCount;
+  for (var i = 0u; i < plCount; i++) {
+    let pl0 = frameLighting.pointLights[i * 2u];
+    let pl1 = frameLighting.pointLights[i * 2u + 1u];
+    let plPos = pl0.xyz;
+    let plRadius = pl0.w;
+    let plColor = pl1.xyz;
+    let plIntensity = pl1.w;
+    let L = plPos - input.worldPos;
+    let dist = length(L);
+    if (dist < plRadius) {
+      let atten = 1.0 / (1.0 + dist * dist / (plRadius * plRadius));
+      let ndotl_pl = max(dot(N, normalize(L)), 0.0);
+      litColor += baseColor * plColor * plIntensity * atten * ndotl_pl;
+    }
+  }
+
+  // Distance fog — tint toward sky ambient so it matches the procedural scene.
   let dist = length(uniforms.cameraPos - input.worldPos);
   let fogFactor = min(dist / 1000.0, 1.0);
-  color = mix(color, vec3<f32>(0.0, 0.1, 0.2), fogFactor);
+  litColor = mix(litColor, frameLighting.skyAmbient, fogFactor);
 
-  return vec4<f32>(color, 1.0);
+  return vec4<f32>(litColor, 1.0);
 }

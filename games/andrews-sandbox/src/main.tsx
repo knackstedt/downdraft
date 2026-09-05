@@ -3,7 +3,7 @@
 // Declarative GameModule + startGame() bootstrap.
 // ============================================================================
 
-import { ContentRegistry, DragDropImporter, PluginScanner, type ContentListItem } from "@andrews-sandbox/library-content";
+import { ContentRegistry, DragDropImporter, PluginScanner } from "@andrews-sandbox/library-content";
 import { BUILTIN_PROPS } from "@andrews-sandbox/library-props";
 import { PaintSystem } from "@andrews-sandbox/module-paint";
 import { PhysicsPropsController } from "@andrews-sandbox/module-physics-props";
@@ -194,16 +194,14 @@ startGame({
     // forwardPointer() returns early (no worker) and clicks are never forwarded
     // to the game canvas. Disable pointer events on the overlay so clicks reach
     // the game canvas directly — otherwise pointer lock and all mouse input break.
-    // Always disable PixiUI overlay pointer events (we use DOM HUD instead)
+    // Hide the PixiUI overlay canvas entirely — we use the DOM HUD instead.
     const overlay = pixiHost.overlayCanvas;
-    if (overlay) overlay.style.pointerEvents = "none";
+    if (overlay) {
+      overlay.style.pointerEvents = "none";
+      overlay.style.display = "none";
+    }
     // Build DOM HUD (replaces PixiUI which has a broken worker)
     buildDomHud(ctx, contentRegistry, weaponController, physicsController, paintSystem, sim);
-
-    pixiHost.postEvent({ kind: "contentList", items: contentRegistry.listItems() });
-    contentRegistry.onChange((items: ContentListItem[]) => {
-      pixiHost.postEvent({ kind: "contentList", items });
-    });
 
     pixiHost.onAction = ((action: any) => {
       const a = action as SandboxAction;
@@ -270,16 +268,7 @@ startGame({
     });
 
     const statsInterval = setInterval(() => {
-      const s = useGameStore.getState();
-      pixiHost.writeStats({
-        fps: s.fps,
-        activeTool: s.activeTool,
-        funMode: s.activeFunMode,
-        propCount: s.propCount,
-        showBrowser: s.showContentBrowser ? 1 : 0,
-        showToolWheel: s.showToolWheel ? 1 : 0,
-        showPaintPalette: s.showPaintPalette ? 1 : 0,
-      });
+      // Stats now handled by DOM HUD — no PixiUI stats needed
     }, 100);
 
     // ── Pointer lock + keyboard + mouse input ──
@@ -401,6 +390,52 @@ startGame({
         ny = EYE_HEIGHT;
         vy = 0;
         onGround = true;
+      }
+      // Player collision with props (simple AABB/sphere vs capsule)
+      const PLAYER_RADIUS = 0.6;
+      const colliders = r.getPropColliders();
+      for (const c of colliders) {
+        const dx = nx - c.pos[0];
+        const dy = ny - c.pos[1];
+        const dz = nz - c.pos[2];
+        if (c.shape === 1) {
+          // Sphere collider
+          const distSq = dx * dx + dy * dy + dz * dz;
+          const minDist = c.radius + PLAYER_RADIUS;
+          if (distSq < minDist * minDist && distSq > 0.0001) {
+            const dist = Math.sqrt(distSq);
+            const push = (minDist - dist) / dist;
+            nx += dx * push;
+            ny += dy * push;
+            nz += dz * push;
+            // If pushed up, count as on ground
+            if (dy < -0.5 && dy * push > 0) {
+              vy = 0;
+              onGround = true;
+            }
+          }
+        } else if (c.halfExtents) {
+          // Box collider — AABB vs player sphere
+          const hx = c.halfExtents[0], hy = c.halfExtents[1], hz = c.halfExtents[2];
+          // Closest point on AABB to player
+          const cx = Math.max(c.pos[0] - hx, Math.min(nx, c.pos[0] + hx));
+          const cy = Math.max(c.pos[1] - hy, Math.min(ny, c.pos[1] + hy));
+          const cz = Math.max(c.pos[2] - hz, Math.min(nz, c.pos[2] + hz));
+          const ddx = nx - cx, ddy = ny - cy, ddz = nz - cz;
+          const distSq = ddx * ddx + ddy * ddy + ddz * ddz;
+          if (distSq < PLAYER_RADIUS * PLAYER_RADIUS && distSq > 0.0001) {
+            const dist = Math.sqrt(distSq);
+            const push = (PLAYER_RADIUS - dist) / dist;
+            nx += ddx * push;
+            ny += ddy * push;
+            nz += ddz * push;
+            // If standing on top
+            if (ddy > 0.5 && ny > c.pos[1] + hy - 0.1) {
+              vy = 0;
+              onGround = true;
+            }
+          }
+        }
       }
       r.setCameraPosition([nx, ny, nz]);
       updateCamera(r, yaw, pitch);

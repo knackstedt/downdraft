@@ -94,6 +94,14 @@ export class ShadowMapSystem {
     return this.shadowDepthView;
   }
 
+  getShadowUniformBuffer(): GPUBuffer | null {
+    return this.shadowUniformBuffer;
+  }
+
+  getShadowSampler(): GPUSampler | null {
+    return this.shadowSampler;
+  }
+
   getLightVP(): Float32Array {
     return this.lightVP;
   }

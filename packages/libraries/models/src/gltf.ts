@@ -509,19 +509,48 @@ export async function parseGLTF(
       }
 
       let normalTextureUri: string | undefined;
+      let normalTextureData: ArrayBuffer | null = null;
       let normalTextureTransform: MaterialData["normalTextureTransform"];
       if (mat.normalTexture !== undefined && json.textures && json.images) {
         const tex = json.textures[mat.normalTexture.index];
-        if (tex && tex.source !== undefined) {
-          const img = json.images[tex.source];
-          if (img) {
-            normalTextureUri = img.uri ?? undefined;
-            if (normalTextureUri) {
-              normalTextureUri = sanitizeUri(normalTextureUri);
+        if (tex) {
+          normalTextureTransform = extractTextureTransform(mat.normalTexture.extensions);
+          // KHR_texture_basisu: texture source is KTX2 data
+          const basisuExt = tex.extensions?.["KHR_texture_basisu"] as Record<string, unknown> | undefined;
+          if (basisuExt && registry.hasTextureCodec("KHR_texture_basisu")) {
+            const sourceIdx = (basisuExt.source as number) ?? tex.source;
+            if (sourceIdx !== undefined) {
+              const img = json.images[sourceIdx];
+              if (img?.bufferView !== undefined && bd.buffers[0]) {
+                const bv = bd.bufferViews[img.bufferView];
+                if (bv) {
+                  const buf = bd.buffers[bv.buffer];
+                  const start = bv.byteOffset;
+                  const end = start + bv.byteLength;
+                  normalTextureData = buf.slice(start, end);
+                }
+              }
+            }
+          } else if (tex.source !== undefined) {
+            const img = json.images[tex.source];
+            if (img) {
+              normalTextureUri = img.uri ?? undefined;
+              if (normalTextureUri) {
+                normalTextureUri = sanitizeUri(normalTextureUri);
+              }
+              // Handle embedded images via bufferView
+              if (img.bufferView !== undefined && bd.buffers[0]) {
+                const bv = bd.bufferViews[img.bufferView];
+                if (bv) {
+                  const buf = bd.buffers[bv.buffer];
+                  const start = bv.byteOffset;
+                  const end = start + bv.byteLength;
+                  normalTextureData = buf.slice(start, end);
+                }
+              }
             }
           }
         }
-        normalTextureTransform = extractTextureTransform(mat.normalTexture.extensions);
       }
 
       let emissiveTextureTransform: MaterialData["emissiveTextureTransform"];
@@ -537,6 +566,7 @@ export async function parseGLTF(
         textureUri,
         textureData,
         normalTextureUri,
+        normalTextureData,
         emissiveColor: mat.emissiveFactor ? [mat.emissiveFactor[0], mat.emissiveFactor[1], mat.emissiveFactor[2]] : undefined,
         textureTransform,
         normalTextureTransform,

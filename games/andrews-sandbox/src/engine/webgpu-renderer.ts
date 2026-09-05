@@ -2,6 +2,10 @@
 // WebGPU Renderer — sandbox rendering engine
 // Extends GameRenderer for device/surface init, runs a custom render loop
 // for skybox, ground plane, and prop model rendering.
+//
+// Visual overhaul: scene renders into the PostProcessStack HDR scene target
+// (rgba16float) via the engine FrameGraph, then bloom + tonemap + FXAA +
+// vignette are applied and blitted to the LDR swapchain.
 // ============================================================================
 
 import {
@@ -9,11 +13,18 @@ import {
   DEPTH_FORMAT, ENT, GameRenderer,
   InputBufferWriter, MSAA_SAMPLE_COUNT, SimBufferReader,
   calculateViewProjInto, type CameraState,
+  type RenderContext, type TextureHandle
 } from "@downdraft/core";
 import { ModelRenderer } from "@downdraft/library-entities";
 import { loadModel, type ModelData } from "@downdraft/library-models";
-import { EntityType } from "@sandbox/shared/types";
+import { PostProcessStack } from "@downdraft/library-postfx";
 import { ENT_DATA } from "@sandbox/shared/constants/buffer";
+import { EntityType } from "@sandbox/shared/types";
+import { mat4 } from "wgpu-matrix";
+import { SandboxLighting, type PointLight } from "./lighting";
+import { MipmapHelper } from "./mipmap-helper";
+import { SceneRenderPass, type SceneDrawFn, type ScenePassState } from "./passes/scene-pass";
+import { SandboxShadows } from "./shadows";
 
 // Simple skybox gradient shader (full-screen triangle at depth = far)
 const SKY_SHADER = /* wgsl */ `
@@ -50,6 +61,56 @@ struct Uniforms {
 @group(0) @binding(0) var<uniform> u: Uniforms;
 @group(1) @binding(0) var paintTex: texture_2d<f32>;
 @group(1) @binding(1) var paintSampler: sampler;
+
+struct FrameLighting {
+  sunDir: vec3f,
+  ambientIntensity: f32,
+  sunColor: vec3f,
+  pointLightCount: u32,
+  skyAmbient: vec3f,
+  _pad0: u32,
+  groundAmbient: vec3f,
+  _pad1: u32,
+  pointLights: array<vec4f, 16>,
+};
+@group(2) @binding(0) var<uniform> lighting: FrameLighting;
+
+struct ShadowUniforms {
+  lightVP: mat4x4f,
+  texelSize: f32,
+  bias: f32,
+  normalBias: f32,
+  shadowStrength: f32,
+};
+@group(3) @binding(0) var<uniform> shadowU: ShadowUniforms;
+@group(3) @binding(1) var shadowMap: texture_depth_2d;
+@group(3) @binding(2) var shadowSampler: sampler_comparison;
+
+fn pcfShadow(worldPos: vec3f, N: vec3f) -> f32 {
+  let shadowCoord = shadowU.lightVP * vec4f(worldPos, 1.0);
+  let shadowUV = vec2f(
+    shadowCoord.x / shadowCoord.w * 0.5 + 0.5,
+    1.0 - (shadowCoord.y / shadowCoord.w * 0.5 + 0.5),
+  );
+  let shadowDepth = shadowCoord.z / shadowCoord.w * 0.5 + 0.5;
+  if (shadowUV.x < 0.0 || shadowUV.x > 1.0 || shadowUV.y < 0.0 || shadowUV.y > 1.0) {
+    return 1.0;
+  }
+  let lightDir = normalize(lighting.sunDir);
+  let slopeScale = clamp(1.0 - dot(N, lightDir), 0.0, 1.0);
+  let adjustedBias = shadowU.bias + shadowU.normalBias * slopeScale;
+  // 3x3 PCF
+  var shadow = 0.0;
+  let texel = shadowU.texelSize;
+  for (var y = -1; y <= 1; y++) {
+    for (var x = -1; x <= 1; x++) {
+      let offset = vec2f(f32(x), f32(y)) * texel;
+      shadow += textureSampleCompareLevel(shadowMap, shadowSampler, shadowUV + offset, shadowDepth - adjustedBias);
+    }
+  }
+  shadow = shadow / 9.0;
+  return mix(1.0, shadow, shadowU.shadowStrength);
+}
 
 struct VertexOut {
   @builtin(position) clipPos: vec4f,
@@ -89,15 +150,39 @@ fn fs(in: VertexOut) -> @location(0) vec4f {
   let paintUV = vec2f(worldPos.x / 512.0 + 0.5, worldPos.z / 512.0 + 0.5);
   let paint = textureSample(paintTex, paintSampler, paintUV);
   let finalColor = mix(color, paint.rgb, paint.a);
-  // Distance fog — match sky color
+  // Lighting: ground normal is up (0,1,0)
+  let N = vec3f(0.0, 1.0, 0.0);
+  let sunDir = normalize(lighting.sunDir);
+  let sunShadow = pcfShadow(worldPos, N);
+  let diffuse = max(dot(N, sunDir), 0.0) * lighting.sunColor * sunShadow;
+  let hemisphere = lighting.skyAmbient; // ground faces up → sky ambient
+  var litColor = finalColor * (hemisphere * lighting.ambientIntensity + diffuse);
+  // Point lights
+  let plCount = lighting.pointLightCount;
+  for (var i = 0u; i < plCount; i++) {
+    let pl0 = lighting.pointLights[i * 2u];
+    let pl1 = lighting.pointLights[i * 2u + 1u];
+    let plPos = pl0.xyz;
+    let plRadius = pl0.w;
+    let plColor = pl1.xyz;
+    let plIntensity = pl1.w;
+    let L = plPos - worldPos;
+    let dist = length(L);
+    if (dist < plRadius) {
+      let atten = 1.0 / (1.0 + dist * dist / (plRadius * plRadius));
+      let ndotl = max(dot(N, normalize(L)), 0.0);
+      litColor += finalColor * plColor * plIntensity * atten * ndotl;
+    }
+  }
+  // Distance fog — match sky ambient color
   let dist = length(worldPos.xz - u.cameraPos.xz);
   let fog = clamp(1.0 - dist / 400.0, 0.0, 1.0);
-  let fogColor = vec3f(0.55, 0.7, 0.9);
-  return vec4f(mix(fogColor, finalColor, fog), 1.0);
+  let fogColor = lighting.skyAmbient;
+  return vec4f(mix(fogColor, litColor, fog), 1.0);
 }
 `;
 
-// Procedural cube shader with paint texture support + simple lighting.
+// Procedural cube shader with paint texture support + colored lighting.
 const CUBE_SHADER = /* wgsl */ `
 struct Uniforms {
   viewProj: mat4x4f,
@@ -115,6 +200,55 @@ struct Instance {
 @group(0) @binding(1) var<uniform> inst: Instance;
 @group(1) @binding(0) var paintTex: texture_2d<f32>;
 @group(1) @binding(1) var paintSampler: sampler;
+
+struct FrameLighting {
+  sunDir: vec3f,
+  ambientIntensity: f32,
+  sunColor: vec3f,
+  pointLightCount: u32,
+  skyAmbient: vec3f,
+  _pad0: u32,
+  groundAmbient: vec3f,
+  _pad1: u32,
+  pointLights: array<vec4f, 16>,
+};
+@group(2) @binding(0) var<uniform> lighting: FrameLighting;
+
+struct ShadowUniforms {
+  lightVP: mat4x4f,
+  texelSize: f32,
+  bias: f32,
+  normalBias: f32,
+  shadowStrength: f32,
+};
+@group(3) @binding(0) var<uniform> shadowU: ShadowUniforms;
+@group(3) @binding(1) var shadowMap: texture_depth_2d;
+@group(3) @binding(2) var shadowSampler: sampler_comparison;
+
+fn pcfShadow(worldPos: vec3f, N: vec3f) -> f32 {
+  let shadowCoord = shadowU.lightVP * vec4f(worldPos, 1.0);
+  let shadowUV = vec2f(
+    shadowCoord.x / shadowCoord.w * 0.5 + 0.5,
+    1.0 - (shadowCoord.y / shadowCoord.w * 0.5 + 0.5),
+  );
+  let shadowDepth = shadowCoord.z / shadowCoord.w * 0.5 + 0.5;
+  if (shadowUV.x < 0.0 || shadowUV.x > 1.0 || shadowUV.y < 0.0 || shadowUV.y > 1.0) {
+    return 1.0;
+  }
+  let lightDir = normalize(lighting.sunDir);
+  let slopeScale = clamp(1.0 - dot(N, lightDir), 0.0, 1.0);
+  let adjustedBias = shadowU.bias + shadowU.normalBias * slopeScale;
+  var shadow = 0.0;
+  let texel = shadowU.texelSize;
+  for (var y = -1; y <= 1; y++) {
+    for (var x = -1; x <= 1; x++) {
+      let offset = vec2f(f32(x), f32(y)) * texel;
+      shadow += textureSampleCompareLevel(shadowMap, shadowSampler, shadowUV + offset, shadowDepth - adjustedBias);
+    }
+  }
+  shadow = shadow / 9.0;
+  return mix(1.0, shadow, shadowU.shadowStrength);
+}
 
 struct VertexOut {
   @builtin(position) position: vec4f,
@@ -144,19 +278,36 @@ fn fs(in: VertexOut) -> @location(0) vec4f {
     let paint = textureSample(paintTex, paintSampler, in.uv);
     color = mix(baseColor, paint.rgb, paint.a);
   }
-  // Simple directional lighting
-  let lightDir = normalize(vec3f(0.4, 0.8, 0.3));
-  let ambient = 0.35;
-  let diffuse = max(dot(in.normal, lightDir), 0.0) * 0.65;
-  // Subtle sky/ground ambient
-  let upAmbient = max(in.normal.y, 0.0) * 0.15;
-  let downAmbient = max(-in.normal.y, 0.0) * 0.05;
-  let lighting = ambient + diffuse + upAmbient + downAmbient;
-  // Distance fog
+  // Colored directional lighting from the frame-lighting UBO
+  let N = normalize(in.normal);
+  let sunDir = normalize(lighting.sunDir);
+  let sunShadow = pcfShadow(in.worldPos, N);
+  let diffuse = max(dot(N, sunDir), 0.0) * lighting.sunColor * sunShadow;
+  // Hemisphere ambient: blend sky/ground based on normal direction
+  let hemiMix = N.y * 0.5 + 0.5;
+  let hemisphere = mix(lighting.groundAmbient, lighting.skyAmbient, hemiMix);
+  var litColor = color * (hemisphere * lighting.ambientIntensity + diffuse);
+  // Point lights
+  let plCount = lighting.pointLightCount;
+  for (var i = 0u; i < plCount; i++) {
+    let pl0 = lighting.pointLights[i * 2u];
+    let pl1 = lighting.pointLights[i * 2u + 1u];
+    let plPos = pl0.xyz;
+    let plRadius = pl0.w;
+    let plColor = pl1.xyz;
+    let plIntensity = pl1.w;
+    let L = plPos - in.worldPos;
+    let dist = length(L);
+    if (dist < plRadius) {
+      let atten = 1.0 / (1.0 + dist * dist / (plRadius * plRadius));
+      let ndotl = max(dot(N, normalize(L)), 0.0);
+      litColor += color * plColor * plIntensity * atten * ndotl;
+    }
+  }
+  // Distance fog — match sky ambient color
   let dist = length(in.worldPos - u.cameraPos);
   let fog = clamp(1.0 - dist / 400.0, 0.0, 1.0);
-  let fogColor = vec3f(0.55, 0.7, 0.9);
-  let litColor = color * lighting;
+  let fogColor = lighting.skyAmbient;
   return vec4f(mix(fogColor, litColor, fog), 1.0);
 }
 `;
@@ -248,6 +399,40 @@ export class WebGPURenderer extends GameRenderer {
   private bindlessMaterialManager: BindlessMaterialManager | null = null;
   private bindlessFrameBindings: BindlessFrameBindings | null = null;
 
+  // Post-process stack (HDR scene target + bloom/tonemap/FXAA/vignette chain)
+  private postProcessStack: PostProcessStack | null = null;
+
+  // Mipmap generation helper for standalone (non-bindless) textures
+  private mipmapHelper: MipmapHelper | null = null;
+
+  // Frame-global lighting (sun color + hemisphere ambient + point lights)
+  private lighting: SandboxLighting | null = null;
+  // Per-pipeline lighting bind groups (auto-layout pipelines need per-pipeline BGs)
+  private groundLightingBg: GPUBindGroup | null = null;
+  private cubeLightingBg: GPUBindGroup | null = null;
+  private sphereLightingBg: GPUBindGroup | null = null;
+  // ModelRenderer frame-lighting bind group (group 2 of the model pipeline)
+  private modelLightingBg: GPUBindGroup | null = null;
+
+  // Shadow mapping
+  private shadows: SandboxShadows | null = null;
+  private shadowsEnabled = true;
+  // Per-pipeline shadow bind groups (group 3 for procedural pipelines)
+  private groundShadowBg: GPUBindGroup | null = null;
+  private cubeShadowBg: GPUBindGroup | null = null;
+  private sphereShadowBg: GPUBindGroup | null = null;
+  // Depth-only pipelines for the shadow pass
+  private depthOnlyShader: GPUShaderModule | null = null;
+  private depthOnlyGroundPipeline: GPURenderPipeline | null = null;
+  private depthOnlyCubePipeline: GPURenderPipeline | null = null;
+  private depthOnlySpherePipeline: GPURenderPipeline | null = null;
+  private depthOnlyCubeUniformBuffer: GPUBuffer | null = null;
+
+  // FrameGraph handles for the imported scene color/depth views
+  private graphColorHandle: TextureHandle | null = null;
+  private graphDepthHandle: TextureHandle | null = null;
+  private graphCompiled = false;
+
   // Skybox pipeline
   private skyPipeline: GPURenderPipeline | null = null;
   // Ground plane pipeline + buffers
@@ -266,6 +451,8 @@ export class WebGPURenderer extends GameRenderer {
   private cubeIndexCount = CUBE_INDICES.length;
   private cubeUniformBuffer: GPUBuffer | null = null;
   private cubeInstanceBuffer: GPUBuffer | null = null;
+  private cubeInstanceStride = 256;
+  private cubeBindGroup0Layout: GPUBindGroupLayout | null = null;
   private cubeSampler: GPUSampler | null = null;
   private cubeDefaultTexture: GPUTexture | null = null;
   private spherePipeline: GPURenderPipeline | null = null;
@@ -294,10 +481,17 @@ export class WebGPURenderer extends GameRenderer {
   private nodeToContent = new Map<string, string>();
   private nextNodeId = 1;
 
-  // Depth texture
+  // Depth texture (used when postfx is disabled — fallback direct-to-canvas path)
   private depthTexture: GPUTexture | null = null;
   private depthTextureW = 0;
   private depthTextureH = 0;
+
+  // ── Graphics settings (runtime-toggleable, see Phase 6) ──
+  private fxaaEnabled = true;
+  private bloomEnabled = true;
+  private tonemapEnabled = true;
+  private vignetteEnabled = true;
+  private mipmapsEnabled = true;
 
   setSimReader(sab: SharedArrayBuffer): void {
     this.simReader = new SimBufferReader(sab);
@@ -338,10 +532,87 @@ export class WebGPURenderer extends GameRenderer {
       });
       await this.modelRenderer.init();
 
-      this.createSkyPipeline(device, format);
-      this.createGroundPipeline(device, format);
-      this.createCubePipeline(device, format);
-      this.createSpherePipeline(device, format);
+      // Post-process stack: HDR scene target + effect chain
+      this.postProcessStack = new PostProcessStack(device, format, { depthFormat: DEPTH_FORMAT });
+      this.postProcessStack.init();
+      this.applyDefaultPostfxSettings();
+
+      // Mipmap helper for standalone paint textures
+      this.mipmapHelper = new MipmapHelper(device);
+
+      // Shadow mapping (single-cascade sun shadow)
+      this.shadows = new SandboxShadows(device);
+
+      // Frame-global lighting
+      this.lighting = new SandboxLighting(device);
+
+      // Create a frame-lighting bind group for the ModelRenderer (group 2).
+      // The model pipeline's group(2) layout is the frameLightingLayout.
+      const modelLightLayout = this.modelRenderer!.getFrameLightingLayout();
+      if (modelLightLayout) {
+        this.modelLightingBg = device.createBindGroup({
+          label: "model-lighting-bg",
+          layout: modelLightLayout,
+          entries: [{ binding: 0, resource: { buffer: this.lighting.getUniformBuffer() } }],
+        });
+      }
+
+      // Procedural pipelines render into the HDR scene target (rgba16float),
+      // not the swapchain — the PostProcessStack handles the final blit.
+      const hdrFormat: GPUTextureFormat = "rgba16float";
+      this.createSkyPipeline(device, hdrFormat);
+      this.createGroundPipeline(device, hdrFormat);
+      this.createCubePipeline(device, hdrFormat);
+      this.createSpherePipeline(device, hdrFormat);
+      this.createDepthOnlyPipelines(device);
+
+      // Create per-pipeline shadow bind groups (group 3 for procedural pipelines).
+      // The shadow bind group layout is owned by the ShadowMapSystem.
+      const shadowSys = this.shadows!.getShadowSystem();
+      const shadowBuf = shadowSys.getShadowUniformBuffer();
+      const shadowView = shadowSys.getShadowDepthView();
+      const shadowSamp = shadowSys.getShadowSampler();
+      if (shadowBuf && shadowView && shadowSamp) {
+        const shadowEntries: GPUBindGroupEntry[] = [
+          { binding: 0, resource: { buffer: shadowBuf } },
+          { binding: 1, resource: shadowView },
+          { binding: 2, resource: shadowSamp },
+        ];
+        this.groundShadowBg = device.createBindGroup({
+          label: "ground-shadow-bg",
+          layout: this.groundPipeline!.getBindGroupLayout(3),
+          entries: shadowEntries,
+        });
+        this.cubeShadowBg = device.createBindGroup({
+          label: "cube-shadow-bg",
+          layout: this.cubePipeline!.getBindGroupLayout(3),
+          entries: shadowEntries,
+        });
+        this.sphereShadowBg = device.createBindGroup({
+          label: "sphere-shadow-bg",
+          layout: this.spherePipeline!.getBindGroupLayout(3),
+          entries: shadowEntries,
+        });
+      }
+
+      // Create per-pipeline lighting bind groups (auto-layout pipelines need
+      // bind groups created from each pipeline's own group(2) layout).
+      const lightBuf = this.lighting!.getUniformBuffer();
+      this.groundLightingBg = device.createBindGroup({
+        label: "ground-lighting-bg",
+        layout: this.groundPipeline!.getBindGroupLayout(2),
+        entries: [{ binding: 0, resource: { buffer: lightBuf } }],
+      });
+      this.cubeLightingBg = device.createBindGroup({
+        label: "cube-lighting-bg",
+        layout: this.cubePipeline!.getBindGroupLayout(2),
+        entries: [{ binding: 0, resource: { buffer: lightBuf } }],
+      });
+      this.sphereLightingBg = device.createBindGroup({
+        label: "sphere-lighting-bg",
+        layout: this.spherePipeline!.getBindGroupLayout(2),
+        entries: [{ binding: 0, resource: { buffer: lightBuf } }],
+      });
 
       this.setViewportCount(1);
       this.sandboxRunning = true;
@@ -352,6 +623,21 @@ export class WebGPURenderer extends GameRenderer {
       console.error("[WebGPURenderer] Init failed:", err);
       return false;
     }
+  }
+
+  /** Apply the default enabled effects + parameter defaults. */
+  private applyDefaultPostfxSettings(): void {
+    const s = this.postProcessStack!;
+    s.setEnabled("fxaa", this.fxaaEnabled);
+    s.setEnabled("bloom", this.bloomEnabled);
+    s.setEnabled("tonemap", this.tonemapEnabled);
+    s.setEnabled("vignette", this.vignetteEnabled);
+    // Sensible defaults for the sandbox
+    s.setBloomThreshold(0.85);
+    s.setBloomStrength(0.6);
+    s.setBloomMipCount(5);
+    s.setExposure(1.1);
+    s.setVignette(0.25);
   }
 
   private createSkyPipeline(device: GPUDevice, format: GPUTextureFormat): void {
@@ -415,12 +701,14 @@ export class WebGPURenderer extends GameRenderer {
       entries: [{ binding: 0, resource: { buffer: this.groundUniformBuffer } }],
     });
 
-    // Ground paint texture (512×512, updated by paint system)
+    // Ground paint texture (512×512, updated by paint system) — with mip chain
+    const groundMipCount = MipmapHelper.mipLevelCount(512, 512);
     this.groundPaintTexture = device.createTexture({
       label: "ground-paint",
       size: [512, 512],
       format: "rgba8unorm",
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+      mipLevelCount: groundMipCount,
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
     });
     // Clear to transparent
     const clearData = new Uint8Array(512 * 512 * 4); // all zeros = transparent
@@ -434,6 +722,7 @@ export class WebGPURenderer extends GameRenderer {
       label: "ground-paint-sampler",
       magFilter: "linear",
       minFilter: "linear",
+      mipmapFilter: "linear",
     });
     this.groundPaintBindGroup = device.createBindGroup({
       label: "ground-paint-bindgroup",
@@ -469,10 +758,12 @@ export class WebGPURenderer extends GameRenderer {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
-    // Instance buffer: model(64) + color(16) + hasPaint(4) + pad(12) = 96 bytes
+    // Instance buffer: model(64) + color(16) + hasPaint(4) + pad(12) = 96 bytes per entity
+    // Allocated for up to 256 entities with dynamic offsets (256-byte aligned)
+    this.cubeInstanceStride = 256; // 96 bytes data, padded to 256 for dynamic offset alignment
     this.cubeInstanceBuffer = device.createBuffer({
       label: "cube-instance",
-      size: 96,
+      size: this.cubeInstanceStride * 256,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
@@ -496,6 +787,7 @@ export class WebGPURenderer extends GameRenderer {
       label: "cube-sampler",
       magFilter: "linear",
       minFilter: "linear",
+      mipmapFilter: "linear",
     });
 
     const shader = device.createShaderModule({ label: "cube", code: CUBE_SHADER });
@@ -521,6 +813,8 @@ export class WebGPURenderer extends GameRenderer {
         depthCompare: "less",
       },
     });
+    // Store the bind group layout for dynamic offset use
+    this.cubeBindGroup0Layout = this.cubePipeline.getBindGroupLayout(0);
   }
 
   private createSpherePipeline(device: GPUDevice, format: GPUTextureFormat): void {
@@ -565,6 +859,77 @@ export class WebGPURenderer extends GameRenderer {
     });
   }
 
+  private createDepthOnlyPipelines(device: GPUDevice): void {
+    // Simple depth-only shader: vertex transforms by lightVP * model, no fragment output.
+    const DEPTH_ONLY_SHADER = /* wgsl */ `
+struct Uniforms {
+  lightVP: mat4x4f,
+};
+@group(0) @binding(0) var<uniform> u: Uniforms;
+struct Instance {
+  model: mat4x4f,
+};
+@group(0) @binding(1) var<uniform> inst: Instance;
+@vertex
+fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
+  return u.lightVP * inst.model * vec4f(pos, 1.0);
+}
+`;
+    this.depthOnlyShader = device.createShaderModule({ label: "depth-only", code: DEPTH_ONLY_SHADER });
+    // Uniform buffer for the light VP matrix (64 bytes at offset 0) + ground
+    // identity model matrix (64 bytes at offset 256, aligned to 256-byte
+    // uniform buffer alignment requirement).
+    this.depthOnlyCubeUniformBuffer = device.createBuffer({
+      label: "depth-only-uniforms",
+      size: 512,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    // Write identity matrix at offset 256 for the ground depth-only pass.
+    const identity = new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
+    device.queue.writeBuffer(this.depthOnlyCubeUniformBuffer, 256, identity);
+
+    const depthStencil: GPUDepthStencilState = {
+      format: "depth32float" as GPUTextureFormat,
+      depthWriteEnabled: true,
+      depthCompare: "less",
+    };
+
+    // Ground depth-only pipeline (uses the same ground vertex buffer: vec3 positions)
+    this.depthOnlyGroundPipeline = device.createRenderPipeline({
+      label: "depth-only-ground",
+      layout: "auto",
+      vertex: {
+        module: this.depthOnlyShader, entryPoint: "vs",
+        buffers: [{
+          arrayStride: 12,
+          attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }],
+        }],
+      },
+      primitive: { topology: "triangle-list" },
+      depthStencil,
+    });
+
+    // Cube/sphere depth-only pipeline (uses the same vertex layout: pos3 + uv2 + normal3 = 32 bytes)
+    const cubeVertexLayout: GPUVertexBufferLayout = {
+      arrayStride: 32,
+      attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }],
+    };
+    this.depthOnlyCubePipeline = device.createRenderPipeline({
+      label: "depth-only-cube",
+      layout: "auto",
+      vertex: { module: this.depthOnlyShader, entryPoint: "vs", buffers: [cubeVertexLayout] },
+      primitive: { topology: "triangle-list", cullMode: "back" },
+      depthStencil,
+    });
+    this.depthOnlySpherePipeline = device.createRenderPipeline({
+      label: "depth-only-sphere",
+      layout: "auto",
+      vertex: { module: this.depthOnlyShader, entryPoint: "vs", buffers: [cubeVertexLayout] },
+      primitive: { topology: "triangle-list", cullMode: "back" },
+      depthStencil,
+    });
+  }
+
   // ── Load a model and upload it to the ModelRenderer ──
   async loadPropModel(contentId: string, modelUri: string): Promise<string> {
     const nodeId = `prop-${this.nextNodeId++}`;
@@ -595,16 +960,42 @@ export class WebGPURenderer extends GameRenderer {
   getCameraPosition(): [number, number, number] { return this.camPos; }
   getCameraTarget(): [number, number, number] { return this.camTarget; }
 
+  /** Returns prop collider info: [centerX, centerY, centerZ, halfX, halfY, halfZ] for boxes, [cx,cy,cz,radius] for spheres. */
+  getPropColliders(): Array<{ pos: [number, number, number]; halfExtents: [number, number, number] | null; radius: number; shape: number }> {
+    if (!this.simReader) return [];
+    const count = this.simReader.getEntityCount();
+    const result: Array<{ pos: [number, number, number]; halfExtents: [number, number, number] | null; radius: number; shape: number }> = [];
+    for (let i = 0; i < count; i++) {
+      const slot = this.simReader.getEntitySlot(i);
+      const type = slot.u32[ENT.TYPE];
+      if (type === 255 || (type !== EntityType.Prop && type !== EntityType.Mannequin)) continue;
+      const px = slot.f32[ENT.POS_X];
+      const py = slot.f32[ENT.POS_Y];
+      const pz = slot.f32[ENT.POS_Z];
+      const scale = slot.f32[ENT.SCALE] || 1.0;
+      const shape = slot.f32[ENT_DATA.SHAPE + ENT.DATA];
+      if (shape === 1) {
+        result.push({ pos: [px, py, pz], halfExtents: null, radius: 0.5 * scale, shape: 1 });
+      } else {
+        const half = 0.5 * scale;
+        result.push({ pos: [px, py, pz], halfExtents: [half, half, half], radius: 0, shape: 0 });
+      }
+    }
+    return result;
+  }
+
   // ── Paint texture upload ──
   private paintTextures = new Map<number, GPUTexture>();
   uploadPaintTexture(entityId: number, data: Uint8ClampedArray, width: number, height: number): void {
     const device = this.getDevice();
     if (!device) return;
     if (!this.paintTextures.has(entityId)) {
+      const mipCount = MipmapHelper.mipLevelCount(width, height);
       const tex = device.createTexture({
         label: `paint-${entityId}`,
         size: [width, height],
         format: "rgba8unorm",
+        mipLevelCount: mipCount,
         usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
       });
       this.paintTextures.set(entityId, tex);
@@ -616,6 +1007,9 @@ export class WebGPURenderer extends GameRenderer {
       { bytesPerRow: width * 4 },
       { width, height },
     );
+    if (this.mipmapsEnabled && this.mipmapHelper && tex.mipLevelCount > 1) {
+      this.mipmapHelper.generateMipmaps(tex, "rgba8unorm", width, height);
+    }
   }
 
   uploadGroundPaintTexture(data: Uint8ClampedArray, width: number, height: number): void {
@@ -627,7 +1021,44 @@ export class WebGPURenderer extends GameRenderer {
       { bytesPerRow: width * 4 },
       { width, height },
     );
+    if (this.mipmapsEnabled && this.mipmapHelper && this.groundPaintTexture.mipLevelCount > 1) {
+      this.mipmapHelper.generateMipmaps(this.groundPaintTexture, "rgba8unorm", width, height);
+    }
   }
+
+  // ── Graphics settings setters (Phase 6 wiring) ──
+  setFXAAEnabled(enabled: boolean): void {
+    this.fxaaEnabled = enabled;
+    this.postProcessStack?.setEnabled("fxaa", enabled);
+  }
+  setBloomEnabled(enabled: boolean): void {
+    this.bloomEnabled = enabled;
+    this.postProcessStack?.setEnabled("bloom", enabled);
+  }
+  setBloomStrength(v: number): void { this.postProcessStack?.setBloomStrength(v); }
+  setBloomThreshold(v: number): void { this.postProcessStack?.setBloomThreshold(v); }
+  setTonemapEnabled(enabled: boolean): void {
+    this.tonemapEnabled = enabled;
+    this.postProcessStack?.setEnabled("tonemap", enabled);
+  }
+  setExposure(v: number): void { this.postProcessStack?.setExposure(v); }
+  setVignetteEnabled(enabled: boolean): void {
+    this.vignetteEnabled = enabled;
+    this.postProcessStack?.setEnabled("vignette", enabled);
+  }
+  setVignetteStrength(v: number): void { this.postProcessStack?.setVignette(v); }
+  setMipmapsEnabled(enabled: boolean): void { this.mipmapsEnabled = enabled; }
+  setSunColor(r: number, g: number, b: number): void { this.lighting?.setSunColor([r, g, b]); }
+  setSunDirection(x: number, y: number, z: number): void { this.lighting?.setSunDirection([x, y, z]); }
+  setSkyAmbient(r: number, g: number, b: number): void { this.lighting?.setSkyAmbient([r, g, b]); }
+  setGroundAmbient(r: number, g: number, b: number): void { this.lighting?.setGroundAmbient([r, g, b]); }
+  setAmbientIntensity(v: number): void { this.lighting?.setAmbientIntensity(v); }
+  setPointLights(lights: PointLight[]): void { this.lighting?.setPointLights(lights); }
+  setPointLightsEnabled(enabled: boolean): void { this.lighting?.setPointLightsEnabled(enabled); }
+  setShadowsEnabled(enabled: boolean): void { this.shadowsEnabled = enabled; this.shadows?.setEnabled(enabled); }
+  getShadows(): SandboxShadows | null { return this.shadows; }
+  getLighting(): SandboxLighting | null { return this.lighting; }
+  getPostProcessStack(): PostProcessStack | null { return this.postProcessStack; }
 
   // ── Render loop ──
   private frameLoop = (): void => {
@@ -645,18 +1076,40 @@ export class WebGPURenderer extends GameRenderer {
     this.rafHandle = requestAnimationFrame(this.frameLoop);
   };
 
-  private drawFrame(_dt: number): void {
+  /** Collect point lights from the sim (projectiles emit warm light). */
+  private collectPointLights(): void {
+    if (!this.lighting || !this.simReader) return;
+    const count = this.simReader.getEntityCount();
+    const lights: PointLight[] = [];
+    for (let i = 0; i < count && lights.length < 8; i++) {
+      const slot = this.simReader.getEntitySlot(i);
+      const type = slot.u32[ENT.TYPE];
+      if (type === 255) continue;
+      if (type === EntityType.Projectile) {
+        // Projectiles emit a warm orange glow.
+        lights.push({
+          position: [slot.f32[ENT.POS_X], slot.f32[ENT.POS_Y], slot.f32[ENT.POS_Z]],
+          color: [1.0, 0.6, 0.2],
+          intensity: 2.0,
+          radius: 8.0,
+        });
+      }
+    }
+    this.lighting.setPointLights(lights);
+  }
+
+  private drawFrame(dt: number): void {
     const device = this.getDevice();
     const context = this.getContext();
     if (!device || !context || !this.skyPipeline || !this.groundPipeline) return;
+    if (!this.postProcessStack) return;
 
     const canvas = this.getCanvas();
-    const colorView = context.getCurrentTexture().createView();
-    const depthTexture = this.getOrCreateDepthTexture(canvas.width, canvas.height);
-    const depthView = depthTexture.createView();
+    const w = canvas.width;
+    const h = canvas.height;
 
     // Camera view-projection
-    const aspect = canvas.width / canvas.height;
+    const aspect = w / h;
     const cameraState: CameraState = {
       position: this.camPos,
       target: this.camTarget,
@@ -668,6 +1121,17 @@ export class WebGPURenderer extends GameRenderer {
     };
     const viewProj = new Float32Array(16);
     calculateViewProjInto(cameraState, viewProj);
+
+    // Compute separate proj/view/invProj for the postfx stack (needed by
+    // SSAO/SSR/TAA in later phases; cheap to wire now).
+    const fovRad = (this.camFov * Math.PI) / 180;
+    const proj = mat4.perspective(fovRad, aspect, this.camNear, this.camFar);
+    const view = mat4.lookAt(this.camPos, this.camTarget, this.camUp);
+    const invProj = mat4.invert(proj);
+    const viewProjMat = mat4.multiply(proj, view);
+    const invViewProj = mat4.invert(viewProjMat);
+    this.postProcessStack.setCameraMatrices(proj, invProj, view);
+    this.postProcessStack.update(dt);
 
     // Update ground uniforms
     const uniformData = new Float32Array(20);
@@ -682,32 +1146,264 @@ export class WebGPURenderer extends GameRenderer {
       this.bindlessFrameBindings.prepareFrame();
     }
 
-    const encoder = device.createCommandEncoder();
+    // Upload frame-global lighting state
+    if (this.lighting) {
+      this.collectPointLights();
+      this.lighting.upload();
+    }
+    // Provide the lighting bind group to the model renderer (group 2).
+    if (this.modelRenderer && this.modelLightingBg) {
+      this.modelRenderer.setFrameLightingBindGroup(this.modelLightingBg);
+    }
 
-    // Sky + ground + props render pass
-    const pass = encoder.beginRenderPass({
-      colorAttachments: [{
-        view: colorView,
-        clearValue: { r: 0.5, g: 0.7, b: 0.9, a: 1 },
+    // Update + render the shadow map (before the main scene render).
+    if (this.shadows && this.shadows.isEnabled() && this.lighting) {
+      this.shadows.updateLightVP(this.lighting.getSunDirection(), this.camTarget);
+      const shadowEncoder = device.createCommandEncoder();
+      this.shadows.renderShadowMap({
+        device,
+        encoder: shadowEncoder,
+        renderDepth: (pass) => this.renderShadowDepth(pass),
+      });
+      device.queue.submit([shadowEncoder.finish()]);
+    }
+
+    const usePP = this.postProcessStack.hasEnabledEffects();
+
+    if (usePP) {
+      // ── HDR path: render scene into PostProcessStack targets via FrameGraph ──
+      this.postProcessStack.ensureTargets(w, h);
+      const sceneColorView = this.postProcessStack.getSceneColorView();
+      const sceneDepthView = this.postProcessStack.getSceneDepthView();
+
+      const graph = this.getGraph();
+      if (!this.graphColorHandle) {
+        this.graphColorHandle = graph.importTextureView("color", null);
+        this.graphDepthHandle = graph.importTextureView("depth", null);
+        graph.markDirty();
+      }
+      graph.setImportedTextureView(this.graphColorHandle, sceneColorView);
+      graph.setImportedTextureView(this.graphDepthHandle, sceneDepthView);
+
+      const viewport = { x: 0, y: 0, w, h };
+      const sceneState: ScenePassState = {
+        viewportIdx: 0,
+        viewport,
+        camera: cameraState,
+        viewProj,
         loadOp: "clear",
-        storeOp: "store",
-      }],
-      depthStencilAttachment: {
-        view: depthView,
-        depthClearValue: 1.0,
-        depthLoadOp: "clear",
-        depthStoreOp: "store",
-      },
+        clearValue: { r: 0.5, g: 0.7, b: 0.9, a: 1 },
+      };
+
+      graph.clearPasses();
+      graph.markDirty();
+      const scenePass = new SceneRenderPass(
+        this.graphColorHandle,
+        this.graphDepthHandle,
+        sceneState,
+        this.drawScene,
+      );
+      graph.addPass(scenePass);
+      graph.compile(device, w, h);
+      this.graphCompiled = true;
+
+      const encoder = device.createCommandEncoder();
+      const ctx: RenderContext = {
+        device,
+        encoder,
+        pass: null,
+        camera: cameraState,
+        viewport,
+        viewportIdx: 0,
+        viewportCount: 1,
+        dt,
+        elapsedTime: this._elapsedTime,
+        isFirstViewport: true,
+        isLastViewport: true,
+        width: w,
+        height: h,
+        viewProj,
+        invViewProj,
+        prevViewProj: undefined,
+        cameraPos: this.camPos,
+        lightData: null,
+        lightViewProj: undefined,
+        mesh: null,
+        modelMatrix: undefined,
+        shadowsEnabled: false,
+        bloomEnabled: this.bloomEnabled,
+        shadowSampler: null,
+        debugQueue: null,
+        opaqueVertexBuffer: null,
+        opaqueIndexBuffer: null,
+        opaqueIndexCount: 0,
+        opaqueIndexFormat: "uint32",
+        getView: (handle: TextureHandle) => graph.getTextureView(handle),
+        getTexture: (handle: TextureHandle) => graph.getTexture(handle),
+        addDrawCalls: () => {},
+        addTriangles: () => {},
+      };
+      graph.execute(ctx);
+
+      // Apply the post-process chain → canvas
+      const canvasView = context.getCurrentTexture().createView();
+      this.postProcessStack.applyChain(encoder, this.postProcessStack.getSceneDepthView(), canvasView, w, h);
+      device.queue.submit([encoder.finish()]);
+    } else {
+      // ── Fallback: render directly to the swapchain (no postfx enabled) ──
+      const colorView = context.getCurrentTexture().createView();
+      const depthTexture = this.getOrCreateDepthTexture(w, h);
+      const depthView = depthTexture.createView();
+
+      const encoder = device.createCommandEncoder();
+      const pass = encoder.beginRenderPass({
+        colorAttachments: [{
+          view: colorView,
+          clearValue: { r: 0.5, g: 0.7, b: 0.9, a: 1 },
+          loadOp: "clear",
+          storeOp: "store",
+        }],
+        depthStencilAttachment: {
+          view: depthView,
+          depthClearValue: 1.0,
+          depthLoadOp: "clear",
+          depthStoreOp: "store",
+        },
+      });
+      const viewport = { x: 0, y: 0, w, h };
+      const sceneState: ScenePassState = {
+        viewportIdx: 0,
+        viewport,
+        camera: cameraState,
+        viewProj,
+        loadOp: "clear",
+        clearValue: { r: 0.5, g: 0.7, b: 0.9, a: 1 },
+      };
+      this.drawScene(pass, sceneState, encoder);
+      pass.end();
+      device.queue.submit([encoder.finish()]);
+    }
+  }
+
+  /** Render scene depth-only into the shadow map from the sun's perspective. */
+  private renderShadowDepth(pass: GPURenderPassEncoder): void {
+    if (!this.shadows || !this.depthOnlyGroundPipeline || !this.depthOnlyCubePipeline) return;
+    const lightVP = this.shadows.getLightVP();
+    const device = this.getDevice()!;
+    const shadowSize = this.shadows.getShadowMapSize();
+    pass.setViewport(0, 0, shadowSize, shadowSize, 0, 1);
+
+    // Write the light VP to the depth-only uniform buffer
+    const uniformData = new Float32Array(20);
+    uniformData.set(lightVP, 0);
+    device.queue.writeBuffer(this.depthOnlyCubeUniformBuffer!, 0, uniformData);
+
+    // Ground
+    pass.setPipeline(this.depthOnlyGroundPipeline!);
+    const groundBg = device.createBindGroup({
+      layout: this.depthOnlyGroundPipeline!.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: this.depthOnlyCubeUniformBuffer! } },
+        { binding: 1, resource: { buffer: this.depthOnlyCubeUniformBuffer!, offset: 256, size: 64 } },
+      ],
     });
+    pass.setBindGroup(0, groundBg);
+    pass.setVertexBuffer(0, this.groundVertexBuffer!);
+    pass.draw(6);
+
+    // Props (cubes + spheres) — reuse the depth-only pipelines
+    if (this.simReader) {
+      this.renderBuiltinPropsDepth(pass, lightVP);
+    }
+  }
+
+  /** Render builtin props (cubes + spheres) depth-only into the shadow map. */
+  private renderBuiltinPropsDepth(pass: GPURenderPassEncoder, lightVP: Float32Array): void {
+    if (!this.simReader || !this.depthOnlyCubePipeline || !this.cubeVertexBuffer || !this.cubeIndexBuffer) return;
+    if (!this.depthOnlyCubeUniformBuffer) return;
+    const device = this.getDevice()!;
+    const count = this.simReader.getEntityCount();
+    if (count === 0) return;
+
+    // Write light VP to uniform buffer
+    const uniformData = new Float32Array(20);
+    uniformData.set(lightVP, 0);
+    device.queue.writeBuffer(this.depthOnlyCubeUniformBuffer, 0, uniformData);
+
+    const cubes: number[] = [];
+    const spheres: number[] = [];
+    for (let i = 0; i < count; i++) {
+      const slot = this.simReader.getEntitySlot(i);
+      const type = slot.u32[ENT.TYPE];
+      if (type === 255 || (type !== EntityType.Prop && type !== EntityType.Mannequin && type !== EntityType.Projectile)) continue;
+      const nodeIdRaw = slot.u32[ENT.ID];
+      if (nodeIdRaw !== 0) continue; // has a model — skip (model shadow rendering not yet wired)
+      const shape = slot.f32[ENT_DATA.SHAPE + ENT.DATA];
+      if (shape === 1) spheres.push(i);
+      else cubes.push(i);
+    }
+
+    const renderBatch = (indices: number[], pipeline: GPURenderPipeline, vertexBuffer: GPUBuffer, indexBuffer: GPUBuffer, indexCount: number) => {
+      pass.setPipeline(pipeline);
+      pass.setVertexBuffer(0, vertexBuffer);
+      pass.setIndexBuffer(indexBuffer, "uint16");
+      const stride = this.cubeInstanceStride;
+      for (let idx = 0; idx < indices.length; idx++) {
+        const i = indices[idx];
+        const slot = this.simReader!.getEntitySlot(i);
+        const px = slot.f32[ENT.POS_X];
+        const py = slot.f32[ENT.POS_Y];
+        const pz = slot.f32[ENT.POS_Z];
+        const scale = slot.f32[ENT.SCALE] || 1.0;
+        const rx = slot.f32[ENT.ROT_X];
+        const ry = slot.f32[ENT.ROT_Y];
+        const rz = slot.f32[ENT.ROT_Z];
+        const rw = slot.f32[ENT.ROT_W];
+        const model = this.composeModelMatrix(px, py, pz, rx, ry, rz, rw, scale);
+        // Write instance model matrix at offset 64 (after the lightVP uniform)
+        const instData = new Float32Array(16);
+        instData.set(model, 0);
+        device.queue.writeBuffer(this.cubeInstanceBuffer!, idx * stride, instData);
+      }
+      for (let idx = 0; idx < indices.length; idx++) {
+        const bg = device.createBindGroup({
+          layout: pipeline.getBindGroupLayout(0),
+          entries: [
+            { binding: 0, resource: { buffer: this.depthOnlyCubeUniformBuffer! } },
+            { binding: 1, resource: { buffer: this.cubeInstanceBuffer!, offset: idx * stride, size: 64 } },
+          ],
+        });
+        pass.setBindGroup(0, bg);
+        pass.drawIndexed(indexCount);
+      }
+    };
+
+    if (cubes.length > 0) {
+      renderBatch(cubes, this.depthOnlyCubePipeline, this.cubeVertexBuffer, this.cubeIndexBuffer, this.cubeIndexCount);
+    }
+    if (spheres.length > 0 && this.depthOnlySpherePipeline && this.sphereVertexBuffer && this.sphereIndexBuffer) {
+      renderBatch(spheres, this.depthOnlySpherePipeline, this.sphereVertexBuffer, this.sphereIndexBuffer, this.sphereIndexCount);
+    }
+  }
+
+  // ── Scene draw (delegated to SceneRenderPass via the FrameGraph) ──
+  private drawScene: SceneDrawFn = (
+    pass: GPURenderPassEncoder,
+    state: ScenePassState,
+    _encoder: GPUCommandEncoder,
+  ): void => {
+    const viewProj = state.viewProj;
 
     // Sky (full-screen triangle, depth = far)
-    pass.setPipeline(this.skyPipeline);
+    pass.setPipeline(this.skyPipeline!);
     pass.draw(3);
 
     // Ground plane
-    pass.setPipeline(this.groundPipeline);
+    pass.setPipeline(this.groundPipeline!);
     pass.setBindGroup(0, this.groundBindGroup!);
     if (this.groundPaintBindGroup) pass.setBindGroup(1, this.groundPaintBindGroup);
+    if (this.groundLightingBg) pass.setBindGroup(2, this.groundLightingBg);
+    if (this.groundShadowBg) pass.setBindGroup(3, this.groundShadowBg);
     pass.setVertexBuffer(0, this.groundVertexBuffer!);
     pass.draw(6);
 
@@ -716,10 +1412,7 @@ export class WebGPURenderer extends GameRenderer {
       this.renderBuiltinProps(pass, viewProj);
       if (this.modelRenderer) this.renderProps(pass);
     }
-
-    pass.end();
-    device.queue.submit([encoder.finish()]);
-  }
+  };
 
   private renderProps(pass: GPURenderPassEncoder): void {
     if (!this.modelRenderer || !this.simReader) return;
@@ -784,11 +1477,11 @@ export class WebGPURenderer extends GameRenderer {
 
     // Render cubes
     if (cubes.length > 0) {
-      this.renderShapeBatch(pass, device, cubes, this.cubePipeline!, this.cubeVertexBuffer!, this.cubeIndexBuffer!, this.cubeIndexCount, false);
+      this.renderShapeBatch(pass, device, cubes, this.cubePipeline!, this.cubeVertexBuffer!, this.cubeIndexBuffer!, this.cubeIndexCount, this.cubeLightingBg, this.cubeShadowBg);
     }
     // Render spheres
     if (spheres.length > 0 && this.spherePipeline && this.sphereVertexBuffer && this.sphereIndexBuffer) {
-      this.renderShapeBatch(pass, device, spheres, this.spherePipeline, this.sphereVertexBuffer, this.sphereIndexBuffer, this.sphereIndexCount, true);
+      this.renderShapeBatch(pass, device, spheres, this.spherePipeline, this.sphereVertexBuffer, this.sphereIndexBuffer, this.sphereIndexCount, this.sphereLightingBg, this.sphereShadowBg);
     }
   }
 
@@ -800,22 +1493,19 @@ export class WebGPURenderer extends GameRenderer {
     vertexBuffer: GPUBuffer,
     indexBuffer: GPUBuffer,
     indexCount: number,
-    _isSphere: boolean,
+    lightingBg: GPUBindGroup | null,
+    shadowBg: GPUBindGroup | null,
   ): void {
-    const bindGroup0 = device.createBindGroup({
-      layout: pipeline.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: this.cubeUniformBuffer! } },
-        { binding: 1, resource: { buffer: this.cubeInstanceBuffer! } },
-      ],
-    });
-
     pass.setPipeline(pipeline);
-    pass.setBindGroup(0, bindGroup0);
     pass.setVertexBuffer(0, vertexBuffer);
     pass.setIndexBuffer(indexBuffer, "uint16");
+    if (lightingBg) pass.setBindGroup(2, lightingBg);
+    if (shadowBg) pass.setBindGroup(3, shadowBg);
 
-    for (const i of indices) {
+    // Write all instance data first at separate offsets, then create per-entity bind groups
+    const stride = this.cubeInstanceStride;
+    for (let idx = 0; idx < indices.length; idx++) {
+      const i = indices[idx];
       const slot = this.simReader!.getEntitySlot(i);
       const type = slot.u32[ENT.TYPE];
 
@@ -854,9 +1544,25 @@ export class WebGPURenderer extends GameRenderer {
       instData[18] = color[2];
       instData[19] = color[3];
       instData[20] = hasPaint;
-      device.queue.writeBuffer(this.cubeInstanceBuffer!, 0, instData);
+      device.queue.writeBuffer(this.cubeInstanceBuffer!, idx * stride, instData);
+    }
 
+    // Create per-entity bind groups pointing to the correct offset, then draw
+    for (let idx = 0; idx < indices.length; idx++) {
+      const i = indices[idx];
+      const entityId = i + 1;
+      const paintTex = this.paintTextures.get(entityId);
       const tex = paintTex ?? this.cubeDefaultTexture!;
+
+      const bindGroup0 = device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: this.cubeUniformBuffer! } },
+          { binding: 1, resource: { buffer: this.cubeInstanceBuffer!, offset: idx * stride, size: 96 } },
+        ],
+      });
+      pass.setBindGroup(0, bindGroup0);
+
       const bindGroup1 = device.createBindGroup({
         layout: pipeline.getBindGroupLayout(1),
         entries: [

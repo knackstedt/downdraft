@@ -23,6 +23,23 @@ export const SANDBOX_STATS_LAYOUT: UiStatsLayout = {
     "paintColorB",
     "paintSize",
     "paintHardness",
+    // Graphics settings state (read by the UI panel)
+    "showGraphics",
+    "bloomEnabled",
+    "bloomStrength",
+    "bloomThreshold",
+    "fxaaEnabled",
+    "tonemapEnabled",
+    "exposure",
+    "vignetteEnabled",
+    "vignetteStrength",
+    "shadowsEnabled",
+    "mipmapsEnabled",
+    "pointLightsEnabled",
+    "sunColorR",
+    "sunColorG",
+    "sunColorB",
+    "ambientIntensity",
   ],
 };
 
@@ -38,7 +55,22 @@ export type SandboxAction =
   | { kind: "setPaintHardness"; hardness: number }
   | { kind: "saveGame" }
   | { kind: "loadGame" }
-  | { kind: "clearProps" };
+  | { kind: "clearProps" }
+  // Graphics settings actions
+  | { kind: "toggleGraphicsPanel" }
+  | { kind: "setBloom"; enabled: boolean }
+  | { kind: "setBloomStrength"; value: number }
+  | { kind: "setBloomThreshold"; value: number }
+  | { kind: "setFXAA"; enabled: boolean }
+  | { kind: "setTonemap"; enabled: boolean }
+  | { kind: "setExposure"; value: number }
+  | { kind: "setVignette"; enabled: boolean }
+  | { kind: "setVignetteStrength"; value: number }
+  | { kind: "setShadows"; enabled: boolean }
+  | { kind: "setMipmaps"; enabled: boolean }
+  | { kind: "setPointLights"; enabled: boolean }
+  | { kind: "setSunColor"; r: number; g: number; b: number }
+  | { kind: "setAmbientIntensity"; value: number };
 
 // ── Events (main→worker data updates) ──
 export type SandboxEvent =

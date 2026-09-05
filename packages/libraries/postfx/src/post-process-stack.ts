@@ -161,6 +161,7 @@ export class PostProcessStack {
   private bloomBlurH: GPUTexture | null = null;
   private bloomBlurV: GPUTexture | null = null;
   private bloomMip: GPUTexture[] = [];          // multi-MIP pyramid (downsample cascade)
+  private bloomTemp: GPUTexture[] = [];         // temp targets for upsample (avoid read+write same texture)
   private halfResA: GPUTexture | null = null;  // shared by bloom-soft
   private halfResB: GPUTexture | null = null;
   private ssaoA: GPUTexture | null = null;
@@ -764,9 +765,11 @@ export class PostProcessStack {
       this.bloomBlurV = mkTex(HDR_FORMAT, hw, hh);
       // Multi-MIP pyramid: bloomMip[0] = ½res, [1] = ¼res, [2] = ⅛res, [3] = 1/16, [4] = 1/32
       this.bloomMip = [];
+      this.bloomTemp = [];
       let mw = hw, mh = hh;
       for (let i = 0; i < this.bloomMipCount; i++) {
         this.bloomMip.push(mkTex(HDR_FORMAT, mw, mh));
+        this.bloomTemp.push(mkTex(HDR_FORMAT, mw, mh));
         mw = Math.max(1, mw >> 1);
         mh = Math.max(1, mh >> 1);
       }
@@ -795,6 +798,8 @@ export class PostProcessStack {
     destroy(this.bloomBlurV); this.bloomBlurV = null;
     for (const m of this.bloomMip) m.destroy();
     this.bloomMip = [];
+    for (const m of this.bloomTemp) m.destroy();
+    this.bloomTemp = [];
     destroy(this.halfResA); this.halfResA = null;
     destroy(this.halfResB); this.halfResB = null;
     destroy(this.ssaoA); this.ssaoA = null;
@@ -1055,6 +1060,8 @@ export class PostProcessStack {
     // Start from the smallest MIP, progressively upsample + additively blend
     // into the next larger MIP. The upsample shader reads the lower-res MIP
     // and adds it to the higher-res MIP (baseTex binding).
+    // We use a temp texture for the base to avoid reading+writing the same
+    // texture in the same render pass (WebGPU sync scope violation).
     for (let i = mipCount - 1; i >= 1; i--) {
       const srcW = mipW[i], srcH = mipH[i];
       const dstW = mipW[i - 1], dstH = mipH[i - 1];
@@ -1063,9 +1070,11 @@ export class PostProcessStack {
         1 / srcW, 1 / srcH, weight, 0,
         this.bloomTint[0], this.bloomTint[1], this.bloomTint[2], 0,
       ]));
+      // Blit bloomMip[i-1] → bloomTemp[i-1] to avoid read+write same texture
+      this.applyBlitHDR(encoder, this.bloomMip[i - 1].createView(), this.bloomTemp[i - 1].createView(), dstW, dstH);
       this.pass(encoder, this.pipelines["bloom-upsample"], this.bg(this.ccLayout, [
         { binding: 0, resource: this.bloomMip[i].createView() },
-        { binding: 1, resource: this.bloomMip[i - 1].createView() },
+        { binding: 1, resource: this.bloomTemp[i - 1].createView() },
         { binding: 2, resource: this.linearSampler },
         { binding: 3, resource: { buffer: this.uniforms["bloom-upsample"] } },
       ]), this.bloomMip[i - 1].createView(), dstW, dstH);
@@ -1080,11 +1089,12 @@ export class PostProcessStack {
     ]));
     // For the final pass, baseTex = inputView (scene color), output = outputView
     // We need to read inputView as base — but the upsample shader writes base+bloom.
-    // Use a temp: blit input to pingPong[0], then upsample into outputView.
-    this.applyBlitHDR(encoder, inputView, this.pingPong[0]!.createView(), w, h);
+    // Use pingPong[1] as a temp (not outputView) to avoid reading+writing the
+    // same texture in the same render pass (WebGPU sync scope violation).
+    this.applyBlitHDR(encoder, inputView, this.pingPong[1]!.createView(), w, h);
     this.pass(encoder, this.pipelines["bloom-upsample"], this.bg(this.ccLayout, [
       { binding: 0, resource: this.bloomMip[0].createView() },
-      { binding: 1, resource: this.pingPong[0]!.createView() },
+      { binding: 1, resource: this.pingPong[1]!.createView() },
       { binding: 2, resource: this.linearSampler },
       { binding: 3, resource: { buffer: this.uniforms["bloom-upsample"] } },
     ]), outputView, w, h);

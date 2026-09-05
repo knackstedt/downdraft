@@ -18,6 +18,7 @@
     "@downdraft/library-entities": "workspace:*",
     "@downdraft/library-persistence": "workspace:*",
     "@downdraft/library-pixi-ui": "workspace:*",
+    "@downdraft/library-postfx": "workspace:*",
     "@downdraft/module-xr": "workspace:*",
     "@downdraft/module-camera-controls": "workspace:*",
     "@andrews-sandbox/library-props": "workspace:*",

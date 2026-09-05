@@ -91,12 +91,25 @@ export class ModelRenderer {
   private bindlessLayout: GPUBindGroupLayout | null = null;
   private bindlessBindGroup: GPUBindGroup | null = null;
   private bindlessBindGroupSetThisFrame = false;
+
+  // Frame-global lighting bind group (group 2). Provides sun color, hemisphere
+  // ambient, and point lights. Defaults to a neutral white-sun / no-point-light
+  // bind group so existing consumers see no visual change. Games with colored
+  // lighting call setFrameLightingBindGroup() each frame to override.
+  private frameLightingLayout: GPUBindGroupLayout | null = null;
+  private defaultFrameLightingBuffer: GPUBuffer | null = null;
+  private defaultFrameLightingBg: GPUBindGroup | null = null;
+  private frameLightingBg: GPUBindGroup | null = null;
+  private frameLightingBgSetThisFrame = false;
   /** materialIndex for the default white material (albedo = default white layer). */
   private defaultMaterialIndex = 0;
   /** Composite key `${nodeId}:${matIdx}` → bindless materialIndex, so reupload reuses the same slot. */
   private meshMaterialIndex = new Map<string, number>();
   /** Composite key `${nodeId}:${matIdx}` → texture sourceId (used for async update + cleanup). */
   private meshTextureSourceId = new Map<string, string>();
+  private meshNormalTextureSourceId = new Map<string, string>();
+  /** Track the current albedo handle per materialKey (for normal texture updates). */
+  private meshAlbedoHandle = new Map<string, number>();
 
   constructor(device: GPUDevice, format: GPUTextureFormat) {
     this.device = device;
@@ -127,6 +140,22 @@ export class ModelRenderer {
     this.bindlessBindGroupSetThisFrame = false;
   }
 
+  /**
+   * Set the frame-global lighting bind group (group 2). Provides sun color,
+   * hemisphere ambient, and point lights via a uniform buffer matching the
+   * FrameLighting WGSL struct. Call once per frame before render(). If never
+   * called, a default neutral bind group is used (white sun, no point lights).
+   */
+  setFrameLightingBindGroup(bg: GPUBindGroup | null): void {
+    this.frameLightingBg = bg;
+    this.frameLightingBgSetThisFrame = false;
+  }
+
+  /** Get the frame-lighting bind group layout (for creating compatible bind groups). */
+  getFrameLightingLayout(): GPUBindGroupLayout | null {
+    return this.frameLightingLayout;
+  }
+
   async init(): Promise<void> {
     this.uniformBuffer = this.device.createBuffer({
       size: ModelRenderer.MAX_MODELS * ModelRenderer.UNIFORM_SIZE,
@@ -152,13 +181,42 @@ export class ModelRenderer {
       ],
     });
 
+    // Frame-lighting bind group layout (group 2): a single uniform buffer
+    // providing sun color, hemisphere ambient, and point lights. A default
+    // neutral bind group is created so existing consumers see no visual change.
+    this.frameLightingLayout = this.device.createBindGroupLayout({
+      label: "model-frame-lighting-layout",
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
+      ],
+    });
+    // Default frame-lighting UBO: white sun, neutral hemisphere, no point lights.
+    // Layout: sunDir(3)+ambientIntensity(1), sunColor(3)+pointLightCount(1),
+    //         skyAmbient(3)+pad(1), groundAmbient(3)+pad(1), pointLights(16 vec4s)
+    const defaultLightingData = new Float32Array(80);
+    defaultLightingData[3] = 1.0; // ambientIntensity
+    defaultLightingData[4] = 1.0; defaultLightingData[5] = 1.0; defaultLightingData[6] = 1.0; // sunColor
+    defaultLightingData[8] = 1.0; defaultLightingData[9] = 1.0; defaultLightingData[10] = 1.0; // skyAmbient
+    defaultLightingData[12] = 1.0; defaultLightingData[13] = 1.0; defaultLightingData[14] = 1.0; // groundAmbient
+    this.defaultFrameLightingBuffer = this.device.createBuffer({
+      label: "model-default-frame-lighting",
+      size: defaultLightingData.byteLength,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    this.device.queue.writeBuffer(this.defaultFrameLightingBuffer, 0, defaultLightingData as Float32Array<ArrayBuffer>);
+    this.defaultFrameLightingBg = this.device.createBindGroup({
+      label: "model-default-frame-lighting-bg",
+      layout: this.frameLightingLayout,
+      entries: [{ binding: 0, resource: { buffer: this.defaultFrameLightingBuffer } }],
+    });
+
     const shaderModule = this.device.createShaderModule({ code: MODEL_WGSL });
     // Explicit pipeline layout: group(0) = per-draw uniform (dynamic offset),
-    // group(3) = bindless materials SSBO + texture arrays. Groups 1 and 2
-    // are unused by the model shader but reserved as empty layouts.
+    // group(2) = frame-lighting UBO, group(3) = bindless materials SSBO +
+    // texture arrays. Group 1 is unused by the non-skinned pipeline (empty layout).
     const emptyLayout = this.device.createBindGroupLayout({ entries: [] });
     const pipelineLayout = this.device.createPipelineLayout({
-      bindGroupLayouts: [this.bindGroupLayout, emptyLayout, emptyLayout, this.bindlessLayout],
+      bindGroupLayouts: [this.bindGroupLayout, emptyLayout, this.frameLightingLayout, this.bindlessLayout],
     });
     this.pipeline = this.device.createRenderPipeline({
       layout: pipelineLayout,
@@ -216,10 +274,10 @@ export class ModelRenderer {
     });
 
     // Skinned pipeline: same pipeline layout (group 1 is now the skin layout
-    // instead of an empty layout), with a second vertex buffer for joints +
-    // weights and the vs_skinned entry point.
+    // instead of an empty layout, group 2 is the frame-lighting layout), with
+    // a second vertex buffer for joints + weights and the vs_skinned entry point.
     const skinnedPipelineLayout = this.device.createPipelineLayout({
-      bindGroupLayouts: [this.bindGroupLayout, this.skinBindGroupLayout, emptyLayout, this.bindlessLayout],
+      bindGroupLayouts: [this.bindGroupLayout, this.skinBindGroupLayout, this.frameLightingLayout, this.bindlessLayout],
     });
     this.skinnedPipeline = this.device.createRenderPipeline({
       layout: skinnedPipelineLayout,
@@ -346,6 +404,11 @@ export class ModelRenderer {
             this.textureLoadVersion.set(materialKey, version);
             this.loadMeshTexture(materialKey, mat.textureData, version);
           }
+          // Async load the normal texture if present.
+          if ((mat?.normalTextureData && mat.normalTextureData.byteLength > 0) || mat?.normalTextureUri) {
+            const version = (this.textureLoadVersion.get(materialKey) ?? 0) + 1;
+            this.loadMeshNormalTexture(materialKey, mat.normalTextureData ?? null, mat?.normalTextureUri, version);
+          }
         }
       }
 
@@ -471,10 +534,12 @@ export class ModelRenderer {
         this.bindless.registry.updateFromImageBitmap(sourceId, imageBitmap);
         handle = existing.handle;
       } else {
-        const reg = this.bindless.registry.registerFromImageBitmap(sourceId, imageBitmap, "rgba8unorm", 1);
+        // Register with automatic mip generation to avoid distant shimmer.
+        const reg = this.bindless.registry.registerFromImageBitmap(sourceId, imageBitmap, "rgba8unorm", 1, true);
         handle = reg.handle;
       }
       this.meshTextureSourceId.set(materialKey, sourceId);
+      this.meshAlbedoHandle.set(materialKey, handle);
 
       // Update the material to point at the real albedo texture.
       const materialIndex = this.meshMaterialIndex.get(materialKey);
@@ -497,6 +562,68 @@ export class ModelRenderer {
       imageBitmap.close();
     } catch (e) {
       console.error(`[ModelRenderer] Failed to load texture for ${materialKey}:`, e);
+    }
+  }
+
+  /**
+   * Async-load a normal texture for a material and update the bindless material
+   * to point at it. Normal textures are loaded from embedded bufferView data
+   * (normalTextureData) or fetched from normalTextureUri.
+   */
+  private async loadMeshNormalTexture(materialKey: string, textureData: ArrayBuffer | null, textureUri: string | undefined, version: number): Promise<void> {
+    if (!this.bindless) return;
+    try {
+      let imageBitmap: ImageBitmap;
+      if (textureData && textureData.byteLength > 0) {
+        const blob = new Blob([textureData]);
+        imageBitmap = await createImageBitmap(blob, { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
+      } else if (textureUri) {
+        const resp = await fetch(textureUri);
+        const blob = await resp.blob();
+        imageBitmap = await createImageBitmap(blob, { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
+      } else {
+        return;
+      }
+
+      if (this.textureLoadVersion.get(materialKey) !== version) {
+        imageBitmap.close();
+        return;
+      }
+
+      const sourceId = `model-normal:${materialKey}`;
+      const existing = this.bindless.registry.getRegistration(sourceId);
+      let handle: number;
+      if (existing) {
+        this.bindless.registry.updateFromImageBitmap(sourceId, imageBitmap);
+        handle = existing.handle;
+      } else {
+        const reg = this.bindless.registry.registerFromImageBitmap(sourceId, imageBitmap, "rgba8unorm", 1, true);
+        handle = reg.handle;
+      }
+      this.meshNormalTextureSourceId.set(materialKey, sourceId);
+
+      // Update the material's normalTexHandle. Preserve existing albedo handle.
+      const materialIndex = this.meshMaterialIndex.get(materialKey);
+      if (materialIndex !== undefined) {
+        const albedoHandle = this.meshAlbedoHandle.get(materialKey) ?? this.bindless.registry.defaultWhiteHandle;
+        const matParams: MaterialParams = {
+          baseColor: [1, 1, 1, 1],
+          roughness: 1,
+          metallic: 0,
+          emissiveIntensity: 0,
+          albedoTexHandle: albedoHandle,
+          normalTexHandle: handle,
+          metallicRoughnessTexHandle: this.bindless.registry.defaultWhiteHandle,
+          aoTexHandle: this.bindless.registry.defaultWhiteHandle,
+          emissiveTexHandle: this.bindless.registry.defaultWhiteHandle,
+        };
+        this.bindless.materialManager.updateMaterial(materialIndex, matParams);
+      }
+
+      log.info("ModelRenderer", `Normal texture ready for ${materialKey}: ${imageBitmap.width}x${imageBitmap.height}`);
+      imageBitmap.close();
+    } catch (e) {
+      console.error(`[ModelRenderer] Failed to load normal texture for ${materialKey}:`, e);
     }
   }
 
@@ -619,6 +746,11 @@ export class ModelRenderer {
             const version = (this.textureLoadVersion.get(materialKey) ?? 0) + 1;
             this.textureLoadVersion.set(materialKey, version);
             this.loadMeshTexture(materialKey, mat.textureData, version);
+          }
+          // Start async normal texture load if present and not yet loaded.
+          if (((mat?.normalTextureData && mat.normalTextureData.byteLength > 0) || mat?.normalTextureUri) && !this.meshNormalTextureSourceId.has(materialKey)) {
+            const version = (this.textureLoadVersion.get(materialKey) ?? 0) + 1;
+            this.loadMeshNormalTexture(materialKey, mat.normalTextureData ?? null, mat?.normalTextureUri, version);
           }
         }
       }
