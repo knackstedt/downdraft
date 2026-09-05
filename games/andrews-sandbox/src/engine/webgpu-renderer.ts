@@ -28,9 +28,11 @@ fn vs(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
 
 @fragment
 fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
-  let t = clamp(pos.y / 1080.0, 0.0, 1.0);
-  let top = vec3f(0.4, 0.6, 0.9);
-  let bottom = vec3f(0.7, 0.85, 1.0);
+  let dims = vec2f(1920.0, 1080.0);
+  let uv = pos.xy / dims;
+  let t = clamp(uv.y, 0.0, 1.0);
+  let top = vec3f(0.35, 0.55, 0.85);
+  let bottom = vec3f(0.65, 0.8, 0.95);
   return vec4f(mix(bottom, top, t), 1.0);
 }
 `;
@@ -45,30 +47,49 @@ struct Uniforms {
 @group(1) @binding(0) var paintTex: texture_2d<f32>;
 @group(1) @binding(1) var paintSampler: sampler;
 
+struct VertexOut {
+  @builtin(position) clipPos: vec4f,
+  @location(0) worldPos: vec3f,
+};
+
 @vertex
-fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
-  return u.viewProj * vec4f(pos, 1.0);
+fn vs(@location(0) pos: vec3f) -> VertexOut {
+  var out: VertexOut;
+  out.clipPos = u.viewProj * vec4f(pos, 1.0);
+  out.worldPos = pos;
+  return out;
 }
 
 @fragment
-fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
-  let worldPos = pos.xyz;
+fn fs(in: VertexOut) -> @location(0) vec4f {
+  let worldPos = in.worldPos;
+  // Checkerboard pattern (2m squares)
+  let checkScale = 2.0;
+  let cx = floor(worldPos.x / checkScale);
+  let cz = floor(worldPos.z / checkScale);
+  let checker = (cx + cz) % 2.0;
+  // Grid lines (every 4m)
   let gridSize = 4.0;
-  let gx = abs(worldPos.x - floor(worldPos.x / gridSize) * gridSize);
-  let gz = abs(worldPos.z - floor(worldPos.z / gridSize) * gridSize);
+  let gx = abs(fract(worldPos.x / gridSize) - 0.5) * gridSize;
+  let gz = abs(fract(worldPos.z / gridSize) - 0.5) * gridSize;
   let edge = min(gx, gz);
-  let lineWidth = 0.05;
-  let grid = smoothstep(0.0, lineWidth, edge);
-  let groundColor = vec3f(0.5, 0.5, 0.55);
-  let gridColor = vec3f(0.3, 0.3, 0.35);
-  let baseColor = mix(gridColor, groundColor, grid);
+  let gridLine = 1.0 - smoothstep(0.0, 0.08, edge);
+  // Base colors
+  let colorA = vec3f(0.45, 0.48, 0.52);
+  let colorB = vec3f(0.38, 0.41, 0.45);
+  let baseColor = mix(colorA, colorB, checker);
+  // Add grid lines
+  let gridColor = vec3f(0.25, 0.27, 0.30);
+  let color = mix(baseColor, gridColor, gridLine * 0.5);
   // Sample paint texture (512m ground → 512px texture, 1m = 1px)
   let paintUV = vec2f(worldPos.x / 512.0 + 0.5, worldPos.z / 512.0 + 0.5);
   let paint = textureSample(paintTex, paintSampler, paintUV);
-  let color = mix(baseColor, paint.rgb, paint.a);
+  let finalColor = mix(color, paint.rgb, paint.a);
+  // Distance fog — match sky color
   let dist = length(worldPos.xz - u.cameraPos.xz);
-  let fog = clamp(1.0 - dist / 500.0, 0.0, 1.0);
-  return vec4f(color * fog + vec3f(0.5, 0.6, 0.7) * (1.0 - fog), 1.0);
+  let fog = clamp(1.0 - dist / 400.0, 0.0, 1.0);
+  let fogColor = vec3f(0.55, 0.7, 0.9);
+  return vec4f(mix(fogColor, finalColor, fog), 1.0);
 }
 `;
 

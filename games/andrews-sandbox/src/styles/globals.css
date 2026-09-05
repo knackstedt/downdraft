@@ -82,3 +82,209 @@ canvas {
   height: 100%;
   transform: translateX(-50%);
 }
+
+/* ── DOM fallback HUD (used when PixiUI worker is unavailable) ── */
+.sandbox-hud {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  padding: 8px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  pointer-events: none;
+  z-index: 200;
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  color: #ddd;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+}
+.sandbox-hud-left, .sandbox-hud-right {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.sandbox-hud .badge {
+  background: rgba(0,0,0,0.5);
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+
+/* DOM content browser panel */
+.sandbox-browser {
+  position: fixed;
+  top: 60px; left: 16px;
+  width: 280px;
+  max-height: 70vh;
+  overflow-y: auto;
+  background: rgba(20,22,28,0.92);
+  border: 1px solid rgba(100,150,200,0.3);
+  border-radius: 8px;
+  padding: 12px;
+  z-index: 200;
+  pointer-events: auto;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  color: #ddd;
+  font-size: 13px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+}
+.sandbox-browser h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: #8cc;
+  border-bottom: 1px solid rgba(100,150,200,0.2);
+  padding-bottom: 6px;
+}
+.sandbox-browser-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  margin: 2px 0;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.sandbox-browser-item:hover {
+  background: rgba(100,150,200,0.2);
+}
+.sandbox-browser-item .icon {
+  width: 24px; height: 24px;
+  border-radius: 3px;
+  background: rgba(100,150,200,0.15);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px;
+}
+.sandbox-browser-item .name {
+  flex: 1;
+}
+.sandbox-browser-item .cat {
+  font-size: 10px;
+  color: #888;
+}
+.sandbox-browser .clear-btn {
+  width: 100%;
+  margin-top: 8px;
+  padding: 6px;
+  background: rgba(200,80,80,0.3);
+  border: 1px solid rgba(200,80,80,0.5);
+  border-radius: 4px;
+  color: #ddd;
+  cursor: pointer;
+  font-size: 12px;
+}
+.sandbox-browser .clear-btn:hover {
+  background: rgba(200,80,80,0.5);
+}
+
+/* DOM tool bar (bottom center) */
+.sandbox-toolbar {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 4px;
+  background: rgba(20,22,28,0.85);
+  border: 1px solid rgba(100,150,200,0.2);
+  border-radius: 8px;
+  padding: 6px;
+  z-index: 200;
+  pointer-events: auto;
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+.sandbox-toolbar .tool-btn {
+  padding: 8px 14px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: #aaa;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.15s;
+}
+.sandbox-toolbar .tool-btn:hover {
+  background: rgba(100,150,200,0.15);
+  color: #fff;
+}
+.sandbox-toolbar .tool-btn.active {
+  background: rgba(100,180,255,0.25);
+  border-color: rgba(100,180,255,0.5);
+  color: #fff;
+}
+
+/* DOM fun-mode bar */
+.sandbox-funmode {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  display: flex;
+  gap: 4px;
+  background: rgba(20,22,28,0.85);
+  border: 1px solid rgba(100,150,200,0.2);
+  border-radius: 8px;
+  padding: 6px;
+  z-index: 200;
+  pointer-events: auto;
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+.sandbox-funmode .mode-btn {
+  padding: 6px 10px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: #aaa;
+  cursor: pointer;
+  font-size: 11px;
+  transition: all 0.15s;
+}
+.sandbox-funmode .mode-btn:hover { background: rgba(100,150,200,0.15); color: #fff; }
+.sandbox-funmode .mode-btn.active {
+  background: rgba(255,200,80,0.2);
+  border-color: rgba(255,200,80,0.4);
+  color: #fff;
+}
+
+/* DOM paint palette */
+.sandbox-palette {
+  position: fixed;
+  top: 60px; right: 16px;
+  background: rgba(20,22,28,0.92);
+  border: 1px solid rgba(100,150,200,0.3);
+  border-radius: 8px;
+  padding: 12px;
+  z-index: 200;
+  pointer-events: auto;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  color: #ddd;
+  font-size: 13px;
+}
+.sandbox-palette h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: #8cc;
+}
+.sandbox-palette .colors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.sandbox-palette .color-swatch {
+  width: 24px; height: 24px;
+  border-radius: 3px;
+  cursor: pointer;
+  border: 2px solid transparent;
+}
+.sandbox-palette .color-swatch.active {
+  border-color: #fff;
+}
+.sandbox-palette label {
+  display: block;
+  margin: 4px 0 2px;
+  font-size: 11px;
+  color: #888;
+}
+.sandbox-palette input[type="range"] {
+  width: 100%;
+}

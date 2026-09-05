@@ -3,16 +3,16 @@
 // Declarative GameModule + startGame() bootstrap.
 // ============================================================================
 
+import { ContentRegistry, DragDropImporter, PluginScanner, type ContentListItem } from "@andrews-sandbox/library-content";
+import { BUILTIN_PROPS } from "@andrews-sandbox/library-props";
+import { PaintSystem } from "@andrews-sandbox/module-paint";
+import { PhysicsPropsController } from "@andrews-sandbox/module-physics-props";
+import { SandboxVRModule } from "@andrews-sandbox/module-vr";
+import { WeaponController } from "@andrews-sandbox/module-weapons";
 import { downdraft, startGame, type SimWorkerSeed } from "@downdraft/app/renderer";
 import { ENGINE_VERSION, ENT, SimBufferReader } from "@downdraft/core";
 import { PixiUiHost } from "@downdraft/library-pixi-ui";
 import { FunMode, ToolType, ToolgunContext } from "@sandbox/shared/types";
-import { ContentRegistry, DragDropImporter, PluginScanner, type ContentListItem } from "@andrews-sandbox/library-content";
-import { BUILTIN_PROPS } from "@andrews-sandbox/library-props";
-import { PhysicsPropsController } from "@andrews-sandbox/module-physics-props";
-import { WeaponController } from "@andrews-sandbox/module-weapons";
-import { PaintSystem } from "@andrews-sandbox/module-paint";
-import { SandboxVRModule } from "@andrews-sandbox/module-vr";
 import { SimWebWorker, type SimWebWorkerConfig } from "./engine/sim-web-worker";
 import { WebGPURenderer } from "./engine/webgpu-renderer";
 import { SANDBOX_STATS_LAYOUT, type SandboxAction } from "./pixi/bridge-protocol";
@@ -86,6 +86,10 @@ startGame({
       useGameStore.getState().setActiveFunMode(data.mode);
     },
     paint_updated: (_data) => { /* Phase 5 */ },
+  },
+
+  onFpsUpdate: (fps, _ctx) => {
+    useGameStore.getState().setFps(fps);
   },
 
   save: {
@@ -193,6 +197,8 @@ startGame({
     if (!pixiStarted) {
       const overlay = pixiHost.overlayCanvas;
       if (overlay) overlay.style.pointerEvents = "none";
+      // Build DOM fallback HUD since PixiUI is unavailable
+      buildDomHud(ctx, contentRegistry, weaponController, physicsController, paintSystem, sim);
     }
 
     pixiHost.postEvent({ kind: "contentList", items: contentRegistry.listItems() });
@@ -301,7 +307,7 @@ startGame({
     // Mouse look — uses movementX/Y during pointer lock
     document.addEventListener("mousemove", (e) => {
       if (!pointerLocked) return;
-      yaw -= e.movementX * 0.0025;
+      yaw += e.movementX * 0.0025;
       pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, pitch - e.movementY * 0.0025));
       updateCamera(renderer as WebGPURenderer, yaw, pitch);
     });
@@ -354,27 +360,50 @@ startGame({
     });
     window.addEventListener("keyup", (e) => { keys.delete(e.code); });
 
-    // Game loop — weapon tick + WASD movement
+    // Game loop — weapon tick + WASD movement + player gravity
+    const EYE_HEIGHT = 2.0;
+    const GRAVITY = 20.0;
+    const JUMP_VELOCITY = 8.0;
+    const MOVE_SPEED = 8.0;
+    let vy = 0;
+    let onGround = true;
     let lastWeaponTick = performance.now();
     const moveLoop = setInterval(() => {
       const now = performance.now();
-      const dt = (now - lastWeaponTick) / 1000;
+      const dt = Math.min((now - lastWeaponTick) / 1000, 0.05);
       lastWeaponTick = now;
       weaponController.tick(dt);
       paintSystem?.tick();
       vrModule?.tick(dt);
       const r = renderer as WebGPURenderer;
       const cam = r.getCameraPosition();
-      const speed = 0.3;
       const fwd = getForwardVector(yaw, pitch);
       const right = getRightVector(yaw);
-      let nx = cam[0], ny = cam[1], nz = cam[2];
-      if (keys.has("KeyW")) { nx += fwd[0] * speed; nz += fwd[2] * speed; }
-      if (keys.has("KeyS")) { nx -= fwd[0] * speed; nz -= fwd[2] * speed; }
-      if (keys.has("KeyA")) { nx -= right[0] * speed; nz -= right[2] * speed; }
-      if (keys.has("KeyD")) { nx += right[0] * speed; nz += right[2] * speed; }
-      if (keys.has("Space")) ny += speed;
-      if (keys.has("ShiftLeft")) ny -= speed;
+      let nx = cam[0], nz = cam[2];
+      // Horizontal movement (WASD)
+      if (keys.has("KeyW")) { nx += fwd[0] * MOVE_SPEED * dt; nz += fwd[2] * MOVE_SPEED * dt; }
+      if (keys.has("KeyS")) { nx -= fwd[0] * MOVE_SPEED * dt; nz -= fwd[2] * MOVE_SPEED * dt; }
+      if (keys.has("KeyA")) { nx -= right[0] * MOVE_SPEED * dt; nz -= right[2] * MOVE_SPEED * dt; }
+      if (keys.has("KeyD")) { nx += right[0] * MOVE_SPEED * dt; nz += right[2] * MOVE_SPEED * dt; }
+      // Jump (impulse, not continuous)
+      if (keys.has("Space") && onGround) {
+        vy = JUMP_VELOCITY;
+        onGround = false;
+      }
+      // Crouch / descend
+      if (keys.has("ShiftLeft")) {
+        vy = -MOVE_SPEED;
+        onGround = false;
+      }
+      // Apply gravity
+      vy -= GRAVITY * dt;
+      let ny = cam[1] + vy * dt;
+      // Floor collision
+      if (ny <= EYE_HEIGHT) {
+        ny = EYE_HEIGHT;
+        vy = 0;
+        onGround = true;
+      }
       r.setCameraPosition([nx, ny, nz]);
       updateCamera(r, yaw, pitch);
     }, 16);
@@ -394,6 +423,16 @@ startGame({
     const pixiHost = (ctx as any)._pixiHost as PixiUiHost;
     pixiHost?.dispose();
     dragDropImporter?.detach();
+    const hudInterval = (ctx as any)._hudInterval as ReturnType<typeof setInterval>;
+    if (hudInterval) clearInterval(hudInterval);
+    const domHud = (ctx as any)._domHud as any;
+    if (domHud) {
+      domHud.hud?.remove();
+      domHud.browser?.remove();
+      domHud.toolbar?.remove();
+      domHud.funbar?.remove();
+      domHud.palette?.remove();
+    }
     document.querySelector(".sandbox-crosshair")?.remove();
     document.querySelector(".sandbox-click-to-play")?.remove();
     (ctx.renderer as WebGPURenderer).stop();
@@ -414,6 +453,231 @@ function countProps(simSAB: SharedArrayBuffer): number {
   return props;
 }
 
+// ── DOM fallback HUD (used when PixiUI worker is unavailable) ──
+function buildDomHud(
+  ctx: any,
+  registry: ContentRegistry,
+  weapons: WeaponController,
+  physics: PhysicsPropsController | null,
+  paint: PaintSystem | null,
+  sim: SimWebWorker,
+): void {
+  const TOOL_NAMES: Record<number, string> = {
+    [ToolType.None]: "None",
+    [ToolType.Physgun]: "Physgun",
+    [ToolType.Toolgun]: "Toolgun",
+    [ToolType.Pistol]: "Pistol",
+    [ToolType.Paintgun]: "Paintgun",
+  };
+  const FUN_NAMES = ["Normal", "Moon", "ZeroG", "Bouncy"];
+  const PAINT_COLORS = ["#ff0000", "#00ff00", "#0099ff", "#ffff00", "#ff00ff", "#00ffff", "#ffffff", "#000000"];
+
+  // Top HUD bar
+  const hud = document.createElement("div");
+  hud.className = "sandbox-hud";
+  const hudLeft = document.createElement("div");
+  hudLeft.className = "sandbox-hud-left";
+  const fpsBadge = document.createElement("span");
+  fpsBadge.className = "badge";
+  fpsBadge.textContent = "FPS: 0";
+  hudLeft.appendChild(fpsBadge);
+  const propBadge = document.createElement("span");
+  propBadge.className = "badge";
+  propBadge.textContent = "Props: 0";
+  hudLeft.appendChild(propBadge);
+  hud.appendChild(hudLeft);
+  const hudRight = document.createElement("div");
+  hudRight.className = "sandbox-hud-right";
+  const toolBadge = document.createElement("span");
+  toolBadge.className = "badge";
+  toolBadge.textContent = "Tool: None";
+  hudRight.appendChild(toolBadge);
+  const modeBadge = document.createElement("span");
+  modeBadge.className = "badge";
+  modeBadge.textContent = "Mode: Normal";
+  hudRight.appendChild(modeBadge);
+  hud.appendChild(hudRight);
+  document.body.appendChild(hud);
+
+  // Update HUD from store
+  const hudInterval = setInterval(() => {
+    const s = useGameStore.getState();
+    fpsBadge.textContent = `FPS: ${s.fps}`;
+    propBadge.textContent = `Props: ${s.propCount}`;
+    toolBadge.textContent = `Tool: ${TOOL_NAMES[s.activeTool] ?? s.activeTool}`;
+    modeBadge.textContent = `Mode: ${FUN_NAMES[s.activeFunMode] ?? s.activeFunMode}`;
+  }, 200);
+  (ctx as any)._hudInterval = hudInterval;
+
+  // Content browser
+  const browser = document.createElement("div");
+  browser.className = "sandbox-browser";
+  browser.style.display = "none";
+  const title = document.createElement("h3");
+  title.textContent = "Content Browser (B)";
+  browser.appendChild(title);
+  const list = document.createElement("div");
+  browser.appendChild(list);
+
+  function renderBrowserItems() {
+    list.innerHTML = "";
+    const items = registry.listItems();
+    for (const item of items) {
+      const row = document.createElement("div");
+      row.className = "sandbox-browser-item";
+      const icon = document.createElement("div");
+      icon.className = "icon";
+      icon.textContent = item.id.includes("sphere") || item.id.includes("ball") ? "●" : "■";
+      row.appendChild(icon);
+      const name = document.createElement("div");
+      name.className = "name";
+      name.textContent = item.name;
+      row.appendChild(name);
+      const cat = document.createElement("div");
+      cat.className = "cat";
+      cat.textContent = item.pluginSource ?? "builtin";
+      row.appendChild(cat);
+      row.onclick = () => {
+        const cam = (ctx.renderer as WebGPURenderer).getCameraPosition();
+        const target = (ctx.renderer as WebGPURenderer).getCameraTarget();
+        const dx = target[0] - cam[0], dy = target[1] - cam[1], dz = target[2] - cam[2];
+        const dl = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
+        const entry = registry.get(item.id);
+        const shape = item.id.includes("sphere") || item.id.includes("ball") ? "sphere" : "box";
+        sim.sendCommand({
+          type: "spawn",
+          contentId: item.id,
+          position: [cam[0] + (dx/dl)*5, cam[1] + (dy/dl)*5 + 2, cam[2] + (dz/dl)*5],
+          physics: entry?.physics,
+          shape,
+          scale: entry?.scale ?? 1.0,
+        });
+        weapons.getToolgun().setSelectedContent(item.id);
+      };
+      list.appendChild(row);
+    }
+    const clearBtn = document.createElement("button");
+    clearBtn.className = "clear-btn";
+    clearBtn.textContent = "Clear All Props";
+    clearBtn.onclick = () => sim.sendCommand({ type: "clear" });
+    list.appendChild(clearBtn);
+  }
+  renderBrowserItems();
+  document.body.appendChild(browser);
+
+  // Tool bar
+  const toolbar = document.createElement("div");
+  toolbar.className = "sandbox-toolbar";
+  const tools: Array<{type: ToolType, label: string, key: string}> = [
+    { type: ToolType.Physgun, label: "Physgun (1)", key: "1" },
+    { type: ToolType.Toolgun, label: "Toolgun (2)", key: "2" },
+    { type: ToolType.Pistol, label: "Pistol (3)", key: "3" },
+    { type: ToolType.Paintgun, label: "Paintgun (4)", key: "4" },
+  ];
+  const toolBtns: HTMLButtonElement[] = [];
+  for (const t of tools) {
+    const btn = document.createElement("button");
+    btn.className = "tool-btn";
+    btn.textContent = t.label;
+    btn.onclick = () => {
+      weapons.setTool(t.type);
+      useGameStore.getState().setActiveTool(t.type);
+      toolBtns.forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+    };
+    toolbar.appendChild(btn);
+    toolBtns.push(btn);
+  }
+  document.body.appendChild(toolbar);
+
+  // Fun mode bar
+  const funbar = document.createElement("div");
+  funbar.className = "sandbox-funmode";
+  const modes: Array<{mode: FunMode, label: string, key: string}> = [
+    { mode: FunMode.Normal, label: "Normal (1)", key: "1" },
+    { mode: FunMode.Moon, label: "Moon (2)", key: "2" },
+    { mode: FunMode.ZeroG, label: "ZeroG (3)", key: "3" },
+    { mode: FunMode.Bouncy, label: "Bouncy (4)", key: "4" },
+  ];
+  const modeBtns: HTMLButtonElement[] = [];
+  for (const m of modes) {
+    const btn = document.createElement("button");
+    btn.className = "mode-btn";
+    btn.textContent = m.label;
+    btn.onclick = () => {
+      physics?.setFunMode(m.mode);
+      modeBtns.forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+    };
+    funbar.appendChild(btn);
+    modeBtns.push(btn);
+  }
+  document.body.appendChild(funbar);
+
+  // Paint palette
+  const palette = document.createElement("div");
+  palette.className = "sandbox-palette";
+  palette.style.display = "none";
+  const pTitle = document.createElement("h3");
+  pTitle.textContent = "Paint Palette (P)";
+  palette.appendChild(pTitle);
+  const colors = document.createElement("div");
+  colors.className = "colors";
+  for (const c of PAINT_COLORS) {
+    const sw = document.createElement("div");
+    sw.className = "color-swatch";
+    sw.style.background = c;
+    sw.onclick = () => {
+      paint?.setBrushColorHex(c);
+      colors.querySelectorAll(".color-swatch").forEach(s => s.classList.remove("active"));
+      sw.classList.add("active");
+    };
+    colors.appendChild(sw);
+  }
+  palette.appendChild(colors);
+  const sizeLabel = document.createElement("label");
+  sizeLabel.textContent = "Brush Size";
+  palette.appendChild(sizeLabel);
+  const sizeSlider = document.createElement("input");
+  sizeSlider.type = "range";
+  sizeSlider.min = "2";
+  sizeSlider.max = "80";
+  sizeSlider.value = "20";
+  sizeSlider.oninput = () => paint?.setBrushSize(parseInt(sizeSlider.value));
+  palette.appendChild(sizeSlider);
+  document.body.appendChild(palette);
+
+  // Wire keyboard shortcuts for DOM UI
+  window.addEventListener("keydown", (e) => {
+    const s = useGameStore.getState();
+    if (e.code === "KeyB") {
+      const visible = browser.style.display !== "none";
+      browser.style.display = visible ? "none" : "block";
+      s.toggleContentBrowser();
+    }
+    if (e.code === "KeyP") {
+      const visible = palette.style.display !== "none";
+      palette.style.display = visible ? "none" : "block";
+      s.togglePaintPalette();
+    }
+    // Tool number keys
+    if (e.code === "Digit1") { weapons.setTool(ToolType.Physgun); s.setActiveTool(ToolType.Physgun); updateToolBtns(); }
+    if (e.code === "Digit2") { weapons.setTool(ToolType.Toolgun); s.setActiveTool(ToolType.Toolgun); updateToolBtns(); }
+    if (e.code === "Digit3") { weapons.setTool(ToolType.Pistol); s.setActiveTool(ToolType.Pistol); updateToolBtns(); }
+    if (e.code === "Digit4") { weapons.setTool(ToolType.Paintgun); s.setActiveTool(ToolType.Paintgun); updateToolBtns(); }
+  });
+
+  function updateToolBtns() {
+    const s = useGameStore.getState();
+    toolBtns.forEach((b, i) => {
+      b.classList.toggle("active", tools[i].type === s.activeTool);
+    });
+  }
+
+  // Store references for cleanup
+  (ctx as any)._domHud = { hud, browser, toolbar, funbar, palette };
+}
+
 function updateCamera(renderer: WebGPURenderer, yaw: number, pitch: number): void {
   const pos = renderer.getCameraPosition();
   const target = getForwardVector(yaw, pitch);
@@ -429,5 +693,5 @@ function getForwardVector(yaw: number, pitch: number): [number, number, number] 
 }
 
 function getRightVector(yaw: number): [number, number, number] {
-  return [Math.cos(yaw), 0, -Math.sin(yaw)];
+  return [Math.cos(yaw), 0, Math.sin(yaw)];
 }
