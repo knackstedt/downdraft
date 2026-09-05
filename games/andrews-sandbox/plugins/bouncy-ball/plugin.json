@@ -26,6 +26,7 @@
       "name": "Bouncy Ball",
       "scale": 0.5,
       "paintable": true,
+      "shape": "sphere",
       "physics": {
         "mass": 0.3,
         "restitution": 0.95,

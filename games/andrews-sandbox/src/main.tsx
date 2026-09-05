@@ -69,9 +69,11 @@ startGame({
         const nodeId = await renderer.loadPropModel(data.contentId, entry.modelUri);
         if (nodeId) {
           const nodeIdNum = parseInt(nodeId.split("-")[1] ?? "0", 10);
-          const u32 = new Uint32Array(ctx.simSAB!);
-          const slotOffset = (data.entityId - 1) * 32 + 18;
-          if (slotOffset < u32.length) u32[slotOffset] = nodeIdNum;
+          // entityId = slotIdx + 1, so slotIdx = entityId - 1
+          const slotIdx = data.entityId - 1;
+          const reader = new SimBufferReader(ctx.simSAB!);
+          const slot = reader.getEntitySlot(slotIdx);
+          slot.u32[ENT.ID] = nodeIdNum;
         }
       }
 
@@ -481,7 +483,9 @@ function countProps(simSAB: SharedArrayBuffer): number {
   for (let i = 0; i < count; i++) {
     const slot = reader.getEntitySlot(i);
     const type = slot.u32[ENT.TYPE];
-    if (type !== 0 && type !== 255) props++;
+    // EntityType.Prop = 0, EntityType.Projectile = 1, EntityType.Mannequin = 3
+    // 255 = empty/recycled slot
+    if (type === EntityType.Prop || type === EntityType.Mannequin) props++;
   }
   return props;
 }

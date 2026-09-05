@@ -100,6 +100,7 @@ export class PluginScanner {
         },
         scale: propDef.scale ?? 1.0,
         paintable: propDef.paintable ?? true,
+        shape: propDef.shape,
       });
     }
 

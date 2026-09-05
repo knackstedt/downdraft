@@ -38,8 +38,8 @@ export class SandboxShadows {
     this.device = device;
     this.shadowSystem = new ShadowMapSystem(device, {
       shadowMapSize: this.shadowMapSize,
-      shadowDistance: 400,
-      shadowRadius: 120,
+      shadowDistance: 800,
+      shadowRadius: 600,
     });
     this.shadowSystem.init();
   }

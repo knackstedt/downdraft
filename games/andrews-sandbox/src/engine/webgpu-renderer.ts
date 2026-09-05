@@ -9,11 +9,11 @@
 // ============================================================================
 
 import {
-  BindlessFrameBindings, BindlessMaterialManager, BindlessTextureRegistry,
-  DEPTH_FORMAT, ENT, GameRenderer,
-  InputBufferWriter, MSAA_SAMPLE_COUNT, SimBufferReader,
-  calculateViewProjInto, type CameraState,
-  type RenderContext, type TextureHandle
+    BindlessFrameBindings, BindlessMaterialManager, BindlessTextureRegistry,
+    DEPTH_FORMAT, ENT, GameRenderer,
+    InputBufferWriter, MSAA_SAMPLE_COUNT, SimBufferReader,
+    calculateViewProjInto, type CameraState,
+    type RenderContext, type TextureHandle
 } from "@downdraft/core";
 import { ModelRenderer } from "@downdraft/library-entities";
 import { loadModel, type ModelData } from "@downdraft/library-models";
@@ -455,6 +455,16 @@ export class WebGPURenderer extends GameRenderer {
   private cubeBindGroup0Layout: GPUBindGroupLayout | null = null;
   private cubeSampler: GPUSampler | null = null;
   private cubeDefaultTexture: GPUTexture | null = null;
+  // Cached bind groups for the default (no-paint) texture to avoid per-frame allocation
+  private cubeDefaultBindGroup1: GPUBindGroup | null = null;
+  private sphereDefaultBindGroup1: GPUBindGroup | null = null;
+  // Cached bind group 0 layouts (shared between all instances of the same pipeline)
+  private cubeBindGroup0: GPUBindGroup | null = null;
+  private sphereBindGroup0: GPUBindGroup | null = null;
+  // Per-entity bind group 1 cache (paint textures) keyed by entityId
+  private paintBindGroupCache = new Map<number, GPUBindGroup>();
+  // Per-batch-slot bind group 0 cache keyed by "c/s:idx"
+  private bg0Cache = new Map<string, GPUBindGroup>();
   private spherePipeline: GPURenderPipeline | null = null;
   private sphereVertexBuffer: GPUBuffer | null = null;
   private sphereIndexBuffer: GPUBuffer | null = null;
@@ -523,8 +533,9 @@ export class WebGPURenderer extends GameRenderer {
         device, this.bindlessRegistry, this.bindlessMaterialManager,
       );
 
-      // Model renderer for props
-      this.modelRenderer = new ModelRenderer(device, format);
+      // Model renderer for props — use HDR format since scene renders into rgba16float
+      const hdrFormat: GPUTextureFormat = "rgba16float";
+      this.modelRenderer = new ModelRenderer(device, hdrFormat);
       this.modelRenderer.setBindlessDeps({
         registry: this.bindlessRegistry,
         materialManager: this.bindlessMaterialManager,
@@ -559,7 +570,6 @@ export class WebGPURenderer extends GameRenderer {
 
       // Procedural pipelines render into the HDR scene target (rgba16float),
       // not the swapchain — the PostProcessStack handles the final blit.
-      const hdrFormat: GPUTextureFormat = "rgba16float";
       this.createSkyPipeline(device, hdrFormat);
       this.createGroundPipeline(device, hdrFormat);
       this.createCubePipeline(device, hdrFormat);
@@ -763,7 +773,7 @@ export class WebGPURenderer extends GameRenderer {
     this.cubeInstanceStride = 256; // 96 bytes data, padded to 256 for dynamic offset alignment
     this.cubeInstanceBuffer = device.createBuffer({
       label: "cube-instance",
-      size: this.cubeInstanceStride * 256,
+      size: this.cubeInstanceStride * 1024,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
@@ -815,6 +825,14 @@ export class WebGPURenderer extends GameRenderer {
     });
     // Store the bind group layout for dynamic offset use
     this.cubeBindGroup0Layout = this.cubePipeline.getBindGroupLayout(0);
+    // Pre-create the default (no-paint) bind group 1 for cubes
+    this.cubeDefaultBindGroup1 = device.createBindGroup({
+      layout: this.cubePipeline.getBindGroupLayout(1),
+      entries: [
+        { binding: 0, resource: this.cubeDefaultTexture.createView() },
+        { binding: 1, resource: this.cubeSampler },
+      ],
+    });
   }
 
   private createSpherePipeline(device: GPUDevice, format: GPUTextureFormat): void {
@@ -856,6 +874,14 @@ export class WebGPURenderer extends GameRenderer {
         depthWriteEnabled: true,
         depthCompare: "less",
       },
+    });
+    // Pre-create the default (no-paint) bind group 1 for spheres
+    this.sphereDefaultBindGroup1 = device.createBindGroup({
+      layout: this.spherePipeline.getBindGroupLayout(1),
+      entries: [
+        { binding: 0, resource: this.cubeDefaultTexture!.createView() },
+        { binding: 1, resource: this.cubeSampler! },
+      ],
     });
   }
 
@@ -1300,13 +1326,17 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
 
     // Ground
     pass.setPipeline(this.depthOnlyGroundPipeline!);
-    const groundBg = device.createBindGroup({
-      layout: this.depthOnlyGroundPipeline!.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: this.depthOnlyCubeUniformBuffer! } },
-        { binding: 1, resource: { buffer: this.depthOnlyCubeUniformBuffer!, offset: 256, size: 64 } },
-      ],
-    });
+    let groundBg = this.bg0Cache.get("depth:ground");
+    if (!groundBg) {
+      groundBg = device.createBindGroup({
+        layout: this.depthOnlyGroundPipeline!.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: this.depthOnlyCubeUniformBuffer! } },
+          { binding: 1, resource: { buffer: this.depthOnlyCubeUniformBuffer!, offset: 256, size: 64 } },
+        ],
+      });
+      this.bg0Cache.set("depth:ground", groundBg);
+    }
     pass.setBindGroup(0, groundBg);
     pass.setVertexBuffer(0, this.groundVertexBuffer!);
     pass.draw(6);
@@ -1366,13 +1396,18 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
         device.queue.writeBuffer(this.cubeInstanceBuffer!, idx * stride, instData);
       }
       for (let idx = 0; idx < indices.length; idx++) {
-        const bg = device.createBindGroup({
-          layout: pipeline.getBindGroupLayout(0),
-          entries: [
-            { binding: 0, resource: { buffer: this.depthOnlyCubeUniformBuffer! } },
-            { binding: 1, resource: { buffer: this.cubeInstanceBuffer!, offset: idx * stride, size: 64 } },
-          ],
-        });
+        const bgKey = (pipeline === this.depthOnlyCubePipeline ? "depth-cube:" : "depth-sphere:") + idx;
+        let bg = this.bg0Cache.get(bgKey);
+        if (!bg) {
+          bg = device.createBindGroup({
+            layout: pipeline.getBindGroupLayout(0),
+            entries: [
+              { binding: 0, resource: { buffer: this.depthOnlyCubeUniformBuffer! } },
+              { binding: 1, resource: { buffer: this.cubeInstanceBuffer!, offset: idx * stride, size: 64 } },
+            ],
+          });
+          this.bg0Cache.set(bgKey, bg);
+        }
         pass.setBindGroup(0, bg);
         pass.drawIndexed(indexCount);
       }
@@ -1502,8 +1537,13 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
     if (lightingBg) pass.setBindGroup(2, lightingBg);
     if (shadowBg) pass.setBindGroup(3, shadowBg);
 
-    // Write all instance data first at separate offsets, then create per-entity bind groups
     const stride = this.cubeInstanceStride;
+    const isCube = pipeline === this.cubePipeline;
+    const defaultBg1 = isCube ? this.cubeDefaultBindGroup1 : this.sphereDefaultBindGroup1;
+    const bg0Layout = pipeline.getBindGroupLayout(0);
+    const bg1Layout = pipeline.getBindGroupLayout(1);
+
+    // Write all instance data first
     for (let idx = 0; idx < indices.length; idx++) {
       const i = indices[idx];
       const slot = this.simReader!.getEntitySlot(i);
@@ -1547,30 +1587,44 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
       device.queue.writeBuffer(this.cubeInstanceBuffer!, idx * stride, instData);
     }
 
-    // Create per-entity bind groups pointing to the correct offset, then draw
+    // Draw using cached bind groups (keyed by slot index in the batch)
     for (let idx = 0; idx < indices.length; idx++) {
       const i = indices[idx];
       const entityId = i + 1;
       const paintTex = this.paintTextures.get(entityId);
-      const tex = paintTex ?? this.cubeDefaultTexture!;
 
-      const bindGroup0 = device.createBindGroup({
-        layout: pipeline.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: { buffer: this.cubeUniformBuffer! } },
-          { binding: 1, resource: { buffer: this.cubeInstanceBuffer!, offset: idx * stride, size: 96 } },
-        ],
-      });
-      pass.setBindGroup(0, bindGroup0);
+      // Bind group 0: per-instance uniform — cache by batch slot idx
+      const bg0Key = (isCube ? "c" : "s") + ":" + idx;
+      let bg0 = this.bg0Cache.get(bg0Key);
+      if (!bg0) {
+        bg0 = device.createBindGroup({
+          layout: bg0Layout,
+          entries: [
+            { binding: 0, resource: { buffer: this.cubeUniformBuffer! } },
+            { binding: 1, resource: { buffer: this.cubeInstanceBuffer!, offset: idx * stride, size: 96 } },
+          ],
+        });
+        this.bg0Cache.set(bg0Key, bg0);
+      }
+      pass.setBindGroup(0, bg0);
 
-      const bindGroup1 = device.createBindGroup({
-        layout: pipeline.getBindGroupLayout(1),
-        entries: [
-          { binding: 0, resource: tex.createView() },
-          { binding: 1, resource: this.cubeSampler! },
-        ],
-      });
-      pass.setBindGroup(1, bindGroup1);
+      // Bind group 1: paint texture — cache by entityId
+      if (paintTex) {
+        let bg1 = this.paintBindGroupCache.get(entityId);
+        if (!bg1) {
+          bg1 = device.createBindGroup({
+            layout: bg1Layout,
+            entries: [
+              { binding: 0, resource: paintTex.createView() },
+              { binding: 1, resource: this.cubeSampler! },
+            ],
+          });
+          this.paintBindGroupCache.set(entityId, bg1);
+        }
+        pass.setBindGroup(1, bg1);
+      } else if (defaultBg1) {
+        pass.setBindGroup(1, defaultBg1);
+      }
 
       pass.drawIndexed(indexCount);
     }

@@ -5,11 +5,11 @@
 // ============================================================================
 
 import {
-  ENT, InputBufferReader, SimBufferWriter, SimWorkerLoop,
-  type BodyDesc, type ColliderDesc, type Entity,
-  type LoadOptions,
-  type PhysicsBody,
-  type SaveOptions, type SaveState,
+    ENT, InputBufferReader, SimBufferWriter, SimWorkerLoop,
+    type BodyDesc, type ColliderDesc, type Entity,
+    type LoadOptions,
+    type PhysicsBody,
+    type SaveOptions, type SaveState,
 } from "@downdraft/core";
 import { expose, exposeEvents } from "@downdraft/core/worker/rpc";
 import { OpfsSaveStore, type OpfsSaveStoreOptions } from "@downdraft/library-persistence/browser";
@@ -44,9 +44,10 @@ interface PropRecord {
   lifetime?: number;
 }
 const propRecords = new Map<number, PropRecord>(); // entityId → record
-let nextEntityId = 1;
 let nextSlotIdx = 0;
 let currentFunMode = FunMode.Normal;
+/** Recycled slot indices from removed props (reused before allocating new slots). */
+const freeSlots: number[] = [];
 
 const events = exposeEvents();
 const onEvent = (msg: SandboxSimMessage) => { events.emit(msg.kind, msg.data); };
@@ -103,6 +104,7 @@ function createPropBody(
   restitution: number,
   friction: number,
   gravityScale: number,
+  ccdEnabled: boolean = false,
 ): PhysicsBody {
   if (!physicsApi) throw new Error("Physics not initialized");
   const entity: Entity = { index: nextSlotIdx, generation: 0 };
@@ -112,6 +114,7 @@ function createPropBody(
     rotation,
     mass,
     gravityScale,
+    ccdEnabled,
   };
   const body = physicsApi.createBody(entity, bodyDesc);
   const colliderDesc: ColliderDesc = {
@@ -137,8 +140,11 @@ function spawnProp(
   shape?: "box" | "sphere",
   scale?: number,
 ): number {
-  const entityId = nextEntityId++;
-  const slotIdx = nextSlotIdx++;
+  // entityId MUST equal slotIdx + 1 — the renderer's prop_spawned handler
+  // writes nodeId to (entityId - 1) * stride + offset in the SAB, and the
+  // physgun raycast uses slotIdx + 1 as the entityId for propRecords lookup.
+  const slotIdx = freeSlots.length > 0 ? freeSlots.shift()! : nextSlotIdx++;
+  const entityId = slotIdx + 1;
   const rot = rotation ?? [0, 0, 0, 1];
   const mass = physics?.mass ?? 1.0;
   const restitution = physics?.restitution ?? 0.3;
@@ -194,8 +200,11 @@ function removeProp(entityId: number): void {
     const u32 = simWriter.getEntityU32(record.slotIdx);
     u32[ENT.TYPE] = 255; // mark as empty/invalid
     u32[ENT.ID] = 0;
+    u32[ENT.PARENT_ID] = 0;
     simWriter.markEntityDirty(record.slotIdx);
   }
+  // Recycle the slot so it can be reused by the next spawn
+  freeSlots.push(record.slotIdx);
   propRecords.delete(entityId);
   events.emit("prop_removed", { entityId });
 }
@@ -203,9 +212,12 @@ function removeProp(entityId: number): void {
 // ── Clear all props ──
 function clearProps(): void {
   for (const entityId of Array.from(propRecords.keys())) {
-    removeProp(entityId);
+    const record = propRecords.get(entityId)!;
+    if (physicsApi) physicsApi.destroyBody(record.body);
   }
+  propRecords.clear();
   nextSlotIdx = 0;
+  freeSlots.length = 0;
   simWriter!.setEntityCount(0);
 }
 
@@ -257,10 +269,10 @@ function processCommand(cmd: SimCommand): void {
       // Tool selection is renderer-side only; no sim action needed
       break;
     case "fireWeapon": {
-      // Spawn a projectile
-      const entityId = nextEntityId++;
-      const slotIdx = nextSlotIdx++;
-      const body = createPropBody(cmd.origin, [0, 0, 0, 1], "sphere", [0.1, 0.1, 0.1], 0.1, 0.5, 0.5, 0.3, 0.5);
+      // Spawn a projectile — entityId = slotIdx + 1 (same invariant as props)
+      const slotIdx = freeSlots.length > 0 ? freeSlots.shift()! : nextSlotIdx++;
+      const entityId = slotIdx + 1;
+      const body = createPropBody(cmd.origin, [0, 0, 0, 1], "sphere", [0.1, 0.1, 0.1], 0.1, 0.5, 0.5, 0.3, 0.5, true);
       physicsApi!.setLinearVelocity(body, [cmd.direction[0] * 50, cmd.direction[1] * 50, cmd.direction[2] * 50]);
 
       const f32 = simWriter!.getEntityF32(slotIdx);

@@ -24,6 +24,8 @@ export interface ContentEntry {
   scale: number;
   /** Whether this prop can be painted. */
   paintable: boolean;
+  /** Physics shape override ("box" | "sphere"). If undefined, inferred from id/model. */
+  shape?: "box" | "sphere";
 }
 
 /** Lightweight item for UI lists. */
