@@ -95,7 +95,7 @@ export class Physgun {
     for (let i = 0; i < count; i++) {
       const slot = reader.getEntitySlot(i);
       const type = slot.u32[ENT.TYPE];
-      if (type !== EntityType.Prop && type !== EntityType.Mannequin) continue;
+      if (type === 255 || (type !== EntityType.Prop && type !== EntityType.Mannequin)) continue;
       const px = slot.f32[ENT.POS_X];
       const py = slot.f32[ENT.POS_Y];
       const pz = slot.f32[ENT.POS_Z];
@@ -201,7 +201,7 @@ export class Toolgun {
     for (let i = 0; i < count; i++) {
       const slot = reader.getEntitySlot(i);
       const type = slot.u32[ENT.TYPE];
-      if (type !== EntityType.Prop && type !== EntityType.Mannequin) continue;
+      if (type === 255 || (type !== EntityType.Prop && type !== EntityType.Mannequin)) continue;
       const px = slot.f32[ENT.POS_X];
       const py = slot.f32[ENT.POS_Y];
       const pz = slot.f32[ENT.POS_Z];

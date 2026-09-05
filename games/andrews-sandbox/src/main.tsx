@@ -163,19 +163,36 @@ startGame({
     crosshair.className = "sandbox-crosshair";
     document.body.appendChild(crosshair);
 
+    // ── Click-to-play overlay ──
+    const clickToPlay = document.createElement("div");
+    clickToPlay.className = "sandbox-click-to-play";
+    clickToPlay.textContent = "Click to play  |  WASD: move  |  Space/Shift: up/down  |  ESC: release mouse";
+    document.body.appendChild(clickToPlay);
+
     // ── Start PixiUI overlay ──
     const pixiHost = new PixiUiHost({
       backend: "webgl2",
       statsLayout: SANDBOX_STATS_LAYOUT,
       sceneModuleUrl: new URL("./pixi/pixi-scene.tsx", import.meta.url).href,
-      passThrough: true,
+      passThrough: false,
       canvasLayer: 1,
       canvasId: "pixi-ui-canvas",
     });
+    let pixiStarted = false;
     try {
       await pixiHost.start();
+      pixiStarted = true;
     } catch (err) {
       console.warn("[Renderer] PixiUI worker failed to start (UI will be unavailable):", err);
+    }
+    // The PixiUI overlay canvas has pointer-events: auto (pass-through mode)
+    // and sits above the game canvas (z-index 50 vs 0). When the worker fails,
+    // forwardPointer() returns early (no worker) and clicks are never forwarded
+    // to the game canvas. Disable pointer events on the overlay so clicks reach
+    // the game canvas directly — otherwise pointer lock and all mouse input break.
+    if (!pixiStarted) {
+      const overlay = pixiHost.overlayCanvas;
+      if (overlay) overlay.style.pointerEvents = "none";
     }
 
     pixiHost.postEvent({ kind: "contentList", items: contentRegistry.listItems() });
@@ -260,59 +277,51 @@ startGame({
       });
     }, 100);
 
-    // ── Keyboard shortcuts ──
-    window.addEventListener("keydown", (e) => {
-      const s = useGameStore.getState();
-      switch (e.code) {
-        case "KeyB": s.toggleContentBrowser(); break;
-        case "KeyQ": s.toggleToolWheel(); break;
-        case "KeyP": s.togglePaintPalette(); break;
-        case "F5": e.preventDefault(); sim.save("autosave"); break;
-        case "F9": e.preventDefault(); sim.load("autosave"); break;
-        // Fun mode shortcuts
-        case "Digit1": physicsController?.setFunMode(FunMode.Normal); break;
-        case "Digit2": physicsController?.setFunMode(FunMode.Moon); break;
-        case "Digit3": physicsController?.setFunMode(FunMode.ZeroG); break;
-        case "Digit4": physicsController?.setFunMode(FunMode.Bouncy); break;
-        case "KeyV": vrModule?.toggleVR().catch((e) => console.warn("[VR] Failed to toggle VR:", e)); break;
-        case "KeyR": weaponController.getToolgun().setContext(ToolgunContext.Remove); console.log("[Toolgun] Context: Remove"); break;
-        case "KeyT": weaponController.getToolgun().setContext(ToolgunContext.Spawn); console.log("[Toolgun] Context: Spawn"); break;
-        case "KeyG": weaponController.getToolgun().setContext(ToolgunContext.SetFunMode); console.log("[Toolgun] Context: SetFunMode"); break;
+    // ── Pointer lock + keyboard + mouse input ──
+    const canvas = ctx.canvas;
+    let yaw = 0;
+    let pitch = 0;
+    let pointerLocked = false;
+    const keys = new Set<string>();
+
+    // Click canvas to request pointer lock
+    canvas.addEventListener("click", () => {
+      if (!pointerLocked) {
+        canvas.requestPointerLock();
       }
     });
 
-    // ── Mouse look + WASD camera ──
-    let mouseDown = false;
-    let lastMouseX = 0;
-    let lastMouseY = 0;
-    let yaw = 0;
-    let pitch = 0;
-    const canvas = ctx.canvas;
+    // Track pointer lock state
+    document.addEventListener("pointerlockchange", () => {
+      pointerLocked = document.pointerLockElement === canvas;
+      console.log(`[Input] Pointer lock: ${pointerLocked ? "active" : "released"}`);
+      clickToPlay.classList.toggle("hidden", pointerLocked);
+    });
 
+    // Mouse look — uses movementX/Y during pointer lock
+    document.addEventListener("mousemove", (e) => {
+      if (!pointerLocked) return;
+      yaw -= e.movementX * 0.0025;
+      pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, pitch - e.movementY * 0.0025));
+      updateCamera(renderer as WebGPURenderer, yaw, pitch);
+    });
+
+    // Left-click fires weapon (only during pointer lock)
     canvas.addEventListener("mousedown", (e) => {
+      if (!pointerLocked) return;
       if (e.button === 0) {
         weaponController.onPrimaryDown();
         if (weaponController.getTool() === ToolType.Paintgun) paintSystem?.startFiring();
       }
-      if (e.button === 2) { mouseDown = true; lastMouseX = e.clientX; lastMouseY = e.clientY; }
     });
     canvas.addEventListener("mouseup", (e) => {
       if (e.button === 0) {
         weaponController.onPrimaryUp();
         if (weaponController.getTool() === ToolType.Paintgun) paintSystem?.stopFiring();
       }
-      if (e.button === 2) mouseDown = false;
     });
-    canvas.addEventListener("mousemove", (e) => {
-      if (!mouseDown) return;
-      const dx = e.clientX - lastMouseX;
-      const dy = e.clientY - lastMouseY;
-      lastMouseX = e.clientX;
-      lastMouseY = e.clientY;
-      yaw -= dx * 0.003;
-      pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, pitch - dy * 0.003));
-      updateCamera(renderer as WebGPURenderer, yaw, pitch);
-    });
+
+    // Prevent context menu (so right-click doesn't break flow)
     canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
     // Scroll wheel adjusts physgun grab distance
@@ -323,10 +332,29 @@ startGame({
       }
     }, { passive: false });
 
-    const keys = new Set<string>();
-    window.addEventListener("keydown", (e) => { keys.add(e.code); });
+    // Unified keyboard handler — shortcuts + movement keys
+    window.addEventListener("keydown", (e) => {
+      keys.add(e.code);
+      const s = useGameStore.getState();
+      switch (e.code) {
+        case "KeyB": s.toggleContentBrowser(); break;
+        case "KeyQ": s.toggleToolWheel(); break;
+        case "KeyP": s.togglePaintPalette(); break;
+        case "F5": e.preventDefault(); sim.save("autosave"); break;
+        case "F9": e.preventDefault(); sim.load("autosave"); break;
+        case "Digit1": physicsController?.setFunMode(FunMode.Normal); break;
+        case "Digit2": physicsController?.setFunMode(FunMode.Moon); break;
+        case "Digit3": physicsController?.setFunMode(FunMode.ZeroG); break;
+        case "Digit4": physicsController?.setFunMode(FunMode.Bouncy); break;
+        case "KeyV": vrModule?.toggleVR().catch((e) => console.warn("[VR] Failed to toggle VR:", e)); break;
+        case "KeyR": weaponController.getToolgun().setContext(ToolgunContext.Remove); console.log("[Toolgun] Context: Remove"); break;
+        case "KeyT": weaponController.getToolgun().setContext(ToolgunContext.Spawn); console.log("[Toolgun] Context: Spawn"); break;
+        case "KeyG": weaponController.getToolgun().setContext(ToolgunContext.SetFunMode); console.log("[Toolgun] Context: SetFunMode"); break;
+      }
+    });
     window.addEventListener("keyup", (e) => { keys.delete(e.code); });
 
+    // Game loop — weapon tick + WASD movement
     let lastWeaponTick = performance.now();
     const moveLoop = setInterval(() => {
       const now = performance.now();
@@ -367,6 +395,7 @@ startGame({
     pixiHost?.dispose();
     dragDropImporter?.detach();
     document.querySelector(".sandbox-crosshair")?.remove();
+    document.querySelector(".sandbox-click-to-play")?.remove();
     (ctx.renderer as WebGPURenderer).stop();
   },
 });
@@ -380,7 +409,7 @@ function countProps(simSAB: SharedArrayBuffer): number {
   for (let i = 0; i < count; i++) {
     const slot = reader.getEntitySlot(i);
     const type = slot.u32[ENT.TYPE];
-    if (type !== 0) props++;
+    if (type !== 0 && type !== 255) props++;
   }
   return props;
 }

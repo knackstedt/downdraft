@@ -40,6 +40,8 @@ interface PropRecord {
   restitution: number;
   friction: number;
   gravityScale: number;
+  /** Remaining lifetime in seconds; 0 = permanent. */
+  lifetime?: number;
 }
 const propRecords = new Map<number, PropRecord>(); // entityId → record
 let nextEntityId = 1;
@@ -171,6 +173,14 @@ function removeProp(entityId: number): void {
   const record = propRecords.get(entityId);
   if (!record) return;
   if (physicsApi) physicsApi.destroyBody(record.body);
+  // Clear the SAB slot so the renderer stops rendering it
+  // Use 255 (invalid type) as the "empty" sentinel since EntityType.Prop = 0
+  if (simWriter) {
+    const u32 = simWriter.getEntityU32(record.slotIdx);
+    u32[ENT.TYPE] = 255; // mark as empty/invalid
+    u32[ENT.ID] = 0;
+    simWriter.markEntityDirty(record.slotIdx);
+  }
   propRecords.delete(entityId);
   events.emit("prop_removed", { entityId });
 }
@@ -252,6 +262,7 @@ function processCommand(cmd: SimCommand): void {
         contentId: "projectile", body, type: EntityType.Projectile, slotIdx,
         shape: "sphere", halfExtents: [0.1, 0.1, 0.1], radius: 0.1,
         mass: 0.5, restitution: 0.5, friction: 0.3, gravityScale: 0.5,
+        lifetime: 5.0, // despawn after 5 seconds
       });
       break;
     }
@@ -349,6 +360,7 @@ function saveState(): string {
       position: [f32[ENT.POS_X], f32[ENT.POS_Y], f32[ENT.POS_Z]],
       quaternion: [f32[ENT.ROT_X], f32[ENT.ROT_Y], f32[ENT.ROT_Z], f32[ENT.ROT_W]],
       scale: f32[ENT.SCALE],
+      shape: record.shape,
       mass: record.mass,
       restitution: record.restitution,
       friction: record.friction,
@@ -363,32 +375,12 @@ async function restoreState(stateJson: string): Promise<void> {
   clearProps();
   if (state.funMode !== undefined) currentFunMode = state.funMode;
   for (const prop of state.props ?? []) {
-    spawnProp(prop.contentId, prop.position, prop.quaternion);
-    // Restore per-prop physics properties
-    const entityId = nextEntityId - 1; // spawnProp increments nextEntityId
-    const record = propRecords.get(entityId);
-    if (record && physicsApi) {
-      const newMass = prop.mass ?? record.mass;
-      const newRestitution = prop.restitution ?? record.restitution;
-      const newFriction = prop.friction ?? record.friction;
-      const newGravityScale = prop.gravityScale ?? record.gravityScale;
-      if (newMass !== record.mass || newRestitution !== record.restitution ||
-          newFriction !== record.friction || newGravityScale !== record.gravityScale) {
-        // Recreate body with saved physics properties
-        const pos = physicsApi.getPosition(record.body);
-        const rot = physicsApi.getRotation(record.body);
-        const vel = physicsApi.getLinearVelocity(record.body);
-        physicsApi.destroyBody(record.body);
-        record.body = createPropBody(pos, rot, record.shape, record.halfExtents, record.radius, newMass, newRestitution, newFriction, newGravityScale);
-        record.mass = newMass;
-        record.restitution = newRestitution;
-        record.friction = newFriction;
-        record.gravityScale = newGravityScale;
-        physicsApi.setLinearVelocity(record.body, vel);
-        const u32 = simWriter!.getEntityU32(record.slotIdx);
-        u32[ENT.PARENT_ID] = record.body.id;
-      }
-    }
+    spawnProp(
+      prop.contentId, prop.position, prop.quaternion,
+      { mass: prop.mass, restitution: prop.restitution, friction: prop.friction, gravityScale: prop.gravityScale },
+      prop.shape,
+      prop.scale,
+    );
   }
   // Re-apply fun mode to restored props
   if (currentFunMode !== FunMode.Normal) {
@@ -411,6 +403,17 @@ expose({
       minSpeed: MIN_SIM_SPEED,
       tick: async (dt) => {
         if (physicsApi) physicsApi.stepNearRealm(dt);
+        // Despawn expired entities (projectiles, etc.)
+        const expired: number[] = [];
+        for (const [entityId, record] of propRecords) {
+          if (record.lifetime !== undefined && record.lifetime > 0) {
+            record.lifetime -= dt;
+            if (record.lifetime <= 0) expired.push(entityId);
+          }
+        }
+        for (const entityId of expired) {
+          removeProp(entityId);
+        }
         syncTransforms();
         simWriter!.incrementTick();
       },

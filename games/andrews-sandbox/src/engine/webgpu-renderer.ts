@@ -599,7 +599,7 @@ export class WebGPURenderer extends GameRenderer {
     for (let i = 0; i < count; i++) {
       const slot = this.simReader.getEntitySlot(i);
       const type = slot.u32[ENT.TYPE];
-      if (type !== EntityType.Prop && type !== EntityType.Mannequin) continue;
+      if (type === 255 || (type !== EntityType.Prop && type !== EntityType.Mannequin)) continue;
       const nodeIdRaw = slot.u32[ENT.ID];
       if (nodeIdRaw === 0) continue; // builtin prop (rendered as cube) or not yet uploaded
       const nodeId = `prop-${nodeIdRaw}`;
@@ -656,7 +656,7 @@ export class WebGPURenderer extends GameRenderer {
     for (let i = 0; i < count; i++) {
       const slot = this.simReader.getEntitySlot(i);
       const type = slot.u32[ENT.TYPE];
-      if (type !== EntityType.Prop && type !== EntityType.Mannequin && type !== EntityType.Projectile) continue;
+      if (type === 255 || (type !== EntityType.Prop && type !== EntityType.Mannequin && type !== EntityType.Projectile)) continue;
       const nodeIdRaw = slot.u32[ENT.ID];
       if (nodeIdRaw !== 0) continue; // has a model — skip, rendered by renderProps
 

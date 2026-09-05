@@ -86,6 +86,20 @@
       "filePattern": "games/sandjongg/**"
     },
     {
+      "label": "Dev: Andrew's Sandbox",
+      "type": "shell",
+      "command": "bun ../../packages/cli/src/index.ts dev",
+      "runOptions": {
+        "instanceLimit": 1
+      },
+      "options": {
+        "cwd": "${workspaceFolder}/games/andrews-sandbox"
+      },
+      "isBackground": true,
+      "problemMatcher": [],
+      "filePattern": "games/andrews-sandbox/**"
+    },
+    {
       "label": "Dev: Visual Tests",
       "type": "shell",
       "command": "bun ../../packages/cli/src/index.ts dev",
