@@ -55,6 +55,104 @@
         "@downdraft/module-mcp": "workspace:*",
       },
     },
+    "games/andrews-sandbox": {
+      "name": "andrews-sandbox",
+      "version": "0.1.0",
+      "dependencies": {
+        "@andrews-sandbox/library-content": "workspace:*",
+        "@andrews-sandbox/library-paint": "workspace:*",
+        "@andrews-sandbox/library-props": "workspace:*",
+        "@andrews-sandbox/module-content": "workspace:*",
+        "@andrews-sandbox/module-paint": "workspace:*",
+        "@andrews-sandbox/module-physics-props": "workspace:*",
+        "@andrews-sandbox/module-spawn": "workspace:*",
+        "@andrews-sandbox/module-vr": "workspace:*",
+        "@andrews-sandbox/module-weapons": "workspace:*",
+        "@dimforge/rapier3d-compat": "^0.19.3",
+        "@downdraft/app": "workspace:*",
+        "@downdraft/core": "workspace:*",
+        "@downdraft/library-entities": "workspace:*",
+        "@downdraft/library-models": "workspace:*",
+        "@downdraft/library-persistence": "workspace:*",
+        "@downdraft/library-physics-rapier": "workspace:*",
+        "@downdraft/library-pixi-ui": "workspace:*",
+        "@downdraft/module-camera-controls": "workspace:*",
+        "@downdraft/module-xr": "workspace:*",
+        "@pixi/react": "^8.0.5",
+        "fflate": "^0.8.2",
+        "pixi.js": "^8.18.0",
+        "react": "^19.2.0",
+        "react-dom": "^19.2.0",
+        "wgpu-matrix": "^3.4.2",
+        "zustand": "^5.0.2",
+      },
+      "devDependencies": {
+        "@vitejs/plugin-react": "^5.0.0",
+      },
+    },
+    "games/andrews-sandbox/libraries/content": {
+      "name": "@andrews-sandbox/library-content",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
+    "games/andrews-sandbox/libraries/paint": {
+      "name": "@andrews-sandbox/library-paint",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
+    "games/andrews-sandbox/libraries/props": {
+      "name": "@andrews-sandbox/library-props",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
+    "games/andrews-sandbox/modules/content": {
+      "name": "@andrews-sandbox/module-content",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
+    "games/andrews-sandbox/modules/paint": {
+      "name": "@andrews-sandbox/module-paint",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
+    "games/andrews-sandbox/modules/physics-props": {
+      "name": "@andrews-sandbox/module-physics-props",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
+    "games/andrews-sandbox/modules/spawn": {
+      "name": "@andrews-sandbox/module-spawn",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
+    "games/andrews-sandbox/modules/vr": {
+      "name": "@andrews-sandbox/module-vr",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
+    "games/andrews-sandbox/modules/weapons": {
+      "name": "@andrews-sandbox/module-weapons",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
     "games/falling-sand": {
       "name": "falling-sand",
       "version": "0.1.0",
@@ -624,6 +722,24 @@
     "7zip-bin": ["7zip-bin@5.2.0", "", {}, "sha512-ukTPVhqG4jNzMro2qA9HSCSSVJN3aN7tlb+hfqYCt3ER0yWroeA2VR38MNrOHLQ/cVj+DaIMad0kFCtWWowh/A=="],
 
     "@alloc/quick-lru": ["@alloc/quick-lru@5.2.0", "", {}, "sha512-UrcABB+4bUrFABwbluTIBErXwvbsU/V7TZWfmbgJfbkwiBuziS9gxdODUyuiecfdGQ85jglMW6juS3+z5TsKLw=="],
+
+    "@andrews-sandbox/library-content": ["@andrews-sandbox/library-content@workspace:games/andrews-sandbox/libraries/content"],
+
+    "@andrews-sandbox/library-paint": ["@andrews-sandbox/library-paint@workspace:games/andrews-sandbox/libraries/paint"],
+
+    "@andrews-sandbox/library-props": ["@andrews-sandbox/library-props@workspace:games/andrews-sandbox/libraries/props"],
+
+    "@andrews-sandbox/module-content": ["@andrews-sandbox/module-content@workspace:games/andrews-sandbox/modules/content"],
+
+    "@andrews-sandbox/module-paint": ["@andrews-sandbox/module-paint@workspace:games/andrews-sandbox/modules/paint"],
+
+    "@andrews-sandbox/module-physics-props": ["@andrews-sandbox/module-physics-props@workspace:games/andrews-sandbox/modules/physics-props"],
+
+    "@andrews-sandbox/module-spawn": ["@andrews-sandbox/module-spawn@workspace:games/andrews-sandbox/modules/spawn"],
+
+    "@andrews-sandbox/module-vr": ["@andrews-sandbox/module-vr@workspace:games/andrews-sandbox/modules/vr"],
+
+    "@andrews-sandbox/module-weapons": ["@andrews-sandbox/module-weapons@workspace:games/andrews-sandbox/modules/weapons"],
 
     "@aws-sdk/checksums": ["@aws-sdk/checksums@3.1000.24", "", { "dependencies": { "@aws-sdk/core": "^3.977.4", "@aws-sdk/types": "^3.974.2", "@smithy/core": "^3.31.1", "@smithy/types": "^4.16.1", "tslib": "^2.6.2" } }, "sha512-7TWLjypP8kk3savsDBRuhZJx7mBuFFA2136BQhwwLllsAnO4Tmq/p+SXZaNxbuulkzUFz3BZzj0bb4YzexZcNQ=="],
 
@@ -1266,6 +1382,8 @@
     "ajv": ["ajv@6.15.0", "", { "dependencies": { "fast-deep-equal": "^3.1.1", "fast-json-stable-stringify": "^2.0.0", "json-schema-traverse": "^0.4.1", "uri-js": "^4.2.2" } }, "sha512-fgFx7Hfoq60ytK2c7DhnF8jIvzYgOMxfugjLOSMHjLIPgenqa7S7oaagATUq99mV6IYvN2tRmC0wnTYX6iPbMw=="],
 
     "ajv-keywords": ["ajv-keywords@3.5.2", "", { "peerDependencies": { "ajv": "^6.9.1" } }, "sha512-5p6WTN0DdTGVQk6VjcEju19IgaHudalcfabD7yhDGeA6bcQnmL+CpveLJq/3hvfwd1aof6L386Ougkx6RfyMIQ=="],
+
+    "andrews-sandbox": ["andrews-sandbox@workspace:games/andrews-sandbox"],
 
     "ansi-regex": ["ansi-regex@5.0.1", "", {}, "sha512-quJQXlTSUGL2LH9SUXo8VwsY4soanhgo6LNSm84E1LBcE8s3O0wpdiRzyR9z/ZZJMlMWv37qOOb9pdJlMUEKFQ=="],
 
@@ -2207,6 +2325,8 @@
 
     "@types/ws/@types/node": ["@types/node@24.13.3", "", { "dependencies": { "undici-types": "~7.18.0" } }, "sha512-Dh8vAsV36ig5wa9OX4pXvMc9D3Veibfw2wix0CUwYODLD8nkj9UsLjASr49nPg+2eKzxhBV+v7L8pXvT4e639Q=="],
 
+    "andrews-sandbox/@vitejs/plugin-react": ["@vitejs/plugin-react@5.2.0", "", { "dependencies": { "@babel/core": "^7.29.0", "@babel/plugin-transform-react-jsx-self": "^7.27.1", "@babel/plugin-transform-react-jsx-source": "^7.27.1", "@rolldown/pluginutils": "1.0.0-rc.3", "@types/babel__core": "^7.20.5", "react-refresh": "^0.18.0" }, "peerDependencies": { "vite": "^4.2.0 || ^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0" } }, "sha512-YmKkfhOAi3wsB1PhJq5Scj3GXMn3WvtQ/JC0xoopuHoXSdmtdStOpFrYaT1kie2YgFBcIe64ROzMYRjCrYOdYw=="],
+
     "anymatch/picomatch": ["picomatch@2.3.2", "", {}, "sha512-V7+vQEJ06Z+c5tSye8S+nHUfI51xoXIXjHQ99cQtKUkQqqO1kO/KCJUfZXuB47h/YBlDhah2H3hdUGXn8ie0oA=="],
 
     "app-builder-lib/tar": ["tar@6.2.1", "", { "dependencies": { "chownr": "^2.0.0", "fs-minipass": "^2.0.0", "minipass": "^5.0.0", "minizlib": "^2.1.1", "mkdirp": "^1.0.3", "yallist": "^4.0.0" } }, "sha512-DZ4yORTwrbTj/7MZYq2w+/ZFdI6OZ/f9SFHR+71gIVUZhOQPHzVCLpvRnPgyaMpfWxxk/4ONva3GQSyNIKRv6A=="],
@@ -2364,6 +2484,10 @@
     "@types/responselike/@types/node/undici-types": ["undici-types@7.18.2", "", {}, "sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w=="],
 
     "@types/ws/@types/node/undici-types": ["undici-types@7.18.2", "", {}, "sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w=="],
+
+    "andrews-sandbox/@vitejs/plugin-react/@rolldown/pluginutils": ["@rolldown/pluginutils@1.0.0-rc.3", "", {}, "sha512-eybk3TjzzzV97Dlj5c+XrBFW57eTNhzod66y9HrBlzJ6NsCrWCp/2kaPS3K9wJmurBC0Tdw4yPjXKZqlznim3Q=="],
+
+    "andrews-sandbox/@vitejs/plugin-react/react-refresh": ["react-refresh@0.18.0", "", {}, "sha512-QgT5//D3jfjJb6Gsjxv0Slpj23ip+HtOpnNgnb2S5zU3CB26G/IDPGoy4RJB42wzFE46DRsstbW6tKHoKbhAxw=="],
 
     "app-builder-lib/tar/chownr": ["chownr@2.0.0", "", {}, "sha512-bIomtDF5KGpdogkLd9VspvFzk9KfpyyGlS8YFVZl7TGPBHL5snIOnxeshwVgPteQ9b4Eydl+pVbIyE1DcvCWgQ=="],
 

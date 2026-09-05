@@ -23,6 +23,9 @@
         "./games/to-the-ocean/src/shared/*",
         "./packages/app/src/shared/*"
       ],
+      "@sandbox/shared/*": [
+        "./games/andrews-sandbox/src/shared/*"
+      ],
       "@sim/*": [
         "./games/to-the-ocean/src/simulation/*"
       ],
@@ -304,6 +307,60 @@
       ],
       "@to-the-ocean/shared/*": [
         "./games/to-the-ocean/src/shared/*"
+      ],
+      "@andrews-sandbox/library-props": [
+        "./games/andrews-sandbox/libraries/props/src/index.ts"
+      ],
+      "@andrews-sandbox/library-props/*": [
+        "./games/andrews-sandbox/libraries/props/src/*"
+      ],
+      "@andrews-sandbox/library-paint": [
+        "./games/andrews-sandbox/libraries/paint/src/index.ts"
+      ],
+      "@andrews-sandbox/library-paint/*": [
+        "./games/andrews-sandbox/libraries/paint/src/*"
+      ],
+      "@andrews-sandbox/library-content": [
+        "./games/andrews-sandbox/libraries/content/src/index.ts"
+      ],
+      "@andrews-sandbox/library-content/*": [
+        "./games/andrews-sandbox/libraries/content/src/*"
+      ],
+      "@andrews-sandbox/module-spawn": [
+        "./games/andrews-sandbox/modules/spawn/src/index.ts"
+      ],
+      "@andrews-sandbox/module-spawn/*": [
+        "./games/andrews-sandbox/modules/spawn/src/*"
+      ],
+      "@andrews-sandbox/module-physics-props": [
+        "./games/andrews-sandbox/modules/physics-props/src/index.ts"
+      ],
+      "@andrews-sandbox/module-physics-props/*": [
+        "./games/andrews-sandbox/modules/physics-props/src/*"
+      ],
+      "@andrews-sandbox/module-weapons": [
+        "./games/andrews-sandbox/modules/weapons/src/index.ts"
+      ],
+      "@andrews-sandbox/module-weapons/*": [
+        "./games/andrews-sandbox/modules/weapons/src/*"
+      ],
+      "@andrews-sandbox/module-paint": [
+        "./games/andrews-sandbox/modules/paint/src/index.ts"
+      ],
+      "@andrews-sandbox/module-paint/*": [
+        "./games/andrews-sandbox/modules/paint/src/*"
+      ],
+      "@andrews-sandbox/module-content": [
+        "./games/andrews-sandbox/modules/content/src/index.ts"
+      ],
+      "@andrews-sandbox/module-content/*": [
+        "./games/andrews-sandbox/modules/content/src/*"
+      ],
+      "@andrews-sandbox/module-vr": [
+        "./games/andrews-sandbox/modules/vr/src/index.ts"
+      ],
+      "@andrews-sandbox/module-vr/*": [
+        "./games/andrews-sandbox/modules/vr/src/*"
       ],
       "@mining-rpg/shared/*": [
         "./games/mining-rpg/src/shared/*"
