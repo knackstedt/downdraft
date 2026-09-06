@@ -536,6 +536,20 @@ export class WebGPURenderer extends GameRenderer {
   // Reusable scratch buffer for writeTick's readFn (avoids per-tick allocation).
   private interpScratch: Float32Array | null = null;
 
+  // ── Precomputed render entity collection ──
+  // Built once per frame in collectRenderEntities(), reused by both the
+  // shadow depth pass and the scene color pass. This eliminates duplicate
+  // entity iteration, getEntitySlot object allocation, and composeModelMatrixInto
+  // calls (previously computed independently in both passes).
+  // Cubes/spheres entity indices, packed contiguously.
+  private renderCubes: number[] = [];
+  private renderSpheres: number[] = [];
+  // Per-entity paint flag (indexed by entity slot index, 1 = has paint texture).
+  private renderPaintFlags: Uint8Array = new Uint8Array(WebGPURenderer.INTERP_MAX_ENTITIES);
+  // Precomputed hue-based colors (3 floats per entity × max entities).
+  // Formula: hue = (i * 0.15) % 1.0, RGB from sin offsets — deterministic, computed once.
+  private renderColors: Float32Array = new Float32Array(WebGPURenderer.INTERP_MAX_ENTITIES * 3);
+
   setSimReader(sab: SharedArrayBuffer): void {
     this.simReader = new SimBufferReader(sab);
     // Create the interpolation buffer and pre-assign all slots so reseed()
@@ -545,6 +559,13 @@ export class WebGPURenderer extends GameRenderer {
     this.interpScratch = new Float32Array(WebGPURenderer.INTERP_MAX_ENTITIES * 8);
     for (let i = 0; i < WebGPURenderer.INTERP_MAX_ENTITIES; i++) {
       this.interpBuffer.assignSlot(i);
+      // Precompute hue-based colors — deterministic per entity index, no
+      // need to recompute Math.sin every frame.
+      const hue = (i * 0.15) % 1.0;
+      const off = i * 3;
+      this.renderColors[off]     = 0.5 + 0.4 * Math.sin(hue * Math.PI * 2);
+      this.renderColors[off + 1] = 0.5 + 0.4 * Math.sin(hue * Math.PI * 2 + 2.094);
+      this.renderColors[off + 2] = 0.5 + 0.4 * Math.sin(hue * Math.PI * 2 + 4.189);
     }
   }
 
@@ -1232,16 +1253,17 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
     const count = this.simReader.getEntityCount();
     const lights: PointLight[] = [];
     for (let i = 0; i < count && lights.length < 8; i++) {
-      const slot = this.simReader.getEntitySlot(i);
-      const type = slot.u32[ENT.TYPE];
+      // Direct slot access — avoids getEntitySlot object allocation.
+      const sv = this.simReader.getEntitySlotDirect(i);
+      const type = sv.u32[ENT.TYPE];
       if (type === 255) continue;
       if (type === EntityType.Projectile) {
         // Projectiles emit a warm orange glow.
         // Use interpolated position so the light matches the rendered projectile.
         const off = i * 8;
-        const px = interp ? interp[off]     : slot.f32[ENT.POS_X];
-        const py = interp ? interp[off + 1] : slot.f32[ENT.POS_Y];
-        const pz = interp ? interp[off + 2] : slot.f32[ENT.POS_Z];
+        const px = interp ? interp[off]     : sv.f32[ENT.POS_X];
+        const py = interp ? interp[off + 1] : sv.f32[ENT.POS_Y];
+        const pz = interp ? interp[off + 2] : sv.f32[ENT.POS_Z];
         lights.push({
           position: [px, py, pz],
           color: [1.0, 0.6, 0.2],
@@ -1362,6 +1384,9 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
     if (this.modelRenderer && this.modelLightingBg) {
       this.modelRenderer.setFrameLightingBindGroup(this.modelLightingBg);
     }
+
+    // Collect visible builtin entities once — reused by both shadow + scene passes.
+    this.collectRenderEntities();
 
     // Update + render the shadow map (before the main scene render).
     if (this.shadows && this.shadows.isEnabled() && this.lighting) {
@@ -1521,21 +1546,10 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
     if (!this.simReader || !this.depthOnlyCubePipeline || !this.cubeVertexBuffer || !this.cubeIndexBuffer) return;
     if (!this.depthOnlyCubeUniformBuffer || !this.cubeInstanceBuffer) return;
     const device = this.getDevice()!;
-    const count = this.simReader.getEntityCount();
-    if (count === 0) return;
 
-    const cubes: number[] = [];
-    const spheres: number[] = [];
-    for (let i = 0; i < count; i++) {
-      const slot = this.simReader.getEntitySlot(i);
-      const type = slot.u32[ENT.TYPE];
-      if (type === 255 || (type !== EntityType.Prop && type !== EntityType.Mannequin && type !== EntityType.Projectile)) continue;
-      const nodeIdRaw = slot.u32[ENT.ID];
-      if (nodeIdRaw !== 0) continue; // has a model — skip (model shadow rendering not yet wired)
-      const shape = slot.f32[ENT_DATA.SHAPE + ENT.DATA];
-      if (shape === 1) spheres.push(i);
-      else cubes.push(i);
-    }
+    // Use precomputed entity lists + staging data from collectRenderEntities().
+    const cubes = this.renderCubes;
+    const spheres = this.renderSpheres;
 
     const stride = this.cubeInstanceStride;
     const maxInstances = Math.floor(this.cubeInstanceBuffer.size / stride);
@@ -1553,30 +1567,18 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
       const drawCount = Math.min(indices.length, maxInstances - baseOffset);
       if (drawCount <= 0) return;
 
-      // Write all instance model matrices into the staging array in one pass.
-      const interp = this.interpOut;
-      for (let idx = 0; idx < drawCount; idx++) {
-        const i = indices[idx];
-        const slot = this.simReader!.getEntitySlot(i);
-        const ioff = i * 8;
-        const px = interp ? interp[ioff]       : slot.f32[ENT.POS_X];
-        const py = interp ? interp[ioff + 1]   : slot.f32[ENT.POS_Y];
-        const pz = interp ? interp[ioff + 2]   : slot.f32[ENT.POS_Z];
-        const scale = (interp ? interp[ioff + 7] : slot.f32[ENT.SCALE]) || 1.0;
-        const rx = interp ? interp[ioff + 3]   : slot.f32[ENT.ROT_X];
-        const ry = interp ? interp[ioff + 4]   : slot.f32[ENT.ROT_Y];
-        const rz = interp ? interp[ioff + 5]   : slot.f32[ENT.ROT_Z];
-        const rw = interp ? interp[ioff + 6]   : slot.f32[ENT.ROT_W];
-        const off = (baseOffset + idx) * 24;
-        this.composeModelMatrixInto(staging, off, px, py, pz, rx, ry, rz, rw, scale);
-      }
-
-      // Single writeBuffer for the whole batch.
+      // Model matrices already in staging from collectRenderEntities().
+      // Shadow pass uses the same packed order (no painted/unpainted split).
+      // The staging data is at [0, drawCount*24) for this batch — but
+      // collectRenderEntities wrote cubes at [0, cubes.length*24) and spheres
+      // at [cubes.length, (cubes.length+spheres.length)*24). We need to
+      // adjust the source offset for spheres.
+      const srcOffset = baseOffset * 24 * 4;
       device.queue.writeBuffer(
         this.cubeInstanceBuffer!,
         baseOffset * stride,
         staging.buffer,
-        baseOffset * 24 * 4,
+        srcOffset,
         drawCount * stride,
       );
 
@@ -1628,23 +1630,26 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
     const interp = this.interpOut;
     const count = this.simReader.getEntityCount();
     for (let i = 0; i < count; i++) {
-      const slot = this.simReader.getEntitySlot(i);
-      const type = slot.u32[ENT.TYPE];
+      // Direct slot access — avoids getEntitySlot object allocation.
+      const sv = this.simReader.getEntitySlotDirect(i);
+      const u32 = sv.u32;
+      const f32 = sv.f32;
+      const type = u32[ENT.TYPE];
       if (type === 255 || (type !== EntityType.Prop && type !== EntityType.Mannequin)) continue;
-      const nodeIdRaw = slot.u32[ENT.ID];
+      const nodeIdRaw = u32[ENT.ID];
       if (nodeIdRaw === 0) continue; // builtin prop (rendered as cube) or not yet uploaded
       const nodeId = `prop-${nodeIdRaw}`;
       if (!this.nodeToContent.has(nodeId)) continue;
 
       const ioff = i * 8;
-      const px = interp ? interp[ioff]       : slot.f32[ENT.POS_X];
-      const py = interp ? interp[ioff + 1]   : slot.f32[ENT.POS_Y];
-      const pz = interp ? interp[ioff + 2]   : slot.f32[ENT.POS_Z];
-      const scale = interp ? interp[ioff + 7] : slot.f32[ENT.SCALE];
-      const rx = interp ? interp[ioff + 3]   : slot.f32[ENT.ROT_X];
-      const ry = interp ? interp[ioff + 4]   : slot.f32[ENT.ROT_Y];
-      const rz = interp ? interp[ioff + 5]   : slot.f32[ENT.ROT_Z];
-      const rw = interp ? interp[ioff + 6]   : slot.f32[ENT.ROT_W];
+      const px = interp ? interp[ioff]       : f32[ENT.POS_X];
+      const py = interp ? interp[ioff + 1]   : f32[ENT.POS_Y];
+      const pz = interp ? interp[ioff + 2]   : f32[ENT.POS_Z];
+      const scale = interp ? interp[ioff + 7] : f32[ENT.SCALE];
+      const rx = interp ? interp[ioff + 3]   : f32[ENT.ROT_X];
+      const ry = interp ? interp[ioff + 4]   : f32[ENT.ROT_Y];
+      const rz = interp ? interp[ioff + 5]   : f32[ENT.ROT_Z];
+      const rw = interp ? interp[ioff + 6]   : f32[ENT.ROT_W];
 
       this.modelRenderer.render(
         pass,
@@ -1653,6 +1658,105 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
         [rx, ry, rz, rw],
         [scale, scale, scale],
       );
+    }
+  }
+
+  // ── Collect visible builtin entities once per frame ──
+  // Iterates all entities a single time, splits into cubes/spheres arrays,
+  // and computes model matrices into the staging buffer. Both the shadow
+  // depth pass and the scene color pass read from the same precomputed data,
+  // eliminating duplicate iteration + matrix composition.
+  private collectRenderEntities(): void {
+    if (!this.simReader || !this.interpOut) return;
+    const reader = this.simReader;
+    const interp = this.interpOut;
+    const staging = this.instanceStaging;
+    const colors = this.renderColors;
+    const paintFlags = this.renderPaintFlags;
+
+    this.renderCubes.length = 0;
+    this.renderSpheres.length = 0;
+
+    const count = reader.getEntityCount();
+    for (let i = 0; i < count; i++) {
+      // Direct slot access — avoids getEntitySlot object allocation.
+      const sv = reader.getEntitySlotDirect(i);
+      const u32 = sv.u32;
+      const f32 = sv.f32;
+      const type = u32[ENT.TYPE];
+      if (type === 255) continue;
+      if (type !== EntityType.Prop && type !== EntityType.Mannequin && type !== EntityType.Projectile) continue;
+      const nodeIdRaw = u32[ENT.ID];
+      if (nodeIdRaw !== 0) continue; // has a model — skip (rendered by modelRenderer)
+
+      const shape = f32[ENT_DATA.SHAPE + ENT.DATA];
+      if (shape === 1) this.renderSpheres.push(i);
+      else this.renderCubes.push(i);
+
+      // Read interpolated transform (always from interp — no ternary needed).
+      const ioff = i * 8;
+      const px = interp[ioff];
+      const py = interp[ioff + 1];
+      const pz = interp[ioff + 2];
+      const scale = interp[ioff + 7] || 1.0;
+      const rx = interp[ioff + 3];
+      const ry = interp[ioff + 4];
+      const rz = interp[ioff + 5];
+      const rw = interp[ioff + 6];
+
+      // Determine the instance slot offset. Cubes are packed first, then
+      // spheres, matching the baseOffset convention in renderShapeBatch.
+      const isCube = shape !== 1;
+      const slotIdx = isCube ? this.renderCubes.length - 1 : this.renderCubes.length + this.renderSpheres.length - 1;
+      const off = slotIdx * 24;
+
+      // Compose model matrix inline (avoids method call overhead per entity).
+      const ql = Math.sqrt(rx * rx + ry * ry + rz * rz + rw * rw) || 1;
+      const qx = rx / ql, qy = ry / ql, qz = rz / ql, qw = rw / ql;
+      const r00 = 1 - 2 * (qy * qy + qz * qz);
+      const r01 = 2 * (qx * qy - qz * qw);
+      const r02 = 2 * (qx * qz + qy * qw);
+      const r10 = 2 * (qx * qy + qz * qw);
+      const r11 = 1 - 2 * (qx * qx + qz * qz);
+      const r12 = 2 * (qy * qz - qx * qw);
+      const r20 = 2 * (qx * qz - qy * qw);
+      const r21 = 2 * (qy * qz + qx * qw);
+      const r22 = 1 - 2 * (qx * qx + qy * qy);
+      staging[off]      = r00 * scale;
+      staging[off + 1]  = r10 * scale;
+      staging[off + 2]  = r20 * scale;
+      staging[off + 3]  = 0;
+      staging[off + 4]  = r01 * scale;
+      staging[off + 5]  = r11 * scale;
+      staging[off + 6]  = r21 * scale;
+      staging[off + 7]  = 0;
+      staging[off + 8]  = r02 * scale;
+      staging[off + 9]  = r12 * scale;
+      staging[off + 10] = r22 * scale;
+      staging[off + 11] = 0;
+      staging[off + 12] = px;
+      staging[off + 13] = py;
+      staging[off + 14] = pz;
+      staging[off + 15] = 1;
+
+      // Color: use precomputed hue colors, override for special types.
+      if (type === EntityType.Projectile) {
+        staging[off + 16] = 0.95; staging[off + 17] = 0.3; staging[off + 18] = 0.15;
+      } else if (type === EntityType.Mannequin) {
+        staging[off + 16] = 0.7; staging[off + 17] = 0.65; staging[off + 18] = 0.55;
+      } else {
+        const coff = i * 3;
+        staging[off + 16] = colors[coff];
+        staging[off + 17] = colors[coff + 1];
+        staging[off + 18] = colors[coff + 2];
+      }
+      staging[off + 19] = 1.0;
+
+      // Paint flag — check paintTextures once, store for scene pass.
+      const entityId = i + 1;
+      const hasPaint = this.paintTextures.has(entityId) ? 1 : 0;
+      paintFlags[i] = hasPaint;
+      staging[off + 20] = hasPaint;
     }
   }
 
@@ -1672,19 +1776,9 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
     uniformData[18] = this.camPos[2];
     device.queue.writeBuffer(this.cubeUniformBuffer, 0, uniformData);
 
-    // Collect entities to render, split by shape
-    const cubes: number[] = [];
-    const spheres: number[] = [];
-    for (let i = 0; i < count; i++) {
-      const slot = this.simReader.getEntitySlot(i);
-      const type = slot.u32[ENT.TYPE];
-      if (type === 255 || (type !== EntityType.Prop && type !== EntityType.Mannequin && type !== EntityType.Projectile)) continue;
-      const nodeIdRaw = slot.u32[ENT.ID];
-      if (nodeIdRaw !== 0) continue; // has a model — skip
-      const shape = slot.f32[ENT_DATA.SHAPE + ENT.DATA];
-      if (shape === 1) spheres.push(i);
-      else cubes.push(i);
-    }
+    // Use precomputed entity lists from collectRenderEntities().
+    const cubes = this.renderCubes;
+    const spheres = this.renderSpheres;
 
     // Render cubes
     if (cubes.length > 0) {
@@ -1723,68 +1817,49 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
     const bg0 = isCube ? this.cubeBindGroup0 : this.sphereBindGroup0;
     const bg1Layout = pipeline.getBindGroupLayout(1);
     const staging = this.instanceStaging;
+    const paintFlags = this.renderPaintFlags;
 
     const drawCount = Math.min(indices.length, maxInstances - baseOffset);
     if (drawCount <= 0) return;
 
-    // Write all instance data into the staging array (24 floats = 96 bytes each).
-    // Unpainted instances are packed first, painted instances after, so the
-    // unpainted batch can be drawn in a single drawIndexedInstanced call.
+    // Model matrices + colors are already in the staging buffer from
+    // collectRenderEntities(). We only need to repack painted/unpainted
+    // for the scene pass (shadow pass doesn't need paint sorting).
+    // Unpainted packed at [0, unpaintedCount); painted packed from the end.
     let unpaintedCount = 0;
     const painted: Array<{ slotIdx: number; entityId: number }> = [];
 
-    const interp = this.interpOut;
     for (let idx = 0; idx < drawCount; idx++) {
       const i = indices[idx];
-      const slot = this.simReader!.getEntitySlot(i);
-      const type = slot.u32[ENT.TYPE];
-
-      const ioff = i * 8;
-      const px = interp ? interp[ioff]       : slot.f32[ENT.POS_X];
-      const py = interp ? interp[ioff + 1]   : slot.f32[ENT.POS_Y];
-      const pz = interp ? interp[ioff + 2]   : slot.f32[ENT.POS_Z];
-      const scale = (interp ? interp[ioff + 7] : slot.f32[ENT.SCALE]) || 1.0;
-      const rx = interp ? interp[ioff + 3]   : slot.f32[ENT.ROT_X];
-      const ry = interp ? interp[ioff + 4]   : slot.f32[ENT.ROT_Y];
-      const rz = interp ? interp[ioff + 5]   : slot.f32[ENT.ROT_Z];
-      const rw = interp ? interp[ioff + 6]   : slot.f32[ENT.ROT_W];
-
       const entityId = i + 1;
-      const paintTex = this.paintTextures.get(entityId);
-      const hasPaint = paintTex ? 1 : 0;
+      const hasPaint = paintFlags[i];
 
-      // Unpainted packed at [0, unpaintedCount); painted packed from the end.
+      // Source offset in staging (from collectRenderEntities) = idx * 24.
+      // Dest offset = repacked position in the batch.
       const slotIdx = hasPaint ? (drawCount - 1 - painted.length) : unpaintedCount;
-      const off = (baseOffset + slotIdx) * 24; // 24 floats per instance in staging
-
-      this.composeModelMatrixInto(staging, off, px, py, pz, rx, ry, rz, rw, scale);
-
-      if (type === EntityType.Projectile) {
-        staging[off + 16] = 0.95; staging[off + 17] = 0.3; staging[off + 18] = 0.15; staging[off + 19] = 1.0;
-      } else if (type === EntityType.Mannequin) {
-        staging[off + 16] = 0.7; staging[off + 17] = 0.65; staging[off + 18] = 0.55; staging[off + 19] = 1.0;
-      } else {
-        const hue = (i * 0.15) % 1.0;
-        staging[off + 16] = 0.5 + 0.4 * Math.sin(hue * Math.PI * 2);
-        staging[off + 17] = 0.5 + 0.4 * Math.sin(hue * Math.PI * 2 + 2.094);
-        staging[off + 18] = 0.5 + 0.4 * Math.sin(hue * Math.PI * 2 + 4.189);
-        staging[off + 19] = 1.0;
-      }
-      staging[off + 20] = hasPaint;
+      const srcOff = idx * 24;
+      const dstOff = (baseOffset + slotIdx) * 24;
 
       if (hasPaint) {
+        // Copy 21 floats (model matrix + color + paint flag) to repacked position.
+        if (srcOff !== dstOff) {
+          staging.copyWithin(dstOff, srcOff, srcOff + 21);
+        }
         painted.push({ slotIdx: baseOffset + slotIdx, entityId });
       } else {
+        if (srcOff !== dstOff) {
+          staging.copyWithin(dstOff, srcOff, srcOff + 21);
+        }
         unpaintedCount++;
       }
     }
 
-    // Single writeBuffer for the entire batch — replaces N per-instance writes.
+    // Single writeBuffer for the entire batch.
     device.queue.writeBuffer(
       this.cubeInstanceBuffer!,
       baseOffset * stride,
       staging.buffer,
-      baseOffset * 24 * 4, // src offset in bytes (24 floats × 4 bytes)
+      baseOffset * 24 * 4,
       drawCount * stride,
     );
 

@@ -85,9 +85,22 @@ export class InterpolationBuffer {
    */
   readInterpolated(alpha: number, outBuffer: Float32Array, entityCount: number): void {
     const a = Math.max(0, Math.min(1, alpha));
-    const invA = 1 - a;
     const count = Math.min(entityCount, this.maxEntities);
+    const byteCount = count * 8;
 
+    // Fast paths: when alpha is 0 or 1, skip per-entity nlerp math entirely.
+    // alpha=1 is the most common case (render rate > sim rate → stalled at
+    // curr until the next tick arrives).
+    if (a >= 1) {
+      outBuffer.set(this.curr.subarray(0, byteCount));
+      return;
+    }
+    if (a <= 0) {
+      outBuffer.set(this.prev.subarray(0, byteCount));
+      return;
+    }
+
+    const invA = 1 - a;
     for (let i = 0; i < count; i++) {
       const offset = i * 8;
       // Position: linear interp

@@ -307,6 +307,11 @@ export class SimBufferReader {
     return { f32: sv.f32, u32: sv.u32 };
   }
 
+  /** Direct slot access — returns cached SlotViews without allocating a wrapper object. */
+  getEntitySlotDirect(idx: number): { f32: Float32Array; u32: Uint32Array } {
+    return this.entitySlots.slot(idx);
+  }
+
   getPlayerSlot(idx: number): { f32: Float32Array; u32: Uint32Array } {
     const sv = this.playerSlots.slot(idx);
     return { f32: sv.f32, u32: sv.u32 };
