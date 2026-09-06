@@ -27,29 +27,61 @@ import { MipmapHelper } from "./mipmap-helper";
 import { SceneRenderPass, type SceneDrawFn, type ScenePassState } from "./passes/scene-pass";
 import { SandboxShadows } from "./shadows";
 
-// Simple skybox gradient shader (full-screen triangle at depth = far)
+// Skybox gradient shader — uses inverse view-projection to reconstruct the
+// world-space view direction per pixel, so the gradient is based on the
+// actual look direction (up = zenith, horizon = bright, down = ground haze).
 const SKY_SHADER = /* wgsl */ `
+struct SkyUniforms {
+  invViewProj: mat4x4f,
+  cameraPos: vec3f,
+};
+@group(0) @binding(0) var<uniform> u: SkyUniforms;
+
+struct VertexOut {
+  @builtin(position) clipPos: vec4f,
+  @location(0) ndc: vec2f,
+};
+
 @vertex
-fn vs(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
+fn vs(@builtin(vertex_index) vi: u32) -> VertexOut {
   var pos = array<vec2f, 3>(
     vec2f(-1.0, -1.0),
     vec2f( 3.0, -1.0),
     vec2f(-1.0,  3.0),
   );
-  return vec4f(pos[vi], 0.999, 1.0);
+  var out: VertexOut;
+  out.clipPos = vec4f(pos[vi], 0.999, 1.0);
+  out.ndc = pos[vi];
+  return out;
 }
 
 @fragment
-fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
-  let dims = vec2f(1920.0, 1080.0);
-  let uv = pos.xy / dims;
-  let t = clamp(uv.y, 0.0, 1.0);
-  // Smooth sky gradient: horizon glow → blue → deep blue (dimmed)
-  let horizon = vec3f(0.38, 0.41, 0.46);
-  let mid = vec3f(0.21, 0.31, 0.44);
-  let zenith = vec3f(0.08, 0.15, 0.30);
-  let color = mix(horizon, mid, smoothstep(0.0, 0.5, t));
-  return vec4f(mix(color, zenith, smoothstep(0.4, 1.0, t)), 1.0);
+fn fs(in: VertexOut) -> @location(0) vec4f {
+  // Reconstruct world-space view direction from NDC (z = 1.0 = far plane)
+  let ndc = vec4f(in.ndc, 1.0, 1.0);
+  let world = u.invViewProj * ndc;
+  let worldDir = normalize(world.xyz / world.w - u.cameraPos);
+
+  // Use the world-space direction Y component for the gradient.
+  // up = +1 (zenith), horizon = 0, down = -1 (ground haze)
+  let t = clamp(worldDir.y, -1.0, 1.0);
+
+  // Sky gradient: ground haze → horizon → mid sky → zenith
+  let groundHaze = vec3f(0.08, 0.07, 0.06);
+  let horizon = vec3f(0.12, 0.13, 0.16);
+  let mid = vec3f(0.07, 0.10, 0.18);
+  let zenith = vec3f(0.02, 0.05, 0.12);
+
+  var color: vec3f;
+  if (t < 0.0) {
+    // Below horizon — ground haze
+    color = mix(horizon, groundHaze, smoothstep(0.0, -0.3, t));
+  } else {
+    // Above horizon — horizon → mid → zenith
+    color = mix(horizon, mid, smoothstep(0.0, 0.4, t));
+    color = mix(color, zenith, smoothstep(0.3, 1.0, t));
+  }
+  return vec4f(color, 1.0);
 }
 `;
 
@@ -608,6 +640,8 @@ export class WebGPURenderer extends GameRenderer {
 
   // Skybox pipeline
   private skyPipeline: GPURenderPipeline | null = null;
+  private skyUniformBuffer: GPUBuffer | null = null;
+  private skyBindGroup: GPUBindGroup | null = null;
   // Ground plane pipeline + buffers
   private groundPipeline: GPURenderPipeline | null = null;
   private groundVertexBuffer: GPUBuffer | null = null;
@@ -906,6 +940,13 @@ export class WebGPURenderer extends GameRenderer {
   }
 
   private createSkyPipeline(device: GPUDevice, format: GPUTextureFormat): void {
+    // Uniform: invViewProj (64) + cameraPos (12) + pad (4) = 80 bytes
+    this.skyUniformBuffer = device.createBuffer({
+      label: "sky-uniforms",
+      size: 80,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
     const shader = device.createShaderModule({ label: "sky", code: SKY_SHADER });
     this.skyPipeline = device.createRenderPipeline({
       label: "sky",
@@ -918,6 +959,12 @@ export class WebGPURenderer extends GameRenderer {
         depthWriteEnabled: false,
         depthCompare: "less-equal",
       },
+    });
+
+    this.skyBindGroup = device.createBindGroup({
+      label: "sky-bindgroup",
+      layout: this.skyPipeline.getBindGroupLayout(0),
+      entries: [{ binding: 0, resource: { buffer: this.skyUniformBuffer } }],
     });
   }
 
@@ -1571,6 +1618,14 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
     uniformData[18] = this.camPos[2];
     device.queue.writeBuffer(this.groundUniformBuffer!, 0, uniformData);
 
+    // Update sky uniforms (inverse view-proj + camera position)
+    const skyUniformData = new Float32Array(20);
+    skyUniformData.set(invViewProj as Float32Array, 0);
+    skyUniformData[16] = this.camPos[0];
+    skyUniformData[17] = this.camPos[1];
+    skyUniformData[18] = this.camPos[2];
+    device.queue.writeBuffer(this.skyUniformBuffer!, 0, skyUniformData);
+
     // Prepare bindless frame bindings
     if (this.bindlessFrameBindings) {
       this.bindlessFrameBindings.prepareFrame();
@@ -1808,6 +1863,7 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
 
     // Sky (full-screen triangle, depth = far)
     pass.setPipeline(this.skyPipeline!);
+    if (this.skyBindGroup) pass.setBindGroup(0, this.skyBindGroup);
     pass.draw(3);
 
     // Ground plane
