@@ -34,7 +34,7 @@ export interface CreateSaveStoreOptions {
 /**
  * Check if OPFS is available in the current environment.
  */
-function isOpfsAvailable(): boolean {
+export function isOpfsAvailable(): boolean {
   const nav = globalThis as unknown as { navigator?: { storage?: { getDirectory?: unknown } } };
   return typeof nav.navigator?.storage?.getDirectory === "function";
 }

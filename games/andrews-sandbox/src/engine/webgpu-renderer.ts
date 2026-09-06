@@ -53,7 +53,7 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
 }
 `;
 
-// Ground plane shader
+// Ground plane shader — multi-tier grid with distance markers and numeric labels
 const GROUND_SHADER = /* wgsl */ `
 struct Uniforms {
   viewProj: mat4x4f,
@@ -62,6 +62,7 @@ struct Uniforms {
 @group(0) @binding(0) var<uniform> u: Uniforms;
 @group(1) @binding(0) var paintTex: texture_2d<f32>;
 @group(1) @binding(1) var paintSampler: sampler;
+@group(1) @binding(2) var digitTex: texture_2d<f32>;
 
 struct FrameLighting {
   sunDir: vec3f,
@@ -113,6 +114,92 @@ fn pcfShadow(worldPos: vec3f, N: vec3f) -> f32 {
   return mix(1.0, shadow, shadowU.shadowStrength);
 }
 
+// Returns a grid line intensity for a given world coordinate.
+// 'spacing' is the grid cell size in meters; 'width' is the line thickness.
+// Lines are centered on multiples of 'spacing' (including 0).
+fn gridLine(coord: f32, spacing: f32, width: f32) -> f32 {
+  let p = abs(fract(coord / spacing - 0.5) - 0.5) * spacing;
+  // Tight smoothstep for a crisp edge — transition over 10% of the width.
+  let edge0 = width * 0.9;
+  return 1.0 - smoothstep(edge0, width, p);
+}
+
+// Concentric distance ring at a given radius from origin.
+fn distanceRing(worldXZ: vec2f, radius: f32, width: f32) -> f32 {
+  let d = length(worldXZ);
+  let ringDist = abs(d - radius);
+  let edge0 = width * 0.9;
+  return 1.0 - smoothstep(edge0, width, ringDist);
+}
+
+// Extract the digit at position 'digitIndex' (0=ones, 1=tens, 2=hundreds).
+fn extractDigit(number: i32, digitIndex: i32) -> i32 {
+  var n = number;
+  for (var i = 0; i < digitIndex; i++) {
+    n = n / 10;
+  }
+  return n % 10;
+}
+
+fn numDigits(n: i32) -> i32 {
+  if (n < 10) { return 1; }
+  if (n < 100) { return 2; }
+  return 3;
+}
+
+// Render a number along the X axis at markerX (digits extend in X, height in Z).
+// Returns text coverage [0,1]. Uses the digit atlas (10 digits in a 640x96 strip).
+// digitW/h are world-space dimensions per digit.
+fn renderNumberX(worldPos: vec3f, markerX: f32, number: i32, digitW: f32, digitH: f32) -> f32 {
+  let nd = numDigits(number);
+  let totalW = f32(nd) * digitW;
+  let halfW = totalW * 0.5;
+  let halfH = digitH * 0.5;
+
+  let dx = worldPos.x - markerX;
+  let dz = worldPos.z;
+
+  if (abs(dz) > halfH || abs(dx) > halfW) { return 0.0; }
+
+  let localX = dx + halfW;
+  let digitIdx = i32(clamp(localX / digitW, 0.0, f32(nd) - 1.0));
+  let digitLocalU = fract(localX / digitW);
+
+  let digitVal = extractDigit(number, nd - 1 - digitIdx);
+  let atlasU = (f32(digitVal) + digitLocalU) / 10.0;
+  let atlasV = (dz + halfH) / digitH;
+
+  // textureSampleLevel (not textureSample) — allowed in non-uniform control flow.
+  let sample = textureSampleLevel(digitTex, paintSampler, vec2f(atlasU, atlasV), 0.0);
+  return sample.a;
+}
+
+// Render a number along the Z axis at markerZ (digits extend in Z, height in X).
+fn renderNumberZ(worldPos: vec3f, markerZ: f32, number: i32, digitW: f32, digitH: f32) -> f32 {
+  let nd = numDigits(number);
+  let totalW = f32(nd) * digitW;
+  let halfW = totalW * 0.5;
+  let halfH = digitH * 0.5;
+
+  let dz = worldPos.z - markerZ;
+  let dx = worldPos.x;
+
+  if (abs(dx) > halfH || abs(dz) > halfW) { return 0.0; }
+
+  let localZ = dz + halfW;
+  let digitIdx = i32(clamp(localZ / digitW, 0.0, f32(nd) - 1.0));
+  // Mirror horizontally — the Z axis reads from the +X side, so digits
+  // need to be flipped to appear correctly when viewed from that direction.
+  let digitLocalU = 1.0 - fract(localZ / digitW);
+
+  let digitVal = extractDigit(number, nd - 1 - digitIdx);
+  let atlasU = (f32(digitVal) + digitLocalU) / 10.0;
+  let atlasV = (dx + halfH) / digitH;
+
+  let sample = textureSampleLevel(digitTex, paintSampler, vec2f(atlasU, atlasV), 0.0);
+  return sample.a;
+}
+
 struct VertexOut {
   @builtin(position) clipPos: vec4f,
   @location(0) worldPos: vec3f,
@@ -129,35 +216,119 @@ fn vs(@location(0) pos: vec3f) -> VertexOut {
 @fragment
 fn fs(in: VertexOut) -> @location(0) vec4f {
   let worldPos = in.worldPos;
-  // Checkerboard pattern (2m squares)
-  let checkScale = 2.0;
-  let cx = floor(worldPos.x / checkScale);
-  let cz = floor(worldPos.z / checkScale);
-  let checker = (cx + cz) % 2.0;
-  // Grid lines (every 4m)
-  let gridSize = 4.0;
-  let gx = abs(fract(worldPos.x / gridSize) - 0.5) * gridSize;
-  let gz = abs(fract(worldPos.z / gridSize) - 0.5) * gridSize;
-  let edge = min(gx, gz);
-  let gridLine = 1.0 - smoothstep(0.0, 0.08, edge);
-  // Base colors
-  let colorA = vec3f(0.45, 0.48, 0.52);
-  let colorB = vec3f(0.38, 0.41, 0.45);
-  let baseColor = mix(colorA, colorB, checker);
-  // Add grid lines
-  let gridColor = vec3f(0.25, 0.27, 0.30);
-  let color = mix(baseColor, gridColor, gridLine * 0.5);
-  // Sample paint texture (512m ground → 512px texture, 1m = 1px)
+  let xz = worldPos.xz;
+
+  // Distance from camera (for grid line anti-aliasing / fade)
+  let camDist = length(xz - u.cameraPos.xz);
+
+  // ── Base floor color ──
+  let baseColor = vec3f(0.18, 0.19, 0.22);
+
+  // ── Multi-tier grid ──
+  // Minor: 1m spacing (fades out with distance to avoid aliasing)
+  let minorFade = clamp(1.0 - camDist / 40.0, 0.0, 1.0);
+  let minorX = gridLine(worldPos.x, 1.0, 0.03) * minorFade;
+  let minorZ = gridLine(worldPos.z, 1.0, 0.03) * minorFade;
+  let minorGrid = max(minorX, minorZ);
+
+  // Medium: 10m spacing
+  let medFade = clamp(1.0 - camDist / 150.0, 0.0, 1.0);
+  let medX = gridLine(worldPos.x, 10.0, 0.06) * medFade;
+  let medZ = gridLine(worldPos.z, 10.0, 0.06) * medFade;
+  let medGrid = max(medX, medZ);
+
+  // Major: 100m spacing (always visible)
+  let majorX = gridLine(worldPos.x, 100.0, 0.12);
+  let majorZ = gridLine(worldPos.z, 100.0, 0.12);
+  let majorGrid = max(majorX, majorZ);
+
+  // Grid colors
+  let minorColor = vec3f(0.28, 0.30, 0.34);
+  let medColor   = vec3f(0.38, 0.42, 0.48);
+  let majorColor = vec3f(0.55, 0.60, 0.68);
+
+  var color = baseColor;
+  color = mix(color, minorColor, minorGrid * 0.5);
+  color = mix(color, medColor,   medGrid * 0.7);
+  color = mix(color, majorColor, majorGrid * 0.9);
+
+  // ── Axis lines (X = warm red, Z = cool blue) ──
+  // Sharp lines — tight smoothstep transition (10% of width) for crisp edges.
+  let axisWidth = 0.04 + clamp(camDist / 800.0, 0.0, 0.1);
+  let xAxisLine = 1.0 - smoothstep(axisWidth * 0.9, axisWidth, abs(worldPos.z));
+  let zAxisLine = 1.0 - smoothstep(axisWidth * 0.9, axisWidth, abs(worldPos.x));
+  let xAxisFade = clamp(1.0 - abs(worldPos.x) / 250.0, 0.0, 1.0);
+  let zAxisFade = clamp(1.0 - abs(worldPos.z) / 250.0, 0.0, 1.0);
+  color = mix(color, vec3f(0.85, 0.3, 0.15), xAxisLine * xAxisFade * 0.8);
+  color = mix(color, vec3f(0.15, 0.4, 0.85), zAxisLine * zAxisFade * 0.8);
+
+  // ── Origin marker (bright cross at 0,0) ──
+  let originDist = length(xz);
+  let originGlow = 1.0 - smoothstep(0.0, 3.0, originDist);
+  color = mix(color, vec3f(0.9, 0.9, 0.95), originGlow * 0.5);
+
+  // ── Distance rings (concentric, from origin) ──
+  var ringIntensity = 0.0;
+  var ringColor = vec3f(0.0);
+
+  let r10 = distanceRing(xz, 10.0, 0.08);
+  ringIntensity = max(ringIntensity, r10 * 0.4);
+  ringColor = mix(ringColor, vec3f(0.4, 0.5, 0.55), r10);
+
+  let r50 = distanceRing(xz, 50.0, 0.15);
+  ringIntensity = max(ringIntensity, r50 * 0.5);
+  ringColor = mix(ringColor, vec3f(0.5, 0.55, 0.6), r50);
+
+  let r100 = distanceRing(xz, 100.0, 0.25);
+  ringIntensity = max(ringIntensity, r100 * 0.6);
+  ringColor = mix(ringColor, vec3f(0.6, 0.6, 0.65), r100);
+
+  let r200 = distanceRing(xz, 200.0, 0.4);
+  ringIntensity = max(ringIntensity, r200 * 0.7);
+  ringColor = mix(ringColor, vec3f(0.7, 0.65, 0.6), r200);
+
+  let r500 = distanceRing(xz, 500.0, 0.6);
+  ringIntensity = max(ringIntensity, r500 * 0.8);
+  ringColor = mix(ringColor, vec3f(0.8, 0.7, 0.55), r500);
+
+  color = mix(color, ringColor, ringIntensity);
+
+  // ── Numeric distance markers along axes ──
+  // Numbers at every 10m along both axes, showing the coordinate value.
+  // Digit size: 0.4m wide, 0.6m tall — small but crisp.
+  let markerSpacing = 10.0;
+  let digitW = 0.4;
+  let digitH = 0.6;
+  let textColor = vec3f(0.9, 0.92, 0.95);
+
+  // X axis: numbers at x = ±10, ±20, ..., ±250
+  let nearestMarkerX = round(worldPos.x / markerSpacing) * markerSpacing;
+  var textCoverage = 0.0;
+  if (abs(nearestMarkerX) > 0.5 && abs(nearestMarkerX) < 251.0) {
+    let num = i32(abs(nearestMarkerX));
+    textCoverage = max(textCoverage, renderNumberX(worldPos, nearestMarkerX, num, digitW, digitH));
+  }
+  // Z axis: numbers at z = ±10, ±20, ..., ±250
+  let nearestMarkerZ = round(worldPos.z / markerSpacing) * markerSpacing;
+  if (abs(nearestMarkerZ) > 0.5 && abs(nearestMarkerZ) < 251.0) {
+    let num = i32(abs(nearestMarkerZ));
+    textCoverage = max(textCoverage, renderNumberZ(worldPos, nearestMarkerZ, num, digitW, digitH));
+  }
+  color = mix(color, textColor, textCoverage * 0.85);
+
+  // ── Paint texture (512m ground, 512px texture, 1m = 1px) ──
   let paintUV = vec2f(worldPos.x / 512.0 + 0.5, worldPos.z / 512.0 + 0.5);
   let paint = textureSample(paintTex, paintSampler, paintUV);
   let finalColor = mix(color, paint.rgb, paint.a);
-  // Lighting: ground normal is up (0,1,0)
+
+  // ── Lighting: ground normal is up (0,1,0) ──
   let N = vec3f(0.0, 1.0, 0.0);
   let sunDir = normalize(lighting.sunDir);
   let sunShadow = pcfShadow(worldPos, N);
   let diffuse = max(dot(N, sunDir), 0.0) * lighting.sunColor * sunShadow;
-  let hemisphere = lighting.skyAmbient; // ground faces up → sky ambient
+  let hemisphere = lighting.skyAmbient;
   var litColor = finalColor * (hemisphere * lighting.ambientIntensity + diffuse);
+
   // Point lights
   let plCount = lighting.pointLightCount;
   for (var i = 0u; i < plCount; i++) {
@@ -175,9 +346,9 @@ fn fs(in: VertexOut) -> @location(0) vec4f {
       litColor += finalColor * plColor * plIntensity * atten * ndotl;
     }
   }
+
   // Distance fog — match sky ambient color
-  let dist = length(worldPos.xz - u.cameraPos.xz);
-  let fog = clamp(1.0 - dist / 400.0, 0.0, 1.0);
+  let fog = clamp(1.0 - camDist / 400.0, 0.0, 1.0);
   let fogColor = lighting.skyAmbient;
   return vec4f(mix(fogColor, litColor, fog), 1.0);
 }
@@ -450,6 +621,8 @@ export class WebGPURenderer extends GameRenderer {
   private groundPaintTexture: GPUTexture | null = null;
   private groundPaintSampler: GPUSampler | null = null;
   private groundPaintBindGroup: GPUBindGroup | null = null;
+  // Digit atlas for distance markers (10 digits, 64x96 each, in a 640x96 strip)
+  private digitTexture: GPUTexture | null = null;
 
   // Procedural cube pipeline (for builtin props without model files)
   private cubePipeline: GPURenderPipeline | null = null;
@@ -821,12 +994,45 @@ export class WebGPURenderer extends GameRenderer {
       minFilter: "linear",
       mipmapFilter: "linear",
     });
+
+    // ── Digit atlas for distance markers ──
+    // 10 digits (0-9) in a 2560x384 strip (256x384 per digit, 2:3 aspect).
+    // High resolution for crisp text when viewed at shallow angles.
+    const DIGIT_W = 256;
+    const DIGIT_H = 384;
+    const digitCanvas = document.createElement("canvas");
+    digitCanvas.width = DIGIT_W * 10;
+    digitCanvas.height = DIGIT_H;
+    const dctx = digitCanvas.getContext("2d")!;
+    dctx.clearRect(0, 0, DIGIT_W * 10, DIGIT_H);
+    dctx.fillStyle = "white";
+    dctx.font = `bold ${Math.floor(DIGIT_H * 0.8)}px monospace`;
+    dctx.textAlign = "center";
+    dctx.textBaseline = "middle";
+    for (let i = 0; i < 10; i++) {
+      dctx.fillText(String(i), i * DIGIT_W + DIGIT_W / 2, DIGIT_H / 2);
+    }
+    const digitImageData = dctx.getImageData(0, 0, DIGIT_W * 10, DIGIT_H);
+    this.digitTexture = device.createTexture({
+      label: "digit-atlas",
+      size: [DIGIT_W * 10, DIGIT_H],
+      format: "rgba8unorm",
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    });
+    device.queue.writeTexture(
+      { texture: this.digitTexture },
+      digitImageData.data,
+      { bytesPerRow: DIGIT_W * 10 * 4 },
+      { width: DIGIT_W * 10, height: DIGIT_H },
+    );
+
     this.groundPaintBindGroup = device.createBindGroup({
       label: "ground-paint-bindgroup",
       layout: this.groundPipeline.getBindGroupLayout(1),
       entries: [
         { binding: 0, resource: this.groundPaintTexture.createView() },
         { binding: 1, resource: this.groundPaintSampler },
+        { binding: 2, resource: this.digitTexture.createView() },
       ],
     });
   }

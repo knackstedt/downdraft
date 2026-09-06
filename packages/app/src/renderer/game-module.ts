@@ -35,7 +35,7 @@ import {
 } from "@downdraft/core";
 import { bootstrapGame, type BootstrapDevToolsOptions } from "./bootstrap";
 import { downdraft, getCanvas, getOverlay } from "./index";
-import { createSaveStore, type SaveStoreMode } from "./save-store-factory";
+import { createSaveStore, isOpfsAvailable, type SaveStoreMode } from "./save-store-factory";
 
 // ── Types ──
 
@@ -466,21 +466,29 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
     await module.onBeforeInit(ctx);
   }
 
-  // 6. Initialize save store (if configured) — before bootstrapGame so
-  //    onReady can use it. Non-blocking: failures fall back to IPC.
+  // 6. Initialize save store (if configured) — for non-inline modes this
+  //    runs before bootstrapGame so onReady can use it. For inline mode
+  //    (sim-worker + OPFS), the store is initialized inside onRendererInit
+  //    after the sim worker has started.
   if (module.save && !deterministic) {
     try {
       const saveMode = module.save.mode ?? "auto";
-      const store = await createSaveStore({
-        mode: saveMode,
-        opfsOptions: {
-          engineVersion: module.save.engineVersion,
-          maxGenerations: module.save.maxGenerations ?? 3,
-        },
-        bridge: downdraft,
-      });
-      ctx.saveStore = store;
-      ctx.saveMode = store ? (saveMode === "auto" ? "worker" : saveMode) : "ipc";
+      if (saveMode === "auto" && simWorker?.initSaveStore && isOpfsAvailable()) {
+        // Inline mode — defer init to onRendererInit (after sim worker starts).
+        ctx.saveMode = "inline";
+        ctx.saveStore = null;
+      } else {
+        const store = await createSaveStore({
+          mode: saveMode,
+          opfsOptions: {
+            engineVersion: module.save.engineVersion,
+            maxGenerations: module.save.maxGenerations ?? 3,
+          },
+          bridge: downdraft,
+        });
+        ctx.saveStore = store;
+        ctx.saveMode = store ? (saveMode === "auto" ? "worker" : saveMode) : "ipc";
+      }
     } catch (e) {
       console.warn("[startGame] Save store init failed, falling back to IPC:", e);
       ctx.saveMode = "ipc";
@@ -546,6 +554,22 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
         }
       }
 
+      // ── Inline save store init (sim-worker + OPFS) ──
+      // Now that the sim worker is started, initialize its inline OPFS store.
+      // This must happen before the autosave load (which runs in bootstrapGame
+      // after onRendererInit returns) so that the sim worker can load from OPFS.
+      if (ctx.saveMode === "inline" && simWorker?.initSaveStore && module.save) {
+        try {
+          await simWorker.initSaveStore({
+            engineVersion: module.save.engineVersion,
+            maxGenerations: module.save.maxGenerations ?? 3,
+          });
+        } catch (e) {
+          console.warn("[startGame] Inline save store init failed, falling back to IPC:", e);
+          ctx.saveMode = "ipc";
+        }
+      }
+
       // ── Plugin loading ──
       // Load all discovered plugins (renderer + own-worker threads). Sim-
       // thread plugins are forwarded to the sim worker by the game's sim
@@ -577,6 +601,13 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
               const stateJson = await ctx.saveSource.load(slotName);
               return stateJson ? JSON.parse(stateJson) : null;
             }
+            // Inline mode: sim worker loads directly from its own OPFS store.
+            // The sim worker's load() restores state internally; we just need
+            // a truthy return value so onLoad (if any) fires.
+            if (ctx.saveMode === "inline" && simWorker?.load) {
+              const success = await simWorker.load(slotName);
+              return success ? { restored: true } : null;
+            }
             if (ctx.saveStore) {
               const result = await ctx.saveStore.load(slotName);
               return result?.state ?? null;
@@ -596,6 +627,9 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
               : simWorker?.save
                 ? await simWorker.save(slotName)
                 : null;
+            // In inline mode, the sim worker's save() already persisted to
+            // its own OPFS store — nothing more to do here.
+            // In IPC mode, forward the state JSON to the main process.
             if (result?.stateJson && ctx.saveMode === "ipc" && downdraft?.saveGameState) {
               await downdraft.saveGameState(slotName, result.stateJson);
             }
