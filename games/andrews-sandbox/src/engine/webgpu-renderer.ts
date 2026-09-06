@@ -675,6 +675,13 @@ export class WebGPURenderer extends GameRenderer {
   // Reusable staging buffer for instance data (24 floats × 96 bytes per instance).
   // Pre-allocated to maxEntities to avoid per-frame GC.
   private instanceStaging = new Float32Array(4096 * 24);
+  // Temporary buffer for repacking painted/unpainted entities in renderShapeBatch.
+  // copyWithin on instanceStaging can overwrite data for entities that haven't
+  // been processed yet (e.g. a painted entity moved to the end overwrites a
+  // later unpainted entity's slot, causing it to inherit hasPaint=1 and render
+  // white via the default 1×1 opaque texture). We snapshot the batch into this
+  // temp buffer first, then repack from it back into instanceStaging.
+  private repackTemp = new Float32Array(4096 * 24);
   // Reusable staging for the shadow-pass light VP matrix (16 floats = 64 bytes).
   private lightVPStaging = new Float32Array(16);
   private cubeBindGroup0Layout: GPUBindGroupLayout | null = null;
@@ -2092,6 +2099,23 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
     // collectRenderEntities(). We only need to repack painted/unpainted
     // for the scene pass (shadow pass doesn't need paint sorting).
     // Unpainted packed at [0, unpaintedCount); painted packed from the end.
+    //
+    // Snapshot the batch into repackTemp first, then repack from temp back
+    // into staging.  copyWithin on staging in a single pass can overwrite
+    // data for entities that haven't been processed yet — e.g. a painted
+    // entity at idx=2 moved to the last slot overwrites the entity already
+    // living there; when that entity is later processed it reads the
+    // painted entity's hasPaint=1, and since it's drawn with the default
+    // 1×1 opaque-white texture the shader produces mix(baseColor, white, 1)
+    // = white, making the whole prop appear white.
+    const temp = this.repackTemp;
+    for (let idx = 0; idx < drawCount; idx++) {
+      const srcOff = (baseOffset + idx) * 24;
+      const tmpOff = idx * 24;
+      // Copy 24 floats (full instance stride incl. padding).
+      temp.set(staging.subarray(srcOff, srcOff + 24), tmpOff);
+    }
+
     let unpaintedCount = 0;
     const painted: Array<{ slotIdx: number; entityId: number }> = [];
 
@@ -2100,22 +2124,18 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
       const entityId = i + 1;
       const hasPaint = paintFlags[i];
 
-      // Source offset in staging (from collectRenderEntities) = idx * 24.
-      // Dest offset = repacked position in the batch.
+      // Source offset in temp = idx * 24 (temp is 0-indexed per batch).
+      // Dest offset in staging = repacked position in the batch.
       const slotIdx = hasPaint ? (drawCount - 1 - painted.length) : unpaintedCount;
       const srcOff = idx * 24;
       const dstOff = (baseOffset + slotIdx) * 24;
 
+      // Copy 21 floats (model matrix + color + paint flag) from temp to staging.
+      staging.set(temp.subarray(srcOff, srcOff + 21), dstOff);
+
       if (hasPaint) {
-        // Copy 21 floats (model matrix + color + paint flag) to repacked position.
-        if (srcOff !== dstOff) {
-          staging.copyWithin(dstOff, srcOff, srcOff + 21);
-        }
         painted.push({ slotIdx: baseOffset + slotIdx, entityId });
       } else {
-        if (srcOff !== dstOff) {
-          staging.copyWithin(dstOff, srcOff, srcOff + 21);
-        }
         unpaintedCount++;
       }
     }

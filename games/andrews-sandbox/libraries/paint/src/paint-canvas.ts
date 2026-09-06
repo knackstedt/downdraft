@@ -20,8 +20,10 @@ export class PaintCanvas {
     this.width = width;
     this.height = height;
     this.data = new Uint8ClampedArray(width * height * 4);
-    // Fill with white
-    this.data.fill(255);
+    // Start transparent so unpainted areas keep the prop's base color.
+    // The shaders use paint.a as the blend mask, so an opaque fill would
+    // wash the whole surface white on the first upload.
+    this.data.fill(0);
   }
 
   get Width(): number { return this.width; }
@@ -71,8 +73,8 @@ export class PaintCanvas {
     this.dirtyRegions.push({ x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 });
   }
 
-  /** Clear the canvas to a solid color. */
-  clear(r: number = 255, g: number = 255, b: number = 255, a: number = 255): void {
+  /** Clear the canvas to a solid color (transparent by default). */
+  clear(r: number = 0, g: number = 0, b: number = 0, a: number = 0): void {
     for (let i = 0; i < this.data.length; i += 4) {
       this.data[i] = r;
       this.data[i + 1] = g;
