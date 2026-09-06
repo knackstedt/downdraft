@@ -20,6 +20,7 @@ import {
     SafetyLayer,
     SnapshotManager,
 } from "@downdraft/core";
+import type { RapierPhysicsBackend } from "./backend";
 
 /**
  * Universal Physics API — the single public interface games use.
@@ -78,6 +79,17 @@ export class UniversalPhysicsAPI {
       snapshotInterval: config.snapshotInterval,
       predictionMode: config.predictionMode,
     });
+
+    // Propagate step optimization flags to the backend (if it supports them).
+    // RapierPhysicsBackend uses these to skip contact extraction and transform
+    // readback in step() — major wins for games that don't use contacts.
+    const rb = backend as RapierPhysicsBackend;
+    if (typeof rb.extractContacts === "boolean") {
+      rb.extractContacts = config.extractContacts ?? true;
+    }
+    if (typeof rb.readBackTransformsOnStep === "boolean") {
+      rb.readBackTransformsOnStep = config.readBackTransformsOnStep ?? true;
+    }
   }
 
   // --- Body lifecycle ---
@@ -223,6 +235,9 @@ export class UniversalPhysicsAPI {
   }
   getTranslationRaw(body: PhysicsBody, out: [number, number, number]): void {
     this.backend.getTranslationRaw(body, out);
+  }
+  getRotationRaw(body: PhysicsBody, out: [number, number, number, number]): void {
+    this.backend.getRotationRaw(body, out);
   }
   getLinearVelocityRaw(body: PhysicsBody, out: [number, number, number]): void {
     this.backend.getLinearVelocityRaw(body, out);

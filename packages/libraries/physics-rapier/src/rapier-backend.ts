@@ -28,6 +28,7 @@ export interface PhysicsLib {
   setTranslationRaw?(realmId: number, bodyId: number, x: number, y: number, z: number, wakeUp: boolean): void;
   setRotationRaw?(realmId: number, bodyId: number, x: number, y: number, z: number, w: number, wakeUp: boolean): void;
   getTranslationRaw?(realmId: number, bodyId: number, out: [number, number, number]): void;
+  getRotationRaw?(realmId: number, bodyId: number, out: [number, number, number, number]): void;
   getLinearVelocityRaw?(realmId: number, bodyId: number, out: [number, number, number]): void;
   setLinearVelocityRaw?(realmId: number, bodyId: number, x: number, y: number, z: number, wakeUp: boolean): void;
   setAngularVelocityRaw?(realmId: number, bodyId: number, x: number, y: number, z: number, wakeUp: boolean): void;
@@ -808,8 +809,21 @@ async function doLoadPhysicsLib(): Promise<PhysicsLib> {
         } else {
           const t = body.translation();
           out[0] = t.x; out[1] = t.y; out[2] = t.z;
-          // Free the RawVector to prevent WASM borrow aliasing
           try { (t as any).free?.(); } catch {}
+        }
+      },
+      getRotationRaw(realmId, bodyId, out) {
+        const body = bodyMaps.get(realmId)?.get(bodyId);
+        if (!body) { out[0] = 0; out[1] = 0; out[2] = 0; out[3] = 1; return; }
+        const rawBodies = realms.get(realmId)?.bodies.raw;
+        if (rawBodies) {
+          const r = rawBodies.rbRotation(body.handle);
+          out[0] = r.x; out[1] = r.y; out[2] = r.z; out[3] = r.w;
+          r.free();
+        } else {
+          const r = body.rotation();
+          out[0] = r.x; out[1] = r.y; out[2] = r.z; out[3] = r.w;
+          try { (r as any).free?.(); } catch {}
         }
       },
       getLinearVelocityRaw(realmId, bodyId, out) {
@@ -823,7 +837,6 @@ async function doLoadPhysicsLib(): Promise<PhysicsLib> {
         } else {
           const v = body.linvel();
           out[0] = v.x; out[1] = v.y; out[2] = v.z;
-          // Free the RawVector to prevent WASM borrow aliasing
           try { (v as any).free?.(); } catch {}
         }
       },

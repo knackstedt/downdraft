@@ -281,6 +281,21 @@ export interface PhysicsModuleConfig {
    * If false, far-tier dynamic bodies are force-promoted on static contact.
    */
   duplicateStatics: boolean;
+  /**
+   * If true (default), `step()` extracts contact manifolds + intersection
+   * pairs after each physics step. Games that never read contacts/intersections
+   * (e.g. prop sandboxes) can set this to false to skip the expensive
+   * WASM↔JS callback traversal — ~43% of step time in such games.
+   */
+  extractContacts?: boolean;
+  /**
+   * If true (default), `step()` reads back all body transforms from WASM into
+   * the backend's cached body state after each step. Games that read transforms
+   * via the Raw scalar API (`getTranslationRaw`/`getLinearVelocityRaw`) or the
+   * bulk `readTransforms` buffer can set this to false to avoid redundant
+   * high-level API calls (each allocates wrapped RawVector/RawRotation objects).
+   */
+  readBackTransformsOnStep?: boolean;
 }
 
 export interface PhysicsStats {
@@ -350,6 +365,8 @@ export interface PhysicsBackend {
   setRotationRaw(body: PhysicsBody, x: number, y: number, z: number, w: number, wakeUp: boolean): void;
   /** Scalar getTranslation — writes into out[0..2], avoids alloc. */
   getTranslationRaw(body: PhysicsBody, out: [number, number, number]): void;
+  /** Scalar getRotation (quaternion) — writes into out[0..3], avoids alloc. */
+  getRotationRaw(body: PhysicsBody, out: [number, number, number, number]): void;
   /** Scalar getLinearVelocity — writes into out[0..2]. */
   getLinearVelocityRaw(body: PhysicsBody, out: [number, number, number]): void;
   /** Scalar setLinearVelocity. */

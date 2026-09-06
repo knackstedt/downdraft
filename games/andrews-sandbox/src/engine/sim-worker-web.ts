@@ -40,6 +40,11 @@ let playerPos: [number, number, number] = [0, PLAYER_HEIGHT, 0];
 let playerGrounded = false;
 let pendingPlayerMove: [number, number, number] | null = null;
 
+// ── Reused out-tuples for Raw scalar physics reads (zero-alloc hot path) ──
+const _posOut: [number, number, number] = [0, 0, 0];
+const _rotOut: [number, number, number, number] = [0, 0, 0, 1];
+const _velOut: [number, number, number] = [0, 0, 0];
+
 // Entity tracking
 interface PropRecord {
   contentId: string;
@@ -88,6 +93,12 @@ async function initPhysics(): Promise<void> {
     workerCount: 0,
     devMode: false,
     duplicateStatics: false,
+    // The sandbox never reads contacts/intersections — skip the expensive
+    // WASM↔JS callback traversal in step() (~43% of step time).
+    extractContacts: false,
+    // Transforms are read via the Raw scalar API in syncTransforms() —
+    // skip the redundant high-level readback in step().
+    readBackTransformsOnStep: false,
   });
   physicsApi.reserveMemory(64 * 1024 * 1024);
 
@@ -261,10 +272,10 @@ function setFunMode(mode: FunMode): void {
   // Recreate each body with new properties (the engine doesn't expose runtime
   // property setters for restitution/friction/gravityScale).
   for (const record of propRecords.values()) {
-    const pos = physicsApi!.getPosition(record.body);
-    const rot = physicsApi!.getRotation(record.body);
+    physicsApi!.getTranslationRaw(record.body, _posOut);
+    physicsApi!.getRotationRaw(record.body, _rotOut);
     physicsApi!.destroyBody(record.body);
-    record.body = createPropBody(pos, rot, record.shape, record.halfExtents, record.radius, record.mass, restitution, friction, gravityScale);
+    record.body = createPropBody(_posOut, _rotOut, record.shape, record.halfExtents, record.radius, record.mass, restitution, friction, gravityScale);
     record.restitution = restitution;
     record.friction = friction;
     record.gravityScale = gravityScale;
@@ -303,7 +314,7 @@ function processCommand(cmd: SimCommand): void {
       const slotIdx = freeSlots.length > 0 ? freeSlots.shift()! : nextSlotIdx++;
       const entityId = slotIdx + 1;
       const body = createPropBody(cmd.origin, [0, 0, 0, 1], "sphere", [0.1, 0.1, 0.1], 0.1, 0.5, 0.5, 0.3, 0.5, true, slotIdx);
-      physicsApi!.setLinearVelocity(body, [cmd.direction[0] * 50, cmd.direction[1] * 50, cmd.direction[2] * 50]);
+      physicsApi!.setLinearVelocityRaw(body, cmd.direction[0] * 50, cmd.direction[1] * 50, cmd.direction[2] * 50, true);
 
       const f32 = simWriter!.getEntityF32(slotIdx);
       const u32 = simWriter!.getEntityU32(slotIdx);
@@ -335,14 +346,14 @@ function processCommand(cmd: SimCommand): void {
       const record = propRecords.get(cmd.entityId);
       if (record && physicsApi) {
         physicsApi.setBodyType(record.body, "dynamic");
-        physicsApi.setLinearVelocity(record.body, cmd.velocity);
+        physicsApi.setLinearVelocityRaw(record.body, cmd.velocity[0], cmd.velocity[1], cmd.velocity[2], true);
       }
       break;
     }
     case "updateGrab": {
       const record = propRecords.get(cmd.entityId);
       if (record && physicsApi) {
-        physicsApi.setPosition(record.body, cmd.targetPos);
+        physicsApi.setTranslationRaw(record.body, cmd.targetPos[0], cmd.targetPos[1], cmd.targetPos[2], false);
       }
       break;
     }
@@ -354,16 +365,16 @@ function processCommand(cmd: SimCommand): void {
       const newFriction = cmd.friction ?? record.friction;
       const newGravityScale = cmd.gravityScale ?? record.gravityScale;
       // Recreate body with new physics properties (no runtime setter API)
-      const pos = physicsApi.getPosition(record.body);
-      const rot = physicsApi.getRotation(record.body);
-      const vel = physicsApi.getLinearVelocity(record.body);
+      physicsApi.getTranslationRaw(record.body, _posOut);
+      physicsApi.getRotationRaw(record.body, _rotOut);
+      physicsApi.getLinearVelocityRaw(record.body, _velOut);
       physicsApi.destroyBody(record.body);
-      record.body = createPropBody(pos, rot, record.shape, record.halfExtents, record.radius, newMass, newRestitution, newFriction, newGravityScale);
+      record.body = createPropBody(_posOut, _rotOut, record.shape, record.halfExtents, record.radius, newMass, newRestitution, newFriction, newGravityScale);
       record.mass = newMass;
       record.restitution = newRestitution;
       record.friction = newFriction;
       record.gravityScale = newGravityScale;
-      physicsApi.setLinearVelocity(record.body, vel);
+      physicsApi.setLinearVelocityRaw(record.body, _velOut[0], _velOut[1], _velOut[2], true);
       // Update SAB
       const f32 = simWriter!.getEntityF32(record.slotIdx);
       const u32 = simWriter!.getEntityU32(record.slotIdx);
@@ -390,24 +401,35 @@ function processCommand(cmd: SimCommand): void {
 }
 
 // ── Sync physics transforms back to SAB ──
+// Hot path: runs every tick for every prop. Uses the Raw scalar API with
+// reused out-tuples to avoid per-entity tuple allocation + spread copies,
+// and skips sleeping bodies (no transform changes while asleep).
 function syncTransforms(): void {
   if (!physicsApi || !simWriter) return;
+  const api = physicsApi;
+  const writer = simWriter;
   for (const record of propRecords.values()) {
-    const pos = physicsApi.getPosition(record.body);
-    const rot = physicsApi.getRotation(record.body);
-    const f32 = simWriter.getEntityF32(record.slotIdx);
-    f32[ENT.POS_X] = pos[0];
-    f32[ENT.POS_Y] = pos[1];
-    f32[ENT.POS_Z] = pos[2];
-    f32[ENT.ROT_X] = rot[0];
-    f32[ENT.ROT_Y] = rot[1];
-    f32[ENT.ROT_Z] = rot[2];
-    f32[ENT.ROT_W] = rot[3];
-    const vel = physicsApi.getLinearVelocity(record.body);
-    f32[ENT.VEL_X] = vel[0];
-    f32[ENT.VEL_Y] = vel[1];
-    f32[ENT.VEL_Z] = vel[2];
-    simWriter.markEntityDirty(record.slotIdx);
+    // Skip sleeping bodies — their transforms don't change.
+    if (api.isSleepingRaw(record.body)) continue;
+
+    // Raw scalar reads into reused out-tuples (zero allocation).
+    api.getTranslationRaw(record.body, _posOut);
+    api.getRotationRaw(record.body, _rotOut);
+    api.getLinearVelocityRaw(record.body, _velOut);
+
+    const f32 = writer.getEntityF32(record.slotIdx);
+    f32[ENT.POS_X] = _posOut[0];
+    f32[ENT.POS_Y] = _posOut[1];
+    f32[ENT.POS_Z] = _posOut[2];
+    f32[ENT.ROT_X] = _rotOut[0];
+    f32[ENT.ROT_Y] = _rotOut[1];
+    f32[ENT.ROT_Z] = _rotOut[2];
+    f32[ENT.ROT_W] = _rotOut[3];
+    f32[ENT.VEL_X] = _velOut[0];
+    f32[ENT.VEL_Y] = _velOut[1];
+    f32[ENT.VEL_Z] = _velOut[2];
+
+    writer.markEntityDirty(record.slotIdx);
   }
 }
 

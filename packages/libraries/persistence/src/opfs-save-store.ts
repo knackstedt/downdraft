@@ -433,8 +433,25 @@ export class OpfsSaveStore implements ISaveStore {
   // ── ISaveStore: load ────────────────────────────────────────────────────
 
   async load(slot: string, opts?: LoadOptions): Promise<LoadResult> {
+    let slotDir: FsDirHandle;
     try {
-      const slotDir = await this.getSlotDir(slot, false);
+      slotDir = await this.getSlotDir(slot, false);
+    } catch (err) {
+      // Slot directory doesn't exist (first run / no save yet) — expected,
+      // not an error. Real OPFS throws a DOMException with name "NotFoundError";
+      // the mock OPFS throws a plain Error with "not found" in the message.
+      const name = (err as DOMException)?.name;
+      const msg = (err as Error)?.message ?? "";
+      const isNotFound = name === "NotFoundError" || name === "TypeMismatchError" ||
+        /not found/i.test(msg);
+      if (isNotFound) {
+        this.warn({ kind: "no_saves_found", slot, message: `No save slot '${slot}' found` });
+        return { state: null };
+      }
+      log.error("OpfsSaveStore", `Failed to access slot '${slot}': ${err}`);
+      return { state: null };
+    }
+    try {
       const meta = await this.readMeta(slotDir);
       if (!meta) {
         this.warn({ kind: "no_saves_found", slot, message: `No save meta found for slot '${slot}'` });

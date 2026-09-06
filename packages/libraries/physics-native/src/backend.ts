@@ -282,6 +282,11 @@ export class NativePhysicsBackend implements PhysicsBackend {
     if (b) { out[0] = b.position[0]; out[1] = b.position[1]; out[2] = b.position[2]; }
     else { out[0] = 0; out[1] = 0; out[2] = 0; }
   }
+  getRotationRaw(body: PhysicsBody, out: [number, number, number, number]): void {
+    const b = this.getBody(body);
+    if (b) { out[0] = b.rotation[0]; out[1] = b.rotation[1]; out[2] = b.rotation[2]; out[3] = b.rotation[3]; }
+    else { out[0] = 0; out[1] = 0; out[2] = 0; out[3] = 1; }
+  }
   getLinearVelocityRaw(body: PhysicsBody, out: [number, number, number]): void {
     const b = this.getBody(body);
     if (b) { out[0] = b.linearVelocity[0]; out[1] = b.linearVelocity[1]; out[2] = b.linearVelocity[2]; }

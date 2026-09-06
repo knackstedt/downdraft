@@ -52,6 +52,16 @@ export class RapierPhysicsBackend implements PhysicsBackend {
   private nextRealmId = 1;
   private destroyed = false;
 
+  /**
+   * Step options — set by UniversalPhysicsAPI from PhysicsModuleConfig.
+   * Games that don't read contacts/intersections set extractContacts=false
+   * to skip the expensive WASM↔JS callback traversal in step().
+   * Games that read transforms via the Raw API set readBackTransformsOnStep=false
+   * to skip redundant high-level transform readback.
+   */
+  extractContacts = true;
+  readBackTransformsOnStep = true;
+
   async init(): Promise<void> {
     if (this.lib) return;
     this.lib = await loadPhysicsLib();
@@ -338,6 +348,16 @@ export class RapierPhysicsBackend implements PhysicsBackend {
     }
   }
 
+  getRotationRaw(body: PhysicsBody, out: [number, number, number, number]): void {
+    if (this.lib && this.lib.getRotationRaw) {
+      this.lib.getRotationRaw(body.realmId, body.id, out);
+    } else {
+      const state = this.getBodyState(body);
+      if (state) { out[0] = state.rotation[0]; out[1] = state.rotation[1]; out[2] = state.rotation[2]; out[3] = state.rotation[3]; }
+      else { out[0] = 0; out[1] = 0; out[2] = 0; out[3] = 1; }
+    }
+  }
+
   getLinearVelocityRaw(body: PhysicsBody, out: [number, number, number]): void {
     if (this.lib && this.lib.getLinearVelocityRaw) {
       this.lib.getLinearVelocityRaw(body.realmId, body.id, out);
@@ -515,9 +535,14 @@ export class RapierPhysicsBackend implements PhysicsBackend {
 
     if (this.lib) {
       this.lib.step(realmId, dt);
-      this.readBackTransforms(realm);
-      realm.contacts = this.lib.getContacts(realmId);
-      realm.intersections = this.lib.getIntersections(realmId);
+      if (this.readBackTransformsOnStep) this.readBackTransforms(realm);
+      if (this.extractContacts) {
+        realm.contacts = this.lib.getContacts(realmId);
+        realm.intersections = this.lib.getIntersections(realmId);
+      } else {
+        realm.contacts.length = 0;
+        realm.intersections.length = 0;
+      }
       return;
     }
 
