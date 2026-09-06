@@ -410,9 +410,10 @@ startGame({
       paintSystem?.tick();
       vrModule?.tick(dt);
       const r = renderer as WebGPURenderer;
-      const fwd = getForwardVector(yaw, pitch);
+      const fwd = getMoveForward(yaw);
       const right = getRightVector(yaw);
-      // Compute desired horizontal movement (WASD)
+      // Compute desired horizontal movement (WASD) — uses yaw-only forward
+      // so looking up/down doesn't reduce horizontal speed.
       let dx = 0, dz = 0;
       if (keys.has("KeyW")) { dx += fwd[0] * MOVE_SPEED * dt; dz += fwd[2] * MOVE_SPEED * dt; }
       if (keys.has("KeyS")) { dx -= fwd[0] * MOVE_SPEED * dt; dz -= fwd[2] * MOVE_SPEED * dt; }
@@ -1081,6 +1082,12 @@ function getForwardVector(yaw: number, pitch: number): [number, number, number] 
     Math.sin(pitch),
     -Math.cos(pitch) * Math.cos(yaw),
   ];
+}
+
+// Horizontal forward vector (yaw only, no pitch) — used for WASD movement
+// so looking up/down doesn't reduce horizontal speed.
+function getMoveForward(yaw: number): [number, number, number] {
+  return [Math.sin(yaw), 0, -Math.cos(yaw)];
 }
 
 function getRightVector(yaw: number): [number, number, number] {
