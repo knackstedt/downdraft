@@ -9,16 +9,17 @@
 // ============================================================================
 
 import {
-    BindlessFrameBindings, BindlessMaterialManager, BindlessTextureRegistry,
-    DEPTH_FORMAT, ENT, GameRenderer,
-    InputBufferWriter, MSAA_SAMPLE_COUNT, SimBufferReader,
-    calculateViewProjInto, type CameraState,
-    type RenderContext, type TextureHandle
+  BindlessFrameBindings, BindlessMaterialManager, BindlessTextureRegistry,
+  DEPTH_FORMAT, ENT, GameRenderer,
+  InputBufferWriter, InterpolationBuffer,
+  MSAA_SAMPLE_COUNT, SimBufferReader,
+  calculateViewProjInto, type CameraState,
+  type RenderContext, type TextureHandle
 } from "@downdraft/core";
 import { ModelRenderer } from "@downdraft/library-entities";
 import { loadModel, type ModelData } from "@downdraft/library-models";
 import { PostProcessStack } from "@downdraft/library-postfx";
-import { ENT_DATA } from "@sandbox/shared/constants/buffer";
+import { ENT_DATA, SIM_TICK_DT } from "@sandbox/shared/constants/buffer";
 import { EntityType } from "@sandbox/shared/types";
 import { mat4 } from "wgpu-matrix";
 import { SandboxLighting, type PointLight } from "./lighting";
@@ -520,12 +521,60 @@ export class WebGPURenderer extends GameRenderer {
   private vignetteEnabled = true;
   private mipmapsEnabled = true;
 
+  // ── Entity transform interpolation ──
+  // Double-buffered prev/curr transform snapshots from the sim, interpolated
+  // each render frame using alpha = elapsedSinceTick / SIM_TICK_DT.
+  // This smooths motion at render rates > sim rate (e.g. 144Hz render, 60Hz
+  // sim) without extrapolation — rendered positions are always between two
+  // known-good physics states, so objects never clip through walls.
+  private static readonly INTERP_MAX_ENTITIES = 4096;
+  private interpBuffer: InterpolationBuffer | null = null;
+  // Output buffer for readInterpolated — 8 floats per entity (pos.xyz + rot.xyzw + scale).
+  private interpOut: Float32Array | null = null;
+  private interpLastTick = -1;
+  private interpLastTickTime = 0;
+  // Reusable scratch buffer for writeTick's readFn (avoids per-tick allocation).
+  private interpScratch: Float32Array | null = null;
+
   setSimReader(sab: SharedArrayBuffer): void {
     this.simReader = new SimBufferReader(sab);
+    // Create the interpolation buffer and pre-assign all slots so reseed()
+    // can find any entity index without runtime assignSlot calls.
+    this.interpBuffer = new InterpolationBuffer(WebGPURenderer.INTERP_MAX_ENTITIES);
+    this.interpOut = new Float32Array(WebGPURenderer.INTERP_MAX_ENTITIES * 8);
+    this.interpScratch = new Float32Array(WebGPURenderer.INTERP_MAX_ENTITIES * 8);
+    for (let i = 0; i < WebGPURenderer.INTERP_MAX_ENTITIES; i++) {
+      this.interpBuffer.assignSlot(i);
+    }
   }
 
   setInputWriter(sab: SharedArrayBuffer): void {
     this.inputWriter = new InputBufferWriter(sab);
+  }
+
+  // ── Entity lifecycle hooks for interpolation ──
+  // Called from main.tsx event handlers to reseed the interpolation buffer
+  // when a prop spawns (avoids interpolating from stale/garbage prev state)
+  // or is removed (releases the slot for potential recycling).
+  onPropSpawned(entityId: number): void {
+    if (!this.interpBuffer || !this.simReader) return;
+    const slotIdx = entityId - 1; // entityId = slotIdx + 1
+    if (slotIdx < 0 || slotIdx >= WebGPURenderer.INTERP_MAX_ENTITIES) return;
+    const slot = this.simReader.getEntitySlot(slotIdx);
+    this.interpBuffer.reseed(
+      slotIdx,
+      [slot.f32[ENT.POS_X], slot.f32[ENT.POS_Y], slot.f32[ENT.POS_Z]],
+      [slot.f32[ENT.ROT_X], slot.f32[ENT.ROT_Y], slot.f32[ENT.ROT_Z], slot.f32[ENT.ROT_W]],
+    );
+  }
+
+  onPropRemoved(entityId: number): void {
+    if (!this.interpBuffer) return;
+    const slotIdx = entityId - 1;
+    if (slotIdx < 0 || slotIdx >= WebGPURenderer.INTERP_MAX_ENTITIES) return;
+    this.interpBuffer.releaseSlot(slotIdx);
+    // Re-assign so a future spawn at the same slot index can reseed.
+    this.interpBuffer.assignSlot(slotIdx);
   }
 
   getModelRenderer(): ModelRenderer | null { return this.modelRenderer; }
@@ -1179,6 +1228,7 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
   /** Collect point lights from the sim (projectiles emit warm light). */
   private collectPointLights(): void {
     if (!this.lighting || !this.simReader) return;
+    const interp = this.interpOut;
     const count = this.simReader.getEntityCount();
     const lights: PointLight[] = [];
     for (let i = 0; i < count && lights.length < 8; i++) {
@@ -1187,8 +1237,13 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
       if (type === 255) continue;
       if (type === EntityType.Projectile) {
         // Projectiles emit a warm orange glow.
+        // Use interpolated position so the light matches the rendered projectile.
+        const off = i * 8;
+        const px = interp ? interp[off]     : slot.f32[ENT.POS_X];
+        const py = interp ? interp[off + 1] : slot.f32[ENT.POS_Y];
+        const pz = interp ? interp[off + 2] : slot.f32[ENT.POS_Z];
         lights.push({
-          position: [slot.f32[ENT.POS_X], slot.f32[ENT.POS_Y], slot.f32[ENT.POS_Z]],
+          position: [px, py, pz],
           color: [1.0, 0.6, 0.2],
           intensity: 2.0,
           radius: 8.0,
@@ -1198,11 +1253,63 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
     this.lighting.setPointLights(lights);
   }
 
+  // ── Entity transform interpolation ──
+  // Called once per frame at the top of drawFrame, before any rendering.
+  // Detects sim tick changes, snapshots transforms into the InterpolationBuffer,
+  // and produces an interpolated transform buffer for this frame's alpha.
+  private updateInterpolation(): void {
+    if (!this.simReader || !this.interpBuffer || !this.interpOut || !this.interpScratch) return;
+
+    const tick = this.simReader.getTick();
+    if (tick !== this.interpLastTick) {
+      const count = Math.min(this.simReader.getEntityCount(), WebGPURenderer.INTERP_MAX_ENTITIES);
+
+      // Read all entity transforms from the SAB into the scratch buffer, then
+      // feed to writeTick which swaps prev/curr internally.
+      const scratch = this.interpScratch;
+      for (let i = 0; i < count; i++) {
+        const slot = this.simReader.getEntitySlot(i);
+        const off = i * 8;
+        scratch[off]     = slot.f32[ENT.POS_X];
+        scratch[off + 1] = slot.f32[ENT.POS_Y];
+        scratch[off + 2] = slot.f32[ENT.POS_Z];
+        scratch[off + 3] = slot.f32[ENT.ROT_X];
+        scratch[off + 4] = slot.f32[ENT.ROT_Y];
+        scratch[off + 5] = slot.f32[ENT.ROT_Z];
+        scratch[off + 6] = slot.f32[ENT.ROT_W];
+        scratch[off + 7] = slot.f32[ENT.SCALE];
+      }
+
+      this.interpBuffer.writeTick(
+        0, // realmId — unused (sandbox has a single realm)
+        (_realmId: number, buf: Float32Array, entityCount: number) => { buf.set(scratch.subarray(0, entityCount * 8)); },
+        count,
+      );
+
+      this.interpLastTick = tick;
+      this.interpLastTickTime = performance.now();
+    }
+
+    // Alpha: how far we are between the last tick and the next expected tick.
+    // Clamped to [0, 1] — at render rates > sim rate, alpha stalls at 1.0
+    // until the next tick arrives (showing the curr state, no extrapolation).
+    const now = performance.now();
+    const alpha = SIM_TICK_DT > 0
+      ? Math.min(1, (now - this.interpLastTickTime) / (SIM_TICK_DT * 1000))
+      : 1;
+
+    const count = Math.min(this.simReader.getEntityCount(), WebGPURenderer.INTERP_MAX_ENTITIES);
+    this.interpBuffer.readInterpolated(alpha, this.interpOut, count);
+  }
+
   private drawFrame(dt: number): void {
     const device = this.getDevice();
     const context = this.getContext();
     if (!device || !context || !this.skyPipeline || !this.groundPipeline) return;
     if (!this.postProcessStack) return;
+
+    // Update interpolated transforms before any rendering (shadows + scene).
+    this.updateInterpolation();
 
     const canvas = this.getCanvas();
     const w = canvas.width;
@@ -1447,17 +1554,19 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
       if (drawCount <= 0) return;
 
       // Write all instance model matrices into the staging array in one pass.
+      const interp = this.interpOut;
       for (let idx = 0; idx < drawCount; idx++) {
         const i = indices[idx];
         const slot = this.simReader!.getEntitySlot(i);
-        const px = slot.f32[ENT.POS_X];
-        const py = slot.f32[ENT.POS_Y];
-        const pz = slot.f32[ENT.POS_Z];
-        const scale = slot.f32[ENT.SCALE] || 1.0;
-        const rx = slot.f32[ENT.ROT_X];
-        const ry = slot.f32[ENT.ROT_Y];
-        const rz = slot.f32[ENT.ROT_Z];
-        const rw = slot.f32[ENT.ROT_W];
+        const ioff = i * 8;
+        const px = interp ? interp[ioff]       : slot.f32[ENT.POS_X];
+        const py = interp ? interp[ioff + 1]   : slot.f32[ENT.POS_Y];
+        const pz = interp ? interp[ioff + 2]   : slot.f32[ENT.POS_Z];
+        const scale = (interp ? interp[ioff + 7] : slot.f32[ENT.SCALE]) || 1.0;
+        const rx = interp ? interp[ioff + 3]   : slot.f32[ENT.ROT_X];
+        const ry = interp ? interp[ioff + 4]   : slot.f32[ENT.ROT_Y];
+        const rz = interp ? interp[ioff + 5]   : slot.f32[ENT.ROT_Z];
+        const rw = interp ? interp[ioff + 6]   : slot.f32[ENT.ROT_W];
         const off = (baseOffset + idx) * 24;
         this.composeModelMatrixInto(staging, off, px, py, pz, rx, ry, rz, rw, scale);
       }
@@ -1516,6 +1625,7 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
 
   private renderProps(pass: GPURenderPassEncoder): void {
     if (!this.modelRenderer || !this.simReader) return;
+    const interp = this.interpOut;
     const count = this.simReader.getEntityCount();
     for (let i = 0; i < count; i++) {
       const slot = this.simReader.getEntitySlot(i);
@@ -1526,14 +1636,15 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
       const nodeId = `prop-${nodeIdRaw}`;
       if (!this.nodeToContent.has(nodeId)) continue;
 
-      const px = slot.f32[ENT.POS_X];
-      const py = slot.f32[ENT.POS_Y];
-      const pz = slot.f32[ENT.POS_Z];
-      const scale = slot.f32[ENT.SCALE];
-      const rx = slot.f32[ENT.ROT_X];
-      const ry = slot.f32[ENT.ROT_Y];
-      const rz = slot.f32[ENT.ROT_Z];
-      const rw = slot.f32[ENT.ROT_W];
+      const ioff = i * 8;
+      const px = interp ? interp[ioff]       : slot.f32[ENT.POS_X];
+      const py = interp ? interp[ioff + 1]   : slot.f32[ENT.POS_Y];
+      const pz = interp ? interp[ioff + 2]   : slot.f32[ENT.POS_Z];
+      const scale = interp ? interp[ioff + 7] : slot.f32[ENT.SCALE];
+      const rx = interp ? interp[ioff + 3]   : slot.f32[ENT.ROT_X];
+      const ry = interp ? interp[ioff + 4]   : slot.f32[ENT.ROT_Y];
+      const rz = interp ? interp[ioff + 5]   : slot.f32[ENT.ROT_Z];
+      const rw = interp ? interp[ioff + 6]   : slot.f32[ENT.ROT_W];
 
       this.modelRenderer.render(
         pass,
@@ -1622,19 +1733,21 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
     let unpaintedCount = 0;
     const painted: Array<{ slotIdx: number; entityId: number }> = [];
 
+    const interp = this.interpOut;
     for (let idx = 0; idx < drawCount; idx++) {
       const i = indices[idx];
       const slot = this.simReader!.getEntitySlot(i);
       const type = slot.u32[ENT.TYPE];
 
-      const px = slot.f32[ENT.POS_X];
-      const py = slot.f32[ENT.POS_Y];
-      const pz = slot.f32[ENT.POS_Z];
-      const scale = slot.f32[ENT.SCALE] || 1.0;
-      const rx = slot.f32[ENT.ROT_X];
-      const ry = slot.f32[ENT.ROT_Y];
-      const rz = slot.f32[ENT.ROT_Z];
-      const rw = slot.f32[ENT.ROT_W];
+      const ioff = i * 8;
+      const px = interp ? interp[ioff]       : slot.f32[ENT.POS_X];
+      const py = interp ? interp[ioff + 1]   : slot.f32[ENT.POS_Y];
+      const pz = interp ? interp[ioff + 2]   : slot.f32[ENT.POS_Z];
+      const scale = (interp ? interp[ioff + 7] : slot.f32[ENT.SCALE]) || 1.0;
+      const rx = interp ? interp[ioff + 3]   : slot.f32[ENT.ROT_X];
+      const ry = interp ? interp[ioff + 4]   : slot.f32[ENT.ROT_Y];
+      const rz = interp ? interp[ioff + 5]   : slot.f32[ENT.ROT_Z];
+      const rw = interp ? interp[ioff + 6]   : slot.f32[ENT.ROT_W];
 
       const entityId = i + 1;
       const paintTex = this.paintTextures.get(entityId);

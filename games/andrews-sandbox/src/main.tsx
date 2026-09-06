@@ -84,10 +84,16 @@ startGame({
         }
       }
 
+      // Reseed the interpolation buffer so the prop doesn't interpolate from
+      // a stale prev position (avoids a visual snap on spawn).
+      renderer.onPropSpawned(data.entityId);
+
       const propCount = countProps(ctx.simSAB!);
       useGameStore.getState().setPropCount(propCount);
     },
-    prop_removed: (_data, ctx) => {
+    prop_removed: (data, ctx) => {
+      const renderer = ctx.renderer as WebGPURenderer;
+      renderer.onPropRemoved(data.entityId);
       const propCount = countProps(ctx.simSAB!);
       useGameStore.getState().setPropCount(propCount);
     },
@@ -388,6 +394,12 @@ startGame({
       if (keys.has("KeyS")) { dx -= fwd[0] * MOVE_SPEED * dt; dz -= fwd[2] * MOVE_SPEED * dt; }
       if (keys.has("KeyA")) { dx -= right[0] * MOVE_SPEED * dt; dz -= right[2] * MOVE_SPEED * dt; }
       if (keys.has("KeyD")) { dx += right[0] * MOVE_SPEED * dt; dz += right[2] * MOVE_SPEED * dt; }
+      // Reset vertical velocity when grounded (prevents unbounded gravity
+      // accumulation that causes the character controller to receive huge
+      // downward deltas, leading to ground clipping and sideways jitter).
+      if (playerState.grounded) {
+        vy = 0;
+      }
       // Jump
       if (keys.has("Space") && playerState.grounded) {
         vy = JUMP_VELOCITY;
