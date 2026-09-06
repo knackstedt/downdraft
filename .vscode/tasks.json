@@ -6,7 +6,7 @@
       "type": "shell",
       "command": "bun ../../packages/cli/src/index.ts dev",
       "runOptions": {
-        "instanceLimit": 1
+        "instanceLimit": 2
       },
       "options": {
         "cwd": "${workspaceFolder}/games/to-the-ocean"
@@ -20,7 +20,7 @@
       "type": "shell",
       "command": "bun ../../packages/cli/src/index.ts dev",
       "runOptions": {
-        "instanceLimit": 1
+        "instanceLimit": 2
       },
       "options": {
         "cwd": "${workspaceFolder}/games/model-viewer"
@@ -34,7 +34,7 @@
       "type": "shell",
       "command": "bun ../../packages/cli/src/index.ts dev",
       "runOptions": {
-        "instanceLimit": 1
+        "instanceLimit": 2
       },
       "options": {
         "cwd": "${workspaceFolder}/games/falling-sand"
@@ -48,7 +48,7 @@
       "type": "shell",
       "command": "bun ../../packages/cli/src/index.ts dev",
       "runOptions": {
-        "instanceLimit": 1
+        "instanceLimit": 2
       },
       "options": {
         "cwd": "${workspaceFolder}/games/mining-rpg"
@@ -62,7 +62,7 @@
       "type": "shell",
       "command": "bun ../../packages/cli/src/index.ts dev",
       "runOptions": {
-        "instanceLimit": 1
+        "instanceLimit": 2
       },
       "options": {
         "cwd": "${workspaceFolder}/games/overburden"
@@ -76,7 +76,7 @@
       "type": "shell",
       "command": "bun ../../packages/cli/src/index.ts dev",
       "runOptions": {
-        "instanceLimit": 1
+        "instanceLimit": 2
       },
       "options": {
         "cwd": "${workspaceFolder}/games/sandjongg"
@@ -90,7 +90,7 @@
       "type": "shell",
       "command": "bun ../../packages/cli/src/index.ts dev",
       "runOptions": {
-        "instanceLimit": 1
+        "instanceLimit": 2
       },
       "options": {
         "cwd": "${workspaceFolder}/games/andrews-sandbox"
@@ -104,7 +104,7 @@
       "type": "shell",
       "command": "bun ../../packages/cli/src/index.ts dev",
       "runOptions": {
-        "instanceLimit": 1
+        "instanceLimit": 2
       },
       "options": {
         "cwd": "${workspaceFolder}/games/visual-test-bench"
