@@ -20,6 +20,10 @@ interface GameStoreState {
   fps: number;
   propCount: number;
 
+  // ESC menu
+  showEscMenu: boolean;
+  escMenuTab: "main" | "graphics" | "content" | "controls";
+
   // Graphics settings state
   showGraphicsPanel: boolean;
   bloomEnabled: boolean;
@@ -51,6 +55,11 @@ interface GameStoreState {
   setPaintHardness: (h: number) => void;
   setFps: (fps: number) => void;
   setPropCount: (count: number) => void;
+
+  // ESC menu setters
+  setShowEscMenu: (v: boolean) => void;
+  setEscMenuTab: (tab: "main" | "graphics" | "content" | "controls") => void;
+  toggleEscMenu: () => void;
 
   // Graphics settings setters
   toggleGraphicsPanel: () => void;
@@ -84,6 +93,10 @@ export const useGameStore = create<GameStoreState>((set) => ({
   fps: 0,
   propCount: 0,
 
+  // ESC menu
+  showEscMenu: false,
+  escMenuTab: "main",
+
   // Graphics settings defaults (match the renderer's defaults)
   showGraphicsPanel: false,
   bloomEnabled: true,
@@ -115,6 +128,11 @@ export const useGameStore = create<GameStoreState>((set) => ({
   setPaintHardness: (h) => set({ paintHardness: h }),
   setFps: (fps) => set({ fps }),
   setPropCount: (count) => set({ propCount: count }),
+
+  // ESC menu setters
+  setShowEscMenu: (v) => set({ showEscMenu: v }),
+  setEscMenuTab: (tab) => set({ escMenuTab: tab }),
+  toggleEscMenu: () => set((s) => ({ showEscMenu: !s.showEscMenu })),
 
   // Graphics settings setters
   toggleGraphicsPanel: () => set((s) => ({ showGraphicsPanel: !s.showGraphicsPanel })),

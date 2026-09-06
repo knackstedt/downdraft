@@ -38,7 +38,7 @@ export class SandboxLighting {
   // Current state
   private sunDir: [number, number, number] = [0.4, 0.8, 0.3];
   private sunColor: [number, number, number] = [1.0, 0.95, 0.85]; // warm sun
-  private skyAmbient: [number, number, number] = [0.45, 0.55, 0.75]; // cool sky
+  private skyAmbient: [number, number, number] = [0.22, 0.28, 0.38]; // cool sky (dimmed)
   private groundAmbient: [number, number, number] = [0.25, 0.22, 0.20]; // warm ground
   private ambientIntensity = 0.4;
   private pointLights: PointLight[] = [];

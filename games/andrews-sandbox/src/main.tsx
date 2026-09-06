@@ -191,12 +191,6 @@ startGame({
     crosshair.className = "sandbox-crosshair";
     document.body.appendChild(crosshair);
 
-    // ── Click-to-play overlay ──
-    const clickToPlay = document.createElement("div");
-    clickToPlay.className = "sandbox-click-to-play";
-    clickToPlay.textContent = "Click to play  |  WASD: move  |  Space/Shift: up/down  |  ESC: release mouse";
-    document.body.appendChild(clickToPlay);
-
     // ── Start PixiUI overlay ──
     const pixiHost = new PixiUiHost({
       backend: "webgl2",
@@ -309,11 +303,19 @@ startGame({
       }
     });
 
-    // Track pointer lock state
+    // Track pointer lock state — when pointer lock is lost unexpectedly
+    // (i.e. the browser intercepted ESC, which doesn't deliver a keydown),
+    // auto-open the ESC menu.
+    let intentionalUnlock = false;
     document.addEventListener("pointerlockchange", () => {
       pointerLocked = document.pointerLockElement === canvas;
       console.log(`[Input] Pointer lock: ${pointerLocked ? "active" : "released"}`);
-      clickToPlay.classList.toggle("hidden", pointerLocked);
+      if (!pointerLocked && !intentionalUnlock && !useGameStore.getState().showEscMenu) {
+        // Browser consumed ESC to exit pointer lock — open the menu
+        useGameStore.getState().setShowEscMenu(true);
+        sim.pause();
+      }
+      intentionalUnlock = false;
     });
 
     // Mouse look — uses movementX/Y during pointer lock
@@ -352,11 +354,31 @@ startGame({
 
     // Unified keyboard handler — shortcuts + movement keys
     window.addEventListener("keydown", (e) => {
+      // ESC menu — takes priority over everything else
+      if (e.code === "Escape") {
+        e.preventDefault();
+        const cur = useGameStore.getState();
+        if (cur.showEscMenu) {
+          // Close menu, resume, and re-acquire pointer lock
+          useGameStore.getState().setShowEscMenu(false);
+          sim.resume();
+          canvas.requestPointerLock();
+        } else {
+          // Open menu and pause
+          if (document.pointerLockElement) { intentionalUnlock = true; document.exitPointerLock(); }
+          useGameStore.getState().setShowEscMenu(true);
+          sim.pause();
+        }
+        return;
+      }
+      // Block game input while ESC menu is open
+      if (useGameStore.getState().showEscMenu) return;
+
       keys.add(e.code);
       const s = useGameStore.getState();
       switch (e.code) {
-        case "KeyB": toggleDomPanel(ctx, "browser"); if (document.pointerLockElement) document.exitPointerLock(); break;
-        case "KeyP": toggleDomPanel(ctx, "palette"); if (document.pointerLockElement) document.exitPointerLock(); break;
+        case "KeyB": toggleDomPanel(ctx, "browser"); if (document.pointerLockElement) { intentionalUnlock = true; document.exitPointerLock(); } break;
+        case "KeyP": toggleDomPanel(ctx, "palette"); if (document.pointerLockElement) { intentionalUnlock = true; document.exitPointerLock(); } break;
         case "F5": e.preventDefault(); sim.save("autosave"); break;
         case "F9": e.preventDefault(); sim.load("autosave"); break;
         case "Digit1": weaponController.setTool(ToolType.Physgun); s.setActiveTool(ToolType.Physgun); (ctx as any)._domHud?.updateToolBtns?.(); break;
@@ -382,6 +404,8 @@ startGame({
       const now = performance.now();
       const dt = Math.min((now - lastWeaponTick) / 1000, 0.05);
       lastWeaponTick = now;
+      // Skip game logic while ESC menu is open
+      if (useGameStore.getState().showEscMenu) return;
       weaponController.tick(dt);
       paintSystem?.tick();
       vrModule?.tick(dt);
@@ -441,9 +465,9 @@ startGame({
       domHud.toolbar?.remove();
       domHud.funbar?.remove();
       domHud.palette?.remove();
+      domHud.escMenu?.remove();
     }
     document.querySelector(".sandbox-crosshair")?.remove();
-    document.querySelector(".sandbox-click-to-play")?.remove();
     (ctx.renderer as WebGPURenderer).stop();
   },
 });
@@ -710,9 +734,336 @@ function buildDomHud(
     });
   }
 
+  // ── ESC Menu ──
+  const escMenu = document.createElement("div");
+  escMenu.className = "sandbox-esc-menu";
+  escMenu.style.display = "none";
+
+  // Sidebar tabs
+  const escSidebar = document.createElement("div");
+  escSidebar.className = "sandbox-esc-sidebar";
+  const escTitle = document.createElement("div");
+  escTitle.className = "sandbox-esc-title";
+  escTitle.textContent = "Andrew's Sandbox";
+  escSidebar.appendChild(escTitle);
+
+  type EscTab = "main" | "graphics" | "content" | "controls";
+  const escTabs: Array<{ id: EscTab; label: string }> = [
+    { id: "main", label: "Menu" },
+    { id: "graphics", label: "Graphics" },
+    { id: "content", label: "Content" },
+    { id: "controls", label: "Controls" },
+  ];
+  const escTabBtns: HTMLButtonElement[] = [];
+  for (const tab of escTabs) {
+    const btn = document.createElement("button");
+    btn.className = "sandbox-esc-tab";
+    btn.textContent = tab.label;
+    btn.onclick = () => {
+      useGameStore.getState().setEscMenuTab(tab.id);
+      updateEscTab();
+    };
+    escSidebar.appendChild(btn);
+    escTabBtns.push(btn);
+  }
+  escMenu.appendChild(escSidebar);
+
+  // Content area (panels swap based on active tab)
+  const escContent = document.createElement("div");
+  escContent.className = "sandbox-esc-content";
+  escMenu.appendChild(escContent);
+
+  function updateEscTab() {
+    const s = useGameStore.getState();
+    escTabBtns.forEach((b, i) => {
+      b.classList.toggle("active", escTabs[i].id === s.escMenuTab);
+    });
+    renderEscPanel(s.escMenuTab);
+  }
+
+  function renderEscPanel(tab: EscTab) {
+    escContent.innerHTML = "";
+
+    if (tab === "main") {
+      const items: Array<{ label: string; desc?: string; action: () => void; danger?: boolean }> = [
+        {
+          label: "Resume",
+          desc: "Return to the game",
+          action: () => closeEscMenu(),
+        },
+        {
+          label: "Save Game",
+          desc: "Save current state to autosave slot",
+          action: () => { sim.save("autosave"); flashStatus("Game saved"); },
+        },
+        {
+          label: "Load Game",
+          desc: "Load from autosave slot",
+          action: () => { sim.load("autosave"); flashStatus("Game loaded"); },
+        },
+        {
+          label: "Clear All Props",
+          desc: "Remove every spawned object",
+          action: () => { sim.sendCommand({ type: "clear" }); flashStatus("Props cleared"); },
+          danger: true,
+        },
+        {
+          label: "Restart",
+          desc: "Reload the page from scratch",
+          action: () => { location.reload(); },
+          danger: true,
+        },
+        {
+          label: "Quit to Desktop",
+          desc: "Close the application window",
+          action: () => { window.close(); },
+          danger: true,
+        },
+      ];
+      for (const item of items) {
+        const row = document.createElement("div");
+        row.className = "sandbox-esc-item" + (item.danger ? " danger" : "");
+        const lbl = document.createElement("div");
+        lbl.className = "sandbox-esc-item-label";
+        lbl.textContent = item.label;
+        row.appendChild(lbl);
+        if (item.desc) {
+          const desc = document.createElement("div");
+          desc.className = "sandbox-esc-item-desc";
+          desc.textContent = item.desc;
+          row.appendChild(desc);
+        }
+        row.onclick = () => item.action();
+        escContent.appendChild(row);
+      }
+    }
+
+    else if (tab === "graphics") {
+      buildGraphicsPanel(escContent);
+    }
+
+    else if (tab === "content") {
+      const list = document.createElement("div");
+      list.className = "sandbox-esc-content-list";
+      const items2 = registry.listItems();
+      if (items2.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "sandbox-esc-empty";
+        empty.textContent = "No content loaded. Drop GLB/PNG files or add plugins.";
+        list.appendChild(empty);
+      } else {
+        for (const item of items2) {
+          const row = document.createElement("div");
+          row.className = "sandbox-esc-content-item";
+          const icon = document.createElement("div");
+          icon.className = "icon";
+          icon.textContent = item.id.includes("sphere") || item.id.includes("ball") ? "●" : "■";
+          row.appendChild(icon);
+          const name = document.createElement("div");
+          name.className = "name";
+          name.textContent = item.name;
+          row.appendChild(name);
+          const cat = document.createElement("div");
+          cat.className = "cat";
+          cat.textContent = item.pluginSource ?? "builtin";
+          row.appendChild(cat);
+          row.onclick = () => {
+            const cam = (ctx.renderer as WebGPURenderer).getCameraPosition();
+            const target = (ctx.renderer as WebGPURenderer).getCameraTarget();
+            const dx = target[0] - cam[0], dy = target[1] - cam[1], dz = target[2] - cam[2];
+            const dl = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
+            const entry = registry.get(item.id);
+            const shape = entry?.shape ?? (item.id.includes("sphere") || item.id.includes("ball") ? "sphere" : "box");
+            sim.sendCommand({
+              type: "spawn",
+              contentId: item.id,
+              position: [cam[0] + (dx/dl)*5, cam[1] + (dy/dl)*5 + 2, cam[2] + (dz/dl)*5],
+              physics: entry?.physics,
+              shape,
+              scale: entry?.scale ?? 1.0,
+            });
+            weapons.getToolgun().setSelectedContent(item.id);
+            flashStatus(`Spawned: ${item.name}`);
+          };
+          list.appendChild(row);
+        }
+      }
+      escContent.appendChild(list);
+    }
+
+    else if (tab === "controls") {
+      const controls: Array<[string, string]> = [
+        ["WASD", "Move"],
+        ["Mouse", "Look around"],
+        ["Click", "Use tool / weapon"],
+        ["Space", "Jump"],
+        ["Shift", "Descend / crouch"],
+        ["1-4", "Switch tools (Physgun, Toolgun, Pistol, Paintgun)"],
+        ["B", "Toggle content browser"],
+        ["P", "Toggle paint palette"],
+        ["Q", "Tool wheel"],
+        ["R", "Toolgun: Remove context"],
+        ["T", "Toolgun: Spawn context"],
+        ["G", "Toolgun: Set Fun Mode"],
+        ["F5", "Save game"],
+        ["F9", "Load game"],
+        ["V", "Toggle VR"],
+        ["ESC", "Open / close this menu"],
+      ];
+      for (const [key, desc] of controls) {
+        const row = document.createElement("div");
+        row.className = "sandbox-esc-control-row";
+        const k = document.createElement("div");
+        k.className = "sandbox-esc-control-key";
+        k.textContent = key;
+        row.appendChild(k);
+        const d = document.createElement("div");
+        d.className = "sandbox-esc-control-desc";
+        d.textContent = desc;
+        row.appendChild(d);
+        escContent.appendChild(row);
+      }
+    }
+  }
+
+  // Status flash (transient toast inside the menu)
+  let statusTimer: ReturnType<typeof setTimeout> | null = null;
+  function flashStatus(msg: string) {
+    let status = escContent.querySelector(".sandbox-esc-status") as HTMLElement | null;
+    if (!status) {
+      status = document.createElement("div");
+      status.className = "sandbox-esc-status";
+      escContent.appendChild(status);
+    }
+    status.textContent = msg;
+    status.style.opacity = "1";
+    if (statusTimer) clearTimeout(statusTimer);
+    statusTimer = setTimeout(() => {
+      if (status) status.style.opacity = "0";
+    }, 2000);
+  }
+
+  function buildGraphicsPanel(parent: HTMLElement) {
+    const s = useGameStore.getState();
+    const addToggle = (label: string, current: boolean, onToggle: () => void) => {
+      const row = document.createElement("div");
+      row.className = "sandbox-esc-gfx-row";
+      const lbl = document.createElement("div");
+      lbl.className = "sandbox-esc-gfx-label";
+      lbl.textContent = label;
+      row.appendChild(lbl);
+      const toggle = document.createElement("div");
+      toggle.className = "sandbox-esc-toggle" + (current ? " on" : "");
+      toggle.textContent = current ? "ON" : "OFF";
+      toggle.onclick = () => {
+        onToggle();
+        const newVal = !current;
+        toggle.className = "sandbox-esc-toggle" + (newVal ? " on" : "");
+        toggle.textContent = newVal ? "ON" : "OFF";
+      };
+      row.appendChild(toggle);
+      parent.appendChild(row);
+    };
+
+    const addSlider = (label: string, current: number, min: number, max: number, step: number, onChange: (v: number) => void) => {
+      const row = document.createElement("div");
+      row.className = "sandbox-esc-gfx-row";
+      const lbl = document.createElement("div");
+      lbl.className = "sandbox-esc-gfx-label";
+      lbl.textContent = `${label}: ${current.toFixed(2)}`;
+      row.appendChild(lbl);
+      const slider = document.createElement("input");
+      slider.type = "range";
+      slider.min = String(min);
+      slider.max = String(max);
+      slider.step = String(step);
+      slider.value = String(current);
+      slider.oninput = () => {
+        const v = parseFloat(slider.value);
+        lbl.textContent = `${label}: ${v.toFixed(2)}`;
+        onChange(v);
+      };
+      row.appendChild(slider);
+      parent.appendChild(row);
+    };
+
+    // Post-processing
+    addToggle("Bloom", s.bloomEnabled, () => applyGraphicsToggle("bloom"));
+    if (s.bloomEnabled) {
+      addSlider("  Strength", s.bloomStrength, 0, 3, 0.05, (v) => applyGraphicsValue("bloomStrength", v));
+      addSlider("  Threshold", s.bloomThreshold, 0, 2, 0.05, (v) => applyGraphicsValue("bloomThreshold", v));
+    }
+    addToggle("FXAA", s.fxaaEnabled, () => applyGraphicsToggle("fxaa"));
+    addToggle("Tonemap", s.tonemapEnabled, () => applyGraphicsToggle("tonemap"));
+    if (s.tonemapEnabled) {
+      addSlider("  Exposure", s.exposure, 0.1, 4, 0.05, (v) => applyGraphicsValue("exposure", v));
+    }
+    addToggle("Vignette", s.vignetteEnabled, () => applyGraphicsToggle("vignette"));
+    if (s.vignetteEnabled) {
+      addSlider("  Strength", s.vignetteStrength, 0, 1, 0.05, (v) => applyGraphicsValue("vignetteStrength", v));
+    }
+
+    // Rendering
+    addToggle("Shadows", s.shadowsEnabled, () => applyGraphicsToggle("shadows"));
+    addToggle("Mipmaps", s.mipmapsEnabled, () => applyGraphicsToggle("mipmaps"));
+    addToggle("Point Lights", s.pointLightsEnabled, () => applyGraphicsToggle("pointLights"));
+
+    // Lighting
+    addSlider("Sun R", s.sunColorR, 0, 2, 0.05, (v) => applyGraphicsValue("sunR", v));
+    addSlider("Sun G", s.sunColorG, 0, 2, 0.05, (v) => applyGraphicsValue("sunG", v));
+    addSlider("Sun B", s.sunColorB, 0, 2, 0.05, (v) => applyGraphicsValue("sunB", v));
+    addSlider("Ambient", s.ambientIntensity, 0, 2, 0.05, (v) => applyGraphicsValue("ambient", v));
+  }
+
+  // Graphics apply helpers — delegate to the existing action handler
+  function applyGraphicsToggle(key: string) {
+    const r = ctx.renderer as WebGPURenderer;
+    const s = useGameStore.getState();
+    switch (key) {
+      case "bloom": s.setBloomEnabled(!s.bloomEnabled); (r as any).setBloom?.(!s.bloomEnabled); break;
+      case "fxaa": s.setFXAAEnabled(!s.fxaaEnabled); (r as any).setFXAA?.(!s.fxaaEnabled); break;
+      case "tonemap": s.setTonemapEnabled(!s.tonemapEnabled); (r as any).setTonemap?.(!s.tonemapEnabled); break;
+      case "vignette": s.setVignetteEnabled(!s.vignetteEnabled); (r as any).setVignette?.(!s.vignetteEnabled); break;
+      case "shadows": s.setShadowsEnabled(!s.shadowsEnabled); (r as any).setShadowsEnabled?.(!s.shadowsEnabled); break;
+      case "mipmaps": s.setMipmapsEnabled(!s.mipmapsEnabled); (r as any).setMipmapsEnabled?.(!s.mipmapsEnabled); break;
+      case "pointLights": s.setPointLightsEnabled(!s.pointLightsEnabled); (r as any).setPointLightsEnabled?.(!s.pointLightsEnabled); break;
+    }
+  }
+  function applyGraphicsValue(key: string, v: number) {
+    const r = ctx.renderer as WebGPURenderer;
+    const s = useGameStore.getState();
+    switch (key) {
+      case "bloomStrength": s.setBloomStrength(v); (r as any).setBloomStrength?.(v); break;
+      case "bloomThreshold": s.setBloomThreshold(v); (r as any).setBloomThreshold?.(v); break;
+      case "exposure": s.setExposure(v); (r as any).setExposure?.(v); break;
+      case "vignetteStrength": s.setVignetteStrength(v); (r as any).setVignetteStrength?.(v); break;
+      case "sunR": s.setSunColor(v, s.sunColorG, s.sunColorB); (r as any).setSunColor?.(v, s.sunColorG, s.sunColorB); break;
+      case "sunG": s.setSunColor(s.sunColorR, v, s.sunColorB); (r as any).setSunColor?.(s.sunColorR, v, s.sunColorB); break;
+      case "sunB": s.setSunColor(s.sunColorR, s.sunColorG, v); (r as any).setSunColor?.(s.sunColorR, s.sunColorG, v); break;
+      case "ambient": s.setAmbientIntensity(v); (r as any).setAmbientIntensity?.(v); break;
+    }
+  }
+
+  function closeEscMenu() {
+    useGameStore.getState().setShowEscMenu(false);
+    sim.resume();
+    // Re-acquire pointer lock so the player can resume without clicking
+    const canvas = ctx.canvas as HTMLCanvasElement;
+    canvas.requestPointerLock();
+  }
+
+  // Subscribe to store to show/hide the menu
+  useGameStore.subscribe((state) => {
+    escMenu.style.display = state.showEscMenu ? "flex" : "none";
+    if (state.showEscMenu) updateEscTab();
+  });
+
+  document.body.appendChild(escMenu);
+
   // Expose toggle + updateToolBtns for external keydown handler
   (ctx as any)._domHud = {
     hud, browser, toolbar, funbar, palette,
+    escMenu,
     updateToolBtns,
     tools,
   };

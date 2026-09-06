@@ -27,28 +27,6 @@ canvas {
   display: block;
 }
 
-/* Click-to-play overlay */
-.sandbox-click-to-play {
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  padding: 20px 40px;
-  background: rgba(0, 0, 0, 0.7);
-  border: 2px solid #4e9af1;
-  border-radius: 8px;
-  color: #e0e0e0;
-  font-family: "Montserrat", system-ui, sans-serif;
-  font-size: 18px;
-  text-align: center;
-  pointer-events: none;
-  z-index: 150;
-  transition: opacity 0.3s;
-}
-.sandbox-click-to-play.hidden {
-  opacity: 0;
-}
-
 /* Crosshair reticle overlay */
 .sandbox-crosshair {
   position: fixed;
@@ -287,4 +265,210 @@ canvas {
 }
 .sandbox-palette input[type="range"] {
   width: 100%;
+}
+
+/* ── ESC Menu ── */
+.sandbox-esc-menu {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  display: none;
+  z-index: 500;
+  pointer-events: auto;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+}
+
+.sandbox-esc-sidebar {
+  width: 220px;
+  height: 100%;
+  background: rgba(18, 20, 30, 0.95);
+  border-right: 1px solid rgba(100, 150, 200, 0.2);
+  display: flex;
+  flex-direction: column;
+  padding: 20px 0;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+.sandbox-esc-title {
+  padding: 8px 20px 20px;
+  font-size: 18px;
+  font-weight: 600;
+  color: #4e9af1;
+  border-bottom: 1px solid rgba(100, 150, 200, 0.15);
+  margin-bottom: 8px;
+}
+
+.sandbox-esc-tab {
+  padding: 12px 20px;
+  border: none;
+  background: transparent;
+  color: #aaa;
+  cursor: pointer;
+  font-size: 14px;
+  text-align: left;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+.sandbox-esc-tab:hover {
+  background: rgba(100, 150, 200, 0.1);
+  color: #fff;
+}
+.sandbox-esc-tab.active {
+  background: rgba(100, 180, 255, 0.15);
+  color: #4e9af1;
+  border-left: 3px solid #4e9af1;
+  padding-left: 17px;
+}
+
+.sandbox-esc-content {
+  flex: 1;
+  padding: 30px 40px;
+  overflow-y: auto;
+  color: #ddd;
+}
+
+/* Main menu items */
+.sandbox-esc-item {
+  padding: 14px 20px;
+  margin-bottom: 4px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+  max-width: 420px;
+}
+.sandbox-esc-item:hover {
+  background: rgba(100, 150, 200, 0.15);
+}
+.sandbox-esc-item.danger:hover {
+  background: rgba(200, 80, 80, 0.2);
+}
+.sandbox-esc-item-label {
+  font-size: 16px;
+  color: #e0e0e0;
+  font-weight: 500;
+}
+.sandbox-esc-item.danger .sandbox-esc-item-label {
+  color: #e88;
+}
+.sandbox-esc-item-desc {
+  font-size: 12px;
+  color: #888;
+  margin-top: 2px;
+}
+
+/* Graphics panel */
+.sandbox-esc-gfx-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  margin-bottom: 4px;
+  border-radius: 4px;
+  max-width: 480px;
+}
+.sandbox-esc-gfx-row:hover {
+  background: rgba(100, 150, 200, 0.08);
+}
+.sandbox-esc-gfx-label {
+  font-size: 13px;
+  color: #ccc;
+}
+.sandbox-esc-toggle {
+  padding: 4px 14px;
+  border-radius: 4px;
+  background: rgba(60, 60, 80, 0.6);
+  color: #888;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  transition: all 0.15s;
+  user-select: none;
+}
+.sandbox-esc-toggle.on {
+  background: rgba(78, 154, 241, 0.3);
+  color: #4e9af1;
+  border: 1px solid rgba(78, 154, 241, 0.4);
+}
+.sandbox-esc-gfx-row input[type="range"] {
+  width: 200px;
+  accent-color: #4e9af1;
+}
+
+/* Content list */
+.sandbox-esc-content-list {
+  max-width: 500px;
+}
+.sandbox-esc-content-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  margin: 2px 0;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.sandbox-esc-content-item:hover {
+  background: rgba(100, 150, 200, 0.15);
+}
+.sandbox-esc-content-item .icon {
+  width: 24px; height: 24px;
+  border-radius: 3px;
+  background: rgba(100, 150, 200, 0.15);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.sandbox-esc-content-item .name { flex: 1; font-size: 13px; }
+.sandbox-esc-content-item .cat { font-size: 10px; color: #888; }
+.sandbox-esc-empty {
+  padding: 20px;
+  color: #888;
+  font-size: 13px;
+  text-align: center;
+}
+
+/* Controls list */
+.sandbox-esc-control-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 12px;
+  margin-bottom: 2px;
+  max-width: 500px;
+}
+.sandbox-esc-control-key {
+  min-width: 100px;
+  padding: 4px 10px;
+  background: rgba(60, 60, 80, 0.6);
+  border: 1px solid rgba(100, 150, 200, 0.2);
+  border-radius: 4px;
+  font-size: 12px;
+  text-align: center;
+  color: #4e9af1;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.sandbox-esc-control-desc {
+  font-size: 13px;
+  color: #ccc;
+}
+
+/* Status toast */
+.sandbox-esc-status {
+  position: fixed;
+  bottom: 30px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 10px 24px;
+  background: rgba(78, 154, 241, 0.9);
+  border-radius: 6px;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  transition: opacity 0.3s;
+  pointer-events: none;
+  z-index: 510;
 }

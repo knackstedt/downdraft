@@ -103,6 +103,14 @@ export class SimWebWorker {
     this.wp?.proxy.sendCommand(cmd).catch(() => {});
   }
 
+  pause(): void {
+    this.wp?.proxy.pause().catch(() => {});
+  }
+
+  resume(): void {
+    this.wp?.proxy.resume().catch(() => {});
+  }
+
   async restoreFromState(stateJson: string): Promise<void> {
     if (!this.wp) throw new Error("Worker not started");
     await this.wp.proxy.restoreFromState(stateJson);

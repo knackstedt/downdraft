@@ -44,10 +44,10 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
   let dims = vec2f(1920.0, 1080.0);
   let uv = pos.xy / dims;
   let t = clamp(uv.y, 0.0, 1.0);
-  // Smooth sky gradient: horizon glow → blue → deep blue
-  let horizon = vec3f(0.75, 0.82, 0.92);
-  let mid = vec3f(0.42, 0.62, 0.88);
-  let zenith = vec3f(0.15, 0.30, 0.60);
+  // Smooth sky gradient: horizon glow → blue → deep blue (dimmed)
+  let horizon = vec3f(0.38, 0.41, 0.46);
+  let mid = vec3f(0.21, 0.31, 0.44);
+  let zenith = vec3f(0.08, 0.15, 0.30);
   let color = mix(horizon, mid, smoothstep(0.0, 0.5, t));
   return vec4f(mix(color, zenith, smoothstep(0.4, 1.0, t)), 1.0);
 }
@@ -261,11 +261,6 @@ fn fs(in: VertexOut) -> @location(0) vec4f {
   let zAxisFade = clamp(1.0 - abs(worldPos.z) / 250.0, 0.0, 1.0);
   color = mix(color, vec3f(0.85, 0.3, 0.15), xAxisLine * xAxisFade * 0.8);
   color = mix(color, vec3f(0.15, 0.4, 0.85), zAxisLine * zAxisFade * 0.8);
-
-  // ── Origin marker (bright cross at 0,0) ──
-  let originDist = length(xz);
-  let originGlow = 1.0 - smoothstep(0.0, 3.0, originDist);
-  color = mix(color, vec3f(0.9, 0.9, 0.95), originGlow * 0.5);
 
   // ── Distance rings (concentric, from origin) ──
   var ringIntensity = 0.0;
@@ -1630,7 +1625,7 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
         camera: cameraState,
         viewProj,
         loadOp: "clear",
-        clearValue: { r: 0.5, g: 0.7, b: 0.9, a: 1 },
+        clearValue: { r: 0.25, g: 0.35, b: 0.45, a: 1 },
       };
 
       graph.clearPasses();
@@ -1697,7 +1692,7 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
       const pass = encoder.beginRenderPass({
         colorAttachments: [{
           view: colorView,
-          clearValue: { r: 0.5, g: 0.7, b: 0.9, a: 1 },
+          clearValue: { r: 0.25, g: 0.35, b: 0.45, a: 1 },
           loadOp: "clear",
           storeOp: "store",
         }],
@@ -1715,7 +1710,7 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
         camera: cameraState,
         viewProj,
         loadOp: "clear",
-        clearValue: { r: 0.5, g: 0.7, b: 0.9, a: 1 },
+        clearValue: { r: 0.25, g: 0.35, b: 0.45, a: 1 },
       };
       this.drawScene(pass, sceneState, encoder);
       pass.end();
