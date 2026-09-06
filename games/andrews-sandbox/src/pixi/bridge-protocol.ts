@@ -14,6 +14,7 @@ export const SANDBOX_STATS_LAYOUT: UiStatsLayout = {
     "fps",
     "activeTool",
     "funMode",
+    "pose",
     "propCount",
     "showBrowser",
     "showToolWheel",

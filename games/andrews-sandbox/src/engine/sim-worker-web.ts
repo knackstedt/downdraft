@@ -16,11 +16,34 @@ import { expose, exposeEvents } from "@downdraft/core/worker/rpc";
 import { OpfsSaveStore, type OpfsSaveStoreOptions } from "@downdraft/library-persistence/browser";
 import { RapierPhysicsBackend, UniversalPhysicsAPI } from "@downdraft/library-physics-rapier";
 import { ENT_DATA, MAX_SIM_SPEED, MIN_SIM_SPEED, SIM_TICK_DT } from "@sandbox/shared/constants/buffer";
-import { EntityType, FunMode, PropFlags, type SandboxSimMessage, type SimCommand } from "@sandbox/shared/types";
+import { EntityType, FunMode, PoseState, PropFlags, type SandboxSimMessage, type SimCommand } from "@sandbox/shared/types";
 
 (globalThis as any).__ddThreadTag = "R1";
 
-// ── Player constants ──
+// ── Player pose configuration ──
+// Each pose defines the character capsule dimensions (height/radius), the
+// camera eye height above the feet, and a movement-speed multiplier. The sim
+// recreates the Rapier character controller whenever the pose changes so the
+// collision shape matches the stance.
+interface PoseCfg {
+  height: number;     // total capsule height (feet → head)
+  radius: number;     // capsule radius
+  eyeHeight: number;  // camera eye height above feet (renderer reads this)
+  speedMul: number;   // movement-speed multiplier (renderer applies this)
+}
+const POSE_CONFIG: Record<PoseState, PoseCfg> = {
+  [PoseState.Standing]:  { height: 1.8, radius: 0.4, eyeHeight: 1.62, speedMul: 1.0 },
+  [PoseState.Crouching]: { height: 1.2, radius: 0.4, eyeHeight: 1.0,  speedMul: 0.6 },
+  [PoseState.Prone]:     { height: 0.6, radius: 0.3, eyeHeight: 0.4,  speedMul: 0.25 },
+};
+function poseCfg(pose: PoseState): PoseCfg { return POSE_CONFIG[pose]; }
+function capsuleHalfHeight(pose: PoseState): number {
+  const c = poseCfg(pose);
+  return Math.max(0, (c.height - 2 * c.radius) / 2);
+}
+function capsuleYOffset(pose: PoseState): number { return poseCfg(pose).height / 2; }
+
+// ── Player constants (standing defaults) ──
 const PLAYER_HEIGHT = 1.8;
 const PLAYER_RADIUS = 0.4;
 const PLAYER_CAPSULE_HALF_HEIGHT = (PLAYER_HEIGHT - 2 * PLAYER_RADIUS) / 2;
@@ -39,6 +62,7 @@ let playerController: CharacterControllerHandle | null = null;
 let playerPos: [number, number, number] = [0, PLAYER_HEIGHT, 0];
 let playerGrounded = false;
 let pendingPlayerMove: [number, number, number] | null = null;
+let currentPose: PoseState = PoseState.Standing;
 
 // ── Reused out-tuples for Raw scalar physics reads (zero-alloc hot path) ──
 const _posOut: [number, number, number] = [0, 0, 0];
@@ -131,6 +155,38 @@ async function initPhysics(): Promise<void> {
       position: [playerPos[0], playerPos[1] + PLAYER_CAPSULE_Y_OFFSET, playerPos[2]],
     },
   }, { index: 0xFFFE, generation: 0 });
+}
+
+// ── Apply a pose change ──
+// Recreates the Rapier character controller with the new pose's capsule
+// dimensions. The player's feet stay at the same y (playerPos.y unchanged);
+// only the capsule height/center changes. Emits `pose_changed` so the
+// renderer can reposition the camera eye.
+function applyPose(pose: PoseState): void {
+  if (pose === currentPose || !physicsApi) return;
+  currentPose = pose;
+  const cfg = poseCfg(pose);
+
+  // Destroy the old controller and create a new one with the pose's capsule.
+  if (playerController) {
+    physicsApi.destroyCharacterController(playerController);
+  }
+  playerController = physicsApi.createCharacterController({
+    offset: [0, 0.01, 0],
+    radius: cfg.radius,
+    halfHeight: capsuleHalfHeight(pose),
+    slide: true,
+    autostep: { enabled: true, minWidth: 0.2, maxHeight: 0.5 },
+    maxSlope: Math.PI / 3,
+    minSlopeSlide: Math.PI / 4,
+    snapToGround: 0.1,
+    applyImpulsesToDynamicBodies: true,
+    parentless: {
+      position: [playerPos[0], playerPos[1] + capsuleYOffset(pose), playerPos[2]],
+    },
+  }, { index: 0xFFFE, generation: 0 });
+
+  events.emit("pose_changed", { pose, eyeHeight: cfg.eyeHeight });
 }
 
 // ── Create a physics body for a prop ──
@@ -310,6 +366,9 @@ function processCommand(cmd: SimCommand): void {
     case "setFunMode":
       setFunMode(cmd.mode);
       break;
+    case "setPose":
+      applyPose(cmd.pose);
+      break;
     case "setTool":
       // Tool selection is renderer-side only; no sim action needed
       break;
@@ -455,13 +514,14 @@ function saveState(): string {
       gravityScale: record.gravityScale,
     });
   }
-  return JSON.stringify({ props, funMode: currentFunMode, version: 1 });
+  return JSON.stringify({ props, funMode: currentFunMode, pose: currentPose, version: 1 });
 }
 
 async function restoreState(stateJson: string): Promise<void> {
   const state = JSON.parse(stateJson);
   clearProps();
   if (state.funMode !== undefined) currentFunMode = state.funMode;
+  if (state.pose !== undefined) applyPose(state.pose);
   for (const prop of state.props ?? []) {
     spawnProp(
       prop.contentId, prop.position, prop.quaternion,
@@ -507,7 +567,7 @@ expose({
         if (playerController && physicsApi && pendingPlayerMove) {
           physicsApi.setCharacterColliderPosition(playerController, [
             playerPos[0],
-            playerPos[1] + PLAYER_CAPSULE_Y_OFFSET,
+            playerPos[1] + capsuleYOffset(currentPose),
             playerPos[2],
           ]);
           const result = physicsApi.characterMove(playerController, pendingPlayerMove, dt);
@@ -516,7 +576,7 @@ expose({
           playerPos[2] += result.effectiveMovement[2];
           playerGrounded = result.grounded;
           pendingPlayerMove = null;
-          onEvent({ kind: "player_moved", data: { position: [...playerPos] as [number, number, number], grounded: playerGrounded } });
+          onEvent({ kind: "player_moved", data: { position: [...playerPos] as [number, number, number], grounded: playerGrounded, pose: currentPose } });
         }
 
         syncTransforms();

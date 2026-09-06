@@ -12,7 +12,7 @@ import { WeaponController } from "@andrews-sandbox/module-weapons";
 import { downdraft, startGame, type SimWorkerSeed } from "@downdraft/app/renderer";
 import { ENGINE_VERSION, ENT, SimBufferReader } from "@downdraft/core";
 import { PixiUiHost } from "@downdraft/library-pixi-ui";
-import { EntityType, FunMode, ToolType, ToolgunContext } from "@sandbox/shared/types";
+import { EntityType, FunMode, PoseState, ToolType, ToolgunContext } from "@sandbox/shared/types";
 import { SimWebWorker, type SimWebWorkerConfig } from "./engine/sim-web-worker";
 import { WebGPURenderer } from "./engine/webgpu-renderer";
 import { SANDBOX_STATS_LAYOUT, type SandboxAction } from "./pixi/bridge-protocol";
@@ -34,7 +34,32 @@ let vrModule: SandboxVRModule | null = null;
 // the renderer reads it to position the camera.
 // Player feet start at y=PLAYER_HEIGHT (matches sim worker's initial playerPos).
 const PLAYER_HEIGHT = 1.8;
-const playerState = { pos: [0, PLAYER_HEIGHT, 0] as [number, number, number], grounded: false };
+const playerState = {
+  pos: [0, PLAYER_HEIGHT, 0] as [number, number, number],
+  grounded: false,
+  pose: PoseState.Standing,
+};
+
+// Per-pose renderer config: eye height above feet + movement-speed multiplier.
+// Mirrors POSE_CONFIG in sim-worker-web.ts so the renderer can position the
+// camera and scale WASD without a round-trip. Updated from `pose_changed` /
+// `player_moved` events (the sim is authoritative).
+const POSE_EYE_HEIGHT: Record<PoseState, number> = {
+  [PoseState.Standing]: 1.62,
+  [PoseState.Crouching]: 1.0,
+  [PoseState.Prone]: 0.4,
+};
+const POSE_SPEED_MUL: Record<PoseState, number> = {
+  [PoseState.Standing]: 1.0,
+  [PoseState.Crouching]: 0.6,
+  [PoseState.Prone]: 0.25,
+};
+// Eye height is interpolated each frame toward `targetEyeHeight` so pose
+// transitions (stand↔crouch↔prone) ease smoothly instead of snapping the
+// camera. The sim sets the target via pose_changed/player_moved events; the
+// move loop advances `currentEyeHeight` toward it.
+let currentEyeHeight = POSE_EYE_HEIGHT[PoseState.Standing];
+let targetEyeHeight = POSE_EYE_HEIGHT[PoseState.Standing];
 
 // Register builtin props
 for (const prop of BUILTIN_PROPS) {
@@ -100,12 +125,23 @@ startGame({
     fun_mode_changed: (data) => {
       useGameStore.getState().setActiveFunMode(data.mode);
     },
+    pose_changed: (data) => {
+      playerState.pose = data.pose;
+      targetEyeHeight = data.eyeHeight;
+    },
     paint_updated: (_data) => { /* Phase 5 */ },
     player_moved: (data) => {
       playerState.pos[0] = data.position[0];
       playerState.pos[1] = data.position[1];
       playerState.pos[2] = data.position[2];
       playerState.grounded = data.grounded;
+      // Keep pose + eye-height target in sync (player_moved always carries
+      // the current pose; pose_changed fires only on transitions). The move
+      // loop eases currentEyeHeight toward targetEyeHeight.
+      if (data.pose !== playerState.pose) {
+        playerState.pose = data.pose;
+        targetEyeHeight = POSE_EYE_HEIGHT[playerState.pose];
+      }
     },
   },
 
@@ -394,12 +430,14 @@ startGame({
     window.addEventListener("keyup", (e) => { keys.delete(e.code); });
 
     // Game loop — weapon tick + WASD movement via Rapier character controller
-    const EYE_HEIGHT = 1.62; // eye height above feet (player is 1.8m tall)
     const GRAVITY = 20.0;
     const JUMP_VELOCITY = 8.0;
     const MOVE_SPEED = 8.0;
     let vy = 0;
     let lastWeaponTick = performance.now();
+    // Last pose sent to the sim — only dispatch setPose on transitions to
+    // avoid flooding the sim worker with redundant commands every frame.
+    let lastSentPose: PoseState = PoseState.Standing;
     const moveLoop = setInterval(() => {
       const now = performance.now();
       const dt = Math.min((now - lastWeaponTick) / 1000, 0.05);
@@ -410,35 +448,48 @@ startGame({
       paintSystem?.tick();
       vrModule?.tick(dt);
       const r = renderer as WebGPURenderer;
+      // Determine desired pose from held keys: CtrlLeft (prone) takes
+      // priority over ShiftLeft (crouch); release either to stand.
+      const desiredPose = keys.has("ControlLeft")
+        ? PoseState.Prone
+        : keys.has("ShiftLeft")
+          ? PoseState.Crouching
+          : PoseState.Standing;
+      if (desiredPose !== lastSentPose) {
+        sim.sendCommand({ type: "setPose", pose: desiredPose });
+        lastSentPose = desiredPose;
+      }
       const fwd = getMoveForward(yaw);
       const right = getRightVector(yaw);
       // Compute desired horizontal movement (WASD) — uses yaw-only forward
-      // so looking up/down doesn't reduce horizontal speed.
+      // so looking up/down doesn't reduce horizontal speed. Scaled by the
+      // current pose's speed multiplier (crouch/prone move slower).
+      const speed = MOVE_SPEED * POSE_SPEED_MUL[playerState.pose];
       let dx = 0, dz = 0;
-      if (keys.has("KeyW")) { dx += fwd[0] * MOVE_SPEED * dt; dz += fwd[2] * MOVE_SPEED * dt; }
-      if (keys.has("KeyS")) { dx -= fwd[0] * MOVE_SPEED * dt; dz -= fwd[2] * MOVE_SPEED * dt; }
-      if (keys.has("KeyA")) { dx -= right[0] * MOVE_SPEED * dt; dz -= right[2] * MOVE_SPEED * dt; }
-      if (keys.has("KeyD")) { dx += right[0] * MOVE_SPEED * dt; dz += right[2] * MOVE_SPEED * dt; }
+      if (keys.has("KeyW")) { dx += fwd[0] * speed * dt; dz += fwd[2] * speed * dt; }
+      if (keys.has("KeyS")) { dx -= fwd[0] * speed * dt; dz -= fwd[2] * speed * dt; }
+      if (keys.has("KeyA")) { dx -= right[0] * speed * dt; dz -= right[2] * speed * dt; }
+      if (keys.has("KeyD")) { dx += right[0] * speed * dt; dz += right[2] * speed * dt; }
       // Reset vertical velocity when grounded (prevents unbounded gravity
       // accumulation that causes the character controller to receive huge
       // downward deltas, leading to ground clipping and sideways jitter).
       if (playerState.grounded) {
         vy = 0;
       }
-      // Jump
-      if (keys.has("Space") && playerState.grounded) {
+      // Jump — only allowed while standing (crouch/prone can't launch).
+      if (keys.has("Space") && playerState.grounded && playerState.pose === PoseState.Standing) {
         vy = JUMP_VELOCITY;
-      }
-      // Crouch / descend
-      if (keys.has("ShiftLeft")) {
-        vy = -MOVE_SPEED;
       }
       // Apply gravity
       vy -= GRAVITY * dt;
       // Send desired movement delta to the sim worker (Rapier character controller)
       sim.sendCommand({ type: "movePlayer", desiredDelta: [dx, vy * dt, dz] });
-      // Update camera to player's eye position
-      r.setCameraPosition([playerState.pos[0], playerState.pos[1] + EYE_HEIGHT, playerState.pos[2]]);
+      // Ease the camera eye height toward the pose's target so stand↔crouch↔prone
+      // transitions glide instead of snapping. Frame-rate-independent exponential
+      // smoothing: ~12/s converges in ~250ms, hiding the capsule-resize pop.
+      currentEyeHeight += (targetEyeHeight - currentEyeHeight) * Math.min(1, dt * 12);
+      // Update camera to player's eye position (pose-dependent eye height)
+      r.setCameraPosition([playerState.pos[0], playerState.pos[1] + currentEyeHeight, playerState.pos[2]]);
       updateCamera(r, yaw, pitch);
     }, 16);
 
@@ -516,6 +567,11 @@ function buildDomHud(
     [ToolType.Paintgun]: "Paintgun",
   };
   const FUN_NAMES = ["Normal", "Moon", "ZeroG", "Bouncy"];
+  const POSE_NAMES: Record<number, string> = {
+    [PoseState.Standing]: "Standing",
+    [PoseState.Crouching]: "Crouching",
+    [PoseState.Prone]: "Prone",
+  };
   const PAINT_COLORS = ["#ff0000", "#00ff00", "#0099ff", "#ffff00", "#ff00ff", "#00ffff", "#ffffff", "#000000"];
 
   // Top HUD bar
@@ -542,6 +598,10 @@ function buildDomHud(
   modeBadge.className = "badge";
   modeBadge.textContent = "Mode: Normal";
   hudRight.appendChild(modeBadge);
+  const poseBadge = document.createElement("span");
+  poseBadge.className = "badge";
+  poseBadge.textContent = "Pose: Standing";
+  hudRight.appendChild(poseBadge);
   hud.appendChild(hudRight);
   document.body.appendChild(hud);
 
@@ -552,6 +612,7 @@ function buildDomHud(
     propBadge.textContent = `Props: ${s.propCount}`;
     toolBadge.textContent = `Tool: ${TOOL_NAMES[s.activeTool] ?? s.activeTool}`;
     modeBadge.textContent = `Mode: ${FUN_NAMES[s.activeFunMode] ?? s.activeFunMode}`;
+    poseBadge.textContent = `Pose: ${POSE_NAMES[playerState.pose] ?? playerState.pose}`;
   }, 200);
   (ctx as any)._hudInterval = hudInterval;
 
@@ -897,8 +958,9 @@ function buildDomHud(
         ["WASD", "Move"],
         ["Mouse", "Look around"],
         ["Click", "Use tool / weapon"],
-        ["Space", "Jump"],
-        ["Shift", "Descend / crouch"],
+        ["Space", "Jump (standing only)"],
+        ["Shift", "Hold to crouch"],
+        ["Ctrl", "Hold to prone"],
         ["1-4", "Switch tools (Physgun, Toolgun, Pistol, Paintgun)"],
         ["B", "Toggle content browser"],
         ["P", "Toggle paint palette"],
