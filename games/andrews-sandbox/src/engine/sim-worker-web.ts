@@ -6,11 +6,11 @@
 
 import type { CharacterControllerHandle } from "@downdraft/core";
 import {
-    ENT, InputBufferReader, SimBufferWriter, SimWorkerLoop,
-    type BodyDesc, type ColliderDesc, type Entity,
-    type LoadOptions,
-    type PhysicsBody,
-    type SaveOptions, type SaveState,
+  ENT, InputBufferReader, SimBufferWriter, SimWorkerLoop,
+  type BodyDesc, type ColliderDesc, type Entity,
+  type LoadOptions,
+  type PhysicsBody,
+  type SaveOptions, type SaveState,
 } from "@downdraft/core";
 import { expose, exposeEvents } from "@downdraft/core/worker/rpc";
 import { OpfsSaveStore, type OpfsSaveStoreOptions } from "@downdraft/library-persistence/browser";
@@ -514,7 +514,7 @@ function saveState(): string {
       gravityScale: record.gravityScale,
     });
   }
-  return JSON.stringify({ props, funMode: currentFunMode, pose: currentPose, version: 1 });
+  return JSON.stringify({ props, funMode: currentFunMode, pose: currentPose, playerPos: [...playerPos], version: 1 });
 }
 
 async function restoreState(stateJson: string): Promise<void> {
@@ -522,6 +522,22 @@ async function restoreState(stateJson: string): Promise<void> {
   clearProps();
   if (state.funMode !== undefined) currentFunMode = state.funMode;
   if (state.pose !== undefined) applyPose(state.pose);
+  // Restore player position + sync the Rapier character controller so the
+  // next characterMove tick continues from the saved spot instead of the
+  // spawn origin. Emit player_moved so the renderer repositions the camera.
+  if (state.playerPos !== undefined) {
+    playerPos[0] = state.playerPos[0];
+    playerPos[1] = state.playerPos[1];
+    playerPos[2] = state.playerPos[2];
+    if (playerController && physicsApi) {
+      physicsApi.setCharacterColliderPosition(playerController, [
+        playerPos[0],
+        playerPos[1] + capsuleYOffset(currentPose),
+        playerPos[2],
+      ]);
+    }
+    onEvent({ kind: "player_moved", data: { position: [...playerPos] as [number, number, number], grounded: playerGrounded, pose: currentPose } });
+  }
   for (const prop of state.props ?? []) {
     spawnProp(
       prop.contentId, prop.position, prop.quaternion,

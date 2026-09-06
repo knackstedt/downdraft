@@ -286,10 +286,15 @@ canvas {
 }
 
 /* Keyboard-selection highlight for ESC menu navigation (WASD + Space).
-   Gold outline is distinct from the blue active-tab indicator. */
+   Gold background is distinct from the blue active-tab indicator. */
 .sandbox-esc-selected {
+  background: rgba(255, 204, 0, 0.15) !important;
   outline: 2px solid #ffcc00;
   outline-offset: -2px;
+}
+.sandbox-esc-tab.sandbox-esc-selected {
+  border-left: 3px solid #ffcc00;
+  padding-left: 17px;
 }
 
 .sandbox-esc-sidebar {

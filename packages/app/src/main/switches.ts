@@ -28,6 +28,12 @@ export function webGpuSwitches(): Switch[] {
     ["enable-zero-copy"],
     ["enable-accelerated-video-decode"],
     ["js-flags", "--expose-gc"],
+    // Disable Chromium's pointer-lock rate limiter. The engine re-locks the
+    // pointer when closing the ESC menu (via exitPointerLock + requestPointerLock),
+    // which Chromium's abuse-prevention would otherwise reject as "too many
+    // locks in a short window". This is a single-user desktop app, not a web
+    // page, so the abuse scenario doesn't apply.
+    ["disable-features", "RateLimitPointerLockRequests"],
   ];
 
   if (useSwiftshader) {
@@ -67,9 +73,27 @@ export function webGpuSwitches(): Switch[] {
 
 /**
  * Apply an array of switches to the Electron app command line.
+ * If the same switch name appears multiple times, their values are merged
+ * (comma-joined for `enable-features`/`disable-features`, last-wins otherwise).
  */
 export function applySwitches(app: { commandLine: { appendSwitch: (name: string, value?: string) => void } }, switches: Switch[]): void {
+  const merged = new Map<string, string | undefined>();
   for (const [name, value] of switches) {
+    if (value !== undefined && merged.has(name) && merged.get(name) !== undefined) {
+      const prev = merged.get(name)!;
+      // For feature lists, merge comma-separated values instead of overwriting.
+      if (name === "enable-features" || name === "disable-features") {
+        const set = new Set(prev.split(",").filter(Boolean));
+        for (const f of value.split(",")) if (f) set.add(f);
+        merged.set(name, Array.from(set).join(","));
+      } else {
+        merged.set(name, value);
+      }
+    } else {
+      merged.set(name, value);
+    }
+  }
+  for (const [name, value] of merged) {
     app.commandLine.appendSwitch(name, value);
   }
 }
