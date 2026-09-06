@@ -431,6 +431,12 @@ export class RapierPhysicsBackend implements PhysicsBackend {
     }
   }
 
+  setMinIslandSize(realmId: number, size: number): void {
+    if (this.lib && this.lib.setMinIslandSize) {
+      this.lib.setMinIslandSize(realmId, size);
+    }
+  }
+
   setCCDEnabled(body: PhysicsBody, enabled: boolean): void {
     if (this.lib) {
       this.lib.setCCDEnabled(body.realmId, body.id, enabled);

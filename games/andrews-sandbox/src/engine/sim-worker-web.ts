@@ -81,9 +81,9 @@ async function initPhysics(): Promise<void> {
     stepBudgetMs: 16,
     maxEntities: 4096,
     realmConfigs: {
-      near: { tickFrequency: 1, solverIterations: 16, promoteThreshold: Infinity, demoteThreshold: Infinity, demoteDwellTime: 1 },
-      mid: { tickFrequency: 1, solverIterations: 8, promoteThreshold: Infinity, demoteThreshold: Infinity, demoteDwellTime: 1 },
-      far: { tickFrequency: 1, solverIterations: 4, promoteThreshold: Infinity, demoteThreshold: Infinity, demoteDwellTime: 1 },
+      near: { tickFrequency: 1, solverIterations: 4, promoteThreshold: Infinity, demoteThreshold: Infinity, demoteDwellTime: 1 },
+      mid: { tickFrequency: 1, solverIterations: 4, promoteThreshold: Infinity, demoteThreshold: Infinity, demoteDwellTime: 1 },
+      far: { tickFrequency: 1, solverIterations: 2, promoteThreshold: Infinity, demoteThreshold: Infinity, demoteDwellTime: 1 },
     },
     nanSweepInterval: 0,
     nanSweepVelocityThreshold: 0,
@@ -156,6 +156,10 @@ function createPropBody(
     mass,
     gravityScale,
     ccdEnabled,
+    // Damping helps bodies settle and stop micro-oscillating, which lets
+    // Rapier's sleep system put them to sleep after a few frames of inactivity.
+    linearDamping: 0.5,
+    angularDamping: 0.5,
   };
   const body = physicsApi.createBody(entity, bodyDesc);
   const colliderDesc: ColliderDesc = {

@@ -106,6 +106,10 @@ export class PhysicsRealm {
     this.backend.setSolverIterations(this.id, iterations);
   }
 
+  setMinIslandSize(size: number): void {
+    if (this.backend.setMinIslandSize) this.backend.setMinIslandSize(this.id, size);
+  }
+
   setSleepThresholds(linearThreshold: number, angularThreshold: number): void {
     this.backend.setSleepThresholds(this.id, linearThreshold, angularThreshold);
   }

@@ -393,6 +393,8 @@ export interface PhysicsBackend {
   setSleepThresholds(realmId: number, linearThreshold: number, angularThreshold: number): void;
   /** Per-realm solver iteration count (Rapier `IntegrationParameters.numSolverIterations`). */
   setSolverIterations(realmId: number, iterations: number): void;
+  /** Per-realm minimum island size (smaller = islands sleep independently). */
+  setMinIslandSize?(realmId: number, size: number): void;
   /** Per-body CCD (off by default globally; opt in via tunneling heuristic). */
   setCCDEnabled(body: PhysicsBody, enabled: boolean): void;
 

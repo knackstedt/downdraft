@@ -86,6 +86,7 @@ export interface PhysicsLib {
   destroyJoint(realmId: number, jointId: number): void;
   setSolverIterations(realmId: number, iterations: number): void;
   setSleepThresholds(realmId: number, linearThreshold: number, angularThreshold: number): void;
+  setMinIslandSize?(realmId: number, size: number): void;
   setCCDEnabled(realmId: number, bodyId: number, enabled: boolean): void;
   getIslands(realmId: number): IslandInfo[];
   serializeRealm(realmId: number): Uint8Array;
@@ -118,7 +119,20 @@ async function doLoadPhysicsLib(): Promise<PhysicsLib> {
   try {
     const rapier = await import("@dimforge/rapier3d-compat");
 
-    await rapier.init();
+    // Suppress the spurious "deprecated parameters" warning from Rapier's
+    // __wbg_init — it fires because rapier.init() passes an ArrayBuffer
+    // directly, and the init function's deprecation check treats any
+    // non-plain-object argument as "deprecated" (an upstream Rapier bug).
+    const origWarn = console.warn;
+    console.warn = (...args: any[]) => {
+      if (typeof args[0] === "string" && args[0].includes("deprecated parameters for the initialization function")) return;
+      origWarn.apply(console, args as any);
+    };
+    try {
+      await rapier.init();
+    } finally {
+      console.warn = origWarn;
+    }
 
     const realms = new Map<number, Rapier.World>();
     const bodyMaps = new Map<number, Map<number, Rapier.RigidBody>>();
@@ -703,15 +717,23 @@ async function doLoadPhysicsLib(): Promise<PhysicsLib> {
         const world = realms.get(realmId);
         if (world) world.integrationParameters.numSolverIterations = iterations;
       },
+      setMinIslandSize(realmId, size) {
+        const world = realms.get(realmId);
+        if (world) world.integrationParameters.minIslandSize = size;
+      },
       setSleepThresholds(realmId, linearThreshold, angularThreshold) {
         const world = realms.get(realmId);
         if (!world) return;
-        // Rapier 0.19.x sleep thresholds via integration parameters
+        // Rapier 0.19.x doesn't expose normalizedLinearThreshold/normalizedAngularThreshold.
+        // Sleep is automatic based on internal velocity thresholds + the canSleep flag.
+        // We set the available integration parameters that affect settling behavior.
         try {
-          (world.integrationParameters as any).normalizedLinearThreshold = linearThreshold;
-          (world.integrationParameters as any).normalizedAngularThreshold = angularThreshold;
+          const ip = world.integrationParameters;
+          // These don't exist in 0.19.3 but may in future versions — try first.
+          (ip as any).normalizedLinearThreshold = linearThreshold;
+          (ip as any).normalizedAngularThreshold = angularThreshold;
         } catch {
-          // Some Rapier versions may not expose these — silently skip
+          // Silently skip — sleep is controlled by canSleep + damping in 0.19.x
         }
       },
       setCCDEnabled(realmId, bodyId, enabled) {

@@ -121,6 +121,13 @@ export class RealmManager {
     nearRealm.setSolverIterations(nearTierConfig.solverIterations);
     midRealm.setSolverIterations(midTierConfig.solverIterations);
     farRealm.setSolverIterations(farTierConfig.solverIterations);
+
+    // Use small islands so clusters of props can sleep independently.
+    // Rapier default is 128 (large monolithic islands); 16 lets small
+    // groups settle and sleep without waiting for the whole scene.
+    nearRealm.setMinIslandSize(16);
+    midRealm.setMinIslandSize(16);
+    farRealm.setMinIslandSize(16);
   }
 
   getRealm(tier: RealmTier): PhysicsRealm {
