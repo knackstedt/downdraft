@@ -4,6 +4,7 @@
 // Uses the RPC layer (expose/exposeEvents) for typed async communication.
 // ============================================================================
 
+import type { CharacterControllerHandle } from "@downdraft/core";
 import {
     ENT, InputBufferReader, SimBufferWriter, SimWorkerLoop,
     type BodyDesc, type ColliderDesc, type Entity,
@@ -19,6 +20,12 @@ import { EntityType, FunMode, PropFlags, type SandboxSimMessage, type SimCommand
 
 (globalThis as any).__ddThreadTag = "R1";
 
+// ── Player constants ──
+const PLAYER_HEIGHT = 1.8;
+const PLAYER_RADIUS = 0.4;
+const PLAYER_CAPSULE_HALF_HEIGHT = (PLAYER_HEIGHT - 2 * PLAYER_RADIUS) / 2;
+const PLAYER_CAPSULE_Y_OFFSET = PLAYER_HEIGHT / 2;
+
 // ── Sim state ──
 let simWriter: SimBufferWriter | null = null;
 let inputReader: InputBufferReader | null = null;
@@ -26,6 +33,12 @@ let physicsApi: UniversalPhysicsAPI | null = null;
 let physicsBackend: RapierPhysicsBackend | null = null;
 let simLoop: SimWorkerLoop | null = null;
 let opfsStore: OpfsSaveStore | null = null;
+
+// ── Player state ──
+let playerController: CharacterControllerHandle | null = null;
+let playerPos: [number, number, number] = [0, PLAYER_HEIGHT, 0];
+let playerGrounded = false;
+let pendingPlayerMove: [number, number, number] | null = null;
 
 // Entity tracking
 interface PropRecord {
@@ -91,6 +104,22 @@ async function initPhysics(): Promise<void> {
     restitution: 0.3,
     friction: 0.8,
   });
+
+  // Create the player character controller (capsule shape, parentless collider)
+  playerController = physicsApi.createCharacterController({
+    offset: [0, 0.01, 0],
+    radius: PLAYER_RADIUS,
+    halfHeight: PLAYER_CAPSULE_HALF_HEIGHT,
+    slide: true,
+    autostep: { enabled: true, minWidth: 0.2, maxHeight: 0.5 },
+    maxSlope: Math.PI / 3,
+    minSlopeSlide: Math.PI / 4,
+    snapToGround: 0.1,
+    applyImpulsesToDynamicBodies: true,
+    parentless: {
+      position: [playerPos[0], playerPos[1] + PLAYER_CAPSULE_Y_OFFSET, playerPos[2]],
+    },
+  }, { index: 0xFFFE, generation: 0 });
 }
 
 // ── Create a physics body for a prop ──
@@ -353,6 +382,10 @@ function processCommand(cmd: SimCommand): void {
       }
       break;
     }
+    case "movePlayer": {
+      pendingPlayerMove = cmd.desiredDelta;
+      break;
+    }
   }
 }
 
@@ -443,6 +476,23 @@ expose({
         for (const entityId of expired) {
           removeProp(entityId);
         }
+
+        // Process player movement via Rapier character controller
+        if (playerController && physicsApi && pendingPlayerMove) {
+          physicsApi.setCharacterColliderPosition(playerController, [
+            playerPos[0],
+            playerPos[1] + PLAYER_CAPSULE_Y_OFFSET,
+            playerPos[2],
+          ]);
+          const result = physicsApi.characterMove(playerController, pendingPlayerMove, dt);
+          playerPos[0] += result.effectiveMovement[0];
+          playerPos[1] += result.effectiveMovement[1];
+          playerPos[2] += result.effectiveMovement[2];
+          playerGrounded = result.grounded;
+          pendingPlayerMove = null;
+          onEvent({ kind: "player_moved", data: { position: [...playerPos] as [number, number, number], grounded: playerGrounded } });
+        }
+
         syncTransforms();
         simWriter!.incrementTick();
       },

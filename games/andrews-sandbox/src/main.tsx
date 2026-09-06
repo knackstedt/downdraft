@@ -29,6 +29,13 @@ let physicsController: PhysicsPropsController | null = null;
 let paintSystem: PaintSystem | null = null;
 let vrModule: SandboxVRModule | null = null;
 
+// Player state shared between the sim event handler and the renderer move loop.
+// The sim worker owns the authoritative position (Rapier character controller);
+// the renderer reads it to position the camera.
+// Player feet start at y=PLAYER_HEIGHT (matches sim worker's initial playerPos).
+const PLAYER_HEIGHT = 1.8;
+const playerState = { pos: [0, PLAYER_HEIGHT, 0] as [number, number, number], grounded: false };
+
 // Register builtin props
 for (const prop of BUILTIN_PROPS) {
   contentRegistry.register({
@@ -88,6 +95,12 @@ startGame({
       useGameStore.getState().setActiveFunMode(data.mode);
     },
     paint_updated: (_data) => { /* Phase 5 */ },
+    player_moved: (data) => {
+      playerState.pos[0] = data.position[0];
+      playerState.pos[1] = data.position[1];
+      playerState.pos[2] = data.position[2];
+      playerState.grounded = data.grounded;
+    },
   },
 
   onFpsUpdate: (fps, _ctx) => {
@@ -352,13 +365,12 @@ startGame({
     });
     window.addEventListener("keyup", (e) => { keys.delete(e.code); });
 
-    // Game loop — weapon tick + WASD movement + player gravity
-    const EYE_HEIGHT = 2.0;
+    // Game loop — weapon tick + WASD movement via Rapier character controller
+    const EYE_HEIGHT = 1.62; // eye height above feet (player is 1.8m tall)
     const GRAVITY = 20.0;
     const JUMP_VELOCITY = 8.0;
     const MOVE_SPEED = 8.0;
     let vy = 0;
-    let onGround = true;
     let lastWeaponTick = performance.now();
     const moveLoop = setInterval(() => {
       const now = performance.now();
@@ -368,93 +380,28 @@ startGame({
       paintSystem?.tick();
       vrModule?.tick(dt);
       const r = renderer as WebGPURenderer;
-      const cam = r.getCameraPosition();
       const fwd = getForwardVector(yaw, pitch);
       const right = getRightVector(yaw);
-      let nx = cam[0], nz = cam[2];
-      // Horizontal movement (WASD)
-      if (keys.has("KeyW")) { nx += fwd[0] * MOVE_SPEED * dt; nz += fwd[2] * MOVE_SPEED * dt; }
-      if (keys.has("KeyS")) { nx -= fwd[0] * MOVE_SPEED * dt; nz -= fwd[2] * MOVE_SPEED * dt; }
-      if (keys.has("KeyA")) { nx -= right[0] * MOVE_SPEED * dt; nz -= right[2] * MOVE_SPEED * dt; }
-      if (keys.has("KeyD")) { nx += right[0] * MOVE_SPEED * dt; nz += right[2] * MOVE_SPEED * dt; }
-      // Jump (impulse, not continuous)
-      if (keys.has("Space") && onGround) {
+      // Compute desired horizontal movement (WASD)
+      let dx = 0, dz = 0;
+      if (keys.has("KeyW")) { dx += fwd[0] * MOVE_SPEED * dt; dz += fwd[2] * MOVE_SPEED * dt; }
+      if (keys.has("KeyS")) { dx -= fwd[0] * MOVE_SPEED * dt; dz -= fwd[2] * MOVE_SPEED * dt; }
+      if (keys.has("KeyA")) { dx -= right[0] * MOVE_SPEED * dt; dz -= right[2] * MOVE_SPEED * dt; }
+      if (keys.has("KeyD")) { dx += right[0] * MOVE_SPEED * dt; dz += right[2] * MOVE_SPEED * dt; }
+      // Jump
+      if (keys.has("Space") && playerState.grounded) {
         vy = JUMP_VELOCITY;
-        onGround = false;
       }
       // Crouch / descend
       if (keys.has("ShiftLeft")) {
         vy = -MOVE_SPEED;
-        onGround = false;
       }
       // Apply gravity
       vy -= GRAVITY * dt;
-      let ny = cam[1] + vy * dt;
-      // Floor collision
-      if (ny <= EYE_HEIGHT) {
-        ny = EYE_HEIGHT;
-        vy = 0;
-        onGround = true;
-      }
-      // Player collision with props — check at feet and mid-body, not just eye height.
-      // The player is a capsule from y=0 to y=EYE_HEIGHT with PLAYER_RADIUS horizontal extent.
-      const PLAYER_RADIUS = 0.6;
-      const playerFeetY = ny - EYE_HEIGHT;
-      const playerMidY = playerFeetY + EYE_HEIGHT * 0.5;
-      const colliders = r.getPropColliders();
-      for (const c of colliders) {
-        if (c.shape === 1) {
-          // Sphere collider — check against player's vertical capsule
-          // Find closest point on player's capsule axis to the sphere center
-          const capsuleTop = ny;
-          const capsuleBottom = playerFeetY;
-          const closestY = Math.max(capsuleBottom, Math.min(c.pos[1], capsuleTop));
-          const dx = nx - c.pos[0];
-          const dy = closestY - c.pos[1];
-          const dz = nz - c.pos[2];
-          const distSq = dx * dx + dy * dy + dz * dz;
-          const minDist = c.radius + PLAYER_RADIUS;
-          if (distSq < minDist * minDist && distSq > 0.0001) {
-            const dist = Math.sqrt(distSq);
-            const push = (minDist - dist) / dist;
-            nx += dx * push;
-            nz += dz * push;
-            // Only push vertically if the sphere is above the player's feet
-            if (c.pos[1] > playerFeetY + 0.1) {
-              ny += dy * push;
-            }
-            // If standing on top of the sphere
-            if (c.pos[1] > playerMidY && dy < 0) {
-              vy = 0;
-              onGround = true;
-            }
-          }
-        } else if (c.halfExtents) {
-          // Box collider — AABB vs player's vertical capsule
-          const hx = c.halfExtents[0], hy = c.halfExtents[1], hz = c.halfExtents[2];
-          // Check at player's mid-body height (more representative than eye height)
-          const checkY = playerMidY;
-          const cx = Math.max(c.pos[0] - hx, Math.min(nx, c.pos[0] + hx));
-          const cy = Math.max(c.pos[1] - hy, Math.min(checkY, c.pos[1] + hy));
-          const cz = Math.max(c.pos[2] - hz, Math.min(nz, c.pos[2] + hz));
-          const ddx = nx - cx, ddy = checkY - cy, ddz = nz - cz;
-          const distSq = ddx * ddx + ddy * ddy + ddz * ddz;
-          if (distSq < PLAYER_RADIUS * PLAYER_RADIUS && distSq > 0.0001) {
-            const dist = Math.sqrt(distSq);
-            const push = (PLAYER_RADIUS - dist) / dist;
-            // Push horizontally (don't let player walk through props)
-            nx += ddx * push;
-            nz += ddz * push;
-            // If the closest point is the top of the box, player can stand on it
-            if (cy >= c.pos[1] + hy - 0.01 && playerFeetY < c.pos[1] + hy + 0.1) {
-              ny = c.pos[1] + hy + EYE_HEIGHT;
-              vy = 0;
-              onGround = true;
-            }
-          }
-        }
-      }
-      r.setCameraPosition([nx, ny, nz]);
+      // Send desired movement delta to the sim worker (Rapier character controller)
+      sim.sendCommand({ type: "movePlayer", desiredDelta: [dx, vy * dt, dz] });
+      // Update camera to player's eye position
+      r.setCameraPosition([playerState.pos[0], playerState.pos[1] + EYE_HEIGHT, playerState.pos[2]]);
       updateCamera(r, yaw, pitch);
     }, 16);
 
@@ -623,6 +570,41 @@ function buildDomHud(
     clearBtn.textContent = "Clear All Props";
     clearBtn.onclick = () => sim.sendCommand({ type: "clear" });
     list.appendChild(clearBtn);
+
+    // Spawn 10 cubes at once, scattered in front of the camera
+    const spawn10Btn = document.createElement("button");
+    spawn10Btn.className = "clear-btn";
+    spawn10Btn.textContent = "Spawn 10 Cubes";
+    spawn10Btn.onclick = () => {
+      const cam = (ctx.renderer as WebGPURenderer).getCameraPosition();
+      const target = (ctx.renderer as WebGPURenderer).getCameraTarget();
+      const dx = target[0] - cam[0], dy = target[1] - cam[1], dz = target[2] - cam[2];
+      const dl = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
+      const fx = dx / dl, fy = dy / dl, fz = dz / dl;
+      const entry = registry.get("builtin:cube");
+      for (let i = 0; i < 10; i++) {
+        // Spread cubes in a rough grid perpendicular to the view direction
+        const spread = 2.5;
+        const offX = (i % 5 - 2) * spread;
+        const offY = Math.floor(i / 5) * spread;
+        // Right vector relative to forward (in XZ plane)
+        const rx = fz, rz = -fx;
+        sim.sendCommand({
+          type: "spawn",
+          contentId: "builtin:cube",
+          position: [
+            cam[0] + fx * 6 + rx * offX,
+            cam[1] + fy * 6 + 2 + offY,
+            cam[2] + fz * 6 + rz * offX,
+          ],
+          physics: entry?.physics,
+          shape: entry?.shape ?? "box",
+          scale: entry?.scale ?? 1.0,
+        });
+      }
+      weapons.getToolgun().setSelectedContent("builtin:cube");
+    };
+    list.appendChild(spawn10Btn);
   }
   renderBrowserItems();
   document.body.appendChild(browser);

@@ -77,9 +77,14 @@ export interface FunModeChangedData {
   mode: FunMode;
 }
 
+export interface PlayerMovedData {
+  position: [number, number, number];
+  grounded: boolean;
+}
+
 export interface SandboxSimMessage {
-  kind: "prop_spawned" | "prop_removed" | "paint_updated" | "fun_mode_changed" | "ready" | "error";
-  data: PropSpawnedData | PropRemovedData | PaintUpdatedData | FunModeChangedData | { message?: string } | Record<string, unknown>;
+  kind: "prop_spawned" | "prop_removed" | "paint_updated" | "fun_mode_changed" | "ready" | "error" | "player_moved";
+  data: PropSpawnedData | PropRemovedData | PaintUpdatedData | FunModeChangedData | PlayerMovedData | { message?: string } | Record<string, unknown>;
 }
 
 // --- Sim commands (renderer→sim) ---
@@ -95,4 +100,5 @@ export type SimCommand =
   | { type: "releaseProp"; entityId: number; velocity: [number, number, number] }
   | { type: "updateGrab"; entityId: number; targetPos: [number, number, number] }
   | { type: "updatePropPhysics"; entityId: number; mass?: number; restitution?: number; friction?: number; gravityScale?: number }
-  | { type: "applyImpulse"; entityId: number; impulse: [number, number, number] };
+  | { type: "applyImpulse"; entityId: number; impulse: [number, number, number] }
+  | { type: "movePlayer"; desiredDelta: [number, number, number] };

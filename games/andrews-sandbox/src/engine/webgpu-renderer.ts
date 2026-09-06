@@ -197,7 +197,7 @@ struct Instance {
   _pad2: u32,
 };
 @group(0) @binding(0) var<uniform> u: Uniforms;
-@group(0) @binding(1) var<uniform> inst: Instance;
+@group(0) @binding(1) var<storage, read> instances: array<Instance>;
 @group(1) @binding(0) var paintTex: texture_2d<f32>;
 @group(1) @binding(1) var paintSampler: sampler;
 
@@ -255,29 +255,35 @@ struct VertexOut {
   @location(0) uv: vec2f,
   @location(1) normal: vec3f,
   @location(2) worldPos: vec3f,
+  @location(3) color: vec4f,
+  @location(4) hasPaint: f32,
 }
 
 @vertex
-fn vs(@location(0) pos: vec3f, @location(1) uv: vec2f, @location(2) normal: vec3f) -> VertexOut {
+fn vs(@builtin(instance_index) ii: u32, @location(0) pos: vec3f, @location(1) uv: vec2f, @location(2) normal: vec3f) -> VertexOut {
+  let inst = instances[ii];
   var out: VertexOut;
-  out.position = u.viewProj * inst.model * vec4f(pos, 1.0);
+  let worldPos4 = inst.model * vec4f(pos, 1.0);
+  out.position = u.viewProj * worldPos4;
   out.uv = uv;
   // Transform normal by model matrix (assuming uniform scale)
   let n = (inst.model * vec4f(normal, 0.0)).xyz;
   out.normal = normalize(n);
-  out.worldPos = (inst.model * vec4f(pos, 1.0)).xyz;
+  out.worldPos = worldPos4.xyz;
+  out.color = inst.color;
+  out.hasPaint = f32(inst.hasPaint);
   return out;
 }
 
 @fragment
 fn fs(in: VertexOut) -> @location(0) vec4f {
-  let baseColor = inst.color.rgb;
-  // Get paint color if available
-  var color = baseColor;
-  if (inst.hasPaint == 1u) {
-    let paint = textureSample(paintTex, paintSampler, in.uv);
-    color = mix(baseColor, paint.rgb, paint.a);
-  }
+  let baseColor = in.color.rgb;
+  // Always sample the paint texture (textureSampleLevel doesn't require
+  // uniform control flow, unlike textureSample). Use in.hasPaint as a mix
+  // multiplier so unpainted cubes (hasPaint=0) keep their base color.
+  let paint = textureSampleLevel(paintTex, paintSampler, in.uv, 0.0);
+  let paintMask = paint.a * in.hasPaint;
+  var color = mix(baseColor, paint.rgb, paintMask);
   // Colored directional lighting from the frame-lighting UBO
   let N = normalize(in.normal);
   let sunDir = normalize(lighting.sunDir);
@@ -451,20 +457,31 @@ export class WebGPURenderer extends GameRenderer {
   private cubeIndexCount = CUBE_INDICES.length;
   private cubeUniformBuffer: GPUBuffer | null = null;
   private cubeInstanceBuffer: GPUBuffer | null = null;
-  private cubeInstanceStride = 256;
+  // 96 bytes per instance (mat4x4 + vec4 + 4 u32). Storage buffer — no 256-byte
+  // dynamic-offset alignment needed, so we pack instances tightly.
+  private cubeInstanceStride = 96;
+  // Reusable staging buffer for instance data (24 floats × 96 bytes per instance).
+  // Pre-allocated to maxEntities to avoid per-frame GC.
+  private instanceStaging = new Float32Array(4096 * 24);
+  // Reusable staging for the shadow-pass light VP matrix (16 floats = 64 bytes).
+  private lightVPStaging = new Float32Array(16);
   private cubeBindGroup0Layout: GPUBindGroupLayout | null = null;
   private cubeSampler: GPUSampler | null = null;
   private cubeDefaultTexture: GPUTexture | null = null;
   // Cached bind groups for the default (no-paint) texture to avoid per-frame allocation
   private cubeDefaultBindGroup1: GPUBindGroup | null = null;
   private sphereDefaultBindGroup1: GPUBindGroup | null = null;
-  // Cached bind group 0 layouts (shared between all instances of the same pipeline)
+  // Single shared bind group 0 per pipeline (binds uniform + instance storage buffer).
+  // Replaces the former per-instance bg0Cache — one bind group for all instances.
   private cubeBindGroup0: GPUBindGroup | null = null;
   private sphereBindGroup0: GPUBindGroup | null = null;
+  // Depth-only bind group 0 per pipeline (binds lightVP uniform + instance storage).
+  private depthCubeBindGroup0: GPUBindGroup | null = null;
+  private depthSphereBindGroup0: GPUBindGroup | null = null;
   // Per-entity bind group 1 cache (paint textures) keyed by entityId
   private paintBindGroupCache = new Map<number, GPUBindGroup>();
-  // Per-batch-slot bind group 0 cache keyed by "c/s:idx"
-  private bg0Cache = new Map<string, GPUBindGroup>();
+  // Ground depth-only bind group (cached once — no per-instance variation)
+  private groundDepthBindGroup: GPUBindGroup | null = null;
   private spherePipeline: GPURenderPipeline | null = null;
   private sphereVertexBuffer: GPUBuffer | null = null;
   private sphereIndexBuffer: GPUBuffer | null = null;
@@ -768,14 +785,15 @@ export class WebGPURenderer extends GameRenderer {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
-    // Instance buffer: model(64) + color(16) + hasPaint(4) + pad(12) = 96 bytes per entity
-    // 256-byte aligned stride for dynamic offset alignment. Capacity matches
-    // the physics maxEntities (4096) so spawning many props doesn't overflow.
-    this.cubeInstanceStride = 256; // 96 bytes data, padded to 256 for dynamic offset alignment
+    // Instance buffer: model(64) + color(16) + hasPaint(4) + pad(12) = 96 bytes per entity.
+    // Bound as a storage buffer (array<Instance>) so all instances share one bind group
+    // and are drawn in a single drawIndexedInstanced call. Capacity matches the physics
+    // maxEntities (4096) so spawning many props doesn't overflow.
+    this.cubeInstanceStride = 96;
     this.cubeInstanceBuffer = device.createBuffer({
       label: "cube-instance",
       size: this.cubeInstanceStride * 4096,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
     // Default white texture (1×1) for props without paint
@@ -824,8 +842,17 @@ export class WebGPURenderer extends GameRenderer {
         depthCompare: "less",
       },
     });
-    // Store the bind group layout for dynamic offset use
+    // Store the bind group layout for compatibility
     this.cubeBindGroup0Layout = this.cubePipeline.getBindGroupLayout(0);
+    // Single shared bind group 0: uniform + instance storage buffer.
+    // One bind group serves ALL cube instances — no per-instance bind groups.
+    this.cubeBindGroup0 = device.createBindGroup({
+      layout: this.cubeBindGroup0Layout,
+      entries: [
+        { binding: 0, resource: { buffer: this.cubeUniformBuffer! } },
+        { binding: 1, resource: { buffer: this.cubeInstanceBuffer! } },
+      ],
+    });
     // Pre-create the default (no-paint) bind group 1 for cubes
     this.cubeDefaultBindGroup1 = device.createBindGroup({
       layout: this.cubePipeline.getBindGroupLayout(1),
@@ -876,6 +903,14 @@ export class WebGPURenderer extends GameRenderer {
         depthCompare: "less",
       },
     });
+    // Single shared bind group 0 for spheres: uniform + instance storage buffer.
+    this.sphereBindGroup0 = device.createBindGroup({
+      layout: this.spherePipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: this.cubeUniformBuffer! } },
+        { binding: 1, resource: { buffer: this.cubeInstanceBuffer! } },
+      ],
+    });
     // Pre-create the default (no-paint) bind group 1 for spheres
     this.sphereDefaultBindGroup1 = device.createBindGroup({
       layout: this.spherePipeline.getBindGroupLayout(1),
@@ -887,33 +922,49 @@ export class WebGPURenderer extends GameRenderer {
   }
 
   private createDepthOnlyPipelines(device: GPUDevice): void {
-    // Simple depth-only shader: vertex transforms by lightVP * model, no fragment output.
+    // Instanced depth-only shader: vertex transforms by lightVP * instances[ii].model.
+    // Shares the same 96-byte Instance layout as the scene shader so both passes
+    // can use the same instance storage buffer.
     const DEPTH_ONLY_SHADER = /* wgsl */ `
 struct Uniforms {
   lightVP: mat4x4f,
 };
-@group(0) @binding(0) var<uniform> u: Uniforms;
 struct Instance {
   model: mat4x4f,
+  color: vec4f,
+  hasPaint: u32,
+  _pad0: u32,
+  _pad1: u32,
+  _pad2: u32,
 };
-@group(0) @binding(1) var<uniform> inst: Instance;
+@group(0) @binding(0) var<uniform> u: Uniforms;
+@group(0) @binding(1) var<storage, read> instances: array<Instance>;
 @vertex
-fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
-  return u.lightVP * inst.model * vec4f(pos, 1.0);
+fn vs(@builtin(instance_index) ii: u32, @location(0) pos: vec3f) -> @builtin(position) vec4f {
+  return u.lightVP * instances[ii].model * vec4f(pos, 1.0);
 }
 `;
     this.depthOnlyShader = device.createShaderModule({ label: "depth-only", code: DEPTH_ONLY_SHADER });
-    // Uniform buffer for the light VP matrix (64 bytes at offset 0) + ground
-    // identity model matrix (64 bytes at offset 256, aligned to 256-byte
-    // uniform buffer alignment requirement).
+
+    // Ground depth-only shader: no instance buffer (ground is a single static mesh).
+    const GROUND_DEPTH_SHADER = /* wgsl */ `
+struct Uniforms {
+  lightVP: mat4x4f,
+};
+@group(0) @binding(0) var<uniform> u: Uniforms;
+@vertex
+fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
+  return u.lightVP * vec4f(pos, 1.0);
+}
+`;
+    const groundDepthShader = device.createShaderModule({ label: "depth-only-ground", code: GROUND_DEPTH_SHADER });
+
+    // Uniform buffer for the light VP matrix (64 bytes).
     this.depthOnlyCubeUniformBuffer = device.createBuffer({
       label: "depth-only-uniforms",
-      size: 512,
+      size: 64,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
-    // Write identity matrix at offset 256 for the ground depth-only pass.
-    const identity = new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
-    device.queue.writeBuffer(this.depthOnlyCubeUniformBuffer, 256, identity);
 
     const depthStencil: GPUDepthStencilState = {
       format: "depth32float" as GPUTextureFormat,
@@ -926,7 +977,7 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
       label: "depth-only-ground",
       layout: "auto",
       vertex: {
-        module: this.depthOnlyShader, entryPoint: "vs",
+        module: groundDepthShader, entryPoint: "vs",
         buffers: [{
           arrayStride: 12,
           attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }],
@@ -934,6 +985,11 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
       },
       primitive: { topology: "triangle-list" },
       depthStencil,
+    });
+    this.groundDepthBindGroup = device.createBindGroup({
+      label: "ground-depth-bg0",
+      layout: this.depthOnlyGroundPipeline.getBindGroupLayout(0),
+      entries: [{ binding: 0, resource: { buffer: this.depthOnlyCubeUniformBuffer } }],
     });
 
     // Cube/sphere depth-only pipeline (uses the same vertex layout: pos3 + uv2 + normal3 = 32 bytes)
@@ -954,6 +1010,23 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
       vertex: { module: this.depthOnlyShader, entryPoint: "vs", buffers: [cubeVertexLayout] },
       primitive: { topology: "triangle-list", cullMode: "back" },
       depthStencil,
+    });
+    // Single shared bind group 0 per depth pipeline: lightVP uniform + instance storage.
+    this.depthCubeBindGroup0 = device.createBindGroup({
+      label: "depth-cube-bg0",
+      layout: this.depthOnlyCubePipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: this.depthOnlyCubeUniformBuffer } },
+        { binding: 1, resource: { buffer: this.cubeInstanceBuffer! } },
+      ],
+    });
+    this.depthSphereBindGroup0 = device.createBindGroup({
+      label: "depth-sphere-bg0",
+      layout: this.depthOnlySpherePipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: this.depthOnlyCubeUniformBuffer } },
+        { binding: 1, resource: { buffer: this.cubeInstanceBuffer! } },
+      ],
     });
   }
 
@@ -1320,46 +1393,29 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
     const shadowSize = this.shadows.getShadowMapSize();
     pass.setViewport(0, 0, shadowSize, shadowSize, 0, 1);
 
-    // Write the light VP to the depth-only uniform buffer
-    const uniformData = new Float32Array(20);
-    uniformData.set(lightVP, 0);
-    device.queue.writeBuffer(this.depthOnlyCubeUniformBuffer!, 0, uniformData);
+    // Write the light VP to the depth-only uniform buffer (64 bytes = 16 floats)
+    this.lightVPStaging.set(lightVP);
+    device.queue.writeBuffer(this.depthOnlyCubeUniformBuffer!, 0, this.lightVPStaging);
 
-    // Ground
+    // Ground — no instance buffer (uses the dedicated ground depth-only shader)
     pass.setPipeline(this.depthOnlyGroundPipeline!);
-    let groundBg = this.bg0Cache.get("depth:ground");
-    if (!groundBg) {
-      groundBg = device.createBindGroup({
-        layout: this.depthOnlyGroundPipeline!.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: { buffer: this.depthOnlyCubeUniformBuffer! } },
-          { binding: 1, resource: { buffer: this.depthOnlyCubeUniformBuffer!, offset: 256, size: 64 } },
-        ],
-      });
-      this.bg0Cache.set("depth:ground", groundBg);
-    }
-    pass.setBindGroup(0, groundBg);
+    pass.setBindGroup(0, this.groundDepthBindGroup!);
     pass.setVertexBuffer(0, this.groundVertexBuffer!);
     pass.draw(6);
 
-    // Props (cubes + spheres) — reuse the depth-only pipelines
+    // Props (cubes + spheres) — instanced depth-only into the shadow map
     if (this.simReader) {
-      this.renderBuiltinPropsDepth(pass, lightVP);
+      this.renderBuiltinPropsDepth(pass);
     }
   }
 
   /** Render builtin props (cubes + spheres) depth-only into the shadow map. */
-  private renderBuiltinPropsDepth(pass: GPURenderPassEncoder, lightVP: Float32Array): void {
+  private renderBuiltinPropsDepth(pass: GPURenderPassEncoder): void {
     if (!this.simReader || !this.depthOnlyCubePipeline || !this.cubeVertexBuffer || !this.cubeIndexBuffer) return;
-    if (!this.depthOnlyCubeUniformBuffer) return;
+    if (!this.depthOnlyCubeUniformBuffer || !this.cubeInstanceBuffer) return;
     const device = this.getDevice()!;
     const count = this.simReader.getEntityCount();
     if (count === 0) return;
-
-    // Write light VP to uniform buffer
-    const uniformData = new Float32Array(20);
-    uniformData.set(lightVP, 0);
-    device.queue.writeBuffer(this.depthOnlyCubeUniformBuffer, 0, uniformData);
 
     const cubes: number[] = [];
     const spheres: number[] = [];
@@ -1374,13 +1430,23 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
       else cubes.push(i);
     }
 
-    const renderBatch = (indices: number[], pipeline: GPURenderPipeline, vertexBuffer: GPUBuffer, indexBuffer: GPUBuffer, indexCount: number, baseOffset: number) => {
-      pass.setPipeline(pipeline);
-      pass.setVertexBuffer(0, vertexBuffer);
-      pass.setIndexBuffer(indexBuffer, "uint16");
-      const stride = this.cubeInstanceStride;
-      const maxInstances = this.cubeInstanceBuffer!.size / stride;
+    const stride = this.cubeInstanceStride;
+    const maxInstances = Math.floor(this.cubeInstanceBuffer.size / stride);
+    const staging = this.instanceStaging;
+
+    const renderBatch = (
+      indices: number[],
+      pipeline: GPURenderPipeline,
+      vertexBuffer: GPUBuffer,
+      indexBuffer: GPUBuffer,
+      indexCount: number,
+      baseOffset: number,
+      bg0: GPUBindGroup,
+    ) => {
       const drawCount = Math.min(indices.length, maxInstances - baseOffset);
+      if (drawCount <= 0) return;
+
+      // Write all instance model matrices into the staging array in one pass.
       for (let idx = 0; idx < drawCount; idx++) {
         const i = indices[idx];
         const slot = this.simReader!.getEntitySlot(i);
@@ -1392,35 +1458,31 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
         const ry = slot.f32[ENT.ROT_Y];
         const rz = slot.f32[ENT.ROT_Z];
         const rw = slot.f32[ENT.ROT_W];
-        const model = this.composeModelMatrix(px, py, pz, rx, ry, rz, rw, scale);
-        const instData = new Float32Array(16);
-        instData.set(model, 0);
-        device.queue.writeBuffer(this.cubeInstanceBuffer!, (baseOffset + idx) * stride, instData);
+        const off = (baseOffset + idx) * 24;
+        this.composeModelMatrixInto(staging, off, px, py, pz, rx, ry, rz, rw, scale);
       }
-      for (let idx = 0; idx < drawCount; idx++) {
-        const absIdx = baseOffset + idx;
-        const bgKey = (pipeline === this.depthOnlyCubePipeline ? "depth-cube:" : "depth-sphere:") + absIdx;
-        let bg = this.bg0Cache.get(bgKey);
-        if (!bg) {
-          bg = device.createBindGroup({
-            layout: pipeline.getBindGroupLayout(0),
-            entries: [
-              { binding: 0, resource: { buffer: this.depthOnlyCubeUniformBuffer! } },
-              { binding: 1, resource: { buffer: this.cubeInstanceBuffer!, offset: absIdx * stride, size: 64 } },
-            ],
-          });
-          this.bg0Cache.set(bgKey, bg);
-        }
-        pass.setBindGroup(0, bg);
-        pass.drawIndexed(indexCount);
-      }
+
+      // Single writeBuffer for the whole batch.
+      device.queue.writeBuffer(
+        this.cubeInstanceBuffer!,
+        baseOffset * stride,
+        staging.buffer,
+        baseOffset * 24 * 4,
+        drawCount * stride,
+      );
+
+      pass.setPipeline(pipeline);
+      pass.setVertexBuffer(0, vertexBuffer);
+      pass.setIndexBuffer(indexBuffer, "uint16");
+      pass.setBindGroup(0, bg0);
+      pass.drawIndexed(indexCount, drawCount, 0, 0, baseOffset);
     };
 
     if (cubes.length > 0) {
-      renderBatch(cubes, this.depthOnlyCubePipeline, this.cubeVertexBuffer, this.cubeIndexBuffer, this.cubeIndexCount, 0);
+      renderBatch(cubes, this.depthOnlyCubePipeline, this.cubeVertexBuffer, this.cubeIndexBuffer, this.cubeIndexCount, 0, this.depthCubeBindGroup0!);
     }
     if (spheres.length > 0 && this.depthOnlySpherePipeline && this.sphereVertexBuffer && this.sphereIndexBuffer) {
-      renderBatch(spheres, this.depthOnlySpherePipeline, this.sphereVertexBuffer, this.sphereIndexBuffer, this.sphereIndexCount, cubes.length);
+      renderBatch(spheres, this.depthOnlySpherePipeline, this.sphereVertexBuffer, this.sphereIndexBuffer, this.sphereIndexCount, cubes.length, this.depthSphereBindGroup0!);
     }
   }
 
@@ -1544,14 +1606,22 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
     if (shadowBg) pass.setBindGroup(3, shadowBg);
 
     const stride = this.cubeInstanceStride;
-    const maxInstances = this.cubeInstanceBuffer!.size / stride;
+    const maxInstances = Math.floor(this.cubeInstanceBuffer!.size / stride);
     const isCube = pipeline === this.cubePipeline;
     const defaultBg1 = isCube ? this.cubeDefaultBindGroup1 : this.sphereDefaultBindGroup1;
-    const bg0Layout = pipeline.getBindGroupLayout(0);
+    const bg0 = isCube ? this.cubeBindGroup0 : this.sphereBindGroup0;
     const bg1Layout = pipeline.getBindGroupLayout(1);
+    const staging = this.instanceStaging;
 
-    // Write all instance data first (clamp to buffer capacity)
-    const drawCount = Math.min(indices.length, maxInstances);
+    const drawCount = Math.min(indices.length, maxInstances - baseOffset);
+    if (drawCount <= 0) return;
+
+    // Write all instance data into the staging array (24 floats = 96 bytes each).
+    // Unpainted instances are packed first, painted instances after, so the
+    // unpainted batch can be drawn in a single drawIndexedInstanced call.
+    let unpaintedCount = 0;
+    const painted: Array<{ slotIdx: number; entityId: number }> = [];
+
     for (let idx = 0; idx < drawCount; idx++) {
       const i = indices[idx];
       const slot = this.simReader!.getEntitySlot(i);
@@ -1566,85 +1636,82 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
       const rz = slot.f32[ENT.ROT_Z];
       const rw = slot.f32[ENT.ROT_W];
 
-      const model = this.composeModelMatrix(px, py, pz, rx, ry, rz, rw, scale);
-
-      let color: [number, number, number, number];
-      if (type === EntityType.Projectile) {
-        color = [0.95, 0.3, 0.15, 1.0];
-      } else if (type === EntityType.Mannequin) {
-        color = [0.7, 0.65, 0.55, 1.0];
-      } else {
-        const hue = (i * 0.15) % 1.0;
-        const r = 0.5 + 0.4 * Math.sin(hue * Math.PI * 2);
-        const g = 0.5 + 0.4 * Math.sin(hue * Math.PI * 2 + 2.094);
-        const b = 0.5 + 0.4 * Math.sin(hue * Math.PI * 2 + 4.189);
-        color = [r, g, b, 1.0];
-      }
-
       const entityId = i + 1;
       const paintTex = this.paintTextures.get(entityId);
       const hasPaint = paintTex ? 1 : 0;
 
-      const instData = new Float32Array(24);
-      instData.set(model, 0);
-      instData[16] = color[0];
-      instData[17] = color[1];
-      instData[18] = color[2];
-      instData[19] = color[3];
-      instData[20] = hasPaint;
-      device.queue.writeBuffer(this.cubeInstanceBuffer!, (baseOffset + idx) * stride, instData);
+      // Unpainted packed at [0, unpaintedCount); painted packed from the end.
+      const slotIdx = hasPaint ? (drawCount - 1 - painted.length) : unpaintedCount;
+      const off = (baseOffset + slotIdx) * 24; // 24 floats per instance in staging
+
+      this.composeModelMatrixInto(staging, off, px, py, pz, rx, ry, rz, rw, scale);
+
+      if (type === EntityType.Projectile) {
+        staging[off + 16] = 0.95; staging[off + 17] = 0.3; staging[off + 18] = 0.15; staging[off + 19] = 1.0;
+      } else if (type === EntityType.Mannequin) {
+        staging[off + 16] = 0.7; staging[off + 17] = 0.65; staging[off + 18] = 0.55; staging[off + 19] = 1.0;
+      } else {
+        const hue = (i * 0.15) % 1.0;
+        staging[off + 16] = 0.5 + 0.4 * Math.sin(hue * Math.PI * 2);
+        staging[off + 17] = 0.5 + 0.4 * Math.sin(hue * Math.PI * 2 + 2.094);
+        staging[off + 18] = 0.5 + 0.4 * Math.sin(hue * Math.PI * 2 + 4.189);
+        staging[off + 19] = 1.0;
+      }
+      staging[off + 20] = hasPaint;
+
+      if (hasPaint) {
+        painted.push({ slotIdx: baseOffset + slotIdx, entityId });
+      } else {
+        unpaintedCount++;
+      }
     }
 
-    // Draw using cached bind groups (keyed by absolute instance buffer offset)
-    for (let idx = 0; idx < drawCount; idx++) {
-      const i = indices[idx];
-      const entityId = i + 1;
-      const paintTex = this.paintTextures.get(entityId);
-      const absIdx = baseOffset + idx;
+    // Single writeBuffer for the entire batch — replaces N per-instance writes.
+    device.queue.writeBuffer(
+      this.cubeInstanceBuffer!,
+      baseOffset * stride,
+      staging.buffer,
+      baseOffset * 24 * 4, // src offset in bytes (24 floats × 4 bytes)
+      drawCount * stride,
+    );
 
-      // Bind group 0: per-instance uniform — cache by absolute buffer offset
-      const bg0Key = (isCube ? "c" : "s") + ":" + absIdx;
-      let bg0 = this.bg0Cache.get(bg0Key);
-      if (!bg0) {
-        bg0 = device.createBindGroup({
-          layout: bg0Layout,
+    // Bind group 0: single shared bind group for all instances (uniform + storage).
+    pass.setBindGroup(0, bg0!);
+
+    // Draw unpainted batch in one instanced call.
+    if (unpaintedCount > 0) {
+      if (defaultBg1) pass.setBindGroup(1, defaultBg1);
+      pass.drawIndexed(indexCount, unpaintedCount, 0, 0, baseOffset);
+    }
+
+    // Draw painted instances individually (each needs its own paint texture BG).
+    for (const { slotIdx, entityId } of painted) {
+      let bg1 = this.paintBindGroupCache.get(entityId);
+      if (!bg1) {
+        const tex = this.paintTextures.get(entityId);
+        if (!tex) continue;
+        bg1 = device.createBindGroup({
+          layout: bg1Layout,
           entries: [
-            { binding: 0, resource: { buffer: this.cubeUniformBuffer! } },
-            { binding: 1, resource: { buffer: this.cubeInstanceBuffer!, offset: absIdx * stride, size: 96 } },
+            { binding: 0, resource: tex.createView() },
+            { binding: 1, resource: this.cubeSampler! },
           ],
         });
-        this.bg0Cache.set(bg0Key, bg0);
+        this.paintBindGroupCache.set(entityId, bg1);
       }
-      pass.setBindGroup(0, bg0);
-
-      // Bind group 1: paint texture — cache by entityId
-      if (paintTex) {
-        let bg1 = this.paintBindGroupCache.get(entityId);
-        if (!bg1) {
-          bg1 = device.createBindGroup({
-            layout: bg1Layout,
-            entries: [
-              { binding: 0, resource: paintTex.createView() },
-              { binding: 1, resource: this.cubeSampler! },
-            ],
-          });
-          this.paintBindGroupCache.set(entityId, bg1);
-        }
-        pass.setBindGroup(1, bg1);
-      } else if (defaultBg1) {
-        pass.setBindGroup(1, defaultBg1);
-      }
-
-      pass.drawIndexed(indexCount);
+      pass.setBindGroup(1, bg1);
+      pass.drawIndexed(indexCount, 1, 0, 0, slotIdx);
     }
   }
 
-  // ── Compose a 4×4 model matrix from TRS ──
-  private composeModelMatrix(
+  // ── Compose a 4×4 model matrix from TRS into a staging array (zero-alloc) ──
+  private composeModelMatrixInto(
+    target: Float32Array,
+    offset: number,
     tx: number, ty: number, tz: number,
     rx: number, ry: number, rz: number, rw: number,
     scale: number,
-  ): Float32Array {
+  ): void {
     const ql = Math.sqrt(rx * rx + ry * ry + rz * rz + rw * rw) || 1;
     const qx = rx / ql, qy = ry / ql, qz = rz / ql, qw = rw / ql;
     const r00 = 1 - 2 * (qy * qy + qz * qz);
@@ -1656,12 +1723,23 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
     const r20 = 2 * (qx * qz - qy * qw);
     const r21 = 2 * (qy * qz + qx * qw);
     const r22 = 1 - 2 * (qx * qx + qy * qy);
-    return new Float32Array([
-      r00 * scale, r10 * scale, r20 * scale, 0,
-      r01 * scale, r11 * scale, r21 * scale, 0,
-      r02 * scale, r12 * scale, r22 * scale, 0,
-      tx, ty, tz, 1,
-    ]);
+    // Column-major mat4x4 (matches wgpu-matrix layout)
+    target[offset    ] = r00 * scale;
+    target[offset + 1] = r10 * scale;
+    target[offset + 2] = r20 * scale;
+    target[offset + 3] = 0;
+    target[offset + 4] = r01 * scale;
+    target[offset + 5] = r11 * scale;
+    target[offset + 6] = r21 * scale;
+    target[offset + 7] = 0;
+    target[offset + 8] = r02 * scale;
+    target[offset + 9] = r12 * scale;
+    target[offset + 10] = r22 * scale;
+    target[offset + 11] = 0;
+    target[offset + 12] = tx;
+    target[offset + 13] = ty;
+    target[offset + 14] = tz;
+    target[offset + 15] = 1;
   }
 
   private getOrCreateDepthTexture(w: number, h: number): GPUTexture {
