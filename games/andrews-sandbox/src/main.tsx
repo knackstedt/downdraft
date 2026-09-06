@@ -10,7 +10,7 @@ import { PhysicsPropsController } from "@andrews-sandbox/module-physics-props";
 import { SandboxVRModule } from "@andrews-sandbox/module-vr";
 import { WeaponController } from "@andrews-sandbox/module-weapons";
 import { downdraft, startGame, type SimWorkerSeed } from "@downdraft/app/renderer";
-import { ENGINE_VERSION, ENT, SimBufferReader } from "@downdraft/core";
+import { CameraMode, ENGINE_VERSION, ENT, SimBufferReader } from "@downdraft/core";
 import { PixiUiHost } from "@downdraft/library-pixi-ui";
 import { EntityType, FunMode, PoseState, ToolType, ToolgunContext } from "@sandbox/shared/types";
 import { SimWebWorker, type SimWebWorkerConfig } from "./engine/sim-web-worker";
@@ -60,6 +60,30 @@ const POSE_SPEED_MUL: Record<PoseState, number> = {
 // move loop advances `currentEyeHeight` toward it.
 let currentEyeHeight = POSE_EYE_HEIGHT[PoseState.Standing];
 let targetEyeHeight = POSE_EYE_HEIGHT[PoseState.Standing];
+
+// ── Camera mode state ──
+// The sandbox supports three camera modes (cycled with KeyC):
+//   FirstPerson — camera at the player's eye, looks where the player aims.
+//   ThirdPerson — camera orbits behind the player at `thirdPersonDistance`,
+//                 looking at the player's head. Scroll wheel adjusts distance.
+//   FreeCam     — camera detaches from the player and flies freely through
+//                 the world (WASD + Space/Shift); the sim player freezes until
+//                 you cycle back to a player-attached mode.
+// `freecamPos` is initialized from the current camera position the first time
+// FreeCam is entered (and re-seeded whenever we switch into it from a
+// player-attached mode so the handoff is seamless).
+const THIRD_PERSON_MIN_DIST = 3;
+const THIRD_PERSON_MAX_DIST = 25;
+const THIRD_PERSON_DEFAULT_DIST = 8;
+const FREECAM_SPEED = 20; // units / second
+const CAMERA_MODE_NAMES: Record<CameraMode, string> = {
+  [CameraMode.FirstPerson]: "First Person",
+  [CameraMode.ThirdPerson]: "Third Person",
+  [CameraMode.FreeCam]: "Freecam",
+};
+let cameraMode: CameraMode = CameraMode.FirstPerson;
+let thirdPersonDistance = THIRD_PERSON_DEFAULT_DIST;
+let freecamPos: [number, number, number] = [0, PLAYER_HEIGHT + currentEyeHeight, 0];
 
 // Register builtin props
 for (const prop of BUILTIN_PROPS) {
@@ -332,9 +356,12 @@ startGame({
     let pointerLocked = false;
     const keys = new Set<string>();
 
-    // Click canvas to request pointer lock
+    // Click canvas to request pointer lock. Ignore clicks while the ESC menu
+    // (or any overlay panel) is open — those panels sit above the canvas but
+    // don't cover the full screen, so clicks on the exposed area would
+    // otherwise re-acquire pointer lock and yank focus away from the menu.
     canvas.addEventListener("click", () => {
-      if (!pointerLocked) {
+      if (!pointerLocked && !useGameStore.getState().showEscMenu) {
         canvas.requestPointerLock();
       }
     });
@@ -359,7 +386,7 @@ startGame({
       if (!pointerLocked) return;
       yaw += e.movementX * 0.0025;
       pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, pitch - e.movementY * 0.0025));
-      updateCamera(renderer as WebGPURenderer, yaw, pitch);
+      applyCamera(renderer as WebGPURenderer, yaw, pitch);
     });
 
     // Left-click fires weapon (only during pointer lock)
@@ -380,11 +407,19 @@ startGame({
     // Prevent context menu (so right-click doesn't break flow)
     canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
-    // Scroll wheel adjusts physgun grab distance
+    // Scroll wheel adjusts physgun grab distance, or third-person camera
+    // distance when not grabbing and in ThirdPerson mode.
     canvas.addEventListener("wheel", (e) => {
       if (weaponController.getTool() === ToolType.Physgun && weaponController.getPhysgun().isGrabbing()) {
         e.preventDefault();
         weaponController.getPhysgun().adjustDistance(-e.deltaY * 0.01);
+      } else if (cameraMode === CameraMode.ThirdPerson) {
+        e.preventDefault();
+        thirdPersonDistance = Math.max(
+          THIRD_PERSON_MIN_DIST,
+          Math.min(THIRD_PERSON_MAX_DIST, thirdPersonDistance - e.deltaY * 0.01),
+        );
+        applyCamera(renderer as WebGPURenderer, yaw, pitch);
       }
     }, { passive: false });
 
@@ -422,6 +457,25 @@ startGame({
         case "Digit3": weaponController.setTool(ToolType.Pistol); s.setActiveTool(ToolType.Pistol); (ctx as any)._domHud?.updateToolBtns?.(); break;
         case "Digit4": weaponController.setTool(ToolType.Paintgun); s.setActiveTool(ToolType.Paintgun); (ctx as any)._domHud?.updateToolBtns?.(); break;
         case "KeyV": vrModule?.toggleVR().catch((e) => console.warn("[VR] Failed to toggle VR:", e)); break;
+        case "KeyC": {
+          // Cycle FirstPerson → ThirdPerson → FreeCam → FirstPerson.
+          const r2 = renderer as WebGPURenderer;
+          const next = ((cameraMode + 1) % 3) as CameraMode;
+          if (next === CameraMode.FreeCam) {
+            // Seed freecam from the current camera position for a seamless handoff.
+            const cp = r2.getCameraPosition();
+            freecamPos = [cp[0], cp[1], cp[2]];
+          } else if (cameraMode === CameraMode.FreeCam) {
+            // Leaving FreeCam — zero vertical velocity so the player doesn't
+            // resume with a stale downward velocity from before the freeze.
+            vy = 0;
+          }
+          cameraMode = next;
+          useGameStore.getState().setCameraMode(next);
+          applyCamera(r2, yaw, pitch);
+          console.log(`[Camera] Mode: ${CAMERA_MODE_NAMES[next]}`);
+          break;
+        }
         case "KeyR": weaponController.getToolgun().setContext(ToolgunContext.Remove); console.log("[Toolgun] Context: Remove"); break;
         case "KeyT": weaponController.getToolgun().setContext(ToolgunContext.Spawn); console.log("[Toolgun] Context: Spawn"); break;
         case "KeyG": weaponController.getToolgun().setContext(ToolgunContext.SetFunMode); console.log("[Toolgun] Context: SetFunMode"); break;
@@ -448,6 +502,28 @@ startGame({
       paintSystem?.tick();
       vrModule?.tick(dt);
       const r = renderer as WebGPURenderer;
+
+      // ── FreeCam: fly the camera through the world; the sim player freezes ──
+      if (cameraMode === CameraMode.FreeCam) {
+        const fwd = getMoveForward(yaw);
+        const right = getRightVector(yaw);
+        const speed = FREECAM_SPEED;
+        let dx = 0, dy = 0, dz = 0;
+        if (keys.has("KeyW")) { dx += fwd[0] * speed * dt; dz += fwd[2] * speed * dt; }
+        if (keys.has("KeyS")) { dx -= fwd[0] * speed * dt; dz -= fwd[2] * speed * dt; }
+        if (keys.has("KeyA")) { dx -= right[0] * speed * dt; dz -= right[2] * speed * dt; }
+        if (keys.has("KeyD")) { dx += right[0] * speed * dt; dz += right[2] * speed * dt; }
+        // Space = up, Shift = down (no crouch/prone in freecam)
+        if (keys.has("Space")) dy += speed * dt;
+        if (keys.has("ShiftLeft")) dy -= speed * dt;
+        freecamPos[0] += dx;
+        freecamPos[1] += dy;
+        freecamPos[2] += dz;
+        applyCamera(r, yaw, pitch);
+        return;
+      }
+
+      // ── Player-attached modes (FirstPerson / ThirdPerson) ──
       // Determine desired pose from held keys: CtrlLeft (prone) takes
       // priority over ShiftLeft (crouch); release either to stand.
       const desiredPose = keys.has("ControlLeft")
@@ -488,9 +564,8 @@ startGame({
       // transitions glide instead of snapping. Frame-rate-independent exponential
       // smoothing: ~12/s converges in ~250ms, hiding the capsule-resize pop.
       currentEyeHeight += (targetEyeHeight - currentEyeHeight) * Math.min(1, dt * 12);
-      // Update camera to player's eye position (pose-dependent eye height)
-      r.setCameraPosition([playerState.pos[0], playerState.pos[1] + currentEyeHeight, playerState.pos[2]]);
-      updateCamera(r, yaw, pitch);
+      // Update camera (position + target) for the active player-attached mode.
+      applyCamera(r, yaw, pitch);
     }, 16);
 
     (ctx as any)._statsInterval = statsInterval;
@@ -602,6 +677,10 @@ function buildDomHud(
   poseBadge.className = "badge";
   poseBadge.textContent = "Pose: Standing";
   hudRight.appendChild(poseBadge);
+  const camBadge = document.createElement("span");
+  camBadge.className = "badge";
+  camBadge.textContent = "Cam: First Person";
+  hudRight.appendChild(camBadge);
   hud.appendChild(hudRight);
   document.body.appendChild(hud);
 
@@ -613,6 +692,7 @@ function buildDomHud(
     toolBadge.textContent = `Tool: ${TOOL_NAMES[s.activeTool] ?? s.activeTool}`;
     modeBadge.textContent = `Mode: ${FUN_NAMES[s.activeFunMode] ?? s.activeFunMode}`;
     poseBadge.textContent = `Pose: ${POSE_NAMES[playerState.pose] ?? playerState.pose}`;
+    camBadge.textContent = `Cam: ${CAMERA_MODE_NAMES[s.cameraMode] ?? s.cameraMode}`;
   }, 200);
   (ctx as any)._hudInterval = hudInterval;
 
@@ -835,6 +915,12 @@ function buildDomHud(
   escContent.className = "sandbox-esc-content";
   escMenu.appendChild(escContent);
 
+  // ── ESC Menu keyboard navigation state ──
+  // WASD navigates: A/D switches between sidebar (tabs) and content panel;
+  // W/S moves up/down within the current column; Space/Enter activates.
+  let escNavColumn: "sidebar" | "content" = "sidebar";
+  let escNavIndex = 0;
+
   function updateEscTab() {
     const s = useGameStore.getState();
     escTabBtns.forEach((b, i) => {
@@ -958,9 +1044,11 @@ function buildDomHud(
         ["WASD", "Move"],
         ["Mouse", "Look around"],
         ["Click", "Use tool / weapon"],
-        ["Space", "Jump (standing only)"],
-        ["Shift", "Hold to crouch"],
+        ["Space", "Jump (standing only) / Fly up (Freecam)"],
+        ["Shift", "Hold to crouch / Fly down (Freecam)"],
         ["Ctrl", "Hold to prone"],
+        ["C", "Cycle camera (First Person → Third Person → Freecam)"],
+        ["Scroll", "Third Person: camera distance"],
         ["1-4", "Switch tools (Physgun, Toolgun, Pistol, Paintgun)"],
         ["B", "Toggle content browser"],
         ["P", "Toggle paint palette"],
@@ -972,6 +1060,9 @@ function buildDomHud(
         ["F9", "Load game"],
         ["V", "Toggle VR"],
         ["ESC", "Open / close this menu"],
+        ["W/S", "Menu: navigate up/down"],
+        ["A/D", "Menu: switch between tabs and items"],
+        ["Space", "Menu: activate selected entry"],
       ];
       for (const [key, desc] of controls) {
         const row = document.createElement("div");
@@ -987,9 +1078,9 @@ function buildDomHud(
         escContent.appendChild(row);
       }
     }
+    // Refresh keyboard-selection highlight after the panel re-renders.
+    updateEscSelection();
   }
-
-  // Status flash (transient toast inside the menu)
   let statusTimer: ReturnType<typeof setTimeout> | null = null;
   function flashStatus(msg: string) {
     let status = escContent.querySelector(".sandbox-esc-status") as HTMLElement | null;
@@ -1116,10 +1207,111 @@ function buildDomHud(
     canvas.requestPointerLock();
   }
 
+  // ── ESC Menu keyboard navigation (WASD + Space) ──
+  // A/D → switch between sidebar (tabs) and content panel
+  // W/S → move up/down within the current column
+  // Space/Enter → activate the selected entry
+  function collectEscNavTargets(column: "sidebar" | "content"): HTMLElement[] {
+    if (column === "sidebar") return escTabBtns;
+    const tab = useGameStore.getState().escMenuTab;
+    if (tab === "controls") return []; // display-only
+    const selector = tab === "main" ? ".sandbox-esc-item"
+      : tab === "graphics" ? ".sandbox-esc-gfx-row"
+      : tab === "content" ? ".sandbox-esc-content-item"
+      : null;
+    if (!selector) return [];
+    return Array.from(escContent.querySelectorAll<HTMLElement>(selector));
+  }
+
+  function updateEscSelection(): void {
+    escMenu.querySelectorAll(".sandbox-esc-selected").forEach(el => el.classList.remove("sandbox-esc-selected"));
+    let targets = collectEscNavTargets(escNavColumn);
+    // If the current column has no targets (e.g. controls tab), fall back to sidebar.
+    if (targets.length === 0 && escNavColumn === "content") {
+      escNavColumn = "sidebar";
+      escNavIndex = 0;
+      targets = collectEscNavTargets(escNavColumn);
+    }
+    if (targets.length === 0) return;
+    if (escNavIndex >= targets.length) escNavIndex = targets.length - 1;
+    if (escNavIndex < 0) escNavIndex = 0;
+    const el = targets[escNavIndex];
+    el.classList.add("sandbox-esc-selected");
+    el.scrollIntoView({ block: "nearest" });
+  }
+
+  function activateEscSelection(): void {
+    const targets = collectEscNavTargets(escNavColumn);
+    if (targets.length === 0) return;
+    if (escNavIndex >= targets.length) escNavIndex = targets.length - 1;
+    if (escNavIndex < 0) escNavIndex = 0;
+    const el = targets[escNavIndex];
+    // Graphics toggle rows: click the toggle element inside the row.
+    // Slider rows: focus the range input so arrow keys can adjust.
+    const toggle = el.querySelector(".sandbox-esc-toggle");
+    if (toggle) { (toggle as HTMLElement).click(); return; }
+    const slider = el.querySelector("input[type=\"range\"]");
+    if (slider) { (slider as HTMLElement).focus(); return; }
+    el.click();
+  }
+
+  window.addEventListener("keydown", (e) => {
+    if (!useGameStore.getState().showEscMenu) return;
+    switch (e.code) {
+      case "KeyW": case "ArrowUp": {
+        e.preventDefault();
+        const targets = collectEscNavTargets(escNavColumn);
+        if (targets.length === 0) break;
+        escNavIndex = (escNavIndex - 1 + targets.length) % targets.length;
+        updateEscSelection();
+        break;
+      }
+      case "KeyS": case "ArrowDown": {
+        e.preventDefault();
+        const targets = collectEscNavTargets(escNavColumn);
+        if (targets.length === 0) break;
+        escNavIndex = (escNavIndex + 1) % targets.length;
+        updateEscSelection();
+        break;
+      }
+      case "KeyA": case "ArrowLeft":
+        e.preventDefault();
+        escNavColumn = "sidebar";
+        escNavIndex = 0;
+        updateEscSelection();
+        break;
+      case "KeyD": case "ArrowRight": {
+        e.preventDefault();
+        const contentTargets = collectEscNavTargets("content");
+        if (contentTargets.length > 0) {
+          escNavColumn = "content";
+          escNavIndex = 0;
+          updateEscSelection();
+        }
+        break;
+      }
+      case "Space": case "Enter":
+        e.preventDefault();
+        activateEscSelection();
+        break;
+    }
+  });
+
   // Subscribe to store to show/hide the menu
   useGameStore.subscribe((state) => {
     escMenu.style.display = state.showEscMenu ? "flex" : "none";
-    if (state.showEscMenu) updateEscTab();
+    // Blur the game world behind the menu unless the player is on the
+    // graphics tab — there they need to see the unblurred scene to judge
+    // the effect of their setting changes.
+    escMenu.classList.toggle("blurred", state.showEscMenu && state.escMenuTab !== "graphics");
+    if (state.showEscMenu) {
+      updateEscTab();
+      // Reset keyboard selection to the sidebar when the menu opens.
+      if (state.escMenuTab === "main") {
+        escNavColumn = "sidebar";
+        escNavIndex = 0;
+      }
+    }
   });
 
   document.body.appendChild(escMenu);
@@ -1133,10 +1325,45 @@ function buildDomHud(
   };
 }
 
-function updateCamera(renderer: WebGPURenderer, yaw: number, pitch: number): void {
-  const pos = renderer.getCameraPosition();
-  const target = getForwardVector(yaw, pitch);
-  renderer.setCameraTarget([pos[0] + target[0], pos[1] + target[1], pos[2] + target[2]]);
+function applyCamera(renderer: WebGPURenderer, yaw: number, pitch: number): void {
+  const fwd = getForwardVector(yaw, pitch);
+  switch (cameraMode) {
+    case CameraMode.FirstPerson: {
+      const eye: [number, number, number] = [
+        playerState.pos[0],
+        playerState.pos[1] + currentEyeHeight,
+        playerState.pos[2],
+      ];
+      renderer.setCameraPosition(eye);
+      renderer.setCameraTarget([eye[0] + fwd[0], eye[1] + fwd[1], eye[2] + fwd[2]]);
+      break;
+    }
+    case CameraMode.ThirdPerson: {
+      const eye: [number, number, number] = [
+        playerState.pos[0],
+        playerState.pos[1] + currentEyeHeight,
+        playerState.pos[2],
+      ];
+      // Orbit the camera behind the player along the view forward, looking at
+      // the eye. Distance is adjustable via the scroll wheel.
+      renderer.setCameraPosition([
+        eye[0] - fwd[0] * thirdPersonDistance,
+        eye[1] - fwd[1] * thirdPersonDistance,
+        eye[2] - fwd[2] * thirdPersonDistance,
+      ]);
+      renderer.setCameraTarget(eye);
+      break;
+    }
+    case CameraMode.FreeCam: {
+      renderer.setCameraPosition(freecamPos);
+      renderer.setCameraTarget([
+        freecamPos[0] + fwd[0],
+        freecamPos[1] + fwd[1],
+        freecamPos[2] + fwd[2],
+      ]);
+      break;
+    }
+  }
 }
 
 function getForwardVector(yaw: number, pitch: number): [number, number, number] {

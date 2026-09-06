@@ -277,6 +277,20 @@ canvas {
   font-family: "Segoe UI", system-ui, sans-serif;
   background: transparent;
 }
+/* Full-screen backdrop blur — applied to the menu container so the game
+   world is blurred behind the menu. Toggled off on the graphics tab so the
+   player can see their settings changes in real time. */
+.sandbox-esc-menu.blurred {
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+/* Keyboard-selection highlight for ESC menu navigation (WASD + Space).
+   Gold outline is distinct from the blue active-tab indicator. */
+.sandbox-esc-selected {
+  outline: 2px solid #ffcc00;
+  outline-offset: -2px;
+}
 
 .sandbox-esc-sidebar {
   width: 220px;

@@ -2,7 +2,7 @@
 // Game Store — zustand store for sandbox UI state
 // ============================================================================
 
-import { FunMode, ToolType } from "@sandbox/shared/types";
+import { CameraMode, FunMode, ToolType } from "@sandbox/shared/types";
 import { create } from "zustand";
 
 interface GameStoreState {
@@ -11,6 +11,7 @@ interface GameStoreState {
   isDev: boolean;
   activeTool: ToolType;
   activeFunMode: FunMode;
+  cameraMode: CameraMode;
   showContentBrowser: boolean;
   showToolWheel: boolean;
   showPaintPalette: boolean;
@@ -47,6 +48,7 @@ interface GameStoreState {
   setIsDev: (v: boolean) => void;
   setActiveTool: (tool: ToolType) => void;
   setActiveFunMode: (mode: FunMode) => void;
+  setCameraMode: (mode: CameraMode) => void;
   toggleContentBrowser: () => void;
   toggleToolWheel: () => void;
   togglePaintPalette: () => void;
@@ -84,6 +86,7 @@ export const useGameStore = create<GameStoreState>((set) => ({
   isDev: false,
   activeTool: ToolType.Physgun,
   activeFunMode: FunMode.Normal,
+  cameraMode: CameraMode.FirstPerson,
   showContentBrowser: true,
   showToolWheel: false,
   showPaintPalette: false,
@@ -120,6 +123,7 @@ export const useGameStore = create<GameStoreState>((set) => ({
   setIsDev: (v) => set({ isDev: v }),
   setActiveTool: (tool) => set({ activeTool: tool, showPaintPalette: tool === ToolType.Paintgun, showToolWheel: false }),
   setActiveFunMode: (mode) => set({ activeFunMode: mode }),
+  setCameraMode: (mode) => set({ cameraMode: mode }),
   toggleContentBrowser: () => set((s) => ({ showContentBrowser: !s.showContentBrowser })),
   toggleToolWheel: () => set((s) => ({ showToolWheel: !s.showToolWheel })),
   togglePaintPalette: () => set((s) => ({ showPaintPalette: !s.showPaintPalette })),

@@ -3,7 +3,7 @@
 // ============================================================================
 
 // --- Engine-level types (re-exported from core) ---
-export { EntityFlags } from "@downdraft/core";
+export { CameraMode, EntityFlags } from "@downdraft/core";
 export type { EntityId, MainToSimMessage, PlayerId, Quat, RendererToSimMessage, SimToMainMessage, Transform, Vec2, Vec3, Vec4 } from "@downdraft/core";
 
 // --- Entity Types ---
