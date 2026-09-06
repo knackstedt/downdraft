@@ -25,7 +25,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     FxaaContrast(rgbaM, rgbaN),
     FxaaContrast(rgbaM, rgbaS)),
     FxaaContrast(rgbaM, rgbaE)),
-    FxaaContrast(rgbaM, rgbaW)) < 0.2;
+    FxaaContrast(rgbaM, rgbaW)) < 0.06;
   if (earlyExit) { return rgbaM; }
 
   let contrastN = FxaaContrast(rgbaM, rgbaN);
@@ -38,7 +38,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 
   var horzSpan = relativeVContrast > 0.0;
 
-  if (abs(relativeVContrast) < 0.3) {
+  if (abs(relativeVContrast) < 0.1) {
     let dirToEdgeX = select(-1.0, 1.0, contrastE > contrastW);
     let dirToEdgeY = select(-1.0, 1.0, contrastS > contrastN);
 
@@ -49,7 +49,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let matchAlongV = FxaaContrast(rgbaM, rgbaAlongV);
 
     relativeVContrast = (matchAlongV - matchAlongH) * 5.0;
-    if (abs(relativeVContrast) < 0.3) {
+    if (abs(relativeVContrast) < 0.1) {
       return mix(rgbaM, (rgbaN + rgbaS + rgbaE + rgbaW) * 0.25, 0.4);
     }
     horzSpan = relativeVContrast > 0.0;
@@ -95,5 +95,6 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
   dist = 1.0 - dist;
   dist = sqrt(dist);
 
-  return mix(rgbaM, rgbaN2, dist * 0.5);
+  let result = mix(rgbaM, rgbaN2, dist * 0.5);
+  return result;
 }

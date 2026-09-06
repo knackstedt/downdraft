@@ -149,19 +149,25 @@ fn pcfShadow(worldPos: vec3f, N: vec3f) -> f32 {
 // Returns a grid line intensity for a given world coordinate.
 // 'spacing' is the grid cell size in meters; 'width' is the line thickness.
 // Lines are centered on multiples of 'spacing' (including 0).
+// Uses fwidth for screen-space anti-aliasing — lines fade out smoothly
+// when they become sub-pixel, preventing moiré/aliasing at distance.
 fn gridLine(coord: f32, spacing: f32, width: f32) -> f32 {
   let p = abs(fract(coord / spacing - 0.5) - 0.5) * spacing;
-  // Tight smoothstep for a crisp edge — transition over 10% of the width.
-  let edge0 = width * 0.9;
-  return 1.0 - smoothstep(edge0, width, p);
+  // Screen-space pixel size in world units for this coordinate
+  let px = fwidth(coord);
+  // Line half-width in world units, at least 1 pixel for AA
+  let hw = max(width, px * 1.5);
+  return 1.0 - smoothstep(hw - px, hw, p);
 }
 
 // Concentric distance ring at a given radius from origin.
+// Uses fwidth for screen-space anti-aliasing.
 fn distanceRing(worldXZ: vec2f, radius: f32, width: f32) -> f32 {
   let d = length(worldXZ);
   let ringDist = abs(d - radius);
-  let edge0 = width * 0.9;
-  return 1.0 - smoothstep(edge0, width, ringDist);
+  let px = fwidth(d);
+  let hw = max(width, px * 1.5);
+  return 1.0 - smoothstep(hw - px, hw, ringDist);
 }
 
 // Extract the digit at position 'digitIndex' (0=ones, 1=tens, 2=hundreds).
@@ -257,19 +263,16 @@ fn fs(in: VertexOut) -> @location(0) vec4f {
   let baseColor = vec3f(0.18, 0.19, 0.22);
 
   // ── Multi-tier grid ──
-  // Minor: 1m spacing (fades out with distance to avoid aliasing)
-  let minorFade = clamp(1.0 - camDist / 40.0, 0.0, 1.0);
-  let minorX = gridLine(worldPos.x, 1.0, 0.03) * minorFade;
-  let minorZ = gridLine(worldPos.z, 1.0, 0.03) * minorFade;
+  // fwidth in gridLine() handles distance-based fade automatically —
+  // lines smoothly disappear when they become sub-pixel.
+  let minorX = gridLine(worldPos.x, 1.0, 0.03);
+  let minorZ = gridLine(worldPos.z, 1.0, 0.03);
   let minorGrid = max(minorX, minorZ);
 
-  // Medium: 10m spacing
-  let medFade = clamp(1.0 - camDist / 150.0, 0.0, 1.0);
-  let medX = gridLine(worldPos.x, 10.0, 0.06) * medFade;
-  let medZ = gridLine(worldPos.z, 10.0, 0.06) * medFade;
+  let medX = gridLine(worldPos.x, 10.0, 0.06);
+  let medZ = gridLine(worldPos.z, 10.0, 0.06);
   let medGrid = max(medX, medZ);
 
-  // Major: 100m spacing (always visible)
   let majorX = gridLine(worldPos.x, 100.0, 0.12);
   let majorZ = gridLine(worldPos.z, 100.0, 0.12);
   let majorGrid = max(majorX, majorZ);
@@ -285,14 +288,20 @@ fn fs(in: VertexOut) -> @location(0) vec4f {
   color = mix(color, majorColor, majorGrid * 0.9);
 
   // ── Axis lines (X = warm red, Z = cool blue) ──
-  // Sharp lines — tight smoothstep transition (10% of width) for crisp edges.
-  let axisWidth = 0.04 + clamp(camDist / 800.0, 0.0, 0.1);
-  let xAxisLine = 1.0 - smoothstep(axisWidth * 0.9, axisWidth, abs(worldPos.z));
-  let zAxisLine = 1.0 - smoothstep(axisWidth * 0.9, axisWidth, abs(worldPos.x));
-  let xAxisFade = clamp(1.0 - abs(worldPos.x) / 250.0, 0.0, 1.0);
-  let zAxisFade = clamp(1.0 - abs(worldPos.z) / 250.0, 0.0, 1.0);
-  color = mix(color, vec3f(0.85, 0.3, 0.15), xAxisLine * xAxisFade * 0.8);
-  color = mix(color, vec3f(0.15, 0.4, 0.85), zAxisLine * zAxisFade * 0.8);
+  // fwidth-based AA for crisp lines that don't alias at distance.
+  {
+    let pxZ = fwidth(worldPos.z);
+    let pxX = fwidth(worldPos.x);
+    let axisWidth = 0.04;
+    let hwZ = max(axisWidth, pxZ * 1.5);
+    let hwX = max(axisWidth, pxX * 1.5);
+    let xAxisLine = 1.0 - smoothstep(hwZ - pxZ, hwZ, abs(worldPos.z));
+    let zAxisLine = 1.0 - smoothstep(hwX - pxX, hwX, abs(worldPos.x));
+    let xAxisFade = clamp(1.0 - abs(worldPos.x) / 250.0, 0.0, 1.0);
+    let zAxisFade = clamp(1.0 - abs(worldPos.z) / 250.0, 0.0, 1.0);
+    color = mix(color, vec3f(0.85, 0.3, 0.15), xAxisLine * xAxisFade * 0.8);
+    color = mix(color, vec3f(0.15, 0.4, 0.85), zAxisLine * zAxisFade * 0.8);
+  }
 
   // ── Distance rings (concentric, from origin) ──
   var ringIntensity = 0.0;

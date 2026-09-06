@@ -1022,10 +1022,10 @@ function buildDomHud(
     const r = ctx.renderer as WebGPURenderer;
     const s = useGameStore.getState();
     switch (key) {
-      case "bloom": s.setBloomEnabled(!s.bloomEnabled); (r as any).setBloom?.(!s.bloomEnabled); break;
-      case "fxaa": s.setFXAAEnabled(!s.fxaaEnabled); (r as any).setFXAA?.(!s.fxaaEnabled); break;
-      case "tonemap": s.setTonemapEnabled(!s.tonemapEnabled); (r as any).setTonemap?.(!s.tonemapEnabled); break;
-      case "vignette": s.setVignetteEnabled(!s.vignetteEnabled); (r as any).setVignette?.(!s.vignetteEnabled); break;
+      case "bloom": s.setBloomEnabled(!s.bloomEnabled); (r as any).setBloomEnabled?.(!s.bloomEnabled); break;
+      case "fxaa": s.setFXAAEnabled(!s.fxaaEnabled); (r as any).setFXAAEnabled?.(!s.fxaaEnabled); break;
+      case "tonemap": s.setTonemapEnabled(!s.tonemapEnabled); (r as any).setTonemapEnabled?.(!s.tonemapEnabled); break;
+      case "vignette": s.setVignetteEnabled(!s.vignetteEnabled); (r as any).setVignetteEnabled?.(!s.vignetteEnabled); break;
       case "shadows": s.setShadowsEnabled(!s.shadowsEnabled); (r as any).setShadowsEnabled?.(!s.shadowsEnabled); break;
       case "mipmaps": s.setMipmapsEnabled(!s.mipmapsEnabled); (r as any).setMipmapsEnabled?.(!s.mipmapsEnabled); break;
       case "pointLights": s.setPointLightsEnabled(!s.pointLightsEnabled); (r as any).setPointLightsEnabled?.(!s.pointLightsEnabled); break;
