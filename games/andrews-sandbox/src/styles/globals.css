@@ -273,22 +273,23 @@ canvas {
   top: 0; left: 0; right: 0; bottom: 0;
   display: none;
   z-index: 500;
-  pointer-events: auto;
+  pointer-events: none;
   font-family: "Segoe UI", system-ui, sans-serif;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(4px);
+  background: transparent;
 }
 
 .sandbox-esc-sidebar {
   width: 220px;
   height: 100%;
   background: rgba(18, 20, 30, 0.95);
+  backdrop-filter: blur(4px);
   border-right: 1px solid rgba(100, 150, 200, 0.2);
   display: flex;
   flex-direction: column;
   padding: 20px 0;
   box-sizing: border-box;
   flex-shrink: 0;
+  pointer-events: auto;
 }
 
 .sandbox-esc-title {
@@ -324,9 +325,13 @@ canvas {
 
 .sandbox-esc-content {
   flex: 1;
+  max-width: 520px;
   padding: 30px 40px;
   overflow-y: auto;
   color: #ddd;
+  background: rgba(18, 20, 30, 0.85);
+  backdrop-filter: blur(4px);
+  pointer-events: auto;
 }
 
 /* Main menu items */

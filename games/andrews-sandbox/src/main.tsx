@@ -954,13 +954,14 @@ function buildDomHud(
       lbl.textContent = label;
       row.appendChild(lbl);
       const toggle = document.createElement("div");
-      toggle.className = "sandbox-esc-toggle" + (current ? " on" : "");
-      toggle.textContent = current ? "ON" : "OFF";
+      let isOn = current;
+      toggle.className = "sandbox-esc-toggle" + (isOn ? " on" : "");
+      toggle.textContent = isOn ? "ON" : "OFF";
       toggle.onclick = () => {
+        isOn = !isOn;
         onToggle();
-        const newVal = !current;
-        toggle.className = "sandbox-esc-toggle" + (newVal ? " on" : "");
-        toggle.textContent = newVal ? "ON" : "OFF";
+        toggle.className = "sandbox-esc-toggle" + (isOn ? " on" : "");
+        toggle.textContent = isOn ? "ON" : "OFF";
       };
       row.appendChild(toggle);
       parent.appendChild(row);
