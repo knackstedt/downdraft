@@ -229,6 +229,7 @@ export function killStaleInstance(gameDir: string): number {
   // (the Electron main process), then kill it + all descendants. This avoids
   // signalling the same tree twice when multiple Electron children match.
   const matchedPids = new Set(matched.map((m) => m.pid));
+  const cmdlineOf = new Map<number, string>(procs.map((p) => [p.pid, p.cmdline]));
   const roots = new Set<number>();
   for (const m of matched) {
     let root = m.pid;
@@ -244,6 +245,31 @@ export function killStaleInstance(gameDir: string): number {
   for (const root of roots) {
     toKill.add(root);
     for (const d of collectDescendants(root, procs)) toKill.add(d);
+  }
+
+  // Walk up from each root to include ancestor Electron processes that the
+  // --user-data-dir match missed. The Electron main process sets userData via
+  // app.setPath() programmatically (packages/app/src/main/app.ts), so its own
+  // cmdline does NOT carry --user-data-dir and isn't caught by the match
+  // above — only its children (renderer/GPU/zygote) get the flag propagated
+  // internally by Electron. Without this walk-up, killing the renderer leaves
+  // the main process alive (showing "Renderer Process Gone") and electron-vite
+  // may respawn it on the next file watch event.
+  //
+  // We include ancestors whose cmdline contains "electron" (catches the
+  // Electron main process AND the electron-vite dev server, whose cmdline
+  // contains "electron-vite"). We stop at the first ancestor that's in the
+  // skip set (self/current-process-tree) or whose cmdline doesn't contain
+  // "electron" (npx, draft dev, shell — those exit on their own when their
+  // electron-vite child dies).
+  for (const root of roots) {
+    let p = ppidOf.get(root);
+    while (p && !skip.has(p)) {
+      const cl = cmdlineOf.get(p);
+      if (!cl || !/electron/i.test(cl)) break;
+      toKill.add(p);
+      p = ppidOf.get(p);
+    }
   }
 
   const signal = (sig: NodeJS.Signals) => {
