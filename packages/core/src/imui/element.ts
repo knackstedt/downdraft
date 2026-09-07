@@ -296,7 +296,7 @@ export class UIButton extends UIElement {
     drawables.push({
       kind: "text",
       x: this.x,
-      y: this.y,
+      y: this.y + Math.round((this.height - this.style.fontSize) / 2),
       width: this.width,
       height: this.height,
       color: [0, 0, 0, 0],

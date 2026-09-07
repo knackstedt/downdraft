@@ -489,13 +489,14 @@ export class UIRenderer {
       const [r, g, b, a] = d.textColor;
       // Handle horizontal alignment — the FreeType renderer always
       // produces left-aligned text, so we offset the quad position.
+      // Round to integer pixels to avoid linear-filter blurriness.
       let x = d.x;
       if (d.textAlign === "center" && d.width > 0) {
-        x = d.x + (d.width - entry.width) / 2;
+        x = d.x + Math.round((d.width - entry.width) / 2);
       } else if (d.textAlign === "right" && d.width > 0) {
         x = d.x + d.width - entry.width;
       }
-      const y = d.y + yOffset;
+      const y = Math.round(d.y + yOffset);
       const w = entry.width;
       const h = entry.height;
       const corners = [

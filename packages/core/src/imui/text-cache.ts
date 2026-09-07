@@ -178,11 +178,15 @@ export class TextAtlasCache {
           view: this.atlasView!,
           width: result.width,
           height: result.height,
+          // Use texel-center UVs to prevent linear-filter blurriness.
+          // In WebGPU, UV x/width samples at the texel edge, blending
+          // 50/50 with the adjacent (empty) padding texel.  Adding 0.5
+          // shifts the sample to the texel center for crisp 1:1 mapping.
           uv: [
-            (entryX + ATLAS_PADDING) / MAX_ATLAS_WIDTH,
-            (entryY + ATLAS_PADDING) / ATLAS_HEIGHT,
-            (entryX + ATLAS_PADDING + result.width) / MAX_ATLAS_WIDTH,
-            (entryY + ATLAS_PADDING + result.height) / ATLAS_HEIGHT,
+            (entryX + ATLAS_PADDING + 0.5) / MAX_ATLAS_WIDTH,
+            (entryY + ATLAS_PADDING + 0.5) / ATLAS_HEIGHT,
+            (entryX + ATLAS_PADDING + result.width - 0.5) / MAX_ATLAS_WIDTH,
+            (entryY + ATLAS_PADDING + result.height - 0.5) / ATLAS_HEIGHT,
           ],
         };
         this.entries.set(key, entry);
@@ -247,10 +251,10 @@ export class TextAtlasCache {
       width: textWidth - ATLAS_PADDING * 2,
       height: textHeight,
       uv: [
-        entryX / MAX_ATLAS_WIDTH,
-        entryY / ATLAS_HEIGHT,
-        (entryX + textWidth) / MAX_ATLAS_WIDTH,
-        (entryY + textHeight) / ATLAS_HEIGHT,
+        (entryX + 0.5) / MAX_ATLAS_WIDTH,
+        (entryY + 0.5) / ATLAS_HEIGHT,
+        (entryX + textWidth - 0.5) / MAX_ATLAS_WIDTH,
+        (entryY + textHeight - 0.5) / ATLAS_HEIGHT,
       ],
     };
     this.entries.set(key, entry);

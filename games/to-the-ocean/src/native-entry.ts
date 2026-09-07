@@ -146,7 +146,7 @@ async function main() {
   }
 
   // ── Real-time render loop ──
-  log.info("native-entry", "Starting real-time render loop (ESC or close window to exit, F12 for screenshot)...");
+  log.info("native-entry", "Starting real-time render loop (close window or Exit button to quit, F12 for screenshot)...");
 
   let frameCount = 0;
   let running = true;
@@ -158,6 +158,7 @@ async function main() {
 
   // Wire the exit hook now that `running` is in scope
   (globalThis as any).__nativeExit = () => { running = false; };
+  (globalThis as any).__nativeScreenshot = () => { captureScreenshotNow(); };
 
   // Listen for window close
   window.addEventListener("close", () => {
@@ -176,8 +177,26 @@ async function main() {
     if (event.repeat) return;
 
     if (key === "Escape") {
-      log.info("native-entry", "ESC pressed — exiting");
-      running = false;
+      const gs = useGameStore.getState();
+      // If settings is open, ESC goes back to pause menu
+      if (gs.showSettings) {
+        gs.toggleSettings();
+      } else if (gs.showInventory || gs.showCraftMenu || gs.showMap || gs.showBuildMenu) {
+        // Close any open overlay first
+        if (gs.showInventory) gs.toggleInventory();
+        if (gs.showCraftMenu) gs.toggleCraftMenu();
+        if (gs.showMap) gs.toggleMap();
+        if (gs.showBuildMenu) gs.toggleBuildMenu();
+      } else {
+        gs.togglePauseMenu();
+      }
+      // Release pointer lock when any overlay opens so UI is clickable
+      const anyOverlay = gs.showPauseMenu || gs.showSettings || gs.showInventory ||
+        gs.showCraftMenu || gs.showMap || gs.showBuildMenu;
+      if (anyOverlay && document.pointerLockElement) {
+        document.exitPointerLock?.();
+      }
+      renderer.markUILayoutDirty?.();
     } else if (key === "F12") {
       captureScreenshotNow();
     } else if (keyCode === 73) { // I → Inventory

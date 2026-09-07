@@ -106,6 +106,16 @@ export class NativeHud {
   private mapPanel: UIPanel;
   private buildPanel: UIPanel;
   private pausePanel: UIPanel;
+  private settingsPanel: UIPanel;
+  private settingsBackBtn: UIButton;
+  // Settings state
+  private settingsFovSlider: UISlider;
+  private settingsFovValue: UIText;
+  private settingsMouseSensSlider: UISlider;
+  private settingsMouseSensValue: UIText;
+  private settingsVsyncToggle: UIToggle;
+  private settingsShowHudToggle: UIToggle;
+  private settingsShowFpsToggle: UIToggle;
 
   state: NativeHudState;
 
@@ -133,6 +143,7 @@ export class NativeHud {
     this.mapPanel = this.createMapPanel();
     this.buildPanel = this.createBuildPanel();
     this.pausePanel = this.createPausePanel();
+    this.settingsPanel = this.createSettingsPanel();
 
     this.root.addChild(this.statusPanel);
     this.root.addChild(this.vitalsPanel);
@@ -144,6 +155,7 @@ export class NativeHud {
     this.root.addChild(this.mapPanel);
     this.root.addChild(this.buildPanel);
     this.root.addChild(this.pausePanel);
+    this.root.addChild(this.settingsPanel);
   }
 
   setSimReader(reader: SimBufferReader): void {
@@ -354,7 +366,7 @@ export class NativeHud {
     };
     panel.addChild(this.screenshotButton);
 
-    this.exitButton = new UIButton("Exit (ESC)", 115, 28);
+    this.exitButton = new UIButton("Exit", 115, 28);
     this.exitButton.x = 135; this.exitButton.y = 182;
     this.exitButton.style.fontSize = FONT_SIZE_SM;
     this.exitButton.style.fontFamily = "sans-serif";
@@ -416,7 +428,7 @@ export class NativeHud {
       "C - Character",
       "P - Pause",
       "F12 - Screenshot",
-      "ESC - Exit",
+      "ESC - Pause/Unlock",
     ];
     let y = 24;
     for (const line of lines) {
@@ -545,7 +557,7 @@ export class NativeHud {
   }
 
   private createPausePanel(): UIPanel {
-    const w = 240, h = 280;
+    const w = 260, h = 360;
     const panel = new UIPanel(w, h);
     panel.x = (1280 - w) / 2;
     panel.y = (720 - h) / 2;
@@ -556,20 +568,151 @@ export class NativeHud {
     panel.visible = false;
 
     const title = new UIText("PAUSED", w - 40, 28);
-    title.x = 16; title.y = 12;
+    title.x = 16; title.y = 14;
     title.style.fontSize = FONT_SIZE_LG;
     title.style.textColor = COL_ACCENT;
     title.style.fontFamily = "sans-serif";
     panel.addChild(title);
 
     const sep = new UIPanel(w - 40, 1);
-    sep.x = 16; sep.y = 40;
+    sep.x = 16; sep.y = 44;
     sep.style.backgroundColor = COL_BORDER;
     sep.style.borderWidth = 0;
     panel.addChild(sep);
 
-    const hint = this.makeLabel("Press P to resume", 16, h - 28, FONT_SIZE_SM, COL_TEXT_DIM);
-    panel.addChild(hint);
+    // Resume button
+    const resumeBtn = new UIButton("Resume", w - 40, 34);
+    resumeBtn.x = 20; resumeBtn.y = 58;
+    resumeBtn.style.fontSize = FONT_SIZE;
+    resumeBtn.style.fontFamily = "sans-serif";
+    resumeBtn.callbacks.onClick = () => {
+      useGameStore.getState().togglePauseMenu();
+    };
+    panel.addChild(resumeBtn);
+
+    // Settings button
+    const settingsBtn = new UIButton("Settings", w - 40, 34);
+    settingsBtn.x = 20; settingsBtn.y = 98;
+    settingsBtn.style.fontSize = FONT_SIZE;
+    settingsBtn.style.fontFamily = "sans-serif";
+    settingsBtn.callbacks.onClick = () => {
+      useGameStore.getState().toggleSettings();
+    };
+    panel.addChild(settingsBtn);
+
+    // Screenshot button
+    const ssBtn = new UIButton("Screenshot (F12)", w - 40, 34);
+    ssBtn.x = 20; ssBtn.y = 138;
+    ssBtn.style.fontSize = FONT_SIZE;
+    ssBtn.style.fontFamily = "sans-serif";
+    ssBtn.callbacks.onClick = () => {
+      (globalThis as any).__nativeScreenshot?.();
+    };
+    panel.addChild(ssBtn);
+
+    // Exit button
+    const exitBtn = new UIButton("Exit Game", w - 40, 34);
+    exitBtn.x = 20; exitBtn.y = 178;
+    exitBtn.style.fontSize = FONT_SIZE;
+    exitBtn.style.fontFamily = "sans-serif";
+    exitBtn.style.backgroundColor = [0.3, 0.12, 0.12, 0.95];
+    exitBtn.style.borderColor = [0.6, 0.2, 0.2, 1.0];
+    exitBtn.callbacks.onClick = () => {
+      (globalThis as any).__nativeExit?.();
+    };
+    panel.addChild(exitBtn);
+
+    // Info
+    const info = this.makeLabel("ESC or P to resume", 16, h - 28, FONT_SIZE_SM, COL_TEXT_DIM);
+    panel.addChild(info);
+
+    return panel;
+  }
+
+  private createSettingsPanel(): UIPanel {
+    const w = 320, h = 380;
+    const panel = new UIPanel(w, h);
+    panel.x = (1280 - w) / 2;
+    panel.y = (720 - h) / 2;
+    panel.style.backgroundColor = COL_BG;
+    panel.style.borderColor = COL_BORDER;
+    panel.style.borderWidth = 2;
+    panel.style.borderRadius = 8;
+    panel.visible = false;
+
+    const title = new UIText("SETTINGS", w - 40, 28);
+    title.x = 16; title.y = 14;
+    title.style.fontSize = FONT_SIZE_LG;
+    title.style.textColor = COL_ACCENT;
+    title.style.fontFamily = "sans-serif";
+    panel.addChild(title);
+
+    const sep = new UIPanel(w - 40, 1);
+    sep.x = 16; sep.y = 44;
+    sep.style.backgroundColor = COL_BORDER;
+    sep.style.borderWidth = 0;
+    panel.addChild(sep);
+
+    // FOV slider
+    const fovLabel = this.makeLabel("Field of View", 20, 60, FONT_SIZE, COL_TEXT);
+    panel.addChild(fovLabel);
+    this.settingsFovSlider = new UISlider(w - 80, 20);
+    this.settingsFovSlider.x = 20; this.settingsFovSlider.y = 80;
+    this.settingsFovSlider.minValue = 60;
+    this.settingsFovSlider.maxValue = 120;
+    this.settingsFovSlider.value = this.state.fovOverride;
+    panel.addChild(this.settingsFovSlider);
+    this.settingsFovValue = this.makeLabel(`${this.state.fovOverride}`, w - 50, 60, FONT_SIZE, COL_TEXT_DIM);
+    panel.addChild(this.settingsFovValue);
+
+    // Mouse sensitivity slider
+    const sensLabel = this.makeLabel("Mouse Sensitivity", 20, 115, FONT_SIZE, COL_TEXT);
+    panel.addChild(sensLabel);
+    this.settingsMouseSensSlider = new UISlider(w - 80, 20);
+    this.settingsMouseSensSlider.x = 20; this.settingsMouseSensSlider.y = 135;
+    this.settingsMouseSensSlider.minValue = 0.1;
+    this.settingsMouseSensSlider.maxValue = 3.0;
+    this.settingsMouseSensSlider.value = 1.0;
+    panel.addChild(this.settingsMouseSensSlider);
+    this.settingsMouseSensValue = this.makeLabel("1.0", w - 50, 115, FONT_SIZE, COL_TEXT_DIM);
+    panel.addChild(this.settingsMouseSensValue);
+
+    // VSync toggle
+    this.settingsVsyncToggle = new UIToggle(200, 20);
+    this.settingsVsyncToggle.label = "VSync";
+    this.settingsVsyncToggle.checked = false;
+    this.settingsVsyncToggle.x = 20; this.settingsVsyncToggle.y = 180;
+    this.settingsVsyncToggle.style.fontSize = FONT_SIZE;
+    this.settingsVsyncToggle.style.fontFamily = "sans-serif";
+    panel.addChild(this.settingsVsyncToggle);
+
+    // Show HUD toggle
+    this.settingsShowHudToggle = new UIToggle(200, 20);
+    this.settingsShowHudToggle.label = "Show HUD";
+    this.settingsShowHudToggle.checked = true;
+    this.settingsShowHudToggle.x = 20; this.settingsShowHudToggle.y = 215;
+    this.settingsShowHudToggle.style.fontSize = FONT_SIZE;
+    this.settingsShowHudToggle.style.fontFamily = "sans-serif";
+    panel.addChild(this.settingsShowHudToggle);
+
+    // Show FPS toggle
+    this.settingsShowFpsToggle = new UIToggle(200, 20);
+    this.settingsShowFpsToggle.label = "Show FPS";
+    this.settingsShowFpsToggle.checked = true;
+    this.settingsShowFpsToggle.x = 20; this.settingsShowFpsToggle.y = 250;
+    this.settingsShowFpsToggle.style.fontSize = FONT_SIZE;
+    this.settingsShowFpsToggle.style.fontFamily = "sans-serif";
+    panel.addChild(this.settingsShowFpsToggle);
+
+    // Back button
+    this.settingsBackBtn = new UIButton("Back", w - 40, 34);
+    this.settingsBackBtn.x = 20; this.settingsBackBtn.y = h - 52;
+    this.settingsBackBtn.style.fontSize = FONT_SIZE;
+    this.settingsBackBtn.style.fontFamily = "sans-serif";
+    this.settingsBackBtn.callbacks.onClick = () => {
+      useGameStore.getState().toggleSettings();
+    };
+    panel.addChild(this.settingsBackBtn);
 
     return panel;
   }
@@ -595,6 +738,25 @@ export class NativeHud {
     if (this.mapPanel.visible !== gs.showMap) this.mapPanel.visible = gs.showMap;
     if (this.buildPanel.visible !== gs.showBuildMenu) this.buildPanel.visible = gs.showBuildMenu;
     if (this.pausePanel.visible !== gs.showPauseMenu) this.pausePanel.visible = gs.showPauseMenu;
+    if (this.settingsPanel.visible !== gs.showSettings) this.settingsPanel.visible = gs.showSettings;
+
+    // Apply settings
+    this.state.fovOverride = Math.round(this.settingsFovSlider.value);
+    this.settingsFovValue.setText(`${this.state.fovOverride}`);
+    const sens = this.settingsMouseSensSlider.value;
+    this.settingsMouseSensValue.setText(`${sens.toFixed(1)}`);
+    (globalThis as any).__nativeMouseSens = sens;
+
+    // Show/hide HUD elements based on settings
+    const showHud = this.settingsShowHudToggle.checked;
+    this.statusPanel.visible = showHud && this.state.showStats;
+    this.vitalsPanel.visible = showHud;
+    this.controlsPanel.visible = showHud && this.state.showControls;
+    this.helpPanel.visible = showHud;
+    this.crosshairPanel.visible = showHud;
+
+    // FPS text visibility
+    this.fpsText.visible = this.settingsShowFpsToggle.checked;
 
     // Update slider value labels
     s.timeScale = this.timeScaleSlider.value;
