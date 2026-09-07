@@ -62,9 +62,14 @@ export class TextAtlasCache {
 
   constructor(device: GPUDevice) {
     this.device = device;
+    // Nearest filtering for 1:1 HUD text — the quad is exactly
+    // entry.width × entry.height screen pixels, matching the atlas
+    // texels. Linear would blur slightly; nearest fetches exactly
+    // one texel per fragment, preserving FreeType's AA coverage.
+    // Texel-center UVs (+0.5 offset) ensure correct sampling.
     this.sampler = device.createSampler({
-      magFilter: "linear",
-      minFilter: "linear",
+      magFilter: "nearest",
+      minFilter: "nearest",
     });
 
     if (typeof OffscreenCanvas !== "undefined") {

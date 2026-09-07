@@ -36,6 +36,8 @@ long ft_shim_init(const char* font_path) {
         fprintf(stderr, "[font_shim] TTF_OpenFont failed for %s: %s\n", font_path, TTF_GetError());
         return 0;
     }
+    // Light hinting — crisper small text than the default on some builds.
+    TTF_SetFontHinting(font, TTF_HINTING_LIGHT);
     return (long)font;
 }
 
@@ -80,14 +82,16 @@ int ft_shim_render_text(long font_ptr, const char* text, int font_size,
         memcpy(out_data + row * w * 4, src + row * src_pitch, w * 4);
     }
 
-    // Ensure RGB channels are white (255) — SDL_ttf blended mode sets
-    // the text color in RGB and coverage in alpha. Since we passed white,
-    // RGB should already be 255, but let's be safe.
+    // Emit premultiplied alpha: (cov, cov, cov, cov).
+    // Linear interpolation of premultiplied coverage stays on the
+    // neutral grey diagonal — no coloured fringing at glyph edges.
+    // Padding texels are (0,0,0,0), which is the correct premul identity.
     for (int i = 0; i < buf_size; i += 4) {
-        out_data[i] = 255;
-        out_data[i + 1] = 255;
-        out_data[i + 2] = 255;
-        // Alpha is already correct from SDL_ttf
+        unsigned char a = out_data[i + 3];
+        out_data[i] = a;
+        out_data[i + 1] = a;
+        out_data[i + 2] = a;
+        // alpha unchanged
     }
 
     SDL_FreeSurface(surface);
