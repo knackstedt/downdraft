@@ -230,6 +230,17 @@ export function createDefaultBridge(): DowndraftBridgeAPI {
       },
     },
 
+    // --- Raw Input (native raw mouse capture / pointer lock polyfill) ---
+    rawInput: {
+      start: (): Promise<any> => ipcRenderer.invoke(IPC.RAW_INPUT_START),
+      stop: (): Promise<void> => ipcRenderer.invoke(IPC.RAW_INPUT_STOP),
+      setCursorVisible: (visible: boolean): Promise<void> => ipcRenderer.invoke(IPC.RAW_INPUT_CURSOR_VISIBLE, visible),
+      onDelta: (cb: (dx: number, dy: number) => void) =>
+        ipcRenderer.on(IPC.RAW_INPUT_DELTA, (_e, dx: number, dy: number) => cb(dx, dy)),
+      onStopped: (cb: () => void) =>
+        ipcRenderer.on(IPC.RAW_INPUT_STOPPED, () => cb()),
+    },
+
     removeAllListeners: (channel: string) => ipcRenderer.removeAllListeners(channel),
 
     log: (level: string, message: string) => ipcRenderer.send(IPC.RENDERER_LOG, { level, message }),

@@ -12,6 +12,11 @@ import { WeaponController } from "@andrews-sandbox/module-weapons";
 import { downdraft, startGame, type SimWorkerSeed } from "@downdraft/app/renderer";
 import { CameraMode, ENGINE_VERSION, ENT, SimBufferReader } from "@downdraft/core";
 import { PixiUiHost } from "@downdraft/library-pixi-ui";
+// Import the pointer lock polyfill BEFORE any code that uses requestPointerLock.
+// This overrides the browser's Pointer Lock API with a native-backed
+// implementation that bypasses Chrome's ESC-exits-pointer-lock behavior and
+// re-lock cooldown. No-op in browser/web mode (falls back to real API).
+import "@downdraft/module-raw-input/polyfill";
 import { EntityType, FunMode, PoseState, ToolType, ToolgunContext } from "@sandbox/shared/types";
 import { SimWebWorker, type SimWebWorkerConfig } from "./engine/sim-web-worker";
 import { WebGPURenderer } from "./engine/webgpu-renderer";
@@ -357,7 +362,7 @@ startGame({
     // 2. Subsequent ESC (pointer lock not active): before-input-event fires,
     //    prevents the keydown from reaching the renderer, and sends an IPC.
     //    The IPC handler toggles the menu.
-    // 3. Closing the menu: re-acquire pointer lock after the cooldown.
+    // 3. Closing the menu: re-acquire pointer lock (instant with the polyfill).
     const canvas = ctx.canvas;
     let yaw = 0;
     let pitch = 0;
@@ -365,109 +370,35 @@ startGame({
     const keys = new Set<string>();
 
     // Click canvas to acquire pointer lock (initial entry or recovery).
+    // With the raw-input polyfill, requestPointerLock() is instant — no
+    // Chrome ESC cooldown, no retry needed.
     canvas.addEventListener("click", () => {
       if (!pointerLocked && !useGameStore.getState().showEscMenu) {
-        requestPointerLockSafe();
+        canvas.requestPointerLock();
       }
     });
 
-    // Pointer lock state tracking. When pointer lock is lost while the menu
-    // is closed, auto-open the menu (this handles the first ESC that
-    // Chromium processes at the OS level before before-input-event).
-    // The menuClosedAt timestamp prevents re-opening when pointer lock is
-    // lost shortly after closing the menu (stale ESC from the close action).
-    let pointerLockLostAt = 0;
-    let pointerLockAcquiredAt = 0;
-    let menuAutoOpenedAt = 0;
-    let menuClosedAt = 0;
+    // Pointer lock state tracking.
     document.addEventListener("pointerlockchange", () => {
       pointerLocked = document.pointerLockElement === canvas;
       console.log(`[Input] Pointer lock: ${pointerLocked ? "active" : "released"}`);
-      if (pointerLocked) {
-        pointerLockAcquiredAt = performance.now();
-      } else {
-        pointerLockLostAt = performance.now();
-        // If the lock was lost very shortly after acquisition, it's a stale
-        // ESC from the browser processing the keypress that closed the menu.
-        const lockDuration = performance.now() - pointerLockAcquiredAt;
-        if (lockDuration < 500 && !useGameStore.getState().showEscMenu) {
-          // Don't auto-open the menu, and don't re-attempt immediately —
-          // update pointerLockLostAt so the next requestPointerLockSafe()
-          // waits for the full cooldown, then retry.
-          console.log("[Input] Stale ESC released pointer lock — will retry after cooldown");
-          requestPointerLockSafe();
-          return;
-        }
-        // Don't auto-open if the menu was just closed — the pointer-lock
-        // loss is likely a stale ESC from the close action, not a new one.
-        if (performance.now() - menuClosedAt < 500) return;
-        if (!useGameStore.getState().showEscMenu) {
-          useGameStore.getState().setShowEscMenu(true);
-          sim.pause();
-          menuAutoOpenedAt = performance.now();
-          lastEscAt = performance.now();
-        }
+      if (!pointerLocked) {
+        // Clear input state when lock is released
+        keys.clear();
       }
     });
     document.addEventListener("pointerlockerror", (e) => {
       e.preventDefault();
     });
 
-    // Safe pointer-lock re-acquisition with cooldown + retry. Chromium blocks
-    // requestPointerLock() for ~1s after ANY ESC keypress (not just after
-    // pointer-lock exit). So we must wait from the last ESC, not just from
-    // pointer-lock loss. If the lock is rejected, retry with backoff.
-    const POINTER_LOCK_COOLDOWN_MS = 1000;
-    let pendingLockTimer: ReturnType<typeof setTimeout> | null = null;
-    let lastEscAt = 0;
+    // Expose lock function for menu close to re-acquire pointer lock.
     function requestPointerLockSafe(): void {
-      if (pendingLockTimer) { clearTimeout(pendingLockTimer); pendingLockTimer = null; }
-      // Use the most recent of: pointer-lock loss, last ESC, or now (if
-      // neither happened recently). The browser's cooldown is from the last
-      // ESC keypress, which may be later than pointer-lock loss.
-      const cooldownStart = Math.max(pointerLockLostAt, lastEscAt);
-      const elapsed = performance.now() - cooldownStart;
-      const wait = Math.max(0, POINTER_LOCK_COOLDOWN_MS - elapsed);
-      console.log(`[Input] requestPointerLockSafe: waiting ${wait}ms (cooldown from ${cooldownStart === lastEscAt ? "ESC" : "lock-loss"})`);
-      attemptLock(wait, 0);
-    }
-    function attemptLock(wait: number, retry: number): void {
-      pendingLockTimer = setTimeout(() => {
-        pendingLockTimer = null;
-        if (useGameStore.getState().showEscMenu) return;
-        if (document.pointerLockElement === canvas) return;
-        console.log(`[Input] Attempting requestPointerLock() (retry ${retry})`);
-        let rejected = false;
-        try {
-          const p = canvas.requestPointerLock();
-          if (p && typeof (p as any).then === "function") {
-            (p as Promise<void>).then(
-              () => console.log("[Input] Pointer lock acquired"),
-              () => { rejected = true; scheduleRetry(retry); },
-            );
-          }
-        } catch {
-          rejected = true;
-        }
-        // If no Promise (older Electron), check after 100ms if the lock stuck.
-        if (!rejected) {
-          setTimeout(() => {
-            if (!pointerLocked && !useGameStore.getState().showEscMenu && retry < 5) {
-              scheduleRetry(retry);
-            }
-          }, 100);
-        }
-      }, wait);
-    }
-    function scheduleRetry(retry: number): void {
-      if (retry >= 5) return;
-      if (useGameStore.getState().showEscMenu) return;
-      const backoff = 300 * (retry + 1);
-      console.log(`[Input] Pointer lock rejected — retry ${retry + 1} in ${backoff}ms`);
-      attemptLock(backoff, retry + 1);
+      if (!useGameStore.getState().showEscMenu) {
+        canvas.requestPointerLock();
+      }
     }
     (ctx as any)._requestPointerLockSafe = requestPointerLockSafe;
-    (ctx as any)._markMenuClosed = () => { menuClosedAt = performance.now(); };
+    (ctx as any)._markMenuClosed = () => {};
 
     // Mouse look — gated on !showEscMenu.
     document.addEventListener("mousemove", (e) => {
@@ -514,16 +445,12 @@ startGame({
       }
     }, { passive: false });
 
-    // ESC menu toggle. Called from:
-    // - The IPC handler (Electron: before-input-event sends __esc_pressed)
-    // - The keydown handler (browser mode fallback)
-    // - The pointerlockchange handler (first ESC that exits pointer lock)
-    // The grace period prevents double-toggle when pointerlockchange and
-    // IPC/keydown fire for the same ESC press.
+    // ESC menu toggle. With the raw-input polyfill, ESC is a normal keydown
+    // event — Chrome's ESC-exits-pointer-lock behavior doesn't apply because
+    // we never engage the real Pointer Lock API. The game's keydown handler
+    // processes ESC and calls exitPointerLock() (the polyfill version, which
+    // is instant with no cooldown).
     function toggleEscMenu(): void {
-      // If the menu was just auto-opened by pointerlockchange, ignore this
-      // call — it's the same ESC that exited pointer lock.
-      if (performance.now() - menuAutoOpenedAt < 300 && !useGameStore.getState().showEscMenu) return;
       const cur = useGameStore.getState();
       if (cur.showEscMenu) {
         // Let the nav system try to consume ESC (content→sidebar).
@@ -531,26 +458,17 @@ startGame({
         if (!(ctx as any)._escHandleEscape?.()) {
           useGameStore.getState().setShowEscMenu(false);
           sim.resume();
-          menuClosedAt = performance.now();
-          // Re-acquire pointer lock after the cooldown.
+          // Re-acquire pointer lock — instant with the polyfill, no cooldown.
           requestPointerLockSafe();
         }
       } else {
+        // Opening the menu. Exit pointer lock programmatically.
+        if (document.pointerLockElement) {
+          document.exitPointerLock();
+        }
         useGameStore.getState().setShowEscMenu(true);
         sim.pause();
       }
-    }
-
-    // In Electron, the main process intercepts ESC via before-input-event
-    // and sends an IPC message here. This handles subsequent ESC presses
-    // (when pointer lock isn't active and before-input-event can fire).
-    if ((downdraft as any)?.onEscPressed) {
-      console.log("[Input] Registering onEscPressed IPC listener");
-      (downdraft as any).onEscPressed(() => {
-        console.log("[Input] ESC received via IPC — toggling menu");
-        lastEscAt = performance.now();
-        toggleEscMenu();
-      });
     }
 
     // Unified keyboard handler — shortcuts + movement keys
@@ -558,7 +476,6 @@ startGame({
       // ESC menu — takes priority over everything else.
       if (e.code === "Escape") {
         e.preventDefault();
-        lastEscAt = performance.now();
         toggleEscMenu();
         return;
       }

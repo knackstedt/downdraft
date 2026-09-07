@@ -155,6 +155,12 @@
       "@downdraft/module-electron-osr/*": [
         "./packages/modules/electron-osr/src/*"
       ],
+      "@downdraft/module-raw-input": [
+        "./packages/modules/raw-input/src/index.ts"
+      ],
+      "@downdraft/module-raw-input/*": [
+        "./packages/modules/raw-input/src/*"
+      ],
       "@downdraft/module-xr": [
         "./packages/modules/xr/src/index.ts"
       ],

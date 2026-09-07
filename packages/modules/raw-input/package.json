@@ -1,0 +1,16 @@
+{
+  "name": "@downdraft/module-raw-input",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./main-entry": "./src/main-entry.ts",
+    "./polyfill": "./src/renderer/polyfill.ts",
+    "./*": "./src/*.ts"
+  },
+  "dependencies": {
+    "@downdraft/core": "workspace:*"
+  }
+}

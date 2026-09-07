@@ -99,42 +99,52 @@ export class PaintCanvas {
   }
 }
 
-// ── UV recovery from raycast ──
+// ── UV recovery + ray intersection ──
 
 /**
- * Recover UV coordinates from a raycast hit on a unit cube.
- * Uses the hit normal to determine which face was hit, then maps
- * the local position to UV coordinates [0,1]×[0,1].
- *
- * @param localPoint Hit point in the prop's local space (before transform)
- * @param normal Hit normal in local space
- * @returns UV coordinates [u, v] in range [0, 1]
+ * Which face of a unit cube was hit. Used for per-face UV mapping into the
+ * paint texture atlas (4×4 grid; each face gets its own 128×128 cell on a
+ * 512×512 texture).
  */
-export function cubeFaceUV(localPoint: [number, number, number], normal: [number, number, number]): [number, number] {
-  const absNx = Math.abs(normal[0]);
-  const absNy = Math.abs(normal[1]);
-  const absNz = Math.abs(normal[2]);
+export type CubeFace = "+X" | "-X" | "+Y" | "-Y" | "+Z" | "-Z";
 
-  // Determine which face is dominant
-  if (absNx >= absNy && absNx >= absNz) {
-    // +X or -X face: UV from (z, y)
-    return [
-      (localPoint[2] + 0.5),
-      (localPoint[1] + 0.5),
-    ];
-  } else if (absNy >= absNx && absNy >= absNz) {
-    // +Y or -Y face: UV from (x, z)
-    return [
-      (localPoint[0] + 0.5),
-      (localPoint[2] + 0.5),
-    ];
-  } else {
-    // +Z or -Z face: UV from (x, y)
-    return [
-      (localPoint[0] + 0.5),
-      (localPoint[1] + 0.5),
-    ];
+// 4×4 atlas: each cell is 1/4 of the texture in each dimension.
+const ATLAS_CELL_W = 0.25;
+const ATLAS_CELL_H = 0.25;
+
+// Face → atlas cell origin (col, row) in UV space.
+const FACE_ATLAS_OFFSET: Record<CubeFace, [number, number]> = {
+  "+X": [0,            0],
+  "-X": [ATLAS_CELL_W, 0],
+  "+Y": [ATLAS_CELL_W * 2, 0],
+  "-Y": [0,              ATLAS_CELL_H],
+  "+Z": [ATLAS_CELL_W,   ATLAS_CELL_H],
+  "-Z": [ATLAS_CELL_W * 2, ATLAS_CELL_H],
+};
+
+/**
+ * Per-face UV formulas derived from the cube vertex data.
+ * Each face maps the hit point's local coordinates to [0,1]² within the face,
+ * then the atlas offset is applied so the UV lands in the correct cell.
+ *
+ * @param localPoint Hit point in the prop's local space (unit cube, half-extent 0.5)
+ * @param face       Which face was hit (from rayBoxIntersect)
+ * @returns UV coordinates [u, v] in the paint texture's atlas
+ */
+export function cubeFaceUV(localPoint: [number, number, number], face: CubeFace): [number, number] {
+  // Face-local UV [0,1]² — derived from the vertex UV layout.
+  let u: number, v: number;
+  switch (face) {
+    case "+X": u = localPoint[2] + 0.5;   v = localPoint[1] + 0.5;   break;
+    case "-X": u = 0.5 - localPoint[2];   v = localPoint[1] + 0.5;   break;
+    case "+Y": u = localPoint[0] + 0.5;   v = localPoint[2] + 0.5;   break;
+    case "-Y": u = localPoint[0] + 0.5;   v = 0.5 - localPoint[2];   break;
+    case "+Z": u = localPoint[1] + 0.5;   v = localPoint[0] + 0.5;   break;
+    case "-Z": u = localPoint[1] + 0.5;   v = 0.5 - localPoint[0];   break;
   }
+  // Map into the atlas cell.
+  const [ox, oy] = FACE_ATLAS_OFFSET[face];
+  return [ox + u * ATLAS_CELL_W, oy + v * ATLAS_CELL_H];
 }
 
 /**
@@ -154,11 +164,7 @@ export function groundPlaneUV(worldX: number, worldZ: number, tileSize: number =
 }
 
 /**
- * Convert a world-space hit point to a prop's local space.
- * @param worldPoint Hit point in world space
- * @param propPosition Prop position in world space
- * @param propRotation Prop rotation quaternion [x, y, z, w]
- * @param propScale Prop scale
+ * Convert a world-space point to a prop's local space (inverse TRS).
  */
 export function worldToLocal(
   worldPoint: [number, number, number],
@@ -173,24 +179,147 @@ export function worldToLocal(
 
   // Inverse rotate (conjugate quaternion)
   const [qx, qy, qz, qw] = propRotation;
-  // Conjugate: [-qx, -qy, -qz, qw]
   const cx = -qx, cy = -qy, cz = -qz, cw = qw;
 
-  // Rotate vector by conjugate quaternion
-  // v' = q * v * q^-1, but for unit quaternions q^-1 = conjugate
   const vx = tx, vy = ty, vz = tz;
-  // q * v (as quaternion product where v = (vx, vy, vz, 0))
   const tw = -cx * vx - cy * vy - cz * vz;
   const tx2 = cw * vx + cy * vz - cz * vy;
   const ty2 = cw * vy + cz * vx - cx * vz;
   const tz2 = cw * vz + cx * vy - cy * vx;
 
-  // result * q^-1 (which is the original quaternion)
   const rx = tw * qx + tx2 * qw + ty2 * qz - tz2 * qy;
   const ry = tw * qy + ty2 * qw + tz2 * qx - tx2 * qz;
   const rz = tw * qz + tz2 * qw + tx2 * qy - ty2 * qx;
 
-  // Inverse scale
   const s = propScale !== 0 ? 1 / propScale : 1;
   return [rx * s, ry * s, rz * s];
+}
+
+/**
+ * Transform a world-space direction vector to a prop's local space (inverse
+ * rotation only — no translation or scale, since directions are
+ * translation-invariant and we want the unit-cube intersection in local space).
+ */
+export function worldDirToLocalDir(
+  worldDir: [number, number, number],
+  propRotation: [number, number, number, number],
+): [number, number, number] {
+  const [qx, qy, qz, qw] = propRotation;
+  const cx = -qx, cy = -qy, cz = -qz, cw = qw;
+
+  const vx = worldDir[0], vy = worldDir[1], vz = worldDir[2];
+  const tw = -cx * vx - cy * vy - cz * vz;
+  const tx2 = cw * vx + cy * vz - cz * vy;
+  const ty2 = cw * vy + cz * vx - cx * vz;
+  const tz2 = cw * vz + cx * vy - cy * vx;
+
+  const rx = tw * qx + tx2 * qw + ty2 * qz - tz2 * qy;
+  const ry = tw * qy + ty2 * qw + tz2 * qx - tx2 * qz;
+  const rz = tw * qz + tz2 * qw + tx2 * qy - ty2 * qx;
+
+  return [rx, ry, rz];
+}
+
+export interface RayBoxHit {
+  t: number;                          // ray parameter at the hit point
+  face: CubeFace;                     // which face was hit
+  localPoint: [number, number, number]; // hit point in local (unit-cube) space
+}
+
+/**
+ * Ray-axis-aligned-box intersection via the slab method.
+ * The box is centered at the origin with the given half-extent.
+ *
+ * @param origin    Ray origin in the box's local space
+ * @param dir       Ray direction in the box's local space (need not be normalized)
+ * @param halfExtent Half-extent of the box (default 0.5 = unit cube)
+ * @returns Hit info or null if the ray misses / starts inside
+ */
+export function rayBoxIntersect(
+  origin: [number, number, number],
+  dir: [number, number, number],
+  halfExtent: number = 0.5,
+): RayBoxHit | null {
+  let tmin = -Infinity;
+  let tmax = Infinity;
+  let hitAxis = -1;
+  let hitSign = 0;
+
+  for (let i = 0; i < 3; i++) {
+    const o = origin[i];
+    const d = dir[i];
+    const lo = -halfExtent;
+    const hi = halfExtent;
+
+    if (Math.abs(d) < 1e-10) {
+      // Parallel to this axis — miss if outside the slab
+      if (o < lo || o > hi) return null;
+    } else {
+      let t1 = (lo - o) / d;
+      let t2 = (hi - o) / d;
+      let sign = -1; // entering through the lo plane → normal points -axis
+      if (t1 > t2) {
+        const tmp = t1; t1 = t2; t2 = tmp;
+        sign = 1; // entering through the hi plane → normal points +axis
+      }
+      if (t1 > tmin) { tmin = t1; hitAxis = i; hitSign = sign; }
+      if (t2 < tmax) tmax = t2;
+      if (tmin > tmax) return null;
+    }
+  }
+
+  if (tmin < 0) return null; // box is behind the ray
+
+  const faces: CubeFace[] = ["+X", "-X", "+Y", "-Y", "+Z", "-Z"];
+  const faceIdx = hitAxis * 2 + (hitSign > 0 ? 0 : 1);
+  const face = faces[faceIdx];
+
+  const localPoint: [number, number, number] = [
+    origin[0] + dir[0] * tmin,
+    origin[1] + dir[1] * tmin,
+    origin[2] + dir[2] * tmin,
+  ];
+
+  return { t: tmin, face, localPoint };
+}
+
+export interface RaySphereHit {
+  t: number;
+  localPoint: [number, number, number];
+  normal: [number, number, number];
+}
+
+/**
+ * Ray-sphere intersection. The sphere is centered at the origin with the
+ * given radius. Returns the nearest hit in front of the ray.
+ */
+export function raySphereIntersect(
+  origin: [number, number, number],
+  dir: [number, number, number],
+  radius: number,
+): RaySphereHit | null {
+  const dx = origin[0], dy = origin[1], dz = origin[2];
+  const a = dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2];
+  const b = 2 * (dx * dir[0] + dy * dir[1] + dz * dir[2]);
+  const c = dx * dx + dy * dy + dz * dz - radius * radius;
+  const disc = b * b - 4 * a * c;
+  if (disc < 0) return null;
+  const sq = Math.sqrt(disc);
+  const t1 = (-b - sq) / (2 * a);
+  const t2 = (-b + sq) / (2 * a);
+  const t = t1 >= 0 ? t1 : t2;
+  if (t < 0) return null;
+
+  const localPoint: [number, number, number] = [
+    dx + dir[0] * t,
+    dy + dir[1] * t,
+    dz + dir[2] * t,
+  ];
+  const nLen = Math.sqrt(localPoint[0] ** 2 + localPoint[1] ** 2 + localPoint[2] ** 2) || 1;
+  const normal: [number, number, number] = [
+    localPoint[0] / nLen,
+    localPoint[1] / nLen,
+    localPoint[2] / nLen,
+  ];
+  return { t, localPoint, normal };
 }

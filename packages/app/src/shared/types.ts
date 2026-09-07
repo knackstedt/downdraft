@@ -381,8 +381,34 @@ export interface DowndraftBridgeAPI {
   onGCStats(cb: (data: GCStatsData) => void): void;
   onPerfStats(cb: (data: PerfStatsData) => void): void;
   osr: DowndraftOsrBridgeAPI;
+  /** Native raw mouse capture (pointer lock polyfill). Undefined when the feature is disabled. */
+  rawInput?: DowndraftRawInputBridgeAPI;
   removeAllListeners(channel: string): void;
   log(level: string, message: string): void;
   deterministic: boolean;
   onMcpRequest(cb: (request: McpRequest) => Promise<McpResponse>): void;
+}
+
+// ---------------------------------------------------------------------------
+// Raw Input Bridge API (sub-object of DowndraftBridgeAPI)
+// ---------------------------------------------------------------------------
+
+/** Status returned by the native raw input addon. */
+export interface RawInputStatus {
+  platform: "x11" | "wayland" | "win32" | "macos" | "unsupported";
+  capturing: boolean;
+  detail: string;
+}
+
+export interface DowndraftRawInputBridgeAPI {
+  /** Begin raw mouse capture (called by the polyfill on requestPointerLock). */
+  start(): Promise<RawInputStatus>;
+  /** Stop raw mouse capture (called by the polyfill on exitPointerLock). */
+  stop(): Promise<void>;
+  /** Set the OS cursor visibility. */
+  setCursorVisible(visible: boolean): Promise<void>;
+  /** Register a callback for raw mouse deltas (dx, dy in pixels). */
+  onDelta(cb: (dx: number, dy: number) => void): void;
+  /** Register a callback for when capture stops unexpectedly (e.g. window lost focus). */
+  onStopped(cb: () => void): void;
 }

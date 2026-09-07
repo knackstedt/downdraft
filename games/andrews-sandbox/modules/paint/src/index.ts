@@ -5,10 +5,11 @@
 // ============================================================================
 
 import {
-    cubeFaceUV, groundPlaneUV,
+    cubeFaceUV,
+    groundPlaneUV,
     PaintCanvas,
     worldToLocal,
-    type PaintBrushSettings,
+    type PaintBrushSettings
 } from "@andrews-sandbox/library-paint";
 import { ENT, SimBufferReader } from "@downdraft/core";
 import { EntityType } from "@sandbox/shared/types";
@@ -91,7 +92,7 @@ export class PaintSystem {
   getCanvas(entityId: number): PaintCanvas {
     let canvas = this.canvases.get(entityId);
     if (!canvas) {
-      canvas = new PaintCanvas(256, 256);
+      canvas = new PaintCanvas(512, 512);
       this.canvases.set(entityId, canvas);
     }
     return canvas;
@@ -106,14 +107,21 @@ export class PaintSystem {
     if (!this.firing) return;
 
     const hit = this.raycastForPaint();
-    if (!hit) return;
+    if (!hit) {
+      console.log("[Paint] raycast missed");
+      return;
+    }
 
     if (hit.kind === "prop") {
       const canvas = this.getCanvas(hit.entityId!);
-      const u = hit.uv[0];
-      const v = hit.uv[1];
-      const px = u * canvas.Width;
-      const py = (1 - v) * canvas.Height; // flip Y for image coordinates
+      // UV → pixel: no V flip. In WebGPU, UV (0,0) samples the first texel
+      // (top-left of the uploaded data), and V increases downward. The
+      // cubeFaceUV() returns UVs in the same convention as the vertex UVs,
+      // so mapping UV directly to pixel coordinates lands the stroke in the
+      // correct atlas cell and at the correct position on the face.
+      const px = hit.uv[0] * canvas.Width;
+      const py = hit.uv[1] * canvas.Height;
+      console.log(`[Paint] hit prop ${hit.entityId} uv=(${hit.uv[0].toFixed(3)},${hit.uv[1].toFixed(3)}) px=(${px.toFixed(0)},${py.toFixed(0)}) local=(${hit.localPoint?.[0].toFixed(2)},${hit.localPoint?.[1].toFixed(2)},${hit.localPoint?.[2].toFixed(2)})`);
       canvas.paint(px, py, this.brush);
 
       // Upload to GPU
@@ -121,7 +129,7 @@ export class PaintSystem {
     } else if (hit.kind === "ground") {
       const canvas = this.groundCanvas;
       const px = hit.uv[0] * canvas.Width;
-      const py = (1 - hit.uv[1]) * canvas.Height;
+      const py = hit.uv[1] * canvas.Height;
       canvas.paint(px, py, this.brush);
       // Upload to GPU
       this.renderer.uploadGroundPaintTexture?.(canvas.getData(), canvas.Width, canvas.Height);
@@ -139,47 +147,21 @@ export class PaintSystem {
     const dl = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
     const dir: [number, number, number] = [dx / dl, dy / dl, dz / dl];
 
-    // Check props first (closest hit)
+    // Check props — transform the ray into each prop's local space and do
+    // a proper box (cube) or sphere intersection. This gives accurate hit
+    // points and correct per-face UVs for cubes.
     const count = reader.getEntityCount();
-    let closestPropDist = Infinity;
-    let closestPropSlot = -1;
+    let bestT = Infinity;
+    let bestHit: PaintHit | null = null;
 
     for (let i = 0; i < count; i++) {
       const slot = reader.getEntitySlot(i);
       const type = slot.u32[ENT.TYPE];
       if (type === 255 || (type !== EntityType.Prop && type !== EntityType.Mannequin)) continue;
-      const px = slot.f32[ENT.POS_X];
-      const py = slot.f32[ENT.POS_Y];
-      const pz = slot.f32[ENT.POS_Z];
-      const scale = slot.f32[ENT.SCALE] || 1.0;
-
-      // Simple sphere intersection with radius = 0.5 * scale
-      const ox = px - cam[0];
-      const oy = py - cam[1];
-      const oz = pz - cam[2];
-      const proj = ox * dir[0] + oy * dir[1] + oz * dir[2];
-      if (proj < 0 || proj >= closestPropDist) continue;
-      const perpSq = ox * ox + oy * oy + oz * oz - proj * proj;
-      const radius = 0.5 * scale;
-      if (perpSq > radius * radius) continue;
-
-      closestPropDist = proj;
-      closestPropSlot = i;
-    }
-
-    // Check ground plane (y = 0)
-    if (dir[1] !== 0) {
-      const groundDist = -cam[1] / dir[1];
-      if (groundDist > 0 && groundDist < closestPropDist) {
-        const hitX = cam[0] + dir[0] * groundDist;
-        const hitZ = cam[2] + dir[2] * groundDist;
-        const uv = groundPlaneUV(hitX, hitZ);
-        return { kind: "ground", uv, worldPoint: [hitX, 0, hitZ] };
-      }
-    }
-
-    if (closestPropSlot >= 0) {
-      const slot = reader.getEntitySlot(closestPropSlot);
+      // Skip model-based props — paint textures are only applied to builtin
+      // cubes/spheres (nodeId === 0). Model props are rendered by
+      // ModelRenderer which doesn't support the paint texture binding.
+      if (slot.u32[ENT.ID] !== 0) continue;
       const px = slot.f32[ENT.POS_X];
       const py = slot.f32[ENT.POS_Y];
       const pz = slot.f32[ENT.POS_Z];
@@ -188,38 +170,103 @@ export class PaintSystem {
       const ry = slot.f32[ENT.ROT_Y];
       const rz = slot.f32[ENT.ROT_Z];
       const rw = slot.f32[ENT.ROT_W];
+      const shape = slot.f32[ENT_DATA.SHAPE + ENT.DATA]; // 0 = box, 1 = sphere
 
-      const worldPoint: [number, number, number] = [
-        cam[0] + dir[0] * closestPropDist,
-        cam[1] + dir[1] * closestPropDist,
-        cam[2] + dir[2] * closestPropDist,
-      ];
+      // Transform ray origin + direction into the prop's local space.
+      // The unit cube/sphere has half-extent 0.5, so we divide by scale.
+      const localOrigin: [number, number, number] = worldToLocal(
+        cam, [px, py, pz], [rx, ry, rz, rw], scale,
+      );
+      const localDir: [number, number, number] = worldDirToLocalDir(
+        dir, [rx, ry, rz, rw],
+      );
 
-      // Convert to local space
-      const localPoint = worldToLocal(worldPoint, [px, py, pz], [rx, ry, rz, rw], scale);
+      const entityId = i + 1;
 
-      // Approximate normal as the direction from prop center to hit point (in local space)
-      const nLen = Math.sqrt(localPoint[0] ** 2 + localPoint[1] ** 2 + localPoint[2] ** 2) || 1;
-      const normal: [number, number, number] = [
-        localPoint[0] / nLen,
-        localPoint[1] / nLen,
-        localPoint[2] / nLen,
-      ];
-
-      // For cubes, use face-based UV
-      const uv = cubeFaceUV(localPoint, normal);
-
-      return {
-        kind: "prop",
-        entityId: closestPropSlot + 1,
-        uv,
-        worldPoint,
-        localPoint,
-        normal,
-      };
+      // The local-space intersection returns t in local units. Since
+      // worldToLocal divides the origin by scale but worldDirToLocalDir
+      // does not scale the direction, the world-space distance is
+      // t_local * scale (localDir is unit-length because rotation preserves
+      // length and dir is normalized).
+      if (shape === 1) {
+        // Sphere — ray-sphere intersection with radius 0.5
+        const hit = raySphereIntersect(localOrigin, localDir, 0.5);
+        if (!hit) {
+          console.log(`[Paint] sphere ${entityId} miss origin=(${localOrigin[0].toFixed(2)},${localOrigin[1].toFixed(2)},${localOrigin[2].toFixed(2)})`);
+          continue;
+        }
+        const tWorld = hit.t * scale;
+        if (tWorld >= bestT) continue;
+        bestT = tWorld;
+        // UV: map the local hit point on the sphere to UV using a simple
+        // spherical projection (same for all sphere props — they share one
+        // UV space since the sphere mesh uses standard UVs).
+        const u = 0.5 + Math.atan2(hit.normal[2], hit.normal[0]) / (2 * Math.PI);
+        const v = 0.5 - Math.asin(hit.normal[1]) / Math.PI;
+        const worldPoint: [number, number, number] = [
+          cam[0] + dir[0] * tWorld,
+          cam[1] + dir[1] * tWorld,
+          cam[2] + dir[2] * tWorld,
+        ];
+        bestHit = {
+          kind: "prop",
+          entityId,
+          uv: [u, v],
+          worldPoint,
+          localPoint: hit.localPoint,
+          normal: hit.normal,
+        };
+      } else {
+        // Cube — ray-box intersection with half-extent 0.5
+        const hit = rayBoxIntersect(localOrigin, localDir, 0.5);
+        if (!hit) {
+          console.log(`[Paint] cube ${entityId} miss origin=(${localOrigin[0].toFixed(2)},${localOrigin[1].toFixed(2)},${localOrigin[2].toFixed(2)}) dir=(${localDir[0].toFixed(2)},${localDir[1].toFixed(2)},${localDir[2].toFixed(2)}) scale=${scale} shape=${shape}`);
+          continue;
+        }
+        const tWorld = hit.t * scale;
+        if (tWorld >= bestT) continue;
+        bestT = tWorld;
+        const uv = cubeFaceUV(hit.localPoint, hit.face);
+        const worldPoint: [number, number, number] = [
+          cam[0] + dir[0] * tWorld,
+          cam[1] + dir[1] * tWorld,
+          cam[2] + dir[2] * tWorld,
+        ];
+        const normal = faceNormal(hit.face);
+        bestHit = {
+          kind: "prop",
+          entityId,
+          uv,
+          worldPoint,
+          localPoint: hit.localPoint,
+          normal,
+        };
+      }
     }
 
-    return null;
+    // Check ground plane (y = 0) — only if no prop was hit closer
+    if (dir[1] !== 0) {
+      const groundDist = -cam[1] / dir[1];
+      if (groundDist > 0 && groundDist < bestT) {
+        const hitX = cam[0] + dir[0] * groundDist;
+        const hitZ = cam[2] + dir[2] * groundDist;
+        const uv = groundPlaneUV(hitX, hitZ);
+        return { kind: "ground", uv, worldPoint: [hitX, 0, hitZ] };
+      }
+    }
+
+    return bestHit;
+  }
+}
+
+function faceNormal(face: CubeFace): [number, number, number] {
+  switch (face) {
+    case "+X": return [1, 0, 0];
+    case "-X": return [-1, 0, 0];
+    case "+Y": return [0, 1, 0];
+    case "-Y": return [0, -1, 0];
+    case "+Z": return [0, 0, 1];
+    case "-Z": return [0, 0, -1];
   }
 }
 

@@ -197,6 +197,10 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
     { find: /^@downdraft\/module-electron-osr$/, replacement: resolve(repoRoot, "packages/modules/electron-osr/src/index.ts") },
     { find: /^@downdraft\/module-electron-osr\/main-entry$/, replacement: resolve(repoRoot, "packages/modules/electron-osr/src/main-entry.ts") },
     { find: /^@downdraft\/module-electron-osr\//, replacement: resolve(repoRoot, "packages/modules/electron-osr/src") + "/" },
+    { find: /^@downdraft\/module-raw-input$/, replacement: resolve(repoRoot, "packages/modules/raw-input/src/index.ts") },
+    { find: /^@downdraft\/module-raw-input\/main-entry$/, replacement: resolve(repoRoot, "packages/modules/raw-input/src/main-entry.ts") },
+    { find: /^@downdraft\/module-raw-input\/polyfill$/, replacement: resolve(repoRoot, "packages/modules/raw-input/src/renderer/polyfill.ts") },
+    { find: /^@downdraft\/module-raw-input\//, replacement: resolve(repoRoot, "packages/modules/raw-input/src") + "/" },
     { find: /^@downdraft\/library-persistence$/, replacement: resolve(repoRoot, "packages/libraries/persistence/src/index.ts") },
     { find: /^@downdraft\/library-persistence\/browser$/, replacement: resolve(repoRoot, "packages/libraries/persistence/src/browser.ts") },
     { find: /^@downdraft\/library-persistence\//, replacement: resolve(repoRoot, "packages/libraries/persistence/src") + "/" },
@@ -277,6 +281,9 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
     { find: /^@downdraft\/mcp\//, replacement: resolve(repoRoot, "packages/mcp/src") + "/" },
     { find: /^@downdraft\/module-electron-osr$/, replacement: resolve(repoRoot, "packages/modules/electron-osr/src/index.ts") },
     { find: /^@downdraft\/module-electron-osr\//, replacement: resolve(repoRoot, "packages/modules/electron-osr/src") + "/" },
+    { find: /^@downdraft\/module-raw-input$/, replacement: resolve(repoRoot, "packages/modules/raw-input/src/index.ts") },
+    { find: /^@downdraft\/module-raw-input\/polyfill$/, replacement: resolve(repoRoot, "packages/modules/raw-input/src/renderer/polyfill.ts") },
+    { find: /^@downdraft\/module-raw-input\//, replacement: resolve(repoRoot, "packages/modules/raw-input/src") + "/" },
     // @downdraft/app renderer accessor + base CSS
     { find: /^@downdraft\/app\/renderer$/, replacement: resolve(repoRoot, "packages/app/src/renderer/index.ts") },
     { find: /^@downdraft\/app\/renderer\/downdraft-base\.css$/, replacement: resolve(repoRoot, "packages/app/src/renderer/downdraft-base.css") },
@@ -331,7 +338,7 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
   return defineConfig({
     main: {
       plugins: [
-        externalizeDepsPlugin({ exclude: ["@dimforge/rapier3d-compat", "@downdraft/module-electron-osr", "@downdraft/library-persistence", "recast-navigation"] }),
+        externalizeDepsPlugin({ exclude: ["@dimforge/rapier3d-compat", "@downdraft/module-electron-osr", "@downdraft/module-raw-input", "@downdraft/library-persistence", "recast-navigation"] }),
         {
           name: "force-cjs-main",
           configResolved(config) {

@@ -1,0 +1,12 @@
+{
+  "name": "downdraft-raw-input-native",
+  "version": "0.1.0",
+  "private": true,
+  "napi": {
+    "name": "index",
+    "triples": {
+      "defaults": false,
+      "additional": ["x86_64-unknown-linux-gnu"]
+    }
+  }
+}

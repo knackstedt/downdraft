@@ -54,6 +54,14 @@ export interface DowndraftFeatures {
   saves?: DowndraftSavesConfig | false;
   /** Offscreen rendering host + input forwarder. */
   osr?: boolean;
+  /**
+   * Native raw mouse capture + pointer lock polyfill. When enabled, the
+   * preload bridge exposes `downdraft.rawInput` and the renderer polyfill
+   * overrides the browser's Pointer Lock API with a native-backed
+   * implementation that bypasses Chrome's ESC-exits-pointer-lock behavior.
+   * Default: false.
+   */
+  rawInput?: boolean;
   /** MCP HTTP transport in proxy mode. */
   mcp?: DowndraftMcpConfig | false;
   /**

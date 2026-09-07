@@ -65,6 +65,15 @@ export const IPC = {
   IMPORT_CACHE_SET: "import-cache-set",
   IMPORT_CACHE_INVALIDATE: "import-cache-invalidate",
 
+  // Raw Input (native raw mouse capture) — Renderer -> Main
+  RAW_INPUT_START: "raw-input-start",
+  RAW_INPUT_STOP: "raw-input-stop",
+  RAW_INPUT_CURSOR_VISIBLE: "raw-input-cursor-visible",
+
+  // Raw Input — Main -> Renderer (sent directly via webContents.send)
+  RAW_INPUT_DELTA: "raw-input:delta",
+  RAW_INPUT_STOPPED: "raw-input:stopped",
+
   // Main -> Renderer
   SIM_READY: "sim-ready",
   DISPLAY_INFO: "display-info",

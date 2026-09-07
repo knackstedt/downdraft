@@ -15,6 +15,7 @@ import { registerGpuInfoHandlers } from "./handlers/gpu-info";
 import { closeImportCache, registerImportCacheHandlers } from "./handlers/import-cache";
 import { startMcpProxy } from "./handlers/mcp";
 import { registerOsrHandlers } from "./handlers/osr";
+import { registerRawInputHandlers } from "./handlers/raw-input";
 import { registerSaveHandlers } from "./handlers/saves";
 import { createTracingTools, registerTracingHandlers } from "./handlers/tracing";
 import { cleanupStaleStorage, resolveUserDataDir } from "./storage";
@@ -56,6 +57,7 @@ export function createDowndraftApp(config: DowndraftAppConfig): void {
     mcp: { port: parseInt(process.env.MCP_PORT ?? "9876", 10) },
     saves: { engineVersion: ENGINE_VERSION },
     osr: false,
+    rawInput: false,
     tracing: true,
     ...config.features,
   };
@@ -198,6 +200,10 @@ export function createDowndraftApp(config: DowndraftAppConfig): void {
     if (features.osr) {
       osrManager = registerOsrHandlers(ctx);
       ctx.osr = osrManager;
+    }
+
+    if (features.rawInput) {
+      registerRawInputHandlers(ctx);
     }
 
     if (features.importCache !== false) {
