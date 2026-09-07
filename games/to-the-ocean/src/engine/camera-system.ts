@@ -14,6 +14,9 @@ export class CameraSystem extends CoreCameraSystem {
     super({
       eyeHeight: PLAYER_EYE_HEIGHT,
       playerHeight: PLAYER_HEIGHT,
+      firstPersonSensitivity: 2.5,
+      thirdPersonSensitivity: 2.0,
+      freecamSensitivity: 2.5,
     });
   }
 }

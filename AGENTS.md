@@ -1375,3 +1375,53 @@ startGame({
 - `packages/libraries/gaussian-splats/src/library.ts` — GaussianSplatsLib descriptor.
 - `packages/libraries/gaussian-splats/src/sorter.ts` — CPU sort fallback (sortSplats, filterByDistance).
 
+
+## Native platform (`@downdraft/platform-native`)
+
+A Bun-native platform layer that replaces Electron + WebView with direct native GPU rendering via `wgpu-native` and `bun:ffi`. Located in `packages/platform-native/`.
+
+### Architecture
+
+- **GPU**: `wgpu-native` v29 accessed through a C shim (`native/wgpu_shim.c`) that flattens complex WebGPU C descriptors into FFI-friendly functions. The TypeScript wrapper (`src/gpu/wgpu-wrapper.ts`) implements the standard WebGPU JS API (`GPU`, `GPUAdapter`, `GPUDevice`, `GPUQueue`, etc.) on top of the FFI calls. `installGPU()` sets `globalThis.navigator.gpu` so the engine's `GPUDeviceManager` works unchanged.
+- **Window**: SDL2 for window creation, input polling, and native surface handle extraction (`native/sdl_shim.c`). The `NativeWindow` class runs the event loop, translates SDL events to DOM-compatible events, and provides `requestAnimationFrame`. `NativeSurface` implements the `HTMLCanvasElement` / `GPUCanvasContext` interface.
+- **Image decoding**: `stb_image` (`native/image_shim.c`) replaces `createImageBitmap`. `installImagePolyfills()` sets `globalThis.createImageBitmap`, `ImageBitmap`, `OffscreenCanvas`, and `ImageData`.
+- **Asset discovery**: `nativeGlob()` replaces `import.meta.glob` with filesystem-based globbing.
+- **Screenshot**: `captureScreenshot()` copies a render target to a buffer, reads back pixels, and encodes a PNG (acceptance mechanism for native rendering).
+- **Native host**: `createNativeHost()` ties everything together — installs all polyfills, creates the window, gets the GPU device, configures the surface, starts the event loop, and provides DOM polyfills (`document`, `window`).
+
+### Key files
+
+- `packages/platform-native/native/wgpu_shim.c` — C shim over wgpu-native (flattened FFI API)
+- `packages/platform-native/native/sdl_shim.c` — C shim over SDL2 (window + events + surface)
+- `packages/platform-native/native/image_shim.c` — stb_image-based image decoder
+- `packages/platform-native/src/gpu/wgpu-ffi.ts` — bun:ffi bindings to wgpu_shim
+- `packages/platform-native/src/gpu/wgpu-wrapper.ts` — WebGPU JS API wrapper
+- `packages/platform-native/src/gpu/install.ts` — installs navigator.gpu
+- `packages/platform-native/src/window/sdl-ffi.ts` — bun:ffi bindings to sdl_shim
+- `packages/platform-native/src/window/native-window.ts` — NativeWindow + event loop + rAF
+- `packages/platform-native/src/window/native-surface.ts` — NativeSurface (HTMLCanvasElement)
+- `packages/platform-native/src/image/native-image.ts` — createImageBitmap polyfill
+- `packages/platform-native/src/assets/native-assets.ts` — import.meta.glob replacement
+- `packages/platform-native/src/screenshot/screenshot.ts` — PNG screenshot capture
+- `packages/platform-native/src/native-host.ts` — createNativeHost (main entry point)
+
+### Building native shims
+
+```bash
+cd packages/platform-native/native
+gcc -shared -fPIC -o libwgpu_shim.so wgpu_shim.c -I./include -L./lib -lwgpu_native -lSDL2 -Wl,-rpath,'$ORIGIN/lib'
+gcc -shared -fPIC -o libsdl_shim.so sdl_shim.c -I./include -L./lib -lwgpu_native $(pkg-config --cflags --libs sdl2) -Wl,-rpath,'$ORIGIN/lib'
+gcc -shared -fPIC -o libimage_shim.so image_shim.c -lm
+```
+
+### Runtime detection
+
+`packages/core/src/platform/runtime.ts` provides `isBun`, `isNative`, `isDevMode` for feature-detecting the runtime. Engine code should use these instead of `import.meta.env.DEV` or `typeof navigator !== "undefined"`.
+
+### Bun preload
+
+`packages/core/src/platform/bun-preload.ts` registers Bun plugin loaders for `?raw` and `?url` import suffixes, plus CSS imports. Configured in root `bunfig.toml`.
+
+### Current status
+
+Phases 0-6 are complete. The native GPU pipeline works end-to-end: a triangle can be rendered to an SDL2 window via wgpu-native and captured as a PNG screenshot. Remaining work: engine core adaptation (feature detection at seams), Android target, performance optimization.

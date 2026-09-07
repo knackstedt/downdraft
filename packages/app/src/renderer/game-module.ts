@@ -25,13 +25,14 @@ import {
     LibraryHostImpl,
     PluginHost,
     WorkerPluginLoader,
+    isDevMode,
     type ISaveStore,
     type LibraryEntry,
     type LibraryHost,
     type PluginHostOptions,
     type PluginManifest,
     type PluginPermission,
-    type PluginSource,
+    type PluginSource
 } from "@downdraft/core";
 import { bootstrapGame, type BootstrapDevToolsOptions } from "./bootstrap";
 import { downdraft, getCanvas, getOverlay } from "./index";
@@ -360,7 +361,7 @@ export interface GameModule<Sim extends GameSimWorker = GameSimWorker> {
  */
 export async function startGame<Sim extends GameSimWorker>(module: GameModule<Sim>): Promise<void> {
   const deterministic = !!(downdraft as any)?.deterministic;
-  const isDev = !!(downdraft?.isDev) || import.meta.env.DEV === true;
+  const isDev = !!(downdraft?.isDev) || isDevMode;
   const hasSim = !!module.sim;
 
   // 0. Resolve canvas + overlay

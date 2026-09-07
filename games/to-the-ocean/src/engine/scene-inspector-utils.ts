@@ -15,25 +15,34 @@ import {
 // Re-export generic utilities for backward compat
 export { asyncFetchArrayBuffer, bufferCache, evictThumbnailCache, syncFetchArrayBuffer, thumbnailCache };
 
-const modelGlob = import.meta.glob("../../assets/models/**/*.{fbx,gltf,glb,obj,dae,stl,FBX,GLTF,GLB,OBJ,DAE,STL}", {
+// Glob: Vite (import.meta.glob) or Bun-native fallback
+const _glob = (import.meta as any).glob ?? ((pattern: string) => {
+  try {
+    const { createGlob } = require("@downdraft/core/platform/glob-polyfill");
+    const modDir = typeof __dirname !== "undefined" ? __dirname : (import.meta as any).dir ?? ".";
+    return createGlob(modDir)(pattern, { query: "?url", eager: true });
+  } catch { return {} as Record<string, string>; }
+});
+
+const modelGlob = _glob("../../assets/models/**/*.{fbx,gltf,glb,obj,dae,stl,FBX,GLTF,GLB,OBJ,DAE,STL}", {
   query: "?url",
   import: "default",
   eager: true,
 }) as Record<string, string>;
 
-const textureGlob = import.meta.glob("../../assets/models/**/*.{png,jpg,jpeg,tga,bmp,webp,PNG,JPG,JPEG,TGA,BMP,WEBP}", {
+const textureGlob = _glob("../../assets/models/**/*.{png,jpg,jpeg,tga,bmp,webp,PNG,JPG,JPEG,TGA,BMP,WEBP}", {
   query: "?url",
   import: "default",
   eager: true,
 }) as Record<string, string>;
 
-const mtlGlob = import.meta.glob("../../assets/models/**/*.{mtl,MTL}", {
+const mtlGlob = _glob("../../assets/models/**/*.{mtl,MTL}", {
   query: "?url",
   import: "default",
   eager: true,
 }) as Record<string, string>;
 
-const binGlob = import.meta.glob("../../assets/models/**/*.bin", {
+const binGlob = _glob("../../assets/models/**/*.bin", {
   query: "?url",
   import: "default",
   eager: true,
