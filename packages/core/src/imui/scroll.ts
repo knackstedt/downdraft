@@ -99,6 +99,9 @@ export class UIScrollPanel extends UIPanel {
       child.y -= this.scrollY;
       const childDrawables = child.getDrawable();
       for (const d of childDrawables) {
+        // Offset by this panel's position to convert to parent coordinate system
+        d.x += this.x;
+        d.y += this.y;
         if (d.y + d.height < this.y || d.y > this.y + this.height ||
             d.x + d.width < this.x || d.x > this.x + this.width) {
           continue;

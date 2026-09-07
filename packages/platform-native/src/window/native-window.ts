@@ -154,9 +154,10 @@ export class NativeWindow {
         const keycode = eventView[0];
         const repeat = this.pressedKeys.has(keycode);
         this.pressedKeys.add(keycode);
+        const domKeyCode = sdlToDomKeyCode(keycode);
         this.dispatchInputEvent("keydown", {
           type: "keydown",
-          keyCode: keycode,
+          keyCode: domKeyCode,
           key: sdlKeyToKey(keycode),
           code: sdlKeyToCode(keycode),
           repeat,
@@ -170,9 +171,10 @@ export class NativeWindow {
       case SDL_EVENT_KEY_UP: {
         const keycode = eventView[0];
         this.pressedKeys.delete(keycode);
+        const domKeyCode = sdlToDomKeyCode(keycode);
         this.dispatchInputEvent("keyup", {
           type: "keyup",
-          keyCode: keycode,
+          keyCode: domKeyCode,
           key: sdlKeyToKey(keycode),
           code: sdlKeyToCode(keycode),
           repeat: false,
@@ -267,15 +269,16 @@ export class NativeWindow {
 
 // ── SDL key code → DOM key mapping ──
 function sdlKeyToKey(keycode: number): string {
-  // SDL keycodes are ASCII for printable characters
+  // SDL2 keycodes: printable chars use ASCII, special keys use 107374xxxx range.
+  // But some keys (ESC=27, ENTER=13, TAB=9, BACKSPACE=8) use their ASCII values.
   if (keycode >= 32 && keycode <= 126) return String.fromCharCode(keycode);
-  // Special keys
+  // Special keys — both ASCII-range and SDL scancode-based
   const map: Record<number, string> = {
-    1073741881: "Escape",     // SDLK_ESCAPE
-    13: "Enter",              // SDLK_RETURN
-    9: "Tab",                 // SDLK_TAB
-    8: "Backspace",           // SDLK_BACKSPACE
-    32: " ",                  // SDLK_SPACE
+    27: "Escape",             // SDLK_ESCAPE (ASCII)
+    13: "Enter",              // SDLK_RETURN (ASCII)
+    9: "Tab",                 // SDLK_TAB (ASCII)
+    8: "Backspace",           // SDLK_BACKSPACE (ASCII)
+    1073741881: "Escape",     // SDLK_ESCAPE (scancode-based, just in case)
     1073741904: "ArrowLeft",  // SDLK_LEFT
     1073741903: "ArrowRight", // SDLK_RIGHT
     1073741906: "ArrowUp",    // SDLK_UP
@@ -303,9 +306,47 @@ function sdlKeyToKey(keycode: number): string {
 }
 
 function sdlKeyToCode(keycode: number): string {
-  if (keycode >= 32 && keycode <= 90) return `Key${String.fromCharCode(keycode)}`;
+  // SDL2 returns lowercase ASCII for letters; DOM code uses uppercase KeyX
+  if (keycode >= 65 && keycode <= 90) return `Key${String.fromCharCode(keycode)}`;
+  if (keycode >= 97 && keycode <= 122) return `Key${String.fromCharCode(keycode - 32)}`;
   if (keycode >= 48 && keycode <= 57) return `Digit${String.fromCharCode(keycode)}`;
   return sdlKeyToKey(keycode);
+}
+
+// Map SDL keycodes to DOM keyCode values so the engine's KEY constants work.
+function sdlToDomKeyCode(keycode: number): number {
+  // SDL2 returns lowercase ASCII for letter keys (a=97, w=119, etc.).
+  // The engine's KEY constants use DOM keyCodes which are uppercase ASCII
+  // (A=65, W=87, etc.). Convert lowercase letters to uppercase.
+  if (keycode >= 97 && keycode <= 122) return keycode - 32;
+  // Non-letter ASCII-range keycodes are the same in SDL and DOM
+  if (keycode >= 32 && keycode <= 126) return keycode;
+  // SDL scancode-based keys → DOM keyCode
+  const map: Record<number, number> = {
+    1073741904: 37, // ArrowLeft
+    1073741903: 39, // ArrowRight
+    1073741906: 38, // ArrowUp
+    1073741905: 40, // ArrowDown
+    1073741898: 16, // LShift
+    1073741897: 17, // LCtrl
+    1073741899: 18, // LAlt
+    1073741922: 16, // RShift
+    1073741921: 17, // RCtrl
+    1073741923: 18, // RAlt
+    1073741882: 112, // F1
+    1073741883: 113, // F2
+    1073741884: 114, // F3
+    1073741885: 115, // F4
+    1073741886: 116, // F5
+    1073741887: 117, // F6
+    1073741888: 118, // F7
+    1073741889: 119, // F8
+    1073741890: 120, // F9
+    1073741891: 121, // F10
+    1073741892: 122, // F11
+    1073741893: 123, // F12
+  };
+  return map[keycode] ?? keycode;
 }
 
 // ── Create wgpu surface from SDL window ──

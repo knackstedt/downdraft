@@ -8,10 +8,12 @@
 // readdirRecursive or a manual recursive walk.
 // ============================================================================
 
+import { createLogger } from "@downdraft/core";
 import { readdirSync, statSync } from "node:fs";
-import { join, relative, resolve, dirname, sep } from "node:path";
-import { fileURLToPath } from "node:url";
-import { pathToFileURL } from "node:url";
+import { dirname, join, relative, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+const log = createLogger();
 
 const _dirname = typeof (globalThis as any).__dirname !== "undefined"
   ? (globalThis as any).__dirname
@@ -124,5 +126,5 @@ export function nativeGlob(
 // of import.meta.glob(). This is done via the runtime detection utility.
 export function installAssetGlob(): void {
   (globalThis as any).__nativeGlob = nativeGlob;
-  console.log("[platform-native] Asset glob installed (filesystem-based)");
+  log.info("platform-native", "Asset glob installed (filesystem-based)");
 }

@@ -42,11 +42,9 @@ int sdl_shim_create_window(const char* title, int width, int height) {
     }
 
     SDL_ShowWindow(g_window);
-    // Grab input immediately — this is a game, not a desktop app.
-    // SDL_SetWindowGrab captures mouse + keyboard to the window.
-    // SDL_SetRelativeMouseMode hides cursor and delivers relative motion.
-    SDL_SetWindowGrab(g_window, SDL_TRUE);
-    SDL_SetRelativeMouseMode(SDL_TRUE);
+    // Do NOT grab input on startup — let the user click the window to
+    // engage pointer lock. Grabbing immediately steals focus from whatever
+    // the user was doing (IDE, terminal, etc.) which is hostile UX.
     g_initialized = 1;
     return 0;
 }
@@ -227,13 +225,8 @@ int sdl_shim_poll_event(void* out_data) {
                 iout[1] = event.window.data2; // height
                 return SDL_SHIM_EVENT_RESIZE;
             }
-            // Re-apply relative mouse mode when focus is gained — the initial
-            // call at window creation may silently fail if the window hasn't
-            // been focused yet. This is the standard SDL pattern.
-            if (event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED) {
-                SDL_SetWindowGrab(g_window, SDL_TRUE);
-                SDL_SetRelativeMouseMode(SDL_TRUE);
-            }
+            // Do NOT re-grab on focus-gained — let the user explicitly
+            // click the window to engage pointer lock.
             return SDL_SHIM_EVENT_NONE;
 
         case SDL_TEXTINPUT:

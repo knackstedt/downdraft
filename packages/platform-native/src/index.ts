@@ -17,7 +17,7 @@
 export { installAssetGlob, nativeGlob } from "./assets/native-assets";
 export { installGPU } from "./gpu/install";
 export { WgpuAdapter, WgpuBindGroup, WgpuBindGroupLayout, WgpuBuffer, WgpuCommandBuffer, WgpuCommandEncoder, WgpuComputePassEncoder, WgpuComputePipeline, WgpuDevice, WgpuGPU, WgpuPipelineLayout, WgpuQueue, WgpuRenderPassEncoder, WgpuRenderPipeline, WgpuSampler, WgpuShaderModule, WgpuTexture, WgpuTextureView } from "./gpu/wgpu-wrapper";
-export { createImageBitmapNative, installImagePolyfills, NativeImageBitmap } from "./image/native-image";
+export { createImageBitmapNative, getFreeTypeTextRenderer, installImagePolyfills, NativeImageBitmap } from "./image/native-image";
 export { createNativeHost, type NativeHostConfig, type NativeHostContext } from "./native-host";
 export { captureScreenshot } from "./screenshot/screenshot";
 export { NativeCanvasContext, NativeSurface } from "./window/native-surface";

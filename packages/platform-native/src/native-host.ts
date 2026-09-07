@@ -12,12 +12,15 @@
 // This is the entry point for native game execution under Bun.
 // ============================================================================
 
+import { createLogger } from "@downdraft/core";
 import { installAssetGlob } from "./assets/native-assets";
 import { installGPU } from "./gpu/install";
 import { installImagePolyfills } from "./image/native-image";
 import { captureScreenshot } from "./screenshot/screenshot";
 import { NativeSurface } from "./window/native-surface";
 import { NativeWindow, type NativeWindowConfig } from "./window/native-window";
+
+const log = createLogger();
 
 export interface NativeHostConfig {
   window: NativeWindowConfig;
@@ -327,5 +330,5 @@ function installDOMPolyfills(window: NativeWindow, surface: NativeSurface): void
     };
   }
 
-  console.log("[platform-native] DOM polyfills installed (document, window, ResizeObserver, localStorage, etc.)");
+  log.info("platform-native", "DOM polyfills installed (document, window, ResizeObserver, localStorage, etc.)");
 }

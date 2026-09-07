@@ -5,10 +5,13 @@
 // Implements the ImageBitmap interface that the engine's asset loaders expect.
 // ============================================================================
 
+import { createLogger } from "@downdraft/core";
 import { dlopen, ptr, type CFunction } from "bun:ffi";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+
+const log = createLogger();
 
 const _dirname = typeof (globalThis as any).__dirname !== "undefined"
   ? (globalThis as any).__dirname
@@ -181,33 +184,274 @@ export function installImagePolyfills(): void {
     };
   }
 
-  console.log("[platform-native] Image polyfills installed (stb_image + OffscreenCanvas stub)");
+  log.info("platform-native", "Image polyfills installed (stb_image + OffscreenCanvas stub)");
 }
 
-// ── Minimal Canvas2D for text measurement ──
-// The engine's text atlas uses Canvas2D to measure and render text.
-// For the first screenshot without UI, we provide a minimal stub.
+// ── FreeType-based text rasterizer ──
+// Uses libfont_shim.so (FreeType) via bun:ffi to render TrueType text.
+// Falls back to the 8x12 bitmap glyph atlas if FreeType is unavailable.
+
+function findFontShimLibrary(): string {
+  const candidates = [
+    join(_dirname, "..", "..", "native", "libfont_shim.so"),
+    join(process.cwd(), "packages", "platform-native", "native", "libfont_shim.so"),
+    join(process.cwd(), "native", "libfont_shim.so"),
+  ];
+  for (const p of candidates) {
+    if (existsSync(p)) return p;
+  }
+  const pkgRoot = join(_dirname, "..", "..");
+  const rel = join(pkgRoot, "native", "libfont_shim.so");
+  if (existsSync(rel)) return rel;
+  return "";
+}
+
+function findSystemFont(): string {
+  const candidates = [
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    "/usr/share/fonts/TTF/DejaVuSans.ttf",
+  ];
+  for (const p of candidates) {
+    if (existsSync(p)) return p;
+  }
+  return "";
+}
+
+let ftFace = 0n;
+let ftInitialized = false;
+let ftSymbols: any = null;
+
+const FT_RENDER_BUF = new Uint8Array(2048 * 128 * 4);
+const FT_WIDTH_OUT = new Int32Array(1);
+const FT_HEIGHT_OUT = new Int32Array(1);
+
+function ensureFreeTypeInit(): void {
+  if (ftInitialized) return;
+  ftInitialized = true;
+  try {
+    const libPath = findFontShimLibrary();
+    if (!libPath) { log.warn("platform-native", "libfont_shim.so not found — using bitmap font fallback"); return; }
+    ftSymbols = dlopen(libPath, {
+      ft_shim_init: { args: ["cstring"], returns: "i64" } as CFunction,
+      ft_shim_render_text: { args: ["i64", "cstring", "i32", "ptr", "i32", "i32", "i32", "ptr", "ptr"], returns: "i32" } as CFunction,
+      ft_shim_measure: { args: ["i64", "cstring", "i32"], returns: "i32" } as CFunction,
+      ft_shim_done: { args: ["i64"], returns: "void" } as CFunction,
+    }).symbols;
+    const fontPath = findSystemFont();
+    if (!fontPath) { log.warn("platform-native", "No system TTF font found — using bitmap font fallback"); return; }
+    ftFace = BigInt(ftSymbols.ft_shim_init(fontPath) as unknown as number);
+    if (ftFace === 0n) {
+      log.warn("platform-native", "FreeType init failed — using bitmap font fallback");
+    } else {
+      log.info("platform-native", "FreeType text rendering initialized");
+    }
+  } catch (e: any) {
+    log.warn("platform-native", `FreeType init error: ${e?.message ?? e} — using bitmap font fallback`);
+    ftFace = 0n;
+  }
+}
+
+function ftIsAvailable(): boolean {
+  ensureFreeTypeInit();
+  return ftFace !== 0n;
+}
+
+function ftMeasureText(text: string, fontSize: number): number {
+  ensureFreeTypeInit();
+  if (ftFace === 0n || !ftSymbols) return -1;
+  return ftSymbols.ft_shim_measure(ftFace, text, fontSize) as unknown as number;
+}
+
+function ftRenderText(text: string, fontSize: number): { data: Uint8Array; width: number; height: number } | null {
+  ensureFreeTypeInit();
+  if (ftFace === 0n || !ftSymbols) return null;
+  const dataPtr = ptr(FT_RENDER_BUF);
+  const widthPtr = ptr(FT_WIDTH_OUT);
+  const heightPtr = ptr(FT_HEIGHT_OUT);
+  const result = ftSymbols.ft_shim_render_text(
+    ftFace, text, fontSize,
+    dataPtr, FT_RENDER_BUF.length,
+    2048, 128,
+    widthPtr, heightPtr,
+  ) as unknown as number;
+  if (result <= 0) return null;
+  const w = FT_WIDTH_OUT[0];
+  const h = FT_HEIGHT_OUT[0];
+  if (w <= 0 || h <= 0) return null;
+  const size = w * h * 4;
+  const copy = new Uint8Array(size);
+  copy.set(FT_RENDER_BUF.subarray(0, size));
+  return { data: copy, width: w, height: h };
+}
+
+/**
+ * Get the FreeType text renderer function, or null if FreeType is unavailable.
+ * This can be plugged into TextAtlasCache.setDirectRenderer() to bypass
+ * Canvas2D and render text directly via FreeType.
+ */
+export function getFreeTypeTextRenderer(): ((text: string, fontSize: number) => { data: Uint8Array; width: number; height: number } | null) | null {
+  ensureFreeTypeInit();
+  if (ftFace === 0n) return null;
+  return ftRenderText;
+}
+
+// ── Canvas2D with text rendering for IMUI ──
+// Implements fillText using FreeType (when available) or a built-in 8x12
+// bitmap glyph atlas as fallback. The TextAtlasCache uses this to rasterize
+// text into GPU textures.
+
+const GLYPH_W = 8;
+const GLYPH_H = 12;
+const FONT_CHARS = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~";
+
+// 8x12 bitmap glyph patterns (X = on, . = off)
+const GLYPH_PATTERNS: Record<string, string[]> = {
+  ' ': ['........','........','........','........','........','........','........','........','........','........','........','........'],
+  '!': ['...XX...','...XX...','...XX...','...XX...','...XX...','...XX...','........','........','...XX...','...XX...','........','........'],
+  '"': ['..XX.XX.','..XX.XX.','..XX.XX.','........','........','........','........','........','........','........','........','........'],
+  '#': ['..XX.XX.','..XX.XX.','..XX.XX.','XXXXXXXX','..XX.XX.','XXXXXXXX','..XX.XX.','..XX.XX.','..XX.XX.','........','........','........'],
+  '$': ['...XXX..','.XX.X.X.','.X..X...','.XX.XX..','...X.XX.','.X..X.X.','.XX.X.X.','..XXX...','........','........','........','........'],
+  '%': ['XX...XX.','XX..XX..','...XX...','..XX....','..XX....','...XX...','..XX..XX','XX...XX.','........','........','........','........'],
+  '&': ['..XXX...','.XX.XX..','.XX.XX..','..XX....','.XX.XXX.','XX.X.XX.','X..XX.X.','.XXX..X.','........','........','........','........'],
+  '\'': ['...XX...','...XX...','...XX...','........','........','........','........','........','........','........','........','........'],
+  '(': ['....XX..','...XX...','..XX....','..XX....','..XX....','..XX....','..XX....','...XX...','....XX..','........','........','........'],
+  ')': ['..XX....','...XX...','....XX..','....XX..','....XX..','....XX..','....XX..','...XX...','..XX....','........','........','........'],
+  '*': ['........','..X..X..','.XX.XXX.','X.XXX.X.','.XX.XXX.','..X..X..','........','........','........','........','........','........'],
+  '+': ['........','........','...XX...','...XX...','...XX...','XXXXXXX.','...XX...','...XX...','...XX...','........','........','........'],
+  ',': ['........','........','........','........','........','........','........','...XX...','...XX...','..XX....','........','........'],
+  '-': ['........','........','........','........','XXXXXXX.','XXXXXXX.','........','........','........','........','........','........'],
+  '.': ['........','........','........','........','........','........','........','...XX...','...XX...','........','........','........'],
+  '/': ['......XX','.....XX.','....XX..','...XX...','..XX....','.XX.....','XX......','XX......','........','........','........','........'],
+  '0': ['..XXX...','.XX.XX..','.X...X..','X..X..X.','X..X..X.','X..X..X.','.X...X..','.XX.XX..','..XXX...','........','........','........'],
+  '1': ['...XX...','..XXX...','.XXXX...','...XX...','...XX...','...XX...','...XX...','...XX...','XXXXXXX.','........','........','........'],
+  '2': ['..XXX...','.XX.XX..','X....X..','....XX..','..XX....','.XX.....','XX......','XXXXXXX.','XXXXXXX.','........','........','........'],
+  '3': ['..XXX...','.XX.XX..','X....X..','...XX...','...XXX..','......X.','X....X..','.XX.XX..','..XXX...','........','........','........'],
+  '4': ['....XX..','...XXX..','..X.XX..','.X..XX..','X...XX..','XXXXXXX.','....XX..','....XX..','....XX..','........','........','........'],
+  '5': ['XXXXXXX.','XX......','XX......','XXXXX...','....XX..','......X.','X....X..','.XX.XX..','..XXX...','........','........','........'],
+  '6': ['..XXX...','.XX.XX..','XX......','XXXXX...','XX.X.XX.','X....X..','.X...X..','.XX.XX..','..XXX...','........','........','........'],
+  '7': ['XXXXXXX.','X....X..','....X...','...X....','..X.....','..X.....','.XX.....','.XX.....','.XX.....','........','........','........'],
+  '8': ['..XXX...','.XX.XX..','.X...X..','.XX.XX..','..XXX...','.XX.XX..','.X...X..','.XX.XX..','..XXX...','........','........','........'],
+  '9': ['..XXX...','.XX.XX..','.X...X..','.XX..XX.','..XX.XX.','....XX..','...XX...','..XX....','.XXX....','........','........','........'],
+  ':': ['........','........','...XX...','...XX...','........','........','...XX...','...XX...','........','........','........','........'],
+  ';': ['........','........','...XX...','...XX...','........','........','...XX...','...XX...','..XX....','........','........','........'],
+  '<': ['........','....XX..','...XX...','..XX....','.XX.....','..XX....','...XX...','....XX..','........','........','........','........'],
+  '=': ['........','........','........','XXXXXXX.','........','XXXXXXX.','........','........','........','........','........','........'],
+  '>': ['........','.XX.....','..XX....','...XX...','....XX..','...XX...','..XX....','.XX.....','........','........','........','........'],
+  '?': ['..XXX...','.XX.XX..','X....X..','....XX..','...XX...','........','...XX...','...XX...','........','........','........','........'],
+  '@': ['..XXX...','.X...X..','X.XX.XX.','X.XXXX.X','X.XX.XX.','X.XXXX.X','X.XX.XX.','.X...X..','..XXX...','........','........','........'],
+  'A': ['..XXX...','.XX.XX..','.X...X..','X.....X.','XXXXXXX.','X.....X.','X.....X.','X.....X.','X.....X.','........','........','........'],
+  'B': ['XXXXXX..','X.....X.','X.....X.','XXXXXX..','X.....X.','X.....X.','X.....X.','X.....X.','XXXXXX..','........','........','........'],
+  'C': ['..XXXX..','.X....X.','X.......','X.......','X.......','X.......','X.......','.X....X.','..XXXX..','........','........','........'],
+  'D': ['XXXXX...','X....X..','X.....X.','X.....X.','X.....X.','X.....X.','X.....X.','X....X..','XXXXX...','........','........','........'],
+  'E': ['XXXXXXX.','X.......','X.......','XXXXXX..','X.......','X.......','X.......','X.......','XXXXXXX.','........','........','........'],
+  'F': ['XXXXXXX.','X.......','X.......','XXXXXX..','X.......','X.......','X.......','X.......','X.......','........','........','........'],
+  'G': ['..XXXX..','.X....X.','X.......','X.......','X...XXX.','X.....X.','X.....X.','.X...X..','..XXX.X.','........','........','........'],
+  'H': ['X.....X.','X.....X.','X.....X.','XXXXXXX.','X.....X.','X.....X.','X.....X.','X.....X.','X.....X.','........','........','........'],
+  'I': ['XXXXXXX.','...XX...','...XX...','...XX...','...XX...','...XX...','...XX...','...XX...','XXXXXXX.','........','........','........'],
+  'J': ['..XXXXX.','....XX..','....XX..','....XX..','....XX..','....XX..','X...XX..','X...XX..','.XXX....','........','........','........'],
+  'K': ['X.....X.','X....X..','X...X...','X..X....','XXX.....','X..X....','X...X...','X....X..','X.....X.','........','........','........'],
+  'L': ['X.......','X.......','X.......','X.......','X.......','X.......','X.......','X.......','XXXXXXX.','........','........','........'],
+  'M': ['X.....X.','XX...XX.','X.X.X.X.','X..X..X.','X.....X.','X.....X.','X.....X.','X.....X.','X.....X.','........','........','........'],
+  'N': ['X.....X.','XX....X.','X.X...X.','X..X..X.','X...X.X.','X....XX.','X.....X.','X.....X.','X.....X.','........','........','........'],
+  'O': ['..XXX...','.X...X..','X.....X.','X.....X.','X.....X.','X.....X.','X.....X.','.X...X..','..XXX...','........','........','........'],
+  'P': ['XXXXXX..','X.....X.','X.....X.','X.....X.','XXXXXX..','X.......','X.......','X.......','X.......','........','........','........'],
+  'Q': ['..XXX...','.X...X..','X.....X.','X.....X.','X.....X.','X...X.X.','.X...X..','..XXX...','...XX...','........','........','........'],
+  'R': ['XXXXXX..','X.....X.','X.....X.','X.....X.','XXXXXX..','X..X....','X...X...','X....X..','X.....X.','........','........','........'],
+  'S': ['..XXXX..','.X....X.','X.......','..XXX...','....XXX.','......X.','X.....X.','.X....X.','..XXXX..','........','........','........'],
+  'T': ['XXXXXXX.','...XX...','...XX...','...XX...','...XX...','...XX...','...XX...','...XX...','...XX...','........','........','........'],
+  'U': ['X.....X.','X.....X.','X.....X.','X.....X.','X.....X.','X.....X.','X.....X.','.X...X..','..XXX...','........','........','........'],
+  'V': ['X.....X.','X.....X.','X.....X.','X.....X.','.X...X..','.X...X..','..X.X...','..X.X...','...X....','........','........','........'],
+  'W': ['X.....X.','X.....X.','X.....X.','X.....X.','X..X..X.','X..X..X.','X.X.X.X.','.X...X..','.X...X..','........','........','........'],
+  'X': ['X.....X.','X.....X.','.X...X..','..X.X...','...X....','..X.X...','.X...X..','X.....X.','X.....X.','........','........','........'],
+  'Y': ['X.....X.','X.....X.','.X...X..','..X.X...','...X....','...X....','...X....','...X....','...X....','........','........','........'],
+  'Z': ['XXXXXXX.','......X.','.....X..','....X...','...X....','..X.....','.X......','X.......','XXXXXXX.','........','........','........'],
+  '[': ['..XXXX..','..XX....','..XX....','..XX....','..XX....','..XX....','..XX....','..XX....','..XXXX..','........','........','........'],
+  '\\': ['XX......','XX......','.XX.....','..XX....','...XX...','....XX..','.....XX.','.....XX.','........','........','........','........'],
+  ']': ['..XXXX..','....XX..','....XX..','....XX..','....XX..','....XX..','....XX..','....XX..','..XXXX..','........','........','........'],
+  '^': ['...X....','..XXX...','.X.X.X..','X.....X.','........','........','........','........','........','........','........','........'],
+  '_': ['........','........','........','........','........','........','........','........','XXXXXXXX','........','........','........'],
+  '`': ['..XX....','...XX...','....XX..','........','........','........','........','........','........','........','........','........'],
+  'a': ['........','........','........','..XXX...','....XX..','.X..XXX.','XX...XX.','.X..XXX.','..XXXXX.','........','........','........'],
+  'b': ['X.......','X.......','X.......','XXXXX...','X....X..','X.....X.','X.....X.','X....X..','XXXXX...','........','........','........'],
+  'c': ['........','........','........','..XXX...','.X...X..','X.......','X.......','.X...X..','..XXX...','........','........','........'],
+  'd': ['......X.','......X.','......X.','..XXXXX.','.....X..','X.....X.','X.....X.','X....X..','..XXXXX.','........','........','........'],
+  'e': ['........','........','........','..XXX...','.X...X..','XXXXXXX.','X.......','.X...X..','..XXX...','........','........','........'],
+  'f': ['...XXX..','..X.....','..X.....','XXXXX...','..X.....','..X.....','..X.....','..X.....','..X.....','........','........','........'],
+  'g': ['........','........','........','..XXXXX.','X....X..','X....X..','X....X..','X....X..','.XXXXX..','......X.','..XXX...','.XX....'],
+  'h': ['X.......','X.......','X.......','XXXXX...','X....X..','X.....X.','X.....X.','X.....X.','X.....X.','........','........','........'],
+  'i': ['...XX...','........','........','..XXX...','...XX...','...XX...','...XX...','...XX...','..XXXXX.','........','........','........'],
+  'j': ['......X.','........','........','...XXX..','......X.','......X.','......X.','......X.','X....X..','X....X..','.XXX....'],
+  'k': ['X.......','X.......','X.......','X...XX..','X..X....','XXX.....','X..X....','X...X...','X....X..','........','........','........'],
+  'l': ['..XXX...','...XX...','...XX...','...XX...','...XX...','...XX...','...XX...','...XX...','..XXXXX.','........','........','........'],
+  'm': ['........','........','........','XX.XX...','X.X.X.X.','X.X.X.X.','X.....X.','X.....X.','X.....X.','........','........','........'],
+  'n': ['........','........','........','XXXXX...','X....X..','X.....X.','X.....X.','X.....X.','X.....X.','........','........','........'],
+  'o': ['........','........','........','..XXX...','.X...X..','X.....X.','X.....X.','.X...X..','..XXX...','........','........','........'],
+  'p': ['........','........','........','XXXXX...','X....X..','X.....X.','X.....X.','X....X..','XXXXX...','X.....X.','X.....X.','........'],
+  'q': ['........','........','........','..XXXXX.','.....X..','X.....X.','X.....X.','X....X..','..XXXXX.','......X.','......X.','........'],
+  'r': ['........','........','........','X..XXX..','X.X....','XXX.....','X.......','X.......','X.......','........','........','........'],
+  's': ['........','........','........','..XXXXX.','X......','.XXXXX..','......X.','X.....X.','.XXXXX..','........','........','........'],
+  't': ['..X.....','..X.....','..X.....','XXXXX...','..X.....','..X.....','..X.....','..X.....','...XX...','........','........','........'],
+  'u': ['........','........','........','X.....X.','X.....X.','X.....X.','X.....X.','.X...X..','..XXX...','........','........','........'],
+  'v': ['........','........','........','X.....X.','X.....X.','.X...X..','.X...X..','..X.X...','...X....','........','........','........'],
+  'w': ['........','........','........','X.....X.','X.....X.','X..X..X.','X.X.X.X.','.X...X..','.X...X..','........','........','........'],
+  'x': ['........','........','........','X.....X.','.X...X..','..X.X...','..X.X...','.X...X..','X.....X.','........','........','........'],
+  'y': ['........','........','........','X.....X.','X.....X.','.X...X..','.X...X..','..X.X...','...X....','...X....','..X.....','.X......'],
+  'z': ['........','........','........','XXXXXXX.','....XX..','..XX....','.XX.....','XX......','XXXXXXX.','........','........','........'],
+  '{': ['...XXX..','..XX....','..X.....','..X.....','XXX.....','..X.....','..X.....','..XX....','...XXX..','........','........','........'],
+  '|': ['...XX...','...XX...','...XX...','...XX...','...XX...','...XX...','...XX...','...XX...','...XX...','........','........','........'],
+  '}': ['XXX.....','..XX....','...X....','...X....','...XXX..','...X....','...X....','..XX....','XXX.....','........','........','........'],
+  '~': ['........','........','..XX..X.','X.X.XX..','X......X','........','........','........','........','........','........','........'],
+};
+
+function parseColor(color: string): [number, number, number, number] {
+  // Parse rgba(r,g,b,a) or #rrggbb
+  const rgbaMatch = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
+  if (rgbaMatch) {
+    return [parseInt(rgbaMatch[1]), parseInt(rgbaMatch[2]), parseInt(rgbaMatch[3]), rgbaMatch[4] ? Math.round(parseFloat(rgbaMatch[4]) * 255) : 255];
+  }
+  const hexMatch = color.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+  if (hexMatch) {
+    return [parseInt(hexMatch[1], 16), parseInt(hexMatch[2], 16), parseInt(hexMatch[3], 16), 255];
+  }
+  return [0, 0, 0, 255];
+}
 
 class NativeCanvas2D {
   private width: number;
   private height: number;
   private _fillStyle: string = "#000000";
   private _font: string = "16px sans-serif";
+  private _textAlign: string = "left";
+  private _textBaseline: string = "alphabetic";
+  private pixels: Uint8ClampedArray;
 
   constructor(width: number, height: number) {
     this.width = width;
     this.height = height;
+    this.pixels = new Uint8ClampedArray(width * height * 4);
   }
 
   get fillStyle(): string { return this._fillStyle; }
   set fillStyle(v: string) { this._fillStyle = v; }
   get font(): string { return this._font; }
   set font(v: string) { this._font = v; }
+  get textAlign(): string { return this._textAlign; }
+  set textAlign(v: string) { this._textAlign = v; }
+  get textBaseline(): string { return this._textBaseline; }
+  set textBaseline(v: string) { this._textBaseline = v; }
 
-  // Text measurement — approximate based on font size
+  private getFontSize(): number {
+    const m = this._font.match(/(\d+)px/);
+    return m ? parseInt(m[1]) : 16;
+  }
+
   measureText(text: string): { width: number; actualBoundingBoxAscent: number; actualBoundingBoxDescent: number } {
-    const fontSize = parseInt(this._font) || 16;
-    const width = text.length * fontSize * 0.6; // approximate
+    const fontSize = this.getFontSize();
+    // Use FreeType for accurate measurement when available
+    const ftWidth = ftMeasureText(text, fontSize);
+    const width = ftWidth >= 0 ? ftWidth : text.length * fontSize * 0.6;
     return {
       width,
       actualBoundingBoxAscent: fontSize * 0.8,
@@ -215,15 +459,153 @@ class NativeCanvas2D {
     };
   }
 
-  fillText(_text: string, _x: number, _y: number): void {
-    // No-op — text rendering not supported in minimal mode
+  fillText(text: string, x: number, y: number): void {
+    const fontSize = this.getFontSize();
+    const [cr, cg, cb, ca] = parseColor(this._fillStyle);
+
+    // Adjust y based on textBaseline
+    let startY = y;
+    if (this._textBaseline === "top") startY = y;
+    else if (this._textBaseline === "middle") startY = y - fontSize * 0.5;
+    else if (this._textBaseline === "alphabetic") startY = y - fontSize * 0.8;
+
+    // Try FreeType first for proper anti-aliased TrueType rendering
+    if (ftIsAvailable()) {
+      const result = ftRenderText(text, fontSize);
+      if (result) {
+        const { data, width: tw, height: th } = result;
+        const dstStartX = Math.floor(x);
+        const dstStartY = Math.floor(startY);
+        for (let py = 0; py < th; py++) {
+          for (let px = 0; px < tw; px++) {
+            const srcIdx = (py * tw + px) * 4;
+            const alpha = data[srcIdx + 3];
+            if (alpha === 0) continue;
+            const dstX = dstStartX + px;
+            const dstY = dstStartY + py;
+            if (dstX < 0 || dstX >= this.width || dstY < 0 || dstY >= this.height) continue;
+            const idx = (dstY * this.width + dstX) * 4;
+            const a = (alpha / 255) * (ca / 255);
+            const invAlpha = 1 - a;
+            this.pixels[idx]     = Math.min(255, this.pixels[idx]     * invAlpha + cr * a);
+            this.pixels[idx + 1] = Math.min(255, this.pixels[idx + 1] * invAlpha + cg * a);
+            this.pixels[idx + 2] = Math.min(255, this.pixels[idx + 2] * invAlpha + cb * a);
+            this.pixels[idx + 3] = Math.min(255, this.pixels[idx + 3] + ca * a);
+          }
+        }
+        return;
+      }
+    }
+
+    // Fallback: original 8x12 bitmap glyph atlas
+    const scaleX = fontSize / GLYPH_W;
+    const scaleY = fontSize / GLYPH_H;
+    const ss = 2;
+
+    let cursorX = x;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (ch === '\n') { cursorX = x; startY += fontSize * 1.2; continue; }
+      const pattern = GLYPH_PATTERNS[ch];
+      if (!pattern || pattern.length < GLYPH_H) { cursorX += fontSize * 0.6; continue; }
+
+      const glyphW = Math.ceil(GLYPH_W * scaleX);
+      const glyphH = Math.ceil(GLYPH_H * scaleY);
+
+      for (let py = 0; py < glyphH; py++) {
+        for (let px = 0; px < glyphW; px++) {
+          let coverage = 0;
+          for (let sy = 0; sy < ss; sy++) {
+            for (let sx = 0; sx < ss; sx++) {
+              const srcX = Math.floor((px * ss + sx) / (scaleX * ss));
+              const srcY = Math.floor((py * ss + sy) / (scaleY * ss));
+              if (srcX >= 0 && srcX < GLYPH_W && srcY >= 0 && srcY < GLYPH_H && pattern[srcY] && srcX < pattern[srcY].length) {
+                if (pattern[srcY][srcX] === 'X') coverage++;
+              }
+            }
+          }
+          if (coverage === 0) continue;
+          const alpha = (coverage / (ss * ss)) * (ca / 255);
+          const dstX = Math.floor(cursorX + px);
+          const dstY = Math.floor(startY + py);
+          if (dstX < 0 || dstX >= this.width || dstY < 0 || dstY >= this.height) continue;
+          const idx = (dstY * this.width + dstX) * 4;
+          const invAlpha = 1 - alpha;
+          this.pixels[idx]     = Math.min(255, this.pixels[idx]     * invAlpha + cr * alpha);
+          this.pixels[idx + 1] = Math.min(255, this.pixels[idx + 1] * invAlpha + cg * alpha);
+          this.pixels[idx + 2] = Math.min(255, this.pixels[idx + 2] * invAlpha + cb * alpha);
+          this.pixels[idx + 3] = Math.min(255, this.pixels[idx + 3] + ca * alpha);
+        }
+      }
+      cursorX += fontSize * 0.6;
+    }
   }
 
-  fillRect(_x: number, _y: number, _w: number, _h: number): void {}
-  clearRect(_x: number, _y: number, _w: number, _h: number): void {}
-  drawImage(_image: any, _dx: number, _dy: number): void {}
-  getImageData(x: number, y: number, w: number, h: number): any {
-    return new ((globalThis as any).ImageData)(w, h);
+  fillRect(x: number, y: number, w: number, h: number): void {
+    const [r, g, b, a] = parseColor(this._fillStyle);
+    for (let py = Math.max(0, Math.floor(y)); py < Math.min(this.height, Math.ceil(y + h)); py++) {
+      for (let px = Math.max(0, Math.floor(x)); px < Math.min(this.width, Math.ceil(x + w)); px++) {
+        const idx = (py * this.width + px) * 4;
+        this.pixels[idx] = r;
+        this.pixels[idx + 1] = g;
+        this.pixels[idx + 2] = b;
+        this.pixels[idx + 3] = a;
+      }
+    }
   }
-  putImageData(_data: any, _x: number, _y: number): void {}
+
+  clearRect(x: number, y: number, w: number, h: number): void {
+    for (let py = Math.max(0, Math.floor(y)); py < Math.min(this.height, Math.ceil(y + h)); py++) {
+      for (let px = Math.max(0, Math.floor(x)); px < Math.min(this.width, Math.ceil(x + w)); px++) {
+        const idx = (py * this.width + px) * 4;
+        this.pixels[idx] = 0;
+        this.pixels[idx + 1] = 0;
+        this.pixels[idx + 2] = 0;
+        this.pixels[idx + 3] = 0;
+      }
+    }
+  }
+
+  drawImage(_image: any, _dx: number, _dy: number): void {}
+
+  getImageData(x: number, y: number, w: number, h: number): any {
+    const data = new Uint8ClampedArray(w * h * 4);
+    for (let py = 0; py < h; py++) {
+      for (let px = 0; px < w; px++) {
+        const srcX = Math.floor(x) + px;
+        const srcY = Math.floor(y) + py;
+        if (srcX >= 0 && srcX < this.width && srcY >= 0 && srcY < this.height) {
+          const srcIdx = (srcY * this.width + srcX) * 4;
+          const dstIdx = (py * w + px) * 4;
+          data[dstIdx] = this.pixels[srcIdx];
+          data[dstIdx + 1] = this.pixels[srcIdx + 1];
+          data[dstIdx + 2] = this.pixels[srcIdx + 2];
+          data[dstIdx + 3] = this.pixels[srcIdx + 3];
+        }
+      }
+    }
+    const ImageDataCtor = (globalThis as any).ImageData;
+    return new ImageDataCtor(w, h, data);
+  }
+
+  putImageData(data: any, x: number, y: number): void {
+    if (!data?.data) return;
+    const srcData = data.data as Uint8ClampedArray;
+    const w = data.width;
+    const h = data.height;
+    for (let py = 0; py < h; py++) {
+      for (let px = 0; px < w; px++) {
+        const dstX = Math.floor(x) + px;
+        const dstY = Math.floor(y) + py;
+        if (dstX >= 0 && dstX < this.width && dstY >= 0 && dstY < this.height) {
+          const srcIdx = (py * w + px) * 4;
+          const dstIdx = (dstY * this.width + dstX) * 4;
+          this.pixels[dstIdx] = srcData[srcIdx];
+          this.pixels[dstIdx + 1] = srcData[srcIdx + 1];
+          this.pixels[dstIdx + 2] = srcData[srcIdx + 2];
+          this.pixels[dstIdx + 3] = srcData[srcIdx + 3];
+        }
+      }
+    }
+  }
 }

@@ -1,6 +1,5 @@
-import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "@downdraft/core";
+import { DEPTH_FORMAT, ENT, MSAA_SAMPLE_COUNT, SimBufferReader } from "@downdraft/core";
 import { ANCHOR_BOW_OFFSET, ANCHOR_DEPTH } from "@shared/constants";
-import { ENT, SimBufferReader } from "@downdraft/core";
 import { EntityType } from "@shared/types";
 import { BOAT_WGSL } from "../shaders/entity-shaders";
 import type { EntityRenderContext } from "./render-context";
@@ -291,15 +290,18 @@ export class AnchorRenderer {
       passEncoder.setBindGroup(2, ctx.pbrBindGroup);
     }
     for (const d of drawList) {
+      const aBg = ctx.bindGroups?.[d.slot] ?? ctx.bindGroup;
       if (d.mesh === "anchor") {
         passEncoder.setVertexBuffer(0, this.anchorMeshVerts!);
         passEncoder.setIndexBuffer(this.anchorMeshIdx!, "uint16");
-        passEncoder.setBindGroup(0, ctx.bindGroup!, [d.slot * 256]);
+        if (ctx.bindGroups) passEncoder.setBindGroup(0, aBg);
+        else passEncoder.setBindGroup(0, aBg!, [d.slot * 256]);
         passEncoder.drawIndexed(this.anchorMeshIndexCount);
       } else {
         passEncoder.setVertexBuffer(0, this.chainLinkVerts!);
         passEncoder.setIndexBuffer(this.chainLinkIdx!, "uint16");
-        passEncoder.setBindGroup(0, ctx.bindGroup!, [d.slot * 256]);
+        if (ctx.bindGroups) passEncoder.setBindGroup(0, aBg);
+        else passEncoder.setBindGroup(0, aBg!, [d.slot * 256]);
         passEncoder.drawIndexed(this.chainLinkIndexCount);
       }
     }
