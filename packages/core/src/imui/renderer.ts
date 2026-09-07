@@ -487,7 +487,14 @@ export class UIRenderer {
       }
       const [u0, v0, u1, v1] = entry.uv;
       const [r, g, b, a] = d.textColor;
-      const x = d.x;
+      // Handle horizontal alignment — the FreeType renderer always
+      // produces left-aligned text, so we offset the quad position.
+      let x = d.x;
+      if (d.textAlign === "center" && d.width > 0) {
+        x = d.x + (d.width - entry.width) / 2;
+      } else if (d.textAlign === "right" && d.width > 0) {
+        x = d.x + d.width - entry.width;
+      }
       const y = d.y + yOffset;
       const w = entry.width;
       const h = entry.height;
@@ -504,7 +511,10 @@ export class UIRenderer {
         entryObj.verts.push(uvs[i][0], uvs[i][1]);
         entryObj.verts.push(r, g, b, a);
       }
-      yOffset += d.fontSize * 1.3;
+      // Advance by the actual rendered height plus a small gap,
+      // not the estimated fontSize * 1.3 — this keeps line spacing
+      // consistent with the real glyph metrics.
+      yOffset += entry.height + 2;
     }
   }
 

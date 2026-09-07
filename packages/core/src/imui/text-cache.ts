@@ -38,8 +38,8 @@ interface CacheKey {
 }
 
 const ATLAS_PADDING = 4;
-const MAX_ATLAS_WIDTH = 2048;
-const ATLAS_HEIGHT = 512;
+const MAX_ATLAS_WIDTH = 4096;
+const ATLAS_HEIGHT = 1024;
 const ROW_HEIGHT = 64;
 
 export class TextAtlasCache {
@@ -131,16 +131,14 @@ export class TextAtlasCache {
         }
 
         if (this.cursorY + th > ATLAS_HEIGHT) {
-          // Atlas full — evict 25% LRU
-          const evictCount = Math.max(1, Math.floor(this.entries.size * 0.25));
-          const sortedKeys = [...this.entries.keys()].sort(
-            (a, b) => (this.lastUsed.get(a) ?? 0) - (this.lastUsed.get(b) ?? 0),
-          );
-          for (let e = 0; e < evictCount && e < sortedKeys.length; e++) {
-            const k = sortedKeys[e];
-            this.entries.delete(k);
-            this.lastUsed.delete(k);
-          }
+          // Atlas full — clear ALL entries and pixel buffer.
+          // We can't do partial LRU eviction because clearing the pixel
+          // buffer invalidates ALL UV coordinates, not just the evicted
+          // entries.  Surviving entries would point to zeroed pixels.
+          // A full reset means all text gets re-rendered on demand next
+          // frame — a brief, correct flash rather than persistent ghosts.
+          this.entries.clear();
+          this.lastUsed.clear();
           this.cursorX = 0;
           this.cursorY = 0;
           this.atlasRowHeight = 0;
