@@ -193,6 +193,14 @@ export class RendererInputHandler {
   private tryLockPointer(): void {
     if (this.pointerLocked) return;
     if (this.pointerLockRetryCount >= 20) return;
+    // Don't engage pointer lock when any overlay/menu is open.
+    const gs = useGameStore.getState();
+    if (gs.showPauseMenu || gs.showSettings || gs.showInventory ||
+        gs.showCraftMenu || gs.showMap || gs.showBuildMenu ||
+        gs.showFishingMinigame || gs.showTradeMenu ||
+        gs.showCharacterCustomization || gs.showBuilderWheel) {
+      return;
+    }
     this.pointerLockRetryCount++;
     try {
       const result = this.canvas.requestPointerLock();
@@ -206,6 +214,9 @@ export class RendererInputHandler {
     } catch (_e) {
       // ignore — fallback timer below will retry
     }
+    // If requestPointerLock succeeded synchronously (native mode),
+    // this.pointerLocked is now true and we should NOT set a retry timer.
+    if (this.pointerLocked) return;
     // Schedule a check: if pointerlockchange doesn't fire within 2s
     // (silent failure during ESC cooldown), retry. The browser enforces
     // a ~1s cooldown after ESC during which requestPointerLock fails.
@@ -310,6 +321,15 @@ export class RendererInputHandler {
     });
     this.canvas.addEventListener("click", () => {
       if (this.osrForcedFocus) return; // don't engage pointer lock during OSR forced focus
+      // Don't engage pointer lock when any overlay/menu is open —
+      // the user is interacting with UI, not the game.
+      const gs = useGameStore.getState();
+      if (gs.showPauseMenu || gs.showSettings || gs.showInventory ||
+          gs.showCraftMenu || gs.showMap || gs.showBuildMenu ||
+          gs.showFishingMinigame || gs.showTradeMenu ||
+          gs.showCharacterCustomization || gs.showBuilderWheel) {
+        return;
+      }
       if (!this.pointerLocked) {
         this.pointerLockRetryCount = 0;
         this.tryLockPointer();
