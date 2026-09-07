@@ -14,6 +14,6 @@ export { LayoutEngine } from "./layout";
 export { ScreenUniformsStruct, UIRenderer } from "./renderer";
 export { UIScrollPanel } from "./scroll";
 export { TextAtlasCache } from "./text-cache";
-export type { TextCacheEntry, TextRenderOptions } from "./text-cache";
+export type { DirectTextRenderer, TextCacheEntry, TextRenderOptions } from "./text-cache";
 export { UIModal, UIProgressBar, UISlider, UITabBar, UITextInput, UIToggle } from "./widgets";
 

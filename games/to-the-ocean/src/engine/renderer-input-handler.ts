@@ -32,6 +32,8 @@ export class RendererInputHandler {
   private simReader: SimBufferReader | null = null;
   private cameraSystem: CameraSystem | null = null;
   private uiInputRouter: UIInputRouter | null = null;
+  /** When true, skip browser-only features (builder wheel, pointer lock exit on right-click). */
+  nativeMode = false;
 
   keysDown = new Set<number>();
   mouseState = { x: 0, y: 0, left: false, right: false, wheel: 0, _wheel: 0 };
@@ -233,6 +235,8 @@ export class RendererInputHandler {
   }
 
   private tryOpenBuilderWheel(): void {
+    // Skip in native mode — no builder wheel, no pointer lock exit
+    if (this.nativeMode) return;
     // Debounce: mousedown and contextmenu can both fire for the same right-click
     const now = performance.now();
     if (now - this.lastBuilderWheelTime < 200) return;

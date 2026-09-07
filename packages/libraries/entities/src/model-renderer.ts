@@ -52,6 +52,7 @@ export class ModelRenderer {
   private bindGroupLayout: GPUBindGroupLayout | null = null;
   private uniformBuffer: GPUBuffer | null = null;
   private bindGroup: GPUBindGroup | null = null;
+  private perSlotBindGroups: GPUBindGroup[] = [];
 
   private static readonly MAX_MODELS = 256;
   private static readonly UNIFORM_SIZE = 256; // 64 floats, padded to 256
@@ -151,6 +152,14 @@ export class ModelRenderer {
         { binding: 0, resource: { buffer: this.uniformBuffer, size: ModelRenderer.UNIFORM_SIZE } },
       ],
     });
+    // Per-slot bind groups for native mode (no dynamic offset support in wgpu shim)
+    this.perSlotBindGroups = [];
+    for (let i = 0; i < ModelRenderer.MAX_MODELS; i++) {
+      this.perSlotBindGroups.push(this.device.createBindGroup({
+        layout: this.bindGroupLayout,
+        entries: [{ binding: 0, resource: { buffer: this.uniformBuffer, offset: i * ModelRenderer.UNIFORM_SIZE, size: ModelRenderer.UNIFORM_SIZE } }],
+      }));
+    }
 
     const shaderModule = this.device.createShaderModule({ code: MODEL_WGSL });
     // Explicit pipeline layout: group(0) = per-draw uniform (dynamic offset),
@@ -791,16 +800,20 @@ export class ModelRenderer {
 
       // Select the skinned pipeline + skin vertex buffer for skinned meshes,
       // otherwise the standard non-skinned pipeline.
+      const slotIdx = uniformOffset / ModelRenderer.UNIFORM_SIZE;
+      const mBg = this.perSlotBindGroups[slotIdx] ?? this.bindGroup;
       if (res.skinned && this.skinnedPipeline && res.skinVertexBuffer) {
         passEncoder.setPipeline(this.skinnedPipeline);
-        passEncoder.setBindGroup(0, this.bindGroup, [uniformOffset]);
+        if (this.perSlotBindGroups.length > 0) passEncoder.setBindGroup(0, mBg);
+        else passEncoder.setBindGroup(0, mBg!, [uniformOffset]);
         passEncoder.setVertexBuffer(0, res.vertexBuffer);
         passEncoder.setVertexBuffer(1, res.skinVertexBuffer);
         passEncoder.setIndexBuffer(res.indexBuffer, res.indexFormat);
         passEncoder.drawIndexed(res.indexCount);
       } else {
         passEncoder.setPipeline(this.pipeline);
-        passEncoder.setBindGroup(0, this.bindGroup, [uniformOffset]);
+        if (this.perSlotBindGroups.length > 0) passEncoder.setBindGroup(0, mBg);
+        else passEncoder.setBindGroup(0, mBg!, [uniformOffset]);
         passEncoder.setVertexBuffer(0, res.vertexBuffer);
         passEncoder.setIndexBuffer(res.indexBuffer, res.indexFormat);
         passEncoder.drawIndexed(res.indexCount);

@@ -22,6 +22,7 @@ export class HitboxRenderer {
   private hitboxQuadIndexCount = 0;
   private hitboxUniformBuffer: GPUBuffer | null = null;
   private hitboxBindGroup: GPUBindGroup | null = null;
+  private hitboxBindGroups: GPUBindGroup[] = [];
   private hitboxEntryCount = 0;
   private hitboxLineWidth = 3.0;
   private showHitboxes = false;
@@ -87,6 +88,15 @@ export class HitboxRenderer {
       layout: hitboxBindGroupLayout,
       entries: [{ binding: 0, resource: { buffer: this.hitboxUniformBuffer, size: 256 } }],
     });
+    // Per-entry bind groups for native mode (no dynamic offset support).
+    // Cap at 256 to avoid excessive resource creation (hitboxes are debug-only).
+    this.hitboxBindGroups = [];
+    for (let i = 0; i < 256; i++) {
+      this.hitboxBindGroups.push(dev.createBindGroup({
+        layout: hitboxBindGroupLayout,
+        entries: [{ binding: 0, resource: { buffer: this.hitboxUniformBuffer, offset: i * 256, size: 256 } }],
+      }));
+    }
 
     const hitboxLayout = dev.createPipelineLayout({
       bindGroupLayouts: [hitboxBindGroupLayout],
@@ -256,7 +266,9 @@ export class HitboxRenderer {
     passEncoder.setIndexBuffer(this.hitboxQuadIndices, "uint16");
 
     for (let i = 0; i < this.hitboxEntryCount; i++) {
-      passEncoder.setBindGroup(0, this.hitboxBindGroup, [i * 256]);
+      const hBg = this.hitboxBindGroups[i] ?? this.hitboxBindGroup;
+      if (this.hitboxBindGroups.length > 0) passEncoder.setBindGroup(0, hBg);
+      else passEncoder.setBindGroup(0, hBg!, [i * 256]);
       passEncoder.drawIndexed(this.hitboxQuadIndexCount);
     }
 
@@ -272,7 +284,9 @@ export class HitboxRenderer {
           if (islandMesh && islandMesh.lineIndices && islandMesh.lineIndexCount > 0) {
             passEncoder.setVertexBuffer(0, islandMesh.vertices);
             passEncoder.setIndexBuffer(islandMesh.lineIndices, islandMesh.useUint32 ? "uint32" : "uint16");
-            passEncoder.setBindGroup(0, ctx.bindGroup, [i * 256]);
+            const wBg = ctx.bindGroups?.[i] ?? ctx.bindGroup;
+            if (ctx.bindGroups) passEncoder.setBindGroup(0, wBg);
+            else passEncoder.setBindGroup(0, wBg!, [i * 256]);
             passEncoder.drawIndexed(islandMesh.lineIndexCount);
           }
         }

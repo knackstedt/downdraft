@@ -6,7 +6,10 @@
 // unchanged under Bun-native.
 // ============================================================================
 
+import { createLogger } from "@downdraft/core";
 import { WgpuGPU } from "./wgpu-wrapper";
+
+const log = createLogger();
 
 let installed = false;
 
@@ -214,6 +217,6 @@ export function installGPU(): WgpuGPU {
   (globalThis as any).__wgpuInstancePtr = gpu.getInstancePtr();
 
   installed = true;
-  console.log("[platform-native] GPU binding installed (wgpu-native via bun:ffi)");
+  log.info("platform-native", "GPU binding installed (wgpu-native via bun:ffi)");
   return gpu;
 }

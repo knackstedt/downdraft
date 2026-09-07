@@ -39,13 +39,17 @@ export function getWorkerHost(): WorkerHost {
     };
   }
 
-  const ctx = self as unknown as { postMessage: (msg: any) => void; onmessage: ((e: MessageEvent) => void) | null; close: () => void };
+  const ctx = self as unknown as { postMessage: (msg: any) => void; onmessage: ((e: MessageEvent) => void) | null; close?: () => void };
   return {
     postToHost: (msg: any) => ctx.postMessage(msg),
     onHostMessage: (handler: HostMessageHandler) => {
       ctx.onmessage = (e: MessageEvent) => handler(e.data);
     },
-    close: () => { ctx.close(); },
+    close: () => {
+      // self.close() exists in browser Web Workers but not in all runtimes
+      // (e.g. Bun's Worker). Guard so shutdown() doesn't crash on cleanup.
+      if (typeof ctx.close === "function") ctx.close();
+    },
   };
 }
 

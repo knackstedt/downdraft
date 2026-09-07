@@ -271,11 +271,15 @@ export class UIRenderer {
         // Try canvas-rendered text first (supports custom fonts/sizes).
         // Fall back to built-in glyph atlas if canvas text is unavailable
         // (e.g. native runtime without a real Canvas2D implementation).
-        const beforeLen = canvasTextEntries.length;
+        // Track total vertex count (not entry count) because all text
+        // shares the same atlas texture view, so canvasTextEntries.length
+        // only increases for the first text drawable.
+        const beforeVerts = canvasTextEntries.reduce((s, e) => s + e.verts.length, 0);
         if (d.fontFamily && this.textCache) {
           this.buildCanvasTextVertices(d, canvasTextEntries);
         }
-        if (canvasTextEntries.length === beforeLen) {
+        const afterVerts = canvasTextEntries.reduce((s, e) => s + e.verts.length, 0);
+        if (afterVerts === beforeVerts) {
           // Canvas text produced nothing — use glyph atlas
           this.buildTextVertices(d, textVerts);
         }

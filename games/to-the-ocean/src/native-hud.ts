@@ -21,6 +21,7 @@ import {
     type UIColor,
     type UIInputRouter
 } from "@downdraft/core";
+import { useGameStore } from "./stores/game-store";
 
 // ── Colors ──
 const COL_BG: UIColor = [0.06, 0.08, 0.12, 0.85];
@@ -99,6 +100,13 @@ export class NativeHud {
   private helpPanel: UIPanel;
   private helpText: UIText;
 
+  // Overlay panels (shown/hidden via keyboard shortcuts)
+  private inventoryPanel: UIPanel;
+  private craftPanel: UIPanel;
+  private mapPanel: UIPanel;
+  private buildPanel: UIPanel;
+  private pausePanel: UIPanel;
+
   state: NativeHudState;
 
   constructor(root: UIRoot, inputRouter: UIInputRouter) {
@@ -120,12 +128,22 @@ export class NativeHud {
     this.controlsPanel = this.createControlsPanel();
     this.crosshairPanel = this.createCrosshair();
     this.helpPanel = this.createHelpPanel();
+    this.inventoryPanel = this.createInventoryPanel();
+    this.craftPanel = this.createCraftPanel();
+    this.mapPanel = this.createMapPanel();
+    this.buildPanel = this.createBuildPanel();
+    this.pausePanel = this.createPausePanel();
 
     this.root.addChild(this.statusPanel);
     this.root.addChild(this.vitalsPanel);
     this.root.addChild(this.controlsPanel);
     this.root.addChild(this.crosshairPanel);
     this.root.addChild(this.helpPanel);
+    this.root.addChild(this.inventoryPanel);
+    this.root.addChild(this.craftPanel);
+    this.root.addChild(this.mapPanel);
+    this.root.addChild(this.buildPanel);
+    this.root.addChild(this.pausePanel);
   }
 
   setSimReader(reader: SimBufferReader): void {
@@ -145,7 +163,7 @@ export class NativeHud {
     title.x = 10; title.y = 6;
     title.style.fontSize = FONT_SIZE_LG;
     title.style.textColor = COL_ACCENT;
-    title.style.fontFamily = ""; // use glyph atlas
+    title.style.fontFamily = "sans-serif";
     panel.addChild(title);
 
     const sep = new UIPanel(260, 1);
@@ -186,7 +204,7 @@ export class NativeHud {
     title.x = 10; title.y = 6;
     title.style.fontSize = FONT_SIZE;
     title.style.textColor = COL_ACCENT;
-    title.style.fontFamily = "";
+    title.style.fontFamily = "sans-serif";
     panel.addChild(title);
 
     // Health
@@ -248,7 +266,7 @@ export class NativeHud {
     title.x = 10; title.y = 6;
     title.style.fontSize = FONT_SIZE_LG;
     title.style.textColor = COL_ACCENT;
-    title.style.fontFamily = "";
+    title.style.fontFamily = "sans-serif";
     panel.addChild(title);
 
     const sep = new UIPanel(240, 1);
@@ -261,7 +279,7 @@ export class NativeHud {
     this.statsButton = new UIButton("Hide Stats", 110, 24);
     this.statsButton.x = 10; this.statsButton.y = 38;
     this.statsButton.style.fontSize = FONT_SIZE_SM;
-    this.statsButton.style.fontFamily = "";
+    this.statsButton.style.fontFamily = "sans-serif";
     this.statsButton.callbacks.onClick = () => {
       this.state.showStats = !this.state.showStats;
       this.statsButton.setLabel(this.state.showStats ? "Hide Stats" : "Show Stats");
@@ -273,7 +291,7 @@ export class NativeHud {
     this.controlsButton = new UIButton("Hide Help", 110, 24);
     this.controlsButton.x = 130; this.controlsButton.y = 38;
     this.controlsButton.style.fontSize = FONT_SIZE_SM;
-    this.controlsButton.style.fontFamily = "";
+    this.controlsButton.style.fontFamily = "sans-serif";
     this.controlsButton.callbacks.onClick = () => {
       this.state.showControls = !this.state.showControls;
       this.controlsButton.setLabel(this.state.showControls ? "Hide Help" : "Show Help");
@@ -329,7 +347,7 @@ export class NativeHud {
     this.screenshotButton = new UIButton("Screenshot (F12)", 115, 28);
     this.screenshotButton.x = 10; this.screenshotButton.y = 182;
     this.screenshotButton.style.fontSize = FONT_SIZE_SM;
-    this.screenshotButton.style.fontFamily = "";
+    this.screenshotButton.style.fontFamily = "sans-serif";
     this.screenshotButton.callbacks.onClick = () => {
       // Dispatch a synthetic F12 keydown
       (globalThis as any).window?.dispatchEvent?.(new Event("keydown"));
@@ -339,7 +357,7 @@ export class NativeHud {
     this.exitButton = new UIButton("Exit (ESC)", 115, 28);
     this.exitButton.x = 135; this.exitButton.y = 182;
     this.exitButton.style.fontSize = FONT_SIZE_SM;
-    this.exitButton.style.fontFamily = "";
+    this.exitButton.style.fontFamily = "sans-serif";
     this.exitButton.style.backgroundColor = [0.3, 0.12, 0.12, 0.95];
     this.exitButton.style.borderColor = [0.6, 0.2, 0.2, 1.0];
     this.exitButton.callbacks.onClick = () => {
@@ -355,7 +373,7 @@ export class NativeHud {
     panel.addChild(infoText2);
     const infoText3 = this.makeLabel("Space: up | Shift: down", 10, 252, FONT_SIZE_SM, COL_TEXT_DIM);
     panel.addChild(infoText3);
-    const infoText4 = this.makeLabel("F1: freecam | F5: 3rd person", 10, 268, FONT_SIZE_SM, COL_TEXT_DIM);
+    const infoText4 = this.makeLabel("F1: freecam | F5: 3rd person | V: cycle cam", 10, 268, FONT_SIZE_SM, COL_TEXT_DIM);
     panel.addChild(infoText4);
 
     return panel;
@@ -373,8 +391,8 @@ export class NativeHud {
 
   // ── Help panel (bottom-right) ──
   private createHelpPanel(): UIPanel {
-    const panel = new UIPanel(220, 120);
-    panel.x = 1050; panel.y = 590;
+    const panel = new UIPanel(220, 240);
+    panel.x = 1050; panel.y = 470;
     panel.style.backgroundColor = COL_BG_DARK;
     panel.style.borderColor = COL_BORDER;
     panel.style.borderWidth = 1;
@@ -386,8 +404,17 @@ export class NativeHud {
     const lines = [
       "WASD - Move",
       "Mouse - Look",
-      "Space - Up",
-      "Shift - Down",
+      "Space - Up/Jump",
+      "Shift - Down/Run",
+      "V - Cycle Camera",
+      "F1 - Freecam",
+      "F5 - 3rd Person",
+      "I - Inventory",
+      "Tab - Crafting",
+      "M - Map",
+      "B - Build",
+      "C - Character",
+      "P - Pause",
       "F12 - Screenshot",
       "ESC - Exit",
     ];
@@ -401,18 +428,173 @@ export class NativeHud {
     return panel;
   }
 
+  // ── Overlay panels (toggled by keyboard shortcuts) ──
+
+  private createInventoryPanel(): UIPanel {
+    const w = 400, h = 360;
+    const panel = new UIPanel(w, h);
+    panel.x = (1280 - w) / 2;
+    panel.y = (720 - h) / 2;
+    panel.style.backgroundColor = COL_BG;
+    panel.style.borderColor = COL_BORDER;
+    panel.style.borderWidth = 2;
+    panel.style.borderRadius = 8;
+    panel.visible = false;
+
+    const title = new UIText("INVENTORY", w - 40, 24);
+    title.x = 16; title.y = 8;
+    title.style.fontSize = FONT_SIZE_LG;
+    title.style.textColor = COL_ACCENT;
+    title.style.fontFamily = "sans-serif";
+    panel.addChild(title);
+
+    const sep = new UIPanel(w - 40, 1);
+    sep.x = 16; sep.y = 34;
+    sep.style.backgroundColor = COL_BORDER;
+    sep.style.borderWidth = 0;
+    panel.addChild(sep);
+
+    const empty = this.makeLabel("Inventory is empty", 16, 48, FONT_SIZE, COL_TEXT_DIM);
+    panel.addChild(empty);
+
+    const hint = this.makeLabel("Press I to close", 16, h - 28, FONT_SIZE_SM, COL_TEXT_DIM);
+    panel.addChild(hint);
+
+    return panel;
+  }
+
+  private createCraftPanel(): UIPanel {
+    const w = 400, h = 420;
+    const panel = new UIPanel(w, h);
+    panel.x = (1280 - w) / 2;
+    panel.y = (720 - h) / 2;
+    panel.style.backgroundColor = COL_BG;
+    panel.style.borderColor = COL_BORDER;
+    panel.style.borderWidth = 2;
+    panel.style.borderRadius = 8;
+    panel.visible = false;
+
+    const title = new UIText("CRAFTING", w - 40, 24);
+    title.x = 16; title.y = 8;
+    title.style.fontSize = FONT_SIZE_LG;
+    title.style.textColor = COL_ACCENT;
+    title.style.fontFamily = "sans-serif";
+    panel.addChild(title);
+
+    const sep = new UIPanel(w - 40, 1);
+    sep.x = 16; sep.y = 34;
+    sep.style.backgroundColor = COL_BORDER;
+    sep.style.borderWidth = 0;
+    panel.addChild(sep);
+
+    const empty = this.makeLabel("No recipes available", 16, 48, FONT_SIZE, COL_TEXT_DIM);
+    panel.addChild(empty);
+
+    const hint = this.makeLabel("Press Tab to close", 16, h - 28, FONT_SIZE_SM, COL_TEXT_DIM);
+    panel.addChild(hint);
+
+    return panel;
+  }
+
+  private createMapPanel(): UIPanel {
+    const w = 600, h = 480;
+    const panel = new UIPanel(w, h);
+    panel.x = (1280 - w) / 2;
+    panel.y = (720 - h) / 2;
+    panel.style.backgroundColor = COL_BG_DARK;
+    panel.style.borderColor = COL_BORDER;
+    panel.style.borderWidth = 2;
+    panel.style.borderRadius = 8;
+    panel.visible = false;
+
+    const title = new UIText("MAP", w - 40, 24);
+    title.x = 16; title.y = 8;
+    title.style.fontSize = FONT_SIZE_LG;
+    title.style.textColor = COL_ACCENT;
+    title.style.fontFamily = "sans-serif";
+    panel.addChild(title);
+
+    const hint = this.makeLabel("Press M to close", 16, h - 28, FONT_SIZE_SM, COL_TEXT_DIM);
+    panel.addChild(hint);
+
+    return panel;
+  }
+
+  private createBuildPanel(): UIPanel {
+    const w = 360, h = 400;
+    const panel = new UIPanel(w, h);
+    panel.x = (1280 - w) / 2;
+    panel.y = (720 - h) / 2;
+    panel.style.backgroundColor = COL_BG;
+    panel.style.borderColor = COL_BORDER;
+    panel.style.borderWidth = 2;
+    panel.style.borderRadius = 8;
+    panel.visible = false;
+
+    const title = new UIText("BUILD", w - 40, 24);
+    title.x = 16; title.y = 8;
+    title.style.fontSize = FONT_SIZE_LG;
+    title.style.textColor = COL_ACCENT;
+    title.style.fontFamily = "sans-serif";
+    panel.addChild(title);
+
+    const hint = this.makeLabel("Press B to close", 16, h - 28, FONT_SIZE_SM, COL_TEXT_DIM);
+    panel.addChild(hint);
+
+    return panel;
+  }
+
+  private createPausePanel(): UIPanel {
+    const w = 240, h = 280;
+    const panel = new UIPanel(w, h);
+    panel.x = (1280 - w) / 2;
+    panel.y = (720 - h) / 2;
+    panel.style.backgroundColor = COL_BG;
+    panel.style.borderColor = COL_BORDER;
+    panel.style.borderWidth = 2;
+    panel.style.borderRadius = 8;
+    panel.visible = false;
+
+    const title = new UIText("PAUSED", w - 40, 28);
+    title.x = 16; title.y = 12;
+    title.style.fontSize = FONT_SIZE_LG;
+    title.style.textColor = COL_ACCENT;
+    title.style.fontFamily = "sans-serif";
+    panel.addChild(title);
+
+    const sep = new UIPanel(w - 40, 1);
+    sep.x = 16; sep.y = 40;
+    sep.style.backgroundColor = COL_BORDER;
+    sep.style.borderWidth = 0;
+    panel.addChild(sep);
+
+    const hint = this.makeLabel("Press P to resume", 16, h - 28, FONT_SIZE_SM, COL_TEXT_DIM);
+    panel.addChild(hint);
+
+    return panel;
+  }
+
   private makeLabel(text: string, x: number, y: number, fontSize: number = FONT_SIZE_SM, color: UIColor = COL_TEXT): UIText {
-    const label = new UIText(text, 200, fontSize + 2);
+    const label = new UIText(text, 200, fontSize + 4);
     label.x = x; label.y = y;
     label.style.fontSize = fontSize;
     label.style.textColor = color;
-    label.style.fontFamily = ""; // force glyph atlas path
+    label.style.fontFamily = "sans-serif";
     return label;
   }
 
   // ── Per-frame update ──
   update(dt: number): void {
     const s = this.state;
+
+    // Sync overlay panels with the game store state (toggled by keyboard
+    // shortcuts wired in native-entry.ts).
+    const gs = useGameStore.getState();
+    if (this.inventoryPanel.visible !== gs.showInventory) this.inventoryPanel.visible = gs.showInventory;
+    if (this.craftPanel.visible !== gs.showCraftMenu) this.craftPanel.visible = gs.showCraftMenu;
+    if (this.mapPanel.visible !== gs.showMap) this.mapPanel.visible = gs.showMap;
+    if (this.buildPanel.visible !== gs.showBuildMenu) this.buildPanel.visible = gs.showBuildMenu;
+    if (this.pausePanel.visible !== gs.showPauseMenu) this.pausePanel.visible = gs.showPauseMenu;
 
     // Update slider value labels
     s.timeScale = this.timeScaleSlider.value;

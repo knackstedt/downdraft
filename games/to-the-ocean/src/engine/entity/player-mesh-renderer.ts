@@ -25,6 +25,7 @@ export class PlayerMeshRenderer {
   private playerMeshIndexFormat: GPUIndexFormat = "uint16";
   playerPipeline: GPURenderPipeline | null = null;
   playerBindGroup: GPUBindGroup | null = null;
+  private playerBindGroups: GPUBindGroup[] = [];
   private playerBindGroupLayout: GPUBindGroupLayout | null = null;
 
   // Skinned player mesh
@@ -34,6 +35,7 @@ export class PlayerMeshRenderer {
   private skinnedPlayerIndexFormat: GPUIndexFormat = "uint16";
   skinnedPlayerPipeline: GPURenderPipeline | null = null;
   skinnedPlayerBindGroup: GPUBindGroup | null = null;
+  private skinnedPlayerBindGroups: GPUBindGroup[] = [];
   skinnedPlayerBindGroupLayout: GPUBindGroupLayout | null = null;
   private boneMatrixBuffer: GPUBuffer | null = null;
   private skeletonAnimator: SkeletonAnimator | null = null;
@@ -104,6 +106,14 @@ export class PlayerMeshRenderer {
         { binding: 0, resource: { buffer: uniformBuffer!, size: 256 } },
       ],
     });
+    // Per-entity bind groups for native mode (no dynamic offset support)
+    this.playerBindGroups = [];
+    for (let i = 0; i < 512; i++) {
+      this.playerBindGroups.push(dev.createBindGroup({
+        layout: playerBindGroupLayout,
+        entries: [{ binding: 0, resource: { buffer: uniformBuffer!, offset: i * 256, size: 256 } }],
+      }));
+    }
     this.playerPipeline = dev.createRenderPipeline({
       layout: dev.createPipelineLayout({
         bindGroupLayouts: (lightBindGroupLayout && pbrBindGroupLayout)
@@ -419,6 +429,17 @@ export class PlayerMeshRenderer {
         { binding: 3, resource: { buffer: this.boneMatrixBuffer! } },
       ],
     });
+    // Per-entity bind groups for native mode (no dynamic offset support)
+    this.skinnedPlayerBindGroups = [];
+    for (let i = 0; i < 512; i++) {
+      this.skinnedPlayerBindGroups.push(device.createBindGroup({
+        layout: this.skinnedPlayerBindGroupLayout,
+        entries: [
+          { binding: 0, resource: { buffer: uniformBuffer!, offset: i * 256, size: 256 } },
+          { binding: 3, resource: { buffer: this.boneMatrixBuffer! } },
+        ],
+      }));
+    }
 
     if (this.skeletonAnimator) {
       const boneCount = this.skeletonAnimator.getBoneCount();
@@ -675,7 +696,9 @@ export class PlayerMeshRenderer {
     this.writeMaterialIndex(idx);
     let tris = 0;
     passEncoder.setPipeline(this.skinnedPlayerPipeline);
-    passEncoder.setBindGroup(0, this.skinnedPlayerBindGroup, [idx * 256]);
+    const sBg = this.skinnedPlayerBindGroups[idx] ?? this.skinnedPlayerBindGroup;
+    if (this.skinnedPlayerBindGroups.length > 0) passEncoder.setBindGroup(0, sBg);
+    else passEncoder.setBindGroup(0, sBg, [idx * 256]);
     passEncoder.setVertexBuffer(0, this.skinnedPlayerVertices);
     passEncoder.setIndexBuffer(this.skinnedPlayerIndices, this.skinnedPlayerIndexFormat);
     passEncoder.drawIndexed(this.skinnedPlayerIndexCount);
@@ -696,7 +719,9 @@ export class PlayerMeshRenderer {
     this.ensureBindlessBound(passEncoder);
     this.writeMaterialIndex(idx);
     passEncoder.setPipeline(this.playerPipeline);
-    passEncoder.setBindGroup(0, this.playerBindGroup, [idx * 256]);
+    const pBg = this.playerBindGroups[idx] ?? this.playerBindGroup;
+    if (this.playerBindGroups.length > 0) passEncoder.setBindGroup(0, pBg);
+    else passEncoder.setBindGroup(0, pBg, [idx * 256]);
     passEncoder.setVertexBuffer(0, this.playerMeshVertices);
     passEncoder.setIndexBuffer(this.playerMeshIndices, this.playerMeshIndexFormat);
     passEncoder.drawIndexed(this.playerMeshIndexCount);

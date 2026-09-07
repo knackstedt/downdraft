@@ -11,29 +11,35 @@
 // Run: bun run games/to-the-ocean/src/native-entry.ts
 // ============================================================================
 
+import { createLogger, setThreadTag } from "@downdraft/core";
 import { createNativeHost } from "@downdraft/platform-native";
 import { writeFileSync } from "node:fs";
+import { getFreeTypeTextRenderer } from "../../../packages/platform-native/src/image/native-image";
 import { encodePNG } from "../../../packages/platform-native/src/screenshot/screenshot";
 
 // These imports use tsconfig path aliases which Bun resolves natively
 import { SimWebWorker, type SimWebWorkerConfig } from "./engine/sim-web-worker";
 import { WebGPURenderer } from "./engine/webgpu-renderer";
 import { NativeHud } from "./native-hud";
+import { useGameStore } from "./stores/game-store";
+
+setThreadTag("R0");
+const log = createLogger();
 
 const WIDTH = 1280;
 const HEIGHT = 720;
 
 async function main() {
-  console.log("[native-entry] Creating native host...");
+  log.info("native-entry", "Creating native host...");
   const host = await createNativeHost({
     window: { title: "To The Ocean — Native (Bun + wgpu-native)", width: WIDTH, height: HEIGHT },
   });
 
   const { surface, device, window } = host;
-  console.log("[native-entry] Native host ready");
+  log.info("native-entry", "Native host ready");
 
   // ── Create sim worker ──
-  console.log("[native-entry] Creating sim worker...");
+  log.info("native-entry", "Creating sim worker...");
   const sim = new SimWebWorker();
   const simSAB = sim.getSimBuffer();
   const inputSAB = sim.getInputBuffer();
@@ -41,21 +47,36 @@ async function main() {
   const boatSAB = sim.getBoatBuffer();
 
   // ── Create renderer ──
-  console.log("[native-entry] Creating WebGPU renderer...");
+  log.info("native-entry", "Creating WebGPU renderer...");
   const renderer = new WebGPURenderer(surface as any);
 
   // ── Initialize renderer ──
-  console.log("[native-entry] Initializing renderer...");
+  log.info("native-entry", "Initializing renderer...");
   const initSuccess = await renderer.init();
   if (!initSuccess) {
-    console.error("[native-entry] Renderer init failed");
+    log.error("native-entry", "Renderer init failed");
     host.destroy();
     process.exit(1);
   }
-  console.log("[native-entry] Renderer initialized");
+  log.info("native-entry", "Renderer initialized");
+
+  // ── Wire FreeType text renderer into the IMUI text atlas ──
+  // This bypasses the Canvas2D polyfill and renders text directly via
+  // FreeType, producing crisp anti-aliased TrueType text.
+  const ftRenderer = getFreeTypeTextRenderer();
+  if (ftRenderer) {
+    const uiRenderer = (renderer as any).getUIRenderer?.();
+    const textCache = uiRenderer?.getTextCache?.();
+    if (textCache) {
+      textCache.setDirectRenderer(ftRenderer);
+      log.info("native-entry", "FreeType text renderer wired into IMUI");
+    } else {
+      log.warn("native-entry", "Could not find TextAtlasCache — FreeType text not wired");
+    }
+  }
 
   // ── Start sim worker ──
-  console.log("[native-entry] Starting sim worker...");
+  log.info("native-entry", "Starting sim worker...");
   const simConfig: SimWebWorkerConfig = {
     seed: 12345,
     gamemode: 0,
@@ -63,25 +84,32 @@ async function main() {
     isDev: false,
   };
   await sim.start(simConfig);
-  console.log("[native-entry] Sim worker started");
+  log.info("native-entry", "Sim worker started");
 
   // ── Add player ──
   sim.addPlayer(0, "Player 1");
-  console.log("[native-entry] Player added");
+  log.info("native-entry", "Player added");
 
   // ── Wire buffers to renderer ──
   (renderer as any).setBuffers(simSAB, waterSAB, inputSAB, boatSAB);
-  console.log("[native-entry] Buffers wired");
+  log.info("native-entry", "Buffers wired");
 
   // ── Set up input listeners ──
   // This wires keyboard/mouse events from the global window/canvas polyfills
   // to the renderer's input handler (pointer lock, key tracking, mouse delta).
   (renderer as any).setupInputListeners?.();
-  // Input is grabbed at the SDL level on window creation. Set pointer lock
-  // state so the input handler knows it's locked and processes mouse delta.
+  // Mark the input handler as native mode — skips builder wheel, pointer lock exit on right-click
+  const ih = (renderer as any).inputHandler;
+  if (ih) ih.nativeMode = true;
+  // Do NOT auto-request pointer lock — let the user click the window to
+  // engage mouse look. Auto-grabbing steals focus from the user's IDE/terminal.
   const canvas = surface as any;
-  canvas.requestPointerLock();
-  console.log("[native-entry] Input listeners set up");
+  // The start island for seed 12345 is at chunk (0,1) = positive Z.
+  // The camera convention: heading 0 = -Z, heading π = +Z.
+  // We'll inject the correct yaw after the first frame when we can read
+  // the sim's initial heading. For now, set a flag.
+  let needsInitialYaw = true;
+  log.info("native-entry", "Input listeners set up");
 
   // ── Set up native HUD (IMUI) ──
   const uiRoot = renderer.getUIRoot?.();
@@ -93,22 +121,32 @@ async function main() {
     const simReader = renderer.getSimReader?.() ?? (renderer as any).simReader;
     if (simReader) hud.setSimReader(simReader);
     renderer.markUILayoutDirty?.();
-    console.log("[native-entry] Native HUD created");
+    // Critical: set the UI renderer's screen size so the text/quad shaders
+    // convert pixel coordinates to NDC correctly. Without this, screenSize
+    // defaults to (0,0) and all text renders at NaN/Inf clip positions.
+    renderer.refreshUIScreenSize?.();
+    log.info("native-entry", "Native HUD created");
   } else {
-    console.warn("[native-entry] UI root or input router not available — HUD disabled");
+    log.warn("native-entry", "UI root or input router not available — HUD disabled");
   }
-  // Expose exit hook for the HUD's exit button (wired after running is declared)
+
+  // ── Wire renderer into the game store so toggle methods work ──
+  // The game store's toggleInventory/toggleCraftMenu/etc. call
+  // renderer.lockPointer() and document.exitPointerLock() — both are safe
+  // in native mode (exitPointerLock is optional-chained).
+  useGameStore.getState().setRenderer(renderer);
+  useGameStore.getState().setReady(true);
 
   // ── Wait for LUTs to load ──
   try {
     await (renderer as any).getLUTReady?.();
-    console.log("[native-entry] LUTs ready");
+    log.info("native-entry", "LUTs ready");
   } catch (e) {
-    console.warn("[native-entry] LUT loading failed (non-fatal):", e);
+    log.warn("native-entry", `LUT loading failed (non-fatal): ${e}`);
   }
 
   // ── Real-time render loop ──
-  console.log("[native-entry] Starting real-time render loop (ESC or close window to exit, F12 for screenshot)...");
+  log.info("native-entry", "Starting real-time render loop (ESC or close window to exit, F12 for screenshot)...");
 
   let frameCount = 0;
   let running = true;
@@ -123,20 +161,43 @@ async function main() {
 
   // Listen for window close
   window.addEventListener("close", () => {
-    console.log("[native-entry] Window close requested");
+    log.info("native-entry", "Window close requested");
     running = false;
   });
 
-  // Listen for keydown to handle ESC and F12
-  // ESC: release input grab and quit.
-  // F12: capture screenshot.
+  // ── Keyboard shortcuts ──
+  // In the browser version, the PixiUI worker handles menu toggles via UI
+  // buttons. In native mode, we wire keyboard shortcuts directly to the game
+  // store's toggle methods. The NativeHud reads the store state to show/hide
+  // the corresponding IMUI panels.
   window.addEventListener("keydown", (event: any) => {
     const key = event.key;
+    const keyCode = event.keyCode;
+    if (event.repeat) return;
+
     if (key === "Escape") {
-      console.log("[native-entry] ESC pressed — exiting");
+      log.info("native-entry", "ESC pressed — exiting");
       running = false;
     } else if (key === "F12") {
       captureScreenshotNow();
+    } else if (keyCode === 73) { // I → Inventory
+      useGameStore.getState().toggleInventory();
+      renderer.markUILayoutDirty?.();
+    } else if (keyCode === 9) { // Tab → Crafting
+      useGameStore.getState().toggleCraftMenu();
+      renderer.markUILayoutDirty?.();
+    } else if (keyCode === 77) { // M → Map
+      useGameStore.getState().toggleMap();
+      renderer.markUILayoutDirty?.();
+    } else if (keyCode === 66) { // B → Build menu
+      useGameStore.getState().toggleBuildMenu();
+      renderer.markUILayoutDirty?.();
+    } else if (keyCode === 67) { // C → Character customization
+      useGameStore.getState().toggleCharacterCustomization();
+      renderer.markUILayoutDirty?.();
+    } else if (keyCode === 80) { // P → Pause menu
+      useGameStore.getState().togglePauseMenu();
+      renderer.markUILayoutDirty?.();
     }
   });
 
@@ -203,13 +264,13 @@ async function main() {
 
       const png = encodePNG(WIDTH, HEIGHT, unpadded);
       writeFileSync(screenshotPath, png);
-      console.log(`[screenshot] Saved ${WIDTH}x${HEIGHT} to ${screenshotPath} (${png.length} bytes)`);
+      log.info("screenshot", `Saved ${WIDTH}x${HEIGHT} to ${screenshotPath} (${png.length} bytes)`);
 
       // Present the surface now that the copy is done
       const ctx = surface.getContext("webgpu")!;
       if ((ctx as any).present) (ctx as any).present();
     } catch (e) {
-      console.error("[screenshot] Capture failed:", e);
+      log.error("screenshot", `Capture failed: ${e}`);
     }
   }
 
@@ -219,12 +280,37 @@ async function main() {
   // between frames so SDL events get processed — no artificial FPS cap.
   function renderLoop() {
     if (!running) {
-      console.log(`[native-entry] Render loop ended after ${frameCount} frames`);
+      log.info("native-entry", `Render loop ended after ${frameCount} frames`);
       cleanup();
       return;
     }
 
     try {
+      // Inject initial yaw to face the island (positive Z) after first frame
+      if (needsInitialYaw) {
+        const simReader = (renderer as any).getSimReader?.() ?? (renderer as any).simReader;
+        if (simReader?.isValid()) {
+          const slot = simReader.getPlayerSlot(0);
+          if (slot) {
+            const currentHeading = slot.f32[3] ?? 0; // PLR.HEADING
+            // Camera convention: heading 0 = -Z, heading π = +Z
+            // Island is at +Z, so we want lookHeading = π
+            const targetHeading = Math.PI;
+            // Directly set the camera system's look heading instead of using
+            // mouse delta injection (which drifts due to SDL relative mouse mode).
+            // We set lookHeading and mark it as synced (lookSyncedTick >= 0) so
+            // updateLook() doesn't reinitialize from the sim's heading.
+            const camSys = (renderer as any).cameraSystem;
+            if (camSys) {
+              camSys.lookHeading = targetHeading;
+              camSys.lookPitch = 0;
+              camSys.lookSyncedTick = 0; // prevent reinitialization from sabHeading
+              log.info("native-entry", `Initial yaw set: current=${currentHeading.toFixed(2)} target=${targetHeading.toFixed(2)} lookHeading=${camSys.getLookHeading?.().toFixed(2)}`);
+            }
+          }
+        }
+        needsInitialYaw = false;
+      }
       (renderer as any).renderOneFrame?.();
       frameCount++;
       fpsFrameCount++;
@@ -236,11 +322,11 @@ async function main() {
         hud.update(0.016);
       }
 
-      // Auto-capture a screenshot after a few frames for verification
-      if (frameCount === 120 && !screenshotCaptured) {
+      // Auto-capture a screenshot after enough frames for mesh generation
+      if (frameCount === 600 && !screenshotCaptured) {
         screenshotCaptured = true;
         captureScreenshotNow();
-        console.log("[native-entry] Auto-screenshot captured for HUD verification");
+        log.info("native-entry", "Auto-screenshot captured for HUD verification");
       }
 
       // Log FPS every 2 seconds
@@ -248,12 +334,68 @@ async function main() {
       if (now - lastFpsTime >= 2000) {
         currentFps = Math.round((fpsFrameCount * 1000) / (now - lastFpsTime));
         if (hud) hud.state.fps = currentFps;
-        console.log(`[native-entry] Frame ${frameCount} — ${currentFps} FPS`);
+        // Debug: check sim state
+        const simReader = (renderer as any).getSimReader?.() ?? (renderer as any).simReader;
+        if (simReader?.isValid()) {
+          const seq = simReader.getSequence();
+          const entityCount = simReader.getEntityCount();
+          const slot = simReader.getPlayerSlot(0);
+          const px = slot?.f32[0] ?? 0, py = slot?.f32[1] ?? 0, pz = slot?.f32[2] ?? 0;
+          const heading = slot?.f32[3] ?? 0;
+          const camMode = slot?.u32[15] ?? 0; // PLR.CAMERA_MODE
+          const camSys = (renderer as any).cameraSystem;
+          const camLookHeading = camSys?.getLookHeading?.() ?? -999;
+          const camLookPitch = camSys?.getLookPitch?.() ?? -999;
+          const camLookSyncedTick = camSys?.lookSyncedTick ?? -999;
+          const mdx = ih?.mouseDelta?.dx ?? -999;
+          // Count entity types (ENT.TYPE is at u32 index 16)
+          let islandCount = 0, portCount = 0, shipCount = 0, playerCount = 0, otherCount = 0;
+          const typeCounts: Record<number, number> = {};
+          for (let i = 0; i < entityCount; i++) {
+            const es = simReader.getEntitySlot(i);
+            if (!es) continue;
+            const type = es.u32[16]; // ENT.TYPE = 16
+            typeCounts[type] = (typeCounts[type] ?? 0) + 1;
+            if (type === 16) islandCount++; // EntityType.Island
+            else if (type === 17) portCount++; // EntityType.Port
+            else if (type === 1 || type === 2) shipCount++; // Ship/SmallCraft
+            else if (type === 0) playerCount++; // Player
+            else otherCount++;
+          }
+          // Check island meshes
+          const entityRenderer = (renderer as any).entityRenderer;
+          const islandRenderer = entityRenderer?.islandTerrainRenderer;
+          const islandMeshCount = islandRenderer?.islandMeshes?.size ?? -1;
+          const islandChunkMeshCount = islandRenderer?.islandChunkMeshes?.size ?? -1;
+          const islandEmptyCount = islandRenderer?.islandEmptyKeys?.size ?? -1;
+          const meshPoolFallback = islandRenderer?.meshPool?.isFallback?.() ?? "none";
+          // Count actual chunk meshes and in-flight jobs
+          let totalChunkMeshes = 0;
+          if (islandRenderer?.islandChunkMeshes) {
+            for (const m of islandRenderer.islandChunkMeshes.values()) totalChunkMeshes += m.size;
+          }
+          const inFlightChunks = islandRenderer?.inFlightChunks?.size ?? -1;
+          const pendingChunks = islandRenderer?.islandChunkPending?.size ?? -1;
+          // Check island entity position
+          let islandPos = "none";
+          for (let i = 0; i < entityCount; i++) {
+            const es = simReader.getEntitySlot(i);
+            if (!es) continue;
+            if (es.u32[16] === 16) { // EntityType.Island
+              islandPos = `(${es.f32[0].toFixed(1)},${es.f32[1].toFixed(1)},${es.f32[2].toFixed(1)}) scale=${es.f32[3].toFixed(1)} chunk=(${es.u32[20]},${es.u32[21]})`;
+            }
+          }
+          const frameTris = (renderer as any)._frameTriangles ?? -1;
+          const lastFrameTris = (renderer as any).entityRenderer?.getLastFrameTriangles?.() ?? -1;
+          log.info("native-entry", `Frame ${frameCount} — ${currentFps} FPS | simSeq=${seq} entities=${entityCount} (islands=${islandCount} ports=${portCount} ships=${shipCount} players=${playerCount} other=${otherCount}) types=${JSON.stringify(typeCounts)} pos=(${px.toFixed(1)},${py.toFixed(1)},${pz.toFixed(1)}) heading=${heading.toFixed(2)} camMode=${camMode} camLook=${camLookHeading.toFixed(2)} camPitch=${camLookPitch.toFixed(2)} camSyncedTick=${camLookSyncedTick} mdx=${mdx.toFixed(1)} | islandMeshes=${islandMeshCount} chunkMeshes=${islandChunkMeshCount} totalChunkMeshes=${totalChunkMeshes} empty=${islandEmptyCount} inFlight=${inFlightChunks} pending=${pendingChunks} meshPoolFallback=${meshPoolFallback} island=${islandPos} frameTris=${frameTris} entityTris=${lastFrameTris}`);
+        } else {
+          log.info("native-entry", `Frame ${frameCount} — ${currentFps} FPS | sim invalid`);
+        }
         lastFpsTime = now;
         fpsFrameCount = 0;
       }
     } catch (e) {
-      console.error(`[native-entry] Render error on frame ${frameCount}:`, e);
+      log.error("native-entry", `Render error on frame ${frameCount}: ${e}`);
       running = false;
       cleanup();
       return;
@@ -265,7 +407,7 @@ async function main() {
   }
 
   function cleanup() {
-    console.log("[native-entry] Cleaning up...");
+    log.info("native-entry", "Cleaning up...");
     try {
       // Capture a final screenshot
       captureScreenshotNow();
@@ -274,7 +416,7 @@ async function main() {
       sim.stop?.();
     } catch {}
     host.destroy();
-    console.log("[native-entry] Cleaned up");
+    log.info("native-entry", "Cleaned up");
     process.exit(0);
   }
 
@@ -283,6 +425,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error("[native-entry] Fatal error:", err);
+  log.error("native-entry", `Fatal error: ${err}`);
   process.exit(1);
 });

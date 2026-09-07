@@ -7,7 +7,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "draft dev"
+    "dev": "draft dev --native",
+    "dev:electron": "draft dev"
   },
   "dependencies": {
     "@downdraft/app": "workspace:*",
