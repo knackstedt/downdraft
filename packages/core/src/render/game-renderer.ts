@@ -643,6 +643,12 @@ export class GameRenderer implements CanvasResizeHandler {
       this.device!.queue.submit(frameCommandBuffers);
     }
 
+    // Present the surface (native wgpu requires explicit presentation;
+    // in browsers this is automatic at the end of the frame)
+    if (this.context && (this.context as any).present) {
+      (this.context as any).present();
+    }
+
     // Read GPU timer results asynchronously (1-frame latency).
     // Must be called AFTER queue.submit() — readGpuTimers() calls mapAsync on
     // the read buffer, and a mapped/mapping-pending buffer cannot be used in a

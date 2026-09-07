@@ -1,0 +1,17 @@
+{
+  "name": "@downdraft/platform-native",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "build:shim": "cd native && gcc -shared -fPIC -o libwgpu_shim.so wgpu_shim.c -I./include -L./lib -lwgpu_native -lSDL2 -Wl,-rpath,'$ORIGIN/lib'",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@downdraft/core": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5"
+  }
+}

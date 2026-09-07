@@ -4,7 +4,7 @@
 // Uses the RPC layer (wrap/exposeEvents) for typed async communication.
 // ============================================================================
 
-import { allocateInputBuffer, allocateSimBuffer, HotReloadPipeline, type GCControllerConfig, type GCControllerStats, type IHotReloadable, type LoadOptions, type SaveOptions } from "@downdraft/core";
+import { allocateInputBuffer, allocateSimBuffer, HotReloadPipeline, isDevMode, type GCControllerConfig, type GCControllerStats, type IHotReloadable, type LoadOptions, type SaveOptions } from "@downdraft/core";
 import { wrap, type WorkerProxy } from "@downdraft/core/worker/rpc";
 import type { OpfsSaveStoreOptions } from "@downdraft/library-persistence/browser";
 import { WaterChannel } from "@downdraft/library-water";
@@ -285,7 +285,7 @@ export class SimWebWorker implements IHotReloadable, ISimWorker {
   private pipeline: HotReloadPipeline | null = null;
 
   async hotReload(config: SimWebWorkerConfig, preserveState: boolean): Promise<void> {
-    if (!import.meta.env.DEV) return;
+    if (!isDevMode) return;
     if (!this.pipeline) {
       this.pipeline = new HotReloadPipeline(this);
     }

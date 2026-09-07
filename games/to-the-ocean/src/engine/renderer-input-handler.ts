@@ -4,8 +4,7 @@
 // ============================================================================
 
 import type { UIInputRouter } from "@downdraft/core";
-import { InputBufferWriter, KEY } from "@downdraft/core";
-import { PLR, PLR_FLAG, SimBufferReader } from "@downdraft/core";
+import { InputBufferWriter, KEY, PLR, PLR_FLAG, SimBufferReader } from "@downdraft/core";
 import { CameraMode } from "@shared/types";
 import { useGameStore } from "../stores/game-store";
 import type { CameraSystem } from "./camera-system";

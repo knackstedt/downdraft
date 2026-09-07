@@ -116,6 +116,7 @@ export { getDpr, HiDPIManager } from "./platform/hidpi";
 export { Lifecycle } from "./platform/lifecycle";
 export { RPC } from "./platform/rpc";
 export type { RPCHandler, RPCMessage, RPCMessageType } from "./platform/rpc";
+export { hasHMR, isBrowser, isBun, isDev, isDevMode, isElectron } from "./platform/runtime";
 export { HighResTimer } from "./platform/time";
 export { WindowManager } from "./platform/window";
 export type { WindowConfig, WindowState } from "./platform/window";

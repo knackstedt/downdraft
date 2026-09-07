@@ -25,7 +25,7 @@
 // that need full control can call `bootstrapGame()` directly.
 // ============================================================================
 
-import { encodeFeatureLogLine } from "@downdraft/core";
+import { encodeFeatureLogLine, isDevMode } from "@downdraft/core";
 import { collectRendererFeatureLog } from "./feature-log";
 import { downdraft, getCanvas, getOverlay } from "./index";
 
@@ -185,7 +185,7 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
   //    provided). The main-process `dd-main|...` line is emitted separately
   //    from app.ts; both are fetched together via getCombinedFeatureLog()
   //    for the DevTools copy button and MCP get_features tool.
-  const isDev = !!(downdraft?.isDev) || import.meta.env.DEV === true;
+  const isDev = !!(downdraft?.isDev) || isDevMode;
   const renderFeatureLog = collectRendererFeatureLog({
     renderer,
     isDev,
