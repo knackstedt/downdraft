@@ -1,5 +1,5 @@
-import type { GraphRenderContext } from "..";
 import { StructView, wgsl } from "@downdraft/shader-graph";
+import type { GraphRenderContext } from "..";
 import type { UIDrawable } from "./element";
 import { buildGlyphAtlasData, getAtlasDimensions, getGlyphUV } from "./glyph-atlas";
 import { TextAtlasCache } from "./text-cache";
@@ -268,9 +268,15 @@ export class UIRenderer {
       if (d.kind === "rect") {
         this.buildQuadVertices(d, quadVerts);
       } else if (d.kind === "text" && d.text) {
+        // Try canvas-rendered text first (supports custom fonts/sizes).
+        // Fall back to built-in glyph atlas if canvas text is unavailable
+        // (e.g. native runtime without a real Canvas2D implementation).
+        const beforeLen = canvasTextEntries.length;
         if (d.fontFamily && this.textCache) {
           this.buildCanvasTextVertices(d, canvasTextEntries);
-        } else {
+        }
+        if (canvasTextEntries.length === beforeLen) {
+          // Canvas text produced nothing — use glyph atlas
           this.buildTextVertices(d, textVerts);
         }
       } else if (d.kind === "image" && d.textureView) {

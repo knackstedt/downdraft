@@ -18,6 +18,7 @@ import { encodePNG } from "../../../packages/platform-native/src/screenshot/scre
 // These imports use tsconfig path aliases which Bun resolves natively
 import { SimWebWorker, type SimWebWorkerConfig } from "./engine/sim-web-worker";
 import { WebGPURenderer } from "./engine/webgpu-renderer";
+import { NativeHud } from "./native-hud";
 
 const WIDTH = 1280;
 const HEIGHT = 720;
@@ -82,6 +83,22 @@ async function main() {
   canvas.requestPointerLock();
   console.log("[native-entry] Input listeners set up");
 
+  // ── Set up native HUD (IMUI) ──
+  const uiRoot = renderer.getUIRoot?.();
+  const uiInputRouter = renderer.getUIInputRouter?.();
+  let hud: NativeHud | null = null;
+  if (uiRoot && uiInputRouter) {
+    hud = new NativeHud(uiRoot, uiInputRouter);
+    // Wire the sim reader so the HUD can display live game state
+    const simReader = renderer.getSimReader?.() ?? (renderer as any).simReader;
+    if (simReader) hud.setSimReader(simReader);
+    renderer.markUILayoutDirty?.();
+    console.log("[native-entry] Native HUD created");
+  } else {
+    console.warn("[native-entry] UI root or input router not available — HUD disabled");
+  }
+  // Expose exit hook for the HUD's exit button (wired after running is declared)
+
   // ── Wait for LUTs to load ──
   try {
     await (renderer as any).getLUTReady?.();
@@ -98,6 +115,11 @@ async function main() {
   let lastFpsTime = performance.now();
   let fpsFrameCount = 0;
   let currentFps = 0;
+  let screenshotCaptured = false;
+  let screenshotPath = "./to-the-ocean-native.png";
+
+  // Wire the exit hook now that `running` is in scope
+  (globalThis as any).__nativeExit = () => { running = false; };
 
   // Listen for window close
   window.addEventListener("close", () => {
@@ -180,9 +202,8 @@ async function main() {
       screenshotBuffer.destroy();
 
       const png = encodePNG(WIDTH, HEIGHT, unpadded);
-      const path = "./to-the-ocean-native.png";
-      writeFileSync(path, png);
-      console.log(`[screenshot] Saved ${WIDTH}x${HEIGHT} to ${path} (${png.length} bytes)`);
+      writeFileSync(screenshotPath, png);
+      console.log(`[screenshot] Saved ${WIDTH}x${HEIGHT} to ${screenshotPath} (${png.length} bytes)`);
 
       // Present the surface now that the copy is done
       const ctx = surface.getContext("webgpu")!;
@@ -208,10 +229,25 @@ async function main() {
       frameCount++;
       fpsFrameCount++;
 
+      // Update HUD with current game state
+      if (hud) {
+        hud.state.fps = currentFps;
+        hud.state.frameCount = frameCount;
+        hud.update(0.016);
+      }
+
+      // Auto-capture a screenshot after a few frames for verification
+      if (frameCount === 120 && !screenshotCaptured) {
+        screenshotCaptured = true;
+        captureScreenshotNow();
+        console.log("[native-entry] Auto-screenshot captured for HUD verification");
+      }
+
       // Log FPS every 2 seconds
       const now = performance.now();
       if (now - lastFpsTime >= 2000) {
         currentFps = Math.round((fpsFrameCount * 1000) / (now - lastFpsTime));
+        if (hud) hud.state.fps = currentFps;
         console.log(`[native-entry] Frame ${frameCount} — ${currentFps} FPS`);
         lastFpsTime = now;
         fpsFrameCount = 0;
