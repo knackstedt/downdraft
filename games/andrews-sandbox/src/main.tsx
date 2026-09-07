@@ -350,53 +350,138 @@ startGame({
     }, 100);
 
     // ── Pointer lock + keyboard + mouse input ──
+    // ESC flow:
+    // 1. First ESC (pointer lock active): Chromium exits pointer lock at the
+    //    OS level before before-input-event can prevent it. The
+    //    pointerlockchange handler auto-opens the menu.
+    // 2. Subsequent ESC (pointer lock not active): before-input-event fires,
+    //    prevents the keydown from reaching the renderer, and sends an IPC.
+    //    The IPC handler toggles the menu.
+    // 3. Closing the menu: re-acquire pointer lock after the cooldown.
     const canvas = ctx.canvas;
     let yaw = 0;
     let pitch = 0;
     let pointerLocked = false;
     const keys = new Set<string>();
 
-    // Click canvas to request pointer lock. Ignore clicks while the ESC menu
-    // (or any overlay panel) is open — those panels sit above the canvas but
-    // don't cover the full screen, so clicks on the exposed area would
-    // otherwise re-acquire pointer lock and yank focus away from the menu.
+    // Click canvas to acquire pointer lock (initial entry or recovery).
     canvas.addEventListener("click", () => {
       if (!pointerLocked && !useGameStore.getState().showEscMenu) {
-        canvas.requestPointerLock();
+        requestPointerLockSafe();
       }
     });
 
-    // Track pointer lock state — when pointer lock is lost unexpectedly
-    // (i.e. the browser intercepted ESC, which doesn't deliver a keydown),
-    // auto-open the ESC menu.
-    let intentionalUnlock = false;
+    // Pointer lock state tracking. When pointer lock is lost while the menu
+    // is closed, auto-open the menu (this handles the first ESC that
+    // Chromium processes at the OS level before before-input-event).
+    // The menuClosedAt timestamp prevents re-opening when pointer lock is
+    // lost shortly after closing the menu (stale ESC from the close action).
+    let pointerLockLostAt = 0;
+    let pointerLockAcquiredAt = 0;
+    let menuAutoOpenedAt = 0;
+    let menuClosedAt = 0;
     document.addEventListener("pointerlockchange", () => {
       pointerLocked = document.pointerLockElement === canvas;
       console.log(`[Input] Pointer lock: ${pointerLocked ? "active" : "released"}`);
-      if (!pointerLocked) {
-        if (!intentionalUnlock && !useGameStore.getState().showEscMenu) {
-          // Browser consumed ESC to exit pointer lock — open the menu
+      if (pointerLocked) {
+        pointerLockAcquiredAt = performance.now();
+      } else {
+        pointerLockLostAt = performance.now();
+        // If the lock was lost very shortly after acquisition, it's a stale
+        // ESC from the browser processing the keypress that closed the menu.
+        const lockDuration = performance.now() - pointerLockAcquiredAt;
+        if (lockDuration < 500 && !useGameStore.getState().showEscMenu) {
+          // Don't auto-open the menu, and don't re-attempt immediately —
+          // update pointerLockLostAt so the next requestPointerLockSafe()
+          // waits for the full cooldown, then retry.
+          console.log("[Input] Stale ESC released pointer lock — will retry after cooldown");
+          requestPointerLockSafe();
+          return;
+        }
+        // Don't auto-open if the menu was just closed — the pointer-lock
+        // loss is likely a stale ESC from the close action, not a new one.
+        if (performance.now() - menuClosedAt < 500) return;
+        if (!useGameStore.getState().showEscMenu) {
           useGameStore.getState().setShowEscMenu(true);
           sim.pause();
+          menuAutoOpenedAt = performance.now();
+          lastEscAt = performance.now();
         }
       }
-      // Reset on every change. The flash race (acquire then immediately lose
-      // from a stale ESC) is handled by deferring requestPointerLock() via
-      // setTimeout, so the lock is stable by the time this fires.
-      intentionalUnlock = false;
+    });
+    document.addEventListener("pointerlockerror", (e) => {
+      e.preventDefault();
     });
 
-    // Mouse look — uses movementX/Y during pointer lock
+    // Safe pointer-lock re-acquisition with cooldown + retry. Chromium blocks
+    // requestPointerLock() for ~1s after ANY ESC keypress (not just after
+    // pointer-lock exit). So we must wait from the last ESC, not just from
+    // pointer-lock loss. If the lock is rejected, retry with backoff.
+    const POINTER_LOCK_COOLDOWN_MS = 1000;
+    let pendingLockTimer: ReturnType<typeof setTimeout> | null = null;
+    let lastEscAt = 0;
+    function requestPointerLockSafe(): void {
+      if (pendingLockTimer) { clearTimeout(pendingLockTimer); pendingLockTimer = null; }
+      // Use the most recent of: pointer-lock loss, last ESC, or now (if
+      // neither happened recently). The browser's cooldown is from the last
+      // ESC keypress, which may be later than pointer-lock loss.
+      const cooldownStart = Math.max(pointerLockLostAt, lastEscAt);
+      const elapsed = performance.now() - cooldownStart;
+      const wait = Math.max(0, POINTER_LOCK_COOLDOWN_MS - elapsed);
+      console.log(`[Input] requestPointerLockSafe: waiting ${wait}ms (cooldown from ${cooldownStart === lastEscAt ? "ESC" : "lock-loss"})`);
+      attemptLock(wait, 0);
+    }
+    function attemptLock(wait: number, retry: number): void {
+      pendingLockTimer = setTimeout(() => {
+        pendingLockTimer = null;
+        if (useGameStore.getState().showEscMenu) return;
+        if (document.pointerLockElement === canvas) return;
+        console.log(`[Input] Attempting requestPointerLock() (retry ${retry})`);
+        let rejected = false;
+        try {
+          const p = canvas.requestPointerLock();
+          if (p && typeof (p as any).then === "function") {
+            (p as Promise<void>).then(
+              () => console.log("[Input] Pointer lock acquired"),
+              () => { rejected = true; scheduleRetry(retry); },
+            );
+          }
+        } catch {
+          rejected = true;
+        }
+        // If no Promise (older Electron), check after 100ms if the lock stuck.
+        if (!rejected) {
+          setTimeout(() => {
+            if (!pointerLocked && !useGameStore.getState().showEscMenu && retry < 5) {
+              scheduleRetry(retry);
+            }
+          }, 100);
+        }
+      }, wait);
+    }
+    function scheduleRetry(retry: number): void {
+      if (retry >= 5) return;
+      if (useGameStore.getState().showEscMenu) return;
+      const backoff = 300 * (retry + 1);
+      console.log(`[Input] Pointer lock rejected — retry ${retry + 1} in ${backoff}ms`);
+      attemptLock(backoff, retry + 1);
+    }
+    (ctx as any)._requestPointerLockSafe = requestPointerLockSafe;
+    (ctx as any)._markMenuClosed = () => { menuClosedAt = performance.now(); };
+
+    // Mouse look — gated on !showEscMenu.
     document.addEventListener("mousemove", (e) => {
       if (!pointerLocked) return;
+      if (useGameStore.getState().showEscMenu) return;
       yaw += e.movementX * 0.0025;
       pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, pitch - e.movementY * 0.0025));
       applyCamera(renderer as WebGPURenderer, yaw, pitch);
     });
 
-    // Left-click fires weapon (only during pointer lock)
+    // Left-click fires weapon (only during pointer lock + menu closed)
     canvas.addEventListener("mousedown", (e) => {
       if (!pointerLocked) return;
+      if (useGameStore.getState().showEscMenu) return;
       if (e.button === 0) {
         weaponController.onPrimaryDown();
         if (weaponController.getTool() === ToolType.Paintgun) paintSystem?.startFiring();
@@ -415,6 +500,7 @@ startGame({
     // Scroll wheel adjusts physgun grab distance, or third-person camera
     // distance when not grabbing and in ThirdPerson mode.
     canvas.addEventListener("wheel", (e) => {
+      if (useGameStore.getState().showEscMenu) return;
       if (weaponController.getTool() === ToolType.Physgun && weaponController.getPhysgun().isGrabbing()) {
         e.preventDefault();
         weaponController.getPhysgun().adjustDistance(-e.deltaY * 0.01);
@@ -428,47 +514,52 @@ startGame({
       }
     }, { passive: false });
 
+    // ESC menu toggle. Called from:
+    // - The IPC handler (Electron: before-input-event sends __esc_pressed)
+    // - The keydown handler (browser mode fallback)
+    // - The pointerlockchange handler (first ESC that exits pointer lock)
+    // The grace period prevents double-toggle when pointerlockchange and
+    // IPC/keydown fire for the same ESC press.
+    function toggleEscMenu(): void {
+      // If the menu was just auto-opened by pointerlockchange, ignore this
+      // call — it's the same ESC that exited pointer lock.
+      if (performance.now() - menuAutoOpenedAt < 300 && !useGameStore.getState().showEscMenu) return;
+      const cur = useGameStore.getState();
+      if (cur.showEscMenu) {
+        // Let the nav system try to consume ESC (content→sidebar).
+        // If it returns false, we're already in the sidebar → close the menu.
+        if (!(ctx as any)._escHandleEscape?.()) {
+          useGameStore.getState().setShowEscMenu(false);
+          sim.resume();
+          menuClosedAt = performance.now();
+          // Re-acquire pointer lock after the cooldown.
+          requestPointerLockSafe();
+        }
+      } else {
+        useGameStore.getState().setShowEscMenu(true);
+        sim.pause();
+      }
+    }
+
+    // In Electron, the main process intercepts ESC via before-input-event
+    // and sends an IPC message here. This handles subsequent ESC presses
+    // (when pointer lock isn't active and before-input-event can fire).
+    if ((downdraft as any)?.onEscPressed) {
+      console.log("[Input] Registering onEscPressed IPC listener");
+      (downdraft as any).onEscPressed(() => {
+        console.log("[Input] ESC received via IPC — toggling menu");
+        lastEscAt = performance.now();
+        toggleEscMenu();
+      });
+    }
+
     // Unified keyboard handler — shortcuts + movement keys
     window.addEventListener("keydown", (e) => {
-      // ESC menu — takes priority over everything else
+      // ESC menu — takes priority over everything else.
       if (e.code === "Escape") {
-        const cur = useGameStore.getState();
-        if (cur.showEscMenu) {
-          e.preventDefault();
-          // Let the nav system try to consume ESC (content→sidebar).
-          // If it returns false, we're already in the sidebar → close the menu.
-          if (!(ctx as any)._escHandleEscape?.()) {
-            useGameStore.getState().setShowEscMenu(false);
-            sim.resume();
-            // Mark the upcoming pointer-lock change as intentional so the
-            // pointerlockchange handler doesn't auto-reopen the menu.
-            intentionalUnlock = true;
-            // Re-acquire pointer lock. The rate limiter is disabled via
-            // --disable-features=RateLimitPointerLockRequests in the main
-            // process switches, but Chromium may still reject a synchronous
-            // call if it interprets the ESC keypress as a "default unlock
-            // gesture". Defer slightly and retry once if it fails.
-            const doLock = (retries: number) => {
-              try {
-                const p = canvas.requestPointerLock();
-                if (p && typeof (p as any).catch === "function") {
-                  (p as Promise<void>).catch(() => {
-                    if (retries > 0) setTimeout(() => doLock(retries - 1), 200);
-                  });
-                }
-              } catch {
-                if (retries > 0) setTimeout(() => doLock(retries - 1), 200);
-              }
-            };
-            setTimeout(() => doLock(2), 50);
-          }
-        } else {
-          // Open menu and pause
-          e.preventDefault();
-          if (document.pointerLockElement) { intentionalUnlock = true; document.exitPointerLock(); }
-          useGameStore.getState().setShowEscMenu(true);
-          sim.pause();
-        }
+        e.preventDefault();
+        lastEscAt = performance.now();
+        toggleEscMenu();
         return;
       }
       // Block game input while ESC menu is open
@@ -477,8 +568,8 @@ startGame({
       keys.add(e.code);
       const s = useGameStore.getState();
       switch (e.code) {
-        case "KeyB": toggleDomPanel(ctx, "browser"); if (document.pointerLockElement) { intentionalUnlock = true; document.exitPointerLock(); } break;
-        case "KeyP": toggleDomPanel(ctx, "palette"); if (document.pointerLockElement) { intentionalUnlock = true; document.exitPointerLock(); } break;
+        case "KeyB": toggleDomPanel(ctx, "browser"); break;
+        case "KeyP": toggleDomPanel(ctx, "palette"); break;
         case "F5": e.preventDefault(); sim.save("autosave"); break;
         case "F9": e.preventDefault(); sim.load("autosave"); break;
         case "Digit1": weaponController.setTool(ToolType.Physgun); s.setActiveTool(ToolType.Physgun); (ctx as any)._domHud?.updateToolBtns?.(); break;
@@ -933,7 +1024,6 @@ function buildDomHud(
     btn.onclick = () => {
       useGameStore.getState().setEscMenuTab(tab.id);
     };
-    btn.onmouseenter = () => { escNavColumn = "sidebar"; syncEscSelectionFromHover(btn); };
     escSidebar.appendChild(btn);
     escTabBtns.push(btn);
   }
@@ -945,10 +1035,11 @@ function buildDomHud(
   escMenu.appendChild(escContent);
 
   // ── ESC Menu keyboard navigation state ──
-  // WASD navigates: A/D switches between sidebar (tabs) and content panel;
-  // W/S moves up/down within the current column; Space/Enter activates.
+  // WASD navigates: W/S moves up/down within the current column;
+  // Space/Enter activates. Selection is hidden until the user presses W/S.
   let escNavColumn: "sidebar" | "content" = "sidebar";
   let escNavIndex = 0;
+  let escNavActive = false; // false = no visible selection (keyboard not used yet)
 
   function updateEscTab() {
     const s = useGameStore.getState();
@@ -1011,7 +1102,6 @@ function buildDomHud(
           row.appendChild(desc);
         }
         row.onclick = () => item.action();
-        row.onmouseenter = () => { escNavColumn = "content"; syncEscSelectionFromHover(row); };
         escContent.appendChild(row);
       }
     }
@@ -1063,7 +1153,6 @@ function buildDomHud(
             weapons.getToolgun().setSelectedContent(item.id);
             flashStatus(`Spawned: ${item.name}`);
           };
-          row.onmouseenter = () => { escNavColumn = "content"; syncEscSelectionFromHover(row); };
           list.appendChild(row);
         }
       }
@@ -1148,7 +1237,6 @@ function buildDomHud(
         toggle.textContent = isOn ? "ON" : "OFF";
       };
       row.appendChild(toggle);
-      row.onmouseenter = () => { escNavColumn = "content"; syncEscSelectionFromHover(row); };
       parent.appendChild(row);
     };
 
@@ -1171,7 +1259,6 @@ function buildDomHud(
         onChange(v);
       };
       row.appendChild(slider);
-      row.onmouseenter = () => { escNavColumn = "content"; syncEscSelectionFromHover(row); };
       parent.appendChild(row);
     };
 
@@ -1235,21 +1322,11 @@ function buildDomHud(
   function closeEscMenu() {
     useGameStore.getState().setShowEscMenu(false);
     sim.resume();
-    // Re-acquire pointer lock with retry (see the ESC handler for details).
-    const canvas = ctx.canvas as HTMLCanvasElement;
-    const doLock = (retries: number) => {
-      try {
-        const p = canvas.requestPointerLock();
-        if (p && typeof (p as any).catch === "function") {
-          (p as Promise<void>).catch(() => {
-            if (retries > 0) setTimeout(() => doLock(retries - 1), 200);
-          });
-        }
-      } catch {
-        if (retries > 0) setTimeout(() => doLock(retries - 1), 200);
-      }
-    };
-    setTimeout(() => doLock(2), 50);
+    // Notify the pointerlockchange handler that we just closed the menu,
+    // so it doesn't auto-reopen from a stale ESC.
+    (ctx as any)._markMenuClosed?.();
+    // Re-acquire pointer lock after the cooldown.
+    (ctx as any)._requestPointerLockSafe?.();
   }
 
   // ── ESC Menu keyboard navigation (WASD + Space) ──
@@ -1270,6 +1347,7 @@ function buildDomHud(
 
   function updateEscSelection(): void {
     escMenu.querySelectorAll(".sandbox-esc-selected").forEach(el => el.classList.remove("sandbox-esc-selected"));
+    if (!escNavActive) return; // No visible selection until keyboard is used
     let targets = collectEscNavTargets(escNavColumn);
     // If the current column has no targets (e.g. controls tab), fall back to sidebar.
     if (targets.length === 0 && escNavColumn === "content") {
@@ -1284,16 +1362,6 @@ function buildDomHud(
     const el = targets[escNavIndex];
     el.classList.add("sandbox-esc-selected");
     el.scrollIntoView({ block: "nearest" });
-  }
-
-  // Sync keyboard selection to hovered element so mouse + keyboard feel unified.
-  function syncEscSelectionFromHover(el: HTMLElement): void {
-    const targets = collectEscNavTargets(escNavColumn);
-    const idx = targets.indexOf(el);
-    if (idx >= 0) {
-      escNavIndex = idx;
-      updateEscSelection();
-    }
   }
 
   function activateEscSelection(): void {
@@ -1333,6 +1401,7 @@ function buildDomHud(
     switch (e.code) {
       case "KeyW": case "ArrowUp": {
         e.preventDefault();
+        escNavActive = true;
         const targets = collectEscNavTargets(escNavColumn);
         if (targets.length === 0) break;
         // Clamp at the top — don't wrap to the bottom.
@@ -1342,6 +1411,7 @@ function buildDomHud(
       }
       case "KeyS": case "ArrowDown": {
         e.preventDefault();
+        escNavActive = true;
         const targets = collectEscNavTargets(escNavColumn);
         if (targets.length === 0) break;
         // Clamp at the bottom — don't wrap to the top.
@@ -1351,8 +1421,23 @@ function buildDomHud(
       }
       case "Space": case "Enter":
         e.preventDefault();
+        // If keyboard nav hasn't been used yet, activate the first item.
+        if (!escNavActive) { escNavActive = true; escNavIndex = 0; updateEscSelection(); }
         activateEscSelection();
         break;
+    }
+  });
+
+  // Right-click backs out one level (content→sidebar) but doesn't close
+  // the ESC menu.
+  escMenu.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    if (escNavColumn === "content") {
+      escNavColumn = "sidebar";
+      escNavIndex = escTabs.findIndex(t => t.id === useGameStore.getState().escMenuTab);
+      if (escNavIndex < 0) escNavIndex = 0;
+      escNavActive = true;
+      updateEscSelection();
     }
   });
 
@@ -1373,12 +1458,11 @@ function buildDomHud(
     // the effect of their setting changes.
     escMenu.classList.toggle("blurred", state.showEscMenu && state.escMenuTab !== "graphics");
     if (state.showEscMenu) {
-      // Reset nav state BEFORE rendering so the highlight lands correctly.
-      // On tab switches, snap to the sidebar at the new tab's index; on
-      // menu open, start at the first sidebar tab.
+      // Reset nav state: sidebar, no visible selection until keyboard used.
       escNavColumn = "sidebar";
       escNavIndex = escTabs.findIndex(t => t.id === state.escMenuTab);
       if (escNavIndex < 0) escNavIndex = 0;
+      escNavActive = false;
       updateEscTab();
     }
   });
