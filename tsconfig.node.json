@@ -32,6 +32,12 @@
       "@downdraft/core": [
         "./packages/core/src/index.ts"
       ],
+      "@downdraft/platform-native": [
+        "./packages/platform-native/src/index.ts"
+      ],
+      "@downdraft/platform-native/*": [
+        "./packages/platform-native/src/*"
+      ],
       "@downdraft/mcp/*": [
         "./packages/mcp/src/*"
       ],
@@ -76,6 +82,12 @@
       ],
       "@downdraft/library-pixi-ui/*": [
         "./packages/libraries/pixi-ui/src/*"
+      ],
+      "@downdraft/library-pixi-ui-native": [
+        "./packages/libraries/pixi-ui-native/src/index.ts"
+      ],
+      "@downdraft/library-pixi-ui-native/*": [
+        "./packages/libraries/pixi-ui-native/src/*"
       ],
       "@downdraft/library-physics-rapier": [
         "./packages/libraries/physics-rapier/src/index.ts"
@@ -348,6 +360,8 @@
   ],
   "exclude": [
     "dist",
-    "**/*.spec.ts"
+    "**/*.spec.ts",
+    "packages/libraries/pixi-ui-native/src/**/*",
+    "packages/platform-native/src/**/*"
   ]
 }

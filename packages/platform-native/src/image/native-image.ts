@@ -184,7 +184,83 @@ export function installImagePolyfills(): void {
     };
   }
 
-  log.info("platform-native", "Image polyfills installed (stb_image + OffscreenCanvas stub)");
+  // Image polyfill — PixiJS DOMAdapter.createImage() returns `new Image()`.
+  // Setting `src` decodes the file via stb_image (createImageBitmapNative) and
+  // fires onload/onerror. Supports file paths, data: URLs, and http(s) via
+  // Bun.file/fetch.
+  if (typeof (globalThis as any).Image === "undefined") {
+    (globalThis as any).Image = class NativeImage {
+      width: number = 0;
+      height: number = 0;
+      naturalWidth: number = 0;
+      naturalHeight: number = 0;
+      src: string = "";
+      alt: string = "";
+      onload: ((this: any, ev: any) => any) | null = null;
+      onerror: ((this: any, ev: any) => any) | null = null;
+      private _bitmap: NativeImageBitmap | null = null;
+      readonly complete: boolean = false;
+
+      get width_(): number { return this.width; }
+
+      async _load(src: string): Promise<void> {
+        try {
+          let source: Blob | ArrayBuffer | Uint8Array | string;
+          if (src.startsWith("data:")) {
+            // data URL — decode base64 payload
+            const comma = src.indexOf(",");
+            const b64 = src.slice(comma + 1);
+            const bytes = Uint8Array.from(Buffer.from(b64, "base64"));
+            source = bytes;
+          } else if (src.startsWith("http://") || src.startsWith("https://")) {
+            const resp = await fetch(src);
+            source = new Uint8Array(await resp.arrayBuffer());
+          } else {
+            source = src; // file path
+          }
+          const bmp = await createImageBitmapNative(source);
+          this._bitmap = bmp as unknown as NativeImageBitmap;
+          this.width = bmp.width;
+          this.height = bmp.height;
+          this.naturalWidth = bmp.width;
+          this.naturalHeight = bmp.height;
+          (this as any).complete = true;
+          if (this.onload) this.onload.call(this, { type: "load", target: this });
+        } catch (err) {
+          (this as any).complete = true;
+          if (this.onerror) this.onerror.call(this, { type: "error", target: this, error: err });
+        }
+      }
+
+      getBitmap(): NativeImageBitmap | null { return this._bitmap; }
+
+      addEventListener(type: string, listener: (ev: any) => void): void {
+        if (type === "load") this.onload = listener as any;
+        else if (type === "error") this.onerror = listener as any;
+      }
+      removeEventListener(type: string, _listener: (ev: any) => void): void {
+        if (type === "load") this.onload = null;
+        else if (type === "error") this.onerror = null;
+      }
+      decode(): Promise<void> { return this._load(this.src); }
+    };
+    // Intercept src assignment to trigger load. Use a Proxy on the prototype
+    // setter so `img.src = url` works like a browser.
+    const NativeImageCtor = (globalThis as any).Image;
+    const srcDesc = Object.getOwnPropertyDescriptor(NativeImageCtor.prototype, "src");
+    if (!srcDesc || !srcDesc.set) {
+      Object.defineProperty(NativeImageCtor.prototype, "src", {
+        get: function () { return this._src ?? ""; },
+        set: function (v: string) {
+          this._src = v;
+          if (v) this._load(v);
+        },
+        configurable: true,
+      });
+    }
+  }
+
+  log.info("platform-native", "Image polyfills installed (stb_image + OffscreenCanvas + Image)");
 }
 
 // ── FreeType-based text rasterizer ──
@@ -418,14 +494,22 @@ function parseColor(color: string): [number, number, number, number] {
   return [0, 0, 0, 255];
 }
 
-class NativeCanvas2D {
-  private width: number;
-  private height: number;
+export class NativeCanvas2D {
+  width: number;
+  height: number;
   private _fillStyle: string = "#000000";
+  private _strokeStyle: string = "#000000";
   private _font: string = "16px sans-serif";
   private _textAlign: string = "left";
   private _textBaseline: string = "alphabetic";
+  lineWidth: number = 1;
+  globalAlpha: number = 1;
+  globalCompositeOperation: string = "source-over";
   private pixels: Uint8ClampedArray;
+  // 2D affine transform: [a c e, b d f] == [scaleX skewX tx, skewY scaleY ty].
+  // Stored as {a,b,c,d,e,f}. Identity = {1,0,0,1,0,0}.
+  private a = 1; private b = 0; private c = 0; private d = 1; private e = 0; private f = 0;
+  private transformStack: Array<{ a: number; b: number; c: number; d: number; e: number; f: number }> = [];
 
   constructor(width: number, height: number) {
     this.width = width;
@@ -435,12 +519,35 @@ class NativeCanvas2D {
 
   get fillStyle(): string { return this._fillStyle; }
   set fillStyle(v: string) { this._fillStyle = v; }
+  get strokeStyle(): string { return this._strokeStyle; }
+  set strokeStyle(v: string) { this._strokeStyle = v; }
   get font(): string { return this._font; }
   set font(v: string) { this._font = v; }
   get textAlign(): string { return this._textAlign; }
   set textAlign(v: string) { this._textAlign = v; }
   get textBaseline(): string { return this._textBaseline; }
   set textBaseline(v: string) { this._textBaseline = v; }
+
+  // ── Transforms ──
+  save(): void { this.transformStack.push({ a: this.a, b: this.b, c: this.c, d: this.d, e: this.e, f: this.f }); }
+  restore(): void { const t = this.transformStack.pop(); if (t) { this.a = t.a; this.b = t.b; this.c = t.c; this.d = t.d; this.e = t.e; this.f = t.f; } }
+  resetTransform(): void { this.a = 1; this.b = 0; this.c = 0; this.d = 1; this.e = 0; this.f = 0; }
+  setTransform(a: number, b: number, c: number, d: number, e: number, f: number): void { this.a = a; this.b = b; this.c = c; this.d = d; this.e = e; this.f = f; }
+  translate(tx: number, ty: number): void { this.e += this.a * tx + this.c * ty; this.f += this.b * tx + this.d * ty; }
+  scale(sx: number, sy: number): void { this.a *= sx; this.b *= sx; this.c *= sy; this.d *= sy; }
+  rotate(_r: number): void { /* not needed for text; no-op */ }
+  transform(a: number, b: number, c: number, d: number, e: number, f: number): void {
+    const na = a * this.a + c * this.b;
+    const nb = b * this.a + d * this.b;
+    const nc = a * this.c + c * this.d;
+    const nd = b * this.c + d * this.d;
+    const ne = a * this.e + c * this.f + e;
+    const nf = b * this.e + d * this.f + f;
+    this.a = na; this.b = nb; this.c = nc; this.d = nd; this.e = ne; this.f = nf;
+  }
+  private transformPoint(x: number, y: number): [number, number] {
+    return [this.a * x + this.c * y + this.e, this.b * x + this.d * y + this.f];
+  }
 
   private getFontSize(): number {
     const m = this._font.match(/(\d+)px/);
@@ -460,22 +567,38 @@ class NativeCanvas2D {
   }
 
   fillText(text: string, x: number, y: number): void {
-    const fontSize = this.getFontSize();
-    const [cr, cg, cb, ca] = parseColor(this._fillStyle);
+    this._renderText(text, x, y, this._fillStyle, false);
+  }
 
-    // Adjust y based on textBaseline
-    let startY = y;
-    if (this._textBaseline === "top") startY = y;
-    else if (this._textBaseline === "middle") startY = y - fontSize * 0.5;
-    else if (this._textBaseline === "alphabetic") startY = y - fontSize * 0.8;
+  strokeText(text: string, x: number, y: number): void {
+    this._renderText(text, x, y, this._strokeStyle, true);
+  }
+
+  private _renderText(text: string, x: number, y: number, styleColor: string, isStroke: boolean): void {
+    const baseFontSize = this.getFontSize();
+    // Apply the current transform's scale to the font size (PixiJS text uses
+    // a uniform scale of `resolution` via context.scale(res, res) so the
+    // raster is resolution× crisper). Use the geometric mean of |a| and |d|.
+    const scaleFactor = Math.sqrt(Math.abs(this.a * this.d)) || 1;
+    const fontSize = Math.max(1, Math.round(baseFontSize * scaleFactor));
+    const [cr, cg, cb, ca] = parseColor(styleColor);
+
+    // Adjust y based on textBaseline (in pre-transform units)
+    let logicalY = y;
+    if (this._textBaseline === "top") logicalY = y;
+    else if (this._textBaseline === "middle") logicalY = y - baseFontSize * 0.5;
+    else if (this._textBaseline === "alphabetic") logicalY = y - baseFontSize * 0.8;
+
+    // Transform the start point through the current affine.
+    const [tx, ty] = this.transformPoint(x, logicalY);
+    const dstStartX = Math.floor(tx);
+    const dstStartY = Math.floor(ty);
 
     // Try FreeType first for proper anti-aliased TrueType rendering
     if (ftIsAvailable()) {
       const result = ftRenderText(text, fontSize);
       if (result) {
         const { data, width: tw, height: th } = result;
-        const dstStartX = Math.floor(x);
-        const dstStartY = Math.floor(startY);
         for (let py = 0; py < th; py++) {
           for (let px = 0; px < tw; px++) {
             const srcIdx = (py * tw + px) * 4;
@@ -485,7 +608,7 @@ class NativeCanvas2D {
             const dstY = dstStartY + py;
             if (dstX < 0 || dstX >= this.width || dstY < 0 || dstY >= this.height) continue;
             const idx = (dstY * this.width + dstX) * 4;
-            const a = (alpha / 255) * (ca / 255);
+            const a = (alpha / 255) * (ca / 255) * this.globalAlpha;
             const invAlpha = 1 - a;
             this.pixels[idx]     = Math.min(255, this.pixels[idx]     * invAlpha + cr * a);
             this.pixels[idx + 1] = Math.min(255, this.pixels[idx + 1] * invAlpha + cg * a);
@@ -502,10 +625,11 @@ class NativeCanvas2D {
     const scaleY = fontSize / GLYPH_H;
     const ss = 2;
 
-    let cursorX = x;
+    let cursorX = dstStartX;
+    let curY = dstStartY;
     for (let i = 0; i < text.length; i++) {
       const ch = text[i];
-      if (ch === '\n') { cursorX = x; startY += fontSize * 1.2; continue; }
+      if (ch === '\n') { cursorX = dstStartX; curY += fontSize * 1.2; continue; }
       const pattern = GLYPH_PATTERNS[ch];
       if (!pattern || pattern.length < GLYPH_H) { cursorX += fontSize * 0.6; continue; }
 
@@ -525,9 +649,9 @@ class NativeCanvas2D {
             }
           }
           if (coverage === 0) continue;
-          const alpha = (coverage / (ss * ss)) * (ca / 255);
+          const alpha = (coverage / (ss * ss)) * (ca / 255) * this.globalAlpha;
           const dstX = Math.floor(cursorX + px);
-          const dstY = Math.floor(startY + py);
+          const dstY = Math.floor(curY + py);
           if (dstX < 0 || dstX >= this.width || dstY < 0 || dstY >= this.height) continue;
           const idx = (dstY * this.width + dstX) * 4;
           const invAlpha = 1 - alpha;
@@ -566,8 +690,6 @@ class NativeCanvas2D {
     }
   }
 
-  drawImage(_image: any, _dx: number, _dy: number): void {}
-
   getImageData(x: number, y: number, w: number, h: number): any {
     const data = new Uint8ClampedArray(w * h * 4);
     for (let py = 0; py < h; py++) {
@@ -605,6 +727,47 @@ class NativeCanvas2D {
           this.pixels[dstIdx + 2] = srcData[srcIdx + 2];
           this.pixels[dstIdx + 3] = srcData[srcIdx + 3];
         }
+      }
+    }
+  }
+
+  // ── Path / gradient no-ops (PixiJS text uses fillText/measureText; these
+  //    are stubbed for completeness so probes/calls don't throw). ──
+  beginPath(): void {}
+  closePath(): void {}
+  moveTo(_x: number, _y: number): void {}
+  lineTo(_x: number, _y: number): void {}
+  arc(_x: number, _y: number, _r: number, _start: number, _end: number): void {}
+  rect(_x: number, _y: number, _w: number, _h: number): void {}
+  roundRect(_x: number, _y: number, _w: number, _h: number, _r: any): void {}
+  ellipse(_x: number, _y: number, _rx: number, _ry: number, _rot: number, _start: number, _end: number): void {}
+  bezierCurveTo(_c1x: number, _c1y: number, _c2x: number, _c2y: number, _x: number, _y: number): void {}
+  quadraticCurveTo(_c1x: number, _c1y: number, _x: number, _y: number): void {}
+  fill(): void {}
+  stroke(): void {}
+  clip(): void {}
+  setLineDash(_dash: number[]): void {}
+  createLinearGradient(_x0: number, _y0: number, _x1: number, _y1: number): any { return { addColorStop: () => {} }; }
+  createRadialGradient(_x0: number, _y0: number, _r0: number, _x1: number, _y1: number, _r1: number): any { return { addColorStop: () => {} }; }
+  drawImage(image: any, dx: number, dy: number, dw?: number, dh?: number): void {
+    // Blit a NativeImageBitmap (RGBA) into the pixel buffer — used by PixiJS
+    // text when compositing canvas snapshots and by getPixels paths.
+    const src = image?.getPixelData?.() ?? image?.data;
+    if (!src) return;
+    const sw = image?.width ?? dw ?? 0;
+    const sh = image?.height ?? dh ?? 0;
+    if (!sw || !sh) return;
+    for (let py = 0; py < sh; py++) {
+      for (let px = 0; px < sw; px++) {
+        const dstX = Math.floor(dx) + px;
+        const dstY = Math.floor(dy) + py;
+        if (dstX < 0 || dstX >= this.width || dstY < 0 || dstY >= this.height) continue;
+        const sIdx = (py * sw + px) * 4;
+        const dIdx = (dstY * this.width + dstX) * 4;
+        this.pixels[dIdx] = src[sIdx];
+        this.pixels[dIdx + 1] = src[sIdx + 1];
+        this.pixels[dIdx + 2] = src[sIdx + 2];
+        this.pixels[dIdx + 3] = src[sIdx + 3];
       }
     }
   }

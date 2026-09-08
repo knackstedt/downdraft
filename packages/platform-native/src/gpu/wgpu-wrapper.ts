@@ -242,6 +242,75 @@ export class WgpuGPU {
 }
 
 // ============================================================================
+// Native desktop limits / features
+//
+// wgpu-native exposes real limits/features via the C API, but the shim doesn't
+// surface them yet. PixiJS v8's GpuLimitsSystem reads
+// `device.limits.maxSampledTexturesPerShaderStage` and uses it as the batch
+// texture limit — `undefined` would break batching. Return conservative
+// desktop values that match what wgpu-native reports on a typical Vulkan
+// desktop GPU. These can be tightened later by querying the C API.
+// ============================================================================
+
+function nativeDesktopLimits(): GPUSupportedLimits {
+  // WebGPU's GPUSupportedLimits exposes limit properties DIRECTLY on the
+  // object (e.g. `device.limits.maxSampledTexturesPerShaderStage`), not
+  // nested under `.max`. PixiJS's GpuLimitsSystem and the engine both read
+  // them directly. Mirror them at the top level (and also under `.max` for
+  // any consumer that uses the nested form).
+  const limits = {
+    maxTextureDimension1D: 8192,
+    maxTextureDimension2D: 8192,
+    maxTextureDimension3D: 2048,
+    maxTextureArrayLayers: 256,
+    maxBindGroups: 8,
+    maxBindGroupsPlusVertexBuffers: 24,
+    maxBindingsPerBindGroup: 1000,
+    maxDynamicUniformBuffersPerPipelineLayout: 8,
+    maxDynamicStorageBuffersPerPipelineLayout: 4,
+    maxSampledTexturesPerShaderStage: 16,
+    maxSamplersPerShaderStage: 16,
+    maxStorageBuffersPerShaderStage: 8,
+    maxStorageBuffersInVertexStage: 8,
+    maxStorageBuffersInFragmentStage: 8,
+    maxStorageTexturesPerShaderStage: 4,
+    maxUniformBuffersPerShaderStage: 12,
+    maxUniformBufferBindingSize: 16384,
+    maxStorageBufferBindingSize: 134217728,
+    minUniformBufferOffsetAlignment: 256,
+    minStorageBufferOffsetAlignment: 256,
+    maxVertexBuffers: 8,
+    maxBufferSize: 268435456,
+    maxVertexAttributes: 16,
+    maxVertexBufferArrayStride: 2048,
+    maxInterStageShaderVariables: 16,
+    maxColorAttachments: 8,
+    maxColorAttachmentBytesPerSample: 32,
+    maxComputeWorkgroupStorageSize: 16384,
+    maxComputeInvocationsPerWorkgroup: 256,
+    maxComputeWorkgroupSizeX: 256,
+    maxComputeWorkgroupSizeY: 256,
+    maxComputeWorkgroupSizeZ: 64,
+    maxComputeWorkgroupsPerDimension: 65535,
+  };
+  return { ...limits, min: {}, max: limits } as unknown as GPUSupportedLimits;
+}
+
+function nativeDesktopFeatures(): GPUSupportedFeatures {
+  // Report the features PixiJS / the engine commonly probe. wgpu-native on
+  // Vulkan desktop typically supports these; if a feature is unsupported the
+  // device will reject the pipeline at creation time, which is caught there.
+  return new Set([
+    "float32-filterable",
+    "depth-clip-control",
+    "texture-compression-bc",
+    "indirect-first-instance",
+    "shader-f16",
+    "rg11b10ufloat-renderable",
+  ]) as unknown as GPUSupportedFeatures;
+}
+
+// ============================================================================
 // WgpuAdapter
 // ============================================================================
 
@@ -264,11 +333,11 @@ export class WgpuAdapter implements GPUAdapter {
   }
 
   get limits(): GPUSupportedLimits {
-    return { min: {}, max: {} } as unknown as GPUSupportedLimits;
+    return nativeDesktopLimits();
   }
 
   get features(): GPUSupportedFeatures {
-    return new Set() as unknown as GPUSupportedFeatures;
+    return nativeDesktopFeatures();
   }
 
   async requestDevice(descriptor?: GPUDeviceDescriptor): Promise<WgpuDevice> {
@@ -322,11 +391,11 @@ export class WgpuDevice implements GPUDevice {
   get queue(): WgpuQueue { return this.queue; }
 
   get features(): GPUSupportedFeatures {
-    return new Set() as unknown as GPUSupportedFeatures;
+    return nativeDesktopFeatures();
   }
 
   get limits(): GPUSupportedLimits {
-    return { min: {}, max: {} } as unknown as GPUSupportedLimits;
+    return nativeDesktopLimits();
   }
 
   pushErrorScope(_filter: GPUErrorFilter): void {
@@ -1122,7 +1191,11 @@ export class WgpuCommandEncoder implements GPUCommandEncoder {
   beginRenderPass(descriptor: GPURenderPassDescriptor): WgpuRenderPassEncoder {
     const colorAttachment = descriptor.colorAttachments[0];
     const colorView = colorAttachment.view as WgpuTextureView;
-    const clearValue = colorAttachment.clearValue ?? { r: 0, g: 0, b: 0, a: 0 };
+    // GPUColor may be an array [r,g,b,a] OR an object {r,g,b,a} — handle both.
+    const cv = colorAttachment.clearValue as any;
+    let cr = 0, cg = 0, cb = 0, ca = 0;
+    if (Array.isArray(cv)) { cr = cv[0] ?? 0; cg = cv[1] ?? 0; cb = cv[2] ?? 0; ca = cv[3] ?? 0; }
+    else if (cv) { cr = cv.r ?? 0; cg = cv.g ?? 0; cb = cv.b ?? 0; ca = cv.a ?? 0; }
     const loadOp = colorAttachment.loadOp === "load" ? 1 : 2; // 1=load, 2=clear
     const storeOp = colorAttachment.storeOp === "discard" ? 2 : 1; // 1=store, 2=discard
 
@@ -1132,7 +1205,7 @@ export class WgpuCommandEncoder implements GPUCommandEncoder {
     const passPtr = wgpu.wgpu_shim_begin_render_pass(
       this.ptr,
       colorView.ptr,
-      clearValue.r ?? 0, clearValue.g ?? 0, clearValue.b ?? 0, clearValue.a ?? 0,
+      cr, cg, cb, ca,
       loadOp, storeOp,
       depthView?.ptr ?? null as any,
     ) as unknown as number;

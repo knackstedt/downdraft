@@ -135,6 +135,7 @@ export type CancelRAF = (id: number) => void;
 export class GameRenderer implements CanvasResizeHandler {
   private canvas: HTMLCanvasElement;
   private device: GPUDevice | null = null;
+  private adapter: GPUAdapter | null = null;
   private context: GPUCanvasContext | null = null;
   private format: GPUTextureFormat = "bgra8unorm";
   private config: GameRendererConfig;
@@ -291,6 +292,7 @@ export class GameRenderer implements CanvasResizeHandler {
         requiredFeatures,
         requiredLimits: this.buildRequiredLimits(adapter),
       });
+      this.adapter = adapter;
 
       // Wrap device with GPU resource tracker for VRAM visibility
       this.gpuResourceTracker = new GPUResourceTracker();
@@ -981,6 +983,10 @@ export class GameRenderer implements CanvasResizeHandler {
 
   getDevice(): GPUDevice | null {
     return this.device;
+  }
+
+  getAdapter(): GPUAdapter | null {
+    return this.adapter;
   }
 
   getContext(): GPUCanvasContext | null {

@@ -446,6 +446,22 @@
         "react",
       ],
     },
+    "packages/libraries/pixi-ui-native": {
+      "name": "@downdraft/library-pixi-ui-native",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+        "pixi.js": "8.18.0",
+      },
+      "peerDependencies": {
+        "@pixi/react": "^8.0.5",
+        "react": "^19.0.0",
+      },
+      "optionalPeers": [
+        "@pixi/react",
+        "react",
+      ],
+    },
     "packages/libraries/postfx": {
       "name": "@downdraft/library-postfx",
       "version": "0.1.0",
@@ -748,6 +764,8 @@
     "@downdraft/library-physics-rapier": ["@downdraft/library-physics-rapier@workspace:packages/libraries/physics-rapier"],
 
     "@downdraft/library-pixi-ui": ["@downdraft/library-pixi-ui@workspace:packages/libraries/pixi-ui"],
+
+    "@downdraft/library-pixi-ui-native": ["@downdraft/library-pixi-ui-native@workspace:packages/libraries/pixi-ui-native"],
 
     "@downdraft/library-postfx": ["@downdraft/library-postfx@workspace:packages/libraries/postfx"],
 

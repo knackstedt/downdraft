@@ -15,7 +15,8 @@
 import { createLogger } from "@downdraft/core";
 import { installAssetGlob } from "./assets/native-assets";
 import { installGPU } from "./gpu/install";
-import { installImagePolyfills } from "./image/native-image";
+import { VirtualCanvas } from "./gpu/virtual-canvas-context";
+import { NativeCanvas2D, installImagePolyfills } from "./image/native-image";
 import { captureScreenshot } from "./screenshot/screenshot";
 import { NativeSurface } from "./window/native-surface";
 import { NativeWindow, type NativeWindowConfig } from "./window/native-window";
@@ -156,59 +157,29 @@ function installDOMPolyfills(window: NativeWindow, surface: NativeSurface): void
     const doc = {
       createElement: (tag: string) => {
         if (tag === "canvas") {
-          // Return a mock canvas that allows width/height assignment
-          // and provides a stub 2D context for default texture generation
-          return {
-            width: 0,
-            height: 0,
-            style: {},
-            setAttribute: () => {},
-            appendChild: () => {},
-            getContext: (type: string) => {
-              if (type === "webgpu") return null;
-              // Stub 2D context for default texture generation and glyph atlas
-              return {
-                fillStyle: "",
-                strokeStyle: "",
-                font: "",
-                textAlign: "",
-                textBaseline: "",
-                fillRect: () => {},
-                strokeRect: () => {},
-                clearRect: () => {},
-                fillText: () => {},
-                strokeText: () => {},
-                measureText: (text: string) => ({ width: text.length * 8, actualBoundingBoxAscent: 8, actualBoundingBoxDescent: 0 }),
-                drawImage: () => {},
-                getImageData: (x: number, y: number, w: number, h: number) => ({
-                  data: new Uint8Array(w * h * 4),
-                  width: w,
-                  height: h,
-                }),
-                putImageData: () => {},
-                createImageData: (w: number, h: number) => ({
-                  data: new Uint8Array(w * h * 4),
-                  width: w,
-                  height: h,
-                }),
-                beginPath: () => {},
-                closePath: () => {},
-                moveTo: () => {},
-                lineTo: () => {},
-                arc: () => {},
-                fill: () => {},
-                stroke: () => {},
-                save: () => {},
-                restore: () => {},
-                translate: () => {},
-                rotate: () => {},
-                scale: () => {},
-              };
-            },
-            transferControlToOffscreen: () => surface,
-          };
+          // PixiJS (and DOMAdapter.createCanvas) call document.createElement
+          // ("canvas") to get a canvas whose getContext("webgpu") returns a
+          // GPUCanvasContext. Return a VirtualCanvas: its webgpu context is
+          // backed by a dedicated GPUTexture (not the swapchain) so PixiJS can
+          // render the UI into a texture the game composites; its 2d context
+          // is FreeType-backed for text rasterization.
+          return new VirtualCanvas(surface.width, surface.height);
         }
-        return { style: {}, setAttribute: () => {}, appendChild: () => {} };
+        return {
+          style: {},
+          setAttribute: () => {},
+          getAttribute: () => null,
+          appendChild: (n: any) => n,
+          removeChild: (n: any) => n,
+          remove: () => {},
+          contains: () => false,
+          addEventListener: () => {},
+          removeEventListener: () => {},
+          dispatchEvent: () => true,
+          focus: () => {},
+          blur: () => {},
+          click: () => {},
+        };
       },
       getElementById: (id: string) => {
         if (id === "game-canvas" || id === "canvas") return surface;
@@ -235,8 +206,65 @@ function installDOMPolyfills(window: NativeWindow, surface: NativeSurface): void
       hidden: false,
       pointerLockElement: null as any,
       exitPointerLock: () => surface.exitPointerLock(),
+      // PixiJS DOMAdapter.getBaseUrl() reads document.baseURI ?? window.location.href.
+      baseURI: `file://${process.cwd()}/`,
+      // PixiJS DOMAdapter.getFontFaceSet() reads document.fonts (FontFaceSet).
+      fonts: {
+        ready: Promise.resolve(),
+        onloadingdone: null,
+        load: () => Promise.resolve(),
+        check: () => true,
+        add: () => {},
+        delete: () => {},
+        clear: () => {},
+        forEach: () => {},
+      },
     };
     (globalThis as any).document = doc;
+
+    // ── DOMAdapter / PixiJS surface globals ──
+    // PixiJS's BrowserAdapter reads these via DOMAdapter.get().getXxx().
+    if (typeof (globalThis as any).HTMLCanvasElement === "undefined") {
+      // VirtualCanvas should satisfy `instanceof HTMLCanvasElement` (@pixi/react
+      // createRoot checks this). Define the class and chain VirtualCanvas's
+      // prototype so the instanceof check succeeds.
+      class HTMLCanvasElement {}
+      (globalThis as any).HTMLCanvasElement = HTMLCanvasElement;
+      try {
+        Object.setPrototypeOf(VirtualCanvas.prototype, HTMLCanvasElement.prototype);
+      } catch { /* ignore */ }
+    }
+    if (typeof (globalThis as any).HTMLImageElement === "undefined") {
+      (globalThis as any).HTMLImageElement = class HTMLImageElement {};
+    }
+    if (typeof (globalThis as any).CanvasRenderingContext2D === "undefined") {
+      (globalThis as any).CanvasRenderingContext2D = NativeCanvas2D;
+    }
+    if (typeof (globalThis as any).WebGLRenderingContext === "undefined") {
+      // PixiJS DOMAdapter.getWebGLRenderingContext() returns this; the WebGPU
+      // path won't use it, but it must be defined.
+      (globalThis as any).WebGLRenderingContext = class WebGLRenderingContext {};
+    }
+    if (typeof (globalThis as any).DOMParser === "undefined") {
+      // Minimal stub — PixiJS uses it for SVG parsing. Returns an object with
+      // querySelector/getElementsByTagName returning empty results.
+      (globalThis as any).DOMParser = class DOMParser {
+        parseFromString() {
+          return {
+            querySelector: () => null,
+            querySelectorAll: () => [],
+            getElementsByTagName: () => [],
+            documentElement: { getAttribute: () => null },
+          };
+        }
+      };
+    }
+    if (typeof (globalThis as any).FontFace === "undefined") {
+      (globalThis as any).FontFace = class FontFace {
+        constructor(_family: string, _source: string) {}
+        load() { return Promise.resolve(this); }
+      };
+    }
   }
 
   // window polyfill
