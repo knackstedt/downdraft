@@ -416,7 +416,7 @@ export class WgpuDevice implements GPUDevice {
       mapped,
     ) as unknown as number;
     if (!bufPtr) throw new Error(`Failed to create buffer (size=${descriptor.size}, usage=${usage})`);
-    const buffer = new WgpuBuffer(bufPtr, descriptor.size, this.queue);
+    const buffer = new WgpuBuffer(bufPtr, descriptor.size, this.queue, !!descriptor.mappedAtCreation);
     registry.register(buffer, { ptr: bufPtr, release: () => wgpu.wgpu_shim_release_buffer(bufPtr) }, buffer);
     return buffer;
   }
@@ -946,8 +946,52 @@ export class WgpuQueue implements GPUQueue {
     wgpu.wgpu_shim_queue_submit(this.ptr, ptrs as any, commandBuffers.length);
   }
 
-  copyExternalImageToTexture(_source: GPUCopyExternalImageSourceInfo, _destination: GPUCopyExternalImageTextureInfo, _copySize: GPUExtent3D): void {
-    // TODO: implement for image bitmap → texture copies
+  copyExternalImageToTexture(source: GPUCopyExternalImageSourceInfo, destination: GPUCopyExternalImageTextureInfo, copySize: GPUExtent3D): void {
+    // PixiJS uploads text/image textures (rasterized to a 2D canvas) via this
+    // method. The source is a canvas (VirtualCanvas with a NativeCanvas2D ctx).
+    // We read its RGBA pixels and upload via writeTexture with 256-byte row
+    // alignment (wgpu COPY_BYTES_PER_ROW_ALIGNMENT = 256).
+    const img = (source as any).source ?? source;
+    const texture = destination.texture as WgpuTexture;
+    let width: number, height: number;
+    if (typeof copySize === "number") { width = copySize; height = 1; }
+    else if (Array.isArray(copySize)) { width = copySize[0] ?? 1; height = copySize[1] ?? 1; }
+    else { width = copySize.width ?? 1; height = copySize.height ?? 1; }
+
+    // Extract RGBA pixels from the source canvas/image.
+    let rgba: Uint8Array | Uint8ClampedArray | null = null;
+    let srcW = width, srcH = height;
+    if (img && typeof img.getContext === "function") {
+      const ctx = img.getContext("2d");
+      if (ctx && typeof ctx.getImageData === "function") {
+        const id = ctx.getImageData(0, 0, img.width, img.height);
+        rgba = id?.data ?? null;
+        srcW = img.width; srcH = img.height;
+      }
+    } else if (img && img.data && img.width && img.height) {
+      rgba = img.data; srcW = img.width; srcH = img.height;
+    }
+    if (!rgba) return;
+
+    const srcRowBytes = srcW * 4;
+    const dstRowBytes = Math.ceil(srcRowBytes / 256) * 256; // 256-byte alignment
+    // Build the padded buffer (only the copied region: width x height).
+    const copyRowBytes = width * 4;
+    const padded = new Uint8Array(dstRowBytes * height);
+    for (let y = 0; y < height; y++) {
+      const srcOff = y * srcRowBytes;
+      const dstOff = y * dstRowBytes;
+      padded.set(rgba.subarray(srcOff, srcOff + copyRowBytes), dstOff);
+    }
+    wgpu.wgpu_shim_queue_write_texture(
+      this.ptr,
+      texture.ptr,
+      padded as any,
+      BigInt(padded.byteLength),
+      width,
+      height,
+      dstRowBytes,
+    );
   }
 }
 
@@ -960,12 +1004,18 @@ export class WgpuBuffer implements GPUBuffer {
   readonly size: number;
   private queue: WgpuQueue;
   private mapped: boolean;
+  /** "read" | "write" | null. Write maps buffer a JS ArrayBuffer whose contents are flushed on unmap(). */
+  private mapMode: "read" | "write" | null = null;
+  /** Writable backing store for write-mapped buffers (mappedAtCreation or mapAsync(WRITE)). */
+  private writeStore: ArrayBuffer | null = null;
+  private mapOffset = 0;
 
-  constructor(ptr: number, size: number, queue: WgpuQueue) {
+  constructor(ptr: number, size: number, queue: WgpuQueue, mappedAtCreation = false) {
     this.ptr = ptr;
     this.size = size;
     this.queue = queue;
-    this.mapped = false;
+    this.mapped = mappedAtCreation;
+    this.mapMode = mappedAtCreation ? "write" : null;
   }
 
   get mapState(): GPUBufferMapState {
@@ -973,18 +1023,35 @@ export class WgpuBuffer implements GPUBuffer {
   }
 
   async mapAsync(mode: GPUMapModeFlags, offset?: number, size?: number): Promise<void> {
-    const mapMode = mode === 1 ? 1 : mode === 2 ? 2 : 1; // read=1, write=2
-    wgpu.wgpu_shim_buffer_map_async(this.ptr, mapMode, BigInt(offset ?? 0), BigInt(size ?? this.size));
+    const mapMode = mode === 1 ? "read" : mode === 2 ? "write" : "read"; // READ=1, WRITE=2
+    this.mapMode = mapMode;
+    this.mapOffset = offset ?? 0;
+    if (mapMode === "read") {
+      // For read maps, ask the native shim to stage the data for readback.
+      wgpu.wgpu_shim_buffer_map_async(this.ptr, 1, BigInt(offset ?? 0), BigInt(size ?? this.size));
+    }
+    // For write maps we buffer in JS and flush on unmap(); no native map needed.
     this.mapped = true;
   }
 
   getMappedRange(offset?: number, size?: number): ArrayBuffer {
+    if (this.mapMode === "write") {
+      // Return the writable JS backing store; contents are flushed to the GPU
+      // on unmap(). PixiJS writes into this buffer via fastCopy().
+      if (!this.writeStore) {
+        this.writeStore = new ArrayBuffer(this.size);
+        this.mapOffset = offset ?? 0;
+      }
+      return this.writeStore;
+    }
+    // Read mode: pull staged data from the native shim.
     const byteLength = size ?? this.size;
+    const off = offset ?? 0;
     const result = new ArrayBuffer(byteLength);
     const outBuf = new Uint8Array(result);
     const status = wgpu.wgpu_shim_buffer_read_mapped(
       this.ptr,
-      BigInt(offset ?? 0),
+      BigInt(off),
       BigInt(byteLength),
       outBuf as any,
       byteLength,
@@ -996,8 +1063,19 @@ export class WgpuBuffer implements GPUBuffer {
   }
 
   unmap(): void {
-    wgpu.wgpu_shim_buffer_unmap(this.ptr);
+    if (this.mapMode === "write" && this.writeStore) {
+      // The native buffer was created mapped; unmap it first (wgpu-native
+      // forbids writeBuffer on a mapped buffer), then flush the JS-buffered
+      // writes via the queue.
+      wgpu.wgpu_shim_buffer_unmap(this.ptr);
+      const arr = new Uint8Array(this.writeStore, this.mapOffset, this.writeStore.byteLength - this.mapOffset);
+      wgpu.wgpu_shim_queue_write_buffer(this.queue.ptr, this.ptr, BigInt(this.mapOffset), arr as any, BigInt(arr.byteLength));
+      this.writeStore = null;
+    } else {
+      wgpu.wgpu_shim_buffer_unmap(this.ptr);
+    }
     this.mapped = false;
+    this.mapMode = null;
   }
 
   destroy(): void {

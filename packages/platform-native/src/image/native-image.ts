@@ -482,14 +482,38 @@ const GLYPH_PATTERNS: Record<string, string[]> = {
 };
 
 function parseColor(color: string): [number, number, number, number] {
-  // Parse rgba(r,g,b,a) or #rrggbb
-  const rgbaMatch = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
+  if (typeof color !== "string") return [0, 0, 0, 255];
+  const c = color.trim().toLowerCase();
+  // Named colors (subset PixiJS commonly uses)
+  const NAMED: Record<string, [number, number, number]> = {
+    white: [255, 255, 255], black: [0, 0, 0], red: [255, 0, 0],
+    green: [0, 128, 0], blue: [0, 0, 255], yellow: [255, 255, 0],
+    cyan: [0, 255, 255], magenta: [255, 0, 255], gray: [128, 128, 128],
+    grey: [128, 128, 128], silver: [192, 192, 192], lime: [0, 255, 0],
+    aqua: [0, 255, 255], teal: [0, 128, 128], navy: [0, 0, 128],
+    fuchsia: [255, 0, 255], purple: [128, 0, 128], olive: [128, 128, 0],
+    maroon: [128, 0, 0], orange: [255, 165, 0], transparent: [0, 0, 0],
+  };
+  if (NAMED[c]) return [NAMED[c][0], NAMED[c][1], NAMED[c][2], c === "transparent" ? 0 : 255];
+  // rgba(r,g,b,a) or rgb(r,g,b)
+  const rgbaMatch = c.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
   if (rgbaMatch) {
     return [parseInt(rgbaMatch[1]), parseInt(rgbaMatch[2]), parseInt(rgbaMatch[3]), rgbaMatch[4] ? Math.round(parseFloat(rgbaMatch[4]) * 255) : 255];
   }
-  const hexMatch = color.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
-  if (hexMatch) {
-    return [parseInt(hexMatch[1], 16), parseInt(hexMatch[2], 16), parseInt(hexMatch[3], 16), 255];
+  // 8-digit hex #rrggbbaa
+  const hex8 = c.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+  if (hex8) {
+    return [parseInt(hex8[1], 16), parseInt(hex8[2], 16), parseInt(hex8[3], 16), parseInt(hex8[4], 16)];
+  }
+  // 6-digit hex #rrggbb
+  const hex6 = c.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+  if (hex6) {
+    return [parseInt(hex6[1], 16), parseInt(hex6[2], 16), parseInt(hex6[3], 16), 255];
+  }
+  // 3-digit hex #rgb
+  const hex3 = c.match(/^#([0-9a-f])([0-9a-f])([0-9a-f])$/i);
+  if (hex3) {
+    return [parseInt(hex3[1] + hex3[1], 16), parseInt(hex3[2] + hex3[2], 16), parseInt(hex3[3] + hex3[3], 16), 255];
   }
   return [0, 0, 0, 255];
 }

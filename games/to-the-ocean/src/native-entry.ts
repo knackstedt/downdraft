@@ -15,6 +15,7 @@ import { createLogger, setThreadTag } from "@downdraft/core";
 import { NativePixiUiHost } from "@downdraft/library-pixi-ui-native";
 import { createNativeHost } from "@downdraft/platform-native";
 import { writeFileSync } from "node:fs";
+import { Graphics, Text } from "pixi.js";
 import { getFreeTypeTextRenderer } from "../../../packages/platform-native/src/image/native-image";
 import { encodePNG } from "../../../packages/platform-native/src/screenshot/screenshot";
 
@@ -22,6 +23,7 @@ import { encodePNG } from "../../../packages/platform-native/src/screenshot/scre
 import { SimWebWorker, type SimWebWorkerConfig } from "./engine/sim-web-worker";
 import { WebGPURenderer } from "./engine/webgpu-renderer";
 import { NativeHud } from "./native-hud";
+import { NativeOceanDataBridge } from "./pixi/native-data-bridge";
 import { useGameStore } from "./stores/game-store";
 
 setThreadTag("R0");
@@ -118,6 +120,19 @@ async function main() {
       log.error("native-entry", `PixiJS scene setup failed: ${e}`);
     }
   }
+
+  // ── Native data bridge: sim reader + game store → worker-store ──
+  // Feeds the reactive store that @pixi/react components consume via
+  // useWorkerState, and routes UI actions back to the store/simBridge.
+  // (The hardcoded smoke-test scene above doesn't read it yet; Phase 4 swaps
+  // in the real OceanApp which does.)
+  const dataBridge = new NativeOceanDataBridge({
+    renderer,
+    canvasW: WIDTH,
+    canvasH: HEIGHT,
+  });
+  dataBridge.start();
+  log.info("native-entry", "Native data bridge started");
 
   // ── Start sim worker ──
   log.info("native-entry", "Starting sim worker...");
@@ -374,6 +389,9 @@ async function main() {
         }
         needsInitialYaw = false;
       }
+      // Feed the native data bridge (sim reader + store → worker-store) before
+      // the frame renders so the UI sees fresh state.
+      try { dataBridge.update(); } catch (e) { log.error("native-entry", `dataBridge.update failed: ${e}`); }
       (renderer as any).renderOneFrame?.();
       frameCount++;
       fpsFrameCount++;
@@ -480,6 +498,9 @@ async function main() {
     } catch {}
     try {
       pixiUi?.dispose();
+    } catch {}
+    try {
+      dataBridge.stop();
     } catch {}
     host.destroy();
     log.info("native-entry", "Cleaned up");
