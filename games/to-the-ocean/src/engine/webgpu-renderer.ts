@@ -147,6 +147,12 @@ export class WebGPURenderer extends GameRenderer implements IRendererStateProvid
   public suppressPresent = false;
   /** When true, skip the IMUI overlay pass (native mode has no UI). */
   public skipUI = false;
+  /**
+   * Native PixiJS UI host. When set, the renderer drives PixiJS each frame
+   * (host.render() submits the UI into a GPUTexture) and composites that
+   * texture over the frame via the host's blit pass — no Chromium/worker.
+   */
+  public nativePixiUi: { render(): void; getUiTextureView(): GPUTextureView | null; blitPass: { execute(enc: GPUCommandEncoder, target: GPUTextureView, ui: GPUTextureView): void } } | null = null;
   /** Callback invoked during drawFrame() to encode a screenshot copy before submit. */
   public screenshotCallback: ((encoder: GPUCommandEncoder) => void) | null = null;
   private rafHandle = 0;
@@ -785,7 +791,7 @@ export class WebGPURenderer extends GameRenderer implements IRendererStateProvid
     } else {
       for (let v = 0; v < vpCount; v++) { this.drawViewport(v, dt, "none", commandEncoder); }
     }
-    if (this.uiRenderer && this.uiRoot && !this.skipUI) {
+    if (this.uiRenderer && this.uiRoot && !this.skipUI && !this.nativePixiUi) {
       if (this.accessors.uiNeedsLayout && this.uiLayoutEngine) { this.uiLayoutEngine.layout(this.uiRoot); this.accessors.uiNeedsLayout = false; }
       const ds = this.uiRoot.getDrawable();
       if (ds.length > 0) {
@@ -793,6 +799,18 @@ export class WebGPURenderer extends GameRenderer implements IRendererStateProvid
         const up = commandEncoder.beginRenderPass({ colorAttachments: [{ view: cv, clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: "load" as GPULoadOp, storeOp: "store" as GPUStoreOp }] });
         this.uiRenderer.render({ device, pass: new TrackedRenderPass(up) } as unknown as RenderContext, ds);
         up.end();
+      }
+    }
+    // ── Native PixiJS UI compositing ──
+    // Drive PixiJS to render the UI into its GPUTexture (this submits PixiJS's
+    // own command encoder to the shared queue), then blit that texture over
+    // the frame. The write is ordered before the read on the shared queue.
+    if (this.nativePixiUi) {
+      this.nativePixiUi.render();
+      const uiView = this.nativePixiUi.getUiTextureView();
+      if (uiView) {
+        const cv = context.getCurrentTexture().createView();
+        this.nativePixiUi.blitPass.execute(commandEncoder, cv, uiView);
       }
     }
     if (this.gpuProfiler) {

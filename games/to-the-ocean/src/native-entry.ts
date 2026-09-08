@@ -12,6 +12,7 @@
 // ============================================================================
 
 import { createLogger, setThreadTag } from "@downdraft/core";
+import { NativePixiUiHost } from "@downdraft/library-pixi-ui-native";
 import { createNativeHost } from "@downdraft/platform-native";
 import { writeFileSync } from "node:fs";
 import { getFreeTypeTextRenderer } from "../../../packages/platform-native/src/image/native-image";
@@ -72,6 +73,49 @@ async function main() {
       log.info("native-entry", "FreeType text renderer wired into IMUI");
     } else {
       log.warn("native-entry", "Could not find TextAtlasCache — FreeType text not wired");
+    }
+  }
+
+  // ── Native PixiJS UI (in-process, shared wgpu-native device) ──
+  // PixiJS v8 WebGPU runs on the renderer's own GPUDevice (the same device the
+  // 3D pipeline uses), rendering the UI into a GPUTexture the renderer blits
+  // over the frame. No Chromium, no worker. This is the native replacement
+  // for the browser pixi-ui worker + OffscreenCanvas path.
+  const rendererDevice = renderer.getDevice?.() ?? (renderer as any).device ?? device;
+  const rendererAdapter = renderer.getAdapter?.() ?? (renderer as any).adapter ?? host.adapter;
+  const pixiUi = new NativePixiUiHost({
+    device: rendererDevice,
+    adapter: rendererAdapter,
+    targetFormat: "bgra8unorm",
+    width: WIDTH,
+    height: HEIGHT,
+  });
+  try {
+    await pixiUi.ready;
+    log.info("native-entry", "PixiJS Application initialized on shared wgpu-native device");
+  } catch (e) {
+    log.error("native-entry", `PixiJS init failed (UI disabled): ${e}`);
+  }
+  // Hardcoded smoke-test scene: a translucent panel + text. Validates wgpu-native
+  // WGSL conformance (PixiJS shaders), FreeType text rasterization, and the
+  // compositing blit. Replaced by the real @pixi/react UI in Phase 4.
+  if (pixiUi && !pixiUi["disposed"]) {
+    try {
+      const panel = new Graphics();
+      panel.roundRect(20, 20, 360, 80, 8);
+      panel.fill({ color: 0x112233, alpha: 0.85 });
+      panel.stroke({ color: 0x33aaff, width: 2 });
+      const label = new Text({
+        text: "Native PixiJS UI\n(Bun + wgpu-native, no Chromium)",
+        style: { fontFamily: "sans-serif", fontSize: 18, fill: 0xffffff, align: "left", lineHeight: 22 },
+      });
+      label.x = 36; label.y = 32;
+      pixiUi.stage.addChild(panel);
+      pixiUi.stage.addChild(label);
+      renderer.nativePixiUi = pixiUi;
+      log.info("native-entry", "PixiJS smoke-test scene attached");
+    } catch (e) {
+      log.error("native-entry", `PixiJS scene setup failed: ${e}`);
     }
   }
 
@@ -433,6 +477,9 @@ async function main() {
     } catch {}
     try {
       sim.stop?.();
+    } catch {}
+    try {
+      pixiUi?.dispose();
     } catch {}
     host.destroy();
     log.info("native-entry", "Cleaned up");

@@ -34,6 +34,12 @@
       "@downdraft/platform-native/*": [
         "./packages/platform-native/src/*"
       ],
+      "@downdraft/library-pixi-ui-native": [
+        "./packages/libraries/pixi-ui-native/src/index.ts"
+      ],
+      "@downdraft/library-pixi-ui-native/*": [
+        "./packages/libraries/pixi-ui-native/src/*"
+      ],
       "@downdraft/ui/*": [
         "./packages/ui/src/*"
       ],

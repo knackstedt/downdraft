@@ -1,0 +1,228 @@
+// ============================================================================
+// virtual-canvas-context.ts — texture-backed GPUCanvasContext for PixiJS
+//
+// PixiJS v8's WebGPU render target calls `canvas.getContext("webgpu")` and
+// expects a GPUCanvasContext with `configure()`, `getCurrentTexture()`, and
+// `unconfigure()`. In the browser the context is backed by the swapchain.
+// In native mode the game already owns the one swapchain (NativeSurface), so
+// a second renderer (PixiJS) must render into a *dedicated* GPUTexture that
+// the game then samples in a compositing blit pass.
+//
+// VirtualCanvasContext owns that dedicated texture on the shared wgpu-native
+// device. `getCurrentTexture()` returns the same persistent texture each
+// frame (recreated only on resize); PixiJS clears it via loadOp:"clear" every
+// frame, so there is no accumulation. Because the texture lives on the same
+// device/queue as the game, the game can sample it directly — zero copy.
+//
+// VirtualCanvas is the HTMLCanvasElement-shaped object PixiJS holds: it has
+// width/height/style, getContext("webgpu") → VirtualCanvasContext, and
+// getContext("2d") → a FreeType-backed NativeCanvas2D (for PixiJS text
+// rasterization via DOMAdapter.get().createCanvas()).
+// ============================================================================
+
+import { NativeCanvas2D } from "../image/native-image";
+import type { WgpuDevice, WgpuTexture, WgpuTextureView } from "./wgpu-wrapper";
+
+export interface VirtualCanvasConfig {
+  format: GPUTextureFormat;
+  usage: number;
+  alphaMode: GPUCanvasAlphaMode;
+}
+
+/**
+ * A GPUCanvasContext backed by a persistent GPUTexture (not a swapchain).
+ * Used by PixiJS to render the UI into a texture the game composites.
+ */
+export class VirtualCanvasContext implements GPUCanvasContext {
+  private device: WgpuDevice | null = null;
+  private config: VirtualCanvasConfig | null = null;
+  private texture: WgpuTexture | null = null;
+  private textureWidth = 0;
+  private textureHeight = 0;
+  // The canvas dimensions are pushed in via resize() / configure().
+  private canvasWidth: number;
+  private canvasHeight: number;
+
+  constructor(canvasWidth: number, canvasHeight: number) {
+    this.canvasWidth = canvasWidth;
+    this.canvasHeight = canvasHeight;
+  }
+
+  configure(config: GPUCanvasConfiguration): void {
+    this.device = config.device as WgpuDevice;
+    this.config = {
+      format: config.format,
+      // PixiJS requests TEXTURE_BINDING | COPY_DST | RENDER_ATTACHMENT | COPY_SRC.
+      usage: config.usage ?? (
+        0x0004 | // TEXTURE_BINDING
+        0x0008 | // COPY_DST  (GPUTextureUsage — matches install.ts constants)
+        0x0010 | // RENDER_ATTACHMENT
+        0x0001   // COPY_SRC
+      ),
+      alphaMode: (config.alphaMode ?? "opaque") as GPUCanvasAlphaMode,
+    };
+    // (Re)create the texture immediately so the first getCurrentTexture() is
+    // ready and sized correctly.
+    this.ensureTexture();
+  }
+
+  unconfigure(): void {
+    if (this.texture) {
+      try { this.texture.destroy(); } catch { /* ignore */ }
+      this.texture = null;
+    }
+    this.textureWidth = 0;
+    this.textureHeight = 0;
+    this.device = null;
+    this.config = null;
+  }
+
+  getCurrentTexture(): WgpuTexture | null {
+    if (!this.device || !this.config) return null;
+    return this.ensureTexture();
+  }
+
+  /** The texture the game samples in its compositing blit pass. */
+  getUiTexture(): WgpuTexture | null {
+    return this.texture;
+  }
+
+  /** A view of the UI texture for the blit pass's sampler binding. */
+  getUiTextureView(): WgpuTextureView | null {
+    const tex = this.ensureTexture();
+    if (!tex) return null;
+    try {
+      return tex.createView({ dimension: "2d", format: this.config!.format });
+    } catch {
+      return null;
+    }
+  }
+
+  getFormat(): GPUTextureFormat | null {
+    return this.config?.format ?? null;
+  }
+
+  /** Called by VirtualCanvas when width/height change. */
+  resize(width: number, height: number): void {
+    this.canvasWidth = width;
+    this.canvasHeight = height;
+    // ensureTexture() will recreate on next access if dimensions changed.
+  }
+
+  destroy(): void {
+    this.unconfigure();
+  }
+
+  private ensureTexture(): WgpuTexture | null {
+    if (!this.device || !this.config) return null;
+    const w = Math.max(1, Math.floor(this.canvasWidth));
+    const h = Math.max(1, Math.floor(this.canvasHeight));
+    // Recreate if missing or size changed.
+    if (this.texture && this.textureWidth === w && this.textureHeight === h) {
+      return this.texture;
+    }
+    if (this.texture) {
+      try { this.texture.destroy(); } catch { /* ignore */ }
+      this.texture = null;
+    }
+    try {
+      this.texture = this.device.createTexture({
+        size: { width: w, height: h, depthOrArrayLayers: 1 },
+        format: this.config.format,
+        usage: this.config.usage,
+        mipLevelCount: 1,
+        sampleCount: 1,
+        dimension: "2d",
+      });
+      this.textureWidth = w;
+      this.textureHeight = h;
+    } catch (err) {
+      console.error("[VirtualCanvasContext] Failed to create UI texture:", err);
+      this.texture = null;
+    }
+    return this.texture;
+  }
+}
+
+type EventListener = (event: any) => void;
+
+/**
+ * HTMLCanvasElement-shaped canvas for PixiJS. `getContext("webgpu")` returns
+ * a VirtualCanvasContext (texture-backed); `getContext("2d")` returns a
+ * FreeType-backed NativeCanvas2D (for text rasterization).
+ */
+export class VirtualCanvas implements Partial<HTMLCanvasElement> {
+  width: number;
+  height: number;
+  style: Record<string, string> = {};
+  private webgpuContext: VirtualCanvasContext;
+  private ctx2d: NativeCanvas2D | null = null;
+  private listeners: Map<string, Set<EventListener>> = new Map();
+
+  constructor(width: number, height: number) {
+    this.width = width;
+    this.height = height;
+    this.webgpuContext = new VirtualCanvasContext(width, height);
+  }
+
+  get clientWidth(): number { return this.width; }
+  get clientHeight(): number { return this.height; }
+
+  getBoundingClientRect(): { left: number; top: number; width: number; height: number } {
+    return { left: 0, top: 0, width: this.width, height: this.height };
+  }
+
+  getContext(contextId: "webgpu" | "2d" | string): any {
+    if (contextId === "webgpu") return this.webgpuContext;
+    if (contextId === "2d") {
+      if (!this.ctx2d || this.ctx2d.width !== this.width || this.ctx2d.height !== this.height) {
+        this.ctx2d = new NativeCanvas2D(this.width, this.height);
+      }
+      return this.ctx2d;
+    }
+    return null;
+  }
+
+  /** PixiJS may call this; we are not offscreen-transferable — return self. */
+  transferControlToOffscreen(): VirtualCanvas {
+    return this;
+  }
+
+  setAttribute(_key: string, _value: string): void {}
+  getAttribute(_key: string): string | null { return null; }
+  appendChild(_node: any): any { return _node; }
+  removeChild(_node: any): any { return _node; }
+  contains(_node: any): boolean { return false; }
+  focus(): void {}
+  blur(): void {}
+  click(): void {}
+  remove(): void {}
+
+  addEventListener(type: string, listener: EventListener): void {
+    if (!this.listeners.has(type)) this.listeners.set(type, new Set());
+    this.listeners.get(type)!.add(listener);
+  }
+  removeEventListener(type: string, listener: EventListener): void {
+    this.listeners.get(type)?.delete(listener);
+  }
+  dispatchEvent(event: any): boolean {
+    const set = this.listeners.get(event.type);
+    if (set) for (const l of set) try { l(event); } catch (e) { console.error("[VirtualCanvas] listener error:", e); }
+    return true;
+  }
+
+  resize(width: number, height: number): void {
+    this.width = width;
+    this.height = height;
+    this.webgpuContext.resize(width, height);
+    this.dispatchEvent({ type: "resize", width, height });
+  }
+
+  /** Expose the WebGPU context so the host can read the UI texture. */
+  getWebgpuContext(): VirtualCanvasContext { return this.webgpuContext; }
+
+  destroy(): void {
+    this.webgpuContext.destroy();
+    this.listeners.clear();
+  }
+}
