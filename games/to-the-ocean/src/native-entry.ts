@@ -23,6 +23,7 @@ import { SimWebWorker, type SimWebWorkerConfig } from "./engine/sim-web-worker";
 import { WebGPURenderer } from "./engine/webgpu-renderer";
 import { NativeHud } from "./native-hud";
 import { NativeOceanDataBridge } from "./pixi/native-data-bridge";
+import { NativeInputRouter } from "./pixi/native-input-router";
 import { createNativeOceanScene, type NativeOceanScene } from "./pixi/native-scene";
 import { useGameStore } from "./stores/game-store";
 
@@ -127,6 +128,42 @@ async function main() {
       log.info("native-entry", "Native OceanApp scene attached");
     } catch (e) {
       log.error("native-entry", `Native scene setup failed: ${e}`);
+    }
+  }
+
+  // ── Native input router: SDL mouse → PixiJS EventSystem when menus open ──
+  // Intercepts mouse events on the canvas (capture phase) before the game's
+  // input handler. When a menu/overlay is open and the click hits a PixiJS
+  // element, the event is routed to PixiJS and stopped from reaching the game.
+  let inputRouter: NativeInputRouter | null = null;
+  if (pixiUi && !pixiUi["disposed"]) {
+    try {
+      inputRouter = new NativeInputRouter(pixiUi, WIDTH, HEIGHT);
+      const surfaceEl = surface as any;
+      // Capture-phase listeners: run before the game's input handler (bubble).
+      surfaceEl.addEventListener("mousedown", (e: any) => {
+        const mods = (e.shiftKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.altKey ? 4 : 0) | (e.metaKey ? 8 : 0);
+        if (inputRouter!.handlePointerDown(e.clientX, e.clientY, e.button, mods)) {
+          e.stopPropagation?.();
+          e.preventDefault?.();
+        }
+      }, true);
+      surfaceEl.addEventListener("mousemove", (e: any) => {
+        const mods = (e.shiftKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.altKey ? 4 : 0) | (e.metaKey ? 8 : 0);
+        if (inputRouter!.handlePointerMove(e.clientX, e.clientY, e.button, mods)) {
+          e.stopPropagation?.();
+        }
+      }, true);
+      surfaceEl.addEventListener("mouseup", (e: any) => {
+        const mods = (e.shiftKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.altKey ? 4 : 0) | (e.metaKey ? 8 : 0);
+        if (inputRouter!.handlePointerUp(e.clientX, e.clientY, e.button, mods)) {
+          e.stopPropagation?.();
+          e.preventDefault?.();
+        }
+      }, true);
+      log.info("native-entry", "Native input router attached");
+    } catch (e) {
+      log.error("native-entry", `Input router setup failed: ${e}`);
     }
   }
 
