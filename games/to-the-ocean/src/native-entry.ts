@@ -15,7 +15,6 @@ import { createLogger, setThreadTag } from "@downdraft/core";
 import { NativePixiUiHost } from "@downdraft/library-pixi-ui-native";
 import { createNativeHost } from "@downdraft/platform-native";
 import { writeFileSync } from "node:fs";
-import { Graphics, Text } from "pixi.js";
 import { getFreeTypeTextRenderer } from "../../../packages/platform-native/src/image/native-image";
 import { encodePNG } from "../../../packages/platform-native/src/screenshot/screenshot";
 
@@ -24,6 +23,7 @@ import { SimWebWorker, type SimWebWorkerConfig } from "./engine/sim-web-worker";
 import { WebGPURenderer } from "./engine/webgpu-renderer";
 import { NativeHud } from "./native-hud";
 import { NativeOceanDataBridge } from "./pixi/native-data-bridge";
+import { createNativeOceanScene, type NativeOceanScene } from "./pixi/native-scene";
 import { useGameStore } from "./stores/game-store";
 
 setThreadTag("R0");
@@ -98,34 +98,10 @@ async function main() {
   } catch (e) {
     log.error("native-entry", `PixiJS init failed (UI disabled): ${e}`);
   }
-  // Hardcoded smoke-test scene: a translucent panel + text. Validates wgpu-native
-  // WGSL conformance (PixiJS shaders), FreeType text rasterization, and the
-  // compositing blit. Replaced by the real @pixi/react UI in Phase 4.
-  if (pixiUi && !pixiUi["disposed"]) {
-    try {
-      const panel = new Graphics();
-      panel.roundRect(20, 20, 360, 80, 8);
-      panel.fill({ color: 0x112233, alpha: 0.85 });
-      panel.stroke({ color: 0x33aaff, width: 2 });
-      const label = new Text({
-        text: "Native PixiJS UI\n(Bun + wgpu-native, no Chromium)",
-        style: { fontFamily: "sans-serif", fontSize: 18, fill: 0xffffff, align: "left", lineHeight: 22 },
-      });
-      label.x = 36; label.y = 32;
-      pixiUi.stage.addChild(panel);
-      pixiUi.stage.addChild(label);
-      renderer.nativePixiUi = pixiUi;
-      log.info("native-entry", "PixiJS smoke-test scene attached");
-    } catch (e) {
-      log.error("native-entry", `PixiJS scene setup failed: ${e}`);
-    }
-  }
-
   // ── Native data bridge: sim reader + game store → worker-store ──
   // Feeds the reactive store that @pixi/react components consume via
   // useWorkerState, and routes UI actions back to the store/simBridge.
-  // (The hardcoded smoke-test scene above doesn't read it yet; Phase 4 swaps
-  // in the real OceanApp which does.)
+  // Created before the scene so the scene's postAction can reference it.
   const dataBridge = new NativeOceanDataBridge({
     renderer,
     canvasW: WIDTH,
@@ -133,6 +109,26 @@ async function main() {
   });
   dataBridge.start();
   log.info("native-entry", "Native data bridge started");
+
+  // ── Native @pixi/react scene (reuses the browser OceanApp) ──
+  // The NativeOceanDataBridge feeds state into worker-store; React re-renders
+  // automatically via useWorkerState. This replaces the Phase 2 smoke-test.
+  let oceanScene: NativeOceanScene | null = null;
+  if (pixiUi && !pixiUi["disposed"]) {
+    try {
+      oceanScene = await createNativeOceanScene({
+        app: pixiUi.app,
+        width: WIDTH,
+        height: HEIGHT,
+        fontScale: 1,
+        postAction: (action: any) => dataBridge.handleAction(action),
+      });
+      renderer.nativePixiUi = pixiUi;
+      log.info("native-entry", "Native OceanApp scene attached");
+    } catch (e) {
+      log.error("native-entry", `Native scene setup failed: ${e}`);
+    }
+  }
 
   // ── Start sim worker ──
   log.info("native-entry", "Starting sim worker...");
@@ -195,6 +191,8 @@ async function main() {
   // in native mode (exitPointerLock is optional-chained).
   useGameStore.getState().setRenderer(renderer);
   useGameStore.getState().setReady(true);
+  useGameStore.getState().setSimReady(true); // sim worker started below
+  useGameStore.getState().setLutReady(true); // LUTs loaded below
 
   // ── Wait for LUTs to load ──
   try {
@@ -392,6 +390,7 @@ async function main() {
       // Feed the native data bridge (sim reader + store → worker-store) before
       // the frame renders so the UI sees fresh state.
       try { dataBridge.update(); } catch (e) { log.error("native-entry", `dataBridge.update failed: ${e}`); }
+      try { oceanScene?.update(); } catch (e) { log.error("native-entry", `oceanScene.update failed: ${e}`); }
       (renderer as any).renderOneFrame?.();
       frameCount++;
       fpsFrameCount++;
@@ -498,6 +497,9 @@ async function main() {
     } catch {}
     try {
       pixiUi?.dispose();
+    } catch {}
+    try {
+      oceanScene?.dispose();
     } catch {}
     try {
       dataBridge.stop();

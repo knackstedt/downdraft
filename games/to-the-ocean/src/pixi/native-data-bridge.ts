@@ -16,9 +16,9 @@ import { PLR, PLR_FLAG, SimBufferReader } from "@downdraft/core";
 import { GAME_PLR } from "@shared/constants/buffer";
 import { CameraMode } from "@shared/types";
 
-import type { OceanAction } from "./bridge-protocol";
-import { getWorkerState, setPostAction, setWorkerState } from "./worker-store";
 import { useGameStore } from "../stores/game-store";
+import type { OceanAction } from "./bridge-protocol";
+import { setPostAction, setWorkerState } from "./worker-store";
 
 export interface NativeDataBridgeDeps {
   /** The WebGPURenderer (or any object exposing getSimReader()). */
@@ -164,7 +164,7 @@ export class NativeOceanDataBridge {
   }
 
   /** Route a UI action to the game store / simBridge. Mirrors main.tsx onAction. */
-  private handleAction(a: OceanAction): void {
+  handleAction(a: OceanAction): void {
     const s = useGameStore.getState();
     switch (a.kind) {
       case "toggleMenu":
