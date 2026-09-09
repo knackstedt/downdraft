@@ -951,6 +951,15 @@ export class WgpuQueue implements GPUQueue {
     // method. The source is a canvas (VirtualCanvas with a NativeCanvas2D ctx).
     // We read its RGBA pixels and upload via writeTexture with 256-byte row
     // alignment (wgpu COPY_BYTES_PER_ROW_ALIGNMENT = 256).
+    //
+    // Channel swizzling: the source canvas/image is always RGBA (the 2D
+    // canvas pixel format and ImageData are RGBA). The destination texture
+    // may be bgra8unorm (PixiJS creates text/image textures in the renderer's
+    // preferred format, which is bgra8unorm on wgpu-native). The browser's
+    // copyExternalImageToTexture converts the source to the destination
+    // format automatically; we must do the same by swapping R and B when the
+    // destination is a BGRA format, otherwise text/image colors render with
+    // red and blue swapped.
     const img = (source as any).source ?? source;
     const texture = destination.texture as WgpuTexture;
     let width: number, height: number;
@@ -973,15 +982,30 @@ export class WgpuQueue implements GPUQueue {
     }
     if (!rgba) return;
 
+    const dstFormat = texture?.format;
+    const isBGRA = dstFormat === "bgra8unorm" || dstFormat === "bgra8unorm-srgb";
+
     const srcRowBytes = srcW * 4;
     const dstRowBytes = Math.ceil(srcRowBytes / 256) * 256; // 256-byte alignment
-    // Build the padded buffer (only the copied region: width x height).
+    // Build the padded buffer (only the copied region: width x height),
+    // swapping R and B per pixel when the destination is a BGRA format.
     const copyRowBytes = width * 4;
     const padded = new Uint8Array(dstRowBytes * height);
     for (let y = 0; y < height; y++) {
       const srcOff = y * srcRowBytes;
       const dstOff = y * dstRowBytes;
-      padded.set(rgba.subarray(srcOff, srcOff + copyRowBytes), dstOff);
+      if (!isBGRA) {
+        padded.set(rgba.subarray(srcOff, srcOff + copyRowBytes), dstOff);
+      } else {
+        for (let x = 0; x < width; x++) {
+          const s = srcOff + x * 4;
+          const d = dstOff + x * 4;
+          padded[d] = rgba[s + 2];     // R ← B
+          padded[d + 1] = rgba[s + 1]; // G ← G
+          padded[d + 2] = rgba[s];     // B ← R
+          padded[d + 3] = rgba[s + 3]; // A ← A
+        }
+      }
     }
     wgpu.wgpu_shim_queue_write_texture(
       this.ptr,
