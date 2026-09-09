@@ -178,7 +178,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   equipment: { rod: null, weapon: null, armor: null, accessory: null },
   suppressPauseMenu: false,
   pendingResume: false,
-  reticleSize: 80,
+  reticleSize: 16,
   builderCellType: 0,
   builderRotation: 0,
   showBuilderWheel: false,

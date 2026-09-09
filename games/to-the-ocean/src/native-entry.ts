@@ -210,7 +210,10 @@ async function main() {
   const uiRoot = renderer.getUIRoot?.();
   const uiInputRouter = renderer.getUIInputRouter?.();
   let hud: NativeHud | null = null;
-  if (uiRoot && uiInputRouter) {
+  // The IMUI NativeHud is disabled now that the PixiJS UI (OceanApp) is the
+  // primary UI. Keeping it enabled caused duplicate HUDs, duplicate pause/
+  // settings panels, and a conflicting crosshair.
+  if (false && uiRoot && uiInputRouter) {
     hud = new NativeHud(uiRoot, uiInputRouter);
     // Wire the sim reader so the HUD can display live game state
     const simReader = renderer.getSimReader?.() ?? (renderer as any).simReader;
@@ -222,7 +225,9 @@ async function main() {
     renderer.refreshUIScreenSize?.();
     log.info("native-entry", "Native HUD created");
   } else {
-    log.warn("native-entry", "UI root or input router not available — HUD disabled");
+    // Still refresh screen size for any IMUI debug overlays that may render.
+    renderer.refreshUIScreenSize?.();
+    log.info("native-entry", "IMUI HUD disabled (PixiJS UI is primary)");
   }
 
   // ── Wire renderer into the game store so toggle methods work ──
@@ -454,6 +459,7 @@ async function main() {
       if (now - lastFpsTime >= 2000) {
         currentFps = Math.round((fpsFrameCount * 1000) / (now - lastFpsTime));
         if (hud) hud.state.fps = currentFps;
+        useGameStore.getState().setFPS(currentFps);
         // Debug: check sim state
         const simReader = (renderer as any).getSimReader?.() ?? (renderer as any).simReader;
         if (simReader?.isValid()) {

@@ -1,9 +1,16 @@
 import { ScaledText } from "../font-scale-context";
-import React from "react";
-import { useWorkerState, postAction } from "../worker-store";
+import { useWorkerState } from "../worker-store";
 
 const WEATHER_NAMES = ["Clear", "Cloudy", "Rain", "Storm", "Fog"];
 const BIOME_NAMES = ["Ocean", "Coast", "Island", "River", "Lake"];
+
+/** Format a 0..1 time-of-day fraction as HH:MM. */
+function formatTimeOfDay(t: number): string {
+  const totalMinutes = Math.floor(t * 24 * 60);
+  const h = Math.floor(totalMinutes / 60) % 24;
+  const m = totalMinutes % 60;
+  return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
+}
 
 function Bar({ label, value, max, color, x, y, w }: { label: string; value: number; max: number; color: number; x: number; y: number; w: number }) {
   const ratio = Math.max(0, Math.min(1, max > 0 ? value / max : 0));
@@ -42,7 +49,7 @@ export function Hud({ width, height }: { width: number; height: number }) {
 
       {/* Top-right: time + weather + biome */}
       <pixiContainer x={width - 200} y={8}>
-        <ScaledText text={`Time: ${(hud.timeOfDay * 24).toFixed(0)}:00`} style={{ fill: 0xffffff, fontSize: 13, fontFamily: "monospace" }} />
+        <ScaledText text={`Time: ${formatTimeOfDay(hud.timeOfDay)}`} style={{ fill: 0xffffff, fontSize: 13, fontFamily: "monospace" }} />
         <ScaledText text={`Weather: ${WEATHER_NAMES[hud.weatherType] ?? "Clear"}`} y={16} style={{ fill: 0x999999, fontSize: 12, fontFamily: "sans-serif" }} />
         <ScaledText text={`Biome: ${BIOME_NAMES[hud.biome] ?? "Ocean"}`} y={30} style={{ fill: 0x999999, fontSize: 12, fontFamily: "sans-serif" }} />
         {hud.isOnboard && <ScaledText text="[On Ship]" y={44} style={{ fill: 0x4fc3f7, fontSize: 12, fontFamily: "sans-serif" }} />}
