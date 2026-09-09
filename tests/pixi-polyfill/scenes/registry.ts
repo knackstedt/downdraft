@@ -7,11 +7,19 @@
 // set of scenes.
 // ============================================================================
 
-import type { PixiScene } from "./types";
+import { buttonsScene } from "./buttons";
+import { dropdownsScene } from "./dropdowns";
+import { graphicsScene } from "./graphics";
+import { slidersScene } from "./sliders";
 import { textScene } from "./text";
+import type { PixiScene } from "./types";
 
 export const SCENES: PixiScene[] = [
   textScene,
+  graphicsScene,
+  buttonsScene,
+  slidersScene,
+  dropdownsScene,
 ];
 
 export function getSceneById(id: string): PixiScene | undefined {
