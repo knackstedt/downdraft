@@ -9,7 +9,8 @@
 //   - NativeOceanDataBridge: sim reader + game store → worker-store
 //   - NativeInputRouter: SDL mouse → PixiJS EventSystem when menus open
 //   - Real-time animation loop with SDL event polling
-//   - Screenshot capture via F12 or on exit
+//   - Screenshot capture via F11 or on exit
+//   - Native debugger overlay (F12 to toggle) — pixi.js DevTools panels
 //
 // Run: bun run games/to-the-ocean/src/native-entry.ts
 // ============================================================================
@@ -101,6 +102,29 @@ async function main() {
   } catch (e) {
     log.error("native-entry", `PixiJS init failed (UI disabled): ${e}`);
   }
+  // ── Native debugger overlay (F12 to toggle) ──
+  // A second NativePixiUiHost on the shared device, composited above the
+  // game UI. Renders pixi.js debugger panels (console, scene, GPU, perf, DOM
+  // tree) with click handling. See @downdraft/library-devtools.
+  let debuggerHost: NativeDebuggerHost | null = null;
+  if (pixiUi && !pixiUi["disposed"]) {
+    try {
+      debuggerHost = new NativeDebuggerHost({
+        device: rendererDevice,
+        adapter: rendererAdapter,
+        targetFormat: "bgra8unorm",
+        width: WIDTH,
+        height: HEIGHT,
+        renderer,
+        gamePixiUi: pixiUi,
+      });
+      await debuggerHost.start();
+      renderer.nativeDebugger = debuggerHost;
+      log.info("native-entry", "Native debugger overlay ready (F12 to toggle)");
+    } catch (e) {
+      log.error("native-entry", `Debugger overlay init failed: ${e}`);
+    }
+  }
   // ── Native data bridge: sim reader + game store → worker-store ──
   // Feeds the reactive store that @pixi/react components consume via
   // useWorkerState, and routes UI actions back to the store/simBridge.
@@ -145,6 +169,12 @@ async function main() {
       // Capture-phase listeners: run before the game's input handler (bubble).
       surfaceEl.addEventListener("mousedown", (e: any) => {
         const mods = (e.shiftKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.altKey ? 4 : 0) | (e.metaKey ? 8 : 0);
+        // Debugger overlay gets priority when visible (F12).
+        if (debuggerHost?.visible && debuggerHost.handlePointerDown(e.clientX, e.clientY, e.button, mods)) {
+          e.stopPropagation?.();
+          e.preventDefault?.();
+          return;
+        }
         if (inputRouter!.handlePointerDown(e.clientX, e.clientY, e.button, mods)) {
           e.stopPropagation?.();
           e.preventDefault?.();
@@ -152,12 +182,21 @@ async function main() {
       }, true);
       surfaceEl.addEventListener("mousemove", (e: any) => {
         const mods = (e.shiftKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.altKey ? 4 : 0) | (e.metaKey ? 8 : 0);
+        if (debuggerHost?.visible && debuggerHost.handlePointerMove(e.clientX, e.clientY, e.button, mods)) {
+          e.stopPropagation?.();
+          return;
+        }
         if (inputRouter!.handlePointerMove(e.clientX, e.clientY, e.button, mods)) {
           e.stopPropagation?.();
         }
       }, true);
       surfaceEl.addEventListener("mouseup", (e: any) => {
         const mods = (e.shiftKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.altKey ? 4 : 0) | (e.metaKey ? 8 : 0);
+        if (debuggerHost?.visible && debuggerHost.handlePointerUp(e.clientX, e.clientY, e.button, mods)) {
+          e.stopPropagation?.();
+          e.preventDefault?.();
+          return;
+        }
         if (inputRouter!.handlePointerUp(e.clientX, e.clientY, e.button, mods)) {
           e.stopPropagation?.();
           e.preventDefault?.();
@@ -223,7 +262,7 @@ async function main() {
   }
 
   // ── Real-time render loop ──
-  log.info("native-entry", "Starting real-time render loop (close window or Exit button to quit, F12 for screenshot)...");
+  log.info("native-entry", "Starting real-time render loop (close window or Exit button to quit, F11 for screenshot, F12 for debugger)...");
 
   let frameCount = 0;
   let running = true;
@@ -275,6 +314,9 @@ async function main() {
         document.exitPointerLock?.();
       }
     } else if (key === "F12") {
+      // Toggle the native debugger overlay
+      debuggerHost?.toggle();
+    } else if (key === "F11") {
       captureScreenshotNow();
     } else if (keyCode === 73) { // I → Inventory
       useGameStore.getState().toggleInventory();
@@ -405,6 +447,7 @@ async function main() {
       // the frame renders so the UI sees fresh state.
       try { dataBridge.update(); } catch (e) { log.error("native-entry", `dataBridge.update failed: ${e}`); }
       try { oceanScene?.update(); } catch (e) { log.error("native-entry", `oceanScene.update failed: ${e}`); }
+      try { debuggerHost?.update(); } catch (e) { log.error("native-entry", `debuggerHost.update failed: ${e}`); }
       (renderer as any).renderOneFrame?.();
       frameCount++;
       fpsFrameCount++;
@@ -507,6 +550,9 @@ async function main() {
     } catch {}
     try {
       oceanScene?.dispose();
+    } catch {}
+    try {
+      debuggerHost?.dispose();
     } catch {}
     try {
       dataBridge.stop();
