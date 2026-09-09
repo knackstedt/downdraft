@@ -8,6 +8,7 @@
 // ============================================================================
 
 import { buttonsScene } from "./buttons";
+import { componentsScene } from "./components";
 import { dropdownsScene } from "./dropdowns";
 import { graphicsScene } from "./graphics";
 import { slidersScene } from "./sliders";
@@ -20,6 +21,7 @@ export const SCENES: PixiScene[] = [
   buttonsScene,
   slidersScene,
   dropdownsScene,
+  componentsScene,
 ];
 
 export function getSceneById(id: string): PixiScene | undefined {
