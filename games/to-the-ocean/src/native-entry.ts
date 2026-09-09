@@ -16,6 +16,7 @@
 // ============================================================================
 
 import { createLogger, setThreadTag } from "@downdraft/core";
+import { NativeDebuggerHost } from "@downdraft/library-devtools";
 import { NativePixiUiHost } from "@downdraft/library-pixi-ui-native";
 import { createNativeHost } from "@downdraft/platform-native";
 import { writeFileSync } from "node:fs";
@@ -455,6 +456,8 @@ async function main() {
       // Auto-capture a screenshot after enough frames for mesh generation
       if (frameCount === 600 && !screenshotCaptured) {
         screenshotCaptured = true;
+        // Auto-show debugger for verification screenshot if requested
+        if (process.env.DEBUGGER_AUTO_SHOW) { debuggerHost?.show(); }
         captureScreenshotNow();
         log.info("native-entry", "Auto-screenshot captured for HUD verification");
       }

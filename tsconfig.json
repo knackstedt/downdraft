@@ -40,6 +40,12 @@
       "@downdraft/library-pixi-ui-native/*": [
         "./packages/libraries/pixi-ui-native/src/*"
       ],
+      "@downdraft/library-devtools": [
+        "./packages/libraries/devtools/src/index.ts"
+      ],
+      "@downdraft/library-devtools/*": [
+        "./packages/libraries/devtools/src/*"
+      ],
       "@downdraft/ui/*": [
         "./packages/ui/src/*"
       ],

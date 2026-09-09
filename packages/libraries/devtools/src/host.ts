@@ -33,27 +33,28 @@ export interface NativeDebuggerOptions {
 }
 
 // Lazy import of NativePixiUiHost + UiBlitPass (peer dependency, may not be
-// available in non-native environments). We use a dynamic require so the
-// package typechecks without the native host installed.
+// available in non-native environments). We use a dynamic import() so the
+// package typechecks without the native host installed and works in Bun's
+// ESM context (require() is not available in ESM modules under Bun).
 let NativePixiUiHostCtor: any = null;
 let UiBlitPassCtor: any = null;
-function loadNativeHost(): void {
-  if (NativePixiUiHostCtor) return;
-  try {
-    const mod = require("@downdraft/library-pixi-ui-native");
-    NativePixiUiHostCtor = mod.NativePixiUiHost;
-    UiBlitPassCtor = mod.UiBlitPass;
-  } catch {
-    // Fallback: direct path import (for Bun's module resolution)
+let nativeHostLoading: Promise<void> | null = null;
+function loadNativeHost(): Promise<void> {
+  if (NativePixiUiHostCtor) return Promise.resolve();
+  if (nativeHostLoading) return nativeHostLoading;
+  nativeHostLoading = (async () => {
     try {
-      const mod = require("../../pixi-ui-native/src/index.ts");
+      // Use a variable so TypeScript doesn't try to resolve the optional peer dep.
+      const modulePath = "@downdraft/library-pixi-ui-native";
+      const mod: any = await import(/* @vite-ignore */ modulePath);
       NativePixiUiHostCtor = mod.NativePixiUiHost;
       UiBlitPassCtor = mod.UiBlitPass;
     } catch {
       NativePixiUiHostCtor = null;
       UiBlitPassCtor = null;
     }
-  }
+  })();
+  return nativeHostLoading;
 }
 
 export class NativeDebuggerHost {
@@ -93,7 +94,7 @@ export class NativeDebuggerHost {
   /** Start the debugger: create the debug pixi host + scene + CDP session. */
   async start(): Promise<void> {
     if (this._ready || this.disposed) return;
-    loadNativeHost();
+    await loadNativeHost();
     if (!NativePixiUiHostCtor) {
       console.warn("[NativeDebuggerHost] NativePixiUiHost not available — debugger disabled");
       return;
@@ -113,6 +114,10 @@ export class NativeDebuggerHost {
       console.error("[NativeDebuggerHost] Debug PixiJS init failed:", err);
       this.debugPixiUi = null;
       return;
+    }
+    // Create the blit pass for compositing the debug overlay above the game UI.
+    if (UiBlitPassCtor) {
+      this.blitPass = new UiBlitPassCtor(this.opts.device, this.opts.targetFormat);
     }
 
     // Create the DebuggerScene and attach it to the debug overlay's stage.
