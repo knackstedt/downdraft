@@ -153,6 +153,10 @@ export class WebGPURenderer extends GameRenderer implements IRendererStateProvid
    * texture over the frame via the host's blit pass — no Chromium/worker.
    */
   public nativePixiUi: { render(): void; getUiTextureView(): GPUTextureView | null; blitPass: { execute(enc: GPUCommandEncoder, target: GPUTextureView, ui: GPUTextureView): void } } | null = null;
+  /** Native debugger overlay (second NativePixiUiHost composited above the game UI).
+   *  Toggled by F12. When visible, the renderer blits the debug overlay after
+   *  the game UI blit. See @downdraft/library-devtools NativeDebuggerHost. */
+  public nativeDebugger: { visible: boolean; update(): void; getUiTextureView(): GPUTextureView | null; blit(enc: GPUCommandEncoder, target: GPUTextureView): void } | null = null;
   /** Callback invoked during drawFrame() to encode a screenshot copy before submit. */
   public screenshotCallback: ((encoder: GPUCommandEncoder) => void) | null = null;
   private rafHandle = 0;
@@ -811,6 +815,19 @@ export class WebGPURenderer extends GameRenderer implements IRendererStateProvid
       if (uiView) {
         const cv = context.getCurrentTexture().createView();
         this.nativePixiUi.blitPass.execute(commandEncoder, cv, uiView);
+      }
+    }
+    // ── Native debugger overlay compositing ──
+    // When the debugger is visible (F12), update + render the debug overlay
+    // (drives its PixiJS render into its GPUTexture), then blit it above the
+    // game UI. The host.update() is also called from the render loop, but we
+    // call it here too so the debug texture is fresh before the blit.
+    if (this.nativeDebugger && this.nativeDebugger.visible) {
+      try { this.nativeDebugger.update(); } catch { /* ignore */ }
+      const dbgView = this.nativeDebugger.getUiTextureView();
+      if (dbgView) {
+        const cv = context.getCurrentTexture().createView();
+        this.nativeDebugger.blit(commandEncoder, cv);
       }
     }
     if (this.gpuProfiler) {
