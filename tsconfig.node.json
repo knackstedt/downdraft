@@ -89,6 +89,12 @@
       "@downdraft/library-pixi-ui-native/*": [
         "./packages/libraries/pixi-ui-native/src/*"
       ],
+      "@downdraft/library-devtools": [
+        "./packages/libraries/devtools/src/index.ts"
+      ],
+      "@downdraft/library-devtools/*": [
+        "./packages/libraries/devtools/src/*"
+      ],
       "@downdraft/library-physics-rapier": [
         "./packages/libraries/physics-rapier/src/index.ts"
       ],
