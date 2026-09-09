@@ -24,7 +24,6 @@ import { encodePNG } from "../../../packages/platform-native/src/screenshot/scre
 // These imports use tsconfig path aliases which Bun resolves natively
 import { SimWebWorker, type SimWebWorkerConfig } from "./engine/sim-web-worker";
 import { WebGPURenderer } from "./engine/webgpu-renderer";
-import { NativeHud } from "./native-hud";
 import { NativeOceanDataBridge } from "./pixi/native-data-bridge";
 import { NativeInputRouter } from "./pixi/native-input-router";
 import { createNativeOceanScene, type NativeOceanScene } from "./pixi/native-scene";
@@ -206,30 +205,6 @@ async function main() {
   let needsInitialYaw = true;
   log.info("native-entry", "Input listeners set up");
 
-  // ── Set up native HUD (IMUI) ──
-  const uiRoot = renderer.getUIRoot?.();
-  const uiInputRouter = renderer.getUIInputRouter?.();
-  let hud: NativeHud | null = null;
-  // The IMUI NativeHud is disabled now that the PixiJS UI (OceanApp) is the
-  // primary UI. Keeping it enabled caused duplicate HUDs, duplicate pause/
-  // settings panels, and a conflicting crosshair.
-  if (false && uiRoot && uiInputRouter) {
-    hud = new NativeHud(uiRoot, uiInputRouter);
-    // Wire the sim reader so the HUD can display live game state
-    const simReader = renderer.getSimReader?.() ?? (renderer as any).simReader;
-    if (simReader) hud.setSimReader(simReader);
-    renderer.markUILayoutDirty?.();
-    // Critical: set the UI renderer's screen size so the text/quad shaders
-    // convert pixel coordinates to NDC correctly. Without this, screenSize
-    // defaults to (0,0) and all text renders at NaN/Inf clip positions.
-    renderer.refreshUIScreenSize?.();
-    log.info("native-entry", "Native HUD created");
-  } else {
-    // Still refresh screen size for any IMUI debug overlays that may render.
-    renderer.refreshUIScreenSize?.();
-    log.info("native-entry", "IMUI HUD disabled (PixiJS UI is primary)");
-  }
-
   // ── Wire renderer into the game store so toggle methods work ──
   // The game store's toggleInventory/toggleCraftMenu/etc. call
   // renderer.lockPointer() and document.exitPointerLock() — both are safe
@@ -271,8 +246,9 @@ async function main() {
   // ── Keyboard shortcuts ──
   // In the browser version, the PixiUI worker handles menu toggles via UI
   // buttons. In native mode, we wire keyboard shortcuts directly to the game
-  // store's toggle methods. The NativeHud reads the store state to show/hide
-  // the corresponding IMUI panels.
+  // store's toggle methods. The NativeOceanDataBridge subscribes to the store
+  // and forwards visibility changes to worker-store, so the @pixi/react
+  // OceanApp re-renders automatically via useWorkerState.
   window.addEventListener("keydown", (event: any) => {
     const key = event.key;
     const keyCode = event.keyCode;
@@ -298,27 +274,20 @@ async function main() {
       if (anyOverlay && document.pointerLockElement) {
         document.exitPointerLock?.();
       }
-      renderer.markUILayoutDirty?.();
     } else if (key === "F12") {
       captureScreenshotNow();
     } else if (keyCode === 73) { // I → Inventory
       useGameStore.getState().toggleInventory();
-      renderer.markUILayoutDirty?.();
     } else if (keyCode === 9) { // Tab → Crafting
       useGameStore.getState().toggleCraftMenu();
-      renderer.markUILayoutDirty?.();
     } else if (keyCode === 77) { // M → Map
       useGameStore.getState().toggleMap();
-      renderer.markUILayoutDirty?.();
     } else if (keyCode === 66) { // B → Build menu
       useGameStore.getState().toggleBuildMenu();
-      renderer.markUILayoutDirty?.();
     } else if (keyCode === 67) { // C → Character customization
       useGameStore.getState().toggleCharacterCustomization();
-      renderer.markUILayoutDirty?.();
     } else if (keyCode === 80) { // P → Pause menu
       useGameStore.getState().togglePauseMenu();
-      renderer.markUILayoutDirty?.();
     }
   });
 
@@ -440,13 +409,6 @@ async function main() {
       frameCount++;
       fpsFrameCount++;
 
-      // Update HUD with current game state
-      if (hud) {
-        hud.state.fps = currentFps;
-        hud.state.frameCount = frameCount;
-        hud.update(0.016);
-      }
-
       // Auto-capture a screenshot after enough frames for mesh generation
       if (frameCount === 600 && !screenshotCaptured) {
         screenshotCaptured = true;
@@ -458,7 +420,6 @@ async function main() {
       const now = performance.now();
       if (now - lastFpsTime >= 2000) {
         currentFps = Math.round((fpsFrameCount * 1000) / (now - lastFpsTime));
-        if (hud) hud.state.fps = currentFps;
         useGameStore.getState().setFPS(currentFps);
         // Debug: check sim state
         const simReader = (renderer as any).getSimReader?.() ?? (renderer as any).simReader;
