@@ -4,7 +4,10 @@
 // Replaces Electron + Vite + browser with:
 //   - createNativeHost() for window + GPU + polyfills
 //   - Direct WebGPURenderer + SimWebWorker instantiation
-//   - No UI (PixiUI, React, DOM overlay all skipped)
+//   - Native PixiUI: in-process PixiJS v8 WebGPU on the shared wgpu-native
+//     device, rendering the real @pixi/react OceanApp over the 3D frame
+//   - NativeOceanDataBridge: sim reader + game store → worker-store
+//   - NativeInputRouter: SDL mouse → PixiJS EventSystem when menus open
 //   - Real-time animation loop with SDL event polling
 //   - Screenshot capture via F12 or on exit
 //

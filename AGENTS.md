@@ -1424,4 +1424,37 @@ gcc -shared -fPIC -o libimage_shim.so image_shim.c -lm
 
 ### Current status
 
-Phases 0-6 are complete. The native GPU pipeline works end-to-end: a triangle can be rendered to an SDL2 window via wgpu-native and captured as a PNG screenshot. Remaining work: engine core adaptation (feature detection at seams), Android target, performance optimization.
+Phases 0-6 are complete. The native GPU pipeline works end-to-end: a triangle can be rendered to an SDL2 window via wgpu-native and captured as a PNG screenshot. The native PixiUI pipeline (below) is also complete — the real `@pixi/react` OceanApp renders over the 3D frame in native mode. Remaining work: engine core adaptation (feature detection at seams), Android target, performance optimization.
+
+## Native PixiUI (`@downdraft/library-pixi-ui-native`)
+
+In-process PixiJS v8 WebGPU UI renderer for native (Bun + SDL2 + wgpu-native) mode. Reuses the browser `@pixi/react` scene (e.g. `OceanApp`) without Electron/Chromium. PixiJS runs on the main thread on the **same `GPUDevice`** as the game, rendering into a texture-backed virtual canvas; the game composites that texture over the 3D frame each render pass via a fullscreen blit. No CPU readback in the compositing path.
+
+### Architecture
+
+- **`NativePixiUiHost`** (`packages/libraries/pixi-ui-native/src/host.ts`): creates a `PIXI.Application` against a `VirtualCanvas` (not the swapchain) with `gpu: { adapter, device }` so PixiJS reuses the game's device. `autoStart: false` — the game drives `host.render()` each frame before encoding its blit pass. `backgroundAlpha: 0` so the 3D scene shows through transparent UI areas.
+- **Virtual canvas + WebGPU context** (`packages/platform-native/src/gpu/virtual-canvas-context.ts`): a `VirtualCanvas` backs a `GPUTexture` (not the swapchain). `getUiTextureView()` returns the texture view the game samples in its compositing blit pass.
+- **UI blit pass** (`packages/libraries/pixi-ui-native/src/ui-blit-pass.ts`): a fullscreen triangle shader that samples the UI texture and blends it over the frame's color attachment with `loadOp: "load"` (preserves the 3D frame).
+- **Compositing hook** (`WebGPURenderer.renderOneFrame`): after the 3D scene + postfx, calls `nativePixiUi.render()` (submits PixiJS's encoder to the shared queue), then `blitPass.execute(encoder, frameView, uiView)`. The write is ordered before the read on the shared queue.
+- **Native data bridge** (`games/<game>/src/pixi/native-data-bridge.ts`): reads `SimBufferReader` + `useGameStore` each frame and calls `setWorkerState()` directly (the same reactive store `@pixi/react` components consume via `useWorkerState`). Routes UI actions back to the game store / `simBridge`. Replaces the browser worker/SAB/postMessage path with in-process store updates.
+- **Native scene factory** (`games/<game>/src/pixi/native-scene.tsx`): `createNativeOceanScene(ctx)` calls `createPixiReactRoot(ctx)` (the same adapter the browser worker uses) and renders the real `OceanApp` React tree. `update()` is a no-op — React re-renders automatically via `useWorkerState` when the bridge calls `setWorkerState`. `getOpaqueRegions()` mirrors the browser scene's logic so the 3D renderer can skip work behind opaque panels.
+- **Native input router** (`games/<game>/src/pixi/native-input-router.ts`): intercepts SDL mouse events on the canvas in **capture phase** (before the game's input handler). When a menu/overlay is open, hit-tests against PixiJS's `rootBoundary.hitTest(x, y)`; if the hit succeeds, dispatches a synthetic pointer event to `EventSystem._onPointerDown/Move/Up` (same approach as the browser pixi-ui worker) and stops propagation. Misses pass through to the game.
+
+### Critical native WebGPU fixes (required for PixiJS)
+
+- **`WgpuBuffer` write-mapped semantics** (`packages/platform-native/src/gpu/wgpu-wrapper.ts`): `getMappedRange()` returns a persistent JS backing store for `mappedAtCreation` write maps; `unmap()` flushes it to the native buffer via `queue.writeBuffer` (after unmap, since wgpu-native rejects writes while mapped). Without this, PixiJS's `fastCopy(data, getMappedRange())` + `unmap()` pattern wrote into a throwaway `ArrayBuffer` and all geometry drew nothing.
+- **`copyExternalImageToTexture`** (`packages/platform-native/src/gpu/wgpu-wrapper.ts`): reads canvas RGBA pixels via `getContext("2d").getImageData()` and uploads with `queue.writeTexture` (256-byte row alignment for WebGPU's `bytesPerRow`). Handles `bgra8unorm` textures. Without this, text/image textures never uploaded.
+- **`parseColor`** (`packages/platform-native/src/image/native-image.ts`): handles named colors (`"white"`, `"black"`, etc.), 8-digit hex (`#rrggbbaa`), and 3-digit hex. Without this, PixiJS's `fillStyle: "white"` fell through to the black fallback and text rendered black.
+
+### Key files
+
+- `packages/libraries/pixi-ui-native/src/host.ts` — `NativePixiUiHost`
+- `packages/libraries/pixi-ui-native/src/ui-blit-pass.ts` — fullscreen blit pass
+- `packages/libraries/pixi-ui-native/src/shaders/ui-blit.wgsl.ts` — blit shader
+- `packages/platform-native/src/gpu/virtual-canvas-context.ts` — texture-backed canvas
+- `packages/platform-native/src/gpu/wgpu-wrapper.ts` — `WgpuBuffer` mapped-write + `copyExternalImageToTexture`
+- `packages/platform-native/src/image/native-image.ts` — `NativeCanvas2D` (FreeType text + `parseColor`)
+- `games/to-the-ocean/src/native-entry.ts` — native wiring (host + scene + bridge + input router)
+- `games/to-the-ocean/src/pixi/native-data-bridge.ts` — `NativeOceanDataBridge`
+- `games/to-the-ocean/src/pixi/native-scene.tsx` — `createNativeOceanScene` (reuses `OceanApp`)
+- `games/to-the-ocean/src/pixi/native-input-router.ts` — `NativeInputRouter`
