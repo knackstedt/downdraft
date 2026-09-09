@@ -1,6 +1,5 @@
 import { ScaledText } from "../font-scale-context";
-import React from "react";
-import { useWorkerState, postAction } from "../worker-store";
+import { postAction, useWorkerState } from "../worker-store";
 
 const PANEL_W = 400, PANEL_H = 360;
 const SLOT_SIZE = 32, SLOTS_PER_ROW = 10;
