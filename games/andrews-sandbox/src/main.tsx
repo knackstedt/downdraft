@@ -17,7 +17,7 @@ import { PixiUiHost } from "@downdraft/library-pixi-ui";
 // implementation that bypasses Chrome's ESC-exits-pointer-lock behavior and
 // re-lock cooldown. No-op in browser/web mode (falls back to real API).
 import "@downdraft/module-raw-input/polyfill";
-import { EntityType, FunMode, PoseState, ToolType, ToolgunContext } from "@sandbox/shared/types";
+import { EntityType, FunMode, PhysgunMode, PoseState, ToolType, ToolgunContext } from "@sandbox/shared/types";
 import { SimWebWorker, type SimWebWorkerConfig } from "./engine/sim-web-worker";
 import { WebGPURenderer } from "./engine/webgpu-renderer";
 import { SANDBOX_STATS_LAYOUT, type SandboxAction } from "./pixi/bridge-protocol";
@@ -367,6 +367,11 @@ startGame({
     let yaw = 0;
     let pitch = 0;
     let pointerLocked = false;
+    // Timestamp of the last wheel event while the physgun was active. Some
+    // mice / raw-input setups emit a spurious horizontal mousemove when the
+    // scroll wheel is used; we suppress camera rotation for a short window
+    // after each wheel event so the wheel stays dedicated to the physgun.
+    let lastWheelAt = 0;
     const keys = new Set<string>();
 
     // Click canvas to acquire pointer lock (initial entry or recovery).
@@ -400,10 +405,23 @@ startGame({
     (ctx as any)._requestPointerLockSafe = requestPointerLockSafe;
     (ctx as any)._markMenuClosed = () => {};
 
-    // Mouse look — gated on !showEscMenu.
+    // Mouse look — gated on !showEscMenu. While the physgun is right-click
+    // rotating a held prop, mouse movement drives prop rotation instead of
+    // the camera (Garry's Mod-style).
     document.addEventListener("mousemove", (e) => {
       if (!pointerLocked) return;
       if (useGameStore.getState().showEscMenu) return;
+      if (weaponController.getTool() === ToolType.Physgun && weaponController.getPhysgun().isRotating()) {
+        weaponController.getPhysgun().onRotateDrag(e.movementX, e.movementY);
+        return;
+      }
+      // Suppress camera rotation for a brief window after a wheel scroll —
+      // some mice / raw-input setups emit a spurious (often horizontal-only)
+      // mousemove when the scroll wheel is used, which would otherwise yaw the
+      // camera and stutter when scrolling + moving the mouse at the same time.
+      // Applies to all tools/modes (not just the physgun) since the spurious
+      // deltas come from the raw mouse hardware, not the active tool.
+      if ((performance.now() - lastWheelAt) < 80) return;
       yaw += e.movementX * 0.0025;
       pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, pitch - e.movementY * 0.0025));
       applyCamera(renderer as WebGPURenderer, yaw, pitch);
@@ -416,26 +434,52 @@ startGame({
       if (e.button === 0) {
         weaponController.onPrimaryDown();
         if (weaponController.getTool() === ToolType.Paintgun) paintSystem?.startFiring();
+      } else if (e.button === 2) {
+        // Right-click: rotate a held prop (GMod-style). If not currently
+        // grabbing, fall back to toggling the grab mode (Ghost ↔ Solid).
+        if (weaponController.getTool() === ToolType.Physgun) {
+          const gun = weaponController.getPhysgun();
+          if (gun.isGrabbing()) gun.onSecondaryDown();
+          else { gun.toggleMode(); (ctx as any)._domHud?.updateToolBtns?.(); }
+        }
       }
     });
     canvas.addEventListener("mouseup", (e) => {
       if (e.button === 0) {
         weaponController.onPrimaryUp();
         if (weaponController.getTool() === ToolType.Paintgun) paintSystem?.stopFiring();
+      } else if (e.button === 2) {
+        if (weaponController.getTool() === ToolType.Physgun) {
+          weaponController.getPhysgun().onSecondaryUp();
+        }
       }
     });
 
     // Prevent context menu (so right-click doesn't break flow)
     canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
-    // Scroll wheel adjusts physgun grab distance, or third-person camera
-    // distance when not grabbing and in ThirdPerson mode.
+    // Scroll wheel:
+    //  - Physgun active + rotating a held prop → cycle rotation axis.
+    //  - Physgun active + grabbing            → adjust grab distance.
+    //  - Physgun active + not grabbing        → consumed (no effect); the wheel
+    //    is reserved for the physgun so it never moves the camera while held.
+    //  - Otherwise (no physgun) in ThirdPerson → adjust camera distance.
     canvas.addEventListener("wheel", (e) => {
       if (useGameStore.getState().showEscMenu) return;
-      if (weaponController.getTool() === ToolType.Physgun && weaponController.getPhysgun().isGrabbing()) {
+      // Record the timestamp of every wheel event so the mousemove handler
+      // can suppress the spurious (often horizontal-only) mousemove events
+      // that some mice / raw-input setups emit when the scroll wheel is
+      // used. Without this, scrolling + moving the mouse simultaneously
+      // stutters the camera because the spurious deltas fight the real ones.
+      lastWheelAt = performance.now();
+      if (weaponController.getTool() === ToolType.Physgun) {
         e.preventDefault();
-        weaponController.getPhysgun().adjustDistance(-e.deltaY * 0.01);
-      } else if (cameraMode === CameraMode.ThirdPerson) {
+        const gun = weaponController.getPhysgun();
+        if (gun.isRotating()) gun.cycleRotationAxis();
+        else if (gun.isGrabbing()) gun.adjustDistance(-e.deltaY * 0.01);
+        return;
+      }
+      if (cameraMode === CameraMode.ThirdPerson) {
         e.preventDefault();
         thirdPersonDistance = Math.max(
           THIRD_PERSON_MIN_DIST,
@@ -539,6 +583,13 @@ startGame({
       paintSystem?.tick();
       vrModule?.tick(dt);
       const r = renderer as WebGPURenderer;
+      // Forward the physgun's hover target to the renderer so the looked-at
+      // prop gets the outline shader. Only relevant when the physgun is active.
+      r.setHoverEntity(
+        weaponController.getTool() === ToolType.Physgun
+          ? weaponController.getPhysgun().getHoverTarget()
+          : null,
+      );
 
       // ── FreeCam: fly the camera through the world; the sim player freezes ──
       if (cameraMode === CameraMode.FreeCam) {
@@ -834,20 +885,41 @@ function buildDomHud(
     { type: ToolType.Paintgun, label: "Paintgun [4]" },
   ];
   const toolBtns: HTMLButtonElement[] = [];
+  let physgunBtn: HTMLButtonElement | null = null;
   for (const t of tools) {
     const btn = document.createElement("button");
     btn.className = "tool-btn";
     btn.textContent = t.label;
+    if (t.type === ToolType.Physgun) {
+      physgunBtn = btn;
+      btn.classList.add("physgun-btn");
+    }
     btn.onclick = () => {
       weapons.setTool(t.type);
       useGameStore.getState().setActiveTool(t.type);
       toolBtns.forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
+      updatePhysgunModeBadge();
     };
     toolbar.appendChild(btn);
     toolBtns.push(btn);
   }
   document.body.appendChild(toolbar);
+
+  // Physgun mode badge — appended to the Physgun tool button. Reflects the
+  // current grab mode (Solid = collision-aware, Ghost = no collision) so the
+  // player can tell which mode a grab will use without firing.
+  const physgunModeBadge = document.createElement("span");
+  physgunModeBadge.className = "physgun-mode-badge";
+  physgunBtn?.appendChild(physgunModeBadge);
+  function updatePhysgunModeBadge(): void {
+    const gun = weapons.getPhysgun();
+    const isGhost = gun.getMode() === PhysgunMode.Ghost;
+    physgunModeBadge.textContent = isGhost ? "Ghost" : "Solid";
+    physgunModeBadge.classList.toggle("ghost", isGhost);
+    physgunModeBadge.classList.toggle("solid", !isGhost);
+  }
+  updatePhysgunModeBadge();
 
   // Fun mode bar
   const funbar = document.createElement("div");
@@ -911,6 +983,7 @@ function buildDomHud(
     toolBtns.forEach((b, i) => {
       b.classList.toggle("active", tools[i].type === s.activeTool);
     });
+    updatePhysgunModeBadge();
   }
 
   // ── ESC Menu ──
@@ -1081,11 +1154,12 @@ function buildDomHud(
         ["WASD", "Move"],
         ["Mouse", "Look around"],
         ["Click", "Use tool / weapon"],
+        ["Right-click", "Physgun: rotate held prop (hold + move mouse)"],
         ["Space", "Jump (standing only) / Fly up (Freecam)"],
         ["Shift", "Hold to crouch / Fly down (Freecam)"],
         ["Ctrl", "Hold to prone"],
         ["C", "Cycle camera (First Person → Third Person → Freecam)"],
-        ["Scroll", "Third Person: camera distance"],
+        ["Scroll", "Physgun: grab distance / rotation axis (while rotating) · Third Person: camera distance"],
         ["1-4", "Switch tools (Physgun, Toolgun, Pistol, Paintgun)"],
         ["B", "Toggle content browser"],
         ["P", "Toggle paint palette"],

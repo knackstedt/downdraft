@@ -1,5 +1,6 @@
 // @andrews-sandbox/library-paint — raster-to-bitmap texture painting
 export {
+    cubeFacePixelBounds,
     cubeFaceUV,
     groundPlaneUV,
     PaintCanvas,

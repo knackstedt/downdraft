@@ -61,6 +61,31 @@ export enum ToolgunContext {
   SetFunMode = 2,
 }
 
+// --- Physgun Modes ---
+// Ghost: grabbed prop becomes kinematic and is teleported to the target each
+//   frame — it passes through walls and other objects freely (original behavior).
+// Solid: grabbed prop stays dynamic and is driven toward the target via velocity
+//   each sim tick, so the physics engine resolves collisions and the prop can't
+//   arbitrarily clip through other objects.
+
+export enum PhysgunMode {
+  Ghost = 0,
+  Solid = 1,
+}
+
+// --- Physgun Rotation Axis ---
+// Cycled with the scroll wheel while right-click rotating a held prop
+// (Garry's Mod-style). Free = trackball (mouse X yaws, mouse Y pitches);
+// the single-axis modes constrain rotation to one axis; Roll spins around
+// the view forward axis.
+
+export enum RotAxis {
+  Free = 0,
+  Yaw = 1,
+  Pitch = 2,
+  Roll = 3,
+}
+
 // --- Sim→Renderer message types ---
 
 export interface PropSpawnedData {
@@ -116,9 +141,10 @@ export type SimCommand =
   | { type: "setPose"; pose: PoseState }
   | { type: "setTool"; tool: ToolType }
   | { type: "fireWeapon"; origin: [number, number, number]; direction: [number, number, number] }
-  | { type: "grabProp"; entityId: number; origin: [number, number, number] }
+  | { type: "grabProp"; entityId: number; origin: [number, number, number]; mode: PhysgunMode }
   | { type: "releaseProp"; entityId: number; velocity: [number, number, number] }
   | { type: "updateGrab"; entityId: number; targetPos: [number, number, number] }
+  | { type: "rotateGrab"; entityId: number; quaternion: [number, number, number, number] }
   | { type: "updatePropPhysics"; entityId: number; mass?: number; restitution?: number; friction?: number; gravityScale?: number }
   | { type: "applyImpulse"; entityId: number; impulse: [number, number, number] }
   | { type: "movePlayer"; desiredDelta: [number, number, number] };

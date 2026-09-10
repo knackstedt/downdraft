@@ -6,17 +6,17 @@
 
 import type { CharacterControllerHandle } from "@downdraft/core";
 import {
-  ENT, InputBufferReader, SimBufferWriter, SimWorkerLoop,
-  type BodyDesc, type ColliderDesc, type Entity,
-  type LoadOptions,
-  type PhysicsBody,
-  type SaveOptions, type SaveState,
+    ENT, InputBufferReader, SimBufferWriter, SimWorkerLoop,
+    type BodyDesc, type ColliderDesc, type Entity,
+    type LoadOptions,
+    type PhysicsBody,
+    type SaveOptions, type SaveState,
 } from "@downdraft/core";
 import { expose, exposeEvents } from "@downdraft/core/worker/rpc";
 import { OpfsSaveStore, type OpfsSaveStoreOptions } from "@downdraft/library-persistence/browser";
 import { RapierPhysicsBackend, UniversalPhysicsAPI } from "@downdraft/library-physics-rapier";
 import { ENT_DATA, MAX_SIM_SPEED, MIN_SIM_SPEED, SIM_TICK_DT } from "@sandbox/shared/constants/buffer";
-import { EntityType, FunMode, PoseState, PropFlags, type SandboxSimMessage, type SimCommand } from "@sandbox/shared/types";
+import { EntityType, FunMode, PhysgunMode, PoseState, PropFlags, type SandboxSimMessage, type SimCommand } from "@sandbox/shared/types";
 
 (globalThis as any).__ddThreadTag = "R1";
 
@@ -86,6 +86,14 @@ interface PropRecord {
   lifetime?: number;
 }
 const propRecords = new Map<number, PropRecord>(); // entityId → record
+// Active physgun grabs: entityId → { mode, targetPos }. The tick loop drives
+// Solid-mode grabs toward targetPos via velocity so collisions are respected;
+// Ghost-mode grabs are teleported directly in the updateGrab handler.
+interface GrabState {
+  mode: PhysgunMode;
+  targetPos: [number, number, number];
+}
+const grabbedProps = new Map<number, GrabState>();
 let nextSlotIdx = 0;
 let currentFunMode = FunMode.Normal;
 /** Recycled slot indices from removed props (reused before allocating new slots). */
@@ -307,6 +315,7 @@ function removeProp(entityId: number): void {
   // Recycle the slot so it can be reused by the next spawn
   freeSlots.push(record.slotIdx);
   propRecords.delete(entityId);
+  grabbedProps.delete(entityId);
   events.emit("prop_removed", { entityId });
 }
 
@@ -317,6 +326,7 @@ function clearProps(): void {
     if (physicsApi) physicsApi.destroyBody(record.body);
   }
   propRecords.clear();
+  grabbedProps.clear();
   nextSlotIdx = 0;
   freeSlots.length = 0;
   simWriter!.setEntityCount(0);
@@ -325,6 +335,9 @@ function clearProps(): void {
 // ── Set fun mode (recreate bodies with new physics properties) ──
 function setFunMode(mode: FunMode): void {
   currentFunMode = mode;
+  // Recreating bodies below invalidates active grabs (new bodies are dynamic);
+  // drop grab state so the Solid driver doesn't push a fresh body unexpectedly.
+  grabbedProps.clear();
   const gravityScale = mode === FunMode.Moon ? 0.16 : mode === FunMode.ZeroG ? 0 : 1.0;
   const restitution = mode === FunMode.Bouncy ? 0.95 : 0.3;
   const friction = mode === FunMode.Bouncy ? 0.1 : 0.5;
@@ -401,23 +414,69 @@ function processCommand(cmd: SimCommand): void {
     case "grabProp": {
       const record = propRecords.get(cmd.entityId);
       if (record && physicsApi) {
-        physicsApi.setBodyType(record.body, "kinematic");
+        if (cmd.mode === PhysgunMode.Solid) {
+          // Keep the body dynamic — the tick loop drives it toward the target
+          // via velocity so the physics engine resolves collisions. Wake it so
+          // it responds immediately and won't sleep mid-grab.
+          physicsApi.wakeUp(record.body);
+        } else {
+          // Ghost: kinematic + teleport (original behavior — clips through everything).
+          physicsApi.setBodyType(record.body, "kinematic");
+        }
+        grabbedProps.set(cmd.entityId, {
+          mode: cmd.mode,
+          targetPos: [cmd.origin[0], cmd.origin[1], cmd.origin[2]],
+        });
       }
       break;
     }
     case "releaseProp": {
       const record = propRecords.get(cmd.entityId);
+      const grab = grabbedProps.get(cmd.entityId);
       if (record && physicsApi) {
-        physicsApi.setBodyType(record.body, "dynamic");
-        physicsApi.setLinearVelocityRaw(record.body, cmd.velocity[0], cmd.velocity[1], cmd.velocity[2], true);
+        if (grab?.mode === PhysgunMode.Solid) {
+          // Preserve current linear velocity so the prop carries momentum from
+          // the grab (e.g. a swing-throw). Just ensure it's dynamic.
+          physicsApi.setBodyType(record.body, "dynamic");
+          physicsApi.wakeUp(record.body);
+        } else {
+          // Ghost: restore dynamic and apply the supplied release velocity.
+          physicsApi.setBodyType(record.body, "dynamic");
+          physicsApi.setLinearVelocityRaw(record.body, cmd.velocity[0], cmd.velocity[1], cmd.velocity[2], true);
+        }
       }
+      grabbedProps.delete(cmd.entityId);
       break;
     }
     case "updateGrab": {
       const record = propRecords.get(cmd.entityId);
-      if (record && physicsApi) {
+      const grab = grabbedProps.get(cmd.entityId);
+      if (!record || !physicsApi || !grab) break;
+      // Always update the stored target; the tick loop uses it for Solid mode.
+      grab.targetPos[0] = cmd.targetPos[0];
+      grab.targetPos[1] = cmd.targetPos[1];
+      grab.targetPos[2] = cmd.targetPos[2];
+      if (grab.mode === PhysgunMode.Ghost) {
+        // Ghost: teleport directly (no collision resolution).
         physicsApi.setTranslationRaw(record.body, cmd.targetPos[0], cmd.targetPos[1], cmd.targetPos[2], false);
       }
+      // Solid: handled in the tick loop (velocity-based, collision-aware).
+      break;
+    }
+    case "rotateGrab": {
+      const record = propRecords.get(cmd.entityId);
+      const grab = grabbedProps.get(cmd.entityId);
+      if (!record || !physicsApi || !grab) break;
+      const [qx, qy, qz, qw] = cmd.quaternion;
+      physicsApi.setRotationRaw(record.body, qx, qy, qz, qw, false);
+      // Zero angular velocity so collisions can't fight the user's rotation
+      // while the prop is being held (notably for Solid/dynamic grabs).
+      physicsApi.setAngularVelocityRaw(record.body, 0, 0, 0, false);
+      // Mirror into the SAB so the renderer picks up the new orientation
+      // without waiting for the next syncTransforms tick.
+      const f32 = simWriter!.getEntityF32(record.slotIdx);
+      f32[ENT.ROT_X] = qx; f32[ENT.ROT_Y] = qy; f32[ENT.ROT_Z] = qz; f32[ENT.ROT_W] = qw;
+      simWriter!.markEntityDirty(record.slotIdx);
       break;
     }
     case "updatePropPhysics": {
@@ -438,6 +497,12 @@ function processCommand(cmd: SimCommand): void {
       record.friction = newFriction;
       record.gravityScale = newGravityScale;
       physicsApi.setLinearVelocityRaw(record.body, _velOut[0], _velOut[1], _velOut[2], true);
+      // Re-apply active grab state — body recreation above resets the body type
+      // to dynamic, which would break a Ghost grab (needs kinematic).
+      const grab = grabbedProps.get(cmd.entityId);
+      if (grab && grab.mode === PhysgunMode.Ghost) {
+        physicsApi.setBodyType(record.body, "kinematic");
+      }
       // Update SAB
       const f32 = simWriter!.getEntityF32(record.slotIdx);
       const u32 = simWriter!.getEntityU32(record.slotIdx);
@@ -460,6 +525,42 @@ function processCommand(cmd: SimCommand): void {
       pendingPlayerMove = cmd.desiredDelta;
       break;
     }
+  }
+}
+
+// ── Drive Solid-mode physgun grabs toward their target ──
+// Velocity-based P controller: set linear velocity toward the target each tick.
+// The physics step then moves the body and resolves collisions, so the grabbed
+// prop can't clip through walls or other objects. Setting velocity fresh each
+// tick also counteracts gravity (no cumulative droop). Angular velocity is left
+// untouched so collisions can spin the prop naturally.
+const SOLID_GRAB_GAIN = 12.0;   // velocity = delta * gain
+const SOLID_GRAB_MAX_SPEED = 40.0; // m/s cap
+function driveSolidGrabs(_dt: number): void {
+  if (!physicsApi) return;
+  for (const [entityId, grab] of grabbedProps) {
+    if (grab.mode !== PhysgunMode.Solid) continue;
+    const record = propRecords.get(entityId);
+    if (!record) continue;
+    physicsApi.getTranslationRaw(record.body, _posOut);
+    const dx = grab.targetPos[0] - _posOut[0];
+    const dy = grab.targetPos[1] - _posOut[1];
+    const dz = grab.targetPos[2] - _posOut[2];
+    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    if (dist < 1e-4) {
+      // At target — kill linear velocity so it hovers in place.
+      physicsApi.setLinearVelocityRaw(record.body, 0, 0, 0, true);
+      continue;
+    }
+    let vx = dx * SOLID_GRAB_GAIN;
+    let vy = dy * SOLID_GRAB_GAIN;
+    let vz = dz * SOLID_GRAB_GAIN;
+    const speed = Math.sqrt(vx * vx + vy * vy + vz * vz);
+    if (speed > SOLID_GRAB_MAX_SPEED) {
+      const s = SOLID_GRAB_MAX_SPEED / speed;
+      vx *= s; vy *= s; vz *= s;
+    }
+    physicsApi.setLinearVelocityRaw(record.body, vx, vy, vz, true);
   }
 }
 
@@ -566,6 +667,10 @@ expose({
       maxSpeed: MAX_SIM_SPEED,
       minSpeed: MIN_SIM_SPEED,
       tick: async (dt) => {
+        // Drive Solid-mode physgun grabs toward their target via velocity so
+        // the physics step resolves collisions (the prop can't clip through
+        // walls). Runs before stepNearRealm so the velocity is applied this tick.
+        if (physicsApi && grabbedProps.size > 0) driveSolidGrabs(dt);
         if (physicsApi) physicsApi.stepNearRealm(dt);
         // Despawn expired entities (projectiles, etc.)
         const expired: number[] = [];

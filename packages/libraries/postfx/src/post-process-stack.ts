@@ -824,6 +824,11 @@ export class PostProcessStack {
     return this.sceneColor.createView();
   }
 
+  getSceneColorTexture(): GPUTexture {
+    if (!this.sceneColor) throw new Error("PostProcess targets not created");
+    return this.sceneColor;
+  }
+
   getSceneDepthView(): GPUTextureView {
     if (!this.sceneDepth) throw new Error("PostProcess targets not created");
     return this.sceneDepth.createView();

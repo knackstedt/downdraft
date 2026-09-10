@@ -49,6 +49,8 @@ export class ModelRenderer {
   private device: GPUDevice;
   private format: GPUTextureFormat;
   private pipeline: GPURenderPipeline | null = null;
+  /** Inverted-hull outline pipeline (front-face culled, vertex-extruded). */
+  private maskPipeline: GPURenderPipeline | null = null;
   private bindGroupLayout: GPUBindGroupLayout | null = null;
   private uniformBuffer: GPUBuffer | null = null;
   private bindGroup: GPUBindGroup | null = null;
@@ -315,6 +317,40 @@ export class ModelRenderer {
         format: DEPTH_FORMAT,
         depthWriteEnabled: true,
         depthCompare: "less",
+      },
+    });
+
+    // ── Mask pipeline for post-process outline ──
+    // Renders the model as solid white to a mask texture.  Uses the same
+    // vertex shader as the normal render (vs_main) with back-face culling
+    // and depth testing (read-only) so the mask respects occlusion.
+    this.maskPipeline = this.device.createRenderPipeline({
+      layout: pipelineLayout,
+      vertex: {
+        module: shaderModule,
+        entryPoint: "vs_main",
+        buffers: [
+          {
+            arrayStride: 44,
+            attributes: [
+              { shaderLocation: 0, offset: 0, format: "float32x3" },
+              { shaderLocation: 1, offset: 12, format: "float32x3" },
+              { shaderLocation: 2, offset: 24, format: "float32x2" },
+              { shaderLocation: 3, offset: 32, format: "float32x3" },
+            ],
+          },
+        ],
+      },
+      fragment: {
+        module: shaderModule,
+        entryPoint: "fs_mask",
+        targets: [{ format: "rgba8unorm" }],
+      },
+      primitive: { topology: "triangle-list", cullMode: "back" },
+      depthStencil: {
+        format: DEPTH_FORMAT,
+        depthWriteEnabled: false,
+        depthCompare: "less-equal",
       },
     });
   }
@@ -842,6 +878,9 @@ export class ModelRenderer {
     rotation: [number, number, number, number],
     scale: [number, number, number],
     instanceIndex: number = 0,
+    /** Per-draw highlight: 0 = normal shading, 1 = ghost hologram (cyan),
+     *  2 = hover outline (bright rim). Defaults to 0 (normal). */
+    highlight: number = 0,
   ): void {
     if (!this.pipeline || !this.bindGroup || !this.uniformBuffer || !this.viewProjCache) return;
 
@@ -914,6 +953,14 @@ export class ModelRenderer {
       uniforms[35] = this.lightDirCache[2];
       uniforms[36] = this.lightAmbientCache;
       uniforms[37] = this.lightIntensityCache;
+      // highlight flag (float slot 38 — the former _pad6). Written as a float
+      // so the WGSL `highlight: f32` field reads the correct bit pattern.
+      uniforms[38] = highlight;
+      // Outline params (slots 39-42) — unused by fs_main but written so the
+      // same uniform buffer works for the outline pipeline (vs_outline /
+      // fs_outline). Defaults: 0 width, black color.
+      uniforms[39] = 0.0;
+      uniforms[40] = 0.0; uniforms[41] = 0.0; uniforms[42] = 0.0;
 
       this.device.queue.writeBuffer(
         this.uniformBuffer,
@@ -937,6 +984,64 @@ export class ModelRenderer {
         passEncoder.setIndexBuffer(res.indexBuffer, res.indexFormat);
         passEncoder.drawIndexed(res.indexCount);
       }
+    }
+  }
+
+  /**
+   * Render the model as solid white to a mask texture for the post-process
+   * outline.  Uses the same vertex shader as the normal render (vs_main)
+   * with a simple white fragment shader (fs_mask).  Depth-tested against
+   * the scene depth (read-only) so the mask respects occlusion.
+   */
+  renderMask(
+    passEncoder: GPURenderPassEncoder,
+    nodeId: string,
+    position: [number, number, number],
+    rotation: [number, number, number, number],
+    scale: [number, number, number],
+  ): void {
+    if (!this.maskPipeline || !this.bindGroup || !this.uniformBuffer || !this.viewProjCache) return;
+
+    const resources = this.modelResources.get(nodeId);
+    if (!resources) return;
+
+    if (this.bindlessBindGroup && !this.bindlessBindGroupSetThisFrame) {
+      passEncoder.setBindGroup(3, this.bindlessBindGroup);
+      this.bindlessBindGroupSetThisFrame = true;
+    }
+
+    for (let r = 0; r < resources.length; r++) {
+      const res = resources[r];
+      const uniformOffset = res.uniformOffset;
+      const uniforms = this.reusableUniforms;
+      for (let i = 0; i < 16; i++) uniforms[i] = this.viewProjCache[i];
+      uniforms[16] = this.cameraPosCache[0];
+      uniforms[17] = this.cameraPosCache[1];
+      uniforms[18] = this.cameraPosCache[2];
+      uniforms[19] = performance.now() / 1000;
+      uniforms[20] = position[0];
+      uniforms[21] = position[1];
+      uniforms[22] = position[2];
+      uniforms[24] = scale[0];
+      uniforms[25] = scale[1];
+      uniforms[26] = scale[2];
+      uniforms[28] = rotation[0];
+      uniforms[29] = rotation[1];
+      uniforms[30] = rotation[2];
+      uniforms[31] = rotation[3];
+      this.reusableUniformsU32[32] = res.materialIndex;
+      // Remaining fields not read by fs_mask.
+      this.device.queue.writeBuffer(
+        this.uniformBuffer,
+        uniformOffset,
+        uniforms as Float32Array<ArrayBuffer>,
+      );
+
+      passEncoder.setPipeline(this.maskPipeline);
+      passEncoder.setBindGroup(0, this.bindGroup, [uniformOffset]);
+      passEncoder.setVertexBuffer(0, res.vertexBuffer);
+      passEncoder.setIndexBuffer(res.indexBuffer, res.indexFormat);
+      passEncoder.drawIndexed(res.indexCount);
     }
   }
 

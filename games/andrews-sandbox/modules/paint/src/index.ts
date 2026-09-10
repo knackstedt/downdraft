@@ -5,10 +5,15 @@
 // ============================================================================
 
 import {
+    cubeFacePixelBounds,
     cubeFaceUV,
     groundPlaneUV,
     PaintCanvas,
+    rayBoxIntersect,
+    raySphereIntersect,
+    worldDirToLocalDir,
     worldToLocal,
+    type CubeFace,
     type PaintBrushSettings
 } from "@andrews-sandbox/library-paint";
 import { ENT, SimBufferReader } from "@downdraft/core";
@@ -107,10 +112,7 @@ export class PaintSystem {
     if (!this.firing) return;
 
     const hit = this.raycastForPaint();
-    if (!hit) {
-      console.log("[Paint] raycast missed");
-      return;
-    }
+    if (!hit) return;
 
     if (hit.kind === "prop") {
       const canvas = this.getCanvas(hit.entityId!);
@@ -121,8 +123,10 @@ export class PaintSystem {
       // correct atlas cell and at the correct position on the face.
       const px = hit.uv[0] * canvas.Width;
       const py = hit.uv[1] * canvas.Height;
-      console.log(`[Paint] hit prop ${hit.entityId} uv=(${hit.uv[0].toFixed(3)},${hit.uv[1].toFixed(3)}) px=(${px.toFixed(0)},${py.toFixed(0)}) local=(${hit.localPoint?.[0].toFixed(2)},${hit.localPoint?.[1].toFixed(2)},${hit.localPoint?.[2].toFixed(2)})`);
-      canvas.paint(px, py, this.brush);
+      // For cube faces, clip the brush to the atlas cell so strokes near
+      // edges don't bleed into the adjacent face's cell.
+      const clip = hit.face ? cubeFacePixelBounds(hit.face, canvas.Width, canvas.Height) : undefined;
+      canvas.paint(px, py, this.brush, clip);
 
       // Upload to GPU
       this.renderer.uploadPaintTexture?.(hit.entityId!, canvas.getData(), canvas.Width, canvas.Height);
@@ -170,7 +174,7 @@ export class PaintSystem {
       const ry = slot.f32[ENT.ROT_Y];
       const rz = slot.f32[ENT.ROT_Z];
       const rw = slot.f32[ENT.ROT_W];
-      const shape = slot.f32[ENT_DATA.SHAPE + ENT.DATA]; // 0 = box, 1 = sphere
+      const shape = slot.f32[5 + ENT.DATA]; // ENT_DATA.SHAPE=5; 0 = box, 1 = sphere
 
       // Transform ray origin + direction into the prop's local space.
       // The unit cube/sphere has half-extent 0.5, so we divide by scale.
@@ -191,10 +195,7 @@ export class PaintSystem {
       if (shape === 1) {
         // Sphere — ray-sphere intersection with radius 0.5
         const hit = raySphereIntersect(localOrigin, localDir, 0.5);
-        if (!hit) {
-          console.log(`[Paint] sphere ${entityId} miss origin=(${localOrigin[0].toFixed(2)},${localOrigin[1].toFixed(2)},${localOrigin[2].toFixed(2)})`);
-          continue;
-        }
+        if (!hit) continue;
         const tWorld = hit.t * scale;
         if (tWorld >= bestT) continue;
         bestT = tWorld;
@@ -219,10 +220,7 @@ export class PaintSystem {
       } else {
         // Cube — ray-box intersection with half-extent 0.5
         const hit = rayBoxIntersect(localOrigin, localDir, 0.5);
-        if (!hit) {
-          console.log(`[Paint] cube ${entityId} miss origin=(${localOrigin[0].toFixed(2)},${localOrigin[1].toFixed(2)},${localOrigin[2].toFixed(2)}) dir=(${localDir[0].toFixed(2)},${localDir[1].toFixed(2)},${localDir[2].toFixed(2)}) scale=${scale} shape=${shape}`);
-          continue;
-        }
+        if (!hit) continue;
         const tWorld = hit.t * scale;
         if (tWorld >= bestT) continue;
         bestT = tWorld;
@@ -240,6 +238,7 @@ export class PaintSystem {
           worldPoint,
           localPoint: hit.localPoint,
           normal,
+          face: hit.face,
         };
       }
     }
@@ -277,4 +276,5 @@ interface PaintHit {
   localPoint?: [number, number, number];
   normal?: [number, number, number];
   entityId?: number;
+  face?: CubeFace;
 }

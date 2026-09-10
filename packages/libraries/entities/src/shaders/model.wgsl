@@ -11,7 +11,13 @@ struct Uniforms {
   lightDirZ: f32,
   lightAmbient: f32,
   lightIntensity: f32,
-  _pad6: f32,
+  // Per-draw highlight mode: 0 = normal shading, 1 = ghost hologram (cyan,
+  // used for the physgun's no-collision grab), 2 = hover outline (drawn by a
+  // separate inverted-hull pipeline — see vs_outline / fs_outline).
+  highlight: f32,
+  // Inverted-hull outline parameters (used by vs_outline / fs_outline only).
+  outlineWidth: f32,
+  outlineColor: vec3<f32>,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -268,5 +274,31 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
   let fogFactor = min(dist / 1000.0, 1.0);
   litColor = mix(litColor, frameLighting.skyAmbient, fogFactor);
 
+  // Ghost hologram override (highlight == 1): render the prop as a
+  // translucent-looking cyan shell with a fresnel rim and a vertical
+  // scanline pulse so it's visually distinct from normally-grabbed (solid)
+  // props. Opaque output (the pipeline has no blend state) but reads as a
+  // hologram. Hover outline (highlight == 2) is handled by a separate
+  // inverted-hull draw — see vs_outline / fs_outline below.
+  if (uniforms.highlight > 0.5 && uniforms.highlight < 1.5) {
+    let viewDir = normalize(uniforms.cameraPos - input.worldPos);
+    let fresnel = pow(1.0 - max(dot(N, viewDir), 0.0), 2.5);
+    let pulse = 0.65 + 0.35 * sin(uniforms.time * 5.0 + input.worldPos.y * 3.0);
+    let scan = 0.5 + 0.5 * sin((input.worldPos.y + uniforms.time * 2.0) * 20.0);
+    let ghostBase = vec3<f32>(0.15, 0.75, 0.95);
+    let ghostRim = vec3<f32>(0.7, 1.0, 1.0);
+    var ghostCol = mix(ghostBase, ghostRim, fresnel) * pulse;
+    ghostCol = ghostCol + ghostRim * scan * 0.15 * fresnel;
+    return vec4<f32>(ghostCol, 1.0);
+  }
+
   return vec4<f32>(litColor, 1.0);
+}
+
+// ── Mask entry point for post-process outline ──
+// Renders the model as solid white to a mask texture.  Uses the same
+// vertex shader as the normal render (vs_main / vs_skinned).
+@fragment
+fn fs_mask() -> @location(0) vec4f {
+  return vec4f(1.0, 1.0, 1.0, 1.0);
 }

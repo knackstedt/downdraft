@@ -9,12 +9,12 @@
 // ============================================================================
 
 import {
-  BindlessFrameBindings, BindlessMaterialManager, BindlessTextureRegistry,
-  DEPTH_FORMAT, ENT, GameRenderer,
-  InputBufferWriter, InterpolationBuffer,
-  MSAA_SAMPLE_COUNT, SimBufferReader,
-  calculateViewProjInto, type CameraState,
-  type RenderContext, type TextureHandle
+    BindlessFrameBindings, BindlessMaterialManager, BindlessTextureRegistry,
+    DEPTH_FORMAT, ENT, GameRenderer,
+    InputBufferWriter, InterpolationBuffer,
+    MSAA_SAMPLE_COUNT, SimBufferReader,
+    calculateViewProjInto, type CameraState,
+    type RenderContext, type TextureHandle
 } from "@downdraft/core";
 import { ModelRenderer } from "@downdraft/library-entities";
 import { loadModel, type ModelData } from "@downdraft/library-models";
@@ -395,6 +395,7 @@ const CUBE_SHADER = /* wgsl */ `
 struct Uniforms {
   viewProj: mat4x4f,
   cameraPos: vec3f,
+  time: f32,
 };
 struct Instance {
   model: mat4x4f,
@@ -402,7 +403,7 @@ struct Instance {
   hasPaint: u32,
   _pad0: u32,
   _pad1: u32,
-  _pad2: u32,
+  ghostMode: u32,
 };
 @group(0) @binding(0) var<uniform> u: Uniforms;
 @group(0) @binding(1) var<storage, read> instances: array<Instance>;
@@ -465,6 +466,7 @@ struct VertexOut {
   @location(2) worldPos: vec3f,
   @location(3) color: vec4f,
   @location(4) hasPaint: f32,
+  @location(5) ghostMode: f32,
 }
 
 @vertex
@@ -480,6 +482,7 @@ fn vs(@builtin(instance_index) ii: u32, @location(0) pos: vec3f, @location(1) uv
   out.worldPos = worldPos4.xyz;
   out.color = inst.color;
   out.hasPaint = f32(inst.hasPaint);
+  out.ghostMode = f32(inst.ghostMode);
   return out;
 }
 
@@ -522,7 +525,104 @@ fn fs(in: VertexOut) -> @location(0) vec4f {
   let dist = length(in.worldPos - u.cameraPos);
   let fog = clamp(1.0 - dist / 400.0, 0.0, 1.0);
   let fogColor = lighting.skyAmbient;
-  return vec4f(mix(fogColor, litColor, fog), 1.0);
+  let outColor = mix(fogColor, litColor, fog);
+
+  // Ghost hologram override (ghostMode == 1): cyan fresnel rim + vertical
+  // scanline pulse. Hover outline is handled by a separate inverted-hull
+  // pipeline (SHAPE_OUTLINE_SHADER) — see renderHoverOutline below.
+  if (in.ghostMode > 0.5) {
+    let viewDir = normalize(u.cameraPos - in.worldPos);
+    let fresnel = pow(1.0 - max(dot(N, viewDir), 0.0), 2.5);
+    let pulse = 0.65 + 0.35 * sin(u.time * 5.0 + in.worldPos.y * 3.0);
+    let scan = 0.5 + 0.5 * sin((in.worldPos.y + u.time * 2.0) * 20.0);
+    let ghostBase = vec3f(0.15, 0.75, 0.95);
+    let ghostRim = vec3f(0.7, 1.0, 1.0);
+    var ghostCol = mix(ghostBase, ghostRim, fresnel) * pulse;
+    ghostCol = ghostCol + ghostRim * scan * 0.15 * fresnel;
+    return vec4f(ghostCol, 1.0);
+  }
+
+  return vec4f(outColor, 1.0);
+}
+`;
+
+// ── Post-process outline: mask shader + composite shader ──────────────────
+// The mask shader renders the hovered entity as solid white to a mask
+// texture.  The composite shader reads the mask + scene color, detects edges
+// in screen space, and draws the outline color.  Works on ALL models
+// regardless of winding order or geometry complexity.
+
+const MASK_SHADER = /* wgsl */ `
+struct MaskUniforms {
+  viewProj: mat4x4f,
+  model: mat4x4f,
+};
+@group(0) @binding(0) var<uniform> u: MaskUniforms;
+
+@vertex
+fn vs_mask(@location(0) pos: vec3f) -> @builtin(position) vec4f {
+  return u.viewProj * u.model * vec4f(pos, 1.0);
+}
+
+@fragment
+fn fs_mask() -> @location(0) vec4f {
+  return vec4f(1.0, 1.0, 1.0, 1.0);
+}
+`;
+
+const OUTLINE_COMPOSITE_SHADER = /* wgsl */ `
+struct CompositeUniforms {
+  texelSize: vec2f,
+  outlineWidth: f32,
+  _pad: f32,
+  outlineColor: vec3f,
+  _pad2: f32,
+};
+@group(0) @binding(0) var sceneTex: texture_2d<f32>;
+@group(0) @binding(1) var maskTex: texture_2d<f32>;
+@group(0) @binding(2) var<uniform> u: CompositeUniforms;
+
+@vertex
+fn vs_composite(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
+  // Fullscreen triangle that covers the entire screen.
+  // Vertices: (-1,-1), (3,-1), (-1,3) — the hypotenuse from (3,-1) to
+  // (-1,3) passes above the top-right corner (1,1), so the whole
+  // screen is covered.
+  let x = f32(vi & 1u) * 4.0 - 1.0;
+  let y = f32(vi >> 1u) * 4.0 - 1.0;
+  return vec4f(x, y, 0.0, 1.0);
+}
+
+@fragment
+fn fs_composite(@builtin(position) fragCoord: vec4f) -> @location(0) vec4f {
+  let dims = textureDimensions(maskTex);
+  let coords = vec2u(u32(fragCoord.x), u32(fragCoord.y));
+  let center = textureLoad(maskTex, coords, 0).r;
+  let sceneColor = textureLoad(sceneTex, coords, 0).rgb;
+
+  // If this pixel IS part of the hovered entity, keep the scene color.
+  if (center > 0.5) {
+    return vec4f(sceneColor, 1.0);
+  }
+
+  // Edge detection: check 8 neighbors at outlineWidth texels distance.
+  // If any neighbor is part of the entity, this pixel is an outline pixel.
+  let w = max(1u, u32(u.outlineWidth));
+  var hit = 0.0;
+  for (var dy = -1; dy <= 1; dy = dy + 1) {
+    for (var dx = -1; dx <= 1; dx = dx + 1) {
+      if (dx == 0 && dy == 0) { continue; }
+      let sc = clamp(vec2i(coords) + vec2i(dx, dy) * i32(w),
+                     vec2i(0, 0),
+                     vec2i(i32(dims.x) - 1, i32(dims.y) - 1));
+      let s = textureLoad(maskTex, vec2u(sc), 0).r;
+      hit = max(hit, s);
+    }
+  }
+  if (hit > 0.5) {
+    return vec4f(u.outlineColor, 1.0);
+  }
+  return vec4f(sceneColor, 1.0);
 }
 `;
 
@@ -534,37 +634,40 @@ fn fs(in: VertexOut) -> @location(0) vec4f {
 //   -Y       +Z       -Z       (empty)   ← Row 1
 const AW = 0.25; // atlas cell width  (1/4)
 const AH = 0.25; // atlas cell height (1/4)
+// Half-texel inset to prevent linear filtering from bleeding across atlas
+// cell boundaries. Paint texture is 512×512, so half a texel = 0.5/512.
+const HT = 0.5 / 512;
 const CUBE_VERTICES = new Float32Array([
   // +X face (normal: 1,0,0) — atlas cell (0,0): offset (0, 0)
-   0.5, -0.5, -0.5,  0.0, 0.0,  1.0, 0.0, 0.0,
-   0.5,  0.5, -0.5,  0.0, AH,   1.0, 0.0, 0.0,
-   0.5,  0.5,  0.5,  AW,  AH,   1.0, 0.0, 0.0,
-   0.5, -0.5,  0.5,  AW,  0.0,  1.0, 0.0, 0.0,
+   0.5, -0.5, -0.5,  0.0 + HT,  0.0 + HT,  1.0, 0.0, 0.0,
+   0.5,  0.5, -0.5,  0.0 + HT,  AH - HT,   1.0, 0.0, 0.0,
+   0.5,  0.5,  0.5,  AW - HT,   AH - HT,   1.0, 0.0, 0.0,
+   0.5, -0.5,  0.5,  AW - HT,   0.0 + HT,  1.0, 0.0, 0.0,
   // -X face (normal: -1,0,0) — atlas cell (1,0): offset (AW, 0)
-  -0.5, -0.5,  0.5,  AW,      0.0,  -1.0, 0.0, 0.0,
-  -0.5,  0.5,  0.5,  AW,      AH,   -1.0, 0.0, 0.0,
-  -0.5,  0.5, -0.5,  AW * 2,  AH,   -1.0, 0.0, 0.0,
-  -0.5, -0.5, -0.5,  AW * 2,  0.0,  -1.0, 0.0, 0.0,
+  -0.5, -0.5,  0.5,  AW + HT,      0.0 + HT,  -1.0, 0.0, 0.0,
+  -0.5,  0.5,  0.5,  AW + HT,      AH - HT,   -1.0, 0.0, 0.0,
+  -0.5,  0.5, -0.5,  AW * 2 - HT,  AH - HT,   -1.0, 0.0, 0.0,
+  -0.5, -0.5, -0.5,  AW * 2 - HT,  0.0 + HT,  -1.0, 0.0, 0.0,
   // +Y face (normal: 0,1,0) — atlas cell (2,0): offset (AW*2, 0)
-  -0.5,  0.5, -0.5,  AW * 2,  0.0,  0.0, 1.0, 0.0,
-  -0.5,  0.5,  0.5,  AW * 2,  AH,   0.0, 1.0, 0.0,
-   0.5,  0.5,  0.5,  AW * 3,  AH,   0.0, 1.0, 0.0,
-   0.5,  0.5, -0.5,  AW * 3,  0.0,  0.0, 1.0, 0.0,
+  -0.5,  0.5, -0.5,  AW * 2 + HT,  0.0 + HT,  0.0, 1.0, 0.0,
+  -0.5,  0.5,  0.5,  AW * 2 + HT,  AH - HT,   0.0, 1.0, 0.0,
+   0.5,  0.5,  0.5,  AW * 3 - HT,  AH - HT,   0.0, 1.0, 0.0,
+   0.5,  0.5, -0.5,  AW * 3 - HT,  0.0 + HT,  0.0, 1.0, 0.0,
   // -Y face (normal: 0,-1,0) — atlas cell (0,1): offset (0, AH)
-  -0.5, -0.5,  0.5,  0.0, AH,        0.0, -1.0, 0.0,
-  -0.5, -0.5, -0.5,  0.0, AH * 2,    0.0, -1.0, 0.0,
-   0.5, -0.5, -0.5,  AW,  AH * 2,    0.0, -1.0, 0.0,
-   0.5, -0.5,  0.5,  AW,  AH,        0.0, -1.0, 0.0,
+  -0.5, -0.5,  0.5,  0.0 + HT,  AH + HT,        0.0, -1.0, 0.0,
+  -0.5, -0.5, -0.5,  0.0 + HT,  AH * 2 - HT,    0.0, -1.0, 0.0,
+   0.5, -0.5, -0.5,  AW - HT,   AH * 2 - HT,    0.0, -1.0, 0.0,
+   0.5, -0.5,  0.5,  AW - HT,   AH + HT,        0.0, -1.0, 0.0,
   // +Z face (normal: 0,0,1) — atlas cell (1,1): offset (AW, AH)
-  -0.5, -0.5,  0.5,  AW,      AH,        0.0, 0.0, 1.0,
-   0.5, -0.5,  0.5,  AW,      AH * 2,    0.0, 0.0, 1.0,
-   0.5,  0.5,  0.5,  AW * 2,  AH * 2,    0.0, 0.0, 1.0,
-  -0.5,  0.5,  0.5,  AW * 2,  AH,        0.0, 0.0, 1.0,
+  -0.5, -0.5,  0.5,  AW + HT,      AH + HT,        0.0, 0.0, 1.0,
+   0.5, -0.5,  0.5,  AW + HT,      AH * 2 - HT,    0.0, 0.0, 1.0,
+   0.5,  0.5,  0.5,  AW * 2 - HT,  AH * 2 - HT,    0.0, 0.0, 1.0,
+  -0.5,  0.5,  0.5,  AW * 2 - HT,  AH + HT,        0.0, 0.0, 1.0,
   // -Z face (normal: 0,0,-1) — atlas cell (2,1): offset (AW*2, AH)
-   0.5, -0.5, -0.5,  AW * 2,  AH,        0.0, 0.0, -1.0,
-  -0.5, -0.5, -0.5,  AW * 2,  AH * 2,    0.0, 0.0, -1.0,
-  -0.5,  0.5, -0.5,  AW * 3,  AH * 2,    0.0, 0.0, -1.0,
-   0.5,  0.5, -0.5,  AW * 3,  AH,        0.0, 0.0, -1.0,
+   0.5, -0.5, -0.5,  AW * 2 + HT,  AH + HT,        0.0, 0.0, -1.0,
+  -0.5, -0.5, -0.5,  AW * 2 + HT,  AH * 2 - HT,    0.0, 0.0, -1.0,
+  -0.5,  0.5, -0.5,  AW * 3 - HT,  AH * 2 - HT,    0.0, 0.0, -1.0,
+   0.5,  0.5, -0.5,  AW * 3 - HT,  AH + HT,        0.0, 0.0, -1.0,
 ]);
 
 const CUBE_INDICES = new Uint16Array([
@@ -712,6 +815,20 @@ export class WebGPURenderer extends GameRenderer {
   private sphereVertexBuffer: GPUBuffer | null = null;
   private sphereIndexBuffer: GPUBuffer | null = null;
   private sphereIndexCount = 0;
+
+  // ── Post-process outline (mask + composite) ──
+  private maskTexture: GPUTexture | null = null;
+  private maskTextureView: GPUTextureView | null = null;
+  private maskPipeline: GPURenderPipeline | null = null;
+  private maskUniformBuffer: GPUBuffer | null = null;
+  private maskBindGroup: GPUBindGroup | null = null;
+  private maskStaging = new Float32Array(32); // viewProj(16) + model(16)
+  private compositePipeline: GPURenderPipeline | null = null;
+  private compositeUniformBuffer: GPUBuffer | null = null;
+  private compositeBindGroup: GPUBindGroup | null = null;
+  private compositeSampler: GPUSampler | null = null;
+  private compositeTempTexture: GPUTexture | null = null;
+  private compositeTempView: GPUTextureView | null = null;
 
   // Render loop
   private rafHandle = 0;
@@ -1260,6 +1377,61 @@ export class WebGPURenderer extends GameRenderer {
         { binding: 1, resource: this.cubeSampler! },
       ],
     });
+
+    // ── Post-process outline: mask + composite pipelines ──
+    // Mask pipeline: renders geometry as solid white to a mask texture.
+    // Uses depth testing (depthCompare "less-equal", no write) so the mask
+    // respects occlusion by other objects already in the depth buffer.
+    this.maskUniformBuffer = device.createBuffer({
+      label: "outline-mask-uniform",
+      size: 128, // viewProj(64) + model(64)
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    const maskShader = device.createShaderModule({ label: "outline-mask", code: MASK_SHADER });
+    this.maskPipeline = device.createRenderPipeline({
+      label: "outline-mask",
+      layout: "auto",
+      vertex: {
+        module: maskShader, entryPoint: "vs_mask",
+        buffers: [{
+          arrayStride: 32,
+          attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }],
+        }],
+      },
+      fragment: { module: maskShader, entryPoint: "fs_mask", targets: [{ format: "rgba8unorm" }] },
+      primitive: { topology: "triangle-list", cullMode: "back" },
+      depthStencil: {
+        format: DEPTH_FORMAT as GPUTextureFormat,
+        depthWriteEnabled: false,
+        depthCompare: "less-equal",
+      },
+    });
+    this.maskBindGroup = device.createBindGroup({
+      layout: this.maskPipeline.getBindGroupLayout(0),
+      entries: [{ binding: 0, resource: { buffer: this.maskUniformBuffer } }],
+    });
+
+    // Composite pipeline: fullscreen pass that reads scene color + mask,
+    // detects edges, and draws the outline.  No depth test.
+    this.compositeUniformBuffer = device.createBuffer({
+      label: "outline-composite-uniform",
+      // texelSize(8) + outlineWidth(4) + pad(4) + outlineColor(12) + pad(4) = 32 bytes
+      size: 32,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    this.compositeSampler = device.createSampler({
+      label: "outline-composite-sampler",
+      magFilter: "nearest",
+      minFilter: "nearest",
+    });
+    const compositeShader = device.createShaderModule({ label: "outline-composite", code: OUTLINE_COMPOSITE_SHADER });
+    this.compositePipeline = device.createRenderPipeline({
+      label: "outline-composite",
+      layout: "auto",
+      vertex: { module: compositeShader, entryPoint: "vs_composite" },
+      fragment: { module: compositeShader, entryPoint: "fs_composite", targets: [{ format: "rgba16float" }] },
+      primitive: { topology: "triangle-list" },
+    });
   }
 
   private createDepthOnlyPipelines(device: GPUDevice): void {
@@ -1427,6 +1599,29 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
 
   // ── Paint texture upload ──
   private paintTextures = new Map<number, GPUTexture>();
+  // Entity id currently grabbed by the physgun in Ghost mode (null otherwise).
+  // The model + builtin prop shaders render this entity as a cyan hologram so
+  // the player can tell at a glance that the grab ignores collisions.
+  private ghostGrabEntity: number | null = null;
+  /** Set/clear the entity id rendered with the ghost-mode hologram shader. */
+  setGhostGrabEntity(entityId: number | null): void { this.ghostGrabEntity = entityId; }
+  // Entity id currently under the physgun crosshair (null otherwise). The
+  // shaders render this entity with a bright rim outline so the player can
+  // see which prop a grab would target.
+  private hoverEntity: number | null = null;
+  /** Set/clear the entity id rendered with the hover outline shader. */
+  setHoverEntity(entityId: number | null): void { this.hoverEntity = entityId; }
+  // Slot index + shape of the hovered builtin prop (set by collectRenderEntities).
+  private hoverOutlineSlot: number = -1;
+  private hoverOutlineIsSphere: boolean = false;
+  // Model matrix (16 floats) of the hovered builtin prop, copied from the
+  // instance staging buffer during collectRenderEntities.
+  private hoverModelMatrix = new Float32Array(16);
+  // Hovered model prop tracking (set when the hovered entity has a model).
+  private hoverModelNodeId: string | null = null;
+  private hoverModelPos: [number, number, number] = [0, 0, 0];
+  private hoverModelRot: [number, number, number, number] = [0, 0, 0, 1];
+  private hoverModelScale: [number, number, number] = [1, 1, 1];
   uploadPaintTexture(entityId: number, data: Uint8ClampedArray, width: number, height: number): void {
     const device = this.getDevice();
     if (!device) return;
@@ -1756,6 +1951,12 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
       };
       graph.execute(ctx);
 
+      // ── Post-process outline: render hovered entity to mask, then
+      // composite the edge-detected outline over the scene color. ──
+      if (this.hoverEntity !== null && this.hoverEntity > 0) {
+        this.renderOutlinePostProcess(encoder, w, h, viewProj, cameraState);
+      }
+
       // Apply the post-process chain → canvas
       const canvasView = context.getCurrentTexture().createView();
       this.postProcessStack.applyChain(encoder, this.postProcessStack.getSceneDepthView(), canvasView, w, h);
@@ -1937,8 +2138,171 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
         [px, py, pz],
         [rx, ry, rz, rw],
         [scale, scale, scale],
+        0,
+        // Ghost hologram when this is the physgun's ghost-grabbed prop.
+        (i + 1) === this.ghostGrabEntity ? 1 : 0,
       );
+
+      // Track the hovered model prop for the post-process outline mask.
+      if ((i + 1) === this.hoverEntity) {
+        this.hoverModelNodeId = nodeId;
+        this.hoverModelPos = [px, py, pz];
+        this.hoverModelRot = [rx, ry, rz, rw];
+        this.hoverModelScale = [scale, scale, scale];
+      }
     }
+  }
+
+  // ── Post-process outline: mask + composite ──────────────────────────────
+  // Renders the hovered entity to a mask texture (solid white), then runs a
+  // fullscreen edge-detection pass that composites the outline over the scene
+  // color.  Works on ALL models regardless of winding order or geometry.
+
+  /** Ensure the mask + composite temp textures exist at the given size. */
+  private ensureOutlineTargets(w: number, h: number): void {
+    const device = this.getDevice()!;
+    if (this.maskTexture && this.maskTexture.width === w && this.maskTexture.height === h) return;
+    this.maskTexture?.destroy();
+    this.compositeTempTexture?.destroy();
+    const usage = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC;
+    this.maskTexture = device.createTexture({
+      label: "outline-mask",
+      size: [w, h],
+      format: "rgba8unorm",
+      usage,
+    });
+    this.maskTextureView = this.maskTexture.createView();
+    this.compositeTempTexture = device.createTexture({
+      label: "outline-composite-temp",
+      size: [w, h],
+      format: "rgba16float",
+      usage,
+    });
+    this.compositeTempView = this.compositeTempTexture.createView();
+  }
+
+  /** Render the hovered entity to the mask texture as solid white. */
+  private renderHoverMask(pass: GPURenderPassEncoder, viewProj: Float32Array): void {
+    if (!this.maskPipeline || !this.maskUniformBuffer || !this.maskBindGroup) return;
+    const device = this.getDevice()!;
+    const ud = this.maskStaging;
+    ud.set(viewProj, 0);
+    ud.set(this.hoverModelMatrix, 16);
+    device.queue.writeBuffer(this.maskUniformBuffer, 0, ud);
+    pass.setPipeline(this.maskPipeline);
+    pass.setBindGroup(0, this.maskBindGroup);
+    if (this.hoverOutlineIsSphere && this.sphereVertexBuffer && this.sphereIndexBuffer) {
+      pass.setVertexBuffer(0, this.sphereVertexBuffer);
+      pass.setIndexBuffer(this.sphereIndexBuffer, "uint16");
+      pass.drawIndexed(this.sphereIndexCount);
+    } else if (this.cubeVertexBuffer && this.cubeIndexBuffer) {
+      pass.setVertexBuffer(0, this.cubeVertexBuffer);
+      pass.setIndexBuffer(this.cubeIndexBuffer, "uint16");
+      pass.drawIndexed(this.cubeIndexCount);
+    }
+  }
+
+  /** Full post-process outline: mask → composite → copy back to scene color. */
+  private renderOutlinePostProcess(
+    encoder: GPUCommandEncoder,
+    w: number, h: number,
+    viewProj: Float32Array,
+    _cameraState: object,
+  ): void {
+    if (!this.maskPipeline || !this.compositePipeline || !this.compositeSampler) return;
+    if (!this.maskUniformBuffer || !this.compositeUniformBuffer) return;
+    if (!this.postProcessStack) return;
+    const device = this.getDevice()!;
+
+    this.ensureOutlineTargets(w, h);
+    const maskView = this.maskTextureView;
+    const tempView = this.compositeTempView;
+    const tempTex = this.compositeTempTexture;
+    if (!maskView || !tempView || !tempTex) return;
+
+    // Get the scene color + depth views from the PostProcessStack.
+    const sceneColorView = this.postProcessStack.getSceneColorView();
+    const sceneDepthView = this.postProcessStack.getSceneDepthView();
+
+    // ── Pass 1: Mask — clear to black, render hovered entity as solid white.
+    //    Depth: load the scene depth (read-only) so the mask respects
+    //    occlusion by other objects.
+    {
+      const pass = encoder.beginRenderPass({
+        label: "outline-mask",
+        colorAttachments: [{
+          view: maskView,
+          clearValue: { r: 0, g: 0, b: 0, a: 0 },
+          loadOp: "clear",
+          storeOp: "store",
+        }],
+        depthStencilAttachment: {
+          view: sceneDepthView,
+          depthReadOnly: true,
+        },
+      });
+      // Render builtin prop to mask
+      if (this.hoverOutlineSlot >= 0) {
+        this.renderHoverMask(pass, viewProj);
+      }
+      // Render model prop to mask
+      if (this.modelRenderer && this.hoverModelNodeId) {
+        this.modelRenderer.renderMask(
+          pass, this.hoverModelNodeId,
+          this.hoverModelPos, this.hoverModelRot, this.hoverModelScale,
+        );
+      }
+      pass.end();
+    }
+
+    // ── Pass 2: Composite — fullscreen edge detection.
+    //    Reads scene color + mask, writes outline to temp texture.
+    {
+      // Write composite uniforms: texelSize + outlineWidth + outlineColor.
+      const ud = new Float32Array(8);
+      ud[0] = 1.0 / w;  // texelSize.x
+      ud[1] = 1.0 / h;  // texelSize.y
+      ud[2] = 3.0;      // outlineWidth (texels)
+      ud[3] = 0.0;      // pad
+      // #5EE6A8 in linear space (sRGB → linear conversion).
+      // The scene color is HDR rgba16float; the postfx chain applies
+      // tonemapping + sRGB encoding before display.
+      ud[4] = 0.113;    // outlineColor.r
+      ud[5] = 0.803;    // outlineColor.g
+      ud[6] = 0.398;    // outlineColor.b
+      ud[7] = 0.0;      // pad
+      device.queue.writeBuffer(this.compositeUniformBuffer, 0, ud);
+
+      const bindGroup = device.createBindGroup({
+        layout: this.compositePipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: sceneColorView },
+          { binding: 1, resource: maskView },
+          { binding: 2, resource: { buffer: this.compositeUniformBuffer } },
+        ],
+      });
+
+      const pass = encoder.beginRenderPass({
+        label: "outline-composite",
+        colorAttachments: [{
+          view: tempView,
+          loadOp: "clear",
+          clearValue: { r: 0, g: 0, b: 0, a: 1 },
+          storeOp: "store",
+        }],
+      });
+      pass.setPipeline(this.compositePipeline);
+      pass.setBindGroup(0, bindGroup);
+      pass.draw(3); // fullscreen triangle
+      pass.end();
+    }
+
+    // ── Copy the composited result back to the scene color texture.
+    encoder.copyTextureToTexture(
+      { texture: tempTex },
+      { texture: this.postProcessStack.getSceneColorTexture() },
+      [w, h, 1],
+    );
   }
 
   // ── Collect visible builtin entities once per frame ──
@@ -1956,6 +2320,9 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
 
     this.renderCubes.length = 0;
     this.renderSpheres.length = 0;
+    // Reset hover tracking — set fresh if the hovered entity is found below.
+    this.hoverOutlineSlot = -1;
+    this.hoverModelNodeId = null;
 
     const count = reader.getEntityCount();
     for (let i = 0; i < count; i++) {
@@ -2037,6 +2404,18 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
       const hasPaint = this.paintTextures.has(entityId) ? 1 : 0;
       paintFlags[i] = hasPaint;
       staging[off + 20] = hasPaint;
+      // Ghost-mode flag (Instance._pad2 slot, u32). Set when this builtin prop
+      // is the physgun's ghost-grabbed entity so the cube/sphere shader renders
+      // it as a cyan hologram. Hover outline is handled by a separate
+      // inverted-hull pipeline — see renderHoverOutline below.
+      staging[off + 23] = (entityId === this.ghostGrabEntity) ? 1 : 0;
+      // Track the hover entity's model matrix + shape for the outline pass.
+      if (entityId === this.hoverEntity) {
+        this.hoverOutlineSlot = i;
+        this.hoverOutlineIsSphere = shape === 1;
+        // Copy the 16-float model matrix from staging into the hover buffer.
+        this.hoverModelMatrix.set(staging.subarray(off, off + 16));
+      }
     }
   }
 
@@ -2048,12 +2427,14 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
     const count = this.simReader.getEntityCount();
     if (count === 0) return;
 
-    // Write shared uniforms (viewProj + cameraPos) — shared by both pipelines
+    // Write shared uniforms (viewProj + cameraPos + time) — shared by both
+    // pipelines. time drives the ghost-mode hologram pulse/scanline.
     const uniformData = new Float32Array(20);
     uniformData.set(viewProj, 0);
     uniformData[16] = this.camPos[0];
     uniformData[17] = this.camPos[1];
     uniformData[18] = this.camPos[2];
+    uniformData[19] = performance.now() / 1000;
     device.queue.writeBuffer(this.cubeUniformBuffer, 0, uniformData);
 
     // Use precomputed entity lists from collectRenderEntities().

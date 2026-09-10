@@ -31,14 +31,15 @@ export class PaintCanvas {
   getData(): Uint8ClampedArray { return this.data; }
   isDirty(): boolean { return this.dirty; }
 
-  /** Paint a circle at (x, y) with the given brush settings. */
-  paint(x: number, y: number, brush: PaintBrushSettings): void {
+  /** Paint a circle at (x, y) with the given brush settings.
+   *  Optional clip region restricts painting to a sub-rectangle (for atlas cells). */
+  paint(x: number, y: number, brush: PaintBrushSettings, clip?: { x: number; y: number; w: number; h: number }): void {
     const r = brush.size;
     const r2 = r * r;
-    const minX = Math.max(0, Math.floor(x - r));
-    const maxX = Math.min(this.width - 1, Math.ceil(x + r));
-    const minY = Math.max(0, Math.floor(y - r));
-    const maxY = Math.min(this.height - 1, Math.ceil(y + r));
+    const minX = Math.max(clip ? clip.x : 0, Math.floor(x - r));
+    const maxX = Math.min(clip ? clip.x + clip.w - 1 : this.width - 1, Math.ceil(x + r));
+    const minY = Math.max(clip ? clip.y : 0, Math.floor(y - r));
+    const maxY = Math.min(clip ? clip.y + clip.h - 1 : this.height - 1, Math.ceil(y + r));
 
     const [cr, cg, cb, ca] = brush.color;
 
@@ -111,6 +112,9 @@ export type CubeFace = "+X" | "-X" | "+Y" | "-Y" | "+Z" | "-Z";
 // 4×4 atlas: each cell is 1/4 of the texture in each dimension.
 const ATLAS_CELL_W = 0.25;
 const ATLAS_CELL_H = 0.25;
+// Half-texel inset to prevent linear filtering from bleeding across cells.
+// Paint texture is 512×512, so half a texel = 0.5/512.
+const HT = 0.5 / 512;
 
 // Face → atlas cell origin (col, row) in UV space.
 const FACE_ATLAS_OFFSET: Record<CubeFace, [number, number]> = {
@@ -132,19 +136,39 @@ const FACE_ATLAS_OFFSET: Record<CubeFace, [number, number]> = {
  * @returns UV coordinates [u, v] in the paint texture's atlas
  */
 export function cubeFaceUV(localPoint: [number, number, number], face: CubeFace): [number, number] {
+  // Clamp to box bounds to prevent floating-point overshoot from pushing
+  // UVs into an adjacent atlas cell (edge bleed).
+  const x = Math.max(-0.5, Math.min(0.5, localPoint[0]));
+  const y = Math.max(-0.5, Math.min(0.5, localPoint[1]));
+  const z = Math.max(-0.5, Math.min(0.5, localPoint[2]));
   // Face-local UV [0,1]² — derived from the vertex UV layout.
   let u: number, v: number;
   switch (face) {
-    case "+X": u = localPoint[2] + 0.5;   v = localPoint[1] + 0.5;   break;
-    case "-X": u = 0.5 - localPoint[2];   v = localPoint[1] + 0.5;   break;
-    case "+Y": u = localPoint[0] + 0.5;   v = localPoint[2] + 0.5;   break;
-    case "-Y": u = localPoint[0] + 0.5;   v = 0.5 - localPoint[2];   break;
-    case "+Z": u = localPoint[1] + 0.5;   v = localPoint[0] + 0.5;   break;
-    case "-Z": u = localPoint[1] + 0.5;   v = 0.5 - localPoint[0];   break;
+    case "+X": u = z + 0.5;   v = y + 0.5;   break;
+    case "-X": u = 0.5 - z;   v = y + 0.5;   break;
+    case "+Y": u = x + 0.5;   v = z + 0.5;   break;
+    case "-Y": u = x + 0.5;   v = 0.5 - z;   break;
+    case "+Z": u = y + 0.5;   v = x + 0.5;   break;
+    case "-Z": u = y + 0.5;   v = 0.5 - x;   break;
   }
-  // Map into the atlas cell.
+  // Map into the atlas cell, inset by half a texel to match the vertex UVs.
   const [ox, oy] = FACE_ATLAS_OFFSET[face];
-  return [ox + u * ATLAS_CELL_W, oy + v * ATLAS_CELL_H];
+  return [ox + HT + u * (ATLAS_CELL_W - 2 * HT), oy + HT + v * (ATLAS_CELL_H - 2 * HT)];
+}
+
+/**
+ * Returns the pixel-space clip rectangle for a cube face's atlas cell.
+ * Use as the `clip` parameter to PaintCanvas.paint() to prevent brush
+ * strokes from bleeding into adjacent atlas cells.
+ */
+export function cubeFacePixelBounds(face: CubeFace, canvasWidth: number, canvasHeight: number): { x: number; y: number; w: number; h: number } {
+  const [ox, oy] = FACE_ATLAS_OFFSET[face];
+  return {
+    x: Math.floor((ox + HT) * canvasWidth),
+    y: Math.floor((oy + HT) * canvasHeight),
+    w: Math.floor((ATLAS_CELL_W - 2 * HT) * canvasWidth),
+    h: Math.floor((ATLAS_CELL_H - 2 * HT) * canvasHeight),
+  };
 }
 
 /**
