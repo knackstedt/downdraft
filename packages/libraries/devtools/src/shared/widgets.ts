@@ -333,11 +333,22 @@ export function makeTreeView(
     const row = new Container();
     row.x = 0;
     row.y = y;
+    // Zebra striping (every other row)
+    const rowIdx = Math.floor(y / rh);
+    if (rowIdx % 2 === 0 && !node.selected) {
+      const zebra = new Graphics();
+      zebra.rect(0, 0, opts.width, rh);
+      zebra.fill({ color: 0x111122, alpha: 0.3 });
+      row.addChild(zebra);
+    }
     // Row background (selected)
     if (node.selected) {
       const sel = new Graphics();
       sel.rect(0, 0, opts.width, rh);
       sel.fill({ color: BG_SELECTED, alpha: 0.8 });
+      // Left accent bar
+      sel.rect(0, 0, 2, rh);
+      sel.fill({ color: COLOR_GREEN });
       row.addChild(sel);
     }
     // Expand/collapse triangle
