@@ -128,6 +128,10 @@ export class DebuggerScene {
   private perfRecording: boolean = false;
   private lastProfile: CdpProfile | null = null;
   private perfMetricsHistory: { mem: number[][]; cpu: number[][] } = { mem: [], cpu: [] };
+  // GPU history (sampled every 500ms, 120 samples = 1 minute)
+  private gpuMemHistory: number[] = [];      // totalBytes
+  private gpuFrameTimeHistory: { cpu: number[]; gpu: number[] } = { cpu: [], gpu: [] };
+  private gpuLastSampleTime: number = 0;
 
   constructor(ctx: DebuggerSceneContext) {
     this.ctx = ctx;
@@ -306,6 +310,25 @@ export class DebuggerScene {
   getLastProfile(): CdpProfile | null { return this.lastProfile; }
   setLastProfile(p: CdpProfile | null): void { this.lastProfile = p; }
   getPerfMetricsHistory(): { mem: number[][]; cpu: number[][] } { return this.perfMetricsHistory; }
+
+  // ── GPU history accessors ──
+  getGpuMemHistory(): number[] { return this.gpuMemHistory; }
+  getGpuFrameTimeHistory(): { cpu: number[]; gpu: number[] } { return this.gpuFrameTimeHistory; }
+
+  /** Sample GPU metrics (called from the GPU panel each frame, but only
+   *  adds a new sample every 500ms). */
+  sampleGpuMetrics(totalBytes: number, cpuFrameMs: number, gpuFrameMs: number): void {
+    const now = performance.now();
+    if (now - this.gpuLastSampleTime < 500) return;
+    this.gpuLastSampleTime = now;
+    this.gpuMemHistory.push(totalBytes);
+    this.gpuFrameTimeHistory.cpu.push(cpuFrameMs);
+    this.gpuFrameTimeHistory.gpu.push(gpuFrameMs);
+    const MAX = 120;
+    if (this.gpuMemHistory.length > MAX) this.gpuMemHistory.shift();
+    if (this.gpuFrameTimeHistory.cpu.length > MAX) this.gpuFrameTimeHistory.cpu.shift();
+    if (this.gpuFrameTimeHistory.gpu.length > MAX) this.gpuFrameTimeHistory.gpu.shift();
+  }
 
   /** The scene context (passed to panels). */
   getContext(): DebuggerSceneContext { return this.ctx; }
