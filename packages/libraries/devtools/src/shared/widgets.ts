@@ -622,6 +622,9 @@ export function makeSectionHeader(opts: SectionOpts, hits: HitCollector, onToggl
   const bg = new Graphics();
   bg.rect(0, 0, opts.width, h);
   bg.fill({ color: BG_DARK, alpha: 0.9 });
+  // Bottom border
+  bg.rect(0, h - 1, opts.width, 1);
+  bg.fill({ color: COLOR_BORDER, alpha: 0.4 });
   c.addChild(bg);
   const tri = new Graphics();
   const cx = 8;
@@ -637,7 +640,7 @@ export function makeSectionHeader(opts: SectionOpts, hits: HitCollector, onToggl
     tri.lineTo(cx + 4, cy);
     tri.closePath();
   }
-  tri.fill({ color: COLOR_TEXT_DIM });
+  tri.fill({ color: opts.expanded ? COLOR_GREEN : COLOR_TEXT_DIM });
   c.addChild(tri);
   c.addChild(makeLabel(opts.label, 18, 3, COLOR_TEXT_BRIGHT, 12));
   hits.add(opts.x, opts.y, opts.width, h, onToggle);
