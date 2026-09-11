@@ -10,14 +10,14 @@
 // ============================================================================
 
 import {
-    calculateViewProj,
-    createLogger,
-    DEPTH_FORMAT,
-    MSAA_SAMPLE_COUNT,
-    type BindlessMaterialManager,
-    type BindlessTextureRegistry,
-    type CameraState,
-    type MaterialParams,
+  calculateViewProj,
+  createLogger,
+  DEPTH_FORMAT,
+  MSAA_SAMPLE_COUNT,
+  type BindlessMaterialManager,
+  type BindlessTextureRegistry,
+  type CameraState,
+  type MaterialParams,
 } from "@downdraft/core";
 import type { MaterialData, MeshData } from "@downdraft/library-models";
 import MODEL_WGSL from "./shaders/model.wgsl?raw";
@@ -394,9 +394,6 @@ export class ModelRenderer {
   uploadModel(nodeId: string, meshes: MeshData[], materials?: MaterialData[], modelBaseUrl?: string): void {
     this.removeModel(nodeId);
 
-    const hasTexture = materials?.some(m => (m.textureData && m.textureData.byteLength > 0) || m.textureUri) ?? false;
-    log.info("ModelRenderer", `uploadModel ${nodeId}: ${meshes.length} meshes, ${materials?.length ?? 0} materials, hasTexture=${hasTexture}, modelBaseUrl=${modelBaseUrl ?? "none"}`);
-
     const resources: ModelGPUResources[] = [];
     let uniformOffset = this.nextUniformOffset;
 
@@ -455,8 +452,6 @@ export class ModelRenderer {
           bindlessMatIndex = existing;
         } else {
           const mat = materials?.[matIdx];
-          const texLen = mat?.textureData?.byteLength ?? 0;
-          log.info("ModelRenderer", `  mesh[${i}] matIdx=${matIdx} key=${materialKey} baseColor=[${mat?.baseColor?.join(',')}] texData=${texLen}`);
           bindlessMatIndex = this.bindless.materialManager.registerMaterial({
             baseColor: mat?.baseColor ?? [1, 1, 1, 1],
             roughness: mat?.roughness ?? 1,
@@ -690,7 +685,6 @@ export class ModelRenderer {
         this.bindless.materialManager.updateMaterial(materialIndex, matParams);
       }
 
-      log.info("ModelRenderer", `Texture (from URI) ready for ${materialKey}: ${imageBitmap.width}x${imageBitmap.height} (bindless)`);
       imageBitmap.close();
     } catch (e) {
       console.error(`[ModelRenderer] Failed to load texture from URI for ${materialKey} (${textureUri}):`, e);
