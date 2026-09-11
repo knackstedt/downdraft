@@ -44,13 +44,31 @@ export const SANDBOX_STATS_LAYOUT: UiStatsLayout = {
   ],
 };
 
+// ── Spawn settings (chosen in the browser's settings panel) ──
+export interface SpawnSettings {
+  mass: number;        // weight (wired → physics.mass)
+  restitution: number; // bounce (wired → physics.restitution)
+  friction: number;     // wired → physics.friction
+  gravityScale: number; // wired → physics.gravityScale
+  scale: number;        // wired → spawn scale
+  shape: "box" | "sphere"; // wired → spawn shape
+  /** Stub: durability/HP (not yet consumed). */
+  strength: number;
+  /** Stub: texture-override id (not yet applied). */
+  texture: string;
+  /** Stub: shader-override id (not yet applied). */
+  shader: string;
+}
+
 // ── Actions (worker→main side effects) ──
 export type SandboxAction =
   | { kind: "toggleContentBrowser" }
+  | { kind: "closeBrowser" }
+  | { kind: "selectContent"; contentId: string }
   | { kind: "toggleToolWheel" }
   | { kind: "setTool"; tool: ToolType }
   | { kind: "setFunMode"; mode: FunMode }
-  | { kind: "spawn"; contentId: string }
+  | { kind: "spawn"; contentId: string; settings: SpawnSettings; count?: number }
   | { kind: "setPaintColor"; color: string }
   | { kind: "setPaintSize"; size: number }
   | { kind: "setPaintHardness"; hardness: number }
@@ -74,8 +92,10 @@ export type SandboxAction =
   | { kind: "setAmbientIntensity"; value: number };
 
 // ── Events (main→worker data updates) ──
+// Posted via pixiHost.postEvent() which takes a PixiUiEvent ({ kind: string; ... }).
 export type SandboxEvent =
-  | { type: "contentList"; items: ContentListItem[] }
-  | { type: "toolChanged"; tool: ToolType }
-  | { type: "funModeChanged"; mode: FunMode };
+  | { kind: "contentList"; items: ContentListItem[] }
+  | { kind: "spawnCounts"; counts: Record<string, number> }
+  | { kind: "toolChanged"; tool: ToolType }
+  | { kind: "funModeChanged"; mode: FunMode };
 

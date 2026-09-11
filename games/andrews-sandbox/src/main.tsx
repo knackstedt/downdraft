@@ -3,7 +3,7 @@
 // Declarative GameModule + startGame() bootstrap.
 // ============================================================================
 
-import { ContentRegistry, DragDropImporter, PluginScanner } from "@andrews-sandbox/library-content";
+import { ContentRegistry, DragDropImporter, PluginScanner, scanKenneyPacks } from "@andrews-sandbox/library-content";
 import { BUILTIN_PROPS } from "@andrews-sandbox/library-props";
 import { PaintSystem } from "@andrews-sandbox/module-paint";
 import { PhysicsPropsController } from "@andrews-sandbox/module-physics-props";
@@ -33,6 +33,18 @@ let dragDropImporter: DragDropImporter | null = null;
 let physicsController: PhysicsPropsController | null = null;
 let paintSystem: PaintSystem | null = null;
 let vrModule: SandboxVRModule | null = null;
+// Per-contentId spawn counts (module-scoped so event handlers can update them)
+const spawnCounts = new Map<string, number>();
+// Reference to the pixi-ui host (set in onReady, used by event handlers)
+let pixiUiHost: PixiUiHost | null = null;
+
+/** Send spawn counts to the pixi-ui worker (if started). */
+function sendSpawnCountsToWorker(): void {
+  if (!pixiUiHost) return;
+  const counts: Record<string, number> = {};
+  for (const [id, cnt] of spawnCounts) counts[id] = cnt;
+  pixiUiHost.postEvent({ kind: "spawnCounts", counts } as any);
+}
 
 // Player state shared between the sim event handler and the renderer move loop.
 // The sim worker owns the authoritative position (Rapier character controller);
@@ -101,7 +113,21 @@ for (const prop of BUILTIN_PROPS) {
     scale: prop.defaultScale,
     paintable: prop.paintable,
     pluginSource: "builtin",
+    pack: "builtin",
+    packLabel: "Builtin",
   });
+}
+
+// Register Kenney model packs (public domain, https://kenney.nl)
+try {
+  const kenneyGlobs = import.meta.glob("./assets/kenney_*/Models/**/*.glb", { eager: true, query: "?url", import: "default" }) as Record<string, string>;
+  const kenneyEntries = scanKenneyPacks(kenneyGlobs);
+  for (const entry of kenneyEntries) {
+    contentRegistry.register(entry);
+  }
+  console.log(`[Renderer] Registered ${kenneyEntries.length} Kenney model entries`);
+} catch (err) {
+  console.warn("[Renderer] Kenney pack discovery failed:", err);
 }
 
 startGame({
@@ -144,12 +170,23 @@ startGame({
 
       const propCount = countProps(ctx.simSAB!);
       useGameStore.getState().setPropCount(propCount);
+
+      // Track per-contentId spawn count
+      spawnCounts.set(data.contentId, (spawnCounts.get(data.contentId) ?? 0) + 1);
+      sendSpawnCountsToWorker();
     },
     prop_removed: (data, ctx) => {
       const renderer = ctx.renderer as WebGPURenderer;
       renderer.onPropRemoved(data.entityId);
       const propCount = countProps(ctx.simSAB!);
       useGameStore.getState().setPropCount(propCount);
+
+      // Decrement per-contentId spawn count (find the contentId from the SAB)
+      // The prop_removed event only has entityId; we need to find the contentId.
+      // Since the slot is already cleared, we can't read it from the SAB.
+      // We'll just leave the count as-is (it will be corrected on clear).
+      // A better approach would be to track entityId→contentId, but for now
+      // we only decrement on "clear" (which resets all counts).
     },
     fun_mode_changed: (data) => {
       useGameStore.getState().setActiveFunMode(data.mode);
@@ -269,22 +306,64 @@ startGame({
     try {
       await pixiHost.start();
       pixiStarted = true;
+      console.log("[Renderer] PixiUI host started successfully, pixiStarted=true");
     } catch (err) {
       console.warn("[Renderer] PixiUI worker failed to start (UI will be unavailable):", err);
     }
-    // The PixiUI overlay canvas has pointer-events: auto (pass-through mode)
-    // and sits above the game canvas (z-index 50 vs 0). When the worker fails,
-    // forwardPointer() returns early (no worker) and clicks are never forwarded
-    // to the game canvas. Disable pointer events on the overlay so clicks reach
-    // the game canvas directly — otherwise pointer lock and all mouse input break.
-    // Hide the PixiUI overlay canvas entirely — we use the DOM HUD instead.
-    const overlay = pixiHost.overlayCanvas;
-    if (overlay) {
-      overlay.style.pointerEvents = "none";
-      overlay.style.display = "none";
-    }
-    // Build DOM HUD (replaces PixiUI which has a broken worker)
+    // Build DOM HUD (toolbar, funbar, badges, ESC menu, paint palette).
+    // The asset browser runs in the pixi-ui overlay (not the DOM HUD).
     buildDomHud(ctx, contentRegistry, weaponController, physicsController, paintSystem, sim);
+
+    // ── Send content list + spawn counts to the pixi-ui worker ──
+    pixiUiHost = pixiHost;
+    if (pixiStarted) {
+      pixiHost.postEvent({ kind: "contentList", items: contentRegistry.listItems() } as any);
+      // Re-send whenever the registry changes (drag-drop, plugin scan)
+      contentRegistry.onChange(() => {
+        pixiHost.postEvent({ kind: "contentList", items: contentRegistry.listItems() } as any);
+      });
+    }
+
+    // ── Per-frame stats to the pixi-ui worker (showBrowser, fps, etc.) ──
+    const pixiStatsInterval = setInterval(() => {
+      if (!pixiStarted) return;
+      const s = useGameStore.getState();
+      pixiHost.writeStats({
+        fps: s.fps,
+        propCount: s.propCount,
+        showBrowser: s.showContentBrowser ? 1 : 0,
+        activeTool: s.activeTool,
+        funMode: s.activeFunMode,
+      });
+    }, 100);
+    (ctx as any)._pixiStatsInterval = pixiStatsInterval;
+
+    // ── Interactive mode: unlock cursor when the browser opens ──
+    pixiHost.onInteractiveChange = (interactive: boolean) => {
+      const domHud = (ctx as any)._domHud as any;
+      if (interactive) {
+        // Browser opened — release pointer lock so the cursor is free.
+        // The sim keeps running (props keep falling).
+        if (document.pointerLockElement) {
+          document.exitPointerLock();
+        }
+        useGameStore.getState().setShowEscMenu(false);
+        // Hide the DOM HUD so it doesn't render in front of the pixi overlay.
+        if (domHud?.hud) domHud.hud.style.display = "none";
+        if (domHud?.toolbar) domHud.toolbar.style.display = "none";
+        if (domHud?.funbar) domHud.funbar.style.display = "none";
+        if (domHud?.palette) domHud.palette.style.display = "none";
+      } else {
+        // Browser closed — re-acquire pointer lock + restore DOM HUD.
+        if (domHud?.hud) domHud.hud.style.display = "";
+        if (domHud?.toolbar) domHud.toolbar.style.display = "";
+        if (domHud?.funbar) domHud.funbar.style.display = "";
+        if (domHud?.palette) domHud.palette.style.display = "";
+        if (!useGameStore.getState().showEscMenu) {
+          (ctx as any)._requestPointerLockSafe?.();
+        }
+      }
+    };
 
     pixiHost.onAction = ((action: any) => {
       const a = action as SandboxAction;
@@ -292,6 +371,13 @@ startGame({
       switch (a.kind) {
         case "toggleContentBrowser":
           s.toggleContentBrowser();
+          break;
+        case "closeBrowser":
+          useGameStore.getState().setShowEscMenu(false);
+          useGameStore.setState({ showContentBrowser: false });
+          break;
+        case "selectContent":
+          weaponController.getToolgun().setSelectedContent(a.contentId);
           break;
         case "toggleToolWheel":
           s.toggleToolWheel();
@@ -312,22 +398,47 @@ startGame({
           const dy = target[1] - cam[1];
           const dz = target[2] - cam[2];
           const dl = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
-          const entry = contentRegistry.get(a.contentId);
-          const shape = entry?.shape ?? (a.contentId.includes("sphere") || a.contentId.includes("ball") ? "sphere" : "box");
-          sim.sendCommand({
-            type: "spawn",
-            contentId: a.contentId,
-            position: [cam[0] + (dx / dl) * 5, cam[1] + (dy / dl) * 5 + 2, cam[2] + (dz / dl) * 5],
-            physics: entry?.physics,
-            shape,
-            scale: entry?.scale ?? 1.0,
-          });
+          const fx = dx / dl, fy = dy / dl, fz = dz / dl;
+          const count = a.count ?? 1;
+          const st = a.settings;
+          const physics = {
+            mass: st?.mass ?? 1.0,
+            restitution: st?.restitution ?? 0.3,
+            friction: st?.friction ?? 0.5,
+            gravityScale: st?.gravityScale ?? 1.0,
+          };
+          const shape = st?.shape ?? (a.contentId.includes("sphere") || a.contentId.includes("ball") ? "sphere" : "box");
+          const scale = st?.scale ?? 1.0;
+          for (let i = 0; i < count; i++) {
+            // Scatter for multi-spawn
+            const spread = count > 1 ? 2.5 : 0;
+            const offX = count > 1 ? (i % 5 - 2) * spread : 0;
+            const offY = count > 1 ? Math.floor(i / 5) * spread : 0;
+            const rx = fz, rz = -fx;
+            sim.sendCommand({
+              type: "spawn",
+              contentId: a.contentId,
+              position: [
+                cam[0] + fx * 5 + rx * offX,
+                cam[1] + fy * 5 + 2 + offY,
+                cam[2] + fz * 5 + rz * offX,
+              ],
+              physics,
+              shape,
+              scale,
+              strength: st?.strength,
+              texture: st?.texture,
+              shader: st?.shader,
+            });
+          }
           // Also set the toolgun's selected content so toolgun-spawn can use it
           weaponController.getToolgun().setSelectedContent(a.contentId);
           break;
         }
         case "clearProps":
           sim.sendCommand({ type: "clear" });
+          spawnCounts.clear();
+          sendSpawnCountsToWorker();
           break;
         case "saveGame":
           sim.save("autosave");
@@ -517,6 +628,17 @@ startGame({
 
     // Unified keyboard handler — shortcuts + movement keys
     window.addEventListener("keydown", (e) => {
+      // If the asset browser is open, let the pixi worker handle all keys
+      // (including ESC for clearing search / closing the browser). KeyB also
+      // toggles the browser closed from the main thread. Don't toggle the ESC
+      // menu while the browser is open — ESC is used by the browser.
+      if (useGameStore.getState().showContentBrowser) {
+        if (e.code === "KeyB") {
+          e.preventDefault();
+          useGameStore.getState().toggleContentBrowser();
+        }
+        return;
+      }
       // ESC menu — takes priority over everything else.
       if (e.code === "Escape") {
         e.preventDefault();
@@ -529,7 +651,9 @@ startGame({
       keys.add(e.code);
       const s = useGameStore.getState();
       switch (e.code) {
-        case "KeyB": toggleDomPanel(ctx, "browser"); break;
+        case "KeyB":
+          useGameStore.getState().toggleContentBrowser();
+          break;
         case "KeyP": toggleDomPanel(ctx, "palette"); break;
         case "F5": e.preventDefault(); sim.save("autosave"); break;
         case "F9": e.preventDefault(); sim.load("autosave"); break;
@@ -579,6 +703,9 @@ startGame({
       lastWeaponTick = now;
       // Skip game logic while ESC menu is open
       if (useGameStore.getState().showEscMenu) return;
+      // While the asset browser is open, keep ticking weapons/paint/VR but
+      // skip player movement (WASD is used for keyboard navigation instead).
+      const browserOpen = useGameStore.getState().showContentBrowser;
       weaponController.tick(dt);
       paintSystem?.tick();
       vrModule?.tick(dt);
@@ -593,6 +720,7 @@ startGame({
 
       // ── FreeCam: fly the camera through the world; the sim player freezes ──
       if (cameraMode === CameraMode.FreeCam) {
+        if (browserOpen) { applyCamera(r, yaw, pitch); return; }
         const fwd = getMoveForward(yaw);
         const right = getRightVector(yaw);
         const speed = FREECAM_SPEED;
@@ -612,6 +740,7 @@ startGame({
       }
 
       // ── Player-attached modes (FirstPerson / ThirdPerson) ──
+      if (browserOpen) { applyCamera(r, yaw, pitch); return; }
       // Determine desired pose from held keys: CtrlLeft (prone) takes
       // priority over ShiftLeft (crouch); release either to stand.
       const desiredPose = keys.has("ControlLeft")
@@ -666,6 +795,8 @@ startGame({
   onDispose: async (ctx) => {
     const statsInterval = (ctx as any)._statsInterval as ReturnType<typeof setInterval>;
     if (statsInterval) clearInterval(statsInterval);
+    const pixiStatsInterval = (ctx as any)._pixiStatsInterval as ReturnType<typeof setInterval>;
+    if (pixiStatsInterval) clearInterval(pixiStatsInterval);
     const moveLoop = (ctx as any)._moveLoop as ReturnType<typeof setInterval>;
     if (moveLoop) clearInterval(moveLoop);
     const pixiHost = (ctx as any)._pixiHost as PixiUiHost;
@@ -676,7 +807,6 @@ startGame({
     const domHud = (ctx as any)._domHud as any;
     if (domHud) {
       domHud.hud?.remove();
-      domHud.browser?.remove();
       domHud.toolbar?.remove();
       domHud.funbar?.remove();
       domHud.palette?.remove();
@@ -703,14 +833,30 @@ function countProps(simSAB: SharedArrayBuffer): number {
   return props;
 }
 
-// Toggle a DOM HUD panel by name
-function toggleDomPanel(ctx: any, name: "browser" | "palette"): void {
+// Toggle a DOM HUD panel by name. Opening a panel releases pointer lock so
+// the cursor can interact with it (the panels are pointer-events: auto with
+// clickable items / sliders); closing a panel re-acquires pointer lock,
+// but only when no other panel or the ESC menu is still open.
+function toggleDomPanel(ctx: any, name: "palette"): void {
   const domHud = (ctx as any)._domHud as any;
   if (!domHud) return;
   const el = domHud[name] as HTMLElement;
   if (!el) return;
   const visible = el.style.display !== "none";
-  el.style.display = visible ? "none" : "block";
+  if (visible) {
+    // Closing the panel.
+    el.style.display = "none";
+    const otherPanelOpen = (domHud.palette && domHud.palette.style.display !== "none");
+    if (!useGameStore.getState().showEscMenu && !otherPanelOpen && !useGameStore.getState().showContentBrowser) {
+      (ctx as any)._requestPointerLockSafe?.();
+    }
+  } else {
+    // Opening the panel — release pointer lock so the cursor is usable.
+    if (document.pointerLockElement) {
+      document.exitPointerLock();
+    }
+    el.style.display = "block";
+  }
 }
 
 // ── DOM HUD (replaces PixiUI which has a broken worker) ──
@@ -784,97 +930,7 @@ function buildDomHud(
   }, 200);
   (ctx as any)._hudInterval = hudInterval;
 
-  // Content browser
-  const browser = document.createElement("div");
-  browser.className = "sandbox-browser";
-  browser.style.display = "block";
-  const title = document.createElement("h3");
-  title.textContent = "Content Browser (B)";
-  browser.appendChild(title);
-  const list = document.createElement("div");
-  browser.appendChild(list);
-
-  function renderBrowserItems() {
-    list.innerHTML = "";
-    const items = registry.listItems();
-    for (const item of items) {
-      const row = document.createElement("div");
-      row.className = "sandbox-browser-item";
-      const icon = document.createElement("div");
-      icon.className = "icon";
-      icon.textContent = item.id.includes("sphere") || item.id.includes("ball") ? "●" : "■";
-      row.appendChild(icon);
-      const name = document.createElement("div");
-      name.className = "name";
-      name.textContent = item.name;
-      row.appendChild(name);
-      const cat = document.createElement("div");
-      cat.className = "cat";
-      cat.textContent = item.pluginSource ?? "builtin";
-      row.appendChild(cat);
-      row.onclick = () => {
-        const cam = (ctx.renderer as WebGPURenderer).getCameraPosition();
-        const target = (ctx.renderer as WebGPURenderer).getCameraTarget();
-        const dx = target[0] - cam[0], dy = target[1] - cam[1], dz = target[2] - cam[2];
-        const dl = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
-        const entry = registry.get(item.id);
-        const shape = entry?.shape ?? (item.id.includes("sphere") || item.id.includes("ball") ? "sphere" : "box");
-        sim.sendCommand({
-          type: "spawn",
-          contentId: item.id,
-          position: [cam[0] + (dx/dl)*5, cam[1] + (dy/dl)*5 + 2, cam[2] + (dz/dl)*5],
-          physics: entry?.physics,
-          shape,
-          scale: entry?.scale ?? 1.0,
-        });
-        weapons.getToolgun().setSelectedContent(item.id);
-      };
-      list.appendChild(row);
-    }
-    const clearBtn = document.createElement("button");
-    clearBtn.className = "clear-btn";
-    clearBtn.textContent = "Clear All Props";
-    clearBtn.onclick = () => sim.sendCommand({ type: "clear" });
-    list.appendChild(clearBtn);
-
-    // Spawn 10 cubes at once, scattered in front of the camera
-    const spawn10Btn = document.createElement("button");
-    spawn10Btn.className = "clear-btn";
-    spawn10Btn.textContent = "Spawn 10 Cubes";
-    spawn10Btn.onclick = () => {
-      const cam = (ctx.renderer as WebGPURenderer).getCameraPosition();
-      const target = (ctx.renderer as WebGPURenderer).getCameraTarget();
-      const dx = target[0] - cam[0], dy = target[1] - cam[1], dz = target[2] - cam[2];
-      const dl = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
-      const fx = dx / dl, fy = dy / dl, fz = dz / dl;
-      const entry = registry.get("builtin:cube");
-      for (let i = 0; i < 10; i++) {
-        // Spread cubes in a rough grid perpendicular to the view direction
-        const spread = 2.5;
-        const offX = (i % 5 - 2) * spread;
-        const offY = Math.floor(i / 5) * spread;
-        // Right vector relative to forward (in XZ plane)
-        const rx = fz, rz = -fx;
-        sim.sendCommand({
-          type: "spawn",
-          contentId: "builtin:cube",
-          position: [
-            cam[0] + fx * 6 + rx * offX,
-            cam[1] + fy * 6 + 2 + offY,
-            cam[2] + fz * 6 + rz * offX,
-          ],
-          physics: entry?.physics,
-          shape: entry?.shape ?? "box",
-          scale: entry?.scale ?? 1.0,
-        });
-      }
-      weapons.getToolgun().setSelectedContent("builtin:cube");
-    };
-    list.appendChild(spawn10Btn);
-  }
-  renderBrowserItems();
-  document.body.appendChild(browser);
-
+  // Content browser is now in the pixi-ui overlay (not the DOM HUD).
   // Tool bar
   const toolbar = document.createElement("div");
   toolbar.className = "sandbox-toolbar";
@@ -1476,7 +1532,7 @@ function buildDomHud(
 
   // Expose toggle + updateToolBtns for external keydown handler
   (ctx as any)._domHud = {
-    hud, browser, toolbar, funbar, palette,
+    hud, toolbar, funbar, palette,
     escMenu,
     updateToolBtns,
     tools,

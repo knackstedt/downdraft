@@ -1844,10 +1844,10 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
     skyUniformData[18] = this.camPos[2];
     device.queue.writeBuffer(this.skyUniformBuffer!, 0, skyUniformData);
 
-    // Prepare bindless frame bindings
-    if (this.bindlessFrameBindings) {
-      this.bindlessFrameBindings.prepareFrame();
-    }
+    // Prepare bindless frame bindings (flush material SSBO + (re)build the
+    // bind group if the layout/version changed). Called once per frame; the
+    // returned bind group is handed to the ModelRenderer below.
+    const bindlessBg = this.bindlessFrameBindings?.prepareFrame() ?? null;
 
     // Upload frame-global lighting state
     if (this.lighting) {
@@ -1857,6 +1857,29 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
     // Provide the lighting bind group to the model renderer (group 2).
     if (this.modelRenderer && this.modelLightingBg) {
       this.modelRenderer.setFrameLightingBindGroup(this.modelLightingBg);
+    }
+    // Per-frame camera + light state for the ModelRenderer. beginFrame() sets
+    // viewProjCache + cameraPosCache — without it, ModelRenderer.render()
+    // early-returns (viewProjCache stays null) and model-based props (e.g. the
+    // crate plugin's GLB) are never drawn, so they appear invisible. Builtin
+    // cubes/spheres use the sandbox's own procedural pipelines and are
+    // unaffected, which is why only model props were invisible.
+    if (this.modelRenderer) {
+      this.modelRenderer.beginFrame(cameraState);
+      // Provide the bindless material bind group (group 3) for the model
+      // pipeline. Without this, bindlessBindGroup stays null and render()
+      // skips setBindGroup(3), leaving a stale group-3 bind group from the
+      // builtin sphere/cube pipelines (e.g. sphere-shadow-bg, an auto-layout
+      // bind group) bound — which is incompatible with the model pipeline's
+      // explicit bindlessLayout → WebGPU uncaptured error on the model draw.
+      this.modelRenderer.setBindlessBindGroup(bindlessBg);
+      if (this.lighting) {
+        this.modelRenderer.setLightState(
+          this.lighting.getSunDirection(),
+          this.lighting.getAmbientIntensity(),
+          0.5,
+        );
+      }
     }
 
     // Collect visible builtin entities once — reused by both shadow + scene passes.
@@ -2018,6 +2041,8 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
     // Props (cubes + spheres) — instanced depth-only into the shadow map
     if (this.simReader) {
       this.renderBuiltinPropsDepth(pass);
+      // Model-based props (e.g. crate GLB) — depth-only via ModelRenderer.
+      if (this.modelRenderer) this.renderModelPropsDepth(pass, lightVP);
     }
   }
 
@@ -2074,6 +2099,39 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
     }
     if (spheres.length > 0 && this.depthOnlySpherePipeline && this.sphereVertexBuffer && this.sphereIndexBuffer) {
       renderBatch(spheres, this.depthOnlySpherePipeline, this.sphereVertexBuffer, this.sphereIndexBuffer, this.sphereIndexCount, cubes.length, this.depthSphereBindGroup0!);
+    }
+  }
+
+  /** Render model-based props depth-only into the shadow map. */
+  private renderModelPropsDepth(pass: GPURenderPassEncoder, lightVP: Float32Array): void {
+    if (!this.modelRenderer || !this.simReader) return;
+    const interp = this.interpOut;
+    const count = this.simReader.getEntityCount();
+    for (let i = 0; i < count; i++) {
+      const sv = this.simReader.getEntitySlotDirect(i);
+      const u32 = sv.u32;
+      const f32 = sv.f32;
+      const type = u32[ENT.TYPE];
+      if (type === 255 || (type !== EntityType.Prop && type !== EntityType.Mannequin)) continue;
+      const nodeIdRaw = u32[ENT.ID];
+      if (nodeIdRaw === 0) continue; // builtin prop — handled by renderBuiltinPropsDepth
+      const nodeId = `prop-${nodeIdRaw}`;
+      if (!this.nodeToContent.has(nodeId)) continue;
+
+      const ioff = i * 8;
+      const px = interp ? interp[ioff]       : f32[ENT.POS_X];
+      const py = interp ? interp[ioff + 1]   : f32[ENT.POS_Y];
+      const pz = interp ? interp[ioff + 2]   : f32[ENT.POS_Z];
+      const scale = interp ? interp[ioff + 7] : f32[ENT.SCALE];
+      const rx = interp ? interp[ioff + 3]   : f32[ENT.ROT_X];
+      const ry = interp ? interp[ioff + 4]   : f32[ENT.ROT_Y];
+      const rz = interp ? interp[ioff + 5]   : f32[ENT.ROT_Z];
+      const rw = interp ? interp[ioff + 6]   : f32[ENT.ROT_W];
+
+      this.modelRenderer.renderDepth(
+        pass, lightVP, nodeId,
+        [px, py, pz], [rx, ry, rz, rw], [scale, scale, scale],
+      );
     }
   }
 

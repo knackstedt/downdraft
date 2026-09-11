@@ -1,299 +1,845 @@
 // ============================================================================
-// Andrew's Sandbox pixi-scene — direct PixiJS scene (no @pixi/react for now).
-// Will be migrated to @pixi/react in Phase 7 when UI is fully built out.
+// Andrew's Sandbox pixi-scene — GMod-style fullscreen asset browser.
+// Runs in the pixi-ui Web Worker. Renders the browser UI with PixiJS and
+// 3D model thumbnails via a dedicated ThumbnailRenderer (WebGL2 OffscreenCanvas).
 // ============================================================================
 
 import type { PixiUiScene, PixiUiSceneContext, PixiUiUpdateData } from "@downdraft/library-pixi-ui";
-import { FunMode, ToolType } from "@sandbox/shared/types";
-import { Container, Graphics, Text, type Application } from "pixi.js";
-import type { ContentListItem, SandboxAction } from "./bridge-protocol";
+import { Container, Graphics, Sprite, Text, Texture, type Application } from "pixi.js";
+import type { ContentListItem, SandboxAction, SpawnSettings } from "./bridge-protocol";
+import { ThumbnailRenderer } from "./thumbnail-renderer";
+
+// ── Colors ──
+const C_BG = 0x0a0a14;
+const C_PANEL = 0x141428;
+const C_PANEL_BORDER = 0x4e9af1;
+const C_ACCENT = 0x4e9af1;
+const C_TEXT = 0xe0e0e0;
+const C_TEXT_DIM = 0x888888;
+const C_CARD = 0x1a1a2e;
+const C_CARD_SELECTED = 0x2a3a5e;
+const C_CARD_HOVER = 0x222240;
+const C_COUNT = 0x4e9af1;
+const C_BTN = 0x2a2a4e;
+const C_BTN_HOVER = 0x3a3a6e;
+const C_BTN_ACTIVE = 0x4e9af1;
+const C_STUB = 0xff9944;
+
+// ── Layout ──
+const THUMB_SIZE = 96;
+const CARD_W = 130;
+const CARD_H = 160;
+const CARD_GAP = 8;
+const SETTINGS_W = 300;
+const HEADER_H = 44;
+const TABS_H = 36;
+const FILTERS_H = 32;
+const FOOTER_H = 36;
+const PADDING = 12;
+
+// ── Textures per card (2D OffscreenCanvas → PIXI Texture) ──
+interface CardEntry {
+  item: ContentListItem;
+  container: Container;
+  thumbCanvas: OffscreenCanvas;
+  thumbCtx: OffscreenCanvasRenderingContext2D;
+  texture: Texture;
+  sprite: Sprite;
+  nameText: Text;
+  countText: Text;
+  angle: number;
+  modelLoaded: boolean;
+}
 
 export default async function createSandboxScene(ctx: PixiUiSceneContext): Promise<PixiUiScene> {
   const app: Application = ctx.app;
+  const postAction = (a: SandboxAction) => ctx.postAction(a as any);
+
   const root = new Container();
   app.stage.addChild(root);
 
-  // UI state
-  let showBrowser = true;
-  let showToolWheel = false;
-  let showPaintPalette = false;
-  let activeTool = ToolType.Physgun;
-  let funMode = FunMode.Normal;
+  // ── State ──
+  let showBrowser = false;
   let contentItems: ContentListItem[] = [];
-  let fps = 0;
-  let propCount = 0;
+  let spawnCounts: Record<string, number> = {};
+  let activePack = "all";
+  let searchQuery = "";
+  let categoryFilter = "all";
+  let sortBy: "name" | "count" = "name";
+  let selectedContentId: string | null = null;
+  let scrollY = 0;
+  let maxScrollY = 0;
+  let cards: CardEntry[] = [];
+  let thumbRenderer: ThumbnailRenderer | null = null;
+  // Temp canvas for pixel transfer (putImageData → drawImage)
+  const tempThumbCanvas = new OffscreenCanvas(THUMB_SIZE, THUMB_SIZE);
+  const tempThumbCtx = tempThumbCanvas.getContext("2d")!;
+  let _loopDebug = false;
+  let _thumbFrame = 0;
+  let thumbTexture: Texture | null = null;
+  let caretBlink = 0;
+  let dragScrolling = false;
+  let dragStartY = 0;
+  let dragStartScroll = 0;
+  let dragMoved = false;
 
-  // UI elements
-  const fpsText = new Text({ text: "FPS: 0  Props: 0", style: { fill: 0xffffff, fontSize: 14, fontFamily: "Montserrat" } });
-  fpsText.x = 10; fpsText.y = 10;
-  root.addChild(fpsText);
+  // Persistent spawn settings (survive across card selections)
+  const settings: SpawnSettings = {
+    mass: 1.0, restitution: 0.3, friction: 0.5, gravityScale: 1.0,
+    scale: 1.0, shape: "box",
+    strength: 100, texture: "Default", shader: "Standard",
+  };
 
-  const browserPanel = new Container();
-  browserPanel.x = 10; browserPanel.y = 50;
-  root.addChild(browserPanel);
+  // ── UI Containers ──
+  const backdrop = new Graphics();
+  backdrop.visible = false;
+  root.addChild(backdrop);
 
-  const toolWheelPanel = new Container();
-  root.addChild(toolWheelPanel);
+  const browserRoot = new Container();
+  browserRoot.visible = false;
+  root.addChild(browserRoot);
 
-  const paintPalettePanel = new Container();
-  root.addChild(paintPalettePanel);
+  const headerBar = new Container();
+  browserRoot.addChild(headerBar);
 
-  const funModePanel = new Container();
-  funModePanel.x = 800; funModePanel.y = 10;
-  root.addChild(funModePanel);
+  const tabsBar = new Container();
+  browserRoot.addChild(tabsBar);
 
-  // Graphics settings panel
-  const graphicsPanel = new Container();
-  graphicsPanel.x = 550; graphicsPanel.y = 50;
-  graphicsPanel.visible = false;
-  root.addChild(graphicsPanel);
+  const filtersBar = new Container();
+  browserRoot.addChild(filtersBar);
 
-  // Graphics settings state (mirrored from stats)
-  let showGraphics = false;
-  let gfxBloom = true;
-  let gfxBloomStrength = 0.6;
-  let gfxBloomThreshold = 0.85;
-  let gfxFXAA = true;
-  let gfxTonemap = true;
-  let gfxExposure = 1.1;
-  let gfxVignette = true;
-  let gfxVignetteStrength = 0.25;
-  let gfxShadows = true;
-  let gfxMipmaps = true;
-  let gfxPointLights = true;
-  let gfxSunR = 1.0;
-  let gfxSunG = 0.95;
-  let gfxSunB = 0.85;
-  let gfxAmbient = 0.4;
+  const gridArea = new Container();
+  browserRoot.addChild(gridArea);
 
-  const helpText = new Text({ text: "[F5] Save  [F9] Load  [Q] Tools  [B] Browser  [F6] Graphics", style: { fill: 0xaaaaaa, fontSize: 12, fontFamily: "Montserrat" } });
-  helpText.x = 10; helpText.y = (app.renderer.height ?? 720) - 30;
-  root.addChild(helpText);
+  const settingsPanel = new Container();
+  browserRoot.addChild(settingsPanel);
 
-  const postAction = (action: SandboxAction) => ctx.postAction(action);
+  const footerBar = new Container();
+  browserRoot.addChild(footerBar);
 
-  function rebuildBrowser(): void {
-    browserPanel.removeChildren();
+  // ── Pack list (derived from content items) ──
+  let packs: Array<{ id: string; label: string }> = [{ id: "all", label: "All" }];
+
+  function derivePacks(): void {
+    const map = new Map<string, string>();
+    for (const item of contentItems) {
+      if (!map.has(item.pack)) map.set(item.pack, item.packLabel);
+    }
+    packs = [{ id: "all", label: "All" }];
+    for (const [id, label] of map) packs.push({ id, label });
+  }
+
+  // ── Filtered items ──
+  function getFilteredItems(): ContentListItem[] {
+    let items = contentItems;
+    if (activePack !== "all") items = items.filter((i) => i.pack === activePack);
+    if (categoryFilter !== "all") items = items.filter((i) => i.category === categoryFilter);
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      items = items.filter((i) => i.name.toLowerCase().includes(q));
+    }
+    const sorted = [...items];
+    if (sortBy === "name") sorted.sort((a, b) => a.name.localeCompare(b.name));
+    else sorted.sort((a, b) => (spawnCounts[b.id] ?? 0) - (spawnCounts[a.id] ?? 0));
+    return sorted;
+  }
+
+  // ── Layout dimensions ──
+  function getGridWidth(): number {
+    return app.screen.width - SETTINGS_W - PADDING * 3;
+  }
+  function getGridHeight(): number {
+    return app.screen.height - HEADER_H - TABS_H - FILTERS_H - FOOTER_H - PADDING * 2;
+  }
+  function getGridX(): number { return PADDING; }
+  function getGridY(): number { return HEADER_H + TABS_H + FILTERS_H + PADDING; }
+
+  // ── Build backdrop ──
+  function buildBackdrop(): void {
+    backdrop.clear();
+    backdrop.rect(0, 0, app.screen.width, app.screen.height);
+    backdrop.fill({ color: C_BG, alpha: 0.85 });
+  }
+
+  // ── Build header ──
+  const searchLabel = new Text({ text: "Search:", style: { fill: C_TEXT_DIM, fontSize: 13, fontFamily: "Segoe UI, Arial, sans-serif" } });
+  const searchInput = new Text({ text: "", style: { fill: C_TEXT, fontSize: 14, fontFamily: "Segoe UI, Arial, sans-serif" } });
+  const closeBtn = new Text({ text: "[X] Close (B)", style: { fill: C_ACCENT, fontSize: 14, fontFamily: "Segoe UI, Arial, sans-serif" } });
+
+  function buildHeader(): void {
+    headerBar.removeChildren();
     const bg = new Graphics();
-    bg.rect(0, 0, 250, 400);
-    bg.fill({ color: 0x141428, alpha: 0.85 });
-    bg.stroke({ color: 0x4e9af1, width: 2 });
-    browserPanel.addChild(bg);
+    bg.rect(0, 0, app.screen.width, HEADER_H);
+    bg.fill({ color: C_PANEL, alpha: 0.95 });
+    bg.stroke({ color: C_PANEL_BORDER, width: 1 });
+    headerBar.addChild(bg);
 
-    const title = new Text({ text: "Content Browser [B]", style: { fill: 0x4e9af1, fontSize: 16, fontFamily: "Montserrat" } });
-    title.x = 10; title.y = 8;
-    browserPanel.addChild(title);
+    const title = new Text({ text: "Asset Browser", style: { fill: C_ACCENT, fontSize: 18, fontFamily: "Segoe UI, Arial, sans-serif", fontWeight: "bold" } });
+    title.x = PADDING; title.y = 10;
+    headerBar.addChild(title);
 
-    if (contentItems.length === 0) {
-      const empty = new Text({ text: "No content loaded.\nDrop GLB/PNG files or add plugins.", style: { fill: 0x888888, fontSize: 12, fontFamily: "Montserrat" } });
-      empty.x = 10; empty.y = 40;
-      browserPanel.addChild(empty);
-    } else {
-      contentItems.forEach((item, i) => {
-        const entry = new Text({ text: `[${item.category}] ${item.name}`, style: { fill: 0xe0e0e0, fontSize: 13, fontFamily: "Montserrat" } });
-        entry.x = 10; entry.y = 40 + i * 22;
-        entry.eventMode = "static";
-        entry.onclick = () => postAction({ kind: "spawn", contentId: item.id });
-        browserPanel.addChild(entry);
+    searchLabel.x = 200; searchLabel.y = 14;
+    headerBar.addChild(searchLabel);
+    const searchBox = new Graphics();
+    searchBox.rect(260, 10, 300, 24);
+    searchBox.fill({ color: 0x0a0a18, alpha: 0.9 });
+    searchBox.stroke({ color: C_ACCENT, width: 1 });
+    headerBar.addChild(searchBox);
+    searchInput.x = 266; searchInput.y = 14;
+    headerBar.addChild(searchInput);
+
+    closeBtn.x = app.screen.width - 160; closeBtn.y = 14;
+    closeBtn.eventMode = "static";
+    closeBtn.cursor = "pointer";
+    closeBtn.onclick = () => postAction({ kind: "closeBrowser" });
+    headerBar.addChild(closeBtn);
+  }
+
+  // ── Build tabs ──
+  let tabBtns: Array<{ btn: Text; packId: string }> = [];
+  function buildTabs(): void {
+    tabsBar.removeChildren();
+    tabBtns = [];
+    const bg = new Graphics();
+    bg.rect(0, HEADER_H, app.screen.width, TABS_H);
+    bg.fill({ color: C_PANEL, alpha: 0.8 });
+    tabsBar.addChild(bg);
+
+    let x = PADDING;
+    const y = HEADER_H + 8;
+    for (const p of packs) {
+      const isActive = activePack === p.id;
+      const btn = new Text({
+        text: isActive ? `[${p.label}]` : p.label,
+        style: { fill: isActive ? C_ACCENT : C_TEXT, fontSize: 13, fontFamily: "Segoe UI, Arial, sans-serif" },
       });
+      btn.x = x; btn.y = y;
+      btn.eventMode = "static";
+      btn.cursor = "pointer";
+      btn.onclick = () => { activePack = p.id; scrollY = 0; rebuildGrid(); buildTabs(); buildFilters(); };
+      tabsBar.addChild(btn);
+      tabBtns.push({ btn, packId: p.id });
+      x += btn.width + 16;
     }
   }
 
-  function rebuildToolWheel(): void {
-    toolWheelPanel.removeChildren();
-    if (!showToolWheel) return;
-    const tools = [
-      { tool: ToolType.Physgun, label: "Physgun", x: 400, y: 220 },
-      { tool: ToolType.Toolgun, label: "Toolgun", x: 480, y: 300 },
-      { tool: ToolType.Pistol, label: "Pistol", x: 400, y: 380 },
-      { tool: ToolType.Paintgun, label: "Paintgun", x: 320, y: 300 },
+  // ── Build filters ──
+  function buildFilters(): void {
+    filtersBar.removeChildren();
+    const bg = new Graphics();
+    bg.rect(0, HEADER_H + TABS_H, app.screen.width, FILTERS_H);
+    bg.fill({ color: C_PANEL, alpha: 0.6 });
+    filtersBar.addChild(bg);
+
+    const cats: Array<{ id: string; label: string }> = [
+      { id: "all", label: "All" },
+      { id: "prop", label: "Props" },
+      { id: "texture", label: "Textures" },
+      { id: "data", label: "Data" },
+      { id: "builtin", label: "Builtin" },
     ];
-    for (const t of tools) {
-      const txt = new Text({ text: t.label, style: { fill: t.tool === activeTool ? 0x4e9af1 : 0xe0e0e0, fontSize: 16, fontFamily: "Montserrat" } });
-      txt.x = t.x; txt.y = t.y;
-      txt.eventMode = "static";
-      txt.onclick = () => postAction({ kind: "setTool", tool: t.tool });
-      toolWheelPanel.addChild(txt);
+    let x = PADDING;
+    const y = HEADER_H + TABS_H + 8;
+    for (const c of cats) {
+      const isActive = categoryFilter === c.id;
+      const btn = new Text({
+        text: isActive ? `[${c.label}]` : c.label,
+        style: { fill: isActive ? C_ACCENT : C_TEXT_DIM, fontSize: 12, fontFamily: "Segoe UI, Arial, sans-serif" },
+      });
+      btn.x = x; btn.y = y;
+      btn.eventMode = "static";
+      btn.cursor = "pointer";
+      btn.onclick = () => { categoryFilter = c.id; scrollY = 0; rebuildGrid(); buildFilters(); };
+      filtersBar.addChild(btn);
+      x += btn.width + 12;
     }
-  }
 
-  function rebuildPaintPalette(): void {
-    paintPalettePanel.removeChildren();
-    if (!showPaintPalette) return;
-    paintPalettePanel.x = 300; paintPalettePanel.y = 600;
-
-    const bg = new Graphics();
-    bg.rect(0, 0, 300, 60);
-    bg.fill({ color: 0x141428, alpha: 0.85 });
-    bg.stroke({ color: 0x4e9af1, width: 2 });
-    paintPalettePanel.addChild(bg);
-
-    const colors = ["#ff0000", "#00ff00", "#0000ff", "#ffff00", "#ff00ff", "#00ffff", "#ffffff", "#000000"];
-    colors.forEach((c, i) => {
-      const swatch = new Graphics();
-      swatch.rect(10 + i * 35, 10, 30, 30);
-      swatch.fill({ color: c });
-      swatch.eventMode = "static";
-      swatch.onclick = () => postAction({ kind: "setPaintColor", color: c });
-      paintPalettePanel.addChild(swatch);
+    // Sort toggle
+    const sortLabel = new Text({ text: "Sort:", style: { fill: C_TEXT_DIM, fontSize: 12, fontFamily: "Segoe UI, Arial, sans-serif" } });
+    sortLabel.x = x + 20; sortLabel.y = y;
+    filtersBar.addChild(sortLabel);
+    const sortBtn = new Text({
+      text: sortBy === "name" ? "Name" : "Count",
+      style: { fill: C_ACCENT, fontSize: 12, fontFamily: "Segoe UI, Arial, sans-serif" },
     });
+    sortBtn.x = x + 56; sortBtn.y = y;
+    sortBtn.eventMode = "static";
+    sortBtn.cursor = "pointer";
+    sortBtn.onclick = () => { sortBy = sortBy === "name" ? "count" : "name"; rebuildGrid(); buildFilters(); };
+    filtersBar.addChild(sortBtn);
   }
 
-  function rebuildFunMode(): void {
-    funModePanel.removeChildren();
-    const label = new Text({ text: "Fun Mode:", style: { fill: 0x4e9af1, fontSize: 14, fontFamily: "Montserrat" } });
-    funModePanel.addChild(label);
+  // ── Build grid (cards) ──
+  function rebuildGrid(): void {
+    // Clear old cards
+    for (const c of cards) {
+      c.container.destroy({ children: true });
+      c.texture.destroy(true);
+    }
+    cards = [];
+    gridArea.removeChildren();
 
-    const modes = [
-      { mode: FunMode.Normal, label: "Normal" },
-      { mode: FunMode.Moon, label: "Moon" },
-      { mode: FunMode.ZeroG, label: "ZeroG" },
-      { mode: FunMode.Bouncy, label: "Bouncy" },
-    ];
-    modes.forEach((m, i) => {
-      const txt = new Text({ text: m.mode === funMode ? `[${m.label}]` : m.label, style: { fill: m.mode === funMode ? 0x4e9af1 : 0xe0e0e0, fontSize: 13, fontFamily: "Montserrat" } });
-      txt.x = 80 + i * 70; txt.y = 0;
-      txt.eventMode = "static";
-      txt.onclick = () => postAction({ kind: "setFunMode", mode: m.mode });
-      funModePanel.addChild(txt);
+    const allItems = getFilteredItems();
+    // Limit to 200 cards to avoid the lag of creating 1700+ PIXI containers at once.
+    const items = allItems.slice(0, 200);
+    const gridW = getGridWidth();
+    const cols = Math.max(1, Math.floor((gridW + CARD_GAP) / (CARD_W + CARD_GAP)));
+    const colW = CARD_W + CARD_GAP;
+
+    // Grid background + drag-to-scroll
+    const gridBg = new Graphics();
+    const gy = getGridY();
+    const gh = getGridHeight();
+    gridBg.rect(0, gy, gridW, gh);
+    gridBg.fill({ color: 0x0a0a14, alpha: 0.5 });
+    gridBg.stroke({ color: 0x333355, width: 1 });
+    gridArea.addChild(gridBg);
+
+    // Mask for clipping
+    const mask = new Graphics();
+    mask.rect(0, gy, gridW, gh);
+    mask.fill({ color: 0xffffff });
+    gridArea.addChild(mask);
+    gridArea.mask = mask;
+
+    // Drag-to-scroll on the grid background
+    gridBg.eventMode = "static";
+    gridBg.cursor = "grab";
+    gridBg.on("pointerdown", (e) => {
+      dragScrolling = true;
+      dragStartY = e.global.y;
+      dragStartScroll = scrollY;
+      dragMoved = false;
+      gridBg.cursor = "grabbing";
     });
+    gridBg.on("pointermove", (e) => {
+      if (!dragScrolling) return;
+      const dy = e.global.y - dragStartY;
+      if (Math.abs(dy) > 5) dragMoved = true;
+      scrollY = Math.max(0, Math.min(maxScrollY, dragStartScroll - dy));
+      layoutCards();
+    });
+    gridBg.on("pointerup", () => { dragScrolling = false; gridBg.cursor = "grab"; });
+    gridBg.on("pointerupoutside", () => { dragScrolling = false; gridBg.cursor = "grab"; });
+
+    // Create cards
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const card = createCard(item);
+      const row = Math.floor(i / cols);
+      const col = i % cols;
+      card.container.x = getGridX() + col * colW + CARD_GAP;
+      card.container.y = gy + row * (CARD_H + CARD_GAP) + CARD_GAP - scrollY;
+      cards.push(card);
+      gridArea.addChild(card.container);
+    }
+
+    // Compute max scroll
+    const totalRows = Math.ceil(items.length / cols);
+    const totalH = totalRows * (CARD_H + CARD_GAP) + CARD_GAP;
+    maxScrollY = Math.max(0, totalH - gh);
+
+    // Update footer count
+    buildFooter();
   }
 
-  function rebuildGraphics(): void {
-    graphicsPanel.removeChildren();
-    if (!showGraphics) return;
+  // ── Create a single card ──
+  function createCard(item: ContentListItem): CardEntry {
+    const container = new Container();
+    container.eventMode = "static";
+    container.cursor = "pointer";
 
+    // Card background
     const bg = new Graphics();
-    bg.rect(0, 0, 280, 420);
-    bg.fill({ color: 0x141428, alpha: 0.9 });
-    bg.stroke({ color: 0x4e9af1, width: 2 });
-    graphicsPanel.addChild(bg);
+    bg.roundRect(0, 0, CARD_W, CARD_H, 6);
+    bg.fill({ color: C_CARD });
+    bg.stroke({ color: 0x333355, width: 1 });
+    container.addChild(bg);
 
-    const title = new Text({ text: "Graphics Settings [F6]", style: { fill: 0x4e9af1, fontSize: 16, fontFamily: "Montserrat" } });
-    title.x = 10; title.y = 8;
-    graphicsPanel.addChild(title);
+    // Thumbnail canvas (2D) + PIXI texture
+    const thumbCanvas = new OffscreenCanvas(THUMB_SIZE, THUMB_SIZE);
+    const thumbCtx = thumbCanvas.getContext("2d")!;
+    // Fill with a placeholder color
+    thumbCtx.fillStyle = "#1a1a2e";
+    thumbCtx.fillRect(0, 0, THUMB_SIZE, THUMB_SIZE);
 
-    let y = 36;
-    const rowH = 26;
+    // Use Texture.from() to create a canvas-backed texture. In PIXI v8 this
+    // auto-detects the CanvasSource extension for OffscreenCanvas resources.
+    let texture: Texture;
+    try {
+      texture = Texture.from(thumbCanvas);
+    } catch {
+      // Fallback: create a blank texture
+      texture = Texture.EMPTY;
+    }
+    const sprite = new Sprite(texture);
+    sprite.x = (CARD_W - THUMB_SIZE) / 2;
+    sprite.y = 8;
+    container.addChild(sprite);
 
-    const addToggle = (label: string, value: boolean, onClick: () => void) => {
-      const txt = new Text({ text: `${label}: ${value ? "ON" : "OFF"}`, style: { fill: value ? 0x4e9af1 : 0x888888, fontSize: 13, fontFamily: "Montserrat" } });
-      txt.x = 12; txt.y = y;
-      txt.eventMode = "static";
-      txt.onclick = onClick;
-      graphicsPanel.addChild(txt);
-      y += rowH;
-    };
+    // Name text
+    const nameText = new Text({
+      text: item.name.length > 18 ? item.name.substring(0, 17) + "…" : item.name,
+      style: { fill: C_TEXT, fontSize: 11, fontFamily: "Segoe UI, Arial, sans-serif", align: "center" },
+    });
+    nameText.anchor.set(0.5, 0);
+    nameText.x = CARD_W / 2;
+    nameText.y = THUMB_SIZE + 14;
+    container.addChild(nameText);
 
-    const addSlider = (label: string, value: number, min: number, max: number, step: number, onChange: (v: number) => void) => {
-      const lbl = new Text({ text: `${label}: ${value.toFixed(2)}`, style: { fill: 0xe0e0e0, fontSize: 12, fontFamily: "Montserrat" } });
-      lbl.x = 12; lbl.y = y;
-      graphicsPanel.addChild(lbl);
-      y += 16;
-      // Slider track
-      const trackW = 250;
-      const track = new Graphics();
-      track.rect(12, y, trackW, 6);
-      track.fill({ color: 0x333355 });
-      track.stroke({ color: 0x555577, width: 1 });
-      graphicsPanel.addChild(track);
-      // Knob
-      const knobX = 12 + ((value - min) / (max - min)) * trackW;
-      const knob = new Graphics();
-      knob.circle(knobX, y + 3, 7);
-      knob.fill({ color: 0x4e9af1 });
-      knob.eventMode = "static";
-      knob.cursor = "pointer";
-      let dragging = false;
-      const updateKnob = (clientX: number) => {
-        const localX = clientX - 12; // approximate (panel x offset handled by Pixi)
-        const t = Math.max(0, Math.min(1, localX / trackW));
-        const newVal = min + t * (max - min);
-        const snapped = Math.round(newVal / step) * step;
-        lbl.text = `${label}: ${snapped.toFixed(2)}`;
-        onChange(snapped);
-      };
-      knob.on("pointerdown", (e) => { dragging = true; });
-      knob.on("pointermove", (e) => { if (dragging) updateKnob(e.clientX); });
-      knob.on("pointerup", () => { dragging = false; });
-      knob.on("pointerupoutside", () => { dragging = false; });
-      graphicsPanel.addChild(knob);
-      y += rowH;
-    };
+    // Pack label (small)
+    const packText = new Text({
+      text: item.packLabel,
+      style: { fill: C_TEXT_DIM, fontSize: 9, fontFamily: "Segoe UI, Arial, sans-serif" },
+    });
+    packText.anchor.set(0.5, 0);
+    packText.x = CARD_W / 2;
+    packText.y = THUMB_SIZE + 30;
+    container.addChild(packText);
 
-    const addColorRow = (label: string, r: number, g: number, b: number, onChange: (r: number, g: number, b: number) => void) => {
-      const lbl = new Text({ text: `${label}: R=${r.toFixed(2)} G=${g.toFixed(2)} B=${b.toFixed(2)}`, style: { fill: 0xe0e0e0, fontSize: 12, fontFamily: "Montserrat" } });
-      lbl.x = 12; lbl.y = y;
-      graphicsPanel.addChild(lbl);
-      y += 16;
-      // Three mini sliders for R, G, B
-      const channels = [["R", r], ["G", g], ["B", b]] as const;
-      for (const [ch, val] of channels) {
-        const chLbl = new Text({ text: ch, style: { fill: 0xaaaaaa, fontSize: 10, fontFamily: "Montserrat" } });
-        chLbl.x = 12; chLbl.y = y;
-        graphicsPanel.addChild(chLbl);
-        const trackW = 220;
-        const track = new Graphics();
-        track.rect(30, y + 2, trackW, 4);
-        track.fill({ color: 0x333355 });
-        graphicsPanel.addChild(track);
-        const knobX = 30 + val * trackW;
-        const knob = new Graphics();
-        knob.circle(knobX, y + 4, 5);
-        knob.fill({ color: ch === "R" ? 0xff4444 : ch === "G" ? 0x44ff44 : 0x4444ff });
-        knob.eventMode = "static";
-        knob.cursor = "pointer";
-        let dragging = false;
-        const updateKnob = (clientX: number) => {
-          const localX = clientX - 30;
-          const t = Math.max(0, Math.min(1, localX / trackW));
-          const newVal = Math.round(t * 100) / 100;
-          if (ch === "R") { gfxSunR = newVal; onChange(newVal, gfxSunG, gfxSunB); }
-          else if (ch === "G") { gfxSunG = newVal; onChange(gfxSunR, newVal, gfxSunB); }
-          else { gfxSunB = newVal; onChange(gfxSunR, gfxSunG, newVal); }
-          lbl.text = `${label}: R=${gfxSunR.toFixed(2)} G=${gfxSunG.toFixed(2)} B=${gfxSunB.toFixed(2)}`;
-        };
-        knob.on("pointerdown", () => { dragging = true; });
-        knob.on("pointermove", (e) => { if (dragging) updateKnob(e.clientX); });
-        knob.on("pointerup", () => { dragging = false; });
-        knob.on("pointerupoutside", () => { dragging = false; });
-        graphicsPanel.addChild(knob);
-        y += 14;
+    // Count badge
+    const countText = new Text({
+      text: "×0",
+      style: { fill: C_COUNT, fontSize: 12, fontFamily: "Segoe UI, Arial, sans-serif", fontWeight: "bold" },
+    });
+    countText.x = CARD_W - 30;
+    countText.y = 4;
+    container.addChild(countText);
+
+    // Selection + double-click spawn
+    let lastClickTime = 0;
+    container.onclick = () => {
+      if (dragMoved) return;
+      const now = performance.now();
+      selectCard(item.id);
+      if (now - lastClickTime < 350) {
+        // Double-click → spawn
+        doSpawn(1);
       }
-      y += 6;
+      lastClickTime = now;
     };
 
-    // Post-processing toggles
-    addToggle("Bloom", gfxBloom, () => postAction({ kind: "setBloom", enabled: !gfxBloom }));
-    if (gfxBloom) {
-      addSlider("  Strength", gfxBloomStrength, 0, 3, 0.05, (v) => { gfxBloomStrength = v; postAction({ kind: "setBloomStrength", value: v }); });
-      addSlider("  Threshold", gfxBloomThreshold, 0, 2, 0.05, (v) => { gfxBloomThreshold = v; postAction({ kind: "setBloomThreshold", value: v }); });
-    }
-    addToggle("FXAA", gfxFXAA, () => postAction({ kind: "setFXAA", enabled: !gfxFXAA }));
-    addToggle("Tonemap", gfxTonemap, () => postAction({ kind: "setTonemap", enabled: !gfxTonemap }));
-    if (gfxTonemap) {
-      addSlider("  Exposure", gfxExposure, 0.1, 4, 0.05, (v) => { gfxExposure = v; postAction({ kind: "setExposure", value: v }); });
-    }
-    addToggle("Vignette", gfxVignette, () => postAction({ kind: "setVignette", enabled: !gfxVignette }));
-    if (gfxVignette) {
-      addSlider("  Strength", gfxVignetteStrength, 0, 1, 0.05, (v) => { gfxVignetteStrength = v; postAction({ kind: "setVignetteStrength", value: v }); });
-    }
-
-    // Rendering toggles
-    addToggle("Shadows", gfxShadows, () => postAction({ kind: "setShadows", enabled: !gfxShadows }));
-    addToggle("Mipmaps", gfxMipmaps, () => postAction({ kind: "setMipmaps", enabled: !gfxMipmaps }));
-    addToggle("Point Lights", gfxPointLights, () => postAction({ kind: "setPointLights", enabled: !gfxPointLights }));
-
-    // Lighting controls
-    addColorRow("Sun Color", gfxSunR, gfxSunG, gfxSunB, (r, g, b) => postAction({ kind: "setSunColor", r, g, b }));
-    addSlider("Ambient", gfxAmbient, 0, 2, 0.05, (v) => { gfxAmbient = v; postAction({ kind: "setAmbientIntensity", value: v }); });
+    return { item, container, thumbCanvas, thumbCtx, texture, sprite, nameText, countText, angle: 0, modelLoaded: false };
   }
 
-  rebuildBrowser();
-  rebuildToolWheel();
-  rebuildPaintPalette();
-  rebuildFunMode();
-  rebuildGraphics();
+  // ── Layout cards (reposition based on scroll) ──
+  function layoutCards(): void {
+    const gridW = getGridWidth();
+    const cols = Math.max(1, Math.floor((gridW + CARD_GAP) / (CARD_W + CARD_GAP)));
+    const colW = CARD_W + CARD_GAP;
+    const gy = getGridY();
+    const gh = getGridHeight();
+
+    for (let i = 0; i < cards.length; i++) {
+      const card = cards[i];
+      const row = Math.floor(i / cols);
+      const col = i % cols;
+      const y = gy + row * (CARD_H + CARD_GAP) + CARD_GAP - scrollY;
+      card.container.x = getGridX() + col * colW + CARD_GAP;
+      card.container.y = y;
+      // Only show cards within the visible area (+ buffer)
+      card.container.visible = y > gy - CARD_H && y < gy + gh;
+    }
+  }
+
+  // ── Select a card ──
+  function selectCard(contentId: string): void {
+    selectedContentId = contentId;
+    // Update card backgrounds
+    for (const c of cards) {
+      const bg = c.container.children[0] as Graphics;
+      const isSelected = c.item.id === contentId;
+      bg.clear();
+      bg.roundRect(0, 0, CARD_W, CARD_H, 6);
+      bg.fill({ color: isSelected ? C_CARD_SELECTED : C_CARD });
+      bg.stroke({ color: isSelected ? C_ACCENT : 0x333355, width: isSelected ? 2 : 1 });
+    }
+    // Update shape from the selected item's default
+    const item = cards.find((c) => c.item.id === contentId)?.item;
+    if (item?.shape) settings.shape = item.shape;
+    buildSettingsPanel();
+  }
+
+  // ── Build settings panel ──
+  function buildSettingsPanel(): void {
+    settingsPanel.removeChildren();
+    const px = app.screen.width - SETTINGS_W - PADDING;
+    const py = getGridY();
+    const ph = getGridHeight();
+
+    const bg = new Graphics();
+    bg.roundRect(px, py, SETTINGS_W, ph, 6);
+    bg.fill({ color: C_PANEL, alpha: 0.95 });
+    bg.stroke({ color: C_PANEL_BORDER, width: 1 });
+    settingsPanel.addChild(bg);
+
+    let y = py + 12;
+    const x = px + 12;
+    const labelW = SETTINGS_W - 24;
+
+    // Selected name
+    const selItem = cards.find((c) => c.item.id === selectedContentId)?.item;
+    const selLabel = new Text({
+      text: selItem ? selItem.name : "No selection",
+      style: { fill: C_ACCENT, fontSize: 14, fontFamily: "Segoe UI, Arial, sans-serif", fontWeight: "bold" },
+    });
+    selLabel.x = x; selLabel.y = y;
+    settingsPanel.addChild(selLabel);
+    y += 24;
+
+    if (!selItem) {
+      const hint = new Text({
+        text: "Click a card to select.\nDouble-click or press Enter to spawn.\n\nKeyboard:\n WASD/Arrows: navigate\n Tab: next pack\n Enter: spawn\n Backspace: edit search\n Esc: clear/close",
+        style: { fill: C_TEXT_DIM, fontSize: 11, fontFamily: "Segoe UI, Arial, sans-serif" },
+      });
+      hint.x = x; hint.y = y;
+      settingsPanel.addChild(hint);
+      return;
+    }
+
+    // Sliders
+    y = addSlider("Weight", settings.mass, 0.1, 100, 0.1, y, x, labelW, (v) => { settings.mass = v; });
+    y = addSlider("Bounce", settings.restitution, 0, 1, 0.05, y, x, labelW, (v) => { settings.restitution = v; });
+    y = addSlider("Strength (stub)", settings.strength, 1, 1000, 1, y, x, labelW, (v) => { settings.strength = v; }, true);
+    y = addSlider("Scale", settings.scale, 0.1, 10, 0.1, y, x, labelW, (v) => { settings.scale = v; });
+    y += 4;
+
+    // Shape toggle
+    const shapeLabel = new Text({ text: "Shape:", style: { fill: C_TEXT_DIM, fontSize: 12, fontFamily: "Segoe UI, Arial, sans-serif" } });
+    shapeLabel.x = x; shapeLabel.y = y;
+    settingsPanel.addChild(shapeLabel);
+    y += 18;
+    const boxBtn = new Text({
+      text: settings.shape === "box" ? "[Box]" : "Box",
+      style: { fill: settings.shape === "box" ? C_ACCENT : C_TEXT, fontSize: 13, fontFamily: "Segoe UI, Arial, sans-serif" },
+    });
+    boxBtn.x = x; boxBtn.y = y;
+    boxBtn.eventMode = "static"; boxBtn.cursor = "pointer";
+    boxBtn.onclick = () => { settings.shape = "box"; buildSettingsPanel(); };
+    settingsPanel.addChild(boxBtn);
+    const sphereBtn = new Text({
+      text: settings.shape === "sphere" ? "[Sphere]" : "Sphere",
+      style: { fill: settings.shape === "sphere" ? C_ACCENT : C_TEXT, fontSize: 13, fontFamily: "Segoe UI, Arial, sans-serif" },
+    });
+    sphereBtn.x = x + 60; sphereBtn.y = y;
+    sphereBtn.eventMode = "static"; sphereBtn.cursor = "pointer";
+    sphereBtn.onclick = () => { settings.shape = "sphere"; buildSettingsPanel(); };
+    settingsPanel.addChild(sphereBtn);
+    y += 24;
+
+    // Texture dropdown (stub)
+    y = addDropdown("Texture (stub)", settings.texture, ["Default", "Wireframe", "Custom"], y, x, labelW, (v) => { settings.texture = v; }, true);
+    // Shader dropdown (stub)
+    y = addDropdown("Shader (stub)", settings.shader, ["Standard", "Toon", "Hologram", "Outline"], y, x, labelW, (v) => { settings.shader = v; }, true);
+    y += 8;
+
+    // Spawn buttons
+    const spawnBtn = new Text({ text: "[ Spawn ]", style: { fill: C_ACCENT, fontSize: 15, fontFamily: "Segoe UI, Arial, sans-serif", fontWeight: "bold" } });
+    spawnBtn.x = x; spawnBtn.y = y;
+    spawnBtn.eventMode = "static"; spawnBtn.cursor = "pointer";
+    spawnBtn.onclick = () => doSpawn(1);
+    settingsPanel.addChild(spawnBtn);
+
+    const spawn10Btn = new Text({ text: "[ Spawn ×10 ]", style: { fill: C_ACCENT, fontSize: 15, fontFamily: "Segoe UI, Arial, sans-serif", fontWeight: "bold" } });
+    spawn10Btn.x = x + 100; spawn10Btn.y = y;
+    spawn10Btn.eventMode = "static"; spawn10Btn.cursor = "pointer";
+    spawn10Btn.onclick = () => doSpawn(10);
+    settingsPanel.addChild(spawn10Btn);
+    y += 28;
+
+    // Current count
+    const cnt = (selectedContentId ? spawnCounts[selectedContentId] : 0) ?? 0;
+    const countLabel = new Text({ text: `Spawned: ${cnt}`, style: { fill: C_TEXT_DIM, fontSize: 12, fontFamily: "Segoe UI, Arial, sans-serif" } });
+    countLabel.x = x; countLabel.y = y;
+    settingsPanel.addChild(countLabel);
+  }
+
+  // ── Slider helper ──
+  function addSlider(label: string, value: number, min: number, max: number, step: number, y: number, x: number, w: number, onChange: (v: number) => void, isStub = false): number {
+    const color = isStub ? C_STUB : C_TEXT;
+    const lbl = new Text({ text: `${label}: ${value.toFixed(value < 10 ? 2 : 0)}`, style: { fill: color, fontSize: 12, fontFamily: "Segoe UI, Arial, sans-serif" } });
+    lbl.x = x; lbl.y = y;
+    settingsPanel.addChild(lbl);
+    y += 16;
+
+    const trackW = w - 20;
+    const track = new Graphics();
+    track.rect(x, y, trackW, 6);
+    track.fill({ color: 0x333355 });
+    track.stroke({ color: 0x555577, width: 1 });
+    settingsPanel.addChild(track);
+
+    const knobX = x + ((value - min) / (max - min)) * trackW;
+    const knob = new Graphics();
+    knob.circle(knobX, y + 3, 7);
+    knob.fill({ color: isStub ? C_STUB : C_ACCENT });
+    knob.eventMode = "static";
+    knob.cursor = "pointer";
+    let dragging = false;
+    const updateKnob = (globalX: number) => {
+      const t = Math.max(0, Math.min(1, (globalX - x) / trackW));
+      let newVal = min + t * (max - min);
+      newVal = Math.round(newVal / step) * step;
+      newVal = Math.max(min, Math.min(max, newVal));
+      lbl.text = `${label}: ${newVal.toFixed(newVal < 10 ? 2 : 0)}`;
+      knob.x = ((newVal - min) / (max - min)) * trackW;
+      onChange(newVal);
+    };
+    knob.on("pointerdown", (e) => { dragging = true; updateKnob(e.global.x); });
+    knob.on("pointermove", (e) => { if (dragging) updateKnob(e.global.x); });
+    knob.on("pointerup", () => { dragging = false; });
+    knob.on("pointerupoutside", () => { dragging = false; });
+    settingsPanel.addChild(knob);
+    y += 22;
+    return y;
+  }
+
+  // ── Dropdown helper ──
+  function addDropdown(label: string, current: string, options: string[], y: number, x: number, w: number, onChange: (v: string) => void, isStub = false): number {
+    const color = isStub ? C_STUB : C_TEXT;
+    const lbl = new Text({ text: `${label}: ${current} ▾`, style: { fill: color, fontSize: 12, fontFamily: "Segoe UI, Arial, sans-serif" } });
+    lbl.x = x; lbl.y = y;
+    lbl.eventMode = "static"; lbl.cursor = "pointer";
+    let open = false;
+    let dropdownContainer: Container | null = null;
+    lbl.onclick = () => {
+      if (open) { closeDropdown(); return; }
+      open = true;
+      dropdownContainer = new Container();
+      let dy = y + 18;
+      for (const opt of options) {
+        const isSel = opt === current;
+        const optText = new Text({
+          text: isSel ? `▸ ${opt}` : `  ${opt}`,
+          style: { fill: isSel ? C_ACCENT : C_TEXT, fontSize: 12, fontFamily: "Segoe UI, Arial, sans-serif" },
+        });
+        optText.x = x; optText.y = dy;
+        optText.eventMode = "static"; optText.cursor = "pointer";
+        optText.onclick = () => {
+          onChange(opt);
+          closeDropdown();
+          buildSettingsPanel();
+        };
+        dropdownContainer!.addChild(optText);
+        dy += 16;
+      }
+      settingsPanel.addChild(dropdownContainer);
+    };
+    function closeDropdown() {
+      if (dropdownContainer) { dropdownContainer.destroy({ children: true }); dropdownContainer = null; }
+      open = false;
+    }
+    settingsPanel.addChild(lbl);
+    y += 22;
+    return y;
+  }
+
+  // ── Build footer ──
+  function buildFooter(): void {
+    footerBar.removeChildren();
+    const fy = app.screen.height - FOOTER_H;
+    const bg = new Graphics();
+    bg.rect(0, fy, app.screen.width, FOOTER_H);
+    bg.fill({ color: C_PANEL, alpha: 0.9 });
+    bg.stroke({ color: C_PANEL_BORDER, width: 1 });
+    footerBar.addChild(bg);
+
+    const clearBtn = new Text({ text: "[Clear All Props]", style: { fill: 0xff6666, fontSize: 13, fontFamily: "Segoe UI, Arial, sans-serif" } });
+    clearBtn.x = PADDING; clearBtn.y = fy + 8;
+    clearBtn.eventMode = "static"; clearBtn.cursor = "pointer";
+    clearBtn.onclick = () => postAction({ kind: "clearProps" });
+    footerBar.addChild(clearBtn);
+
+    const allItems = getFilteredItems();
+    const info = new Text({
+      text: `Showing ${Math.min(allItems.length, 200)} of ${allItems.length} items${allItems.length > 200 ? " — use search/filters to narrow" : ""}`,
+      style: { fill: C_TEXT_DIM, fontSize: 12, fontFamily: "Segoe UI, Arial, sans-serif" },
+    });
+    info.x = 180; info.y = fy + 8;
+    footerBar.addChild(info);
+
+    const totalSpawned = Object.values(spawnCounts).reduce((a, b) => a + b, 0);
+    const totalLabel = new Text({ text: `Total spawned: ${totalSpawned}`, style: { fill: C_ACCENT, fontSize: 12, fontFamily: "Segoe UI, Arial, sans-serif" } });
+    totalLabel.x = app.screen.width - 160; totalLabel.y = fy + 8;
+    footerBar.addChild(totalLabel);
+  }
+
+  // ── Spawn action ──
+  function doSpawn(count: number): void {
+    if (!selectedContentId) return;
+    postAction({ kind: "spawn", contentId: selectedContentId, settings: { ...settings }, count });
+  }
+
+  // ── Thumbnail rendering ──
+  function initThumbnails(): void {
+    if (thumbRenderer) return;
+    try {
+      thumbRenderer = new ThumbnailRenderer(THUMB_SIZE);
+    } catch (err) {
+      console.warn("[AssetBrowser] ThumbnailRenderer init failed:", err);
+    }
+  }
+
+  function updateThumbnails(): void {
+    if (!showBrowser || !thumbRenderer) return;
+    _thumbFrame++;
+    if (_thumbFrame % 60 === 0) {
+      const cached = cards.filter((c) => (thumbRenderer as any).cache.has(c.item.id)).length;
+      console.log(`[AssetBrowser] updateThumbnails frame=${_thumbFrame}, cards=${cards.length}, cached=${cached}`);
+    }
+    // Load models for visible cards that haven't been loaded yet (limit concurrency).
+    let loadCount = 0;
+    const MAX_CONCURRENT_LOADS = 6;
+    const pendingLoads = cards.filter((c) => c.container.visible && !c.modelLoaded);
+    for (const card of pendingLoads) {
+      if (loadCount >= MAX_CONCURRENT_LOADS) break;
+      card.modelLoaded = true;
+      const item = card.item;
+      if (item.modelUri) {
+        thumbRenderer.loadModelThumb(item.modelUri, item.id);
+      } else if (item.id.includes("sphere") || item.id.includes("ball")) {
+        thumbRenderer.loadBuiltinSphere(item.id);
+      } else {
+        thumbRenderer.loadBuiltinCube(item.id);
+      }
+      loadCount++;
+    }
+    if (loadCount > 0) {
+      console.log(`[AssetBrowser] Loading ${loadCount} thumbnail models...`);
+    }
+
+    // Render thumbnails for visible cards with loaded models.
+    const visibleCards = cards.filter((c) => c.container.visible);
+    const perFrame = Math.min(visibleCards.length, 12);
+    for (let i = 0; i < perFrame; i++) {
+      const card = visibleCards[i];
+      if (!card) continue;
+      card.angle += 0.03; // slow rotation
+      if (!thumbRenderer!.has(card.item.id)) continue;
+      try {
+        const pixels = thumbRenderer.renderThumb(card.item.id, card.angle);
+        if (!pixels) continue;
+        // putImageData to temp canvas, then drawImage to card canvas (through compositor).
+        const imageData = new ImageData(THUMB_SIZE, THUMB_SIZE);
+        imageData.data.set(pixels);
+        tempThumbCtx.putImageData(imageData, 0, 0);
+        card.thumbCtx.clearRect(0, 0, THUMB_SIZE, THUMB_SIZE);
+        card.thumbCtx.drawImage(tempThumbCanvas, 0, 0);
+        // Bypass update() — emit "update" directly to trigger GPU re-upload.
+        const src = card.texture.source as any;
+        src.emit("update", src);
+      } catch (e) {
+        if (!(card as any)._renderErr) {
+          (card as any)._renderErr = true;
+          console.error(`[AssetBrowser] Render error for "${card.item.id}":`, e);
+        }
+      }
+    }
+  }
+
+  // ── Keyboard navigation ──
+  function handleKeydown(key: string, code: string): void {
+    if (!showBrowser) return;
+
+    // Search text entry
+    if (code === "Backspace") {
+      if (searchQuery.length > 0) {
+        searchQuery = searchQuery.slice(0, -1);
+        searchInput.text = searchQuery;
+        scrollY = 0;
+        rebuildGrid();
+      }
+      return;
+    }
+    if (code === "Escape") {
+      if (searchQuery.length > 0) {
+        searchQuery = "";
+        searchInput.text = "";
+        scrollY = 0;
+        rebuildGrid();
+      } else {
+        postAction({ kind: "closeBrowser" });
+      }
+      return;
+    }
+    if (code === "Tab") {
+      // Cycle to next pack
+      const idx = packs.findIndex((p) => p.id === activePack);
+      activePack = packs[(idx + 1) % packs.length].id;
+      scrollY = 0;
+      rebuildGrid();
+      buildTabs();
+      return;
+    }
+    if (code === "Enter" || code === "Space") {
+      doSpawn(1);
+      return;
+    }
+
+    // Arrow / WASD navigation
+    if (code === "ArrowUp" || code === "KeyW") { moveSelection(0, -1); return; }
+    if (code === "ArrowDown" || code === "KeyS") { moveSelection(0, 1); return; }
+    if (code === "ArrowLeft" || code === "KeyA") { moveSelection(-1, 0); return; }
+    if (code === "ArrowRight" || code === "KeyD") { moveSelection(1, 0); return; }
+
+    // Printable char → search query
+    if (key.length === 1 && key >= " " && key <= "~") {
+      searchQuery += key;
+      searchInput.text = searchQuery;
+      scrollY = 0;
+      rebuildGrid();
+    }
+  }
+
+  function moveSelection(dx: number, dy: number): void {
+    if (cards.length === 0) return;
+    const gridW = getGridWidth();
+    const cols = Math.max(1, Math.floor((gridW + CARD_GAP) / (CARD_W + CARD_GAP)));
+    let idx = cards.findIndex((c) => c.item.id === selectedContentId);
+    if (idx < 0) idx = 0;
+    let row = Math.floor(idx / cols);
+    let col = idx % cols;
+    col = Math.max(0, Math.min(cols - 1, col + dx));
+    row = Math.max(0, row + dy);
+    let newIdx = row * cols + col;
+    if (newIdx >= cards.length) newIdx = cards.length - 1;
+    if (newIdx < 0) return;
+    const newId = cards[newIdx].item.id;
+    selectCard(newId);
+    // Auto-scroll to keep the selected card visible
+    const gy = getGridY();
+    const gh = getGridHeight();
+    const cardY = gy + row * (CARD_H + CARD_GAP) + CARD_GAP - scrollY;
+    if (cardY < gy) scrollY -= (gy - cardY);
+    else if (cardY + CARD_H > gy + gh) scrollY += (cardY + CARD_H - gy - gh);
+    scrollY = Math.max(0, Math.min(maxScrollY, scrollY));
+    layoutCards();
+  }
+
+  // ── Show/hide browser ──
+  function setShowBrowser(show: boolean): void {
+    if (show === showBrowser) return;
+    showBrowser = show;
+    browserRoot.visible = show;
+    backdrop.visible = show;
+    ctx.setInteractive(show);
+    if (show) {
+      initThumbnails();
+      // Re-send content list request (the main thread should have already sent it)
+      if (contentItems.length === 0) {
+        // Will be populated when the main thread sends the contentList event
+      }
+    }
+  }
+
+  // ── Initial build ──
+  buildBackdrop();
+  buildHeader();
+  buildTabs();
+  buildFilters();
+  rebuildGrid();
+  buildSettingsPanel();
+  buildFooter();
 
   return {
     root,
@@ -301,86 +847,58 @@ export default async function createSandboxScene(ctx: PixiUiSceneContext): Promi
       const stats = data.stats as Record<string, number> | undefined;
       const events = data.events as any[] | undefined;
 
-      fps = stats?.fps ?? fps;
-      propCount = stats?.propCount ?? propCount;
-      const newBrowser = (stats?.showBrowser ?? (showBrowser ? 1 : 0)) !== 0;
-      const newToolWheel = (stats?.showToolWheel ?? 0) !== 0;
-      const newPaintPalette = (stats?.showPaintPalette ?? 0) !== 0;
-      const newTool = stats?.activeTool ?? activeTool;
-      const newFunMode = stats?.funMode ?? funMode;
-
-      let needsBrowserRebuild = false;
-      let needsToolWheelRebuild = false;
-      let needsPaintPaletteRebuild = false;
-      let needsFunModeRebuild = false;
-
-      if (newBrowser !== showBrowser) { showBrowser = newBrowser; browserPanel.visible = showBrowser; }
-      if (newToolWheel !== showToolWheel) { showToolWheel = newToolWheel; needsToolWheelRebuild = true; }
-      if (newPaintPalette !== showPaintPalette) { showPaintPalette = newPaintPalette; needsPaintPaletteRebuild = true; }
-      if (newTool !== activeTool) { activeTool = newTool; needsToolWheelRebuild = true; }
-      if (newFunMode !== funMode) { funMode = newFunMode; needsFunModeRebuild = true; }
-
-      // Graphics settings state from stats
-      let needsGraphicsRebuild = false;
-      const newShowGraphics = (stats?.showGraphics ?? 0) !== 0;
-      if (newShowGraphics !== showGraphics) {
-        showGraphics = newShowGraphics;
-        graphicsPanel.visible = showGraphics;
-        needsGraphicsRebuild = true;
-      }
-      const newBloom = (stats?.bloomEnabled ?? 1) !== 0;
-      if (newBloom !== gfxBloom) { gfxBloom = newBloom; needsGraphicsRebuild = true; }
-      const newFXAA = (stats?.fxaaEnabled ?? 1) !== 0;
-      if (newFXAA !== gfxFXAA) { gfxFXAA = newFXAA; needsGraphicsRebuild = true; }
-      const newTonemap = (stats?.tonemapEnabled ?? 1) !== 0;
-      if (newTonemap !== gfxTonemap) { gfxTonemap = newTonemap; needsGraphicsRebuild = true; }
-      const newVignette = (stats?.vignetteEnabled ?? 1) !== 0;
-      if (newVignette !== gfxVignette) { gfxVignette = newVignette; needsGraphicsRebuild = true; }
-      const newShadows = (stats?.shadowsEnabled ?? 1) !== 0;
-      if (newShadows !== gfxShadows) { gfxShadows = newShadows; needsGraphicsRebuild = true; }
-      const newMipmaps = (stats?.mipmapsEnabled ?? 1) !== 0;
-      if (newMipmaps !== gfxMipmaps) { gfxMipmaps = newMipmaps; needsGraphicsRebuild = true; }
-      const newPointLights = (stats?.pointLightsEnabled ?? 1) !== 0;
-      if (newPointLights !== gfxPointLights) { gfxPointLights = newPointLights; needsGraphicsRebuild = true; }
-      const newBloomStr = stats?.bloomStrength ?? gfxBloomStrength;
-      if (Math.abs(newBloomStr - gfxBloomStrength) > 0.01) { gfxBloomStrength = newBloomStr; }
-      const newBloomThr = stats?.bloomThreshold ?? gfxBloomThreshold;
-      if (Math.abs(newBloomThr - gfxBloomThreshold) > 0.01) { gfxBloomThreshold = newBloomThr; }
-      const newExposure = stats?.exposure ?? gfxExposure;
-      if (Math.abs(newExposure - gfxExposure) > 0.01) { gfxExposure = newExposure; }
-      const newVignetteStr = stats?.vignetteStrength ?? gfxVignetteStrength;
-      if (Math.abs(newVignetteStr - gfxVignetteStrength) > 0.01) { gfxVignetteStrength = newVignetteStr; }
-      const newSunR = stats?.sunColorR ?? gfxSunR;
-      if (Math.abs(newSunR - gfxSunR) > 0.01) { gfxSunR = newSunR; }
-      const newSunG = stats?.sunColorG ?? gfxSunG;
-      if (Math.abs(newSunG - gfxSunG) > 0.01) { gfxSunG = newSunG; }
-      const newSunB = stats?.sunColorB ?? gfxSunB;
-      if (Math.abs(newSunB - gfxSunB) > 0.01) { gfxSunB = newSunB; }
-      const newAmbient = stats?.ambientIntensity ?? gfxAmbient;
-      if (Math.abs(newAmbient - gfxAmbient) > 0.01) { gfxAmbient = newAmbient; }
+      // Read showBrowser from stats
+      const newShow = (stats?.showBrowser ?? 0) !== 0;
+      if (newShow !== showBrowser) setShowBrowser(newShow);
 
       // Process events
       if (events) {
         for (const evt of events) {
           if (evt.kind === "contentList") {
             contentItems = evt.items as ContentListItem[];
-            needsBrowserRebuild = true;
+            derivePacks();
+            scrollY = 0;
+            rebuildGrid();
+            buildTabs();
+            buildFilters();
+            buildSettingsPanel();
+          } else if (evt.kind === "spawnCounts") {
+            spawnCounts = evt.counts as Record<string, number>;
+            // Update count badges
+            for (const card of cards) {
+              const cnt = spawnCounts[card.item.id] ?? 0;
+              card.countText.text = `×${cnt}`;
+            }
+            buildFooter();
+            buildSettingsPanel();
+          } else if (evt.kind === "keydown") {
+            handleKeydown(evt.key, evt.code);
           }
         }
       }
 
-      fpsText.text = `FPS: ${fps.toFixed(0)}  Props: ${propCount}`;
+      // Update caret blink
+      if (showBrowser) {
+        caretBlink += data.dt;
+        const showCaret = Math.floor(caretBlink / 0.5) % 2 === 0;
+        searchInput.text = searchQuery + (showCaret ? "_" : " ");
+      }
 
-      if (needsBrowserRebuild) rebuildBrowser();
-      if (needsToolWheelRebuild) rebuildToolWheel();
-      if (needsPaintPaletteRebuild) rebuildPaintPalette();
-      if (needsFunModeRebuild) rebuildFunMode();
-      if (needsGraphicsRebuild) rebuildGraphics();
+      // Render thumbnails
+      updateThumbnails();
     },
     resize(width: number, height: number) {
-      helpText.y = height - 30;
+      buildBackdrop();
+      buildHeader();
+      buildTabs();
+      buildFilters();
+      rebuildGrid();
+      buildSettingsPanel();
+      buildFooter();
     },
     dispose() {
+      if (thumbRenderer) { thumbRenderer.dispose(); thumbRenderer = null; }
+      for (const c of cards) { c.texture.destroy(true); }
       root.destroy({ children: true });
     },
   };

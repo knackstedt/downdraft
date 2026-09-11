@@ -33,6 +33,10 @@ export default createDowndraftViteConfig({
   root: __dirname,
   game: "andrews-sandbox",
   rendererAliases: andrewsSandboxAliases,
+  // Disable asset baking — @downdraft/asset-bake is not installed and Kenney
+  // GLBs are public-domain, use only KHR_materials_unlit/KHR_texture_transform
+  // (no Draco/meshopt), so they can be served directly without baking.
+  assetBake: false,
   // andrews-sandbox has a sim worker — simPaths trigger worker swap (with ack).
   simPaths: [
     "shared/",

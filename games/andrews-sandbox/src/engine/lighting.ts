@@ -77,6 +77,7 @@ export class SandboxLighting {
   setPointLightsEnabled(enabled: boolean): void { this.pointLightsEnabled = enabled; }
 
   getSunDirection(): [number, number, number] { return this.sunDir; }
+  getAmbientIntensity(): number { return this.ambientIntensity; }
 
   /** Upload the uniform data to the GPU. Call once per frame before rendering. */
   upload(): void {

@@ -96,6 +96,12 @@ export interface PropSpawnedData {
   quaternion: [number, number, number, number];
   scale: number;
   paintable: boolean;
+  /** Stub: durability/HP (not yet consumed by damage systems). */
+  strength?: number;
+  /** Stub: texture-override id (not yet applied by the renderer). */
+  texture?: string;
+  /** Stub: shader-override id (not yet applied by the renderer). */
+  shader?: string;
 }
 
 export interface PropRemovedData {
@@ -134,7 +140,7 @@ export interface SandboxSimMessage {
 // --- Sim commands (renderer→sim) ---
 
 export type SimCommand =
-  | { type: "spawn"; contentId: string; position: [number, number, number]; rotation?: [number, number, number, number]; physics?: { mass?: number; restitution?: number; friction?: number; gravityScale?: number }; shape?: "box" | "sphere"; scale?: number }
+  | { type: "spawn"; contentId: string; position: [number, number, number]; rotation?: [number, number, number, number]; physics?: { mass?: number; restitution?: number; friction?: number; gravityScale?: number }; shape?: "box" | "sphere"; scale?: number; strength?: number; texture?: string; shader?: string }
   | { type: "remove"; entityId: number }
   | { type: "clear" }
   | { type: "setFunMode"; mode: FunMode }

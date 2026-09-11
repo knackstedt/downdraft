@@ -87,7 +87,7 @@ export const useGameStore = create<GameStoreState>((set) => ({
   activeTool: ToolType.Physgun,
   activeFunMode: FunMode.Normal,
   cameraMode: CameraMode.FirstPerson,
-  showContentBrowser: true,
+  showContentBrowser: false,
   showToolWheel: false,
   showPaintPalette: false,
   paintColor: "#ff0000",

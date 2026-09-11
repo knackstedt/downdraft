@@ -84,6 +84,12 @@ interface PropRecord {
   gravityScale: number;
   /** Remaining lifetime in seconds; 0 = permanent. */
   lifetime?: number;
+  /** Stub: durability/HP (not yet consumed by damage systems). */
+  strength?: number;
+  /** Stub: texture-override id (not yet applied by the renderer). */
+  texture?: string;
+  /** Stub: shader-override id (not yet applied by the renderer). */
+  shader?: string;
 }
 const propRecords = new Map<number, PropRecord>(); // entityId → record
 // Active physgun grabs: entityId → { mode, targetPos }. The tick loop drives
@@ -248,6 +254,10 @@ function spawnProp(
   physics?: { mass?: number; restitution?: number; friction?: number; gravityScale?: number },
   shape?: "box" | "sphere",
   scale?: number,
+  // Stub spawn settings — stored on the record + emitted in prop_spawned but
+  // not yet consumed by any system. Threaded through so the asset browser can
+  // expose them and future work can pick them up without touching the contract.
+  stubs?: { strength?: number; texture?: string; shader?: string },
 ): number {
   // entityId MUST equal slotIdx + 1 — the renderer's prop_spawned handler
   // writes nodeId to (entityId - 1) * stride + offset in the SAB, and the
@@ -292,9 +302,10 @@ function spawnProp(
     contentId, body, type: EntityType.Prop, slotIdx,
     shape: propShape, halfExtents: [halfExt, halfExt, halfExt], radius: radius,
     mass, restitution, friction, gravityScale,
+    strength: stubs?.strength, texture: stubs?.texture, shader: stubs?.shader,
   });
 
-  events.emit("prop_spawned", { entityId, contentId, nodeId: 0, position, quaternion: rot, scale: propScale, paintable: true });
+  events.emit("prop_spawned", { entityId, contentId, nodeId: 0, position, quaternion: rot, scale: propScale, paintable: true, strength: stubs?.strength, texture: stubs?.texture, shader: stubs?.shader });
   return entityId;
 }
 
@@ -368,7 +379,7 @@ function setFunMode(mode: FunMode): void {
 function processCommand(cmd: SimCommand): void {
   switch (cmd.type) {
     case "spawn":
-      spawnProp(cmd.contentId, cmd.position, cmd.rotation, cmd.physics, cmd.shape, cmd.scale);
+      spawnProp(cmd.contentId, cmd.position, cmd.rotation, cmd.physics, cmd.shape, cmd.scale, { strength: cmd.strength, texture: cmd.texture, shader: cmd.shader });
       break;
     case "remove":
       removeProp(cmd.entityId);
