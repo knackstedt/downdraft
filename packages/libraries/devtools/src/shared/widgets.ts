@@ -568,10 +568,25 @@ export function makeKeyValueGrid(opts: KeyValueOpts): Container {
   const rh = opts.rowHeight ?? 16;
   const fs2 = opts.fontSize ?? 11;
   let y = 0;
+  let idx = 0;
   for (const entry of opts.entries) {
-    c.addChild(makeLabel(entry.key, 4, y + 1, COLOR_TEXT_DIM, fs2));
-    c.addChild(makeLabel(entry.value, opts.width * 0.45, y + 1, COLOR_TEXT, fs2));
+    // Zebra striping
+    if (idx % 2 === 0) {
+      const zebra = new Graphics();
+      zebra.rect(0, y, opts.width, rh);
+      zebra.fill({ color: 0x111122, alpha: 0.25 });
+      c.addChild(zebra);
+    }
+    // Section headers (key starts with —)
+    const isHeader = entry.key.startsWith("—") || entry.key.startsWith("==");
+    const keyColor = isHeader ? COLOR_GREEN : COLOR_TEXT_DIM;
+    const valColor = isHeader ? COLOR_GREEN : COLOR_TEXT;
+    c.addChild(makeLabel(entry.key, 4, y + 1, keyColor, fs2));
+    if (entry.value && !isHeader) {
+      c.addChild(makeLabel(entry.value, opts.width * 0.45, y + 1, valColor, fs2));
+    }
     y += rh;
+    idx++;
   }
   return c;
 }
