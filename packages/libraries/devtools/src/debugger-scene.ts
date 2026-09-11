@@ -16,6 +16,7 @@
 import type { Application } from "pixi.js";
 import { Container, Graphics, Text } from "pixi.js";
 
+import { ProfilingSABReader, computeProfilingSABLayout } from "@downdraft/core/profiling";
 import { CdpBridge, type CdpProfile } from "./cdp-bridge";
 import { renderConsolePanel } from "./panels/console-panel";
 import { renderDomTreePanel } from "./panels/dom-tree-panel";
@@ -208,43 +209,25 @@ export class DebuggerScene {
       runtime: "js",
       eval: (expr: string) => this.ctx.cdp.evaluate(expr),
     });
-    // Worker threads from ProfilingSAB
+    // Worker threads from ProfilingSAB (using the proper reader)
     if (this.ctx.profilingSAB) {
       try {
-        const sab = this.ctx.profilingSAB;
-        const u32 = new Uint32Array(sab);
-        const u16 = new Uint16Array(sab);
-        // Read maxSlots from header (or use a fixed default)
-        // The layout's maxSlots is at a known offset — but we don't have the layout
-        // object here. Use a simple scan: check the first 32 slots for alive flags.
-        const maxSlots = 32;
-        for (let i = 0; i < maxSlots; i++) {
-          // Slot header: ALIVE at offset 0 (relative to slot start)
-          // The slot table starts after the header (HEADER_SIZE = 64 bytes = 16 u32s)
-          // Each slot header is SLOT_HEADER_SIZE bytes
-          // We need the layout to compute offsets precisely. For now, use a
-          // simplified approach: the slot table offset is 64 bytes, each slot
-          // header is 64 bytes (16 u32s). ALIVE is the first u32 in each slot.
-          const slotBase = 16 + i * 16; // 64/4=16 u32s per slot header
-          const alive = Atomics.load(u32, slotBase);
-          if (alive !== 1) continue;
-          // Read name from the slot's string table
-          // Name length is at slot header offset SH.NAME_LEN (index 14 in u32)
-          const nameLen = u32[slotBase + 14];
-          if (nameLen === 0) continue;
-          // The string data is in the slot's region, not the header.
-          // Without the exact layout, we can't read the name precisely.
-          // Fall back to a generic name.
-          const name = `worker-${i}`;
-          const threadId = `slot-${i}`;
-          if (threads.find((t) => t.id === threadId)) continue;
-          threads.push({
-            id: threadId,
-            name,
-            kind: "worker",
-            runtime: "js",
-            eval: this.workerEvalFns.get(name),
-          });
+        const layout = computeProfilingSABLayout();
+        if (this.ctx.profilingSAB.byteLength >= layout.byteLength) {
+          const reader = new ProfilingSABReader(this.ctx.profilingSAB, layout);
+          const snapshot = reader.readSnapshot();
+          for (const slot of snapshot.slots) {
+            const name = slot.name || `worker-${slot.slotIndex}`;
+            const threadId = `slot-${slot.slotIndex}`;
+            if (threads.find((t) => t.id === threadId)) continue;
+            threads.push({
+              id: threadId,
+              name,
+              kind: "worker",
+              runtime: slot.runtime === 0 ? "js" : "wasm",
+              eval: this.workerEvalFns.get(name),
+            });
+          }
         }
       } catch {
         // SAB read failed — skip

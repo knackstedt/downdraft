@@ -11,6 +11,7 @@
 // - Profile metadata: duration, node count, sample count
 // ============================================================================
 
+import { ProfilingSABReader, computeProfilingSABLayout } from "@downdraft/core/profiling";
 import { Container, Graphics } from "pixi.js";
 import type { CdpProfile } from "../cdp-bridge";
 import type { DebuggerScene } from "../debugger-scene";
@@ -221,7 +222,6 @@ export function renderPerfRecorderPanel(scene: DebuggerScene, x: number, y: numb
 function readProfilingSlots(ctx: any): { slotIndex: number; name: string; metrics: any; eventLoop: any }[] {
   if (!ctx.profilingSAB) return [];
   try {
-    const { ProfilingSABReader, computeProfilingSABLayout } = require("@downdraft/core/profiling");
     const layout = computeProfilingSABLayout();
     if (ctx.profilingSAB.byteLength < layout.byteLength) return [];
     const reader = new ProfilingSABReader(ctx.profilingSAB, layout);

@@ -11,6 +11,7 @@
 // Each chart legend shows the actual current value of each series.
 // ============================================================================
 
+import { ProfilingSABReader, computeProfilingSABLayout } from "@downdraft/core/profiling";
 import { Container } from "pixi.js";
 import type { DebuggerScene } from "../debugger-scene";
 import { COLOR_BLUE, COLOR_GREEN, COLOR_ORANGE, COLOR_TEXT_DIM, THREAD_COLORS } from "../shared/colors";
@@ -37,7 +38,6 @@ export function renderPerfMetricsPanel(scene: DebuggerScene, x: number, y: numbe
       // Use the ProfilingSABReader from @downdraft/core/profiling.
       // The layout is deterministic given the default capacity parameters,
       // which is what allocateProfilingSAB() uses in native-entry.ts.
-      const { ProfilingSABReader, computeProfilingSABLayout } = require("@downdraft/core/profiling");
       const layout = computeProfilingSABLayout();
       // Verify the SAB is large enough for the default layout (sanity check)
       if (ctx.profilingSAB.byteLength >= layout.byteLength) {
