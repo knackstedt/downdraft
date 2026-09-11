@@ -20,6 +20,7 @@ import { NativeDebuggerHost } from "@downdraft/library-devtools";
 import { NativePixiUiHost } from "@downdraft/library-pixi-ui-native";
 import { createNativeHost } from "@downdraft/platform-native";
 import { writeFileSync } from "node:fs";
+import { allocateProfilingSAB } from "../../../packages/core/src/profiling/profiling-sab";
 import { getFreeTypeTextRenderer } from "../../../packages/platform-native/src/image/native-image";
 import { encodePNG } from "../../../packages/platform-native/src/screenshot/screenshot";
 
