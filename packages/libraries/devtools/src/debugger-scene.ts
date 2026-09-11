@@ -540,6 +540,21 @@ export class DebuggerScene {
     return false;
   }
 
+  /** Handle a mouse wheel event. Returns true if consumed by the debugger. */
+  handleWheel(x: number, y: number, deltaY: number): boolean {
+    if (!this.visible) return false;
+    // Only consume if the wheel is over the dock content area
+    const dockX = this.ctx.width - this.dockWidth;
+    if (x < dockX) return false;
+    // Determine which panel is active and scroll it
+    const panelId = this.activePanel;
+    const currentScroll = this.getScrollY(panelId);
+    // Scroll 3 rows per wheel notch (typical row is 18px)
+    const delta = deltaY > 0 ? 54 : -54;
+    this.setScrollY(panelId, Math.max(0, currentScroll + delta));
+    return true;
+  }
+
   resize(width: number, height: number): void {
     this.ctx.width = width;
     this.ctx.height = height;

@@ -210,6 +210,12 @@ async function main() {
           e.preventDefault?.();
         }
       }, true);
+      surfaceEl.addEventListener("wheel", (e: any) => {
+        if (debuggerHost?.visible && debuggerHost.handleWheel(e.clientX, e.clientY, e.deltaY)) {
+          e.stopPropagation?.();
+          e.preventDefault?.();
+        }
+      }, true);
       log.info("native-entry", "Native input router attached");
     } catch (e) {
       log.error("native-entry", `Input router setup failed: ${e}`);
