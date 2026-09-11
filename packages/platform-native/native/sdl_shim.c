@@ -173,6 +173,29 @@ void sdl_shim_grab_input(int grab) {
     }
 }
 
+// ── Text input (IME-aware) ──
+// SDL_StartTextInput enables text input events (SDL_TEXTINPUT) for the
+// window. This is needed for the console REPL input field. When text input
+// is active, SDL sends SDL_TEXTINPUT events for printable characters and
+// SDL_KEYDOWN events for control keys (Backspace, Enter, arrows, etc.).
+// SDL_StopTextInput disables text input events.
+
+void sdl_shim_start_text_input(void) {
+    if (g_window) SDL_StartTextInput();
+}
+
+void sdl_shim_stop_text_input(void) {
+    if (g_window) SDL_StopTextInput();
+}
+
+// Set the text input rect (for IME candidate window positioning).
+void sdl_shim_set_text_input_rect(int x, int y, int w, int h) {
+    if (g_window) {
+        SDL_Rect r = { x, y, w, h };
+        SDL_SetTextInputRect(&r);
+    }
+}
+
 int sdl_shim_poll_event(void* out_data) {
     if (!g_window) return SDL_SHIM_EVENT_NONE;
 

@@ -90,6 +90,11 @@ export class DebuggerScene {
   private dockWidth: number = DOCK_DEFAULT_WIDTH;
   private isDragging: boolean = false;
 
+  // ── Keyboard focus + text input state ──
+  private focusedWidget: string | null = null;
+  private textInputActive: boolean = false;
+  private textInputHandlers: { onText: (text: string) => void; onKey: (key: string, keyCode: number) => void; } | null = null;
+
   // ── Panel-specific state (persisted across frames) ──
   private consoleFilter: string = "all"; // "all" | "error" | "warn" | "info"
   private sceneExpanded: Set<string> = new Set();
@@ -161,6 +166,44 @@ export class DebuggerScene {
   getContext(): DebuggerSceneContext { return this.ctx; }
   /** The hit collector (panels register clicks here during build). */
   getHits(): HitCollector { return this.hits; }
+
+  // ── Keyboard focus + text input ──
+
+  /** Get the currently focused widget id (e.g. "console-repl"). */
+  getFocusedWidget(): string | null { return this.focusedWidget; }
+
+  /** Set keyboard focus to a widget. Pass null to clear focus. */
+  setFocus(widgetId: string | null): void {
+    this.focusedWidget = widgetId;
+    // The host polls isTextInputActive() to call SDL_StartTextInput/StopTextInput
+    if (widgetId && !this.textInputActive) {
+      this.textInputActive = true;
+    } else if (!widgetId && this.textInputActive) {
+      this.textInputActive = false;
+    }
+  }
+
+  /** Whether text input is currently active (the host calls SDL_StartTextInput/StopTextInput). */
+  isTextInputActive(): boolean { return this.textInputActive; }
+
+  /** Register a text input handler for the focused widget. */
+  setTextInputHandler(handler: { onText: (text: string) => void; onKey: (key: string, keyCode: number) => void; } | null): void {
+    this.textInputHandler = handler;
+  }
+
+  /** Handle a text input event (from SDL_TEXTINPUT). Called by the host. */
+  handleTextInput(text: string): void {
+    if (this.textInputHandler) {
+      try { this.textInputHandler.onText(text); } catch (err) { console.error("[DebuggerScene] text input error:", err); }
+    }
+  }
+
+  /** Handle a keydown event for the focused widget (control keys only). */
+  handleKeyDown(key: string, keyCode: number): void {
+    if (this.textInputHandler) {
+      try { this.textInputHandler.onKey(key, keyCode); } catch (err) { console.error("[DebuggerScene] key down error:", err); }
+    }
+  }
 
   /** Update — called each frame by the host. Rebuilds the view. */
   update(): void {
