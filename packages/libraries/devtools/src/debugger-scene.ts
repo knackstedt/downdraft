@@ -403,6 +403,11 @@ export class DebuggerScene {
 
   /** Handle a keydown event for the focused widget (control keys only). */
   handleKeyDown(key: string, keyCode: number): void {
+    // Escape always clears focus
+    if (key === "Escape") {
+      this.setFocus(null);
+      return;
+    }
     if (this.textInputHandler) {
       try { this.textInputHandler.onKey(key, keyCode); } catch (err) { console.error("[DebuggerScene] key down error:", err); }
     }
@@ -444,6 +449,11 @@ export class DebuggerScene {
     // ── Drag handle (left edge of dock) ──
     this.drawDragHandle(dockW, surfH);
 
+    // Push the dock offset so all hit regions (tab bar, content, status bar)
+    // are registered in absolute (surface) coordinates. The pointer handler
+    // uses absolute coordinates.
+    this.hits.pushOffset(dockX, 0);
+
     // ── Tab bar at top of dock ──
     const tabBar = makeTabBar(PANEL_TABS, this.activePanel, dockW, this.hits, (id) => {
       this.activePanel = id as PanelId;
@@ -454,10 +464,9 @@ export class DebuggerScene {
     const contentY = TAB_BAR_HEIGHT;
     const contentH = surfH - contentY - STATUS_BAR_HEIGHT;
 
-    // Push the dock offset + content area offset so panel-registered hit
-    // regions are in absolute (surface) coordinates. Pop after the panel
-    // is built.
-    this.hits.pushOffset(dockX, contentY);
+    // Push the content area Y offset so panel-registered hit regions are
+    // in absolute coordinates. Pop after the panel is built.
+    this.hits.pushOffset(0, contentY);
 
     // Render the active panel
     let content: Container;
@@ -490,6 +499,9 @@ export class DebuggerScene {
 
     // ── Status bar at bottom of dock ──
     this.drawStatusBar(dockW, surfH);
+
+    // Pop the dock offset (balances the pushOffset(dockX, 0) above).
+    this.hits.popOffset();
   }
 
   /** Interactive regions for the host's SDL hit-testing. */
@@ -543,9 +555,8 @@ export class DebuggerScene {
 
   /** Handle a mouse wheel event. Returns true if consumed by the debugger. */
   handleWheel(x: number, y: number, deltaY: number): boolean {
-    if (!this.visible) return false;
     // Only consume if the wheel is over the dock content area
-    const dockX = this.ctx.width - this.dockWidth;
+    const dockX = this.getDockX();
     if (x < dockX) return false;
     // Determine which panel is active and scroll it
     const panelId = this.activePanel;

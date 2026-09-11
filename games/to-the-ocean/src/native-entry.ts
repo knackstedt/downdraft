@@ -560,6 +560,71 @@ async function main() {
             try { debuggerHost?.update(); } catch (e) { log.error("native-entry", `debuggerHost.update failed: ${e}`); }
             try { (renderer as any).renderOneFrame?.(); } catch {}
           }
+
+          // Interaction test: simulate clicks + keyboard input
+          if (process.env.DEBUGGER_TEST && debuggerHost?.debuggerScene) {
+            const scene = debuggerHost.debuggerScene;
+            const dockX = (scene as any).getDockX?.() ?? (1280 - 520);
+            const dockW = (scene as any).dockWidth ?? 520;
+            log.info("native-entry", `DEBUGGER_TEST: dockX=${dockX} dockW=${dockW} regions=${scene.getHits().regions.length}`);
+
+            // Test 1: Click on each tab
+            const tabNames = ["console", "scene", "gpu", "perf-recorder", "perf-metrics", "dom-tree"];
+            const tabW = Math.max(70, Math.floor(dockW / tabNames.length));
+            for (let t = 0; t < tabNames.length; t++) {
+              const tabX = dockX + t * tabW + tabW / 2;
+              const tabY = 15;
+              log.info("native-entry", `DEBUGGER_TEST: clicking tab ${tabNames[t]} at (${tabX}, ${tabY})`);
+              scene.handlePointerDown(tabX, tabY);
+              // Render a frame to see the result
+              try { debuggerHost?.update(); } catch {}
+              try { (renderer as any).renderOneFrame?.(); } catch {}
+              log.info("native-entry", `DEBUGGER_TEST: active panel is now "${scene.getActivePanel()}"`);
+            }
+
+            // Test 2: Switch back to console and click on the REPL input
+            scene.handlePointerDown(dockX + tabW / 2, 15); // Click console tab
+            try { debuggerHost?.update(); } catch {}
+            // REPL input is at y = contentY + contentH - REPL_HEIGHT = 30 + 670 - 28 = 672
+            scene.handlePointerDown(dockX + 100, 686); // Click on REPL input bar
+            log.info("native-entry", `DEBUGGER_TEST: focused widget is "${scene.getFocusedWidget()}"`);
+            log.info("native-entry", `DEBUGGER_TEST: text input active: ${scene.isTextInputActive()}`);
+
+            // Test 3: Type some text
+            scene.handleTextInput("1 + 2");
+            log.info("native-entry", `DEBUGGER_TEST: REPL input is "${scene.getConsoleReplInput()}"`);
+
+            // Test 4: Press Enter to evaluate
+            scene.handleKeyDown("Enter", 13);
+            log.info("native-entry", `DEBUGGER_TEST: REPL input after Enter: "${scene.getConsoleReplInput()}"`);
+            log.info("native-entry", `DEBUGGER_TEST: REPL results: ${scene.getConsoleReplResults().length}`);
+
+            // Test 5: Test backspace
+            scene.handleTextInput("hello");
+            log.info("native-entry", `DEBUGGER_TEST: REPL input after typing "hello": "${scene.getConsoleReplInput()}"`);
+            scene.handleKeyDown("Backspace", 8);
+            log.info("native-entry", `DEBUGGER_TEST: REPL input after backspace: "${scene.getConsoleReplInput()}"`);
+
+            // Test 6: Test arrow up for history
+            scene.handleKeyDown("ArrowUp", 38);
+            log.info("native-entry", `DEBUGGER_TEST: REPL input after ArrowUp: "${scene.getConsoleReplInput()}"`);
+
+            // Test 7: Test mouse wheel scrolling
+            const scrollBefore = scene.getScrollY("console");
+            scene.handleWheel(dockX + 100, 100, 120);
+            const scrollAfter = scene.getScrollY("console");
+            log.info("native-entry", `DEBUGGER_TEST: scroll before=${scrollBefore} after=${scrollAfter}`);
+
+            // Test 8: Test Escape to clear focus
+            scene.handleKeyDown("Escape", 27);
+            log.info("native-entry", `DEBUGGER_TEST: focused widget after Escape: "${scene.getFocusedWidget()}"`);
+            log.info("native-entry", `DEBUGGER_TEST: text input active after Escape: ${scene.isTextInputActive()}`);
+
+            // Final render
+            try { debuggerHost?.update(); } catch {}
+            try { (renderer as any).renderOneFrame?.(); } catch {}
+            log.info("native-entry", "DEBUGGER_TEST: All interaction tests complete");
+          }
         }
         captureScreenshotNow();
         log.info("native-entry", "Auto-screenshot captured for HUD verification");
