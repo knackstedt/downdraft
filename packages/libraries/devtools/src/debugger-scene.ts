@@ -41,9 +41,9 @@ export const PANEL_TABS: TabDef[] = [
   { id: "console", label: "Console" },
   { id: "scene", label: "Scene" },
   { id: "gpu", label: "GPU" },
-  { id: "perf-recorder", label: "Perf Rec" },
-  { id: "perf-metrics", label: "Perf Metrics" },
-  { id: "dom-tree", label: "DOM Tree" },
+  { id: "perf-recorder", label: "Recorder" },
+  { id: "perf-metrics", label: "Metrics" },
+  { id: "dom-tree", label: "ECS" },
 ];
 
 // ── Dock constants ──
@@ -108,7 +108,7 @@ export class DebuggerScene {
   // ── Keyboard focus + text input state ──
   private focusedWidget: string | null = null;
   private textInputActive: boolean = false;
-  private textInputHandlers: { onText: (text: string) => void; onKey: (key: string, keyCode: number) => void; } | null = null;
+  private textInputHandler: { onText: (text: string) => void; onKey: (key: string, keyCode: number) => void; } | null = null;
 
   // ── Panel-specific state (persisted across frames) ──
   private consoleFilter: string = "all"; // "all" | "error" | "warn" | "info"
@@ -138,7 +138,10 @@ export class DebuggerScene {
 
   constructor(ctx: DebuggerSceneContext) {
     this.ctx = ctx;
-    setFontScale(1.5);
+    // Use integer font scale for crisp text. 1.5x causes blurry rendering
+    // on the native FreeType backend because it produces non-integer
+    // pixel positions. Use 1x and rely on larger base font sizes instead.
+    setFontScale(1);
     this.root = new Container();
     this.backdropContainer = new Container();
     this.dockContainer = new Container();
@@ -558,12 +561,25 @@ export class DebuggerScene {
     // Only consume if the wheel is over the dock content area
     const dockX = this.getDockX();
     if (x < dockX) return false;
-    // Determine which panel is active and scroll it
+    // Determine which scroll panel to scroll based on the active panel
+    // and mouse position. Some panels have tree + detail scroll panels.
     const panelId = this.activePanel;
-    const currentScroll = this.getScrollY(panelId);
+    let scrollKey: string = panelId;
+    const dockW = this.dockWidth;
+    const relX = x - dockX;
+    // Scene and dom-tree panels have a tree (left) + detail (right) scroll panel.
+    // The detail panel is on the right ~45% of the panel width.
+    if (panelId === "scene" || panelId === "dom-tree") {
+      const detailRatio = 0.45;
+      const treeW = Math.floor(dockW * (1 - detailRatio));
+      if (relX > treeW) {
+        scrollKey = `${panelId}-detail`;
+      }
+    }
+    const currentScroll = this.getScrollY(scrollKey);
     // Scroll 3 rows per wheel notch (typical row is 18px)
     const delta = deltaY > 0 ? 54 : -54;
-    this.setScrollY(panelId, Math.max(0, currentScroll + delta));
+    this.setScrollY(scrollKey, Math.max(0, currentScroll + delta));
     return true;
   }
 

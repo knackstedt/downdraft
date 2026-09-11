@@ -2,10 +2,10 @@
 // scene-panel.ts — Rich PIXI scene graph inspector.
 //
 // Features:
-// - Colored node types (Container=gray, Text=cyan, Graphics=yellow, Sprite=green, Mesh=orange)
+// - Tree with node type, label, child count, position, visibility
 // - Search field (filter by type or label)
-// - Collapsible tree with node type, label, child count, visibility indicator
-// - Detail panel with full properties: transform matrix, world bounds, children, parent chain
+// - Collapsible tree (auto-expands first 2 levels)
+// - Scrollable detail panel with full properties
 // - Click children/parents to navigate
 // ============================================================================
 
@@ -16,6 +16,7 @@ import { makeLabel, makeScrollPanel, makeTreeView, type TreeNodeData } from "../
 
 const SEARCH_HEIGHT = 28;
 const DETAIL_RATIO = 0.45;
+const TREE_ROW_H = 16;
 
 // Node type → color mapping
 const TYPE_COLORS: Record<string, number> = {
@@ -93,18 +94,18 @@ export function renderScenePanel(scene: DebuggerScene, x: number, y: number, w: 
     });
   }
 
-  // ── Tree view (left) ──
+  // ── Tree view (left, scrollable) ──
   const treeW = Math.floor(w * (1 - DETAIL_RATIO));
   const treeY = SEARCH_HEIGHT;
   const treeH = h - treeY;
   const scrollY = scene.getScrollY("scene");
-  const contentHeight = nodes.length * 18 + 10;
+  const contentHeight = nodes.length * TREE_ROW_H + 10;
   const scroll = makeScrollPanel({ x: 0, y: treeY, width: treeW, height: treeH, contentHeight, scrollY, hits });
   c.addChild(scroll.container);
 
   const tree = makeTreeView(
     nodes,
-    { x: 0, y: 0, width: treeW - 16, rowHeight: 18, fontSize: 11 },
+    { x: 0, y: 0, width: treeW - 16, rowHeight: TREE_ROW_H, fontSize: 11 },
     hits,
     (id: string) => scene.toggleSceneExpanded(id),
     (id: string) => scene.setSceneSelected(id),
@@ -114,7 +115,7 @@ export function renderScenePanel(scene: DebuggerScene, x: number, y: number, w: 
   // Pop the scroll panel's hit offset.
   hits.popOffset();
 
-  // ── Detail panel (right) ──
+  // ── Detail panel (right, scrollable) ──
   const detailX = treeW + 4;
   const detailW = w - treeW - 8;
   const detailBg = new Graphics();
@@ -125,16 +126,25 @@ export function renderScenePanel(scene: DebuggerScene, x: number, y: number, w: 
 
   c.addChild(makeLabel("Inspector", detailX + 8, treeY + 6, COLOR_GREEN, 12));
 
+  // Build detail content into a scroll panel
+  const detailScrollY = scene.getScrollY("scene-detail");
+  const detailContentH = 600; // generous, scroll handles overflow
+  const detailScroll = makeScrollPanel({ x: detailX, y: treeY + 24, width: detailW, height: treeH - 28, contentHeight: detailContentH, scrollY: detailScrollY, hits });
+  c.addChild(detailScroll.container);
+
   if (selectedNode && gameStage) {
     const node = findNodeById(gameStage, selectedNode);
     if (node) {
-      drawNodeDetails(c, scene, hits, node, selectedNode, gameStage, detailX, treeY + 24, detailW, treeH - 24);
+      drawNodeDetails(detailScroll.content, scene, hits, node, selectedNode, gameStage, 0, 0, detailW);
     } else {
-      c.addChild(makeLabel("Node not found", detailX + 8, treeY + 24, COLOR_TEXT_DIM, 11));
+      detailScroll.content.addChild(makeLabel("Node not found", 8, 4, COLOR_TEXT_DIM, 11));
     }
   } else {
-    c.addChild(makeLabel("Select a node to inspect", detailX + 8, treeY + 24, COLOR_TEXT_DIM, 11));
+    detailScroll.content.addChild(makeLabel("Select a node to inspect", 8, 4, COLOR_TEXT_DIM, 11));
   }
+
+  // Pop the detail scroll panel's hit offset.
+  hits.popOffset();
 
   return c;
 }
@@ -142,21 +152,21 @@ export function renderScenePanel(scene: DebuggerScene, x: number, y: number, w: 
 // ── Detail panel ──
 
 function drawNodeDetails(
-  c: Container, scene: DebuggerScene, hits: any,
+  content: Container, scene: DebuggerScene, hits: any,
   node: any, nodeId: string, root: any,
-  x: number, y: number, w: number, h: number,
+  x: number, y: number, w: number,
 ): void {
   let ry = y;
   const typeName = node.constructor?.name ?? "unknown";
   const typeColor = TYPE_COLORS[typeName] ?? COLOR_TEXT;
 
   // Type header
-  c.addChild(makeLabel(typeName, x + 8, ry, typeColor, 13));
+  content.addChild(makeLabel(typeName, x + 8, ry, typeColor, 13));
   ry += 18;
 
   // Label (if any)
   if (node.label != null) {
-    c.addChild(makeLabel(`"${String(node.label)}"`, x + 8, ry, COLOR_TEXT_BRIGHT, 11));
+    content.addChild(makeLabel(`"${String(node.label)}"`, x + 8, ry, COLOR_TEXT_BRIGHT, 11));
     ry += 16;
   }
 
@@ -164,11 +174,11 @@ function drawNodeDetails(
   const sep = new Graphics();
   sep.rect(x + 4, ry, w - 8, 1);
   sep.fill({ color: COLOR_BORDER, alpha: 0.5 });
-  c.addChild(sep);
+  content.addChild(sep);
   ry += 6;
 
   // ── Transform properties ──
-  c.addChild(makeLabel("Transform", x + 8, ry, COLOR_YELLOW, 10));
+  content.addChild(makeLabel("Transform", x + 8, ry, COLOR_YELLOW, 10));
   ry += 14;
   const transformProps: [string, string][] = [
     ["x", node.x?.toFixed(1) ?? "?"],
@@ -182,15 +192,15 @@ function drawNodeDetails(
     ["skewY", node.skew?.y?.toFixed(2) ?? "?"],
   ];
   for (const [key, val] of transformProps) {
-    c.addChild(makeLabel(key, x + 8, ry, COLOR_TEXT_DIM, 9));
-    c.addChild(makeLabel(val, x + 80, ry, COLOR_TEXT, 9));
+    content.addChild(makeLabel(key, x + 8, ry, COLOR_TEXT_DIM, 9));
+    content.addChild(makeLabel(val, x + 80, ry, COLOR_TEXT, 9));
     ry += 13;
   }
 
   // World transform matrix
   const wt = node.worldTransform;
   if (wt) {
-    c.addChild(makeLabel("World Matrix", x + 8, ry, COLOR_YELLOW, 10));
+    content.addChild(makeLabel("World Matrix", x + 8, ry, COLOR_YELLOW, 10));
     ry += 14;
     const matrixProps: [string, string][] = [
       ["a", wt.a?.toFixed(2) ?? "?"],
@@ -201,15 +211,15 @@ function drawNodeDetails(
       ["ty", wt.ty?.toFixed(1) ?? "?"],
     ];
     for (const [key, val] of matrixProps) {
-      c.addChild(makeLabel(key, x + 8, ry, COLOR_TEXT_DIM, 9));
-      c.addChild(makeLabel(val, x + 80, ry, COLOR_TEXT, 9));
+      content.addChild(makeLabel(key, x + 8, ry, COLOR_TEXT_DIM, 9));
+      content.addChild(makeLabel(val, x + 80, ry, COLOR_TEXT, 9));
       ry += 13;
     }
   }
 
   ry += 4;
   // ── Bounds ──
-  c.addChild(makeLabel("Bounds", x + 8, ry, COLOR_YELLOW, 10));
+  content.addChild(makeLabel("Bounds", x + 8, ry, COLOR_YELLOW, 10));
   ry += 14;
   const wb = node.getBounds?.();
   if (wb) {
@@ -220,21 +230,21 @@ function drawNodeDetails(
       ["height", wb.height?.toFixed(0) ?? "?"],
     ];
     for (const [key, val] of boundsProps) {
-      c.addChild(makeLabel(key, x + 8, ry, COLOR_TEXT_DIM, 9));
-      c.addChild(makeLabel(val, x + 80, ry, COLOR_TEXT, 9));
+      content.addChild(makeLabel(key, x + 8, ry, COLOR_TEXT_DIM, 9));
+      content.addChild(makeLabel(val, x + 80, ry, COLOR_TEXT, 9));
       ry += 13;
     }
   }
   const lb = node.getLocalBounds?.();
   if (lb) {
-    c.addChild(makeLabel("Local:", x + 8, ry, COLOR_TEXT_DIM, 9));
-    c.addChild(makeLabel(`${lb.width?.toFixed(0) ?? "?"}×${lb.height?.toFixed(0) ?? "?"}`, x + 80, ry, COLOR_TEXT, 9));
+    content.addChild(makeLabel("Local:", x + 8, ry, COLOR_TEXT_DIM, 9));
+    content.addChild(makeLabel(`${lb.width?.toFixed(0) ?? "?"}×${lb.height?.toFixed(0) ?? "?"}`, x + 80, ry, COLOR_TEXT, 9));
     ry += 13;
   }
 
   ry += 4;
   // ── Display properties ──
-  c.addChild(makeLabel("Display", x + 8, ry, COLOR_YELLOW, 10));
+  content.addChild(makeLabel("Display", x + 8, ry, COLOR_YELLOW, 10));
   ry += 14;
   const displayProps: [string, string][] = [
     ["visible", String(node.visible ?? true)],
@@ -248,15 +258,15 @@ function drawNodeDetails(
   ];
   for (const [key, val] of displayProps) {
     const valColor = (key === "visible" && val === "false") ? COLOR_RED : COLOR_TEXT;
-    c.addChild(makeLabel(key, x + 8, ry, COLOR_TEXT_DIM, 9));
-    c.addChild(makeLabel(val, x + 80, ry, valColor, 9));
+    content.addChild(makeLabel(key, x + 8, ry, COLOR_TEXT_DIM, 9));
+    content.addChild(makeLabel(val, x + 80, ry, valColor, 9));
     ry += 13;
   }
 
   ry += 4;
   // ── Children ──
   const childCount = node.children?.length ?? 0;
-  c.addChild(makeLabel(`Children (${childCount})`, x + 8, ry, COLOR_YELLOW, 10));
+  content.addChild(makeLabel(`Children (${childCount})`, x + 8, ry, COLOR_YELLOW, 10));
   ry += 14;
   if (node.children && childCount > 0) {
     for (let i = 0; i < Math.min(childCount, 15); i++) {
@@ -265,7 +275,7 @@ function drawNodeDetails(
       const childColor = TYPE_COLORS[childType] ?? COLOR_TEXT;
       const childLabel = child.label ? `"${String(child.label).slice(0, 15)}"` : "";
       const text = `[${i}] ${childType} ${childLabel}`;
-      c.addChild(makeLabel(text, x + 12, ry, childColor, 9));
+      content.addChild(makeLabel(text, x + 12, ry, childColor, 9));
       // Click to navigate to child
       const childId = `${nodeId}.${i}`;
       hits.add(x + 12, ry, w - 20, 13, () => {
@@ -274,7 +284,7 @@ function drawNodeDetails(
       ry += 13;
     }
     if (childCount > 15) {
-      c.addChild(makeLabel(`  ... ${childCount - 15} more`, x + 12, ry, COLOR_TEXT_DIM, 9));
+      content.addChild(makeLabel(`  ... ${childCount - 15} more`, x + 12, ry, COLOR_TEXT_DIM, 9));
       ry += 13;
     }
   }
@@ -283,7 +293,7 @@ function drawNodeDetails(
   // ── Parent chain ──
   const parentChain = getParentChain(root, nodeId);
   if (parentChain.length > 1) {
-    c.addChild(makeLabel("Parents", x + 8, ry, COLOR_YELLOW, 10));
+    content.addChild(makeLabel("Parents", x + 8, ry, COLOR_YELLOW, 10));
     ry += 14;
     for (let i = parentChain.length - 2; i >= 0; i--) {
       const p = parentChain[i];
@@ -291,7 +301,7 @@ function drawNodeDetails(
       const pColor = TYPE_COLORS[pType] ?? COLOR_TEXT;
       const pLabel = p.node.label ? `"${String(p.node.label).slice(0, 15)}"` : "";
       const text = `↑ ${pType} ${pLabel}`;
-      c.addChild(makeLabel(text, x + 12, ry, pColor, 9));
+      content.addChild(makeLabel(text, x + 12, ry, pColor, 9));
       // Click to navigate to parent
       hits.add(x + 12, ry, w - 20, 13, () => {
         scene.setSceneSelected(p.id);
@@ -315,10 +325,27 @@ function buildTreeNodes(
 ): void {
   if (depth > maxDepth) return;
   const childCount = node.children?.length ?? 0;
-  const isExpanded = expanded.has(id) || depth < 1;
+  // Auto-expand first 2 levels
+  const isExpanded = expanded.has(id) || depth < 2;
   const typeName = node.constructor?.name ?? typeof node;
-  const label = node.label ? `"${String(node.label).slice(0, 20)}"` : typeName;
-  const detail = childCount > 0 ? `(${childCount})` : "";
+
+  // Build a useful label: type name + label/name + position info
+  let label: string;
+  if (node.label) {
+    label = `${typeName}: "${String(node.label).slice(0, 20)}"`;
+  } else if (node.name) {
+    label = `${typeName}: ${String(node.name).slice(0, 20)}`;
+  } else {
+    label = typeName;
+  }
+
+  // Build detail: child count + position + visibility
+  let detail = "";
+  if (childCount > 0) detail += `(${childCount})`;
+  if (node.visible === false) detail += " 👁"; // hidden indicator
+  if (node.x != null && node.y != null && (node.x !== 0 || node.y !== 0)) {
+    detail += ` @${node.x.toFixed(0)},${node.y.toFixed(0)}`;
+  }
 
   // Apply search filter
   if (searchQuery) {

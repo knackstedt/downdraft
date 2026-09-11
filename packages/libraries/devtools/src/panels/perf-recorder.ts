@@ -1,8 +1,9 @@
 // ============================================================================
-// perf-recorder.ts — Performance Recorder with full flame graph + timeline.
+// perf-recorder.ts — Performance Recorder with flame graph + thread lanes.
 //
 // Features:
 // - Record / Stop / Clear buttons
+// - Thread lanes showing CPU utilization per thread (from ProfilingSAB)
 // - Timeline ruler with time markers
 // - Full flame graph: stacked by call depth, width = total time, colored by category
 // - Click a frame to see call stack + details
@@ -13,14 +14,15 @@
 import { Container, Graphics } from "pixi.js";
 import type { CdpProfile } from "../cdp-bridge";
 import type { DebuggerScene } from "../debugger-scene";
-import { COLOR_BORDER, COLOR_GREEN, COLOR_ORANGE, COLOR_RED, COLOR_TEXT, COLOR_TEXT_BRIGHT, COLOR_TEXT_DIM, COLOR_YELLOW } from "../shared/colors";
+import { COLOR_BORDER, COLOR_GREEN, COLOR_ORANGE, COLOR_RED, COLOR_TEXT, COLOR_TEXT_BRIGHT, COLOR_TEXT_DIM, COLOR_YELLOW, THREAD_COLORS } from "../shared/colors";
 import { formatMs, makeButton, makeLabel, makeScrollPanel } from "../shared/widgets";
 
 const TOOLBAR_HEIGHT = 32;
 const RULER_HEIGHT = 20;
 const FRAME_HEIGHT = 16;
-const MAX_FRAMES = 500; // cap for performance
 const DETAIL_PANEL_HEIGHT = 120;
+const THREAD_LANE_HEIGHT = 24;
+const THREAD_LANE_GAP = 2;
 
 // Frame colors by category
 function frameColor(name: string): number {
@@ -134,7 +136,52 @@ export function renderPerfRecorderPanel(scene: DebuggerScene, x: number, y: numb
   if (!profile) {
     c.addChild(makeLabel("Press Record to capture a CPU profile via CDP Profiler.", 10, contentY + 10, COLOR_TEXT_DIM, 11));
     c.addChild(makeLabel("The profiler samples the main isolate's call stack.", 10, contentY + 28, COLOR_TEXT_DIM, 10));
-    c.addChild(makeLabel("After stopping, a flame graph will be displayed.", 10, contentY + 44, COLOR_TEXT_DIM, 10));
+    c.addChild(makeLabel("Thread lanes below show live CPU% per worker.", 10, contentY + 44, COLOR_TEXT_DIM, 10));
+    c.addChild(makeLabel("After stopping, a flame graph will be displayed.", 10, contentY + 60, COLOR_TEXT_DIM, 10));
+  }
+
+  // ── Thread lanes (from ProfilingSAB) — always visible ──
+  // Shows live CPU utilization per thread, even before recording.
+  const slots = readProfilingSlots(ctx);
+  const threadLanesY = contentY;
+  const threadLanesH = slots.length > 0
+    ? slots.length * (THREAD_LANE_HEIGHT + THREAD_LANE_GAP) + 20
+    : 20;
+
+  if (slots.length > 0) {
+    // Thread lanes header
+    c.addChild(makeLabel("Thread CPU Lanes (live)", 4, threadLanesY, COLOR_GREEN, 10));
+    let laneY = threadLanesY + 16;
+    for (let i = 0; i < slots.length; i++) {
+      const slot = slots[i];
+      const color = THREAD_COLORS[i % THREAD_COLORS.length];
+      const cpuPct = slot.metrics?.cpuPercent ?? 0;
+      const heapMb = (slot.metrics?.heapUsed ?? 0) / 1024 / 1024;
+
+      // Lane background
+      const laneBg = new Graphics();
+      laneBg.rect(4, laneY, w - 8, THREAD_LANE_HEIGHT);
+      laneBg.fill({ color: 0x0a0a16, alpha: 0.6 });
+      laneBg.stroke({ color: COLOR_BORDER, alpha: 0.3, width: 1 });
+      c.addChild(laneBg);
+
+      // CPU bar (width proportional to cpuPct)
+      const barW = Math.max(2, (cpuPct / 100) * (w - 100));
+      const bar = new Graphics();
+      bar.rect(80, laneY + 2, barW, THREAD_LANE_HEIGHT - 4);
+      bar.fill({ color, alpha: 0.7 });
+      c.addChild(bar);
+
+      // Thread name + values
+      c.addChild(makeLabel(slot.name.slice(0, 14), 8, laneY + 4, color, 9));
+      c.addChild(makeLabel(`${cpuPct.toFixed(1)}%`, 84, laneY + 4, COLOR_TEXT_BRIGHT, 9));
+      c.addChild(makeLabel(`${heapMb.toFixed(1)}MB`, w - 70, laneY + 4, COLOR_TEXT_DIM, 9));
+
+      laneY += THREAD_LANE_HEIGHT + THREAD_LANE_GAP;
+    }
+  }
+
+  if (!profile) {
     return c;
   }
 
@@ -144,16 +191,16 @@ export function renderPerfRecorderPanel(scene: DebuggerScene, x: number, y: numb
   const totalDuration = profile.endTime - profile.startTime;
 
   // ── Timeline ruler ──
-  drawTimelineRuler(c, w, contentY, totalDuration, zoom);
+  const rulerY = threadLanesY + threadLanesH;
+  drawTimelineRuler(c, w, rulerY, totalDuration, zoom);
 
   // ── Flame graph (scrollable) ──
-  const flameY = contentY + RULER_HEIGHT;
-  const flameH = contentH - RULER_HEIGHT - DETAIL_PANEL_HEIGHT;
+  const flameY = rulerY + RULER_HEIGHT;
+  const flameH = contentH - (flameY - contentY) - DETAIL_PANEL_HEIGHT;
   const flameContentW = w * zoom;
   const flameContentH = Math.max(flameH, (maxDepth + 1) * FRAME_HEIGHT + 10);
   const scrollY = scene.getScrollY("perf-recorder");
-  const scrollX = (scene as any)._perfScrollX ?? 0;
-  const scroll = makeScrollPanel({ x: 0, y: flameY, width: w, height: flameH, contentHeight: flameContentH, scrollY: hits ? scrollY : 0, hits });
+  const scroll = makeScrollPanel({ x: 0, y: flameY, width: w, height: flameH, contentHeight: flameContentH, scrollY, hits });
   c.addChild(scroll.container);
   const content = scroll.content;
 
@@ -167,6 +214,27 @@ export function renderPerfRecorderPanel(scene: DebuggerScene, x: number, y: numb
   drawFrameDetail(c, scene, selectedFrame, profile, 0, flameY + flameH + 4, w, DETAIL_PANEL_HEIGHT - 4);
 
   return c;
+}
+
+// ── Read ProfilingSAB slots ──
+
+function readProfilingSlots(ctx: any): { slotIndex: number; name: string; metrics: any; eventLoop: any }[] {
+  if (!ctx.profilingSAB) return [];
+  try {
+    const { ProfilingSABReader, computeProfilingSABLayout } = require("@downdraft/core/profiling");
+    const layout = computeProfilingSABLayout();
+    if (ctx.profilingSAB.byteLength < layout.byteLength) return [];
+    const reader = new ProfilingSABReader(ctx.profilingSAB, layout);
+    const snapshot = reader.readSnapshot();
+    return snapshot.slots.map((s: any) => ({
+      slotIndex: s.slotIndex,
+      name: s.name || `slot-${s.slotIndex}`,
+      metrics: s.metrics,
+      eventLoop: s.eventLoop,
+    }));
+  } catch {
+    return [];
+  }
 }
 
 // ── Build flame graph from CDP profile ──
@@ -405,7 +473,7 @@ function findCallStack(profile: CdpProfile, nodeId: number): any[] {
     }
   }
   const stack: any[] = [];
-  let current = nodeId;
+  let current: number | null = nodeId;
   const nodeMap = new Map(profile.nodes.map((n) => [n.id, n]));
   while (current != null) {
     const node = nodeMap.get(current);

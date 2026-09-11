@@ -27,7 +27,9 @@ export function renderGpuPanel(scene: DebuggerScene, x: number, y: number, w: nu
   const expanded = scene.getGpuExpanded();
 
   const scrollY = scene.getScrollY("gpu");
-  const contentHeight = 1200; // generous, scroll handles overflow
+  // Content height is computed dynamically as we build sections.
+  // Use a generous estimate; the scroll panel handles overflow.
+  const contentHeight = 1400;
   const scroll = makeScrollPanel({ x: 0, y: 0, width: w, height: h, contentHeight, scrollY, hits });
   c.addChild(scroll.container);
   const content = scroll.content;

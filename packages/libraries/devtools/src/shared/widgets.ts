@@ -191,7 +191,11 @@ export function makeTabBar(
   bg.rect(0, height - 1, width, 1);
   bg.fill({ color: COLOR_BORDER, alpha: 0.6 });
   c.addChild(bg);
-  const tabWidth = Math.max(70, Math.floor(width / Math.max(tabs.length, 1)));
+  // Use fixed tab width — each tab gets an equal share, with padding.
+  // Labels are left-aligned with padding to avoid overlap from centered text
+  // on narrow tabs.
+  const tabWidth = Math.floor(width / tabs.length);
+  const padX = 8;
   for (let i = 0; i < tabs.length; i++) {
     const tab = tabs[i];
     const isActive = tab.id === activeId;
@@ -207,14 +211,19 @@ export function makeTabBar(
       ul.fill({ color: COLOR_GREEN });
       c.addChild(ul);
     }
-    const label = new Text({
-      text: tab.label,
-      style: { fontSize: fs(12), fill: isActive ? COLOR_TEXT_BRIGHT : COLOR_TEXT_DIM, fontFamily: FONT },
+    // Left-aligned label with padding — truncates if too long
+    const maxChars = Math.floor((tabWidth - padX * 2) / 7);
+    const label = tab.label.length > maxChars
+      ? tab.label.slice(0, Math.max(2, maxChars - 1)) + "…"
+      : tab.label;
+    const text = new Text({
+      text: label,
+      style: { fontSize: fs(11), fill: isActive ? COLOR_TEXT_BRIGHT : COLOR_TEXT_DIM, fontFamily: FONT },
     });
-    label.anchor.set(0.5, 0.5);
-    label.x = tx + tabWidth / 2;
-    label.y = height / 2;
-    c.addChild(label);
+    text.anchor.set(0, 0.5);
+    text.x = tx + padX;
+    text.y = height / 2;
+    c.addChild(text);
     const id = tab.id;
     hits.add(x + tx, y, tabWidth, height, () => onSelect(id));
   }
@@ -254,17 +263,17 @@ export function makeScrollPanel(opts: ScrollPanelOpts): ScrollPanelResult {
   bg.rect(0, 0, opts.width, opts.height);
   bg.fill({ color: BG_PANEL, alpha: 0.85 });
   c.addChild(bg);
-  // Clip mask — DISABLED: PixiJS masks trigger ensureDepthStencil() which
-  // restarts the render pass with an undefined depth/stencil buffer, causing
-  // overlapping Graphics to fail the depth test on the native wgpu backend.
-  // Content overflow is instead clipped by the scroll panel's bounds.
+  // Clip mask — use a Graphics rect as a mask to clip content to the
+  // scroll panel's bounds. This prevents content from bleeding over the
+  // tab bar or other UI elements when scrolling.
+  const mask = new Graphics();
+  mask.rect(0, 0, opts.width, opts.height);
+  mask.fill({ color: 0xffffff });
+  c.addChild(mask);
   const content = new Container();
   content.x = 0;
   content.y = -opts.scrollY;
-  // const mask = new Graphics();
-  // mask.rect(0, 0, opts.width, opts.height);
-  // mask.fill({ color: 0xffffff });
-  // content.mask = mask;
+  content.mask = mask;
   c.addChild(content);
   // Push hit offset so content-registered hit regions are in absolute coords.
   // The caller must call hits.popOffset() after adding all content.
@@ -327,6 +336,9 @@ export function makeTreeView(
   c.y = opts.y;
   const rh = opts.rowHeight ?? 18;
   const fs2 = opts.fontSize ?? 12;
+  // Text vertical centering: text is drawn from top, so offset to vertically
+  // center within the row height.
+  const textY = Math.floor((rh - fs2) / 2);
   let y = 0;
   for (const node of nodes) {
     const indent = node.depth * 16;
@@ -367,15 +379,15 @@ export function makeTreeView(
         tri.lineTo(cx + 4, cy);
         tri.closePath();
       }
-      tri.fill({ color: COLOR_TEXT_DIM });
+      tri.fill({ color: node.expanded ? COLOR_GREEN : COLOR_TEXT_DIM });
       row.addChild(tri);
       hits.add(opts.x + indent, opts.y + y, 16, rh, () => onToggle(node.id));
     }
     // Label
-    const label = makeLabel(node.label, indent + 18, 2, node.selected ? COLOR_TEXT_BRIGHT : COLOR_TEXT, fs2);
+    const label = makeLabel(node.label, indent + 18, textY, node.selected ? COLOR_TEXT_BRIGHT : COLOR_TEXT, fs2);
     row.addChild(label);
     if (node.detail) {
-      const detail = makeLabel(node.detail, indent + 18 + label.width + 8, 2, COLOR_TEXT_DIM, fs2 - 1);
+      const detail = makeLabel(node.detail, indent + 18 + label.width + 8, textY, COLOR_TEXT_DIM, fs2 - 1);
       row.addChild(detail);
     }
     c.addChild(row);
