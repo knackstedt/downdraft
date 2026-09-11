@@ -105,6 +105,35 @@ let currentFunMode = FunMode.Normal;
 /** Recycled slot indices from removed props (reused before allocating new slots). */
 const freeSlots: number[] = [];
 
+// ── Squish visual deformation ──
+// In Squishy fun mode, the sim detects bounce impacts from physics contacts
+// and writes a per-prop squish (compression amount + local axis) into the SAB.
+// The renderer applies it as a non-uniform scale. The state lives here (not in
+// the SAB) so it can animate smoothly even for sleeping bodies; the SAB is just
+// the display copy the renderer reads each frame.
+//
+// The deformation is driven by a spring-mass-damper: an impact gives the spring
+// a velocity impulse, and the spring naturally animates compression → recovery
+// → slight overshoot (jelly wobble) → settle. This replaces the old instant-set
+// + exponential-decay, which looked binary (snap to squished, then fade out).
+interface SquishState {
+  amount: number;    // current compression along `axis` (0 = rest, + = compressed, - = stretched)
+  velocity: number;  // spring velocity (rate of change of amount)
+  axis: number;      // 0=x, 1=y, 2=z (prop local frame)
+}
+const squishStates = new Map<number, SquishState>(); // entityId → state
+// Pre-step linear velocity snapshot — captured before stepNearRealm so the
+// post-step contact pass can compute the pre-bounce impact speed.
+const prevVelocities = new Map<number, [number, number, number]>();
+// Tuning. The spring is underdamped (ρ ≈ 0.3) so it overshoots slightly on
+// recovery, giving a jelly wobble. Semi-implicit Euler integration is stable
+// for these constants at dt=1/60 (stability bound: dt < 2/ω ≈ 0.052s).
+const SQUISH_MIN_IMPACT = 1.5;     // m/s along the contact normal to trigger
+const SQUISH_IMPULSE_GAIN = 1.2;   // spring velocity impulse per m/s above threshold
+const SQUISH_MAX = 0.4;            // cap compression along one axis
+const SQUISH_K = 200;             // spring stiffness (pulls amount back to 0)
+const SQUISH_C = 8;               // damping (underdamped — slight overshoot wobble)
+
 const events = exposeEvents();
 const onEvent = (msg: SandboxSimMessage) => { events.emit(msg.kind, msg.data); };
 
@@ -294,6 +323,8 @@ function spawnProp(
   f32[ENT_DATA.FRICTION + ENT.DATA] = friction;
   f32[ENT_DATA.GRAVITY_SCALE + ENT.DATA] = gravityScale;
   f32[ENT_DATA.SHAPE + ENT.DATA] = propShape === "sphere" ? 1 : 0;
+  f32[ENT_DATA.SQUISH_AMOUNT + ENT.DATA] = 0;
+  f32[ENT_DATA.SQUISH_AXIS + ENT.DATA] = 0;
 
   simWriter!.setEntityCount(nextSlotIdx);
   simWriter!.markEntityDirty(slotIdx);
@@ -327,6 +358,8 @@ function removeProp(entityId: number): void {
   freeSlots.push(record.slotIdx);
   propRecords.delete(entityId);
   grabbedProps.delete(entityId);
+  squishStates.delete(entityId);
+  prevVelocities.delete(entityId);
   events.emit("prop_removed", { entityId });
 }
 
@@ -338,6 +371,8 @@ function clearProps(): void {
   }
   propRecords.clear();
   grabbedProps.clear();
+  squishStates.clear();
+  prevVelocities.clear();
   nextSlotIdx = 0;
   freeSlots.length = 0;
   simWriter!.setEntityCount(0);
@@ -349,9 +384,15 @@ function setFunMode(mode: FunMode): void {
   // Recreating bodies below invalidates active grabs (new bodies are dynamic);
   // drop grab state so the Solid driver doesn't push a fresh body unexpectedly.
   grabbedProps.clear();
+  // Squishy mode needs contact manifolds to detect bounces; the default config
+  // disables extraction for perf. Toggle it on the backend at runtime. Leaving
+  // it on when not in Squishy would waste ~43% of step time.
+  if (physicsBackend) {
+    physicsBackend.extractContacts = mode === FunMode.Squishy;
+  }
   const gravityScale = mode === FunMode.Moon ? 0.16 : mode === FunMode.ZeroG ? 0 : 1.0;
-  const restitution = mode === FunMode.Bouncy ? 0.95 : 0.3;
-  const friction = mode === FunMode.Bouncy ? 0.1 : 0.5;
+  const restitution = mode === FunMode.Bouncy ? 0.95 : mode === FunMode.Squishy ? 0.7 : 0.3;
+  const friction = mode === FunMode.Bouncy ? 0.1 : mode === FunMode.Squishy ? 0.3 : 0.5;
 
   // Recreate each body with new properties (the engine doesn't expose runtime
   // property setters for restitution/friction/gravityScale).
@@ -359,7 +400,7 @@ function setFunMode(mode: FunMode): void {
     physicsApi!.getTranslationRaw(record.body, _posOut);
     physicsApi!.getRotationRaw(record.body, _rotOut);
     physicsApi!.destroyBody(record.body);
-    record.body = createPropBody(_posOut, _rotOut, record.shape, record.halfExtents, record.radius, record.mass, restitution, friction, gravityScale);
+    record.body = createPropBody(_posOut, _rotOut, record.shape, record.halfExtents, record.radius, record.mass, restitution, friction, gravityScale, false, record.slotIdx);
     record.restitution = restitution;
     record.friction = friction;
     record.gravityScale = gravityScale;
@@ -608,6 +649,108 @@ function syncTransforms(): void {
   }
 }
 
+// ── Squish: detect bounce impacts from contacts and drive per-prop deformation ──
+// Runs every tick. The spring integration always runs (so a prop never freezes
+// deformed when switching out of Squishy); the contact-detection portion only
+// runs in Squishy mode, where extractContacts is enabled on the backend.
+function updateSquish(dt: number): void {
+  // Integrate the spring for existing squish states (always — smooth recovery
+  // even after leaving Squishy mode). Settled states zero their SAB slots so
+  // the renderer stops deforming the prop.
+  if (squishStates.size > 0) {
+    for (const [entityId, state] of squishStates) {
+      // Semi-implicit Euler — stable for stiff springs at dt=1/60.
+      state.velocity += (-SQUISH_K * state.amount - SQUISH_C * state.velocity) * dt;
+      state.amount += state.velocity * dt;
+      // Clamp the compression cap. Let negative values (stretch/wobble) pass —
+      // the renderer handles them and they give the jelly overshoot feel.
+      if (state.amount > SQUISH_MAX) {
+        state.amount = SQUISH_MAX;
+        if (state.velocity > 0) state.velocity = 0;
+      }
+      // Settled — remove and zero the SAB so the prop returns to rest.
+      if (Math.abs(state.amount) < 0.005 && Math.abs(state.velocity) < 0.05) {
+        squishStates.delete(entityId);
+        const record = propRecords.get(entityId);
+        if (record && simWriter) {
+          simWriter.getEntityF32(record.slotIdx)[ENT_DATA.SQUISH_AMOUNT + ENT.DATA] = 0;
+          simWriter.markEntityDirty(record.slotIdx);
+        }
+        continue;
+      }
+      // Write the animated value to the SAB each tick.
+      const record = propRecords.get(entityId);
+      if (record && simWriter) {
+        const f32 = simWriter.getEntityF32(record.slotIdx);
+        f32[ENT_DATA.SQUISH_AMOUNT + ENT.DATA] = state.amount;
+        f32[ENT_DATA.SQUISH_AXIS + ENT.DATA] = state.axis;
+        simWriter.markEntityDirty(record.slotIdx);
+      }
+    }
+  }
+
+  if (currentFunMode !== FunMode.Squishy || !physicsApi || !simWriter) return;
+
+  // Read the fresh contact manifolds produced by this step.
+  const contacts = physicsApi.getContacts();
+  if (contacts.length > 0) {
+    for (const manifold of contacts) {
+      const nx = manifold.normal[0], ny = manifold.normal[1], nz = manifold.normal[2];
+      // normal points A→B. Each side may be a prop; handle both so prop↔ground
+      // and prop↔prop collisions both squish the dynamic participants.
+      applySquishImpact(manifold.entityA.index + 1, nx, ny, nz, +1);
+      applySquishImpact(manifold.entityB.index + 1, nx, ny, nz, -1);
+    }
+  }
+}
+
+/** Compute impact speed along the normal and give the spring a velocity impulse. */
+function applySquishImpact(
+  entityId: number,
+  nx: number, ny: number, nz: number,
+  normalSign: number, // +1 if this entity is A (normal points away), -1 if B
+): void {
+  const record = propRecords.get(entityId);
+  if (!record || !physicsApi || !simWriter) return;
+  const prevVel = prevVelocities.get(entityId);
+  if (!prevVel) return;
+  // Pre-step velocity along the normal, signed so positive = moving into the
+  // other body (the impact that caused this contact).
+  const vDotN = prevVel[0] * nx + prevVel[1] * ny + prevVel[2] * nz;
+  const impactSpeed = normalSign * vDotN;
+  if (impactSpeed < SQUISH_MIN_IMPACT) return;
+
+  // Velocity impulse — the spring will compress over several frames (animated
+  // onset), peak, then spring back with a slight overshoot wobble.
+  const impulse = (impactSpeed - SQUISH_MIN_IMPACT) * SQUISH_IMPULSE_GAIN;
+
+  // Transform the world-space contact normal into the prop's local frame
+  // (n_local = q^-1 · n_world) and pick the dominant local axis to compress.
+  physicsApi.getRotationRaw(record.body, _rotOut);
+  const qx = _rotOut[0], qy = _rotOut[1], qz = _rotOut[2], qw = _rotOut[3];
+  // Conjugate (inverse for a unit quaternion).
+  const ux = -qx, uy = -qy, uz = -qz, us = qw;
+  const uu = ux * ux + uy * uy + uz * uz;
+  const dot = ux * nx + uy * ny + uz * nz;
+  const cx = uy * nz - uz * ny;
+  const cy = uz * nx - ux * nz;
+  const cz = ux * ny - uy * nx;
+  const lnx = 2 * dot * ux + (us * us - uu) * nx + 2 * us * cx;
+  const lny = 2 * dot * uy + (us * us - uu) * ny + 2 * us * cy;
+  const lnz = 2 * dot * uz + (us * us - uu) * nz + 2 * us * cz;
+  const ax = Math.abs(lnx), ay = Math.abs(lny), az = Math.abs(lnz);
+  const axis = ax >= ay && ax >= az ? 0 : ay >= az ? 1 : 2;
+
+  // Add the impulse to the existing state (accumulate rapid impacts). If the
+  // axis changed (hit from a different direction), reset to the new axis.
+  const existing = squishStates.get(entityId);
+  if (existing && existing.axis === axis) {
+    existing.velocity += impulse;
+  } else {
+    squishStates.set(entityId, { amount: existing?.amount ?? 0, velocity: impulse, axis });
+  }
+}
+
 // ── Save/load state ──
 function saveState(): string {
   const props: any[] = [];
@@ -682,7 +825,18 @@ expose({
         // the physics step resolves collisions (the prop can't clip through
         // walls). Runs before stepNearRealm so the velocity is applied this tick.
         if (physicsApi && grabbedProps.size > 0) driveSolidGrabs(dt);
+        // Snapshot pre-step velocities so the post-step contact pass can compute
+        // the pre-bounce impact speed (after step(), velocities are resolved).
+        if (physicsApi && currentFunMode === FunMode.Squishy) {
+          for (const [eid, rec] of propRecords) {
+            physicsApi.getLinearVelocityRaw(rec.body, _velOut);
+            prevVelocities.set(eid, [_velOut[0], _velOut[1], _velOut[2]]);
+          }
+        }
         if (physicsApi) physicsApi.stepNearRealm(dt);
+        // Squish: decay existing deformation (always) and detect new bounces
+        // from the fresh contacts (Squishy mode only).
+        updateSquish(dt);
         // Despawn expired entities (projectiles, etc.)
         const expired: number[] = [];
         for (const [entityId, record] of propRecords) {

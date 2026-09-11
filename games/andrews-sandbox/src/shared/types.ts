@@ -32,6 +32,7 @@ export enum FunMode {
   Moon = 1,
   ZeroG = 2,
   Bouncy = 3,
+  Squishy = 4,
 }
 
 // --- Pose State ---

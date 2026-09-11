@@ -9,12 +9,12 @@
 // ============================================================================
 
 import {
-    BindlessFrameBindings, BindlessMaterialManager, BindlessTextureRegistry,
-    DEPTH_FORMAT, ENT, GameRenderer,
-    InputBufferWriter, InterpolationBuffer,
-    MSAA_SAMPLE_COUNT, SimBufferReader,
-    calculateViewProjInto, type CameraState,
-    type RenderContext, type TextureHandle
+  BindlessFrameBindings, BindlessMaterialManager, BindlessTextureRegistry,
+  DEPTH_FORMAT, ENT, GameRenderer,
+  InputBufferWriter, InterpolationBuffer,
+  MSAA_SAMPLE_COUNT, SimBufferReader,
+  calculateViewProjInto, type CameraState,
+  type RenderContext, type TextureHandle
 } from "@downdraft/core";
 import { ModelRenderer } from "@downdraft/library-entities";
 import { loadModel, type ModelData } from "@downdraft/library-models";
@@ -2126,6 +2126,9 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
       const py = interp ? interp[ioff + 1]   : f32[ENT.POS_Y];
       const pz = interp ? interp[ioff + 2]   : f32[ENT.POS_Z];
       const scale = interp ? interp[ioff + 7] : f32[ENT.SCALE];
+      const squishAmount = f32[ENT_DATA.SQUISH_AMOUNT + ENT.DATA] || 0;
+      const squishAxis = f32[ENT_DATA.SQUISH_AXIS + ENT.DATA] | 0;
+      const [sx, sy, sz] = this.applySquishScale(scale, squishAmount, squishAxis);
       const rx = interp ? interp[ioff + 3]   : f32[ENT.ROT_X];
       const ry = interp ? interp[ioff + 4]   : f32[ENT.ROT_Y];
       const rz = interp ? interp[ioff + 5]   : f32[ENT.ROT_Z];
@@ -2133,7 +2136,7 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
 
       this.modelRenderer.renderDepth(
         pass, lightVP, nodeId,
-        [px, py, pz], [rx, ry, rz, rw], [scale, scale, scale],
+        [px, py, pz], [rx, ry, rz, rw], [sx, sy, sz],
       );
     }
   }
@@ -2188,6 +2191,9 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
       const py = interp ? interp[ioff + 1]   : f32[ENT.POS_Y];
       const pz = interp ? interp[ioff + 2]   : f32[ENT.POS_Z];
       const scale = interp ? interp[ioff + 7] : f32[ENT.SCALE];
+      const squishAmount = f32[ENT_DATA.SQUISH_AMOUNT + ENT.DATA] || 0;
+      const squishAxis = f32[ENT_DATA.SQUISH_AXIS + ENT.DATA] | 0;
+      const [sx, sy, sz] = this.applySquishScale(scale, squishAmount, squishAxis);
       const rx = interp ? interp[ioff + 3]   : f32[ENT.ROT_X];
       const ry = interp ? interp[ioff + 4]   : f32[ENT.ROT_Y];
       const rz = interp ? interp[ioff + 5]   : f32[ENT.ROT_Z];
@@ -2198,7 +2204,7 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
         nodeId,
         [px, py, pz],
         [rx, ry, rz, rw],
-        [scale, scale, scale],
+        [sx, sy, sz],
         0,
         // Ghost hologram when this is the physgun's ghost-grabbed prop.
         (i + 1) === this.ghostGrabEntity ? 1 : 0,
@@ -2209,7 +2215,7 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
         this.hoverModelNodeId = nodeId;
         this.hoverModelPos = [px, py, pz];
         this.hoverModelRot = [rx, ry, rz, rw];
-        this.hoverModelScale = [scale, scale, scale];
+        this.hoverModelScale = [sx, sy, sz];
       }
     }
   }
@@ -2371,6 +2377,26 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
   // and computes model matrices into the staging buffer. Both the shadow
   // depth pass and the scene color pass read from the same precomputed data,
   // eliminating duplicate iteration + matrix composition.
+
+  /**
+   * Apply the sim-driven squish deformation as a per-axis scale. Positive
+   * amount = compress along the impact axis (expand the other two for
+   * approximate volume preservation). Negative amount = stretch along the
+   * axis (the spring overshoot / jelly wobble on recovery).
+   */
+  private applySquishScale(
+    scale: number,
+    amount: number,
+    axis: number,
+  ): [number, number, number] {
+    if (Math.abs(amount) < 0.001) return [scale, scale, scale];
+    const compress = 1 - amount;
+    const expand = 1 + amount * 0.5;
+    if (axis === 0) return [scale * compress, scale * expand, scale * expand];
+    if (axis === 1) return [scale * expand, scale * compress, scale * expand];
+    return [scale * expand, scale * expand, scale * compress];
+  }
+
   private collectRenderEntities(): void {
     if (!this.simReader || !this.interpOut) return;
     const reader = this.simReader;
@@ -2407,6 +2433,12 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
       const py = interp[ioff + 1];
       const pz = interp[ioff + 2];
       const scale = interp[ioff + 7] || 1.0;
+      // Squish deformation lives in the SAB DATA area (not interpolated — it's a
+      // scalar that eases in the sim, so linear interp would be fine but isn't
+      // worth the extra interp slots). Read directly from the entity slot.
+      const squishAmount = f32[ENT_DATA.SQUISH_AMOUNT + ENT.DATA] || 0;
+      const squishAxis = f32[ENT_DATA.SQUISH_AXIS + ENT.DATA] | 0;
+      const [sx, sy, sz] = this.applySquishScale(scale, squishAmount, squishAxis);
       const rx = interp[ioff + 3];
       const ry = interp[ioff + 4];
       const rz = interp[ioff + 5];
@@ -2430,17 +2462,17 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
       const r20 = 2 * (qx * qz - qy * qw);
       const r21 = 2 * (qy * qz + qx * qw);
       const r22 = 1 - 2 * (qx * qx + qy * qy);
-      staging[off]      = r00 * scale;
-      staging[off + 1]  = r10 * scale;
-      staging[off + 2]  = r20 * scale;
+      staging[off]      = r00 * sx;
+      staging[off + 1]  = r10 * sx;
+      staging[off + 2]  = r20 * sx;
       staging[off + 3]  = 0;
-      staging[off + 4]  = r01 * scale;
-      staging[off + 5]  = r11 * scale;
-      staging[off + 6]  = r21 * scale;
+      staging[off + 4]  = r01 * sy;
+      staging[off + 5]  = r11 * sy;
+      staging[off + 6]  = r21 * sy;
       staging[off + 7]  = 0;
-      staging[off + 8]  = r02 * scale;
-      staging[off + 9]  = r12 * scale;
-      staging[off + 10] = r22 * scale;
+      staging[off + 8]  = r02 * sz;
+      staging[off + 9]  = r12 * sz;
+      staging[off + 10] = r22 * sz;
       staging[off + 11] = 0;
       staging[off + 12] = px;
       staging[off + 13] = py;

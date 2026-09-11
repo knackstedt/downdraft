@@ -33,6 +33,9 @@ let dragDropImporter: DragDropImporter | null = null;
 let physicsController: PhysicsPropsController | null = null;
 let paintSystem: PaintSystem | null = null;
 let vrModule: SandboxVRModule | null = null;
+// Fun mode display names (indexed by FunMode enum value). Module-scoped so both
+// the keydown handler (KeyF cycle) and buildDomHud (mode badge) can read it.
+const FUN_NAMES = ["Normal", "Moon", "ZeroG", "Bouncy", "Squishy"];
 // Per-contentId spawn counts (module-scoped so event handlers can update them)
 const spawnCounts = new Map<string, number>();
 // Reference to the pixi-ui host (set in onReady, used by event handlers)
@@ -684,6 +687,22 @@ startGame({
         case "KeyR": weaponController.getToolgun().setContext(ToolgunContext.Remove); console.log("[Toolgun] Context: Remove"); break;
         case "KeyT": weaponController.getToolgun().setContext(ToolgunContext.Spawn); console.log("[Toolgun] Context: Spawn"); break;
         case "KeyG": weaponController.getToolgun().setContext(ToolgunContext.SetFunMode); console.log("[Toolgun] Context: SetFunMode"); break;
+        case "KeyF": {
+          // Cycle fun mode: Normal → Moon → ZeroG → Bouncy → Squishy → Normal.
+          // The DOM fun-mode bar isn't clickable while the pointer is locked,
+          // so this keybind is the primary way to switch modes in-game.
+          const FUN_CYCLE = [FunMode.Normal, FunMode.Moon, FunMode.ZeroG, FunMode.Bouncy, FunMode.Squishy];
+          const cur = s.activeFunMode;
+          const idx = FUN_CYCLE.indexOf(cur);
+          const next = FUN_CYCLE[(idx + 1) % FUN_CYCLE.length];
+          s.setActiveFunMode(next);
+          physicsController?.setFunMode(next);
+          // Keep the toolgun's selectedFunMode in sync so the SetFunMode context
+          // (KeyG → left-click) fires the same mode the badge shows.
+          weaponController.getToolgun().setFunMode(next);
+          console.log(`[FunMode] ${FUN_NAMES[next]}`);
+          break;
+        }
       }
     });
     window.addEventListener("keyup", (e) => { keys.delete(e.code); });
@@ -875,7 +894,6 @@ function buildDomHud(
     [ToolType.Pistol]: "Pistol",
     [ToolType.Paintgun]: "Paintgun",
   };
-  const FUN_NAMES = ["Normal", "Moon", "ZeroG", "Bouncy"];
   const POSE_NAMES: Record<number, string> = {
     [PoseState.Standing]: "Standing",
     [PoseState.Crouching]: "Crouching",
@@ -985,6 +1003,7 @@ function buildDomHud(
     { mode: FunMode.Moon, label: "Moon" },
     { mode: FunMode.ZeroG, label: "ZeroG" },
     { mode: FunMode.Bouncy, label: "Bouncy" },
+    { mode: FunMode.Squishy, label: "Squishy" },
   ];
   const modeBtns: HTMLButtonElement[] = [];
   for (const m of modes) {

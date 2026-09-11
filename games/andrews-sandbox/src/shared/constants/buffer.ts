@@ -24,7 +24,9 @@ export const ENT_DATA = {
   FRICTION: 3,         // f32 idx 25 — physics friction
   GRAVITY_SCALE: 4,    // f32 idx 26 — physics gravity scale
   SHAPE: 5,            // u32 — 0 = box, 1 = sphere (stored as f32)
-  // Indices 6–7 (f32 idx 28–29) reserved for future use
+  // Squish visual deformation (driven by bounce-impact detection in the sim):
+  SQUISH_AMOUNT: 6,    // f32 idx 28 — 0 = none, up to ~0.35 compression
+  SQUISH_AXIS: 7,      // u32 idx 29 — local axis to compress: 0=x, 1=y, 2=z
 } as const;
 
 // --- Player slot game-specific extension (indices 31–63 = f32 padding) ---

@@ -72,6 +72,10 @@ export class PhysicsPropsController {
         return { gravityScale: 0, restitution: 0.3, friction: 0.5 };
       case FunMode.Bouncy:
         return { gravityScale: 1.0, restitution: 0.95, friction: 0.1 };
+      case FunMode.Squishy:
+        // Bouncy-ish so props actually bounce (and trigger squish on impact),
+        // but a touch less extreme than Bouncy so stacks still settle.
+        return { gravityScale: 1.0, restitution: 0.7, friction: 0.3 };
       case FunMode.Normal:
       default:
         return { gravityScale: 1.0, restitution: 0.3, friction: 0.5 };
