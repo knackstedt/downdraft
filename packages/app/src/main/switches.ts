@@ -27,7 +27,12 @@ export function webGpuSwitches(): Switch[] {
     ["enable-gpu-rasterization"],
     ["enable-zero-copy"],
     ["enable-accelerated-video-decode"],
-    ["js-flags", "--expose-gc"],
+    // --expose-gc: lets the gc-controller trigger manual GC passes.
+    // --max-old-space-size=8192: raises the V8 old-generation heap cap from
+    // the default ~4 GB to 8 GB. The default cap is exactly where the OOM
+    // crashed (4 GB), and a game with many props + contacts + WebGPU resources
+    // can legitimately exceed it before GC catches up.
+    ["js-flags", "--expose-gc --max-old-space-size=8192"],
     // Disable Chromium's pointer-lock rate limiter. The engine re-locks the
     // pointer when closing the ESC menu (via exitPointerLock + requestPointerLock),
     // which Chromium's abuse-prevention would otherwise reject as "too many
