@@ -554,9 +554,20 @@ export class NativeCanvas2D {
   }
 
   get fillStyle(): string { return this._fillStyle; }
-  set fillStyle(v: string) { this._fillStyle = v; }
+  set fillStyle(v: any) {
+    // PixiJS may set fillStyle to a CanvasPattern or CanvasGradient object
+    // (when the fill style's texture !== Texture.WHITE, e.g. due to a
+    // PixiJS version mismatch). parseColor handles non-string values by
+    // returning black, which would make text invisible on dark backgrounds.
+    // Fall back to white for pattern/gradient objects so text remains visible.
+    if (typeof v === "string") this._fillStyle = v;
+    else this._fillStyle = "#ffffff";
+  }
   get strokeStyle(): string { return this._strokeStyle; }
-  set strokeStyle(v: string) { this._strokeStyle = v; }
+  set strokeStyle(v: any) {
+    if (typeof v === "string") this._strokeStyle = v;
+    else this._strokeStyle = "#ffffff";
+  }
   get font(): string { return this._font; }
   set font(v: string) { this._font = v; }
   get textAlign(): string { return this._textAlign; }
@@ -805,6 +816,14 @@ export class NativeCanvas2D {
   setLineDash(_dash: number[]): void {}
   createLinearGradient(_x0: number, _y0: number, _x1: number, _y1: number): any { return { addColorStop: () => {} }; }
   createRadialGradient(_x0: number, _y0: number, _r0: number, _x1: number, _y1: number, _r1: number): any { return { addColorStop: () => {} }; }
+  createPattern(_image: any, _repetition: string): any {
+    // PixiJS getCanvasFillStyle calls createPattern when the fill style's
+    // texture is not Texture.WHITE (e.g. due to a PixiJS version mismatch
+    // where Texture.WHITE from one version !== Texture.WHITE from another).
+    // Return a pattern-shaped object with setTransform so the code path
+    // doesn't crash. The fillStyle setter handles non-string values.
+    return { setTransform: () => {} };
+  }
   drawImage(image: any, dx: number, dy: number, dw?: number, dh?: number): void {
     // Blit a NativeImageBitmap (RGBA) into the pixel buffer — used by PixiJS
     // text when compositing canvas snapshots and by getPixels paths.
