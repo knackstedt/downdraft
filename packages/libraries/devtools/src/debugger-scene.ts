@@ -132,6 +132,9 @@ export class DebuggerScene {
   private gpuMemHistory: number[] = [];      // totalBytes
   private gpuFrameTimeHistory: { cpu: number[]; gpu: number[] } = { cpu: [], gpu: [] };
   private gpuLastSampleTime: number = 0;
+  // Per-thread metrics history (sampled every 500ms, 120 samples)
+  private threadMetricsHistory: Map<number, { cpuPercent: number[]; heapUsed: number[]; heapTotal: number[]; gcPauseMax: number[]; taskLatencyP95: number[] }> = new Map();
+  private metricsLastSampleTime: number = 0;
 
   constructor(ctx: DebuggerSceneContext) {
     this.ctx = ctx;
@@ -328,6 +331,37 @@ export class DebuggerScene {
     if (this.gpuMemHistory.length > MAX) this.gpuMemHistory.shift();
     if (this.gpuFrameTimeHistory.cpu.length > MAX) this.gpuFrameTimeHistory.cpu.shift();
     if (this.gpuFrameTimeHistory.gpu.length > MAX) this.gpuFrameTimeHistory.gpu.shift();
+  }
+
+  // ── Per-thread metrics history ──
+  getThreadMetricsHistory(): Map<number, { cpuPercent: number[]; heapUsed: number[]; heapTotal: number[]; gcPauseMax: number[]; taskLatencyP95: number[] }> {
+    return this.threadMetricsHistory;
+  }
+
+  /** Sample per-thread metrics from a ProfilingSAB snapshot. Called from the
+   *  perf-metrics panel each frame, but only adds new samples every 500ms. */
+  sampleThreadMetrics(slots: { slotIndex: number; metrics: any }[]): void {
+    const now = performance.now();
+    if (now - this.metricsLastSampleTime < 500) return;
+    this.metricsLastSampleTime = now;
+    const MAX = 120;
+    for (const slot of slots) {
+      let hist = this.threadMetricsHistory.get(slot.slotIndex);
+      if (!hist) {
+        hist = { cpuPercent: [], heapUsed: [], heapTotal: [], gcPauseMax: [], taskLatencyP95: [] };
+        this.threadMetricsHistory.set(slot.slotIndex, hist);
+      }
+      hist.cpuPercent.push(slot.metrics.cpuPercent ?? 0);
+      hist.heapUsed.push(slot.metrics.heapUsed ?? 0);
+      hist.heapTotal.push(slot.metrics.heapTotal ?? 0);
+      hist.gcPauseMax.push(slot.metrics.gcPauseMaxUs ?? 0);
+      hist.taskLatencyP95.push(slot.metrics.taskLatencyP95Us ?? 0);
+      if (hist.cpuPercent.length > MAX) hist.cpuPercent.shift();
+      if (hist.heapUsed.length > MAX) hist.heapUsed.shift();
+      if (hist.heapTotal.length > MAX) hist.heapTotal.shift();
+      if (hist.gcPauseMax.length > MAX) hist.gcPauseMax.shift();
+      if (hist.taskLatencyP95.length > MAX) hist.taskLatencyP95.shift();
+    }
   }
 
   /** The scene context (passed to panels). */
