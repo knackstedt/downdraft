@@ -7,17 +7,39 @@
 // - Scrollable log list with timestamps, severity colors, thread tags
 // - REPL input field at the bottom (click to focus, type, Enter to evaluate)
 // - Command history (Up/Down arrows)
+// - Autocomplete (Tab to complete from history + builtins)
 // - Clear button
 // ============================================================================
 
-import { Container, Graphics } from "pixi.js";
+import { Container, Graphics, Text } from "pixi.js";
 import type { DebuggerScene } from "../debugger-scene";
-import { BG_DARK, BG_INPUT, BG_PANEL, COLOR_BLUE, COLOR_BORDER, COLOR_GREEN, COLOR_RED, COLOR_TEXT, COLOR_TEXT_BRIGHT, COLOR_TEXT_DIM, COLOR_YELLOW, SEVERITY_COLORS, THREAD_COLORS } from "../shared/colors";
+import { BG_DARK, BG_INPUT, BG_PANEL, COLOR_BLUE, COLOR_BORDER, COLOR_GREEN, COLOR_RED, COLOR_TEXT, COLOR_TEXT_BRIGHT, COLOR_TEXT_DIM, COLOR_YELLOW, FONT, fs, SEVERITY_COLORS, THREAD_COLORS } from "../shared/colors";
 import { formatTime, makeButton, makeLabel, makeScrollPanel } from "../shared/widgets";
 
 const REPL_HEIGHT = 28;
 const FILTER_BAR_HEIGHT = 32;
 const THREAD_DROPDOWN_HEIGHT = 180;
+
+// Column layout for log entries — proper widths to prevent overlap
+const COL_TIME_W = 56;
+const COL_THREAD_W = 70;
+const COL_MSG_X = COL_TIME_W + COL_THREAD_W + 8;
+
+// Built-in autocomplete suggestions
+const BUILTIN_SUGGESTIONS = [
+  "console.log", "console.error", "console.warn", "console.info",
+  "JSON.stringify", "JSON.parse", "typeof", "instanceof",
+  "Object.keys", "Object.values", "Object.entries",
+  "Array.from", "Array.isArray",
+  "Math.floor", "Math.ceil", "Math.round", "Math.random",
+  "performance.now", "Date.now",
+  "process.memoryUsage", "process.cpuUsage",
+  "require", "import",
+  "await", "async", "function", "return",
+  "const", "let", "var",
+  "if", "else", "for", "while", "switch", "case",
+  "true", "false", "null", "undefined",
+];
 
 export function renderConsolePanel(scene: DebuggerScene, x: number, y: number, w: number, h: number): Container {
   const c = new Container();
@@ -121,17 +143,26 @@ export function renderConsolePanel(scene: DebuggerScene, x: number, y: number, w
   // ── Scrollable log area ──
   const contentY = FILTER_BAR_HEIGHT + 2;
   const contentH = h - contentY - REPL_HEIGHT - 4;
-  const rowH = 18;
+  const rowH = 16;
   const contentHeight = display.length * rowH + 20;
   const scrollY = scene.getScrollY("console");
   const scroll = makeScrollPanel({ x: 0, y: contentY, width: w, height: contentH, contentHeight, scrollY, hits });
   c.addChild(scroll.container);
   const content = scroll.content;
 
-  // Header row
+  // Header row with proper column widths
   content.addChild(makeLabel("Time", 4, 2, COLOR_TEXT_DIM, 9));
-  content.addChild(makeLabel("Thread", 70, 2, COLOR_TEXT_DIM, 9));
-  content.addChild(makeLabel("Message", 130, 2, COLOR_TEXT_DIM, 9));
+  content.addChild(makeLabel("Thread", 4 + COL_TIME_W + 4, 2, COLOR_TEXT_DIM, 9));
+  content.addChild(makeLabel("Message", COL_MSG_X, 2, COLOR_TEXT_DIM, 9));
+  // Column separators
+  const colSep = new Graphics();
+  colSep.moveTo(4 + COL_TIME_W, 0);
+  colSep.lineTo(4 + COL_TIME_W, contentHeight);
+  colSep.stroke({ color: COLOR_BORDER, alpha: 0.2, width: 1 });
+  colSep.moveTo(COL_MSG_X - 4, 0);
+  colSep.lineTo(COL_MSG_X - 4, contentHeight);
+  colSep.stroke({ color: COLOR_BORDER, alpha: 0.2, width: 1 });
+  content.addChild(colSep);
 
   let ry = 18;
   for (const item of display) {
@@ -155,15 +186,19 @@ export function renderConsolePanel(scene: DebuggerScene, x: number, y: number, w
       content.addChild(replBg);
     }
 
-    // Time
-    content.addChild(makeLabel(formatTime(item.timestamp).slice(0, 12), 4, ry + 2, COLOR_TEXT_DIM, 9));
-    // Thread tag (colored)
+    // Time column (fixed width, truncated)
+    const timeStr = formatTime(item.timestamp).slice(0, 12);
+    content.addChild(makeLabel(timeStr, 4, ry + 1, COLOR_TEXT_DIM, 9));
+    // Thread column (fixed width, colored, truncated)
     const threadColor = THREAD_COLORS[Math.abs(hashStr(item.thread)) % THREAD_COLORS.length];
-    content.addChild(makeLabel(item.thread.slice(0, 8), 70, ry + 2, threadColor, 9));
-    // Message (truncate to fit)
-    const maxLen = Math.floor((w - 140) / 6);
+    const threadStr = item.thread.length > 10 ? item.thread.slice(0, 10) : item.thread;
+    content.addChild(makeLabel(threadStr, 4 + COL_TIME_W + 4, ry + 1, threadColor, 9));
+    // Message column (rest of width, truncated)
+    const msgX = COL_MSG_X;
+    const msgW = w - msgX - 12;
+    const maxLen = Math.floor(msgW / 6);
     const text = item.text.length > maxLen ? item.text.slice(0, maxLen) + "…" : item.text;
-    content.addChild(makeLabel(text, 130, ry + 2, color, 9));
+    content.addChild(makeLabel(text, msgX, ry + 1, color, 9));
 
     // Click to expand stack (if has stack)
     if (item.stack) {
@@ -209,7 +244,7 @@ function drawReplInput(
 
   // Prompt symbol
   const promptColor = threads.find((t) => t.id === selectedThread)?.kind === "main" ? COLOR_GREEN : COLOR_YELLOW;
-  c.addChild(makeLabel(">", x + 6, y + 6, promptColor, 12));
+  c.addChild(makeLabel(">", x + 6, y + 7, promptColor, 12));
 
   // Input field background
   const inputX = x + 22;
@@ -220,18 +255,42 @@ function drawReplInput(
   inputBg.stroke({ color: isFocused ? COLOR_GREEN : COLOR_BORDER, width: 1 });
   c.addChild(inputBg);
 
-  // Input text (or placeholder)
+  // Input text (or placeholder) — measure actual width for cursor position
   const displayText = input || (isFocused ? "" : "Click to evaluate expressions...");
   const textColor = input ? COLOR_TEXT_BRIGHT : COLOR_TEXT_DIM;
-  c.addChild(makeLabel(displayText, inputX + 6, y + 7, textColor, 11));
+  const inputText = new Text({
+    text: displayText,
+    style: { fontSize: fs(11), fill: textColor, fontFamily: FONT },
+  });
+  inputText.x = inputX + 6;
+  inputText.y = y + 7;
+  c.addChild(inputText);
 
-  // Cursor (if focused)
+  // Cursor (if focused) — positioned at the actual text width
   if (isFocused) {
-    const cursorX = inputX + 6 + (input ? input.length * 7 : 0);
+    const textWidth = input ? inputText.width : 0;
+    const cursorX = inputX + 6 + textWidth + 1;
     const cursor = new Graphics();
     cursor.rect(cursorX, y + 6, 2, h - 12);
     cursor.fill({ color: COLOR_GREEN, alpha: 0.8 });
     c.addChild(cursor);
+  }
+
+  // Autocomplete suggestion (if focused and there's a partial match)
+  if (isFocused && input) {
+    const suggestion = getAutocompleteSuggestion(input, scene.getConsoleReplHistory());
+    if (suggestion && suggestion !== input) {
+      // Show the suggestion in dim text after the cursor
+      const inputWidth = inputText.width;
+      const suggText = new Text({
+        text: suggestion.slice(input.length),
+        style: { fontSize: fs(11), fill: COLOR_TEXT_DIM, fontFamily: FONT },
+      });
+      suggText.x = inputX + 6 + inputWidth + 4;
+      suggText.y = y + 7;
+      suggText.alpha = 0.5;
+      c.addChild(suggText);
+    }
   }
 
   // Click to focus
@@ -250,6 +309,12 @@ function drawReplInput(
         } else if (key === "Enter") {
           scene.executeRepl(current);
           scene.setConsoleReplInput("");
+        } else if (key === "Tab") {
+          // Autocomplete
+          const suggestion = getAutocompleteSuggestion(current, scene.getConsoleReplHistory());
+          if (suggestion) {
+            scene.setConsoleReplInput(suggestion);
+          }
         } else if (key === "ArrowUp") {
           const history = scene.getConsoleReplHistory();
           const idx = scene.getConsoleReplHistoryIdx();
@@ -273,6 +338,24 @@ function drawReplInput(
       },
     });
   });
+}
+
+// ── Autocomplete ──
+
+function getAutocompleteSuggestion(input: string, history: string[]): string | null {
+  // Check history first (most recent first)
+  for (let i = history.length - 1; i >= 0; i--) {
+    if (history[i].startsWith(input) && history[i] !== input) {
+      return history[i];
+    }
+  }
+  // Check builtins
+  for (const s of BUILTIN_SUGGESTIONS) {
+    if (s.startsWith(input) && s !== input) {
+      return s;
+    }
+  }
+  return null;
 }
 
 // ── Thread dropdown ──
@@ -324,7 +407,7 @@ function drawThreadDropdown(
       scene.setConsoleSelectedThread(thread.id);
       scene.setConsoleThreadFilter(thread.id);
       // Close dropdown
-      scene["_threadDropdownOpen"] = false;
+      (scene as any)._threadDropdownOpen = false;
     });
 
     ty += 20;
@@ -341,7 +424,7 @@ function drawThreadDropdown(
   c.addChild(makeLabel("All threads (filter)", x + 20, ty, allSelected ? COLOR_TEXT_BRIGHT : COLOR_TEXT, 10));
   hits.add(x + 2, ty - 2, dropdownW - 4, 20, () => {
     scene.setConsoleThreadFilter("all");
-    scene["_threadDropdownOpen"] = false;
+    (scene as any)._threadDropdownOpen = false;
   });
 }
 

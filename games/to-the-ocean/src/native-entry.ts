@@ -110,6 +110,17 @@ async function main() {
   let debuggerHost: NativeDebuggerHost | null = null;
   if (pixiUi && !pixiUi["disposed"]) {
     try {
+      // Allocate a ProfilingSAB and attach it to the sim worker so the
+      // perf-metrics panel can read per-thread CPU/memory metrics.
+      let profilingSAB: SharedArrayBuffer | null = null;
+      try {
+        const allocated = allocateProfilingSAB();
+        profilingSAB = allocated.sab;
+        await sim.attachProfilingSAB?.(profilingSAB);
+        log.info("native-entry", "ProfilingSAB allocated + attached to sim worker");
+      } catch (e) {
+        log.error("native-entry", `ProfilingSAB setup failed: ${e}`);
+      }
       debuggerHost = new NativeDebuggerHost({
         device: rendererDevice,
         adapter: rendererAdapter,
@@ -118,6 +129,7 @@ async function main() {
         height: HEIGHT,
         renderer,
         gamePixiUi: pixiUi,
+        profilingSAB,
       });
       await debuggerHost.start();
       renderer.nativeDebugger = debuggerHost;
