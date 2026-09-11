@@ -40,7 +40,7 @@
     "@dimforge/rapier3d-compat": "^0.19.3",
     "@pixi/react": "^8.0.5",
     "fflate": "^0.8.2",
-    "pixi.js": "^8.18.0",
+    "pixi.js": "8.18.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "wgpu-matrix": "^3.4.2",

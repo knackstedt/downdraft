@@ -980,7 +980,9 @@ export class WgpuQueue implements GPUQueue {
     } else if (img && img.data && img.width && img.height) {
       rgba = img.data; srcW = img.width; srcH = img.height;
     }
-    if (!rgba) return;
+    if (!rgba) {
+      return;
+    }
 
     const dstFormat = texture?.format;
     const isBGRA = dstFormat === "bgra8unorm" || dstFormat === "bgra8unorm-srgb";
@@ -1333,7 +1335,6 @@ export class WgpuCommandEncoder implements GPUCommandEncoder {
 
     const depthAttachment = descriptor.depthStencilAttachment;
     const depthView = depthAttachment ? depthAttachment.view as WgpuTextureView : null;
-
 
     const passPtr = wgpu.wgpu_shim_begin_render_pass(
       this.ptr,
