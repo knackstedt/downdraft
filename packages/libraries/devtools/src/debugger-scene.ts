@@ -156,6 +156,7 @@ export class DebuggerScene {
 
   /** The active panel id. */
   getActivePanel(): PanelId { return this.activePanel; }
+  setActivePanel(id: string): void { this.activePanel = id as PanelId; }
 
   /** Per-panel scroll offset (for scroll panels). */
   getScrollY(panel: string): number { return this.scrollY[panel] ?? 0; }
@@ -600,15 +601,20 @@ export class DebuggerScene {
   private drawStatusBar(dockW: number, surfH: number): void {
     const bg = new Graphics();
     bg.rect(0, surfH - STATUS_BAR_HEIGHT, dockW, STATUS_BAR_HEIGHT);
-    bg.fill({ color: BG_DARK, alpha: 0.95 });
+    bg.fill({ color: BG_DARK, alpha: 0.98 });
+    bg.rect(0, surfH - STATUS_BAR_HEIGHT, dockW, 1);
+    bg.fill({ color: COLOR_BORDER, alpha: 0.5 });
     this.statusContainer.addChild(bg);
 
-    const status = `${this.activePanel} | CDP: ${this.ctx.cdp.isAvailable ? "on" : "off"} | ${this.hits.regions.length} regions`;
-    this.statusContainer.addChild(makeLabel(status, 8, surfH - STATUS_BAR_HEIGHT + 4, COLOR_TEXT_DIM, 11));
+    const threadCount = this.getThreads().length;
+    const cdpStatus = this.ctx.cdp.isAvailable ? "connected" : "off";
+    const recording = this.perfRecording ? " ● REC" : "";
+    const status = `${this.activePanel} | CDP: ${cdpStatus} | ${threadCount} threads | ${this.hits.regions.length} hits${recording}`;
+    this.statusContainer.addChild(makeLabel(status, 8, surfH - STATUS_BAR_HEIGHT + 4, COLOR_TEXT_DIM, 10));
 
     const rightLabel = new Text({
       text: "F12 toggle | F11 screenshot",
-      style: { fontSize: fs(11), fill: COLOR_GREEN, fontFamily: FONT },
+      style: { fontSize: fs(10), fill: COLOR_GREEN, fontFamily: FONT },
     });
     rightLabel.anchor.set(1, 0);
     rightLabel.x = dockW - 8;

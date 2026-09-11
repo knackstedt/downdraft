@@ -549,6 +549,11 @@ async function main() {
         // Auto-show debugger for verification screenshot if requested
         if (process.env.DEBUGGER_AUTO_SHOW) {
           debuggerHost?.show();
+          // Set active panel for verification screenshot if requested
+          const panel = process.env.DEBUGGER_PANEL;
+          if (panel && debuggerHost?.debuggerScene) {
+            (debuggerHost.debuggerScene as any).setActivePanel(panel);
+          }
           // Render a few frames with the debugger visible so the scene builds
           // and the overlay is composited before the screenshot.
           for (let i = 0; i < 3; i++) {
