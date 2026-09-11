@@ -515,19 +515,32 @@ export function makeLineChart(opts: LineChartOpts): Container {
   axes.lineTo(chartX + chartW, chartY + chartH);
   axes.stroke({ color: COLOR_AXIS, width: 1 });
   c.addChild(axes);
-  // Lines
+  // Lines + area fills
   const scroll = opts.scrollOffset ?? 0;
   for (const s of opts.series) {
     if (s.data.length < 2) continue;
-    const line = new Graphics();
     const n = s.data.length;
     const sampleW = chartW / Math.max(n - 1, 1);
+    // Area fill (subtle gradient under the line)
+    const area = new Graphics();
+    const line = new Graphics();
+    const points: { x: number; y: number }[] = [];
     for (let i = 0; i < n; i++) {
       const v = s.data[i];
       const px = chartX + chartW - (n - 1 - i) * sampleW - scroll * sampleW;
       const py = chartY + chartH - (v / maxVal) * chartH;
+      points.push({ x: px, y: py });
       if (i === 0) line.moveTo(px, py);
       else line.lineTo(px, py);
+    }
+    // Build area fill path
+    if (points.length >= 2) {
+      area.moveTo(points[0].x, chartY + chartH);
+      for (const p of points) area.lineTo(p.x, p.y);
+      area.lineTo(points[points.length - 1].x, chartY + chartH);
+      area.closePath();
+      area.fill({ color: s.color, alpha: 0.12 });
+      c.addChild(area);
     }
     line.stroke({ color: s.color, width: 1.5 });
     c.addChild(line);
