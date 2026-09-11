@@ -620,6 +620,86 @@ async function main() {
             log.info("native-entry", `DEBUGGER_TEST: focused widget after Escape: "${scene.getFocusedWidget()}"`);
             log.info("native-entry", `DEBUGGER_TEST: text input active after Escape: ${scene.isTextInputActive()}`);
 
+            // Test 9: Test dock dragging/resizing
+            const dockWBefore = (scene as any).dockWidth ?? 520;
+            const dockXBefore = scene.getDockX();
+            // Simulate pointer down on the drag handle (left edge of dock)
+            scene.handlePointerDown(dockXBefore, 100);
+            log.info("native-entry", `DEBUGGER_TEST: drag started, isDragging=${(scene as any).isDragging}`);
+            // Simulate pointer move to resize (move left = wider dock)
+            scene.handlePointerMove(dockXBefore - 50, 100);
+            const dockWAfter = (scene as any).dockWidth ?? 520;
+            const dockXAfter = scene.getDockX();
+            log.info("native-entry", `DEBUGGER_TEST: after drag: dockW ${dockWBefore}→${dockWAfter}, dockX ${dockXBefore}→${dockXAfter}`);
+            // Simulate pointer up to release
+            scene.handlePointerUp(dockXBefore - 50, 100);
+            log.info("native-entry", `DEBUGGER_TEST: drag ended, isDragging=${(scene as any).isDragging}`);
+
+            // Test 10: Test scene panel tree expansion
+            // Recalculate dock position after drag (dockW changed from 520 to 570)
+            const dockX2 = scene.getDockX();
+            const dockW2 = (scene as any).dockWidth ?? 570;
+            const tabW2 = Math.max(70, Math.floor(dockW2 / 6));
+            scene.handlePointerDown(dockX2 + tabW2 + tabW2 / 2, 15); // Click scene tab (index 1)
+            try { debuggerHost?.update(); } catch {}
+            log.info("native-entry", `DEBUGGER_TEST: scene panel active: ${scene.getActivePanel()}`);
+            // Log hit regions for debugging
+            const sceneHits = scene.getHits().regions;
+            log.info("native-entry", `DEBUGGER_TEST: scene hit regions: ${sceneHits.length}`);
+            for (let i = 0; i < Math.min(5, sceneHits.length); i++) {
+              const r = sceneHits[i];
+              log.info("native-entry", `DEBUGGER_TEST:   region[${i}]: x=${r.x} y=${r.y} w=${r.width} h=${r.height}`);
+            }
+            const sceneExpandedBefore = scene.getSceneExpanded().size;
+            // Try clicking on the first few rows of the tree
+            // Tree starts at y = contentY + SEARCH_HEIGHT = 30 + 28 = 58
+            for (let tryY = 58; tryY < 120; tryY += 18) {
+              scene.handlePointerDown(dockX2 + 24, tryY);
+              try { debuggerHost?.update(); } catch {}
+              if (scene.getSceneExpanded().size > sceneExpandedBefore) {
+                log.info("native-entry", `DEBUGGER_TEST: scene expanded at y=${tryY}: ${sceneExpandedBefore} → ${scene.getSceneExpanded().size}`);
+                break;
+              }
+            }
+            const sceneExpandedAfter = scene.getSceneExpanded().size;
+            log.info("native-entry", `DEBUGGER_TEST: scene expanded: ${sceneExpandedBefore} → ${sceneExpandedAfter}`);
+
+            // Test 11: Test GPU panel section expansion
+            scene.handlePointerDown(dockX2 + 2 * tabW2 + tabW2 / 2, 15); // Click GPU tab (index 2)
+            try { debuggerHost?.update(); } catch {}
+            log.info("native-entry", `DEBUGGER_TEST: gpu panel active: ${scene.getActivePanel()}`);
+            // Log hit regions for debugging
+            const gpuHits = scene.getHits().regions;
+            log.info("native-entry", `DEBUGGER_TEST: gpu hit regions: ${gpuHits.length}`);
+            for (let i = 0; i < Math.min(5, gpuHits.length); i++) {
+              const r = gpuHits[i];
+              log.info("native-entry", `DEBUGGER_TEST:   region[${i}]: x=${r.x} y=${r.y} w=${r.width} h=${r.height}`);
+            }
+            const gpuExpandedBefore = scene.getGpuExpanded().size;
+            // Try clicking on the first few section headers
+            for (let tryY = 34; tryY < 100; tryY += 4) {
+              scene.handlePointerDown(dockX2 + 100, tryY);
+              try { debuggerHost?.update(); } catch {}
+              if (scene.getGpuExpanded().size > gpuExpandedBefore) {
+                log.info("native-entry", `DEBUGGER_TEST: gpu expanded at y=${tryY}: ${gpuExpandedBefore} → ${scene.getGpuExpanded().size}`);
+                break;
+              }
+            }
+            const gpuExpandedAfter = scene.getGpuExpanded().size;
+            log.info("native-entry", `DEBUGGER_TEST: gpu expanded: ${gpuExpandedBefore} → ${gpuExpandedAfter}`);
+
+            // Test 12: Test perf recorder record button
+            scene.handlePointerDown(dockX2 + 3 * tabW2 + tabW2 / 2, 15); // Click perf-recorder tab (index 3)
+            try { debuggerHost?.update(); } catch {}
+            log.info("native-entry", `DEBUGGER_TEST: perf-recorder panel active: ${scene.getActivePanel()}`);
+            const recordingBefore = scene.isPerfRecording();
+            // Click on the Record button (at x=4, y=4, w=80, h=22 within the panel)
+            // The panel content starts at y = TAB_BAR_HEIGHT = 30, toolbar at y=0 within panel
+            scene.handlePointerDown(dockX2 + 44, 30 + 15);
+            try { debuggerHost?.update(); } catch {}
+            const recordingAfter = scene.isPerfRecording();
+            log.info("native-entry", `DEBUGGER_TEST: recording: ${recordingBefore} → ${recordingAfter}`);
+
             // Final render
             try { debuggerHost?.update(); } catch {}
             try { (renderer as any).renderOneFrame?.(); } catch {}
