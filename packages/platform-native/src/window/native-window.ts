@@ -106,6 +106,21 @@ export class NativeWindow {
     sdl.sdl_shim_grab_input(grab ? 1 : 0);
   }
 
+  /** Enable SDL text input (for the console REPL). */
+  startTextInput(): void {
+    sdl.sdl_shim_start_text_input();
+  }
+
+  /** Disable SDL text input. */
+  stopTextInput(): void {
+    sdl.sdl_shim_stop_text_input();
+  }
+
+  /** Set the text input rect (for IME candidate window positioning). */
+  setTextInputRect(x: number, y: number, w: number, h: number): void {
+    sdl.sdl_shim_set_text_input_rect(x, y, w, h);
+  }
+
   private runLoop(): void {
     if (!this.running) return;
 

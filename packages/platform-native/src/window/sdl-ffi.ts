@@ -28,6 +28,9 @@ const { symbols } = dlopen(findSdlShimLibrary(), {
   sdl_shim_set_window_title: { args: ["cstring"], returns: "void" } as CFunction,
   sdl_shim_poll_event: { args: ["ptr"], returns: "i32" } as CFunction,
   sdl_shim_grab_input: { args: ["i32"], returns: "void" } as CFunction,
+  sdl_shim_start_text_input: { args: [], returns: "void" } as CFunction,
+  sdl_shim_stop_text_input: { args: [], returns: "void" } as CFunction,
+  sdl_shim_set_text_input_rect: { args: ["i32", "i32", "i32", "i32"], returns: "void" } as CFunction,
   sdl_shim_destroy_window: { args: [], returns: "void" } as CFunction,
   sdl_shim_delay: { args: ["u32"], returns: "void" } as CFunction,
 });
@@ -41,6 +44,9 @@ export interface SdlShimSymbols {
   sdl_shim_set_window_title: (title: string) => void;
   sdl_shim_poll_event: (dataOut: ptr) => number;
   sdl_shim_grab_input: (grab: number) => void;
+  sdl_shim_start_text_input: () => void;
+  sdl_shim_stop_text_input: () => void;
+  sdl_shim_set_text_input_rect: (x: number, y: number, w: number, h: number) => void;
   sdl_shim_destroy_window: () => void;
   sdl_shim_delay: (ms: number) => void;
 }

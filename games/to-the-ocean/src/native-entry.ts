@@ -314,6 +314,16 @@ async function main() {
     const keyCode = event.keyCode;
     if (event.repeat) return;
 
+    // When the debugger is visible and a text input widget has focus,
+    // forward control keys (Backspace, Enter, arrows, etc.) to the debugger.
+    if (debuggerHost?.visible && debuggerHost.isTextInputActive()) {
+      if (debuggerHost.handleKeyDown(key, keyCode)) {
+        event.preventDefault?.();
+        event.stopPropagation?.();
+        return;
+      }
+    }
+
     if (key === "Escape") {
       const gs = useGameStore.getState();
       // If settings is open, ESC goes back to pause menu
@@ -353,6 +363,34 @@ async function main() {
       useGameStore.getState().togglePauseMenu();
     }
   });
+
+  // Text input event — forwarded to the debugger's REPL input when active.
+  window.addEventListener("textinput", (event: any) => {
+    if (debuggerHost?.visible && debuggerHost.isTextInputActive()) {
+      const text = event.text ?? "";
+      if (text.length > 0) {
+        debuggerHost.handleTextInput(text);
+      }
+    }
+  });
+
+  // Poll the debugger's text input state each frame to start/stop SDL text input.
+  // The debugger scene toggles focus based on widget clicks; we sync the SDL
+  // state to match so IME + text composition work correctly.
+  let sdlTextInputActive = false;
+  const syncTextInputState = () => {
+    const shouldActive = debuggerHost?.visible === true && debuggerHost.isTextInputActive() === true;
+    if (shouldActive && !sdlTextInputActive) {
+      (window as any).startTextInput?.();
+      sdlTextInputActive = true;
+    } else if (!shouldActive && sdlTextInputActive) {
+      (window as any).stopTextInput?.();
+      sdlTextInputActive = false;
+    }
+  };
+  // Hook into the render loop's update to sync text input state.
+  // We use a simple interval as a lightweight poll (the render loop is busy).
+  setInterval(syncTextInputState, 100);
 
   // Screenshot capture function (can be triggered by F12)
   function captureScreenshotNow(): void {

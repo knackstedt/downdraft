@@ -207,6 +207,35 @@ export class NativeDebuggerHost {
     return this.scene?.handlePointerUp(x, y) ?? false;
   }
 
+  /** Handle a text input event (from SDL_TEXTINPUT). Returns true if consumed. */
+  handleTextInput(text: string): boolean {
+    if (!this._visible || !this.scene) return false;
+    if (!this.scene.isTextInputActive()) return false;
+    this.scene.handleTextInput(text);
+    return true;
+  }
+
+  /** Handle a keydown event for the focused widget (control keys only). Returns true if consumed. */
+  handleKeyDown(key: string, keyCode: number): boolean {
+    if (!this._visible || !this.scene) return false;
+    if (!this.scene.isTextInputActive()) return false;
+    // Only consume keys that are relevant to text input
+    const controlKeys = ["Backspace", "Enter", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Delete", "Home", "End", "Escape", "Tab"];
+    if (!controlKeys.includes(key)) return false;
+    // Escape clears focus
+    if (key === "Escape") {
+      this.scene.setFocus(null);
+      return true;
+    }
+    this.scene.handleKeyDown(key, keyCode);
+    return true;
+  }
+
+  /** Whether text input is currently active (the native-entry polls this to call SDL_StartTextInput/StopTextInput). */
+  isTextInputActive(): boolean {
+    return this._visible && this.scene?.isTextInputActive() === true;
+  }
+
   /** Resize the debug overlay. */
   resize(width: number, height: number): void {
     this.width = width;
