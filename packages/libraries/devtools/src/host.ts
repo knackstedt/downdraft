@@ -194,17 +194,17 @@ export class NativeDebuggerHost {
   }
 
   /** Handle a pointermove event. Returns true if consumed. */
-  handlePointerMove(_x: number, _y: number, _button: number, _modifiers: number): boolean {
+  handlePointerMove(x: number, y: number, _button: number, _modifiers: number): boolean {
     if (!this._visible) return false;
-    // The DebuggerScene uses hit-region based click handling (no drag tracking
-    // needed for the debugger). Return false so the game still gets move events.
-    return false;
+    // Forward to the scene for drag handling
+    return this.scene?.handlePointerMove(x, y) ?? false;
   }
 
   /** Handle a pointerup event. Returns true if consumed. */
-  handlePointerUp(_x: number, _y: number, _button: number, _modifiers: number): boolean {
+  handlePointerUp(x: number, y: number, _button: number, _modifiers: number): boolean {
     if (!this._visible) return false;
-    return false;
+    // Forward to the scene for drag end handling
+    return this.scene?.handlePointerUp(x, y) ?? false;
   }
 
   /** Resize the debug overlay. */

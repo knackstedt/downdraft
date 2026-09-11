@@ -152,17 +152,27 @@ type EventListener = (event: any) => void;
  * FreeType-backed NativeCanvas2D (for text rasterization).
  */
 export class VirtualCanvas implements Partial<HTMLCanvasElement> {
-  width: number;
-  height: number;
+  private _width: number;
+  private _height: number;
   style: Record<string, string> = {};
   private webgpuContext: VirtualCanvasContext;
   private ctx2d: NativeCanvas2D | null = null;
   private listeners: Map<string, Set<EventListener>> = new Map();
 
   constructor(width: number, height: number) {
-    this.width = width;
-    this.height = height;
+    this._width = width;
+    this._height = height;
     this.webgpuContext = new VirtualCanvasContext(width, height);
+  }
+
+  /** Setting width (like a real canvas) clears the 2D context. */
+  get width(): number { return this._width; }
+  set width(v: number) {
+    if (this._width !== v) { this._width = v; this.ctx2d = null; }
+  }
+  get height(): number { return this._height; }
+  set height(v: number) {
+    if (this._height !== v) { this._height = v; this.ctx2d = null; }
   }
 
   get clientWidth(): number { return this.width; }
@@ -175,10 +185,21 @@ export class VirtualCanvas implements Partial<HTMLCanvasElement> {
   getContext(contextId: "webgpu" | "2d" | string): any {
     if (contextId === "webgpu") return this.webgpuContext;
     if (contextId === "2d") {
-      if (!this.ctx2d || this.ctx2d.width !== this.width || this.ctx2d.height !== this.height) {
-        this.ctx2d = new NativeCanvas2D(this.width, this.height);
+      if (!this.ctx2d || this.ctx2d.width !== this._width || this.ctx2d.height !== this._height) {
+        this.ctx2d = new NativeCanvas2D(this._width, this._height);
       }
       return this.ctx2d;
+    }
+    return null;
+  }
+
+  /** Transfer the 2D context's pixels to an ImageBitmap (for PixiJS text textures). */
+  transferToImageBitmap(): any {
+    if (this.ctx2d) {
+      const pixels = new Uint8Array(this.ctx2d["pixels"].length);
+      pixels.set(this.ctx2d["pixels"]);
+      const NativeImageBitmapCtor = (globalThis as any).NativeImageBitmap ?? (require("../image/native-image.ts") as any).NativeImageBitmap;
+      return new NativeImageBitmapCtor(this._width, this._height, pixels);
     }
     return null;
   }
@@ -212,8 +233,9 @@ export class VirtualCanvas implements Partial<HTMLCanvasElement> {
   }
 
   resize(width: number, height: number): void {
-    this.width = width;
-    this.height = height;
+    this._width = width;
+    this._height = height;
+    this.ctx2d = null;
     this.webgpuContext.resize(width, height);
     this.dispatchEvent({ type: "resize", width, height });
   }

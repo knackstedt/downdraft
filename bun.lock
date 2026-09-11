@@ -348,6 +348,21 @@
         "@downdraft/core": "workspace:*",
       },
     },
+    "packages/libraries/devtools": {
+      "name": "@downdraft/library-devtools",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+        "@downdraft/module-devtools": "workspace:*",
+        "pixi.js": "8.18.0",
+      },
+      "peerDependencies": {
+        "@downdraft/library-pixi-ui-native": "workspace:*",
+      },
+      "optionalPeers": [
+        "@downdraft/library-pixi-ui-native",
+      ],
+    },
     "packages/libraries/entities": {
       "name": "@downdraft/library-entities",
       "version": "0.1.0",
@@ -746,6 +761,8 @@
     "@downdraft/core": ["@downdraft/core@workspace:packages/core"],
 
     "@downdraft/library-audio-kira": ["@downdraft/library-audio-kira@workspace:packages/libraries/audio-kira"],
+
+    "@downdraft/library-devtools": ["@downdraft/library-devtools@workspace:packages/libraries/devtools"],
 
     "@downdraft/library-entities": ["@downdraft/library-entities@workspace:packages/libraries/entities"],
 

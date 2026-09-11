@@ -30,11 +30,34 @@ export interface HitRegion {
   onClick: () => void;
 }
 
-/** A region collector passed to panels during build. */
+/** A region collector passed to panels during build.
+ *
+ * Supports an offset stack so panels/scroll containers can register hit
+ * regions in local coordinates while the collector tracks the absolute
+ * position. The host's pointer dispatcher uses absolute coordinates.
+ */
 export class HitCollector {
   regions: HitRegion[] = [];
+  private ox = 0;
+  private oy = 0;
+  private stack: { x: number; y: number }[] = [];
+
+  /** Push a translation offset. All subsequent add() calls will be offset. */
+  pushOffset(x: number, y: number): void {
+    this.stack.push({ x: this.ox, y: this.oy });
+    this.ox += x;
+    this.oy += y;
+  }
+
+  /** Pop the last pushed offset. */
+  popOffset(): void {
+    const prev = this.stack.pop();
+    if (prev) { this.ox = prev.x; this.oy = prev.y; }
+    else { this.ox = 0; this.oy = 0; }
+  }
+
   add(x: number, y: number, w: number, h: number, onClick: () => void): void {
-    this.regions.push({ x, y, width: w, height: h, onClick });
+    this.regions.push({ x: x + this.ox, y: y + this.oy, width: w, height: h, onClick });
   }
 }
 
@@ -204,6 +227,11 @@ export interface ScrollPanelOpts {
   height: number;
   contentHeight: number;
   scrollY: number;
+  /** Optional HitCollector — when provided, pushes an offset for content
+   * so hit regions registered inside the content container use absolute
+   * coordinates. The caller must call hits.popOffset() when done adding
+   * content to the scroll panel. */
+  hits?: HitCollector;
 }
 
 export interface ScrollPanelResult {
@@ -223,15 +251,23 @@ export function makeScrollPanel(opts: ScrollPanelOpts): ScrollPanelResult {
   bg.rect(0, 0, opts.width, opts.height);
   bg.fill({ color: BG_PANEL, alpha: 0.85 });
   c.addChild(bg);
-  // Clip mask
+  // Clip mask — DISABLED: PixiJS masks trigger ensureDepthStencil() which
+  // restarts the render pass with an undefined depth/stencil buffer, causing
+  // overlapping Graphics to fail the depth test on the native wgpu backend.
+  // Content overflow is instead clipped by the scroll panel's bounds.
   const content = new Container();
   content.x = 0;
   content.y = -opts.scrollY;
-  const mask = new Graphics();
-  mask.rect(0, 0, opts.width, opts.height);
-  mask.fill({ color: 0xffffff });
-  content.mask = mask;
+  // const mask = new Graphics();
+  // mask.rect(0, 0, opts.width, opts.height);
+  // mask.fill({ color: 0xffffff });
+  // content.mask = mask;
   c.addChild(content);
+  // Push hit offset so content-registered hit regions are in absolute coords.
+  // The caller must call hits.popOffset() after adding all content.
+  if (opts.hits) {
+    opts.hits.pushOffset(opts.x, opts.y - opts.scrollY);
+  }
   // Scrollbar (if content overflows)
   const maxScroll = Math.max(0, opts.contentHeight - opts.height);
   if (maxScroll > 0) {

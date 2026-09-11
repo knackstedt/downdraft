@@ -145,11 +145,14 @@ export function installImagePolyfills(): void {
     (globalThis as any).ImageBitmap = NativeImageBitmap;
   }
 
-  // OffscreenCanvas polyfill — minimal, just for text atlas measurement
+  // OffscreenCanvas polyfill — used by PixiJS for text rasterization.
+  // getContext("2d") returns a FreeType-backed NativeCanvas2D; transferToImageBitmap
+  // copies the 2D context's pixel data (not empty) so text textures upload correctly.
   if (typeof (globalThis as any).OffscreenCanvas === "undefined") {
     (globalThis as any).OffscreenCanvas = class OffscreenCanvas {
       width: number;
       height: number;
+      private ctx2d: NativeCanvas2D | null = null;
 
       constructor(width: number, height: number) {
         this.width = width;
@@ -158,12 +161,21 @@ export function installImagePolyfills(): void {
 
       getContext(contextType: string): any {
         if (contextType === "2d") {
-          return new NativeCanvas2D(this.width, this.height);
+          if (!this.ctx2d || this.ctx2d.width !== this.width || this.ctx2d.height !== this.height) {
+            this.ctx2d = new NativeCanvas2D(this.width, this.height);
+          }
+          return this.ctx2d;
         }
         return null;
       }
 
       transferToImageBitmap(): NativeImageBitmap {
+        // Copy the 2D context's pixel data so text textures are not empty.
+        if (this.ctx2d) {
+          const pixels = new Uint8Array(this.ctx2d["pixels"].length);
+          pixels.set(this.ctx2d["pixels"]);
+          return new NativeImageBitmap(this.width, this.height, pixels);
+        }
         return new NativeImageBitmap(this.width, this.height, new Uint8Array(this.width * this.height * 4));
       }
     };
@@ -583,10 +595,15 @@ export class NativeCanvas2D {
     // Use FreeType for accurate measurement when available
     const ftWidth = ftMeasureText(text, fontSize);
     const width = ftWidth >= 0 ? ftWidth : text.length * fontSize * 0.6;
+    // FreeType/SDL_ttf renders text taller than the nominal fontSize (it
+    // includes ascenders + descenders, typically ~1.2× fontSize). Report
+    // generous ascent/descent so PixiJS allocates a tall enough canvas;
+    // otherwise the bottom of glyphs (descenders like 'g', 'p', 'y') gets
+    // clipped.
     return {
       width,
-      actualBoundingBoxAscent: fontSize * 0.8,
-      actualBoundingBoxDescent: fontSize * 0.2,
+      actualBoundingBoxAscent: fontSize * 1.25,
+      actualBoundingBoxDescent: fontSize * 0.25,
     };
   }
 
@@ -611,7 +628,7 @@ export class NativeCanvas2D {
     let logicalY = y;
     if (this._textBaseline === "top") logicalY = y;
     else if (this._textBaseline === "middle") logicalY = y - baseFontSize * 0.5;
-    else if (this._textBaseline === "alphabetic") logicalY = y - baseFontSize * 0.8;
+    else if (this._textBaseline === "alphabetic") logicalY = y - baseFontSize * 1.0;
 
     // Transform the start point through the current affine.
     const [tx, ty] = this.transformPoint(x, logicalY);
@@ -632,12 +649,20 @@ export class NativeCanvas2D {
             const dstY = dstStartY + py;
             if (dstX < 0 || dstX >= this.width || dstY < 0 || dstY >= this.height) continue;
             const idx = (dstY * this.width + dstX) * 4;
-            const a = (alpha / 255) * (ca / 255) * this.globalAlpha;
-            const invAlpha = 1 - a;
-            this.pixels[idx]     = Math.min(255, this.pixels[idx]     * invAlpha + cr * a);
-            this.pixels[idx + 1] = Math.min(255, this.pixels[idx + 1] * invAlpha + cg * a);
-            this.pixels[idx + 2] = Math.min(255, this.pixels[idx + 2] * invAlpha + cb * a);
-            this.pixels[idx + 3] = Math.min(255, this.pixels[idx + 3] + ca * a);
+            // Non-premultiplied "over" compositing.
+            // The canvas must store non-premultiplied RGBA because
+            // copyExternalImageToTexture premultiplies on upload (premult=true).
+            // Using premultiplied compositing here would double-premultiply,
+            // making text invisible (alpha squared).
+            const srcA = (alpha / 255) * (ca / 255) * this.globalAlpha;
+            const dstA = this.pixels[idx + 3] / 255;
+            const outA = srcA + dstA * (1 - srcA);
+            if (outA > 0) {
+              this.pixels[idx]     = Math.min(255, (cr * srcA + this.pixels[idx]     * dstA * (1 - srcA)) / outA);
+              this.pixels[idx + 1] = Math.min(255, (cg * srcA + this.pixels[idx + 1] * dstA * (1 - srcA)) / outA);
+              this.pixels[idx + 2] = Math.min(255, (cb * srcA + this.pixels[idx + 2] * dstA * (1 - srcA)) / outA);
+            }
+            this.pixels[idx + 3] = Math.min(255, outA * 255);
           }
         }
         return;
@@ -673,16 +698,20 @@ export class NativeCanvas2D {
             }
           }
           if (coverage === 0) continue;
-          const alpha = (coverage / (ss * ss)) * (ca / 255) * this.globalAlpha;
+          const srcA = (coverage / (ss * ss)) * (ca / 255) * this.globalAlpha;
           const dstX = Math.floor(cursorX + px);
           const dstY = Math.floor(curY + py);
           if (dstX < 0 || dstX >= this.width || dstY < 0 || dstY >= this.height) continue;
           const idx = (dstY * this.width + dstX) * 4;
-          const invAlpha = 1 - alpha;
-          this.pixels[idx]     = Math.min(255, this.pixels[idx]     * invAlpha + cr * alpha);
-          this.pixels[idx + 1] = Math.min(255, this.pixels[idx + 1] * invAlpha + cg * alpha);
-          this.pixels[idx + 2] = Math.min(255, this.pixels[idx + 2] * invAlpha + cb * alpha);
-          this.pixels[idx + 3] = Math.min(255, this.pixels[idx + 3] + ca * alpha);
+          // Non-premultiplied "over" compositing (see FreeType path above).
+          const dstA = this.pixels[idx + 3] / 255;
+          const outA = srcA + dstA * (1 - srcA);
+          if (outA > 0) {
+            this.pixels[idx]     = Math.min(255, (cr * srcA + this.pixels[idx]     * dstA * (1 - srcA)) / outA);
+            this.pixels[idx + 1] = Math.min(255, (cg * srcA + this.pixels[idx + 1] * dstA * (1 - srcA)) / outA);
+            this.pixels[idx + 2] = Math.min(255, (cb * srcA + this.pixels[idx + 2] * dstA * (1 - srcA)) / outA);
+          }
+          this.pixels[idx + 3] = Math.min(255, outA * 255);
         }
       }
       cursorX += fontSize * 0.6;
@@ -731,7 +760,10 @@ export class NativeCanvas2D {
       }
     }
     const ImageDataCtor = (globalThis as any).ImageData;
-    return new ImageDataCtor(w, h, data);
+    if (ImageDataCtor) return new ImageDataCtor(w, h, data);
+    // Fallback: return a plain object shaped like ImageData (for Bun native mode
+    // where the ImageData constructor is not available).
+    return { data, width: w, height: h, colorSpace: "srgb" };
   }
 
   putImageData(data: any, x: number, y: number): void {

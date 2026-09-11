@@ -1453,6 +1453,7 @@ export class WebGPURenderer extends GameRenderer implements IRendererStateProvid
   getUIInputRouter() { return this.accessors.getUIInputRouter(); }
   markUILayoutDirty(): void { this.accessors.markUILayoutDirty(); }
   refreshUIScreenSize(): void { this.accessors.updateUIScreenSize(); }
+
   toggleProfilingOverlay(): void { this.accessors.toggleProfilingOverlay(); }
   isProfilingOverlayVisible(): boolean { return this.accessors.isProfilingOverlayVisible(); }
   getTelemetryCollector() { return this.accessors.getTelemetryCollector(); }
