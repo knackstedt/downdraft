@@ -71,6 +71,21 @@ export interface DebuggerSceneContext {
   profilingSAB: SharedArrayBuffer | null;
 }
 
+// ── Thread info (for console REPL + log filtering) ──
+
+export interface ThreadInfo {
+  /** Unique id (e.g. "main", "slot-0", "slot-1"). */
+  id: string;
+  /** Display name (e.g. "main", "sim", "pixi-ui"). */
+  name: string;
+  /** Thread kind. */
+  kind: "main" | "worker";
+  /** Runtime kind (from ProfilingSAB, if available). */
+  runtime?: string;
+  /** Evaluate an expression in this thread. */
+  eval?: (expr: string) => Promise<{ result?: any; error?: string }>;
+}
+
 // ── DebuggerScene ──
 
 export class DebuggerScene {
@@ -97,6 +112,13 @@ export class DebuggerScene {
 
   // ── Panel-specific state (persisted across frames) ──
   private consoleFilter: string = "all"; // "all" | "error" | "warn" | "info"
+  private consoleThreadFilter: string = "all"; // "all" | thread id
+  private consoleSelectedThread: string = "main";
+  private consoleReplInput: string = "";
+  private consoleReplHistory: string[] = [];
+  private consoleReplHistoryIdx: number = -1;
+  private consoleReplResults: { text: string; isError: boolean; timestamp: number }[] = [];
+  private workerEvalFns: Map<string, (expr: string) => Promise<{ result?: any; error?: string }>> = new Map();
   private sceneExpanded: Set<string> = new Set();
   private sceneSelected: string | null = null;
   private gpuExpanded: Set<string> = new Set();
@@ -143,6 +165,129 @@ export class DebuggerScene {
   // ── Panel state accessors (used by panels) ──
   getConsoleFilter(): string { return this.consoleFilter; }
   setConsoleFilter(f: string): void { this.consoleFilter = f; }
+  getConsoleThreadFilter(): string { return this.consoleThreadFilter; }
+  setConsoleThreadFilter(t: string): void { this.consoleThreadFilter = t; }
+  getConsoleSelectedThread(): string { return this.consoleSelectedThread; }
+  setConsoleSelectedThread(t: string): void { this.consoleSelectedThread = t; }
+  getConsoleReplInput(): string { return this.consoleReplInput; }
+  setConsoleReplInput(s: string): void { this.consoleReplInput = s; }
+  getConsoleReplHistory(): string[] { return this.consoleReplHistory; }
+  getConsoleReplHistoryIdx(): number { return this.consoleReplHistoryIdx; }
+  setConsoleReplHistoryIdx(i: number): void { this.consoleReplHistoryIdx = i; }
+  getConsoleReplResults(): { text: string; isError: boolean; timestamp: number }[] { return this.consoleReplResults; }
+  addConsoleReplResult(text: string, isError: boolean): void {
+    this.consoleReplResults.push({ text, isError, timestamp: performance.now() });
+    if (this.consoleReplResults.length > 100) this.consoleReplResults.shift();
+  }
+  clearConsoleReplResults(): void { this.consoleReplResults = []; }
+
+  /** Register an eval function for a worker thread (by name). */
+  registerThreadEval(threadName: string, evalFn: (expr: string) => Promise<{ result?: any; error?: string }>): void {
+    this.workerEvalFns.set(threadName, evalFn);
+  }
+
+  /** Discover all available threads (main + workers from ProfilingSAB + registered). */
+  getThreads(): ThreadInfo[] {
+    const threads: ThreadInfo[] = [];
+    // Main thread (always available, uses CDP)
+    threads.push({
+      id: "main",
+      name: "main",
+      kind: "main",
+      runtime: "js",
+      eval: (expr: string) => this.ctx.cdp.evaluate(expr),
+    });
+    // Worker threads from ProfilingSAB
+    if (this.ctx.profilingSAB) {
+      try {
+        const sab = this.ctx.profilingSAB;
+        const u32 = new Uint32Array(sab);
+        const u16 = new Uint16Array(sab);
+        // Read maxSlots from header (or use a fixed default)
+        // The layout's maxSlots is at a known offset — but we don't have the layout
+        // object here. Use a simple scan: check the first 32 slots for alive flags.
+        const maxSlots = 32;
+        for (let i = 0; i < maxSlots; i++) {
+          // Slot header: ALIVE at offset 0 (relative to slot start)
+          // The slot table starts after the header (HEADER_SIZE = 64 bytes = 16 u32s)
+          // Each slot header is SLOT_HEADER_SIZE bytes
+          // We need the layout to compute offsets precisely. For now, use a
+          // simplified approach: the slot table offset is 64 bytes, each slot
+          // header is 64 bytes (16 u32s). ALIVE is the first u32 in each slot.
+          const slotBase = 16 + i * 16; // 64/4=16 u32s per slot header
+          const alive = Atomics.load(u32, slotBase);
+          if (alive !== 1) continue;
+          // Read name from the slot's string table
+          // Name length is at slot header offset SH.NAME_LEN (index 14 in u32)
+          const nameLen = u32[slotBase + 14];
+          if (nameLen === 0) continue;
+          // The string data is in the slot's region, not the header.
+          // Without the exact layout, we can't read the name precisely.
+          // Fall back to a generic name.
+          const name = `worker-${i}`;
+          const threadId = `slot-${i}`;
+          if (threads.find((t) => t.id === threadId)) continue;
+          threads.push({
+            id: threadId,
+            name,
+            kind: "worker",
+            runtime: "js",
+            eval: this.workerEvalFns.get(name),
+          });
+        }
+      } catch {
+        // SAB read failed — skip
+      }
+    }
+    // Registered worker eval fns (that aren't already in the list)
+    for (const [name, evalFn] of this.workerEvalFns) {
+      if (threads.find((t) => t.name === name)) continue;
+      threads.push({
+        id: `worker:${name}`,
+        name,
+        kind: "worker",
+        runtime: "js",
+        eval: evalFn,
+      });
+    }
+    return threads;
+  }
+
+  /** Get the eval function for the selected thread. */
+  getSelectedThreadEval(): ((expr: string) => Promise<{ result?: any; error?: string }>) | null {
+    const threads = this.getThreads();
+    const selected = threads.find((t) => t.id === this.consoleSelectedThread);
+    return selected?.eval ?? null;
+  }
+
+  /** Execute a REPL expression in the selected thread. */
+  async executeRepl(expr: string): Promise<void> {
+    if (!expr.trim()) return;
+    // Add to history
+    this.consoleReplHistory.push(expr);
+    if (this.consoleReplHistory.length > 100) this.consoleReplHistory.shift();
+    this.consoleReplHistoryIdx = -1;
+    // Show the input
+    this.addConsoleReplResult(`> ${expr}`, false);
+    // Evaluate
+    const evalFn = this.getSelectedThreadEval();
+    if (!evalFn) {
+      this.addConsoleReplResult(`< no eval available for thread "${this.consoleSelectedThread}" >`, true);
+      return;
+    }
+    try {
+      const result = await evalFn(expr);
+      if (result.error) {
+        this.addConsoleReplResult(`< ${result.error} >`, true);
+      } else {
+        const text = typeof result.result === "string" ? result.result : JSON.stringify(result.result, null, 2);
+        this.addConsoleReplResult(text, false);
+      }
+    } catch (err) {
+      this.addConsoleReplResult(`< ${String(err)} >`, true);
+    }
+  }
+
   getSceneExpanded(): Set<string> { return this.sceneExpanded; }
   getSceneSelected(): string | null { return this.sceneSelected; }
   setSceneSelected(id: string | null): void { this.sceneSelected = id; }

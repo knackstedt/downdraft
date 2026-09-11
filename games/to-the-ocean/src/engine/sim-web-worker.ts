@@ -51,6 +51,7 @@ type SimApi = {
   __devtoolsGetManifest(): Promise<DevToolsManifest>;
   __devtoolsCallCommand(name: string, args: any[]): Promise<any>;
   __devtoolsGetSAB(): Promise<SharedArrayBuffer | null>;
+  __devtoolsEval(expr: string): Promise<{ result?: any; error?: string }>;
 };
 
 /**
@@ -153,7 +154,7 @@ export class SimWebWorker implements IHotReloadable, ISimWorker {
    * Returns a DevToolsWorkerProxy for syncing the worker's devtools manifest
    * with the renderer-side registry. Used by initDevTools() via syncWorkerManifests().
    */
-  getDevToolsProxy(): { __devtoolsGetManifest(): Promise<DevToolsManifest>; __devtoolsCallCommand(name: string, args: any[]): Promise<any>; __devtoolsGetSAB(): Promise<SharedArrayBuffer | null> } | null {
+  getDevToolsProxy(): { __devtoolsGetManifest(): Promise<DevToolsManifest>; __devtoolsCallCommand(name: string, args: any[]): Promise<any>; __devtoolsGetSAB(): Promise<SharedArrayBuffer | null>; __devtoolsEval(expr: string): Promise<{ result?: any; error?: string }> } | null {
     return this.wp?.proxy ?? null;
   }
 
