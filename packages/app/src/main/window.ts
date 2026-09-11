@@ -61,7 +61,23 @@ function saveWindowState(
 
 const consoleThrottle = new Map<string, { count: number; lastLogged: number; suppressed: number }>();
 const CONSOLE_THROTTLE_MS = 1000;
+// Cap the throttle table so a flood of distinct warn/error messages can't grow
+// it without bound. Entries are re-inserted on every touch (see below) so the
+// Map's insertion order reflects recency — the front holds the least-recently-
+// used keys, which pruneConsoleThrottle() evicts when the cap is exceeded.
+const MAX_CONSOLE_THROTTLE_ENTRIES = 1024;
 const WEBGPU_CASCADE_RE = /is invalid due to a previous error|While (encoding|validating|finishing|calling|creating)/;
+
+function pruneConsoleThrottle(): void {
+  if (consoleThrottle.size <= MAX_CONSOLE_THROTTLE_ENTRIES) return;
+  // Evict down to 75% of the cap to avoid pruning on every subsequent insert.
+  const target = Math.floor(MAX_CONSOLE_THROTTLE_ENTRIES * 0.75);
+  let toEvict = consoleThrottle.size - target;
+  for (const key of consoleThrottle.keys()) {
+    consoleThrottle.delete(key);
+    if (--toEvict <= 0) break;
+  }
+}
 
 function normalizeConsoleMessage(msg: string): string {
   return msg
@@ -124,6 +140,7 @@ function attachConsoleForwarding(win: BrowserWindow): void {
 
     if (!state) {
       consoleThrottle.set(key, { count: 1, lastLogged: now, suppressed: 0 });
+      pruneConsoleThrottle();
       log[logLevel](moduleStr, stripped);
       (globalThis as any).__ddThreadTag = savedTag;
       return;
@@ -132,6 +149,9 @@ function attachConsoleForwarding(win: BrowserWindow): void {
     const elapsed = now - state.lastLogged;
     if (elapsed < CONSOLE_THROTTLE_MS) {
       state.suppressed++;
+      // Re-insert to mark as recently used (LRU).
+      consoleThrottle.delete(key);
+      consoleThrottle.set(key, state);
       (globalThis as any).__ddThreadTag = savedTag;
       return;
     }
@@ -142,6 +162,9 @@ function attachConsoleForwarding(win: BrowserWindow): void {
     log[logLevel](moduleStr, summary);
     state.lastLogged = now;
     state.suppressed = 0;
+    // Re-insert to mark as recently used (LRU).
+    consoleThrottle.delete(key);
+    consoleThrottle.set(key, state);
     (globalThis as any).__ddThreadTag = savedTag;
   });
 }
