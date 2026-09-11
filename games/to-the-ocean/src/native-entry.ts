@@ -121,6 +121,11 @@ async function main() {
       });
       await debuggerHost.start();
       renderer.nativeDebugger = debuggerHost;
+      // Register the sim worker's eval function for the console REPL.
+      const simProxy = sim.getDevToolsProxy();
+      if (simProxy?.__devtoolsEval) {
+        debuggerHost.debuggerScene?.registerThreadEval("sim", (expr: string) => simProxy.__devtoolsEval(expr));
+      }
       log.info("native-entry", "Native debugger overlay ready (F12 to toggle)");
     } catch (e) {
       log.error("native-entry", `Debugger overlay init failed: ${e}`);
