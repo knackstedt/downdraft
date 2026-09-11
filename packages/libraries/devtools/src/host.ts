@@ -207,6 +207,12 @@ export class NativeDebuggerHost {
     return this.scene?.handlePointerUp(x, y) ?? false;
   }
 
+  /** Handle a mouse wheel event. Returns true if consumed. */
+  handleWheel(x: number, y: number, deltaY: number): boolean {
+    if (!this._visible || !this.scene) return false;
+    return this.scene.handleWheel(x, y, deltaY);
+  }
+
   /** Handle a text input event (from SDL_TEXTINPUT). Returns true if consumed. */
   handleTextInput(text: string): boolean {
     if (!this._visible || !this.scene) return false;

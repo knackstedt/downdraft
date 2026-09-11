@@ -183,10 +183,13 @@ export function makeTabBar(
   const c = new Container();
   c.x = x;
   c.y = y;
-  const height = 32;
+  const height = 30;
   const bg = new Graphics();
   bg.rect(0, 0, width, height);
-  bg.fill({ color: BG_DARK, alpha: 0.95 });
+  bg.fill({ color: BG_DARK, alpha: 0.98 });
+  // Bottom border
+  bg.rect(0, height - 1, width, 1);
+  bg.fill({ color: COLOR_BORDER, alpha: 0.6 });
   c.addChild(bg);
   const tabWidth = Math.max(70, Math.floor(width / Math.max(tabs.length, 1)));
   for (let i = 0; i < tabs.length; i++) {
@@ -196,17 +199,17 @@ export function makeTabBar(
     if (isActive) {
       const activeBg = new Graphics();
       activeBg.rect(tx, 0, tabWidth, height);
-      activeBg.fill({ color: BG_SELECTED, alpha: 0.9 });
+      activeBg.fill({ color: BG_SELECTED, alpha: 0.6 });
       c.addChild(activeBg);
-      // underline
+      // Thin accent underline (Chrome DevTools style)
       const ul = new Graphics();
-      ul.rect(tx, height - 3, tabWidth, 3);
+      ul.rect(tx, height - 2, tabWidth, 2);
       ul.fill({ color: COLOR_GREEN });
       c.addChild(ul);
     }
     const label = new Text({
       text: tab.label,
-      style: { fontSize: fs(13), fill: isActive ? COLOR_GREEN : COLOR_TEXT_DIM, fontFamily: FONT },
+      style: { fontSize: fs(12), fill: isActive ? COLOR_TEXT_BRIGHT : COLOR_TEXT_DIM, fontFamily: FONT },
     });
     label.anchor.set(0.5, 0.5);
     label.x = tx + tabWidth / 2;
