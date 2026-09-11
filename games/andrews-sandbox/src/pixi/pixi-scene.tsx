@@ -74,8 +74,6 @@ export default async function createSandboxScene(ctx: PixiUiSceneContext): Promi
   // Temp canvas for pixel transfer (putImageData → drawImage)
   const tempThumbCanvas = new OffscreenCanvas(THUMB_SIZE, THUMB_SIZE);
   const tempThumbCtx = tempThumbCanvas.getContext("2d")!;
-  let _loopDebug = false;
-  let _thumbFrame = 0;
   let thumbTexture: Texture | null = null;
   let caretBlink = 0;
   let dragScrolling = false;
@@ -682,11 +680,6 @@ export default async function createSandboxScene(ctx: PixiUiSceneContext): Promi
 
   function updateThumbnails(): void {
     if (!showBrowser || !thumbRenderer) return;
-    _thumbFrame++;
-    if (_thumbFrame % 60 === 0) {
-      const cached = cards.filter((c) => (thumbRenderer as any).cache.has(c.item.id)).length;
-      console.log(`[AssetBrowser] updateThumbnails frame=${_thumbFrame}, cards=${cards.length}, cached=${cached}`);
-    }
     // Load models for visible cards that haven't been loaded yet (limit concurrency).
     let loadCount = 0;
     const MAX_CONCURRENT_LOADS = 6;

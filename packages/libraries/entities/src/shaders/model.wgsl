@@ -84,14 +84,14 @@ fn unpackLayerIndex(handle: u32) -> u32 { return handle & 0xFFFFu; }
 
 fn sampleBindlessArray(arr: u32, uv: vec2<f32>, layer: u32) -> vec4<f32> {
   switch (arr) {
-    case 0u: { return textureSample(albedoArray0, bindlessSamplerRepeat, uv, layer); }
-    case 1u: { return textureSample(albedoArray1, bindlessSamplerRepeat, uv, layer); }
-    case 2u: { return textureSample(albedoArray2, bindlessSamplerRepeat, uv, layer); }
-    case 3u: { return textureSample(albedoArray3, bindlessSamplerRepeat, uv, layer); }
-    case 4u: { return textureSample(albedoArray4, bindlessSamplerRepeat, uv, layer); }
-    case 5u: { return textureSample(albedoArray5, bindlessSamplerRepeat, uv, layer); }
-    case 6u: { return textureSample(albedoArray6, bindlessSamplerRepeat, uv, layer); }
-    case 7u: { return textureSample(albedoArray7, bindlessSamplerRepeat, uv, layer); }
+    case 0u: { return textureSampleLevel(albedoArray0, bindlessSamplerRepeat, uv, layer, 0.0); }
+    case 1u: { return textureSampleLevel(albedoArray1, bindlessSamplerRepeat, uv, layer, 0.0); }
+    case 2u: { return textureSampleLevel(albedoArray2, bindlessSamplerRepeat, uv, layer, 0.0); }
+    case 3u: { return textureSampleLevel(albedoArray3, bindlessSamplerRepeat, uv, layer, 0.0); }
+    case 4u: { return textureSampleLevel(albedoArray4, bindlessSamplerRepeat, uv, layer, 0.0); }
+    case 5u: { return textureSampleLevel(albedoArray5, bindlessSamplerRepeat, uv, layer, 0.0); }
+    case 6u: { return textureSampleLevel(albedoArray6, bindlessSamplerRepeat, uv, layer, 0.0); }
+    case 7u: { return textureSampleLevel(albedoArray7, bindlessSamplerRepeat, uv, layer, 0.0); }
     default: { return vec4<f32>(1.0, 1.0, 1.0, 1.0); }
   }
 }
@@ -123,20 +123,19 @@ struct VertexOutput {
   @location(3) color: vec3<f32>,
 };
 
-// Build a tangent basis from screen-space derivatives (fallback when the
-// mesh has no explicit tangent attribute). Returns (T, B, N).
+// Build a tangent basis from the geometric normal. Uses a reference vector
+// instead of screen-space derivatives (dpdx/dpdy) which can produce NaN on
+// some implementations / degenerate UVs. The tangent direction is arbitrary
+// (determined by the reference vector) but is sufficient for normal mapping
+// on meshes without explicit tangent attributes.
 fn buildTangentBasis(N: vec3<f32>, worldPos: vec4<f32>, uv: vec2<f32>) -> mat3x3<f32> {
-  let dpdx_val = dpdx(worldPos.xyz);
-  let dpdy_val = dpdy(worldPos.xyz);
-  let duvdx = dpdx(vec3<f32>(uv, 0.0)).xy;
-  let duvdy = dpdy(vec3<f32>(uv, 0.0)).xy;
-  let r = 1.0 / (duvdx.x * duvdy.y - duvdx.y * duvdy.x);
-  let T = normalize((dpdx_val * duvdy.y - dpdy_val * duvdx.y) * r);
-  let B = normalize((dpdy_val * duvdx.x - dpdx_val * duvdy.x) * r);
-  // Re-orthogonalize T and B against N (Gram-Schmidt)
-  let tOrtho = normalize(T - N * dot(N, T));
-  let bOrtho = normalize(B - N * dot(N, B) - tOrtho * dot(tOrtho, B));
-  return mat3x3<f32>(tOrtho, bOrtho, N);
+  var refVec = vec3<f32>(0.0, 1.0, 0.0);
+  if (abs(N.y) >= 0.99) {
+    refVec = vec3<f32>(1.0, 0.0, 0.0);
+  }
+  let T = normalize(cross(refVec, N));
+  let B = cross(N, T);
+  return mat3x3<f32>(T, B, N);
 }
 
 // Sample the normal map and perturb the geometric normal. Returns the
@@ -219,25 +218,19 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
   let m = bindlessMaterials[uniforms.materialIndex];
 
   // Perturb the normal using the material's normal map (if any). Materials
-  // without a normal map use the default white texture → no perturbation.
+  // without a normal map use the default flat-normal texture (0.5,0.5,1.0)
+  // → unpacked to (0,0,1) → no perturbation.
   let N = perturbNormal(geometricN, vec4<f32>(input.worldPos, 1.0), input.uv, m.normalTex);
 
-  // Colored directional sun light from the frame-lighting UBO. Fall back to
-  // the per-draw lightDir/ambient/intensity (set via setLightState) for the
-  // directional *direction* and a baseline ambient — this keeps backward
-  // compatibility for callers that only use setLightState() — while the
-  // frame-lighting UBO tints the sun and adds hemisphere ambient + point lights.
-  let perDrawDir = normalize(vec3<f32>(uniforms.lightDirX, uniforms.lightDirY, uniforms.lightDirZ));
-  let frameDir = normalize(frameLighting.sunDir);
-  let sunDir = frameDir;
+  // Colored directional sun light — matches the procedural cube/sphere shader.
+  let sunDir = normalize(frameLighting.sunDir);
   let ndotl = max(dot(N, sunDir), 0.0);
-  let sunDiffuse = ndotl * frameLighting.sunColor * uniforms.lightIntensity;
+  let sunDiffuse = ndotl * frameLighting.sunColor;
 
-  // Hemisphere ambient: blend sky/ground based on normal.y. Scaled by the
-  // frame-lighting ambientIntensity and the per-draw ambient baseline.
+  // Hemisphere ambient: blend sky/ground based on normal.y (same as cube shader).
   let hemiMix = N.y * 0.5 + 0.5;
   let hemisphere = mix(frameLighting.groundAmbient, frameLighting.skyAmbient, hemiMix);
-  let ambient = hemisphere * frameLighting.ambientIntensity + uniforms.lightAmbient * 0.35;
+  let ambient = hemisphere * frameLighting.ambientIntensity;
 
   // Bindless albedo sample: index the material SSBO by materialIndex, then
   // sample the texture_2d_array page/layer the material points at.
@@ -269,10 +262,10 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     }
   }
 
-  // Distance fog — tint toward sky ambient so it matches the procedural scene.
+  // Distance fog — match the procedural cube/sphere shader.
   let dist = length(uniforms.cameraPos - input.worldPos);
-  let fogFactor = min(dist / 1000.0, 1.0);
-  litColor = mix(litColor, frameLighting.skyAmbient, fogFactor);
+  let fog = clamp(1.0 - dist / 400.0, 0.0, 1.0);
+  let outColor = mix(frameLighting.skyAmbient, litColor, fog);
 
   // Ghost hologram override (highlight == 1): render the prop as a
   // translucent-looking cyan shell with a fresnel rim and a vertical
@@ -292,7 +285,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     return vec4<f32>(ghostCol, 1.0);
   }
 
-  return vec4<f32>(litColor, 1.0);
+  return vec4<f32>(outColor, 1.0);
 }
 
 // ── Mask entry point for post-process outline ──

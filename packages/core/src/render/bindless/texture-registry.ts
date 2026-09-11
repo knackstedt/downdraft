@@ -91,6 +91,8 @@ export class BindlessTextureRegistry {
   defaultWhiteHandle = 0;
   /** Default black 1x1 rgba8unorm handle. */
   defaultBlackHandle = 0;
+  /** Default flat-normal 1x1 rgba8unorm handle (128,128,255 = no perturbation). */
+  defaultNormalHandle = 0;
 
   // ── Mipmap generation (in-place blit into bucket page mip levels) ──
   private mipPipelines: Map<GPUTextureFormat, GPURenderPipeline> = new Map();
@@ -286,7 +288,7 @@ export class BindlessTextureRegistry {
     if (!this.mipBindGroupLayout) {
       this.mipBindGroupLayout = this.device.createBindGroupLayout({
         entries: [
-          { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+          { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "2d-array" } },
           { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
         ],
       });
@@ -466,6 +468,24 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
       arrayIndex: blackSlot.globalArrayIndex,
       pageIndex: blackSlot.page,
       layerIndex: blackSlot.layer,
+    });
+
+    // Default flat-normal 1x1 rgba8unorm — (128,128,255) unpacks to (0,0,1) = no perturbation.
+    const normalSlot = this.allocSlot(b);
+    const normalData = new Uint8Array([128, 128, 255, 255]);
+    this.device.queue.writeTexture(
+      { texture: b.pages[normalSlot.page], origin: [0, 0, normalSlot.layer], mipLevel: 0 },
+      normalData,
+      { bytesPerRow: 4 },
+      { width: 1, height: 1 },
+    );
+    this.defaultNormalHandle = (normalSlot.globalArrayIndex << 16) | normalSlot.layer;
+    b.sources.set("__default_normal__", {
+      handle: this.defaultNormalHandle,
+      bucketKey: b.keyStr,
+      arrayIndex: normalSlot.globalArrayIndex,
+      pageIndex: normalSlot.page,
+      layerIndex: normalSlot.layer,
     });
   }
 

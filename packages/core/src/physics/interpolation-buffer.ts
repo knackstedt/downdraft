@@ -148,7 +148,7 @@ export class InterpolationBuffer {
    * Reseed both prev and curr slots for a body (post-transfer).
    * Writes identical values to avoid interpolation snap.
    */
-  reseed(entityIndex: number, pos: [number, number, number], rot: [number, number, number, number]): void {
+  reseed(entityIndex: number, pos: [number, number, number], rot: [number, number, number, number], scale: number = 1): void {
     const slot = this.entityToSlot.get(entityIndex);
     if (slot === undefined) return;
     const offset = slot * 8;
@@ -160,6 +160,7 @@ export class InterpolationBuffer {
       buf[offset + 4] = rot[1];
       buf[offset + 5] = rot[2];
       buf[offset + 6] = rot[3];
+      buf[offset + 7] = scale;
     }
   }
 

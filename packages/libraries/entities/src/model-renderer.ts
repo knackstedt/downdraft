@@ -131,7 +131,7 @@ export class ModelRenderer {
       metallic: 0,
       emissiveIntensity: 0,
       albedoTexHandle: deps.registry.defaultWhiteHandle,
-      normalTexHandle: deps.registry.defaultWhiteHandle,
+      normalTexHandle: deps.registry.defaultNormalHandle,
       metallicRoughnessTexHandle: deps.registry.defaultWhiteHandle,
       aoTexHandle: deps.registry.defaultWhiteHandle,
       emissiveTexHandle: deps.registry.defaultWhiteHandle,
@@ -391,11 +391,11 @@ export class ModelRenderer {
     });
   }
 
-  uploadModel(nodeId: string, meshes: MeshData[], materials?: MaterialData[]): void {
+  uploadModel(nodeId: string, meshes: MeshData[], materials?: MaterialData[], modelBaseUrl?: string): void {
     this.removeModel(nodeId);
 
-    const hasTexture = materials?.some(m => m.textureData && m.textureData.byteLength > 0) ?? false;
-    log.info("ModelRenderer", `uploadModel ${nodeId}: ${meshes.length} meshes, ${materials?.length ?? 0} materials, hasTexture=${hasTexture}`);
+    const hasTexture = materials?.some(m => (m.textureData && m.textureData.byteLength > 0) || m.textureUri) ?? false;
+    log.info("ModelRenderer", `uploadModel ${nodeId}: ${meshes.length} meshes, ${materials?.length ?? 0} materials, hasTexture=${hasTexture}, modelBaseUrl=${modelBaseUrl ?? "none"}`);
 
     const resources: ModelGPUResources[] = [];
     let uniformOffset = this.nextUniformOffset;
@@ -463,18 +463,24 @@ export class ModelRenderer {
             metallic: mat?.metallic ?? 0,
             emissiveIntensity: 0,
             albedoTexHandle: this.bindless.registry.defaultWhiteHandle,
-            normalTexHandle: this.bindless.registry.defaultWhiteHandle,
+            normalTexHandle: this.bindless.registry.defaultNormalHandle,
             metallicRoughnessTexHandle: this.bindless.registry.defaultWhiteHandle,
             aoTexHandle: this.bindless.registry.defaultWhiteHandle,
             emissiveTexHandle: this.bindless.registry.defaultWhiteHandle,
           });
           this.meshMaterialIndex.set(materialKey, bindlessMatIndex);
 
-          // Async load this material's texture
+          // Async load this material's texture (embedded data or external URI)
           if (mat?.textureData && mat.textureData.byteLength > 0) {
             const version = (this.textureLoadVersion.get(materialKey) ?? 0) + 1;
             this.textureLoadVersion.set(materialKey, version);
             this.loadMeshTexture(materialKey, mat.textureData, version);
+          } else if (mat?.textureUri && modelBaseUrl) {
+            // Resolve relative texture URI against the model's base URL.
+            const resolvedUri = modelBaseUrl + mat.textureUri;
+            const version = (this.textureLoadVersion.get(materialKey) ?? 0) + 1;
+            this.textureLoadVersion.set(materialKey, version);
+            this.loadMeshTextureFromUri(materialKey, resolvedUri, version);
           }
           // Async load the normal texture if present.
           if ((mat?.normalTextureData && mat.normalTextureData.byteLength > 0) || mat?.normalTextureUri) {
@@ -606,8 +612,9 @@ export class ModelRenderer {
         this.bindless.registry.updateFromImageBitmap(sourceId, imageBitmap);
         handle = existing.handle;
       } else {
-        // Register with automatic mip generation to avoid distant shimmer.
-        const reg = this.bindless.registry.registerFromImageBitmap(sourceId, imageBitmap, "rgba8unorm", 1, true);
+        // Atlas textures must not be mipmapped — adjacent atlas regions bleed
+        // into each other during mip downsample, causing distance-based color shifts.
+        const reg = this.bindless.registry.registerFromImageBitmap(sourceId, imageBitmap, "rgba8unorm", 1, false);
         handle = reg.handle;
       }
       this.meshTextureSourceId.set(materialKey, sourceId);
@@ -622,7 +629,7 @@ export class ModelRenderer {
           metallic: 0,
           emissiveIntensity: 0,
           albedoTexHandle: handle,
-          normalTexHandle: this.bindless.registry.defaultWhiteHandle,
+          normalTexHandle: this.bindless.registry.defaultNormalHandle,
           metallicRoughnessTexHandle: this.bindless.registry.defaultWhiteHandle,
           aoTexHandle: this.bindless.registry.defaultWhiteHandle,
           emissiveTexHandle: this.bindless.registry.defaultWhiteHandle,
@@ -634,6 +641,59 @@ export class ModelRenderer {
       imageBitmap.close();
     } catch (e) {
       console.error(`[ModelRenderer] Failed to load texture for ${materialKey}:`, e);
+    }
+  }
+
+  /**
+   * Async-load a base color texture from an external URI (for GLBs that
+   * reference textures by relative path instead of embedding them).
+   */
+  private async loadMeshTextureFromUri(materialKey: string, textureUri: string, version: number): Promise<void> {
+    if (!this.bindless) return;
+    try {
+      const resp = await fetch(textureUri);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const blob = await resp.blob();
+      const imageBitmap = await createImageBitmap(blob, { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
+
+      if (this.textureLoadVersion.get(materialKey) !== version) {
+        imageBitmap.close();
+        return;
+      }
+
+      const sourceId = `model:${materialKey}`;
+      const existing = this.bindless.registry.getRegistration(sourceId);
+      let handle: number;
+      if (existing) {
+        this.bindless.registry.updateFromImageBitmap(sourceId, imageBitmap);
+        handle = existing.handle;
+      } else {
+        const reg = this.bindless.registry.registerFromImageBitmap(sourceId, imageBitmap, "rgba8unorm", 1, false);
+        handle = reg.handle;
+      }
+      this.meshTextureSourceId.set(materialKey, sourceId);
+      this.meshAlbedoHandle.set(materialKey, handle);
+
+      const materialIndex = this.meshMaterialIndex.get(materialKey);
+      if (materialIndex !== undefined) {
+        const matParams: MaterialParams = {
+          baseColor: [1, 1, 1, 1],
+          roughness: 1,
+          metallic: 0,
+          emissiveIntensity: 0,
+          albedoTexHandle: handle,
+          normalTexHandle: this.bindless.registry.defaultNormalHandle,
+          metallicRoughnessTexHandle: this.bindless.registry.defaultWhiteHandle,
+          aoTexHandle: this.bindless.registry.defaultWhiteHandle,
+          emissiveTexHandle: this.bindless.registry.defaultWhiteHandle,
+        };
+        this.bindless.materialManager.updateMaterial(materialIndex, matParams);
+      }
+
+      log.info("ModelRenderer", `Texture (from URI) ready for ${materialKey}: ${imageBitmap.width}x${imageBitmap.height} (bindless)`);
+      imageBitmap.close();
+    } catch (e) {
+      console.error(`[ModelRenderer] Failed to load texture from URI for ${materialKey} (${textureUri}):`, e);
     }
   }
 
@@ -669,7 +729,7 @@ export class ModelRenderer {
         this.bindless.registry.updateFromImageBitmap(sourceId, imageBitmap);
         handle = existing.handle;
       } else {
-        const reg = this.bindless.registry.registerFromImageBitmap(sourceId, imageBitmap, "rgba8unorm", 1, true);
+        const reg = this.bindless.registry.registerFromImageBitmap(sourceId, imageBitmap, "rgba8unorm", 1, false);
         handle = reg.handle;
       }
       this.meshNormalTextureSourceId.set(materialKey, sourceId);
@@ -729,7 +789,7 @@ export class ModelRenderer {
     }
   }
 
-  reuploadModel(nodeId: string, meshes: MeshData[], materials?: MaterialData[]): void {
+  reuploadModel(nodeId: string, meshes: MeshData[], materials?: MaterialData[], modelBaseUrl?: string): void {
     // Preserve existing per-mesh texture registrations to avoid flickering on
     // part selection changes. Per-mesh material indices are reused.
     const oldResources = this.modelResources.get(nodeId);
@@ -805,7 +865,7 @@ export class ModelRenderer {
             metallic: mat?.metallic ?? 0,
             emissiveIntensity: 0,
             albedoTexHandle: this.bindless.registry.defaultWhiteHandle,
-            normalTexHandle: this.bindless.registry.defaultWhiteHandle,
+            normalTexHandle: this.bindless.registry.defaultNormalHandle,
             metallicRoughnessTexHandle: this.bindless.registry.defaultWhiteHandle,
             aoTexHandle: this.bindless.registry.defaultWhiteHandle,
             emissiveTexHandle: this.bindless.registry.defaultWhiteHandle,
@@ -818,6 +878,11 @@ export class ModelRenderer {
             const version = (this.textureLoadVersion.get(materialKey) ?? 0) + 1;
             this.textureLoadVersion.set(materialKey, version);
             this.loadMeshTexture(materialKey, mat.textureData, version);
+          } else if (mat?.textureUri && modelBaseUrl && !this.meshTextureSourceId.has(materialKey)) {
+            const resolvedUri = modelBaseUrl + mat.textureUri;
+            const version = (this.textureLoadVersion.get(materialKey) ?? 0) + 1;
+            this.textureLoadVersion.set(materialKey, version);
+            this.loadMeshTextureFromUri(materialKey, resolvedUri, version);
           }
           // Start async normal texture load if present and not yet loaded.
           if (((mat?.normalTextureData && mat.normalTextureData.byteLength > 0) || mat?.normalTextureUri) && !this.meshNormalTextureSourceId.has(materialKey)) {

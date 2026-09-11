@@ -285,7 +285,7 @@ export class DecalPass extends RenderPass {
       metallic: 0,
       emissiveIntensity: 0,
       albedoTexHandle: handle,
-      normalTexHandle: this.bindlessRegistry.defaultWhiteHandle,
+      normalTexHandle: this.bindlessRegistry.defaultNormalHandle,
       metallicRoughnessTexHandle: this.bindlessRegistry.defaultWhiteHandle,
       aoTexHandle: this.bindlessRegistry.defaultWhiteHandle,
       emissiveTexHandle: this.bindlessRegistry.defaultWhiteHandle,

@@ -43,9 +43,11 @@ void main() {
   if (!gl_FrontFacing) N = -N;
   vec3 L = normalize(uLightDir);
   float ndl = max(dot(N, L), 0.0);
-  float fill = 0.35;
-  vec3 col = uBaseColor * (fill + ndl * 0.75);
-  float rim = pow(1.0 - max(dot(N, vec3(0.0, 0.0, 1.0)), 0.0), 2.0) * 0.25;
+  // Reduced ambient + diffuse to avoid washing out the base color.
+  float fill = 0.2;
+  vec3 col = uBaseColor * (fill + ndl * 0.6);
+  // Subtle rim
+  float rim = pow(1.0 - max(dot(N, vec3(0.0, 0.0, 1.0)), 0.0), 2.0) * 0.15;
   col += rim;
   gl_FragColor = vec4(col, 1.0);
 }
@@ -419,13 +421,7 @@ export class ThumbnailRenderer {
     gl.uniformMatrix4fv(this.uMVPLoc, false, mvp);
     gl.uniformMatrix4fv(this.uModelLoc, false, model);
     gl.uniform3f(this.uLightDirLoc, 0.5, 0.8, 0.4);
-    // Per-model color based on content ID hash for visual variety.
-    let hash = 0;
-    for (let k = 0; k < contentId.length; k++) hash = (hash * 31 + contentId.charCodeAt(k)) | 0;
-    const cr = 0.5 + 0.3 * ((hash & 0xFF) / 255);
-    const cg = 0.5 + 0.3 * (((hash >> 8) & 0xFF) / 255);
-    const cb = 0.5 + 0.3 * (((hash >> 16) & 0xFF) / 255);
-    gl.uniform3f(this.uBaseColorLoc, cr, cg, cb);
+    gl.uniform3f(this.uBaseColorLoc, m.baseColor[0], m.baseColor[1], m.baseColor[2]);
 
     gl.bindBuffer(gl.ARRAY_BUFFER, m.vbo);
     gl.enableVertexAttribArray(this.aPosLoc);

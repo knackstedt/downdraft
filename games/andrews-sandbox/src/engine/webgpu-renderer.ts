@@ -928,6 +928,7 @@ export class WebGPURenderer extends GameRenderer {
       slotIdx,
       [slot.f32[ENT.POS_X], slot.f32[ENT.POS_Y], slot.f32[ENT.POS_Z]],
       [slot.f32[ENT.ROT_X], slot.f32[ENT.ROT_Y], slot.f32[ENT.ROT_Z], slot.f32[ENT.ROT_W]],
+      slot.f32[ENT.SCALE] || 1.0,
     );
   }
 
@@ -1546,9 +1547,11 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
   // ── Load a model and upload it to the ModelRenderer ──
   async loadPropModel(contentId: string, modelUri: string): Promise<string> {
     const nodeId = `prop-${this.nextNodeId++}`;
+    // Base URL for resolving relative texture URIs (e.g. "Textures/colormap.png")
+    const modelBaseUrl = modelUri.substring(0, modelUri.lastIndexOf("/") + 1);
     if (this.modelCache.has(contentId)) {
       const model = this.modelCache.get(contentId)!;
-      this.modelRenderer!.uploadModel(nodeId, model.meshes, model.materials);
+      this.modelRenderer!.uploadModel(nodeId, model.meshes, model.materials, modelBaseUrl);
       this.nodeToContent.set(nodeId, contentId);
       return nodeId;
     }
@@ -1558,7 +1561,7 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
       const filename = modelUri.split("/").pop() ?? "model.glb";
       const model = await loadModel(buffer, filename) as ModelData;
       this.modelCache.set(contentId, model);
-      this.modelRenderer!.uploadModel(nodeId, model.meshes, model.materials);
+      this.modelRenderer!.uploadModel(nodeId, model.meshes, model.materials, modelBaseUrl);
       this.nodeToContent.set(nodeId, contentId);
       return nodeId;
     } catch (err) {
