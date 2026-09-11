@@ -142,7 +142,10 @@ async function main() {
   // The NativeOceanDataBridge feeds state into worker-store; React re-renders
   // automatically via useWorkerState. This replaces the Phase 2 smoke-test.
   let oceanScene: NativeOceanScene | null = null;
-  if (pixiUi && !pixiUi["disposed"]) {
+  // Wire the PixiJS UI host to the renderer so it composites the UI texture.
+  renderer.nativePixiUi = pixiUi;
+
+  if (pixiUi && !pixiUi["disposed"] && !process.env.SKIP_OCEAN_SCENE) {
     try {
       oceanScene = await createNativeOceanScene({
         app: pixiUi.app,
@@ -151,7 +154,6 @@ async function main() {
         fontScale: 1,
         postAction: (action: any) => dataBridge.handleAction(action),
       });
-      renderer.nativePixiUi = pixiUi;
       log.info("native-entry", "Native OceanApp scene attached");
     } catch (e) {
       log.error("native-entry", `Native scene setup failed: ${e}`);
@@ -283,6 +285,24 @@ async function main() {
     running = false;
   });
 
+  // ── Handle window resize ──
+  // SDL may resize the window to the screen resolution (e.g. 3440x1408).
+  // The NativeWindow's runLoop polls SDL events and dispatches resize events,
+  // but the initial resize (when the window manager grabs the window) can
+  // fire before our listener is attached. Instead of relying on events,
+  // we poll the surface dimensions every frame and propagate changes.
+  let currentW = WIDTH;
+  let currentH = HEIGHT;
+  const surfaceEl = surface as any;
+  surfaceEl.addEventListener("resize", (e: any) => {
+    const newW = e.width | 0;
+    const newH = e.height | 0;
+    if (newW > 0 && newH > 0) {
+      currentW = newW;
+      currentH = newH;
+    }
+  });
+
   // ── Keyboard shortcuts ──
   // In the browser version, the PixiUI worker handles menu toggles via UI
   // buttons. In native mode, we wire keyboard shortcuts directly to the game
@@ -339,9 +359,11 @@ async function main() {
     try {
       const rendererDevice = (renderer as any).getDevice?.() ?? (renderer as any).device ?? device;
       const format = (renderer as any).getFormat?.() ?? (renderer as any).format ?? "bgra8unorm";
+      const shotW = currentW;
+      const shotH = currentH;
       const bytesPerPixel = 4;
-      const bytesPerRow = Math.ceil((WIDTH * bytesPerPixel) / 256) * 256;
-      const paddedBufferSize = bytesPerRow * HEIGHT;
+      const bytesPerRow = Math.ceil((shotW * bytesPerPixel) / 256) * 256;
+      const paddedBufferSize = bytesPerRow * shotH;
       const screenshotBuffer = rendererDevice.createBuffer({
         size: paddedBufferSize,
         usage: 0x0001 | 0x0008, // MAP_READ | COPY_DST
@@ -355,8 +377,8 @@ async function main() {
         if (texture) {
           (encoder as any).copyTextureToBuffer(
             { texture },
-            { buffer: screenshotBuffer, layout: { offset: 0, bytesPerRow, rowsPerImage: HEIGHT } },
-            { width: WIDTH, height: HEIGHT, depthOrArrayLayers: 1 },
+            { buffer: screenshotBuffer, layout: { offset: 0, bytesPerRow, rowsPerImage: shotH } },
+            { width: shotW, height: shotH, depthOrArrayLayers: 1 },
           );
         }
       };
@@ -372,11 +394,11 @@ async function main() {
       const pixels = new Uint8Array(mappedRange);
 
       const isBGRA = format === "bgra8unorm" || format === "bgra8unorm-srgb";
-      const unpadded = new Uint8Array(WIDTH * HEIGHT * bytesPerPixel);
-      for (let y = 0; y < HEIGHT; y++) {
+      const unpadded = new Uint8Array(shotW * shotH * bytesPerPixel);
+      for (let y = 0; y < shotH; y++) {
         const srcOffset = y * bytesPerRow;
-        const dstOffset = y * WIDTH * bytesPerPixel;
-        for (let x = 0; x < WIDTH; x++) {
+        const dstOffset = y * shotW * bytesPerPixel;
+        for (let x = 0; x < shotW; x++) {
           const src = srcOffset + x * 4;
           const dst = dstOffset + x * 4;
           if (isBGRA) {
@@ -395,9 +417,9 @@ async function main() {
       screenshotBuffer.unmap();
       screenshotBuffer.destroy();
 
-      const png = encodePNG(WIDTH, HEIGHT, unpadded);
+      const png = encodePNG(shotW, shotH, unpadded);
       writeFileSync(screenshotPath, png);
-      log.info("screenshot", `Saved ${WIDTH}x${HEIGHT} to ${screenshotPath} (${png.length} bytes)`);
+      log.info("screenshot", `Saved ${shotW}x${shotH} to ${screenshotPath} (${png.length} bytes)`);
 
       // Present the surface now that the copy is done
       const ctx = surface.getContext("webgpu")!;
@@ -419,6 +441,24 @@ async function main() {
     }
 
     try {
+      // ── Per-frame resize check ──
+      // Poll the surface dimensions and propagate changes to all hosts.
+      // This catches resizes that fired before our event listener was attached.
+      const surfW = surfaceEl.width | 0;
+      const surfH = surfaceEl.height | 0;
+      if (frameCount === 0) {
+        log.info("native-entry", `Surface dimensions: ${surfW}x${surfH} (initial ${WIDTH}x${HEIGHT})`);
+      }
+      if (surfW > 0 && surfH > 0 && (surfW !== currentW || surfH !== currentH)) {
+        currentW = surfW;
+        currentH = surfH;
+        log.info("native-entry", `Window resized to ${surfW}x${surfH}`);
+        try { pixiUi?.resize(surfW, surfH); } catch (err) { log.error("native-entry", `pixiUi resize: ${err}`); }
+        try { debuggerHost?.resize(surfW, surfH); } catch (err) { log.error("native-entry", `debuggerHost resize: ${err}`); }
+        try { renderer.onResize?.(surfW, surfH, 1); } catch (err) { log.error("native-entry", `renderer resize: ${err}`); }
+        try { inputRouter?.resize?.(surfW, surfH); } catch { /* optional */ }
+      }
+
       // Inject initial yaw to face the island (positive Z) after first frame
       if (needsInitialYaw) {
         const simReader = (renderer as any).getSimReader?.() ?? (renderer as any).simReader;
@@ -454,12 +494,26 @@ async function main() {
       fpsFrameCount++;
 
       // Auto-capture a screenshot after enough frames for mesh generation
-      if (frameCount === 600 && !screenshotCaptured) {
+      const autoScreenshotFrame = parseInt(process.env.SCREENSHOT_FRAME ?? "600", 10);
+      if (frameCount === autoScreenshotFrame && !screenshotCaptured) {
         screenshotCaptured = true;
         // Auto-show debugger for verification screenshot if requested
-        if (process.env.DEBUGGER_AUTO_SHOW) { debuggerHost?.show(); }
+        if (process.env.DEBUGGER_AUTO_SHOW) {
+          debuggerHost?.show();
+          // Render a few frames with the debugger visible so the scene builds
+          // and the overlay is composited before the screenshot.
+          for (let i = 0; i < 3; i++) {
+            try { debuggerHost?.update(); } catch (e) { log.error("native-entry", `debuggerHost.update failed: ${e}`); }
+            try { (renderer as any).renderOneFrame?.(); } catch {}
+          }
+        }
         captureScreenshotNow();
         log.info("native-entry", "Auto-screenshot captured for HUD verification");
+        // Auto-exit for headless verification if requested
+        if (process.env.AUTO_EXIT) {
+          log.info("native-entry", "AUTO_EXIT set — exiting after screenshot");
+          running = false;
+        }
       }
 
       // Log FPS every 2 seconds

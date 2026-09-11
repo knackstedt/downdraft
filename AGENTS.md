@@ -1458,3 +1458,46 @@ In-process PixiJS v8 WebGPU UI renderer for native (Bun + SDL2 + wgpu-native) mo
 - `games/to-the-ocean/src/pixi/native-data-bridge.ts` — `NativeOceanDataBridge`
 - `games/to-the-ocean/src/pixi/native-scene.tsx` — `createNativeOceanScene` (reuses `OceanApp`)
 - `games/to-the-ocean/src/pixi/native-input-router.ts` — `NativeInputRouter`
+
+## Native DevTools (`@downdraft/library-devtools`)
+
+A native in-game debugger overlay that replaces Chrome DevTools for the native build. Uses PixiJS (rendered through the same `NativePixiUiHost` WebGPU pipeline as the game UI) with click handling. Toggled with F12; F11 captures a screenshot.
+
+### Architecture
+
+- **`NativeDebuggerHost`** (`packages/libraries/devtools/src/host.ts`): owns a second `NativePixiUiHost` (debug overlay) on the shared wgpu-native device, composited above the game UI via a second `UiBlitPass`. When visible, SDL pointer events route to the debugger's hit-test regions first; misses pass through to the game.
+- **`DebuggerScene`** (`packages/libraries/devtools/src/debugger-scene.ts`): the PixiJS scene graph for the debugger. Manages tab bar, content area, status bar, per-panel scroll state, and hit region collection. Rebuilds the view each frame (clear + re-add children) so panels can reflect live data.
+- **`CdpBridge`** (`packages/libraries/devtools/src/cdp-bridge.ts`): connects to the main isolate via `node:inspector` Session. Captures `Runtime.consoleAPICalled` (console.log/warn/error) and `Runtime.exceptionThrown` events. Supports Profiler domain (start/stop profiling, retrieve profile with nodes/samples/timeDeltas).
+- **Panels** (`packages/libraries/devtools/src/panels/`):
+  - **Console** (`console-panel.ts`): scrollable log list with severity colors, filter bar (All/Errors/Warnings/Info), Clear button, CDP status indicator. Click filter buttons to change filter; click rows with stack traces to expand.
+  - **Scene** (`scene-panel.ts`): collapsible tree of the game's PIXI stage (from `gamePixiUi.stage`). Click a node to select it; the inspector panel on the right shows type, position, visible, alpha, bounds, children, eventMode.
+  - **GPU** (`gpu-panel.ts`): collapsible sections for adapter info, device limits, GPU pass timings, texture/memory stats, render pipeline info, and device features. Uses `renderer.getAdapterInfo()`, `renderer.getDevice().limits`, `renderer.gpuProfiler.getTimings()`, `process.memoryUsage()`.
+  - **Performance Recorder** (`perf-recorder.ts`): Record/Stop buttons capture a CPU profile via CDP Profiler. Renders a hot-functions bar chart (top 50 by self-time) with function name, self time, and percentage of total.
+  - **Performance Metrics** (`perf-metrics.ts`): real-time line charts for memory (RSS + heap) and CPU (user + system) usage. Uses `process.memoryUsage()` and `process.cpuUsage()`. Reads per-worker frame times from `ProfilingSAB` if available.
+  - **DOM Tree** (`dom-tree-panel.ts`): toggle between PIXI scene graph mode (same tree as Scene panel) and ECS entity mode (reads entity types and positions from the sim reader). Inspector panel on the right shows selected node/entity properties.
+- **Shared widgets** (`packages/libraries/devtools/src/shared/widgets.ts`): `HitCollector`, `makeLabel`, `makeButton`, `makeToggle`, `makeTabBar`, `makeScrollPanel`, `makeTreeView`, `makeTableView`, `makeLineChart`, `makeKeyValueGrid`, `makeSectionHeader`, `makeTextInput`, `formatBytes/Us/Ms/Time`.
+- **Colors** (`packages/libraries/devtools/src/shared/colors.ts`): dark theme constants (`BG_DARK`, `BG_PANEL`, `BG_SELECTED`, `COLOR_TEXT`, `COLOR_GREEN`, etc.), severity colors, thread colors, font scale support.
+
+### Critical: PixiJS masks break overlapping rendering on native wgpu
+
+The `makeScrollPanel` widget does **not** use PixiJS masks (`content.mask = mask`) because masks trigger `ensureDepthStencil()` in PixiJS's RenderTargetSystem, which restarts the render pass with a depth/stencil attachment. On the native wgpu backend, the depth/stencil texture's undefined initial content (loaded with `depthLoadOp: "load"`) causes subsequent overlapping Graphics/Text to fail rendering. Content overflow is handled by the scroll offset alone (no clip mask). This affects all native PixiJS hosts, not just the debugger.
+
+### Click handling model
+
+Panels collect "hit regions" (rects + callbacks) via `HitCollector` as they build their view each frame. The `DebuggerScene` aggregates these into `getInteractiveRegions()`. The `NativeDebuggerHost` dispatches `handlePointerDown/Move/Up` to the scene, which hit-tests against the collected regions and calls the matching callback. Misses pass through to the game's input handler.
+
+### Environment variables for verification
+
+- `SCREENSHOT_FRAME=N`: auto-capture a screenshot at frame N (default 600).
+- `AUTO_EXIT=1`: exit after the auto-screenshot.
+- `DEBUGGER_AUTO_SHOW=1`: auto-show the debugger for the verification screenshot.
+- `SKIP_OCEAN_SCENE=1`: skip the real OceanApp scene (for isolated blit testing).
+
+### Key files
+
+- `packages/libraries/devtools/src/host.ts` — `NativeDebuggerHost`
+- `packages/libraries/devtools/src/debugger-scene.ts` — `DebuggerScene`
+- `packages/libraries/devtools/src/cdp-bridge.ts` — `CdpBridge`
+- `packages/libraries/devtools/src/panels/` — all panel implementations
+- `packages/libraries/devtools/src/shared/widgets.ts` — reusable PixiJS widgets
+- `packages/libraries/devtools/src/shared/colors.ts` — color constants + font scale

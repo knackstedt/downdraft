@@ -985,25 +985,55 @@ export class WgpuQueue implements GPUQueue {
     const dstFormat = texture?.format;
     const isBGRA = dstFormat === "bgra8unorm" || dstFormat === "bgra8unorm-srgb";
 
+    // Premultiplied alpha: PixiJS text/image textures set alphaMode =
+    // "premultiply-alpha-on-upload", and the browser's
+    // copyExternalImageToTexture premultiplies RGB by alpha when the
+    // destination's premultipliedAlpha flag is true. Our custom writeTexture
+    // path must do the same, otherwise text renders invisible (the batch
+    // shader expects premultiplied src pixels for its blend mode).
+    const premultipliedAlpha = (destination as any)?.premultipliedAlpha === true;
+
     const srcRowBytes = srcW * 4;
     const dstRowBytes = Math.ceil(srcRowBytes / 256) * 256; // 256-byte alignment
     // Build the padded buffer (only the copied region: width x height),
-    // swapping R and B per pixel when the destination is a BGRA format.
+    // swapping R and B per pixel when the destination is a BGRA format,
+    // and premultiplying RGB by alpha when requested.
     const copyRowBytes = width * 4;
     const padded = new Uint8Array(dstRowBytes * height);
     for (let y = 0; y < height; y++) {
       const srcOff = y * srcRowBytes;
       const dstOff = y * dstRowBytes;
-      if (!isBGRA) {
+      if (!isBGRA && !premultipliedAlpha) {
         padded.set(rgba.subarray(srcOff, srcOff + copyRowBytes), dstOff);
       } else {
         for (let x = 0; x < width; x++) {
           const s = srcOff + x * 4;
           const d = dstOff + x * 4;
-          padded[d] = rgba[s + 2];     // R ← B
-          padded[d + 1] = rgba[s + 1]; // G ← G
-          padded[d + 2] = rgba[s];     // B ← R
-          padded[d + 3] = rgba[s + 3]; // A ← A
+          const a = rgba[s + 3];
+          if (premultipliedAlpha && a < 255) {
+            const af = a / 255;
+            if (isBGRA) {
+              padded[d]     = Math.round(rgba[s + 2] * af); // B (premult)
+              padded[d + 1] = Math.round(rgba[s + 1] * af); // G (premult)
+              padded[d + 2] = Math.round(rgba[s]     * af); // R (premult)
+              padded[d + 3] = a;
+            } else {
+              padded[d]     = Math.round(rgba[s]     * af); // R (premult)
+              padded[d + 1] = Math.round(rgba[s + 1] * af); // G (premult)
+              padded[d + 2] = Math.round(rgba[s + 2] * af); // B (premult)
+              padded[d + 3] = a;
+            }
+          } else if (isBGRA) {
+            padded[d]     = rgba[s + 2]; // R ← B
+            padded[d + 1] = rgba[s + 1]; // G ← G
+            padded[d + 2] = rgba[s];     // B ← R
+            padded[d + 3] = a;           // A ← A
+          } else {
+            padded[d]     = rgba[s];
+            padded[d + 1] = rgba[s + 1];
+            padded[d + 2] = rgba[s + 2];
+            padded[d + 3] = a;
+          }
         }
       }
     }
@@ -1303,6 +1333,7 @@ export class WgpuCommandEncoder implements GPUCommandEncoder {
 
     const depthAttachment = descriptor.depthStencilAttachment;
     const depthView = depthAttachment ? depthAttachment.view as WgpuTextureView : null;
+
 
     const passPtr = wgpu.wgpu_shim_begin_render_pass(
       this.ptr,

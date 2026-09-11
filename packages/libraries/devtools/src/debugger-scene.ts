@@ -1,13 +1,16 @@
 // ============================================================================
 // debugger-scene.ts — the pixi scene for the native debugger overlay.
 //
-// Renders a tab bar (6 panels) + the active panel's content. Each frame it
-// clears + rebuilds the view (following the ProfilerScene pattern). Click
-// handling uses a HitCollector: panels register hit regions during build,
-// and getInteractiveRegions() exposes them for the host's SDL hit-testing.
+// Docked on the RIGHT side of the screen (Chrome DevTools style). The dock
+// width is adjustable by dragging the left edge. Content (tab bar, active
+// panel, status bar) is rendered within the dock area. The area to the left
+// of the dock is a semi-transparent backdrop so the game shows through but
+// the dock stands out.
 //
-// The scene owns a CdpBridge (console + profiling) and references to the
-// renderer + game pixi host (for scene/GPU/DOM-tree data).
+// Click handling uses a HitCollector: panels register hit regions during
+// build, and getInteractiveRegions() exposes them for the host's SDL
+// hit-testing. The scene owns a CdpBridge (console + profiling) and
+// references to the renderer + game pixi host (for scene/GPU/DOM-tree data).
 // ============================================================================
 
 import type { Application } from "pixi.js";
@@ -21,10 +24,11 @@ import { renderPerfMetricsPanel } from "./panels/perf-metrics";
 import { renderPerfRecorderPanel } from "./panels/perf-recorder";
 import { renderScenePanel } from "./panels/scene-panel";
 import {
-    BG_DARK, COLOR_GREEN, COLOR_TEXT_DIM,
+    BG_DARK,
+    COLOR_BORDER, COLOR_GREEN, COLOR_TEXT_DIM,
     FONT,
     fs,
-    setFontScale,
+    setFontScale
 } from "./shared/colors";
 import { HitCollector, makeLabel, makeTabBar, type TabDef } from "./shared/widgets";
 
@@ -41,6 +45,15 @@ export const PANEL_TABS: TabDef[] = [
   { id: "perf-metrics", label: "Perf Metrics" },
   { id: "dom-tree", label: "DOM Tree" },
 ];
+
+// ── Dock constants ──
+
+const DOCK_DEFAULT_WIDTH = 520;
+const DOCK_MIN_WIDTH = 320;
+const DOCK_HANDLE_WIDTH = 6;
+const TAB_BAR_HEIGHT = 32;
+const STATUS_BAR_HEIGHT = 22;
+const BACKDROP_ALPHA = 0.15;
 
 // ── Scene context (passed to panels each frame) ──
 
@@ -64,12 +77,20 @@ export class DebuggerScene {
   root: Container;
   private ctx: DebuggerSceneContext;
   private activePanel: PanelId = "console";
+  private backdropContainer: Container;
+  private dockContainer: Container;
   private tabBarContainer: Container;
   private contentContainer: Container;
   private statusContainer: Container;
+  private handleContainer: Container;
   private hits: HitCollector = new HitCollector();
   private scrollY: Record<string, number> = {};
-  // Panel-specific state (persisted across frames):
+
+  // ── Dock state ──
+  private dockWidth: number = DOCK_DEFAULT_WIDTH;
+  private isDragging: boolean = false;
+
+  // ── Panel-specific state (persisted across frames) ──
   private consoleFilter: string = "all"; // "all" | "error" | "warn" | "info"
   private sceneExpanded: Set<string> = new Set();
   private sceneSelected: string | null = null;
@@ -83,14 +104,20 @@ export class DebuggerScene {
 
   constructor(ctx: DebuggerSceneContext) {
     this.ctx = ctx;
-    setFontScale(1);
+    setFontScale(1.5);
     this.root = new Container();
+    this.backdropContainer = new Container();
+    this.dockContainer = new Container();
     this.tabBarContainer = new Container();
     this.contentContainer = new Container();
     this.statusContainer = new Container();
-    this.root.addChild(this.tabBarContainer);
-    this.root.addChild(this.contentContainer);
-    this.root.addChild(this.statusContainer);
+    this.handleContainer = new Container();
+    this.root.addChild(this.backdropContainer);
+    this.root.addChild(this.dockContainer);
+    this.dockContainer.addChild(this.handleContainer);
+    this.dockContainer.addChild(this.tabBarContainer);
+    this.dockContainer.addChild(this.contentContainer);
+    this.dockContainer.addChild(this.statusContainer);
   }
 
   /** The active panel id. */
@@ -100,12 +127,24 @@ export class DebuggerScene {
   getScrollY(panel: string): number { return this.scrollY[panel] ?? 0; }
   setScrollY(panel: string, y: number): void { this.scrollY[panel] = y; }
 
+  // ── Dock state accessors ──
+  getDockWidth(): number { return this.dockWidth; }
+  setDockWidth(w: number): void { this.dockWidth = w; }
+  isDockDragging(): boolean { return this.isDragging; }
+
+  /** The dock's x position (left edge). */
+  getDockX(): number { return Math.max(0, this.ctx.width - this.dockWidth); }
+
   // ── Panel state accessors (used by panels) ──
   getConsoleFilter(): string { return this.consoleFilter; }
   setConsoleFilter(f: string): void { this.consoleFilter = f; }
   getSceneExpanded(): Set<string> { return this.sceneExpanded; }
   getSceneSelected(): string | null { return this.sceneSelected; }
   setSceneSelected(id: string | null): void { this.sceneSelected = id; }
+  toggleSceneExpanded(id: string): void {
+    if (this.sceneExpanded.has(id)) this.sceneExpanded.delete(id);
+    else this.sceneExpanded.add(id);
+  }
   getGpuExpanded(): Set<string> { return this.gpuExpanded; }
   getDomExpanded(): Set<string> { return this.domExpanded; }
   getDomSelected(): string | null { return this.domSelected; }
@@ -126,52 +165,85 @@ export class DebuggerScene {
   /** Update — called each frame by the host. Rebuilds the view. */
   update(): void {
     // Clear previous frame's children + hits
+    this.backdropContainer.removeChildren().forEach((c) => c.destroy({ children: true }));
+    this.handleContainer.removeChildren().forEach((c) => c.destroy({ children: true }));
     this.tabBarContainer.removeChildren().forEach((c) => c.destroy({ children: true }));
     this.contentContainer.removeChildren().forEach((c) => c.destroy({ children: true }));
     this.statusContainer.removeChildren().forEach((c) => c.destroy({ children: true }));
     this.hits.regions = [];
 
-    const w = this.ctx.width;
-    const h = this.ctx.height;
+    const surfW = this.ctx.width;
+    const surfH = this.ctx.height;
 
-    // Tab bar at top
-    const tabBar = makeTabBar(PANEL_TABS, this.activePanel, w, this.hits, (id) => {
+    // Clamp dock width to surface
+    const maxDockW = Math.max(DOCK_MIN_WIDTH, surfW - 100);
+    if (this.dockWidth > maxDockW) this.dockWidth = maxDockW;
+    if (this.dockWidth < DOCK_MIN_WIDTH) this.dockWidth = DOCK_MIN_WIDTH;
+
+    const dockX = this.getDockX();
+    const dockW = this.dockWidth;
+
+    // ── Backdrop (dim the game area left of the dock) ──
+    if (dockX > 0) {
+      const backdrop = new Graphics();
+      backdrop.rect(0, 0, dockX, surfH);
+      backdrop.fill({ color: 0x000000, alpha: BACKDROP_ALPHA });
+      this.backdropContainer.addChild(backdrop);
+    }
+
+    // ── Dock container position ──
+    this.dockContainer.x = dockX;
+    this.dockContainer.y = 0;
+
+    // ── Drag handle (left edge of dock) ──
+    this.drawDragHandle(dockW, surfH);
+
+    // ── Tab bar at top of dock ──
+    const tabBar = makeTabBar(PANEL_TABS, this.activePanel, dockW, this.hits, (id) => {
       this.activePanel = id as PanelId;
     });
     this.tabBarContainer.addChild(tabBar.container);
 
-    // Content area below tab bar
-    const contentY = 32;
-    const contentH = h - contentY - 20;
+    // ── Content area below tab bar ──
+    const contentY = TAB_BAR_HEIGHT;
+    const contentH = surfH - contentY - STATUS_BAR_HEIGHT;
+
+    // Push the dock offset + content area offset so panel-registered hit
+    // regions are in absolute (surface) coordinates. Pop after the panel
+    // is built.
+    this.hits.pushOffset(dockX, contentY);
 
     // Render the active panel
     let content: Container;
     switch (this.activePanel) {
       case "console":
-        content = renderConsolePanel(this, 0, contentY, w, contentH);
+        content = renderConsolePanel(this, 0, contentY, dockW, contentH);
         break;
       case "scene":
-        content = renderScenePanel(this, 0, contentY, w, contentH);
+        content = renderScenePanel(this, 0, contentY, dockW, contentH);
         break;
       case "gpu":
-        content = renderGpuPanel(this, 0, contentY, w, contentH);
+        content = renderGpuPanel(this, 0, contentY, dockW, contentH);
         break;
       case "perf-recorder":
-        content = renderPerfRecorderPanel(this, 0, contentY, w, contentH);
+        content = renderPerfRecorderPanel(this, 0, contentY, dockW, contentH);
         break;
       case "perf-metrics":
-        content = renderPerfMetricsPanel(this, 0, contentY, w, contentH);
+        content = renderPerfMetricsPanel(this, 0, contentY, dockW, contentH);
         break;
       case "dom-tree":
-        content = renderDomTreePanel(this, 0, contentY, w, contentH);
+        content = renderDomTreePanel(this, 0, contentY, dockW, contentH);
         break;
       default:
         content = new Container();
     }
     this.contentContainer.addChild(content);
 
-    // Status bar at bottom
-    this.drawStatusBar(w, h);
+    // Pop the content area offset.
+    this.hits.popOffset();
+
+    // ── Status bar at bottom of dock ──
+    this.drawStatusBar(dockW, surfH);
   }
 
   /** Interactive regions for the host's SDL hit-testing. */
@@ -186,6 +258,17 @@ export class DebuggerScene {
 
   /** Dispatch a pointerdown to the matching hit region. Returns true if consumed. */
   handlePointerDown(x: number, y: number): boolean {
+    // Check drag handle first (highest priority)
+    if (this.isDragging) return true;
+    const dockX = this.getDockX();
+    if (x >= dockX - DOCK_HANDLE_WIDTH && x < dockX + DOCK_HANDLE_WIDTH && y >= 0 && y < this.ctx.height) {
+      this.isDragging = true;
+      return true;
+    }
+
+    // Only process clicks within the dock area
+    if (x < dockX) return false;
+
     for (const r of this.hits.regions) {
       if (x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height) {
         try { r.onClick(); } catch (err) { console.error("[DebuggerScene] click handler error:", err); }
@@ -195,9 +278,29 @@ export class DebuggerScene {
     return false;
   }
 
+  /** Handle a pointer move event during a drag. Returns true if consumed. */
+  handlePointerMove(x: number, _y: number): boolean {
+    if (!this.isDragging) return false;
+    const maxDockW = Math.max(DOCK_MIN_WIDTH, this.ctx.width - 100);
+    this.dockWidth = Math.max(DOCK_MIN_WIDTH, Math.min(maxDockW, this.ctx.width - x));
+    return true;
+  }
+
+  /** Handle a pointer up event (ends drag). Returns true if consumed. */
+  handlePointerUp(_x: number, _y: number): boolean {
+    if (this.isDragging) {
+      this.isDragging = false;
+      return true;
+    }
+    return false;
+  }
+
   resize(width: number, height: number): void {
     this.ctx.width = width;
     this.ctx.height = height;
+    // Clamp dock width to new surface
+    const maxDockW = Math.max(DOCK_MIN_WIDTH, width - 100);
+    if (this.dockWidth > maxDockW) this.dockWidth = maxDockW;
   }
 
   dispose(): void {
@@ -206,21 +309,50 @@ export class DebuggerScene {
 
   // ── Private ──
 
-  private drawStatusBar(w: number, h: number): void {
+  private drawDragHandle(dockW: number, surfH: number): void {
+    // The drag handle is on the LEFT edge of the dock (at x = -DOCK_HANDLE_WIDTH/2
+    // relative to the dock container, which is at dockX). The hit region is
+    // registered in absolute coordinates.
+    const dockX = this.getDockX();
+    const handle = new Graphics();
+    // Handle bar
+    handle.rect(-DOCK_HANDLE_WIDTH, 0, DOCK_HANDLE_WIDTH, surfH);
+    handle.fill({ color: this.isDragging ? COLOR_GREEN : COLOR_BORDER, alpha: 0.6 });
+    // Grip lines (3 horizontal lines centered on the handle)
+    const gripColor = this.isDragging ? 0xffffff : COLOR_TEXT_DIM;
+    for (let i = -1; i <= 1; i++) {
+      const cy = surfH / 2 + i * 8;
+      handle.moveTo(-DOCK_HANDLE_WIDTH + 1, cy - 3);
+      handle.lineTo(-1, cy - 3);
+      handle.stroke({ color: gripColor, width: 1, alpha: 0.5 });
+      handle.moveTo(-DOCK_HANDLE_WIDTH + 1, cy + 3);
+      handle.lineTo(-1, cy + 3);
+      handle.stroke({ color: gripColor, width: 1, alpha: 0.5 });
+    }
+    this.handleContainer.addChild(handle);
+
+    // Register the drag handle hit region (wider than visual for easier grabbing)
+    this.hits.add(dockX - DOCK_HANDLE_WIDTH, 0, DOCK_HANDLE_WIDTH * 2, surfH, () => {
+      this.isDragging = true;
+    });
+  }
+
+  private drawStatusBar(dockW: number, surfH: number): void {
     const bg = new Graphics();
-    bg.rect(0, h - 20, w, 20);
+    bg.rect(0, surfH - STATUS_BAR_HEIGHT, dockW, STATUS_BAR_HEIGHT);
     bg.fill({ color: BG_DARK, alpha: 0.95 });
     this.statusContainer.addChild(bg);
-    const status = `Panel: ${this.activePanel} | CDP: ${this.ctx.cdp.isAvailable ? "on" : "off"} | Click regions: ${this.hits.regions.length}`;
-    this.statusContainer.addChild(makeLabel(status, 8, h - 16, COLOR_TEXT_DIM, 11));
-    // FPS-ish indicator on the right
+
+    const status = `${this.activePanel} | CDP: ${this.ctx.cdp.isAvailable ? "on" : "off"} | ${this.hits.regions.length} regions`;
+    this.statusContainer.addChild(makeLabel(status, 8, surfH - STATUS_BAR_HEIGHT + 4, COLOR_TEXT_DIM, 11));
+
     const rightLabel = new Text({
       text: "F12 toggle | F11 screenshot",
       style: { fontSize: fs(11), fill: COLOR_GREEN, fontFamily: FONT },
     });
     rightLabel.anchor.set(1, 0);
-    rightLabel.x = w - 8;
-    rightLabel.y = h - 16;
+    rightLabel.x = dockW - 8;
+    rightLabel.y = surfH - STATUS_BAR_HEIGHT + 4;
     this.statusContainer.addChild(rightLabel);
   }
 }
