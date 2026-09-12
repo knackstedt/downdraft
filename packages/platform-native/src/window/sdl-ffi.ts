@@ -2,10 +2,10 @@
 // sdl-ffi.ts — bun:ffi bindings to the SDL2 shim
 // ============================================================================
 
-import { dlopen, type CFunction } from "bun:ffi";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { dlopen, type CFunction } from "../ffi/ffi-adapter.js";
 
 const _dirname = typeof (globalThis as any).__dirname !== "undefined"
   ? (globalThis as any).__dirname

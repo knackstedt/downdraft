@@ -1,17 +1,36 @@
 // ============================================================================
-// host.ts — NativeDebuggerHost: the native pixi.js debugger overlay.
+// host.ts — NativeDebuggerHost: the native egui debugger overlay.
 //
-// Owns a second NativePixiUiHost (debug overlay) on the shared wgpu-native
-// device, composited above the game UI via a second UiBlitPass. Toggled by
-// F12. When visible, SDL pointer events route to the debugger's PixiJS
-// EventSystem first (hit-test against the DebuggerScene's interactive
-// regions); misses pass through to the game's input handler.
+// Owns the Rust egui crate handle (via egui-ffi.ts) + an EguiRenderer that
+// renders the serialized PaintJobs into a GPUTexture on the shared wgpu-native
+// device. The existing UiBlitPass composites that texture above the game UI.
+// Toggled by F12. When visible, SDL pointer/keyboard/text events route to the
+// egui crate; the renderer blits the UI texture over the frame.
 //
 // Created by native-entry.ts after the game's NativePixiUiHost is ready.
+//
+// This replaces the previous PixiJS-based DebuggerScene implementation. The
+// public surface is preserved so native-entry.ts needs minimal changes.
 // ============================================================================
 
 import { CdpBridge } from "./cdp-bridge";
-import { DebuggerScene } from "./debugger-scene";
+import {
+    devtoolsDestroy,
+    type DevtoolsHandle,
+    devtoolsInit,
+    devtoolsKeyDown,
+    devtoolsMouseButton,
+    devtoolsResize,
+    devtoolsSetActivePanel,
+    devtoolsSetModifiers,
+    devtoolsSetMousePos,
+    devtoolsSetWheel,
+    devtoolsTextInput,
+    devtoolsUpdate,
+    devtoolsWantsTextInput
+} from "./egui-ffi";
+import { EguiRenderer } from "./egui-renderer";
+import { DevtoolsMirror } from "./mirror";
 
 export interface NativeDebuggerOptions {
   /** The shared wgpu-native GPUDevice (same as the game renderer's). */
@@ -32,37 +51,61 @@ export interface NativeDebuggerOptions {
   profilingSAB?: SharedArrayBuffer | null;
 }
 
-// Lazy import of NativePixiUiHost + UiBlitPass (peer dependency, may not be
-// available in non-native environments). We use a dynamic import() so the
-// package typechecks without the native host installed and works in Bun's
-// ESM context (require() is not available in ESM modules under Bun).
-let NativePixiUiHostCtor: any = null;
+// Lazy import of UiBlitPass (peer dependency, may not be available in non-
+// native environments). We use dynamic import() so the package typechecks
+// without the native host installed.
 let UiBlitPassCtor: any = null;
 let nativeHostLoading: Promise<void> | null = null;
-function loadNativeHost(): Promise<void> {
-  if (NativePixiUiHostCtor) return Promise.resolve();
+function loadUiBlitPass(): Promise<void> {
+  if (UiBlitPassCtor) return Promise.resolve();
   if (nativeHostLoading) return nativeHostLoading;
   nativeHostLoading = (async () => {
     try {
-      // Use a variable so TypeScript doesn't try to resolve the optional peer dep.
       const modulePath = "@downdraft/library-pixi-ui-native";
       const mod: any = await import(/* @vite-ignore */ modulePath);
-      NativePixiUiHostCtor = mod.NativePixiUiHost;
       UiBlitPassCtor = mod.UiBlitPass;
     } catch {
-      NativePixiUiHostCtor = null;
       UiBlitPassCtor = null;
     }
   })();
   return nativeHostLoading;
 }
 
+/**
+ * A thin shim that exposes the `debuggerScene` surface used by native-entry.ts
+ * (registerThreadEval, setActivePanel). It delegates to the egui crate.
+ * Also includes stubs for the old DebuggerScene API used by DEBUGGER_TEST.
+ */
+export class DebuggerSceneShim {
+  private host: NativeDebuggerHost;
+  constructor(host: NativeDebuggerHost) { this.host = host; }
+  registerThreadEval(threadName: string, evalFn: (expr: string) => Promise<{ result?: any; error?: string }>): void {
+    this.host.registerThreadEval(threadName, evalFn);
+  }
+  setActivePanel(panel: string): void {
+    this.host.setActivePanel(panel);
+  }
+  // ── Stubs for old DebuggerScene API (used by DEBUGGER_TEST) ──
+  handlePointerDown(x: number, y: number): boolean { return this.host.handlePointerDown(x, y, 0, 0); }
+  handleTextInput(text: string): boolean { return this.host.handleTextInput(text); }
+  isTextInputActive(): boolean { return this.host.isTextInputActive(); }
+  getActivePanel(): string { return ""; }
+  getFocusedWidget(): string | null { return null; }
+  getConsoleReplInput(): string { return ""; }
+  getDockX(): number { return 1280 - 520; }
+  get dockWidth(): number { return 520; }
+  getHits(): { regions: any[] } { return { regions: [] }; }
+}
+
 export class NativeDebuggerHost {
   private opts: NativeDebuggerOptions;
-  private debugPixiUi: any = null;
-  private blitPass: any = null;
-  private scene: DebuggerScene | null = null;
   private cdp: CdpBridge;
+  private mirror: DevtoolsMirror | null = null;
+  private renderer: EguiRenderer | null = null;
+  private blitPass: any = null;
+  private handle: DevtoolsHandle | null = null;
+  private scratch: { buf: Uint8Array } = { buf: new Uint8Array(1 << 20) }; // 1MB initial
+  private sceneShim: DebuggerSceneShim;
   private _visible = false;
   private _ready = false;
   private disposed = false;
@@ -74,6 +117,7 @@ export class NativeDebuggerHost {
     this.width = opts.width;
     this.height = opts.height;
     this.cdp = new CdpBridge();
+    this.sceneShim = new DebuggerSceneShim(this);
   }
 
   /** Whether the debugger overlay is currently visible. */
@@ -85,64 +129,67 @@ export class NativeDebuggerHost {
   /** The CdpBridge (console + profiling). */
   get cdpBridge(): CdpBridge { return this.cdp; }
 
-  /** The DebuggerScene (null until start()). */
-  get debuggerScene(): DebuggerScene | null { return this.scene; }
+  /** The DebuggerScene shim (for native-entry.ts compatibility). */
+  get debuggerScene(): DebuggerSceneShim { return this.sceneShim; }
 
-  /** The debug overlay's PIXI Application (null until start()). */
-  get app(): any { return this.debugPixiUi?.app ?? null; }
+  /** The debug overlay's PIXI Application (null — egui has no PIXI app). */
+  get app(): any { return null; }
 
-  /** Start the debugger: create the debug pixi host + scene + CDP session. */
+  /** Start the debugger: init the egui crate + renderer + CDP session. */
   async start(): Promise<void> {
     if (this._ready || this.disposed) return;
-    await loadNativeHost();
-    if (!NativePixiUiHostCtor) {
-      console.warn("[NativeDebuggerHost] NativePixiUiHost not available — debugger disabled");
-      return;
-    }
+    await loadUiBlitPass();
 
-    // Create the debug overlay NativePixiUiHost (separate VirtualCanvas + GPUTexture).
-    this.debugPixiUi = new NativePixiUiHostCtor({
-      device: this.opts.device,
-      adapter: this.opts.adapter,
-      targetFormat: this.opts.targetFormat,
-      width: this.width,
-      height: this.height,
-    });
-    try {
-      await this.debugPixiUi.ready;
-    } catch (err) {
-      console.error("[NativeDebuggerHost] Debug PixiJS init failed:", err);
-      this.debugPixiUi = null;
-      return;
-    }
-    // Create the blit pass for compositing the debug overlay above the game UI.
+    // Init the Rust egui crate.
+    const dpr = 1.0; // native mode uses physical pixels directly
+    this.handle = devtoolsInit(this.width, this.height, dpr);
+
+    // Create the EguiRenderer (renders PaintJobs to a GPUTexture).
+    this.renderer = new EguiRenderer(this.opts.device, this.width, this.height);
+
+    // Create the blit pass for compositing the egui UI texture above the game.
     if (UiBlitPassCtor) {
       this.blitPass = new UiBlitPassCtor(this.opts.device, this.opts.targetFormat);
     }
 
-    // Create the DebuggerScene and attach it to the debug overlay's stage.
-    this.scene = new DebuggerScene({
-      app: this.debugPixiUi.app,
-      width: this.width,
-      height: this.height,
+    // Create the data mirror + start CDP.
+    this.mirror = new DevtoolsMirror({
+      handle: this.handle,
+      cdp: this.cdp,
       renderer: this.opts.renderer,
       gamePixiUi: this.opts.gamePixiUi,
-      cdp: this.cdp,
       profilingSAB: this.opts.profilingSAB ?? null,
     });
-    this.debugPixiUi.app.stage.addChild(this.scene.root);
-
-    // Start the CDP bridge (console + profiling).
+    this.mirror.start();
     this.cdp.start();
 
     this._ready = true;
-    console.log("[NativeDebuggerHost] Ready (F12 to toggle)");
+    console.log("[NativeDebuggerHost] Ready (egui) (F12 to toggle)");
+  }
+
+  /** Register a thread eval function (delegates to the mirror). */
+  registerThreadEval(threadName: string, evalFn: (expr: string) => Promise<{ result?: any; error?: string }>): void {
+    this.mirror?.registerThreadEval(threadName, evalFn);
+  }
+
+  /** Set the active panel (delegates to the egui crate). */
+  setActivePanel(panel: string): void {
+    if (!this.handle) return;
+    const id = panel === "console" ? 0
+      : panel === "scene" ? 1
+      : panel === "gpu" ? 2
+      : panel === "perf-recorder" ? 3
+      : panel === "perf-metrics" ? 4
+      : panel === "dom-tree" ? 5
+      : 0;
+    devtoolsSetActivePanel(this.handle, id);
   }
 
   /** Toggle visibility. */
   toggle(): void {
     this._visible = !this._visible;
     if (this._visible) {
+      this.mirror?.resetFirstUpdate();
       console.log("[NativeDebuggerHost] Debugger visible");
     } else {
       console.log("[NativeDebuggerHost] Debugger hidden");
@@ -150,36 +197,53 @@ export class NativeDebuggerHost {
   }
 
   /** Show the debugger. */
-  show(): void { this._visible = true; }
+  show(): void {
+    if (!this._visible) {
+      this._visible = true;
+      this.mirror?.resetFirstUpdate();
+    }
+  }
 
   /** Hide the debugger. */
   hide(): void { this._visible = false; }
 
-  /** Per-frame update: pump CDP events, refresh the scene, render the debug overlay. */
+  /** Per-frame update: pump CDP events, mirror data, run egui, render. */
   update(): void {
     if (!this._ready || this.disposed) return;
     if (!this._visible) return;
-    // Update the scene (rebuilds the view + collects hit regions).
+    if (!this.handle || !this.renderer) return;
+
+    // 1. Pump the data mirror (pushes data to Rust, polls eval requests).
     try {
-      this.scene?.update();
+      this.mirror?.update();
     } catch (err) {
-      console.error("[NativeDebuggerHost] Scene update error:", err);
+      console.error("[NativeDebuggerHost] Mirror update error:", err);
     }
-    // Render the debug overlay into its GPUTexture (must be before the blit).
+
+    // 2. Run egui for one frame → get serialized PaintJobs.
+    let paintJobs = null;
     try {
-      this.debugPixiUi?.render();
+      paintJobs = devtoolsUpdate(this.handle, this.scratch);
     } catch (err) {
-      console.error("[NativeDebuggerHost] Debug render error:", err);
+      console.error("[NativeDebuggerHost] egui update error:", err);
+    }
+
+    // 3. Render the PaintJobs into the UI texture.
+    if (paintJobs) {
+      try {
+        this.renderer.render(paintJobs);
+      } catch (err) {
+        console.error("[NativeDebuggerHost] egui render error:", err);
+      }
     }
   }
 
   /** The debug overlay's UI texture view (for the renderer's blit pass). */
   getUiTextureView(): GPUTextureView | null {
-    if (!this.debugPixiUi) return null;
-    return this.debugPixiUi.getUiTextureView();
+    return this.renderer?.getUiTextureView() ?? null;
   }
 
-  /** Encode the debug overlay blit into the command encoder. Called by the renderer. */
+  /** Encode the debug overlay blit into the command encoder. */
   blit(commandEncoder: GPUCommandEncoder, targetView: GPUTextureView): void {
     if (!this._visible || !this.blitPass) return;
     const uiView = this.getUiTextureView();
@@ -188,77 +252,89 @@ export class NativeDebuggerHost {
   }
 
   /** Handle a pointerdown event. Returns true if consumed by the debugger. */
-  handlePointerDown(x: number, y: number, _button: number, _modifiers: number): boolean {
-    if (!this._visible || !this.scene) return false;
-    return this.scene.handlePointerDown(x, y);
+  handlePointerDown(x: number, y: number, button: number, _modifiers: number): boolean {
+    if (!this._visible || !this.handle) return false;
+    devtoolsSetMousePos(this.handle, x, y);
+    devtoolsMouseButton(this.handle, button, true);
+    return true; // egui handles hit-testing; consume when visible
   }
 
   /** Handle a pointermove event. Returns true if consumed. */
   handlePointerMove(x: number, y: number, _button: number, _modifiers: number): boolean {
-    if (!this._visible) return false;
-    // Forward to the scene for drag handling
-    return this.scene?.handlePointerMove(x, y) ?? false;
+    if (!this._visible || !this.handle) return false;
+    devtoolsSetMousePos(this.handle, x, y);
+    return true;
   }
 
   /** Handle a pointerup event. Returns true if consumed. */
-  handlePointerUp(x: number, y: number, _button: number, _modifiers: number): boolean {
-    if (!this._visible) return false;
-    // Forward to the scene for drag end handling
-    return this.scene?.handlePointerUp(x, y) ?? false;
+  handlePointerUp(x: number, y: number, button: number, _modifiers: number): boolean {
+    if (!this._visible || !this.handle) return false;
+    devtoolsSetMousePos(this.handle, x, y);
+    devtoolsMouseButton(this.handle, button, false);
+    return true;
   }
 
   /** Handle a mouse wheel event. Returns true if consumed. */
-  handleWheel(x: number, y: number, deltaY: number): boolean {
-    if (!this._visible || !this.scene) return false;
-    return this.scene.handleWheel(x, y, deltaY);
+  handleWheel(_x: number, _y: number, deltaY: number): boolean {
+    if (!this._visible || !this.handle) return false;
+    devtoolsSetWheel(this.handle, deltaY);
+    return true;
   }
 
   /** Handle a text input event (from SDL_TEXTINPUT). Returns true if consumed. */
   handleTextInput(text: string): boolean {
-    if (!this._visible || !this.scene) return false;
-    if (!this.scene.isTextInputActive()) return false;
-    this.scene.handleTextInput(text);
+    if (!this._visible || !this.handle) return false;
+    if (!this.isTextInputActive()) return false;
+    devtoolsTextInput(this.handle, text);
     return true;
   }
 
-  /** Handle a keydown event for the focused widget (control keys only). Returns true if consumed. */
-  handleKeyDown(key: string, keyCode: number): boolean {
-    if (!this._visible || !this.scene) return false;
-    if (!this.scene.isTextInputActive()) return false;
-    // Only consume keys that are relevant to text input
-    const controlKeys = ["Backspace", "Enter", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Delete", "Home", "End", "Escape", "Tab"];
+  /** Handle a keydown event for the focused widget. Returns true if consumed. */
+  handleKeyDown(key: string, _keyCode: number): boolean {
+    if (!this._visible || !this.handle) return false;
+    if (!this.isTextInputActive()) return false;
+    // Only consume keys that are relevant to text input / egui.
+    const controlKeys = [
+      "Backspace", "Enter", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown",
+      "Delete", "Home", "End", "Escape", "Tab", "PageUp", "PageDown",
+      "Insert", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12",
+    ];
     if (!controlKeys.includes(key)) return false;
-    // Escape clears focus
-    if (key === "Escape") {
-      this.scene.setFocus(null);
-      return true;
-    }
-    this.scene.handleKeyDown(key, keyCode);
+    devtoolsKeyDown(this.handle, key);
     return true;
   }
 
-  /** Whether text input is currently active (the native-entry polls this to call SDL_StartTextInput/StopTextInput). */
+  /** Whether text input is currently active (egui wants keyboard input). */
   isTextInputActive(): boolean {
-    return this._visible && this.scene?.isTextInputActive() === true;
+    if (!this._visible || !this.handle) return false;
+    return devtoolsWantsTextInput(this.handle);
+  }
+
+  /** Set modifier state (called before pointer/key events). */
+  setModifiers(alt: boolean, ctrl: boolean, shift: boolean): void {
+    if (!this.handle) return;
+    devtoolsSetModifiers(this.handle, alt, ctrl, shift);
   }
 
   /** Resize the debug overlay. */
   resize(width: number, height: number): void {
     this.width = width;
     this.height = height;
-    this.debugPixiUi?.resize(width, height);
-    this.scene?.resize(width, height);
+    if (this.handle) devtoolsResize(this.handle, width, height);
+    this.renderer?.resize(width, height);
   }
 
-  /** Dispose — close CDP session, destroy debug pixi host. */
+  /** Dispose — close CDP session, destroy egui crate + renderer. */
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    try { this.mirror?.dispose(); } catch { /* ignore */ }
     try { this.cdp.dispose(); } catch { /* ignore */ }
-    try { this.scene?.dispose(); } catch { /* ignore */ }
-    try { this.debugPixiUi?.dispose(); } catch { /* ignore */ }
-    this.scene = null;
-    this.debugPixiUi = null;
+    try { this.renderer?.dispose(); } catch { /* ignore */ }
+    try { if (this.handle) devtoolsDestroy(this.handle); } catch { /* ignore */ }
+    this.mirror = null;
+    this.renderer = null;
+    this.handle = null;
     this.blitPass = null;
   }
 }

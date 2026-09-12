@@ -8,6 +8,7 @@
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
+    "jsx": "react-jsx",
     "paths": {
       "xxh3-ts": [
         "./packages/libraries/persistence/src/xxh3-ts.d.ts"

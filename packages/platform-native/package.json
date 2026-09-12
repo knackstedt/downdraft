@@ -9,7 +9,8 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@downdraft/core": "workspace:*"
+    "@downdraft/core": "workspace:*",
+    "koffi": "^3.2.1"
   },
   "devDependencies": {
     "typescript": "^5"

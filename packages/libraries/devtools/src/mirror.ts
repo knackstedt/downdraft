@@ -1,0 +1,559 @@
+// ============================================================================
+// mirror.ts — DevtoolsMirror: the TS→Rust data bridge.
+//
+// Subscribes to CdpBridge (console + exceptions + profiles), collects scene/
+// GPU/metrics data from the game renderer + ProfilingSAB, and pushes it into
+// the Rust egui crate via the egui-ffi bindings. Also handles the eval
+// round-trip: polls Rust for pending eval requests, dispatches them to the
+// right thread (main via CDP, workers via registered eval fns), and pushes
+// results back.
+// ============================================================================
+
+import { CdpBridge, type CdpConsoleEntry, type CdpException, type CdpProfile } from "./cdp-bridge";
+import {
+    devtoolsClearConsole,
+    devtoolsGetDomTreeMode,
+    devtoolsPushConsole,
+    devtoolsPushEvalResult,
+    devtoolsSetDomTree,
+    devtoolsSetGpuInfo,
+    devtoolsSetMetrics,
+    devtoolsSetProfile,
+    devtoolsSetSceneTree,
+    devtoolsSetThreads,
+    devtoolsTakeEvalRequest,
+    devtoolsTakeRefreshRequests,
+    encodeGpuInfo,
+    encodeMetrics,
+    encodeProfile,
+    encodeThreads,
+    encodeTree,
+    REFRESH_DOM,
+    REFRESH_GPU,
+    REFRESH_METRICS,
+    REFRESH_PERF_RECORD,
+    REFRESH_PERF_STOP,
+    REFRESH_SCENE,
+    type DevtoolsHandle
+} from "./egui-ffi";
+
+// Lazy-load the ProfilingSAB reader (avoids importing @downdraft/core/profiling
+// at module load time; it may not be available in all contexts).
+let profilingMod: any = undefined;
+async function loadProfilingMod(): Promise<any> {
+  if (profilingMod !== undefined) return profilingMod;
+  try {
+    profilingMod = await import("@downdraft/core/profiling");
+    console.log("[DevtoolsMirror] Profiling module loaded");
+  } catch (err) {
+    console.warn("[DevtoolsMirror] Failed to load profiling module:", err);
+    profilingMod = null;
+  }
+  return profilingMod;
+}
+
+export interface MirrorOptions {
+  handle: DevtoolsHandle;
+  cdp: CdpBridge;
+  renderer: any;
+  gamePixiUi: any;
+  profilingSAB: SharedArrayBuffer | null;
+}
+
+// Thread eval registry: threadId → eval function.
+type EvalFn = (expr: string) => Promise<{ result?: any; error?: string }>;
+
+export class DevtoolsMirror {
+  private handle: DevtoolsHandle;
+  private cdp: CdpBridge;
+  private renderer: any;
+  private gamePixiUi: any;
+  private profilingSAB: SharedArrayBuffer | null;
+  private threadEvals = new Map<string, EvalFn>();
+  private disposed = false;
+
+  // Throttle: push data at most every N ms.
+  private lastThreadsPush = 0;
+  private lastMetricsPush = 0;
+  private lastGpuPush = 0;
+  private lastScenePush = 0;
+  private firstUpdate = true;
+  private domTreeMode: "pixi" | "ecs" = "pixi";
+
+  private unsubConsole: (() => void) | null = null;
+  private unsubException: (() => void) | null = null;
+
+  constructor(opts: MirrorOptions) {
+    this.handle = opts.handle;
+    this.cdp = opts.cdp;
+    this.renderer = opts.renderer;
+    this.gamePixiUi = opts.gamePixiUi;
+    this.profilingSAB = opts.profilingSAB;
+  }
+
+  /** Reset the first-update flag so the next update() pushes all data. */
+  resetFirstUpdate(): void {
+    this.firstUpdate = true;
+  }
+
+  /** Start the mirror: subscribe to CDP, push initial data. */
+  start(): void {
+    // Subscribe to console entries.
+    this.unsubConsole = this.cdp.onConsole((entry: CdpConsoleEntry) => {
+      const severity = entry.type === "error" ? 3
+        : entry.type === "warning" ? 2
+        : entry.type === "info" ? 1
+        : entry.type === "debug" ? 4
+        : entry.type === "trace" ? 5
+        : 0;
+      const text = entry.args.map((a: any) => a.value ?? a.description ?? String(a)).join(" ");
+      devtoolsPushConsole(this.handle, text, severity, "main", entry.timestamp ?? performance.now(), !!entry.stack);
+    });
+
+    // Subscribe to exceptions.
+    this.unsubException = this.cdp.onException((exc: CdpException) => {
+      const text = `${exc.text}\n${exc.stack ?? ""}`.trim();
+      devtoolsPushConsole(this.handle, text, 3, "main", performance.now(), true);
+    });
+
+    // Push initial threads.
+    this.pushThreads();
+  }
+
+  /** Register an eval function for a worker thread. */
+  registerThreadEval(threadId: string, evalFn: EvalFn): void {
+    this.threadEvals.set(threadId, evalFn);
+    this.pushThreads();
+  }
+
+  /** Push the thread list to Rust. */
+  private async pushThreads(): Promise<void> {
+    const threads: { id: string; name: string; kind: number }[] = [
+      { id: "main", name: "main", kind: 0 },
+    ];
+    // Worker threads from ProfilingSAB.
+    if (this.profilingSAB) {
+      try {
+        const mod = await loadProfilingMod();
+        if (mod) {
+          const { ProfilingSABReader, computeProfilingSABLayout } = mod;
+          const layout = computeProfilingSABLayout();
+          if (this.profilingSAB.byteLength >= layout.byteLength) {
+            const reader = new ProfilingSABReader(this.profilingSAB, layout);
+            const snapshot = reader.readSnapshot();
+            for (const slot of snapshot.slots) {
+              const name = slot.name || `worker-${slot.slotIndex}`;
+              const id = `slot-${slot.slotIndex}`;
+              threads.push({ id, name, kind: 1 });
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("[DevtoolsMirror] ProfilingSAB read failed:", err);
+      }
+    }
+    // Registered eval fns (e.g. "sim" worker).
+    for (const id of this.threadEvals.keys()) {
+      if (!threads.find((t) => t.id === id)) {
+        threads.push({ id, name: id, kind: 1 });
+      }
+    }
+    devtoolsSetThreads(this.handle, encodeThreads(threads));
+  }
+
+  /** Collect + push the PIXI scene tree. */
+  pushSceneTree(): void {
+    const stage = this.gamePixiUi?.stage;
+    if (!stage) return;
+    const nodes: any[] = [];
+    let idCounter = 1;
+    const idMap = new WeakMap();
+    const collect = (node: any, parentId: number, depth: number) => {
+      const id = idCounter++;
+      idMap.set(node, id);
+      // PixiJS v8: use `label` (the replacement for the removed `name`).
+      // Accessing `name` triggers a deprecation warning, so never read it.
+      const nodeLabel = typeof node.label === "string" ? node.label : "";
+      const ctorName = node.constructor?.name ?? "Node";
+      // If the node has a label, show it as the primary label with the type
+      // as detail. Otherwise just show the type.
+      const label = nodeLabel || ctorName;
+      const detail = nodeLabel ? ctorName : "";
+      const childCount = node.children?.length ?? 0;
+      nodes.push({ id, parentId, depth, childCount, kind: 0, label, detail });
+      if (node.children) {
+        for (const child of node.children) {
+          collect(child, id, depth + 1);
+        }
+      }
+    };
+    collect(stage, -1, 0);
+    devtoolsSetSceneTree(this.handle, encodeTree(nodes));
+  }
+
+  /** Collect + push the DOM/ECS tree (PIXI or ECS mode). */
+  pushDomTree(mode: "pixi" | "ecs"): void {
+    if (mode === "pixi") {
+      this.pushSceneTree();
+      return;
+    }
+    // ECS mode: read entities from the sim buffer reader.
+    const simReader = this.renderer?.simReader ?? this.renderer?.getSimReader?.();
+    if (!simReader?.isValid?.()) {
+      devtoolsSetDomTree(this.handle, encodeTree([]));
+      return;
+    }
+    const nodes: any[] = [];
+    let idCounter = 1;
+    try {
+      const count = simReader.getEntityCount();
+      const iter = simReader.iterEntities?.();
+      if (iter) {
+        for (const ent of iter) {
+          const id = idCounter++;
+          const f32 = ent.f32;
+          const u32 = ent.u32;
+          // Entity type is typically in u32[0] or similar; show position from f32.
+          const entityType = u32?.[0] ?? 0;
+          const x = f32?.[0] ?? 0;
+          const y = f32?.[1] ?? 0;
+          const z = f32?.[2] ?? 0;
+          const label = `Entity ${ent.idx}`;
+          const detail = `type=${entityType} pos=(${x.toFixed(1)},${y.toFixed(1)},${z.toFixed(1)})`;
+          nodes.push({ id, parentId: -1, depth: 0, childCount: 0, kind: 1, label, detail });
+        }
+      }
+    } catch { /* ignore */ }
+    devtoolsSetDomTree(this.handle, encodeTree(nodes));
+  }
+
+  /** Collect + push GPU info. */
+  pushGpuInfo(): void {
+    const r = this.renderer;
+    const entries: { key: string; value: string; isHeader: boolean }[] = [];
+    try {
+      // ── Adapter Info ──
+      const adapterInfo = r?.getAdapterInfo?.() ?? r?.gpuProfiler?.getAdapterInfo?.() ?? {};
+      entries.push({ key: "GPU Adapter Info", value: "", isHeader: true });
+      entries.push({ key: "Vendor", value: adapterInfo.vendor ?? "?", isHeader: false });
+      entries.push({ key: "Architecture", value: adapterInfo.architecture ?? "?", isHeader: false });
+      entries.push({ key: "Description", value: adapterInfo.description ?? "?", isHeader: false });
+      entries.push({ key: "Device", value: adapterInfo.device ?? "?", isHeader: false });
+
+      // ── Device Limits ──
+      const device = r?.getDevice?.() ?? r?.device;
+      const limits = device?.limits;
+      if (limits) {
+        entries.push({ key: "Device Limits", value: "", isHeader: true });
+        entries.push({ key: "maxBufferSize", value: this.formatBytes(limits.maxBufferSize), isHeader: false });
+        entries.push({ key: "maxTextureDim2D", value: String(limits.maxTextureDimension2D), isHeader: false });
+        entries.push({ key: "maxTextureDim3D", value: String(limits.maxTextureDimension3D), isHeader: false });
+        entries.push({ key: "maxTextureArrayLayers", value: String(limits.maxTextureArrayLayers), isHeader: false });
+        entries.push({ key: "maxStorageBuffer", value: this.formatBytes(limits.maxStorageBufferBindingSize), isHeader: false });
+        entries.push({ key: "maxUniformBuffer", value: this.formatBytes(limits.maxUniformBufferBindingSize), isHeader: false });
+        entries.push({ key: "maxBindGroups", value: String(limits.maxBindGroups), isHeader: false });
+        entries.push({ key: "maxVertexAttributes", value: String(limits.maxVertexAttributes), isHeader: false });
+        entries.push({ key: "maxVertexBuffers", value: String(limits.maxVertexBuffers), isHeader: false });
+        entries.push({ key: "maxColorAttachments", value: String(limits.maxColorAttachments), isHeader: false });
+        entries.push({ key: "maxComputeWorkgroupsPerDimension", value: String(limits.maxComputeWorkgroupsPerDimension), isHeader: false });
+      }
+
+      // ── Frame Performance ──
+      const telemetry = r?.telemetryCollector;
+      if (telemetry?.getFrameTelemetry) {
+        const ft = telemetry.getFrameTelemetry();
+        if (ft) {
+          entries.push({ key: "Frame Performance", value: "", isHeader: true });
+          entries.push({ key: "FPS", value: String(Math.round(ft.fps ?? 0)), isHeader: false });
+          entries.push({ key: "Avg frame time", value: `${(ft.avgFrameTime ?? 0).toFixed(2)} ms`, isHeader: false });
+          entries.push({ key: "P95 frame time", value: `${(ft.p95 ?? 0).toFixed(2)} ms`, isHeader: false });
+          entries.push({ key: "P99 frame time", value: `${(ft.p99 ?? 0).toFixed(2)} ms`, isHeader: false });
+          entries.push({ key: "GPU time", value: `${(ft.gpuTimeMs ?? 0).toFixed(2)} ms`, isHeader: false });
+          entries.push({ key: "Draw calls", value: String(ft.drawCalls ?? 0), isHeader: false });
+          entries.push({ key: "Triangles", value: String(ft.triangles ?? 0), isHeader: false });
+        }
+      }
+
+      // ── GPU Resources (VRAM Tracking) ──
+      const resTracker = r?.gpuResourceTracker;
+      if (resTracker?.getStats) {
+        const stats = resTracker.getStats();
+        entries.push({ key: "GPU Resources", value: "", isHeader: true });
+        entries.push({ key: "Textures", value: String(stats.textureCount), isHeader: false });
+        entries.push({ key: "Buffers", value: String(stats.bufferCount), isHeader: false });
+        entries.push({ key: "Texture VRAM", value: this.formatBytes(stats.textureBytes), isHeader: false });
+        entries.push({ key: "Buffer VRAM", value: this.formatBytes(stats.bufferBytes), isHeader: false });
+        entries.push({ key: "Total VRAM", value: this.formatBytes(stats.totalBytes), isHeader: false });
+        // Top resources by size.
+        const topResources = (stats.resources ?? []).slice(0, 15);
+        if (topResources.length > 0) {
+          entries.push({ key: "Top Resources", value: "", isHeader: true });
+          for (const res of topResources) {
+            entries.push({
+              key: res.label ?? res.type ?? "resource",
+              value: `${res.type} ${this.formatBytes(res.size)} ${res.dims ?? ""}`.trim(),
+              isHeader: false,
+            });
+          }
+        }
+      }
+
+      // ── Per-Pass GPU Timing ──
+      const profiler = r?.gpuProfiler;
+      if (profiler?.getPassTimings) {
+        const timings = profiler.getPassTimings();
+        if (timings.length > 0) {
+          entries.push({ key: "Per-Pass GPU Timing", value: "", isHeader: true });
+          for (const t of timings) {
+            const gpu = t.gpuMs > 0 ? `gpu=${t.gpuMs.toFixed(2)}ms` : "";
+            entries.push({
+              key: t.name ?? "pass",
+              value: `cpu=${t.cpuMs.toFixed(2)}ms ${gpu} draws=${t.drawCalls} tris=${t.triangles}`.trim(),
+              isHeader: false,
+            });
+          }
+        }
+      }
+
+      // ── GPU Errors ──
+      if (profiler?.getGPUErrors) {
+        const errors = profiler.getGPUErrors();
+        if (errors.length > 0) {
+          entries.push({ key: "GPU Errors", value: "", isHeader: true });
+          for (const e of errors) {
+            entries.push({ key: e.type ?? "error", value: e.message ?? String(e), isHeader: false });
+          }
+        }
+      }
+
+      // ── Frame Graph ──
+      const frameGraph = r?.frameGraph ?? r?.getFrameGraph?.();
+      if (frameGraph) {
+        const slots = frameGraph.getSlots?.() ?? frameGraph.getSlotRegistry?.()?.getAll?.() ?? [];
+        if (slots.length > 0) {
+          entries.push({ key: "Frame Graph Passes", value: "", isHeader: true });
+          for (const s of slots) {
+            const name = typeof s === "string" ? s : (s.name ?? s.label ?? "slot");
+            entries.push({ key: name, value: "", isHeader: false });
+          }
+        }
+      }
+    } catch (err) {
+      entries.push({ key: "Error", value: String(err), isHeader: false });
+    }
+
+    // ── Frame-time history for the graph ──
+    const frameTimes: [number, number][] = [];
+    const memHistory: number[] = [];
+    try {
+      const telemetry = r?.telemetryCollector;
+      if (telemetry?.getFrameTimes) {
+        const times = telemetry.getFrameTimes();
+        for (let i = Math.max(0, times.length - 120); i < times.length; i++) {
+          frameTimes.push([times[i], 0]);
+        }
+      }
+      // Per-pass CPU+GPU totals as a secondary data point.
+      const profiler = r?.gpuProfiler;
+      if (profiler?.getPassTimings) {
+        const timings = profiler.getPassTimings();
+        if (timings.length > 0 && frameTimes.length > 0) {
+          let gpuTotal = 0;
+          for (const t of timings) gpuTotal += t.gpuMs ?? 0;
+          // Add GPU total to the most recent frame's GPU column.
+          if (frameTimes.length > 0) {
+            frameTimes[frameTimes.length - 1][1] = gpuTotal;
+          }
+        }
+      }
+      const resTracker = r?.gpuResourceTracker;
+      if (resTracker?.getStats) {
+        memHistory.push(resTracker.getStats().totalBytes);
+      }
+    } catch { /* ignore */ }
+
+    devtoolsSetGpuInfo(this.handle, encodeGpuInfo(entries, frameTimes, memHistory));
+  }
+
+  private formatBytes(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  }
+
+  /** Collect + push per-thread metrics from ProfilingSAB. */
+  async pushMetrics(): Promise<void> {
+    // Always include the main thread metrics (from performance API).
+    const slots: any[] = [{
+      slotIndex: 0,
+      name: "main",
+      runtime: 0,
+      history: [{
+        cpuPercent: 0,
+        heapUsed: (performance as any)?.memory?.usedJSHeapSize ?? 0,
+        heapTotal: (performance as any)?.memory?.totalJSHeapSize ?? 0,
+        gcPauseMaxUs: 0,
+        taskLatencyP95Us: 0,
+      }],
+    }];
+
+    if (this.profilingSAB) {
+      try {
+        const mod = await loadProfilingMod();
+        if (mod) {
+          const { ProfilingSABReader, computeProfilingSABLayout } = mod;
+          const layout = computeProfilingSABLayout();
+          if (this.profilingSAB.byteLength >= layout.byteLength) {
+            const reader = new ProfilingSABReader(this.profilingSAB, layout);
+            const snapshot = reader.readSnapshot();
+            for (const slot of snapshot.slots) {
+              slots.push({
+                slotIndex: slot.slotIndex,
+                name: slot.name || `worker-${slot.slotIndex}`,
+                runtime: slot.runtime ?? 0,
+                history: [{
+                  cpuPercent: slot.metrics?.cpuPercent ?? 0,
+                  heapUsed: slot.metrics?.heapUsed ?? 0,
+                  heapTotal: slot.metrics?.heapTotal ?? 0,
+                  gcPauseMaxUs: slot.metrics?.gcPauseMaxUs ?? 0,
+                  taskLatencyP95Us: slot.metrics?.taskLatencyP95Us ?? 0,
+                }],
+              });
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("[DevtoolsMirror] pushMetrics ProfilingSAB read failed:", err);
+      }
+    }
+
+    devtoolsSetMetrics(this.handle, encodeMetrics(slots));
+  }
+
+  /** Push a CDP profile to Rust (after Profiler.stop). */
+  pushProfile(profile: CdpProfile): void {
+    const nodes = (profile.nodes ?? []).map((n: any) => ({
+      id: n.id,
+      hitCount: n.hitCount ?? 0,
+      callFrame: n.callFrame?.functionName ?? "?",
+      url: n.callFrame?.url ?? "",
+      line: n.callFrame?.lineNumber ?? 0,
+      children: n.children ?? [],
+    }));
+    devtoolsSetProfile(this.handle, encodeProfile({
+      nodes,
+      startUs: profile.startTime ?? 0,
+      endUs: profile.endTime ?? 0,
+      samples: profile.samples ?? [],
+      timeDeltasUs: profile.timeDeltas ?? [],
+    }));
+  }
+
+  /** Clear the console in Rust. */
+  clearConsole(): void {
+    devtoolsClearConsole(this.handle);
+  }
+
+  /**
+   * Per-frame update: poll eval requests, handle refresh requests, push
+   * throttled data. Called by NativeDebuggerHost.update().
+   */
+  update(): void {
+    if (this.disposed) return;
+
+    // On first update (debugger just became visible), push all data
+    // immediately so panels aren't empty until the user clicks Refresh.
+    if (this.firstUpdate) {
+      this.firstUpdate = false;
+      this.pushSceneTree();
+      this.pushGpuInfo();
+      this.pushMetrics();
+      this.pushThreads();
+    }
+
+    // 1. Poll eval requests.
+    for (let i = 0; i < 10; i++) {
+      const req = devtoolsTakeEvalRequest(this.handle);
+      if (!req) break;
+      this.handleEvalRequest(req);
+    }
+
+    // 2. Handle refresh requests.
+    // Read the current dom tree mode from Rust (0=pixi, 1=ecs).
+    this.domTreeMode = devtoolsGetDomTreeMode(this.handle) === 1 ? "ecs" : "pixi";
+    const refresh = devtoolsTakeRefreshRequests(this.handle);
+    if (refresh & REFRESH_SCENE) this.pushSceneTree();
+    if (refresh & REFRESH_DOM) this.pushDomTree(this.domTreeMode);
+    if (refresh & REFRESH_GPU) this.pushGpuInfo();
+    if (refresh & REFRESH_METRICS) this.pushMetrics();
+    if (refresh & REFRESH_PERF_RECORD) this.startProfiling();
+    if (refresh & REFRESH_PERF_STOP) this.stopProfiling();
+
+    // 3. Throttled pushes (every 500ms).
+    const now = performance.now();
+    if (now - this.lastMetricsPush > 500) {
+      this.lastMetricsPush = now;
+      this.pushMetrics();
+      this.pushThreads();
+    }
+    if (now - this.lastGpuPush > 1000) {
+      this.lastGpuPush = now;
+      this.pushGpuInfo();
+    }
+    if (now - this.lastScenePush > 2000) {
+      this.lastScenePush = now;
+      this.pushSceneTree();
+    }
+  }
+
+  private async handleEvalRequest(req: { requestId: number; threadId: string; expr: string }): Promise<void> {
+    const evalFn = this.threadEvals.get(req.threadId) ?? (req.threadId === "main" ? this.cdpEvaluate.bind(this) : null);
+    if (!evalFn) {
+      devtoolsPushEvalResult(this.handle, req.requestId, `< no eval for thread "${req.threadId}" >`, true);
+      return;
+    }
+    try {
+      const result = await evalFn(req.expr);
+      if (result.error) {
+        devtoolsPushEvalResult(this.handle, req.requestId, result.error, true);
+      } else {
+        const text = typeof result.result === "string" ? result.result : JSON.stringify(result.result, null, 2);
+        devtoolsPushEvalResult(this.handle, req.requestId, text, false);
+      }
+    } catch (err) {
+      devtoolsPushEvalResult(this.handle, req.requestId, String(err), true);
+    }
+  }
+
+  private async cdpEvaluate(expr: string): Promise<{ result?: any; error?: string }> {
+    return this.cdp.evaluate(expr);
+  }
+
+  private startProfiling(): void {
+    try {
+      this.cdp.startProfile();
+      console.log("[DevtoolsMirror] Profiling started");
+    } catch (err) {
+      console.warn("[DevtoolsMirror] Failed to start profiling:", err);
+    }
+  }
+
+  private async stopProfiling(): Promise<void> {
+    try {
+      console.log("[DevtoolsMirror] Stopping profile...");
+      const profile = await this.cdp.stopProfile();
+      console.log("[DevtoolsMirror] Profile result:", profile ? `${profile.nodes?.length ?? 0} nodes` : "null");
+      if (profile) this.pushProfile(profile);
+    } catch (err) {
+      console.warn("[DevtoolsMirror] Failed to stop profiling:", err);
+    }
+  }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.unsubConsole?.();
+    this.unsubException?.();
+  }
+}

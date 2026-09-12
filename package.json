@@ -22,6 +22,7 @@
     "packages/app",
     "packages/asset-bake",
     "packages/core",
+    "packages/platform-native",
     "packages/ui",
     "packages/mcp",
     "packages/shader-graph",
@@ -64,17 +65,19 @@
     "typescript": "^5.9.3",
     "vite": "^6.0.0",
     "wabt": "^1.0.39",
-    "wgpu-matrix": "^3.4.2"
+    "wgpu-matrix": "^3.4.2",
+    "tsx": "^4.23.0"
   },
   "dependencies": {
     "@bokuweb/zstd-wasm": "^0.0.27",
     "@dimforge/rapier3d-compat": "^0.19.3",
     "buffer": "^6.0.3",
-    "recast-navigation": "^0.43.1",
     "comment-json": "^5.0.0",
     "fflate": "^0.8.2",
+    "koffi": "^3.2.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "recast-navigation": "^0.43.1",
     "xxh3-ts": "^2.0.1",
     "xxhash-wasm": "^0.4.2",
     "zustand": "^5.0.2"

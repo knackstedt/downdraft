@@ -6,10 +6,10 @@
 // ============================================================================
 
 import { createLogger } from "@downdraft/core";
-import { dlopen, ptr, type CFunction } from "bun:ffi";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { dlopen, ptr, type CFunction } from "../ffi/ffi-adapter.js";
 
 const log = createLogger();
 
@@ -76,7 +76,8 @@ export async function createImageBitmapNative(
 
   if (typeof source === "string") {
     // File path — first get image info, then decode
-    const fileData = await Bun.file(source).arrayBuffer();
+    const { readFile } = await import("node:fs/promises");
+    const fileData = await readFile(source);
     data = new Uint8Array(fileData);
   } else if (source instanceof Blob) {
     data = new Uint8Array(await source.arrayBuffer());

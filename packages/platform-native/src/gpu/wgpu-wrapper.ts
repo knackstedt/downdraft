@@ -1545,7 +1545,7 @@ export class WgpuCommandEncoder implements GPUCommandEncoder {
       this.ptr,
       colorCount,
       colorFlat ?? new Uint32Array(0),
-      depthFlat ?? new Uint32Array(0),
+      depthFlat,  // null when no depth attachment — shim checks `if (depth_attachment)`
       oqs?.ptr ?? null as any,
       tsFlat ?? null as any,
     ) as unknown as number;

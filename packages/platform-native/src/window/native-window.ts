@@ -367,10 +367,10 @@ function sdlToDomKeyCode(keycode: number): number {
 // ── Create wgpu surface from SDL window ──
 // This calls the C function in sdl_shim.c that creates a wgpu surface
 // from the SDL window's native handle.
-import { dlopen, type CFunction } from "bun:ffi";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { dlopen, type CFunction } from "../ffi/ffi-adapter.js";
 
 const _dirname = typeof (globalThis as any).__dirname !== "undefined"
   ? (globalThis as any).__dirname

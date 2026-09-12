@@ -733,7 +733,8 @@ async function main() {
       if (now - lastFpsTime >= 2000) {
         currentFps = Math.round((fpsFrameCount * 1000) / (now - lastFpsTime));
         useGameStore.getState().setFPS(currentFps);
-        // Debug: check sim state
+        // Debug: check sim state (only when DEBUG_FRAME_STATS is set)
+        if (process.env.DEBUG_FRAME_STATS) {
         const simReader = (renderer as any).getSimReader?.() ?? (renderer as any).simReader;
         if (simReader?.isValid()) {
           const seq = simReader.getSequence();
@@ -789,6 +790,7 @@ async function main() {
           log.info("native-entry", `Frame ${frameCount} — ${currentFps} FPS | simSeq=${seq} entities=${entityCount} (islands=${islandCount} ports=${portCount} ships=${shipCount} players=${playerCount} other=${otherCount}) types=${JSON.stringify(typeCounts)} pos=(${px.toFixed(1)},${py.toFixed(1)},${pz.toFixed(1)}) heading=${heading.toFixed(2)} camMode=${camMode} camLook=${camLookHeading.toFixed(2)} camPitch=${camLookPitch.toFixed(2)} camSyncedTick=${camLookSyncedTick} mdx=${mdx.toFixed(1)} | islandMeshes=${islandMeshCount} chunkMeshes=${islandChunkMeshCount} totalChunkMeshes=${totalChunkMeshes} empty=${islandEmptyCount} inFlight=${inFlightChunks} pending=${pendingChunks} meshPoolFallback=${meshPoolFallback} island=${islandPos} frameTris=${frameTris} entityTris=${lastFrameTris}`);
         } else {
           log.info("native-entry", `Frame ${frameCount} — ${currentFps} FPS | sim invalid`);
+        }
         }
         lastFpsTime = now;
         fpsFrameCount = 0;
