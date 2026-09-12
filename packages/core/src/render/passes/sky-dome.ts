@@ -1,3 +1,4 @@
+import { createValidatedShaderModule } from "../shader-validator";
 import type { StructView, WgslStruct } from "@downdraft/shader-graph";
 import { f32, mat4x4f, u32, vec3f, wgsl } from "@downdraft/shader-graph";
 import { type Mat4 } from "wgpu-matrix";
@@ -328,7 +329,7 @@ export class SkyDomePass extends RenderPass {
     ]);
 
     const dev = this.device;
-    this.shaderModule = dev.createShaderModule({ code: SKY_DOME_SHADER });
+    this.shaderModule = createValidatedShaderModule(dev, { code: SKY_DOME_SHADER, label: "SkyDomePass" });
     this.uniformBuffer = dev.createBuffer({ size: 256, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this._uniformBuf = new Float32Array(Uniforms.floatCount);
     this._uniformView = Uniforms.view(this._uniformBuf);

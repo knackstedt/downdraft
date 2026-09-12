@@ -1,3 +1,4 @@
+import { createValidatedShaderModule } from "../shader-validator";
 import type { StructView, WgslStruct } from "@downdraft/shader-graph";
 import { f32, mat4x4f, u32, vec3f, wgsl } from "@downdraft/shader-graph";
 import { type Mat4 } from "wgpu-matrix";
@@ -541,7 +542,7 @@ export class WaterPass extends RenderPass {
     const shoreBufSize = MAX_SHORES * SHORE_FLOATS * 4;
 
     const dev = this.device;
-    this.shaderModule = dev.createShaderModule({ code: WATER_SHADER });
+    this.shaderModule = createValidatedShaderModule(dev, { code: WATER_SHADER, label: "WaterPass" });
     this.uniformBuffer = dev.createBuffer({ size: 256, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this._uniformBuf = new Float32Array(40);
     this._uniformView = Uniforms.view(this._uniformBuf);

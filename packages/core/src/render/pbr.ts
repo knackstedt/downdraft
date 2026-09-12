@@ -4,6 +4,8 @@
 // Provides bind group layout for PBR resources shared across all entity pipelines.
 // ============================================================================
 
+import { createValidatedShaderModule } from "./shader-validator";
+
 const BRDF_LUT_SIZE = 256;
 const SAMPLE_COUNT = 1024;
 
@@ -251,7 +253,7 @@ export class PBRSystem {
       ],
     });
 
-    const shaderModule = dev.createShaderModule({ code: BRDF_LUT_SHADER });
+    const shaderModule = createValidatedShaderModule(dev, { code: BRDF_LUT_SHADER, label: "PBRSystem.brdfLUT" });
 
     this.computePipeline = dev.createComputePipeline({
       layout: dev.createPipelineLayout({ bindGroupLayouts: [this.computeBindGroupLayout] }),

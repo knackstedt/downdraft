@@ -1,3 +1,4 @@
+import { createValidatedShaderModule } from "../shader-validator";
 import type { StructView, WgslStruct } from "@downdraft/shader-graph";
 import { f32, mat4x4f, vec4f, wgsl } from "@downdraft/shader-graph";
 import { mat4, vec3, type Mat4 } from "wgpu-matrix";
@@ -75,7 +76,7 @@ export class SpotLightShadowPass extends RenderPass {
 
   prepare(_device: GPUDevice): void {
     if (!this.shaderModule) {
-      this.shaderModule = this.device.createShaderModule({ code: SPOT_SHADOW_SHADER });
+      this.shaderModule = createValidatedShaderModule(this.device, { code: SPOT_SHADOW_SHADER, label: "SpotLightShadowPass" });
     }
 
     for (let i = 0; i < MAX_SPOT_LIGHT_SHADOWS; i++) {

@@ -9,6 +9,7 @@
 // behind terrain.
 // ============================================================================
 
+import { createValidatedShaderModule } from "@downdraft/core";
 import { FULLSCREEN_VS } from "@downdraft/core";
 import { buildPalette, PALETTE_SIZE, SHADES_PER_MATERIAL } from "@downdraft/library-sand";
 import BG_FS from "../shaders/background-render.wgsl?raw";
@@ -92,7 +93,7 @@ export class BackgroundGridPass {
       ],
     });
 
-    const shader = this.device.createShaderModule({ code: FULLSCREEN_VS + "\n" + BG_FS });
+    const shader = createValidatedShaderModule(this.device, { code: FULLSCREEN_VS + "\n" + BG_FS, label: "BackgroundGridPass" });
     const pipelineLayout = this.device.createPipelineLayout({
       bindGroupLayouts: [this.bindGroupLayout],
     });

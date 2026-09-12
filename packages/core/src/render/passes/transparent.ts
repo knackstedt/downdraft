@@ -1,3 +1,4 @@
+import { createValidatedShaderModule } from "../shader-validator";
 import { type Mat4 } from "wgpu-matrix";
 import type { MeshData } from "../../mesh/builder";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
@@ -168,7 +169,7 @@ export class TransparentPass extends RenderPass {
 
   prepare(_device: GPUDevice): void {
     if (!this.shaderModule) {
-      this.shaderModule = this.device.createShaderModule({ code: TRANSPARENT_SHADER });
+      this.shaderModule = createValidatedShaderModule(this.device, { code: TRANSPARENT_SHADER, label: "TransparentPass" });
     }
 
     this.cameraBuffer = this.device.createBuffer({

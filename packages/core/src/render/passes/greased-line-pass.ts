@@ -4,6 +4,7 @@ import { type Mat4 } from "wgpu-matrix";
 import type { GreasedLineData } from "../../mesh/greased-line";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
 import { RenderPass } from "../render-pass";
+import { createValidatedShaderModule } from "../shader-validator";
 
 const CameraUniforms: WgslStruct = wgsl.struct("CameraUniforms", {
   viewProj: mat4x4f,
@@ -89,7 +90,7 @@ export class GreasedLinePass extends RenderPass {
   prepare(device: GPUDevice): void {
     if (!this.device) this.device = device;
     if (!this.shaderModule && this.device) {
-      this.shaderModule = this.device.createShaderModule({ code: GREASED_LINE_SHADER });
+      this.shaderModule = createValidatedShaderModule(this.device, { code: GREASED_LINE_SHADER, label: "GreasedLinePass" });
     }
     if (!this.cameraBuffer && this.device) {
       this.cameraBuffer = this.device.createBuffer({

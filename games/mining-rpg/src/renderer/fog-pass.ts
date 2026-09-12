@@ -7,6 +7,7 @@
 // alpha blending so explored areas show through.
 // ============================================================================
 
+import { createValidatedShaderModule } from "@downdraft/core";
 import { FULLSCREEN_VS } from "@downdraft/core";
 import FOG_FS from "../shaders/fog-render.wgsl?raw";
 
@@ -53,7 +54,7 @@ export class FogOfWarPass {
       ],
     });
 
-    const shader = this.device.createShaderModule({ code: FULLSCREEN_VS + "\n" + FOG_FS });
+    const shader = createValidatedShaderModule(this.device, { code: FULLSCREEN_VS + "\n" + FOG_FS, label: "FogPass" });
     const pipelineLayout = this.device.createPipelineLayout({
       bindGroupLayouts: [this.bindGroupLayout],
     });

@@ -1,3 +1,4 @@
+import { createValidatedShaderModule } from "../shader-validator";
 import type { WgslStruct } from "@downdraft/shader-graph";
 import { f32, mat4x4f, u32, vec3f, vec3u, wgsl } from "@downdraft/shader-graph";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
@@ -256,7 +257,7 @@ export class VolumetricLightingPass extends RenderPass {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
-    const shader = device.createShaderModule({ code: VOLUMETRIC_SCATTERING_SHADER });
+    const shader = createValidatedShaderModule(device, { code: VOLUMETRIC_SCATTERING_SHADER, label: "VolumetricLightingPass" });
     this.scatteringPipeline = device.createComputePipeline({
       label: "volumetric-scattering",
       layout: "auto",

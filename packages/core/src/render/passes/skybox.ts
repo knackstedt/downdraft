@@ -1,3 +1,4 @@
+import { createValidatedShaderModule } from "../shader-validator";
 import { type Mat4 } from "wgpu-matrix";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
 import { RenderPass } from "../render-pass";
@@ -67,7 +68,7 @@ export class SkyboxPass extends RenderPass {
 
   prepare(_device: GPUDevice): void {
     if (!this.shaderModule) {
-      this.shaderModule = this.device.createShaderModule({ code: SKYBOX_SHADER });
+      this.shaderModule = createValidatedShaderModule(this.device, { code: SKYBOX_SHADER, label: "SkyboxPass" });
     }
 
     this.cameraBuffer = this.device.createBuffer({

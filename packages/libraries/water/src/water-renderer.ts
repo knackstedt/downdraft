@@ -3,6 +3,7 @@
 // Water renderer system
 // ============================================================================
 
+import { createValidatedShaderModule } from "@downdraft/core";
 import { createLogger, destroyAll } from "@downdraft/core";
 import type { StructView, WgslStruct } from "@downdraft/shader-graph";
 import { f32, mat4x4f, u32, vec3f, wgsl } from "@downdraft/shader-graph";
@@ -636,7 +637,7 @@ export class WaterRenderer {
       alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
     };
 
-    const shaderModule = device.createShaderModule({ code: WATER_WGSL });
+    const shaderModule = createValidatedShaderModule(device, { code: WATER_WGSL, label: "WaterRenderer" });
     this.pipeline = device.createRenderPipeline({
       layout: pipelineLayout,
       vertex: {

@@ -2,6 +2,7 @@
 // Entity Renderer — facade that delegates to sub-renderers for each entity type
 // ============================================================================
 
+import { createValidatedShaderModule } from "@downdraft/core";
 import { calculateViewProj, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, SimBufferReader, type BindlessMaterialManager, type BindlessTextureRegistry } from "@downdraft/core";
 import type { MeshData, ModelData } from "@downdraft/library-models";
 import { RuntimeBoatGeometry, type BoatDesign } from "@shared/boat-design";
@@ -188,7 +189,7 @@ export class EntityRenderer {
     pbrBindGroupLayout?: GPUBindGroupLayout,
     bindlessBindGroupLayout?: GPUBindGroupLayout,
   ): Promise<void> {
-    const shaderModule = this.device.createShaderModule({ code: ENTITY_WGSL });
+    const shaderModule = createValidatedShaderModule(this.device, { code: ENTITY_WGSL, label: "EntityRenderer" });
 
     this.uniformBuffer = this.device.createBuffer({
       size: 256 * EntityRenderer.MAX_DRAW_ENTITIES,

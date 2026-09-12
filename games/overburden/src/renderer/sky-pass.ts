@@ -7,6 +7,7 @@
 // orange/pink.
 // ============================================================================
 
+import { createValidatedShaderModule } from "@downdraft/core";
 import { DEPTH_FORMAT } from "@downdraft/core";
 import type { StructView, WgslStruct } from "@downdraft/shader-graph";
 import { vec2f, vec4f, wgsl } from "@downdraft/shader-graph";
@@ -72,7 +73,7 @@ export class SkyPass {
     this._uniformBuf = new Float32Array(SkyUniformsStruct.floatCount);
     this._uniformView = SkyUniformsStruct.view(this._uniformBuf);
 
-    const shader = this.device.createShaderModule({ code: SKY_WGSL });
+    const shader = createValidatedShaderModule(this.device, { code: SKY_WGSL, label: "SkyPass" });
 
     const bindGroupLayout = this.device.createBindGroupLayout({
       entries: [

@@ -3,7 +3,7 @@
 // Generic GPU rendering logic; game provides raycast results via IRaycastProvider.
 // ============================================================================
 
-import { calculateViewProj, DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "@downdraft/core";
+import { calculateViewProj, createValidatedShaderModule, DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "@downdraft/core";
 import type { IRaycastProvider, IRaycastResult } from "./types";
 
 const RAY_MAX_DIST = 60;
@@ -120,7 +120,7 @@ export class DebugRaycast {
       entries: [{ binding: 0, resource: { buffer: this.highlightUniformBuffer } }],
     });
 
-    const shaderModule = this.device.createShaderModule({ code: DEBUG_RAY_WGSL });
+    const shaderModule = createValidatedShaderModule(this.device, { code: DEBUG_RAY_WGSL, label: "DebugRaycast" });
 
     const blendState: GPUBlendState = {
       alpha: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },

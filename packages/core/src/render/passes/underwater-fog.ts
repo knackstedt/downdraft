@@ -2,6 +2,7 @@ import type { StructView, WgslStruct } from "@downdraft/shader-graph";
 import { f32, wgsl } from "@downdraft/shader-graph";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
 import { RenderPass } from "../render-pass";
+import { createValidatedShaderModule } from "../shader-validator";
 
 // ─── Uniform structs (single source of truth for layout) ───────────────────
 const Uniforms: WgslStruct = wgsl.struct("Uniforms", {
@@ -108,7 +109,7 @@ export class UnderwaterFogPass extends RenderPass {
   prepare(_device: GPUDevice): void {
     if (this.pipeline) return;
 
-    this.shaderModule = this.device.createShaderModule({ code: UNDERWATER_FOG_SHADER });
+    this.shaderModule = createValidatedShaderModule(this.device, { code: UNDERWATER_FOG_SHADER, label: "UnderwaterFogPass" });
 
     this.uniformBuffer = this.device.createBuffer({
       size: 32,

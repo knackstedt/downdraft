@@ -4,6 +4,7 @@
 // Far-zone particles are gravity-only VFX with no collision cost.
 // ============================================================================
 
+import { createValidatedShaderModule } from "@downdraft/core";
 import type { ITrackedRenderPass } from "@downdraft/core";
 import { calculateViewProj, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, type CameraState } from "@downdraft/core";
 import { WeatherType } from "@downdraft/library-weather";
@@ -166,8 +167,8 @@ export class ParticleSystem {
 
   async init(): Promise<void> {
     const dev = this.device;
-    const computeModule = dev.createShaderModule({ code: COMPUTE_WGSL });
-    const renderModule = dev.createShaderModule({ code: RENDER_WGSL });
+    const computeModule = createValidatedShaderModule(dev, { code: COMPUTE_WGSL, label: "WeatherFx.particleCompute" });
+    const renderModule = createValidatedShaderModule(dev, { code: RENDER_WGSL, label: "WeatherFx.particleRender" });
 
     // --- Buffers ---
     this.particleBuffer = dev.createBuffer({

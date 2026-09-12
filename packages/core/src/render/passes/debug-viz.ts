@@ -1,3 +1,4 @@
+import { createValidatedShaderModule } from "../shader-validator";
 import { type Mat4 } from "wgpu-matrix";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
 import { RenderPass } from "../render-pass";
@@ -74,7 +75,7 @@ export class DebugVizPass extends RenderPass {
     ];
 
     for (const [mode, code] of meshShaders) {
-      const module = device.createShaderModule({ code });
+      const module = createValidatedShaderModule(device, { code, label: "DebugViz" });
       const primitive: GPUPrimitiveState = mode === "wireframe"
         ? { topology: "line-list" }
         : { topology: "triangle-list" };
@@ -123,7 +124,7 @@ export class DebugVizPass extends RenderPass {
     }
 
     // AABB pipeline (line-list, position-only vertices)
-    const aabbModule = device.createShaderModule({ code: AABB_SHADER });
+    const aabbModule = createValidatedShaderModule(device, { code: AABB_SHADER, label: "DebugViz.aabb" });
     this.aabbPipeline = device.createRenderPipeline({
       layout: "auto",
       vertex: {

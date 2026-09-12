@@ -1,3 +1,4 @@
+import { createValidatedShaderModule } from "@downdraft/core";
 import { DEPTH_FORMAT, ENT, MSAA_SAMPLE_COUNT, SimBufferReader } from "@downdraft/core";
 import { ANCHOR_BOW_OFFSET, ANCHOR_DEPTH } from "@shared/constants";
 import { EntityType } from "@shared/types";
@@ -148,7 +149,7 @@ export class AnchorRenderer {
     this.chainLinkIndexCount = chainIdx.length;
 
     const dev = device;
-    const boatShaderModule = dev.createShaderModule({ code: BOAT_WGSL });
+    const boatShaderModule = createValidatedShaderModule(dev, { code: BOAT_WGSL, label: "AnchorRenderer" });
     this.anchorMeshVerts = dev.createBuffer({
       size: anchorVerts.byteLength,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,

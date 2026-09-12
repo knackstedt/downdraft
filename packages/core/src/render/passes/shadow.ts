@@ -1,3 +1,4 @@
+import { createValidatedShaderModule } from "../shader-validator";
 import { mat4, vec3, type Mat4 } from "wgpu-matrix";
 import type { MeshData } from "../../mesh/builder";
 import { PassType, type FrameGraphBuilder, type GraphRenderContext, type TextureHandle } from "../frame-graph";
@@ -48,7 +49,7 @@ export class ShadowPass extends RenderPass {
 
   prepare(_device: GPUDevice): void {
     if (!this.shaderModule) {
-      this.shaderModule = this.device.createShaderModule({ code: SHADOW_SHADER });
+      this.shaderModule = createValidatedShaderModule(this.device, { code: SHADOW_SHADER, label: "ShadowPass" });
     }
 
     this.shadowTexture = this.device.createTexture({

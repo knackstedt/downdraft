@@ -4,6 +4,7 @@
 // Layers scroll with the player and drift with wind.
 // ============================================================================
 
+import { createValidatedShaderModule } from "@downdraft/core";
 import { calculateViewProj, createLogger, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, type CameraState } from "@downdraft/core";
 import { WeatherType } from "@downdraft/library-weather";
 import { StructView, wgsl } from "@downdraft/shader-graph";
@@ -104,7 +105,7 @@ export class CloudSystem {
       bindGroupLayouts: [this.bindGroupLayout],
     });
 
-    const shaderModule = this.device.createShaderModule({ code: CLOUD_WGSL });
+    const shaderModule = createValidatedShaderModule(this.device, { code: CLOUD_WGSL, label: "WeatherFx.cloud" });
 
     this.pipeline = this.device.createRenderPipeline({
       layout: pipelineLayout,

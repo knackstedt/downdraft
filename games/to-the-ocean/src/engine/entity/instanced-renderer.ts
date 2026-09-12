@@ -1,3 +1,4 @@
+import { createValidatedShaderModule } from "@downdraft/core";
 import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "@downdraft/core";
 import { MAX_ENTITIES } from "@shared/constants";
 import { EntityType } from "@shared/types";
@@ -43,7 +44,7 @@ export class InstancedEntityRenderer {
     this.cubeIndexCount = cubeIndexCount;
 
     const dev = device;
-    const instancedShaderModule = dev.createShaderModule({ code: INSTANCED_ENTITY_WGSL });
+    const instancedShaderModule = createValidatedShaderModule(dev, { code: INSTANCED_ENTITY_WGSL, label: "InstancedRenderer" });
     this.instancedFrameUniformBuffer = dev.createBuffer({
       size: 256,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,

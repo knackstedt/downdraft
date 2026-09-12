@@ -7,6 +7,7 @@
 // grid texture instead of mapping the whole grid to the screen.
 // ============================================================================
 
+import { createValidatedShaderModule } from "@downdraft/core";
 import { FULLSCREEN_VS } from "@downdraft/core";
 import {
     buildMaterialProps,
@@ -117,7 +118,7 @@ export class SandGridPass {
       ],
     });
 
-    const shader = this.device.createShaderModule({ code: FULLSCREEN_VS + "\n" + SAND_FS });
+    const shader = createValidatedShaderModule(this.device, { code: FULLSCREEN_VS + "\n" + SAND_FS, label: "SandGridPass" });
     const pipelineLayout = this.device.createPipelineLayout({
       bindGroupLayouts: [this.bindGroupLayout],
     });

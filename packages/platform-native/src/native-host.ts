@@ -12,7 +12,7 @@
 // This is the entry point for native game execution under Bun.
 // ============================================================================
 
-import { createLogger } from "@downdraft/core";
+import { createLogger, installShaderValidationGuard } from "@downdraft/core";
 import { installAssetGlob } from "./assets/native-assets";
 import { installGPU } from "./gpu/install";
 import { VirtualCanvas } from "./gpu/virtual-canvas-context";
@@ -64,6 +64,11 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
       maxTextureArrayLayers: 256,
     },
   });
+
+  // Install the shader validation guard so all createShaderModule calls
+  // route through getCompilationInfo() validation. This catches malformed
+  // shaders at startup/bake time before they reach the render pipeline.
+  installShaderValidationGuard(device);
 
   // 4. Configure the surface context
   const ctx = surface.getContext("webgpu")!;

@@ -1,3 +1,4 @@
+import { createValidatedShaderModule } from "@downdraft/core";
 import { FULLSCREEN_VS } from "@downdraft/core";
 import { buildMaterialProps, buildPalette, PALETTE_SIZE, SHADES_PER_MATERIAL } from "@downdraft/library-sand";
 import SAND_FS from "../shaders/sand-render.wgsl?raw";
@@ -76,7 +77,7 @@ export class SandGridPass {
       ],
     });
 
-    const shader = this.device.createShaderModule({ code: FULLSCREEN_VS + "\n" + SAND_FS });
+    const shader = createValidatedShaderModule(this.device, { code: FULLSCREEN_VS + "\n" + SAND_FS, label: "SandGridPass" });
     const pipelineLayout = this.device.createPipelineLayout({
       bindGroupLayouts: [this.bindGroupLayout],
     });

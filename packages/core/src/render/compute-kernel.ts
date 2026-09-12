@@ -4,6 +4,8 @@
 // dispatch once, and read back results. No graph, no frame graph, no editor.
 // ============================================================================
 
+import { createValidatedShaderModule } from "./shader-validator";
+
 /** GPUBufferUsage flags. Defined locally for testability. */
 const BUFFER_USAGE = {
   UNIFORM: 0x40,
@@ -125,7 +127,7 @@ export async function runComputeKernel(
   const bindGroupLayout = device.createBindGroupLayout({ entries: layoutEntries });
   const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] });
 
-  const shaderModule = device.createShaderModule({ code: wgsl });
+  const shaderModule = createValidatedShaderModule(device, { code: wgsl, label: "ComputeKernel" });
   const pipeline = device.createComputePipeline({
     layout: pipelineLayout,
     compute: { module: shaderModule, entryPoint },

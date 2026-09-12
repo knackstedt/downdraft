@@ -1330,6 +1330,41 @@ export class WgpuShaderModule implements GPUShaderModule {
     this.ptr = ptr;
     this.code = code;
   }
+
+  /**
+   * Returns compilation info (errors/warnings/info) for this shader module.
+   * Calls the C shim which polls wgpuInstanceProcessEvents until the
+   * callback fires, then parses the JSON result into GPUCompilationInfo.
+   */
+  getCompilationInfo(): Promise<GPUCompilationInfo> {
+    try {
+      const jsonStr = wgpu.wgpu_shim_shader_get_compilation_info(this.ptr);
+      // bun:ffi cstring returns a JS string — no manual free needed since
+      // bun:ffi copies it. (wgpu_shim_free_string is for the C-side malloc,
+      // which bun:ffi's cstring decoder already handles by copying.)
+      const raw = JSON.parse(jsonStr || "[]") as Array<{
+        type: string;
+        message: string;
+        line: number;
+        col: number;
+        offset: number;
+        length: number;
+      }>;
+      const messages: GPUCompilationMessage[] = raw.map((m) => ({
+        type: m.type as GPUCompilationMessageType,
+        message: m.message,
+        lineNum: m.line,
+        linePos: m.col,
+        offset: m.offset,
+        length: m.length,
+        utf16LineOffset: 0,
+      }));
+      return Promise.resolve({ messages });
+    } catch {
+      // If FFI call fails or JSON is malformed, return empty info.
+      return Promise.resolve({ messages: [] });
+    }
+  }
 }
 
 // ============================================================================

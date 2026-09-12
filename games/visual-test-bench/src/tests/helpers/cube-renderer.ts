@@ -5,6 +5,8 @@
 // moving agents. Extracted from the plugin-tester's SimpleRenderer.
 // ============================================================================
 
+
+import { createValidatedShaderModule } from "@downdraft/core";
 const CUBE_VS = /* wgsl */ `
 struct Uniforms {
   viewProj: mat4x4<f32>,
@@ -178,7 +180,7 @@ export class CubeRenderer {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
-    const shaderModule = this.device.createShaderModule({ code: CUBE_VS });
+    const shaderModule = createValidatedShaderModule(this.device, { code: CUBE_VS, label: "CubeRenderer" });
     this.pipeline = this.device.createRenderPipeline({
       layout: "auto",
       vertex: {

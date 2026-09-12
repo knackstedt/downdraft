@@ -18,6 +18,7 @@
 //   - Wild crops render at full size (0.85)
 // ============================================================================
 
+import { createValidatedShaderModule } from "@downdraft/core";
 import { DEPTH_FORMAT } from "@downdraft/core";
 import type { StructView, WgslStruct } from "@downdraft/shader-graph";
 import { f32, mat4x4f, wgsl } from "@downdraft/shader-graph";
@@ -174,7 +175,7 @@ export class CropSpritePass {
   }
 
   init(): void {
-    const shader = this.device.createShaderModule({ code: CROP_WGSL });
+    const shader = createValidatedShaderModule(this.device, { code: CROP_WGSL, label: "CropSpritePass" });
 
     // Uniform buffer: mat4x4 (64 bytes) + 4 floats (16 bytes) = 80 bytes
     this.uniformBuffer = this.device.createBuffer({

@@ -17,8 +17,10 @@
 // with the engine's buffer management patterns.
 // ============================================================================
 
+
 // ── Constants ──
 
+import { createValidatedShaderModule } from "@downdraft/core";
 export const DEFAULT_TILE_SIZE = 16;
 export const DEFAULT_MAX_SPLATS_PER_TILE = 256;
 const WORKGROUP_SIZE = 64;
@@ -239,8 +241,8 @@ export class TileRasterPipeline {
 
     // ── Shader modules ──
 
-    const binModule = device.createShaderModule({ code: TILE_BIN_WGSL });
-    const rasterModule = device.createShaderModule({ code: TILE_RASTER_WGSL });
+    const binModule = createValidatedShaderModule(device, { code: TILE_BIN_WGSL, label: "TileRaster.bin" });
+    const rasterModule = createValidatedShaderModule(device, { code: TILE_RASTER_WGSL, label: "TileRaster.raster" });
 
     // ── Pipelines ──
 

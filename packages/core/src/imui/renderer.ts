@@ -1,3 +1,4 @@
+import { createValidatedShaderModule } from "../render/shader-validator";
 import { StructView, wgsl } from "@downdraft/shader-graph";
 import type { GraphRenderContext } from "..";
 import type { UIDrawable } from "./element";
@@ -78,11 +79,11 @@ export class UIRenderer {
     this._screenBuf = new Float32Array(ScreenUniformsStruct.floatCount);
     this._screenView = ScreenUniformsStruct.view(this._screenBuf);
 
-    this.quadShaderModule = device.createShaderModule({ code: QUAD_SHADER });
-    this.textShaderModule = device.createShaderModule({ code: TEXT_SHADER });
-    this.imageShaderModule = device.createShaderModule({ code: IMAGE_SHADER });
-    this.canvasTextShaderModule = device.createShaderModule({ code: CANVAS_TEXT_SHADER });
-    this.lineShaderModule = device.createShaderModule({ code: LINE_SHADER });
+    this.quadShaderModule = createValidatedShaderModule(device, { code: QUAD_SHADER, label: "ImUI.quad" });
+    this.textShaderModule = createValidatedShaderModule(device, { code: TEXT_SHADER, label: "ImUI.text" });
+    this.imageShaderModule = createValidatedShaderModule(device, { code: IMAGE_SHADER, label: "ImUI.image" });
+    this.canvasTextShaderModule = createValidatedShaderModule(device, { code: CANVAS_TEXT_SHADER, label: "ImUI.canvasText" });
+    this.lineShaderModule = createValidatedShaderModule(device, { code: LINE_SHADER, label: "ImUI.line" });
     this.textCache = new TextAtlasCache(device);
 
     this.quadVertexBuffer = device.createBuffer({

@@ -3,6 +3,7 @@ import { f32, mat4x4f, u32, vec2f, vec3f, wgsl } from "@downdraft/shader-graph";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
 import { PassType } from "../frame-graph";
 import { RenderPass } from "../render-pass";
+import { createValidatedShaderModule } from "../shader-validator";
 import { DEFAULT_RSM_CONFIG, type RSMConfig, VPL_FLOATS, packVPLsToBuffer } from "./gi-types";
 
 const RSMUniforms: WgslStruct = wgsl.struct("RSMUniforms", {
@@ -187,7 +188,7 @@ export class RSMPass extends RenderPass {
     this._uniformBuf = new Float32Array(RSMUniforms.floatCount);
     this._uniformView = RSMUniforms.view(this._uniformBuf);
 
-    const shader = device.createShaderModule({ code: RSM_INJECT_SHADER });
+    const shader = createValidatedShaderModule(device, { code: RSM_INJECT_SHADER, label: "RSMPass.inject" });
     this.injectPipeline = device.createComputePipeline({
       label: "rsm-inject",
       layout: "auto",

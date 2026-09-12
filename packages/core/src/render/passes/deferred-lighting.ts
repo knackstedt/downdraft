@@ -1,3 +1,4 @@
+import { createValidatedShaderModule } from "../shader-validator";
 import { type Mat4 } from "wgpu-matrix";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
 import type { GBufferViews } from "../g-buffer";
@@ -250,7 +251,7 @@ export class DeferredLightingPass extends RenderPass {
 
   prepare(_device: GPUDevice): void {
     if (!this.shaderModule) {
-      this.shaderModule = this.device.createShaderModule({ code: DEFERRED_SHADER });
+      this.shaderModule = createValidatedShaderModule(this.device, { code: DEFERRED_SHADER, label: "DeferredLightingPass" });
     }
 
     this.cameraBuffer = this.device.createBuffer({

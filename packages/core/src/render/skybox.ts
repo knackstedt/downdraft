@@ -1,3 +1,5 @@
+import { createValidatedShaderModule } from "./shader-validator";
+
 const SKYBOX_SHADER = /* wgsl */ `
 struct CameraUniforms {
   viewProj: mat4x4<f32>,
@@ -79,7 +81,7 @@ export class SkyboxRenderer {
       ],
     });
 
-    const shaderModule = this.device.createShaderModule({ code: SKYBOX_SHADER });
+    const shaderModule = createValidatedShaderModule(this.device, { code: SKYBOX_SHADER, label: "SkyboxPass" });
 
     this.pipeline = this.device.createRenderPipeline({
       layout: this.device.createPipelineLayout({ bindGroupLayouts: [this.bindGroupLayout] }),

@@ -1,3 +1,4 @@
+import { createValidatedShaderModule } from "@downdraft/core";
 import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "@downdraft/core";
 import type { MeshData, ModelData } from "@downdraft/library-models";
 import { MAX_BONES } from "@shared/constants";
@@ -93,7 +94,7 @@ export class PlayerMeshRenderer {
     }
 
     // Player pipeline — group 0 has only the uniform (bindless textures via @group(3))
-    const playerShaderModule = dev.createShaderModule({ code: PLAYER_WGSL });
+    const playerShaderModule = createValidatedShaderModule(dev, { code: PLAYER_WGSL, label: "PlayerMeshRenderer.player" });
     const playerBindGroupLayout = dev.createBindGroupLayout({
       entries: [
         { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform", hasDynamicOffset: true } },
@@ -148,7 +149,7 @@ export class PlayerMeshRenderer {
     });
 
     // Skinned player pipeline — group 0 has uniform + bone storage (bindless textures via @group(3))
-    const skinnedPlayerShaderModule = dev.createShaderModule({ code: SKINNED_PLAYER_WGSL });
+    const skinnedPlayerShaderModule = createValidatedShaderModule(dev, { code: SKINNED_PLAYER_WGSL, label: "PlayerMeshRenderer.skinned" });
     const skinnedPlayerBindGroupLayout = dev.createBindGroupLayout({
       entries: [
         { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform", hasDynamicOffset: true } },
@@ -162,7 +163,7 @@ export class PlayerMeshRenderer {
     });
 
     // Skinning compute pipeline
-    const skinningComputeShaderModule = dev.createShaderModule({ code: SKINNING_COMPUTE_WGSL });
+    const skinningComputeShaderModule = createValidatedShaderModule(dev, { code: SKINNING_COMPUTE_WGSL, label: "PlayerMeshRenderer.skinningCompute" });
     const skinningComputeBindGroupLayout = dev.createBindGroupLayout({
       entries: [
         { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },

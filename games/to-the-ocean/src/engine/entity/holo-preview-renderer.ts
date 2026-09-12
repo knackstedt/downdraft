@@ -1,3 +1,4 @@
+import { createValidatedShaderModule } from "@downdraft/core";
 import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "@downdraft/core";
 import { BOAT_CELL_WORLD_SIZE, BOAT_LAYER_HEIGHT, BoatCellType } from "@shared/constants";
 import type { BoatBufferReader } from "@to-the-ocean/library-boats/boat-sab";
@@ -57,7 +58,7 @@ export class HoloPreviewRenderer {
     const format = this.ctx.format;
 
     const dev = device;
-    const holoShaderModule = dev.createShaderModule({ code: HOLO_WGSL });
+    const holoShaderModule = createValidatedShaderModule(dev, { code: HOLO_WGSL, label: "HoloPreviewRenderer" });
     this.holoPipeline = dev.createRenderPipeline({
       layout: litPipelineLayout,
       vertex: {

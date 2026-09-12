@@ -1,3 +1,4 @@
+import { createValidatedShaderModule } from "../shader-validator";
 import { type Mat4 } from "wgpu-matrix";
 import type { MeshData } from "../../mesh/builder";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
@@ -41,7 +42,7 @@ export class DepthPrepass extends RenderPass {
 
   prepare(_device: GPUDevice): void {
     if (!this.shaderModule) {
-      this.shaderModule = this.device.createShaderModule({ code: DEPTH_PREPASS_SHADER });
+      this.shaderModule = createValidatedShaderModule(this.device, { code: DEPTH_PREPASS_SHADER, label: "DepthPrepass" });
     }
 
     this.cameraBuffer = this.device.createBuffer({

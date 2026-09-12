@@ -1,3 +1,4 @@
+import { createValidatedShaderModule } from "@downdraft/core";
 import {
     buildThickLineIndices,
     buildThickLineVertices,
@@ -89,7 +90,7 @@ export class StickmanPass {
     });
     this.device.queue.writeBuffer(this.indexBuffer, 0, indices as unknown as BufferSource);
 
-    const shader = this.device.createShaderModule({ code: STICKMAN_WGSL });
+    const shader = createValidatedShaderModule(this.device, { code: STICKMAN_WGSL, label: "StickmanPass" });
 
     this.bindGroupLayout = this.device.createBindGroupLayout({
       entries: [
