@@ -103,6 +103,8 @@ export interface PropSpawnedData {
   texture?: string;
   /** Stub: shader-override id (not yet applied by the renderer). */
   shader?: string;
+  /** Per-prop jelly deformation on impact (independent of the global Squishy fun mode). */
+  squishy?: boolean;
 }
 
 export interface PropRemovedData {
@@ -141,7 +143,7 @@ export interface SandboxSimMessage {
 // --- Sim commands (renderer→sim) ---
 
 export type SimCommand =
-  | { type: "spawn"; contentId: string; position: [number, number, number]; rotation?: [number, number, number, number]; physics?: { mass?: number; restitution?: number; friction?: number; gravityScale?: number }; shape?: "box" | "sphere"; scale?: number; strength?: number; texture?: string; shader?: string }
+  | { type: "spawn"; contentId: string; position: [number, number, number]; rotation?: [number, number, number, number]; physics?: { mass?: number; restitution?: number; friction?: number; gravityScale?: number }; shape?: "box" | "sphere"; scale?: number; strength?: number; texture?: string; shader?: string; squishy?: boolean }
   | { type: "remove"; entityId: number }
   | { type: "clear" }
   | { type: "setFunMode"; mode: FunMode }

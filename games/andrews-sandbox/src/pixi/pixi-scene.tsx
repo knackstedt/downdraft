@@ -86,6 +86,7 @@ export default async function createSandboxScene(ctx: PixiUiSceneContext): Promi
     mass: 1.0, restitution: 0.3, friction: 0.5, gravityScale: 1.0,
     scale: 1.0, shape: "box",
     strength: 100, texture: "Default", shader: "Standard",
+    squishy: false,
   };
 
   // ── UI Containers ──
@@ -523,6 +524,21 @@ export default async function createSandboxScene(ctx: PixiUiSceneContext): Promi
     sphereBtn.eventMode = "static"; sphereBtn.cursor = "pointer";
     sphereBtn.onclick = () => { settings.shape = "sphere"; buildSettingsPanel(); };
     settingsPanel.addChild(sphereBtn);
+    y += 24;
+
+    // Squishy toggle — per-prop jelly deformation on impact
+    const squishyLabel = new Text({ text: "Squishy:", style: { fill: C_TEXT_DIM, fontSize: 12, fontFamily: "Segoe UI, Arial, sans-serif" } });
+    squishyLabel.x = x; squishyLabel.y = y;
+    settingsPanel.addChild(squishyLabel);
+    y += 18;
+    const squishyBtn = new Text({
+      text: settings.squishy ? "[On]" : "Off",
+      style: { fill: settings.squishy ? C_ACCENT : C_TEXT, fontSize: 13, fontFamily: "Segoe UI, Arial, sans-serif" },
+    });
+    squishyBtn.x = x; squishyBtn.y = y;
+    squishyBtn.eventMode = "static"; squishyBtn.cursor = "pointer";
+    squishyBtn.onclick = () => { settings.squishy = !settings.squishy; buildSettingsPanel(); };
+    settingsPanel.addChild(squishyBtn);
     y += 24;
 
     // Texture dropdown (stub)

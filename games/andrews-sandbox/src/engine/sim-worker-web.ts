@@ -90,6 +90,8 @@ interface PropRecord {
   texture?: string;
   /** Stub: shader-override id (not yet applied by the renderer). */
   shader?: string;
+  /** Per-prop jelly deformation on impact (independent of the global Squishy fun mode). */
+  squishy?: boolean;
 }
 const propRecords = new Map<number, PropRecord>(); // entityId → record
 // Active physgun grabs: entityId → { mode, targetPos }. The tick loop drives
@@ -120,8 +122,12 @@ interface SquishState {
   amount: number;    // current compression along `axis` (0 = rest, + = compressed, - = stretched)
   velocity: number;  // spring velocity (rate of change of amount)
   axis: number;      // 0=x, 1=y, 2=z (prop local frame)
+  dir: number;       // impact-side sign along `axis` (-1 or +1); -dir is the far side (stays fixed)
 }
 const squishStates = new Map<number, SquishState>(); // entityId → state
+// Count of props spawned with the per-prop `squishy` flag. Contact extraction
+// is enabled while the global Squishy fun mode is active OR any prop is squishy.
+let squishyPropCount = 0;
 // Pre-step linear velocity snapshot — captured before stepNearRealm so the
 // post-step contact pass can compute the pre-bounce impact speed.
 const prevVelocities = new Map<number, [number, number, number]>();
@@ -133,6 +139,23 @@ const SQUISH_IMPULSE_GAIN = 1.2;   // spring velocity impulse per m/s above thre
 const SQUISH_MAX = 0.4;            // cap compression along one axis
 const SQUISH_K = 200;             // spring stiffness (pulls amount back to 0)
 const SQUISH_C = 8;               // damping (underdamped — slight overshoot wobble)
+
+// Squish is active when the global Squishy fun mode is on OR any spawned prop
+// carries the per-prop `squishy` flag. Gates contact extraction (expensive) and
+// the per-tick velocity snapshot used to compute impact speeds.
+function squishActive(): boolean {
+  return currentFunMode === FunMode.Squishy || squishyPropCount > 0;
+}
+// A prop deforms on impact if it was spawned squishy OR the global Squishy fun
+// mode is forcing all props to be jelly.
+function propIsSquishy(record: PropRecord): boolean {
+  return record.squishy === true || currentFunMode === FunMode.Squishy;
+}
+// Toggle Rapier contact manifold extraction on/off to match `squishActive()`.
+// Leaving it on when nothing needs contacts wastes ~43% of step time.
+function updateExtractContacts(): void {
+  if (physicsBackend) physicsBackend.extractContacts = squishActive();
+}
 
 const events = exposeEvents();
 const onEvent = (msg: SandboxSimMessage) => { events.emit(msg.kind, msg.data); };
@@ -287,6 +310,7 @@ function spawnProp(
   // not yet consumed by any system. Threaded through so the asset browser can
   // expose them and future work can pick them up without touching the contract.
   stubs?: { strength?: number; texture?: string; shader?: string },
+  squishy?: boolean,
 ): number {
   // entityId MUST equal slotIdx + 1 — the renderer's prop_spawned handler
   // writes nodeId to (entityId - 1) * stride + offset in the SAB, and the
@@ -334,9 +358,14 @@ function spawnProp(
     shape: propShape, halfExtents: [halfExt, halfExt, halfExt], radius: radius,
     mass, restitution, friction, gravityScale,
     strength: stubs?.strength, texture: stubs?.texture, shader: stubs?.shader,
+    squishy: squishy === true,
   });
+  if (squishy === true) {
+    squishyPropCount++;
+    updateExtractContacts();
+  }
 
-  events.emit("prop_spawned", { entityId, contentId, nodeId: 0, position, quaternion: rot, scale: propScale, paintable: true, strength: stubs?.strength, texture: stubs?.texture, shader: stubs?.shader });
+  events.emit("prop_spawned", { entityId, contentId, nodeId: 0, position, quaternion: rot, scale: propScale, paintable: true, strength: stubs?.strength, texture: stubs?.texture, shader: stubs?.shader, squishy: squishy === true });
   return entityId;
 }
 
@@ -360,6 +389,10 @@ function removeProp(entityId: number): void {
   grabbedProps.delete(entityId);
   squishStates.delete(entityId);
   prevVelocities.delete(entityId);
+  if (record.squishy === true) {
+    squishyPropCount--;
+    updateExtractContacts();
+  }
   events.emit("prop_removed", { entityId });
 }
 
@@ -375,6 +408,8 @@ function clearProps(): void {
   prevVelocities.clear();
   nextSlotIdx = 0;
   freeSlots.length = 0;
+  squishyPropCount = 0;
+  updateExtractContacts();
   simWriter!.setEntityCount(0);
 }
 
@@ -386,10 +421,9 @@ function setFunMode(mode: FunMode): void {
   grabbedProps.clear();
   // Squishy mode needs contact manifolds to detect bounces; the default config
   // disables extraction for perf. Toggle it on the backend at runtime. Leaving
-  // it on when not in Squishy would waste ~43% of step time.
-  if (physicsBackend) {
-    physicsBackend.extractContacts = mode === FunMode.Squishy;
-  }
+  // it on when nothing needs contacts would waste ~43% of step time. This also
+  // stays on when individual props are spawned squishy (see updateExtractContacts).
+  updateExtractContacts();
   const gravityScale = mode === FunMode.Moon ? 0.16 : mode === FunMode.ZeroG ? 0 : 1.0;
   const restitution = mode === FunMode.Bouncy ? 0.95 : mode === FunMode.Squishy ? 0.7 : 0.3;
   const friction = mode === FunMode.Bouncy ? 0.1 : mode === FunMode.Squishy ? 0.3 : 0.5;
@@ -420,7 +454,7 @@ function setFunMode(mode: FunMode): void {
 function processCommand(cmd: SimCommand): void {
   switch (cmd.type) {
     case "spawn":
-      spawnProp(cmd.contentId, cmd.position, cmd.rotation, cmd.physics, cmd.shape, cmd.scale, { strength: cmd.strength, texture: cmd.texture, shader: cmd.shader });
+      spawnProp(cmd.contentId, cmd.position, cmd.rotation, cmd.physics, cmd.shape, cmd.scale, { strength: cmd.strength, texture: cmd.texture, shader: cmd.shader }, cmd.squishy);
       break;
     case "remove":
       removeProp(cmd.entityId);
@@ -651,8 +685,9 @@ function syncTransforms(): void {
 
 // ── Squish: detect bounce impacts from contacts and drive per-prop deformation ──
 // Runs every tick. The spring integration always runs (so a prop never freezes
-// deformed when switching out of Squishy); the contact-detection portion only
-// runs in Squishy mode, where extractContacts is enabled on the backend.
+// deformed when switching out of Squishy / removing its squishy flag); the
+// contact-detection portion only runs while squish is active (global Squishy
+// fun mode OR any spawned squishy prop), where extractContacts is enabled.
 function updateSquish(dt: number): void {
   // Integrate the spring for existing squish states (always — smooth recovery
   // even after leaving Squishy mode). Settled states zero their SAB slots so
@@ -673,23 +708,26 @@ function updateSquish(dt: number): void {
         squishStates.delete(entityId);
         const record = propRecords.get(entityId);
         if (record && simWriter) {
-          simWriter.getEntityF32(record.slotIdx)[ENT_DATA.SQUISH_AMOUNT + ENT.DATA] = 0;
+          const f32 = simWriter.getEntityF32(record.slotIdx);
+          f32[ENT_DATA.SQUISH_AMOUNT + ENT.DATA] = 0;
+          f32[ENT_DATA.SQUISH_AXIS + ENT.DATA] = 0;
           simWriter.markEntityDirty(record.slotIdx);
         }
         continue;
       }
-      // Write the animated value to the SAB each tick.
+      // Write the animated value to the SAB each tick. The axis slot stores a
+      // signed code (dir * (axis+1)) so the renderer knows which face was hit.
       const record = propRecords.get(entityId);
       if (record && simWriter) {
         const f32 = simWriter.getEntityF32(record.slotIdx);
         f32[ENT_DATA.SQUISH_AMOUNT + ENT.DATA] = state.amount;
-        f32[ENT_DATA.SQUISH_AXIS + ENT.DATA] = state.axis;
+        f32[ENT_DATA.SQUISH_AXIS + ENT.DATA] = state.dir * (state.axis + 1);
         simWriter.markEntityDirty(record.slotIdx);
       }
     }
   }
 
-  if (currentFunMode !== FunMode.Squishy || !physicsApi || !simWriter) return;
+  if (!squishActive() || !physicsApi || !simWriter) return;
 
   // Read the fresh contact manifolds produced by this step.
   const contacts = physicsApi.getContacts();
@@ -712,6 +750,9 @@ function applySquishImpact(
 ): void {
   const record = propRecords.get(entityId);
   if (!record || !physicsApi || !simWriter) return;
+  // Only deform props that are squishy (per-prop flag) or when the global
+  // Squishy fun mode is forcing all props to be jelly.
+  if (!propIsSquishy(record)) return;
   const prevVel = prevVelocities.get(entityId);
   if (!prevVel) return;
   // Pre-step velocity along the normal, signed so positive = moving into the
@@ -740,14 +781,20 @@ function applySquishImpact(
   const lnz = 2 * dot * uz + (us * us - uu) * nz + 2 * us * cz;
   const ax = Math.abs(lnx), ay = Math.abs(lny), az = Math.abs(lnz);
   const axis = ax >= ay && ax >= az ? 0 : ay >= az ? 1 : 2;
+  // Impact-side sign along the axis, in the prop's local frame. The contact
+  // normal points A→B: for entity A it points toward A's impact face, for
+  // entity B it points into B from its impact face (opposite). normalSign
+  // flips the sense so `dir` is consistently the side that was hit.
+  const lnDom = axis === 0 ? lnx : axis === 1 ? lny : lnz;
+  const dir = normalSign * (lnDom >= 0 ? 1 : -1);
 
   // Add the impulse to the existing state (accumulate rapid impacts). If the
-  // axis changed (hit from a different direction), reset to the new axis.
+  // axis or impact side changed (hit from a different direction), reset.
   const existing = squishStates.get(entityId);
-  if (existing && existing.axis === axis) {
+  if (existing && existing.axis === axis && existing.dir === dir) {
     existing.velocity += impulse;
   } else {
-    squishStates.set(entityId, { amount: existing?.amount ?? 0, velocity: impulse, axis });
+    squishStates.set(entityId, { amount: existing?.amount ?? 0, velocity: impulse, axis, dir });
   }
 }
 
@@ -767,6 +814,7 @@ function saveState(): string {
       restitution: record.restitution,
       friction: record.friction,
       gravityScale: record.gravityScale,
+      squishy: record.squishy === true,
     });
   }
   return JSON.stringify({ props, funMode: currentFunMode, pose: currentPose, playerPos: [...playerPos], version: 1 });
@@ -799,6 +847,8 @@ async function restoreState(stateJson: string): Promise<void> {
       { mass: prop.mass, restitution: prop.restitution, friction: prop.friction, gravityScale: prop.gravityScale },
       prop.shape,
       prop.scale,
+      undefined,
+      prop.squishy === true,
     );
   }
   // Re-apply fun mode to restored props
@@ -827,7 +877,7 @@ expose({
         if (physicsApi && grabbedProps.size > 0) driveSolidGrabs(dt);
         // Snapshot pre-step velocities so the post-step contact pass can compute
         // the pre-bounce impact speed (after step(), velocities are resolved).
-        if (physicsApi && currentFunMode === FunMode.Squishy) {
+        if (physicsApi && squishActive()) {
           for (const [eid, rec] of propRecords) {
             physicsApi.getLinearVelocityRaw(rec.body, _velOut);
             prevVelocities.set(eid, [_velOut[0], _velOut[1], _velOut[2]]);

@@ -58,6 +58,8 @@ export interface SpawnSettings {
   texture: string;
   /** Stub: shader-override id (not yet applied). */
   shader: string;
+  /** Per-prop jelly deformation on impact (independent of the global Squishy fun mode). */
+  squishy: boolean;
 }
 
 // ── Actions (worker→main side effects) ──

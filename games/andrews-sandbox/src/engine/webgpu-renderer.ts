@@ -2126,17 +2126,22 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
       const py = interp ? interp[ioff + 1]   : f32[ENT.POS_Y];
       const pz = interp ? interp[ioff + 2]   : f32[ENT.POS_Z];
       const scale = interp ? interp[ioff + 7] : f32[ENT.SCALE];
-      const squishAmount = f32[ENT_DATA.SQUISH_AMOUNT + ENT.DATA] || 0;
-      const squishAxis = f32[ENT_DATA.SQUISH_AXIS + ENT.DATA] | 0;
-      const [sx, sy, sz] = this.applySquishScale(scale, squishAmount, squishAxis);
       const rx = interp ? interp[ioff + 3]   : f32[ENT.ROT_X];
       const ry = interp ? interp[ioff + 4]   : f32[ENT.ROT_Y];
       const rz = interp ? interp[ioff + 5]   : f32[ENT.ROT_Z];
       const rw = interp ? interp[ioff + 6]   : f32[ENT.ROT_W];
+      // SQUISH_AXIS is a signed code (±1/±2/±3): axis = |code| - 1, sign = impact side.
+      const squishAmount = f32[ENT_DATA.SQUISH_AMOUNT + ENT.DATA] || 0;
+      const squishCode = f32[ENT_DATA.SQUISH_AXIS + ENT.DATA] | 0;
+      const squishAxis = Math.abs(squishCode) - 1;
+      const [sx, sy, sz] = this.applySquishScale(scale, squishAmount, squishAxis);
+      // Anchor the squish at the impact point so the depth pass matches the
+      // color pass (impact face stays put, far face compresses toward it).
+      const [ox, oy, oz] = this.squishOffset(scale, squishAmount, squishCode, rx, ry, rz, rw);
 
       this.modelRenderer.renderDepth(
         pass, lightVP, nodeId,
-        [px, py, pz], [rx, ry, rz, rw], [sx, sy, sz],
+        [px + ox, py + oy, pz + oz], [rx, ry, rz, rw], [sx, sy, sz],
       );
     }
   }
@@ -2191,18 +2196,26 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
       const py = interp ? interp[ioff + 1]   : f32[ENT.POS_Y];
       const pz = interp ? interp[ioff + 2]   : f32[ENT.POS_Z];
       const scale = interp ? interp[ioff + 7] : f32[ENT.SCALE];
-      const squishAmount = f32[ENT_DATA.SQUISH_AMOUNT + ENT.DATA] || 0;
-      const squishAxis = f32[ENT_DATA.SQUISH_AXIS + ENT.DATA] | 0;
-      const [sx, sy, sz] = this.applySquishScale(scale, squishAmount, squishAxis);
       const rx = interp ? interp[ioff + 3]   : f32[ENT.ROT_X];
       const ry = interp ? interp[ioff + 4]   : f32[ENT.ROT_Y];
       const rz = interp ? interp[ioff + 5]   : f32[ENT.ROT_Z];
       const rw = interp ? interp[ioff + 6]   : f32[ENT.ROT_W];
+      // SQUISH_AXIS is a signed code (±1/±2/±3): axis = |code| - 1, sign = impact side.
+      const squishAmount = f32[ENT_DATA.SQUISH_AMOUNT + ENT.DATA] || 0;
+      const squishCode = f32[ENT_DATA.SQUISH_AXIS + ENT.DATA] | 0;
+      const squishAxis = Math.abs(squishCode) - 1;
+      const [sx, sy, sz] = this.applySquishScale(scale, squishAmount, squishAxis);
+      // Anchor the squish at the impact point: shift the center toward the
+      // impact side so the impact face stays put and the far face compresses in.
+      const [ox, oy, oz] = this.squishOffset(scale, squishAmount, squishCode, rx, ry, rz, rw);
+      const tpx = px + ox;
+      const tpy = py + oy;
+      const tpz = pz + oz;
 
       this.modelRenderer.render(
         pass,
         nodeId,
-        [px, py, pz],
+        [tpx, tpy, tpz],
         [rx, ry, rz, rw],
         [sx, sy, sz],
         0,
@@ -2213,7 +2226,7 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
       // Track the hovered model prop for the post-process outline mask.
       if ((i + 1) === this.hoverEntity) {
         this.hoverModelNodeId = nodeId;
-        this.hoverModelPos = [px, py, pz];
+        this.hoverModelPos = [tpx, tpy, tpz];
         this.hoverModelRot = [rx, ry, rz, rw];
         this.hoverModelScale = [sx, sy, sz];
       }
@@ -2389,12 +2402,58 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
     amount: number,
     axis: number,
   ): [number, number, number] {
-    if (Math.abs(amount) < 0.001) return [scale, scale, scale];
+    if (Math.abs(amount) < 0.001 || axis < 0) return [scale, scale, scale];
     const compress = 1 - amount;
     const expand = 1 + amount * 0.5;
     if (axis === 0) return [scale * compress, scale * expand, scale * expand];
     if (axis === 1) return [scale * expand, scale * compress, scale * expand];
     return [scale * expand, scale * expand, scale * compress];
+  }
+
+  /**
+   * World-space position offset so the squish deforms FROM the point of impact
+   * instead of toward the prop's center. The impact face stays anchored at the
+   * contact point while the opposite (far) face compresses toward it — the
+   * prop's center shifts toward the impact side by half the compression.
+   *
+   * `axisCode` is the signed SAB code (±1/±2/±3): the sign is the impact-side
+   * direction in the prop's local frame. The center shifts toward the impact
+   * side, so the local offset along the axis is `+sign * 0.5 * scale * amount`,
+   * rotated into world space by the prop's quaternion. Returns [0,0,0] when
+   * there's no squish.
+   */
+  private squishOffset(
+    scale: number,
+    amount: number,
+    axisCode: number,
+    rx: number, ry: number, rz: number, rw: number,
+  ): [number, number, number] {
+    if (Math.abs(amount) < 0.001 || axisCode === 0) return [0, 0, 0];
+    const axis = Math.abs(axisCode) - 1;
+    const impactSign = axisCode < 0 ? -1 : 1;
+    // Shift the center toward the impact side so the impact face stays put.
+    const mag = impactSign * 0.5 * scale * amount;
+    let lox = 0, loy = 0, loz = 0;
+    if (axis === 0) lox = mag;
+    else if (axis === 1) loy = mag;
+    else loz = mag;
+    // Rotate the local offset into world space (quaternion → matrix form).
+    const ql = Math.sqrt(rx * rx + ry * ry + rz * rz + rw * rw) || 1;
+    const qx = rx / ql, qy = ry / ql, qz = rz / ql, qw = rw / ql;
+    const r00 = 1 - 2 * (qy * qy + qz * qz);
+    const r01 = 2 * (qx * qy - qz * qw);
+    const r02 = 2 * (qx * qz + qy * qw);
+    const r10 = 2 * (qx * qy + qz * qw);
+    const r11 = 1 - 2 * (qx * qx + qz * qz);
+    const r12 = 2 * (qy * qz - qx * qw);
+    const r20 = 2 * (qx * qz - qy * qw);
+    const r21 = 2 * (qy * qz + qx * qw);
+    const r22 = 1 - 2 * (qx * qx + qy * qy);
+    return [
+      r00 * lox + r01 * loy + r02 * loz,
+      r10 * lox + r11 * loy + r12 * loz,
+      r20 * lox + r21 * loy + r22 * loz,
+    ];
   }
 
   private collectRenderEntities(): void {
@@ -2433,16 +2492,24 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
       const py = interp[ioff + 1];
       const pz = interp[ioff + 2];
       const scale = interp[ioff + 7] || 1.0;
-      // Squish deformation lives in the SAB DATA area (not interpolated — it's a
-      // scalar that eases in the sim, so linear interp would be fine but isn't
-      // worth the extra interp slots). Read directly from the entity slot.
-      const squishAmount = f32[ENT_DATA.SQUISH_AMOUNT + ENT.DATA] || 0;
-      const squishAxis = f32[ENT_DATA.SQUISH_AXIS + ENT.DATA] | 0;
-      const [sx, sy, sz] = this.applySquishScale(scale, squishAmount, squishAxis);
       const rx = interp[ioff + 3];
       const ry = interp[ioff + 4];
       const rz = interp[ioff + 5];
       const rw = interp[ioff + 6];
+      // Squish deformation lives in the SAB DATA area (not interpolated — it's a
+      // scalar that eases in the sim, so linear interp would be fine but isn't
+      // worth the extra interp slots). Read directly from the entity slot.
+      // SQUISH_AXIS is a signed code (±1/±2/±3): axis = |code| - 1, sign = impact side.
+      const squishAmount = f32[ENT_DATA.SQUISH_AMOUNT + ENT.DATA] || 0;
+      const squishCode = f32[ENT_DATA.SQUISH_AXIS + ENT.DATA] | 0;
+      const squishAxis = Math.abs(squishCode) - 1;
+      const [sx, sy, sz] = this.applySquishScale(scale, squishAmount, squishAxis);
+      // Anchor the squish at the impact point: shift the center toward the
+      // impact side so the impact face stays put and the far face compresses in.
+      const [ox, oy, oz] = this.squishOffset(scale, squishAmount, squishCode, rx, ry, rz, rw);
+      const tpx = px + ox;
+      const tpy = py + oy;
+      const tpz = pz + oz;
 
       // Determine the instance slot offset. Cubes are packed first, then
       // spheres, matching the baseOffset convention in renderShapeBatch.
@@ -2474,9 +2541,9 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
       staging[off + 9]  = r12 * sz;
       staging[off + 10] = r22 * sz;
       staging[off + 11] = 0;
-      staging[off + 12] = px;
-      staging[off + 13] = py;
-      staging[off + 14] = pz;
+      staging[off + 12] = tpx;
+      staging[off + 13] = tpy;
+      staging[off + 14] = tpz;
       staging[off + 15] = 1;
 
       // Color: use precomputed hue colors, override for special types.

@@ -432,6 +432,7 @@ startGame({
               strength: st?.strength,
               texture: st?.texture,
               shader: st?.shader,
+              squishy: st?.squishy,
             });
           }
           // Also set the toolgun's selected content so toolgun-spawn can use it

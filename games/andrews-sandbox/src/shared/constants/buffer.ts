@@ -26,7 +26,11 @@ export const ENT_DATA = {
   SHAPE: 5,            // u32 — 0 = box, 1 = sphere (stored as f32)
   // Squish visual deformation (driven by bounce-impact detection in the sim):
   SQUISH_AMOUNT: 6,    // f32 idx 28 — 0 = none, up to ~0.35 compression
-  SQUISH_AXIS: 7,      // u32 idx 29 — local axis to compress: 0=x, 1=y, 2=z
+  // Signed axis code: ±1=x, ±2=y, ±3=z. The sign is the impact-side direction
+  // in the prop's local frame (which face was hit). 0 = no active squish. The
+  // renderer decodes axis = |code| - 1 and shifts the prop's center toward the
+  // far side so the impact face compresses inward from the contact point.
+  SQUISH_AXIS: 7,      // i32 idx 29 — signed axis + impact-side direction
 } as const;
 
 // --- Player slot game-specific extension (indices 31–63 = f32 padding) ---
