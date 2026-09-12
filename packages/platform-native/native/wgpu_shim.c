@@ -239,20 +239,36 @@ void* wgpu_shim_texture_create_view(void* texture_ptr, uint32_t format, uint32_t
 }
 
 // Create a sampler.
-void* wgpu_shim_create_sampler(void* device_ptr, uint32_t mag_filter, uint32_t min_filter, uint32_t address_mode_u, uint32_t address_mode_v) {
+// AUDIT FIX: previously hardcoded addressModeW, mipmapFilter, lod clamps, compare,
+// and maxAnisotropy — which silently broke comparison samplers (shadow mapping).
+// Now all fields are passed from the JS descriptor.
+//   mag_filter/min_filter/mipmap_filter: WGPUFilterMode (Nearest=1, Linear=2; 0=Undefined→Nearest)
+//   address_mode_u/v/w: WGPUAddressMode (ClampToEdge=1, Repeat=2, MirrorRepeat=3; 0=Undefined→ClampToEdge)
+//   compare: WGPUCompareFunction (Never=1..Always=8; 0=Undefined → no comparison)
+//   lod_min_clamp/lod_max_clamp: float
+//   max_anisotropy: uint16
+void* wgpu_shim_create_sampler(
+    void* device_ptr,
+    uint32_t mag_filter, uint32_t min_filter, uint32_t mipmap_filter,
+    uint32_t address_mode_u, uint32_t address_mode_v, uint32_t address_mode_w,
+    float lod_min_clamp, float lod_max_clamp,
+    uint32_t compare, uint32_t max_anisotropy
+) {
     WGPUSamplerDescriptor desc = {0};
     desc.nextInChain = NULL;
     desc.label = (WGPUStringView){0};
-    desc.addressModeU = (WGPUAddressMode)address_mode_u;
-    desc.addressModeV = (WGPUAddressMode)address_mode_v;
-    desc.addressModeW = WGPUAddressMode_ClampToEdge;
-    desc.magFilter = (WGPUFilterMode)mag_filter;
-    desc.minFilter = (WGPUFilterMode)min_filter;
-    desc.mipmapFilter = WGPUMipmapFilterMode_Nearest;
-    desc.lodMinClamp = 0.0f;
-    desc.lodMaxClamp = 0.0f;
-    desc.compare = WGPUCompareFunction_Undefined;
-    desc.maxAnisotropy = 1;
+    // 0 (Undefined) defaults: address modes → ClampToEdge, filters → Nearest.
+    desc.addressModeU = address_mode_u ? (WGPUAddressMode)address_mode_u : WGPUAddressMode_ClampToEdge;
+    desc.addressModeV = address_mode_v ? (WGPUAddressMode)address_mode_v : WGPUAddressMode_ClampToEdge;
+    desc.addressModeW = address_mode_w ? (WGPUAddressMode)address_mode_w : WGPUAddressMode_ClampToEdge;
+    desc.magFilter = mag_filter ? (WGPUFilterMode)mag_filter : WGPUFilterMode_Nearest;
+    desc.minFilter = min_filter ? (WGPUFilterMode)min_filter : WGPUFilterMode_Nearest;
+    desc.mipmapFilter = mipmap_filter ? (WGPUMipmapFilterMode)mipmap_filter : WGPUMipmapFilterMode_Nearest;
+    desc.lodMinClamp = lod_min_clamp;
+    desc.lodMaxClamp = lod_max_clamp;
+    // 0 (Undefined) means "no comparison function" — required for non-comparison samplers.
+    desc.compare = compare ? (WGPUCompareFunction)compare : WGPUCompareFunction_Undefined;
+    desc.maxAnisotropy = max_anisotropy ? max_anisotropy : 1;
 
     return (void*)wgpuDeviceCreateSampler((WGPUDevice)device_ptr, &desc);
 }
@@ -393,43 +409,85 @@ uint32_t wgpu_shim_get_preferred_format(void) {
 
 // ── Render pass helpers ──
 
-// Begin a render pass with a single color attachment.
-// color_attachment_ptr: pointer to a WGPUTextureView
-// clear_r, clear_g, clear_b, clear_a: clear color
-// load_op: 0=clear, 1=load
-// store_op: 0=store, 1=discard
-void* wgpu_shim_begin_render_pass(void* encoder_ptr, void* color_view_ptr, float clear_r, float clear_g, float clear_b, float clear_a, uint32_t load_op, uint32_t store_op, void* depth_view_ptr) {
-    WGPURenderPassColorAttachment colorAttachment = {0};
-    colorAttachment.view = (WGPUTextureView)color_view_ptr;
-    colorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
-    colorAttachment.loadOp = (WGPULoadOp)load_op;
-    colorAttachment.storeOp = (WGPUStoreOp)store_op;
-    colorAttachment.clearValue.r = clear_r;
-    colorAttachment.clearValue.g = clear_g;
-    colorAttachment.clearValue.b = clear_b;
-    colorAttachment.clearValue.a = clear_a;
+// AUDIT FIX: previously supported only a single color attachment with hardcoded
+// depth-stencil load/store/clear. Now supports multiple color attachments (MRT
+// for deferred G-buffer), full depth-stencil attachment descriptor, occlusion
+// query set, and pass timestamp writes.
+//
+// color_attachments: flat array, 11 u32 per attachment:
+//   [0-1] view ptr (lo, hi), [2] depthSlice, [3-4] resolveTarget ptr (lo/hi, 0=NULL),
+//   [5] loadOp, [6] storeOp, [7-10] clearValue (4x f32 bit patterns)
+// depth_attachment: flat array of 10 u32, or NULL:
+//   [0-1] view ptr (lo/hi, 0=no depth), [2] depthLoadOp, [3] depthStoreOp,
+//   [4] depthClearValue (f32), [5] depthReadOnly, [6] stencilLoadOp,
+//   [7] stencilStoreOp, [8] stencilClearValue, [9] stencilReadOnly
+// occlusion_query_set: WGPUQuerySet ptr or NULL
+// timestamp_writes: flat array of 4 u32 [qsLo, qsHi, beginIdx, endIdx], or NULL
+void* wgpu_shim_begin_render_pass(
+    void* encoder_ptr,
+    uint32_t color_count,
+    const uint32_t* color_attachments,
+    const uint32_t* depth_attachment,
+    void* occlusion_query_set,
+    const uint32_t* timestamp_writes
+) {
+    // Build color attachments (max 8 MRT).
+    WGPURenderPassColorAttachment colorAtts[8] = {0};
+    uint32_t n = color_count < 8 ? color_count : 8;
+    for (uint32_t i = 0; i < n; i++) {
+        const uint32_t* a = color_attachments + i * 11;
+        WGPURenderPassColorAttachment* ca = &colorAtts[i];
+        ca->view = (WGPUTextureView)(uintptr_t)((uint64_t)a[1] << 32 | a[0]);
+        ca->depthSlice = a[2] == 0xFFFFFFFF ? WGPU_DEPTH_SLICE_UNDEFINED : a[2];
+        uint64_t rt = (uint64_t)a[4] << 32 | a[3];
+        ca->resolveTarget = rt ? (WGPUTextureView)(uintptr_t)rt : NULL;
+        ca->loadOp = (WGPULoadOp)a[5];
+        ca->storeOp = (WGPUStoreOp)a[6];
+        // clearValue: 4 floats stored as bit patterns
+        memcpy(&ca->clearValue.r, &a[7], sizeof(float));
+        memcpy(&ca->clearValue.g, &a[8], sizeof(float));
+        memcpy(&ca->clearValue.b, &a[9], sizeof(float));
+        memcpy(&ca->clearValue.a, &a[10], sizeof(float));
+    }
 
     WGPURenderPassDescriptor desc = {0};
     desc.nextInChain = NULL;
     desc.label = (WGPUStringView){0};
-    desc.colorAttachmentCount = 1;
-    desc.colorAttachments = &colorAttachment;
+    desc.colorAttachmentCount = n;
+    desc.colorAttachments = colorAtts;
     desc.depthStencilAttachment = NULL;
-    if (depth_view_ptr) {
-        static WGPURenderPassDepthStencilAttachment depthAttachment;
-        depthAttachment.view = (WGPUTextureView)depth_view_ptr;
-        depthAttachment.depthLoadOp = WGPULoadOp_Clear;
-        depthAttachment.depthStoreOp = WGPUStoreOp_Store;
-        depthAttachment.depthClearValue = 1.0f;
-        depthAttachment.depthReadOnly = 0;
-        depthAttachment.stencilLoadOp = WGPULoadOp_Clear;
-        depthAttachment.stencilStoreOp = WGPUStoreOp_Store;
-        depthAttachment.stencilClearValue = 0;
-        depthAttachment.stencilReadOnly = 0;
-        desc.depthStencilAttachment = &depthAttachment;
+
+    // Depth-stencil attachment (from flat array, no longer hardcoded).
+    WGPURenderPassDepthStencilAttachment depthAtt = {0};
+    if (depth_attachment) {
+        uint64_t dv = (uint64_t)depth_attachment[1] << 32 | depth_attachment[0];
+        if (dv) {
+            depthAtt.view = (WGPUTextureView)(uintptr_t)dv;
+            depthAtt.depthLoadOp = (WGPULoadOp)depth_attachment[2];
+            depthAtt.depthStoreOp = (WGPUStoreOp)depth_attachment[3];
+            memcpy(&depthAtt.depthClearValue, &depth_attachment[4], sizeof(float));
+            depthAtt.depthReadOnly = depth_attachment[5] ? WGPU_TRUE : WGPU_FALSE;
+            depthAtt.stencilLoadOp = (WGPULoadOp)depth_attachment[6];
+            depthAtt.stencilStoreOp = (WGPUStoreOp)depth_attachment[7];
+            depthAtt.stencilClearValue = depth_attachment[8];
+            depthAtt.stencilReadOnly = depth_attachment[9] ? WGPU_TRUE : WGPU_FALSE;
+            desc.depthStencilAttachment = &depthAtt;
+        }
     }
-    desc.occlusionQuerySet = NULL;
-    desc.timestampWrites = NULL;
+
+    desc.occlusionQuerySet = (WGPUQuerySet)occlusion_query_set;
+
+    // Pass timestamp writes.
+    WGPUPassTimestampWrites tsWrites = {0};
+    if (timestamp_writes) {
+        uint64_t qs = (uint64_t)timestamp_writes[1] << 32 | timestamp_writes[0];
+        tsWrites.querySet = (WGPUQuerySet)(uintptr_t)qs;
+        tsWrites.beginningOfPassWriteIndex = timestamp_writes[2];
+        tsWrites.endOfPassWriteIndex = timestamp_writes[3];
+        desc.timestampWrites = &tsWrites;
+    } else {
+        desc.timestampWrites = NULL;
+    }
 
     return (void*)wgpuCommandEncoderBeginRenderPass((WGPUCommandEncoder)encoder_ptr, &desc);
 }
@@ -480,52 +538,37 @@ void wgpu_shim_render_pass_set_viewport(void* pass_ptr, float x, float y, float 
 }
 
 // ── Render pipeline creation ──
-// This is the most complex one. We take individual parameters for the most
-// common pipeline configuration (vertex + fragment with one bind group layout).
-// For more complex pipelines, use the full wgpu API directly.
-
-// Create a simple render pipeline with vertex + fragment shaders.
-// vertex_shader_ptr: WGPUShaderModule pointer
-// vertex_entry: entry point string
-// fragment_shader_ptr: WGPUShaderModule pointer (can be NULL for depth-only)
-// fragment_entry: entry point string
-// color_format: WGPUTextureFormat for the color target
-// depth_format: WGPUTextureFormat for depth (0 = no depth)
-// topology: WGPUPrimitiveTopology
-// sample_count: MSAA sample count (1 = no MSAA)
-// layout_ptr: WGPUPipelineLayout pointer (can be NULL for auto-layout)
+// AUDIT FIX: previously hardcoded depth-stencil state (depthWriteEnabled=1,
+// depthCompare=Less, stencilFront/Back.compare=Always) and supported only a
+// single color attachment. This broke transparent pass (depthWriteEnabled=false),
+// skybox (depthCompare=less-equal), and deferred G-buffer MRT (up to 4 targets).
+//
+// Now accepts:
+//   color_target_count + color_targets: flat array, 9 u32 per target:
+//     [format, hasBlend, colorSrc, colorDst, colorOp, alphaSrc, alphaDst, alphaOp, writeMask]
+//   depth_stencil: flat array of 16 u32, or NULL for no depth-stencil:
+//     [0]=depth_format(0=none), [1]=depthWriteEnabled(WGPUOptionalBool: 0/1/2),
+//     [2]=depthCompare, [3-6]=stencilFront(compare,failOp,depthFailOp,passOp),
+//     [7-10]=stencilBack(compare,failOp,depthFailOp,passOp),
+//     [11]=stencilReadMask, [12]=stencilWriteMask,
+//     [13]=depthBias(i32 bit pattern), [14]=depthBiasSlopeScale(f32 bit pattern),
+//     [15]=depthBiasClamp(f32 bit pattern)
+//   strip_index_format: WGPUIndexFormat for strip topologies (0=Undefined)
 void* wgpu_shim_create_render_pipeline(
     void* device_ptr,
     void* vertex_shader_ptr, const char* vertex_entry,
     void* fragment_shader_ptr, const char* fragment_entry,
-    uint32_t color_format, uint32_t depth_format,
-    uint32_t topology, uint32_t sample_count,
+    uint32_t color_target_count, const uint32_t* color_targets,
+    const uint32_t* depth_stencil,
+    uint32_t topology, uint32_t strip_index_format,
+    uint32_t sample_count,
     void* layout_ptr,
-    uint32_t cull_mode,
-    uint32_t front_face,
-    uint32_t vertex_buffer_count, const uint32_t* vertex_buffer_data,
-    uint32_t has_blend,
-    uint32_t color_src_factor, uint32_t color_dst_factor, uint32_t color_operation,
-    uint32_t alpha_src_factor, uint32_t alpha_dst_factor, uint32_t alpha_operation
+    uint32_t cull_mode, uint32_t front_face,
+    uint32_t vertex_buffer_count, const uint32_t* vertex_buffer_data
 ) {
-    // vertex_buffer_data is a flat array. For each vertex buffer:
-    //   arrayStride (u32), stepMode (u32: 0=vertex, 1=instance), attributeCount (u32),
-    //   followed by attributeCount * 3 u32s: format, offset, shaderLocation
+    // ── Vertex buffers (unchanged: walk flat data linearly) ──
     WGPUVertexBufferLayout vertexBufferLayouts[8] = {0};
     WGPUVertexAttribute* attrArrays[8] = {0};
-    for (uint32_t b = 0; b < vertex_buffer_count && b < 8; b++) {
-        const uint32_t* bufData = vertex_buffer_data;
-        // Skip to the correct buffer by walking the variable-size records
-        for (uint32_t i = 0; i < b; i++) {
-            uint32_t ac = vertex_buffer_data[2]; // attributeCount of buffer i
-            // But we need to walk from the start each time since records are variable-size
-            (void)ac;
-        }
-        // Actually, we need to walk linearly. Let me restructure.
-        (void)bufData;
-    }
-
-    // Walk the flat data linearly
     const uint32_t* cursor = vertex_buffer_data;
     uint32_t actualBufferCount = 0;
     for (uint32_t b = 0; b < vertex_buffer_count && b < 8; b++) {
@@ -561,54 +604,76 @@ void* wgpu_shim_create_render_pipeline(
     vertexState.bufferCount = actualBufferCount;
     vertexState.buffers = actualBufferCount > 0 ? vertexBufferLayouts : NULL;
 
+    // ── Fragment state with multiple color targets ──
     WGPUFragmentState fragmentState = {0};
-    WGPUBlendState blendState = {0};
-    WGPUColorTargetState colorTarget = {0};
-    if (fragment_shader_ptr) {
-        colorTarget.nextInChain = NULL;
-        colorTarget.format = (WGPUTextureFormat)color_format;
-        if (has_blend) {
-            blendState.color.srcFactor = (WGPUBlendFactor)color_src_factor;
-            blendState.color.dstFactor = (WGPUBlendFactor)color_dst_factor;
-            blendState.color.operation = (WGPUBlendOperation)color_operation;
-            blendState.alpha.srcFactor = (WGPUBlendFactor)alpha_src_factor;
-            blendState.alpha.dstFactor = (WGPUBlendFactor)alpha_dst_factor;
-            blendState.alpha.operation = (WGPUBlendOperation)alpha_operation;
-            colorTarget.blend = &blendState;
-        } else {
-            colorTarget.blend = NULL;
+    // Allocate blend states and color targets on the stack (max 8 MRT).
+    WGPUBlendState blendStates[8] = {0};
+    WGPUColorTargetState colorTargets[8] = {0};
+    if (fragment_shader_ptr && color_target_count > 0) {
+        uint32_t n = color_target_count < 8 ? color_target_count : 8;
+        for (uint32_t i = 0; i < n; i++) {
+            const uint32_t* t = color_targets + i * 9;
+            colorTargets[i].nextInChain = NULL;
+            colorTargets[i].format = (WGPUTextureFormat)t[0];
+            if (t[1]) { // hasBlend
+                blendStates[i].color.srcFactor = (WGPUBlendFactor)t[2];
+                blendStates[i].color.dstFactor = (WGPUBlendFactor)t[3];
+                blendStates[i].color.operation = (WGPUBlendOperation)t[4];
+                blendStates[i].alpha.srcFactor = (WGPUBlendFactor)t[5];
+                blendStates[i].alpha.dstFactor = (WGPUBlendFactor)t[6];
+                blendStates[i].alpha.operation = (WGPUBlendOperation)t[7];
+                colorTargets[i].blend = &blendStates[i];
+            } else {
+                colorTargets[i].blend = NULL;
+            }
+            colorTargets[i].writeMask = t[8] ? (WGPUColorWriteMask)t[8] : WGPUColorWriteMask_All;
         }
-        colorTarget.writeMask = WGPUColorWriteMask_All;
 
         fragmentState.nextInChain = NULL;
         fragmentState.module = (WGPUShaderModule)fragment_shader_ptr;
         fragmentState.entryPoint = (WGPUStringView){ .data = fragment_entry, .length = strlen(fragment_entry) };
         fragmentState.constantCount = 0;
         fragmentState.constants = NULL;
-        fragmentState.targetCount = 1;
-        fragmentState.targets = &colorTarget;
+        fragmentState.targetCount = n;
+        fragmentState.targets = colorTargets;
     }
 
+    // ── Primitive state (now with stripIndexFormat) ──
     WGPUPrimitiveState primitiveState = {0};
     primitiveState.nextInChain = NULL;
     primitiveState.topology = (WGPUPrimitiveTopology)topology;
-    primitiveState.stripIndexFormat = WGPUIndexFormat_Undefined;
-    primitiveState.frontFace = (WGPUFrontFace)front_face;
-    primitiveState.cullMode = (WGPUCullMode)cull_mode;
+    primitiveState.stripIndexFormat = (WGPUIndexFormat)strip_index_format;
+    primitiveState.frontFace = front_face ? (WGPUFrontFace)front_face : WGPUFrontFace_CCW;
+    primitiveState.cullMode = cull_mode ? (WGPUCullMode)cull_mode : WGPUCullMode_None;
+    primitiveState.unclippedDepth = WGPU_FALSE;
 
+    // ── Depth-stencil state (from flat array, no longer hardcoded) ──
     WGPUDepthStencilState depthStencilState = {0};
-    if (depth_format != 0) {
+    if (depth_stencil && depth_stencil[0] != 0) {
+        const uint32_t* ds = depth_stencil;
         depthStencilState.nextInChain = NULL;
-        depthStencilState.format = (WGPUTextureFormat)depth_format;
-        depthStencilState.depthWriteEnabled = 1;
-        depthStencilState.depthCompare = WGPUCompareFunction_Less;
-        depthStencilState.stencilFront.compare = WGPUCompareFunction_Always;
-        depthStencilState.stencilBack.compare = WGPUCompareFunction_Always;
-        depthStencilState.stencilReadMask = 0xFFFFFFFF;
-        depthStencilState.stencilWriteMask = 0xFFFFFFFF;
-        depthStencilState.depthBias = 0;
-        depthStencilState.depthBiasSlopeScale = 0.0f;
-        depthStencilState.depthBiasClamp = 0.0f;
+        depthStencilState.format = (WGPUTextureFormat)ds[0];
+        depthStencilState.depthWriteEnabled = ds[1] ? (WGPUOptionalBool)ds[1] : WGPUOptionalBool_Undefined;
+        depthStencilState.depthCompare = ds[2] ? (WGPUCompareFunction)ds[2] : WGPUCompareFunction_Less;
+        depthStencilState.stencilFront.compare = ds[3] ? (WGPUCompareFunction)ds[3] : WGPUCompareFunction_Always;
+        depthStencilState.stencilFront.failOp = ds[4] ? (WGPUStencilOperation)ds[4] : WGPUStencilOperation_Keep;
+        depthStencilState.stencilFront.depthFailOp = ds[5] ? (WGPUStencilOperation)ds[5] : WGPUStencilOperation_Keep;
+        depthStencilState.stencilFront.passOp = ds[6] ? (WGPUStencilOperation)ds[6] : WGPUStencilOperation_Keep;
+        depthStencilState.stencilBack.compare = ds[7] ? (WGPUCompareFunction)ds[7] : WGPUCompareFunction_Always;
+        depthStencilState.stencilBack.failOp = ds[8] ? (WGPUStencilOperation)ds[8] : WGPUStencilOperation_Keep;
+        depthStencilState.stencilBack.depthFailOp = ds[9] ? (WGPUStencilOperation)ds[9] : WGPUStencilOperation_Keep;
+        depthStencilState.stencilBack.passOp = ds[10] ? (WGPUStencilOperation)ds[10] : WGPUStencilOperation_Keep;
+        depthStencilState.stencilReadMask = ds[11] ? ds[11] : 0xFFFFFFFF;
+        depthStencilState.stencilWriteMask = ds[12] ? ds[12] : 0xFFFFFFFF;
+        // depth_bias (i32), depth_bias_slope_scale (f32), depth_bias_clamp (f32) stored as bit patterns
+        int32_t depthBias;
+        float depthBiasSlopeScale, depthBiasClamp;
+        memcpy(&depthBias, &ds[13], sizeof(int32_t));
+        memcpy(&depthBiasSlopeScale, &ds[14], sizeof(float));
+        memcpy(&depthBiasClamp, &ds[15], sizeof(float));
+        depthStencilState.depthBias = depthBias;
+        depthStencilState.depthBiasSlopeScale = depthBiasSlopeScale;
+        depthStencilState.depthBiasClamp = depthBiasClamp;
     }
 
     WGPUMultisampleState multisampleState = {0};
@@ -624,7 +689,7 @@ void* wgpu_shim_create_render_pipeline(
     desc.vertex = vertexState;
     desc.fragment = fragment_shader_ptr ? &fragmentState : NULL;
     desc.primitive = primitiveState;
-    desc.depthStencil = depth_format != 0 ? &depthStencilState : NULL;
+    desc.depthStencil = (depth_stencil && depth_stencil[0] != 0) ? &depthStencilState : NULL;
     desc.multisample = multisampleState;
 
     WGPURenderPipeline result = wgpuDeviceCreateRenderPipeline((WGPUDevice)device_ptr, &desc);
@@ -656,10 +721,21 @@ void* wgpu_shim_create_compute_pipeline(
 }
 
 // ── Compute pass helpers ──
-void* wgpu_shim_begin_compute_pass(void* encoder_ptr) {
+// AUDIT FIX: now accepts optional timestamp writes (flat 4 u32: qsLo, qsHi, beginIdx, endIdx, or NULL).
+void* wgpu_shim_begin_compute_pass(void* encoder_ptr, const uint32_t* timestamp_writes) {
     WGPUComputePassDescriptor desc = {0};
     desc.nextInChain = NULL;
     desc.label = (WGPUStringView){0};
+    WGPUPassTimestampWrites tsWrites = {0};
+    if (timestamp_writes) {
+        uint64_t qs = (uint64_t)timestamp_writes[1] << 32 | timestamp_writes[0];
+        tsWrites.querySet = (WGPUQuerySet)(uintptr_t)qs;
+        tsWrites.beginningOfPassWriteIndex = timestamp_writes[2];
+        tsWrites.endOfPassWriteIndex = timestamp_writes[3];
+        desc.timestampWrites = &tsWrites;
+    } else {
+        desc.timestampWrites = NULL;
+    }
     return (void*)wgpuCommandEncoderBeginComputePass((WGPUCommandEncoder)encoder_ptr, &desc);
 }
 
@@ -824,4 +900,297 @@ void wgpu_shim_copy_texture_to_buffer(void* encoder_ptr, void* src_texture_ptr, 
     copySize.depthOrArrayLayers = 1;
 
     wgpuCommandEncoderCopyTextureToBuffer((WGPUCommandEncoder)encoder_ptr, &src, &dst, &copySize);
+}
+
+// ============================================================================
+// AUDIT FIX: New functions implementing previously-silent no-op stubs.
+// All functions below were no-ops in the JS wrapper, causing silent failures.
+// ============================================================================
+
+// ── Query sets ──
+// AUDIT FIX: createQuerySet was a fake {destroy(){}} — GPUTimer silently no-op'd.
+void* wgpu_shim_create_query_set(void* device_ptr, uint32_t type, uint32_t count) {
+    WGPUQuerySetDescriptor desc = {0};
+    desc.nextInChain = NULL;
+    desc.label = (WGPUStringView){0};
+    desc.type = (WGPUQueryType)type;
+    desc.count = count;
+    return (void*)wgpuDeviceCreateQuerySet((WGPUDevice)device_ptr, &desc);
+}
+
+void wgpu_shim_destroy_query_set(void* query_set_ptr) {
+    wgpuQuerySetDestroy((WGPUQuerySet)query_set_ptr);
+}
+
+void wgpu_shim_release_query_set(void* ptr) { wgpuQuerySetRelease((WGPUQuerySet)ptr); }
+
+// ── Timestamp + query resolve (command encoder level) ──
+// AUDIT FIX: writeTimestamp/resolveQuerySet were no-ops — GPUTimer silently no-op'd.
+// Note: pass-level writeTimestamp is not available in this wgpu-native version;
+// the engine gates on "chromium-experimental-timestamp-query-inside-passes" which
+// we don't report as a feature, so pass.writeTimestamp is never called.
+void wgpu_shim_command_encoder_write_timestamp(void* encoder_ptr, void* query_set_ptr, uint32_t query_index) {
+    wgpuCommandEncoderWriteTimestamp((WGPUCommandEncoder)encoder_ptr, (WGPUQuerySet)query_set_ptr, query_index);
+}
+
+void wgpu_shim_resolve_query_set(void* encoder_ptr, void* query_set_ptr, uint32_t first_query, uint32_t query_count, void* dest_buffer_ptr, uint64_t dest_offset) {
+    wgpuCommandEncoderResolveQuerySet((WGPUCommandEncoder)encoder_ptr, (WGPUQuerySet)query_set_ptr, first_query, query_count, (WGPUBuffer)dest_buffer_ptr, dest_offset);
+}
+
+// ── Indirect draws ──
+// AUDIT FIX: drawIndirect/drawIndexedIndirect were no-ops — GPU-driven rendering
+// (indirect-draw-pass.ts) silently did nothing.
+void wgpu_shim_render_pass_draw_indirect(void* pass_ptr, void* buffer_ptr, uint64_t offset) {
+    wgpuRenderPassEncoderDrawIndirect((WGPURenderPassEncoder)pass_ptr, (WGPUBuffer)buffer_ptr, offset);
+}
+
+void wgpu_shim_render_pass_draw_indexed_indirect(void* pass_ptr, void* buffer_ptr, uint64_t offset) {
+    wgpuRenderPassEncoderDrawIndexedIndirect((WGPURenderPassEncoder)pass_ptr, (WGPUBuffer)buffer_ptr, offset);
+}
+
+void wgpu_shim_compute_pass_dispatch_indirect(void* pass_ptr, void* buffer_ptr, uint64_t offset) {
+    wgpuComputePassEncoderDispatchWorkgroupsIndirect((WGPUComputePassEncoder)pass_ptr, (WGPUBuffer)buffer_ptr, offset);
+}
+
+// ── Clear buffer ──
+// AUDIT FIX: clearBuffer was a no-op.
+void wgpu_shim_command_encoder_clear_buffer(void* encoder_ptr, void* buffer_ptr, uint64_t offset, uint64_t size) {
+    wgpuCommandEncoderClearBuffer((WGPUCommandEncoder)encoder_ptr, (WGPUBuffer)buffer_ptr, offset, size);
+}
+
+// ── Blend constant + stencil reference ──
+// AUDIT FIX: setBlendConstant/setStencilReference were no-ops — blend modes using
+// "constant" factor and stencil operations were silently broken.
+void wgpu_shim_render_pass_set_blend_constant(void* pass_ptr, float r, float g, float b, float a) {
+    WGPUColor color = {0};
+    color.r = r; color.g = g; color.b = b; color.a = a;
+    wgpuRenderPassEncoderSetBlendConstant((WGPURenderPassEncoder)pass_ptr, &color);
+}
+
+void wgpu_shim_render_pass_set_stencil_reference(void* pass_ptr, uint32_t reference) {
+    wgpuRenderPassEncoderSetStencilReference((WGPURenderPassEncoder)pass_ptr, reference);
+}
+
+// ── Occlusion queries ──
+// AUDIT FIX: beginOcclusionQuery/endOcclusionQuery were no-ops.
+void wgpu_shim_render_pass_begin_occlusion_query(void* pass_ptr, uint32_t query_index) {
+    wgpuRenderPassEncoderBeginOcclusionQuery((WGPURenderPassEncoder)pass_ptr, query_index);
+}
+
+void wgpu_shim_render_pass_end_occlusion_query(void* pass_ptr) {
+    wgpuRenderPassEncoderEndOcclusionQuery((WGPURenderPassEncoder)pass_ptr);
+}
+
+// ── Copy buffer-to-texture and texture-to-texture ──
+// AUDIT FIX: copyBufferToTexture/copyTextureToTexture were no-ops — postfx
+// afterimage/TAA (copyTextureToTexture) was silently broken.
+void wgpu_shim_copy_buffer_to_texture(
+    void* encoder_ptr,
+    void* src_buffer_ptr, uint64_t src_offset, uint32_t src_bytes_per_row, uint32_t src_rows_per_image,
+    void* dst_texture_ptr, uint32_t dst_mip_level, uint32_t dst_origin_x, uint32_t dst_origin_y, uint32_t dst_origin_z,
+    uint32_t dst_aspect,
+    uint32_t copy_w, uint32_t copy_h, uint32_t copy_d
+) {
+    WGPUTexelCopyBufferInfo src = {0};
+    src.buffer = (WGPUBuffer)src_buffer_ptr;
+    src.layout.offset = src_offset;
+    src.layout.bytesPerRow = src_bytes_per_row;
+    src.layout.rowsPerImage = src_rows_per_image;
+
+    WGPUTexelCopyTextureInfo dst = {0};
+    dst.texture = (WGPUTexture)dst_texture_ptr;
+    dst.mipLevel = dst_mip_level;
+    dst.origin.x = dst_origin_x;
+    dst.origin.y = dst_origin_y;
+    dst.origin.z = dst_origin_z;
+    dst.aspect = dst_aspect ? (WGPUTextureAspect)dst_aspect : WGPUTextureAspect_All;
+
+    WGPUExtent3D copySize = {0};
+    copySize.width = copy_w;
+    copySize.height = copy_h;
+    copySize.depthOrArrayLayers = copy_d;
+
+    wgpuCommandEncoderCopyBufferToTexture((WGPUCommandEncoder)encoder_ptr, &src, &dst, &copySize);
+}
+
+void wgpu_shim_copy_texture_to_texture(
+    void* encoder_ptr,
+    void* src_texture_ptr, uint32_t src_mip_level, uint32_t src_origin_x, uint32_t src_origin_y, uint32_t src_origin_z, uint32_t src_aspect,
+    void* dst_texture_ptr, uint32_t dst_mip_level, uint32_t dst_origin_x, uint32_t dst_origin_y, uint32_t dst_origin_z, uint32_t dst_aspect,
+    uint32_t copy_w, uint32_t copy_h, uint32_t copy_d
+) {
+    WGPUTexelCopyTextureInfo src = {0};
+    src.texture = (WGPUTexture)src_texture_ptr;
+    src.mipLevel = src_mip_level;
+    src.origin.x = src_origin_x;
+    src.origin.y = src_origin_y;
+    src.origin.z = src_origin_z;
+    src.aspect = src_aspect ? (WGPUTextureAspect)src_aspect : WGPUTextureAspect_All;
+
+    WGPUTexelCopyTextureInfo dst = {0};
+    dst.texture = (WGPUTexture)dst_texture_ptr;
+    dst.mipLevel = dst_mip_level;
+    dst.origin.x = dst_origin_x;
+    dst.origin.y = dst_origin_y;
+    dst.origin.z = dst_origin_z;
+    dst.aspect = dst_aspect ? (WGPUTextureAspect)dst_aspect : WGPUTextureAspect_All;
+
+    WGPUExtent3D copySize = {0};
+    copySize.width = copy_w;
+    copySize.height = copy_h;
+    copySize.depthOrArrayLayers = copy_d;
+
+    wgpuCommandEncoderCopyTextureToTexture((WGPUCommandEncoder)encoder_ptr, &src, &dst, &copySize);
+}
+
+// ── Debug groups and markers ──
+// AUDIT FIX: all debug group/marker methods were no-ops. Now wired through.
+void wgpu_shim_render_pass_push_debug_group(void* pass_ptr, const char* label) {
+    wgpuRenderPassEncoderPushDebugGroup((WGPURenderPassEncoder)pass_ptr, (WGPUStringView){ .data = label, .length = label ? strlen(label) : 0 });
+}
+void wgpu_shim_render_pass_pop_debug_group(void* pass_ptr) {
+    wgpuRenderPassEncoderPopDebugGroup((WGPURenderPassEncoder)pass_ptr);
+}
+void wgpu_shim_render_pass_insert_debug_marker(void* pass_ptr, const char* label) {
+    wgpuRenderPassEncoderInsertDebugMarker((WGPURenderPassEncoder)pass_ptr, (WGPUStringView){ .data = label, .length = label ? strlen(label) : 0 });
+}
+void wgpu_shim_compute_pass_push_debug_group(void* pass_ptr, const char* label) {
+    wgpuComputePassEncoderPushDebugGroup((WGPUComputePassEncoder)pass_ptr, (WGPUStringView){ .data = label, .length = label ? strlen(label) : 0 });
+}
+void wgpu_shim_compute_pass_pop_debug_group(void* pass_ptr) {
+    wgpuComputePassEncoderPopDebugGroup((WGPUComputePassEncoder)pass_ptr);
+}
+void wgpu_shim_compute_pass_insert_debug_marker(void* pass_ptr, const char* label) {
+    wgpuComputePassEncoderInsertDebugMarker((WGPUComputePassEncoder)pass_ptr, (WGPUStringView){ .data = label, .length = label ? strlen(label) : 0 });
+}
+void wgpu_shim_command_encoder_push_debug_group(void* encoder_ptr, const char* label) {
+    wgpuCommandEncoderPushDebugGroup((WGPUCommandEncoder)encoder_ptr, (WGPUStringView){ .data = label, .length = label ? strlen(label) : 0 });
+}
+void wgpu_shim_command_encoder_pop_debug_group(void* encoder_ptr) {
+    wgpuCommandEncoderPopDebugGroup((WGPUCommandEncoder)encoder_ptr);
+}
+void wgpu_shim_command_encoder_insert_debug_marker(void* encoder_ptr, const char* label) {
+    wgpuCommandEncoderInsertDebugMarker((WGPUCommandEncoder)encoder_ptr, (WGPUStringView){ .data = label, .length = label ? strlen(label) : 0 });
+}
+
+// ── Error scopes ──
+// AUDIT FIX: pushErrorScope/popErrorScope were no-ops returning null.
+// popErrorScope is async — we poll wgpuInstanceProcessEvents until the callback fires.
+static int g_pop_error_complete = 0;
+static WGPUErrorType g_pop_error_type = WGPUErrorType_NoError;
+static char g_pop_error_msg[4096] = {0};
+
+static void on_pop_error_scope(WGPUPopErrorScopeStatus status, WGPUErrorType type, WGPUStringView message, void* userdata1, void* userdata2) {
+    g_pop_error_complete = 1;
+    g_pop_error_type = type;
+    if (message.data && message.length > 0) {
+        size_t len = message.length < sizeof(g_pop_error_msg) - 1 ? message.length : sizeof(g_pop_error_msg) - 1;
+        memcpy(g_pop_error_msg, message.data, len);
+        g_pop_error_msg[len] = '\0';
+    } else {
+        g_pop_error_msg[0] = '\0';
+    }
+    (void)status;
+}
+
+void wgpu_shim_device_push_error_scope(void* device_ptr, uint32_t filter) {
+    wgpuDevicePushErrorScope((WGPUDevice)device_ptr, (WGPUErrorFilter)filter);
+}
+
+// Returns the error type (1=NoError, 2=Validation, 3=OutOfMemory, 4=Internal, 5=Unknown).
+// Copies the error message into out_msg (up to out_msg_size bytes). Returns 0 on failure.
+uint32_t wgpu_shim_device_pop_error_scope(void* device_ptr, char* out_msg, int out_msg_size) {
+    g_pop_error_complete = 0;
+    g_pop_error_type = WGPUErrorType_NoError;
+    g_pop_error_msg[0] = '\0';
+
+    WGPUPopErrorScopeCallbackInfo callbackInfo = {0};
+    callbackInfo.mode = WGPUCallbackMode_AllowProcessEvents;
+    callbackInfo.callback = on_pop_error_scope;
+    callbackInfo.userdata1 = NULL;
+    callbackInfo.userdata2 = NULL;
+
+    wgpuDevicePopErrorScope((WGPUDevice)device_ptr, callbackInfo);
+
+    // Poll until the callback fires
+    while (!g_pop_error_complete) {
+        wgpuInstanceProcessEvents(g_instance);
+    }
+
+    if (out_msg && out_msg_size > 0) {
+        strncpy(out_msg, g_pop_error_msg, out_msg_size - 1);
+        out_msg[out_msg_size - 1] = '\0';
+    }
+
+    return (uint32_t)g_pop_error_type;
+}
+
+// ── Adapter/device limits and features ──
+// AUDIT FIX: previously returned hardcoded desktop values. Now queries the real device.
+// Copies the WGPULimits struct into out_buffer (caller must allocate sizeof(WGPULimits) bytes).
+// Returns 0 on success, non-zero on failure.
+int wgpu_shim_adapter_get_limits(void* adapter_ptr, void* out_buffer) {
+    WGPULimits limits = WGPU_LIMITS_INIT;
+    WGPUStatus status = wgpuAdapterGetLimits((WGPUAdapter)adapter_ptr, &limits);
+    if (status != WGPUStatus_Success) return 1;
+    memcpy(out_buffer, &limits, sizeof(WGPULimits));
+    return 0;
+}
+
+int wgpu_shim_device_get_limits(void* device_ptr, void* out_buffer) {
+    WGPULimits limits = WGPU_LIMITS_INIT;
+    WGPUStatus status = wgpuDeviceGetLimits((WGPUDevice)device_ptr, &limits);
+    if (status != WGPUStatus_Success) return 1;
+    memcpy(out_buffer, &limits, sizeof(WGPULimits));
+    return 0;
+}
+
+// Fills out_features (uint32_t array) with WGPUFeatureName enum values.
+// Returns the feature count. If out_features is NULL, just returns the count.
+uint32_t wgpu_shim_adapter_get_features(void* adapter_ptr, uint32_t* out_features, uint32_t max_count) {
+    WGPUSupportedFeatures sf = {0};
+    wgpuAdapterGetFeatures((WGPUAdapter)adapter_ptr, &sf);
+    uint32_t count = sf.featureCount;
+    if (out_features && max_count > 0) {
+        uint32_t n = count < max_count ? count : max_count;
+        for (uint32_t i = 0; i < n; i++) {
+            out_features[i] = (uint32_t)sf.features[i];
+        }
+    }
+    return count;
+}
+
+uint32_t wgpu_shim_device_get_features(void* device_ptr, uint32_t* out_features, uint32_t max_count) {
+    WGPUSupportedFeatures sf = {0};
+    wgpuDeviceGetFeatures((WGPUDevice)device_ptr, &sf);
+    uint32_t count = sf.featureCount;
+    if (out_features && max_count > 0) {
+        uint32_t n = count < max_count ? count : max_count;
+        for (uint32_t i = 0; i < n; i++) {
+            out_features[i] = (uint32_t)sf.features[i];
+        }
+    }
+    return count;
+}
+
+// ── Queue onSubmittedWorkDone ──
+// AUDIT FIX: queue.onSubmittedWorkDone was missing. Async — polls until callback fires.
+static int g_work_done_complete = 0;
+
+static void on_work_done(WGPUQueueWorkDoneStatus status, WGPUStringView message, void* userdata1, void* userdata2) {
+    g_work_done_complete = 1;
+    (void)status; (void)message; (void)userdata1; (void)userdata2;
+}
+
+void wgpu_shim_queue_on_submitted_work_done(void* queue_ptr) {
+    g_work_done_complete = 0;
+    WGPUQueueWorkDoneCallbackInfo callbackInfo = {0};
+    callbackInfo.mode = WGPUCallbackMode_AllowProcessEvents;
+    callbackInfo.callback = on_work_done;
+    callbackInfo.userdata1 = NULL;
+    callbackInfo.userdata2 = NULL;
+    wgpuQueueOnSubmittedWorkDone((WGPUQueue)queue_ptr, callbackInfo);
+    while (!g_work_done_complete) {
+        wgpuInstanceProcessEvents(g_instance);
+    }
 }
