@@ -319,9 +319,11 @@ Each game runs as an Electron process launched against its own `games/<game>/ele
     kill -TERM "$pid" 2>/dev/null
   done
   ```
-- **Match the MCP port** if you know which port the game's MCP HTTP transport is bound to (default 9876 for dev, 9976 for `draft test`):
+- **Match the MCP port** if you know which port the game's MCP HTTP transport is bound to (ephemeral by default; 9976 for `draft test`):
   ```bash
-  fuser -k 9876/tcp   # kills whatever is bound to the game's MCP port
+  # Read the port from the PID file: ~/.downdraft/port/<pid>
+  ls ~/.downdraft/port/ && cat ~/.downdraft/port/*  # shows PID(s) → port(s)
+  fuser -k <port>/tcp   # kills whatever is bound to that port
   ```
 
 Prefer `kill -TERM` first (lets the game clean up storage locks via `cleanupStaleStorage()` and `requestSingleInstanceLock()`); only escalate to `kill -9` if the process doesn't exit within a few seconds. If you launched the game yourself (via `draft dev`, `draft test`, or the e2e harness), prefer terminating the parent shell/process you spawned rather than hunting for the Electron child.
@@ -341,7 +343,7 @@ A plain browser cannot reproduce any of this, and Playwright driving a browser w
 **Instead, use the in-game MCP automation harness and `draft test`:**
 
 1. **`bun run draft:test-cpu`** (or `bun run draft:test`) — the canonical way to launch and exercise a game headlessly. `draft test` sets `DOWNDRAFT_DETERMINISTIC=1` and spawns `bun test <spec>`; the default smoke specs use the in-game MCP RPC harness to boot the real Electron app and drive it. See "Running the smoke test" below for the full CLI flag reference.
-2. **The `ocean` MCP server** (configured in `.devin/mcp_config.json` via the stdio→HTTP bridge at `.devin/mcp-stdio-bridge.mjs`) — once a game is running with `MCP_PORT=<port>`, this exposes the game's automation tools directly to your MCP client. **List the tools first with `mcp_list_tools` before calling any of them** — never guess tool names or argument schemas. The currently registered tools (see `games/to-the-ocean/src/mcp/automation-tools.ts`) include:
+2. **The `game` MCP server** (configured in `.devin/mcp_config.json` via the stdio→HTTP bridge at `.devin/mcp-stdio-bridge.mjs`) — once a game is running, this exposes the game's automation tools directly to your MCP client. The bridge auto-discovers the running instance via PID files in `~/.downdraft/port/<pid>` (content = the bound port). **List the tools first with `mcp_list_tools` before calling any of them** — never guess tool names or argument schemas. The currently registered tools (see `games/to-the-ocean/src/mcp/automation-tools.ts`) include:
    - `inject_input` / `clear_injected_input` — hold keys/mouse/wheel for N frames.
    - `dispatch_key` / `dispatch_click` — fire real DOM events on the main thread (full input pipeline).
    - `get_player_state` / `get_world_state` / `get_ui_state` — read simulation/UI state.
@@ -353,10 +355,10 @@ A plain browser cannot reproduce any of this, and Playwright driving a browser w
 
 The typical debug loop is:
 ```bash
-# 1. Launch the game with deterministic mode + a known MCP port
-cd games/to-the-ocean && DOWNDRAFT_GPU=swiftshader DOWNDRAFT_DETERMINISTIC=1 MCP_PORT=9876 draft dev &
-# 2. Call ocean MCP tools (inject_input, get_player_state, capture_screenshot, ...)
-#    to drive the game and inspect state.
+# 1. Launch the game with deterministic mode (MCP port is auto-assigned)
+cd games/to-the-ocean && DOWNDRAFT_GPU=swiftshader DOWNDRAFT_DETERMINISTIC=1 draft dev &
+# 2. Call game MCP tools (inject_input, get_player_state, capture_screenshot, ...)
+#    to drive the game and inspect state. The bridge auto-discovers the port.
 # 3. When done, kill ONLY this game instance (see "Killing game processes" above).
 ```
 
@@ -420,7 +422,7 @@ These are set automatically by `draft test`. See the "Running the smoke test" se
 - `DOWNDRAFT_GPU=swiftshader|hardware` — selects WebGPU backend via `webGpuSwitches()`. `swiftshader` = software Vulkan (CI), `hardware` = NVIDIA Vulkan (local).
 - `DOWNDRAFT_DETERMINISTIC=1` — fixed seed (99999), skip autosave loading, disable devtools auto-open and error dialogs, pause the render loop (on-demand rendering only via `set_test_state` or `capture_screenshot`). The flag is passed from the main process to the renderer via the `downdraft.deterministic` bridge property (set in `packages/app/src/preload/bridge.ts`).
 - `DOWNDRAFT_HEADED=1` — show the Electron window even in deterministic mode. Without this, `window.ts` suppresses `win.show()` when `DOWNDRAFT_DETERMINISTIC=1`.
-- `MCP_PORT=9976` — MCP HTTP transport port (default 9876 for normal dev, 9976 for e2e tests).
+- `MCP_PORT=<port>` — MCP HTTP transport port. Unset = ephemeral OS-assigned port (default; advertised via `~/.downdraft/port/<pid>` for auto-discovery). Set explicitly for the e2e test harness (9976).
 - `MCP_TIMEOUT_MS=120000` — MCP proxy IPC round-trip timeout in ms (must be longer than the longest `wait_for_condition` call).
 
 ## Unified DevTools API
@@ -695,14 +697,21 @@ Input injection is merged with real DOM input in `processInput()` so the game lo
 
 ### Connecting Devin's MCP client to the game
 
-The game's MCP HTTP transport (`packages/mcp/src/http-transport.ts`) supports both Streamable HTTP and HTTP+SSE transports. However, Devin's MCP client uses stdio for local servers. A stdio-to-HTTP bridge (`.devin/mcp-stdio-bridge.mjs`) forwards JSON-RPC messages from stdin/stdout to the game's HTTP endpoint.
+The game's MCP HTTP transport (`packages/mcp/src/http-transport.ts`) supports both Streamable HTTP and HTTP+SSE transports. By default it binds to an **ephemeral OS-assigned port** (port 0) so multiple game instances never collide. Devin's MCP client uses stdio for local servers, so a stdio-to-HTTP bridge (`.devin/mcp-stdio-bridge.mjs`) forwards JSON-RPC messages from stdin/stdout to the game's HTTP endpoint.
+
+**Instance discovery:** Each running game writes `~/.downdraft/port/<pid>` (content = the bound port number). The bridge reads this directory, prunes dead-PID files, and connects to the newest live instance. Optional env vars on the bridge:
+- `MCP_APP_ID=<appId>` — narrow to instances of a specific game (matches `--user-data-dir=<path>` basename on Linux; e.g. `downdraft-to-the-ocean`).
+- `MCP_PID=<pid>` — connect to a specific PID.
+- `MCP_HTTP_URL=<url>` — explicit URL override (skips discovery; used by the e2e test harness).
 
 To connect:
-1. Start the game: `cd games/to-the-ocean && DOWNDRAFT_GPU=swiftshader DOWNDRAFT_DETERMINISTIC=1 MCP_PORT=9876 draft dev`
-2. The MCP config (`.devin/mcp_config.json`) defines the `ocean` server using the bridge script.
-3. The bridge forwards `initialize`, `tools/list`, `tools/call` to `http://localhost:9876/mcp`.
+1. Start the game: `cd games/to-the-ocean && DOWNDRAFT_GPU=swiftshader DOWNDRAFT_DETERMINISTIC=1 draft dev`
+2. The MCP config (`.devin/mcp_config.json`) defines the `game` server using the bridge script.
+3. The bridge discovers the port from `~/.downdraft/port/<pid>` and forwards `initialize`, `tools/list`, `tools/call` to `http://localhost:<port>/mcp`.
 4. Notifications (messages without an `id` field, like `notifications/initialized`) are silently ignored by the bridge.
 5. `resources/list` and `prompts/list` return empty lists (the game doesn't expose resources or prompts).
+
+**Multiple instances:** Launch as many games as you like — each gets its own ephemeral port and PID file. The bridge connects to the newest by default; set `MCP_APP_ID` in `.devin/mcp_config.json`'s `env` to target a specific game.
 
 Key bridge fixes:
 - Notifications (no `id`) must not receive a response — the bridge silently drops them.
@@ -743,7 +752,7 @@ draft test --renderer=cpu --spec tests/e2e/my-game.spec.ts
 - `DOWNDRAFT_GPU=swiftshader|hardware` — selects the WebGPU backend via `webGpuSwitches()`.
 - `DOWNDRAFT_DETERMINISTIC=1` — fixed seed (99999), skip autosave, disable devtools auto-open, pause render loop (on-demand rendering only). Passed to the renderer via the `downdraft.deterministic` preload bridge property.
 - `DOWNDRAFT_HEADED=1` — show the window even in deterministic mode. Without this, `window.ts` suppresses `win.show()` when `DOWNDRAFT_DETERMINISTIC=1`.
-- `MCP_PORT=9976` — MCP HTTP transport port.
+- `MCP_PORT=9976` — MCP HTTP transport port (explicit; unset = ephemeral for dev).
 - `MCP_TIMEOUT_MS=120000` — MCP proxy IPC round-trip timeout.
 
 **Headless / CI without a display:** The CLI auto-detects missing `DISPLAY` and wraps in `xvfb-run` if available. Install it with `sudo apt install xvfb`. Electron still needs an X server even when the window is hidden — SwiftShader renders to an offscreen surface but Chromium's ozone platform requires a display connection.
@@ -771,7 +780,7 @@ The CLI reads and sets a number of environment variables. This is the complete l
 
 | Variable | Value | Purpose |
 |---|---|---|
-| `MCP_PORT` | `<port>` | MCP HTTP transport port |
+| `MCP_PORT` | `<port>` | MCP HTTP transport port (unset = ephemeral, auto-discovered via `~/.downdraft/port/<pid>`) |
 | `MCP_TIMEOUT_MS` | `120000` | MCP proxy IPC round-trip timeout (ms) |
 | `DOWNDRAFT_GPU` | `swiftshader` \| `hardware` | WebGPU backend selection |
 | `DOWNDRAFT_DETERMINISTIC` | `1` | Fixed seed, paused render loop, no autosave |

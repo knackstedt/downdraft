@@ -111,7 +111,7 @@ describe("tracing tools", () => {
 
   describe("trace_start", () => {
     it("should start a perf trace by default", async () => {
-      const tools = createTracingTools(ctx, 9876);
+      const tools = createTracingTools(ctx, { current: 9876 });
       const traceStart = tools.find((t) => t.def.name === "trace_start")!;
       const result = await traceStart.handler({});
       const parsed = JSON.parse(result.content[0].text);
@@ -123,7 +123,7 @@ describe("tracing tools", () => {
     });
 
     it("should start a memory trace with heap profiling enabled", async () => {
-      const tools = createTracingTools(ctx, 9876);
+      const tools = createTracingTools(ctx, { current: 9876 });
       const traceStart = tools.find((t) => t.def.name === "trace_start")!;
       const result = await traceStart.handler({ preset: "memory" });
       const parsed = JSON.parse(result.content[0].text);
@@ -135,7 +135,7 @@ describe("tracing tools", () => {
     });
 
     it("should start a custom trace with provided categories", async () => {
-      const tools = createTracingTools(ctx, 9876);
+      const tools = createTracingTools(ctx, { current: 9876 });
       const traceStart = tools.find((t) => t.def.name === "trace_start")!;
       const result = await traceStart.handler({
         preset: "custom",
@@ -147,7 +147,7 @@ describe("tracing tools", () => {
     });
 
     it("should error on custom preset with empty categories", async () => {
-      const tools = createTracingTools(ctx, 9876);
+      const tools = createTracingTools(ctx, { current: 9876 });
       const traceStart = tools.find((t) => t.def.name === "trace_start")!;
       const result = await traceStart.handler({ preset: "custom", categories: [] });
       expect(result.isError).toBe(true);
@@ -155,7 +155,7 @@ describe("tracing tools", () => {
     });
 
     it("should error when starting twice without stopping", async () => {
-      const tools = createTracingTools(ctx, 9876);
+      const tools = createTracingTools(ctx, { current: 9876 });
       const traceStart = tools.find((t) => t.def.name === "trace_start")!;
       await traceStart.handler({});
       const result = await traceStart.handler({});
@@ -164,7 +164,7 @@ describe("tracing tools", () => {
     });
 
     it("should pass recordingMode and bufferSizeKB to contentTracing", async () => {
-      const tools = createTracingTools(ctx, 9876);
+      const tools = createTracingTools(ctx, { current: 9876 });
       const traceStart = tools.find((t) => t.def.name === "trace_start")!;
       await traceStart.handler({
         preset: "perf",
@@ -180,7 +180,7 @@ describe("tracing tools", () => {
 
   describe("trace_stop", () => {
     it("should stop a recording and return file info", async () => {
-      const tools = createTracingTools(ctx, 9876);
+      const tools = createTracingTools(ctx, { current: 9876 });
       const traceStart = tools.find((t) => t.def.name === "trace_start")!;
       const traceStop = tools.find((t) => t.def.name === "trace_stop")!;
       await traceStart.handler({});
@@ -195,7 +195,7 @@ describe("tracing tools", () => {
     });
 
     it("should error when stopping without a recording", async () => {
-      const tools = createTracingTools(ctx, 9876);
+      const tools = createTracingTools(ctx, { current: 9876 });
       const traceStop = tools.find((t) => t.def.name === "trace_stop")!;
       const result = await traceStop.handler({});
       expect(result.isError).toBe(true);
@@ -205,7 +205,7 @@ describe("tracing tools", () => {
 
   describe("trace_status", () => {
     it("should report not recording when idle", async () => {
-      const tools = createTracingTools(ctx, 9876);
+      const tools = createTracingTools(ctx, { current: 9876 });
       const traceStatus = tools.find((t) => t.def.name === "trace_status")!;
       const result = await traceStatus.handler({});
       const parsed = JSON.parse(result.content[0].text);
@@ -213,7 +213,7 @@ describe("tracing tools", () => {
     });
 
     it("should report recording with buffer usage when active", async () => {
-      const tools = createTracingTools(ctx, 9876);
+      const tools = createTracingTools(ctx, { current: 9876 });
       const traceStart = tools.find((t) => t.def.name === "trace_start")!;
       const traceStatus = tools.find((t) => t.def.name === "trace_status")!;
       await traceStart.handler({ preset: "gpu" });
@@ -227,7 +227,7 @@ describe("tracing tools", () => {
 
   describe("trace_categories", () => {
     it("should return available categories", async () => {
-      const tools = createTracingTools(ctx, 9876);
+      const tools = createTracingTools(ctx, { current: 9876 });
       const traceCategories = tools.find((t) => t.def.name === "trace_categories")!;
       const result = await traceCategories.handler({});
       const parsed = JSON.parse(result.content[0].text);
@@ -238,7 +238,7 @@ describe("tracing tools", () => {
 
   describe("memory_dump", () => {
     it("should start memory recording, wait, and stop", async () => {
-      const tools = createTracingTools(ctx, 9876);
+      const tools = createTracingTools(ctx, { current: 9876 });
       const memoryDump = tools.find((t) => t.def.name === "memory_dump")!;
       const result = await memoryDump.handler({ durationMs: 10 });
       const parsed = JSON.parse(result.content[0].text);
@@ -251,7 +251,7 @@ describe("tracing tools", () => {
     });
 
     it("should error when a recording is already in progress", async () => {
-      const tools = createTracingTools(ctx, 9876);
+      const tools = createTracingTools(ctx, { current: 9876 });
       const traceStart = tools.find((t) => t.def.name === "trace_start")!;
       const memoryDump = tools.find((t) => t.def.name === "memory_dump")!;
       await traceStart.handler({});
@@ -262,7 +262,7 @@ describe("tracing tools", () => {
 
   describe("trace_enable_heap_profiling", () => {
     it("should call contentTracing.enableHeapProfiling with mode", async () => {
-      const tools = createTracingTools(ctx, 9876);
+      const tools = createTracingTools(ctx, { current: 9876 });
       const tool = tools.find((t) => t.def.name === "trace_enable_heap_profiling")!;
       const result = await tool.handler({ mode: "all-renderers", samplingRate: 50000 });
       const parsed = JSON.parse(result.content[0].text);
@@ -275,7 +275,7 @@ describe("tracing tools", () => {
 
   describe("heap_snapshot", () => {
     it("should capture a main-process heap snapshot via v8.writeHeapSnapshot", async () => {
-      const tools = createTracingTools(ctx, 9876);
+      const tools = createTracingTools(ctx, { current: 9876 });
       const tool = tools.find((t) => t.def.name === "heap_snapshot")!;
       const result = await tool.handler({ target: "main" });
       const parsed = JSON.parse(result.content[0].text);
@@ -287,7 +287,7 @@ describe("tracing tools", () => {
     });
 
     it("should error for renderer target when no window is available", async () => {
-      const tools = createTracingTools(ctx, 9876);
+      const tools = createTracingTools(ctx, { current: 9876 });
       const tool = tools.find((t) => t.def.name === "heap_snapshot")!;
       const result = await tool.handler({ target: "renderer" });
       expect(result.isError).toBe(true);
@@ -297,7 +297,7 @@ describe("tracing tools", () => {
 
   describe("process_snapshot", () => {
     it("should return main process memory/CPU stats", async () => {
-      const tools = createTracingTools(ctx, 9876);
+      const tools = createTracingTools(ctx, { current: 9876 });
       const tool = tools.find((t) => t.def.name === "process_snapshot")!;
       const result = await tool.handler({ target: "main" });
       const parsed = JSON.parse(result.content[0].text);
@@ -308,7 +308,7 @@ describe("tracing tools", () => {
     });
 
     it("should error for renderer target when no window is available", async () => {
-      const tools = createTracingTools(ctx, 9876);
+      const tools = createTracingTools(ctx, { current: 9876 });
       const tool = tools.find((t) => t.def.name === "process_snapshot")!;
       const result = await tool.handler({ target: "renderer" });
       expect(result.isError).toBe(true);
@@ -318,7 +318,7 @@ describe("tracing tools", () => {
 
   describe("tool definitions", () => {
     it("should register all 8 tools", () => {
-      const tools = createTracingTools(ctx, 9876);
+      const tools = createTracingTools(ctx, { current: 9876 });
       const names = tools.map((t) => t.def.name);
       expect(names).toEqual([
         "trace_start",
@@ -333,7 +333,7 @@ describe("tracing tools", () => {
     });
 
     it("should have descriptions and input schemas", () => {
-      const tools = createTracingTools(ctx, 9876);
+      const tools = createTracingTools(ctx, { current: 9876 });
       for (const tool of tools) {
         expect(tool.def.description.length).toBeGreaterThan(10);
         expect(tool.def.inputSchema.type).toBe("object");
