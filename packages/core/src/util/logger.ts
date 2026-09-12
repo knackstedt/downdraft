@@ -27,6 +27,49 @@ function swallowStreamError(err: unknown): void {
 if (proc?.stdout?.on) proc.stdout.on("error", swallowStreamError);
 if (proc?.stderr?.on) proc.stderr.on("error", swallowStreamError);
 
+// ── Log sinks (for the native devtools console bridge) ──
+// Sinks receive every log line (ANSI-stripped) so an external consumer like
+// the native egui devtools console can display logs that bypass console.log
+// (the native logger writes directly to process.stdout, which CDP never sees).
+export interface LogSinkEntry {
+    level: string;      // "trace"|"debug"|"info"|"warn"|"error"|"fatal"
+    module: string;
+    message: string;    // ANSI/OSC-stripped clean message
+    thread: string;     // thread tag (e.g. "R0", "M0", or "")
+    timestamp: number;  // performance.now() at log time
+}
+
+export type LogSink = (entry: LogSinkEntry) => void;
+
+const logSinks: Set<LogSink> = new Set();
+// Ring buffer of recent log entries so a late-attaching sink (e.g. the
+// devtools console, opened on demand) can replay history.
+const recentLogs: LogSinkEntry[] = [];
+const RECENT_LOG_CAP = 500;
+
+function stripAnsi(s: string): string {
+    return s.replace(/\x1b\[[0-9;]*m/g, "").replace(/\x1b\][^\x07]*\x07/g, "");
+}
+
+function emitToSinks(entry: LogSinkEntry): void {
+    recentLogs.push(entry);
+    if (recentLogs.length > RECENT_LOG_CAP) recentLogs.shift();
+    for (const sink of logSinks) {
+        try { sink(entry); } catch { /* sink errors must never break logging */ }
+    }
+}
+
+/** Register a log sink. Returns an unsubscribe function. */
+export function addLogSink(sink: LogSink): () => void {
+    logSinks.add(sink);
+    return () => { logSinks.delete(sink); };
+}
+
+/** Snapshot of the most recent log entries (newest last), capped at 500. */
+export function getRecentLogs(): LogSinkEntry[] {
+    return recentLogs.slice();
+}
+
 export interface Logger {
     trace(module: string, msg: string): void;
     debug(module: string, msg: string): void;
@@ -492,6 +535,16 @@ export class ConsoleLogger implements Logger {
             ? `${this.palette.gray}[${tagColor}${tag}${reset}${this.palette.gray}/${moduleStr}${this.palette.gray}] `
             : `${this.palette.gray}[${moduleStr}${this.palette.gray}] `;
         const line = `${this.palette.time}${timestamp} ${color}${bold}${level.toUpperCase()}${reset} ${prefix}${reset}${linkifyMessage(cleanMsg)}\n`;
+
+        // Notify log sinks (native devtools console bridge) with clean text.
+        emitToSinks({
+            level,
+            module,
+            message: stripAnsi(cleanMsg),
+            thread: tag,
+            timestamp: (typeof performance !== "undefined" ? performance.now() : Date.now()),
+        });
+
         if (proc?.stdout?.write && proc?.stderr?.write) {
             const stream = proc.env.DOWNDRAFT_MCP === "1" ? proc.stderr : proc.stdout;
             try {

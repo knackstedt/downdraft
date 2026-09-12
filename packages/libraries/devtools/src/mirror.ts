@@ -9,6 +9,7 @@
 // results back.
 // ============================================================================
 
+import { addLogSink, getRecentLogs, type LogSinkEntry } from "@downdraft/core/util/logger";
 import { CdpBridge, type CdpConsoleEntry, type CdpException, type CdpProfile } from "./cdp-bridge";
 import {
     devtoolsClearConsole,
@@ -82,6 +83,7 @@ export class DevtoolsMirror {
 
   private unsubConsole: (() => void) | null = null;
   private unsubException: (() => void) | null = null;
+  private unsubLogger: (() => void) | null = null;
 
   constructor(opts: MirrorOptions) {
     this.handle = opts.handle;
@@ -118,6 +120,29 @@ export class DevtoolsMirror {
 
     // Push initial threads.
     this.pushThreads();
+  }
+
+  /**
+   * Bridge the engine's native logger (which writes to process.stdout, so CDP
+   * never sees it) into the devtools console. Replays recent history and
+   * subscribes to new log lines in real time. Idempotent.
+   */
+  attachLoggerBridge(): void {
+    if (this.unsubLogger) return;
+    // Replay recent history so the console isn't empty when first opened.
+    for (const entry of getRecentLogs()) {
+      this.pushLogEntry(entry);
+    }
+    this.unsubLogger = addLogSink((entry) => this.pushLogEntry(entry));
+  }
+
+  /** Map a LogSinkEntry to a devtools console entry + push to Rust. */
+  private pushLogEntry(entry: LogSinkEntry): void {
+    if (this.disposed) return;
+    const severity = logLevelToSeverity(entry.level);
+    const thread = entry.thread || "main";
+    const text = `[${entry.module}] ${entry.message}`;
+    devtoolsPushConsole(this.handle, text, severity, thread, entry.timestamp, false);
   }
 
   /** Register an eval function for a worker thread. */
@@ -555,5 +580,27 @@ export class DevtoolsMirror {
     this.disposed = true;
     this.unsubConsole?.();
     this.unsubException?.();
+    this.unsubLogger?.();
+  }
+}
+
+// ── Helpers ──
+
+/** Map a logger level string to the devtools console severity byte. */
+function logLevelToSeverity(level: string): number {
+  switch (level) {
+    case "error":
+    case "fatal":
+      return 3; // Error
+    case "warn":
+      return 2; // Warning
+    case "info":
+      return 1; // Info
+    case "debug":
+      return 4; // Debug
+    case "trace":
+      return 5; // Trace
+    default:
+      return 0; // Log
   }
 }
