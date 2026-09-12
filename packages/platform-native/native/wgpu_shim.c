@@ -106,11 +106,41 @@ void* wgpu_shim_request_adapter(void* instance_ptr, int power_preference) {
 
 // Request a device synchronously. Returns the WGPUDevice pointer or NULL.
 // max_storage_buffer_binding_size: 0 for default, or a specific limit value.
-// Uncaptured error callback — logs the error instead of panicking
+// Uncaptured error callback — logs the error instead of panicking.
+// Deduplicates identical messages to avoid console spam when a bad shader
+// triggers repeated validation errors every frame.
+#define MAX_DEDUP_ENTRIES 64
+static struct {
+    char hash[128];
+    int seen;
+} g_error_dedup[MAX_DEDUP_ENTRIES];
+static int g_error_dedup_count = 0;
+static int g_error_dedup_next = 0;
+
+static int error_already_seen(const char* msg) {
+    // Simple hash: first 127 chars of the message
+    char hash[128];
+    size_t i;
+    for (i = 0; i < 127 && msg[i]; i++) hash[i] = msg[i];
+    hash[i] = '\0';
+    for (int j = 0; j < g_error_dedup_count; j++) {
+        if (strcmp(g_error_dedup[j].hash, hash) == 0) return 1;
+    }
+    // Add to dedup ring buffer
+    strncpy(g_error_dedup[g_error_dedup_next].hash, hash, 127);
+    g_error_dedup[g_error_dedup_next].hash[127] = '\0';
+    g_error_dedup_next = (g_error_dedup_next + 1) % MAX_DEDUP_ENTRIES;
+    if (g_error_dedup_count < MAX_DEDUP_ENTRIES) g_error_dedup_count++;
+    return 0;
+}
+
 static void on_uncaptured_error(WGPUDevice const * device, WGPUErrorType type, WGPUStringView message, void *userdata1, void *userdata2) {
     (void)device; (void)type; (void)userdata1; (void)userdata2;
-    fprintf(stderr, "[wgpu] uncaptured error (type=%d): %s\n", (int)type, message.data ? message.data : "(null)");
-    fflush(stderr);
+    const char* msg = message.data ? message.data : "(null)";
+    if (!error_already_seen(msg)) {
+        fprintf(stderr, "[wgpu] uncaptured error (type=%d): %s\n", (int)type, msg);
+        fflush(stderr);
+    }
 }
 
 void* wgpu_shim_request_device(void* adapter_ptr, uint64_t max_storage_buffer_size, uint32_t max_storage_buffers_per_stage, uint32_t max_sampled_textures_per_stage, uint32_t max_texture_array_layers) {
@@ -201,6 +231,130 @@ void* wgpu_shim_create_shader_module(void* device_ptr, const char* wgsl_code) {
     desc.nextInChain = (const WGPUChainedStruct*)&wgslSource;
 
     return (void*)wgpuDeviceCreateShaderModule((WGPUDevice)device_ptr, &desc);
+}
+
+// ── Shader compilation info ──
+// wgpuShaderModuleGetCompilationInfo is callback-based. We poll
+// wgpuInstanceProcessEvents() until the callback fires (same pattern as
+// request_adapter / request_device), then serialize the messages as a JSON
+// string for the JS side to parse. The returned string is malloc'd and must
+// be freed with wgpu_shim_free_string().
+
+static WGPUCompilationInfo g_compilation_info;
+static int g_compilation_info_requested = 0;
+static WGPUCompilationInfoRequestStatus g_compilation_info_status;
+
+static void on_compilation_info(WGPUCompilationInfoRequestStatus status, WGPUCompilationInfo const * info, void* userdata1, void* userdata2) {
+    (void)userdata1; (void)userdata2;
+    g_compilation_info_status = status;
+    if (status == WGPUCompilationInfoRequestStatus_Success && info) {
+        g_compilation_info = *info;
+    } else {
+        g_compilation_info.messageCount = 0;
+        g_compilation_info.messages = NULL;
+    }
+    g_compilation_info_requested = 1;
+}
+
+// Returns a malloc'd JSON string: [{"type":"error","message":"...","line":N,"col":N,"offset":N,"length":N}, ...]
+// Caller must free with wgpu_shim_free_string().
+char* wgpu_shim_shader_get_compilation_info(void* shader_ptr) {
+    WGPUShaderModule shader = (WGPUShaderModule)shader_ptr;
+    g_compilation_info_requested = 0;
+    g_compilation_info.messageCount = 0;
+    g_compilation_info.messages = NULL;
+
+    WGPUCompilationInfoCallbackInfo callbackInfo = WGPU_COMPILATION_INFO_CALLBACK_INFO_INIT;
+    callbackInfo.mode = WGPUCallbackMode_AllowProcessEvents;
+    callbackInfo.callback = on_compilation_info;
+    callbackInfo.userdata1 = NULL;
+    callbackInfo.userdata2 = NULL;
+
+    wgpuShaderModuleGetCompilationInfo(shader, callbackInfo);
+
+    // Poll until the callback fires
+    while (!g_compilation_info_requested) {
+        if (g_instance) {
+            wgpuInstanceProcessEvents(g_instance);
+        } else {
+            break;
+        }
+    }
+
+    // Build JSON array. Use a dynamic buffer since messages can be long.
+    // Start with a reasonable capacity and grow as needed.
+    size_t capacity = 256;
+    char* json = (char*)malloc(capacity);
+    size_t len = 0;
+    json[len++] = '[';
+
+    size_t count = g_compilation_info.messageCount;
+    WGPUCompilationMessage const * messages = g_compilation_info.messages;
+
+    for (size_t i = 0; i < count; i++) {
+        WGPUCompilationMessage const * msg = &messages[i];
+        const char* typeStr;
+        switch (msg->type) {
+            case WGPUCompilationMessageType_Error:   typeStr = "error"; break;
+            case WGPUCompilationMessageType_Warning: typeStr = "warning"; break;
+            case WGPUCompilationMessageType_Info:    typeStr = "info"; break;
+            default: typeStr = "info"; break;
+        }
+
+        // Escape the message string for JSON
+        WGPUStringView sv = msg->message;
+        size_t msgLen = sv.length;
+        const char* msgData = sv.data ? sv.data : "";
+
+        // Build the JSON object for this message
+        // Estimate: type(20) + message(2*msgLen+2) + numbers(80) + separators(20)
+        size_t needed = 128 + 2 * msgLen;
+        if (len + needed + 4 > capacity) {
+            while (len + needed + 4 > capacity) capacity *= 2;
+            json = (char*)realloc(json, capacity);
+        }
+
+        if (i > 0) json[len++] = ',';
+        len += sprintf(json + len, "{\"type\":\"%s\",\"message\":\"", typeStr);
+
+        // Escape message: handle ", \, \n, \r, \t
+        for (size_t j = 0; j < msgLen; j++) {
+            char c = msgData[j];
+            switch (c) {
+                case '"':  json[len++] = '\\'; json[len++] = '"'; break;
+                case '\\': json[len++] = '\\'; json[len++] = '\\'; break;
+                case '\n': json[len++] = '\\'; json[len++] = 'n'; break;
+                case '\r': json[len++] = '\\'; json[len++] = 'r'; break;
+                case '\t': json[len++] = '\\'; json[len++] = 't'; break;
+                default:
+                    if ((unsigned char)c < 0x20) {
+                        len += sprintf(json + len, "\\u%04x", (unsigned char)c);
+                    } else {
+                        json[len++] = c;
+                    }
+                    break;
+            }
+            if (len + 128 > capacity) {
+                capacity *= 2;
+                json = (char*)realloc(json, capacity);
+            }
+        }
+
+        len += sprintf(json + len, "\",\"line\":%llu,\"col\":%llu,\"offset\":%llu,\"length\":%llu}",
+            (unsigned long long)msg->lineNum,
+            (unsigned long long)msg->linePos,
+            (unsigned long long)msg->offset,
+            (unsigned long long)msg->length);
+    }
+
+    json[len++] = ']';
+    json[len] = '\0';
+    return json;
+}
+
+// Free a string returned by wgpu_shim_shader_get_compilation_info.
+void wgpu_shim_free_string(char* str) {
+    if (str) free(str);
 }
 
 // Create a texture.
