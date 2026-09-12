@@ -17,7 +17,7 @@ import { PixiUiHost } from "@downdraft/library-pixi-ui";
 // implementation that bypasses Chrome's ESC-exits-pointer-lock behavior and
 // re-lock cooldown. No-op in browser/web mode (falls back to real API).
 import "@downdraft/module-raw-input/polyfill";
-import { EntityType, FunMode, PhysgunMode, PoseState, ToolType, ToolgunContext } from "@sandbox/shared/types";
+import { EntityType, FunMode, PhysgunMode, PoseState, ToolgunContext, ToolType } from "@sandbox/shared/types";
 import { SimWebWorker, type SimWebWorkerConfig } from "./engine/sim-web-worker";
 import { WebGPURenderer } from "./engine/webgpu-renderer";
 import { SANDBOX_STATS_LAYOUT, type SandboxAction } from "./pixi/bridge-protocol";
@@ -28,6 +28,7 @@ import "./styles/globals.css";
 
 // ── Shared content registry (module-scoped so event handlers can access it) ──
 const contentRegistry = new ContentRegistry();
+const materialRegistry = new MaterialRegistry();
 const pluginScanner = new PluginScanner();
 let dragDropImporter: DragDropImporter | null = null;
 let physicsController: PhysicsPropsController | null = null;
@@ -266,23 +267,72 @@ startGame({
       else console.log("[VR] VR not supported on this device");
     });
 
-    // ── Discover plugins ──
+    // ── Discover plugins via PluginHost ──
+    // The PluginHost is the canonical mod loader. It discovers both mod.json
+    // (new format) and plugin.json (legacy format, auto-normalized). Extension
+    // loaders bridge into the sandbox's ContentRegistry, PostProcessStack, and
+    // MaterialRegistry. Legacy plugins with custom `props` sections also get
+    // scanned by PluginScanner for backward compat.
     try {
+      // Discover both mod.json and plugin.json manifests.
+      const modModules = import.meta.glob("../plugins/*/mod.json", { eager: true, query: "?json", import: "default" });
       const pluginModules = import.meta.glob("../plugins/*/plugin.json", { eager: true, query: "?json", import: "default" });
-      const manifests: Array<{ manifest: any; baseUrl: string }> = [];
+      const baseUrlByManifestId = new Map<string, string>();
+      const allManifests: Array<{ manifest: any; baseUrl: string }> = [];
+      for (const [path, manifest] of Object.entries(modModules)) {
+        const pluginDir = path.replace("/mod.json", "");
+        allManifests.push({ manifest: manifest as any, baseUrl: pluginDir });
+      }
       for (const [path, manifest] of Object.entries(pluginModules)) {
         const pluginDir = path.replace("/plugin.json", "");
-        manifests.push({ manifest: manifest as any, baseUrl: pluginDir });
+        allManifests.push({ manifest: manifest as any, baseUrl: pluginDir });
       }
-      if (manifests.length > 0) {
-        const scanned = pluginScanner.scan(manifests);
-        for (const plugin of scanned) {
-          for (const entry of plugin.entries) {
-            contentRegistry.register(entry);
-          }
-          console.log(`[Renderer] Loaded plugin: ${plugin.manifest.id} (${plugin.entries.length} entries)`);
+      // Track base URLs for the asset bridge to resolve relative paths.
+      for (const { manifest, baseUrl } of allManifests) {
+        baseUrlByManifestId.set(manifest.id, baseUrl);
+      }
+      // Create the PluginHost with extension loaders bridged into sandbox registries.
+      const pluginHost = new PluginHost({
+        gameId: "andrews-sandbox",
+        engineVersion: ENGINE_VERSION,
+      });
+      registerAllExtensionLoaders(
+        (loader) => pluginHost.registerExtensionLoader(loader),
+        {
+          assets: createContentRegistryAssetBridge(
+            contentRegistry,
+            (manifestId) => baseUrlByManifestId.get(manifestId) ?? "",
+          ),
+          maps: createNoopMapRegistry(),
+          physics: createNoopPhysicsRegistry(),
+          shaders: createShaderBridge(
+            (renderer as any)?.getPostProcessStack?.() ?? null,
+            materialRegistry,
+          ),
+        },
+      );
+      // Discover all manifests.
+      for (const { manifest, baseUrl } of allManifests) {
+        const r = pluginHost.discover(manifest, baseUrl);
+        if (!r.ok) {
+          console.warn(`[PluginHost] Rejected manifest "${manifest.id}":`, r.errors);
         }
       }
+      // Load all discovered mods.
+      await pluginHost.loadAll();
+      // Legacy backward compat: also run PluginScanner for plugins with custom
+      // `props` sections (e.g. bouncy-ball) that the normalizer doesn't handle.
+      const legacyWithProps = allManifests.filter(({ manifest }) => (manifest as any).props);
+      if (legacyWithProps.length > 0) {
+        const scanned = pluginScanner.scan(legacyWithProps);
+        for (const plugin of scanned) {
+          for (const entry of plugin.entries) {
+            if (!contentRegistry.get(entry.id)) contentRegistry.register(entry);
+          }
+          console.log(`[Renderer] Legacy plugin (props section): ${plugin.manifest.id} (${plugin.entries.length} entries)`);
+        }
+      }
+      console.log(`[PluginHost] Loaded ${pluginHost.snapshot().filter((p) => p.status === "active").length} mods`);
     } catch (err) {
       console.warn("[Renderer] Plugin discovery failed:", err);
     }

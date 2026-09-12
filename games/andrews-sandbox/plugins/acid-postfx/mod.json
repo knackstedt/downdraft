@@ -1,0 +1,24 @@
+{
+  "id": "acid-postfx",
+  "name": "Acid PostFX",
+  "version": "1.0.0",
+  "engineVersion": "^0.1.0",
+  "game": "andrews-sandbox",
+  "format": "asset",
+  "tier": "data",
+  "thread": "renderer",
+  "extensions": {
+    "shaders": {
+      "postfx": [
+        {
+          "id": "acid-postfx:acid",
+          "name": "Acid",
+          "wgsl": "./shaders/acid.wgsl",
+          "layout": "cc",
+          "order": "stylized",
+          "uniforms": 16
+        }
+      ]
+    }
+  }
+}

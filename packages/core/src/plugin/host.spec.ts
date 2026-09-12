@@ -1,11 +1,10 @@
-import { component } from "../ecs/component";
 import { resourceToken } from "../ecs/resource";
 import { World } from "../ecs/world";
 import { setStrict } from "../module/diagnostics";
 import { ModuleHost } from "../module/host";
-import { InlinePluginLoader, PluginHost, type PluginLoader } from "./host";
+import type { NativePluginContext, ScriptPluginContext } from "./context";
+import { PluginHost, type PluginLoader } from "./host";
 import type { PluginManifest } from "./manifest";
-import type { NativePluginContext, PluginEntry, ScriptPluginContext } from "./context";
 
 function nativeManifest(overrides: Partial<PluginManifest> = {}): PluginManifest {
   return {
@@ -222,5 +221,78 @@ describe("PluginHost", () => {
     await host.loadAll();
     const snap = host.snapshot();
     expect(snap.find((s) => s.id === "test-native")?.status).toBe("error");
+  });
+
+  it("dispatches declarative extensions to ExtensionLoaders after logic loads", async () => {
+    const host = new PluginHost({
+      gameId: "test-game",
+      engineVersion: "0.1.0",
+      moduleHost: new ModuleHost(new World()),
+    });
+    const logicLoaded: string[] = [];
+    const extLoaded: string[] = [];
+    host.registerLoader(fakeLoader("worker-js", (ctx) => { logicLoaded.push(ctx.id); }));
+    const assetLoader: ExtensionLoader = {
+      bucket: "assets",
+      async load(_m, ext) { extLoaded.push(`assets:${ext.id}`); return () => {}; },
+    };
+    const postfxLoader: ExtensionLoader = {
+      bucket: "shader-postfx",
+      async load(_m, ext) { extLoaded.push(`shader-postfx:${ext.id}`); return () => {}; },
+    };
+    host.registerExtensionLoader(assetLoader);
+    host.registerExtensionLoader(postfxLoader);
+    host.discover(
+      nativeManifest({
+        logic: {
+          format: "worker-js", thread: "sim", entry: "./src/index.ts",
+          permissions: ["ecs", "events"],
+        },
+        extensions: {
+          assets: [
+            { kind: "mesh", id: "mod:crate", path: "./crate.glb" },
+            { kind: "texture", id: "mod:paint", path: "./paint.png" },
+          ],
+          shaders: {
+            postfx: [{
+              id: "mod:acid", name: "Acid", wgsl: "./acid.wgsl",
+              layout: "cc", order: "stylized",
+            }],
+          },
+        },
+      }),
+      "local",
+    );
+    await host.loadAll();
+    expect(logicLoaded).toEqual(["test-native"]);
+    expect(extLoaded).toEqual(["assets:mod:crate", "assets:mod:paint", "shader-postfx:mod:acid"]);
+    expect(host.snapshot().find((s) => s.id === "test-native")?.status).toBe("active");
+  });
+
+  it("loads a pure-data mod (no logic) via extension loaders only", async () => {
+    const host = new PluginHost({ gameId: "test-game", engineVersion: "0.1.0" });
+    const extLoaded: string[] = [];
+    const mapLoader: ExtensionLoader = {
+      bucket: "maps",
+      async load(_m, ext) { extLoaded.push(`maps:${ext.id}`); return () => {}; },
+    };
+    host.registerExtensionLoader(mapLoader);
+    host.discover(
+      nativeManifest({
+        format: "asset",
+        tier: "data",
+        thread: "renderer",
+        entry: undefined,
+        permissions: [],
+        logic: undefined,
+        extensions: {
+          maps: [{ id: "mod:arena", path: "./arena.json" } as any],
+        },
+      }),
+      "local",
+    );
+    await host.loadAll();
+    expect(extLoaded).toEqual(["maps:mod:arena"]);
+    expect(host.snapshot().find((s) => s.id === "test-native")?.status).toBe("active");
   });
 });

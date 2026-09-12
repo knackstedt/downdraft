@@ -40,7 +40,114 @@ export type PluginPermission =
   | "tick" // register per-frame tick callbacks
   | "storage" // persist plugin state to OPFS
   | "network" // fetch / WebSocket / XMLHttpRequest
-  | "log"; // structured logging (rate-limited)
+  | "log" // structured logging (rate-limited)
+  | "physics" // mutate physics bodies via host-call bridge (native tier)
+  | "assets"; // resolve + reference asset handles via host-call bridge (native tier)
+
+// ── Mod (pack) extension types ──
+//
+// A `mod.json` declares a pack of extensions in addition to (or instead of)
+// the legacy single-format fields. Each extension is declarative data
+// registered by the host; the optional `logic` extension is code (worker-js
+// or wasm) that runs sandboxed and may mutate the game via host calls.
+
+/** Logic extension — the code entry of a mod. Either worker-js (TS) or wasm.
+ *  Not required: a mod can be pure data (assets/shaders/maps/physics). */
+export interface ModLogic {
+  /** Code format. `quickjs` is kept for legacy `plugin.json` compat. */
+  format: PluginFormat;
+  /** Where the code runs. wasm is always forced to `own-worker`. */
+  thread: PluginThread;
+  /** Entry path relative to the mod dir. */
+  entry: string;
+  /** Requested permissions (validated against the native-tier set). */
+  permissions?: PluginPermission[];
+  /** QuickJS-specific config (only valid when `format: "quickjs"`). */
+  quickjs?: { instructionBudget?: number };
+}
+
+/** Asset extension kinds registered into the AssetManager + content catalog. */
+export interface ModAssetExtension {
+  kind: "mesh" | "texture" | "pbr-material" | "texture-pipeline";
+  /** Logical asset id (namespaced, e.g. "my-mod:crate"). */
+  id: string;
+  /** Path to the file relative to the mod dir. */
+  path: string;
+  /** pbr-material: descriptor fields (baseColor, metallic, roughness, texture refs). */
+  /** texture-pipeline: pipeline descriptor. Extra fields are pass-through. */
+  [key: string]: unknown;
+}
+
+/** Map extension — a JSON scene graph loaded into the MapRegistry. */
+export interface ModMapExtension {
+  kind: "map";
+  id: string;
+  path: string;
+}
+
+/** Physics extension — global physics overrides + material table. */
+export interface ModPhysicsExtension {
+  kind: "physics";
+  id: string;
+  path: string;
+}
+
+/** Postfx shader extension — a custom WGSL fragment effect for the PostProcessStack chain. */
+export interface ModShaderPostfxExtension {
+  kind: "shader-postfx";
+  /** Effect id (namespaced, e.g. "my-mod:acid"). */
+  id: string;
+  /** Display name. */
+  name: string;
+  /** Path to the WGSL fragment shader relative to the mod dir. */
+  wgsl: string;
+  /** Bind group layout the shader expects. */
+  layout: "cc" | "cd" | "cvvh" | "cvd" | "dnfn";
+  /** Where in the chain this effect runs. */
+  order: "hdr" | "color-grading" | "camera" | "stylized";
+  /** Uniform buffer size in bytes (if the shader needs a uniform). */
+  uniforms?: number;
+}
+
+/** Material shader extension — a custom WGSL material for spawned props. */
+export interface ModShaderMaterialExtension {
+  kind: "shader-material";
+  /** Material id (namespaced, e.g. "my-mod:iridescent"). */
+  id: string;
+  /** Path to the WGSL material shader relative to the mod dir. */
+  wgsl: string;
+  /** Uniform buffer size in bytes. */
+  uniforms?: number;
+}
+
+/** The bucketed extensions object on a mod.json. All fields optional. */
+export interface ModExtensions {
+  /** Asset entries (meshes, textures, PBR materials, texture pipelines). */
+  assets?: ModAssetExtension[];
+  /** Map scene graphs. */
+  maps?: ModMapExtension[];
+  /** Physics override descriptors. */
+  physics?: ModPhysicsExtension[];
+  /** Shader extensions (postfx chain effects + per-prop materials). */
+  shaders?: {
+    postfx?: ModShaderPostfxExtension[];
+    materials?: ModShaderMaterialExtension[];
+  };
+}
+
+/** The buckets an ExtensionLoader can handle. */
+export type ModExtensionBucket =
+  | "assets"
+  | "maps"
+  | "physics"
+  | "shader-postfx"
+  | "shader-material";
+
+/** A flattened extension with its bucket tag, for dispatch. */
+export interface ModExtensionDispatch {
+  bucket: ModExtensionBucket;
+  extension: Record<string, unknown>;
+}
 
 /** Asset-pack section (only valid when `format: "asset"`). */
 export interface AssetPluginManifest {
@@ -96,6 +203,14 @@ export interface PluginManifest {
      *  Default: 1,000,000. */
     instructionBudget?: number;
   };
+  // ── Mod (pack) fields ──
+  /** Logic extension (code entry). Mutually exclusive with the legacy
+   *  single-format shape: a mod.json uses `logic` + `extensions`; a legacy
+   *  plugin.json uses `format`/`tier`/`thread`/`entry`/`assets`. The
+   *  normalizer populates `logic` from the legacy fields so both work. */
+  logic?: ModLogic;
+  /** Declarative extensions (assets, maps, physics, shaders). */
+  extensions?: ModExtensions;
 }
 
 /** Result of manifest validation. */
@@ -127,6 +242,8 @@ const NATIVE_ALLOWED: ReadonlySet<PluginPermission> = new Set([
   "storage",
   "network",
   "log",
+  "physics",
+  "assets",
 ]);
 
 // ── Helpers ──
@@ -236,27 +353,46 @@ export function validatePluginManifest(raw: unknown): PluginManifestValidation {
     }
   }
 
+  // ── Mod (pack) fields: logic + extensions ──
+  if (m.logic !== undefined) {
+    validateModLogic(m.logic as Record<string, unknown>, errors);
+  }
+  if (m.extensions !== undefined) {
+    validateModExtensions(m.extensions as Record<string, unknown>, errors);
+  }
+
   // ── Cross-field rules (only run if basic shape is OK) ──
   if (errors.length === 0) {
     const t = tier as PluginTier;
     const f = format as PluginFormat;
     let th = thread as PluginThread;
+    const hasLogic = !!m.logic;
+    // When logic is present, the entry lives on logic.entry and permissions
+    // on logic.permissions; the top-level entry/permissions may be omitted.
+    const effectiveEntry = m.entry ?? m.logic?.entry;
+    const effectivePerms = m.logic?.permissions ?? permList;
 
-    // wasm always own-worker
+    // wasm always own-worker (check both top-level and logic thread)
     if (f === "wasm" && th !== "own-worker") {
       errors.push(`format "wasm" must use thread "own-worker" (got "${th}") — host will force it`);
     }
+    if (hasLogic && m.logic!.format === "wasm" && m.logic!.thread !== "own-worker") {
+      errors.push(`logic.format "wasm" must use thread "own-worker" (got "${m.logic!.thread}") — host will force it`);
+    }
 
-    // data tier ⇒ format asset, no perms, no entry
+    // data tier ⇒ format asset, no perms, no entry, no logic
     if (t === "data") {
       if (f !== "asset") {
         errors.push(`tier "data" requires format "asset" (got "${f}")`);
       }
-      if (permList.length > 0) {
-        errors.push(`tier "data" must not request permissions (got [${permList.join(", ")}])`);
+      if (effectivePerms.length > 0) {
+        errors.push(`tier "data" must not request permissions (got [${effectivePerms.join(", ")}])`);
       }
-      if (m.entry !== undefined) {
-        errors.push(`tier "data" must not declare an entry (got "${m.entry}")`);
+      if (effectiveEntry !== undefined) {
+        errors.push(`tier "data" must not declare an entry (got "${effectiveEntry}")`);
+      }
+      if (hasLogic) {
+        errors.push(`tier "data" must not declare a "logic" extension`);
       }
     }
 
@@ -267,7 +403,7 @@ export function validatePluginManifest(raw: unknown): PluginManifestValidation {
 
     // script tier permissions subset
     if (t === "script") {
-      const bad = permList.filter((p) => !SCRIPT_ALLOWED.has(p));
+      const bad = effectivePerms.filter((p) => !SCRIPT_ALLOWED.has(p));
       if (bad.length > 0) {
         errors.push(
           `tier "script" allows only [${[...SCRIPT_ALLOWED].join(", ")}] — disallowed: [${bad.join(", ")}]`,
@@ -278,27 +414,219 @@ export function validatePluginManifest(raw: unknown): PluginManifestValidation {
     // native tier: any permission allowed but must be explicit (no implicit grant).
     // (Nothing to enforce here beyond "must be a known permission", already checked.)
     if (t === "native") {
-      const bad = permList.filter((p) => !NATIVE_ALLOWED.has(p));
+      const bad = effectivePerms.filter((p) => !NATIVE_ALLOWED.has(p));
       if (bad.length > 0) {
         errors.push(`tier "native" disallows unknown permissions: [${bad.join(", ")}]`);
       }
     }
 
-    // code-bearing formats require an entry
-    if ((f === "worker-js" || f === "wasm" || f === "quickjs") && m.entry === undefined) {
+    // code-bearing formats require an entry (top-level OR logic.entry)
+    if ((f === "worker-js" || f === "wasm" || f === "quickjs") && effectiveEntry === undefined) {
       errors.push(`format "${f}" requires an "entry" path`);
     }
-    // asset format: entry forbidden, assets required
+    // asset format: entry forbidden, assets OR extensions required
     if (f === "asset") {
-      if (m.entry !== undefined) errors.push(`format "asset" must not declare an entry`);
-      if (!m.assets) errors.push(`format "asset" requires an "assets" section`);
+      if (effectiveEntry !== undefined) errors.push(`format "asset" must not declare an entry`);
+      if (!m.assets && !m.extensions) errors.push(`format "asset" requires an "assets" section or "extensions"`);
     }
   }
 
   if (errors.length > 0) return { valid: false, errors };
 
-  // ── Normalize: force wasm → own-worker ──
+  // ── Normalize ──
   const normalized: PluginManifest = { ...(raw as PluginManifest) };
   if (normalized.format === "wasm") normalized.thread = "own-worker";
+  // Populate logic + extensions from legacy fields if not already set, so the
+  // host's extension dispatch works for both mod.json and legacy plugin.json.
+  normalizeLogicAndExtensions(normalized);
   return { valid: true, errors: [], normalized };
+}
+
+// ── Mod logic validation ──
+
+function validateModLogic(l: Record<string, unknown>, errors: string[]): void {
+  const VALID_LOGIC_FORMATS: PluginFormat[] = ["worker-js", "wasm", "quickjs"];
+  if (typeof l.format !== "string" || !VALID_LOGIC_FORMATS.includes(l.format as PluginFormat)) {
+    errors.push(`logic.format: required one of ${VALID_LOGIC_FORMATS.join("|")}, got "${l.format}"`);
+  }
+  const VALID_THREADS: PluginThread[] = ["sim", "renderer", "own-worker"];
+  if (typeof l.thread !== "string" || !VALID_THREADS.includes(l.thread as PluginThread)) {
+    errors.push(`logic.thread: required one of ${VALID_THREADS.join("|")}, got "${l.thread}"`);
+  }
+  if (typeof l.entry !== "string" || !l.entry) {
+    errors.push(`logic.entry: required string path, got "${l.entry}"`);
+  }
+  if (l.permissions !== undefined) {
+    if (!Array.isArray(l.permissions) || !l.permissions.every((p) => typeof p === "string")) {
+      errors.push("logic.permissions: must be an array of strings");
+    }
+  }
+}
+
+// ── Mod extensions validation ──
+
+function validateModExtensions(e: Record<string, unknown>, errors: string[]): void {
+  if (typeof e !== "object" || e === null) {
+    errors.push("extensions: must be an object");
+    return;
+  }
+  if (e.assets !== undefined) {
+    if (!Array.isArray(e.assets)) {
+      errors.push("extensions.assets: must be an array");
+    } else {
+      e.assets.forEach((a, i) => validateAssetExtension(a, i, errors));
+    }
+  }
+  if (e.maps !== undefined) {
+    if (!Array.isArray(e.maps)) {
+      errors.push("extensions.maps: must be an array");
+    } else {
+      e.maps.forEach((mp, i) => {
+        if (!mp || typeof mp !== "object") return errors.push(`extensions.maps[${i}]: must be an object`);
+        if (typeof mp.id !== "string") errors.push(`extensions.maps[${i}].id: required string`);
+        if (typeof mp.path !== "string") errors.push(`extensions.maps[${i}].path: required string`);
+      });
+    }
+  }
+  if (e.physics !== undefined) {
+    if (!Array.isArray(e.physics)) {
+      errors.push("extensions.physics: must be an array");
+    } else {
+      e.physics.forEach((p, i) => {
+        if (!p || typeof p !== "object") return errors.push(`extensions.physics[${i}]: must be an object`);
+        if (typeof p.id !== "string") errors.push(`extensions.physics[${i}].id: required string`);
+        if (typeof p.path !== "string") errors.push(`extensions.physics[${i}].path: required string`);
+      });
+    }
+  }
+  if (e.shaders !== undefined) {
+    if (typeof e.shaders !== "object" || e.shaders === null) {
+      errors.push("extensions.shaders: must be an object");
+    } else {
+      const s = e.shaders as Record<string, unknown>;
+      if (s.postfx !== undefined) {
+        if (!Array.isArray(s.postfx)) {
+          errors.push("extensions.shaders.postfx: must be an array");
+        } else {
+          s.postfx.forEach((fx, i) => validatePostfxExtension(fx, i, errors));
+        }
+      }
+      if (s.materials !== undefined) {
+        if (!Array.isArray(s.materials)) {
+          errors.push("extensions.shaders.materials: must be an array");
+        } else {
+          s.materials.forEach((mat, i) => {
+            if (!mat || typeof mat !== "object") return errors.push(`extensions.shaders.materials[${i}]: must be an object`);
+            if (typeof mat.id !== "string") errors.push(`extensions.shaders.materials[${i}].id: required string`);
+            if (typeof mat.wgsl !== "string") errors.push(`extensions.shaders.materials[${i}].wgsl: required string path`);
+            if (mat.uniforms !== undefined && typeof mat.uniforms !== "number") errors.push(`extensions.shaders.materials[${i}].uniforms: must be a number`);
+          });
+        }
+      }
+    }
+  }
+}
+
+function validateAssetExtension(a: unknown, i: number, errors: string[]): void {
+  if (!a || typeof a !== "object") {
+    errors.push(`extensions.assets[${i}]: must be an object`);
+    return;
+  }
+  const ext = a as Record<string, unknown>;
+  const VALID_KINDS = ["mesh", "texture", "pbr-material", "texture-pipeline"];
+  if (typeof ext.kind !== "string" || !VALID_KINDS.includes(ext.kind)) {
+    errors.push(`extensions.assets[${i}].kind: required one of ${VALID_KINDS.join("|")}, got "${ext.kind}"`);
+  }
+  if (typeof ext.id !== "string" || !ext.id) {
+    errors.push(`extensions.assets[${i}].id: required string`);
+  }
+  if (typeof ext.path !== "string" || !ext.path) {
+    errors.push(`extensions.assets[${i}].path: required string`);
+  }
+}
+
+function validatePostfxExtension(fx: unknown, i: number, errors: string[]): void {
+  if (!fx || typeof fx !== "object") {
+    errors.push(`extensions.shaders.postfx[${i}]: must be an object`);
+    return;
+  }
+  const ext = fx as Record<string, unknown>;
+  if (typeof ext.id !== "string" || !ext.id) errors.push(`extensions.shaders.postfx[${i}].id: required string`);
+  if (typeof ext.name !== "string") errors.push(`extensions.shaders.postfx[${i}].name: required string`);
+  if (typeof ext.wgsl !== "string") errors.push(`extensions.shaders.postfx[${i}].wgsl: required string path`);
+  const VALID_LAYOUTS = ["cc", "cd", "cvvh", "cvd", "dnfn"];
+  if (typeof ext.layout !== "string" || !VALID_LAYOUTS.includes(ext.layout)) {
+    errors.push(`extensions.shaders.postfx[${i}].layout: required one of ${VALID_LAYOUTS.join("|")}, got "${ext.layout}"`);
+  }
+  const VALID_ORDERS = ["hdr", "color-grading", "camera", "stylized"];
+  if (typeof ext.order !== "string" || !VALID_ORDERS.includes(ext.order)) {
+    errors.push(`extensions.shaders.postfx[${i}].order: required one of ${VALID_ORDERS.join("|")}, got "${ext.order}"`);
+  }
+  if (ext.uniforms !== undefined && typeof ext.uniforms !== "number") {
+    errors.push(`extensions.shaders.postfx[${i}].uniforms: must be a number`);
+  }
+}
+
+// ── Normalizer: populate logic + extensions from legacy plugin.json fields ──
+//
+// A legacy plugin.json uses `format`/`tier`/`thread`/`entry`/`permissions`/
+// `assets`. A mod.json uses `logic`/`extensions`. This populates whichever is
+// missing so the host's extension dispatch works uniformly for both shapes.
+// The legacy fields are preserved (existing loaders still read them).
+
+function normalizeLogicAndExtensions(m: PluginManifest): void {
+  // When logic is present, ensure the top-level format/thread/entry/permissions
+  // mirror it (so legacy loaders that read m.format / m.entry keep working).
+  if (m.logic) {
+    if (!m.format) m.format = m.logic.format;
+    if (!m.thread) m.thread = m.logic.thread;
+    if (!m.entry) m.entry = m.logic.entry;
+    if (!m.permissions && m.logic.permissions) m.permissions = m.logic.permissions;
+    if (m.logic.format === "wasm") m.thread = "own-worker";
+  }
+  // Populate `logic` from legacy fields when not already present and the
+  // manifest is a code-bearing format.
+  if (!m.logic && m.format && m.format !== "asset" && m.entry) {
+    m.logic = {
+      format: m.format,
+      thread: m.thread,
+      entry: m.entry,
+      permissions: m.permissions,
+      ...(m.quickjs ? { quickjs: m.quickjs } : {}),
+    };
+  }
+  // Populate `extensions.assets` from the legacy `assets` section when not
+  // already present (data-tier asset plugins).
+  if (!m.extensions && m.assets) {
+    const assets: ModAssetExtension[] = [];
+    for (const meshPath of m.assets.meshes ?? []) {
+      assets.push({ kind: "mesh", id: meshPath, path: meshPath });
+    }
+    for (const texPath of m.assets.textures ?? []) {
+      assets.push({ kind: "texture", id: texPath, path: texPath });
+    }
+    for (const dataPath of m.assets.data ?? []) {
+      // Legacy data files are registered as textures of kind "texture" only if
+      // they're image files; otherwise they're opaque data. Keep them as
+      // texture-kind entries with the data path so the asset loader can
+      // dispatch by extension.
+      assets.push({ kind: "texture", id: dataPath, path: dataPath });
+    }
+    if (assets.length > 0) m.extensions = { assets };
+  }
+}
+
+/** Flatten a manifest's extensions into a dispatch list (bucket + extension).
+ *  Returns extensions in a stable order: assets, maps, physics, shader-postfx,
+ *  shader-material. Used by the host to drive ExtensionLoaders. */
+export function flattenExtensions(m: PluginManifest): ModExtensionDispatch[] {
+  const out: ModExtensionDispatch[] = [];
+  const ext = m.extensions;
+  if (!ext) return out;
+  for (const a of ext.assets ?? []) out.push({ bucket: "assets", extension: a as unknown as Record<string, unknown> });
+  for (const mp of ext.maps ?? []) out.push({ bucket: "maps", extension: mp as unknown as Record<string, unknown> });
+  for (const p of ext.physics ?? []) out.push({ bucket: "physics", extension: p as unknown as Record<string, unknown> });
+  for (const fx of ext.shaders?.postfx ?? []) out.push({ bucket: "shader-postfx", extension: fx as unknown as Record<string, unknown> });
+  for (const mat of ext.shaders?.materials ?? []) out.push({ bucket: "shader-material", extension: mat as unknown as Record<string, unknown> });
+  return out;
 }

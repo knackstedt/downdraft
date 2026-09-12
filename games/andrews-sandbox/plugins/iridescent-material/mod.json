@@ -1,0 +1,21 @@
+{
+  "id": "iridescent-material",
+  "name": "Iridescent Material",
+  "version": "1.0.0",
+  "engineVersion": "^0.1.0",
+  "game": "andrews-sandbox",
+  "format": "asset",
+  "tier": "data",
+  "thread": "renderer",
+  "extensions": {
+    "shaders": {
+      "materials": [
+        {
+          "id": "iridescent-material:iridescent",
+          "wgsl": "./shaders/iridescent.wgsl",
+          "uniforms": 32
+        }
+      ]
+    }
+  }
+}

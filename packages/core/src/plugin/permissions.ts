@@ -30,6 +30,8 @@ export const TIER_ALLOWED: Record<PluginTier, ReadonlySet<PluginPermission>> = {
     "storage",
     "network",
     "log",
+    "physics",
+    "assets",
   ]),
 };
 
@@ -112,6 +114,8 @@ export const PERMISSION_GLOBALS: Record<PluginPermission, readonly string[]> = {
   state: [],
   tick: [],
   log: [],
+  physics: [],
+  assets: [],
 };
 
 // ── Permission resolution ──

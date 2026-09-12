@@ -26,6 +26,7 @@ import type {
     NativePluginContext,
     PluginContextBacking,
     PluginEventBus,
+    PluginHostCalls,
     PluginLogger,
     PluginStateStore,
     PluginTickApi,
@@ -37,7 +38,7 @@ import {
     type PluginInfo,
     type PluginStatus,
 } from "./diagnostics";
-import { validatePluginManifest, type PluginManifest, type PluginPermission } from "./manifest";
+import { flattenExtensions, validatePluginManifest, type ModExtensionBucket, type PluginManifest, type PluginPermission } from "./manifest";
 import {
     resolvePermissions,
     type PermissionGrant,
@@ -46,13 +47,13 @@ import { PluginRegistry } from "./registry";
 
 const log = createLogger("info");
 
-// ── Loader interface ──
+// ── Loader interfaces ──
 
 /**
- * A format-specific loader. The host calls `load(manifest, ctx)` after
- * sandboxing/permission resolution. The loader is responsible for fetching
- * the entry (worker spawn / wasm compile / quickjs vm / asset registration)
- * and calling the plugin's `register(ctx)`.
+ * A format-specific loader for the `logic` extension (code entry). The host
+ * calls `load(manifest, ctx)` after sandboxing/permission resolution. The
+ * loader is responsible for fetching the entry (worker spawn / wasm compile /
+ * quickjs vm) and calling the plugin's `register(ctx)`.
  *
  * Returns a dispose fn (or void if none needed).
  */
@@ -62,6 +63,25 @@ export interface PluginLoader {
     manifest: PluginManifest,
     ctx: ScriptPluginContext | NativePluginContext,
     granted: PermissionGrant,
+  ): Promise<(() => void) | void>;
+}
+
+/**
+ * A bucket-specific loader for declarative mod extensions (assets, maps,
+ * physics, shaders). The host dispatches each flattened extension to the
+ * loader registered for its bucket. The loader registers the extension's
+ * data into the appropriate game registry (AssetManager, MapRegistry,
+ * PostProcessStack, MaterialRegistry, etc.) and returns a dispose fn.
+ *
+ * One ExtensionLoader per bucket: "assets" | "maps" | "physics" |
+ * "shader-postfx" | "shader-material".
+ */
+export interface ExtensionLoader {
+  readonly bucket: ModExtensionBucket;
+  load(
+    manifest: PluginManifest,
+    extension: Record<string, unknown>,
+    ctx: ScriptPluginContext | NativePluginContext,
   ): Promise<(() => void) | void>;
 }
 
@@ -100,6 +120,11 @@ export interface PluginHostOptions {
   engineVersion: string;
   /** DevTools API (for native-tier ctx.devtools). Optional. */
   devtools?: ModuleDevToolsAPI;
+  /** Game-implemented host-call bridge (spawn/physics/impulse/asset-ref).
+   *  Injected into NativePluginContext so logic extensions can mutate the
+   *  game. Optional — a game that doesn't support mutation omits it, and
+   *  host-call methods reject with a clear error. */
+  hostCalls?: PluginHostCalls;
 }
 
 // ── Host ──
@@ -108,6 +133,7 @@ export class PluginHost {
   private registry = new PluginRegistry();
   private active = new Map<string, ActivePlugin>();
   private loaders: Map<PluginManifest["format"], PluginLoader> = new Map();
+  private extensionLoaders: Map<ModExtensionBucket, ExtensionLoader> = new Map();
   private opts: PluginHostOptions;
   /** Manifests discovered but not yet loaded (id → manifest + source). */
   private discovered: Map<string, { manifest: PluginManifest; source: string }> = new Map();
@@ -116,9 +142,14 @@ export class PluginHost {
     this.opts = opts;
   }
 
-  /** Register a format-specific loader. */
+  /** Register a format-specific loader for the `logic` extension. */
   registerLoader(loader: PluginLoader): void {
     this.loaders.set(loader.format, loader);
+  }
+
+  /** Register a bucket-specific loader for a declarative extension kind. */
+  registerExtensionLoader(loader: ExtensionLoader): void {
+    this.extensionLoaders.set(loader.bucket, loader);
   }
 
   // ── Discovery ──
@@ -202,20 +233,31 @@ export class PluginHost {
   private async loadOne(id: string): Promise<void> {
     const d = this.discovered.get(id)!;
     const m = d.manifest;
-    const loader = this.loaders.get(m.format);
-    if (!loader) {
+
+    // Resolve the logic loader. For a mod.json the loader is keyed by
+    // `logic.format`; for a legacy plugin.json it's keyed by `format`. A
+    // pure-data mod (no logic) has no logic loader and skips straight to
+    // extension dispatch.
+    const logicFormat = m.logic?.format ?? m.format;
+    const hasLogic = !!m.logic || (m.format && m.format !== "asset");
+    const loader = hasLogic ? this.loaders.get(logicFormat) : undefined;
+    if (hasLogic && !loader) {
       this.active.set(id, {
         manifest: m,
         status: "error",
         disposeFns: [],
         granted: { granted: new Set(), denied: [] },
-        error: `no loader registered for format "${m.format}"`,
+        error: `no loader registered for format "${logicFormat}"`,
         source: d.source,
       });
-      log.error("PluginHost", `No loader for "${id}" (format ${m.format})`);
+      log.error("PluginHost", `No loader for "${id}" (format ${logicFormat})`);
       return;
     }
-    const granted = resolvePermissions(m.permissions ?? [], m.tier, this.opts.gameAllow);
+    const granted = resolvePermissions(
+      m.logic?.permissions ?? m.permissions ?? [],
+      m.tier,
+      this.opts.gameAllow,
+    );
     this.active.set(id, {
       manifest: m,
       status: "loading",
@@ -225,19 +267,43 @@ export class PluginHost {
     });
     try {
       const ctx = this.buildContext(m, granted);
-      const dispose = await loader.load(m, ctx, granted);
-      if (dispose) {
-        const a = this.active.get(id)!;
-        a.disposeFns.push(dispose);
+      // 1. Load the logic extension (code entry) if present.
+      if (loader) {
+        const dispose = await loader.load(m, ctx, granted);
+        if (dispose) {
+          const a = this.active.get(id)!;
+          a.disposeFns.push(dispose);
+        }
+      }
+      // 2. Dispatch declarative extensions (assets, maps, physics, shaders).
+      //    Each is loaded by its bucket-specific ExtensionLoader. Failures are
+      //    recorded on the plugin snapshot but do not abort the whole mod —
+      //    a bad shader shouldn't prevent the mod's assets from loading.
+      const exts = flattenExtensions(m);
+      for (const ext of exts) {
+        const extLoader = this.extensionLoaders.get(ext.bucket);
+        if (!extLoader) {
+          log.warn("PluginHost", `No extension loader for bucket "${ext.bucket}" (mod "${id}") — skipping`);
+          continue;
+        }
+        try {
+          const dispose = await extLoader.load(m, ext.extension, ctx);
+          if (dispose) {
+            const a = this.active.get(id)!;
+            a.disposeFns.push(dispose);
+          }
+        } catch (e) {
+          log.error("PluginHost", `Extension load error in "${id}" (${ext.bucket}): ${(e as Error).message}`);
+        }
       }
       const a = this.active.get(id)!;
       a.status = "active";
-      log.info("PluginHost", `Loaded plugin "${id}" (${m.format}/${m.tier})`);
+      log.info("PluginHost", `Loaded mod "${id}" (${logicFormat ?? "data"}/${m.tier})`);
     } catch (e) {
       const a = this.active.get(id)!;
       a.status = "error";
       a.error = (e as Error).message;
-      log.error("PluginHost", `Failed to load plugin "${id}": ${(e as Error).message}`);
+      log.error("PluginHost", `Failed to load mod "${id}": ${(e as Error).message}`);
     }
   }
 
@@ -292,6 +358,7 @@ export class PluginHost {
       backing.injectOptional = <T>(token: ResourceToken<T>): T | undefined =>
         mh.injectOptional(token);
       backing.devtools = this.opts.devtools ?? mh.devtools;
+      backing.hostCalls = this.opts.hostCalls;
       return makeNativeContext(backing);
     }
     return makeScriptContext(backing);

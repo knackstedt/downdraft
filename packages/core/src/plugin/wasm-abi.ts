@@ -1,21 +1,28 @@
 // ============================================================================
-// WASM plugin ABI v2 — the contract between the host and WASM plugin modules.
+// WASM plugin ABI v3 — the contract between the host and WASM plugin modules.
 //
 // WASM plugins always run in their own dedicated worker (stability isolation).
 // The ABI uses WebAssembly linear memory for string/data passing:
 //   - The host provides an `env` import module with functions for logging,
-//     state access, and event publishing.
+//     state access, event publishing, and game mutation (host calls).
 //   - The plugin exports `register`, and optionally `tick`, `dispose`,
 //     `on_event`, and `alloc` (for the host to allocate strings in the
 //     plugin's memory).
+//
+// v3 adds host-call imports for game mutation (spawn_prop, remove_prop,
+// set_physics, get_physics, apply_impulse, apply_torque, get_asset_ref).
+// These are async on the host side (forwarded to the game's PluginHostCalls);
+// the host-call imports return a u32 request id, and the host posts the
+// result back via the `on_host_call_result` export (ptr+len for JSON result,
+// or 0 for void / error). v2 imports are unchanged — a v2 plugin works as-is.
 //
 // All string/data passing uses (ptr, len) pairs into the plugin's linear
 // memory. The host calls `alloc(size)` to get a pointer, writes the data,
 // then calls the plugin function.
 // ============================================================================
 
-/** ABI version — incremented on breaking changes. */
-export const WASM_PLUGIN_ABI_VERSION = 2;
+/** ABI version — incremented on breaking changes. v3 adds host-call imports. */
+export const WASM_PLUGIN_ABI_VERSION = 3;
 
 /** Host-provided import module (the `env` namespace). */
 export interface WasmPluginImports {
@@ -39,6 +46,32 @@ export interface WasmPluginImports {
     event_subscribe: (namePtr: number, nameLen: number) => number;
     /** Events: unsubscribe(sub_id) → void */
     event_unsubscribe: (subId: number) => void;
+    // ── Host-call bridge (v3): game mutation ──
+    // Each returns a u32 request id. The host calls `on_host_call_result`
+    // (export) with the result when the async host call completes.
+    /** Spawn a prop: (content_id_ptr, content_id_len, x, y, z, qx, qy, qz, qw, scale) → request_id.
+     *  Result: JSON { entityId } or { error }. */
+    spawn_prop: (
+      contentIdPtr: number, contentIdLen: number,
+      x: number, y: number, z: number,
+      qx: number, qy: number, qz: number, qw: number,
+      scale: number,
+    ) => number;
+    /** Remove a prop: (entity_id) → request_id. Result: void or { error }. */
+    remove_prop: (entityId: number) => number;
+    /** Set physics: (entity_id, mass, restitution, friction, gravity_scale) → request_id.
+     *  Pass NaN for any field to leave it unchanged. Result: void or { error }. */
+    set_physics: (
+      entityId: number, mass: number, restitution: number, friction: number, gravityScale: number,
+    ) => number;
+    /** Get physics: (entity_id) → request_id. Result: JSON { mass, restitution, friction, gravityScale }. */
+    get_physics: (entityId: number) => number;
+    /** Apply impulse: (entity_id, x, y, z) → request_id. Result: void or { error }. */
+    apply_impulse: (entityId: number, x: number, y: number, z: number) => number;
+    /** Apply torque: (entity_id, x, y, z) → request_id. Result: void or { error }. */
+    apply_torque: (entityId: number, x: number, y: number, z: number) => number;
+    /** Get asset ref: (asset_id_ptr, asset_id_len) → request_id. Result: JSON { handle } or { error }. */
+    get_asset_ref: (assetIdPtr: number, assetIdLen: number) => number;
   };
 }
 
@@ -55,6 +88,15 @@ export interface WasmPluginExports {
   /** Called when a subscribed event fires (if present).
    *  sub_id matches the id returned by `env.event_subscribe`. */
   on_event?: (subId: number, dataPtr: number, dataLen: number) => void;
+  /** Called when a host-call (v3) completes (if present).
+   *  request_id matches the id returned by the host-call import.
+   *  resultPtr/resultLen point to a JSON result string (or 0,0 for void).
+   *  errorPtr/errorLen point to an error string (or 0,0 on success). */
+  on_host_call_result?: (
+    requestId: number,
+    resultPtr: number, resultLen: number,
+    errorPtr: number, errorLen: number,
+  ) => void;
   /** The plugin's linear memory (for reading/writing strings). */
   memory?: WebAssembly.Memory;
 }

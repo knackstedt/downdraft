@@ -3,13 +3,14 @@ export {
     makeNativeContext,
     makeScriptContext,
     type NativePluginContext,
+    type PhysicsDesc,
     type PluginContextBacking,
     type PluginEntry,
-    type PluginEventBus, type PluginEventCatalog, type PluginEventHandler, type PluginLogger,
+    type PluginEventBus, type PluginEventCatalog, type PluginEventHandler, type PluginHostCalls, type PluginLogger,
     type PluginRegisterFn,
     type PluginStateStore,
     type PluginTickApi,
-    type ScriptPluginContext
+    type ScriptPluginContext, type SpawnedProp, type SpawnPropDesc
 } from "./context";
 export {
     pluginInfoFromManifest,
@@ -17,7 +18,21 @@ export {
     type PluginStatus
 } from "./diagnostics";
 export {
+    createAssetLoader,
+    createMapLoader,
+    createMaterialShaderLoader,
+    createPhysicsLoader,
+    createPostfxShaderLoader,
+    registerAllExtensionLoaders,
+    type AssetRegistry,
+    type ExtensionLoaderHost,
+    type MapRegistry,
+    type PhysicsRegistry,
+    type ShaderRegistry
+} from "./extension-loaders";
+export {
     PluginHost,
+    type ExtensionLoader,
     type PluginHostOptions,
     type PluginLoader,
     type PluginSource
@@ -30,13 +45,24 @@ export {
 } from "./loader-wasm";
 export { InlinePluginLoader, WorkerPluginLoader } from "./loader-worker";
 export {
+    flattenExtensions,
     validatePluginManifest,
     type AssetPluginManifest,
+    type ModAssetExtension,
+    type ModExtensionBucket,
+    type ModExtensionDispatch,
+    type ModExtensions,
+    type ModLogic,
+    type ModMapExtension,
+    type ModPhysicsExtension,
+    type ModShaderMaterialExtension,
+    type ModShaderPostfxExtension,
     type PluginFormat,
     type PluginManifest,
     type PluginManifestValidation,
     type PluginPermission, type PluginThread, type PluginTier
 } from "./manifest";
+export { MaterialRegistry, type RegisteredMaterial } from "./material-registry";
 export { createPluginMcpTools } from "./mcp-tools";
 export {
     BASELINE_GLOBALS,

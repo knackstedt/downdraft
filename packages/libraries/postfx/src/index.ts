@@ -11,8 +11,9 @@
 //   import { PostProcessStack } from "@downdraft/library-postfx";
 
 export { PostProcessStack } from "./post-process-stack";
-export type { EffectId, PostProcessStackOptions, ViewportRect } from "./post-process-stack";
+export type { CustomEffect, CustomEffectOrder, EffectId, PostProcessStackOptions, ViewportRect } from "./post-process-stack";
 
 // Engine library descriptor + typed DI token
 export { PostfxLib, PostProcessStackTok } from "./library";
 export type { PostfxLibConfig } from "./library";
+

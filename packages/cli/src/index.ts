@@ -12,6 +12,7 @@ import { dist } from "./dist";
 import { exportGame } from "./export";
 import { mobile } from "./mobile";
 import { newProject } from "./new";
+import { pluginCommand } from "./plugin-command";
 import { release } from "./release";
 import { runTest } from "./test";
 import { getCommand, renderTopLevelHelp } from "./usage";
@@ -97,6 +98,10 @@ async function main() {
         break;
       case "plugin":
         await pluginCommand(process.argv.slice(3));
+        break;
+      case "mod":
+        // `dd mod` is an alias for `dd plugin` but defaults to mod.json format.
+        await pluginCommand(["--mod", ...process.argv.slice(3)]);
         break;
       default:
         print(renderTopLevelHelp(getCliVersion()));

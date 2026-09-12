@@ -1,11 +1,11 @@
-import {
-  BASELINE_GLOBALS,
-  computeGlobalAllowlist,
-  PERMISSION_GLOBALS,
-  resolvePermissions,
-  TIER_ALLOWED,
-} from "./permissions";
 import type { PluginPermission } from "./manifest";
+import {
+    BASELINE_GLOBALS,
+    computeGlobalAllowlist,
+    PERMISSION_GLOBALS,
+    resolvePermissions,
+    TIER_ALLOWED,
+} from "./permissions";
 
 describe("permissions", () => {
   describe("TIER_ALLOWED", () => {
@@ -18,7 +18,7 @@ describe("permissions", () => {
       );
     });
     it("native tier allows all known permissions", () => {
-      expect(TIER_ALLOWED.native.size).toBe(9);
+      expect(TIER_ALLOWED.native.size).toBe(11);
     });
   });
 

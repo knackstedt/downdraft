@@ -14,7 +14,7 @@
 // ============================================================================
 
 import { createLogger } from "../util/logger";
-import type { ScriptPluginContext } from "./context";
+import type { NativePluginContext, ScriptPluginContext } from "./context";
 import type { PluginLoader } from "./host";
 import type { PluginManifest } from "./manifest";
 import type { PermissionGrant } from "./permissions";
@@ -28,17 +28,52 @@ import {
 
 const log = createLogger("info");
 
+/** A pending host-call request, tracked by request id. */
+interface PendingHostCall {
+  resolve: (value: unknown) => void;
+  reject: (err: Error) => void;
+}
+
 /**
  * Build the host import module (`env` namespace) for a WASM plugin.
- * The imports bridge the plugin's WASM calls to the ScriptPluginContext.
+ * The imports bridge the plugin's WASM calls to the ScriptPluginContext /
+ * NativePluginContext. v3 host-call imports forward to the NativePluginContext
+ * host-call bridge and post results back via `on_host_call_result`.
+ *
+ * Exported for testing (so tests can instantiate a WASM module directly
+ * without going through the loader's fetch path).
  */
-function buildImports(
-  ctx: ScriptPluginContext,
+export function buildImports(
+  ctx: ScriptPluginContext | NativePluginContext,
   exports: () => WasmPluginExports,
   subscriptions: Map<number, (data: unknown) => void>,
+  pending: Map<number, PendingHostCall>,
 ): WasmPluginImports {
-  const _writeStr = (s: string): [number, number] => writeStringToMemory(exports(), s) ?? [0, 0];
   const readStr = (ptr: number, len: number): string => readStringFromMemory(exports(), ptr, len);
+  // Host-call bridge: only available on NativePluginContext. For script-tier
+  // (QuickJS) contexts, host calls reject with a clear error.
+  const hostCalls = (ctx as NativePluginContext).spawnProp
+    ? (ctx as NativePluginContext)
+    : undefined;
+  let nextReqId = 1;
+  const dispatchHostCall = <T>(p: Promise<T>, requestId: number): void => {
+    p.then((result) => {
+      const exp = exports();
+      if (!exp.on_host_call_result) return;
+      if (result === undefined) {
+        exp.on_host_call_result(requestId, 0, 0, 0, 0);
+      } else {
+        const json = JSON.stringify(result);
+        const [ptr, len] = writeBytesToMemory(exp, new TextEncoder().encode(json)) ?? [0, 0];
+        exp.on_host_call_result(requestId, ptr, len, 0, 0);
+      }
+    }).catch((err: Error) => {
+      const exp = exports();
+      if (!exp.on_host_call_result) return;
+      const [ptr, len] = writeStringToMemory(exp, err.message) ?? [0, 0];
+      exp.on_host_call_result(requestId, 0, 0, ptr, len);
+    });
+  };
 
   return {
     env: {
@@ -96,6 +131,84 @@ function buildImports(
         if (typeof unsub === "function") unsub();
         subscriptions.delete(subId);
       },
+
+      // ── Host-call bridge (v3) ──
+      spawn_prop: (contentIdPtr, contentIdLen, x, y, z, qx, qy, qz, qw, scale) => {
+        const reqId = nextReqId++;
+        const contentId = readStr(contentIdPtr, contentIdLen);
+        if (!hostCalls?.spawnProp) {
+          dispatchHostCall(Promise.reject(new Error("spawnProp: no host-call bridge wired")), reqId);
+          return reqId;
+        }
+        const desc = {
+          contentId,
+          position: [x, y, z] as [number, number, number],
+          rotation: [qx, qy, qz, qw] as [number, number, number, number],
+          scale,
+        };
+        dispatchHostCall(hostCalls.spawnProp(desc), reqId);
+        return reqId;
+      },
+      remove_prop: (entityId) => {
+        const reqId = nextReqId++;
+        if (!hostCalls?.removeProp) {
+          dispatchHostCall(Promise.reject(new Error("removeProp: no host-call bridge wired")), reqId);
+          return reqId;
+        }
+        dispatchHostCall(hostCalls.removeProp(entityId), reqId);
+        return reqId;
+      },
+      set_physics: (entityId, mass, restitution, friction, gravityScale) => {
+        const reqId = nextReqId++;
+        if (!hostCalls?.setPhysics) {
+          dispatchHostCall(Promise.reject(new Error("setPhysics: no host-call bridge wired")), reqId);
+          return reqId;
+        }
+        const desc: Record<string, number> = {};
+        if (!Number.isNaN(mass)) desc.mass = mass;
+        if (!Number.isNaN(restitution)) desc.restitution = restitution;
+        if (!Number.isNaN(friction)) desc.friction = friction;
+        if (!Number.isNaN(gravityScale)) desc.gravityScale = gravityScale;
+        dispatchHostCall(hostCalls.setPhysics(entityId, desc), reqId);
+        return reqId;
+      },
+      get_physics: (entityId) => {
+        const reqId = nextReqId++;
+        if (!hostCalls?.getPhysics) {
+          dispatchHostCall(Promise.reject(new Error("getPhysics: no host-call bridge wired")), reqId);
+          return reqId;
+        }
+        dispatchHostCall(hostCalls.getPhysics(entityId), reqId);
+        return reqId;
+      },
+      apply_impulse: (entityId, x, y, z) => {
+        const reqId = nextReqId++;
+        if (!hostCalls?.applyImpulse) {
+          dispatchHostCall(Promise.reject(new Error("applyImpulse: no host-call bridge wired")), reqId);
+          return reqId;
+        }
+        dispatchHostCall(hostCalls.applyImpulse(entityId, [x, y, z]), reqId);
+        return reqId;
+      },
+      apply_torque: (entityId, x, y, z) => {
+        const reqId = nextReqId++;
+        if (!hostCalls?.applyTorque) {
+          dispatchHostCall(Promise.reject(new Error("applyTorque: no host-call bridge wired")), reqId);
+          return reqId;
+        }
+        dispatchHostCall(hostCalls.applyTorque(entityId, [x, y, z]), reqId);
+        return reqId;
+      },
+      get_asset_ref: (assetIdPtr, assetIdLen) => {
+        const reqId = nextReqId++;
+        const assetId = readStr(assetIdPtr, assetIdLen);
+        if (!hostCalls?.getAssetRef) {
+          dispatchHostCall(Promise.reject(new Error("getAssetRef: no host-call bridge wired")), reqId);
+          return reqId;
+        }
+        dispatchHostCall(hostCalls.getAssetRef(assetId), reqId);
+        return reqId;
+      },
     },
   };
 }
@@ -109,6 +222,7 @@ function resolveExports(instance: WebAssembly.Instance): WasmPluginExports {
     tick: exp.tick,
     dispose: exp.dispose,
     on_event: exp.on_event,
+    on_host_call_result: exp.on_host_call_result,
     memory: exp.memory,
   };
 }
@@ -123,7 +237,7 @@ export class InlineWasmPluginLoader implements PluginLoader {
 
   async load(
     manifest: PluginManifest,
-    ctx: ScriptPluginContext,
+    ctx: ScriptPluginContext | NativePluginContext,
     _granted: PermissionGrant,
   ): Promise<(() => void) | void> {
     const entryUrl = manifest.entry!;
@@ -132,9 +246,10 @@ export class InlineWasmPluginLoader implements PluginLoader {
     const bytes = new Uint8Array(await resp.arrayBuffer());
 
     const subscriptions = new Map<number, (data: unknown) => void>();
+    const pending = new Map<number, PendingHostCall>();
     let exportsRef: WasmPluginExports = { alloc: () => 0, register: () => {} };
 
-    const imports = buildImports(ctx, () => exportsRef, subscriptions);
+    const imports = buildImports(ctx, () => exportsRef, subscriptions, pending);
     const result = await WebAssembly.instantiate(bytes, imports as unknown as WebAssembly.Imports);
     exportsRef = resolveExports(result.instance);
 
@@ -179,7 +294,7 @@ export class WasmPluginLoader implements PluginLoader {
 
   async load(
     manifest: PluginManifest,
-    ctx: ScriptPluginContext,
+    ctx: ScriptPluginContext | NativePluginContext,
     _granted: PermissionGrant,
   ): Promise<(() => void) | void> {
     const entryUrl = manifest.entry!;

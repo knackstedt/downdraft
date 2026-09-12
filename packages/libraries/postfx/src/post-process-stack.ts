@@ -73,6 +73,33 @@ export type EffectId =
   | "halftone" | "dithering" | "watercolor"
   | "outline" | "highlight" | "glow" | "ascii";
 
+// ── Custom (mod-defined) effects ──
+//
+// Mods can register custom post-processing effects via `registerCustomEffect`.
+// A custom effect is a WGSL fragment shader that runs as a full-screen pass
+// with the `ccLayout` bind group (color input + dummy + sampler + uniform).
+// Custom effects are inserted into the chain at the position specified by
+// their `order` field, after the built-in effects in the same order group.
+
+/** Where in the postfx chain a custom effect runs. */
+export type CustomEffectOrder = "hdr" | "color-grading" | "camera" | "stylized";
+
+/** A mod-defined post-processing effect. */
+export interface CustomEffect {
+  /** Unique effect id (namespaced, e.g. "my-mod:acid"). */
+  id: string;
+  /** Display name. */
+  name: string;
+  /** WGSL fragment shader source (the `fs_main` entry point). */
+  wgsl: string;
+  /** Bind group layout the shader expects. Currently only "cc" is supported. */
+  layout: "cc";
+  /** Where in the chain this effect runs. */
+  order: CustomEffectOrder;
+  /** Uniform buffer size in bytes (default 64). The uniform is at binding 3. */
+  uniforms?: number;
+}
+
 const ALL_EFFECTS: EffectId[] = [
   "taa", "ssao", "ssr", "dof", "motion-blur",
   "bloom", "bloom-soft", "tonemap",
@@ -186,6 +213,14 @@ export class PostProcessStack {
     ALL_EFFECTS.map(e => [e, false])
   ) as Record<EffectId, boolean>;
   private prevEnabled: Record<EffectId, boolean> = { ...this.enabled };
+
+  // Custom (mod-defined) effects: id → { effect, pipeline, uniform, enabled }
+  private customEffects = new Map<string, {
+    effect: CustomEffect;
+    pipeline: GPURenderPipeline;
+    uniform: GPUBuffer;
+    enabled: boolean;
+  }>();
 
   // Settings
   private grainTime = 0;
@@ -528,11 +563,15 @@ export class PostProcessStack {
   // ── Public API: queries ───────────────────────────────────────────────────
 
   hasEnabledEffects(): boolean {
-    return (Object.values(this.enabled) as boolean[]).some(v => v);
+    if ((Object.values(this.enabled) as boolean[]).some(v => v)) return true;
+    for (const [, e] of this.customEffects) if (e.enabled) return true;
+    return false;
   }
 
   getEnabledEffects(): string[] {
-    return CHAIN_ORDER.filter(id => this.enabled[id]).map(id => EFFECT_NAMES[id]);
+    const builtin = CHAIN_ORDER.filter(id => this.enabled[id]).map(id => EFFECT_NAMES[id]);
+    const custom = [...this.customEffects.values()].filter(e => e.enabled).map(e => e.effect.name);
+    return [...builtin, ...custom];
   }
 
   isEnabled(id: EffectId): boolean { return this.enabled[id]; }
@@ -578,6 +617,61 @@ export class PostProcessStack {
 
   setEnabled(id: EffectId, enabled: boolean): void {
     this.enabled[id] = enabled;
+  }
+
+  // ── Public API: custom (mod-defined) effects ──────────────────────────────
+
+  /** Register a mod-defined custom effect. Creates a render pipeline from the
+   *  provided WGSL fragment shader. The effect is disabled by default; call
+   *  `setCustomEffectEnabled` to turn it on. Throws if the id is already
+   *  registered or the WGSL fails to compile. */
+  registerCustomEffect(effect: CustomEffect): void {
+    if (this.customEffects.has(effect.id)) {
+      throw new Error(`Custom effect "${effect.id}" is already registered`);
+    }
+    if (effect.layout !== "cc") {
+      throw new Error(`Custom effect "${effect.id}": only layout "cc" is supported (got "${effect.layout}")`);
+    }
+    const uniformSize = effect.uniforms ?? 64;
+    const uniform = this.device.createBuffer({
+      size: uniformSize,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    const pipeline = this.makePipeline(effect.wgsl, this.ccLayout, HDR_FORMAT);
+    this.customEffects.set(effect.id, { effect, pipeline, uniform, enabled: false });
+  }
+
+  /** Unregister a custom effect. Destroys its pipeline + uniform buffer. */
+  unregisterCustomEffect(id: string): void {
+    const e = this.customEffects.get(id);
+    if (!e) return;
+    e.pipeline.destroy?.();
+    e.uniform.destroy();
+    this.customEffects.delete(id);
+  }
+
+  /** Enable/disable a custom effect. */
+  setCustomEffectEnabled(id: string, enabled: boolean): void {
+    const e = this.customEffects.get(id);
+    if (!e) throw new Error(`Custom effect "${id}" is not registered`);
+    e.enabled = enabled;
+  }
+
+  /** Check if a custom effect is enabled. */
+  isCustomEffectEnabled(id: string): boolean {
+    return this.customEffects.get(id)?.enabled ?? false;
+  }
+
+  /** Get all registered custom effect ids. */
+  getCustomEffectIds(): string[] {
+    return [...this.customEffects.keys()];
+  }
+
+  /** Write uniform data for a custom effect. */
+  setCustomEffectUniform(id: string, data: Float32Array): void {
+    const e = this.customEffects.get(id);
+    if (!e) throw new Error(`Custom effect "${id}" is not registered`);
+    this.device.queue.writeBuffer(e.uniform, 0, data as unknown as Float32Array<ArrayBuffer>);
   }
 
   // ── Public API: per-effect setters ────────────────────────────────────────
@@ -858,33 +952,83 @@ export class PostProcessStack {
     w: number, h: number,
   ): void {
     const active = CHAIN_ORDER.filter(id => this.enabled[id]);
-    if (active.length === 0) return;
+    // Collect enabled custom effects grouped by order.
+    const customByOrder: Record<CustomEffectOrder, string[]> = {
+      "hdr": [], "color-grading": [], "camera": [], "stylized": [],
+    };
+    for (const [id, e] of this.customEffects) {
+      if (e.enabled) customByOrder[e.effect.order].push(id);
+    }
+    const hasCustom = (customByOrder["hdr"].length + customByOrder["color-grading"].length +
+      customByOrder["camera"].length + customByOrder["stylized"].length) > 0;
+    if (active.length === 0 && !hasCustom) return;
 
     const dv = depthView ?? this.sceneDepth?.createView() ?? null;
     let inputView = this.sceneColor!.createView();
     let pingIdx = 0;
 
+    // Build a combined chain: built-in effects with custom effects inserted
+    // at the end of each order group. The CHAIN_ORDER groups are:
+    //   [0..7]   = HDR (taa..tonemap)
+    //   [8..11]  = Color grading (lut..split-tone)
+    //   [12..16] = Camera/lens (fxaa..grain)
+    //   [17..end] = Stylized (sobel..ascii)
+    const HDR_END = 8, COLOR_END = 12, CAMERA_END = 17;
+    const chain: Array<{ type: "builtin"; id: EffectId } | { type: "custom"; id: string }> = [];
     for (let i = 0; i < active.length; i++) {
-      const effect = active[i];
+      chain.push({ type: "builtin", id: active[i] });
+      if (i === HDR_END - 1) for (const cid of customByOrder["hdr"]) chain.push({ type: "custom", id: cid });
+      if (i === COLOR_END - 1) for (const cid of customByOrder["color-grading"]) chain.push({ type: "custom", id: cid });
+      if (i === CAMERA_END - 1) for (const cid of customByOrder["camera"]) chain.push({ type: "custom", id: cid });
+    }
+    // Stylized custom effects run after all built-in stylized effects.
+    for (const cid of customByOrder["stylized"]) chain.push({ type: "custom", id: cid });
+    // If there are no built-in effects but there are custom effects, run them.
+    if (active.length === 0) {
+      for (const order of ["hdr", "color-grading", "camera", "stylized"] as CustomEffectOrder[]) {
+        for (const cid of customByOrder[order]) chain.push({ type: "custom", id: cid });
+      }
+    }
+
+    for (const entry of chain) {
       const outputTex = this.pingPong[pingIdx]!;
       const outputView = outputTex.createView();
-
-      this.applyEffect(encoder, effect, inputView, outputView, dv, w, h);
-
-      // Post-effect side effects
-      if (effect === "afterimage") {
-        encoder.copyTextureToTexture({ texture: outputTex }, { texture: this.afterimageTex! }, [w, h]);
-      } else if (effect === "taa") {
-        encoder.copyTextureToTexture({ texture: outputTex }, { texture: this.taaHistory2! }, [w, h]);
-        const tmp = this.taaHistory; this.taaHistory = this.taaHistory2; this.taaHistory2 = tmp;
+      if (entry.type === "builtin") {
+        this.applyEffect(encoder, entry.id, inputView, outputView, dv, w, h);
+        if (entry.id === "afterimage") {
+          encoder.copyTextureToTexture({ texture: outputTex }, { texture: this.afterimageTex! }, [w, h]);
+        } else if (entry.id === "taa") {
+          encoder.copyTextureToTexture({ texture: outputTex }, { texture: this.taaHistory2! }, [w, h]);
+          const tmp = this.taaHistory; this.taaHistory = this.taaHistory2; this.taaHistory2 = tmp;
+        }
+      } else {
+        this.applyCustomEffect(encoder, entry.id, inputView, outputView, w, h);
       }
-
       inputView = outputView;
       pingIdx = 1 - pingIdx;
     }
 
     // Blit final result to canvas
     this.applyBlit(encoder, inputView, canvasView, w, h);
+  }
+
+  /** Apply a custom (mod-defined) effect as a full-screen pass. */
+  private applyCustomEffect(
+    encoder: GPUCommandEncoder,
+    id: string,
+    inputView: GPUTextureView,
+    outputView: GPUTextureView,
+    w: number, h: number,
+  ): void {
+    const e = this.customEffects.get(id);
+    if (!e) return;
+    const bg = this.bg(this.ccLayout, [
+      { binding: 0, resource: inputView },
+      { binding: 1, resource: this.dummyTex.createView() },
+      { binding: 2, resource: this.linearSampler },
+      { binding: 3, resource: { buffer: e.uniform } },
+    ]);
+    this.pass(encoder, e.pipeline, bg, outputView, w, h);
   }
 
   private applyEffect(
@@ -1460,5 +1604,11 @@ export class PostProcessStack {
     this.occluderUniform?.destroy();
     for (const key in this.uniforms) this.uniforms[key]?.destroy();
     for (const key in this.pipelines) this.pipelines[key]?.destroy?.();
+    // Custom effects
+    for (const [, e] of this.customEffects) {
+      e.pipeline.destroy?.();
+      e.uniform.destroy();
+    }
+    this.customEffects.clear();
   }
 }
