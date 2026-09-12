@@ -25,13 +25,14 @@ function findShimLibrary(): string {
   const envPath = process.env.WGPU_SHIM_PATH;
   if (envPath && existsSync(envPath)) return envPath;
 
-  // 2. Relative to this file (native/lib/libwgpu_shim.so)
-  const relativePath = join(_dirname, "..", "..", "native", "lib", "libwgpu_shim.so");
-  if (existsSync(relativePath)) return relativePath;
-
-  // 2b. Also check native/libwgpu_shim.so (legacy path)
+  // 2. native/libwgpu_shim.so (has correct rpath $ORIGIN/lib → native/lib/)
   const legacyPath = join(_dirname, "..", "..", "native", "libwgpu_shim.so");
   if (existsSync(legacyPath)) return legacyPath;
+
+  // 2b. native/lib/libwgpu_shim.so (rpath $ORIGIN/lib is broken here — only
+  // works if libwgpu_native.so is on the loader path)
+  const relativePath = join(_dirname, "..", "..", "native", "lib", "libwgpu_shim.so");
+  if (existsSync(relativePath)) return relativePath;
 
   // 3. System-installed
   const systemPath = "/usr/local/lib/libwgpu_shim.so";
@@ -106,8 +107,9 @@ const { symbols } = dlopen(shimPath, {
   } as CFunction,
 
   // ── Sampler ──
+  // AUDIT FIX: extended to pass all sampler fields (compare, anisotropy, addressModeW, mipmap, lod).
   wgpu_shim_create_sampler: {
-    args: ["ptr", "u32", "u32", "u32", "u32"],
+    args: ["ptr", "u32", "u32", "u32", "u32", "u32", "u32", "f32", "f32", "u32", "u32"],
     returns: "ptr",
   } as CFunction,
 
@@ -134,8 +136,10 @@ const { symbols } = dlopen(shimPath, {
   } as CFunction,
 
   // ── Render pass ──
+  // AUDIT FIX: extended to support multiple color attachments, full depth-stencil,
+  // occlusion query set, and timestamp writes.
   wgpu_shim_begin_render_pass: {
-    args: ["ptr", "ptr", "f32", "f32", "f32", "f32", "u32", "u32", "ptr"],
+    args: ["ptr", "u32", "ptr", "ptr", "ptr", "ptr"],
     returns: "ptr",
   } as CFunction,
   wgpu_shim_render_pass_set_pipeline: {
@@ -173,6 +177,8 @@ const { symbols } = dlopen(shimPath, {
   } as CFunction,
 
   // ── Render pipeline ──
+  // AUDIT FIX: extended to support multiple color targets, full depth-stencil state,
+  // and stripIndexFormat. Uses flat arrays for color targets and depth-stencil.
   wgpu_shim_create_render_pipeline: {
     args: [
       "ptr",           // device
@@ -180,22 +186,17 @@ const { symbols } = dlopen(shimPath, {
       "cstring",       // vertex entry
       "ptr",           // fragment shader
       "cstring",       // fragment entry
-      "u32",           // color format
-      "u32",           // depth format
+      "u32",           // color target count
+      "ptr",           // color target data (flat array, 9 u32 per target)
+      "ptr",           // depth-stencil data (flat array, 16 u32, or NULL)
       "u32",           // topology
+      "u32",           // strip index format
       "u32",           // sample count
       "ptr",           // layout
       "u32",           // cull mode
       "u32",           // front face
       "u32",           // vertex buffer count
       "ptr",           // vertex buffer data (flat array)
-      "u32",           // has_blend
-      "u32",           // color_src_factor
-      "u32",           // color_dst_factor
-      "u32",           // color_operation
-      "u32",           // alpha_src_factor
-      "u32",           // alpha_dst_factor
-      "u32",           // alpha_operation
     ],
     returns: "ptr",
   } as CFunction,
@@ -207,7 +208,8 @@ const { symbols } = dlopen(shimPath, {
   } as CFunction,
 
   // ── Compute pass ──
-  wgpu_shim_begin_compute_pass: { args: ["ptr"], returns: "ptr" } as CFunction,
+  // AUDIT FIX: now accepts optional timestamp writes (ptr to flat 4 u32 array, or NULL).
+  wgpu_shim_begin_compute_pass: { args: ["ptr", "ptr"], returns: "ptr" } as CFunction,
   wgpu_shim_compute_pass_set_pipeline: {
     args: ["ptr", "ptr"],
     returns: "void",
@@ -231,6 +233,68 @@ const { symbols } = dlopen(shimPath, {
     args: ["ptr", "ptr", "ptr", "u32", "u32", "u32"],
     returns: "void",
   } as CFunction,
+
+  // ── AUDIT FIX: New functions implementing previously-silent no-op stubs ──
+
+  // Query sets
+  wgpu_shim_create_query_set: { args: ["ptr", "u32", "u32"], returns: "ptr" } as CFunction,
+  wgpu_shim_destroy_query_set: { args: ["ptr"], returns: "void" } as CFunction,
+
+  // Timestamp + query resolve (command encoder level)
+  wgpu_shim_command_encoder_write_timestamp: { args: ["ptr", "ptr", "u32"], returns: "void" } as CFunction,
+  wgpu_shim_resolve_query_set: { args: ["ptr", "ptr", "u32", "u32", "ptr", "u64"], returns: "void" } as CFunction,
+
+  // Indirect draws
+  wgpu_shim_render_pass_draw_indirect: { args: ["ptr", "ptr", "u64"], returns: "void" } as CFunction,
+  wgpu_shim_render_pass_draw_indexed_indirect: { args: ["ptr", "ptr", "u64"], returns: "void" } as CFunction,
+  wgpu_shim_compute_pass_dispatch_indirect: { args: ["ptr", "ptr", "u64"], returns: "void" } as CFunction,
+
+  // Clear buffer
+  wgpu_shim_command_encoder_clear_buffer: { args: ["ptr", "ptr", "u64", "u64"], returns: "void" } as CFunction,
+
+  // Blend constant + stencil reference
+  wgpu_shim_render_pass_set_blend_constant: { args: ["ptr", "f32", "f32", "f32", "f32"], returns: "void" } as CFunction,
+  wgpu_shim_render_pass_set_stencil_reference: { args: ["ptr", "u32"], returns: "void" } as CFunction,
+
+  // Occlusion queries
+  wgpu_shim_render_pass_begin_occlusion_query: { args: ["ptr", "u32"], returns: "void" } as CFunction,
+  wgpu_shim_render_pass_end_occlusion_query: { args: ["ptr"], returns: "void" } as CFunction,
+
+  // Copy buffer-to-texture and texture-to-texture
+  wgpu_shim_copy_buffer_to_texture: {
+    args: ["ptr", "ptr", "u64", "u32", "u32", "ptr", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32"],
+    returns: "void",
+  } as CFunction,
+  wgpu_shim_copy_texture_to_texture: {
+    args: ["ptr", "ptr", "u32", "u32", "u32", "u32", "u32", "ptr", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32"],
+    returns: "void",
+  } as CFunction,
+
+  // Debug groups and markers (render pass)
+  wgpu_shim_render_pass_push_debug_group: { args: ["ptr", "cstring"], returns: "void" } as CFunction,
+  wgpu_shim_render_pass_pop_debug_group: { args: ["ptr"], returns: "void" } as CFunction,
+  wgpu_shim_render_pass_insert_debug_marker: { args: ["ptr", "cstring"], returns: "void" } as CFunction,
+  // (compute pass)
+  wgpu_shim_compute_pass_push_debug_group: { args: ["ptr", "cstring"], returns: "void" } as CFunction,
+  wgpu_shim_compute_pass_pop_debug_group: { args: ["ptr"], returns: "void" } as CFunction,
+  wgpu_shim_compute_pass_insert_debug_marker: { args: ["ptr", "cstring"], returns: "void" } as CFunction,
+  // (command encoder)
+  wgpu_shim_command_encoder_push_debug_group: { args: ["ptr", "cstring"], returns: "void" } as CFunction,
+  wgpu_shim_command_encoder_pop_debug_group: { args: ["ptr"], returns: "void" } as CFunction,
+  wgpu_shim_command_encoder_insert_debug_marker: { args: ["ptr", "cstring"], returns: "void" } as CFunction,
+
+  // Error scopes
+  wgpu_shim_device_push_error_scope: { args: ["ptr", "u32"], returns: "void" } as CFunction,
+  wgpu_shim_device_pop_error_scope: { args: ["ptr", "ptr", "i32"], returns: "u32" } as CFunction,
+
+  // Adapter/device limits and features
+  wgpu_shim_adapter_get_limits: { args: ["ptr", "ptr"], returns: "i32" } as CFunction,
+  wgpu_shim_device_get_limits: { args: ["ptr", "ptr"], returns: "i32" } as CFunction,
+  wgpu_shim_adapter_get_features: { args: ["ptr", "ptr", "u32"], returns: "u32" } as CFunction,
+  wgpu_shim_device_get_features: { args: ["ptr", "ptr", "u32"], returns: "u32" } as CFunction,
+
+  // Queue onSubmittedWorkDone
+  wgpu_shim_queue_on_submitted_work_done: { args: ["ptr"], returns: "void" } as CFunction,
 
   // ── Surface ──
   wgpu_shim_surface_configure: {
@@ -262,6 +326,7 @@ const { symbols } = dlopen(shimPath, {
   wgpu_shim_release_adapter: { args: ["ptr"], returns: "void" } as CFunction,
   wgpu_shim_release_instance: { args: ["ptr"], returns: "void" } as CFunction,
   wgpu_shim_release_surface: { args: ["ptr"], returns: "void" } as CFunction,
+  wgpu_shim_release_query_set: { args: ["ptr"], returns: "void" } as CFunction,
 });
 
 export const wgpu = symbols as unknown as WgpuShimSymbols;
@@ -353,8 +418,14 @@ export interface WgpuShimSymbols {
     device: ptr,
     magFilter: number,
     minFilter: number,
+    mipmapFilter: number,
     addressModeU: number,
     addressModeV: number,
+    addressModeW: number,
+    lodMinClamp: number,
+    lodMaxClamp: number,
+    compare: number,
+    maxAnisotropy: number,
   ) => ptr;
 
   wgpu_shim_create_bind_group_layout: (
@@ -380,14 +451,11 @@ export interface WgpuShimSymbols {
 
   wgpu_shim_begin_render_pass: (
     encoder: ptr,
-    colorView: ptr,
-    clearR: number,
-    clearG: number,
-    clearB: number,
-    clearA: number,
-    loadOp: number,
-    storeOp: number,
-    depthView: ptr,
+    colorCount: number,
+    colorAttachments: ptr,
+    depthAttachment: ptr,
+    occlusionQuerySet: ptr,
+    timestampWrites: ptr,
   ) => ptr;
   wgpu_shim_render_pass_set_pipeline: (pass: ptr, pipeline: ptr) => void;
   wgpu_shim_render_pass_set_bind_group: (
@@ -448,22 +516,17 @@ export interface WgpuShimSymbols {
     vertexEntry: string,
     fragmentShader: ptr,
     fragmentEntry: string,
-    colorFormat: number,
-    depthFormat: number,
+    colorTargetCount: number,
+    colorTargets: ArrayBufferView,
+    depthStencil: ArrayBufferView,
     topology: number,
+    stripIndexFormat: number,
     sampleCount: number,
     layout: ptr,
     cullMode: number,
     frontFace: number,
     vertexBufferCount: number,
     vertexBufferData: ArrayBufferView,
-    hasBlend: number,
-    colorSrcFactor: number,
-    colorDstFactor: number,
-    colorOperation: number,
-    alphaSrcFactor: number,
-    alphaDstFactor: number,
-    alphaOperation: number,
   ) => ptr;
 
   wgpu_shim_create_compute_pipeline: (
@@ -473,7 +536,7 @@ export interface WgpuShimSymbols {
     layout: ptr,
   ) => ptr;
 
-  wgpu_shim_begin_compute_pass: (encoder: ptr) => ptr;
+  wgpu_shim_begin_compute_pass: (encoder: ptr, timestampWrites: ptr) => ptr;
   wgpu_shim_compute_pass_set_pipeline: (pass: ptr, pipeline: ptr) => void;
   wgpu_shim_compute_pass_set_bind_group: (
     pass: ptr,
@@ -504,6 +567,47 @@ export interface WgpuShimSymbols {
     height: number,
     bytesPerRow: number,
   ) => void;
+
+  // ── AUDIT FIX: New functions ──
+  wgpu_shim_create_query_set: (device: ptr, type: number, count: number) => ptr;
+  wgpu_shim_destroy_query_set: (querySet: ptr) => void;
+  wgpu_shim_command_encoder_write_timestamp: (encoder: ptr, querySet: ptr, queryIndex: number) => void;
+  wgpu_shim_resolve_query_set: (encoder: ptr, querySet: ptr, firstQuery: number, queryCount: number, destBuffer: ptr, destOffset: bigint) => void;
+  wgpu_shim_render_pass_draw_indirect: (pass: ptr, buffer: ptr, offset: bigint) => void;
+  wgpu_shim_render_pass_draw_indexed_indirect: (pass: ptr, buffer: ptr, offset: bigint) => void;
+  wgpu_shim_compute_pass_dispatch_indirect: (pass: ptr, buffer: ptr, offset: bigint) => void;
+  wgpu_shim_command_encoder_clear_buffer: (encoder: ptr, buffer: ptr, offset: bigint, size: bigint) => void;
+  wgpu_shim_render_pass_set_blend_constant: (pass: ptr, r: number, g: number, b: number, a: number) => void;
+  wgpu_shim_render_pass_set_stencil_reference: (pass: ptr, reference: number) => void;
+  wgpu_shim_render_pass_begin_occlusion_query: (pass: ptr, queryIndex: number) => void;
+  wgpu_shim_render_pass_end_occlusion_query: (pass: ptr) => void;
+  wgpu_shim_copy_buffer_to_texture: (
+    encoder: ptr, srcBuffer: ptr, srcOffset: bigint, srcBytesPerRow: number, srcRowsPerImage: number,
+    dstTexture: ptr, dstMipLevel: number, dstOriginX: number, dstOriginY: number, dstOriginZ: number,
+    dstAspect: number, copyW: number, copyH: number, copyD: number,
+  ) => void;
+  wgpu_shim_copy_texture_to_texture: (
+    encoder: ptr,
+    srcTexture: ptr, srcMipLevel: number, srcOriginX: number, srcOriginY: number, srcOriginZ: number, srcAspect: number,
+    dstTexture: ptr, dstMipLevel: number, dstOriginX: number, dstOriginY: number, dstOriginZ: number, dstAspect: number,
+    copyW: number, copyH: number, copyD: number,
+  ) => void;
+  wgpu_shim_render_pass_push_debug_group: (pass: ptr, label: string) => void;
+  wgpu_shim_render_pass_pop_debug_group: (pass: ptr) => void;
+  wgpu_shim_render_pass_insert_debug_marker: (pass: ptr, label: string) => void;
+  wgpu_shim_compute_pass_push_debug_group: (pass: ptr, label: string) => void;
+  wgpu_shim_compute_pass_pop_debug_group: (pass: ptr) => void;
+  wgpu_shim_compute_pass_insert_debug_marker: (pass: ptr, label: string) => void;
+  wgpu_shim_command_encoder_push_debug_group: (encoder: ptr, label: string) => void;
+  wgpu_shim_command_encoder_pop_debug_group: (encoder: ptr) => void;
+  wgpu_shim_command_encoder_insert_debug_marker: (encoder: ptr, label: string) => void;
+  wgpu_shim_device_push_error_scope: (device: ptr, filter: number) => void;
+  wgpu_shim_device_pop_error_scope: (device: ptr, outMsg: ptr, outMsgSize: number) => number;
+  wgpu_shim_adapter_get_limits: (adapter: ptr, outBuffer: ptr) => number;
+  wgpu_shim_device_get_limits: (device: ptr, outBuffer: ptr) => number;
+  wgpu_shim_adapter_get_features: (adapter: ptr, outFeatures: ptr, maxCount: number) => number;
+  wgpu_shim_device_get_features: (device: ptr, outFeatures: ptr, maxCount: number) => number;
+  wgpu_shim_queue_on_submitted_work_done: (queue: ptr) => void;
 
   wgpu_shim_surface_configure: (
     surface: ptr,
@@ -536,6 +640,7 @@ export interface WgpuShimSymbols {
   wgpu_shim_release_adapter: (ptr: ptr) => void;
   wgpu_shim_release_instance: (ptr: ptr) => void;
   wgpu_shim_release_surface: (ptr: ptr) => void;
+  wgpu_shim_release_query_set: (ptr: ptr) => void;
 }
 
 // ── Helper: create a Uint8Array from a native mapped range ──
