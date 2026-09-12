@@ -1,4 +1,4 @@
-import { calculateViewProj, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, type CameraState } from "@downdraft/core";
+import { calculateViewProj, createValidatedShaderModule, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, type CameraState } from "@downdraft/core";
 
 const RULER_WGSL = /* wgsl */ `
 struct Uniforms {
@@ -68,7 +68,7 @@ export class HeightRulerRenderer {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
-    const shaderModule = this.device.createShaderModule({ code: RULER_WGSL });
+    const shaderModule = createValidatedShaderModule(this.device, { code: RULER_WGSL, label: "HeightRulerRenderer" });
     const bindGroupLayout = this.device.createBindGroupLayout({
       entries: [{
         binding: 0,

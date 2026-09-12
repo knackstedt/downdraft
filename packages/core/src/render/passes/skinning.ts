@@ -1,3 +1,5 @@
+
+import { createValidatedShaderModule } from "../shader-validator";
 const SKINNING_COMPUTE_SHADER = `
 struct BoneTransform {
   position: vec3<f32>,
@@ -100,7 +102,7 @@ export class SkinningComputePass {
   }
 
   prepare(boneCount: number): void {
-    const shaderModule = this.device.createShaderModule({
+    const shaderModule = createValidatedShaderModule(this.device, {
       label: "skinning-compute",
       code: SKINNING_COMPUTE_SHADER,
     });

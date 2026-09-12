@@ -7,6 +7,7 @@
 // pass so markers stay aligned with blocks at any camera angle/zoom.
 // ============================================================================
 
+import { createValidatedShaderModule } from "@downdraft/core";
 import { DEPTH_FORMAT } from "@downdraft/core";
 import type { StructView, WgslStruct } from "@downdraft/shader-graph";
 import { f32, mat4x4f, wgsl } from "@downdraft/shader-graph";
@@ -111,7 +112,7 @@ export class TaskMarkerPass {
   }
 
   init(): void {
-    const shader = this.device.createShaderModule({ code: MARKER_WGSL });
+    const shader = createValidatedShaderModule(this.device, { code: MARKER_WGSL, label: "TaskMarkerPass" });
 
     // Uniform buffer: mat4x4 (64 bytes) + 4 floats (16 bytes) = 80 bytes
     this.uniformBuffer = this.device.createBuffer({

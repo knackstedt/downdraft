@@ -20,6 +20,7 @@ import type { RenderContext } from "./frame-graph";
 import { FrameGraph, SlotRegistry, type TextureHandle } from "./frame-graph";
 import { InputManager } from "./input-manager";
 import { RendererModuleHost } from "./renderer-module-host";
+import { installShaderValidationGuard } from "./shader-validator";
 import { SurfaceManager } from "./surface";
 import { TrackedRenderPass } from "./tracked-render-pass";
 
@@ -293,6 +294,10 @@ export class GameRenderer implements CanvasResizeHandler {
         requiredLimits: this.buildRequiredLimits(adapter),
       });
       this.adapter = adapter;
+
+      // Install the shader validation guard so all createShaderModule calls
+      // route through getCompilationInfo() validation.
+      installShaderValidationGuard(this.device);
 
       // Wrap device with GPU resource tracker for VRAM visibility
       this.gpuResourceTracker = new GPUResourceTracker();

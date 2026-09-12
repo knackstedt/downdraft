@@ -11,6 +11,8 @@
 // A final blit copies the result to the canvas-format swapchain view.
 // ============================================================================
 
+import { createValidatedShaderModule } from "@downdraft/core";
+
 export interface ViewportRect { x: number; y: number; w: number; h: number; }
 export interface PostProcessStackOptions {
   depthFormat?: GPUTextureFormat;
@@ -479,7 +481,7 @@ export class PostProcessStack {
   }
 
   private makePipeline(fsCode: string, layout: GPUBindGroupLayout, targetFormat: GPUTextureFormat): GPURenderPipeline {
-    const shader = this.device.createShaderModule({ code: VS + "\n" + OCCLUDER_CHUNK + "\n" + fsCode });
+    const shader = createValidatedShaderModule(this.device, { code: VS + "\n" + OCCLUDER_CHUNK + "\n" + fsCode, label: "PostProcessStack" });
     const pl = this.device.createPipelineLayout({ bindGroupLayouts: [layout, this.occluderLayout] });
     return this.device.createRenderPipeline({
       layout: pl,

@@ -1,3 +1,5 @@
+
+import { createValidatedShaderModule } from "../render/shader-validator";
 const EQUIRECT_TO_CUBEMAP_SHADER = /* wgsl */ `
 struct Uniforms {
   faceSize: u32,
@@ -80,7 +82,7 @@ export class EquirectToCubemapConverter {
       ],
     });
 
-    const shaderModule = this.device.createShaderModule({ code: EQUIRECT_TO_CUBEMAP_SHADER });
+    const shaderModule = createValidatedShaderModule(this.device, { code: EQUIRECT_TO_CUBEMAP_SHADER, label: "CubemapConverter" });
 
     const pipelineLayout = this.device.createPipelineLayout({
       bindGroupLayouts: [this.bindGroupLayout],

@@ -16,6 +16,7 @@
 // narrows and widens, mimicking a spinning item.
 // ============================================================================
 
+import { createValidatedShaderModule } from "@downdraft/core";
 import { DEPTH_FORMAT } from "@downdraft/core";
 import type { StructView, WgslStruct } from "@downdraft/shader-graph";
 import { f32, mat4x4f, wgsl } from "@downdraft/shader-graph";
@@ -227,7 +228,7 @@ export class DropPass {
   }
 
   init(): void {
-    const shader = this.device.createShaderModule({ code: DROP_WGSL });
+    const shader = createValidatedShaderModule(this.device, { code: DROP_WGSL, label: "DropPass" });
 
     // Uniform buffer: mat4x4 (64 bytes) + 5 floats (20 bytes) = 84 → round to 96
     this.uniformBuffer = this.device.createBuffer({

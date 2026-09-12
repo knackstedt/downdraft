@@ -1,5 +1,6 @@
+import { createValidatedShaderModule } from "@downdraft/core";
 import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "@downdraft/core";
-import { CHUNK_FULL, ChunkedVoxelField, VoxelField, getChunkedVoxel, setChunkedVoxel } from "@downdraft/library-marching-cubes";
+import { CHUNK_FULL, ChunkedVoxelField, getChunkedVoxel, setChunkedVoxel, VoxelField } from "@downdraft/library-marching-cubes";
 import { generateDecorationMesh, generateDecorations } from "@shared/island-decorations";
 import { extractMesh, extractMeshSubRegion } from "@shared/marching-cubes";
 import {
@@ -138,8 +139,8 @@ export class IslandTerrainRenderer {
     const format = this.ctx.format;
 
     const dev = device;
-    const islandShaderModule = dev.createShaderModule({ code: ISLAND_WGSL });
-    const boatShaderModule = dev.createShaderModule({ code: BOAT_WGSL });
+    const islandShaderModule = createValidatedShaderModule(dev, { code: ISLAND_WGSL, label: "IslandTerrainRenderer.island" });
+    const boatShaderModule = createValidatedShaderModule(dev, { code: BOAT_WGSL, label: "IslandTerrainRenderer.boat" });
 
     this.islandPipeline = dev.createRenderPipeline({
       layout: pbrLitPipelineLayout,

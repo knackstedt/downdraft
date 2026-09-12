@@ -6,6 +6,7 @@ import {
     packClusterUniforms,
     type ClusterGridConfig
 } from "./cluster-types";
+import { createValidatedShaderModule } from "../shader-validator";
 
 const CLUSTER_BUILD_SHADER = /* wgsl */ `
 struct ClusterUniforms {
@@ -195,8 +196,9 @@ export class ClusterGrid {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
-    const shader = device.createShaderModule({
+    const shader = createValidatedShaderModule(device, {
       code: CLUSTER_BUILD_SHADER.replace(/\$\{128\}u/g, `${maxLightsPerCluster}u`),
+      label: "ClusterGrid.build",
     });
 
     this.computePipeline = device.createComputePipeline({

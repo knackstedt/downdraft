@@ -3,6 +3,7 @@ import type { FrameGraphBuilder, GraphRenderContext } from "../frame-graph";
 import { PassType } from "../frame-graph";
 import { RenderPass } from "../render-pass";
 import { destroyMapValues } from "../resource-tracker";
+import { createValidatedShaderModule } from "../shader-validator";
 import { TrackedRenderPass } from "../tracked-render-pass";
 import type { GpuMeshTable, MeshTableGroup } from "./mesh-table";
 
@@ -169,7 +170,7 @@ export class IndirectDrawPass extends RenderPass {
     const desc: GPURenderPipelineDescriptor = {
       layout: this.pipelineLayout ?? "auto",
       vertex: {
-        module: this.device!.createShaderModule({ code: INDIRECT_DRAW_WGSL }),
+        module: createValidatedShaderModule(this.device!, { code: INDIRECT_DRAW_WGSL, label: "IndirectDrawPass.vs" }),
         entryPoint: "vs_main",
         buffers: [{
           arrayStride: group.layoutStride,
@@ -177,7 +178,7 @@ export class IndirectDrawPass extends RenderPass {
         }],
       },
       fragment: {
-        module: this.device!.createShaderModule({ code: INDIRECT_DRAW_WGSL }),
+        module: createValidatedShaderModule(this.device!, { code: INDIRECT_DRAW_WGSL, label: "IndirectDrawPass.fs" }),
         entryPoint: "fs_main",
         targets: [
           { format: this.colorFormat },

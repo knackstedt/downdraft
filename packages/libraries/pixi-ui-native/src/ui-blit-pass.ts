@@ -10,6 +10,7 @@
 // blending.
 // ============================================================================
 
+import { createValidatedShaderModule } from "@downdraft/core";
 import { UI_BLIT_WGSL } from "./shaders/ui-blit.wgsl";
 
 export class UiBlitPass {
@@ -38,7 +39,7 @@ export class UiBlitPass {
       addressModeV: "clamp-to-edge",
     });
 
-    const shader = device.createShaderModule({ code: UI_BLIT_WGSL });
+    const shader = createValidatedShaderModule(device, { code: UI_BLIT_WGSL, label: "UiBlitPass" });
     const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [this.bindGroupLayout] });
 
     this.pipeline = device.createRenderPipeline({

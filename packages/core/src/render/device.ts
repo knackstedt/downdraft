@@ -1,4 +1,5 @@
 import { createLogger } from "../util/logger";
+import { installShaderValidationGuard } from "./shader-validator";
 
 const log = createLogger();
 
@@ -60,6 +61,10 @@ export class GPUDeviceManager {
     });
 
     if (this.device) {
+      // Install the shader validation guard so all createShaderModule calls
+      // route through getCompilationInfo() validation.
+      installShaderValidationGuard(this.device);
+
       this.device.lost.then((info: GPUDeviceLostInfo) => {
         this.deviceLost = true;
         log.error("DownDraft", `GPU device lost: ${info?.message ?? "unknown reason"}. Application should attempt recovery or notify the user.`);

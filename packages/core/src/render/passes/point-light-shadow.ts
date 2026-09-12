@@ -5,6 +5,7 @@ import type { MeshData } from "../../mesh/builder";
 import { PassType, type FrameGraphBuilder, type GraphRenderContext, type TextureHandle } from "../frame-graph";
 import { RenderPass } from "../render-pass";
 import { destroyMapValues } from "../resource-tracker";
+import { createValidatedShaderModule } from "../shader-validator";
 import { TrackedRenderPass } from "../tracked-render-pass";
 
 export const MAX_POINT_LIGHT_SHADOWS = 4;
@@ -69,7 +70,7 @@ export class PointLightShadowPass extends RenderPass {
 
   prepare(_device: GPUDevice): void {
     if (!this.shaderModule) {
-      this.shaderModule = this.device.createShaderModule({ code: POINT_SHADOW_SHADER });
+      this.shaderModule = createValidatedShaderModule(this.device, { code: POINT_SHADOW_SHADER, label: "PointLightShadowPass" });
     }
 
     for (let i = 0; i < MAX_POINT_LIGHT_SHADOWS; i++) {

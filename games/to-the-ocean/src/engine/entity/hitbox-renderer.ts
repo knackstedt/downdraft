@@ -1,3 +1,4 @@
+import { createValidatedShaderModule } from "@downdraft/core";
 import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "@downdraft/core";
 import { EntityType } from "@shared/types";
 import { HITBOX_WGSL, ISLAND_WIREFRAME_WGSL } from "../shaders/entity-shaders";
@@ -102,7 +103,7 @@ export class HitboxRenderer {
       bindGroupLayouts: [hitboxBindGroupLayout],
     });
 
-    const hitboxShaderModule = dev.createShaderModule({ code: HITBOX_WGSL });
+    const hitboxShaderModule = createValidatedShaderModule(dev, { code: HITBOX_WGSL, label: "HitboxRenderer.hitbox" });
     this.hitboxPipeline = dev.createRenderPipeline({
       layout: hitboxLayout,
       vertex: {
@@ -143,7 +144,7 @@ export class HitboxRenderer {
     dev.queue.writeBuffer(this.hitboxQuadIndices as any, 0, quadIndices);
 
     // Island wireframe pipeline
-    const islandWireframeModule = dev.createShaderModule({ code: ISLAND_WIREFRAME_WGSL });
+    const islandWireframeModule = createValidatedShaderModule(dev, { code: ISLAND_WIREFRAME_WGSL, label: "HitboxRenderer.islandWireframe" });
     this.islandWireframePipeline = dev.createRenderPipeline({
       layout: pipelineLayout,
       vertex: {

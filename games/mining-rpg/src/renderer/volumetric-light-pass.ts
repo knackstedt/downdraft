@@ -14,6 +14,7 @@
 // to the LightAccumPass light texture.
 // ============================================================================
 
+import { createValidatedShaderModule } from "@downdraft/core";
 import VOLUMETRIC_WGSL from "../shaders/volumetric-light.wgsl?raw";
 import {
     DEFAULT_VOLUMETRIC_LIGHT_CONFIG,
@@ -122,7 +123,7 @@ export class VolumetricLightPass {
       ],
     });
 
-    const shader = this.device.createShaderModule({ code: VOLUMETRIC_WGSL });
+    const shader = createValidatedShaderModule(this.device, { code: VOLUMETRIC_WGSL, label: "VolumetricLightPass" });
     const layout = this.device.createPipelineLayout({ bindGroupLayouts: [this.bindGroupLayout] });
     const targetFormat: GPUTextureFormat = "rgba16float";
 

@@ -9,6 +9,7 @@
 // — no per-draw bind-group creation or texture bind-group churn.
 // ============================================================================
 
+import { createValidatedShaderModule } from "@downdraft/core";
 import {
     calculateViewProj,
     createLogger,
@@ -17,7 +18,7 @@ import {
     type BindlessMaterialManager,
     type BindlessTextureRegistry,
     type CameraState,
-    type MaterialParams,
+    type MaterialParams
 } from "@downdraft/core";
 import type { MaterialData, MeshData } from "@downdraft/library-models";
 import MODEL_WGSL from "./shaders/model.wgsl?raw";
@@ -161,7 +162,7 @@ export class ModelRenderer {
       }));
     }
 
-    const shaderModule = this.device.createShaderModule({ code: MODEL_WGSL });
+    const shaderModule = createValidatedShaderModule(this.device, { code: MODEL_WGSL, label: "ModelRenderer" });
     // Explicit pipeline layout: group(0) = per-draw uniform (dynamic offset),
     // group(3) = bindless materials SSBO + texture arrays. Groups 1 and 2
     // are unused by the model shader but reserved as empty layouts.

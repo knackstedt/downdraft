@@ -1,4 +1,4 @@
-import { calculateViewProj, composeMat4Into, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, multiplyMat4Into, type CameraState } from "@downdraft/core";
+import { calculateViewProj, composeMat4Into, createValidatedShaderModule, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, multiplyMat4Into, type CameraState } from "@downdraft/core";
 import type { SkinData } from "@downdraft/library-models";
 
 const SKELETON_WGSL = /* wgsl */ `
@@ -70,7 +70,7 @@ export class SkeletonRenderer {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
-    const shaderModule = this.device.createShaderModule({ code: SKELETON_WGSL });
+    const shaderModule = createValidatedShaderModule(this.device, { code: SKELETON_WGSL, label: "SkeletonRenderer" });
     const bindGroupLayout = this.device.createBindGroupLayout({
       entries: [{
         binding: 0,

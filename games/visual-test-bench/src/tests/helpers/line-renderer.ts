@@ -6,6 +6,8 @@
 // portal edges, and agent path lines.
 // ============================================================================
 
+
+import { createValidatedShaderModule } from "@downdraft/core";
 const LINE_VS = /* wgsl */ `
 struct Uniforms {
   viewProj: mat4x4<f32>,
@@ -115,7 +117,7 @@ export class LineRenderer {
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
     });
 
-    const shaderModule = this.device.createShaderModule({ code: LINE_VS });
+    const shaderModule = createValidatedShaderModule(this.device, { code: LINE_VS, label: "LineRenderer" });
     this.pipeline = this.device.createRenderPipeline({
       layout: "auto",
       vertex: {

@@ -1,3 +1,4 @@
+import { createValidatedShaderModule } from "../shader-validator";
 import { type Mat4 } from "wgpu-matrix";
 import type { DebugDrawQueue, DebugText } from "../../debug-draw/queue";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
@@ -212,9 +213,9 @@ export class DebugRenderPass extends RenderPass {
       initAsciiFont();
       this.fontInitialized = true;
     }
-    this.lineShaderModule = device.createShaderModule({ code: DEBUG_LINE_SHADER });
-    this.pointShaderModule = device.createShaderModule({ code: DEBUG_POINT_SHADER });
-    this.textShaderModule = device.createShaderModule({ code: DEBUG_TEXT_SHADER });
+    this.lineShaderModule = createValidatedShaderModule(device, { code: DEBUG_LINE_SHADER, label: "DebugRenderPass.line" });
+    this.pointShaderModule = createValidatedShaderModule(device, { code: DEBUG_POINT_SHADER, label: "DebugRenderPass.point" });
+    this.textShaderModule = createValidatedShaderModule(device, { code: DEBUG_TEXT_SHADER, label: "DebugRenderPass.text" });
 
     this.cameraBuffer = device.createBuffer({
       size: this.cameraBufferSize,

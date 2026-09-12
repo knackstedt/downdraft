@@ -1,3 +1,4 @@
+import { createValidatedShaderModule } from "../shader-validator";
 import type { StructView, WgslStruct } from "@downdraft/shader-graph";
 import { mat4x4f, u32, vec3f, vec4f, wgsl } from "@downdraft/shader-graph";
 import { type Mat4 } from "wgpu-matrix";
@@ -179,7 +180,7 @@ export class DecalPass extends RenderPass {
   prepare(device: GPUDevice): void {
     if (!this.device) this.device = device;
     if (!this.shaderModule && this.device) {
-      this.shaderModule = this.device.createShaderModule({ code: DECAL_SHADER });
+      this.shaderModule = createValidatedShaderModule(this.device, { code: DECAL_SHADER, label: "DecalPass" });
     }
     if (!this.cameraBuffer && this.device) {
       this.cameraBuffer = this.device.createBuffer({

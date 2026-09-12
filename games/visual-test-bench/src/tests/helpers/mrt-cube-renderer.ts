@@ -12,6 +12,8 @@
 // the PostProcessStack provides.
 // ============================================================================
 
+
+import { createValidatedShaderModule } from "@downdraft/core";
 export interface CameraConfig {
   eye: [number, number, number];
   target: [number, number, number];
@@ -204,7 +206,7 @@ export class MrtCubeRenderer {
   }
 
   init(): void {
-    const shader = this.device.createShaderModule({ code: MRT_VS + "\n" + MRT_FS });
+    const shader = createValidatedShaderModule(this.device, { code: MRT_VS + "\n" + MRT_FS, label: "MrtCubeRenderer" });
 
     this.vertexBuffer = this.device.createBuffer({
       size: CUBE_POSITIONS.byteLength,

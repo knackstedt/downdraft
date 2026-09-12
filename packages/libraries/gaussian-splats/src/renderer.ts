@@ -1,3 +1,4 @@
+import { createValidatedShaderModule } from "@downdraft/core";
 import type { StructView, WgslStruct } from "@downdraft/shader-graph";
 import { f32, mat4x4f, vec2f, vec3f, wgsl } from "@downdraft/shader-graph";
 import { GpuSplatSorter } from "./gpu-sort";
@@ -150,7 +151,7 @@ export class GaussianSplatRenderer {
   prepare(device: GPUDevice): void {
     if (!this.device) this.device = device;
     if (!this.shaderModule && this.device) {
-      this.shaderModule = this.device.createShaderModule({ code: GAUSSIAN_SPLAT_SHADER });
+      this.shaderModule = createValidatedShaderModule(this.device, { code: GAUSSIAN_SPLAT_SHADER, label: "GaussianSplatRenderer" });
     }
     if (!this.cameraBuffer && this.device) {
       this.cameraBuffer = this.device.createBuffer({

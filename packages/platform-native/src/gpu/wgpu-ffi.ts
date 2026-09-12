@@ -91,6 +91,17 @@ const { symbols } = dlopen(shimPath, {
     args: ["ptr", "cstring"],
     returns: "ptr",
   } as CFunction,
+  // Returns a malloc'd JSON string of compilation messages. Must be freed
+  // with wgpu_shim_free_string. Returns "[]" if no messages or on failure.
+  wgpu_shim_shader_get_compilation_info: {
+    args: ["ptr"],
+    returns: "cstring",
+  } as CFunction,
+  // Frees a string returned by wgpu_shim_shader_get_compilation_info.
+  wgpu_shim_free_string: {
+    args: ["ptr"],
+    returns: "void",
+  } as CFunction,
 
   // ── Texture ──
   wgpu_shim_create_texture: {
@@ -380,6 +391,8 @@ export interface WgpuShimSymbols {
   wgpu_shim_buffer_unmap: (buffer: ptr) => void;
 
   wgpu_shim_create_shader_module: (device: ptr, wgslCode: string) => ptr;
+  wgpu_shim_shader_get_compilation_info: (shader: ptr) => string;
+  wgpu_shim_free_string: (str: ptr) => void;
 
   wgpu_shim_create_texture: (
     device: ptr,

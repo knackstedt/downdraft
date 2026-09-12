@@ -6,6 +6,7 @@
 // texture to produce the final image.
 // ============================================================================
 
+import { createValidatedShaderModule } from "@downdraft/core";
 import { FULLSCREEN_VS } from "@downdraft/core";
 import BLOCK_RENDER_FS from "../shaders/block-render.wgsl?raw";
 import { getBlockPalette } from "../shared/block-registry";
@@ -89,7 +90,7 @@ export class BlockGridPass {
       ],
     });
 
-    const shader = this.device.createShaderModule({ code: FULLSCREEN_VS + "\n" + BLOCK_RENDER_FS });
+    const shader = createValidatedShaderModule(this.device, { code: FULLSCREEN_VS + "\n" + BLOCK_RENDER_FS, label: "BlockGridPass" });
     const pipelineLayout = this.device.createPipelineLayout({
       bindGroupLayouts: [this.bindGroupLayout],
     });
