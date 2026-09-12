@@ -10,14 +10,14 @@
 // ============================================================================
 
 import type {
-  AssetRegistry,
-  MapRegistry,
-  PhysicsRegistry,
-  ShaderRegistry,
+    AssetRegistry,
+    MapRegistry,
+    MaterialRegistry,
+    PhysicsRegistry,
+    ShaderRegistry,
 } from "@downdraft/core";
 import type { PostProcessStack } from "@downdraft/library-postfx";
-import type { ContentRegistry, ContentEntry } from "../../libraries/content/src/content-registry";
-import type { MaterialRegistry } from "@downdraft/core";
+import type { ContentRegistry } from "../../libraries/content/src/content-registry";
 
 /** Adapt ContentRegistry → AssetRegistry for the PluginHost extension loader. */
 export function createContentRegistryAssetBridge(
@@ -96,6 +96,7 @@ export function createContentRegistryAssetBridge(
 export function createShaderBridge(
   postProcessStack: PostProcessStack | null,
   materialRegistry: MaterialRegistry,
+  getBaseUrl: (manifestId: string) => string,
 ): ShaderRegistry {
   return {
     async registerPostfxEffect(id, name, wgslPath, manifestId, props) {
@@ -103,21 +104,48 @@ export function createShaderBridge(
         console.warn(`[PluginHost] Cannot register postfx effect "${id}" — no PostProcessStack`);
         return;
       }
-      // Fetch the WGSL source (wgslPath is relative to the mod dir).
-      const resp = await fetch(wgslPath);
+      // Resolve the WGSL path relative to the mod directory.
+      const baseUrl = getBaseUrl(manifestId);
+      const cleanPath = wgslPath.replace(/^\.\//, "");
+      const fullUrl = baseUrl ? `${baseUrl}/${cleanPath}` : cleanPath;
+      const resp = await fetch(fullUrl);
       const wgsl = await resp.text();
       postProcessStack.registerCustomEffect({
         id, name, wgsl, layout: "cc",
         order: (props.order as any) ?? "stylized",
         uniforms: props.uniforms as number | undefined,
+        settings: (props as any).settings,
       });
+      // Apply default setting values to the uniform buffer.
+      const settings = (props as any).settings as Array<{ key: string; default: number | boolean | string; type: string }> | undefined;
+      if (settings && props.uniforms) {
+        const uniformData = new Float32Array(props.uniforms / 4);
+        let offset = 0;
+        // First two floats are always inv_w, inv_h (set per-frame by the renderer).
+        // User settings start at offset 2.
+        offset = 2;
+        for (const s of settings) {
+          if (s.type === "slider" && typeof s.default === "number") {
+            if (offset < uniformData.length) uniformData[offset++] = s.default;
+          } else if (s.type === "toggle") {
+            if (offset < uniformData.length) uniformData[offset++] = s.default ? 1 : 0;
+          } else if (s.type === "select" && typeof s.default === "string") {
+            const idx = (s as any).options?.findIndex((o: any) => o.value === s.default) ?? 0;
+            if (offset < uniformData.length) uniformData[offset++] = idx;
+          }
+        }
+        postProcessStack.setCustomEffectUniform(id, uniformData);
+      }
       console.log(`[PluginHost] Registered postfx effect "${id}" from mod "${manifestId}"`);
     },
     async unregisterPostfxEffect(id) {
       postProcessStack?.unregisterCustomEffect(id);
     },
     async registerMaterialShader(id, wgslPath, manifestId, props) {
-      const resp = await fetch(wgslPath);
+      const baseUrl = getBaseUrl(manifestId);
+      const cleanPath = wgslPath.replace(/^\.\//, "");
+      const fullUrl = baseUrl ? `${baseUrl}/${cleanPath}` : cleanPath;
+      const resp = await fetch(fullUrl);
       const wgsl = await resp.text();
       materialRegistry.register({
         id, wgsl, manifestId,

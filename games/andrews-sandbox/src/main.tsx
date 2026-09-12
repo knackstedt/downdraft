@@ -10,7 +10,7 @@ import { PhysicsPropsController } from "@andrews-sandbox/module-physics-props";
 import { SandboxVRModule } from "@andrews-sandbox/module-vr";
 import { WeaponController } from "@andrews-sandbox/module-weapons";
 import { downdraft, startGame, type SimWorkerSeed } from "@downdraft/app/renderer";
-import { CameraMode, ENGINE_VERSION, ENT, SimBufferReader } from "@downdraft/core";
+import { CameraMode, ENGINE_VERSION, ENT, MaterialRegistry, PluginHost, registerAllExtensionLoaders, SimBufferReader } from "@downdraft/core";
 import { PixiUiHost } from "@downdraft/library-pixi-ui";
 // Import the pointer lock polyfill BEFORE any code that uses requestPointerLock.
 // This overrides the browser's Pointer Lock API with a native-backed
@@ -21,6 +21,12 @@ import { EntityType, FunMode, PhysgunMode, PoseState, ToolgunContext, ToolType }
 import { SimWebWorker, type SimWebWorkerConfig } from "./engine/sim-web-worker";
 import { WebGPURenderer } from "./engine/webgpu-renderer";
 import { SANDBOX_STATS_LAYOUT, type SandboxAction } from "./pixi/bridge-protocol";
+import {
+    createContentRegistryAssetBridge,
+    createNoopMapRegistry,
+    createNoopPhysicsRegistry,
+    createShaderBridge,
+} from "./plugin-host-bridge";
 import { useGameStore } from "./stores/game-store";
 import "./styles/globals.css";
 
@@ -240,6 +246,7 @@ startGame({
   },
 
   onReady: async (ctx) => {
+    console.log("[onReady] Starting, PluginHost available:", typeof PluginHost);
     const { renderer, simSAB, inputSAB } = ctx;
     const sim = ctx.sim! as SimWebWorker;
 
@@ -273,31 +280,39 @@ startGame({
     // loaders bridge into the sandbox's ContentRegistry, PostProcessStack, and
     // MaterialRegistry. Legacy plugins with custom `props` sections also get
     // scanned by PluginScanner for backward compat.
+    let pluginHost: PluginHost | null = null;
     try {
+      console.log("[PluginHost] Starting plugin discovery...");
       // Discover both mod.json and plugin.json manifests.
       const modModules = import.meta.glob("../plugins/*/mod.json", { eager: true, query: "?json", import: "default" });
       const pluginModules = import.meta.glob("../plugins/*/plugin.json", { eager: true, query: "?json", import: "default" });
+      console.log("[PluginHost] glob results:", { mods: Object.keys(modModules), plugins: Object.keys(pluginModules) });
       const baseUrlByManifestId = new Map<string, string>();
       const allManifests: Array<{ manifest: any; baseUrl: string }> = [];
       for (const [path, manifest] of Object.entries(modModules)) {
+        // Convert glob path (e.g. "../plugins/acid-postfx/mod.json") to a URL
+        // relative to the Vite dev server root (the game directory).
         const pluginDir = path.replace("/mod.json", "");
-        allManifests.push({ manifest: manifest as any, baseUrl: pluginDir });
+        const absDir = pluginDir.replace(/^\.\.\//, "/");
+        allManifests.push({ manifest: manifest as any, baseUrl: absDir });
       }
       for (const [path, manifest] of Object.entries(pluginModules)) {
         const pluginDir = path.replace("/plugin.json", "");
-        allManifests.push({ manifest: manifest as any, baseUrl: pluginDir });
+        const absDir = pluginDir.replace(/^\.\.\//, "/");
+        allManifests.push({ manifest: manifest as any, baseUrl: absDir });
       }
+      console.log(`[PluginHost] Discovered ${allManifests.length} manifest(s):`, allManifests.map((m) => m.manifest.id));
       // Track base URLs for the asset bridge to resolve relative paths.
       for (const { manifest, baseUrl } of allManifests) {
         baseUrlByManifestId.set(manifest.id, baseUrl);
       }
       // Create the PluginHost with extension loaders bridged into sandbox registries.
-      const pluginHost = new PluginHost({
+      pluginHost = new PluginHost({
         gameId: "andrews-sandbox",
         engineVersion: ENGINE_VERSION,
       });
       registerAllExtensionLoaders(
-        (loader) => pluginHost.registerExtensionLoader(loader),
+        (loader) => pluginHost!.registerExtensionLoader(loader),
         {
           assets: createContentRegistryAssetBridge(
             contentRegistry,
@@ -308,6 +323,7 @@ startGame({
           shaders: createShaderBridge(
             (renderer as any)?.getPostProcessStack?.() ?? null,
             materialRegistry,
+            (manifestId: string) => baseUrlByManifestId.get(manifestId) ?? "",
           ),
         },
       );
@@ -316,6 +332,8 @@ startGame({
         const r = pluginHost.discover(manifest, baseUrl);
         if (!r.ok) {
           console.warn(`[PluginHost] Rejected manifest "${manifest.id}":`, r.errors);
+        } else {
+          console.log(`[PluginHost] Discovered mod "${manifest.id}"`);
         }
       }
       // Load all discovered mods.
@@ -332,10 +350,17 @@ startGame({
           console.log(`[Renderer] Legacy plugin (props section): ${plugin.manifest.id} (${plugin.entries.length} entries)`);
         }
       }
-      console.log(`[PluginHost] Loaded ${pluginHost.snapshot().filter((p) => p.status === "active").length} mods`);
+      const activeCount = pluginHost.snapshot().filter((p) => p.status === "active").length;
+      console.log(`[PluginHost] Loaded ${activeCount} mods`);
     } catch (err) {
-      console.warn("[Renderer] Plugin discovery failed:", err);
+      console.error("[Renderer] Plugin discovery failed:", err);
     }
+
+    // ── Expose console API for debugging ──
+    (globalThis as any).dd = {
+      mods: pluginHost?.snapshot() ?? [],
+      materialRegistry,
+    };
 
     // ── Drag-drop importer ──
     dragDropImporter = new DragDropImporter(contentRegistry);
@@ -1125,10 +1150,11 @@ function buildDomHud(
   escTitle.textContent = "Andrew's Sandbox";
   escSidebar.appendChild(escTitle);
 
-  type EscTab = "main" | "graphics" | "content" | "controls";
+  type EscTab = "main" | "graphics" | "content" | "controls" | "mods";
   const escTabs: Array<{ id: EscTab; label: string }> = [
     { id: "main", label: "Menu" },
     { id: "graphics", label: "Graphics" },
+    { id: "mods", label: "Mods" },
     { id: "content", label: "Content" },
     { id: "controls", label: "Controls" },
   ];
@@ -1224,6 +1250,10 @@ function buildDomHud(
 
     else if (tab === "graphics") {
       buildGraphicsPanel(escContent);
+    }
+
+    else if (tab === "mods") {
+      buildModsPanel(escContent);
     }
 
     else if (tab === "content") {
@@ -1405,6 +1435,179 @@ function buildDomHud(
     addSlider("Sun G", s.sunColorG, 0, 2, 0.05, (v) => applyGraphicsValue("sunG", v));
     addSlider("Sun B", s.sunColorB, 0, 2, 0.05, (v) => applyGraphicsValue("sunB", v));
     addSlider("Ambient", s.ambientIntensity, 0, 2, 0.05, (v) => applyGraphicsValue("ambient", v));
+  }
+
+  // ── Mods panel ──
+  // Lists each loaded mod with an enable/disable switch and a settings UI
+  // for mod-defined postfx effects (sliders, toggles, selects).
+  function buildModsPanel(parent: HTMLElement) {
+    const r = ctx.renderer as WebGPURenderer;
+    const stack = r.getPostProcessStack();
+    const dd = (globalThis as any).dd;
+    const mods = dd?.mods as Array<{ id: string; name?: string; status: string }> | undefined;
+    console.log("[ModsPanel] dd:", !!dd, "mods:", mods?.length ?? 0, mods?.map((m) => ({ id: m.id, status: m.status })));
+
+    if (!mods || mods.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "sandbox-esc-empty";
+      empty.textContent = "No mods loaded. Add mods to games/andrews-sandbox/plugins/*/mod.json";
+      parent.appendChild(empty);
+      return;
+    }
+
+    for (const mod of mods) {
+      // Mod header
+      const modDiv = document.createElement("div");
+      modDiv.className = "sandbox-esc-mod";
+      const modHeader = document.createElement("div");
+      modHeader.className = "sandbox-esc-mod-header";
+      const modName = document.createElement("div");
+      modName.className = "sandbox-esc-mod-name";
+      modName.textContent = mod.name ?? mod.id;
+      modHeader.appendChild(modName);
+      const modStatus = document.createElement("div");
+      modStatus.className = "sandbox-esc-mod-status";
+      modStatus.textContent = mod.status;
+      modStatus.style.opacity = "0.5";
+      modHeader.appendChild(modStatus);
+      modDiv.appendChild(modHeader);
+
+      // Find custom postfx effects for this mod
+      if (stack) {
+        const customEffects = stack.getCustomEffects().filter((e) => e.id.startsWith(`${mod.id}:`));
+        for (const effect of customEffects) {
+          const effectDiv = document.createElement("div");
+          effectDiv.className = "sandbox-esc-mod-effect";
+
+          // Effect enable/disable toggle
+          const effectRow = document.createElement("div");
+          effectRow.className = "sandbox-esc-gfx-row";
+          const effectLabel = document.createElement("div");
+          effectLabel.className = "sandbox-esc-gfx-label";
+          effectLabel.textContent = `  ${effect.name}`;
+          effectRow.appendChild(effectLabel);
+          const toggle = document.createElement("div");
+          let isOn = effect.enabled;
+          toggle.className = "sandbox-esc-toggle" + (isOn ? " on" : "");
+          toggle.textContent = isOn ? "ON" : "OFF";
+          toggle.onclick = () => {
+            isOn = !isOn;
+            stack.setCustomEffectEnabled(effect.id, isOn);
+            toggle.className = "sandbox-esc-toggle" + (isOn ? " on" : "");
+            toggle.textContent = isOn ? "ON" : "OFF";
+          };
+          effectRow.appendChild(toggle);
+          effectDiv.appendChild(effectRow);
+
+          // Settings UI
+          if (effect.settings) {
+            for (const setting of effect.settings) {
+              if (setting.type === "slider") {
+                const row = document.createElement("div");
+                row.className = "sandbox-esc-gfx-row";
+                const lbl = document.createElement("div");
+                lbl.className = "sandbox-esc-gfx-label";
+                const defaultVal = typeof setting.default === "number" ? setting.default : 0;
+                lbl.textContent = `    ${setting.label}: ${defaultVal.toFixed(2)}`;
+                row.appendChild(lbl);
+                const slider = document.createElement("input");
+                slider.type = "range";
+                slider.className = "sandbox-esc-slider";
+                slider.min = String(setting.min ?? 0);
+                slider.max = String(setting.max ?? 1);
+                slider.step = String(setting.step ?? 0.01);
+                slider.value = String(defaultVal);
+                slider.oninput = () => {
+                  const v = parseFloat(slider.value);
+                  lbl.textContent = `    ${setting.label}: ${v.toFixed(2)}`;
+                  updateEffectUniform(stack, effect.id, effect.settings!, setting.key, v);
+                };
+                row.appendChild(slider);
+                effectDiv.appendChild(row);
+              } else if (setting.type === "toggle") {
+                const row = document.createElement("div");
+                row.className = "sandbox-esc-gfx-row";
+                const lbl = document.createElement("div");
+                lbl.className = "sandbox-esc-gfx-label";
+                lbl.textContent = `    ${setting.label}`;
+                row.appendChild(lbl);
+                const toggle2 = document.createElement("div");
+                let toggleOn = setting.default === true;
+                toggle2.className = "sandbox-esc-toggle" + (toggleOn ? " on" : "");
+                toggle2.textContent = toggleOn ? "ON" : "OFF";
+                toggle2.onclick = () => {
+                  toggleOn = !toggleOn;
+                  toggle2.className = "sandbox-esc-toggle" + (toggleOn ? " on" : "");
+                  toggle2.textContent = toggleOn ? "ON" : "OFF";
+                  updateEffectUniform(stack, effect.id, effect.settings!, setting.key, toggleOn ? 1 : 0);
+                };
+                row.appendChild(toggle2);
+                effectDiv.appendChild(row);
+              } else if (setting.type === "select") {
+                const row = document.createElement("div");
+                row.className = "sandbox-esc-gfx-row";
+                const lbl = document.createElement("div");
+                lbl.className = "sandbox-esc-gfx-label";
+                lbl.textContent = `    ${setting.label}`;
+                row.appendChild(lbl);
+                const select = document.createElement("select");
+                select.className = "sandbox-esc-select";
+                for (const opt of setting.options ?? []) {
+                  const option = document.createElement("option");
+                  option.value = opt.value;
+                  option.textContent = opt.label;
+                  if (opt.value === setting.default) option.selected = true;
+                  select.appendChild(option);
+                }
+                select.onchange = () => {
+                  const idx = (setting.options ?? []).findIndex((o) => o.value === select.value);
+                  updateEffectUniform(stack, effect.id, effect.settings!, setting.key, idx);
+                };
+                row.appendChild(select);
+                effectDiv.appendChild(row);
+              }
+            }
+          }
+
+          modDiv.appendChild(effectDiv);
+        }
+      }
+
+      parent.appendChild(modDiv);
+    }
+  }
+
+  /** Write a setting value into a custom effect's uniform buffer. */
+  function updateEffectUniform(
+    stack: any,
+    effectId: string,
+    settings: Array<{ key: string; type: string; default: number | boolean | string }>,
+    changedKey: string,
+    value: number,
+  ): void {
+    // Build a Float32Array from current setting values.
+    // Layout: [inv_w, inv_h, setting0, setting1, ...]
+    const info = stack.getCustomEffectInfo(effectId);
+    if (!info) return;
+    const uniformSize = (info as any).uniforms ?? 64;
+    const data = new Float32Array(uniformSize / 4);
+    data[0] = 1 / 1920; // inv_w (placeholder — renderer updates per-frame)
+    data[1] = 1 / 1080; // inv_h
+    let offset = 2;
+    for (const s of settings) {
+      if (s.key === changedKey) {
+        data[offset++] = value;
+      } else if (s.type === "slider" && typeof s.default === "number") {
+        data[offset++] = s.default;
+      } else if (s.type === "toggle") {
+        data[offset++] = s.default ? 1 : 0;
+      } else if (s.type === "select" && typeof s.default === "string") {
+        const opts = (s as any).options as Array<{ value: string }> | undefined;
+        const idx = opts?.findIndex((o) => o.value === s.default) ?? 0;
+        data[offset++] = idx;
+      }
+    }
+    stack.setCustomEffectUniform(effectId, data);
   }
 
   // Graphics apply helpers — delegate to the existing action handler

@@ -55,6 +55,7 @@ export {
     type ModLogic,
     type ModMapExtension,
     type ModPhysicsExtension,
+    type ModSetting,
     type ModShaderMaterialExtension,
     type ModShaderPostfxExtension,
     type PluginFormat,

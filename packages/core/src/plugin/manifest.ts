@@ -107,6 +107,26 @@ export interface ModShaderPostfxExtension {
   order: "hdr" | "color-grading" | "camera" | "stylized";
   /** Uniform buffer size in bytes (if the shader needs a uniform). */
   uniforms?: number;
+  /** User-configurable settings shown in the Mods panel. */
+  settings?: ModSetting[];
+}
+
+/** A user-configurable setting for a mod effect/material. */
+export interface ModSetting {
+  /** Setting key — used as the uniform field name. */
+  key: string;
+  /** Display label. */
+  label: string;
+  /** Setting type. */
+  type: "slider" | "toggle" | "select";
+  /** Default value. */
+  default: number | boolean | string;
+  /** For "slider": min, max, step. */
+  min?: number;
+  max?: number;
+  step?: number;
+  /** For "select": available options. */
+  options?: Array<{ label: string; value: string }>;
 }
 
 /** Material shader extension — a custom WGSL material for spawned props. */

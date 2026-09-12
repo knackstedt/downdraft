@@ -98,6 +98,8 @@ export interface CustomEffect {
   order: CustomEffectOrder;
   /** Uniform buffer size in bytes (default 64). The uniform is at binding 3. */
   uniforms?: number;
+  /** User-configurable settings (from the mod manifest). */
+  settings?: Array<{ key: string; label: string; type: "slider" | "toggle" | "select"; default: number | boolean | string; min?: number; max?: number; step?: number; options?: Array<{ label: string; value: string }> }>;
 }
 
 const ALL_EFFECTS: EffectId[] = [
@@ -665,6 +667,20 @@ export class PostProcessStack {
   /** Get all registered custom effect ids. */
   getCustomEffectIds(): string[] {
     return [...this.customEffects.keys()];
+  }
+
+  /** Get a custom effect's metadata (name, settings, enabled state, uniform size). */
+  getCustomEffectInfo(id: string): { name: string; enabled: boolean; uniforms: number; settings?: CustomEffect["settings"] } | null {
+    const e = this.customEffects.get(id);
+    if (!e) return null;
+    return { name: e.effect.name, enabled: e.enabled, uniforms: e.uniform.size, settings: e.effect.settings };
+  }
+
+  /** Get all custom effects with their metadata. */
+  getCustomEffects(): Array<{ id: string; name: string; enabled: boolean; settings?: CustomEffect["settings"] }> {
+    return [...this.customEffects.entries()].map(([id, e]) => ({
+      id, name: e.effect.name, enabled: e.enabled, settings: e.effect.settings,
+    }));
   }
 
   /** Write uniform data for a custom effect. */

@@ -23,7 +23,7 @@ interface GameStoreState {
 
   // ESC menu
   showEscMenu: boolean;
-  escMenuTab: "main" | "graphics" | "content" | "controls";
+  escMenuTab: "main" | "graphics" | "content" | "controls" | "mods";
 
   // Graphics settings state
   showGraphicsPanel: boolean;
@@ -60,7 +60,7 @@ interface GameStoreState {
 
   // ESC menu setters
   setShowEscMenu: (v: boolean) => void;
-  setEscMenuTab: (tab: "main" | "graphics" | "content" | "controls") => void;
+  setEscMenuTab: (tab: "main" | "graphics" | "content" | "controls" | "mods") => void;
   toggleEscMenu: () => void;
 
   // Graphics settings setters

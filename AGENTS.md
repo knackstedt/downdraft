@@ -1375,3 +1375,113 @@ startGame({
 - `packages/libraries/gaussian-splats/src/library.ts` — GaussianSplatsLib descriptor.
 - `packages/libraries/gaussian-splats/src/sorter.ts` — CPU sort fallback (sortSplats, filterByDistance).
 
+
+## Modding system (PluginHost + mod.json)
+
+The engine has a runtime modding system built on `PluginHost` (`packages/core/src/plugin/`). This is the first real production use of the engine plugin system. Andrew's Sandbox is the first game migrated to it.
+
+### Architecture
+
+- **PluginHost** (`packages/core/src/plugin/host.ts`) — the canonical runtime mod loader. Discovers, validates, normalizes, and loads mod manifests. Dispatches logic extensions (worker-js/wasm) and declarative extensions (assets/maps/physics/shaders).
+- **Manifest** (`packages/core/src/plugin/manifest.ts`) — `mod.json` is the canonical format. Legacy `plugin.json` is auto-normalized. A mod uses "one manifest, many extensions": one id, one version, one target game, one permission set, optional logic, and multiple declarative extension buckets.
+- **Permissions** (`packages/core/src/plugin/permissions.ts`) — resolved as `requested ∩ tier-allowed ∩ game-allowlist`. New permissions: `assets`, `physics`. Logic plugins must NOT receive raw GPU APIs. Native tier does not implicitly grant permissions.
+- **Host-call bridge** (`packages/core/src/plugin/context.ts`, `wasm-abi.ts`, `loader-wasm.ts`) — logic plugins mutate game state through mediated host calls (spawn_prop, set_physics, apply_torque, get_asset_ref, publish_event). WASM ABI v3 adds host-call imports + `on_host_call_result` export. Worker-js contexts expose host calls via `ctx.hostCalls`.
+- **Extension loaders** (`packages/core/src/plugin/extension-loaders.ts`) — registry of `ExtensionLoader` instances keyed by extension bucket. Factory functions: `createAssetLoader`, `createMapLoader`, `createPhysicsLoader`, `createPostfxShaderLoader`, `createMaterialShaderLoader`. `registerAllExtensionLoaders` wires all five.
+- **MaterialRegistry** (`packages/core/src/plugin/material-registry.ts`) — tracks mod-defined material shaders for spawned props.
+- **PostProcessStack custom effects** (`packages/libraries/postfx/src/post-process-stack.ts`) — `registerCustomEffect`/`unregisterCustomEffect`/`setCustomEffectEnabled` for mod-defined postfx shaders. Custom effects interleave with built-in effects at order-group boundaries (hdr/color-grading/camera/stylized).
+
+### Mod manifest format (mod.json)
+
+```json
+{
+  "id": "my-mod",
+  "name": "My Mod",
+  "version": "1.0.0",
+  "engineVersion": "^0.1.0",
+  "game": "andrews-sandbox",
+  "format": "asset",
+  "tier": "data",
+  "thread": "renderer",
+  "logic": {
+    "format": "worker-js",
+    "thread": "own-worker",
+    "entry": "./src/index.ts",
+    "permissions": ["ecs", "events", "physics"]
+  },
+  "extensions": {
+    "assets": [
+      { "kind": "mesh", "id": "my-mod:crate", "path": "./assets/crate.glb" },
+      { "kind": "texture", "id": "my-mod:paint", "path": "./assets/paint.png" }
+    ],
+    "maps": [
+      { "kind": "map", "id": "my-mod:arena", "path": "./maps/arena.json" }
+    ],
+    "physics": [
+      { "kind": "physics", "id": "my-mod:bouncy", "path": "./physics/bouncy.json" }
+    ],
+    "shaders": {
+      "postfx": [
+        { "id": "my-mod:acid", "name": "Acid", "wgsl": "./shaders/acid.wgsl", "layout": "cc", "order": "stylized", "uniforms": 16 }
+      ],
+      "materials": [
+        { "id": "my-mod:iridescent", "wgsl": "./shaders/iridescent.wgsl", "uniforms": 32 }
+      ]
+    }
+  }
+}
+```
+
+### Game migration (Andrew's Sandbox)
+
+Andrew's Sandbox migrated from direct `PluginScanner → ContentRegistry` wiring to `PluginHost` with bridged extension loaders. See `games/andrews-sandbox/src/plugin-host-bridge.ts` and the plugin discovery section in `games/andrews-sandbox/src/main.tsx`.
+
+The bridge adapts:
+- `ContentRegistry` → `AssetRegistry` (meshes/textures/pbr-materials/texture-pipelines)
+- `PostProcessStack` + `MaterialRegistry` → `ShaderRegistry` (postfx + material shaders)
+- Noop registries for maps + physics (not yet wired in the sandbox)
+
+Legacy `plugin.json` manifests continue to load via auto-normalization. Plugins with custom `props` sections (e.g. bouncy-ball) also get scanned by `PluginScanner` for backward compat.
+
+### Sample mods
+
+- `games/andrews-sandbox/plugins/acid-postfx/` — stylized postfx shader (wavy chromatic distortion + hue cycling).
+- `games/andrews-sandbox/plugins/iridescent-material/` — material shader (Fresnel + hue cycling).
+
+### CLI scaffolding
+
+```bash
+# Scaffold a new mod (generates mod.json + extension buckets)
+dd mod new my-mod --game andrews-sandbox --with shader-postfx --with assets
+
+# Scaffold a legacy plugin (generates plugin.json)
+dd plugin new my-plugin --format worker-js --game andrews-sandbox
+
+# List all discovered plugins + mods
+dd plugin list [--game <game>]
+```
+
+### Key files
+
+- `packages/core/src/plugin/host.ts` — PluginHost (canonical mod loader).
+- `packages/core/src/plugin/manifest.ts` — mod.json types, validation, normalization.
+- `packages/core/src/plugin/permissions.ts` — permission resolution.
+- `packages/core/src/plugin/context.ts` — plugin context + host-call API.
+- `packages/core/src/plugin/wasm-abi.ts` — WASM ABI v3 (host-call imports).
+- `packages/core/src/plugin/loader-wasm.ts` — WASM loader (buildImports exported for testing).
+- `packages/core/src/plugin/extension-loaders.ts` — extension loader registry + factories.
+- `packages/core/src/plugin/material-registry.ts` — mod-defined material shader registry.
+- `packages/libraries/postfx/src/post-process-stack.ts` — custom effect registration.
+- `games/andrews-sandbox/src/plugin-host-bridge.ts` — sandbox bridge adapters.
+- `games/andrews-sandbox/src/main.tsx` — PluginHost wiring in sandbox.
+- `packages/cli/src/scaffold-plugin.ts` — mod/plugin scaffold.
+- `packages/cli/src/plugin-command.ts` — `dd plugin` / `dd mod` CLI commands.
+
+### Testing
+
+```bash
+# Plugin suite (manifest, permissions, host, host-calls, wasm-abi, extension-loaders, material-registry)
+bun test packages/core/src/plugin
+
+# Postfx suite (including custom effect tests)
+bun test packages/libraries/postfx
+```
