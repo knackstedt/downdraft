@@ -153,8 +153,8 @@ export class DebuggerScene {
     this.root.addChild(this.backdropContainer);
     this.root.addChild(this.dockContainer);
     this.dockContainer.addChild(this.handleContainer);
-    this.dockContainer.addChild(this.tabBarContainer);
     this.dockContainer.addChild(this.contentContainer);
+    this.dockContainer.addChild(this.tabBarContainer);
     this.dockContainer.addChild(this.statusContainer);
   }
 

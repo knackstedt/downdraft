@@ -2,7 +2,7 @@
 // Applies targeted patches to pixi.js in node_modules after install.
 // These patches fix bugs that haven't been upstreamed or released yet.
 
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -29,19 +29,22 @@ function patchFile(relPath, find, replace, label) {
 }
 
 // ── Fix: getCanvasFillStyle crashes when fillStyle.matrix is null ──
-// In the native runtime, FillStyle objects can have a null matrix when
-// they're created without explicit pattern transforms. The canvas text
-// renderer dereferences fillStyle.matrix without a null check, causing
-// a TypeError that silently kills the entire render pass (the command
-// encoder finishes with an open render pass, producing an invalid
-// command buffer, so the texture stays in its previous state).
-// This patch adds a null-safe fallback to Matrix.identity.
+// In the native runtime, FillStyle objects created from a simple color
+// (via handleColorLike) set texture=Texture.WHITE but don't set matrix.
+// The Texture.WHITE identity check in getCanvasFillStyle can fail due to
+// dual module instances in Bun's module resolution, causing it to fall
+// into the pattern branch where it dereferences fillStyle.matrix (null),
+// causing a TypeError that silently kills the entire render pass.
+// Fix: when matrix is null, fall back to the solid color path.
 const fillStyleFixMjs = `  } else if (!fillStyle.fill) {
     const pattern = context.createPattern(fillStyle.texture.source.resource, "repeat");
     const tempMatrix = fillStyle.matrix.copyTo(Matrix.shared);`;
 const fillStyleFixMjsNew = `  } else if (!fillStyle.fill) {
+    if (!fillStyle.matrix) {
+      return Color.shared.setValue(fillStyle.color).setAlpha(fillStyle.alpha ?? 1).toHexa();
+    }
     const pattern = context.createPattern(fillStyle.texture.source.resource, "repeat");
-    const tempMatrix = (fillStyle.matrix ?? new Matrix()).copyTo(Matrix.shared);`;
+    const tempMatrix = fillStyle.matrix.copyTo(Matrix.shared);`;
 
 patchFile(
   "node_modules/pixi.js/lib/scene/text/canvas/utils/getCanvasFillStyle.mjs",
@@ -54,8 +57,11 @@ const fillStyleFixJs = `  } else if (!fillStyle.fill) {
     const pattern = context.createPattern(fillStyle.texture.source.resource, "repeat");
     const tempMatrix = fillStyle.matrix.copyTo(Matrix.Matrix.shared);`;
 const fillStyleFixJsNew = `  } else if (!fillStyle.fill) {
+    if (!fillStyle.matrix) {
+      return Color.Color.shared.setValue(fillStyle.color).setAlpha(fillStyle.alpha ?? 1).toHexa();
+    }
     const pattern = context.createPattern(fillStyle.texture.source.resource, "repeat");
-    const tempMatrix = (fillStyle.matrix ?? new Matrix.Matrix()).copyTo(Matrix.Matrix.shared);`;
+    const tempMatrix = fillStyle.matrix.copyTo(Matrix.Matrix.shared);`;
 
 patchFile(
   "node_modules/pixi.js/lib/scene/text/canvas/utils/getCanvasFillStyle.js",

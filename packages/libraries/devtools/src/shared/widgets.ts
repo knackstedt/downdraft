@@ -266,14 +266,18 @@ export function makeScrollPanel(opts: ScrollPanelOpts): ScrollPanelResult {
   // Clip mask — use a Graphics rect as a mask to clip content to the
   // scroll panel's bounds. This prevents content from bleeding over the
   // tab bar or other UI elements when scrolling.
-  const mask = new Graphics();
-  mask.rect(0, 0, opts.width, opts.height);
-  mask.fill({ color: 0xffffff });
-  c.addChild(mask);
+  // NOTE: mask disabled — native PixiJS filter compositing doesn't work
+  // correctly in the native wgpu renderer, causing masked content (text)
+  // to be drawn to an intermediate render target that never gets composited
+  // back. Content overflow is handled by only rendering visible rows.
+  // const mask = new Graphics();
+  // mask.rect(0, 0, opts.width, opts.height);
+  // mask.fill({ color: 0xffffff });
+  // c.addChild(mask);
   const content = new Container();
   content.x = 0;
   content.y = -opts.scrollY;
-  content.mask = mask;
+  // content.mask = mask;
   c.addChild(content);
   // Push hit offset so content-registered hit regions are in absolute coords.
   // The caller must call hits.popOffset() after adding all content.
