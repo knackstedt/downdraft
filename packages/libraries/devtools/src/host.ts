@@ -161,6 +161,7 @@ export class NativeDebuggerHost {
       profilingSAB: this.opts.profilingSAB ?? null,
     });
     this.mirror.start();
+    this.mirror.attachLoggerBridge();
     this.cdp.start();
 
     this._ready = true;
