@@ -35,7 +35,14 @@ export interface DowndraftSavesConfig {
 }
 
 export interface DowndraftMcpConfig {
-  port: number;
+  /**
+   * MCP HTTP transport port. `0` (or unset) binds to an ephemeral
+   * OS-assigned port and advertises it via a PID file at
+   * `~/.downdraft/port/<pid>` (content = the actual port number) so the
+   * stdio bridge can auto-discover it. Set an explicit port to disable
+   * discovery (e.g. for the e2e test harness, which sets `MCP_PORT`).
+   */
+  port?: number;
 }
 
 export interface DevtoolsConfig {

@@ -239,7 +239,7 @@ export class GameRenderer implements CanvasResizeHandler {
     const clamp = (key: string, want: number): [string, number] | null => {
       const have = a[key];
       if (have === undefined) return null;
-      return [key, Math.min(want, have)];
+      return [key, Math.min(want, Number(have))];
     };
     const entries: Array<[string, number]> = [];
     for (const e of [

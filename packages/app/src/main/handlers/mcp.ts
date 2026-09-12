@@ -11,18 +11,50 @@ import { createLogger } from "@downdraft/core/util/logger";
 import type { ToolRegistration } from "@downdraft/mcp";
 import { McpHttpTransport, type McpProxyHandler } from "@downdraft/mcp/http-transport";
 import { ipcMain } from "electron";
+import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { DowndraftMcpConfig, MainContext } from "../types";
 
 const log = createLogger("info");
 
 const MCP_TIMEOUT_MS = parseInt(process.env.MCP_TIMEOUT_MS ?? "60000", 10);
 
+/**
+ * Directory holding one PID file per running downdraft game instance.
+ * Each file is named `<pid>` and contains the bound MCP HTTP port (string).
+ * The stdio bridge reads this directory to auto-discover running instances;
+ * dead-PID files are pruned on read. Best-effort cleanup on process exit.
+ */
+function mcpPortDir(): string {
+  return join(homedir(), ".downdraft", "port");
+}
+
+/**
+ * Write `~/.downdraft/port/<pid>` containing the bound port, so the stdio
+ * bridge (and other local clients) can discover this instance. Returns a
+ * cleanup function that removes the file (best-effort).
+ */
+function writePidFile(port: number): () => void {
+  const dir = mcpPortDir();
+  const pidFile = join(dir, String(process.pid));
+  try {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(pidFile, String(port));
+  } catch (e) {
+    log.warn("MCP", `Failed to write PID file ${pidFile}: ${(e as Error).message}`);
+  }
+  return () => {
+    try { unlinkSync(pidFile); } catch { /* already gone */ }
+  };
+}
+
 export async function startMcpProxy(
   ctx: MainContext,
   config: DowndraftMcpConfig,
   mainTools: ToolRegistration[] = [],
   artifactDir?: string,
-): Promise<void> {
+): Promise<number> {
   const mainToolMap = new Map<string, ToolRegistration>();
   for (const t of mainTools) mainToolMap.set(t.def.name, t);
 
@@ -108,13 +140,21 @@ export async function startMcpProxy(
   };
 
   try {
-    const transport = new McpHttpTransport({ port: config.port, proxyHandler, artifactDir });
+    const transport = new McpHttpTransport({ port: config.port ?? 0, proxyHandler, artifactDir });
     await transport.start();
+    const actualPort = transport.getPort();
+    const ephemeral = (config.port ?? 0) === 0;
     log.info(
       "MCP",
-      `HTTP transport listening on port ${config.port} (timeout: ${MCP_TIMEOUT_MS}ms${mainTools.length ? `, ${mainTools.length} main tools` : ""})`,
+      `HTTP transport listening on port ${actualPort} (${ephemeral ? "ephemeral" : "fixed"}, timeout: ${MCP_TIMEOUT_MS}ms${mainTools.length ? `, ${mainTools.length} main tools` : ""})`,
     );
+    // Advertise this instance via a PID file so the stdio bridge can
+    // auto-discover it. Register best-effort cleanup on process exit.
+    const cleanupPidFile = writePidFile(actualPort);
+    process.on("exit", cleanupPidFile);
+    return actualPort;
   } catch (e) {
     log.error("MCP", `Failed to start HTTP transport: ${(e as Error).message}`);
+    return 0;
   }
 }

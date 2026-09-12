@@ -17,6 +17,9 @@ export type McpProxyHandler = (request: {
 export class McpHttpTransport {
   private server: ReturnType<typeof createServer> | null = null;
   private port: number;
+  /** Actual bound port (set after start()). Equals `port` when explicitly
+   *  configured; differs when `port` was 0 (ephemeral OS-assigned port). */
+  private boundPort: number | null = null;
   private mode: "direct" | "proxy";
   private mcpServer: MCPServer | null;
   private proxyHandler: McpProxyHandler | null;
@@ -27,13 +30,14 @@ export class McpHttpTransport {
   private artifactDir: string | null = null;
 
   constructor(opts: {
+    /** Port to bind. `0` (default) = ephemeral OS-assigned port. */
     port?: number;
     mcpServer?: MCPServer;
     proxyHandler?: McpProxyHandler;
     /** Root directory for artifact downloads (GET /mcp/artifact/<path>). */
     artifactDir?: string;
   }) {
-    this.port = opts.port ?? 9876;
+    this.port = opts.port ?? 0;
     if (opts.mcpServer) {
       this.mode = "direct";
       this.mcpServer = opts.mcpServer;
@@ -55,7 +59,12 @@ export class McpHttpTransport {
         this.server = null;
         reject(err);
       });
-      this.server.listen(this.port, () => {
+      // Bind to loopback only — the MCP transport is for local clients
+      // (Devin's stdio bridge, the e2e harness). Binding 0.0.0.0 would
+      // expose the JSON-RPC endpoint to the local network.
+      this.server.listen(this.port, "127.0.0.1", () => {
+        const addr = this.server!.address();
+        this.boundPort = addr && typeof addr === "object" ? addr.port : this.port;
         resolve();
       });
     });
@@ -72,8 +81,13 @@ export class McpHttpTransport {
     });
   }
 
+  /**
+   * The actual bound port. After `start()` this is the OS-assigned port
+   * when `port` was 0 (ephemeral); before `start()` (or after `stop()`)
+   * it falls back to the configured `port`.
+   */
   getPort(): number {
-    return this.port;
+    return this.boundPort ?? this.port;
   }
 
   private setCORS(res: ServerResponse): void {
@@ -176,7 +190,7 @@ export class McpHttpTransport {
       this.sendJSON(res, 200, {
         status: "ok",
         mode: this.mode,
-        port: this.port,
+        port: this.getPort(),
         initialized: this.initialized,
       });
       return;

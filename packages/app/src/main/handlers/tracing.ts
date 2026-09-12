@@ -418,9 +418,11 @@ async function processSnapshot(ctx: MainContext, target: "main" | "renderer" = "
  * Create the tracing/heap-snapshot/process-snapshot MCP tools.
  * These are handled locally in the main-process MCP proxy (no renderer round-trip).
  *
- * @param port The MCP HTTP port, used to build download URLs.
+ * @param portRef A mutable holder for the MCP HTTP port. The port is read
+ *   lazily at tool-call time (not capture time) because the transport may
+ *   bind to an ephemeral OS-assigned port after these tools are created.
  */
-export function createTracingTools(ctx: MainContext, port: number): ToolRegistration[] {
+export function createTracingTools(ctx: MainContext, portRef: { current: number }): ToolRegistration[] {
   const tools: ToolRegistration[] = [
 
     {
@@ -484,7 +486,7 @@ export function createTracingTools(ctx: MainContext, port: number): ToolRegistra
       },
       handler: async () => {
         try {
-          const result = await stopTrace(ctx, port);
+          const result = await stopTrace(ctx, portRef.current);
           return jsonResult(result);
         } catch (e) {
           return errorResult((e as Error).message);
@@ -543,7 +545,7 @@ export function createTracingTools(ctx: MainContext, port: number): ToolRegistra
       handler: async (params) => {
         try {
           const durationMs = (params.durationMs as number) ?? 2000;
-          const result = await memoryDump(ctx, port, durationMs);
+          const result = await memoryDump(ctx, portRef.current, durationMs);
           return jsonResult(result);
         } catch (e) {
           return errorResult((e as Error).message);
@@ -620,7 +622,7 @@ export function createTracingTools(ctx: MainContext, port: number): ToolRegistra
       handler: async (params) => {
         try {
           const target = (params.target as "main" | "renderer") ?? "renderer";
-          const result = await heapSnapshot(ctx, port, target);
+          const result = await heapSnapshot(ctx, portRef.current, target);
           return jsonResult(result);
         } catch (e) {
           return errorResult((e as Error).message);
@@ -663,19 +665,19 @@ export function createTracingTools(ctx: MainContext, port: number): ToolRegistra
 
 // --- IPC handlers (preload bridge) ---
 
-export function registerTracingHandlers(ctx: MainContext, port: number): void {
+export function registerTracingHandlers(ctx: MainContext, portRef: { current: number }): void {
   ipcMain.handle(IPC.TRACE_START, async (_event, opts: TraceStartOptions = {}) => {
     return startTrace(opts);
   });
 
-  ipcMain.handle(IPC.TRACE_STOP, async () => stopTrace(ctx, port));
+  ipcMain.handle(IPC.TRACE_STOP, async () => stopTrace(ctx, portRef.current));
 
   ipcMain.handle(IPC.TRACE_STATUS, async () => traceStatus());
 
   ipcMain.handle(IPC.TRACE_CATEGORIES, async () => traceCategories());
 
   ipcMain.handle(IPC.HEAP_SNAPSHOT, async (_event, opts: { target?: "main" | "renderer" } = {}) =>
-    heapSnapshot(ctx, port, opts.target ?? "renderer"),
+    heapSnapshot(ctx, portRef.current, opts.target ?? "renderer"),
   );
 
   ipcMain.handle(IPC.PROCESS_SNAPSHOT, async (_event, opts: { target?: "main" | "renderer" } = {}) =>

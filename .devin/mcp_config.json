@@ -2,10 +2,7 @@
   "mcpServers": {
     "game": {
       "command": "node",
-      "args": [".devin/mcp-stdio-bridge.mjs"],
-      "env": {
-        "MCP_HTTP_URL": "http://localhost:9876/mcp"
-      }
+      "args": [".devin/mcp-stdio-bridge.mjs"]
     }
   }
 }
