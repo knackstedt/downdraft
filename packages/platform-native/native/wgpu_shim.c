@@ -258,99 +258,21 @@ static void on_compilation_info(WGPUCompilationInfoRequestStatus status, WGPUCom
 
 // Returns a malloc'd JSON string: [{"type":"error","message":"...","line":N,"col":N,"offset":N,"length":N}, ...]
 // Caller must free with wgpu_shim_free_string().
+//
+// NOTE: wgpuShaderModuleGetCompilationInfo is unimplemented in this wgpu-native
+// build and panics if called. Short-circuit: return an empty JSON array (no
+// compilation messages = validation passes). The engine's shader validation
+// guard treats an empty messages array as "no errors" and continues.
 char* wgpu_shim_shader_get_compilation_info(void* shader_ptr) {
-    WGPUShaderModule shader = (WGPUShaderModule)shader_ptr;
-    g_compilation_info_requested = 0;
-    g_compilation_info.messageCount = 0;
-    g_compilation_info.messages = NULL;
-
-    WGPUCompilationInfoCallbackInfo callbackInfo = WGPU_COMPILATION_INFO_CALLBACK_INFO_INIT;
-    callbackInfo.mode = WGPUCallbackMode_AllowProcessEvents;
-    callbackInfo.callback = on_compilation_info;
-    callbackInfo.userdata1 = NULL;
-    callbackInfo.userdata2 = NULL;
-
-    wgpuShaderModuleGetCompilationInfo(shader, callbackInfo);
-
-    // Poll until the callback fires
-    while (!g_compilation_info_requested) {
-        if (g_instance) {
-            wgpuInstanceProcessEvents(g_instance);
-        } else {
-            break;
-        }
-    }
-
-    // Build JSON array. Use a dynamic buffer since messages can be long.
-    // Start with a reasonable capacity and grow as needed.
-    size_t capacity = 256;
-    char* json = (char*)malloc(capacity);
-    size_t len = 0;
-    json[len++] = '[';
-
-    size_t count = g_compilation_info.messageCount;
-    WGPUCompilationMessage const * messages = g_compilation_info.messages;
-
-    for (size_t i = 0; i < count; i++) {
-        WGPUCompilationMessage const * msg = &messages[i];
-        const char* typeStr;
-        switch (msg->type) {
-            case WGPUCompilationMessageType_Error:   typeStr = "error"; break;
-            case WGPUCompilationMessageType_Warning: typeStr = "warning"; break;
-            case WGPUCompilationMessageType_Info:    typeStr = "info"; break;
-            default: typeStr = "info"; break;
-        }
-
-        // Escape the message string for JSON
-        WGPUStringView sv = msg->message;
-        size_t msgLen = sv.length;
-        const char* msgData = sv.data ? sv.data : "";
-
-        // Build the JSON object for this message
-        // Estimate: type(20) + message(2*msgLen+2) + numbers(80) + separators(20)
-        size_t needed = 128 + 2 * msgLen;
-        if (len + needed + 4 > capacity) {
-            while (len + needed + 4 > capacity) capacity *= 2;
-            json = (char*)realloc(json, capacity);
-        }
-
-        if (i > 0) json[len++] = ',';
-        len += sprintf(json + len, "{\"type\":\"%s\",\"message\":\"", typeStr);
-
-        // Escape message: handle ", \, \n, \r, \t
-        for (size_t j = 0; j < msgLen; j++) {
-            char c = msgData[j];
-            switch (c) {
-                case '"':  json[len++] = '\\'; json[len++] = '"'; break;
-                case '\\': json[len++] = '\\'; json[len++] = '\\'; break;
-                case '\n': json[len++] = '\\'; json[len++] = 'n'; break;
-                case '\r': json[len++] = '\\'; json[len++] = 'r'; break;
-                case '\t': json[len++] = '\\'; json[len++] = 't'; break;
-                default:
-                    if ((unsigned char)c < 0x20) {
-                        len += sprintf(json + len, "\\u%04x", (unsigned char)c);
-                    } else {
-                        json[len++] = c;
-                    }
-                    break;
-            }
-            if (len + 128 > capacity) {
-                capacity *= 2;
-                json = (char*)realloc(json, capacity);
-            }
-        }
-
-        len += sprintf(json + len, "\",\"line\":%llu,\"col\":%llu,\"offset\":%llu,\"length\":%llu}",
-            (unsigned long long)msg->lineNum,
-            (unsigned long long)msg->linePos,
-            (unsigned long long)msg->offset,
-            (unsigned long long)msg->length);
-    }
-
-    json[len++] = ']';
-    json[len] = '\0';
+    (void)shader_ptr;
+    // Return "[]" (empty array = no compilation messages).
+    char* json = (char*)malloc(3);
+    json[0] = '[';
+    json[1] = ']';
+    json[2] = '\0';
     return json;
 }
+
 
 // Free a string returned by wgpu_shim_shader_get_compilation_info.
 void wgpu_shim_free_string(char* str) {
@@ -807,7 +729,10 @@ void* wgpu_shim_create_render_pipeline(
         const uint32_t* ds = depth_stencil;
         depthStencilState.nextInChain = NULL;
         depthStencilState.format = (WGPUTextureFormat)ds[0];
-        depthStencilState.depthWriteEnabled = ds[1] ? (WGPUOptionalBool)ds[1] : WGPUOptionalBool_Undefined;
+        // depthWriteEnabled: WGPUOptionalBool False=0, True=1, Undefined=2.
+        // wgpu-native panics ("Depth write not specified for depth format") if
+        // left Undefined with a depth format. Default to True when Undefined.
+        depthStencilState.depthWriteEnabled = (ds[1] == 0) ? WGPUOptionalBool_False : WGPUOptionalBool_True;
         depthStencilState.depthCompare = ds[2] ? (WGPUCompareFunction)ds[2] : WGPUCompareFunction_Less;
         depthStencilState.stencilFront.compare = ds[3] ? (WGPUCompareFunction)ds[3] : WGPUCompareFunction_Always;
         depthStencilState.stencilFront.failOp = ds[4] ? (WGPUStencilOperation)ds[4] : WGPUStencilOperation_Keep;

@@ -15,6 +15,7 @@
 // ============================================================================
 
 export { installAssetGlob, nativeGlob } from "./assets/native-assets";
+export { dlopen, ptr, readMappedRange, type CFunction, type ptr } from "./ffi/ffi-adapter";
 export { installGPU } from "./gpu/install";
 export { VirtualCanvas, VirtualCanvasContext } from "./gpu/virtual-canvas-context";
 export { WgpuAdapter, WgpuBindGroup, WgpuBindGroupLayout, WgpuBuffer, WgpuCommandBuffer, WgpuCommandEncoder, WgpuComputePassEncoder, WgpuComputePipeline, WgpuDevice, WgpuGPU, WgpuPipelineLayout, WgpuQueue, WgpuRenderPassEncoder, WgpuRenderPipeline, WgpuSampler, WgpuShaderModule, WgpuTexture, WgpuTextureView } from "./gpu/wgpu-wrapper";

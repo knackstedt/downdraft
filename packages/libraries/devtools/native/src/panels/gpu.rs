@@ -1,0 +1,96 @@
+// panels/gpu.rs — GPU panel: device info + resources + frame-time graph.
+
+use crate::state::PanelId;
+use crate::DevtoolsState;
+
+pub fn render(state: &mut DevtoolsState, ui: &mut egui::Ui) {
+    ui.horizontal(|ui| {
+        if ui.button("Refresh").clicked() {
+            state.gpu_refresh_requested = true;
+        }
+        ui.label(
+            egui::RichText::new(format!("{} entries", state.gpu_info.entries.len()))
+                
+                .color(egui::Color32::from_gray(140)),
+        );
+    });
+    ui.separator();
+
+    // ── Frame-time graph ──
+    let ft = &state.gpu_info.frame_times;
+    if ft.len() >= 2 {
+        ui.label(egui::RichText::new("Frame time (ms)").strong());
+        let (resp, painter) =
+            ui.allocate_painter(ui.available_size_before_wrap(), egui::Sense::hover());
+        let rect = resp.rect;
+        let painter = &painter;
+        painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(10, 10, 22));
+
+        let max_ms = ft
+            .iter()
+            .map(|s| s[0].max(s[1]))
+            .fold(1.0f32, f32::max)
+            .max(1.0);
+        let n = ft.len() as f32;
+        let w = rect.width();
+        let h = rect.height();
+        let plot = |idx: usize, val: f32, color: egui::Color32| {
+            let x = rect.left() + (idx as f32 / n.max(1.0)) * w;
+            let y = rect.bottom() - (val / max_ms) * h;
+            (egui::pos2(x, y), color)
+        };
+        // CPU line
+        let mut prev = None;
+        for (i, s) in ft.iter().enumerate() {
+            let (p, _) = plot(i, s[0], egui::Color32::from_rgb(120, 200, 255));
+            if let Some(prev) = prev {
+                painter.line_segment([prev, p], egui::Stroke::new(1.5, egui::Color32::from_rgb(120, 200, 255)));
+            }
+            prev = Some(p);
+        }
+        // GPU line
+        let mut prev = None;
+        for (i, s) in ft.iter().enumerate() {
+            let (p, _) = plot(i, s[1], egui::Color32::from_rgb(255, 180, 80));
+            if let Some(prev) = prev {
+                painter.line_segment([prev, p], egui::Stroke::new(1.5, egui::Color32::from_rgb(255, 180, 80)));
+            }
+            prev = Some(p);
+        }
+        ui.label(
+            egui::RichText::new(format!("max {:.1} ms  |  blue=CPU  orange=GPU", max_ms))
+                
+                .color(egui::Color32::from_gray(140)),
+        );
+        ui.separator();
+    }
+
+    // ── Key/value grid ──
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            egui::Grid::new("gpu_kv_grid")
+                .num_columns(2)
+                .spacing([16.0, 3.0])
+                .striped(true)
+                .show(ui, |ui| {
+                    for e in &state.gpu_info.entries {
+                        if e.is_header {
+                            ui.end_row();
+                            ui.label(
+                                egui::RichText::new(&e.key)
+                                    .strong()
+                                    .color(egui::Color32::from_rgb(80, 230, 120)),
+                            );
+                            ui.end_row();
+                        } else {
+                            ui.label(egui::RichText::new(&e.key).color(egui::Color32::from_gray(150)));
+                            ui.label(egui::RichText::new(&e.value).color(egui::Color32::from_gray(220)));
+                            ui.end_row();
+                        }
+                    }
+                });
+        });
+
+    let _ = PanelId::Gpu;
+}

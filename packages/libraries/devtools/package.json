@@ -11,7 +11,7 @@
   "dependencies": {
     "@downdraft/core": "workspace:*",
     "@downdraft/module-devtools": "workspace:*",
-    "pixi.js": "8.18.0"
+    "@downdraft/platform-native": "workspace:*"
   },
   "peerDependencies": {
     "@downdraft/library-pixi-ui-native": "workspace:*"

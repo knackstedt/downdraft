@@ -13,6 +13,7 @@
 // ============================================================================
 
 import { createLogger, installShaderValidationGuard } from "@downdraft/core";
+import { createRequire as nodeCreateRequire } from "node:module";
 import { installAssetGlob } from "./assets/native-assets";
 import { installGPU } from "./gpu/install";
 import { VirtualCanvas } from "./gpu/virtual-canvas-context";
@@ -361,6 +362,83 @@ function installDOMPolyfills(window: NativeWindow, surface: NativeSurface): void
     (globalThis as any).indexedDB = {
       open: () => ({ onsuccess: null, onerror: null, onupgradeneeded: null, result: {} }),
     };
+  }
+
+  // globalThis.addEventListener — PixiJS EventSystem reads this directly.
+  // Bun has it natively; Node does not.
+  if (typeof (globalThis as any).addEventListener === "undefined") {
+    (globalThis as any).addEventListener = (type: string, listener: any) => {
+      window.addEventListener(type, listener);
+    };
+    (globalThis as any).removeEventListener = (type: string, listener: any) => {
+      window.removeEventListener(type, listener);
+    };
+    (globalThis as any).dispatchEvent = (event: any) => {
+      return window.dispatchEvent(event);
+    };
+  }
+
+  // Worker polyfill — wraps Node's worker_threads.Worker to expose the browser
+  // Worker API (new Worker(url, { type: "module" }), .onmessage, .postMessage).
+  // Bun has Worker natively; Node does not have it as a global.
+  if (typeof (globalThis as any).Worker === "undefined") {
+    const nodeRequire = nodeCreateRequire(import.meta.url);
+    const { Worker: NodeWorker } = nodeRequire("node:worker_threads");
+    // Resolve tsx register path relative to this package so workers can find it
+    const tsxRegisterPath = nodeRequire.resolve("tsx");
+    const wgslLoaderPath = new URL("./ffi/wgsl-loader.mjs", import.meta.url).href;
+    const workerBootstrapPath = new URL("./ffi/worker-bootstrap.mjs", import.meta.url).href;
+    const workerExecArgv = ["--import", tsxRegisterPath, "--import", wgslLoaderPath, "--import", workerBootstrapPath];
+    class BrowserWorker extends NodeWorker {
+      constructor(specifier: string | URL, options?: any) {
+        let filename: string;
+        if (specifier instanceof URL) {
+          filename = specifier.pathname;
+        } else {
+          // Handle new URL("./worker.ts", import.meta.url) pattern — the
+          // caller passes the resolved URL string.
+          try {
+            filename = new URL(specifier).pathname;
+          } catch {
+            filename = specifier;
+          }
+        }
+        super(filename, { ...options, execArgv: workerExecArgv });
+      }
+      set onmessage(handler: (ev: any) => void) {
+        this.on("message", (data: any) => handler({ data }));
+      }
+      set onerror(handler: (ev: any) => void) {
+        this.on("error", (err: any) => handler({ error: err, message: err?.message ?? String(err) }));
+      }
+      set onmessageerror(handler: (ev: any) => void) {
+        this.on("messageerror", (data: any) => handler({ data }));
+      }
+      // Browser Worker API: addEventListener / removeEventListener
+      addEventListener(type: string, listener: any) {
+        if (type === "message") {
+          this.on("message", (data: any) => listener({ data }));
+        } else if (type === "error") {
+          this.on("error", (err: any) => listener({ error: err, message: err?.message ?? String(err) }));
+        } else if (type === "messageerror") {
+          this.on("messageerror", (data: any) => listener({ data }));
+        } else {
+          this.on(type, listener);
+        }
+      }
+      removeEventListener(type: string, listener: any) {
+        this.off(type, listener);
+      }
+      // Browser Worker API: .postMessage with transfer list
+      postMessage(message: any, transfer?: any[]) {
+        super.postMessage(message, transfer);
+      }
+      // Browser Worker API: .terminate
+      terminate() {
+        super.terminate();
+      }
+    }
+    (globalThis as any).Worker = BrowserWorker;
   }
 
   log.info("platform-native", "DOM polyfills installed (document, window, ResizeObserver, localStorage, etc.)");

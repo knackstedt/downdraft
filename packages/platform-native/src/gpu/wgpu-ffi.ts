@@ -9,10 +9,10 @@
 // synchronously by polling wgpuInstanceProcessEvents() until callbacks fire.
 // ============================================================================
 
-import { dlopen, ptr, type CFunction } from "bun:ffi";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { dlopen, ptr, type CFunction } from "../ffi/ffi-adapter.js";
 
 const _dirname = typeof (globalThis as any).__dirname !== "undefined"
   ? (globalThis as any).__dirname
