@@ -72,7 +72,7 @@ pub fn render(state: &mut DevtoolsState, ui: &mut egui::Ui) {
             }
 
             // ── Key/value grid ──
-            let stripe = egui::Color32::from_rgba_premultiplied(255, 255, 255, 10);
+            let stripe = egui::Color32::from_rgb(0x22, 0x23, 0x26);
             for (idx, e) in state.gpu_info.entries.iter().enumerate() {
                 if e.is_header {
                     ui.add_space(2.0);
@@ -83,15 +83,17 @@ pub fn render(state: &mut DevtoolsState, ui: &mut egui::Ui) {
                     );
                     ui.add_space(1.0);
                 } else {
+                    // Paint stripe background before the horizontal layout,
+                    // using the full available row rect from the parent UI.
+                    if idx % 2 == 1 {
+                        let rect = ui.available_rect_before_wrap();
+                        ui.painter().rect_filled(
+                            egui::Rect::from_min_size(rect.min, egui::vec2(rect.width(), 18.0)),
+                            0.0,
+                            stripe,
+                        );
+                    }
                     ui.horizontal(|ui| {
-                        if idx % 2 == 1 {
-                            let rect = ui.available_rect_before_wrap();
-                            ui.painter().rect_filled(
-                                egui::Rect::from_min_size(rect.min, egui::vec2(rect.width(), 18.0)),
-                                0.0,
-                                stripe,
-                            );
-                        }
                         ui.add_space(4.0);
                         ui.label(egui::RichText::new(&e.key).color(egui::Color32::from_gray(160)).monospace());
                         ui.add_space(16.0);
