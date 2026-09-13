@@ -1788,7 +1788,6 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
     let result: { vb: GPUBuffer; vertCount: number } | null = null;
     if (device && hull && hull.length >= 9) {
       const faces = computeConvexHullFaces(hull);
-      console.log(`[HullWire] ${contentId}: pts=${hull.length / 3} faces=${faces ? faces.length / 3 : "null"}`);
       if (faces && faces.length >= 6) {
         // Build line-list: each triangle (a,b,c) → edges a-b, b-c, c-a.
         // 3 edges × 2 verts = 6 verts per face.
@@ -2561,7 +2560,9 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
       const f32 = sv.f32;
       const type = u32[ENT.TYPE];
       if (type === 255) continue;
-      if (type !== EntityType.Prop && type !== EntityType.Mannequin && type !== EntityType.Projectile) continue;
+      // Only draw hitbox wireframes for props and projectiles — omit the
+      // player (Mannequin) whose capsule wireframe flashes around the camera.
+      if (type !== EntityType.Prop && type !== EntityType.Projectile) continue;
 
       const ioff = i * 8;
       const px = interp[ioff];
@@ -2582,7 +2583,6 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
       // Per-type wireframe color.
       let cr = 0.15, cg = 1.0, cb = 0.25; // Prop — green
       if (type === EntityType.Projectile) { cr = 1.0; cg = 0.85; cb = 0.1; } // yellow
-      else if (type === EntityType.Mannequin) { cr = 0.2; cg = 0.9; cb = 1.0; } // cyan
 
       // Compose model matrix = T * R * S (column-major, matching the cube shader).
       const ql = Math.sqrt(rx * rx + ry * ry + rz * rz + rw * rw) || 1;
@@ -2623,46 +2623,10 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
       staging[off + 19] = 1;
     }
 
-    // Player capsule instance (packed after the spheres).
+    // Player capsule wireframe omitted — it flashes around the camera and
+    // is not useful for prop collider debugging.
     let capsuleFirst = 0;
     let capsuleVertCount = 0;
-    if (this.playerHitbox && this.hitboxCapsuleVB) {
-      const ph = this.playerHitbox;
-      const cylHalfHeight = Math.max(0, (ph.height - 2 * ph.radius) / 2);
-      // Regenerate capsule geometry when dimensions change.
-      const key = `${ph.radius}|${cylHalfHeight}`;
-      if (key !== this.capsuleCacheKey) {
-        const geo = generateCapsuleWireframe(ph.radius, cylHalfHeight);
-        // Recreate the vertex buffer at the new size.
-        this.hitboxCapsuleVB.destroy();
-        this.hitboxCapsuleVB = device.createBuffer({
-          label: "hitbox-capsule-vb",
-          size: geo.byteLength,
-          usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-        });
-        device.queue.writeBuffer(this.hitboxCapsuleVB, 0, geo);
-        this.hitboxCapsuleVertexCount = geo.length / 3;
-        this.capsuleCacheKey = key;
-      }
-      capsuleVertCount = this.hitboxCapsuleVertexCount;
-      capsuleFirst = boxCount + sphereCount;
-      const off = capsuleFirst * 20;
-      // Capsule is centered at origin (cylinder at y=0); translate to feet + height/2.
-      const cy = ph.y + ph.height / 2;
-      // Identity rotation + uniform scale 1 (geometry already at dimensions).
-      staging[off]      = 1; staging[off + 1] = 0; staging[off + 2]  = 0; staging[off + 3]  = 0;
-      staging[off + 4]  = 0; staging[off + 5] = 1; staging[off + 6]  = 0; staging[off + 7]  = 0;
-      staging[off + 8]  = 0; staging[off + 9] = 0; staging[off + 10] = 1; staging[off + 11] = 0;
-      staging[off + 12] = ph.x;
-      staging[off + 13] = cy;
-      staging[off + 14] = ph.z;
-      staging[off + 15] = 1;
-      // Player — bright red.
-      staging[off + 16] = 1.0;
-      staging[off + 17] = 0.15;
-      staging[off + 18] = 0.1;
-      staging[off + 19] = 1;
-    }
 
     const totalInstances = boxCount + sphereCount + (capsuleVertCount > 0 ? 1 : 0);
 

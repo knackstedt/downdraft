@@ -566,10 +566,43 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
         }
         if (ctx.saveStore) {
           const result = await ctx.saveStore.load(slotName);
-          return result?.state ?? null;
+          const state = result?.state ?? null;
+          if (state && simWorker?.restoreFromState) {
+            // The save store returns a SaveState with `components`. Each
+            // component has { v, data } structure. Find the game component
+            // (e.g. "sandbox") and forward its `data` to the sim worker.
+            const components = (state as any).components;
+            if (components) {
+              const gameKey = Object.keys(components).find(
+                (k) => components[k] && components[k].data != null && typeof components[k].data === "object",
+              );
+              if (gameKey) {
+                await simWorker.restoreFromState(JSON.stringify(components[gameKey].data));
+              }
+            }
+          }
+          return state;
         }
         if (downdraft?.loadGameState) {
           const stateJson = await downdraft.loadGameState(slotName);
+          if (stateJson && simWorker?.restoreFromState) {
+            // The IPC bridge returns JSON.stringify(result.state.components),
+            // so the parsed result is the components map directly (not a
+            // SaveState). Find the game component (e.g. "sandbox") and
+            // forward its `data` to the sim worker.
+            try {
+              const components = JSON.parse(stateJson);
+              const gameKey = Object.keys(components).find(
+                (k) => components[k] && components[k].data != null && typeof components[k].data === "object",
+              );
+              if (gameKey) {
+                await simWorker.restoreFromState(JSON.stringify(components[gameKey].data));
+              }
+            } catch {
+              // If parsing fails, try forwarding the raw JSON.
+              await simWorker.restoreFromState(stateJson);
+            }
+          }
           return stateJson ? JSON.parse(stateJson) : null;
         }
         return null;

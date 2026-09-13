@@ -356,6 +356,10 @@ function spawnProp(
   // expose them and future work can pick them up without touching the contract.
   stubs?: { strength?: number; texture?: string; shader?: string },
   squishy?: boolean,
+  // Pre-computed hull vertices (body-local, already scaled). When provided
+  // (e.g. on restore from save), the hull collider is installed immediately
+  // instead of waiting for the renderer's async setPropColliderHull command.
+  prebuiltHull?: Float32Array,
 ): number {
   // entityId MUST equal slotIdx + 1 — the renderer's prop_spawned handler
   // writes nodeId to (entityId - 1) * stride + offset in the SAB, and the
@@ -372,7 +376,7 @@ function spawnProp(
   const halfExt = 0.5 * propScale;
   const radius = 0.5 * propScale;
 
-  const { body, colliderId, shape: actualShape } = createPropBody(position, rot, propShape, [halfExt, halfExt, halfExt], radius, mass, restitution, friction, gravityScale, false, slotIdx);
+  const { body, colliderId, shape: actualShape } = createPropBody(position, rot, propShape, [halfExt, halfExt, halfExt], radius, mass, restitution, friction, gravityScale, false, slotIdx, prebuiltHull);
 
   // Write to SAB
   const f32 = simWriter!.getEntityF32(slotIdx);
@@ -404,6 +408,7 @@ function spawnProp(
     mass, restitution, friction, gravityScale,
     strength: stubs?.strength, texture: stubs?.texture, shader: stubs?.shader,
     squishy: squishy === true,
+    hull: prebuiltHull,
   });
   if (squishy === true) {
     squishyPropCount++;
@@ -673,24 +678,28 @@ function processCommand(cmd: SimCommand): void {
       // source of truth for what collider is actually in use.
       const record = propRecords.get(cmd.entityId);
       if (!record || !physicsApi) break;
+      // If the prop already has a hull (e.g. restored from save), skip the
+      // async re-swap — the hull is already installed and authoritative.
+      if (record.hull && record.hull.length >= 9) {
+        // Verify the live collider is still a hull; if so, nothing to do.
+        const liveType = physicsApi.getColliderShapeType(record.body, record.colliderId);
+        if (liveType === 9) break;
+        // If the live collider isn't a hull (somehow), fall through and re-swap.
+      }
       const verts = cmd.vertices instanceof Float32Array
         ? cmd.vertices
         : new Float32Array(cmd.vertices);
       if (verts.length < 9) break; // need at least 3 points
       // Test if Rapier can build a convex hull from these vertices.
       if (!physicsApi.testConvexHull(verts)) {
-        console.log(`[Hull] entity ${cmd.entityId}: Rapier convexHull returned null — keeping placeholder ${record.shape}`);
-        // Keep the placeholder. Ensure SAB reflects the placeholder shape.
+        // Rapier can't build a convex hull from these vertices (degenerate/coplanar).
+        // Keep the placeholder; ensure SAB reflects the placeholder shape.
         const f32 = simWriter!.getEntityF32(record.slotIdx);
         f32[ENT_DATA.SHAPE + ENT.DATA] = record.shape === "sphere" ? 1 : 0;
         break;
       }
       record.hull = verts;
       const oldColliderId = record.colliderId;
-      // Diagnostic: inspect the live Rapier collider BEFORE the swap
-      const oldShapeType = physicsApi.getColliderShapeType(record.body, oldColliderId);
-      const oldCount = physicsApi.getColliderCount(record.body);
-      console.log(`[Hull] entity ${cmd.entityId}: BEFORE swap — colliderId=${oldColliderId} shapeType=${oldShapeType} (1=Cuboid,9=ConvexPolyhedron,0=Ball) colliderCount=${oldCount}`);
       physicsApi.removeCollider(record.body, oldColliderId);
       const vol = hullBBoxVolume(verts);
       const newColliderId = physicsApi.addCollider(record.body, {
@@ -700,25 +709,21 @@ function processCommand(cmd: SimCommand): void {
         density: record.mass > 0 && vol > 0 ? record.mass / vol : 1.0,
       });
       record.colliderId = newColliderId;
-      // Diagnostic: inspect the live Rapier collider AFTER the swap
+      // Verify the live Rapier collider is actually a convex polyhedron.
+      // Only write shape=2 to the SAB if Rapier installed a ConvexPolyhedron
+      // (type 9) and there's exactly one collider. If the swap failed or
+      // Rapier fell back to a ball, revert to the placeholder shape so the
+      // debug overlay shows the truth.
       const newShapeType = physicsApi.getColliderShapeType(record.body, newColliderId);
       const newCount = physicsApi.getColliderCount(record.body);
-      // Write shape=2 (hull) to the SAB — this is the single source of truth
-      // the renderer reads to decide what debug wireframe to draw.
       const f32 = simWriter!.getEntityF32(record.slotIdx);
-      // Only write shape=2 if the live Rapier collider is actually a convex polyhedron.
-      // If Rapier fell back to a ball (shapeType=0) or the swap failed, keep the
-      // placeholder shape so the debug overlay shows the truth.
       if (newShapeType === 9 && newCount === 1) {
         f32[ENT_DATA.SHAPE + ENT.DATA] = 2;
       } else {
-        // The swap failed or Rapier didn't install a convex polyhedron.
-        // Restore the placeholder shape in the SAB to match reality.
         f32[ENT_DATA.SHAPE + ENT.DATA] = record.shape === "sphere" ? 1 : 0;
-        console.warn(`[Hull] entity ${cmd.entityId}: SWAP FAILED — newShapeType=${newShapeType} (expected 9=ConvexPolyhedron) colliderCount=${newCount}. Reverting to placeholder.`);
+        console.warn(`[Hull] entity ${cmd.entityId}: swap failed (shapeType=${newShapeType}, count=${newCount}) — keeping placeholder`);
       }
       physicsApi.wakeUp(record.body);
-      console.log(`[Hull] entity ${cmd.entityId}: ${verts.length / 3} pts, oldCollider=${oldColliderId}(shape=${oldShapeType}) newCollider=${newColliderId}(shape=${newShapeType}) count=${newCount}, shape=${f32[ENT_DATA.SHAPE + ENT.DATA]}`);
       break;
     }
   }
@@ -925,6 +930,10 @@ function saveState(): string {
       friction: record.friction,
       gravityScale: record.gravityScale,
       squishy: record.squishy === true,
+      // Save the hull vertices so restore can install the hull collider
+      // immediately instead of waiting for the async setPropColliderHull
+      // round-trip through the renderer.
+      hull: record.hull ? Array.from(record.hull) : undefined,
     });
   }
   return JSON.stringify({ props, funMode: currentFunMode, pose: currentPose, playerPos: [...playerPos], version: 1 });
@@ -932,6 +941,7 @@ function saveState(): string {
 
 async function restoreState(stateJson: string): Promise<void> {
   const state = JSON.parse(stateJson);
+  if (!state || typeof state !== "object") return;
   clearProps();
   if (state.funMode !== undefined) currentFunMode = state.funMode;
   if (state.pose !== undefined) applyPose(state.pose);
@@ -959,6 +969,9 @@ async function restoreState(stateJson: string): Promise<void> {
       prop.scale,
       undefined,
       prop.squishy === true,
+      // Restore the saved hull so the convex collider is installed
+      // immediately — no async round-trip through the renderer.
+      prop.hull ? new Float32Array(prop.hull) : undefined,
     );
   }
   // Re-apply fun mode to restored props
@@ -1036,18 +1049,24 @@ expose({
   resume() { simLoop?.resume(); },
 
   async save(slotName: string, opts?: SaveOptions): Promise<{ slotName: string; stateJson: string; success: boolean }> {
-    const stateJson = saveState();
+    const rawJson = saveState();
+    const parsed = JSON.parse(rawJson);
+    // Always wrap in SaveState.components.sandbox.{ v, data } format so that
+    // both OPFS and IPC (FileSaveStore) backends store the state in the
+    // expected component format. FileSaveStore.load() expects each component
+    // to have { v, data } structure — sending the raw game state as components
+    // corrupts it (each field becomes { v: undefined, data: undefined }).
+    const saveStateObj: SaveState = {
+      components: { sandbox: { v: 1, data: parsed } },
+      meta: {
+        engineVersion: "0.1.0",
+        timestamp: Date.now() / 1000,
+        entityCount: parsed.props?.length ?? 0,
+        playerCount: 1,
+      },
+    };
+    const stateJson = JSON.stringify(saveStateObj.components);
     if (opfsStore) {
-      const parsed = JSON.parse(stateJson);
-      const saveStateObj: SaveState = {
-        components: { sandbox: { v: 1, data: parsed } },
-        meta: {
-          engineVersion: "0.1.0",
-          timestamp: Date.now() / 1000,
-          entityCount: parsed.props?.length ?? 0,
-          playerCount: 1,
-        },
-      };
       await opfsStore.save(slotName, saveStateObj, opts);
     }
     return { slotName, stateJson, success: true };
@@ -1062,6 +1081,14 @@ expose({
       }
     }
     if (!json) return false;
+    // Handle wrapped stateJson (SaveState.components format) by extracting
+    // the sandbox component data.
+    try {
+      const parsed = JSON.parse(json);
+      if (parsed?.sandbox?.data) {
+        json = JSON.stringify(parsed.sandbox.data);
+      }
+    } catch { /* not JSON, use as-is */ }
     await restoreState(json);
     return true;
   },

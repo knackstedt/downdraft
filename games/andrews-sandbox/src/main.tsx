@@ -188,7 +188,6 @@ startGame({
       // hull is in mesh-local space; scale it by the prop's spawn scale so it
       // matches the rendered mesh in the body's local frame.
       const hull = renderer.getColliderHull(data.contentId);
-      console.log(`[prop_spawned] contentId=${data.contentId} hull=${hull ? `${hull.length / 3}pts` : "null"} scale=${data.scale ?? 1.0}`);
       if (hull && hull.length >= 9) {
         const scale = data.scale ?? 1.0;
         // Always clone — the cached hull Float32Array is shared across all
