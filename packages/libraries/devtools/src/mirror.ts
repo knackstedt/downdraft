@@ -84,6 +84,10 @@ export class DevtoolsMirror {
   private unsubConsole: (() => void) | null = null;
   private unsubException: (() => void) | null = null;
   private unsubLogger: (() => void) | null = null;
+  // Buffer for logger entries received from any thread (including workers).
+  // Flushed to Rust on the main thread during update() to avoid data races
+  // with dd_devtools_update reading s.console.entries concurrently.
+  private loggerBuffer: LogSinkEntry[] = [];
 
   constructor(opts: MirrorOptions) {
     this.handle = opts.handle;
@@ -133,7 +137,22 @@ export class DevtoolsMirror {
     for (const entry of getRecentLogs()) {
       this.pushLogEntry(entry);
     }
-    this.unsubLogger = addLogSink((entry) => this.pushLogEntry(entry));
+    // Live sink buffers entries (may fire from worker threads); flushed
+    // during update() on the main thread to avoid Rust data races.
+    this.unsubLogger = addLogSink((entry) => {
+      this.loggerBuffer.push(entry);
+      if (this.loggerBuffer.length > 200) this.loggerBuffer.shift();
+    });
+  }
+
+  /** Flush buffered logger entries to Rust. Call from the main thread only. */
+  private flushLoggerBuffer(): void {
+    if (this.loggerBuffer.length === 0) return;
+    const entries = this.loggerBuffer;
+    this.loggerBuffer = [];
+    for (const entry of entries) {
+      this.pushLogEntry(entry);
+    }
   }
 
   /** Map a LogSinkEntry to a devtools console entry + push to Rust. */
@@ -486,6 +505,11 @@ export class DevtoolsMirror {
    */
   update(): void {
     if (this.disposed) return;
+
+    // Flush buffered logger entries to Rust on the main thread (the sink
+    // may fire from worker threads; pushing directly would race with
+    // dd_devtools_update reading s.console.entries).
+    this.flushLoggerBuffer();
 
     // On first update (debugger just became visible), push all data
     // immediately so panels aren't empty until the user clicks Refresh.

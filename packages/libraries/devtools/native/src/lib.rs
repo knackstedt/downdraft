@@ -59,6 +59,7 @@ impl DevtoolsState {
     fn new(width: f32, height: f32, dpr: f32) -> Self {
         let ctx = egui::Context::default();
         ctx.set_pixels_per_point(dpr);
+        configure_style(&ctx);
         Self {
             ctx,
             input: InputState::default(),
@@ -515,6 +516,65 @@ pub extern "C" fn dd_devtools_wants_text_input(handle: *mut DevtoolsState) -> i3
 // egui UI: dock layout
 // ============================================================================
 
+// ── Chrome-DevTools-inspired palette ──
+const C_BG_DOCK: egui::Color32 = egui::Color32::from_rgb(0x20, 0x21, 0x24);
+const C_BG_PANEL: egui::Color32 = egui::Color32::from_rgb(0x1a, 0x1b, 0x1e);
+const C_BG_HEADER: egui::Color32 = egui::Color32::from_rgb(0x28, 0x29, 0x2c);
+const C_BG_HOVER: egui::Color32 = egui::Color32::from_rgba_premultiplied(255, 255, 255, 14);
+const C_BG_ACTIVE: egui::Color32 = egui::Color32::from_rgb(0x2a, 0x2c, 0x31);
+const C_BORDER: egui::Color32 = egui::Color32::from_rgb(0x3c, 0x40, 0x43);
+const C_ACCENT: egui::Color32 = egui::Color32::from_rgb(0x8a, 0xb4, 0xf8);
+const C_TEXT: egui::Color32 = egui::Color32::from_rgb(0xe8, 0xea, 0xed);
+const C_TEXT_DIM: egui::Color32 = egui::Color32::from_rgb(0x9a, 0xa0, 0xa6);
+const C_TEXT_FAINT: egui::Color32 = egui::Color32::from_rgb(0x5f, 0x63, 0x68);
+
+/// Configure the egui Context with a tuned dark theme + spacing so the
+/// devtools overlay matches a modern debugger aesthetic rather than egui's
+/// default grey-blue look. Idempotent; called once at init.
+fn configure_style(ctx: &egui::Context) {
+    let mut v = egui::Visuals::dark();
+    v.panel_fill = C_BG_DOCK;
+    v.extreme_bg_color = C_BG_PANEL;
+    v.faint_bg_color = egui::Color32::from_rgb(0x1c, 0x1e, 0x22);
+    v.hyperlink_color = C_ACCENT;
+    v.selection.bg_fill = egui::Color32::from_rgba_premultiplied(0x8a, 0xb4, 0xf8, 60);
+    v.selection.stroke = egui::Stroke::new(1.0, C_ACCENT);
+    // Widget palette — tune the noninteractive + button colors.
+    v.widgets.noninteractive.bg_fill = C_BG_DOCK;
+    v.widgets.noninteractive.weak_bg_fill = egui::Color32::TRANSPARENT;
+    v.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, C_TEXT_DIM);
+    v.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, C_BORDER);
+    v.widgets.noninteractive.corner_radius = egui::CornerRadius::same(3);
+    v.widgets.inactive.bg_fill = egui::Color32::from_rgb(0x2a, 0x2c, 0x31);
+    v.widgets.inactive.weak_bg_fill = egui::Color32::from_rgb(0x2a, 0x2c, 0x31);
+    v.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, C_TEXT);
+    v.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, C_BORDER);
+    v.widgets.inactive.corner_radius = egui::CornerRadius::same(3);
+    v.widgets.hovered.bg_fill = egui::Color32::from_rgb(0x35, 0x37, 0x3c);
+    v.widgets.hovered.weak_bg_fill = egui::Color32::from_rgb(0x35, 0x37, 0x3c);
+    v.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, C_TEXT);
+    v.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, C_BORDER);
+    v.widgets.hovered.corner_radius = egui::CornerRadius::same(3);
+    v.widgets.active.bg_fill = C_BG_ACTIVE;
+    v.widgets.active.weak_bg_fill = C_BG_ACTIVE;
+    v.widgets.active.fg_stroke = egui::Stroke::new(1.0, C_TEXT);
+    v.widgets.active.bg_stroke = egui::Stroke::new(1.0, C_ACCENT);
+    v.widgets.active.corner_radius = egui::CornerRadius::same(3);
+    v.widgets.open.bg_fill = C_BG_ACTIVE;
+    v.widgets.open.weak_bg_fill = C_BG_ACTIVE;
+    ctx.set_visuals(v);
+
+    let mut style = (*ctx.style()).clone();
+    style.spacing.item_spacing = egui::vec2(6.0, 4.0);
+    style.spacing.button_padding = egui::vec2(8.0, 3.0);
+    style.spacing.window_margin = egui::Margin::same(6);
+    style.spacing.scroll.bar_width = 10.0;
+    style.spacing.scroll.bar_inner_margin = 2.0;
+    // Slightly larger, crisper text.
+    style.override_text_style = Some(egui::TextStyle::Body);
+    ctx.set_style(style);
+}
+
 fn build_dock_ui(state: &mut DevtoolsState, ctx: &egui::Context) {
     // Backdrop over the game area (left of the dock). The egui texture is
     // alpha-composited over the frame, so this dims the game.
@@ -535,48 +595,140 @@ fn build_dock_ui(state: &mut DevtoolsState, ctx: &egui::Context) {
         .default_width(560.0)
         .frame(
             egui::Frame::group(&ctx.style())
-                .fill(egui::Color32::from_rgb(24, 24, 32))
-                .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(60, 60, 72)))
-                .inner_margin(6.0),
+                .fill(C_BG_DOCK)
+                .stroke(egui::Stroke::new(1.0, C_BORDER))
+                .inner_margin(egui::Margin::same(6)),
         )
         .show(ctx, |ui| {
-            // Tab bar with its own background.
-            ui.horizontal(|ui| {
-                for panel in PanelId::ALL {
-                    let active = state.active_panel == panel;
-                    let label = egui::RichText::new(panel.label()).color(if active {
-                        egui::Color32::WHITE
-                    } else {
-                        egui::Color32::from_gray(160)
-                    });
-                    let btn = egui::Button::new(label)
-                        .selected(active)
-                        .fill(if active {
-                            egui::Color32::from_rgb(50, 50, 70)
-                        } else {
-                            egui::Color32::from_rgb(30, 30, 40)
-                        })
-                        .stroke(egui::Stroke::NONE);
-                    if ui.add(btn).clicked() {
-                        state.active_panel = panel;
-                    }
-                }
-            });
-            ui.separator();
-            // Panel content area — fill the entire remaining dock area with a
-            // dark background so switching tabs never shows the game through.
-            let content_rect = ui.max_rect();
-            ui.painter().rect_filled(
-                content_rect,
-                0.0,
-                egui::Color32::from_rgb(20, 20, 28),
+            // ── Tab bar ──
+            render_tab_bar(state, ui);
+            // Separator under the tab bar (full dock width).
+            ui.painter().line_segment(
+                [
+                    egui::pos2(ui.min_rect().left(), ui.min_rect().bottom()),
+                    egui::pos2(ui.max_rect().right(), ui.min_rect().bottom()),
+                ],
+                egui::Stroke::new(1.0, C_BORDER),
             );
+            ui.add_space(2.0);
+
+            // Panel content area — fill the remaining dock area with a dark
+            // background so switching tabs never shows the game through.
+            let content_rect = ui.max_rect();
+            ui.painter().rect_filled(content_rect, 0.0, C_BG_PANEL);
+
+            // Reserve a status bar at the bottom; render the panel in the rest.
+            let status_h = 18.0;
+            let avail = ui.available_size();
+            let content_h = (avail.y - status_h - 6.0).max(64.0);
             egui::Frame::none()
-                .inner_margin(4.0)
+                .inner_margin(egui::Margin::same(4))
                 .show(ui, |ui| {
-                    panels::render_panel(state, ui);
+                    ui.allocate_ui(egui::vec2(avail.x, content_h), |ui| {
+                        panels::render_panel(state, ui);
+                    });
                 });
+
+            // ── Status bar ──
+            render_status_bar(state, ui);
         });
+}
+
+/// Chrome-DevTools-style tab bar: flat tabs with an accent underline on the
+/// active tab and a subtle hover background.
+fn render_tab_bar(state: &mut DevtoolsState, ui: &mut egui::Ui) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 1.0;
+        for panel in PanelId::ALL {
+            let active = state.active_panel == panel;
+            let label_color = if active { C_TEXT } else { C_TEXT_DIM };
+            let mut label = egui::RichText::new(panel.label()).color(label_color);
+            if active {
+                label = label.strong();
+            }
+            let btn = egui::Button::new(label)
+                .min_size(egui::vec2(74.0, 26.0))
+                .fill(if active {
+                    C_BG_ACTIVE
+                } else {
+                    egui::Color32::TRANSPARENT
+                })
+                .stroke(egui::Stroke::NONE);
+            let resp = ui.add(btn);
+            if active {
+                // Accent underline along the bottom of the active tab.
+                let r = resp.rect;
+                ui.painter().line_segment(
+                    [
+                        egui::pos2(r.left() + 6.0, r.bottom() - 1.0),
+                        egui::pos2(r.right() - 6.0, r.bottom() - 1.0),
+                    ],
+                    egui::Stroke::new(2.0, C_ACCENT),
+                );
+            } else if resp.hovered() {
+                ui.painter()
+                    .rect_filled(resp.rect, egui::CornerRadius::same(3), C_BG_HOVER);
+            }
+            if resp.clicked() {
+                state.active_panel = panel;
+            }
+        }
+    });
+}
+
+/// Bottom status bar: shows live counters (FPS, console entries, threads,
+/// recording state) like Chrome DevTools' footer.
+fn render_status_bar(state: &DevtoolsState, ui: &mut egui::Ui) {
+    let rect = ui.max_rect();
+    let bar = egui::Rect::from_min_size(
+        egui::pos2(rect.left(), rect.bottom() - 18.0),
+        egui::vec2(rect.width(), 18.0),
+    );
+    ui.painter().rect_filled(bar, 0.0, C_BG_HEADER);
+    ui.painter().line_segment(
+        [bar.left_top(), bar.right_top()],
+        egui::Stroke::new(1.0, C_BORDER),
+    );
+    ui.allocate_ui_at_rect(bar, |ui| {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 10.0;
+            ui.add_space(6.0);
+            // FPS from the most recent GPU frame-time sample.
+            let fps = state
+                .gpu_info
+                .frame_times
+                .last()
+                .map(|[cpu, _]| if *cpu > 0.0 { 1000.0 / cpu } else { 0.0 })
+                .unwrap_or(0.0);
+            status_chip(ui, &format!("{:.0} fps", fps), C_ACCENT);
+            status_label(ui, &format!("{} logs", state.console.entries.len()));
+            status_label(
+                ui,
+                &format!("{} threads", state.console.threads.len().max(1)),
+            );
+            if state.perf_recording {
+                status_chip(ui, "● REC", egui::Color32::from_rgb(0xf2, 0x80, 0x80));
+            }
+            // Right-aligned active panel name.
+            let panel_name = state.active_panel.label();
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_space(6.0);
+                ui.label(
+                    egui::RichText::new(panel_name)
+                        .color(C_TEXT_FAINT)
+                        .small(),
+                );
+            });
+        });
+    });
+}
+
+fn status_label(ui: &mut egui::Ui, text: &str) {
+    ui.label(egui::RichText::new(text).color(C_TEXT_DIM).small());
+}
+
+fn status_chip(ui: &mut egui::Ui, text: &str, color: egui::Color32) {
+    ui.label(egui::RichText::new(text).color(color).small().strong());
 }
 
 // ============================================================================

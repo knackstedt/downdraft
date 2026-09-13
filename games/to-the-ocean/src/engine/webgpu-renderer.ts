@@ -156,7 +156,7 @@ export class WebGPURenderer extends GameRenderer implements IRendererStateProvid
   /** Native debugger overlay (second NativePixiUiHost composited above the game UI).
    *  Toggled by F12. When visible, the renderer blits the debug overlay after
    *  the game UI blit. See @downdraft/library-devtools NativeDebuggerHost. */
-  public nativeDebugger: { visible: boolean; update(): void; getUiTextureView(): GPUTextureView | null; blit(enc: GPUCommandEncoder, target: GPUTextureView): void } | null = null;
+  public nativeDebugger: { visible: boolean; update(encoder?: GPUCommandEncoder): void; getUiTextureView(): GPUTextureView | null; blit(enc: GPUCommandEncoder, target: GPUTextureView): void } | null = null;
   /** Callback invoked during drawFrame() to encode a screenshot copy before submit. */
   public screenshotCallback: ((encoder: GPUCommandEncoder) => void) | null = null;
   private rafHandle = 0;
