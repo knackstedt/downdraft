@@ -112,7 +112,10 @@ export type SimEventMap<C extends GameContext = GameContext> = Record<string, (d
 
 /** Save configuration. If omitted, no autosave is wired. */
 export interface GameSaveConfig {
-  /** Save mode. Default: "auto" (OPFS worker → IPC fallback). */
+  /** Save mode. Default: "ipc" in Electron (disk, stable), "auto" in browser.
+   *  Games should pin an explicit mode rather than relying on "auto" — "auto"
+   *  picks OPFS-vs-IPC per session via a 5s timeout, and the two backends never
+   *  reconcile, which can produce two divergent autosaves. */
   mode?: SaveStoreMode;
   /** Engine version string for save slots. */
   engineVersion: string;
@@ -160,6 +163,21 @@ export interface GameContext<Sim extends GameSimWorker = GameSimWorker> {
   saveStore: ISaveStore | null;
   /** The save mode that was actually selected (may differ from config in fallback). */
   saveMode: "inline" | "worker" | "ipc";
+  /**
+   * Mode-aware save: persists the current state to the selected backend
+   * (inline OPFS / worker OPFS / IPC disk). Games should call this for manual
+   * saves instead of `sim.save()` directly — `sim.save()` only writes in
+   * inline mode and silently drops the save in IPC mode.
+   * Returns true if the save succeeded. Undefined when no save config was declared.
+   */
+  save?: (slotName: string) => Promise<boolean>;
+  /**
+   * Mode-aware load: restores state from the selected backend. Games should
+   * call this for manual loads instead of `sim.load()` directly.
+   * Returns the loaded state (shape depends on the save source), or null if
+   * no save exists. Undefined when no save config was declared.
+   */
+  load?: (slotName: string) => Promise<unknown | null>;
   /** The renderer-side save source, if `module.saveSource` was declared.
    *  Used by the autosave wiring for renderer-only games. Undefined for
    *  sim-worker games (which use `sim.save()` instead). */
@@ -472,13 +490,17 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
   //    after the sim worker has started.
   if (module.save && !deterministic) {
     try {
-      const saveMode = module.save.mode ?? "auto";
+      // Default to "ipc" (disk) in Electron — stable across sessions and not
+      // origin-scoped. Fall back to "auto" (OPFS) only in a pure browser where
+      // there is no IPC bridge. Games should pin an explicit mode to avoid the
+      // per-session OPFS-vs-IPC flip that "auto" produces.
+      const saveMode = module.save.mode ?? (downdraft.isAvailable ? "ipc" : "auto");
       if (saveMode === "auto" && simWorker?.initSaveStore && isOpfsAvailable()) {
         // Inline mode — defer init to onRendererInit (after sim worker starts).
         ctx.saveMode = "inline";
         ctx.saveStore = null;
       } else {
-        const store = await createSaveStore({
+        const { store, mode: resolvedMode } = await createSaveStore({
           mode: saveMode,
           opfsOptions: {
             engineVersion: module.save.engineVersion,
@@ -487,12 +509,75 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
           bridge: downdraft,
         });
         ctx.saveStore = store;
-        ctx.saveMode = store ? (saveMode === "auto" ? "worker" : saveMode) : "ipc";
+        // Use the backend that createSaveStore actually resolved (fixes the
+        // previous mislabel where an IPC fallback in "auto" was tagged "worker").
+        // When store is non-null, resolvedMode is "worker" or "ipc" (inline
+        // returns a null store); narrow to the ctx.saveMode union accordingly.
+        ctx.saveMode = store ? (resolvedMode === "worker" ? "worker" : "ipc") : "ipc";
       }
     } catch (e) {
       console.warn("[startGame] Save store init failed, falling back to IPC:", e);
       ctx.saveMode = "ipc";
     }
+  }
+
+  // 6b. Mode-aware save/load helpers — exposed on ctx so games can trigger manual
+  //     saves/loads that work regardless of the selected backend. This is the
+  //     same logic the autosave interval uses below. Games MUST use ctx.save /
+  //     ctx.load instead of sim.save / sim.load directly: sim.save only writes
+  //     in inline mode (it has its own OPFS store) and silently drops the save
+  //     in IPC mode (it returns stateJson but nothing forwards it to disk).
+  if (module.save && !deterministic) {
+    ctx.save = async (slotName: string): Promise<boolean> => {
+      try {
+        // Renderer-side save source takes priority (renderer-only games);
+        // otherwise fall back to the sim worker's save() (sim-worker games).
+        const result = ctx.saveSource
+          ? await ctx.saveSource.save(slotName)
+          : simWorker?.save
+            ? await simWorker.save(slotName)
+            : null;
+        // In inline mode, the sim worker's save() already persisted to its own
+        // OPFS store — nothing more to do. In IPC mode, forward the state JSON
+        // to the main process so it lands on disk.
+        if (result?.stateJson && ctx.saveMode === "ipc" && downdraft?.saveGameState) {
+          await downdraft.saveGameState(slotName, result.stateJson);
+        }
+        return result?.success ?? false;
+      } catch (e) {
+        console.error("[startGame] Manual save failed:", e);
+        return false;
+      }
+    };
+
+    ctx.load = async (slotName: string): Promise<unknown | null> => {
+      try {
+        // Renderer-side save source load (renderer-only games)
+        if (ctx.saveSource?.load) {
+          const stateJson = await ctx.saveSource.load(slotName);
+          return stateJson ? JSON.parse(stateJson) : null;
+        }
+        // Inline mode: sim worker loads directly from its own OPFS store.
+        // The sim worker's load() restores state internally; we just need a
+        // truthy return value so any onLoad hook fires.
+        if (ctx.saveMode === "inline" && simWorker?.load) {
+          const success = await simWorker.load(slotName);
+          return success ? { restored: true } : null;
+        }
+        if (ctx.saveStore) {
+          const result = await ctx.saveStore.load(slotName);
+          return result?.state ?? null;
+        }
+        if (downdraft?.loadGameState) {
+          const stateJson = await downdraft.loadGameState(slotName);
+          return stateJson ? JSON.parse(stateJson) : null;
+        }
+        return null;
+      } catch (e) {
+        console.error("[startGame] Manual load failed:", e);
+        return null;
+      }
+    };
   }
 
   // 7. Delegate to bootstrapGame() for the standard sequence
@@ -594,45 +679,15 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
 
     autosave: module.save && !deterministic
       ? {
+          // Reuse the mode-aware ctx.save / ctx.load helpers so the autosave
+          // interval and manual saves share one code path.
           load: async () => {
             const slotName = module.save!.slotName ?? "autosave";
-            // Renderer-side save source load (renderer-only games)
-            if (ctx.saveSource?.load) {
-              const stateJson = await ctx.saveSource.load(slotName);
-              return stateJson ? JSON.parse(stateJson) : null;
-            }
-            // Inline mode: sim worker loads directly from its own OPFS store.
-            // The sim worker's load() restores state internally; we just need
-            // a truthy return value so onLoad (if any) fires.
-            if (ctx.saveMode === "inline" && simWorker?.load) {
-              const success = await simWorker.load(slotName);
-              return success ? { restored: true } : null;
-            }
-            if (ctx.saveStore) {
-              const result = await ctx.saveStore.load(slotName);
-              return result?.state ?? null;
-            }
-            if (downdraft?.loadGameState) {
-              const stateJson = await downdraft.loadGameState(slotName);
-              return stateJson ? JSON.parse(stateJson) : null;
-            }
-            return null;
+            return ctx.load!(slotName);
           },
           save: async () => {
             const slotName = module.save!.slotName ?? "autosave";
-            // Renderer-side save source takes priority (renderer-only games);
-            // otherwise fall back to the sim worker's save() (sim-worker games).
-            const result = ctx.saveSource
-              ? await ctx.saveSource.save(slotName)
-              : simWorker?.save
-                ? await simWorker.save(slotName)
-                : null;
-            // In inline mode, the sim worker's save() already persisted to
-            // its own OPFS store — nothing more to do here.
-            // In IPC mode, forward the state JSON to the main process.
-            if (result?.stateJson && ctx.saveMode === "ipc" && downdraft?.saveGameState) {
-              await downdraft.saveGameState(slotName, result.stateJson);
-            }
+            await ctx.save!(slotName);
           },
           intervalMs: module.save?.intervalMs,
         }

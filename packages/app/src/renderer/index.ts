@@ -108,17 +108,25 @@ export { useDeterministicRenderPause, useDisplayInfo, useFpsPolling, useHotReloa
 
 // Save store factory + IPC fallback
 export { IpcSaveStore, type SaveBridge } from "./ipc-save-store";
-export { createInlineSaveStore, createSaveStore, type CreateSaveStoreOptions, type SaveStoreMode } from "./save-store-factory";
+export { createInlineSaveStore, createSaveStore, type CreateSaveStoreOptions, type CreateSaveStoreResult, type SaveStoreMode } from "./save-store-factory";
 
 /**
- * Create the default ISaveStore for a game: tries createSaveStore in "auto"
- * mode (OPFS worker → IPC fallback), then falls back to an inline OpfsSaveStore
- * if createSaveStore returns null (inline mode). This is the standard store
- * creation pattern shared by all grid games.
+ * Create the default ISaveStore for a game.
+ *
+ * In Electron (the `downdraft` bridge is available), defaults to "ipc" mode —
+ * the main-process FileSaveStore on disk. This is stable across sessions and
+ * not origin-scoped, so the same autosave is always found.
+ *
+ * In a pure browser (no bridge), falls back to "auto" (OPFS worker → inline
+ * OPFS), since there is no IPC path available.
+ *
+ * Games that want a specific backend should call `createSaveStore` directly
+ * with an explicit `mode` rather than relying on this default.
  */
 export async function createDefaultSaveStore(engineVersion: string): Promise<import("@downdraft/core").ISaveStore> {
-  const store = await _createSaveStore({
-    mode: "auto",
+  const mode = downdraft.isAvailable ? "ipc" : "auto";
+  const { store } = await _createSaveStore({
+    mode,
     opfsOptions: { engineVersion },
     bridge: downdraft,
   });
