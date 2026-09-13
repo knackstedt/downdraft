@@ -96,6 +96,7 @@ pub fn render(state: &mut DevtoolsState, ui: &mut egui::Ui) {
     egui::ScrollArea::vertical()
         .max_height(log_h)
         .auto_shrink([false, false])
+        .stick_to_bottom(true)
         .show(ui, |ui| {
                     // Header row
                     ui.horizontal(|ui| {

@@ -614,7 +614,7 @@ fn build_dock_ui(state: &mut DevtoolsState, ctx: &egui::Context) {
 
             // Panel content area — fill the remaining dock area with a dark
             // background so switching tabs never shows the game through.
-            let content_rect = ui.max_rect();
+            let content_rect = ui.available_rect_before_wrap();
             ui.painter().rect_filled(content_rect, 0.0, C_BG_PANEL);
 
             // Reserve a status bar at the bottom; render the panel in the rest.
