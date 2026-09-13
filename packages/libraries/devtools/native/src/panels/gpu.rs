@@ -19,12 +19,12 @@ pub fn render(state: &mut DevtoolsState, ui: &mut egui::Ui) {
     // ── Frame-time graph ──
     let ft = &state.gpu_info.frame_times;
     if ft.len() >= 2 {
-        ui.label(egui::RichText::new("Frame time (ms)").strong());
+        ui.label(egui::RichText::new("Frame time (ms)").strong().color(egui::Color32::from_gray(200)));
         let (resp, painter) =
-            ui.allocate_painter(ui.available_size_before_wrap(), egui::Sense::hover());
+            ui.allocate_painter(egui::vec2(ui.available_width(), 80.0), egui::Sense::hover());
         let rect = resp.rect;
         let painter = &painter;
-        painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(10, 10, 22));
+        painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(14, 14, 28));
 
         let max_ms = ft
             .iter()
@@ -57,11 +57,13 @@ pub fn render(state: &mut DevtoolsState, ui: &mut egui::Ui) {
             }
             prev = Some(p);
         }
-        ui.label(
-            egui::RichText::new(format!("max {:.1} ms  |  blue=CPU  orange=GPU", max_ms))
-                
-                .color(egui::Color32::from_gray(140)),
-        );
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new(format!("max {:.1} ms", max_ms)).color(egui::Color32::from_gray(140)).monospace());
+            ui.add_space(8.0);
+            ui.label(egui::RichText::new("CPU").color(egui::Color32::from_rgb(120, 200, 255)).monospace());
+            ui.add_space(8.0);
+            ui.label(egui::RichText::new("GPU").color(egui::Color32::from_rgb(255, 180, 80)).monospace());
+        });
         ui.separator();
     }
 
@@ -69,27 +71,31 @@ pub fn render(state: &mut DevtoolsState, ui: &mut egui::Ui) {
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            egui::Grid::new("gpu_kv_grid")
-                .num_columns(2)
-                .spacing([16.0, 3.0])
-                .striped(true)
-                .show(ui, |ui| {
-                    for e in &state.gpu_info.entries {
-                        if e.is_header {
-                            ui.end_row();
-                            ui.label(
-                                egui::RichText::new(&e.key)
-                                    .strong()
-                                    .color(egui::Color32::from_rgb(80, 230, 120)),
-                            );
-                            ui.end_row();
-                        } else {
-                            ui.label(egui::RichText::new(&e.key).color(egui::Color32::from_gray(150)));
-                            ui.label(egui::RichText::new(&e.value).color(egui::Color32::from_gray(220)));
-                            ui.end_row();
-                        }
+            let stripe = egui::Color32::from_rgba_premultiplied(255, 255, 255, 6);
+            for (idx, e) in state.gpu_info.entries.iter().enumerate() {
+                if e.is_header {
+                    ui.label(
+                        egui::RichText::new(&e.key)
+                            .strong()
+                            .color(egui::Color32::from_rgb(80, 230, 120)),
+                    );
+                } else {
+                    if idx % 2 == 1 {
+                        let rect = ui.available_rect_before_wrap();
+                        ui.painter().rect_filled(
+                            egui::Rect::from_min_size(rect.min, egui::vec2(rect.width(), 16.0)),
+                            0.0,
+                            stripe,
+                        );
                     }
-                });
+                    ui.horizontal(|ui| {
+                        ui.add_space(4.0);
+                        ui.label(egui::RichText::new(&e.key).color(egui::Color32::from_gray(150)).monospace());
+                        ui.add_space(16.0);
+                        ui.label(egui::RichText::new(&e.value).color(egui::Color32::from_gray(220)).monospace());
+                    });
+                }
+            }
         });
 
     let _ = PanelId::Gpu;
