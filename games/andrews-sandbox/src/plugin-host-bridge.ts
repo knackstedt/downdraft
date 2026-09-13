@@ -29,18 +29,22 @@ export function createContentRegistryAssetBridge(
     return parts[parts.length - 1].replace(/\.[^.]+$/, "");
   };
   return {
-    async registerMesh(id, path, manifestId) {
+    async registerMesh(id, path, manifestId, meta) {
       const baseUrl = getBaseUrl(manifestId);
+      const name = (meta?.name as string) ?? deriveName(path);
+      const scale = (meta?.scale as number) ?? 1.0;
+      const shape = (meta?.shape as string) ?? "box";
+      const physics = (meta?.physics as any) ?? { mass: 1.0, restitution: 0.3, friction: 0.5, gravityScale: 1.0 };
       contentRegistry.register({
         id,
-        name: deriveName(path),
+        name,
         category: "prop",
-        modelUri: `${baseUrl}/${path}`,
+        modelUri: path ? `${baseUrl}/${path}` : "",
         pluginSource: manifestId,
         pack: manifestId,
         packLabel: manifestId,
-        physics: { mass: 1.0, restitution: 0.3, friction: 0.5, gravityScale: 1.0 },
-        scale: 1.0,
+        physics,
+        scale,
         paintable: true,
       });
     },
@@ -109,6 +113,10 @@ export function createShaderBridge(
       const cleanPath = wgslPath.replace(/^\.\//, "");
       const fullUrl = baseUrl ? `${baseUrl}/${cleanPath}` : cleanPath;
       const resp = await fetch(fullUrl);
+      if (!resp.ok) {
+        console.error(`[PluginHost] Failed to fetch shader "${id}" from ${fullUrl}: ${resp.status} ${resp.statusText}`);
+        return;
+      }
       const wgsl = await resp.text();
       postProcessStack.registerCustomEffect({
         id, name, wgsl, layout: "cc",
@@ -120,10 +128,9 @@ export function createShaderBridge(
       const settings = (props as any).settings as Array<{ key: string; default: number | boolean | string; type: string }> | undefined;
       if (settings && props.uniforms) {
         const uniformData = new Float32Array(props.uniforms / 4);
-        let offset = 0;
-        // First two floats are always inv_w, inv_h (set per-frame by the renderer).
-        // User settings start at offset 2.
-        offset = 2;
+        // Per-frame values (inv_w, inv_h, time) are at offsets 0-2 (set by renderer).
+        // User settings start at offset 3.
+        let offset = 3;
         for (const s of settings) {
           if (s.type === "slider" && typeof s.default === "number") {
             if (offset < uniformData.length) uniformData[offset++] = s.default;

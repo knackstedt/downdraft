@@ -226,7 +226,9 @@ startGame({
   },
 
   save: {
-    mode: "auto",
+    // Pin to IPC (disk via Electron main process) so the autosave is stable
+    // across sessions and not split across OPFS (origin-scoped) vs disk.
+    mode: "ipc",
     engineVersion: ENGINE_VERSION,
     maxGenerations: 3,
   },
@@ -360,6 +362,7 @@ startGame({
     (globalThis as any).dd = {
       mods: pluginHost?.snapshot() ?? [],
       materialRegistry,
+      pluginHost,
     };
 
     // ── Drag-drop importer ──
@@ -520,10 +523,10 @@ startGame({
           sendSpawnCountsToWorker();
           break;
         case "saveGame":
-          sim.save("autosave");
+          ctx.save!("autosave");
           break;
         case "loadGame":
-          sim.load("autosave");
+          ctx.load!("autosave");
           break;
         case "setPaintColor":
           s.setPaintColor(a.color);
@@ -734,8 +737,8 @@ startGame({
           useGameStore.getState().toggleContentBrowser();
           break;
         case "KeyP": toggleDomPanel(ctx, "palette"); break;
-        case "F5": e.preventDefault(); sim.save("autosave"); break;
-        case "F9": e.preventDefault(); sim.load("autosave"); break;
+        case "F5": e.preventDefault(); ctx.save!("autosave"); break;
+        case "F9": e.preventDefault(); ctx.load!("autosave"); break;
         case "Digit1": weaponController.setTool(ToolType.Physgun); s.setActiveTool(ToolType.Physgun); (ctx as any)._domHud?.updateToolBtns?.(); break;
         case "Digit2": weaponController.setTool(ToolType.Toolgun); s.setActiveTool(ToolType.Toolgun); (ctx as any)._domHud?.updateToolBtns?.(); break;
         case "Digit3": weaponController.setTool(ToolType.Pistol); s.setActiveTool(ToolType.Pistol); (ctx as any)._domHud?.updateToolBtns?.(); break;
@@ -1204,12 +1207,12 @@ function buildDomHud(
         {
           label: "Save Game",
           desc: "Save current state to autosave slot",
-          action: () => { sim.save("autosave"); flashStatus("Game saved"); },
+          action: () => { ctx.save!("autosave").then((ok: boolean) => flashStatus(ok ? "Game saved" : "Save failed")); },
         },
         {
           label: "Load Game",
           desc: "Load from autosave slot",
-          action: () => { sim.load("autosave"); flashStatus("Game loaded"); },
+          action: () => { ctx.load!("autosave").then((st: unknown) => flashStatus(st ? "Game loaded" : "No save found")); },
         },
         {
           label: "Clear All Props",
@@ -1438,13 +1441,15 @@ function buildDomHud(
   }
 
   // ── Mods panel ──
-  // Lists each loaded mod with an enable/disable switch and a settings UI
-  // for mod-defined postfx effects (sliders, toggles, selects).
+  // Lists each loaded mod as a collapsible section with an enable/disable
+  // switch and a settings UI for mod-defined postfx effects (sliders,
+  // toggles, selects). Settings are hidden when the effect is disabled.
   function buildModsPanel(parent: HTMLElement) {
     const r = ctx.renderer as WebGPURenderer;
     const stack = r.getPostProcessStack();
     const dd = (globalThis as any).dd;
     const mods = dd?.mods as Array<{ id: string; name?: string; status: string }> | undefined;
+    const pluginHost = dd?.pluginHost as any;
     console.log("[ModsPanel] dd:", !!dd, "mods:", mods?.length ?? 0, mods?.map((m) => ({ id: m.id, status: m.status })));
 
     if (!mods || mods.length === 0) {
@@ -1456,50 +1461,133 @@ function buildDomHud(
     }
 
     for (const mod of mods) {
-      // Mod header
+      // Find custom postfx effects for this mod (if any).
+      const customEffects = stack
+        ? stack.getCustomEffects().filter((e: any) => e.id.startsWith(`${mod.id}:`))
+        : [];
+      const hasEffects = customEffects.length > 0;
+      const isLoaded = mod.status === "active";
+
+      // Mod container (collapsible).
       const modDiv = document.createElement("div");
       modDiv.className = "sandbox-esc-mod";
+
+      // Mod header: [arrow] [name] ........ [status] [toggle]
       const modHeader = document.createElement("div");
-      modHeader.className = "sandbox-esc-mod-header";
+      modHeader.className = "sandbox-esc-mod-header" + (hasEffects ? " sandbox-esc-mod-collapsible" : "");
+
+      // Left side: arrow + name.
+      const modLeft = document.createElement("div");
+      modLeft.className = "sandbox-esc-mod-left";
+      let arrow: HTMLElement | null = null;
+      if (hasEffects) {
+        arrow = document.createElement("div");
+        arrow.className = "sandbox-esc-mod-arrow";
+        arrow.textContent = "\u25B6";
+        modLeft.appendChild(arrow);
+      }
       const modName = document.createElement("div");
       modName.className = "sandbox-esc-mod-name";
       modName.textContent = mod.name ?? mod.id;
-      modHeader.appendChild(modName);
+      modLeft.appendChild(modName);
+      modHeader.appendChild(modLeft);
+
+      // Right side: status + toggle.
+      const modRight = document.createElement("div");
+      modRight.className = "sandbox-esc-mod-right";
       const modStatus = document.createElement("div");
       modStatus.className = "sandbox-esc-mod-status";
       modStatus.textContent = mod.status;
-      modStatus.style.opacity = "0.5";
-      modHeader.appendChild(modStatus);
+      modRight.appendChild(modStatus);
+      const modToggle = document.createElement("div");
+      // For shader mods: ON means at least one effect is enabled.
+      // For asset mods: ON means the mod is loaded.
+      let modIsOn = hasEffects
+        ? customEffects.some((e: any) => e.enabled)
+        : isLoaded;
+      modToggle.className = "sandbox-esc-toggle" + (modIsOn ? " on" : "");
+      modToggle.textContent = modIsOn ? "ON" : "OFF";
+      modToggle.onclick = async (e) => {
+        e.stopPropagation();
+        if (!pluginHost) return;
+        modIsOn = !modIsOn;
+        if (hasEffects && stack) {
+          // Shader mod: enable/disable all its effects.
+          for (const eff of customEffects) {
+            stack.setCustomEffectEnabled(eff.id, modIsOn);
+          }
+        } else {
+          // Asset mod: load/unload the mod.
+          if (modIsOn) {
+            await pluginHost.reload(mod.id);
+          } else {
+            pluginHost.unload(mod.id);
+          }
+        }
+        // Refresh snapshot + rebuild entire panel.
+        dd.mods = pluginHost.snapshot();
+        parent.innerHTML = "";
+        buildModsPanel(parent);
+      };
+      modRight.appendChild(modToggle);
+      modHeader.appendChild(modRight);
+
+      // Expand/collapse (only if the mod has effects and is loaded).
+      let collapsed = true;
+      let body: HTMLElement | null = null;
+      if (hasEffects) {
+        body = document.createElement("div");
+        body.className = "sandbox-esc-mod-body";
+        body.style.display = "none";
+        modHeader.onclick = () => {
+          collapsed = !collapsed;
+          if (body) body.style.display = collapsed ? "none" : "block";
+          if (arrow) arrow.textContent = collapsed ? "\u25B6" : "\u25BC";
+        };
+      }
       modDiv.appendChild(modHeader);
 
-      // Find custom postfx effects for this mod
-      if (stack) {
-        const customEffects = stack.getCustomEffects().filter((e) => e.id.startsWith(`${mod.id}:`));
+      // Effect list (inside collapsible body).
+      if (body && stack) {
         for (const effect of customEffects) {
           const effectDiv = document.createElement("div");
           effectDiv.className = "sandbox-esc-mod-effect";
 
-          // Effect enable/disable toggle
+          // Effect enable/disable toggle row.
           const effectRow = document.createElement("div");
           effectRow.className = "sandbox-esc-gfx-row";
           const effectLabel = document.createElement("div");
           effectLabel.className = "sandbox-esc-gfx-label";
-          effectLabel.textContent = `  ${effect.name}`;
+          effectLabel.textContent = effect.name;
           effectRow.appendChild(effectLabel);
           const toggle = document.createElement("div");
           let isOn = effect.enabled;
           toggle.className = "sandbox-esc-toggle" + (isOn ? " on" : "");
           toggle.textContent = isOn ? "ON" : "OFF";
+
+          // Settings container — hidden when effect is off.
+          const settingsDiv = document.createElement("div");
+          settingsDiv.className = "sandbox-esc-mod-settings";
+          settingsDiv.style.display = isOn ? "block" : "none";
+
           toggle.onclick = () => {
             isOn = !isOn;
             stack.setCustomEffectEnabled(effect.id, isOn);
             toggle.className = "sandbox-esc-toggle" + (isOn ? " on" : "");
             toggle.textContent = isOn ? "ON" : "OFF";
+            settingsDiv.style.display = isOn ? "block" : "none";
+            // Update mod-level toggle to reflect whether any effect is on.
+            const anyOn = customEffects.some((e: any) => {
+              if (e.id === effect.id) return isOn;
+              return stack.isCustomEffectEnabled(e.id);
+            });
+            modToggle.className = "sandbox-esc-toggle" + (anyOn ? " on" : "");
+            modToggle.textContent = anyOn ? "ON" : "OFF";
           };
           effectRow.appendChild(toggle);
           effectDiv.appendChild(effectRow);
 
-          // Settings UI
+          // Settings UI.
           if (effect.settings) {
             for (const setting of effect.settings) {
               if (setting.type === "slider") {
@@ -1508,7 +1596,7 @@ function buildDomHud(
                 const lbl = document.createElement("div");
                 lbl.className = "sandbox-esc-gfx-label";
                 const defaultVal = typeof setting.default === "number" ? setting.default : 0;
-                lbl.textContent = `    ${setting.label}: ${defaultVal.toFixed(2)}`;
+                lbl.textContent = `${setting.label}: ${defaultVal.toFixed(2)}`;
                 row.appendChild(lbl);
                 const slider = document.createElement("input");
                 slider.type = "range";
@@ -1519,17 +1607,17 @@ function buildDomHud(
                 slider.value = String(defaultVal);
                 slider.oninput = () => {
                   const v = parseFloat(slider.value);
-                  lbl.textContent = `    ${setting.label}: ${v.toFixed(2)}`;
+                  lbl.textContent = `${setting.label}: ${v.toFixed(2)}`;
                   updateEffectUniform(stack, effect.id, effect.settings!, setting.key, v);
                 };
                 row.appendChild(slider);
-                effectDiv.appendChild(row);
+                settingsDiv.appendChild(row);
               } else if (setting.type === "toggle") {
                 const row = document.createElement("div");
                 row.className = "sandbox-esc-gfx-row";
                 const lbl = document.createElement("div");
                 lbl.className = "sandbox-esc-gfx-label";
-                lbl.textContent = `    ${setting.label}`;
+                lbl.textContent = setting.label;
                 row.appendChild(lbl);
                 const toggle2 = document.createElement("div");
                 let toggleOn = setting.default === true;
@@ -1542,13 +1630,13 @@ function buildDomHud(
                   updateEffectUniform(stack, effect.id, effect.settings!, setting.key, toggleOn ? 1 : 0);
                 };
                 row.appendChild(toggle2);
-                effectDiv.appendChild(row);
+                settingsDiv.appendChild(row);
               } else if (setting.type === "select") {
                 const row = document.createElement("div");
                 row.className = "sandbox-esc-gfx-row";
                 const lbl = document.createElement("div");
                 lbl.className = "sandbox-esc-gfx-label";
-                lbl.textContent = `    ${setting.label}`;
+                lbl.textContent = setting.label;
                 row.appendChild(lbl);
                 const select = document.createElement("select");
                 select.className = "sandbox-esc-select";
@@ -1564,15 +1652,16 @@ function buildDomHud(
                   updateEffectUniform(stack, effect.id, effect.settings!, setting.key, idx);
                 };
                 row.appendChild(select);
-                effectDiv.appendChild(row);
+                settingsDiv.appendChild(row);
               }
             }
           }
-
-          modDiv.appendChild(effectDiv);
+          effectDiv.appendChild(settingsDiv);
+          body.appendChild(effectDiv);
         }
       }
 
+      if (body) modDiv.appendChild(body);
       parent.appendChild(modDiv);
     }
   }
@@ -1586,14 +1675,13 @@ function buildDomHud(
     value: number,
   ): void {
     // Build a Float32Array from current setting values.
-    // Layout: [inv_w, inv_h, setting0, setting1, ...]
+    // Layout: [inv_w, inv_h, time, setting0, setting1, ...]
+    // Per-frame values (0-2) are written by the renderer; user settings start at offset 3.
     const info = stack.getCustomEffectInfo(effectId);
     if (!info) return;
     const uniformSize = (info as any).uniforms ?? 64;
     const data = new Float32Array(uniformSize / 4);
-    data[0] = 1 / 1920; // inv_w (placeholder — renderer updates per-frame)
-    data[1] = 1 / 1080; // inv_h
-    let offset = 2;
+    let offset = 3;
     for (const s of settings) {
       if (s.key === changedKey) {
         data[offset++] = value;

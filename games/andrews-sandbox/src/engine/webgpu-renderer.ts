@@ -9,12 +9,12 @@
 // ============================================================================
 
 import {
-  BindlessFrameBindings, BindlessMaterialManager, BindlessTextureRegistry,
-  DEPTH_FORMAT, ENT, GameRenderer,
-  InputBufferWriter, InterpolationBuffer,
-  MSAA_SAMPLE_COUNT, SimBufferReader,
-  calculateViewProjInto, type CameraState,
-  type RenderContext, type TextureHandle
+    BindlessFrameBindings, BindlessMaterialManager, BindlessTextureRegistry,
+    DEPTH_FORMAT, ENT, GameRenderer,
+    InputBufferWriter, InterpolationBuffer,
+    MSAA_SAMPLE_COUNT, SimBufferReader,
+    calculateViewProjInto, type CameraState,
+    type RenderContext, type TextureHandle
 } from "@downdraft/core";
 import { ModelRenderer } from "@downdraft/library-entities";
 import { loadModel, type ModelData } from "@downdraft/library-models";
@@ -1985,7 +1985,7 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
 
       // Apply the post-process chain → canvas
       const canvasView = context.getCurrentTexture().createView();
-      this.postProcessStack.applyChain(encoder, this.postProcessStack.getSceneDepthView(), canvasView, w, h);
+      this.postProcessStack.applyChain(encoder, this.postProcessStack.getSceneDepthView(), canvasView, w, h, this._elapsedTime);
       device.queue.submit([encoder.finish()]);
     } else {
       // ── Fallback: render directly to the swapchain (no postfx enabled) ──
