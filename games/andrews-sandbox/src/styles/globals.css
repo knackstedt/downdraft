@@ -539,3 +539,134 @@ canvas {
   pointer-events: none;
   z-index: 510;
 }
+
+/* ── Player health bar (bottom-left) ── */
+.sandbox-health-bar {
+  position: fixed;
+  bottom: 16px;
+  left: 16px;
+  width: 240px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 200;
+  pointer-events: none;
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  color: #ddd;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+}
+.sandbox-health-label {
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: #fff;
+}
+.sandbox-health-track {
+  flex: 1;
+  height: 16px;
+  background: rgba(0,0,0,0.55);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.sandbox-health-fill {
+  height: 100%;
+  width: 100%;
+  background: #4ade80; /* green (high HP) */
+  border-radius: 3px;
+  transition: width 0.15s ease-out, background 0.2s;
+}
+.sandbox-health-fill.mid {
+  background: #facc15; /* yellow (25–50%) */
+}
+.sandbox-health-fill.low {
+  background: #ef4444; /* red (<25%) */
+  animation: sandbox-health-pulse 0.8s ease-in-out infinite;
+}
+@keyframes sandbox-health-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+.sandbox-health-text {
+  min-width: 72px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+/* ── Damage vignette (red inset flash on hit, faint baseline at low HP) ── */
+.sandbox-damage-vignette {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 199;
+  box-shadow: inset 0 0 200px rgba(255, 0, 0, 0.85);
+  opacity: 0;
+  transition: opacity 0.4s ease-out;
+}
+.sandbox-damage-vignette.active {
+  /* opacity is set inline by triggerDamageFlash() based on hit amount */
+}
+.sandbox-damage-vignette.low-hp {
+  /* Faint persistent baseline while health is critically low. Only applies
+     when not in the active flash state (inline opacity is cleared on fade). */
+  opacity: 0.18;
+}
+
+/* ── Death overlay ── */
+.sandbox-death-overlay {
+  position: fixed;
+  inset: 0;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  background: rgba(10, 0, 0, 0.78);
+  z-index: 400; /* above HUD (200) + vignette (199), below ESC menu (500) */
+  pointer-events: none;
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  color: #fff;
+}
+.sandbox-death-overlay.show {
+  display: flex;
+  pointer-events: auto;
+}
+.sandbox-death-title {
+  font-size: 56px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: #ff4444;
+  text-shadow: 0 2px 12px rgba(0,0,0,0.9);
+}
+.sandbox-death-hint {
+  font-size: 18px;
+  color: #ddd;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+}
+.sandbox-death-hint kbd {
+  display: inline-block;
+  padding: 2px 10px;
+  margin: 0 2px;
+  border: 1px solid rgba(255,255,255,0.3);
+  border-radius: 4px;
+  background: rgba(255,255,255,0.1);
+  font-family: inherit;
+  font-size: 16px;
+}
+.sandbox-death-respawn-btn {
+  margin-top: 8px;
+  padding: 12px 32px;
+  border: 1px solid rgba(255,80,80,0.5);
+  border-radius: 6px;
+  background: rgba(255,60,60,0.2);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.sandbox-death-respawn-btn:hover {
+  background: rgba(255,60,60,0.4);
+  border-color: rgba(255,80,80,0.8);
+}

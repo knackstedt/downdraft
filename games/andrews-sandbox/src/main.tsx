@@ -48,6 +48,43 @@ const spawnCounts = new Map<string, number>();
 // Reference to the pixi-ui host (set in onReady, used by event handlers)
 let pixiUiHost: PixiUiHost | null = null;
 
+// ── Damage vignette + death overlay ──
+// The vignette is a red inset box-shadow overlay that flashes on damage and
+// stays at a faint baseline while health is low. The death overlay is a
+// fullscreen panel shown when the player dies, with a Respawn button + a
+// Space-to-respawn hint. Both are created in onReady (like the crosshair).
+let damageVignette: HTMLDivElement | null = null;
+let deathOverlay: HTMLDivElement | null = null;
+let damageFlashTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Flash the red damage vignette. Intensity scales with the hit amount. */
+function triggerDamageFlash(amount: number): void {
+  if (!damageVignette) return;
+  // Opacity scales with damage amount, capped at 0.8 for a strong hit.
+  const opacity = Math.min(0.8, 0.25 + amount / 100);
+  damageVignette.style.opacity = String(opacity);
+  damageVignette.classList.add("active");
+  if (damageFlashTimer) clearTimeout(damageFlashTimer);
+  damageFlashTimer = setTimeout(() => {
+    if (damageVignette) {
+      damageVignette.classList.remove("active");
+      // The low-hp baseline is driven by the HUD interval; clear the inline
+      // opacity so the CSS .low-hp rule (if present) takes over.
+      damageVignette.style.opacity = "";
+    }
+  }, 400);
+}
+
+/** Show the death overlay (called from the player_died event handler). */
+function showDeathOverlay(): void {
+  if (deathOverlay) deathOverlay.classList.add("show");
+}
+
+/** Hide the death overlay (called from the player_respawned event handler). */
+function hideDeathOverlay(): void {
+  if (deathOverlay) deathOverlay.classList.remove("show");
+}
+
 /** Send spawn counts to the pixi-ui worker (if started). */
 function sendSpawnCountsToWorker(): void {
   if (!pixiUiHost) return;
@@ -247,6 +284,24 @@ startGame({
         playerState.pose = data.pose;
         targetEyeHeight = POSE_EYE_HEIGHT[playerState.pose];
       }
+      // Mirror authoritative health state to the store for the HUD.
+      useGameStore.getState().setPlayerHealth(data.health, data.maxHealth);
+      useGameStore.getState().setPlayerDead(data.dead);
+    },
+    player_damaged: (data) => {
+      // Trigger the red vignette flash (intensity scales with the hit) and
+      // sync the store so the bar updates immediately.
+      triggerDamageFlash(data.amount);
+      useGameStore.getState().setPlayerHealth(data.health, data.maxHealth);
+    },
+    player_died: (_data) => {
+      useGameStore.getState().setPlayerDead(true);
+      showDeathOverlay();
+    },
+    player_respawned: (data) => {
+      useGameStore.getState().setPlayerHealth(data.health, data.maxHealth);
+      useGameStore.getState().setPlayerDead(false);
+      hideDeathOverlay();
     },
   },
 
@@ -402,6 +457,27 @@ startGame({
     const crosshair = document.createElement("div");
     crosshair.className = "sandbox-crosshair";
     document.body.appendChild(crosshair);
+
+    // ── Damage vignette (red inset flash on damage, faint baseline at low HP) ──
+    damageVignette = document.createElement("div");
+    damageVignette.className = "sandbox-damage-vignette";
+    document.body.appendChild(damageVignette);
+
+    // ── Death overlay (shown when player_died fires; Space / button respawns) ──
+    deathOverlay = document.createElement("div");
+    deathOverlay.className = "sandbox-death-overlay";
+    deathOverlay.innerHTML = `
+      <div class="sandbox-death-title">You Died</div>
+      <div class="sandbox-death-hint">Press <kbd>Space</kbd> to Respawn</div>
+      <button class="sandbox-death-respawn-btn">Respawn</button>
+    `;
+    const respawnBtn = deathOverlay.querySelector(".sandbox-death-respawn-btn") as HTMLButtonElement | null;
+    if (respawnBtn) {
+      respawnBtn.onclick = () => {
+        sim.sendCommand({ type: "respawn" });
+      };
+    }
+    document.body.appendChild(deathOverlay);
 
     // ── Start PixiUI overlay ──
     const pixiHost = new PixiUiHost({
@@ -756,6 +832,14 @@ startGame({
         toggleEscMenu();
         return;
       }
+      // Respawn — takes priority when the player is dead. Space or Enter
+      // sends the respawn command (the sim resets health + teleports to
+      // spawn, then emits player_respawned which hides the overlay).
+      if (useGameStore.getState().playerDead && (e.code === "Space" || e.code === "Enter")) {
+        e.preventDefault();
+        sim.sendCommand({ type: "respawn" });
+        return;
+      }
       // Block game input while ESC menu is open
       if (useGameStore.getState().showEscMenu) return;
 
@@ -839,6 +923,13 @@ startGame({
       lastWeaponTick = now;
       // Skip game logic while ESC menu is open
       if (useGameStore.getState().showEscMenu) return;
+      // While dead, block movement + weapon firing but keep the camera so the
+      // player can look around the death scene. The death overlay handles the
+      // respawn input (Space / button → sim respawn command).
+      if (useGameStore.getState().playerDead) {
+        applyCamera(renderer as WebGPURenderer, yaw, pitch);
+        return;
+      }
       // While the asset browser is open, keep ticking weapons/paint/VR but
       // skip player movement (WASD is used for keyboard navigation instead).
       const browserOpen = useGameStore.getState().showContentBrowser;
@@ -953,6 +1044,12 @@ startGame({
       domHud.escMenu?.remove();
     }
     document.querySelector(".sandbox-crosshair")?.remove();
+    document.querySelector(".sandbox-health-bar")?.remove();
+    if (damageFlashTimer) clearTimeout(damageFlashTimer);
+    damageVignette?.remove();
+    damageVignette = null;
+    deathOverlay?.remove();
+    deathOverlay = null;
     (ctx.renderer as WebGPURenderer).stop();
   },
 });
@@ -1057,6 +1154,23 @@ function buildDomHud(
   hud.appendChild(hudRight);
   document.body.appendChild(hud);
 
+  // ── Health bar (bottom-left) ──
+  // A horizontal bar with a fill (green→yellow→red by tier) + a numeric HP
+  // readout. The sim is authoritative; the store mirrors health each tick via
+  // the player_moved event. The bar pulses red below 25%.
+  const healthBar = document.createElement("div");
+  healthBar.className = "sandbox-health-bar";
+  healthBar.innerHTML = `
+    <div class="sandbox-health-label">HP</div>
+    <div class="sandbox-health-track">
+      <div class="sandbox-health-fill"></div>
+    </div>
+    <div class="sandbox-health-text">100 / 100</div>
+  `;
+  document.body.appendChild(healthBar);
+  const healthFill = healthBar.querySelector(".sandbox-health-fill") as HTMLDivElement | null;
+  const healthText = healthBar.querySelector(".sandbox-health-text") as HTMLDivElement | null;
+
   // Update HUD from store
   const hudInterval = setInterval(() => {
     const s = useGameStore.getState();
@@ -1066,6 +1180,15 @@ function buildDomHud(
     modeBadge.textContent = `Mode: ${FUN_NAMES[s.activeFunMode] ?? s.activeFunMode}`;
     poseBadge.textContent = `Pose: ${POSE_NAMES[playerState.pose] ?? playerState.pose}`;
     camBadge.textContent = `Cam: ${CAMERA_MODE_NAMES[s.cameraMode] ?? s.cameraMode}`;
+    // Health bar + low-HP vignette baseline.
+    const pct = s.playerMaxHealth > 0 ? (s.playerHealth / s.playerMaxHealth) * 100 : 0;
+    if (healthFill) {
+      healthFill.style.width = `${pct}%`;
+      healthFill.classList.toggle("low", pct < 25);
+      healthFill.classList.toggle("mid", pct >= 25 && pct < 50);
+    }
+    if (healthText) healthText.textContent = `${Math.round(s.playerHealth)} / ${s.playerMaxHealth}`;
+    if (damageVignette) damageVignette.classList.toggle("low-hp", pct < 25 && !damageVignette.classList.contains("active"));
   }, 200);
   (ctx as any)._hudInterval = hudInterval;
 
@@ -1372,6 +1495,7 @@ function buildDomHud(
         ["F9", "Load game"],
         ["V", "Toggle VR"],
         ["F1", "Toggle hitbox/collider overlay (props + player)"],
+        ["Space (when dead)", "Respawn at spawn point"],
         ["ESC", "Open / close this menu"],
         ["W/S", "Menu: navigate up/down"],
         ["Space", "Menu: activate entry / enter sub-menu"],

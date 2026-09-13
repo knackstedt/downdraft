@@ -64,6 +64,47 @@ let playerGrounded = false;
 let pendingPlayerMove: [number, number, number] | null = null;
 let currentPose: PoseState = PoseState.Standing;
 
+// ── Player health state ──
+// The sim is authoritative for player health. Damage is applied here (fall
+// damage on hard landings, prop-collision damage on impact), health
+// regenerates after a damage-free delay, and the state is mirrored to the
+// renderer via the player_moved / player_damaged / player_died /
+// player_respawned events so the HUD can render a health bar + damage flash.
+const PLAYER_MAX_HEALTH = 100;
+let playerHealth = PLAYER_MAX_HEALTH;
+let playerDead = false;
+// Peak downward speed (m/s) accumulated while airborne. Reset on landing so a
+// single fall produces one damage burst. Used for fall-damage computation.
+let playerFallSpeed = 0;
+// Previous-frame grounded flag — used to detect the airborne→grounded landing
+// transition that triggers fall damage.
+let playerPrevGrounded = true;
+// Sim time (seconds, accumulated dt) — used for the regen delay window and
+// per-prop damage cooldowns.
+let simTime = 0;
+// Sim time of the last damage event — regen is suppressed until
+// (simTime - lastDamageTime) >= HEALTH_REGEN_DELAY.
+let lastDamageTime = -Infinity;
+// Per-prop damage cooldowns (entityId → remaining seconds). Prevents a single
+// fast-moving prop from dealing damage every tick while in contact.
+const propDamageCooldowns = new Map<number, number>();
+
+// ── Damage tuning ──
+// Thresholds sit above small hops/step-downs so trivial drops are harmless,
+// but the curve ramps steeply once past it so real falls hurt a lot. With
+// gravity = 20 m/s², fall speed ≈ √(40·height): 10 m → 20 m/s, 20 m → 28 m/s.
+//   10 m fall → ~42 dmg, 20 m fall → ~98 dmg, 30 m+ fall → overkill.
+// Damage is uncapped — overkill (damage > maxHealth) is tracked for future
+// systems (gibbing, armor penetration, etc.) and max health may be boosted.
+const FALL_DAMAGE_MIN_SPEED = 14.0;   // m/s downward; below = no damage
+const FALL_DAMAGE_GAIN = 7.0;         // damage = (fallSpeed - min) * gain
+const PROP_DAMAGE_MIN_SPEED = 10.0;   // m/s toward player; below = no damage
+const PROP_DAMAGE_MIN_MASS = 5.0;    // kg; below this mass a prop can't hurt
+const PROP_DAMAGE_GAIN = 3.5;        // damage = massFactor * (impactSpeed - min) * gain
+const PROP_DAMAGE_COOLDOWN = 0.5;    // seconds, per-prop
+const HEALTH_REGEN_DELAY = 5.0;      // seconds without damage before regen
+const HEALTH_REGEN_RATE = 5.0;      // HP / sec
+
 // ── Reused out-tuples for Raw scalar physics reads (zero-alloc hot path) ──
 const _posOut: [number, number, number] = [0, 0, 0];
 const _rotOut: [number, number, number, number] = [0, 0, 0, 1];
@@ -264,6 +305,79 @@ function applyPose(pose: PoseState): void {
   events.emit("pose_changed", { pose, eyeHeight: cfg.eyeHeight });
 }
 
+// ── Player health: apply damage, regen, respawn ──
+// `applyDamage` is the single entry point for both fall and prop-collision
+// damage. It clamps health, records the damage time (suppressing regen), emits
+// player_damaged, and transitions to the dead state + emits player_died when
+// health hits 0. No-op while already dead (prevents post-death stacking).
+function applyDamage(amount: number, cause: "fall" | "prop"): void {
+  if (playerDead || amount <= 0) return;
+  // Track overkill (damage beyond what was needed to reach 0) before
+  // clamping. Uncapped damage means a massive hit can produce large overkill,
+  // available to future systems (gibbing, armor penetration, etc.).
+  const overkill = Math.max(0, amount - playerHealth);
+  playerHealth = Math.max(0, playerHealth - amount);
+  lastDamageTime = simTime;
+  events.emit("player_damaged", { health: playerHealth, maxHealth: PLAYER_MAX_HEALTH, amount, cause });
+  if (playerHealth <= 0) {
+    playerDead = true;
+    events.emit("player_died", { cause, overkill });
+  }
+}
+
+// ── Prop→player collision damage ──
+// Runs every tick after the physics step. The player is a parentless
+// character collider, so its collisions do NOT appear in getContacts()
+// (Rapier character controllers do their own sweep tests). We instead do a
+// manual proximity + velocity check: for each non-sleeping prop within
+// (playerRadius + propRadius + margin), if the prop is moving toward the
+// player above PROP_DAMAGE_MIN_SPEED, apply mass-scaled damage with a
+// per-prop cooldown so a single contact doesn't deal damage every tick.
+function checkPropCollisionDamage(dt: number): void {
+  if (playerDead || !physicsApi) return;
+  const px = playerPos[0], py = playerPos[1], pz = playerPos[2];
+  // Player collision radius — use the standing capsule radius as the
+  // horizontal extent. The capsule is taller than wide, but props hitting the
+  // sides are the common case; vertical hits (landing on the player) are also
+  // caught because the prop center is within the vertical span.
+  const playerR = PLAYER_RADIUS;
+  for (const [entityId, record] of propRecords) {
+    // Cooldown tick — decrement first so a prop that's been in contact can
+    // deal damage again after the window elapses.
+    const cd = propDamageCooldowns.get(entityId);
+    if (cd !== undefined) {
+      if (cd <= dt) propDamageCooldowns.delete(entityId);
+      else propDamageCooldowns.set(entityId, cd - dt);
+    }
+    // Skip sleeping bodies — they can't be moving toward the player.
+    if (physicsApi.isSleepingRaw(record.body)) continue;
+    physicsApi.getTranslationRaw(record.body, _posOut);
+    physicsApi.getLinearVelocityRaw(record.body, _velOut);
+    const dx = px - _posOut[0], dy = py - _posOut[1], dz = pz - _posOut[2];
+    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    if (dist < 1e-4) continue;
+    const propR = record.shape === "sphere" ? record.radius : Math.max(record.halfExtents[0], record.halfExtents[1], record.halfExtents[2]);
+    if (dist > playerR + propR + 0.15) continue;
+    // Velocity of the prop toward the player (positive = approaching).
+    const dirX = dx / dist, dirY = dy / dist, dirZ = dz / dist;
+    const vToPlayer = _velOut[0] * dirX + _velOut[1] * dirY + _velOut[2] * dirZ;
+    if (vToPlayer <= PROP_DAMAGE_MIN_SPEED) continue;
+    if (propDamageCooldowns.has(entityId)) continue;
+    // Mass gate: light props (bags, small items) can't hurt the player at all.
+    // The mass factor is quadratic past the threshold so heavy props are
+    // disproportionately dangerous — a 20 kg prop hits ~16× harder than a 5 kg
+    // one at the same speed, not 4×. This makes weight the dominant factor.
+    if (record.mass < PROP_DAMAGE_MIN_MASS) continue;
+    const impactSpeed = vToPlayer - PROP_DAMAGE_MIN_SPEED;
+    const massFactor = ((record.mass - PROP_DAMAGE_MIN_MASS) / PROP_DAMAGE_MIN_MASS + 1) ** 2;
+    const damage = massFactor * impactSpeed * PROP_DAMAGE_GAIN;
+    if (damage > 0) {
+      applyDamage(damage, "prop");
+      propDamageCooldowns.set(entityId, PROP_DAMAGE_COOLDOWN);
+    }
+  }
+}
+
 // ── Create a physics body for a prop ──
 /** Computes the axis-aligned bbox volume of a flat point cloud (stride 3). */
 function hullBBoxVolume(vertices: Float32Array): number {
@@ -439,6 +553,7 @@ function removeProp(entityId: number): void {
   grabbedProps.delete(entityId);
   squishStates.delete(entityId);
   prevVelocities.delete(entityId);
+  propDamageCooldowns.delete(entityId);
   if (record.squishy === true) {
     squishyPropCount--;
     updateExtractContacts();
@@ -456,6 +571,7 @@ function clearProps(): void {
   grabbedProps.clear();
   squishStates.clear();
   prevVelocities.clear();
+  propDamageCooldowns.clear();
   nextSlotIdx = 0;
   freeSlots.length = 0;
   squishyPropCount = 0;
@@ -726,6 +842,32 @@ function processCommand(cmd: SimCommand): void {
       physicsApi.wakeUp(record.body);
       break;
     }
+    case "respawn": {
+      // Reset health + dead state and teleport the player back to the spawn
+      // origin. Clear fall-speed tracking and per-prop damage cooldowns so the
+      // respawned player isn't immediately re-damaged by props still in
+      // contact. Emit player_respawned + a player_moved so the renderer snaps
+      // the camera to the spawn position.
+      playerHealth = PLAYER_MAX_HEALTH;
+      playerDead = false;
+      playerFallSpeed = 0;
+      playerPrevGrounded = true;
+      lastDamageTime = simTime;
+      propDamageCooldowns.clear();
+      playerPos[0] = 0;
+      playerPos[1] = PLAYER_HEIGHT;
+      playerPos[2] = 0;
+      if (playerController && physicsApi) {
+        physicsApi.setCharacterColliderPosition(playerController, [
+          playerPos[0],
+          playerPos[1] + capsuleYOffset(currentPose),
+          playerPos[2],
+        ]);
+      }
+      events.emit("player_respawned", { health: playerHealth, maxHealth: PLAYER_MAX_HEALTH });
+      onEvent({ kind: "player_moved", data: { position: [...playerPos] as [number, number, number], grounded: playerGrounded, pose: currentPose, health: playerHealth, maxHealth: PLAYER_MAX_HEALTH, dead: playerDead } });
+      break;
+    }
   }
 }
 
@@ -936,7 +1078,7 @@ function saveState(): string {
       hull: record.hull ? Array.from(record.hull) : undefined,
     });
   }
-  return JSON.stringify({ props, funMode: currentFunMode, pose: currentPose, playerPos: [...playerPos], version: 1 });
+  return JSON.stringify({ props, funMode: currentFunMode, pose: currentPose, playerPos: [...playerPos], health: playerHealth, dead: playerDead, version: 1 });
 }
 
 async function restoreState(stateJson: string): Promise<void> {
@@ -945,6 +1087,15 @@ async function restoreState(stateJson: string): Promise<void> {
   clearProps();
   if (state.funMode !== undefined) currentFunMode = state.funMode;
   if (state.pose !== undefined) applyPose(state.pose);
+  // Restore player health + dead state. Old saves without these fields default
+  // to full health / not dead. Reset fall-damage tracking + cooldowns so a
+  // loaded dead player isn't immediately re-damaged on respawn.
+  playerHealth = typeof state.health === "number" ? state.health : PLAYER_MAX_HEALTH;
+  playerDead = state.dead === true;
+  playerFallSpeed = 0;
+  playerPrevGrounded = true;
+  lastDamageTime = simTime;
+  propDamageCooldowns.clear();
   // Restore player position + sync the Rapier character controller so the
   // next characterMove tick continues from the saved spot instead of the
   // spawn origin. Emit player_moved so the renderer repositions the camera.
@@ -959,7 +1110,7 @@ async function restoreState(stateJson: string): Promise<void> {
         playerPos[2],
       ]);
     }
-    onEvent({ kind: "player_moved", data: { position: [...playerPos] as [number, number, number], grounded: playerGrounded, pose: currentPose } });
+    onEvent({ kind: "player_moved", data: { position: [...playerPos] as [number, number, number], grounded: playerGrounded, pose: currentPose, health: playerHealth, maxHealth: PLAYER_MAX_HEALTH, dead: playerDead } });
   }
   for (const prop of state.props ?? []) {
     spawnProp(
@@ -994,6 +1145,8 @@ expose({
       maxSpeed: MAX_SIM_SPEED,
       minSpeed: MIN_SIM_SPEED,
       tick: async (dt) => {
+        // Accumulate sim time for health-regen delay + per-prop damage cooldowns.
+        simTime += dt;
         // Drive Solid-mode physgun grabs toward their target via velocity so
         // the physics step resolves collisions (the prop can't clip through
         // walls). Runs before stepNearRealm so the velocity is applied this tick.
@@ -1034,8 +1187,39 @@ expose({
           playerPos[1] += result.effectiveMovement[1];
           playerPos[2] += result.effectiveMovement[2];
           playerGrounded = result.grounded;
+
+          // ── Fall damage ──
+          // Track peak downward speed while airborne using the intended
+          // vertical move this tick (pendingPlayerMove[1] / dt). On the
+          // airborne→grounded landing transition, if the peak exceeded the
+          // threshold, apply damage scaled by the overshoot. Reset on landing
+          // so a single fall deals one burst.
+          if (!playerGrounded) {
+            const fallVy = pendingPlayerMove[1] / dt;
+            if (fallVy < 0 && fallVy < -playerFallSpeed) playerFallSpeed = -fallVy;
+          } else if (!playerPrevGrounded) {
+            // Just landed.
+            if (playerFallSpeed > FALL_DAMAGE_MIN_SPEED) {
+              applyDamage((playerFallSpeed - FALL_DAMAGE_MIN_SPEED) * FALL_DAMAGE_GAIN, "fall");
+            }
+            playerFallSpeed = 0;
+          }
+          playerPrevGrounded = playerGrounded;
+
           pendingPlayerMove = null;
-          onEvent({ kind: "player_moved", data: { position: [...playerPos] as [number, number, number], grounded: playerGrounded, pose: currentPose } });
+          onEvent({ kind: "player_moved", data: { position: [...playerPos] as [number, number, number], grounded: playerGrounded, pose: currentPose, health: playerHealth, maxHealth: PLAYER_MAX_HEALTH, dead: playerDead } });
+        }
+
+        // ── Prop→player collision damage ──
+        // Manual proximity + velocity check (the player's parentless character
+        // collider doesn't appear in getContacts()). Skips sleeping bodies.
+        checkPropCollisionDamage(dt);
+
+        // ── Health regen ──
+        // Slowly regenerate after a damage-free delay. No-op while dead or
+        // already at max.
+        if (!playerDead && playerHealth < PLAYER_MAX_HEALTH && (simTime - lastDamageTime) >= HEALTH_REGEN_DELAY) {
+          playerHealth = Math.min(PLAYER_MAX_HEALTH, playerHealth + HEALTH_REGEN_RATE * dt);
         }
 
         syncTransforms();

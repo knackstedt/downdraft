@@ -133,11 +133,35 @@ export interface PlayerMovedData {
   position: [number, number, number];
   grounded: boolean;
   pose: PoseState;
+  /** Current player health (0–maxHealth). The sim is authoritative. */
+  health: number;
+  /** Max player health (constant; included so the HUD can scale the bar). */
+  maxHealth: number;
+  /** True while the player is in the dead state (awaiting respawn). */
+  dead: boolean;
+}
+
+export interface PlayerDamagedData {
+  health: number;
+  maxHealth: number;
+  amount: number;
+  cause: "fall" | "prop";
+}
+
+export interface PlayerDiedData {
+  cause: "fall" | "prop";
+  /** Damage that exceeded the player's remaining health (overkill). */
+  overkill: number;
+}
+
+export interface PlayerRespawnedData {
+  health: number;
+  maxHealth: number;
 }
 
 export interface SandboxSimMessage {
-  kind: "prop_spawned" | "prop_removed" | "paint_updated" | "fun_mode_changed" | "pose_changed" | "ready" | "error" | "player_moved";
-  data: PropSpawnedData | PropRemovedData | PaintUpdatedData | FunModeChangedData | PoseChangedData | PlayerMovedData | { message?: string } | Record<string, unknown>;
+  kind: "prop_spawned" | "prop_removed" | "paint_updated" | "fun_mode_changed" | "pose_changed" | "ready" | "error" | "player_moved" | "player_damaged" | "player_died" | "player_respawned";
+  data: PropSpawnedData | PropRemovedData | PaintUpdatedData | FunModeChangedData | PoseChangedData | PlayerMovedData | PlayerDamagedData | PlayerDiedData | PlayerRespawnedData | { message?: string } | Record<string, unknown>;
 }
 
 // --- Sim commands (renderer→sim) ---
@@ -157,4 +181,5 @@ export type SimCommand =
   | { type: "updatePropPhysics"; entityId: number; mass?: number; restitution?: number; friction?: number; gravityScale?: number }
   | { type: "applyImpulse"; entityId: number; impulse: [number, number, number] }
   | { type: "movePlayer"; desiredDelta: [number, number, number] }
-  | { type: "setPropColliderHull"; entityId: number; vertices: Float32Array | number[] };
+  | { type: "setPropColliderHull"; entityId: number; vertices: Float32Array | number[] }
+  | { type: "respawn" };

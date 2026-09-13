@@ -21,6 +21,11 @@ interface GameStoreState {
   fps: number;
   propCount: number;
 
+  // Player health (sim is authoritative; mirrored here for the HUD)
+  playerHealth: number;
+  playerMaxHealth: number;
+  playerDead: boolean;
+
   // ESC menu
   showEscMenu: boolean;
   escMenuTab: "main" | "graphics" | "content" | "controls" | "mods";
@@ -57,6 +62,8 @@ interface GameStoreState {
   setPaintHardness: (h: number) => void;
   setFps: (fps: number) => void;
   setPropCount: (count: number) => void;
+  setPlayerHealth: (hp: number, maxHp: number) => void;
+  setPlayerDead: (v: boolean) => void;
 
   // ESC menu setters
   setShowEscMenu: (v: boolean) => void;
@@ -95,6 +102,9 @@ export const useGameStore = create<GameStoreState>((set) => ({
   paintHardness: 0.8,
   fps: 0,
   propCount: 0,
+  playerHealth: 100,
+  playerMaxHealth: 100,
+  playerDead: false,
 
   // ESC menu
   showEscMenu: false,
@@ -132,6 +142,8 @@ export const useGameStore = create<GameStoreState>((set) => ({
   setPaintHardness: (h) => set({ paintHardness: h }),
   setFps: (fps) => set({ fps }),
   setPropCount: (count) => set({ propCount: count }),
+  setPlayerHealth: (hp, maxHp) => set({ playerHealth: hp, playerMaxHealth: maxHp }),
+  setPlayerDead: (v) => set({ playerDead: v }),
 
   // ESC menu setters
   setShowEscMenu: (v) => set({ showEscMenu: v }),
