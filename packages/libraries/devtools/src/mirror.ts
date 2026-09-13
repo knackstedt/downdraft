@@ -238,7 +238,31 @@ export class DevtoolsMirror {
   /** Collect + push the DOM/ECS tree (PIXI or ECS mode). */
   pushDomTree(mode: "pixi" | "ecs"): void {
     if (mode === "pixi") {
-      this.pushSceneTree();
+      // Collect the PIXI scene tree but push it to the DOM tree slot
+      // (the dom-tree panel reads from dom_tree.nodes, not scene_tree.nodes).
+      const stage = this.gamePixiUi?.stage;
+      if (!stage) {
+        devtoolsSetDomTree(this.handle, encodeTree([]));
+        return;
+      }
+      const nodes: any[] = [];
+      let idCounter = 1;
+      const collect = (node: any, parentId: number, depth: number) => {
+        const id = idCounter++;
+        const nodeLabel = typeof node.label === "string" ? node.label : "";
+        const ctorName = node.constructor?.name ?? "Node";
+        const label = nodeLabel || ctorName;
+        const detail = nodeLabel ? ctorName : "";
+        const childCount = node.children?.length ?? 0;
+        nodes.push({ id, parentId, depth, childCount, kind: 0, label, detail });
+        if (node.children) {
+          for (const child of node.children) {
+            collect(child, id, depth + 1);
+          }
+        }
+      };
+      collect(stage, -1, 0);
+      devtoolsSetDomTree(this.handle, encodeTree(nodes));
       return;
     }
     // ECS mode: read entities from the sim buffer reader.
@@ -419,11 +443,13 @@ export class DevtoolsMirror {
     devtoolsSetGpuInfo(this.handle, encodeGpuInfo(entries, frameTimes, memHistory));
   }
 
-  private formatBytes(bytes: number): string {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  private formatBytes(bytes: any): string {
+    const b = typeof bytes === "bigint" ? Number(bytes) : bytes;
+    if (!b || b < 0 || !Number.isFinite(b)) return String(bytes);
+    if (b < 1024) return `${b} B`;
+    if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
+    if (b < 1024 * 1024 * 1024) return `${(b / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(b / (1024 * 1024 * 1024)).toFixed(2)} GB`;
   }
 
   /** Collect + push per-thread metrics from ProfilingSAB. */
@@ -516,6 +542,7 @@ export class DevtoolsMirror {
     if (this.firstUpdate) {
       this.firstUpdate = false;
       this.pushSceneTree();
+      this.pushDomTree(this.domTreeMode);
       this.pushGpuInfo();
       this.pushMetrics();
       this.pushThreads();
