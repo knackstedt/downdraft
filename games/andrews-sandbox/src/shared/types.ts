@@ -156,4 +156,5 @@ export type SimCommand =
   | { type: "rotateGrab"; entityId: number; quaternion: [number, number, number, number] }
   | { type: "updatePropPhysics"; entityId: number; mass?: number; restitution?: number; friction?: number; gravityScale?: number }
   | { type: "applyImpulse"; entityId: number; impulse: [number, number, number] }
-  | { type: "movePlayer"; desiredDelta: [number, number, number] };
+  | { type: "movePlayer"; desiredDelta: [number, number, number] }
+  | { type: "setPropColliderHull"; entityId: number; vertices: Float32Array | number[] };

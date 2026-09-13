@@ -34,6 +34,11 @@ export interface PhysicsLib {
   setAngularVelocityRaw?(realmId: number, bodyId: number, x: number, y: number, z: number, wakeUp: boolean): void;
   isSleepingRaw?(realmId: number, bodyId: number): boolean;
   swapColliderShapeRaw?(realmId: number, colliderId: number, vertices: Float32Array, indices: Uint32Array): boolean;
+  testConvexHull?(vertices: Float32Array): boolean;
+  /** Returns the Rapier ShapeType enum value of the live collider (0=Ball,1=Cuboid,9=ConvexPolyhedron,...). -1 if not found. */
+  getColliderShapeType?(realmId: number, colliderId: number): number;
+  /** Returns the number of live Rapier colliders currently attached to the body. */
+  getColliderCount?(realmId: number, bodyId: number): number;
   reserveMemory?(bytes: number): void;
   setIntegrationDt?(realmId: number, dt: number): void;
   step(realmId: number, dt: number): void;
@@ -902,6 +907,30 @@ async function doLoadPhysicsLib(): Promise<PhysicsLib> {
       },
       reserveMemory(bytes) {
         try { (rapier as any).reserveMemory(bytes); } catch {}
+      },
+      testConvexHull(vertices) {
+        try {
+          return rapier.ColliderDesc.convexHull(vertices) != null;
+        } catch {
+          return false;
+        }
+      },
+      getColliderShapeType(realmId, colliderId) {
+        const collider = colliderMaps.get(realmId)?.get(colliderId);
+        if (!collider) return -1;
+        return collider.shapeType();
+      },
+      getColliderCount(realmId, bodyId) {
+        const body = bodyMaps.get(realmId)?.get(bodyId);
+        if (!body) return -1;
+        let count = 0;
+        const map = colliderMaps.get(realmId);
+        if (map) {
+          for (const collider of map.values()) {
+            if (collider.parent() === body) count++;
+          }
+        }
+        return count;
       },
       setIntegrationDt(realmId, dt) {
         const world = realms.get(realmId);

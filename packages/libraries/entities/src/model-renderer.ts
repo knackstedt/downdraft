@@ -10,14 +10,14 @@
 // ============================================================================
 
 import {
-  calculateViewProj,
-  createLogger,
-  DEPTH_FORMAT,
-  MSAA_SAMPLE_COUNT,
-  type BindlessMaterialManager,
-  type BindlessTextureRegistry,
-  type CameraState,
-  type MaterialParams,
+    calculateViewProj,
+    createLogger,
+    DEPTH_FORMAT,
+    MSAA_SAMPLE_COUNT,
+    type BindlessMaterialManager,
+    type BindlessTextureRegistry,
+    type CameraState,
+    type MaterialParams,
 } from "@downdraft/core";
 import type { MaterialData, MeshData } from "@downdraft/library-models";
 import MODEL_WGSL from "./shaders/model.wgsl?raw";
@@ -609,7 +609,11 @@ export class ModelRenderer {
       } else {
         // Atlas textures must not be mipmapped — adjacent atlas regions bleed
         // into each other during mip downsample, causing distance-based color shifts.
-        const reg = this.bindless.registry.registerFromImageBitmap(sourceId, imageBitmap, "rgba8unorm", 1, false);
+        // Albedo/color textures are sRGB-encoded (e.g. Kenney colormap.png) — use
+        // the srgb format so the GPU decodes to linear on sample. Treating them as
+        // linear (rgba8unorm) washes out midtones since the pipeline renders in
+        // linear HDR and re-encodes to sRGB at the tonemap/output stage.
+        const reg = this.bindless.registry.registerFromImageBitmap(sourceId, imageBitmap, "rgba8unorm-srgb", 1, false);
         handle = reg.handle;
       }
       this.meshTextureSourceId.set(materialKey, sourceId);
@@ -663,7 +667,8 @@ export class ModelRenderer {
         this.bindless.registry.updateFromImageBitmap(sourceId, imageBitmap);
         handle = existing.handle;
       } else {
-        const reg = this.bindless.registry.registerFromImageBitmap(sourceId, imageBitmap, "rgba8unorm", 1, false);
+        // sRGB-encoded albedo (see loadMeshTexture for rationale).
+        const reg = this.bindless.registry.registerFromImageBitmap(sourceId, imageBitmap, "rgba8unorm-srgb", 1, false);
         handle = reg.handle;
       }
       this.meshTextureSourceId.set(materialKey, sourceId);

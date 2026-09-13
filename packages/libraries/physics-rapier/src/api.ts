@@ -111,6 +111,26 @@ export class UniversalPhysicsAPI {
     this.realmManager.removeCollider(body, colliderId);
   }
 
+  testConvexHull(vertices: Float32Array): boolean {
+    const rb = this.backend as RapierPhysicsBackend;
+    if (typeof rb.testConvexHull === "function") return rb.testConvexHull(vertices);
+    return false;
+  }
+
+  /** Inspect the actual live Rapier collider shape type. Returns Rapier ShapeType enum: 0=Ball, 1=Cuboid, 9=ConvexPolyhedron. -1 if not found. */
+  getColliderShapeType(body: PhysicsBody, colliderId: number): number {
+    const rb = this.backend as RapierPhysicsBackend;
+    if (typeof rb.getColliderShapeType === "function") return rb.getColliderShapeType(body, colliderId);
+    return -1;
+  }
+
+  /** Count live Rapier colliders attached to a body. */
+  getColliderCount(body: PhysicsBody): number {
+    const rb = this.backend as RapierPhysicsBackend;
+    if (typeof rb.getColliderCount === "function") return rb.getColliderCount(body);
+    return -1;
+  }
+
   // --- Character controller ---
 
   createCharacterController(desc: import("@downdraft/core").CharacterControllerDesc, entity: import("@downdraft/core").Entity): import("@downdraft/core").CharacterControllerHandle {

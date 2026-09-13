@@ -13,7 +13,8 @@ import {
     DEPTH_FORMAT, ENT, GameRenderer,
     InputBufferWriter, InterpolationBuffer,
     MSAA_SAMPLE_COUNT, SimBufferReader,
-    calculateViewProjInto, type CameraState,
+    calculateViewProjInto,
+    type CameraState,
     type RenderContext, type TextureHandle
 } from "@downdraft/core";
 import { ModelRenderer } from "@downdraft/library-entities";
@@ -22,6 +23,7 @@ import { PostProcessStack } from "@downdraft/library-postfx";
 import { ENT_DATA, SIM_TICK_DT } from "@sandbox/shared/constants/buffer";
 import { EntityType } from "@sandbox/shared/types";
 import { mat4 } from "wgpu-matrix";
+import { computeConvexHullFaces, computeConvexHullPoints } from "./hull";
 import { SandboxLighting, type PointLight } from "./lighting";
 import { MipmapHelper } from "./mipmap-helper";
 import { SceneRenderPass, type SceneDrawFn, type ScenePassState } from "./passes/scene-pass";
@@ -713,6 +715,104 @@ const SPHERE_GEO = generateSphere(0.5, 24, 16);
 const SPHERE_VERTICES = SPHERE_GEO.vertices;
 const SPHERE_INDICES = SPHERE_GEO.indices;
 
+// ── Hitbox / collider wireframe geometry (line-list, unit-sized) ──
+// Used by the F1 "show hitboxes" debug overlay. Box is -0.5..0.5 (halfExtent
+// 0.5); sphere is radius 0.5; both are scaled by the prop's model matrix so
+// they match the physics collider (box halfExtent = 0.5*scale, sphere radius
+// = 0.5*scale — matches getPropColliders()). Capsule is generated per-dimensions
+// for the player (see generateCapsuleWireframe).
+const WIRE_BOX_VERTICES = new Float32Array([
+  // 12 edges of a unit cube (line-list, 24 vertices)
+  -0.5, -0.5, -0.5,  0.5, -0.5, -0.5,
+   0.5, -0.5, -0.5,  0.5,  0.5, -0.5,
+   0.5,  0.5, -0.5, -0.5,  0.5, -0.5,
+  -0.5,  0.5, -0.5, -0.5, -0.5, -0.5,
+  -0.5, -0.5,  0.5,  0.5, -0.5,  0.5,
+   0.5, -0.5,  0.5,  0.5,  0.5,  0.5,
+   0.5,  0.5,  0.5, -0.5,  0.5,  0.5,
+  -0.5,  0.5,  0.5, -0.5, -0.5,  0.5,
+  -0.5, -0.5, -0.5, -0.5, -0.5,  0.5,
+   0.5, -0.5, -0.5,  0.5, -0.5,  0.5,
+   0.5,  0.5, -0.5,  0.5,  0.5,  0.5,
+  -0.5,  0.5, -0.5, -0.5,  0.5,  0.5,
+]);
+const WIRE_BOX_VERTEX_COUNT = WIRE_BOX_VERTICES.length / 3;
+
+/** Wireframe sphere (line-list): latitude rings + longitude great circles. */
+function generateWireSphere(radius: number, latRings: number, lonLines: number, segs: number): Float32Array<ArrayBuffer> {
+  const verts: number[] = [];
+  // Latitude rings (horizontal circles, skip the poles)
+  for (let r = 1; r < latRings; r++) {
+    const theta = (r / latRings) * Math.PI;
+    const y = radius * Math.cos(theta);
+    const rr = radius * Math.sin(theta);
+    for (let s = 0; s < segs; s++) {
+      const a0 = (s / segs) * 2 * Math.PI;
+      const a1 = ((s + 1) / segs) * 2 * Math.PI;
+      verts.push(rr * Math.cos(a0), y, rr * Math.sin(a0));
+      verts.push(rr * Math.cos(a1), y, rr * Math.sin(a1));
+    }
+  }
+  // Longitude great circles (through the poles)
+  for (let m = 0; m < lonLines; m++) {
+    const phi = (m / lonLines) * Math.PI;
+    for (let s = 0; s < segs; s++) {
+      const t0 = (s / segs) * Math.PI;
+      const t1 = ((s + 1) / segs) * Math.PI;
+      verts.push(radius * Math.sin(t0) * Math.cos(phi), radius * Math.cos(t0), radius * Math.sin(t0) * Math.sin(phi));
+      verts.push(radius * Math.sin(t1) * Math.cos(phi), radius * Math.cos(t1), radius * Math.sin(t1) * Math.sin(phi));
+    }
+  }
+  return new Float32Array(verts);
+}
+const WIRE_SPHERE_VERTICES = generateWireSphere(0.5, 7, 12, 24);
+const WIRE_SPHERE_VERTEX_COUNT = WIRE_SPHERE_VERTICES.length / 3;
+
+/**
+ * Wireframe capsule (line-list), centered at the origin with the cylinder
+ * centered at y=0. The two hemispheres cap the top (y = +cylHalfHeight) and
+ * bottom (y = -cylHalfHeight). Total height = 2*cylHalfHeight + 2*radius.
+ * Regenerated per player-pose dimensions (see setPlayerHitbox).
+ */
+function generateCapsuleWireframe(radius: number, cylHalfHeight: number, segments = 16, meridians = 8): Float32Array<ArrayBuffer> {
+  const verts: number[] = [];
+  const topY = cylHalfHeight;
+  const botY = -cylHalfHeight;
+  // Top + bottom latitude circles of the cylinder.
+  for (const y of [topY, botY]) {
+    for (let s = 0; s < segments; s++) {
+      const a0 = (s / segments) * 2 * Math.PI;
+      const a1 = ((s + 1) / segments) * 2 * Math.PI;
+      verts.push(radius * Math.cos(a0), y, radius * Math.sin(a0));
+      verts.push(radius * Math.cos(a1), y, radius * Math.sin(a1));
+    }
+  }
+  // Vertical lines connecting the two circles.
+  for (let m = 0; m < meridians; m++) {
+    const a = (m / meridians) * 2 * Math.PI;
+    const x = radius * Math.cos(a), z = radius * Math.sin(a);
+    verts.push(x, botY, z);
+    verts.push(x, topY, z);
+  }
+  // Hemisphere meridians (top + bottom).
+  const hemiSegs = 6;
+  for (let m = 0; m < meridians; m++) {
+    const a = (m / meridians) * 2 * Math.PI;
+    const cx = Math.cos(a), cz = Math.sin(a);
+    for (let i = 0; i < hemiSegs; i++) {
+      const ang0 = (i / hemiSegs) * (Math.PI / 2);
+      const ang1 = ((i + 1) / hemiSegs) * (Math.PI / 2);
+      // Top hemisphere
+      verts.push(radius * Math.cos(ang0) * cx, topY + radius * Math.sin(ang0), radius * Math.cos(ang0) * cz);
+      verts.push(radius * Math.cos(ang1) * cx, topY + radius * Math.sin(ang1), radius * Math.cos(ang1) * cz);
+      // Bottom hemisphere
+      verts.push(radius * Math.cos(ang0) * cx, botY - radius * Math.sin(ang0), radius * Math.cos(ang0) * cz);
+      verts.push(radius * Math.cos(ang1) * cx, botY - radius * Math.sin(ang1), radius * Math.cos(ang1) * cz);
+    }
+  }
+  return new Float32Array(verts);
+}
+
 const GROUND_SIZE = 512; // 512×512m ground plane
 
 export class WebGPURenderer extends GameRenderer {
@@ -847,6 +947,9 @@ export class WebGPURenderer extends GameRenderer {
 
   // Model loading: contentId → ModelData (cached)
   private modelCache = new Map<string, ModelData>();
+  // Collider hull cache: contentId → downsampled point cloud (mesh-local space).
+  // Computed once per unique model, reused for every spawn of that contentId.
+  private hullCache = new Map<string, Float32Array | null>();
   // nodeId → contentId mapping
   private nodeToContent = new Map<string, string>();
   private nextNodeId = 1;
@@ -1004,6 +1107,7 @@ export class WebGPURenderer extends GameRenderer {
       this.createGroundPipeline(device, hdrFormat);
       this.createCubePipeline(device, hdrFormat);
       this.createSpherePipeline(device, hdrFormat);
+      this.createHitboxPipeline(device, hdrFormat);
       this.createDepthOnlyPipelines(device);
 
       // Create per-pipeline shadow bind groups (group 3 for procedural pipelines).
@@ -1435,6 +1539,89 @@ export class WebGPURenderer extends GameRenderer {
     });
   }
 
+  /** Wireframe hitbox overlay pipeline (line-list, always-on-top, HDR target). */
+  private createHitboxPipeline(device: GPUDevice, format: GPUTextureFormat): void {
+    const HITBOX_SHADER = /* wgsl */ `
+struct Uniforms { viewProj: mat4x4f };
+struct Instance { model: mat4x4f, color: vec4f };
+@group(0) @binding(0) var<uniform> u: Uniforms;
+@group(0) @binding(1) var<storage, read> instances: array<Instance>;
+struct VOut { @builtin(position) pos: vec4f, @location(0) color: vec3f };
+@vertex
+fn vs(@builtin(instance_index) ii: u32, @location(0) pos: vec3f) -> VOut {
+  var out: VOut;
+  out.pos = u.viewProj * instances[ii].model * vec4f(pos, 1.0);
+  out.color = instances[ii].color.rgb;
+  return out;
+}
+@fragment
+fn fs(in: VOut) -> @location(0) vec4f {
+  return vec4f(in.color, 1.0);
+}`;
+    // Uniform buffer: viewProj (64 bytes)
+    this.hitboxUniformBuffer = device.createBuffer({
+      label: "hitbox-uniforms",
+      size: 64,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    // Instance storage buffer: mat4(64) + color(16) = 80 bytes per instance.
+    this.hitboxInstanceBuffer = device.createBuffer({
+      label: "hitbox-instances",
+      size: 80 * (WebGPURenderer.INTERP_MAX_ENTITIES + 1),
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    // Unit wireframe geometry buffers.
+    this.hitboxBoxVB = device.createBuffer({
+      label: "hitbox-box-vb",
+      size: WIRE_BOX_VERTICES.byteLength,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(this.hitboxBoxVB, 0, WIRE_BOX_VERTICES);
+    this.hitboxSphereVB = device.createBuffer({
+      label: "hitbox-sphere-vb",
+      size: WIRE_SPHERE_VERTICES.byteLength,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(this.hitboxSphereVB, 0, WIRE_SPHERE_VERTICES);
+    // Capsule vertex buffer is (re)created when dimensions change — start with
+    // a 1-byte placeholder so the buffer exists.
+    this.hitboxCapsuleVB = device.createBuffer({
+      label: "hitbox-capsule-vb",
+      size: 4,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+    });
+
+    const shader = device.createShaderModule({ label: "hitbox", code: HITBOX_SHADER });
+    this.hitboxPipeline = device.createRenderPipeline({
+      label: "hitbox",
+      layout: "auto",
+      vertex: {
+        module: shader, entryPoint: "vs",
+        buffers: [{
+          arrayStride: 12,
+          attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }],
+        }],
+      },
+      fragment: { module: shader, entryPoint: "fs", targets: [{ format }] },
+      primitive: { topology: "line-list" },
+      depthStencil: {
+        format: DEPTH_FORMAT as GPUTextureFormat,
+        // Always visible (drawn on top of the scene) so hitboxes show through
+        // walls and the prop's own mesh — typical debug-overlay behavior.
+        depthWriteEnabled: false,
+        depthCompare: "always",
+      },
+    });
+    this.hitboxBindGroup = device.createBindGroup({
+      label: "hitbox-bg0",
+      layout: this.hitboxPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: this.hitboxUniformBuffer } },
+        { binding: 1, resource: { buffer: this.hitboxInstanceBuffer } },
+      ],
+    });
+  }
+
   private createDepthOnlyPipelines(device: GPUDevice): void {
     // Instanced depth-only shader: vertex transforms by lightVP * instances[ii].model.
     // Shares the same 96-byte Instance layout as the scene shader so both passes
@@ -1570,6 +1757,79 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
     }
   }
 
+  /**
+   * Compute (and cache) a downsampled convex-hull point cloud for a loaded
+   * model, in mesh-local space. Returns null if the model has no geometry or
+   * isn't loaded yet. Callers scale the result by the prop's spawn scale and
+   * send it to the sim, which builds a Rapier convex collider from the points.
+   */
+  getColliderHull(contentId: string): Float32Array | null {
+    if (this.hullCache.has(contentId)) return this.hullCache.get(contentId)!;
+    const model = this.modelCache.get(contentId);
+    let result: Float32Array | null = null;
+    if (model && model.meshes.length > 0) {
+      const hull = computeConvexHullPoints(model.meshes);
+      result = hull ? hull.vertices : null;
+    }
+    this.hullCache.set(contentId, result);
+    return result;
+  }
+
+  /**
+   * Build (and cache) a line-list wireframe of the convex hull for the F1
+   * debug overlay. Returns the vertex buffer + vertex count, or null if the
+   * model has no hull. The wireframe is in mesh-local space (same as the
+   * hull points); the caller transforms it via the instance model matrix.
+   */
+  private getHullWireframe(contentId: string): { vb: GPUBuffer; vertCount: number } | null {
+    if (this.hullWireCache.has(contentId)) return this.hullWireCache.get(contentId) ?? null;
+    const device = this.getDevice();
+    const hull = this.getColliderHull(contentId);
+    let result: { vb: GPUBuffer; vertCount: number } | null = null;
+    if (device && hull && hull.length >= 9) {
+      const faces = computeConvexHullFaces(hull);
+      console.log(`[HullWire] ${contentId}: pts=${hull.length / 3} faces=${faces ? faces.length / 3 : "null"}`);
+      if (faces && faces.length >= 6) {
+        // Build line-list: each triangle (a,b,c) → edges a-b, b-c, c-a.
+        // 3 edges × 2 verts = 6 verts per face.
+        const lines = new Float32Array(faces.length * 2);
+        for (let f = 0; f < faces.length; f += 3) {
+          const a = faces[f], b = faces[f + 1], c = faces[f + 2];
+          // a-b
+          lines[f * 2]     = hull[a * 3];
+          lines[f * 2 + 1] = hull[a * 3 + 1];
+          lines[f * 2 + 2] = hull[a * 3 + 2];
+          lines[f * 2 + 3] = hull[b * 3];
+          lines[f * 2 + 4] = hull[b * 3 + 1];
+          lines[f * 2 + 5] = hull[b * 3 + 2];
+          // b-c
+          lines[f * 2 + 6] = hull[b * 3];
+          lines[f * 2 + 7] = hull[b * 3 + 1];
+          lines[f * 2 + 8] = hull[b * 3 + 2];
+          lines[f * 2 + 9] = hull[c * 3];
+          lines[f * 2 + 10] = hull[c * 3 + 1];
+          lines[f * 2 + 11] = hull[c * 3 + 2];
+          // c-a
+          lines[f * 2 + 12] = hull[c * 3];
+          lines[f * 2 + 13] = hull[c * 3 + 1];
+          lines[f * 2 + 14] = hull[c * 3 + 2];
+          lines[f * 2 + 15] = hull[a * 3];
+          lines[f * 2 + 16] = hull[a * 3 + 1];
+          lines[f * 2 + 17] = hull[a * 3 + 2];
+        }
+        const vb = device.createBuffer({
+          label: `hull-wire-${contentId}`,
+          size: lines.byteLength,
+          usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+        });
+        device.queue.writeBuffer(vb, 0, lines);
+        result = { vb, vertCount: lines.length / 3 };
+      }
+    }
+    this.hullWireCache.set(contentId, result);
+    return result;
+  }
+
   // ── Camera control ──
   setCameraPosition(pos: [number, number, number]): void { this.camPos = pos; }
   setCameraTarget(target: [number, number, number]): void { this.camTarget = target; }
@@ -1614,6 +1874,39 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
   private hoverEntity: number | null = null;
   /** Set/clear the entity id rendered with the hover outline shader. */
   setHoverEntity(entityId: number | null): void { this.hoverEntity = entityId; }
+
+  // ── Hitbox / collider debug overlay (F1) ──
+  // When enabled, renders wireframe colliders for every prop + the player
+  // capsule on top of the scene. Props use box/sphere wireframes scaled by the
+  // prop's model matrix (matches getPropColliders); the player uses a capsule
+  // regenerated from the current pose dimensions.
+  private showHitboxes = false;
+  private hitboxPipeline: GPURenderPipeline | null = null;
+  private hitboxUniformBuffer: GPUBuffer | null = null;
+  private hitboxInstanceBuffer: GPUBuffer | null = null;
+  private hitboxBindGroup: GPUBindGroup | null = null;
+  private hitboxBoxVB: GPUBuffer | null = null;
+  private hitboxSphereVB: GPUBuffer | null = null;
+  private hitboxCapsuleVB: GPUBuffer | null = null;
+  private hitboxCapsuleVertexCount = 0;
+  // Instance staging: mat4(16) + color(4) = 20 floats per instance. +1 for player.
+  private hitboxStaging = new Float32Array((WebGPURenderer.INTERP_MAX_ENTITIES + 1) * 20);
+  // Player capsule dimensions (set from main.tsx each frame). Position is feet.
+  private playerHitbox: { x: number; y: number; z: number; height: number; radius: number } | null = null;
+  // Cached capsule key so we only regenerate geometry when dimensions change.
+  private capsuleCacheKey = "";
+  // Hull wireframe cache: contentId → { vertex buffer, line count } for the
+  // F1 debug overlay. Built from the hull point cloud + computed faces.
+  private hullWireCache = new Map<string, { vb: GPUBuffer; vertCount: number } | null>();
+  /** Toggle the hitbox/collider debug overlay. */
+  setShowHitboxes(v: boolean): void { this.showHitboxes = v; }
+  isShowHitboxes(): boolean { return this.showHitboxes; }
+  /** Update the player capsule collider for the hitbox overlay (feet position).
+   * Pass null to disable (e.g. in first-person where the camera is inside it). */
+  setPlayerHitbox(x: number | null, y: number, z: number, height: number, radius: number): void {
+    if (x === null) { this.playerHitbox = null; return; }
+    this.playerHitbox = { x, y, z, height, radius };
+  }
   // Slot index + shape of the hovered builtin prop (set by collectRenderEntities).
   private hoverOutlineSlot: number = -1;
   private hoverOutlineIsSphere: boolean = false;
@@ -2173,6 +2466,9 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
       this.renderBuiltinProps(pass, viewProj);
       if (this.modelRenderer) this.renderProps(pass);
     }
+
+    // Hitbox / collider debug overlay (F1)
+    if (this.showHitboxes) this.renderHitboxes(pass, viewProj);
   };
 
   private renderProps(pass: GPURenderPassEncoder): void {
@@ -2230,6 +2526,250 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
         this.hoverModelRot = [rx, ry, rz, rw];
         this.hoverModelScale = [sx, sy, sz];
       }
+    }
+  }
+
+  // ── Hitbox / collider debug overlay (F1) ─────────────────────────────────
+  // Renders wireframe colliders for every prop (box or sphere, scaled by the
+  // prop's interpolated model matrix — matches getPropColliders) plus the
+  // player capsule. Drawn on top of the scene (depthCompare "always") in the
+  // scene color pass so it composites through the postfx chain.
+  private renderHitboxes(pass: GPURenderPassEncoder, viewProj: Float32Array): void {
+    if (!this.hitboxPipeline || !this.hitboxBindGroup || !this.simReader || !this.interpOut) return;
+    if (!this.hitboxUniformBuffer || !this.hitboxInstanceBuffer) return;
+    // Capture locals before any `this` method calls — calling this.getDevice()
+    // below would invalidate narrowing of this.simReader / this.interpOut.
+    const reader = this.simReader;
+    const interp = this.interpOut;
+    const staging = this.hitboxStaging;
+    const device = this.getDevice()!;
+
+    // Write the viewProj uniform. Copy into an ArrayBuffer-backed view first —
+    // viewProj is a Float32Array parameter (ArrayBufferLike), which isn't
+    // assignable to GPUAllowSharedBufferSource on TS 5.7+ @webgpu/types.
+    const vp = new Float32Array(16);
+    vp.set(viewProj);
+    device.queue.writeBuffer(this.hitboxUniformBuffer, 0, vp);
+
+    // Pack boxes first, then spheres, then the player capsule last.
+    let boxCount = 0;
+    let sphereCount = 0;
+    const count = reader.getEntityCount();
+    for (let i = 0; i < count; i++) {
+      const sv = reader.getEntitySlotDirect(i);
+      const u32 = sv.u32;
+      const f32 = sv.f32;
+      const type = u32[ENT.TYPE];
+      if (type === 255) continue;
+      if (type !== EntityType.Prop && type !== EntityType.Mannequin && type !== EntityType.Projectile) continue;
+
+      const ioff = i * 8;
+      const px = interp[ioff];
+      const py = interp[ioff + 1];
+      const pz = interp[ioff + 2];
+      const scale = interp[ioff + 7] || 1.0;
+      const rx = interp[ioff + 3];
+      const ry = interp[ioff + 4];
+      const rz = interp[ioff + 5];
+      const rw = interp[ioff + 6];
+      const shape = f32[ENT_DATA.SHAPE + ENT.DATA];
+      // shape: 0=box, 1=sphere, 2=hull (convex hull collider — drawn as
+      // magenta wireframe in the second loop below). Skip the placeholder
+      // box/sphere for hull-backed props so we don't draw both.
+      if (shape === 2) continue;
+      const isSphere = shape === 1;
+
+      // Per-type wireframe color.
+      let cr = 0.15, cg = 1.0, cb = 0.25; // Prop — green
+      if (type === EntityType.Projectile) { cr = 1.0; cg = 0.85; cb = 0.1; } // yellow
+      else if (type === EntityType.Mannequin) { cr = 0.2; cg = 0.9; cb = 1.0; } // cyan
+
+      // Compose model matrix = T * R * S (column-major, matching the cube shader).
+      const ql = Math.sqrt(rx * rx + ry * ry + rz * rz + rw * rw) || 1;
+      const qx = rx / ql, qy = ry / ql, qz = rz / ql, qw = rw / ql;
+      const r00 = 1 - 2 * (qy * qy + qz * qz);
+      const r01 = 2 * (qx * qy - qz * qw);
+      const r02 = 2 * (qx * qz + qy * qw);
+      const r10 = 2 * (qx * qy + qz * qw);
+      const r11 = 1 - 2 * (qx * qx + qz * qz);
+      const r12 = 2 * (qy * qz - qx * qw);
+      const r20 = 2 * (qx * qz - qy * qw);
+      const r21 = 2 * (qy * qz + qx * qw);
+      const r22 = 1 - 2 * (qx * qx + qy * qy);
+
+      const slot = isSphere ? (boxCount + sphereCount) : boxCount;
+      if (!isSphere) boxCount++;
+      else sphereCount++;
+      const off = slot * 20;
+      staging[off]      = r00 * scale;
+      staging[off + 1]  = r10 * scale;
+      staging[off + 2]  = r20 * scale;
+      staging[off + 3]  = 0;
+      staging[off + 4]  = r01 * scale;
+      staging[off + 5]  = r11 * scale;
+      staging[off + 6]  = r21 * scale;
+      staging[off + 7]  = 0;
+      staging[off + 8]  = r02 * scale;
+      staging[off + 9]  = r12 * scale;
+      staging[off + 10] = r22 * scale;
+      staging[off + 11] = 0;
+      staging[off + 12] = px;
+      staging[off + 13] = py;
+      staging[off + 14] = pz;
+      staging[off + 15] = 1;
+      staging[off + 16] = cr;
+      staging[off + 17] = cg;
+      staging[off + 18] = cb;
+      staging[off + 19] = 1;
+    }
+
+    // Player capsule instance (packed after the spheres).
+    let capsuleFirst = 0;
+    let capsuleVertCount = 0;
+    if (this.playerHitbox && this.hitboxCapsuleVB) {
+      const ph = this.playerHitbox;
+      const cylHalfHeight = Math.max(0, (ph.height - 2 * ph.radius) / 2);
+      // Regenerate capsule geometry when dimensions change.
+      const key = `${ph.radius}|${cylHalfHeight}`;
+      if (key !== this.capsuleCacheKey) {
+        const geo = generateCapsuleWireframe(ph.radius, cylHalfHeight);
+        // Recreate the vertex buffer at the new size.
+        this.hitboxCapsuleVB.destroy();
+        this.hitboxCapsuleVB = device.createBuffer({
+          label: "hitbox-capsule-vb",
+          size: geo.byteLength,
+          usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+        });
+        device.queue.writeBuffer(this.hitboxCapsuleVB, 0, geo);
+        this.hitboxCapsuleVertexCount = geo.length / 3;
+        this.capsuleCacheKey = key;
+      }
+      capsuleVertCount = this.hitboxCapsuleVertexCount;
+      capsuleFirst = boxCount + sphereCount;
+      const off = capsuleFirst * 20;
+      // Capsule is centered at origin (cylinder at y=0); translate to feet + height/2.
+      const cy = ph.y + ph.height / 2;
+      // Identity rotation + uniform scale 1 (geometry already at dimensions).
+      staging[off]      = 1; staging[off + 1] = 0; staging[off + 2]  = 0; staging[off + 3]  = 0;
+      staging[off + 4]  = 0; staging[off + 5] = 1; staging[off + 6]  = 0; staging[off + 7]  = 0;
+      staging[off + 8]  = 0; staging[off + 9] = 0; staging[off + 10] = 1; staging[off + 11] = 0;
+      staging[off + 12] = ph.x;
+      staging[off + 13] = cy;
+      staging[off + 14] = ph.z;
+      staging[off + 15] = 1;
+      // Player — bright red.
+      staging[off + 16] = 1.0;
+      staging[off + 17] = 0.15;
+      staging[off + 18] = 0.1;
+      staging[off + 19] = 1;
+    }
+
+    const totalInstances = boxCount + sphereCount + (capsuleVertCount > 0 ? 1 : 0);
+
+    pass.setPipeline(this.hitboxPipeline);
+    pass.setBindGroup(0, this.hitboxBindGroup);
+
+    // Collect hull wireframe instances into staging (after box/sphere/capsule
+    // slots). Each hull has a unique vertex buffer (per contentId), so we
+    // can't GPU-instance across different hulls — but we CAN write all
+    // instance matrices into one buffer and draw each hull with the correct
+    // instance_index offset. This avoids the bug where multiple per-draw
+    // writeBuffer calls in the same pass all overwrite slot 0.
+    //
+    // The SAB SHAPE field is the single source of truth: the sim writes 2
+    // when it successfully created a convex hull collider, 0/1 otherwise.
+    // We only draw a hull wireframe when the sim says shape=2. We never
+    // guess based on model availability — that was the source of the
+    // debug/physics divergence.
+    const nodeToContent = this.nodeToContent;
+    const hullDraws: { vb: GPUBuffer; vertCount: number; instanceIdx: number }[] = [];
+    let hullInstanceIdx = totalInstances;
+    for (let i = 0; i < count; i++) {
+      const sv = reader.getEntitySlotDirect(i);
+      const u32 = sv.u32;
+      const f32 = sv.f32;
+      const type = u32[ENT.TYPE];
+      if (type !== EntityType.Prop) continue;
+      // Only draw hull wireframe when the sim says this entity has a hull.
+      const shape = f32[ENT_DATA.SHAPE + ENT.DATA];
+      if (shape !== 2) continue;
+      const nodeIdRaw = u32[ENT.ID];
+      if (nodeIdRaw === 0) continue;
+      const contentId = nodeToContent.get(`prop-${nodeIdRaw}`);
+      if (!contentId) continue;
+      const hw = this.getHullWireframe(contentId);
+      if (!hw) continue;
+      const ioff = i * 8;
+      const px = interp[ioff];
+      const py = interp[ioff + 1];
+      const pz = interp[ioff + 2];
+      const scale = interp[ioff + 7] || 1.0;
+      const rx = interp[ioff + 3];
+      const ry = interp[ioff + 4];
+      const rz = interp[ioff + 5];
+      const rw = interp[ioff + 6];
+      const ql = Math.sqrt(rx * rx + ry * ry + rz * rz + rw * rw) || 1;
+      const qx = rx / ql, qy = ry / ql, qz = rz / ql, qw = rw / ql;
+      const r00 = 1 - 2 * (qy * qy + qz * qz);
+      const r01 = 2 * (qx * qy - qz * qw);
+      const r02 = 2 * (qx * qz + qy * qw);
+      const r10 = 2 * (qx * qy + qz * qw);
+      const r11 = 1 - 2 * (qx * qx + qz * qz);
+      const r12 = 2 * (qy * qz - qx * qw);
+      const r20 = 2 * (qx * qz - qy * qw);
+      const r21 = 2 * (qy * qz + qx * qw);
+      const r22 = 1 - 2 * (qx * qx + qy * qy);
+      const off = hullInstanceIdx * 20;
+      staging[off]      = r00 * scale;
+      staging[off + 1]  = r10 * scale;
+      staging[off + 2]  = r20 * scale;
+      staging[off + 3]  = 0;
+      staging[off + 4]  = r01 * scale;
+      staging[off + 5]  = r11 * scale;
+      staging[off + 6]  = r21 * scale;
+      staging[off + 7]  = 0;
+      staging[off + 8]  = r02 * scale;
+      staging[off + 9]  = r12 * scale;
+      staging[off + 10] = r22 * scale;
+      staging[off + 11] = 0;
+      staging[off + 12] = px;
+      staging[off + 13] = py;
+      staging[off + 14] = pz;
+      staging[off + 15] = 1;
+      staging[off + 16] = 1.0; // magenta
+      staging[off + 17] = 0.1;
+      staging[off + 18] = 0.9;
+      staging[off + 19] = 1;
+      hullDraws.push({ vb: hw.vb, vertCount: hw.vertCount, instanceIdx: hullInstanceIdx });
+      hullInstanceIdx++;
+    }
+
+    // Upload ALL instances (boxes + spheres + capsule + hulls) in one write.
+    const grandTotal = hullInstanceIdx;
+    if (grandTotal === 0) return;
+    const upload = new Float32Array(grandTotal * 20);
+    upload.set(staging.subarray(0, grandTotal * 20));
+    device.queue.writeBuffer(this.hitboxInstanceBuffer, 0, upload);
+
+    // Boxes (instances [0, boxCount))
+    if (boxCount > 0 && this.hitboxBoxVB) {
+      pass.setVertexBuffer(0, this.hitboxBoxVB);
+      pass.draw(WIRE_BOX_VERTEX_COUNT, boxCount, 0, 0);
+    }
+    // Spheres (instances [boxCount, boxCount + sphereCount))
+    if (sphereCount > 0 && this.hitboxSphereVB) {
+      pass.setVertexBuffer(0, this.hitboxSphereVB);
+      pass.draw(WIRE_SPHERE_VERTEX_COUNT, sphereCount, 0, boxCount);
+    }
+    // Player capsule (instance at capsuleFirst)
+    if (capsuleVertCount > 0 && this.hitboxCapsuleVB) {
+      pass.setVertexBuffer(0, this.hitboxCapsuleVB);
+      pass.draw(capsuleVertCount, 1, 0, capsuleFirst);
+    }
+    // Hull wireframes (each at its own instance slot, one draw per hull).
+    for (const hd of hullDraws) {
+      pass.setVertexBuffer(0, hd.vb);
+      pass.draw(hd.vertCount, 1, 0, hd.instanceIdx);
     }
   }
 

@@ -73,6 +73,8 @@ const _velOut: [number, number, number] = [0, 0, 0];
 interface PropRecord {
   contentId: string;
   body: PhysicsBody;
+  /** Current collider id on the body (so we can remove/swap it for a hull). */
+  colliderId: number;
   type: EntityType;
   slotIdx: number;
   shape: "box" | "sphere";
@@ -82,6 +84,13 @@ interface PropRecord {
   restitution: number;
   friction: number;
   gravityScale: number;
+  /**
+   * Convex hull vertices in body-local space (already scaled by spawn scale),
+   * once the renderer has derived them from the loaded mesh. When present,
+   * body recreation (fun mode / physics update) re-applies a convex collider
+   * instead of the placeholder box/sphere.
+   */
+  hull?: Float32Array;
   /** Remaining lifetime in seconds; 0 = permanent. */
   lifetime?: number;
   /** Stub: durability/HP (not yet consumed by damage systems). */
@@ -256,6 +265,22 @@ function applyPose(pose: PoseState): void {
 }
 
 // ── Create a physics body for a prop ──
+/** Computes the axis-aligned bbox volume of a flat point cloud (stride 3). */
+function hullBBoxVolume(vertices: Float32Array): number {
+  let minX = Infinity, minY = Infinity, minZ = Infinity;
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  for (let i = 0; i < vertices.length; i += 3) {
+    const x = vertices[i], y = vertices[i + 1], z = vertices[i + 2];
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+    if (z < minZ) minZ = z;
+    if (x > maxX) maxX = x;
+    if (y > maxY) maxY = y;
+    if (z > maxZ) maxZ = z;
+  }
+  return Math.max(maxX - minX, 0) * Math.max(maxY - minY, 0) * Math.max(maxZ - minZ, 0);
+}
+
 function createPropBody(
   position: [number, number, number],
   rotation: [number, number, number, number],
@@ -268,7 +293,10 @@ function createPropBody(
   gravityScale: number,
   ccdEnabled: boolean = false,
   entityIndex?: number,
-): PhysicsBody {
+  // Optional convex hull vertices (body-local, already scaled). When present,
+  // the collider is a convex hull instead of the placeholder box/sphere.
+  hull?: Float32Array,
+): { body: PhysicsBody; colliderId: number; shape: number } {
   if (!physicsApi) throw new Error("Physics not initialized");
   const entity: Entity = { index: entityIndex ?? nextSlotIdx, generation: 0 };
   const bodyDesc: BodyDesc = {
@@ -284,18 +312,35 @@ function createPropBody(
     angularDamping: 0.5,
   };
   const body = physicsApi.createBody(entity, bodyDesc);
-  const colliderDesc: ColliderDesc = {
-    shape: shape === "box"
-      ? { type: "box", halfExtents }
-      : { type: "sphere", radius },
-    restitution,
-    friction,
-    density: mass > 0 ? mass / (shape === "box"
-      ? (8 * halfExtents[0] * halfExtents[1] * halfExtents[2])
-      : (4 / 3 * Math.PI * radius ** 3)) : 1.0,
-  };
-  physicsApi.addCollider(body, colliderDesc);
-  return body;
+  let colliderDesc: ColliderDesc;
+  let actualShape: number; // 0=box, 1=sphere, 2=hull
+  if (hull && hull.length >= 9 && physicsApi.testConvexHull(hull)) {
+    // Convex hull from the mesh-derived point cloud. Density is derived from
+    // the hull's bbox volume so the body's mass stays close to the configured
+    // value (Rapier computes mass = density × hull volume).
+    const vol = hullBBoxVolume(hull);
+    colliderDesc = {
+      shape: { type: "convex", vertices: hull },
+      restitution,
+      friction,
+      density: mass > 0 && vol > 0 ? mass / vol : 1.0,
+    };
+    actualShape = 2;
+  } else {
+    colliderDesc = {
+      shape: shape === "box"
+        ? { type: "box", halfExtents }
+        : { type: "sphere", radius },
+      restitution,
+      friction,
+      density: mass > 0 ? mass / (shape === "box"
+        ? (8 * halfExtents[0] * halfExtents[1] * halfExtents[2])
+        : (4 / 3 * Math.PI * radius ** 3)) : 1.0,
+    };
+    actualShape = shape === "sphere" ? 1 : 0;
+  }
+  const colliderId = physicsApi.addCollider(body, colliderDesc);
+  return { body, colliderId, shape: actualShape };
 }
 
 // ── Spawn a prop ──
@@ -327,7 +372,7 @@ function spawnProp(
   const halfExt = 0.5 * propScale;
   const radius = 0.5 * propScale;
 
-  const body = createPropBody(position, rot, propShape, [halfExt, halfExt, halfExt], radius, mass, restitution, friction, gravityScale, false, slotIdx);
+  const { body, colliderId, shape: actualShape } = createPropBody(position, rot, propShape, [halfExt, halfExt, halfExt], radius, mass, restitution, friction, gravityScale, false, slotIdx);
 
   // Write to SAB
   const f32 = simWriter!.getEntityF32(slotIdx);
@@ -346,7 +391,7 @@ function spawnProp(
   f32[ENT_DATA.RESTITUTION + ENT.DATA] = restitution;
   f32[ENT_DATA.FRICTION + ENT.DATA] = friction;
   f32[ENT_DATA.GRAVITY_SCALE + ENT.DATA] = gravityScale;
-  f32[ENT_DATA.SHAPE + ENT.DATA] = propShape === "sphere" ? 1 : 0;
+  f32[ENT_DATA.SHAPE + ENT.DATA] = actualShape;
   f32[ENT_DATA.SQUISH_AMOUNT + ENT.DATA] = 0;
   f32[ENT_DATA.SQUISH_AXIS + ENT.DATA] = 0;
 
@@ -354,7 +399,7 @@ function spawnProp(
   simWriter!.markEntityDirty(slotIdx);
 
   propRecords.set(entityId, {
-    contentId, body, type: EntityType.Prop, slotIdx,
+    contentId, body, colliderId, type: EntityType.Prop, slotIdx,
     shape: propShape, halfExtents: [halfExt, halfExt, halfExt], radius: radius,
     mass, restitution, friction, gravityScale,
     strength: stubs?.strength, texture: stubs?.texture, shader: stubs?.shader,
@@ -434,7 +479,9 @@ function setFunMode(mode: FunMode): void {
     physicsApi!.getTranslationRaw(record.body, _posOut);
     physicsApi!.getRotationRaw(record.body, _rotOut);
     physicsApi!.destroyBody(record.body);
-    record.body = createPropBody(_posOut, _rotOut, record.shape, record.halfExtents, record.radius, record.mass, restitution, friction, gravityScale, false, record.slotIdx);
+    const rebuilt = createPropBody(_posOut, _rotOut, record.shape, record.halfExtents, record.radius, record.mass, restitution, friction, gravityScale, false, record.slotIdx, record.hull);
+    record.body = rebuilt.body;
+    record.colliderId = rebuilt.colliderId;
     record.restitution = restitution;
     record.friction = friction;
     record.gravityScale = gravityScale;
@@ -445,6 +492,7 @@ function setFunMode(mode: FunMode): void {
     f32[ENT_DATA.RESTITUTION + ENT.DATA] = restitution;
     f32[ENT_DATA.FRICTION + ENT.DATA] = friction;
     f32[ENT_DATA.GRAVITY_SCALE + ENT.DATA] = gravityScale;
+    f32[ENT_DATA.SHAPE + ENT.DATA] = rebuilt.shape;
     simWriter!.markEntityDirty(record.slotIdx);
   }
   events.emit("fun_mode_changed", { mode });
@@ -475,7 +523,7 @@ function processCommand(cmd: SimCommand): void {
       // Spawn a projectile — entityId = slotIdx + 1 (same invariant as props)
       const slotIdx = freeSlots.length > 0 ? freeSlots.shift()! : nextSlotIdx++;
       const entityId = slotIdx + 1;
-      const body = createPropBody(cmd.origin, [0, 0, 0, 1], "sphere", [0.1, 0.1, 0.1], 0.1, 0.5, 0.5, 0.3, 0.5, true, slotIdx);
+      const { body, colliderId } = createPropBody(cmd.origin, [0, 0, 0, 1], "sphere", [0.1, 0.1, 0.1], 0.1, 0.5, 0.5, 0.3, 0.5, true, slotIdx);
       physicsApi!.setLinearVelocityRaw(body, cmd.direction[0] * 50, cmd.direction[1] * 50, cmd.direction[2] * 50, true);
 
       const f32 = simWriter!.getEntityF32(slotIdx);
@@ -490,7 +538,7 @@ function processCommand(cmd: SimCommand): void {
       simWriter!.setEntityCount(nextSlotIdx);
       simWriter!.markEntityDirty(slotIdx);
       propRecords.set(entityId, {
-        contentId: "projectile", body, type: EntityType.Projectile, slotIdx,
+        contentId: "projectile", body, colliderId, type: EntityType.Projectile, slotIdx,
         shape: "sphere", halfExtents: [0.1, 0.1, 0.1], radius: 0.1,
         mass: 0.5, restitution: 0.5, friction: 0.3, gravityScale: 0.5,
         lifetime: 5.0, // despawn after 5 seconds
@@ -577,7 +625,9 @@ function processCommand(cmd: SimCommand): void {
       physicsApi.getRotationRaw(record.body, _rotOut);
       physicsApi.getLinearVelocityRaw(record.body, _velOut);
       physicsApi.destroyBody(record.body);
-      record.body = createPropBody(_posOut, _rotOut, record.shape, record.halfExtents, record.radius, newMass, newRestitution, newFriction, newGravityScale);
+      const rebuilt = createPropBody(_posOut, _rotOut, record.shape, record.halfExtents, record.radius, newMass, newRestitution, newFriction, newGravityScale, false, undefined, record.hull);
+      record.body = rebuilt.body;
+      record.colliderId = rebuilt.colliderId;
       record.mass = newMass;
       record.restitution = newRestitution;
       record.friction = newFriction;
@@ -597,6 +647,7 @@ function processCommand(cmd: SimCommand): void {
       f32[ENT_DATA.RESTITUTION + ENT.DATA] = newRestitution;
       f32[ENT_DATA.FRICTION + ENT.DATA] = newFriction;
       f32[ENT_DATA.GRAVITY_SCALE + ENT.DATA] = newGravityScale;
+      f32[ENT_DATA.SHAPE + ENT.DATA] = rebuilt.shape;
       simWriter!.markEntityDirty(record.slotIdx);
       break;
     }
@@ -609,6 +660,65 @@ function processCommand(cmd: SimCommand): void {
     }
     case "movePlayer": {
       pendingPlayerMove = cmd.desiredDelta;
+      break;
+    }
+    case "setPropColliderHull": {
+      // The renderer derived a convex hull from the loaded mesh and is asking
+      // us to swap the placeholder box/sphere collider for a convex one. We
+      // test whether Rapier can actually build a convex hull from these
+      // vertices (it returns null for degenerate/coplanar input and falls
+      // back to a 0.5m ball — which would NOT match the mesh). If the test
+      // fails, we keep the placeholder box and write shape=0 to the SAB so
+      // the debug overlay shows the truth. The SAB SHAPE field is the single
+      // source of truth for what collider is actually in use.
+      const record = propRecords.get(cmd.entityId);
+      if (!record || !physicsApi) break;
+      const verts = cmd.vertices instanceof Float32Array
+        ? cmd.vertices
+        : new Float32Array(cmd.vertices);
+      if (verts.length < 9) break; // need at least 3 points
+      // Test if Rapier can build a convex hull from these vertices.
+      if (!physicsApi.testConvexHull(verts)) {
+        console.log(`[Hull] entity ${cmd.entityId}: Rapier convexHull returned null — keeping placeholder ${record.shape}`);
+        // Keep the placeholder. Ensure SAB reflects the placeholder shape.
+        const f32 = simWriter!.getEntityF32(record.slotIdx);
+        f32[ENT_DATA.SHAPE + ENT.DATA] = record.shape === "sphere" ? 1 : 0;
+        break;
+      }
+      record.hull = verts;
+      const oldColliderId = record.colliderId;
+      // Diagnostic: inspect the live Rapier collider BEFORE the swap
+      const oldShapeType = physicsApi.getColliderShapeType(record.body, oldColliderId);
+      const oldCount = physicsApi.getColliderCount(record.body);
+      console.log(`[Hull] entity ${cmd.entityId}: BEFORE swap — colliderId=${oldColliderId} shapeType=${oldShapeType} (1=Cuboid,9=ConvexPolyhedron,0=Ball) colliderCount=${oldCount}`);
+      physicsApi.removeCollider(record.body, oldColliderId);
+      const vol = hullBBoxVolume(verts);
+      const newColliderId = physicsApi.addCollider(record.body, {
+        shape: { type: "convex", vertices: verts },
+        restitution: record.restitution,
+        friction: record.friction,
+        density: record.mass > 0 && vol > 0 ? record.mass / vol : 1.0,
+      });
+      record.colliderId = newColliderId;
+      // Diagnostic: inspect the live Rapier collider AFTER the swap
+      const newShapeType = physicsApi.getColliderShapeType(record.body, newColliderId);
+      const newCount = physicsApi.getColliderCount(record.body);
+      // Write shape=2 (hull) to the SAB — this is the single source of truth
+      // the renderer reads to decide what debug wireframe to draw.
+      const f32 = simWriter!.getEntityF32(record.slotIdx);
+      // Only write shape=2 if the live Rapier collider is actually a convex polyhedron.
+      // If Rapier fell back to a ball (shapeType=0) or the swap failed, keep the
+      // placeholder shape so the debug overlay shows the truth.
+      if (newShapeType === 9 && newCount === 1) {
+        f32[ENT_DATA.SHAPE + ENT.DATA] = 2;
+      } else {
+        // The swap failed or Rapier didn't install a convex polyhedron.
+        // Restore the placeholder shape in the SAB to match reality.
+        f32[ENT_DATA.SHAPE + ENT.DATA] = record.shape === "sphere" ? 1 : 0;
+        console.warn(`[Hull] entity ${cmd.entityId}: SWAP FAILED — newShapeType=${newShapeType} (expected 9=ConvexPolyhedron) colliderCount=${newCount}. Reverting to placeholder.`);
+      }
+      physicsApi.wakeUp(record.body);
+      console.log(`[Hull] entity ${cmd.entityId}: ${verts.length / 3} pts, oldCollider=${oldColliderId}(shape=${oldShapeType}) newCollider=${newColliderId}(shape=${newShapeType}) count=${newCount}, shape=${f32[ENT_DATA.SHAPE + ENT.DATA]}`);
       break;
     }
   }

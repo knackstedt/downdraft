@@ -176,6 +176,21 @@ export class RapierPhysicsBackend implements PhysicsBackend {
     }
   }
 
+  testConvexHull(vertices: Float32Array): boolean {
+    if (!this.lib?.testConvexHull) return false;
+    return this.lib.testConvexHull(vertices);
+  }
+
+  getColliderShapeType(body: PhysicsBody, colliderId: number): number {
+    if (!this.lib?.getColliderShapeType) return -1;
+    return this.lib.getColliderShapeType(body.realmId, colliderId);
+  }
+
+  getColliderCount(body: PhysicsBody): number {
+    if (!this.lib?.getColliderCount) return -1;
+    return this.lib.getColliderCount(body.realmId, body.id);
+  }
+
   setColliderPosition(realmId: number, colliderId: number, pos: [number, number, number]): void {
     if (this.lib && this.lib.setColliderPosition) {
       this.lib.setColliderPosition(realmId, colliderId, pos);

@@ -81,6 +81,15 @@ const POSE_SPEED_MUL: Record<PoseState, number> = {
   [PoseState.Crouching]: 0.6,
   [PoseState.Prone]: 0.25,
 };
+// Player capsule collider dimensions per pose. Mirrors POSE_CONFIG in
+// sim-worker-web.ts so the F1 hitbox overlay can render an accurate capsule
+// without a round-trip to the sim. height = total capsule height, radius =
+// capsule radius. The sim is authoritative; this is a renderer-side mirror.
+const POSE_COLLIDER: Record<PoseState, { height: number; radius: number }> = {
+  [PoseState.Standing]: { height: 1.8, radius: 0.4 },
+  [PoseState.Crouching]: { height: 1.2, radius: 0.4 },
+  [PoseState.Prone]: { height: 0.6, radius: 0.3 },
+};
 // Eye height is interpolated each frame toward `targetEyeHeight` so pose
 // transitions (stand↔crouch↔prone) ease smoothly instead of snapping the
 // camera. The sim sets the target via pose_changed/player_moved events; the
@@ -172,6 +181,27 @@ startGame({
           const slot = reader.getEntitySlot(slotIdx);
           slot.u32[ENT.ID] = nodeIdNum;
         }
+      }
+
+      // Derive a lower-resolution convex hull from the loaded mesh and swap
+      // the placeholder box collider for a mesh-fitted convex collider. The
+      // hull is in mesh-local space; scale it by the prop's spawn scale so it
+      // matches the rendered mesh in the body's local frame.
+      const hull = renderer.getColliderHull(data.contentId);
+      console.log(`[prop_spawned] contentId=${data.contentId} hull=${hull ? `${hull.length / 3}pts` : "null"} scale=${data.scale ?? 1.0}`);
+      if (hull && hull.length >= 9) {
+        const scale = data.scale ?? 1.0;
+        // Always clone — the cached hull Float32Array is shared across all
+        // spawns of this contentId. Sending it directly risks the worker
+        // proxy detaching the underlying ArrayBuffer, breaking subsequent
+        // spawns of the same model.
+        const scaled = new Float32Array(hull.length);
+        for (let i = 0; i < scaled.length; i++) scaled[i] = hull[i] * scale;
+        (ctx.sim as SimWebWorker).sendCommand({
+          type: "setPropColliderHull",
+          entityId: data.entityId,
+          vertices: scaled,
+        });
       }
 
       // Reseed the interpolation buffer so the prop doesn't interpolate from
@@ -737,6 +767,15 @@ startGame({
           useGameStore.getState().toggleContentBrowser();
           break;
         case "KeyP": toggleDomPanel(ctx, "palette"); break;
+        case "F1": {
+          // Toggle hitbox/collider debug overlay for all props + the player.
+          e.preventDefault();
+          const r1 = renderer as WebGPURenderer;
+          const next = !r1.isShowHitboxes();
+          r1.setShowHitboxes(next);
+          console.log(`[Debug] Hitboxes: ${next ? "ON" : "OFF"}`);
+          break;
+        }
         case "F5": e.preventDefault(); ctx.save!("autosave"); break;
         case "F9": e.preventDefault(); ctx.load!("autosave"); break;
         case "Digit1": weaponController.setTool(ToolType.Physgun); s.setActiveTool(ToolType.Physgun); (ctx as any)._domHud?.updateToolBtns?.(); break;
@@ -808,6 +847,10 @@ startGame({
       paintSystem?.tick();
       vrModule?.tick(dt);
       const r = renderer as WebGPURenderer;
+      // Feed the player's current capsule dimensions to the renderer so the
+      // F1 hitbox overlay can draw an accurate player collider.
+      const pc = POSE_COLLIDER[playerState.pose];
+      r.setPlayerHitbox(playerState.pos[0], playerState.pos[1], playerState.pos[2], pc.height, pc.radius);
       // Forward the physgun's hover target to the renderer so the looked-at
       // prop gets the outline shader. Only relevant when the physgun is active.
       r.setHoverEntity(
@@ -1329,6 +1372,7 @@ function buildDomHud(
         ["F5", "Save game"],
         ["F9", "Load game"],
         ["V", "Toggle VR"],
+        ["F1", "Toggle hitbox/collider overlay (props + player)"],
         ["ESC", "Open / close this menu"],
         ["W/S", "Menu: navigate up/down"],
         ["Space", "Menu: activate entry / enter sub-menu"],
