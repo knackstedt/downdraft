@@ -347,7 +347,24 @@ pub extern "C" fn dd_devtools_set_profile(handle: *mut DevtoolsState, buf: *cons
 pub extern "C" fn dd_devtools_set_metrics(handle: *mut DevtoolsState, buf: *const u8, len: u64) {
     if let Some(s) = unsafe_mut(handle) {
         if let Some(slice) = unsafe { read_buf(buf, len) } {
-            s.metrics = decode_metrics(slice);
+            let new_metrics = decode_metrics(slice);
+            // Merge new samples into existing history (cap 120 samples per slot).
+            const MAX_HISTORY: usize = 120;
+            for new_slot in &new_metrics.slots {
+                if let Some(existing) = s.metrics.slots.iter_mut().find(|e| e.slot_index == new_slot.slot_index) {
+                    existing.history.extend(new_slot.history.iter().cloned());
+                    if existing.history.len() > MAX_HISTORY {
+                        let drop = existing.history.len() - MAX_HISTORY;
+                        existing.history.drain(0..drop);
+                    }
+                } else {
+                    let mut slot = new_slot.clone();
+                    if slot.history.len() > MAX_HISTORY {
+                        slot.history.drain(0..slot.history.len() - MAX_HISTORY);
+                    }
+                    s.metrics.slots.push(slot);
+                }
+            }
         }
     }
 }
