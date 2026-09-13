@@ -137,7 +137,7 @@ pub fn render(state: &mut DevtoolsState, ui: &mut egui::Ui) {
                     // aligned columns, with alternating row backgrounds for
                     // readability (Chrome DevTools style).
                     let row_h = 18.0;
-                    let stripe = egui::Color32::from_rgba_premultiplied(255, 255, 255, 10);
+                    let stripe = egui::Color32::from_rgb(0x22, 0x23, 0x26);
                     for (idx, e) in display.iter().enumerate() {
                         let (h, m, s, ms) = if e.timestamp > 0.0 {
                             let secs = (e.timestamp / 1000.0) as u64;
@@ -152,17 +152,17 @@ pub fn render(state: &mut DevtoolsState, ui: &mut egui::Ui) {
                         let time_str = format!("{:02}:{:02}:{:02}.{:03}", h, m, s, ms);
                         let color = severity_color(e.severity);
 
-                        // Row background stripe — paint the full row width
-                        // using the allocated row rect, not before the row.
+                        // Paint stripe background before the horizontal layout,
+                        // using the full available row rect from the parent UI.
+                        if idx % 2 == 1 {
+                            let rect = ui.available_rect_before_wrap();
+                            ui.painter().rect_filled(
+                                egui::Rect::from_min_size(rect.min, egui::vec2(rect.width(), row_h)),
+                                0.0,
+                                stripe,
+                            );
+                        }
                         let row_resp = ui.horizontal(|ui| {
-                            if idx % 2 == 1 {
-                                let rect = ui.available_rect_before_wrap();
-                                ui.painter().rect_filled(
-                                    egui::Rect::from_min_size(rect.min, egui::vec2(rect.width(), row_h)),
-                                    0.0,
-                                    stripe,
-                                );
-                            }
                             ui.add(egui::Label::new(
                                 egui::RichText::new(&time_str)
                                     .color(egui::Color32::from_gray(130))
