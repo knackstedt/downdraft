@@ -101,15 +101,15 @@ pub fn render(state: &mut DevtoolsState, ui: &mut egui::Ui) {
                     // Header row
                     ui.horizontal(|ui| {
                         ui.add(egui::Label::new(
-                            egui::RichText::new("Time").color(egui::Color32::from_gray(140)),
+                            egui::RichText::new("Time").color(egui::Color32::from_gray(140)).monospace(),
                         ));
                         ui.add_space(56.0);
                         ui.add(egui::Label::new(
-                            egui::RichText::new("Thread").color(egui::Color32::from_gray(140)),
+                            egui::RichText::new("Thread").color(egui::Color32::from_gray(140)).monospace(),
                         ));
                         ui.add_space(64.0);
                         ui.add(egui::Label::new(
-                            egui::RichText::new("Message").color(egui::Color32::from_gray(140)),
+                            egui::RichText::new("Message").color(egui::Color32::from_gray(140)).monospace(),
                         ));
                     });
                     ui.separator();
@@ -133,10 +133,52 @@ pub fn render(state: &mut DevtoolsState, ui: &mut egui::Ui) {
                         );
                     }
 
-                    // Render entries as individual labels (not Grid) to avoid
-                    // egui Grid/striped tessellation issues with many rows.
-                    for e in &display {
-                        ui.label(egui::RichText::new(e.text.clone()).color(severity_color(e.severity)));
+                    // Render entries with timestamp, thread, and message in
+                    // aligned columns, with alternating row backgrounds for
+                    // readability (Chrome DevTools style).
+                    let row_h = 16.0;
+                    let stripe = egui::Color32::from_rgba_premultiplied(255, 255, 255, 6);
+                    for (idx, e) in display.iter().enumerate() {
+                        let (h, m, s, ms) = if e.timestamp > 0.0 {
+                            let secs = (e.timestamp / 1000.0) as u64;
+                            let ms_part = (e.timestamp as u64) % 1000;
+                            let h = (secs / 3600) % 24;
+                            let m = (secs / 60) % 60;
+                            let s = secs % 60;
+                            (h, m, s, ms_part)
+                        } else {
+                            (0, 0, 0, 0)
+                        };
+                        let time_str = format!("{:02}:{:02}:{:02}.{:03}", h, m, s, ms);
+                        let color = severity_color(e.severity);
+
+                        // Row background stripe
+                        if idx % 2 == 1 {
+                            let rect = ui.available_rect_before_wrap();
+                            ui.painter().rect_filled(
+                                egui::Rect::from_min_size(rect.min, egui::vec2(rect.width(), row_h)),
+                                0.0,
+                                stripe,
+                            );
+                        }
+
+                        ui.horizontal(|ui| {
+                            ui.add(egui::Label::new(
+                                egui::RichText::new(&time_str)
+                                    .color(egui::Color32::from_gray(120))
+                                    .monospace(),
+                            ));
+                            ui.add_space(8.0);
+                            ui.add(egui::Label::new(
+                                egui::RichText::new(&e.thread)
+                                    .color(egui::Color32::from_gray(150))
+                                    .monospace(),
+                            ));
+                            ui.add_space(8.0);
+                            ui.add(egui::Label::new(
+                                egui::RichText::new(&e.text).color(color),
+                            ));
+                        });
                     }
         });
 
