@@ -80,25 +80,23 @@ pub fn render(state: &mut DevtoolsState, ui: &mut egui::Ui) {
     let repl_h = 28.0;
     let log_h = (avail.y - repl_h - 8.0).max(64.0);
 
-    // Build the filtered, displayed list (newest last, cap 300).
+    // Build the filtered, displayed list (newest last, cap 200 to keep
+    // tessellated paint jobs within the FFI scratch buffer).
     let display: Vec<&crate::state::ConsoleEntry> = console
         .entries
         .iter()
         .rev()
         .filter(|e| pass_filter(e.severity, console.filter))
-        .take(300)
+        .take(200)
         .collect::<Vec<_>>()
         .into_iter()
         .rev()
         .collect();
 
-    egui::Frame::group(ui.style())
-        .inner_margin(0.0)
+    egui::ScrollArea::vertical()
+        .max_height(log_h)
+        .auto_shrink([false, false])
         .show(ui, |ui| {
-            egui::ScrollArea::vertical()
-                .max_height(log_h)
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
                     // Header row
                     ui.horizontal(|ui| {
                         ui.add(egui::Label::new(
@@ -134,29 +132,11 @@ pub fn render(state: &mut DevtoolsState, ui: &mut egui::Ui) {
                         );
                     }
 
-                    egui::Grid::new("console_log_grid")
-                        .num_columns(3)
-                        .spacing([8.0, 2.0])
-                        .striped(true)
-                        .show(ui, |ui| {
-                            for e in &display {
-                                let time = format_time(e.timestamp);
-                                ui.label(
-                                    egui::RichText::new(time)
-                                        
-                                        .color(egui::Color32::from_gray(140)),
-                                );
-                                ui.label(
-                                    egui::RichText::new(e.thread.clone())
-                                        
-                                        .color(thread_color(&e.thread)),
-                                );
-                                let color = severity_color(e.severity);
-                                ui.label(egui::RichText::new(e.text.clone()).color(color));
-                                ui.end_row();
-                            }
-                        });
-                });
+                    // Render entries as individual labels (not Grid) to avoid
+                    // egui Grid/striped tessellation issues with many rows.
+                    for e in &display {
+                        ui.label(egui::RichText::new(e.text.clone()).color(severity_color(e.severity)));
+                    }
         });
 
     ui.add_space(4.0);

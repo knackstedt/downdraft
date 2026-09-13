@@ -104,7 +104,7 @@ export class NativeDebuggerHost {
   private renderer: EguiRenderer | null = null;
   private blitPass: any = null;
   private handle: DevtoolsHandle | null = null;
-  private scratch: { buf: Uint8Array } = { buf: new Uint8Array(1 << 20) }; // 1MB initial
+  private scratch: { buf: Uint8Array } = { buf: new Uint8Array(1 << 22) }; // 4MB initial
   private sceneShim: DebuggerSceneShim;
   private _visible = false;
   private _ready = false;
@@ -208,8 +208,10 @@ export class NativeDebuggerHost {
   /** Hide the debugger. */
   hide(): void { this._visible = false; }
 
-  /** Per-frame update: pump CDP events, mirror data, run egui, render. */
-  update(): void {
+  /** Per-frame update: pump CDP events, mirror data, run egui, render.
+   *  If `externalEncoder` is provided, the egui render pass is encoded into
+   *  it (no separate submit) to ensure proper ordering with the blit pass. */
+  update(externalEncoder?: GPUCommandEncoder): void {
     if (!this._ready || this.disposed) return;
     if (!this._visible) return;
     if (!this.handle || !this.renderer) return;
@@ -232,7 +234,7 @@ export class NativeDebuggerHost {
     // 3. Render the PaintJobs into the UI texture.
     if (paintJobs) {
       try {
-        this.renderer.render(paintJobs);
+        this.renderer.render(paintJobs, externalEncoder);
       } catch (err) {
         console.error("[NativeDebuggerHost] egui render error:", err);
       }
