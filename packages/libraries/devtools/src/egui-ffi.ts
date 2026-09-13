@@ -514,25 +514,25 @@ export function encodeProfile(profile: {
   let off = 0;
   buf.writeUInt32LE(profile.nodes.length, off); off += 4;
   for (const n of profile.nodes) {
-    buf.writeUInt32LE(n.id, off); off += 4;
-    buf.writeUInt32LE(n.hitCount, off); off += 4;
+    buf.writeUInt32LE(Math.max(0, n.id) >>> 0, off); off += 4;
+    buf.writeUInt32LE(Math.max(0, n.hitCount) >>> 0, off); off += 4;
     const cf = Buffer.from(n.callFrame, "utf8");
     buf.writeUInt16LE(cf.length, off); off += 2;
     cf.copy(buf, off); off += cf.length;
     const url = Buffer.from(n.url, "utf8");
     buf.writeUInt16LE(url.length, off); off += 2;
     url.copy(buf, off); off += url.length;
-    buf.writeUInt32LE(n.line, off); off += 4;
+    buf.writeUInt32LE(Math.max(0, n.line) >>> 0, off); off += 4;
     buf.writeUInt32LE(n.children.length, off); off += 4;
     for (const c of n.children) {
-      buf.writeUInt32LE(c, off); off += 4;
+      buf.writeUInt32LE(Math.max(0, c) >>> 0, off); off += 4;
     }
   }
   buf.writeDoubleLE(profile.startUs, off); off += 8;
   buf.writeDoubleLE(profile.endUs, off); off += 8;
   buf.writeUInt32LE(profile.samples.length, off); off += 4;
   for (const s of profile.samples) {
-    buf.writeUInt32LE(s, off); off += 4;
+    buf.writeUInt32LE(Math.max(0, s) >>> 0, off); off += 4;
   }
   buf.writeUInt32LE(profile.timeDeltasUs.length, off); off += 4;
   for (const d of profile.timeDeltasUs) {

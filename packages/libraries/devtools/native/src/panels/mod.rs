@@ -50,18 +50,23 @@ pub fn render_tree_view(
     let by_id: HashMap<u32, &TreeNode> = nodes.iter().map(|n| (n.id, n)).collect();
 
     // Auto-expand root nodes on first render so the tree isn't empty.
+    // Only auto-expand for PIXI trees (kind=0); ECS trees (kind=1) have
+    // many flat root nodes and should not all be expanded.
     let roots = children.get(&-1).cloned().unwrap_or_default();
-    if roots.len() == 1 {
-        // Single root: expand it and its first-level children for a useful default view.
-        expanded.insert(roots[0]);
-        if let Some(first_level) = children.get(&(roots[0] as i32)) {
-            for &child_id in first_level {
-                expanded.insert(child_id);
+    let is_pixi = nodes.first().map(|n| n.kind == 0).unwrap_or(true);
+    if is_pixi {
+        if roots.len() == 1 {
+            // Single root: expand it and its first-level children for a useful default view.
+            expanded.insert(roots[0]);
+            if let Some(first_level) = children.get(&(roots[0] as i32)) {
+                for &child_id in first_level {
+                    expanded.insert(child_id);
+                }
             }
         }
-    }
-    for root_id in &roots {
-        expanded.insert(*root_id);
+        for root_id in &roots {
+            expanded.insert(*root_id);
+        }
     }
 
     for root_id in roots {

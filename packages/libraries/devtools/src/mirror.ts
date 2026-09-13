@@ -313,7 +313,12 @@ export class DevtoolsMirror {
       const limits = device?.limits;
       if (limits) {
         entries.push({ key: "Device Limits", value: "", isHeader: true });
-        entries.push({ key: "maxBufferSize", value: this.formatBytes(limits.maxBufferSize), isHeader: false });
+        // maxBufferSize from wgpu-native is a u64 BigInt that can exceed
+        // Number.MAX_SAFE_INTEGER (2^64-1). Cap at a sane display value.
+        const maxBuf = limits.maxBufferSize;
+        const maxBufNum = typeof maxBuf === "bigint" ? Number(maxBuf) : maxBuf;
+        const maxBufDisplay = maxBufNum > 4 * 1024 * 1024 * 1024 ? "4 GB (capped)" : this.formatBytes(maxBuf);
+        entries.push({ key: "maxBufferSize", value: maxBufDisplay, isHeader: false });
         entries.push({ key: "maxTextureDim2D", value: String(limits.maxTextureDimension2D), isHeader: false });
         entries.push({ key: "maxTextureDim3D", value: String(limits.maxTextureDimension3D), isHeader: false });
         entries.push({ key: "maxTextureArrayLayers", value: String(limits.maxTextureArrayLayers), isHeader: false });
@@ -455,6 +460,7 @@ export class DevtoolsMirror {
   /** Collect + push per-thread metrics from ProfilingSAB. */
   async pushMetrics(): Promise<void> {
     // Always include the main thread metrics (from performance API).
+    // Accumulate history locally so charts build up over time.
     const slots: any[] = [{
       slotIndex: 0,
       name: "main",

@@ -371,6 +371,11 @@ async function main() {
     } else if (key === "F12") {
       // Toggle the native debugger overlay
       debuggerHost?.toggle();
+      // Release mouse grab when the debugger is visible so the cursor shows.
+      const nativeWin = (globalThis as any).__nativeWindow;
+      if (debuggerHost?.visible) {
+        nativeWin?.grabInput?.(false);
+      }
     } else if (key === "F11") {
       captureScreenshotNow();
     } else if (keyCode === 73) { // I → Inventory
@@ -572,6 +577,32 @@ async function main() {
           for (let i = 0; i < 3; i++) {
             try { debuggerHost?.update(); } catch (e) { log.error("native-entry", `debuggerHost.update failed: ${e}`); }
             try { (renderer as any).renderOneFrame?.(); } catch {}
+          }
+
+          // Auto-record a CPU profile for the perf-recorder panel.
+          if (process.env.DEBUGGER_PANEL === "perf-recorder" && debuggerHost?.debuggerScene) {
+            const scene = debuggerHost.debuggerScene;
+            const dockX = (scene as any).getDockX?.() ?? (1280 - 560);
+            log.info("native-entry", "Auto-recording CPU profile for perf-recorder...");
+            // Click the Record button (center ~x=759, y=53)
+            scene.handlePointerDown(dockX + 39, 53);
+            try { debuggerHost?.update(); } catch {}
+            scene.handlePointerUp(dockX + 39, 53);
+            // Render frames to collect samples
+            for (let i = 0; i < 60; i++) {
+              try { debuggerHost?.update(); } catch {}
+              try { (renderer as any).renderOneFrame?.(); } catch {}
+            }
+            // Click Stop (center ~x=808, y=53)
+            scene.handlePointerDown(dockX + 88, 53);
+            try { debuggerHost?.update(); } catch {}
+            scene.handlePointerUp(dockX + 88, 53);
+            // Render a few frames to process the profile
+            for (let i = 0; i < 10; i++) {
+              try { debuggerHost?.update(); } catch {}
+              try { (renderer as any).renderOneFrame?.(); } catch {}
+            }
+            log.info("native-entry", "Auto-recording complete");
           }
 
           // Interaction test: simulate clicks + keyboard input

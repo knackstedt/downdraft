@@ -87,13 +87,15 @@ export class DebuggerSceneShim {
   }
   // ── Stubs for old DebuggerScene API (used by DEBUGGER_TEST) ──
   handlePointerDown(x: number, y: number): boolean { return this.host.handlePointerDown(x, y, 0, 0); }
+  handlePointerUp(x: number, y: number): boolean { return this.host.handlePointerUp(x, y, 0, 0); }
+  handlePointerMove(x: number, y: number): boolean { return this.host.handlePointerMove(x, y, 0, 0); }
   handleTextInput(text: string): boolean { return this.host.handleTextInput(text); }
   isTextInputActive(): boolean { return this.host.isTextInputActive(); }
   getActivePanel(): string { return ""; }
   getFocusedWidget(): string | null { return null; }
   getConsoleReplInput(): string { return ""; }
-  getDockX(): number { return 1280 - 520; }
-  get dockWidth(): number { return 520; }
+  getDockX(): number { return 1280 - 560; }
+  get dockWidth(): number { return 560; }
   getHits(): { regions: any[] } { return { regions: [] }; }
 }
 

@@ -121,6 +121,11 @@ pub extern "C" fn dd_devtools_resize(handle: *mut DevtoolsState, width: f32, hei
     if let Some(s) = s {
         s.width = width;
         s.height = height;
+        // Update egui's pixels_per_point so text renders at the actual
+        // window resolution instead of being upscaled (which causes blur).
+        // The dpr is the ratio of the current size to the initial size.
+        // We use 1.0 since native mode uses physical pixels directly.
+        s.ctx.set_pixels_per_point(1.0);
     }
 }
 
@@ -537,7 +542,7 @@ pub extern "C" fn dd_devtools_wants_text_input(handle: *mut DevtoolsState) -> i3
 const C_BG_DOCK: egui::Color32 = egui::Color32::from_rgb(0x20, 0x21, 0x24);
 const C_BG_PANEL: egui::Color32 = egui::Color32::from_rgb(0x1a, 0x1b, 0x1e);
 const C_BG_HEADER: egui::Color32 = egui::Color32::from_rgb(0x28, 0x29, 0x2c);
-const C_BG_HOVER: egui::Color32 = egui::Color32::from_rgba_premultiplied(255, 255, 255, 14);
+const C_BG_HOVER: egui::Color32 = egui::Color32::from_rgb(0x35, 0x37, 0x3c);
 const C_BG_ACTIVE: egui::Color32 = egui::Color32::from_rgb(0x2a, 0x2c, 0x31);
 const C_BORDER: egui::Color32 = egui::Color32::from_rgb(0x3c, 0x40, 0x43);
 const C_ACCENT: egui::Color32 = egui::Color32::from_rgb(0x8a, 0xb4, 0xf8);
@@ -635,13 +640,13 @@ fn build_dock_ui(state: &mut DevtoolsState, ctx: &egui::Context) {
             ui.painter().rect_filled(content_rect, 0.0, C_BG_PANEL);
 
             // Reserve a status bar at the bottom; render the panel in the rest.
-            let status_h = 18.0;
+            let status_h = 24.0;
             let avail = ui.available_size();
             let content_h = (avail.y - status_h - 6.0).max(64.0);
             egui::Frame::none()
                 .inner_margin(egui::Margin::same(4))
                 .show(ui, |ui| {
-                    ui.allocate_ui(egui::vec2(avail.x, content_h), |ui| {
+                    ui.allocate_ui(egui::vec2(ui.available_width(), content_h), |ui| {
                         panels::render_panel(state, ui);
                     });
                 });
@@ -698,8 +703,8 @@ fn render_tab_bar(state: &mut DevtoolsState, ui: &mut egui::Ui) {
 fn render_status_bar(state: &DevtoolsState, ui: &mut egui::Ui) {
     let rect = ui.max_rect();
     let bar = egui::Rect::from_min_size(
-        egui::pos2(rect.left(), rect.bottom() - 18.0),
-        egui::vec2(rect.width(), 18.0),
+        egui::pos2(rect.left(), rect.bottom() - 24.0),
+        egui::vec2(rect.width(), 24.0),
     );
     ui.painter().rect_filled(bar, 0.0, C_BG_HEADER);
     ui.painter().line_segment(
@@ -708,8 +713,8 @@ fn render_status_bar(state: &DevtoolsState, ui: &mut egui::Ui) {
     );
     ui.allocate_ui_at_rect(bar, |ui| {
         ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 10.0;
-            ui.add_space(6.0);
+            ui.spacing_mut().item_spacing.x = 12.0;
+            ui.add_space(8.0);
             // FPS from the most recent GPU frame-time sample.
             let fps = state
                 .gpu_info
@@ -729,11 +734,10 @@ fn render_status_bar(state: &DevtoolsState, ui: &mut egui::Ui) {
             // Right-aligned active panel name.
             let panel_name = state.active_panel.label();
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_space(6.0);
+                ui.add_space(8.0);
                 ui.label(
                     egui::RichText::new(panel_name)
-                        .color(C_TEXT_FAINT)
-                        .small(),
+                        .color(C_TEXT_DIM),
                 );
             });
         });
@@ -741,11 +745,11 @@ fn render_status_bar(state: &DevtoolsState, ui: &mut egui::Ui) {
 }
 
 fn status_label(ui: &mut egui::Ui, text: &str) {
-    ui.label(egui::RichText::new(text).color(C_TEXT_DIM).small());
+    ui.label(egui::RichText::new(text).color(C_TEXT_DIM));
 }
 
 fn status_chip(ui: &mut egui::Ui, text: &str, color: egui::Color32) {
-    ui.label(egui::RichText::new(text).color(color).small().strong());
+    ui.label(egui::RichText::new(text).color(color).strong());
 }
 
 // ============================================================================
