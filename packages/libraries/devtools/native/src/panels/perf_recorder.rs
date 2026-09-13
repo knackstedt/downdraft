@@ -84,6 +84,21 @@ pub fn render(state: &mut DevtoolsState, ui: &mut egui::Ui) {
         }
     }
 
+    // Compute per-node start time by accumulating self-time along the
+    // sample timeline. Each sample's node "owns" the time delta that
+    // follows it, so we can build a timeline of when each node was active.
+    let mut node_start: std::collections::HashMap<u32, f64> = std::collections::HashMap::new();
+    let mut node_end: std::collections::HashMap<u32, f64> = std::collections::HashMap::new();
+    let mut t = prof.start_us;
+    for (i, &s) in prof.samples.iter().enumerate() {
+        let dt = prof.time_deltas_us.get(i).copied().unwrap_or(0.0);
+        let start = node_start.entry(s).or_insert(t);
+        if *start > t { *start = t; }
+        let end = node_end.entry(s).or_insert(t + dt);
+        *end = t + dt;
+        t += dt;
+    }
+
     // Render the flame chart as stacked horizontal bars.
     let (resp, painter) = ui.allocate_painter(ui.available_size_before_wrap(), egui::Sense::hover());
     let rect = resp.rect;
@@ -114,9 +129,10 @@ pub fn render(state: &mut DevtoolsState, ui: &mut egui::Ui) {
         if self_t <= 0.0 && n.hit_count == 0 {
             continue;
         }
-        let start = prof.start_us; // simplified: place by self-time accumulation
-        // We approximate each node's span by its self-time at its depth.
-        let bar_w = (self_t / total_us * rect.width() as f64) as f32;
+        // Use computed start/end from the sample timeline.
+        let start = *node_start.get(&n.id).unwrap_or(&prof.start_us);
+        let end = *node_end.get(&n.id).unwrap_or(&(prof.start_us + self_t));
+        let bar_w = ((end - start) / total_us * rect.width() as f64) as f32;
         if bar_w < 1.0 {
             continue;
         }

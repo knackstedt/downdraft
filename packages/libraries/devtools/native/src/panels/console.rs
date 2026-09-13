@@ -136,8 +136,8 @@ pub fn render(state: &mut DevtoolsState, ui: &mut egui::Ui) {
                     // Render entries with timestamp, thread, and message in
                     // aligned columns, with alternating row backgrounds for
                     // readability (Chrome DevTools style).
-                    let row_h = 16.0;
-                    let stripe = egui::Color32::from_rgba_premultiplied(255, 255, 255, 6);
+                    let row_h = 18.0;
+                    let stripe = egui::Color32::from_rgba_premultiplied(255, 255, 255, 10);
                     for (idx, e) in display.iter().enumerate() {
                         let (h, m, s, ms) = if e.timestamp > 0.0 {
                             let secs = (e.timestamp / 1000.0) as u64;
@@ -152,26 +152,26 @@ pub fn render(state: &mut DevtoolsState, ui: &mut egui::Ui) {
                         let time_str = format!("{:02}:{:02}:{:02}.{:03}", h, m, s, ms);
                         let color = severity_color(e.severity);
 
-                        // Row background stripe
-                        if idx % 2 == 1 {
-                            let rect = ui.available_rect_before_wrap();
-                            ui.painter().rect_filled(
-                                egui::Rect::from_min_size(rect.min, egui::vec2(rect.width(), row_h)),
-                                0.0,
-                                stripe,
-                            );
-                        }
-
-                        ui.horizontal(|ui| {
+                        // Row background stripe — paint the full row width
+                        // using the allocated row rect, not before the row.
+                        let row_resp = ui.horizontal(|ui| {
+                            if idx % 2 == 1 {
+                                let rect = ui.available_rect_before_wrap();
+                                ui.painter().rect_filled(
+                                    egui::Rect::from_min_size(rect.min, egui::vec2(rect.width(), row_h)),
+                                    0.0,
+                                    stripe,
+                                );
+                            }
                             ui.add(egui::Label::new(
                                 egui::RichText::new(&time_str)
-                                    .color(egui::Color32::from_gray(120))
+                                    .color(egui::Color32::from_gray(130))
                                     .monospace(),
                             ));
                             ui.add_space(8.0);
                             ui.add(egui::Label::new(
                                 egui::RichText::new(&e.thread)
-                                    .color(egui::Color32::from_gray(150))
+                                    .color(egui::Color32::from_gray(160))
                                     .monospace(),
                             ));
                             ui.add_space(8.0);
@@ -179,6 +179,8 @@ pub fn render(state: &mut DevtoolsState, ui: &mut egui::Ui) {
                                 egui::RichText::new(&e.text).color(color),
                             ));
                         });
+                        // Ensure each row has a consistent height.
+                        let _ = row_resp;
                     }
         });
 
