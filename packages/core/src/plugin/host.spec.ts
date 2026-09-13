@@ -161,7 +161,7 @@ describe("PluginHost", () => {
     expect(order).toEqual(["dep", "child"]);
   });
 
-  it("unload disposes + removes from snapshot", async () => {
+  it("unload disposes + marks as pending in snapshot", async () => {
     const host = new PluginHost({ gameId: "test-game", engineVersion: "0.1.0" });
     let disposed = false;
     host.registerLoader(
@@ -175,7 +175,10 @@ describe("PluginHost", () => {
     await host.loadAll();
     host.unload("test-script");
     expect(disposed).toBe(true);
-    expect(host.snapshot().find((s) => s.id === "test-script")).toBeUndefined();
+    // Unloaded mods stay in the snapshot as "pending" so they can be re-enabled.
+    const snap = host.snapshot().find((s) => s.id === "test-script");
+    expect(snap).toBeDefined();
+    expect(snap!.status).toBe("pending");
   });
 
   it("game allowlist denies disallowed native perms", async () => {

@@ -377,7 +377,6 @@ export class PluginHost {
       }
     }
     this.active.delete(id);
-    this.discovered.delete(id);
     this.registry.unregister(id);
   }
 
@@ -391,7 +390,7 @@ export class PluginHost {
     for (let i = order.length - 1; i >= 0; i--) this.unload(order[i]);
   }
 
-  /** Reload a single plugin (dispose + re-discover + reload). */
+  /** Reload a single plugin (dispose + reload). */
   async reload(id: string): Promise<void> {
     const d = this.discovered.get(id);
     if (!d) {
@@ -399,7 +398,6 @@ export class PluginHost {
       return;
     }
     this.unload(id);
-    this.discovered.set(id, d);
     if (!this.registry.has(id)) this.registry.register(d.manifest);
     await this.loadOne(id);
   }

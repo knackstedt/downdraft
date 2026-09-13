@@ -221,6 +221,7 @@ export class PostProcessStack {
     effect: CustomEffect;
     pipeline: GPURenderPipeline;
     uniform: GPUBuffer;
+    uniformValues: Float32Array | null;
     enabled: boolean;
   }>();
 
@@ -639,8 +640,14 @@ export class PostProcessStack {
       size: uniformSize,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
-    const pipeline = this.makePipeline(effect.wgsl, this.ccLayout, HDR_FORMAT);
-    this.customEffects.set(effect.id, { effect, pipeline, uniform, enabled: false });
+    let pipeline: GPURenderPipeline;
+    try {
+      pipeline = this.makePipeline(effect.wgsl, this.ccLayout, HDR_FORMAT);
+    } catch (e) {
+      console.error(`[PostProcessStack] Failed to compile custom effect "${effect.id}":`, e);
+      throw e;
+    }
+    this.customEffects.set(effect.id, { effect, pipeline, uniform, uniformValues: null, enabled: false });
   }
 
   /** Unregister a custom effect. Destroys its pipeline + uniform buffer. */
@@ -687,7 +694,11 @@ export class PostProcessStack {
   setCustomEffectUniform(id: string, data: Float32Array): void {
     const e = this.customEffects.get(id);
     if (!e) throw new Error(`Custom effect "${id}" is not registered`);
-    this.device.queue.writeBuffer(e.uniform, 0, data as unknown as Float32Array<ArrayBuffer>);
+    // Store user settings (offset 3+); per-frame values (0-2) are written in applyCustomEffect.
+    const stored = new Float32Array(e.uniform.size / 4);
+    for (let i = 0; i < data.length && i < stored.length; i++) stored[i] = data[i];
+    e.uniformValues = stored;
+    this.device.queue.writeBuffer(e.uniform, 0, stored as unknown as Float32Array<ArrayBuffer>);
   }
 
   // ── Public API: per-effect setters ────────────────────────────────────────
@@ -966,6 +977,7 @@ export class PostProcessStack {
     depthView: GPUTextureView | null,
     canvasView: GPUTextureView,
     w: number, h: number,
+    time: number = 0,
   ): void {
     const active = CHAIN_ORDER.filter(id => this.enabled[id]);
     // Collect enabled custom effects grouped by order.
@@ -991,8 +1003,13 @@ export class PostProcessStack {
     //   [17..end] = Stylized (sobel..ascii)
     const HDR_END = 8, COLOR_END = 12, CAMERA_END = 17;
     const chain: Array<{ type: "builtin"; id: EffectId } | { type: "custom"; id: string }> = [];
-    for (let i = 0; i < active.length; i++) {
-      chain.push({ type: "builtin", id: active[i] });
+    // Iterate the full CHAIN_ORDER so custom effects are inserted at the
+    // correct group boundaries even when few built-in effects are enabled.
+    for (let i = 0; i < CHAIN_ORDER.length; i++) {
+      if (this.enabled[CHAIN_ORDER[i]]) {
+        chain.push({ type: "builtin", id: CHAIN_ORDER[i] });
+      }
+      // Insert custom effects at group boundaries (after the last effect in each group).
       if (i === HDR_END - 1) for (const cid of customByOrder["hdr"]) chain.push({ type: "custom", id: cid });
       if (i === COLOR_END - 1) for (const cid of customByOrder["color-grading"]) chain.push({ type: "custom", id: cid });
       if (i === CAMERA_END - 1) for (const cid of customByOrder["camera"]) chain.push({ type: "custom", id: cid });
@@ -1018,7 +1035,7 @@ export class PostProcessStack {
           const tmp = this.taaHistory; this.taaHistory = this.taaHistory2; this.taaHistory2 = tmp;
         }
       } else {
-        this.applyCustomEffect(encoder, entry.id, inputView, outputView, w, h);
+        this.applyCustomEffect(encoder, entry.id, inputView, outputView, w, h, time);
       }
       inputView = outputView;
       pingIdx = 1 - pingIdx;
@@ -1035,9 +1052,25 @@ export class PostProcessStack {
     inputView: GPUTextureView,
     outputView: GPUTextureView,
     w: number, h: number,
+    time: number,
   ): void {
     const e = this.customEffects.get(id);
     if (!e) return;
+    // Write per-frame values (inv_w, inv_h, time) to the first 3 floats.
+    // User settings start at offset 3 (set via setCustomEffectUniform).
+    const perFrame = new Float32Array(e.uniform.size / 4);
+    perFrame[0] = 1 / w;
+    perFrame[1] = 1 / h;
+    perFrame[2] = time;
+    // Preserve existing user settings (offset 3+).
+    const existing = e.uniformValues;
+    if (existing) {
+      for (let i = 3; i < existing.length && i < perFrame.length; i++) {
+        perFrame[i] = existing[i];
+      }
+    }
+    e.uniformValues = perFrame;
+    this.device.queue.writeBuffer(e.uniform, 0, perFrame as unknown as Float32Array<ArrayBuffer>);
     const bg = this.bg(this.ccLayout, [
       { binding: 0, resource: inputView },
       { binding: 1, resource: this.dummyTex.createView() },

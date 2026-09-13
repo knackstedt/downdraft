@@ -11,7 +11,7 @@
 // ============================================================================
 
 import type { ExtensionLoader } from "./host";
-import type { PluginManifest, ModAssetExtension, ModMapExtension, ModPhysicsExtension } from "./manifest";
+import type { ModAssetExtension, ModMapExtension, ModPhysicsExtension } from "./manifest";
 
 // ── Registry interfaces (game-implemented) ──
 //
@@ -21,9 +21,9 @@ import type { PluginManifest, ModAssetExtension, ModMapExtension, ModPhysicsExte
 
 /** Asset registry — registers meshes, textures, PBR materials, texture pipelines. */
 export interface AssetRegistry {
-  registerMesh(id: string, path: string, manifestId: string): Promise<void>;
+  registerMesh(id: string, path: string, manifestId: string, meta?: Record<string, unknown>): Promise<void>;
   unregisterMesh(id: string): Promise<void>;
-  registerTexture(id: string, path: string, manifestId: string): Promise<void>;
+  registerTexture(id: string, path: string, manifestId: string, meta?: Record<string, unknown>): Promise<void>;
   unregisterTexture(id: string): Promise<void>;
   registerPBRMaterial(id: string, path: string, manifestId: string, props: Record<string, unknown>): Promise<void>;
   unregisterPBRMaterial(id: string): Promise<void>;
@@ -71,10 +71,10 @@ export function createAssetLoader(registry: AssetRegistry): ExtensionLoader {
       const id = a.id;
       switch (a.kind) {
         case "mesh":
-          await registry.registerMesh(id, a.path, manifestId);
+          await registry.registerMesh(id, a.path, manifestId, a as Record<string, unknown>);
           return () => { registry.unregisterMesh(id); };
         case "texture":
-          await registry.registerTexture(id, a.path, manifestId);
+          await registry.registerTexture(id, a.path, manifestId, a as Record<string, unknown>);
           return () => { registry.unregisterTexture(id); };
         case "pbr-material":
           await registry.registerPBRMaterial(id, a.path, manifestId, a);
@@ -129,9 +129,11 @@ export function createPostfxShaderLoader(registry: ShaderRegistry): ExtensionLoa
     async load(manifest, ext) {
       const fx = ext as unknown as {
         id: string; name: string; wgsl: string; layout: string; order: string; uniforms?: number;
+        settings?: unknown;
       };
       await registry.registerPostfxEffect(fx.id, fx.name, fx.wgsl, manifest.id, {
         layout: fx.layout, order: fx.order, uniforms: fx.uniforms,
+        settings: fx.settings,
       });
       return () => { registry.unregisterPostfxEffect(fx.id); };
     },
