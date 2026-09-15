@@ -16,7 +16,7 @@ gcc -shared -fPIC -O2 -o libwgpu_shim.so wgpu_shim.c \
 
 echo "==> sdl_shim"
 gcc -shared -fPIC -O2 -o libsdl_shim.so sdl_shim.c \
-  -I./include -lSDL2
+  -I./include -L./lib -lwgpu_native -lSDL2 -Wl,-rpath,'$ORIGIN/lib'
 
 echo "==> image_shim"
 gcc -shared -fPIC -O2 -o libimage_shim.so image_shim.c
