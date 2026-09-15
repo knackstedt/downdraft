@@ -1899,10 +1899,10 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
         this.playerYOffset = 0;
       }
 
-      // The FBX models face +Y up (engine Y-up). The bundled character models
-      // face +X in their bind pose (engine forward is -Z), so rotate 90° CCW
-      // about +Y to face movement direction.
-      this.playerYawOffset = Math.PI / 2;
+      // The FBX models face +Y up (engine Y-up). The retargeted Mixamo clips
+      // animate the character facing +Z (Mixamo's convention), while the
+      // engine's forward is -Z — so apply a 180° facing offset.
+      this.playerYawOffset = Math.PI;
 
       this.playerModelId = modelId;
       console.log(`[WebGPURenderer] Player model loaded: ${modelId} (scale=${this.playerScale.toFixed(3)}, yOffset=${this.playerYOffset.toFixed(3)}, bones=${this.playerAnimator.boneCount}, bounds=${bounds ? `[${bounds.min[1].toFixed(2)},${bounds.max[1].toFixed(2)}]` : "none"})`);

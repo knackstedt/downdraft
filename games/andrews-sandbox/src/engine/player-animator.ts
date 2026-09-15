@@ -246,14 +246,16 @@ export class SandboxPlayerAnimator extends SkeletonAnimator {
     } else {
       // Just landed: clear the air state.
       this.inAirState = null;
+      // Hysteresis on both thresholds: once in Run, stay until speed drops
+      // below runExit; once in Walk, stay until below walkExit. Without this,
+      // velocity jitter near a threshold toggles states every frame — visible
+      // as a brief 1–10 frame flicker of the whole pose.
+      const cur = this.getCurrentState();
       if (velocity > runEnter) desired = "Run";
+      else if (cur === "Run" && velocity > runExit) desired = "Run";
       else if (velocity > walkEnter) desired = "Walk";
-      else if (velocity > walkExit) {
-        // Hysteresis: stay in Walk until speed drops below walkExit.
-        desired = this.getCurrentState() === "Run" ? "Walk" : "Walk";
-      } else {
-        desired = "Idle";
-      }
+      else if (cur === "Walk" && velocity > walkExit) desired = "Walk";
+      else desired = "Idle";
     }
 
     // Fall back to Idle if the desired clip isn't available (e.g. a rig with

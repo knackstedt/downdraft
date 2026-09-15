@@ -303,8 +303,12 @@ startGame({
       // render interpolation doesn't slide the avatar across the map, and
       // zero velocity so it doesn't spike the animation state.
       const teleported = Math.hypot(dx, dy, dz) > 1.5;
-      playerState.velocity = teleported ? 0
+      const instVelocity = teleported ? 0
         : eventDt > 1e-4 ? Math.sqrt(dx * dx + dz * dz) / eventDt : 0;
+      // Light EMA — per-event timing jitter (postMessage delivery, tick
+      // alignment) makes the instantaneous speed noisy; smoothing keeps the
+      // Walk/Run state machine from toggling on single-event spikes.
+      playerState.velocity += (instVelocity - playerState.velocity) * 0.4;
       // prevPos = the position the render loop is currently interpolating
       // from (last event's position); pos = the new authoritative position.
       playerState.prevPos[0] = teleported ? data.position[0] : playerState.pos[0];
@@ -1012,19 +1016,12 @@ startGame({
       // F1 hitbox overlay can draw an accurate player collider.
       const pc = POSE_COLLIDER[playerState.pose];
       r.setPlayerHitbox(playerState.pos[0], playerState.pos[1], playerState.pos[2], pc.height, pc.radius);
-      // Update the player avatar's per-frame state. The model is visible in
-      // first and third person (hidden in FreeCam). In first-person, the
-      // renderer uses a modified near plane to avoid clipping artifacts.
-      // Use KeyC to cycle camera modes.
+      // Update the player avatar's visibility. Its transform (interpolated
+      // position + facing) is synced per render frame by the frameSync rAF.
+      // The model is visible in first and third person (hidden in FreeCam).
+      // In first-person, the renderer uses a modified near plane to avoid
+      // clipping artifacts. Use KeyC to cycle camera modes.
       r.setPlayerVisible(cameraMode !== CameraMode.FreeCam);
-      r.setPlayerTransform(
-        getPlayerRenderPos(),
-        cameraMode === CameraMode.FirstPerson ? yaw : modelYaw,
-        playerState.grounded,
-        playerState.velocity,
-        playerState.pose,
-        cameraMode === CameraMode.FirstPerson,
-      );
       // Forward the physgun's hover target to the renderer so the looked-at
       // prop gets the outline shader. Only relevant when the physgun is active.
       r.setHoverEntity(
@@ -1078,11 +1075,14 @@ startGame({
       if (keys.has("KeyS")) { dx -= fwd[0] * speed * dt; dz -= fwd[2] * speed * dt; }
       if (keys.has("KeyA")) { dx -= right[0] * speed * dt; dz -= right[2] * speed * dt; }
       if (keys.has("KeyD")) { dx += right[0] * speed * dt; dz += right[2] * speed * dt; }
-      // Turn the avatar toward the movement direction. getMoveForward uses
-      // fwd = (sin(yaw), 0, -cos(yaw)), so facing yaw = atan2(dx, -dz).
-      // Shortest-arc exponential ease (~10/s) keeps turns snappy but smooth.
+      // Turn the avatar toward the movement direction. The renderer applies
+      // R_y(yaw) to the model, whose bind pose faces -Z — so the model's
+      // world forward is (-sin(yaw), -cos(yaw)), NOT the camera's
+      // (sin(yaw), -cos(yaw)); the x-sign differs. Facing yaw for movement
+      // direction (dx,dz) is therefore atan2(-dx, -dz). Shortest-arc
+      // exponential ease (~10/s) keeps turns snappy but smooth.
       if (dx !== 0 || dz !== 0) {
-        const targetYaw = Math.atan2(dx, -dz);
+        const targetYaw = Math.atan2(-dx, -dz);
         const dYaw = Math.atan2(Math.sin(targetYaw - modelYaw), Math.cos(targetYaw - modelYaw));
         modelYaw += dYaw * Math.min(1, dt * 10);
       }
@@ -1108,6 +1108,28 @@ startGame({
       applyCamera(r, yaw, pitch);
     }, 16);
 
+    // Per-frame sync: evaluate the interpolated player position at display
+    // rate (not the ~62Hz moveLoop rate) so the avatar and camera glide
+    // smoothly between 60Hz sim ticks. Must run at rAF rate — otherwise the
+    // interpolation only resolves once per moveLoop iteration and the
+    // stepping is still faintly visible.
+    const frameSync = (): void => {
+      const r = renderer as WebGPURenderer;
+      r.setPlayerTransform(
+        getPlayerRenderPos(),
+        // Model yaw convention is mirrored vs camera yaw (model fwd is
+        // (-sinθ,-cosθ) vs camera's (sinθ,-cosθ)) — negate in first person.
+        cameraMode === CameraMode.FirstPerson ? -yaw : modelYaw,
+        playerState.grounded,
+        playerState.velocity,
+        playerState.pose,
+        cameraMode === CameraMode.FirstPerson,
+      );
+      applyCamera(r, yaw, pitch);
+      (ctx as any)._frameSyncId = requestAnimationFrame(frameSync);
+    };
+    (ctx as any)._frameSyncId = requestAnimationFrame(frameSync);
+
     (ctx as any)._statsInterval = statsInterval;
     (ctx as any)._moveLoop = moveLoop;
     (ctx as any)._pixiHost = pixiHost;
@@ -1122,6 +1144,8 @@ startGame({
     if (pixiStatsInterval) clearInterval(pixiStatsInterval);
     const moveLoop = (ctx as any)._moveLoop as ReturnType<typeof setInterval>;
     if (moveLoop) clearInterval(moveLoop);
+    const frameSyncId = (ctx as any)._frameSyncId as number;
+    if (frameSyncId) cancelAnimationFrame(frameSyncId);
     const pixiHost = (ctx as any)._pixiHost as PixiUiHost;
     pixiHost?.dispose();
     dragDropImporter?.detach();
