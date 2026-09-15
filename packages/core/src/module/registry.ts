@@ -5,6 +5,9 @@ export class ModuleRegistry {
   private loadOrder: string[] = [];
 
   register(plugin: Module): void {
+    if (this.plugins.has(plugin.name)) {
+      throw new Error(`Module "${plugin.name}" is already registered`);
+    }
     if (plugin.dependencies) {
       for (let i = 0; i < plugin.dependencies.length; i++) {
         if (!this.plugins.has(plugin.dependencies[i])) {
@@ -34,20 +37,46 @@ export class ModuleRegistry {
     return this.plugins.has(name);
   }
 
+  /**
+   * Resolve activation order via topological sort over `dependencies`
+   * (module names) AND `requires` (typed tokens → provider module). A module
+   * that `requires` a token must activate after whichever module `provides`
+   * it — otherwise its `register()` would fail at `inject()`.
+   *
+   * Throws on a dependency cycle. A `requires` token with no registered
+   * provider adds no edge (the strict-mode graph validation reports it).
+   */
   resolveOrder(): string[] {
+    // Provider map: token key → module name that provides it.
+    const providers = new Map<string, string>();
+    for (const m of this.getAll()) {
+      for (const token of m.provides ?? []) {
+        providers.set(token.key, m.name);
+      }
+    }
+
     const visited = new Set<string>();
     const result: string[] = [];
     const visiting = new Set<string>();
 
-    const visit = (name: string) => {
+    const visit = (name: string): void => {
       if (visited.has(name)) return;
-      if (visiting.has(name)) return;
+      if (visiting.has(name)) {
+        throw new Error(`Module dependency cycle detected at "${name}"`);
+      }
       visiting.add(name);
 
       const plugin = this.plugins.get(name);
       if (plugin?.dependencies) {
         for (let i = 0; i < plugin.dependencies.length; i++) {
           visit(plugin.dependencies[i]);
+        }
+      }
+      // requires (typed tokens → provider module)
+      if (plugin?.requires) {
+        for (const token of plugin.requires) {
+          const providerName = providers.get(token.key);
+          if (providerName && providerName !== name) visit(providerName);
         }
       }
 

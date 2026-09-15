@@ -132,63 +132,69 @@ export class Schedule {
       }
     }
 
-    // Track completion state
+    // Track completion state. pendingJobs maps a system index to the promise
+    // of its dispatched worker job — awaiting the promise guarantees the
+    // completion flag was set (the flag flips inside the promise's own .then).
     const completed = new Array<boolean>(systems.length).fill(false);
-    const running = new Set<number>();
+    const pendingJobs = new Map<number, Promise<void>>();
 
     // Process systems in order, dispatching parallelizable ones to the scheduler
     for (let i = 0; i < systems.length; i++) {
       const sys = systems[i];
 
-      // Check if all `after` deps (explicit + implicit from `before`) are completed
+      // Collect unmet `after` deps (explicit + implicit from `before`).
+      // A dep that was dispatched in parallel is "unmet" until its job
+      // resolves — running the dependent inline now would execute it
+      // CONCURRENTLY with its dependency, violating the ordering contract.
+      const unmetJobs: Promise<void>[] = [];
       let depsReady = true;
+      const checkDep = (depName: string) => {
+        const depIdx = nameToIdx.get(depName);
+        if (depIdx === undefined) return;
+        const job = pendingJobs.get(depIdx);
+        if (job) {
+          unmetJobs.push(job);
+        } else if (!completed[depIdx]) {
+          depsReady = false;
+        }
+      };
       if (sys.after) {
-        for (let j = 0; j < sys.after.length; j++) {
-          const depIdx = nameToIdx.get(sys.after[j]);
-          if (depIdx !== undefined && !completed[depIdx]) {
-            depsReady = false;
-            break;
-          }
-        }
+        for (let j = 0; j < sys.after.length; j++) checkDep(sys.after[j]);
       }
-      if (depsReady) {
-        const implicit = implicitAfter.get(sys.name);
-        if (implicit) {
-          for (let j = 0; j < implicit.length; j++) {
-            const depIdx = nameToIdx.get(implicit[j]);
-            if (depIdx !== undefined && !completed[depIdx]) {
-              depsReady = false;
-              break;
-            }
-          }
-        }
+      const implicit = implicitAfter.get(sys.name);
+      if (implicit) {
+        for (let j = 0; j < implicit.length; j++) checkDep(implicit[j]);
+      }
+
+      // Wait for in-flight dependency jobs before running this system.
+      if (unmetJobs.length > 0) {
+        await Promise.all(unmetJobs);
       }
 
       if (!depsReady) {
-        // Wait for deps by running inline (sequential fallback)
+        // Dep scheduled later in the array (shouldn't happen after the
+        // topological sort) — sequential fallback.
         sys.fn(ctx);
         completed[i] = true;
         continue;
       }
 
       if (sys.parallelizable && scheduler.workerPool.hasIdleWorker()) {
-        running.add(i);
         // Dispatch to worker pool — run system function on a worker
         // The system fn is registered with the pool under its name
-        scheduler.submit({
+        const job = scheduler.submit({
           fn: sys.name,
           args: [ctx],
           deps: [],
           priority: 0,
         }).then(() => {
           completed[i] = true;
-          running.delete(i);
         }).catch(() => {
           // Fallback to inline on error
           sys.fn(ctx);
           completed[i] = true;
-          running.delete(i);
         });
+        pendingJobs.set(i, job);
       } else {
         // Run inline
         sys.fn(ctx);
@@ -197,6 +203,9 @@ export class Schedule {
     }
 
     // Wait for all dispatched jobs to complete
+    if (pendingJobs.size > 0) {
+      await Promise.all(pendingJobs.values());
+    }
     await scheduler.drain();
   }
 

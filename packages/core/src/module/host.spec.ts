@@ -74,6 +74,56 @@ describe("ModuleRegistry", () => {
     expect(reg.has("a")).toBe(false);
     expect(reg.resolveOrder()).toEqual([]);
   });
+
+  it("throws on duplicate registration", () => {
+    const reg = new ModuleRegistry();
+    const a = makeModule("a");
+    reg.register(a.plugin);
+    expect(() => reg.register(makeModule("a").plugin)).toThrow("already registered");
+    // The original module is intact — a single entry, still resolvable.
+    expect(reg.resolveOrder()).toEqual(["a"]);
+  });
+
+  it("orders a module after the provider of a token it requires", () => {
+    const reg = new ModuleRegistry();
+    const Tok = resourceToken<number>("shared-num");
+    // "consumer" registers FIRST — it requires Tok but has no name-level
+    // dependency on "provider", so registration order is arbitrary.
+    const consumer: Module = {
+      name: "consumer", version: "1.0.0",
+      requires: [Tok],
+      register() {},
+    };
+    const provider: Module = {
+      name: "provider", version: "1.0.0",
+      provides: [Tok],
+      register() {},
+    };
+    reg.register(consumer);
+    reg.register(provider);
+
+    const order = reg.resolveOrder();
+    expect(order.indexOf("provider")).toBeLessThan(order.indexOf("consumer"));
+  });
+
+  it("detects requires-token dependency cycles", () => {
+    const reg = new ModuleRegistry();
+    const TokA = resourceToken<number>("tok-a");
+    const TokB = resourceToken<number>("tok-b");
+    // a provides TokA but requires TokB; b provides TokB but requires TokA —
+    // neither can satisfy the other's inject() first.
+    reg.register({
+      name: "a", version: "1.0.0",
+      provides: [TokA], requires: [TokB],
+      register() {},
+    });
+    reg.register({
+      name: "b", version: "1.0.0",
+      provides: [TokB], requires: [TokA],
+      register() {},
+    });
+    expect(() => reg.resolveOrder()).toThrow("cycle");
+  });
 });
 
 describe("ModuleHost activation", () => {
@@ -330,5 +380,54 @@ describe("ModuleHost activation", () => {
     } finally {
       setStrict(false);
     }
+  });
+
+  it("rolls back partial activation when register() throws", () => {
+    const world = makeWorld();
+    const host = new ModuleHost(world);
+    const Res = resourceToken<string>("rollback:res");
+    let disposed = false;
+    const bad: Module = {
+      name: "bad",
+      version: "1.0.0",
+      provides: [Res],
+      register(ctx) {
+        ctx.provide(Res, "leak-me");
+        ctx.onDispose(() => { disposed = true; });
+        throw new Error("register blew up");
+      },
+    };
+    expect(() => host.registerModule(bad)).toThrow("register blew up");
+    // The provided resource was rolled back and its disposers ran.
+    expect(host.injectOptional(Res)).toBeUndefined();
+    expect(disposed).toBe(true);
+    // A second module registered later must still work and can provide the
+    // same token (no phantom provider left behind).
+    const good: Module = {
+      name: "good",
+      version: "1.0.0",
+      provides: [Res],
+      register(ctx) { ctx.provide(Res, "ok"); },
+    };
+    host.registerModule(good);
+    expect(host.inject(Res)).toBe("ok");
+  });
+
+  it("does not attribute lifecycle calls made outside register()", () => {
+    const world = makeWorld();
+    const host = new ModuleHost(world);
+    const Res = resourceToken<string>("late:res");
+    let capturedCtx: ModuleContext | null = null;
+    const mod: Module = {
+      name: "mod",
+      version: "1.0.0",
+      register(ctx) { capturedCtx = ctx; },
+    };
+    host.registerModule(mod);
+    // A late provide() (async callback, game code) must not be attributed to
+    // "mod" — unloading "mod" must not remove a resource it never registered.
+    capturedCtx!.provide(Res, "late");
+    host.unloadModule("mod");
+    expect(host.injectOptional(Res)).toBe("late");
   });
 });

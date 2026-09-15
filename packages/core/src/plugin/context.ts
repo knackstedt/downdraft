@@ -23,6 +23,7 @@ import type { ComponentId } from "../ecs/component";
 import type { ResourceToken } from "../ecs/resource";
 import type { Stage, SystemFn } from "../ecs/system";
 import type { ModuleDevToolsAPI, SABChannel } from "../module/module";
+import type { PluginPermission } from "./manifest";
 
 // ── Event bus ──
 
@@ -218,20 +219,90 @@ export interface PluginContextBacking {
   onDispose: (fn: () => void) => void;
 }
 
+// ── Permission gating ──
+//
+// When the host passes a `granted` permission set, context APIs the plugin
+// didn't request are replaced with throwing stubs (matching the sandbox
+// shim's trap style: clear error naming the missing permission). When
+// `granted` is undefined the context is ungated — used by tests and by
+// first-party in-process callers that bypass the permission system.
+
+function permError(apiName: string, perm: PluginPermission, pluginId: string): Error {
+  return new Error(
+    `[downdraft:plugin] "${apiName}" requires the "${perm}" permission, which plugin "${pluginId}" was not granted ` +
+      `(check permissions[] in the manifest — requested ∩ tier-allowed ∩ game-allowlist).`,
+  );
+}
+
+function deniedEvents(perm: PluginPermission, id: string): PluginEventBus {
+  return {
+    subscribe: () => { throw permError("events.subscribe", perm, id); },
+    publish: () => { throw permError("events.publish", perm, id); },
+  };
+}
+
+function deniedState(perm: PluginPermission, id: string): PluginStateStore {
+  return {
+    get: () => { throw permError("state.get", perm, id); },
+    set: () => { throw permError("state.set", perm, id); },
+    delete: () => { throw permError("state.delete", perm, id); },
+    keys: () => { throw permError("state.keys", perm, id); },
+    save: () => Promise.reject(permError("state.save", perm, id)),
+    load: () => Promise.reject(permError("state.load", perm, id)),
+  };
+}
+
+function deniedTick(perm: PluginPermission, id: string): PluginTickApi {
+  return {
+    onTick: () => { throw permError("tick.onTick", perm, id); },
+  };
+}
+
+/** Gate the state store: `state` perm gates KV access; `storage` gates persistence. */
+function gateState(state: PluginStateStore, granted: ReadonlySet<PluginPermission> | undefined, id: string): PluginStateStore {
+  if (!granted) return state;
+  if (!granted.has("state")) return deniedState("state", id);
+  if (!granted.has("storage")) {
+    return {
+      ...state,
+      save: () => Promise.reject(permError("state.save", "storage", id)),
+      load: () => Promise.reject(permError("state.load", "storage", id)),
+    };
+  }
+  return state;
+}
+
 /** Build a ScriptPluginContext facade from the backing object. */
-export function makeScriptContext(b: PluginContextBacking): ScriptPluginContext {
+export function makeScriptContext(
+  b: PluginContextBacking,
+  granted?: ReadonlySet<PluginPermission>,
+): ScriptPluginContext {
   return {
     id: b.id,
-    events: b.events,
-    state: b.state,
-    tick: b.tick,
+    events: granted && !granted.has("events") ? deniedEvents("events", b.id) : b.events,
+    state: gateState(b.state, granted, b.id),
+    tick: granted && !granted.has("tick") ? deniedTick("tick", b.id) : b.tick,
     log: b.log,
     onDispose: b.onDispose,
   };
 }
 
+/** Host-call method → permission(s) required to invoke it. */
+const HOST_CALL_PERMS: Record<string, PluginPermission[]> = {
+  spawnProp: ["assets", "ecs"],
+  removeProp: ["ecs"],
+  setPhysics: ["physics"],
+  getPhysics: ["physics"],
+  applyImpulse: ["physics"],
+  applyTorque: ["physics"],
+  getAssetRef: ["assets"],
+};
+
 /** Build a NativePluginContext facade. Throws if native backing is missing. */
-export function makeNativeContext(b: PluginContextBacking): NativePluginContext {
+export function makeNativeContext(
+  b: PluginContextBacking,
+  granted?: ReadonlySet<PluginPermission>,
+): NativePluginContext {
   if (
     !b.registerComponent ||
     !b.registerSystem ||
@@ -245,42 +316,49 @@ export function makeNativeContext(b: PluginContextBacking): NativePluginContext 
       `makeNativeContext: backing is missing native APIs (plugin "${b.id}" declared native tier but host didn't wire them).`,
     );
   }
+  // Gate a host-call method: check the declared permission(s) first (a clear
+  // permission error beats a missing-bridge error), then forward to the
+  // game's PluginHostCalls impl.
+  const hostCall = <A extends unknown[], R>(
+    name: keyof PluginHostCalls,
+  ): ((...args: A) => Promise<R>) => {
+    return (...args: A) => {
+      if (granted) {
+        for (const perm of HOST_CALL_PERMS[name] ?? []) {
+          if (!granted.has(perm)) {
+            return Promise.reject(permError(name as string, perm, b.id));
+          }
+        }
+      }
+      const hostCalls = b.hostCalls;
+      return hostCalls?.[name]
+        ? (hostCalls[name] as (...a: A) => Promise<R>).apply(hostCalls, args)
+        : Promise.reject(new Error(`${name as string}: no host-call bridge wired (plugin "${b.id}")`));
+    };
+  };
   return {
     id: b.id,
-    events: b.events,
-    state: b.state,
-    tick: b.tick,
+    events: granted && !granted.has("events") ? deniedEvents("events", b.id) : b.events,
+    state: gateState(b.state, granted, b.id),
+    tick: granted && !granted.has("tick") ? deniedTick("tick", b.id) : b.tick,
     log: b.log,
     onDispose: b.onDispose,
     registerComponent: b.registerComponent,
     registerSystem: b.registerSystem,
-    allocateSABChannel: b.allocateSABChannel,
+    allocateSABChannel: granted && !granted.has("sab")
+      ? () => { throw permError("allocateSABChannel", "sab", b.id); }
+      : b.allocateSABChannel,
     provide: b.provide,
     inject: b.inject,
     injectOptional: b.injectOptional,
     devtools: b.devtools,
-    // Host-call bridge: forward to the game's PluginHostCalls impl. Each
-    // method throws a clear error if the game didn't wire host calls.
-    spawnProp: (d) => b.hostCalls?.spawnProp
-      ? b.hostCalls.spawnProp(d)
-      : Promise.reject(new Error(`spawnProp: no host-call bridge wired (plugin "${b.id}")`)),
-    removeProp: (id) => b.hostCalls?.removeProp
-      ? b.hostCalls.removeProp(id)
-      : Promise.reject(new Error(`removeProp: no host-call bridge wired (plugin "${b.id}")`)),
-    setPhysics: (id, d) => b.hostCalls?.setPhysics
-      ? b.hostCalls.setPhysics(id, d)
-      : Promise.reject(new Error(`setPhysics: no host-call bridge wired (plugin "${b.id}")`)),
-    getPhysics: (id) => b.hostCalls?.getPhysics
-      ? b.hostCalls.getPhysics(id)
-      : Promise.reject(new Error(`getPhysics: no host-call bridge wired (plugin "${b.id}")`)),
-    applyImpulse: (id, i) => b.hostCalls?.applyImpulse
-      ? b.hostCalls.applyImpulse(id, i)
-      : Promise.reject(new Error(`applyImpulse: no host-call bridge wired (plugin "${b.id}")`)),
-    applyTorque: (id, t) => b.hostCalls?.applyTorque
-      ? b.hostCalls.applyTorque(id, t)
-      : Promise.reject(new Error(`applyTorque: no host-call bridge wired (plugin "${b.id}")`)),
-    getAssetRef: (a) => b.hostCalls?.getAssetRef
-      ? b.hostCalls.getAssetRef(a)
-      : Promise.reject(new Error(`getAssetRef: no host-call bridge wired (plugin "${b.id}")`)),
+    // Host-call bridge: permission-gated, then forwarded to the game's impl.
+    spawnProp: hostCall<[SpawnPropDesc], SpawnedProp>("spawnProp"),
+    removeProp: hostCall<[number], void>("removeProp"),
+    setPhysics: hostCall<[number, Partial<PhysicsDesc>], void>("setPhysics"),
+    getPhysics: hostCall<[number], PhysicsDesc>("getPhysics"),
+    applyImpulse: hostCall<[number, [number, number, number]], void>("applyImpulse"),
+    applyTorque: hostCall<[number, [number, number, number]], void>("applyTorque"),
+    getAssetRef: hostCall<[string], number>("getAssetRef"),
   };
 }

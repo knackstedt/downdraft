@@ -394,15 +394,14 @@
       ]
     }
   },
+  "files": [
+    "packages/platform-native/src/ffi/runtime-globals.d.ts"
+  ],
   "include": [
     "packages/app/src/shared/**/*",
     "packages/app/src/renderer/**/*",
     "packages/app/src/mobile/**/*",
-    "packages/app/src/vite/mobile-vite-config.ts",
-    "packages/app/src/vite/asset-bake-plugin.ts",
-    "packages/app/src/vite/downdraft-html-plugin.ts",
-    "packages/app/src/vite/silence-sourcemap-warnings-plugin.ts",
-    "packages/app/src/vite/worker-url-guard-plugin.ts",
+    "packages/app/src/vite/**/*",
     "packages/core/src/**/*.ts",
     "packages/test/src/**/*.ts",
     "packages/ui/src/**/*",
@@ -424,8 +423,6 @@
     "games/*/src/pixi/native-input-router.ts",
     "games/*/src/pixi/native-scene.tsx",
     "games/*/electron.vite.config.ts",
-    "games/mining-rpg/src/solid/**/*.tsx",
-    "games/mining-rpg/src/solid/worker-entry.ts",
     "examples/*/src/main.ts",
     "examples/*/src/preload.ts",
     "examples/*/electron.vite.config.ts",

@@ -182,7 +182,31 @@ export class ModuleHost implements ModuleContext {
     };
     this.active.set(plugin.name, active);
     this.currentModuleName = plugin.name;
-    plugin.register(this);
+    try {
+      plugin.register(this);
+    } catch (err) {
+      // Roll back partial activation: the module must not stay "active"
+      // with half-wired resources. Clean up anything it provided or
+      // registered for disposal, then re-throw so the caller sees it.
+      for (const key of active.providedKeys) {
+        this.resources.delete(key);
+        this.providers.delete(key);
+      }
+      for (let i = active.disposeFns.length - 1; i >= 0; i--) {
+        try {
+          active.disposeFns[i]();
+        } catch (disposeErr) {
+          log.error("ModuleHost", `Dispose error rolling back plugin "${plugin.name}": ${disposeErr}`);
+        }
+      }
+      this.active.delete(plugin.name);
+      throw err;
+    } finally {
+      // Clear the attribution context — any provide/onDispose/registerSystem
+      // call made outside a register() lifecycle (async callbacks, game code)
+      // must not be silently attributed to this module.
+      this.currentModuleName = "";
+    }
   }
 
   unloadModule(name: string): void {
@@ -234,9 +258,12 @@ export class ModuleHost implements ModuleContext {
   }
 
   registerSystem(stage: Stage, system: SystemFn): void {
+    if (!this.currentModuleName) {
+      log.warn("ModuleHost", "registerSystem called outside a module register() lifecycle — the system will not be attributed to any module");
+    }
     this.systemCounter++;
     this.world.schedule.add({
-      name: `module:${this.currentModuleName}:${this.systemCounter}`,
+      name: `module:${this.currentModuleName || "unattributed"}:${this.systemCounter}`,
       stage,
       fn: system,
       queries: [],
@@ -248,6 +275,9 @@ export class ModuleHost implements ModuleContext {
   }
 
   allocateSABChannel(name: string, size: number): SABChannel {
+    if (!this.currentModuleName) {
+      log.warn("ModuleHost", `allocateSABChannel("${name}") called outside a module register() lifecycle — the channel is untracked and won't be cleaned up on unload`);
+    }
     const buffer = new SharedArrayBuffer(size);
     const active = this.active.get(this.currentModuleName);
     if (active) {
@@ -257,6 +287,9 @@ export class ModuleHost implements ModuleContext {
   }
 
   provide<T>(token: ResourceToken<T>, value: T): void {
+    if (!this.currentModuleName) {
+      log.warn("ModuleHost", `provide("${token.key}") called outside a module register() lifecycle — the resource won't be cleaned up on unload`);
+    }
     if (isStrict()) {
       assertNoDuplicate(this.providers, token as ResourceToken<unknown>, this.currentModuleName);
     }
@@ -309,6 +342,8 @@ export class ModuleHost implements ModuleContext {
     const active = this.active.get(this.currentModuleName);
     if (active) {
       active.disposeFns.push(fn);
+    } else {
+      log.warn("ModuleHost", "onDispose called outside a module register() lifecycle — the callback was dropped");
     }
   }
 

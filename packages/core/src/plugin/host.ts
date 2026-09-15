@@ -64,6 +64,9 @@ export interface PluginLoader {
     ctx: ScriptPluginContext | NativePluginContext,
     granted: PermissionGrant,
   ): Promise<(() => void) | void>;
+  /** Called by the host when the loader is registered — lets the loader
+   *  reach back into the host (shared event bus fan-out, tick driving). */
+  bindHost?(host: PluginHost): void;
 }
 
 /**
@@ -137,6 +140,13 @@ export class PluginHost {
   private opts: PluginHostOptions;
   /** Manifests discovered but not yet loaded (id → manifest + source). */
   private discovered: Map<string, { manifest: PluginManifest; source: string }> = new Map();
+  /** Shared event bus — all plugins on this host publish/subscribe through
+   *  the same bus so mods can actually communicate with each other and with
+   *  the game (previously each plugin got a private bus, so publish/subscribe
+   *  could never cross plugin boundaries). */
+  private eventBus: PluginEventBus = makeEventBus();
+  /** Per-plugin in-process tick drains (plugin id → drain fn). */
+  private tickDrains = new Map<string, (dt: number, t: number) => void>();
 
   constructor(opts: PluginHostOptions) {
     this.opts = opts;
@@ -145,6 +155,59 @@ export class PluginHost {
   /** Register a format-specific loader for the `logic` extension. */
   registerLoader(loader: PluginLoader): void {
     this.loaders.set(loader.format, loader);
+    // Let loaders reach back into the host (event bus fan-out, grant checks).
+    loader.bindHost?.(this);
+  }
+
+  /**
+   * Inject the ModuleHost after construction. Needed when the renderer's
+   * ModuleHost only exists after renderer init (startGame constructs the
+   * PluginHost early but must wire the ModuleHost before loadAll()).
+   */
+  setModuleHost(moduleHost: ModuleHost): void {
+    this.opts.moduleHost = moduleHost;
+  }
+
+  /**
+   * Publish an event to every plugin on this host (and, for worker plugins,
+   * to their sandbox via the loader's fan-out). Games call this to push
+   * game-defined events into the mod ecosystem.
+   */
+  publishEvent(event: string, data: unknown): void {
+    if (this.opts.eventCatalog && !(event in this.opts.eventCatalog)) {
+      log.warn("PluginHost", `publishEvent("${event}") — not in the game's event catalog; delivering anyway`);
+    }
+    this.eventBus.publish(event, data);
+  }
+
+  /**
+   * Drive plugin tick callbacks. Games call this once per frame/tick from
+   * their render loop. In-process plugins' onTick callbacks are drained here;
+   * worker plugins receive a `__tick` message via their loader.
+   */
+  tick(dt: number, elapsedTime: number): void {
+    for (const drain of this.tickDrains.values()) {
+      try {
+        drain(dt, elapsedTime);
+      } catch (e) {
+        log.error("PluginHost", `Plugin tick error: ${(e as Error).message}`);
+      }
+    }
+    for (const loader of this.loaders.values()) {
+      (loader as unknown as { tick?: (dt: number, t: number) => void }).tick?.(dt, elapsedTime);
+    }
+  }
+
+  /** Register an extra dispose fn on an active plugin (used by bridge wiring
+   *  to clean up host-side event subscriptions when a worker plugin unloads). */
+  trackDispose(pluginId: string, fn: () => void): void {
+    const a = this.active.get(pluginId);
+    if (a) a.disposeFns.push(fn);
+  }
+
+  /** The shared event bus (for loader fan-out to worker plugins). */
+  get sharedEventBus(): PluginEventBus {
+    return this.eventBus;
   }
 
   /** Register a bucket-specific loader for a declarative extension kind. */
@@ -310,12 +373,17 @@ export class PluginHost {
   /** Build the tiered context facade for a plugin. */
   private buildContext(
     m: PluginManifest,
-    _granted: PermissionGrant,
+    granted: PermissionGrant,
   ): ScriptPluginContext | NativePluginContext {
     const host = this;
-    const events = makeEventBus(m.id, this.opts.eventCatalog);
+    // Shared bus, wrapped per-plugin so subscriptions/publishes are
+    // validated against the game's event catalog (when one is configured).
+    const events = this.wrapEventBus(m.id);
     const state = makeStateStore(m.id);
     const tick = makeTickApi(m.id);
+    // Track the in-process drain so tick() can drive this plugin's callbacks;
+    // removed on unload.
+    this.tickDrains.set(m.id, (tick as { _drain?: (dt: number, t: number) => void })._drain ?? (() => {}));
     const pluginLog = makeLogger(m.id);
     const onDispose = (fn: () => void) => {
       const a = host.active.get(m.id);
@@ -359,9 +427,34 @@ export class PluginHost {
         mh.injectOptional(token);
       backing.devtools = this.opts.devtools ?? mh.devtools;
       backing.hostCalls = this.opts.hostCalls;
-      return makeNativeContext(backing);
+      return makeNativeContext(backing, granted.granted);
     }
-    return makeScriptContext(backing);
+    return makeScriptContext(backing, granted.granted);
+  }
+
+  /**
+   * Wrap the shared bus for a plugin: validates event names against the
+   * game's event catalog (if configured) — unknown events warn but still
+   * deliver, so a partial catalog doesn't break cross-plugin traffic.
+   */
+  private wrapEventBus(pluginId: string): PluginEventBus {
+    const bus = this.eventBus;
+    const catalog = this.opts.eventCatalog;
+    const check = (event: string, op: string) => {
+      if (catalog && !(event in catalog)) {
+        log.warn("PluginHost", `plugin "${pluginId}" ${op} unknown event "${event}" (not in catalog)`);
+      }
+    };
+    return {
+      subscribe(event, handler) {
+        check(event, "subscribed to");
+        return bus.subscribe(event, handler);
+      },
+      publish(event, data) {
+        check(event, "published");
+        bus.publish(event, data);
+      },
+    };
   }
 
   // ── Unload / dispose ──
@@ -377,6 +470,7 @@ export class PluginHost {
       }
     }
     this.active.delete(id);
+    this.tickDrains.delete(id);
     this.registry.unregister(id);
   }
 
@@ -435,7 +529,7 @@ function satisfiesEngine(engine: string, range: string): boolean {
   if (range === "*") return true;
   const eParts = engine.split(".").map((n) => parseInt(n, 10));
   // Strip comparator prefix
-  const r = range.replace(/^[\^~>==]+/, "").split(".");
+  const r = range.replace(/^[<>=~^]+/, "").split(".");
   const rParts = r.map((n) => (n === "x" || n === "X" ? NaN : parseInt(n, 10)));
   if (range.startsWith("^")) {
     // ^1.2.3 → >=1.2.3 <2.0.0
@@ -457,6 +551,27 @@ function satisfiesEngine(engine: string, range: string): boolean {
     }
     return true;
   }
+  if (range.startsWith("<=")) {
+    for (let i = 0; i < 3; i++) {
+      if (eParts[i] < rParts[i]) return true;
+      if (eParts[i] > rParts[i]) return false;
+    }
+    return true;
+  }
+  if (range.startsWith(">")) {
+    for (let i = 0; i < 3; i++) {
+      if (eParts[i] > rParts[i]) return true;
+      if (eParts[i] < rParts[i]) return false;
+    }
+    return false;
+  }
+  if (range.startsWith("<")) {
+    for (let i = 0; i < 3; i++) {
+      if (eParts[i] < rParts[i]) return true;
+      if (eParts[i] > rParts[i]) return false;
+    }
+    return false;
+  }
   // plain / = / exact-ish (ignore missing minor/patch → treat as x)
   for (let i = 0; i < 3; i++) {
     if (Number.isNaN(rParts[i])) continue;
@@ -473,7 +588,7 @@ function satisfiesEngine(engine: string, range: string): boolean {
 // in-process versions are used for renderer-thread (quickjs/asset) plugins
 // and for tests.
 
-function makeEventBus(_pluginId: string, _catalog?: Record<string, unknown>): PluginEventBus {
+function makeEventBus(): PluginEventBus {
   const handlers = new Map<string, Set<(data: unknown) => void>>();
   return {
     subscribe(event, handler) {

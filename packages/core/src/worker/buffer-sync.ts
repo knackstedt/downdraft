@@ -176,9 +176,13 @@ class SyncProfiler {
  */
 export class BufferSyncHost {
   private rafId = 0;
-  private lastInputSeqs: Record<string, number> = {};
+  /** Per-region last-synced sequence: buffer name → region name → seq.
+   *  Tracked per region (not per buffer) so throttled regions aren't starved
+   *  when another region's sync consumes the buffer-level seq. */
+  private lastRegionSeqs: Record<string, Record<string, number>> = {};
   private frameCount = 0;
   private profiler = new SyncProfiler(5000);
+  private messageHandler: ((e: MessageEvent) => void) | null = null;
 
   constructor(
     private worker: Worker,
@@ -186,12 +190,20 @@ export class BufferSyncHost {
   ) {}
 
   start(): void {
-    this.worker.addEventListener("message", (e: MessageEvent) => this.onMessage(e.data));
+    if (!this.messageHandler) {
+      this.messageHandler = (e: MessageEvent) => this.onMessage(e.data);
+      this.worker.addEventListener("message", this.messageHandler);
+    }
+    cancelAnimationFrame(this.rafId); // guard against double-start
     this.syncInput(); // start rAF loop
   }
 
   stop(): void {
     cancelAnimationFrame(this.rafId);
+    if (this.messageHandler) {
+      this.worker.removeEventListener("message", this.messageHandler);
+      this.messageHandler = null;
+    }
   }
 
   /**
@@ -210,14 +222,9 @@ export class BufferSyncHost {
       const regionDef = this.config.regions[name];
       if (!regionDef || regionDef.writeRegions.length === 0) continue;
 
-      // Sequence gating: skip if nothing changed (only for buffers with seq fields)
+      // Sequence gating is per-region (see below) — read the current seq once.
       const seqField = this.config.seqFields?.[name];
-      if (seqField) {
-        const view = new Int32Array(buf, seqField.offset, 1);
-        const seq = view[0];
-        if (seq === this.lastInputSeqs[name]) continue;
-        this.lastInputSeqs[name] = seq;
-      }
+      const seq = seqField ? new Int32Array(buf, seqField.offset, 1)[0] : 0;
 
       const copies: RegionCopy[] = [];
       for (const r of regionDef.writeRegions) {
@@ -225,6 +232,15 @@ export class BufferSyncHost {
         // Only sync them every syncInterval frames.
         if (r.syncInterval && r.syncInterval > 1) {
           if (this.frameCount % r.syncInterval !== 0) continue;
+        }
+        // Per-region sequence gating: skip this region if its last-synced
+        // seq matches the buffer's current seq. Per-region tracking (rather
+        // than per-buffer) is required because interval-throttled regions
+        // would otherwise never sync — a seq change consumed by a non-
+        // throttled region would gate the throttled one out forever.
+        if (seqField) {
+          const lastSeqs = (this.lastRegionSeqs[name] ??= {});
+          if (lastSeqs[r.name] === seq) continue;
         }
         const src = new Uint8Array(buf, r.offset, r.length);
         // skipIfAllZero: don't send zero-filled regions (e.g. input with
@@ -246,6 +262,9 @@ export class BufferSyncHost {
         // data on the next frame. Used for input regions (hand-off pattern).
         if (r.clearAfterSend) {
           new Uint8Array(buf, r.offset, r.length).fill(0);
+        }
+        if (seqField) {
+          this.lastRegionSeqs[name][r.name] = seq;
         }
       }
       if (copies.length > 0) regions[name] = copies;
@@ -294,7 +313,12 @@ export class BufferSyncHost {
  * onMessage.
  */
 export class BufferSyncWorker {
-  private lastSimSeqs: Record<string, number> = {};
+  /** Per-region last-synced sequence: buffer name → region name → seq.
+   *  Tracked per region (not per buffer) so a filtered syncToMain() call
+   *  can't consume the buffer seq and starve regions it filtered out —
+   *  e.g. the fast/slow region pattern in sim-worker-base, where a
+   *  fast-region sync followed by a full sync must still send slow regions. */
+  private lastRegionSeqs: Record<string, Record<string, number>> = {};
   private profiler = new SyncProfiler(5000);
   private onAfterReceive: (() => void) | null = null;
 
@@ -336,19 +360,22 @@ export class BufferSyncWorker {
       const regionDef = this.config.regions[name];
       if (!regionDef || regionDef.writeRegions.length === 0) continue;
 
-      // Sequence gating: skip if nothing changed
+      // Sequence gating is per-region (see below) — read the current seq once.
       const seqField = this.config.seqFields?.[name];
-      if (seqField) {
-        const view = new Int32Array(buf, seqField.offset, 1);
-        const seq = view[0];
-        if (seq === this.lastSimSeqs[name]) continue;
-        this.lastSimSeqs[name] = seq;
-      }
+      const seq = seqField ? new Int32Array(buf, seqField.offset, 1)[0] : 0;
 
       const copies: RegionCopy[] = [];
       for (const r of regionDef.writeRegions) {
         // Region name filter: skip regions not in the filter set.
         if (filter && !filter.has(r.name)) continue;
+        // Per-region sequence gating: skip if this region's last-synced seq
+        // matches the current buffer seq. Regions excluded by `filter` are
+        // checked before this point, so a filtered call never consumes seq
+        // for regions it didn't send.
+        if (seqField) {
+          const lastSeqs = (this.lastRegionSeqs[name] ??= {});
+          if (lastSeqs[r.name] === seq) continue;
+        }
         // Dynamic length: read actual length from a field in the buffer.
         let len = r.length;
         if (r.lengthFieldOffset !== undefined && r.lengthMultiplier) {
@@ -378,6 +405,9 @@ export class BufferSyncWorker {
           copies.push({ offset: r.offset, data: copy });
           transfers.push(copy);
           totalBytes += len;
+        }
+        if (seqField) {
+          this.lastRegionSeqs[name][r.name] = seq;
         }
       }
       if (copies.length > 0) regions[name] = copies;

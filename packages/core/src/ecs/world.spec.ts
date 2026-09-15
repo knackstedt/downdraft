@@ -71,7 +71,7 @@ describe("ECS World", () => {
     expect(entity2.generation).toBe(entity.generation + 1);
   });
 
-  it("should stop recycling after free list exceeds max size", () => {
+  it("should keep recycling dead slots regardless of free-list size", () => {
     const world = new World();
     const spawned: Array<{ index: number; generation: number }> = [];
     for (let i = 0; i < 1100; i++) {
@@ -83,14 +83,13 @@ describe("ECS World", () => {
     }
     world.flushCommands();
 
-    // After despawning 1100 entities, the free list is capped at 1024.
-    // Spawning 1025 entities should reuse 1024 slots, then allocate a new one.
-    for (let i = 0; i < 1024; i++) {
+    // The free list is unbounded: all 1100 dead slots are recyclable, so the
+    // entity array must not grow at all (1100 spawns + 1 reserved slot).
+    for (let i = 0; i < 1025; i++) {
       world.spawn(new Map([[Transform.id, Transform.create()]]));
     }
-    const fresh = world.spawn(new Map([[Transform.id, Transform.create()]]));
-    // The 1025th spawn should NOT recycle — it gets a new index beyond the original range
-    expect(fresh.index).toBeGreaterThan(spawned[spawned.length - 1].index);
+    world.flushCommands();
+    expect(world.entities.length).toBe(1101);
   });
 
   it("should add and remove components", () => {

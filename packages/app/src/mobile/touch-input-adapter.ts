@@ -160,9 +160,9 @@ export class TouchInputAdapter {
       this.canvas.addEventListener("pointerdown", this.onPointerCapture, captureOpts);
       this.canvas.addEventListener("pointermove", this.onPointerCapture, captureOpts);
       this.canvas.addEventListener("pointerup", this.onPointerCapture, captureOpts);
-      this.listeners.push({ target: this.canvas, event: "pointerdown", handler: this.onPointerCapture });
-      this.listeners.push({ target: this.canvas, event: "pointermove", handler: this.onPointerCapture });
-      this.listeners.push({ target: this.canvas, event: "pointerup", handler: this.onPointerCapture });
+      this.listeners.push({ target: this.canvas, event: "pointerdown", handler: this.onPointerCapture as EventListener });
+      this.listeners.push({ target: this.canvas, event: "pointermove", handler: this.onPointerCapture as EventListener });
+      this.listeners.push({ target: this.canvas, event: "pointerup", handler: this.onPointerCapture as EventListener });
     }
   }
 

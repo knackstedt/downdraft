@@ -20,6 +20,12 @@ export interface DoctorPanelOptions {
   getPlugins?: () => PluginInfo[];
 }
 
+/** Escape untrusted strings before interpolating into innerHTML — mod
+ *  manifests are third-party content and must not be able to inject markup. */
+function esc(s: unknown): string {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
 export function createDoctorPanelExtension(opts: DoctorPanelOptions = {}): IDevToolsPanelExtension {
   return {
     id: "downdraft-doctor",
@@ -115,8 +121,8 @@ export function createDoctorPanelExtension(opts: DoctorPanelOptions = {}): IDevT
           let html = '<h3>Modules (' + report.modules.length + ')</h3>';
           html += '<table class="dd-doctor__table"><thead><tr><th>Name</th><th>Version</th><th>Thread</th><th>Provides</th><th>Requires</th><th>Status</th></tr></thead><tbody>';
           for (const p of report.modules) {
-            const threadClass = 'dd-thread-' + p.thread;
-            html += '<tr><td>' + p.name + '</td><td>' + p.version + '</td><td class="' + threadClass + '">' + p.thread + '</td><td>' + (p.provides.join(', ') || '—') + '</td><td>' + (p.requires.join(', ') || '—') + '</td><td>' + (p.active ? '✓ active' : 'inactive') + '</td></tr>';
+            const threadClass = 'dd-thread-' + esc(p.thread);
+            html += '<tr><td>' + esc(p.name) + '</td><td>' + esc(p.version) + '</td><td class="' + threadClass + '">' + esc(p.thread) + '</td><td>' + esc(p.provides.join(', ') || '—') + '</td><td>' + esc(p.requires.join(', ') || '—') + '</td><td>' + (p.active ? '✓ active' : 'inactive') + '</td></tr>';
           }
           html += '</tbody></table>';
           pluginsDiv.innerHTML = html;
@@ -131,13 +137,13 @@ export function createDoctorPanelExtension(opts: DoctorPanelOptions = {}): IDevT
           let phtml = '<h3>Plugins (' + plugins.length + ')</h3>';
           phtml += '<table class="dd-doctor__table"><thead><tr><th>ID</th><th>Version</th><th>Format</th><th>Tier</th><th>Thread</th><th>Permissions</th><th>Status</th></tr></thead><tbody>';
           for (const p of plugins) {
-            const fmtBadge = '<span class="dd-doctor__badge dd-doctor__badge--format">' + p.format + '</span>';
-            const tierBadge = '<span class="dd-doctor__badge dd-doctor__badge--tier">' + p.tier + '</span>';
-            const threadBadge = '<span class="dd-doctor__badge dd-doctor__badge--thread">' + p.thread + '</span>';
-            const permBadges = p.permissions.map(function(perm) { return '<span class="dd-doctor__badge dd-doctor__badge--perm">' + perm + '</span>'; }).join('');
-            const statusClass = 'dd-doctor__status--' + p.status;
-            const statusText = p.status + (p.error ? ': ' + p.error : '');
-            phtml += '<tr><td>' + p.id + '</td><td>' + p.version + '</td><td>' + fmtBadge + '</td><td>' + tierBadge + '</td><td>' + threadBadge + '</td><td>' + (permBadges || '—') + '</td><td class="' + statusClass + '">' + statusText + '</td></tr>';
+            const fmtBadge = '<span class="dd-doctor__badge dd-doctor__badge--format">' + esc(p.format) + '</span>';
+            const tierBadge = '<span class="dd-doctor__badge dd-doctor__badge--tier">' + esc(p.tier) + '</span>';
+            const threadBadge = '<span class="dd-doctor__badge dd-doctor__badge--thread">' + esc(p.thread) + '</span>';
+            const permBadges = p.permissions.map(function(perm) { return '<span class="dd-doctor__badge dd-doctor__badge--perm">' + esc(perm) + '</span>'; }).join('');
+            const statusClass = 'dd-doctor__status--' + esc(p.status);
+            const statusText = esc(p.status + (p.error ? ': ' + p.error : ''));
+            phtml += '<tr><td>' + esc(p.id) + '</td><td>' + esc(p.version) + '</td><td>' + fmtBadge + '</td><td>' + tierBadge + '</td><td>' + threadBadge + '</td><td>' + (permBadges || '—') + '</td><td class="' + statusClass + '">' + statusText + '</td></tr>';
           }
           phtml += '</tbody></table>';
           userPluginsDiv.innerHTML = phtml;
@@ -147,15 +153,15 @@ export function createDoctorPanelExtension(opts: DoctorPanelOptions = {}): IDevT
         const issuesDiv = container.querySelector('.dd-doctor__issues');
         let issuesHtml = '<h3>Diagnostics</h3>';
         if (report.unresolved.length > 0) {
-          issuesHtml += '<div class="dd-doctor__issue dd-doctor__issue--error">Unresolved requires: ' + report.unresolved.join(', ') + '</div>';
+          issuesHtml += '<div class="dd-doctor__issue dd-doctor__issue--error">Unresolved requires: ' + esc(report.unresolved.join(', ')) + '</div>';
         }
         if (report.versionConflicts.length > 0) {
           for (const vc of report.versionConflicts) {
-            issuesHtml += '<div class="dd-doctor__issue dd-doctor__issue--error">Version conflict: ' + vc.name + ' (sim=' + vc.simVersion + ', renderer=' + vc.rendererVersion + ')</div>';
+            issuesHtml += '<div class="dd-doctor__issue dd-doctor__issue--error">Version conflict: ' + esc(vc.name) + ' (sim=' + esc(vc.simVersion) + ', renderer=' + esc(vc.rendererVersion) + ')</div>';
           }
         }
         if (report.shared.length > 0) {
-          issuesHtml += '<div class="dd-doctor__issue dd-doctor__issue--ok">Shared resources: ' + report.shared.join(', ') + '</div>';
+          issuesHtml += '<div class="dd-doctor__issue dd-doctor__issue--ok">Shared resources: ' + esc(report.shared.join(', ')) + '</div>';
         }
         if (report.unresolved.length === 0 && report.versionConflicts.length === 0) {
           issuesHtml += '<div class="dd-doctor__issue dd-doctor__issue--ok">✓ No issues detected</div>';

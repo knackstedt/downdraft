@@ -858,7 +858,7 @@ export class WebGPURenderer extends GameRenderer {
   // FrameGraph handles for the imported scene color/depth views
   private graphColorHandle: TextureHandle | null = null;
   private graphDepthHandle: TextureHandle | null = null;
-  private graphCompiled = false;
+  private hdrGraphCompiled = false;
 
   // Skybox pipeline
   private skyPipeline: GPURenderPipeline | null = null;
@@ -990,6 +990,7 @@ export class WebGPURenderer extends GameRenderer {
   private bloomEnabled = true;
   private tonemapEnabled = true;
   private vignetteEnabled = true;
+  private vignetteStrength = 0.25;
   private mipmapsEnabled = true;
 
   // ── Entity transform interpolation ──
@@ -1202,13 +1203,14 @@ export class WebGPURenderer extends GameRenderer {
     s.setEnabled("fxaa", this.fxaaEnabled);
     s.setEnabled("bloom", this.bloomEnabled);
     s.setEnabled("tonemap", this.tonemapEnabled);
-    s.setEnabled("vignette", this.vignetteEnabled);
     // Sensible defaults for the sandbox
     s.setBloomThreshold(0.85);
     s.setBloomStrength(0.6);
     s.setBloomMipCount(5);
     s.setExposure(1.1);
-    s.setVignette(0.25);
+    // Vignette is a tonemap-pass parameter (not a chainable effect) —
+    // "enabled" means strength > 0.
+    s.setVignette(this.vignetteEnabled ? this.vignetteStrength : 0);
   }
 
   private createSkyPipeline(device: GPUDevice, format: GPUTextureFormat): void {
@@ -2261,9 +2263,12 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
   setExposure(v: number): void { this.postProcessStack?.setExposure(v); }
   setVignetteEnabled(enabled: boolean): void {
     this.vignetteEnabled = enabled;
-    this.postProcessStack?.setEnabled("vignette", enabled);
+    this.postProcessStack?.setVignette(enabled ? this.vignetteStrength : 0);
   }
-  setVignetteStrength(v: number): void { this.postProcessStack?.setVignette(v); }
+  setVignetteStrength(v: number): void {
+    this.vignetteStrength = v;
+    if (this.vignetteEnabled) this.postProcessStack?.setVignette(v);
+  }
   setMipmapsEnabled(enabled: boolean): void { this.mipmapsEnabled = enabled; }
   setSunColor(r: number, g: number, b: number): void { this.lighting?.setSunColor([r, g, b]); }
   setSunDirection(x: number, y: number, z: number): void { this.lighting?.setSunDirection([x, y, z]); }
@@ -2488,13 +2493,17 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
       const sceneDepthView = this.postProcessStack.getSceneDepthView();
 
       const graph = this.getGraph();
-      if (!this.graphColorHandle) {
-        this.graphColorHandle = graph.importTextureView("color", null);
-        this.graphDepthHandle = graph.importTextureView("depth", null);
+      let colorHandle = this.graphColorHandle;
+      let depthHandle = this.graphDepthHandle;
+      if (!colorHandle || !depthHandle) {
+        colorHandle = graph.importTextureView("color", null);
+        depthHandle = graph.importTextureView("depth", null);
+        this.graphColorHandle = colorHandle;
+        this.graphDepthHandle = depthHandle;
         graph.markDirty();
       }
-      graph.setImportedTextureView(this.graphColorHandle, sceneColorView);
-      graph.setImportedTextureView(this.graphDepthHandle, sceneDepthView);
+      graph.setImportedTextureView(colorHandle, sceneColorView);
+      graph.setImportedTextureView(depthHandle, sceneDepthView);
 
       const viewport = { x: 0, y: 0, w, h };
       const sceneState: ScenePassState = {
@@ -2509,14 +2518,14 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
       graph.clearPasses();
       graph.markDirty();
       const scenePass = new SceneRenderPass(
-        this.graphColorHandle,
-        this.graphDepthHandle,
+        colorHandle,
+        depthHandle,
         sceneState,
         this.drawScene,
       );
       graph.addPass(scenePass);
       graph.compile(device, w, h);
-      this.graphCompiled = true;
+      this.hdrGraphCompiled = true;
 
       const encoder = device.createCommandEncoder();
       const ctx: RenderContext = {

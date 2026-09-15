@@ -386,18 +386,19 @@ export function validatePluginManifest(raw: unknown): PluginManifestValidation {
     const t = tier as PluginTier;
     const f = format as PluginFormat;
     let th = thread as PluginThread;
-    const hasLogic = !!m.logic;
+    const logic = m.logic as { entry?: unknown; permissions?: unknown; format?: unknown; thread?: unknown } | undefined;
+    const hasLogic = !!logic;
     // When logic is present, the entry lives on logic.entry and permissions
     // on logic.permissions; the top-level entry/permissions may be omitted.
-    const effectiveEntry = m.entry ?? m.logic?.entry;
-    const effectivePerms = m.logic?.permissions ?? permList;
+    const effectiveEntry = m.entry ?? logic?.entry;
+    const effectivePerms = (logic?.permissions as PluginPermission[] | undefined) ?? permList;
 
     // wasm always own-worker (check both top-level and logic thread)
     if (f === "wasm" && th !== "own-worker") {
       errors.push(`format "wasm" must use thread "own-worker" (got "${th}") — host will force it`);
     }
-    if (hasLogic && m.logic!.format === "wasm" && m.logic!.thread !== "own-worker") {
-      errors.push(`logic.format "wasm" must use thread "own-worker" (got "${m.logic!.thread}") — host will force it`);
+    if (hasLogic && logic!.format === "wasm" && logic!.thread !== "own-worker") {
+      errors.push(`logic.format "wasm" must use thread "own-worker" (got "${logic!.thread}") — host will force it`);
     }
 
     // data tier ⇒ format asset, no perms, no entry, no logic

@@ -6,7 +6,7 @@
 // grid + blockhead state + stats back to the SAB.
 // ============================================================================
 
-import { createSimWorker, type SimWorkerControl } from "@downdraft/core";
+import { createSimWorker, type BufferSyncConfig, type SimWorkerControl } from "@downdraft/core";
 import { getBlockDef } from "../shared/block-registry";
 import {
     ACTIVE_GRID_H,

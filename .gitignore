@@ -42,6 +42,13 @@ packages/platform-native/native/*.zip
 packages/platform-native/native/*-extract/
 packages/platform-native/native/*-download.zip
 
+# Rust devtools native lib — built from packages/libraries/devtools/native via
+# build.sh (cargo). The .so copy next to src/ and the cargo target/ dir are
+# build artifacts, not source.
+packages/libraries/devtools/native/target/
+packages/libraries/devtools/native/dist/
+packages/libraries/devtools/native/*.so
+
 # Mobile native projects (generated from packages/mobile-shell by `draft mobile`)
 # These are gitignored — regenerated from the engine-owned shell on each run.
 games/*/android/

@@ -197,6 +197,53 @@ describe("PluginHost", () => {
     expect(p?.permissions).toContain("ecs");
   });
 
+  it("denies context capabilities the plugin didn't request", async () => {
+    const host = new PluginHost({ gameId: "test-game", engineVersion: "0.1.0" });
+    let captured: ScriptPluginContext | null = null;
+    host.registerLoader(fakeLoader("quickjs", (ctx) => { captured = ctx as ScriptPluginContext; }));
+    // Request only "state" — no events/tick.
+    host.discover(scriptManifest({ permissions: ["state"] }), "local");
+    await host.loadAll();
+    expect(captured).not.toBeNull();
+    // events + tick are denied stubs, not the real facades.
+    expect(() => captured!.events.subscribe("x", () => {})).toThrow(/events/);
+    expect(() => captured!.tick.onTick(() => {})).toThrow(/tick/);
+    // state remains functional.
+    captured!.state.set("k", 1);
+    expect(captured!.state.get("k")).toBe(1);
+  });
+
+  it("denies native host calls without the mapped permission", async () => {
+    const host = new PluginHost({
+      gameId: "test-game",
+      engineVersion: "0.1.0",
+      moduleHost: new ModuleHost(new World()),
+      hostCalls: { setPhysics: async () => {} },
+    });
+    let captured: NativePluginContext | null = null;
+    host.registerLoader(fakeLoader("worker-js", (ctx) => { captured = ctx as NativePluginContext; }));
+    // "ecs" only — no "physics" → setPhysics must reject with a permission error.
+    host.discover(nativeManifest({ permissions: ["ecs"] }), "local");
+    await host.loadAll();
+    await expect(captured!.setPhysics(1, { mass: 2 })).rejects.toThrow(/physics/);
+  });
+
+  it("shares the event bus across plugins on the same host", async () => {
+    const host = new PluginHost({ gameId: "test-game", engineVersion: "0.1.0" });
+    const received: unknown[] = [];
+    host.registerLoader(fakeLoader("quickjs", (ctx) => {
+      const c = ctx as ScriptPluginContext;
+      if (c.id === "sub") c.events.subscribe("ping", (d) => received.push(d));
+      if (c.id === "pub") c.events.publish("ping", { n: 42 });
+    }));
+    // sub loads first (pub depends on it) so the subscription exists before
+    // the publish fires.
+    host.discover(scriptManifest({ id: "sub", permissions: ["events"] }), "local");
+    host.discover(scriptManifest({ id: "pub", permissions: ["events"], dependencies: ["sub"] }), "local");
+    await host.loadAll();
+    expect(received).toEqual([{ n: 42 }]);
+  });
+
   it("reload re-runs register", async () => {
     const host = new PluginHost({ gameId: "test-game", engineVersion: "0.1.0" });
     let count = 0;

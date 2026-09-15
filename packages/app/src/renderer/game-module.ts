@@ -640,25 +640,35 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
         }
         if (downdraft?.loadGameState) {
           const stateJson = await downdraft.loadGameState(slotName);
-          if (stateJson && simWorker?.restoreFromState) {
-            // The IPC bridge returns JSON.stringify(result.state.components),
-            // so the parsed result is the components map directly (not a
-            // SaveState). Find the game component (e.g. "sandbox") and
-            // forward its `data` to the sim worker.
-            try {
-              const components = JSON.parse(stateJson);
-              const gameKey = Object.keys(components).find(
-                (k) => components[k] && components[k].data != null && typeof components[k].data === "object",
-              );
-              if (gameKey) {
-                await simWorker.restoreFromState(JSON.stringify(components[gameKey].data));
-              }
-            } catch {
-              // If parsing fails, try forwarding the raw JSON.
+          if (!stateJson) return null;
+          // The IPC bridge returns JSON.stringify(result.state.components),
+          // so the parsed result is the components map directly (not a
+          // SaveState). Find the game component (e.g. "sandbox") and
+          // forward its `data` to the sim worker.
+          let parsed: unknown = null;
+          try {
+            parsed = JSON.parse(stateJson);
+          } catch {
+            // Non-JSON payload — fall through to raw restore.
+          }
+          if (simWorker?.restoreFromState) {
+            const components = parsed as Record<string, { data?: unknown }> | null;
+            const gameKey = components && typeof components === "object"
+              ? Object.keys(components).find(
+                  (k) => components[k] && components[k].data !== null && components[k].data !== undefined && typeof components[k].data === "object",
+                )
+              : undefined;
+            if (gameKey) {
+              await simWorker.restoreFromState(JSON.stringify(components![gameKey].data));
+            } else {
+              // No recognizable components map — forward the raw payload.
               await simWorker.restoreFromState(stateJson);
             }
           }
-          return stateJson ? JSON.parse(stateJson) : null;
+          // Return the parsed payload (or the raw string when it isn't JSON)
+          // — the previous version re-parsed unconditionally here, so a
+          // successful raw restore still reported failure.
+          return parsed ?? stateJson;
         }
         return null;
       } catch (e) {
@@ -776,6 +786,12 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
       // snapshot (ctx.pluginHost.snapshot()) and do not abort startup.
       if (pluginHost) {
         try {
+          // Wire the renderer's ModuleHost now that it exists — required for
+          // native-tier plugins (their context bridges into the typed-DI
+          // graph). Without it a native-tier mod fails with "no ModuleHost
+          // configured on this thread".
+          const mh = r?.getRendererModuleHost?.();
+          if (mh) pluginHost.setModuleHost(mh);
           await pluginHost.loadAll();
         } catch (e) {
           console.warn("[startGame] Plugin loading error:", e);

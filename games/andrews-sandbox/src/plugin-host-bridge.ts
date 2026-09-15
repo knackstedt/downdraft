@@ -17,7 +17,7 @@ import type {
     ShaderRegistry,
 } from "@downdraft/core";
 import type { PostProcessStack } from "@downdraft/library-postfx";
-import type { ContentRegistry } from "../../libraries/content/src/content-registry";
+import type { ContentRegistry } from "../libraries/content/src/content-registry";
 
 /** Adapt ContentRegistry → AssetRegistry for the PluginHost extension loader. */
 export function createContentRegistryAssetBridge(
@@ -126,8 +126,9 @@ export function createShaderBridge(
       });
       // Apply default setting values to the uniform buffer.
       const settings = (props as any).settings as Array<{ key: string; default: number | boolean | string; type: string }> | undefined;
-      if (settings && props.uniforms) {
-        const uniformData = new Float32Array(props.uniforms / 4);
+      const uniformBytes = props.uniforms as number | undefined;
+      if (settings && uniformBytes) {
+        const uniformData = new Float32Array(uniformBytes / 4);
         // Per-frame values (inv_w, inv_h, time) are at offsets 0-2 (set by renderer).
         // User settings start at offset 3.
         let offset = 3;

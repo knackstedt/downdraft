@@ -572,7 +572,7 @@ export class BlockheadsRenderer extends GameRenderer {
 
     // Camera uses CSS pixel dimensions (not device pixels) so zoom=96
     // means 96 CSS pixels per block regardless of devicePixelRatio.
-    const dpr = this.dpr || window.devicePixelRatio || 1;
+    const dpr = this.getDpr() || window.devicePixelRatio || 1;
     this.camera.resize(canvas.width / dpr, canvas.height / dpr);
 
     // Create render passes (3D block grid with depth buffer)
@@ -675,7 +675,7 @@ export class BlockheadsRenderer extends GameRenderer {
 
   private handleResize(): void {
     const canvas = this.getCanvas();
-    const dpr = this.dpr || window.devicePixelRatio || 1;
+    const dpr = this.getDpr() || window.devicePixelRatio || 1;
     this.camera.resize(canvas.width / dpr, canvas.height / dpr);
   }
 
@@ -1371,7 +1371,7 @@ export class BlockheadsRenderer extends GameRenderer {
     }
 
     // Update canvas size if needed (camera uses CSS pixels)
-    const dpr = this.dpr || window.devicePixelRatio || 1;
+    const dpr = this.getDpr() || window.devicePixelRatio || 1;
     const w = canvas.width / dpr;
     const h = canvas.height / dpr;
     if (this.camera.canvasW !== w || this.camera.canvasH !== h) {

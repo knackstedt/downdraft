@@ -24,8 +24,10 @@ interface Command {
 
 export class World {
   entities: EntityMeta[] = [];
+  // Unbounded on purpose: the free list can only ever hold ≤ peak-entity-count
+  // entries, while capping it meant discarded indices were never recycled and
+  // entities[] grew unboundedly under high spawn/despawn churn.
   private entityFreeList: number[] = [];
-  private static readonly MAX_FREE_LIST_SIZE = 1024;
   archetypes: Map<number, Archetype> = new Map();
   allArchetypes: Archetype[] = [];
   archetypeById: Map<number, Archetype> = new Map();
@@ -94,9 +96,7 @@ export class World {
 
     meta.alive = false;
     meta.generation++;
-    if (this.entityFreeList.length < World.MAX_FREE_LIST_SIZE) {
-      this.entityFreeList.push(entity.index);
-    }
+    this.entityFreeList.push(entity.index);
     this.archetypesDirty = true;
   }
 

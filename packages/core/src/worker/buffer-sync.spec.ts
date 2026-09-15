@@ -359,6 +359,68 @@ describe("buffer-sync", () => {
 
       delete (globalThis as any).self;
     });
+
+    it("filtered sync does not starve regions sharing the same seq field", () => {
+      // Overburden pattern: fast regions sync every tick batch; a slow region
+      // syncs on an interval — both gated by the same HDR_TICK seq field.
+      // The filtered fast sync must not consume the seq gate for the slow
+      // region.
+      const mockSelf = new MockSelf();
+      const workerBuf = new ArrayBuffer(1024);
+
+      const config: BufferSyncConfig = {
+        buffers: { sim: workerBuf },
+        regions: {
+          sim: {
+            writeRegions: [
+              { offset: 64, length: 64, name: "fast" },
+              { offset: 128, length: 128, name: "slow" },
+            ],
+            readRegions: [],
+          },
+        },
+        seqFields: { sim: { offset: 0 } },
+      };
+
+      const worker = new BufferSyncWorker(config);
+      (globalThis as any).self = mockSelf;
+      worker.start();
+
+      const seqView = new Int32Array(workerBuf, 0, 1);
+      seqView[0] = 1;
+
+      // Tick: fast sync first (filtered), then the periodic full sync.
+      mockSelf.sent.length = 0;
+      worker.syncToMain(["fast"]);
+      expect(mockSelf.sent.length).toBe(1);
+      expect(mockSelf.sent[0].msg.regions.sim.length).toBe(1);
+      expect(mockSelf.sent[0].msg.regions.sim[0].offset).toBe(64);
+
+      mockSelf.sent.length = 0;
+      worker.syncToMain();
+      // The slow region MUST still be sent — same seq, but it wasn't part of
+      // the filtered sync.
+      expect(mockSelf.sent.length).toBe(1);
+      const slowRegions = mockSelf.sent[0].msg.regions.sim;
+      expect(slowRegions.some((r: any) => r.offset === 128)).toBe(true);
+      // The already-synced fast region is skipped (per-region seq unchanged).
+      expect(slowRegions.some((r: any) => r.offset === 64)).toBe(false);
+
+      // Next tick, seq bumped: fast sync sends fast again.
+      seqView[0] = 2;
+      mockSelf.sent.length = 0;
+      worker.syncToMain(["fast"]);
+      expect(mockSelf.sent.length).toBe(1);
+      expect(mockSelf.sent[0].msg.regions.sim[0].offset).toBe(64);
+
+      // Interval hit again: slow syncs once more with the new seq.
+      mockSelf.sent.length = 0;
+      worker.syncToMain();
+      expect(mockSelf.sent.length).toBe(1);
+      expect(mockSelf.sent[0].msg.regions.sim.some((r: any) => r.offset === 128)).toBe(true);
+
+      delete (globalThis as any).self;
+    });
   });
 
   describe("embedded input pattern (sandjongg)", () => {

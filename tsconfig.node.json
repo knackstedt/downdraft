@@ -419,6 +419,7 @@
     "games/*/modules/*/src/**/*.ts",
     "games/*/src/util/**/*.ts",
     "games/*/src/shared/plugin-interfaces.ts",
+    "games/andrews-sandbox/src/shared/**/*.ts",
     "games/*/electron.vite.config.ts",
     "games/*/vite-options.ts",
     "games/*/build.config.ts",

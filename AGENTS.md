@@ -1629,7 +1629,7 @@ NODE_OPTIONS="--import ../../packages/platform-native/src/ffi/wgsl-loader.mjs" \
 deno run --config ../../deno.json --allow-all --unstable-sloppy-imports src/native-entry.ts
 ```
 
-`deno.json` at the repo root is a generated import map mirroring `tsconfig.web.json` `paths` (`foo/*` → `dir/*` trailing-slash form, required for `@`-scoped aliases). Regenerate it if tsconfig paths change. Known Deno limitations: `@pixi/react` scene setup fails (npm `react-reconciler/constants` subpath), and basis-universal `?url` wasm imports are resolved lazily with a disk fallback.
+`deno.json` at the repo root is a generated import map mirroring `tsconfig.web.json` `paths` (`foo/*` → `dir/*` trailing-slash form, required for `@`-scoped aliases). Regenerate with `bun run gen:deno-import-map` whenever tsconfig paths change (CI checks it stays in sync). Known Deno limitations: `@pixi/react` scene setup fails (npm `react-reconciler/constants` subpath), and basis-universal `?url` wasm imports are resolved lazily with a disk fallback.
 
 ### wgpu-native crash notes
 

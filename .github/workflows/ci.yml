@@ -19,6 +19,8 @@ jobs:
         run: bun install --frozen-lockfile
       - name: Type check
         run: bun run tsc
+      - name: Check generated deno.json is in sync
+        run: node scripts/gen-deno-import-map.mjs --check
 
   lint:
     name: Lint
@@ -50,17 +52,17 @@ jobs:
             packages/core/src/render/frustum.spec.ts \
             packages/core/src/telemetry/collector.spec.ts \
             packages/core/src/physics/*.spec.ts \
-            packages/plugins/physics-rapier/src/*.spec.ts \
+            packages/libraries/physics-rapier/src/*.spec.ts \
             packages/shader-graph/src/graph.spec.ts \
             packages/shader-graph/src/compute-compiler.spec.ts \
             packages/core/src/render/bindless/bindless.spec.ts \
             packages/core/src/material/material.spec.ts \
             packages/core/src/material/variants.spec.ts \
-            packages/plugins/models/src/material-adapter.spec.ts \
+            packages/libraries/models/src/material-adapter.spec.ts \
             packages/core/src/assets/model-normalizer.spec.ts \
-            packages/plugins/models/src/bake-node-transforms.spec.ts \
-            packages/plugins/models/src/sidecar/sidecar.spec.ts \
-            packages/plugins/models/src/normalize.spec.ts \
+            packages/libraries/models/src/bake-node-transforms.spec.ts \
+            packages/libraries/models/src/sidecar/sidecar.spec.ts \
+            packages/libraries/models/src/normalize.spec.ts \
             packages/app/src/main/storage.spec.ts
 
   plugin-tests:

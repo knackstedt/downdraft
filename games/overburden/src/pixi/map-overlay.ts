@@ -82,7 +82,7 @@ export class MapOverlay {
     this.bitmapCtx = this.bitmapCanvas.getContext("2d")!;
     this.texture = Texture.from(this.bitmapCanvas);
     this.texture.source.scaleMode = "nearest";
-    this.texture.source.premultipliedAlpha = false;
+    this.texture.source.alphaMode = "no-premultiply-alpha";
     this.sprite = new Sprite(this.texture);
     this.sprite.visible = false;
     this.container.addChild(this.sprite);

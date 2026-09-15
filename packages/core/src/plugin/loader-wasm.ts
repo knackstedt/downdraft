@@ -330,18 +330,67 @@ export class WasmPluginLoader implements PluginLoader {
     });
 
     // Forward host-side calls when the worker posts bridge requests.
+    // Explicit dispatch table — arbitrary ctx[method] strings are NOT
+    // forwarded; only the methods the wasm worker protocol uses.
+    const eventSubs = new Map<number, () => void>();
+    const wasmHostCalls = ctx as unknown as Record<string, ((...a: unknown[]) => Promise<unknown>) | undefined>;
+    const dispatchBridge = (method: string, args: unknown[]): unknown => {
+      switch (method) {
+        case "log": {
+          const level = args[0] as "info" | "warn" | "error" | "debug";
+          return ctx.log[level]?.(String(args[1]));
+        }
+        case "state.load": return ctx.state.load?.();
+        case "state.keys": return ctx.state.keys();
+        case "state.get": return ctx.state.get(args[0] as string);
+        case "state.set": return ctx.state.set(args[0] as string, args[1]);
+        case "state.delete": return ctx.state.delete(args[0] as string);
+        case "events.publish": return ctx.events.publish(args[0] as string, args[1]);
+        case "events.subscribe": {
+          const name = args[0] as string;
+          const subId = args[1] as number;
+          const unsub = ctx.events.subscribe(name, (data: unknown) => {
+            worker.postMessage({ __wasmEvent: true, subId, data });
+          });
+          eventSubs.set(subId, unsub);
+          return subId;
+        }
+        case "events.unsubscribe": {
+          const unsub = eventSubs.get(args[0] as number);
+          eventSubs.delete(args[0] as number);
+          unsub?.();
+          return undefined;
+        }
+        case "hostCall": {
+          // v3 host calls — native-tier context methods only (permission-
+          // gated inside the context itself).
+          const [name, ...rest] = args as [string, ...unknown[]];
+          const allowed = ["spawnProp", "removeProp", "setPhysics", "getPhysics", "applyImpulse", "applyTorque", "getAssetRef"];
+          if (!allowed.includes(name)) {
+            throw new Error(`hostCall "${name}" is not allowed`);
+          }
+          const fn = wasmHostCalls[name];
+          if (typeof fn !== "function") {
+            throw new Error(`hostCall "${name}" unavailable (no native context)`);
+          }
+          return fn.apply(ctx, rest);
+        }
+        default:
+          throw new Error(`unknown bridge method "${method}"`);
+      }
+    };
     worker.addEventListener("message", (ev: MessageEvent) => {
       const msg = ev.data;
       if (msg?.__wasmBridge) {
-        // Best-effort forwarding of host API calls from the worker.
-        const { method, args } = msg;
-        try {
-          // @ts-expect-error - dynamic dispatch
-          const result = ctx[method]?.(...args);
-          worker.postMessage({ __wasmBridgeResult: true, callId: msg.callId, result });
-        } catch (e) {
-          worker.postMessage({ __wasmBridgeResult: true, callId: msg.callId, error: (e as Error).message });
-        }
+        const { method, args } = msg as { method: string; args: unknown[] };
+        Promise.resolve()
+          .then(() => dispatchBridge(method, args))
+          .then((result) => {
+            worker.postMessage({ __wasmBridgeResult: true, callId: msg.callId, result });
+          })
+          .catch((e) => {
+            worker.postMessage({ __wasmBridgeResult: true, callId: msg.callId, error: (e as Error).message });
+          });
       }
     });
 

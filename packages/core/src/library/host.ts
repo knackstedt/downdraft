@@ -29,8 +29,10 @@ interface ActiveLibrary<C = unknown> {
   config: C;
   simSystem: unknown;
   rendererInstance: unknown;
-  /** Token keys this library has provided (for cleanup + leak detection). */
-  providedKeys: Set<string>;
+  /** Token keys provided on the sim side (cleanup + leak detection). */
+  simProvidedKeys: Set<string>;
+  /** Token keys provided on the renderer side (cleanup + leak detection). */
+  rendererProvidedKeys: Set<string>;
   /** SAB channel names this library allocated (for leak detection). */
   sabChannelNames: Set<string>;
   /** Whether this library registered a sim dispose hook. */
@@ -61,7 +63,8 @@ export class LibraryHostImpl implements LibraryHost {
         config,
         simSystem: null,
         rendererInstance: null,
-        providedKeys: new Set(),
+        simProvidedKeys: new Set(),
+        rendererProvidedKeys: new Set(),
         sabChannelNames: new Set(),
         hasSimDispose: false,
         hasRendererDispose: false,
@@ -73,6 +76,12 @@ export class LibraryHostImpl implements LibraryHost {
     for (const active of this.libraries) {
       const channels = active.lib.sabChannels ?? [];
       for (const ch of channels) {
+        if (this.buffers[ch.name]) {
+          const msg = `SAB channel "${ch.name}" declared by library "${active.lib.name}" is already allocated — duplicate channel names across libraries are not allowed`;
+          if (isStrict()) throw new Error(msg);
+          console.warn(`[LibraryHost] ${msg}`);
+          continue;
+        }
         this.buffers[ch.name] = new SharedArrayBuffer(ch.size);
         active.sabChannelNames.add(ch.name);
       }
@@ -120,7 +129,7 @@ export class LibraryHostImpl implements LibraryHost {
             assertNoDuplicate(this.providers, token, active.lib.name);
           }
           this.providers.set(token.key, active.lib.name);
-          active.providedKeys.add(token.key);
+          active.simProvidedKeys.add(token.key);
           // Delegate to the host's provide if available (for ModuleHost integration)
           ctx.provide(token, value);
         },
@@ -177,7 +186,7 @@ export class LibraryHostImpl implements LibraryHost {
             assertNoDuplicate(this.providers, token, active.lib.name);
           }
           this.providers.set(token.key, active.lib.name);
-          active.providedKeys.add(token.key);
+          active.rendererProvidedKeys.add(token.key);
           ctx.provide(token, value);
         },
         inject: ctx.inject,
@@ -201,7 +210,7 @@ export class LibraryHostImpl implements LibraryHost {
             assertNoDuplicate(this.providers, token, active.lib.name);
           }
           this.providers.set(token.key, active.lib.name);
-          active.providedKeys.add(token.key);
+          active.rendererProvidedKeys.add(token.key);
           ctx.provide(token, value);
         },
         inject: ctx.inject,
@@ -223,12 +232,12 @@ export class LibraryHostImpl implements LibraryHost {
     for (const active of this.libraries) {
       if (!active.lib.renderer?.setBuffers || active.rendererInstance === null) continue;
       active.lib.renderer.setBuffers(active.rendererInstance, buffers, {
-        provide: (token: ResourceToken<unknown>, value: unknown) => {
+        provide: (token: ResourceToken<unknown>, _value: unknown) => {
           if (isStrict()) {
             assertNoDuplicate(this.providers, token, active.lib.name);
           }
           this.providers.set(token.key, active.lib.name);
-          active.providedKeys.add(token.key);
+          active.rendererProvidedKeys.add(token.key);
         },
       });
     }
@@ -248,7 +257,7 @@ export class LibraryHostImpl implements LibraryHost {
       // channels but has no sim dispose hook.
       if (isStrict()) {
         warnLeak(active.lib.name, {
-          providedCount: active.providedKeys.size,
+          providedCount: active.simProvidedKeys.size,
           sabCount: active.sabChannelNames.size,
           disposeFnCount: active.hasSimDispose ? 1 : 0,
         });
@@ -257,11 +266,17 @@ export class LibraryHostImpl implements LibraryHost {
         try { active.lib.sim.dispose(active.simSystem); } catch { /* ignore */ }
       }
       active.simSystem = null;
-      // Clean up provided tokens
-      for (const key of active.providedKeys) {
+      // Clean up sim-side provided tokens only — renderer-side providers
+      // belong to the renderer lifecycle and are cleaned by disposeRenderer().
+      for (const key of active.simProvidedKeys) {
         this.providers.delete(key);
       }
-      active.providedKeys.clear();
+      active.simProvidedKeys.clear();
+    }
+    // Clear tick-phase registrations so a subsequent initSim doesn't
+    // double-register libraries and double-tick them.
+    for (const phase of Object.keys(this.byPhase) as LibraryTickPhase[]) {
+      this.byPhase[phase].length = 0;
     }
   }
 
@@ -269,7 +284,7 @@ export class LibraryHostImpl implements LibraryHost {
     for (const active of this.libraries) {
       if (isStrict()) {
         warnLeak(active.lib.name, {
-          providedCount: active.providedKeys.size,
+          providedCount: active.rendererProvidedKeys.size,
           sabCount: active.sabChannelNames.size,
           disposeFnCount: active.hasRendererDispose ? 1 : 0,
         });
@@ -278,10 +293,10 @@ export class LibraryHostImpl implements LibraryHost {
         try { active.lib.renderer.dispose(active.rendererInstance); } catch { /* ignore */ }
       }
       active.rendererInstance = null;
-      for (const key of active.providedKeys) {
+      for (const key of active.rendererProvidedKeys) {
         this.providers.delete(key);
       }
-      active.providedKeys.clear();
+      active.rendererProvidedKeys.clear();
     }
   }
 }
