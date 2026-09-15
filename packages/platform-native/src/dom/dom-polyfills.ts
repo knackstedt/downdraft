@@ -92,9 +92,10 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
     // PixiJS's BrowserAdapter reads these via DOMAdapter.get().getXxx().
     if (typeof (globalThis as any).HTMLCanvasElement === "undefined") {
       // VirtualCanvas should satisfy `instanceof HTMLCanvasElement` (@pixi/react
-      // createRoot checks this). Define the class and chain VirtualCanvas's
-      // prototype so the instanceof check succeeds.
-      class HTMLCanvasElement {}
+      // createRoot checks this). Extend MiniEventTarget so the prototype chain
+      // (VirtualCanvas → HTMLCanvasElement → MiniEventTarget) preserves
+      // addEventListener/removeEventListener/dispatchEvent.
+      class HTMLCanvasElement extends MiniEventTarget {}
       (globalThis as any).HTMLCanvasElement = HTMLCanvasElement;
       try {
         Object.setPrototypeOf(VirtualCanvas.prototype, HTMLCanvasElement.prototype);
