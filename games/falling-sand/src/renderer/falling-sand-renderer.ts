@@ -150,6 +150,7 @@ export class FallingSandRenderer extends GameRenderer {
     super.stop();
     this.workerHost?.stop();
     this.stickmanPass?.destroy();
+    this.input?.destroy();
     if (this.storeUnsub) this.storeUnsub();
     if (this.keydownHandler) window.removeEventListener("keydown", this.keydownHandler);
     this.destroy();
@@ -161,6 +162,7 @@ export class FallingSandRenderer extends GameRenderer {
     const canvas = this.getCanvas();
     if (!device || !context || !this.input || !this.gridReader || !this.gridPass) return;
 
+    this.input.update();
     this.writeInputToWorker();
     this.handlePicker();
     this.updateInspector(dt);

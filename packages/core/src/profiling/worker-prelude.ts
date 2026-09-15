@@ -53,6 +53,17 @@ export interface ProfilingAttachConfig {
   idb?: boolean;
   defaultWarningRules?: boolean;
   getHeap?: () => { heapUsed: number; heapTotal: number; rss: number };
+  /** ProfilingSAB layout params. MUST match the params used to allocate the
+   *  SAB on the renderer (see ProfilingBridge.getLayoutParams()). If omitted,
+   *  the defaults (maxSlots=32) are used — which must match the allocator or
+   *  atomic accesses will be out-of-bounds. A mismatch is detected and
+   *  profiling is disabled for this worker rather than crashing. */
+  layout?: {
+    maxSlots: number;
+    iopsRingCap: number;
+    warningRingCap: number;
+    stringTableCap: number;
+  };
 }
 
 // ─── Shared state ───────────────────────────────────────────────────────────
@@ -127,7 +138,29 @@ export function attachProfilingSAB(
   s.workerTagHash = fnv1a32(config.workerTag);
   s.runtime = config.runtime ?? RUNTIME_JS;
   s.sab = sharedBuffer;
-  s.layout = computeProfilingSABLayout();
+  s.layout = config.layout
+    ? computeProfilingSABLayout(
+        config.layout.maxSlots,
+        config.layout.iopsRingCap,
+        config.layout.warningRingCap,
+        config.layout.stringTableCap,
+      )
+    : computeProfilingSABLayout();
+
+  // Defensive: if the computed layout doesn't match the actual buffer size,
+  // the renderer allocated the SAB with different caps than we're assuming.
+  // Proceeding would cause out-of-bounds Atomics access ("Invalid atomic
+  // access index"). Disable profiling for this worker instead of crashing.
+  if (s.layout.byteLength !== sharedBuffer.byteLength) {
+    console.warn(
+      `[profiling] SAB layout mismatch for worker "${s.workerTag}": ` +
+        `computed ${s.layout.byteLength} bytes but buffer is ${sharedBuffer.byteLength} bytes ` +
+        `(pass layout params matching ProfilingBridge.getLayoutParams()) — profiling disabled`,
+    );
+    s.sab = null;
+    s.layout = null;
+    return { slotIndex: -1, success: false };
+  }
 
   // Claim a slot
   s.slotIndex = claimSlot(s.sab, s.layout, s.workerTagHash, s.runtime, s.workerTag);

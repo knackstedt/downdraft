@@ -98,6 +98,7 @@ export type {
     GameSaveConfig,
     GameSaveSource,
     GameSimWorker,
+    GameUiHandle,
     PluginRuntimeConfig,
     RendererFactory,
     SimEventMap,
@@ -144,6 +145,13 @@ export { AutosaveManager, type AutosaveManagerOptions } from "@downdraft/library
 // MCP automation harness factory + shared tool helpers
 export { blobToBase64, compositeScreenshot, createMcpHarness, errorResult, jsonResult } from "./mcp-harness";
 export type { McpHarnessOptions, McpRequest, McpResponse, McpToolDef, McpToolRegistration } from "./mcp-harness";
+export { createStandardAutomationTools } from "./standard-automation-tools";
+export type {
+    InjectedInputFrame,
+    StandardAutomationContext,
+    StandardInputInjector,
+    StandardToolName
+} from "./standard-automation-tools";
 
 // Feature log (renderer collector + combined accessor + MCP tool factory)
 export {

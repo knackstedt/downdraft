@@ -134,7 +134,10 @@ export class SimWebWorker implements IHotReloadable, ISimWorker {
    * The worker's profiling prelude claims a slot + patches prototypes +
    * initializes the warning engine + event-loop monitor.
    */
-  async attachProfilingSAB(sab: SharedArrayBuffer): Promise<void> {
+  async attachProfilingSAB(
+    sab: SharedArrayBuffer,
+    layout?: { maxSlots: number; iopsRingCap: number; warningRingCap: number; stringTableCap: number },
+  ): Promise<void> {
     if (!this.wp) return;
     try {
       await (this.wp.proxy as any).__profilingAttach?.(sab, {
@@ -143,6 +146,7 @@ export class SimWebWorker implements IHotReloadable, ISimWorker {
         opfs: true,
         idb: true,
         defaultWarningRules: true,
+        layout,
       });
     } catch (err) {
       console.warn("[SimWebWorker] Profiling SAB attach failed:", err);

@@ -28,6 +28,7 @@ export class SandWorkerHost {
   private reader: SimBufferReader;
   private layers: LayerWorker[] = [];
   private readyCount = 0;
+  private eventSubs: Array<(msg: { kind: string; data: unknown }) => void> = [];
   gridW: number;
   gridH: number;
 
@@ -41,6 +42,12 @@ export class SandWorkerHost {
   }
 
   getSimBuffer(): SharedArrayBuffer { return this.sab; }
+  /** GameSimWorker surface — input lives inside the shared sim SAB. */
+  getInputBuffer(): SharedArrayBuffer { return this.sab; }
+  /** GameSimWorker surface — sim→renderer event subscription ({kind, data}). */
+  onEvent(cb: (msg: { kind: string; data: unknown }) => void): void {
+    this.eventSubs.push(cb);
+  }
   getReader(): SimBufferReader { return this.reader; }
   isReady(): boolean { return this.readyCount >= NUM_LAYERS; }
 
@@ -69,11 +76,12 @@ export class SandWorkerHost {
       // Track ready events per-worker. isReady() returns true once every
       // layer worker has reported ready.
       const layerIdx = i;
-      wp.onEvents((kind) => {
+      wp.onEvents((kind, data) => {
         if (kind === "ready") {
           this.layers[layerIdx].ready = true;
           this.readyCount++;
         }
+        for (const cb of this.eventSubs) cb({ kind, data });
       });
 
       this.layers.push({ proxy: wp, worker, ready: false });
@@ -94,7 +102,7 @@ export class SandWorkerHost {
 
   async stop(): Promise<void> {
     await Promise.all(this.layers.map(async l => {
-      try { await l.proxy.proxy.shutdown(); } catch {}
+      try { await l.proxy.proxy.shutdown(); } catch { /* worker may already be dead */ }
       l.proxy.terminate();
     }));
     this.layers = [];

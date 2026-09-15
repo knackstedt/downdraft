@@ -1,172 +1,64 @@
 // ============================================================================
 // Renderer Entry Point — declarative GameModule + startGame()
 //
-// Migrated from React DOM overlay to PixiJS-in-worker UI (@downdraft/library-pixi-ui).
-// The UI scene runs in a Web Worker on an OffscreenCanvas stacked above the
-// game canvas. State flows through three channels:
-//   1. UiStatsSAB — per-frame scalars (host.writeStats each frame)
+// PixiJS-in-worker UI (@downdraft/library-pixi-ui). The UI scene runs in a
+// Web Worker on an OffscreenCanvas stacked above the game canvas. State flows
+// through three channels:
+//   1. UiStatsSAB — per-frame scalars (bridge stats loop)
 //   2. postEvent  — structured data (saves list)
 //   3. onAction   — worker→main side-effect requests (buttons, sliders)
 //
-// Note: The falling-sand renderer creates and manages its own SandWorkerHost
-// internally (in renderer.init()). The FallingSandSimAdapter below satisfies
-// the GameSimWorker interface required by startGame() without spawning a
-// duplicate worker — its start() is a no-op and the SABs it exposes are never
-// used by the renderer (which has its own). The real simulation lifecycle is
-// owned by the renderer.
+// The renderer owns the sim: FallingSandRenderer creates + starts its own
+// SandWorkerHost inside init(), and `simFromRenderer` exposes it to
+// startGame()'s context (no fake GameSimWorker adapter needed).
 // ============================================================================
 
-import { captureCanvasThumbnail, createMcpHarness, startGame, type GameSimWorker } from "@downdraft/app/renderer";
 import {
+    captureCanvasThumbnail,
+    createMcpHarness,
+    createStandardAutomationTools,
+    startGame,
+} from "@downdraft/app/renderer";
+import {
+    createPixiUiBridge,
     createPixiUiMcpTools,
     getEffectiveFontScale,
     loadUserFontScale,
-    PixiUiHost,
     saveUserFontScale,
     type PixiUiAction,
+    type PixiUiBridge,
 } from "@downdraft/library-pixi-ui";
 import { createSimStatsPanelExtension, createSimStatsProvider } from "@downdraft/module-devtools";
 import { FALLING_SAND_STATS_LAYOUT } from "./pixi/bridge-protocol";
 import { FallingSandRenderer } from "./renderer/falling-sand-renderer";
-import { allocateSimBuffer, NUM_LAYERS, PLAYER } from "./shared/sim-buffer";
+import { NUM_LAYERS, PLAYER } from "./shared/sim-buffer";
 import { useGameStore, type FieldType } from "./stores/game-store";
-import {
-    autosave, deleteSave, listSaves, loadAutosave, loadGame, saveGame,
-} from "./stores/save-system";
+import { createFallingSandSaveSystem, type FallingSandSaveSystem } from "./stores/save-system";
 import "./styles/globals.css";
 
-// --- GameSimWorker adapter ---
-// The falling-sand renderer creates and manages its own SandWorkerHost
-// internally in renderer.init(). This adapter satisfies the GameSimWorker
-// interface required by startGame() without spawning a duplicate worker.
-class FallingSandSimAdapter implements GameSimWorker {
-  private sab: SharedArrayBuffer;
-
-  constructor() {
-    this.sab = allocateSimBuffer();
-  }
-
-  async start(_config: unknown): Promise<void> {
-    // No-op: the FallingSandRenderer creates and starts its own SandWorkerHost
-    // internally during renderer.init(). This adapter exists only to satisfy
-    // the GameSimWorker interface for startGame().
-  }
-
-  onEvent(_cb: (msg: any) => void): void {
-    // The falling-sand sim does not emit events to the renderer.
-  }
-
-  getSimBuffer(): SharedArrayBuffer { return this.sab; }
-  getInputBuffer(): SharedArrayBuffer { return this.sab; }
-}
-
-// Track handles for hot-reload dispose.
-let autosaveInterval: ReturnType<typeof setInterval> | null = null;
-let pixiHost: PixiUiHost | null = null;
-let statsRafId = 0;
-let mouseMoveHandler: ((e: MouseEvent) => void) | null = null;
-
-// Mouse position tracking (for brush circle in the pixi overlay).
-let mouseX = 0;
-let mouseY = 0;
-let mouseValid = false;
+// Save lifecycle handle — created in onReady, stopped in onDispose.
+let saves: FallingSandSaveSystem | null = null;
+let savesUnsub: (() => void) | null = null;
+let bridgeRef: PixiUiBridge | null = null;
 
 startGame({
-  // --- Renderer + Sim ---
+  // --- Renderer + renderer-owned sim ---
   renderer: (canvas) => {
     const deterministic = (window as any).downdraft?.deterministic === true;
     return new FallingSandRenderer(canvas, deterministic);
   },
-  sim: () => new FallingSandSimAdapter(),
-  simConfig: {},
+  // The renderer spawns + starts its own SandWorkerHost in init(); expose it
+  // to the game context (SABs + event routing) without a duplicate worker.
+  simFromRenderer: (r: FallingSandRenderer) => r.getWorkerHost() ?? undefined,
 
-  // --- UI (PixiJS-in-worker, mounted in onReady) ---
-  mountUI: () => { /* pixi-ui handles UI — no DOM overlay needed */ },
-
-  // --- DevTools ---
-  devtools: {
-    createSimStatsProvider: (renderer) => createSimStatsProvider({
-      getWorkerHost: () => renderer.getWorkerHost(),
-      getStorePaused: () => useGameStore.getState().paused,
-      setStorePaused: (paused) => useGameStore.getState().setPaused(paused),
-      clearSim: () => renderer.clearAll(),
-      getExtra: () => {
-        const host = renderer.getWorkerHost();
-        const player = host ? {
-          px: host.getPlayerF32(PLAYER.PX),
-          py: host.getPlayerF32(PLAYER.PY),
-          vx: host.getPlayerF32(PLAYER.VX),
-          vy: host.getPlayerF32(PLAYER.VY),
-          health: host.getPlayerI32(PLAYER.HEALTH),
-          onGround: host.getPlayerI32(PLAYER.ON_GROUND) !== 0,
-          facing: host.getPlayerI32(PLAYER.FACING),
-        } : null;
-        return {
-          grid: `${renderer.getGridW()}x${renderer.getGridH()}`,
-          layers: NUM_LAYERS,
-          renderFPS: renderer.getFPS(),
-          player,
-        };
-      },
-    }),
-    panels: [
-      createSimStatsPanelExtension({
-        extraRows: (stats) => {
-          const extra = stats.extra as any;
-          if (!extra) return [];
-          const rows: [string, string][] = [
-            ["Grid", extra.grid ?? "—"],
-            ["Layers", String(extra.layers ?? "—")],
-            ["Render FPS", String(extra.renderFPS ?? "—")],
-          ];
-          if (extra.player) {
-            const p = extra.player;
-            rows.push(
-              ["Player Pos", `(${p.px.toFixed(1)}, ${p.py.toFixed(1)})`],
-              ["Player Vel", `(${p.vx.toFixed(2)}, ${p.vy.toFixed(2)})`],
-              ["Player Health", String(p.health)],
-              ["On Ground", p.onGround ? "Yes" : "No"],
-              ["Facing", p.facing > 0 ? "Right" : "Left"],
-            );
-          }
-          return rows;
-        },
-      }),
-    ],
-  },
-
-  // --- Renderer init ---
-  // Override onInit so startGame() does NOT call sim.start() (the adapter is
-  // a no-op). The renderer creates + starts its own SandWorkerHost internally.
-  onInit: async (ctx) => {
-    const ok = await ctx.renderer.init();
-    if (!ok) {
-      console.error("FallingSandRenderer initialization failed");
-      return false;
-    }
-    return true;
-  },
-
-  // --- Post-init wiring ---
-  onReady: async (ctx) => {
-    const { renderer, deterministic } = ctx;
-
-    // Wire renderer to the game store (was onRendererInit in bootstrapGame).
-    useGameStore.getState().setRenderer(renderer);
-
-    // --- Start the PixiJS UI overlay ---
-    pixiHost = new PixiUiHost({
-      backend: "webgl2",
-      statsLayout: FALLING_SAND_STATS_LAYOUT,
-      sceneModuleUrl: new URL("./pixi-scene.ts", import.meta.url).href,
-      passThrough: true, // interactive UI + game-canvas painting
-      canvasLayer: 1,
-      canvasId: "pixi-ui-canvas",
-      fontScale: getEffectiveFontScale(loadUserFontScale()),
-    });
-
-    // Handle worker→main actions (buttons, sliders, save/load/clear).
-    pixiHost.onAction = (action: PixiUiAction) => {
+  // --- UI (PixiJS-in-worker via the batteries-included bridge) ---
+  ui: () => createPixiUiBridge({
+    statsLayout: FALLING_SAND_STATS_LAYOUT,
+    sceneModuleUrl: new URL("./pixi-scene.ts", import.meta.url).href,
+    passThrough: true, // interactive UI + game-canvas painting
+    fontScale: getEffectiveFontScale(loadUserFontScale()),
+    trackPointer: true, // merges mouseX/mouseY/mouseValid into stats (brush circle)
+    onAction: (action: PixiUiAction) => {
       const s = useGameStore.getState();
       switch (action.kind) {
         case "selectMaterial":
@@ -222,53 +114,18 @@ startGame({
           handleDelete((action as any).id);
           break;
         case "clear":
-          renderer.clearAll();
+          useGameStore.getState().renderer?.clearAll();
           break;
         case "setFontScale": {
           const a = action as any;
           const scale = getEffectiveFontScale(a.scale);
-          pixiHost?.setFontScale(scale);
+          uiBridge()?.host.setFontScale(scale);
           saveUserFontScale(a.scale);
           break;
         }
       }
-    };
-
-    try {
-      await pixiHost.start();
-      console.log("[main] PixiUI overlay started");
-    } catch (e) {
-      console.error("[main] PixiUI overlay failed to start:", e);
-    }
-
-    // Register MCP automation tools for e2e testing.
-    if (pixiHost) {
-      const tools = createPixiUiMcpTools(pixiHost);
-      createMcpHarness({
-        serverName: "downdraft-falling-sand-pixi-automation",
-        tools,
-      });
-    }
-
-    // --- Mouse position tracking (for brush circle) ---
-    mouseMoveHandler = (e: MouseEvent) => {
-      const canvas = renderer.getCanvas();
-      if (!canvas) return;
-      const rect = canvas.getBoundingClientRect();
-      const onCanvas = e.clientX >= rect.left && e.clientX <= rect.right &&
-                       e.clientY >= rect.top && e.clientY <= rect.bottom;
-      if (onCanvas) {
-        mouseX = e.clientX - rect.left;
-        mouseY = e.clientY - rect.top;
-        mouseValid = true;
-      } else {
-        mouseValid = false;
-      }
-    };
-    window.addEventListener("mousemove", mouseMoveHandler);
-
-    // --- Per-frame stats loop (writes UiStatsSAB from the game store) ---
-    const statsLoop = () => {
+    },
+    getStats: () => {
       const s = useGameStore.getState();
       const r = s.renderer;
       const gridW = r?.getGridW() ?? 1;
@@ -276,8 +133,7 @@ startGame({
       const canvas = r?.getCanvas();
       const canvasW = canvas?.width ?? window.innerWidth;
       const canvasH = canvas?.height ?? window.innerHeight;
-
-      pixiHost?.writeStats({
+      return {
         fps: s.fps ?? 0,
         health: s.health,
         paused: s.paused ? 1 : 0,
@@ -304,24 +160,133 @@ startGame({
         inspectorTemperature: s.inspector.temperature,
         inspectorWindX: s.inspector.windX,
         inspectorWindY: s.inspector.windY,
-        mouseX,
-        mouseY,
-        mouseValid: mouseValid ? 1 : 0,
         gridW,
         gridH,
         canvasW,
         canvasH,
-      });
-      statsRafId = requestAnimationFrame(statsLoop);
-    };
-    statsRafId = requestAnimationFrame(statsLoop);
+      };
+    },
+  }),
 
-    // --- Subscribe to store saves changes → forward to worker ---
+  // --- DevTools ---
+  devtools: {
+    createSimStatsProvider: (renderer) => createSimStatsProvider({
+      getWorkerHost: () => renderer.getWorkerHost(),
+      getStorePaused: () => useGameStore.getState().paused,
+      setStorePaused: (paused) => useGameStore.getState().setPaused(paused),
+      clearSim: () => renderer.clearAll(),
+      getExtra: () => {
+        const host = renderer.getWorkerHost();
+        const player = host ? {
+          px: host.getPlayerF32(PLAYER.PX),
+          py: host.getPlayerF32(PLAYER.PY),
+          vx: host.getPlayerF32(PLAYER.VX),
+          vy: host.getPlayerF32(PLAYER.VY),
+          health: host.getPlayerI32(PLAYER.HEALTH),
+          onGround: host.getPlayerI32(PLAYER.ON_GROUND) !== 0,
+          facing: host.getPlayerI32(PLAYER.FACING),
+        } : null;
+        return {
+          grid: `${renderer.getGridW()}x${renderer.getGridH()}`,
+          layers: NUM_LAYERS,
+          renderFPS: renderer.getFPS(),
+          player,
+        };
+      },
+    }),
+    panels: [
+      createSimStatsPanelExtension({
+        extraRows: (stats) => {
+          const extra = stats.extra as any;
+          if (!extra) return [];
+          const rows: [string, string][] = [
+            ["Grid", extra.grid ?? "—"],
+            ["Layers", String(extra.layers ?? "—")],
+            ["Render FPS", String(extra.renderFPS ?? "—")],
+          ];
+          if (extra.player) {
+            const p = extra.player;
+            rows.push(
+              ["Player Pos", `(${p.px.toFixed(1)}, ${p.py.toFixed(1)})`],
+              ["Player Vel", `(${p.vx.toFixed(2)}, ${p.vy.toFixed(2)})`],
+              ["Player Health", String(p.health)],
+              ["On Ground", p.onGround ? "Yes" : "No"],
+              ["Facing", p.facing > 0 ? "Right" : "Left"],
+            );
+          }
+          return rows;
+        },
+      }),
+    ],
+  },
+
+  // --- Renderer init ---
+  // The renderer creates + starts its own SandWorkerHost internally, so
+  // startGame() must not start a sim — there is no `sim` factory.
+  onInit: async (ctx) => {
+    const ok = await ctx.renderer.init();
+    if (!ok) {
+      console.error("FallingSandRenderer initialization failed");
+      return false;
+    }
+    return true;
+  },
+
+  // --- Post-init wiring ---
+  onReady: async (ctx) => {
+    const { renderer, deterministic } = ctx;
+
+    // Wire renderer to the game store.
+    useGameStore.getState().setRenderer(renderer);
+
+    // MCP automation tools (standard set + pixi-ui tools).
+    const bridge = ctx.ui as PixiUiBridge | undefined;
+    bridgeRef = bridge ?? null;
+    const tools = [
+      ...createStandardAutomationTools({
+        canvas: () => renderer.getCanvas(),
+        getUiState: () => {
+          const s = useGameStore.getState();
+          return {
+            paused: s.paused,
+            showSettings: s.showSettings,
+            showSaves: s.showSaves,
+            selectedMaterial: s.selectedMaterial,
+            brushMode: s.brushMode,
+            brushRadius: s.brushRadius,
+            ready: s.ready,
+            simReady: s.simReady,
+          };
+        },
+      }),
+      ...(bridge ? createPixiUiMcpTools(bridge.host) : []),
+    ];
+    createMcpHarness({
+      serverName: "downdraft-falling-sand-pixi-automation",
+      tools,
+    });
+
+    // --- Save lifecycle (autosave interval + restore-on-start) ---
+    saves = createFallingSandSaveSystem({
+      snapshot: () => {
+        const r = useGameStore.getState().renderer;
+        return r ? r.snapshotGrids() : null;
+      },
+      restore: async (e) => {
+        const r = useGameStore.getState().renderer;
+        if (r) await r.loadSave(e.grids, e.fields, e.gridW, e.gridH);
+      },
+      deterministic,
+    });
+    const restored = await saves.start();
+    if (restored) console.log("[autosave] Restored last session");
+
+    // --- Forward saves list changes to the worker scene ---
     let lastSavesLen = -1;
-    useGameStore.subscribe((s) => {
+    savesUnsub = useGameStore.subscribe((s) => {
       if (s.saves.length !== lastSavesLen) {
         lastSavesLen = s.saves.length;
-        pixiHost?.postEvent({
+        bridge?.postEvent({
           kind: "setSaves",
           saves: s.saves.map((sv) => ({
             id: sv.id, name: sv.name, timestamp: sv.timestamp,
@@ -330,48 +295,15 @@ startGame({
         });
       }
     });
-
-    // --- Autosave (skip in deterministic/test mode) ---
-    if (!deterministic) {
-      // Load previous session
-      try {
-        const saved = await loadAutosave();
-        if (saved) {
-          await renderer.loadSave(saved.grids, saved.fields, saved.gridW, saved.gridH);
-          console.log("[autosave] Restored last session");
-        }
-      } catch {
-        console.log("[autosave] No autosave found, starting fresh");
-      }
-
-      // Set up autosave interval (every 3s, matching bootstrap default)
-      autosaveInterval = setInterval(async () => {
-        const r = useGameStore.getState().renderer;
-        if (!r) return;
-        const { grids, fields, gridW, gridH } = r.snapshotGrids();
-        await autosave({ gridW, gridH, grids, fields });
-      }, 3000);
-    }
   },
 
   // --- Cleanup (hot-reload dispose) ---
   onDispose: () => {
-    if (autosaveInterval) {
-      clearInterval(autosaveInterval);
-      autosaveInterval = null;
-    }
-    if (statsRafId) {
-      cancelAnimationFrame(statsRafId);
-      statsRafId = 0;
-    }
-    if (mouseMoveHandler) {
-      window.removeEventListener("mousemove", mouseMoveHandler);
-      mouseMoveHandler = null;
-    }
-    if (pixiHost) {
-      pixiHost.dispose();
-      pixiHost = null;
-    }
+    saves?.stop();
+    saves = null;
+    savesUnsub?.();
+    savesUnsub = null;
+    bridgeRef = null; // startGame() already disposed ctx.ui
   },
 
   // --- FPS polling ---
@@ -380,11 +312,18 @@ startGame({
   console.error("[main] Fatal:", e);
 });
 
-// ── Save/load helpers (called from onAction) ──
+// ── Helpers ──
+
+function uiBridge(): PixiUiBridge | null {
+  // ctx.ui is set by startGame before onReady; the action handler can fire
+  // later, so resolve lazily through a module-scope reference set in onReady.
+  return bridgeRef;
+}
 
 async function refreshSaves(): Promise<void> {
+  if (!saves) return;
   try {
-    const list = await listSaves();
+    const list = await saves.listSaves();
     useGameStore.getState().setSaves(list);
   } catch (e) {
     console.error("Failed to list saves:", e);
@@ -393,13 +332,13 @@ async function refreshSaves(): Promise<void> {
 
 async function handleSave(): Promise<void> {
   const r = useGameStore.getState().renderer;
-  if (!r) return;
+  if (!r || !saves) return;
   try {
     const canvas = r.getCanvas();
     const thumb = await captureCanvasThumbnail(canvas);
     const { grids, fields, gridW, gridH } = r.snapshotGrids();
     const name = `Save ${new Date().toLocaleString()}`;
-    await saveGame(name, thumb, { gridW, gridH, grids, fields });
+    await saves.saveGame(name, thumb, { gridW, gridH, grids, fields });
     await refreshSaves();
   } catch (e) {
     console.error("[save] Failed:", e);
@@ -407,20 +346,18 @@ async function handleSave(): Promise<void> {
 }
 
 async function handleLoad(id: string): Promise<void> {
-  const r = useGameStore.getState().renderer;
-  if (!r) return;
+  if (!saves) return;
   try {
-    const entry = await loadGame(id);
-    if (!entry) return;
-    await r.loadSave(entry.grids, entry.fields, entry.gridW, entry.gridH);
+    await saves.loadAndRestore(id);
   } catch (e) {
     console.error("Failed to load:", e);
   }
 }
 
 async function handleDelete(id: string): Promise<void> {
+  if (!saves) return;
   try {
-    await deleteSave(id);
+    await saves.deleteSave(id);
     await refreshSaves();
   } catch (e) {
     console.error("Failed to delete save:", e);

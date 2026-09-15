@@ -1,3 +1,4 @@
+import { createBaseGameStoreState, type BaseGameStoreState } from "@downdraft/core";
 import { create } from "zustand";
 import type { FallingSandRenderer } from "../renderer/falling-sand-renderer";
 import type { SaveMetadata } from "./save-system";
@@ -50,14 +51,11 @@ export interface CellInspector {
   valid: boolean;
 }
 
-export interface GameState {
+export interface GameState extends Omit<BaseGameStoreState<FallingSandRenderer>, "fps"> {
   fps: number | null;
-  health: number;
   selectedMaterial: number;
-  paused: boolean;
   fpsHistory: number[];
   settings: GameSettings;
-  showSettings: boolean;
   brushMode: BrushMode;
   fieldType: FieldType;
   // Field paint values: 0-255 for gravity/temp (128=default), -128 to 127 for wind
@@ -66,20 +64,15 @@ export interface GameState {
   fieldWindX: number;     // -128 to 127
   fieldWindY: number;     // -128 to 127
   showFieldOverlay: boolean;
-  renderer: FallingSandRenderer | null;
   saves: SaveMetadata[];
-  showSaves: boolean;
   /** Live cell inspector data under the cursor */
   inspector: CellInspector;
   /** Brush radius in grid cells */
   brushRadius: number;
 
   setFPS: (fps: number) => void;
-  setHealth: (health: number) => void;
   setSelectedMaterial: (m: number) => void;
-  setPaused: (p: boolean) => void;
   setSettings: (s: Partial<GameSettings>) => void;
-  setShowSettings: (show: boolean) => void;
   setBrushMode: (m: BrushMode) => void;
   setFieldType: (f: FieldType) => void;
   setFieldGravity: (v: number) => void;
@@ -89,19 +82,17 @@ export interface GameState {
   setShowFieldOverlay: (show: boolean) => void;
   setRenderer: (r: FallingSandRenderer | null) => void;
   setSaves: (saves: SaveMetadata[]) => void;
-  setShowSaves: (show: boolean) => void;
   setInspector: (inspector: CellInspector) => void;
   setBrushRadius: (r: number) => void;
 }
 
-export const useGameStore = create<GameState>((set) => ({
+export const useGameStore = create<GameState>((set, get) => ({
+  ...createBaseGameStoreState<FallingSandRenderer>(set, get),
+
   fps: null,
-  health: 100,
   selectedMaterial: 1,
-  paused: false,
   fpsHistory: [],
   settings: { ...DEFAULT_SETTINGS },
-  showSettings: false,
   brushMode: "material",
   fieldType: "gravity",
   fieldGravity: 128,
@@ -109,9 +100,6 @@ export const useGameStore = create<GameState>((set) => ({
   fieldWindX: 0,
   fieldWindY: 0,
   showFieldOverlay: false,
-  renderer: null,
-  saves: [],
-  showSaves: false,
   inspector: {
     gx: -1, gy: -1, layer: 0,
     mat: 0, matName: "Empty", lifetime: 0, shade: 0,
@@ -127,11 +115,8 @@ export const useGameStore = create<GameState>((set) => ({
     const avg = history.reduce((a, b) => a + b, 0) / history.length;
     return { fps: Math.round(avg), fpsHistory: history };
   }),
-  setHealth: (health) => set({ health }),
   setSelectedMaterial: (selectedMaterial) => set({ selectedMaterial }),
-  setPaused: (paused) => set({ paused }),
   setSettings: (partial) => set((s) => ({ settings: { ...s.settings, ...partial } })),
-  setShowSettings: (showSettings) => set({ showSettings }),
   setBrushMode: (brushMode) => set({ brushMode }),
   setFieldType: (fieldType) => set({ fieldType }),
   setFieldGravity: (fieldGravity) => set({ fieldGravity }),
@@ -141,7 +126,6 @@ export const useGameStore = create<GameState>((set) => ({
   setShowFieldOverlay: (showFieldOverlay) => set({ showFieldOverlay }),
   setRenderer: (renderer) => set({ renderer }),
   setSaves: (saves) => set({ saves }),
-  setShowSaves: (showSaves) => set({ showSaves }),
   setInspector: (inspector) => set({ inspector }),
   setBrushRadius: (brushRadius) => set({ brushRadius }),
 }));

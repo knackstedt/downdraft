@@ -56,7 +56,10 @@ export class SandjonggWorkerHost extends BaseWorkerHost<SandjonggWorkerApi> {
    * The worker's profiling prelude claims a slot + patches prototypes +
    * initializes the warning engine + event-loop monitor.
    */
-  async attachProfilingSAB(sab: SharedArrayBuffer): Promise<void> {
+  async attachProfilingSAB(
+    sab: SharedArrayBuffer,
+    layout?: { maxSlots: number; iopsRingCap: number; warningRingCap: number; stringTableCap: number },
+  ): Promise<void> {
     const proxy = this.getProxy();
     if (!proxy) return;
     try {
@@ -66,6 +69,7 @@ export class SandjonggWorkerHost extends BaseWorkerHost<SandjonggWorkerApi> {
         opfs: true,
         idb: true,
         defaultWarningRules: true,
+        layout,
       });
     } catch (err) {
       console.warn("[SandjonggWorkerHost] Profiling SAB attach failed:", err);

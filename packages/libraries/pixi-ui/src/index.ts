@@ -91,5 +91,9 @@ export type {
     PixiUiUpdateData
 } from "./scene";
 
+// Batteries-included bridge (host + stats loop + pointer tracking + lifecycle)
+export { createPixiUiBridge, PixiUiBridge } from "./bridge";
+export type { PixiUiBridgeConfig } from "./bridge";
+
 // MCP automation tools
 export { createPixiUiMcpTools } from "./mcp-tools";

@@ -167,6 +167,9 @@ export class FileSaveStore implements ISaveStore {
 
       // Phase 1: Write everything to temp locations first.
       // If the process crashes here, the old save is still intact.
+      // Clean up any stale temp blobs dir from a crashed previous save so its
+      // leftover files don't get renamed into the final blobs dir.
+      try { await fs.rm(tmpBlobsDir, { recursive: true, force: true }); } catch { /* ignore */ }
       const fileBuf = new Uint8Array(headerBuf.byteLength + compressed.length);
       fileBuf.set(new Uint8Array(headerBuf), 0);
       fileBuf.set(compressed, headerBuf.byteLength);
@@ -194,6 +197,11 @@ export class FileSaveStore implements ISaveStore {
       }
       try {
         await fs.access(blobsDir);
+        // Remove a stale .bak blobs dir first: renaming a directory onto an
+        // existing non-empty directory fails with ENOTEMPTY on Linux, which
+        // would leave blobsDir in place and cause the .tmp → final rename
+        // below to fail with ENOTEMPTY as well.
+        try { await fs.rm(bakBlobsDir, { recursive: true, force: true }); } catch { /* ignore */ }
         await fs.rename(blobsDir, bakBlobsDir);
       } catch {
         // No existing blobs dir — fine

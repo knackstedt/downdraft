@@ -1,13 +1,14 @@
 // ============================================================================
-// Falling-sand save system — thin adapter over the engine's createGridSaveSystem.
+// Falling-sand save system — schema mapping + createGameSaveSystem facade.
 //
-// The factory owns the ISaveStore singleton + CRUD. This module defines the
-// falling-sand save shape (multi-layer grids + fields) and the blob
-// mappers that convert between typed arrays and ArrayBuffers.
+// The engine owns the lifecycle (store singleton, autosave interval, restore-
+// on-start); this module defines only the falling-sand save shape (multi-
+// layer grids + fields) and the blob mappers between typed arrays and
+// ArrayBuffers.
 // ============================================================================
 
 import { createDefaultSaveStore } from "@downdraft/app/renderer";
-import { createGridSaveSystem, type SaveState } from "@downdraft/core";
+import { createGameSaveSystem, type GameSaveSystem, type SaveListEntry, type SaveState } from "@downdraft/core";
 
 export interface SaveEntry {
   id: string;
@@ -21,14 +22,7 @@ export interface SaveEntry {
   fields: Uint8Array[];  // one per layer
 }
 
-export interface SaveMetadata {
-  id: string;
-  name: string;
-  timestamp: number;
-  thumbnailUrl: string;
-  gridW: number;
-  gridH: number;
-}
+export type SaveMetadata = SaveListEntry;
 
 const ENGINE_VERSION = "0.1.0";
 
@@ -88,55 +82,52 @@ function extractListMeta(state: SaveState): Record<string, unknown> {
   return { gridW: world?.gridW ?? 0, gridH: world?.gridH ?? 0 };
 }
 
-const system = createGridSaveSystem<FallingSandMeta, SaveEntry>({
-  createStore: () => createDefaultSaveStore(ENGINE_VERSION),
-  autosaveSlot: "autosave",
-  buildState,
-  buildBlobs,
-  parseEntry,
-  extractListMeta,
-});
+export type FallingSandSaveSystem = GameSaveSystem<FallingSandMeta, SaveEntry>;
 
-export async function saveGame(
-  name: string,
-  thumbnail: ArrayBuffer,
-  meta: FallingSandMeta,
-): Promise<SaveEntry> {
-  const { id, timestamp } = await system.saveGame(name, thumbnail, meta);
-  return {
-    id, name, timestamp,
-    thumbnail: new Blob([thumbnail], { type: "image/jpeg" }),
-    gridW: meta.gridW, gridH: meta.gridH, numLayers: meta.grids.length,
-    grids: meta.grids.map((g) => new Uint32Array(g)),
-    fields: meta.fields.map((f) => new Uint8Array(f)),
+/**
+ * Create the save lifecycle for this session. Called once from onReady —
+ * the snapshot/restore callbacks bind the renderer.
+ */
+export function createFallingSandSaveSystem(opts: {
+  /** Capture current grids/fields for autosave (null skips the tick). */
+  snapshot: () => FallingSandMeta | null;
+  /** Apply a loaded entry to the renderer. */
+  restore: (entry: SaveEntry) => Promise<void>;
+  deterministic?: boolean;
+}): FallingSandSaveSystem {
+  const base = createGameSaveSystem<FallingSandMeta, SaveEntry>({
+    createStore: () => createDefaultSaveStore(ENGINE_VERSION),
+    autosaveSlot: "autosave",
+    buildState,
+    buildBlobs,
+    parseEntry,
+    extractListMeta,
+    snapshot: opts.snapshot,
+    restore: opts.restore,
+    deterministic: opts.deterministic,
+  });
+
+  // Enrich loadGame with the slot's thumbnail + name + id (the parsed entry
+  // only carries grid data).
+  const enriched: FallingSandSaveSystem = {
+    ...base,
+    async loadGame(id: string) {
+      const entry = await base.loadGame(id);
+      if (!entry) return null;
+      const store = await base.getStore();
+      const thumbBuf = await store.getThumbnail(id);
+      const props = await store.getProperties(id);
+      entry.id = id;
+      entry.thumbnail = thumbBuf ? new Blob([thumbBuf], { type: "image/jpeg" }) : entry.thumbnail;
+      entry.name = (props.name as string) ?? "Save";
+      entry.timestamp = (props.savedAt as number) ?? entry.timestamp;
+      return entry;
+    },
+    async loadAndRestore(id: string) {
+      const entry = await enriched.loadGame(id);
+      if (entry) await opts.restore(entry);
+      return entry;
+    },
   };
-}
-
-export async function loadGame(id: string): Promise<SaveEntry | null> {
-  const entry = await system.loadGame(id);
-  if (!entry) return null;
-  const store = await system.getStore();
-  const thumbBuf = await store.getThumbnail(id);
-  const props = await store.getProperties(id);
-  entry.id = id;
-  entry.thumbnail = thumbBuf ? new Blob([thumbBuf], { type: "image/jpeg" }) : new Blob([], { type: "image/jpeg" });
-  entry.name = (props.name as string) ?? "Save";
-  entry.timestamp = (props.savedAt as number) ?? entry.timestamp;
-  return entry;
-}
-
-export async function listSaves(): Promise<SaveMetadata[]> {
-  return system.listSaves() as unknown as Promise<SaveMetadata[]>;
-}
-
-export async function deleteSave(id: string): Promise<void> {
-  await system.deleteSave(id);
-}
-
-export async function autosave(meta: FallingSandMeta): Promise<void> {
-  await system.autosave(meta);
-}
-
-export async function loadAutosave(): Promise<SaveEntry | null> {
-  return loadGame("autosave");
+  return enriched;
 }

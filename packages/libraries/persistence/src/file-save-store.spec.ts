@@ -93,6 +93,37 @@ describe("FileSaveStore", () => {
     expect((result.state!.components.world as any).data.time).toBe(0.2);
   });
 
+  it("rotates blobs dir to .bak across repeated saves (no ENOTEMPTY)", async () => {
+    const meta = { engineVersion: "0.1.0", timestamp: 1000, entityCount: 1, playerCount: 1 };
+    const blobs = { tile: new ArrayBuffer(8) };
+
+    // Save three times with blobs. The second save creates a .blobs.bak;
+    // the third save must rotate the existing .blobs → .blobs.bak even though
+    // .blobs.bak already exists and is non-empty (regression: previously
+    // failed with ENOTEMPTY on Linux, leaving blobsDir in place and
+    // breaking every subsequent autosave).
+    for (let i = 0; i < 3; i++) {
+      const r = await store.save(
+        "blob-rotate",
+        { components: { world: { v: 1, data: { n: i } } }, meta },
+        { blobs },
+      );
+      expect(r.success).toBe(true);
+    }
+
+    // The latest blobs dir should exist and contain the blob
+    const blobsDir = join(testDir, "blob-rotate.blobs");
+    const files = await fs.readdir(blobsDir);
+    expect(files).toContain("tile");
+
+    // Load should return the latest state + blobs
+    const result = await store.load("blob-rotate");
+    expect(result.state).not.toBeNull();
+    expect((result.state!.components.world as any).data.n).toBe(2);
+    expect(result.blobs).toBeDefined();
+    expect(result.blobs!.tile).toBeInstanceOf(ArrayBuffer);
+  });
+
   it("falls back to .bak when primary is corrupted", async () => {
     const components = { world: { v: 1, data: { time: 0.5 } } };
 

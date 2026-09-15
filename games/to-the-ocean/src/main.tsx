@@ -492,7 +492,8 @@ startGame({
       });
       // Share the ProfilingSAB with the sim worker (so it can claim a slot)
       const profilingSAB = profilingBridge.getProfilingSAB();
-      (sim as SimWebWorker).attachProfilingSAB?.(profilingSAB);
+      const profilingLayout = profilingBridge.getLayoutParams?.();
+      (sim as SimWebWorker).attachProfilingSAB?.(profilingSAB, profilingLayout);
     }
 
     // Gizmo mouse interaction handlers on canvas

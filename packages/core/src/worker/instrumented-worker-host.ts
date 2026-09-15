@@ -73,6 +73,12 @@ export abstract class InstrumentedWorkerHost<TApi extends WorkerApi> extends Bas
           opfs: opts.opfs ?? true,
           idb: opts.idb ?? true,
           defaultWarningRules: opts.defaultWarningRules ?? true,
+          layout: {
+            maxSlots: opts.profilingLayout.maxSlots,
+            iopsRingCap: opts.profilingLayout.iopsRingCap,
+            warningRingCap: opts.profilingLayout.warningRingCap,
+            stringTableCap: opts.profilingLayout.stringTableCap,
+          },
         },
       );
     } catch (err) {

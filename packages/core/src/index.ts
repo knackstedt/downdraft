@@ -89,6 +89,8 @@ export { expose, exposeEvents, getWorkerHost, wrap } from "./worker/rpc";
 export type { ExposeOptions, HostMessageHandler, WorkerApi, WorkerEventEmitter, WorkerHost, WorkerProxy } from "./worker/rpc";
 export { createSimWorker } from "./worker/sim-worker-base";
 export type { CreateSimWorkerOptions, SimAfterTicksContext, SimTickContext, SimWorkerControl, SimWorkerStats } from "./worker/sim-worker-base";
+export { RawInputRegionWriter, SimWorkerHost } from "./worker/sim-worker-host";
+export type { SimInputWriter, SimWorkerControlApi } from "./worker/sim-worker-host";
 
 // SAB polyfill (for Android WebView — no-op on desktop/Electron)
 export { usingRealSAB } from "./sab/sab-polyfill";
@@ -97,6 +99,8 @@ export { usingRealSAB } from "./sab/sab-polyfill";
 // Input
 // ─────────────────────────────────────────────────────────────────────────────
 export { InputContextRouter } from "./input/context";
+export { createDomInputHandler } from "./input/dom-handler";
+export type { DomInjectedFrame, DomInputHandler, DomInputOptions } from "./input/dom-handler";
 export { LocalPlayerManager } from "./input/local-player-manager";
 export type { DeviceConnectCallback, DeviceDisconnectCallback, InputDevice } from "./input/local-player-manager";
 export { InputMapping } from "./input/mapping";
@@ -243,6 +247,8 @@ export type {
 } from "./save/persist-types";
 
 // Grid save system factory — eliminates duplicated save-system boilerplate
+export { createGameSaveSystem } from "./save/game-save-system";
+export type { GameSaveSystem, GameSaveSystemOptions } from "./save/game-save-system";
 export { createGridSaveSystem } from "./save/grid-save-system";
 export type { GridSaveSystem, GridSaveSystemOptions, SaveListEntry } from "./save/grid-save-system";
 

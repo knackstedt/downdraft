@@ -128,6 +128,19 @@ export interface GameSaveConfig {
 }
 
 /**
+ * A framework-managed UI handle. Returned by `GameModule.ui` — startGame()
+ * calls `start()` after renderer init (before `onReady`) and `dispose()` on
+ * hot-reload. `createPixiUiBridge()` from @downdraft/library-pixi-ui returns
+ * a compatible handle; DOM-UI games can return any { start, dispose } object.
+ */
+export interface GameUiHandle {
+  /** Start the UI (spawn workers, mount overlays). Called after renderer init. */
+  start(): Promise<void> | void;
+  /** Tear down. Called on hot-reload dispose, before `module.onDispose`. */
+  dispose(): void;
+}
+
+/**
  * The context passed to all game hooks. Carries typed references to every
  * framework-managed resource — no module-scope `let` variables needed.
  *
@@ -194,6 +207,10 @@ export interface GameContext<Sim extends GameSimWorker = GameSimWorker> {
   /** The plugin host (if `module.plugins` was declared). Games can access
    *  plugin diagnostics via `pluginHost.snapshot()` and trigger reloads. */
   pluginHost?: PluginHost;
+  /** The UI handle created by `module.ui` (e.g. a PixiUiBridge). Set after
+   *  renderer init, before `onReady` runs — hooks can `ctx.ui?.host` (cast to
+   *  the concrete bridge type) to post events or wire subscriptions. */
+  ui?: GameUiHandle;
 }
 
 /**
@@ -251,12 +268,39 @@ export interface GameModule<Sim extends GameSimWorker = GameSimWorker> {
   sim?: SimWorkerFactory<Sim>;
   /** Config passed to `sim.start()`. Required when `sim` is declared. */
   simConfig?: Record<string, unknown>;
+  /**
+   * Renderer-owned sim worker. For games where the renderer spawns and starts
+   * its own worker internally during `renderer.init()` (e.g. falling-sand's
+   * renderer creates its SandWorkerHost). Declare this INSTEAD of `sim` — it
+   * is called after renderer init to retrieve the worker, which is then
+   * exposed as `ctx.sim` and wired into `module.events` routing like a
+   * factory-created worker. This removes the need for no-op GameSimWorker
+   * adapter classes.
+   *
+   * The returned object must satisfy GameSimWorker (start/onEvent/
+   * getSimBuffer/getInputBuffer). `SimWorkerHost` subclasses satisfy this via
+   * `subscribeEvents` — wire it with:
+   *   `onEvent(cb) { this.subscribeEvents(cb); }`
+   * or declare `simFromRenderer: (r) => adaptWorkerHost(r.getWorkerHost())`.
+   */
+  simFromRenderer?: (renderer: any, ctx: GameContext<Sim>) => Sim | undefined | Promise<Sim | undefined>;
 
   // ── UI ──
   /** Mount the UI framework (React: createRoot().render(), Solid: render(), etc). */
   mountUI?: (overlay: HTMLElement, ctx: GameContext<Sim>) => Promise<void> | void;
   /** CSS imports / side-effect imports to run before UI mount. Optional. */
   imports?: () => void;
+  /**
+   * Declarative UI lifecycle. Called once with the game context; the returned
+   * handle is started after renderer init (before `onReady`) and disposed on
+   * hot-reload (before `onDispose`). The handle is exposed as `ctx.ui`.
+   *
+   * For PixiJS-worker UIs:
+   *   `ui: () => createPixiUiBridge({ statsLayout, sceneModuleUrl, getStats, onAction })`
+   *
+   * This coexists with `mountUI` (DOM overlay) — games can use either or both.
+   */
+  ui?: (ctx: GameContext<Sim>) => GameUiHandle | Promise<GameUiHandle>;
 
   // ── Event routing (sim-worker games only) ──
   /** Declarative sim→renderer event handler map. Replaces the switch block.
@@ -463,9 +507,18 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
   }
 
   // 4. Wire event routing from the declarative events map (sim-worker only).
-  if (module.events && simWorker) {
+  //    Supports both GameSimWorker.onEvent(cb) and SimWorkerHost's
+  //    subscribeEvents(cb) (renderer-owned worker hosts).
+  const wireSimEvents = (worker: Sim) => {
+    if (!module.events || !worker) return;
     const events = module.events;
-    simWorker.onEvent((msg) => {
+    const onEvent: ((cb: (msg: any) => void) => void) | undefined =
+      (worker as any).onEvent?.bind(worker)
+      ?? ((worker as any).subscribeEvents
+        ? (cb: (msg: any) => void) => { (worker as any).subscribeEvents(cb); }
+        : undefined);
+    if (!onEvent) return;
+    onEvent((msg) => {
       const handler = events[msg.kind];
       if (handler) {
         try {
@@ -477,7 +530,8 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
         console.warn(`[startGame] Unhandled sim event kind: "${msg.kind}"`);
       }
     });
-  }
+  };
+  if (simWorker) wireSimEvents(simWorker);
 
   // 5. Run onBeforeInit hook
   if (module.onBeforeInit) {
@@ -658,6 +712,31 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
         }
       }
 
+      // ── Renderer-owned sim resolution ──
+      // Games whose renderer spawns/starts the sim worker internally (declared
+      // via `module.simFromRenderer` instead of `module.sim`) get the worker
+      // resolved here — after renderer.init() has created it. ctx.sim is
+      // populated and declarative `events` routing is wired, matching the
+      // factory-created path. startGame() never calls start() on it — the
+      // renderer owns the lifecycle.
+      if (module.simFromRenderer) {
+        try {
+          const owned = await module.simFromRenderer(r, ctx);
+          if (owned) {
+            ctx.sim = owned;
+            ctx.simSAB = owned.getSimBuffer();
+            ctx.inputSAB = owned.getInputBuffer();
+            const extra = owned.getExtraBuffers?.() ?? {};
+            for (const [name, sab] of Object.entries(extra)) {
+              ctx.extraBuffers[name] = sab;
+            }
+            wireSimEvents(owned);
+          }
+        } catch (e) {
+          console.warn("[startGame] simFromRenderer resolution failed:", e);
+        }
+      }
+
       // ── Sim worker start ──
       // When `onInit` is NOT overridden, startGame owns sim start — it runs
       // here, after renderer.init() has succeeded. When `onInit` IS overridden,
@@ -702,6 +781,20 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
         }
       }
 
+      // ── Declarative UI lifecycle ──
+      // Create + start the UI handle (e.g. a PixiUiBridge) before onReady so
+      // hooks can wire subscriptions against ctx.ui.
+      if (module.ui) {
+        try {
+          ctx.ui = await module.ui(ctx);
+          await ctx.ui.start();
+        } catch (e) {
+          // UI failure is non-fatal — the game canvas still runs.
+          console.error("[startGame] UI start failed:", e);
+          ctx.ui = undefined;
+        }
+      }
+
       // ── Game-specific wiring ──
       if (module.onReady) {
         await module.onReady(ctx);
@@ -733,6 +826,8 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
       : undefined,
 
     onHotReloadDispose: () => {
+      ctx.ui?.dispose();
+      ctx.ui = undefined;
       pluginHost?.disposeAll();
       libHost?.disposeRenderer();
       if (module.onDispose) {

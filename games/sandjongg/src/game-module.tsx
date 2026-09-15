@@ -145,7 +145,8 @@ export const sandjonggModule: GameModule<SandjonggGameSim> = {
       });
       // Share the ProfilingSAB with the sandjongg sim worker
       const profilingSAB = profilingBridge.getProfilingSAB();
-      renderer.getWorkerHost()?.attachProfilingSAB?.(profilingSAB);
+      const profilingLayout = profilingBridge.getLayoutParams?.();
+      renderer.getWorkerHost()?.attachProfilingSAB?.(profilingSAB, profilingLayout);
 
       // --- Start the Profiler overlay (in-game profiling UI) ---
       // A second PixiUiHost on canvas layer 2 (above the game's pixi-ui layer 1)

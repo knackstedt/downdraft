@@ -1,65 +1,62 @@
-import { InputState } from "../shared/types";
+// ============================================================================
+// Falling-sand input handler — thin adapter over core's createDomInputHandler.
+//
+// The DOM event wiring (keyMap, mouse buttons, canvas-space coords,
+// contextmenu suppression, destroy) is engine-provided; this file exposes the
+// legacy flat-field shape the renderer reads each frame plus the game-owned
+// brush fields (selectedMaterial, brushRadius).
+// ============================================================================
 
-export function createInputHandler(canvas: HTMLCanvasElement): InputState {
-  const state: InputState = {
-    left: false,
-    right: false,
-    up: false,
-    down: false,
-    jump: false,
-    mouseDown: false,
-    mouseRight: false,
-    mouseMiddle: false,
-    mouseX: 0,
-    mouseY: 0,
-    lastMouseX: 0,
-    lastMouseY: 0,
-    hasLastMouse: false,
+import { createDomInputHandler, type DomInputHandler } from "@downdraft/core";
+
+export interface FallingSandInput {
+  left: boolean;
+  right: boolean;
+  up: boolean;
+  down: boolean;
+  jump: boolean;
+  mouseDown: boolean;
+  mouseRight: boolean;
+  mouseMiddle: boolean;
+  /** Mouse position in canvas backing-store pixels. */
+  mouseX: number;
+  mouseY: number;
+  /** Game-owned brush state (synced from the store by the renderer). */
+  selectedMaterial: number;
+  brushRadius: number;
+  /** Underlying engine handler (update()/injectInput()/destroy()). */
+  readonly handler: DomInputHandler;
+  /** Apply queued MCP-injected input frames. Call once per frame. */
+  update(): void;
+  /** Remove DOM listeners (hot-reload safe). */
+  destroy(): void;
+}
+
+export function createInputHandler(canvas: HTMLCanvasElement): FallingSandInput {
+  const handler = createDomInputHandler({
+    canvas,
+    preset: "wasd", // a/d/w/s/arrows + space → left/right/up/down/jump
+    mouseCoords: "canvas", // backing-store pixels (renderer maps to grid coords)
+    centerInitialMouse: false,
+    wheel: false,
+  });
+  const { state } = handler;
+
+  return {
+    get left() { return handler.held.left ?? false; },
+    get right() { return handler.held.right ?? false; },
+    get up() { return handler.held.up ?? false; },
+    get down() { return handler.held.down ?? false; },
+    get jump() { return handler.held.jump ?? false; },
+    get mouseDown() { return state.isMouseDown(0); },
+    get mouseRight() { return state.isMouseDown(2); },
+    get mouseMiddle() { return state.isMouseDown(1); },
+    get mouseX() { return state.mouseX; },
+    get mouseY() { return state.mouseY; },
     selectedMaterial: 1,
     brushRadius: 3,
+    handler,
+    update: () => handler.update(),
+    destroy: () => handler.destroy(),
   };
-
-  function onKey(e: KeyboardEvent, down: boolean) {
-    if (e.key === "a" || e.key === "A" || e.key === "ArrowLeft") state.left = down;
-    if (e.key === "d" || e.key === "D" || e.key === "ArrowRight") state.right = down;
-    if (e.key === "w" || e.key === "W" || e.key === "ArrowUp") state.up = down;
-    if (e.key === "s" || e.key === "S" || e.key === "ArrowDown") state.down = down;
-    if (e.key === " " || e.key === "Spacebar") state.jump = down;
-  }
-
-  window.addEventListener("keydown", (e) => onKey(e, true));
-  window.addEventListener("keyup", (e) => onKey(e, false));
-
-  function toCanvasCoords(e: MouseEvent): { x: number; y: number } {
-    const rect = canvas.getBoundingClientRect();
-    return {
-      x: (e.clientX - rect.left) * (canvas.width / rect.width),
-      y: (e.clientY - rect.top) * (canvas.height / rect.height),
-    };
-  }
-
-  canvas.addEventListener("mousedown", (e) => {
-    if (e.button === 0) state.mouseDown = true;
-    if (e.button === 1) state.mouseMiddle = true;
-    if (e.button === 2) state.mouseRight = true;
-    const { x, y } = toCanvasCoords(e);
-    state.mouseX = x;
-    state.mouseY = y;
-    e.preventDefault();
-  });
-  canvas.addEventListener("mouseup", (e) => {
-    if (e.button === 0) state.mouseDown = false;
-    if (e.button === 1) state.mouseMiddle = false;
-    if (e.button === 2) state.mouseRight = false;
-  });
-  canvas.addEventListener("contextmenu", (e) => e.preventDefault());
-  canvas.addEventListener("auxclick", (e) => e.preventDefault());
-
-  canvas.addEventListener("mousemove", (e) => {
-    const { x, y } = toCanvasCoords(e);
-    state.mouseX = x;
-    state.mouseY = y;
-  });
-
-  return state;
 }
