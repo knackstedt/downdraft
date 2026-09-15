@@ -9,21 +9,21 @@ import { createIBLShaderChunk } from "@downdraft/core";
 import { BoatCellType } from "@shared/constants";
 
 // --- Raw shader source imports ---
-import boatSrc from "./boat.wgsl?raw";
-import entitySrc from "./entity.wgsl?raw";
-import hitboxSrc from "./hitbox.wgsl?raw";
-import holoSrc from "./holo.wgsl?raw";
-import instancedEntitySrc from "./instanced-entity.wgsl?raw";
-import islandWireframeSrc from "./island-wireframe.wgsl?raw";
-import islandSrc from "./island.wgsl?raw";
-import lightStructsSrc from "./light-structs.wgsl?raw";
-import lightingFnSrc from "./lighting-fn.wgsl?raw";
-import lightingUniformsSrc from "./lighting-uniforms.wgsl?raw";
-import pbrFunctionsSrc from "./pbr-functions.wgsl?raw";
-import playerSrc from "./player.wgsl?raw";
-import ropeSrc from "./rope.wgsl?raw";
-import skinnedPlayerSrc from "./skinned-player.wgsl?raw";
-import skinningComputeSrc from "./skinning-compute.wgsl?raw";
+import boatSrc from "./boat.wgsl?raw" with { type: "text" };
+import entitySrc from "./entity.wgsl?raw" with { type: "text" };
+import hitboxSrc from "./hitbox.wgsl?raw" with { type: "text" };
+import holoSrc from "./holo.wgsl?raw" with { type: "text" };
+import instancedEntitySrc from "./instanced-entity.wgsl?raw" with { type: "text" };
+import islandWireframeSrc from "./island-wireframe.wgsl?raw" with { type: "text" };
+import islandSrc from "./island.wgsl?raw" with { type: "text" };
+import lightStructsSrc from "./light-structs.wgsl?raw" with { type: "text" };
+import lightingFnSrc from "./lighting-fn.wgsl?raw" with { type: "text" };
+import lightingUniformsSrc from "./lighting-uniforms.wgsl?raw" with { type: "text" };
+import pbrFunctionsSrc from "./pbr-functions.wgsl?raw" with { type: "text" };
+import playerSrc from "./player.wgsl?raw" with { type: "text" };
+import ropeSrc from "./rope.wgsl?raw" with { type: "text" };
+import skinnedPlayerSrc from "./skinned-player.wgsl?raw" with { type: "text" };
+import skinningComputeSrc from "./skinning-compute.wgsl?raw" with { type: "text" };
 
 // --- Shared shader chunks (composed at runtime) ---
 

@@ -136,9 +136,11 @@ export function ptr(buffer: ArrayBufferView | ArrayBuffer): number {
   }
 
   // deno
-  const p = (globalThis as any).Deno.UnsafePointer.of(buffer);
-  // UnsafePointer.of returns null for empty buffers.
-  return p == null ? 0 : Number(p.value);
+  const Deno = (globalThis as any).Deno;
+  const p = Deno.UnsafePointer.of(buffer);
+  // UnsafePointer.of returns null for empty buffers. Pointer objects are
+  // opaque Externals in Deno 2.x — UnsafePointer.value extracts the address.
+  return p == null ? 0 : Number(Deno.UnsafePointer.value(p));
 }
 
 // ── Node (koffi) implementation ──
@@ -259,14 +261,24 @@ function wrapDenoFn(
       if (t === "ptr") {
         if (typeof args[i] === "number" || typeof args[i] === "bigint") {
           args[i] = denoPointerFromAddress(BigInt(args[i]));
+        } else if (args[i] != null && (ArrayBuffer.isView(args[i]) || args[i] instanceof ArrayBuffer)) {
+          // Deno 2.x "pointer" params reject bare TypedArrays — wrap them.
+          args[i] = Deno.UnsafePointer.of(args[i]);
         }
-        // TypedArray/ArrayBuffer → Deno auto-converts to a pointer;
         // null/undefined → NULL.
+      } else if (t === "u64" || t === "i64" || t === "usize") {
+        // Deno requires bigint for 64-bit/usize params; callers using the
+        // bun:ffi convention may pass a JS number.
+        if (typeof args[i] === "number") args[i] = BigInt(args[i]);
       } else if (t === "cstring") {
-        // Deno has no cstring type — pass a null-terminated Uint8Array,
-        // which Deno auto-converts to a pointer for "pointer" params.
+        // Deno has no cstring type — pass a pointer to a null-terminated
+        // buffer. Deno 2.x "pointer" params reject bare TypedArrays, so
+        // wrap explicitly with UnsafePointer.of.
         if (typeof args[i] === "string") {
-          args[i] = denoStringEncoder.encode(args[i] + "\0");
+          const buf = denoStringEncoder.encode(args[i] + "\0");
+          args[i] = Deno.UnsafePointer.of(buf);
+        } else if (args[i] instanceof Uint8Array || args[i] instanceof ArrayBuffer) {
+          args[i] = Deno.UnsafePointer.of(args[i]);
         }
       }
     }
@@ -277,8 +289,11 @@ function wrapDenoFn(
     if (retType === "ptr") {
       if (result == null) return 0;
       if (typeof result === "bigint") return Number(result);
-      if (typeof result === "object" && typeof result.value === "bigint") {
-        return Number(result.value);
+      if (typeof result === "object") {
+        // Deno 2.x: pointer results are opaque Externals — UnsafePointer.value
+        // extracts the address; older versions expose .value as bigint.
+        if (typeof (result as any).value === "bigint") return Number((result as any).value);
+        try { return Number(Deno.UnsafePointer.value(result)); } catch { return 0; }
       }
       return result;
     }

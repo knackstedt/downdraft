@@ -1,5 +1,4 @@
-import { createValidatedShaderModule } from "@downdraft/core";
-import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "@downdraft/core";
+import { createValidatedShaderModule, DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "@downdraft/core";
 import { EntityType } from "@shared/types";
 import { HITBOX_WGSL, ISLAND_WIREFRAME_WGSL } from "../shaders/entity-shaders";
 import type { EntityRenderContext } from "./render-context";
@@ -89,7 +88,7 @@ export class HitboxRenderer {
       layout: hitboxBindGroupLayout,
       entries: [{ binding: 0, resource: { buffer: this.hitboxUniformBuffer, size: 256 } }],
     });
-    // Per-entry bind groups for native mode (no dynamic offset support).
+    // Per-entry bind groups (offset baked into resource; bind with [0] dynamic offset).
     // Cap at 256 to avoid excessive resource creation (hitboxes are debug-only).
     this.hitboxBindGroups = [];
     for (let i = 0; i < 256; i++) {
@@ -268,7 +267,7 @@ export class HitboxRenderer {
 
     for (let i = 0; i < this.hitboxEntryCount; i++) {
       const hBg = this.hitboxBindGroups[i] ?? this.hitboxBindGroup;
-      if (this.hitboxBindGroups.length > 0) passEncoder.setBindGroup(0, hBg);
+      if (this.hitboxBindGroups.length > 0) passEncoder.setBindGroup(0, hBg, [0]);
       else passEncoder.setBindGroup(0, hBg!, [i * 256]);
       passEncoder.drawIndexed(this.hitboxQuadIndexCount);
     }
@@ -286,7 +285,7 @@ export class HitboxRenderer {
             passEncoder.setVertexBuffer(0, islandMesh.vertices);
             passEncoder.setIndexBuffer(islandMesh.lineIndices, islandMesh.useUint32 ? "uint32" : "uint16");
             const wBg = ctx.bindGroups?.[i] ?? ctx.bindGroup;
-            if (ctx.bindGroups) passEncoder.setBindGroup(0, wBg);
+            if (ctx.bindGroups) passEncoder.setBindGroup(0, wBg, [0]);
             else passEncoder.setBindGroup(0, wBg!, [i * 256]);
             passEncoder.drawIndexed(islandMesh.lineIndexCount);
           }

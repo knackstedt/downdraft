@@ -3,14 +3,14 @@ import { BlendMode, CullMode, Material, MaterialType, type MaterialDefinition } 
 // Fallback WGSL sources — loaded via Vite ?raw so the render path can use
 // inlineShaderSource directly. These are the hand-written fallbacks used when
 // a material has no shader graph; the graph is the primary source of truth.
-import DEPTH_WGSL from "../render/material-types/depth.wgsl?raw";
-import LINE_WGSL from "../render/material-types/line.wgsl?raw";
-import MATCAP_WGSL from "../render/material-types/matcap.wgsl?raw";
-import NORMAL_WGSL from "../render/material-types/normal.wgsl?raw";
-import PHYSICAL_WGSL from "../render/material-types/physical.wgsl?raw";
-import SPRITE_WGSL from "../render/material-types/sprite.wgsl?raw";
-import SSS_WGSL from "../render/material-types/sss.wgsl?raw";
-import TOON_WGSL from "../render/material-types/toon.wgsl?raw";
+import DEPTH_WGSL from "../render/material-types/depth.wgsl?raw" with { type: "text" };
+import LINE_WGSL from "../render/material-types/line.wgsl?raw" with { type: "text" };
+import MATCAP_WGSL from "../render/material-types/matcap.wgsl?raw" with { type: "text" };
+import NORMAL_WGSL from "../render/material-types/normal.wgsl?raw" with { type: "text" };
+import PHYSICAL_WGSL from "../render/material-types/physical.wgsl?raw" with { type: "text" };
+import SPRITE_WGSL from "../render/material-types/sprite.wgsl?raw" with { type: "text" };
+import SSS_WGSL from "../render/material-types/sss.wgsl?raw" with { type: "text" };
+import TOON_WGSL from "../render/material-types/toon.wgsl?raw" with { type: "text" };
 
 export class MaterialLibrary {
   private materials: Map<string, Material> = new Map();

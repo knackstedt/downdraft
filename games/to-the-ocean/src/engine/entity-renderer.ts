@@ -2,8 +2,7 @@
 // Entity Renderer — facade that delegates to sub-renderers for each entity type
 // ============================================================================
 
-import { createValidatedShaderModule } from "@downdraft/core";
-import { calculateViewProj, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, SimBufferReader, type BindlessMaterialManager, type BindlessTextureRegistry } from "@downdraft/core";
+import { calculateViewProj, createValidatedShaderModule, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, SimBufferReader, type BindlessMaterialManager, type BindlessTextureRegistry } from "@downdraft/core";
 import type { MeshData, ModelData } from "@downdraft/library-models";
 import { RuntimeBoatGeometry, type BoatDesign } from "@shared/boat-design";
 import {
@@ -207,11 +206,10 @@ export class EntityRenderer {
       entries: [{ binding: 0, resource: { buffer: this.uniformBuffer, size: 256 } }],
     });
 
-    // Create per-entity bind groups with explicit offsets.
-    // The native wgpu shim doesn't support dynamic offsets in setBindGroup(),
-    // so we pre-create one bind group per draw entity slot, each pointing to
-    // the correct offset in the uniform buffer. In browser mode, the dynamic
-    // offset path (this.bindGroup + [idx * 256]) is used instead.
+    // Create per-entity bind groups with explicit offsets baked into the
+    // resource. The layout still declares hasDynamicOffset, so binding these
+    // groups must pass a single [0] dynamic offset to satisfy validation.
+    // The alternative path binds this.bindGroup with [idx * 256] instead.
     const perEntityBindGroups: GPUBindGroup[] = [];
     for (let i = 0; i < EntityRenderer.MAX_DRAW_ENTITIES; i++) {
       perEntityBindGroups.push(this.device.createBindGroup({
@@ -647,7 +645,7 @@ export class EntityRenderer {
     if (this.pipeline && this.cubeVertices && this.cubeIndices) {
       passEncoder.setPipeline(this.pipeline);
       const bg = this.ctx.bindGroups?.[idx] ?? this.bindGroup;
-      if (this.ctx.bindGroups) passEncoder.setBindGroup(0, bg);
+      if (this.ctx.bindGroups) passEncoder.setBindGroup(0, bg, [0]);
       else passEncoder.setBindGroup(0, bg, [idx * 256]);
       passEncoder.setVertexBuffer(0, this.cubeVertices);
       passEncoder.setIndexBuffer(this.cubeIndices, "uint16");

@@ -15,7 +15,7 @@
 // ============================================================================
 
 import { createValidatedShaderModule } from "@downdraft/core";
-import VOLUMETRIC_WGSL from "../shaders/volumetric-light.wgsl?raw";
+import VOLUMETRIC_WGSL from "../shaders/volumetric-light.wgsl?raw" with { type: "text" };
 import {
     DEFAULT_VOLUMETRIC_LIGHT_CONFIG,
     LIGHT_STRUCT_FLOATS,

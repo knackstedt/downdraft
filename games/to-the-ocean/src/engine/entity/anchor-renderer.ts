@@ -1,5 +1,4 @@
-import { createValidatedShaderModule } from "@downdraft/core";
-import { DEPTH_FORMAT, ENT, MSAA_SAMPLE_COUNT, SimBufferReader } from "@downdraft/core";
+import { createValidatedShaderModule, DEPTH_FORMAT, ENT, MSAA_SAMPLE_COUNT, SimBufferReader } from "@downdraft/core";
 import { ANCHOR_BOW_OFFSET, ANCHOR_DEPTH } from "@shared/constants";
 import { EntityType } from "@shared/types";
 import { BOAT_WGSL } from "../shaders/entity-shaders";
@@ -295,13 +294,13 @@ export class AnchorRenderer {
       if (d.mesh === "anchor") {
         passEncoder.setVertexBuffer(0, this.anchorMeshVerts!);
         passEncoder.setIndexBuffer(this.anchorMeshIdx!, "uint16");
-        if (ctx.bindGroups) passEncoder.setBindGroup(0, aBg);
+        if (ctx.bindGroups) passEncoder.setBindGroup(0, aBg, [0]);
         else passEncoder.setBindGroup(0, aBg!, [d.slot * 256]);
         passEncoder.drawIndexed(this.anchorMeshIndexCount);
       } else {
         passEncoder.setVertexBuffer(0, this.chainLinkVerts!);
         passEncoder.setIndexBuffer(this.chainLinkIdx!, "uint16");
-        if (ctx.bindGroups) passEncoder.setBindGroup(0, aBg);
+        if (ctx.bindGroups) passEncoder.setBindGroup(0, aBg, [0]);
         else passEncoder.setBindGroup(0, aBg!, [d.slot * 256]);
         passEncoder.drawIndexed(this.chainLinkIndexCount);
       }

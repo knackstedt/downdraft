@@ -80,6 +80,16 @@ int wgpu_shim_device_poll_lost(void* device_ptr, char* out_msg, int out_msg_size
     return g_device_lost_reason;
 }
 
+// ── Texture format validation ──
+// wgpu-native's map_texture_format PANICS (process abort) on any
+// WGPUTextureFormat value outside the known enum. Validate every format at the
+// FFI boundary so a malformed descriptor fails gracefully with a diagnostic
+// instead of killing the process. Valid: 0x00..0x31 (webgpu.h) and native
+// extensions NV12=0x30007, P010=0x30008 (wgpu.h).
+static int shim_valid_texture_format(uint32_t f) {
+    return f <= 0x31 || f == 0x00030007 || f == 0x00030008;
+}
+
 // ============================================================================
 // Public API — called from bun:ffi
 // ============================================================================
@@ -356,6 +366,16 @@ void* wgpu_shim_create_texture(void* device_ptr, uint32_t width, uint32_t height
     desc.size.depthOrArrayLayers = depth_or_array_layers;
     desc.mipLevelCount = mip_level_count;
     desc.sampleCount = sample_count;
+    if (!shim_valid_texture_format(format)) {
+        fprintf(stderr, "[wgpu_shim] create_texture: invalid texture format 0x%x\n", format);
+        return NULL;
+    }
+    for (uint32_t i = 0; i < view_format_count; i++) {
+        if (!shim_valid_texture_format(view_formats[i])) {
+            fprintf(stderr, "[wgpu_shim] create_texture: invalid view format 0x%x at index %u\n", view_formats[i], i);
+            return NULL;
+        }
+    }
     desc.format = (WGPUTextureFormat)format;
     desc.viewFormatCount = view_format_count;
     desc.viewFormats = (WGPUTextureFormat*)view_formats;
@@ -365,6 +385,10 @@ void* wgpu_shim_create_texture(void* device_ptr, uint32_t width, uint32_t height
 
 // Create a texture view.
 void* wgpu_shim_texture_create_view(void* texture_ptr, uint32_t format, uint32_t dimension, uint32_t aspect, uint32_t base_mip_level, uint32_t mip_level_count, uint32_t base_array_layer, uint32_t array_layer_count) {
+    if (format != 0 && !shim_valid_texture_format(format)) {
+        fprintf(stderr, "[wgpu_shim] texture_create_view: invalid texture format 0x%x\n", format);
+        return NULL;
+    }
     WGPUTextureViewDescriptor desc = {0};
     desc.nextInChain = NULL;
     desc.label = (WGPUStringView){0};
@@ -450,6 +474,13 @@ void* wgpu_shim_create_bind_group_layout(void* device_ptr, uint32_t entry_count,
         }
         // Storage texture binding
         if (e[6] != 0) {
+            if (!shim_valid_texture_format(e[7])) {
+                fprintf(stderr,
+                    "[wgpu_shim] create_bind_group_layout: invalid storage texture format 0x%x (binding %u)\n",
+                    e[7], e[0]);
+                free(entries);
+                return NULL;
+            }
             entries[i].storageTexture.access = (WGPUStorageTextureAccess)e[6];
             entries[i].storageTexture.format = (WGPUTextureFormat)e[7];
             entries[i].storageTexture.viewDimension = (WGPUTextureViewDimension)e[5];
@@ -711,6 +742,8 @@ void* wgpu_shim_create_render_pipeline(
     uint32_t cull_mode, uint32_t front_face,
     uint32_t vertex_buffer_count, const uint32_t* vertex_buffer_data
 ) {
+    WGPURenderPipeline result = NULL;
+
     // ── Vertex buffers (unchanged: walk flat data linearly) ──
     WGPUVertexBufferLayout vertexBufferLayouts[8] = {0};
     WGPUVertexAttribute* attrArrays[8] = {0};
@@ -758,6 +791,12 @@ void* wgpu_shim_create_render_pipeline(
         uint32_t n = color_target_count < 8 ? color_target_count : 8;
         for (uint32_t i = 0; i < n; i++) {
             const uint32_t* t = color_targets + i * 9;
+            if (!shim_valid_texture_format(t[0])) {
+                fprintf(stderr,
+                    "[wgpu_shim] create_render_pipeline: invalid color target format 0x%x at index %u (count=%u, targets=%p)\n",
+                    t[0], i, color_target_count, (const void*)color_targets);
+                goto pipeline_fail;
+            }
             colorTargets[i].nextInChain = NULL;
             colorTargets[i].format = (WGPUTextureFormat)t[0];
             if (t[1]) { // hasBlend
@@ -796,6 +835,12 @@ void* wgpu_shim_create_render_pipeline(
     WGPUDepthStencilState depthStencilState = {0};
     if (depth_stencil && depth_stencil[0] != 0) {
         const uint32_t* ds = depth_stencil;
+        if (!shim_valid_texture_format(ds[0])) {
+            fprintf(stderr,
+                "[wgpu_shim] create_render_pipeline: invalid depth-stencil format 0x%x\n",
+                ds[0]);
+            goto pipeline_fail;
+        }
         depthStencilState.nextInChain = NULL;
         depthStencilState.format = (WGPUTextureFormat)ds[0];
         // depthWriteEnabled: WGPUOptionalBool False=0, True=1, Undefined=2.
@@ -840,8 +885,9 @@ void* wgpu_shim_create_render_pipeline(
     desc.depthStencil = (depth_stencil && depth_stencil[0] != 0) ? &depthStencilState : NULL;
     desc.multisample = multisampleState;
 
-    WGPURenderPipeline result = wgpuDeviceCreateRenderPipeline((WGPUDevice)device_ptr, &desc);
+    result = wgpuDeviceCreateRenderPipeline((WGPUDevice)device_ptr, &desc);
 
+pipeline_fail:
     for (uint32_t b = 0; b < actualBufferCount; b++) {
         if (attrArrays[b]) free(attrArrays[b]);
     }
@@ -962,6 +1008,10 @@ void wgpu_shim_buffer_unmap(void* buffer_ptr) {
 
 // Configure a surface for presentation.
 void wgpu_shim_surface_configure(void* surface_ptr, void* device_ptr, uint32_t format, uint32_t usage, uint32_t width, uint32_t height, uint32_t present_mode) {
+    if (!shim_valid_texture_format(format)) {
+        fprintf(stderr, "[wgpu_shim] surface_configure: invalid texture format 0x%x\n", format);
+        return;
+    }
     WGPUSurfaceConfiguration config = {0};
     config.nextInChain = NULL;
     config.device = (WGPUDevice)device_ptr;

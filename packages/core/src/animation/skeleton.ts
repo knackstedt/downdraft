@@ -23,7 +23,7 @@ export interface GLTFSkin {
   name?: string;
 }
 
-import { composeMat4Into, invertMat4, multiplyMat4Into } from "..";
+import { composeMat4Into, invertMat4, multiplyMat4Into } from "../index";
 
 export class Skeleton {
   data: SkeletonData;

@@ -207,9 +207,14 @@ export function installGPU(): WgpuGPU {
     (globalThis as any).navigator = {};
   }
 
-  // Install gpu on navigator
+  // Install gpu on navigator. Deno's Navigator has a getter-only `gpu`
+  // (native WebGPU), so plain assignment throws — defineProperty overrides it.
   const gpu = new WgpuGPU();
-  (globalThis as any).navigator.gpu = gpu;
+  try {
+    (globalThis as any).navigator.gpu = gpu;
+  } catch {
+    Object.defineProperty((globalThis as any).navigator, "gpu", { value: gpu, configurable: true, writable: true });
+  }
 
   // Also set globalThis.__nativeGpu as a fallback
   (globalThis as any).__nativeGpu = gpu;

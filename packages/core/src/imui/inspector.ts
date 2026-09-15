@@ -1,5 +1,5 @@
-import type { ComponentId, Entity, World } from "..";
-import { getColumnValue, getComponentName } from "..";
+import type { ComponentId, Entity, World } from "../index";
+import { getColumnValue, getComponentName } from "../index";
 
 export interface InspectorField {
   name: string;

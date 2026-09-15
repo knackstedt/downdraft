@@ -12,13 +12,14 @@
 mod panels;
 mod state;
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::os::raw::c_char;
 
 use state::{
-    CdpProfile, ConsoleEntry, ConsoleSeverity, ConsoleState, EvalRequest, EvalResult, GpuInfoSnapshot,
-    GpuKvEntry, InputState, MetricsSnapshot, PanelId, ProfileNode, ThreadInfo, ThreadMetricsSample,
-    ThreadMetricsSlot, TreeSnapshot, TreeNode,
+    CdpProfile, ConsoleEntry, ConsoleSeverity, ConsoleState, Control, DevtoolsCommand, EvalRequest,
+    EvalResult, GenericSnapshot, GpuInfoSnapshot, GpuKvEntry, InputState, KvRow, LineEntry,
+    MetricsSnapshot, PanelId, ProfileNode, SeriesDef, SnapshotSection, ThreadInfo,
+    ThreadMetricsSample, ThreadMetricsSlot, TreeSnapshot, TreeNode,
 };
 
 /// Opaque handle returned to TS.
@@ -53,6 +54,10 @@ pub struct DevtoolsState {
     pub metrics_refresh_requested: bool,
     pub perf_record_requested: bool,
     pub perf_stop_requested: bool,
+    // Generic per-panel snapshots (slot = PanelId) pushed by TS providers.
+    pub snapshots: HashMap<u8, GenericSnapshot>,
+    // UI-originated commands polled by TS.
+    pub command_queue: VecDeque<DevtoolsCommand>,
 }
 
 impl DevtoolsState {
@@ -90,6 +95,20 @@ impl DevtoolsState {
             metrics_refresh_requested: false,
             perf_record_requested: false,
             perf_stop_requested: false,
+            snapshots: HashMap::new(),
+            command_queue: VecDeque::new(),
+        }
+    }
+
+    /// Queue a UI-originated command for TS to dispatch.
+    pub fn queue_command(&mut self, panel: PanelId, action: &str, payload: String) {
+        self.command_queue.push_back(DevtoolsCommand {
+            panel: panel.as_u8(),
+            action: action.to_string(),
+            payload,
+        });
+        if self.command_queue.len() > 256 {
+            self.command_queue.pop_front();
         }
     }
 }
@@ -139,6 +158,11 @@ pub extern "C" fn dd_devtools_set_active_panel(handle: *mut DevtoolsState, panel
     if let Some(s) = unsafe_mut(handle) {
         s.active_panel = PanelId::from_u8(panel);
     }
+}
+
+#[no_mangle]
+pub extern "C" fn dd_devtools_get_active_panel(handle: *mut DevtoolsState) -> u8 {
+    unsafe { handle.as_ref().map(|s| s.active_panel as u8).unwrap_or(0) }
 }
 
 // ── Input ──
@@ -372,6 +396,61 @@ pub extern "C" fn dd_devtools_set_metrics(handle: *mut DevtoolsState, buf: *cons
             }
         }
     }
+}
+
+// ── Generic snapshots (KV/table/series/lines/controls per panel slot) ──
+
+#[no_mangle]
+pub extern "C" fn dd_devtools_set_snapshot(
+    handle: *mut DevtoolsState,
+    slot: u8,
+    buf: *const u8,
+    len: u64,
+) {
+    if let Some(s) = unsafe_mut(handle) {
+        if let Some(slice) = unsafe { read_buf(buf, len) } {
+            let mut snap = decode_snapshot(slice);
+            snap.pushed_at_frame = s.frame_id;
+            s.snapshots.insert(slot, snap);
+        }
+    }
+}
+
+/// Take the next queued UI command. Returns total bytes written to out_buf
+/// (0 = queue empty). Format: u8 panel, u16 action_len + action, u16
+/// payload_len + payload.
+#[no_mangle]
+pub extern "C" fn dd_devtools_take_command(
+    handle: *mut DevtoolsState,
+    out_buf: *mut u8,
+    out_cap: u64,
+) -> u64 {
+    let s = match unsafe_mut(handle) {
+        Some(s) => s,
+        None => return 0,
+    };
+    let cmd = match s.command_queue.pop_front() {
+        Some(c) => c,
+        None => return 0,
+    };
+    if out_buf.is_null() {
+        return 0;
+    }
+    let action = cmd.action.as_bytes();
+    let payload = cmd.payload.as_bytes();
+    let total = 1 + 2 + action.len() + 2 + payload.len();
+    if total > out_cap as usize {
+        // Doesn't fit — drop the command rather than truncate (TS scratch is
+        // 64KB; commands exceeding that are a bug anyway).
+        return 0;
+    }
+    let mut w = Writer::new(out_buf);
+    w.write_u8(cmd.panel);
+    w.write_u16(action.len() as u16);
+    w.write_bytes(action);
+    w.write_u16(payload.len() as u16);
+    w.write_bytes(payload);
+    w.pos as u64
 }
 
 // ── Eval round-trip ──
@@ -612,9 +691,11 @@ fn build_dock_ui(state: &mut DevtoolsState, ctx: &egui::Context) {
         });
 
     egui::SidePanel::right("devtools_dock")
-        .resizable(true)
-        .width_range(320.0..=2400.0)
-        .default_width(560.0)
+        // Fixed width: resizable side panels can auto-expand without pointer
+        // input when content size fluctuates, which also breaks click-target
+        // geometry for input routing.
+        .resizable(false)
+        .exact_width(560.0)
         .frame(
             egui::Frame::group(&ctx.style())
                 .fill(C_BG_DOCK)
@@ -622,80 +703,106 @@ fn build_dock_ui(state: &mut DevtoolsState, ctx: &egui::Context) {
                 .inner_margin(egui::Margin::same(6)),
         )
         .show(ctx, |ui| {
-            // ── Tab bar ──
-            render_tab_bar(state, ui);
-            // Separator under the tab bar (full dock width).
-            ui.painter().line_segment(
-                [
-                    egui::pos2(ui.min_rect().left(), ui.min_rect().bottom()),
-                    egui::pos2(ui.max_rect().right(), ui.min_rect().bottom()),
-                ],
-                egui::Stroke::new(1.0, C_BORDER),
-            );
-            ui.add_space(2.0);
-
-            // Panel content area — fill the remaining dock area with a dark
-            // background so switching tabs never shows the game through.
-            let content_rect = ui.available_rect_before_wrap();
-            ui.painter().rect_filled(content_rect, 0.0, C_BG_PANEL);
-
-            // Reserve a status bar at the bottom; render the panel in the rest.
             let status_h = 24.0;
-            let avail = ui.available_size();
-            let content_h = (avail.y - status_h - 6.0).max(64.0);
-            egui::Frame::none()
-                .inner_margin(egui::Margin::same(4))
-                .show(ui, |ui| {
-                    ui.allocate_ui(egui::vec2(ui.available_width(), content_h), |ui| {
-                        panels::render_panel(state, ui);
+            let full = ui.available_size();
+            let nav_w = 96.0;
+
+            ui.horizontal(|ui| {
+                // ── Nav rail (left): one selectable row per panel ──
+                // allocate_ui inside a horizontal layout inherits the
+                // horizontal main direction, so wrap children in explicit
+                // ui.vertical() to keep the rail + content column vertical.
+                ui.allocate_ui(egui::vec2(nav_w, full.y), |ui| {
+                    ui.painter().rect_filled(ui.max_rect(), 0.0, C_BG_DOCK);
+                    ui.vertical(|ui| {
+                        egui::ScrollArea::vertical()
+                            .id_salt("devtools_nav")
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                render_nav_rail(state, ui);
+                            });
                     });
                 });
 
-            // ── Status bar ──
-            render_status_bar(state, ui);
+                // Vertical divider between rail and content.
+                ui.painter().line_segment(
+                    [
+                        egui::pos2(ui.min_rect().left(), ui.min_rect().top()),
+                        egui::pos2(ui.min_rect().left(), ui.min_rect().bottom()),
+                    ],
+                    egui::Stroke::new(1.0, C_BORDER),
+                );
+
+                // ── Content column (right): panel + status bar ──
+                ui.allocate_ui(
+                    egui::vec2((full.x - nav_w - 8.0).max(64.0), full.y),
+                    |ui| {
+                        ui.vertical(|ui| {
+                            // Panel content area — fill with a dark background
+                            // so switching panels never shows the game through.
+                            let content_rect = ui.available_rect_before_wrap();
+                            ui.painter().rect_filled(content_rect, 0.0, C_BG_PANEL);
+
+                            let avail = ui.available_size();
+                            let content_h = (avail.y - status_h - 6.0).max(64.0);
+                            egui::Frame::none()
+                                .inner_margin(egui::Margin::same(4))
+                                .show(ui, |ui| {
+                                    ui.allocate_ui(
+                                        egui::vec2(ui.available_width(), content_h),
+                                        |ui| {
+                                            panels::render_panel(state, ui);
+                                        },
+                                    );
+                                });
+
+                            // ── Status bar ──
+                            render_status_bar(state, ui);
+                        });
+                    },
+                );
+            });
         });
 }
 
-/// Chrome-DevTools-style tab bar: flat tabs with an accent underline on the
-/// active tab and a subtle hover background.
-fn render_tab_bar(state: &mut DevtoolsState, ui: &mut egui::Ui) {
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 1.0;
-        for panel in PanelId::ALL {
-            let active = state.active_panel == panel;
-            let label_color = if active { C_TEXT } else { C_TEXT_DIM };
-            let mut label = egui::RichText::new(panel.label()).color(label_color);
-            if active {
-                label = label.strong();
-            }
-            let btn = egui::Button::new(label)
-                .min_size(egui::vec2(74.0, 26.0))
-                .fill(if active {
-                    C_BG_ACTIVE
-                } else {
-                    egui::Color32::TRANSPARENT
-                })
-                .stroke(egui::Stroke::NONE);
-            let resp = ui.add(btn);
-            if active {
-                // Accent underline along the bottom of the active tab.
-                let r = resp.rect;
-                ui.painter().line_segment(
-                    [
-                        egui::pos2(r.left() + 6.0, r.bottom() - 1.0),
-                        egui::pos2(r.right() - 6.0, r.bottom() - 1.0),
-                    ],
-                    egui::Stroke::new(2.0, C_ACCENT),
-                );
-            } else if resp.hovered() {
-                ui.painter()
-                    .rect_filled(resp.rect, egui::CornerRadius::same(3), C_BG_HOVER);
-            }
-            if resp.clicked() {
-                state.active_panel = panel;
-            }
+/// Left nav rail: one selectable row per panel with an accent bar on the
+/// active item — scales to the full panel set where a top tab bar wouldn't.
+fn render_nav_rail(state: &mut DevtoolsState, ui: &mut egui::Ui) {
+    ui.spacing_mut().item_spacing.y = 1.0;
+    for panel in PanelId::ALL {
+        let active = state.active_panel == panel;
+        let label_color = if active { C_TEXT } else { C_TEXT_DIM };
+        let mut label = egui::RichText::new(panel.label()).color(label_color);
+        if active {
+            label = label.strong();
         }
-    });
+        let btn = egui::Button::new(label)
+            .min_size(egui::vec2(ui.available_width(), 24.0))
+            .fill(if active {
+                C_BG_ACTIVE
+            } else {
+                egui::Color32::TRANSPARENT
+            })
+            .stroke(egui::Stroke::NONE);
+        let resp = ui.add(btn);
+        if active {
+            // Accent bar along the left edge of the active item.
+            let r = resp.rect;
+            ui.painter().line_segment(
+                [
+                    egui::pos2(r.left() + 1.0, r.top() + 3.0),
+                    egui::pos2(r.left() + 1.0, r.bottom() - 3.0),
+                ],
+                egui::Stroke::new(2.0, C_ACCENT),
+            );
+        } else if resp.hovered() {
+            ui.painter()
+                .rect_filled(resp.rect, egui::CornerRadius::same(3), C_BG_HOVER);
+        }
+        if resp.clicked() {
+            state.active_panel = panel;
+        }
+    }
 }
 
 /// Bottom status bar: shows live counters (FPS, console entries, threads,
@@ -793,6 +900,11 @@ fn build_raw_input(s: &DevtoolsState) -> egui::RawInput {
         }
     }
 
+    // Text before keys: Enter in a singleline edit surrenders focus, so text
+    // queued behind the key event would be dropped by the just-unfocused widget.
+    if !s.input.text.is_empty() {
+        events.push(egui::Event::Text(s.input.text.clone()));
+    }
     for k in &s.input.keys_pressed {
         if let Some(key) = egui_key(*k) {
             events.push(egui::Event::Key {
@@ -803,9 +915,6 @@ fn build_raw_input(s: &DevtoolsState) -> egui::RawInput {
                 modifiers: mods,
             });
         }
-    }
-    if !s.input.text.is_empty() {
-        events.push(egui::Event::Text(s.input.text.clone()));
     }
 
     egui::RawInput {
@@ -1048,6 +1157,110 @@ fn decode_metrics(slice: &[u8]) -> MetricsSnapshot {
     MetricsSnapshot { slots }
 }
 
+/// Decode a generic panel snapshot. Wire format (LE):
+///   u8 status, u16 status_len + status_msg
+///   u32 section_count
+///   per section: u16 name_len + name, u8 kind
+///     kind 0 (kv):       u32 rows; per row: u8 flags, str16 key, str16 value
+///     kind 1 (table):    u16 cols (str16 each); u32 rows; per row: str16 per col
+///     kind 2 (series):   u16 count; per: str16 name, u32 n, n × f32
+///     kind 3 (lines):    u32 count; per: u8 flags, str16 text
+///     kind 4 (controls): u16 count; per: u8 ctype, str16 id, str16 label,
+///                        then button: str16 payload | checkbox: u8 | slider: 3×f32
+fn decode_snapshot(slice: &[u8]) -> GenericSnapshot {
+    let mut r = Reader::new(slice);
+    let status = r.read_u8();
+    let status_msg = r.read_str_u16();
+    let section_count = r.read_u32();
+    let mut sections = Vec::with_capacity(section_count as usize);
+    for _ in 0..section_count {
+        let name = r.read_str_u16();
+        let kind = r.read_u8();
+        match kind {
+            0 => {
+                let row_count = r.read_u32();
+                let mut rows = Vec::with_capacity(row_count as usize);
+                for _ in 0..row_count {
+                    let flags = r.read_u8();
+                    let key = r.read_str_u16();
+                    let value = r.read_str_u16();
+                    rows.push(KvRow { key, value, flags });
+                }
+                sections.push(SnapshotSection::Kv { name, rows });
+            }
+            1 => {
+                let col_count = r.read_u16();
+                let mut cols = Vec::with_capacity(col_count as usize);
+                for _ in 0..col_count {
+                    cols.push(r.read_str_u16());
+                }
+                let row_count = r.read_u32();
+                let mut rows = Vec::with_capacity(row_count as usize);
+                for _ in 0..row_count {
+                    let mut row = Vec::with_capacity(col_count as usize);
+                    for _ in 0..col_count {
+                        row.push(r.read_str_u16());
+                    }
+                    rows.push(row);
+                }
+                sections.push(SnapshotSection::Table { name, cols, rows });
+            }
+            2 => {
+                let series_count = r.read_u16();
+                let mut series = Vec::with_capacity(series_count as usize);
+                for _ in 0..series_count {
+                    let sname = r.read_str_u16();
+                    let n = r.read_u32();
+                    let mut values = Vec::with_capacity(n as usize);
+                    for _ in 0..n {
+                        values.push(r.read_f32());
+                    }
+                    series.push(SeriesDef { name: sname, values });
+                }
+                sections.push(SnapshotSection::Series { name, series });
+            }
+            3 => {
+                let line_count = r.read_u32();
+                let mut lines = Vec::with_capacity(line_count as usize);
+                for _ in 0..line_count {
+                    let flags = r.read_u8();
+                    let text = r.read_str_u16();
+                    lines.push(LineEntry { text, flags });
+                }
+                sections.push(SnapshotSection::Lines { name, lines });
+            }
+            4 => {
+                let ctl_count = r.read_u16();
+                let mut controls = Vec::with_capacity(ctl_count as usize);
+                for _ in 0..ctl_count {
+                    let ctype = r.read_u8();
+                    let id = r.read_str_u16();
+                    let label = r.read_str_u16();
+                    let ctl = match ctype {
+                        1 => Control::Checkbox { id, label, checked: r.read_u8() != 0 },
+                        2 => Control::Slider {
+                            id,
+                            label,
+                            value: r.read_f32(),
+                            min: r.read_f32(),
+                            max: r.read_f32(),
+                        },
+                        _ => Control::Button { id, label, payload: r.read_str_u16() },
+                    };
+                    controls.push(ctl);
+                }
+                sections.push(SnapshotSection::Controls { name, controls });
+            }
+            _ => {
+                // Unknown section kind — skip it entirely (forward compat would
+                // need a length prefix; for now just stop decoding).
+                break;
+            }
+        }
+    }
+    GenericSnapshot { status, status_msg, sections, pushed_at_frame: 0 }
+}
+
 // ============================================================================
 // Helpers: unsafe pointer access, Reader/Writer, key mapping
 // ============================================================================
@@ -1233,4 +1446,131 @@ fn egui_key(idx: u8) -> Option<egui::Key> {
         26 => egui::Key::F12,
         _ => return None,
     })
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Minimal byte-builder mirroring encodeSnapshot() in egui-ffi.ts.
+    struct B(Vec<u8>);
+    impl B {
+        fn new() -> Self { B(Vec::new()) }
+        fn u8(&mut self, v: u8) -> &mut Self { self.0.push(v); self }
+        fn u16(&mut self, v: u16) -> &mut Self { self.0.extend_from_slice(&v.to_le_bytes()); self }
+        fn u32(&mut self, v: u32) -> &mut Self { self.0.extend_from_slice(&v.to_le_bytes()); self }
+        fn f32(&mut self, v: f32) -> &mut Self { self.0.extend_from_slice(&v.to_le_bytes()); self }
+        fn s16(&mut self, s: &str) -> &mut Self {
+            self.u16(s.len() as u16);
+            self.0.extend_from_slice(s.as_bytes());
+            self
+        }
+    }
+
+    #[test]
+    fn decode_snapshot_kv_and_status() {
+        let mut b = B::new();
+        b.u8(2); // unsupported
+        b.s16("no timestamps");
+        b.u32(1); // one section
+        b.s16("Adapter"); // section name
+        b.u8(0); // kind kv
+        b.u32(2);
+        b.u8(1); b.s16("HDR"); b.s16("");        // header row
+        b.u8(4); b.s16("err"); b.s16("boom");    // error row
+        let snap = decode_snapshot(&b.0);
+        assert_eq!(snap.status, 2);
+        assert_eq!(snap.status_msg, "no timestamps");
+        assert_eq!(snap.sections.len(), 1);
+        match &snap.sections[0] {
+            SnapshotSection::Kv { name, rows } => {
+                assert_eq!(name, "Adapter");
+                assert_eq!(rows.len(), 2);
+                assert_eq!(rows[0].flags, 1);
+                assert_eq!(rows[1].key, "err");
+                assert_eq!(rows[1].flags, 4);
+            }
+            _ => panic!("expected kv"),
+        }
+    }
+
+    #[test]
+    fn decode_snapshot_table_series_lines_controls() {
+        let mut b = B::new();
+        b.u8(0); b.s16("");
+        b.u32(4);
+        // table
+        b.s16("Passes"); b.u8(1);
+        b.u16(3); b.s16("name"); b.s16("cpu"); b.s16("gpu");
+        b.u32(1);
+        b.s16("main"); b.s16("1.2"); b.s16("0.0");
+        // series
+        b.s16("Heap"); b.u8(2);
+        b.u16(1); b.s16("MB"); b.u32(3); b.f32(1.0); b.f32(2.0); b.f32(3.0);
+        // lines
+        b.s16("Issues"); b.u8(3);
+        b.u32(1); b.u8(2); b.s16("warn me");
+        // controls
+        b.s16("Fx"); b.u8(4);
+        b.u16(3);
+        b.u8(0); b.s16("gc"); b.s16("Force GC"); b.s16("");
+        b.u8(1); b.s16("bloom"); b.s16("Bloom"); b.u8(1);
+        b.u8(2); b.s16("bloom.strength"); b.s16("Strength"); b.f32(0.5); b.f32(0.0); b.f32(2.0);
+        let snap = decode_snapshot(&b.0);
+        assert_eq!(snap.sections.len(), 4);
+        match &snap.sections[0] {
+            SnapshotSection::Table { cols, rows, .. } => {
+                assert_eq!(cols, &["name", "cpu", "gpu"]);
+                assert_eq!(rows[0][1], "1.2");
+            }
+            _ => panic!("expected table"),
+        }
+        match &snap.sections[1] {
+            SnapshotSection::Series { series, .. } => {
+                assert_eq!(series[0].values, vec![1.0, 2.0, 3.0]);
+            }
+            _ => panic!("expected series"),
+        }
+        match &snap.sections[3] {
+            SnapshotSection::Controls { controls, .. } => {
+                assert_eq!(controls.len(), 3);
+                match &controls[1] {
+                    Control::Checkbox { id, checked, .. } => {
+                        assert_eq!(id, "bloom");
+                        assert!(*checked);
+                    }
+                    _ => panic!("expected checkbox"),
+                }
+                match &controls[2] {
+                    Control::Slider { value, min, max, .. } => {
+                        assert_eq!((*value, *min, *max), (0.5, 0.0, 2.0));
+                    }
+                    _ => panic!("expected slider"),
+                }
+            }
+            _ => panic!("expected controls"),
+        }
+    }
+
+    #[test]
+    fn command_roundtrip() {
+        let mut s = DevtoolsState::new(800.0, 600.0, 1.0);
+        s.queue_command(PanelId::PostFx, "set-param", "{\"e\":\"bloom\",\"v\":1.5}".to_string());
+        s.queue_command(PanelId::Memory, "gc", String::new());
+        let mut buf = vec![0u8; 4096];
+        let n = dd_devtools_take_command(&mut s, buf.as_mut_ptr(), buf.len() as u64) as usize;
+        assert!(n > 0);
+        assert_eq!(buf[0], PanelId::PostFx.as_u8());
+        let alen = u16::from_le_bytes([buf[1], buf[2]]) as usize;
+        assert_eq!(&buf[3..3 + alen], b"set-param");
+        // second command
+        let n2 = dd_devtools_take_command(&mut s, buf.as_mut_ptr(), buf.len() as u64);
+        assert!(n2 > 0);
+        // empty
+        assert_eq!(dd_devtools_take_command(&mut s, buf.as_mut_ptr(), buf.len() as u64), 0);
+    }
 }

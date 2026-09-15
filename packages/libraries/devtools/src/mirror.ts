@@ -21,21 +21,28 @@ import {
     devtoolsSetMetrics,
     devtoolsSetProfile,
     devtoolsSetSceneTree,
+    devtoolsSetSnapshot,
     devtoolsSetThreads,
+    devtoolsTakeCommand,
     devtoolsTakeEvalRequest,
     devtoolsTakeRefreshRequests,
     encodeGpuInfo,
     encodeMetrics,
     encodeProfile,
+    encodeSnapshot,
     encodeThreads,
     encodeTree,
+    PANEL,
     REFRESH_DOM,
     REFRESH_GPU,
     REFRESH_METRICS,
     REFRESH_PERF_RECORD,
     REFRESH_PERF_STOP,
     REFRESH_SCENE,
-    type DevtoolsHandle
+    type DevtoolsCommand,
+    type DevtoolsHandle,
+    type PanelName,
+    type PanelSnapshot
 } from "./egui-ffi";
 
 // Lazy-load the ProfilingSAB reader (avoids importing @downdraft/core/profiling
@@ -64,6 +71,16 @@ export interface MirrorOptions {
 // Thread eval registry: threadId → eval function.
 type EvalFn = (expr: string) => Promise<{ result?: any; error?: string }>;
 
+/** A data provider for a generic panel snapshot (engine or game registered). */
+export type PanelProvider = () => PanelSnapshot | null | undefined | Promise<PanelSnapshot | null | undefined>;
+/** Handler for UI-originated commands on a panel. */
+export type PanelCommandHandler = (cmd: DevtoolsCommand) => void | Promise<void>;
+
+/** Resolve a panel name or numeric id to the Rust slot id. */
+function panelSlot(panel: PanelName | number): number {
+  return typeof panel === "number" ? panel : (PANEL[panel] ?? 0);
+}
+
 export class DevtoolsMirror {
   private handle: DevtoolsHandle;
   private cdp: CdpBridge;
@@ -72,6 +89,14 @@ export class DevtoolsMirror {
   private profilingSAB: SharedArrayBuffer | null;
   private threadEvals = new Map<string, EvalFn>();
   private disposed = false;
+
+  // Generic panel providers (slot → collect fn) + command handlers.
+  private providers = new Map<number, PanelProvider>();
+  private commandHandlers = new Map<number, PanelCommandHandler>();
+  private globalCommandHandler: PanelCommandHandler | null = null;
+  private lastProviderPush = new Map<number, number>();
+  /** Default per-provider push interval (ms). */
+  providerIntervalMs = 1500;
 
   // Throttle: push data at most every N ms.
   private lastThreadsPush = 0;
@@ -531,6 +556,98 @@ export class DevtoolsMirror {
     devtoolsClearConsole(this.handle);
   }
 
+  // ── Generic panel providers + commands ──
+
+  /**
+   * Register a data provider for a generic panel slot. `collect` runs on the
+   * main thread during update() and returns a PanelSnapshot pushed to Rust.
+   */
+  registerProvider(panel: PanelName | number, collect: PanelProvider): void {
+    this.providers.set(panelSlot(panel), collect);
+  }
+
+  /** Register a command handler for a panel (or "*" for all panels). */
+  registerCommandHandler(panel: PanelName | number | "*", handler: PanelCommandHandler): void {
+    if (panel === "*") {
+      this.globalCommandHandler = handler;
+    } else {
+      this.commandHandlers.set(panelSlot(panel), handler);
+    }
+  }
+
+  /** Collect + push one provider's snapshot immediately. Sync providers push
+   * synchronously (no microtask hop) so callers can rely on the snapshot
+   * landing before the next egui frame. */
+  refreshPanel(panel: PanelName | number): void {
+    const slot = panelSlot(panel);
+    const collect = this.providers.get(slot);
+    if (!collect) return;
+    const push = (snap: PanelSnapshot | null | undefined) => {
+      if (snap) devtoolsSetSnapshot(this.handle, slot, encodeSnapshot(snap));
+      this.lastProviderPush.set(slot, performance.now());
+    };
+    const fail = (err: unknown) => {
+      devtoolsSetSnapshot(this.handle, slot, encodeSnapshot({
+        status: "error",
+        statusMsg: String(err),
+        sections: [],
+      }));
+      this.lastProviderPush.set(slot, performance.now());
+    };
+    try {
+      const r = collect();
+      if (r && typeof (r as Promise<PanelSnapshot>).then === "function") {
+        (r as Promise<PanelSnapshot>).then(push, fail);
+      } else {
+        push(r as PanelSnapshot | null | undefined);
+      }
+    } catch (err) {
+      fail(err);
+    }
+  }
+
+  /** Push all registered providers' snapshots (used on first update). */
+  private pushAllProviders(): void {
+    for (const slot of this.providers.keys()) {
+      void this.refreshPanel(slot);
+    }
+  }
+
+  /** Throttled provider refresh + command dispatch. */
+  private pollProvidersAndCommands(): void {
+    const now = performance.now();
+    for (const slot of this.providers.keys()) {
+      const last = this.lastProviderPush.get(slot) ?? 0;
+      if (now - last > this.providerIntervalMs) {
+        void this.refreshPanel(slot);
+      }
+    }
+    // Drain UI-originated commands.
+    for (let i = 0; i < 16; i++) {
+      const cmd = devtoolsTakeCommand(this.handle);
+      if (!cmd) break;
+      this.dispatchCommand(cmd);
+    }
+  }
+
+  private dispatchCommand(cmd: DevtoolsCommand): void {
+    if (cmd.action === "refresh") {
+      void this.refreshPanel(cmd.panel);
+      return;
+    }
+    const handler = this.commandHandlers.get(cmd.panel) ?? this.globalCommandHandler;
+    if (!handler) {
+      console.warn(`[DevtoolsMirror] unhandled command panel=${cmd.panel} action=${cmd.action}`);
+      return;
+    }
+    try {
+      const r = handler(cmd);
+      if (r instanceof Promise) r.catch((err) => console.warn("[DevtoolsMirror] command error:", err));
+    } catch (err) {
+      console.warn("[DevtoolsMirror] command error:", err);
+    }
+  }
+
   /**
    * Per-frame update: poll eval requests, handle refresh requests, push
    * throttled data. Called by NativeDebuggerHost.update().
@@ -552,6 +669,7 @@ export class DevtoolsMirror {
       this.pushGpuInfo();
       this.pushMetrics();
       this.pushThreads();
+      this.pushAllProviders();
     }
 
     // 1. Poll eval requests.
@@ -560,6 +678,9 @@ export class DevtoolsMirror {
       if (!req) break;
       this.handleEvalRequest(req);
     }
+
+    // 1b. Poll UI commands + throttled provider pushes.
+    this.pollProvidersAndCommands();
 
     // 2. Handle refresh requests.
     // Read the current dom tree mode from Rust (0=pixi, 1=ecs).
@@ -610,6 +731,12 @@ export class DevtoolsMirror {
 
   private async cdpEvaluate(expr: string): Promise<{ result?: any; error?: string }> {
     return this.cdp.evaluate(expr);
+  }
+
+  /** Programmatic record/stop (same path as the panel's Record/Stop buttons). */
+  setPerfRecording(start: boolean): void {
+    if (start) this.startProfiling();
+    else void this.stopProfiling();
   }
 
   private startProfiling(): void {

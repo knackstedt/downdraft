@@ -1,15 +1,15 @@
 import { createValidatedShaderModule } from "../render/shader-validator";
 import { StructView, wgsl } from "@downdraft/shader-graph";
-import type { GraphRenderContext } from "..";
+import type { GraphRenderContext } from "../index";
 import type { UIDrawable } from "./element";
 import { buildGlyphAtlasData, getAtlasDimensions, getGlyphUV } from "./glyph-atlas";
 import { TextAtlasCache } from "./text-cache";
 
-import CANVAS_TEXT_SHADER from "./shaders/canvas-text.wgsl?raw";
-import IMAGE_SHADER from "./shaders/image.wgsl?raw";
-import LINE_SHADER from "./shaders/line.wgsl?raw";
-import QUAD_SHADER from "./shaders/quad.wgsl?raw";
-import TEXT_SHADER from "./shaders/text.wgsl?raw";
+import CANVAS_TEXT_SHADER from "./shaders/canvas-text.wgsl?raw" with { type: "text" };
+import IMAGE_SHADER from "./shaders/image.wgsl?raw" with { type: "text" };
+import LINE_SHADER from "./shaders/line.wgsl?raw" with { type: "text" };
+import QUAD_SHADER from "./shaders/quad.wgsl?raw" with { type: "text" };
+import TEXT_SHADER from "./shaders/text.wgsl?raw" with { type: "text" };
 
 // --- Typed uniform struct (validate against quad/text/image/line .wgsl) ---
 export const ScreenUniformsStruct = wgsl.struct("ScreenUniforms", {

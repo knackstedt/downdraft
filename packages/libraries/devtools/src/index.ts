@@ -21,7 +21,13 @@
 
 export { CdpBridge } from "./cdp-bridge";
 export type { CdpConsoleEntry, CdpException, CdpProfile } from "./cdp-bridge";
+export { encodeSnapshot, PANEL, SNAP_FLAG, SNAP_STATUS } from "./egui-ffi";
+export type { DevtoolsCommand, PanelName, PanelSnapshot, SnapshotSection } from "./egui-ffi";
 export { NativeDebuggerHost } from "./host";
 export type { NativeDebuggerOptions } from "./host";
+export { DevtoolsMirror } from "./mirror";
+export type { PanelCommandHandler, PanelProvider } from "./mirror";
+export { registerEngineProviders } from "./native-providers";
+export type { EngineProviderContext } from "./native-providers";
 export { checkpoint, notify, verifyPixel } from "./verify";
 

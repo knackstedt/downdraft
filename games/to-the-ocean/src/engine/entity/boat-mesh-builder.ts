@@ -139,7 +139,7 @@ export class BoatMeshBuilder {
 
     passEncoder.setPipeline(pipeline);
     const bg = ctx.bindGroups?.[idx] ?? ctx.bindGroup;
-    if (ctx.bindGroups) passEncoder.setBindGroup(0, bg);
+    if (ctx.bindGroups) passEncoder.setBindGroup(0, bg, [0]);
     else passEncoder.setBindGroup(0, bg, [idx * 256]);
     passEncoder.setVertexBuffer(0, this.boatVertices);
     passEncoder.setIndexBuffer(this.boatIndices, "uint16");

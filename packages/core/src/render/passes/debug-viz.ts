@@ -4,13 +4,13 @@ import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../fr
 import { RenderPass } from "../render-pass";
 import { destroyMapValues } from "../resource-tracker";
 
-import AABB_SHADER from "../shaders/debug-viz/aabb.wgsl?raw";
-import DEPTH_SHADER from "../shaders/debug-viz/depth.wgsl?raw";
-import LOD_SHADER from "../shaders/debug-viz/lod.wgsl?raw";
-import NORMALS_SHADER from "../shaders/debug-viz/normals.wgsl?raw";
-import OVERDRAW_SHADER from "../shaders/debug-viz/overdraw.wgsl?raw";
-import TANGENTS_SHADER from "../shaders/debug-viz/tangents.wgsl?raw";
-import WIREFRAME_SHADER from "../shaders/debug-viz/wireframe.wgsl?raw";
+import AABB_SHADER from "../shaders/debug-viz/aabb.wgsl?raw" with { type: "text" };
+import DEPTH_SHADER from "../shaders/debug-viz/depth.wgsl?raw" with { type: "text" };
+import LOD_SHADER from "../shaders/debug-viz/lod.wgsl?raw" with { type: "text" };
+import NORMALS_SHADER from "../shaders/debug-viz/normals.wgsl?raw" with { type: "text" };
+import OVERDRAW_SHADER from "../shaders/debug-viz/overdraw.wgsl?raw" with { type: "text" };
+import TANGENTS_SHADER from "../shaders/debug-viz/tangents.wgsl?raw" with { type: "text" };
+import WIREFRAME_SHADER from "../shaders/debug-viz/wireframe.wgsl?raw" with { type: "text" };
 
 export type DebugVizMode = "wireframe" | "normals" | "overdraw" | "depth" | "tangents" | "lod" | "aabbs";
 

@@ -8,7 +8,7 @@
 
 import { createValidatedShaderModule } from "@downdraft/core";
 import { FULLSCREEN_VS } from "@downdraft/core";
-import BLOCK_RENDER_FS from "../shaders/block-render.wgsl?raw";
+import BLOCK_RENDER_FS from "../shaders/block-render.wgsl?raw" with { type: "text" };
 import { getBlockPalette } from "../shared/block-registry";
 import { ACTIVE_GRID_H, ACTIVE_GRID_W } from "../shared/constants";
 

@@ -16,6 +16,7 @@
 import { CdpBridge } from "./cdp-bridge";
 import {
     devtoolsDestroy,
+    devtoolsGetActivePanel,
     type DevtoolsHandle,
     devtoolsInit,
     devtoolsKeyDown,
@@ -27,7 +28,9 @@ import {
     devtoolsSetWheel,
     devtoolsTextInput,
     devtoolsUpdate,
-    devtoolsWantsTextInput
+    devtoolsWantsTextInput,
+    PANEL,
+    type PanelName
 } from "./egui-ffi";
 import { EguiRenderer } from "./egui-renderer";
 import { DevtoolsMirror } from "./mirror";
@@ -85,13 +88,18 @@ export class DebuggerSceneShim {
   setActivePanel(panel: string): void {
     this.host.setActivePanel(panel);
   }
+  setPerfRecording(start: boolean): void {
+    this.host.setPerfRecording(start);
+  }
   // ── Stubs for old DebuggerScene API (used by DEBUGGER_TEST) ──
   handlePointerDown(x: number, y: number): boolean { return this.host.handlePointerDown(x, y, 0, 0); }
   handlePointerUp(x: number, y: number): boolean { return this.host.handlePointerUp(x, y, 0, 0); }
   handlePointerMove(x: number, y: number): boolean { return this.host.handlePointerMove(x, y, 0, 0); }
+  handleWheel(x: number, y: number, deltaY: number): boolean { return this.host.handleWheel(x, y, deltaY); }
+  handleKeyDown(key: string, keyCode: number): boolean { return this.host.handleKeyDown(key, keyCode); }
   handleTextInput(text: string): boolean { return this.host.handleTextInput(text); }
   isTextInputActive(): boolean { return this.host.isTextInputActive(); }
-  getActivePanel(): string { return ""; }
+  getActivePanel(): string { return this.host.getActivePanel(); }
   getFocusedWidget(): string | null { return null; }
   getConsoleReplInput(): string { return ""; }
   getDockX(): number { return 1280 - 560; }
@@ -130,6 +138,9 @@ export class NativeDebuggerHost {
 
   /** The CdpBridge (console + profiling). */
   get cdpBridge(): CdpBridge { return this.cdp; }
+
+  /** The data mirror — used to register panel providers + command handlers. */
+  get devtoolsMirror(): DevtoolsMirror | null { return this.mirror; }
 
   /** The DebuggerScene shim (for native-entry.ts compatibility). */
   get debuggerScene(): DebuggerSceneShim { return this.sceneShim; }
@@ -178,14 +189,20 @@ export class NativeDebuggerHost {
   /** Set the active panel (delegates to the egui crate). */
   setActivePanel(panel: string): void {
     if (!this.handle) return;
-    const id = panel === "console" ? 0
-      : panel === "scene" ? 1
-      : panel === "gpu" ? 2
-      : panel === "perf-recorder" ? 3
-      : panel === "perf-metrics" ? 4
-      : panel === "dom-tree" ? 5
-      : 0;
+    const id = PANEL[panel as PanelName] ?? 0;
     devtoolsSetActivePanel(this.handle, id);
+  }
+
+  /** The active panel name (empty string if the native lib isn't loaded). */
+  getActivePanel(): string {
+    if (!this.handle) return "";
+    const id = devtoolsGetActivePanel(this.handle);
+    return (Object.keys(PANEL) as PanelName[]).find((k) => PANEL[k] === id) ?? "";
+  }
+
+  /** Programmatic profile record/stop (same path as the panel buttons). */
+  setPerfRecording(start: boolean): void {
+    this.mirror?.setPerfRecording(start);
   }
 
   /** Toggle visibility. */

@@ -1485,43 +1485,61 @@ In-process PixiJS v8 WebGPU UI renderer for native (Bun + SDL2 + wgpu-native) mo
 
 ## Native DevTools (`@downdraft/library-devtools`)
 
-A native in-game debugger overlay that replaces Chrome DevTools for the native build. Uses PixiJS (rendered through the same `NativePixiUiHost` WebGPU pipeline as the game UI) with click handling. Toggled with F12; F11 captures a screenshot.
+A native in-game debugger overlay that replaces Chrome DevTools for the native build. The UI is a **Rust egui crate** (`packages/libraries/devtools/native/`) driven over FFI by a TypeScript mirror — egui does layout + tessellation on CPU, serializes PaintJobs into a flat buffer, `EguiRenderer` uploads it to a wgpu texture, and `UiBlitPass` composites it over the game frame. Toggled with F12; F11 captures a screenshot.
 
 ### Architecture
 
-- **`NativeDebuggerHost`** (`packages/libraries/devtools/src/host.ts`): owns a second `NativePixiUiHost` (debug overlay) on the shared wgpu-native device, composited above the game UI via a second `UiBlitPass`. When visible, SDL pointer events route to the debugger's hit-test regions first; misses pass through to the game.
-- **`DebuggerScene`** (`packages/libraries/devtools/src/debugger-scene.ts`): the PixiJS scene graph for the debugger. Manages tab bar, content area, status bar, per-panel scroll state, and hit region collection. Rebuilds the view each frame (clear + re-add children) so panels can reflect live data.
-- **`CdpBridge`** (`packages/libraries/devtools/src/cdp-bridge.ts`): connects to the main isolate via `node:inspector` Session. Captures `Runtime.consoleAPICalled` (console.log/warn/error) and `Runtime.exceptionThrown` events. Supports Profiler domain (start/stop profiling, retrieve profile with nodes/samples/timeDeltas).
-- **Panels** (`packages/libraries/devtools/src/panels/`):
-  - **Console** (`console-panel.ts`): scrollable log list with severity colors, filter bar (All/Errors/Warnings/Info), Clear button, CDP status indicator. Click filter buttons to change filter; click rows with stack traces to expand.
-  - **Scene** (`scene-panel.ts`): collapsible tree of the game's PIXI stage (from `gamePixiUi.stage`). Click a node to select it; the inspector panel on the right shows type, position, visible, alpha, bounds, children, eventMode.
-  - **GPU** (`gpu-panel.ts`): collapsible sections for adapter info, device limits, GPU pass timings, texture/memory stats, render pipeline info, and device features. Uses `renderer.getAdapterInfo()`, `renderer.getDevice().limits`, `renderer.gpuProfiler.getTimings()`, `process.memoryUsage()`.
-  - **Performance Recorder** (`perf-recorder.ts`): Record/Stop buttons capture a CPU profile via CDP Profiler. Renders a hot-functions bar chart (top 50 by self-time) with function name, self time, and percentage of total.
-  - **Performance Metrics** (`perf-metrics.ts`): real-time line charts for memory (RSS + heap) and CPU (user + system) usage. Uses `process.memoryUsage()` and `process.cpuUsage()`. Reads per-worker frame times from `ProfilingSAB` if available.
-  - **DOM Tree** (`dom-tree-panel.ts`): toggle between PIXI scene graph mode (same tree as Scene panel) and ECS entity mode (reads entity types and positions from the sim reader). Inspector panel on the right shows selected node/entity properties.
-- **Shared widgets** (`packages/libraries/devtools/src/shared/widgets.ts`): `HitCollector`, `makeLabel`, `makeButton`, `makeToggle`, `makeTabBar`, `makeScrollPanel`, `makeTreeView`, `makeTableView`, `makeLineChart`, `makeKeyValueGrid`, `makeSectionHeader`, `makeTextInput`, `formatBytes/Us/Ms/Time`.
-- **Colors** (`packages/libraries/devtools/src/shared/colors.ts`): dark theme constants (`BG_DARK`, `BG_PANEL`, `BG_SELECTED`, `COLOR_TEXT`, `COLOR_GREEN`, etc.), severity colors, thread colors, font scale support.
+- **`NativeDebuggerHost`** (`src/host.ts`): owns the egui state handle + `EguiRenderer`, routes SDL pointer/key/text input into egui via FFI, and composites the overlay after the game UI blit.
+- **`DevtoolsMirror`** (`src/mirror.ts`): pushes engine data into Rust (console entries, scene tree, GPU info, metrics, threads, generic snapshots), polls Rust for eval requests / UI commands / refresh flags each frame, and dispatches them to registered handlers.
+- **`egui-ffi.ts`**: FFI symbol declarations + buffer encoders (scene tree, DOM tree, GPU info, metrics, threads, generic `encodeSnapshot`, eval request decode).
+- **Rust side** (`native/src/`): `state.rs` (PanelId, console/metrics/scene state, `GenericSnapshot`), `lib.rs` (FFI surface, input → `egui::RawInput`, dock UI + nav rail + status bar, snapshot/command decoders), `panels/` (one module per panel; `generic.rs` renders provider-fed snapshots; `input.rs` is a bespoke panel mixing the egui input mirror with provider data).
+- **`CdpBridge`** (`src/cdp-bridge.ts`): `node:inspector` Session for console capture, exception events, and CPU profiling (the Recorder panel's flame chart).
 
-### Critical: PixiJS masks break overlapping rendering on native wgpu
+### Panels (16)
 
-The `makeScrollPanel` widget does **not** use PixiJS masks (`content.mask = mask`) because masks trigger `ensureDepthStencil()` in PixiJS's RenderTargetSystem, which restarts the render pass with a depth/stencil attachment. On the native wgpu backend, the depth/stencil texture's undefined initial content (loaded with `depthLoadOp: "load"`) causes subsequent overlapping Graphics/Text to fail rendering. Content overflow is handled by the scroll offset alone (no clip mask). This affects all native PixiJS hosts, not just the debugger.
+Console, Scene (PIXI tree), GPU, Recorder (CDP profile + flame chart), Metrics (per-thread ProfilingSAB), ECS/DOM tree, Sim, Memory (RSS/VRAM + force-GC), Render Graph (frame-graph slots + pass timings, shows "timestamps unsupported" when the GPU timer pool is unavailable), Materials (MaterialLibrary or ModelRenderer bindless occupancy), Doctor (cross-thread module report), Workers (SAB slots + eval targets + cached sim manifest), Input (live egui input mirror), PostFX (28 effect toggles + params via the command channel), Assets (models/textures/buffers + missing-asset warnings), Game (provider-fed KV: vitals, world state, boats, weather).
 
-### Click handling model
+### Generic snapshot + command protocol
 
-Panels collect "hit regions" (rects + callbacks) via `HitCollector` as they build their view each frame. The `DebuggerScene` aggregates these into `getInteractiveRegions()`. The `NativeDebuggerHost` dispatches `handlePointerDown/Move/Up` to the scene, which hit-tests against the collected regions and calls the matching callback. Misses pass through to the game's input handler.
+Provider panels share one binary format: `registerProvider(panel, collect)` returns a `PanelSnapshot` (status byte + sections of key/value rows, tables, f32 series, lines, and controls — buttons/checkboxes/sliders). `encodeSnapshot()` serializes it; `dd_devtools_set_snapshot` pushes it per panel slot. Rust renders controls and queues `{panel, action, payload}` commands; the mirror polls `dd_devtools_take_command` each frame and dispatches to `handleEngineCommand` in `native-entry.ts` (fx.* → `PostProcessStack.setEnabled`, param.* → effect params, gc → force GC, sim.* → sim worker commands). Sync providers push snapshots immediately; async collectors never block the UI frame.
+
+Game-specific data uses the `game` panel slot — register via `registerEngineProviders(ctx)` in `src/native-providers.ts` plus a game provider in `native-entry.ts`.
+
+### Running the native entry (tri-runtime)
+
+```bash
+# Bun (primary)
+bun run src/native-entry.ts
+
+# Node (tsx + wgsl/?raw loader)
+NODE_OPTIONS="--import ../../packages/platform-native/src/ffi/wgsl-loader.mjs" \
+  ../../node_modules/.bin/tsx src/native-entry.ts
+
+# Deno (root deno.json import map mirrors tsconfig paths; sloppy imports for
+# extensionless/dir imports; requires --allow-all for FFI+workers+fs)
+deno run --config ../../deno.json --allow-all --unstable-sloppy-imports src/native-entry.ts
+```
+
+`deno.json` at the repo root is a generated import map mirroring `tsconfig.web.json` `paths` (`foo/*` → `dir/*` trailing-slash form, required for `@`-scoped aliases). Regenerate it if tsconfig paths change. Known Deno limitations: `@pixi/react` scene setup fails (npm `react-reconciler/constants` subpath), and basis-universal `?url` wasm imports are resolved lazily with a disk fallback.
+
+### wgpu-native crash notes
+
+wgpu-native turns **any** validation error into a fatal `handle_error_fatal` abort — not just internal panics. Hardening applied: (1) `wgpu_shim.c` validates every `WGPUTextureFormat`/`WGPURenderPipelineDescriptor` enum before the call and returns NULL with an error log instead of aborting; (2) `wgpu-device.ts` counts only non-null vertex-buffer slots (sparse `buffers` arrays desynced the flat-descriptor walk); (3) bind groups created with `hasDynamicOffset` layouts must be bound with a dynamic-offsets array (`setBindGroup(i, bg, [0])` — the shim plumbs them; the old "no dynamic offsets" comment was stale); (4) `PostProcessStack` takes a `sceneFormat` option — games whose scene pipelines target the surface format pass it (the default `rgba16float` requires HDR scene pipelines).
 
 ### Environment variables for verification
 
 - `SCREENSHOT_FRAME=N`: auto-capture a screenshot at frame N (default 600).
 - `AUTO_EXIT=1`: exit after the auto-screenshot.
 - `DEBUGGER_AUTO_SHOW=1`: auto-show the debugger for the verification screenshot.
+- `DEBUGGER_PANEL=<name>`: select a panel for the screenshot (`console scene gpu perf-recorder perf-metrics dom-tree sim memory render-graph materials doctor workers input postfx assets game`).
+- `DEBUGGER_TEST=1`: run the interaction suite (nav-rail clicks on all 16 panels, postfx command round-trip, wheel scroll, REPL eval) at the screenshot frame.
 - `SKIP_OCEAN_SCENE=1`: skip the real OceanApp scene (for isolated blit testing).
 
 ### Key files
 
-- `packages/libraries/devtools/src/host.ts` — `NativeDebuggerHost`
-- `packages/libraries/devtools/src/debugger-scene.ts` — `DebuggerScene`
+- `packages/libraries/devtools/src/host.ts` — `NativeDebuggerHost` + `DebuggerSceneShim`
+- `packages/libraries/devtools/src/mirror.ts` — `DevtoolsMirror` (data push, eval/command dispatch, provider registry)
+- `packages/libraries/devtools/src/egui-ffi.ts` — FFI decls + encoders
+- `packages/libraries/devtools/src/native-providers.ts` — engine-generic panel providers
 - `packages/libraries/devtools/src/cdp-bridge.ts` — `CdpBridge`
-- `packages/libraries/devtools/src/panels/` — all panel implementations
-- `packages/libraries/devtools/src/shared/widgets.ts` — reusable PixiJS widgets
-- `packages/libraries/devtools/src/shared/colors.ts` — color constants + font scale
+- `packages/libraries/devtools/native/src/` — Rust egui crate (`cargo build --release`, output `dist/libdowndraft_devtools.so`)

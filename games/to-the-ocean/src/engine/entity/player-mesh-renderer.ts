@@ -1,5 +1,4 @@
-import { createValidatedShaderModule } from "@downdraft/core";
-import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "@downdraft/core";
+import { createValidatedShaderModule, DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "@downdraft/core";
 import type { MeshData, ModelData } from "@downdraft/library-models";
 import { MAX_BONES } from "@shared/constants";
 import { PLAYER_WGSL, SKINNED_PLAYER_WGSL, SKINNING_COMPUTE_WGSL } from "../shaders/entity-shaders";
@@ -107,7 +106,7 @@ export class PlayerMeshRenderer {
         { binding: 0, resource: { buffer: uniformBuffer!, size: 256 } },
       ],
     });
-    // Per-entity bind groups for native mode (no dynamic offset support)
+    // Per-entity bind groups (offset baked into resource; bind with [0] dynamic offset)
     this.playerBindGroups = [];
     for (let i = 0; i < 512; i++) {
       this.playerBindGroups.push(dev.createBindGroup({
@@ -430,7 +429,7 @@ export class PlayerMeshRenderer {
         { binding: 3, resource: { buffer: this.boneMatrixBuffer! } },
       ],
     });
-    // Per-entity bind groups for native mode (no dynamic offset support)
+    // Per-entity bind groups (offset baked into resource; bind with [0] dynamic offset)
     this.skinnedPlayerBindGroups = [];
     for (let i = 0; i < 512; i++) {
       this.skinnedPlayerBindGroups.push(device.createBindGroup({
@@ -698,7 +697,7 @@ export class PlayerMeshRenderer {
     let tris = 0;
     passEncoder.setPipeline(this.skinnedPlayerPipeline);
     const sBg = this.skinnedPlayerBindGroups[idx] ?? this.skinnedPlayerBindGroup;
-    if (this.skinnedPlayerBindGroups.length > 0) passEncoder.setBindGroup(0, sBg);
+    if (this.skinnedPlayerBindGroups.length > 0) passEncoder.setBindGroup(0, sBg, [0]);
     else passEncoder.setBindGroup(0, sBg, [idx * 256]);
     passEncoder.setVertexBuffer(0, this.skinnedPlayerVertices);
     passEncoder.setIndexBuffer(this.skinnedPlayerIndices, this.skinnedPlayerIndexFormat);
@@ -721,7 +720,7 @@ export class PlayerMeshRenderer {
     this.writeMaterialIndex(idx);
     passEncoder.setPipeline(this.playerPipeline);
     const pBg = this.playerBindGroups[idx] ?? this.playerBindGroup;
-    if (this.playerBindGroups.length > 0) passEncoder.setBindGroup(0, pBg);
+    if (this.playerBindGroups.length > 0) passEncoder.setBindGroup(0, pBg, [0]);
     else passEncoder.setBindGroup(0, pBg, [idx * 256]);
     passEncoder.setVertexBuffer(0, this.playerMeshVertices);
     passEncoder.setIndexBuffer(this.playerMeshIndices, this.playerMeshIndexFormat);
