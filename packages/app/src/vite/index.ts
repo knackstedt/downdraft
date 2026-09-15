@@ -338,7 +338,7 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
   return defineConfig({
     main: {
       plugins: [
-        externalizeDepsPlugin({ exclude: ["@dimforge/rapier3d-compat", "@downdraft/module-electron-osr", "@downdraft/module-raw-input", "@downdraft/library-persistence", "recast-navigation"] }),
+        externalizeDepsPlugin({ exclude: ["@dimforge/rapier3d-compat", "@downdraft/app", "@downdraft/module-electron-osr", "@downdraft/module-raw-input", "@downdraft/library-persistence", "recast-navigation"] }),
         {
           name: "force-cjs-main",
           configResolved(config) {

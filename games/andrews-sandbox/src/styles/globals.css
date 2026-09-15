@@ -523,6 +523,58 @@ canvas {
   color: #ccc;
 }
 
+/* Character customization */
+.sandbox-esc-character {
+  display: flex;
+  gap: 20px;
+  max-width: 600px;
+}
+.sandbox-character-preview-wrap {
+  flex-shrink: 0;
+  width: 256px;
+  height: 256px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(20, 20, 30, 0.6);
+  border: 1px solid rgba(100, 150, 200, 0.2);
+}
+.sandbox-character-preview {
+  width: 256px;
+  height: 256px;
+  display: block;
+}
+.sandbox-character-list {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.sandbox-character-list-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #ccc;
+  margin-bottom: 8px;
+}
+.sandbox-character-item {
+  padding: 10px 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #aaa;
+  background: rgba(40, 40, 55, 0.4);
+  border: 1px solid transparent;
+  transition: background 0.15s, border-color 0.15s;
+}
+.sandbox-character-item:hover {
+  background: rgba(100, 150, 200, 0.15);
+}
+.sandbox-character-item.active {
+  background: rgba(78, 154, 241, 0.2);
+  border-color: rgba(78, 154, 241, 0.5);
+  color: #4e9af1;
+  font-weight: 600;
+}
+
 /* Status toast */
 .sandbox-esc-status {
   position: fixed;

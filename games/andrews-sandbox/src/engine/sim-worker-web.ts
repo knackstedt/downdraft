@@ -6,16 +6,17 @@
 
 import type { CharacterControllerHandle } from "@downdraft/core";
 import {
-    ENT, InputBufferReader, SimBufferWriter, SimWorkerLoop,
-    type BodyDesc, type ColliderDesc, type Entity,
-    type LoadOptions,
-    type PhysicsBody,
-    type SaveOptions, type SaveState,
+  ENT, InputBufferReader, SimBufferWriter, SimWorkerLoop,
+  type BodyDesc, type ColliderDesc, type Entity,
+  type LoadOptions,
+  type PhysicsBody,
+  type SaveOptions, type SaveState,
 } from "@downdraft/core";
 import { expose, exposeEvents } from "@downdraft/core/worker/rpc";
 import { OpfsSaveStore, type OpfsSaveStoreOptions } from "@downdraft/library-persistence/browser";
 import { RapierPhysicsBackend, UniversalPhysicsAPI } from "@downdraft/library-physics-rapier";
 import { ENT_DATA, MAX_SIM_SPEED, MIN_SIM_SPEED, SIM_TICK_DT } from "@sandbox/shared/constants/buffer";
+import { DEFAULT_PLAYER_MODEL } from "@sandbox/shared/constants/player";
 import { EntityType, FunMode, PhysgunMode, PoseState, PropFlags, type SandboxSimMessage, type SimCommand } from "@sandbox/shared/types";
 
 (globalThis as any).__ddThreadTag = "R1";
@@ -73,6 +74,9 @@ let currentPose: PoseState = PoseState.Standing;
 const PLAYER_MAX_HEALTH = 100;
 let playerHealth = PLAYER_MAX_HEALTH;
 let playerDead = false;
+// The player's chosen model id (persisted in the save state). The sim is
+// authoritative; the renderer loads the model on player_model_changed.
+let playerModelId: string = DEFAULT_PLAYER_MODEL;
 // Peak downward speed (m/s) accumulated while airborne. Reset on landing so a
 // single fall produces one damage burst. Used for fall-damage computation.
 let playerFallSpeed = 0;
@@ -619,6 +623,12 @@ function setFunMode(mode: FunMode): void {
   events.emit("fun_mode_changed", { mode });
 }
 
+/** Set the player's model id and notify the renderer so it loads the model. */
+function setPlayerModel(modelId: string): void {
+  playerModelId = modelId;
+  events.emit("player_model_changed", { modelId });
+}
+
 // ── Process sim commands from renderer ──
 function processCommand(cmd: SimCommand): void {
   switch (cmd.type) {
@@ -639,6 +649,9 @@ function processCommand(cmd: SimCommand): void {
       break;
     case "setTool":
       // Tool selection is renderer-side only; no sim action needed
+      break;
+    case "setPlayerModel":
+      setPlayerModel(cmd.modelId);
       break;
     case "fireWeapon": {
       // Spawn a projectile — entityId = slotIdx + 1 (same invariant as props)
@@ -1078,7 +1091,7 @@ function saveState(): string {
       hull: record.hull ? Array.from(record.hull) : undefined,
     });
   }
-  return JSON.stringify({ props, funMode: currentFunMode, pose: currentPose, playerPos: [...playerPos], health: playerHealth, dead: playerDead, version: 1 });
+  return JSON.stringify({ props, funMode: currentFunMode, pose: currentPose, playerPos: [...playerPos], health: playerHealth, dead: playerDead, playerModel: playerModelId, version: 2 });
 }
 
 async function restoreState(stateJson: string): Promise<void> {
@@ -1111,6 +1124,12 @@ async function restoreState(stateJson: string): Promise<void> {
       ]);
     }
     onEvent({ kind: "player_moved", data: { position: [...playerPos] as [number, number, number], grounded: playerGrounded, pose: currentPose, health: playerHealth, maxHealth: PLAYER_MAX_HEALTH, dead: playerDead } });
+  }
+  // Restore the player's chosen model id and notify the renderer so it loads
+  // the correct avatar. Old saves (version 1) without this field keep the default.
+  if (typeof state.playerModel === "string" && state.playerModel) {
+    playerModelId = state.playerModel;
+    events.emit("player_model_changed", { modelId: playerModelId });
   }
   for (const prop of state.props ?? []) {
     spawnProp(

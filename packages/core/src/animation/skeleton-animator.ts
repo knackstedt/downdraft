@@ -25,6 +25,7 @@ export interface AnimationData {
   channels: AnimationChannel[];
   sourceRestRotations?: Map<string, [number, number, number, number]>;
   sourcePreRotations?: Map<string, [number, number, number, number]>;
+  sourceRestTranslations?: Map<string, [number, number, number]>;
 }
 
 export interface BoneData {
@@ -79,6 +80,8 @@ export function skinDataToSkeletonData(skin: SkinData): SkeletonData {
 
 // ── Vec3 / Quaternion math helpers ──
 
+const IDENTITY_QUAT: readonly [number, number, number, number] = [0, 0, 0, 1];
+
 function vec3Lerp(a: Float32Array, b: Float32Array, t: number, out: Float32Array): void {
   out[0] = a[0] + (b[0] - a[0]) * t;
   out[1] = a[1] + (b[1] - a[1]) * t;
@@ -119,6 +122,17 @@ function quatSlerp(a: Float32Array, b: Float32Array, t: number, out: Float32Arra
   out[3] = a[3] * oneMinusT + out[3] * sinT;
 }
 
+function quatRotateVec(q: Float32Array | [number, number, number, number], v: [number, number, number]): [number, number, number] {
+  const x = q[0], y = q[1], z = q[2], w = q[3];
+  const c = 2 * (x * v[0] + y * v[1] + z * v[2]);
+  const ss = w * w - (x * x + y * y + z * z);
+  return [
+    c * x + ss * v[0] + 2 * w * (y * v[2] - z * v[1]),
+    c * y + ss * v[1] + 2 * w * (z * v[0] - x * v[2]),
+    c * z + ss * v[2] + 2 * w * (x * v[1] - y * v[0]),
+  ];
+}
+
 function quatMul(q1: Float32Array, q2: Float32Array, out: Float32Array): void {
   const ax = q1[0], ay = q1[1], az = q1[2], aw = q1[3];
   const bx = q2[0], by = q2[1], bz = q2[2], bw = q2[3];
@@ -154,6 +168,63 @@ function buildLocalMatrix(pos: Float32Array, rot: Float32Array, scale: Float32Ar
   out[15] = 1;
 }
 
+/** Extract the rotation part of a column-major 4x4 matrix as a quaternion
+ *  (column lengths are normalized out, so uniform scale is tolerated). */
+function quatFromMat4Rotation(m: Float32Array): Float32Array {
+  let m00 = m[0], m10 = m[1], m20 = m[2];
+  let m01 = m[4], m11 = m[5], m21 = m[6];
+  let m02 = m[8], m12 = m[9], m22 = m[10];
+  const n0 = Math.hypot(m00, m10, m20) || 1;
+  const n1 = Math.hypot(m01, m11, m21) || 1;
+  const n2 = Math.hypot(m02, m12, m22) || 1;
+  m00 /= n0; m10 /= n0; m20 /= n0;
+  m01 /= n1; m11 /= n1; m21 /= n1;
+  m02 /= n2; m12 /= n2; m22 /= n2;
+  const trace = m00 + m11 + m22;
+  const q = new Float32Array(4);
+  if (trace > 0) {
+    const s = Math.sqrt(trace + 1) * 2;
+    q[3] = s / 4; q[0] = (m21 - m12) / s; q[1] = (m02 - m20) / s; q[2] = (m10 - m01) / s;
+  } else if (m00 > m11 && m00 > m22) {
+    const s = Math.sqrt(1 + m00 - m11 - m22) * 2;
+    q[3] = (m21 - m12) / s; q[0] = s / 4; q[1] = (m01 + m10) / s; q[2] = (m02 + m20) / s;
+  } else if (m11 > m22) {
+    const s = Math.sqrt(1 + m11 - m00 - m22) * 2;
+    q[3] = (m02 - m20) / s; q[0] = (m01 + m10) / s; q[1] = s / 4; q[2] = (m12 + m21) / s;
+  } else {
+    const s = Math.sqrt(1 + m22 - m00 - m11) * 2;
+    q[3] = (m10 - m01) / s; q[0] = (m02 + m20) / s; q[1] = (m12 + m21) / s; q[2] = s / 4;
+  }
+  return q;
+}
+
+/** Slerp a packed quaternion keyframe channel (times, values) at time t into out. */
+function sampleQuatChannel(times: Float32Array, values: Float32Array, t: number, out: Float32Array): void {
+  if (times.length <= 1 || t <= times[0]) {
+    out[0] = values[0]; out[1] = values[1]; out[2] = values[2]; out[3] = values[3];
+    return;
+  }
+  const last = times.length - 1;
+  if (t >= times[last]) {
+    const o = last * 4;
+    out[0] = values[o]; out[1] = values[o + 1]; out[2] = values[o + 2]; out[3] = values[o + 3];
+    return;
+  }
+  let lo = 0, hi = last;
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (times[mid] <= t) lo = mid; else hi = mid; }
+  const alpha = (t - times[lo]) / (times[hi] - times[lo]);
+  const a = new Float32Array([values[lo * 4], values[lo * 4 + 1], values[lo * 4 + 2], values[lo * 4 + 3]]);
+  const b = new Float32Array([values[hi * 4], values[hi * 4 + 1], values[hi * 4 + 2], values[hi * 4 + 3]]);
+  quatSlerp(a, b, alpha, out);
+}
+
+/** Swap a quaternion from Y-up (Mixamo/FBX source space) to Z-up (engine
+ *  target space): (x, y, z, w) → (x, -z, y, w). Matches the position map
+ *  (x, y, z) → (x, -z, y). */
+function quatYupToZup(q: Float32Array, out: Float32Array): void {
+  out[0] = q[0]; out[1] = -q[2]; out[2] = q[1]; out[3] = q[3];
+}
+
 function mat4Mul(a: Float32Array, b: Float32Array, out: Float32Array): void {
   for (let c = 0; c < 4; c++) {
     const b0 = b[c * 4], b1 = b[c * 4 + 1], b2 = b[c * 4 + 2], b3 = b[c * 4 + 3];
@@ -179,6 +250,12 @@ export class SkeletonAnimator {
   private restPos: Float32Array[];
   private restRot: Float32Array[];
   private restScale: Float32Array[];
+  // Rotation of the non-bone intermediate transform each bone hangs under
+  // (rootAncestorMatrix). Identity for bones directly under their bone parent.
+  private intermediateRot: Float32Array[];
+  // Full non-bone intermediate matrix (translation included) — needed to FK
+  // bind world positions for retargeting frame alignment.
+  private intermediateMat: (Float32Array | null)[];
 
   private worldMatrices: Float32Array[];
 
@@ -197,11 +274,13 @@ export class SkeletonAnimator {
   private blendDuration = 0.2;
   private sourceRestRotations: Map<string, Map<string, [number, number, number, number]>> = new Map();
   private sourcePreRotations: Map<string, Map<string, [number, number, number, number]>> = new Map();
+  private sourceRestTranslations: Map<string, Map<string, [number, number, number]>> = new Map();
 
   private ikEnabled = true;
   private leftFootTarget: Float32Array | null = null;
   private rightFootTarget: Float32Array | null = null;
   private boneNameToIndex: Map<string, number>;
+  private boneNames: string[] = [];
 
   private leftLegUpIdx = -1;
   private leftLegDownIdx = -1;
@@ -234,11 +313,14 @@ export class SkeletonAnimator {
     this.restPos = [];
     this.restRot = [];
     this.restScale = [];
+    this.intermediateRot = [];
+    this.intermediateMat = [];
     this.worldMatrices = [];
 
     for (let i = 0; i < this.boneCount; i++) {
       const bone = skin.bones[i];
       this.parentIndices[i] = bone.parentIndex;
+      this.boneNames[i] = bone.name;
 
       const ibm = new Float32Array(16);
       ibm.set(bone.inverseBindMatrix);
@@ -250,6 +332,10 @@ export class SkeletonAnimator {
       this.restPos.push(rp);
       this.restRot.push(rr);
       this.restScale.push(rs);
+      this.intermediateRot.push(
+        bone.rootAncestorMatrix ? quatFromMat4Rotation(bone.rootAncestorMatrix) : new Float32Array(IDENTITY_QUAT),
+      );
+      this.intermediateMat.push(bone.rootAncestorMatrix ? new Float32Array(bone.rootAncestorMatrix) : null);
 
       this.localPos.push(new Float32Array(rp));
       this.localRot.push(new Float32Array(rr));
@@ -302,95 +388,505 @@ export class SkeletonAnimator {
     }
   }
 
+  /**
+   * Register a pre-built AnimationClip directly (bypassing the
+   * AnimationData→retargeting pipeline). Use this for procedural clips
+   * authored directly in the skeleton's local space, or clips loaded from
+   * glTF that are already in the correct coordinate space.
+   */
+  registerClip(name: string, clip: AnimationClip): void {
+    this.clips.set(name, clip);
+  }
+
   private animationDataToClip(anim: AnimationData, animName: string): AnimationClip | null {
     const tracks: KeyframeTrack[] = [];
-    const preRotMap = this.sourcePreRotations.get(animName);
-    const restRotMap = this.sourceRestRotations.get(animName);
+    // Keyed by SOURCE node name; falls back to the AnimationData's own maps
+    // when the caller didn't go through registerRetargetedAnimations.
+    const preRotMap = this.sourcePreRotations.get(animName) ?? anim.sourcePreRotations;
+    const restRotMap = this.sourceRestRotations.get(animName) ?? anim.sourceRestRotations;
 
-    for (let c = 0; c < anim.channels.length; c++) {
-      const ch = anim.channels[c];
-      let nodeName = ch.targetNode;
+    if (!this.isMixamoSkeleton) {
+      // Per-frame world-space retargeting for non-Mixamo skeletons.
+      //
+      // mixamorig:* channels are evaluated as world rotations on the SOURCE
+      // (Mixamo) hierarchy — the target hierarchy may differ (e.g. the target
+      // can skip intermediate bones like spine_02). Each source world delta is
+      // then applied to the target's bind world rotation, and the target local
+      // is solved against the target's own (possibly animated) parent chain:
+      //
+      //   srcDelta(t)      = srcWorld(t) * inv(srcRestWorld)     [Y-up space]
+      //   desiredWorld(t)  = axisSwap(srcDelta(t)) * tgtBindWorld
+      //   local(t)         = inv(intermediate) * inv(parentWorld(t)) * desiredWorld(t)
+      //
+      // where parentWorld(t) is the target parent's animated world rotation,
+      // which keeps parent and child deltas from double-applying.
+      //
+      // Non-Mixamo channels are applied directly as locals (same-rig clips).
 
-      // For non-Mixamo, apply bone name mapping
-      if (!this.isMixamoSkeleton) {
-        nodeName = nodeName.startsWith("mixamorig:")
-          ? (SkeletonAnimator.MIXAMO_TO_UE[nodeName] ?? nodeName)
-          : nodeName;
-        // Non-Mixamo retargeting skips translation channels
-        if (ch.path === "translation") continue;
+      // Retargeted tracks are baked to plain keyframes — never emit
+      // "cubicspline" (that layout expects tangent triplets).
+      const toInterp = (s: string): "linear" | "step" =>
+        s === "STEP" ? "step" : "linear";
+
+      // Partition channels.
+      interface SrcRotChannel {
+        times: Float32Array;
+        values: Float32Array;
+        boneIdx: number | undefined;
+        interpolation: string;
+      }
+      const srcRotChannels = new Map<string, SrcRotChannel>();
+      const directChannels: AnimationChannel[] = [];
+      let hipsPosChannel: AnimationChannel | null = null;
+      for (let c = 0; c < anim.channels.length; c++) {
+        const ch = anim.channels[c];
+        if (ch.targetNode.startsWith("mixamorig:")) {
+          if (ch.path === "rotation") {
+            const tgtName = SkeletonAnimator.MIXAMO_TO_UE[ch.targetNode] ?? ch.targetNode;
+            srcRotChannels.set(ch.targetNode, {
+              times: ch.keyframeTimes,
+              values: ch.keyframeValues,
+              boneIdx: this.boneNameToIndex.get(tgtName),
+              interpolation: ch.interpolation,
+            });
+          } else if (ch.path === "translation" && ch.targetNode === "mixamorig:Hips") {
+            hipsPosChannel = ch;
+          }
+          // Mixamo scale channels are dropped — bone proportions differ across rigs.
+        } else {
+          directChannels.push(ch);
+        }
       }
 
-      const boneIdx = this.boneNameToIndex.get(nodeName);
-      if (boneIdx === undefined) continue;
-
-      const path: TrackPath = ch.path === "translation" ? "position" : ch.path === "rotation" ? "rotation" : "scale";
-      const interpolation = ch.interpolation === "LINEAR" ? "linear" : ch.interpolation === "STEP" ? "step" : "cubicspline";
-      const times = ch.keyframeTimes;
-      const srcValues = ch.keyframeValues;
-
-      if (path === "rotation") {
-        // Pre-bake retargeting for rotation at each keyframe
-        const values = new Float32Array(srcValues.length);
-        const srcPreRot = preRotMap?.get(nodeName);
-        const srcRest = restRotMap?.get(nodeName);
-
-        for (let k = 0; k < times.length; k++) {
-          const v0 = k * 4;
-          const q = new Float32Array([srcValues[v0], srcValues[v0 + 1], srcValues[v0 + 2], srcValues[v0 + 3]]);
-          const result = new Float32Array(4);
-
-          if (this.isMixamoSkeleton) {
-            // Direct Mixamo: apply pre-rotation
-            if (srcPreRot) {
-              quatMul(new Float32Array(srcPreRot), q, result);
-            } else {
-              result.set(q);
-            }
-          } else if (srcRest && srcPreRot) {
-            // Full retargeting: preRot * q, then delta = invRest * (preRot * q), then axis swap, then * restRot
-            const fullAnimRot = new Float32Array(4);
-            quatMul(new Float32Array(srcPreRot), q, fullAnimRot);
-            const invSrcRest = new Float32Array(4);
-            quatInvert(new Float32Array(srcRest), invSrcRest);
-            const deltaYup = new Float32Array(4);
-            quatMul(invSrcRest, fullAnimRot, deltaYup);
-            const deltaLocal = new Float32Array(4);
-            deltaLocal[0] = deltaYup[0];
-            deltaLocal[1] = -deltaYup[2];
-            deltaLocal[2] = deltaYup[1];
-            deltaLocal[3] = deltaYup[3];
-            quatMul(this.restRot[boneIdx], deltaLocal, result);
+      // ── Source (Mixamo) world-rotation evaluator ──
+      const srcLocalAt = (name: string, t: number, out: Float32Array): void => {
+        const ch = srcRotChannels.get(name);
+        if (ch) {
+          const q = new Float32Array(4);
+          sampleQuatChannel(ch.times, ch.values, t, q);
+          const pre = preRotMap?.get(name);
+          if (pre) {
+            quatMul(new Float32Array(pre), q, out);
           } else {
-            // Simple axis swap + rest rotation
-            const animLclLocal = new Float32Array(4);
-            animLclLocal[0] = q[0];
-            animLclLocal[1] = -q[2];
-            animLclLocal[2] = q[1];
-            animLclLocal[3] = q[3];
-            quatMul(this.restRot[boneIdx], animLclLocal, result);
+            out.set(q);
           }
-
-          values[v0] = result[0]; values[v0 + 1] = result[1]; values[v0 + 2] = result[2]; values[v0 + 3] = result[3];
-        }
-        tracks.push({ boneName: nodeName, boneIndex: boneIdx, path, times, values, interpolation });
-      } else if (path === "position") {
-        // For non-Mixamo, axis-swap position. For Mixamo, direct copy.
-        if (this.isMixamoSkeleton) {
-          tracks.push({ boneName: nodeName, boneIndex: boneIdx, path, times, values: srcValues, interpolation });
         } else {
-          // Axis swap: x=x, y=-z, z=y
-          const values = new Float32Array(srcValues.length);
-          for (let k = 0; k < times.length; k++) {
-            const v0 = k * 3;
-            values[v0] = srcValues[v0];
-            values[v0 + 1] = -srcValues[v0 + 2];
-            values[v0 + 2] = srcValues[v0 + 1];
-          }
-          tracks.push({ boneName: nodeName, boneIndex: boneIdx, path, times, values, interpolation });
+          out.set(restRotMap?.get(name) ?? IDENTITY_QUAT);
         }
-      } else {
-        // Scale: direct copy
-        tracks.push({ boneName: nodeName, boneIndex: boneIdx, path, times, values: srcValues, interpolation });
+      };
+      const srcWorldMemo = new Map<string, Map<number, Float32Array>>();
+      const srcWorld = (name: string, t: number): Float32Array => {
+        let memo = srcWorldMemo.get(name);
+        if (!memo) { memo = new Map(); srcWorldMemo.set(name, memo); }
+        const hit = memo.get(t);
+        if (hit) return hit;
+        const local = new Float32Array(4);
+        srcLocalAt(name, t, local);
+        const parent = SkeletonAnimator.MIXAMO_PARENT[name];
+        const world = new Float32Array(4);
+        if (parent) {
+          quatMul(srcWorld(parent, t), local, world);
+        } else {
+          world.set(local);
+        }
+        memo.set(t, world);
+        return world;
+      };
+
+      // ── Target bind world rotations (including non-bone intermediates) ──
+      const ID = new Float32Array([0, 0, 0, 1]);
+      const tgtBindWorld: Float32Array[] = [];
+      for (let i = 0; i < this.boneCount; i++) {
+        const parentIdx = this.parentIndices[i];
+        const pw = parentIdx >= 0 ? tgtBindWorld[parentIdx] : ID;
+        const tmp = new Float32Array(4);
+        const w = new Float32Array(4);
+        quatMul(pw, this.intermediateRot[i], tmp);
+        quatMul(tmp, this.restRot[i], w);
+        tgtBindWorld.push(w);
+      }
+
+      // ── Source REST world rotations (Mixamo bind pose) ──
+      // The retarget delta must be measured against the source's rest pose,
+      // NOT the clip's first keyframe: locomotion clips start mid-stride, so
+      // a frame-0 reference would map that mid-stride pose onto the target's
+      // bind pose and shift every other frame by that offset (which shows up
+      // as e.g. knees hyperextending backwards).
+      const srcRestWorldMemo = new Map<string, Float32Array>();
+      const srcRestWorld = (name: string): Float32Array => {
+        const hit = srcRestWorldMemo.get(name);
+        if (hit) return hit;
+        const w = new Float32Array(4);
+        w.set(restRotMap?.get(name) ?? IDENTITY_QUAT);
+        const parent = SkeletonAnimator.MIXAMO_PARENT[name];
+        if (parent) {
+          const out = new Float32Array(4);
+          quatMul(srcRestWorld(parent), w, out);
+          w.set(out);
+        }
+        srcRestWorldMemo.set(name, w);
+        return w;
+      };
+
+      // ── Rest-pose direction data ──
+      // Source rest (Mixamo T-pose) and target bind poses differ (e.g. A-pose
+      // arms). Bone rest directions are needed to align the two rest poses;
+      // they come from joint-to-child-joint vectors, so source rest
+      // translations and target bind positions are FK'd here.
+      const restTransMap = this.sourceRestTranslations.get(animName) ?? anim.sourceRestTranslations;
+
+      // Source rest world POSITIONS via the Mixamo chain.
+      const srcRestPosMemo = new Map<string, [number, number, number]>();
+      const srcRestPos = (name: string): [number, number, number] => {
+        const hit = srcRestPosMemo.get(name);
+        if (hit) return hit;
+        const lt = restTransMap?.get(name) ?? [0, 0, 0];
+        const parent = SkeletonAnimator.MIXAMO_PARENT[name];
+        let pos: [number, number, number];
+        if (parent) {
+          const pp = srcRestPos(parent);
+          const pr = srcRestWorld(parent);
+          const r = quatRotateVec(pr, lt);
+          pos = [pp[0] + r[0], pp[1] + r[1], pp[2] + r[2]];
+        } else {
+          pos = [lt[0], lt[1], lt[2]];
+        }
+        srcRestPosMemo.set(name, pos);
+        return pos;
+      };
+
+      // Source "tip" child per node (defines the bone's rest direction).
+      const srcChildren = new Map<string, string[]>();
+      for (const [child, parent] of Object.entries(SkeletonAnimator.MIXAMO_PARENT)) {
+        if (!parent) continue;
+        let list = srcChildren.get(parent);
+        if (!list) { list = []; srcChildren.set(parent, list); }
+        list.push(child);
+      }
+      const srcTip = (name: string): string | null => {
+        const kids = srcChildren.get(name);
+        if (!kids || kids.length === 0) return null;
+        // Prefer the axial continuation (spine/neck/head, middle finger, toe).
+        const preferred = kids.find((k) =>
+          /Spine|Neck|HeadTop|Middle1|Toe_End/.test(k));
+        return preferred ?? kids[0];
+      };
+
+      // Target bind world positions via matrix FK (includes non-bone
+      // intermediate transforms in full, translation included).
+      const tgtBindWPos: [number, number, number][] = [];
+      {
+        const worldMats: Float32Array[] = [];
+        const localMat = new Float32Array(16);
+        const tmp = new Float32Array(16);
+        for (let i = 0; i < this.boneCount; i++) {
+          buildLocalMatrix(this.restPos[i], this.restRot[i], this.restScale[i], localMat);
+          const im = this.intermediateMat[i];
+          let lm = localMat;
+          if (im) { mat4Mul(im, localMat, tmp); lm = new Float32Array(tmp); }
+          const pi = this.parentIndices[i];
+          const wm = new Float32Array(16);
+          if (pi >= 0 && worldMats[pi]) mat4Mul(worldMats[pi], lm, wm);
+          else wm.set(lm);
+          worldMats[i] = wm;
+          tgtBindWPos.push([wm[12], wm[13], wm[14]]);
+        }
+      }
+
+      // Target "tip" child per bone index (first bone child; prefer the
+      // axial continuation for spine/hand/foot chains).
+      const tgtChildren = new Map<number, number[]>();
+      for (let i = 0; i < this.boneCount; i++) {
+        const p = this.parentIndices[i];
+        if (p < 0) continue;
+        let list = tgtChildren.get(p);
+        if (!list) { list = []; tgtChildren.set(p, list); }
+        list.push(i);
+      }
+      const tgtTip = (i: number): number | null => {
+        const kids = tgtChildren.get(i);
+        if (!kids || kids.length === 0) return null;
+        const preferred = kids.find((k) =>
+          /spine|neck|head|middle_01|ball/.test(this.boneNames[k]));
+        return preferred ?? kids[0];
+      };
+
+      // Per-bone rest-direction alignment. The source (Mixamo T-pose) and
+      // target (e.g. A-pose) rest poses differ; measuring the animation delta
+      // against the raw source rest double-counts that difference (an A-pose
+      // arm receiving a "drop arm from T-pose" delta overshoots and crosses
+      // the chest). Instead, pre-rotate the source rest reference by R — the
+      // shortest-arc rotation taking the source bone's rest direction onto
+      // the target bone's bind direction (expressed in source space). With
+      // srcRest' = R·srcRest:
+      //
+      //   desiredWorld(t) = axisSwap(srcW(t) · srcRest'⁻¹) · tgtBindWorld
+      //
+      // which makes the target bone's world direction exactly
+      // axisSwap(sourceBoneDirection(t)) at every frame, while twist about
+      // the bone axis still transfers through the delta. When the rest
+      // directions already match (e.g. legs), R ≈ identity and this reduces
+      // to the plain rest-pose delta.
+      const dirAlignMemo = new Map<number, Float32Array | null>();
+      const srcDirAlign = (srcName: string, boneIdx: number): Float32Array | null => {
+        let r = dirAlignMemo.get(boneIdx);
+        if (r !== undefined) return r;
+        r = null;
+        const sTip = restTransMap ? srcTip(srcName) : null;
+        const tTip = tgtTip(boneIdx);
+        if (sTip && tTip !== null) {
+          const a = srcRestPos(srcName), b = srcRestPos(sTip);
+          const ds = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+          const ls = Math.hypot(ds[0], ds[1], ds[2]);
+          const c = tgtBindWPos[boneIdx], d = tgtBindWPos[tTip];
+          const dt = [d[0] - c[0], d[1] - c[1], d[2] - c[2]];
+          const lt = Math.hypot(dt[0], dt[1], dt[2]);
+          if (ls > 1e-4 && lt > 1e-4) {
+            const from = [ds[0] / ls, ds[1] / ls, ds[2] / ls];
+            // Target dir (Z-up) → source Y-up space: (x,y,z) → (x,z,-y).
+            const to = [dt[0] / lt, dt[2] / lt, -dt[1] / lt];
+            const dot = from[0] * to[0] + from[1] * to[1] + from[2] * to[2];
+            if (dot < 0.999999) {
+              let ax: number, ay: number, az: number;
+              if (dot < -0.999999) {
+                // Antiparallel: pick any perpendicular axis.
+                const px = Math.abs(from[0]) < 0.9 ? 1 : 0;
+                const pxv = px ? [1, 0, 0] : [0, 1, 0];
+                ax = from[1] * pxv[2] - from[2] * pxv[1];
+                ay = from[2] * pxv[0] - from[0] * pxv[2];
+                az = from[0] * pxv[1] - from[1] * pxv[0];
+                const al = Math.hypot(ax, ay, az) || 1;
+                r = new Float32Array([ax / al, ay / al, az / al, 0]);
+              } else {
+                ax = from[1] * to[2] - from[2] * to[1];
+                ay = from[2] * to[0] - from[0] * to[2];
+                az = from[0] * to[1] - from[1] * to[0];
+                const al = Math.hypot(ax, ay, az, 1 + dot) || 1;
+                r = new Float32Array([ax / al, ay / al, az / al, (1 + dot) / al]);
+              }
+            }
+          }
+        }
+        dirAlignMemo.set(boneIdx, r);
+        return r;
+      };
+
+      // ── Desired world rotations per channeled target bone ──
+      interface BoneChannel {
+        srcName: string;
+        times: Float32Array;
+        desired: Float32Array;
+        interpolation: string;
+      }
+      const boneChannels = new Map<number, BoneChannel>();
+
+      const emitDesired = (srcName: string, boneIdx: number, times: Float32Array, interpolation: string): void => {
+        const desired = new Float32Array(times.length * 4);
+        // srcRest' = R·srcRestW where R aligns the source rest bone direction
+        // with the target bind direction. inv(srcRest') = inv(srcRestW)·inv(R).
+        const srcRestW = srcRestWorld(srcName);
+        const invSrcW = new Float32Array(4);
+        quatInvert(srcRestW, invSrcW);
+        const align = srcDirAlign(srcName, boneIdx);
+        const invSrcRef = new Float32Array(4);
+        if (align) {
+          const invR = new Float32Array(4);
+          quatInvert(align, invR);
+          quatMul(invSrcW, invR, invSrcRef);
+        } else {
+          invSrcRef.set(invSrcW);
+        }
+        const tgtRef = tgtBindWorld[boneIdx];
+        const tmpA = new Float32Array(4);
+        const tmpB = new Float32Array(4);
+        let prev: Float32Array | null = null;
+        for (let k = 0; k < times.length; k++) {
+          quatMul(srcWorld(srcName, times[k]), invSrcRef, tmpA); // source deviation from reference frame
+          quatYupToZup(tmpA, tmpB);
+          const w = new Float32Array(4);
+          quatMul(tmpB, tgtRef, w);
+          if (prev && w[0] * prev[0] + w[1] * prev[1] + w[2] * prev[2] + w[3] * prev[3] < 0) {
+            w[0] = -w[0]; w[1] = -w[1]; w[2] = -w[2]; w[3] = -w[3];
+          }
+          prev = w;
+          desired.set(w, k * 4);
+        }
+        boneChannels.set(boneIdx, { srcName, times, desired, interpolation });
+      };
+
+      for (const [srcName, ch] of srcRotChannels) {
+        if (ch.boneIdx === undefined) continue;
+        emitDesired(srcName, ch.boneIdx, ch.times, ch.interpolation);
+      }
+
+      // A mapped target bone whose SOURCE node has no channel still needs a
+      // track when an ancestor in the source chain is animated (e.g.
+      // mixamorig:Spine2 → spine_03 when only mixamorig:Spine1 is keyed).
+      const hasChanneledAncestor = (srcName: string): boolean => {
+        let p = SkeletonAnimator.MIXAMO_PARENT[srcName];
+        while (p) {
+          if (srcRotChannels.has(p)) return true;
+          p = SkeletonAnimator.MIXAMO_PARENT[p];
+        }
+        return false;
+      };
+      let unionTimes: Float32Array | null = null;
+      for (const [srcName, tgtName] of Object.entries(SkeletonAnimator.MIXAMO_TO_UE)) {
+        if (srcRotChannels.has(srcName)) continue;
+        const boneIdx = this.boneNameToIndex.get(tgtName);
+        if (boneIdx === undefined || !hasChanneledAncestor(srcName)) continue;
+        if (!unionTimes) {
+          const set = new Set<number>();
+          for (const ch of srcRotChannels.values()) for (const t of ch.times) set.add(t);
+          unionTimes = new Float32Array([...set].sort((a, b) => a - b));
+        }
+        emitDesired(srcName, boneIdx, unionTimes, "LINEAR");
+      }
+
+      // ── Target animated world sampler (channels → desired; else bind-local) ──
+      const tgtWorldMemo = new Map<number, Map<number, Float32Array>>();
+      const tgtWorldAnim = (i: number, t: number): Float32Array => {
+        const ch = boneChannels.get(i);
+        if (ch) {
+          const out = new Float32Array(4);
+          sampleQuatChannel(ch.times, ch.desired, t, out);
+          return out;
+        }
+        let memo = tgtWorldMemo.get(i);
+        if (!memo) { memo = new Map(); tgtWorldMemo.set(i, memo); }
+        const hit = memo.get(t);
+        if (hit) return hit;
+        const parentIdx = this.parentIndices[i];
+        const pw = parentIdx >= 0 ? tgtWorldAnim(parentIdx, t) : ID;
+        const tmp = new Float32Array(4);
+        const w = new Float32Array(4);
+        quatMul(pw, this.intermediateRot[i], tmp);
+        quatMul(tmp, this.restRot[i], w);
+        memo.set(t, w);
+        return w;
+      };
+
+      // ── Emit local rotation tracks ──
+      for (const [i, ch] of boneChannels) {
+        const times = ch.times;
+        const values = new Float32Array(times.length * 4);
+        const parentIdx = this.parentIndices[i];
+        const invIntermediate = new Float32Array(4);
+        quatInvert(this.intermediateRot[i], invIntermediate);
+        const tmpA = new Float32Array(4);
+        const tmpB = new Float32Array(4);
+        let prev: Float32Array | null = null;
+        for (let k = 0; k < times.length; k++) {
+          const pw = parentIdx >= 0 ? tgtWorldAnim(parentIdx, times[k]) : ID;
+          const o = k * 4;
+          const desired = new Float32Array([ch.desired[o], ch.desired[o + 1], ch.desired[o + 2], ch.desired[o + 3]]);
+          quatInvert(pw, tmpA);
+          quatMul(tmpA, desired, tmpB);
+          const local = new Float32Array(4);
+          quatMul(invIntermediate, tmpB, local);
+          if (prev && local[0] * prev[0] + local[1] * prev[1] + local[2] * prev[2] + local[3] * prev[3] < 0) {
+            local[0] = -local[0]; local[1] = -local[1]; local[2] = -local[2]; local[3] = -local[3];
+          }
+          prev = local;
+          values.set(local, o);
+        }
+        tracks.push({
+          boneName: this.boneNames[i],
+          boneIndex: i,
+          path: "rotation" as TrackPath,
+          times,
+          values,
+          interpolation: toInterp(ch.interpolation),
+        });
+      }
+
+      // ── Hips translation → pelvis position track ──
+      // Applied as a scaled delta around the target's rest position. Forward
+      // motion is stripped (root motion is gameplay-driven); lateral sway and
+      // vertical bob are preserved.
+      const pelvisIdx = this.boneNameToIndex.get("pelvis");
+      if (hipsPosChannel && pelvisIdx !== undefined) {
+        const times = hipsPosChannel.keyframeTimes;
+        const v = hipsPosChannel.keyframeValues;
+        const rest = this.restPos[pelvisIdx];
+        const srcY0 = v[1];
+        const scale = Math.abs(srcY0) > 1e-3 ? Math.abs(rest[2]) / Math.abs(srcY0) : 0.01;
+        const values = new Float32Array(times.length * 3);
+        for (let k = 0; k < times.length; k++) {
+          const dx = (v[k * 3] - v[0]) * scale;
+          const dy = (v[k * 3 + 1] - v[1]) * scale;
+          values[k * 3] = rest[0] + dx;
+          values[k * 3 + 1] = rest[1];
+          values[k * 3 + 2] = rest[2] + dy;
+        }
+        tracks.push({
+          boneName: this.boneNames[pelvisIdx],
+          boneIndex: pelvisIdx,
+          path: "position" as TrackPath,
+          times,
+          values,
+          interpolation: toInterp(hipsPosChannel.interpolation),
+        });
+      }
+
+      // ── Non-Mixamo channels: applied directly as local-space tracks ──
+      for (let c = 0; c < directChannels.length; c++) {
+        const ch = directChannels[c];
+        const boneIdx = this.boneNameToIndex.get(ch.targetNode);
+        if (boneIdx === undefined) continue;
+        const path: TrackPath = ch.path === "translation" ? "position" : ch.path === "rotation" ? "rotation" : "scale";
+        const interp = toInterp(ch.interpolation);
+        const times = ch.keyframeTimes;
+        const srcValues = ch.keyframeValues;
+        if (path === "rotation") {
+          const values = new Float32Array(srcValues.length);
+          const srcPreRot = preRotMap?.get(ch.targetNode);
+          for (let k = 0; k < times.length; k++) {
+            const v0 = k * 4;
+            const q = new Float32Array([srcValues[v0], srcValues[v0 + 1], srcValues[v0 + 2], srcValues[v0 + 3]]);
+            if (srcPreRot) {
+              const result = new Float32Array(4);
+              quatMul(new Float32Array(srcPreRot), q, result);
+              values[v0] = result[0]; values[v0 + 1] = result[1]; values[v0 + 2] = result[2]; values[v0 + 3] = result[3];
+            } else {
+              values[v0] = q[0]; values[v0 + 1] = q[1]; values[v0 + 2] = q[2]; values[v0 + 3] = q[3];
+            }
+          }
+          tracks.push({ boneName: ch.targetNode, boneIndex: boneIdx, path, times, values, interpolation: interp });
+        } else {
+          tracks.push({ boneName: ch.targetNode, boneIndex: boneIdx, path, times, values: srcValues, interpolation: interp });
+        }
+      }
+    } else {
+      // Mixamo skeleton: simple pre-rotation application
+      for (let c = 0; c < anim.channels.length; c++) {
+        const ch = anim.channels[c];
+        const nodeName = ch.targetNode;
+        const boneIdx = this.boneNameToIndex.get(nodeName);
+        if (boneIdx === undefined) continue;
+        const path: TrackPath = ch.path === "translation" ? "position" : ch.path === "rotation" ? "rotation" : "scale";
+        const interp: "linear" | "step" | "cubicspline" = ch.interpolation === "LINEAR" ? "linear" : ch.interpolation === "STEP" ? "step" : "cubicspline";
+        const times = ch.keyframeTimes;
+        const srcValues = ch.keyframeValues;
+
+        if (path === "rotation") {
+          const values = new Float32Array(srcValues.length);
+          const srcPreRot = preRotMap?.get(nodeName);
+          for (let k = 0; k < times.length; k++) {
+            const v0 = k * 4;
+            const q = new Float32Array([srcValues[v0], srcValues[v0+1], srcValues[v0+2], srcValues[v0+3]]);
+            if (srcPreRot) {
+              const result = new Float32Array(4);
+              quatMul(new Float32Array(srcPreRot), q, result);
+              values[v0] = result[0]; values[v0+1] = result[1]; values[v0+2] = result[2]; values[v0+3] = result[3];
+            } else {
+              values[v0] = q[0]; values[v0+1] = q[1]; values[v0+2] = q[2]; values[v0+3] = q[3];
+            }
+          }
+          tracks.push({ boneName: nodeName, boneIndex: boneIdx, path, times, values, interpolation: interp });
+        } else {
+          tracks.push({ boneName: nodeName, boneIndex: boneIdx, path, times, values: srcValues, interpolation: interp });
+        }
       }
     }
 
@@ -404,7 +900,7 @@ export class SkeletonAnimator {
     "mixamorig:Spine1": "spine_02",
     "mixamorig:Spine2": "spine_03",
     "mixamorig:Neck": "neck_01",
-    "mixamorig:Head": "Head",
+    "mixamorig:Head": "head",
     "mixamorig:LeftShoulder": "clavicle_l",
     "mixamorig:LeftArm": "upperarm_l",
     "mixamorig:LeftForeArm": "lowerarm_l",
@@ -453,35 +949,97 @@ export class SkeletonAnimator {
     "mixamorig:RightHandPinky3": "pinky_03_r",
   };
 
+  /** Parent of each bone in the standard Mixamo rig. Used to evaluate source
+   *  world rotations when retargeting mixamorig:* clips onto non-Mixamo
+   *  skeletons — the source hierarchy is independent of the target's. */
+  private static MIXAMO_PARENT: Record<string, string | null> = {
+    "mixamorig:Hips": null,
+    "mixamorig:Spine": "mixamorig:Hips",
+    "mixamorig:Spine1": "mixamorig:Spine",
+    "mixamorig:Spine2": "mixamorig:Spine1",
+    "mixamorig:Neck": "mixamorig:Spine2",
+    "mixamorig:Head": "mixamorig:Neck",
+    "mixamorig:HeadTop_End": "mixamorig:Head",
+    "mixamorig:LeftShoulder": "mixamorig:Spine2",
+    "mixamorig:LeftArm": "mixamorig:LeftShoulder",
+    "mixamorig:LeftForeArm": "mixamorig:LeftArm",
+    "mixamorig:LeftHand": "mixamorig:LeftForeArm",
+    "mixamorig:RightShoulder": "mixamorig:Spine2",
+    "mixamorig:RightArm": "mixamorig:RightShoulder",
+    "mixamorig:RightForeArm": "mixamorig:RightArm",
+    "mixamorig:RightHand": "mixamorig:RightForeArm",
+    "mixamorig:LeftUpLeg": "mixamorig:Hips",
+    "mixamorig:LeftLeg": "mixamorig:LeftUpLeg",
+    "mixamorig:LeftFoot": "mixamorig:LeftLeg",
+    "mixamorig:LeftToeBase": "mixamorig:LeftFoot",
+    "mixamorig:LeftToe_End": "mixamorig:LeftToeBase",
+    "mixamorig:RightUpLeg": "mixamorig:Hips",
+    "mixamorig:RightLeg": "mixamorig:RightUpLeg",
+    "mixamorig:RightFoot": "mixamorig:RightLeg",
+    "mixamorig:RightToeBase": "mixamorig:RightFoot",
+    "mixamorig:RightToe_End": "mixamorig:RightToeBase",
+    "mixamorig:LeftHandThumb1": "mixamorig:LeftHand",
+    "mixamorig:LeftHandThumb2": "mixamorig:LeftHandThumb1",
+    "mixamorig:LeftHandThumb3": "mixamorig:LeftHandThumb2",
+    "mixamorig:LeftHandThumb4": "mixamorig:LeftHandThumb3",
+    "mixamorig:LeftHandIndex1": "mixamorig:LeftHand",
+    "mixamorig:LeftHandIndex2": "mixamorig:LeftHandIndex1",
+    "mixamorig:LeftHandIndex3": "mixamorig:LeftHandIndex2",
+    "mixamorig:LeftHandIndex4": "mixamorig:LeftHandIndex3",
+    "mixamorig:LeftHandMiddle1": "mixamorig:LeftHand",
+    "mixamorig:LeftHandMiddle2": "mixamorig:LeftHandMiddle1",
+    "mixamorig:LeftHandMiddle3": "mixamorig:LeftHandMiddle2",
+    "mixamorig:LeftHandMiddle4": "mixamorig:LeftHandMiddle3",
+    "mixamorig:LeftHandRing1": "mixamorig:LeftHand",
+    "mixamorig:LeftHandRing2": "mixamorig:LeftHandRing1",
+    "mixamorig:LeftHandRing3": "mixamorig:LeftHandRing2",
+    "mixamorig:LeftHandRing4": "mixamorig:LeftHandRing3",
+    "mixamorig:LeftHandPinky1": "mixamorig:LeftHand",
+    "mixamorig:LeftHandPinky2": "mixamorig:LeftHandPinky1",
+    "mixamorig:LeftHandPinky3": "mixamorig:LeftHandPinky2",
+    "mixamorig:LeftHandPinky4": "mixamorig:LeftHandPinky3",
+    "mixamorig:RightHandThumb1": "mixamorig:RightHand",
+    "mixamorig:RightHandThumb2": "mixamorig:RightHandThumb1",
+    "mixamorig:RightHandThumb3": "mixamorig:RightHandThumb2",
+    "mixamorig:RightHandThumb4": "mixamorig:RightHandThumb3",
+    "mixamorig:RightHandIndex1": "mixamorig:RightHand",
+    "mixamorig:RightHandIndex2": "mixamorig:RightHandIndex1",
+    "mixamorig:RightHandIndex3": "mixamorig:RightHandIndex2",
+    "mixamorig:RightHandIndex4": "mixamorig:RightHandIndex3",
+    "mixamorig:RightHandMiddle1": "mixamorig:RightHand",
+    "mixamorig:RightHandMiddle2": "mixamorig:RightHandMiddle1",
+    "mixamorig:RightHandMiddle3": "mixamorig:RightHandMiddle2",
+    "mixamorig:RightHandMiddle4": "mixamorig:RightHandMiddle3",
+    "mixamorig:RightHandRing1": "mixamorig:RightHand",
+    "mixamorig:RightHandRing2": "mixamorig:RightHandRing1",
+    "mixamorig:RightHandRing3": "mixamorig:RightHandRing2",
+    "mixamorig:RightHandRing4": "mixamorig:RightHandRing3",
+    "mixamorig:RightHandPinky1": "mixamorig:RightHand",
+    "mixamorig:RightHandPinky2": "mixamorig:RightHandPinky1",
+    "mixamorig:RightHandPinky3": "mixamorig:RightHandPinky2",
+    "mixamorig:RightHandPinky4": "mixamorig:RightHandPinky3",
+  };
+
   registerRetargetedAnimations(animations: AnimationData[], stateName: string): void {
     // Extract and store source rest/pre-rotations for pre-baking
-    const map = SkeletonAnimator.MIXAMO_TO_UE;
     const sourceRests = animations[0]?.sourceRestRotations;
     const sourcePreRots = animations[0]?.sourcePreRotations;
+    const sourceTrans = animations[0]?.sourceRestTranslations;
 
     const restRotMap = new Map<string, [number, number, number, number]>();
     const preRotMap = new Map<string, [number, number, number, number]>();
 
+    // Keys are SOURCE node names — for Mixamo sources the full map is kept
+    // (including bones with no target counterpart, since they still
+    // participate in the source world-rotation chain).
     if (sourcePreRots) {
       for (const [boneName, quat] of sourcePreRots) {
-        const name = boneName;
-        const targetName = this.isMixamoSkeleton
-          ? name
-          : (name.startsWith("mixamorig:") ? (map[name] ?? name) : name);
-        if (this.boneNameToIndex.has(targetName)) {
-          preRotMap.set(targetName, quat);
-        }
+        preRotMap.set(boneName, quat);
       }
     }
     if (sourceRests) {
       for (const [boneName, quat] of sourceRests) {
-        const name = boneName;
-        const targetName = this.isMixamoSkeleton
-          ? name
-          : (name.startsWith("mixamorig:") ? (map[name] ?? name) : name);
-        if (this.boneNameToIndex.has(targetName)) {
-          restRotMap.set(targetName, quat);
-        }
+        restRotMap.set(boneName, quat);
       }
     }
     if (restRotMap.size > 0) {
@@ -489,6 +1047,9 @@ export class SkeletonAnimator {
     }
     if (preRotMap.size > 0) {
       this.sourcePreRotations.set(stateName, preRotMap);
+    }
+    if (sourceTrans && sourceTrans.size > 0) {
+      this.sourceRestTranslations.set(stateName, new Map(sourceTrans));
     }
 
     // Merge all animation channels into one AnimationData, then pre-bake to AnimationClip
@@ -500,11 +1061,15 @@ export class SkeletonAnimator {
       for (let c = 0; c < anim.channels.length; c++) {
         const ch = anim.channels[c];
         const nodeName = ch.targetNode;
-        const targetName = this.isMixamoSkeleton
-          ? nodeName
-          : (nodeName.startsWith("mixamorig:") ? (map[nodeName] ?? nodeName) : nodeName);
-        if (this.boneNameToIndex.has(targetName)) {
-          allChannels.push({ ...ch, targetNode: targetName });
+        if (this.isMixamoSkeleton) {
+          if (this.boneNameToIndex.has(nodeName)) allChannels.push(ch);
+          continue;
+        }
+        // Non-Mixamo skeleton: keep mixamorig:* channels under their SOURCE
+        // names (resolved by world-space retargeting, including unmapped bones
+        // needed for the source chain); keep same-name channels that hit a bone.
+        if (nodeName.startsWith("mixamorig:") || this.boneNameToIndex.has(nodeName)) {
+          allChannels.push(ch);
         }
       }
     }
@@ -520,7 +1085,7 @@ export class SkeletonAnimator {
     const clip = this.animationDataToClip(mergedAnim, stateName);
     if (clip) {
       this.clips.set(stateName, clip);
-      console.log(`[Anim] Registered: ${stateName} (${allChannels.length} channels, ${this.isMixamoSkeleton ? "direct Mixamo" : "retargeted"})`);
+      console.log(`[Anim] Registered: ${stateName} (${allChannels.length} channels, ${this.isMixamoSkeleton ? "direct Mixamo" : "retargeted-v2"})`);
     }
   }
 

@@ -17,7 +17,10 @@ import { PixiUiHost } from "@downdraft/library-pixi-ui";
 // implementation that bypasses Chrome's ESC-exits-pointer-lock behavior and
 // re-lock cooldown. No-op in browser/web mode (falls back to real API).
 import "@downdraft/module-raw-input/polyfill";
+import { DEFAULT_PLAYER_MODEL, SIM_TICK_DT } from "@sandbox/shared/constants";
 import { EntityType, FunMode, PhysgunMode, PoseState, ToolgunContext, ToolType } from "@sandbox/shared/types";
+import { CharacterPreview } from "./engine/character-preview";
+import { PLAYER_MODELS } from "./engine/player-models";
 import { SimWebWorker, type SimWebWorkerConfig } from "./engine/sim-web-worker";
 import { WebGPURenderer } from "./engine/webgpu-renderer";
 import { SANDBOX_STATS_LAYOUT, type SandboxAction } from "./pixi/bridge-protocol";
@@ -102,6 +105,10 @@ const playerState = {
   pos: [0, PLAYER_HEIGHT, 0] as [number, number, number],
   grounded: false,
   pose: PoseState.Standing,
+  /** Horizontal speed (units/sec), derived from player_moved position deltas. */
+  velocity: 0,
+  /** Previous position for velocity computation. */
+  prevPos: [0, PLAYER_HEIGHT, 0] as [number, number, number],
 };
 
 // Per-pose renderer config: eye height above feet + movement-speed multiplier.
@@ -199,6 +206,10 @@ startGame({
     ready: (_data, _ctx) => {
       console.log("[Renderer] Sim Web Worker ready");
       useGameStore.getState().setSimReady(true);
+      // Load the default player model (or the one restored from save, once
+      // player_model_changed fires). The renderer uploads it to the
+      // ModelRenderer under the fixed nodeId "player".
+      (_ctx.renderer as WebGPURenderer).loadPlayerModel(DEFAULT_PLAYER_MODEL);
     },
     error: (data) => {
       console.error(`[Renderer] Sim error: ${data?.message ?? JSON.stringify(data)}`);
@@ -273,6 +284,17 @@ startGame({
     },
     paint_updated: (_data) => { /* Phase 5 */ },
     player_moved: (data) => {
+      // Compute horizontal velocity from the position delta (for the player
+      // avatar's Walk/Run animation state machine).
+      const dx = data.position[0] - playerState.prevPos[0];
+      const dz = data.position[2] - playerState.prevPos[2];
+      // player_moved fires per sim tick (SIM_TICK_DT ≈ 16.67ms = 1/60s).
+      // Guard against division by zero on the first tick.
+      const tickDt = SIM_TICK_DT;
+      playerState.velocity = tickDt > 0 ? Math.sqrt(dx * dx + dz * dz) / tickDt : 0;
+      playerState.prevPos[0] = data.position[0];
+      playerState.prevPos[1] = data.position[1];
+      playerState.prevPos[2] = data.position[2];
       playerState.pos[0] = data.position[0];
       playerState.pos[1] = data.position[1];
       playerState.pos[2] = data.position[2];
@@ -287,6 +309,12 @@ startGame({
       // Mirror authoritative health state to the store for the HUD.
       useGameStore.getState().setPlayerHealth(data.health, data.maxHealth);
       useGameStore.getState().setPlayerDead(data.dead);
+      // Sync the death overlay to the authoritative dead flag. The
+      // player_died event shows the overlay during live play, but a save
+      // restore (autosave on startup / F9 / ESC-menu load) only emits
+      // player_moved with dead=true — without this sync the player would
+      // load into a 0hp dead state with no respawn prompt visible.
+      if (data.dead) showDeathOverlay(); else hideDeathOverlay();
     },
     player_damaged: (data) => {
       // Trigger the red vignette flash (intensity scales with the hit) and
@@ -302,6 +330,11 @@ startGame({
       useGameStore.getState().setPlayerHealth(data.health, data.maxHealth);
       useGameStore.getState().setPlayerDead(false);
       hideDeathOverlay();
+    },
+    player_model_changed: (data, ctx) => {
+      // The sim is authoritative for the player's model choice. Load (or swap)
+      // the model in the renderer. Idempotent — no-op if already loaded.
+      (ctx.renderer as WebGPURenderer).loadPlayerModel(data.modelId);
     },
   },
 
@@ -885,6 +918,24 @@ startGame({
           console.log(`[Camera] Mode: ${CAMERA_MODE_NAMES[next]}`);
           break;
         }
+        case "Minus": {
+          // Zoom out in third-person.
+          if (cameraMode === CameraMode.ThirdPerson) {
+            e.preventDefault();
+            thirdPersonDistance = Math.min(THIRD_PERSON_MAX_DIST, thirdPersonDistance + 1.5);
+            applyCamera(renderer as WebGPURenderer, yaw, pitch);
+          }
+          break;
+        }
+        case "Equal": {
+          // Zoom in in third-person.
+          if (cameraMode === CameraMode.ThirdPerson) {
+            e.preventDefault();
+            thirdPersonDistance = Math.max(THIRD_PERSON_MIN_DIST, thirdPersonDistance - 1.5);
+            applyCamera(renderer as WebGPURenderer, yaw, pitch);
+          }
+          break;
+        }
         case "KeyR": weaponController.getToolgun().setContext(ToolgunContext.Remove); console.log("[Toolgun] Context: Remove"); break;
         case "KeyT": weaponController.getToolgun().setContext(ToolgunContext.Spawn); console.log("[Toolgun] Context: Spawn"); break;
         case "KeyG": weaponController.getToolgun().setContext(ToolgunContext.SetFunMode); console.log("[Toolgun] Context: SetFunMode"); break;
@@ -941,6 +992,19 @@ startGame({
       // F1 hitbox overlay can draw an accurate player collider.
       const pc = POSE_COLLIDER[playerState.pose];
       r.setPlayerHitbox(playerState.pos[0], playerState.pos[1], playerState.pos[2], pc.height, pc.radius);
+      // Update the player avatar's per-frame state. The model is visible in
+      // first and third person (hidden in FreeCam). In first-person, the
+      // renderer uses a modified near plane to avoid clipping artifacts.
+      // Use KeyC to cycle camera modes.
+      r.setPlayerVisible(cameraMode !== CameraMode.FreeCam);
+      r.setPlayerTransform(
+        playerState.pos,
+        yaw,
+        playerState.grounded,
+        playerState.velocity,
+        playerState.pose,
+        cameraMode === CameraMode.FirstPerson,
+      );
       // Forward the physgun's hover target to the renderer so the looked-at
       // prop gets the outline shader. Only relevant when the physgun is active.
       r.setHoverEntity(
@@ -1318,12 +1382,29 @@ function buildDomHud(
   escTitle.textContent = "Andrew's Sandbox";
   escSidebar.appendChild(escTitle);
 
-  type EscTab = "main" | "graphics" | "content" | "controls" | "mods";
+  // Character preview renderer (lazily created when the Character tab opens).
+  let characterPreview: CharacterPreview | null = null;
+
+  /** Select a player model: swap the in-game avatar + persist via the sim. */
+  function selectPlayerModel(modelId: string): void {
+    (ctx.renderer as WebGPURenderer).loadPlayerModel(modelId);
+    sim.sendCommand({ type: "setPlayerModel", modelId });
+    // Update the active highlight in the model list.
+    const items = escContent.querySelectorAll(".sandbox-character-item");
+    items.forEach((el) => {
+      el.classList.toggle("active", (el as HTMLElement).textContent === PLAYER_MODELS.find((m) => m.id === modelId)?.name);
+    });
+    // Update the preview.
+    characterPreview?.setModel(modelId);
+  }
+
+  type EscTab = "main" | "graphics" | "content" | "controls" | "mods" | "character";
   const escTabs: Array<{ id: EscTab; label: string }> = [
     { id: "main", label: "Menu" },
     { id: "graphics", label: "Graphics" },
     { id: "mods", label: "Mods" },
     { id: "content", label: "Content" },
+    { id: "character", label: "Character" },
     { id: "controls", label: "Controls" },
   ];
   const escTabBtns: HTMLButtonElement[] = [];
@@ -1483,7 +1564,7 @@ function buildDomHud(
         ["Shift", "Hold to crouch / Fly down (Freecam)"],
         ["Ctrl", "Hold to prone"],
         ["C", "Cycle camera (First Person → Third Person → Freecam)"],
-        ["Scroll", "Physgun: grab distance / rotation axis (while rotating) · Third Person: camera distance"],
+        ["Scroll / - / =", "Third Person: zoom camera distance"],
         ["1-4", "Switch tools (Physgun, Toolgun, Pistol, Paintgun)"],
         ["B", "Toggle content browser"],
         ["P", "Toggle paint palette"],
@@ -1515,6 +1596,61 @@ function buildDomHud(
         escContent.appendChild(row);
       }
     }
+
+    // ── Character tab: model selection + live preview ──
+    else if (tab === "character") {
+      const wrapper = document.createElement("div");
+      wrapper.className = "sandbox-esc-character";
+
+      // Live preview canvas
+      const previewWrap = document.createElement("div");
+      previewWrap.className = "sandbox-character-preview-wrap";
+      const previewCanvas = document.createElement("canvas");
+      previewCanvas.className = "sandbox-character-preview";
+      previewCanvas.width = 256;
+      previewCanvas.height = 256;
+      previewWrap.appendChild(previewCanvas);
+      wrapper.appendChild(previewWrap);
+
+      // Model selection list
+      const listWrap = document.createElement("div");
+      listWrap.className = "sandbox-character-list";
+      const listTitle = document.createElement("div");
+      listTitle.className = "sandbox-character-list-title";
+      listTitle.textContent = "Choose your character";
+      listWrap.appendChild(listTitle);
+
+      const currentModelId = (ctx.renderer as WebGPURenderer).getPlayerModelId() ?? DEFAULT_PLAYER_MODEL;
+      for (const def of PLAYER_MODELS) {
+        const row = document.createElement("div");
+        row.className = "sandbox-character-item";
+        row.textContent = def.name;
+        if (def.id === currentModelId) row.classList.add("active");
+        row.onclick = () => selectPlayerModel(def.id);
+        listWrap.appendChild(row);
+      }
+      wrapper.appendChild(listWrap);
+
+      escContent.appendChild(wrapper);
+
+      // Start the preview once the canvas is attached to the DOM.
+      if (!characterPreview) {
+        characterPreview = new CharacterPreview(previewCanvas);
+        characterPreview.init().then(() => {
+          characterPreview!.setModel(currentModelId);
+          characterPreview!.start();
+        }).catch((err) => console.error("[Character] Preview init failed:", err));
+      } else {
+        // Canvas changed (panel re-rendered) — re-init on the new canvas.
+        characterPreview.dispose();
+        characterPreview = new CharacterPreview(previewCanvas);
+        characterPreview.init().then(() => {
+          characterPreview!.setModel(currentModelId);
+          characterPreview!.start();
+        }).catch((err) => console.error("[Character] Preview re-init failed:", err));
+      }
+    }
+
     // Refresh keyboard-selection highlight after the panel re-renders.
     updateEscSelection();
   }
@@ -1897,6 +2033,10 @@ function buildDomHud(
   function closeEscMenu() {
     useGameStore.getState().setShowEscMenu(false);
     sim.resume();
+    // Dispose the character preview when the menu closes (frees the second
+    // GPU device + its ModelRenderer so we don't hit context limits).
+    characterPreview?.dispose();
+    characterPreview = null;
     // Notify the pointerlockchange handler that we just closed the menu,
     // so it doesn't auto-reopen from a stale ESC.
     (ctx as any)._markMenuClosed?.();
@@ -1915,6 +2055,7 @@ function buildDomHud(
     const selector = tab === "main" ? ".sandbox-esc-item"
       : tab === "graphics" ? ".sandbox-esc-gfx-row"
       : tab === "content" ? ".sandbox-esc-content-item"
+      : tab === "character" ? ".sandbox-character-item"
       : null;
     if (!selector) return [];
     return Array.from(escContent.querySelectorAll<HTMLElement>(selector));

@@ -27,6 +27,9 @@ import { computeConvexHullFaces, computeConvexHullPoints } from "./hull";
 import { SandboxLighting, type PointLight } from "./lighting";
 import { MipmapHelper } from "./mipmap-helper";
 import { SceneRenderPass, type SceneDrawFn, type ScenePassState } from "./passes/scene-pass";
+import { PlayerAnimator } from "./player-animator";
+import { loadPlayerModel } from "./player-model-loader";
+import { getPlayerModelDef } from "./player-models";
 import { SandboxShadows } from "./shadows";
 
 // Skybox gradient shader — uses inverse view-projection to reconstruct the
@@ -944,6 +947,7 @@ export class WebGPURenderer extends GameRenderer {
   private camFov = 60;
   private camNear = 0.1;
   private camFar = 2000;
+  private lastCameraAspect = 1;
 
   // Model loading: contentId → ModelData (cached)
   private modelCache = new Map<string, ModelData>();
@@ -953,6 +957,28 @@ export class WebGPURenderer extends GameRenderer {
   // nodeId → contentId mapping
   private nodeToContent = new Map<string, string>();
   private nextNodeId = 1;
+
+  // ── Player model (rigged avatar) ──
+  private playerNodeId: string | null = null;
+  private playerAnimator: PlayerAnimator | null = null;
+  private playerModelId: string | null = null;
+  private playerVisible = false;
+  private playerScale = 1.0;
+  // Y offset to align the model's feet with the player position. The FBX
+  // model's origin may not be at the feet — this compensates for the model's
+  // bounds.min[1] so the model renders with its feet at pos[1].
+  private playerYOffset = 0;
+  // Yaw offset (radians) so the model faces forward (-Z) from its bind orientation.
+  private playerYawOffset = 0;
+  private playerTransform = {
+    pos: [0, 0, 0] as [number, number, number],
+    yaw: 0,
+    grounded: true,
+    velocity: 0,
+    pose: 0, // PoseState.Standing
+    firstPerson: false,
+  };
+  private lastFrameTime = performance.now();
 
   // Depth texture (used when postfx is disabled — fallback direct-to-canvas path)
   private depthTexture: GPUTexture | null = null;
@@ -1108,6 +1134,7 @@ export class WebGPURenderer extends GameRenderer {
       this.createCubePipeline(device, hdrFormat);
       this.createSpherePipeline(device, hdrFormat);
       this.createHitboxPipeline(device, hdrFormat);
+      this.createSkeletonPipeline(device, hdrFormat);
       this.createDepthOnlyPipelines(device);
 
       // Create per-pipeline shadow bind groups (group 3 for procedural pipelines).
@@ -1622,6 +1649,61 @@ fn fs(in: VOut) -> @location(0) vec4f {
     });
   }
 
+  /** Player skeleton wireframe pipeline (line-list, world-space positions, F1 debug). */
+  private createSkeletonPipeline(device: GPUDevice, format: GPUTextureFormat): void {
+    const SKELETON_SHADER = /* wgsl */ `
+struct Uniforms { viewProj: mat4x4f, color: vec4f };
+@group(0) @binding(0) var<uniform> u: Uniforms;
+struct VOut { @builtin(position) pos: vec4f };
+@vertex
+fn vs(@location(0) pos: vec3f) -> VOut {
+  var out: VOut;
+  out.pos = u.viewProj * vec4f(pos, 1.0);
+  return out;
+}
+@fragment
+fn fs(in: VOut) -> @location(0) vec4f {
+  return u.color;
+}`;
+    // Uniform buffer: viewProj (64 bytes) + color (16 bytes) = 80 bytes.
+    this.skeletonUniformBuffer = device.createBuffer({
+      label: "skeleton-uniforms",
+      size: 80,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    // Vertex buffer for line endpoints: 2 verts per line, 3 floats per vert.
+    // Max lines = SKELETON_MAX_LINES, so max verts = SKELETON_MAX_LINES * 2.
+    this.skeletonVB = device.createBuffer({
+      label: "skeleton-vb",
+      size: WebGPURenderer.SKELETON_MAX_LINES * 2 * 12, // 2 verts * 3 floats * 4 bytes
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+    });
+    const shader = device.createShaderModule({ label: "skeleton", code: SKELETON_SHADER });
+    this.skeletonPipeline = device.createRenderPipeline({
+      label: "skeleton",
+      layout: "auto",
+      vertex: {
+        module: shader, entryPoint: "vs",
+        buffers: [{
+          arrayStride: 12,
+          attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }],
+        }],
+      },
+      fragment: { module: shader, entryPoint: "fs", targets: [{ format }] },
+      primitive: { topology: "line-list" },
+      depthStencil: {
+        format: DEPTH_FORMAT as GPUTextureFormat,
+        depthWriteEnabled: false,
+        depthCompare: "always",
+      },
+    });
+    this.skeletonBindGroup = device.createBindGroup({
+      label: "skeleton-bg0",
+      layout: this.skeletonPipeline.getBindGroupLayout(0),
+      entries: [{ binding: 0, resource: { buffer: this.skeletonUniformBuffer } }],
+    });
+  }
+
   private createDepthOnlyPipelines(device: GPUDevice): void {
     // Instanced depth-only shader: vertex transforms by lightVP * instances[ii].model.
     // Shares the same 96-byte Instance layout as the scene shader so both passes
@@ -1738,7 +1820,11 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
     const modelBaseUrl = modelUri.substring(0, modelUri.lastIndexOf("/") + 1);
     if (this.modelCache.has(contentId)) {
       const model = this.modelCache.get(contentId)!;
-      this.modelRenderer!.uploadModel(nodeId, model.meshes, model.materials, modelBaseUrl);
+      const uploaded = this.modelRenderer!.uploadModel(nodeId, model.meshes, model.materials, modelBaseUrl);
+      // If 0 meshes were uploaded (uniform buffer full), return "" so the
+      // prop_spawned handler leaves ENT.ID=0 and the prop falls back to
+      // builtin cube/sphere rendering instead of being invisible.
+      if (uploaded === 0) return "";
       this.nodeToContent.set(nodeId, contentId);
       return nodeId;
     }
@@ -1748,12 +1834,175 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
       const filename = modelUri.split("/").pop() ?? "model.glb";
       const model = await loadModel(buffer, filename) as ModelData;
       this.modelCache.set(contentId, model);
-      this.modelRenderer!.uploadModel(nodeId, model.meshes, model.materials, modelBaseUrl);
+      const uploaded = this.modelRenderer!.uploadModel(nodeId, model.meshes, model.materials, modelBaseUrl);
+      if (uploaded === 0) return "";
       this.nodeToContent.set(nodeId, contentId);
       return nodeId;
     } catch (err) {
       console.error(`[WebGPURenderer] Failed to load model ${modelUri}:`, err);
       return "";
+    }
+  }
+
+  // ── Player model (rigged avatar) ──────────────────────────────────────
+
+  /**
+   * Load (or swap) the player's rigged model. Idempotent — if the requested
+   * model is already loaded, this is a no-op. The model is uploaded to the
+   * ModelRenderer under the fixed nodeId "player".
+   */
+  async loadPlayerModel(modelId: string): Promise<void> {
+    if (this.playerModelId === modelId && this.playerNodeId !== null) return;
+
+    const def = getPlayerModelDef(modelId);
+    if (!def) {
+      console.warn(`[WebGPURenderer] Unknown player model: ${modelId}`);
+      return;
+    }
+
+    if (!this.modelRenderer) {
+      console.warn("[WebGPURenderer] ModelRenderer not ready — deferring player model load");
+      return;
+    }
+
+    try {
+      const modelData = await loadPlayerModel(def);
+
+      // Remove the old player model upload (if any) before re-uploading.
+      if (this.playerNodeId) {
+        this.modelRenderer.removeModel(this.playerNodeId);
+      }
+      this.playerNodeId = "player";
+      this.modelRenderer.uploadModel(
+        this.playerNodeId,
+        modelData.meshes,
+        modelData.materials,
+        def.meshBaseUrl,
+      );
+
+      // Build the animator (state machine + procedural clips + skin matrices).
+      this.playerAnimator?.dispose();
+      this.playerAnimator = new PlayerAnimator(modelData);
+      // TEMP DEBUG: expose live animator for headless inspection.
+      (window as any).__pa = this.playerAnimator;
+      (window as any).__renderer = this;
+
+      // Compute scale to fit the model to the player capsule height (1.8m).
+      const bounds = modelData.bounds;
+      if (bounds) {
+        const height = bounds.max[1] - bounds.min[1];
+        this.playerScale = height > 0 ? 1.8 / height : 1.0;
+        // Offset so the model's feet (bounds.min[1]) are at the player position.
+        this.playerYOffset = -bounds.min[1] * this.playerScale;
+      } else {
+        this.playerScale = 1.0;
+        this.playerYOffset = 0;
+      }
+
+      // The FBX models face +Y up (engine Y-up). Most character models face
+      // -Z in their bind pose, which aligns with the engine's forward (-Z).
+      // If the model faces +Z, this would be Math.PI. Default: 0 (no offset).
+      this.playerYawOffset = 0;
+
+      this.playerModelId = modelId;
+      console.log(`[WebGPURenderer] Player model loaded: ${modelId} (scale=${this.playerScale.toFixed(3)}, yOffset=${this.playerYOffset.toFixed(3)}, bones=${this.playerAnimator.boneCount}, bounds=${bounds ? `[${bounds.min[1].toFixed(2)},${bounds.max[1].toFixed(2)}]` : "none"})`);
+    } catch (err) {
+      console.error(`[WebGPURenderer] Failed to load player model ${modelId}:`, err);
+    }
+  }
+
+  /** Get the currently-loaded player model id (or null if none). */
+  getPlayerModelId(): string | null { return this.playerModelId; }
+
+  /**
+   * Update the player's per-frame transform + physics state. Called every
+   * frame from the main move loop.
+   */
+  setPlayerTransform(
+    pos: [number, number, number],
+    yaw: number,
+    grounded: boolean,
+    velocity: number,
+    pose: number,
+    firstPerson: boolean,
+  ): void {
+    this.playerTransform.pos = pos;
+    this.playerTransform.yaw = yaw;
+    this.playerTransform.grounded = grounded;
+    this.playerTransform.velocity = velocity;
+    this.playerTransform.pose = pose;
+    this.playerTransform.firstPerson = firstPerson;
+  }
+
+  /** Toggle player model visibility (hidden in FreeCam). */
+  setPlayerVisible(v: boolean): void { this.playerVisible = v; }
+
+  /** Render the rigged player model. Called from drawScene after renderProps. */
+  private renderPlayer(pass: GPURenderPassEncoder): void {
+    if (!this.playerNodeId || !this.playerAnimator || !this.modelRenderer || !this.playerVisible) return;
+    // Guard against the model not being uploaded yet (async load) or having
+    // no meshes (empty resources array passes the !resources check in render).
+    if (!this.modelRenderer.hasModel(this.playerNodeId)) return;
+
+    const now = performance.now();
+    const dt = Math.min(0.1, (now - this.lastFrameTime) / 1000);
+    this.lastFrameTime = now;
+
+    const t = this.playerTransform;
+    const skinMats = this.playerAnimator.update(
+      dt,
+      t.grounded,
+      t.velocity,
+      t.pose,
+      t.firstPerson,
+    );
+    this.modelRenderer.updateSkinMatrices(skinMats);
+
+    // In first-person, the camera is inside the model (eye at 1.62m, model
+    // 0–1.8m). The near plane (0.1m) clips the torso mesh, producing
+    // near-plane clipping artifacts (solid black squares). To fix this, we
+    // re-call beginFrame() with a larger near plane (0.5m) so geometry closer
+    // than 0.5m to the camera (the torso) is clipped away, but the legs
+    // (0.5–1.6m below) render fine. After rendering, we restore the original
+    // camera so subsequent passes (hitbox debug, etc.) use the normal near.
+    if (t.firstPerson) {
+      this.modelRenderer.beginFrame({
+        position: this.camPos,
+        target: this.camTarget,
+        up: this.camUp,
+        fov: this.camFov,
+        aspect: this.lastCameraAspect,
+        near: 0.5,
+        far: this.camFar,
+      });
+    }
+
+    // Build the rotation quaternion from yaw (+ optional yaw offset).
+    const yaw = t.yaw + this.playerYawOffset;
+    const halfYaw = yaw * 0.5;
+    const rot: [number, number, number, number] = [0, Math.sin(halfYaw), 0, Math.cos(halfYaw)];
+
+    this.modelRenderer.render(
+      pass,
+      this.playerNodeId,
+      [t.pos[0], t.pos[1] + this.playerYOffset, t.pos[2]],
+      rot,
+      [this.playerScale, this.playerScale, this.playerScale],
+      0,
+      0,
+    );
+
+    // Restore the original camera state for subsequent render passes.
+    if (t.firstPerson) {
+      this.modelRenderer.beginFrame({
+        position: this.camPos,
+        target: this.camTarget,
+        up: this.camUp,
+        fov: this.camFov,
+        aspect: this.lastCameraAspect,
+        near: this.camNear,
+        far: this.camFar,
+      });
     }
   }
 
@@ -1897,6 +2146,15 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
   // Hull wireframe cache: contentId → { vertex buffer, line count } for the
   // F1 debug overlay. Built from the hull point cloud + computed faces.
   private hullWireCache = new Map<string, { vb: GPUBuffer; vertCount: number } | null>();
+  // ── Player skeleton debug overlay (F1, third-person) ──
+  // Renders the player's bone hierarchy as cyan lines so we can see the
+  // actual animated skeleton pose and diagnose retargeting/skinning issues.
+  private skeletonPipeline: GPURenderPipeline | null = null;
+  private skeletonUniformBuffer: GPUBuffer | null = null;
+  private skeletonVB: GPUBuffer | null = null;
+  private skeletonBindGroup: GPUBindGroup | null = null;
+  // Max bone pairs = max bones (each bone → parent produces one line).
+  private static readonly SKELETON_MAX_LINES = 512;
   /** Toggle the hitbox/collider debug overlay. */
   setShowHitboxes(v: boolean): void { this.showHitboxes = v; }
   isShowHitboxes(): boolean { return this.showHitboxes; }
@@ -2100,6 +2358,7 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
 
     // Camera view-projection
     const aspect = w / h;
+    this.lastCameraAspect = aspect;
     const cameraState: CameraState = {
       position: this.camPos,
       target: this.camTarget,
@@ -2466,8 +2725,17 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
       if (this.modelRenderer) this.renderProps(pass);
     }
 
+    // Player rigged avatar (third/first person). Rendered after props — depth
+    // buffer handles correct ordering regardless of draw order.
+    this.renderPlayer(pass);
+
     // Hitbox / collider debug overlay (F1)
-    if (this.showHitboxes) this.renderHitboxes(pass, viewProj);
+    if (this.showHitboxes) {
+      this.renderHitboxes(pass, viewProj);
+      // Player skeleton wireframe (third-person only — in first-person the
+      // camera is inside the model so the skeleton would clip/fill the view).
+      if (!this.playerTransform.firstPerson) this.renderPlayerSkeleton(pass, viewProj);
+    }
   };
 
   private renderProps(pass: GPURenderPassEncoder): void {
@@ -2735,6 +3003,95 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
       pass.setVertexBuffer(0, hd.vb);
       pass.draw(hd.vertCount, 1, 0, hd.instanceIdx);
     }
+  }
+
+  // ── Player skeleton debug overlay (F1, third-person) ────────────────────
+  // Renders the player's bone hierarchy as cyan lines so the animated
+  // skeleton pose is visible. Each bone with a parent draws a line from the
+  // parent's world position to the bone's world position. The bone positions
+  // are in the model's local space; we apply the player's world transform
+  // (position + yaw + scale) to place them in the world.
+  private renderPlayerSkeleton(pass: GPURenderPassEncoder, viewProj: Float32Array): void {
+    if (!this.skeletonPipeline || !this.skeletonBindGroup || !this.skeletonUniformBuffer ||
+        !this.skeletonVB || !this.playerAnimator || !this.playerNodeId || !this.playerVisible) return;
+    if (!this.modelRenderer || !this.modelRenderer.hasModel(this.playerNodeId)) return;
+
+    const bonePositions = this.playerAnimator.getBoneWorldPositions();
+    const boneParents = this.playerAnimator.getBoneParents();
+    const boneCount = this.playerAnimator.boneCount;
+
+    // Build line endpoints in model-local space, then apply the player's
+    // world transform (T * R * S) to get world-space positions.
+    const t = this.playerTransform;
+    const yaw = t.yaw + this.playerYawOffset;
+    // Use full-angle sin/cos for the Y-axis rotation. The previous code used
+    // sin(halfYaw)/cos(halfYaw) (quaternion half-angles) directly in the
+    // rotation formula, which only rotated the skeleton by half the yaw —
+    // causing a growing offset between the mesh (full yaw via qrotate) and
+    // the skeleton overlay as the camera rotated.
+    const sy = Math.sin(yaw), cy = Math.cos(yaw);
+    const scale = this.playerScale;
+    const px = t.pos[0];
+    const py = t.pos[1] + this.playerYOffset;
+    const pz = t.pos[2];
+
+    // Build line endpoints: for each bone with a parent, emit (parentPos, bonePos).
+    const lineData = new Float32Array(WebGPURenderer.SKELETON_MAX_LINES * 2 * 3);
+    let lineCount = 0;
+    for (let i = 0; i < boneCount && lineCount < WebGPURenderer.SKELETON_MAX_LINES; i++) {
+      const parent = boneParents[i];
+      if (parent < 0) continue; // root bone — no line to parent
+
+      // Model-local positions (before player world transform).
+      const lx0 = bonePositions[parent * 3];
+      const ly0 = bonePositions[parent * 3 + 1];
+      const lz0 = bonePositions[parent * 3 + 2];
+      const lx1 = bonePositions[i * 3];
+      const ly1 = bonePositions[i * 3 + 1];
+      const lz1 = bonePositions[i * 3 + 2];
+
+      // Apply scale.
+      const sx0 = lx0 * scale, sy0 = ly0 * scale, sz0 = lz0 * scale;
+      const sx1 = lx1 * scale, sy1 = ly1 * scale, sz1 = lz1 * scale;
+
+      // Apply yaw rotation (Y-axis): q = [0, sy, 0, cy].
+      // Rotated point: p' = q * p * q^-1 (simplified for Y-axis rotation).
+      // x' = cy*x + sz*z, z' = -sz*x + cy*z (y unchanged).
+      const rx0 = cy * sx0 + sy * sz0;
+      const rz0 = -sy * sx0 + cy * sz0;
+      const rx1 = cy * sx1 + sy * sz1;
+      const rz1 = -sy * sx1 + cy * sz1;
+
+      // Translate to world position.
+      const off = lineCount * 6;
+      lineData[off]     = rx0 + px;
+      lineData[off + 1] = sy0 + py;
+      lineData[off + 2] = rz0 + pz;
+      lineData[off + 3] = rx1 + px;
+      lineData[off + 4] = sy1 + py;
+      lineData[off + 5] = rz1 + pz;
+      lineCount++;
+    }
+
+    if (lineCount === 0) return;
+
+    const device = this.getDevice()!;
+    // Upload uniforms: viewProj (64 bytes) + color (16 bytes, cyan).
+    const uniformData = new Float32Array(20);
+    uniformData.set(viewProj, 0);
+    uniformData[16] = 0.0;  // R
+    uniformData[17] = 1.0;  // G
+    uniformData[18] = 1.0;  // B
+    uniformData[19] = 1.0;  // A
+    device.queue.writeBuffer(this.skeletonUniformBuffer, 0, uniformData);
+
+    // Upload line vertices.
+    device.queue.writeBuffer(this.skeletonVB, 0, lineData.subarray(0, lineCount * 6));
+
+    pass.setPipeline(this.skeletonPipeline);
+    pass.setBindGroup(0, this.skeletonBindGroup);
+    pass.setVertexBuffer(0, this.skeletonVB);
+    pass.draw(lineCount * 2, 1, 0, 0);
   }
 
   // ── Post-process outline: mask + composite ──────────────────────────────
@@ -3288,6 +3645,14 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
   stop(): void {
     this.sandboxRunning = false;
     if (this.rafHandle) cancelAnimationFrame(this.rafHandle);
+    // Clean up the player model.
+    this.playerAnimator?.dispose();
+    this.playerAnimator = null;
+    if (this.playerNodeId && this.modelRenderer) {
+      this.modelRenderer.removeModel(this.playerNodeId);
+    }
+    this.playerNodeId = null;
+    this.playerModelId = null;
   }
 
   getElapsedTime(): number { return this._elapsedTime; }

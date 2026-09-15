@@ -57,7 +57,14 @@ export class ModelRenderer {
   private uniformBuffer: GPUBuffer | null = null;
   private bindGroup: GPUBindGroup | null = null;
 
-  private static readonly MAX_MODELS = 256;
+  // 4096 slots × 256 bytes = 1 MiB uniform buffer. Character FBX models can
+  // have hundreds of meshes (e.g. Aisha has 374 geometry nodes → 374 uniform
+  // slots). The old limit of 256 was exhausted by a single character model,
+  // leaving zero slots for prop models — props then uploaded 0 meshes but
+  // still had their nodeId written to the SAB, making them invisible (skipped
+  // by builtin rendering, early-returned by model rendering) while their
+  // physics bodies still provided collision.
+  private static readonly MAX_MODELS = 4096;
   private static readonly UNIFORM_SIZE = 256; // 64 floats, padded to 256
   /** Initial bone buffer capacity. Grows dynamically when larger skeletons are loaded. */
   private static readonly INITIAL_BONE_CAPACITY = 256;
@@ -391,7 +398,15 @@ export class ModelRenderer {
     });
   }
 
-  uploadModel(nodeId: string, meshes: MeshData[], materials?: MaterialData[], modelBaseUrl?: string): void {
+  /**
+   * Upload a model's meshes to GPU buffers and allocate uniform slots.
+   * Returns the number of meshes actually uploaded — this may be less than
+   * `meshes.length` (or 0) if the uniform buffer is full. Callers should
+   * check the return value and fall back appropriately when 0 meshes are
+   * uploaded (e.g. render as a builtin cube instead of leaving the entity
+   * invisible).
+   */
+  uploadModel(nodeId: string, meshes: MeshData[], materials?: MaterialData[], modelBaseUrl?: string): number {
     this.removeModel(nodeId);
 
     const resources: ModelGPUResources[] = [];
@@ -503,6 +518,16 @@ export class ModelRenderer {
 
     this.nextUniformOffset = uniformOffset;
     this.modelResources.set(nodeId, resources);
+
+    if (resources.length < meshes.length) {
+      console.warn(
+        `[ModelRenderer] Uniform buffer full: uploaded ${resources.length}/${meshes.length} meshes for "${nodeId}" ` +
+        `(${uniformOffset}/${ModelRenderer.MAX_MODELS} slots used). ` +
+        `Increase MAX_MODELS to avoid invisible models.`,
+      );
+    }
+
+    return resources.length;
   }
 
   /**
@@ -788,7 +813,7 @@ export class ModelRenderer {
     }
   }
 
-  reuploadModel(nodeId: string, meshes: MeshData[], materials?: MaterialData[], modelBaseUrl?: string): void {
+  reuploadModel(nodeId: string, meshes: MeshData[], materials?: MaterialData[], modelBaseUrl?: string): number {
     // Preserve existing per-mesh texture registrations to avoid flickering on
     // part selection changes. Per-mesh material indices are reused.
     const oldResources = this.modelResources.get(nodeId);
@@ -908,6 +933,7 @@ export class ModelRenderer {
 
     this.nextUniformOffset = uniformOffset;
     this.modelResources.set(nodeId, newResources);
+    return newResources.length;
   }
 
   beginFrame(camera: CameraState): void {
@@ -998,7 +1024,7 @@ export class ModelRenderer {
     if (!this.pipeline || !this.bindGroup || !this.uniformBuffer || !this.viewProjCache) return;
 
     const resources = this.modelResources.get(nodeId);
-    if (!resources) return;
+    if (!resources || resources.length === 0) return;
 
     // For instance 0, use the original uniform offsets stored in resources.
     // For instance 1+, compute offsets from the allocated instance base.
@@ -1125,7 +1151,7 @@ export class ModelRenderer {
     if (!this.maskPipeline || !this.bindGroup || !this.uniformBuffer || !this.viewProjCache) return;
 
     const resources = this.modelResources.get(nodeId);
-    if (!resources) return;
+    if (!resources || resources.length === 0) return;
 
     if (this.bindlessBindGroup && !this.bindlessBindGroupSetThisFrame) {
       passEncoder.setBindGroup(3, this.bindlessBindGroup);
@@ -1194,7 +1220,7 @@ export class ModelRenderer {
     if (!this.depthPipeline || !this.bindGroup || !this.uniformBuffer) return;
 
     const resources = this.modelResources.get(nodeId);
-    if (!resources) return;
+    if (!resources || resources.length === 0) return;
 
     const uniforms = this.reusableUniforms;
     for (let r = 0; r < resources.length; r++) {

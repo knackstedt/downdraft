@@ -2,9 +2,9 @@ import { createAnimationEventTrack, type AnimationEvent } from "./animation-even
 import { AnimationClip, type KeyframeTrack } from "./clip";
 import { AnimationPlayer } from "./player";
 import { buildRetargetMapping, retargetClip } from "./retarget";
+import { Skeleton, type SkeletonData } from "./skeleton";
 import type { AnimationChannel, AnimationData, SkinData } from "./skeleton-animator";
 import { SkeletonAnimator, skinDataToSkeletonData } from "./skeleton-animator";
-import { Skeleton, type SkeletonData } from "./skeleton";
 import { AnimationStateMachine } from "./state-machine";
 
 function makeClipWithEvents(events: AnimationEvent[], duration: number): AnimationClip {
@@ -554,9 +554,11 @@ describe("SkeletonAnimator", () => {
     for (let i = 0; i < 5; i++) test.testTick(0.1);
 
     const rot = test.getLocalRotFlat();
-    // At t=0.5, slerp from [0,0,0,1] to pre-baked [0,-0.7071,0,0.7071] (axis-swapped)
-    // gives approximately [0, -0.3827, 0, 0.9239]
-    expect(rot[1]).toBeCloseTo(-0.3827, 3);
+    // Same-name (non-mixamorig) channels are applied directly as local-space
+    // rotations — no axis swap. At t=0.5, slerp from [0,0,0,1] to
+    // [0,0,0.7071,0.7071] gives approximately [0, 0, 0.3827, 0.9239].
+    expect(rot[1]).toBeCloseTo(0, 3);
+    expect(rot[2]).toBeCloseTo(0.3827, 3);
     expect(rot[3]).toBeCloseTo(0.9239, 3);
   });
 
@@ -1191,5 +1193,204 @@ describe("AnimationPlayer getSkinMatrices caching", () => {
     // Values may be the same but it should be a valid array
     expect(m2).toBeInstanceOf(Float32Array);
     expect(m2.length).toBe(m1.length);
+  });
+});
+
+// ── Mixamo retargeting (mixamorig:* channels → non-Mixamo skeleton) ──
+
+/** UE-style skin: pelvis → thigh_l → calf_l, identity bind rotations. */
+function makeLegSkin(): SkinData {
+  const boneNameToIndex = new Map<string, number>();
+  boneNameToIndex.set("pelvis", 0);
+  boneNameToIndex.set("thigh_l", 1);
+  boneNameToIndex.set("calf_l", 2);
+  return {
+    bones: [
+      { name: "pelvis", nodeIndex: 0, parentIndex: -1, restTranslation: [0, 0, 1], restRotation: [0, 0, 0, 1], restScale: [1, 1, 1], inverseBindMatrix: new Float32Array(16) },
+      { name: "thigh_l", nodeIndex: 1, parentIndex: 0, restTranslation: [0.1, 0, -0.4], restRotation: [0, 0, 0, 1], restScale: [1, 1, 1], inverseBindMatrix: new Float32Array(16) },
+      { name: "calf_l", nodeIndex: 2, parentIndex: 1, restTranslation: [0, 0, -0.4], restRotation: [0, 0, 0, 1], restScale: [1, 1, 1], inverseBindMatrix: new Float32Array(16) },
+    ],
+    boneNameToIndex,
+  };
+}
+
+/** UE-style spine chain that skips spine_02: pelvis → spine_01 → spine_03.
+ *  spine03IntermediateDeg applies a Z-axis intermediate rotation (non-bone
+ *  transform between spine_01 and spine_03, e.g. the skipped spine_02 node). */
+function makeSpineSkin(spine03IntermediateDeg = 0): SkinData {
+  const boneNameToIndex = new Map<string, number>();
+  boneNameToIndex.set("pelvis", 0);
+  boneNameToIndex.set("spine_01", 1);
+  boneNameToIndex.set("spine_03", 2);
+  let rootAncestorMatrix: Float32Array | undefined;
+  if (spine03IntermediateDeg !== 0) {
+    // Column-major rotation about Z.
+    const a = (spine03IntermediateDeg * Math.PI) / 180;
+    const c = Math.cos(a), s = Math.sin(a);
+    rootAncestorMatrix = new Float32Array([c, s, 0, 0, -s, c, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+  }
+  return {
+    bones: [
+      { name: "pelvis", nodeIndex: 0, parentIndex: -1, restTranslation: [0, 0, 1], restRotation: [0, 0, 0, 1], restScale: [1, 1, 1], inverseBindMatrix: new Float32Array(16) },
+      { name: "spine_01", nodeIndex: 1, parentIndex: 0, restTranslation: [0, 0, 0.1], restRotation: [0, 0, 0, 1], restScale: [1, 1, 1], inverseBindMatrix: new Float32Array(16) },
+      { name: "spine_03", nodeIndex: 2, parentIndex: 1, restTranslation: [0, 0, 0.2], restRotation: [0, 0, 0, 1], restScale: [1, 1, 1], inverseBindMatrix: new Float32Array(16), rootAncestorMatrix },
+    ],
+    boneNameToIndex,
+  };
+}
+
+function rotCh(node: string, times: number[], quats: number[]): AnimationChannel {
+  return { targetNode: node, path: "rotation", keyframeTimes: new Float32Array(times), keyframeValues: new Float32Array(quats), interpolation: "LINEAR" };
+}
+
+class TestRetargetAnimator extends SkeletonAnimator {
+  testSetState(state: string) { this.setAnimationState(state); }
+  testTick(dt: number) { this.tick(dt); }
+}
+
+describe("SkeletonAnimator Mixamo retargeting", () => {
+  it("applies world deltas without double-rotating through the parent chain", () => {
+    // Thigh (LeftUpLeg) rotates +90° about source X; calf (LeftLeg) holds a
+    // constant local rotation. The calf's emitted LOCAL must stay near
+    // identity — the old path solved against the parent's BIND world and
+    // double-applied the swing.
+    const anim: AnimationData = {
+      name: "Walk",
+      duration: 1,
+      channels: [
+        rotCh("mixamorig:Hips", [0, 1], [0, 0, 0, 1, 0, 0, 0, 1]),
+        rotCh("mixamorig:LeftUpLeg", [0, 1], [0, 0, 0, 1, 0.7071, 0, 0, 0.7071]),
+        rotCh("mixamorig:LeftLeg", [0, 1], [0, 0, 0, 1, 0, 0, 0, 1]),
+      ],
+    };
+    const test = new TestRetargetAnimator(makeLegSkin());
+    test.registerRetargetedAnimations([anim], "Walk");
+    test.testSetState("Walk");
+    for (let i = 0; i < 5; i++) test.testTick(0.1); // t = 0.5
+
+    const rot = test.getLocalRotFlat();
+    // thigh_l: slerp identity→Rx90 at t=0.5 → Rx45
+    expect(rot[4]).toBeCloseTo(0.3827, 3); // x
+    expect(rot[7]).toBeCloseTo(0.9239, 3); // w
+    // calf_l local ≈ identity (same rotation as parent → no relative motion)
+    expect(rot[8]).toBeCloseTo(0, 3);
+    expect(rot[11]).toBeCloseTo(1, 3);
+  });
+
+  it("propagates unmapped intermediate source bones to mapped children", () => {
+    // Aisha-style chain: spine_01 → spine_03 (no spine_02 bone). The
+    // mixamorig:Spine1 channel has no target bone, but its rotation must
+    // still reach spine_03 (mapped from Spine2) via the source world chain.
+    const anim: AnimationData = {
+      name: "Walk",
+      duration: 1,
+      channels: [
+        rotCh("mixamorig:Spine1", [0, 1], [0, 0, 0, 1, 0.7071, 0, 0, 0.7071]),
+      ],
+    };
+    const test = new TestRetargetAnimator(makeSpineSkin());
+    test.registerRetargetedAnimations([anim], "Walk");
+    test.testSetState("Walk");
+    for (let i = 0; i < 5; i++) test.testTick(0.1); // t = 0.5
+
+    const rot = test.getLocalRotFlat();
+    // spine_03 (index 2) picks up Spine1's rotation: Rx45 at t=0.5
+    expect(rot[8]).toBeCloseTo(0.3827, 3);
+    expect(rot[11]).toBeCloseTo(0.9239, 3);
+    // spine_01 (index 1) has no mapped channel → stays bind
+    expect(rot[4]).toBeCloseTo(0, 3);
+    expect(rot[7]).toBeCloseTo(1, 3);
+  });
+
+  it("solves locals against non-bone intermediate transforms", () => {
+    // Same spine chain, but spine_03 hangs under a non-bone intermediate
+    // rotated 30° about Z (e.g. a skipped spine_02 node). The emitted local
+    // must account for it: world = parent * intermediate * local, so
+    // local = Rz(-30) * Rx45 * Rz30 — a 45° rotation about the axis
+    // Rz(-30)·X = (0.866, -0.5, 0).
+    const anim: AnimationData = {
+      name: "Walk",
+      duration: 1,
+      channels: [
+        rotCh("mixamorig:Spine1", [0, 1], [0, 0, 0, 1, 0.7071, 0, 0, 0.7071]),
+      ],
+    };
+    const test = new TestRetargetAnimator(makeSpineSkin(30));
+    test.registerRetargetedAnimations([anim], "Walk");
+    test.testSetState("Walk");
+    for (let i = 0; i < 5; i++) test.testTick(0.1); // t = 0.5
+
+    const rot = test.getLocalRotFlat();
+    const s45 = Math.sin((45 * Math.PI) / 360); // sin(22.5°)
+    expect(rot[8]).toBeCloseTo(0.866 * s45, 3);
+    expect(rot[9]).toBeCloseTo(-0.5 * s45, 3);
+    expect(rot[10]).toBeCloseTo(0, 3);
+    expect(rot[11]).toBeCloseTo(Math.cos((45 * Math.PI) / 360), 3);
+  });
+
+  it("maps hips translation to a pelvis bob with forward motion stripped", () => {
+    const anim: AnimationData = {
+      name: "Walk",
+      duration: 1,
+      channels: [
+        // Y-up centimeters: +Y is up, +Z is forward locomotion.
+        {
+          targetNode: "mixamorig:Hips",
+          path: "translation",
+          keyframeTimes: new Float32Array([0, 1]),
+          keyframeValues: new Float32Array([0, 100, 0, 10, 110, 40]),
+          interpolation: "LINEAR",
+        },
+      ],
+    };
+    const test = new TestRetargetAnimator(makeLegSkin());
+    test.registerRetargetedAnimations([anim], "Walk");
+    test.testSetState("Walk");
+    for (let i = 0; i < 5; i++) test.testTick(0.1); // t = 0.5
+
+    const pos = test.getLocalPosFlat();
+    // scale = |rest_z| / |hips_y0| = 1/100; delta at t=0.5 = (5,5,20)cm →
+    // (0.05 lateral x, 0.05 vertical z); forward (20cm → -0.2 y) stripped.
+    expect(pos[0]).toBeCloseTo(0.05, 3);
+    expect(pos[1]).toBeCloseTo(0, 3);
+    expect(pos[2]).toBeCloseTo(1.05, 3);
+  });
+
+  it("preserves bind pose at the first keyframe", () => {
+    const anim: AnimationData = {
+      name: "Walk",
+      duration: 1,
+      channels: [
+        rotCh("mixamorig:LeftUpLeg", [0, 1], [0, 0, 0, 1, 0.7071, 0, 0, 0.7071]),
+      ],
+    };
+    const test = new TestRetargetAnimator(makeLegSkin());
+    test.registerRetargetedAnimations([anim], "Walk");
+    test.testSetState("Walk");
+    test.testTick(0.0001); // ≈ t=0, mid-fade but anchored at bind
+    const rot = test.getLocalRotFlat();
+    expect(rot[4]).toBeCloseTo(0, 2);
+    expect(rot[7]).toBeCloseTo(1, 2);
+  });
+
+  it("measures source deltas against the rest pose, not keyframe 0", () => {
+    // Frame 0 of a locomotion clip is mid-stride, not the bind pose. If the
+    // retarget reference were keyframe 0, this channel (a constant +90° X
+    // rotation) would emit a zero delta and leave the bone at bind. Referenced
+    // to the rest pose it must instead apply the full rotation.
+    const anim: AnimationData = {
+      name: "Walk",
+      duration: 1,
+      channels: [
+        rotCh("mixamorig:LeftUpLeg", [0, 1], [0.7071, 0, 0, 0.7071, 0.7071, 0, 0, 0.7071]),
+      ],
+    };
+    const test = new TestRetargetAnimator(makeLegSkin());
+    test.registerRetargetedAnimations([anim], "Walk");
+    test.testSetState("Walk");
+    test.testTick(5); // fully faded in
+    const rot = test.getLocalRotFlat();
+    // thigh_l = bone index 1 → quaternion at flat offset 4..7; expect sin/cos(45°).
+    expect(Math.abs(rot[4])).toBeGreaterThan(0.5);
   });
 });

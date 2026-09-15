@@ -66,6 +66,9 @@ export interface AnimationData {
   channels: AnimationChannel[];
   sourceRestRotations?: Map<string, [number, number, number, number]>;
   sourcePreRotations?: Map<string, [number, number, number, number]>;
+  /** Source-node rest translations (Lcl Translation) keyed by node name —
+   *  used by retargeting to compute rest bone directions. */
+  sourceRestTranslations?: Map<string, [number, number, number]>;
 }
 
 export interface ModelNode {

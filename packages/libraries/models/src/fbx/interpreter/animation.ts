@@ -191,6 +191,7 @@ export function parseAnimations(
   // Extract source rest rotations and pre-rotations for retargeting
   const sourceRestRotations = new Map<string, [number, number, number, number]>();
   const sourcePreRotations = new Map<string, [number, number, number, number]>();
+  const sourceRestTranslations = new Map<string, [number, number, number]>();
   for (const node of modelNodes) {
     const id = getObjectId(node, `model_${sourceRestRotations.size}`);
     const rawName = getObjectName(node, `node_${sourceRestRotations.size}`);
@@ -201,6 +202,7 @@ export function parseAnimations(
 
     let preRot: [number, number, number, number] | null = null;
     let lclRot: [number, number, number, number] | null = null;
+    let lclTrans: [number, number, number] | null = null;
 
     for (const p of props70.children) {
       if (p.name !== "P" || p.properties.length < 7) continue;
@@ -213,6 +215,12 @@ export function parseAnimations(
         );
         if (propName === "PreRotation") preRot = q;
         else lclRot = q;
+      } else if (propName === "Lcl Translation") {
+        lclTrans = [
+          p.properties[4].value as number,
+          p.properties[5].value as number,
+          p.properties[6].value as number,
+        ];
       }
     }
 
@@ -224,6 +232,7 @@ export function parseAnimations(
     } else if (preRot) {
       sourceRestRotations.set(modelName, preRot);
     }
+    if (lclTrans) sourceRestTranslations.set(modelName, lclTrans);
   }
 
   diag.debug("animation", `Extracted ${sourceRestRotations.size} source rest rotations`);
@@ -311,6 +320,7 @@ export function parseAnimations(
       channels,
       sourceRestRotations: sourceRestRotations.size > 0 ? sourceRestRotations : undefined,
       sourcePreRotations: sourcePreRotations.size > 0 ? sourcePreRotations : undefined,
+      sourceRestTranslations: sourceRestTranslations.size > 0 ? sourceRestTranslations : undefined,
     });
   }
 
@@ -353,11 +363,28 @@ function buildChannel(
   }
 
   // Interleave values: [x0, y0, z0, x1, y1, z1, ...]
-  const values = new Float32Array(valueCount * 3);
-  for (let i = 0; i < valueCount; i++) {
-    for (let c = 0; c < sortedCurves.length && c < 3; c++) {
-      const curve = sortedCurves[c];
-      values[i * 3 + c] = curve.values[i] ?? 0;
+  // For rotation channels, convert Euler angles (degrees) to quaternions
+  // (4 values per keyframe) since the animation runtime expects quaternions.
+  let values: Float32Array;
+  if (group.path === "rotation") {
+    values = new Float32Array(valueCount * 4);
+    for (let i = 0; i < valueCount; i++) {
+      const ex = sortedCurves[0]?.values[i] ?? 0;
+      const ey = sortedCurves[1]?.values[i] ?? 0;
+      const ez = sortedCurves[2]?.values[i] ?? 0;
+      const q = eulerToQuaternion(ex, ey, ez);
+      values[i * 4] = q[0];
+      values[i * 4 + 1] = q[1];
+      values[i * 4 + 2] = q[2];
+      values[i * 4 + 3] = q[3];
+    }
+  } else {
+    values = new Float32Array(valueCount * 3);
+    for (let i = 0; i < valueCount; i++) {
+      for (let c = 0; c < sortedCurves.length && c < 3; c++) {
+        const curve = sortedCurves[c];
+        values[i * 3 + c] = curve.values[i] ?? 0;
+      }
     }
   }
 

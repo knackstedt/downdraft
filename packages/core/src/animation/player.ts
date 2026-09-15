@@ -159,15 +159,34 @@ export class AnimationPlayer {
       }
     }
 
+    // If fading in, fade out existing non-additive layers (runs before the
+    // existing-layer check so re-playing a layer still fades out others).
+    if (fadeDuration > 0 && priority === 0 && !additive) {
+      for (const l of this.layers.values()) {
+        if (l.name === name) continue; // don't fade out the layer we're about to play
+        if (!l.additive && l.priority === 0) {
+          l.blending = true;
+          l.blendOutDuration = fadeDuration;
+          l.blendOutElapsed = 0;
+          l.blendOutStartWeight = l.weight;
+          l.fadeInDuration = 0; // clear fade-in so it doesn't interfere with fade-out
+        }
+      }
+    }
+
     const existing = this.layers.get(name);
     if (existing) {
       existing.clip = clip;
       existing.time = 0;
       existing.speed = options?.speed ?? 1;
-      existing.weight = options?.weight ?? 1;
+      existing.weight = fadeDuration > 0 ? 0 : (options?.weight ?? 1);
       existing.targetWeight = options?.weight ?? 1;
       existing.loop = options?.loop ?? true;
-      existing.blending = false;
+      existing.blending = fadeDuration > 0;
+      existing.fadeInDuration = fadeDuration;
+      existing.fadeInElapsed = 0;
+      existing.blendOutDuration = 0;  // clear any pending fade-out
+      existing.blendOutElapsed = 0;
       existing.paused = false;
       existing.boneMask = boneMask;
       existing.additive = additive;
@@ -182,18 +201,6 @@ export class AnimationPlayer {
     if (fadeDuration === 0 && !boneMask && !additive && priority === 0) {
       this.layers.clear();
       this.layerOrder = [];
-    }
-
-    // If fading in, fade out existing non-additive layers
-    if (fadeDuration > 0 && priority === 0 && !additive) {
-      for (const l of this.layers.values()) {
-        if (!l.additive && l.priority === 0) {
-          l.blending = true;
-          l.blendOutDuration = fadeDuration;
-          l.blendOutElapsed = 0;
-          l.blendOutStartWeight = l.weight;
-        }
-      }
     }
 
     const initialWeight = fadeDuration > 0 ? 0 : (options?.weight ?? 1);
@@ -420,6 +427,24 @@ export class AnimationPlayer {
 
     // Phase 3: Sample and accumulate non-additive layers (weighted average)
     for (const l of activeNonAdditive) {
+      // Reset result arrays to bind pose before sampling so bones without
+      // tracks in this clip get bind pose values (not stale data from a
+      // previous clip or the [0,0,0] initialization). This is critical for
+      // retargeted clips that only have rotation tracks (translation channels
+      // skipped during retargeting) — without this reset, the position would
+      // be zeroed out instead of falling back to bind pose.
+      for (let i = 0; i < this.boneCount; i++) {
+        this.resultPositions[i][0] = this.bindPositions[i][0];
+        this.resultPositions[i][1] = this.bindPositions[i][1];
+        this.resultPositions[i][2] = this.bindPositions[i][2];
+        this.resultRotations[i][0] = this.bindRotations[i][0];
+        this.resultRotations[i][1] = this.bindRotations[i][1];
+        this.resultRotations[i][2] = this.bindRotations[i][2];
+        this.resultRotations[i][3] = this.bindRotations[i][3];
+        this.resultScales[i][0] = this.bindScales[i][0];
+        this.resultScales[i][1] = this.bindScales[i][1];
+        this.resultScales[i][2] = this.bindScales[i][2];
+      }
       l.clip.sample(l.time, this.resultPositions, this.resultRotations, this.resultScales);
       l.clip.sampleMorphWeights(l.time, this.resultMorphWeights);
       const w = l.weight;
@@ -506,6 +531,19 @@ export class AnimationPlayer {
 
     // Phase 5: Apply additive layers on top
     for (const l of activeAdditive) {
+      // Reset result arrays to bind pose (same reason as Phase 3).
+      for (let i = 0; i < this.boneCount; i++) {
+        this.resultPositions[i][0] = this.bindPositions[i][0];
+        this.resultPositions[i][1] = this.bindPositions[i][1];
+        this.resultPositions[i][2] = this.bindPositions[i][2];
+        this.resultRotations[i][0] = this.bindRotations[i][0];
+        this.resultRotations[i][1] = this.bindRotations[i][1];
+        this.resultRotations[i][2] = this.bindRotations[i][2];
+        this.resultRotations[i][3] = this.bindRotations[i][3];
+        this.resultScales[i][0] = this.bindScales[i][0];
+        this.resultScales[i][1] = this.bindScales[i][1];
+        this.resultScales[i][2] = this.bindScales[i][2];
+      }
       l.clip.sample(l.time, this.resultPositions, this.resultRotations, this.resultScales);
       l.clip.sampleMorphWeights(l.time, this.resultMorphWeights);
       const w = l.weight;

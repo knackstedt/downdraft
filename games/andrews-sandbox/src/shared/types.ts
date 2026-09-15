@@ -159,9 +159,14 @@ export interface PlayerRespawnedData {
   maxHealth: number;
 }
 
+export interface PlayerModelChangedData {
+  /** The player model id (e.g. "aisha", "robin", "humanling-fe"). */
+  modelId: string;
+}
+
 export interface SandboxSimMessage {
-  kind: "prop_spawned" | "prop_removed" | "paint_updated" | "fun_mode_changed" | "pose_changed" | "ready" | "error" | "player_moved" | "player_damaged" | "player_died" | "player_respawned";
-  data: PropSpawnedData | PropRemovedData | PaintUpdatedData | FunModeChangedData | PoseChangedData | PlayerMovedData | PlayerDamagedData | PlayerDiedData | PlayerRespawnedData | { message?: string } | Record<string, unknown>;
+  kind: "prop_spawned" | "prop_removed" | "paint_updated" | "fun_mode_changed" | "pose_changed" | "ready" | "error" | "player_moved" | "player_damaged" | "player_died" | "player_respawned" | "player_model_changed";
+  data: PropSpawnedData | PropRemovedData | PaintUpdatedData | FunModeChangedData | PoseChangedData | PlayerMovedData | PlayerDamagedData | PlayerDiedData | PlayerRespawnedData | PlayerModelChangedData | { message?: string } | Record<string, unknown>;
 }
 
 // --- Sim commands (renderer→sim) ---
@@ -181,5 +186,6 @@ export type SimCommand =
   | { type: "updatePropPhysics"; entityId: number; mass?: number; restitution?: number; friction?: number; gravityScale?: number }
   | { type: "applyImpulse"; entityId: number; impulse: [number, number, number] }
   | { type: "movePlayer"; desiredDelta: [number, number, number] }
+  | { type: "setPlayerModel"; modelId: string }
   | { type: "setPropColliderHull"; entityId: number; vertices: Float32Array | number[] }
   | { type: "respawn" };
