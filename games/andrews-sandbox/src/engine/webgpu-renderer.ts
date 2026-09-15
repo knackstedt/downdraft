@@ -1899,10 +1899,10 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
         this.playerYOffset = 0;
       }
 
-      // The FBX models face +Y up (engine Y-up). Most character models face
-      // -Z in their bind pose, which aligns with the engine's forward (-Z).
-      // If the model faces +Z, this would be Math.PI. Default: 0 (no offset).
-      this.playerYawOffset = 0;
+      // The FBX models face +Y up (engine Y-up). The bundled character models
+      // face +X in their bind pose (engine forward is -Z), so rotate 90° CCW
+      // about +Y to face movement direction.
+      this.playerYawOffset = Math.PI / 2;
 
       this.playerModelId = modelId;
       console.log(`[WebGPURenderer] Player model loaded: ${modelId} (scale=${this.playerScale.toFixed(3)}, yOffset=${this.playerYOffset.toFixed(3)}, bones=${this.playerAnimator.boneCount}, bounds=${bounds ? `[${bounds.min[1].toFixed(2)},${bounds.max[1].toFixed(2)}]` : "none"})`);

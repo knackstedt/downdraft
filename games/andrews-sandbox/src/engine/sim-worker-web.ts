@@ -63,6 +63,10 @@ let playerController: CharacterControllerHandle | null = null;
 let playerPos: [number, number, number] = [0, PLAYER_HEIGHT, 0];
 let playerGrounded = false;
 let pendingPlayerMove: [number, number, number] | null = null;
+// Most negative vertical velocity seen across accumulated movePlayer commands
+// this tick — used for fall damage instead of pendingPlayerMove[1]/dt, which
+// would overestimate speed when multiple deltas accumulate into one tick.
+let pendingPlayerFallVy: number | null = null;
 let currentPose: PoseState = PoseState.Standing;
 
 // ── Player health state ──
@@ -793,7 +797,20 @@ function processCommand(cmd: SimCommand): void {
       break;
     }
     case "movePlayer": {
-      pendingPlayerMove = cmd.desiredDelta;
+      // Accumulate rather than overwrite: the renderer's moveLoop (~62Hz) can
+      // send two commands between 60Hz sim ticks, and dropping one causes
+      // visible stutter. Gravity is already baked into each delta (vy*dt), so
+      // summing is correct — each command covered its own wall-clock slice.
+      if (pendingPlayerMove) {
+        pendingPlayerMove[0] += cmd.desiredDelta[0];
+        pendingPlayerMove[1] += cmd.desiredDelta[1];
+        pendingPlayerMove[2] += cmd.desiredDelta[2];
+      } else {
+        pendingPlayerMove = [...cmd.desiredDelta];
+      }
+      if (cmd.verticalVelocity !== undefined) {
+        pendingPlayerFallVy = Math.min(pendingPlayerFallVy ?? 0, cmd.verticalVelocity);
+      }
       break;
     }
     case "setPropColliderHull": {
@@ -1214,7 +1231,7 @@ expose({
           // threshold, apply damage scaled by the overshoot. Reset on landing
           // so a single fall deals one burst.
           if (!playerGrounded) {
-            const fallVy = pendingPlayerMove[1] / dt;
+            const fallVy = pendingPlayerFallVy ?? pendingPlayerMove[1] / dt;
             if (fallVy < 0 && fallVy < -playerFallSpeed) playerFallSpeed = -fallVy;
           } else if (!playerPrevGrounded) {
             // Just landed.
@@ -1226,6 +1243,7 @@ expose({
           playerPrevGrounded = playerGrounded;
 
           pendingPlayerMove = null;
+          pendingPlayerFallVy = null;
           onEvent({ kind: "player_moved", data: { position: [...playerPos] as [number, number, number], grounded: playerGrounded, pose: currentPose, health: playerHealth, maxHealth: PLAYER_MAX_HEALTH, dead: playerDead } });
         }
 

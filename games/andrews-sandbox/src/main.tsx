@@ -107,8 +107,10 @@ const playerState = {
   pose: PoseState.Standing,
   /** Horizontal speed (units/sec), derived from player_moved position deltas. */
   velocity: 0,
-  /** Previous position for velocity computation. */
+  /** Last event's position — the point the render loop interpolates from. */
   prevPos: [0, PLAYER_HEIGHT, 0] as [number, number, number],
+  /** Timestamp of the last player_moved event — for render interpolation. */
+  lastMoveTime: 0,
 };
 
 // Per-pose renderer config: eye height above feet + movement-speed multiplier.
@@ -285,16 +287,30 @@ startGame({
     paint_updated: (_data) => { /* Phase 5 */ },
     player_moved: (data) => {
       // Compute horizontal velocity from the position delta (for the player
-      // avatar's Walk/Run animation state machine).
-      const dx = data.position[0] - playerState.prevPos[0];
-      const dz = data.position[2] - playerState.prevPos[2];
-      // player_moved fires per sim tick (SIM_TICK_DT ≈ 16.67ms = 1/60s).
-      // Guard against division by zero on the first tick.
-      const tickDt = SIM_TICK_DT;
-      playerState.velocity = tickDt > 0 ? Math.sqrt(dx * dx + dz * dz) / tickDt : 0;
-      playerState.prevPos[0] = data.position[0];
-      playerState.prevPos[1] = data.position[1];
-      playerState.prevPos[2] = data.position[2];
+      // avatar's Walk/Run animation state machine). Measure against the real
+      // wall-clock interval between events, not SIM_TICK_DT — the render-side
+      // moveLoop runs slightly faster than the sim tick, so deltas
+      // periodically accumulate into one tick and would otherwise read as a
+      // 2× speed spike (visible as a regular animation flicker).
+      const dx = data.position[0] - playerState.pos[0];
+      const dz = data.position[2] - playerState.pos[2];
+      const eventNow = performance.now();
+      const eventDt = playerState.lastMoveTime > 0
+        ? (eventNow - playerState.lastMoveTime) / 1000
+        : SIM_TICK_DT;
+      const dy = data.position[1] - playerState.pos[1];
+      // Teleport/respawn produces a huge tick delta — snap prev=curr so the
+      // render interpolation doesn't slide the avatar across the map, and
+      // zero velocity so it doesn't spike the animation state.
+      const teleported = Math.hypot(dx, dy, dz) > 1.5;
+      playerState.velocity = teleported ? 0
+        : eventDt > 1e-4 ? Math.sqrt(dx * dx + dz * dz) / eventDt : 0;
+      // prevPos = the position the render loop is currently interpolating
+      // from (last event's position); pos = the new authoritative position.
+      playerState.prevPos[0] = teleported ? data.position[0] : playerState.pos[0];
+      playerState.prevPos[1] = teleported ? data.position[1] : playerState.pos[1];
+      playerState.prevPos[2] = teleported ? data.position[2] : playerState.pos[2];
+      playerState.lastMoveTime = eventNow;
       playerState.pos[0] = data.position[0];
       playerState.pos[1] = data.position[1];
       playerState.pos[2] = data.position[2];
@@ -697,6 +713,10 @@ startGame({
     const canvas = ctx.canvas;
     let yaw = 0;
     let pitch = 0;
+    // Avatar facing yaw — eases toward the WASD movement direction so the
+    // model turns to face where it's actually going (third person). In first
+    // person the model tracks the camera yaw instead.
+    let modelYaw = 0;
     let pointerLocked = false;
     // Timestamp of the last wheel event while the physgun was active. Some
     // mice / raw-input setups emit a spurious horizontal mousemove when the
@@ -998,8 +1018,8 @@ startGame({
       // Use KeyC to cycle camera modes.
       r.setPlayerVisible(cameraMode !== CameraMode.FreeCam);
       r.setPlayerTransform(
-        playerState.pos,
-        yaw,
+        getPlayerRenderPos(),
+        cameraMode === CameraMode.FirstPerson ? yaw : modelYaw,
         playerState.grounded,
         playerState.velocity,
         playerState.pose,
@@ -1058,6 +1078,14 @@ startGame({
       if (keys.has("KeyS")) { dx -= fwd[0] * speed * dt; dz -= fwd[2] * speed * dt; }
       if (keys.has("KeyA")) { dx -= right[0] * speed * dt; dz -= right[2] * speed * dt; }
       if (keys.has("KeyD")) { dx += right[0] * speed * dt; dz += right[2] * speed * dt; }
+      // Turn the avatar toward the movement direction. getMoveForward uses
+      // fwd = (sin(yaw), 0, -cos(yaw)), so facing yaw = atan2(dx, -dz).
+      // Shortest-arc exponential ease (~10/s) keeps turns snappy but smooth.
+      if (dx !== 0 || dz !== 0) {
+        const targetYaw = Math.atan2(dx, -dz);
+        const dYaw = Math.atan2(Math.sin(targetYaw - modelYaw), Math.cos(targetYaw - modelYaw));
+        modelYaw += dYaw * Math.min(1, dt * 10);
+      }
       // Reset vertical velocity when grounded (prevents unbounded gravity
       // accumulation that causes the character controller to receive huge
       // downward deltas, leading to ground clipping and sideways jitter).
@@ -1071,7 +1099,7 @@ startGame({
       // Apply gravity
       vy -= GRAVITY * dt;
       // Send desired movement delta to the sim worker (Rapier character controller)
-      sim.sendCommand({ type: "movePlayer", desiredDelta: [dx, vy * dt, dz] });
+      sim.sendCommand({ type: "movePlayer", desiredDelta: [dx, vy * dt, dz], verticalVelocity: vy });
       // Ease the camera eye height toward the pose's target so stand↔crouch↔prone
       // transitions glide instead of snapping. Frame-rate-independent exponential
       // smoothing: ~12/s converges in ~250ms, hiding the capsule-resize pop.
@@ -2208,14 +2236,31 @@ function buildDomHud(
   };
 }
 
+// Interpolated player render position — lerps between the last two sim-tick
+// positions using the same alpha scheme as entity transform interpolation, so
+// the avatar and its camera glide smoothly instead of stair-stepping at the
+// 60Hz sim tick rate (which reads as positional flicker at higher frame rates).
+function getPlayerRenderPos(): [number, number, number] {
+  const alpha = SIM_TICK_DT > 0
+    ? Math.min(1, (performance.now() - playerState.lastMoveTime) / (SIM_TICK_DT * 1000))
+    : 1;
+  const p = playerState.prevPos, c = playerState.pos;
+  return [
+    p[0] + (c[0] - p[0]) * alpha,
+    p[1] + (c[1] - p[1]) * alpha,
+    p[2] + (c[2] - p[2]) * alpha,
+  ];
+}
+
 function applyCamera(renderer: WebGPURenderer, yaw: number, pitch: number): void {
   const fwd = getForwardVector(yaw, pitch);
+  const renderPos = getPlayerRenderPos();
   switch (cameraMode) {
     case CameraMode.FirstPerson: {
       const eye: [number, number, number] = [
-        playerState.pos[0],
-        playerState.pos[1] + currentEyeHeight,
-        playerState.pos[2],
+        renderPos[0],
+        renderPos[1] + currentEyeHeight,
+        renderPos[2],
       ];
       renderer.setCameraPosition(eye);
       renderer.setCameraTarget([eye[0] + fwd[0], eye[1] + fwd[1], eye[2] + fwd[2]]);
@@ -2223,9 +2268,9 @@ function applyCamera(renderer: WebGPURenderer, yaw: number, pitch: number): void
     }
     case CameraMode.ThirdPerson: {
       const eye: [number, number, number] = [
-        playerState.pos[0],
-        playerState.pos[1] + currentEyeHeight,
-        playerState.pos[2],
+        renderPos[0],
+        renderPos[1] + currentEyeHeight,
+        renderPos[2],
       ];
       // Orbit the camera behind the player along the view forward, looking at
       // the eye. Distance is adjustable via the scroll wheel.
