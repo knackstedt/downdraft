@@ -2,8 +2,8 @@ import { createValidatedShaderModule } from "../render/shader-validator";
 import type { StructView, WgslStruct } from "@downdraft/shader-graph";
 import { f32, mat4x4f, vec3f, wgsl } from "@downdraft/shader-graph";
 import { type Mat4 } from "wgpu-matrix";
-import type { GraphRenderContext } from "..";
-import { RenderPass } from "..";
+import type { GraphRenderContext } from "../index";
+import { RenderPass } from "../index";
 import type { ParticleGPUData } from "./particle-data";
 import { packParticleBuffer } from "./particle-data";
 

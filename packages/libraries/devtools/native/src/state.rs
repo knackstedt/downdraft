@@ -224,6 +224,89 @@ impl Default for InputState {
     }
 }
 
+// ── Generic panel snapshots (KV / table / series / lines / controls) ──
+
+/// Row-flag bits shared by KV rows and line entries.
+pub const FLAG_HEADER: u8 = 1;
+pub const FLAG_WARN: u8 = 2;
+pub const FLAG_ERROR: u8 = 4;
+
+#[derive(Clone)]
+pub struct KvRow {
+    pub key: String,
+    pub value: String,
+    pub flags: u8,
+}
+
+#[derive(Clone)]
+pub struct SeriesDef {
+    pub name: String,
+    pub values: Vec<f32>,
+}
+
+#[derive(Clone)]
+pub struct LineEntry {
+    pub text: String,
+    pub flags: u8,
+}
+
+/// Interactive controls rendered by the generic panel. Mutating a control
+/// queues a DevtoolsCommand that TS dispatches to a registered handler.
+#[derive(Clone)]
+pub enum Control {
+    Button { id: String, label: String, payload: String },
+    Checkbox { id: String, label: String, checked: bool },
+    Slider { id: String, label: String, value: f32, min: f32, max: f32 },
+}
+
+#[derive(Clone)]
+pub enum SnapshotSection {
+    Kv { name: String, rows: Vec<KvRow> },
+    Table { name: String, cols: Vec<String>, rows: Vec<Vec<String>> },
+    Series { name: String, series: Vec<SeriesDef> },
+    Lines { name: String, lines: Vec<LineEntry> },
+    Controls { name: String, controls: Vec<Control> },
+}
+
+impl SnapshotSection {
+    pub fn name(&self) -> &str {
+        match self {
+            Self::Kv { name, .. }
+            | Self::Table { name, .. }
+            | Self::Series { name, .. }
+            | Self::Lines { name, .. }
+            | Self::Controls { name, .. } => name,
+        }
+    }
+}
+
+/// Snapshot status codes (must match egui-ffi.ts).
+pub const STATUS_OK: u8 = 0;
+pub const STATUS_LOADING: u8 = 1;
+pub const STATUS_UNSUPPORTED: u8 = 2;
+pub const STATUS_ERROR: u8 = 3;
+
+#[derive(Clone)]
+pub struct GenericSnapshot {
+    pub status: u8,
+    pub status_msg: String,
+    pub sections: Vec<SnapshotSection>,
+    /// Sequence number of the last push — used to detect "no data yet".
+    pub pushed_at_frame: u32,
+}
+
+// ── Command channel (Rust → TS) ──
+
+/// A UI-originated command queued by a panel control; TS polls + dispatches.
+#[derive(Clone)]
+pub struct DevtoolsCommand {
+    pub panel: u8,
+    pub action: String,
+    /// JSON string payload (number for sliders, "0"/"1" for checkboxes,
+    /// arbitrary JSON for buttons).
+    pub payload: String,
+}
+
 // ── Panel ids ──
 
 #[derive(Clone, Copy, PartialEq)]
@@ -234,6 +317,16 @@ pub enum PanelId {
     PerfRecorder = 3,
     PerfMetrics = 4,
     DomTree = 5,
+    SimWorld = 6,
+    Memory = 7,
+    RenderGraph = 8,
+    Materials = 9,
+    Doctor = 10,
+    Workers = 11,
+    Input = 12,
+    PostFx = 13,
+    Assets = 14,
+    Game = 15,
 }
 
 impl PanelId {
@@ -244,8 +337,21 @@ impl PanelId {
             3 => Self::PerfRecorder,
             4 => Self::PerfMetrics,
             5 => Self::DomTree,
+            6 => Self::SimWorld,
+            7 => Self::Memory,
+            8 => Self::RenderGraph,
+            9 => Self::Materials,
+            10 => Self::Doctor,
+            11 => Self::Workers,
+            12 => Self::Input,
+            13 => Self::PostFx,
+            14 => Self::Assets,
+            15 => Self::Game,
             _ => Self::Console,
         }
+    }
+    pub fn as_u8(self) -> u8 {
+        self as u8
     }
     pub fn label(self) -> &'static str {
         match self {
@@ -255,14 +361,34 @@ impl PanelId {
             Self::PerfRecorder => "Recorder",
             Self::PerfMetrics => "Metrics",
             Self::DomTree => "ECS",
+            Self::SimWorld => "Sim",
+            Self::Memory => "Memory",
+            Self::RenderGraph => "RGraph",
+            Self::Materials => "Mats",
+            Self::Doctor => "Doctor",
+            Self::Workers => "Workers",
+            Self::Input => "Input",
+            Self::PostFx => "PostFX",
+            Self::Assets => "Assets",
+            Self::Game => "Game",
         }
     }
-    pub const ALL: [PanelId; 6] = [
+    pub const ALL: [PanelId; 16] = [
         Self::Console,
         Self::Scene,
         Self::Gpu,
         Self::PerfRecorder,
         Self::PerfMetrics,
         Self::DomTree,
+        Self::SimWorld,
+        Self::Memory,
+        Self::RenderGraph,
+        Self::Materials,
+        Self::Doctor,
+        Self::Workers,
+        Self::Input,
+        Self::PostFx,
+        Self::Assets,
+        Self::Game,
     ];
 }

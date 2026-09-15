@@ -1,7 +1,7 @@
 import { createValidatedShaderModule } from "@downdraft/core";
 import { FULLSCREEN_VS } from "@downdraft/core";
 import { buildMaterialProps, buildPalette, PALETTE_SIZE, SHADES_PER_MATERIAL } from "@downdraft/library-sand";
-import SAND_FS from "../shaders/sand-render.wgsl?raw";
+import SAND_FS from "../shaders/sand-render.wgsl?raw" with { type: "text" };
 
 export class SandGridPass {
   private device: GPUDevice;

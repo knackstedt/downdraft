@@ -12,7 +12,7 @@
 import { createValidatedShaderModule } from "@downdraft/core";
 import { FULLSCREEN_VS } from "@downdraft/core";
 import { buildPalette, PALETTE_SIZE, SHADES_PER_MATERIAL } from "@downdraft/library-sand";
-import BG_FS from "../shaders/background-render.wgsl?raw";
+import BG_FS from "../shaders/background-render.wgsl?raw" with { type: "text" };
 
 export class BackgroundGridPass {
   private device: GPUDevice;

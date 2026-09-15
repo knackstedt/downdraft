@@ -15,7 +15,7 @@
 // ============================================================================
 
 import { createValidatedShaderModule } from "@downdraft/core";
-import LIGHT_WGSL from "../shaders/light-accum.wgsl?raw";
+import LIGHT_WGSL from "../shaders/light-accum.wgsl?raw" with { type: "text" };
 import {
     EXPLOSION_LIGHT_COLOR,
     EXPLOSION_LIGHT_INTENSITY,

@@ -9,7 +9,7 @@
 
 import { createValidatedShaderModule } from "@downdraft/core";
 import { FULLSCREEN_VS } from "@downdraft/core";
-import FOG_FS from "../shaders/fog-render.wgsl?raw";
+import FOG_FS from "../shaders/fog-render.wgsl?raw" with { type: "text" };
 
 export class FogOfWarPass {
   private device: GPUDevice;

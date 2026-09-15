@@ -10,6 +10,7 @@
 // ============================================================================
 
 import { dlopen, ptr, type CFunction } from "@downdraft/platform-native";
+import { Buffer } from "node:buffer";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -49,6 +50,7 @@ const DEVTOOLS_SPEC: Record<string, CFunction> = {
   dd_devtools_resize: { args: ["ptr", "f32", "f32"], returns: "void" } as CFunction,
   dd_devtools_set_visible: { args: ["ptr", "i32"], returns: "void" } as CFunction,
   dd_devtools_set_active_panel: { args: ["ptr", "u8"], returns: "void" } as CFunction,
+  dd_devtools_get_active_panel: { args: ["ptr"], returns: "u8" } as CFunction,
 
   // Input
   dd_devtools_set_mouse_pos: { args: ["ptr", "f32", "f32"], returns: "void" } as CFunction,
@@ -75,6 +77,10 @@ const DEVTOOLS_SPEC: Record<string, CFunction> = {
   dd_devtools_set_gpu_info: { args: ["ptr", "ptr", "u64"], returns: "void" } as CFunction,
   dd_devtools_set_profile: { args: ["ptr", "ptr", "u64"], returns: "void" } as CFunction,
   dd_devtools_set_metrics: { args: ["ptr", "ptr", "u64"], returns: "void" } as CFunction,
+
+  // Generic snapshots + command channel
+  dd_devtools_set_snapshot: { args: ["ptr", "u8", "ptr", "u64"], returns: "void" } as CFunction,
+  dd_devtools_take_command: { args: ["ptr", "ptr", "u64"], returns: "u64" } as CFunction,
 
   // Eval round-trip
   dd_devtools_take_eval_request: {
@@ -134,6 +140,9 @@ export function devtoolsResize(h: DevtoolsHandle, w: number, ht: number): void {
 
 export function devtoolsSetActivePanel(h: DevtoolsHandle, panel: number): void {
   symbols.dd_devtools_set_active_panel(h, panel);
+}
+export function devtoolsGetActivePanel(h: DevtoolsHandle): number {
+  return Number(symbols.dd_devtools_get_active_panel(h));
 }
 
 export function devtoolsSetMousePos(h: DevtoolsHandle, x: number, y: number): void {
@@ -228,6 +237,37 @@ export function devtoolsSetProfile(h: DevtoolsHandle, buf: Uint8Array): void {
 export function devtoolsSetMetrics(h: DevtoolsHandle, buf: Uint8Array): void {
   symbols.dd_devtools_set_metrics(h, ptr(buf), BigInt(buf.length));
 }
+
+// ── Generic snapshots + command channel ──
+
+/** Push a generic panel snapshot (encoded by encodeSnapshot()) into `slot`. */
+export function devtoolsSetSnapshot(h: DevtoolsHandle, slot: number, buf: Uint8Array): void {
+  symbols.dd_devtools_set_snapshot(h, slot, ptr(buf), BigInt(buf.length));
+}
+
+export interface DevtoolsCommand {
+  panel: number;
+  action: string;
+  payload: string;
+}
+
+/** Take the next queued UI command from Rust (or null). */
+export function devtoolsTakeCommand(h: DevtoolsHandle): DevtoolsCommand | null {
+  // Reused scratch buffer — commands are small; 64KB is generous.
+  const buf = commandScratch;
+  const n = Number(symbols.dd_devtools_take_command(h, ptr(buf), BigInt(buf.length)) as unknown as bigint);
+  if (n === 0) return null;
+  const view = new DataView(buf.buffer, buf.byteOffset, n);
+  const panel = view.getUint8(0);
+  const alen = view.getUint16(1, true);
+  const action = Buffer.from(buf.buffer, buf.byteOffset + 3, alen).toString("utf8");
+  const pOff = 3 + alen;
+  const plen = view.getUint16(pOff, true);
+  const payload = Buffer.from(buf.buffer, buf.byteOffset + pOff + 2, plen).toString("utf8");
+  return { panel, action, payload };
+}
+
+const commandScratch = new Uint8Array(64 * 1024);
 
 // ── Eval round-trip ──
 
@@ -596,3 +636,180 @@ export function encodeMetrics(
   }
   return new Uint8Array(buf.buffer, buf.byteOffset, buf.length);
 }
+
+// ── Generic snapshot encoder (must match decode_snapshot in lib.rs) ──
+
+export const SNAP_STATUS = { ok: 0, loading: 1, unsupported: 2, error: 3 } as const;
+export type SnapshotStatus = keyof typeof SNAP_STATUS;
+
+/** Row/line flag bits (must match state.rs). */
+export const SNAP_FLAG = { header: 1, warn: 2, error: 4 } as const;
+
+export interface SnapshotKvRow { key: string; value: string; flags?: number }
+export interface SnapshotSeries { name: string; values: number[] | Float32Array }
+export interface SnapshotLine { text: string; flags?: number }
+
+export type SnapshotControl =
+  | { type: "button"; id: string; label: string; payload?: string }
+  | { type: "checkbox"; id: string; label: string; checked: boolean }
+  | { type: "slider"; id: string; label: string; value: number; min: number; max: number };
+
+export type SnapshotSection =
+  | { kind: "kv"; name: string; rows: SnapshotKvRow[] }
+  | { kind: "table"; name: string; cols: string[]; rows: string[][] }
+  | { kind: "series"; name: string; series: SnapshotSeries[] }
+  | { kind: "lines"; name: string; lines: SnapshotLine[] }
+  | { kind: "controls"; name: string; controls: SnapshotControl[] };
+
+export interface PanelSnapshot {
+  status?: SnapshotStatus;
+  statusMsg?: string;
+  sections: SnapshotSection[];
+}
+
+/**
+ * Encode a generic panel snapshot into the flat wire format consumed by
+ * `decode_snapshot` in the Rust crate:
+ *   u8 status, str16 statusMsg, u32 sectionCount
+ *   per section: str16 name, u8 kind, kind-specific payload.
+ */
+export function encodeSnapshot(snap: PanelSnapshot): Uint8Array {
+  const sections = snap.sections ?? [];
+  const status = SNAP_STATUS[snap.status ?? "ok"];
+  const statusMsg = snap.statusMsg ?? "";
+
+  let size = 1 + 2 + Buffer.byteLength(statusMsg) + 4;
+  for (const s of sections) {
+    size += 2 + Buffer.byteLength(s.name) + 1;
+    switch (s.kind) {
+      case "kv":
+        size += 4;
+        for (const r of s.rows) size += 1 + 2 + Buffer.byteLength(r.key) + 2 + Buffer.byteLength(r.value);
+        break;
+      case "table":
+        size += 2;
+        for (const c of s.cols) size += 2 + Buffer.byteLength(c);
+        size += 4;
+        for (const row of s.rows) for (const cell of row) size += 2 + Buffer.byteLength(cell);
+        break;
+      case "series":
+        size += 2;
+        for (const ser of s.series) size += 2 + Buffer.byteLength(ser.name) + 4 + ser.values.length * 4;
+        break;
+      case "lines":
+        size += 4;
+        for (const l of s.lines) size += 1 + 2 + Buffer.byteLength(l.text);
+        break;
+      case "controls":
+        size += 2;
+        for (const c of s.controls) {
+          size += 1 + 2 + Buffer.byteLength(c.id) + 2 + Buffer.byteLength(c.label);
+          if (c.type === "button") size += 2 + Buffer.byteLength(c.payload ?? "");
+          else if (c.type === "checkbox") size += 1;
+          else size += 12;
+        }
+        break;
+    }
+  }
+
+  const buf = Buffer.alloc(size);
+  let off = 0;
+  const w16 = (s: string) => {
+    const b = Buffer.from(s, "utf8");
+    buf.writeUInt16LE(b.length, off); off += 2;
+    b.copy(buf, off); off += b.length;
+  };
+
+  buf.writeUInt8(status, off); off += 1;
+  w16(statusMsg);
+  buf.writeUInt32LE(sections.length, off); off += 4;
+
+  for (const s of sections) {
+    w16(s.name);
+    switch (s.kind) {
+      case "kv": {
+        buf.writeUInt8(0, off); off += 1;
+        buf.writeUInt32LE(s.rows.length, off); off += 4;
+        for (const r of s.rows) {
+          buf.writeUInt8(r.flags ?? 0, off); off += 1;
+          w16(r.key);
+          w16(r.value);
+        }
+        break;
+      }
+      case "table": {
+        buf.writeUInt8(1, off); off += 1;
+        buf.writeUInt16LE(s.cols.length, off); off += 2;
+        for (const c of s.cols) w16(c);
+        buf.writeUInt32LE(s.rows.length, off); off += 4;
+        for (const row of s.rows) for (const cell of row) w16(cell);
+        break;
+      }
+      case "series": {
+        buf.writeUInt8(2, off); off += 1;
+        buf.writeUInt16LE(s.series.length, off); off += 2;
+        for (const ser of s.series) {
+          w16(ser.name);
+          buf.writeUInt32LE(ser.values.length, off); off += 4;
+          for (const v of ser.values) {
+            buf.writeFloatLE(v, off); off += 4;
+          }
+        }
+        break;
+      }
+      case "lines": {
+        buf.writeUInt8(3, off); off += 1;
+        buf.writeUInt32LE(s.lines.length, off); off += 4;
+        for (const l of s.lines) {
+          buf.writeUInt8(l.flags ?? 0, off); off += 1;
+          w16(l.text);
+        }
+        break;
+      }
+      case "controls": {
+        buf.writeUInt8(4, off); off += 1;
+        buf.writeUInt16LE(s.controls.length, off); off += 2;
+        for (const c of s.controls) {
+          if (c.type === "button") {
+            buf.writeUInt8(0, off); off += 1;
+            w16(c.id); w16(c.label); w16(c.payload ?? "");
+          } else if (c.type === "checkbox") {
+            buf.writeUInt8(1, off); off += 1;
+            w16(c.id); w16(c.label);
+            buf.writeUInt8(c.checked ? 1 : 0, off); off += 1;
+          } else {
+            buf.writeUInt8(2, off); off += 1;
+            w16(c.id); w16(c.label);
+            buf.writeFloatLE(c.value, off); off += 4;
+            buf.writeFloatLE(c.min, off); off += 4;
+            buf.writeFloatLE(c.max, off); off += 4;
+          }
+        }
+        break;
+      }
+    }
+  }
+  return new Uint8Array(buf.buffer, buf.byteOffset, buf.length);
+}
+
+// ── Panel slot ids (must match PanelId in state.rs) ──
+
+export const PANEL = {
+  console: 0,
+  scene: 1,
+  gpu: 2,
+  "perf-recorder": 3,
+  "perf-metrics": 4,
+  "dom-tree": 5,
+  sim: 6,
+  memory: 7,
+  "render-graph": 8,
+  materials: 9,
+  doctor: 10,
+  workers: 11,
+  input: 12,
+  postfx: 13,
+  assets: 14,
+  game: 15,
+} as const;
+export type PanelName = keyof typeof PANEL;

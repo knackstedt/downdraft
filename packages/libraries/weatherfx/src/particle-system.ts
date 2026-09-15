@@ -9,8 +9,8 @@ import type { ITrackedRenderPass } from "@downdraft/core";
 import { calculateViewProj, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, type CameraState } from "@downdraft/core";
 import { WeatherType } from "@downdraft/library-weather";
 import { StructView, wgsl } from "@downdraft/shader-graph";
-import COMPUTE_WGSL from "./shaders/particle-compute.wgsl?raw";
-import RENDER_WGSL from "./shaders/particle-render.wgsl?raw";
+import COMPUTE_WGSL from "./shaders/particle-compute.wgsl?raw" with { type: "text" };
+import RENDER_WGSL from "./shaders/particle-render.wgsl?raw" with { type: "text" };
 
 // --- Typed uniform structs (validate against particle-compute.wgsl / particle-render.wgsl) ---
 export const SimParamsStruct = wgsl.struct("SimParams", {

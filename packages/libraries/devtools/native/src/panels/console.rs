@@ -1,6 +1,6 @@
 // panels/console.rs — Console panel: logs + REPL + thread selector + filters.
 
-use crate::state::{ConsoleSeverity, EvalRequest, PanelId};
+use crate::state::{ConsoleSeverity, EvalRequest};
 use crate::DevtoolsState;
 
 // Built-in autocomplete suggestions (mirrors the PixiJS version).

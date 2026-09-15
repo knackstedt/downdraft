@@ -1,5 +1,4 @@
-import { createValidatedShaderModule } from "@downdraft/core";
-import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "@downdraft/core";
+import { createValidatedShaderModule, DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "@downdraft/core";
 import { BOAT_CELL_WORLD_SIZE, BOAT_LAYER_HEIGHT, BoatCellType } from "@shared/constants";
 import type { BoatBufferReader } from "@to-the-ocean/library-boats/boat-sab";
 import { HOLO_WGSL } from "../shaders/entity-shaders";
@@ -228,7 +227,7 @@ export class HoloPreviewRenderer {
 
     passEncoder.setPipeline(this.holoPipeline);
     const hBg = ctx.bindGroups?.[holoIdx] ?? ctx.bindGroup;
-    if (ctx.bindGroups) passEncoder.setBindGroup(0, hBg);
+    if (ctx.bindGroups) passEncoder.setBindGroup(0, hBg, [0]);
     else passEncoder.setBindGroup(0, hBg!, [holoIdx * 256]);
     passEncoder.setVertexBuffer(0, this.holoVertices!);
     passEncoder.setIndexBuffer(this.holoIndices!, "uint16");

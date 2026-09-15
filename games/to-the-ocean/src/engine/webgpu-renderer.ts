@@ -446,7 +446,7 @@ export class WebGPURenderer extends GameRenderer implements IRendererStateProvid
 
       await this.particleSystem.init();
 
-      this.postProcessStack = new PostProcessStack(device, format, { depthFormat: DEPTH_FORMAT });
+      this.postProcessStack = new PostProcessStack(device, format, { depthFormat: DEPTH_FORMAT, sceneFormat: format });
       this.postProcessStack.init();
 
       this.underwaterFogPass = new UnderwaterFogPass(device, format);
@@ -1469,6 +1469,9 @@ export class WebGPURenderer extends GameRenderer implements IRendererStateProvid
   getGPUInfo() { return this.accessors.getGPUInfo(); }
   getFrameTelemetry() { return this.accessors.getFrameTelemetry(); }
   getPostProcessInfo() { return this.accessors.getPostProcessInfo(); }
+  getPostProcessStack() { return this.accessors.getPostProcessStack(); }
+  getModelRenderer() { return this.accessors.getModelRenderer(); }
+  getMaterialLibrary() { return this.accessors.getMaterialLibrary(); }
   getFrameGraph() {
     const profiler = this.accessors.getGPUProfiler();
     if (!profiler) return null;

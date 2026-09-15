@@ -4,9 +4,9 @@ import type { DebugDrawQueue, DebugText } from "../../debug-draw/queue";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
 import { RenderPass } from "../render-pass";
 
-import DEBUG_LINE_SHADER from "../shaders/debug/debug-line.wgsl?raw";
-import DEBUG_POINT_SHADER from "../shaders/debug/debug-point.wgsl?raw";
-import DEBUG_TEXT_SHADER from "../shaders/debug/debug-text.wgsl?raw";
+import DEBUG_LINE_SHADER from "../shaders/debug/debug-line.wgsl?raw" with { type: "text" };
+import DEBUG_POINT_SHADER from "../shaders/debug/debug-point.wgsl?raw" with { type: "text" };
+import DEBUG_TEXT_SHADER from "../shaders/debug/debug-text.wgsl?raw" with { type: "text" };
 
 const LINE_STRIDE = 28;
 const POINT_STRIDE = 32;

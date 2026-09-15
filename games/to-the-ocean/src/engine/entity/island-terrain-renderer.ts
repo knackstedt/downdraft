@@ -1,5 +1,4 @@
-import { createValidatedShaderModule } from "@downdraft/core";
-import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "@downdraft/core";
+import { createValidatedShaderModule, DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "@downdraft/core";
 import { CHUNK_FULL, ChunkedVoxelField, getChunkedVoxel, setChunkedVoxel, VoxelField } from "@downdraft/library-marching-cubes";
 import { generateDecorationMesh, generateDecorations } from "@shared/island-decorations";
 import { extractMesh, extractMeshSubRegion } from "@shared/marching-cubes";
@@ -1067,7 +1066,7 @@ export class IslandTerrainRenderer {
     if (islandMesh && islandMesh.indexCount > 0) {
       passEncoder.setPipeline(this.islandPipeline);
       const bg = ctx.bindGroups?.[idx] ?? ctx.bindGroup;
-      if (ctx.bindGroups) passEncoder.setBindGroup(0, bg);
+      if (ctx.bindGroups) passEncoder.setBindGroup(0, bg, [0]);
       else passEncoder.setBindGroup(0, bg, [idx * 256]);
       passEncoder.setVertexBuffer(0, islandMesh.vertices);
       passEncoder.setIndexBuffer(islandMesh.indices, islandMesh.useUint32 ? "uint32" : "uint16");
@@ -1086,7 +1085,7 @@ export class IslandTerrainRenderer {
       if (chunkMap && chunkMap.size > 0) {
         passEncoder.setPipeline(this.islandPipeline);
         const bg = ctx.bindGroups?.[idx] ?? ctx.bindGroup;
-        if (ctx.bindGroups) passEncoder.setBindGroup(0, bg);
+        if (ctx.bindGroups) passEncoder.setBindGroup(0, bg, [0]);
         else passEncoder.setBindGroup(0, bg, [idx * 256]);
         const camX = ctx.cameraPosCache[0];
         const camY = ctx.cameraPosCache[1];
@@ -1131,7 +1130,7 @@ export class IslandTerrainRenderer {
     if (portTerrain && portTerrain.indexCount > 0 && this.islandPipeline) {
       passEncoder.setPipeline(this.islandPipeline);
       const bg = ctx.bindGroups?.[idx] ?? ctx.bindGroup;
-      if (ctx.bindGroups) passEncoder.setBindGroup(0, bg);
+      if (ctx.bindGroups) passEncoder.setBindGroup(0, bg, [0]);
       else passEncoder.setBindGroup(0, bg, [idx * 256]);
       passEncoder.setVertexBuffer(0, portTerrain.vertices);
       passEncoder.setIndexBuffer(portTerrain.indices, portTerrain.useUint32 ? "uint32" : "uint16");
@@ -1143,7 +1142,7 @@ export class IslandTerrainRenderer {
     if (portStruct && portStruct.indexCount > 0 && this.boatPipeline) {
       passEncoder.setPipeline(this.boatPipeline);
       const bg = ctx.bindGroups?.[idx] ?? ctx.bindGroup;
-      if (ctx.bindGroups) passEncoder.setBindGroup(0, bg);
+      if (ctx.bindGroups) passEncoder.setBindGroup(0, bg, [0]);
       else passEncoder.setBindGroup(0, bg, [idx * 256]);
       passEncoder.setVertexBuffer(0, portStruct.vertices);
       passEncoder.setIndexBuffer(portStruct.indices, portStruct.useUint32 ? "uint32" : "uint16");
@@ -1162,7 +1161,7 @@ export class IslandTerrainRenderer {
       if (pv && pi && pic > 0) {
         passEncoder.setPipeline(this.boatPipeline);
         const bg = ctx.bindGroups?.[idx] ?? ctx.bindGroup;
-        if (ctx.bindGroups) passEncoder.setBindGroup(0, bg);
+        if (ctx.bindGroups) passEncoder.setBindGroup(0, bg, [0]);
         else passEncoder.setBindGroup(0, bg, [idx * 256]);
         passEncoder.setVertexBuffer(0, pv);
         passEncoder.setIndexBuffer(pi, "uint16");

@@ -580,6 +580,8 @@ export class WgpuDevice {
 
     // Vertex buffers — flat: per buffer [arrayStride, stepMode, attrCount,
     //   then attrCount * 3 u32: format, offset, shaderLocation]
+    // WebGPU allows null holes in vertex.buffers; the C shim has no null-slot
+    // concept, so emit a zero-stride/zero-attr entry to keep the walk aligned.
     const buffers = vertex.buffers ? Array.from(vertex.buffers) : [];
     let vertexBufferCount = 0;
     let vertexBufferFlat: Uint32Array | null = null;
@@ -591,10 +593,9 @@ export class WgpuDevice {
       vertexBufferFlat = new Uint32Array(totalSize);
       let offset = 0;
       for (const buf of buffers) {
-        if (!buf) continue;
-        vertexBufferFlat[offset++] = buf.arrayStride;
-        vertexBufferFlat[offset++] = buf.stepMode === "instance" ? 1 : 0;
-        const attrs = buf.attributes ? Array.from(buf.attributes) : [];
+        vertexBufferFlat[offset++] = buf?.arrayStride ?? 0;
+        vertexBufferFlat[offset++] = buf?.stepMode === "instance" ? 1 : 0;
+        const attrs = buf?.attributes ? Array.from(buf.attributes) : [];
         vertexBufferFlat[offset++] = attrs.length;
         for (const attr of attrs) {
           vertexBufferFlat[offset++] = parseVertexFormat(attr.format);

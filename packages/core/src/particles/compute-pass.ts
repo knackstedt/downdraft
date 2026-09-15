@@ -1,8 +1,8 @@
 import { createValidatedShaderModule } from "../render/shader-validator";
 import type { StructView, WgslStruct } from "@downdraft/shader-graph";
 import { f32, u32, vec3f, vec4f, wgsl } from "@downdraft/shader-graph";
-import type { GraphRenderContext } from "..";
-import { RenderPass } from "..";
+import type { GraphRenderContext } from "../index";
+import { RenderPass } from "../index";
 
 // ─── Uniform structs (single source of truth for layout) ───────────────────
 const SimParamsStruct: WgslStruct = wgsl.struct("SimParams", {

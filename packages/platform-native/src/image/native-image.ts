@@ -132,18 +132,16 @@ export async function createImageBitmapNative(
 // ── Install polyfills on globalThis ──
 
 export function installImagePolyfills(): void {
-  if (typeof (globalThis as any).createImageBitmap === "undefined") {
-    (globalThis as any).createImageBitmap = createImageBitmapNative;
-  }
-
-  if (typeof (globalThis as any).ImageBitmap === "undefined") {
-    (globalThis as any).ImageBitmap = NativeImageBitmap;
-  }
+  // Always override — Deno ships native createImageBitmap/ImageBitmap/
+  // OffscreenCanvas that reject the engine's polyfilled canvas objects and
+  // produce bitmaps the wgpu texture upload path can't consume.
+  (globalThis as any).createImageBitmap = createImageBitmapNative;
+  (globalThis as any).ImageBitmap = NativeImageBitmap;
 
   // OffscreenCanvas polyfill — used by PixiJS for text rasterization.
   // getContext("2d") returns a FreeType-backed NativeCanvas2D; transferToImageBitmap
   // copies the 2D context's pixel data (not empty) so text textures upload correctly.
-  if (typeof (globalThis as any).OffscreenCanvas === "undefined") {
+  {
     (globalThis as any).OffscreenCanvas = class OffscreenCanvas {
       width: number;
       height: number;

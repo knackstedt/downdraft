@@ -9,7 +9,7 @@
 import { createValidatedShaderModule } from "@downdraft/core";
 import { DEPTH_FORMAT } from "@downdraft/core";
 
-import BLOCK_RENDER_3D_FS from "../shaders/block-render-3d.wgsl?raw";
+import BLOCK_RENDER_3D_FS from "../shaders/block-render-3d.wgsl?raw" with { type: "text" };
 import { getBlockPalette } from "../shared/block-registry";
 import {
     ACTIVE_GRID_CELLS, ACTIVE_GRID_H, ACTIVE_GRID_W, BLOCK_WATER, SLOPE_ELIGIBLE,

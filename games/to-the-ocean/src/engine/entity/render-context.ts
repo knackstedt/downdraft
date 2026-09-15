@@ -10,7 +10,7 @@ export interface EntityRenderContext {
   uniformBuffer: GPUBuffer | null;
   bindGroup: GPUBindGroup | null;
   bindGroupLayout: GPUBindGroupLayout | null;
-  /** Per-entity bind groups with explicit offsets (native mode doesn't support dynamic offsets). */
+  /** Per-entity bind groups with explicit offsets (offset baked into resource; bind with [0] dynamic offset). */
   bindGroups: GPUBindGroup[] | null;
 
   // Per-frame camera state (updated in beginFrame)

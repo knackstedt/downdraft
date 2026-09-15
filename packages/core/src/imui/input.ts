@@ -1,4 +1,4 @@
-import type { InputState } from "..";
+import type { InputState } from "../index";
 import type { UIElement, UIRoot } from "./element";
 
 export class UIInputRouter {

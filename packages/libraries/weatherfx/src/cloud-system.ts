@@ -9,7 +9,7 @@ import { calculateViewProj, createLogger, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, type 
 import { WeatherType } from "@downdraft/library-weather";
 import { StructView, wgsl } from "@downdraft/shader-graph";
 import type { CloudExtractedMesh, CloudMeshProvider, CloudVoxelField } from "./cloud-provider";
-import CLOUD_WGSL from "./shaders/cloud.wgsl?raw";
+import CLOUD_WGSL from "./shaders/cloud.wgsl?raw" with { type: "text" };
 
 const log = createLogger();
 

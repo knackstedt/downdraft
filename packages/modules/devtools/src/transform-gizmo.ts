@@ -15,7 +15,7 @@ import {
     type CameraState,
 } from "@downdraft/core";
 import type { GizmoMode } from "./index";
-import GIZMO_WGSL from "./shaders/transform-gizmo.wgsl?raw";
+import GIZMO_WGSL from "./shaders/transform-gizmo.wgsl?raw" with { type: "text" };
 
 
 const AXIS_COLORS: [number, number, number][] = [

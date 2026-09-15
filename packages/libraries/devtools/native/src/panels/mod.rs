@@ -2,7 +2,9 @@
 
 pub mod console;
 pub mod dom_tree;
+pub mod generic;
 pub mod gpu;
+pub mod input;
 pub mod perf_metrics;
 pub mod perf_recorder;
 pub mod scene;
@@ -21,6 +23,17 @@ pub fn render_panel(state: &mut DevtoolsState, ui: &mut egui::Ui) {
         PanelId::PerfRecorder => perf_recorder::render(state, ui),
         PanelId::PerfMetrics => perf_metrics::render(state, ui),
         PanelId::DomTree => dom_tree::render(state, ui),
+        PanelId::Input => input::render(state, ui),
+        // All provider-fed panels share the generic snapshot renderer.
+        PanelId::SimWorld
+        | PanelId::Memory
+        | PanelId::RenderGraph
+        | PanelId::Materials
+        | PanelId::Doctor
+        | PanelId::Workers
+        | PanelId::PostFx
+        | PanelId::Assets
+        | PanelId::Game => generic::render(state, ui, state.active_panel),
     }
 }
 

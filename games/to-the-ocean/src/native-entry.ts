@@ -17,7 +17,7 @@
 
 import { createLogger, setThreadTag } from "@downdraft/core";
 import { allocateProfilingSAB } from "@downdraft/core/profiling";
-import { NativeDebuggerHost } from "@downdraft/library-devtools";
+import { NativeDebuggerHost, registerEngineProviders, SNAP_FLAG } from "@downdraft/library-devtools";
 import { NativePixiUiHost } from "@downdraft/library-pixi-ui-native";
 import { createNativeHost, encodePNG, getFreeTypeTextRenderer, paddedReadbackToRGBA } from "@downdraft/platform-native";
 import { writeFileSync } from "node:fs";
@@ -28,6 +28,7 @@ import { WebGPURenderer } from "./engine/webgpu-renderer";
 import { NativeOceanDataBridge } from "./pixi/native-data-bridge";
 import { NativeInputRouter } from "./pixi/native-input-router";
 import { createNativeOceanScene, type NativeOceanScene } from "./pixi/native-scene";
+import { getWorkerState } from "./pixi/worker-store";
 import { useGameStore } from "./stores/game-store";
 
 setThreadTag("R0");
@@ -136,6 +137,62 @@ async function main() {
       const simProxy = sim.getDevToolsProxy();
       if (simProxy?.__devtoolsEval) {
         debuggerHost.debuggerScene?.registerThreadEval("sim", (expr: string) => simProxy.__devtoolsEval(expr));
+      }
+      // Engine-generic panel providers (sim, memory, render graph, materials,
+      // doctor, workers, input, postfx, assets) + command handlers.
+      const mirror = debuggerHost.devtoolsMirror;
+      if (mirror) {
+        const evalTargets = () => ["main", ...(debuggerHost ? ["sim"] : [])];
+        registerEngineProviders(mirror, {
+          renderer,
+          profilingSAB,
+          simProxy: sim,
+          evalTargetNames: evalTargets,
+          inputInfo: () => {
+            try {
+              const s = getWorkerState();
+              return [
+                { key: "Pointer lock", value: s.pointerLocked ? "locked" : "unlocked" },
+                { key: "HUD hidden", value: String(s.hudHidden) },
+                { key: "Camera mode", value: String(s.hudState.cameraMode) },
+              ];
+            } catch { return []; }
+          },
+        });
+        // Game-specific provider: player vitals, boats, weather, equipment.
+        mirror.registerProvider("game", () => {
+          try {
+            const s = getWorkerState();
+            const h = s.hudState;
+            const rows = [
+              { key: "Player vitals", value: "", flags: SNAP_FLAG.header },
+              { key: "Health", value: `${h.health.toFixed(0)}/${h.maxHealth.toFixed(0)}` },
+              { key: "Hunger", value: h.hunger.toFixed(0) },
+              { key: "Thirst", value: h.thirst.toFixed(0) },
+              { key: "Oxygen", value: `${h.oxygen.toFixed(0)}/${h.maxOxygen.toFixed(0)}` },
+              { key: "Temperature", value: `${h.temperature.toFixed(1)}°` },
+              { key: "World", value: "", flags: SNAP_FLAG.header },
+              { key: "Time of day", value: h.timeOfDay.toFixed(2) },
+              { key: "Weather", value: `${h.weatherType}${s.weather ? ` (${s.weather.type ?? "?"})` : ""}` },
+              { key: "Biome", value: String(h.biome) },
+              { key: "Position", value: `(${h.playerX.toFixed(1)}, ${h.playerZ.toFixed(1)}) heading ${h.heading.toFixed(0)}°` },
+              { key: "Gold", value: String(h.gold) },
+              { key: "Fishing", value: h.isFishing ? `tension ${h.fishingTension.toFixed(2)} progress ${h.fishingProgress.toFixed(2)}` : "no" },
+              { key: "Piloting / onboard", value: `${h.isPiloting} / ${h.isOnboard}` },
+            ];
+            const equip = Object.entries(s.equipment ?? {})
+              .filter(([, v]) => v)
+              .map(([k, v]) => ({ key: `Equip ${k}`, value: String(v) }));
+            return {
+              sections: [
+                { kind: "kv" as const, name: "", rows },
+                ...(equip.length ? [{ kind: "kv" as const, name: "Equipment", rows: equip }] : []),
+              ],
+            };
+          } catch (err) {
+            return { status: "error" as const, statusMsg: String(err), sections: [] };
+          }
+        });
       }
       log.info("native-entry", "Native debugger overlay ready (F12 to toggle)");
     } catch (e) {
@@ -560,22 +617,15 @@ async function main() {
 
           // Auto-record a CPU profile for the perf-recorder panel.
           if (process.env.DEBUGGER_PANEL === "perf-recorder" && debuggerHost?.debuggerScene) {
-            const scene = debuggerHost.debuggerScene;
-            const dockX = (scene as any).getDockX?.() ?? (1280 - 560);
+            const scene = debuggerHost.debuggerScene as any;
             log.info("native-entry", "Auto-recording CPU profile for perf-recorder...");
-            // Click the Record button (center ~x=759, y=53)
-            scene.handlePointerDown(dockX + 39, 53);
-            try { debuggerHost?.update(); } catch {}
-            scene.handlePointerUp(dockX + 39, 53);
+            scene.setPerfRecording?.(true);
             // Render frames to collect samples
             for (let i = 0; i < 60; i++) {
               try { debuggerHost?.update(); } catch {}
               try { (renderer as any).renderOneFrame?.(); } catch {}
             }
-            // Click Stop (center ~x=808, y=53)
-            scene.handlePointerDown(dockX + 88, 53);
-            try { debuggerHost?.update(); } catch {}
-            scene.handlePointerUp(dockX + 88, 53);
+            scene.setPerfRecording?.(false);
             // Render a few frames to process the profile
             for (let i = 0; i < 10; i++) {
               try { debuggerHost?.update(); } catch {}
@@ -591,141 +641,71 @@ async function main() {
             const dockW = (scene as any).dockWidth ?? 520;
             log.info("native-entry", `DEBUGGER_TEST: dockX=${dockX} dockW=${dockW} regions=${scene.getHits().regions.length}`);
 
-            // Test 1: Click on each tab
-            const tabNames = ["console", "scene", "gpu", "perf-recorder", "perf-metrics", "dom-tree"];
-            const tabW = Math.max(70, Math.floor(dockW / tabNames.length));
-            for (let t = 0; t < tabNames.length; t++) {
-              const tabX = dockX + t * tabW + tabW / 2;
-              const tabY = 15;
-              log.info("native-entry", `DEBUGGER_TEST: clicking tab ${tabNames[t]} at (${tabX}, ${tabY})`);
-              scene.handlePointerDown(tabX, tabY);
-              // Render a frame to see the result
+            const step = () => { try { debuggerHost?.update(); } catch {} try { (renderer as any).renderOneFrame?.(); } catch {} };
+            const click = (x: number, y: number) => {
+              scene.handlePointerMove(x, y);
+              scene.handlePointerDown(x, y);
               try { debuggerHost?.update(); } catch {}
-              try { (renderer as any).renderOneFrame?.(); } catch {}
-              log.info("native-entry", `DEBUGGER_TEST: active panel is now "${scene.getActivePanel()}"`);
-            }
-
-            // Test 2: Switch back to console and click on the REPL input
-            scene.handlePointerDown(dockX + tabW / 2, 15); // Click console tab
-            try { debuggerHost?.update(); } catch {}
-            // REPL input is at y = contentY + contentH - REPL_HEIGHT = 30 + 670 - 28 = 672
-            scene.handlePointerDown(dockX + 100, 686); // Click on REPL input bar
-            log.info("native-entry", `DEBUGGER_TEST: focused widget is "${scene.getFocusedWidget()}"`);
-            log.info("native-entry", `DEBUGGER_TEST: text input active: ${scene.isTextInputActive()}`);
-
-            // Test 3: Type some text
-            scene.handleTextInput("1 + 2");
-            log.info("native-entry", `DEBUGGER_TEST: REPL input is "${scene.getConsoleReplInput()}"`);
-
-            // Test 4: Press Enter to evaluate
-            scene.handleKeyDown("Enter", 13);
-            log.info("native-entry", `DEBUGGER_TEST: REPL input after Enter: "${scene.getConsoleReplInput()}"`);
-            log.info("native-entry", `DEBUGGER_TEST: REPL results: ${scene.getConsoleReplResults().length}`);
-
-            // Test 5: Test backspace
-            scene.handleTextInput("hello");
-            log.info("native-entry", `DEBUGGER_TEST: REPL input after typing "hello": "${scene.getConsoleReplInput()}"`);
-            scene.handleKeyDown("Backspace", 8);
-            log.info("native-entry", `DEBUGGER_TEST: REPL input after backspace: "${scene.getConsoleReplInput()}"`);
-
-            // Test 6: Test arrow up for history
-            scene.handleKeyDown("ArrowUp", 38);
-            log.info("native-entry", `DEBUGGER_TEST: REPL input after ArrowUp: "${scene.getConsoleReplInput()}"`);
-
-            // Test 7: Test mouse wheel scrolling
-            const scrollBefore = scene.getScrollY("console");
-            scene.handleWheel(dockX + 100, 100, 120);
-            const scrollAfter = scene.getScrollY("console");
-            log.info("native-entry", `DEBUGGER_TEST: scroll before=${scrollBefore} after=${scrollAfter}`);
-
-            // Test 8: Test Escape to clear focus
-            scene.handleKeyDown("Escape", 27);
-            log.info("native-entry", `DEBUGGER_TEST: focused widget after Escape: "${scene.getFocusedWidget()}"`);
-            log.info("native-entry", `DEBUGGER_TEST: text input active after Escape: ${scene.isTextInputActive()}`);
-
-            // Test 9: Test dock dragging/resizing
-            const dockWBefore = (scene as any).dockWidth ?? 520;
-            const dockXBefore = scene.getDockX();
-            // Simulate pointer down on the drag handle (left edge of dock)
-            scene.handlePointerDown(dockXBefore, 100);
-            log.info("native-entry", `DEBUGGER_TEST: drag started, isDragging=${(scene as any).isDragging}`);
-            // Simulate pointer move to resize (move left = wider dock)
-            scene.handlePointerMove(dockXBefore - 50, 100);
-            const dockWAfter = (scene as any).dockWidth ?? 520;
-            const dockXAfter = scene.getDockX();
-            log.info("native-entry", `DEBUGGER_TEST: after drag: dockW ${dockWBefore}→${dockWAfter}, dockX ${dockXBefore}→${dockXAfter}`);
-            // Simulate pointer up to release
-            scene.handlePointerUp(dockXBefore - 50, 100);
-            log.info("native-entry", `DEBUGGER_TEST: drag ended, isDragging=${(scene as any).isDragging}`);
-
-            // Test 10: Test scene panel tree expansion
-            // Recalculate dock position after drag (dockW changed from 520 to 570)
-            const dockX2 = scene.getDockX();
-            const dockW2 = (scene as any).dockWidth ?? 570;
-            const tabW2 = Math.max(70, Math.floor(dockW2 / 6));
-            scene.handlePointerDown(dockX2 + tabW2 + tabW2 / 2, 15); // Click scene tab (index 1)
-            try { debuggerHost?.update(); } catch {}
-            log.info("native-entry", `DEBUGGER_TEST: scene panel active: ${scene.getActivePanel()}`);
-            // Log hit regions for debugging
-            const sceneHits = scene.getHits().regions;
-            log.info("native-entry", `DEBUGGER_TEST: scene hit regions: ${sceneHits.length}`);
-            for (let i = 0; i < Math.min(5, sceneHits.length); i++) {
-              const r = sceneHits[i];
-              log.info("native-entry", `DEBUGGER_TEST:   region[${i}]: x=${r.x} y=${r.y} w=${r.width} h=${r.height}`);
-            }
-            const sceneExpandedBefore = scene.getSceneExpanded().size;
-            // Try clicking on the first few rows of the tree
-            // Tree starts at y = contentY + SEARCH_HEIGHT = 30 + 28 = 58
-            for (let tryY = 58; tryY < 120; tryY += 18) {
-              scene.handlePointerDown(dockX2 + 24, tryY);
+              scene.handlePointerUp(x, y);
               try { debuggerHost?.update(); } catch {}
-              if (scene.getSceneExpanded().size > sceneExpandedBefore) {
-                log.info("native-entry", `DEBUGGER_TEST: scene expanded at y=${tryY}: ${sceneExpandedBefore} → ${scene.getSceneExpanded().size}`);
-                break;
-              }
-            }
-            const sceneExpandedAfter = scene.getSceneExpanded().size;
-            log.info("native-entry", `DEBUGGER_TEST: scene expanded: ${sceneExpandedBefore} → ${sceneExpandedAfter}`);
+            };
 
-            // Test 11: Test GPU panel section expansion
-            scene.handlePointerDown(dockX2 + 2 * tabW2 + tabW2 / 2, 15); // Click GPU tab (index 2)
-            try { debuggerHost?.update(); } catch {}
-            log.info("native-entry", `DEBUGGER_TEST: gpu panel active: ${scene.getActivePanel()}`);
-            // Log hit regions for debugging
-            const gpuHits = scene.getHits().regions;
-            log.info("native-entry", `DEBUGGER_TEST: gpu hit regions: ${gpuHits.length}`);
-            for (let i = 0; i < Math.min(5, gpuHits.length); i++) {
-              const r = gpuHits[i];
-              log.info("native-entry", `DEBUGGER_TEST:   region[${i}]: x=${r.x} y=${r.y} w=${r.width} h=${r.height}`);
+            // Test 0: probe — sweep click positions to find the rail geometry.
+            for (let y = 10; y <= 420; y += 25) {
+              click(dockX + 50, y);
+              const active = (scene as any).getActivePanel?.() ?? "?";
+              log.info("native-entry", `DEBUGGER_TEST: probe y=${y} → active="${active}"`);
             }
-            const gpuExpandedBefore = scene.getGpuExpanded().size;
-            // Try clicking on the first few section headers
-            for (let tryY = 34; tryY < 100; tryY += 4) {
-              scene.handlePointerDown(dockX2 + 100, tryY);
-              try { debuggerHost?.update(); } catch {}
-              if (scene.getGpuExpanded().size > gpuExpandedBefore) {
-                log.info("native-entry", `DEBUGGER_TEST: gpu expanded at y=${tryY}: ${gpuExpandedBefore} → ${scene.getGpuExpanded().size}`);
-                break;
-              }
+            // Test 1: click every nav-rail item, verify active panel switches.
+            // Nav rail: vertical list, ~25px per item starting at y≈20, rail x at dockX+50.
+            const panelNames = ["console","scene","gpu","perf-recorder","perf-metrics","dom-tree","sim","memory","render-graph","materials","doctor","workers","input","postfx","assets","game"];
+            let navPassed = 0;
+            for (let i = 0; i < panelNames.length; i++) {
+              const y = 20 + i * 25;
+              click(dockX + 50, y);
+              const active = (scene as any).getActivePanel?.() ?? "?";
+              const ok = active === panelNames[i];
+              if (ok) navPassed++;
+              log.info("native-entry", `DEBUGGER_TEST: nav[${i}] ${panelNames[i]} → active="${active}" ${ok ? "OK" : "FAIL"}`);
             }
-            const gpuExpandedAfter = scene.getGpuExpanded().size;
-            log.info("native-entry", `DEBUGGER_TEST: gpu expanded: ${gpuExpandedBefore} → ${gpuExpandedAfter}`);
+            log.info("native-entry", `DEBUGGER_TEST: nav rail ${navPassed}/${panelNames.length} panels switched`);
 
-            // Test 12: Test perf recorder record button
-            scene.handlePointerDown(dockX2 + 3 * tabW2 + tabW2 / 2, 15); // Click perf-recorder tab (index 3)
+            // Test 2: PostFX checkbox → command round-trip (fx.<id> → stack.setEnabled).
+            click(dockX + 50, 20 + 13 * 25); // postfx
             try { debuggerHost?.update(); } catch {}
-            log.info("native-entry", `DEBUGGER_TEST: perf-recorder panel active: ${scene.getActivePanel()}`);
-            const recordingBefore = scene.isPerfRecording();
-            // Click on the Record button (at x=4, y=4, w=80, h=22 within the panel)
-            // The panel content starts at y = TAB_BAR_HEIGHT = 30, toolbar at y=0 within panel
-            scene.handlePointerDown(dockX2 + 44, 30 + 15);
-            try { debuggerHost?.update(); } catch {}
-            const recordingAfter = scene.isPerfRecording();
-            log.info("native-entry", `DEBUGGER_TEST: recording: ${recordingBefore} → ${recordingAfter}`);
+            const stack = (renderer as any).postProcessStack ?? (renderer as any).getPostProcessStack?.();
+            const fxBefore = stack?.getEnabledEffects?.() ?? [];
+            // First effect checkbox ("taa") ~y=99 in content area (content starts after rail, x offset ~130).
+            click(dockX + 150, 99);
+            for (let i = 0; i < 5; i++) step();
+            const fxAfter = stack?.getEnabledEffects?.() ?? [];
+            log.info("native-entry", `DEBUGGER_TEST: postfx toggle: [${fxBefore}] → [${fxAfter}] ${fxAfter.length !== fxBefore.length ? "OK" : "FAIL"}`);
 
-            // Final render
+            // Test 3: wheel scroll inside panel content.
+            scene.handleWheel(dockX + 300, 300, 240);
             try { debuggerHost?.update(); } catch {}
-            try { (renderer as any).renderOneFrame?.(); } catch {}
+            log.info("native-entry", "DEBUGGER_TEST: wheel scroll dispatched");
+
+            // Test 4: console REPL — click input bar, type, eval.
+            click(dockX + 50, 20); // console nav item
+            // REPL input sits at the bottom of the console panel — probe y to find it.
+            let replY = -1;
+            for (let y = 660; y <= 700; y += 5) {
+              click(dockX + 300, y);
+              const active = scene.isTextInputActive();
+              if (active && replY < 0) replY = y;
+              log.info("native-entry", `DEBUGGER_TEST: repl probe y=${y} → textInput=${active}`);
+            }
+            click(dockX + 300, replY >= 0 ? replY : 690);
+            const wantsText = scene.isTextInputActive();
+            log.info("native-entry", `DEBUGGER_TEST: text input active after REPL click: ${wantsText}`);
+            if (wantsText) {
+              scene.handleTextInput("1+2");
+              scene.handleKeyDown("Enter", 13);
+              for (let i = 0; i < 5; i++) step();
+              log.info("native-entry", "DEBUGGER_TEST: REPL eval dispatched (check console log for result)");
+            }
+
             log.info("native-entry", "DEBUGGER_TEST: All interaction tests complete");
           }
         }
@@ -848,6 +828,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  log.error("native-entry", `Fatal error: ${err}`);
+  log.error("native-entry", `Fatal error: ${err?.stack ?? err}`);
   process.exit(1);
 });

@@ -23,14 +23,14 @@ import { wgsl } from "./wgsl-struct";
 import { compareStruct, parseWgslStructs } from "./wgsl-struct-validator";
 
 // ─── .wgsl file imports (relative to packages/shader-graph/src/) ────────────
-import IMAGE_WGSL from "../../libraries/imui/src/shaders/image.wgsl?raw";
-import LINE_WGSL from "../../libraries/imui/src/shaders/line.wgsl?raw";
-import QUAD_WGSL from "../../libraries/imui/src/shaders/quad.wgsl?raw";
-import TEXT_WGSL from "../../libraries/imui/src/shaders/text.wgsl?raw";
-import PIXELATION_WGSL from "../../libraries/postfx/src/shaders/pixelation.wgsl?raw";
-import CLOUD_WGSL from "../../libraries/weatherfx/src/shaders/cloud.wgsl?raw";
-import PARTICLE_COMPUTE_WGSL from "../../libraries/weatherfx/src/shaders/particle-compute.wgsl?raw";
-import PARTICLE_RENDER_WGSL from "../../libraries/weatherfx/src/shaders/particle-render.wgsl?raw";
+import IMAGE_WGSL from "../../libraries/imui/src/shaders/image.wgsl?raw" with { type: "text" };
+import LINE_WGSL from "../../libraries/imui/src/shaders/line.wgsl?raw" with { type: "text" };
+import QUAD_WGSL from "../../libraries/imui/src/shaders/quad.wgsl?raw" with { type: "text" };
+import TEXT_WGSL from "../../libraries/imui/src/shaders/text.wgsl?raw" with { type: "text" };
+import PIXELATION_WGSL from "../../libraries/postfx/src/shaders/pixelation.wgsl?raw" with { type: "text" };
+import CLOUD_WGSL from "../../libraries/weatherfx/src/shaders/cloud.wgsl?raw" with { type: "text" };
+import PARTICLE_COMPUTE_WGSL from "../../libraries/weatherfx/src/shaders/particle-compute.wgsl?raw" with { type: "text" };
+import PARTICLE_RENDER_WGSL from "../../libraries/weatherfx/src/shaders/particle-render.wgsl?raw" with { type: "text" };
 
 // ─── Struct definitions (must match the library definitions exactly) ────────
 // These mirror the definitions in:

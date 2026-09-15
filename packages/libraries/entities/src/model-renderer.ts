@@ -9,11 +9,9 @@
 // — no per-draw bind-group creation or texture bind-group churn.
 // ============================================================================
 
-import { createValidatedShaderModule } from "@downdraft/core";
 import {
     calculateViewProj,
-    createLogger,
-    DEPTH_FORMAT,
+    createLogger, createValidatedShaderModule, DEPTH_FORMAT,
     MSAA_SAMPLE_COUNT,
     type BindlessMaterialManager,
     type BindlessTextureRegistry,
@@ -21,7 +19,7 @@ import {
     type MaterialParams
 } from "@downdraft/core";
 import type { MaterialData, MeshData } from "@downdraft/library-models";
-import MODEL_WGSL from "./shaders/model.wgsl?raw";
+import MODEL_WGSL from "./shaders/model.wgsl?raw" with { type: "text" };
 
 const log = createLogger();
 
@@ -153,7 +151,8 @@ export class ModelRenderer {
         { binding: 0, resource: { buffer: this.uniformBuffer, size: ModelRenderer.UNIFORM_SIZE } },
       ],
     });
-    // Per-slot bind groups for native mode (no dynamic offset support in wgpu shim)
+    // Per-slot bind groups with the uniform offset baked into the resource.
+    // The layout declares hasDynamicOffset, so bind calls must pass [0].
     this.perSlotBindGroups = [];
     for (let i = 0; i < ModelRenderer.MAX_MODELS; i++) {
       this.perSlotBindGroups.push(this.device.createBindGroup({
@@ -805,7 +804,7 @@ export class ModelRenderer {
       const mBg = this.perSlotBindGroups[slotIdx] ?? this.bindGroup;
       if (res.skinned && this.skinnedPipeline && res.skinVertexBuffer) {
         passEncoder.setPipeline(this.skinnedPipeline);
-        if (this.perSlotBindGroups.length > 0) passEncoder.setBindGroup(0, mBg);
+        if (this.perSlotBindGroups.length > 0) passEncoder.setBindGroup(0, mBg, [0]);
         else passEncoder.setBindGroup(0, mBg!, [uniformOffset]);
         passEncoder.setVertexBuffer(0, res.vertexBuffer);
         passEncoder.setVertexBuffer(1, res.skinVertexBuffer);
@@ -813,7 +812,7 @@ export class ModelRenderer {
         passEncoder.drawIndexed(res.indexCount);
       } else {
         passEncoder.setPipeline(this.pipeline);
-        if (this.perSlotBindGroups.length > 0) passEncoder.setBindGroup(0, mBg);
+        if (this.perSlotBindGroups.length > 0) passEncoder.setBindGroup(0, mBg, [0]);
         else passEncoder.setBindGroup(0, mBg!, [uniformOffset]);
         passEncoder.setVertexBuffer(0, res.vertexBuffer);
         passEncoder.setIndexBuffer(res.indexBuffer, res.indexFormat);
