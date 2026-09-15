@@ -401,6 +401,8 @@ startGame({
     const weaponController = new WeaponController({
       sim, renderer: renderer as WebGPURenderer, simSAB: simSAB!,
       getShapeForContent: (id) => contentRegistry.get(id)?.shape,
+      getModelUriForContent: (id) => contentRegistry.get(id)?.modelUri,
+      ensureColliderHull: (id, uri) => (renderer as WebGPURenderer).ensureColliderHull(id, uri),
     });
 
     // ── Paint system ──
@@ -648,29 +650,48 @@ startGame({
           };
           const shape = st?.shape ?? (a.contentId.includes("sphere") || a.contentId.includes("ball") ? "sphere" : "box");
           const scale = st?.scale ?? 1.0;
-          for (let i = 0; i < count; i++) {
-            // Scatter for multi-spawn
-            const spread = count > 1 ? 2.5 : 0;
-            const offX = count > 1 ? (i % 5 - 2) * spread : 0;
-            const offY = count > 1 ? Math.floor(i / 5) * spread : 0;
-            const rx = fz, rz = -fx;
-            sim.sendCommand({
-              type: "spawn",
-              contentId: a.contentId,
-              position: [
-                cam[0] + fx * 5 + rx * offX,
-                cam[1] + fy * 5 + 2 + offY,
-                cam[2] + fz * 5 + rz * offX,
-              ],
-              physics,
-              shape,
-              scale,
-              strength: st?.strength,
-              texture: st?.texture,
-              shader: st?.shader,
-              squishy: st?.squishy,
-            });
-          }
+          // Derive the convex hull from the model BEFORE spawning so the sim
+          // installs the hull collider at body-creation time — no placeholder
+          // unit-cube collider is ever installed for model props. Builtin props
+          // (no modelUri) skip this and keep their explicit box/sphere shape.
+          const entry = contentRegistry.get(a.contentId);
+          void (async () => {
+            let scaledHull: Float32Array | undefined;
+            if (entry?.modelUri) {
+              const hull = await (renderer as WebGPURenderer).ensureColliderHull(a.contentId, entry.modelUri);
+              if (hull && hull.length >= 9) {
+                // Clone + scale — the cached hull is shared across all spawns
+                // of this contentId; sending it directly risks the worker
+                // proxy detaching the underlying ArrayBuffer.
+                scaledHull = new Float32Array(hull.length);
+                for (let i = 0; i < scaledHull.length; i++) scaledHull[i] = hull[i] * scale;
+              }
+            }
+            for (let i = 0; i < count; i++) {
+              // Scatter for multi-spawn
+              const spread = count > 1 ? 2.5 : 0;
+              const offX = count > 1 ? (i % 5 - 2) * spread : 0;
+              const offY = count > 1 ? Math.floor(i / 5) * spread : 0;
+              const rx = fz, rz = -fx;
+              sim.sendCommand({
+                type: "spawn",
+                contentId: a.contentId,
+                position: [
+                  cam[0] + fx * 5 + rx * offX,
+                  cam[1] + fy * 5 + 2 + offY,
+                  cam[2] + fz * 5 + rz * offX,
+                ],
+                physics,
+                shape,
+                scale,
+                strength: st?.strength,
+                texture: st?.texture,
+                shader: st?.shader,
+                squishy: st?.squishy,
+                hull: scaledHull,
+              });
+            }
+          })();
           // Also set the toolgun's selected content so toolgun-spawn can use it
           weaponController.getToolgun().setSelectedContent(a.contentId);
           break;
@@ -1589,14 +1610,29 @@ function buildDomHud(
             const dl = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
             const entry = registry.get(item.id);
             const shape = entry?.shape ?? (item.id.includes("sphere") || item.id.includes("ball") ? "sphere" : "box");
-            sim.sendCommand({
-              type: "spawn",
-              contentId: item.id,
-              position: [cam[0] + (dx/dl)*5, cam[1] + (dy/dl)*5 + 2, cam[2] + (dz/dl)*5],
-              physics: entry?.physics,
-              shape,
-              scale: entry?.scale ?? 1.0,
-            });
+            const scale = entry?.scale ?? 1.0;
+            // Derive the convex hull from the model BEFORE spawning so the sim
+            // installs the hull collider at body-creation time — no placeholder
+            // unit-cube collider. Builtin props (no modelUri) skip this.
+            void (async () => {
+              let scaledHull: Float32Array | undefined;
+              if (entry?.modelUri) {
+                const hull = await (ctx.renderer as WebGPURenderer).ensureColliderHull(item.id, entry.modelUri);
+                if (hull && hull.length >= 9) {
+                  scaledHull = new Float32Array(hull.length);
+                  for (let i = 0; i < scaledHull.length; i++) scaledHull[i] = hull[i] * scale;
+                }
+              }
+              sim.sendCommand({
+                type: "spawn",
+                contentId: item.id,
+                position: [cam[0] + (dx/dl)*5, cam[1] + (dy/dl)*5 + 2, cam[2] + (dz/dl)*5],
+                physics: entry?.physics,
+                shape,
+                scale,
+                hull: scaledHull,
+              });
+            })();
             weapons.getToolgun().setSelectedContent(item.id);
             flashStatus(`Spawned: ${item.name}`);
           };

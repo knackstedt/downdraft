@@ -30,6 +30,16 @@ export interface WeaponContext {
   simSAB: SharedArrayBuffer;
   /** Returns the shape for a content id, or undefined if unknown. */
   getShapeForContent?: (contentId: string) => "box" | "sphere" | undefined;
+  /** Returns the model URI for a content id, or undefined if it has no model
+   *  (e.g. builtin cube/sphere props). Used by the toolgun spawn path to
+   *  derive a convex hull before sending the spawn command. */
+  getModelUriForContent?: (contentId: string) => string | undefined;
+  /** Derive (and cache) the convex hull for a content id's model, loading the
+   *  model if needed. Returns the hull in mesh-local space, or null if the
+   *  content has no model / no geometry. The caller scales it by the spawn
+   *  scale and includes it in the spawn command so the sim installs the hull
+   *  collider at body-creation time — no placeholder unit-cube collider. */
+  ensureColliderHull?: (contentId: string, modelUri: string) => Promise<Float32Array | null>;
 }
 
 // ── Quaternion / vector helpers (xyzw quaternion layout) ──
@@ -339,12 +349,28 @@ export class Toolgun {
           const dl = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
           const shape = this.ctx.getShapeForContent?.(this.selectedContentId)
             ?? (this.selectedContentId.includes("sphere") || this.selectedContentId.includes("ball") ? "sphere" : "box");
-          this.ctx.sim.sendCommand({
-            type: "spawn",
-            contentId: this.selectedContentId,
-            position: [cam[0] + (dx / dl) * 5, cam[1] + (dy / dl) * 5 + 2, cam[2] + (dz / dl) * 5],
-            shape,
-          });
+          // Derive the convex hull from the model BEFORE spawning so the sim
+          // installs the hull collider at body-creation time — no placeholder
+          // unit-cube collider. Builtin props (no modelUri) skip this.
+          const contentId = this.selectedContentId;
+          const modelUri = this.ctx.getModelUriForContent?.(contentId);
+          void (async () => {
+            let scaledHull: Float32Array | undefined;
+            if (modelUri && this.ctx.ensureColliderHull) {
+              const hull = await this.ctx.ensureColliderHull(contentId, modelUri);
+              if (hull && hull.length >= 9) {
+                scaledHull = new Float32Array(hull.length);
+                for (let i = 0; i < scaledHull.length; i++) scaledHull[i] = hull[i];
+              }
+            }
+            this.ctx.sim.sendCommand({
+              type: "spawn",
+              contentId,
+              position: [cam[0] + (dx / dl) * 5, cam[1] + (dy / dl) * 5 + 2, cam[2] + (dz / dl) * 5],
+              shape,
+              hull: scaledHull,
+            });
+          })();
         }
         break;
       case ToolgunContext.Remove: {

@@ -3,7 +3,10 @@
 //
 // Props spawn with a placeholder box collider; once their model geometry is
 // loaded, the renderer derives a convex hull from the mesh and sends it to the
-// sim, which swaps the box for a Rapier convex collider.
+// sim, which swaps the box for a Rapier convex collider. For near-flat meshes
+// (a degenerate point cloud Rapier would reject), the hull falls back to the
+// mesh's bounding-box corners so the collider always matches the prop's real
+// dimensions — never a generic unit cube.
 //
 // The physics backend (Rapier) computes the actual convex hull from the point
 // cloud we hand it — `ColliderDesc.convexHull` returns the *smallest* convex
@@ -60,12 +63,42 @@ export function computeConvexHullPoints(
   const ext = Math.max(maxX - minX, maxY - minY, maxZ - minZ);
   if (!(ext > 0)) return null;
 
-  // Reject near-flat meshes: a coplanar point cloud produces a degenerate
-  // (2D) convex hull, which Rapier rejects and falls back to a unit ball —
-  // worse than the placeholder box. If the thinnest bbox dimension is a
-  // tiny fraction of the longest, leave the box collider in place.
+  // Near-flat meshes (thinnest bbox dim a tiny fraction of the longest) would
+  // produce a degenerate (2D) convex hull that Rapier rejects — historically we
+  // returned null here and left a placeholder unit-cube collider in place, which
+  // is the "props sometimes have a cube collider" bug. Instead, fall back to the
+  // 8 corners of the mesh's bounding box, extruded along the thin axis to a
+  // minimum thickness (ext * 0.02) so the point cloud is non-coplanar and Rapier
+  // builds a valid box convex hull. The collider matches the prop's real
+  // dimensions instead of being a generic unit cube.
   const minExt = Math.min(maxX - minX, maxY - minY, maxZ - minZ);
-  if (minExt < ext * 0.02) return null;
+  const FLAT_THRESHOLD = ext * 0.02;
+  if (minExt < FLAT_THRESHOLD) {
+    // Center the bbox and extrude the thin axis symmetrically about the center
+    // so the box stays centered on the mesh (not shifted to one face).
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    const cz = (minZ + maxZ) / 2;
+    const hx = (maxX - minX) / 2;
+    const hy = (maxY - minY) / 2;
+    const hz = (maxZ - minZ) / 2;
+    // Bump the thin dimension(s) up to the minimum thickness.
+    const ex = Math.max(hx, FLAT_THRESHOLD / 2);
+    const ey = Math.max(hy, FLAT_THRESHOLD / 2);
+    const ez = Math.max(hz, FLAT_THRESHOLD / 2);
+    const verts = new Float32Array(8 * 3);
+    let i = 0;
+    for (const sx of [-1, 1]) {
+      for (const sy of [-1, 1]) {
+        for (const sz of [-1, 1]) {
+          verts[i++] = cx + sx * ex;
+          verts[i++] = cy + sy * ey;
+          verts[i++] = cz + sz * ez;
+        }
+      }
+    }
+    return { vertices: verts, min: [minX, minY, minZ], max: [maxX, maxY, maxZ] };
+  }
 
   // Collect unique vertex positions. Exact dedup via a Set of packed keys.
   // Quantize to 1e-5 to merge near-duplicates from different primitives

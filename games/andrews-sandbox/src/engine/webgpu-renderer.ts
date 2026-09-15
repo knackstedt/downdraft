@@ -1828,20 +1828,48 @@ fn vs(@location(0) pos: vec3f) -> @builtin(position) vec4f {
       this.nodeToContent.set(nodeId, contentId);
       return nodeId;
     }
+    const model = await this.ensureModelData(contentId, modelUri);
+    if (!model) return "";
+    const uploaded = this.modelRenderer!.uploadModel(nodeId, model.meshes, model.materials, modelBaseUrl);
+    if (uploaded === 0) return "";
+    this.nodeToContent.set(nodeId, contentId);
+    return nodeId;
+  }
+
+  /**
+   * Load (or reuse the cached) ModelData for a content id WITHOUT creating a
+   * render node. Used by the spawn path to prime the model cache + derive a
+   * convex hull before sending the spawn command, so the sim installs the
+   * hull collider at body-creation time (no placeholder unit-cube collider).
+   * Returns null on fetch/parse failure (errors already logged).
+   */
+  async ensureModelData(contentId: string, modelUri: string): Promise<ModelData | null> {
+    const cached = this.modelCache.get(contentId);
+    if (cached) return cached;
     try {
       const resp = await fetch(modelUri);
       const buffer = await resp.arrayBuffer();
       const filename = modelUri.split("/").pop() ?? "model.glb";
       const model = await loadModel(buffer, filename) as ModelData;
       this.modelCache.set(contentId, model);
-      const uploaded = this.modelRenderer!.uploadModel(nodeId, model.meshes, model.materials, modelBaseUrl);
-      if (uploaded === 0) return "";
-      this.nodeToContent.set(nodeId, contentId);
-      return nodeId;
+      return model;
     } catch (err) {
       console.error(`[WebGPURenderer] Failed to load model ${modelUri}:`, err);
-      return "";
+      return null;
     }
+  }
+
+  /**
+   * Ensure the model for `contentId` is loaded, then return its cached convex
+   * hull (mesh-local space). Loads the model if needed (without creating a
+   * render node) so the spawn path can derive the hull before sending the
+   * spawn command. Returns null if the model can't be loaded or has no
+   * geometry — callers should fall back to the explicit `shape` in that case.
+   */
+  async ensureColliderHull(contentId: string, modelUri: string): Promise<Float32Array | null> {
+    const model = await this.ensureModelData(contentId, modelUri);
+    if (!model) return null;
+    return this.getColliderHull(contentId);
   }
 
   // ── Player model (rigged avatar) ──────────────────────────────────────

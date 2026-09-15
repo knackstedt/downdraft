@@ -637,7 +637,7 @@ function setPlayerModel(modelId: string): void {
 function processCommand(cmd: SimCommand): void {
   switch (cmd.type) {
     case "spawn":
-      spawnProp(cmd.contentId, cmd.position, cmd.rotation, cmd.physics, cmd.shape, cmd.scale, { strength: cmd.strength, texture: cmd.texture, shader: cmd.shader }, cmd.squishy);
+      spawnProp(cmd.contentId, cmd.position, cmd.rotation, cmd.physics, cmd.shape, cmd.scale, { strength: cmd.strength, texture: cmd.texture, shader: cmd.shader }, cmd.squishy, cmd.hull ? new Float32Array(cmd.hull) : undefined);
       break;
     case "remove":
       removeProp(cmd.entityId);
