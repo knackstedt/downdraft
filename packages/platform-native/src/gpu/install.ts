@@ -47,12 +47,13 @@ function installGPUConstants(): void {
     READ: 0x0001,
     WRITE: 0x0002,
   };
+  // WGPUColorWriteMask bitflags — matches webgpu.h and the DOM constants.
   g.GPUColorWrite = {
-    RED: 0x0F,
-    GREEN: 0x0F00,
-    BLUE: 0x0F0000,
-    ALPHA: 0x0F000000,
-    ALL: 0x0F0F0F0F,
+    RED: 0x1,
+    GREEN: 0x2,
+    BLUE: 0x4,
+    ALPHA: 0x8,
+    ALL: 0xF,
   };
   g.GPUStoreOp = {
     STORE: "store",
@@ -217,6 +218,20 @@ export function installGPU(): WgpuGPU {
   (globalThis as any).__wgpuInstancePtr = gpu.getInstancePtr();
 
   installed = true;
-  log.info("platform-native", "GPU binding installed (wgpu-native via bun:ffi)");
+  log.info("platform-native", "GPU binding installed (wgpu-native)");
   return gpu;
+}
+
+/**
+ * Uninstall the GPU binding — used by tests that need a fresh navigator.gpu
+ * and by teardown paths. Does NOT release the native wgpu instance (it may
+ * still back live surfaces); callers that own the instance should release it
+ * via wgpu_shim_release_instance() first if appropriate.
+ */
+export function resetGPU(): void {
+  const g = globalThis as any;
+  if (g.navigator) g.navigator.gpu = undefined;
+  g.__nativeGpu = undefined;
+  g.__wgpuInstancePtr = 0;
+  installed = false;
 }

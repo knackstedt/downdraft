@@ -1403,24 +1403,38 @@ A Bun-native platform layer that replaces Electron + WebView with direct native 
 - `packages/platform-native/native/wgpu_shim.c` — C shim over wgpu-native (flattened FFI API)
 - `packages/platform-native/native/sdl_shim.c` — C shim over SDL2 (window + events + surface)
 - `packages/platform-native/native/image_shim.c` — stb_image-based image decoder
-- `packages/platform-native/src/gpu/wgpu-ffi.ts` — bun:ffi bindings to wgpu_shim
-- `packages/platform-native/src/gpu/wgpu-wrapper.ts` — WebGPU JS API wrapper
+- `packages/platform-native/native/font_shim.c` — SDL_ttf text rasterizer
+- `packages/platform-native/src/ffi/ffi-adapter.ts` — cross-runtime FFI (Bun `bun:ffi`, Node `koffi`, Deno `Deno.dlopen`)
+- `packages/platform-native/src/ffi/lib-paths.ts` — unified native library resolution (env override → native/ → native/lib/ → native/<platform>-<arch>/ → /usr/local/lib)
+- `packages/platform-native/src/gpu/wgpu-ffi.ts` — FFI bindings to wgpu_shim (lazy dlopen)
+- `packages/platform-native/src/gpu/wgpu-wrapper.ts` — re-export barrel for the wrapper modules
+- `packages/platform-native/src/gpu/enums.ts` — WebGPU enum/string mappings (single source of truth)
+- `packages/platform-native/src/gpu/limits.ts` — WGPULimits/features query + serialization
+- `packages/platform-native/src/gpu/registry.ts` — FinalizationRegistry-based native handle cleanup
+- `packages/platform-native/src/gpu/wgpu-device.ts` — WgpuGPU / WgpuAdapter / WgpuDevice / WgpuQueue
+- `packages/platform-native/src/gpu/wgpu-resources.ts` — buffers, textures, views, samplers, shaders, layouts, bind groups, pipelines, query sets
+- `packages/platform-native/src/gpu/wgpu-encoder.ts` — command encoder + render/compute pass encoders
 - `packages/platform-native/src/gpu/install.ts` — installs navigator.gpu
-- `packages/platform-native/src/window/sdl-ffi.ts` — bun:ffi bindings to sdl_shim
+- `packages/platform-native/src/dom/mini-event-target.ts` — shared EventTarget-compatible listener store
+- `packages/platform-native/src/dom/dom-polyfills.ts` — document/window/Worker/storage polyfills
+- `packages/platform-native/src/window/sdl-ffi.ts` — FFI bindings to sdl_shim (lazy dlopen)
 - `packages/platform-native/src/window/native-window.ts` — NativeWindow + event loop + rAF
 - `packages/platform-native/src/window/native-surface.ts` — NativeSurface (HTMLCanvasElement)
-- `packages/platform-native/src/image/native-image.ts` — createImageBitmap polyfill
+- `packages/platform-native/src/image/native-image.ts` — createImageBitmap polyfill + Image polyfill
+- `packages/platform-native/src/image/native-canvas2d.ts` — NativeCanvas2D (glyph atlas + parseColor)
+- `packages/platform-native/src/image/native-freetype.ts` — FreeType bindings
 - `packages/platform-native/src/assets/native-assets.ts` — import.meta.glob replacement
-- `packages/platform-native/src/screenshot/screenshot.ts` — PNG screenshot capture
+- `packages/platform-native/src/screenshot/screenshot.ts` — PNG screenshot capture + `paddedReadbackToRGBA`
 - `packages/platform-native/src/native-host.ts` — createNativeHost (main entry point)
+
+### Native binaries (fetch-at-install)
+
+Native binaries are **not committed** — `bun run fetch:native` in `packages/platform-native` downloads wgpu-native + tint (pinned in `native/wgpu-native-meta/`). Shim `.so` files are compiled locally via `bun run build:shims` (`native/build-shims.sh` builds all four shims). `lib-paths.ts` resolves them via env override → `native/` → `native/lib/` → `native/<platform>-<arch>/` → `/usr/local/lib`.
 
 ### Building native shims
 
 ```bash
-cd packages/platform-native/native
-gcc -shared -fPIC -o libwgpu_shim.so wgpu_shim.c -I./include -L./lib -lwgpu_native -lSDL2 -Wl,-rpath,'$ORIGIN/lib'
-gcc -shared -fPIC -o libsdl_shim.so sdl_shim.c -I./include -L./lib -lwgpu_native $(pkg-config --cflags --libs sdl2) -Wl,-rpath,'$ORIGIN/lib'
-gcc -shared -fPIC -o libimage_shim.so image_shim.c -lm
+cd packages/platform-native && bun run fetch:native && bun run build:shims
 ```
 
 ### Runtime detection
@@ -1451,9 +1465,9 @@ In-process PixiJS v8 WebGPU UI renderer for native (Bun + SDL2 + wgpu-native) mo
 
 ### Critical native WebGPU fixes (required for PixiJS)
 
-- **`WgpuBuffer` write-mapped semantics** (`packages/platform-native/src/gpu/wgpu-wrapper.ts`): `getMappedRange()` returns a persistent JS backing store for `mappedAtCreation` write maps; `unmap()` flushes it to the native buffer via `queue.writeBuffer` (after unmap, since wgpu-native rejects writes while mapped). Without this, PixiJS's `fastCopy(data, getMappedRange())` + `unmap()` pattern wrote into a throwaway `ArrayBuffer` and all geometry drew nothing.
-- **`copyExternalImageToTexture`** (`packages/platform-native/src/gpu/wgpu-wrapper.ts`): reads canvas RGBA pixels via `getContext("2d").getImageData()` and uploads with `queue.writeTexture` (256-byte row alignment for WebGPU's `bytesPerRow`). Handles `bgra8unorm` textures. Without this, text/image textures never uploaded.
-- **`parseColor`** (`packages/platform-native/src/image/native-image.ts`): handles named colors (`"white"`, `"black"`, etc.), 8-digit hex (`#rrggbbaa`), and 3-digit hex. Without this, PixiJS's `fillStyle: "white"` fell through to the black fallback and text rendered black.
+- **`WgpuBuffer` write-mapped semantics** (`packages/platform-native/src/gpu/wgpu-resources.ts`): `getMappedRange()` returns a persistent JS backing store for `mappedAtCreation` write maps; `unmap()` flushes it to the native buffer via `queue.writeBuffer` (after unmap, since wgpu-native rejects writes while mapped). Without this, PixiJS's `fastCopy(data, getMappedRange())` + `unmap()` pattern wrote into a throwaway `ArrayBuffer` and all geometry drew nothing.
+- **`copyExternalImageToTexture`** (`packages/platform-native/src/gpu/wgpu-device.ts`): reads canvas RGBA pixels via `getContext("2d").getImageData()` and uploads with `queue.writeTexture` (256-byte row alignment for WebGPU's `bytesPerRow`). Handles `bgra8unorm` textures. Without this, text/image textures never uploaded.
+- **`parseColor`** (`packages/platform-native/src/image/native-canvas2d.ts`): handles named colors (`"white"`, `"black"`, etc.), 8-digit hex (`#rrggbbaa`), and 3-digit hex. Without this, PixiJS's `fillStyle: "white"` fell through to the black fallback and text rendered black.
 
 ### Key files
 
@@ -1461,8 +1475,9 @@ In-process PixiJS v8 WebGPU UI renderer for native (Bun + SDL2 + wgpu-native) mo
 - `packages/libraries/pixi-ui-native/src/ui-blit-pass.ts` — fullscreen blit pass
 - `packages/libraries/pixi-ui-native/src/shaders/ui-blit.wgsl.ts` — blit shader
 - `packages/platform-native/src/gpu/virtual-canvas-context.ts` — texture-backed canvas
-- `packages/platform-native/src/gpu/wgpu-wrapper.ts` — `WgpuBuffer` mapped-write + `copyExternalImageToTexture`
-- `packages/platform-native/src/image/native-image.ts` — `NativeCanvas2D` (FreeType text + `parseColor`)
+- `packages/platform-native/src/gpu/wgpu-resources.ts` — `WgpuBuffer` mapped-write semantics
+- `packages/platform-native/src/gpu/wgpu-device.ts` — `copyExternalImageToTexture`
+- `packages/platform-native/src/image/native-canvas2d.ts` — `NativeCanvas2D` (FreeType text + `parseColor`)
 - `games/to-the-ocean/src/native-entry.ts` — native wiring (host + scene + bridge + input router)
 - `games/to-the-ocean/src/pixi/native-data-bridge.ts` — `NativeOceanDataBridge`
 - `games/to-the-ocean/src/pixi/native-scene.tsx` — `createNativeOceanScene` (reuses `OceanApp`)

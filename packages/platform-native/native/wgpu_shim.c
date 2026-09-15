@@ -50,15 +50,34 @@ static void on_device_request(WGPURequestDeviceStatus status, WGPUDevice device,
     g_device_requested = 1;
 }
 
+// ── Device-lost tracking ──
+// The C callback only logs; JS resolves GPUDevice.lost by polling
+// wgpu_shim_device_poll_lost() during its per-frame processEvents() pump.
+static WGPUDevice g_lost_device = NULL;
+static int g_device_lost_reason = 0;
+static char g_device_lost_msg[512] = {0};
+
 static void on_device_lost(WGPUDevice const* device, WGPUDeviceLostReason reason, WGPUStringView message, void* userdata1, void* userdata2) {
-    fprintf(stderr, "[wgpu_shim] Device lost: %.*s\n", (int)message.length, message.data);
+    (void)userdata1; (void)userdata2;
+    g_lost_device = (WGPUDevice)device;
+    g_device_lost_reason = (int)reason;
+    if (message.data && message.length > 0) {
+        size_t len = message.length < sizeof(g_device_lost_msg) - 1 ? message.length : sizeof(g_device_lost_msg) - 1;
+        memcpy(g_device_lost_msg, message.data, len);
+        g_device_lost_msg[len] = '\0';
+    }
+    fprintf(stderr, "[wgpu_shim] Device lost (reason=%d): %.*s\n", (int)reason, (int)message.length, message.data);
 }
 
-// ── Poll until an async result is ready ──
-static void poll_events(void) {
-    if (g_instance) {
-        wgpuInstanceProcessEvents(g_instance);
+// Returns 0 if the device is alive, or the WGPUDeviceLostReason value.
+// Copies the loss message into out_msg when provided.
+int wgpu_shim_device_poll_lost(void* device_ptr, char* out_msg, int out_msg_size) {
+    if (!g_lost_device || g_lost_device != (WGPUDevice)device_ptr) return 0;
+    if (out_msg && out_msg_size > 0) {
+        strncpy(out_msg, g_device_lost_msg, out_msg_size - 1);
+        out_msg[out_msg_size - 1] = '\0';
     }
+    return g_device_lost_reason;
 }
 
 // ============================================================================
@@ -143,22 +162,102 @@ static void on_uncaptured_error(WGPUDevice const * device, WGPUErrorType type, W
     }
 }
 
-void* wgpu_shim_request_device(void* adapter_ptr, uint64_t max_storage_buffer_size, uint32_t max_storage_buffers_per_stage, uint32_t max_sampled_textures_per_stage, uint32_t max_texture_array_layers) {
+// WGPULimits field indices for the flat (index, lo32, hi32) triples passed
+// to wgpu_shim_request_device. Must stay in sync with wgpu-wrapper.ts
+// LIMIT_FIELD_INDEX.
+enum {
+    LIMIT_maxTextureDimension1D = 0,
+    LIMIT_maxTextureDimension2D,
+    LIMIT_maxTextureDimension3D,
+    LIMIT_maxTextureArrayLayers,
+    LIMIT_maxBindGroups,
+    LIMIT_maxBindGroupsPlusVertexBuffers,
+    LIMIT_maxBindingsPerBindGroup,
+    LIMIT_maxDynamicUniformBuffersPerPipelineLayout,
+    LIMIT_maxDynamicStorageBuffersPerPipelineLayout,
+    LIMIT_maxSampledTexturesPerShaderStage,
+    LIMIT_maxSamplersPerShaderStage,
+    LIMIT_maxStorageBuffersPerShaderStage,
+    LIMIT_maxStorageTexturesPerShaderStage,
+    LIMIT_maxUniformBuffersPerShaderStage,
+    LIMIT_maxUniformBufferBindingSize,   // u64
+    LIMIT_maxStorageBufferBindingSize,   // u64
+    LIMIT_minUniformBufferOffsetAlignment,
+    LIMIT_minStorageBufferOffsetAlignment,
+    LIMIT_maxVertexBuffers,
+    LIMIT_maxBufferSize,                  // u64
+    LIMIT_maxVertexAttributes,
+    LIMIT_maxVertexBufferArrayStride,
+    LIMIT_maxInterStageShaderVariables,
+    LIMIT_maxColorAttachments,
+    LIMIT_maxColorAttachmentBytesPerSample,
+    LIMIT_maxComputeWorkgroupStorageSize,
+    LIMIT_maxComputeInvocationsPerWorkgroup,
+    LIMIT_maxComputeWorkgroupSizeX,
+    LIMIT_maxComputeWorkgroupSizeY,
+    LIMIT_maxComputeWorkgroupSizeZ,
+    LIMIT_maxComputeWorkgroupsPerDimension,
+    LIMIT_maxImmediateSize,
+    LIMIT__COUNT
+};
+
+// Request a device synchronously. Returns the WGPUDevice pointer or NULL.
+// limits: flat array of (fieldIndex, lo32, hi32) u32 triples — each names a
+//         WGPULimits field (see LIMIT_* enum) and a 64-bit value.
+// features: array of WGPUFeatureName u32 values to require.
+// Unspecified fields stay at their WGPU_LIMITS_INIT (undefined) values so the
+// adapter's defaults apply.
+void* wgpu_shim_request_device(void* adapter_ptr, const uint32_t* limits, uint32_t limit_count, const uint32_t* features, uint32_t feature_count) {
     WGPUAdapter adapter = (WGPUAdapter)adapter_ptr;
     g_pending_device = NULL;
     g_device_requested = 0;
     g_device_error_msg = NULL;
 
-    // Build required limits — initialize all to UNDEFINED so only explicitly
-    // requested limits are enforced. Zero values would be interpreted as
-    // "require this limit to be 0" which is stricter than adapter defaults.
     WGPULimits requiredLimits = WGPU_LIMITS_INIT;
 
-    // Override only the limits that were explicitly requested (non-zero)
-    if (max_storage_buffer_size > 0) requiredLimits.maxStorageBufferBindingSize = max_storage_buffer_size;
-    if (max_storage_buffers_per_stage > 0) requiredLimits.maxStorageBuffersPerShaderStage = max_storage_buffers_per_stage;
-    if (max_sampled_textures_per_stage > 0) requiredLimits.maxSampledTexturesPerShaderStage = max_sampled_textures_per_stage;
-    if (max_texture_array_layers > 0) requiredLimits.maxTextureArrayLayers = max_texture_array_layers;
+    for (uint32_t i = 0; i < limit_count; i++) {
+        uint32_t field = limits[i * 3 + 0];
+        uint64_t value = (uint64_t)limits[i * 3 + 1] | ((uint64_t)limits[i * 3 + 2] << 32);
+        switch (field) {
+            case LIMIT_maxTextureDimension1D: requiredLimits.maxTextureDimension1D = (uint32_t)value; break;
+            case LIMIT_maxTextureDimension2D: requiredLimits.maxTextureDimension2D = (uint32_t)value; break;
+            case LIMIT_maxTextureDimension3D: requiredLimits.maxTextureDimension3D = (uint32_t)value; break;
+            case LIMIT_maxTextureArrayLayers: requiredLimits.maxTextureArrayLayers = (uint32_t)value; break;
+            case LIMIT_maxBindGroups: requiredLimits.maxBindGroups = (uint32_t)value; break;
+            case LIMIT_maxBindGroupsPlusVertexBuffers: requiredLimits.maxBindGroupsPlusVertexBuffers = (uint32_t)value; break;
+            case LIMIT_maxBindingsPerBindGroup: requiredLimits.maxBindingsPerBindGroup = (uint32_t)value; break;
+            case LIMIT_maxDynamicUniformBuffersPerPipelineLayout: requiredLimits.maxDynamicUniformBuffersPerPipelineLayout = (uint32_t)value; break;
+            case LIMIT_maxDynamicStorageBuffersPerPipelineLayout: requiredLimits.maxDynamicStorageBuffersPerPipelineLayout = (uint32_t)value; break;
+            case LIMIT_maxSampledTexturesPerShaderStage: requiredLimits.maxSampledTexturesPerShaderStage = (uint32_t)value; break;
+            case LIMIT_maxSamplersPerShaderStage: requiredLimits.maxSamplersPerShaderStage = (uint32_t)value; break;
+            case LIMIT_maxStorageBuffersPerShaderStage: requiredLimits.maxStorageBuffersPerShaderStage = (uint32_t)value; break;
+            case LIMIT_maxStorageTexturesPerShaderStage: requiredLimits.maxStorageTexturesPerShaderStage = (uint32_t)value; break;
+            case LIMIT_maxUniformBuffersPerShaderStage: requiredLimits.maxUniformBuffersPerShaderStage = (uint32_t)value; break;
+            case LIMIT_maxUniformBufferBindingSize: requiredLimits.maxUniformBufferBindingSize = value; break;
+            case LIMIT_maxStorageBufferBindingSize: requiredLimits.maxStorageBufferBindingSize = value; break;
+            case LIMIT_minUniformBufferOffsetAlignment: requiredLimits.minUniformBufferOffsetAlignment = (uint32_t)value; break;
+            case LIMIT_minStorageBufferOffsetAlignment: requiredLimits.minStorageBufferOffsetAlignment = (uint32_t)value; break;
+            case LIMIT_maxVertexBuffers: requiredLimits.maxVertexBuffers = (uint32_t)value; break;
+            case LIMIT_maxBufferSize: requiredLimits.maxBufferSize = value; break;
+            case LIMIT_maxVertexAttributes: requiredLimits.maxVertexAttributes = (uint32_t)value; break;
+            case LIMIT_maxVertexBufferArrayStride: requiredLimits.maxVertexBufferArrayStride = (uint32_t)value; break;
+            case LIMIT_maxInterStageShaderVariables: requiredLimits.maxInterStageShaderVariables = (uint32_t)value; break;
+            case LIMIT_maxColorAttachments: requiredLimits.maxColorAttachments = (uint32_t)value; break;
+            case LIMIT_maxColorAttachmentBytesPerSample: requiredLimits.maxColorAttachmentBytesPerSample = (uint32_t)value; break;
+            case LIMIT_maxComputeWorkgroupStorageSize: requiredLimits.maxComputeWorkgroupStorageSize = (uint32_t)value; break;
+            case LIMIT_maxComputeInvocationsPerWorkgroup: requiredLimits.maxComputeInvocationsPerWorkgroup = (uint32_t)value; break;
+            case LIMIT_maxComputeWorkgroupSizeX: requiredLimits.maxComputeWorkgroupSizeX = (uint32_t)value; break;
+            case LIMIT_maxComputeWorkgroupSizeY: requiredLimits.maxComputeWorkgroupSizeY = (uint32_t)value; break;
+            case LIMIT_maxComputeWorkgroupSizeZ: requiredLimits.maxComputeWorkgroupSizeZ = (uint32_t)value; break;
+            case LIMIT_maxComputeWorkgroupsPerDimension: requiredLimits.maxComputeWorkgroupsPerDimension = (uint32_t)value; break;
+            case LIMIT_maxImmediateSize: requiredLimits.maxImmediateSize = (uint32_t)value; break;
+            default: break; // unknown field — ignore
+        }
+    }
+
+    WGPUFeatureName requiredFeatures[64] = {0};
+    uint32_t nf = feature_count < 64 ? feature_count : 64;
+    for (uint32_t i = 0; i < nf; i++) requiredFeatures[i] = (WGPUFeatureName)features[i];
 
     WGPUUncapturedErrorCallbackInfo uncapturedErrorInfo = WGPU_UNCAPTURED_ERROR_CALLBACK_INFO_INIT;
     uncapturedErrorInfo.callback = on_uncaptured_error;
@@ -168,8 +267,8 @@ void* wgpu_shim_request_device(void* adapter_ptr, uint64_t max_storage_buffer_si
     WGPUDeviceDescriptor desc = {0};
     desc.nextInChain = NULL;
     desc.label = (WGPUStringView){0};
-    desc.requiredFeatureCount = 0;
-    desc.requiredFeatures = NULL;
+    desc.requiredFeatureCount = nf;
+    desc.requiredFeatures = nf > 0 ? requiredFeatures : NULL;
     desc.requiredLimits = &requiredLimits;
     desc.defaultQueue.nextInChain = NULL;
     desc.defaultQueue.label = (WGPUStringView){0};
@@ -234,49 +333,15 @@ void* wgpu_shim_create_shader_module(void* device_ptr, const char* wgsl_code) {
 }
 
 // ── Shader compilation info ──
-// wgpuShaderModuleGetCompilationInfo is callback-based. We poll
-// wgpuInstanceProcessEvents() until the callback fires (same pattern as
-// request_adapter / request_device), then serialize the messages as a JSON
-// string for the JS side to parse. The returned string is malloc'd and must
-// be freed with wgpu_shim_free_string().
-
-static WGPUCompilationInfo g_compilation_info;
-static int g_compilation_info_requested = 0;
-static WGPUCompilationInfoRequestStatus g_compilation_info_status;
-
-static void on_compilation_info(WGPUCompilationInfoRequestStatus status, WGPUCompilationInfo const * info, void* userdata1, void* userdata2) {
-    (void)userdata1; (void)userdata2;
-    g_compilation_info_status = status;
-    if (status == WGPUCompilationInfoRequestStatus_Success && info) {
-        g_compilation_info = *info;
-    } else {
-        g_compilation_info.messageCount = 0;
-        g_compilation_info.messages = NULL;
-    }
-    g_compilation_info_requested = 1;
-}
-
-// Returns a malloc'd JSON string: [{"type":"error","message":"...","line":N,"col":N,"offset":N,"length":N}, ...]
-// Caller must free with wgpu_shim_free_string().
-//
-// NOTE: wgpuShaderModuleGetCompilationInfo is unimplemented in this wgpu-native
-// build and panics if called. Short-circuit: return an empty JSON array (no
-// compilation messages = validation passes). The engine's shader validation
-// guard treats an empty messages array as "no errors" and continues.
+// NOTE: wgpuShaderModuleGetCompilationInfo is unimplemented in this
+// wgpu-native build and panics if called. We return a static "[]" (empty
+// JSON array = no compilation messages) so the engine's shader validation
+// guard treats every shader as clean. Validation must therefore happen
+// out-of-band (e.g. tint) — see the Phase 2 notes in the refactor plan.
+// The returned pointer is a string literal — do NOT free it.
 char* wgpu_shim_shader_get_compilation_info(void* shader_ptr) {
     (void)shader_ptr;
-    // Return "[]" (empty array = no compilation messages).
-    char* json = (char*)malloc(3);
-    json[0] = '[';
-    json[1] = ']';
-    json[2] = '\0';
-    return json;
-}
-
-
-// Free a string returned by wgpu_shim_shader_get_compilation_info.
-void wgpu_shim_free_string(char* str) {
-    if (str) free(str);
+    return (char*)"[]";
 }
 
 // Create a texture.
@@ -351,13 +416,16 @@ void* wgpu_shim_create_sampler(
 
 // Create a bind group layout.
 // entry_count: number of entries
-// entries: flat array of (binding, visibility, buffer_type, sampler_type, texture_sample_type, texture_view_dimension, storage_texture_access, storage_texture_format) per entry
-// Each entry is 8 uint32_t values.
+// entries: flat array of 11 uint32_t per entry:
+//   [0] binding, [1] visibility, [2] buffer_type, [3] sampler_type,
+//   [4] texture_sample_type, [5] texture_view_dimension,
+//   [6] storage_texture_access, [7] storage_texture_format,
+//   [8] has_dynamic_offset, [9-10] min_binding_size (u64 lo/hi)
 void* wgpu_shim_create_bind_group_layout(void* device_ptr, uint32_t entry_count, const uint32_t* entries_flat) {
     WGPUBindGroupLayoutEntry* entries = (WGPUBindGroupLayoutEntry*)calloc(entry_count, sizeof(WGPUBindGroupLayoutEntry));
 
     for (uint32_t i = 0; i < entry_count; i++) {
-        const uint32_t* e = entries_flat + i * 8;
+        const uint32_t* e = entries_flat + i * 11;
         // Zero the entire entry first (all binding types = BindingNotUsed)
         memset(&entries[i], 0, sizeof(WGPUBindGroupLayoutEntry));
         entries[i].nextInChain = NULL;
@@ -367,8 +435,8 @@ void* wgpu_shim_create_bind_group_layout(void* device_ptr, uint32_t entry_count,
         // Buffer binding
         if (e[2] != 0) {
             entries[i].buffer.type = (WGPUBufferBindingType)e[2];
-            entries[i].buffer.hasDynamicOffset = 0;
-            entries[i].buffer.minBindingSize = 0;
+            entries[i].buffer.hasDynamicOffset = e[8] ? WGPU_TRUE : WGPU_FALSE;
+            entries[i].buffer.minBindingSize = (uint64_t)e[9] | ((uint64_t)e[10] << 32);
         }
         // Sampler binding
         if (e[3] != 0) {
@@ -574,8 +642,9 @@ void wgpu_shim_render_pass_set_pipeline(void* pass_ptr, void* pipeline_ptr) {
 }
 
 // Set bind group on a render pass encoder.
-void wgpu_shim_render_pass_set_bind_group(void* pass_ptr, uint32_t group_index, void* bind_group_ptr) {
-    wgpuRenderPassEncoderSetBindGroup((WGPURenderPassEncoder)pass_ptr, group_index, (WGPUBindGroup)bind_group_ptr, 0, NULL);
+// dynamic_offsets/dynamic_offset_count may be NULL/0 when unused.
+void wgpu_shim_render_pass_set_bind_group(void* pass_ptr, uint32_t group_index, void* bind_group_ptr, const uint32_t* dynamic_offsets, uint32_t dynamic_offset_count) {
+    wgpuRenderPassEncoderSetBindGroup((WGPURenderPassEncoder)pass_ptr, group_index, (WGPUBindGroup)bind_group_ptr, dynamic_offset_count, dynamic_offsets);
 }
 
 // Set vertex buffer on a render pass encoder.
@@ -822,8 +891,8 @@ void wgpu_shim_compute_pass_set_pipeline(void* pass_ptr, void* pipeline_ptr) {
     wgpuComputePassEncoderSetPipeline((WGPUComputePassEncoder)pass_ptr, (WGPUComputePipeline)pipeline_ptr);
 }
 
-void wgpu_shim_compute_pass_set_bind_group(void* pass_ptr, uint32_t group_index, void* bind_group_ptr) {
-    wgpuComputePassEncoderSetBindGroup((WGPUComputePassEncoder)pass_ptr, group_index, (WGPUBindGroup)bind_group_ptr, 0, NULL);
+void wgpu_shim_compute_pass_set_bind_group(void* pass_ptr, uint32_t group_index, void* bind_group_ptr, const uint32_t* dynamic_offsets, uint32_t dynamic_offset_count) {
+    wgpuComputePassEncoderSetBindGroup((WGPUComputePassEncoder)pass_ptr, group_index, (WGPUBindGroup)bind_group_ptr, dynamic_offset_count, dynamic_offsets);
 }
 
 void wgpu_shim_compute_pass_dispatch(void* pass_ptr, uint32_t x, uint32_t y, uint32_t z) {
@@ -849,7 +918,8 @@ static void on_buffer_map(WGPUMapAsyncStatus status, WGPUStringView message, voi
     g_map_status = (status == WGPUMapAsyncStatus_Success) ? WGPUBufferMapState_Mapped : WGPUBufferMapState_Unmapped;
 }
 
-void wgpu_shim_buffer_map_async(void* buffer_ptr, uint32_t mode, uint64_t offset, uint64_t size) {
+// Returns WGPUBufferMapState: 3=Mapped on success, 1=Unmapped on failure.
+uint32_t wgpu_shim_buffer_map_async(void* buffer_ptr, uint32_t mode, uint64_t offset, uint64_t size) {
     g_map_complete = 0;
     WGPUBufferMapCallbackInfo callbackInfo = {0};
     callbackInfo.mode = WGPUCallbackMode_AllowProcessEvents;
@@ -858,10 +928,16 @@ void wgpu_shim_buffer_map_async(void* buffer_ptr, uint32_t mode, uint64_t offset
     while (!g_map_complete) {
         wgpuInstanceProcessEvents(g_instance);
     }
+    return (uint32_t)g_map_status;
 }
 
-void* wgpu_shim_buffer_get_mapped_range(void* buffer_ptr, uint64_t offset, uint64_t size) {
-    return wgpuBufferGetMappedRange((WGPUBuffer)buffer_ptr, offset, size);
+// Copy data into the buffer's mapped range. Returns 0 on success.
+// The buffer must be mapped (mappedAtCreation or mapAsync(WRITE)).
+int wgpu_shim_buffer_write_mapped(void* buffer_ptr, uint64_t offset, const void* data, uint64_t size) {
+    void* mapped = wgpuBufferGetMappedRange((WGPUBuffer)buffer_ptr, offset, size);
+    if (!mapped) return 1;
+    memcpy(mapped, data, (size_t)size);
+    return 0;
 }
 
 // Copy mapped buffer data into a provided output buffer (JS-owned memory).
@@ -916,6 +992,11 @@ void wgpu_shim_surface_present(void* surface_ptr) {
     wgpuSurfacePresent((WGPUSurface)surface_ptr);
 }
 
+// Unconfigure the surface (GPUCanvasContext.unconfigure()).
+void wgpu_shim_surface_unconfigure(void* surface_ptr) {
+    wgpuSurfaceUnconfigure((WGPUSurface)surface_ptr);
+}
+
 // ── Release functions (for cleanup) ──
 void wgpu_shim_release_buffer(void* ptr) { wgpuBufferRelease((WGPUBuffer)ptr); }
 void wgpu_shim_release_texture(void* ptr) { wgpuTextureRelease((WGPUTexture)ptr); }
@@ -933,50 +1014,69 @@ void wgpu_shim_release_device(void* ptr) { wgpuDeviceRelease((WGPUDevice)ptr); }
 void wgpu_shim_release_adapter(void* ptr) { wgpuAdapterRelease((WGPUAdapter)ptr); }
 void wgpu_shim_release_instance(void* ptr) { wgpuInstanceRelease((WGPUInstance)ptr); }
 void wgpu_shim_release_surface(void* ptr) { wgpuSurfaceRelease((WGPUSurface)ptr); }
+void wgpu_shim_release_render_pass(void* ptr) { wgpuRenderPassEncoderRelease((WGPURenderPassEncoder)ptr); }
+void wgpu_shim_release_compute_pass(void* ptr) { wgpuComputePassEncoderRelease((WGPUComputePassEncoder)ptr); }
+void wgpu_shim_release_queue(void* ptr) { wgpuQueueRelease((WGPUQueue)ptr); }
 
 // ── Queue write texture ──
-void wgpu_shim_queue_write_texture(void* queue_ptr, void* texture_ptr, void* data, size_t data_size, uint32_t width, uint32_t height, uint32_t bytes_per_row) {
+// Full GPUTexelCopyTextureInfo: mip level, origin, aspect.
+// Full GPUTexelCopyBufferLayout: offset (u64), bytesPerRow, rowsPerImage.
+// bytesPerRow/rowsPerImage of 0 select the wgpu-native "undefined" behavior.
+void wgpu_shim_queue_write_texture(
+    void* queue_ptr, void* texture_ptr,
+    const void* data, size_t data_size,
+    uint32_t mip_level, uint32_t origin_x, uint32_t origin_y, uint32_t origin_z,
+    uint32_t aspect,
+    uint64_t layout_offset, uint32_t bytes_per_row, uint32_t rows_per_image,
+    uint32_t width, uint32_t height, uint32_t depth
+) {
     WGPUTexelCopyTextureInfo dest = {0};
     dest.texture = (WGPUTexture)texture_ptr;
-    dest.mipLevel = 0;
-    dest.origin.x = 0;
-    dest.origin.y = 0;
-    dest.origin.z = 0;
-    dest.aspect = WGPUTextureAspect_All;
+    dest.mipLevel = mip_level;
+    dest.origin.x = origin_x;
+    dest.origin.y = origin_y;
+    dest.origin.z = origin_z;
+    dest.aspect = aspect ? (WGPUTextureAspect)aspect : WGPUTextureAspect_All;
 
     WGPUTexelCopyBufferLayout layout = {0};
-    layout.offset = 0;
+    layout.offset = layout_offset;
     layout.bytesPerRow = bytes_per_row;
-    layout.rowsPerImage = height;
+    layout.rowsPerImage = rows_per_image ? rows_per_image : height;
 
     WGPUExtent3D writeSize = {0};
     writeSize.width = width;
     writeSize.height = height;
-    writeSize.depthOrArrayLayers = 1;
+    writeSize.depthOrArrayLayers = depth;
 
     wgpuQueueWriteTexture((WGPUQueue)queue_ptr, &dest, data, data_size, &layout, &writeSize);
 }
 
-// ── Copy texture to buffer (for screenshots) ──
-void wgpu_shim_copy_texture_to_buffer(void* encoder_ptr, void* src_texture_ptr, void* dst_buffer_ptr, uint32_t width, uint32_t height, uint32_t bytes_per_row) {
+// ── Copy texture to buffer (for screenshots / readback) ──
+// Full source info (mip, origin, aspect) and buffer layout (offset, bpr, rpi).
+void wgpu_shim_copy_texture_to_buffer(
+    void* encoder_ptr,
+    void* src_texture_ptr, uint32_t src_mip_level, uint32_t src_origin_x, uint32_t src_origin_y, uint32_t src_origin_z, uint32_t src_aspect,
+    void* dst_buffer_ptr, uint64_t dst_offset, uint32_t dst_bytes_per_row, uint32_t dst_rows_per_image,
+    uint32_t copy_w, uint32_t copy_h, uint32_t copy_d
+) {
     WGPUTexelCopyTextureInfo src = {0};
     src.texture = (WGPUTexture)src_texture_ptr;
-    src.mipLevel = 0;
-    src.origin.x = 0;
-    src.origin.y = 0;
-    src.origin.z = 0;
-    src.aspect = WGPUTextureAspect_All;
+    src.mipLevel = src_mip_level;
+    src.origin.x = src_origin_x;
+    src.origin.y = src_origin_y;
+    src.origin.z = src_origin_z;
+    src.aspect = src_aspect ? (WGPUTextureAspect)src_aspect : WGPUTextureAspect_All;
 
     WGPUTexelCopyBufferInfo dst = {0};
     dst.buffer = (WGPUBuffer)dst_buffer_ptr;
-    dst.layout.offset = 0;
-    dst.layout.bytesPerRow = bytes_per_row;
-    dst.layout.rowsPerImage = height;
+    dst.layout.offset = dst_offset;
+    dst.layout.bytesPerRow = dst_bytes_per_row;
+    dst.layout.rowsPerImage = dst_rows_per_image ? dst_rows_per_image : copy_h;
 
     WGPUExtent3D copySize = {0};
-    copySize.width = width;
-    copySize.height = height;
-    copySize.depthOrArrayLayers = 1;
+    copySize.width = copy_w;
+    copySize.height = copy_h;
+    copySize.depthOrArrayLayers = copy_d;
 
     wgpuCommandEncoderCopyTextureToBuffer((WGPUCommandEncoder)encoder_ptr, &src, &dst, &copySize);
 }

@@ -16,13 +16,11 @@
 // ============================================================================
 
 import { createLogger, setThreadTag } from "@downdraft/core";
+import { allocateProfilingSAB } from "@downdraft/core/profiling";
 import { NativeDebuggerHost } from "@downdraft/library-devtools";
 import { NativePixiUiHost } from "@downdraft/library-pixi-ui-native";
-import { createNativeHost } from "@downdraft/platform-native";
+import { createNativeHost, encodePNG, getFreeTypeTextRenderer, paddedReadbackToRGBA } from "@downdraft/platform-native";
 import { writeFileSync } from "node:fs";
-import { allocateProfilingSAB } from "../../../packages/core/src/profiling/profiling-sab";
-import { getFreeTypeTextRenderer } from "../../../packages/platform-native/src/image/native-image";
-import { encodePNG } from "../../../packages/platform-native/src/screenshot/screenshot";
 
 // These imports use tsconfig path aliases which Bun resolves natively
 import { SimWebWorker, type SimWebWorkerConfig } from "./engine/sim-web-worker";
@@ -444,7 +442,7 @@ async function main() {
         if (texture) {
           (encoder as any).copyTextureToBuffer(
             { texture },
-            { buffer: screenshotBuffer, layout: { offset: 0, bytesPerRow, rowsPerImage: shotH } },
+            { buffer: screenshotBuffer, offset: 0, bytesPerRow, rowsPerImage: shotH },
             { width: shotW, height: shotH, depthOrArrayLayers: 1 },
           );
         }
@@ -456,31 +454,12 @@ async function main() {
       (renderer as any).screenshotCallback = null;
 
       // Map the buffer and read back the pixels
-      screenshotBuffer.mapAsync(1, 0, paddedBufferSize); // 1 = READ
+      void screenshotBuffer.mapAsync(1, 0, paddedBufferSize); // 1 = READ
       const mappedRange = screenshotBuffer.getMappedRange(0, paddedBufferSize);
       const pixels = new Uint8Array(mappedRange);
-
-      const isBGRA = format === "bgra8unorm" || format === "bgra8unorm-srgb";
-      const unpadded = new Uint8Array(shotW * shotH * bytesPerPixel);
-      for (let y = 0; y < shotH; y++) {
-        const srcOffset = y * bytesPerRow;
-        const dstOffset = y * shotW * bytesPerPixel;
-        for (let x = 0; x < shotW; x++) {
-          const src = srcOffset + x * 4;
-          const dst = dstOffset + x * 4;
-          if (isBGRA) {
-            unpadded[dst] = pixels[src + 2];     // R ← B
-            unpadded[dst + 1] = pixels[src + 1]; // G ← G
-            unpadded[dst + 2] = pixels[src];     // B ← R
-            unpadded[dst + 3] = pixels[src + 3]; // A ← A
-          } else {
-            unpadded[dst] = pixels[src];
-            unpadded[dst + 1] = pixels[src + 1];
-            unpadded[dst + 2] = pixels[src + 2];
-            unpadded[dst + 3] = pixels[src + 3];
-          }
-        }
-      }
+      // Strip row padding + BGRA→RGBA swap — shared with the package's
+      // captureScreenshot() implementation.
+      const unpadded = paddedReadbackToRGBA(pixels, shotW, shotH, bytesPerRow, format);
       screenshotBuffer.unmap();
       screenshotBuffer.destroy();
 

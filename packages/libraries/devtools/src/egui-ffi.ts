@@ -40,10 +40,10 @@ function findDevtoolsLibrary(): string {
 }
 
 // ── FFI symbol table ──
+// Lazy dlopen — importing this module must not fail when the Rust library is
+// absent (e.g. web builds, tests). The .so is opened on first symbol access.
 
-const libPath = findDevtoolsLibrary();
-
-const { symbols } = dlopen(libPath, {
+const DEVTOOLS_SPEC: Record<string, CFunction> = {
   dd_devtools_init: { args: ["f32", "f32", "f32"], returns: "ptr" } as CFunction,
   dd_devtools_destroy: { args: ["ptr"], returns: "void" } as CFunction,
   dd_devtools_resize: { args: ["ptr", "f32", "f32"], returns: "void" } as CFunction,
@@ -93,6 +93,27 @@ const { symbols } = dlopen(libPath, {
   // Update + wants_text_input
   dd_devtools_update: { args: ["ptr", "ptr", "u64"], returns: "u64" } as CFunction,
   dd_devtools_wants_text_input: { args: ["ptr"], returns: "i32" } as CFunction,
+};
+
+let _symbols: Record<string, (...args: any[]) => any> | null = null;
+
+function loadDevtools(): Record<string, (...args: any[]) => any> {
+  if (!_symbols) {
+    const libPath = findDevtoolsLibrary();
+    _symbols = dlopen(libPath, DEVTOOLS_SPEC).symbols;
+  }
+  return _symbols;
+}
+
+const symbols: Record<string, (...args: any[]) => any> = new Proxy({} as Record<string, (...args: any[]) => any>, {
+  get(_target, prop: string) {
+    const lib = loadDevtools();
+    const fn = lib[prop];
+    if (fn === undefined) {
+      throw new Error(`devtools shim has no symbol "${prop}"`);
+    }
+    return fn;
+  },
 });
 
 // ── Typed wrappers ──
@@ -232,7 +253,8 @@ export function devtoolsTakeEvalRequest(h: DevtoolsHandle): EvalRequest | null {
   const exprLen = Number(exprLenBig);
   if (exprLen === 0 && reqIdBuf[0] === 0n) return null;
   const requestId = Number(reqIdBuf[0]);
-  const threadId = threadBuf.readCString(0) ?? "main";
+  const threadEnd = threadBuf.indexOf(0);
+  const threadId = threadBuf.toString("utf8", 0, threadEnd < 0 ? threadBuf.length : threadEnd) || "main";
   const expr = exprBuf.subarray(0, exprLen).toString("utf8");
   return { requestId, threadId, expr };
 }

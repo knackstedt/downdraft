@@ -9,9 +9,28 @@
 //   5. Translates SDL events to DOM-compatible events
 // ============================================================================
 
+import { MiniEventTarget } from "../dom/mini-event-target";
 import { wgpu } from "../gpu/wgpu-ffi";
 import { NativeSurface } from "./native-surface";
-import { sdl, SDL_EVENT_KEY_DOWN, SDL_EVENT_KEY_UP, SDL_EVENT_MOUSE_DOWN, SDL_EVENT_MOUSE_MOVE, SDL_EVENT_MOUSE_UP, SDL_EVENT_NONE, SDL_EVENT_QUIT, SDL_EVENT_RESIZE, SDL_EVENT_TEXT_INPUT, SDL_EVENT_WHEEL } from "./sdl-ffi";
+import {
+    KMOD_ALT,
+    KMOD_CTRL,
+    KMOD_GUI,
+    KMOD_SHIFT,
+    sdl,
+    SDL_EVENT_FOCUS_LOST,
+    SDL_EVENT_KEY_DOWN,
+    SDL_EVENT_KEY_UP,
+    SDL_EVENT_MOUSE_DOWN,
+    SDL_EVENT_MOUSE_MOVE,
+    SDL_EVENT_MOUSE_UP,
+    SDL_EVENT_NONE,
+    SDL_EVENT_QUIT,
+    SDL_EVENT_RESIZE,
+    SDL_EVENT_TEXT_INPUT,
+    SDL_EVENT_WHEEL,
+    sdlButtonsToDom,
+} from "./sdl-ffi";
 
 export interface NativeWindowConfig {
   title: string;
@@ -22,28 +41,39 @@ export interface NativeWindowConfig {
 
 type RAFCallback = (time: number) => void;
 
-export class NativeWindow {
+// setImmediate is Node/Bun-only — Deno and browser-likes use setTimeout(0).
+const scheduleImmediate: (fn: () => void) => void =
+  typeof setImmediate === "function" ? setImmediate : (fn) => setTimeout(fn, 0);
+
+export class NativeWindow extends MiniEventTarget {
   private surface: NativeSurface | null = null;
-  private rafCallbacks: Set<RAFCallback> = new Set();
+  // rAF handles: unique IDs → callbacks. The previous implementation used a
+  // Set and returned Set.size as the "id", so ids collided and
+  // cancelAnimationFrame was a documented no-op.
+  private rafCallbacks: Map<number, RAFCallback> = new Map();
+  private nextRafId = 1;
   private running: boolean = false;
   private startTime: number = 0;
-  private inputListeners: Map<string, Set<(event: any) => void>> = new Map();
   private surfacePtr: number = 0;
   private pressedKeys = new Set<number>();
+  // SDL event read buffer — hoisted out of the loop so we don't allocate a
+  // new ArrayBuffer every frame.
+  private eventData = new ArrayBuffer(64);
+  private eventView = new Int32Array(this.eventData);
+  private eventFloatView = new Float32Array(this.eventData);
 
   constructor(config: NativeWindowConfig) {
+    super();
     // 1. Create SDL2 window
     const result = sdl.sdl_shim_create_window(config.title, config.width, config.height);
     if (result !== 0) {
       throw new Error(`Failed to create SDL2 window (error ${result})`);
     }
 
-    // 2. Create wgpu surface from the window
-    // The wgpu surface is created in the C shim using the window's native handle.
-    // We need the wgpu instance pointer — it's stored in the WgpuGPU class.
-    // For now, we'll create the surface via a C function that takes the instance.
-    // The instance is stored globally in the C shim.
-    this.surfacePtr = createWgpuSurfaceForSDLWindow();
+    // 2. Create wgpu surface from the window.
+    // The instance ptr is published by installGPU() on the global object.
+    const instance = (globalThis as any).__wgpuInstancePtr ?? 0;
+    this.surfacePtr = sdl.sdl_shim_create_wgpu_surface(instance) as unknown as number;
     if (!this.surfacePtr) {
       throw new Error("Failed to create wgpu surface from SDL2 window");
     }
@@ -61,35 +91,16 @@ export class NativeWindow {
   // ── requestAnimationFrame ──
 
   requestAnimationFrame(callback: RAFCallback): number {
-    this.rafCallbacks.add(callback);
-    return this.rafCallbacks.size; // simple ID
+    const id = this.nextRafId++;
+    this.rafCallbacks.set(id, callback);
+    return id;
   }
 
   cancelAnimationFrame(id: number): void {
-    // We use a Set, so we can't cancel by ID easily. For simplicity, we clear all.
-    // The engine's rafSource seam handles this properly.
-    // TODO: use a Map<number, callback> for proper cancellation
+    this.rafCallbacks.delete(id);
   }
 
-  // ── Event listeners (DOM-compatible) ──
 
-  addEventListener(type: string, listener: (event: any) => void): void {
-    if (!this.inputListeners.has(type)) this.inputListeners.set(type, new Set());
-    this.inputListeners.get(type)!.add(listener);
-  }
-
-  removeEventListener(type: string, listener: (event: any) => void): void {
-    this.inputListeners.get(type)?.delete(listener);
-  }
-
-  private dispatchInputEvent(type: string, event: any): void {
-    const set = this.inputListeners.get(type);
-    if (set) {
-      for (const listener of set) {
-        try { listener(event); } catch (e) { console.error("[NativeWindow] Input listener error:", e); }
-      }
-    }
-  }
 
   // ── Event loop ──
 
@@ -124,25 +135,44 @@ export class NativeWindow {
   private runLoop(): void {
     if (!this.running) return;
 
-    // Poll SDL events
-    const eventData = new ArrayBuffer(64);
-    const eventView = new Int32Array(eventData);
-    const floatView = new Float32Array(eventData);
-
+    // Poll SDL events until the queue is drained.
     let eventType: number;
+    let sawEvent = false;
     do {
-      eventType = sdl.sdl_shim_poll_event(eventData as any);
+      eventType = sdl.sdl_shim_poll_event(this.eventData as any);
       if (eventType !== SDL_EVENT_NONE) {
-        this.handleEvent(eventType, eventView, floatView);
+        sawEvent = true;
+        this.handleEvent(eventType, this.eventView, this.eventFloatView);
       }
     } while (eventType !== SDL_EVENT_NONE);
 
-    // Dispatch rAF callbacks
+    // When idle (no pending rAF work and no events just arrived), briefly
+    // block on the SDL event queue instead of busy-spinning through
+    // setImmediate. 4ms keeps the loop responsive while taking the thread
+    // off the CPU between frames.
+    if (!sawEvent && this.rafCallbacks.size === 0) {
+      const wt = sdl.sdl_shim_wait_event(this.eventData as any, 4);
+      if (wt !== SDL_EVENT_NONE) {
+        this.handleEvent(wt, this.eventView, this.eventFloatView);
+        // Drain anything that arrived behind it.
+        do {
+          eventType = sdl.sdl_shim_poll_event(this.eventData as any);
+          if (eventType !== SDL_EVENT_NONE) {
+            this.handleEvent(eventType, this.eventView, this.eventFloatView);
+          }
+        } while (eventType !== SDL_EVENT_NONE);
+      }
+    }
+
+    // Dispatch rAF callbacks. Callbacks run once per dispatch; anything a
+    // callback re-registers lands in the map for the next frame.
     const now = performance.now() - this.startTime;
-    const callbacks = Array.from(this.rafCallbacks);
-    this.rafCallbacks.clear();
-    for (const cb of callbacks) {
-      try { cb(now); } catch (e) { console.error("[NativeWindow] rAF callback error:", e); }
+    if (this.rafCallbacks.size > 0) {
+      const callbacks = Array.from(this.rafCallbacks.values());
+      this.rafCallbacks.clear();
+      for (const cb of callbacks) {
+        try { cb(now); } catch (e) { console.error("[NativeWindow] rAF callback error:", e); }
+      }
     }
 
     // Process wgpu events (for async callback delivery)
@@ -152,7 +182,16 @@ export class NativeWindow {
     }
 
     // Schedule next frame
-    setImmediate(() => this.runLoop());
+    scheduleImmediate(() => this.runLoop());
+  }
+
+  private modifiers(mod: number) {
+    return {
+      shiftKey: (mod & KMOD_SHIFT) !== 0,
+      ctrlKey: (mod & KMOD_CTRL) !== 0,
+      altKey: (mod & KMOD_ALT) !== 0,
+      metaKey: (mod & KMOD_GUI) !== 0,
+    };
   }
 
   private handleEvent(eventType: number, eventView: Int32Array, floatView: Float32Array): void {
@@ -162,20 +201,31 @@ export class NativeWindow {
 
       case SDL_EVENT_QUIT:
         this.running = false;
-        this.dispatchInputEvent("close", { type: "close" });
+        this.dispatchEvent({ type: "close" });
+        break;
+
+      case SDL_EVENT_FOCUS_LOST:
+        // Clear pressed-key tracking so keys don't get "stuck" when focus is
+        // lost mid-press, and notify listeners (DOM "blur").
+        this.pressedKeys.clear();
+        this.dispatchEvent({ type: "blur" });
         break;
 
       case SDL_EVENT_KEY_DOWN: {
         const keycode = eventView[0];
-        const repeat = this.pressedKeys.has(keycode);
+        const mod = eventView[1];
+        // Prefer the shim's repeat flag; fall back to our pressed-key set for
+        // drivers that don't report it.
+        const repeat = eventView[2] !== 0 || this.pressedKeys.has(keycode);
         this.pressedKeys.add(keycode);
         const domKeyCode = sdlToDomKeyCode(keycode);
-        this.dispatchInputEvent("keydown", {
+        this.dispatchEvent({
           type: "keydown",
           keyCode: domKeyCode,
           key: sdlKeyToKey(keycode),
           code: sdlKeyToCode(keycode),
           repeat,
+          ...this.modifiers(mod),
           preventDefault: () => {},
           stopPropagation: () => {},
           stopImmediatePropagation: () => {},
@@ -185,14 +235,16 @@ export class NativeWindow {
 
       case SDL_EVENT_KEY_UP: {
         const keycode = eventView[0];
+        const mod = eventView[1];
         this.pressedKeys.delete(keycode);
         const domKeyCode = sdlToDomKeyCode(keycode);
-        this.dispatchInputEvent("keyup", {
+        this.dispatchEvent({
           type: "keyup",
           keyCode: domKeyCode,
           key: sdlKeyToKey(keycode),
           code: sdlKeyToCode(keycode),
           repeat: false,
+          ...this.modifiers(mod),
           preventDefault: () => {},
           stopPropagation: () => {},
           stopImmediatePropagation: () => {},
@@ -205,12 +257,16 @@ export class NativeWindow {
         const y = eventView[1];
         const xrel = eventView[2];
         const yrel = eventView[3];
-        this.dispatchInputEvent("mousemove", {
+        const buttons = sdlButtonsToDom(eventView[4]);
+        const mod = eventView[5];
+        this.dispatchEvent({
           type: "mousemove",
           clientX: x,
           clientY: y,
           movementX: xrel,
           movementY: yrel,
+          buttons,
+          ...this.modifiers(mod),
           preventDefault: () => {},
           stopPropagation: () => {},
         });
@@ -221,14 +277,32 @@ export class NativeWindow {
         const x = eventView[0];
         const y = eventView[1];
         const button = eventView[2];
-        this.dispatchInputEvent("mousedown", {
+        const buttons = sdlButtonsToDom(eventView[3]);
+        const mod = eventView[4];
+        const domButton = button - 1; // SDL: 1=l,2=m,3=r → DOM: 0=l,1=m,2=r
+        this.dispatchEvent({
           type: "mousedown",
           clientX: x,
           clientY: y,
-          button: button - 1, // SDL: 1=left, 2=middle, 3=right → DOM: 0=left, 1=middle, 2=right
+          button: domButton,
+          buttons,
+          ...this.modifiers(mod),
           preventDefault: () => {},
           stopPropagation: () => {},
         });
+        // DOM dispatches "contextmenu" on right-button press.
+        if (domButton === 2) {
+          this.dispatchEvent({
+            type: "contextmenu",
+            clientX: x,
+            clientY: y,
+            button: domButton,
+            buttons,
+            ...this.modifiers(mod),
+            preventDefault: () => {},
+            stopPropagation: () => {},
+          });
+        }
         break;
       }
 
@@ -236,11 +310,15 @@ export class NativeWindow {
         const x = eventView[0];
         const y = eventView[1];
         const button = eventView[2];
-        this.dispatchInputEvent("mouseup", {
+        const buttons = sdlButtonsToDom(eventView[3]);
+        const mod = eventView[4];
+        this.dispatchEvent({
           type: "mouseup",
           clientX: x,
           clientY: y,
           button: button - 1,
+          buttons,
+          ...this.modifiers(mod),
           preventDefault: () => {},
           stopPropagation: () => {},
         });
@@ -250,10 +328,12 @@ export class NativeWindow {
       case SDL_EVENT_WHEEL: {
         const deltaX = floatView[0];
         const deltaY = floatView[1];
-        this.dispatchInputEvent("wheel", {
+        const mod = eventView[2];
+        this.dispatchEvent({
           type: "wheel",
           deltaX,
           deltaY,
+          ...this.modifiers(mod),
           preventDefault: () => {},
           stopPropagation: () => {},
         });
@@ -264,13 +344,13 @@ export class NativeWindow {
         const width = eventView[0];
         const height = eventView[1];
         this.surface?.resize(width, height);
-        this.dispatchInputEvent("resize", { type: "resize", width, height });
+        this.dispatchEvent({ type: "resize", width, height });
         break;
       }
 
       case SDL_EVENT_TEXT_INPUT: {
-        const text = new TextDecoder().decode(new Uint8Array(eventView.buffer, 0, 32)).replace(/\0.*$/, "");
-        this.dispatchInputEvent("textinput", { type: "textinput", text });
+        const text = new TextDecoder().decode(new Uint8Array(this.eventData, 0, 32)).replace(/\0.*$/, "");
+        this.dispatchEvent({ type: "textinput", text });
         break;
       }
     }
@@ -278,6 +358,14 @@ export class NativeWindow {
 
   destroy(): void {
     this.running = false;
+    // Unconfigure then release the wgpu surface before destroying the
+    // window — the surface holds a reference to the native window handle.
+    try { this.surface?.getContext("webgpu")?.unconfigure(); } catch { /* best-effort */ }
+    if (this.surfacePtr) {
+      try { wgpu.wgpu_shim_release_surface(this.surfacePtr); } catch { /* best-effort */ }
+      this.surfacePtr = 0;
+    }
+    this.surface = null;
     sdl.sdl_shim_destroy_window();
   }
 }
@@ -362,34 +450,4 @@ function sdlToDomKeyCode(keycode: number): number {
     1073741893: 123, // F12
   };
   return map[keycode] ?? keycode;
-}
-
-// ── Create wgpu surface from SDL window ──
-// This calls the C function in sdl_shim.c that creates a wgpu surface
-// from the SDL window's native handle.
-import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { dlopen, type CFunction } from "../ffi/ffi-adapter.js";
-
-const _dirname = typeof (globalThis as any).__dirname !== "undefined"
-  ? (globalThis as any).__dirname
-  : dirname(fileURLToPath(import.meta.url));
-
-function findSdlShimLib(): string {
-  const relativePath = join(_dirname, "..", "..", "native", "libsdl_shim.so");
-  if (existsSync(relativePath)) return relativePath;
-  throw new Error("libsdl_shim.so not found");
-}
-
-const { symbols: sdlSurfaceSymbols } = dlopen(findSdlShimLib(), {
-  sdl_shim_create_wgpu_surface: { args: ["ptr"], returns: "ptr" } as CFunction,
-});
-
-function createWgpuSurfaceForSDLWindow(): number {
-  // The wgpu instance is stored globally in wgpu_shim.c (g_instance).
-  // We pass 0 as the instance pointer — the C function will use the global instance.
-  // Actually, we need to pass the real instance. Let's get it from the global.
-  const instance = (globalThis as any).__wgpuInstancePtr ?? 0;
-  return sdlSurfaceSymbols.sdl_shim_create_wgpu_surface(instance) as unknown as number;
 }

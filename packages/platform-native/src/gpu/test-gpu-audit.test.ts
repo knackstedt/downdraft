@@ -76,7 +76,7 @@ describe("AUDIT FIX: executeBundles throws", () => {
     const view = tex.createView();
     const encoder = device.createCommandEncoder();
     const pass = encoder.beginRenderPass({
-      colorAttachments: [{ view, clearValue: { r: 0, g: 0, b: 0, a: 1 }, loadOp: "clear", storeOp: "store" }],
+      colorAttachments: [{ view: view as unknown as GPUTextureView, clearValue: { r: 0, g: 0, b: 0, a: 1 }, loadOp: "clear", storeOp: "store" }],
     });
     expect(() => pass.executeBundles([])).toThrow();
     pass.end();
@@ -92,8 +92,8 @@ describe("AUDIT FIX: copyTextureToTexture", () => {
     const encoder = device.createCommandEncoder();
     expect(() => {
       encoder.copyTextureToTexture(
-        { texture: src, mipLevel: 0, origin: { x: 0, y: 0, z: 0 } },
-        { texture: dst, mipLevel: 0, origin: { x: 0, y: 0, z: 0 } },
+        { texture: src as unknown as GPUTexture, mipLevel: 0, origin: { x: 0, y: 0, z: 0 } },
+        { texture: dst as unknown as GPUTexture, mipLevel: 0, origin: { x: 0, y: 0, z: 0 } },
         { width: 64, height: 64, depthOrArrayLayers: 1 },
       );
     }).not.toThrow();
@@ -127,7 +127,7 @@ describe("AUDIT FIX: setBlendConstant + setStencilReference", () => {
     const view = tex.createView();
     const encoder = device.createCommandEncoder();
     const pass = encoder.beginRenderPass({
-      colorAttachments: [{ view, clearValue: { r: 0, g: 0, b: 0, a: 1 }, loadOp: "clear", storeOp: "store" }],
+      colorAttachments: [{ view: view as unknown as GPUTextureView, clearValue: { r: 0, g: 0, b: 0, a: 1 }, loadOp: "clear", storeOp: "store" }],
     });
     expect(() => pass.setBlendConstant({ r: 1, g: 0, b: 0, a: 1 })).not.toThrow();
     expect(() => pass.setStencilReference(0)).not.toThrow();

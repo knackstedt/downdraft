@@ -45,11 +45,13 @@ const runtime: "bun" | "node" | "deno" =
 
 let bunDlopen: any = null;
 let bunPtr: any = null;
+let bunToArrayBuffer: any = null;
 
 if (runtime === "bun") {
   const bunffi = await import("bun:ffi");
   bunDlopen = bunffi.dlopen;
   bunPtr = bunffi.ptr;
+  bunToArrayBuffer = bunffi.toArrayBuffer;
 }
 
 // ── Node implementation (uses koffi) ──
@@ -135,7 +137,8 @@ export function ptr(buffer: ArrayBufferView | ArrayBuffer): number {
 
   // deno
   const p = (globalThis as any).Deno.UnsafePointer.of(buffer);
-  return Number(p.value);
+  // UnsafePointer.of returns null for empty buffers.
+  return p == null ? 0 : Number(p.value);
 }
 
 // ── Node (koffi) implementation ──
@@ -203,6 +206,17 @@ function wrapKoffiFn(
 
 // ── Deno implementation ──
 
+// Shared encoder for cstring args (avoids the Node-only Buffer global).
+const denoStringEncoder = new TextEncoder();
+
+/** Convert a raw numeric address to a Deno pointer object (Deno 1.x ctor vs 2.x UnsafePointer.create). */
+function denoPointerFromAddress(addr: bigint): unknown {
+  const UP = (globalThis as any).Deno.UnsafePointer;
+  if (addr === 0n) return null; // NULL pointer
+  if (typeof UP.create === "function") return UP.create(addr);
+  return new UP(addr);
+}
+
 function denoDlopen(
   path: string,
   specs: Record<string, CFunction>,
@@ -243,44 +257,36 @@ function wrapDenoFn(
       const t = argTypes[i];
 
       if (t === "ptr") {
-        if (typeof args[i] === "number") {
-          // Deno expects UnsafePointer or bigint for pointer args
-          args[i] = new Deno.UnsafePointer(BigInt(args[i]));
+        if (typeof args[i] === "number" || typeof args[i] === "bigint") {
+          args[i] = denoPointerFromAddress(BigInt(args[i]));
         }
-        // TypedArray/Buffer → Deno auto-converts via UnsafePointer.of
-        // null → Deno passes null pointer
+        // TypedArray/ArrayBuffer → Deno auto-converts to a pointer;
+        // null/undefined → NULL.
       } else if (t === "cstring") {
-        // Deno doesn't have a cstring type; encode as null-terminated buffer
+        // Deno has no cstring type — pass a null-terminated Uint8Array,
+        // which Deno auto-converts to a pointer for "pointer" params.
         if (typeof args[i] === "string") {
-          args[i] = Buffer.from(args[i] + "\0");
-        } else if (Buffer.isBuffer(args[i])) {
-          // Already a buffer with null terminator — pass as-is
-        }
-        // Convert buffer to UnsafePointer
-        if (Buffer.isBuffer(args[i]) || args[i] instanceof Uint8Array) {
-          args[i] = Deno.UnsafePointer.of(args[i]);
+          args[i] = denoStringEncoder.encode(args[i] + "\0");
         }
       }
     }
 
     const result = fn(...args);
 
-    // Convert return value
+    // Convert return value — normalize everything to `number` (bun:ffi shape).
     if (retType === "ptr") {
+      if (result == null) return 0;
       if (typeof result === "bigint") return Number(result);
-      if (result && typeof result.value === "bigint") return Number(result.value);
+      if (typeof result === "object" && typeof result.value === "bigint") {
+        return Number(result.value);
+      }
       return result;
     }
 
     if (retType === "cstring") {
-      // Read null-terminated string from pointer
-      if (typeof result === "bigint") {
-        return Deno.UnsafePointerView.getString(new Deno.UnsafePointer(result));
-      }
-      if (result && typeof result.value === "bigint") {
-        return Deno.UnsafePointerView.getString(result);
-      }
-      return result;
+      // Read null-terminated string from the returned pointer object.
+      if (result == null) return "";
+      return new Deno.UnsafePointerView(result).getCString();
     }
 
     return result;
@@ -291,19 +297,26 @@ function wrapDenoFn(
 
 export function readMappedRange(nativePtr: number, byteLength: number): Uint8Array {
   if (runtime === "bun") {
-    const buf = Buffer.from(nativePtr as unknown as ArrayBuffer, 0, byteLength);
-    return new Uint8Array(buf.buffer, buf.byteOffset, byteLength);
+    // bun:ffi toArrayBuffer(ptr, byteOffset, byteCount) — the previous
+    // Buffer.from(ptr-as-ArrayBuffer) call was invalid.
+    const ab = bunToArrayBuffer(nativePtr, 0, byteLength);
+    return new Uint8Array(ab);
   }
 
   if (runtime === "node") {
-    // koffi.view returns an ArrayBuffer view from a pointer
-    const ab = koffi.view(BigInt(nativePtr), byteLength);
-    return new Uint8Array(ab);
+    // koffi.view(pointer, len) returns an ArrayBuffer view of native memory;
+    // fall back to decode() on older koffi without it.
+    if (typeof koffi.view === "function") {
+      return new Uint8Array(koffi.view(BigInt(nativePtr), byteLength));
+    }
+    return new Uint8Array(koffi.decode(BigInt(nativePtr), "uint8", byteLength));
   }
 
   // deno
   const Deno = (globalThis as any).Deno;
-  const view = new Deno.UnsafePointerView(BigInt(nativePtr));
+  const p = denoPointerFromAddress(BigInt(nativePtr));
+  if (p == null) return new Uint8Array(0);
+  const view = new Deno.UnsafePointerView(p);
   const buf = new Uint8Array(byteLength);
   view.copyInto(buf);
   return buf;

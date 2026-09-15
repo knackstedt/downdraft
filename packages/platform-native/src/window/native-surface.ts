@@ -14,12 +14,15 @@
 //   - unconfigure()
 // ============================================================================
 
+import { MiniEventTarget } from "../dom/mini-event-target";
+import { parseFormat } from "../gpu/enums";
 import { wgpu } from "../gpu/wgpu-ffi";
 import { WgpuDevice, WgpuTexture } from "../gpu/wgpu-wrapper";
 
-type EventListener = (event: any) => void;
-
-export class NativeCanvasContext implements GPUCanvasContext {
+// Note: no `implements GPUCanvasContext` — @webgpu/types brands the interface
+// (declare const __brand), so structural conformance is impossible. Conformance
+// is enforced at the boundary instead.
+export class NativeCanvasContext {
   private surfacePtr: number = 0;
   private device: WgpuDevice | null = null;
   private format: GPUTextureFormat = "bgra8unorm";
@@ -34,11 +37,11 @@ export class NativeCanvasContext implements GPUCanvasContext {
   }
 
   configure(config: GPUCanvasConfiguration): void {
-    this.device = config.device as WgpuDevice;
+    this.device = config.device as unknown as WgpuDevice;
     this.format = config.format;
     this.usage = config.usage ?? (0x0010 | 0x0001); // RENDER_ATTACHMENT | COPY_SRC
 
-    const formatNum = parseFormatNum(this.format);
+    const formatNum = parseFormat(this.format);
     const presentMode = 0; // FIFO (vsync)
     wgpu.wgpu_shim_surface_configure(
       this.surfacePtr,
@@ -52,9 +55,18 @@ export class NativeCanvasContext implements GPUCanvasContext {
     this.configured = true;
   }
 
+  /** The format passed to the most recent configure() call. */
+  getFormat(): GPUTextureFormat | null {
+    return this.configured ? this.format : null;
+  }
+
   unconfigure(): void {
+    if (this.configured && this.surfacePtr) {
+      try { wgpu.wgpu_shim_surface_unconfigure(this.surfacePtr); } catch { /* best-effort */ }
+    }
     this.configured = false;
     this.device = null;
+    this.currentTexture = null;
   }
 
   getCurrentTexture(): WgpuTexture | null {
@@ -92,8 +104,11 @@ export class NativeCanvasContext implements GPUCanvasContext {
   resize(width: number, height: number): void {
     this.width = width;
     this.height = height;
+    // The previously acquired surface texture is stale after a resize —
+    // drop the cache so getCurrentTexture() re-acquires at the new size.
+    this.currentTexture = null;
     if (this.configured && this.device) {
-      const formatNum = parseFormatNum(this.format);
+      const formatNum = parseFormat(this.format);
       wgpu.wgpu_shim_surface_configure(
         this.surfacePtr,
         this.device.ptr,
@@ -108,23 +123,15 @@ export class NativeCanvasContext implements GPUCanvasContext {
   }
 }
 
-function parseFormatNum(format: string): number {
-  const map: Record<string, number> = {
-    "bgra8unorm": 0x1B, "bgra8unorm-srgb": 0x1C,
-    "rgba8unorm": 0x16, "rgba8unorm-srgb": 0x17,
-  };
-  return map[format] ?? 0x1B;
-}
-
-export class NativeSurface implements Partial<HTMLCanvasElement> {
+export class NativeSurface extends MiniEventTarget {
   private _width: number;
   private _height: number;
   private context: NativeCanvasContext | null = null;
-  private listeners: Map<string, Set<EventListener>> = new Map();
   private surfacePtr: number;
   private _pointerLocked = false;
 
   constructor(width: number, height: number, surfacePtr: number) {
+    super();
     this._width = width;
     this._height = height;
     this.surfacePtr = surfacePtr;
@@ -152,10 +159,7 @@ export class NativeSurface implements Partial<HTMLCanvasElement> {
     const doc = (globalThis as any).document;
     if (doc) doc.pointerLockElement = this;
     // Dispatch pointerlockchange on document
-    if (doc) {
-      const set = (doc as any).__listeners?.get("pointerlockchange");
-      if (set) for (const l of set) try { l({ type: "pointerlockchange" }); } catch {}
-    }
+    (doc as any)?.__events?.dispatchEvent({ type: "pointerlockchange" });
     this.dispatchEvent({ type: "pointerlockchange" });
   }
 
@@ -166,10 +170,7 @@ export class NativeSurface implements Partial<HTMLCanvasElement> {
     if (win?.grabInput) win.grabInput(false);
     const doc = (globalThis as any).document;
     if (doc) doc.pointerLockElement = null;
-    if (doc) {
-      const set = (doc as any).__listeners?.get("pointerlockchange");
-      if (set) for (const l of set) try { l({ type: "pointerlockchange" }); } catch {}
-    }
+    (doc as any)?.__events?.dispatchEvent({ type: "pointerlockchange" });
     this.dispatchEvent({ type: "pointerlockchange" });
   }
 
@@ -177,25 +178,6 @@ export class NativeSurface implements Partial<HTMLCanvasElement> {
   getContext(contextId: string): NativeCanvasContext | null {
     if (contextId === "webgpu") return this.context;
     return null;
-  }
-
-  addEventListener(type: string, listener: EventListener): void {
-    if (!this.listeners.has(type)) this.listeners.set(type, new Set());
-    this.listeners.get(type)!.add(listener);
-  }
-
-  removeEventListener(type: string, listener: EventListener): void {
-    this.listeners.get(type)?.delete(listener);
-  }
-
-  dispatchEvent(event: any): boolean {
-    const set = this.listeners.get(event.type);
-    if (set) {
-      for (const listener of set) {
-        try { listener(event); } catch (e) { console.error("[NativeSurface] Event listener error:", e); }
-      }
-    }
-    return true;
   }
 
   resize(width: number, height: number): void {

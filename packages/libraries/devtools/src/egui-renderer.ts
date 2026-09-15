@@ -234,7 +234,7 @@ export class EguiRenderer {
         }
         this.device.queue.writeTexture(
           { texture: existing.texture },
-          fullPixels,
+          fullPixels as unknown as GPUAllowSharedBufferSource,
           { bytesPerRow: existing.width * 4, rowsPerImage: existing.height },
           [existing.width, existing.height],
         );
