@@ -15,6 +15,7 @@ import type { RenderContext } from "../frame-graph";
 import { PassType } from "../frame-graph";
 import type { FrameGraphBuilder } from "../render-pass";
 import { RenderPass } from "../render-pass";
+import { createValidatedShaderModule } from "../shader-validator";
 
 /** Default allocation size for runtime-sized storage buffers (1 MB). */
 const DEFAULT_RUNTIME_BUFFER_SIZE = 1 << 20;
@@ -77,7 +78,7 @@ export class GraphComputePass extends RenderPass {
       console.warn(`[GraphComputePass:${this.name}] Compilation errors:`, result.errors);
     }
 
-    this.shaderModule = this.device.createShaderModule({
+    this.shaderModule = createValidatedShaderModule(this.device, {
       label: this.name,
       code: result.wgsl,
     });

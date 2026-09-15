@@ -1,15 +1,16 @@
+import { createValidatedShaderModule } from "../shader-validator";
 import { type Mat4 } from "wgpu-matrix";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
 import { RenderPass } from "../render-pass";
 import { destroyMapValues } from "../resource-tracker";
 
-import AABB_SHADER from "../shaders/debug-viz/aabb.wgsl?raw";
-import DEPTH_SHADER from "../shaders/debug-viz/depth.wgsl?raw";
-import LOD_SHADER from "../shaders/debug-viz/lod.wgsl?raw";
-import NORMALS_SHADER from "../shaders/debug-viz/normals.wgsl?raw";
-import OVERDRAW_SHADER from "../shaders/debug-viz/overdraw.wgsl?raw";
-import TANGENTS_SHADER from "../shaders/debug-viz/tangents.wgsl?raw";
-import WIREFRAME_SHADER from "../shaders/debug-viz/wireframe.wgsl?raw";
+import AABB_SHADER from "../shaders/debug-viz/aabb.wgsl?raw" with { type: "text" };
+import DEPTH_SHADER from "../shaders/debug-viz/depth.wgsl?raw" with { type: "text" };
+import LOD_SHADER from "../shaders/debug-viz/lod.wgsl?raw" with { type: "text" };
+import NORMALS_SHADER from "../shaders/debug-viz/normals.wgsl?raw" with { type: "text" };
+import OVERDRAW_SHADER from "../shaders/debug-viz/overdraw.wgsl?raw" with { type: "text" };
+import TANGENTS_SHADER from "../shaders/debug-viz/tangents.wgsl?raw" with { type: "text" };
+import WIREFRAME_SHADER from "../shaders/debug-viz/wireframe.wgsl?raw" with { type: "text" };
 
 export type DebugVizMode = "wireframe" | "normals" | "overdraw" | "depth" | "tangents" | "lod" | "aabbs";
 
@@ -74,7 +75,7 @@ export class DebugVizPass extends RenderPass {
     ];
 
     for (const [mode, code] of meshShaders) {
-      const module = device.createShaderModule({ code });
+      const module = createValidatedShaderModule(device, { code, label: "DebugViz" });
       const primitive: GPUPrimitiveState = mode === "wireframe"
         ? { topology: "line-list" }
         : { topology: "triangle-list" };
@@ -123,7 +124,7 @@ export class DebugVizPass extends RenderPass {
     }
 
     // AABB pipeline (line-list, position-only vertices)
-    const aabbModule = device.createShaderModule({ code: AABB_SHADER });
+    const aabbModule = createValidatedShaderModule(device, { code: AABB_SHADER, label: "DebugViz.aabb" });
     this.aabbPipeline = device.createRenderPipeline({
       layout: "auto",
       vertex: {

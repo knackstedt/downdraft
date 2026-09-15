@@ -1,7 +1,8 @@
-import type { GraphRenderContext } from "..";
-import { RenderPass } from "..";
+import { createValidatedShaderModule } from "../render/shader-validator";
 import type { StructView, WgslStruct } from "@downdraft/shader-graph";
 import { f32, u32, vec3f, vec4f, wgsl } from "@downdraft/shader-graph";
+import type { GraphRenderContext } from "../index";
+import { RenderPass } from "../index";
 
 // ─── Uniform structs (single source of truth for layout) ───────────────────
 const SimParamsStruct: WgslStruct = wgsl.struct("SimParams", {
@@ -216,8 +217,8 @@ export class ParticleComputePass extends RenderPass {
 
   prepare(device: GPUDevice): void {
     this.device = device;
-    this.updateShader = device.createShaderModule({ code: PARTICLE_COMPUTE_SHADER });
-    this.emitShader = device.createShaderModule({ code: PARTICLE_COMPUTE_EMIT_SHADER });
+    this.updateShader = createValidatedShaderModule(device, { code: PARTICLE_COMPUTE_SHADER, label: "ParticleComputePass.update" });
+    this.emitShader = createValidatedShaderModule(device, { code: PARTICLE_COMPUTE_EMIT_SHADER, label: "ParticleComputePass.emit" });
 
     this.updatePipeline = device.createComputePipeline({
       layout: "auto",

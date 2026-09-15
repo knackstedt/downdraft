@@ -142,8 +142,11 @@ export abstract class UIElement {
     if (px < this.x || px >= this.x + this.width || py < this.y || py >= this.y + this.height) {
       return null;
     }
+    // Convert screen coordinates to local coordinates for children
+    const localX = px - this.x;
+    const localY = py - this.y;
     for (let i = this.children.length - 1; i >= 0; i--) {
-      const hit = this.children[i].hitTest(px, py);
+      const hit = this.children[i].hitTest(localX, localY);
       if (hit) return hit;
     }
     return this;
@@ -197,7 +200,17 @@ export class UIPanel extends UIElement {
       borderColor: [...this.style.borderColor] as UIColor,
     });
     for (const child of this.children) {
-      drawables.push(...child.getDrawable());
+      if (!child.visible) continue;
+      // Children's coordinates are local to this panel. Offset them by
+      // this panel's position so drawables are in the parent's coordinate
+      // system (i.e. screen space at the root level). This cascades
+      // correctly through nested panels.
+      const childDrawables = child.getDrawable();
+      for (const d of childDrawables) {
+        d.x += this.x;
+        d.y += this.y;
+      }
+      drawables.push(...childDrawables);
     }
     return drawables;
   }
@@ -283,7 +296,7 @@ export class UIButton extends UIElement {
     drawables.push({
       kind: "text",
       x: this.x,
-      y: this.y,
+      y: this.y + Math.round((this.height - this.style.fontSize) / 2),
       width: this.width,
       height: this.height,
       color: [0, 0, 0, 0],

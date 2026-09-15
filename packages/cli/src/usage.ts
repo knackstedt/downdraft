@@ -87,7 +87,7 @@ export const COMMANDS: CommandEntry[] = [
   {
     name: "dev",
     usage: "draft dev [options]",
-    summary: "Start the dev server with HMR (electron-vite dev). Run from a game directory (cwd inference) — the stale-instance kill is handled automatically.",
+    summary: "Start the dev server with HMR (electron-vite dev). Run from a game directory (cwd inference) — the stale-instance kill is handled automatically. Use --native for Bun-native mode (SDL + wgpu-native, no Electron).",
     schema: {
       flags: [
         { name: "entry", type: "string", description: "Game entrypoint file (reserved for future mobile support)" },
@@ -95,6 +95,7 @@ export const COMMANDS: CommandEntry[] = [
         { name: "watch", type: "boolean", description: "Alias for HMR (always on; accepted for back-compat)" },
         { name: "no-hmr", type: "boolean", description: "Disable hot-module replacement" },
         { name: "no-bake", type: "boolean", description: "Disable the asset bake/optimization step (sets DOWNDRAFT_BAKE=0)" },
+        { name: "native", type: "boolean", description: "Run in Bun-native mode (SDL + wgpu-native, no Electron/browser)" },
         { name: "verbose", alias: "v", type: "boolean", description: "Verbose logging" },
       ],
     },

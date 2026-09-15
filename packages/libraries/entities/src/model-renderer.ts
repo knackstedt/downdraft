@@ -11,16 +11,15 @@
 
 import {
     calculateViewProj,
-    createLogger,
-    DEPTH_FORMAT,
+    createLogger, createValidatedShaderModule, DEPTH_FORMAT,
     MSAA_SAMPLE_COUNT,
     type BindlessMaterialManager,
     type BindlessTextureRegistry,
     type CameraState,
-    type MaterialParams,
+    type MaterialParams
 } from "@downdraft/core";
 import type { MaterialData, MeshData } from "@downdraft/library-models";
-import MODEL_WGSL from "./shaders/model.wgsl?raw";
+import MODEL_WGSL from "./shaders/model.wgsl?raw" with { type: "text" };
 
 const log = createLogger();
 
@@ -56,6 +55,7 @@ export class ModelRenderer {
   private bindGroupLayout: GPUBindGroupLayout | null = null;
   private uniformBuffer: GPUBuffer | null = null;
   private bindGroup: GPUBindGroup | null = null;
+  private perSlotBindGroups: GPUBindGroup[] = [];
 
   // 4096 slots × 256 bytes = 1 MiB uniform buffer. Character FBX models can
   // have hundreds of meshes (e.g. Aisha has 374 geometry nodes → 374 uniform
@@ -191,6 +191,15 @@ export class ModelRenderer {
         { binding: 0, resource: { buffer: this.uniformBuffer, size: ModelRenderer.UNIFORM_SIZE } },
       ],
     });
+    // Per-slot bind groups with the uniform offset baked into the resource.
+    // The layout declares hasDynamicOffset, so bind calls must pass [0].
+    this.perSlotBindGroups = [];
+    for (let i = 0; i < ModelRenderer.MAX_MODELS; i++) {
+      this.perSlotBindGroups.push(this.device.createBindGroup({
+        layout: this.bindGroupLayout,
+        entries: [{ binding: 0, resource: { buffer: this.uniformBuffer, offset: i * ModelRenderer.UNIFORM_SIZE, size: ModelRenderer.UNIFORM_SIZE } }],
+      }));
+    }
 
     // Frame-lighting bind group layout (group 2): a single uniform buffer
     // providing sun color, hemisphere ambient, and point lights. A default
@@ -221,7 +230,7 @@ export class ModelRenderer {
       entries: [{ binding: 0, resource: { buffer: this.defaultFrameLightingBuffer } }],
     });
 
-    const shaderModule = this.device.createShaderModule({ code: MODEL_WGSL });
+    const shaderModule = createValidatedShaderModule(this.device, { code: MODEL_WGSL, label: "ModelRenderer" });
     // Explicit pipeline layout: group(0) = per-draw uniform (dynamic offset),
     // group(2) = frame-lighting UBO, group(3) = bindless materials SSBO +
     // texture arrays. Group 1 is unused by the non-skinned pipeline (empty layout).
@@ -1118,16 +1127,20 @@ export class ModelRenderer {
 
       // Select the skinned pipeline + skin vertex buffer for skinned meshes,
       // otherwise the standard non-skinned pipeline.
+      const slotIdx = uniformOffset / ModelRenderer.UNIFORM_SIZE;
+      const mBg = this.perSlotBindGroups[slotIdx] ?? this.bindGroup;
       if (res.skinned && this.skinnedPipeline && res.skinVertexBuffer) {
         passEncoder.setPipeline(this.skinnedPipeline);
-        passEncoder.setBindGroup(0, this.bindGroup, [uniformOffset]);
+        if (this.perSlotBindGroups.length > 0) passEncoder.setBindGroup(0, mBg, [0]);
+        else passEncoder.setBindGroup(0, mBg!, [uniformOffset]);
         passEncoder.setVertexBuffer(0, res.vertexBuffer);
         passEncoder.setVertexBuffer(1, res.skinVertexBuffer);
         passEncoder.setIndexBuffer(res.indexBuffer, res.indexFormat);
         passEncoder.drawIndexed(res.indexCount);
       } else {
         passEncoder.setPipeline(this.pipeline);
-        passEncoder.setBindGroup(0, this.bindGroup, [uniformOffset]);
+        if (this.perSlotBindGroups.length > 0) passEncoder.setBindGroup(0, mBg, [0]);
+        else passEncoder.setBindGroup(0, mBg!, [uniformOffset]);
         passEncoder.setVertexBuffer(0, res.vertexBuffer);
         passEncoder.setIndexBuffer(res.indexBuffer, res.indexFormat);
         passEncoder.drawIndexed(res.indexCount);

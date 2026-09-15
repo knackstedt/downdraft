@@ -1,6 +1,6 @@
-import { BoatBufferReader, MAX_BOATS, MAX_CELLS_PER_BOAT } from "@to-the-ocean/library-boats/boat-sab";
 import { RuntimeBoatGeometry, type BoatDesign } from "@shared/boat-design";
 import { BOAT_CELL_WORLD_SIZE, BOAT_LAYER_HEIGHT, BoatCellType, WALL_THICKNESS, getCellGeometry, isWallType } from "@shared/constants";
+import { BoatBufferReader, MAX_BOATS, MAX_CELLS_PER_BOAT } from "@to-the-ocean/library-boats/boat-sab";
 import type { EntityRenderContext } from "./render-context";
 
 interface CellInfo {
@@ -138,7 +138,9 @@ export class BoatMeshBuilder {
     if (idxCount === 0) return 0;
 
     passEncoder.setPipeline(pipeline);
-    passEncoder.setBindGroup(0, ctx.bindGroup, [idx * 256]);
+    const bg = ctx.bindGroups?.[idx] ?? ctx.bindGroup;
+    if (ctx.bindGroups) passEncoder.setBindGroup(0, bg, [0]);
+    else passEncoder.setBindGroup(0, bg, [idx * 256]);
     passEncoder.setVertexBuffer(0, this.boatVertices);
     passEncoder.setIndexBuffer(this.boatIndices, "uint16");
     passEncoder.drawIndexed(idxCount, 1, idxOffset, vertOffset);

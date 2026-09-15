@@ -11,52 +11,61 @@
 // A final blit copies the result to the canvas-format swapchain view.
 // ============================================================================
 
+import { createValidatedShaderModule } from "@downdraft/core";
+
 export interface ViewportRect { x: number; y: number; w: number; h: number; }
 export interface PostProcessStackOptions {
   depthFormat?: GPUTextureFormat;
+  /**
+   * Format of the scene color target the game renders into (`getSceneColorView`).
+   * Must match the game's scene pipelines' color target format. Defaults to
+   * rgba16float (HDR input for bloom/tonemap); games whose scene pipelines
+   * target the surface format should pass that format here (LDR input).
+   */
+  sceneFormat?: GPUTextureFormat;
 }
 
-import AFTERIMAGE_FS from "./shaders/post-process/afterimage.wgsl?raw";
-import ASCII_FS from "./shaders/post-process/ascii.wgsl?raw";
-import BLIT_FS from "./shaders/post-process/blit.wgsl?raw";
-import BLOOM_BLUR_FS from "./shaders/post-process/bloom-blur.wgsl?raw";
-import BLOOM_BRIGHT_FS from "./shaders/post-process/bloom-bright.wgsl?raw";
-import BLOOM_COMPOSITE_FS from "./shaders/post-process/bloom-composite.wgsl?raw";
-import BLOOM_DOWNSAMPLE_FS from "./shaders/post-process/bloom-downsample.wgsl?raw";
-import BLOOM_SOFT_FS from "./shaders/post-process/bloom-soft.wgsl?raw";
-import BLOOM_UPSAMPLE_FS from "./shaders/post-process/bloom-upsample.wgsl?raw";
-import CHANNEL_MIXER_FS from "./shaders/post-process/channel-mixer.wgsl?raw";
-import CHROMATIC_ABERRATION_FS from "./shaders/post-process/chromatic-aberration.wgsl?raw";
-import DITHERING_FS from "./shaders/post-process/dithering.wgsl?raw";
-import DOF_FS from "./shaders/post-process/dof.wgsl?raw";
-import EDGES_FS from "./shaders/post-process/edges.wgsl?raw";
-import VS from "./shaders/post-process/fullscreen-vs.wgsl?raw";
-import FXAA_FS from "./shaders/post-process/fxaa.wgsl?raw";
-import GAUSSIAN_BLUR_FS from "./shaders/post-process/gaussian-blur.wgsl?raw";
-import GLOW_BLUR_FS from "./shaders/post-process/glow-blur.wgsl?raw";
-import GLOW_COMPOSITE_FS from "./shaders/post-process/glow-composite.wgsl?raw";
-import GRAIN_FS from "./shaders/post-process/grain.wgsl?raw";
-import HALFTONE_FS from "./shaders/post-process/halftone.wgsl?raw";
-import HIGHLIGHT_BLUR_FS from "./shaders/post-process/highlight-blur.wgsl?raw";
-import HIGHLIGHT_COMPOSITE_FS from "./shaders/post-process/highlight-composite.wgsl?raw";
-import LENS_DISTORTION_FS from "./shaders/post-process/lens-distortion.wgsl?raw";
-import LENS_FLARE_FS from "./shaders/post-process/lens-flare.wgsl?raw";
-import LUT_FS from "./shaders/post-process/lut.wgsl?raw";
-import MOTION_BLUR_FS from "./shaders/post-process/motion-blur.wgsl?raw";
-import OCCLUDER_CHUNK from "./shaders/post-process/occluder-chunk.wgsl?raw";
-import OUTLINE_FS from "./shaders/post-process/outline.wgsl?raw";
-import PIXELATION_FS from "./shaders/post-process/pixelation.wgsl?raw";
-import SHARPEN_FS from "./shaders/post-process/sharpen.wgsl?raw";
-import SOBEL_FS from "./shaders/post-process/sobel.wgsl?raw";
-import SPLIT_TONE_FS from "./shaders/post-process/split-tone.wgsl?raw";
-import SSAO_BLUR_FS from "./shaders/post-process/ssao-blur.wgsl?raw";
-import SSAO_COMPOSITE_FS from "./shaders/post-process/ssao-composite.wgsl?raw";
-import SSAO_FS from "./shaders/post-process/ssao.wgsl?raw";
-import SSR_FS from "./shaders/post-process/ssr.wgsl?raw";
-import TAA_FS from "./shaders/post-process/taa.wgsl?raw";
-import TONEMAP_FS from "./shaders/post-process/tonemap.wgsl?raw";
-import WATERCOLOR_FS from "./shaders/post-process/watercolor.wgsl?raw";
-import WHITE_BALANCE_FS from "./shaders/post-process/white-balance.wgsl?raw";
+import AFTERIMAGE_FS from "./shaders/post-process/afterimage.wgsl?raw" with { type: "text" };
+import ASCII_FS from "./shaders/post-process/ascii.wgsl?raw" with { type: "text" };
+import BLIT_FS from "./shaders/post-process/blit.wgsl?raw" with { type: "text" };
+import BLOOM_BLUR_FS from "./shaders/post-process/bloom-blur.wgsl?raw" with { type: "text" };
+import BLOOM_BRIGHT_FS from "./shaders/post-process/bloom-bright.wgsl?raw" with { type: "text" };
+import BLOOM_COMPOSITE_FS from "./shaders/post-process/bloom-composite.wgsl?raw" with { type: "text" };
+import BLOOM_DOWNSAMPLE_FS from "./shaders/post-process/bloom-downsample.wgsl?raw" with { type: "text" };
+import BLOOM_SOFT_FS from "./shaders/post-process/bloom-soft.wgsl?raw" with { type: "text" };
+import BLOOM_UPSAMPLE_FS from "./shaders/post-process/bloom-upsample.wgsl?raw" with { type: "text" };
+import CHANNEL_MIXER_FS from "./shaders/post-process/channel-mixer.wgsl?raw" with { type: "text" };
+import CHROMATIC_ABERRATION_FS from "./shaders/post-process/chromatic-aberration.wgsl?raw" with { type: "text" };
+import DITHERING_FS from "./shaders/post-process/dithering.wgsl?raw" with { type: "text" };
+import DOF_FS from "./shaders/post-process/dof.wgsl?raw" with { type: "text" };
+import EDGES_FS from "./shaders/post-process/edges.wgsl?raw" with { type: "text" };
+import VS from "./shaders/post-process/fullscreen-vs.wgsl?raw" with { type: "text" };
+import FXAA_FS from "./shaders/post-process/fxaa.wgsl?raw" with { type: "text" };
+import GAUSSIAN_BLUR_FS from "./shaders/post-process/gaussian-blur.wgsl?raw" with { type: "text" };
+import GLOW_BLUR_FS from "./shaders/post-process/glow-blur.wgsl?raw" with { type: "text" };
+import GLOW_COMPOSITE_FS from "./shaders/post-process/glow-composite.wgsl?raw" with { type: "text" };
+import GRAIN_FS from "./shaders/post-process/grain.wgsl?raw" with { type: "text" };
+import HALFTONE_FS from "./shaders/post-process/halftone.wgsl?raw" with { type: "text" };
+import HIGHLIGHT_BLUR_FS from "./shaders/post-process/highlight-blur.wgsl?raw" with { type: "text" };
+import HIGHLIGHT_COMPOSITE_FS from "./shaders/post-process/highlight-composite.wgsl?raw" with { type: "text" };
+import LENS_DISTORTION_FS from "./shaders/post-process/lens-distortion.wgsl?raw" with { type: "text" };
+import LENS_FLARE_FS from "./shaders/post-process/lens-flare.wgsl?raw" with { type: "text" };
+import LUT_FS from "./shaders/post-process/lut.wgsl?raw" with { type: "text" };
+import MOTION_BLUR_FS from "./shaders/post-process/motion-blur.wgsl?raw" with { type: "text" };
+import OCCLUDER_CHUNK from "./shaders/post-process/occluder-chunk.wgsl?raw" with { type: "text" };
+import OUTLINE_FS from "./shaders/post-process/outline.wgsl?raw" with { type: "text" };
+import PIXELATION_FS from "./shaders/post-process/pixelation.wgsl?raw" with { type: "text" };
+import SHARPEN_FS from "./shaders/post-process/sharpen.wgsl?raw" with { type: "text" };
+import SOBEL_FS from "./shaders/post-process/sobel.wgsl?raw" with { type: "text" };
+import SPLIT_TONE_FS from "./shaders/post-process/split-tone.wgsl?raw" with { type: "text" };
+import SSAO_BLUR_FS from "./shaders/post-process/ssao-blur.wgsl?raw" with { type: "text" };
+import SSAO_COMPOSITE_FS from "./shaders/post-process/ssao-composite.wgsl?raw" with { type: "text" };
+import SSAO_FS from "./shaders/post-process/ssao.wgsl?raw" with { type: "text" };
+import SSR_FS from "./shaders/post-process/ssr.wgsl?raw" with { type: "text" };
+import TAA_FS from "./shaders/post-process/taa.wgsl?raw" with { type: "text" };
+import TONEMAP_FS from "./shaders/post-process/tonemap.wgsl?raw" with { type: "text" };
+import WATERCOLOR_FS from "./shaders/post-process/watercolor.wgsl?raw" with { type: "text" };
+import WHITE_BALANCE_FS from "./shaders/post-process/white-balance.wgsl?raw" with { type: "text" };
 
 // ── Effect IDs ──────────────────────────────────────────────────────────────
 
@@ -149,6 +158,7 @@ export class PostProcessStack {
   private device: GPUDevice;
   private format: GPUTextureFormat;
   private depthFormat: GPUTextureFormat;
+  private sceneFormat: GPUTextureFormat;
 
   // Bind group layouts (5 shared layouts)
   private ccLayout!: GPUBindGroupLayout;     // float + float + filtering + uniform
@@ -365,6 +375,7 @@ export class PostProcessStack {
     this.device = device;
     this.format = format;
     this.depthFormat = options?.depthFormat ?? "depth32float";
+    this.sceneFormat = options?.sceneFormat ?? HDR_FORMAT;
   }
 
   // ── Init ──────────────────────────────────────────────────────────────────
@@ -518,7 +529,7 @@ export class PostProcessStack {
   }
 
   private makePipeline(fsCode: string, layout: GPUBindGroupLayout, targetFormat: GPUTextureFormat): GPURenderPipeline {
-    const shader = this.device.createShaderModule({ code: VS + "\n" + OCCLUDER_CHUNK + "\n" + fsCode });
+    const shader = createValidatedShaderModule(this.device, { code: VS + "\n" + OCCLUDER_CHUNK + "\n" + fsCode, label: "PostProcessStack" });
     const pl = this.device.createPipelineLayout({ bindGroupLayouts: [layout, this.occluderLayout] });
     return this.device.createRenderPipeline({
       layout: pl,
@@ -856,7 +867,7 @@ export class PostProcessStack {
     if (sizeChanged) {
       this.destroyAllTargets();
       const usage = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST;
-      this.sceneColor = this.device.createTexture({ size: [w, h], format: HDR_FORMAT, usage });
+      this.sceneColor = this.device.createTexture({ size: [w, h], format: this.sceneFormat, usage });
       this.sceneDepth = this.device.createTexture({ size: [w, h], format: this.depthFormat, usage });
       this.pingPong[0] = this.device.createTexture({ size: [w, h], format: HDR_FORMAT, usage });
       this.pingPong[1] = this.device.createTexture({ size: [w, h], format: HDR_FORMAT, usage });

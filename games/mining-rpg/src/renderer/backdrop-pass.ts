@@ -10,8 +10,9 @@
 // (behind the foreground), with no blending (opaque).
 // ============================================================================
 
+import { createValidatedShaderModule } from "@downdraft/core";
 import { FULLSCREEN_VS } from "@downdraft/core";
-import BACKDROP_FS from "../shaders/backdrop-render.wgsl?raw";
+import BACKDROP_FS from "../shaders/backdrop-render.wgsl?raw" with { type: "text" };
 import {
     BACKDROP_GRID_H,
     BACKDROP_GRID_W,
@@ -79,7 +80,7 @@ export class BackdropPass {
       ],
     });
 
-    const shader = this.device.createShaderModule({ code: FULLSCREEN_VS + "\n" + BACKDROP_FS });
+    const shader = createValidatedShaderModule(this.device, { code: FULLSCREEN_VS + "\n" + BACKDROP_FS, label: "BackdropPass" });
     const pipelineLayout = this.device.createPipelineLayout({
       bindGroupLayouts: [this.bindGroupLayout],
     });

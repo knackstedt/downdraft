@@ -1,8 +1,11 @@
+import { createValidatedShaderModule } from "../shader-validator";
+
 export interface HzbSize {
   width: number;
   height: number;
   levels: number;
 }
+
 
 export function nextPowerOf2(v: number): number {
   v--;
@@ -134,13 +137,13 @@ export class HzbBuilder {
     this.depthToHzbPipeline = this.device.createComputePipeline({
       label: "hzb-depth-to-hzb",
       layout: "auto",
-      compute: { module: this.device.createShaderModule({ code: DEPTH_TO_HZB_WGSL }), entryPoint: "cs_main" },
+      compute: { module: createValidatedShaderModule(this.device, { code: DEPTH_TO_HZB_WGSL, label: "HzbBuilder.depthToHzb" }), entryPoint: "cs_main" },
     });
 
     this.reducePipeline = this.device.createComputePipeline({
       label: "hzb-reduce",
       layout: "auto",
-      compute: { module: this.device.createShaderModule({ code: HZB_REDUCE_WGSL }), entryPoint: "cs_main" },
+      compute: { module: createValidatedShaderModule(this.device, { code: HZB_REDUCE_WGSL, label: "HzbBuilder.reduce" }), entryPoint: "cs_main" },
     });
 
     this.reduceBindGroups = [];

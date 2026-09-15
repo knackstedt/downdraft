@@ -1,8 +1,9 @@
-import type { GraphRenderContext } from "..";
-import { RenderPass } from "..";
+import { createValidatedShaderModule } from "../render/shader-validator";
 import type { StructView, WgslStruct } from "@downdraft/shader-graph";
 import { f32, mat4x4f, vec3f, wgsl } from "@downdraft/shader-graph";
 import { type Mat4 } from "wgpu-matrix";
+import type { GraphRenderContext } from "../index";
+import { RenderPass } from "../index";
 import type { ParticleGPUData } from "./particle-data";
 import { packParticleBuffer } from "./particle-data";
 
@@ -159,8 +160,8 @@ export class ParticleRenderPass extends RenderPass {
 
   prepare(device: GPUDevice): void {
     this.device = device;
-    this.shaderModule = device.createShaderModule({ code: PARTICLE_VERTEX_SHADER });
-    this.shaderModuleNoTex = device.createShaderModule({ code: PARTICLE_VERTEX_SHADER_NO_TEX });
+    this.shaderModule = createValidatedShaderModule(device, { code: PARTICLE_VERTEX_SHADER, label: "ParticleRenderPass" });
+    this.shaderModuleNoTex = createValidatedShaderModule(device, { code: PARTICLE_VERTEX_SHADER_NO_TEX, label: "ParticleRenderPass.noTex" });
 
     this.cameraBuffer = device.createBuffer({
       size: 80, // mat4x4 (64) + vec3 (12) + pad (4)

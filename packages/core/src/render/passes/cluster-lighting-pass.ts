@@ -8,6 +8,7 @@ import type { LightUniformData } from "../lighting";
 import { packLightUniform } from "../lighting";
 import type { ClusterGrid } from "../lighting/cluster-grid";
 import { RenderPass } from "../render-pass";
+import { createValidatedShaderModule } from "../shader-validator";
 
 const CameraUniforms: WgslStruct = wgsl.struct("CameraUniforms", {
   viewProj: mat4x4f,
@@ -296,7 +297,7 @@ export class ClusterLightingPass extends RenderPass {
 
   prepare(_device: GPUDevice): void {
     if (!this.shaderModule) {
-      this.shaderModule = this.device.createShaderModule({ code: CLUSTER_LIGHTING_SHADER });
+      this.shaderModule = createValidatedShaderModule(this.device, { code: CLUSTER_LIGHTING_SHADER, label: "ClusterLightingPass" });
     }
 
     this.cameraBuffer = this.device.createBuffer({

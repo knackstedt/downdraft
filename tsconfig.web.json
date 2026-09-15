@@ -125,11 +125,23 @@
       "@downdraft/library-pixi-ui/*": [
         "./packages/libraries/pixi-ui/src/*"
       ],
+      "@downdraft/library-pixi-ui-native": [
+        "./packages/libraries/pixi-ui-native/src/index.ts"
+      ],
+      "@downdraft/library-pixi-ui-native/*": [
+        "./packages/libraries/pixi-ui-native/src/*"
+      ],
       "@downdraft/library-profiler": [
         "./packages/libraries/profiler/src/index.ts"
       ],
       "@downdraft/library-profiler/*": [
         "./packages/libraries/profiler/src/*"
+      ],
+      "@downdraft/library-devtools": [
+        "./packages/libraries/devtools/src/index.ts"
+      ],
+      "@downdraft/library-devtools/*": [
+        "./packages/libraries/devtools/src/*"
       ],
       "@downdraft/library-marching-cubes": [
         "./packages/libraries/marching-cubes/src/index.ts"
@@ -407,11 +419,17 @@
     "**/*.spec.ts",
     "games/*/src/main.ts",
     "games/*/src/preload.ts",
+    "games/*/src/native-entry.ts",
+    "games/*/src/pixi/native-data-bridge.ts",
+    "games/*/src/pixi/native-input-router.ts",
+    "games/*/src/pixi/native-scene.tsx",
     "games/*/electron.vite.config.ts",
     "games/mining-rpg/src/solid/**/*.tsx",
     "games/mining-rpg/src/solid/worker-entry.ts",
     "examples/*/src/main.ts",
     "examples/*/src/preload.ts",
-    "examples/*/electron.vite.config.ts"
+    "examples/*/electron.vite.config.ts",
+    "packages/libraries/pixi-ui-native/src/**/*",
+    "packages/platform-native/src/**/*"
   ]
 }

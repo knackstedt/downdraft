@@ -7,7 +7,7 @@
 // adapter, retiring the parallel material rendering path.
 
 import { BlendMode, CullMode, DEFAULT_VARIANT_FLAGS, Material, MaterialLibrary, MaterialType, type AlphaMode, type MaterialDefinition } from "@downdraft/core";
-import PHYSICAL_WGSL from "../../../core/src/render/material-types/physical.wgsl?raw";
+import PHYSICAL_WGSL from "../../../core/src/render/material-types/physical.wgsl?raw" with { type: "text" };
 import type { MaterialData } from "./types";
 
 export interface MaterialAdapterOptions {

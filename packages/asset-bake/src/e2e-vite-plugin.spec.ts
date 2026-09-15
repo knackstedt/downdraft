@@ -38,7 +38,7 @@ beforeAll(async () => {
   // Entry uses the modelUrl in a side-effect so Rollup doesn't tree-shake it.
   writeFileSync(
     join(srcDir, "entry.ts"),
-    `import modelUrl from "./model/Eyebrows_Regular.gltf?url";
+    `import modelUrl from "./model/Eyebrows_Regular.gltf?url" with { type: "text" };
 // Side-effect to prevent tree-shaking.
 globalThis.__modelUrl = modelUrl;
 export { modelUrl };

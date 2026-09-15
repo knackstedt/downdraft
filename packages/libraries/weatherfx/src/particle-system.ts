@@ -4,12 +4,13 @@
 // Far-zone particles are gravity-only VFX with no collision cost.
 // ============================================================================
 
+import { createValidatedShaderModule } from "@downdraft/core";
 import type { ITrackedRenderPass } from "@downdraft/core";
 import { calculateViewProj, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, type CameraState } from "@downdraft/core";
 import { WeatherType } from "@downdraft/library-weather";
 import { StructView, wgsl } from "@downdraft/shader-graph";
-import COMPUTE_WGSL from "./shaders/particle-compute.wgsl?raw";
-import RENDER_WGSL from "./shaders/particle-render.wgsl?raw";
+import COMPUTE_WGSL from "./shaders/particle-compute.wgsl?raw" with { type: "text" };
+import RENDER_WGSL from "./shaders/particle-render.wgsl?raw" with { type: "text" };
 
 // --- Typed uniform structs (validate against particle-compute.wgsl / particle-render.wgsl) ---
 export const SimParamsStruct = wgsl.struct("SimParams", {
@@ -166,8 +167,8 @@ export class ParticleSystem {
 
   async init(): Promise<void> {
     const dev = this.device;
-    const computeModule = dev.createShaderModule({ code: COMPUTE_WGSL });
-    const renderModule = dev.createShaderModule({ code: RENDER_WGSL });
+    const computeModule = createValidatedShaderModule(dev, { code: COMPUTE_WGSL, label: "WeatherFx.particleCompute" });
+    const renderModule = createValidatedShaderModule(dev, { code: RENDER_WGSL, label: "WeatherFx.particleRender" });
 
     // --- Buffers ---
     this.particleBuffer = dev.createBuffer({

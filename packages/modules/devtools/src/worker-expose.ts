@@ -22,6 +22,7 @@ export function exposeDevToolsApi<T extends WorkerApi>(api: T): T & {
   __devtoolsGetManifest(): DevToolsManifest;
   __devtoolsCallCommand(name: string, args: any[]): any;
   __devtoolsGetSAB(): SharedArrayBuffer | null;
+  __devtoolsEval(expr: string): Promise<{ result?: any; error?: string }>;
 } {
   // Merge profiling RPC methods (attachProfilingSAB, addWarningRule, onWarning)
   // with the devtools RPC methods.
@@ -35,6 +36,18 @@ export function exposeDevToolsApi<T extends WorkerApi>(api: T): T & {
     },
     __devtoolsGetSAB: (): SharedArrayBuffer | null => {
       return devtools.getSAB();
+    },
+    __devtoolsEval: async (expr: string): Promise<{ result?: any; error?: string }> => {
+      try {
+        // Evaluate the expression in the worker's global scope.
+        // Use indirect eval so it runs in the global scope (not closure).
+        // eslint-disable-next-line no-new-func
+        const fn = new Function("return (" + expr + ")");
+        const result = fn();
+        return { result };
+      } catch (err) {
+        return { error: String(err) };
+      }
     },
   });
 }

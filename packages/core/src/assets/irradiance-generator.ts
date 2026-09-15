@@ -1,3 +1,5 @@
+
+import { createValidatedShaderModule } from "../render/shader-validator";
 const IRRADIANCE_SHADER = /* wgsl */ `
 struct Uniforms {
   faceSize: u32,
@@ -135,7 +137,7 @@ export class IrradianceGenerator {
       ],
     });
 
-    const shaderModule = this.device.createShaderModule({ code: IRRADIANCE_SHADER });
+    const shaderModule = createValidatedShaderModule(this.device, { code: IRRADIANCE_SHADER, label: "IrradianceGenerator" });
 
     this.pipeline = this.device.createComputePipeline({
       layout: this.device.createPipelineLayout({ bindGroupLayouts: [this.bindGroupLayout] }),

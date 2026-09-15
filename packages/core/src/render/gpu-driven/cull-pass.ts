@@ -4,6 +4,7 @@ import { PassType } from "../frame-graph";
 import type { FrustumPlane } from "../frustum";
 import { createStorageBuffer, createUniformBuffer } from "../gpu-utils";
 import { RenderPass } from "../render-pass";
+import { createValidatedShaderModule } from "../shader-validator";
 import type { GpuMeshTable } from "./mesh-table";
 
 export interface CullBatchRecord {
@@ -107,14 +108,14 @@ export class GpuCullPass extends RenderPass {
       this.cullPipeline = device.createComputePipeline({
         label: "gpu-cull",
         layout: "auto",
-        compute: { module: device.createShaderModule({ code: CULL_WGSL }), entryPoint: "cs_main" },
+        compute: { module: createValidatedShaderModule(device, { code: CULL_WGSL, label: "GpuCullPass.cull" }), entryPoint: "cs_main" },
       });
     }
     if (!this.argsPipeline) {
       this.argsPipeline = device.createComputePipeline({
         label: "gpu-cull-args",
         layout: "auto",
-        compute: { module: device.createShaderModule({ code: ARGS_FILL_WGSL }), entryPoint: "cs_main" },
+        compute: { module: createValidatedShaderModule(device, { code: ARGS_FILL_WGSL, label: "GpuCullPass.argsFill" }), entryPoint: "cs_main" },
       });
     }
 

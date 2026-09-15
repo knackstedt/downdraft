@@ -3,6 +3,7 @@
 // Renders ground grid, water plane, colored agent cubes, and lighting
 // ============================================================================
 
+import { createValidatedShaderModule } from "@downdraft/core";
 
 const GROUND_VS = /* wgsl */ `
 struct Uniforms {
@@ -307,7 +308,7 @@ export class SimpleRenderer {
     });
 
     // Create ground pipeline
-    const groundModule = this.device.createShaderModule({ code: GROUND_VS });
+    const groundModule = createValidatedShaderModule(this.device, { code: GROUND_VS, label: "PluginTester.ground" });
     this.pipeline = this.device.createRenderPipeline({
       layout: "auto",
       vertex: {
@@ -335,7 +336,7 @@ export class SimpleRenderer {
     });
 
     // Create cube pipeline
-    const cubeModule = this.device.createShaderModule({ code: CUBE_VS });
+    const cubeModule = createValidatedShaderModule(this.device, { code: CUBE_VS, label: "PluginTester.cube" });
     this.cubePipeline = this.device.createRenderPipeline({
       layout: "auto",
       vertex: {

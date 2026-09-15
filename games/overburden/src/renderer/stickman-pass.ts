@@ -8,6 +8,7 @@
 // would look due to the missing top-face perspective).
 // ============================================================================
 
+import { createValidatedShaderModule } from "@downdraft/core";
 import { DEPTH_FORMAT } from "@downdraft/core";
 import type { StructView, WgslStruct } from "@downdraft/shader-graph";
 import { mat4x4f, vec4f, wgsl } from "@downdraft/shader-graph";
@@ -117,7 +118,7 @@ export class StickmanPass {
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
     });
 
-    const shader = this.device.createShaderModule({ code: BOX_WGSL });
+    const shader = createValidatedShaderModule(this.device, { code: BOX_WGSL, label: "StickmanPass" });
 
     this.bindGroupLayout = this.device.createBindGroupLayout({
       entries: [

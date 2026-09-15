@@ -5,6 +5,7 @@
 
 import {
     calculateViewProj,
+    createValidatedShaderModule,
     DEPTH_FORMAT,
     dot3,
     invertMat4,
@@ -14,7 +15,7 @@ import {
     type CameraState,
 } from "@downdraft/core";
 import type { GizmoMode } from "./index";
-import GIZMO_WGSL from "./shaders/transform-gizmo.wgsl?raw";
+import GIZMO_WGSL from "./shaders/transform-gizmo.wgsl?raw" with { type: "text" };
 
 
 const AXIS_COLORS: [number, number, number][] = [
@@ -101,7 +102,7 @@ export class TransformGizmo {
       entries: [{ binding: 0, resource: { buffer: this.uniformBuffer } }],
     });
 
-    const shaderModule = this.device.createShaderModule({ code: GIZMO_WGSL });
+    const shaderModule = createValidatedShaderModule(this.device, { code: GIZMO_WGSL, label: "TransformGizmo" });
     const pipelineLayout = this.device.createPipelineLayout({
       bindGroupLayouts: [this.bindGroupLayout],
     });

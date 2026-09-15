@@ -12,6 +12,6 @@ export {
     formatBytesShort
 } from "./feature-log";
 export type { FeatureLogData } from "./feature-log";
-export { ConsoleLogger, createLogger, setThreadTag } from "./logger";
-export type { Logger } from "./logger";
+export { addLogSink, ConsoleLogger, createLogger, getRecentLogs, setThreadTag } from "./logger";
+export type { Logger, LogSink, LogSinkEntry } from "./logger";
 

@@ -23,6 +23,7 @@ import { downdraftHtmlPlugin, type DowndraftHtmlOptions, type LayerSpec } from "
 import { profilingPreludePlugin, type ProfilingPreludePluginOptions } from "./profiling-prelude-plugin";
 import { sceneModuleUrlPlugin } from "./scene-module-url-plugin";
 import { silenceSourcemapWarningsPlugin } from "./silence-sourcemap-warnings-plugin";
+import { wgslValidatePlugin } from "./wgsl-validate-plugin";
 import { workerUrlGuardPlugin } from "./worker-url-guard-plugin";
 
 // ---------------------------------------------------------------------------
@@ -476,6 +477,11 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
         // React Refresh code (which references `window`) into the Solid worker
         // chunk. The Solid plugin (added via rendererPlugins) handles those files.
         react({ exclude: "**/src/solid/**" }),
+        // WGSL validation — validates .wgsl files with the Tint CLI at
+        // build/compile time. Runs before wgslHmrPlugin so malformed shaders
+        // are caught before module creation. Disabled when Tint is unavailable
+        // or DOWNDRAFT_SHADER_VALIDATE=0 (runtime validation still active).
+        wgslValidatePlugin(),
         // WGSL `?raw` HMR boundary — must run before Vite's asset plugin so
         // `*.wgsl?raw` modules become HMR boundaries (fine-grained shader
         // reload via wgslHotReload, full page reload fallback). Applies to

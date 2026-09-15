@@ -1,4 +1,4 @@
-import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "@downdraft/core";
+import { createValidatedShaderModule, DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "@downdraft/core";
 import { EntityType } from "@shared/types";
 import { HITBOX_WGSL, ISLAND_WIREFRAME_WGSL } from "../shaders/entity-shaders";
 import type { EntityRenderContext } from "./render-context";
@@ -22,6 +22,7 @@ export class HitboxRenderer {
   private hitboxQuadIndexCount = 0;
   private hitboxUniformBuffer: GPUBuffer | null = null;
   private hitboxBindGroup: GPUBindGroup | null = null;
+  private hitboxBindGroups: GPUBindGroup[] = [];
   private hitboxEntryCount = 0;
   private hitboxLineWidth = 3.0;
   private showHitboxes = false;
@@ -87,12 +88,21 @@ export class HitboxRenderer {
       layout: hitboxBindGroupLayout,
       entries: [{ binding: 0, resource: { buffer: this.hitboxUniformBuffer, size: 256 } }],
     });
+    // Per-entry bind groups (offset baked into resource; bind with [0] dynamic offset).
+    // Cap at 256 to avoid excessive resource creation (hitboxes are debug-only).
+    this.hitboxBindGroups = [];
+    for (let i = 0; i < 256; i++) {
+      this.hitboxBindGroups.push(dev.createBindGroup({
+        layout: hitboxBindGroupLayout,
+        entries: [{ binding: 0, resource: { buffer: this.hitboxUniformBuffer, offset: i * 256, size: 256 } }],
+      }));
+    }
 
     const hitboxLayout = dev.createPipelineLayout({
       bindGroupLayouts: [hitboxBindGroupLayout],
     });
 
-    const hitboxShaderModule = dev.createShaderModule({ code: HITBOX_WGSL });
+    const hitboxShaderModule = createValidatedShaderModule(dev, { code: HITBOX_WGSL, label: "HitboxRenderer.hitbox" });
     this.hitboxPipeline = dev.createRenderPipeline({
       layout: hitboxLayout,
       vertex: {
@@ -133,7 +143,7 @@ export class HitboxRenderer {
     dev.queue.writeBuffer(this.hitboxQuadIndices as any, 0, quadIndices);
 
     // Island wireframe pipeline
-    const islandWireframeModule = dev.createShaderModule({ code: ISLAND_WIREFRAME_WGSL });
+    const islandWireframeModule = createValidatedShaderModule(dev, { code: ISLAND_WIREFRAME_WGSL, label: "HitboxRenderer.islandWireframe" });
     this.islandWireframePipeline = dev.createRenderPipeline({
       layout: pipelineLayout,
       vertex: {
@@ -256,7 +266,9 @@ export class HitboxRenderer {
     passEncoder.setIndexBuffer(this.hitboxQuadIndices, "uint16");
 
     for (let i = 0; i < this.hitboxEntryCount; i++) {
-      passEncoder.setBindGroup(0, this.hitboxBindGroup, [i * 256]);
+      const hBg = this.hitboxBindGroups[i] ?? this.hitboxBindGroup;
+      if (this.hitboxBindGroups.length > 0) passEncoder.setBindGroup(0, hBg, [0]);
+      else passEncoder.setBindGroup(0, hBg!, [i * 256]);
       passEncoder.drawIndexed(this.hitboxQuadIndexCount);
     }
 
@@ -272,7 +284,9 @@ export class HitboxRenderer {
           if (islandMesh && islandMesh.lineIndices && islandMesh.lineIndexCount > 0) {
             passEncoder.setVertexBuffer(0, islandMesh.vertices);
             passEncoder.setIndexBuffer(islandMesh.lineIndices, islandMesh.useUint32 ? "uint32" : "uint16");
-            passEncoder.setBindGroup(0, ctx.bindGroup, [i * 256]);
+            const wBg = ctx.bindGroups?.[i] ?? ctx.bindGroup;
+            if (ctx.bindGroups) passEncoder.setBindGroup(0, wBg, [0]);
+            else passEncoder.setBindGroup(0, wBg!, [i * 256]);
             passEncoder.drawIndexed(islandMesh.lineIndexCount);
           }
         }

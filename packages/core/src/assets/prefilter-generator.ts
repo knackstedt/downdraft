@@ -1,3 +1,5 @@
+
+import { createValidatedShaderModule } from "../render/shader-validator";
 const PREFILTER_SHADER = /* wgsl */ `
 struct Uniforms {
   faceSize: u32,
@@ -159,7 +161,7 @@ export class PrefilteredSpecularGenerator {
       ],
     });
 
-    const shaderModule = this.device.createShaderModule({ code: PREFILTER_SHADER });
+    const shaderModule = createValidatedShaderModule(this.device, { code: PREFILTER_SHADER, label: "PrefilterGenerator" });
 
     this.pipeline = this.device.createComputePipeline({
       layout: this.device.createPipelineLayout({ bindGroupLayouts: [this.bindGroupLayout] }),

@@ -16,12 +16,13 @@
     "tsc": "tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.node.json --noEmit && tsc -p games/mining-rpg/src/solid/tsconfig.json --noEmit",
     "tsc:e2e": "tsc -p tsconfig.e2e.json --noEmit",
     "lint": "oxlint",
-    "postinstall": "node node_modules/electron/install.js"
+    "postinstall": "node scripts/patch-pixi.mjs && node node_modules/electron/install.js"
   },
   "workspaces": [
     "packages/app",
     "packages/asset-bake",
     "packages/core",
+    "packages/platform-native",
     "packages/ui",
     "packages/mcp",
     "packages/shader-graph",
@@ -51,6 +52,7 @@
     "@downdraft/cli": "workspace:*",
     "@napi-rs/cli": "^2.18.0",
     "@types/node": "^22.10.0",
+    "@types/pngjs": "^6.0.5",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.3.4",
@@ -61,20 +63,26 @@
     "fake-indexeddb": "^6.2.5",
     "happy-dom": "^20.11.2",
     "oxlint": "^1.4.0",
+    "patch-package": "^8.0.1",
+    "pixi.js": "8.18.0",
+    "playwright-core": "^1.63.0",
+    "pngjs": "^7.0.0",
     "typescript": "^5.9.3",
     "vite": "^6.0.0",
     "wabt": "^1.0.39",
-    "wgpu-matrix": "^3.4.2"
+    "wgpu-matrix": "^3.4.2",
+    "tsx": "^4.23.0"
   },
   "dependencies": {
     "@bokuweb/zstd-wasm": "^0.0.27",
     "@dimforge/rapier3d-compat": "^0.19.3",
     "buffer": "^6.0.3",
-    "recast-navigation": "^0.43.1",
     "comment-json": "^5.0.0",
     "fflate": "^0.8.2",
+    "koffi": "^3.2.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "recast-navigation": "^0.43.1",
     "xxh3-ts": "^2.0.1",
     "xxhash-wasm": "^0.4.2",
     "zustand": "^5.0.2"

@@ -19,11 +19,14 @@ const ipcMainMock = {
 // --- Mock @downdraft/mcp/http-transport to capture proxyHandler ---
 let capturedProxyHandler: ((req: { method: string; params?: Record<string, unknown> }) => Promise<unknown>) | null = null;
 const McpHttpTransportMock = class {
-  constructor(opts: { proxyHandler?: (req: { method: string; params?: Record<string, unknown> }) => Promise<unknown> }) {
+  _port: number;
+  constructor(opts: { port?: number; proxyHandler?: (req: { method: string; params?: Record<string, unknown> }) => Promise<unknown> }) {
     capturedProxyHandler = opts.proxyHandler ?? null;
+    this._port = opts.port ?? 0;
   }
   async start() {}
   async stop() {}
+  getPort() { return this._port; }
 };
 
 // --- Mock @downdraft/core/util/logger ---
@@ -79,6 +82,30 @@ function makeMockCtx(): MainContext {
 }
 
 const mcpConfig: DowndraftMcpConfig = { port: 19876 };
+
+describe("MCP proxy handler — port return value", () => {
+  let ctx: any;
+
+  beforeEach(async () => {
+    ipcEmitter.removeAllListeners();
+    capturedProxyHandler = null;
+    ctx = makeMockCtx();
+  });
+
+  it("should return the bound port from startMcpProxy", async () => {
+    const port = await startMcpProxy(ctx, mcpConfig);
+    expect(port).toBe(19876);
+  });
+
+  it("should return 0 when transport start fails", async () => {
+    // Override the mock to throw on start
+    const origStart = McpHttpTransportMock.prototype.start;
+    McpHttpTransportMock.prototype.start = async function () { throw new Error("bind failed"); };
+    const port = await startMcpProxy(ctx, mcpConfig);
+    expect(port).toBe(0);
+    McpHttpTransportMock.prototype.start = origStart;
+  });
+});
 
 describe("MCP proxy handler — concurrent request isolation", () => {
   let ctx: any;

@@ -4,7 +4,7 @@
 // Uses the RPC layer (wrap/exposeEvents) for typed async communication.
 // ============================================================================
 
-import { allocateInputBuffer, allocateSimBuffer, HotReloadPipeline, type GCControllerConfig, type GCControllerStats, type IHotReloadable, type LoadOptions, type SaveOptions } from "@downdraft/core";
+import { allocateInputBuffer, allocateSimBuffer, HotReloadPipeline, isDevMode, type GCControllerConfig, type GCControllerStats, type IHotReloadable, type LoadOptions, type SaveOptions } from "@downdraft/core";
 import { wrap, type WorkerProxy } from "@downdraft/core/worker/rpc";
 import type { OpfsSaveStoreOptions } from "@downdraft/library-persistence/browser";
 import { WaterChannel } from "@downdraft/library-water";
@@ -51,6 +51,7 @@ type SimApi = {
   __devtoolsGetManifest(): Promise<DevToolsManifest>;
   __devtoolsCallCommand(name: string, args: any[]): Promise<any>;
   __devtoolsGetSAB(): Promise<SharedArrayBuffer | null>;
+  __devtoolsEval(expr: string): Promise<{ result?: any; error?: string }>;
 };
 
 /**
@@ -157,7 +158,7 @@ export class SimWebWorker implements IHotReloadable, ISimWorker {
    * Returns a DevToolsWorkerProxy for syncing the worker's devtools manifest
    * with the renderer-side registry. Used by initDevTools() via syncWorkerManifests().
    */
-  getDevToolsProxy(): { __devtoolsGetManifest(): Promise<DevToolsManifest>; __devtoolsCallCommand(name: string, args: any[]): Promise<any>; __devtoolsGetSAB(): Promise<SharedArrayBuffer | null> } | null {
+  getDevToolsProxy(): { __devtoolsGetManifest(): Promise<DevToolsManifest>; __devtoolsCallCommand(name: string, args: any[]): Promise<any>; __devtoolsGetSAB(): Promise<SharedArrayBuffer | null>; __devtoolsEval(expr: string): Promise<{ result?: any; error?: string }> } | null {
     return this.wp?.proxy ?? null;
   }
 
@@ -289,7 +290,7 @@ export class SimWebWorker implements IHotReloadable, ISimWorker {
   private pipeline: HotReloadPipeline | null = null;
 
   async hotReload(config: SimWebWorkerConfig, preserveState: boolean): Promise<void> {
-    if (!import.meta.env.DEV) return;
+    if (!isDevMode) return;
     if (!this.pipeline) {
       this.pipeline = new HotReloadPipeline(this);
     }

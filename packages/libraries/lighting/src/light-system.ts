@@ -3,9 +3,10 @@
 // Uses a read-only storage buffer shared across all entity pipelines.
 // ============================================================================
 
+import { createValidatedShaderModule } from "@downdraft/core";
 import { calculateViewProj, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, type CameraState, type ITrackedRenderPass } from "@downdraft/core";
 import { LightingSystem } from "./lighting-system";
-import DEBUG_WGSL from "./shaders/light-debug.wgsl?raw";
+import DEBUG_WGSL from "./shaders/light-debug.wgsl?raw" with { type: "text" };
 
 export const MAX_POINT_LIGHTS = 32;
 export const MAX_SPOT_LIGHTS = 8;
@@ -358,7 +359,7 @@ export class LightSystem extends LightingSystem {
       entries: [{ binding: 0, resource: { buffer: this.debugUniformBuffer as GPUBuffer } }],
     });
 
-    const shaderModule = dev.createShaderModule({ code: DEBUG_WGSL });
+    const shaderModule = createValidatedShaderModule(dev, { code: DEBUG_WGSL, label: "LightSystem.debug" });
     this.debugPipeline = dev.createRenderPipeline({
       layout: dev.createPipelineLayout({ bindGroupLayouts: [this.debugBindGroupLayout as GPUBindGroupLayout] }),
       vertex: {

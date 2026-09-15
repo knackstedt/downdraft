@@ -29,26 +29,38 @@ import { RendererAccessors } from "./renderer-accessors";
 import { RendererInputHandler } from "./renderer-input-handler";
 import { TerrainMeshPool } from "./terrain-mesh-pool";
 
+// ── Asset glob: Vite (import.meta.glob) or Bun-native (createGlob) ──
+// In Vite, import.meta.glob is a compile-time feature. In Bun-native mode,
+// we fall back to a filesystem-based glob.
+const _glob = (import.meta as any).glob ?? ((pattern: string) => {
+  // Bun-native fallback: use filesystem glob
+  try {
+    const { createGlob } = require("@downdraft/core/platform/glob-polyfill");
+    const modDir = typeof __dirname !== "undefined" ? __dirname : (import.meta as any).dir ?? ".";
+    return createGlob(modDir)(pattern, { query: "?url", eager: true });
+  } catch { return {} as Record<string, string>; }
+});
+
 // Player model asset — resolved by Vite at build time
-const playerModelGlob = import.meta.glob(
+const playerModelGlob = _glob(
   "../../assets/models/CHARACTER MALE LOW POLY/*.fbx",
   { query: "?url", import: "default", eager: true },
 ) as Record<string, string>;
 
 // Rigged character model — Mixamo skeleton FBX (direct animation matching)
-const riggedCharacterGlob = import.meta.glob(
+const riggedCharacterGlob = _glob(
   "../../assets/models/character.fbx",
   { query: "?url", import: "default", eager: true },
 ) as Record<string, string>;
 
 // Bed model asset for boat builder furniture
-const bedModelGlob = import.meta.glob(
+const bedModelGlob = _glob(
   "../../assets/models/Low Poly Furniture/Beds/Bed Single.fbx",
   { query: "?url", import: "default", eager: true },
 ) as Record<string, string>;
 
 // Mixamo animation files
-const animGlobs = import.meta.glob(
+const animGlobs = _glob(
   "../../assets/animations/human/mixamo/*.fbx",
   { query: "?url", import: "default", eager: true },
 ) as Record<string, string>;
@@ -131,6 +143,22 @@ export class WebGPURenderer extends GameRenderer implements IRendererStateProvid
   onInputProcessed: (() => void) | null = null;
 
   private _running = false;
+  /** When true, drawFrame() skips surface present (for screenshot capture). */
+  public suppressPresent = false;
+  /** When true, skip the IMUI overlay pass (native mode has no UI). */
+  public skipUI = false;
+  /**
+   * Native PixiJS UI host. When set, the renderer drives PixiJS each frame
+   * (host.render() submits the UI into a GPUTexture) and composites that
+   * texture over the frame via the host's blit pass — no Chromium/worker.
+   */
+  public nativePixiUi: { render(): void; getUiTextureView(): GPUTextureView | null; blitPass: { execute(enc: GPUCommandEncoder, target: GPUTextureView, ui: GPUTextureView): void } } | null = null;
+  /** Native debugger overlay (second NativePixiUiHost composited above the game UI).
+   *  Toggled by F12. When visible, the renderer blits the debug overlay after
+   *  the game UI blit. See @downdraft/library-devtools NativeDebuggerHost. */
+  public nativeDebugger: { visible: boolean; update(encoder?: GPUCommandEncoder): void; getUiTextureView(): GPUTextureView | null; blit(enc: GPUCommandEncoder, target: GPUTextureView): void } | null = null;
+  /** Callback invoked during drawFrame() to encode a screenshot copy before submit. */
+  public screenshotCallback: ((encoder: GPUCommandEncoder) => void) | null = null;
   private rafHandle = 0;
   private _lastTime = 0;
   /** FPS limit for test mode (0 = unlimited, uses rAF). When > 0, uses setTimeout. */
@@ -418,7 +446,7 @@ export class WebGPURenderer extends GameRenderer implements IRendererStateProvid
 
       await this.particleSystem.init();
 
-      this.postProcessStack = new PostProcessStack(device, format, { depthFormat: DEPTH_FORMAT });
+      this.postProcessStack = new PostProcessStack(device, format, { depthFormat: DEPTH_FORMAT, sceneFormat: format });
       this.postProcessStack.init();
 
       this.underwaterFogPass = new UnderwaterFogPass(device, format);
@@ -767,7 +795,7 @@ export class WebGPURenderer extends GameRenderer implements IRendererStateProvid
     } else {
       for (let v = 0; v < vpCount; v++) { this.drawViewport(v, dt, "none", commandEncoder); }
     }
-    if (this.uiRenderer && this.uiRoot) {
+    if (this.uiRenderer && this.uiRoot && !this.skipUI && !this.nativePixiUi) {
       if (this.accessors.uiNeedsLayout && this.uiLayoutEngine) { this.uiLayoutEngine.layout(this.uiRoot); this.accessors.uiNeedsLayout = false; }
       const ds = this.uiRoot.getDrawable();
       if (ds.length > 0) {
@@ -777,10 +805,47 @@ export class WebGPURenderer extends GameRenderer implements IRendererStateProvid
         up.end();
       }
     }
+    // ── Native PixiJS UI compositing ──
+    // Drive PixiJS to render the UI into its GPUTexture (this submits PixiJS's
+    // own command encoder to the shared queue), then blit that texture over
+    // the frame. The write is ordered before the read on the shared queue.
+    if (this.nativePixiUi) {
+      this.nativePixiUi.render();
+      const uiView = this.nativePixiUi.getUiTextureView();
+      if (uiView) {
+        const cv = context.getCurrentTexture().createView();
+        this.nativePixiUi.blitPass.execute(commandEncoder, cv, uiView);
+      }
+    }
+    // ── Native debugger overlay compositing ──
+    // When the debugger is visible (F12), update + render the debug overlay
+    // (drives its PixiJS render into its GPUTexture), then blit it above the
+    // game UI. The host.update() is also called from the render loop, but we
+    // call it here too so the debug texture is fresh before the blit.
+    if (this.nativeDebugger && this.nativeDebugger.visible) {
+      try { this.nativeDebugger.update(); } catch { /* ignore */ }
+      const dbgView = this.nativeDebugger.getUiTextureView();
+      if (dbgView) {
+        const cv = context.getCurrentTexture().createView();
+        this.nativeDebugger.blit(commandEncoder, cv);
+      }
+    }
     if (this.gpuProfiler) {
       this.gpuProfiler.resolveGpuTimers(commandEncoder);
     }
+    // If a screenshot capture callback is set, encode the copy before submit
+    if (this.screenshotCallback) {
+      this.screenshotCallback(commandEncoder);
+      this.screenshotCallback = null;
+    }
     device.queue.submit([commandEncoder.finish()]);
+    // Present the surface (native wgpu requires explicit presentation;
+    // in browsers this is automatic at the end of the frame).
+    // Skip if suppressPresent is set (e.g. for screenshot capture).
+    if (!this.suppressPresent) {
+      const ctx = this.getContext();
+      if (ctx && (ctx as any).present) (ctx as any).present();
+    }
     this.iblSystem?.endFrame();
     if (this.gpuProfiler) { this.gpuProfiler.readGpuTimers().then(() => {}).catch(() => {}); }
     if (this.telemetryCollector) {
@@ -1388,6 +1453,7 @@ export class WebGPURenderer extends GameRenderer implements IRendererStateProvid
   getUIInputRouter() { return this.accessors.getUIInputRouter(); }
   markUILayoutDirty(): void { this.accessors.markUILayoutDirty(); }
   refreshUIScreenSize(): void { this.accessors.updateUIScreenSize(); }
+
   toggleProfilingOverlay(): void { this.accessors.toggleProfilingOverlay(); }
   isProfilingOverlayVisible(): boolean { return this.accessors.isProfilingOverlayVisible(); }
   getTelemetryCollector() { return this.accessors.getTelemetryCollector(); }
@@ -1403,6 +1469,9 @@ export class WebGPURenderer extends GameRenderer implements IRendererStateProvid
   getGPUInfo() { return this.accessors.getGPUInfo(); }
   getFrameTelemetry() { return this.accessors.getFrameTelemetry(); }
   getPostProcessInfo() { return this.accessors.getPostProcessInfo(); }
+  getPostProcessStack() { return this.accessors.getPostProcessStack(); }
+  getModelRenderer() { return this.accessors.getModelRenderer(); }
+  getMaterialLibrary() { return this.accessors.getMaterialLibrary(); }
   getFrameGraph() {
     const profiler = this.accessors.getGPUProfiler();
     if (!profiler) return null;

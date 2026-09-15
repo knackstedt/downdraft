@@ -12,7 +12,7 @@
 //   - Mapping slot indices ↔ ECS entities
 // ============================================================================
 
-import { getColumnValue, InputBufferReader, isSoAColumn, ModuleHost, Query, registerHmrSwap, Stage, system, World, type Entity, type System } from "@downdraft/core";
+import { getColumnValue, hasHMR, InputBufferReader, isSoAColumn, ModuleHost, Query, registerHmrSwap, Stage, system, World, type Entity, type System } from "@downdraft/core";
 import { devtools } from "@downdraft/module-devtools";
 import type { EntityId } from "@shared/types";
 import { EntityType, SecurityLevel } from "@shared/types";
@@ -148,7 +148,7 @@ export class SimEcsWorld {
     recreator: SystemRecreator,
   ): void {
     this.world.schedule.addSystem(factory());
-    if (import.meta.env.DEV && import.meta.hot) {
+    if (hasHMR) {
       registerHmrSwap(name, (newMod) => {
         this.world.schedule.removeSystem(name);
         this.world.schedule.addSystem(recreator(newMod));
@@ -207,7 +207,7 @@ export class SimEcsWorld {
       deps, config,
     });
     this.moduleHost.registerModule(plugin);
-    if (import.meta.env.DEV && import.meta.hot) {
+    if (hasHMR) {
       registerHmrSwap("wildlife-system", () => {
         this.moduleHost.unloadModule("wildlife");
         this.moduleHost.registerModule(createWildlifeModule({
@@ -232,7 +232,7 @@ export class SimEcsWorld {
       deps, config,
     });
     this.moduleHost.registerModule(plugin);
-    if (import.meta.env.DEV && import.meta.hot) {
+    if (hasHMR) {
       registerHmrSwap("buoyancy-system", () => {
         this.moduleHost.unloadModule("buoyancy");
         this.moduleHost.registerModule(createBuoyancyModule({
@@ -251,7 +251,7 @@ export class SimEcsWorld {
       deps, config,
     });
     this.moduleHost.registerModule(plugin);
-    if (import.meta.env.DEV && import.meta.hot) {
+    if (hasHMR) {
       registerHmrSwap("collision-system", () => {
         this.moduleHost.unloadModule("collision");
         this.moduleHost.registerModule(createCollisionModule({

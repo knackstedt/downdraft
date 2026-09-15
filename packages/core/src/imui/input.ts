@@ -1,4 +1,4 @@
-import type { InputState } from "..";
+import type { InputState } from "../index";
 import type { UIElement, UIRoot } from "./element";
 
 export class UIInputRouter {
@@ -75,14 +75,26 @@ export class UIInputRouter {
       this.lastMouseX = mx;
       this.lastMouseY = my;
       this.updateHover(mx, my);
+      // Drag support for sliders and other draggable elements
+      if (this.pressedElement && (this.pressedElement as any).handleDrag) {
+        (this.pressedElement as any).handleDrag(mx, my);
+      }
     }
   }
 
   handleMouseDown(mx: number, my: number): void {
     this.handlePress(mx, my);
+    // Slider press support
+    if (this.pressedElement && (this.pressedElement as any).handlePress) {
+      (this.pressedElement as any).handlePress(mx, my);
+    }
   }
 
   handleMouseUp(mx: number, my: number): void {
+    // Slider release support
+    if (this.pressedElement && (this.pressedElement as any).handleRelease) {
+      (this.pressedElement as any).handleRelease();
+    }
     this.handleRelease(mx, my);
   }
 

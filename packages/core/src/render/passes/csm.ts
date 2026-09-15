@@ -5,6 +5,7 @@ import type { MeshData } from "../../mesh/builder";
 import { PassType, type FrameGraphBuilder, type GraphRenderContext, type TextureHandle } from "../frame-graph";
 import { RenderPass } from "../render-pass";
 import { destroyMapValues } from "../resource-tracker";
+import { createValidatedShaderModule } from "../shader-validator";
 import { TrackedRenderPass } from "../tracked-render-pass";
 
 export interface CSMSettings {
@@ -124,7 +125,7 @@ export class CSMPass extends RenderPass {
 
   prepare(_device: GPUDevice): void {
     if (!this.shaderModule) {
-      this.shaderModule = this.device.createShaderModule({ code: CSM_SHADER });
+      this.shaderModule = createValidatedShaderModule(this.device, { code: CSM_SHADER, label: "CSMPass" });
     }
 
     // Destroy old shadow resources before creating new ones.

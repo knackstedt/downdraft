@@ -1,5 +1,5 @@
-import type { Entity, Hierarchy, World } from "..";
-import { ROOT_ENTITY } from "..";
+import type { Entity, Hierarchy, World } from "../index";
+import { ROOT_ENTITY } from "../index";
 
 export interface SceneTreeNode {
   entity: Entity;

@@ -1,22 +1,22 @@
-import React from "react";
 import { useWorkerState } from "../worker-store";
-import { LoadingScreen } from "./LoadingScreen";
-import { Hud } from "./Hud";
-import { NotificationStack } from "./NotificationStack";
-import { Reticule } from "./Reticule";
-import { ClickToResume } from "./ClickToResume";
-import { Inventory } from "./Inventory";
-import { MapView } from "./MapView";
-import { BuildMenu } from "./BuildMenu";
-import { CraftMenu } from "./CraftMenu";
-import { FishingMinigame } from "./FishingMinigame";
-import { TradeMenu } from "./TradeMenu";
-import { SettingsPanel } from "./SettingsPanel";
-import { PauseMenu } from "./PauseMenu";
-import { CharacterCustomization } from "./CharacterCustomization";
-import { CreditsScreen } from "./CreditsScreen";
 import { BuilderWheel } from "./BuilderWheel";
+import { BuildMenu } from "./BuildMenu";
+import { CharacterCustomization } from "./CharacterCustomization";
+import { ClickToResume } from "./ClickToResume";
+import { CraftMenu } from "./CraftMenu";
+import { CreditsScreen } from "./CreditsScreen";
 import { DeathScreen } from "./DeathScreen";
+import { FishingMinigame } from "./FishingMinigame";
+import { Hotbar } from "./Hotbar";
+import { Hud } from "./Hud";
+import { Inventory } from "./Inventory";
+import { LoadingScreen } from "./LoadingScreen";
+import { MapView } from "./MapView";
+import { NotificationStack } from "./NotificationStack";
+import { PauseMenu } from "./PauseMenu";
+import { Reticule } from "./Reticule";
+import { SettingsPanel } from "./SettingsPanel";
+import { TradeMenu } from "./TradeMenu";
 
 export function OceanApp({ width, height }: { width: number; height: number }) {
   const ready = useWorkerState((s) => s.ready);
@@ -49,6 +49,7 @@ export function OceanApp({ width, height }: { width: number; height: number }) {
       {allReady && !hudHidden && <Hud width={width} height={height} />}
       {allReady && !hudHidden && <NotificationStack width={width} />}
       {allReady && !hudHidden && <Reticule width={width} height={height} />}
+      {allReady && !hudHidden && <Hotbar width={width} height={height} />}
       {showClickToResume && <ClickToResume width={width} height={height} />}
       {showInventory && <Inventory width={width} height={height} />}
       {showMap && <MapView width={width} height={height} />}
@@ -56,8 +57,8 @@ export function OceanApp({ width, height }: { width: number; height: number }) {
       {showCraftMenu && <CraftMenu width={width} height={height} />}
       {showFishingMinigame && <FishingMinigame width={width} height={height} />}
       {showTradeMenu && <TradeMenu width={width} height={height} />}
-      {showSettings && <SettingsPanel width={width} height={height} />}
       {showPauseMenu && <PauseMenu width={width} height={height} />}
+      {showSettings && <SettingsPanel width={width} height={height} />}
       {showCharacterCustomization && <CharacterCustomization width={width} height={height} />}
       {showCredits && <CreditsScreen width={width} height={height} />}
       {showBuilderWheel && <BuilderWheel width={width} height={height} />}

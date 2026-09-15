@@ -4,8 +4,7 @@
 // ============================================================================
 
 import type { UIInputRouter } from "@downdraft/core";
-import { InputBufferWriter, KEY } from "@downdraft/core";
-import { PLR, PLR_FLAG, SimBufferReader } from "@downdraft/core";
+import { InputBufferWriter, KEY, PLR, PLR_FLAG, SimBufferReader } from "@downdraft/core";
 import { CameraMode } from "@shared/types";
 import { useGameStore } from "../stores/game-store";
 import type { CameraSystem } from "./camera-system";
@@ -33,6 +32,8 @@ export class RendererInputHandler {
   private simReader: SimBufferReader | null = null;
   private cameraSystem: CameraSystem | null = null;
   private uiInputRouter: UIInputRouter | null = null;
+  /** When true, skip browser-only features (builder wheel, pointer lock exit on right-click). */
+  nativeMode = false;
 
   keysDown = new Set<number>();
   mouseState = { x: 0, y: 0, left: false, right: false, wheel: 0, _wheel: 0 };
@@ -192,6 +193,14 @@ export class RendererInputHandler {
   private tryLockPointer(): void {
     if (this.pointerLocked) return;
     if (this.pointerLockRetryCount >= 20) return;
+    // Don't engage pointer lock when any overlay/menu is open.
+    const gs = useGameStore.getState();
+    if (gs.showPauseMenu || gs.showSettings || gs.showInventory ||
+        gs.showCraftMenu || gs.showMap || gs.showBuildMenu ||
+        gs.showFishingMinigame || gs.showTradeMenu ||
+        gs.showCharacterCustomization || gs.showBuilderWheel) {
+      return;
+    }
     this.pointerLockRetryCount++;
     try {
       const result = this.canvas.requestPointerLock();
@@ -205,6 +214,9 @@ export class RendererInputHandler {
     } catch (_e) {
       // ignore — fallback timer below will retry
     }
+    // If requestPointerLock succeeded synchronously (native mode),
+    // this.pointerLocked is now true and we should NOT set a retry timer.
+    if (this.pointerLocked) return;
     // Schedule a check: if pointerlockchange doesn't fire within 2s
     // (silent failure during ESC cooldown), retry. The browser enforces
     // a ~1s cooldown after ESC during which requestPointerLock fails.
@@ -234,6 +246,8 @@ export class RendererInputHandler {
   }
 
   private tryOpenBuilderWheel(): void {
+    // Skip in native mode — no builder wheel, no pointer lock exit
+    if (this.nativeMode) return;
     // Debounce: mousedown and contextmenu can both fire for the same right-click
     const now = performance.now();
     if (now - this.lastBuilderWheelTime < 200) return;
@@ -307,6 +321,15 @@ export class RendererInputHandler {
     });
     this.canvas.addEventListener("click", () => {
       if (this.osrForcedFocus) return; // don't engage pointer lock during OSR forced focus
+      // Don't engage pointer lock when any overlay/menu is open —
+      // the user is interacting with UI, not the game.
+      const gs = useGameStore.getState();
+      if (gs.showPauseMenu || gs.showSettings || gs.showInventory ||
+          gs.showCraftMenu || gs.showMap || gs.showBuildMenu ||
+          gs.showFishingMinigame || gs.showTradeMenu ||
+          gs.showCharacterCustomization || gs.showBuilderWheel) {
+        return;
+      }
       if (!this.pointerLocked) {
         this.pointerLockRetryCount = 0;
         this.tryLockPointer();

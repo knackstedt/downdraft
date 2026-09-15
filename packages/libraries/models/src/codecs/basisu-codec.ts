@@ -24,7 +24,19 @@ import type { TextureCodec, TextureCodecInput, TextureCodecOutput } from "./regi
 
 // Vite resolves this to a hashed asset URL in the renderer build. In Node the
 // import is unused (we read from disk). `vite/client` types declare `*?url`.
-import wasmUrl from "@h00w/basis-universal-transcoder/basis_capi_transcoder.wasm?url";
+// Loaded lazily: Deno rejects the `?url` package subpath at resolution time.
+let wasmUrlCached: string | null = null;
+async function getWasmUrl(): Promise<string> {
+  if (wasmUrlCached === null) {
+    try {
+      const mod = await import("@h00w/basis-universal-transcoder/basis_capi_transcoder.wasm?url") as { default: string };
+      wasmUrlCached = mod.default;
+    } catch {
+      wasmUrlCached = "";
+    }
+  }
+  return wasmUrlCached;
+}
 
 export interface BasisuWasmConfig {
   wasmUrl?: string;
@@ -80,7 +92,7 @@ async function loadBasisu(): Promise<BasisUniversalT> {
       if (basisuWasmConfig.wasmBinary) {
         return WebAssembly.instantiate(basisuWasmConfig.wasmBinary, imports);
       }
-      const url = basisuWasmConfig.wasmUrl ?? (wasmUrl as unknown as string);
+      const url = basisuWasmConfig.wasmUrl ?? (await getWasmUrl());
       // Browser/renderer: fetch the URL if it's a valid http/https URL.
       // The `?url` import produces a real URL in Vite; in Node/bun it may
       // produce an invalid string, so we validate before fetching.

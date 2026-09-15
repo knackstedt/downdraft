@@ -1,0 +1,833 @@
+// ============================================================================
+// native-entry.ts — Bun-native entry point for to-the-ocean
+//
+// Replaces Electron + Vite + browser with:
+//   - createNativeHost() for window + GPU + polyfills
+//   - Direct WebGPURenderer + SimWebWorker instantiation
+//   - Native PixiUI: in-process PixiJS v8 WebGPU on the shared wgpu-native
+//     device, rendering the real @pixi/react OceanApp over the 3D frame
+//   - NativeOceanDataBridge: sim reader + game store → worker-store
+//   - NativeInputRouter: SDL mouse → PixiJS EventSystem when menus open
+//   - Real-time animation loop with SDL event polling
+//   - Screenshot capture via F11 or on exit
+//   - Native debugger overlay (F12 to toggle) — pixi.js DevTools panels
+//
+// Run: bun run games/to-the-ocean/src/native-entry.ts
+// ============================================================================
+
+import { createLogger, setThreadTag } from "@downdraft/core";
+import { allocateProfilingSAB } from "@downdraft/core/profiling";
+import { NativeDebuggerHost, registerEngineProviders, SNAP_FLAG } from "@downdraft/library-devtools";
+import { NativePixiUiHost } from "@downdraft/library-pixi-ui-native";
+import { createNativeHost, encodePNG, getFreeTypeTextRenderer, paddedReadbackToRGBA } from "@downdraft/platform-native";
+import { writeFileSync } from "node:fs";
+
+// These imports use tsconfig path aliases which Bun resolves natively
+import { SimWebWorker, type SimWebWorkerConfig } from "./engine/sim-web-worker";
+import { WebGPURenderer } from "./engine/webgpu-renderer";
+import { NativeOceanDataBridge } from "./pixi/native-data-bridge";
+import { NativeInputRouter } from "./pixi/native-input-router";
+import { createNativeOceanScene, type NativeOceanScene } from "./pixi/native-scene";
+import { getWorkerState } from "./pixi/worker-store";
+import { useGameStore } from "./stores/game-store";
+
+setThreadTag("R0");
+const log = createLogger();
+
+const WIDTH = 1280;
+const HEIGHT = 720;
+
+async function main() {
+  log.info("native-entry", "Creating native host...");
+  const host = await createNativeHost({
+    window: { title: "To The Ocean — Native (Bun + wgpu-native)", width: WIDTH, height: HEIGHT },
+  });
+
+  const { surface, device, window } = host;
+  log.info("native-entry", "Native host ready");
+
+  // ── Create sim worker ──
+  log.info("native-entry", "Creating sim worker...");
+  const sim = new SimWebWorker();
+  const simSAB = sim.getSimBuffer();
+  const inputSAB = sim.getInputBuffer();
+  const waterSAB = sim.getWaterBuffer();
+  const boatSAB = sim.getBoatBuffer();
+
+  // ── Create renderer ──
+  log.info("native-entry", "Creating WebGPU renderer...");
+  const renderer = new WebGPURenderer(surface as any);
+
+  // ── Initialize renderer ──
+  log.info("native-entry", "Initializing renderer...");
+  const initSuccess = await renderer.init();
+  if (!initSuccess) {
+    log.error("native-entry", "Renderer init failed");
+    host.destroy();
+    process.exit(1);
+  }
+  log.info("native-entry", "Renderer initialized");
+
+  // ── Wire FreeType text renderer into the IMUI text atlas ──
+  // This bypasses the Canvas2D polyfill and renders text directly via
+  // FreeType, producing crisp anti-aliased TrueType text.
+  const ftRenderer = getFreeTypeTextRenderer();
+  if (ftRenderer) {
+    const uiRenderer = (renderer as any).getUIRenderer?.();
+    const textCache = uiRenderer?.getTextCache?.();
+    if (textCache) {
+      textCache.setDirectRenderer(ftRenderer);
+      log.info("native-entry", "FreeType text renderer wired into IMUI");
+    } else {
+      log.warn("native-entry", "Could not find TextAtlasCache — FreeType text not wired");
+    }
+  }
+
+  // ── Native PixiJS UI (in-process, shared wgpu-native device) ──
+  // PixiJS v8 WebGPU runs on the renderer's own GPUDevice (the same device the
+  // 3D pipeline uses), rendering the UI into a GPUTexture the renderer blits
+  // over the frame. No Chromium, no worker. This is the native replacement
+  // for the browser pixi-ui worker + OffscreenCanvas path.
+  const rendererDevice = renderer.getDevice?.() ?? (renderer as any).device ?? device;
+  const rendererAdapter = renderer.getAdapter?.() ?? (renderer as any).adapter ?? host.adapter;
+  const pixiUi = new NativePixiUiHost({
+    device: rendererDevice,
+    adapter: rendererAdapter,
+    targetFormat: "bgra8unorm",
+    width: WIDTH,
+    height: HEIGHT,
+  });
+  try {
+    await pixiUi.ready;
+    log.info("native-entry", "PixiJS Application initialized on shared wgpu-native device");
+  } catch (e) {
+    log.error("native-entry", `PixiJS init failed (UI disabled): ${e}`);
+  }
+  // ── Native debugger overlay (F12 to toggle) ──
+  // A second NativePixiUiHost on the shared device, composited above the
+  // game UI. Renders pixi.js debugger panels (console, scene, GPU, perf, DOM
+  // tree) with click handling. See @downdraft/library-devtools.
+  let debuggerHost: NativeDebuggerHost | null = null;
+  if (pixiUi && !pixiUi["disposed"]) {
+    try {
+      // Allocate a ProfilingSAB and attach it to the sim worker so the
+      // perf-metrics panel can read per-thread CPU/memory metrics.
+      let profilingSAB: SharedArrayBuffer | null = null;
+      try {
+        const allocated = allocateProfilingSAB();
+        profilingSAB = allocated.sab;
+        await sim.attachProfilingSAB?.(profilingSAB);
+        log.info("native-entry", "ProfilingSAB allocated + attached to sim worker");
+      } catch (e) {
+        log.error("native-entry", `ProfilingSAB setup failed: ${e}`);
+      }
+      debuggerHost = new NativeDebuggerHost({
+        device: rendererDevice,
+        adapter: rendererAdapter,
+        targetFormat: "bgra8unorm",
+        width: WIDTH,
+        height: HEIGHT,
+        renderer,
+        gamePixiUi: pixiUi,
+        profilingSAB,
+      });
+      await debuggerHost.start();
+      renderer.nativeDebugger = debuggerHost;
+      // Register the sim worker's eval function for the console REPL.
+      const simProxy = sim.getDevToolsProxy();
+      if (simProxy?.__devtoolsEval) {
+        debuggerHost.debuggerScene?.registerThreadEval("sim", (expr: string) => simProxy.__devtoolsEval(expr));
+      }
+      // Engine-generic panel providers (sim, memory, render graph, materials,
+      // doctor, workers, input, postfx, assets) + command handlers.
+      const mirror = debuggerHost.devtoolsMirror;
+      if (mirror) {
+        const evalTargets = () => ["main", ...(debuggerHost ? ["sim"] : [])];
+        registerEngineProviders(mirror, {
+          renderer,
+          profilingSAB,
+          simProxy: sim,
+          evalTargetNames: evalTargets,
+          inputInfo: () => {
+            try {
+              const s = getWorkerState();
+              return [
+                { key: "Pointer lock", value: s.pointerLocked ? "locked" : "unlocked" },
+                { key: "HUD hidden", value: String(s.hudHidden) },
+                { key: "Camera mode", value: String(s.hudState.cameraMode) },
+              ];
+            } catch { return []; }
+          },
+        });
+        // Game-specific provider: player vitals, boats, weather, equipment.
+        mirror.registerProvider("game", () => {
+          try {
+            const s = getWorkerState();
+            const h = s.hudState;
+            const rows = [
+              { key: "Player vitals", value: "", flags: SNAP_FLAG.header },
+              { key: "Health", value: `${h.health.toFixed(0)}/${h.maxHealth.toFixed(0)}` },
+              { key: "Hunger", value: h.hunger.toFixed(0) },
+              { key: "Thirst", value: h.thirst.toFixed(0) },
+              { key: "Oxygen", value: `${h.oxygen.toFixed(0)}/${h.maxOxygen.toFixed(0)}` },
+              { key: "Temperature", value: `${h.temperature.toFixed(1)}°` },
+              { key: "World", value: "", flags: SNAP_FLAG.header },
+              { key: "Time of day", value: h.timeOfDay.toFixed(2) },
+              { key: "Weather", value: `${h.weatherType}${s.weather ? ` (${s.weather.type ?? "?"})` : ""}` },
+              { key: "Biome", value: String(h.biome) },
+              { key: "Position", value: `(${h.playerX.toFixed(1)}, ${h.playerZ.toFixed(1)}) heading ${h.heading.toFixed(0)}°` },
+              { key: "Gold", value: String(h.gold) },
+              { key: "Fishing", value: h.isFishing ? `tension ${h.fishingTension.toFixed(2)} progress ${h.fishingProgress.toFixed(2)}` : "no" },
+              { key: "Piloting / onboard", value: `${h.isPiloting} / ${h.isOnboard}` },
+            ];
+            const equip = Object.entries(s.equipment ?? {})
+              .filter(([, v]) => v)
+              .map(([k, v]) => ({ key: `Equip ${k}`, value: String(v) }));
+            return {
+              sections: [
+                { kind: "kv" as const, name: "", rows },
+                ...(equip.length ? [{ kind: "kv" as const, name: "Equipment", rows: equip }] : []),
+              ],
+            };
+          } catch (err) {
+            return { status: "error" as const, statusMsg: String(err), sections: [] };
+          }
+        });
+      }
+      log.info("native-entry", "Native debugger overlay ready (F12 to toggle)");
+    } catch (e) {
+      log.error("native-entry", `Debugger overlay init failed: ${e}`);
+    }
+  }
+  // ── Native data bridge: sim reader + game store → worker-store ──
+  // Feeds the reactive store that @pixi/react components consume via
+  // useWorkerState, and routes UI actions back to the store/simBridge.
+  // Created before the scene so the scene's postAction can reference it.
+  const dataBridge = new NativeOceanDataBridge({
+    renderer,
+    canvasW: WIDTH,
+    canvasH: HEIGHT,
+  });
+  dataBridge.start();
+  log.info("native-entry", "Native data bridge started");
+
+  // ── Native @pixi/react scene (reuses the browser OceanApp) ──
+  // The NativeOceanDataBridge feeds state into worker-store; React re-renders
+  // automatically via useWorkerState. This replaces the Phase 2 smoke-test.
+  let oceanScene: NativeOceanScene | null = null;
+  // Wire the PixiJS UI host to the renderer so it composites the UI texture.
+  renderer.nativePixiUi = pixiUi;
+
+  if (pixiUi && !pixiUi["disposed"] && !process.env.SKIP_OCEAN_SCENE) {
+    try {
+      oceanScene = await createNativeOceanScene({
+        app: pixiUi.app,
+        width: WIDTH,
+        height: HEIGHT,
+        fontScale: 1,
+        postAction: (action: any) => dataBridge.handleAction(action),
+      });
+      log.info("native-entry", "Native OceanApp scene attached");
+    } catch (e) {
+      log.error("native-entry", `Native scene setup failed: ${e}`);
+    }
+  }
+
+  // ── Native input router: SDL mouse → PixiJS EventSystem when menus open ──
+  // Intercepts mouse events on the canvas (capture phase) before the game's
+  // input handler. When a menu/overlay is open and the click hits a PixiJS
+  // element, the event is routed to PixiJS and stopped from reaching the game.
+  let inputRouter: NativeInputRouter | null = null;
+  if (pixiUi && !pixiUi["disposed"]) {
+    try {
+      inputRouter = new NativeInputRouter(pixiUi, WIDTH, HEIGHT);
+      const surfaceEl = surface as any;
+      // Capture-phase listeners: run before the game's input handler (bubble).
+      surfaceEl.addEventListener("mousedown", (e: any) => {
+        const mods = (e.shiftKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.altKey ? 4 : 0) | (e.metaKey ? 8 : 0);
+        // Debugger overlay gets priority when visible (F12).
+        if (debuggerHost?.visible && debuggerHost.handlePointerDown(e.clientX, e.clientY, e.button, mods)) {
+          e.stopPropagation?.();
+          e.preventDefault?.();
+          return;
+        }
+        if (inputRouter!.handlePointerDown(e.clientX, e.clientY, e.button, mods)) {
+          e.stopPropagation?.();
+          e.preventDefault?.();
+        }
+      }, true);
+      surfaceEl.addEventListener("mousemove", (e: any) => {
+        const mods = (e.shiftKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.altKey ? 4 : 0) | (e.metaKey ? 8 : 0);
+        if (debuggerHost?.visible && debuggerHost.handlePointerMove(e.clientX, e.clientY, e.button, mods)) {
+          e.stopPropagation?.();
+          return;
+        }
+        if (inputRouter!.handlePointerMove(e.clientX, e.clientY, e.button, mods)) {
+          e.stopPropagation?.();
+        }
+      }, true);
+      surfaceEl.addEventListener("mouseup", (e: any) => {
+        const mods = (e.shiftKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.altKey ? 4 : 0) | (e.metaKey ? 8 : 0);
+        if (debuggerHost?.visible && debuggerHost.handlePointerUp(e.clientX, e.clientY, e.button, mods)) {
+          e.stopPropagation?.();
+          e.preventDefault?.();
+          return;
+        }
+        if (inputRouter!.handlePointerUp(e.clientX, e.clientY, e.button, mods)) {
+          e.stopPropagation?.();
+          e.preventDefault?.();
+        }
+      }, true);
+      surfaceEl.addEventListener("wheel", (e: any) => {
+        if (debuggerHost?.visible && debuggerHost.handleWheel(e.clientX, e.clientY, e.deltaY)) {
+          e.stopPropagation?.();
+          e.preventDefault?.();
+        }
+      }, true);
+      log.info("native-entry", "Native input router attached");
+    } catch (e) {
+      log.error("native-entry", `Input router setup failed: ${e}`);
+    }
+  }
+
+  // ── Start sim worker ──
+  log.info("native-entry", "Starting sim worker...");
+  const simConfig: SimWebWorkerConfig = {
+    seed: 12345,
+    gamemode: 0,
+    rules: {},
+    isDev: false,
+  };
+  await sim.start(simConfig);
+  log.info("native-entry", "Sim worker started");
+
+  // ── Add player ──
+  sim.addPlayer(0, "Player 1");
+  log.info("native-entry", "Player added");
+
+  // ── Wire buffers to renderer ──
+  (renderer as any).setBuffers(simSAB, waterSAB, inputSAB, boatSAB);
+  log.info("native-entry", "Buffers wired");
+
+  // ── Set up input listeners ──
+  // This wires keyboard/mouse events from the global window/canvas polyfills
+  // to the renderer's input handler (pointer lock, key tracking, mouse delta).
+  (renderer as any).setupInputListeners?.();
+  // Mark the input handler as native mode — skips builder wheel, pointer lock exit on right-click
+  const ih = (renderer as any).inputHandler;
+  if (ih) ih.nativeMode = true;
+  // Do NOT auto-request pointer lock — let the user click the window to
+  // engage mouse look. Auto-grabbing steals focus from the user's IDE/terminal.
+  const canvas = surface as any;
+  // The start island for seed 12345 is at chunk (0,1) = positive Z.
+  // The camera convention: heading 0 = -Z, heading π = +Z.
+  // We'll inject the correct yaw after the first frame when we can read
+  // the sim's initial heading. For now, set a flag.
+  let needsInitialYaw = true;
+  log.info("native-entry", "Input listeners set up");
+
+  // ── Wire renderer into the game store so toggle methods work ──
+  // The game store's toggleInventory/toggleCraftMenu/etc. call
+  // renderer.lockPointer() and document.exitPointerLock() — both are safe
+  // in native mode (exitPointerLock is optional-chained).
+  useGameStore.getState().setRenderer(renderer);
+  useGameStore.getState().setReady(true);
+  useGameStore.getState().setSimReady(true); // sim worker started below
+  useGameStore.getState().setLutReady(true); // LUTs loaded below
+
+  // ── Wait for LUTs to load ──
+  try {
+    await (renderer as any).getLUTReady?.();
+    log.info("native-entry", "LUTs ready");
+  } catch (e) {
+    log.warn("native-entry", `LUT loading failed (non-fatal): ${e}`);
+  }
+
+  // ── Real-time render loop ──
+  log.info("native-entry", "Starting real-time render loop (close window or Exit button to quit, F11 for screenshot, F12 for debugger)...");
+
+  let frameCount = 0;
+  let running = true;
+  let lastFpsTime = performance.now();
+  let fpsFrameCount = 0;
+  let currentFps = 0;
+  let screenshotCaptured = false;
+  let screenshotPath = "./to-the-ocean-native.png";
+
+  // Wire the exit hook now that `running` is in scope
+  (globalThis as any).__nativeExit = () => { running = false; };
+  (globalThis as any).__nativeScreenshot = () => { captureScreenshotNow(); };
+
+  // Listen for window close
+  window.addEventListener("close", () => {
+    log.info("native-entry", "Window close requested");
+    running = false;
+  });
+
+  // ── Handle window resize ──
+  // SDL may resize the window to the screen resolution (e.g. 3440x1408).
+  // The NativeWindow's runLoop polls SDL events and dispatches resize events,
+  // but the initial resize (when the window manager grabs the window) can
+  // fire before our listener is attached. Instead of relying on events,
+  // we poll the surface dimensions every frame and propagate changes.
+  let currentW = WIDTH;
+  let currentH = HEIGHT;
+  const surfaceEl = surface as any;
+  surfaceEl.addEventListener("resize", (e: any) => {
+    const newW = e.width | 0;
+    const newH = e.height | 0;
+    if (newW > 0 && newH > 0) {
+      currentW = newW;
+      currentH = newH;
+    }
+  });
+
+  // ── Keyboard shortcuts ──
+  // In the browser version, the PixiUI worker handles menu toggles via UI
+  // buttons. In native mode, we wire keyboard shortcuts directly to the game
+  // store's toggle methods. The NativeOceanDataBridge subscribes to the store
+  // and forwards visibility changes to worker-store, so the @pixi/react
+  // OceanApp re-renders automatically via useWorkerState.
+  window.addEventListener("keydown", (event: any) => {
+    const key = event.key;
+    const keyCode = event.keyCode;
+    if (event.repeat) return;
+
+    // When the debugger is visible and a text input widget has focus,
+    // forward control keys (Backspace, Enter, arrows, etc.) to the debugger.
+    if (debuggerHost?.visible && debuggerHost.isTextInputActive()) {
+      if (debuggerHost.handleKeyDown(key, keyCode)) {
+        event.preventDefault?.();
+        event.stopPropagation?.();
+        return;
+      }
+    }
+
+    if (key === "Escape") {
+      const gs = useGameStore.getState();
+      // If settings is open, ESC goes back to pause menu
+      if (gs.showSettings) {
+        gs.toggleSettings();
+      } else if (gs.showInventory || gs.showCraftMenu || gs.showMap || gs.showBuildMenu) {
+        // Close any open overlay first
+        if (gs.showInventory) gs.toggleInventory();
+        if (gs.showCraftMenu) gs.toggleCraftMenu();
+        if (gs.showMap) gs.toggleMap();
+        if (gs.showBuildMenu) gs.toggleBuildMenu();
+      } else {
+        gs.togglePauseMenu();
+      }
+      // Release pointer lock when any overlay opens so UI is clickable
+      const anyOverlay = gs.showPauseMenu || gs.showSettings || gs.showInventory ||
+        gs.showCraftMenu || gs.showMap || gs.showBuildMenu;
+      if (anyOverlay && document.pointerLockElement) {
+        document.exitPointerLock?.();
+      }
+    } else if (key === "F12") {
+      // Toggle the native debugger overlay
+      debuggerHost?.toggle();
+      // Release mouse grab when the debugger is visible so the cursor shows.
+      const nativeWin = (globalThis as any).__nativeWindow;
+      if (debuggerHost?.visible) {
+        nativeWin?.grabInput?.(false);
+      }
+    } else if (key === "F11") {
+      captureScreenshotNow();
+    } else if (keyCode === 73) { // I → Inventory
+      useGameStore.getState().toggleInventory();
+    } else if (keyCode === 9) { // Tab → Crafting
+      useGameStore.getState().toggleCraftMenu();
+    } else if (keyCode === 77) { // M → Map
+      useGameStore.getState().toggleMap();
+    } else if (keyCode === 66) { // B → Build menu
+      useGameStore.getState().toggleBuildMenu();
+    } else if (keyCode === 67) { // C → Character customization
+      useGameStore.getState().toggleCharacterCustomization();
+    } else if (keyCode === 80) { // P → Pause menu
+      useGameStore.getState().togglePauseMenu();
+    }
+  });
+
+  // Text input event — forwarded to the debugger's REPL input when active.
+  window.addEventListener("textinput", (event: any) => {
+    if (debuggerHost?.visible && debuggerHost.isTextInputActive()) {
+      const text = event.text ?? "";
+      if (text.length > 0) {
+        debuggerHost.handleTextInput(text);
+      }
+    }
+  });
+
+  // Poll the debugger's text input state each frame to start/stop SDL text input.
+  // The debugger scene toggles focus based on widget clicks; we sync the SDL
+  // state to match so IME + text composition work correctly.
+  let sdlTextInputActive = false;
+  const syncTextInputState = () => {
+    const shouldActive = debuggerHost?.visible === true && debuggerHost.isTextInputActive() === true;
+    if (shouldActive && !sdlTextInputActive) {
+      (window as any).startTextInput?.();
+      sdlTextInputActive = true;
+    } else if (!shouldActive && sdlTextInputActive) {
+      (window as any).stopTextInput?.();
+      sdlTextInputActive = false;
+    }
+  };
+  // Hook into the render loop's update to sync text input state.
+  // We use a simple interval as a lightweight poll (the render loop is busy).
+  setInterval(syncTextInputState, 100);
+
+  // Screenshot capture function (can be triggered by F12)
+  function captureScreenshotNow(): void {
+    try {
+      const rendererDevice = (renderer as any).getDevice?.() ?? (renderer as any).device ?? device;
+      const format = (renderer as any).getFormat?.() ?? (renderer as any).format ?? "bgra8unorm";
+      const shotW = currentW;
+      const shotH = currentH;
+      const bytesPerPixel = 4;
+      const bytesPerRow = Math.ceil((shotW * bytesPerPixel) / 256) * 256;
+      const paddedBufferSize = bytesPerRow * shotH;
+      const screenshotBuffer = rendererDevice.createBuffer({
+        size: paddedBufferSize,
+        usage: 0x0001 | 0x0008, // MAP_READ | COPY_DST
+      });
+
+      // Set up the screenshot callback to copy the surface texture before submit
+      (renderer as any).suppressPresent = true;
+      (renderer as any).screenshotCallback = (encoder: any) => {
+        const ctx = surface.getContext("webgpu")!;
+        const texture = ctx.getCurrentTexture();
+        if (texture) {
+          (encoder as any).copyTextureToBuffer(
+            { texture },
+            { buffer: screenshotBuffer, offset: 0, bytesPerRow, rowsPerImage: shotH },
+            { width: shotW, height: shotH, depthOrArrayLayers: 1 },
+          );
+        }
+      };
+
+      // Render one frame with the screenshot copy encoded
+      (renderer as any).renderOneFrame?.();
+      (renderer as any).suppressPresent = false;
+      (renderer as any).screenshotCallback = null;
+
+      // Map the buffer and read back the pixels
+      void screenshotBuffer.mapAsync(1, 0, paddedBufferSize); // 1 = READ
+      const mappedRange = screenshotBuffer.getMappedRange(0, paddedBufferSize);
+      const pixels = new Uint8Array(mappedRange);
+      // Strip row padding + BGRA→RGBA swap — shared with the package's
+      // captureScreenshot() implementation.
+      const unpadded = paddedReadbackToRGBA(pixels, shotW, shotH, bytesPerRow, format);
+      screenshotBuffer.unmap();
+      screenshotBuffer.destroy();
+
+      const png = encodePNG(shotW, shotH, unpadded);
+      writeFileSync(screenshotPath, png);
+      log.info("screenshot", `Saved ${shotW}x${shotH} to ${screenshotPath} (${png.length} bytes)`);
+
+      // Present the surface now that the copy is done
+      const ctx = surface.getContext("webgpu")!;
+      if ((ctx as any).present) (ctx as any).present();
+    } catch (e) {
+      log.error("screenshot", `Capture failed: ${e}`);
+    }
+  }
+
+  // The NativeWindow's runLoop already polls SDL events and dispatches them
+  // via addEventListener. It also processes wgpu events. We just need to
+  // drive the render loop here. Using setImmediate to yield to the event loop
+  // between frames so SDL events get processed — no artificial FPS cap.
+  function renderLoop() {
+    if (!running) {
+      log.info("native-entry", `Render loop ended after ${frameCount} frames`);
+      cleanup();
+      return;
+    }
+
+    try {
+      // ── Per-frame resize check ──
+      // Poll the surface dimensions and propagate changes to all hosts.
+      // This catches resizes that fired before our event listener was attached.
+      const surfW = surfaceEl.width | 0;
+      const surfH = surfaceEl.height | 0;
+      if (frameCount === 0) {
+        log.info("native-entry", `Surface dimensions: ${surfW}x${surfH} (initial ${WIDTH}x${HEIGHT})`);
+      }
+      if (surfW > 0 && surfH > 0 && (surfW !== currentW || surfH !== currentH)) {
+        currentW = surfW;
+        currentH = surfH;
+        log.info("native-entry", `Window resized to ${surfW}x${surfH}`);
+        try { pixiUi?.resize(surfW, surfH); } catch (err) { log.error("native-entry", `pixiUi resize: ${err}`); }
+        try { debuggerHost?.resize(surfW, surfH); } catch (err) { log.error("native-entry", `debuggerHost resize: ${err}`); }
+        try { renderer.onResize?.(surfW, surfH, 1); } catch (err) { log.error("native-entry", `renderer resize: ${err}`); }
+        try { inputRouter?.resize?.(surfW, surfH); } catch { /* optional */ }
+      }
+
+      // Inject initial yaw to face the island (positive Z) after first frame
+      if (needsInitialYaw) {
+        const simReader = (renderer as any).getSimReader?.() ?? (renderer as any).simReader;
+        if (simReader?.isValid()) {
+          const slot = simReader.getPlayerSlot(0);
+          if (slot) {
+            const currentHeading = slot.f32[3] ?? 0; // PLR.HEADING
+            // Camera convention: heading 0 = -Z, heading π = +Z
+            // Island is at +Z, so we want lookHeading = π
+            const targetHeading = Math.PI;
+            // Directly set the camera system's look heading instead of using
+            // mouse delta injection (which drifts due to SDL relative mouse mode).
+            // We set lookHeading and mark it as synced (lookSyncedTick >= 0) so
+            // updateLook() doesn't reinitialize from the sim's heading.
+            const camSys = (renderer as any).cameraSystem;
+            if (camSys) {
+              camSys.lookHeading = targetHeading;
+              camSys.lookPitch = 0;
+              camSys.lookSyncedTick = 0; // prevent reinitialization from sabHeading
+              log.info("native-entry", `Initial yaw set: current=${currentHeading.toFixed(2)} target=${targetHeading.toFixed(2)} lookHeading=${camSys.getLookHeading?.().toFixed(2)}`);
+            }
+          }
+        }
+        needsInitialYaw = false;
+      }
+      // Feed the native data bridge (sim reader + store → worker-store) before
+      // the frame renders so the UI sees fresh state.
+      try { dataBridge.update(); } catch (e) { log.error("native-entry", `dataBridge.update failed: ${e}`); }
+      try { oceanScene?.update(); } catch (e) { log.error("native-entry", `oceanScene.update failed: ${e}`); }
+      try { debuggerHost?.update(); } catch (e) { log.error("native-entry", `debuggerHost.update failed: ${e}`); }
+      (renderer as any).renderOneFrame?.();
+      frameCount++;
+      fpsFrameCount++;
+
+      // Auto-capture a screenshot after enough frames for mesh generation
+      const autoScreenshotFrame = parseInt(process.env.SCREENSHOT_FRAME ?? "600", 10);
+      if (frameCount === autoScreenshotFrame && !screenshotCaptured) {
+        screenshotCaptured = true;
+        // Auto-show debugger for verification screenshot if requested
+        if (process.env.DEBUGGER_AUTO_SHOW) {
+          debuggerHost?.show();
+          // Set active panel for verification screenshot if requested
+          const panel = process.env.DEBUGGER_PANEL;
+          if (panel && debuggerHost?.debuggerScene) {
+            (debuggerHost.debuggerScene as any).setActivePanel(panel);
+          }
+          // Render a few frames with the debugger visible so the scene builds
+          // and the overlay is composited before the screenshot.
+          for (let i = 0; i < 3; i++) {
+            try { debuggerHost?.update(); } catch (e) { log.error("native-entry", `debuggerHost.update failed: ${e}`); }
+            try { (renderer as any).renderOneFrame?.(); } catch {}
+          }
+
+          // Auto-record a CPU profile for the perf-recorder panel.
+          if (process.env.DEBUGGER_PANEL === "perf-recorder" && debuggerHost?.debuggerScene) {
+            const scene = debuggerHost.debuggerScene as any;
+            log.info("native-entry", "Auto-recording CPU profile for perf-recorder...");
+            scene.setPerfRecording?.(true);
+            // Render frames to collect samples
+            for (let i = 0; i < 60; i++) {
+              try { debuggerHost?.update(); } catch {}
+              try { (renderer as any).renderOneFrame?.(); } catch {}
+            }
+            scene.setPerfRecording?.(false);
+            // Render a few frames to process the profile
+            for (let i = 0; i < 10; i++) {
+              try { debuggerHost?.update(); } catch {}
+              try { (renderer as any).renderOneFrame?.(); } catch {}
+            }
+            log.info("native-entry", "Auto-recording complete");
+          }
+
+          // Interaction test: simulate clicks + keyboard input
+          if (process.env.DEBUGGER_TEST && debuggerHost?.debuggerScene) {
+            const scene = debuggerHost.debuggerScene;
+            const dockX = (scene as any).getDockX?.() ?? (1280 - 520);
+            const dockW = (scene as any).dockWidth ?? 520;
+            log.info("native-entry", `DEBUGGER_TEST: dockX=${dockX} dockW=${dockW} regions=${scene.getHits().regions.length}`);
+
+            const step = () => { try { debuggerHost?.update(); } catch {} try { (renderer as any).renderOneFrame?.(); } catch {} };
+            const click = (x: number, y: number) => {
+              scene.handlePointerMove(x, y);
+              scene.handlePointerDown(x, y);
+              try { debuggerHost?.update(); } catch {}
+              scene.handlePointerUp(x, y);
+              try { debuggerHost?.update(); } catch {}
+            };
+
+            // Test 0: probe — sweep click positions to find the rail geometry.
+            for (let y = 10; y <= 420; y += 25) {
+              click(dockX + 50, y);
+              const active = (scene as any).getActivePanel?.() ?? "?";
+              log.info("native-entry", `DEBUGGER_TEST: probe y=${y} → active="${active}"`);
+            }
+            // Test 1: click every nav-rail item, verify active panel switches.
+            // Nav rail: vertical list, ~25px per item starting at y≈20, rail x at dockX+50.
+            const panelNames = ["console","scene","gpu","perf-recorder","perf-metrics","dom-tree","sim","memory","render-graph","materials","doctor","workers","input","postfx","assets","game"];
+            let navPassed = 0;
+            for (let i = 0; i < panelNames.length; i++) {
+              const y = 20 + i * 25;
+              click(dockX + 50, y);
+              const active = (scene as any).getActivePanel?.() ?? "?";
+              const ok = active === panelNames[i];
+              if (ok) navPassed++;
+              log.info("native-entry", `DEBUGGER_TEST: nav[${i}] ${panelNames[i]} → active="${active}" ${ok ? "OK" : "FAIL"}`);
+            }
+            log.info("native-entry", `DEBUGGER_TEST: nav rail ${navPassed}/${panelNames.length} panels switched`);
+
+            // Test 2: PostFX checkbox → command round-trip (fx.<id> → stack.setEnabled).
+            click(dockX + 50, 20 + 13 * 25); // postfx
+            try { debuggerHost?.update(); } catch {}
+            const stack = (renderer as any).postProcessStack ?? (renderer as any).getPostProcessStack?.();
+            const fxBefore = stack?.getEnabledEffects?.() ?? [];
+            // First effect checkbox ("taa") ~y=99 in content area (content starts after rail, x offset ~130).
+            click(dockX + 150, 99);
+            for (let i = 0; i < 5; i++) step();
+            const fxAfter = stack?.getEnabledEffects?.() ?? [];
+            log.info("native-entry", `DEBUGGER_TEST: postfx toggle: [${fxBefore}] → [${fxAfter}] ${fxAfter.length !== fxBefore.length ? "OK" : "FAIL"}`);
+
+            // Test 3: wheel scroll inside panel content.
+            scene.handleWheel(dockX + 300, 300, 240);
+            try { debuggerHost?.update(); } catch {}
+            log.info("native-entry", "DEBUGGER_TEST: wheel scroll dispatched");
+
+            // Test 4: console REPL — click input bar, type, eval.
+            click(dockX + 50, 20); // console nav item
+            // REPL input sits at the bottom of the console panel — probe y to find it.
+            let replY = -1;
+            for (let y = 660; y <= 700; y += 5) {
+              click(dockX + 300, y);
+              const active = scene.isTextInputActive();
+              if (active && replY < 0) replY = y;
+              log.info("native-entry", `DEBUGGER_TEST: repl probe y=${y} → textInput=${active}`);
+            }
+            click(dockX + 300, replY >= 0 ? replY : 690);
+            const wantsText = scene.isTextInputActive();
+            log.info("native-entry", `DEBUGGER_TEST: text input active after REPL click: ${wantsText}`);
+            if (wantsText) {
+              scene.handleTextInput("1+2");
+              scene.handleKeyDown("Enter", 13);
+              for (let i = 0; i < 5; i++) step();
+              log.info("native-entry", "DEBUGGER_TEST: REPL eval dispatched (check console log for result)");
+            }
+
+            log.info("native-entry", "DEBUGGER_TEST: All interaction tests complete");
+          }
+        }
+        captureScreenshotNow();
+        log.info("native-entry", "Auto-screenshot captured for HUD verification");
+        // Auto-exit for headless verification if requested
+        if (process.env.AUTO_EXIT) {
+          log.info("native-entry", "AUTO_EXIT set — exiting after screenshot");
+          running = false;
+        }
+      }
+
+      // Log FPS every 2 seconds
+      const now = performance.now();
+      if (now - lastFpsTime >= 2000) {
+        currentFps = Math.round((fpsFrameCount * 1000) / (now - lastFpsTime));
+        useGameStore.getState().setFPS(currentFps);
+        // Debug: check sim state (only when DEBUG_FRAME_STATS is set)
+        if (process.env.DEBUG_FRAME_STATS) {
+        const simReader = (renderer as any).getSimReader?.() ?? (renderer as any).simReader;
+        if (simReader?.isValid()) {
+          const seq = simReader.getSequence();
+          const entityCount = simReader.getEntityCount();
+          const slot = simReader.getPlayerSlot(0);
+          const px = slot?.f32[0] ?? 0, py = slot?.f32[1] ?? 0, pz = slot?.f32[2] ?? 0;
+          const heading = slot?.f32[3] ?? 0;
+          const camMode = slot?.u32[15] ?? 0; // PLR.CAMERA_MODE
+          const camSys = (renderer as any).cameraSystem;
+          const camLookHeading = camSys?.getLookHeading?.() ?? -999;
+          const camLookPitch = camSys?.getLookPitch?.() ?? -999;
+          const camLookSyncedTick = camSys?.lookSyncedTick ?? -999;
+          const mdx = ih?.mouseDelta?.dx ?? -999;
+          // Count entity types (ENT.TYPE is at u32 index 16)
+          let islandCount = 0, portCount = 0, shipCount = 0, playerCount = 0, otherCount = 0;
+          const typeCounts: Record<number, number> = {};
+          for (let i = 0; i < entityCount; i++) {
+            const es = simReader.getEntitySlot(i);
+            if (!es) continue;
+            const type = es.u32[16]; // ENT.TYPE = 16
+            typeCounts[type] = (typeCounts[type] ?? 0) + 1;
+            if (type === 16) islandCount++; // EntityType.Island
+            else if (type === 17) portCount++; // EntityType.Port
+            else if (type === 1 || type === 2) shipCount++; // Ship/SmallCraft
+            else if (type === 0) playerCount++; // Player
+            else otherCount++;
+          }
+          // Check island meshes
+          const entityRenderer = (renderer as any).entityRenderer;
+          const islandRenderer = entityRenderer?.islandTerrainRenderer;
+          const islandMeshCount = islandRenderer?.islandMeshes?.size ?? -1;
+          const islandChunkMeshCount = islandRenderer?.islandChunkMeshes?.size ?? -1;
+          const islandEmptyCount = islandRenderer?.islandEmptyKeys?.size ?? -1;
+          const meshPoolFallback = islandRenderer?.meshPool?.isFallback?.() ?? "none";
+          // Count actual chunk meshes and in-flight jobs
+          let totalChunkMeshes = 0;
+          if (islandRenderer?.islandChunkMeshes) {
+            for (const m of islandRenderer.islandChunkMeshes.values()) totalChunkMeshes += m.size;
+          }
+          const inFlightChunks = islandRenderer?.inFlightChunks?.size ?? -1;
+          const pendingChunks = islandRenderer?.islandChunkPending?.size ?? -1;
+          // Check island entity position
+          let islandPos = "none";
+          for (let i = 0; i < entityCount; i++) {
+            const es = simReader.getEntitySlot(i);
+            if (!es) continue;
+            if (es.u32[16] === 16) { // EntityType.Island
+              islandPos = `(${es.f32[0].toFixed(1)},${es.f32[1].toFixed(1)},${es.f32[2].toFixed(1)}) scale=${es.f32[3].toFixed(1)} chunk=(${es.u32[20]},${es.u32[21]})`;
+            }
+          }
+          const frameTris = (renderer as any)._frameTriangles ?? -1;
+          const lastFrameTris = (renderer as any).entityRenderer?.getLastFrameTriangles?.() ?? -1;
+          log.info("native-entry", `Frame ${frameCount} — ${currentFps} FPS | simSeq=${seq} entities=${entityCount} (islands=${islandCount} ports=${portCount} ships=${shipCount} players=${playerCount} other=${otherCount}) types=${JSON.stringify(typeCounts)} pos=(${px.toFixed(1)},${py.toFixed(1)},${pz.toFixed(1)}) heading=${heading.toFixed(2)} camMode=${camMode} camLook=${camLookHeading.toFixed(2)} camPitch=${camLookPitch.toFixed(2)} camSyncedTick=${camLookSyncedTick} mdx=${mdx.toFixed(1)} | islandMeshes=${islandMeshCount} chunkMeshes=${islandChunkMeshCount} totalChunkMeshes=${totalChunkMeshes} empty=${islandEmptyCount} inFlight=${inFlightChunks} pending=${pendingChunks} meshPoolFallback=${meshPoolFallback} island=${islandPos} frameTris=${frameTris} entityTris=${lastFrameTris}`);
+        } else {
+          log.info("native-entry", `Frame ${frameCount} — ${currentFps} FPS | sim invalid`);
+        }
+        }
+        lastFpsTime = now;
+        fpsFrameCount = 0;
+      }
+    } catch (e) {
+      log.error("native-entry", `Render error on frame ${frameCount}: ${e}`);
+      running = false;
+      cleanup();
+      return;
+    }
+
+    // Yield to the event loop so SDL events (input, close, etc.) get processed,
+    // then immediately render the next frame — uncapped framerate.
+    setImmediate(renderLoop);
+  }
+
+  function cleanup() {
+    log.info("native-entry", "Cleaning up...");
+    try {
+      // Capture a final screenshot
+      captureScreenshotNow();
+    } catch {}
+    try {
+      sim.stop?.();
+    } catch {}
+    try {
+      pixiUi?.dispose();
+    } catch {}
+    try {
+      oceanScene?.dispose();
+    } catch {}
+    try {
+      debuggerHost?.dispose();
+    } catch {}
+    try {
+      dataBridge.stop();
+    } catch {}
+    host.destroy();
+    log.info("native-entry", "Cleaned up");
+    process.exit(0);
+  }
+
+  // Start the render loop
+  renderLoop();
+}
+
+main().catch((err) => {
+  log.error("native-entry", `Fatal error: ${err?.stack ?? err}`);
+  process.exit(1);
+});

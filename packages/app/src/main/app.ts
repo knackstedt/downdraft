@@ -45,7 +45,7 @@ export function createDowndraftApp(config: DowndraftAppConfig): void {
   // The defaults encode the common config shared by all 7 games:
   //   - devtools, gpuInfo, consoleForwarding: always on
   //   - errorDialog, windowStatePersistence: off in deterministic mode
-  //   - mcp: default port from MCP_PORT env (9876 in dev)
+  //   - mcp: default port from MCP_PORT env (ephemeral/0 = OS-assigned by default)
   //   - saves: default engine version 0.1.0
   //   - osr: off (only games that need OSR override this)
   const features: DowndraftFeatures = {
@@ -54,7 +54,7 @@ export function createDowndraftApp(config: DowndraftAppConfig): void {
     consoleForwarding: true,
     errorDialog: !deterministic,
     windowStatePersistence: !deterministic,
-    mcp: { port: parseInt(process.env.MCP_PORT ?? "9876", 10) },
+    mcp: { port: process.env.MCP_PORT ? parseInt(process.env.MCP_PORT, 10) : 0 },
     saves: { engineVersion: ENGINE_VERSION },
     osr: false,
     rawInput: false,
@@ -214,12 +214,17 @@ export function createDowndraftApp(config: DowndraftAppConfig): void {
     // Exposes contentTracing, V8 heap snapshots, and process snapshots via
     // MCP tools (handled locally in the proxy) + the preload IPC bridge.
     // Passive unless triggered; safe under DOWNDRAFT_DETERMINISTIC.
+    //
+    // `mcpPortRef` is read lazily at tool-call time (not capture time) because
+    // the MCP transport may bind to an ephemeral OS-assigned port after these
+    // tools are created — the actual port is filled in by startMcpProxy()
+    // below. Download URLs in trace/heap results use portRef.current.
+    const mcpPortRef = { current: features.mcp ? (features.mcp.port ?? 0) : 0 };
     let tracingTools: ToolRegistration[] = [];
     let artifactDir: string | undefined;
     if (features.tracing !== false) {
-      const mcpPort = features.mcp ? features.mcp.port : 9876;
-      tracingTools = createTracingTools(ctx, mcpPort);
-      registerTracingHandlers(ctx, mcpPort);
+      tracingTools = createTracingTools(ctx, mcpPortRef);
+      registerTracingHandlers(ctx, mcpPortRef);
       artifactDir = join(app.getPath("userData"), "debug-artifacts");
     }
 
@@ -238,7 +243,10 @@ export function createDowndraftApp(config: DowndraftAppConfig): void {
 
     // --- MCP proxy ---
     if (features.mcp) {
-      await startMcpProxy(ctx, features.mcp, tracingTools, artifactDir);
+      const actualPort = await startMcpProxy(ctx, features.mcp, tracingTools, artifactDir);
+      // Fill in the lazily-read port so tracing download URLs are correct
+      // even when the transport bound to an ephemeral OS-assigned port.
+      if (actualPort) mcpPortRef.current = actualPort;
     }
   }
 

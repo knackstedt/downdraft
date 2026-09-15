@@ -2,9 +2,8 @@
 // Entity Renderer — facade that delegates to sub-renderers for each entity type
 // ============================================================================
 
-import { calculateViewProj, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, type BindlessMaterialManager, type BindlessTextureRegistry } from "@downdraft/core";
+import { calculateViewProj, createValidatedShaderModule, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, SimBufferReader, type BindlessMaterialManager, type BindlessTextureRegistry } from "@downdraft/core";
 import type { MeshData, ModelData } from "@downdraft/library-models";
-import { BoatBufferReader } from "@to-the-ocean/library-boats/boat-sab";
 import { RuntimeBoatGeometry, type BoatDesign } from "@shared/boat-design";
 import {
     BOAT_CELL_WORLD_SIZE, BOAT_LAYER_HEIGHT,
@@ -12,8 +11,8 @@ import {
     getWallCollisionBoxes, hasSolidCollision, isWallType,
     PLAYER_HEIGHT, PLAYER_RADIUS
 } from "@shared/constants";
-import { SimBufferReader } from "@downdraft/core";
 import { EntityType, PortSize } from "@shared/types";
+import { BoatBufferReader } from "@to-the-ocean/library-boats/boat-sab";
 import { CameraState } from "./camera-system";
 
 import { ENTITY_WGSL } from "./shaders/entity-shaders";
@@ -95,6 +94,7 @@ export class EntityRenderer {
       uniformBuffer: null,
       bindGroup: null,
       bindGroupLayout: null,
+      bindGroups: null,
       viewProjCache: null,
       cameraPosCache: [0, 0, 0],
       lightingParamsCache: this.lightingParamsCache,
@@ -188,7 +188,7 @@ export class EntityRenderer {
     pbrBindGroupLayout?: GPUBindGroupLayout,
     bindlessBindGroupLayout?: GPUBindGroupLayout,
   ): Promise<void> {
-    const shaderModule = this.device.createShaderModule({ code: ENTITY_WGSL });
+    const shaderModule = createValidatedShaderModule(this.device, { code: ENTITY_WGSL, label: "EntityRenderer" });
 
     this.uniformBuffer = this.device.createBuffer({
       size: 256 * EntityRenderer.MAX_DRAW_ENTITIES,
@@ -206,10 +206,23 @@ export class EntityRenderer {
       entries: [{ binding: 0, resource: { buffer: this.uniformBuffer, size: 256 } }],
     });
 
+    // Create per-entity bind groups with explicit offsets baked into the
+    // resource. The layout still declares hasDynamicOffset, so binding these
+    // groups must pass a single [0] dynamic offset to satisfy validation.
+    // The alternative path binds this.bindGroup with [idx * 256] instead.
+    const perEntityBindGroups: GPUBindGroup[] = [];
+    for (let i = 0; i < EntityRenderer.MAX_DRAW_ENTITIES; i++) {
+      perEntityBindGroups.push(this.device.createBindGroup({
+        layout: this.bindGroupLayout,
+        entries: [{ binding: 0, resource: { buffer: this.uniformBuffer, offset: i * 256, size: 256 } }],
+      }));
+    }
+
     // Update context with shared resources
     this.ctx.uniformBuffer = this.uniformBuffer;
     this.ctx.bindGroup = this.bindGroup;
     this.ctx.bindGroupLayout = this.bindGroupLayout;
+    this.ctx.bindGroups = perEntityBindGroups;
 
     // Unit cube
     const verts = new Float32Array([
@@ -614,8 +627,6 @@ export class EntityRenderer {
     if (type === EntityType.Island && this.islandTerrainRenderer.islandPipeline) {
       this._lastFrameTriangles += this.islandTerrainRenderer.renderIsland(passEncoder as any, idx);
       return;
-    } else if (type === EntityType.Island) {
-      console.log(`[EntityRenderer] Island entity ${idx}: pipeline=${!!this.islandTerrainRenderer.islandPipeline}`);
     }
 
     // Port
@@ -633,7 +644,9 @@ export class EntityRenderer {
     // Generic cube fallback
     if (this.pipeline && this.cubeVertices && this.cubeIndices) {
       passEncoder.setPipeline(this.pipeline);
-      passEncoder.setBindGroup(0, this.bindGroup, [idx * 256]);
+      const bg = this.ctx.bindGroups?.[idx] ?? this.bindGroup;
+      if (this.ctx.bindGroups) passEncoder.setBindGroup(0, bg, [0]);
+      else passEncoder.setBindGroup(0, bg, [idx * 256]);
       passEncoder.setVertexBuffer(0, this.cubeVertices);
       passEncoder.setIndexBuffer(this.cubeIndices, "uint16");
       passEncoder.drawIndexed(this.cubeIndexCount);

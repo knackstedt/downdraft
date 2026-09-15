@@ -20,6 +20,7 @@ import type { RenderContext } from "./frame-graph";
 import { FrameGraph, SlotRegistry, type TextureHandle } from "./frame-graph";
 import { InputManager } from "./input-manager";
 import { RendererModuleHost } from "./renderer-module-host";
+import { installShaderValidationGuard } from "./shader-validator";
 import { SurfaceManager } from "./surface";
 import { TrackedRenderPass } from "./tracked-render-pass";
 
@@ -135,6 +136,7 @@ export type CancelRAF = (id: number) => void;
 export class GameRenderer implements CanvasResizeHandler {
   private canvas: HTMLCanvasElement;
   private device: GPUDevice | null = null;
+  private adapter: GPUAdapter | null = null;
   private context: GPUCanvasContext | null = null;
   private format: GPUTextureFormat = "bgra8unorm";
   private config: GameRendererConfig;
@@ -237,7 +239,7 @@ export class GameRenderer implements CanvasResizeHandler {
     const clamp = (key: string, want: number): [string, number] | null => {
       const have = a[key];
       if (have === undefined) return null;
-      return [key, Math.min(want, have)];
+      return [key, Math.min(want, Number(have))];
     };
     const entries: Array<[string, number]> = [];
     for (const e of [
@@ -291,6 +293,11 @@ export class GameRenderer implements CanvasResizeHandler {
         requiredFeatures,
         requiredLimits: this.buildRequiredLimits(adapter),
       });
+      this.adapter = adapter;
+
+      // Install the shader validation guard so all createShaderModule calls
+      // route through getCompilationInfo() validation.
+      installShaderValidationGuard(this.device);
 
       // Wrap device with GPU resource tracker for VRAM visibility
       this.gpuResourceTracker = new GPUResourceTracker();
@@ -643,6 +650,12 @@ export class GameRenderer implements CanvasResizeHandler {
       this.device!.queue.submit(frameCommandBuffers);
     }
 
+    // Present the surface (native wgpu requires explicit presentation;
+    // in browsers this is automatic at the end of the frame)
+    if (this.context && (this.context as any).present) {
+      (this.context as any).present();
+    }
+
     // Read GPU timer results asynchronously (1-frame latency).
     // Must be called AFTER queue.submit() — readGpuTimers() calls mapAsync on
     // the read buffer, and a mapped/mapping-pending buffer cannot be used in a
@@ -975,6 +988,10 @@ export class GameRenderer implements CanvasResizeHandler {
 
   getDevice(): GPUDevice | null {
     return this.device;
+  }
+
+  getAdapter(): GPUAdapter | null {
+    return this.adapter;
   }
 
   getContext(): GPUCanvasContext | null {

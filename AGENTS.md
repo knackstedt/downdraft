@@ -319,9 +319,11 @@ Each game runs as an Electron process launched against its own `games/<game>/ele
     kill -TERM "$pid" 2>/dev/null
   done
   ```
-- **Match the MCP port** if you know which port the game's MCP HTTP transport is bound to (default 9876 for dev, 9976 for `draft test`):
+- **Match the MCP port** if you know which port the game's MCP HTTP transport is bound to (ephemeral by default; 9976 for `draft test`):
   ```bash
-  fuser -k 9876/tcp   # kills whatever is bound to the game's MCP port
+  # Read the port from the PID file: ~/.downdraft/port/<pid>
+  ls ~/.downdraft/port/ && cat ~/.downdraft/port/*  # shows PID(s) → port(s)
+  fuser -k <port>/tcp   # kills whatever is bound to that port
   ```
 
 Prefer `kill -TERM` first (lets the game clean up storage locks via `cleanupStaleStorage()` and `requestSingleInstanceLock()`); only escalate to `kill -9` if the process doesn't exit within a few seconds. If you launched the game yourself (via `draft dev`, `draft test`, or the e2e harness), prefer terminating the parent shell/process you spawned rather than hunting for the Electron child.
@@ -341,7 +343,7 @@ A plain browser cannot reproduce any of this, and Playwright driving a browser w
 **Instead, use the in-game MCP automation harness and `draft test`:**
 
 1. **`bun run draft:test-cpu`** (or `bun run draft:test`) — the canonical way to launch and exercise a game headlessly. `draft test` sets `DOWNDRAFT_DETERMINISTIC=1` and spawns `bun test <spec>`; the default smoke specs use the in-game MCP RPC harness to boot the real Electron app and drive it. See "Running the smoke test" below for the full CLI flag reference.
-2. **The `ocean` MCP server** (configured in `.devin/mcp_config.json` via the stdio→HTTP bridge at `.devin/mcp-stdio-bridge.mjs`) — once a game is running with `MCP_PORT=<port>`, this exposes the game's automation tools directly to your MCP client. **List the tools first with `mcp_list_tools` before calling any of them** — never guess tool names or argument schemas. The currently registered tools (see `games/to-the-ocean/src/mcp/automation-tools.ts`) include:
+2. **The `game` MCP server** (configured in `.devin/mcp_config.json` via the stdio→HTTP bridge at `.devin/mcp-stdio-bridge.mjs`) — once a game is running, this exposes the game's automation tools directly to your MCP client. The bridge auto-discovers the running instance via PID files in `~/.downdraft/port/<pid>` (content = the bound port). **List the tools first with `mcp_list_tools` before calling any of them** — never guess tool names or argument schemas. The currently registered tools (see `games/to-the-ocean/src/mcp/automation-tools.ts`) include:
    - `inject_input` / `clear_injected_input` — hold keys/mouse/wheel for N frames.
    - `dispatch_key` / `dispatch_click` — fire real DOM events on the main thread (full input pipeline).
    - `get_player_state` / `get_world_state` / `get_ui_state` — read simulation/UI state.
@@ -353,10 +355,10 @@ A plain browser cannot reproduce any of this, and Playwright driving a browser w
 
 The typical debug loop is:
 ```bash
-# 1. Launch the game with deterministic mode + a known MCP port
-cd games/to-the-ocean && DOWNDRAFT_GPU=swiftshader DOWNDRAFT_DETERMINISTIC=1 MCP_PORT=9876 draft dev &
-# 2. Call ocean MCP tools (inject_input, get_player_state, capture_screenshot, ...)
-#    to drive the game and inspect state.
+# 1. Launch the game with deterministic mode (MCP port is auto-assigned)
+cd games/to-the-ocean && DOWNDRAFT_GPU=swiftshader DOWNDRAFT_DETERMINISTIC=1 draft dev &
+# 2. Call game MCP tools (inject_input, get_player_state, capture_screenshot, ...)
+#    to drive the game and inspect state. The bridge auto-discovers the port.
 # 3. When done, kill ONLY this game instance (see "Killing game processes" above).
 ```
 
@@ -420,7 +422,7 @@ These are set automatically by `draft test`. See the "Running the smoke test" se
 - `DOWNDRAFT_GPU=swiftshader|hardware` — selects WebGPU backend via `webGpuSwitches()`. `swiftshader` = software Vulkan (CI), `hardware` = NVIDIA Vulkan (local).
 - `DOWNDRAFT_DETERMINISTIC=1` — fixed seed (99999), skip autosave loading, disable devtools auto-open and error dialogs, pause the render loop (on-demand rendering only via `set_test_state` or `capture_screenshot`). The flag is passed from the main process to the renderer via the `downdraft.deterministic` bridge property (set in `packages/app/src/preload/bridge.ts`).
 - `DOWNDRAFT_HEADED=1` — show the Electron window even in deterministic mode. Without this, `window.ts` suppresses `win.show()` when `DOWNDRAFT_DETERMINISTIC=1`.
-- `MCP_PORT=9976` — MCP HTTP transport port (default 9876 for normal dev, 9976 for e2e tests).
+- `MCP_PORT=<port>` — MCP HTTP transport port. Unset = ephemeral OS-assigned port (default; advertised via `~/.downdraft/port/<pid>` for auto-discovery). Set explicitly for the e2e test harness (9976).
 - `MCP_TIMEOUT_MS=120000` — MCP proxy IPC round-trip timeout in ms (must be longer than the longest `wait_for_condition` call).
 
 ## Unified DevTools API
@@ -695,14 +697,21 @@ Input injection is merged with real DOM input in `processInput()` so the game lo
 
 ### Connecting Devin's MCP client to the game
 
-The game's MCP HTTP transport (`packages/mcp/src/http-transport.ts`) supports both Streamable HTTP and HTTP+SSE transports. However, Devin's MCP client uses stdio for local servers. A stdio-to-HTTP bridge (`.devin/mcp-stdio-bridge.mjs`) forwards JSON-RPC messages from stdin/stdout to the game's HTTP endpoint.
+The game's MCP HTTP transport (`packages/mcp/src/http-transport.ts`) supports both Streamable HTTP and HTTP+SSE transports. By default it binds to an **ephemeral OS-assigned port** (port 0) so multiple game instances never collide. Devin's MCP client uses stdio for local servers, so a stdio-to-HTTP bridge (`.devin/mcp-stdio-bridge.mjs`) forwards JSON-RPC messages from stdin/stdout to the game's HTTP endpoint.
+
+**Instance discovery:** Each running game writes `~/.downdraft/port/<pid>` (content = the bound port number). The bridge reads this directory, prunes dead-PID files, and connects to the newest live instance. Optional env vars on the bridge:
+- `MCP_APP_ID=<appId>` — narrow to instances of a specific game (matches `--user-data-dir=<path>` basename on Linux; e.g. `downdraft-to-the-ocean`).
+- `MCP_PID=<pid>` — connect to a specific PID.
+- `MCP_HTTP_URL=<url>` — explicit URL override (skips discovery; used by the e2e test harness).
 
 To connect:
-1. Start the game: `cd games/to-the-ocean && DOWNDRAFT_GPU=swiftshader DOWNDRAFT_DETERMINISTIC=1 MCP_PORT=9876 draft dev`
-2. The MCP config (`.devin/mcp_config.json`) defines the `ocean` server using the bridge script.
-3. The bridge forwards `initialize`, `tools/list`, `tools/call` to `http://localhost:9876/mcp`.
+1. Start the game: `cd games/to-the-ocean && DOWNDRAFT_GPU=swiftshader DOWNDRAFT_DETERMINISTIC=1 draft dev`
+2. The MCP config (`.devin/mcp_config.json`) defines the `game` server using the bridge script.
+3. The bridge discovers the port from `~/.downdraft/port/<pid>` and forwards `initialize`, `tools/list`, `tools/call` to `http://localhost:<port>/mcp`.
 4. Notifications (messages without an `id` field, like `notifications/initialized`) are silently ignored by the bridge.
 5. `resources/list` and `prompts/list` return empty lists (the game doesn't expose resources or prompts).
+
+**Multiple instances:** Launch as many games as you like — each gets its own ephemeral port and PID file. The bridge connects to the newest by default; set `MCP_APP_ID` in `.devin/mcp_config.json`'s `env` to target a specific game.
 
 Key bridge fixes:
 - Notifications (no `id`) must not receive a response — the bridge silently drops them.
@@ -743,7 +752,7 @@ draft test --renderer=cpu --spec tests/e2e/my-game.spec.ts
 - `DOWNDRAFT_GPU=swiftshader|hardware` — selects the WebGPU backend via `webGpuSwitches()`.
 - `DOWNDRAFT_DETERMINISTIC=1` — fixed seed (99999), skip autosave, disable devtools auto-open, pause render loop (on-demand rendering only). Passed to the renderer via the `downdraft.deterministic` preload bridge property.
 - `DOWNDRAFT_HEADED=1` — show the window even in deterministic mode. Without this, `window.ts` suppresses `win.show()` when `DOWNDRAFT_DETERMINISTIC=1`.
-- `MCP_PORT=9976` — MCP HTTP transport port.
+- `MCP_PORT=9976` — MCP HTTP transport port (explicit; unset = ephemeral for dev).
 - `MCP_TIMEOUT_MS=120000` — MCP proxy IPC round-trip timeout.
 
 **Headless / CI without a display:** The CLI auto-detects missing `DISPLAY` and wraps in `xvfb-run` if available. Install it with `sudo apt install xvfb`. Electron still needs an X server even when the window is hidden — SwiftShader renders to an offscreen surface but Chromium's ozone platform requires a display connection.
@@ -771,7 +780,7 @@ The CLI reads and sets a number of environment variables. This is the complete l
 
 | Variable | Value | Purpose |
 |---|---|---|
-| `MCP_PORT` | `<port>` | MCP HTTP transport port |
+| `MCP_PORT` | `<port>` | MCP HTTP transport port (unset = ephemeral, auto-discovered via `~/.downdraft/port/<pid>`) |
 | `MCP_TIMEOUT_MS` | `120000` | MCP proxy IPC round-trip timeout (ms) |
 | `DOWNDRAFT_GPU` | `swiftshader` \| `hardware` | WebGPU backend selection |
 | `DOWNDRAFT_DETERMINISTIC` | `1` | Fixed seed, paused render loop, no autosave |
@@ -1485,3 +1494,161 @@ bun test packages/core/src/plugin
 # Postfx suite (including custom effect tests)
 bun test packages/libraries/postfx
 ```
+## Native platform (`@downdraft/platform-native`)
+
+A Bun-native platform layer that replaces Electron + WebView with direct native GPU rendering via `wgpu-native` and `bun:ffi`. Located in `packages/platform-native/`.
+
+### Architecture
+
+- **GPU**: `wgpu-native` v29 accessed through a C shim (`native/wgpu_shim.c`) that flattens complex WebGPU C descriptors into FFI-friendly functions. The TypeScript wrapper (`src/gpu/wgpu-wrapper.ts`) implements the standard WebGPU JS API (`GPU`, `GPUAdapter`, `GPUDevice`, `GPUQueue`, etc.) on top of the FFI calls. `installGPU()` sets `globalThis.navigator.gpu` so the engine's `GPUDeviceManager` works unchanged.
+- **Window**: SDL2 for window creation, input polling, and native surface handle extraction (`native/sdl_shim.c`). The `NativeWindow` class runs the event loop, translates SDL events to DOM-compatible events, and provides `requestAnimationFrame`. `NativeSurface` implements the `HTMLCanvasElement` / `GPUCanvasContext` interface.
+- **Image decoding**: `stb_image` (`native/image_shim.c`) replaces `createImageBitmap`. `installImagePolyfills()` sets `globalThis.createImageBitmap`, `ImageBitmap`, `OffscreenCanvas`, and `ImageData`.
+- **Asset discovery**: `nativeGlob()` replaces `import.meta.glob` with filesystem-based globbing.
+- **Screenshot**: `captureScreenshot()` copies a render target to a buffer, reads back pixels, and encodes a PNG (acceptance mechanism for native rendering).
+- **Native host**: `createNativeHost()` ties everything together — installs all polyfills, creates the window, gets the GPU device, configures the surface, starts the event loop, and provides DOM polyfills (`document`, `window`).
+
+### Key files
+
+- `packages/platform-native/native/wgpu_shim.c` — C shim over wgpu-native (flattened FFI API)
+- `packages/platform-native/native/sdl_shim.c` — C shim over SDL2 (window + events + surface)
+- `packages/platform-native/native/image_shim.c` — stb_image-based image decoder
+- `packages/platform-native/native/font_shim.c` — SDL_ttf text rasterizer
+- `packages/platform-native/src/ffi/ffi-adapter.ts` — cross-runtime FFI (Bun `bun:ffi`, Node `koffi`, Deno `Deno.dlopen`)
+- `packages/platform-native/src/ffi/lib-paths.ts` — unified native library resolution (env override → native/ → native/lib/ → native/<platform>-<arch>/ → /usr/local/lib)
+- `packages/platform-native/src/gpu/wgpu-ffi.ts` — FFI bindings to wgpu_shim (lazy dlopen)
+- `packages/platform-native/src/gpu/wgpu-wrapper.ts` — re-export barrel for the wrapper modules
+- `packages/platform-native/src/gpu/enums.ts` — WebGPU enum/string mappings (single source of truth)
+- `packages/platform-native/src/gpu/limits.ts` — WGPULimits/features query + serialization
+- `packages/platform-native/src/gpu/registry.ts` — FinalizationRegistry-based native handle cleanup
+- `packages/platform-native/src/gpu/wgpu-device.ts` — WgpuGPU / WgpuAdapter / WgpuDevice / WgpuQueue
+- `packages/platform-native/src/gpu/wgpu-resources.ts` — buffers, textures, views, samplers, shaders, layouts, bind groups, pipelines, query sets
+- `packages/platform-native/src/gpu/wgpu-encoder.ts` — command encoder + render/compute pass encoders
+- `packages/platform-native/src/gpu/install.ts` — installs navigator.gpu
+- `packages/platform-native/src/dom/mini-event-target.ts` — shared EventTarget-compatible listener store
+- `packages/platform-native/src/dom/dom-polyfills.ts` — document/window/Worker/storage polyfills
+- `packages/platform-native/src/window/sdl-ffi.ts` — FFI bindings to sdl_shim (lazy dlopen)
+- `packages/platform-native/src/window/native-window.ts` — NativeWindow + event loop + rAF
+- `packages/platform-native/src/window/native-surface.ts` — NativeSurface (HTMLCanvasElement)
+- `packages/platform-native/src/image/native-image.ts` — createImageBitmap polyfill + Image polyfill
+- `packages/platform-native/src/image/native-canvas2d.ts` — NativeCanvas2D (glyph atlas + parseColor)
+- `packages/platform-native/src/image/native-freetype.ts` — FreeType bindings
+- `packages/platform-native/src/assets/native-assets.ts` — import.meta.glob replacement
+- `packages/platform-native/src/screenshot/screenshot.ts` — PNG screenshot capture + `paddedReadbackToRGBA`
+- `packages/platform-native/src/native-host.ts` — createNativeHost (main entry point)
+
+### Native binaries (fetch-at-install)
+
+Native binaries are **not committed** — `bun run fetch:native` in `packages/platform-native` downloads wgpu-native + tint (pinned in `native/wgpu-native-meta/`). Shim `.so` files are compiled locally via `bun run build:shims` (`native/build-shims.sh` builds all four shims). `lib-paths.ts` resolves them via env override → `native/` → `native/lib/` → `native/<platform>-<arch>/` → `/usr/local/lib`.
+
+### Building native shims
+
+```bash
+cd packages/platform-native && bun run fetch:native && bun run build:shims
+```
+
+### Runtime detection
+
+`packages/core/src/platform/runtime.ts` provides `isBun`, `isNative`, `isDevMode` for feature-detecting the runtime. Engine code should use these instead of `import.meta.env.DEV` or `typeof navigator !== "undefined"`.
+
+### Bun preload
+
+`packages/core/src/platform/bun-preload.ts` registers Bun plugin loaders for `?raw` and `?url` import suffixes, plus CSS imports. Configured in root `bunfig.toml`.
+
+### Current status
+
+Phases 0-6 are complete. The native GPU pipeline works end-to-end: a triangle can be rendered to an SDL2 window via wgpu-native and captured as a PNG screenshot. The native PixiUI pipeline (below) is also complete — the real `@pixi/react` OceanApp renders over the 3D frame in native mode. Remaining work: engine core adaptation (feature detection at seams), Android target, performance optimization.
+
+## Native PixiUI (`@downdraft/library-pixi-ui-native`)
+
+In-process PixiJS v8 WebGPU UI renderer for native (Bun + SDL2 + wgpu-native) mode. Reuses the browser `@pixi/react` scene (e.g. `OceanApp`) without Electron/Chromium. PixiJS runs on the main thread on the **same `GPUDevice`** as the game, rendering into a texture-backed virtual canvas; the game composites that texture over the 3D frame each render pass via a fullscreen blit. No CPU readback in the compositing path.
+
+### Architecture
+
+- **`NativePixiUiHost`** (`packages/libraries/pixi-ui-native/src/host.ts`): creates a `PIXI.Application` against a `VirtualCanvas` (not the swapchain) with `gpu: { adapter, device }` so PixiJS reuses the game's device. `autoStart: false` — the game drives `host.render()` each frame before encoding its blit pass. `backgroundAlpha: 0` so the 3D scene shows through transparent UI areas.
+- **Virtual canvas + WebGPU context** (`packages/platform-native/src/gpu/virtual-canvas-context.ts`): a `VirtualCanvas` backs a `GPUTexture` (not the swapchain). `getUiTextureView()` returns the texture view the game samples in its compositing blit pass.
+- **UI blit pass** (`packages/libraries/pixi-ui-native/src/ui-blit-pass.ts`): a fullscreen triangle shader that samples the UI texture and blends it over the frame's color attachment with `loadOp: "load"` (preserves the 3D frame).
+- **Compositing hook** (`WebGPURenderer.renderOneFrame`): after the 3D scene + postfx, calls `nativePixiUi.render()` (submits PixiJS's encoder to the shared queue), then `blitPass.execute(encoder, frameView, uiView)`. The write is ordered before the read on the shared queue.
+- **Native data bridge** (`games/<game>/src/pixi/native-data-bridge.ts`): reads `SimBufferReader` + `useGameStore` each frame and calls `setWorkerState()` directly (the same reactive store `@pixi/react` components consume via `useWorkerState`). Routes UI actions back to the game store / `simBridge`. Replaces the browser worker/SAB/postMessage path with in-process store updates.
+- **Native scene factory** (`games/<game>/src/pixi/native-scene.tsx`): `createNativeOceanScene(ctx)` calls `createPixiReactRoot(ctx)` (the same adapter the browser worker uses) and renders the real `OceanApp` React tree. `update()` is a no-op — React re-renders automatically via `useWorkerState` when the bridge calls `setWorkerState`. `getOpaqueRegions()` mirrors the browser scene's logic so the 3D renderer can skip work behind opaque panels.
+- **Native input router** (`games/<game>/src/pixi/native-input-router.ts`): intercepts SDL mouse events on the canvas in **capture phase** (before the game's input handler). When a menu/overlay is open, hit-tests against PixiJS's `rootBoundary.hitTest(x, y)`; if the hit succeeds, dispatches a synthetic pointer event to `EventSystem._onPointerDown/Move/Up` (same approach as the browser pixi-ui worker) and stops propagation. Misses pass through to the game.
+
+### Critical native WebGPU fixes (required for PixiJS)
+
+- **`WgpuBuffer` write-mapped semantics** (`packages/platform-native/src/gpu/wgpu-resources.ts`): `getMappedRange()` returns a persistent JS backing store for `mappedAtCreation` write maps; `unmap()` flushes it to the native buffer via `queue.writeBuffer` (after unmap, since wgpu-native rejects writes while mapped). Without this, PixiJS's `fastCopy(data, getMappedRange())` + `unmap()` pattern wrote into a throwaway `ArrayBuffer` and all geometry drew nothing.
+- **`copyExternalImageToTexture`** (`packages/platform-native/src/gpu/wgpu-device.ts`): reads canvas RGBA pixels via `getContext("2d").getImageData()` and uploads with `queue.writeTexture` (256-byte row alignment for WebGPU's `bytesPerRow`). Handles `bgra8unorm` textures. Without this, text/image textures never uploaded.
+- **`parseColor`** (`packages/platform-native/src/image/native-canvas2d.ts`): handles named colors (`"white"`, `"black"`, etc.), 8-digit hex (`#rrggbbaa`), and 3-digit hex. Without this, PixiJS's `fillStyle: "white"` fell through to the black fallback and text rendered black.
+
+### Key files
+
+- `packages/libraries/pixi-ui-native/src/host.ts` — `NativePixiUiHost`
+- `packages/libraries/pixi-ui-native/src/ui-blit-pass.ts` — fullscreen blit pass
+- `packages/libraries/pixi-ui-native/src/shaders/ui-blit.wgsl.ts` — blit shader
+- `packages/platform-native/src/gpu/virtual-canvas-context.ts` — texture-backed canvas
+- `packages/platform-native/src/gpu/wgpu-resources.ts` — `WgpuBuffer` mapped-write semantics
+- `packages/platform-native/src/gpu/wgpu-device.ts` — `copyExternalImageToTexture`
+- `packages/platform-native/src/image/native-canvas2d.ts` — `NativeCanvas2D` (FreeType text + `parseColor`)
+- `games/to-the-ocean/src/native-entry.ts` — native wiring (host + scene + bridge + input router)
+- `games/to-the-ocean/src/pixi/native-data-bridge.ts` — `NativeOceanDataBridge`
+- `games/to-the-ocean/src/pixi/native-scene.tsx` — `createNativeOceanScene` (reuses `OceanApp`)
+- `games/to-the-ocean/src/pixi/native-input-router.ts` — `NativeInputRouter`
+
+## Native DevTools (`@downdraft/library-devtools`)
+
+A native in-game debugger overlay that replaces Chrome DevTools for the native build. The UI is a **Rust egui crate** (`packages/libraries/devtools/native/`) driven over FFI by a TypeScript mirror — egui does layout + tessellation on CPU, serializes PaintJobs into a flat buffer, `EguiRenderer` uploads it to a wgpu texture, and `UiBlitPass` composites it over the game frame. Toggled with F12; F11 captures a screenshot.
+
+### Architecture
+
+- **`NativeDebuggerHost`** (`src/host.ts`): owns the egui state handle + `EguiRenderer`, routes SDL pointer/key/text input into egui via FFI, and composites the overlay after the game UI blit.
+- **`DevtoolsMirror`** (`src/mirror.ts`): pushes engine data into Rust (console entries, scene tree, GPU info, metrics, threads, generic snapshots), polls Rust for eval requests / UI commands / refresh flags each frame, and dispatches them to registered handlers.
+- **`egui-ffi.ts`**: FFI symbol declarations + buffer encoders (scene tree, DOM tree, GPU info, metrics, threads, generic `encodeSnapshot`, eval request decode).
+- **Rust side** (`native/src/`): `state.rs` (PanelId, console/metrics/scene state, `GenericSnapshot`), `lib.rs` (FFI surface, input → `egui::RawInput`, dock UI + nav rail + status bar, snapshot/command decoders), `panels/` (one module per panel; `generic.rs` renders provider-fed snapshots; `input.rs` is a bespoke panel mixing the egui input mirror with provider data).
+- **`CdpBridge`** (`src/cdp-bridge.ts`): `node:inspector` Session for console capture, exception events, and CPU profiling (the Recorder panel's flame chart).
+
+### Panels (16)
+
+Console, Scene (PIXI tree), GPU, Recorder (CDP profile + flame chart), Metrics (per-thread ProfilingSAB), ECS/DOM tree, Sim, Memory (RSS/VRAM + force-GC), Render Graph (frame-graph slots + pass timings, shows "timestamps unsupported" when the GPU timer pool is unavailable), Materials (MaterialLibrary or ModelRenderer bindless occupancy), Doctor (cross-thread module report), Workers (SAB slots + eval targets + cached sim manifest), Input (live egui input mirror), PostFX (28 effect toggles + params via the command channel), Assets (models/textures/buffers + missing-asset warnings), Game (provider-fed KV: vitals, world state, boats, weather).
+
+### Generic snapshot + command protocol
+
+Provider panels share one binary format: `registerProvider(panel, collect)` returns a `PanelSnapshot` (status byte + sections of key/value rows, tables, f32 series, lines, and controls — buttons/checkboxes/sliders). `encodeSnapshot()` serializes it; `dd_devtools_set_snapshot` pushes it per panel slot. Rust renders controls and queues `{panel, action, payload}` commands; the mirror polls `dd_devtools_take_command` each frame and dispatches to `handleEngineCommand` in `native-entry.ts` (fx.* → `PostProcessStack.setEnabled`, param.* → effect params, gc → force GC, sim.* → sim worker commands). Sync providers push snapshots immediately; async collectors never block the UI frame.
+
+Game-specific data uses the `game` panel slot — register via `registerEngineProviders(ctx)` in `src/native-providers.ts` plus a game provider in `native-entry.ts`.
+
+### Running the native entry (tri-runtime)
+
+```bash
+# Bun (primary)
+bun run src/native-entry.ts
+
+# Node (tsx + wgsl/?raw loader)
+NODE_OPTIONS="--import ../../packages/platform-native/src/ffi/wgsl-loader.mjs" \
+  ../../node_modules/.bin/tsx src/native-entry.ts
+
+# Deno (root deno.json import map mirrors tsconfig paths; sloppy imports for
+# extensionless/dir imports; requires --allow-all for FFI+workers+fs)
+deno run --config ../../deno.json --allow-all --unstable-sloppy-imports src/native-entry.ts
+```
+
+`deno.json` at the repo root is a generated import map mirroring `tsconfig.web.json` `paths` (`foo/*` → `dir/*` trailing-slash form, required for `@`-scoped aliases). Regenerate it if tsconfig paths change. Known Deno limitations: `@pixi/react` scene setup fails (npm `react-reconciler/constants` subpath), and basis-universal `?url` wasm imports are resolved lazily with a disk fallback.
+
+### wgpu-native crash notes
+
+wgpu-native turns **any** validation error into a fatal `handle_error_fatal` abort — not just internal panics. Hardening applied: (1) `wgpu_shim.c` validates every `WGPUTextureFormat`/`WGPURenderPipelineDescriptor` enum before the call and returns NULL with an error log instead of aborting; (2) `wgpu-device.ts` counts only non-null vertex-buffer slots (sparse `buffers` arrays desynced the flat-descriptor walk); (3) bind groups created with `hasDynamicOffset` layouts must be bound with a dynamic-offsets array (`setBindGroup(i, bg, [0])` — the shim plumbs them; the old "no dynamic offsets" comment was stale); (4) `PostProcessStack` takes a `sceneFormat` option — games whose scene pipelines target the surface format pass it (the default `rgba16float` requires HDR scene pipelines).
+
+### Environment variables for verification
+
+- `SCREENSHOT_FRAME=N`: auto-capture a screenshot at frame N (default 600).
+- `AUTO_EXIT=1`: exit after the auto-screenshot.
+- `DEBUGGER_AUTO_SHOW=1`: auto-show the debugger for the verification screenshot.
+- `DEBUGGER_PANEL=<name>`: select a panel for the screenshot (`console scene gpu perf-recorder perf-metrics dom-tree sim memory render-graph materials doctor workers input postfx assets game`).
+- `DEBUGGER_TEST=1`: run the interaction suite (nav-rail clicks on all 16 panels, postfx command round-trip, wheel scroll, REPL eval) at the screenshot frame.
+- `SKIP_OCEAN_SCENE=1`: skip the real OceanApp scene (for isolated blit testing).
+
+### Key files
+
+- `packages/libraries/devtools/src/host.ts` — `NativeDebuggerHost` + `DebuggerSceneShim`
+- `packages/libraries/devtools/src/mirror.ts` — `DevtoolsMirror` (data push, eval/command dispatch, provider registry)
+- `packages/libraries/devtools/src/egui-ffi.ts` — FFI decls + encoders
+- `packages/libraries/devtools/src/native-providers.ts` — engine-generic panel providers
+- `packages/libraries/devtools/src/cdp-bridge.ts` — `CdpBridge`
+- `packages/libraries/devtools/native/src/` — Rust egui crate (`cargo build --release`, output `dist/libdowndraft_devtools.so`)

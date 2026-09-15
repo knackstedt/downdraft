@@ -11,6 +11,7 @@ import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../fr
 import { createUniformBuffer } from "../gpu-utils";
 import { RenderPass } from "../render-pass";
 import { destroyMapValues } from "../resource-tracker";
+import { createValidatedShaderModule } from "../shader-validator";
 
 // ─── Camera uniform structs (single source of truth for layout) ────────────
 // Previously these were hand-written inline in each shader string and mirrored
@@ -390,7 +391,7 @@ export class OpaquePass extends RenderPass {
   }
 
   setShaderSource(wgsl: string): void {
-    this.shaderModule = this.device.createShaderModule({ code: wgsl });
+    this.shaderModule = createValidatedShaderModule(this.device, { code: wgsl, label: "OpaquePass.setShaderSource" });
     this.pipeline = null;
   }
 
@@ -457,7 +458,7 @@ export class OpaquePass extends RenderPass {
     const vkey = variantKey(variantFlags);
     if (!this.graphVariantShaderModules.has(vkey)) {
       const wgsl = compileVariant(material, variantFlags, this.graphProfile ?? undefined);
-      const module = this.device.createShaderModule({ code: wgsl });
+      const module = createValidatedShaderModule(this.device, { code: wgsl, label: "OpaquePass.variant" });
       this.graphVariantShaderModules.set(vkey, module);
       // Evict oldest if over cap.
       if (this.graphVariantPipelines.size >= OpaquePass.MAX_VARIANT_PIPELINES) {
@@ -499,7 +500,7 @@ export class OpaquePass extends RenderPass {
   private ensureGraphPipeline(): void {
     if (this.graphPipeline || !this.mesh || !this.graphMaterial?.inlineShaderSource) return;
 
-    this.graphShaderModule = this.device.createShaderModule({ code: this.graphMaterial.inlineShaderSource });
+    this.graphShaderModule = createValidatedShaderModule(this.device, { code: this.graphMaterial.inlineShaderSource, label: "OpaquePass.graph" });
 
     const profile = this.graphProfile;
     const uniformSize = profile
@@ -653,7 +654,7 @@ export class OpaquePass extends RenderPass {
     if (this.pbrPipeline || !this.mesh) return;
 
     if (!this.pbrShaderModule) {
-      this.pbrShaderModule = this.device.createShaderModule({ code: PBR_GBUFFER_SHADER });
+      this.pbrShaderModule = createValidatedShaderModule(this.device, { code: PBR_GBUFFER_SHADER, label: "OpaquePass.pbrGBuffer" });
     }
 
     this.pbrCameraBuffer = createUniformBuffer(this.device, 128);
@@ -756,8 +757,9 @@ export class OpaquePass extends RenderPass {
     if (!this.mesh) return;
 
     if (!this.shaderModule) {
-      this.shaderModule = this.device.createShaderModule({
+      this.shaderModule = createValidatedShaderModule(this.device, {
         code: this.mode === "gbuffer" ? GBUFFER_SHADER : SIMPLE_SHADER,
+        label: "OpaquePass.gbuffer",
       });
     }
 

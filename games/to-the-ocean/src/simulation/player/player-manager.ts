@@ -2,25 +2,23 @@
 // Player Manager — health, movement, swimming, oxygen tanks, death/respawn
 // ============================================================================
 
-import { shoreDamping, shoreDisplacement, waterCutout } from "@downdraft/library-water";
+import { InputBufferReader, KEY, PLR_FLAG } from "@downdraft/core";
+import { shoreDamping, shoreDisplacement, WATER_GRID_SAB as WATER_GRID, WaterBufferWriter, waterCutout } from "@downdraft/library-water";
 import {
-  HOTBAR_SLOTS, HOTBAR_TOOLS,
-  PLAYER_DIVE_FORCE,
-  PLAYER_FLOAT_FORCE,
-  PLAYER_GRAVITY, PLAYER_JUMP_FORCE,
-  PLAYER_MAX_HEALTH,
-  PLAYER_RUN_SPEED,
-  PLAYER_SWIM_SPEED,
-  PLAYER_SWIM_VERTICAL_MAX,
-  PLAYER_WALK_SPEED,
-  PLAYER_WATER_DRAG,
-  PLAYER_WATER_SINK_RATE,
+    HOTBAR_SLOTS, HOTBAR_TOOLS,
+    PLAYER_DIVE_FORCE,
+    PLAYER_FLOAT_FORCE,
+    PLAYER_GRAVITY, PLAYER_JUMP_FORCE,
+    PLAYER_MAX_HEALTH,
+    PLAYER_RUN_SPEED,
+    PLAYER_SWIM_SPEED,
+    PLAYER_SWIM_VERTICAL_MAX,
+    PLAYER_WALK_SPEED,
+    PLAYER_WATER_DRAG,
+    PLAYER_WATER_SINK_RATE,
 } from "../../shared/constants";
-import { InputBufferReader, KEY } from "@downdraft/core";
 import { collectShoreSources, type ShoreSource } from "../../shared/shore-damping";
-import { PLR_FLAG } from "@downdraft/core";
 import { CameraMode } from "../../shared/types";
-import { WATER_GRID_SAB as WATER_GRID, WaterBufferWriter } from "@downdraft/library-water";
 import { PlayerMoveRequest } from "../physics/rapier-physics-system";
 import { SimEntity, SimPlayer } from "../simulation";
 
@@ -31,6 +29,7 @@ export class PlayerManager {
   private prevVPressed = new Map<number, boolean>();
   private prevNumberKeys = new Map<number, boolean[]>();
   private prevF5Pressed = new Map<number, boolean>();
+  private prevF1Pressed = new Map<number, boolean>();
   private waterWriter: WaterBufferWriter;
   private isDev: boolean;
   private shoreSources: ShoreSource[] = [];
@@ -50,6 +49,7 @@ export class PlayerManager {
     this.prevVPressed.clear();
     this.prevNumberKeys.clear();
     this.prevF5Pressed.clear();
+    this.prevF1Pressed.clear();
   }
 
   // Phase 1: Compute desired movement (runs BEFORE Rapier physics).
@@ -84,18 +84,7 @@ export class PlayerManager {
       // Skip if climbing — BoatSystem controls position during climb animation
       if (p.flags & PLR_FLAG.CLIMBING) continue;
 
-      // F5 toggles vclip (dev only, edge-triggered)
-      if (this.isDev) {
-        const f5Pressed = input.isKeyDown(i, KEY.F5);
-        const f5WasPressed = this.prevF5Pressed.get(i) ?? false;
-        if (f5Pressed && !f5WasPressed) {
-          p.flags ^= PLR_FLAG.NOCLIP;
-          if (p.flags & PLR_FLAG.NOCLIP) {
-            p.velocity.x = 0; p.velocity.y = 0; p.velocity.z = 0;
-          }
-        }
-        this.prevF5Pressed.set(i, f5Pressed);
-      }
+      // F5 handling moved below (after V key handler)
 
       const isNoclip = (p.flags & PLR_FLAG.NOCLIP) !== 0;
 
@@ -131,6 +120,39 @@ export class PlayerManager {
         }
       }
       this.prevVPressed.set(i, vPressed);
+
+      // F1 toggles FreeCam mode (edge-triggered)
+      const f1Pressed = input.isKeyDown(i, KEY.F1);
+      const f1WasPressed = this.prevF1Pressed.get(i) ?? false;
+      if (f1Pressed && !f1WasPressed) {
+        if (p.cameraMode === CameraMode.FreeCam) {
+          p.cameraMode = CameraMode.FirstPerson;
+        } else {
+          p.cameraMode = CameraMode.FreeCam;
+        }
+      }
+      this.prevF1Pressed.set(i, f1Pressed);
+
+      // F5 toggles ThirdPerson mode (edge-triggered)
+      const f5Pressed = input.isKeyDown(i, KEY.F5);
+      const f5WasPressed = this.prevF5Pressed.get(i) ?? false;
+      if (f5Pressed && !f5WasPressed) {
+        if (this.isDev) {
+          // In dev mode, F5 toggles noclip
+          p.flags ^= PLR_FLAG.NOCLIP;
+          if (p.flags & PLR_FLAG.NOCLIP) {
+            p.velocity.x = 0; p.velocity.y = 0; p.velocity.z = 0;
+          }
+        } else {
+          // In non-dev mode, F5 toggles ThirdPerson
+          if (p.cameraMode === CameraMode.ThirdPerson) {
+            p.cameraMode = CameraMode.FirstPerson;
+          } else {
+            p.cameraMode = CameraMode.ThirdPerson;
+          }
+        }
+      }
+      this.prevF5Pressed.set(i, f5Pressed);
 
       // Number keys 1-0 select hotbar slot (edge-triggered)
       const numberKeys = [KEY.ONE, KEY.TWO, KEY.THREE, KEY.FOUR, KEY.FIVE, KEY.SIX, KEY.SEVEN, KEY.EIGHT, KEY.NINE, KEY.ZERO];

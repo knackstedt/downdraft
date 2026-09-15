@@ -14,7 +14,8 @@
 // This replaces the old depth-based ambient darkening hack in sand-render.wgsl.
 // ============================================================================
 
-import LIGHT_WGSL from "../shaders/light-accum.wgsl?raw";
+import { createValidatedShaderModule } from "@downdraft/core";
+import LIGHT_WGSL from "../shaders/light-accum.wgsl?raw" with { type: "text" };
 import {
     EXPLOSION_LIGHT_COLOR,
     EXPLOSION_LIGHT_INTENSITY,
@@ -114,7 +115,7 @@ export class LightAccumPass {
       ],
     });
 
-    const shader = this.device.createShaderModule({ code: LIGHT_WGSL });
+    const shader = createValidatedShaderModule(this.device, { code: LIGHT_WGSL, label: "LightAccumPass" });
 
     // Ambient fill pipeline (fullscreen quad, no blending — fills the base)
     this.ambientPipeline = this.device.createRenderPipeline({

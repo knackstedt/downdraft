@@ -1,13 +1,15 @@
-import type { GraphRenderContext } from "..";
+import { createValidatedShaderModule } from "../render/shader-validator";
 import { StructView, wgsl } from "@downdraft/shader-graph";
+import type { GraphRenderContext } from "../index";
 import type { UIDrawable } from "./element";
 import { buildGlyphAtlasData, getAtlasDimensions, getGlyphUV } from "./glyph-atlas";
 import { TextAtlasCache } from "./text-cache";
 
-import IMAGE_SHADER from "./shaders/image.wgsl?raw";
-import LINE_SHADER from "./shaders/line.wgsl?raw";
-import QUAD_SHADER from "./shaders/quad.wgsl?raw";
-import TEXT_SHADER from "./shaders/text.wgsl?raw";
+import CANVAS_TEXT_SHADER from "./shaders/canvas-text.wgsl?raw" with { type: "text" };
+import IMAGE_SHADER from "./shaders/image.wgsl?raw" with { type: "text" };
+import LINE_SHADER from "./shaders/line.wgsl?raw" with { type: "text" };
+import QUAD_SHADER from "./shaders/quad.wgsl?raw" with { type: "text" };
+import TEXT_SHADER from "./shaders/text.wgsl?raw" with { type: "text" };
 
 // --- Typed uniform struct (validate against quad/text/image/line .wgsl) ---
 export const ScreenUniformsStruct = wgsl.struct("ScreenUniforms", {
@@ -47,8 +49,10 @@ export class UIRenderer {
   private glyphSampler: GPUSampler | null = null;
 
   private imagePipeline: GPURenderPipeline | null = null;
+  private canvasTextPipeline: GPURenderPipeline | null = null;
   private imageVertexBuffer: GPUBuffer | null = null;
   private imageShaderModule: GPUShaderModule | null = null;
+  private canvasTextShaderModule: GPUShaderModule | null = null;
   private imageSampler: GPUSampler | null = null;
 
   private linePipeline: GPURenderPipeline | null = null;
@@ -75,10 +79,11 @@ export class UIRenderer {
     this._screenBuf = new Float32Array(ScreenUniformsStruct.floatCount);
     this._screenView = ScreenUniformsStruct.view(this._screenBuf);
 
-    this.quadShaderModule = device.createShaderModule({ code: QUAD_SHADER });
-    this.textShaderModule = device.createShaderModule({ code: TEXT_SHADER });
-    this.imageShaderModule = device.createShaderModule({ code: IMAGE_SHADER });
-    this.lineShaderModule = device.createShaderModule({ code: LINE_SHADER });
+    this.quadShaderModule = createValidatedShaderModule(device, { code: QUAD_SHADER, label: "ImUI.quad" });
+    this.textShaderModule = createValidatedShaderModule(device, { code: TEXT_SHADER, label: "ImUI.text" });
+    this.imageShaderModule = createValidatedShaderModule(device, { code: IMAGE_SHADER, label: "ImUI.image" });
+    this.canvasTextShaderModule = createValidatedShaderModule(device, { code: CANVAS_TEXT_SHADER, label: "ImUI.canvasText" });
+    this.lineShaderModule = createValidatedShaderModule(device, { code: LINE_SHADER, label: "ImUI.line" });
     this.textCache = new TextAtlasCache(device);
 
     this.quadVertexBuffer = device.createBuffer({
@@ -214,6 +219,38 @@ export class UIRenderer {
       primitive: { topology: "triangle-list" },
     });
 
+    // Premultiplied-alpha pipeline for canvas text (FreeType / SDL2_ttf).
+    // Glyph atlas stores (cov, cov, cov, cov) — premultiplied coverage.
+    // Premultiplied-over blend: src*1 + dst*(1-srcA). Linear interpolation
+    // of premultiplied values stays on the neutral grey diagonal — no
+    // fringing. The image.wgsl shader (sampled * color) is already correct
+    // for premultiplied source since color is (r,g,b,a) with a=1 for text.
+    const premulBlend: GPUBlendState = {
+      color: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
+      alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
+    };
+    this.canvasTextPipeline = device.createRenderPipeline({
+      layout: "auto",
+      vertex: {
+        module: this.canvasTextShaderModule,
+        entryPoint: "vs_main",
+        buffers: [{
+          arrayStride: IMAGE_VERTEX_STRIDE,
+          attributes: [
+            { shaderLocation: 0, offset: 0, format: "float32x2" },
+            { shaderLocation: 1, offset: 8, format: "float32x2" },
+            { shaderLocation: 2, offset: 16, format: "float32x4" },
+          ],
+        }],
+      },
+      fragment: {
+        module: this.canvasTextShaderModule,
+        entryPoint: "fs_main",
+        targets: [{ format: this.surfaceFormat, blend: premulBlend }],
+      },
+      primitive: { topology: "triangle-list" },
+    });
+
     this.linePipeline = device.createRenderPipeline({
       layout: "auto",
       vertex: {
@@ -268,9 +305,19 @@ export class UIRenderer {
       if (d.kind === "rect") {
         this.buildQuadVertices(d, quadVerts);
       } else if (d.kind === "text" && d.text) {
+        // Try canvas-rendered text first (supports custom fonts/sizes).
+        // Fall back to built-in glyph atlas if canvas text is unavailable
+        // (e.g. native runtime without a real Canvas2D implementation).
+        // Track total vertex count (not entry count) because all text
+        // shares the same atlas texture view, so canvasTextEntries.length
+        // only increases for the first text drawable.
+        const beforeVerts = canvasTextEntries.reduce((s, e) => s + e.verts.length, 0);
         if (d.fontFamily && this.textCache) {
           this.buildCanvasTextVertices(d, canvasTextEntries);
-        } else {
+        }
+        const afterVerts = canvasTextEntries.reduce((s, e) => s + e.verts.length, 0);
+        if (afterVerts === beforeVerts) {
+          // Canvas text produced nothing — use glyph atlas
           this.buildTextVertices(d, textVerts);
         }
       } else if (d.kind === "image" && d.textureView) {
@@ -329,19 +376,19 @@ export class UIRenderer {
     }
 
     for (const entry of canvasTextEntries) {
-      if (entry.verts.length === 0 || !this.imagePipeline) continue;
+      if (entry.verts.length === 0 || !this.canvasTextPipeline) continue;
       const count = Math.min(entry.verts.length / 8, MAX_IMAGE_VERTICES);
       const data = new Float32Array(entry.verts.slice(0, count * 8));
       this.device.queue.writeBuffer(this.imageVertexBuffer!, 0, data as unknown as BufferSource);
       const bindGroup = this.device.createBindGroup({
-        layout: this.imagePipeline.getBindGroupLayout(0),
+        layout: this.canvasTextPipeline.getBindGroupLayout(0),
         entries: [
           { binding: 0, resource: { buffer: this.screenBuffer! } },
           { binding: 1, resource: entry.textureView },
           { binding: 2, resource: this.textCache!.getSampler() },
         ],
       });
-      tracked.setPipeline(this.imagePipeline);
+      tracked.setPipeline(this.canvasTextPipeline);
       tracked.setBindGroup(0, bindGroup);
       tracked.setVertexBuffer(0, this.imageVertexBuffer!);
       tracked.draw(count);
@@ -477,8 +524,16 @@ export class UIRenderer {
       }
       const [u0, v0, u1, v1] = entry.uv;
       const [r, g, b, a] = d.textColor;
-      const x = d.x;
-      const y = d.y + yOffset;
+      // Handle horizontal alignment — the FreeType renderer always
+      // produces left-aligned text, so we offset the quad position.
+      // Round to integer pixels to avoid linear-filter blurriness.
+      let x = d.x;
+      if (d.textAlign === "center" && d.width > 0) {
+        x = d.x + Math.round((d.width - entry.width) / 2);
+      } else if (d.textAlign === "right" && d.width > 0) {
+        x = d.x + d.width - entry.width;
+      }
+      const y = Math.round(d.y + yOffset);
       const w = entry.width;
       const h = entry.height;
       const corners = [
@@ -494,7 +549,10 @@ export class UIRenderer {
         entryObj.verts.push(uvs[i][0], uvs[i][1]);
         entryObj.verts.push(r, g, b, a);
       }
-      yOffset += d.fontSize * 1.3;
+      // Advance by the actual rendered height plus a small gap,
+      // not the estimated fontSize * 1.3 — this keeps line spacing
+      // consistent with the real glyph metrics.
+      yOffset += entry.height + 2;
     }
   }
 
@@ -535,6 +593,7 @@ export class UIRenderer {
     this.quadPipeline = null;
     this.textPipeline = null;
     this.imagePipeline = null;
+    this.canvasTextPipeline = null;
     this.linePipeline = null;
     this.prepared = false;
   }

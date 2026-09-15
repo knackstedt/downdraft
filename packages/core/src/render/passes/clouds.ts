@@ -3,6 +3,7 @@ import { f32, mat4x4f, u32, vec3f, wgsl } from "@downdraft/shader-graph";
 import { type Mat4 } from "wgpu-matrix";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
 import { RenderPass } from "../render-pass";
+import { createValidatedShaderModule } from "../shader-validator";
 
 // ─── Uniform structs (single source of truth for layout) ───────────────────
 const CloudUniformsStruct: WgslStruct = wgsl.struct("CloudUniforms", {
@@ -167,7 +168,7 @@ export class CloudPass extends RenderPass {
   prepare(_device: GPUDevice): void {
     if (this.pipeline) return;
 
-    this.shaderModule = this.device.createShaderModule({ code: CLOUD_SHADER });
+    this.shaderModule = createValidatedShaderModule(this.device, { code: CLOUD_SHADER, label: "CloudPass" });
 
     this.uniformBuffer = this.device.createBuffer({
       size: 256,

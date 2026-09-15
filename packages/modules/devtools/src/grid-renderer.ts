@@ -1,4 +1,4 @@
-import { calculateViewProj, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, type CameraState } from "@downdraft/core";
+import { calculateViewProj, createValidatedShaderModule, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, type CameraState } from "@downdraft/core";
 
 const GRID_WGSL = /* wgsl */ `
 struct Uniforms {
@@ -87,7 +87,7 @@ export class GridRenderer {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
-    const shaderModule = this.device.createShaderModule({ code: GRID_WGSL });
+    const shaderModule = createValidatedShaderModule(this.device, { code: GRID_WGSL, label: "GridRenderer" });
     const bindGroupLayout = this.device.createBindGroupLayout({
       entries: [{
         binding: 0,

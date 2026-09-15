@@ -35,6 +35,12 @@
       "@downdraft/core": [
         "./packages/core/src/index.ts"
       ],
+      "@downdraft/platform-native": [
+        "./packages/platform-native/src/index.ts"
+      ],
+      "@downdraft/platform-native/*": [
+        "./packages/platform-native/src/*"
+      ],
       "@downdraft/mcp/*": [
         "./packages/mcp/src/*"
       ],
@@ -79,6 +85,18 @@
       ],
       "@downdraft/library-pixi-ui/*": [
         "./packages/libraries/pixi-ui/src/*"
+      ],
+      "@downdraft/library-pixi-ui-native": [
+        "./packages/libraries/pixi-ui-native/src/index.ts"
+      ],
+      "@downdraft/library-pixi-ui-native/*": [
+        "./packages/libraries/pixi-ui-native/src/*"
+      ],
+      "@downdraft/library-devtools": [
+        "./packages/libraries/devtools/src/index.ts"
+      ],
+      "@downdraft/library-devtools/*": [
+        "./packages/libraries/devtools/src/*"
       ],
       "@downdraft/library-physics-rapier": [
         "./packages/libraries/physics-rapier/src/index.ts"
@@ -395,6 +413,7 @@
     "packages/shader-graph/src/**/*.ts",
     "packages/modules/*/src/**/*.ts",
     "packages/libraries/*/src/**/*.ts",
+    "packages/platform-native/src/**/*.ts",
     "games/*/plugins/*/src/**/*.ts",
     "games/*/libraries/*/src/**/*.ts",
     "games/*/modules/*/src/**/*.ts",
@@ -411,6 +430,7 @@
   ],
   "exclude": [
     "dist",
-    "**/*.spec.ts"
+    "**/*.spec.ts",
+    "packages/libraries/pixi-ui-native/src/**/*"
   ]
 }

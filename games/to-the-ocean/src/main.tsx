@@ -20,7 +20,7 @@ import "@fontsource/urbanist/700.css";
 import "@fontsource/wavefont/400.css";
 
 import { downdraft, startGame, type SimWorkerSeed } from "@downdraft/app/renderer";
-import { ENGINE_VERSION, ENT, PLR, PLR_FLAG, SimBufferReader, startGCProfiler, useHotReloadStore, type GCProfilerHandle, type GCStats } from "@downdraft/core";
+import { ENGINE_VERSION, ENT, PLR, PLR_FLAG, SimBufferReader, isDevMode, startGCProfiler, useHotReloadStore, type GCProfilerHandle, type GCStats } from "@downdraft/core";
 import { PixiUiHost, getEffectiveFontScale, loadUserFontScale, saveUserFontScale } from "@downdraft/library-pixi-ui";
 import { WaterLib } from "@downdraft/library-water";
 import { initDevTools, useDebugStore } from "@downdraft/module-devtools";
@@ -48,7 +48,7 @@ startGame({
   // ── Renderer + Sim ──
   renderer: (canvas) => new WebGPURenderer(canvas),
   sim: (seed?: SimWorkerSeed) => new SimWebWorker(seed?.libraryBuffers),
-  simConfig: { seed: 12345, gamemode: 0, rules: {}, isDev: !!(downdraft?.isDev) || import.meta.env.DEV },
+  simConfig: { seed: 12345, gamemode: 0, rules: {}, isDev: !!(downdraft?.isDev) || isDevMode },
 
   // ── UI (pixi-ui handles UI in a worker; DOM overlay is a no-op) ──
   mountUI: () => { /* pixi-ui handles UI */ },
@@ -681,7 +681,7 @@ startGame({
     useDebugStore.subscribe((s) => s.hitboxLineWidth, (width) => renderer.setHitboxLineWidth(width));
 
     // --- Hot-Reload event handlers (dev only) ---
-    if (import.meta.env.DEV && import.meta.hot) {
+    if (isDevMode && import.meta.hot) {
       const simConfig: SimWebWorkerConfig = { seed: 12345, gamemode: 0, rules: {}, isDev: ctx.isDev };
 
       import.meta.hot.on("sim:hot-reload", async (data: { file: string; timestamp: number }) => {

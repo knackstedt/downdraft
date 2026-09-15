@@ -1,6 +1,6 @@
-import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "@downdraft/core";
-import type { BoatBufferReader } from "@to-the-ocean/library-boats/boat-sab";
+import { createValidatedShaderModule, DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "@downdraft/core";
 import { BOAT_CELL_WORLD_SIZE, BOAT_LAYER_HEIGHT, BoatCellType } from "@shared/constants";
+import type { BoatBufferReader } from "@to-the-ocean/library-boats/boat-sab";
 import { HOLO_WGSL } from "../shaders/entity-shaders";
 import type { EntityRenderContext } from "./render-context";
 
@@ -57,7 +57,7 @@ export class HoloPreviewRenderer {
     const format = this.ctx.format;
 
     const dev = device;
-    const holoShaderModule = dev.createShaderModule({ code: HOLO_WGSL });
+    const holoShaderModule = createValidatedShaderModule(dev, { code: HOLO_WGSL, label: "HoloPreviewRenderer" });
     this.holoPipeline = dev.createRenderPipeline({
       layout: litPipelineLayout,
       vertex: {
@@ -226,7 +226,9 @@ export class HoloPreviewRenderer {
     queue.writeBuffer(ctx.uniformBuffer!, offset, uniforms as any);
 
     passEncoder.setPipeline(this.holoPipeline);
-    passEncoder.setBindGroup(0, ctx.bindGroup!, [holoIdx * 256]);
+    const hBg = ctx.bindGroups?.[holoIdx] ?? ctx.bindGroup;
+    if (ctx.bindGroups) passEncoder.setBindGroup(0, hBg, [0]);
+    else passEncoder.setBindGroup(0, hBg!, [holoIdx * 256]);
     passEncoder.setVertexBuffer(0, this.holoVertices!);
     passEncoder.setIndexBuffer(this.holoIndices!, "uint16");
     passEncoder.drawIndexed(indexCount);

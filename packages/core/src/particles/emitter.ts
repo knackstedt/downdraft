@@ -1,4 +1,4 @@
-import { Component } from "..";
+import { Component } from "../index";
 
 export type EmitterShape = "point" | "sphere" | "box" | "cone" | "disc";
 

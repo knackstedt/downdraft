@@ -13,6 +13,7 @@
 // with the engine's buffer management patterns.
 // ============================================================================
 
+import { createValidatedShaderModule } from "@downdraft/core";
 import type { GaussianSplatData } from "./parser";
 import { sortSplats } from "./sorter";
 
@@ -274,11 +275,11 @@ export class GpuSplatSorter {
 
     // ── Shader modules ──
 
-    const distancesModule = device.createShaderModule({ code: DISTANCES_WGSL });
-    const histogramModule = device.createShaderModule({ code: HISTOGRAM_WGSL });
-    const prefixSumModule = device.createShaderModule({ code: PREFIX_SUM_WGSL });
-    const scatterModule = device.createShaderModule({ code: SCATTER_WGSL });
-    const compactModule = device.createShaderModule({ code: COMPACT_WGSL });
+    const distancesModule = createValidatedShaderModule(device, { code: DISTANCES_WGSL, label: "GpuSort.distances" });
+    const histogramModule = createValidatedShaderModule(device, { code: HISTOGRAM_WGSL, label: "GpuSort.histogram" });
+    const prefixSumModule = createValidatedShaderModule(device, { code: PREFIX_SUM_WGSL, label: "GpuSort.prefixSum" });
+    const scatterModule = createValidatedShaderModule(device, { code: SCATTER_WGSL, label: "GpuSort.scatter" });
+    const compactModule = createValidatedShaderModule(device, { code: COMPACT_WGSL, label: "GpuSort.compact" });
 
     // ── Pipelines ──
 

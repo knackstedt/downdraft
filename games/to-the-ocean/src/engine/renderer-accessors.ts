@@ -158,6 +158,7 @@ export class RendererAccessors {
   }
 
   // --- Post-processing ---
+  getPostProcessStack(): PostProcessStack | null { return this.postProcessStack; }
   getPostProcessInfo(): { pixelationEnabled: boolean; pixelSize: number; postProcessEffects: string[] } {
     return {
       pixelationEnabled: this.postProcessStack?.isEnabled("pixelation") ?? false,
@@ -230,6 +231,7 @@ export class RendererAccessors {
   /** Set the core MaterialLibrary that bridged MaterialData is registered into. */
   setMaterialLibrary(library: MaterialLibrary): void { this.materialLibrary = library; }
   getMaterialLibrary(): MaterialLibrary | null { return this.materialLibrary; }
+  getModelRenderer(): ModelRenderer | null { return this.modelRenderer; }
 
   // --- Gizmo ---
   setGizmoMode(mode: GizmoMode): void { this.gizmoMode = mode; this.transformGizmo?.setMode(mode); }
