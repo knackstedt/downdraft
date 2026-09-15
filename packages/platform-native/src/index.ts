@@ -15,13 +15,13 @@
 // ============================================================================
 
 export { installAssetGlob, nativeGlob } from "./assets/native-assets";
-export { dlopen, ptr, readMappedRange, type CFunction, type ptr } from "./ffi/ffi-adapter";
-export { installGPU } from "./gpu/install";
+export { dlopen, ptr, readMappedRange, type CFunction } from "./ffi/ffi-adapter";
+export { installGPU, resetGPU } from "./gpu/install";
 export { VirtualCanvas, VirtualCanvasContext } from "./gpu/virtual-canvas-context";
 export { WgpuAdapter, WgpuBindGroup, WgpuBindGroupLayout, WgpuBuffer, WgpuCommandBuffer, WgpuCommandEncoder, WgpuComputePassEncoder, WgpuComputePipeline, WgpuDevice, WgpuGPU, WgpuPipelineLayout, WgpuQueue, WgpuRenderPassEncoder, WgpuRenderPipeline, WgpuSampler, WgpuShaderModule, WgpuTexture, WgpuTextureView } from "./gpu/wgpu-wrapper";
 export { createImageBitmapNative, getFreeTypeTextRenderer, installImagePolyfills, NativeCanvas2D, NativeImageBitmap } from "./image/native-image";
 export { createNativeHost, type NativeHostConfig, type NativeHostContext } from "./native-host";
-export { captureScreenshot } from "./screenshot/screenshot";
+export { captureScreenshot, encodePNG, paddedReadbackToRGBA } from "./screenshot/screenshot";
 export { NativeCanvasContext, NativeSurface } from "./window/native-surface";
 export { NativeWindow } from "./window/native-window";
 

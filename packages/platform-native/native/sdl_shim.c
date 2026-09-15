@@ -13,7 +13,6 @@
 #include <string.h>
 
 static SDL_Window* g_window = NULL;
-static SDL_Renderer* g_renderer = NULL;
 static int g_initialized = 0;
 
 // ── Window creation ──
@@ -49,91 +48,6 @@ int sdl_shim_create_window(const char* title, int width, int height) {
     return 0;
 }
 
-// Get the native window handle for wgpu surface creation.
-// On Linux X11: returns the Window (XID) cast to void*.
-// On Linux Wayland: returns the wl_surface*.
-// On Windows: returns the HWND.
-// On macOS: returns the NSWindow*.
-// The actual surface creation is handled by wgpu-native's
-// wgpuInstanceCreateSurface with the appropriate platform extension.
-void* sdl_shim_get_window_handle(void) {
-    if (!g_window) return NULL;
-
-    SDL_SysWMinfo wmInfo;
-    SDL_VERSION(&wmInfo.version);
-    if (!SDL_GetWindowWMInfo(g_window, &wmInfo)) {
-        fprintf(stderr, "[sdl_shim] SDL_GetWindowWMInfo failed: %s\n", SDL_GetError());
-        return NULL;
-    }
-
-#if defined(SDL_VIDEO_DRIVER_X11)
-    if (wmInfo.subsystem == SDL_SYSWM_X11) {
-        return (void*)wmInfo.info.x11.window;
-    }
-#endif
-#if defined(SDL_VIDEO_DRIVER_WAYLAND)
-    if (wmInfo.subsystem == SDL_SYSWM_WAYLAND) {
-        return (void*)wmInfo.info.wl.surface;
-    }
-#endif
-#if defined(SDL_VIDEO_DRIVER_WINDOWS)
-    if (wmInfo.subsystem == SDL_SYSWM_WINDOWS) {
-        return (void*)wmInfo.info.win.window;
-    }
-#endif
-#if defined(SDL_VIDEO_DRIVER_COCOA)
-    if (wmInfo.subsystem == SDL_SYSWM_COCOA) {
-        return (void*)wmInfo.info.cocoa.window;
-    }
-#endif
-
-    fprintf(stderr, "[sdl_shim] Unsupported window subsystem: %d\n", wmInfo.subsystem);
-    return NULL;
-}
-
-// Get the display handle (needed for some surface creation APIs).
-void* sdl_shim_get_display_handle(void) {
-    if (!g_window) return NULL;
-
-    SDL_SysWMinfo wmInfo;
-    SDL_VERSION(&wmInfo.version);
-    if (!SDL_GetWindowWMInfo(g_window, &wmInfo)) return NULL;
-
-#if defined(SDL_VIDEO_DRIVER_X11)
-    if (wmInfo.subsystem == SDL_SYSWM_X11) {
-        return (void*)wmInfo.info.x11.display;
-    }
-#endif
-    return NULL;
-}
-
-// Get the window subsystem type.
-// Returns: 0=unknown, 1=X11, 2=Wayland, 3=Windows, 4=Cocoa, 5=Android
-int sdl_shim_get_window_subsystem(void) {
-    if (!g_window) return 0;
-
-    SDL_SysWMinfo wmInfo;
-    SDL_VERSION(&wmInfo.version);
-    if (!SDL_GetWindowWMInfo(g_window, &wmInfo)) return 0;
-
-    return (int)wmInfo.subsystem;
-}
-
-// Get window dimensions.
-void sdl_shim_get_window_size(int* width, int* height) {
-    if (g_window) {
-        SDL_GetWindowSize(g_window, width, height);
-    } else {
-        *width = 0;
-        *height = 0;
-    }
-}
-
-// Set window title.
-void sdl_shim_set_window_title(const char* title) {
-    if (g_window) SDL_SetWindowTitle(g_window, title);
-}
-
 // ── Event polling ──
 
 // Event types returned by sdl_shim_poll_event
@@ -147,15 +61,16 @@ void sdl_shim_set_window_title(const char* title) {
 #define SDL_SHIM_EVENT_WHEEL      7
 #define SDL_SHIM_EVENT_RESIZE     8
 #define SDL_SHIM_EVENT_TEXT_INPUT 9
+#define SDL_SHIM_EVENT_FOCUS_LOST 10
 
 // Poll one event. Returns the event type (0 = no event).
-// out_data: pointer to a buffer for event data:
-//   For key events: out_data[0] = keycode (int32)
-//   For mouse events: out_data[0] = x, out_data[1] = y (int32 each)
-//   For mouse button: out_data[0] = button (1=left, 2=middle, 3=right)
-//   For wheel: out_data[0] = delta_x (float as int32 bits), out_data[1] = delta_y
-//   For resize: out_data[0] = width, out_data[1] = height
-//   For text input: out_data is a char buffer (32 bytes)
+// out_data: pointer to a buffer for event data (int32 slots):
+//   Key:        [0]=keycode, [1]=SDL_Keymod bitmask, [2]=repeat flag
+//   Mouse move: [0]=x, [1]=y, [2]=xrel, [3]=yrel, [4]=button state, [5]=mod
+//   Mouse btn:  [0]=x, [1]=y, [2]=button (1=l,2=m,3=r), [3]=button state, [4]=mod
+//   Wheel:      [0]=delta_x (f32 bits), [1]=delta_y (f32 bits), [2]=mod
+//   Resize:     [0]=width, [1]=height
+//   Text input: out_data is a char buffer (32 bytes)
 // ── Input grab ──
 // SDL_SetRelativeMouseMode: hides cursor, captures mouse to the window,
 // and delivers relative motion via event.motion.xrel/yrel.
@@ -196,64 +111,97 @@ void sdl_shim_set_text_input_rect(int x, int y, int w, int h) {
     }
 }
 
-int sdl_shim_poll_event(void* out_data) {
-    if (!g_window) return SDL_SHIM_EVENT_NONE;
+// ── Window queries ──
 
-    SDL_Event event;
-    if (!SDL_PollEvent(&event)) return SDL_SHIM_EVENT_NONE;
+// Returns the SDL_SysWMinfo subsystem tag (SDL_SYSWM_X11, _WAYLAND, _WINDOWS,
+// _COCOA, ...) or -1 on failure. Useful for diagnostics/logging.
+int sdl_shim_get_window_subsystem(void) {
+    if (!g_window) return -1;
+    SDL_SysWMinfo wmInfo;
+    SDL_VERSION(&wmInfo.version);
+    if (!SDL_GetWindowWMInfo(g_window, &wmInfo)) return -1;
+    return (int)wmInfo.subsystem;
+}
 
+// Current window size in pixels (reflects live resizes — the value SDL
+// reports may differ from what the swapchain was last configured with).
+void sdl_shim_get_window_size(int* width_out, int* height_out) {
+    int w = 0, h = 0;
+    if (g_window) SDL_GetWindowSize(g_window, &w, &h);
+    if (width_out) *width_out = w;
+    if (height_out) *height_out = h;
+}
+
+// Update the window title (e.g. to show FPS in the title bar).
+void sdl_shim_set_window_title(const char* title) {
+    if (g_window && title) SDL_SetWindowTitle(g_window, title);
+}
+
+// Translate an SDL_Event into the flat out_data layout. Returns the shim
+// event type (SDL_SHIM_EVENT_NONE for events we don't surface).
+static int translate_event(const SDL_Event* event, void* out_data) {
     int* iout = (int*)out_data;
     float* fout = (float*)out_data;
 
-    switch (event.type) {
+    switch (event->type) {
         case SDL_QUIT:
             return SDL_SHIM_EVENT_QUIT;
 
         case SDL_KEYDOWN:
-            iout[0] = (int)event.key.keysym.sym;
+            iout[0] = (int)event->key.keysym.sym;
+            iout[1] = (int)event->key.keysym.mod;
+            iout[2] = (int)event->key.repeat;
             return SDL_SHIM_EVENT_KEY_DOWN;
 
         case SDL_KEYUP:
-            iout[0] = (int)event.key.keysym.sym;
+            iout[0] = (int)event->key.keysym.sym;
+            iout[1] = (int)event->key.keysym.mod;
+            iout[2] = 0;
             return SDL_SHIM_EVENT_KEY_UP;
 
         case SDL_MOUSEMOTION:
-            iout[0] = event.motion.x;
-            iout[1] = event.motion.y;
-            iout[2] = event.motion.xrel;
-            iout[3] = event.motion.yrel;
+            iout[0] = event->motion.x;
+            iout[1] = event->motion.y;
+            iout[2] = event->motion.xrel;
+            iout[3] = event->motion.yrel;
+            iout[4] = (int)event->motion.state; // SDL_BUTTON bitmask
+            iout[5] = (int)SDL_GetModState();
             return SDL_SHIM_EVENT_MOUSE_MOVE;
 
         case SDL_MOUSEBUTTONDOWN:
-            iout[0] = event.button.x;
-            iout[1] = event.button.y;
-            iout[2] = event.button.button; // 1=left, 2=middle, 3=right
-            return SDL_SHIM_EVENT_MOUSE_DOWN;
-
         case SDL_MOUSEBUTTONUP:
-            iout[0] = event.button.x;
-            iout[1] = event.button.y;
-            iout[2] = event.button.button;
-            return SDL_SHIM_EVENT_MOUSE_UP;
+            iout[0] = event->button.x;
+            iout[1] = event->button.y;
+            iout[2] = event->button.button; // 1=left, 2=middle, 3=right
+            iout[3] = (int)SDL_GetMouseState(NULL, NULL); // post-event state
+            iout[4] = (int)SDL_GetModState();
+            return event->type == SDL_MOUSEBUTTONDOWN
+                ? SDL_SHIM_EVENT_MOUSE_DOWN : SDL_SHIM_EVENT_MOUSE_UP;
 
         case SDL_MOUSEWHEEL:
-            fout[0] = event.wheel.x;
-            fout[1] = event.wheel.y;
+            fout[0] = event->wheel.x;
+            fout[1] = event->wheel.y;
+            iout[2] = (int)SDL_GetModState();
             return SDL_SHIM_EVENT_WHEEL;
 
         case SDL_WINDOWEVENT:
-            if (event.window.event == SDL_WINDOWEVENT_RESIZED ||
-                event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
-                iout[0] = event.window.data1; // width
-                iout[1] = event.window.data2; // height
+            if (event->window.event == SDL_WINDOWEVENT_RESIZED ||
+                event->window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
+                iout[0] = event->window.data1; // width
+                iout[1] = event->window.data2; // height
                 return SDL_SHIM_EVENT_RESIZE;
+            }
+            if (event->window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
+                // Lets JS clear its pressed-keys tracking so keys don't get
+                // "stuck" when focus is lost mid-press.
+                return SDL_SHIM_EVENT_FOCUS_LOST;
             }
             // Do NOT re-grab on focus-gained — let the user explicitly
             // click the window to engage pointer lock.
             return SDL_SHIM_EVENT_NONE;
 
         case SDL_TEXTINPUT:
-            strncpy((char*)out_data, event.text.text, 31);
+            strncpy((char*)out_data, event->text.text, 31);
             ((char*)out_data)[31] = '\0';
             return SDL_SHIM_EVENT_TEXT_INPUT;
 
@@ -262,12 +210,31 @@ int sdl_shim_poll_event(void* out_data) {
     }
 }
 
+int sdl_shim_poll_event(void* out_data) {
+    if (!g_window) return SDL_SHIM_EVENT_NONE;
+
+    SDL_Event event;
+    if (!SDL_PollEvent(&event)) return SDL_SHIM_EVENT_NONE;
+
+    return translate_event(&event, out_data);
+}
+
+// Block up to timeout_ms for an event. Returns the shim event type, or
+// SDL_SHIM_EVENT_NONE on timeout. Used to pace the event loop when no
+// rAF callbacks are pending so the loop doesn't busy-spin.
+int sdl_shim_wait_event(void* out_data, uint32_t timeout_ms) {
+    if (!g_window) { SDL_Delay(timeout_ms); return SDL_SHIM_EVENT_NONE; }
+
+    SDL_Event event;
+    if (!SDL_WaitEventTimeout(&event, (int)timeout_ms)) return SDL_SHIM_EVENT_NONE;
+
+    return translate_event(&event, out_data);
+}
+
 // ── Surface creation from SDL window ──
 // This creates a wgpu surface from the SDL window's native handle.
 // We need to include the wgpu header for this.
 #include <webgpu/webgpu.h>
-
-extern WGPUInstance g_instance;
 
 WGPUSurface sdl_shim_create_wgpu_surface(WGPUInstance instance) {
     if (!g_window) return NULL;
@@ -334,7 +301,6 @@ WGPUSurface sdl_shim_create_wgpu_surface(WGPUInstance instance) {
 // ── Cleanup ──
 
 void sdl_shim_destroy_window(void) {
-    if (g_renderer) { SDL_DestroyRenderer(g_renderer); g_renderer = NULL; }
     if (g_window) { SDL_DestroyWindow(g_window); g_window = NULL; }
     SDL_Quit();
     g_initialized = 0;

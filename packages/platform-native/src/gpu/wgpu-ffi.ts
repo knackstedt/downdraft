@@ -1,195 +1,163 @@
 // ============================================================================
-// wgpu-ffi.ts — bun:ffi bindings to the wgpu_shim C library
+// wgpu-ffi.ts — FFI bindings to the wgpu_shim C library
 //
-// This file loads libwgpu_shim.so (compiled from wgpu_shim.c) and exposes
-// its functions as typed JS functions. The C shim flattens the wgpu-native
+// Loads libwgpu_shim (compiled from native/wgpu_shim.c) and exposes its
+// functions as typed JS functions. The C shim flattens the wgpu-native
 // struct-based API into individual parameters for easy FFI binding.
 //
 // The shim handles async APIs (requestAdapter, requestDevice, bufferMapAsync)
 // synchronously by polling wgpuInstanceProcessEvents() until callbacks fire.
+//
+// Loading is LAZY: importing this module does not call dlopen. The shared
+// library is opened on the first symbol access (e.g. installGPU()). This
+// keeps `import` side-effect-free for tools, tests, and runtimes that never
+// touch the GPU.
 // ============================================================================
 
-import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { dlopen, ptr, type CFunction } from "../ffi/ffi-adapter.js";
-
-const _dirname = typeof (globalThis as any).__dirname !== "undefined"
-  ? (globalThis as any).__dirname
-  : dirname(fileURLToPath(import.meta.url));
-
-// ── Locate the shim library ──
-
-function findShimLibrary(): string {
-  // 1. Explicit env var
-  const envPath = process.env.WGPU_SHIM_PATH;
-  if (envPath && existsSync(envPath)) return envPath;
-
-  // 2. native/libwgpu_shim.so (has correct rpath $ORIGIN/lib → native/lib/)
-  const legacyPath = join(_dirname, "..", "..", "native", "libwgpu_shim.so");
-  if (existsSync(legacyPath)) return legacyPath;
-
-  // 2b. native/lib/libwgpu_shim.so (rpath $ORIGIN/lib is broken here — only
-  // works if libwgpu_native.so is on the loader path)
-  const relativePath = join(_dirname, "..", "..", "native", "lib", "libwgpu_shim.so");
-  if (existsSync(relativePath)) return relativePath;
-
-  // 3. System-installed
-  const systemPath = "/usr/local/lib/libwgpu_shim.so";
-  if (existsSync(systemPath)) return systemPath;
-
-  throw new Error(
-    `wgpu_shim library not found. Set WGPU_SHIM_PATH or build with ` +
-    `"cd packages/platform-native/native && gcc -shared -fPIC -o ` +
-    `libwgpu_shim.so wgpu_shim.c -I./include -L./lib -lwgpu_native -lSDL2 ` +
-    `-Wl,-rpath,'$ORIGIN/lib'"`
-  );
-}
+import { dlopen, type CFunction, type ptr } from "../ffi/ffi-adapter";
+import { resolveShimLibrary } from "../ffi/lib-paths";
 
 // ── FFI symbol definitions ──
 // Each entry maps a C function to a JS function with typed parameters.
-// bun:ffi uses C type abbreviations: i32, u32, i64, u64, f32, f64, ptr, bool, char *
+// Canonical type strings (matching bun:ffi): i32, u32, i64, u64, f32, f64,
+// ptr, cstring, usize.
 
-const shimPath = findShimLibrary();
-
-const { symbols } = dlopen(shimPath, {
+const WGPU_SHIM_SPEC: Record<string, CFunction> = {
   // ── Instance / adapter / device ──
-  wgpu_shim_create_instance: { args: [], returns: "ptr" } as CFunction,
-  wgpu_shim_request_adapter: { args: ["ptr", "i32"], returns: "ptr" } as CFunction,
+  wgpu_shim_create_instance: { args: [], returns: "ptr" },
+  wgpu_shim_request_adapter: { args: ["ptr", "i32"], returns: "ptr" },
+  // (adapter, limits u32 triples ptr, limit count, features u32 ptr, feature count)
   wgpu_shim_request_device: {
-    args: ["ptr", "u64", "u32", "u32", "u32"],
+    args: ["ptr", "ptr", "u32", "ptr", "u32"],
     returns: "ptr",
-  } as CFunction,
-  wgpu_shim_device_get_queue: { args: ["ptr"], returns: "ptr" } as CFunction,
-  wgpu_shim_process_events: { args: ["ptr"], returns: "void" } as CFunction,
+  },
+  wgpu_shim_device_get_queue: { args: ["ptr"], returns: "ptr" },
+  wgpu_shim_process_events: { args: ["ptr"], returns: "void" },
+  // (device, out_msg char*, out_msg_size) → WGPUDeviceLostReason (0 = alive)
+  wgpu_shim_device_poll_lost: { args: ["ptr", "ptr", "i32"], returns: "u32" },
 
   // ── Buffer ──
   wgpu_shim_create_buffer: {
     args: ["ptr", "u64", "u32", "i32"],
     returns: "ptr",
-  } as CFunction,
+  },
   wgpu_shim_queue_write_buffer: {
     args: ["ptr", "ptr", "u64", "ptr", "usize"],
     returns: "void",
-  } as CFunction,
+  },
+  // Returns WGPUBufferMapState: 3=Mapped on success.
   wgpu_shim_buffer_map_async: {
     args: ["ptr", "u32", "u64", "u64"],
-    returns: "void",
-  } as CFunction,
-  wgpu_shim_buffer_get_mapped_range: {
-    args: ["ptr", "u64", "u64"],
-    returns: "ptr",
-  } as CFunction,
+    returns: "u32",
+  },
   wgpu_shim_buffer_read_mapped: {
     args: ["ptr", "u64", "u64", "ptr", "i32"],
     returns: "i32",
-  } as CFunction,
-  wgpu_shim_buffer_unmap: { args: ["ptr"], returns: "void" } as CFunction,
+  },
+  wgpu_shim_buffer_write_mapped: {
+    args: ["ptr", "u64", "ptr", "u64"],
+    returns: "i32",
+  },
+  wgpu_shim_buffer_unmap: { args: ["ptr"], returns: "void" },
 
   // ── Shader ──
   wgpu_shim_create_shader_module: {
     args: ["ptr", "cstring"],
     returns: "ptr",
-  } as CFunction,
-  // Returns a malloc'd JSON string of compilation messages. Must be freed
-  // with wgpu_shim_free_string. Returns "[]" if no messages or on failure.
+  },
+  // Returns a static "[]" (wgpuShaderModuleGetCompilationInfo panics in this
+  // wgpu-native build). Do NOT free the returned pointer.
   wgpu_shim_shader_get_compilation_info: {
     args: ["ptr"],
     returns: "cstring",
-  } as CFunction,
-  // Frees a string returned by wgpu_shim_shader_get_compilation_info.
-  wgpu_shim_free_string: {
-    args: ["ptr"],
-    returns: "void",
-  } as CFunction,
+  },
 
   // ── Texture ──
   wgpu_shim_create_texture: {
     args: ["ptr", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "ptr"],
     returns: "ptr",
-  } as CFunction,
+  },
   wgpu_shim_texture_create_view: {
     args: ["ptr", "u32", "u32", "u32", "u32", "u32", "u32", "u32"],
     returns: "ptr",
-  } as CFunction,
+  },
+  // (queue, texture, data, dataSize, mip, ox, oy, oz, aspect,
+  //  layoutOffset u64, bytesPerRow, rowsPerImage, w, h, d)
   wgpu_shim_queue_write_texture: {
-    args: ["ptr", "ptr", "ptr", "usize", "u32", "u32", "u32"],
+    args: ["ptr", "ptr", "ptr", "usize", "u32", "u32", "u32", "u32", "u32", "u64", "u32", "u32", "u32", "u32", "u32"],
     returns: "void",
-  } as CFunction,
+  },
 
   // ── Sampler ──
-  // AUDIT FIX: extended to pass all sampler fields (compare, anisotropy, addressModeW, mipmap, lod).
   wgpu_shim_create_sampler: {
     args: ["ptr", "u32", "u32", "u32", "u32", "u32", "u32", "f32", "f32", "u32", "u32"],
     returns: "ptr",
-  } as CFunction,
+  },
 
   // ── Bind group ──
+  // entries flat: 11 u32 per entry (incl. hasDynamicOffset + minBindingSize)
   wgpu_shim_create_bind_group_layout: {
     args: ["ptr", "u32", "ptr"],
     returns: "ptr",
-  } as CFunction,
+  },
   wgpu_shim_create_pipeline_layout: {
     args: ["ptr", "u32", "ptr"],
     returns: "ptr",
-  } as CFunction,
+  },
   wgpu_shim_create_bind_group: {
     args: ["ptr", "ptr", "u32", "ptr"],
     returns: "ptr",
-  } as CFunction,
+  },
 
   // ── Command encoder ──
-  wgpu_shim_create_command_encoder: { args: ["ptr"], returns: "ptr" } as CFunction,
-  wgpu_shim_command_encoder_finish: { args: ["ptr"], returns: "ptr" } as CFunction,
+  wgpu_shim_create_command_encoder: { args: ["ptr"], returns: "ptr" },
+  wgpu_shim_command_encoder_finish: { args: ["ptr"], returns: "ptr" },
   wgpu_shim_queue_submit: {
     args: ["ptr", "ptr", "u32"],
     returns: "void",
-  } as CFunction,
+  },
 
   // ── Render pass ──
-  // AUDIT FIX: extended to support multiple color attachments, full depth-stencil,
-  // occlusion query set, and timestamp writes.
   wgpu_shim_begin_render_pass: {
     args: ["ptr", "u32", "ptr", "ptr", "ptr", "ptr"],
     returns: "ptr",
-  } as CFunction,
+  },
   wgpu_shim_render_pass_set_pipeline: {
     args: ["ptr", "ptr"],
     returns: "void",
-  } as CFunction,
+  },
+  // (pass, groupIndex, bindGroup, dynamicOffsets u32* | NULL, count)
   wgpu_shim_render_pass_set_bind_group: {
-    args: ["ptr", "u32", "ptr"],
+    args: ["ptr", "u32", "ptr", "ptr", "u32"],
     returns: "void",
-  } as CFunction,
+  },
   wgpu_shim_render_pass_set_vertex_buffer: {
     args: ["ptr", "u32", "ptr", "u64", "u64"],
     returns: "void",
-  } as CFunction,
+  },
   wgpu_shim_render_pass_set_index_buffer: {
     args: ["ptr", "ptr", "u32", "u64", "u64"],
     returns: "void",
-  } as CFunction,
+  },
   wgpu_shim_render_pass_draw: {
     args: ["ptr", "u32", "u32", "u32", "u32"],
     returns: "void",
-  } as CFunction,
+  },
   wgpu_shim_render_pass_draw_indexed: {
     args: ["ptr", "u32", "u32", "u32", "i32", "u32"],
     returns: "void",
-  } as CFunction,
-  wgpu_shim_render_pass_end: { args: ["ptr"], returns: "void" } as CFunction,
+  },
+  wgpu_shim_render_pass_end: { args: ["ptr"], returns: "void" },
   wgpu_shim_render_pass_set_scissor_rect: {
     args: ["ptr", "u32", "u32", "u32", "u32"],
     returns: "void",
-  } as CFunction,
+  },
   wgpu_shim_render_pass_set_viewport: {
     args: ["ptr", "f32", "f32", "f32", "f32", "f32", "f32"],
     returns: "void",
-  } as CFunction,
+  },
 
   // ── Render pipeline ──
-  // AUDIT FIX: extended to support multiple color targets, full depth-stencil state,
-  // and stripIndexFormat. Uses flat arrays for color targets and depth-stencil.
   wgpu_shim_create_render_pipeline: {
     args: [
       "ptr",           // device
@@ -210,137 +178,163 @@ const { symbols } = dlopen(shimPath, {
       "ptr",           // vertex buffer data (flat array)
     ],
     returns: "ptr",
-  } as CFunction,
+  },
 
   // ── Compute pipeline ──
   wgpu_shim_create_compute_pipeline: {
     args: ["ptr", "ptr", "cstring", "ptr"],
     returns: "ptr",
-  } as CFunction,
+  },
 
   // ── Compute pass ──
-  // AUDIT FIX: now accepts optional timestamp writes (ptr to flat 4 u32 array, or NULL).
-  wgpu_shim_begin_compute_pass: { args: ["ptr", "ptr"], returns: "ptr" } as CFunction,
+  wgpu_shim_begin_compute_pass: { args: ["ptr", "ptr"], returns: "ptr" },
   wgpu_shim_compute_pass_set_pipeline: {
     args: ["ptr", "ptr"],
     returns: "void",
-  } as CFunction,
+  },
   wgpu_shim_compute_pass_set_bind_group: {
-    args: ["ptr", "u32", "ptr"],
+    args: ["ptr", "u32", "ptr", "ptr", "u32"],
     returns: "void",
-  } as CFunction,
+  },
   wgpu_shim_compute_pass_dispatch: {
     args: ["ptr", "u32", "u32", "u32"],
     returns: "void",
-  } as CFunction,
-  wgpu_shim_compute_pass_end: { args: ["ptr"], returns: "void" } as CFunction,
+  },
+  wgpu_shim_compute_pass_end: { args: ["ptr"], returns: "void" },
 
   // ── Copy ──
   wgpu_shim_copy_buffer_to_buffer: {
     args: ["ptr", "ptr", "u64", "ptr", "u64", "u64"],
     returns: "void",
-  } as CFunction,
+  },
+  // (encoder, srcTex, srcMip, sox, soy, soz, sAspect,
+  //  dstBuf, dstOffset u64, dstBpr, dstRpi, w, h, d)
   wgpu_shim_copy_texture_to_buffer: {
-    args: ["ptr", "ptr", "ptr", "u32", "u32", "u32"],
+    args: ["ptr", "ptr", "u32", "u32", "u32", "u32", "u32", "ptr", "u64", "u32", "u32", "u32", "u32", "u32"],
     returns: "void",
-  } as CFunction,
+  },
 
-  // ── AUDIT FIX: New functions implementing previously-silent no-op stubs ──
-
-  // Query sets
-  wgpu_shim_create_query_set: { args: ["ptr", "u32", "u32"], returns: "ptr" } as CFunction,
-  wgpu_shim_destroy_query_set: { args: ["ptr"], returns: "void" } as CFunction,
+  // ── Query sets ──
+  wgpu_shim_create_query_set: { args: ["ptr", "u32", "u32"], returns: "ptr" },
+  wgpu_shim_destroy_query_set: { args: ["ptr"], returns: "void" },
 
   // Timestamp + query resolve (command encoder level)
-  wgpu_shim_command_encoder_write_timestamp: { args: ["ptr", "ptr", "u32"], returns: "void" } as CFunction,
-  wgpu_shim_resolve_query_set: { args: ["ptr", "ptr", "u32", "u32", "ptr", "u64"], returns: "void" } as CFunction,
+  wgpu_shim_command_encoder_write_timestamp: { args: ["ptr", "ptr", "u32"], returns: "void" },
+  wgpu_shim_resolve_query_set: { args: ["ptr", "ptr", "u32", "u32", "ptr", "u64"], returns: "void" },
 
   // Indirect draws
-  wgpu_shim_render_pass_draw_indirect: { args: ["ptr", "ptr", "u64"], returns: "void" } as CFunction,
-  wgpu_shim_render_pass_draw_indexed_indirect: { args: ["ptr", "ptr", "u64"], returns: "void" } as CFunction,
-  wgpu_shim_compute_pass_dispatch_indirect: { args: ["ptr", "ptr", "u64"], returns: "void" } as CFunction,
+  wgpu_shim_render_pass_draw_indirect: { args: ["ptr", "ptr", "u64"], returns: "void" },
+  wgpu_shim_render_pass_draw_indexed_indirect: { args: ["ptr", "ptr", "u64"], returns: "void" },
+  wgpu_shim_compute_pass_dispatch_indirect: { args: ["ptr", "ptr", "u64"], returns: "void" },
 
   // Clear buffer
-  wgpu_shim_command_encoder_clear_buffer: { args: ["ptr", "ptr", "u64", "u64"], returns: "void" } as CFunction,
+  wgpu_shim_command_encoder_clear_buffer: { args: ["ptr", "ptr", "u64", "u64"], returns: "void" },
 
   // Blend constant + stencil reference
-  wgpu_shim_render_pass_set_blend_constant: { args: ["ptr", "f32", "f32", "f32", "f32"], returns: "void" } as CFunction,
-  wgpu_shim_render_pass_set_stencil_reference: { args: ["ptr", "u32"], returns: "void" } as CFunction,
+  wgpu_shim_render_pass_set_blend_constant: { args: ["ptr", "f32", "f32", "f32", "f32"], returns: "void" },
+  wgpu_shim_render_pass_set_stencil_reference: { args: ["ptr", "u32"], returns: "void" },
 
   // Occlusion queries
-  wgpu_shim_render_pass_begin_occlusion_query: { args: ["ptr", "u32"], returns: "void" } as CFunction,
-  wgpu_shim_render_pass_end_occlusion_query: { args: ["ptr"], returns: "void" } as CFunction,
+  wgpu_shim_render_pass_begin_occlusion_query: { args: ["ptr", "u32"], returns: "void" },
+  wgpu_shim_render_pass_end_occlusion_query: { args: ["ptr"], returns: "void" },
 
   // Copy buffer-to-texture and texture-to-texture
   wgpu_shim_copy_buffer_to_texture: {
     args: ["ptr", "ptr", "u64", "u32", "u32", "ptr", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32"],
     returns: "void",
-  } as CFunction,
+  },
   wgpu_shim_copy_texture_to_texture: {
     args: ["ptr", "ptr", "u32", "u32", "u32", "u32", "u32", "ptr", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32"],
     returns: "void",
-  } as CFunction,
+  },
 
-  // Debug groups and markers (render pass)
-  wgpu_shim_render_pass_push_debug_group: { args: ["ptr", "cstring"], returns: "void" } as CFunction,
-  wgpu_shim_render_pass_pop_debug_group: { args: ["ptr"], returns: "void" } as CFunction,
-  wgpu_shim_render_pass_insert_debug_marker: { args: ["ptr", "cstring"], returns: "void" } as CFunction,
-  // (compute pass)
-  wgpu_shim_compute_pass_push_debug_group: { args: ["ptr", "cstring"], returns: "void" } as CFunction,
-  wgpu_shim_compute_pass_pop_debug_group: { args: ["ptr"], returns: "void" } as CFunction,
-  wgpu_shim_compute_pass_insert_debug_marker: { args: ["ptr", "cstring"], returns: "void" } as CFunction,
-  // (command encoder)
-  wgpu_shim_command_encoder_push_debug_group: { args: ["ptr", "cstring"], returns: "void" } as CFunction,
-  wgpu_shim_command_encoder_pop_debug_group: { args: ["ptr"], returns: "void" } as CFunction,
-  wgpu_shim_command_encoder_insert_debug_marker: { args: ["ptr", "cstring"], returns: "void" } as CFunction,
+  // Debug groups and markers
+  wgpu_shim_render_pass_push_debug_group: { args: ["ptr", "cstring"], returns: "void" },
+  wgpu_shim_render_pass_pop_debug_group: { args: ["ptr"], returns: "void" },
+  wgpu_shim_render_pass_insert_debug_marker: { args: ["ptr", "cstring"], returns: "void" },
+  wgpu_shim_compute_pass_push_debug_group: { args: ["ptr", "cstring"], returns: "void" },
+  wgpu_shim_compute_pass_pop_debug_group: { args: ["ptr"], returns: "void" },
+  wgpu_shim_compute_pass_insert_debug_marker: { args: ["ptr", "cstring"], returns: "void" },
+  wgpu_shim_command_encoder_push_debug_group: { args: ["ptr", "cstring"], returns: "void" },
+  wgpu_shim_command_encoder_pop_debug_group: { args: ["ptr"], returns: "void" },
+  wgpu_shim_command_encoder_insert_debug_marker: { args: ["ptr", "cstring"], returns: "void" },
 
   // Error scopes
-  wgpu_shim_device_push_error_scope: { args: ["ptr", "u32"], returns: "void" } as CFunction,
-  wgpu_shim_device_pop_error_scope: { args: ["ptr", "ptr", "i32"], returns: "u32" } as CFunction,
+  wgpu_shim_device_push_error_scope: { args: ["ptr", "u32"], returns: "void" },
+  wgpu_shim_device_pop_error_scope: { args: ["ptr", "ptr", "i32"], returns: "u32" },
 
   // Adapter/device limits and features
-  wgpu_shim_adapter_get_limits: { args: ["ptr", "ptr"], returns: "i32" } as CFunction,
-  wgpu_shim_device_get_limits: { args: ["ptr", "ptr"], returns: "i32" } as CFunction,
-  wgpu_shim_adapter_get_features: { args: ["ptr", "ptr", "u32"], returns: "u32" } as CFunction,
-  wgpu_shim_device_get_features: { args: ["ptr", "ptr", "u32"], returns: "u32" } as CFunction,
+  wgpu_shim_adapter_get_limits: { args: ["ptr", "ptr"], returns: "i32" },
+  wgpu_shim_device_get_limits: { args: ["ptr", "ptr"], returns: "i32" },
+  wgpu_shim_adapter_get_features: { args: ["ptr", "ptr", "u32"], returns: "u32" },
+  wgpu_shim_device_get_features: { args: ["ptr", "ptr", "u32"], returns: "u32" },
 
   // Queue onSubmittedWorkDone
-  wgpu_shim_queue_on_submitted_work_done: { args: ["ptr"], returns: "void" } as CFunction,
+  wgpu_shim_queue_on_submitted_work_done: { args: ["ptr"], returns: "void" },
 
   // ── Surface ──
   wgpu_shim_surface_configure: {
     args: ["ptr", "ptr", "u32", "u32", "u32", "u32", "u32"],
     returns: "void",
-  } as CFunction,
+  },
   wgpu_shim_surface_get_current_texture: {
     args: ["ptr", "ptr"],
     returns: "i32",
-  } as CFunction,
-  wgpu_shim_surface_present: { args: ["ptr"], returns: "void" } as CFunction,
-  wgpu_shim_process_events: { args: ["ptr"], returns: "void" } as CFunction,
-  wgpu_shim_get_preferred_format: { args: [], returns: "u32" } as CFunction,
+  },
+  wgpu_shim_surface_present: { args: ["ptr"], returns: "void" },
+  wgpu_shim_surface_unconfigure: { args: ["ptr"], returns: "void" },
+  wgpu_shim_get_preferred_format: { args: [], returns: "u32" },
 
   // ── Release ──
-  wgpu_shim_release_buffer: { args: ["ptr"], returns: "void" } as CFunction,
-  wgpu_shim_release_texture: { args: ["ptr"], returns: "void" } as CFunction,
-  wgpu_shim_release_texture_view: { args: ["ptr"], returns: "void" } as CFunction,
-  wgpu_shim_release_sampler: { args: ["ptr"], returns: "void" } as CFunction,
-  wgpu_shim_release_bind_group: { args: ["ptr"], returns: "void" } as CFunction,
-  wgpu_shim_release_bind_group_layout: { args: ["ptr"], returns: "void" } as CFunction,
-  wgpu_shim_release_pipeline_layout: { args: ["ptr"], returns: "void" } as CFunction,
-  wgpu_shim_release_render_pipeline: { args: ["ptr"], returns: "void" } as CFunction,
-  wgpu_shim_release_compute_pipeline: { args: ["ptr"], returns: "void" } as CFunction,
-  wgpu_shim_release_shader_module: { args: ["ptr"], returns: "void" } as CFunction,
-  wgpu_shim_release_command_buffer: { args: ["ptr"], returns: "void" } as CFunction,
-  wgpu_shim_release_command_encoder: { args: ["ptr"], returns: "void" } as CFunction,
-  wgpu_shim_release_device: { args: ["ptr"], returns: "void" } as CFunction,
-  wgpu_shim_release_adapter: { args: ["ptr"], returns: "void" } as CFunction,
-  wgpu_shim_release_instance: { args: ["ptr"], returns: "void" } as CFunction,
-  wgpu_shim_release_surface: { args: ["ptr"], returns: "void" } as CFunction,
-  wgpu_shim_release_query_set: { args: ["ptr"], returns: "void" } as CFunction,
-});
+  wgpu_shim_release_buffer: { args: ["ptr"], returns: "void" },
+  wgpu_shim_release_texture: { args: ["ptr"], returns: "void" },
+  wgpu_shim_release_texture_view: { args: ["ptr"], returns: "void" },
+  wgpu_shim_release_sampler: { args: ["ptr"], returns: "void" },
+  wgpu_shim_release_bind_group: { args: ["ptr"], returns: "void" },
+  wgpu_shim_release_bind_group_layout: { args: ["ptr"], returns: "void" },
+  wgpu_shim_release_pipeline_layout: { args: ["ptr"], returns: "void" },
+  wgpu_shim_release_render_pipeline: { args: ["ptr"], returns: "void" },
+  wgpu_shim_release_compute_pipeline: { args: ["ptr"], returns: "void" },
+  wgpu_shim_release_shader_module: { args: ["ptr"], returns: "void" },
+  wgpu_shim_release_command_buffer: { args: ["ptr"], returns: "void" },
+  wgpu_shim_release_command_encoder: { args: ["ptr"], returns: "void" },
+  wgpu_shim_release_device: { args: ["ptr"], returns: "void" },
+  wgpu_shim_release_adapter: { args: ["ptr"], returns: "void" },
+  wgpu_shim_release_instance: { args: ["ptr"], returns: "void" },
+  wgpu_shim_release_surface: { args: ["ptr"], returns: "void" },
+  wgpu_shim_release_query_set: { args: ["ptr"], returns: "void" },
+  wgpu_shim_release_render_pass: { args: ["ptr"], returns: "void" },
+  wgpu_shim_release_compute_pass: { args: ["ptr"], returns: "void" },
+  wgpu_shim_release_queue: { args: ["ptr"], returns: "void" },
+};
 
-export const wgpu = symbols as unknown as WgpuShimSymbols;
+// ── Lazy library handle ──
+
+let _wgpu: WgpuShimSymbols | null = null;
+
+function loadWgpu(): WgpuShimSymbols {
+  if (_wgpu) return _wgpu;
+  const shimPath = resolveShimLibrary("wgpu_shim", "WGPU_SHIM_PATH");
+  const { symbols } = dlopen(shimPath, WGPU_SHIM_SPEC);
+  _wgpu = symbols as unknown as WgpuShimSymbols;
+  return _wgpu;
+}
+
+/**
+ * The wgpu shim symbols. Accessing any property lazily dlopen()s the shared
+ * library on first use. This module is safe to import in environments where
+ * the library is absent — the error surfaces only when a symbol is called.
+ */
+export const wgpu: WgpuShimSymbols = new Proxy({} as WgpuShimSymbols, {
+  get(_target, prop: string) {
+    const lib = loadWgpu();
+    const fn = (lib as any)[prop];
+    if (fn === undefined) {
+      throw new Error(`wgpu shim has no symbol "${prop}"`);
+    }
+    return fn;
+  },
+});
 
 // ── Typed interface for the FFI symbols ──
 
@@ -349,13 +343,14 @@ export interface WgpuShimSymbols {
   wgpu_shim_request_adapter: (instance: ptr, powerPreference: number) => ptr;
   wgpu_shim_request_device: (
     adapter: ptr,
-    maxStorageBufferSize: bigint,
-    maxStorageBuffersPerStage: number,
-    maxSampledTexturesPerStage: number,
-    maxTextureArrayLayers: number,
+    limits: ptr,
+    limitCount: number,
+    features: ptr,
+    featureCount: number,
   ) => ptr;
   wgpu_shim_device_get_queue: (device: ptr) => ptr;
   wgpu_shim_process_events: (instance: ptr) => void;
+  wgpu_shim_device_poll_lost: (device: ptr, outMsg: ptr, outMsgSize: number) => number;
 
   wgpu_shim_create_buffer: (
     device: ptr,
@@ -375,12 +370,7 @@ export interface WgpuShimSymbols {
     mode: number,
     offset: bigint,
     size: bigint,
-  ) => void;
-  wgpu_shim_buffer_get_mapped_range: (
-    buffer: ptr,
-    offset: bigint,
-    size: bigint,
-  ) => ptr;
+  ) => number;
   wgpu_shim_buffer_read_mapped: (
     buffer: ptr,
     offset: bigint,
@@ -388,11 +378,16 @@ export interface WgpuShimSymbols {
     outData: ptr,
     outSize: number,
   ) => number;
+  wgpu_shim_buffer_write_mapped: (
+    buffer: ptr,
+    offset: bigint,
+    data: ptr,
+    size: bigint,
+  ) => number;
   wgpu_shim_buffer_unmap: (buffer: ptr) => void;
 
   wgpu_shim_create_shader_module: (device: ptr, wgslCode: string) => ptr;
   wgpu_shim_shader_get_compilation_info: (shader: ptr) => string;
-  wgpu_shim_free_string: (str: ptr) => void;
 
   wgpu_shim_create_texture: (
     device: ptr,
@@ -422,9 +417,17 @@ export interface WgpuShimSymbols {
     texture: ptr,
     data: ptr,
     dataSize: bigint,
+    mipLevel: number,
+    originX: number,
+    originY: number,
+    originZ: number,
+    aspect: number,
+    layoutOffset: bigint,
+    bytesPerRow: number,
+    rowsPerImage: number,
     width: number,
     height: number,
-    bytesPerRow: number,
+    depth: number,
   ) => void;
 
   wgpu_shim_create_sampler: (
@@ -475,6 +478,8 @@ export interface WgpuShimSymbols {
     pass: ptr,
     groupIndex: number,
     bindGroup: ptr,
+    dynamicOffsets: ptr,
+    dynamicOffsetCount: number,
   ) => void;
   wgpu_shim_render_pass_set_vertex_buffer: (
     pass: ptr,
@@ -530,8 +535,8 @@ export interface WgpuShimSymbols {
     fragmentShader: ptr,
     fragmentEntry: string,
     colorTargetCount: number,
-    colorTargets: ArrayBufferView,
-    depthStencil: ArrayBufferView,
+    colorTargets: ptr,
+    depthStencil: ptr,
     topology: number,
     stripIndexFormat: number,
     sampleCount: number,
@@ -539,7 +544,7 @@ export interface WgpuShimSymbols {
     cullMode: number,
     frontFace: number,
     vertexBufferCount: number,
-    vertexBufferData: ArrayBufferView,
+    vertexBufferData: ptr,
   ) => ptr;
 
   wgpu_shim_create_compute_pipeline: (
@@ -555,6 +560,8 @@ export interface WgpuShimSymbols {
     pass: ptr,
     groupIndex: number,
     bindGroup: ptr,
+    dynamicOffsets: ptr,
+    dynamicOffsetCount: number,
   ) => void;
   wgpu_shim_compute_pass_dispatch: (
     pass: ptr,
@@ -575,13 +582,20 @@ export interface WgpuShimSymbols {
   wgpu_shim_copy_texture_to_buffer: (
     encoder: ptr,
     srcTexture: ptr,
+    srcMipLevel: number,
+    srcOriginX: number,
+    srcOriginY: number,
+    srcOriginZ: number,
+    srcAspect: number,
     dstBuffer: ptr,
-    width: number,
-    height: number,
-    bytesPerRow: number,
+    dstOffset: bigint,
+    dstBytesPerRow: number,
+    dstRowsPerImage: number,
+    copyW: number,
+    copyH: number,
+    copyD: number,
   ) => void;
 
-  // ── AUDIT FIX: New functions ──
   wgpu_shim_create_query_set: (device: ptr, type: number, count: number) => ptr;
   wgpu_shim_destroy_query_set: (querySet: ptr) => void;
   wgpu_shim_command_encoder_write_timestamp: (encoder: ptr, querySet: ptr, queryIndex: number) => void;
@@ -633,34 +647,28 @@ export interface WgpuShimSymbols {
   ) => void;
   wgpu_shim_surface_get_current_texture: (surface: ptr, textureOut: ptr) => number;
   wgpu_shim_surface_present: (surface: ptr) => void;
-  wgpu_shim_process_events: (instance: ptr) => void;
+  wgpu_shim_surface_unconfigure: (surface: ptr) => void;
   wgpu_shim_get_preferred_format: () => number;
 
   // Release functions
-  wgpu_shim_release_buffer: (ptr: ptr) => void;
-  wgpu_shim_release_texture: (ptr: ptr) => void;
-  wgpu_shim_release_texture_view: (ptr: ptr) => void;
-  wgpu_shim_release_sampler: (ptr: ptr) => void;
-  wgpu_shim_release_bind_group: (ptr: ptr) => void;
-  wgpu_shim_release_bind_group_layout: (ptr: ptr) => void;
-  wgpu_shim_release_pipeline_layout: (ptr: ptr) => void;
-  wgpu_shim_release_render_pipeline: (ptr: ptr) => void;
-  wgpu_shim_release_compute_pipeline: (ptr: ptr) => void;
-  wgpu_shim_release_shader_module: (ptr: ptr) => void;
-  wgpu_shim_release_command_buffer: (ptr: ptr) => void;
-  wgpu_shim_release_command_encoder: (ptr: ptr) => void;
-  wgpu_shim_release_device: (ptr: ptr) => void;
-  wgpu_shim_release_adapter: (ptr: ptr) => void;
-  wgpu_shim_release_instance: (ptr: ptr) => void;
-  wgpu_shim_release_surface: (ptr: ptr) => void;
-  wgpu_shim_release_query_set: (ptr: ptr) => void;
-}
-
-// ── Helper: create a Uint8Array from a native mapped range ──
-export function readMappedRange(nativePtr: ptr, byteLength: number): Uint8Array {
-  // bun:ffi ptr points to a native buffer. We can create a Uint8Array view
-  // over it using new Uint8Array(ptr, 0, byteLength) — but bun:ffi doesn't
-  // directly support this. Instead, we use Buffer.from() with the pointer.
-  const buf = Buffer.from(nativePtr as unknown as ArrayBuffer, 0, byteLength);
-  return new Uint8Array(buf.buffer, buf.byteOffset, byteLength);
+  wgpu_shim_release_buffer: (p: ptr) => void;
+  wgpu_shim_release_texture: (p: ptr) => void;
+  wgpu_shim_release_texture_view: (p: ptr) => void;
+  wgpu_shim_release_sampler: (p: ptr) => void;
+  wgpu_shim_release_bind_group: (p: ptr) => void;
+  wgpu_shim_release_bind_group_layout: (p: ptr) => void;
+  wgpu_shim_release_pipeline_layout: (p: ptr) => void;
+  wgpu_shim_release_render_pipeline: (p: ptr) => void;
+  wgpu_shim_release_compute_pipeline: (p: ptr) => void;
+  wgpu_shim_release_shader_module: (p: ptr) => void;
+  wgpu_shim_release_command_buffer: (p: ptr) => void;
+  wgpu_shim_release_command_encoder: (p: ptr) => void;
+  wgpu_shim_release_device: (p: ptr) => void;
+  wgpu_shim_release_adapter: (p: ptr) => void;
+  wgpu_shim_release_instance: (p: ptr) => void;
+  wgpu_shim_release_surface: (p: ptr) => void;
+  wgpu_shim_release_query_set: (p: ptr) => void;
+  wgpu_shim_release_render_pass: (p: ptr) => void;
+  wgpu_shim_release_compute_pass: (p: ptr) => void;
+  wgpu_shim_release_queue: (p: ptr) => void;
 }

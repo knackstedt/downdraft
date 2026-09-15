@@ -8,7 +8,7 @@ export default createDowndraftViteConfig({
     title: "Mining RPG",
     layers: [
       { type: "canvas", id: "game-canvas" },
-      { type: "canvas", id: "pixi-ui-canvas", layer: 1 },
+      { type: "canvas", id: "pixi-ui-canvas" },
       { type: "dom", id: "root" },
     ],
   },

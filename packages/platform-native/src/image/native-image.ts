@@ -1,43 +1,46 @@
 // ============================================================================
 // native-image.ts — Native image decoding replacing createImageBitmap
 //
-// Uses stb_image via bun:ffi to decode PNG/JPEG/BMP/TGA images.
+// Uses stb_image via FFI to decode PNG/JPEG/BMP/TGA images.
 // Implements the ImageBitmap interface that the engine's asset loaders expect.
+//
+// Text rasterization lives in native-canvas2d.ts (Canvas2D + glyph atlas)
+// and native-freetype.ts (FreeType bindings); both are re-exported here for
+// backwards-compatible imports.
 // ============================================================================
 
 import { createLogger } from "@downdraft/core";
-import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { dlopen, ptr, type CFunction } from "../ffi/ffi-adapter.js";
+import { dlopen, type CFunction } from "../ffi/ffi-adapter";
+import { resolveShimLibrary } from "../ffi/lib-paths";
+import { NativeCanvas2D } from "./native-canvas2d";
+
+export { NativeCanvas2D } from "./native-canvas2d";
+export { getFreeTypeTextRenderer } from "./native-freetype";
 
 const log = createLogger();
 
-const _dirname = typeof (globalThis as any).__dirname !== "undefined"
-  ? (globalThis as any).__dirname
-  : dirname(fileURLToPath(import.meta.url));
+// Lazy dlopen — importing this module (e.g. for NativeCanvas2D's bitmap-font
+// fallback) must not fail when libimage_shim is absent.
+const IMAGE_SHIM_SPEC: Record<string, CFunction> = {
+  image_shim_decode: { args: ["ptr", "i32", "ptr", "i32", "ptr", "ptr", "ptr"], returns: "i32" },
+  image_shim_decode_file: { args: ["cstring", "ptr", "i32", "ptr", "ptr", "ptr"], returns: "i32" },
+  image_shim_info: { args: ["ptr", "i32", "ptr", "ptr", "ptr"], returns: "i32" },
+};
 
-function findImageShimLibrary(): string {
-  const envPath = process.env.IMAGE_SHIM_PATH;
-  if (envPath && existsSync(envPath)) return envPath;
-
-  const relativePath = join(_dirname, "..", "..", "native", "libimage_shim.so");
-  if (existsSync(relativePath)) return relativePath;
-
-  throw new Error("libimage_shim.so not found. Build with: cd native && gcc -shared -fPIC -o libimage_shim.so image_shim.c -lm");
+interface ImageShimSymbols {
+  image_shim_decode: (data: number, size: number, outData: number, outSize: number, wOut: number, hOut: number, cOut: number) => number;
+  image_shim_decode_file: (path: string, outData: number, outSize: number, wOut: number, hOut: number, cOut: number) => number;
+  image_shim_info: (data: number, size: number, wOut: number, hOut: number, cOut: number) => number;
 }
 
-const { symbols } = dlopen(findImageShimLibrary(), {
-  image_shim_decode: { args: ["ptr", "i32", "ptr", "i32", "ptr", "ptr", "ptr"], returns: "i32" } as CFunction,
-  image_shim_decode_file: { args: ["cstring", "ptr", "i32", "ptr", "ptr", "ptr"], returns: "i32" } as CFunction,
-  image_shim_info: { args: ["ptr", "i32", "ptr", "ptr", "ptr"], returns: "i32" } as CFunction,
-});
-
-const imageShim = symbols as unknown as {
-  image_shim_decode: (data: ptr, size: number, outData: ptr, outSize: number, wOut: ptr, hOut: ptr, cOut: ptr) => number;
-  image_shim_decode_file: (path: string, outData: ptr, outSize: number, wOut: ptr, hOut: ptr, cOut: ptr) => number;
-  image_shim_info: (data: ptr, size: number, wOut: ptr, hOut: ptr, cOut: ptr) => number;
-};
+let _imageShim: ImageShimSymbols | null = null;
+function imageShim(): ImageShimSymbols {
+  if (!_imageShim) {
+    const libPath = resolveShimLibrary("image_shim", "IMAGE_SHIM_PATH");
+    _imageShim = dlopen(libPath, IMAGE_SHIM_SPEC).symbols as unknown as ImageShimSymbols;
+  }
+  return _imageShim;
+}
 
 // ── NativeImageBitmap: implements the ImageBitmap interface ──
 
@@ -91,23 +94,14 @@ export async function createImageBitmapNative(
     const ctx = canvas.getContext("2d");
     if (ctx && typeof ctx.getImageData === "function") {
       const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      // Create a NativeImageBitmap directly from the pixel data
-      const pixels = new Uint8Array(imgData.data.buffer || imgData.data);
-      return {
-        width: canvas.width,
-        height: canvas.height,
-        data: pixels,
-        close: () => {},
-      } as unknown as NativeImageBitmap;
+      // Copy the pixel data — getImageData's buffer may be a shared canvas
+      // backing store that later draws would mutate.
+      const pixels = new Uint8Array(imgData.data.length);
+      pixels.set(imgData.data);
+      return new NativeImageBitmap(canvas.width, canvas.height, pixels);
     }
     // If no 2D context, create a 1x1 gray pixel as fallback
-    const fallback = new Uint8Array([0xcc, 0xcc, 0xcc, 0xff]);
-    return {
-      width: 1,
-      height: 1,
-      data: fallback,
-      close: () => {},
-    } as unknown as NativeImageBitmap;
+    return new NativeImageBitmap(1, 1, new Uint8Array([0xcc, 0xcc, 0xcc, 0xff]));
   } else {
     throw new Error(`Unsupported image source type: ${typeof source}`);
   }
@@ -116,7 +110,7 @@ export async function createImageBitmapNative(
   const wBuf = new Int32Array(1);
   const hBuf = new Int32Array(1);
   const cBuf = new Int32Array(1);
-  const infoResult = imageShim.image_shim_info(data as any, data.byteLength, wBuf as any, hBuf as any, cBuf as any);
+  const infoResult = imageShim().image_shim_info(data as any, data.byteLength, wBuf as any, hBuf as any, cBuf as any);
   if (infoResult !== 0) throw new Error("Failed to get image info");
 
   const width = wBuf[0];
@@ -125,7 +119,7 @@ export async function createImageBitmapNative(
 
   // Allocate output buffer and decode into it
   const pixels = new Uint8Array(pixelSize);
-  const decodeResult = imageShim.image_shim_decode(
+  const decodeResult = imageShim().image_shim_decode(
     data as any, data.byteLength,
     pixels as any, pixelSize,
     wBuf as any, hBuf as any, cBuf as any,
@@ -199,32 +193,42 @@ export function installImagePolyfills(): void {
 
   // Image polyfill — PixiJS DOMAdapter.createImage() returns `new Image()`.
   // Setting `src` decodes the file via stb_image (createImageBitmapNative) and
-  // fires onload/onerror. Supports file paths, data: URLs, and http(s) via
-  // Bun.file/fetch.
+  // fires onload/onerror. Supports file paths, data: URLs, and http(s) via fetch.
   if (typeof (globalThis as any).Image === "undefined") {
     (globalThis as any).Image = class NativeImage {
       width: number = 0;
       height: number = 0;
       naturalWidth: number = 0;
       naturalHeight: number = 0;
-      src: string = "";
       alt: string = "";
       onload: ((this: any, ev: any) => any) | null = null;
       onerror: ((this: any, ev: any) => any) | null = null;
       private _bitmap: NativeImageBitmap | null = null;
-      readonly complete: boolean = false;
+      private _src = "";
+      private _complete = false;
 
-      get width_(): number { return this.width; }
+      // src must be an accessor — assigning img.src triggers the decode.
+      // (The previous implementation declared `src` as a class field, which
+      // shadowed the prototype setter so img.src = url never loaded.)
+      get src(): string { return this._src; }
+      set src(v: string) {
+        this._src = v;
+        if (v) void this._load(v);
+      }
+      get complete(): boolean { return this._complete; }
 
       async _load(src: string): Promise<void> {
         try {
           let source: Blob | ArrayBuffer | Uint8Array | string;
           if (src.startsWith("data:")) {
-            // data URL — decode base64 payload
+            // data URL — decode base64 payload. Use atob when Node's Buffer
+            // global is unavailable (Deno).
             const comma = src.indexOf(",");
             const b64 = src.slice(comma + 1);
-            const bytes = Uint8Array.from(Buffer.from(b64, "base64"));
-            source = bytes;
+            const bin = typeof Buffer !== "undefined"
+              ? Buffer.from(b64, "base64")
+              : Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+            source = bin instanceof Uint8Array ? bin : Uint8Array.from(bin);
           } else if (src.startsWith("http://") || src.startsWith("https://")) {
             const resp = await fetch(src);
             source = new Uint8Array(await resp.arrayBuffer());
@@ -232,15 +236,15 @@ export function installImagePolyfills(): void {
             source = src; // file path
           }
           const bmp = await createImageBitmapNative(source);
-          this._bitmap = bmp as unknown as NativeImageBitmap;
+          this._bitmap = bmp;
           this.width = bmp.width;
           this.height = bmp.height;
           this.naturalWidth = bmp.width;
           this.naturalHeight = bmp.height;
-          (this as any).complete = true;
+          this._complete = true;
           if (this.onload) this.onload.call(this, { type: "load", target: this });
         } catch (err) {
-          (this as any).complete = true;
+          this._complete = true;
           if (this.onerror) this.onerror.call(this, { type: "error", target: this, error: err });
         }
       }
@@ -255,596 +259,9 @@ export function installImagePolyfills(): void {
         if (type === "load") this.onload = null;
         else if (type === "error") this.onerror = null;
       }
-      decode(): Promise<void> { return this._load(this.src); }
+      decode(): Promise<void> { return this._load(this._src); }
     };
-    // Intercept src assignment to trigger load. Use a Proxy on the prototype
-    // setter so `img.src = url` works like a browser.
-    const NativeImageCtor = (globalThis as any).Image;
-    const srcDesc = Object.getOwnPropertyDescriptor(NativeImageCtor.prototype, "src");
-    if (!srcDesc || !srcDesc.set) {
-      Object.defineProperty(NativeImageCtor.prototype, "src", {
-        get: function () { return this._src ?? ""; },
-        set: function (v: string) {
-          this._src = v;
-          if (v) this._load(v);
-        },
-        configurable: true,
-      });
-    }
   }
 
   log.info("platform-native", "Image polyfills installed (stb_image + OffscreenCanvas + Image)");
-}
-
-// ── FreeType-based text rasterizer ──
-// Uses libfont_shim.so (FreeType) via bun:ffi to render TrueType text.
-// Falls back to the 8x12 bitmap glyph atlas if FreeType is unavailable.
-
-function findFontShimLibrary(): string {
-  const candidates = [
-    join(_dirname, "..", "..", "native", "libfont_shim.so"),
-    join(process.cwd(), "packages", "platform-native", "native", "libfont_shim.so"),
-    join(process.cwd(), "native", "libfont_shim.so"),
-  ];
-  for (const p of candidates) {
-    if (existsSync(p)) return p;
-  }
-  const pkgRoot = join(_dirname, "..", "..");
-  const rel = join(pkgRoot, "native", "libfont_shim.so");
-  if (existsSync(rel)) return rel;
-  return "";
-}
-
-function findSystemFont(): string {
-  const candidates = [
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-    "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
-    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-    "/usr/share/fonts/TTF/DejaVuSans.ttf",
-  ];
-  for (const p of candidates) {
-    if (existsSync(p)) return p;
-  }
-  return "";
-}
-
-let ftFace = 0n;
-let ftInitialized = false;
-let ftSymbols: any = null;
-
-const FT_RENDER_BUF = new Uint8Array(2048 * 128 * 4);
-const FT_WIDTH_OUT = new Int32Array(1);
-const FT_HEIGHT_OUT = new Int32Array(1);
-
-function ensureFreeTypeInit(): void {
-  if (ftInitialized) return;
-  ftInitialized = true;
-  try {
-    const libPath = findFontShimLibrary();
-    if (!libPath) { log.warn("platform-native", "libfont_shim.so not found — using bitmap font fallback"); return; }
-    ftSymbols = dlopen(libPath, {
-      ft_shim_init: { args: ["cstring"], returns: "i64" } as CFunction,
-      ft_shim_render_text: { args: ["i64", "cstring", "i32", "ptr", "i32", "i32", "i32", "ptr", "ptr"], returns: "i32" } as CFunction,
-      ft_shim_measure: { args: ["i64", "cstring", "i32"], returns: "i32" } as CFunction,
-      ft_shim_done: { args: ["i64"], returns: "void" } as CFunction,
-    }).symbols;
-    const fontPath = findSystemFont();
-    if (!fontPath) { log.warn("platform-native", "No system TTF font found — using bitmap font fallback"); return; }
-    ftFace = BigInt(ftSymbols.ft_shim_init(fontPath) as unknown as number);
-    if (ftFace === 0n) {
-      log.warn("platform-native", "FreeType init failed — using bitmap font fallback");
-    } else {
-      log.info("platform-native", "FreeType text rendering initialized");
-    }
-  } catch (e: any) {
-    log.warn("platform-native", `FreeType init error: ${e?.message ?? e} — using bitmap font fallback`);
-    ftFace = 0n;
-  }
-}
-
-function ftIsAvailable(): boolean {
-  ensureFreeTypeInit();
-  return ftFace !== 0n;
-}
-
-function ftMeasureText(text: string, fontSize: number): number {
-  ensureFreeTypeInit();
-  if (ftFace === 0n || !ftSymbols) return -1;
-  return ftSymbols.ft_shim_measure(ftFace, text, fontSize) as unknown as number;
-}
-
-function ftRenderText(text: string, fontSize: number): { data: Uint8Array; width: number; height: number } | null {
-  ensureFreeTypeInit();
-  if (ftFace === 0n || !ftSymbols) return null;
-  const dataPtr = ptr(FT_RENDER_BUF);
-  const widthPtr = ptr(FT_WIDTH_OUT);
-  const heightPtr = ptr(FT_HEIGHT_OUT);
-  const result = ftSymbols.ft_shim_render_text(
-    ftFace, text, fontSize,
-    dataPtr, FT_RENDER_BUF.length,
-    2048, 128,
-    widthPtr, heightPtr,
-  ) as unknown as number;
-  if (result <= 0) return null;
-  const w = FT_WIDTH_OUT[0];
-  const h = FT_HEIGHT_OUT[0];
-  if (w <= 0 || h <= 0) return null;
-  const size = w * h * 4;
-  const copy = new Uint8Array(size);
-  copy.set(FT_RENDER_BUF.subarray(0, size));
-  return { data: copy, width: w, height: h };
-}
-
-/**
- * Get the FreeType text renderer function, or null if FreeType is unavailable.
- * This can be plugged into TextAtlasCache.setDirectRenderer() to bypass
- * Canvas2D and render text directly via FreeType.
- */
-export function getFreeTypeTextRenderer(): ((text: string, fontSize: number) => { data: Uint8Array; width: number; height: number } | null) | null {
-  ensureFreeTypeInit();
-  if (ftFace === 0n) return null;
-  return ftRenderText;
-}
-
-// ── Canvas2D with text rendering for IMUI ──
-// Implements fillText using FreeType (when available) or a built-in 8x12
-// bitmap glyph atlas as fallback. The TextAtlasCache uses this to rasterize
-// text into GPU textures.
-
-const GLYPH_W = 8;
-const GLYPH_H = 12;
-const FONT_CHARS = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~";
-
-// 8x12 bitmap glyph patterns (X = on, . = off)
-const GLYPH_PATTERNS: Record<string, string[]> = {
-  ' ': ['........','........','........','........','........','........','........','........','........','........','........','........'],
-  '!': ['...XX...','...XX...','...XX...','...XX...','...XX...','...XX...','........','........','...XX...','...XX...','........','........'],
-  '"': ['..XX.XX.','..XX.XX.','..XX.XX.','........','........','........','........','........','........','........','........','........'],
-  '#': ['..XX.XX.','..XX.XX.','..XX.XX.','XXXXXXXX','..XX.XX.','XXXXXXXX','..XX.XX.','..XX.XX.','..XX.XX.','........','........','........'],
-  '$': ['...XXX..','.XX.X.X.','.X..X...','.XX.XX..','...X.XX.','.X..X.X.','.XX.X.X.','..XXX...','........','........','........','........'],
-  '%': ['XX...XX.','XX..XX..','...XX...','..XX....','..XX....','...XX...','..XX..XX','XX...XX.','........','........','........','........'],
-  '&': ['..XXX...','.XX.XX..','.XX.XX..','..XX....','.XX.XXX.','XX.X.XX.','X..XX.X.','.XXX..X.','........','........','........','........'],
-  '\'': ['...XX...','...XX...','...XX...','........','........','........','........','........','........','........','........','........'],
-  '(': ['....XX..','...XX...','..XX....','..XX....','..XX....','..XX....','..XX....','...XX...','....XX..','........','........','........'],
-  ')': ['..XX....','...XX...','....XX..','....XX..','....XX..','....XX..','....XX..','...XX...','..XX....','........','........','........'],
-  '*': ['........','..X..X..','.XX.XXX.','X.XXX.X.','.XX.XXX.','..X..X..','........','........','........','........','........','........'],
-  '+': ['........','........','...XX...','...XX...','...XX...','XXXXXXX.','...XX...','...XX...','...XX...','........','........','........'],
-  ',': ['........','........','........','........','........','........','........','...XX...','...XX...','..XX....','........','........'],
-  '-': ['........','........','........','........','XXXXXXX.','XXXXXXX.','........','........','........','........','........','........'],
-  '.': ['........','........','........','........','........','........','........','...XX...','...XX...','........','........','........'],
-  '/': ['......XX','.....XX.','....XX..','...XX...','..XX....','.XX.....','XX......','XX......','........','........','........','........'],
-  '0': ['..XXX...','.XX.XX..','.X...X..','X..X..X.','X..X..X.','X..X..X.','.X...X..','.XX.XX..','..XXX...','........','........','........'],
-  '1': ['...XX...','..XXX...','.XXXX...','...XX...','...XX...','...XX...','...XX...','...XX...','XXXXXXX.','........','........','........'],
-  '2': ['..XXX...','.XX.XX..','X....X..','....XX..','..XX....','.XX.....','XX......','XXXXXXX.','XXXXXXX.','........','........','........'],
-  '3': ['..XXX...','.XX.XX..','X....X..','...XX...','...XXX..','......X.','X....X..','.XX.XX..','..XXX...','........','........','........'],
-  '4': ['....XX..','...XXX..','..X.XX..','.X..XX..','X...XX..','XXXXXXX.','....XX..','....XX..','....XX..','........','........','........'],
-  '5': ['XXXXXXX.','XX......','XX......','XXXXX...','....XX..','......X.','X....X..','.XX.XX..','..XXX...','........','........','........'],
-  '6': ['..XXX...','.XX.XX..','XX......','XXXXX...','XX.X.XX.','X....X..','.X...X..','.XX.XX..','..XXX...','........','........','........'],
-  '7': ['XXXXXXX.','X....X..','....X...','...X....','..X.....','..X.....','.XX.....','.XX.....','.XX.....','........','........','........'],
-  '8': ['..XXX...','.XX.XX..','.X...X..','.XX.XX..','..XXX...','.XX.XX..','.X...X..','.XX.XX..','..XXX...','........','........','........'],
-  '9': ['..XXX...','.XX.XX..','.X...X..','.XX..XX.','..XX.XX.','....XX..','...XX...','..XX....','.XXX....','........','........','........'],
-  ':': ['........','........','...XX...','...XX...','........','........','...XX...','...XX...','........','........','........','........'],
-  ';': ['........','........','...XX...','...XX...','........','........','...XX...','...XX...','..XX....','........','........','........'],
-  '<': ['........','....XX..','...XX...','..XX....','.XX.....','..XX....','...XX...','....XX..','........','........','........','........'],
-  '=': ['........','........','........','XXXXXXX.','........','XXXXXXX.','........','........','........','........','........','........'],
-  '>': ['........','.XX.....','..XX....','...XX...','....XX..','...XX...','..XX....','.XX.....','........','........','........','........'],
-  '?': ['..XXX...','.XX.XX..','X....X..','....XX..','...XX...','........','...XX...','...XX...','........','........','........','........'],
-  '@': ['..XXX...','.X...X..','X.XX.XX.','X.XXXX.X','X.XX.XX.','X.XXXX.X','X.XX.XX.','.X...X..','..XXX...','........','........','........'],
-  'A': ['..XXX...','.XX.XX..','.X...X..','X.....X.','XXXXXXX.','X.....X.','X.....X.','X.....X.','X.....X.','........','........','........'],
-  'B': ['XXXXXX..','X.....X.','X.....X.','XXXXXX..','X.....X.','X.....X.','X.....X.','X.....X.','XXXXXX..','........','........','........'],
-  'C': ['..XXXX..','.X....X.','X.......','X.......','X.......','X.......','X.......','.X....X.','..XXXX..','........','........','........'],
-  'D': ['XXXXX...','X....X..','X.....X.','X.....X.','X.....X.','X.....X.','X.....X.','X....X..','XXXXX...','........','........','........'],
-  'E': ['XXXXXXX.','X.......','X.......','XXXXXX..','X.......','X.......','X.......','X.......','XXXXXXX.','........','........','........'],
-  'F': ['XXXXXXX.','X.......','X.......','XXXXXX..','X.......','X.......','X.......','X.......','X.......','........','........','........'],
-  'G': ['..XXXX..','.X....X.','X.......','X.......','X...XXX.','X.....X.','X.....X.','.X...X..','..XXX.X.','........','........','........'],
-  'H': ['X.....X.','X.....X.','X.....X.','XXXXXXX.','X.....X.','X.....X.','X.....X.','X.....X.','X.....X.','........','........','........'],
-  'I': ['XXXXXXX.','...XX...','...XX...','...XX...','...XX...','...XX...','...XX...','...XX...','XXXXXXX.','........','........','........'],
-  'J': ['..XXXXX.','....XX..','....XX..','....XX..','....XX..','....XX..','X...XX..','X...XX..','.XXX....','........','........','........'],
-  'K': ['X.....X.','X....X..','X...X...','X..X....','XXX.....','X..X....','X...X...','X....X..','X.....X.','........','........','........'],
-  'L': ['X.......','X.......','X.......','X.......','X.......','X.......','X.......','X.......','XXXXXXX.','........','........','........'],
-  'M': ['X.....X.','XX...XX.','X.X.X.X.','X..X..X.','X.....X.','X.....X.','X.....X.','X.....X.','X.....X.','........','........','........'],
-  'N': ['X.....X.','XX....X.','X.X...X.','X..X..X.','X...X.X.','X....XX.','X.....X.','X.....X.','X.....X.','........','........','........'],
-  'O': ['..XXX...','.X...X..','X.....X.','X.....X.','X.....X.','X.....X.','X.....X.','.X...X..','..XXX...','........','........','........'],
-  'P': ['XXXXXX..','X.....X.','X.....X.','X.....X.','XXXXXX..','X.......','X.......','X.......','X.......','........','........','........'],
-  'Q': ['..XXX...','.X...X..','X.....X.','X.....X.','X.....X.','X...X.X.','.X...X..','..XXX...','...XX...','........','........','........'],
-  'R': ['XXXXXX..','X.....X.','X.....X.','X.....X.','XXXXXX..','X..X....','X...X...','X....X..','X.....X.','........','........','........'],
-  'S': ['..XXXX..','.X....X.','X.......','..XXX...','....XXX.','......X.','X.....X.','.X....X.','..XXXX..','........','........','........'],
-  'T': ['XXXXXXX.','...XX...','...XX...','...XX...','...XX...','...XX...','...XX...','...XX...','...XX...','........','........','........'],
-  'U': ['X.....X.','X.....X.','X.....X.','X.....X.','X.....X.','X.....X.','X.....X.','.X...X..','..XXX...','........','........','........'],
-  'V': ['X.....X.','X.....X.','X.....X.','X.....X.','.X...X..','.X...X..','..X.X...','..X.X...','...X....','........','........','........'],
-  'W': ['X.....X.','X.....X.','X.....X.','X.....X.','X..X..X.','X..X..X.','X.X.X.X.','.X...X..','.X...X..','........','........','........'],
-  'X': ['X.....X.','X.....X.','.X...X..','..X.X...','...X....','..X.X...','.X...X..','X.....X.','X.....X.','........','........','........'],
-  'Y': ['X.....X.','X.....X.','.X...X..','..X.X...','...X....','...X....','...X....','...X....','...X....','........','........','........'],
-  'Z': ['XXXXXXX.','......X.','.....X..','....X...','...X....','..X.....','.X......','X.......','XXXXXXX.','........','........','........'],
-  '[': ['..XXXX..','..XX....','..XX....','..XX....','..XX....','..XX....','..XX....','..XX....','..XXXX..','........','........','........'],
-  '\\': ['XX......','XX......','.XX.....','..XX....','...XX...','....XX..','.....XX.','.....XX.','........','........','........','........'],
-  ']': ['..XXXX..','....XX..','....XX..','....XX..','....XX..','....XX..','....XX..','....XX..','..XXXX..','........','........','........'],
-  '^': ['...X....','..XXX...','.X.X.X..','X.....X.','........','........','........','........','........','........','........','........'],
-  '_': ['........','........','........','........','........','........','........','........','XXXXXXXX','........','........','........'],
-  '`': ['..XX....','...XX...','....XX..','........','........','........','........','........','........','........','........','........'],
-  'a': ['........','........','........','..XXX...','....XX..','.X..XXX.','XX...XX.','.X..XXX.','..XXXXX.','........','........','........'],
-  'b': ['X.......','X.......','X.......','XXXXX...','X....X..','X.....X.','X.....X.','X....X..','XXXXX...','........','........','........'],
-  'c': ['........','........','........','..XXX...','.X...X..','X.......','X.......','.X...X..','..XXX...','........','........','........'],
-  'd': ['......X.','......X.','......X.','..XXXXX.','.....X..','X.....X.','X.....X.','X....X..','..XXXXX.','........','........','........'],
-  'e': ['........','........','........','..XXX...','.X...X..','XXXXXXX.','X.......','.X...X..','..XXX...','........','........','........'],
-  'f': ['...XXX..','..X.....','..X.....','XXXXX...','..X.....','..X.....','..X.....','..X.....','..X.....','........','........','........'],
-  'g': ['........','........','........','..XXXXX.','X....X..','X....X..','X....X..','X....X..','.XXXXX..','......X.','..XXX...','.XX....'],
-  'h': ['X.......','X.......','X.......','XXXXX...','X....X..','X.....X.','X.....X.','X.....X.','X.....X.','........','........','........'],
-  'i': ['...XX...','........','........','..XXX...','...XX...','...XX...','...XX...','...XX...','..XXXXX.','........','........','........'],
-  'j': ['......X.','........','........','...XXX..','......X.','......X.','......X.','......X.','X....X..','X....X..','.XXX....'],
-  'k': ['X.......','X.......','X.......','X...XX..','X..X....','XXX.....','X..X....','X...X...','X....X..','........','........','........'],
-  'l': ['..XXX...','...XX...','...XX...','...XX...','...XX...','...XX...','...XX...','...XX...','..XXXXX.','........','........','........'],
-  'm': ['........','........','........','XX.XX...','X.X.X.X.','X.X.X.X.','X.....X.','X.....X.','X.....X.','........','........','........'],
-  'n': ['........','........','........','XXXXX...','X....X..','X.....X.','X.....X.','X.....X.','X.....X.','........','........','........'],
-  'o': ['........','........','........','..XXX...','.X...X..','X.....X.','X.....X.','.X...X..','..XXX...','........','........','........'],
-  'p': ['........','........','........','XXXXX...','X....X..','X.....X.','X.....X.','X....X..','XXXXX...','X.....X.','X.....X.','........'],
-  'q': ['........','........','........','..XXXXX.','.....X..','X.....X.','X.....X.','X....X..','..XXXXX.','......X.','......X.','........'],
-  'r': ['........','........','........','X..XXX..','X.X....','XXX.....','X.......','X.......','X.......','........','........','........'],
-  's': ['........','........','........','..XXXXX.','X......','.XXXXX..','......X.','X.....X.','.XXXXX..','........','........','........'],
-  't': ['..X.....','..X.....','..X.....','XXXXX...','..X.....','..X.....','..X.....','..X.....','...XX...','........','........','........'],
-  'u': ['........','........','........','X.....X.','X.....X.','X.....X.','X.....X.','.X...X..','..XXX...','........','........','........'],
-  'v': ['........','........','........','X.....X.','X.....X.','.X...X..','.X...X..','..X.X...','...X....','........','........','........'],
-  'w': ['........','........','........','X.....X.','X.....X.','X..X..X.','X.X.X.X.','.X...X..','.X...X..','........','........','........'],
-  'x': ['........','........','........','X.....X.','.X...X..','..X.X...','..X.X...','.X...X..','X.....X.','........','........','........'],
-  'y': ['........','........','........','X.....X.','X.....X.','.X...X..','.X...X..','..X.X...','...X....','...X....','..X.....','.X......'],
-  'z': ['........','........','........','XXXXXXX.','....XX..','..XX....','.XX.....','XX......','XXXXXXX.','........','........','........'],
-  '{': ['...XXX..','..XX....','..X.....','..X.....','XXX.....','..X.....','..X.....','..XX....','...XXX..','........','........','........'],
-  '|': ['...XX...','...XX...','...XX...','...XX...','...XX...','...XX...','...XX...','...XX...','...XX...','........','........','........'],
-  '}': ['XXX.....','..XX....','...X....','...X....','...XXX..','...X....','...X....','..XX....','XXX.....','........','........','........'],
-  '~': ['........','........','..XX..X.','X.X.XX..','X......X','........','........','........','........','........','........','........'],
-};
-
-function parseColor(color: string): [number, number, number, number] {
-  if (typeof color !== "string") return [0, 0, 0, 255];
-  const c = color.trim().toLowerCase();
-  // Named colors (subset PixiJS commonly uses)
-  const NAMED: Record<string, [number, number, number]> = {
-    white: [255, 255, 255], black: [0, 0, 0], red: [255, 0, 0],
-    green: [0, 128, 0], blue: [0, 0, 255], yellow: [255, 255, 0],
-    cyan: [0, 255, 255], magenta: [255, 0, 255], gray: [128, 128, 128],
-    grey: [128, 128, 128], silver: [192, 192, 192], lime: [0, 255, 0],
-    aqua: [0, 255, 255], teal: [0, 128, 128], navy: [0, 0, 128],
-    fuchsia: [255, 0, 255], purple: [128, 0, 128], olive: [128, 128, 0],
-    maroon: [128, 0, 0], orange: [255, 165, 0], transparent: [0, 0, 0],
-  };
-  if (NAMED[c]) return [NAMED[c][0], NAMED[c][1], NAMED[c][2], c === "transparent" ? 0 : 255];
-  // rgba(r,g,b,a) or rgb(r,g,b)
-  const rgbaMatch = c.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
-  if (rgbaMatch) {
-    return [parseInt(rgbaMatch[1]), parseInt(rgbaMatch[2]), parseInt(rgbaMatch[3]), rgbaMatch[4] ? Math.round(parseFloat(rgbaMatch[4]) * 255) : 255];
-  }
-  // 8-digit hex #rrggbbaa
-  const hex8 = c.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
-  if (hex8) {
-    return [parseInt(hex8[1], 16), parseInt(hex8[2], 16), parseInt(hex8[3], 16), parseInt(hex8[4], 16)];
-  }
-  // 6-digit hex #rrggbb
-  const hex6 = c.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
-  if (hex6) {
-    return [parseInt(hex6[1], 16), parseInt(hex6[2], 16), parseInt(hex6[3], 16), 255];
-  }
-  // 3-digit hex #rgb
-  const hex3 = c.match(/^#([0-9a-f])([0-9a-f])([0-9a-f])$/i);
-  if (hex3) {
-    return [parseInt(hex3[1] + hex3[1], 16), parseInt(hex3[2] + hex3[2], 16), parseInt(hex3[3] + hex3[3], 16), 255];
-  }
-  return [0, 0, 0, 255];
-}
-
-export class NativeCanvas2D {
-  width: number;
-  height: number;
-  private _fillStyle: string = "#000000";
-  private _strokeStyle: string = "#000000";
-  private _font: string = "16px sans-serif";
-  private _textAlign: string = "left";
-  private _textBaseline: string = "alphabetic";
-  lineWidth: number = 1;
-  globalAlpha: number = 1;
-  globalCompositeOperation: string = "source-over";
-  private pixels: Uint8ClampedArray;
-  // 2D affine transform: [a c e, b d f] == [scaleX skewX tx, skewY scaleY ty].
-  // Stored as {a,b,c,d,e,f}. Identity = {1,0,0,1,0,0}.
-  private a = 1; private b = 0; private c = 0; private d = 1; private e = 0; private f = 0;
-  private transformStack: Array<{ a: number; b: number; c: number; d: number; e: number; f: number }> = [];
-
-  constructor(width: number, height: number) {
-    this.width = width;
-    this.height = height;
-    this.pixels = new Uint8ClampedArray(width * height * 4);
-  }
-
-  get fillStyle(): string { return this._fillStyle; }
-  set fillStyle(v: any) {
-    // PixiJS may set fillStyle to a CanvasPattern or CanvasGradient object
-    // (when the fill style's texture !== Texture.WHITE, e.g. due to a
-    // PixiJS version mismatch). parseColor handles non-string values by
-    // returning black, which would make text invisible on dark backgrounds.
-    // Fall back to white for pattern/gradient objects so text remains visible.
-    if (typeof v === "string") this._fillStyle = v;
-    else this._fillStyle = "#ffffff";
-  }
-  get strokeStyle(): string { return this._strokeStyle; }
-  set strokeStyle(v: any) {
-    if (typeof v === "string") this._strokeStyle = v;
-    else this._strokeStyle = "#ffffff";
-  }
-  get font(): string { return this._font; }
-  set font(v: string) { this._font = v; }
-  get textAlign(): string { return this._textAlign; }
-  set textAlign(v: string) { this._textAlign = v; }
-  get textBaseline(): string { return this._textBaseline; }
-  set textBaseline(v: string) { this._textBaseline = v; }
-
-  // ── Transforms ──
-  save(): void { this.transformStack.push({ a: this.a, b: this.b, c: this.c, d: this.d, e: this.e, f: this.f }); }
-  restore(): void { const t = this.transformStack.pop(); if (t) { this.a = t.a; this.b = t.b; this.c = t.c; this.d = t.d; this.e = t.e; this.f = t.f; } }
-  resetTransform(): void { this.a = 1; this.b = 0; this.c = 0; this.d = 1; this.e = 0; this.f = 0; }
-  setTransform(a: number, b: number, c: number, d: number, e: number, f: number): void { this.a = a; this.b = b; this.c = c; this.d = d; this.e = e; this.f = f; }
-  translate(tx: number, ty: number): void { this.e += this.a * tx + this.c * ty; this.f += this.b * tx + this.d * ty; }
-  scale(sx: number, sy: number): void { this.a *= sx; this.b *= sx; this.c *= sy; this.d *= sy; }
-  rotate(_r: number): void { /* not needed for text; no-op */ }
-  transform(a: number, b: number, c: number, d: number, e: number, f: number): void {
-    const na = a * this.a + c * this.b;
-    const nb = b * this.a + d * this.b;
-    const nc = a * this.c + c * this.d;
-    const nd = b * this.c + d * this.d;
-    const ne = a * this.e + c * this.f + e;
-    const nf = b * this.e + d * this.f + f;
-    this.a = na; this.b = nb; this.c = nc; this.d = nd; this.e = ne; this.f = nf;
-  }
-  private transformPoint(x: number, y: number): [number, number] {
-    return [this.a * x + this.c * y + this.e, this.b * x + this.d * y + this.f];
-  }
-
-  private getFontSize(): number {
-    const m = this._font.match(/(\d+)px/);
-    return m ? parseInt(m[1]) : 16;
-  }
-
-  measureText(text: string): { width: number; actualBoundingBoxAscent: number; actualBoundingBoxDescent: number } {
-    const fontSize = this.getFontSize();
-    // Use FreeType for accurate measurement when available
-    const ftWidth = ftMeasureText(text, fontSize);
-    const width = ftWidth >= 0 ? ftWidth : text.length * fontSize * 0.6;
-    // FreeType/SDL_ttf renders text taller than the nominal fontSize (it
-    // includes ascenders + descenders, typically ~1.2× fontSize). Report
-    // generous ascent/descent so PixiJS allocates a tall enough canvas;
-    // otherwise the bottom of glyphs (descenders like 'g', 'p', 'y') gets
-    // clipped.
-    return {
-      width,
-      actualBoundingBoxAscent: fontSize * 1.25,
-      actualBoundingBoxDescent: fontSize * 0.25,
-    };
-  }
-
-  fillText(text: string, x: number, y: number): void {
-    this._renderText(text, x, y, this._fillStyle, false);
-  }
-
-  strokeText(text: string, x: number, y: number): void {
-    this._renderText(text, x, y, this._strokeStyle, true);
-  }
-
-  private _renderText(text: string, x: number, y: number, styleColor: string, isStroke: boolean): void {
-    const baseFontSize = this.getFontSize();
-    // Apply the current transform's scale to the font size (PixiJS text uses
-    // a uniform scale of `resolution` via context.scale(res, res) so the
-    // raster is resolution× crisper). Use the geometric mean of |a| and |d|.
-    const scaleFactor = Math.sqrt(Math.abs(this.a * this.d)) || 1;
-    const fontSize = Math.max(1, Math.round(baseFontSize * scaleFactor));
-    const [cr, cg, cb, ca] = parseColor(styleColor);
-
-    // Adjust y based on textBaseline (in pre-transform units)
-    let logicalY = y;
-    if (this._textBaseline === "top") logicalY = y;
-    else if (this._textBaseline === "middle") logicalY = y - baseFontSize * 0.5;
-    else if (this._textBaseline === "alphabetic") logicalY = y - baseFontSize * 1.0;
-
-    // Transform the start point through the current affine.
-    const [tx, ty] = this.transformPoint(x, logicalY);
-    const dstStartX = Math.floor(tx);
-    const dstStartY = Math.floor(ty);
-
-    // Try FreeType first for proper anti-aliased TrueType rendering
-    if (ftIsAvailable()) {
-      const result = ftRenderText(text, fontSize);
-      if (result) {
-        const { data, width: tw, height: th } = result;
-        for (let py = 0; py < th; py++) {
-          for (let px = 0; px < tw; px++) {
-            const srcIdx = (py * tw + px) * 4;
-            const alpha = data[srcIdx + 3];
-            if (alpha === 0) continue;
-            const dstX = dstStartX + px;
-            const dstY = dstStartY + py;
-            if (dstX < 0 || dstX >= this.width || dstY < 0 || dstY >= this.height) continue;
-            const idx = (dstY * this.width + dstX) * 4;
-            // Non-premultiplied "over" compositing.
-            // The canvas must store non-premultiplied RGBA because
-            // copyExternalImageToTexture premultiplies on upload (premult=true).
-            // Using premultiplied compositing here would double-premultiply,
-            // making text invisible (alpha squared).
-            const srcA = (alpha / 255) * (ca / 255) * this.globalAlpha;
-            const dstA = this.pixels[idx + 3] / 255;
-            const outA = srcA + dstA * (1 - srcA);
-            if (outA > 0) {
-              this.pixels[idx]     = Math.min(255, (cr * srcA + this.pixels[idx]     * dstA * (1 - srcA)) / outA);
-              this.pixels[idx + 1] = Math.min(255, (cg * srcA + this.pixels[idx + 1] * dstA * (1 - srcA)) / outA);
-              this.pixels[idx + 2] = Math.min(255, (cb * srcA + this.pixels[idx + 2] * dstA * (1 - srcA)) / outA);
-            }
-            this.pixels[idx + 3] = Math.min(255, outA * 255);
-          }
-        }
-        return;
-      }
-    }
-
-    // Fallback: original 8x12 bitmap glyph atlas
-    const scaleX = fontSize / GLYPH_W;
-    const scaleY = fontSize / GLYPH_H;
-    const ss = 2;
-
-    let cursorX = dstStartX;
-    let curY = dstStartY;
-    for (let i = 0; i < text.length; i++) {
-      const ch = text[i];
-      if (ch === '\n') { cursorX = dstStartX; curY += fontSize * 1.2; continue; }
-      const pattern = GLYPH_PATTERNS[ch];
-      if (!pattern || pattern.length < GLYPH_H) { cursorX += fontSize * 0.6; continue; }
-
-      const glyphW = Math.ceil(GLYPH_W * scaleX);
-      const glyphH = Math.ceil(GLYPH_H * scaleY);
-
-      for (let py = 0; py < glyphH; py++) {
-        for (let px = 0; px < glyphW; px++) {
-          let coverage = 0;
-          for (let sy = 0; sy < ss; sy++) {
-            for (let sx = 0; sx < ss; sx++) {
-              const srcX = Math.floor((px * ss + sx) / (scaleX * ss));
-              const srcY = Math.floor((py * ss + sy) / (scaleY * ss));
-              if (srcX >= 0 && srcX < GLYPH_W && srcY >= 0 && srcY < GLYPH_H && pattern[srcY] && srcX < pattern[srcY].length) {
-                if (pattern[srcY][srcX] === 'X') coverage++;
-              }
-            }
-          }
-          if (coverage === 0) continue;
-          const srcA = (coverage / (ss * ss)) * (ca / 255) * this.globalAlpha;
-          const dstX = Math.floor(cursorX + px);
-          const dstY = Math.floor(curY + py);
-          if (dstX < 0 || dstX >= this.width || dstY < 0 || dstY >= this.height) continue;
-          const idx = (dstY * this.width + dstX) * 4;
-          // Non-premultiplied "over" compositing (see FreeType path above).
-          const dstA = this.pixels[idx + 3] / 255;
-          const outA = srcA + dstA * (1 - srcA);
-          if (outA > 0) {
-            this.pixels[idx]     = Math.min(255, (cr * srcA + this.pixels[idx]     * dstA * (1 - srcA)) / outA);
-            this.pixels[idx + 1] = Math.min(255, (cg * srcA + this.pixels[idx + 1] * dstA * (1 - srcA)) / outA);
-            this.pixels[idx + 2] = Math.min(255, (cb * srcA + this.pixels[idx + 2] * dstA * (1 - srcA)) / outA);
-          }
-          this.pixels[idx + 3] = Math.min(255, outA * 255);
-        }
-      }
-      cursorX += fontSize * 0.6;
-    }
-  }
-
-  fillRect(x: number, y: number, w: number, h: number): void {
-    const [r, g, b, a] = parseColor(this._fillStyle);
-    for (let py = Math.max(0, Math.floor(y)); py < Math.min(this.height, Math.ceil(y + h)); py++) {
-      for (let px = Math.max(0, Math.floor(x)); px < Math.min(this.width, Math.ceil(x + w)); px++) {
-        const idx = (py * this.width + px) * 4;
-        this.pixels[idx] = r;
-        this.pixels[idx + 1] = g;
-        this.pixels[idx + 2] = b;
-        this.pixels[idx + 3] = a;
-      }
-    }
-  }
-
-  clearRect(x: number, y: number, w: number, h: number): void {
-    for (let py = Math.max(0, Math.floor(y)); py < Math.min(this.height, Math.ceil(y + h)); py++) {
-      for (let px = Math.max(0, Math.floor(x)); px < Math.min(this.width, Math.ceil(x + w)); px++) {
-        const idx = (py * this.width + px) * 4;
-        this.pixels[idx] = 0;
-        this.pixels[idx + 1] = 0;
-        this.pixels[idx + 2] = 0;
-        this.pixels[idx + 3] = 0;
-      }
-    }
-  }
-
-  getImageData(x: number, y: number, w: number, h: number): any {
-    const data = new Uint8ClampedArray(w * h * 4);
-    for (let py = 0; py < h; py++) {
-      for (let px = 0; px < w; px++) {
-        const srcX = Math.floor(x) + px;
-        const srcY = Math.floor(y) + py;
-        if (srcX >= 0 && srcX < this.width && srcY >= 0 && srcY < this.height) {
-          const srcIdx = (srcY * this.width + srcX) * 4;
-          const dstIdx = (py * w + px) * 4;
-          data[dstIdx] = this.pixels[srcIdx];
-          data[dstIdx + 1] = this.pixels[srcIdx + 1];
-          data[dstIdx + 2] = this.pixels[srcIdx + 2];
-          data[dstIdx + 3] = this.pixels[srcIdx + 3];
-        }
-      }
-    }
-    const ImageDataCtor = (globalThis as any).ImageData;
-    if (ImageDataCtor) return new ImageDataCtor(w, h, data);
-    // Fallback: return a plain object shaped like ImageData (for Bun native mode
-    // where the ImageData constructor is not available).
-    return { data, width: w, height: h, colorSpace: "srgb" };
-  }
-
-  putImageData(data: any, x: number, y: number): void {
-    if (!data?.data) return;
-    const srcData = data.data as Uint8ClampedArray;
-    const w = data.width;
-    const h = data.height;
-    for (let py = 0; py < h; py++) {
-      for (let px = 0; px < w; px++) {
-        const dstX = Math.floor(x) + px;
-        const dstY = Math.floor(y) + py;
-        if (dstX >= 0 && dstX < this.width && dstY >= 0 && dstY < this.height) {
-          const srcIdx = (py * w + px) * 4;
-          const dstIdx = (dstY * this.width + dstX) * 4;
-          this.pixels[dstIdx] = srcData[srcIdx];
-          this.pixels[dstIdx + 1] = srcData[srcIdx + 1];
-          this.pixels[dstIdx + 2] = srcData[srcIdx + 2];
-          this.pixels[dstIdx + 3] = srcData[srcIdx + 3];
-        }
-      }
-    }
-  }
-
-  // ── Path / gradient no-ops (PixiJS text uses fillText/measureText; these
-  //    are stubbed for completeness so probes/calls don't throw). ──
-  beginPath(): void {}
-  closePath(): void {}
-  moveTo(_x: number, _y: number): void {}
-  lineTo(_x: number, _y: number): void {}
-  arc(_x: number, _y: number, _r: number, _start: number, _end: number): void {}
-  rect(_x: number, _y: number, _w: number, _h: number): void {}
-  roundRect(_x: number, _y: number, _w: number, _h: number, _r: any): void {}
-  ellipse(_x: number, _y: number, _rx: number, _ry: number, _rot: number, _start: number, _end: number): void {}
-  bezierCurveTo(_c1x: number, _c1y: number, _c2x: number, _c2y: number, _x: number, _y: number): void {}
-  quadraticCurveTo(_c1x: number, _c1y: number, _x: number, _y: number): void {}
-  fill(): void {}
-  stroke(): void {}
-  clip(): void {}
-  setLineDash(_dash: number[]): void {}
-  createLinearGradient(_x0: number, _y0: number, _x1: number, _y1: number): any { return { addColorStop: () => {} }; }
-  createRadialGradient(_x0: number, _y0: number, _r0: number, _x1: number, _y1: number, _r1: number): any { return { addColorStop: () => {} }; }
-  createPattern(_image: any, _repetition: string): any {
-    // PixiJS getCanvasFillStyle calls createPattern when the fill style's
-    // texture is not Texture.WHITE (e.g. due to a PixiJS version mismatch
-    // where Texture.WHITE from one version !== Texture.WHITE from another).
-    // Return a pattern-shaped object with setTransform so the code path
-    // doesn't crash. The fillStyle setter handles non-string values.
-    return { setTransform: () => {} };
-  }
-  drawImage(image: any, dx: number, dy: number, dw?: number, dh?: number): void {
-    // Blit a NativeImageBitmap (RGBA) into the pixel buffer — used by PixiJS
-    // text when compositing canvas snapshots and by getPixels paths.
-    const src = image?.getPixelData?.() ?? image?.data;
-    if (!src) return;
-    const sw = image?.width ?? dw ?? 0;
-    const sh = image?.height ?? dh ?? 0;
-    if (!sw || !sh) return;
-    for (let py = 0; py < sh; py++) {
-      for (let px = 0; px < sw; px++) {
-        const dstX = Math.floor(dx) + px;
-        const dstY = Math.floor(dy) + py;
-        if (dstX < 0 || dstX >= this.width || dstY < 0 || dstY >= this.height) continue;
-        const sIdx = (py * sw + px) * 4;
-        const dIdx = (dstY * this.width + dstX) * 4;
-        this.pixels[dIdx] = src[sIdx];
-        this.pixels[dIdx + 1] = src[sIdx + 1];
-        this.pixels[dIdx + 2] = src[sIdx + 2];
-        this.pixels[dIdx + 3] = src[sIdx + 3];
-      }
-    }
-  }
 }

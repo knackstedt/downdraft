@@ -10,7 +10,8 @@
 // with DOWNDRAFT_SHADER_VALIDATE=0.
 
 import { execSync } from "node:child_process";
-import { existsSync, mkdirSync, renameSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -96,7 +97,6 @@ function downloadTint(binDir: string, plat: string): string {
   execSync(`unzip -o "${zipPath}" -d "${extractDir}"`, { stdio: "ignore" });
 
   // Find the tint binary in the extracted dir
-  const { readdirSync, statSync } = require("node:fs");
   function findBinary(dir: string): string | null {
     for (const entry of readdirSync(dir)) {
       const full = join(dir, entry);
@@ -139,10 +139,6 @@ export function validateWgslWithTint(
   source: string,
   filePath?: string,
 ): { ok: boolean; errors: string[]; warnings: string[] } {
-  const { writeFileSync, unlinkSync, mkdtempSync } = require("node:fs");
-  const { tmpdir } = require("node:os");
-  const { join } = require("node:path");
-
   const tmpDir = mkdtempSync(join(tmpdir(), "downdraft-tint-"));
   const tmpFile = join(tmpDir, "shader.wgsl");
 
@@ -153,7 +149,6 @@ export function validateWgslWithTint(
     // SPIR-V assembly output (we only care about errors/warnings, not the
     // output). Tint exits 0 on success, non-zero on error.
     // Note: -f none and -o /dev/null don't work reliably across tint versions.
-    const { execSync } = require("node:child_process");
     const outFile = join(tmpDir, "out.spvasm");
 
     let stdout = "";

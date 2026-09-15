@@ -20,7 +20,8 @@
 // rasterization via DOMAdapter.get().createCanvas()).
 // ============================================================================
 
-import { NativeCanvas2D } from "../image/native-image";
+import { MiniEventTarget } from "../dom/mini-event-target";
+import { NativeCanvas2D, NativeImageBitmap } from "../image/native-image";
 import type { WgpuDevice, WgpuTexture, WgpuTextureView } from "./wgpu-wrapper";
 
 export interface VirtualCanvasConfig {
@@ -33,10 +34,11 @@ export interface VirtualCanvasConfig {
  * A GPUCanvasContext backed by a persistent GPUTexture (not a swapchain).
  * Used by PixiJS to render the UI into a texture the game composites.
  */
-export class VirtualCanvasContext implements GPUCanvasContext {
+export class VirtualCanvasContext {
   private device: WgpuDevice | null = null;
   private config: VirtualCanvasConfig | null = null;
   private texture: WgpuTexture | null = null;
+  private textureView: WgpuTextureView | null = null;
   private textureWidth = 0;
   private textureHeight = 0;
   // The canvas dimensions are pushed in via resize() / configure().
@@ -49,7 +51,7 @@ export class VirtualCanvasContext implements GPUCanvasContext {
   }
 
   configure(config: GPUCanvasConfiguration): void {
-    this.device = config.device as WgpuDevice;
+    this.device = config.device as unknown as WgpuDevice;
     this.config = {
       format: config.format,
       // PixiJS requests TEXTURE_BINDING | COPY_DST | RENDER_ATTACHMENT | COPY_SRC.
@@ -67,6 +69,7 @@ export class VirtualCanvasContext implements GPUCanvasContext {
   }
 
   unconfigure(): void {
+    this.releaseView();
     if (this.texture) {
       try { this.texture.destroy(); } catch { /* ignore */ }
       this.texture = null;
@@ -75,6 +78,13 @@ export class VirtualCanvasContext implements GPUCanvasContext {
     this.textureHeight = 0;
     this.device = null;
     this.config = null;
+  }
+
+  private releaseView(): void {
+    if (this.textureView) {
+      try { this.textureView.release(); } catch { /* ignore */ }
+      this.textureView = null;
+    }
   }
 
   getCurrentTexture(): WgpuTexture | null {
@@ -87,12 +97,18 @@ export class VirtualCanvasContext implements GPUCanvasContext {
     return this.texture;
   }
 
-  /** A view of the UI texture for the blit pass's sampler binding. */
+  /**
+   * A view of the UI texture for the blit pass's sampler binding.
+   * Cached — the previous implementation created a new native texture view
+   * every frame and leaked each one.
+   */
   getUiTextureView(): WgpuTextureView | null {
     const tex = this.ensureTexture();
     if (!tex) return null;
+    if (this.textureView) return this.textureView;
     try {
-      return tex.createView({ dimension: "2d", format: this.config!.format });
+      this.textureView = tex.createView({ dimension: "2d", format: this.config!.format });
+      return this.textureView;
     } catch {
       return null;
     }
@@ -122,6 +138,7 @@ export class VirtualCanvasContext implements GPUCanvasContext {
       return this.texture;
     }
     if (this.texture) {
+      this.releaseView();
       try { this.texture.destroy(); } catch { /* ignore */ }
       this.texture = null;
     }
@@ -144,35 +161,42 @@ export class VirtualCanvasContext implements GPUCanvasContext {
   }
 }
 
-type EventListener = (event: any) => void;
-
 /**
  * HTMLCanvasElement-shaped canvas for PixiJS. `getContext("webgpu")` returns
  * a VirtualCanvasContext (texture-backed); `getContext("2d")` returns a
  * FreeType-backed NativeCanvas2D (for text rasterization).
  */
-export class VirtualCanvas implements Partial<HTMLCanvasElement> {
+export class VirtualCanvas extends MiniEventTarget {
   private _width: number;
   private _height: number;
   style: Record<string, string> = {};
   private webgpuContext: VirtualCanvasContext;
   private ctx2d: NativeCanvas2D | null = null;
-  private listeners: Map<string, Set<EventListener>> = new Map();
 
   constructor(width: number, height: number) {
+    super();
     this._width = width;
     this._height = height;
     this.webgpuContext = new VirtualCanvasContext(width, height);
   }
 
-  /** Setting width (like a real canvas) clears the 2D context. */
+  /** Setting width (like a real canvas) clears the 2D context and
+   *  resizes the WebGPU backing texture. */
   get width(): number { return this._width; }
   set width(v: number) {
-    if (this._width !== v) { this._width = v; this.ctx2d = null; }
+    if (this._width !== v) {
+      this._width = v;
+      this.ctx2d = null;
+      this.webgpuContext.resize(this._width, this._height);
+    }
   }
   get height(): number { return this._height; }
   set height(v: number) {
-    if (this._height !== v) { this._height = v; this.ctx2d = null; }
+    if (this._height !== v) {
+      this._height = v;
+      this.ctx2d = null;
+      this.webgpuContext.resize(this._width, this._height);
+    }
   }
 
   get clientWidth(): number { return this.width; }
@@ -194,12 +218,11 @@ export class VirtualCanvas implements Partial<HTMLCanvasElement> {
   }
 
   /** Transfer the 2D context's pixels to an ImageBitmap (for PixiJS text textures). */
-  transferToImageBitmap(): any {
+  transferToImageBitmap(): NativeImageBitmap | null {
     if (this.ctx2d) {
       const pixels = new Uint8Array(this.ctx2d["pixels"].length);
       pixels.set(this.ctx2d["pixels"]);
-      const NativeImageBitmapCtor = (globalThis as any).NativeImageBitmap ?? (require("../image/native-image.ts") as any).NativeImageBitmap;
-      return new NativeImageBitmapCtor(this._width, this._height, pixels);
+      return new NativeImageBitmap(this._width, this._height, pixels);
     }
     return null;
   }
@@ -219,19 +242,6 @@ export class VirtualCanvas implements Partial<HTMLCanvasElement> {
   click(): void {}
   remove(): void {}
 
-  addEventListener(type: string, listener: EventListener): void {
-    if (!this.listeners.has(type)) this.listeners.set(type, new Set());
-    this.listeners.get(type)!.add(listener);
-  }
-  removeEventListener(type: string, listener: EventListener): void {
-    this.listeners.get(type)?.delete(listener);
-  }
-  dispatchEvent(event: any): boolean {
-    const set = this.listeners.get(event.type);
-    if (set) for (const l of set) try { l(event); } catch (e) { console.error("[VirtualCanvas] listener error:", e); }
-    return true;
-  }
-
   resize(width: number, height: number): void {
     this._width = width;
     this._height = height;
@@ -245,6 +255,6 @@ export class VirtualCanvas implements Partial<HTMLCanvasElement> {
 
   destroy(): void {
     this.webgpuContext.destroy();
-    this.listeners.clear();
+    this.clearListeners();
   }
 }

@@ -140,13 +140,10 @@ if (typeof (globalThis as any).Bun !== "undefined" && typeof (globalThis as any)
     },
   });
 
-  // ── import.meta.glob polyfill ──
-  // Vite's import.meta.glob() is a compile-time feature. In Bun-native mode,
-  // we set it on import.meta for this module. Other modules that need it
-  // should import from @downdraft/core/platform/glob-polyfill.
-  // The glob polyfill is installed per-module via the runtime utility.
-  try {
-    const { createGlob } = require("./glob-polyfill.ts");
-    (import.meta as any).glob = createGlob(__dirname);
-  } catch {}
+  // ── import.meta.glob ──
+  // Vite's import.meta.glob() is a compile-time transform — there is no way to
+  // polyfill it from a preload script (assigning to this module's import.meta
+  // has no effect on callers). Callers that need globbing in native mode must
+  // use createGlob(import.meta.dir) from "./glob-polyfill" — see
+  // games/to-the-ocean/src/engine/webgpu-renderer.ts for the pattern.
 }

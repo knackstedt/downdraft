@@ -30,12 +30,9 @@ export function encodePNG(width: number, height: number, rgba: Uint8Array): Buff
   const rawData = Buffer.alloc(height * (1 + width * 4));
   for (let y = 0; y < height; y++) {
     rawData[y * (1 + width * 4)] = 0; // filter: none
-    rgba.copy ? null : null; // type check
     const srcOffset = y * width * 4;
     const dstOffset = y * (1 + width * 4) + 1;
-    for (let i = 0; i < width * 4; i++) {
-      rawData[dstOffset + i] = rgba[srcOffset + i];
-    }
+    rawData.set(rgba.subarray(srcOffset, srcOffset + width * 4), dstOffset);
   }
   const compressed = deflateSync(rawData);
 
@@ -85,6 +82,46 @@ function crc32(buf: Buffer): number {
   return crc ^ 0xFFFFFFFF;
 }
 
+/**
+ * Convert a padded wgpu copyTextureToBuffer readback into tightly-packed RGBA.
+ * Strips the 256-byte row padding and swaps B↔R for BGRA surface formats.
+ * Shared by captureScreenshot() and consumers that own their own copy pass
+ * (e.g. games that piggyback the copy on the renderer's encoder).
+ */
+export function paddedReadbackToRGBA(
+  pixels: Uint8Array,
+  width: number,
+  height: number,
+  bytesPerRow: number,
+  format?: GPUTextureFormat | string,
+): Uint8Array {
+  const bytesPerPixel = 4;
+  const isBGRA = format === "bgra8unorm" || format === "bgra8unorm-srgb";
+  const unpadded = new Uint8Array(width * height * bytesPerPixel);
+  const rowBytes = width * bytesPerPixel;
+  if (!isBGRA) {
+    // Fast path: row-wise copy, no per-pixel work.
+    for (let y = 0; y < height; y++) {
+      unpadded.set(pixels.subarray(y * bytesPerRow, y * bytesPerRow + rowBytes), y * rowBytes);
+    }
+    return unpadded;
+  }
+  for (let y = 0; y < height; y++) {
+    const srcOffset = y * bytesPerRow;
+    const dstOffset = y * rowBytes;
+    for (let x = 0; x < width; x++) {
+      const src = srcOffset + x * 4;
+      const dst = dstOffset + x * 4;
+      // Swap B and R channels: BGRA → RGBA
+      unpadded[dst] = pixels[src + 2];     // R ← B
+      unpadded[dst + 1] = pixels[src + 1]; // G ← G
+      unpadded[dst + 2] = pixels[src];     // B ← R
+      unpadded[dst + 3] = pixels[src + 3]; // A ← A
+    }
+  }
+  return unpadded;
+}
+
 // ── Screenshot capture ──
 
 export interface ScreenshotOptions {
@@ -104,7 +141,6 @@ export function captureScreenshot(
 ): void {
   // Create a destination buffer for the copy
   const bytesPerPixel = 4;
-  const bufferSize = width * height * bytesPerPixel;
   // Padded bytesPerRow to 256 (wgpu requirement)
   const bytesPerRow = Math.ceil((width * bytesPerPixel) / 256) * 256;
   const paddedBufferSize = bytesPerRow * height;
@@ -120,47 +156,23 @@ export function captureScreenshot(
     { texture: sourceTexture },
     {
       buffer: destBuffer,
-      layout: {
-        offset: 0,
-        bytesPerRow,
-        rowsPerImage: height,
-      },
+      offset: 0,
+      bytesPerRow,
+      rowsPerImage: height,
     },
     { width, height, depthOrArrayLayers: 1 },
   );
   const cmdBuffer = encoder.finish();
   device.queue.submit([cmdBuffer]);
 
-  // Map the buffer and read back the pixels
-  // wgpu-native's mapAsync is synchronous in our shim
-  destBuffer.mapAsync(1, 0, paddedBufferSize); // 1 = READ
+  // Map the buffer and read back the pixels.
+  // mapAsync completes synchronously in the shim — the returned promise is
+  // already resolved, but we still handle rejections for correctness.
+  void destBuffer.mapAsync(1, 0, paddedBufferSize); // 1 = READ
 
   const mappedRange = destBuffer.getMappedRange(0, paddedBufferSize);
   const pixels = new Uint8Array(mappedRange);
-
-  // Remove padding (if bytesPerRow > width * 4) and swap BGRA → RGBA if needed
-  const isBGRA = format === "bgra8unorm" || format === "bgra8unorm-srgb";
-  const unpadded = new Uint8Array(bufferSize);
-  for (let y = 0; y < height; y++) {
-    const srcOffset = y * bytesPerRow;
-    const dstOffset = y * width * bytesPerPixel;
-    for (let x = 0; x < width; x++) {
-      const src = srcOffset + x * 4;
-      const dst = dstOffset + x * 4;
-      if (isBGRA) {
-        // Swap B and R channels: BGRA → RGBA
-        unpadded[dst] = pixels[src + 2];     // R ← B
-        unpadded[dst + 1] = pixels[src + 1]; // G ← G
-        unpadded[dst + 2] = pixels[src];     // B ← R
-        unpadded[dst + 3] = pixels[src + 3]; // A ← A
-      } else {
-        unpadded[dst] = pixels[src];
-        unpadded[dst + 1] = pixels[src + 1];
-        unpadded[dst + 2] = pixels[src + 2];
-        unpadded[dst + 3] = pixels[src + 3];
-      }
-    }
-  }
+  const unpadded = paddedReadbackToRGBA(pixels, width, height, bytesPerRow, format);
 
   destBuffer.unmap();
   destBuffer.destroy();

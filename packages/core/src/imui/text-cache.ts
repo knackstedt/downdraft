@@ -271,6 +271,7 @@ export class TextAtlasCache {
     if (!this.dirty || this.cursorX === 0) return;
 
     this.ensureAtlasTexture();
+    const atlasTexture = this.atlasTexture!;
 
     const usedHeight = this.cursorY + this.atlasRowHeight;
 
@@ -280,7 +281,7 @@ export class TextAtlasCache {
       // Upload the direct pixel buffer (only the used region)
       const subBuffer = this.atlasPixels.subarray(0, MAX_ATLAS_WIDTH * usedHeight * 4);
       this.device.queue.writeTexture(
-        { texture: this.atlasTexture },
+        { texture: atlasTexture },
         subBuffer as unknown as BufferSource,
         { bytesPerRow: MAX_ATLAS_WIDTH * 4, rowsPerImage: usedHeight },
         [MAX_ATLAS_WIDTH, usedHeight],
@@ -288,7 +289,7 @@ export class TextAtlasCache {
     } else {
       const imageData = this.atlasCtx.getImageData(0, 0, MAX_ATLAS_WIDTH, usedHeight);
       this.device.queue.writeTexture(
-        { texture: this.atlasTexture },
+        { texture: atlasTexture },
         imageData.data as unknown as BufferSource,
         { bytesPerRow: MAX_ATLAS_WIDTH * 4, rowsPerImage: usedHeight },
         [MAX_ATLAS_WIDTH, usedHeight],
@@ -297,7 +298,7 @@ export class TextAtlasCache {
 
     for (const entry of this.entries.values()) {
       if (!entry.texture) {
-        entry.texture = this.atlasTexture;
+        entry.texture = atlasTexture;
         entry.view = this.atlasView!;
       }
     }

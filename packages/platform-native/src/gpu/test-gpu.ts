@@ -1,5 +1,5 @@
 // Test: create device, buffer, shader, pipeline, and submit a draw call
-import { installGPU } from "./install.ts";
+import { installGPU } from "./install";
 
 installGPU();
 
