@@ -12,6 +12,8 @@
 // ============================================================================
 
 import type { ResourceToken } from "../ecs/resource";
+import type { UIRoot } from "../imui/element";
+import type { UIInputRouter } from "../imui/input";
 import type { CameraState } from "../render/camera";
 import type { FrameGraph, SlotRegistry } from "../render/frame-graph";
 import type {
@@ -133,6 +135,18 @@ export interface RendererModuleContext {
 
   // ── Input ──
   getInputBus(): RendererInputBus;
+
+  // ── imui ──
+  /**
+   * The renderer's `UIRoot` — the top-level imui element that `GameRenderer`
+   * lays out and draws each frame. Renderer plugins mount game UI by adding
+   * children to it (see `createGameUi`).
+   */
+  getUIRoot(): UIRoot;
+  /** The router that hit-tests and dispatches pointer/key events to imui elements. */
+  getUIInputRouter(): UIInputRouter | null;
+  /** Mark the UI tree dirty so `GameRenderer` re-runs layout next frame. */
+  invalidateUILayout(): void;
 
   // ── Frame / resize hooks ──
   onFrame(phase: FramePhase, fn: FrameHook): () => void;

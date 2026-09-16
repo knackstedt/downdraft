@@ -16,6 +16,9 @@ export {
 
 export { STICKMAN_WGSL } from "./shader";
 
+export { StickmanPass } from "./stickman-pass";
+export type { StickmanDrawState } from "./stickman-pass";
+
 // Declarative library descriptor
 export { StickmanLib, StickmanTok } from "./library";
 export type { StickmanLibConfig } from "./library";

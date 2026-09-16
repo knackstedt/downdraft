@@ -7,7 +7,6 @@ export default createDowndraftViteConfig({
     title: "Sandjongg",
     layers: [
       { type: "canvas", id: "game-canvas" },
-      { type: "canvas", id: "pixi-ui-canvas" },
       { type: "dom", id: "root" },
     ],
   },

@@ -38,6 +38,7 @@ export type UILayoutMode = "absolute" | "vertical" | "horizontal" | "grid";
 export interface UICallbacks {
   onClick?: (el: UIElement) => void;
   onHover?: (el: UIElement) => void;
+  onHoverEnd?: (el: UIElement) => void;
   onPress?: (el: UIElement) => void;
   onRelease?: (el: UIElement) => void;
   onFocus?: (el: UIElement) => void;
@@ -55,6 +56,12 @@ export abstract class UIElement {
   visible: boolean = true;
   enabled: boolean = true;
   focusable: boolean = false;
+  /**
+   * When true, this element's own rect does not hit-test (pointer passes
+   * through to the canvas/game), but its children still hit-test normally.
+   * Use for full-screen HUD layout containers holding interactive widgets.
+   */
+  pointerThrough: boolean = false;
 
   x: number = 0;
   y: number = 0;
@@ -124,6 +131,8 @@ export abstract class UIElement {
     this._hovered = hovered;
     if (hovered) {
       this.callbacks.onHover?.(this);
+    } else {
+      this.callbacks.onHoverEnd?.(this);
     }
   }
 
@@ -135,6 +144,19 @@ export abstract class UIElement {
     } else {
       this.callbacks.onRelease?.(this);
     }
+  }
+
+  /** Position in root/screen space (sum of the parent chain). */
+  absolutePos(): { x: number; y: number } {
+    let x = this.x;
+    let y = this.y;
+    let p = this.parent;
+    while (p) {
+      x += p.x;
+      y += p.y;
+      p = p.parent;
+    }
+    return { x, y };
   }
 
   hitTest(px: number, py: number): UIElement | null {
@@ -149,7 +171,7 @@ export abstract class UIElement {
       const hit = this.children[i].hitTest(localX, localY);
       if (hit) return hit;
     }
-    return this;
+    return this.pointerThrough ? null : this;
   }
 
   abstract getDrawable(): UIDrawable[];
@@ -250,6 +272,7 @@ export class UIText extends UIElement {
       fontFamily: this.style.fontFamily,
       fontWeight: this.style.fontWeight,
       textAlign: this.style.textAlign,
+      maxWidth: this.width > 0 ? this.width : undefined,
     }];
   }
 }

@@ -17,6 +17,8 @@
     "@downdraft/library-sand": "workspace:*",
     "@downdraft/library-stickman": "workspace:*",
     "@downdraft/module-devtools": "workspace:*",
+    "@downdraft/module-movement-2d": "workspace:*",
+    "@downdraft/module-vitals": "workspace:*",
     "@downdraft/shader-graph": "workspace:*",
     "@downdraft/ui": "workspace:*",
     "@pixi/react": "^8.0.5",

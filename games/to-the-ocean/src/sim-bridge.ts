@@ -3,13 +3,20 @@
 // the simulation Web Worker and the Electron main process.
 // Replaces the old ocean.* IPC API for sim-related calls.
 //
+// The generic save/load + pause/resume + window-control surface comes from
+// createSimBridge() in @downdraft/app/renderer. This file adds the
+// tto-specific command verbs and keeps the historical SimBridgeDeps shape.
+//
 // Created via createSimBridge(deps) and stored in the game-store. Consumers
 // read it from the store: useGameStore((s) => s.simBridge).
 // ============================================================================
 
 import type { DowndraftBridge } from "@downdraft/app/renderer";
-import type { ISaveStore, SaveOptions, SaveState } from "@downdraft/core";
+import { createSimBridge as createEngineSimBridge, type SimBridge as EngineSimBridge } from "@downdraft/app/renderer";
+import type { ISaveStore } from "@downdraft/core";
 import type { ISimWorker } from "./engine/sim-web-worker";
+
+export type { ISimWorker } from "./engine/sim-web-worker";
 
 /**
  * Renderer methods used by the bridge for save/load meta serialization.
@@ -30,17 +37,9 @@ export interface SimBridgeDeps {
   saveMode?: "inline" | "worker" | "ipc";
 }
 
-export interface SimBridge {
-  // --- Save/Load ---
-  saveGame(slotName: string, opts?: SaveOptions): Promise<boolean>;
-  loadGame(slotName: string): Promise<boolean>;
-
+export interface SimBridge extends EngineSimBridge {
   // --- Player ---
   respawnPlayer(playerId: number): void;
-
-  // --- Pause/Resume ---
-  pauseGame(): void;
-  resumeGame(): void;
 
   // --- Commands ---
   sendCommand(cmd: any): void;
@@ -64,14 +63,6 @@ export interface SimBridge {
 
   // --- Debug ---
   setDebugMode(enabled: boolean): void;
-
-  // --- App (still via IPC) ---
-  quit(): void;
-  toggleDevtools(): void;
-  toggleFullscreen(): void;
-
-  // --- Reset (reload the page to restart sim) ---
-  resetGame(): void;
 }
 
 /**
@@ -79,110 +70,15 @@ export interface SimBridge {
  * Called once in main.tsx after the worker and renderer are initialized.
  */
 export function createSimBridge(deps: SimBridgeDeps): SimBridge {
-  const { worker, renderer, downdraft, saveStore, saveMode = "ipc" } = deps;
+  const { worker, downdraft } = deps;
+  const base = createEngineSimBridge(deps);
 
   return {
-    // --- Save/Load ---
-    async saveGame(slotName: string, opts?: SaveOptions): Promise<boolean> {
-      const mergedOpts: SaveOptions = { ...opts };
-
-      // If we have a dedicated save store (worker mode), serialize in the
-      // sim worker, then write to the SaveWorkerProxy (dedicated save worker).
-      if (saveMode === "worker" && saveStore) {
-        const result = await worker.save(slotName, mergedOpts);
-        if (!result?.stateJson) return false;
-        const components = JSON.parse(result.stateJson);
-        if (renderer.serializeRendererMeta) {
-          components.renderer = { v: 1, data: renderer.serializeRendererMeta() };
-        }
-        const state: SaveState = {
-          components,
-          meta: {
-            engineVersion: (mergedOpts.properties?.engineVersion as string) ?? "0.1.0",
-            timestamp: Date.now() / 1000,
-            entityCount: 0,
-            playerCount: 0,
-          },
-        };
-        const saveResult = await saveStore.save(slotName, state, mergedOpts);
-        return saveResult.success;
-      }
-
-      // Inline mode: worker has its own OpfsSaveStore, just pass opts
-      if (saveMode === "inline") {
-        const result = await worker.save(slotName, mergedOpts);
-        return result?.success ?? false;
-      }
-
-      // IPC fallback: worker returns stateJson, send via bridge
-      const result = await worker.save(slotName, mergedOpts);
-      if (result?.stateJson) {
-        if (downdraft.saveGameState) {
-          const components = JSON.parse(result.stateJson);
-          if (renderer.serializeRendererMeta) {
-            components.renderer = { v: 1, data: renderer.serializeRendererMeta() };
-          }
-          return downdraft.saveGameState(slotName, JSON.stringify(components), mergedOpts);
-        }
-      }
-      return false;
-    },
-
-    async loadGame(slotName: string): Promise<boolean> {
-      // If we have a dedicated save store, load from it
-      if (saveMode === "worker" && saveStore) {
-        const loadResult = await saveStore.load(slotName);
-        if (!loadResult.state) return false;
-        const stateJson = JSON.stringify(loadResult.state.components);
-        const ok = await worker.load(slotName, stateJson);
-        if (ok && renderer.restoreRendererMeta) {
-          try {
-            const components = JSON.parse(stateJson);
-            if (components.renderer?.data) {
-              renderer.restoreRendererMeta(components.renderer.data);
-            }
-          } catch { /* ignore */ }
-        }
-        return ok;
-      }
-
-      // Inline mode: worker loads from its own OPFS store
-      if (saveMode === "inline") {
-        return worker.load(slotName);
-      }
-
-      // IPC fallback: load from downdraft bridge
-      if (!downdraft.loadGameState) return false;
-      const stateJson = await downdraft.loadGameState(slotName);
-      if (!stateJson) return false;
-      const loaded = await worker.load(slotName, stateJson);
-      if (loaded) {
-        try {
-          const components = JSON.parse(stateJson);
-          if (components.renderer?.data) {
-            if (renderer.restoreRendererMeta) {
-              renderer.restoreRendererMeta(components.renderer.data);
-            }
-          }
-        } catch {
-          // ignore parse errors
-        }
-      }
-      return loaded;
-    },
+    ...base,
 
     // --- Player ---
     respawnPlayer(playerId: number): void {
       worker.respawnPlayer(playerId);
-    },
-
-    // --- Pause/Resume ---
-    pauseGame(): void {
-      worker.pause();
-    },
-
-    resumeGame(): void {
-      worker.resume();
     },
 
     // --- Commands ---
@@ -240,24 +136,6 @@ export function createSimBridge(deps: SimBridgeDeps): SimBridge {
     setDebugMode(enabled: boolean): void {
       worker.setDebugMode(enabled);
       downdraft.setDebugMode(enabled);
-    },
-
-    // --- App (still via IPC) ---
-    quit(): void {
-      downdraft.quit();
-    },
-
-    toggleDevtools(): void {
-      downdraft.toggleDevtools();
-    },
-
-    toggleFullscreen(): void {
-      downdraft.toggleFullscreen();
-    },
-
-    // --- Reset (reload the page to restart sim) ---
-    resetGame(): void {
-      window.location.reload();
     },
   };
 }

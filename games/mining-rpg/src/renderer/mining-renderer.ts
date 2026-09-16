@@ -11,7 +11,10 @@
 // ============================================================================
 
 import { GameRenderer } from "@downdraft/core";
-import { Material, MATERIALS } from "@downdraft/library-sand";
+import { Material, MATERIALS, SandGridPass } from "@downdraft/library-sand";
+import { StickmanPass } from "@downdraft/library-stickman";
+import BG_FS from "../shaders/background-render.wgsl?raw" with { type: "text" };
+import SAND_FS from "../shaders/sand-render.wgsl?raw" with { type: "text" };
 import { ACTIVE_GRID_H, ACTIVE_GRID_W, BACKDROP_PARALLAX, CHUNK_H, CHUNK_W, HEADLAMP_COLOR, MAX_CHUNKS_X, OXYGEN_MAX_TICKS, PLAYER, SIGNPOST_RADIUS, STATS, TICK_RATE, WORLD_SEED, type BuildMaterialType, type UpgradeConfig } from "../shared/constants";
 import { MiningSimBufferReader } from "../shared/sim-buffer";
 import type { SavedGlowstick } from "../shared/types";
@@ -21,13 +24,10 @@ import { BASE_SURFACE_Y, surfaceHeightAt } from "../simulation/terrain";
 import { pickDeathQuip, useGameStore } from "../stores/game-store";
 import { AutosaveManager, createAutosaveManager, deleteSave, loadWorld } from "../stores/save-system";
 import { BackdropPass } from "./backdrop-pass";
-import { BackgroundGridPass } from "./background-grid-pass";
 import { makeCamera2D, screenToWorld, updateCamera, worldToScreen, type Camera2D } from "./camera";
 import { FogOfWarPass } from "./fog-pass";
 import { createMiningInputHandler, type MiningInputState } from "./input-handler";
 import { createExplosionLight, LightAccumPass, type RendererLight } from "./light-accum-pass";
-import { SandGridPass } from "./sand-grid-pass";
-import { StickmanPass } from "./stickman-pass";
 import { VolumetricLightPass, type VolRendererLight } from "./volumetric-light-pass";
 
 // --- Bomb constants ---
@@ -117,7 +117,7 @@ interface Bomb {
 
 export class MiningRenderer extends GameRenderer {
   private gridPass: SandGridPass | null = null;
-  private bgGridPass: BackgroundGridPass | null = null;
+  private bgGridPass: SandGridPass | null = null;
   private backdropPass: BackdropPass | null = null;
   private stickmanPass: StickmanPass | null = null;
   private fogPass: FogOfWarPass | null = null;
@@ -344,19 +344,31 @@ export class MiningRenderer extends GameRenderer {
 
     this.camera = makeCamera2D(canvas.width, canvas.height, { zoom: 4, x: 0, y: 0 });
 
-    this.gridPass = new SandGridPass(device, format, ACTIVE_GRID_W, ACTIVE_GRID_H);
+    this.gridPass = new SandGridPass({
+      device, format,
+      gridW: ACTIVE_GRID_W, gridH: ACTIVE_GRID_H,
+      fragmentShader: SAND_FS,
+      camera: true,
+      extraTextures: 2, // light accumulation + volumetric
+    });
     this.gridPass.init(canvas.width, canvas.height);
 
     // Background grid pass — renders build materials (scaffolding/ladders/ropes)
     // with material-specific shape masks, between the backdrop and foreground.
-    this.bgGridPass = new BackgroundGridPass(device, format, ACTIVE_GRID_W, ACTIVE_GRID_H);
+    this.bgGridPass = new SandGridPass({
+      device, format,
+      gridW: ACTIVE_GRID_W, gridH: ACTIVE_GRID_H,
+      fragmentShader: BG_FS,
+      camera: true,
+      extraTextures: 2, // light accumulation + volumetric
+    });
     this.bgGridPass.init(canvas.width, canvas.height);
 
     // Backdrop pass (rendered behind the foreground with parallax)
     this.backdropPass = new BackdropPass(device, format);
     this.backdropPass.init();
 
-    this.stickmanPass = new StickmanPass(device, format);
+    this.stickmanPass = new StickmanPass({ device, format });
     this.stickmanPass.init();
 
     // Fog-of-war pass: renders solid black over unexplored cells, transparent
@@ -575,6 +587,7 @@ export class MiningRenderer extends GameRenderer {
     this.fogPass?.destroy();
     this.lightAccumPass?.destroy();
     this.volumetricPass?.destroy();
+    this.input?.destroy();
     if (this.keydownHandler) window.removeEventListener("keydown", this.keydownHandler);
     this.destroy();
   }
@@ -952,12 +965,14 @@ export class MiningRenderer extends GameRenderer {
     this.backdropPass.updateUniforms(bdOriginY, BASE_SURFACE_Y);
 
     // --- Update stickman (in local coords) ---
-    this.stickmanPass.update(
-      localPx, localPy, facing, animFrame,
+    this.stickmanPass.setCameraViewport(
       camLocalX, camLocalY, this.camera.zoom,
       canvas.width, canvas.height,
-      health, onGround, vx, vy,
     );
+    this.stickmanPass.update({
+      cx: localPx, topY: localPy, facing, animFrame,
+      health, onGround, vx, vy,
+    });
 
     // --- Update fog-of-war pass ---
     this.fogPass!.updateGrid(this.gridReader.getExploredGrid());
@@ -1092,12 +1107,12 @@ export class MiningRenderer extends GameRenderer {
     const lightView = this.lightAccumPass!.getLightTextureView();
     const volView = this.volumetricPass!.getVolumetricTextureView();
     this.backdropPass.setLightTexture(lightView);
-    this.bgGridPass!.setLightTexture(lightView);
-    this.gridPass.setLightTexture(lightView);
+    this.bgGridPass!.setExtraTexture(0, lightView);
+    this.gridPass.setExtraTexture(0, lightView);
     this.stickmanPass.setLightTexture(lightView);
     this.backdropPass.setVolumetricTexture(volView);
-    this.bgGridPass!.setVolumetricTexture(volView);
-    this.gridPass.setVolumetricTexture(volView);
+    this.bgGridPass!.setExtraTexture(1, volView);
+    this.gridPass.setExtraTexture(1, volView);
     this.stickmanPass.setVolumetricTexture(volView);
 
     // 2. Main scene pass (renders to the canvas)

@@ -53,10 +53,23 @@ import { createSaveStore, isOpfsAvailable, type SaveStoreMode } from "./save-sto
  * then be typed as `T` (no casting needed).
  */
 export interface GameSimWorker {
-  /** Start the sim worker. Config is opaque to the framework (game-specific). */
+  /** Start the sim worker. Config is opaque to the framework (game-specific).
+   *  Not called for renderer-owned workers (see `module.simFromRenderer`). */
   start(config: unknown): Promise<void>;
-  /** Register an event callback for sim→renderer messages. */
-  onEvent(cb: (msg: any) => void): void;
+  /**
+   * `SimWorkerHost`-style event subscription — the callback receives
+   * `{ kind, data }` messages and the return value is an unsubscribe
+   * function. Preferred over `onEvent` when both exist.
+   *
+   * NOTE: `onEvent(cb)` is intentionally NOT declared on this interface —
+   * `SimWorkerHost`/`BaseWorkerHost` subclasses carry a *protected*
+   * `onEvent(kind, data)` dispatcher, and a class with a protected member
+   * can't satisfy an interface that declares the same name. Event wiring
+   * probes `subscribeEvents` first, then a public `onEvent` at runtime, so
+   * plain GameSimWorker implementations (e.g. falling-sand's worker host)
+   * still work.
+   */
+  subscribeEvents?(cb: (msg: { kind: string; data: unknown }) => void): () => void;
   getSimBuffer(): SharedArrayBuffer;
   getInputBuffer(): SharedArrayBuffer;
   /** Optional additional SABs the game wants exposed via GameContext. */
@@ -278,11 +291,10 @@ export interface GameModule<Sim extends GameSimWorker = GameSimWorker> {
    * factory-created worker. This removes the need for no-op GameSimWorker
    * adapter classes.
    *
-   * The returned object must satisfy GameSimWorker (start/onEvent/
-   * getSimBuffer/getInputBuffer). `SimWorkerHost` subclasses satisfy this via
-   * `subscribeEvents` — wire it with:
-   *   `onEvent(cb) { this.subscribeEvents(cb); }`
-   * or declare `simFromRenderer: (r) => adaptWorkerHost(r.getWorkerHost())`.
+   * The returned object must satisfy GameSimWorker (start + getSimBuffer +
+   * getInputBuffer, plus onEvent or subscribeEvents for event routing).
+   * `SimWorkerHost` subclasses satisfy this directly via `subscribeEvents`:
+   *   `simFromRenderer: (r) => r.getWorkerHost() ?? undefined`
    */
   simFromRenderer?: (renderer: any, ctx: GameContext<Sim>) => Sim | undefined | Promise<Sim | undefined>;
 
@@ -513,11 +525,14 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
   const wireSimEvents = (worker: Sim) => {
     if (!module.events || !worker) return;
     const events = module.events;
+    // Prefer subscribeEvents when present: SimWorkerHost subclasses expose it
+    // as the public registration API, while their protected onEvent(kind,data)
+    // is the internal dispatcher (and would be incorrectly bound if we probed
+    // onEvent first — it exists on the prototype at runtime).
     const onEvent: ((cb: (msg: any) => void) => void) | undefined =
-      (worker as any).onEvent?.bind(worker)
-      ?? ((worker as any).subscribeEvents
+      (worker as any).subscribeEvents
         ? (cb: (msg: any) => void) => { (worker as any).subscribeEvents(cb); }
-        : undefined);
+        : (worker as any).onEvent?.bind(worker);
     if (!onEvent) return;
     onEvent((msg) => {
       const handler = events[msg.kind];

@@ -1,3 +1,4 @@
+import { createBaseGameStoreState, type BaseGameStoreState } from "@downdraft/core";
 import { create } from "zustand";
 import { ACHIEVEMENTS, checkAchievements, type Achievement } from "../shared/achievements";
 import { BASE_INVENTORY_SIZE, BUILD_MATERIAL_ID, BUILD_MATERIAL_PRICES, INVENTORY_SIZE_UPGRADE_INCREMENT, OXYGEN_MAX_TICKS, SELL_PRICES, upgradePrice, type BuildMaterialType, type UpgradeConfig } from "../shared/constants";
@@ -9,12 +10,10 @@ import { createCraftedItems, createPlayerStats } from "../shared/types";
 // defined inline here; now shared with the Solid worker store).
 export { pickDeathQuip } from "../shared/death-messages";
 
-export interface GameState {
+export interface GameState extends Omit<BaseGameStoreState<unknown>, "fps"> {
   fps: number | null;
-  health: number;
   oxygen: number; // remaining oxygen ticks (OXYGEN_MAX_TICKS = full breath)
   depth: number; // player depth in chunks (0 = surface)
-  paused: boolean;
   gameOver: boolean; // true when player health reaches 0
   deathCause: number; // Material ID that caused death (0 = none)
   deathQuip: string; // cause-of-death message, set once per death event
@@ -23,7 +22,6 @@ export interface GameState {
   upgrades: PlayerUpgrades;
   loadedChunks: number;
   activeChunks: number;
-  renderer: unknown | null; // set to MiningRenderer at runtime; typed as unknown to avoid circular import
   showInventory: boolean;
   showEscapeMenu: boolean; // true when the ESC pause menu is open
   currency: number; // gold earned from selling materials at the signpost
@@ -46,15 +44,11 @@ export interface GameState {
   // Crafting
   craftedItems: CraftedItems; // counts of crafted bars (persisted)
   // Title screen
-  showTitleScreen: boolean; // true when the title screen is visible (game start)
   lastSaveTime: number; // timestamp of last save (0 = never)
   showMinimap: boolean; // minimap visibility (toggle with M)
 
-  setFPS: (fps: number) => void;
-  setHealth: (health: number) => void;
   setOxygen: (oxygen: number) => void;
   setDepth: (depth: number) => void;
-  setPaused: (p: boolean) => void;
   setGameOver: (g: boolean) => void;
   setDeathCause: (c: number) => void;
   setDeathQuip: (q: string) => void;
@@ -64,7 +58,6 @@ export interface GameState {
   setUpgrades: (upgrades: PlayerUpgrades) => void;
   setLoadedChunks: (n: number) => void;
   setActiveChunks: (n: number) => void;
-  setRenderer: (r: unknown | null) => void;
   setShowInventory: (show: boolean) => void;
   setShowEscapeMenu: (show: boolean) => void;
   setCurrency: (c: number) => void;
@@ -162,7 +155,6 @@ export interface GameState {
   /** Reset crafted items to zero (called on world reset). */
   resetCraftedItems: () => void;
   // Title screen
-  setShowTitleScreen: (show: boolean) => void;
   setLastSaveTime: (time: number) => void;
   toggleMinimap: () => void;
   // Particle effects
@@ -199,11 +191,10 @@ export interface GameState {
 }
 
 export const useGameStore = create<GameState>((set, get) => ({
+  ...createBaseGameStoreState<unknown>(set, get),
   fps: null,
-  health: 100,
   oxygen: OXYGEN_MAX_TICKS,
   depth: 0,
-  paused: false,
   gameOver: false,
   deathCause: 0,
   deathQuip: "",
@@ -212,7 +203,6 @@ export const useGameStore = create<GameState>((set, get) => ({
   upgrades: { damage: 0, radius: 0, rate: 0, inventorySize: 0 },
   loadedChunks: 0,
   activeChunks: 0,
-  renderer: null,
   showInventory: false,
   showEscapeMenu: false,
   currency: 0,
@@ -245,11 +235,8 @@ export const useGameStore = create<GameState>((set, get) => ({
   showHelp: false,
   showShop: false,
 
-  setFPS: (fps) => set({ fps }),
-  setHealth: (health) => set({ health }),
   setOxygen: (oxygen) => set({ oxygen }),
   setDepth: (depth) => set({ depth }),
-  setPaused: (paused) => set({ paused }),
   setGameOver: (gameOver) => set({ gameOver }),
   setDeathCause: (deathCause) => set({ deathCause }),
   setDeathQuip: (deathQuip) => set({ deathQuip }),
@@ -270,7 +257,6 @@ export const useGameStore = create<GameState>((set, get) => ({
   setUpgrades: (upgrades) => set({ upgrades }),
   setLoadedChunks: (loadedChunks) => set({ loadedChunks }),
   setActiveChunks: (activeChunks) => set({ activeChunks }),
-  setRenderer: (renderer) => set({ renderer }),
   setShowInventory: (showInventory) => set({ showInventory }),
   setShowEscapeMenu: (showEscapeMenu) => set({ showEscapeMenu }),
   setCurrency: (currency) => set({ currency }),
@@ -455,7 +441,6 @@ export const useGameStore = create<GameState>((set, get) => ({
     return total;
   },
   resetCraftedItems: () => set({ craftedItems: createCraftedItems() }),
-  setShowTitleScreen: (showTitleScreen) => set({ showTitleScreen }),
   setLastSaveTime: (lastSaveTime) => set({ lastSaveTime }),
   toggleMinimap: () => set((s) => ({ showMinimap: !s.showMinimap })),
   spawnParticles: () => {}, // overridden by ParticleEffects component

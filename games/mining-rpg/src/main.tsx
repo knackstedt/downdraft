@@ -9,13 +9,12 @@
 //   - postAction (worker→main side effects: pause, save, craft, teleport)
 // ============================================================================
 
-import { startGame, type GameSimWorker } from "@downdraft/app/renderer";
+import { startGame } from "@downdraft/app/renderer";
 import { PixiUiHost, getEffectiveFontScale, loadUserFontScale, saveUserFontScale } from "@downdraft/library-pixi-ui";
 import { createSimStatsPanelExtension, createSimStatsProvider } from "@downdraft/module-devtools";
 import { MINING_STATS_LAYOUT, type WorkerToMainAction } from "./pixi/bridge-protocol";
 import { MiningRenderer } from "./renderer/mining-renderer";
 import { PLAYER, STATS, WORLD_SEED } from "./shared/constants";
-import { allocateMiningSimBuffer } from "./shared/sim-buffer";
 import { useGameStore } from "./stores/game-store";
 import "./styles/globals.css";
 
@@ -23,26 +22,14 @@ let pixiHost: PixiUiHost | null = null;
 let statsRafId = 0;
 let snapshotCounter = 0;
 
-/**
- * MiningGameSim — adapter that satisfies the GameSimWorker interface.
- * The mining-rpg renderer manages its own worker internally.
- */
-class MiningGameSim implements GameSimWorker {
-  private sab: SharedArrayBuffer;
-  constructor() { this.sab = allocateMiningSimBuffer(); }
-  async start(_config: unknown): Promise<void> { /* no-op */ }
-  onEvent(_cb: (msg: any) => void): void { /* no-op */ }
-  getSimBuffer(): SharedArrayBuffer { return this.sab; }
-  getInputBuffer(): SharedArrayBuffer { return this.sab; }
-}
-
 startGame({
   renderer: (canvas) => {
     const deterministic = (globalThis as any).downdraft?.deterministic === true;
     return new MiningRenderer(canvas, deterministic);
   },
-  sim: () => new MiningGameSim(),
-  simConfig: {},
+  // The renderer creates + starts its own MiningWorkerHost inside init() —
+  // resolve it after renderer init instead of declaring a sim factory.
+  simFromRenderer: (r: MiningRenderer) => r.getWorkerHost() ?? undefined,
 
   mountUI: () => { /* pixi-ui handles UI */ },
 

@@ -1,3 +1,4 @@
+import { createBaseGameStoreState, type BaseGameStoreState } from "@downdraft/core";
 import { create } from "zustand";
 import type { BlockheadsRenderer } from "../renderer/blockheads-renderer";
 import type { Season } from "../shared/crops";
@@ -47,11 +48,8 @@ export const PICKUP_MAX_TOASTS = 6;
 
 let pickupIdCounter = 0;
 
-interface GameState {
+interface GameState extends BaseGameStoreState<BlockheadsRenderer> {
   // UI state
-  showTitleScreen: boolean;
-  paused: boolean;
-  fps: number;
   showCraftPanel: boolean;
   showInventoryPanel: boolean;
   showTaskQueue: boolean;
@@ -83,21 +81,15 @@ interface GameState {
   season: Season;
   dayInSeason: number;
   year: number;
-  // Renderer reference (set by main.tsx after init)
-  renderer: BlockheadsRenderer | null;
   // Player character gender (male/female model toggle)
   characterGender: "male" | "female";
   // Actions
-  setShowTitleScreen: (show: boolean) => void;
-  setPaused: (paused: boolean) => void;
-  setFps: (fps: number) => void;
   setShowCraftPanel: (show: boolean) => void;
   setShowInventoryPanel: (show: boolean) => void;
   setShowTaskQueue: (show: boolean) => void;
   setTaskMode: (mode: boolean) => void;
   setDeterministic: (det: boolean) => void;
   setSelectedStation: (station: { ax: number; ay: number } | null) => void;
-  setRenderer: (renderer: BlockheadsRenderer | null) => void;
   setBlockhead: (bh: BlockheadUIState) => void;
   setBlockheads: (bhs: BlockheadUIState[]) => void;
   setActiveBhIndex: (i: number) => void;
@@ -122,10 +114,9 @@ const defaultBh: BlockheadUIState = {
   environment: 100,
 };
 
-export const useGameStore = create<GameState>((set) => ({
+export const useGameStore = create<GameState>((set, get) => ({
+  ...createBaseGameStoreState<BlockheadsRenderer>(set, get),
   showTitleScreen: true,
-  paused: false,
-  fps: 0,
   showCraftPanel: false,
   showInventoryPanel: false,
   showTaskQueue: false,
@@ -145,18 +136,13 @@ export const useGameStore = create<GameState>((set) => ({
   season: "spring",
   dayInSeason: 0,
   year: 0,
-  renderer: null,
   characterGender: "male",
-  setShowTitleScreen: (show) => set({ showTitleScreen: show }),
-  setPaused: (paused) => set({ paused }),
-  setFps: (fps) => set({ fps }),
   setShowCraftPanel: (show) => set({ showCraftPanel: show }),
   setShowInventoryPanel: (show) => set({ showInventoryPanel: show }),
   setShowTaskQueue: (show) => set({ showTaskQueue: show }),
   setTaskMode: (mode) => set({ taskMode: mode }),
   setDeterministic: (det) => set({ deterministic: det }),
   setSelectedStation: (station) => set({ selectedStation: station }),
-  setRenderer: (renderer) => set({ renderer }),
   setBlockhead: (bh) => set({ blockhead: bh }),
   setBlockheads: (bhs) => set({ blockheads: bhs }),
   setActiveBhIndex: (i) => set({ activeBhIndex: i }),

@@ -59,8 +59,19 @@ export type { InitDevToolsOptions } from "./init";
 
 // Profiling bridge — wires the ProfilingSAB + renderer-side warning engine +
 // event-loop monitor + trace event writer + auto-trace + built-in view descriptors
+export { bindDebugStore } from "./bind-debug-store";
+export type { DebugStoreBindings } from "./bind-debug-store";
 export { ProfilingBridge } from "./profiling-bridge";
 export type { ProfilingBridgeOptions, ProfilingBridgeSnapshot } from "./profiling-bridge";
+export { attachProfilerOverlay, wireProfilingBridge } from "./profiling-hooks";
+export type {
+    ProfilerOverlayHandle,
+    ProfilerOverlayOptions,
+    ProfilingLoopCallbacks,
+    ProfilingWireHost,
+    ProfilingWireRenderer,
+    WireProfilingBridgeOptions
+} from "./profiling-hooks";
 
 // Debug view descriptors — declarative registration of profiler overlay views
 export { BUILTIN_VIEW_DESCRIPTORS } from "./debug-view-descriptors";

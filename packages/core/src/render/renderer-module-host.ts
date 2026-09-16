@@ -13,6 +13,8 @@
 // ============================================================================
 
 import type { ResourceToken } from "../ecs/resource";
+import type { UIRoot } from "../imui/element";
+import type { UIInputRouter } from "../imui/input";
 import { assertNoDuplicate, assertRequired, isStrict, warnLeak } from "../module/diagnostics";
 import type { ModuleDevToolsAPI } from "../module/module";
 import type {
@@ -50,6 +52,9 @@ export interface RendererModuleHostCallbacks {
   setRenderTargetProvider: (provider: RenderTargetProvider | null) => void;
   setRAFSource: (src: RAFSource | null, cancel: CancelRAF | null) => void;
   setViewportCount: (count: number) => void;
+  getUIRoot: () => UIRoot;
+  getUIInputRouter: () => UIInputRouter | null;
+  invalidateUILayout: () => void;
 }
 
 interface ActiveRendererModule {
@@ -479,6 +484,10 @@ export class RendererModuleHost {
       getSlotRegistry: () => this.callbacks.getSlotRegistry(),
 
       getInputBus: () => this.inputBus,
+
+      getUIRoot: () => this.callbacks.getUIRoot(),
+      getUIInputRouter: () => this.callbacks.getUIInputRouter(),
+      invalidateUILayout: () => this.callbacks.invalidateUILayout(),
 
       onFrame: (phase, fn) => {
         const entry: OwnedFrameHook = { owner: name, fn };

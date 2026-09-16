@@ -7,6 +7,7 @@
   "dependencies": {
     "@downdraft/core": "workspace:*",
     "@downdraft/library-models": "workspace:*",
+    "@downdraft/library-pixi-ui": "workspace:*",
     "zustand": "^5.0.2"
   }
 }

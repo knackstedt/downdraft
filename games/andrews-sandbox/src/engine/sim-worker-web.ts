@@ -6,15 +6,16 @@
 
 import type { CharacterControllerHandle } from "@downdraft/core";
 import {
-  ENT, InputBufferReader, SimBufferWriter, SimWorkerLoop,
-  type BodyDesc, type ColliderDesc, type Entity,
-  type LoadOptions,
-  type PhysicsBody,
-  type SaveOptions, type SaveState,
+    ENT, InputBufferReader, SimBufferWriter, SimWorkerLoop,
+    type BodyDesc, type ColliderDesc, type Entity,
+    type LoadOptions,
+    type PhysicsBody,
+    type SaveOptions, type SaveState,
 } from "@downdraft/core";
 import { expose, exposeEvents } from "@downdraft/core/worker/rpc";
 import { OpfsSaveStore, type OpfsSaveStoreOptions } from "@downdraft/library-persistence/browser";
 import { RapierPhysicsBackend, UniversalPhysicsAPI } from "@downdraft/library-physics-rapier";
+import { Vitals } from "@downdraft/module-vitals";
 import { ENT_DATA, MAX_SIM_SPEED, MIN_SIM_SPEED, SIM_TICK_DT } from "@sandbox/shared/constants/buffer";
 import { DEFAULT_PLAYER_MODEL } from "@sandbox/shared/constants/player";
 import { EntityType, FunMode, PhysgunMode, PoseState, PropFlags, type SandboxSimMessage, type SimCommand } from "@sandbox/shared/types";
@@ -76,8 +77,7 @@ let currentPose: PoseState = PoseState.Standing;
 // renderer via the player_moved / player_damaged / player_died /
 // player_respawned events so the HUD can render a health bar + damage flash.
 const PLAYER_MAX_HEALTH = 100;
-let playerHealth = PLAYER_MAX_HEALTH;
-let playerDead = false;
+const playerVitalsHost = { health: PLAYER_MAX_HEALTH, dead: false };
 // The player's chosen model id (persisted in the save state). The sim is
 // authoritative; the renderer loads the model on player_model_changed.
 let playerModelId: string = DEFAULT_PLAYER_MODEL;
@@ -90,9 +90,6 @@ let playerPrevGrounded = true;
 // Sim time (seconds, accumulated dt) — used for the regen delay window and
 // per-prop damage cooldowns.
 let simTime = 0;
-// Sim time of the last damage event — regen is suppressed until
-// (simTime - lastDamageTime) >= HEALTH_REGEN_DELAY.
-let lastDamageTime = -Infinity;
 // Per-prop damage cooldowns (entityId → remaining seconds). Prevents a single
 // fast-moving prop from dealing damage every tick while in contact.
 const propDamageCooldowns = new Map<number, number>();
@@ -112,6 +109,20 @@ const PROP_DAMAGE_GAIN = 3.5;        // damage = massFactor * (impactSpeed - min
 const PROP_DAMAGE_COOLDOWN = 0.5;    // seconds, per-prop
 const HEALTH_REGEN_DELAY = 5.0;      // seconds without damage before regen
 const HEALTH_REGEN_RATE = 5.0;      // HP / sec
+
+// The shared Vitals bookkeeping: clamps damage, tracks overkill, fires the
+// player_damaged / player_died / player_respawned events, and regenerates
+// after HEALTH_REGEN_DELAY damage-free seconds via update(dt).
+const playerVitals = new Vitals<"fall" | "prop">(
+  {
+    maxHealth: PLAYER_MAX_HEALTH,
+    regen: { delay: HEALTH_REGEN_DELAY, rate: HEALTH_REGEN_RATE },
+    onDamage: (e) => events.emit("player_damaged", { health: e.health, maxHealth: e.maxHealth, amount: e.amount, cause: e.cause }),
+    onDeath: (e) => events.emit("player_died", { cause: e.cause, overkill: e.overkill }),
+    onRespawn: (host) => events.emit("player_respawned", { health: host.health, maxHealth: PLAYER_MAX_HEALTH }),
+  },
+  playerVitalsHost,
+);
 
 // ── Reused out-tuples for Raw scalar physics reads (zero-alloc hot path) ──
 const _posOut: [number, number, number] = [0, 0, 0];
@@ -319,18 +330,7 @@ function applyPose(pose: PoseState): void {
 // player_damaged, and transitions to the dead state + emits player_died when
 // health hits 0. No-op while already dead (prevents post-death stacking).
 function applyDamage(amount: number, cause: "fall" | "prop"): void {
-  if (playerDead || amount <= 0) return;
-  // Track overkill (damage beyond what was needed to reach 0) before
-  // clamping. Uncapped damage means a massive hit can produce large overkill,
-  // available to future systems (gibbing, armor penetration, etc.).
-  const overkill = Math.max(0, amount - playerHealth);
-  playerHealth = Math.max(0, playerHealth - amount);
-  lastDamageTime = simTime;
-  events.emit("player_damaged", { health: playerHealth, maxHealth: PLAYER_MAX_HEALTH, amount, cause });
-  if (playerHealth <= 0) {
-    playerDead = true;
-    events.emit("player_died", { cause, overkill });
-  }
+  playerVitals.damage(amount, cause);
 }
 
 // ── Prop→player collision damage ──
@@ -342,7 +342,7 @@ function applyDamage(amount: number, cause: "fall" | "prop"): void {
 // player above PROP_DAMAGE_MIN_SPEED, apply mass-scaled damage with a
 // per-prop cooldown so a single contact doesn't deal damage every tick.
 function checkPropCollisionDamage(dt: number): void {
-  if (playerDead || !physicsApi) return;
+  if (playerVitalsHost.dead || !physicsApi) return;
   const px = playerPos[0], py = playerPos[1], pz = playerPos[2];
   // Player collision radius — use the standing capsule radius as the
   // horizontal extent. The capsule is taller than wide, but props hitting the
@@ -878,11 +878,9 @@ function processCommand(cmd: SimCommand): void {
       // respawned player isn't immediately re-damaged by props still in
       // contact. Emit player_respawned + a player_moved so the renderer snaps
       // the camera to the spawn position.
-      playerHealth = PLAYER_MAX_HEALTH;
-      playerDead = false;
+      playerVitals.respawn();
       playerFallSpeed = 0;
       playerPrevGrounded = true;
-      lastDamageTime = simTime;
       propDamageCooldowns.clear();
       playerPos[0] = 0;
       playerPos[1] = PLAYER_HEIGHT;
@@ -894,8 +892,7 @@ function processCommand(cmd: SimCommand): void {
           playerPos[2],
         ]);
       }
-      events.emit("player_respawned", { health: playerHealth, maxHealth: PLAYER_MAX_HEALTH });
-      onEvent({ kind: "player_moved", data: { position: [...playerPos] as [number, number, number], grounded: playerGrounded, pose: currentPose, health: playerHealth, maxHealth: PLAYER_MAX_HEALTH, dead: playerDead } });
+      onEvent({ kind: "player_moved", data: { position: [...playerPos] as [number, number, number], grounded: playerGrounded, pose: currentPose, health: playerVitalsHost.health, maxHealth: PLAYER_MAX_HEALTH, dead: playerVitalsHost.dead } });
       break;
     }
   }
@@ -1108,7 +1105,7 @@ function saveState(): string {
       hull: record.hull ? Array.from(record.hull) : undefined,
     });
   }
-  return JSON.stringify({ props, funMode: currentFunMode, pose: currentPose, playerPos: [...playerPos], health: playerHealth, dead: playerDead, playerModel: playerModelId, version: 2 });
+  return JSON.stringify({ props, funMode: currentFunMode, pose: currentPose, playerPos: [...playerPos], health: playerVitalsHost.health, dead: playerVitalsHost.dead, playerModel: playerModelId, version: 2 });
 }
 
 async function restoreState(stateJson: string): Promise<void> {
@@ -1120,11 +1117,9 @@ async function restoreState(stateJson: string): Promise<void> {
   // Restore player health + dead state. Old saves without these fields default
   // to full health / not dead. Reset fall-damage tracking + cooldowns so a
   // loaded dead player isn't immediately re-damaged on respawn.
-  playerHealth = typeof state.health === "number" ? state.health : PLAYER_MAX_HEALTH;
-  playerDead = state.dead === true;
+  playerVitals.restore({ health: typeof state.health === "number" ? state.health : undefined, dead: state.dead === true });
   playerFallSpeed = 0;
   playerPrevGrounded = true;
-  lastDamageTime = simTime;
   propDamageCooldowns.clear();
   // Restore player position + sync the Rapier character controller so the
   // next characterMove tick continues from the saved spot instead of the
@@ -1140,7 +1135,7 @@ async function restoreState(stateJson: string): Promise<void> {
         playerPos[2],
       ]);
     }
-    onEvent({ kind: "player_moved", data: { position: [...playerPos] as [number, number, number], grounded: playerGrounded, pose: currentPose, health: playerHealth, maxHealth: PLAYER_MAX_HEALTH, dead: playerDead } });
+    onEvent({ kind: "player_moved", data: { position: [...playerPos] as [number, number, number], grounded: playerGrounded, pose: currentPose, health: playerVitalsHost.health, maxHealth: PLAYER_MAX_HEALTH, dead: playerVitalsHost.dead } });
   }
   // Restore the player's chosen model id and notify the renderer so it loads
   // the correct avatar. Old saves (version 1) without this field keep the default.
@@ -1244,7 +1239,7 @@ expose({
 
           pendingPlayerMove = null;
           pendingPlayerFallVy = null;
-          onEvent({ kind: "player_moved", data: { position: [...playerPos] as [number, number, number], grounded: playerGrounded, pose: currentPose, health: playerHealth, maxHealth: PLAYER_MAX_HEALTH, dead: playerDead } });
+          onEvent({ kind: "player_moved", data: { position: [...playerPos] as [number, number, number], grounded: playerGrounded, pose: currentPose, health: playerVitalsHost.health, maxHealth: PLAYER_MAX_HEALTH, dead: playerVitalsHost.dead } });
         }
 
         // ── Prop→player collision damage ──
@@ -1255,9 +1250,7 @@ expose({
         // ── Health regen ──
         // Slowly regenerate after a damage-free delay. No-op while dead or
         // already at max.
-        if (!playerDead && playerHealth < PLAYER_MAX_HEALTH && (simTime - lastDamageTime) >= HEALTH_REGEN_DELAY) {
-          playerHealth = Math.min(PLAYER_MAX_HEALTH, playerHealth + HEALTH_REGEN_RATE * dt);
-        }
+        playerVitals.update(dt);
 
         syncTransforms();
         simWriter!.incrementTick();

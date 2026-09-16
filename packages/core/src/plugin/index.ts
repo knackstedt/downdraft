@@ -18,6 +18,20 @@ export {
     type PluginStatus
 } from "./diagnostics";
 export {
+    collectPluginManifests,
+    createAssetRegistryBridge,
+    createNoopMapRegistry,
+    createNoopPhysicsRegistry,
+    deriveAssetName,
+    discoverPlugins,
+    pluginBaseUrlLookup,
+    resolvePluginAssetUrl,
+    type AssetRegistryBridgeHooks,
+    type DiscoveredPlugin,
+    type PluginAssetEntry,
+    type PluginAssetKind
+} from "./discovery";
+export {
     createAssetLoader,
     createMapLoader,
     createMaterialShaderLoader,

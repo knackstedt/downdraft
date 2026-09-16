@@ -20,7 +20,7 @@ export type {
 export { ArenaBuffer, RingBuffer } from "./buffer";
 export { calculateViewProj, calculateViewProjInto, CameraMode, CameraSystem, dot3, normalize3, transformVec4 } from "./camera";
 export type { CameraConfig, CameraState } from "./camera";
-export { cameraMatrix, makeCamera2D, screenToWorld, updateCamera, worldToScreen, type Camera2D, type Camera2DOptions } from "./camera-2d";
+export { cameraMatrix, makeCamera2D, PanZoomCamera2D, screenToWorld, updateCamera, worldToScreen, type Camera2D, type Camera2DOptions, type PanZoomCamera2DOptions } from "./camera-2d";
 export { CameraController } from "./camera-controller";
 export type { CameraControllerOptions, OrbitInputOptions } from "./camera-controller";
 export { CanvasResizeWatcher } from "./canvas-resize-watcher";
@@ -111,6 +111,8 @@ export type { FrameGraphBuilder } from "./render-pass";
 export { RendererInputBusImpl } from "./renderer-input-bus";
 export { RendererModuleHost } from "./renderer-module-host";
 export type { RendererModuleHostCallbacks } from "./renderer-module-host";
+export { SabCanvasOverlay } from "./sab-canvas-overlay";
+export type { SabCanvasOverlayOptions } from "./sab-canvas-overlay";
 export { clearShaderValidationDedup, createValidatedShaderModule, createValidatedShaderModuleAsync, installShaderValidationGuard } from "./shader-validator";
 export { CSM_SHADER_CHUNK, POINT_SHADOW_SHADER_CHUNK, SPOT_SHADOW_SHADER_CHUNK } from "./shaders/shadow-chunks";
 export { SkyboxRenderer } from "./skybox";

@@ -16,7 +16,7 @@
 // BlockheadsWorkerHost internally inside renderer.init().
 //
 
-import { startGame, type GameModule, type GameSimWorker } from "@downdraft/app/renderer";
+import { startGame, type GameModule } from "@downdraft/app/renderer";
 import {
     PixiUiHost,
     getEffectiveFontScale,
@@ -30,25 +30,10 @@ import { OVERBURDEN_STATS_LAYOUT } from "./pixi/bridge-protocol";
 import { BlockheadsRenderer } from "./renderer/blockheads-renderer";
 import { getBlockPalette } from "./shared/block-registry";
 import { createMapSab } from "./shared/map-buffer";
-import { createSimBuffer } from "./shared/sim-buffer";
+import type { BlockheadsWorkerHost } from "./simulation/blockheads-worker-host";
 import { getSeasonInfo } from "./simulation/season-system";
 import { useGameStore, type BlockheadUIState } from "./stores/game-store";
 import "./styles/globals.css";
-
-class BlockheadsGameSim implements GameSimWorker {
-  private sab: SharedArrayBuffer;
-
-  constructor() {
-    this.sab = createSimBuffer();
-  }
-
-  async start(_config: unknown): Promise<void> { }
-
-  onEvent(_cb: (msg: any) => void): void { }
-
-  getSimBuffer(): SharedArrayBuffer { return this.sab; }
-  getInputBuffer(): SharedArrayBuffer { return this.sab; }
-}
 
 // ── Handles for hot-reload dispose ──
 let pixiHost: PixiUiHost | null = null;
@@ -65,10 +50,11 @@ let guiKeyHandler: ((e: KeyboardEvent) => void) | null = null;
  * Desktop (main.tsx) adds: mcp, onDeterministic.
  * Mobile (mobile.tsx) adds: touchInput + OSD (via createDowndraftMobileApp).
  */
-export const overburdenModule: GameModule<BlockheadsGameSim> = {
+export const overburdenModule: GameModule<BlockheadsWorkerHost> = {
   renderer: (canvas) => new BlockheadsRenderer(canvas),
-  sim: () => new BlockheadsGameSim(),
-  simConfig: {},
+  // The renderer creates + starts its own BlockheadsWorkerHost inside
+  // init() — resolve it after renderer init instead of a sim factory.
+  simFromRenderer: (r: BlockheadsRenderer) => r.getWorkerHost() ?? undefined,
 
   mountUI: () => { /* pixi-ui handles UI */ },
 
@@ -535,7 +521,7 @@ export const overburdenModule: GameModule<BlockheadsGameSim> = {
 
   onFpsUpdate: (fps) => {
     if (useGameStore.getState().fps !== fps) {
-      useGameStore.getState().setFps(fps);
+      useGameStore.getState().setFPS(fps);
     }
     const renderer = useGameStore.getState().renderer as BlockheadsRenderer | null;
     const simReader = renderer?.getSimReader();

@@ -2,13 +2,11 @@
 // Game Store — zustand store for sandbox UI state
 // ============================================================================
 
+import { createBaseGameStoreState, type BaseGameStoreState } from "@downdraft/core";
 import { CameraMode, FunMode, ToolType } from "@sandbox/shared/types";
 import { create } from "zustand";
 
-interface GameStoreState {
-  simReady: boolean;
-  rendererReady: boolean;
-  isDev: boolean;
+interface GameStoreState extends BaseGameStoreState<unknown> {
   activeTool: ToolType;
   activeFunMode: FunMode;
   cameraMode: CameraMode;
@@ -18,7 +16,6 @@ interface GameStoreState {
   paintColor: string;
   paintSize: number;
   paintHardness: number;
-  fps: number;
   propCount: number;
 
   // Player health (sim is authoritative; mirrored here for the HUD)
@@ -48,9 +45,6 @@ interface GameStoreState {
   sunColorB: number;
   ambientIntensity: number;
 
-  setSimReady: (v: boolean) => void;
-  setRendererReady: (v: boolean) => void;
-  setIsDev: (v: boolean) => void;
   setActiveTool: (tool: ToolType) => void;
   setActiveFunMode: (mode: FunMode) => void;
   setCameraMode: (mode: CameraMode) => void;
@@ -60,7 +54,6 @@ interface GameStoreState {
   setPaintColor: (c: string) => void;
   setPaintSize: (s: number) => void;
   setPaintHardness: (h: number) => void;
-  setFps: (fps: number) => void;
   setPropCount: (count: number) => void;
   setPlayerHealth: (hp: number, maxHp: number) => void;
   setPlayerDead: (v: boolean) => void;
@@ -87,10 +80,8 @@ interface GameStoreState {
   setAmbientIntensity: (v: number) => void;
 }
 
-export const useGameStore = create<GameStoreState>((set) => ({
-  simReady: false,
-  rendererReady: false,
-  isDev: false,
+export const useGameStore = create<GameStoreState>((set, get) => ({
+  ...createBaseGameStoreState<unknown>(set, get),
   activeTool: ToolType.Physgun,
   activeFunMode: FunMode.Normal,
   cameraMode: CameraMode.FirstPerson,
@@ -100,7 +91,6 @@ export const useGameStore = create<GameStoreState>((set) => ({
   paintColor: "#ff0000",
   paintSize: 20,
   paintHardness: 0.8,
-  fps: 0,
   propCount: 0,
   playerHealth: 100,
   playerMaxHealth: 100,
@@ -128,9 +118,6 @@ export const useGameStore = create<GameStoreState>((set) => ({
   sunColorB: 0.85,
   ambientIntensity: 0.4,
 
-  setSimReady: (v) => set({ simReady: v }),
-  setRendererReady: (v) => set({ rendererReady: v }),
-  setIsDev: (v) => set({ isDev: v }),
   setActiveTool: (tool) => set({ activeTool: tool, showPaintPalette: tool === ToolType.Paintgun, showToolWheel: false }),
   setActiveFunMode: (mode) => set({ activeFunMode: mode }),
   setCameraMode: (mode) => set({ cameraMode: mode }),
@@ -140,7 +127,6 @@ export const useGameStore = create<GameStoreState>((set) => ({
   setPaintColor: (c) => set({ paintColor: c }),
   setPaintSize: (s) => set({ paintSize: s }),
   setPaintHardness: (h) => set({ paintHardness: h }),
-  setFps: (fps) => set({ fps }),
   setPropCount: (count) => set({ propCount: count }),
   setPlayerHealth: (hp, maxHp) => set({ playerHealth: hp, playerMaxHealth: maxHp }),
   setPlayerDead: (v) => set({ playerDead: v }),

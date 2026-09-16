@@ -49,14 +49,17 @@ export class InputManager {
   }
 
   setupListeners(): void {
-    const add = (target: EventTarget, event: string, handler: EventListener) => {
-      target.addEventListener(event, handler);
+    const add = (target: EventTarget, event: string, handler: EventListener, options?: AddEventListenerOptions) => {
+      target.addEventListener(event, handler, options);
       this.listeners.push({ target, event, handler });
     };
 
     add(window, "keydown", ((e: KeyboardEvent) => {
       this.keysDown.add(e.keyCode);
       this.uiInputRouter?.handleKeyDown(e.keyCode);
+      if (e.key.length === 1) {
+        this.uiInputRouter?.handleCharInput(e.key);
+      }
     }) as EventListener);
 
     add(window, "keyup", ((e: KeyboardEvent) => {
@@ -106,11 +109,19 @@ export class InputManager {
       this.mouseDelta.dy = 0;
     }) as EventListener);
 
+    // Convert a DOM event to canvas backing-pixel coordinates for imui
+    // hit-testing (UIRoot is laid out in canvas.width/height space).
+    const toCanvas = (e: MouseEvent): [number, number] => {
+      const rect = this.canvas.getBoundingClientRect();
+      const sx = rect.width > 0 ? this.canvas.width / rect.width : 1;
+      const sy = rect.height > 0 ? this.canvas.height / rect.height : 1;
+      return [(e.clientX - rect.left) * sx, (e.clientY - rect.top) * sy];
+    };
+
     add(this.canvas, "mousemove", ((e: MouseEvent) => {
       const rect = this.canvas.getBoundingClientRect();
       this.mouseState.x = e.clientX - rect.left;
       this.mouseState.y = e.clientY - rect.top;
-      this.uiInputRouter?.handleMouseMove(e.clientX, e.clientY);
       if (this.pointerLocked) {
         this.mouseDelta.dx += e.movementX;
         this.mouseDelta.dy += e.movementY;
@@ -120,7 +131,6 @@ export class InputManager {
     add(this.canvas, "mousedown", ((e: MouseEvent) => {
       if (e.button === 0) {
         this.mouseState.left = true;
-        this.uiInputRouter?.handleMouseDown(e.clientX, e.clientY);
       }
       if (e.button === 2) {
         this.mouseState.right = true;
@@ -130,13 +140,50 @@ export class InputManager {
     add(this.canvas, "mouseup", ((e: MouseEvent) => {
       if (e.button === 0) {
         this.mouseState.left = false;
-        this.uiInputRouter?.handleMouseUp(e.clientX, e.clientY);
       }
       if (e.button === 2) this.mouseState.right = false;
     }) as EventListener);
 
-    add(this.canvas, "wheel", ((e: WheelEvent) => {
-      this.mouseState.wheel = e.deltaY;
+    // UI routing listens on window — imui draws on the game canvas, but games
+    // may stack additional interactive canvases above it (e.g. sandjongg's
+    // tile canvas). Window-level listeners see events regardless of which
+    // element is on top; toCanvas() converts to backing-pixel space and
+    // hit-testing bounds-checks, so off-canvas events are no-ops.
+    add(window, "mousemove", ((e: MouseEvent) => {
+      const [cx, cy] = toCanvas(e);
+      this.uiInputRouter?.handleMouseMove(cx, cy);
+    }) as EventListener);
+
+    add(window, "mousedown", ((e: MouseEvent) => {
+      if (e.button === 0) {
+        const [cx, cy] = toCanvas(e);
+        this.uiInputRouter?.handleMouseDown(cx, cy);
+      }
+    }) as EventListener);
+
+    add(window, "mouseup", ((e: MouseEvent) => {
+      if (e.button === 0) {
+        const [cx, cy] = toCanvas(e);
+        this.uiInputRouter?.handleMouseUp(cx, cy);
+      }
+    }) as EventListener);
+
+    add(window, "wheel", ((e: WheelEvent) => {
+      const [cx, cy] = toCanvas(e);
+      this.uiInputRouter?.handleMouseMove(cx, cy);
+      if (e.target === this.canvas) {
+        this.mouseState.wheel = e.deltaY;
+      }
+      if (this.uiInputRouter?.handleWheel(e.deltaX, e.deltaY)) {
+        e.preventDefault();
+      }
+    }) as EventListener, { passive: false });
+
+    // Use document-level mouseleave: a sibling canvas stacked above (e.g.
+    // sandjongg's tile canvas) would otherwise trigger the canvas's own
+    // mouseleave and break imui hover/pressed state.
+    add(document, "mouseleave", (() => {
+      this.uiInputRouter?.handlePointerLeave();
     }) as EventListener);
 
     add(this.canvas, "contextmenu", ((e: Event) => {

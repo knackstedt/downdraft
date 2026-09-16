@@ -1,5 +1,8 @@
-// Re-export SkeletonAnimator from @downdraft/core with game-specific update logic
-import { SkeletonAnimator as CoreSkeletonAnimator, type AnimState, type SkinData } from "@downdraft/core";
+// Re-export SkeletonAnimator built on @downdraft/library-character's
+// LocomotionAnimator — the shared Idle/Walk/Run hysteresis state machine —
+// with tto's flag-driven input decode (swim override, jump air-states).
+import { type AnimState, type SkinData } from "@downdraft/core";
+import { LocomotionAnimator } from "@downdraft/library-character";
 import type { AnimationData } from "@downdraft/library-models";
 
 export type { AnimationData, AnimState, SkinData };
@@ -18,40 +21,21 @@ const PLR_FLAG = {
   GROUNDED: 1 << 9,
 } as const;
 
-export class SkeletonAnimator extends CoreSkeletonAnimator {
+export class SkeletonAnimator extends LocomotionAnimator {
+  constructor(skin: SkinData) {
+    super(skin, {
+      // Split airtime by speed (holdAirState off — tto re-evaluates each
+      // frame rather than latching the takeoff state).
+      air: (speed) => (speed > 0.5 ? "JumpStart" : speed < -0.5 ? "JumpEnd" : "JumpLoop"),
+      holdAirState: false,
+    });
+  }
+
   update(dt: number, playerFlags: number, velocity: number): void {
-    // Determine animation state from player flags + velocity
-    const grounded = (playerFlags & PLR_FLAG.GROUNDED) !== 0;
-    const swimming = (playerFlags & PLR_FLAG.SWIMMING) !== 0;
-
-    let desiredState: AnimState;
-    if (swimming) {
-      desiredState = "Swim";
-    } else if (!grounded) {
-      if (velocity > 0.5) desiredState = "JumpStart";
-      else if (velocity < -0.5) desiredState = "JumpEnd";
-      else desiredState = "JumpLoop";
-    } else {
-      const isMoving = this.getCurrentState() === "Walk" || this.getCurrentState() === "Run";
-      const walkEnter = 0.8, walkExit = 0.3;
-      const runEnter = 3.5, runExit = 2.5;
-      if (isMoving) {
-        if (velocity > runEnter) desiredState = "Run";
-        else if (velocity > walkExit) desiredState = "Walk";
-        else desiredState = "Idle";
-      } else {
-        if (velocity > runEnter) desiredState = "Run";
-        else if (velocity > walkEnter) desiredState = "Walk";
-        else desiredState = "Idle";
-      }
-    }
-
-    // If Swim animation isn't available, fall back to Idle
-    if (desiredState === "Swim" && !this.hasAnimation("Swim")) {
-      desiredState = "Idle";
-    }
-
-    this.setAnimationState(desiredState);
-    this.tick(dt);
+    this.updateLocomotion(dt, {
+      grounded: (playerFlags & PLR_FLAG.GROUNDED) !== 0,
+      speed: velocity,
+      override: (playerFlags & PLR_FLAG.SWIMMING) !== 0 ? "Swim" : null,
+    });
   }
 }

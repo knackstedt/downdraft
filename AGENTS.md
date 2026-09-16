@@ -6,8 +6,8 @@
 
 The engine is split into **core + libraries** (standard engine building blocks, used directly by games) vs **modules** (opt-in game features with lifecycle + typed DI + diagnostics). The `@downdraft/core` package also includes animation, particles, and imui subsystems directly (these were previously separate `@downdraft/library-*` packages but have been folded into core).
 
-- **Engine libraries** (namespace `@downdraft/library-*`, located in `packages/libraries/`): packages that export classes/functions without a module lifecycle. Games can either import and wire these directly, or declare them via `EngineLibrary` descriptors in `GameModule.libraries[]` for auto-wiring (SAB allocation, sim system creation, renderer pass creation, typed DI tokens). Engine libraries: water, physics-rapier, physics-native, marching-cubes, surface-nets, audio-kira, models, networking, weatherfx, pixi-ui, entities, lighting, weather, navmesh, recast, persistence, gaussian-splats, sand, stickman, profiler.
-- **Engine modules** (namespace `@downdraft/module-*`, located in `packages/modules/`): packages that implement the `Module` or `RendererModule` interface with a `register()` lifecycle + typed DI. Engine modules: camera-controls, devtools, electron-osr, mcp, xr, terrain, movement-3d, movement-2d, sailing, raw-input.
+- **Engine libraries** (namespace `@downdraft/library-*`, located in `packages/libraries/`): packages that export classes/functions without a module lifecycle. Games can either import and wire these directly, or declare them via `EngineLibrary` descriptors in `GameModule.libraries[]` for auto-wiring (SAB allocation, sim system creation, renderer pass creation, typed DI tokens). Engine libraries: water, physics-rapier, physics-native, marching-cubes, surface-nets, audio-kira, models, networking, weatherfx, pixi-ui, entities, lighting, weather, navmesh, recast, persistence, gaussian-splats, sand, stickman, profiler, pathfinding-2d, character.
+- **Engine modules** (namespace `@downdraft/module-*`, located in `packages/modules/`): packages that implement the `Module` or `RendererModule` interface with a `register()` lifecycle + typed DI. Engine modules: camera-controls, devtools, electron-osr, mcp, xr, terrain, movement-3d, movement-2d, vitals, sailing, raw-input.
 - **Game modules** (namespace `@to-the-ocean/module-*`, located in `games/<game>/modules/`): game-specific features with a module lifecycle. Game modules: crafting, inventory, buoyancy, collision, wildlife.
 - **Game libraries** (namespace `@to-the-ocean/library-*`, located in `games/<game>/libraries/`): game-specific pure libraries without a module lifecycle. Game libraries: boats, economy, fishing, items, survival.
 
@@ -116,6 +116,51 @@ When `DOWNDRAFT_STRICT=1` (or in Vite dev mode), the module hosts validate the d
 Set `DOWNDRAFT_STRICT=0` to force-disable in dev, `DOWNDRAFT_STRICT=1` to force-enable in prod.
 
 Config that must be updated when moving/adding packages: `package.json` (root workspaces), `tsconfig.web.json` + `tsconfig.node.json` (path mappings + include globs), `packages/app/src/vite/index.ts` (renderer aliases + hot-reload simPaths/excludePaths). Engine libraries live in `packages/libraries/`; engine modules live in `packages/modules/`.
+
+## Shared engine APIs — use these, don't hand-roll
+
+Before writing per-game infrastructure, check whether the engine already provides it. The canonical APIs (tracked in `docs/refactor/batteries-included.md`):
+
+| Concern | Engine API | Location |
+|---|---|---|
+| Renderer-owned sim worker | `GameModule.simFromRenderer: (r) => r.getWorkerHost()` — never write a no-op `GameSimWorker` adapter | `@downdraft/app/renderer` |
+| Game store base | `createBaseGameStoreState(set, get)` — spread into the game's zustand store (fps, paused, panels, notifications, title screen) | `@downdraft/core` |
+| Sim worker entry | `createSimWorker({ fixedDt, onInit, onTick, ... })` — tick loop, speed, step, stats, SAB-polyfill sync | `@downdraft/core` |
+| Worker host (main side) | `SimWorkerHost<TApi>` / `BaseWorkerHost<TApi>` — pause/resume/step/setSpeed/getStats + input writing | `@downdraft/core` |
+| DOM input | `createDomInputHandler({ canvas, preset, ... })` — keyMap, mouse buttons, canvas coords, MCP `injectInput` | `@downdraft/core` |
+| Save system | `createGameSaveSystem` / `createGridSaveSystem` + `createDefaultSaveStore` | `@downdraft/core`, `@downdraft/app/renderer` |
+| Autosave interval | `AutosaveManager({ save, shouldSave, intervalMs, deterministic })` | `@downdraft/library-persistence/browser` |
+| MCP automation tools | `createStandardAutomationTools(ctx)` + `createMcpHarness` — the ~13 standard tools; game tools via `extraTools` | `@downdraft/app/renderer` |
+| DevTools | `initDevTools(renderer, {...})` + `createSimStatsProvider`/`createSimStatsPanelExtension` | `@downdraft/module-devtools` |
+| Mobile shell | `createDowndraftMobileApp({ appId, module, touchInput })` | `@downdraft/app/mobile` |
+| Sand simulation | `SandWorld`, `SandStepPool`, `SandLib`, palette/materials | `@downdraft/library-sand` |
+| Game UI | `createGameUi({ build })` renderer module over `core/imui` (UIRoot/UIRenderer/widgets) — **canonical game-UI system**; pixi-ui is legacy for games | `@downdraft/core` |
+
+**UI direction:** game UI is migrating from PixiJS-in-worker (`library-pixi-ui`) to `core/imui` (the same WebGPU UI system family the native devtools use). New games must target imui; do not add new pixi-ui scenes to games. `library-pixi-ui` remains for plugin/compat surfaces.
+
+**Game UI pattern:** `GameRenderer` already owns the imui lifecycle. A game mounts its UI as a renderer module:
+
+```ts
+renderer.useRendererModule(createGameUi({
+  build(ui) {
+    const hud = new UIPanel(220, 60);
+    hud.name = "hud";
+    const hp = new UIText("HP");
+    hp.name = "hp";
+    hud.addChild(hp);
+    ui.root.addChild(hud);
+
+    // Push-style: store subscription → element mutation
+    ui.bind(store, (s) => s.health, (v) => hp.setText(`HP ${v}`));
+    // Poll-style: per-frame sync (SAB scalars, positions, visibility)
+    ui.onUpdate(() => { menuPanel.visible = store.getState().menuOpen; });
+    // Actions: onClick calls sim directly — no bridge protocol
+    btn.callbacks.onClick = () => sim.setSpeed(2);
+  },
+}));
+```
+
+Conventions: `ui.root` is a full-screen `pointerThrough` container — size interactive children tightly so non-UI canvas clicks fall through to game input (`ui.isPointerOverUI()` for paint-style games). Widgets: `UIButton`/`UIToggle`/`UISlider`/`UITabBar`/`UIModal`/`UIScrollPanel`/`UITextInput`/`UIProgressBar`/`UIToastStack` + `UIPanel`/`UIText`/`UIImage`/`UILine`. `setUIFontScale(ui.root, scale)` for font scaling.
 
 ## HTML generation and canvas/DOM layer stacking
 

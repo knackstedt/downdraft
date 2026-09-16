@@ -1,4 +1,4 @@
-import { UIPanel, UIText, UIButton, UIElement, type UIDrawable, type UIColor } from "./element";
+import { UIButton, UIElement, UIPanel, UIText, type UIColor, type UIDrawable } from "./element";
 
 export class UIProgressBar extends UIElement {
   value: number = 0;
@@ -131,7 +131,7 @@ export class UISlider extends UIElement {
   }
 
   private updateFromMouse(px: number): void {
-    const pct = Math.max(0, Math.min(1, (px - this.x) / this.width));
+    const pct = Math.max(0, Math.min(1, (px - this.absolutePos().x) / this.width));
     const newValue = this.minValue + pct * (this.maxValue - this.minValue);
     if (newValue !== this.value) {
       this.value = newValue;
@@ -186,11 +186,17 @@ export class UIToggle extends UIElement {
     this.width = width;
     this.height = height;
     this.focusable = true;
+    this.callbacks.onClick = () => this.toggle();
   }
 
   toggle(): void {
     this.checked = !this.checked;
     this.onToggle?.(this.checked);
+  }
+
+  /** Reflect state without firing `onToggle` (for store→UI sync). */
+  setChecked(checked: boolean): void {
+    this.checked = checked;
   }
 
   getDrawable(): UIDrawable[] {
@@ -345,6 +351,7 @@ export class UITextInput extends UIElement {
     this.style.borderWidth = 1;
     this.style.borderRadius = 4;
     this.style.fontSize = 12;
+    this.callbacks.onKeyDown = (_el, code) => this.handleKeyDown(code);
   }
 
   setText(text: string): void {
@@ -443,5 +450,100 @@ export class UITextInput extends UIElement {
     }
 
     return drawables;
+  }
+}
+
+// ── Notification toasts ──
+
+export interface UIToastOptions {
+  /** Lifetime in ms before the toast fades and is removed. Default 4000. */
+  durationMs?: number;
+  /** Fade-out duration in ms. Default 400. */
+  fadeMs?: number;
+  color?: UIColor;
+}
+
+interface ToastEntry {
+  panel: UIPanel;
+  remainingMs: number;
+  fadeMs: number;
+  totalMs: number;
+}
+
+/**
+ * Vertical stack of auto-expiring notification toasts. Mount once (typically
+ * at a screen corner) and call `push(text)` from game events; `update(dt)`
+ * is driven from the game-ui `onUpdate` hook.
+ *
+ * Replaces the per-game NotificationStack / PickupNotifications /
+ * AchievementNotification implementations.
+ */
+export class UIToastStack extends UIPanel {
+  maxToasts: number = 5;
+  defaultDurationMs: number = 4000;
+  defaultFadeMs: number = 400;
+  toastWidth: number = 260;
+  private toasts: ToastEntry[] = [];
+
+  constructor() {
+    super();
+    this.pointerThrough = true;
+    this.layoutMode = "vertical";
+    this.style.backgroundColor = [0, 0, 0, 0];
+    this.style.borderWidth = 0;
+  }
+
+  push(text: string, opts: UIToastOptions = {}): void {
+    const panel = new UIPanel(this.toastWidth, 0);
+    panel.pointerThrough = true;
+    panel.style.backgroundColor = opts.color ? [...opts.color] as UIColor : [0.08, 0.08, 0.1, 0.9];
+    panel.style.borderColor = [0.3, 0.3, 0.35, 1];
+    panel.style.borderWidth = 1;
+    panel.style.borderRadius = 4;
+    panel.style.padding = [6, 8, 6, 8];
+    panel.style.margin = [0, 0, 4, 0];
+
+    const label = new UIText(text);
+    label.style.fontSize = 12;
+    panel.addChild(label);
+
+    const entry: ToastEntry = {
+      panel,
+      remainingMs: opts.durationMs ?? this.defaultDurationMs,
+      fadeMs: opts.fadeMs ?? this.defaultFadeMs,
+      totalMs: opts.durationMs ?? this.defaultDurationMs,
+    };
+    this.toasts.push(entry);
+    this.addChild(panel);
+
+    while (this.toasts.length > this.maxToasts) {
+      const oldest = this.toasts.shift()!;
+      this.removeChild(oldest.panel);
+    }
+  }
+
+  clear(): void {
+    for (const t of this.toasts) this.removeChild(t.panel);
+    this.toasts = [];
+  }
+
+  /** Advance toast lifetimes. Call from a game-ui `onUpdate` hook. */
+  update(dtMs: number): void {
+    for (let i = this.toasts.length - 1; i >= 0; i--) {
+      const t = this.toasts[i];
+      t.remainingMs -= dtMs;
+      const fadeStart = t.fadeMs;
+      if (t.remainingMs <= 0) {
+        this.removeChild(t.panel);
+        this.toasts.splice(i, 1);
+      } else if (t.remainingMs < fadeStart) {
+        t.panel.style.opacity = t.remainingMs / fadeStart;
+      }
+    }
+  }
+
+  getDrawable(): UIDrawable[] {
+    if (!this.visible || this.toasts.length === 0) return [];
+    return super.getDrawable();
   }
 }

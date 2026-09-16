@@ -88,6 +88,11 @@ export interface StandardAutomationContext {
   renderOneFrame?: () => void;
   /** Whether the render loop is running. Default: true (always live). */
   isRunning?: () => boolean;
+  /**
+   * Default value of the `fullPage` param in capture_screenshot when the
+   * caller omits it. Default: true (composite game canvas + DOM overlay).
+   */
+  fullPageDefault?: boolean;
 
   /**
    * Input injector for inject_input / clear_injected_input. Typically
@@ -103,8 +108,12 @@ export interface StandardAutomationContext {
    * missing provider also removes the corresponding variable from
    * wait_for_condition (it will be undefined).
    */
-  getPlayerState?: (playerIndex: number) => unknown;
-  getWorldState?: () => unknown;
+  /**
+   * The playerIndex param is `undefined` when the caller omits it, so
+   * providers can apply a game-specific default (e.g. the active player).
+   */
+  getPlayerState?: (playerIndex: number | undefined) => unknown;
+  getWorldState?: () => unknown | Promise<unknown>;
   getUiState?: () => unknown;
 
   /**
@@ -191,7 +200,7 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
       handler: async (params: Record<string, unknown>) => {
         const canvas = resolveCanvas(ctx.canvas);
         if (!canvas) return errorResult("Canvas not available");
-        const fullPage = params.fullPage !== false;
+        const fullPage = (params.fullPage as boolean | undefined) ?? ctx.fullPageDefault ?? true;
         const width = canvas.width;
         const height = canvas.height;
 
@@ -416,9 +425,9 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
         const names = ["player", "world", "tick", ...extraNames];
 
         return new Promise((resolve) => {
-          const check = () => {
+          const check = async () => {
             const player = ctx.getPlayerState?.(0) ?? null;
-            const world = ctx.getWorldState?.() ?? null;
+            const world = (await ctx.getWorldState?.()) ?? null;
             const tick = (world as { tick?: number } | null)?.tick ?? 0;
             const extraValues = extraNames.map((n) => ctx.conditionVars![n]());
             try {
@@ -484,7 +493,7 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
         },
       },
       handler: (params: Record<string, unknown>) => {
-        const playerIndex = (params.playerIndex as number) ?? 0;
+        const playerIndex = params.playerIndex as number | undefined;
         const state = ctx.getPlayerState!(playerIndex);
         if (state === null || state === undefined) return errorResult(`Player ${playerIndex} not available`);
         return jsonResult(state);
@@ -500,8 +509,8 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
         description: "Read global simulation state (tick, entity count, weather, etc.).",
         inputSchema: { type: "object", properties: {} },
       },
-      handler: () => {
-        const state = ctx.getWorldState!();
+      handler: async () => {
+        const state = await ctx.getWorldState!();
         if (state === null || state === undefined) return errorResult("World state not available");
         return jsonResult(state);
       },

@@ -15,6 +15,7 @@
     "@downdraft/library-entities": "workspace:*",
     "@downdraft/library-sand": "workspace:*",
     "@downdraft/library-stickman": "workspace:*",
+    "@downdraft/library-pathfinding-2d": "workspace:*",
     "@downdraft/library-persistence": "workspace:*",
     "@downdraft/library-pixi-ui": "workspace:*",
     "@downdraft/module-devtools": "workspace:*",

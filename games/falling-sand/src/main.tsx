@@ -1,12 +1,9 @@
 // ============================================================================
 // Renderer Entry Point — declarative GameModule + startGame()
 //
-// PixiJS-in-worker UI (@downdraft/library-pixi-ui). The UI scene runs in a
-// Web Worker on an OffscreenCanvas stacked above the game canvas. State flows
-// through three channels:
-//   1. UiStatsSAB — per-frame scalars (bridge stats loop)
-//   2. postEvent  — structured data (saves list)
-//   3. onAction   — worker→main side-effect requests (buttons, sliders)
+// Game UI is engine-native imui (`createGameUi` renderer module, mounted in
+// onReady). State flows directly through the zustand store — no UiStatsSAB,
+// postEvent, or postAction bridge.
 //
 // The renderer owns the sim: FallingSandRenderer creates + starts its own
 // SandWorkerHost inside init(), and `simFromRenderer` exposes it to
@@ -19,27 +16,16 @@ import {
     createStandardAutomationTools,
     startGame,
 } from "@downdraft/app/renderer";
-import {
-    createPixiUiBridge,
-    createPixiUiMcpTools,
-    getEffectiveFontScale,
-    loadUserFontScale,
-    saveUserFontScale,
-    type PixiUiAction,
-    type PixiUiBridge,
-} from "@downdraft/library-pixi-ui";
 import { createSimStatsPanelExtension, createSimStatsProvider } from "@downdraft/module-devtools";
-import { FALLING_SAND_STATS_LAYOUT } from "./pixi/bridge-protocol";
 import { FallingSandRenderer } from "./renderer/falling-sand-renderer";
 import { NUM_LAYERS, PLAYER } from "./shared/sim-buffer";
-import { useGameStore, type FieldType } from "./stores/game-store";
+import { useGameStore } from "./stores/game-store";
 import { createFallingSandSaveSystem, type FallingSandSaveSystem } from "./stores/save-system";
 import "./styles/globals.css";
+import { createFallingSandUi } from "./ui/game-ui";
 
 // Save lifecycle handle — created in onReady, stopped in onDispose.
 let saves: FallingSandSaveSystem | null = null;
-let savesUnsub: (() => void) | null = null;
-let bridgeRef: PixiUiBridge | null = null;
 
 startGame({
   // --- Renderer + renderer-owned sim ---
@@ -50,123 +36,6 @@ startGame({
   // The renderer spawns + starts its own SandWorkerHost in init(); expose it
   // to the game context (SABs + event routing) without a duplicate worker.
   simFromRenderer: (r: FallingSandRenderer) => r.getWorkerHost() ?? undefined,
-
-  // --- UI (PixiJS-in-worker via the batteries-included bridge) ---
-  ui: () => createPixiUiBridge({
-    statsLayout: FALLING_SAND_STATS_LAYOUT,
-    sceneModuleUrl: new URL("./pixi-scene.ts", import.meta.url).href,
-    passThrough: true, // interactive UI + game-canvas painting
-    fontScale: getEffectiveFontScale(loadUserFontScale()),
-    trackPointer: true, // merges mouseX/mouseY/mouseValid into stats (brush circle)
-    onAction: (action: PixiUiAction) => {
-      const s = useGameStore.getState();
-      switch (action.kind) {
-        case "selectMaterial":
-          s.setSelectedMaterial((action as any).mat);
-          break;
-        case "setBrushMode":
-          s.setBrushMode((action as any).mode === 0 ? "material" : "field");
-          break;
-        case "setFieldType": {
-          const types: FieldType[] = ["gravity", "temperature", "windX", "windY"];
-          s.setFieldType(types[(action as any).fieldType] ?? "gravity");
-          break;
-        }
-        case "setFieldValue": {
-          const a = action as any;
-          if (a.field === "gravity") s.setFieldGravity(a.value);
-          else if (a.field === "temperature") s.setFieldTemperature(a.value);
-          else if (a.field === "windX") s.setFieldWindX(a.value);
-          else if (a.field === "windY") s.setFieldWindY(a.value);
-          break;
-        }
-        case "setBrushRadius":
-          s.setBrushRadius((action as any).radius);
-          break;
-        case "setShowFieldOverlay":
-          s.setShowFieldOverlay((action as any).show);
-          break;
-        case "setSettings": {
-          const a = action as any;
-          s.setSettings({
-            ...(a.impulseChance !== undefined ? { horizontalImpulseChance: a.impulseChance } : {}),
-            ...(a.impulseStrength !== undefined ? { horizontalImpulseStrength: a.impulseStrength } : {}),
-          });
-          break;
-        }
-        case "togglePanel": {
-          const a = action as any;
-          if (a.panel === "settings") s.setShowSettings(!s.showSettings);
-          else if (a.panel === "saves") {
-            const next = !s.showSaves;
-            s.setShowSaves(next);
-            if (next) refreshSaves();
-          }
-          break;
-        }
-        case "save":
-          handleSave();
-          break;
-        case "load":
-          handleLoad((action as any).id);
-          break;
-        case "deleteSave":
-          handleDelete((action as any).id);
-          break;
-        case "clear":
-          useGameStore.getState().renderer?.clearAll();
-          break;
-        case "setFontScale": {
-          const a = action as any;
-          const scale = getEffectiveFontScale(a.scale);
-          uiBridge()?.host.setFontScale(scale);
-          saveUserFontScale(a.scale);
-          break;
-        }
-      }
-    },
-    getStats: () => {
-      const s = useGameStore.getState();
-      const r = s.renderer;
-      const gridW = r?.getGridW() ?? 1;
-      const gridH = r?.getGridH() ?? 1;
-      const canvas = r?.getCanvas();
-      const canvasW = canvas?.width ?? window.innerWidth;
-      const canvasH = canvas?.height ?? window.innerHeight;
-      return {
-        fps: s.fps ?? 0,
-        health: s.health,
-        paused: s.paused ? 1 : 0,
-        selectedMaterial: s.selectedMaterial,
-        brushMode: s.brushMode === "material" ? 0 : 1,
-        fieldType: ["gravity", "temperature", "windX", "windY"].indexOf(s.fieldType),
-        fieldGravity: s.fieldGravity,
-        fieldTemperature: s.fieldTemperature,
-        fieldWindX: s.fieldWindX,
-        fieldWindY: s.fieldWindY,
-        showFieldOverlay: s.showFieldOverlay ? 1 : 0,
-        brushRadius: s.brushRadius,
-        showSettings: s.showSettings ? 1 : 0,
-        showSaves: s.showSaves ? 1 : 0,
-        impulseChance: s.settings.horizontalImpulseChance,
-        impulseStrength: s.settings.horizontalImpulseStrength,
-        inspectorValid: s.inspector.valid ? 1 : 0,
-        inspectorGx: s.inspector.gx,
-        inspectorGy: s.inspector.gy,
-        inspectorMat: s.inspector.mat,
-        inspectorLifetime: s.inspector.lifetime,
-        inspectorShade: s.inspector.shade,
-        inspectorGravity: s.inspector.gravity,
-        inspectorTemperature: s.inspector.temperature,
-        inspectorWindX: s.inspector.windX,
-        inspectorWindY: s.inspector.windY,
-        gridW,
-        gridH,
-        canvasW,
-        canvasH,
-      };
-    },
-  }),
 
   // --- DevTools ---
   devtools: {
@@ -239,9 +108,15 @@ startGame({
     // Wire renderer to the game store.
     useGameStore.getState().setRenderer(renderer);
 
-    // MCP automation tools (standard set + pixi-ui tools).
-    const bridge = ctx.ui as PixiUiBridge | undefined;
-    bridgeRef = bridge ?? null;
+    // Engine-native game UI (imui) mounted on the renderer.
+    renderer.useRendererModule(createFallingSandUi({
+      onSave: () => handleSave(),
+      onLoad: (id) => handleLoad(id),
+      onDeleteSave: (id) => handleDelete(id),
+      onRefreshSaves: () => refreshSaves(),
+    }));
+
+    // MCP automation tools (standard set).
     const tools = [
       ...createStandardAutomationTools({
         canvas: () => renderer.getCanvas(),
@@ -259,10 +134,9 @@ startGame({
           };
         },
       }),
-      ...(bridge ? createPixiUiMcpTools(bridge.host) : []),
     ];
     createMcpHarness({
-      serverName: "downdraft-falling-sand-pixi-automation",
+      serverName: "downdraft-falling-sand-automation",
       tools,
     });
 
@@ -281,29 +155,12 @@ startGame({
     const restored = await saves.start();
     if (restored) console.log("[autosave] Restored last session");
 
-    // --- Forward saves list changes to the worker scene ---
-    let lastSavesLen = -1;
-    savesUnsub = useGameStore.subscribe((s) => {
-      if (s.saves.length !== lastSavesLen) {
-        lastSavesLen = s.saves.length;
-        bridge?.postEvent({
-          kind: "setSaves",
-          saves: s.saves.map((sv) => ({
-            id: sv.id, name: sv.name, timestamp: sv.timestamp,
-            thumbnailUrl: sv.thumbnailUrl, gridW: sv.gridW, gridH: sv.gridH,
-          })),
-        });
-      }
-    });
   },
 
   // --- Cleanup (hot-reload dispose) ---
   onDispose: () => {
     saves?.stop();
     saves = null;
-    savesUnsub?.();
-    savesUnsub = null;
-    bridgeRef = null; // startGame() already disposed ctx.ui
   },
 
   // --- FPS polling ---
@@ -313,12 +170,6 @@ startGame({
 });
 
 // ── Helpers ──
-
-function uiBridge(): PixiUiBridge | null {
-  // ctx.ui is set by startGame before onReady; the action handler can fire
-  // later, so resolve lazily through a module-scope reference set in onReady.
-  return bridgeRef;
-}
 
 async function refreshSaves(): Promise<void> {
   if (!saves) return;

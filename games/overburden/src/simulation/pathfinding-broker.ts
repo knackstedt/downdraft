@@ -29,7 +29,8 @@
 // in-line, identical to the pre-refactor behavior.
 // ============================================================================
 
-import { wrap, type WorkerApi, type WorkerProxy } from "@downdraft/core/worker/rpc";
+import { PortChannel } from "@downdraft/core";
+import type { WorkerApi } from "@downdraft/core/worker/rpc";
 import { ACTIVE_GRID_CELLS } from "../shared/constants";
 import { GRID_BG_OFFSET, GRID_FG_OFFSET } from "../shared/sim-buffer";
 import { findPath as findPathSync, findPathToAdjacent as findPathToAdjacentSync, type PathNode } from "./grid-movement";
@@ -49,11 +50,10 @@ interface PendingRequest {
 }
 
 export class PathfindingBroker {
-  private proxy: WorkerProxy<PatherWorkerApi> | null = null;
+  private channel = new PortChannel<PatherWorkerApi>();
   private pending = new Map<number, PendingRequest>();
   private nextRequestId = 1;
   private _degraded = true; // start degraded until the port arrives
-  private _ready = false;
   private sab: SharedArrayBuffer;
 
   constructor(sab: SharedArrayBuffer) {
@@ -66,18 +66,13 @@ export class PathfindingBroker {
    * from degraded (sync) mode to async mode.
    */
   attachPort(port: MessagePort): void {
-    if (this.proxy) {
-      // Already attached — close the old port and replace.
-      this.proxy.terminate();
-    }
-    this.proxy = wrap<PatherWorkerApi>(port as any, { timeoutMs: 0 });
+    this.channel.attachPort(port);
     this._degraded = false;
-    this._ready = true;
   }
 
   /** True once the pather port is attached and ready for requests. */
   isReady(): boolean {
-    return this._ready;
+    return this.channel.isReady();
   }
 
   /** True if the broker fell back to synchronous in-line pathfinding. */
@@ -103,7 +98,8 @@ export class PathfindingBroker {
     wrap: boolean,
   ): void {
     // Degraded: synchronous fallback (pre-refactor behavior).
-    if (this._degraded || !this.proxy) {
+    const proxy = this.channel.getProxy();
+    if (this._degraded || !proxy) {
       task.path = adjacent
         ? findPathToAdjacentSync(this.fgSnapshot(), this.bgSnapshot(), sx, sy, gx, gy, wrap)
         : findPathSync(this.fgSnapshot(), this.bgSnapshot(), sx, sy, gx, gy, wrap);
@@ -120,8 +116,8 @@ export class PathfindingBroker {
     this.pending.set(requestId, { task, adjacent });
 
     const promise = adjacent
-      ? this.proxy.proxy.findPathToAdjacent(sx, sy, gx, gy, wrap)
-      : this.proxy.proxy.findPath(sx, sy, gx, gy, wrap);
+      ? proxy.proxy.findPathToAdjacent(sx, sy, gx, gy, wrap)
+      : proxy.proxy.findPath(sx, sy, gx, gy, wrap);
 
     promise.then((result) => {
       // Only deliver if this request hasn't been cancelled.
@@ -156,12 +152,7 @@ export class PathfindingBroker {
       p.task.pathRequestId = undefined;
     }
     this.pending.clear();
-    if (this.proxy) {
-      try { this.proxy.proxy.shutdown().catch(() => { /* port may already be closed */ }); } catch { /* ignore */ }
-      this.proxy.terminate();
-    }
-    this.proxy = null;
-    this._ready = false;
+    this.channel.dispose();
     this._degraded = true;
   }
 

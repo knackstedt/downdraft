@@ -33,7 +33,7 @@ import type { Mat4 } from "./matrix";
 
 export type CharacterGender = "male" | "female";
 
-// Player collision box dimensions (must match StickmanPass / sim constants).
+// Player collision box dimensions (must match BlockheadBoxPass / sim constants).
 const PLAYER_W = 0.7;
 const PLAYER_H = 1.95;
 

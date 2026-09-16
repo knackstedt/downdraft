@@ -32,6 +32,22 @@ export class UIInputRouter {
     return this.focusedElement;
   }
 
+  /** Last known pointer position in CSS pixels (-1,-1 before first event). */
+  getPointerPos(): [number, number] {
+    return [this.lastMouseX, this.lastMouseY];
+  }
+
+  /**
+   * True when the pointer is currently over any enabled UI element. Games
+   * that paint/simulate on canvas clicks (falling-sand style) use this to
+   * suppress canvas input while the pointer is over a panel.
+   */
+  isPointerOverUI(): boolean {
+    if (!this.root || this.lastMouseX < 0) return false;
+    const hit = this.root.hitTest(this.lastMouseX, this.lastMouseY);
+    return hit !== null && hit !== this.root;
+  }
+
   update(): void {
     if (!this.root || !this.inputState) return;
 
@@ -68,6 +84,32 @@ export class UIInputRouter {
     if (this.focusedElement) {
       this.focusedElement.callbacks.onKeyUp?.(this.focusedElement, code);
     }
+  }
+
+  /** Dispatch a printable character to the focused element (text inputs). */
+  handleCharInput(char: string): void {
+    const el = this.focusedElement;
+    if (el && (el as any).handleCharInput) {
+      (el as any).handleCharInput(char);
+    }
+  }
+
+  /**
+   * Route a wheel event to the nearest scrollable ancestor of the element
+   * under the pointer (walks up the parent chain from the hit element).
+   * Returns true when a scrollable consumed the event.
+   */
+  handleWheel(dx: number, dy: number): boolean {
+    if (!this.root || this.lastMouseX < 0) return false;
+    let el: UIElement | null = this.root.hitTest(this.lastMouseX, this.lastMouseY);
+    while (el) {
+      if ((el as any).handleWheel) {
+        (el as any).handleWheel(dx, dy);
+        return true;
+      }
+      el = el.parent;
+    }
+    return false;
   }
 
   handleMouseMove(mx: number, my: number): void {
@@ -111,6 +153,8 @@ export class UIInputRouter {
 
   private handlePress(mx: number, my: number): void {
     if (!this.root) return;
+    this.lastMouseX = mx;
+    this.lastMouseY = my;
     const hit = this.root.hitTest(mx, my);
 
     if (hit) {
@@ -143,6 +187,16 @@ export class UIInputRouter {
         this.pressedElement.callbacks.onClick?.(this.pressedElement);
       }
       this.pressedElement = null;
+    }
+  }
+
+  /** Pointer left the canvas — clears hover + pointer position. */
+  handlePointerLeave(): void {
+    this.lastMouseX = -1;
+    this.lastMouseY = -1;
+    if (this.hoveredElement) {
+      this.hoveredElement.setHovered(false);
+      this.hoveredElement = null;
     }
   }
 

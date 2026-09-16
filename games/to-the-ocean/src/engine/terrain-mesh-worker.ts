@@ -4,6 +4,7 @@
 // via Transferable TypedArrays (zero-copy).
 // ============================================================================
 
+import { createTaskWorker } from "@downdraft/core";
 import { ChunkedVoxelField } from "@downdraft/library-marching-cubes";
 import { generateDecorationMesh, generateDecorations } from "@shared/island-decorations";
 import { extractMesh, extractMeshSubRegion } from "@shared/marching-cubes";
@@ -28,8 +29,6 @@ import {
     type GeneratePortStructureMeshResult,
     type GeneratePortTerrainMeshRequest,
     type GeneratePortTerrainMeshResult,
-    type JobMessage,
-    type JobResultMessage,
     type PendingChunkInfo
 } from "./terrain-mesh-types";
 
@@ -294,31 +293,10 @@ function taskGeneratePortStructureMesh(req: GeneratePortStructureMeshRequest): {
 
 // --- Message handler ---
 
-const taskMap: Record<string, (args: any) => { result: any; transfer: Transferable[] }> = {
+createTaskWorker({
   createIslandField: taskCreateIslandField,
   generateChunkMesh: taskGenerateChunkMesh,
   generateDecorationMesh: taskGenerateDecorationMesh,
   generatePortTerrainMesh: taskGeneratePortTerrainMesh,
   generatePortStructureMesh: taskGeneratePortStructureMesh,
-};
-
-self.onmessage = (e: MessageEvent) => {
-  const msg = e.data as JobMessage;
-  if (!msg || msg.__job !== true) return;
-
-  const fn = taskMap[msg.fn];
-  if (!fn) {
-    const errResult: JobResultMessage = { __jobResult: true, id: msg.id, error: `Unknown function: ${msg.fn}` };
-    (self as any).postMessage(errResult);
-    return;
-  }
-
-  try {
-    const { result, transfer } = fn(msg.args[0]);
-    const resultMsg: JobResultMessage = { __jobResult: true, id: msg.id, result };
-    (self as any).postMessage(resultMsg, transfer);
-  } catch (err) {
-    const errResult: JobResultMessage = { __jobResult: true, id: msg.id, error: String(err) };
-    (self as any).postMessage(errResult);
-  }
-};
+});

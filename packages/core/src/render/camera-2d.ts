@@ -62,6 +62,143 @@ export function worldToScreen(cam: Camera2D, wx: number, wy: number): { x: numbe
   };
 }
 
+// ============================================================================
+// PanZoomCamera2D — class-based 2D camera with pan + focal-point zoom gestures
+// ============================================================================
+//
+// Generalized from overburden's `Camera`. Use this when the camera supports
+// mouse-drag panning and zoom-to-cursor; use the free-function Camera2D above
+// for simple follow cams.
+
+export interface PanZoomCamera2DOptions {
+  /** Initial zoom (pixels per world unit). Default: 1 */
+  zoom?: number;
+  /** Initial center position. Default: (0, 0) */
+  x?: number;
+  y?: number;
+  /** Zoom clamp bounds. Defaults: (0, Infinity) — effectively unclamped. */
+  minZoom?: number;
+  maxZoom?: number;
+}
+
+export class PanZoomCamera2D {
+  // Camera position in world coordinates (center of view)
+  x: number;
+  y: number;
+  /** Zoom: pixels per world unit */
+  zoom: number;
+  /** Canvas dimensions in pixels */
+  canvasW: number;
+  canvasH: number;
+  minZoom: number;
+  maxZoom: number;
+
+  // Detached mode: camera doesn't follow the player. When detached, movement
+  // input typically pans the camera instead of moving the player.
+  detached = false;
+
+  // Pan state (mouse drag)
+  private panning = false;
+  private panStartX = 0;
+  private panStartY = 0;
+  private panStartCamX = 0;
+  private panStartCamY = 0;
+
+  constructor(canvasW: number, canvasH: number, opts?: PanZoomCamera2DOptions) {
+    this.canvasW = canvasW;
+    this.canvasH = canvasH;
+    this.x = opts?.x ?? 0;
+    this.y = opts?.y ?? 0;
+    this.zoom = opts?.zoom ?? 1;
+    this.minZoom = opts?.minZoom ?? 0;
+    this.maxZoom = opts?.maxZoom ?? Infinity;
+  }
+
+  resize(w: number, h: number): void {
+    this.canvasW = w;
+    this.canvasH = h;
+  }
+
+  setCenter(x: number, y: number): void {
+    this.x = x;
+    this.y = y;
+  }
+
+  startPan(screenX: number, screenY: number): void {
+    this.panning = true;
+    this.panStartX = screenX;
+    this.panStartY = screenY;
+    this.panStartCamX = this.x;
+    this.panStartCamY = this.y;
+  }
+
+  updatePan(screenX: number, screenY: number): void {
+    if (!this.panning) return;
+    const dx = (screenX - this.panStartX) / this.zoom;
+    const dy = (screenY - this.panStartY) / this.zoom;
+    this.x = this.panStartCamX - dx;
+    this.y = this.panStartCamY - dy;
+  }
+
+  endPan(): void {
+    this.panning = false;
+  }
+
+  isPanning(): boolean {
+    return this.panning;
+  }
+
+  /** Move the camera by a delta in world coordinates (e.g. WASD in detached mode). */
+  move(dx: number, dy: number): void {
+    this.x += dx;
+    this.y += dy;
+  }
+
+  /** Re-center on a position and re-attach to the follow target. */
+  reattach(x: number, y: number): void {
+    this.x = x;
+    this.y = y;
+    this.detached = false;
+    this.panning = false;
+  }
+
+  /** Zoom by `factor`, keeping the world point under the cursor fixed. */
+  zoomAt(screenX: number, screenY: number, factor: number): void {
+    const oldZoom = this.zoom;
+    const newZoom = Math.max(this.minZoom, Math.min(this.maxZoom, this.zoom * factor));
+    if (newZoom === oldZoom) return;
+
+    // Adjust camera so the point under the mouse stays fixed
+    const dx = (screenX - this.canvasW / 2) / oldZoom;
+    const dy = (screenY - this.canvasH / 2) / oldZoom;
+    const worldX = this.x + dx;
+    const worldY = this.y + dy;
+
+    this.zoom = newZoom;
+
+    const newDx = (screenX - this.canvasW / 2) / newZoom;
+    const newDy = (screenY - this.canvasH / 2) / newZoom;
+    this.x = worldX - newDx;
+    this.y = worldY - newDy;
+  }
+
+  /** Convert screen pixel coords to world coords (same as screenToWorld). */
+  screenToGrid(screenX: number, screenY: number): { x: number; y: number } {
+    return {
+      x: (screenX - this.canvasW / 2) / this.zoom + this.x,
+      y: (screenY - this.canvasH / 2) / this.zoom + this.y,
+    };
+  }
+
+  /** Convert world coords to screen pixel coords. */
+  worldToScreen(worldX: number, worldY: number): { x: number; y: number } {
+    return {
+      x: (worldX - this.x) * this.zoom + this.canvasW / 2,
+      y: (worldY - this.y) * this.zoom + this.canvasH / 2,
+    };
+  }
+}
+
 /**
  * Build a 4×4 column-major transform matrix for GPU shaders.
  * Maps world coords to NDC (-1..1) with the camera centered.

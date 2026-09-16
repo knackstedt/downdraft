@@ -377,6 +377,12 @@ export class GameRenderer implements CanvasResizeHandler {
           else this.clearRAFSource();
         },
         setViewportCount: (count) => this.setViewportCount(count),
+        getUIRoot: () => {
+          if (!this.uiRoot) throw new Error("UIRoot not initialized — call init() first");
+          return this.uiRoot;
+        },
+        getUIInputRouter: () => this.uiInputRouter,
+        invalidateUILayout: () => { this.uiNeedsLayout = true; },
       });
 
       // Initial viewport layout

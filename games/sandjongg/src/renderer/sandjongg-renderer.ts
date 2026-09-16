@@ -3,7 +3,8 @@
 // ============================================================================
 
 import { GameRenderer, getDpr } from "@downdraft/core";
-import { MATERIALS } from "@downdraft/library-sand";
+import { MATERIALS, SandGridPass } from "@downdraft/library-sand";
+import SAND_FS from "../shaders/sand-render.wgsl?raw" with { type: "text" };
 import { computeGridDims, MAX_LAYERS, MAX_TILES } from "../shared/constants";
 import { BOARD_ELEMENT_OFFSET, BOARD_META_OFFSET, SimBufferReader, STATS } from "../shared/sim-buffer";
 import { getTileAspect, getTileDef, type TilesetId, type TileTheme } from "../shared/tilesets";
@@ -11,12 +12,12 @@ import type { DebugTileInfo } from "../shared/types";
 import { SandjonggWorkerHost } from "../simulation/sandjongg-worker-host";
 import { useGameStore } from "../stores/game-store";
 import { createInputHandler, type InputHandler } from "./input-handler";
-import { SandGridPass } from "./sand-grid-pass";
 import { isAssetBased, loadTileAtlas } from "./tile-atlas";
 import { TileCanvasPass } from "./tile-canvas-pass";
 
 export class SandjonggRenderer extends GameRenderer {
   private tileCanvas: HTMLCanvasElement;
+  private tilesWereVisible = true;
   private gridPass: SandGridPass | null = null;
   private tilePass: TileCanvasPass | null = null;
   private input: InputHandler | null = null;
@@ -101,7 +102,11 @@ export class SandjonggRenderer extends GameRenderer {
     this.gridW = dims.w;
     this.gridH = dims.h;
 
-    this.gridPass = new SandGridPass(device, format, this.gridW, this.gridH);
+    this.gridPass = new SandGridPass({
+      device, format,
+      gridW: this.gridW, gridH: this.gridH,
+      fragmentShader: SAND_FS,
+    });
     this.gridPass.init();
 
     this.tilePass = new TileCanvasPass(this.tileCanvas);
@@ -364,6 +369,7 @@ export class SandjonggRenderer extends GameRenderer {
   stop(): void {
     super.stop();
     this.workerHost?.stop();
+    this.gridPass?.destroy();
     if (this.storeUnsub) this.storeUnsub();
     if (this.keydownHandler) window.removeEventListener("keydown", this.keydownHandler);
     this.input?.destroy();
@@ -388,6 +394,8 @@ export class SandjonggRenderer extends GameRenderer {
     // Process click input (left button only — pan buttons are consumed above).
     if (this.input.hasClick) {
       this.input.hasClick = false;
+      // Swallow clicks that landed on imui elements (HUD, toolbar, modals).
+      if (!this.getUIInputRouter()?.isPointerOverUI()) {
       const hit = this.tilePass.hitTest(this.input.mouseX, this.input.mouseY);
       // Debug mode: capture tile info instead of selecting/matching.
       const dbg = useGameStore.getState();
@@ -431,6 +439,7 @@ export class SandjonggRenderer extends GameRenderer {
         // Clicked outside board — deselect.
         this.tilePass.state.selected = null;
       }
+      }
     }
 
     // Read board from SAB.
@@ -456,7 +465,16 @@ export class SandjonggRenderer extends GameRenderer {
       ? { col: dbgTile.col, row: dbgTile.row, layer: dbgTile.layer }
       : null;
 
-    // Draw tiles on Canvas2D.
+    // Draw tiles on Canvas2D. The tile canvas is stacked above the game
+    // canvas in DOM order, so it would draw over imui modals — hide it while
+    // any full-screen overlay is open.
+    const st = useGameStore.getState();
+    const anyModal = st.showMainMenu || st.showPauseMenu || st.showHelp || st.showSettings;
+    const tilesVisible = !anyModal;
+    if (tilesVisible !== this.tilesWereVisible) {
+      this.tilesWereVisible = tilesVisible;
+      this.tileCanvas.style.visibility = tilesVisible ? "visible" : "hidden";
+    }
     this.tilePass.draw();
 
     // Render sand on WebGPU.

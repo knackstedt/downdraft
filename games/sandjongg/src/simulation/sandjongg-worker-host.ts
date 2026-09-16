@@ -2,7 +2,7 @@
 // Sandjongg worker host — wraps the sim worker with a proxy + SAB reader/writer.
 // ============================================================================
 
-import { BaseWorkerHost, type BufferSyncConfig } from "@downdraft/core";
+import { SimWorkerHost, type BufferSyncConfig } from "@downdraft/core";
 import { allocateSimBuffer, INPUT, INPUT_BYTES, INPUT_OFFSET, OFFSETS, SimBufferReader, SimBufferWriter, TOTAL_BYTES } from "../shared/sim-buffer";
 import type { TilesetId } from "../shared/tilesets";
 import type { GameMode, SerializedBoard } from "../shared/types";
@@ -31,10 +31,9 @@ type SandjonggWorkerApi = {
   spawnSand(sandCol: number, sandRow: number, sandW: number, sandH: number, element: number): Promise<void>;
 };
 
-export class SandjonggWorkerHost extends BaseWorkerHost<SandjonggWorkerApi> {
+export class SandjonggWorkerHost extends SimWorkerHost<SandjonggWorkerApi> {
   private writer: SimBufferWriter;
   private reader: SimBufferReader;
-  private eventHandler: ((kind: string, data?: unknown) => void) | null = null;
   gridW: number;
   gridH: number;
 
@@ -46,39 +45,18 @@ export class SandjonggWorkerHost extends BaseWorkerHost<SandjonggWorkerApi> {
     this.writer = new SimBufferWriter(sab, OFFSETS, gridW, gridH);
     this.reader = new SimBufferReader(sab, OFFSETS, gridW, gridH);
     this.writer.init();
+    this.setInputWriter(this.writer);
   }
 
   getReader(): SimBufferReader { return this.reader; }
 
   /**
-   * Attach the global ProfilingSAB to the sim worker. Called by the renderer
-   * after initDevTools({ profiling: true }) creates the ProfilingBridge.
-   * The worker's profiling prelude claims a slot + patches prototypes +
-   * initializes the warning engine + event-loop monitor.
+   * Subscribe to worker events (matched, hint, noHint, matchFailed, deadEnd).
+   * Delegates to the shared onSimEvent("*") wildcard. Returns an unsubscribe
+   * function.
    */
-  async attachProfilingSAB(
-    sab: SharedArrayBuffer,
-    layout?: { maxSlots: number; iopsRingCap: number; warningRingCap: number; stringTableCap: number },
-  ): Promise<void> {
-    const proxy = this.getProxy();
-    if (!proxy) return;
-    try {
-      await (proxy.proxy as any).__profilingAttach?.(sab, {
-        workerTag: "sandjongg-sim",
-        runtime: 0,
-        opfs: true,
-        idb: true,
-        defaultWarningRules: true,
-        layout,
-      });
-    } catch (err) {
-      console.warn("[SandjonggWorkerHost] Profiling SAB attach failed:", err);
-    }
-  }
-
-  /** Subscribe to worker events (matched, hint, noHint, matchFailed, deadEnd). */
-  onEvents(handler: (kind: string, data?: unknown) => void): void {
-    this.eventHandler = handler;
+  onEvents(handler: (kind: string, data?: unknown) => void): () => void {
+    return this.onSimEvent("*", (data, kind) => handler(kind, data));
   }
 
   protected createWorker(): Worker {
@@ -127,13 +105,6 @@ export class SandjonggWorkerHost extends BaseWorkerHost<SandjonggWorkerApi> {
     };
   }
 
-  protected onEvent(kind: string, data?: unknown): void {
-    if (kind === "ready") {
-      this.ready = true;
-    }
-    this.eventHandler?.(kind, data);
-  }
-
   protected onError(e: ErrorEvent): void {
     const errStr = e.error ? (e.error.stack || e.error.message || String(e.error)) : "null";
     console.error(
@@ -151,39 +122,34 @@ export class SandjonggWorkerHost extends BaseWorkerHost<SandjonggWorkerApi> {
     await this.getProxy()?.proxy.resize(gridW, gridH);
   }
 
-  pause(): void { this.getProxy()?.proxy.pause().catch(() => {}); }
-  resume(): void { this.getProxy()?.proxy.resume().catch(() => {}); }
-  setSpeed(speed: number): void { this.getProxy()?.proxy.setSpeed(speed).catch(() => {}); }
-  step(): void { this.getProxy()?.proxy.step().catch(() => {}); }
-  newGame(level: number): void { this.getProxy()?.proxy.newGame(level).catch(() => {}); }
-  advanceLevel(level: number): void { this.getProxy()?.proxy.advanceLevel(level).catch(() => {}); }
+  newGame(level: number): void { this.apiSend((api) => api.newGame(level)); }
+  advanceLevel(level: number): void { this.apiSend((api) => api.advanceLevel(level)); }
 
   // --- Actions (written to SAB input region, processed by worker loop) ---
   requestMatch(aCol: number, aRow: number, aLayer: number, bCol: number, bRow: number, bLayer: number): void {
-    this.writer.writeInput(INPUT.MATCH_A_COL, aCol);
-    this.writer.writeInput(INPUT.MATCH_A_ROW, aRow);
-    this.writer.writeInput(INPUT.MATCH_A_LAYER, aLayer);
-    this.writer.writeInput(INPUT.MATCH_B_COL, bCol);
-    this.writer.writeInput(INPUT.MATCH_B_ROW, bRow);
-    this.writer.writeInput(INPUT.MATCH_B_LAYER, bLayer);
-    this.writer.writeInput(INPUT.ACTION, 1); // must be last (worker reads action)
+    this.writeInput(INPUT.MATCH_A_COL, aCol);
+    this.writeInput(INPUT.MATCH_A_ROW, aRow);
+    this.writeInput(INPUT.MATCH_A_LAYER, aLayer);
+    this.writeInput(INPUT.MATCH_B_COL, bCol);
+    this.writeInput(INPUT.MATCH_B_ROW, bRow);
+    this.writeInput(INPUT.MATCH_B_LAYER, bLayer);
+    this.writeInput(INPUT.ACTION, 1); // must be last (worker reads action)
   }
 
-  requestHint(): void { this.writer.writeInput(INPUT.ACTION, 2); }
-  requestShuffle(): void { this.writer.writeInput(INPUT.ACTION, 3); }
+  requestHint(): void { this.writeInput(INPUT.ACTION, 2); }
+  requestShuffle(): void { this.writeInput(INPUT.ACTION, 3); }
   requestNewGame(level: number): void {
-    this.writer.writeInput(INPUT.NEW_LEVEL, level);
-    this.writer.writeInput(INPUT.ACTION, 4);
+    this.writeInput(INPUT.NEW_LEVEL, level);
+    this.writeInput(INPUT.ACTION, 4);
   }
   requestAdvance(level: number): void {
-    this.writer.writeInput(INPUT.NEW_LEVEL, level);
-    this.writer.writeInput(INPUT.ACTION, 6);
+    this.writeInput(INPUT.NEW_LEVEL, level);
+    this.writeInput(INPUT.ACTION, 6);
   }
-  requestClearSand(): void { this.writer.writeInput(INPUT.ACTION, 5); }
+  requestClearSand(): void { this.writeInput(INPUT.ACTION, 5); }
 
-  async getStats(): Promise<{ fps: number; tick: number; frame: number; score: number; level: number; combo: number; tilesLeft: number } | null> {
-    try { return await this.getProxy()?.proxy.getStats() ?? null; }
-    catch { return null; }
+  override async getStats(): Promise<{ fps: number; tick: number; frame: number; score: number; level: number; combo: number; tilesLeft: number } | null> {
+    return this.apiCall((api) => api.getStats());
   }
 
   async loadGrid(grid: Uint32Array, fields: Uint8Array, gridW: number, gridH: number): Promise<void> {
@@ -197,12 +163,11 @@ export class SandjonggWorkerHost extends BaseWorkerHost<SandjonggWorkerApi> {
   }
 
   loadBoard(cols: number, rows: number, elements: Int32Array, layers: number = 1): void {
-    this.getProxy()?.proxy.loadBoard(cols, rows, elements, layers).catch(() => {});
+    this.apiSend((api) => api.loadBoard(cols, rows, elements, layers));
   }
 
   async getBoardState(): Promise<SerializedBoard | null> {
-    try { return await this.getProxy()?.proxy.getBoardState() ?? null; }
-    catch { return null; }
+    return this.apiCall((api) => api.getBoardState());
   }
 
   async loadBoardState(data: SerializedBoard): Promise<void> {
@@ -217,28 +182,28 @@ export class SandjonggWorkerHost extends BaseWorkerHost<SandjonggWorkerApi> {
   }
 
   setBoardLayout(originCol: number, originRow: number, tileW: number, tileH: number): void {
-    this.getProxy()?.proxy.setBoardLayout(originCol, originRow, tileW, tileH).catch(() => {});
+    this.apiSend((api) => api.setBoardLayout(originCol, originRow, tileW, tileH));
   }
 
   setNoAdjacentSame(enabled: boolean): void {
-    this.getProxy()?.proxy.setNoAdjacentSame(enabled).catch(() => {});
+    this.apiSend((api) => api.setNoAdjacentSame(enabled));
   }
 
   setCustomDims(cols: number, rows: number): void {
-    this.getProxy()?.proxy.setCustomDims(cols, rows).catch(() => {});
+    this.apiSend((api) => api.setCustomDims(cols, rows));
   }
 
   setMode(mode: GameMode): void {
-    this.getProxy()?.proxy.setMode(mode).catch(() => {});
+    this.apiSend((api) => api.setMode(mode));
   }
 
   setTileset(id: TilesetId): void {
-    this.getProxy()?.proxy.setTileset(id).catch(() => {});
+    this.apiSend((api) => api.setTileset(id));
   }
 
   /** Spawn sand at an exact sand-grid rect (driven by the renderer at match
    *  time using the tile's on-screen position). */
   spawnSand(sandCol: number, sandRow: number, sandW: number, sandH: number, element: number): void {
-    this.getProxy()?.proxy.spawnSand(sandCol, sandRow, sandW, sandH, element).catch(() => {});
+    this.apiSend((api) => api.spawnSand(sandCol, sandRow, sandW, sandH, element));
   }
 }

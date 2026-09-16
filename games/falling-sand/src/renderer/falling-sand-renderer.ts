@@ -1,12 +1,12 @@
 import { GameRenderer } from "@downdraft/core";
-import { MATERIALS } from "@downdraft/library-sand";
+import { MATERIALS, SandGridPass } from "@downdraft/library-sand";
+import { StickmanPass } from "@downdraft/library-stickman";
+import SAND_FS from "../shaders/sand-render.wgsl?raw" with { type: "text" };
 import { computeGridDims } from "../shared/constants";
 import { FIELD, NUM_LAYERS, PLAYER, SimBufferReader, STATS } from "../shared/sim-buffer";
 import { SandWorkerHost } from "../simulation/sand-worker-host";
 import { useGameStore } from "../stores/game-store";
 import { createInputHandler } from "./input-handler";
-import { SandGridPass } from "./sand-grid-pass";
-import { StickmanPass } from "./stickman-pass";
 
 // Sim tick rate (must match sand-worker.ts TICK_MS = 1000/60).
 const TICK_MS = 1000 / 60;
@@ -99,10 +99,16 @@ export class FallingSandRenderer extends GameRenderer {
       }
     });
 
-    this.gridPass = new SandGridPass(device, format, this.gridW, this.gridH, NUM_LAYERS);
+    this.gridPass = new SandGridPass({
+      device, format,
+      gridW: this.gridW, gridH: this.gridH,
+      fragmentShader: SAND_FS,
+      numLayers: NUM_LAYERS,
+    });
     this.gridPass.init(canvas.width, canvas.height);
 
-    this.stickmanPass = new StickmanPass(device, format, this.gridW, this.gridH);
+    this.stickmanPass = new StickmanPass({ device, format });
+    this.stickmanPass.setGridViewport(this.gridW, this.gridH);
     this.stickmanPass.init();
 
     this.workerHost = new SandWorkerHost(this.gridW, this.gridH);
@@ -142,7 +148,7 @@ export class FallingSandRenderer extends GameRenderer {
     this.gridW = dims.w;
     this.gridH = dims.h;
     this.gridPass.resize(this.gridW, this.gridH, canvas.width, canvas.height);
-    this.stickmanPass?.resize(this.gridW, this.gridH);
+    this.stickmanPass?.setGridViewport(this.gridW, this.gridH);
     this.workerHost.resize(this.gridW, this.gridH);
   }
 
@@ -150,6 +156,7 @@ export class FallingSandRenderer extends GameRenderer {
     super.stop();
     this.workerHost?.stop();
     this.stickmanPass?.destroy();
+    this.gridPass?.destroy();
     this.input?.destroy();
     if (this.storeUnsub) this.storeUnsub();
     if (this.keydownHandler) window.removeEventListener("keydown", this.keydownHandler);
@@ -168,7 +175,7 @@ export class FallingSandRenderer extends GameRenderer {
     this.updateInspector(dt);
 
     for (let i = 0; i < NUM_LAYERS; i++) {
-      this.gridPass.updateGrid(i, this.gridReader.getGrid(i));
+      this.gridPass.updateGrid(this.gridReader.getGrid(i), i);
     }
     this.gridPass.updateUniforms();
 
@@ -210,10 +217,10 @@ export class FallingSandRenderer extends GameRenderer {
       const interpPx = this.prevPx + (this.curPx - this.prevPx) * alpha;
       const interpPy = this.prevPy + (this.curPy - this.prevPy) * alpha;
 
-      this.stickmanPass.update(
-        interpPx, interpPy, pFacing, pAnimFrame,
-        pHealth, pOnGround, pVx, pVy,
-      );
+      this.stickmanPass.update({
+        cx: interpPx, topY: interpPy, facing: pFacing, animFrame: pAnimFrame,
+        health: pHealth, onGround: pOnGround, vx: pVx, vy: pVy,
+      });
       const s = useGameStore.getState();
       if (s.health !== pHealth) s.setHealth(pHealth);
     }
@@ -270,8 +277,11 @@ export class FallingSandRenderer extends GameRenderer {
     const gx = Math.floor((this.input.mouseX / canvas.width) * this.gridW);
     const gy = Math.floor((this.input.mouseY / canvas.height) * this.gridH);
 
-    this.workerHost.writeMouseDown(this.input.mouseDown);
-    this.workerHost.writeMouseRight(this.input.mouseRight);
+    // Don't paint while the pointer is over an interactive UI element.
+    const uiBlocked = this.getUIInputRouter()?.isPointerOverUI() ?? false;
+
+    this.workerHost.writeMouseDown(this.input.mouseDown && !uiBlocked);
+    this.workerHost.writeMouseRight(this.input.mouseRight && !uiBlocked);
     this.workerHost.writeMousePos(gx, gy);
     this.workerHost.writeSelectedMaterial(this.input.selectedMaterial);
     this.workerHost.writeBrushRadius(this.input.brushRadius);
@@ -307,7 +317,7 @@ export class FallingSandRenderer extends GameRenderer {
   private handlePicker(): void {
     if (!this.input || !this.gridReader) return;
     const canvas = this.getCanvas();
-    const middle = this.input.mouseMiddle;
+    const middle = this.input.mouseMiddle && !(this.getUIInputRouter()?.isPointerOverUI() ?? false);
     if (middle && !this.prevMouseMiddle) {
       const gx = Math.floor((this.input.mouseX / canvas.width) * this.gridW);
       const gy = Math.floor((this.input.mouseY / canvas.height) * this.gridH);

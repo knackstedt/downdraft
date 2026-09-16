@@ -10,8 +10,9 @@ import { PhysicsPropsController } from "@andrews-sandbox/module-physics-props";
 import { SandboxVRModule } from "@andrews-sandbox/module-vr";
 import { WeaponController } from "@andrews-sandbox/module-weapons";
 import { downdraft, startGame, type SimWorkerSeed } from "@downdraft/app/renderer";
-import { CameraMode, ENGINE_VERSION, ENT, MaterialRegistry, PluginHost, registerAllExtensionLoaders, SimBufferReader } from "@downdraft/core";
+import { CameraMode, collectPluginManifests, discoverPlugins, ENGINE_VERSION, ENT, MaterialRegistry, pluginBaseUrlLookup, PluginHost, registerAllExtensionLoaders, SimBufferReader } from "@downdraft/core";
 import { PixiUiHost } from "@downdraft/library-pixi-ui";
+import { createCharacterMotor3D, type Motor3DState } from "@downdraft/module-movement-3d";
 // Import the pointer lock polyfill BEFORE any code that uses requestPointerLock.
 // This overrides the browser's Pointer Lock API with a native-backed
 // implementation that bypasses Chrome's ESC-exits-pointer-lock behavior and
@@ -359,7 +360,7 @@ startGame({
   },
 
   onFpsUpdate: (fps, _ctx) => {
-    useGameStore.getState().setFps(fps);
+    useGameStore.getState().setFPS(fps);
   },
 
   save: {
@@ -389,7 +390,7 @@ startGame({
     const { renderer, simSAB, inputSAB } = ctx;
     const sim = ctx.sim! as SimWebWorker;
 
-    useGameStore.getState().setRendererReady(true);
+    useGameStore.getState().setReady(true);
 
     (renderer as WebGPURenderer).setSimReader(simSAB!);
     (renderer as WebGPURenderer).setInputWriter(inputSAB!);
@@ -425,28 +426,13 @@ startGame({
     try {
       console.log("[PluginHost] Starting plugin discovery...");
       // Discover both mod.json and plugin.json manifests.
-      const modModules = import.meta.glob("../plugins/*/mod.json", { eager: true, query: "?json", import: "default" });
-      const pluginModules = import.meta.glob("../plugins/*/plugin.json", { eager: true, query: "?json", import: "default" });
-      console.log("[PluginHost] glob results:", { mods: Object.keys(modModules), plugins: Object.keys(pluginModules) });
-      const baseUrlByManifestId = new Map<string, string>();
-      const allManifests: Array<{ manifest: any; baseUrl: string }> = [];
-      for (const [path, manifest] of Object.entries(modModules)) {
-        // Convert glob path (e.g. "../plugins/acid-postfx/mod.json") to a URL
-        // relative to the Vite dev server root (the game directory).
-        const pluginDir = path.replace("/mod.json", "");
-        const absDir = pluginDir.replace(/^\.\.\//, "/");
-        allManifests.push({ manifest: manifest as any, baseUrl: absDir });
-      }
-      for (const [path, manifest] of Object.entries(pluginModules)) {
-        const pluginDir = path.replace("/plugin.json", "");
-        const absDir = pluginDir.replace(/^\.\.\//, "/");
-        allManifests.push({ manifest: manifest as any, baseUrl: absDir });
-      }
+      const allManifests = collectPluginManifests({
+        "mod.json": import.meta.glob("../plugins/*/mod.json", { eager: true, query: "?json", import: "default" }),
+        "plugin.json": import.meta.glob("../plugins/*/plugin.json", { eager: true, query: "?json", import: "default" }),
+      });
       console.log(`[PluginHost] Discovered ${allManifests.length} manifest(s):`, allManifests.map((m) => m.manifest.id));
       // Track base URLs for the asset bridge to resolve relative paths.
-      for (const { manifest, baseUrl } of allManifests) {
-        baseUrlByManifestId.set(manifest.id, baseUrl);
-      }
+      const getBaseUrl = pluginBaseUrlLookup(allManifests);
       // Create the PluginHost with extension loaders bridged into sandbox registries.
       pluginHost = new PluginHost({
         gameId: "andrews-sandbox",
@@ -455,30 +441,18 @@ startGame({
       registerAllExtensionLoaders(
         (loader) => pluginHost!.registerExtensionLoader(loader),
         {
-          assets: createContentRegistryAssetBridge(
-            contentRegistry,
-            (manifestId) => baseUrlByManifestId.get(manifestId) ?? "",
-          ),
+          assets: createContentRegistryAssetBridge(contentRegistry, getBaseUrl),
           maps: createNoopMapRegistry(),
           physics: createNoopPhysicsRegistry(),
           shaders: createShaderBridge(
             (renderer as any)?.getPostProcessStack?.() ?? null,
             materialRegistry,
-            (manifestId: string) => baseUrlByManifestId.get(manifestId) ?? "",
+            getBaseUrl,
           ),
         },
       );
-      // Discover all manifests.
-      for (const { manifest, baseUrl } of allManifests) {
-        const r = pluginHost.discover(manifest, baseUrl);
-        if (!r.ok) {
-          console.warn(`[PluginHost] Rejected manifest "${manifest.id}":`, r.errors);
-        } else {
-          console.log(`[PluginHost] Discovered mod "${manifest.id}"`);
-        }
-      }
-      // Load all discovered mods.
-      await pluginHost.loadAll();
+      // Discover + load all manifests.
+      const { active: activeCount } = await discoverPlugins(pluginHost, allManifests);
       // Legacy backward compat: also run PluginScanner for plugins with custom
       // `props` sections (e.g. bouncy-ball) that the normalizer doesn't handle.
       const legacyWithProps = allManifests.filter(({ manifest }) => (manifest as any).props);
@@ -491,7 +465,6 @@ startGame({
           console.log(`[Renderer] Legacy plugin (props section): ${plugin.manifest.id} (${plugin.entries.length} entries)`);
         }
       }
-      const activeCount = pluginHost.snapshot().filter((p) => p.status === "active").length;
       console.log(`[PluginHost] Loaded ${activeCount} mods`);
     } catch (err) {
       console.error("[Renderer] Plugin discovery failed:", err);
@@ -1008,6 +981,16 @@ startGame({
     const GRAVITY = 20.0;
     const JUMP_VELOCITY = 8.0;
     const MOVE_SPEED = 8.0;
+    // Shared movement kernel — heading-relative WASD + gravity/jump + freefly.
+    const motor = createCharacterMotor3D({
+      walkSpeed: MOVE_SPEED,
+      flySpeed: FREECAM_SPEED,
+      jumpForce: JUMP_VELOCITY,
+      gravity: GRAVITY,
+      normalizeInput: false, // diagonal WASD is √2× faster (original behavior)
+      resetVyWhenGrounded: true,
+      turn: { mode: "exp", rate: 10 }, // modelYaw eases toward move dir
+    });
     let vy = 0;
     let lastWeaponTick = performance.now();
     // Last pose sent to the sim — only dispatch setPose on transitions to
@@ -1054,20 +1037,15 @@ startGame({
       // ── FreeCam: fly the camera through the world; the sim player freezes ──
       if (cameraMode === CameraMode.FreeCam) {
         if (browserOpen) { applyCamera(r, yaw, pitch); return; }
-        const fwd = getMoveForward(yaw);
-        const right = getRightVector(yaw);
-        const speed = FREECAM_SPEED;
-        let dx = 0, dy = 0, dz = 0;
-        if (keys.has("KeyW")) { dx += fwd[0] * speed * dt; dz += fwd[2] * speed * dt; }
-        if (keys.has("KeyS")) { dx -= fwd[0] * speed * dt; dz -= fwd[2] * speed * dt; }
-        if (keys.has("KeyA")) { dx -= right[0] * speed * dt; dz -= right[2] * speed * dt; }
-        if (keys.has("KeyD")) { dx += right[0] * speed * dt; dz += right[2] * speed * dt; }
-        // Space = up, Shift = down (no crouch/prone in freecam)
-        if (keys.has("Space")) dy += speed * dt;
-        if (keys.has("ShiftLeft")) dy -= speed * dt;
-        freecamPos[0] += dx;
-        freecamPos[1] += dy;
-        freecamPos[2] += dz;
+        const d = motor.fly({
+          fwd: (keys.has("KeyW") ? 1 : 0) - (keys.has("KeyS") ? 1 : 0),
+          strafe: (keys.has("KeyD") ? 1 : 0) - (keys.has("KeyA") ? 1 : 0),
+          up: keys.has("Space"),
+          down: keys.has("ShiftLeft"),
+        }, yaw, dt);
+        freecamPos[0] += d.dx;
+        freecamPos[1] += d.dy;
+        freecamPos[2] += d.dz;
         applyCamera(r, yaw, pitch);
         return;
       }
@@ -1085,42 +1063,33 @@ startGame({
         sim.sendCommand({ type: "setPose", pose: desiredPose });
         lastSentPose = desiredPose;
       }
-      const fwd = getMoveForward(yaw);
-      const right = getRightVector(yaw);
       // Compute desired horizontal movement (WASD) — uses yaw-only forward
       // so looking up/down doesn't reduce horizontal speed. Scaled by the
       // current pose's speed multiplier (crouch/prone move slower).
-      const speed = MOVE_SPEED * POSE_SPEED_MUL[playerState.pose];
-      let dx = 0, dz = 0;
-      if (keys.has("KeyW")) { dx += fwd[0] * speed * dt; dz += fwd[2] * speed * dt; }
-      if (keys.has("KeyS")) { dx -= fwd[0] * speed * dt; dz -= fwd[2] * speed * dt; }
-      if (keys.has("KeyA")) { dx -= right[0] * speed * dt; dz -= right[2] * speed * dt; }
-      if (keys.has("KeyD")) { dx += right[0] * speed * dt; dz += right[2] * speed * dt; }
-      // Turn the avatar toward the movement direction. The renderer applies
-      // R_y(yaw) to the model, whose bind pose faces -Z — so the model's
-      // world forward is (-sin(yaw), -cos(yaw)), NOT the camera's
-      // (sin(yaw), -cos(yaw)); the x-sign differs. Facing yaw for movement
-      // direction (dx,dz) is therefore atan2(-dx, -dz). Shortest-arc
-      // exponential ease (~10/s) keeps turns snappy but smooth.
-      if (dx !== 0 || dz !== 0) {
-        const targetYaw = Math.atan2(-dx, -dz);
-        const dYaw = Math.atan2(Math.sin(targetYaw - modelYaw), Math.cos(targetYaw - modelYaw));
-        modelYaw += dYaw * Math.min(1, dt * 10);
-      }
-      // Reset vertical velocity when grounded (prevents unbounded gravity
-      // accumulation that causes the character controller to receive huge
-      // downward deltas, leading to ground clipping and sideways jitter).
-      if (playerState.grounded) {
-        vy = 0;
-      }
-      // Jump — only allowed while standing (crouch/prone can't launch).
-      if (keys.has("Space") && playerState.grounded && playerState.pose === PoseState.Standing) {
-        vy = JUMP_VELOCITY;
-      }
-      // Apply gravity
-      vy -= GRAVITY * dt;
+      // The motor also turns the avatar toward the movement direction
+      // (exponential ease ~10/s), applies gravity, and gates jump to
+      // standing-only while grounded.
+      const motorState: Motor3DState = {
+        vy,
+        grounded: playerState.grounded,
+        facing: modelYaw,
+      };
+      const d = motor.update(
+        motorState,
+        {
+          fwd: (keys.has("KeyW") ? 1 : 0) - (keys.has("KeyS") ? 1 : 0),
+          strafe: (keys.has("KeyD") ? 1 : 0) - (keys.has("KeyA") ? 1 : 0),
+          jump: keys.has("Space"),
+          speedMul: POSE_SPEED_MUL[playerState.pose],
+        },
+        yaw,
+        { jumpAllowed: playerState.pose === PoseState.Standing },
+        dt,
+      );
+      vy = motorState.vy;
+      modelYaw = motorState.facing;
       // Send desired movement delta to the sim worker (Rapier character controller)
-      sim.sendCommand({ type: "movePlayer", desiredDelta: [dx, vy * dt, dz], verticalVelocity: vy });
+      sim.sendCommand({ type: "movePlayer", desiredDelta: [d.dx, d.dy, d.dz], verticalVelocity: vy });
       // Ease the camera eye height toward the pose's target so stand↔crouch↔prone
       // transitions glide instead of snapping. Frame-rate-independent exponential
       // smoothing: ~12/s converges in ~250ms, hiding the capsule-resize pop.
@@ -2360,14 +2329,4 @@ function getForwardVector(yaw: number, pitch: number): [number, number, number] 
     Math.sin(pitch),
     -Math.cos(pitch) * Math.cos(yaw),
   ];
-}
-
-// Horizontal forward vector (yaw only, no pitch) — used for WASD movement
-// so looking up/down doesn't reduce horizontal speed.
-function getMoveForward(yaw: number): [number, number, number] {
-  return [Math.sin(yaw), 0, -Math.cos(yaw)];
-}
-
-function getRightVector(yaw: number): [number, number, number] {
-  return [Math.cos(yaw), 0, Math.sin(yaw)];
 }

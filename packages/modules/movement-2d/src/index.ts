@@ -1,34 +1,45 @@
 // ============================================================================
-// @downdraft/module-movement-2d — 2D top-down/side-scrolling movement
+// @downdraft/module-movement-2d — 2D side-scrolling grid character movement
 //
-// Provides a 2D movement system for grid-based or continuous 2D games.
-// Reads input from the InputBuffer and writes velocity/position.
+// Provides a configurable AABB-vs-grid character controller
+// (createGridCharacterController): platformer physics with collision,
+// step-up, swimming, ladder climbing, noclip, fall damage, bury/crush, and
+// contact hazards. The game supplies cell predicates via GridCharacterWorld.
+//
+// The module wraps the factory in a DI token for module-host games; games
+// with hand-rolled sims can import createGridCharacterController directly.
 // ============================================================================
 
 import { resourceToken, type Module, type ModuleContext } from "@downdraft/core";
+import { createGridCharacterController, type GridCharacterConfig, type GridCharacterController } from "./grid-character";
 
-export interface Movement2DConfig {
-  speed?: number;
-  diagonalNormalization?: boolean;
-  gridSnap?: boolean;
-  gridSize?: number;
-}
+export {
+    createGridCharacterController
+} from "./grid-character";
+export type {
+    GridCharacterConfig,
+    GridCharacterController,
+    GridCharacterInput,
+    GridCharacterMods,
+    GridCharacterState,
+    GridCharacterWorld,
+    GridDamageKind
+} from "./grid-character";
 
+export interface Movement2DConfig extends GridCharacterConfig {}
+
+export const GridCharacterControllerTok = resourceToken<GridCharacterController>("movement-2d:grid-character");
+
+/** @deprecated Use GridCharacterControllerTok. */
 export const Movement2DStateTok = resourceToken<unknown>("movement-2d:state");
 
-export function createMovement2DModule(config: Movement2DConfig = {}): Module {
-  const cfg = {
-    speed: config.speed ?? 5.0,
-    diagonalNormalization: config.diagonalNormalization ?? true,
-    gridSnap: config.gridSnap ?? false,
-    gridSize: config.gridSize ?? 32,
-  };
+export function createMovement2DModule(config: Movement2DConfig): Module {
   return {
     name: "movement-2d",
     version: "1.0.0",
-    provides: [Movement2DStateTok],
+    provides: [GridCharacterControllerTok],
     register(ctx: ModuleContext) {
-      ctx.provide(Movement2DStateTok, cfg);
+      ctx.provide(GridCharacterControllerTok, createGridCharacterController(config));
     },
   };
 }

@@ -9,91 +9,76 @@
 // PostProcessStack + MaterialRegistry.
 // ============================================================================
 
-import type {
-    AssetRegistry,
-    MapRegistry,
-    MaterialRegistry,
-    PhysicsRegistry,
-    ShaderRegistry,
+import {
+    createAssetRegistryBridge,
+    type AssetRegistry,
+    type MaterialRegistry,
+    type ShaderRegistry
 } from "@downdraft/core";
 import type { PostProcessStack } from "@downdraft/library-postfx";
 import type { ContentRegistry } from "../libraries/content/src/content-registry";
+
+const DEFAULT_PHYSICS = { mass: 1.0, restitution: 0.3, friction: 0.5, gravityScale: 1.0 };
 
 /** Adapt ContentRegistry → AssetRegistry for the PluginHost extension loader. */
 export function createContentRegistryAssetBridge(
   contentRegistry: ContentRegistry,
   getBaseUrl: (manifestId: string) => string,
 ): AssetRegistry {
-  const deriveName = (path: string): string => {
-    const parts = path.split("/");
-    return parts[parts.length - 1].replace(/\.[^.]+$/, "");
-  };
-  return {
-    async registerMesh(id, path, manifestId, meta) {
-      const baseUrl = getBaseUrl(manifestId);
-      const name = (meta?.name as string) ?? deriveName(path);
-      const scale = (meta?.scale as number) ?? 1.0;
-      const shape = (meta?.shape as string) ?? "box";
-      const physics = (meta?.physics as any) ?? { mass: 1.0, restitution: 0.3, friction: 0.5, gravityScale: 1.0 };
-      contentRegistry.register({
-        id,
-        name,
-        category: "prop",
-        modelUri: path ? `${baseUrl}/${path}` : "",
-        pluginSource: manifestId,
-        pack: manifestId,
-        packLabel: manifestId,
-        physics,
-        scale,
-        paintable: true,
-      });
+  return createAssetRegistryBridge({
+    getBaseUrl,
+    unregister: (id) => contentRegistry.remove(id),
+    register: (e) => {
+      const meta = e.meta ?? {};
+      const common = {
+        id: e.id,
+        name: e.name,
+        pluginSource: e.manifestId,
+        pack: e.manifestId,
+        packLabel: e.manifestId,
+      };
+      switch (e.kind) {
+        case "mesh":
+          contentRegistry.register({
+            ...common,
+            category: "prop",
+            modelUri: e.url,
+            physics: (meta.physics as any) ?? DEFAULT_PHYSICS,
+            scale: (meta.scale as number) ?? 1.0,
+            paintable: true,
+          });
+          break;
+        case "texture":
+          contentRegistry.register({
+            ...common,
+            category: "texture",
+            thumbnailUri: e.url,
+            physics: DEFAULT_PHYSICS,
+            scale: 1.0,
+            paintable: true,
+          });
+          break;
+        case "pbrMaterial":
+          contentRegistry.register({
+            ...common,
+            category: "material",
+            physics: DEFAULT_PHYSICS,
+            scale: 1.0,
+            paintable: false,
+          });
+          break;
+        case "texturePipeline":
+          contentRegistry.register({
+            ...common,
+            category: "pipeline",
+            physics: DEFAULT_PHYSICS,
+            scale: 1.0,
+            paintable: false,
+          });
+          break;
+      }
     },
-    async unregisterMesh(id) { contentRegistry.remove(id); },
-    async registerTexture(id, path, manifestId) {
-      const baseUrl = getBaseUrl(manifestId);
-      contentRegistry.register({
-        id,
-        name: deriveName(path),
-        category: "texture",
-        thumbnailUri: `${baseUrl}/${path}`,
-        pluginSource: manifestId,
-        pack: manifestId,
-        packLabel: manifestId,
-        physics: { mass: 1.0, restitution: 0.3, friction: 0.5, gravityScale: 1.0 },
-        scale: 1.0,
-        paintable: true,
-      });
-    },
-    async unregisterTexture(id) { contentRegistry.remove(id); },
-    async registerPBRMaterial(id, _path, manifestId, props) {
-      contentRegistry.register({
-        id,
-        name: deriveName(id),
-        category: "material",
-        pluginSource: manifestId,
-        pack: manifestId,
-        packLabel: manifestId,
-        physics: { mass: 1.0, restitution: 0.3, friction: 0.5, gravityScale: 1.0 },
-        scale: 1.0,
-        paintable: false,
-      });
-    },
-    async unregisterPBRMaterial(id) { contentRegistry.remove(id); },
-    async registerTexturePipeline(id, _path, manifestId, _props) {
-      contentRegistry.register({
-        id,
-        name: deriveName(id),
-        category: "pipeline",
-        pluginSource: manifestId,
-        pack: manifestId,
-        packLabel: manifestId,
-        physics: { mass: 1.0, restitution: 0.3, friction: 0.5, gravityScale: 1.0 },
-        scale: 1.0,
-        paintable: false,
-      });
-    },
-    async unregisterTexturePipeline(id) { contentRegistry.remove(id); },
-  };
+  });
 }
 
 /** Adapt PostProcessStack + MaterialRegistry → ShaderRegistry. */
@@ -168,22 +153,5 @@ export function createShaderBridge(
   };
 }
 
-/** A no-op MapRegistry for the sandbox (maps not yet supported in the sandbox). */
-export function createNoopMapRegistry(): MapRegistry {
-  return {
-    async registerMap(id, _path, manifestId) {
-      console.log(`[PluginHost] Map "${id}" from mod "${manifestId}" registered (noop)`);
-    },
-    async unregisterMap(_id) { /* noop */ },
-  };
-}
-
-/** A no-op PhysicsRegistry for the sandbox (physics overrides not yet wired). */
-export function createNoopPhysicsRegistry(): PhysicsRegistry {
-  return {
-    async registerPhysicsOverride(id, _path, manifestId) {
-      console.log(`[PluginHost] Physics override "${id}" from mod "${manifestId}" registered (noop)`);
-    },
-    async unregisterPhysicsOverride(_id) { /* noop */ },
-  };
-}
+/** No-op MapRegistry/PhysicsRegistry — re-exported from core for callers. */
+export { createNoopMapRegistry, createNoopPhysicsRegistry } from "@downdraft/core";

@@ -1,11 +1,16 @@
 // ============================================================================
-// Input handler — captures keyboard + mouse input for Blockheads.
+// Input handler — thin adapter over core's createDomInputHandler.
 //
-// Keyboard: WASD/arrows for movement, Space for jump, +/- for zoom,
-//   number keys 1-9 for hotbar block selection.
-// Mouse: left-click for mining, right-click for placing, middle/right-drag
-//   for panning, wheel for zoom.
+// The DOM event wiring (keyMap, mouse buttons, canvas coords, wheel,
+// contextmenu suppression, destroy) is engine-provided; this file exposes the
+// legacy flat-field shape the renderer reads each frame plus the game-owned
+// fields (hotbar slot, task mode, panning, debug inspect, callbacks).
+//
+// Held-movement + mouse-button fields are get/set pairs over the engine's
+// InputState so the MCP inject_input tools can still drive them directly.
 // ============================================================================
+
+import { createDomInputHandler, type DomInputHandler } from "@downdraft/core";
 
 export interface BlockheadsInputState {
   // Movement
@@ -77,21 +82,17 @@ export interface BlockheadsInputState {
   // Use the active hotbar item (G key). The renderer wires this to call the
   // worker's useItem RPC (e.g. spawn egg).
   onUseItem?: () => void;
+
+  /** Underlying engine handler (update()/injectInput()/destroy()). */
+  readonly handler: DomInputHandler;
+  /** Remove DOM listeners (hot-reload safe). */
+  destroy(): void;
 }
 
 export function createInputHandler(canvas: HTMLCanvasElement): BlockheadsInputState {
-  const rect0 = canvas.getBoundingClientRect();
-  const state: BlockheadsInputState = {
-    left: false,
-    right: false,
-    up: false,
-    down: false,
-    jump: false,
+  // Game-owned fields not covered by the shared handler.
+  const game = {
     noclip: false,
-    mouseDown: false,
-    mouseX: rect0.width / 2,
-    mouseY: rect0.height / 2,
-    mouseRight: false,
     selectedSlot: 0,
     zoomDelta: 0,
     taskMode: false,
@@ -107,165 +108,172 @@ export function createInputHandler(canvas: HTMLCanvasElement): BlockheadsInputSt
     inspectClickX: 0,
     inspectClickY: 0,
     forceFruitSpawnPending: false,
-    onToggleGender: undefined,
-    onToggleMap: undefined,
-    onExitMap: undefined,
-    onCycleActiveBh: undefined,
-    onUseItem: undefined,
   };
 
-  const keyMap: Record<string, keyof BlockheadsInputState> = {
-    "a": "left",
-    "A": "left",
-    "ArrowLeft": "left",
-    "d": "right",
-    "D": "right",
-    "ArrowRight": "right",
-    "w": "up",
-    "W": "up",
-    "ArrowUp": "up",
-    "s": "down",
-    "S": "down",
-    "ArrowDown": "down",
-    " ": "jump",
-    "Space": "jump",
-  };
+  const cbs: {
+    onToggleGender?: () => void;
+    onToggleMap?: () => void;
+    onExitMap?: () => void;
+    onCycleActiveBh?: (reverse: boolean) => void;
+    onUseItem?: () => void;
+  } = {};
 
-  window.addEventListener("keydown", (e) => {
-    const key = keyMap[e.key];
-    if (key) {
-      (state[key] as boolean) = true;
-      e.preventDefault();
-      return;
-    }
-    // Zoom
-    if (e.key === "=" || e.key === "+") {
-      state.zoomDelta += 1;
-      e.preventDefault();
-    } else if (e.key === "-" || e.key === "_") {
-      state.zoomDelta -= 1;
-      e.preventDefault();
-    }
-    // Hotbar selection (1-9)
-    else if (e.key >= "1" && e.key <= "9") {
-      state.selectedSlot = parseInt(e.key, 10) - 1;
-      e.preventDefault();
-    }
-    // Noclip toggle (F3)
-    else if (e.key === "F3") {
-      state.noclip = !state.noclip;
-      e.preventDefault();
-    }
-    // Debug cell inspect toggle (F6)
-    else if (e.key === "F6") {
-      state.debugInspect = !state.debugInspect;
-      console.log(`[Overburden] Cell inspect ${state.debugInspect ? "enabled" : "disabled"} (F6) — click a cell to log its 4 render layers`);
-      e.preventDefault();
-    }
-    // Debug force fruit spawn (F7): roll the fruit-spawn dice for all
-    // fruit-capable leaves immediately (without waiting for the daily tick).
-    else if (e.key === "F7") {
-      state.forceFruitSpawnPending = true;
-      e.preventDefault();
-    }
-    // Character gender toggle (C key)
-    else if (e.key === "c" || e.key === "C") {
-      state.onToggleGender?.();
-      e.preventDefault();
-    }
-    // Map mode toggle (M key): snap to full map or restore previous zoom.
-    else if (e.key === "m" || e.key === "M") {
-      state.onToggleMap?.();
-      e.preventDefault();
-    }
-    // Cycle active blockhead (Tab / Shift+Tab)
-    else if (e.key === "Tab") {
-      state.onCycleActiveBh?.(e.shiftKey);
-      e.preventDefault();
-    }
-    // Use active hotbar item (G key) — e.g. spawn egg
-    else if (e.key === "g" || e.key === "G") {
-      state.onUseItem?.();
-      e.preventDefault();
-    }
-    // Esc: exit map mode (if active). The renderer's onExitMap checks
-    // isMapMode() so this is a no-op when not in map mode, letting Esc
-    // fall through to the app's pause handler.
-    else if (e.key === "Escape") {
-      state.onExitMap?.();
-      // Don't preventDefault — the app's pause menu also listens for Esc.
-    }
-  });
-
-  window.addEventListener("keyup", (e) => {
-    const key = keyMap[e.key];
-    if (key) {
-      (state[key] as boolean) = false;
-      e.preventDefault();
-    }
-  });
-
-  canvas.addEventListener("mousedown", (e) => {
-    // Debug cell inspect: left-click logs the 4 render layers at the cell.
-    // Handled before task-mode/mining so it works in every mode; it only
-    // logs and doesn't suppress the normal click behavior.
-    if (state.debugInspect && e.button === 0) {
-      const rect = canvas.getBoundingClientRect();
-      state.inspectClickPending = true;
-      state.inspectClickX = e.clientX - rect.left;
-      state.inspectClickY = e.clientY - rect.top;
-    }
-    if (state.taskMode) {
-      // Middle-click (button 1) starts panning in task mode
+  const handler = createDomInputHandler({
+    canvas,
+    preset: "wasd", // a/d/w/s/arrows + space → left/right/up/down/jump
+    mouseCoords: "css", // screen pixels (renderer maps through the camera)
+    onKeyPress: {
+      // Zoom
+      "=": (e) => { game.zoomDelta += 1; e.preventDefault(); },
+      "+": (e) => { game.zoomDelta += 1; e.preventDefault(); },
+      "-": (e) => { game.zoomDelta -= 1; e.preventDefault(); },
+      "_": (e) => { game.zoomDelta -= 1; e.preventDefault(); },
+      // Hotbar selection (1-9)
+      "1": (e) => { game.selectedSlot = 0; e.preventDefault(); },
+      "2": (e) => { game.selectedSlot = 1; e.preventDefault(); },
+      "3": (e) => { game.selectedSlot = 2; e.preventDefault(); },
+      "4": (e) => { game.selectedSlot = 3; e.preventDefault(); },
+      "5": (e) => { game.selectedSlot = 4; e.preventDefault(); },
+      "6": (e) => { game.selectedSlot = 5; e.preventDefault(); },
+      "7": (e) => { game.selectedSlot = 6; e.preventDefault(); },
+      "8": (e) => { game.selectedSlot = 7; e.preventDefault(); },
+      "9": (e) => { game.selectedSlot = 8; e.preventDefault(); },
+      // Noclip toggle (F3)
+      F3: (e) => { game.noclip = !game.noclip; e.preventDefault(); },
+      // Debug cell inspect toggle (F6)
+      F6: (e) => {
+        game.debugInspect = !game.debugInspect;
+        console.log(`[Overburden] Cell inspect ${game.debugInspect ? "enabled" : "disabled"} (F6) — click a cell to log its 4 render layers`);
+        e.preventDefault();
+      },
+      // Debug force fruit spawn (F7): roll the fruit-spawn dice for all
+      // fruit-capable leaves immediately (without waiting for the daily tick).
+      F7: (e) => { game.forceFruitSpawnPending = true; e.preventDefault(); },
+      // Character gender toggle (C key)
+      c: (e) => { cbs.onToggleGender?.(); e.preventDefault(); },
+      C: (e) => { cbs.onToggleGender?.(); e.preventDefault(); },
+      // Map mode toggle (M key): snap to full map or restore previous zoom.
+      m: (e) => { cbs.onToggleMap?.(); e.preventDefault(); },
+      M: (e) => { cbs.onToggleMap?.(); e.preventDefault(); },
+      // Cycle active blockhead (Tab / Shift+Tab)
+      Tab: (e) => { cbs.onCycleActiveBh?.(e.shiftKey); e.preventDefault(); },
+      // Use active hotbar item (G key) — e.g. spawn egg
+      g: (e) => { cbs.onUseItem?.(); e.preventDefault(); },
+      G: (e) => { cbs.onUseItem?.(); e.preventDefault(); },
+      // Esc: exit map mode (if active). The renderer's onExitMap checks
+      // isMapMode() so this is a no-op when not in map mode, letting Esc
+      // fall through to the app's pause handler. Don't preventDefault.
+      Escape: () => { cbs.onExitMap?.(); },
+    },
+    onMouseDown: (e, pos) => {
+      // Debug cell inspect: left-click logs the 4 render layers at the cell.
+      // Handled before task-mode/mining so it works in every mode; it only
+      // logs and doesn't suppress the normal click behavior.
+      if (game.debugInspect && e.button === 0) {
+        game.inspectClickPending = true;
+        game.inspectClickX = pos.x;
+        game.inspectClickY = pos.y;
+      }
       if (e.button === 1) {
-        state.panning = true;
-        state.panStartX = e.clientX;
-        state.panStartY = e.clientY;
+        // Middle-click panning in both modes.
+        game.panning = true;
+        game.panStartX = e.clientX;
+        game.panStartY = e.clientY;
         e.preventDefault();
         return;
       }
-      // Left/right click → queue task
-      const rect = canvas.getBoundingClientRect();
-      state.taskClickPending = true;
-      state.taskClickButton = e.button;
-      state.taskClickX = e.clientX - rect.left;
-      state.taskClickY = e.clientY - rect.top;
-      return;
-    }
-    if (e.button === 0) state.mouseDown = true;
-    if (e.button === 2) state.mouseRight = true;
-    // Middle-click panning in normal mode too
-    if (e.button === 1) {
-      state.panning = true;
-      state.panStartX = e.clientX;
-      state.panStartY = e.clientY;
-      e.preventDefault();
-    }
+      if (game.taskMode) {
+        // Left/right click → queue task (mouseDown/mouseRight getters are
+        // masked while taskMode is on, so the worker doesn't also mine).
+        game.taskClickPending = true;
+        game.taskClickButton = e.button;
+        game.taskClickX = pos.x;
+        game.taskClickY = pos.y;
+      }
+    },
+    onMouseUp: (e) => {
+      if (e.button === 1) game.panning = false;
+    },
+    onWheel: (e) => {
+      // Shared handler already accumulated the notch into state.wheelDelta;
+      // mirror it into the game's zoomDelta (drained by the renderer).
+      game.zoomDelta += e.deltaY < 0 ? 1 : e.deltaY > 0 ? -1 : 0;
+    },
   });
+  const { held, state } = handler;
 
-  window.addEventListener("mouseup", (e) => {
-    if (e.button === 0) state.mouseDown = false;
-    if (e.button === 2) state.mouseRight = false;
-    if (e.button === 1) state.panning = false;
-  });
+  const target: BlockheadsInputState = {
+    // Held movement — backed by the engine's held-action bag; writable so
+    // the MCP inject_input tool can drive them directly.
+    get left() { return held.left ?? false; },
+    set left(v: boolean) { held.left = v; },
+    get right() { return held.right ?? false; },
+    set right(v: boolean) { held.right = v; },
+    get up() { return held.up ?? false; },
+    set up(v: boolean) { held.up = v; },
+    get down() { return held.down ?? false; },
+    set down(v: boolean) { held.down = v; },
+    get jump() { return held.jump ?? false; },
+    set jump(v: boolean) { held.jump = v; },
+    get noclip() { return game.noclip; },
+    set noclip(v: boolean) { game.noclip = v; },
 
-  canvas.addEventListener("mousemove", (e) => {
-    const rect = canvas.getBoundingClientRect();
-    state.mouseX = e.clientX - rect.left;
-    state.mouseY = e.clientY - rect.top;
-  });
+    // Mouse buttons are masked while taskMode is on — a task click queues a
+    // task instead of mining/placing (matches the legacy early-return).
+    get mouseDown() { return !game.taskMode && state.isMouseDown(0); },
+    set mouseDown(v: boolean) { v ? state.mouseDown(0) : state.mouseUp(0); },
+    get mouseRight() { return !game.taskMode && state.isMouseDown(2); },
+    set mouseRight(v: boolean) { v ? state.mouseDown(2) : state.mouseUp(2); },
+    get mouseX() { return state.mouseX; },
+    set mouseX(v: number) { state.mouseX = v; },
+    get mouseY() { return state.mouseY; },
+    set mouseY(v: number) { state.mouseY = v; },
 
-  canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+    get selectedSlot() { return game.selectedSlot; },
+    set selectedSlot(v: number) { game.selectedSlot = v; },
+    get zoomDelta() { return game.zoomDelta; },
+    set zoomDelta(v: number) { game.zoomDelta = v; },
+    get taskMode() { return game.taskMode; },
+    set taskMode(v: boolean) { game.taskMode = v; },
+    get taskClickPending() { return game.taskClickPending; },
+    set taskClickPending(v: boolean) { game.taskClickPending = v; },
+    get taskClickButton() { return game.taskClickButton; },
+    set taskClickButton(v: number) { game.taskClickButton = v; },
+    get taskClickX() { return game.taskClickX; },
+    set taskClickX(v: number) { game.taskClickX = v; },
+    get taskClickY() { return game.taskClickY; },
+    set taskClickY(v: number) { game.taskClickY = v; },
+    get panning() { return game.panning; },
+    set panning(v: boolean) { game.panning = v; },
+    get panStartX() { return game.panStartX; },
+    set panStartX(v: number) { game.panStartX = v; },
+    get panStartY() { return game.panStartY; },
+    set panStartY(v: number) { game.panStartY = v; },
+    get debugInspect() { return game.debugInspect; },
+    set debugInspect(v: boolean) { game.debugInspect = v; },
+    get inspectClickPending() { return game.inspectClickPending; },
+    set inspectClickPending(v: boolean) { game.inspectClickPending = v; },
+    get inspectClickX() { return game.inspectClickX; },
+    set inspectClickX(v: number) { game.inspectClickX = v; },
+    get inspectClickY() { return game.inspectClickY; },
+    set inspectClickY(v: number) { game.inspectClickY = v; },
+    get forceFruitSpawnPending() { return game.forceFruitSpawnPending; },
+    set forceFruitSpawnPending(v: boolean) { game.forceFruitSpawnPending = v; },
 
-  // Mouse wheel for zoom (scroll up = zoom in, scroll down = zoom out)
-  canvas.addEventListener("wheel", (e) => {
-    e.preventDefault();
-    if (e.deltaY < 0) {
-      state.zoomDelta += 1;
-    } else if (e.deltaY > 0) {
-      state.zoomDelta -= 1;
-    }
-  }, { passive: false });
+    get onToggleGender() { return cbs.onToggleGender; },
+    set onToggleGender(cb: (() => void) | undefined) { cbs.onToggleGender = cb; },
+    get onToggleMap() { return cbs.onToggleMap; },
+    set onToggleMap(cb: (() => void) | undefined) { cbs.onToggleMap = cb; },
+    get onExitMap() { return cbs.onExitMap; },
+    set onExitMap(cb: (() => void) | undefined) { cbs.onExitMap = cb; },
+    get onCycleActiveBh() { return cbs.onCycleActiveBh; },
+    set onCycleActiveBh(cb: ((reverse: boolean) => void) | undefined) { cbs.onCycleActiveBh = cb; },
+    get onUseItem() { return cbs.onUseItem; },
+    set onUseItem(cb: (() => void) | undefined) { cbs.onUseItem = cb; },
 
-  return state;
+    handler,
+    destroy: () => handler.destroy(),
+  };
+
+  return target;
 }

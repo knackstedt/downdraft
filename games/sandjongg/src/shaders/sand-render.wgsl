@@ -8,7 +8,7 @@ struct Uniforms {
 @group(0) @binding(0) var gridTex: texture_2d<u32>;
 @group(0) @binding(1) var paletteTex: texture_2d<f32>;   // color palette (256×1)
 @group(0) @binding(2) var propsTex: texture_2d<f32>;     // material props (albedo, reflectivity, brightness, 0)
-@group(0) @binding(3) var<uniform> u: Uniforms;
+@group(0) @binding(4) var<uniform> u: Uniforms;
 
 @fragment
 fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {

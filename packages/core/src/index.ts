@@ -83,6 +83,8 @@ export { BufferSyncHost, BufferSyncWorker, isBufferSyncMessage } from "./worker/
 export type { BufferRegion, BufferSyncConfig, BufferSyncMessage, BufferSyncRegions, SeqField } from "./worker/buffer-sync";
 export { CrashRecoveryManager, DEFAULT_RECOVERY_CONFIG } from "./worker/crash-recovery";
 export type { CrashRecoveryConfig, RecoveryState, SimWorkerLike } from "./worker/crash-recovery";
+export { EntitySimWorkerHost } from "./worker/entity-sim-worker-host";
+export type { EntitySimApi, EntitySimHostOptions } from "./worker/entity-sim-worker-host";
 export { exposeProfilingApi, InstrumentedWorkerHost } from "./worker/instrumented-worker-host";
 export type { InstrumentedWorkerHostOptions } from "./worker/instrumented-worker-host";
 export { expose, exposeEvents, getWorkerHost, wrap } from "./worker/rpc";
@@ -91,6 +93,8 @@ export { createSimWorker } from "./worker/sim-worker-base";
 export type { CreateSimWorkerOptions, SimAfterTicksContext, SimTickContext, SimWorkerControl, SimWorkerStats } from "./worker/sim-worker-base";
 export { RawInputRegionWriter, SimWorkerHost } from "./worker/sim-worker-host";
 export type { SimInputWriter, SimWorkerControlApi } from "./worker/sim-worker-host";
+export { createTaskWorker, PortChannel, TaskPool } from "./worker/task-pool";
+export type { JobMessage, JobResultMessage, TaskFn, TaskPoolOptions } from "./worker/task-pool";
 
 // SAB polyfill (for Android WebView — no-op on desktop/Electron)
 export { usingRealSAB } from "./sab/sab-polyfill";
@@ -293,7 +297,7 @@ export * from "./imui";
 // ─────────────────────────────────────────────────────────────────────────────
 // Math
 // ─────────────────────────────────────────────────────────────────────────────
-export { composeMat4Into, invertMat4, multiplyMat4Into } from "./math/mat4";
+export { composeMat4Into, invertMat4, invertMat4Into, lookAtMat4Into, multiplyMat4Into, perspectiveMat4Into, transformMat4Vec4 } from "./math/mat4";
 export { PerlinNoise2D } from "./math/perlin-noise-2d";
 export { PerlinNoise3D } from "./math/perlin-noise-3d";
 export { eulerXYZToQuat, quatMul } from "./math/quat";

@@ -13,13 +13,12 @@
     "@downdraft/app": "workspace:*",
     "@downdraft/core": "workspace:*",
     "@downdraft/library-persistence": "workspace:*",
-    "@downdraft/library-pixi-ui": "workspace:*",
     "@downdraft/library-sand": "workspace:*",
     "@downdraft/library-stickman": "workspace:*",
     "@downdraft/module-devtools": "workspace:*",
+    "@downdraft/module-movement-2d": "workspace:*",
     "@downdraft/shader-graph": "workspace:*",
     "@downdraft/ui": "workspace:*",
-    "pixi.js": "8.18.0",
     "zustand": "^5.0.2"
   }
 }

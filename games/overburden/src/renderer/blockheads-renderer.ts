@@ -31,7 +31,7 @@ import {
 } from "./input-handler";
 import { invert, raycastGridSlab, rayToZ0, unprojectScreen } from "./matrix";
 import { SkyPass } from "./sky-pass";
-import { StickmanPass } from "./stickman-pass";
+import { BlockheadBoxPass } from "./blockhead-box-pass";
 import { TaskMarkerPass, type MarkerData } from "./task-marker-pass";
 
 // The hotbar is the first 9 slots of the inventory. Each slot maps to a
@@ -72,7 +72,7 @@ export class BlockheadsRenderer extends GameRenderer {
 
   // Render passes
   blockGridPass: BlockGridPass3D | null = null;
-  private stickmanPass: StickmanPass | null = null;
+  private stickmanPass: BlockheadBoxPass | null = null;
   private characterPass: CharacterPass | null = null;
   private characterGender: CharacterGender = "male";
   // Per-blockhead gender (keyed by blockhead id). Falls back to
@@ -579,7 +579,7 @@ export class BlockheadsRenderer extends GameRenderer {
     this.blockGridPass = new BlockGridPass3D(device, format);
     this.blockGridPass.init();
 
-    this.stickmanPass = new StickmanPass(device, format);
+    this.stickmanPass = new BlockheadBoxPass(device, format);
     this.stickmanPass.init();
 
     // Initialize the character pass (rigged FBX models via ModelRenderer).
@@ -702,6 +702,10 @@ export class BlockheadsRenderer extends GameRenderer {
     // input even when rendering is paused (deterministic mode).
   }
 
+  isRunning(): boolean {
+    return this._rendering;
+  }
+
   renderOneFrame(): void {
     if (this._rendering) return;
     const device = this.getDevice();
@@ -730,6 +734,7 @@ export class BlockheadsRenderer extends GameRenderer {
     this.inputInterval = 0;
     if (this.mapRegionTimer) clearInterval(this.mapRegionTimer);
     this.mapRegionTimer = 0;
+    this.input?.destroy();
     this.stickmanPass?.destroy();
     this.characterPass?.destroy();
     this.characterPass = null;

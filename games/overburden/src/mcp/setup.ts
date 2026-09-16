@@ -1,50 +1,30 @@
 // ============================================================================
 // Overburden — renderer-side MCP automation harness
 //
-// Minimal JSON-RPC handler wired to the main-process MCP HTTP proxy via
-// the Electron preload bridge. Exposes automation tools for e2e tests:
-//   - capture_screenshot: composite WebGPU canvas + DOM overlay
-//   - inject_input / clear_injected_input: hold keys/mouse for N frames
-//   - dispatch_key / dispatch_click: fire real DOM events
-//   - get_player_state: read blockhead state from SAB
-//   - get_world_state: read world stats + block at coords
+// Standard tools (capture_screenshot, dispatch_key, wait_for_condition,
+// set_test_state, get_player_state, get_world_state, get_ui_state, DOM
+// inspection) come from createStandardAutomationTools() in @downdraft/app.
+// This file keeps only overburden-specific tools:
+//   - inject_input / clear_injected_input / dispatch_click: custom input
+//     model (mutates BlockheadsInputState directly, hotbar slots,
+//     mousedown+mouseup+click trio on the canvas)
 //   - get_inventory / craft / give_item: inventory + crafting via worker RPC
 //   - queue_task / get_tasks / clear_tasks: autonomous blockhead task queue
-//   - wait_for_condition: poll a JS predicate against player/world state
-//   - set_test_state: sim speed, pause/resume, render control
+//   - spawn_blockhead / set_active_blockhead / get_all_players / use_item /
+//     set_character_gender: multi-blockhead management
 // ============================================================================
 
-import { blobToBase64, compositeScreenshot, createMcpHarness, downdraft } from "@downdraft/app/renderer";
+import {
+    createMcpHarness,
+    createStandardAutomationTools,
+    errorResult,
+    jsonResult,
+    type McpToolRegistration,
+} from "@downdraft/app/renderer";
 import type { BlockheadsRenderer } from "../renderer/blockheads-renderer";
 import type { BlockheadsInputState } from "../renderer/input-handler";
 import { getItemDef } from "../shared/items";
-
-interface ToolDef {
-  name: string;
-  description: string;
-  inputSchema: Record<string, unknown>;
-}
-
-interface ToolRegistration {
-  def: ToolDef;
-  handler: (params: Record<string, unknown>) => Promise<unknown> | unknown;
-}
-
-interface McpRequest {
-  id: number;
-  method: string;
-  params?: Record<string, unknown>;
-}
-
-type McpResponse = { id: number; result?: unknown; error?: { code: number; message: string } };
-
-function errorResult(msg: string): { content: Array<{ type: string; text: string }>; isError: boolean } {
-  return { content: [{ type: "text", text: msg }], isError: true };
-}
-
-function jsonResult(data: unknown): { content: Array<{ type: string; text: string }> } {
-  return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
-}
+import { useGameStore } from "../stores/game-store";
 
 // --- Key name resolution ---
 const KEY_MAP: Record<string, keyof BlockheadsInputState> = {
@@ -118,70 +98,10 @@ async function readWorld(renderer: BlockheadsRenderer): Promise<Record<string, u
   };
 }
 
-function createAutomationTools(ctx: {
+function createGameTools(ctx: {
   renderer: () => BlockheadsRenderer | null;
-}): ToolRegistration[] {
+}): McpToolRegistration[] {
   return [
-    // --- capture_screenshot ---
-    {
-      def: {
-        name: "capture_screenshot",
-        description:
-          "Capture the current frame as a PNG image. By default composites the WebGPU canvas with the DOM/React overlay. Set fullPage=false to capture only the WebGPU canvas. Returns the image inline as base64.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            fullPage: {
-              type: "boolean",
-              default: true,
-              description: "If true, composite the WebGPU canvas + DOM overlay. If false, capture only the WebGPU canvas.",
-            },
-          },
-        },
-      },
-      handler: async (params: Record<string, unknown>) => {
-        const renderer = ctx.renderer();
-        if (!renderer) return errorResult("Renderer not initialized");
-        const fullPage = params.fullPage === true;
-        const canvas = renderer.getCanvas();
-        const width = canvas.width;
-        const height = canvas.height;
-
-        if (fullPage) {
-          const bridge = downdraft as unknown as { capturePage?: () => Promise<ArrayBuffer> };
-          if (typeof bridge?.capturePage === "function") {
-            try {
-              const overlayPng = await bridge.capturePage();
-              if (overlayPng && overlayPng.byteLength > 0) {
-                const blob = await compositeScreenshot(canvas, overlayPng, width, height);
-                if (blob) {
-                  const base64 = await blobToBase64(blob);
-                  return {
-                    content: [
-                      { type: "text", text: JSON.stringify({ width, height, fullPage: true }, null, 2) },
-                      { type: "image", data: base64, mimeType: "image/png" },
-                    ],
-                  };
-                }
-              }
-            } catch (e) {
-              console.warn(`[MCP] Composite screenshot failed, falling back to canvas-only: ${(e as Error).message}`);
-            }
-          }
-        }
-
-        const blob = await renderer.captureScreenshot();
-        if (!blob) return errorResult("Screenshot capture failed");
-        const base64 = await blobToBase64(blob);
-        return {
-          content: [
-            { type: "text", text: JSON.stringify({ width: canvas.width, height: canvas.height, fullPage: false }, null, 2) },
-            { type: "image", data: base64, mimeType: "image/png" },
-          ],
-        };
-      },
-    },
-
     // --- inject_input ---
     {
       def: {
@@ -263,29 +183,6 @@ function createAutomationTools(ctx: {
       },
     },
 
-    // --- dispatch_key ---
-    {
-      def: {
-        name: "dispatch_key",
-        description: "Fire a real DOM keyboard event (keydown or keyup) on the window. Useful for UI interactions like pressing 'C' to toggle the craft panel.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            key: { type: "string", description: "Key value (e.g. 'c', 'Escape', '1')" },
-            type: { type: "string", enum: ["keydown", "keyup"], default: "keydown" },
-          },
-          required: ["key"],
-        },
-      },
-      handler: (params: Record<string, unknown>) => {
-        const key = params.key as string;
-        const type = (params.type as string) ?? "keydown";
-        const event = new KeyboardEvent(type, { key, bubbles: true, cancelable: true });
-        window.dispatchEvent(event);
-        return jsonResult({ dispatched: true, key, type });
-      },
-    },
-
     // --- dispatch_click ---
     {
       def: {
@@ -317,45 +214,6 @@ function createAutomationTools(ctx: {
         target.dispatchEvent(up);
         target.dispatchEvent(click);
         return jsonResult({ dispatched: true, x, y, button });
-      },
-    },
-
-    // --- get_player_state ---
-    {
-      def: {
-        name: "get_player_state",
-        description: "Read the current blockhead state from the simulation SharedArrayBuffer (position, velocity, attributes, animation).",
-        inputSchema: {
-          type: "object",
-          properties: {
-            playerIndex: { type: "number", default: 0 },
-          },
-        },
-      },
-      handler: (params: Record<string, unknown>) => {
-        const renderer = ctx.renderer();
-        if (!renderer) return errorResult("Renderer not initialized");
-        const explicitIdx = params.playerIndex as number | undefined;
-        const idx = explicitIdx !== undefined ? explicitIdx : renderer.getActiveBhIndex();
-        const state = readPlayer(renderer, idx);
-        if (!state) return errorResult("Player not available");
-        return jsonResult(state);
-      },
-    },
-
-    // --- get_world_state ---
-    {
-      def: {
-        name: "get_world_state",
-        description: "Read global simulation state (tick, active grid origin, blockhead count, daylight, chunk stats).",
-        inputSchema: { type: "object", properties: {} },
-      },
-      handler: async () => {
-        const renderer = ctx.renderer();
-        if (!renderer) return errorResult("Renderer not initialized");
-        const state = await readWorld(renderer);
-        if (!state) return errorResult("World state not available");
-        return jsonResult(state);
       },
     },
 
@@ -652,106 +510,6 @@ function createAutomationTools(ctx: {
       },
     },
 
-    // --- wait_for_condition ---
-    {
-      def: {
-        name: "wait_for_condition",
-        description: "Poll until a condition on player/world state is met or a timeout occurs. The condition is a JavaScript expression evaluated against {player, world, tick}. Example: 'player.health > 0' or 'world.tick > 100'.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            condition: {
-              type: "string",
-              description: "JavaScript predicate expression. Available variables: player (object), world (object), tick (number). Example: 'player.health > 50'",
-            },
-            timeoutMs: { type: "number", default: 5000, description: "Maximum time to wait in milliseconds" },
-            intervalMs: { type: "number", default: 50, description: "Polling interval" },
-          },
-          required: ["condition"],
-        },
-      },
-      handler: async (params: Record<string, unknown>) => {
-        const renderer = ctx.renderer();
-        if (!renderer) return errorResult("Renderer not initialized");
-        const condition = params.condition as string;
-        const timeoutMs = (params.timeoutMs as number) ?? 5000;
-        const intervalMs = (params.intervalMs as number) ?? 50;
-        const start = performance.now();
-
-        return new Promise((resolve) => {
-          const check = async () => {
-            const player = readPlayer(renderer, 0) ?? null;
-            const world = await readWorld(renderer) ?? null;
-            const tick = world?.tick ?? 0;
-            try {
-              // eslint-disable-next-line no-new-func
-              const fn = new Function("player", "world", "tick", `"use strict"; return (${condition});`);
-              if (fn(player, world, tick)) {
-                resolve(jsonResult({ satisfied: true, elapsedMs: performance.now() - start, player, world }));
-                return;
-              }
-            } catch (e) {
-              resolve(errorResult(`Condition evaluation error: ${(e as Error).message}`));
-              return;
-            }
-            if (performance.now() - start > timeoutMs) {
-              resolve(errorResult(`Timeout waiting for condition: ${condition}`));
-              return;
-            }
-            setTimeout(check, intervalMs);
-          };
-          check();
-        });
-      },
-    },
-
-    // --- set_test_state ---
-    {
-      def: {
-        name: "set_test_state",
-        description: "Set simulation/test state: sim speed, pause/resume, render loop control.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            simSpeed: { type: "number", description: "Simulation speed multiplier (0=paused, 1=normal, 2=double)" },
-            pause: { type: "boolean", description: "Pause the simulation" },
-            resume: { type: "boolean", description: "Resume the simulation" },
-            pauseRendering: { type: "boolean", description: "Pause the continuous render loop (screenshot capture still works)" },
-            resumeRendering: { type: "boolean", description: "Resume the continuous render loop" },
-          },
-        },
-      },
-      handler: async (params: Record<string, unknown>) => {
-        const renderer = ctx.renderer();
-        if (!renderer) return errorResult("Renderer not initialized");
-        const host = renderer.getWorkerHost();
-        const actions: string[] = [];
-
-        if (params.simSpeed !== undefined && host) {
-          await host.setSpeed(params.simSpeed as number);
-          actions.push(`simSpeed=${params.simSpeed}`);
-        }
-        if (params.pause === true && host) {
-          await host.pause();
-          actions.push("paused");
-        }
-        if (params.resume === true && host) {
-          await host.resume();
-          actions.push("resumed");
-        }
-        if (params.pauseRendering === true) {
-          renderer.stop();
-          actions.push("renderingPaused");
-        }
-        if (params.resumeRendering === true) {
-          renderer.start();
-          actions.push("renderingResumed");
-        }
-
-        return jsonResult({ ok: true, actions });
-      },
-    },
-
     // --- spawn_blockhead ---
     {
       def: {
@@ -899,9 +657,38 @@ function createAutomationTools(ctx: {
 }
 
 export function setupBlockheadsMcp(renderer: () => BlockheadsRenderer | null): void {
-  const tools = createAutomationTools({ renderer });
   createMcpHarness({
     serverName: "downdraft-overburden-automation",
-    tools,
+    tools: createStandardAutomationTools({
+      canvas: () => renderer()?.getCanvas() ?? null,
+      isRunning: () => renderer()?.isRunning() ?? false,
+      renderOneFrame: () => renderer()?.renderOneFrame(),
+      // Overburden's historical default: canvas-only unless fullPage=true.
+      fullPageDefault: false,
+      getPlayerState: (i) => {
+        const r = renderer();
+        return r ? readPlayer(r, i ?? r.getActiveBhIndex()) : null;
+      },
+      getWorldState: () => {
+        const r = renderer();
+        return r ? readWorld(r) : null;
+      },
+      getUiState: () => useGameStore.getState(),
+      setTestState: async (params) => {
+        const host = renderer()?.getWorkerHost();
+        if (!host) return;
+        if (params.simSpeed !== undefined) host.setSpeed(params.simSpeed as number);
+        if (params.pause === true) host.pause();
+        if (params.resume === true) host.resume();
+      },
+      pauseRendering: () => renderer()?.stop(),
+      resumeRendering: () => renderer()?.start(),
+      // inject_input / clear_injected_input / dispatch_click stay game-side:
+      // overburden's input model mutates a plain state object (not the shared
+      // StandardInputInjector frame queue) and its click dispatch fires
+      // mousedown+mouseup+click on the canvas (mining/placing need mousedown).
+      exclude: ["inject_input", "clear_injected_input", "dispatch_click"],
+      extraTools: createGameTools({ renderer }),
+    }),
   });
 }

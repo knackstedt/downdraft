@@ -30,12 +30,13 @@ struct CameraUniforms {
   pad2: f32,
 };
 
+// Canonical SandGridPass bindings (0-7); propsTex/behindTex unused by this shader.
 @group(0) @binding(0) var gridTex: texture_2d<u32>;
 @group(0) @binding(1) var paletteTex: texture_2d<f32>;
-@group(0) @binding(2) var<uniform> u: Uniforms;
-@group(0) @binding(3) var<uniform> cam: CameraUniforms;
-@group(0) @binding(4) var lightTex: texture_2d<f32>;
-@group(0) @binding(5) var volumetricTex: texture_2d<f32>;
+@group(0) @binding(4) var<uniform> u: Uniforms;
+@group(0) @binding(5) var<uniform> cam: CameraUniforms;
+@group(0) @binding(6) var lightTex: texture_2d<f32>;
+@group(0) @binding(7) var volumetricTex: texture_2d<f32>;
 
 // Material IDs (must match the Material enum in materials.ts)
 const MAT_SCAFFOLDING: u32 = 93u;

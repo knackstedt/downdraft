@@ -76,4 +76,6 @@ export { computeGridDims, type ComputeGridDimsOptions } from "./grid-dims";
 
 export { SandLib, SandWorldTok } from "./library";
 export type { SandLibConfig } from "./library";
+export { SandGridPass } from "./render/sand-grid-pass";
+export type { SandGridPassConfig } from "./render/sand-grid-pass";
 

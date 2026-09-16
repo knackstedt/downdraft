@@ -1,9 +1,12 @@
 // ============================================================================
-// Overburden — weighted grid-movement A* pathfinder
+// Overburden — weighted grid-movement pathfinder
 //
-// This is the refactored pathfinding system. It grades every candidate move
-// by movement mode and assigns a cost, so A* minimizes total cost = a balance
-// of distance AND difficulty. Lower cost = higher priority.
+// Blockhead movement grading on top of the shared A* grid core
+// (@downdraft/library-pathfinding-2d). The library owns the heap, visited
+// arrays, multi-goal search, and path reconstruction; this file supplies the
+// cell predicates (walkable / climbable / supported / back-wall) and the move
+// grading that assigns a cost per movement mode, so A* minimizes total cost =
+// a balance of distance AND difficulty. Lower cost = higher priority.
 //
 // Movement modes (lowest cost = highest priority):
 //   WALK_H        1.0   horizontal walking on a stable fg surface
@@ -17,24 +20,15 @@
 //   BACKWALL_V   10.0   vertical up supported only by a bg block (layer 3/4)
 //   CRAWL_H      12.0   horizontal through a 1-block-high gap (player goes 1x2 → 1x1)
 //
-// Cylinder wrap: the world wraps horizontally on X. When wrap=true, the
-// heuristic and neighbor expansion account for the shorter path around the
-// cylinder.
-//
-// Max nodes: 4096 (cap to prevent long searches). If exceeded, returns null.
-//
-// Pure + synchronous + worker-agnostic: unit-testable and safe to call from
-// the dedicated pather worker (pathfinding-worker.ts) which reads the active
-// grid directly from the SharedArrayBuffer.
+// Cylinder wrap: the world wraps horizontally on X (wrap=true).
 // ============================================================================
 
+import { createAStarGrid, type PathNode } from "@downdraft/library-pathfinding-2d";
 import { getBlockDef } from "../shared/block-registry";
 import { ACTIVE_GRID_H, ACTIVE_GRID_W, BLOCK_AIR } from "../shared/constants";
 import { getBlockFromPacked } from "./fluid-sim";
 
-// ---------------------------------------------------------------------------
-// Public types + cost constants
-// ---------------------------------------------------------------------------
+export type { PathNode } from "@downdraft/library-pathfinding-2d";
 
 export type MoveMode =
   | "WALK_H"
@@ -48,13 +42,6 @@ export type MoveMode =
   | "BACKWALL_V"
   | "CRAWL_H";
 
-export interface PathNode {
-  x: number;
-  y: number;
-  /** Movement mode used to enter this cell (undefined on the start node). */
-  mode?: MoveMode;
-}
-
 // Tunable cost constants — exported so playtesting can adjust in one place.
 export const COST_WALK_H = 1.0;
 export const COST_FALL = 1.0;
@@ -66,66 +53,8 @@ export const COST_BACKWALL_H = 8.0;
 export const COST_BACKWALL_V = 10.0;
 export const COST_CRAWL_H = 12.0;
 
-const MAX_NODES = 4096;
-
 // ---------------------------------------------------------------------------
-// Binary heap (min-heap by fScore)
-// Stores cell indices (y * ACTIVE_GRID_W + x). fScore stored separately.
-// ---------------------------------------------------------------------------
-const heapData = new Int32Array(MAX_NODES + 1);
-const heapFScore = new Float32Array(MAX_NODES + 1);
-let heapSize = 0;
-
-function heapPush(cellIdx: number, fScore: number): boolean {
-  if (heapSize >= MAX_NODES) return false;
-  heapSize++;
-  let i = heapSize;
-  heapData[i] = cellIdx;
-  heapFScore[i] = fScore;
-  while (i > 1) {
-    const parent = i >> 1;
-    if (heapFScore[parent] <= heapFScore[i]) break;
-    const td = heapData[parent]; heapData[parent] = heapData[i]; heapData[i] = td;
-    const tf = heapFScore[parent]; heapFScore[parent] = heapFScore[i]; heapFScore[i] = tf;
-    i = parent;
-  }
-  return true;
-}
-
-function heapPop(): number {
-  if (heapSize === 0) return -1;
-  const result = heapData[1];
-  heapData[1] = heapData[heapSize];
-  heapFScore[1] = heapFScore[heapSize];
-  heapSize--;
-  let i = 1;
-  while (true) {
-    let min = i;
-    const left = i << 1;
-    const right = left + 1;
-    if (left <= heapSize && heapFScore[left] < heapFScore[min]) min = left;
-    if (right <= heapSize && heapFScore[right] < heapFScore[min]) min = right;
-    if (min === i) break;
-    const td = heapData[min]; heapData[min] = heapData[i]; heapData[i] = td;
-    const tf = heapFScore[min]; heapFScore[min] = heapFScore[i]; heapFScore[i] = tf;
-    i = min;
-  }
-  return result;
-}
-
-function heapClear(): void {
-  heapSize = 0;
-}
-
-// ---------------------------------------------------------------------------
-// Visited tracking
-// ---------------------------------------------------------------------------
-const cameFrom = new Int32Array(ACTIVE_GRID_W * ACTIVE_GRID_H);
-const gScore = new Float32Array(ACTIVE_GRID_W * ACTIVE_GRID_H);
-const closed = new Uint8Array(ACTIVE_GRID_W * ACTIVE_GRID_H);
-
-// ---------------------------------------------------------------------------
-// Cell predicates
+// Cell predicates (packed fg/bg grids)
 // ---------------------------------------------------------------------------
 
 function isSolid(packed: number): boolean {
@@ -261,17 +190,9 @@ function canJumpUp(
 
 /**
  * Classify a candidate step from (cx, cy) → (nx, ny) and return its cost +
- * mode, or null if the move is illegal. The caller has already verified the
- * target cell is in-bounds; this does the rest (walkability, headroom,
- * support, gravity modeling, mode classification).
- *
- * Gravity modeling: for non-upward moves into an unsupported cell, the
- * blockhead falls to the landing cell. The returned node coordinates are
- * adjusted to the landing cell. Upward moves require the target to be
- * supported (or climbable) — otherwise the blockhead would fall right back.
- *
- * @returns `{ nx, ny, cost, mode }` or `null`. `nx/ny` may differ from the
- *          inputs after gravity modeling (fall landing).
+ * mode, or null if the move is illegal. Walkability, headroom, support, and
+ * gravity modeling (non-upward moves into unsupported cells fall to their
+ * landing cell — the returned ny is adjusted).
  */
 function gradeMove(
   fg: Uint16Array, bg: Uint16Array,
@@ -354,7 +275,7 @@ function gradeMove(
   }
 
   // Diagonal move (only reached via the explicit diagonal expansion for
-  // back-wall-supported diagonal traversal — see findPathMultiGoal).
+  // back-wall-supported diagonal traversal).
   if (isBackWallOnlySupported(fg, bg, nx, ny)) {
     return { nx, ny, cost: COST_BACKWALL_DIAG, mode: "BACKWALL_DIAG" };
   }
@@ -363,101 +284,76 @@ function gradeMove(
 }
 
 // ---------------------------------------------------------------------------
-// Heuristic
+// Public API — delegates to the shared A* grid instance
 // ---------------------------------------------------------------------------
 
-function heuristic(ax: number, ay: number, bx: number, by: number, wrap: boolean): number {
-  const dy = Math.abs(ay - by);
-  let dx = Math.abs(ax - bx);
-  if (wrap) dx = Math.min(dx, ACTIVE_GRID_W - dx);
-  return dx + dy;
+let activeFg: Uint16Array | null = null;
+let activeBg: Uint16Array | null = null;
+let activeWrap = true;
+
+const astar = createAStarGrid<MoveMode>({
+  width: ACTIVE_GRID_W,
+  height: ACTIVE_GRID_H,
+  gradeMove: (cx, cy, nx, ny) => gradeMove(activeFg!, activeBg!, cx, cy, nx, ny),
+  expandExtra: (cx, cy, push) => {
+    const fg = activeFg!;
+    const bg = activeBg!;
+    const wrap = activeWrap;
+    // Diagonal back-wall expansion: when clinging to a back wall (layer 3/4),
+    // the blockhead can move diagonally to an adjacent back-wall-supported
+    // cell. This is cheaper than separate horizontal + vertical back-wall
+    // moves (5 vs 8+10).
+    if (isBackWallOnlySupported(fg, bg, cx, cy)) {
+      for (const ddx of [-1, 1]) {
+        for (const ddy of [-1, 1]) {
+          let dxn = cx + ddx;
+          if (dxn < 0) dxn = wrap ? ACTIVE_GRID_W - 1 : -1;
+          if (dxn >= ACTIVE_GRID_W) dxn = wrap ? 0 : -1;
+          if (dxn < 0) continue;
+          const dyn = cy + ddy;
+          if (dyn < 0 || dyn >= ACTIVE_GRID_H) continue;
+          if (!isBackWallOnlySupported(fg, bg, dxn, dyn)) continue;
+          if (!isWalkable(fg[dyn * ACTIVE_GRID_W + dxn])) continue;
+          if (dyn - 1 >= 0 && !isWalkable(fg[(dyn - 1) * ACTIVE_GRID_W + dxn])) {
+            if (!canClimbAt(fg, bg, dxn, dyn)) continue;
+          }
+          push(dxn, dyn, COST_BACKWALL_DIAG, "BACKWALL_DIAG");
+        }
+      }
+    }
+
+    // Jump moves (only from supported cells — need ground to jump from).
+    if (isSupported(fg, bg, cx, cy)) {
+      // Jump up-left / up-right (diagonal up: x±1, y-1).
+      let jx = cx - 1;
+      if (jx < 0) jx = wrap ? ACTIVE_GRID_W - 1 : -1;
+      if (jx >= 0 && canJumpUp(fg, bg, cx, cy, jx)) {
+        push(jx, cy - 1, jumpCost(fg, bg, jx, cy - 1), "JUMP_UP");
+      }
+      jx = cx + 1;
+      if (jx >= ACTIVE_GRID_W) jx = wrap ? 0 : -1;
+      if (jx >= 0 && canJumpUp(fg, bg, cx, cy, jx)) {
+        push(jx, cy - 1, jumpCost(fg, bg, jx, cy - 1), "JUMP_UP");
+      }
+      // Jump across a 1-wide gap (2 cells horizontally, same height).
+      let hx = cx - 2;
+      if (hx < 0) hx = wrap ? ACTIVE_GRID_W + hx : -1;
+      if (hx >= 0 && canJumpAcross(fg, bg, cx, cy, hx)) {
+        push(hx, cy, jumpCost(fg, bg, hx, cy), "JUMP_ACROSS");
+      }
+      hx = cx + 2;
+      if (hx >= ACTIVE_GRID_W) hx = wrap ? hx - ACTIVE_GRID_W : -1;
+      if (hx >= 0 && canJumpAcross(fg, bg, cx, cy, hx)) {
+        push(hx, cy, jumpCost(fg, bg, hx, cy), "JUMP_ACROSS");
+      }
+    }
+  },
+});
+
+function jumpCost(fg: Uint16Array, bg: Uint16Array, nx: number, ny: number): number {
+  // Discourage jumping onto tree trunks / back-wall-only cells.
+  return isBackWallOnlySupported(fg, bg, nx, ny) ? COST_BACKWALL_V : COST_JUMP;
 }
-
-function minHeuristic(x: number, y: number, goals: PathNode[], wrap: boolean): number {
-  let min = Infinity;
-  for (const g of goals) {
-    const h = heuristic(x, y, g.x, g.y, wrap);
-    if (h < min) min = h;
-  }
-  return min;
-}
-
-// ---------------------------------------------------------------------------
-// Path reconstruction
-// ---------------------------------------------------------------------------
-
-function reconstructPath(cameFrom: Int32Array, goalIdx: number, sx: number, sy: number): PathNode[] {
-  const path: PathNode[] = [];
-  let current = goalIdx;
-  while (current >= 0) {
-    const cx = current % ACTIVE_GRID_W;
-    const cy = Math.floor(current / ACTIVE_GRID_W);
-    path.push({ x: cx, y: cy });
-    if (current === sy * ACTIVE_GRID_W + sx) break;
-    current = cameFrom[current];
-  }
-  path.reverse();
-  if (path.length > 0 && path[0].x === sx && path[0].y === sy) {
-    path.shift();
-  }
-  return path;
-}
-
-// ---------------------------------------------------------------------------
-// Neighbor expansion
-// ---------------------------------------------------------------------------
-
-function expandNeighbor(
-  fg: Uint16Array, bg: Uint16Array,
-  cx: number, cy: number,
-  nx: number, ny: number,
-  currentIdx: number,
-  currentG: number,
-  goalCoords: PathNode[],
-  wrap: boolean,
-): void {
-  const graded = gradeMove(fg, bg, cx, cy, nx, ny);
-  if (!graded) return;
-  const nIdx = graded.ny * ACTIVE_GRID_W + graded.nx;
-  if (closed[nIdx]) return;
-  const tentativeG = currentG + graded.cost;
-  if (tentativeG < gScore[nIdx]) {
-    gScore[nIdx] = tentativeG;
-    cameFrom[nIdx] = currentIdx;
-    const f = tentativeG + minHeuristic(graded.nx, graded.ny, goalCoords, wrap);
-    heapPush(nIdx, f);
-  }
-}
-
-function expandJumpNeighbor(
-  fg: Uint16Array, bg: Uint16Array,
-  cx: number, cy: number,
-  nx: number, ny: number,
-  currentIdx: number,
-  currentG: number,
-  goalCoords: PathNode[],
-  wrap: boolean,
-  _mode: MoveMode,
-): void {
-  const nIdx = ny * ACTIVE_GRID_W + nx;
-  if (closed[nIdx]) return;
-  let cost = COST_JUMP;
-  if (isBackWallOnlySupported(fg, bg, nx, ny)) {
-    // Discourage jumping onto tree trunks / back-wall-only cells.
-    cost = COST_BACKWALL_V;
-  }
-  const tentativeG = currentG + cost;
-  if (tentativeG < gScore[nIdx]) {
-    gScore[nIdx] = tentativeG;
-    cameFrom[nIdx] = currentIdx;
-    const f = tentativeG + minHeuristic(nx, ny, goalCoords, wrap);
-    heapPush(nIdx, f);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
 
 export function findPath(
   fg: Uint16Array,
@@ -468,20 +364,10 @@ export function findPath(
   goalY: number,
   wrap: boolean = true,
 ): PathNode[] | null {
-  const sx = Math.max(0, Math.min(ACTIVE_GRID_W - 1, startX));
-  const sy = Math.max(0, Math.min(ACTIVE_GRID_H - 1, startY));
-  const gx = Math.max(0, Math.min(ACTIVE_GRID_W - 1, goalX));
-  const gy = Math.max(0, Math.min(ACTIVE_GRID_H - 1, goalY));
-
-  const startIdx = sy * ACTIVE_GRID_W + sx;
-  const goalIdx = gy * ACTIVE_GRID_W + gx;
-
-  if (startIdx === goalIdx) return [];
-
-  const goalSet = new Set<number>([goalIdx]);
-  const goalCoords: PathNode[] = [{ x: gx, y: gy }];
-
-  return findPathMultiGoal(fg, bg, sx, sy, goalSet, goalCoords, wrap);
+  activeFg = fg;
+  activeBg = bg;
+  activeWrap = wrap;
+  return astar.findPath(startX, startY, goalX, goalY, wrap);
 }
 
 export function findPathToAdjacent(
@@ -493,165 +379,14 @@ export function findPathToAdjacent(
   targetY: number,
   wrap: boolean = true,
 ): PathNode[] | null {
-  const sx = Math.max(0, Math.min(ACTIVE_GRID_W - 1, startX));
-  const sy = Math.max(0, Math.min(ACTIVE_GRID_H - 1, startY));
-  const tx = Math.max(0, Math.min(ACTIVE_GRID_W - 1, targetX));
-  const ty = Math.max(0, Math.min(ACTIVE_GRID_H - 1, targetY));
-
-  const goalSet = new Set<number>();
-  const goalCoords: PathNode[] = [];
-
-  function addGoalCandidate(cx: number, cy: number): void {
-    if (cx < 0 || cx >= ACTIVE_GRID_W || cy < 0 || cy >= ACTIVE_GRID_H) return;
-    const idx = cy * ACTIVE_GRID_W + cx;
-    if (!isWalkable(fg[cy * ACTIVE_GRID_W + cx])) return;
+  activeFg = fg;
+  activeBg = bg;
+  activeWrap = wrap;
+  return astar.findPathToAdjacent(startX, startY, targetX, targetY, (cx, cy) => {
+    if (!isWalkable(fg[cy * ACTIVE_GRID_W + cx])) return false;
     if (cy >= 1 && !isWalkable(fg[(cy - 1) * ACTIVE_GRID_W + cx])) {
-      if (!canClimbAt(fg, bg, cx, cy)) return;
+      if (!canClimbAt(fg, bg, cx, cy)) return false;
     }
-    if (!isSupported(fg, bg, cx, cy)) return;
-    goalSet.add(idx);
-    goalCoords.push({ x: cx, y: cy });
-  }
-
-  addGoalCandidate(tx, ty);
-  addGoalCandidate(tx - 1, ty); addGoalCandidate(tx + 1, ty);
-  addGoalCandidate(tx, ty - 1); addGoalCandidate(tx, ty + 1);
-  addGoalCandidate(tx - 1, ty - 1); addGoalCandidate(tx + 1, ty - 1);
-  addGoalCandidate(tx - 1, ty + 1); addGoalCandidate(tx + 1, ty + 1);
-
-  if (goalSet.size === 0) return null;
-
-  return findPathMultiGoal(fg, bg, sx, sy, goalSet, goalCoords, wrap);
-}
-
-// ---------------------------------------------------------------------------
-// Multi-goal A* core
-// ---------------------------------------------------------------------------
-
-function findPathMultiGoal(
-  fg: Uint16Array,
-  bg: Uint16Array,
-  sx: number,
-  sy: number,
-  goalSet: Set<number>,
-  goalCoords: PathNode[],
-  wrap: boolean,
-): PathNode[] | null {
-  const startIdx = sy * ACTIVE_GRID_W + sx;
-
-  if (goalSet.has(startIdx)) return [];
-
-  cameFrom.fill(-1);
-  closed.fill(0);
-  gScore.fill(Infinity);
-  heapClear();
-
-  let nodesExpanded = 0;
-
-  gScore[startIdx] = 0;
-  const h0 = minHeuristic(sx, sy, goalCoords, wrap);
-  if (!heapPush(startIdx, h0)) return null;
-
-  while (heapSize > 0) {
-    const current = heapPop();
-    if (current < 0) break;
-
-    if (goalSet.has(current)) {
-      return reconstructPath(cameFrom, current, sx, sy);
-    }
-
-    if (closed[current]) continue;
-    closed[current] = 1;
-    nodesExpanded++;
-    if (nodesExpanded > MAX_NODES) return null;
-
-    const cx = current % ACTIVE_GRID_W;
-    const cy = Math.floor(current / ACTIVE_GRID_W);
-    const currentG = gScore[current];
-
-    // 4-directional expansion (left, right, up, down).
-    let nx = cx - 1;
-    if (nx < 0) nx = wrap ? ACTIVE_GRID_W - 1 : -1;
-    if (nx >= 0) expandNeighbor(fg, bg, cx, cy, nx, cy, current, currentG, goalCoords, wrap);
-    nx = cx + 1;
-    if (nx >= ACTIVE_GRID_W) nx = wrap ? 0 : -1;
-    if (nx >= 0) expandNeighbor(fg, bg, cx, cy, nx, cy, current, currentG, goalCoords, wrap);
-    if (cy - 1 >= 0) expandNeighbor(fg, bg, cx, cy, cx, cy - 1, current, currentG, goalCoords, wrap);
-    if (cy + 1 < ACTIVE_GRID_H) expandNeighbor(fg, bg, cx, cy, cx, cy + 1, current, currentG, goalCoords, wrap);
-
-    // Diagonal back-wall expansion: when clinging to a back wall (layer 3/4),
-    // the blockhead can move diagonally to an adjacent back-wall-supported
-    // cell. This is cheaper than separate horizontal + vertical back-wall
-    // moves (5 vs 8+10) and matches the user's priority ordering.
-    if (isBackWallOnlySupported(fg, bg, cx, cy)) {
-      for (const ddx of [-1, 1]) {
-        for (const ddy of [-1, 1]) {
-          let dxn = cx + ddx;
-          if (dxn < 0) dxn = wrap ? ACTIVE_GRID_W - 1 : -1;
-          if (dxn >= ACTIVE_GRID_W) dxn = wrap ? 0 : -1;
-          if (dxn < 0) continue;
-          const dyn = cy + ddy;
-          if (dyn < 0 || dyn >= ACTIVE_GRID_H) continue;
-          // Target must be back-wall-only supported too, and walkable with
-          // headroom (or climbing). gradeMove's diagonal branch enforces this.
-          if (!isBackWallOnlySupported(fg, bg, dxn, dyn)) continue;
-          if (!isWalkable(fg[dyn * ACTIVE_GRID_W + dxn])) continue;
-          if (dyn - 1 >= 0 && !isWalkable(fg[(dyn - 1) * ACTIVE_GRID_W + dxn])) {
-            if (!canClimbAt(fg, bg, dxn, dyn)) continue;
-          }
-          expandDiagBackwall(fg, bg, cx, cy, dxn, dyn, current, currentG, goalCoords, wrap);
-        }
-      }
-    }
-
-    // Jump moves (only from supported cells — need ground to jump from).
-    if (isSupported(fg, bg, cx, cy)) {
-      // Jump up-left / up-right (diagonal up: x±1, y-1).
-      let jx = cx - 1;
-      if (jx < 0) jx = wrap ? ACTIVE_GRID_W - 1 : -1;
-      if (jx >= 0 && canJumpUp(fg, bg, cx, cy, jx)) {
-        expandJumpNeighbor(fg, bg, cx, cy, jx, cy - 1, current, currentG, goalCoords, wrap, "JUMP_UP");
-      }
-      jx = cx + 1;
-      if (jx >= ACTIVE_GRID_W) jx = wrap ? 0 : -1;
-      if (jx >= 0 && canJumpUp(fg, bg, cx, cy, jx)) {
-        expandJumpNeighbor(fg, bg, cx, cy, jx, cy - 1, current, currentG, goalCoords, wrap, "JUMP_UP");
-      }
-      // Jump across a 1-wide gap (2 cells horizontally, same height).
-      let hx = cx - 2;
-      if (hx < 0) hx = wrap ? ACTIVE_GRID_W + hx : -1;
-      if (hx >= 0 && canJumpAcross(fg, bg, cx, cy, hx)) {
-        expandJumpNeighbor(fg, bg, cx, cy, hx, cy, current, currentG, goalCoords, wrap, "JUMP_ACROSS");
-      }
-      hx = cx + 2;
-      if (hx >= ACTIVE_GRID_W) hx = wrap ? hx - ACTIVE_GRID_W : -1;
-      if (hx >= 0 && canJumpAcross(fg, bg, cx, cy, hx)) {
-        expandJumpNeighbor(fg, bg, cx, cy, hx, cy, current, currentG, goalCoords, wrap, "JUMP_ACROSS");
-      }
-    }
-  }
-
-  return null;
-}
-
-function expandDiagBackwall(
-  _fg: Uint16Array, _bg: Uint16Array,
-  _cx: number, _cy: number,
-  nx: number, ny: number,
-  currentIdx: number,
-  currentG: number,
-  goalCoords: PathNode[],
-  wrap: boolean,
-): void {
-  // Caller (findPathMultiGoal) has already validated walkability, headroom,
-  // and back-wall-only support for the diagonal target; we just push the node.
-  const nIdx = ny * ACTIVE_GRID_W + nx;
-  if (closed[nIdx]) return;
-  const tentativeG = currentG + COST_BACKWALL_DIAG;
-  if (tentativeG < gScore[nIdx]) {
-    gScore[nIdx] = tentativeG;
-    cameFrom[nIdx] = currentIdx;
-    const f = tentativeG + minHeuristic(nx, ny, goalCoords, wrap);
-    heapPush(nIdx, f);
-  }
+    return isSupported(fg, bg, cx, cy);
+  }, wrap);
 }

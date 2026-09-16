@@ -1,51 +1,22 @@
 // ============================================================================
 // To The Ocean — MCP automation tools
-// Tools for driving the game from an MCP client: input injection, state reads,
-// screenshots, and wait-conditions. These operate on the renderer-side state
-// (SharedArrayBuffers, WebGPU canvas) rather than the generic EngineContext.
+// Standard tools (input injection, state reads, screenshots, wait-conditions,
+// DOM inspection) come from createStandardAutomationTools() in @downdraft/app.
+// This file only provides the game-specific state readers + test-state wiring.
 // ============================================================================
 
-import { blobToBase64, compositeScreenshot, downdraft } from "@downdraft/app/renderer";
-import { KEY, PLR, PLR_FLAG } from "@downdraft/core";
+import type { McpToolRegistration } from "@downdraft/app/renderer";
+import { createStandardAutomationTools } from "@downdraft/app/renderer";
+import { PLR, PLR_FLAG } from "@downdraft/core";
 import { GAME_PLR } from "@shared/constants/buffer";
-import { type InjectedInputFrame } from "../engine/renderer-input-handler";
 import type { SimWebWorker } from "../engine/sim-web-worker";
 import type { WebGPURenderer } from "../engine/webgpu-renderer";
-import type { ToolRegistration } from "./mcp-types";
-import { errorResult, jsonResult } from "./mcp-types";
 
 export interface AutomationContext {
   renderer: () => WebGPURenderer | null;
   worker: () => SimWebWorker | null;
   /** Lazy getter for the game store — avoids circular import issues. */
   store: () => { getState: () => any } | null;
-}
-
-const KEY_NAME_MAP: Record<string, number> = {
-  W: KEY.W, A: KEY.A, S: KEY.S, D: KEY.D,
-  Q: KEY.Q, E: KEY.E, R: KEY.R, F: KEY.F,
-  SHIFT: KEY.SHIFT, CTRL: KEY.CTRL, ALT: KEY.ALT, TAB: KEY.TAB,
-  SPACE: KEY.SPACE, ENTER: KEY.ENTER, ESC: KEY.ESC,
-  ONE: KEY.ONE, TWO: KEY.TWO, THREE: KEY.THREE, FOUR: KEY.FOUR,
-  FIVE: KEY.FIVE, SIX: KEY.SIX, SEVEN: KEY.SEVEN, EIGHT: KEY.EIGHT,
-  NINE: KEY.NINE, ZERO: KEY.ZERO,
-  I: KEY.I, B: KEY.B, C: KEY.C, M: KEY.M, P: KEY.P,
-  T: KEY.T, V: KEY.V, Z: KEY.Z, X: KEY.X,
-  UP: KEY.UP, DOWN: KEY.DOWN, LEFT: KEY.LEFT, RIGHT: KEY.RIGHT,
-  F5: KEY.F5, F8: KEY.F8,
-};
-
-function resolveKeys(keys: (string | number)[]): Set<number> {
-  const out = new Set<number>();
-  for (const k of keys) {
-    if (typeof k === "number") {
-      out.add(k);
-    } else {
-      const code = KEY_NAME_MAP[k.toUpperCase()];
-      if (code !== undefined) out.add(code);
-    }
-  }
-  return out;
 }
 
 function readPlayer(renderer: WebGPURenderer, playerIndex: number) {
@@ -102,457 +73,53 @@ function readWorld(renderer: WebGPURenderer) {
   };
 }
 
-export function createAutomationTools(ctx: AutomationContext): ToolRegistration[] {
-  return [
-    {
-      def: {
-        name: "inject_input",
-        description: "Inject keyboard/mouse input for a number of frames. Useful for automation tests when no real user is interacting with the game.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            playerIndex: { type: "number", description: "Player slot index", default: 0 },
-            keys: {
-              type: "array",
-              items: { type: "string" },
-              description: "Key names to hold (e.g. ['W','A','SPACE']) or keyCodes if numbers",
-              default: [],
-            },
-            leftMouse: { type: "boolean", default: false },
-            rightMouse: { type: "boolean", default: false },
-            mouseDx: { type: "number", default: 0 },
-            mouseDy: { type: "number", default: 0 },
-            wheel: { type: "number", default: 0 },
-            frames: { type: "number", description: "Number of frames to hold the input", default: 1 },
-          },
-        },
-      },
-      handler: (params: Record<string, unknown>) => {
-        const renderer = ctx.renderer();
-        if (!renderer) return errorResult("Renderer not initialized");
-        const inputHandler = renderer.getInputHandler();
-        const frames = Math.max(1, Math.floor((params.frames as number) ?? 1));
-        const frame: InjectedInputFrame = {
-          keys: resolveKeys((params.keys as (string | number)[]) ?? []),
-          leftMouse: !!params.leftMouse,
-          rightMouse: !!params.rightMouse,
-          mouseDx: (params.mouseDx as number) ?? 0,
-          mouseDy: (params.mouseDy as number) ?? 0,
-          wheel: (params.wheel as number) ?? 0,
-          framesRemaining: frames,
-        };
-        inputHandler.injectInput(frame);
-        return jsonResult({ injected: true, frames, playerIndex: (params.playerIndex as number) ?? 0 });
-      },
+export function createAutomationTools(ctx: AutomationContext): McpToolRegistration[] {
+  return createStandardAutomationTools({
+    canvas: () => ctx.renderer()?.getCanvas() ?? null,
+    isRunning: () => ctx.renderer()?.isRunning() ?? false,
+    renderOneFrame: () => ctx.renderer()?.renderOneFrame(),
+    input: () => ctx.renderer()?.getInputHandler() ?? null,
+    getPlayerState: (i) => {
+      const r = ctx.renderer();
+      return r ? readPlayer(r, i ?? 0) : null;
     },
-
-    {
-      def: {
-        name: "get_player_state",
-        description: "Read the current state of a player from the simulation SharedArrayBuffer.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            playerIndex: { type: "number", default: 0 },
-          },
-        },
-      },
-      handler: (params: Record<string, unknown>) => {
-        const renderer = ctx.renderer();
-        if (!renderer) return errorResult("Renderer not initialized");
-        const playerIndex = (params.playerIndex as number) ?? 0;
-        const state = readPlayer(renderer, playerIndex);
-        if (!state) return errorResult(`Player ${playerIndex} not available`);
-        return jsonResult(state);
-      },
+    getWorldState: () => {
+      const r = ctx.renderer();
+      return r ? readWorld(r) : null;
     },
-
-    {
-      def: {
-        name: "get_world_state",
-        description: "Read global simulation state (tick, entity count, weather, etc.).",
-        inputSchema: { type: "object", properties: {} },
-      },
-      handler: () => {
-        const renderer = ctx.renderer();
-        if (!renderer) return errorResult("Renderer not initialized");
-        const state = readWorld(renderer);
-        if (!state) return errorResult("World state not available");
-        return jsonResult(state);
-      },
+    getUiState: () => {
+      const s = ctx.store()?.getState();
+      if (!s) return null;
+      return {
+        showInventory: s.showInventory,
+        showMap: s.showMap,
+        showBuildMenu: s.showBuildMenu,
+        showCraftMenu: s.showCraftMenu,
+        showPauseMenu: s.showPauseMenu,
+        showSettings: s.showSettings,
+        showFishingMinigame: s.showFishingMinigame,
+        showTradeMenu: s.showTradeMenu,
+        showCharacterCustomization: s.showCharacterCustomization,
+        showCredits: s.showCredits,
+        showBuilderWheel: s.showBuilderWheel,
+        pointerLocked: s.pointerLocked,
+        suppressPauseMenu: s.suppressPauseMenu,
+        playerDied: !!s.playerDied,
+        ready: s.ready,
+        simReady: s.simReady,
+        lutReady: s.lutReady,
+      };
     },
-
-    {
-      def: {
-        name: "wait_for_condition",
-        description: "Poll until a condition on player/world state is met or a timeout occurs. Conditions are simple expressions evaluated against the state object.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            condition: {
-              type: "string",
-              description: "JavaScript predicate expression. Available variables: player (object), world (object), tick (number). Example: 'player.position[1] < -2'",
-            },
-            timeoutMs: { type: "number", default: 5000, description: "Maximum time to wait in milliseconds" },
-            intervalMs: { type: "number", default: 50, description: "Polling interval" },
-          },
-          required: ["condition"],
-        },
-      },
-      handler: async (params: Record<string, unknown>) => {
-        const renderer = ctx.renderer();
-        if (!renderer) return errorResult("Renderer not initialized");
-        const condition = params.condition as string;
-        const timeoutMs = (params.timeoutMs as number) ?? 5000;
-        const intervalMs = (params.intervalMs as number) ?? 50;
-        const start = performance.now();
-
-        return new Promise((resolve) => {
-          const check = () => {
-            const player = readPlayer(renderer, 0) ?? null;
-            const world = readWorld(renderer) ?? null;
-            const tick = world?.tick ?? 0;
-            try {
-              // eslint-disable-next-line no-new-func
-              const fn = new Function("player", "world", "tick", `"use strict"; return (${condition});`);
-              if (fn(player, world, tick)) {
-                resolve(jsonResult({ satisfied: true, elapsedMs: performance.now() - start, player, world }));
-                return;
-              }
-            } catch (e) {
-              resolve(errorResult(`Condition evaluation error: ${(e as Error).message}`));
-              return;
-            }
-            if (performance.now() - start > timeoutMs) {
-              resolve(errorResult(`Timeout waiting for condition: ${condition}`));
-              return;
-            }
-            setTimeout(check, intervalMs);
-          };
-          check();
-        });
-      },
+    setTestState: (params) => {
+      const worker = ctx.worker();
+      if (!worker) return;
+      if (params.weatherType !== undefined) worker.setWeather(params.weatherType as number);
+      if (params.timeOfDay !== undefined) worker.setTimeOfDay(params.timeOfDay as number);
+      if (params.simSpeed !== undefined) worker.setSimSpeed(params.simSpeed as number);
+      if (params.respawn) worker.respawnPlayer(0);
     },
-
-    {
-      def: {
-        name: "capture_screenshot",
-        description: "Capture the current frame as a PNG image. By default composites the WebGPU canvas with the DOM/React overlay (HUD, menus, etc.). Set fullPage=false to capture only the WebGPU canvas. Returns the image inline as base64.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            fullPage: { type: "boolean", default: true, description: "If true, composite the WebGPU canvas + DOM overlay. If false, capture only the WebGPU canvas." },
-          },
-        },
-      },
-      handler: async (params: Record<string, unknown>) => {
-        const renderer = ctx.renderer();
-        if (!renderer) return errorResult("Renderer not initialized");
-        const fullPage = params.fullPage !== false; // default true
-        const canvas = renderer.getCanvas();
-        const width = renderer.getCanvasWidth();
-        const height = renderer.getCanvasHeight();
-
-        // If the render loop is paused (test/headless mode), render one frame
-        // first so the screenshot reflects current simulation state.
-        if (!renderer.isRunning()) {
-          renderer.renderOneFrame();
-        }
-
-        if (fullPage) {
-          // Composite the WebGPU canvas + DOM overlay into a single PNG.
-          // webContents.capturePage() captures the DOM overlay but NOT the
-          // WebGPU canvas (it renders to the GPU, bypassing the DOM compositor).
-          // So we capture both separately and composite renderer-side.
-          const bridge = downdraft as any;
-          if (typeof bridge?.capturePage === "function") {
-            try {
-              const overlayPng = await bridge.capturePage();
-              if (overlayPng && overlayPng.byteLength > 0) {
-                const blob = await compositeScreenshot(canvas, overlayPng, width, height);
-                if (blob) {
-                  const base64 = await blobToBase64(blob);
-                  return {
-                    content: [
-                      { type: "text", text: JSON.stringify({ width, height, fullPage: true }, null, 2) },
-                      { type: "image", data: base64, mimeType: "image/png" },
-                    ],
-                  };
-                }
-              }
-            } catch (e) {
-              console.warn(`[MCP] Composite screenshot failed, falling back to canvas-only: ${(e as Error).message}`);
-            }
-          }
-        }
-
-        // Fallback: canvas-only capture (no DOM overlay)
-        const blob = await renderer.captureScreenshot();
-        if (!blob) return errorResult("Screenshot capture failed");
-        const base64 = await blobToBase64(blob);
-        return {
-          content: [
-            { type: "text", text: JSON.stringify({ width, height, fullPage: false }, null, 2) },
-            { type: "image", data: base64, mimeType: "image/png" },
-          ],
-        };
-      },
-    },
-
-    {
-      def: {
-        name: "set_test_state",
-        description: "Set deterministic game state for tests: weather, time of day, respawn player, simulation speed, render loop control.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            weatherType: { type: "number", description: "Weather enum value (0=Clear, 1=Rain, 2=Storm, ...)" },
-            timeOfDay: { type: "number", description: "Normalized time 0..1" },
-            respawn: { type: "boolean", default: false },
-            simSpeed: { type: "number" },
-            pauseRendering: { type: "boolean", description: "Pause the continuous render loop to save CPU. Screenshot capture still works (renders on demand)." },
-            resumeRendering: { type: "boolean", description: "Resume the continuous render loop." },
-            targetFPS: { type: "number", description: "Set a target FPS limit for the render loop (0 = unlimited, uses rAF). Useful for headed tests to save GPU." },
-          },
-        },
-      },
-      handler: (params: Record<string, unknown>) => {
-        const worker = ctx.worker();
-        if (!worker) return errorResult("Simulation worker not initialized");
-        const renderer = ctx.renderer();
-        if (params.weatherType !== undefined) worker.setWeather(params.weatherType as number);
-        if (params.timeOfDay !== undefined) worker.setTimeOfDay(params.timeOfDay as number);
-        if (params.simSpeed !== undefined) worker.setSimSpeed(params.simSpeed as number);
-        if (params.respawn) worker.respawnPlayer(0);
-        if (params.pauseRendering && renderer) renderer.stop();
-        if (params.resumeRendering && renderer) renderer.start();
-        if (params.targetFPS !== undefined && renderer) (renderer as any).setTargetFPS?.(params.targetFPS as number);
-        return jsonResult({ applied: true, params });
-      },
-    },
-
-    {
-      def: {
-        name: "clear_injected_input",
-        description: "Clear any pending injected input frames.",
-        inputSchema: { type: "object", properties: {} },
-      },
-      handler: () => {
-        const renderer = ctx.renderer();
-        if (!renderer) return errorResult("Renderer not initialized");
-        renderer.getInputHandler().clearInjectedInput();
-        return jsonResult({ cleared: true });
-      },
-    },
-
-    {
-      def: {
-        name: "dispatch_key",
-        description: "Dispatch a real DOM keyboard event on the main thread (keydown or keyup). This tests the full input pipeline: DOM event → React handler.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            key: { type: "string", description: "Key value (e.g. 'i', 'Tab', 'Escape', 'm', 'b')" },
-            code: { type: "string", description: "Key code (e.g. 'KeyI', 'Tab', 'Escape')" },
-            type: { type: "string", enum: ["keydown", "keyup"], default: "keydown" },
-            repeat: { type: "boolean", default: false },
-          },
-          required: ["key"],
-        },
-      },
-      handler: (params: Record<string, unknown>) => {
-        const key = params.key as string;
-        const code = (params.code as string) ?? key;
-        const type = (params.type as string) ?? "keydown";
-        const repeat = !!params.repeat;
-        // Dispatch a real DOM event on the main thread's window.
-        const ev = new KeyboardEvent(type, { key, code, bubbles: true, cancelable: true, repeat });
-        window.dispatchEvent(ev);
-        return jsonResult({ dispatched: true, key, code, type });
-      },
-    },
-
-    {
-      def: {
-        name: "dispatch_click",
-        description: "Dispatch a real DOM click event on the main thread's canvas. This triggers the click-to-resume overlay's onClick (which calls requestPointerLock within the user gesture context) and tests the full click-to-resume interaction path.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            x: { type: "number", description: "X coordinate (default: center of canvas)" },
-            y: { type: "number", description: "Y coordinate (default: center of canvas)" },
-          },
-        },
-      },
-      handler: (params: Record<string, unknown>) => {
-        const renderer = ctx.renderer();
-        if (!renderer) return errorResult("Renderer not initialized");
-        const canvas = renderer.getCanvas();
-        const x = (params.x as number) ?? canvas.clientWidth / 2;
-        const y = (params.y as number) ?? canvas.clientHeight / 2;
-        // Find the actual element at the given coordinates — this mimics
-        // what a real user click would hit (the topmost element at that point).
-        // Dispatching on the canvas doesn't work for UI overlay elements
-        // because they're siblings of the canvas, not ancestors.
-        const rect = canvas.getBoundingClientRect();
-        const clientX = rect.left + x;
-        const clientY = rect.top + y;
-        const target = document.elementFromPoint(clientX, clientY) ?? canvas;
-        const ev = new MouseEvent("click", {
-          bubbles: true,
-          cancelable: true,
-          clientX,
-          clientY,
-        });
-        target.dispatchEvent(ev);
-        return jsonResult({ dispatched: true, x, y, targetTag: target.tagName, targetClass: (target as HTMLElement).className?.slice(0, 80) });
-      },
-    },
-
-    {
-      def: {
-        name: "get_ui_state",
-        description: "Read the current UI store state (menu visibility, pointer lock, suppressPauseMenu, etc.) for testing UI behavior.",
-        inputSchema: { type: "object", properties: {} },
-      },
-      handler: () => {
-        const store = ctx.store();
-        if (!store) return errorResult("Game store not initialized");
-        const s = store.getState();
-        return jsonResult({
-          showInventory: s.showInventory,
-          showMap: s.showMap,
-          showBuildMenu: s.showBuildMenu,
-          showCraftMenu: s.showCraftMenu,
-          showPauseMenu: s.showPauseMenu,
-          showSettings: s.showSettings,
-          showFishingMinigame: s.showFishingMinigame,
-          showTradeMenu: s.showTradeMenu,
-          showCharacterCustomization: s.showCharacterCustomization,
-          showCredits: s.showCredits,
-          showBuilderWheel: s.showBuilderWheel,
-          pointerLocked: s.pointerLocked,
-          suppressPauseMenu: s.suppressPauseMenu,
-          playerDied: !!s.playerDied,
-          ready: s.ready,
-          simReady: s.simReady,
-          lutReady: s.lutReady,
-        });
-      },
-    },
-
-    {
-      def: {
-        name: "get_element_bounds",
-        description: "Get the bounding box of a DOM element matching a CSS selector on the main thread. Returns {x, y, width, height, top, left, bottom, right} or null if not found. Used to verify CSS/layout regressions in the UI.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            selector: { type: "string", description: "CSS selector (e.g. '.hud-panel', '#root > div > div')" },
-          },
-          required: ["selector"],
-        },
-      },
-      handler: (params: Record<string, unknown>) => {
-        const selector = params.selector as string;
-        try {
-          const el = document.querySelector(selector);
-          if (!el) return jsonResult({ found: false, selector });
-          const rect = el.getBoundingClientRect();
-          return jsonResult({
-            found: true,
-            selector,
-            x: rect.x, y: rect.y,
-            width: rect.width, height: rect.height,
-            top: rect.top, left: rect.left,
-            bottom: rect.bottom, right: rect.right,
-          });
-        } catch (e) {
-          return errorResult(`Failed to query selector "${selector}": ${(e as Error).message}`);
-        }
-      },
-    },
-
-    {
-      def: {
-        name: "inspect_dom",
-        description: "Inspect the main thread's DOM for debugging CSS/layout issues. Returns information about stylesheets, specific elements, and their computed styles.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            action: { type: "string", enum: ["stylesheets", "element"], description: "What to inspect: 'stylesheets' lists all <style> and <link> tags in <head>; 'element' gets details about an element matching a selector" },
-            selector: { type: "string", description: "CSS selector (for action='element')" },
-          },
-          required: ["action"],
-        },
-      },
-      handler: (params: Record<string, unknown>) => {
-        const action = params.action as string;
-        if (action === "stylesheets") {
-          const styles = Array.from(document.querySelectorAll("style, link[rel='stylesheet']")).map((el) => {
-            const tag = el.tagName.toLowerCase();
-            if (tag === "style") {
-              const text = el.textContent ?? "";
-              return { tag, length: text.length, preview: text.slice(0, 200) };
-            }
-            return { tag, href: (el as HTMLLinkElement).href };
-          });
-          return jsonResult({ stylesheets: styles, count: styles.length });
-        }
-        if (action === "element" && params.selector) {
-          const el = document.querySelector(params.selector as string);
-          if (!el) return jsonResult({ found: false, selector: params.selector });
-          const cs = getComputedStyle(el);
-          return jsonResult({
-            found: true,
-            selector: params.selector,
-            tagName: el.tagName,
-            className: el.className,
-            id: el.id,
-            style: {
-              width: cs.width, height: cs.height,
-              maxWidth: cs.maxWidth, maxHeight: cs.maxHeight,
-              display: cs.display, position: cs.position,
-              top: cs.top, left: cs.left,
-              overflow: cs.overflow,
-            },
-            bounds: el.getBoundingClientRect().toJSON(),
-            childCount: el.children.length,
-          });
-        }
-        return errorResult("Invalid action or missing selector");
-      },
-    },
-
-    {
-      def: {
-        name: "get_element_style",
-        description: "Get computed style of a DOM element matching a CSS selector on the main thread. Returns a subset of computed style properties. Used to verify CSS is applied correctly in the UI.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            selector: { type: "string", description: "CSS selector" },
-            properties: { type: "array", items: { type: "string" }, description: "CSS properties to read (e.g. ['height', 'width', 'max-width', 'display'])" },
-          },
-          required: ["selector"],
-        },
-      },
-      handler: (params: Record<string, unknown>) => {
-        const selector = params.selector as string;
-        const props = (params.properties as string[]) ?? [];
-        try {
-          const el = document.querySelector(selector);
-          if (!el) return jsonResult({ found: false, selector });
-          const cs = getComputedStyle(el);
-          const result: Record<string, any> = { found: true, selector };
-          for (const p of props) result[p] = cs.getPropertyValue(p);
-          // Also get className for debugging
-          (result as any)._className = el.className;
-          return jsonResult(result);
-        } catch (e) {
-          return errorResult(`Failed to query style for "${selector}": ${(e as Error).message}`);
-        }
-      },
-    },
-  ];
+    pauseRendering: () => ctx.renderer()?.stop(),
+    resumeRendering: () => ctx.renderer()?.start(),
+    setTargetFPS: (fps) => ctx.renderer()?.setTargetFPS(fps),
+  });
 }

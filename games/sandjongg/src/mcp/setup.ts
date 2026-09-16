@@ -1,132 +1,24 @@
 // ============================================================================
 // Sandjongg — renderer-side MCP automation harness.
-// Exposes capture_screenshot + match_tiles tools for e2e tests.
+// Standard tools (capture_screenshot, DOM inspection, get_ui_state) come from
+// createStandardAutomationTools() in @downdraft/app; this file keeps only the
+// sandjongg-specific game tools.
 // ============================================================================
 
-import { blobToBase64, createMcpHarness, downdraft } from "@downdraft/app/renderer";
+import {
+    blobToBase64,
+    createMcpHarness,
+    createStandardAutomationTools,
+    errorResult,
+    type McpToolRegistration,
+} from "@downdraft/app/renderer";
 import type { SandjonggRenderer } from "../renderer/sandjongg-renderer";
 import { useGameStore } from "../stores/game-store";
 
-interface ToolDef {
-  name: string;
-  description: string;
-  inputSchema: Record<string, unknown>;
-}
-
-interface ToolRegistration {
-  def: ToolDef;
-  handler: (params: Record<string, unknown>) => Promise<unknown>;
-}
-
-interface McpRequest {
-  id: number;
-  method: string;
-  params?: Record<string, unknown>;
-}
-
-type McpResponse = { id: number; result?: unknown; error?: { code: number; message: string } };
-
-function errorResult(msg: string): { content: Array<{ type: string; text: string }>; isError: boolean } {
-  return { content: [{ type: "text", text: msg }], isError: true };
-}
-
-async function compositeScreenshot(
-  canvas: HTMLCanvasElement,
-  capturePagePng: ArrayBuffer,
-  width: number,
-  height: number,
-): Promise<Blob | null> {
-  const offscreen = document.createElement("canvas");
-  offscreen.width = width;
-  offscreen.height = height;
-  const ctx = offscreen.getContext("2d");
-  if (!ctx) return null;
-
-  // Layer 1: WebGPU canvas (bottom)
-  ctx.drawImage(canvas, 0, 0, width, height);
-
-  // Layer 2: tile canvas overlay
-  const tileCanvas = document.querySelector<HTMLCanvasElement>("#sandjongg-tile-canvas");
-  if (tileCanvas) {
-    ctx.drawImage(tileCanvas, 0, 0, width, height);
-  }
-
-  // Layer 3: DOM overlay from webContents.capturePage() (top)
-  const overlayBlob = new Blob([capturePagePng], { type: "image/png" });
-  const overlayBitmap = await createImageBitmap(overlayBlob);
-  ctx.drawImage(overlayBitmap, 0, 0, width, height);
-  overlayBitmap.close();
-
-  return new Promise((resolve) => {
-    offscreen.toBlob((blob) => resolve(blob), "image/png");
-  });
-}
-
-function createAutomationTools(ctx: {
+function createGameTools(ctx: {
   renderer: () => SandjonggRenderer | null;
-}): ToolRegistration[] {
+}): McpToolRegistration[] {
   return [
-    {
-      def: {
-        name: "capture_screenshot",
-        description:
-          "Capture the current frame as a PNG image. Composites the WebGPU sand canvas + tile canvas + DOM overlay. Returns the image inline as base64.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            fullPage: {
-              type: "boolean",
-              default: true,
-              description: "If true, composite all layers. If false, capture only the WebGPU canvas.",
-            },
-          },
-        },
-      },
-      handler: async (params: Record<string, unknown>) => {
-        const renderer = ctx.renderer();
-        if (!renderer) return errorResult("Renderer not initialized");
-        const fullPage = params.fullPage !== false;
-        const canvas = renderer.getCanvas();
-        const width = canvas.width;
-        const height = canvas.height;
-
-        if (fullPage) {
-          const bridge = downdraft as unknown as { capturePage?: () => Promise<ArrayBuffer> };
-          if (typeof bridge?.capturePage === "function") {
-            try {
-              const overlayPng = await bridge.capturePage();
-              if (overlayPng && overlayPng.byteLength > 0) {
-                const blob = await compositeScreenshot(canvas, overlayPng, width, height);
-                if (blob) {
-                  const base64 = await blobToBase64(blob);
-                  return {
-                    content: [
-                      { type: "text", text: JSON.stringify({ width, height, fullPage: true }, null, 2) },
-                      { type: "image", data: base64, mimeType: "image/png" },
-                    ],
-                  };
-                }
-              }
-            } catch (e) {
-              console.warn(`[MCP] Composite screenshot failed, falling back to canvas-only: ${(e as Error).message}`);
-            }
-          }
-        }
-
-        // Fallback: canvas-only capture
-        const blob = await new Promise<Blob | null>((resolve) => {
-          canvas.toBlob((b) => resolve(b), "image/png");
-        });
-        if (!blob) return errorResult("Screenshot capture failed");
-        const base64 = await blobToBase64(blob);
-        return {
-          content: [
-            { type: "text", text: JSON.stringify({ width, height, fullPage: false }, null, 2) },
-            { type: "image", data: base64, mimeType: "image/png" },
-          ],
-        };
-      },
-    },
     {
       def: {
         name: "match_tiles",
@@ -451,9 +343,18 @@ function createAutomationTools(ctx: {
 }
 
 export function setupSandjonggMcp(renderer: () => SandjonggRenderer | null): void {
-  const tools = createAutomationTools({ renderer });
   createMcpHarness({
     serverName: "downdraft-sandjongg-automation",
-    tools,
+    tools: createStandardAutomationTools({
+      canvas: () => renderer()?.getCanvas() ?? null,
+      // Composite the 2D tile canvas between the WebGPU sand canvas and the
+      // DOM overlay in full-page screenshots.
+      extraLayers: () => {
+        const tileCanvas = document.querySelector<HTMLCanvasElement>("#sandjongg-tile-canvas");
+        return tileCanvas ? [tileCanvas] : [];
+      },
+      getUiState: () => useGameStore.getState(),
+      extraTools: createGameTools({ renderer }),
+    }),
   });
 }

@@ -1,5 +1,5 @@
 // ============================================================================
-// StickmanPass — renders the blockhead as a 1×2×1 3D box
+// BlockheadBoxPass — renders the blockhead as a 1×2×1 3D box
 //
 // The blockhead hitbox is 1 block wide × 2 blocks tall × 1 block deep.
 // We render a 3D box at the blockhead's world position, transformed by the
@@ -84,7 +84,7 @@ const BOX_VERTS = new Float32Array(36 * 3); // 12 triangles × 3 verts × 3 floa
   }
 }
 
-export class StickmanPass {
+export class BlockheadBoxPass {
   private device: GPUDevice;
   private format: GPUTextureFormat;
   private depthFormat: GPUTextureFormat;
@@ -118,7 +118,7 @@ export class StickmanPass {
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
     });
 
-    const shader = createValidatedShaderModule(this.device, { code: BOX_WGSL, label: "StickmanPass" });
+    const shader = createValidatedShaderModule(this.device, { code: BOX_WGSL, label: "BlockheadBoxPass" });
 
     this.bindGroupLayout = this.device.createBindGroupLayout({
       entries: [

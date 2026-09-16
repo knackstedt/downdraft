@@ -79,6 +79,7 @@
         "@dimforge/rapier3d-compat": "^0.19.3",
         "@downdraft/app": "workspace:*",
         "@downdraft/core": "workspace:*",
+        "@downdraft/library-character": "workspace:*",
         "@downdraft/library-entities": "workspace:*",
         "@downdraft/library-models": "workspace:*",
         "@downdraft/library-persistence": "workspace:*",
@@ -86,6 +87,8 @@
         "@downdraft/library-pixi-ui": "workspace:*",
         "@downdraft/library-postfx": "workspace:*",
         "@downdraft/module-camera-controls": "workspace:*",
+        "@downdraft/module-movement-3d": "workspace:*",
+        "@downdraft/module-vitals": "workspace:*",
         "@downdraft/module-xr": "workspace:*",
         "@pixi/react": "^8.0.5",
         "fflate": "^0.8.2",
@@ -173,6 +176,7 @@
         "@downdraft/library-sand": "workspace:*",
         "@downdraft/library-stickman": "workspace:*",
         "@downdraft/module-devtools": "workspace:*",
+        "@downdraft/module-movement-2d": "workspace:*",
         "@downdraft/shader-graph": "workspace:*",
         "@downdraft/ui": "workspace:*",
         "pixi.js": "8.18.0",
@@ -190,6 +194,8 @@
         "@downdraft/library-sand": "workspace:*",
         "@downdraft/library-stickman": "workspace:*",
         "@downdraft/module-devtools": "workspace:*",
+        "@downdraft/module-movement-2d": "workspace:*",
+        "@downdraft/module-vitals": "workspace:*",
         "@downdraft/shader-graph": "workspace:*",
         "@downdraft/ui": "workspace:*",
         "@pixi/react": "^8.0.5",
@@ -210,6 +216,7 @@
         "@downdraft/core": "workspace:*",
         "@downdraft/library-entities": "workspace:*",
         "@downdraft/library-models": "workspace:*",
+        "@downdraft/library-pathfinding-2d": "workspace:*",
         "@downdraft/library-persistence": "workspace:*",
         "@downdraft/library-pixi-ui": "workspace:*",
         "@downdraft/library-sand": "workspace:*",
@@ -287,6 +294,7 @@
         "@dimforge/rapier3d-compat": "^0.19.3",
         "@downdraft/app": "workspace:*",
         "@downdraft/core": "workspace:*",
+        "@downdraft/library-character": "workspace:*",
         "@downdraft/library-marching-cubes": "workspace:*",
         "@downdraft/library-models": "workspace:*",
         "@downdraft/library-physics-rapier": "workspace:*",
@@ -295,6 +303,7 @@
         "@downdraft/library-water": "workspace:*",
         "@downdraft/library-weather": "workspace:*",
         "@downdraft/module-electron-osr": "workspace:*",
+        "@downdraft/module-movement-3d": "workspace:*",
         "@fontsource/doto": "^5.1.1",
         "@fontsource/linefont": "^5.1.1",
         "@fontsource/montserrat": "^5.1.1",
@@ -451,6 +460,15 @@
         "@downdraft/core": "workspace:*",
       },
     },
+    "packages/libraries/character": {
+      "name": "@downdraft/library-character",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+        "@downdraft/library-entities": "workspace:*",
+        "@downdraft/library-models": "workspace:*",
+      },
+    },
     "packages/libraries/devtools": {
       "name": "@downdraft/library-devtools",
       "version": "0.1.0",
@@ -522,6 +540,10 @@
       "dependencies": {
         "@downdraft/core": "workspace:*",
       },
+    },
+    "packages/libraries/pathfinding-2d": {
+      "name": "@downdraft/library-pathfinding-2d",
+      "version": "0.1.0",
     },
     "packages/libraries/persistence": {
       "name": "@downdraft/library-persistence",
@@ -680,6 +702,7 @@
       "dependencies": {
         "@downdraft/core": "workspace:*",
         "@downdraft/library-models": "workspace:*",
+        "@downdraft/library-pixi-ui": "workspace:*",
         "zustand": "^5.0.2",
       },
     },
@@ -733,6 +756,13 @@
       "dependencies": {
         "@downdraft/core": "workspace:*",
         "@downdraft/library-marching-cubes": "workspace:*",
+      },
+    },
+    "packages/modules/vitals": {
+      "name": "@downdraft/module-vitals",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
       },
     },
     "packages/modules/xr": {
@@ -901,6 +931,8 @@
 
     "@downdraft/library-audio-kira": ["@downdraft/library-audio-kira@workspace:packages/libraries/audio-kira"],
 
+    "@downdraft/library-character": ["@downdraft/library-character@workspace:packages/libraries/character"],
+
     "@downdraft/library-devtools": ["@downdraft/library-devtools@workspace:packages/libraries/devtools"],
 
     "@downdraft/library-entities": ["@downdraft/library-entities@workspace:packages/libraries/entities"],
@@ -916,6 +948,8 @@
     "@downdraft/library-navmesh": ["@downdraft/library-navmesh@workspace:packages/libraries/navmesh"],
 
     "@downdraft/library-networking": ["@downdraft/library-networking@workspace:packages/libraries/networking"],
+
+    "@downdraft/library-pathfinding-2d": ["@downdraft/library-pathfinding-2d@workspace:packages/libraries/pathfinding-2d"],
 
     "@downdraft/library-persistence": ["@downdraft/library-persistence@workspace:packages/libraries/persistence"],
 
@@ -966,6 +1000,8 @@
     "@downdraft/module-sailing": ["@downdraft/module-sailing@workspace:packages/modules/sailing"],
 
     "@downdraft/module-terrain": ["@downdraft/module-terrain@workspace:packages/modules/terrain"],
+
+    "@downdraft/module-vitals": ["@downdraft/module-vitals@workspace:packages/modules/vitals"],
 
     "@downdraft/module-xr": ["@downdraft/module-xr@workspace:packages/modules/xr"],
 

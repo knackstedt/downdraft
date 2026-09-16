@@ -79,7 +79,7 @@ export class RawInputRegionWriter implements SimInputWriter {
   }
 }
 
-export abstract class SimWorkerHost<TApi extends SimWorkerControlApi> extends BaseWorkerHost<TApi> {
+export abstract class SimWorkerHost<TApi extends WorkerApi = SimWorkerControlApi> extends BaseWorkerHost<TApi> {
   private eventHandlers = new Map<string, Set<(data: unknown, kind: string) => void>>();
   private inputWriter: SimInputWriter | null = null;
 

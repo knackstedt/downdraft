@@ -1114,6 +1114,15 @@ export class SkeletonAnimator {
     return this.clips.has(name);
   }
 
+  /**
+   * Advance the animation clock without changing state — for callers that
+   * hold a SkeletonAnimator by composition (e.g. CharacterAnimator/Preview)
+   * rather than subclassing it.
+   */
+  advance(dt: number): void {
+    this.tick(dt);
+  }
+
   protected tick(dt: number): void {
     if (dt > 0.1) dt = 0.1;
     this.timeSinceLastStateChange += dt;

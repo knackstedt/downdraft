@@ -101,6 +101,12 @@
       "@downdraft/module-movement-2d/*": [
         "./packages/modules/movement-2d/src/*"
       ],
+      "@downdraft/module-vitals": [
+        "./packages/modules/vitals/src/index.ts"
+      ],
+      "@downdraft/module-vitals/*": [
+        "./packages/modules/vitals/src/*"
+      ],
       "@downdraft/module-sailing": [
         "./packages/modules/sailing/src/index.ts"
       ],
@@ -214,6 +220,18 @@
       ],
       "@downdraft/library-networking/*": [
         "./packages/libraries/networking/src/*"
+      ],
+      "@downdraft/library-character": [
+        "./packages/libraries/character/src/index.ts"
+      ],
+      "@downdraft/library-character/*": [
+        "./packages/libraries/character/src/*"
+      ],
+      "@downdraft/library-pathfinding-2d": [
+        "./packages/libraries/pathfinding-2d/src/index.ts"
+      ],
+      "@downdraft/library-pathfinding-2d/*": [
+        "./packages/libraries/pathfinding-2d/src/*"
       ],
       "@downdraft/library-navmesh": [
         "./packages/libraries/navmesh/src/index.ts"

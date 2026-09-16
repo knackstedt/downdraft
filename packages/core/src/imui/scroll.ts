@@ -1,4 +1,4 @@
-import { UIPanel, type UIColor, type UIDrawable } from "./element";
+import { UIPanel, type UIColor, type UIDrawable, type UIElement } from "./element";
 
 export class UIScrollPanel extends UIPanel {
   scrollX: number = 0;
@@ -18,6 +18,27 @@ export class UIScrollPanel extends UIPanel {
     this.style.borderColor = [0.3, 0.3, 0.35, 0.5];
     this.style.borderWidth = 0;
     this.layoutMode = "absolute";
+  }
+
+  /** Wheel input routed via UIInputRouter.handleWheel (hit-test resolved). */
+  handleWheel(_dx: number, dy: number): void {
+    this.scrollY += dy;
+    this.clampScroll();
+  }
+
+  override hitTest(px: number, py: number): UIElement | null {
+    if (!this.visible || !this.enabled) return null;
+    if (px < this.x || px >= this.x + this.width || py < this.y || py >= this.y + this.height) {
+      return null;
+    }
+    // Children live in content space; the pointer arrives in viewport space.
+    const cx = px - this.x + this.scrollX;
+    const cy = py - this.y + this.scrollY;
+    for (let i = this.children.length - 1; i >= 0; i--) {
+      const hit = this.children[i].hitTest(cx, cy);
+      if (hit) return hit;
+    }
+    return this.pointerThrough ? null : this;
   }
 
   setCanvas(canvas: HTMLCanvasElement): void {

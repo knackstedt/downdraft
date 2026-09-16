@@ -2,22 +2,22 @@
 // Game store — Zustand state for the Sandjongg UI overlay.
 // ============================================================================
 
+import { createBaseGameStoreState, type BaseGameStoreState } from "@downdraft/core";
 import { create } from "zustand";
 import type { SandjonggRenderer } from "../renderer/sandjongg-renderer";
 import type { TilesetId, TileTheme } from "../shared/tilesets";
 import type { DebugTileInfo, GameMode } from "../shared/types";
 
-export interface GameStoreState {
+export interface GameStoreState extends BaseGameStoreState<SandjonggRenderer> {
   // --- Display state ---
   score: number;
   combo: number;
   level: number;
   tilesLeft: number;
   highScore: number;
-  paused: boolean;
   showHelp: boolean;
+  /** Settings modal is shown. */
   showSettings: boolean;
-  fps: number;
   lastStatsUpdate: number;
   /** Timestamp (ms, performance.now()) of the last successful match — drives
    *  the combo countdown timer in the HUD. 0 = no active combo window. */
@@ -45,8 +45,6 @@ export interface GameStoreState {
   // --- Menu state ---
   /** Main menu (mode select) is shown. While true, gameplay is hidden. */
   showMainMenu: boolean;
-  /** Pause menu overlay is shown. While true, the sim is paused. */
-  showPauseMenu: boolean;
   /** Per-mode save availability, populated when the main menu opens so the
    *  "Continue" buttons can be shown only when a save exists. */
   hasSave: Record<GameMode, boolean>;
@@ -70,9 +68,6 @@ export interface GameStoreState {
 
   // --- Toast notification ---
   toast: { message: string; id: number } | null;
-
-  // --- Renderer reference ---
-  renderer: SandjonggRenderer | null;
 
   // --- Internal pending actions (set by UI, consumed by renderer) ---
   _pendingHint: boolean;
@@ -102,12 +97,10 @@ export interface GameStoreState {
   setLevel: (level: number) => void;
   setTilesLeft: (tilesLeft: number) => void;
   setHighScore: (highScore: number) => void;
-  setPaused: (paused: boolean) => void;
   toggleHelp: () => void;
   toggleSettings: () => void;
-  setFPS: (fps: number) => void;
+  setShowSettings: (v: boolean) => void;
   setLastStatsUpdate: (t: number) => void;
-  setRenderer: (r: SandjonggRenderer) => void;
   loadFullState: (state: { score: number; level: number; combo: number }) => void;
   showToast: (message: string, durationMs?: number) => void;
   toggleNoAdjacentSame: () => void;
@@ -126,7 +119,6 @@ export interface GameStoreState {
   /** Set the active theme (light/dark). Purely visual — no regenerate. */
   setTileTheme: (theme: TileTheme) => void;
   setShowMainMenu: (show: boolean) => void;
-  setShowPauseMenu: (show: boolean) => void;
   togglePauseMenu: () => void;
   setHasSave: (mode: GameMode, has: boolean) => void;
 
@@ -146,23 +138,21 @@ export interface GameStoreState {
   _setPendingTilesetChange: (v: boolean) => void;
 }
 
-export const useGameStore = create<GameStoreState>((set) => ({
+export const useGameStore = create<GameStoreState>((set, get) => ({
+  ...createBaseGameStoreState<SandjonggRenderer>(set, get),
   score: 0,
   combo: 0,
   level: 1,
   tilesLeft: 0,
   highScore: 0,
-  paused: false,
   showHelp: false,
   showSettings: false,
-  fps: 0,
   lastStatsUpdate: 0,
   lastMatchTime: 0,
 
   mode: "sandjongg",
   sandEnabled: true,
   showMainMenu: false,
-  showPauseMenu: false,
   hasSave: { sandjongg: false, mahjongg: false },
 
   tileset: "elements",
@@ -177,8 +167,6 @@ export const useGameStore = create<GameStoreState>((set) => ({
   customRows: 0,
 
   toast: null,
-
-  renderer: null,
 
   _pendingHint: false,
   _pendingShuffle: false,
@@ -213,12 +201,10 @@ export const useGameStore = create<GameStoreState>((set) => ({
   }),
   setTilesLeft: (tilesLeft) => set({ tilesLeft }),
   setHighScore: (highScore) => set({ highScore }),
-  setPaused: (paused) => set({ paused }),
   toggleHelp: () => set((s) => ({ showHelp: !s.showHelp })),
   toggleSettings: () => set((s) => ({ showSettings: !s.showSettings })),
-  setFPS: (fps) => set({ fps }),
+  setShowSettings: (v) => set({ showSettings: v }),
   setLastStatsUpdate: (t) => set({ lastStatsUpdate: t }),
-  setRenderer: (r) => set({ renderer: r }),
   loadFullState: (state) => set((s) => {
     if (s.noAdjacentUserSet) return { score: state.score, level: state.level, combo: state.combo };
     return { score: state.score, level: state.level, combo: state.combo, noAdjacentSame: state.level > 10 };
@@ -248,7 +234,6 @@ export const useGameStore = create<GameStoreState>((set) => ({
   setTileset: (id) => set((s) => (s.tileset === id ? {} : { tileset: id, _pendingTilesetChange: true })),
   setTileTheme: (theme) => set((s) => (s.tileTheme === theme ? {} : { tileTheme: theme })),
   setShowMainMenu: (show) => set({ showMainMenu: show }),
-  setShowPauseMenu: (show) => set({ showPauseMenu: show }),
   togglePauseMenu: () => set((s) => ({ showPauseMenu: !s.showPauseMenu })),
   setHasSave: (mode, has) => set((s) => ({ hasSave: { ...s.hasSave, [mode]: has } })),
 

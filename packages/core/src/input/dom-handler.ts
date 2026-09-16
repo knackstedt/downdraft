@@ -78,6 +78,7 @@ export interface DomInputOptions {
   onKeyDown?: (e: KeyboardEvent, input: DomInputHandler) => void;
   onKeyUp?: (e: KeyboardEvent, input: DomInputHandler) => void;
   onMouseDown?: (e: MouseEvent, pos: { x: number; y: number }, input: DomInputHandler) => void;
+  onMouseUp?: (e: MouseEvent, input: DomInputHandler) => void;
   onMouseMove?: (e: MouseEvent, pos: { x: number; y: number }, input: DomInputHandler) => void;
   onWheel?: (e: WheelEvent, input: DomInputHandler) => void;
   /**
@@ -171,8 +172,50 @@ export function createDomInputHandler(opts: DomInputOptions): DomInputHandler {
     return null;
   };
 
+  // Track physically-held keys/buttons so injected-frame expiry only releases
+  // inputs that aren't also held by the real user.
+  const physKeys = new Set<number>();
+  const physButtons = new Set<number>();
+  // Live-frame contribution counts for injected keys/actions/buttons — a
+  // contribution is released when no live frame still holds it.
+  const injectedKeys = new Map<number, number>();
+  const injectedActions = new Map<string, number>();
+  const injectedButtons = new Map<number, number>();
+  const liveFrames = new Set<DomInjectedFrame>();
+
+  const releaseFrame = (f: DomInjectedFrame) => {
+    for (const code of f.keys ?? []) {
+      const n = (injectedKeys.get(code) ?? 1) - 1;
+      if (n > 0) injectedKeys.set(code, n);
+      else {
+        injectedKeys.delete(code);
+        if (!physKeys.has(code)) state.keyUp(code);
+      }
+    }
+    for (const action of f.actions ?? []) {
+      const n = (injectedActions.get(action) ?? 1) - 1;
+      if (n > 0) injectedActions.set(action, n);
+      else {
+        injectedActions.delete(action);
+        recomputeHeld(action);
+      }
+    }
+    const buttons = [f.leftMouse ? 0 : -1, f.middleMouse ? 1 : -1, f.rightMouse ? 2 : -1];
+    for (const button of buttons) {
+      if (button < 0) continue;
+      const n = (injectedButtons.get(button) ?? 1) - 1;
+      if (n > 0) injectedButtons.set(button, n);
+      else {
+        injectedButtons.delete(button);
+        if (!physButtons.has(button)) state.mouseUp(button);
+      }
+    }
+  };
+
   const onKeyDown = (e: KeyboardEvent) => {
-    state.keyDown(e.keyCode || 0);
+    const code = e.keyCode || 0;
+    state.keyDown(code);
+    physKeys.add(code);
     const hit = lookupAction(e);
     if (hit) {
       downKeyStringsFor(hit.action).add(hit.mapKey);
@@ -185,7 +228,9 @@ export function createDomInputHandler(opts: DomInputOptions): DomInputHandler {
   };
 
   const onKeyUp = (e: KeyboardEvent) => {
-    state.keyUp(e.keyCode || 0);
+    const code = e.keyCode || 0;
+    state.keyUp(code);
+    physKeys.delete(code);
     const hit = lookupAction(e);
     if (hit) {
       downKeysByAction.get(hit.action)?.delete(hit.mapKey);
@@ -223,11 +268,21 @@ export function createDomInputHandler(opts: DomInputOptions): DomInputHandler {
       injected.push(frame);
     },
     clearInjectedInput() {
+      for (const f of injected) releaseFrame(f);
       injected.length = 0;
+      liveFrames.clear();
     },
     update() {
       for (let i = injected.length - 1; i >= 0; i--) {
         const f = injected[i];
+        if (!liveFrames.has(f)) {
+          liveFrames.add(f);
+          for (const code of f.keys ?? []) injectedKeys.set(code, (injectedKeys.get(code) ?? 0) + 1);
+          for (const action of f.actions ?? []) injectedActions.set(action, (injectedActions.get(action) ?? 0) + 1);
+          if (f.leftMouse) injectedButtons.set(0, (injectedButtons.get(0) ?? 0) + 1);
+          if (f.middleMouse) injectedButtons.set(1, (injectedButtons.get(1) ?? 0) + 1);
+          if (f.rightMouse) injectedButtons.set(2, (injectedButtons.get(2) ?? 0) + 1);
+        }
         for (const code of f.keys ?? []) state.keyDown(code);
         for (const action of f.actions ?? []) held[action] = true;
         if (f.leftMouse) state.mouseDown(0);
@@ -239,7 +294,11 @@ export function createDomInputHandler(opts: DomInputOptions): DomInputHandler {
         }
         if (f.wheel) state.wheel(f.wheel);
         f.framesRemaining--;
-        if (f.framesRemaining <= 0) injected.splice(i, 1);
+        if (f.framesRemaining <= 0) {
+          injected.splice(i, 1);
+          liveFrames.delete(f);
+          releaseFrame(f);
+        }
       }
     },
     destroy() {
@@ -259,11 +318,14 @@ export function createDomInputHandler(opts: DomInputOptions): DomInputHandler {
     const pos = toCanvasCoords(e);
     state.mouseMove(pos.x, pos.y, 0, 0);
     state.mouseDown(e.button);
+    physButtons.add(e.button);
     opts.onMouseDown?.(e, pos, handler);
   };
 
   const onMouseUp = (e: MouseEvent) => {
     state.mouseUp(e.button);
+    physButtons.delete(e.button);
+    opts.onMouseUp?.(e, handler);
   };
 
   const onMouseMove = (e: MouseEvent) => {

@@ -19,11 +19,11 @@ import "@fontsource/urbanist/400.css";
 import "@fontsource/urbanist/700.css";
 import "@fontsource/wavefont/400.css";
 
-import { downdraft, startGame, type SimWorkerSeed } from "@downdraft/app/renderer";
-import { ENGINE_VERSION, ENT, PLR, PLR_FLAG, SimBufferReader, isDevMode, startGCProfiler, useHotReloadStore, type GCProfilerHandle, type GCStats } from "@downdraft/core";
+import { downdraft, installSimHotReload, restoreHotReloadState, startGame, type SimWorkerSeed } from "@downdraft/app/renderer";
+import { ENGINE_VERSION, ENT, PLR, PLR_FLAG, SimBufferReader, isDevMode, startGCProfiler, type GCProfilerHandle, type GCStats } from "@downdraft/core";
 import { PixiUiHost, getEffectiveFontScale, loadUserFontScale, saveUserFontScale } from "@downdraft/library-pixi-ui";
 import { WaterLib } from "@downdraft/library-water";
-import { initDevTools, useDebugStore } from "@downdraft/module-devtools";
+import { bindDebugStore, initDevTools, useDebugStore, wireProfilingBridge } from "@downdraft/module-devtools";
 import { GAME_PLR } from "@shared/constants/buffer";
 import { CameraMode, EntityType } from "@shared/types";
 import { SceneInspector } from "./engine/scene-inspector";
@@ -334,27 +334,7 @@ startGame({
     }
 
     // Restore hot-reload state if pending
-    if (sessionStorage.getItem("hot-reload-pending")) {
-      sessionStorage.removeItem("hot-reload-pending");
-      try {
-        if (downdraft?.loadGameState) {
-          const hotReloadState = await downdraft.loadGameState("hot-reload");
-          if (hotReloadState) {
-            await sim.restoreFromState?.(hotReloadState);
-            try {
-              const components = JSON.parse(hotReloadState);
-              if (components.renderer?.data && renderer.restoreRendererMeta) {
-                renderer.restoreRendererMeta(components.renderer.data);
-              }
-            } catch { /* ignore */ }
-            console.log("[HMR] Restored state after page reload");
-            if (downdraft.deleteGameState) downdraft.deleteGameState("hot-reload");
-          }
-        }
-      } catch (err) {
-        console.error(`[HMR] Failed to restore hot-reload state: ${err}. Starting fresh.`);
-      }
-    }
+    await restoreHotReloadState({ sim, renderer, downdraft });
 
     // Set buffers on renderer
     renderer.setBuffers(simSAB, extraBuffers.water, inputSAB, extraBuffers.boat);
@@ -476,25 +456,11 @@ startGame({
     // Wire the ProfilingBridge into the render loop (tick at frame start,
     // endFrame at frame end). The bridge drains the warning ring from the
     // ProfilingSAB + fires auto-trace + ingests snapshots into the trace writer.
-    const profilingBridge = (sceneInspector as any)._profilingBridge;
-    if (profilingBridge) {
-      const prevCallbacks = renderer.callbacks ?? {};
-      renderer.setCallbacks({
-        ...prevCallbacks,
-        beforeFrame: (dt: number, elapsedTime: number) => {
-          profilingBridge.tick();
-          prevCallbacks.beforeFrame?.(dt, elapsedTime);
-        },
-        afterFrame: (dt: number, elapsedTime: number) => {
-          prevCallbacks.afterFrame?.(dt, elapsedTime);
-          profilingBridge.endFrame();
-        },
-      });
-      // Share the ProfilingSAB with the sim worker (so it can claim a slot)
-      const profilingSAB = profilingBridge.getProfilingSAB();
-      const profilingLayout = profilingBridge.getLayoutParams?.();
-      (sim as SimWebWorker).attachProfilingSAB?.(profilingSAB, profilingLayout);
-    }
+    wireProfilingBridge({
+      renderer,
+      workerHosts: [sim as SimWebWorker],
+      bridge: (sceneInspector as any)._profilingBridge,
+    });
 
     // Gizmo mouse interaction handlers on canvas
     const canvas = ctx.canvas;
@@ -675,61 +641,20 @@ startGame({
     );
 
     // Debug visualization toggles
-    useDebugStore.subscribe((s) => s.showHitboxes, (show) => renderer.setShowHitboxes(show));
-    useDebugStore.subscribe((s) => s.showLightGizmos, (show) => renderer.setShowLightGizmos(show));
-    useDebugStore.subscribe((s) => s.showRaycast, (show) => renderer.setShowRaycast(show));
-    useDebugStore.subscribe((s) => s.hitboxLineWidth, (width) => renderer.setHitboxLineWidth(width));
+    bindDebugStore(renderer, {
+      showHitboxes: "setShowHitboxes",
+      showLightGizmos: "setShowLightGizmos",
+      showRaycast: "setShowRaycast",
+      hitboxLineWidth: "setHitboxLineWidth",
+    });
 
     // --- Hot-Reload event handlers (dev only) ---
-    if (isDevMode && import.meta.hot) {
-      const simConfig: SimWebWorkerConfig = { seed: 12345, gamemode: 0, rules: {}, isDev: ctx.isDev };
-
-      import.meta.hot.on("sim:hot-reload", async (data: { file: string; timestamp: number }) => {
-        const store = useHotReloadStore.getState();
-        if (!store.enabled) return;
-        import.meta.hot!.send("sim:hot-reload:ack", {});
-        console.log(`%c[HMR] Sim file changed: ${data.file}`, "color: cyan");
-        store.setStatus("reloading");
-        const t0 = performance.now();
-        try {
-          await sim.hotReload?.(simConfig, store.preserveState);
-          const elapsed = (performance.now() - t0).toFixed(0);
-          console.log(`%c[HMR] Sim worker swap complete (${elapsed}ms)`, "color: cyan; font-weight: bold");
-          store.setStatus("ready");
-          store.setLastReload({ file: data.file, elapsed: Number(elapsed), timestamp: data.timestamp });
-        } catch (err) {
-          console.error(`%c[HMR] Sim hot-reload failed: ${(err as Error).message}`, "color: red; font-weight: bold");
-          store.setStatus("error", (err as Error).message);
-          console.warn("[HMR] Falling back to full page reload");
-          window.location.reload();
-        }
-      });
-
-      import.meta.hot.on("renderer:hot-reload", async (data: { file: string; timestamp: number }) => {
-        const store = useHotReloadStore.getState();
-        if (!store.enabled) return;
-        import.meta.hot!.send("renderer:hot-reload:ack", {});
-        console.log(`%c[HMR] Renderer file changed: ${data.file}`, "color: yellow");
-        store.setStatus("reloading");
-        if (store.preserveState) {
-          try {
-            const result = await sim.save?.("hot-reload");
-            if (result?.stateJson && downdraft?.saveGameState) {
-              let components = JSON.parse(result.stateJson);
-              if (renderer.serializeRendererMeta) {
-                components.renderer = { v: 1, data: renderer.serializeRendererMeta() };
-              }
-              downdraft.saveGameState("hot-reload", JSON.stringify(components));
-              sessionStorage.setItem("hot-reload-pending", "1");
-              console.log("[HMR] State saved, reloading page...");
-            }
-          } catch (err) {
-            console.warn(`[HMR] State save failed, reloading without preservation: ${err}`);
-          }
-        }
-        window.location.reload();
-      });
-    }
+    installSimHotReload({
+      sim,
+      renderer,
+      simConfig: { seed: 12345, gamemode: 0, rules: {}, isDev: ctx.isDev },
+      downdraft,
+    });
   },
 
   // ── FPS polling (write to store for HUD/debug panels) ──

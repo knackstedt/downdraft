@@ -4,6 +4,7 @@
 
 import { InputBufferReader, KEY, PLR_FLAG } from "@downdraft/core";
 import { shoreDamping, shoreDisplacement, WATER_GRID_SAB as WATER_GRID, WaterBufferWriter, waterCutout } from "@downdraft/library-water";
+import { createCharacterMotor3D, type Motor3DState } from "@downdraft/module-movement-3d";
 import {
     HOTBAR_SLOTS, HOTBAR_TOOLS,
     PLAYER_DIVE_FORCE,
@@ -23,6 +24,26 @@ import { PlayerMoveRequest } from "../physics/rapier-physics-system";
 import { SimEntity, SimPlayer } from "../simulation";
 
 const VCLIP_BASE_SPEED = 20; // m/s base flight speed
+
+// Shared movement kernel — computes desired deltas; Rapier resolves collisions.
+const motor = createCharacterMotor3D({
+  walkSpeed: PLAYER_WALK_SPEED,
+  runSpeed: PLAYER_RUN_SPEED,
+  flySpeed: VCLIP_BASE_SPEED,
+  jumpForce: PLAYER_JUMP_FORCE,
+  gravity: PLAYER_GRAVITY,
+  swimSpeed: PLAYER_SWIM_SPEED,
+  groundHeight: -75, // seabed fallback
+  turn: { mode: "rate", rate: 8.0, flip: true }, // tto facing = atan2(dx, -dz)
+  swim: {
+    floatForce: PLAYER_FLOAT_FORCE,
+    diveForce: PLAYER_DIVE_FORCE,
+    sinkRate: PLAYER_WATER_SINK_RATE,
+    drag: PLAYER_WATER_DRAG,
+    maxVertSpeed: PLAYER_SWIM_VERTICAL_MAX,
+    surfaceOffset: 0.3,
+  },
+});
 
 export class PlayerManager {
   private oxygenTankLevel = new Map<number, number>(); // playerId -> oxygen tank tier
@@ -205,118 +226,53 @@ export class PlayerManager {
 
       if (isNoclip) {
         // --- Vclip: free flight, no gravity, no collision ---
-        let speedMultiplier = 1;
-        if (input.isKeyDown(i, KEY.ALT)) speedMultiplier = 20;
-        else if (input.isKeyDown(i, KEY.CTRL)) speedMultiplier = 10;
-        else if (input.isKeyDown(i, KEY.SHIFT)) speedMultiplier = 3;
+        const speedMultiplier = input.isKeyDown(i, KEY.ALT) ? 20
+          : input.isKeyDown(i, KEY.CTRL) ? 10
+          : input.isKeyDown(i, KEY.SHIFT) ? 3 : 1;
 
-        const vclipSpeed = VCLIP_BASE_SPEED * speedMultiplier;
-
-        let deltaX = 0, deltaY = 0, deltaZ = 0;
-
-        // Horizontal movement (WASD relative to heading)
-        if (!isPiloting) {
-          const len = Math.sqrt(moveX * moveX + moveZ * moveZ);
-          if (len > 0) {
-            moveX /= len;
-            moveZ /= len;
-            const cos = Math.cos(p.heading);
-            const sin = Math.sin(p.heading);
-            deltaX = (moveX * cos - moveZ * sin) * vclipSpeed * dt;
-            deltaZ = (moveX * sin + moveZ * cos) * vclipSpeed * dt;
-          }
-        }
-
-        // Vertical: Space=up, C=down
-        if (input.isKeyDown(i, KEY.SPACE)) deltaY += vclipSpeed * dt;
-        if (input.isKeyDown(i, KEY.C)) deltaY -= vclipSpeed * dt;
+        const d = motor.fly({
+          fwd: -moveZ, strafe: moveX,
+          up: input.isKeyDown(i, KEY.SPACE),
+          down: input.isKeyDown(i, KEY.C),
+          speedMul: speedMultiplier,
+        }, p.heading, dt);
 
         // Apply directly — no collision for noclip
-        p.position.x += deltaX;
-        p.position.y += deltaY;
-        p.position.z += deltaZ;
+        p.position.x += d.dx;
+        p.position.y += d.dy;
+        p.position.z += d.dz;
 
         this.moveRequests.push({ playerIdx: i, desiredDeltaX: 0, desiredDeltaY: 0, desiredDeltaZ: 0, skipCollision: true });
         continue;
       }
 
       // --- Normal movement (collision-resolved by Rapier) ---
-      // SHIFT means dive when in water, run when on land
-      const isRunning = !inWater && input.isKeyDown(i, KEY.SHIFT);
-      const isFloating = inWater && input.isKeyDown(i, KEY.SPACE);
-      const isDiving = inWater && input.isKeyDown(i, KEY.SHIFT);
-
-      let desiredDeltaX = 0, desiredDeltaY = 0, desiredDeltaZ = 0;
-
-      // Vertical movement
-      if (inWater) {
-        if (isFloating) {
-          p.velocity.y += PLAYER_FLOAT_FORCE * dt;
-        } else if (isDiving) {
-          p.velocity.y -= PLAYER_DIVE_FORCE * dt;
-        } else {
-          // Gentle sink when no vertical input
-          p.velocity.y -= PLAYER_WATER_SINK_RATE * dt;
-        }
-        // Water drag
-        p.velocity.y *= PLAYER_WATER_DRAG;
-        // Clamp vertical speed
-        p.velocity.y = Math.max(-PLAYER_SWIM_VERTICAL_MAX, Math.min(PLAYER_SWIM_VERTICAL_MAX, p.velocity.y));
-        // Desired vertical delta
-        desiredDeltaY = p.velocity.y * dt;
-        // Stop at water surface if floating up (don't launch out of water)
-        if (isFloating && p.position.y + desiredDeltaY > waterHeight - 0.3) {
-          desiredDeltaY = waterHeight - 0.3 - p.position.y;
-          p.velocity.y = 0;
-        }
-      } else {
-        // Gravity when not in water
-        // Jump: if grounded (Rapier set GROUNDED) and SPACE pressed
-        const isGrounded = (p.flags & PLR_FLAG.GROUNDED) !== 0;
-        if (isGrounded && input.isKeyDown(i, KEY.SPACE) && !isPiloting) {
-          p.velocity.y = PLAYER_JUMP_FORCE;
-          p.flags &= ~PLR_FLAG.GROUNDED;
-        }
-        p.velocity.y -= PLAYER_GRAVITY * dt;
-        desiredDeltaY = p.velocity.y * dt;
-        // Simple ground collision (seabed / terrain) — fallback if no Rapier
-        const seabedHeight = -75;
-        if (p.position.y + desiredDeltaY < seabedHeight) {
-          desiredDeltaY = seabedHeight - p.position.y;
-          p.velocity.y = 0;
-        }
-      }
-
-      // Normalize movement
-      const len = Math.sqrt(moveX * moveX + moveZ * moveZ);
-      if (len > 0) {
-        moveX /= len;
-        moveZ /= len;
-      }
-
-      // Speed
-      let speed = isRunning ? PLAYER_RUN_SPEED : PLAYER_WALK_SPEED;
-      if (inWater) speed = PLAYER_SWIM_SPEED;
-
-      // Compute desired horizontal movement relative to heading
-      if (len > 0 && !isPiloting) {
-        const cos = Math.cos(p.heading);
-        const sin = Math.sin(p.heading);
-        desiredDeltaX = (moveX * cos - moveZ * sin) * speed * dt;
-        desiredDeltaZ = (moveX * sin + moveZ * cos) * speed * dt;
-
-        // Update body heading to face movement direction
-        const moveAngle = Math.atan2(desiredDeltaX, -desiredDeltaZ);
-        let diff = moveAngle - p.bodyHeading;
-        if (!Number.isFinite(diff)) diff = 0;
-        else diff = Math.atan2(Math.sin(diff), Math.cos(diff));
-        const rotSpeed = 8.0 * dt;
-        if (Math.abs(diff) <= rotSpeed) {
-          p.bodyHeading = moveAngle;
-        } else {
-          p.bodyHeading += Math.sign(diff) * rotSpeed;
-        }
-      }
+      // SHIFT means dive when in water, run when on land.
+      // The motor owns: swim float/dive/sink, gravity+jump, ground clamp,
+      // heading-relative WASD, and body-heading turn.
+      const motorState: Motor3DState = {
+        vy: p.velocity.y,
+        grounded: (p.flags & PLR_FLAG.GROUNDED) !== 0,
+        facing: p.bodyHeading,
+      };
+      const d = motor.update(
+        motorState,
+        {
+          fwd: -moveZ, strafe: moveX,
+          jump: input.isKeyDown(i, KEY.SPACE),
+          run: input.isKeyDown(i, KEY.SHIFT),
+          dive: input.isKeyDown(i, KEY.SHIFT),
+        },
+        p.heading,
+        { inWater, waterHeight, posY: p.position.y, jumpAllowed: !isPiloting },
+        dt,
+      );
+      p.velocity.y = motorState.vy;
+      p.bodyHeading = motorState.facing;
+      if (!motorState.grounded) p.flags &= ~PLR_FLAG.GROUNDED;
+      const desiredDeltaX = d.dx;
+      const desiredDeltaY = d.dy;
+      const desiredDeltaZ = d.dz;
 
       // For piloting players, no movement delta (BoatSystem controls position)
       // For onboard players, BoatSystem handles ship-tracking + floor snap

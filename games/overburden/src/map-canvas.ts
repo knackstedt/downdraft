@@ -1,17 +1,13 @@
 // ============================================================================
 // MapCanvas — 2D canvas overlay for the zoomed-out map mode.
 //
-// Replaces the pixi-based MapOverlay. Uses a plain <canvas> element in the
-// main thread that reads the map SAB directly and draws via putImageData.
-// No pixi worker, no OffscreenCanvas transfer, no texture pipeline.
-//
-// The canvas is a separate DOM element layered above the 3D game canvas.
-// It reads per-block data from the map SAB (SharedArrayBuffer shared with
-// the sim worker), composites all 4 planes into a single RGBA bitmap, and
-// draws it with putImageData. Player + station markers are drawn on top
-// with 2D canvas primitives.
+// Built on the shared SabCanvasOverlay (core/render): the overlay owns the
+// DOM plumbing (visible canvas, opacity/display, window resize, seq-gated
+// bitmap repaint); this file supplies the map-specific compositing (4 SAB
+// planes → palette RGBA) and drawing (camera-aligned bitmap + markers).
 // ============================================================================
 
+import { SabCanvasOverlay } from "@downdraft/core";
 import { CHUNK_W, MASK_LIQUID, MASK_SOLID } from "./shared/constants";
 import type { MapStation } from "./shared/map-buffer";
 import {
@@ -36,44 +32,29 @@ export interface MapCameraStats {
 }
 
 export class MapCanvas {
-  private canvas: HTMLCanvasElement;
-  private ctx: CanvasRenderingContext2D;
-  private bitmapCanvas: HTMLCanvasElement;
-  private bitmapCtx: CanvasRenderingContext2D;
+  private overlay: SabCanvasOverlay;
   private views: MapSabViews;
   private palette: Uint8Array;
   private region: { cx0: number; stations: MapStation[] } | null = null;
-  private dirty = true; // redraw bitmap when SAB data changes
-  private lastSeq = -1;
+  private stats: MapCameraStats | null = null;
 
   constructor(mapSab: SharedArrayBuffer, palette: Uint8Array) {
     this.views = getMapSabViews(mapSab);
     this.palette = palette;
 
-    // The visible canvas (sized to the window, positioned via CSS).
-    this.canvas = document.createElement("canvas");
-    this.canvas.id = "map-overlay-canvas";
-    this.canvas.style.position = "fixed";
-    this.canvas.style.top = "0";
-    this.canvas.style.left = "0";
-    this.canvas.style.width = "100%";
-    this.canvas.style.height = "100%";
-    this.canvas.style.pointerEvents = "none";
-    this.canvas.style.zIndex = "55"; // above pixi-ui (z=50), below DOM overlay (z=100)
-    this.canvas.style.display = "none"; // hidden until mapOpacity > 0
-    this.canvas.style.imageRendering = "pixelated";
-    this.ctx = this.canvas.getContext("2d")!;
-
-    // The offscreen bitmap canvas (fixed size = region dimensions).
-    this.bitmapCanvas = document.createElement("canvas");
-    this.bitmapCanvas.width = BW;
-    this.bitmapCanvas.height = BH;
-    this.bitmapCtx = this.bitmapCanvas.getContext("2d")!;
+    this.overlay = new SabCanvasOverlay({
+      id: "map-overlay-canvas",
+      bitmapWidth: BW,
+      bitmapHeight: BH,
+      getSeq: () => this.views.seq[0],
+      redrawBitmap: (ctx) => this.redrawBitmap(ctx),
+      draw: (ctx, bitmap, w, h) => this.draw(ctx, bitmap!, w, h),
+    });
   }
 
   /** Attach the canvas to the DOM (call once during init). */
   mount(parent: HTMLElement = document.body): void {
-    parent.appendChild(this.canvas);
+    this.overlay.mount(parent);
   }
 
   /** Update the region metadata (cx0 + stations) from the sim worker. */
@@ -87,35 +68,18 @@ export class MapCanvas {
    * seq counter changed, then draws the bitmap + markers to the visible canvas.
    */
   update(stats: MapCameraStats): void {
-    const opacity = stats.mapOpacity;
-    if (opacity <= 0) {
-      this.canvas.style.display = "none";
-      return;
-    }
-    this.canvas.style.display = "block";
-    this.canvas.style.opacity = String(opacity);
+    this.stats = stats;
+    this.overlay.update(stats.mapOpacity);
+  }
 
-    // Resize the visible canvas to match the window if needed.
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-    if (this.canvas.width !== w || this.canvas.height !== h) {
-      this.canvas.width = w;
-      this.canvas.height = h;
-    }
-
-    // Redraw the bitmap if the SAB has new data.
-    const seq = this.views.seq[0];
-    if (seq !== this.lastSeq) {
-      this.lastSeq = seq;
-      this.redrawBitmap();
-    }
-
+  private draw(ctx: CanvasRenderingContext2D, bitmap: HTMLCanvasElement, w: number, h: number): void {
+    const stats = this.stats!;
     if (!this.region) return;
 
     // Draw background (sky color from the renderer's daylight level).
     const [sr, sg, sb] = stats.skyColor;
-    this.ctx.fillStyle = `rgb(${sr},${sg},${sb})`;
-    this.ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = `rgb(${sr},${sg},${sb})`;
+    ctx.fillRect(0, 0, w, h);
 
     // Draw the bitmap, positioned to align with the camera.
     const cx0 = this.region.cx0;
@@ -136,42 +100,42 @@ export class MapCanvas {
 
     // The bitmap wraps horizontally (cylindrical world). Draw it twice to
     // handle the wrap-around seam.
-    this.ctx.imageSmoothingEnabled = false;
-    this.ctx.drawImage(this.bitmapCanvas, screenX0, screenY0, drawW, drawH);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(bitmap, screenX0, screenY0, drawW, drawH);
     if (screenX0 > 0) {
-      this.ctx.drawImage(this.bitmapCanvas, screenX0 - drawW, screenY0, drawW, drawH);
+      ctx.drawImage(bitmap, screenX0 - drawW, screenY0, drawW, drawH);
     } else if (screenX0 + drawW < w) {
-      this.ctx.drawImage(this.bitmapCanvas, screenX0 + drawW, screenY0, drawW, drawH);
+      ctx.drawImage(bitmap, screenX0 + drawW, screenY0, drawW, drawH);
     }
 
     // Draw player marker.
     const px = w / 2 + (wrap(stats.playerWorldX) - camStripX) * mapPxPerBlock;
     const py = h / 2 + (stats.playerWorldY - stats.camWorldY) * mapPxPerBlock;
     const dir = stats.playerFacing >= 0 ? 1 : -1;
-    this.ctx.fillStyle = "#ffffff";
-    this.ctx.strokeStyle = "#000000";
-    this.ctx.lineWidth = 1;
-    this.ctx.beginPath();
-    this.ctx.arc(px, py, 5, 0, Math.PI * 2);
-    this.ctx.fill();
-    this.ctx.stroke();
-    this.ctx.strokeStyle = "#000000";
-    this.ctx.lineWidth = 2;
-    this.ctx.beginPath();
-    this.ctx.moveTo(px, py);
-    this.ctx.lineTo(px + 8 * dir, py);
-    this.ctx.stroke();
+    ctx.fillStyle = "#ffffff";
+    ctx.strokeStyle = "#000000";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(px, py, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.strokeStyle = "#000000";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(px, py);
+    ctx.lineTo(px + 8 * dir, py);
+    ctx.stroke();
 
     // Draw station markers.
-    this.ctx.fillStyle = STATION_COLOR;
-    this.ctx.strokeStyle = "#000000";
-    this.ctx.lineWidth = 1;
+    ctx.fillStyle = STATION_COLOR;
+    ctx.strokeStyle = "#000000";
+    ctx.lineWidth = 1;
     for (const s of this.region.stations) {
       const ssx = w / 2 + (wrap(s.wx) - camStripX) * mapPxPerBlock;
       const ssy = h / 2 + (s.wy - stats.camWorldY) * mapPxPerBlock;
       if (ssx < -8 || ssx > w + 8 || ssy < -8 || ssy > h + 8) continue;
-      this.ctx.fillRect(ssx - 3, ssy - 3, 6, 6);
-      this.ctx.strokeRect(ssx - 3, ssy - 3, 6, 6);
+      ctx.fillRect(ssx - 3, ssy - 3, 6, 6);
+      ctx.strokeRect(ssx - 3, ssy - 3, 6, 6);
     }
   }
 
@@ -180,12 +144,12 @@ export class MapCanvas {
    * Back-to-front: background (dimmed) → mask (tinted) → vfx → foreground.
    * Fog (unexplored) = opaque black. Air = transparent.
    */
-  private redrawBitmap(): void {
+  private redrawBitmap(bitmapCtx: CanvasRenderingContext2D): void {
     const { foreground, background, mask, vfx, explored } = this.views;
     const pal = this.palette;
     const n = BW * BH;
 
-    const img = this.bitmapCtx.createImageData(BW, BH);
+    const img = bitmapCtx.createImageData(BW, BH);
     const view = new Uint32Array(img.data.buffer);
     const fogRGBA = 0xff000000; // opaque black (little-endian: R=0, G=0, B=0, A=255)
 
@@ -246,10 +210,10 @@ export class MapCanvas {
       view[i] = r | (g << 8) | (b << 16) | (a << 24);
     }
 
-    this.bitmapCtx.putImageData(img, 0, 0);
+    bitmapCtx.putImageData(img, 0, 0);
   }
 
   dispose(): void {
-    this.canvas.remove();
+    this.overlay.dispose();
   }
 }

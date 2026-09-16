@@ -6,9 +6,9 @@
 // Background blocks at Z=-1, foreground at Z=0 (true 2.5D depth layering).
 // ============================================================================
 
-import { createValidatedShaderModule } from "@downdraft/core";
-import { DEPTH_FORMAT } from "@downdraft/core";
+import { createValidatedShaderModule, DEPTH_FORMAT } from "@downdraft/core";
 
+import { lookAtMat4Into, multiplyMat4Into, perspectiveMat4Into } from "@downdraft/core";
 import BLOCK_RENDER_3D_FS from "../shaders/block-render-3d.wgsl?raw" with { type: "text" };
 import { getBlockPalette } from "../shared/block-registry";
 import {
@@ -22,7 +22,7 @@ import {
     RenderBufferReader,
 } from "../shared/render-buffer";
 import { isTreeBlock } from "../shared/tree-species";
-import { lookAtIP, multiplyIP, perspectiveIP, type Mat4 } from "./matrix";
+import type { Mat4 } from "./matrix";
 
 // --- Cube geometry ---
 // 6 faces × 4 vertices = 24 cube vertices + 4 chamfer faces × 4 vertices = 16 chamfer vertices.
@@ -1024,9 +1024,9 @@ export class BlockGridPass3D {
     const near = 0.1;
     const far = distance * 3 + 100;
 
-    perspectiveIP(this._projScratch, fov, aspect, near, far);
-    lookAtIP(this._viewScratch, eye, target, up);
-    multiplyIP(this.viewProj, this._projScratch, this._viewScratch);
+    perspectiveMat4Into(this._projScratch, fov, aspect, near, far);
+    lookAtMat4Into(this._viewScratch, eye, target, up);
+    multiplyMat4Into(this._projScratch, this._viewScratch, this.viewProj);
 
     // Write camera uniform buffer (reuse preallocated array)
     // Layout: viewProj (16 floats) + camPos (3) + zoom (1) + canvasW (1) + canvasH (1)

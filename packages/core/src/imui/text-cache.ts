@@ -323,21 +323,23 @@ export class TextAtlasCache {
   wrapText(text: string, opts: TextRenderOptions, maxWidth: number): string[] {
     const ctx = this.atlasCtx;
     ctx.font = `${opts.fontWeight} ${opts.fontSize}px ${opts.fontFamily}`;
-    const words = text.split(" ");
     const lines: string[] = [];
-    let currentLine = "";
-
-    for (const word of words) {
-      const testLine = currentLine ? `${currentLine} ${word}` : word;
-      const width = ctx.measureText(testLine).width;
-      if (width > maxWidth && currentLine) {
-        lines.push(currentLine);
-        currentLine = word;
-      } else {
-        currentLine = testLine;
+    // Honor explicit newlines first, then word-wrap each paragraph.
+    for (const para of text.split("\n")) {
+      const words = para.split(" ");
+      let currentLine = "";
+      for (const word of words) {
+        const testLine = currentLine ? `${currentLine} ${word}` : word;
+        const width = ctx.measureText(testLine).width;
+        if (width > maxWidth && currentLine) {
+          lines.push(currentLine);
+          currentLine = word;
+        } else {
+          currentLine = testLine;
+        }
       }
+      lines.push(currentLine);
     }
-    if (currentLine) lines.push(currentLine);
     return lines;
   }
 

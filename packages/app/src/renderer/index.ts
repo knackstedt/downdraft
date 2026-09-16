@@ -106,6 +106,10 @@ export type {
     SimWorkerSeed
 } from "./game-module";
 export { useDeterministicRenderPause, useDisplayInfo, useFpsPolling, useHotReloadDispose } from "./hooks";
+export { installSimHotReload, restoreHotReloadState } from "./hot-reload";
+export type { HotReloadableSim, SimHotReloadDeps } from "./hot-reload";
+export { createSimBridge } from "./sim-bridge";
+export type { SimBridge, SimBridgeDeps, SimBridgeWorker } from "./sim-bridge";
 
 // Save store factory + IPC fallback
 export { IpcSaveStore, type SaveBridge } from "./ipc-save-store";
