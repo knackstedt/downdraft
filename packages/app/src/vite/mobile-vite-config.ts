@@ -27,7 +27,7 @@
 import { wgslHmrPlugin } from "@downdraft/core/vite/wgsl-hmr-plugin";
 import react from "@vitejs/plugin-react";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { defineConfig, type PluginOption } from "vite";
 import { downdraftAssetBakePlugin, type AssetBakePluginOptions } from "./asset-bake-plugin.ts";
 import { downdraftHtmlPlugin, type DowndraftHtmlOptions, type LayerSpec } from "./downdraft-html-plugin.ts";
@@ -200,6 +200,13 @@ export function createDowndraftMobileViteConfig(
     resolve: {
       alias: rendererAliasEntries,
       dedupe: ["react", "react-dom"],
+    },
+    server: {
+      fs: {
+        // Engine sources may resolve outside the game root (symlinked
+        // workspace checkouts, bun link, file: deps).
+        allow: [rendererRoot, root, dirname(engine.pkg("@downdraft/core", "core"))],
+      },
     },
     worker: {
       format: "es",

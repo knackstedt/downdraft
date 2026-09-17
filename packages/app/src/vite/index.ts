@@ -17,7 +17,7 @@ import { wgslHmrPlugin } from "@downdraft/core/vite/wgsl-hmr-plugin";
 import react from "@vitejs/plugin-react";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "path";
+import { dirname, resolve } from "path";
 import { downdraftAssetBakePlugin, type AssetBakePluginOptions } from "./asset-bake-plugin.ts";
 import { downdraftHtmlPlugin, type DowndraftHtmlOptions, type LayerSpec } from "./downdraft-html-plugin.ts";
 import { createEngineResolver } from "./engine-resolve.ts";
@@ -470,6 +470,15 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
         headers: {
           "Cross-Origin-Opener-Policy": "same-origin",
           "Cross-Origin-Embedder-Policy": "require-corp",
+        },
+        fs: {
+          // Engine sources may live outside the game root — symlinked
+          // workspace/monorepo checkouts, `bun link`, or `file:` deps all
+          // resolve to real paths Vite must be allowed to serve. The parent
+          // dir of the resolved core package covers every @downdraft/*
+          // package in both layouts (packages/ in the monorepo,
+          // node_modules/@downdraft/ in standalone installs).
+          allow: [rendererRoot, root, dirname(engine.pkg("@downdraft/core", "core"))],
         },
       },
       resolve: {
