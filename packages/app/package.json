@@ -46,8 +46,11 @@
   "dependencies": {
     "@downdraft/asset-bake": "^0.1.0",
     "@downdraft/core": "^0.1.0",
-    "@downdraft/module-electron-osr": "^0.1.0",
     "@downdraft/library-persistence": "^0.1.0",
+    "@downdraft/mcp": "^0.1.0",
+    "@downdraft/module-devtools": "^0.1.0",
+    "@downdraft/module-electron-osr": "^0.1.0",
+    "@downdraft/module-raw-input": "^0.1.0",
     "@downdraft/ui": "^0.1.0"
   },
   "publishConfig": {

@@ -1,4 +1,4 @@
-import { profilingPreludePlugin } from "./profiling-prelude-plugin";
+import { profilingPreludePlugin } from "./profiling-prelude-plugin.ts";
 
 describe("profilingPreludePlugin", () => {
   const plugin = profilingPreludePlugin();

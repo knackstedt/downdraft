@@ -4,6 +4,7 @@
   "type": "module",
   "main": "src/index.ts",
   "dependencies": {
+    "@downdraft/app": "^0.1.0",
     "@downdraft/core": "^0.1.0",
     "@downdraft/library-models": "^0.1.0",
     "@downdraft/library-pixi-ui": "^0.1.0",

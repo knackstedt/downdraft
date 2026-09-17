@@ -54,7 +54,7 @@ describe("CLI new — minimal template", () => {
     const pkg = JSON.parse(readFileSync(join(TEST_DIR, "package.json"), "utf-8"));
     expect(pkg.name).toBe("my-game");
     expect(pkg.type).toBe("module");
-    expect(pkg.dependencies["@downdraft/core"]).toBe("workspace:*");
+    expect(pkg.dependencies["@downdraft/core"]).toBe("^0.1.0");
     expect(pkg.scripts.dev).toBe("draft dev");
     expect(pkg.scripts.build).toBe("draft release --stage=build");
     expect(pkg.scripts.export).toBe("draft release --stage=package --format=launcher");
@@ -119,8 +119,8 @@ describe("CLI new — minimal template", () => {
     expect(pkg.devDependencies["vite"]).toBeDefined();
     expect(pkg.devDependencies["typescript"]).toBeDefined();
     expect(pkg.devDependencies["oxlint"]).toBeDefined();
-    expect(pkg.devDependencies["@downdraft/app"]).toBe("workspace:*");
-    expect(pkg.devDependencies["@downdraft/cli"]).toBe("workspace:*");
+    expect(pkg.devDependencies["@downdraft/app"]).toBe("^0.1.0");
+    expect(pkg.devDependencies["@downdraft/cli"]).toBe("^0.1.0");
   });
 
   it("should scaffold .vscode config files", async () => {
@@ -176,11 +176,11 @@ describe("CLI new — minimal template", () => {
     expect(config.builder.mode).toBe("dev");
   });
 
-  it("should write main.ts with init/tick/dispose functions", async () => {
+  it("should write main.ts with a startGame() entry", async () => {
     const main = readFileSync(join(TEST_DIR, "src/main.ts"), "utf-8");
-    expect(main).toContain("init");
-    expect(main).toContain("tick");
-    expect(main).toContain("dispose");
+    expect(main).toContain("startGame");
+    expect(main).toContain("onReady");
+    expect(main).toContain("onDispose");
   });
 
   it("should not scaffold AI companion files by default", async () => {
@@ -211,7 +211,7 @@ describe("CLI new — physics template", () => {
 
   it("should include physics-rapier dependency", async () => {
     const pkg = JSON.parse(readFileSync(join(TEST_DIR, "package.json"), "utf-8"));
-    expect(pkg.dependencies["@downdraft/library-physics-rapier"]).toBe("workspace:*");
+    expect(pkg.dependencies["@downdraft/library-physics-rapier"]).toBe("^0.1.0");
   });
 
   it("should include physics-rapier plugin in config", async () => {
@@ -266,11 +266,11 @@ describe("CLI new — full template", () => {
 
   it("should include all plugin dependencies", async () => {
     const pkg = JSON.parse(readFileSync(join(TEST_DIR, "package.json"), "utf-8"));
-    expect(pkg.dependencies["@downdraft/library-water"]).toBe("workspace:*");
-    expect(pkg.dependencies["@downdraft/library-physics-rapier"]).toBe("workspace:*");
-    expect(pkg.dependencies["@downdraft/library-marching-cubes"]).toBe("workspace:*");
-    expect(pkg.dependencies["@downdraft/library-models"]).toBe("workspace:*");
-    expect(pkg.dependencies["@downdraft/module-devtools"]).toBe("workspace:*");
+    expect(pkg.dependencies["@downdraft/library-water"]).toBe("^0.1.0");
+    expect(pkg.dependencies["@downdraft/library-physics-rapier"]).toBe("^0.1.0");
+    expect(pkg.dependencies["@downdraft/library-marching-cubes"]).toBe("^0.1.0");
+    expect(pkg.dependencies["@downdraft/library-models"]).toBe("^0.1.0");
+    expect(pkg.dependencies["@downdraft/module-devtools"]).toBe("^0.1.0");
   });
 
   it("should include all plugins in config", async () => {

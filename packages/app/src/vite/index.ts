@@ -18,14 +18,14 @@ import react from "@vitejs/plugin-react";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "path";
-import { downdraftAssetBakePlugin, type AssetBakePluginOptions } from "./asset-bake-plugin";
-import { downdraftHtmlPlugin, type DowndraftHtmlOptions, type LayerSpec } from "./downdraft-html-plugin";
-import { createEngineResolver } from "./engine-resolve";
-import { profilingPreludePlugin, type ProfilingPreludePluginOptions } from "./profiling-prelude-plugin";
-import { sceneModuleUrlPlugin } from "./scene-module-url-plugin";
-import { silenceSourcemapWarningsPlugin } from "./silence-sourcemap-warnings-plugin";
-import { wgslValidatePlugin } from "./wgsl-validate-plugin";
-import { workerUrlGuardPlugin } from "./worker-url-guard-plugin";
+import { downdraftAssetBakePlugin, type AssetBakePluginOptions } from "./asset-bake-plugin.ts";
+import { downdraftHtmlPlugin, type DowndraftHtmlOptions, type LayerSpec } from "./downdraft-html-plugin.ts";
+import { createEngineResolver } from "./engine-resolve.ts";
+import { profilingPreludePlugin, type ProfilingPreludePluginOptions } from "./profiling-prelude-plugin.ts";
+import { sceneModuleUrlPlugin } from "./scene-module-url-plugin.ts";
+import { silenceSourcemapWarningsPlugin } from "./silence-sourcemap-warnings-plugin.ts";
+import { wgslValidatePlugin } from "./wgsl-validate-plugin.ts";
+import { workerUrlGuardPlugin } from "./worker-url-guard-plugin.ts";
 
 // ---------------------------------------------------------------------------
 // Auto-include direct deps for Vite's dep pre-bundling (optimizeDeps.include)
@@ -568,13 +568,13 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
 }
 
 // Re-export the engine resolver for game configs that build custom aliases
-export { createEngineResolver, type EngineResolver } from "./engine-resolve";
+export { createEngineResolver, type EngineResolver } from "./engine-resolve.ts";
 // Re-export HTML generation types for games that need them
-export type { CanvasLayer, DomLayer, DowndraftHtmlOptions, LayerSpec } from "./downdraft-html-plugin";
+export type { CanvasLayer, DomLayer, DowndraftHtmlOptions, LayerSpec } from "./downdraft-html-plugin.ts";
 // Re-export asset bake types
-export type { AssetBakeOptions, AssetBakePluginOptions } from "./asset-bake-plugin";
+export type { AssetBakeOptions, AssetBakePluginOptions } from "./asset-bake-plugin.ts";
 // Re-export profiling prelude types
-export type { ProfilingPreludePluginOptions } from "./profiling-prelude-plugin";
+export type { ProfilingPreludePluginOptions } from "./profiling-prelude-plugin.ts";
 
 /** Determine if profiling should be enabled based on the config option + env. */
 function shouldEnableProfiling(profiling: DowndraftViteConfigOptions["profiling"]): boolean {

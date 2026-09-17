@@ -21,7 +21,7 @@
 import { readFileSync, statSync } from "node:fs";
 import { dirname, resolve as resolvePath } from "node:path";
 import type { Plugin } from "vite";
-import { resolveTintBinary, validateWgslWithTint } from "./tint-binary";
+import { resolveTintBinary, validateWgslWithTint } from "./tint-binary.ts";
 
 /**
  * Some WGSL sources are fragments that only compile when concatenated with

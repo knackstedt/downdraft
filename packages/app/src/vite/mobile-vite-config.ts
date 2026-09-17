@@ -29,13 +29,13 @@ import react from "@vitejs/plugin-react";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { defineConfig, type PluginOption } from "vite";
-import { downdraftAssetBakePlugin, type AssetBakePluginOptions } from "./asset-bake-plugin";
-import { downdraftHtmlPlugin, type DowndraftHtmlOptions, type LayerSpec } from "./downdraft-html-plugin";
-import { createEngineResolver } from "./engine-resolve";
-import { collectDirectDeps } from "./index";
-import { sceneModuleUrlPlugin } from "./scene-module-url-plugin";
-import { silenceSourcemapWarningsPlugin } from "./silence-sourcemap-warnings-plugin";
-import { workerUrlGuardPlugin } from "./worker-url-guard-plugin";
+import { downdraftAssetBakePlugin, type AssetBakePluginOptions } from "./asset-bake-plugin.ts";
+import { downdraftHtmlPlugin, type DowndraftHtmlOptions, type LayerSpec } from "./downdraft-html-plugin.ts";
+import { createEngineResolver } from "./engine-resolve.ts";
+import { collectDirectDeps } from "./index.ts";
+import { sceneModuleUrlPlugin } from "./scene-module-url-plugin.ts";
+import { silenceSourcemapWarningsPlugin } from "./silence-sourcemap-warnings-plugin.ts";
+import { workerUrlGuardPlugin } from "./worker-url-guard-plugin.ts";
 
 export interface DowndraftMobileViteConfigOptions {
   /** The game directory (usually `__dirname` from the game's mobile.vite.config.ts). */

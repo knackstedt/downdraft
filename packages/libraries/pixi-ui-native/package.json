@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@downdraft/core": "^0.1.0",
+    "@downdraft/platform-native": "^0.1.0",
     "pixi.js": "8.18.0"
   },
   "peerDependencies": {

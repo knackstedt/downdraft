@@ -25,5 +25,13 @@
   "files": [
     "src",
     "README.md"
-  ]
+  ],
+  "peerDependencies": {
+    "@downdraft/library-models": "^0.1.0"
+  },
+  "peerDependenciesMeta": {
+    "@downdraft/library-models": {
+      "optional": true
+    }
+  }
 }
