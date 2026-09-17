@@ -1,19 +1,29 @@
 {
   "name": "@downdraft/library-models",
-  "private": true,
   "version": "0.1.0",
   "type": "module",
   "main": "src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./*": "./src/*.ts"
+    "./*": [
+      "./src/*.ts",
+      "./src/*/index.ts"
+    ],
+    "./package.json": "./package.json"
   },
   "dependencies": {
-    "@downdraft/core": "workspace:*",
+    "@downdraft/core": "^0.1.0",
     "@h00w/basis-universal-transcoder": "^2.1.0",
     "comment-json": "^5.0.0",
     "draco3dgltf": "^1.5.7",
     "fflate": "^0.8.2",
     "meshoptimizer": "^1.2.0"
-  }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ]
 }

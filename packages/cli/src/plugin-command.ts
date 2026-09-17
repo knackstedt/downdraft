@@ -8,8 +8,9 @@
 
 import { createLogger } from "@downdraft/core";
 import { existsSync, readdirSync, readFileSync } from "fs";
-import { join, resolve } from "path";
+import { basename, join } from "path";
 import { print } from "./args";
+import { findGameDirUpward, findMonorepoRoot } from "./paths";
 import { scaffoldPlugin } from "./scaffold-plugin";
 
 const log = createLogger();
@@ -125,20 +126,35 @@ async function pluginNew(args: string[], modMode: boolean): Promise<void> {
 }
 
 function pluginList(args: string[]): void {
-  // Find all games/*/plugins/*/{plugin.json,mod.json}
-  const cwd = resolve(".");
-  const gamesDir = join(cwd, "games");
-  if (!existsSync(gamesDir)) {
-    log.info("plugin", "No games/ directory found.");
-    return;
+  // Find all games/*/plugins/*/{plugin.json,mod.json} (monorepo), or
+  // <gameDir>/plugins/* when running inside a standalone game repo.
+  const monorepoRoot = findMonorepoRoot();
+  const filterGame = args.find((a) => !a.startsWith("--"));
+
+  let gameDirs: { name: string; dir: string }[];
+  if (monorepoRoot) {
+    const gamesDir = join(monorepoRoot, "games");
+    if (!existsSync(gamesDir)) {
+      log.info("plugin", "No games/ directory found.");
+      return;
+    }
+    gameDirs = readdirSync(gamesDir)
+      .filter((g) => existsSync(join(gamesDir, g)))
+      .map((g) => ({ name: g, dir: join(gamesDir, g) }));
+  } else {
+    const gameDir = findGameDirUpward();
+    if (!gameDir) {
+      log.info("plugin", "No games/ directory found and not inside a game repo.");
+      return;
+    }
+    gameDirs = [{ name: basename(gameDir), dir: gameDir }];
   }
 
-  const filterGame = args.find((a) => !a.startsWith("--"));
   let found = 0;
 
-  for (const game of readdirSync(gamesDir)) {
+  for (const { name: game, dir: gameDirPath } of gameDirs) {
     if (filterGame && game !== filterGame) continue;
-    const pluginsDir = join(gamesDir, game, "plugins");
+    const pluginsDir = join(gameDirPath, "plugins");
     if (!existsSync(pluginsDir)) continue;
     for (const plugin of readdirSync(pluginsDir)) {
       // Prefer mod.json, fall back to plugin.json.

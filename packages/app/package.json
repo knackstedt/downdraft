@@ -39,13 +39,22 @@
     "./build": {
       "types": "./src/build/index.ts",
       "import": "./src/build/index.ts"
-    }
+    },
+    "./package.json": "./package.json",
+    "./renderer/downdraft-base.css": "./src/renderer/downdraft-base.css"
   },
   "dependencies": {
-    "@downdraft/asset-bake": "workspace:*",
-    "@downdraft/core": "workspace:*",
-    "@downdraft/module-electron-osr": "workspace:*",
-    "@downdraft/library-persistence": "workspace:*",
-    "@downdraft/ui": "workspace:*"
-  }
+    "@downdraft/asset-bake": "^0.1.0",
+    "@downdraft/core": "^0.1.0",
+    "@downdraft/module-electron-osr": "^0.1.0",
+    "@downdraft/library-persistence": "^0.1.0",
+    "@downdraft/ui": "^0.1.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ]
 }

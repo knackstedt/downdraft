@@ -33,12 +33,14 @@
 
 import { createLogger } from "@downdraft/core";
 import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { parseArgs, print, renderHelp } from "./args";
 import { buildDesktop } from "./build-helpers";
 import { packageDesktop, type DistArgs } from "./dist";
 import { packageLauncher } from "./export";
+import { formatGamesList, listGames } from "./list-games";
 import { buildMobileWeb, packageMobile, type MobileArgs } from "./mobile";
+import { findMonorepoRoot, resolveGameDir } from "./paths";
 import { getCommand } from "./usage";
 
 const log = createLogger();
@@ -141,7 +143,7 @@ function parseReleaseArgs(args: string[]): ReleaseArgs {
  *
  * Returns the detected game name, or `null` if none could be determined.
  */
-function detectGame(repoRoot: string): string | null {
+function detectGame(monorepoRoot: string | null): string | null {
   // 2. Cwd inference: walk up looking for electron.vite.config.ts.
   let dir = process.cwd();
   for (;;) {
@@ -152,11 +154,13 @@ function detectGame(repoRoot: string): string | null {
     dir = parent;
   }
 
-  // 3. Single-game fallback.
-  const games = listGames(repoRoot);
-  if (games.length === 1) {
-    log.info("release", `No game specified — defaulting to the only game found: ${games[0]}`);
-    return games[0];
+  // 3. Single-game fallback (monorepo only).
+  if (monorepoRoot) {
+    const games = listGames(monorepoRoot);
+    if (games.length === 1) {
+      log.info("release", `No game specified — defaulting to the only game found: ${games[0]}`);
+      return games[0];
+    }
   }
 
   return null;
@@ -247,10 +251,9 @@ function getGameInfo(gameDir: string, game: string): { productName: string; appI
 async function runBuild(
   game: string,
   groups: TargetGroups,
-  repoRoot: string,
+  gameDir: string,
   opts: ReleaseArgs,
 ): Promise<boolean> {
-  const gameDir = resolve(repoRoot, "games", game);
   if (!existsSync(gameDir)) {
     log.error("release:build", `Game directory not found: ${gameDir}`);
     return false;
@@ -262,7 +265,7 @@ async function runBuild(
 
   // Desktop: electron-vite build (produces dist/).
   if (groups.desktop.length > 0) {
-    const ok = buildDesktop(repoRoot, game, buildEnv);
+    const ok = buildDesktop(gameDir, game, buildEnv);
     if (!ok) return false;
   }
 
@@ -284,10 +287,9 @@ async function runPackage(
   groups: TargetGroups,
   formats: Record<string, string>,
   opts: ReleaseArgs,
-  repoRoot: string,
+  gameDir: string,
+  projectRoot: string | null,
 ): Promise<boolean> {
-  const gameDir = resolve(repoRoot, "games", game);
-
   // --- Desktop packaging ---
   if (groups.desktop.length > 0) {
     const launcherPlatforms = groups.desktop.filter((t) => formats[t] === "launcher");
@@ -308,7 +310,7 @@ async function runPackage(
           verbose: opts.verbose,
         };
         try {
-          await packageDesktop(distOpts, repoRoot);
+          await packageDesktop(distOpts, projectRoot, gameDir);
         } catch (err) {
           log.error("release:package:desktop", `Packaging failed for ${game} (${t}): ${(err as Error).message}`);
           if ((err as Error).stack) log.error("release:package:desktop", (err as Error).stack);
@@ -349,7 +351,7 @@ async function runPackage(
       verbose: opts.verbose,
     };
     try {
-      await packageMobile(mobileOpts, repoRoot);
+      await packageMobile(mobileOpts, gameDir, projectRoot);
     } catch (err) {
       log.error("release:package:mobile", `Mobile packaging failed for ${game}: ${(err as Error).message}`);
       return false;
@@ -365,12 +367,14 @@ async function runPackage(
 
 export async function release(args: string[]): Promise<void> {
   const opts = parseReleaseArgs(args);
-  const repoRoot = resolve(import.meta.dir, "../../..");
+  // Monorepo root when running inside the engine repo; null for standalone
+  // game repos (the game directory itself is the project root).
+  const monorepoRoot = findMonorepoRoot();
 
   // Auto-detect the game when neither --game nor --games is given.
   let games = opts.games;
   if (games.length === 0) {
-    const detected = detectGame(repoRoot);
+    const detected = detectGame(monorepoRoot);
     if (detected) {
       games = [detected];
       opts.game = detected;
@@ -378,7 +382,7 @@ export async function release(args: string[]): Promise<void> {
       log.error("release", "No game specified and none could be auto-detected.");
       log.error("release", "Run \"draft release\" from a game directory, or use \"--game <name>\" / \"--games <csv>\" from the engine root.");
       log.error("release", "Available games:");
-      print(formatGamesList(repoRoot));
+      print(formatGamesList(monorepoRoot ?? process.cwd()));
       process.exit(1);
     }
   }
@@ -404,7 +408,7 @@ export async function release(args: string[]): Promise<void> {
   let fail = 0;
 
   for (const game of games) {
-    const gameDir = resolve(repoRoot, "games", game);
+    const gameDir = resolveGameDir(game) ?? resolve(monorepoRoot ?? process.cwd(), "games", game);
     const { productName, appId, version } = getGameInfo(gameDir, game);
     log.info("release", `Game: ${game} | Product: "${productName}" | AppId: ${appId} | v${version}`);
     log.info("release", "");
@@ -414,7 +418,7 @@ export async function release(args: string[]): Promise<void> {
     // Stage: build
     if (opts.stage === "build" || opts.stage === "release") {
       log.info("release", `[build] Building ${game}...`);
-      ok = await runBuild(game, groups, repoRoot, opts);
+      ok = await runBuild(game, groups, gameDir, opts);
       if (!ok) {
         log.error("release", `Build failed for ${game} — skipping remaining stages.`);
         fail = 1;
@@ -425,7 +429,7 @@ export async function release(args: string[]): Promise<void> {
     // Stage: package
     if (opts.stage === "package" || opts.stage === "release") {
       log.info("release", `[package] Packaging ${game}...`);
-      ok = await runPackage(game, groups, formats, opts, repoRoot);
+      ok = await runPackage(game, groups, formats, opts, gameDir, monorepoRoot);
       if (!ok) {
         log.error("release", `Packaging failed for ${game} — skipping.`);
         fail = 1;

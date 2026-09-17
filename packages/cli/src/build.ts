@@ -18,6 +18,7 @@ import { Builder, confinePath, createLogger } from "@downdraft/core";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "fs";
 import { basename, extname, join, relative, resolve } from "path";
 import { parseArgs, print, renderHelp } from "./args";
+import { resolveGameDir } from "./paths";
 import { release } from "./release";
 import { getCommand } from "./usage";
 
@@ -73,9 +74,15 @@ export async function legacyFileCopyBuild(args: string[]): Promise<void> {
   }
 
   const gameArg = parsed.flags.game as string | undefined;
-  const projectPath = gameArg
-    ? resolve(import.meta.dir, "../../..", "games", gameArg)
-    : parsed.positionals[0] ?? ".";
+  let projectPath = parsed.positionals[0] ?? ".";
+  if (gameArg) {
+    const dir = resolveGameDir(gameArg);
+    if (!dir) {
+      log.error("build", `Game "${gameArg}" not found (looked in games/ and cwd).`);
+      process.exit(1);
+    }
+    projectPath = dir;
+  }
   const target = parsed.flags.target as string;
   const mode = parsed.flags.mode as string;
   const outDir = parsed.flags.out as string;

@@ -58,7 +58,8 @@ function parseDistArgs(args: string[]): DistArgs {
  */
 export async function resolveConfig(
   opts: DistArgs,
-  repoRoot: string,
+  repoRoot: string | null,
+  gameDir?: string | null,
 ): Promise<{ config: any; projectDir: string; source: string }> {
   // 1. Explicit --config flag.
   if (opts.configPath) {
@@ -69,17 +70,17 @@ export async function resolveConfig(
     }
     const mod = await import(abs);
     const config = mod.default ?? mod;
-    return { config, projectDir: opts.projectDir ?? repoRoot, source: abs };
+    return { config, projectDir: opts.projectDir ?? repoRoot ?? gameDir ?? process.cwd(), source: abs };
   }
 
-  // 2. games/<game>/build.config.ts (monorepo layout)
-  const gameConfigPath = resolve(repoRoot, "games", opts.game, "build.config.ts");
-  if (existsSync(gameConfigPath)) {
+  // 2. <gameDir>/build.config.ts (monorepo games/<game>/ or standalone game root)
+  const gameConfigPath = gameDir ? resolve(gameDir, "build.config.ts") : null;
+  if (gameConfigPath && existsSync(gameConfigPath)) {
     const mod = await import(gameConfigPath);
     const config = mod.default ?? mod;
     return {
       config,
-      projectDir: opts.projectDir ?? repoRoot,
+      projectDir: opts.projectDir ?? repoRoot ?? gameDir ?? process.cwd(),
       source: gameConfigPath,
     };
   }
@@ -96,9 +97,9 @@ export async function resolveConfig(
     };
   }
 
-  // 3. build block in games/<game>/package.json (monorepo)
-  const gamePkgPath = resolve(repoRoot, "games", opts.game, "package.json");
-  if (existsSync(gamePkgPath)) {
+  // 3. build block in <gameDir>/package.json (monorepo games/<game>/ or standalone)
+  const gamePkgPath = gameDir ? resolve(gameDir, "package.json") : null;
+  if (gamePkgPath && existsSync(gamePkgPath)) {
     const pkg = JSON.parse(readFileSync(gamePkgPath, "utf-8"));
     if (pkg.build) {
       // Merge per-game metadata into the build config so electron-builder
@@ -112,7 +113,7 @@ export async function resolveConfig(
       }
       return {
         config,
-        projectDir: opts.projectDir ?? repoRoot,
+        projectDir: opts.projectDir ?? repoRoot ?? gameDir ?? process.cwd(),
         source: gamePkgPath,
       };
     }
@@ -137,10 +138,10 @@ export async function resolveConfig(
     }
   }
 
-  // 4. Root package.json build block (engine default — last resort).
-  const rootPkgPath = resolve(repoRoot, "package.json");
-  const rootPkg = JSON.parse(readFileSync(rootPkgPath, "utf-8"));
-  if (rootPkg.build) {
+  // 4. Root package.json build block (engine default — last resort, monorepo only).
+  const rootPkgPath = repoRoot ? resolve(repoRoot, "package.json") : null;
+  const rootPkg = rootPkgPath ? JSON.parse(readFileSync(rootPkgPath, "utf-8")) : null;
+  if (rootPkg?.build && rootPkgPath) {
     log.warn(
       "dist",
       `No build.config.ts or build block found for game "${opts.game}". ` +
@@ -148,15 +149,15 @@ export async function resolveConfig(
     );
     return {
       config: rootPkg.build,
-      projectDir: opts.projectDir ?? repoRoot,
+      projectDir: opts.projectDir ?? repoRoot!,
       source: rootPkgPath,
     };
   }
 
   log.error("dist", `No electron-builder config found for game "${opts.game}".`);
   log.info("dist", `Expected one of:`);
-  log.info("dist", `  - games/${opts.game}/build.config.ts`);
-  log.info("dist", `  - build block in games/${opts.game}/package.json`);
+  log.info("dist", `  - build.config.ts in the game directory`);
+  log.info("dist", `  - build block in the game package.json`);
   log.info("dist", `  - --config=<path> flag`);
   process.exit(1);
 }
@@ -171,9 +172,10 @@ export async function resolveConfig(
  */
 export async function packageDesktop(
   opts: DistArgs,
-  repoRoot: string,
+  repoRoot: string | null,
+  gameDir?: string | null,
 ): Promise<string[]> {
-  const { config, projectDir, source } = await resolveConfig(opts, repoRoot);
+  const { config, projectDir, source } = await resolveConfig(opts, repoRoot, gameDir);
 
   log.info("release:package:desktop", `  Config:      ${source}`);
   if (config.productName) log.info("release:package:desktop", `  Product:     ${config.productName}`);
@@ -219,7 +221,6 @@ export async function packageDesktop(
 
 export async function dist(args: string[]): Promise<void> {
   const opts = parseDistArgs(args);
-  const repoRoot = resolve(import.meta.dir, "../../..");
 
   log.warn("dist", "`draft dist` is deprecated — use `draft release --stage=package` instead.");
   log.warn("dist", "Delegating to `release`...");

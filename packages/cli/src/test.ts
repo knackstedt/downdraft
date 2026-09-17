@@ -1,8 +1,9 @@
 import { createLogger } from "@downdraft/core";
 import { spawn } from "child_process";
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import { parseArgs, print, renderHelp } from "./args";
+import { buildCwd, findMonorepoRoot, resolveGameDir } from "./paths";
 import { getCommand } from "./usage";
 
 const log = createLogger();
@@ -62,16 +63,19 @@ function hasXvfb(): boolean {
  * Build the game with electron-vite before running tests.
  * Returns true if the build succeeded, false otherwise.
  */
-function buildGame(root: string, game: string): boolean {
-  const configPath = resolve(root, "games", game, "electron.vite.config.ts");
+function buildGame(gameDir: string, game: string): boolean {
+  const configPath = resolve(gameDir, "electron.vite.config.ts");
   if (!existsSync(configPath)) {
     log.error("test", `No electron.vite.config.ts found for game "${game}" at ${configPath}`);
     return false;
   }
   log.info("test", `Building game "${game}" with electron-vite...`);
   try {
+    // electron-vite writes dist/ relative to the spawn cwd — the monorepo root
+    // when inside it, else the game directory itself.
+    const cwd = buildCwd(gameDir);
     const result = spawnSync("npx", ["electron-vite", "build", "--config", configPath], {
-      cwd: root,
+      cwd,
       stdio: "inherit",
     });
     if (result.status !== 0) {
@@ -79,7 +83,7 @@ function buildGame(root: string, game: string): boolean {
       return false;
     }
     // Verify the build output exists
-    const distMain = resolve(root, "dist", "main", "index.cjs");
+    const distMain = resolve(cwd, "dist", "main", "index.cjs");
     if (!existsSync(distMain)) {
       log.error("test", `Build completed but dist/main/index.cjs not found at ${distMain}`);
       return false;
@@ -97,11 +101,34 @@ import { spawnSync } from "child_process";
 
 export async function runTest(args: string[]): Promise<void> {
   const opts = parseTestArgs(args);
-  const ROOT = resolve(import.meta.dir, "../../..");
+  const monorepoRoot = findMonorepoRoot();
+  const gameDir = resolveGameDir(opts.game || undefined);
 
-  const specPath = opts.spec
-    ? resolve(opts.spec)
-    : resolve(ROOT, "tests", "e2e", `${opts.game}-smoke.spec.ts`);
+  if (!opts.game && gameDir) {
+    opts.game = basename(gameDir);
+  }
+  if (!opts.game) {
+    log.error("test", `No game specified and none could be inferred from "${process.cwd()}".`);
+    log.error("test", `Run "draft test --game=<name>" or pass --spec=<path>.`);
+    process.exit(1);
+  }
+
+  // Default spec: <monorepo>/tests/e2e/<game>-smoke.spec.ts, or the standalone
+  // game's own tests/e2e dir. When neither exists, require --spec.
+  let specPath = opts.spec ? resolve(opts.spec) : null;
+  if (!specPath) {
+    const candidates = [
+      monorepoRoot ? resolve(monorepoRoot, "tests", "e2e", `${opts.game}-smoke.spec.ts`) : null,
+      gameDir ? resolve(gameDir, "tests", "e2e", `${opts.game}-smoke.spec.ts`) : null,
+    ].filter((p): p is string => !!p);
+    specPath = candidates.find((p) => existsSync(p)) ?? candidates[0];
+  }
+  if (!specPath || !existsSync(specPath)) {
+    log.error("test", `No test spec found for game "${opts.game}".`);
+    log.error("test", `Looked in: tests/e2e/${opts.game}-smoke.spec.ts`);
+    log.error("test", `Pass --spec=<path> to specify a spec file.`);
+    process.exit(1);
+  }
 
   log.info("test", `
   ╔══════════════════════════════════════════╗
@@ -121,7 +148,11 @@ export async function runTest(args: string[]): Promise<void> {
 
   // If --build or --build-only is specified, build the game first.
   if (opts.build) {
-    const buildOk = buildGame(ROOT, opts.game);
+    if (!gameDir) {
+      log.error("test", `Could not resolve game directory for "${opts.game}".`);
+      process.exit(1);
+    }
+    const buildOk = buildGame(gameDir, opts.game);
     if (!buildOk) {
       process.exit(1);
     }
@@ -167,7 +198,7 @@ export async function runTest(args: string[]): Promise<void> {
   }
 
   const child = spawn(cmd, cmdArgs, {
-    cwd: ROOT,
+    cwd: monorepoRoot ?? gameDir ?? process.cwd(),
     stdio: "inherit",
     env,
   });

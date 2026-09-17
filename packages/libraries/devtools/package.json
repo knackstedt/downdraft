@@ -1,22 +1,35 @@
 {
   "name": "@downdraft/library-devtools",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "main": "src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./*": "./src/*.ts"
+    "./*": [
+      "./src/*.ts",
+      "./src/*/index.ts"
+    ],
+    "./package.json": "./package.json"
   },
   "dependencies": {
-    "@downdraft/core": "workspace:*",
-    "@downdraft/module-devtools": "workspace:*",
-    "@downdraft/platform-native": "workspace:*"
+    "@downdraft/core": "^0.1.0",
+    "@downdraft/module-devtools": "^0.1.0",
+    "@downdraft/platform-native": "^0.1.0"
   },
   "peerDependencies": {
-    "@downdraft/library-pixi-ui-native": "workspace:*"
+    "@downdraft/library-pixi-ui-native": "^0.1.0"
   },
   "peerDependenciesMeta": {
-    "@downdraft/library-pixi-ui-native": { "optional": true }
-  }
+    "@downdraft/library-pixi-ui-native": {
+      "optional": true
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "native",
+    "README.md"
+  ]
 }

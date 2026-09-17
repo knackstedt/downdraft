@@ -24,19 +24,23 @@ const log = createLogger();
  * function consolidates the inline `spawnSync` calls that were duplicated in
  * `build-games.ts` and `test.ts`.
  *
- * @param repoRoot  absolute path to the repo root (monorepo layout).
- * @param game      game directory name under `games/`.
+ * @param gameDir   absolute path to the game directory (monorepo games/<name>
+ *                  or a standalone game repo).
+ * @param game      game name (for logging).
  * @returns true if the build succeeded, false otherwise.
  */
-export function buildDesktop(repoRoot: string, game: string, env?: Record<string, string>): boolean {
-  const configPath = resolve(repoRoot, "games", game, "electron.vite.config.ts");
+export function buildDesktop(gameDir: string, game: string, env?: Record<string, string>): boolean {
+  const configPath = resolve(gameDir, "electron.vite.config.ts");
   if (!existsSync(configPath)) {
     log.error("release:build:desktop", `No electron.vite.config.ts found for game "${game}" at ${configPath}`);
     return false;
   }
   log.info("release:build:desktop", `Building game "${game}" with electron-vite...`);
+  // electron-vite writes dist/ relative to the spawn cwd — the monorepo root
+  // when inside it, else the game directory itself.
+  const cwd = buildCwd(gameDir);
   const result = spawnSync("npx", ["electron-vite", "build", "--config", configPath], {
-    cwd: repoRoot,
+    cwd,
     stdio: "inherit",
     env: { ...process.env, ...env },
   });
@@ -45,7 +49,7 @@ export function buildDesktop(repoRoot: string, game: string, env?: Record<string
     return false;
   }
   // Verify the build output exists.
-  const distMain = resolve(repoRoot, "dist", "main", "index.cjs");
+  const distMain = resolve(cwd, "dist", "main", "index.cjs");
   if (!existsSync(distMain)) {
     log.error("release:build:desktop", `Build completed but dist/main/index.cjs not found at ${distMain}`);
     return false;

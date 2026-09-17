@@ -1,6 +1,5 @@
 {
   "name": "@downdraft/module-raw-input",
-  "private": true,
   "version": "0.1.0",
   "type": "module",
   "main": "src/index.ts",
@@ -8,9 +7,21 @@
     ".": "./src/index.ts",
     "./main-entry": "./src/main-entry.ts",
     "./polyfill": "./src/renderer/polyfill.ts",
-    "./*": "./src/*.ts"
+    "./*": [
+      "./src/*.ts",
+      "./src/*/index.ts"
+    ],
+    "./package.json": "./package.json"
   },
   "dependencies": {
-    "@downdraft/core": "workspace:*"
-  }
+    "@downdraft/core": "^0.1.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "native",
+    "README.md"
+  ]
 }

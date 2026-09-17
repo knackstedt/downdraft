@@ -1,8 +1,22 @@
 {
   "name": "@downdraft/library-pathfinding-2d",
-  "private": true,
   "version": "0.1.0",
   "type": "module",
   "main": "src/index.ts",
-  "dependencies": {}
+  "dependencies": {},
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": [
+      "./src/*.ts",
+      "./src/*/index.ts"
+    ],
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ]
 }

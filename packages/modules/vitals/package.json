@@ -1,8 +1,24 @@
 {
   "name": "@downdraft/module-vitals",
-  "private": true,
   "version": "0.1.0",
   "type": "module",
   "main": "src/index.ts",
-  "dependencies": { "@downdraft/core": "workspace:*" }
+  "dependencies": {
+    "@downdraft/core": "^0.1.0"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": [
+      "./src/*.ts",
+      "./src/*/index.ts"
+    ],
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ]
 }

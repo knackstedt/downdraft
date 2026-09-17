@@ -12,10 +12,26 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@downdraft/core": "workspace:*",
+    "@downdraft/core": "^0.1.0",
     "koffi": "^3.2.1"
   },
   "devDependencies": {
     "typescript": "^5"
-  }
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": [
+      "./src/*.ts",
+      "./src/*/index.ts"
+    ],
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "native",
+    "README.md"
+  ]
 }

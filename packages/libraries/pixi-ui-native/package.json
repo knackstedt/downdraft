@@ -1,15 +1,18 @@
 {
   "name": "@downdraft/library-pixi-ui-native",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "main": "src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./*": "./src/*.ts"
+    "./*": [
+      "./src/*.ts",
+      "./src/*/index.ts"
+    ],
+    "./package.json": "./package.json"
   },
   "dependencies": {
-    "@downdraft/core": "workspace:*",
+    "@downdraft/core": "^0.1.0",
     "pixi.js": "8.18.0"
   },
   "peerDependencies": {
@@ -17,7 +20,18 @@
     "react": "^19.0.0"
   },
   "peerDependenciesMeta": {
-    "@pixi/react": { "optional": true },
-    "react": { "optional": true }
-  }
+    "@pixi/react": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ]
 }

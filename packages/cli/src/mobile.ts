@@ -1147,9 +1147,16 @@ export function signAndroidApk(apkPath: string): "release" | "debug" | "skipped"
  */
 export async function packageMobile(
   opts: MobileArgs,
-  repoRoot: string,
+  gameDir: string,
+  repoRoot: string | null,
 ): Promise<string | null> {
-  const gameDir = resolve(repoRoot, "games", opts.game);
+  // The Capacitor shell lives in packages/mobile-shell (private, engine-owned),
+  // so mobile packaging is only available inside the monorepo.
+  if (!repoRoot) {
+    log.error("release:package:mobile", "Mobile packaging requires the downdraft monorepo.");
+    log.info("release:package:mobile", "The Capacitor shell (packages/mobile-shell) is not published to npm.");
+    process.exit(1);
+  }
   const shellDir = resolve(repoRoot, "packages/mobile-shell");
 
   // Check prerequisites

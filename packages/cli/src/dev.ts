@@ -4,11 +4,11 @@ import { existsSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { parseArgs, print, renderHelp } from "./args";
 import { formatGamesList } from "./list-games";
+import { buildCwd, findMonorepoRoot } from "./paths";
 import { killProcessTree, killStaleInstance } from "./process-utils";
 import { getCommand } from "./usage";
 
 const log = createLogger();
-const ROOT = resolve(import.meta.dir, "../../..");
 const CONFIG_FILE = "electron.vite.config.ts";
 const NATIVE_ENTRY = "src/native-entry.ts";
 
@@ -71,7 +71,7 @@ export async function dev(args: string[]): Promise<void> {
   if (!resolved) {
     log.error("DownDraft", `No electron.vite.config.ts found in "${process.cwd()}" (or any parent directory).`);
     log.error("DownDraft", `Run "draft dev" from a game directory.`);
-    print(formatGamesList(ROOT));
+    print(formatGamesList(findMonorepoRoot() ?? process.cwd()));
     process.exit(1);
   }
 
@@ -122,7 +122,7 @@ export async function dev(args: string[]): Promise<void> {
   // reads the child's output and writes it to its own stdout/stderr. This is
   // the same pattern the e2e harness uses (tests/e2e/harness.ts).
   const child = spawn("npx", childArgs, {
-    cwd: ROOT,
+    cwd: buildCwd(gameDir),
     stdio: ["inherit", "pipe", "pipe"],
     env,
     detached: true,
@@ -184,7 +184,7 @@ async function devNative(args: string[], parsed: any): Promise<void> {
   if (!resolved) {
     log.error("DownDraft", `No game directory found (looking for electron.vite.config.ts from "${process.cwd()}").`);
     log.error("DownDraft", `Run "draft dev --native" from a game directory.`);
-    print(formatGamesList(ROOT));
+    print(formatGamesList(findMonorepoRoot() ?? process.cwd()));
     process.exit(1);
   }
 
@@ -207,7 +207,7 @@ async function devNative(args: string[], parsed: any): Promise<void> {
   const env: Record<string, string> = { ...process.env };
 
   const child = spawn("bun", ["run", nativeEntry], {
-    cwd: ROOT,
+    cwd: buildCwd(gameDir),
     stdio: ["inherit", "pipe", "pipe"],
     env,
     detached: true,

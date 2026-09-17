@@ -1,11 +1,25 @@
 {
   "name": "@downdraft/module-sailing",
-  "private": true,
   "version": "0.1.0",
   "type": "module",
   "main": "src/index.ts",
   "dependencies": {
-    "@downdraft/core": "workspace:*",
-    "@downdraft/library-water": "workspace:*"
-  }
+    "@downdraft/core": "^0.1.0",
+    "@downdraft/library-water": "^0.1.0"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": [
+      "./src/*.ts",
+      "./src/*/index.ts"
+    ],
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ]
 }

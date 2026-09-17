@@ -1,19 +1,29 @@
 {
   "name": "@downdraft/library-persistence",
-  "private": true,
   "version": "0.1.0",
   "type": "module",
   "main": "src/index.ts",
   "exports": {
     ".": "./src/index.ts",
     "./browser": "./src/browser.ts",
-    "./*": "./src/*.ts"
+    "./*": [
+      "./src/*.ts",
+      "./src/*/index.ts"
+    ],
+    "./package.json": "./package.json"
   },
   "dependencies": {
-    "@downdraft/core": "workspace:*",
+    "@downdraft/core": "^0.1.0",
     "@bokuweb/zstd-wasm": "^0.0.27",
     "buffer": "^6.0.3",
     "xxh3-ts": "^2.0.1",
     "xxhash-wasm": "^0.4.2"
-  }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ]
 }

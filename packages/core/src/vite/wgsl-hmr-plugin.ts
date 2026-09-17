@@ -24,14 +24,16 @@
 // dead-code-eliminated. The `register()` call still runs but is harmless.
 
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import type { Plugin } from "vite";
 
-export function wgslHmrPlugin(repoRoot: string): Plugin {
+export function wgslHmrPlugin(hmrRegistryPath: string): Plugin {
   // Resolve the registry source file directly to avoid importing through the
   // @downdraft/core barrel (which would create a circular dependency because
   // the barrel re-exports modules that themselves import `*.wgsl?raw`).
-  const registryPath = resolve(repoRoot, "packages/core/src/render/wgsl-hmr.ts");
+  // Callers pass the absolute path — in the monorepo that's
+  // packages/core/src/render/wgsl-hmr.ts; standalone games resolve it inside
+  // node_modules/@downdraft/core/src/.
+  const registryPath = hmrRegistryPath;
 
   return {
     name: "downdraft-wgsl-hmr",

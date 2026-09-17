@@ -1,0 +1,40 @@
+name: Publish
+
+# Publishes public @downdraft/* packages to npm with provenance.
+# Requires npm "trusted publishing" to be configured for each package
+# (https://docs.npmjs.com/trusted-publishers) — do a one-off manual
+# `npm publish` of each package first, then link this repo/workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      filter:
+        description: "Only publish packages whose name contains this string"
+        required: false
+        default: ""
+      tag:
+        description: "npm dist-tag (e.g. next); empty = latest"
+        required: false
+        default: ""
+
+jobs:
+  publish:
+    name: Publish @downdraft packages
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # required for npm --provenance
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+      - name: Publish packages in dependency order
+        run: |
+          FILTER="${{ inputs.filter }}"
+          TAG="${{ inputs.tag }}"
+          ARGS=""
+          [ -n "$FILTER" ] && ARGS="--filter=$FILTER"
+          [ -n "$TAG" ] && ARGS="$ARGS --tag=$TAG"
+          node scripts/publish-packages.mjs $ARGS
