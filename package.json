@@ -16,6 +16,7 @@
     "tsc": "tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.node.json --noEmit",
     "tsc:e2e": "tsc -p tsconfig.e2e.json --noEmit",
     "gen:deno-import-map": "node scripts/gen-deno-import-map.mjs",
+    "link:games": "node scripts/link-games.mjs",
     "lint": "oxlint",
     "postinstall": "node scripts/patch-pixi.mjs && node node_modules/electron/install.js"
   },

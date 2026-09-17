@@ -2,7 +2,7 @@
 
 ## Repository layout: games are git submodules
 
-Every directory under `games/` is a **git submodule** pointing at its own repository (`github.com/knackstedt/<game>`). Each game is a standalone-installable repo — it consumes engine packages via `@downdraft/*` semver deps (`^0.1.0`), which resolve to workspace links inside the monorepo and to npm in a standalone checkout. When changing a game's code, commit inside the submodule repo first, then bump the gitlink in this repo. `git submodule update --init --recursive` is required after clone (CI does this via `submodules: recursive`).
+Every directory under `games/` is a **git submodule** pointing at its own repository (`github.com/knackstedt/<game>`). Each game is a standalone-installable repo — it consumes engine packages via `@downdraft/*` semver deps (`^0.1.0`), which resolve to workspace links inside the monorepo and to npm in a standalone checkout. When changing a game's code, commit inside the submodule repo first, then bump the gitlink in this repo. `git submodule update --init --recursive` is required after clone (CI does this via `submodules: recursive`). After `bun install`, run `bun run link:games` to symlink `@downdraft/*` packages into every game's `node_modules` — workspace-member games are linked automatically, but `downdraft-model-viewer` and `downdraft-gpu-bench` are not workspace members and need the script (it also adds a `node_modules/.bin/draft` shim per game).
 
 `@downdraft/*` packages are published to npm (`node scripts/publish-packages.mjs` / the `publish.yml` workflow). `packages/mobile-shell` stays private — mobile packaging (`draft release --target=android,ios`) only works inside the monorepo.
 
