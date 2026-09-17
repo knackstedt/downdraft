@@ -23,11 +23,11 @@
         "instanceLimit": 2
       },
       "options": {
-        "cwd": "${workspaceFolder}/games/model-viewer"
+        "cwd": "${workspaceFolder}/games/downdraft-model-viewer"
       },
       "isBackground": true,
       "problemMatcher": [],
-      "filePattern": "games/model-viewer/**"
+      "filePattern": "games/downdraft-model-viewer/**"
     },
     {
       "label": "Dev: Sand",
@@ -107,11 +107,11 @@
         "instanceLimit": 2
       },
       "options": {
-        "cwd": "${workspaceFolder}/games/visual-test-bench"
+        "cwd": "${workspaceFolder}/games/downdraft-gpu-bench"
       },
       "isBackground": true,
       "problemMatcher": [],
-      "filePattern": "games/visual-test-bench/**"
+      "filePattern": "games/downdraft-gpu-bench/**"
     },
     {
       "label": "Android: Sandjongg",

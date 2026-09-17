@@ -1,5 +1,11 @@
 # Downdraft Engine — Agent Notes
 
+## Repository layout: games are git submodules
+
+Every directory under `games/` is a **git submodule** pointing at its own repository (`github.com/knackstedt/<game>`). Each game is a standalone-installable repo — it consumes engine packages via `@downdraft/*` semver deps (`^0.1.0`), which resolve to workspace links inside the monorepo and to npm in a standalone checkout. When changing a game's code, commit inside the submodule repo first, then bump the gitlink in this repo. `git submodule update --init --recursive` is required after clone (CI does this via `submodules: recursive`).
+
+`@downdraft/*` packages are published to npm (`node scripts/publish-packages.mjs` / the `publish.yml` workflow). `packages/mobile-shell` stays private — mobile packaging (`draft release --target=android,ios`) only works inside the monorepo.
+
 ## Module architecture: engine vs game boundary
 
 > **Terminology note:** The compile-time DI units that were previously called "plugins" are now called **modules** to disambiguate. The term **"plugin" is now reserved for the upcoming user-authored plugin system** (runtime-loadable extensions authored by end users / modders). Throughout this document, "module" refers to the engine's compile-time DI units (`Module`, `RendererModule`, `ModuleHost`, etc.).
@@ -69,15 +75,15 @@ Bare class exports remain as an escape hatch — games that need full control ca
 
 No engine package depends on any game package (verified). The `entities` library is an engine library (generic `ModelRenderer` used by multiple games). When adding a new game, create `games/<game>/modules/` for its game-specific modules and `games/<game>/libraries/` for its game-specific pure libraries.
 
-### Visual Test Bench (`games/visual-test-bench`)
+### Visual Test Bench (`games/downdraft-gpu-bench`)
 
-A graphical test program (modeled on `games/model-viewer`) for visually verifying engine effects and functional systems. Provides a React DOM menu of minimal tests, each with its own renderer factory. Extensible via a `TestRegistry` API — game authors add tests by creating `*.test.ts` files in `src/tests/` that call `registerTest()`. Vite glob import auto-discovers them.
+A graphical test program (modeled on `games/downdraft-model-viewer`) for visually verifying engine effects and functional systems. Provides a React DOM menu of minimal tests, each with its own renderer factory. Extensible via a `TestRegistry` API — game authors add tests by creating `*.test.ts` files in `src/tests/` that call `registerTest()`. Vite glob import auto-discovers them.
 
-- **Run**: `cd games/visual-test-bench && ../../node_modules/.bin/electron-vite dev --config electron.vite.config.ts` (or `draft dev` from the game directory via cwd inference).
-- **Not in root workspaces** (follows model-viewer pattern: `@downdraft/*` resolved via vite aliases, not type-checked by root tsconfig).
+- **Run**: `cd games/downdraft-gpu-bench && ../../node_modules/.bin/electron-vite dev --config electron.vite.config.ts` (or `draft dev` from the game directory via cwd inference).
+- **Not in root workspaces** (follows downdraft-model-viewer pattern: `@downdraft/*` resolved via vite aliases, not type-checked by root tsconfig).
 - **Test interface**: `VisualTest { id, name, category, description, createRenderer(canvas): ITestRenderer, getControls?(): TestControl[] }`. Each test owns its own GPU resources; the bench disposes + recreates the renderer when switching tests.
 - **Built-in tests**: navmesh (recast + legacy, with mesh wireframe + path debug viz), postfx (the PostProcessStack with 21 chainable effects — TAA, SSAO, SSR, DOF, Motion Blur, Bloom, Bloom-Soft, Tonemap, FXAA, Sharpen, Grain, Sobel, Edges, Lens Flare, Pixelation, Gaussian Blur, Afterimage, Outline, Highlight, Glow, ASCII — on a 3D scene).
-- **Adding a test**: create `games/visual-test-bench/src/tests/<category>/<name>.test.ts`, call `registerTest({ ... })` at module load. The Vite glob in `src/tests/index.ts` picks it up automatically.
+- **Adding a test**: create `games/downdraft-gpu-bench/src/tests/<category>/<name>.test.ts`, call `registerTest({ ... })` at module load. The Vite glob in `src/tests/index.ts` picks it up automatically.
 
 ### Typed DI (provide/inject + provides/requires)
 
@@ -550,7 +556,7 @@ The engine has a unified model import normalization pipeline that corrects commo
 
 - **`ImportSettings`** (`packages/core/src/assets/import-settings.ts`) — per-model normalization config: `upAxis`, `units`, `scale`, `rotation`, `centerToOrigin`, `autoFit`, `nodeTransforms`. Resolved from sidecar files or parser-detected defaults.
 - **`model-normalizer.ts`** (`packages/core/src/assets/model-normalizer.ts`) — pure transform math: `applyUpAxisConversion` (Z-up→Y-up), `applyUnitScale` (source units→meters), `applyRootScale`, `applyRootRotation` (quaternion), `computeBounds`, `centerToOrigin`, `autoFit`, `isExtremeScale`. Operates on interleaved [pos(3)+normal(3)] mesh vertices (6 floats/vertex).
-- **`bake-node-transforms.ts`** (`packages/modules/models/src/bake-node-transforms.ts`) — bakes glTF/FBX node hierarchy transforms (translation, rotation, scale) into mesh vertices. Promoted from model-viewer to the engine so all games benefit.
+- **`bake-node-transforms.ts`** (`packages/modules/models/src/bake-node-transforms.ts`) — bakes glTF/FBX node hierarchy transforms (translation, rotation, scale) into mesh vertices. Promoted from downdraft-model-viewer to the engine so all games benefit.
 - **`normalize.ts`** (`packages/modules/models/src/normalize.ts`) — orchestrates the full pipeline: up-axis → unit scale → node-transform baking → root rotation → user scale → bounds → center → auto-fit. `normalizeModel()` applies settings; `normalizeModelWithResolution()` resolves sidecars then normalizes.
 - **`loadModel()`** (`packages/modules/models/src/loader.ts`) — now normalizes by default after parsing. Pass `normalize: false` to skip (e.g. for games that handle their own transforms). Pass `sidecarResolver` for custom sidecar resolution.
 

@@ -1,0 +1,24 @@
+[submodule "games/falling-sand"]
+	path = games/falling-sand
+	url = ../falling-sand.git
+[submodule "games/andrews-sandbox"]
+	path = games/andrews-sandbox
+	url = ../andrews-sandbox.git
+[submodule "games/mining-rpg"]
+	path = games/mining-rpg
+	url = ../mining-rpg.git
+[submodule "games/overburden"]
+	path = games/overburden
+	url = ../overburden.git
+[submodule "games/sandjongg"]
+	path = games/sandjongg
+	url = ../sandjongg.git
+[submodule "games/to-the-ocean"]
+	path = games/to-the-ocean
+	url = ../to-the-ocean.git
+[submodule "games/downdraft-model-viewer"]
+	path = games/downdraft-model-viewer
+	url = ../downdraft-model-viewer.git
+[submodule "games/downdraft-gpu-bench"]
+	path = games/downdraft-gpu-bench
+	url = ../downdraft-gpu-bench.git

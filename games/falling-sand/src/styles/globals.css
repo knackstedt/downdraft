@@ -1,8 +1,0 @@
-/* Falling Sand — theme overrides on top of the framework base CSS */
-@import "@downdraft/app/renderer/downdraft-base.css";
-
-html, body {
-  background: #000;
-  color: #fff;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}

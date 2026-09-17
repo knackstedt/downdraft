@@ -2,10 +2,10 @@
   "name": "<%= it.name %>",
 <%~ include("_shared/partials/package-json-fields", it) %>
   "dependencies": {
-    "@downdraft/core": "workspace:*",
-    "@downdraft/app/renderer": "workspace:*",
-    "@downdraft/library-water": "workspace:*",
-    "@downdraft/plugin-terrain": "workspace:*"
+    "@downdraft/core": "^0.1.0",
+    "@downdraft/app/renderer": "^0.1.0",
+    "@downdraft/library-water": "^0.1.0",
+    "@downdraft/module-terrain": "^0.1.0"
   },
 <%~ include("_shared/partials/dev-deps", it) %>
 <%~ include("_shared/partials/build-config", it) %>

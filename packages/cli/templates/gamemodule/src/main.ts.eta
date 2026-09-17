@@ -1,6 +1,6 @@
 import { startGame, type SimWorkerSeed } from "@downdraft/app/renderer";
 import { WaterLib } from "@downdraft/library-water";
-import { createTerrainPlugin } from "@downdraft/plugin-terrain";
+import { createTerrainPlugin } from "@downdraft/module-terrain";
 
 // ============================================================================
 // GameModule template — declarative game with libraries + plugins

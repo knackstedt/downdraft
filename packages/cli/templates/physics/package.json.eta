@@ -2,8 +2,8 @@
   "name": "<%= it.name %>",
 <%~ include("_shared/partials/package-json-fields", it) %>
   "dependencies": {
-    "@downdraft/core": "workspace:*",
-    "@downdraft/plugin-physics-rapier": "workspace:*"
+    "@downdraft/core": "^0.1.0",
+    "@downdraft/library-physics-rapier": "^0.1.0"
   },
 <%~ include("_shared/partials/dev-deps", it) %>
 <%~ include("_shared/partials/build-config", it) %>

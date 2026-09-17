@@ -19,7 +19,7 @@ import {
     type Vec3,
 } from "@downdraft/library-recast";
 
-// ── Obstacle scene (mirrors games/visual-test-bench/.../obstacle-scene.ts) ──
+// ── Obstacle scene (mirrors games/downdraft-gpu-bench/.../obstacle-scene.ts) ──
 
 const OBSTACLES: { minX: number; maxX: number; minZ: number; maxZ: number; height: number }[] = [
   { minX: -8, maxX: -2, minZ: -3, maxZ: 3, height: 3 }, // central wall

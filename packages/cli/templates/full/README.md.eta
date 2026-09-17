@@ -34,11 +34,11 @@ downdraft.config.json   Engine configuration
 
 ## Plugins
 
-- **@downdraft/plugin-water** — Gerstner wave simulation, refraction, reflection
-- **@downdraft/plugin-physics-rapier** — Rapier physics backend
-- **@downdraft/plugin-marching-cubes** — Volumetric deformable terrain
-- **@downdraft/plugin-models** — Model loading (GLTF/GLB, PLY, 3DS)
-- **@downdraft/plugin-devtools** — DevTools panel with scene inspector, GPU debugging
+- **@downdraft/library-water** — Gerstner wave simulation, refraction, reflection
+- **@downdraft/library-physics-rapier** — Rapier physics backend
+- **@downdraft/library-marching-cubes** — Volumetric deformable terrain
+- **@downdraft/library-models** — Model loading (GLTF/GLB, PLY, 3DS)
+- **@downdraft/module-devtools** — DevTools panel with scene inspector, GPU debugging
 
 ## Engine
 

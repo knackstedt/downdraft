@@ -110,7 +110,7 @@ Every game now starts in both Electron (`draft dev`) and Bun-native
 - Generic `startNativeGame()` helper in `@downdraft/platform-native` — covers
   GameRenderer-based games (falling-sand, sandjongg, overburden, mining-rpg,
   andrews-sandbox use thin `src/native-entry.ts` shims). Bespoke loops
-  (model-viewer, visual-test-bench) call `createNativeHost()` then import their
+  (downdraft-model-viewer, downdraft-gpu-bench) call `createNativeHost()` then import their
   `main.tsx`, which skips the React mount and reuses `__nativeHost.device`.
 - DOM polyfills: `body.removeChild`, `style` stub on NativeSurface, `fetch()`
   handles `file://`, bare absolute paths, and `/@fs/` dev-server URLs.
