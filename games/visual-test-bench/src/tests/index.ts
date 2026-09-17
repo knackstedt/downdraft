@@ -10,8 +10,12 @@
 // so new tests get hot-reload automatically.
 // ============================================================================
 
+import { isBun } from "@downdraft/core/platform/runtime";
+
 let modules: Record<string, unknown>;
-if (typeof (import.meta as any).glob === "function") {
+if (!isBun) {
+  // Vite — import.meta.glob is a compile-time macro here; it is NOT a
+  // runtime function, so it cannot be feature-detected with typeof.
   modules = (import.meta as any).glob("./**/*.test.ts", { eager: true });
 } else {
   // Bun-native fallback — import.meta.glob is a Vite API. Scan the test
@@ -27,7 +31,7 @@ if (typeof (import.meta as any).glob === "function") {
       const p = join(d, e.name);
       if (e.isDirectory()) await walk(p);
       else if (e.name.endsWith(".test.ts")) {
-        modules[p] = await import(pathToFileURL(p).href);
+        modules[p] = await import(/* @vite-ignore */ pathToFileURL(p).href);
       }
     }
   };

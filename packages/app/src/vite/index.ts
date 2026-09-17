@@ -159,6 +159,12 @@ export interface DowndraftViteConfigOptions {
 }
 
 export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): ReturnType<typeof defineConfig> {
+  // electron-vite spawns the Electron binary with our env. If the host shell
+  // exported ELECTRON_RUN_AS_NODE=1 (some tooling does), the spawned "app"
+  // runs as plain Node: require("electron") resolves to the npm shim and
+  // every API is missing. Strip it so dev always launches a real app.
+  delete process.env.ELECTRON_RUN_AS_NODE;
+
   const { root } = options;
   const repoRoot = resolve(root, "../..");
   const game = options.game ?? root.split("/").pop()!;
@@ -179,6 +185,20 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
   const engineDeps = collectDirectDeps(resolve(repoRoot, "package.json"), excludeSet);
   const gameDeps = collectDirectDeps(resolve(root, "package.json"), excludeSet);
   const autoOptimizeDepsInclude = [...new Set([...engineDeps, ...gameDeps])];
+
+  // --- Workspace deps must never be externalized ---
+  // externalizeDepsPlugin() reads <cwd>/package.json, so when dev is launched
+  // from the game directory (draft dev), the game's `workspace:*` deps leak
+  // into the main/preload bundles as runtime require()s. Those packages map
+  // their exports to .ts source that Node can't load (directory + extensionless
+  // imports), so the app crashes with ERR_UNSUPPORTED_DIR_IMPORT on startup.
+  // Excluding them lets the resolve.alias entries above bundle them instead.
+  let workspaceDeps: string[] = [];
+  try {
+    const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf-8"));
+    const deps: Record<string, string> = pkg.dependencies ?? {};
+    workspaceDeps = Object.keys(deps).filter((name) => deps[name] === "workspace:*");
+  } catch { /* no package.json — nothing to exclude */ }
 
   // Subpath imports the dep scanner can't see (side-effect imports inside Web
   // Workers get discovered mid-session → re-optimize → stale chunk URLs →
@@ -358,7 +378,7 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
   return defineConfig({
     main: {
       plugins: [
-        externalizeDepsPlugin({ exclude: ["@dimforge/rapier3d-compat", "@downdraft/app", "@downdraft/module-electron-osr", "@downdraft/module-raw-input", "@downdraft/library-persistence", "recast-navigation"] }),
+        externalizeDepsPlugin({ exclude: ["@dimforge/rapier3d-compat", "recast-navigation", ...workspaceDeps] }),
         {
           name: "force-cjs-main",
           configResolved(config) {
@@ -389,7 +409,7 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
     },
     preload: {
       plugins: [
-        externalizeDepsPlugin(),
+        externalizeDepsPlugin({ exclude: workspaceDeps }),
         {
           name: "force-cjs-preload",
           configResolved(config) {
