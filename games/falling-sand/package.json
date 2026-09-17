@@ -10,16 +10,26 @@
     "dev": "draft dev"
   },
   "dependencies": {
-    "@downdraft/app": "workspace:*",
-    "@downdraft/core": "workspace:*",
-    "@downdraft/library-persistence": "workspace:*",
-    "@downdraft/library-sand": "workspace:*",
-    "@downdraft/library-stickman": "workspace:*",
-    "@downdraft/module-devtools": "workspace:*",
-    "@downdraft/module-movement-2d": "workspace:*",
-    "@downdraft/platform-native": "workspace:*",
-    "@downdraft/shader-graph": "workspace:*",
-    "@downdraft/ui": "workspace:*",
+    "@downdraft/app": "^0.1.0",
+    "@downdraft/core": "^0.1.0",
+    "@downdraft/library-persistence": "^0.1.0",
+    "@downdraft/library-sand": "^0.1.0",
+    "@downdraft/library-stickman": "^0.1.0",
+    "@downdraft/module-devtools": "^0.1.0",
+    "@downdraft/module-movement-2d": "^0.1.0",
+    "@downdraft/platform-native": "^0.1.0",
+    "@downdraft/shader-graph": "^0.1.0",
+    "@downdraft/ui": "^0.1.0",
     "zustand": "^5.0.2"
+  },
+  "devDependencies": {
+    "@downdraft/cli": "^0.1.0",
+    "@types/node": "^22.10.0",
+    "@webgpu/types": "^0.1.71",
+    "electron": "^43.0.0",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^2.3.0",
+    "typescript": "^5.9.3",
+    "vite": "^6.0.0"
   }
 }

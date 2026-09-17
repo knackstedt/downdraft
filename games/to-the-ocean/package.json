@@ -8,23 +8,24 @@
   "type": "module",
   "scripts": {
     "dev": "draft dev --native",
-    "dev:electron": "draft dev"
+    "dev:electron": "draft dev",
+    "postinstall": "draft patch-pixi"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.19.3",
-    "@downdraft/app": "workspace:*",
-    "@downdraft/core": "workspace:*",
-    "@downdraft/library-character": "workspace:*",
-    "@downdraft/library-marching-cubes": "workspace:*",
-    "@downdraft/library-models": "workspace:*",
-    "@downdraft/library-physics-rapier": "workspace:*",
-    "@downdraft/library-pixi-ui": "workspace:*",
-    "@downdraft/library-surface-nets": "workspace:*",
-    "@downdraft/library-water": "workspace:*",
-    "@downdraft/library-weather": "workspace:*",
-    "@downdraft/module-electron-osr": "workspace:*",
-    "@downdraft/module-movement-3d": "workspace:*",
-    "@downdraft/platform-native": "workspace:*",
+    "@downdraft/app": "^0.1.0",
+    "@downdraft/core": "^0.1.0",
+    "@downdraft/library-character": "^0.1.0",
+    "@downdraft/library-marching-cubes": "^0.1.0",
+    "@downdraft/library-models": "^0.1.0",
+    "@downdraft/library-physics-rapier": "^0.1.0",
+    "@downdraft/library-pixi-ui": "^0.1.0",
+    "@downdraft/library-surface-nets": "^0.1.0",
+    "@downdraft/library-water": "^0.1.0",
+    "@downdraft/library-weather": "^0.1.0",
+    "@downdraft/module-electron-osr": "^0.1.0",
+    "@downdraft/module-movement-3d": "^0.1.0",
+    "@downdraft/platform-native": "^0.1.0",
     "@fontsource/doto": "^5.1.1",
     "@fontsource/linefont": "^5.1.1",
     "@fontsource/montserrat": "^5.1.1",
@@ -50,8 +51,22 @@
     "zustand": "^5.0.2"
   },
   "devDependencies": {
+    "@downdraft/cli": "^0.1.0",
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.0.0",
+    "@webgpu/types": "^0.1.71",
     "autoprefixer": "^10.4.0",
-    "tailwindcss": "^3.4.0"
-  }
+    "electron": "^43.0.0",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^2.3.0",
+    "tailwindcss": "^3.4.0",
+    "typescript": "^5.9.3",
+    "vite": "^6.0.0"
+  },
+  "workspaces": [
+    "libraries/*",
+    "modules/*"
+  ]
 }

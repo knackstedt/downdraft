@@ -5,6 +5,6 @@
   "type": "module",
   "main": "src/index.ts",
   "dependencies": {
-    "@downdraft/core": "workspace:*"
+    "@downdraft/core": "^0.1.0"
   }
 }

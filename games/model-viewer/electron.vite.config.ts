@@ -1,6 +1,6 @@
 import { writeFileSync } from "node:fs";
 import type { Plugin } from "vite";
-import { createDowndraftViteConfig } from "../../packages/app/src/vite/index";
+import { createDowndraftViteConfig } from "@downdraft/app/vite";
 
 /**
  * Vite plugin that provides a file-write endpoint for the renderer.

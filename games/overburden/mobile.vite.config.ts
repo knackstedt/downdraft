@@ -1,5 +1,5 @@
 import react from "@vitejs/plugin-react";
-import { createDowndraftMobileViteConfig } from "../../packages/app/src/vite/mobile-vite-config";
+import { createDowndraftMobileViteConfig } from "@downdraft/app/vite/mobile";
 
 export default createDowndraftMobileViteConfig({
   root: __dirname,

@@ -16,7 +16,7 @@
 
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { DowndraftViteConfigOptions } from "../../packages/app/src/vite/index";
+import type { DowndraftViteConfigOptions } from "@downdraft/app/vite";
 
 // Resolve the repo root from this file's location. Works in both ESM
 // (import.meta.url) and CJS (__dirname) contexts — the root config loads

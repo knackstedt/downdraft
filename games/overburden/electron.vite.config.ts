@@ -1,5 +1,5 @@
 import react from "@vitejs/plugin-react";
-import { createDowndraftViteConfig } from "../../packages/app/src/vite/index";
+import { createDowndraftViteConfig } from "@downdraft/app/vite";
 
 export default createDowndraftViteConfig({
   root: __dirname,

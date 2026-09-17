@@ -8,7 +8,8 @@
   "type": "module",
   "main": "dist/main/index.cjs",
   "scripts": {
-    "dev": "draft dev"
+    "dev": "draft dev",
+    "postinstall": "draft patch-pixi"
   },
   "dependencies": {
     "@andrews-sandbox/library-content": "workspace:*",
@@ -21,20 +22,20 @@
     "@andrews-sandbox/module-vr": "workspace:*",
     "@andrews-sandbox/module-weapons": "workspace:*",
     "@dimforge/rapier3d-compat": "^0.19.3",
-    "@downdraft/app": "workspace:*",
-    "@downdraft/core": "workspace:*",
-    "@downdraft/library-character": "workspace:*",
-    "@downdraft/library-entities": "workspace:*",
-    "@downdraft/library-models": "workspace:*",
-    "@downdraft/library-persistence": "workspace:*",
-    "@downdraft/library-physics-rapier": "workspace:*",
-    "@downdraft/library-pixi-ui": "workspace:*",
-    "@downdraft/library-postfx": "workspace:*",
-    "@downdraft/module-camera-controls": "workspace:*",
-    "@downdraft/module-movement-3d": "workspace:*",
-    "@downdraft/module-vitals": "workspace:*",
-    "@downdraft/module-xr": "workspace:*",
-    "@downdraft/platform-native": "workspace:*",
+    "@downdraft/app": "^0.1.0",
+    "@downdraft/core": "^0.1.0",
+    "@downdraft/library-character": "^0.1.0",
+    "@downdraft/library-entities": "^0.1.0",
+    "@downdraft/library-models": "^0.1.0",
+    "@downdraft/library-persistence": "^0.1.0",
+    "@downdraft/library-physics-rapier": "^0.1.0",
+    "@downdraft/library-pixi-ui": "^0.1.0",
+    "@downdraft/library-postfx": "^0.1.0",
+    "@downdraft/module-camera-controls": "^0.1.0",
+    "@downdraft/module-movement-3d": "^0.1.0",
+    "@downdraft/module-vitals": "^0.1.0",
+    "@downdraft/module-xr": "^0.1.0",
+    "@downdraft/platform-native": "^0.1.0",
     "@pixi/react": "^8.0.5",
     "fflate": "^0.8.2",
     "pixi.js": "^8.18.0",
@@ -44,6 +45,20 @@
     "zustand": "^5.0.2"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^5.0.0"
-  }
+    "@downdraft/cli": "^0.1.0",
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.0.0",
+    "@webgpu/types": "^0.1.71",
+    "electron": "^43.0.0",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^2.3.0",
+    "typescript": "^5.9.3",
+    "vite": "^6.0.0"
+  },
+  "workspaces": [
+    "libraries/*",
+    "modules/*"
+  ]
 }

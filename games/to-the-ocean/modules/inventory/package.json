@@ -9,7 +9,7 @@
     "./*": "./src/*.ts"
   },
   "dependencies": {
-    "@downdraft/core": "workspace:*",
+    "@downdraft/core": "^0.1.0",
     "@to-the-ocean/library-items": "workspace:*"
   }
 }

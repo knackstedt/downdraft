@@ -5,7 +5,7 @@
   "type": "module",
   "main": "src/index.ts",
   "dependencies": {
-    "@downdraft/core": "workspace:*",
-    "@downdraft/library-weather": "workspace:*"
+    "@downdraft/core": "^0.1.0",
+    "@downdraft/library-weather": "^0.1.0"
   }
 }

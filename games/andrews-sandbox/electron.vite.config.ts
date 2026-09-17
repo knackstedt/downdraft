@@ -1,6 +1,6 @@
 import react from "@vitejs/plugin-react";
 import { resolve } from "path";
-import { createDowndraftViteConfig } from "../../packages/app/src/vite/index";
+import { createDowndraftViteConfig } from "@downdraft/app/vite";
 
 const repoRoot = resolve(__dirname, "../..");
 

@@ -18,7 +18,7 @@
 
 import { createRequire } from "node:module";
 import type { Plugin } from "vite";
-import type { DowndraftViteConfigOptions } from "../../packages/app/src/vite/index";
+import type { DowndraftViteConfigOptions } from "@downdraft/app/vite";
 
 // Create a require relative to this file so we can resolve solid-js from
 // the game's node_modules. This works in both CJS and ESM contexts.
