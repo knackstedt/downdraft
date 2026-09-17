@@ -1,24 +1,24 @@
 [submodule "games/falling-sand"]
 	path = games/falling-sand
-	url = ../falling-sand.git
+	url = git@github.com:knackstedt/falling-sand.git
 [submodule "games/andrews-sandbox"]
 	path = games/andrews-sandbox
-	url = ../andrews-sandbox.git
+	url = git@github.com:knackstedt/andrews-sandbox.git
 [submodule "games/mining-rpg"]
 	path = games/mining-rpg
-	url = ../mining-rpg.git
+	url = git@github.com:knackstedt/mining-rpg.git
 [submodule "games/overburden"]
 	path = games/overburden
-	url = ../overburden.git
+	url = git@github.com:knackstedt/overburden.git
 [submodule "games/sandjongg"]
 	path = games/sandjongg
-	url = ../sandjongg.git
+	url = git@github.com:knackstedt/sandjongg.git
 [submodule "games/to-the-ocean"]
 	path = games/to-the-ocean
-	url = ../to-the-ocean.git
+	url = git@github.com:knackstedt/to-the-ocean.git
 [submodule "games/downdraft-model-viewer"]
 	path = games/downdraft-model-viewer
-	url = ../downdraft-model-viewer.git
+	url = git@github.com:knackstedt/downdraft-model-viewer.git
 [submodule "games/downdraft-gpu-bench"]
 	path = games/downdraft-gpu-bench
-	url = ../downdraft-gpu-bench.git
+	url = git@github.com:knackstedt/downdraft-gpu-bench.git
