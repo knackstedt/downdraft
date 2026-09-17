@@ -1,3 +1,5 @@
+// wgsl-validate: prelude ./fullscreen-vs.wgsl
+// wgsl-validate: prelude ./occluder-chunk.wgsl
 // Highlight blur — separable Gaussian blur of the mask.
 struct U {
   texelSize: vec2<f32>,

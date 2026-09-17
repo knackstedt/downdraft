@@ -86,6 +86,10 @@ export function createGameUi(options: GameUiOptions): RendererModule {
       container.name = `${moduleName}:root`;
       container.pointerThrough = true;
       container.layoutMode = "absolute";
+      // UIPanel defaults to a 90%-opaque dark background — the mount container
+      // covers the whole screen, so it must be fully transparent.
+      container.style.backgroundColor = [0, 0, 0, 0];
+      container.style.borderWidth = 0;
 
       const updateFns: Array<(dt: number, elapsedTime: number) => void> = [];
       const unsubscribes: Array<() => void> = [];

@@ -1,3 +1,5 @@
+// wgsl-validate: prelude ./fullscreen-vs.wgsl
+// wgsl-validate: prelude ./occluder-chunk.wgsl
 // Watercolor — stylized edge-aware smoothing + paper texture blend.
 // Combines a soft bilateral-like smoothing with edge enhancement and a
 // subtle paper grain overlay for a hand-painted watercolor look.

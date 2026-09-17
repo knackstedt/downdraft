@@ -1,3 +1,5 @@
+// wgsl-validate: prelude ./fullscreen-vs.wgsl
+// wgsl-validate: prelude ./occluder-chunk.wgsl
 // White balance — temperature (K) + tint adjustment.
 // Applies a white-balance correction by shifting the color temperature
 // (warm/cool) and tint (green/magenta).

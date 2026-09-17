@@ -1,3 +1,5 @@
+// wgsl-validate: prelude ./fullscreen-vs.wgsl
+// wgsl-validate: prelude ./occluder-chunk.wgsl
 // Edges — normal + depth edge detection, composited via alpha blend.
 struct U {
   texelSize: vec2<f32>,

@@ -19,8 +19,49 @@
 // wgslHmrPlugin handle the actual module creation).
 
 import { readFileSync, statSync } from "node:fs";
+import { dirname, resolve as resolvePath } from "node:path";
 import type { Plugin } from "vite";
 import { resolveTintBinary, validateWgslWithTint } from "./tint-binary";
+
+/**
+ * Some WGSL sources are fragments that only compile when concatenated with
+ * shared prelude files (e.g. postfx effect shaders are assembled at runtime
+ * as `fullscreen-vs.wgsl + occluder-chunk.wgsl + effect.wgsl`). Such files
+ * declare their preludes with a pragma comment:
+ *
+ *   // wgsl-validate: prelude ./fullscreen-vs.wgsl
+ *
+ * The validator prepends each referenced file (in order, relative to the
+ * shader's directory) before invoking tint, so the check matches the runtime
+ * concatenation.
+ */
+function applyPreludePragmas(source: string, filePath: string): string {
+  const pragmas = source.matchAll(/^\/\/\s*wgsl-validate:\s*prelude\s+(\S+)\s*$/gm);
+  const parts: string[] = [];
+  for (const m of pragmas) {
+    try {
+      parts.push(readFileSync(resolvePath(dirname(filePath), m[1]), "utf-8"));
+    } catch {
+      // Missing prelude — validate without it; tint will report the fallout.
+    }
+  }
+  return parts.length ? parts.join("\n") + "\n" + source : source;
+}
+
+/**
+ * Some WGSL sources can never validate standalone: partial struct bodies
+ * spliced into other shaders, or chunks that reference symbols declared in
+ * each consuming shader (e.g. a shared lighting fn that reads a leaf-provided
+ * `uniforms` var). Such files opt out with:
+ *
+ *   // wgsl-validate: skip
+ *
+ * They still get validated transitively whenever a consuming shader lists
+ * them as a prelude.
+ */
+function hasSkipPragma(source: string): boolean {
+  return /^\/\/\s*wgsl-validate:\s*skip\s*$/m.test(source);
+}
 
 export function wgslValidatePlugin(): Plugin {
   const tintBin = resolveTintBinary();
@@ -90,8 +131,14 @@ export function wgslValidatePlugin(): Plugin {
         return null; // Let wgslHmrPlugin handle module creation
       }
 
-      // Validate with Tint
-      const result = validateWgslWithTint(tintBin!, source, filePath);
+      // Opt-out for chunk files that can only compile inside a consumer
+      if (hasSkipPragma(source)) {
+        cache.set(filePath, { mtime, ok: true, errors: [], warnings: [] });
+        return null;
+      }
+
+      // Validate with Tint (with any declared prelude files prepended)
+      const result = validateWgslWithTint(tintBin!, applyPreludePragmas(source, filePath), filePath);
       cache.set(filePath, { mtime, ok: result.ok, errors: result.errors, warnings: result.warnings });
 
       if (!result.ok) {

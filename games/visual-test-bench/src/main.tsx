@@ -4,7 +4,6 @@
 // ============================================================================
 
 import { getCanvas, getOverlay } from "@downdraft/app/renderer";
-import "@downdraft/app/renderer/downdraft-base.css";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./app";
@@ -104,17 +103,24 @@ async function activateTest(testId: string): Promise<void> {
 async function initWebGPU(): Promise<boolean> {
   if (!navigator.gpu) return false;
   try {
-    const adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
-    if (!adapter) return false;
-    device = await adapter.requestDevice();
     const ctx = canvas!.getContext("webgpu")!;
     format = navigator.gpu.getPreferredCanvasFormat();
-    ctx.configure({
-      device,
-      format,
-      alphaMode: "premultiplied",
-      usage: GPUTextureUsage.RENDER_ATTACHMENT,
-    });
+    // Under Bun-native the host already created the device and configured the
+    // surface — reuse it rather than opening a second wgpu device.
+    const nativeHost = (globalThis as any).__nativeHost;
+    if (nativeHost) {
+      device = nativeHost.device as GPUDevice;
+    } else {
+      const adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
+      if (!adapter) return false;
+      device = await adapter.requestDevice();
+      ctx.configure({
+        device,
+        format,
+        alphaMode: "premultiplied",
+        usage: GPUTextureUsage.RENDER_ATTACHMENT,
+      });
+    }
     return true;
   } catch (e) {
     console.warn("[test-bench] WebGPU init failed:", e);
@@ -126,19 +132,28 @@ async function initWebGPU(): Promise<boolean> {
 
 async function main(): Promise<void> {
   canvas = getCanvas(0);
-  const overlay = getOverlay(0);
 
-  // Mount React UI.
-  const root = createRoot(overlay);
-  root.render(
-    <React.StrictMode>
-      <App
-        getState={getState}
-        subscribe={subscribe}
-        onSelectTest={(id: string) => { void activateTest(id); }}
-      />
-    </React.StrictMode>,
-  );
+  // Mount React UI — native mode has no DOM overlay, so run headless there.
+  let overlay: HTMLElement | null = null;
+  try {
+    overlay = getOverlay(0);
+  } catch {
+    // No overlay element (Bun-native mode).
+  }
+  if (overlay) {
+    // Base CSS only loads where there's a real DOM (Vite resolves it).
+    await import("@downdraft/app/renderer/downdraft-base.css");
+    const root = createRoot(overlay);
+    root.render(
+      <React.StrictMode>
+        <App
+          getState={getState}
+          subscribe={subscribe}
+          onSelectTest={(id: string) => { void activateTest(id); }}
+        />
+      </React.StrictMode>,
+    );
+  }
 
   // Init WebGPU.
   state.webgpuAvailable = await initWebGPU();

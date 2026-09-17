@@ -1,3 +1,5 @@
+// wgsl-validate: prelude ./fullscreen-vs.wgsl
+// wgsl-validate: prelude ./occluder-chunk.wgsl
 struct U { texelSize: vec2<f32>, _p0: f32, _p1: f32, _p2: f32, _p3: f32, _p4: f32, _p5: f32, _p6: f32, };
 @group(0) @binding(0) var colorTex: texture_2d<f32>;
 @group(0) @binding(1) var dummyTex: texture_2d<f32>;

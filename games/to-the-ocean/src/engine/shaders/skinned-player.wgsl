@@ -1,3 +1,7 @@
+// wgsl-validate: prelude ./light-structs.wgsl
+// wgsl-validate: prelude ./pbr-functions.wgsl
+// wgsl-validate: prelude ./ibl-bindings.wgsl
+// wgsl-validate: prelude ./lighting-fn.wgsl
 // MAX_BONES = 128 (from @shared/constants)
 struct Uniforms {
   viewProj: mat4x4<f32>,

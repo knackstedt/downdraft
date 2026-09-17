@@ -1,3 +1,5 @@
+// wgsl-validate: skip
+// Shared lighting function — references `uniforms` declared by each consuming shader. Validated transitively via leaf-shader preludes.
 fn entityLighting(N: vec3<f32>, worldPos: vec3<f32>, baseColor: vec3<f32>) -> vec3<f32> {
   let sunDir = normalize(uniforms.sunDirIntensity.xyz);
   let sunIntensity = uniforms.sunDirIntensity.w;

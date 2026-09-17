@@ -1,3 +1,5 @@
+// wgsl-validate: prelude ./fullscreen-vs.wgsl
+// wgsl-validate: prelude ./occluder-chunk.wgsl
 // Halftone — dot/hex cell pattern for stylized print look.
 // Renders a halftone screen: cells of variable-size dots, with dot size
 // proportional to luminance. Supports rotation and monochrome/color modes.

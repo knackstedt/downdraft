@@ -1,3 +1,5 @@
+// wgsl-validate: prelude ./fullscreen-vs.wgsl
+// wgsl-validate: prelude ./occluder-chunk.wgsl
 // Dithering — ordered (Bayer) + blue-noise modes to reduce color banding.
 // Applies a dithering pattern before quantization to break up smooth gradients.
 struct U {

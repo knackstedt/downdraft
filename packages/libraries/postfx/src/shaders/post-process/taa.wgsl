@@ -1,3 +1,5 @@
+// wgsl-validate: prelude ./fullscreen-vs.wgsl
+// wgsl-validate: prelude ./occluder-chunk.wgsl
 // TAA — Temporal Anti-Aliasing with YCoCg neighborhood clamp + jitter + variance.
 // Upgraded with:
 // - Jitter-aware reprojection (sub-pixel jitter offset for better convergence)

@@ -61,12 +61,16 @@ export class NativeCanvasContext {
   }
 
   unconfigure(): void {
+    // Destroy any acquired-but-unpresented surface texture first — releasing
+    // the surface while a SurfaceTexture is alive panics in wgpu-hal
+    // ("destroy a SwapchainAcquireSemaphore that is still in use").
+    try { (this.currentTexture as any)?.destroy?.(); } catch { /* best-effort */ }
+    this.currentTexture = null;
     if (this.configured && this.surfacePtr) {
       try { wgpu.wgpu_shim_surface_unconfigure(this.surfacePtr); } catch { /* best-effort */ }
     }
     this.configured = false;
     this.device = null;
-    this.currentTexture = null;
   }
 
   getCurrentTexture(): WgpuTexture | null {
@@ -105,7 +109,8 @@ export class NativeCanvasContext {
     this.width = width;
     this.height = height;
     // The previously acquired surface texture is stale after a resize —
-    // drop the cache so getCurrentTexture() re-acquires at the new size.
+    // destroy it so getCurrentTexture() re-acquires at the new size.
+    try { (this.currentTexture as any)?.destroy?.(); } catch { /* best-effort */ }
     this.currentTexture = null;
     if (this.configured && this.device) {
       const formatNum = parseFormat(this.format);
@@ -129,6 +134,11 @@ export class NativeSurface extends MiniEventTarget {
   private context: NativeCanvasContext | null = null;
   private surfacePtr: number;
   private _pointerLocked = false;
+  /** CSSStyleDeclaration stand-in — renderers set style props (opacity,
+   *  cursor, imageRendering); all writes are no-ops under SDL. */
+  readonly style: Record<string, any> = {};
+  /** Canvas id (renderers query element ids for multi-canvas setups). */
+  id = "game-canvas";
 
   constructor(width: number, height: number, surfacePtr: number) {
     super();

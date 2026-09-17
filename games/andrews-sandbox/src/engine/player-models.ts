@@ -40,8 +40,19 @@ export const PLAYER_ANIMATIONS: readonly PlayerAnimationDef[] = [
   { state: "Run", filename: "X Bot@Fast Run.fbx" },
 ];
 
+// ── Asset glob: Vite (import.meta.glob) or Bun-native (createGlob) ──
+// import.meta.glob is a Vite compile-time feature; under Bun-native mode we
+// fall back to a filesystem glob returning file:// URLs.
+const _glob = (import.meta as any).glob ?? ((pattern: string) => {
+  try {
+    const { createGlob } = require("@downdraft/core/platform/glob-polyfill");
+    const modDir = (import.meta as any).dir ?? ".";
+    return createGlob(modDir)(pattern, { query: "?url", eager: true });
+  } catch { return {} as Record<string, string>; }
+});
+
 // Resolve Mixamo animation FBX URLs at module load.
-const ANIM_GLOB = import.meta.glob("../assets/builtin/human_animation/*.fbx", {
+const ANIM_GLOB = _glob("../assets/builtin/human_animation/*.fbx", {
   eager: true,
   query: "?url",
   import: "default",
@@ -57,13 +68,13 @@ export function resolveAnimationUrl(filename: string): string | null {
 
 // Resolve builtin asset URLs once at module load. The glob keys are the
 // relative paths from this file; the values are the Vite-resolved URLs.
-const MESH_GLOB = import.meta.glob("../assets/builtin/**/*.fbx", {
+const MESH_GLOB = _glob("../assets/builtin/**/*.fbx", {
   eager: true,
   query: "?url",
   import: "default",
 }) as Record<string, string>;
 
-const TEX_GLOB = import.meta.glob("../assets/builtin/**/*.png", {
+const TEX_GLOB = _glob("../assets/builtin/**/*.png", {
   eager: true,
   query: "?url",
   import: "default",

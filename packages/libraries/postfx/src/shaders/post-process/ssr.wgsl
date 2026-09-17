@@ -1,3 +1,5 @@
+// wgsl-validate: prelude ./fullscreen-vs.wgsl
+// wgsl-validate: prelude ./occluder-chunk.wgsl
 // SSR — screen-space reflections with DDA ray marching + binary refinement.
 // Upgraded from linear march to pixel-perfect DDA stepping with sub-pixel
 // binary search refinement for accurate hit detection. Includes thickness

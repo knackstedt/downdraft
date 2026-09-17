@@ -1,3 +1,5 @@
+// wgsl-validate: prelude ./fullscreen-vs.wgsl
+// wgsl-validate: prelude ./occluder-chunk.wgsl
 // Lens flare — ghost chain + halo + anamorphic streak + bright spot.
 struct U {
   lightScreenPos: vec2<f32>,

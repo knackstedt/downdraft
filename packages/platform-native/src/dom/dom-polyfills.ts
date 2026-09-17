@@ -67,7 +67,7 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
         (doc as any).__events.removeEventListener(type, listener);
         window.removeEventListener(type, listener);
       },
-      body: { appendChild: () => {}, contains: () => true },
+      body: { appendChild: () => {}, removeChild: (n: any) => n, contains: () => true },
       documentElement: { style: {} },
       hidden: false,
       pointerLockElement: null as any,
@@ -307,6 +307,35 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
       }
     }
     (globalThis as any).Worker = BrowserWorker;
+  }
+
+  // fetch() file:// support — `?url` asset imports resolve to file:// URLs
+  // under Bun, whose fetch rejects them. Wrap fetch so those reads fall back
+  // to the filesystem. Also accepts bare absolute paths for robustness.
+  const origFetch = globalThis.fetch?.bind(globalThis);
+  if (origFetch && !(globalThis as any).__ddFileFetchPatched) {
+    (globalThis as any).__ddFileFetchPatched = true;
+    (globalThis as any).fetch = async (input: any, init?: any): Promise<Response> => {
+      const urlStr = typeof input === "string" ? input : input?.url ?? "";
+      const isFileUrl = urlStr.startsWith("file://");
+      const isBarePath = !isFileUrl && urlStr.startsWith("/") && !urlStr.startsWith("//");
+      if (isFileUrl || isBarePath) {
+        try {
+          const { readFileSync } = await import("node:fs");
+          const { fileURLToPath } = await import("node:url");
+          // Vite's dev server serves out-of-root files as /@fs/<abs-path>;
+          // strip the prefix so the same URL works against the filesystem.
+          const path = isFileUrl ? fileURLToPath(urlStr)
+            : urlStr.startsWith("/@fs/") ? decodeURIComponent(urlStr.slice(4))
+            : decodeURIComponent(urlStr);
+          const buf = readFileSync(path);
+          return new Response(buf, { status: 200 });
+        } catch (err) {
+          return new Response(String(err), { status: 404, statusText: "Not Found" });
+        }
+      }
+      return origFetch(input, init);
+    };
   }
 
   log.info("platform-native", "DOM polyfills installed (document, window, ResizeObserver, localStorage, etc.)");

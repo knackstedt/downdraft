@@ -1,3 +1,5 @@
+// wgsl-validate: prelude ./fullscreen-vs.wgsl
+// wgsl-validate: prelude ./occluder-chunk.wgsl
 // Split-tone — separate highlight and shadow tinting with balance control.
 // Applies different color tints to shadows and highlights, blended by luminance.
 struct U {

@@ -1,3 +1,5 @@
+// wgsl-validate: prelude ./fullscreen-vs.wgsl
+// wgsl-validate: prelude ./occluder-chunk.wgsl
 // LUT — 3D LUT color grading. Samples a 3D lookup table to apply color grading.
 // Replaces the standalone frame-graph LUT3DPass with an in-chain effect.
 // Uses a dedicated bind group layout with texture_3d (not the shared ccLayout).

@@ -141,7 +141,7 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
     }
   };
 
-  return {
+  const host: NativeHostContext = {
     window,
     surface,
     gpu,
@@ -154,4 +154,9 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
       window.destroy();
     },
   };
+  // Bespoke entries (model-viewer, visual-test-bench) run their own loops and
+  // need the shared device — expose the host so they can reuse it instead of
+  // opening a second wgpu device on the same surface.
+  (globalThis as any).__nativeHost = host;
+  return host;
 }

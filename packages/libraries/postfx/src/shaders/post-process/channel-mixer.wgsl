@@ -1,3 +1,5 @@
+// wgsl-validate: prelude ./fullscreen-vs.wgsl
+// wgsl-validate: prelude ./occluder-chunk.wgsl
 // Channel mixer — per-channel R/G/B output weights + monochrome toggle.
 // Allows remapping color channels: output.R = wRR*R + wRG*G + wRB*B, etc.
 struct U {

@@ -1,3 +1,5 @@
+// wgsl-validate: prelude ./fullscreen-vs.wgsl
+// wgsl-validate: prelude ./occluder-chunk.wgsl
 // ACES tonemap — HDR→LDR bridge with exposure/gamma/contrast/saturation/vignette.
 struct U {
   exposure: f32,

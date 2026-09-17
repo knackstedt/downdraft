@@ -1,3 +1,5 @@
+// wgsl-validate: prelude ./fullscreen-vs.wgsl
+// wgsl-validate: prelude ./occluder-chunk.wgsl
 // Pixelation — blocky low-res look via nearest-neighbor UV quantization
 // + depth edge detection. Samples color and depth at quantized UVs to
 // emulate rendering at reduced resolution without a separate low-res target.

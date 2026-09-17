@@ -42,11 +42,28 @@ const ATLAS_SLOT_W = 128;
 // Vite glob: maps asset path → raw SVG text (eager, query: ?raw). We inline
 // the SVG text at build time and convert to data URLs at runtime to avoid
 // COEP/fetch issues when loading SVGs as Image elements in Electron.
-const SVG_TEXTS = import.meta.glob("../assets/tiles/riichi/{regular,black}/*.svg", {
-  eager: true,
-  query: "?raw",
-  import: "default",
-}) as Record<string, string>;
+// Bun-native fallback: filesystem glob + readFileSync (same map shape).
+const SVG_TEXTS: Record<string, string> = (() => {
+  if (typeof (import.meta as any).glob === "function") {
+    return (import.meta as any).glob("../assets/tiles/riichi/{regular,black}/*.svg", {
+      eager: true,
+      query: "?raw",
+      import: "default",
+    }) as Record<string, string>;
+  }
+  try {
+    const { createGlob } = require("@downdraft/core/platform/glob-polyfill");
+    const { readFileSync } = require("node:fs");
+    const { fileURLToPath } = require("node:url");
+    const modDir = (import.meta as any).dir ?? ".";
+    const urls = createGlob(modDir)("../assets/tiles/riichi/{regular,black}/*.svg", { eager: true });
+    const out: Record<string, string> = {};
+    for (const [k, url] of Object.entries(urls)) {
+      try { out[k] = readFileSync(fileURLToPath(url), "utf-8"); } catch { /* skip unreadable */ }
+    }
+    return out;
+  } catch { return {}; }
+})();
 
 /** Folder name for each theme. */
 const THEME_FOLDER: Record<TileTheme, string> = {

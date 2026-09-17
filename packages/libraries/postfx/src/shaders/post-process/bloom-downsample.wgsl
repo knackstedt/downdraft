@@ -1,3 +1,5 @@
+// wgsl-validate: prelude ./fullscreen-vs.wgsl
+// wgsl-validate: prelude ./occluder-chunk.wgsl
 // Bloom downsample — high-quality 13-tap downsample with optional bright-pass.
 // When u.brightPass > 0.5, applies soft-threshold bright extraction (first level).
 // Otherwise, performs a plain downsample for subsequent MIP levels.

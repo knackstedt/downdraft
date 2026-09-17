@@ -203,7 +203,11 @@ export class TextAtlasCache {
     // ── Fallback: Canvas2D path (browser or no direct renderer) ──
     const ctx = this.atlasCtx;
     ctx.font = `${opts.fontWeight} ${opts.fontSize}px ${opts.fontFamily}`;
-    ctx.textAlign = opts.textAlign;
+    // Always rasterize left-aligned: horizontal alignment is applied at
+    // quad placement in UIRenderer.buildCanvasTextVertices, not here —
+    // fillText with "center"/"right" would draw glyphs outside this
+    // entry's atlas region and clip them.
+    ctx.textAlign = "left";
     ctx.textBaseline = opts.textBaseline;
     ctx.fillStyle = opts.color;
 

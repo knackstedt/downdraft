@@ -1,3 +1,5 @@
+// wgsl-validate: prelude ./fullscreen-vs.wgsl
+// wgsl-validate: prelude ./occluder-chunk.wgsl
 // Grain — film grain with optional luminance awareness.
 struct U {
   texelSize: vec2<f32>,

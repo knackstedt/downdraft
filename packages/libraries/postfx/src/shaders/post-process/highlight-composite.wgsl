@@ -1,3 +1,5 @@
+// wgsl-validate: prelude ./fullscreen-vs.wgsl
+// wgsl-validate: prelude ./occluder-chunk.wgsl
 // Highlight composite — add outer glow + inner fill to color.
 struct U {
   intensity: f32,

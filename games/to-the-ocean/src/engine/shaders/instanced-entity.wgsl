@@ -1,3 +1,6 @@
+// wgsl-validate: prelude ./light-structs.wgsl
+// wgsl-validate: prelude ./pbr-functions.wgsl
+// wgsl-validate: prelude ./ibl-bindings.wgsl
 struct FrameUniforms {
   viewProj: mat4x4<f32>,
   cameraPos: vec3<f32>,

@@ -142,6 +142,10 @@ interface ParsedBinding {
   visibility: number;
   viewDimension?: string;
   storageFormat?: string;
+  /** texture_depth_* — layout needs sampleType "depth", not "float". */
+  depth?: boolean;
+  /** texture_multisampled_* — layout needs multisampled: true. */
+  multisampled?: boolean;
   hasDynamicOffset: boolean;
 }
 
@@ -352,6 +356,8 @@ export class WgpuDevice {
       let bindingType = "uniform";
       let viewDimension = "2d";
       let storageFormat: string | undefined;
+      let depth = false;
+      let multisampled = false;
 
       if (line.includes("var<uniform>")) {
         bindingType = "uniform";
@@ -359,6 +365,15 @@ export class WgpuDevice {
         bindingType = line.includes("read") ? "read-only-storage" : "storage";
       } else if (line.includes("var<storage>")) {
         bindingType = "storage";
+      } else if (line.includes("texture_depth")) {
+        // texture_depth_2d / _2d_array / _cube / _cube_array / _multisampled_2d
+        bindingType = "texture"; depth = true;
+        if (line.includes("texture_depth_2d_array")) viewDimension = "2d-array";
+        else if (line.includes("texture_depth_cube_array")) viewDimension = "cube-array";
+        else if (line.includes("texture_depth_cube")) viewDimension = "cube";
+        if (line.includes("multisampled")) multisampled = true;
+      } else if (line.includes("texture_multisampled_2d")) {
+        bindingType = "texture"; viewDimension = "2d"; multisampled = true;
       } else if (line.includes("texture_2d_array")) {
         bindingType = "texture"; viewDimension = "2d-array";
       } else if (line.includes("texture_cube_array")) {
@@ -389,6 +404,8 @@ export class WgpuDevice {
         visibility: defaultVisibility,
         viewDimension,
         storageFormat,
+        depth,
+        multisampled,
         hasDynamicOffset: false,
       });
     }
@@ -418,7 +435,7 @@ export class WgpuDevice {
         if (info.type === "uniform") entry.buffer = { type: "uniform" };
         else if (info.type === "storage") entry.buffer = { type: "storage" };
         else if (info.type === "read-only-storage") entry.buffer = { type: "read-only-storage" };
-        else if (info.type === "texture") entry.texture = { sampleType: "float", viewDimension: (info.viewDimension ?? "2d") as GPUTextureViewDimension };
+        else if (info.type === "texture") entry.texture = { sampleType: info.depth ? "depth" : "float", viewDimension: (info.viewDimension ?? "2d") as GPUTextureViewDimension, multisampled: info.multisampled === true };
         else if (info.type === "sampler") entry.sampler = { type: "filtering" };
         else if (info.type === "comparison-sampler") entry.sampler = { type: "comparison" };
         else if (info.type === "storage-texture") entry.storageTexture = { access: "write-only", format: (info.storageFormat ?? "rgba8unorm") as GPUTextureFormat };

@@ -1,3 +1,5 @@
+// wgsl-validate: prelude ./fullscreen-vs.wgsl
+// wgsl-validate: prelude ./occluder-chunk.wgsl
 // Outline — detect mask boundary and draw edge ring outside the mask.
 struct U {
   texelSize: vec2<f32>,

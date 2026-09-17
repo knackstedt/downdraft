@@ -1,3 +1,5 @@
+// wgsl-validate: prelude ./fullscreen-vs.wgsl
+// wgsl-validate: prelude ./occluder-chunk.wgsl
 // Bloom upsample — 9-tap bilinear-weighted upsample with additive blend + tint.
 // Reads a lower-resolution MIP and adds it to the higher-res target with weight.
 // Used in the upsample cascade: ⅛ → ¼ → ½ → full.

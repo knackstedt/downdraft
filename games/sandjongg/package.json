@@ -12,10 +12,11 @@
   "dependencies": {
     "@downdraft/app": "workspace:*",
     "@downdraft/core": "workspace:*",
-    "@downdraft/library-sand": "workspace:*",
     "@downdraft/library-pixi-ui": "workspace:*",
     "@downdraft/library-profiler": "workspace:*",
+    "@downdraft/library-sand": "workspace:*",
     "@downdraft/module-devtools": "workspace:*",
+    "@downdraft/platform-native": "workspace:*",
     "@downdraft/ui": "workspace:*",
     "pixi.js": "8.18.0",
     "zustand": "^5.0.2"

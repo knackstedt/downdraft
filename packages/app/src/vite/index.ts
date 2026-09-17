@@ -180,6 +180,19 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
   const gameDeps = collectDirectDeps(resolve(root, "package.json"), excludeSet);
   const autoOptimizeDepsInclude = [...new Set([...engineDeps, ...gameDeps])];
 
+  // Subpath imports the dep scanner can't see (side-effect imports inside Web
+  // Workers get discovered mid-session → re-optimize → stale chunk URLs →
+  // "Failed to fetch dynamically imported module" inside the worker). When a
+  // package is already included, force its known worker-side subpaths in too.
+  const subpathDeps: Record<string, string[]> = {
+    "pixi.js": ["pixi.js/events"],
+  };
+  for (const dep of autoOptimizeDepsInclude) {
+    for (const sub of subpathDeps[dep] ?? []) {
+      if (!autoOptimizeDepsInclude.includes(sub)) autoOptimizeDepsInclude.push(sub);
+    }
+  }
+
   // --- Shared alias sets ---
 
   const coreAliases = [

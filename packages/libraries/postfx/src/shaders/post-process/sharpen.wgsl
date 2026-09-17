@@ -1,3 +1,5 @@
+// wgsl-validate: prelude ./fullscreen-vs.wgsl
+// wgsl-validate: prelude ./occluder-chunk.wgsl
 // Sharpen — unsharp mask (center + (center - blurred) * sharpness).
 struct U {
   texelSize: vec2<f32>,

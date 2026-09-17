@@ -1,3 +1,5 @@
+// wgsl-validate: prelude ./fullscreen-vs.wgsl
+// wgsl-validate: prelude ./occluder-chunk.wgsl
 // Motion blur — velocity-based, with depth-aware weighting.
 struct U {
   texelSize: vec2<f32>,

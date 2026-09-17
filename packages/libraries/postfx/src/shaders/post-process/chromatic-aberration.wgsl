@@ -1,3 +1,5 @@
+// wgsl-validate: prelude ./fullscreen-vs.wgsl
+// wgsl-validate: prelude ./occluder-chunk.wgsl
 // Chromatic aberration — radial RGB channel shift with falloff from center.
 // Simulates lens chromatic aberration by offsetting R and B channels radially.
 struct U {

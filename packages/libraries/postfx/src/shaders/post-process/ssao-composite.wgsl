@@ -1,3 +1,5 @@
+// wgsl-validate: prelude ./fullscreen-vs.wgsl
+// wgsl-validate: prelude ./occluder-chunk.wgsl
 // SSAO composite — multiply color by AO factor.
 struct U {
   texelSize: vec2<f32>,

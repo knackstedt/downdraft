@@ -17,6 +17,7 @@
     "@downdraft/library-stickman": "workspace:*",
     "@downdraft/module-devtools": "workspace:*",
     "@downdraft/module-movement-2d": "workspace:*",
+    "@downdraft/platform-native": "workspace:*",
     "@downdraft/shader-graph": "workspace:*",
     "@downdraft/ui": "workspace:*",
     "zustand": "^5.0.2"

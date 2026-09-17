@@ -5,7 +5,6 @@
 // chunks (lighting, PBR, IBL) with per-shader files at build time.
 // ============================================================================
 
-import { createIBLShaderChunk } from "@downdraft/core";
 import { BoatCellType } from "@shared/constants";
 
 // --- Raw shader source imports ---
@@ -13,6 +12,7 @@ import boatSrc from "./boat.wgsl?raw" with { type: "text" };
 import entitySrc from "./entity.wgsl?raw" with { type: "text" };
 import hitboxSrc from "./hitbox.wgsl?raw" with { type: "text" };
 import holoSrc from "./holo.wgsl?raw" with { type: "text" };
+import iblBindingsSrc from "./ibl-bindings.wgsl?raw" with { type: "text" };
 import instancedEntitySrc from "./instanced-entity.wgsl?raw" with { type: "text" };
 import islandWireframeSrc from "./island-wireframe.wgsl?raw" with { type: "text" };
 import islandSrc from "./island.wgsl?raw" with { type: "text" };
@@ -29,7 +29,9 @@ import skinningComputeSrc from "./skinning-compute.wgsl?raw" with { type: "text"
 
 export const LIGHT_STRUCTS = lightStructsSrc;
 
-export const PBR_BINDINGS = createIBLShaderChunk(2, true);
+// File-backed copy of createIBLShaderChunk(2, true) so the WGSL validator can
+// resolve IBL symbols via `// wgsl-validate: prelude ./ibl-bindings.wgsl`.
+export const PBR_BINDINGS = iblBindingsSrc;
 
 export const PBR_CONST = "const PI: f32 = 3.14159265359;\n";
 

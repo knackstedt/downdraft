@@ -10,10 +10,11 @@
   "dependencies": {
     "@downdraft/app": "workspace:*",
     "@downdraft/core": "workspace:*",
+    "@downdraft/library-entities": "workspace:*",
+    "@downdraft/library-models": "workspace:*",
     "@downdraft/module-camera-controls": "workspace:*",
     "@downdraft/module-devtools": "workspace:*",
-    "@downdraft/library-models": "workspace:*",
-    "@downdraft/library-entities": "workspace:*",
+    "@downdraft/platform-native": "workspace:*",
     "fflate": "^0.8.2",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

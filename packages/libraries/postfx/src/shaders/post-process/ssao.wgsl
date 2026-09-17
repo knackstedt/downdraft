@@ -1,3 +1,5 @@
+// wgsl-validate: prelude ./fullscreen-vs.wgsl
+// wgsl-validate: prelude ./occluder-chunk.wgsl
 // SSAO — Ground-Truth Ambient Occlusion (GTAO).
 // Slice-based horizon scanning with cosine-weighted falloff.
 // Replaces the basic hemisphere approach with a more accurate GTAO that

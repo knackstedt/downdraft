@@ -1,3 +1,5 @@
+// wgsl-validate: prelude ./fullscreen-vs.wgsl
+// wgsl-validate: prelude ./occluder-chunk.wgsl
 // Lens distortion — barrel/pincushion distortion with optional chromatic split.
 // Applies radial distortion: positive = barrel (fisheye), negative = pincushion.
 struct U {

@@ -107,7 +107,14 @@ if (typeof (globalThis as any).Bun !== "undefined" && typeof (globalThis as any)
   Bun.plugin({
     name: "downdraft-css-loader",
     setup(build: any) {
-      build.onLoad({ filter: /\.css$/ }, async (_args: any) => {
+      // Short-circuit resolution for package-rooted CSS (e.g.
+      // "@downdraft/app/renderer/downdraft-base.css") which the package's
+      // exports map may not expose — native mode discards CSS anyway.
+      build.onResolve({ filter: /\.css$/ }, (args: any) => ({
+        path: args.path,
+        namespace: "dd-css",
+      }));
+      build.onLoad({ filter: /.*/, namespace: "dd-css" }, async (_args: any) => {
         return { exports: { default: "" }, loader: "object" };
       });
     },

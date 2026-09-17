@@ -627,39 +627,9 @@ export class GameRenderer implements CanvasResizeHandler {
     this.callbacks.afterViewports?.(dt, this.elapsedTime);
     this.rendererModuleHost?.dispatchFrame("afterViewports", dt, this.elapsedTime);
 
-    // Render GPU UI on top of final image (skip on GPU error to avoid cascade)
-    if (!gpuError && this.uiRenderer && this.uiRoot && this.device && this.context) {
-      if (this.uiNeedsLayout && this.uiLayoutEngine) {
-        this.uiLayoutEngine.layout(this.uiRoot);
-        this.uiNeedsLayout = false;
-      }
-      const drawables = this.uiRoot.getDrawable();
-      if (drawables.length > 0) {
-        const canvasView = this.context.getCurrentTexture().createView();
-        const uiEncoder = this.device.createCommandEncoder();
-        const uiPass = uiEncoder.beginRenderPass({
-          colorAttachments: [{
-            view: canvasView,
-            clearValue: { r: 0, g: 0, b: 0, a: 0 },
-            loadOp: "load" as GPULoadOp,
-            storeOp: "store" as GPUStoreOp,
-          }],
-        });
-        this.uiRenderer.render({ device: this.device, pass: new TrackedRenderPass(uiPass) } as unknown as RenderContext, drawables);
-        uiPass.end();
-        frameCommandBuffers.push(uiEncoder.finish());
-      }
-    }
-
     // Submit all command buffers for this frame in a single queue.submit() call
     if (frameCommandBuffers.length > 0) {
       this.device!.queue.submit(frameCommandBuffers);
-    }
-
-    // Present the surface (native wgpu requires explicit presentation;
-    // in browsers this is automatic at the end of the frame)
-    if (this.context && (this.context as any).present) {
-      (this.context as any).present();
     }
 
     // Read GPU timer results asynchronously (1-frame latency).
@@ -718,6 +688,40 @@ export class GameRenderer implements CanvasResizeHandler {
     // After frame callback
     this.callbacks.afterFrame?.(dt, this.elapsedTime);
     this.rendererModuleHost?.dispatchFrame("afterFrame", dt, this.elapsedTime);
+
+    // Render GPU UI on top of final image (skip on GPU error to avoid cascade).
+    // This must run AFTER afterFrame — 2D games (viewportCount=0) do their
+    // custom rendering in the afterFrame callback, so drawing UI earlier would
+    // put it underneath their clear pass.
+    if (!gpuError && this.uiRenderer && this.uiRoot && this.device && this.context) {
+      if (this.uiNeedsLayout && this.uiLayoutEngine) {
+        this.uiLayoutEngine.layout(this.uiRoot);
+        this.uiNeedsLayout = false;
+      }
+      const drawables = this.uiRoot.getDrawable();
+      if (drawables.length > 0) {
+        const canvasView = this.context.getCurrentTexture().createView();
+        const uiEncoder = this.device.createCommandEncoder();
+        const uiPass = uiEncoder.beginRenderPass({
+          colorAttachments: [{
+            view: canvasView,
+            clearValue: { r: 0, g: 0, b: 0, a: 0 },
+            loadOp: "load" as GPULoadOp,
+            storeOp: "store" as GPUStoreOp,
+          }],
+        });
+        this.uiRenderer.render({ device: this.device, pass: new TrackedRenderPass(uiPass) } as unknown as RenderContext, drawables);
+        uiPass.end();
+        this.device.queue.submit([uiEncoder.finish()]);
+      }
+    }
+
+    // Present the surface (native wgpu requires explicit presentation;
+    // in browsers this is automatic at the end of the frame). Must be last —
+    // all submissions targeting the surface texture happen above.
+    if (this.context && (this.context as any).present) {
+      (this.context as any).present();
+    }
 
     const __rfTotal = performance.now() - now;
     if (__rfTotal > 20) console.warn(`[GameRenderer] renderFrame took ${__rfTotal.toFixed(1)}ms`);

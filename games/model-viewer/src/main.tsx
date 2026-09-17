@@ -21,9 +21,9 @@ import {
     type RenderContext,
 } from "@downdraft/core";
 import { ModelRenderer } from "@downdraft/library-entities";
+import type { MeshData } from "@downdraft/library-models";
 import { createCameraController } from "@downdraft/module-camera-controls";
 import { DevToolsDataBridge, GridRenderer, HeightRulerRenderer, SkeletonRenderer, TransformGizmo, type IDevToolsDataRenderer } from "@downdraft/module-devtools";
-import type { MeshData } from "@downdraft/library-models";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { updateAnimDisplay } from "./anim-display";
@@ -288,11 +288,17 @@ async function initWebGPU(canvas: HTMLCanvasElement): Promise<{
   format: GPUTextureFormat;
 }> {
   if (!navigator.gpu) throw new Error("WebGPU not supported");
+  const context = canvas.getContext("webgpu")!;
+  const format = navigator.gpu.getPreferredCanvasFormat();
+  // Under Bun-native the host already created the device and configured the
+  // surface — reuse it rather than opening a second wgpu device.
+  const nativeHost = (globalThis as any).__nativeHost;
+  if (nativeHost) {
+    return { device: nativeHost.device as GPUDevice, context, format };
+  }
   const adapter = await navigator.gpu.requestAdapter();
   if (!adapter) throw new Error("No GPU adapter found");
   const device = await adapter.requestDevice();
-  const context = canvas.getContext("webgpu")!;
-  const format = navigator.gpu.getPreferredCanvasFormat();
   context.configure({
     device,
     format,
@@ -322,10 +328,13 @@ function getDepthTexture(device: GPUDevice, w: number, h: number): GPUTexture {
 // ── Main bootstrap ──
 
 async function bootstrap() {
-  const root = createRoot(document.getElementById("root")!);
-  root.render(
-    <React.StrictMode>
-      <App
+  // Native mode has no DOM overlay — skip the React mount and run headless.
+  const rootEl = document.getElementById("root");
+  if (rootEl) {
+    const root = createRoot(rootEl);
+    root.render(
+      <React.StrictMode>
+        <App
         getState={getState}
         subscribe={subscribe}
         onSelectModel={selectModel}
@@ -342,9 +351,10 @@ async function bootstrap() {
         currentEntryPath={_currentEntry?.path ?? null}
         onSetSkeletonBone={setSkeletonBone}
         onSetSkeletonBoneOffset={setSkeletonBoneOffset}
-      />
-    </React.StrictMode>,
-  );
+        />
+      </React.StrictMode>,
+    );
+  }
 
   const canvas = document.getElementById("game-canvas") as HTMLCanvasElement;
   if (!canvas) {

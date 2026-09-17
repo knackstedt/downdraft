@@ -17,6 +17,9 @@
         "./games/to-the-ocean/src/shared/*",
         "./packages/app/src/shared/*"
       ],
+      "@sandbox/shared/*": [
+        "./games/andrews-sandbox/src/shared/*"
+      ],
       "@main/*": [
         "./packages/app/src/main/*"
       ],

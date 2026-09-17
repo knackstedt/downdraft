@@ -1,3 +1,5 @@
+// wgsl-validate: prelude ./fullscreen-vs.wgsl
+// wgsl-validate: prelude ./occluder-chunk.wgsl
 // DOF — depth-of-field with circle-of-confusion + bokeh-shaped disk sampling.
 // Computes CoC from depth, then gathers a rotated disk kernel with shape
 // support (circle / hexagon / octagon) and near/far field separation.

@@ -1,3 +1,4 @@
+// wgsl-validate: prelude ./light-structs.wgsl
 const PI: f32 = 3.14159265359;
 
 // Per-entity-type PBR material parameters: (metallic, roughness)

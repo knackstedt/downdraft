@@ -1,3 +1,5 @@
+// wgsl-validate: prelude ./fullscreen-vs.wgsl
+// wgsl-validate: prelude ./occluder-chunk.wgsl
 // Gaussian blur — two-pass separable convolution.
 // 9-tap kernel with normalized weights (sum = 1.0) — fixes B1.
 struct U {

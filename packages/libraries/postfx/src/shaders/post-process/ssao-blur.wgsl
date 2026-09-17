@@ -1,3 +1,5 @@
+// wgsl-validate: prelude ./fullscreen-vs.wgsl
+// wgsl-validate: prelude ./occluder-chunk.wgsl
 // SSAO blur — depth-aware bilateral blur.
 struct U {
   texelSize: vec2<f32>,

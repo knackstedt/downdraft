@@ -1,3 +1,5 @@
+// wgsl-validate: prelude ./fullscreen-vs.wgsl
+// wgsl-validate: prelude ./occluder-chunk.wgsl
 // Bloom (soft threshold) — bright pass with soft knee + separable blur.
 // When u.dirX > 1.0, performs the bright-pass extraction step.
 // Otherwise, performs a directional blur pass.
