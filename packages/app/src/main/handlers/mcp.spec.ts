@@ -194,8 +194,9 @@ describe("MCP proxy handler — concurrent request isolation", () => {
 
     ipcEmitter.emit(`mcp-response-${id}`, {}, { error: { code: -1, message: "test error" } });
 
-    const res = await req;
-    expect(res).toEqual({ error: { code: -1, message: "test error" } });
+    // Renderer errors reject so they surface as JSON-RPC errors to clients —
+    // resolving {error} would masquerade as a successful result with no content.
+    await expect(req).rejects.toThrow("test error");
   });
 
   it("should reject when no renderer window is available (non-tools/list method)", async () => {

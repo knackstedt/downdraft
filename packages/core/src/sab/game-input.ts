@@ -223,6 +223,10 @@ export class InputBufferReader {
     return this.reader.isValid();
   }
 
+  validationError(): string | null {
+    return this.reader.validationError();
+  }
+
   getSequence(): number { return this.reader.getSequence(); }
   getPlayerCount(): number { return this.reader.header.u32[InputChannel.offsets.header.playerCount]; }
 

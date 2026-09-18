@@ -250,8 +250,18 @@ export class McpHttpTransport {
       let body = "";
       req.on("data", (chunk) => { body += chunk; });
       req.on("end", async () => {
+        let msg: { id?: number; method: string; params?: Record<string, unknown> };
         try {
-          const msg = JSON.parse(body);
+          msg = JSON.parse(body);
+        } catch (e) {
+          this.sendJSON(res, 400, {
+            jsonrpc: "2.0",
+            id: 0,
+            error: { code: -32700, message: `Parse error: ${(e as Error).message}` },
+          });
+          return;
+        }
+        try {
           const result = await this.handleJsonRpc(msg.method, msg.params ?? {});
           const response = { jsonrpc: "2.0" as const, id: msg.id ?? 0, result };
 
@@ -279,10 +289,12 @@ export class McpHttpTransport {
             this.sendJSON(res, 200, response);
           }
         } catch (e) {
-          this.sendJSON(res, 400, {
+          // Method/handler failure — return a JSON-RPC error (not HTTP 400)
+          // so clients see the real tool error instead of a transport error.
+          this.sendJSON(res, 200, {
             jsonrpc: "2.0",
-            id: 0,
-            error: { code: -32700, message: `Parse error: ${(e as Error).message}` },
+            id: msg.id ?? 0,
+            error: { code: -32603, message: (e as Error).message },
           });
         }
       });

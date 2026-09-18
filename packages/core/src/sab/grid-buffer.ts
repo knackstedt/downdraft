@@ -1,4 +1,5 @@
 import type { ChannelLayout, GridLayerLayout, HeaderViews } from "./types";
+import { describeHeaderValidation } from "./errors";
 
 function createHeaderViews(sab: SharedArrayBuffer, headerSize: number): HeaderViews {
   const u32Length = headerSize / 4;
@@ -44,8 +45,17 @@ export class GridReader {
   }
 
   isValid(): boolean {
-    return this.header.u32[this.layout.header.magicIndex] === this.layout.magic &&
-      this.header.u32[this.layout.header.versionIndex] === this.layout.version;
+    return this.validationError() === null;
+  }
+
+  validationError(): string | null {
+    return describeHeaderValidation(
+      this.header.u32,
+      this.layout.header.magicIndex,
+      this.layout.header.versionIndex,
+      this.layout.magic,
+      this.layout.version,
+    );
   }
 
   getSequence(): number {

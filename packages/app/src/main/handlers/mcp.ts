@@ -74,7 +74,10 @@ export async function startMcpProxy(
       ipcMain.once(responseChannel, (_e, result) => {
         clearTimeout(timeout);
         if (result.error) {
-          resolve({ error: result.error });
+          // Surface renderer errors as a rejected promise so they become
+          // JSON-RPC errors — resolving {error} would look like a successful
+          // tool result with no content to HTTP clients.
+          reject(new Error(result.error.message ?? `Renderer error ${result.error.code ?? ""}`));
         } else {
           resolve(result.result);
         }

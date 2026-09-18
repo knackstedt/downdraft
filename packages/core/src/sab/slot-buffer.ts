@@ -1,4 +1,4 @@
-import { isDebug, warnOnce } from "./errors";
+import { describeHeaderValidation, isDebug, warnOnce } from "./errors";
 import type { ChannelLayout, HeaderViews, SlotAccessor, SlotViews } from "./types";
 
 function createHeaderViews(sab: SharedArrayBuffer, headerSize: number): HeaderViews {
@@ -96,8 +96,17 @@ export class SlotReader {
   }
 
   isValid(): boolean {
-    return this.header.u32[this.layout.header.magicIndex] === this.layout.magic &&
-      this.header.u32[this.layout.header.versionIndex] === this.layout.version;
+    return this.validationError() === null;
+  }
+
+  validationError(): string | null {
+    return describeHeaderValidation(
+      this.header.u32,
+      this.layout.header.magicIndex,
+      this.layout.header.versionIndex,
+      this.layout.magic,
+      this.layout.version,
+    );
   }
 
   getSequence(): number {

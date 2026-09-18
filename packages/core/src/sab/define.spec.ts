@@ -53,6 +53,30 @@ describe("defineChannel", () => {
     expect(wrongReader.isValid()).toBe(false);
   });
 
+  it("validationError distinguishes unstamped, bad magic, and version drift", () => {
+    const sab = ChannelA.allocate();
+    const reader = ChannelA.reader(sab);
+    expect(reader.validationError()).toBeNull();
+
+    // Unstamped buffer (all zeros) — readiness, not corruption.
+    const freshSab = new SharedArrayBuffer(ChannelA.byteLength);
+    const freshReader = ChannelA.reader(freshSab);
+    expect(freshReader.isValid()).toBe(false);
+    expect(freshReader.validationError()).toContain("not initialized");
+
+    // Bad magic — different layout family entirely.
+    const badMagic = ChannelA.allocate();
+    new Uint32Array(badMagic)[0] = 0xDEAD;
+    const badReader = ChannelA.reader(badMagic);
+    expect(badReader.validationError()).toContain("bad magic");
+
+    // Version drift — right family, wrong layout version.
+    const drifted = ChannelA.allocate();
+    new Uint32Array(drifted)[1] = 99;
+    const driftReader = ChannelA.reader(drifted);
+    expect(driftReader.validationError()).toContain("version mismatch");
+  });
+
   it("should expose typed offsets", () => {
     expect(ChannelA.offsets.header.magic).toBe(0);
     expect(ChannelA.offsets.header.sequence).toBe(2);

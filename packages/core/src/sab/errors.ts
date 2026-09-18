@@ -27,6 +27,30 @@ export class ValidationError extends Error {
   }
 }
 
+/**
+ * Human-readable reason a SAB header fails validation, or `null` when valid.
+ * Distinguishes "not stamped yet" (readiness) from layout drift — callers
+ * polling `isValid()` would otherwise wait forever on a mismatched buffer.
+ */
+export function describeHeaderValidation(
+  u32: Uint32Array,
+  magicIndex: number,
+  versionIndex: number,
+  expectedMagic: number,
+  expectedVersion: number,
+): string | null {
+  const magic = u32[magicIndex];
+  const version = u32[versionIndex];
+  if (magic === 0) return "buffer not initialized (writer has not stamped the header)";
+  if (magic !== expectedMagic) {
+    return `bad magic 0x${magic.toString(16)} (expected 0x${expectedMagic.toString(16)})`;
+  }
+  if (version !== expectedVersion) {
+    return `version mismatch (got ${version}, expected ${expectedVersion})`;
+  }
+  return null;
+}
+
 const TYPE_SIZES: Record<string, number> = {
   f32: 4,
   f64: 8,

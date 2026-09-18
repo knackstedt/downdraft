@@ -252,6 +252,10 @@ export class SimBufferReader {
     return this.reader.isValid();
   }
 
+  validationError(): string | null {
+    return this.reader.validationError();
+  }
+
   getTick(): number { return this.reader.header.u32[SimChannel.offsets.header.tick]; }
   getSequence(): number { return this.reader.getSequence(); }
   getEntityCount(): number { return this.reader.header.u32[SimChannel.offsets.header.entityCount]; }

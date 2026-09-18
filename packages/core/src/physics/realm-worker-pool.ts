@@ -29,7 +29,7 @@ export class RealmWorkerPool {
   }
 
   isParallel(): boolean {
-    return this.workerCount > 0 && this.useSharedBuffer === false; // even without SAB, workers help
+    return this.workers.size > 0;
   }
 
   supportsSharedBuffer(): boolean {

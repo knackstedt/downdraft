@@ -122,6 +122,8 @@ export interface ChannelInstance {
 
 export interface ChannelReader {
   isValid(): boolean;
+  /** Why the header is invalid, or null when valid. See describeHeaderValidation. */
+  validationError(): string | null;
   getSequence(): number;
   hasChanged(lastSeen: number): boolean;
   header: HeaderViews;
