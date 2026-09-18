@@ -13,11 +13,9 @@
 
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { existsSync, statSync } from "node:fs";
-import { join } from "node:path";
-import { homedir } from "node:os";
 import { launchGame, parseJsonContent, type GameProcess } from "./harness";
 
-const MCP_PORT = parseInt(process.env.MCP_PORT ?? "9976", 10);
+const MCP_PORT = process.env.MCP_PORT ? parseInt(process.env.MCP_PORT, 10) : undefined;
 
 describe("tracing toolkit e2e (main-process MCP tools)", () => {
   let game: GameProcess | null = null;

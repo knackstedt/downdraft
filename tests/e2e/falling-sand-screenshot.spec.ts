@@ -1,8 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import {
+    captureAndSaveScreenshot,
     launchGame,
+    parseJsonContent,
     sleep,
     type GameProcess,
+    type McpToolResult,
 } from "./harness";
 
 const MCP_PORT = process.env.MCP_PORT ? parseInt(process.env.MCP_PORT, 10) : undefined;
@@ -29,27 +32,24 @@ describe("falling-sand screenshot", () => {
     await game?.kill();
   }, 30000);
 
-  it("captures a screenshot of the overlay", async () => {
-    await sleep(5000);
+  it("reports UI state via get_ui_state", async () => {
+    const result = (await game!.mcpClient.callTool("get_ui_state", {})) as McpToolResult;
+    const state = parseJsonContent(result) as {
+      paused: boolean;
+      selectedMaterial: number;
+      brushMode: string;
+      brushRadius: number;
+      rendererReady: boolean;
+    };
+    expect(state.rendererReady).toBe(true);
+    expect(state.selectedMaterial).toBeGreaterThan(0);
+    expect(state.brushMode).toBeDefined();
+  }, 30000);
 
-    // Query scene state to verify the overlay is rendering
-    const stateResult = await game!.mcpClient.callToolWithRetry("pixi_get_scene_state", {}, {});
-    const stateContent = stateResult.content?.[0];
-    expect(stateContent?.type).toBe("text");
-    const state = JSON.parse(stateContent!.text);
-    expect(state.nodes).toBeDefined();
-    expect(state.nodes.length).toBeGreaterThan(0);
-    expect(state.backend).toBeDefined();
-
-    // Capture the overlay as PNG
-    const result = await game!.mcpClient.callToolWithRetry("pixi_capture_overlay", {}, {});
-    const contents = result.content as Array<{ type: string; data?: string; text?: string }>;
-    // First content is JSON metadata, second is the image
-    const imageContent = contents.find((c) => c.type === "image");
-    expect(imageContent).toBeDefined();
-    expect(imageContent!.data).toBeDefined();
-    const buf = Buffer.from(imageContent!.data!, "base64");
-    await Bun.write("/tmp/falling-sand-overlay.png", buf);
-    console.log(`Screenshot saved to /tmp/falling-sand-overlay.png (${buf.length} bytes)`);
+  it("captures a non-empty screenshot", async () => {
+    await sleep(2000);
+    const meta = await captureAndSaveScreenshot(game!, "falling-sand-smoke.png", true);
+    expect(meta.width).toBeGreaterThan(0);
+    expect(meta.height).toBeGreaterThan(0);
   }, 30000);
 });
