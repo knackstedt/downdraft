@@ -10,3 +10,7 @@ preload = ["./packages/core/src/platform/bun-preload.ts"]
 [test]
 # Bun test configuration
 root = "."
+# Baseline electron mock — the real package's named exports don't exist under
+# bun, so any spec transitively importing a main-process module dies at import
+# time without this. Specs can still layer their own mock.module() on top.
+preload = ["./tests/electron-mock.ts"]

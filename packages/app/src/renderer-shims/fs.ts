@@ -26,4 +26,14 @@ export function watch(_path: string): { close(): void } {
   return { close() {} };
 }
 
-export default { existsSync, promises, watch };
+const unavailable = (name: string) => (): never => {
+  throw new Error(`fs.${name} is not available in sandboxed renderer`);
+};
+
+export const readFileSync = unavailable("readFileSync");
+export const readdirSync = unavailable("readdirSync");
+export const statSync = unavailable("statSync");
+export const writeFileSync = unavailable("writeFileSync");
+export const mkdirSync = unavailable("mkdirSync");
+
+export default { existsSync, promises, watch, readFileSync, readdirSync, statSync, writeFileSync, mkdirSync };

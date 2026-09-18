@@ -25,7 +25,8 @@
   },
   "files": [
     "src",
-    "README.md"
+    "README.md",
+    "!**/*.spec.ts"
   ],
   "peerDependencies": {
     "@downdraft/library-models": "^0.1.0"

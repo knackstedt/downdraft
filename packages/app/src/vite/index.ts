@@ -310,6 +310,7 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
     { find: /^fs$/, replacement: resolve(engine.src("@downdraft/app", "app"), "renderer-shims/fs.ts") },
     { find: /^node:path$/, replacement: resolve(engine.src("@downdraft/app", "app"), "renderer-shims/path.ts") },
     { find: /^path$/, replacement: resolve(engine.src("@downdraft/app", "app"), "renderer-shims/path.ts") },
+    { find: /^node:url$/, replacement: resolve(engine.src("@downdraft/app", "app"), "renderer-shims/url.ts") },
     { find: /^@downdraft\/library-marching-cubes$/, replacement: resolve(engine.src("@downdraft/library-marching-cubes", "libraries/marching-cubes"), "index.ts") },
     { find: /^@downdraft\/library-marching-cubes\//, replacement: engine.src("@downdraft/library-marching-cubes", "libraries/marching-cubes") + "/" },
     { find: /^@downdraft\/library-character$/, replacement: resolve(engine.src("@downdraft/library-character", "libraries/character"), "index.ts") },
@@ -341,6 +342,8 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
     { find: /^@downdraft\/app$/, replacement: resolve(engine.src("@downdraft/app", "app"), "index.ts") },
     ...(options.rendererAliases ?? []),
   ];
+
+  engine.warnUndeclared();
 
   // --- Hot-reload config ---
   // Games with a sim worker pass simPaths to trigger worker swap (with ack).

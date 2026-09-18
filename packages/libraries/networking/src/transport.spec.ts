@@ -111,7 +111,7 @@ describe("createTransport", () => {
   });
 
   it("should default to mock for unknown types", () => {
-    const t = createTransport("webrtc");
+    const t = createTransport("carrier-pigeon" as TransportType);
     expect(t.type).toBe("mock");
   });
 });

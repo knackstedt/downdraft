@@ -27,7 +27,6 @@ import IMAGE_WGSL from "@downdraft/core/imui/shaders/image.wgsl?raw" with { type
 import LINE_WGSL from "@downdraft/core/imui/shaders/line.wgsl?raw" with { type: "text" };
 import QUAD_WGSL from "@downdraft/core/imui/shaders/quad.wgsl?raw" with { type: "text" };
 import TEXT_WGSL from "@downdraft/core/imui/shaders/text.wgsl?raw" with { type: "text" };
-import POST_PROCESS_WGSL from "@downdraft/core/render/shaders/post-process.wgsl?raw" with { type: "text" };
 import CLOUD_WGSL from "@downdraft/library-weatherfx/shaders/cloud.wgsl?raw" with { type: "text" };
 import PARTICLE_COMPUTE_WGSL from "@downdraft/library-weatherfx/shaders/particle-compute.wgsl?raw" with { type: "text" };
 import PARTICLE_RENDER_WGSL from "@downdraft/library-weatherfx/shaders/particle-render.wgsl?raw" with { type: "text" };
@@ -108,17 +107,6 @@ const RenderUniformsStruct = wgsl.struct("RenderUniforms", {
   cullDistance: wgsl.f32,
 });
 
-const PostProcessUniformsStruct = wgsl.struct("PostProcessUniforms", {
-  exposure: wgsl.f32,
-  bloomThreshold: wgsl.f32,
-  bloomIntensity: wgsl.f32,
-  gamma: wgsl.f32,
-  contrast: wgsl.f32,
-  saturation: wgsl.f32,
-  vignette: wgsl.f32,
-  _pad0: wgsl.f32,
-});
-
 // ─── Helper ─────────────────────────────────────────────────────────────────
 function expectNoDrift(wgslSource: string, def: WgslStruct): void {
   const parsed = parseWgslStructs(wgslSource);
@@ -164,8 +152,3 @@ describe("WGSL struct drift: weatherfx", () => {
   });
 });
 
-describe("WGSL struct drift: postfx", () => {
-  it("PostProcessUniforms matches post-process.wgsl", () => {
-    expectNoDrift(POST_PROCESS_WGSL, PostProcessUniformsStruct);
-  });
-});

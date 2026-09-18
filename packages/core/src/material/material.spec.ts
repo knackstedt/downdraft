@@ -115,7 +115,7 @@ describe("MaterialLibrary", () => {
     const lib = new MaterialLibrary();
     const mat = lib.createPBR("pbr");
     expect(mat.name).toBe("pbr");
-    expect(mat.shader).toBe("shaders/pbr.wgsl");
+    expect(mat.shader).toBe("builtin:pbr");
     expect(mat.uniforms.has("baseColor")).toBe(true);
     expect(mat.uniforms.has("roughness")).toBe(true);
     expect(mat.uniforms.has("metallic")).toBe(true);
@@ -127,7 +127,7 @@ describe("MaterialLibrary", () => {
     const lib = new MaterialLibrary();
     const mat = lib.createUnlit("unlit");
     expect(mat.name).toBe("unlit");
-    expect(mat.shader).toBe("shaders/unlit.wgsl");
+    expect(mat.shader).toBe("builtin:unlit");
     expect(mat.uniforms.has("color")).toBe(true);
   });
 
@@ -135,7 +135,7 @@ describe("MaterialLibrary", () => {
     const lib = new MaterialLibrary();
     const mat = lib.createSkybox("sky");
     expect(mat.name).toBe("sky");
-    expect(mat.shader).toBe("shaders/skybox.wgsl");
+    expect(mat.shader).toBe("builtin:skybox");
     expect(mat.cullMode).toBe(CullMode.Front);
     expect(mat.textures.has("cubemap")).toBe(true);
   });
@@ -152,7 +152,7 @@ describe("MaterialLibrary", () => {
     const lib = new MaterialLibrary();
     const mat = lib.createPostProcess("post");
     expect(mat.name).toBe("post");
-    expect(mat.shader).toBe("shaders/postprocess.wgsl");
+    expect(mat.shader).toBe("builtin:postprocess");
     expect(mat.textures.has("source")).toBe(true);
   });
 

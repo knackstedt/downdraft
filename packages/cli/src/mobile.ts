@@ -198,6 +198,11 @@ createDowndraftMobileApp({
  * Build the web bundle for mobile using the mobile Vite config.
  */
 export async function buildMobileWeb(gameDir: string, env?: Record<string, string>): Promise<boolean> {
+  if (!existsSync(resolve(gameDir, "src/mobile.ts")) && !existsSync(resolve(gameDir, "src/mobile.tsx"))) {
+    log.info("mobile", "No src/mobile.ts(x) entry — skipping mobile web build.");
+    return true;
+  }
+
   log.info("mobile", "Building web bundle for mobile (dist/mobile/)...");
 
   // Forward env (e.g. DOWNDRAFT_BAKE=0) into the build process so the Vite

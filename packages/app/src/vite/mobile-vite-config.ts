@@ -167,6 +167,8 @@ export function createDowndraftMobileViteConfig(
     ...(options.rendererAliases ?? []),
   ];
 
+  engine.warnUndeclared();
+
   // --- HTML generation ---
   // The mobile entry is src/mobile.tsx (not src/main.tsx). Always inject the
   // entry path into the HTML options, even when the game provides a custom

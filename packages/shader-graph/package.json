@@ -17,7 +17,8 @@
   },
   "files": [
     "src",
-    "README.md"
+    "README.md",
+    "!**/*.spec.ts"
   ],
   "devDependencies": {
     "@downdraft/library-postfx": "^0.1.0",

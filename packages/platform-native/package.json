@@ -33,6 +33,7 @@
   "files": [
     "src",
     "native",
-    "README.md"
+    "README.md",
+    "!**/*.spec.ts"
   ]
 }

@@ -332,7 +332,7 @@ export function makeNativeContext(
       }
       const hostCalls = b.hostCalls;
       return hostCalls?.[name]
-        ? (hostCalls[name] as (...a: A) => Promise<R>).apply(hostCalls, args)
+        ? (hostCalls[name] as unknown as (...a: A) => Promise<R>).apply(hostCalls, args)
         : Promise.reject(new Error(`${name as string}: no host-call bridge wired (plugin "${b.id}")`));
     };
   };

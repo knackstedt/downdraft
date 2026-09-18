@@ -34,7 +34,7 @@ export class MaterialLibrary {
   createPBR(name: string): Material {
     const def: MaterialDefinition = {
       name,
-      shader: "shaders/pbr.wgsl",
+      shader: "builtin:pbr",
       uniforms: {
         baseColor: { name: "baseColor", type: "vec4", binding: 0 },
         roughness: { name: "roughness", type: "f32", binding: 1 },
@@ -55,7 +55,7 @@ export class MaterialLibrary {
   createUnlit(name: string): Material {
     const def: MaterialDefinition = {
       name,
-      shader: "shaders/unlit.wgsl",
+      shader: "builtin:unlit",
       uniforms: {
         color: { name: "color", type: "vec4", binding: 0 },
       },
@@ -71,7 +71,7 @@ export class MaterialLibrary {
   createSkybox(name: string): Material {
     const def: MaterialDefinition = {
       name,
-      shader: "shaders/skybox.wgsl",
+      shader: "builtin:skybox",
       uniforms: {},
       textures: {
         cubemap: { name: "cubemap", binding: 0, sampler: "linear-clamp" },
@@ -87,7 +87,7 @@ export class MaterialLibrary {
   createParticle(name: string): Material {
     const def: MaterialDefinition = {
       name,
-      shader: "shaders/particle.wgsl",
+      shader: "builtin:particle",
       uniforms: {
         color: { name: "color", type: "vec4", binding: 0 },
       },
@@ -103,7 +103,7 @@ export class MaterialLibrary {
   createPostProcess(name: string): Material {
     const def: MaterialDefinition = {
       name,
-      shader: "shaders/postprocess.wgsl",
+      shader: "builtin:postprocess",
       uniforms: {},
       textures: {
         source: { name: "source", binding: 0, sampler: "linear-clamp" },
@@ -236,7 +236,7 @@ export class MaterialLibrary {
   createShadow(name: string): Material {
     const def: MaterialDefinition = {
       name,
-      shader: "shaders/shadow-viz.wgsl",
+      shader: "builtin:shadow-viz",
       materialType: MaterialType.Shadow,
       uniforms: {
         shadowColor: { name: "shadowColor", type: "vec4", binding: 0 },

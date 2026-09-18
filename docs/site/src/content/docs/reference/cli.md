@@ -270,4 +270,10 @@ draft assets add-store s3 --bucket=my-bucket --region=us-east-1
 draft assets add textures --store=s3 --version=1.0.0
 draft assets push
 draft assets list
+
+# Manage game plugins/mods (runtime extensions under <game>/plugins/)
+draft plugin list                                    # list discovered plugin.json/mod.json
+draft plugin new my-plugin --game=my-game            # scaffold plugin.json (worker-js)
+draft plugin new my-plugin --game=my-game --format=wasm
+draft mod new my-mod --game=my-game                  # alias — scaffolds mod.json (asset)
 ```

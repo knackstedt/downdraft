@@ -28,6 +28,7 @@
     "src",
     "scripts",
     "templates",
-    "README.md"
+    "README.md",
+    "!**/*.spec.ts"
   ]
 }

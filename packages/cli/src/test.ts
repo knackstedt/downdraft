@@ -10,6 +10,20 @@ const log = createLogger();
 
 type Renderer = "gpu" | "cpu";
 
+/** Grab an OS-assigned free TCP port so e2e runs don't collide with a
+ *  running dev instance on the old pinned port (9976). */
+function findFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const srv = createServer();
+    srv.listen(0, "127.0.0.1", () => {
+      const addr = srv.address();
+      const port = typeof addr === "object" && addr ? addr.port : 0;
+      srv.close(() => (port ? resolve(port) : reject(new Error("no port assigned"))));
+    });
+    srv.on("error", reject);
+  });
+}
+
 interface TestArgs {
   game: string;
   mcpPort: number;
@@ -37,7 +51,7 @@ function parseTestArgs(args: string[]): TestArgs {
   const port = parsed.flags.port as number;
   return {
     game: parsed.flags.game as string,
-    mcpPort: port === 0 ? 9976 : port,
+    mcpPort: port,
     spec: (parsed.flags.spec as string) || null,
     renderer: parsed.flags.renderer as Renderer,
     deterministic: !(parsed.flags["no-deterministic"] as boolean),
@@ -128,6 +142,10 @@ export async function runTest(args: string[]): Promise<void> {
     log.error("test", `Looked in: tests/e2e/${opts.game}-smoke.spec.ts`);
     log.error("test", `Pass --spec=<path> to specify a spec file.`);
     process.exit(1);
+  }
+
+  if (!opts.mcpPort) {
+    opts.mcpPort = await findFreePort();
   }
 
   log.info("test", `

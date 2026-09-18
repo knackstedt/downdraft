@@ -10,6 +10,7 @@
 // the host reports platform "unsupported" and the renderer falls back to the
 // real Pointer Lock API.
 
+import { IPC } from "@downdraft/core/ipc";
 import { createLogger } from "@downdraft/core/util/logger";
 import type { WebContents } from "electron";
 import { existsSync } from "fs";
@@ -232,7 +233,7 @@ export class RawInputHost {
     const dy = this.deltaBuffer.dy;
     this.deltaBuffer.dx = 0;
     this.deltaBuffer.dy = 0;
-    this.webContents.send("raw-input:delta", dx, dy);
+    this.webContents.send(IPC.RAW_INPUT_DELTA, dx, dy);
   }
 
   /**
@@ -258,7 +259,7 @@ export class RawInputHost {
       this.flushDeltas();
       log.info("raw-input", "Native capture stopped unexpectedly — notifying renderer");
       if (this.webContents && !this.webContents.isDestroyed()) {
-        this.webContents.send("raw-input:stopped");
+        this.webContents.send(IPC.RAW_INPUT_STOPPED);
       }
     }
   }

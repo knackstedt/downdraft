@@ -33,6 +33,13 @@ export interface EngineResolver {
   engineDeps(exclude: Set<string>): string[];
   /** The monorepo root when detected (game at <root>/games/<name>), else null. */
   repoRoot: string | null;
+  /**
+   * Warn once about packages that only resolved via the monorepo fallback
+   * (not declared in the game's package.json). Call after building the alias
+   * table — alias probing engages the fallback eagerly, so per-call warnings
+   * would be noise.
+   */
+  warnUndeclared(): void;
 }
 
 /**
@@ -44,6 +51,7 @@ export function createEngineResolver(gameRoot: string, monorepoRoot?: string): E
   const candidate = monorepoRoot ?? resolve(gameRoot, "../..");
   const repoRoot = existsSync(join(candidate, "packages/core/package.json")) ? candidate : null;
   const req = createRequire(resolve(gameRoot, "package.json"));
+  const undeclared = new Set<string>();
 
   function pkg(name: string, monorepoSubdir: string): string {
     try {
@@ -51,6 +59,7 @@ export function createEngineResolver(gameRoot: string, monorepoRoot?: string): E
     } catch {
       // Not installed / not a declared dep — fall back to the monorepo layout
       // so unaliased engine packages still resolve inside the engine repo.
+      undeclared.add(name);
       return repoRoot ? join(repoRoot, "packages", monorepoSubdir) : join(candidate, "packages", monorepoSubdir);
     }
   }
@@ -97,5 +106,14 @@ export function createEngineResolver(gameRoot: string, monorepoRoot?: string): E
     return [...out];
   }
 
-  return { src, pkg, engineDeps, repoRoot };
+  function warnUndeclared(): void {
+    if (undeclared.size === 0) return;
+    const list = [...undeclared].sort().join(", ");
+    console.warn(
+      `[downdraft] ${undeclared.size} package(s) resolved via monorepo fallback (not declared in the game's package.json): ${list}\n` +
+      `  Declare them as dependencies or standalone installs will break.`,
+    );
+  }
+
+  return { src, pkg, engineDeps, repoRoot, warnUndeclared };
 }

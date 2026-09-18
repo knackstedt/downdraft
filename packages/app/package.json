@@ -58,6 +58,7 @@
   },
   "files": [
     "src",
-    "README.md"
+    "README.md",
+    "!**/*.spec.ts"
   ]
 }

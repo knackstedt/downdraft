@@ -3,6 +3,7 @@
 // ============================================================================
 
 import { createLogger } from "@downdraft/core";
+import { IPC } from "@downdraft/core/ipc";
 import { BrowserWindow, clipboard, ipcMain, type WebContents } from "electron";
 import type {
     AtlasPanelRect,
@@ -581,7 +582,7 @@ export abstract class OSRRenderer {
       })()`;
       wc.executeJavaScript(cursorJs).then((cursor: string | null) => {
         if (cursor && this.targetWebContents && !this.targetWebContents.isDestroyed()) {
-          this.targetWebContents.send("osr-cursor-style", this.id, cursor);
+          this.targetWebContents.send(IPC.OSR_CURSOR_STYLE, this.id, cursor);
         }
       }).catch((err: any) => {
         log.error("OSR", `cursor style query failed: ${err?.message ?? err}`);
