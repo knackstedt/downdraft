@@ -23,5 +23,6 @@
     "src",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "Surface-nets meshing \u2014 smooth isosurface extraction for density-field terrain."
 }

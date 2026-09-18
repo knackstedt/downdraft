@@ -22,5 +22,6 @@
     "src",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "Post-processing stack \u2014 21 chainable WebGPU effects (TAA, SSAO, SSR, DOF, motion blur, bloom, tonemap, and stylized passes)."
 }

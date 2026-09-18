@@ -1,0 +1,24 @@
+import { createSimWorker } from "@downdraft/core";
+
+// Sim worker — runs the fixed-timestep simulation loop in a Web Worker.
+// createSimWorker handles the tick loop, pause/resume/step control, stats,
+// and the "ready" event; you provide onInit + onTick.
+//
+// The init RPC args sent by SimHost arrive after `control`:
+//   proxy.init(simBuffer, libraryBuffers) → onInit(sab, control, libraryBuffers)
+createSimWorker({
+  fixedDt: 1 / 60,
+
+  onInit(sab, _control, libraryBuffers?: Record<string, SharedArrayBuffer>) {
+    // `sab` is the sim state buffer shared with the renderer.
+    // `libraryBuffers` are the SABs allocated by your EngineLibrary
+    // descriptors (e.g. WaterLib's water channel) — wire them into your sim.
+    void sab;
+    void libraryBuffers;
+  },
+
+  onTick(dt, _ctx) {
+    // Step your simulation here. `dt` equals fixedDt.
+    void dt;
+  },
+});

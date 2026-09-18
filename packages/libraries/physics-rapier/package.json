@@ -22,5 +22,6 @@
     "src",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "Rapier physics backend \u2014 WASM/native Rapier rigid-body simulation behind the engine physics API (PhysicsRapierLib descriptor)."
 }

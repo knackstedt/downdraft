@@ -41,7 +41,7 @@ export async function newProject(args: string[]): Promise<void> {
 
   const targetPath = parsed.positionals[0] ?? ".";
   const absTarget = resolve(targetPath);
-  const projectName = nameArg ?? basename(absTarget);
+  const projectName = nameArg || basename(absTarget);
 
   log.info("scaffold", `
   ╔══════════════════════════════════════════╗

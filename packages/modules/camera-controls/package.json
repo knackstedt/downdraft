@@ -22,5 +22,6 @@
     "src",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "Camera control module \u2014 orbit/fly/follow controllers with input binding and typed DI tokens."
 }

@@ -17,7 +17,7 @@
 //     are found by walking up from cwd (or verified against the name).
 
 import { existsSync, readFileSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 
 export const GAME_CONFIG_FILE = "electron.vite.config.ts";
 
@@ -69,22 +69,26 @@ export function findGameDirUpward(start: string = process.cwd()): string | null 
  * Returns null when nothing resolves.
  */
 export function resolveGameDir(name?: string): string | null {
-  if (name) {
-    const root = findMonorepoRoot();
-    if (root) {
-      const dir = join(root, "games", name);
-      return existsSync(dir) ? dir : null;
-    }
-    const dir = findGameDirUpward();
-    return dir && basename(dir) === name ? dir : null;
+  const upward = findGameDirUpward();
+  if (!name) return upward;
+  // The cwd's own game wins when its name matches — standalone repos can live
+  // anywhere, and the CLI's own location may still detect the monorepo.
+  if (upward && basename(upward) === name) return upward;
+  const root = findMonorepoRoot();
+  if (root) {
+    const dir = join(root, "games", name);
+    if (existsSync(dir)) return dir;
   }
-  return findGameDirUpward();
+  return null;
 }
 
 /**
  * The directory builds should spawn from / write `dist` into — the monorepo
- * root when inside it, else the game directory itself.
+ * root when the game lives inside it (shared root dist), else the game
+ * directory itself. The CLI's own location must NOT trigger the monorepo
+ * branch for standalone games (linked installs resolve back into the repo).
  */
 export function buildCwd(gameDir: string): string {
-  return findMonorepoRoot() ?? gameDir;
+  const root = findMonorepoRoot();
+  return root && resolve(gameDir).startsWith(root + sep) ? root : gameDir;
 }

@@ -1,0 +1,25 @@
+# `@downdraft/core`
+
+Downdraft engine core — ECS, WebGPU renderer, module/DI system, SharedArrayBuffer sim channels, sim worker host, plugin API, animation, particles, and imui.
+
+## Install
+
+```sh
+bun add @downdraft/core
+```
+
+## Key exports
+
+- `AudioEngine`
+- `AudioListener`
+- `AudioMixer`
+- `AudioSABChannel`
+- `AudioSABChannelDef`
+- `AudioSource`
+- `BSPNode`
+- `BaseWorkerHost`
+- `BoneTransforms`
+- `BufferSyncHost`
+- …and 210 more
+
+See the [Downdraft engine repository](https://github.com/knackstedt/downdraft) for architecture docs and examples.

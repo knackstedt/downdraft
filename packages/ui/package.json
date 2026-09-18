@@ -30,5 +30,6 @@
     "src",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "Shared engine UI components and widgets used by games and tools."
 }

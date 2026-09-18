@@ -23,5 +23,6 @@
     "src",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "Sailing mechanics module \u2014 wind state, buoyancy integration, and sail controls for nautical games."
 }

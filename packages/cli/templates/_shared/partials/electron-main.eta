@@ -1,0 +1,13 @@
+import { createDowndraftApp } from "@downdraft/app/main";
+
+createDowndraftApp({
+  appId: "<%= it.name %>",
+  window: {
+    title: "<%= it.name %>",
+    width: 1280,
+    height: 720,
+    minWidth: 800,
+    minHeight: 600,
+    backgroundColor: "#000000",
+  },
+});

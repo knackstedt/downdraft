@@ -35,9 +35,10 @@ export interface EngineResolver {
   repoRoot: string | null;
   /**
    * Warn once about packages that only resolved via the monorepo fallback
-   * (not declared in the game's package.json). Call after building the alias
-   * table — alias probing engages the fallback eagerly, so per-call warnings
-   * would be noise.
+   * (not declared in the game's package.json), and about packages that
+   * could not be resolved at all in standalone layouts. Call after building
+   * the alias table — alias probing engages the fallback eagerly, so
+   * per-call warnings would be noise.
    */
   warnUndeclared(): void;
 }
@@ -52,6 +53,7 @@ export function createEngineResolver(gameRoot: string, monorepoRoot?: string): E
   const repoRoot = existsSync(join(candidate, "packages/core/package.json")) ? candidate : null;
   const req = createRequire(resolve(gameRoot, "package.json"));
   const undeclared = new Set<string>();
+  const missing = new Set<string>();
 
   function pkg(name: string, monorepoSubdir: string): string {
     try {
@@ -59,8 +61,12 @@ export function createEngineResolver(gameRoot: string, monorepoRoot?: string): E
     } catch {
       // Not installed / not a declared dep — fall back to the monorepo layout
       // so unaliased engine packages still resolve inside the engine repo.
-      undeclared.add(name);
-      return repoRoot ? join(repoRoot, "packages", monorepoSubdir) : join(candidate, "packages", monorepoSubdir);
+      // Standalone games have no monorepo to fall back to: return the
+      // conventional node_modules path so the failure names the package.
+      (repoRoot ? undeclared : missing).add(name);
+      return repoRoot
+        ? join(repoRoot, "packages", monorepoSubdir)
+        : join(gameRoot, "node_modules", name);
     }
   }
 
@@ -107,12 +113,20 @@ export function createEngineResolver(gameRoot: string, monorepoRoot?: string): E
   }
 
   function warnUndeclared(): void {
-    if (undeclared.size === 0) return;
-    const list = [...undeclared].sort().join(", ");
-    console.warn(
-      `[downdraft] ${undeclared.size} package(s) resolved via monorepo fallback (not declared in the game's package.json): ${list}\n` +
-      `  Declare them as dependencies or standalone installs will break.`,
-    );
+    if (undeclared.size > 0) {
+      const list = [...undeclared].sort().join(", ");
+      console.warn(
+        `[downdraft] ${undeclared.size} package(s) resolved via monorepo fallback (not declared in the game's package.json): ${list}\n` +
+        `  Declare them as dependencies or standalone installs will break.`,
+      );
+    }
+    if (missing.size > 0) {
+      const list = [...missing].sort().join(", ");
+      console.warn(
+        `[downdraft] ${missing.size} package(s) could not be resolved from the game's package.json: ${list}\n` +
+        `  Install and declare them as dependencies, or imports of them will fail.`,
+      );
+    }
   }
 
   return { src, pkg, engineDeps, repoRoot, warnUndeclared };

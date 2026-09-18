@@ -22,5 +22,6 @@
     "src",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "Marching-cubes surface extraction \u2014 CPU/GPU isosurface meshing for voxel and density-field terrain (MarchingCubesLib descriptor)."
 }

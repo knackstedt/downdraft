@@ -1,5 +1,5 @@
 import type { ImportOptions } from "@downdraft/core";
-import { AssetImporter, confinePath } from "@downdraft/core";
+import { AssetImporter, confinePath, GLBLoader } from "@downdraft/core";
 import type { EngineContext } from "../engine-context";
 import type { ToolRegistration } from "../types";
 import { errorResult, jsonResult } from "../types";
@@ -75,7 +75,7 @@ export function createAssetTools(ctx: EngineContext): ToolRegistration[] {
           const fileData = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
           const ext = safePath.split(".").pop()?.toLowerCase() ?? "";
 
-          const loader = new (await import("@downdraft/core")).GLBLoader();
+          const loader = new GLBLoader();
           const importer = new AssetImporter(loader);
 
           let result;

@@ -23,5 +23,6 @@
     "src",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "Water simulation \u2014 water state channels, flow, and surface rendering (WaterLib descriptor)."
 }

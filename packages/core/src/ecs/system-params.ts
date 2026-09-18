@@ -27,7 +27,7 @@ export function res<T>(token: ResourceToken<T>): ResParam<T> {
 }
 
 export function q(
-  ...defs: ComponentDefinition<Record<string, unknown>>[]
+  ...defs: ComponentDefinition<any>[]
 ): QueryParam {
   return { kind: "query", query: queryFromDefs(...defs) };
 }
@@ -57,20 +57,31 @@ export function resolveParams(
 
 export type ParamSystemFn = (ctx: SystemContext, ...args: ResolvedParam[]) => void;
 
-export function systemWithParams(
+/** Maps a declared SystemParam to the value injected into the system fn. */
+export type ResolvedParamFor<P> =
+  P extends ResParam<infer T> ? Res<T>
+  : P extends QueryParam ? Query
+  : ResolvedParam;
+
+/** Tuple-map: `q(...) → Query`, `res(Tok<T>) → Res<T>`, in declared order. */
+export type ResolvedParamsFor<P extends readonly SystemParam[]> = {
+  [K in keyof P]: ResolvedParamFor<P[K]>;
+};
+
+export function systemWithParams<P extends readonly SystemParam[]>(
   name: string,
   stage: Stage,
-  params: SystemParam[],
-  fn: ParamSystemFn,
+  params: P,
+  fn: (ctx: SystemContext, ...args: ResolvedParamsFor<P>) => void,
   opts: { after?: string[]; before?: string[]; parallelizable?: boolean } = {},
 ): System {
   let resolvedCache: ResolvedParam[] | null = null;
 
   const wrappedFn: SystemFn = (ctx: SystemContext) => {
     if (!resolvedCache) {
-      resolvedCache = resolveParams(ctx.world, params);
+      resolvedCache = resolveParams(ctx.world, [...params]);
     }
-    fn(ctx, ...resolvedCache);
+    fn(ctx, ...(resolvedCache as unknown as ResolvedParamsFor<P>));
   };
 
   const queries = params

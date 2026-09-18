@@ -1,0 +1,25 @@
+import { SimWorkerHost } from "@downdraft/core";
+
+// Sim worker host — spawns sim-worker.ts on the main (renderer) thread and
+// exposes the sim SAB + event stream to startGame().
+//
+// `libraryBuffers` are the SABs allocated by EngineLibrary descriptors in
+// GameModule.libraries[] — forwarded to the worker via the init RPC.
+export class SimHost extends SimWorkerHost {
+  private libraryBuffers?: Record<string, SharedArrayBuffer>;
+
+  constructor(libraryBuffers?: Record<string, SharedArrayBuffer>) {
+    // Replace with your game's sim-buffer allocation (see the SAB APIs in
+    // @downdraft/core, e.g. defineRecordBuffer/allocateSimBuffer).
+    super(new SharedArrayBuffer(4096));
+    this.libraryBuffers = libraryBuffers;
+  }
+
+  protected createWorker(): Worker {
+    return new Worker(new URL("./sim-worker.ts", import.meta.url), { type: "module" });
+  }
+
+  protected async onInit(): Promise<void> {
+    await this.getProxy()!.proxy.init(this.getSimBuffer(), this.libraryBuffers);
+  }
+}

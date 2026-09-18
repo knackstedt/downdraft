@@ -40,5 +40,6 @@
     "src",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "PixiJS UI overlay \u2014 worker-hosted PixiJS GUI on an OffscreenCanvas layered above the game canvas (legacy game UI; prefer core/imui)."
 }

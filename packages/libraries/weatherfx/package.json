@@ -25,5 +25,6 @@
     "src",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "Weather rendering \u2014 cloud, fog, and precipitation render passes driven by sim weather state (WeatherFxLib descriptor)."
 }

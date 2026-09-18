@@ -23,5 +23,6 @@
     "src",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "Electron off-screen rendering module \u2014 OSR surfaces, shared-texture transfer, and paint routing for embedded/headless rendering."
 }

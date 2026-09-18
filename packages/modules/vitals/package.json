@@ -22,5 +22,6 @@
     "src",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "Vitals module \u2014 health/stamina/hunger-style stat systems with decay, regen, and DI tokens."
 }

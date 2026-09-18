@@ -19,5 +19,6 @@
     "src",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "Internal test harness utilities for the Downdraft engine monorepo."
 }

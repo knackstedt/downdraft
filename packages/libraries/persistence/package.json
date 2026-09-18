@@ -27,5 +27,6 @@
     "src",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "Save system \u2014 save stores (file, IndexedDB, OPFS), autosave manager, and serialization for game state."
 }

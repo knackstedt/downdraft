@@ -19,7 +19,7 @@ import {
     type McpToolResult,
 } from "./harness";
 
-const MCP_PORT = parseInt(process.env.MCP_PORT ?? "9986", 10);
+const MCP_PORT = process.env.MCP_PORT ? parseInt(process.env.MCP_PORT, 10) : undefined;
 
 describe("pixi-ui-demo MCP automation smoke", () => {
   let game: GameProcess | null = null;

@@ -22,5 +22,6 @@
     "src",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "3D movement module \u2014 character motor, capsule locomotion, and physics-backed movement."
 }

@@ -15,5 +15,8 @@ export function extname(p: string): string {
 export function basename(p: string): string {
   return p.split("/").pop() ?? p;
 }
+export function relative(_from: string, to: string): string { return to; }
+export function isAbsolute(p: string): boolean { return p.startsWith("/"); }
+export const sep = "/";
 
-export default { normalize, dirname, join, resolve, extname, basename };
+export default { normalize, dirname, join, resolve, extname, basename, relative, isAbsolute, sep };

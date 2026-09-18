@@ -8,7 +8,7 @@
     "build:shim": "cd native && gcc -shared -fPIC -o libwgpu_shim.so wgpu_shim.c -I./include -L./lib -lwgpu_native -lSDL2 -Wl,-rpath,'$ORIGIN/lib'",
     "build:shims": "bash native/build-shims.sh",
     "fetch:native": "node native/fetch-native.mjs",
-    "postinstall": "node native/fetch-native.mjs || echo '[platform-native] native fetch skipped (offline?) — run bun run fetch:native later'",
+    "postinstall": "node native/fetch-native.mjs || echo '[platform-native] native fetch skipped (offline?) \u2014 run bun run fetch:native later'",
     "test": "bun test"
   },
   "dependencies": {
@@ -35,5 +35,6 @@
     "native",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "Native platform bindings \u2014 wgpu-native/tint binaries and the native device layer for running Downdraft outside Electron."
 }

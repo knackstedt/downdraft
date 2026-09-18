@@ -25,5 +25,6 @@
     "native",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "Raw input module \u2014 OS-level mouse/keyboard capture for raw-delta input paths (e.g. pointer-lock-free FPS input)."
 }

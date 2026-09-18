@@ -22,5 +22,6 @@
     "src",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "Recast/Detour bindings \u2014 navmesh generation from level geometry via the Recast toolchain."
 }

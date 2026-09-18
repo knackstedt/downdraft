@@ -6,7 +6,10 @@
     "name": "index",
     "triples": {
       "defaults": false,
-      "additional": ["x86_64-unknown-linux-gnu"]
+      "additional": [
+        "x86_64-unknown-linux-gnu"
+      ]
     }
-  }
+  },
+  "description": "Native raw-input backend for Downdraft \u2014 OS-level mouse/keyboard capture used by the raw-input module."
 }

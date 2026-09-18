@@ -5,6 +5,8 @@
 // physics, util) plus remaining direct exports for modules without a sub-barrel.
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// <reference path="./webgpu-destroy-augmentation.d.ts" />
+
 // Sub-barrel re-exports — these aggregate all items from their respective domains.
 export * from "./assets";
 export * from "./ecs";

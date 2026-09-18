@@ -23,5 +23,6 @@
     "native",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "Audio engine backend (Kira) \u2014 spatial audio, music, and SFX playback wired as an engine library."
 }

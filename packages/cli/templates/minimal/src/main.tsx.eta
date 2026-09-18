@@ -1,0 +1,49 @@
+import { startGame } from "@downdraft/app/renderer";
+
+// ============================================================================
+// Minimal game template — declarative GameModule + startGame()
+//
+// This template shows the minimal structure for a Downdraft game. For a more
+// complete example with WebGPU rendering, sim worker, and libraries, see the
+// "full" template (`draft init --template full`).
+// ============================================================================
+
+startGame({
+  // Renderer factory — creates the renderer from a canvas element
+  renderer: (canvas) => ({
+    async init() { return true; },
+    setBuffers() {},
+    setupInputListeners() {},
+    render() {},
+    stop() {},
+    getFPS() { return 0; },
+  }),
+
+  // Sim worker factory — creates the sim worker
+  sim: () => ({
+    async start(_config: unknown) {},
+    onEvent(_cb: (msg: any) => void) {},
+    getSimBuffer() { return new SharedArrayBuffer(1024); },
+    getInputBuffer() { return new SharedArrayBuffer(1024); },
+  }),
+
+  // Sim config (passed to sim.start())
+  simConfig: { seed: 12345 },
+
+  // UI mount — mount your UI framework here (React, Solid, vanilla, etc.)
+  mountUI: (overlay) => {
+    overlay.innerHTML = '<h1 style="color:white;font-family:monospace">Hello Downdraft!</h1>';
+  },
+
+  // Post-init wiring — called after renderer init + sim start
+  onReady: (ctx) => {
+    console.log("[game] ready", { sim: ctx.sim, renderer: ctx.renderer });
+  },
+
+  // Cleanup — called on hot-reload dispose
+  onDispose: () => {
+    console.log("[game] disposed");
+  },
+}).catch((e) => {
+  console.error("[game] Fatal:", e);
+});

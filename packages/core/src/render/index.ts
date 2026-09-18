@@ -1,3 +1,4 @@
+/// <reference path="../webgpu-destroy-augmentation.d.ts" />
 // Render sub-barrel — re-exports all render-related items.
 export { BindGroupCache } from "./bind-group";
 export {

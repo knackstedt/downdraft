@@ -18,7 +18,7 @@ export function c<T extends Record<string, unknown>>(
 
 export function spawn(
   world: World,
-  ...specs: ComponentSpec<Record<string, unknown>>[]
+  ...specs: ComponentSpec<any>[]
 ): Entity {
   const components = new Map<number, unknown>();
   for (const spec of specs) {
@@ -32,7 +32,7 @@ export function spawnChild(
   world: World,
   hierarchy: Hierarchy,
   parent: Entity,
-  ...specs: ComponentSpec<Record<string, unknown>>[]
+  ...specs: ComponentSpec<any>[]
 ): Entity {
   const entity = spawn(world, ...specs);
   hierarchy.setParent(entity, parent);
@@ -42,7 +42,7 @@ export function spawnChild(
 export function batch(
   world: World,
   count: number,
-  factory: (i: number) => ComponentSpec<Record<string, unknown>>[],
+  factory: (i: number) => ComponentSpec<any>[],
 ): Entity[] {
   const entities: Entity[] = [];
   for (let i = 0; i < count; i++) {
@@ -54,7 +54,7 @@ export function batch(
 
 export function builderToPrefab(
   name: string,
-  specs: ComponentSpec<Record<string, unknown>>[],
+  specs: ComponentSpec<any>[],
   tags?: string[],
 ): Prefab {
   const components: PrefabComponentEntry[] = specs.map((spec) => ({

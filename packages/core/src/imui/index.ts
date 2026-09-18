@@ -1,3 +1,4 @@
+/// <reference path="../webgpu-destroy-augmentation.d.ts" />
 // UI Panels
 export { InspectorPanel } from "./inspector";
 export type { InspectorComponent, InspectorField, InspectorState } from "./inspector";

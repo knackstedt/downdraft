@@ -1,3 +1,4 @@
+/// <reference path="../webgpu-destroy-augmentation.d.ts" />
 export { ParticleComputePass } from "./compute-pass";
 export type { ParticleComputeParams } from "./compute-pass";
 export { createExplosionEmitter, createFireEmitter, createParticleEmitter, createSmokeEmitter, createSparkEmitter, ParticleEmitter } from "./emitter";

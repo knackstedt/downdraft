@@ -29,5 +29,6 @@
     "src",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "Offline asset baking pipeline \u2014 converts and optimizes meshes, textures, and shaders into engine-ready formats at build time."
 }

@@ -24,5 +24,6 @@
     "src",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "Character preview and inspection utilities \u2014 renders rigged characters for editors and debug views."
 }

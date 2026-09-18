@@ -30,5 +30,6 @@
     "templates",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "The `draft` command-line tool \u2014 project scaffolding (draft new), dev server, builds, release packaging, mobile targets, and plugin/module scaffolding."
 }

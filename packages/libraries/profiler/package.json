@@ -25,5 +25,6 @@
     "src",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "Runtime profiler \u2014 CPU/GPU timing, frame telemetry, and profiling overlays."
 }

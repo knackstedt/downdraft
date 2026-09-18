@@ -23,5 +23,6 @@
     "src",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "Clustered lighting system \u2014 light culling, shadow mapping, and deferred/forward light evaluation (LightingLib descriptor)."
 }

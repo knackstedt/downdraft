@@ -33,5 +33,6 @@
     "native",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "Native devtools bridge \u2014 mirrors profiling and inspection data to the native devtools process."
 }

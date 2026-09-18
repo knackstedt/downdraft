@@ -60,5 +60,6 @@
     "src",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "Downdraft application shell \u2014 Electron main process (createDowndraftApp), preload bridge, renderer runtime (startGame/GameModule), Vite config, and mobile shell."
 }

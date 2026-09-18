@@ -23,5 +23,6 @@
     "src",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "Stickman/figure animation helpers \u2014 procedural character figures for prototyping and tests."
 }

@@ -27,5 +27,6 @@
     "extension",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "In-engine devtools module \u2014 scene inspector, profiling hooks, and the `downdraft doctor` diagnostics panel."
 }

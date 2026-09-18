@@ -5,7 +5,7 @@ import {
     type GameProcess,
 } from "./harness";
 
-const MCP_PORT = parseInt(process.env.MCP_PORT ?? "9970", 10);
+const MCP_PORT = process.env.MCP_PORT ? parseInt(process.env.MCP_PORT, 10) : undefined;
 
 describe("falling-sand screenshot", () => {
   let game: GameProcess | null = null;

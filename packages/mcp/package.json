@@ -22,5 +22,6 @@
     "src",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "Model Context Protocol automation server for Downdraft \u2014 exposes engine state, entities, assets, and screenshots as MCP tools for AI-driven testing and inspection."
 }

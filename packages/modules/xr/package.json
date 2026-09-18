@@ -22,5 +22,6 @@
     "src",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "XR/WebXR module \u2014 camera rig, frame loop, input mapping, and support detection for VR/AR."
 }

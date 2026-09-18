@@ -22,5 +22,6 @@
     "src",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "Runtime navmesh generation and queries \u2014 grid/tiled navigation meshes with path solving and debug visualization."
 }

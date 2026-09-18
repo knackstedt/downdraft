@@ -35,5 +35,6 @@
     "@downdraft/library-models": {
       "optional": true
     }
-  }
+  },
+  "description": "Downdraft engine core \u2014 ECS, WebGPU renderer, module/DI system, SharedArrayBuffer sim channels, sim worker host, plugin API, animation, particles, and imui."
 }

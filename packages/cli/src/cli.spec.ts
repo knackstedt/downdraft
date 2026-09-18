@@ -119,7 +119,7 @@ describe("CLI new — minimal template", () => {
     expect(pkg.devDependencies["vite"]).toBeDefined();
     expect(pkg.devDependencies["typescript"]).toBeDefined();
     expect(pkg.devDependencies["oxlint"]).toBeDefined();
-    expect(pkg.devDependencies["@downdraft/app"]).toBe("^0.1.0");
+    expect(pkg.dependencies["@downdraft/app"]).toBe("^0.1.0");
     expect(pkg.devDependencies["@downdraft/cli"]).toBe("^0.1.0");
   });
 
@@ -176,8 +176,15 @@ describe("CLI new — minimal template", () => {
     expect(config.builder.mode).toBe("dev");
   });
 
-  it("should write main.ts with a startGame() entry", async () => {
+  it("should write the electron main + preload + renderer entries", async () => {
     const main = readFileSync(join(TEST_DIR, "src/main.ts"), "utf-8");
+    expect(main).toContain("createDowndraftApp");
+    const preload = readFileSync(join(TEST_DIR, "src/preload.ts"), "utf-8");
+    expect(preload).toContain("createDowndraftBridge");
+  });
+
+  it("should write main.tsx with a startGame() entry", async () => {
+    const main = readFileSync(join(TEST_DIR, "src/main.tsx"), "utf-8");
     expect(main).toContain("startGame");
     expect(main).toContain("onReady");
     expect(main).toContain("onDispose");
@@ -219,11 +226,12 @@ describe("CLI new — physics template", () => {
     expect(config.plugins).toContain("physics-rapier");
   });
 
-  it("should write main.ts with physics imports", async () => {
-    const main = readFileSync(join(TEST_DIR, "src/main.ts"), "utf-8");
-    expect(main).toContain("RigidBody");
-    expect(main).toContain("Collider");
-    expect(main).toContain("PhysicsTransform");
+  it("should write sim-worker.ts with physics imports", async () => {
+    const sim = readFileSync(join(TEST_DIR, "src/sim-worker.ts"), "utf-8");
+    expect(sim).toContain("RigidBody");
+    expect(sim).toContain("Collider");
+    expect(sim).toContain("PhysicsTransform");
+    expect(sim).toContain("createSimWorker");
   });
 });
 

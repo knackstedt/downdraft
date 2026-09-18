@@ -27,5 +27,6 @@
     "src",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "Model loading and mesh pipeline \u2014 GLTF/GLB/FBX/PLY/OBJ codecs, normalization, skinning, morph targets, and material adaptation."
 }

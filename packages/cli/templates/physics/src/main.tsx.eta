@@ -1,0 +1,36 @@
+import { GameRenderer } from "@downdraft/core";
+import { startGame } from "@downdraft/app/renderer";
+import { SimHost } from "./sim-host";
+
+// ============================================================================
+// Physics template — ECS sim worker + GameRenderer
+//
+// The sim runs in sim-worker.ts (a Web Worker): an ECS World with gravity and
+// integration systems that spawns falling shapes. This entry wires it to
+// startGame() and mounts the UI overlay.
+// ============================================================================
+
+startGame({
+  // ── Renderer + Sim ──
+  renderer: (canvas) => new GameRenderer(canvas),
+  sim: () => new SimHost(),
+  simConfig: { seed: 12345 },
+
+  // ── UI ──
+  mountUI: (overlay) => {
+    overlay.innerHTML =
+      '<h1 style="color:white;font-family:monospace">Physics demo</h1>';
+  },
+
+  // ── Post-init wiring ──
+  onReady: (ctx) => {
+    console.log("[game] ready", { simSAB: ctx.simSAB, inputSAB: ctx.inputSAB });
+  },
+
+  // ── Cleanup ──
+  onDispose: () => {
+    console.log("[game] disposed");
+  },
+}).catch((e) => {
+  console.error("[game] Fatal:", e);
+});

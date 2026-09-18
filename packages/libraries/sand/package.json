@@ -22,5 +22,6 @@
     "src",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "Falling-sand simulation \u2014 cellular automata world, material palette, rule engine, and parallel step pools (SandLib descriptor)."
 }

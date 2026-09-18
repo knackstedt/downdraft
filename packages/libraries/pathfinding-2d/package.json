@@ -20,5 +20,6 @@
     "src",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "2D pathfinding \u2014 A* grid search and flow fields for top-down and tile-based games."
 }

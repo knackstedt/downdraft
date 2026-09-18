@@ -36,5 +36,6 @@
     "src",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "PixiJS UI for the native runtime \u2014 native-side PixiJS host and UI blit pass."
 }

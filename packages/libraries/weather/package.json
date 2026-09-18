@@ -22,5 +22,6 @@
     "src",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "Weather state simulation \u2014 fronts, precipitation, and environmental conditions as sim-side state."
 }

@@ -23,5 +23,6 @@
     "src",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "Terrain streaming module \u2014 chunked terrain loading, LOD, and mesh generation workers."
 }

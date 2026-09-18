@@ -22,5 +22,6 @@
     "src",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "Client/server networking transports \u2014 WebRTC, WebSocket, and loopback/mock transports with a shared transport contract."
 }

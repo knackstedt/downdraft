@@ -23,5 +23,6 @@
     "src",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "MCP server module \u2014 hosts the Model Context Protocol automation server inside the engine process."
 }

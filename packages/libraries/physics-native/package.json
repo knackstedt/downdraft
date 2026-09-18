@@ -23,5 +23,6 @@
     "native",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "Native physics backend \u2014 binds the engine's UniversalPhysicsAPI to the native physics library."
 }

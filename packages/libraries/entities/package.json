@@ -23,5 +23,6 @@
     "src",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "description": "Generic entity rendering \u2014 ModelRenderer and entity-display plumbing shared by games (EntitiesLib descriptor)."
 }
