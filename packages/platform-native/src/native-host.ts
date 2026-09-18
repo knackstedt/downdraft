@@ -60,6 +60,7 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
       maxStorageBufferBindingSize: 256 * 1024 * 1024,
       maxStorageBuffersPerShaderStage: 16,
       maxSampledTexturesPerShaderStage: 32,
+      maxSamplersPerShaderStage: 32,
       maxTextureArrayLayers: 256,
     },
   });

@@ -82,20 +82,13 @@ export async function renderNative(
     targetFormat: "bgra8unorm",
     width,
     height,
+    backgroundColor: background,
+    backgroundAlpha: 1,
   });
 
   try {
     await pixi.ready;
     log("PixiJS Application initialized on shared wgpu-native device");
-
-    // Match the browser harness: opaque background so the comparison is not
-    // affected by alpha-compositing differences.
-    try {
-      (pixi.renderer as any).background.color = background;
-      (pixi.renderer as any).background.alpha = 1;
-    } catch (e) {
-      log(`warning: could not set background: ${e}`);
-    }
 
     // Build the scene on the stage.
     scene.build(pixi.stage, { width, height });

@@ -25,6 +25,10 @@ export interface NativePixiUiHostOptions {
   width: number;
   height: number;
   resolution?: number;
+  /** PixiJS background color (default: transparent overlay). */
+  backgroundColor?: number;
+  /** PixiJS background alpha — defaults to 0 (overlay compositing). */
+  backgroundAlpha?: number;
 }
 
 export class NativePixiUiHost {
@@ -56,7 +60,8 @@ export class NativePixiUiHost {
       canvas: this.canvas as unknown as HTMLCanvasElement,
       width: opts.width,
       height: opts.height,
-      backgroundAlpha: 0,
+      backgroundColor: opts.backgroundColor,
+      backgroundAlpha: opts.backgroundAlpha ?? 0,
       preference: "webgpu",
       antialias: false,
       resolution: opts.resolution ?? 1,
@@ -95,7 +100,14 @@ export class NativePixiUiHost {
   render(): void {
     if (this.disposed) return;
     try {
-      this.app.render();
+      // VirtualCanvas isn't an HTMLCanvasElement, so Pixi never detects the
+      // root target as "screen" and skips its background.colorRgba default —
+      // the clear falls back to transparent. Pass the clear explicitly.
+      this.app.renderer.render({
+        container: this.app.stage,
+        clear: this.app.renderer.background.clearBeforeRender,
+        clearColor: this.app.renderer.background.colorRgba,
+      });
     } catch (err) {
       console.error("[NativePixiUiHost] render error:", err);
     }
