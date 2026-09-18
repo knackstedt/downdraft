@@ -7,7 +7,8 @@
     ".": "./src/index.ts",
     "./*": [
       "./src/*.ts",
-      "./src/*/index.ts"
+      "./src/*/index.ts",
+      "./src/*"
     ],
     "./package.json": "./package.json"
   },
@@ -17,5 +18,10 @@
   "files": [
     "src",
     "README.md"
-  ]
+  ],
+  "devDependencies": {
+    "@downdraft/library-postfx": "^0.1.0",
+    "@downdraft/library-weatherfx": "^0.1.0",
+    "@downdraft/core": "^0.1.0"
+  }
 }

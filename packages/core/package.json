@@ -9,7 +9,8 @@
     "./profiling/*": "./src/profiling/*.ts",
     "./*": [
       "./src/*.ts",
-      "./src/*/index.ts"
+      "./src/*/index.ts",
+      "./src/*"
     ],
     "./package.json": "./package.json"
   },

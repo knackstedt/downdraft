@@ -4,6 +4,7 @@
   "type": "module",
   "dependencies": {
     "@downdraft/core": "workspace:*",
+    "@downdraft/library-physics-rapier": "^0.1.0",
     "@downdraft/physics-rapier": "workspace:*"
   }
 }

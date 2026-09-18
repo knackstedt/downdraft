@@ -11,7 +11,8 @@
     ".": "./src/index.ts",
     "./*": [
       "./src/*.ts",
-      "./src/*/index.ts"
+      "./src/*/index.ts",
+      "./src/*"
     ],
     "./package.json": "./package.json"
   },

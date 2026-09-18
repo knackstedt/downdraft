@@ -7,6 +7,7 @@ import type { app as App, BrowserWindow, screen as Screen, session as Session } 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "path";
 import { setExitOnDialogClose, showErrorDialog } from "./error-dialog";
+import { IPC } from "../shared/messages";
 import type { ResolvedDevtoolsConfig } from "./handlers/devtools";
 import type { DowndraftWindowConfig, WindowPlacement } from "./types";
 
@@ -387,7 +388,7 @@ export async function createWindow(opts: CreateWindowOptions): Promise<BrowserWi
     if (currentDisplay.id !== lastDisplayId) {
       lastDisplayId = currentDisplay.id;
     }
-    win.webContents.send("display-info", { refreshRate: currentDisplay.displayFrequency });
+    win.webContents.send(IPC.DISPLAY_INFO, { refreshRate: currentDisplay.displayFrequency });
   };
 
   win.webContents.once("did-finish-load", () => {
@@ -401,7 +402,7 @@ export async function createWindow(opts: CreateWindowOptions): Promise<BrowserWi
       const winBounds = win.getBounds();
       const currentDisplay = screen.getDisplayNearestPoint({ x: winBounds.x, y: winBounds.y });
       if (currentDisplay.id === metricsDisplay.id) {
-        win.webContents.send("display-metrics-changed", { scaleFactor: metricsDisplay.scaleFactor });
+        win.webContents.send(IPC.DISPLAY_METRICS_CHANGED, { scaleFactor: metricsDisplay.scaleFactor });
       }
     }
   });

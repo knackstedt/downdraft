@@ -5,9 +5,10 @@
   "main": "src/index.ts",
   "dependencies": {
     "@downdraft/core": "^0.1.0",
+    "@downdraft/shader-graph": "^0.1.0",
+    "lucide-react": "^0.468.0",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8",
-    "lucide-react": "^0.468.0"
+    "react-dom": "^19.2.8"
   },
   "devDependencies": {
     "@types/react": "^19.2.17",
@@ -17,7 +18,8 @@
     ".": "./src/index.ts",
     "./*": [
       "./src/*.ts",
-      "./src/*/index.ts"
+      "./src/*/index.ts",
+      "./src/*"
     ],
     "./package.json": "./package.json"
   },

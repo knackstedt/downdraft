@@ -14,6 +14,7 @@ import { ipcMain } from "electron";
 import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { IPC } from "../../shared/messages";
 import type { DowndraftMcpConfig, MainContext } from "../types";
 
 const log = createLogger("info");
@@ -79,7 +80,7 @@ export async function startMcpProxy(
         }
       });
 
-      ctx.window!.webContents.send("mcp-request", {
+      ctx.window!.webContents.send(IPC.MCP_REQUEST, {
         id: requestId,
         method: request.method,
         params: request.params,

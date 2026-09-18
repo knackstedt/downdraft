@@ -96,7 +96,8 @@ export class SlotReader {
   }
 
   isValid(): boolean {
-    return this.header.u32[this.layout.header.magicIndex] === this.layout.magic;
+    return this.header.u32[this.layout.header.magicIndex] === this.layout.magic &&
+      this.header.u32[this.layout.header.versionIndex] === this.layout.version;
   }
 
   getSequence(): number {

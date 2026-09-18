@@ -52,6 +52,11 @@
   ],
   "devDependencies": {
     "@downdraft/cli": "workspace:*",
+    "@downdraft/core": "^0.1.0",
+    "@downdraft/library-models": "^0.1.0",
+    "@downdraft/library-pixi-ui-native": "^0.1.0",
+    "@downdraft/platform-native": "^0.1.0",
+    "@downdraft/test": "^0.1.0",
     "@napi-rs/cli": "^2.18.0",
     "@types/node": "^22.10.0",
     "@types/pngjs": "^6.0.5",
@@ -69,11 +74,11 @@
     "pixi.js": "8.18.0",
     "playwright-core": "^1.63.0",
     "pngjs": "^7.0.0",
+    "tsx": "^4.23.0",
     "typescript": "^5.9.3",
     "vite": "^6.0.0",
     "wabt": "^1.0.39",
-    "wgpu-matrix": "^3.4.2",
-    "tsx": "^4.23.0"
+    "wgpu-matrix": "^3.4.2"
   },
   "dependencies": {
     "@bokuweb/zstd-wasm": "^0.0.27",
@@ -100,19 +105,46 @@
       "resources/**/*"
     ],
     "win": {
-      "target": ["portable"],
+      "target": [
+        "portable"
+      ],
       "artifactName": "${productName}-${version}-${arch}-portable.exe"
     },
     "linux": {
-      "target": ["AppImage", "deb", "rpm", "flatpak"],
+      "target": [
+        "AppImage",
+        "deb",
+        "rpm",
+        "flatpak"
+      ],
       "category": "Game",
       "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
     "deb": {
-      "depends": ["libgtk-3-0", "libnotify4", "libnss3", "libxss1", "libxtst6", "xdg-utils", "libatspi2.0-0", "libuuid1", "libsecret-1-0"]
+      "depends": [
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libuuid1",
+        "libsecret-1-0"
+      ]
     },
     "rpm": {
-      "depends": ["gtk3", "libnotify", "nss", "libXScrnSaver", "libXtst", "xdg-utils", "at-spi2-atk", "libuuid", "libsecret"]
+      "depends": [
+        "gtk3",
+        "libnotify",
+        "nss",
+        "libXScrnSaver",
+        "libXtst",
+        "xdg-utils",
+        "at-spi2-atk",
+        "libuuid",
+        "libsecret"
+      ]
     },
     "flatpak": {
       "base": "org.electronjs.Electron2.BaseApp",

@@ -1,4 +1,4 @@
-import { createDowndraftViteConfig } from "../../packages/app/src/vite/index";
+import { createDowndraftViteConfig } from "@downdraft/app/vite";
 
 export default createDowndraftViteConfig({
   root: __dirname,

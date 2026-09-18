@@ -1,4 +1,4 @@
-import { MultiInputSABWriter } from "../../../core/src/input/multi-sab-bridge";
+import { MultiInputSABWriter } from "@downdraft/core/input/multi-sab-bridge";
 import type { PlatformAdapter } from "./platform-adapter";
 
 export const REMOTE_INPUT_MSG_TYPE = 0x10;

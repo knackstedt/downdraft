@@ -1,6 +1,6 @@
 import { createLogger } from "@downdraft/core";
 import { VisionTestSuite, type VisionTestResult } from "@downdraft/test";
-import { visionTestSuite, type VisionTestResult as VTR } from "../../tests/vision/index";
+import { visionTestSuite, type VisionTestResult as VTR } from "./vision/index";
 
 const log = createLogger();
 
