@@ -2,8 +2,8 @@
 // OSR Renderer — Abstract base class for offscreen rendering BrowserWindows
 // ============================================================================
 
-import { createLogger } from "@downdraft/core";
-import { IPC } from "@downdraft/core/ipc";
+import { createLogger } from "@downdraft/engine";
+import { IPC } from "@downdraft/engine/ipc";
 import { BrowserWindow, clipboard, ipcMain, type WebContents } from "electron";
 import type {
     AtlasPanelRect,

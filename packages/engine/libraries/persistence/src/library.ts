@@ -1,5 +1,5 @@
 // ============================================================================
-// PersistenceLib — declarative engine library descriptor for @downdraft/library-persistence
+// PersistenceLib — declarative engine library descriptor for @downdraft/engine/libraries/persistence
 //
 // Games declare `libraries: [PersistenceLib]` (or with config override) in
 // their GameModule. The host creates an OpfsSaveStore (sim-side), initializes
@@ -9,8 +9,8 @@
 // IndexedDBSaveStore, or SaveWorkerProxy directly (escape hatch).
 // ============================================================================
 
-import { resourceToken, type EngineLibrary } from "@downdraft/core";
-import type { ISaveStore } from "@downdraft/core/save/persist-types";
+import { resourceToken, type EngineLibrary } from "@downdraft/engine";
+import type { ISaveStore } from "@downdraft/engine/save/persist-types";
 import { OpfsSaveStore } from "./opfs-save-store";
 
 // ── Config ──

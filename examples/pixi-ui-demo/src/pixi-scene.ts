@@ -12,7 +12,7 @@
 // The worker dynamically imports this module via the sceneModuleUrl config.
 // ============================================================================
 
-import type { PixiUiScene, PixiUiSceneContext } from "@downdraft/library-pixi-ui";
+import type { PixiUiScene, PixiUiSceneContext } from "@downdraft/engine/libraries/pixi-ui";
 import { Container, Graphics, Text } from "pixi.js";
 
 export default function createDemoScene(ctx: PixiUiSceneContext): PixiUiScene {

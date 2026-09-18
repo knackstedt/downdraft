@@ -31,7 +31,7 @@
 // a deprecation warning.
 //
 
-import { createLogger } from "@downdraft/core";
+import { createLogger } from "@downdraft/engine";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { parseArgs, print, renderHelp } from "./args";

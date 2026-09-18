@@ -3,8 +3,8 @@
 // Uses a read-only storage buffer shared across all entity pipelines.
 // ============================================================================
 
-import { createValidatedShaderModule } from "@downdraft/core";
-import { calculateViewProj, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, type CameraState, type ITrackedRenderPass } from "@downdraft/core";
+import { createValidatedShaderModule } from "@downdraft/engine";
+import { calculateViewProj, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, type CameraState, type ITrackedRenderPass } from "@downdraft/engine";
 import { LightingSystem } from "./lighting-system";
 import DEBUG_WGSL from "./shaders/light-debug.wgsl?raw" with { type: "text" };
 

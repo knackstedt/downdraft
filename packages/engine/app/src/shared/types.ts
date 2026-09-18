@@ -1,12 +1,12 @@
 // ============================================================================
-// @downdraft/app/shared/types — IPC payload interfaces shared across processes
+// @downdraft/engine/app/shared/types — IPC payload interfaces shared across processes
 // ============================================================================
 //
 // These interfaces describe the shape of data that flows through the preload
 // bridge, IPC handlers, and renderer accessor.  They are type-only — no runtime
 // code — so importing them from any process (main / preload / renderer) is safe.
 
-import type { FeatureLogData } from "@downdraft/core";
+import type { FeatureLogData } from "@downdraft/engine";
 import type {
     AtlasLayout,
     AtlasPanelRect,
@@ -14,7 +14,7 @@ import type {
     OSRPanelConfig,
     OSRRendererConfig,
     OSRRendererEvent,
-} from "@downdraft/module-electron-osr";
+} from "@downdraft/engine/modules/electron-osr";
 export type { FeatureLogData };
 
 // ---------------------------------------------------------------------------

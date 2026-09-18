@@ -2,8 +2,8 @@
 // Error dialog + process-level crash handlers
 // ============================================================================
 
-import { encodeFeatureLogLine } from "@downdraft/core";
-import { createLogger } from "@downdraft/core/util/logger";
+import { encodeFeatureLogLine } from "@downdraft/engine";
+import { createLogger } from "@downdraft/engine/util/logger";
 import type { app as AppType, BrowserWindow as BrowserWindowType } from "electron";
 import { getCachedMainFeatureLog } from "./feature-log";
 

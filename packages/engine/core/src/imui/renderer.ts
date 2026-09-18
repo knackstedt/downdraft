@@ -1,5 +1,5 @@
 import { createValidatedShaderModule } from "../render/shader-validator";
-import { StructView, wgsl } from "@downdraft/shader-graph";
+import { StructView, wgsl } from "@downdraft/engine/shader-graph";
 import type { GraphRenderContext } from "../index";
 import type { UIDrawable } from "./element";
 import { buildGlyphAtlasData, getAtlasDimensions, getGlyphUV } from "./glyph-atlas";

@@ -16,7 +16,7 @@ import type {
     PhysicsRealmConfig,
     RaycastResult,
     ShapeCastResult,
-} from "@downdraft/core";
+} from "@downdraft/engine";
 import { loadPhysicsLib, type PhysicsLib } from "./rapier-backend";
 
 interface RealmState {

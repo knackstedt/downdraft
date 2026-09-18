@@ -20,7 +20,7 @@
 
 // ── Constants ──
 
-import { createValidatedShaderModule } from "@downdraft/core";
+import { createValidatedShaderModule } from "@downdraft/engine";
 export const DEFAULT_TILE_SIZE = 16;
 export const DEFAULT_MAX_SPLATS_PER_TILE = 256;
 const WORKGROUP_SIZE = 64;

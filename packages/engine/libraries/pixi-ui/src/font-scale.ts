@@ -1,6 +1,6 @@
 // ============================================================================
 // Re-exported from core — the canonical home for font-scale utilities moved
-// to `@downdraft/core/imui` now that game UI runs on imui instead of pixi.
+// to `@downdraft/engine/imui` now that game UI runs on imui instead of pixi.
 // ============================================================================
 export {
   detectSystemFontScale,
@@ -9,4 +9,4 @@ export {
   loadUserFontScale,
   saveUserFontScale,
   getEffectiveFontScale,
-} from "@downdraft/core";
+} from "@downdraft/engine";

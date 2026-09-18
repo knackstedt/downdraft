@@ -23,20 +23,20 @@ import { wgsl } from "./wgsl-struct";
 import { compareStruct, parseWgslStructs } from "./wgsl-struct-validator";
 
 // ─── .wgsl file imports (resolved via workspace package links) ──────────────
-import IMAGE_WGSL from "@downdraft/core/imui/shaders/image.wgsl?raw" with { type: "text" };
-import LINE_WGSL from "@downdraft/core/imui/shaders/line.wgsl?raw" with { type: "text" };
-import QUAD_WGSL from "@downdraft/core/imui/shaders/quad.wgsl?raw" with { type: "text" };
-import TEXT_WGSL from "@downdraft/core/imui/shaders/text.wgsl?raw" with { type: "text" };
-import CLOUD_WGSL from "@downdraft/library-weatherfx/shaders/cloud.wgsl?raw" with { type: "text" };
-import PARTICLE_COMPUTE_WGSL from "@downdraft/library-weatherfx/shaders/particle-compute.wgsl?raw" with { type: "text" };
-import PARTICLE_RENDER_WGSL from "@downdraft/library-weatherfx/shaders/particle-render.wgsl?raw" with { type: "text" };
+import IMAGE_WGSL from "@downdraft/engine/imui/shaders/image.wgsl?raw" with { type: "text" };
+import LINE_WGSL from "@downdraft/engine/imui/shaders/line.wgsl?raw" with { type: "text" };
+import QUAD_WGSL from "@downdraft/engine/imui/shaders/quad.wgsl?raw" with { type: "text" };
+import TEXT_WGSL from "@downdraft/engine/imui/shaders/text.wgsl?raw" with { type: "text" };
+import CLOUD_WGSL from "@downdraft/engine/libraries/weatherfx/shaders/cloud.wgsl?raw" with { type: "text" };
+import PARTICLE_COMPUTE_WGSL from "@downdraft/engine/libraries/weatherfx/shaders/particle-compute.wgsl?raw" with { type: "text" };
+import PARTICLE_RENDER_WGSL from "@downdraft/engine/libraries/weatherfx/shaders/particle-render.wgsl?raw" with { type: "text" };
 
 // ─── Struct definitions (must match the library definitions exactly) ────────
 // These mirror the definitions in:
-//   - packages/libraries/imui/src/renderer.ts (ScreenUniformsStruct)
-//   - packages/libraries/weatherfx/src/cloud-system.ts (CloudUniformsStruct, PerLayerUniformsStruct)
-//   - packages/libraries/weatherfx/src/particle-system.ts (SimParamsStruct, RenderUniformsStruct)
-//   - packages/libraries/postfx/src/pixelation.ts (PostProcessUniformsStruct)
+//   - packages/engine/libraries/imui/src/renderer.ts (ScreenUniformsStruct)
+//   - packages/engine/libraries/weatherfx/src/cloud-system.ts (CloudUniformsStruct, PerLayerUniformsStruct)
+//   - packages/engine/libraries/weatherfx/src/particle-system.ts (SimParamsStruct, RenderUniformsStruct)
+//   - packages/engine/libraries/postfx/src/pixelation.ts (PostProcessUniformsStruct)
 
 const ScreenUniformsStruct = wgsl.struct("ScreenUniforms", {
   screenSize: wgsl.vec2f,

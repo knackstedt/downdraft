@@ -1,11 +1,11 @@
-# `@downdraft/mcp`
+# `@downdraft/engine/mcp`
 
 Model Context Protocol automation server for Downdraft — exposes engine state, entities, assets, and screenshots as MCP tools for AI-driven testing and inspection.
 
 ## Install
 
 ```sh
-bun add @downdraft/mcp
+bun add @downdraft/engine/mcp
 ```
 
 ## Key exports

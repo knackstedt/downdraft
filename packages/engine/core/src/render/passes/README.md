@@ -48,8 +48,8 @@ Screen-space and fullscreen post-processing effects.
 
 > **Note:** The unified `PostProcessStack` (21+ chainable effects), its WGSL
 > shaders, the `PostfxLib` engine-library descriptor, and the `LUT3D` color
-> grading effect have moved to the dedicated `@downdraft/library-postfx`
-> package at `packages/libraries/postfx/`. The standalone `lut3d.ts`
+> grading effect have moved to the dedicated `@downdraft/engine/libraries/postfx`
+> package at `packages/engine/libraries/postfx/`. The standalone `lut3d.ts`
 > frame-graph pass has been removed in favor of the in-chain `lut` effect.
 
 ### `passes/compute/` — Compute passes
@@ -114,7 +114,7 @@ Traditional forward-rendering passes (opaque, transparent, sky, etc.).
    After moving, these paths become `./passes/<subdir>/<name>` and
    `../passes/<subdir>/<name>` respectively.
 2. **Spec files**: Each `.spec.ts` file should move alongside its source file.
-3. **Barrel exports**: `packages/core/src/render/index.ts` re-exports all
+3. **Barrel exports**: `packages/engine/core/src/render/index.ts` re-exports all
    passes — update the paths there after migration.
 4. **Cross-pass imports**: Some passes import from sibling passes (e.g.
    `post-process.ts` imports from `volumetric-types.ts`). Update these

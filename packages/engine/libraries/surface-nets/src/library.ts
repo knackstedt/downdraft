@@ -1,5 +1,5 @@
 // ============================================================================
-// SurfaceNetsLib — declarative engine library descriptor for @downdraft/library-surface-nets
+// SurfaceNetsLib — declarative engine library descriptor for @downdraft/engine/libraries/surface-nets
 //
 // Surface-nets is an alternative mesh extraction algorithm to marching cubes.
 // This library provides the extraction functions + chunked voxel field storage.
@@ -10,7 +10,7 @@
 // createChunkedVoxelField directly (escape hatch).
 // ============================================================================
 
-import { resourceToken, type EngineLibrary } from "@downdraft/core";
+import { resourceToken, type EngineLibrary } from "@downdraft/engine";
 import { DEFAULT_STREAMING_CONFIG, type TerrainStreamingConfig } from "./streaming-config";
 
 // ── Config ──

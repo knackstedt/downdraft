@@ -1,4 +1,4 @@
-import type { PhysicsModuleConfig } from "@downdraft/core";
+import type { PhysicsModuleConfig } from "@downdraft/engine";
 import { UniversalPhysicsAPI } from "./api";
 import { RapierPhysicsBackend } from "./backend";
 

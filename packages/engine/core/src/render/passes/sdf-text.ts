@@ -1,5 +1,5 @@
-import type { WgslStruct } from "@downdraft/shader-graph";
-import { f32, vec4f, wgsl } from "@downdraft/shader-graph";
+import type { WgslStruct } from "@downdraft/engine/shader-graph";
+import { f32, vec4f, wgsl } from "@downdraft/engine/shader-graph";
 
 export interface SDFGlyph {
   char: string;

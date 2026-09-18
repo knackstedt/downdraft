@@ -11,8 +11,8 @@
 //   - README.md
 // ============================================================================
 
-import type { PluginFormat, PluginThread, PluginTier } from "@downdraft/core";
-import { createLogger } from "@downdraft/core";
+import type { PluginFormat, PluginThread, PluginTier } from "@downdraft/engine";
+import { createLogger } from "@downdraft/engine";
 import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join, resolve } from "path";
 
@@ -143,7 +143,7 @@ export async function scaffoldPlugin(opts: PluginScaffoldOptions): Promise<void>
     author: opts.author ?? "",
     private: true,
     type: "module",
-    dependencies: { "@downdraft/core": "workspace:*" },
+    dependencies: { "@downdraft/engine": "workspace:*" },
   };
   writeFileSync(join(pluginDir, "package.json"), JSON.stringify(pkg, null, 2) + "\n");
 
@@ -185,7 +185,7 @@ export async function scaffoldPlugin(opts: PluginScaffoldOptions): Promise<void>
 }
 
 function WORKER_JS_TEMPLATE(opts: PluginScaffoldOptions): string {
-  return `import type { NativePluginContext, PluginEntry } from "@downdraft/core";
+  return `import type { NativePluginContext, PluginEntry } from "@downdraft/engine";
 
 const plugin: PluginEntry<NativePluginContext> = {
   register(ctx: NativePluginContext) {

@@ -5,7 +5,7 @@
 // FBX SDK. See test-fixtures/fbx/README.md for the per-model feature/expectation
 // table and LICENSE-notice.txt for attribution.
 //
-// Run: bun test packages/libraries/models/src/fbx/fbx.spec.ts
+// Run: bun test packages/engine/libraries/models/src/fbx/fbx.spec.ts
 //
 
 import { describe, expect, it } from "bun:test";
@@ -23,9 +23,9 @@ async function loadFixture(filename: string): Promise<ArrayBuffer> {
 }
 
 function loadRealWorld(relativePath: string): Promise<ArrayBuffer> {
-  // SPEC_DIR is packages/libraries/models/src/fbx/
+  // SPEC_DIR is packages/engine/libraries/models/src/fbx/
   // Go up 5 levels to repo root (downdraft-engine/), then into relativePath
-  const abs = resolve(SPEC_DIR, "..", "..", "..", "..", "..", relativePath);
+  const abs = resolve(SPEC_DIR, "..", "..", "..", "..", "..", "..", relativePath);
   const file = Bun.file(abs);
   return file.arrayBuffer();
 }

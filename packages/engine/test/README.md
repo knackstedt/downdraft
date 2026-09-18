@@ -1,11 +1,11 @@
-# `@downdraft/test`
+# `@downdraft/engine/test`
 
 Internal test harness utilities for the Downdraft engine monorepo.
 
 ## Install
 
 ```sh
-bun add @downdraft/test
+bun add @downdraft/engine/test
 ```
 
 ## Key exports

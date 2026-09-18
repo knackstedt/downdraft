@@ -1,7 +1,7 @@
 // ============================================================================
 // MaterialNodes — Node type definitions for the Node Material Editor
 // Maps to the existing shader-graph compiler node types in
-// packages/shader-graph/src/compiler.ts
+// packages/engine/shader-graph/src/compiler.ts
 // ============================================================================
 
 (function (global) {

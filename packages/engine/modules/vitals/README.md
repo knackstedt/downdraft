@@ -1,11 +1,11 @@
-# `@downdraft/module-vitals`
+# `@downdraft/engine/modules/vitals`
 
 Vitals module — health/stamina/hunger-style stat systems with decay, regen, and DI tokens.
 
 ## Install
 
 ```sh
-bun add @downdraft/module-vitals
+bun add @downdraft/engine/modules/vitals
 ```
 
 ## Key exports

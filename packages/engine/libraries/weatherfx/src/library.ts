@@ -1,5 +1,5 @@
 // ============================================================================
-// WeatherFxLib — declarative engine library descriptor for @downdraft/library-weatherfx
+// WeatherFxLib — declarative engine library descriptor for @downdraft/engine/libraries/weatherfx
 //
 // Games declare `libraries: [WeatherFxLib]` (or with config override) in their
 // GameModule. The host creates the ParticleSystem (renderer-side only — weather
@@ -12,7 +12,7 @@
 // hatch).
 // ============================================================================
 
-import { resourceToken, type EngineLibrary } from "@downdraft/core";
+import { resourceToken, type EngineLibrary } from "@downdraft/engine";
 import { ParticleSystem } from "./particle-system";
 
 // ── Config ──

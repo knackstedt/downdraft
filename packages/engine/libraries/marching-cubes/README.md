@@ -1,11 +1,11 @@
-# `@downdraft/library-marching-cubes`
+# `@downdraft/engine/libraries/marching-cubes`
 
 Marching-cubes surface extraction — CPU/GPU isosurface meshing for voxel and density-field terrain (MarchingCubesLib descriptor).
 
 ## Install
 
 ```sh
-bun add @downdraft/library-marching-cubes
+bun add @downdraft/engine/libraries/marching-cubes
 ```
 
 ## Key exports

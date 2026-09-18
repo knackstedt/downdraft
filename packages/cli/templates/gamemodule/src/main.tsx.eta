@@ -1,6 +1,6 @@
-import { GameRenderer } from "@downdraft/core";
-import { startGame, type SimWorkerSeed } from "@downdraft/app/renderer";
-import { WaterLib } from "@downdraft/library-water";
+import { GameRenderer } from "@downdraft/engine";
+import { startGame, type SimWorkerSeed } from "@downdraft/engine/app/renderer";
+import { WaterLib } from "@downdraft/engine/libraries/water";
 import { SimHost } from "./sim-host";
 
 // ============================================================================
@@ -12,7 +12,7 @@ import { SimHost } from "./sim-host";
 // - Save config
 // - Game-specific hooks (onReady, onDispose)
 //
-// Feature modules such as @downdraft/module-terrain can be registered on the
+// Feature modules such as @downdraft/engine/modules/terrain can be registered on the
 // renderer's module host inside onReady.
 // ============================================================================
 

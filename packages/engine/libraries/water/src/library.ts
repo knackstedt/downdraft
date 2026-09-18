@@ -1,5 +1,5 @@
 // ============================================================================
-// WaterLib — declarative engine library descriptor for @downdraft/library-water
+// WaterLib — declarative engine library descriptor for @downdraft/engine/libraries/water
 //
 // Games declare `libraries: [WaterLib]` (or `[[WaterLib, { patchSize: 8 }]]`
 // to override config) in their GameModule. The host allocates the water SAB,
@@ -10,7 +10,7 @@
 // directly (escape hatch).
 // ============================================================================
 
-import { resourceToken, type EngineLibrary } from "@downdraft/core";
+import { resourceToken, type EngineLibrary } from "@downdraft/engine";
 import { WaterBufferReader, WaterBufferWriter, WaterChannel } from "./water-sab";
 
 // ── Config ──
@@ -60,7 +60,7 @@ export const WaterLib: EngineLibrary<WaterLibConfig> = {
 
   renderer: {
     init(_config, _ctx) {
-      // WaterPass is in @downdraft/core, not this library.
+      // WaterPass is in @downdraft/engine, not this library.
       // The game creates the pass in onReady and injects WaterReaderTok.
       return null;
     },

@@ -1,4 +1,4 @@
-import { createDowndraftApp } from "@downdraft/app/main";
+import { createDowndraftApp } from "@downdraft/engine/app/main";
 
 createDowndraftApp({
   appId: "<%= it.name %>",

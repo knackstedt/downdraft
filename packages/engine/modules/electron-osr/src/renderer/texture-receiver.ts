@@ -2,7 +2,7 @@
 // OSR Texture Receiver — Receives shared GPU textures from Electron OSR
 // ============================================================================
 
-import { createLogger } from "@downdraft/core";
+import { createLogger } from "@downdraft/engine";
 import type { OSRSharedTexturePixelFormat } from "../types";
 import { createDecompressWorker } from "./osr-decompress-worker";
 import { OSRSABRingBuffer } from "./osr-sab-buffer";

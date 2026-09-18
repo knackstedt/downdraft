@@ -10,14 +10,14 @@
 //      is given a target it cannot make progress toward (reachability check
 //      disabled via reachabilityTolerance: 0) and the stuckTimeout elapses.
 // ============================================================================
-import { PhysicsTransform, Query, World, type Entity } from "@downdraft/core";
+import { PhysicsTransform, Query, World, type Entity } from "@downdraft/engine";
 import {
     RecastAgent,
     RecastBackend,
     RecastCrowdSystem,
     type RecastAgentData,
     type Vec3,
-} from "@downdraft/library-recast";
+} from "@downdraft/engine/libraries/recast";
 
 // ── Obstacle scene (mirrors games/downdraft-gpu-bench/.../obstacle-scene.ts) ──
 

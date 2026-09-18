@@ -16,8 +16,8 @@
 // (half-res, matching the game's light-accum pass). 2D grid games may bind
 // 1x1 white dummy textures so lighting is identity.
 
-import type { WgslStruct } from "@downdraft/shader-graph";
-import { f32, vec2f, vec3f, vec4f, wgsl } from "@downdraft/shader-graph";
+import type { WgslStruct } from "@downdraft/engine/shader-graph";
+import { f32, vec2f, vec3f, vec4f, wgsl } from "@downdraft/engine/shader-graph";
 
 // ─── Uniform structs (single source of truth for layout) ───────────────────
 const StickmanUniformsStruct: WgslStruct = wgsl.struct("StickmanUniforms", {

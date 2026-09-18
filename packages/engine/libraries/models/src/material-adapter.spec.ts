@@ -1,4 +1,4 @@
-import { MaterialLibrary } from "@downdraft/core";
+import { MaterialLibrary } from "@downdraft/engine";
 import { describe, expect, it } from "bun:test";
 import { materialDataArrayToMaterials, materialDataToMaterial } from "./material-adapter";
 import type { MaterialData } from "./types";

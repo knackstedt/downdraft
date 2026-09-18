@@ -8,7 +8,7 @@ DownDraft includes a GPU compute particle system with configurable emitters.
 ## Basic Usage
 
 ```typescript
-import { ParticleSystem, createFireEmitter } from "@downdraft/core";
+import { ParticleSystem, createFireEmitter } from "@downdraft/engine";
 
 const particles = new ParticleSystem({
   maxParticlesPerEmitter: 5000,
@@ -31,7 +31,7 @@ particles.render(ctx, viewProj, cameraPos);
 ## Smoke Emitter
 
 ```typescript
-import { ParticleSystem, createSmokeEmitter } from "@downdraft/core";
+import { ParticleSystem, createSmokeEmitter } from "@downdraft/engine";
 
 const particles = new ParticleSystem({
   maxParticlesPerEmitter: 10000,

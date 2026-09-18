@@ -1,14 +1,14 @@
-// @downdraft/library-postfx — unified chainable WebGPU postprocessing
+// @downdraft/engine/libraries/postfx — unified chainable WebGPU postprocessing
 //
 // Exports the PostProcessStack (21+ effects), the PostfxLib engine-library
 // descriptor for declarative wiring in GameModule.libraries[], and the
 // PostProcessStackTok typed DI token.
 //
 // Games import either declaratively:
-//   import { PostfxLib } from "@downdraft/library-postfx";
+//   import { PostfxLib } from "@downdraft/engine/libraries/postfx";
 //   startGame({ libraries: [PostfxLib], ... });
 // or directly (escape hatch):
-//   import { PostProcessStack } from "@downdraft/library-postfx";
+//   import { PostProcessStack } from "@downdraft/engine/libraries/postfx";
 
 export { PostProcessStack } from "./post-process-stack";
 export type { CustomEffect, CustomEffectOrder, EffectId, PostProcessStackOptions, ViewportRect } from "./post-process-stack";

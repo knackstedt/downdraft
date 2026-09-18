@@ -1,4 +1,4 @@
-import { calculateViewProj, createValidatedShaderModule, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, type CameraState } from "@downdraft/core";
+import { calculateViewProj, createValidatedShaderModule, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, type CameraState } from "@downdraft/engine";
 
 const RULER_WGSL = /* wgsl */ `
 struct Uniforms {

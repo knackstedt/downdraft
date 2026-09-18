@@ -1,4 +1,4 @@
-import { Camera, createLogger, MeshBuilder, resourceToken, World } from "@downdraft/core";
+import { Camera, createLogger, MeshBuilder, resourceToken, World } from "@downdraft/engine";
 
 const log = createLogger();
 

@@ -9,7 +9,7 @@
 // legacy commands all exercise the same code path.
 //
 
-import { createLogger } from "@downdraft/core";
+import { createLogger } from "@downdraft/engine";
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";

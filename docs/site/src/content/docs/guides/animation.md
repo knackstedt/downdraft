@@ -8,7 +8,7 @@ DownDraft provides a comprehensive animation system with skeletal animation, GLT
 ## AnimationPlayer
 
 ```typescript
-import { AnimationPlayer } from "@downdraft/core";
+import { AnimationPlayer } from "@downdraft/engine";
 
 const player = new AnimationPlayer();
 player.play("idle", { weight: 1.0, fadeIn: 0.2 });
@@ -17,7 +17,7 @@ player.play("idle", { weight: 1.0, fadeIn: 0.2 });
 ## State Machine
 
 ```typescript
-import { AnimationStateMachine } from "@downdraft/core";
+import { AnimationStateMachine } from "@downdraft/engine";
 
 const sm = new AnimationStateMachine();
 sm.addState("idle", { clip: idleClip });

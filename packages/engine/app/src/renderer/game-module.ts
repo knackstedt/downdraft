@@ -33,7 +33,7 @@ import {
     type PluginManifest,
     type PluginPermission,
     type PluginSource
-} from "@downdraft/core";
+} from "@downdraft/engine";
 import { bootstrapGame, type BootstrapDevToolsOptions } from "./bootstrap";
 import { downdraft, getCanvas, getOverlay } from "./index";
 import { createSaveStore, isOpfsAvailable, type SaveStoreMode } from "./save-store-factory";
@@ -144,7 +144,7 @@ export interface GameSaveConfig {
 /**
  * A framework-managed UI handle. Returned by `GameModule.ui` — startGame()
  * calls `start()` after renderer init (before `onReady`) and `dispose()` on
- * hot-reload. `createPixiUiBridge()` from @downdraft/library-pixi-ui returns
+ * hot-reload. `createPixiUiBridge()` from @downdraft/engine/libraries/pixi-ui returns
  * a compatible handle; DOM-UI games can return any { start, dispose } object.
  */
 export interface GameUiHandle {
@@ -714,7 +714,7 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
       // ── Library renderer setup ──
       // Early renderer-only library setup (hosts, workers — no GPU needed).
       // Runs before the GPU device is available so libraries like
-      // @downdraft/library-pixi-ui can construct their host + provide DI tokens.
+      // @downdraft/engine/libraries/pixi-ui can construct their host + provide DI tokens.
       if (libHost && r) {
         const device = r.getDevice?.();
         const format = r.getFormat?.();

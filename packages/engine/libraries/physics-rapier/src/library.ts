@@ -1,5 +1,5 @@
 // ============================================================================
-// PhysicsRapierLib — declarative engine library descriptor for @downdraft/library-physics-rapier
+// PhysicsRapierLib — declarative engine library descriptor for @downdraft/engine/libraries/physics-rapier
 //
 // Games declare `libraries: [PhysicsRapierLib]` (or with config override)
 // in their GameModule. The host creates the RapierPhysicsBackend +
@@ -9,7 +9,7 @@
 // UniversalPhysicsAPI directly (escape hatch).
 // ============================================================================
 
-import { resourceToken, type EngineLibrary, type PhysicsModuleConfig } from "@downdraft/core";
+import { resourceToken, type EngineLibrary, type PhysicsModuleConfig } from "@downdraft/engine";
 import { UniversalPhysicsAPI } from "./api";
 import { RapierPhysicsBackend } from "./backend";
 

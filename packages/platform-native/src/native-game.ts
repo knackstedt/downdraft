@@ -17,7 +17,7 @@
 //   });
 // ============================================================================
 
-import { createLogger } from "@downdraft/core";
+import { createLogger } from "@downdraft/engine";
 import { getFreeTypeTextRenderer } from "./image/native-image";
 import { createNativeHost, type NativeHostConfig, type NativeHostContext } from "./native-host";
 

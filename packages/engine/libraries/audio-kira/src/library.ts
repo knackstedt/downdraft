@@ -1,5 +1,5 @@
 // ============================================================================
-// AudioKiraLib — declarative engine library descriptor for @downdraft/library-audio-kira
+// AudioKiraLib — declarative engine library descriptor for @downdraft/engine/libraries/audio-kira
 //
 // Games declare `libraries: [AudioKiraLib]` (or with config override) in their
 // GameModule. The host creates the KiraAudioBackend (sim-side only — audio is
@@ -10,7 +10,7 @@
 // (escape hatch).
 // ============================================================================
 
-import { resourceToken, type EngineLibrary } from "@downdraft/core";
+import { resourceToken, type EngineLibrary } from "@downdraft/engine";
 import { KiraAudioBackend } from "./backend";
 
 // ── Config ──

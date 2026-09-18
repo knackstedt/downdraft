@@ -1,11 +1,11 @@
-# `@downdraft/module-terrain`
+# `@downdraft/engine/modules/terrain`
 
 Terrain streaming module — chunked terrain loading, LOD, and mesh generation workers.
 
 ## Install
 
 ```sh
-bun add @downdraft/module-terrain
+bun add @downdraft/engine/modules/terrain
 ```
 
 ## Key exports

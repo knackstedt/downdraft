@@ -17,7 +17,7 @@ import type {
     RendererModuleContext,
     RenderTargetProvider,
     ViewportRect,
-} from "@downdraft/core";
+} from "@downdraft/engine";
 import type { XRCameraRig } from "./camera-rig";
 import type { XRInputMapper } from "./input";
 import type { XRLayerManager } from "./layer";

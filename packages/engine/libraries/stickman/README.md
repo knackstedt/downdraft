@@ -1,11 +1,11 @@
-# `@downdraft/library-stickman`
+# `@downdraft/engine/libraries/stickman`
 
 Stickman/figure animation helpers — procedural character figures for prototyping and tests.
 
 ## Install
 
 ```sh
-bun add @downdraft/library-stickman
+bun add @downdraft/engine/libraries/stickman
 ```
 
 ## Key exports

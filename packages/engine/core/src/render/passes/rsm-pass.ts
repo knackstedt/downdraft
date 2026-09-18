@@ -1,5 +1,5 @@
-import type { StructView, WgslStruct } from "@downdraft/shader-graph";
-import { f32, mat4x4f, u32, vec2f, vec3f, wgsl } from "@downdraft/shader-graph";
+import type { StructView, WgslStruct } from "@downdraft/engine/shader-graph";
+import { f32, mat4x4f, u32, vec2f, vec3f, wgsl } from "@downdraft/engine/shader-graph";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
 import { PassType } from "../frame-graph";
 import { RenderPass } from "../render-pass";

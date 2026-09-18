@@ -3,7 +3,7 @@
 // ============================================================================
 //
 // Intercepts `?url` (and bare) imports of bakeable asset extensions
-// (.gltf/.glb/.wav/.mp3/.ogg/.flac), bakes them via @downdraft/asset-bake
+// (.gltf/.glb/.wav/.mp3/.ogg/.flac), bakes them via @downdraft/engine/asset-bake
 // (meshopt geometry + Basis KTX2 textures + normalized audio), caches the
 // result in `<gameRoot>/.downdraft/bake/`, and emits/serves the optimized
 // file. The runtime decodes the baked formats with its existing codecs.
@@ -16,7 +16,7 @@
 // Disabled entirely when `enabled === false` or `DOWNDRAFT_BAKE=0`. Forced
 // re-bake (cache bypass) when `DOWNDRAFT_BAKE_FORCE=1`.
 //
-// The heavy @downdraft/asset-bake package is dynamically imported inside
+// The heavy @downdraft/engine/asset-bake package is dynamically imported inside
 // `load()` so its deps (gltf-transform, meshoptimizer wasm, basisu encoder
 // wasm, jimp) never enter the renderer bundle.
 //
@@ -27,10 +27,10 @@ import type { Plugin } from "vite";
 
 /**
  * Bake options — mirrors the `AssetBakeOptions` type from
- * `@downdraft/asset-bake/src/config`. Inlined here (rather than imported)
+ * `@downdraft/engine/asset-bake/src/config`. Inlined here (rather than imported)
  * so this plugin file doesn't cross-reference the Node-only asset-bake
  * package at compile time (which would pull it into the web tsconfig).
- * The runtime import is dynamic: `await import("@downdraft/asset-bake")`.
+ * The runtime import is dynamic: `await import("@downdraft/engine/asset-bake")`.
  */
 export interface AssetBakeOptions {
   enabled?: boolean;
@@ -70,7 +70,7 @@ export interface AssetBakePluginOptions {
   enabled?: boolean;
   /** Game root directory (where `.downdraft/bake/` lives). Default: Vite root. */
   gameRoot?: string;
-  /** Bake options forwarded to @downdraft/asset-bake. */
+  /** Bake options forwarded to @downdraft/engine/asset-bake. */
   options?: AssetBakeOptions;
   /** Verbose logging. */
   verbose?: boolean;
@@ -102,7 +102,7 @@ export function downdraftAssetBakePlugin(opts: AssetBakePluginOptions = {}): Plu
 
   async function ensureBakeApi(): Promise<BakeApi> {
     if (bakeApi) return bakeApi;
-    const mod = (await import("@downdraft/asset-bake")) as unknown as BakeApi;
+    const mod = (await import("@downdraft/engine/asset-bake")) as unknown as BakeApi;
     bakeApi = mod;
     return mod;
   }
@@ -222,4 +222,4 @@ function mimeForExt(ext: string): string | undefined {
 }
 
 // AssetBakeOptions is exported above (inlined, not re-exported from
-// @downdraft/asset-bake, to keep this file web-tsconfig-compatible).
+// @downdraft/engine/asset-bake, to keep this file web-tsconfig-compatible).

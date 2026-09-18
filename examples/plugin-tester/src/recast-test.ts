@@ -2,19 +2,19 @@
 // Recast Test — build a navmesh from triangle geometry, spawn agents in a
 // recast Crowd, set targets, update each tick.
 //
-// Mirrors navmesh-test.ts but uses @downdraft/library-recast (WASM-based
-// Recast + Detour) instead of the hand-rolled @downdraft/library-navmesh.
+// Mirrors navmesh-test.ts but uses @downdraft/engine/libraries/recast (WASM-based
+// Recast + Detour) instead of the hand-rolled @downdraft/engine/libraries/navmesh.
 // The two examples coexist to validate both libraries.
 // ============================================================================
 
-import { PhysicsTransform, Query, World, type Entity } from "@downdraft/core";
+import { PhysicsTransform, Query, World, type Entity } from "@downdraft/engine";
 import {
   RecastAgent,
   RecastBackend,
   RecastCrowdSystem,
   type RecastAgentData,
   type Vec3,
-} from "@downdraft/library-recast";
+} from "@downdraft/engine/libraries/recast";
 
 const AGENT_COLORS: [number, number, number][] = [
   [1, 0.2, 0.2],

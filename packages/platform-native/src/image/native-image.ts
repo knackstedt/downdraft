@@ -9,7 +9,7 @@
 // backwards-compatible imports.
 // ============================================================================
 
-import { createLogger } from "@downdraft/core";
+import { createLogger } from "@downdraft/engine";
 import { dlopen, type CFunction } from "../ffi/ffi-adapter";
 import { resolveShimLibrary } from "../ffi/lib-paths";
 import { NativeCanvas2D } from "./native-canvas2d";

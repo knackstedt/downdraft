@@ -25,7 +25,7 @@ Games bootstrap by calling engine-exported host methods from their own `src/main
 
 ```ts
 // games/my-game/src/main.ts
-import { createDowndraftApp, webGpuSwitches } from "@downdraft/app/main";
+import { createDowndraftApp, webGpuSwitches } from "@downdraft/engine/app/main";
 
 createDowndraftApp({
   window: { title: "My Game", width: 1920, height: 1080 },
@@ -41,7 +41,7 @@ See `AGENTS.md` for the full host SDK reference (subpath exports, config-driven 
 ```
 ┌─────────────────────────────────────────────┐
   Electron Main Process (game-owned src/main.ts)
-    • Calls createDowndraftApp() from @downdraft/app/main
+    • Calls createDowndraftApp() from @downdraft/engine/app/main
     • Window lifecycle, display info, IPC (config-driven)
     • GC profiling, performance stats
 ├─────────────────────────────────────────────┤
@@ -70,11 +70,11 @@ See `AGENTS.md` for the full host SDK reference (subpath exports, config-driven 
 
 | Package | Description |
 |---|---|
-| `@downdraft/core` | Engine core: ECS, render passes, render graph, SAB, input, telemetry, modules, particles, animation, physics, audio, assets, save system |
-| `@downdraft/app` | Electron app shell: main process, preload, renderer entry |
-| `@downdraft/ui` | React UI: devtools panel, profiler, material graph editor, animation state machine editor, asset browser |
-| `@downdraft/mcp` | MCP server for AI agent interaction (JSON-RPC over stdio) |
-| `@downdraft/shader-graph` | Material/shader graph compiler and validator |
+| `@downdraft/engine` | Engine core: ECS, render passes, render graph, SAB, input, telemetry, modules, particles, animation, physics, audio, assets, save system |
+| `@downdraft/engine/app` | Electron app shell: main process, preload, renderer entry |
+| `@downdraft/engine/ui` | React UI: devtools panel, profiler, material graph editor, animation state machine editor, asset browser |
+| `@downdraft/engine/mcp` | MCP server for AI agent interaction (JSON-RPC over stdio) |
+| `@downdraft/engine/shader-graph` | Material/shader graph compiler and validator |
 | `@downdraft/cli` | CLI tool (`draft new/dev/debug/release/assets/test`) |
 
 ### Engine libraries (`packages/libraries/`)
@@ -83,23 +83,23 @@ Engine libraries export `EngineLibrary` descriptors (e.g. `WaterLib`, `PhysicsRa
 
 | Package | Description |
 |---|---|
-| `@downdraft/library-water` | Gerstner wave water rendering, buoyancy, shore/wake interactions |
-| `@downdraft/library-marching-cubes` | Voxel terrain with LOD and deformation |
-| `@downdraft/library-surface-nets` | Surface-nets mesh extraction from voxel fields |
-| `@downdraft/library-physics-rapier` | Rapier3D physics backend |
-| `@downdraft/library-physics-native` | Native physics backend |
-| `@downdraft/library-audio-kira` | Kira audio backend (Rust FFI via `packages/libraries/audio-kira/native`) |
-| `@downdraft/library-networking` | WebSocket transport, state replication, RPCs |
-| `@downdraft/library-weather` | Weather system |
-| `@downdraft/library-weatherfx` | Weather visual effects |
-| `@downdraft/library-lighting` | Lighting system |
-| `@downdraft/library-entities` | Generic model renderer used by multiple games |
-| `@downdraft/library-models` | Model loading and management |
-| `@downdraft/library-navmesh` | Navigation mesh generation and pathfinding |
-| `@downdraft/library-persistence` | Save/load (filesystem + OPFS worker) |
-| `@downdraft/library-gaussian-splats` | Gaussian splat rendering |
-| `@downdraft/library-sand` | Falling-sand simulation |
-| `@downdraft/library-stickman` | Stickman character system |
+| `@downdraft/engine/libraries/water` | Gerstner wave water rendering, buoyancy, shore/wake interactions |
+| `@downdraft/engine/libraries/marching-cubes` | Voxel terrain with LOD and deformation |
+| `@downdraft/engine/libraries/surface-nets` | Surface-nets mesh extraction from voxel fields |
+| `@downdraft/engine/libraries/physics-rapier` | Rapier3D physics backend |
+| `@downdraft/engine/libraries/physics-native` | Native physics backend |
+| `@downdraft/engine/libraries/audio-kira` | Kira audio backend (Rust FFI via `packages/libraries/audio-kira/native`) |
+| `@downdraft/engine/libraries/networking` | WebSocket transport, state replication, RPCs |
+| `@downdraft/engine/libraries/weather` | Weather system |
+| `@downdraft/engine/libraries/weatherfx` | Weather visual effects |
+| `@downdraft/engine/libraries/lighting` | Lighting system |
+| `@downdraft/engine/libraries/entities` | Generic model renderer used by multiple games |
+| `@downdraft/engine/libraries/models` | Model loading and management |
+| `@downdraft/engine/libraries/navmesh` | Navigation mesh generation and pathfinding |
+| `@downdraft/engine/libraries/persistence` | Save/load (filesystem + OPFS worker) |
+| `@downdraft/engine/libraries/gaussian-splats` | Gaussian splat rendering |
+| `@downdraft/engine/libraries/sand` | Falling-sand simulation |
+| `@downdraft/engine/libraries/stickman` | Stickman character system |
 
 ### Engine modules (`packages/modules/`)
 
@@ -107,15 +107,15 @@ Feature modules use the factory pattern (`createXxxModule(config)`) and provide 
 
 | Package | Description |
 |---|---|
-| `@downdraft/module-camera-controls` | Camera input and control modes |
-| `@downdraft/module-devtools` | DevTools overlay panel + Chromium DevTools extension (3D Scene Inspector) |
-| `@downdraft/module-electron-osr` | Electron offscreen rendering |
-| `@downdraft/module-mcp` | In-game MCP automation harness |
-| `@downdraft/module-xr` | WebXR / VR support |
-| `@downdraft/module-terrain` | Terrain system |
-| `@downdraft/module-movement-3d` | 3D movement system |
-| `@downdraft/module-movement-2d` | 2D movement system |
-| `@downdraft/module-sailing` | Sailing mechanics |
+| `@downdraft/engine/modules/camera-controls` | Camera input and control modes |
+| `@downdraft/engine/modules/devtools` | DevTools overlay panel + Chromium DevTools extension (3D Scene Inspector) |
+| `@downdraft/engine/modules/electron-osr` | Electron offscreen rendering |
+| `@downdraft/engine/modules/mcp` | In-game MCP automation harness |
+| `@downdraft/engine/modules/xr` | WebXR / VR support |
+| `@downdraft/engine/modules/terrain` | Terrain system |
+| `@downdraft/engine/modules/movement-3d` | 3D movement system |
+| `@downdraft/engine/modules/movement-2d` | 2D movement system |
+| `@downdraft/engine/modules/sailing` | Sailing mechanics |
 
 ### Game modules / libraries (`games/<game>/modules/` + `games/<game>/libraries/`)
 
@@ -224,7 +224,7 @@ A custom DevTools extension (`packages/modules/devtools/extension/`) provides a 
 ### Creating Your First Scene
 
 ```typescript
-import { Camera, Component, MeshBuilder, resourceToken, World } from "@downdraft/core";
+import { Camera, Component, MeshBuilder, resourceToken, World } from "@downdraft/engine";
 
 const world = new World();
 const camera = new Camera();
@@ -243,7 +243,7 @@ See `examples/minimal/main.ts` for a complete minimal example and `examples/phys
 ### Adding Particles
 
 ```typescript
-import { ParticleSystem, createSmokeEmitter } from "@downdraft/core";
+import { ParticleSystem, createSmokeEmitter } from "@downdraft/engine";
 
 const particles = new ParticleSystem({
   maxParticlesPerEmitter: 10000,
@@ -266,12 +266,12 @@ particles.render(renderCtx, camera.getViewProjectionMatrix(), camera.position);
 Engine libraries expose `EngineLibrary` descriptors and are wired declaratively via `startGame()`:
 
 ```typescript
-import { startGame } from "@downdraft/app/renderer";
-import { PhysicsRapierLib } from "@downdraft/library-physics-rapier";
-import { AudioKiraLib } from "@downdraft/library-audio-kira";
-import { WaterLib } from "@downdraft/library-water";
-import { MarchingCubesLib } from "@downdraft/library-marching-cubes";
-import { NetworkingLib } from "@downdraft/library-networking";
+import { startGame } from "@downdraft/engine/app/renderer";
+import { PhysicsRapierLib } from "@downdraft/engine/libraries/physics-rapier";
+import { AudioKiraLib } from "@downdraft/engine/libraries/audio-kira";
+import { WaterLib } from "@downdraft/engine/libraries/water";
+import { MarchingCubesLib } from "@downdraft/engine/libraries/marching-cubes";
+import { NetworkingLib } from "@downdraft/engine/libraries/networking";
 
 startGame({
   libraries: [PhysicsRapierLib, AudioKiraLib, WaterLib, MarchingCubesLib, NetworkingLib],
@@ -282,7 +282,7 @@ startGame({
 });
 ```
 
-Feature modules (e.g. `@downdraft/module-terrain`, `@downdraft/module-movement-3d`) use the factory pattern and are activated via `moduleHost.useModules([...])`. See `AGENTS.md` for the full module/library contract.
+Feature modules (e.g. `@downdraft/engine/modules/terrain`, `@downdraft/engine/modules/movement-3d`) use the factory pattern and are activated via `moduleHost.useModules([...])`. See `AGENTS.md` for the full module/library contract.
 
 ## Mobile Development (Android) — Experimental
 

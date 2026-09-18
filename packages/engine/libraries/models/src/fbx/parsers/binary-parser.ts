@@ -8,7 +8,7 @@
 // structure but emits Babylon's internal node type. We emit our FBXNode.
 //
 
-import { assertFinite, assertPositive, MAX_DECOMPRESS_SIZE } from "@downdraft/core";
+import { assertFinite, assertPositive, MAX_DECOMPRESS_SIZE } from "@downdraft/engine";
 import { decompressSync } from "fflate";
 import { FBX_HEADER_MAGIC, type FBXNode, type FBXProperty } from "../types";
 

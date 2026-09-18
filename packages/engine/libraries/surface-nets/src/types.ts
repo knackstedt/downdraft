@@ -1,13 +1,13 @@
 // Re-export algorithm-agnostic shared types from the marching cubes plugin.
 // VoxelField and ExtractedMesh are identical regardless of extraction algorithm.
-export type { ExtractedMesh, VoxelField } from "@downdraft/library-marching-cubes";
+export type { ExtractedMesh, VoxelField } from "@downdraft/engine/libraries/marching-cubes";
 
 // MeshColorFn and ExtractMeshOptions mirror the MC plugin interfaces exactly
 // so the game layer can swap algorithms without changing call sites.
 export type MeshColorFn = (
   cx: number, cy: number, cz: number,
   nx: number, ny: number, nz: number,
-  field: import("@downdraft/library-marching-cubes").VoxelField,
+  field: import("@downdraft/engine/libraries/marching-cubes").VoxelField,
 ) => [number, number, number];
 
 export interface ExtractMeshOptions {

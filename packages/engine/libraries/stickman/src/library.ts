@@ -1,5 +1,5 @@
 // ============================================================================
-// StickmanLib — declarative engine library descriptor for @downdraft/library-stickman
+// StickmanLib — declarative engine library descriptor for @downdraft/engine/libraries/stickman
 //
 // Games declare `libraries: [StickmanLib]` in their GameModule. The host
 // provides the stickman skeleton computation function (sim-side) via a typed
@@ -8,12 +8,12 @@
 // Games that need full control can still import computeSkeleton, the
 // thick-line geometry builders, and STICKMAN_WGSL directly (escape hatch).
 //
-// NOTE: This package does not declare a dependency on @downdraft/core in its
+// NOTE: This package does not declare a dependency on @downdraft/engine in its
 // package.json. We use a type-only import for EngineLibrary (erased at compile
 // time) and a relative import for the resourceToken runtime function.
 // ============================================================================
 
-import { resourceToken, type EngineLibrary } from "@downdraft/core";
+import { resourceToken, type EngineLibrary } from "@downdraft/engine";
 import { computeSkeleton } from "./skeleton";
 
 // ── Config ──

@@ -1,5 +1,5 @@
 import { bulkReadTransforms, bulkWriteTransforms, bulkReadMultiRealm } from "./bulk-ops";
-import type { PhysicsBackend } from "@downdraft/core";
+import type { PhysicsBackend } from "@downdraft/engine";
 
 function makeMockBackend(): PhysicsBackend {
   return {

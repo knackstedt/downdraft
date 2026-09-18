@@ -14,7 +14,7 @@ const GPU_TEXTURE_USAGE = { TEXTURE_BINDING: 0x8, COPY_DST: 0x4, COPY_SRC: 0x1, 
 // ─── Shader Chunk Generation Tests ─────────────────────────────────────────
 
 async function testShaderChunkWithLUT() {
-  const { createIBLShaderChunk } = await import("../packages/core/src/render/ibl-bind-group");
+  const { createIBLShaderChunk } = await import("../packages/engine/core/src/render/ibl-bind-group");
   const chunk = createIBLShaderChunk(2, true);
 
   assert(chunk.includes("@group(2) @binding(0)"), "IBL chunk: should have irradianceMap at group 2 binding 0");
@@ -43,7 +43,7 @@ async function testShaderChunkWithLUT() {
 }
 
 async function testShaderChunkWithoutLUT() {
-  const { createIBLShaderChunk } = await import("../packages/core/src/render/ibl-bind-group");
+  const { createIBLShaderChunk } = await import("../packages/engine/core/src/render/ibl-bind-group");
   const chunk = createIBLShaderChunk(1, false);
 
   assert(chunk.includes("@group(1) @binding(0)"), "IBL chunk (no LUT): should have irradianceMap at group 1 binding 0");
@@ -65,7 +65,7 @@ async function testShaderChunkWithoutLUT() {
 }
 
 async function testShaderChunkDifferentGroups() {
-  const { createIBLShaderChunk } = await import("../packages/core/src/render/ibl-bind-group");
+  const { createIBLShaderChunk } = await import("../packages/engine/core/src/render/ibl-bind-group");
 
   for (const g of [0, 1, 2, 3, 4]) {
     const chunk = createIBLShaderChunk(g, true);
@@ -77,7 +77,7 @@ async function testShaderChunkDifferentGroups() {
 }
 
 async function testIBLShaderChunkConstant() {
-  const { IBL_SHADER_CHUNK, createIBLShaderChunk } = await import("../packages/core/src/render/ibl-bind-group");
+  const { IBL_SHADER_CHUNK, createIBLShaderChunk } = await import("../packages/engine/core/src/render/ibl-bind-group");
   const expected = createIBLShaderChunk(2, true);
   assert(IBL_SHADER_CHUNK === expected, "IBL_SHADER_CHUNK constant should equal createIBLShaderChunk(2, true)");
   assert(IBL_SHADER_CHUNK.includes("@group(2)"), "IBL_SHADER_CHUNK should use group 2");
@@ -128,7 +128,7 @@ async function testEntityShaderIslandLighting() {
 // ─── Deferred Lighting Integration Tests ───────────────────────────────────
 
 async function testDeferredLightingShader() {
-  const module = await import("../packages/core/src/render/passes/deferred-lighting");
+  const module = await import("../packages/engine/core/src/render/passes/deferred-lighting");
   assert(typeof module.DeferredLightingPass === "function", "DeferredLightingPass: should be a class");
 
   console.log("✓ Deferred lighting: DeferredLightingPass exported correctly");
@@ -137,7 +137,7 @@ async function testDeferredLightingShader() {
 // ─── IBLSystem Options Tests ───────────────────────────────────────────────
 
 async function testIBLSystemOptions() {
-  const { IBLSystem } = await import("../packages/core/src/render/ibl");
+  const { IBLSystem } = await import("../packages/engine/core/src/render/ibl");
   assert(typeof IBLSystem === "function", "IBLSystem: should be a class");
 
   console.log("✓ IBLSystem: exported correctly, is a class");
@@ -146,7 +146,7 @@ async function testIBLSystemOptions() {
 // ─── CubemapCapturePass Tests ──────────────────────────────────────────────
 
 async function testCubemapCapturePass() {
-  const { CubemapCapturePass } = await import("../packages/core/src/render/passes/cubemap-capture");
+  const { CubemapCapturePass } = await import("../packages/engine/core/src/render/passes/cubemap-capture");
   assert(typeof CubemapCapturePass === "function", "CubemapCapturePass: should be a class");
 
   console.log("✓ CubemapCapturePass: exported correctly, is a class");
@@ -155,7 +155,7 @@ async function testCubemapCapturePass() {
 // ─── Core Index Export Tests ───────────────────────────────────────────────
 
 async function testCoreExports() {
-  const coreModule = await import("../packages/core/src/index");
+  const coreModule = await import("../packages/engine/core/src/index");
 
   assert(typeof coreModule.createIBLShaderChunk === "function", "Core index: should export createIBLShaderChunk");
   assert(typeof coreModule.IBL_SHADER_CHUNK === "string", "Core index: should export IBL_SHADER_CHUNK");
@@ -170,7 +170,7 @@ async function testCoreExports() {
 // ─── WGSL Validity Tests ───────────────────────────────────────────────────
 
 async function testWGSLValidity() {
-  const { createIBLShaderChunk } = await import("../packages/core/src/render/ibl-bind-group");
+  const { createIBLShaderChunk } = await import("../packages/engine/core/src/render/ibl-bind-group");
 
   const chunk = createIBLShaderChunk(2, true);
 

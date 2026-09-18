@@ -1,5 +1,5 @@
 // ============================================================================
-// PhysicsNativeLib — declarative engine library descriptor for @downdraft/library-physics-native
+// PhysicsNativeLib — declarative engine library descriptor for @downdraft/engine/libraries/physics-native
 //
 // Games declare `libraries: [PhysicsNativeLib]` (or with config override)
 // in their GameModule. The host creates the NativePhysicsBackend (sim-side
@@ -9,7 +9,7 @@
 // (escape hatch).
 // ============================================================================
 
-import { RealmTier, resourceToken, type EngineLibrary } from "@downdraft/core";
+import { RealmTier, resourceToken, type EngineLibrary } from "@downdraft/engine";
 import { NativePhysicsBackend } from "./backend";
 
 // ── Config ──

@@ -14,7 +14,7 @@ import {
   system,
   Velocity,
   World,
-} from "@downdraft/core";
+} from "@downdraft/engine";
 
 const log = createLogger();
 

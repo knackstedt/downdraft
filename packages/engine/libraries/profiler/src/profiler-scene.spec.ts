@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from "bun:test";
-import { allocateProfilingSAB } from "@downdraft/core/profiling/profiling-sab";
+import { allocateProfilingSAB } from "@downdraft/engine/profiling/profiling-sab";
 import { ProfilerScene } from "./profiler-scene";
 
 // Mock pixi.js Container/Text/Graphics for testing

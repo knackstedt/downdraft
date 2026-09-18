@@ -1,6 +1,6 @@
 // Test: render text via NativePixiUiHost, blit to a separate texture, capture.
 // Isolates whether the blit pass correctly composites text.
-import { NativePixiUiHost } from "@downdraft/library-pixi-ui-native";
+import { NativePixiUiHost } from "@downdraft/engine/libraries/pixi-ui-native";
 import { captureScreenshot, createNativeHost } from "@downdraft/platform-native";
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";

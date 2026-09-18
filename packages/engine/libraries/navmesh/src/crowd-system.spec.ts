@@ -1,7 +1,7 @@
-import { Query } from "@downdraft/core/ecs/query";
-import { World } from "@downdraft/core/ecs/world";
-import type { PhysicsTransformData } from "@downdraft/core/physics/body";
-import { PhysicsTransform } from "@downdraft/core/physics/body";
+import { Query } from "@downdraft/engine/ecs/query";
+import { World } from "@downdraft/engine/ecs/world";
+import type { PhysicsTransformData } from "@downdraft/engine/physics/body";
+import { PhysicsTransform } from "@downdraft/engine/physics/body";
 import { CrowdSystem, NavAgent } from "./crowd-system";
 import { NavMeshDebugViz } from "./debug-viz";
 import { NavMeshGenerator } from "./navmesh-generator";
@@ -57,7 +57,7 @@ function spawnAgent(
   world: World,
   pos: Vec3,
   overrides: Partial<NavAgentData> = {},
-): { entity: import("@downdraft/core/ecs/entity").Entity; agent: NavAgentData; transform: PhysicsTransformData } {
+): { entity: import("@downdraft/engine/ecs/entity").Entity; agent: NavAgentData; transform: PhysicsTransformData } {
   const agentData: NavAgentData = {
     ...{
       radius: 0.4,
@@ -406,7 +406,7 @@ describe("CrowdSystem edge cases", () => {
     const navMesh = makeNavMesh(12);
     const { world, crowd } = makeCrowdWorld(navMesh);
 
-    const agents: { entity: import("@downdraft/core/ecs/entity").Entity; agent: NavAgentData }[] = [];
+    const agents: { entity: import("@downdraft/engine/ecs/entity").Entity; agent: NavAgentData }[] = [];
     for (let i = 0; i < 5; i++) {
       const a = spawnAgent(world, [1 + i * 2, 0, 1], { maxSpeed: 5, acceleration: 20 });
       agents.push(a);

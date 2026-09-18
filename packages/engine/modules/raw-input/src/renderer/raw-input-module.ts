@@ -2,10 +2,10 @@
 // RawInputModule — RendererModule wrapper for the pointer lock polyfill
 // ============================================================================
 // Games that use the module system can register this via moduleHost.useModules().
-// Games that don't can just `import "@downdraft/module-raw-input/polyfill"`
+// Games that don't can just `import "@downdraft/engine/modules/raw-input/polyfill"`
 // for the side effect (the polyfill installs itself on import).
 
-import type { RendererModule } from "@downdraft/core";
+import type { RendererModule } from "@downdraft/engine";
 import { installPointerLockPolyfill, uninstallPointerLockPolyfill } from "./polyfill";
 
 export interface RawInputModuleOptions {

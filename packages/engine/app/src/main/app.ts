@@ -2,9 +2,9 @@
 // createDowndraftApp() — main process orchestrator
 // ============================================================================
 
-import { encodeFeatureLogLine, ENGINE_VERSION } from "@downdraft/core";
-import { createLogger } from "@downdraft/core/util/logger";
-import type { ToolRegistration } from "@downdraft/mcp";
+import { encodeFeatureLogLine, ENGINE_VERSION } from "@downdraft/engine";
+import { createLogger } from "@downdraft/engine/util/logger";
+import type { ToolRegistration } from "@downdraft/engine/mcp";
 import { app, BrowserWindow, ipcMain, Menu, screen, session, shell } from "electron";
 import { join } from "path";
 import { IPC } from "../shared/messages";
@@ -31,7 +31,7 @@ const log = createLogger("info");
  * Call this from your game's `src/main.ts`:
  *
  * ```ts
- * import { createDowndraftApp, webGpuSwitches } from "@downdraft/app/main";
+ * import { createDowndraftApp, webGpuSwitches } from "@downdraft/engine/app/main";
  * createDowndraftApp({ window: { title: "My Game" }, switches: webGpuSwitches(), features: { ... } });
  * ```
  */

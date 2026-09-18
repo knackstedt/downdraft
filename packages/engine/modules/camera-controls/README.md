@@ -1,11 +1,11 @@
-# `@downdraft/module-camera-controls`
+# `@downdraft/engine/modules/camera-controls`
 
 Camera control module — orbit/fly/follow controllers with input binding and typed DI tokens.
 
 ## Install
 
 ```sh
-bun add @downdraft/module-camera-controls
+bun add @downdraft/engine/modules/camera-controls
 ```
 
 ## Key exports

@@ -1,7 +1,7 @@
 /* ============================================================================
  * downdraft-base.css — framework-provided canvas/DOM stacking rules
  *
- * Games import this from "@downdraft/app/renderer/downdraft-base.css" to get
+ * Games import this from "@downdraft/engine/app/renderer/downdraft-base.css" to get
  * correct z-index ordering between WebGPU canvases and React DOM overlays.
  * Games can override colors and fonts in their own CSS; the stacking rules
  * here should not be overridden.
@@ -41,7 +41,7 @@ canvas[data-dd-layer] {
 
 /* Overlay canvas layers (layer 1+) — above the game canvas (z 0), below the
  * DOM overlay (z 100). Default pointer-events: none so clicks pass through
- * to the game canvas. The @downdraft/library-pixi-ui host re-enables
+ * to the game canvas. The @downdraft/engine/libraries/pixi-ui host re-enables
  * pointer-events when the worker signals interactive mode. */
 canvas[data-dd-layer="1"],
 canvas[data-dd-layer="2"],

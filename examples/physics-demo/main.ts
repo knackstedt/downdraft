@@ -4,8 +4,8 @@ import {
     type Entity,
     type PhysicsBody,
     type PhysicsModuleConfig,
-} from "@downdraft/core";
-import { RapierPhysicsBackend, UniversalPhysicsAPI } from "@downdraft/library-physics-rapier";
+} from "@downdraft/engine";
+import { RapierPhysicsBackend, UniversalPhysicsAPI } from "@downdraft/engine/libraries/physics-rapier";
 
 const log = createLogger();
 

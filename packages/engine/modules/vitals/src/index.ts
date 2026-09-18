@@ -1,5 +1,5 @@
 // ============================================================================
-// @downdraft/module-vitals — shared health / damage / death / respawn / meters
+// @downdraft/engine/modules/vitals — shared health / damage / death / respawn / meters
 //
 // `Vitals` tracks health, damage (with overkill + last-damage-time), death,
 // respawn, delayed regen, and secondary meters (oxygen, energy, hunger, ...)
@@ -10,7 +10,7 @@
 // games; hand-rolled sims can use `new Vitals(config, host)` directly.
 // ============================================================================
 
-import { resourceToken, type Module, type ModuleContext } from "@downdraft/core";
+import { resourceToken, type Module, type ModuleContext } from "@downdraft/engine";
 import { Vitals, type VitalsConfig, type VitalsHost } from "./vitals";
 
 export { Vitals } from "./vitals";

@@ -1,5 +1,5 @@
 // ============================================================================
-// @downdraft/app/main — main process host SDK entry point
+// @downdraft/engine/app/main — main process host SDK entry point
 // ============================================================================
 
 export type {

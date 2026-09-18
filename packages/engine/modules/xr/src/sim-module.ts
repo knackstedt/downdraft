@@ -1,4 +1,4 @@
-import { type Module, type ModuleContext, resourceToken } from "@downdraft/core";
+import { type Module, type ModuleContext, resourceToken } from "@downdraft/engine";
 import { XRInputMapper } from "./input";
 import { XRSessionManager } from "./session";
 
@@ -8,7 +8,7 @@ export const XRSessionManagerTok = resourceToken<XRSessionManager>("xrSessionMan
 export const XRInputMapperTok = resourceToken<XRInputMapper>("xrInputMapper");
 
 export const xrModule: Module = {
-  name: "@downdraft/module-xr",
+  name: "@downdraft/engine/modules/xr",
   version: "0.1.0",
   provides: [XRSessionManagerTok, XRInputMapperTok],
   register(ctx: ModuleContext) {

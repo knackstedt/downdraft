@@ -46,7 +46,7 @@ cd downdraft-engine
 bun install
 ```
 
-This installs all workspace dependencies via Bun workspaces, including `@downdraft/core`, `@downdraft/app`, `@downdraft/ui`, `@downdraft/cli`, and all first-party plugins.
+This installs all workspace dependencies via Bun workspaces, including `@downdraft/engine`, `@downdraft/engine/app`, `@downdraft/engine/ui`, `@downdraft/cli`, and all first-party plugins.
 
 ## Verify Installation
 

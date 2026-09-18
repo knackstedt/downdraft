@@ -1,5 +1,5 @@
 // ============================================================================
-// SandLib — declarative engine library descriptor for @downdraft/library-sand
+// SandLib — declarative engine library descriptor for @downdraft/engine/libraries/sand
 //
 // Games declare `libraries: [SandLib]` (or with config override) in their
 // GameModule. The host allocates the sand grid SAB, creates the SandWorld
@@ -9,7 +9,7 @@
 // (escape hatch).
 // ============================================================================
 
-import { resourceToken, type EngineLibrary } from "@downdraft/core";
+import { resourceToken, type EngineLibrary } from "@downdraft/engine";
 import { SandWorld } from "./sand-world";
 
 // ── Config ──

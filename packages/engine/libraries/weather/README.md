@@ -1,11 +1,11 @@
-# `@downdraft/library-weather`
+# `@downdraft/engine/libraries/weather`
 
 Weather state simulation — fronts, precipitation, and environmental conditions as sim-side state.
 
 ## Install
 
 ```sh
-bun add @downdraft/library-weather
+bun add @downdraft/engine/libraries/weather
 ```
 
 ## Key exports

@@ -1,7 +1,7 @@
 // ============================================================================
 // PixiUI Demo — Renderer Entry Point
 //
-// Demonstrates the @downdraft/library-pixi-ui engine library: a PixiJS UI
+// Demonstrates the @downdraft/engine/libraries/pixi-ui engine library: a PixiJS UI
 // overlay rendered inside a Web Worker on an OffscreenCanvas, stacked above
 // a trivial game canvas. The game feeds per-frame scalars (health, fps) via
 // a SharedArrayBuffer and events via postMessage. MCP tools verify the
@@ -19,13 +19,13 @@ import {
     startGame,
     type GameContext,
     type GameSimWorker,
-} from "@downdraft/app/renderer";
-import "@downdraft/app/renderer/downdraft-base.css";
+} from "@downdraft/engine/app/renderer";
+import "@downdraft/engine/app/renderer/downdraft-base.css";
 import {
     createPixiUiMcpTools,
     PixiUiHost,
     type PixiUiHost as PixiUiHostType,
-} from "@downdraft/library-pixi-ui";
+} from "@downdraft/engine/libraries/pixi-ui";
 
 // ── Trivial sim worker (no-op — this demo is UI-only) ──
 

@@ -1,4 +1,4 @@
-import { ComputeGraph } from "@downdraft/shader-graph";
+import { ComputeGraph } from "@downdraft/engine/shader-graph";
 import { GraphComputePass } from "./graph-compute";
 
 // Minimal mock GPUDevice for unit testing buffer allocation + pipeline creation.

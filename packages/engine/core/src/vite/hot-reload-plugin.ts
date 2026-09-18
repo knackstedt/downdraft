@@ -64,7 +64,7 @@ export function hotReloadPlugin(options: HotReloadPluginOptions): Plugin {
 
       // Renderer engine code (non-TSX, non-CSS) → state-preserving page reload
       // Checked BEFORE simPaths so specific renderer paths (e.g. electron-osr/src/renderer/)
-      // take priority over broad simPath matches (e.g. packages/modules/)
+      // take priority over broad simPath matches (e.g. packages/engine/modules/)
       if (
         matchesPath(filePath, rendererPaths) &&
         !filePath.endsWith(".tsx") &&

@@ -15,9 +15,9 @@ import {
     ProfilingSABReader,
     computeProfilingSABLayout,
     type ProfilingSnapshot
-} from "@downdraft/core/profiling";
-import type { PixiUiScene, PixiUiSceneContext, PixiUiUpdateData } from "@downdraft/library-pixi-ui/scene";
-import type { DebugViewDescriptor } from "@downdraft/module-devtools";
+} from "@downdraft/engine/profiling";
+import type { PixiUiScene, PixiUiSceneContext, PixiUiUpdateData } from "@downdraft/engine/libraries/pixi-ui/scene";
+import type { DebugViewDescriptor } from "@downdraft/engine/modules/devtools";
 import { Container, Graphics, Text, type Application } from "pixi.js";
 
 // ─── Constants ──────────────────────────────────────────────────────────────

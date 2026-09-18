@@ -6,7 +6,7 @@
 // shapes. Returns null for non-colliding pairs.
 // ============================================================================
 
-import type { ColliderShape } from "@downdraft/core/physics/interface";
+import type { ColliderShape } from "@downdraft/engine/physics/interface";
 import type { Vec3 } from "./types";
 import {
   boxBoxContact,

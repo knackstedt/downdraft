@@ -1,5 +1,5 @@
 // ============================================================================
-// Shared types for @downdraft/library-recast
+// Shared types for @downdraft/engine/libraries/recast
 // ============================================================================
 
 export type Vec3 = [number, number, number];

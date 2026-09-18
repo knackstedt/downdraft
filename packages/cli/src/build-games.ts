@@ -22,7 +22,7 @@
 //   ANDROID_HOME  Android SDK path (defaults to $HOME/Android/Sdk)
 //   JAVA_HOME     JDK path (defaults to /usr/lib/jvm/java-21-openjdk-amd64)
 
-import { createLogger } from "@downdraft/core";
+import { createLogger } from "@downdraft/engine";
 import { ArgError, parseArgs as parseArgv, print, renderHelp } from "./args";
 import { getCommand } from "./usage";
 

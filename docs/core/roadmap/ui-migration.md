@@ -3,13 +3,13 @@
 ## Current State
 
 - **to-the-ocean** uses React + Tailwind CSS + Zustand for all UI components (`.tsx` files in `src/components/`)
-- **Engine UI system** (`packages/core/src/ui/`) is fully built out with all Phase 1 capabilities
+- **Engine UI system** (`packages/engine/core/src/ui/`) is fully built out with all Phase 1 capabilities
 - to-the-ocean's `WebGPURenderer` is wired into the engine UI system (`UIRenderer`, `UIRoot`, `UIInputRouter` integrated in `webgpu-renderer.ts` + `renderer-accessors.ts` + `renderer-input-handler.ts`)
 - **No React components have been migrated to the GPU UI yet** — coexistence phase
 
 ## Phase 1: Extend Engine UI System (DONE)
 
-All capabilities are implemented in `packages/core/src/ui/`:
+All capabilities are implemented in `packages/engine/core/src/ui/`:
 
 - **Canvas-based text rendering** — `text-cache.ts` + `glyph-atlas.ts` (text → Canvas2D → texture)
 - **Scroll container + clip rectangles** — `scroll.ts` (GPU scissor rects, scroll offset, mouse wheel)

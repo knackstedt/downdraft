@@ -22,7 +22,7 @@
 //
 // The shell ships NO binary images — everything is generated at build time.
 
-import { createLogger } from "@downdraft/core";
+import { createLogger } from "@downdraft/engine";
 import { Jimp } from "jimp";
 import { existsSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";

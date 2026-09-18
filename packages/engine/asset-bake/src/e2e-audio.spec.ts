@@ -1,5 +1,5 @@
 // E2E test: bake a real WAV file through ffmpeg → verify output is valid OGG.
-// Run: bun test packages/asset-bake/src/e2e-audio.spec.ts
+// Run: bun test packages/engine/asset-bake/src/e2e-audio.spec.ts
 
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
 import { spawnSync } from "node:child_process";

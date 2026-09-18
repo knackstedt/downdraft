@@ -1,11 +1,11 @@
-# `@downdraft/module-movement-3d`
+# `@downdraft/engine/modules/movement-3d`
 
 3D movement module — character motor, capsule locomotion, and physics-backed movement.
 
 ## Install
 
 ```sh
-bun add @downdraft/module-movement-3d
+bun add @downdraft/engine/modules/movement-3d
 ```
 
 ## Key exports

@@ -1,4 +1,4 @@
-import type { SaveOptions, SaveState } from "@downdraft/core";
+import type { SaveOptions, SaveState } from "@downdraft/engine";
 import { beforeEach, describe, expect, it } from "bun:test";
 import { createMockOpfsRoot, type MockDirHandle } from "./mock-opfs";
 import { OpfsSaveStore } from "./opfs-save-store";

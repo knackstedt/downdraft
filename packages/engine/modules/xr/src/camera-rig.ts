@@ -1,5 +1,5 @@
-import type { CameraViewportInfo } from "@downdraft/core";
-import type { ViewportRect } from "@downdraft/core";
+import type { CameraViewportInfo } from "@downdraft/engine";
+import type { ViewportRect } from "@downdraft/engine";
 import type { XREye } from "./layer";
 import type { XRLayerManager } from "./layer";
 import type { XRWorldOrigin } from "./types";

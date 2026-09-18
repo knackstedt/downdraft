@@ -1,5 +1,5 @@
 // ============================================================================
-// NetworkingLib — declarative engine library descriptor for @downdraft/library-networking
+// NetworkingLib — declarative engine library descriptor for @downdraft/engine/libraries/networking
 //
 // Games declare `libraries: [NetworkingLib]` (or with config override) in their
 // GameModule. The host creates the ConnectionManager (sim-side only — networking
@@ -11,7 +11,7 @@
 // ConnectionManager / SessionManager / ReplicationManager directly (escape hatch).
 // ============================================================================
 
-import { resourceToken, type EngineLibrary } from "@downdraft/core";
+import { resourceToken, type EngineLibrary } from "@downdraft/engine";
 import { ConnectionManager } from "./connection";
 import type { PlatformAdapter } from "./platform-adapter";
 import type { NetTransport } from "./transport";

@@ -232,10 +232,10 @@ draft test --build
 
 | Variable | Used by | Purpose |
 |---|---|---|
-| `DOWNDRAFT_STRICT` | `packages/core/src/module/diagnostics.ts` | `0`/`1` force-disable/enable module DI validation (else = Vite dev mode) |
-| `DOWNDRAFT_OSR_DISABLE_SHARED_TEXTURE` | `packages/modules/electron-osr/.../osr-renderer.ts` | `1`/`true` disables OSR shared-texture path |
-| `DOWNDRAFT_MCP` | `packages/core/src/util/logger.ts` | `1` routes logs to stderr (keeps stdout clean for MCP JSON-RPC) |
-| `DOWNDRAFT_DISABLE_DEVTOOLS` | `packages/app/src/main/handlers/devtools.ts` | `1` disables devtools auto-open (set by `draft debug --no-devtools`) |
+| `DOWNDRAFT_STRICT` | `packages/engine/core/src/module/diagnostics.ts` | `0`/`1` force-disable/enable module DI validation (else = Vite dev mode) |
+| `DOWNDRAFT_OSR_DISABLE_SHARED_TEXTURE` | `packages/engine/modules/electron-osr/.../osr-renderer.ts` | `1`/`true` disables OSR shared-texture path |
+| `DOWNDRAFT_MCP` | `packages/engine/core/src/util/logger.ts` | `1` routes logs to stderr (keeps stdout clean for MCP JSON-RPC) |
+| `DOWNDRAFT_DISABLE_DEVTOOLS` | `packages/engine/app/src/main/handlers/devtools.ts` | `1` disables devtools auto-open (set by `draft debug --no-devtools`) |
 
 ## Examples
 

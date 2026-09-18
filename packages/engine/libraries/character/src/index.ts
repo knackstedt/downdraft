@@ -1,5 +1,5 @@
 // ============================================================================
-// @downdraft/library-character — skinned character plumbing
+// @downdraft/engine/libraries/character — skinned character plumbing
 //
 // The character pipeline every rigged-model game needs:
 //  - `createCharacterModelLoader` — fetch + parse + external texture

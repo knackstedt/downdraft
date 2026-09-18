@@ -1,11 +1,11 @@
-# `@downdraft/library-persistence`
+# `@downdraft/engine/libraries/persistence`
 
 Save system — save stores (file, IndexedDB, OPFS), autosave manager, and serialization for game state.
 
 ## Install
 
 ```sh
-bun add @downdraft/library-persistence
+bun add @downdraft/engine/libraries/persistence
 ```
 
 ## Key exports

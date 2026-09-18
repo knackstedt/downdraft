@@ -3,7 +3,7 @@
 // Generic rendering logic; game provides data via IDebugOverlayData interface.
 // ============================================================================
 
-import { calculateViewProj, CanvasResizeWatcher } from "@downdraft/core";
+import { calculateViewProj, CanvasResizeWatcher } from "@downdraft/engine";
 import type { IDebugOverlayData } from "./types";
 
 export class DebugOverlay {

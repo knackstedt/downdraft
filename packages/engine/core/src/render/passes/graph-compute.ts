@@ -10,7 +10,7 @@ import {
     ComputeGraphCompiler,
     type ComputeGraph,
     type ComputeProfile
-} from "@downdraft/shader-graph";
+} from "@downdraft/engine/shader-graph";
 import type { RenderContext } from "../frame-graph";
 import { PassType } from "../frame-graph";
 import type { FrameGraphBuilder } from "../render-pass";

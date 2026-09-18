@@ -1,5 +1,5 @@
-import type { ShaderGraphProfile, StructView, WgslStruct } from "@downdraft/shader-graph";
-import { getProfile, mat4x4f, wgsl } from "@downdraft/shader-graph";
+import type { ShaderGraphProfile, StructView, WgslStruct } from "@downdraft/engine/shader-graph";
+import { getProfile, mat4x4f, wgsl } from "@downdraft/engine/shader-graph";
 import { mat4, type Mat4 } from "wgpu-matrix";
 import { compileVariant } from "../../material/graph-bridge";
 import type { Material } from "../../material/material";

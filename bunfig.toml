@@ -5,7 +5,7 @@
 #
 # In Vite/Electron mode, this file is ignored — Vite has its own loaders.
 
-preload = ["./packages/core/src/platform/bun-preload.ts"]
+preload = ["./packages/engine/core/src/platform/bun-preload.ts"]
 
 [test]
 # Bun test configuration

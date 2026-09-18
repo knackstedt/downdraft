@@ -8,8 +8,8 @@ DownDraft provides a pluggable audio system with a Kira backend via Rust FFI.
 ## AudioEngine
 
 ```typescript
-import { AudioEngine, createAudioSource } from "@downdraft/core";
-import { AudioKiraModule } from "@downdraft/module-audio-kira";
+import { AudioEngine, createAudioSource } from "@downdraft/engine";
+import { AudioKiraModule } from "@downdraft/engine/libraries/audio-kira";
 
 gameWorld.useModule(AudioKiraModule);
 const source = createAudioSource({ buffer: "explosion.wav", volume: 0.8 });
@@ -22,7 +22,7 @@ Audio sources have 3D positions. An audio listener follows the camera, enabling 
 ### Audio Source Component
 
 ```typescript
-import { createAudioSource } from "@downdraft/core";
+import { createAudioSource } from "@downdraft/engine";
 
 const source = createAudioSource({
   buffer: "explosion.wav",

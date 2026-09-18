@@ -1,5 +1,5 @@
 // ============================================================================
-// @downdraft/module-movement-2d — 2D side-scrolling grid character movement
+// @downdraft/engine/modules/movement-2d — 2D side-scrolling grid character movement
 //
 // Provides a configurable AABB-vs-grid character controller
 // (createGridCharacterController): platformer physics with collision,
@@ -10,7 +10,7 @@
 // with hand-rolled sims can import createGridCharacterController directly.
 // ============================================================================
 
-import { resourceToken, type Module, type ModuleContext } from "@downdraft/core";
+import { resourceToken, type Module, type ModuleContext } from "@downdraft/engine";
 import { createGridCharacterController, type GridCharacterConfig, type GridCharacterController } from "./grid-character";
 
 export {

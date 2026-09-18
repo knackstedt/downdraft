@@ -11,7 +11,7 @@
 // Import this module for its side effect BEFORE any code that calls
 // requestPointerLock / reads movementX/movementY:
 //
-//   import "@downdraft/module-raw-input/polyfill";
+//   import "@downdraft/engine/modules/raw-input/polyfill";
 //
 // The polyfill:
 //   1. Overrides Element.prototype.requestPointerLock + Document.prototype.exitPointerLock
@@ -263,7 +263,7 @@ export function uninstallPointerLockPolyfill(): void {
 
 // ── Auto-install on side-effect import ──
 //
-// `import "@downdraft/module-raw-input/polyfill"` triggers this call.
+// `import "@downdraft/engine/modules/raw-input/polyfill"` triggers this call.
 // It's a no-op if the native bridge isn't available (browser/web dev mode),
 // so importing the polyfill is always safe — it only activates in Electron
 // when features.rawInput is enabled.

@@ -8,9 +8,9 @@
 // `id-token: write` (trusted publishing) or locally with `npm login`.
 // Packages whose current version is already on npm are skipped.
 
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { spawnSync } from "node:child_process";
 
 const root = resolve(new URL("..", import.meta.url).pathname);
 const args = process.argv.slice(2);
@@ -18,9 +18,10 @@ const dryRun = args.includes("--dry-run");
 const tag = args.find((a) => a.startsWith("--tag="))?.split("=")[1];
 const filter = args.find((a) => a.startsWith("--filter="))?.split("=")[1];
 
-// Collect every publishable package (private:true is skipped).
+// Collect every publishable package (private:true is skipped). Engine
+// libraries/modules live inside @downdraft/engine — not separate packages.
 const dirs = [];
-for (const top of ["packages", "packages/modules", "packages/libraries"]) {
+for (const top of ["packages"]) {
   const abs = join(root, top);
   if (!existsSync(abs)) continue;
   for (const entry of readdirSync(abs)) {

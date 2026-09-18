@@ -8,16 +8,16 @@
 // their `root` and can override any section.
 //
 // ```ts
-// import { createDowndraftViteConfig } from "@downdraft/app/vite";
+// import { createDowndraftViteConfig } from "@downdraft/engine/app/vite";
 // export default createDowndraftViteConfig({ root: __dirname });
 // ```
 
-import { hotReloadPlugin } from "@downdraft/core/vite/hot-reload-plugin";
-import { wgslHmrPlugin } from "@downdraft/core/vite/wgsl-hmr-plugin";
+import { hotReloadPlugin } from "@downdraft/engine/vite/hot-reload-plugin";
+import { wgslHmrPlugin } from "@downdraft/engine/vite/wgsl-hmr-plugin";
 import react from "@vitejs/plugin-react";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "path";
+import { resolve } from "path";
 import { downdraftAssetBakePlugin, type AssetBakePluginOptions } from "./asset-bake-plugin.ts";
 import { downdraftHtmlPlugin, type DowndraftHtmlOptions, type LayerSpec } from "./downdraft-html-plugin.ts";
 import { createEngineResolver } from "./engine-resolve.ts";
@@ -151,7 +151,7 @@ export interface DowndraftViteConfigOptions {
   assetBake?: AssetBakePluginOptions | false;
   /**
    * Profiling system — injects the worker prelude into worker entries.
-   * - `true` (default in dev): injects `import "@downdraft/core/profiling/worker-prelude"`
+   * - `true` (default in dev): injects `import "@downdraft/engine/profiling/worker-prelude"`
    *   into all worker-entry files, enabling IOPS patching, warning rules,
    *   event-loop monitoring, and the in-game profiler overlay.
    * - `false`: disables prelude injection (profiling off).
@@ -169,9 +169,9 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
   delete process.env.ELECTRON_RUN_AS_NODE;
 
   const { root } = options;
-  // Resolves @downdraft/* packages via Node resolution (workspace symlinks in
-  // the monorepo, node_modules in standalone games). `engine.repoRoot` is the
-  // monorepo root when detected, else null.
+  // Resolves the @downdraft/engine package via Node resolution (workspace
+  // symlink in the monorepo, node_modules in standalone games).
+  // `engine.repoRoot` is the monorepo root when detected, else null.
   const engine = createEngineResolver(root);
   const game = options.game ?? root.split("/").pop()!;
   const mainEntry = options.main ?? resolve(root, "src/main.ts");
@@ -224,40 +224,35 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
   }
 
   // --- Shared alias sets ---
-
-  const coreAliases = [
-    { find: /^@downdraft\/core$/, replacement: resolve(engine.src("@downdraft/core", "core"), "index.ts") },
-    { find: /^@downdraft\/core\//, replacement: engine.src("@downdraft/core", "core") + "/" },
+  //
+  // The @downdraft/engine package resolves on its own via node_modules +
+  // its exports map. These aliases are a monorepo fallback so engine code
+  // still resolves when a game forgets to declare the dep (warnUndeclared
+  // reports it), and they guarantee source (not a stale published copy) is
+  // served. Ordering: irregular subpaths first, deep rules before bare-name
+  // rules, the core catch-all last. Vite's fs resolution handles extension
+  // appending and directory index.ts lookups on the rewritten paths.
+  const E = engine.engineRoot;
+  const engineAliases = [
+    { find: /^@downdraft\/engine$/, replacement: resolve(E, "core/src/index.ts") },
+    // Irregular subpaths (don't follow <name>/src/<rest>) — before deep rules.
+    { find: /^@downdraft\/engine\/modules\/raw-input\/polyfill$/, replacement: resolve(E, "modules/raw-input/src/renderer/polyfill.ts") },
+    { find: /^@downdraft\/engine\/libraries\/([^/]+)\/(.+)$/, replacement: `${E}/libraries/$1/src/$2` },
+    { find: /^@downdraft\/engine\/libraries\/([^/]+)$/, replacement: `${E}/libraries/$1/src/index.ts` },
+    { find: /^@downdraft\/engine\/modules\/([^/]+)\/(.+)$/, replacement: `${E}/modules/$1/src/$2` },
+    { find: /^@downdraft\/engine\/modules\/([^/]+)$/, replacement: `${E}/modules/$1/src/index.ts` },
+    { find: /^@downdraft\/engine\/app\/(.+)$/, replacement: `${E}/app/src/$1` },
+    { find: /^@downdraft\/engine\/app$/, replacement: `${E}/app/src/index.ts` },
+    { find: /^@downdraft\/engine\/(ui|shader-graph|mcp|test|asset-bake)\/(.+)$/, replacement: `${E}/$1/src/$2` },
+    { find: /^@downdraft\/engine\/(ui|shader-graph|mcp|test|asset-bake)$/, replacement: `${E}/$1/src/index.ts` },
+    // Core catch-all — everything else maps into core/src.
+    { find: /^@downdraft\/engine\/(.+)$/, replacement: `${E}/core/src/$1` },
   ];
 
   const mainAliases = [
-    { find: "@main", replacement: resolve(engine.src("@downdraft/app", "app"), "main") },
-    { find: "@shared", replacement: resolve(engine.src("@downdraft/app", "app"), "shared") },
-    ...coreAliases,
-    { find: /^@downdraft\/mcp\//, replacement: engine.src("@downdraft/mcp", "mcp") + "/" },
-    { find: /^@downdraft\/mcp$/, replacement: resolve(engine.src("@downdraft/mcp", "mcp"), "index.ts") },
-    { find: /^@downdraft\/shader-graph$/, replacement: resolve(engine.src("@downdraft/shader-graph", "shader-graph"), "index.ts") },
-    { find: /^@downdraft\/shader-graph\//, replacement: engine.src("@downdraft/shader-graph", "shader-graph") + "/" },
-    { find: /^@downdraft\/module-electron-osr$/, replacement: resolve(engine.src("@downdraft/module-electron-osr", "modules/electron-osr"), "index.ts") },
-    { find: /^@downdraft\/module-electron-osr\/main-entry$/, replacement: resolve(engine.src("@downdraft/module-electron-osr", "modules/electron-osr"), "main-entry.ts") },
-    { find: /^@downdraft\/module-electron-osr\//, replacement: engine.src("@downdraft/module-electron-osr", "modules/electron-osr") + "/" },
-    { find: /^@downdraft\/module-raw-input$/, replacement: resolve(engine.src("@downdraft/module-raw-input", "modules/raw-input"), "index.ts") },
-    { find: /^@downdraft\/module-raw-input\/main-entry$/, replacement: resolve(engine.src("@downdraft/module-raw-input", "modules/raw-input"), "main-entry.ts") },
-    { find: /^@downdraft\/module-raw-input\/polyfill$/, replacement: resolve(engine.src("@downdraft/module-raw-input", "modules/raw-input"), "renderer/polyfill.ts") },
-    { find: /^@downdraft\/module-raw-input\//, replacement: engine.src("@downdraft/module-raw-input", "modules/raw-input") + "/" },
-    { find: /^@downdraft\/library-persistence$/, replacement: resolve(engine.src("@downdraft/library-persistence", "libraries/persistence"), "index.ts") },
-    { find: /^@downdraft\/library-persistence\/browser$/, replacement: resolve(engine.src("@downdraft/library-persistence", "libraries/persistence"), "browser.ts") },
-    { find: /^@downdraft\/library-persistence\//, replacement: engine.src("@downdraft/library-persistence", "libraries/persistence") + "/" },
-    // library-models — dynamically imported by core's loader-mesh.ts; needs to
-    // be resolvable in the main process build.
-    { find: /^@downdraft\/library-models$/, replacement: resolve(engine.src("@downdraft/library-models", "libraries/models"), "index.ts") },
-    { find: /^@downdraft\/library-models\//, replacement: engine.src("@downdraft/library-models", "libraries/models") + "/" },
-    // @downdraft/app subpath exports — resolve to source for dev builds
-    { find: /^@downdraft\/app\/main$/, replacement: resolve(engine.src("@downdraft/app", "app"), "main/index.ts") },
-    { find: /^@downdraft\/app\/preload$/, replacement: resolve(engine.src("@downdraft/app", "app"), "preload/index.ts") },
-    { find: /^@downdraft\/app\/shared$/, replacement: resolve(engine.src("@downdraft/app", "app"), "shared/index.ts") },
-    { find: /^@downdraft\/app\/vite$/, replacement: resolve(engine.src("@downdraft/app", "app"), "vite/index.ts") },
-    { find: /^@downdraft\/app$/, replacement: resolve(engine.src("@downdraft/app", "app"), "index.ts") },
+    { find: "@main", replacement: engine.src("app") + "/main" },
+    { find: "@shared", replacement: engine.src("app") + "/shared" },
+    ...engineAliases,
     ...(options.mainAliases ?? []),
   ];
 
@@ -265,81 +260,19 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
     { find: "@renderer", replacement: resolve(rendererRoot, "src") },
     { find: "@shared", replacement: resolve(rendererRoot, "src/shared") },
     { find: "@sim", replacement: resolve(rendererRoot, "src/simulation") },
-    ...coreAliases,
-    { find: /^@downdraft\/ui$/, replacement: resolve(engine.src("@downdraft/ui", "ui"), "index.ts") },
-    { find: /^@downdraft\/ui\//, replacement: engine.src("@downdraft/ui", "ui") + "/" },
-    { find: /^@downdraft\/shader-graph$/, replacement: resolve(engine.src("@downdraft/shader-graph", "shader-graph"), "index.ts") },
-    { find: /^@downdraft\/shader-graph\//, replacement: engine.src("@downdraft/shader-graph", "shader-graph") + "/" },
-    // Persistence — browser entry excludes FileSaveStore (node:fs/node:path)
-    { find: /^@downdraft\/library-persistence\/browser$/, replacement: resolve(engine.src("@downdraft/library-persistence", "libraries/persistence"), "browser.ts") },
-    { find: /^@downdraft\/library-persistence$/, replacement: resolve(engine.src("@downdraft/library-persistence", "libraries/persistence"), "browser.ts") },
-    { find: /^@downdraft\/library-persistence\//, replacement: engine.src("@downdraft/library-persistence", "libraries/persistence") + "/" },
-    { find: /^@downdraft\/library-sand$/, replacement: resolve(engine.src("@downdraft/library-sand", "libraries/sand"), "index.ts") },
-    { find: /^@downdraft\/library-sand\//, replacement: engine.src("@downdraft/library-sand", "libraries/sand") + "/" },
-    { find: /^@downdraft\/library-lighting$/, replacement: resolve(engine.src("@downdraft/library-lighting", "libraries/lighting"), "index.ts") },
-    { find: /^@downdraft\/library-lighting\//, replacement: engine.src("@downdraft/library-lighting", "libraries/lighting") + "/" },
-    { find: /^@downdraft\/library-weatherfx$/, replacement: resolve(engine.src("@downdraft/library-weatherfx", "libraries/weatherfx"), "index.ts") },
-    { find: /^@downdraft\/library-weatherfx\//, replacement: engine.src("@downdraft/library-weatherfx", "libraries/weatherfx") + "/" },
-    { find: /^@downdraft\/library-weather$/, replacement: resolve(engine.src("@downdraft/library-weather", "libraries/weather"), "index.ts") },
-    { find: /^@downdraft\/library-weather\//, replacement: engine.src("@downdraft/library-weather", "libraries/weather") + "/" },
-    { find: /^@downdraft\/library-entities$/, replacement: resolve(engine.src("@downdraft/library-entities", "libraries/entities"), "index.ts") },
-    { find: /^@downdraft\/library-entities\//, replacement: engine.src("@downdraft/library-entities", "libraries/entities") + "/" },
-    { find: /^@downdraft\/library-stickman$/, replacement: resolve(engine.src("@downdraft/library-stickman", "libraries/stickman"), "index.ts") },
-    { find: /^@downdraft\/library-stickman\//, replacement: engine.src("@downdraft/library-stickman", "libraries/stickman") + "/" },
-    { find: /^@downdraft\/library-models$/, replacement: resolve(engine.src("@downdraft/library-models", "libraries/models"), "index.ts") },
-    { find: /^@downdraft\/library-models\//, replacement: engine.src("@downdraft/library-models", "libraries/models") + "/" },
-    { find: /^@downdraft\/module-devtools$/, replacement: resolve(engine.src("@downdraft/module-devtools", "modules/devtools"), "index.ts") },
-    { find: /^@downdraft\/module-devtools\//, replacement: engine.src("@downdraft/module-devtools", "modules/devtools") + "/" },
-    { find: /^@downdraft\/module-terrain$/, replacement: resolve(engine.src("@downdraft/module-terrain", "modules/terrain"), "index.ts") },
-    { find: /^@downdraft\/module-terrain\//, replacement: engine.src("@downdraft/module-terrain", "modules/terrain") + "/" },
-    { find: /^@downdraft\/module-movement-3d$/, replacement: resolve(engine.src("@downdraft/module-movement-3d", "modules/movement-3d"), "index.ts") },
-    { find: /^@downdraft\/module-movement-3d\//, replacement: engine.src("@downdraft/module-movement-3d", "modules/movement-3d") + "/" },
-    { find: /^@downdraft\/module-movement-2d$/, replacement: resolve(engine.src("@downdraft/module-movement-2d", "modules/movement-2d"), "index.ts") },
-    { find: /^@downdraft\/module-movement-2d\//, replacement: engine.src("@downdraft/module-movement-2d", "modules/movement-2d") + "/" },
-    { find: /^@downdraft\/module-vitals$/, replacement: resolve(engine.src("@downdraft/module-vitals", "modules/vitals"), "index.ts") },
-    { find: /^@downdraft\/module-vitals\//, replacement: engine.src("@downdraft/module-vitals", "modules/vitals") + "/" },
-    { find: /^@downdraft\/module-sailing$/, replacement: resolve(engine.src("@downdraft/module-sailing", "modules/sailing"), "index.ts") },
-    { find: /^@downdraft\/module-sailing\//, replacement: engine.src("@downdraft/module-sailing", "modules/sailing") + "/" },
-    { find: /^@downdraft\/module-camera-controls$/, replacement: resolve(engine.src("@downdraft/module-camera-controls", "modules/camera-controls"), "index.ts") },
-    { find: /^@downdraft\/module-camera-controls\//, replacement: engine.src("@downdraft/module-camera-controls", "modules/camera-controls") + "/" },
-    { find: /^@downdraft\/library-pixi-ui$/, replacement: resolve(engine.src("@downdraft/library-pixi-ui", "libraries/pixi-ui"), "index.ts") },
-    { find: /^@downdraft\/library-pixi-ui\//, replacement: engine.src("@downdraft/library-pixi-ui", "libraries/pixi-ui") + "/" },
-    { find: /^@downdraft\/library-profiler$/, replacement: resolve(engine.src("@downdraft/library-profiler", "libraries/profiler"), "index.ts") },
-    { find: /^@downdraft\/library-profiler\//, replacement: engine.src("@downdraft/library-profiler", "libraries/profiler") + "/" },
-    { find: /^node:fs$/, replacement: resolve(engine.src("@downdraft/app", "app"), "renderer-shims/fs.ts") },
-    { find: /^fs$/, replacement: resolve(engine.src("@downdraft/app", "app"), "renderer-shims/fs.ts") },
-    { find: /^node:path$/, replacement: resolve(engine.src("@downdraft/app", "app"), "renderer-shims/path.ts") },
-    { find: /^path$/, replacement: resolve(engine.src("@downdraft/app", "app"), "renderer-shims/path.ts") },
-    { find: /^node:url$/, replacement: resolve(engine.src("@downdraft/app", "app"), "renderer-shims/url.ts") },
-    { find: /^@downdraft\/library-marching-cubes$/, replacement: resolve(engine.src("@downdraft/library-marching-cubes", "libraries/marching-cubes"), "index.ts") },
-    { find: /^@downdraft\/library-marching-cubes\//, replacement: engine.src("@downdraft/library-marching-cubes", "libraries/marching-cubes") + "/" },
-    { find: /^@downdraft\/library-character$/, replacement: resolve(engine.src("@downdraft/library-character", "libraries/character"), "index.ts") },
-    { find: /^@downdraft\/library-character\//, replacement: engine.src("@downdraft/library-character", "libraries/character") + "/" },
-    { find: /^@downdraft\/library-pathfinding-2d$/, replacement: resolve(engine.src("@downdraft/library-pathfinding-2d", "libraries/pathfinding-2d"), "index.ts") },
-    { find: /^@downdraft\/library-pathfinding-2d\//, replacement: engine.src("@downdraft/library-pathfinding-2d", "libraries/pathfinding-2d") + "/" },
-    { find: /^@downdraft\/library-navmesh$/, replacement: resolve(engine.src("@downdraft/library-navmesh", "libraries/navmesh"), "index.ts") },
-    { find: /^@downdraft\/library-navmesh\//, replacement: engine.src("@downdraft/library-navmesh", "libraries/navmesh") + "/" },
-    { find: /^@downdraft\/library-recast$/, replacement: resolve(engine.src("@downdraft/library-recast", "libraries/recast"), "index.ts") },
-    { find: /^@downdraft\/library-recast\//, replacement: engine.src("@downdraft/library-recast", "libraries/recast") + "/" },
-    { find: /^@downdraft\/library-water$/, replacement: resolve(engine.src("@downdraft/library-water", "libraries/water"), "index.ts") },
-    { find: /^@downdraft\/library-water\//, replacement: engine.src("@downdraft/library-water", "libraries/water") + "/" },
-    { find: /^@downdraft\/library-postfx$/, replacement: resolve(engine.src("@downdraft/library-postfx", "libraries/postfx"), "index.ts") },
-    { find: /^@downdraft\/library-postfx\//, replacement: engine.src("@downdraft/library-postfx", "libraries/postfx") + "/" },
+    // node builtins → renderer shims (must precede any engine code resolution)
+    { find: /^node:fs$/, replacement: resolve(engine.src("app"), "renderer-shims/fs.ts") },
+    { find: /^fs$/, replacement: resolve(engine.src("app"), "renderer-shims/fs.ts") },
+    { find: /^node:path$/, replacement: resolve(engine.src("app"), "renderer-shims/path.ts") },
+    { find: /^path$/, replacement: resolve(engine.src("app"), "renderer-shims/path.ts") },
+    { find: /^node:url$/, replacement: resolve(engine.src("app"), "renderer-shims/url.ts") },
+    // Persistence — bare specifier resolves to the browser entry in the
+    // renderer (index.ts pulls in FileSaveStore: node:fs/node:path).
+    { find: /^@downdraft\/engine\/libraries\/persistence$/, replacement: resolve(E, "libraries/persistence/src/browser.ts") },
+    ...engineAliases,
     // Game-owned plugin aliases are registered by each game's own
     // electron.vite.config.ts via `rendererAliases` — the engine config
     // must not hardcode any specific game's plugin paths.
-    { find: /^@downdraft\/mcp$/, replacement: resolve(engine.src("@downdraft/mcp", "mcp"), "index.ts") },
-    { find: /^@downdraft\/mcp\//, replacement: engine.src("@downdraft/mcp", "mcp") + "/" },
-    { find: /^@downdraft\/module-electron-osr$/, replacement: resolve(engine.src("@downdraft/module-electron-osr", "modules/electron-osr"), "index.ts") },
-    { find: /^@downdraft\/module-electron-osr\//, replacement: engine.src("@downdraft/module-electron-osr", "modules/electron-osr") + "/" },
-    { find: /^@downdraft\/module-raw-input$/, replacement: resolve(engine.src("@downdraft/module-raw-input", "modules/raw-input"), "index.ts") },
-    { find: /^@downdraft\/module-raw-input\/polyfill$/, replacement: resolve(engine.src("@downdraft/module-raw-input", "modules/raw-input"), "renderer/polyfill.ts") },
-    { find: /^@downdraft\/module-raw-input\//, replacement: engine.src("@downdraft/module-raw-input", "modules/raw-input") + "/" },
-    // @downdraft/app renderer accessor + base CSS
-    { find: /^@downdraft\/app\/renderer$/, replacement: resolve(engine.src("@downdraft/app", "app"), "renderer/index.ts") },
-    { find: /^@downdraft\/app\/renderer\/downdraft-base\.css$/, replacement: resolve(engine.src("@downdraft/app", "app"), "renderer/downdraft-base.css") },
-    { find: /^@downdraft\/app\/shared$/, replacement: resolve(engine.src("@downdraft/app", "app"), "shared/index.ts") },
-    { find: /^@downdraft\/app$/, replacement: resolve(engine.src("@downdraft/app", "app"), "index.ts") },
     ...(options.rendererAliases ?? []),
   ];
 
@@ -354,21 +287,19 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
   const hasSimWorker = existsSync(resolve(rendererRoot, "src/simulation"));
   // Path patterns are substring-matched against absolute file paths. The
   // `packages/*` forms cover the monorepo layout; the `/@downdraft/*` forms
-  // cover standalone games where engine packages live under node_modules
+  // cover standalone games where the engine package lives under node_modules
   // (or any other install location — the scope name is the invariant).
   const simPaths = options.simPaths ?? (hasSimWorker
-    ? ["simulation/", "shared/",
-       "packages/core/", "packages/modules/", "packages/libraries/",
-       "/@downdraft/core/", "/@downdraft/module-", "/@downdraft/library-"]
+    ? ["simulation/", "shared/", "packages/engine/", "/@downdraft/engine/"]
     : []);
   const rendererPaths = options.rendererPaths ?? (hasSimWorker
     ? ["engine/", "stores/",
-       "packages/modules/electron-osr/src/renderer/",
-       "/@downdraft/module-electron-osr/src/renderer/"]
+       "packages/engine/modules/electron-osr/src/renderer/",
+       "/@downdraft/engine/modules/electron-osr/src/renderer/"]
     : []);
   const excludePaths = options.excludePaths ?? [
-    "packages/modules/electron-osr/src/main/",
-    "/@downdraft/module-electron-osr/src/main/",
+    "packages/engine/modules/electron-osr/src/main/",
+    "/@downdraft/engine/modules/electron-osr/src/main/",
     "simulation/ecs/ecs-",
   ];
 
@@ -459,11 +390,8 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
       } as any,
       resolve: {
         alias: [
-          { find: "@shared", replacement: resolve(engine.src("@downdraft/app", "app"), "shared") },
-          { find: "@downdraft/app/preload", replacement: resolve(engine.src("@downdraft/app", "app"), "preload/index.ts") },
-          { find: "@downdraft/app/shared", replacement: resolve(engine.src("@downdraft/app", "app"), "shared/index.ts") },
-          { find: "@downdraft/app", replacement: resolve(engine.src("@downdraft/app", "app"), "index.ts") },
-          ...coreAliases,
+          { find: "@shared", replacement: engine.src("app") + "/shared" },
+          ...engineAliases,
         ],
       },
     },
@@ -477,11 +405,10 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
         fs: {
           // Engine sources may live outside the game root — symlinked
           // workspace/monorepo checkouts, `bun link`, or `file:` deps all
-          // resolve to real paths Vite must be allowed to serve. The parent
-          // dir of the resolved core package covers every @downdraft/*
-          // package in both layouts (packages/ in the monorepo,
-          // node_modules/@downdraft/ in standalone installs).
-          allow: [rendererRoot, root, dirname(engine.pkg("@downdraft/core", "core"))],
+          // resolve to real paths Vite must be allowed to serve. The engine
+          // package root covers all @downdraft/engine code in both layouts
+          // (packages/engine in the monorepo, node_modules in standalone).
+          allow: [rendererRoot, root, engine.engineRoot],
         },
       },
       resolve: {
@@ -556,7 +483,7 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
         // `*.wgsl?raw` modules become HMR boundaries (fine-grained shader
         // reload via wgslHotReload, full page reload fallback). Applies to
         // all games and CLI templates automatically via this factory.
-        wgslHmrPlugin(resolve(engine.src("@downdraft/core", "core"), "render/wgsl-hmr.ts")),
+        wgslHmrPlugin(resolve(engine.src("core"), "render/wgsl-hmr.ts")),
         hotReloadPlugin({
           simPaths,
           rendererPaths,
@@ -568,7 +495,7 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
         // Compile `new URL("./*.ts", import.meta.url)` scene-module references
         // into bundled JS chunks (fixes pixi-ui overlay in prod builds).
         sceneModuleUrlPlugin(),
-        // Profiling prelude — injects `import "@downdraft/core/profiling/worker-prelude"`
+        // Profiling prelude — injects `import "@downdraft/engine/profiling/worker-prelude"`
         // into worker-entry files so IOPS patching, warning rules, and event-loop
         // monitoring are active before any worker code runs. Enabled by default
         // in dev; set `profiling: false` to disable, `profiling: "always"` for prod.

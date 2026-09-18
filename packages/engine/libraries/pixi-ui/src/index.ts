@@ -1,5 +1,5 @@
 // ============================================================================
-// @downdraft/library-pixi-ui — public API
+// @downdraft/engine/libraries/pixi-ui — public API
 //
 // A worker-hosted PixiJS UI overlay. The library spawns a Web Worker that
 // renders a GUI onto an OffscreenCanvas (via transferControlToOffscreen)
@@ -8,7 +8,7 @@
 //
 // Usage (declarative — via GameModule.libraries[]):
 //
-//   import { PixiUiLib } from "@downdraft/library-pixi-ui";
+//   import { PixiUiLib } from "@downdraft/engine/libraries/pixi-ui";
 //
 //   startGame({
 //     libraries: [PixiUiLib],  // or [PixiUiLib, { backend: "webgpu", ... }]
@@ -26,7 +26,7 @@
 //
 // Escape hatch (manual wiring in onReady):
 //
-//   import { PixiUiHost } from "@downdraft/library-pixi-ui";
+//   import { PixiUiHost } from "@downdraft/engine/libraries/pixi-ui";
 //   const host = new PixiUiHost({ backend: "webgl2", sceneModuleUrl: new URL("./pixi-scene.ts", import.meta.url).href });
 //   await host.start();
 // ============================================================================

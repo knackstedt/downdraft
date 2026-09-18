@@ -3,18 +3,6 @@
   "version": "0.1.0",
   "type": "module",
   "dependencies": {
-    "@downdraft/app": "workspace:*",
-    "@downdraft/core": "workspace:*",
-    "@downdraft/mcp": "workspace:*",
-    "@downdraft/library-lighting": "workspace:*",
-    "@downdraft/library-navmesh": "workspace:*",
-    "@downdraft/library-recast": "workspace:*",
-    "@downdraft/library-weather": "workspace:*",
-    "@downdraft/library-water": "workspace:*",
-    "@downdraft/library-networking": "workspace:*",
-    "@downdraft/library-physics-rapier": "workspace:*",
-    "@downdraft/library-audio-kira": "workspace:*",
-    "@downdraft/library-marching-cubes": "workspace:*",
-    "@downdraft/module-mcp": "workspace:*"
+    "@downdraft/engine": "workspace:*"
   }
 }

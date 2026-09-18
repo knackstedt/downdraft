@@ -20,7 +20,7 @@ import type {
     SaveSlotInfo,
     SaveState,
     SaveWarning,
-} from "@downdraft/core";
+} from "@downdraft/engine";
 
 /**
  * The subset of the DowndraftBridge needed for save operations.

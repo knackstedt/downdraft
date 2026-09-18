@@ -20,8 +20,8 @@ import {
     multiplyMat4Into,
     skinDataToSkeletonData,
     type KeyframeTrack,
-} from "@downdraft/core";
-import type { ModelData, SkinData } from "@downdraft/library-models";
+} from "@downdraft/engine";
+import type { ModelData, SkinData } from "@downdraft/engine/libraries/models";
 
 // ── Bone-name resolver ──
 // Tries UE-style, generic, and Mixamo names so procedural clips work across

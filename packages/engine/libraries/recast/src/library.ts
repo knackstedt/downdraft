@@ -1,5 +1,5 @@
 // ============================================================================
-// RecastLib — declarative engine library descriptor for @downdraft/library-recast
+// RecastLib — declarative engine library descriptor for @downdraft/engine/libraries/recast
 //
 // Games declare `libraries: [RecastLib]` (or with config override) in their
 // GameModule. The host creates the RecastBackend + RecastCrowdSystem
@@ -10,7 +10,7 @@
 // RecastCrowdSystem, and RecastAgent directly (escape hatch).
 // ============================================================================
 
-import { resourceToken, type EngineLibrary } from "@downdraft/core";
+import { resourceToken, type EngineLibrary } from "@downdraft/engine";
 import { RecastBackend } from "./backend";
 import { RecastCrowdSystem } from "./crowd-system";
 

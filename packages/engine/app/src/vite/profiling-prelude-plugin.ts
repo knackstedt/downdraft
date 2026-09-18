@@ -1,6 +1,6 @@
 // ============================================================================
 // profilingPreludePlugin — Vite transform plugin that auto-injects
-// `import "@downdraft/core/profiling/worker-prelude";` as the first statement
+// `import "@downdraft/engine/profiling/worker-prelude";` as the first statement
 // of worker-entry files.
 //
 // The import is a side-effect import — the prelude self-initializes on load
@@ -36,7 +36,7 @@ const DEFAULT_EXCLUDE = [
   "**/worker-prelude.ts",
 ];
 
-const PRELUDE_IMPORT = `import "@downdraft/core/profiling/worker-prelude";`;
+const PRELUDE_IMPORT = `import "@downdraft/engine/profiling/worker-prelude";`;
 
 /** Simple glob matcher — supports * and ** patterns. */
 function matchGlob(path: string, pattern: string): boolean {

@@ -1,11 +1,11 @@
-# `@downdraft/library-pixi-ui-native`
+# `@downdraft/engine/libraries/pixi-ui-native`
 
 PixiJS UI for the native runtime — native-side PixiJS host and UI blit pass.
 
 ## Install
 
 ```sh
-bun add @downdraft/library-pixi-ui-native
+bun add @downdraft/engine/libraries/pixi-ui-native
 ```
 
 ## Key exports

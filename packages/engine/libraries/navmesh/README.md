@@ -1,11 +1,11 @@
-# `@downdraft/library-navmesh`
+# `@downdraft/engine/libraries/navmesh`
 
 Runtime navmesh generation and queries — grid/tiled navigation meshes with path solving and debug visualization.
 
 ## Install
 
 ```sh
-bun add @downdraft/library-navmesh
+bun add @downdraft/engine/libraries/navmesh
 ```
 
 ## Key exports

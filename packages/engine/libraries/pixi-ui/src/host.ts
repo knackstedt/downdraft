@@ -9,7 +9,7 @@
 // using the escape hatch.
 // ============================================================================
 
-import { usingRealSAB } from "@downdraft/core/sab/sab-polyfill";
+import { usingRealSAB } from "@downdraft/engine/sab/sab-polyfill";
 import {
     DEFAULT_STATS_LAYOUT,
     serializeConfig,

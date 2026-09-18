@@ -1,4 +1,4 @@
-import { safeJsonParse } from "@downdraft/core";
+import { safeJsonParse } from "@downdraft/engine";
 import { WebSocketTransport } from "./transport";
 import { isValidIceCandidate } from "./webrtc";
 

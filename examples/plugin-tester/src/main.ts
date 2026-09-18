@@ -6,8 +6,8 @@
 // The screenshot hack (previously embedded in the engine's main process) is
 // now a deliberate game-specific extension via the extend hook.
 
-import { createDowndraftApp, webGpuSwitches } from "@downdraft/app/main";
-import { createLogger } from "@downdraft/core/util/logger";
+import { createDowndraftApp, webGpuSwitches } from "@downdraft/engine/app/main";
+import { createLogger } from "@downdraft/engine/util/logger";
 import { writeFileSync } from "node:fs";
 
 const log = createLogger("info");

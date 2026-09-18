@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { createLogger } from "@downdraft/core";
+import { createLogger } from "@downdraft/engine";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { ArgError, print, renderHelp } from "./args";

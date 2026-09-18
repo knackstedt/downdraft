@@ -10,7 +10,7 @@ DownDraft Engine runs across four isolated execution contexts, each with distinc
 ```
 ┌─────────────────────────────────────────────┐
   Electron Main Process (game-owned src/main.ts)
-    • Calls createDowndraftApp() from @downdraft/app/main
+    • Calls createDowndraftApp() from @downdraft/engine/app/main
     • Window lifecycle, display info, IPC (config-driven)
     • GC profiling, performance stats
 ├─────────────────────────────────────────────┤
@@ -33,7 +33,7 @@ DownDraft Engine runs across four isolated execution contexts, each with distinc
 
 ### 1. Electron Main Process
 
-- Game-owned `src/main.ts` calls `createDowndraftApp()` from `@downdraft/app/main`
+- Game-owned `src/main.ts` calls `createDowndraftApp()` from `@downdraft/engine/app/main`
 - Window/lifecycle management, IPC handlers — all config-driven
 - GC/performance profiling
 - No render loop here

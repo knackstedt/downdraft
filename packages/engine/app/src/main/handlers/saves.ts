@@ -2,8 +2,8 @@
 // Save/load IPC handlers
 // ============================================================================
 
-import { createLogger } from "@downdraft/core/util/logger";
-import { FileSaveStore } from "@downdraft/library-persistence";
+import { createLogger } from "@downdraft/engine/util/logger";
+import { FileSaveStore } from "@downdraft/engine/libraries/persistence";
 import { app, ipcMain } from "electron";
 import { join } from "path";
 import { IPC } from "../../shared/messages";

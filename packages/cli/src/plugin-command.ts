@@ -6,7 +6,7 @@
 //   dd plugin list [--game <game>]
 // ============================================================================
 
-import { createLogger } from "@downdraft/core";
+import { createLogger } from "@downdraft/engine";
 import { existsSync, readdirSync, readFileSync } from "fs";
 import { basename, join } from "path";
 import { print } from "./args";

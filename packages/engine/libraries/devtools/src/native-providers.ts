@@ -52,7 +52,7 @@ let profilingMod: any = undefined;
 async function loadProfiling(): Promise<any> {
     if (profilingMod !== undefined) return profilingMod;
     try {
-        profilingMod = await import("@downdraft/core/profiling");
+        profilingMod = await import("@downdraft/engine/profiling");
     } catch {
         profilingMod = null;
     }

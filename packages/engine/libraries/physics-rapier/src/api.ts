@@ -9,7 +9,7 @@ import type {
     RaycastResult,
     RealmTransferHook,
     SnapshotHooks,
-} from "@downdraft/core";
+} from "@downdraft/engine";
 import {
     CCDHeuristic,
     InterpolationBuffer,
@@ -19,7 +19,7 @@ import {
     RealmTier,
     SafetyLayer,
     SnapshotManager,
-} from "@downdraft/core";
+} from "@downdraft/engine";
 import type { RapierPhysicsBackend } from "./backend";
 
 /**
@@ -133,29 +133,29 @@ export class UniversalPhysicsAPI {
 
   // --- Character controller ---
 
-  createCharacterController(desc: import("@downdraft/core").CharacterControllerDesc, entity: import("@downdraft/core").Entity): import("@downdraft/core").CharacterControllerHandle {
+  createCharacterController(desc: import("@downdraft/engine").CharacterControllerDesc, entity: import("@downdraft/engine").Entity): import("@downdraft/engine").CharacterControllerHandle {
     const nearRealm = this.realmManager.getRealm(RealmTier.Near);
     return this.backend.createCharacterController(nearRealm.id, desc, entity);
   }
 
-  destroyCharacterController(handle: import("@downdraft/core").CharacterControllerHandle): void {
+  destroyCharacterController(handle: import("@downdraft/engine").CharacterControllerHandle): void {
     this.backend.destroyCharacterController(handle);
   }
 
-  characterMove(handle: import("@downdraft/core").CharacterControllerHandle, desiredMovement: [number, number, number], dt: number): import("@downdraft/core").CharacterMoveResult {
+  characterMove(handle: import("@downdraft/engine").CharacterControllerHandle, desiredMovement: [number, number, number], dt: number): import("@downdraft/engine").CharacterMoveResult {
     this.safety.assertFiniteVec3(desiredMovement, "characterMove.desiredMovement");
     this.safety.assertFinite(dt, "characterMove.dt");
     return this.backend.characterMove(handle, desiredMovement, dt);
   }
 
-  setCharacterColliderPosition(handle: import("@downdraft/core").CharacterControllerHandle, pos: [number, number, number]): void {
+  setCharacterColliderPosition(handle: import("@downdraft/engine").CharacterControllerHandle, pos: [number, number, number]): void {
     this.safety.assertFiniteVec3(pos, "setCharacterColliderPosition.pos");
     this.backend.setCharacterColliderPosition(handle, pos);
   }
 
   // --- Joints ---
 
-  createJoint(parentBody: PhysicsBody, childBody: PhysicsBody, desc: import("@downdraft/core").JointDesc): number {
+  createJoint(parentBody: PhysicsBody, childBody: PhysicsBody, desc: import("@downdraft/engine").JointDesc): number {
     const nearRealm = this.realmManager.getRealm(RealmTier.Near);
     return this.backend.createJoint(nearRealm.id, parentBody, childBody, desc);
   }
@@ -167,7 +167,7 @@ export class UniversalPhysicsAPI {
 
   // --- Body type ---
 
-  setBodyType(body: PhysicsBody, type: import("@downdraft/core").BodyType): void {
+  setBodyType(body: PhysicsBody, type: import("@downdraft/engine").BodyType): void {
     this.backend.setBodyType(body, type);
   }
 
@@ -355,12 +355,12 @@ export class UniversalPhysicsAPI {
 
   // --- Contacts ---
 
-  getContacts(): import("@downdraft/core").ContactManifold[] {
+  getContacts(): import("@downdraft/engine").ContactManifold[] {
     const nearRealm = this.realmManager.getRealm(RealmTier.Near);
     return nearRealm.getContacts();
   }
 
-  getIntersections(): import("@downdraft/core").IntersectionPair[] {
+  getIntersections(): import("@downdraft/engine").IntersectionPair[] {
     const nearRealm = this.realmManager.getRealm(RealmTier.Near);
     return nearRealm.getIntersections();
   }

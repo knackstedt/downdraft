@@ -1,5 +1,5 @@
-import type { BodyType, ColliderShape, RealmTierConfig } from "@downdraft/core";
-import { physicsBackendRegistry, PhysicsRealm, RealmTier } from "@downdraft/core";
+import type { BodyType, ColliderShape, RealmTierConfig } from "@downdraft/engine";
+import { physicsBackendRegistry, PhysicsRealm, RealmTier } from "@downdraft/engine";
 import type { EngineContext } from "../engine-context";
 import type { ToolRegistration } from "../types";
 import { errorResult, jsonResult } from "../types";

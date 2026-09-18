@@ -18,7 +18,7 @@ import {
     type OrbitInputOptions,
     type RendererInputBus,
     type RendererModule,
-} from "@downdraft/core";
+} from "@downdraft/engine";
 
 export interface CameraControlsOptions {
   /** Camera controller options (lerp, default camera id). */
@@ -156,6 +156,6 @@ export function createCameraControlsModule(
  */
 export const CameraControlsModule: RendererModule = createCameraControlsModule();
 
-export { Camera, CameraController } from "@downdraft/core";
-export type { CameraControllerOptions, OrbitInputOptions } from "@downdraft/core";
+export { Camera, CameraController } from "@downdraft/engine";
+export type { CameraControllerOptions, OrbitInputOptions } from "@downdraft/engine";
 

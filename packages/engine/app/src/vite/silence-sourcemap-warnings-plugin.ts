@@ -12,7 +12,7 @@
 // constructed its logger, by patching `warnOnce` to drop messages matching
 // the given patterns.
 //
-// Default patterns silence @bokuweb/zstd-wasm (used by @downdraft/library-
+// Default patterns silence @bokuweb/zstd-wasm (used by @downdraft/engine/libraries/
 // persistence), which is excluded from dep pre-bundling and served raw
 // from node_modules — its .js.map files point at sources the package
 // author didn't publish. The maps are useless to us (we don't debug into

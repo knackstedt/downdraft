@@ -1,5 +1,5 @@
-import { LightingSystem, LightSystem, MAX_POINT_LIGHTS, MAX_SPOT_LIGHTS } from "@downdraft/library-lighting";
-import { WeatherBlend, WeatherType } from "@downdraft/library-weather";
+import { LightingSystem, LightSystem, MAX_POINT_LIGHTS, MAX_SPOT_LIGHTS } from "@downdraft/engine/libraries/lighting";
+import { WeatherBlend, WeatherType } from "@downdraft/engine/libraries/weather";
 import { describe, expect, it, vi } from "bun:test";
 
 // ============================================================================

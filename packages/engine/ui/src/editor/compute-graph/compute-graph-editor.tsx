@@ -1,4 +1,4 @@
-import type { ComputeDispatchConfig, StorageBufferDecl, UniformBufferDecl } from "@downdraft/shader-graph";
+import type { ComputeDispatchConfig, StorageBufferDecl, UniformBufferDecl } from "@downdraft/engine/shader-graph";
 import React, { useCallback } from "react";
 
 import { GraphCanvas } from "../shared/graph-canvas";

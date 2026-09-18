@@ -24,7 +24,7 @@ import type {
     PhysicsRealmConfig,
     RaycastResult,
     ShapeCastResult
-} from "@downdraft/core/physics/interface";
+} from "@downdraft/engine/physics/interface";
 import { Broadphase, type AABB } from "./broadphase";
 import { detectCollision } from "./narrowphase";
 import { integrate, resolveContact, type BodyData } from "./solver";

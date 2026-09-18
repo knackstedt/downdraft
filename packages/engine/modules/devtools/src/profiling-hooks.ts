@@ -17,7 +17,7 @@
 // toggle visibility.
 // ============================================================================
 
-import { PixiUiHost } from "@downdraft/library-pixi-ui";
+import { PixiUiHost } from "@downdraft/engine/libraries/pixi-ui";
 import type { ProfilingBridge } from "./profiling-bridge";
 
 /** Frame-callback surface used by wireProfilingBridge (duck-typed). */

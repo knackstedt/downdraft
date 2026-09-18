@@ -1,11 +1,11 @@
-# `@downdraft/module-sailing`
+# `@downdraft/engine/modules/sailing`
 
 Sailing mechanics module — wind state, buoyancy integration, and sail controls for nautical games.
 
 ## Install
 
 ```sh
-bun add @downdraft/module-sailing
+bun add @downdraft/engine/modules/sailing
 ```
 
 ## Key exports

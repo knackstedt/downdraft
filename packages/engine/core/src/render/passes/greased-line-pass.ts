@@ -1,5 +1,5 @@
-import type { StructView, WgslStruct } from "@downdraft/shader-graph";
-import { mat4x4f, vec2f, wgsl } from "@downdraft/shader-graph";
+import type { StructView, WgslStruct } from "@downdraft/engine/shader-graph";
+import { mat4x4f, vec2f, wgsl } from "@downdraft/engine/shader-graph";
 import { type Mat4 } from "wgpu-matrix";
 import type { GreasedLineData } from "../../mesh/greased-line";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";

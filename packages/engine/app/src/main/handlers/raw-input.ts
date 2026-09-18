@@ -2,7 +2,7 @@
 // Raw Input host — IPC handlers for native raw mouse capture
 // ============================================================================
 
-import { RawInputHost } from "@downdraft/module-raw-input/main-entry";
+import { RawInputHost } from "@downdraft/engine/modules/raw-input/main-entry";
 import { ipcMain } from "electron";
 import { IPC } from "../../shared/messages";
 import type { MainContext } from "../types";

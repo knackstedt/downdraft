@@ -1,4 +1,4 @@
-import type { GCControllerConfig, GCControllerStats, GCStats } from "@downdraft/core";
+import type { GCControllerConfig, GCControllerStats, GCStats } from "@downdraft/engine";
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
 

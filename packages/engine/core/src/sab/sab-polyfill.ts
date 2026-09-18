@@ -8,7 +8,7 @@
 // channel code (typed array views, Atomics.load/add/store) works unchanged.
 //
 // The "sharing" is implemented separately by the BufferSyncManager
-// (packages/core/src/worker/buffer-sync.ts), which copies buffer regions
+// (packages/engine/core/src/worker/buffer-sync.ts), which copies buffer regions
 // between the main thread and worker via postMessage at tick/frame boundaries.
 //
 // Why this works:

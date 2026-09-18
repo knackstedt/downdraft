@@ -10,16 +10,18 @@ Every directory under `games/` is a **git submodule** pointing at its own reposi
 
 > **Terminology note:** The compile-time DI units that were previously called "plugins" are now called **modules** to disambiguate. The term **"plugin" is now reserved for the upcoming user-authored plugin system** (runtime-loadable extensions authored by end users / modders). Throughout this document, "module" refers to the engine's compile-time DI units (`Module`, `RendererModule`, `ModuleHost`, etc.).
 
-The engine is split into **core + libraries** (standard engine building blocks, used directly by games) vs **modules** (opt-in game features with lifecycle + typed DI + diagnostics). The `@downdraft/core` package also includes animation, particles, and imui subsystems directly (these were previously separate `@downdraft/library-*` packages but have been folded into core).
+The engine is a **single npm package**, `@downdraft/engine` (manifest at `packages/engine/package.json`), which exposes everything through subpath exports: `@downdraft/engine` (core index), `@downdraft/engine/core/<path>` (deep core imports), `@downdraft/engine/app/<main|preload|renderer|vite|mobile|build|shared>`, `@downdraft/engine/libraries/<name>`, `@downdraft/engine/modules/<name>`, plus `ui`, `shader-graph`, `mcp`, `test`, and `asset-bake` subpaths. The only other published packages are `@downdraft/cli` (the `draft` binary) and `@downdraft/platform-native` (native binaries). The exports map is generated — run `node scripts/gen-engine-exports.mjs` after adding/removing a library or module directory.
 
-- **Engine libraries** (namespace `@downdraft/library-*`, located in `packages/libraries/`): packages that export classes/functions without a module lifecycle. Games can either import and wire these directly, or declare them via `EngineLibrary` descriptors in `GameModule.libraries[]` for auto-wiring (SAB allocation, sim system creation, renderer pass creation, typed DI tokens). Engine libraries: water, physics-rapier, physics-native, marching-cubes, surface-nets, audio-kira, models, networking, weatherfx, pixi-ui, entities, lighting, weather, navmesh, recast, persistence, gaussian-splats, sand, stickman, profiler, pathfinding-2d, character.
-- **Engine modules** (namespace `@downdraft/module-*`, located in `packages/modules/`): packages that implement the `Module` or `RendererModule` interface with a `register()` lifecycle + typed DI. Engine modules: camera-controls, devtools, electron-osr, mcp, xr, terrain, movement-3d, movement-2d, vitals, sailing, raw-input.
+Architecturally the engine is split into **core + libraries** (standard engine building blocks, used directly by games) vs **modules** (opt-in game features with lifecycle + typed DI + diagnostics). Core also includes animation, particles, and imui subsystems directly.
+
+- **Engine libraries** (imported as `@downdraft/engine/libraries/<name>`, located in `packages/engine/libraries/`): directories that export classes/functions without a module lifecycle. Games can either import and wire these directly, or declare them via `EngineLibrary` descriptors in `GameModule.libraries[]` for auto-wiring (SAB allocation, sim system creation, renderer pass creation, typed DI tokens). Engine libraries: water, physics-rapier, physics-native, marching-cubes, surface-nets, audio-kira, models, networking, weatherfx, pixi-ui, entities, lighting, weather, navmesh, recast, persistence, gaussian-splats, sand, stickman, profiler, pathfinding-2d, character.
+- **Engine modules** (imported as `@downdraft/engine/modules/<name>`, located in `packages/engine/modules/`): directories that implement the `Module` or `RendererModule` interface with a `register()` lifecycle + typed DI. Engine modules: camera-controls, devtools, electron-osr, mcp, xr, terrain, movement-3d, movement-2d, vitals, sailing, raw-input.
 - **Game modules** (namespace `@to-the-ocean/module-*`, located in `games/<game>/modules/`): game-specific features with a module lifecycle. Game modules: crafting, inventory, buoyancy, collision, wildlife.
 - **Game libraries** (namespace `@to-the-ocean/library-*`, located in `games/<game>/libraries/`): game-specific pure libraries without a module lifecycle. Game libraries: boats, economy, fishing, items, survival.
 
 ### Declarative GameModule + startGame()
 
-Games declare their renderer-side bootstrap as a `GameModule` and call `startGame()` from `@downdraft/app/renderer`. This replaces the old `bootstrapGame()` callback-soup with a declarative module:
+Games declare their renderer-side bootstrap as a `GameModule` and call `startGame()` from `@downdraft/engine/app/renderer`. This replaces the old `bootstrapGame()` callback-soup with a declarative module:
 
 ```ts
 startGame({
@@ -43,7 +45,7 @@ Engine libraries expose `EngineLibrary` descriptors (e.g. `WaterLib`, `PhysicsRa
 
 ### Feature modules
 
-Feature modules (`@downdraft/module-terrain`, `@downdraft/module-movement-3d`, `@downdraft/module-movement-2d`, `@downdraft/module-sailing`) use the factory pattern (`createXxxModule(config)`) and provide typed DI tokens. Games register them via `moduleHost.useModules([...])` for batch activation in dependency-resolved order.
+Feature modules (`@downdraft/engine/modules/terrain`, `@downdraft/engine/modules/movement-3d`, `@downdraft/engine/modules/movement-2d`, `@downdraft/engine/modules/sailing`) use the factory pattern (`createXxxModule(config)`) and provide typed DI tokens. Games register them via `moduleHost.useModules([...])` for batch activation in dependency-resolved order.
 
 ### Cross-thread module contract
 
@@ -61,7 +63,7 @@ Feature modules (`@downdraft/module-terrain`, `@downdraft/module-movement-3d`, `
 Engine libraries can expose an `EngineLibrary` descriptor (e.g. `WaterLib`, `PhysicsRapierLib`, `MarchingCubesLib`) that lets games declare them declaratively in `GameModule.libraries[]`:
 
 ```ts
-import { WaterLib, PhysicsRapierLib } from "@downdraft/library-water";
+import { WaterLib, PhysicsRapierLib } from "@downdraft/engine/libraries/water";
 
 startGame({
   libraries: [WaterLib, [PhysicsRapierLib, { maxEntities: 8192 }]],
@@ -90,7 +92,7 @@ A graphical test program (modeled on `games/downdraft-model-viewer`) for visuall
 Modules use typed `ResourceToken<T>`-based dependency injection instead of stringly-typed resource names:
 
 ```ts
-import { resourceToken, type Module } from "@downdraft/core";
+import { resourceToken, type Module } from "@downdraft/engine";
 
 export const WeatherState = resourceToken<WeatherStateData>("weatherState");
 
@@ -121,7 +123,7 @@ When `DOWNDRAFT_STRICT=1` (or in Vite dev mode), the module hosts validate the d
 
 Set `DOWNDRAFT_STRICT=0` to force-disable in dev, `DOWNDRAFT_STRICT=1` to force-enable in prod.
 
-Config that must be updated when moving/adding packages: `package.json` (root workspaces), `tsconfig.web.json` + `tsconfig.node.json` (path mappings + include globs), `packages/app/src/vite/index.ts` (renderer aliases + hot-reload simPaths/excludePaths). Engine libraries live in `packages/libraries/`; engine modules live in `packages/modules/`.
+Config when adding/removing an engine library or module: create/remove the directory under `packages/engine/libraries/` or `packages/engine/modules/` with a `src/index.ts`, then run `node scripts/gen-engine-exports.mjs` (regenerates the `exports` map in `packages/engine/package.json`) and `node scripts/gen-deno-import-map.mjs` (regenerates `deno.json`). No tsconfig paths, Vite aliases, or workspace entries are needed — subpath resolution flows through the single `@downdraft/engine` package.
 
 ## Shared engine APIs — use these, don't hand-roll
 
@@ -129,18 +131,18 @@ Before writing per-game infrastructure, check whether the engine already provide
 
 | Concern | Engine API | Location |
 |---|---|---|
-| Renderer-owned sim worker | `GameModule.simFromRenderer: (r) => r.getWorkerHost()` — never write a no-op `GameSimWorker` adapter | `@downdraft/app/renderer` |
-| Game store base | `createBaseGameStoreState(set, get)` — spread into the game's zustand store (fps, paused, panels, notifications, title screen) | `@downdraft/core` |
-| Sim worker entry | `createSimWorker({ fixedDt, onInit, onTick, ... })` — tick loop, speed, step, stats, SAB-polyfill sync | `@downdraft/core` |
-| Worker host (main side) | `SimWorkerHost<TApi>` / `BaseWorkerHost<TApi>` — pause/resume/step/setSpeed/getStats + input writing | `@downdraft/core` |
-| DOM input | `createDomInputHandler({ canvas, preset, ... })` — keyMap, mouse buttons, canvas coords, MCP `injectInput` | `@downdraft/core` |
-| Save system | `createGameSaveSystem` / `createGridSaveSystem` + `createDefaultSaveStore` | `@downdraft/core`, `@downdraft/app/renderer` |
-| Autosave interval | `AutosaveManager({ save, shouldSave, intervalMs, deterministic })` | `@downdraft/library-persistence/browser` |
-| MCP automation tools | `createStandardAutomationTools(ctx)` + `createMcpHarness` — the ~13 standard tools; game tools via `extraTools` | `@downdraft/app/renderer` |
-| DevTools | `initDevTools(renderer, {...})` + `createSimStatsProvider`/`createSimStatsPanelExtension` | `@downdraft/module-devtools` |
-| Mobile shell | `createDowndraftMobileApp({ appId, module, touchInput })` | `@downdraft/app/mobile` |
-| Sand simulation | `SandWorld`, `SandStepPool`, `SandLib`, palette/materials | `@downdraft/library-sand` |
-| Game UI | `createGameUi({ build })` renderer module over `core/imui` (UIRoot/UIRenderer/widgets) — **canonical game-UI system**; pixi-ui is legacy for games | `@downdraft/core` |
+| Renderer-owned sim worker | `GameModule.simFromRenderer: (r) => r.getWorkerHost()` — never write a no-op `GameSimWorker` adapter | `@downdraft/engine/app/renderer` |
+| Game store base | `createBaseGameStoreState(set, get)` — spread into the game's zustand store (fps, paused, panels, notifications, title screen) | `@downdraft/engine` |
+| Sim worker entry | `createSimWorker({ fixedDt, onInit, onTick, ... })` — tick loop, speed, step, stats, SAB-polyfill sync | `@downdraft/engine` |
+| Worker host (main side) | `SimWorkerHost<TApi>` / `BaseWorkerHost<TApi>` — pause/resume/step/setSpeed/getStats + input writing | `@downdraft/engine` |
+| DOM input | `createDomInputHandler({ canvas, preset, ... })` — keyMap, mouse buttons, canvas coords, MCP `injectInput` | `@downdraft/engine` |
+| Save system | `createGameSaveSystem` / `createGridSaveSystem` + `createDefaultSaveStore` | `@downdraft/engine`, `@downdraft/engine/app/renderer` |
+| Autosave interval | `AutosaveManager({ save, shouldSave, intervalMs, deterministic })` | `@downdraft/engine/libraries/persistence/browser` |
+| MCP automation tools | `createStandardAutomationTools(ctx)` + `createMcpHarness` — the ~13 standard tools; game tools via `extraTools` | `@downdraft/engine/app/renderer` |
+| DevTools | `initDevTools(renderer, {...})` + `createSimStatsProvider`/`createSimStatsPanelExtension` | `@downdraft/engine/modules/devtools` |
+| Mobile shell | `createDowndraftMobileApp({ appId, module, touchInput })` | `@downdraft/engine/app/mobile` |
+| Sand simulation | `SandWorld`, `SandStepPool`, `SandLib`, palette/materials | `@downdraft/engine/libraries/sand` |
+| Game UI | `createGameUi({ build })` renderer module over `core/imui` (UIRoot/UIRenderer/widgets) — **canonical game-UI system**; pixi-ui is legacy for games | `@downdraft/engine` |
 
 **UI direction:** game UI is migrating from PixiJS-in-worker (`library-pixi-ui`) to `core/imui` (the same WebGPU UI system family the native devtools use). New games must target imui; do not add new pixi-ui scenes to games. `library-pixi-ui` remains for plugin/compat surfaces.
 
@@ -177,36 +179,36 @@ The framework generates `index.html` from a layer spec, so games don't need to m
 - `createDowndraftViteConfig()` accepts an `html` option (or `layers` shorthand). When provided, the `downdraftHtmlPlugin` generates `index.html` at build/dev time with the correct canvas + DOM overlay structure.
 - Default: one canvas (`<canvas data-dd-layer="0" id="game-canvas">`) + one DOM root (`<div data-dd-overlay="0" id="root">`).
 - Games with multiple canvases (e.g. minimap + main) can specify multiple `layers`.
-- The framework provides `@downdraft/app/renderer/downdraft-base.css` with the stacking rules (canvases at `z-index: 0`, overlays at `z-index: 100`, `pointer-events: none` on overlays). Games import it and add theme overrides.
-- Renderer code uses `getCanvas(layer)` and `getOverlay(index)` from `@downdraft/app/renderer` instead of `document.getElementById`.
+- The framework provides `@downdraft/engine/app/renderer/downdraft-base.css` with the stacking rules (canvases at `z-index: 0`, overlays at `z-index: 100`, `pointer-events: none` on overlays). Games import it and add theme overrides.
+- Renderer code uses `getCanvas(layer)` and `getOverlay(index)` from `@downdraft/engine/app/renderer` instead of `document.getElementById`.
 - Games that want to keep their own `index.html` can set `html: false` to opt out.
 
 ### Files
 
-- `packages/app/src/vite/downdraft-html-plugin.ts` — Vite plugin that generates HTML from `LayerSpec[]`.
-- `packages/app/src/renderer/downdraft-base.css` — framework base CSS with canvas/overlay stacking.
-- `packages/app/src/renderer/index.ts` — exports `getCanvas()`, `getOverlay()`, `getAllCanvases()`.
-- `packages/app/src/vite/index.ts` — `DowndraftViteConfigOptions.html` and `.layers` options.
+- `packages/engine/app/src/vite/downdraft-html-plugin.ts` — Vite plugin that generates HTML from `LayerSpec[]`.
+- `packages/engine/app/src/renderer/downdraft-base.css` — framework base CSS with canvas/overlay stacking.
+- `packages/engine/app/src/renderer/index.ts` — exports `getCanvas()`, `getOverlay()`, `getAllCanvases()`.
+- `packages/engine/app/src/vite/index.ts` — `DowndraftViteConfigOptions.html` and `.layers` options.
 
-## PixiJS UI overlay library (`@downdraft/library-pixi-ui`)
+## PixiJS UI overlay library (`@downdraft/engine/libraries/pixi-ui`)
 
 A worker-hosted PixiJS UI overlay: the library spawns a Web Worker that renders a GUI onto an `OffscreenCanvas` (via `transferControlToOffscreen`) stacked above the main game canvas. Games feed per-frame scalars via a `SharedArrayBuffer` (UiStatsSAB) and event-driven data via `postMessage`. The overlay canvas is `pointer-events: none` by default (game keeps all input); when the worker signals interactive/modal UI, the host flips the canvas to `pointer-events: auto` and forwards pointer events to the worker for PixiJS hit-testing.
 
 ### Architecture
 
-- **Canvas layering**: the overlay canvas is `data-dd-layer="1"` (z-index 50, above the game canvas at z 0, below the DOM overlay at z 100). The host acquires an existing canvas with `data-dd-layer="1"` or creates one if absent. `PixiUiHost.start()` sets inline styles (`position: fixed; z-index: 50`) on the overlay canvas AND `position: fixed; z-index: 0` on the game canvas (layer 0) to ensure correct stacking even if the game doesn't import `downdraft-base.css`. Games MUST still `@import "@downdraft/app/renderer/downdraft-base.css"` in their globals.css for the full stacking rules (pointer-events, image-rendering, DOM overlay z-index 100). The `#root` div MUST have `background: transparent` so it doesn't cover the pixi-ui canvas.
+- **Canvas layering**: the overlay canvas is `data-dd-layer="1"` (z-index 50, above the game canvas at z 0, below the DOM overlay at z 100). The host acquires an existing canvas with `data-dd-layer="1"` or creates one if absent. `PixiUiHost.start()` sets inline styles (`position: fixed; z-index: 50`) on the overlay canvas AND `position: fixed; z-index: 0` on the game canvas (layer 0) to ensure correct stacking even if the game doesn't import `downdraft-base.css`. Games MUST still `@import "@downdraft/engine/app/renderer/downdraft-base.css"` in their globals.css for the full stacking rules (pointer-events, image-rendering, DOM overlay z-index 100). The `#root` div MUST have `background: transparent` so it doesn't cover the pixi-ui canvas.
 - **Worker lifecycle**: `PixiUiHost.start()` → `transferControlToOffscreen()` → spawn worker → send init message (OffscreenCanvas + UiStatsSAB + config, all transferable). Worker creates `PIXI.Application` on the OffscreenCanvas, dynamically imports the game's scene module, and runs a ticker loop.
 - **Worker message handler**: The worker uses `self.addEventListener("message", ...)` instead of `self.onmessage = ...` because PixiJS's internal worker code (e.g. `loadImageBitmap` worker) overwrites `self.onmessage` during `Application.init()`. `addEventListener` handlers cannot be overwritten by assignment, so the message handler survives PixiJS init. The worker also removes the Application's auto-render callback from the ticker and handles `app.render()` in its own `tick()` function with try/catch — if `app.render()` throws (e.g. WebGL context issues on OffscreenCanvas), the uncaught error would stop the PixiJS ticker and make the worker unresponsive.
 - **Worker EventSystem + document stub**: PixiJS v8's EventSystem is not loaded by default in the worker because `pixi.js/events` (the side-effect import that registers it as a renderer extension) is not imported. The worker explicitly imports `pixi.js/events` to register the EventSystem so `app.renderer.events` is available for pointer hit-testing. However, the EventSystem's `_addEvents()` method registers DOM event listeners on `globalThis.document` and `globalThis` — neither exists in a Web Worker. The worker stubs `globalThis.document` with no-op `addEventListener`/`removeEventListener`/`dispatchEvent`, `createElement('canvas')` returning an `OffscreenCanvas` (for PixiJS text rasterization), and `body.contains()` returning `true` (for `isRenderingToScreen()`). Pointer events are dispatched manually via `eventSystem._onPointerDown(syntheticEvent)` etc. (underscore-prefixed methods, not `onPointerDown`). The synthetic event must include `type`, `target`, `composedPath`, `cancelable`, `isPrimary`, `width`, `height`, `tiltX`, `tiltY`, `pressure`, `twist`, `tangentialPressure` — `_bootstrapEvent` reads these and `_onPointerUp` checks `target === domElement` to determine if the pointerup is "inside" (enabling click).
 - **Data model**: `UiStatsSAB` (fixed-layout `SharedArrayBuffer` with a 16-byte header + float32 slots) for high-frequency per-frame scalars (health, fps, positions). `postMessage` for event-driven/structured data (inventory, menu toggles, notifications). Games call `host.writeStats({...})` from their game loop and `host.postEvent({...})` for events.
 - **Input model**: worker calls `ctx.setInteractive(true/false)` → host toggles `canvas.style.pointerEvents` + forwards pointer events to worker for PixiJS `eventMode` hit-testing. Modal UI (menus, buttons) flips interactive on; display-only HUDs keep it off.
 - **Renderer backend**: WebGL2 by default. Games override via `backend: "webgl2" | "webgpu" | "auto"`. WebGL2 is most reliable for a 2D UI overlay (avoids dual-WebGPU-device concerns with the main game canvas).
-- **`@pixi/react` adapter**: optional `@downdraft/library-pixi-ui/react` module for declarative React components rendering to PixiJS. Games add `@pixi/react` + `react` to their deps and `@vitejs/plugin-react` to `workerPlugins` in their vite config. The core library does NOT depend on React. The adapter calls `extend()` to register PIXI components (Container, Graphics, Text, Sprite, etc.) in the `@pixi/react` catalogue (v8 requires explicit registration). It also patches the React fiber's `containerInfo` to point to the worker's existing PIXI.Application stage (createRoot creates a throwaway Application internally; without patching, React renders into the wrong stage and nothing appears). Components use the lowercase `<pixiContainer>`, `<pixiText>`, `<pixiGraphics>` convention (v8's `parseComponentType` converts `pixiX` → `X`). Event props use React naming: `onPointerDown`, `onPointerUp`, etc. (the adapter maps them to PixiJS event names).
+- **`@pixi/react` adapter**: optional `@downdraft/engine/libraries/pixi-ui/react` module for declarative React components rendering to PixiJS. Games add `@pixi/react` + `react` to their deps and `@vitejs/plugin-react` to `workerPlugins` in their vite config. The core library does NOT depend on React. The adapter calls `extend()` to register PIXI components (Container, Graphics, Text, Sprite, etc.) in the `@pixi/react` catalogue (v8 requires explicit registration). It also patches the React fiber's `containerInfo` to point to the worker's existing PIXI.Application stage (createRoot creates a throwaway Application internally; without patching, React renders into the wrong stage and nothing appears). Components use the lowercase `<pixiContainer>`, `<pixiText>`, `<pixiGraphics>` convention (v8's `parseComponentType` converts `pixiX` → `X`). Event props use React naming: `onPointerDown`, `onPointerUp`, etc. (the adapter maps them to PixiJS event names).
 
 ### Declarative usage (via `GameModule.libraries[]`)
 
 ```ts
-import { PixiUiLib, PixiUiHostTok } from "@downdraft/library-pixi-ui";
+import { PixiUiLib, PixiUiHostTok } from "@downdraft/engine/libraries/pixi-ui";
 
 startGame({
   libraries: [[PixiUiLib, {
@@ -226,7 +228,7 @@ startGame({
 ### Escape hatch (manual wiring)
 
 ```ts
-import { PixiUiHost } from "@downdraft/library-pixi-ui";
+import { PixiUiHost } from "@downdraft/engine/libraries/pixi-ui";
 const host = new PixiUiHost({ sceneModuleUrl: new URL("./pixi-scene.ts", import.meta.url).href });
 await host.start();
 ```
@@ -265,8 +267,8 @@ A per-game **worker-side store mirror** (`src/pixi/store.ts`) holds the worker's
 1. **Create `src/pixi/bridge-protocol.ts`** — define event kinds (main→worker) and action kinds (worker→main) by auditing every zustand store field the React components read (→ event or SAB slot) and every store mutation they trigger (→ action kind).
 2. **Create the scene module** (`src/pixi-scene.ts` for raw PixiJS, or `src/pixi/scene.tsx` + `src/pixi/components/*` for `@pixi/react`). Port each React component's visual structure to PIXI display objects (`Container`, `Graphics`, `Text`, `Sprite`). Replace `useGameStore` reads with SAB stats / worker store mirror reads. Replace `useGameStore` mutations with `ctx.postAction(...)`.
 3. **Rewire `main.tsx`**: replace `mountUI: (overlay) => createRoot(overlay).render(<App/>)` with the pixi-ui escape hatch (`new PixiUiHost(...)`) or declarative `libraries: [[PixiUiLib, config]]`. In `onReady`: get the host, set `onAction` to dispatch into the store/renderer, start a per-frame `host.writeStats(...)` loop (rAF or `onFpsUpdate`), subscribe to store changes → `host.postEvent(...)`. In `onDispose`: `host.dispose()`.
-4. **HTML layer spec** (`electron.vite.config.ts`): add the pixi overlay canvas layer (`{ type: "canvas", id: "pixi-ui-canvas" }`) above the game canvas. Import `@downdraft/app/renderer/downdraft-base.css`.
-5. **Dependencies**: add `@downdraft/library-pixi-ui` + `pixi.js` to game deps. For `@pixi/react` games, also add `@pixi/react`, `react`, `react-dom`, and `@vitejs/plugin-react` to `workerPlugins` in the vite config.
+4. **HTML layer spec** (`electron.vite.config.ts`): add the pixi overlay canvas layer (`{ type: "canvas", id: "pixi-ui-canvas" }`) above the game canvas. Import `@downdraft/engine/app/renderer/downdraft-base.css`.
+5. **Dependencies**: add `@downdraft/engine/libraries/pixi-ui` + `pixi.js` to game deps. For `@pixi/react` games, also add `@pixi/react`, `react`, `react-dom`, and `@vitejs/plugin-react` to `workerPlugins` in the vite config.
 6. **Delete** the old `src/app.tsx`, `src/components/*`, and UI-only CSS.
 7. **Interactive UI + game input**: if the game has clickable UI elements that coexist with game-canvas mouse input, set `passThrough: true` and implement `getInteractiveRegions()` in the scene. If the game only has modal menus (full-screen overlays that capture all input), use the default non-pass-through mode + `setInteractive(true)`.
 
@@ -303,14 +305,14 @@ The library uses the `renderer.create` hook on `EngineLibrary` (the early render
 
 ### Files
 
-- `packages/libraries/pixi-ui/src/library.ts` — `PixiUiLib` descriptor + `PixiUiHostTok` token + config types.
-- `packages/libraries/pixi-ui/src/host.ts` — `PixiUiHost` (main thread): canvas acquire, `transferControlToOffscreen`, SAB alloc, worker spawn, pointer-events toggle, MCP query/capture.
-- `packages/libraries/pixi-ui/src/pixi-ui-worker.ts` — worker entry: PIXI.Application init on OffscreenCanvas, scene mounting, ticker loop, pointer hit-testing, scene-state query, capture.
-- `packages/libraries/pixi-ui/src/ui-stats-sab.ts` — UiStatsSAB layout + read/write helpers.
-- `packages/libraries/pixi-ui/src/bridge-protocol.ts` — typed main↔worker message protocol.
-- `packages/libraries/pixi-ui/src/scene.ts` — `PixiUiScene` interface + `PixiUiSceneContext`.
-- `packages/libraries/pixi-ui/src/react.ts` — optional `@pixi/react` adapter.
-- `packages/libraries/pixi-ui/src/mcp-tools.ts` — MCP automation tool registrations.
+- `packages/engine/libraries/pixi-ui/src/library.ts` — `PixiUiLib` descriptor + `PixiUiHostTok` token + config types.
+- `packages/engine/libraries/pixi-ui/src/host.ts` — `PixiUiHost` (main thread): canvas acquire, `transferControlToOffscreen`, SAB alloc, worker spawn, pointer-events toggle, MCP query/capture.
+- `packages/engine/libraries/pixi-ui/src/pixi-ui-worker.ts` — worker entry: PIXI.Application init on OffscreenCanvas, scene mounting, ticker loop, pointer hit-testing, scene-state query, capture.
+- `packages/engine/libraries/pixi-ui/src/ui-stats-sab.ts` — UiStatsSAB layout + read/write helpers.
+- `packages/engine/libraries/pixi-ui/src/bridge-protocol.ts` — typed main↔worker message protocol.
+- `packages/engine/libraries/pixi-ui/src/scene.ts` — `PixiUiScene` interface + `PixiUiSceneContext`.
+- `packages/engine/libraries/pixi-ui/src/react.ts` — optional `@pixi/react` adapter.
+- `packages/engine/libraries/pixi-ui/src/mcp-tools.ts` — MCP automation tool registrations.
 - `examples/pixi-ui-demo/` — standalone example (health bar + FPS + pause button).
 - `tests/e2e/pixi-ui-demo.spec.ts` — e2e smoke test via MCP harness.
 
@@ -324,8 +326,8 @@ When `appId` is set, `createDowndraftApp()` also:
 
 ### Files
 
-- `packages/app/src/main/storage.ts` — `resolveUserDataDir()` (builds the per-game path) and `cleanupStaleStorage()` (stale lock + temp file cleanup).
-- `packages/app/src/main/app.ts` — wires `app.setPath("userData", ...)` + `requestSingleInstanceLock()` + `cleanupStaleStorage()` early in `createDowndraftApp()`, before `app.whenReady()`.
+- `packages/engine/app/src/main/storage.ts` — `resolveUserDataDir()` (builds the per-game path) and `cleanupStaleStorage()` (stale lock + temp file cleanup).
+- `packages/engine/app/src/main/app.ts` — wires `app.setPath("userData", ...)` + `requestSingleInstanceLock()` + `cleanupStaleStorage()` early in `createDowndraftApp()`, before `app.whenReady()`.
 
 ### Adding a new game
 
@@ -346,12 +348,12 @@ In packaged builds, the renderer loads via `win.loadFile()` → `file://` protoc
 
 `SharedArrayBuffer` still works in packaged builds without COEP because `webPreferences.enableBlinkFeatures: "SharedArrayBuffer"` is set on the BrowserWindow, which enables SAB regardless of cross-origin isolation.
 
-**Never add `Cross-Origin-Embedder-Policy: require-corp` unconditionally to all responses.** Always check `details.url.startsWith("file:")` and skip COEP for file:// URLs. The header logic is extracted into `buildCrossOriginIsolationHeaders()` in `packages/app/src/main/window.ts` and covered by `packages/app/src/main/window.spec.ts`.
+**Never add `Cross-Origin-Embedder-Policy: require-corp` unconditionally to all responses.** Always check `details.url.startsWith("file:")` and skip COEP for file:// URLs. The header logic is extracted into `buildCrossOriginIsolationHeaders()` in `packages/engine/app/src/main/window.ts` and covered by `packages/engine/app/src/main/window.spec.ts`.
 
 ### Files
 
-- `packages/app/src/main/window.ts` — `buildCrossOriginIsolationHeaders()` (the header logic) + `createWindow()` (wires it into `session.defaultSession.webRequest.onHeadersReceived`).
-- `packages/app/src/main/window.spec.ts` — unit tests for the COEP/file:// logic (7 tests).
+- `packages/engine/app/src/main/window.ts` — `buildCrossOriginIsolationHeaders()` (the header logic) + `createWindow()` (wires it into `session.defaultSession.webRequest.onHeadersReceived`).
+- `packages/engine/app/src/main/window.spec.ts` — unit tests for the COEP/file:// logic (7 tests).
 - `tests/e2e/harness.ts` — `DEFAULT_ERROR_PATTERNS` includes `Worker error:` patterns so e2e tests catch worker load failures.
 
 ## Process management & debugging games
@@ -433,24 +435,24 @@ The `opts` object encapsulates all config and dependencies. This is the standard
 
 - `bun run tsc` — now runs `tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.node.json --noEmit`.
 - `bun run lint` — runs `oxlint` on the whole repo. Currently reports many pre-existing `no-console`/`no-unused-vars` warnings/errors.
-- `bun test packages/core/src/ecs/world.spec.ts packages/core/src/render/frustum.spec.ts packages/core/src/telemetry/collector.spec.ts`
-- `bun test packages/core/src/physics/*.spec.ts` — all physics specs (121 tests).
-- `bun test packages/modules/physics-rapier/src/*.spec.ts` — rapier module specs (16 tests).
-- `bun test packages/core/src/render/bindless/bindless.spec.ts` — bindless texture registry + material manager specs.
-- `bun test packages/core/src/material/material.spec.ts packages/core/src/material/variants.spec.ts` — material + variant specs.
-- `bun test packages/shader-graph/src/graph.spec.ts` — shader graph compiler specs (includes GBuffer multi-target + variant tests).
-- `bun test packages/modules/models/src/material-adapter.spec.ts` — MaterialData→Material adapter specs.
-- `bun test packages/core/src/assets/model-normalizer.spec.ts` — model normalizer math (up-axis, units, bounds, auto-fit).
-- `bun test packages/modules/models/src/bake-node-transforms.spec.ts` — node hierarchy transform baking specs.
-- `bun test packages/modules/models/src/sidecar/sidecar.spec.ts` — sidecar parsers (.ddmeta.json, Unity .meta, Godot .import, Blender extras).
-- `bun test packages/modules/models/src/normalize.spec.ts` — full normalization pipeline specs.
-- `bun test packages/core/src/module/host.spec.ts` — ModuleHost activation order, deferred registration, dispose order (12 tests).
-- `bun test packages/modules/devtools/src/api.spec.ts` — Unified DevTools API: realm detection, SAB data feeds, manifest, panel/command registration (17 tests).
-- `bun test packages/app/src/main/window.spec.ts` — cross-origin isolation header logic (COEP/file:// worker loading, 7 tests).
-- `bun test packages/core/src/render/gpu-utils.spec.ts` — GPU resource creation utilities (8 tests, uses mock GPUDevice).
+- `bun test packages/engine/core/src/ecs/world.spec.ts packages/engine/core/src/render/frustum.spec.ts packages/engine/core/src/telemetry/collector.spec.ts`
+- `bun test packages/engine/core/src/physics/*.spec.ts` — all physics specs (121 tests).
+- `bun test packages/engine/modules/physics-rapier/src/*.spec.ts` — rapier module specs (16 tests).
+- `bun test packages/engine/core/src/render/bindless/bindless.spec.ts` — bindless texture registry + material manager specs.
+- `bun test packages/engine/core/src/material/material.spec.ts packages/engine/core/src/material/variants.spec.ts` — material + variant specs.
+- `bun test packages/engine/shader-graph/src/graph.spec.ts` — shader graph compiler specs (includes GBuffer multi-target + variant tests).
+- `bun test packages/engine/modules/models/src/material-adapter.spec.ts` — MaterialData→Material adapter specs.
+- `bun test packages/engine/core/src/assets/model-normalizer.spec.ts` — model normalizer math (up-axis, units, bounds, auto-fit).
+- `bun test packages/engine/modules/models/src/bake-node-transforms.spec.ts` — node hierarchy transform baking specs.
+- `bun test packages/engine/modules/models/src/sidecar/sidecar.spec.ts` — sidecar parsers (.ddmeta.json, Unity .meta, Godot .import, Blender extras).
+- `bun test packages/engine/modules/models/src/normalize.spec.ts` — full normalization pipeline specs.
+- `bun test packages/engine/core/src/module/host.spec.ts` — ModuleHost activation order, deferred registration, dispose order (12 tests).
+- `bun test packages/engine/modules/devtools/src/api.spec.ts` — Unified DevTools API: realm detection, SAB data feeds, manifest, panel/command registration (17 tests).
+- `bun test packages/engine/app/src/main/window.spec.ts` — cross-origin isolation header logic (COEP/file:// worker loading, 7 tests).
+- `bun test packages/engine/core/src/render/gpu-utils.spec.ts` — GPU resource creation utilities (8 tests, uses mock GPUDevice).
 - `bun test games/to-the-ocean/modules/wildlife/src/wildlife-module.spec.ts` — game module wrappers (wildlife, buoyancy, collision) (9 tests).
-- `bun test packages/modules/persistence/src/file-save-store.spec.ts` — FileSaveStore (filesystem ISaveStore) specs (9 tests).
-- `bun test packages/modules/persistence/src/opfs-save-store.spec.ts` — OpfsSaveStore (OPFS ISaveStore) specs (22 tests). Uses mock OPFS — no browser/worker environment needed.
+- `bun test packages/engine/modules/persistence/src/file-save-store.spec.ts` — FileSaveStore (filesystem ISaveStore) specs (9 tests).
+- `bun test packages/engine/modules/persistence/src/opfs-save-store.spec.ts` — OpfsSaveStore (OPFS ISaveStore) specs (22 tests). Uses mock OPFS — no browser/worker environment needed.
 - `bun run draft:test` — e2e smoke test with hardware GPU (headless, deterministic). Equivalent to `draft test --renderer=gpu`.
 - `bun run draft:test-cpu` — e2e smoke test with SwiftShader software rendering (headless, deterministic). Equivalent to `draft test --renderer=cpu`. Use this for CI.
 - `bun run draft:test -- --headed` — same but shows the Electron window (useful for debugging).
@@ -471,28 +473,28 @@ The `opts` object encapsulates all config and dependencies. This is the standard
 These are set automatically by `draft test`. See the "Running the smoke test" section below for the full CLI flag reference.
 
 - `DOWNDRAFT_GPU=swiftshader|hardware` — selects WebGPU backend via `webGpuSwitches()`. `swiftshader` = software Vulkan (CI), `hardware` = NVIDIA Vulkan (local).
-- `DOWNDRAFT_DETERMINISTIC=1` — fixed seed (99999), skip autosave loading, disable devtools auto-open and error dialogs, pause the render loop (on-demand rendering only via `set_test_state` or `capture_screenshot`). The flag is passed from the main process to the renderer via the `downdraft.deterministic` bridge property (set in `packages/app/src/preload/bridge.ts`).
+- `DOWNDRAFT_DETERMINISTIC=1` — fixed seed (99999), skip autosave loading, disable devtools auto-open and error dialogs, pause the render loop (on-demand rendering only via `set_test_state` or `capture_screenshot`). The flag is passed from the main process to the renderer via the `downdraft.deterministic` bridge property (set in `packages/engine/app/src/preload/bridge.ts`).
 - `DOWNDRAFT_HEADED=1` — show the Electron window even in deterministic mode. Without this, `window.ts` suppresses `win.show()` when `DOWNDRAFT_DETERMINISTIC=1`.
 - `MCP_PORT=<port>` — MCP HTTP transport port. Unset = ephemeral OS-assigned port (default; advertised via `~/.downdraft/port/<pid>` for auto-discovery). Set explicitly for the e2e test harness (9976).
 - `MCP_TIMEOUT_MS=120000` — MCP proxy IPC round-trip timeout in ms (must be longer than the longest `wait_for_condition` call).
 
 ## Unified DevTools API
 
-The DevTools system has a single registration surface (`devtools` singleton from `@downdraft/module-devtools`) that auto-detects whether it's running in the main realm or a worker realm and chooses the appropriate transport:
+The DevTools system has a single registration surface (`devtools` singleton from `@downdraft/engine/modules/devtools`) that auto-detects whether it's running in the main realm or a worker realm and chooses the appropriate transport:
 
 - **Main realm**: panels/feeds/commands registered directly on `window.__sceneInspector` via `DevToolsDataBridge`.
 - **Worker realm**: data feeds written to a devtools SharedArrayBuffer (zero-copy, synchronous reads); commands forwarded via IPC RPC; panel declarations synced to renderer via one-time manifest RPC.
 
 ### Architecture
 
-- **`devtools` singleton** (`packages/modules/devtools/src/api.ts`) — the unified API. Auto-detects realm. Modules import `devtools` and call `registerPanel()`, `registerDataFeed()`, `registerCommand()`, `registerSABStat()`. Same code works in both realms.
+- **`devtools` singleton** (`packages/engine/modules/devtools/src/api.ts`) — the unified API. Auto-detects realm. Modules import `devtools` and call `registerPanel()`, `registerDataFeed()`, `registerCommand()`, `registerSABStat()`. Same code works in both realms.
 - **`DevToolsSABLayout`** — dedicated SAB region for JSON-serialized data feed results + direct numeric stats. Worker writes via `flushDataFeeds()` (called from sim loop); renderer reads synchronously. No IPC polling.
-- **`exposeDevToolsApi()`** (`packages/modules/devtools/src/worker-expose.ts`) — wraps a worker's `expose()` API with `__devtoolsGetManifest`, `__devtoolsCallCommand`, `__devtoolsGetSAB` RPC methods.
-- **`syncWorkerManifests()`** (`packages/modules/devtools/src/worker-sync.ts`) — renderer-side: fetches manifest from workers, merges panels, wires SAB data feed readers, wires command forwarders.
-- **`createDevToolsRendererAdapter()`** (`packages/modules/devtools/src/renderer-adapter.ts`) — feature-detects renderer capabilities (gpuProfiler, telemetryCollector, gpuResourceTracker, gcController) and builds an `IDevToolsDataRenderer`.
-- **`createSimStatsProvider()`** (`packages/modules/devtools/src/sim-stats-provider.ts`) — reusable `ISimStatsProvider` factory with 10Hz polling + pause/resume/step/speed/clear delegation. Eliminates duplicated boilerplate across sim games.
-- **`initDevTools()`** (`packages/modules/devtools/src/init.ts`) — one-line wiring per game. Creates bridge, wires providers, merges global registry panels, syncs worker manifests, exposes on `window.__sceneInspector`.
-- **`createMaterialStatsPanelExtension()`** (`packages/modules/devtools/src/material-stats-panel.ts`) — reusable "Materials" tab for any game using the unified material system.
+- **`exposeDevToolsApi()`** (`packages/engine/modules/devtools/src/worker-expose.ts`) — wraps a worker's `expose()` API with `__devtoolsGetManifest`, `__devtoolsCallCommand`, `__devtoolsGetSAB` RPC methods.
+- **`syncWorkerManifests()`** (`packages/engine/modules/devtools/src/worker-sync.ts`) — renderer-side: fetches manifest from workers, merges panels, wires SAB data feed readers, wires command forwarders.
+- **`createDevToolsRendererAdapter()`** (`packages/engine/modules/devtools/src/renderer-adapter.ts`) — feature-detects renderer capabilities (gpuProfiler, telemetryCollector, gpuResourceTracker, gcController) and builds an `IDevToolsDataRenderer`.
+- **`createSimStatsProvider()`** (`packages/engine/modules/devtools/src/sim-stats-provider.ts`) — reusable `ISimStatsProvider` factory with 10Hz polling + pause/resume/step/speed/clear delegation. Eliminates duplicated boilerplate across sim games.
+- **`initDevTools()`** (`packages/engine/modules/devtools/src/init.ts`) — one-line wiring per game. Creates bridge, wires providers, merges global registry panels, syncs worker manifests, exposes on `window.__sceneInspector`.
+- **`createMaterialStatsPanelExtension()`** (`packages/engine/modules/devtools/src/material-stats-panel.ts`) — reusable "Materials" tab for any game using the unified material system.
 
 ### Module integration
 
@@ -517,7 +519,7 @@ The host injects the `devtools` singleton via `ModuleHost.setDevToolsAPI()` / `R
 
 ### Deterministic mode
 
-`resolveDevtoolsConfig()` in `packages/app/src/main/handlers/devtools.ts` is now deterministic-aware: when `DOWNDRAFT_DETERMINISTIC=1`, autoOpen defaults to `false` and keybind defaults to `""` (disabled). Games no longer need to plumb `devtools: { autoOpen: !deterministic, keybind: deterministic ? "" : "F12" }` — just use `devtools: true`.
+`resolveDevtoolsConfig()` in `packages/engine/app/src/main/handlers/devtools.ts` is now deterministic-aware: when `DOWNDRAFT_DETERMINISTIC=1`, autoOpen defaults to `false` and keybind defaults to `""` (disabled). Games no longer need to plumb `devtools: { autoOpen: !deterministic, keybind: deterministic ? "" : "F12" }` — just use `devtools: true`.
 
 ### Panel order convention
 
@@ -532,12 +534,12 @@ The material system is unified around the **shader graph as the single source of
 
 ### Architecture
 
-- **`MaterialDefinition`** (`packages/core/src/material/material.ts`) — the material definition. Key fields: `graph?: MaterialGraph` (primary), `inlineShaderSource?: string` (compiled graph or fallback .wgsl), `variantFlags?: MaterialVariantFlags`, `profile?: string`.
-- **`MaterialLibrary`** (`packages/core/src/material/library.ts`) — creates and registers materials. The 8 `create*` methods (Physical, Toon, Matcap, SSS, Sprite, Normal, Line, Depth) load their `.wgsl` fallbacks via `?raw` imports. Graph preset methods (`createPBRGraph`, `createGBufferGraph`) build `MaterialGraph` instances.
-- **`GraphCompiler`** (`packages/shader-graph/src/compiler.ts`) — compiles a `MaterialGraph` to WGSL. Supports multi-render-target (GBuffer) profiles via `outputFormats`/`outputNames`, and variant-aware compilation via `variantFlags` in `CompileOptions`.
-- **`MaterialVariantFlags`** (`packages/core/src/material/variants.ts`) — hybrid variant strategy: compile-time permutations for `shadowCaster`/`skinning`/`alphaMode`/`morph`/`instanced`; `fog` stays a dynamic branch (NOT part of the variant key). `variantKey()` produces a deterministic string key; `permutationCount()` = 48.
-- **`graph-bridge.ts`** (`packages/core/src/material/graph-bridge.ts`) — `compileGraphToMaterialVariants` compiles all variants for a material; `compileVariant` compiles a single variant.
-- **`OpaquePass`** (`packages/core/src/render/passes/opaque.ts`) — `setMaterial()` sets a graph-compiled material; `setMaterialVariant()` compiles + caches a per-variant pipeline (bounded LRU, max 24). `getProfileTargets()` emits multi-target `GPUColorTargetState[]` for GBuffer profiles.
+- **`MaterialDefinition`** (`packages/engine/core/src/material/material.ts`) — the material definition. Key fields: `graph?: MaterialGraph` (primary), `inlineShaderSource?: string` (compiled graph or fallback .wgsl), `variantFlags?: MaterialVariantFlags`, `profile?: string`.
+- **`MaterialLibrary`** (`packages/engine/core/src/material/library.ts`) — creates and registers materials. The 8 `create*` methods (Physical, Toon, Matcap, SSS, Sprite, Normal, Line, Depth) load their `.wgsl` fallbacks via `?raw` imports. Graph preset methods (`createPBRGraph`, `createGBufferGraph`) build `MaterialGraph` instances.
+- **`GraphCompiler`** (`packages/engine/shader-graph/src/compiler.ts`) — compiles a `MaterialGraph` to WGSL. Supports multi-render-target (GBuffer) profiles via `outputFormats`/`outputNames`, and variant-aware compilation via `variantFlags` in `CompileOptions`.
+- **`MaterialVariantFlags`** (`packages/engine/core/src/material/variants.ts`) — hybrid variant strategy: compile-time permutations for `shadowCaster`/`skinning`/`alphaMode`/`morph`/`instanced`; `fog` stays a dynamic branch (NOT part of the variant key). `variantKey()` produces a deterministic string key; `permutationCount()` = 48.
+- **`graph-bridge.ts`** (`packages/engine/core/src/material/graph-bridge.ts`) — `compileGraphToMaterialVariants` compiles all variants for a material; `compileVariant` compiles a single variant.
+- **`OpaquePass`** (`packages/engine/core/src/render/passes/opaque.ts`) — `setMaterial()` sets a graph-compiled material; `setMaterialVariant()` compiles + caches a per-variant pipeline (bounded LRU, max 24). `getProfileTargets()` emits multi-target `GPUColorTargetState[]` for GBuffer profiles.
 
 ### Profiles
 
@@ -546,7 +548,7 @@ The material system is unified around the **shader graph as the single source of
 
 ### Material adapter (module-models)
 
-`materialDataToMaterial()` (`packages/modules/models/src/material-adapter.ts`) bridges serialized `MaterialData` (glTF/obj format) to the core `Material` surface. Maps baseColor/metallic/roughness/emissive to uniforms, sets `inlineShaderSource` from the physical fallback .wgsl. `materialDataArrayToMaterials()` batch-converts. The game's `RendererAccessors.uploadModel()` calls this to register materials in a `MaterialLibrary`.
+`materialDataToMaterial()` (`packages/engine/modules/models/src/material-adapter.ts`) bridges serialized `MaterialData` (glTF/obj format) to the core `Material` surface. Maps baseColor/metallic/roughness/emissive to uniforms, sets `inlineShaderSource` from the physical fallback .wgsl. `materialDataArrayToMaterials()` batch-converts. The game's `RendererAccessors.uploadModel()` calls this to register materials in a `MaterialLibrary`.
 
 ## Model Import Normalization Pipeline
 
@@ -554,11 +556,11 @@ The engine has a unified model import normalization pipeline that corrects commo
 
 ### Architecture
 
-- **`ImportSettings`** (`packages/core/src/assets/import-settings.ts`) — per-model normalization config: `upAxis`, `units`, `scale`, `rotation`, `centerToOrigin`, `autoFit`, `nodeTransforms`. Resolved from sidecar files or parser-detected defaults.
-- **`model-normalizer.ts`** (`packages/core/src/assets/model-normalizer.ts`) — pure transform math: `applyUpAxisConversion` (Z-up→Y-up), `applyUnitScale` (source units→meters), `applyRootScale`, `applyRootRotation` (quaternion), `computeBounds`, `centerToOrigin`, `autoFit`, `isExtremeScale`. Operates on interleaved [pos(3)+normal(3)] mesh vertices (6 floats/vertex).
-- **`bake-node-transforms.ts`** (`packages/modules/models/src/bake-node-transforms.ts`) — bakes glTF/FBX node hierarchy transforms (translation, rotation, scale) into mesh vertices. Promoted from downdraft-model-viewer to the engine so all games benefit.
-- **`normalize.ts`** (`packages/modules/models/src/normalize.ts`) — orchestrates the full pipeline: up-axis → unit scale → node-transform baking → root rotation → user scale → bounds → center → auto-fit. `normalizeModel()` applies settings; `normalizeModelWithResolution()` resolves sidecars then normalizes.
-- **`loadModel()`** (`packages/modules/models/src/loader.ts`) — now normalizes by default after parsing. Pass `normalize: false` to skip (e.g. for games that handle their own transforms). Pass `sidecarResolver` for custom sidecar resolution.
+- **`ImportSettings`** (`packages/engine/core/src/assets/import-settings.ts`) — per-model normalization config: `upAxis`, `units`, `scale`, `rotation`, `centerToOrigin`, `autoFit`, `nodeTransforms`. Resolved from sidecar files or parser-detected defaults.
+- **`model-normalizer.ts`** (`packages/engine/core/src/assets/model-normalizer.ts`) — pure transform math: `applyUpAxisConversion` (Z-up→Y-up), `applyUnitScale` (source units→meters), `applyRootScale`, `applyRootRotation` (quaternion), `computeBounds`, `centerToOrigin`, `autoFit`, `isExtremeScale`. Operates on interleaved [pos(3)+normal(3)] mesh vertices (6 floats/vertex).
+- **`bake-node-transforms.ts`** (`packages/engine/modules/models/src/bake-node-transforms.ts`) — bakes glTF/FBX node hierarchy transforms (translation, rotation, scale) into mesh vertices. Promoted from downdraft-model-viewer to the engine so all games benefit.
+- **`normalize.ts`** (`packages/engine/modules/models/src/normalize.ts`) — orchestrates the full pipeline: up-axis → unit scale → node-transform baking → root rotation → user scale → bounds → center → auto-fit. `normalizeModel()` applies settings; `normalizeModelWithResolution()` resolves sidecars then normalizes.
+- **`loadModel()`** (`packages/engine/modules/models/src/loader.ts`) — now normalizes by default after parsing. Pass `normalize: false` to skip (e.g. for games that handle their own transforms). Pass `sidecarResolver` for custom sidecar resolution.
 
 ### Sidecar System
 
@@ -568,7 +570,7 @@ Per-model import settings are stored in sidecar files, tried in priority order:
 3. Godot `.import` (INI, `scale`/`rotation` params)
 4. Blender extras (glTF `asset.extras.glTF2ExportSettings.YUP`)
 
-Sidecar parsers: `packages/modules/models/src/sidecar/` — `ddmeta.ts`, `unity-meta.ts`, `godot-import.ts`, `blender-extras.ts`, `resolver.ts`.
+Sidecar parsers: `packages/engine/modules/models/src/sidecar/` — `ddmeta.ts`, `unity-meta.ts`, `godot-import.ts`, `blender-extras.ts`, `resolver.ts`.
 
 ### Parser Detection
 
@@ -576,11 +578,11 @@ FBX parser reads `GlobalSettings` for `UpAxis` (0/1=Y-up, 2=Z-up) and `UnitScale
 
 ### Import Cache
 
-`ImportCache` (`packages/core/src/assets/import-cache.ts`) caches resolved `ImportSettings` keyed by model path. `MemoryImportCache` is the in-memory fallback. In Electron, `registerImportCacheHandlers()` (`packages/app/src/main/handlers/import-cache.ts`) provides a SQLite-backed cache via `node:sqlite` (stable in Node 24+ / Electron 43+, no flag required), accessed through IPC (`IMPORT_CACHE_GET/SET/INVALIDATE`). The renderer-side adapter (`packages/app/src/renderer/import-cache.ts`) bridges to the IPC with a memory fallback for browser-only mode.
+`ImportCache` (`packages/engine/core/src/assets/import-cache.ts`) caches resolved `ImportSettings` keyed by model path. `MemoryImportCache` is the in-memory fallback. In Electron, `registerImportCacheHandlers()` (`packages/engine/app/src/main/handlers/import-cache.ts`) provides a SQLite-backed cache via `node:sqlite` (stable in Node 24+ / Electron 43+, no flag required), accessed through IPC (`IMPORT_CACHE_GET/SET/INVALIDATE`). The renderer-side adapter (`packages/engine/app/src/renderer/import-cache.ts`) bridges to the IPC with a memory fallback for browser-only mode.
 
 ## Save system / storage backends
 
-`ISaveStore` (`packages/core/src/save/persist-types.ts`) is the storage interface for versioned game saves. The extended interface supports: `save`/`load` (with `SaveOptions`/`LoadOptions` for blobs, thumbnails, properties, generation control), `listSaves`/`listGenerations`/`deleteSave`/`deleteGeneration`, `setThumbnail`/`getThumbnail`, `setProperties`/`getProperties`, and `onWarning`. Saves are a zstd-compressed JSON body of per-component sections (each with its own schema version) plus a header (engine version, timestamp, entity/player counts, XXH128 hash). The `MigrationRegistry` runs per-component `fromVersion→toVersion` migrations on load; forward-incompatible saves (newer engine than current) are refused. Implementations live in `@downdraft/library-persistence` (`packages/modules/persistence/`):
+`ISaveStore` (`packages/engine/core/src/save/persist-types.ts`) is the storage interface for versioned game saves. The extended interface supports: `save`/`load` (with `SaveOptions`/`LoadOptions` for blobs, thumbnails, properties, generation control), `listSaves`/`listGenerations`/`deleteSave`/`deleteGeneration`, `setThumbnail`/`getThumbnail`, `setProperties`/`getProperties`, and `onWarning`. Saves are a zstd-compressed JSON body of per-component sections (each with its own schema version) plus a header (engine version, timestamp, entity/player counts, XXH128 hash). The `MigrationRegistry` runs per-component `fromVersion→toVersion` migrations on load; forward-incompatible saves (newer engine than current) are refused. Implementations live in `@downdraft/engine/libraries/persistence` (`packages/engine/modules/persistence/`):
 
 - **`OpfsSaveStore`** (`opfs-save-store.ts`) — **default** OPFS-backed store for Web Workers and renderer. Writes directly to OPFS (no IPC, no main process). Supports generation history (N snapshots per slot, previous gen is backup on corruption), binary blobs (stored as separate files per blob key), thumbnails (PNG/WebP bytes), and arbitrary properties (game mode, playtime, etc.). Uses `createSyncAccessHandle()` in workers (sync I/O) or `createWritable()` on main thread. Directory layout: `downdraft/saves/<slot>/meta.json` + `thumbnail.png` + `gen/<NNNN>/body.zst` + `body.hash` + `blobs/<key>`. The `meta.json` file is the commit point — written last after body + blobs. 22 tests in `opfs-save-store.spec.ts` (uses mock OPFS via `mock-opfs.ts`).
 
@@ -589,7 +591,7 @@ FBX parser reads `GlobalSettings` for `UpAxis` (0/1=Y-up, 2=Z-up) and `UnitScale
   - `"worker"` — Renderer spawns a dedicated `save-worker.ts` Web Worker. Sim worker sends serialized state as transferable `ArrayBuffer` via `MessageChannel`. Sim loop continues running during save. The `SaveWorkerProxy` (`save-worker-proxy.ts`) implements `ISaveStore` by delegating to the worker via the RPC layer.
   - `"auto"` (default) — Picks `"worker"` if OPFS is available (`navigator.storage.getDirectory`), else falls back to IPC.
 
-  The `createSaveStore()` factory (`packages/app/src/renderer/save-store-factory.ts`) handles mode selection and OPFS detection. The `SimBridgeDeps.saveMode` field tells the sim bridge which path to use.
+  The `createSaveStore()` factory (`packages/engine/app/src/renderer/save-store-factory.ts`) handles mode selection and OPFS detection. The `SimBridgeDeps.saveMode` field tells the sim bridge which path to use.
 
 - **`FileSaveStore`** (`file-save-store.ts`) — filesystem backend, used as the IPC fallback. One `.ddsave` file per slot (header + zstd body), rotated to `.bak` on each save; `.bak` is the load fallback on corruption/hash-mismatch. Node-only (`node:fs`). Now supports the extended `ISaveStore` interface: blobs stored in `<slot>.blobs/` directory, thumbnails in `<slot>.thumb`, properties in `<slot>.props.json` sidecar. `listGenerations()` returns a single synthetic generation; `deleteGeneration()` delegates to `deleteSave()`.
 
@@ -599,11 +601,11 @@ FBX parser reads `GlobalSettings` for `UpAxis` (0/1=Y-up, 2=Z-up) and `UnitScale
 
 ### Devtools material editor
 
-`BaseSceneInspector` (`packages/modules/devtools/src/scene-inspector.ts`) exposes a functional material editor API: `compileMaterialGraph`, `createMaterialFromGraph`, `saveMaterialToLibrary`, `listMaterials`, `exportMaterialAsJSON`, `importMaterialFromJSON`, `previewMaterialGraph` (live preview via `setPreviewMeshRenderer`). The editor UI (`packages/ui/src/editor/material-graph/material-graph-editor.tsx`) has a synced node palette (all compiler node types) and a Preview button.
+`BaseSceneInspector` (`packages/engine/modules/devtools/src/scene-inspector.ts`) exposes a functional material editor API: `compileMaterialGraph`, `createMaterialFromGraph`, `saveMaterialToLibrary`, `listMaterials`, `exportMaterialAsJSON`, `importMaterialFromJSON`, `previewMaterialGraph` (live preview via `setPreviewMeshRenderer`). The editor UI (`packages/engine/ui/src/editor/material-graph/material-graph-editor.tsx`) has a synced node palette (all compiler node types) and a Preview button.
 
 ### Hot reload
 
-`HotReloader` (`packages/core/src/render/hot-reload.ts`) writes reloaded shader source into `material.inlineShaderSource` (not the dead `shader` string field) and calls `material.invalidateVariants()` to flush the variant cache.
+`HotReloader` (`packages/engine/core/src/render/hot-reload.ts`) writes reloaded shader source into `material.inlineShaderSource` (not the dead `shader` string field) and calls `material.invalidateVariants()` to flush the variant cache.
 
 ## Compute Graph System
 
@@ -611,12 +613,12 @@ The engine has a node-based compute shader authoring system that parallels the m
 
 ### Architecture
 
-- **`ComputeGraph`** (`packages/shader-graph/src/compute-graph.ts`) — the compute graph data structure. Separate from `MaterialGraph` (which is vertex/fragment only). Contains nodes + connections + `StorageBufferDecl`/`UniformBufferDecl` declarations + `ComputeDispatchConfig` (workgroup size + dispatch count).
-- **`ComputeGraphCompiler`** (`packages/shader-graph/src/compute-compiler.ts`) — compiles a `ComputeGraph` to WGSL `@compute @workgroup_size(...)` shader. Emits struct declarations from buffer decls, `@group/@binding` var declarations, and a `cs_main` entry point with `global_invocation_id`/`local_invocation_id`/`workgroup_id`/`num_workgroups` builtins. Compute-specific nodes: `global_id`, `buffer_load`, `buffer_store`, `atomic_add/sub/min/max/exchange`, `workgroup_barrier`, `storage_barrier`. Math nodes (multiply, add, sin, etc.) are shared with the material compiler.
-- **`ComputeProfile`** (`packages/shader-graph/src/compute-profiles.ts`) — simpler than `ShaderGraphProfile`: just `name`, `chunks`, `workgroupSize`. Built-in profiles: `SIMPLE_COMPUTE_PROFILE` (64x1x1), `PARTICLE_COMPUTE_PROFILE` (64x1x1), `TEXTURE_COMPUTE_PROFILE` (8x8x1), `VOLUMETRIC_COMPUTE_PROFILE` (4x4x4).
-- **`GraphComputePass`** (`packages/core/src/render/passes/graph-compute.ts`) — `RenderPass` subclass with `PassType.Custom`. Integrates with the frame graph (dispatches on the shared encoder). Supports both auto-allocated buffers (from `StorageBufferDecl`/`UniformBufferDecl`) and externally-provided buffers (`setExternalBuffer()`). `recompile()` supports hot-reload. Uses local `BUFFER_USAGE`/`SHADER_STAGE_COMPUTE` constants instead of WebGPU globals for testability.
-- **`runComputeKernel()`** (`packages/core/src/render/compute-kernel.ts`) — thin imperative helper for quick one-off GPGPU. Takes WGSL + typed inputs, dispatches once, returns a `readBuffer()` function for CPU readback. No graph, no frame graph needed.
-- **`ComputeGraphEditor`** (`packages/ui/src/editor/compute-graph/compute-graph-editor.tsx`) — React component for visual compute graph authoring. Compute-specific node palette + buffer declaration panel (add/edit storage & uniform buffers) + dispatch config (workgroup size, dispatch count).
+- **`ComputeGraph`** (`packages/engine/shader-graph/src/compute-graph.ts`) — the compute graph data structure. Separate from `MaterialGraph` (which is vertex/fragment only). Contains nodes + connections + `StorageBufferDecl`/`UniformBufferDecl` declarations + `ComputeDispatchConfig` (workgroup size + dispatch count).
+- **`ComputeGraphCompiler`** (`packages/engine/shader-graph/src/compute-compiler.ts`) — compiles a `ComputeGraph` to WGSL `@compute @workgroup_size(...)` shader. Emits struct declarations from buffer decls, `@group/@binding` var declarations, and a `cs_main` entry point with `global_invocation_id`/`local_invocation_id`/`workgroup_id`/`num_workgroups` builtins. Compute-specific nodes: `global_id`, `buffer_load`, `buffer_store`, `atomic_add/sub/min/max/exchange`, `workgroup_barrier`, `storage_barrier`. Math nodes (multiply, add, sin, etc.) are shared with the material compiler.
+- **`ComputeProfile`** (`packages/engine/shader-graph/src/compute-profiles.ts`) — simpler than `ShaderGraphProfile`: just `name`, `chunks`, `workgroupSize`. Built-in profiles: `SIMPLE_COMPUTE_PROFILE` (64x1x1), `PARTICLE_COMPUTE_PROFILE` (64x1x1), `TEXTURE_COMPUTE_PROFILE` (8x8x1), `VOLUMETRIC_COMPUTE_PROFILE` (4x4x4).
+- **`GraphComputePass`** (`packages/engine/core/src/render/passes/graph-compute.ts`) — `RenderPass` subclass with `PassType.Custom`. Integrates with the frame graph (dispatches on the shared encoder). Supports both auto-allocated buffers (from `StorageBufferDecl`/`UniformBufferDecl`) and externally-provided buffers (`setExternalBuffer()`). `recompile()` supports hot-reload. Uses local `BUFFER_USAGE`/`SHADER_STAGE_COMPUTE` constants instead of WebGPU globals for testability.
+- **`runComputeKernel()`** (`packages/engine/core/src/render/compute-kernel.ts`) — thin imperative helper for quick one-off GPGPU. Takes WGSL + typed inputs, dispatches once, returns a `readBuffer()` function for CPU readback. No graph, no frame graph needed.
+- **`ComputeGraphEditor`** (`packages/engine/ui/src/editor/compute-graph/compute-graph-editor.tsx`) — React component for visual compute graph authoring. Compute-specific node palette + buffer declaration panel (add/edit storage & uniform buffers) + dispatch config (workgroup size, dispatch count).
 
 ### Buffer management
 
@@ -628,15 +630,15 @@ Data is written via `writeUniform(name, data)` (queued, flushed before dispatch)
 
 ### Verification commands
 
-- `bun test packages/shader-graph/src/compute-compiler.spec.ts` — compute graph + compiler specs (17 tests).
-- `bun test packages/core/src/render/passes/graph-compute.spec.ts` — compute pass specs (7 tests).
-- `bun test packages/core/src/render/compute-kernel.spec.ts` — kernel helper specs (5 tests).
+- `bun test packages/engine/shader-graph/src/compute-compiler.spec.ts` — compute graph + compiler specs (17 tests).
+- `bun test packages/engine/core/src/render/passes/graph-compute.spec.ts` — compute pass specs (7 tests).
+- `bun test packages/engine/core/src/render/compute-kernel.spec.ts` — kernel helper specs (5 tests).
 
 ## Bindless rendering model
 
 The engine uses a bindless material binding model to eliminate per-draw bind-group churn. Material parameters (baseColor, roughness, texture indices) live in a single SSBO; textures are registered into global `texture_2d_array` buckets keyed by format/dimensions/mips. A single bind group (`@group(3)`) is set once per frame and shared by all draw calls.
 
-### Core infrastructure (`packages/core/src/render/bindless/`)
+### Core infrastructure (`packages/engine/core/src/render/bindless/`)
 
 - `BindlessTextureRegistry` — manages `texture_2d_array` buckets. Textures are registered by `sourceId` (stable string key) and packed into array layers. `registerFromTexture(src, GPUTexture, key)` and `registerFromImageBitmap(src, ImageBitmap, format, mipCount)` are the entry points. `getHandle(sourceId)` returns a packed `(pageIndex << 16) | layerIndex` handle. `defaultWhiteHandle` is a 1x1 white fallback.
 - `BindlessMaterialManager` — manages the material SSBO. `registerMaterial(MaterialParams)` returns a `materialIndex`; `updateMaterial(index, params)` updates in place; `unregisterMaterial(index)` frees the slot.
@@ -677,9 +679,9 @@ The engine uses a bindless material binding model to eliminate per-draw bind-gro
 
 ## Universal Physics Module (physics-rapier 0.2.0)
 
-- The `PhysicsBackend` interface is now `PhysicsBody`-keyed (opaque body refs). Raw Rapier `RigidBodyHandle` is no longer exported from `@downdraft/core`.
+- The `PhysicsBackend` interface is now `PhysicsBody`-keyed (opaque body refs). Raw Rapier `RigidBodyHandle` is no longer exported from `@downdraft/engine`.
 - Multi-realm LOD: `RealmManager` drives near/mid/far tiers with promote/demote + dwell hysteresis. Static bodies are duplicated into all realms by default.
-- `UniversalPhysicsAPI` (`@downdraft/module-physics-rapier`) is the single public surface: body lifecycle, validated state access, realm queries, interpolation, raycast, snapshots, hooks.
+- `UniversalPhysicsAPI` (`@downdraft/engine/libraries/physics-rapier`) is the single public surface: body lifecycle, validated state access, realm queries, interpolation, raycast, snapshots, hooks.
 - Subsystems: `PhysicsAccumulator` (fixed timestep), `InterpolationBuffer` (double-buffered), `LoadShedder` (island-aware freeze), `SafetyLayer` (NaN/Inf + hard-lock), `CCDHeuristic` (per-body), `SnapshotManager` (multiplayer), `RealmWorkerPool` (nested-worker parallelism, `workerCount:0` = single-threaded).
 - `PhysicsSystem` (ECS, `Stage.Physics`) wires all subsystems together; created via `createPhysicsSystem(resources)`.
 - Demo: `examples/physics-demo/main.ts` exercises realms, transfers, CCD, NaN injection, snapshot/restore.
@@ -695,17 +697,17 @@ The engine uses a bindless material binding model to eliminate per-draw bind-gro
 - `TelemetryCollector.passTimings` is now a bounded `Map` instead of an unbounded array.
 - `GPUProfiler` supports up to 32 passes (was hardcoded to 16).
 
-## Host SDK (`@downdraft/app` — game-bootstrapped host layer)
+## Host SDK (`@downdraft/engine/app` — game-bootstrapped host layer)
 
 Games bootstrap themselves by calling engine-exported host methods, instead of the engine owning a monolithic main/preload process. The engine obscures Electron's main/preload/renderer machinery behind a config-driven surface (Angular-style: devs set config, rarely touch raw Electron APIs). Raw process access is a deliberate `extend(ctx)` escape hatch.
 
 ### Subpath exports
 
-- `@downdraft/app/main` — `createDowndraftApp(config)`, `webGpuSwitches()`, composable handlers, `MainContext` types.
-- `@downdraft/app/preload` — `createDowndraftBridge(config)` with default `window.downdraft` API + `extend` hook.
-- `@downdraft/app/renderer` — typed `downdraft` accessor (coexists with `window.downdraft`; stubs to no-op in browser-only mode).
-- `@downdraft/app/shared` — IPC channel constants (safe in all processes).
-- `@downdraft/app/vite` — `createDowndraftViteConfig({ root, ...overrides })` build-config factory.
+- `@downdraft/engine/app/main` — `createDowndraftApp(config)`, `webGpuSwitches()`, composable handlers, `MainContext` types.
+- `@downdraft/engine/app/preload` — `createDowndraftBridge(config)` with default `window.downdraft` API + `extend` hook.
+- `@downdraft/engine/app/renderer` — typed `downdraft` accessor (coexists with `window.downdraft`; stubs to no-op in browser-only mode).
+- `@downdraft/engine/app/shared` — IPC channel constants (safe in all processes).
+- `@downdraft/engine/app/vite` — `createDowndraftViteConfig({ root, ...overrides })` build-config factory.
 
 ### Per-game files
 
@@ -734,7 +736,7 @@ Set `DOWNDRAFT_GPU=swiftshader` to force Chromium's software Vulkan backend for 
 
 ### MCP automation harness (`to-the-ocean`)
 
-`to-the-ocean` registers a renderer-side MCP automation harness (`games/to-the-ocean/src/mcp/setup.ts`) wired to the existing main-process MCP HTTP proxy. It exposes game-specific tools without importing the Node-only `@downdraft/mcp` server bundle into the renderer:
+`to-the-ocean` registers a renderer-side MCP automation harness (`games/to-the-ocean/src/mcp/setup.ts`) wired to the existing main-process MCP HTTP proxy. It exposes game-specific tools without importing the Node-only `@downdraft/engine/mcp` server bundle into the renderer:
 
 - `inject_input` — hold keys/mouse/wheel for a number of frames via `RendererInputHandler.injectInput()`.
 - `clear_injected_input` — cancel pending injected input.
@@ -748,7 +750,7 @@ Input injection is merged with real DOM input in `processInput()` so the game lo
 
 ### Connecting Devin's MCP client to the game
 
-The game's MCP HTTP transport (`packages/mcp/src/http-transport.ts`) supports both Streamable HTTP and HTTP+SSE transports. By default it binds to an **ephemeral OS-assigned port** (port 0) so multiple game instances never collide. Devin's MCP client uses stdio for local servers, so a stdio-to-HTTP bridge (`.devin/mcp-stdio-bridge.mjs`) forwards JSON-RPC messages from stdin/stdout to the game's HTTP endpoint.
+The game's MCP HTTP transport (`packages/engine/mcp/src/http-transport.ts`) supports both Streamable HTTP and HTTP+SSE transports. By default it binds to an **ephemeral OS-assigned port** (port 0) so multiple game instances never collide. Devin's MCP client uses stdio for local servers, so a stdio-to-HTTP bridge (`.devin/mcp-stdio-bridge.mjs`) forwards JSON-RPC messages from stdin/stdout to the game's HTTP endpoint.
 
 **Instance discovery:** Each running game writes `~/.downdraft/port/<pid>` (content = the bound port number). The bridge reads this directory, prunes dead-PID files, and connects to the newest live instance. Optional env vars on the bridge:
 - `MCP_APP_ID=<appId>` — narrow to instances of a specific game (matches `--user-data-dir=<path>` basename on Linux; e.g. `downdraft-to-the-ocean`).
@@ -859,10 +861,10 @@ The CLI reads and sets a number of environment variables. This is the complete l
 
 | Variable | Used by | Purpose |
 |---|---|---|
-| `DOWNDRAFT_STRICT` | `packages/core/src/module/diagnostics.ts` | `0`/`1` force-disable/enable module DI validation (else = Vite dev mode) |
-| `DOWNDRAFT_OSR_DISABLE_SHARED_TEXTURE` | `packages/modules/electron-osr/.../osr-renderer.ts` | `1`/`true` disables OSR shared-texture path |
-| `DOWNDRAFT_MCP` | `packages/core/src/util/logger.ts` | `1` routes logs to stderr (keeps stdout clean for MCP JSON-RPC) |
-| `DOWNDRAFT_DISABLE_DEVTOOLS` | `packages/app/src/main/handlers/devtools.ts` | `1` disables devtools auto-open (set by `draft debug --no-devtools`) |
+| `DOWNDRAFT_STRICT` | `packages/engine/core/src/module/diagnostics.ts` | `0`/`1` force-disable/enable module DI validation (else = Vite dev mode) |
+| `DOWNDRAFT_OSR_DISABLE_SHARED_TEXTURE` | `packages/engine/modules/electron-osr/.../osr-renderer.ts` | `1`/`true` disables OSR shared-texture path |
+| `DOWNDRAFT_MCP` | `packages/engine/core/src/util/logger.ts` | `1` routes logs to stderr (keeps stdout clean for MCP JSON-RPC) |
+| `DOWNDRAFT_DISABLE_DEVTOOLS` | `packages/engine/app/src/main/handlers/devtools.ts` | `1` disables devtools auto-open (set by `draft debug --no-devtools`) |
 
 ### E2E test verification — checking for JS errors
 
@@ -903,7 +905,7 @@ All UI text rendered by the engine and games MUST use a font size of **at least 
 
 - Do not set `font-size` below `12px` (e.g. no `10px`, `11px`, or `0.7rem`-style values that resolve below 12px) in CSS, inline styles, or stylesheet theme overrides.
 - When adapting third-party component styles or copying reference markup, bump any sub-12px font sizes up to 12px.
-- The base stylesheet (`packages/app/src/renderer/downdraft-base.css`) should not introduce a root font size below 12px; game theme overrides layered on top of it must also respect this floor.
+- The base stylesheet (`packages/engine/app/src/renderer/downdraft-base.css`) should not introduce a root font size below 12px; game theme overrides layered on top of it must also respect this floor.
 - This is a readability/accessibility floor, not a target — larger sizes are fine where appropriate.
 
 ## Windows packaging — version info & PE compilation timestamp
@@ -917,9 +919,9 @@ VirusTotal analysis of Windows `.exe` builds reported two issues:
 
 ### Solution
 
-**Per-game branding** — `createDowndraftBuilderConfig()` factory (`packages/app/src/build/index.ts`) produces an electron-builder `Configuration` with per-game `appId`, `productName`, `copyright`, `description` (→ Windows `FileDescription`), `author` (→ Windows `CompanyName`), and `version` (→ Windows `FileVersion`). Each game has a `build.config.ts` that calls this factory. electron-builder's `WinPackager.signAndEditResources()` maps these fields to rcedit version-string arguments (`FileDescription`, `ProductName`, `LegalCopyright`, `CompanyName`, `FileVersion`, `ProductVersion`, `InternalName`).
+**Per-game branding** — `createDowndraftBuilderConfig()` factory (`packages/engine/app/src/build/index.ts`) produces an electron-builder `Configuration` with per-game `appId`, `productName`, `copyright`, `description` (→ Windows `FileDescription`), `author` (→ Windows `CompanyName`), and `version` (→ Windows `FileVersion`). Each game has a `build.config.ts` that calls this factory. electron-builder's `WinPackager.signAndEditResources()` maps these fields to rcedit version-string arguments (`FileDescription`, `ProductName`, `LegalCopyright`, `CompanyName`, `FileVersion`, `ProductVersion`, `InternalName`).
 
-**PE timestamp patching** — `patchPeTimestamps()` (`packages/app/src/build/pe-timestamp.ts`) writes the actual build timestamp into the COFF `TimeDateStamp` field (`e_lfanew + 8`) of every produced `.exe`. The factory wires this into `afterAllArtifactBuild` automatically.
+**PE timestamp patching** — `patchPeTimestamps()` (`packages/engine/app/src/build/pe-timestamp.ts`) writes the actual build timestamp into the COFF `TimeDateStamp` field (`e_lfanew + 8`) of every produced `.exe`. The factory wires this into `afterAllArtifactBuild` automatically.
 
 **Timestamp source** — `resolveBuildTimestamp()` uses:
 1. `SOURCE_DATE_EPOCH` env var (reproducible builds) — if set & valid.
@@ -953,10 +955,10 @@ The desktop packaging step loads the game's `build.config.ts` (or falls back to 
 
 ### Files
 
-- `packages/app/src/build/index.ts` — `createDowndraftBuilderConfig()` factory + `resolveBuildTimestamp()`.
-- `packages/app/src/build/pe-timestamp.ts` — `patchPeTimestamp()` / `patchPeTimestamps()`.
-- `packages/app/src/build/pe-timestamp.spec.ts` — PE patcher specs (11 tests).
-- `packages/app/package.json` — `./build` subpath export.
+- `packages/engine/app/src/build/index.ts` — `createDowndraftBuilderConfig()` factory + `resolveBuildTimestamp()`.
+- `packages/engine/app/src/build/pe-timestamp.ts` — `patchPeTimestamp()` / `patchPeTimestamps()`.
+- `packages/engine/app/src/build/pe-timestamp.spec.ts` — PE patcher specs (11 tests).
+- `packages/engine/app/package.json` — `./build` subpath export.
 - `packages/cli/src/dist.ts` — `draft dist` command (deprecated alias for `draft release --stage=package`) + `packageDesktop()` export.
 - `packages/cli/src/release.ts` — `draft release` unified pipeline (build + package + sign).
 - `games/<game>/build.config.ts` — per-game builder config (to-the-ocean, mining-rpg, overburden, alchemy, falling-sand, sandjongg).
@@ -990,7 +992,7 @@ mining-rpg runs its UI (Solid-js components) inside a Web Worker for offscreen r
 
 ### Future plan
 
-Extract these plugins into `@downdraft/app/vite` as a `solidWorkerPlugin()` factory, so other games that want Solid-js-in-worker can use it without copying the workaround. This should be done after `vite-plugin-solid` adds native worker context support (tracking: https://github.com/solidjs/vite-plugin-solid/issues). Until then, the workaround stays in `games/mining-rpg/vite-options.ts`.
+Extract these plugins into `@downdraft/engine/app/vite` as a `solidWorkerPlugin()` factory, so other games that want Solid-js-in-worker can use it without copying the workaround. This should be done after `vite-plugin-solid` adds native worker context support (tracking: https://github.com/solidjs/vite-plugin-solid/issues). Until then, the workaround stays in `games/mining-rpg/vite-options.ts`.
 
 ## Mobile targets (Android + iOS via Capacitor) — Experimental
 
@@ -1011,8 +1013,8 @@ The shell's `MainActivity.java` / `AppDelegate.swift` / `SceneDelegate.swift` al
 
 ### Architecture: what is portable vs Electron-only
 
-- **Already web-portable (runs unchanged in a WebView):** `packages/core/src/render/*`, `packages/core/src/worker/*`, `packages/core/src/sab/*`, `packages/core/src/input/*`, `packages/core/src/ecs/*`, all `packages/libraries/*`, all `packages/modules/*` (except `electron-osr`), `packages/shader-graph`, `packages/ui`, `packages/mcp`, and `packages/app/src/renderer/*` (the `downdraft` bridge accessor already returns a stub when `window.downdraft` is absent).
-- **Electron-only (replaced/skipped on mobile):** `packages/app/src/main/*` (Electron main process), `packages/app/src/preload/*` (IPC bridge), `packages/modules/electron-osr/*` (Offscreen Rendering), `electron.vite.config.ts` / `createDowndraftViteConfig()` (electron-vite build), `draft release --target=win,linux,mac` (electron-builder desktop packaging).
+- **Already web-portable (runs unchanged in a WebView):** `packages/engine/core/src/render/*`, `packages/engine/core/src/worker/*`, `packages/engine/core/src/sab/*`, `packages/engine/core/src/input/*`, `packages/engine/core/src/ecs/*`, all `packages/engine/libraries/*`, all `packages/engine/modules/*` (except `electron-osr`), `packages/shader-graph`, `packages/ui`, `packages/mcp`, and `packages/engine/app/src/renderer/*` (the `downdraft` bridge accessor already returns a stub when `window.downdraft` is absent).
+- **Electron-only (replaced/skipped on mobile):** `packages/engine/app/src/main/*` (Electron main process), `packages/engine/app/src/preload/*` (IPC bridge), `packages/engine/modules/electron-osr/*` (Offscreen Rendering), `electron.vite.config.ts` / `createDowndraftViteConfig()` (electron-vite build), `draft release --target=win,linux,mac` (electron-builder desktop packaging).
 
 ### Gating constraints
 
@@ -1024,12 +1026,12 @@ The shell's `MainActivity.java` / `AppDelegate.swift` / `SceneDelegate.swift` al
 - `packages/mobile-shell/` — engine-owned canonical native shell (Android + iOS, pre-wired with embedded server).
 - `packages/mobile-shell/android/` — pre-wired Android project (`MainActivity` starts `EmbeddedServer` + overrides WebView URL; `app/build.gradle` has NanoHTTPD dep).
 - `packages/mobile-shell/ios/` — pre-wired iOS project (`AppDelegate` starts `EmbeddedServer`; `SceneDelegate` overrides WebView URL; `Info.plist` has ATS exception).
-- `packages/app/src/mobile/index.ts` — `createDowndraftMobileApp()` entry point (mobile equivalent of `createDowndraftApp()`).
-- `packages/app/src/mobile/mobile-bridge.ts` — `DowndraftBridge` implementation for mobile (OPFS saves, web-API display info, Capacitor plugins for quit/external, no-ops for OSR/MCP/devtools).
-- `packages/app/src/mobile/touch-input-adapter.ts` — maps touch events → `InputBufferWriter` (dual-stick, tap-to-move, tap schemes).
-- `packages/app/src/mobile/webgpu-guard.ts` — boot-time WebGPU + cross-origin isolation check with user-facing error screen.
-- `packages/app/src/mobile/capacitor-plugin-types.d.ts` — ambient type declarations for optional `@capacitor/app` and `@capacitor/browser` plugins.
-- `packages/app/src/vite/mobile-vite-config.ts` — `createDowndraftMobileViteConfig()` web-only Vite build config (no main/preload, outputs `dist/mobile/`).
+- `packages/engine/app/src/mobile/index.ts` — `createDowndraftMobileApp()` entry point (mobile equivalent of `createDowndraftApp()`).
+- `packages/engine/app/src/mobile/mobile-bridge.ts` — `DowndraftBridge` implementation for mobile (OPFS saves, web-API display info, Capacitor plugins for quit/external, no-ops for OSR/MCP/devtools).
+- `packages/engine/app/src/mobile/touch-input-adapter.ts` — maps touch events → `InputBufferWriter` (dual-stick, tap-to-move, tap schemes).
+- `packages/engine/app/src/mobile/webgpu-guard.ts` — boot-time WebGPU + cross-origin isolation check with user-facing error screen.
+- `packages/engine/app/src/mobile/capacitor-plugin-types.d.ts` — ambient type declarations for optional `@capacitor/app` and `@capacitor/browser` plugins.
+- `packages/engine/app/src/vite/mobile-vite-config.ts` — `createDowndraftMobileViteConfig()` web-only Vite build config (no main/preload, outputs `dist/mobile/`).
 - `packages/cli/src/mobile.ts` — `draft mobile` CLI command (deprecated alias for `draft release --target=android,ios`) + `packageMobile()` / `buildMobileWeb()` exports.
 - `packages/cli/src/mobile-icons.ts` — jimp-based icon + splash generation from `icon.png` (Android mipmaps + splash screens + iOS AppIcon + splash set). Generates solid-color placeholders if no `icon.png` is provided. The shell ships NO binary images.
 
@@ -1098,8 +1100,8 @@ draft release [--game=<name>] [--target=<android|ios|all>] [--port=<n>] [--skip-
 
 ### Config that must be updated when adding mobile support
 
-- `packages/app/package.json` — `./mobile` and `./vite/mobile` export mappings (already done).
-- `tsconfig.web.json` — `packages/app/src/mobile/**` include + `@downdraft/app/mobile` path mapping (already done).
+- `packages/engine/app/package.json` — `./mobile` and `./vite/mobile` export mappings (already done).
+- `tsconfig.web.json` — `packages/engine/app/src/mobile/**` include + `@downdraft/engine/app/mobile` path mapping (already done).
 - Game's `capacitor.config.ts` — `appId`, `webDir: "dist/mobile"`, `server.url: "http://127.0.0.1:<port>/index.html"`, `server.androidScheme: "http"`, `server.iosScheme: "http"`.
 - No native project editing required — the shell is pre-wired.
 
@@ -1252,27 +1254,27 @@ The `downdraft doctor` devtools panel displays a plugins table (id, version, for
 
 ### Key files
 
-- `packages/core/src/plugin/manifest.ts` — `PluginManifest` type + `validatePluginManifest`.
-- `packages/core/src/plugin/permissions.ts` — permission resolution + tier allowed sets + global allowlist.
-- `packages/core/src/plugin/context.ts` — `ScriptPluginContext` + `NativePluginContext` tiered facades.
-- `packages/core/src/plugin/registry.ts` — `PluginRegistry` (topological sort by dependencies).
-- `packages/core/src/plugin/host.ts` — `PluginHost` (discover/validate/load/unload/dispose/snapshot).
-- `packages/core/src/plugin/sandbox-shim.ts` — worker-side global restriction.
-- `packages/core/src/plugin/sandbox-worker.ts` — sandbox worker entry for worker-js plugins.
-- `packages/core/src/plugin/loader-worker.ts` — `WorkerPluginLoader` + `InlinePluginLoader`.
-- `packages/core/src/plugin/loader-asset.ts` — `AssetPluginLoader`.
-- `packages/core/src/plugin/loader-quickjs.ts` — `QuickjsPluginLoader`.
-- `packages/core/src/plugin/quickjs-bridge.ts` — QuickJS host↔VM bridge (handle tracking, marshaling, interrupt handler).
-- `packages/core/src/plugin/loader-wasm.ts` — `WasmPluginLoader` + `InlineWasmPluginLoader`.
-- `packages/core/src/plugin/wasm-abi.ts` — WASM ABI v2 types + memory marshaling helpers.
-- `packages/core/src/plugin/wasm-worker.ts` — WASM worker entry.
-- `packages/core/src/plugin/workshop.ts` — `WorkshopFetcher` (remote pack fetch + cache).
-- `packages/core/src/plugin/diagnostics.ts` — `PluginInfo` snapshot for the doctor panel.
-- `packages/core/src/plugin/mcp-tools.ts` — MCP automation tools.
+- `packages/engine/core/src/plugin/manifest.ts` — `PluginManifest` type + `validatePluginManifest`.
+- `packages/engine/core/src/plugin/permissions.ts` — permission resolution + tier allowed sets + global allowlist.
+- `packages/engine/core/src/plugin/context.ts` — `ScriptPluginContext` + `NativePluginContext` tiered facades.
+- `packages/engine/core/src/plugin/registry.ts` — `PluginRegistry` (topological sort by dependencies).
+- `packages/engine/core/src/plugin/host.ts` — `PluginHost` (discover/validate/load/unload/dispose/snapshot).
+- `packages/engine/core/src/plugin/sandbox-shim.ts` — worker-side global restriction.
+- `packages/engine/core/src/plugin/sandbox-worker.ts` — sandbox worker entry for worker-js plugins.
+- `packages/engine/core/src/plugin/loader-worker.ts` — `WorkerPluginLoader` + `InlinePluginLoader`.
+- `packages/engine/core/src/plugin/loader-asset.ts` — `AssetPluginLoader`.
+- `packages/engine/core/src/plugin/loader-quickjs.ts` — `QuickjsPluginLoader`.
+- `packages/engine/core/src/plugin/quickjs-bridge.ts` — QuickJS host↔VM bridge (handle tracking, marshaling, interrupt handler).
+- `packages/engine/core/src/plugin/loader-wasm.ts` — `WasmPluginLoader` + `InlineWasmPluginLoader`.
+- `packages/engine/core/src/plugin/wasm-abi.ts` — WASM ABI v2 types + memory marshaling helpers.
+- `packages/engine/core/src/plugin/wasm-worker.ts` — WASM worker entry.
+- `packages/engine/core/src/plugin/workshop.ts` — `WorkshopFetcher` (remote pack fetch + cache).
+- `packages/engine/core/src/plugin/diagnostics.ts` — `PluginInfo` snapshot for the doctor panel.
+- `packages/engine/core/src/plugin/mcp-tools.ts` — MCP automation tools.
 - `packages/cli/src/scaffold-plugin.ts` — CLI plugin scaffold.
 - `packages/cli/src/plugin-command.ts` — `dd plugin` CLI subcommand.
-- `packages/modules/devtools/src/doctor-panel.ts` — doctor panel with plugin table.
-- `packages/app/src/renderer/game-module.ts` — `PluginRuntimeConfig` + `GameModule.plugins` wiring.
+- `packages/engine/modules/devtools/src/doctor-panel.ts` — doctor panel with plugin table.
+- `packages/engine/app/src/renderer/game-module.ts` — `PluginRuntimeConfig` + `GameModule.plugins` wiring.
 
 ### Sample plugins
 
@@ -1281,13 +1283,13 @@ The `downdraft doctor` devtools panel displays a plugins table (id, version, for
 - `games/sandjongg/plugins/speed-mode/` — quickjs script tier (events + state + tick).
 - `games/sandjongg/plugins/custom-scorer/` — wasm native tier (ABI v2, Fibonacci scorer).
 
-## Profiling system (`@downdraft/core/profiling` + `@downdraft/library-profiler`)
+## Profiling system (`@downdraft/engine/profiling` + `@downdraft/engine/libraries/profiler`)
 
 A comprehensive cross-thread profiling + tracing system with an in-game overlay (Puffin-style flame graph, memory/CPU/IOPS/event-loop/GC views, warning toasts, trace recording + export).
 
 ### Architecture
 
-- **`@downdraft/core/profiling`** — the core profiling primitives:
+- **`@downdraft/engine/profiling`** — the core profiling primitives:
   - `ProfilingSAB` — a `SharedArrayBuffer` with a fixed layout: slot table (per-worker), per-slot metrics (ThreadMetrics), IOPS ring, event-loop block, warning ring, string table. Workers claim slots; the renderer reads all slots + drains the warning ring each frame.
   - `ProfilingSABWriter` / `ProfilingSABReader` — writer (worker-side) + reader (renderer-side) for the SAB.
   - `ThreadMetricsWriter` — writes heap/CPU/GC/task-latency metrics to the SAB each tick.
@@ -1297,16 +1299,16 @@ A comprehensive cross-thread profiling + tracing system with an in-game overlay 
   - `TraceEventWriter` — Chrome Trace Event / Perfetto / Spall format export.
   - IOPS patches: `patchOpfsPrototypes()` + `patchIndexedDbPrototypes()` — wrap OPFS/IDB methods to record IOPS to the ring. `disableRendererIndexedDb()` — patches the renderer's `indexedDB.open` to throw (renderer should not do I/O).
   - `worker-prelude.ts` — imported at the top of every instrumented worker. On load, detects worker realm, and if a ProfilingSAB is attached, claims a slot + initializes all writers + the warning engine + event-loop monitor + patches prototypes.
-- **`@downdraft/core/worker/instrumented-worker-host`** — `InstrumentedWorkerHost` (extends `BaseWorkerHost`) auto-attaches the ProfilingSAB before `onInit()`. `exposeProfilingApi()` merges `__profilingAttach` / `__profilingAddRule` / `__profilingOnWarning` RPC methods into a worker's `expose()` API.
+- **`@downdraft/engine/worker/instrumented-worker-host`** — `InstrumentedWorkerHost` (extends `BaseWorkerHost`) auto-attaches the ProfilingSAB before `onInit()`. `exposeProfilingApi()` merges `__profilingAttach` / `__profilingAddRule` / `__profilingOnWarning` RPC methods into a worker's `expose()` API.
 - **Vite plugin** — `profilingPreludePlugin` injects the worker prelude import at the top of worker files (configured via `DowndraftViteConfigOptions.profiling`).
-- **`@downdraft/module-devtools`** — extended with:
+- **`@downdraft/engine/modules/devtools`** — extended with:
   - `DebugViewDescriptor` + `registerView()` — declarative registration of profiler overlay views.
   - `attachProfilingSAB()` / `getProfilingSAB()` — SAB management on the devtools API.
   - `ProfilingBridge` — renderer-side bridge that creates the ProfilingSAB, runs the WarningEngine + EventLoopMonitor + TraceEventWriter, drains the warning ring each frame, fires auto-trace, and registers the 10 built-in view descriptors.
   - `initDevTools({ profiling: true })` — creates the ProfilingBridge + exposes the ProfilingSAB on `__sceneInspector`.
   - `exposeDevToolsApi()` — now merges `exposeProfilingApi()` so workers get both devtools + profiling RPC methods.
-- **`@downdraft/library-pixi-ui`** — extended with `extraSharedBuffers` in the scene context (for passing the ProfilingSAB to the pixi-ui overlay worker).
-- **`@downdraft/library-profiler`** — the profiler overlay library:
+- **`@downdraft/engine/libraries/pixi-ui`** — extended with `extraSharedBuffers` in the scene context (for passing the ProfilingSAB to the pixi-ui overlay worker).
+- **`@downdraft/engine/libraries/profiler`** — the profiler overlay library:
   - `ProfilerLib` — `EngineLibrary` descriptor for declarative wiring via `GameModule.libraries[]`.
   - `ProfilerOverlay` — main-thread host that wraps `PixiUiHost` with profiling-specific config.
   - `ProfilerScene` — pixi-ui scene that renders the 10 built-in views (memory, CPU, task-latency, IOPS-OPFS, IOPS-IDB, event-loop, GC-heap, flame-graph, GPU-passes, warnings) + toast stack + record/export bar.
@@ -1356,25 +1358,25 @@ The following execution paths are instrumented with `recordTaskLatency()` + `che
 
 ### Key files
 
-- `packages/core/src/profiling/profiling-sab.ts` — SAB layout + writer + reader.
-- `packages/core/src/profiling/warnings.ts` — WarningEngine + rules + auto-trace.
-- `packages/core/src/profiling/task-latency.ts` — TaskLatencyHistogram.
-- `packages/core/src/profiling/event-loop.ts` — EventLoopMonitor.
-- `packages/core/src/profiling/trace-event-writer.ts` — Chrome Trace Event export.
-- `packages/core/src/profiling/worker-prelude.ts` — worker prelude (auto-runs on import).
-- `packages/core/src/profiling/iops/opfs-patch.ts` — OPFS prototype patching.
-- `packages/core/src/profiling/iops/idb-patch.ts` — IndexedDB prototype patching.
-- `packages/core/src/profiling/iops/renderer-idb-disable.ts` — renderer IDB disabling.
-- `packages/core/src/worker/instrumented-worker-host.ts` — InstrumentedWorkerHost + exposeProfilingApi.
-- `packages/app/src/vite/profiling-prelude-plugin.ts` — Vite plugin.
-- `packages/modules/devtools/src/profiling-bridge.ts` — ProfilingBridge.
-- `packages/modules/devtools/src/debug-view-descriptors.ts` — DebugViewDescriptor + 10 built-in views.
-- `packages/libraries/profiler/src/profiler-scene.ts` — ProfilerScene (pixi-ui overlay).
-- `packages/libraries/profiler/src/library.ts` — ProfilerLib descriptor.
-- `packages/core/src/telemetry/gpu-timer-pool.ts` — GPUTimerPool (encoder-level timestamps).
-- `packages/core/src/telemetry/gpu-profiler.ts` — GPUProfiler (compute/blit pass timing).
+- `packages/engine/core/src/profiling/profiling-sab.ts` — SAB layout + writer + reader.
+- `packages/engine/core/src/profiling/warnings.ts` — WarningEngine + rules + auto-trace.
+- `packages/engine/core/src/profiling/task-latency.ts` — TaskLatencyHistogram.
+- `packages/engine/core/src/profiling/event-loop.ts` — EventLoopMonitor.
+- `packages/engine/core/src/profiling/trace-event-writer.ts` — Chrome Trace Event export.
+- `packages/engine/core/src/profiling/worker-prelude.ts` — worker prelude (auto-runs on import).
+- `packages/engine/core/src/profiling/iops/opfs-patch.ts` — OPFS prototype patching.
+- `packages/engine/core/src/profiling/iops/idb-patch.ts` — IndexedDB prototype patching.
+- `packages/engine/core/src/profiling/iops/renderer-idb-disable.ts` — renderer IDB disabling.
+- `packages/engine/core/src/worker/instrumented-worker-host.ts` — InstrumentedWorkerHost + exposeProfilingApi.
+- `packages/engine/app/src/vite/profiling-prelude-plugin.ts` — Vite plugin.
+- `packages/engine/modules/devtools/src/profiling-bridge.ts` — ProfilingBridge.
+- `packages/engine/modules/devtools/src/debug-view-descriptors.ts` — DebugViewDescriptor + 10 built-in views.
+- `packages/engine/libraries/profiler/src/profiler-scene.ts` — ProfilerScene (pixi-ui overlay).
+- `packages/engine/libraries/profiler/src/library.ts` — ProfilerLib descriptor.
+- `packages/engine/core/src/telemetry/gpu-timer-pool.ts` — GPUTimerPool (encoder-level timestamps).
+- `packages/engine/core/src/telemetry/gpu-profiler.ts` — GPUProfiler (compute/blit pass timing).
 
-## Gaussian Splatting library (`@downdraft/library-gaussian-splats`)
+## Gaussian Splatting library (`@downdraft/engine/libraries/gaussian-splats`)
 
 A renderer-only engine library for rendering 3D Gaussian Splat scenes (INRIA `.ply` and `.splat` formats). Uses a Structure-of-Arrays (SoA) data layout for GPU-friendly uploads.
 
@@ -1413,7 +1415,7 @@ The library is split into four modules, each implementing a phase of the splat r
 ### Declarative usage
 
 ```ts
-import { GaussianSplatsLib } from "@downdraft/library-gaussian-splats";
+import { GaussianSplatsLib } from "@downdraft/engine/libraries/gaussian-splats";
 
 startGame({
   libraries: [[GaussianSplatsLib, {
@@ -1427,28 +1429,28 @@ startGame({
 
 ### Key files
 
-- `packages/libraries/gaussian-splats/src/parser.ts` — PLY/SPLAT parser, SoA layout.
-- `packages/libraries/gaussian-splats/src/gpu-sort.ts` — GpuSplatSorter (radix sort + compact).
-- `packages/libraries/gaussian-splats/src/sh-eval.ts` — SH packing + WGSL eval chunk.
-- `packages/libraries/gaussian-splats/src/tile-raster.ts` — TileRasterPipeline (bin + raster).
-- `packages/libraries/gaussian-splats/src/renderer.ts` — GaussianSplatRenderer (orchestrator).
-- `packages/libraries/gaussian-splats/src/library.ts` — GaussianSplatsLib descriptor.
-- `packages/libraries/gaussian-splats/src/sorter.ts` — CPU sort fallback (sortSplats, filterByDistance).
+- `packages/engine/libraries/gaussian-splats/src/parser.ts` — PLY/SPLAT parser, SoA layout.
+- `packages/engine/libraries/gaussian-splats/src/gpu-sort.ts` — GpuSplatSorter (radix sort + compact).
+- `packages/engine/libraries/gaussian-splats/src/sh-eval.ts` — SH packing + WGSL eval chunk.
+- `packages/engine/libraries/gaussian-splats/src/tile-raster.ts` — TileRasterPipeline (bin + raster).
+- `packages/engine/libraries/gaussian-splats/src/renderer.ts` — GaussianSplatRenderer (orchestrator).
+- `packages/engine/libraries/gaussian-splats/src/library.ts` — GaussianSplatsLib descriptor.
+- `packages/engine/libraries/gaussian-splats/src/sorter.ts` — CPU sort fallback (sortSplats, filterByDistance).
 
 
 ## Modding system (PluginHost + mod.json)
 
-The engine has a runtime modding system built on `PluginHost` (`packages/core/src/plugin/`). This is the first real production use of the engine plugin system. Andrew's Sandbox is the first game migrated to it.
+The engine has a runtime modding system built on `PluginHost` (`packages/engine/core/src/plugin/`). This is the first real production use of the engine plugin system. Andrew's Sandbox is the first game migrated to it.
 
 ### Architecture
 
-- **PluginHost** (`packages/core/src/plugin/host.ts`) — the canonical runtime mod loader. Discovers, validates, normalizes, and loads mod manifests. Dispatches logic extensions (worker-js/wasm) and declarative extensions (assets/maps/physics/shaders).
-- **Manifest** (`packages/core/src/plugin/manifest.ts`) — `mod.json` is the canonical format. Legacy `plugin.json` is auto-normalized. A mod uses "one manifest, many extensions": one id, one version, one target game, one permission set, optional logic, and multiple declarative extension buckets.
-- **Permissions** (`packages/core/src/plugin/permissions.ts`) — resolved as `requested ∩ tier-allowed ∩ game-allowlist`. New permissions: `assets`, `physics`. Logic plugins must NOT receive raw GPU APIs. Native tier does not implicitly grant permissions.
-- **Host-call bridge** (`packages/core/src/plugin/context.ts`, `wasm-abi.ts`, `loader-wasm.ts`) — logic plugins mutate game state through mediated host calls (spawn_prop, set_physics, apply_torque, get_asset_ref, publish_event). WASM ABI v3 adds host-call imports + `on_host_call_result` export. Worker-js contexts expose host calls via `ctx.hostCalls`.
-- **Extension loaders** (`packages/core/src/plugin/extension-loaders.ts`) — registry of `ExtensionLoader` instances keyed by extension bucket. Factory functions: `createAssetLoader`, `createMapLoader`, `createPhysicsLoader`, `createPostfxShaderLoader`, `createMaterialShaderLoader`. `registerAllExtensionLoaders` wires all five.
-- **MaterialRegistry** (`packages/core/src/plugin/material-registry.ts`) — tracks mod-defined material shaders for spawned props.
-- **PostProcessStack custom effects** (`packages/libraries/postfx/src/post-process-stack.ts`) — `registerCustomEffect`/`unregisterCustomEffect`/`setCustomEffectEnabled` for mod-defined postfx shaders. Custom effects interleave with built-in effects at order-group boundaries (hdr/color-grading/camera/stylized).
+- **PluginHost** (`packages/engine/core/src/plugin/host.ts`) — the canonical runtime mod loader. Discovers, validates, normalizes, and loads mod manifests. Dispatches logic extensions (worker-js/wasm) and declarative extensions (assets/maps/physics/shaders).
+- **Manifest** (`packages/engine/core/src/plugin/manifest.ts`) — `mod.json` is the canonical format. Legacy `plugin.json` is auto-normalized. A mod uses "one manifest, many extensions": one id, one version, one target game, one permission set, optional logic, and multiple declarative extension buckets.
+- **Permissions** (`packages/engine/core/src/plugin/permissions.ts`) — resolved as `requested ∩ tier-allowed ∩ game-allowlist`. New permissions: `assets`, `physics`. Logic plugins must NOT receive raw GPU APIs. Native tier does not implicitly grant permissions.
+- **Host-call bridge** (`packages/engine/core/src/plugin/context.ts`, `wasm-abi.ts`, `loader-wasm.ts`) — logic plugins mutate game state through mediated host calls (spawn_prop, set_physics, apply_torque, get_asset_ref, publish_event). WASM ABI v3 adds host-call imports + `on_host_call_result` export. Worker-js contexts expose host calls via `ctx.hostCalls`.
+- **Extension loaders** (`packages/engine/core/src/plugin/extension-loaders.ts`) — registry of `ExtensionLoader` instances keyed by extension bucket. Factory functions: `createAssetLoader`, `createMapLoader`, `createPhysicsLoader`, `createPostfxShaderLoader`, `createMaterialShaderLoader`. `registerAllExtensionLoaders` wires all five.
+- **MaterialRegistry** (`packages/engine/core/src/plugin/material-registry.ts`) — tracks mod-defined material shaders for spawned props.
+- **PostProcessStack custom effects** (`packages/engine/libraries/postfx/src/post-process-stack.ts`) — `registerCustomEffect`/`unregisterCustomEffect`/`setCustomEffectEnabled` for mod-defined postfx shaders. Custom effects interleave with built-in effects at order-group boundaries (hdr/color-grading/camera/stylized).
 
 ### Mod manifest format (mod.json)
 
@@ -1522,15 +1524,15 @@ dd plugin list [--game <game>]
 
 ### Key files
 
-- `packages/core/src/plugin/host.ts` — PluginHost (canonical mod loader).
-- `packages/core/src/plugin/manifest.ts` — mod.json types, validation, normalization.
-- `packages/core/src/plugin/permissions.ts` — permission resolution.
-- `packages/core/src/plugin/context.ts` — plugin context + host-call API.
-- `packages/core/src/plugin/wasm-abi.ts` — WASM ABI v3 (host-call imports).
-- `packages/core/src/plugin/loader-wasm.ts` — WASM loader (buildImports exported for testing).
-- `packages/core/src/plugin/extension-loaders.ts` — extension loader registry + factories.
-- `packages/core/src/plugin/material-registry.ts` — mod-defined material shader registry.
-- `packages/libraries/postfx/src/post-process-stack.ts` — custom effect registration.
+- `packages/engine/core/src/plugin/host.ts` — PluginHost (canonical mod loader).
+- `packages/engine/core/src/plugin/manifest.ts` — mod.json types, validation, normalization.
+- `packages/engine/core/src/plugin/permissions.ts` — permission resolution.
+- `packages/engine/core/src/plugin/context.ts` — plugin context + host-call API.
+- `packages/engine/core/src/plugin/wasm-abi.ts` — WASM ABI v3 (host-call imports).
+- `packages/engine/core/src/plugin/loader-wasm.ts` — WASM loader (buildImports exported for testing).
+- `packages/engine/core/src/plugin/extension-loaders.ts` — extension loader registry + factories.
+- `packages/engine/core/src/plugin/material-registry.ts` — mod-defined material shader registry.
+- `packages/engine/libraries/postfx/src/post-process-stack.ts` — custom effect registration.
 - `games/andrews-sandbox/src/plugin-host-bridge.ts` — sandbox bridge adapters.
 - `games/andrews-sandbox/src/main.tsx` — PluginHost wiring in sandbox.
 - `packages/cli/src/scaffold-plugin.ts` — mod/plugin scaffold.
@@ -1540,10 +1542,10 @@ dd plugin list [--game <game>]
 
 ```bash
 # Plugin suite (manifest, permissions, host, host-calls, wasm-abi, extension-loaders, material-registry)
-bun test packages/core/src/plugin
+bun test packages/engine/core/src/plugin
 
 # Postfx suite (including custom effect tests)
-bun test packages/libraries/postfx
+bun test packages/engine/libraries/postfx
 ```
 ## Native platform (`@downdraft/platform-native`)
 
@@ -1599,25 +1601,25 @@ cd packages/platform-native && bun run fetch:native && bun run build:shims
 
 ### Runtime detection
 
-`packages/core/src/platform/runtime.ts` provides `isBun`, `isNative`, `isDevMode` for feature-detecting the runtime. Engine code should use these instead of `import.meta.env.DEV` or `typeof navigator !== "undefined"`.
+`packages/engine/core/src/platform/runtime.ts` provides `isBun`, `isNative`, `isDevMode` for feature-detecting the runtime. Engine code should use these instead of `import.meta.env.DEV` or `typeof navigator !== "undefined"`.
 
 ### Bun preload
 
-`packages/core/src/platform/bun-preload.ts` registers Bun plugin loaders for `?raw` and `?url` import suffixes, plus CSS imports. Configured in root `bunfig.toml`.
+`packages/engine/core/src/platform/bun-preload.ts` registers Bun plugin loaders for `?raw` and `?url` import suffixes, plus CSS imports. Configured in root `bunfig.toml`.
 
 ### Current status
 
 Phases 0-6 are complete. The native GPU pipeline works end-to-end: a triangle can be rendered to an SDL2 window via wgpu-native and captured as a PNG screenshot. The native PixiUI pipeline (below) is also complete — the real `@pixi/react` OceanApp renders over the 3D frame in native mode. Remaining work: engine core adaptation (feature detection at seams), Android target, performance optimization.
 
-## Native PixiUI (`@downdraft/library-pixi-ui-native`)
+## Native PixiUI (`@downdraft/engine/libraries/pixi-ui-native`)
 
 In-process PixiJS v8 WebGPU UI renderer for native (Bun + SDL2 + wgpu-native) mode. Reuses the browser `@pixi/react` scene (e.g. `OceanApp`) without Electron/Chromium. PixiJS runs on the main thread on the **same `GPUDevice`** as the game, rendering into a texture-backed virtual canvas; the game composites that texture over the 3D frame each render pass via a fullscreen blit. No CPU readback in the compositing path.
 
 ### Architecture
 
-- **`NativePixiUiHost`** (`packages/libraries/pixi-ui-native/src/host.ts`): creates a `PIXI.Application` against a `VirtualCanvas` (not the swapchain) with `gpu: { adapter, device }` so PixiJS reuses the game's device. `autoStart: false` — the game drives `host.render()` each frame before encoding its blit pass. `backgroundAlpha: 0` so the 3D scene shows through transparent UI areas.
+- **`NativePixiUiHost`** (`packages/engine/libraries/pixi-ui-native/src/host.ts`): creates a `PIXI.Application` against a `VirtualCanvas` (not the swapchain) with `gpu: { adapter, device }` so PixiJS reuses the game's device. `autoStart: false` — the game drives `host.render()` each frame before encoding its blit pass. `backgroundAlpha: 0` so the 3D scene shows through transparent UI areas.
 - **Virtual canvas + WebGPU context** (`packages/platform-native/src/gpu/virtual-canvas-context.ts`): a `VirtualCanvas` backs a `GPUTexture` (not the swapchain). `getUiTextureView()` returns the texture view the game samples in its compositing blit pass.
-- **UI blit pass** (`packages/libraries/pixi-ui-native/src/ui-blit-pass.ts`): a fullscreen triangle shader that samples the UI texture and blends it over the frame's color attachment with `loadOp: "load"` (preserves the 3D frame).
+- **UI blit pass** (`packages/engine/libraries/pixi-ui-native/src/ui-blit-pass.ts`): a fullscreen triangle shader that samples the UI texture and blends it over the frame's color attachment with `loadOp: "load"` (preserves the 3D frame).
 - **Compositing hook** (`WebGPURenderer.renderOneFrame`): after the 3D scene + postfx, calls `nativePixiUi.render()` (submits PixiJS's encoder to the shared queue), then `blitPass.execute(encoder, frameView, uiView)`. The write is ordered before the read on the shared queue.
 - **Native data bridge** (`games/<game>/src/pixi/native-data-bridge.ts`): reads `SimBufferReader` + `useGameStore` each frame and calls `setWorkerState()` directly (the same reactive store `@pixi/react` components consume via `useWorkerState`). Routes UI actions back to the game store / `simBridge`. Replaces the browser worker/SAB/postMessage path with in-process store updates.
 - **Native scene factory** (`games/<game>/src/pixi/native-scene.tsx`): `createNativeOceanScene(ctx)` calls `createPixiReactRoot(ctx)` (the same adapter the browser worker uses) and renders the real `OceanApp` React tree. `update()` is a no-op — React re-renders automatically via `useWorkerState` when the bridge calls `setWorkerState`. `getOpaqueRegions()` mirrors the browser scene's logic so the 3D renderer can skip work behind opaque panels.
@@ -1631,9 +1633,9 @@ In-process PixiJS v8 WebGPU UI renderer for native (Bun + SDL2 + wgpu-native) mo
 
 ### Key files
 
-- `packages/libraries/pixi-ui-native/src/host.ts` — `NativePixiUiHost`
-- `packages/libraries/pixi-ui-native/src/ui-blit-pass.ts` — fullscreen blit pass
-- `packages/libraries/pixi-ui-native/src/shaders/ui-blit.wgsl.ts` — blit shader
+- `packages/engine/libraries/pixi-ui-native/src/host.ts` — `NativePixiUiHost`
+- `packages/engine/libraries/pixi-ui-native/src/ui-blit-pass.ts` — fullscreen blit pass
+- `packages/engine/libraries/pixi-ui-native/src/shaders/ui-blit.wgsl.ts` — blit shader
 - `packages/platform-native/src/gpu/virtual-canvas-context.ts` — texture-backed canvas
 - `packages/platform-native/src/gpu/wgpu-resources.ts` — `WgpuBuffer` mapped-write semantics
 - `packages/platform-native/src/gpu/wgpu-device.ts` — `copyExternalImageToTexture`
@@ -1643,9 +1645,9 @@ In-process PixiJS v8 WebGPU UI renderer for native (Bun + SDL2 + wgpu-native) mo
 - `games/to-the-ocean/src/pixi/native-scene.tsx` — `createNativeOceanScene` (reuses `OceanApp`)
 - `games/to-the-ocean/src/pixi/native-input-router.ts` — `NativeInputRouter`
 
-## Native DevTools (`@downdraft/library-devtools`)
+## Native DevTools (`@downdraft/engine/libraries/devtools`)
 
-A native in-game debugger overlay that replaces Chrome DevTools for the native build. The UI is a **Rust egui crate** (`packages/libraries/devtools/native/`) driven over FFI by a TypeScript mirror — egui does layout + tessellation on CPU, serializes PaintJobs into a flat buffer, `EguiRenderer` uploads it to a wgpu texture, and `UiBlitPass` composites it over the game frame. Toggled with F12; F11 captures a screenshot.
+A native in-game debugger overlay that replaces Chrome DevTools for the native build. The UI is a **Rust egui crate** (`packages/engine/libraries/devtools/native/`) driven over FFI by a TypeScript mirror — egui does layout + tessellation on CPU, serializes PaintJobs into a flat buffer, `EguiRenderer` uploads it to a wgpu texture, and `UiBlitPass` composites it over the game frame. Toggled with F12; F11 captures a screenshot.
 
 ### Architecture
 
@@ -1697,9 +1699,9 @@ wgpu-native turns **any** validation error into a fatal `handle_error_fatal` abo
 
 ### Key files
 
-- `packages/libraries/devtools/src/host.ts` — `NativeDebuggerHost` + `DebuggerSceneShim`
-- `packages/libraries/devtools/src/mirror.ts` — `DevtoolsMirror` (data push, eval/command dispatch, provider registry)
-- `packages/libraries/devtools/src/egui-ffi.ts` — FFI decls + encoders
-- `packages/libraries/devtools/src/native-providers.ts` — engine-generic panel providers
-- `packages/libraries/devtools/src/cdp-bridge.ts` — `CdpBridge`
-- `packages/libraries/devtools/native/src/` — Rust egui crate (`cargo build --release`, output `dist/libdowndraft_devtools.so`)
+- `packages/engine/libraries/devtools/src/host.ts` — `NativeDebuggerHost` + `DebuggerSceneShim`
+- `packages/engine/libraries/devtools/src/mirror.ts` — `DevtoolsMirror` (data push, eval/command dispatch, provider registry)
+- `packages/engine/libraries/devtools/src/egui-ffi.ts` — FFI decls + encoders
+- `packages/engine/libraries/devtools/src/native-providers.ts` — engine-generic panel providers
+- `packages/engine/libraries/devtools/src/cdp-bridge.ts` — `CdpBridge`
+- `packages/engine/libraries/devtools/native/src/` — Rust egui crate (`cargo build --release`, output `dist/libdowndraft_devtools.so`)

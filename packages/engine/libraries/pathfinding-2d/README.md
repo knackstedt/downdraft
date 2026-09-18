@@ -1,11 +1,11 @@
-# `@downdraft/library-pathfinding-2d`
+# `@downdraft/engine/libraries/pathfinding-2d`
 
 2D pathfinding — A* grid search and flow fields for top-down and tile-based games.
 
 ## Install
 
 ```sh
-bun add @downdraft/library-pathfinding-2d
+bun add @downdraft/engine/libraries/pathfinding-2d
 ```
 
 ## Key exports

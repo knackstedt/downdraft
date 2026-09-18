@@ -16,9 +16,9 @@
 // Forward incompatibility: saves from a newer engine version are refused.
 // Mirrors OpfsSaveStore's semantics — see that file for design rationale.
 
-import { safeJsonParse } from "@downdraft/core";
-import { packEngineVersion } from "@downdraft/core/save/binary-format";
-import { MigrationRegistryImpl } from "@downdraft/core/save/migration-registry";
+import { safeJsonParse } from "@downdraft/engine";
+import { packEngineVersion } from "@downdraft/engine/save/binary-format";
+import { MigrationRegistryImpl } from "@downdraft/engine/save/migration-registry";
 import type {
     IMigrationRegistry,
     ISaveStore,
@@ -30,8 +30,8 @@ import type {
     SaveSlotInfo,
     SaveState,
     SaveWarning,
-} from "@downdraft/core/save/persist-types";
-import { createLogger } from "@downdraft/core/util/logger";
+} from "@downdraft/engine/save/persist-types";
+import { createLogger } from "@downdraft/engine/util/logger";
 
 const log = createLogger("info");
 

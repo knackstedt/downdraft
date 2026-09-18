@@ -1,4 +1,4 @@
-import { startGame } from "@downdraft/app/renderer";
+import { startGame } from "@downdraft/engine/app/renderer";
 
 // ============================================================================
 // Minimal game template — declarative GameModule + startGame()

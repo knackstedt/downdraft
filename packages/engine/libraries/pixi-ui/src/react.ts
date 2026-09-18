@@ -1,5 +1,5 @@
 // ============================================================================
-// @pixi/react adapter for @downdraft/library-pixi-ui.
+// @pixi/react adapter for @downdraft/engine/libraries/pixi-ui.
 //
 // Optional module — games that want declarative React components rendering
 // to PixiJS (inside the UI worker) add `@pixi/react` + `react` + `react-dom`
@@ -12,7 +12,7 @@
 //
 // Usage (inside the worker scene module):
 //
-//   import { createPixiReactRoot } from "@downdraft/library-pixi-ui/react";
+//   import { createPixiReactRoot } from "@downdraft/engine/libraries/pixi-ui/react";
 //   import React from "react";
 //
 //   export default async function createHudScene(ctx) {

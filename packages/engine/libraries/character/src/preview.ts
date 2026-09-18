@@ -12,9 +12,9 @@ import {
     BindlessFrameBindings,
     BindlessMaterialManager,
     BindlessTextureRegistry,
-} from "@downdraft/core";
-import { ModelRenderer } from "@downdraft/library-entities";
-import type { ModelData } from "@downdraft/library-models";
+} from "@downdraft/engine";
+import { ModelRenderer } from "@downdraft/engine/libraries/entities";
+import type { ModelData } from "@downdraft/engine/libraries/models";
 import type { CharacterAnimator } from "./character-animator";
 
 export interface CharacterPreviewOptions {

@@ -44,19 +44,19 @@ The engine owns a **canonical, pre-wired native shell** at `packages/mobile-shel
 
 ### What runs unchanged
 
-- `packages/core/src/render/*` — WebGPU renderer, device acquisition, input manager
-- `packages/core/src/worker/*` — `BaseWorkerHost`, RPC, sim worker base
-- `packages/core/src/sab/*` — SharedArrayBuffer layouts (zero-copy sim↔renderer)
-- `packages/core/src/input/*`, `packages/core/src/ecs/*` — input state, job system
-- All `packages/libraries/*` — water, physics, persistence (OPFS/IndexedDB), etc.
-- All `packages/modules/*` (except `electron-osr`) — camera, devtools, terrain, movement, sailing
-- `packages/app/src/renderer/*` — `startGame()`, `GameModule`, `bootstrapGame()`, bridge accessor
+- `packages/engine/core/src/render/*` — WebGPU renderer, device acquisition, input manager
+- `packages/engine/core/src/worker/*` — `BaseWorkerHost`, RPC, sim worker base
+- `packages/engine/core/src/sab/*` — SharedArrayBuffer layouts (zero-copy sim↔renderer)
+- `packages/engine/core/src/input/*`, `packages/engine/core/src/ecs/*` — input state, job system
+- All `packages/engine/libraries/*` — water, physics, persistence (OPFS/IndexedDB), etc.
+- All `packages/engine/modules/*` (except `electron-osr`) — camera, devtools, terrain, movement, sailing
+- `packages/engine/app/src/renderer/*` — `startGame()`, `GameModule`, `bootstrapGame()`, bridge accessor
 
 ### What is replaced/skipped
 
-- `packages/app/src/main/*` (Electron main) → `packages/app/src/mobile/*` (mobile host)
-- `packages/app/src/preload/*` (IPC bridge) → mobile bridge (web APIs + Capacitor plugins)
-- `packages/modules/electron-osr/*` → skipped (use DOM overlay for UI)
+- `packages/engine/app/src/main/*` (Electron main) → `packages/engine/app/src/mobile/*` (mobile host)
+- `packages/engine/app/src/preload/*` (IPC bridge) → mobile bridge (web APIs + Capacitor plugins)
+- `packages/engine/modules/electron-osr/*` → skipped (use DOM overlay for UI)
 - `electron.vite.config.ts` → `mobile.vite.config.ts` (web-only Vite build)
 
 ## Platform requirements
@@ -123,7 +123,7 @@ This will:
 Open the generated `src/mobile.tsx` and replace the placeholder GameModule with your actual renderer factory, sim adapter, and UI mount — copying from your `src/main.tsx`. The key differences from desktop:
 
 ```typescript
-import { createDowndraftMobileApp } from "@downdraft/app/mobile";
+import { createDowndraftMobileApp } from "@downdraft/engine/app/mobile";
 // import your renderer, sim, UI — same as main.tsx
 
 createDowndraftMobileApp({
@@ -266,7 +266,7 @@ if (!guard.ok) {
 }
 ```
 
-The guard checks for WebGPU (`navigator.gpu`) directly rather than relying on `self.crossOriginIsolated`. This is because Android WebView uses "logical" cross-origin isolation (not "concrete") — `crossOriginIsolated` is always `false` even with COOP/COEP headers. `SharedArrayBuffer` is optional on mobile: the engine transparently polyfills it (`packages/core/src/sab/sab-polyfill.ts`) when the native constructor is unavailable, so games run regardless. Real SAB can be enabled via the `--enable-features=SharedArrayBuffer` WebView command-line flag for debug builds. See the [Android WebView command-line flags docs](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/android_webview/docs/commandline-flags.md) for details.
+The guard checks for WebGPU (`navigator.gpu`) directly rather than relying on `self.crossOriginIsolated`. This is because Android WebView uses "logical" cross-origin isolation (not "concrete") — `crossOriginIsolated` is always `false` even with COOP/COEP headers. `SharedArrayBuffer` is optional on mobile: the engine transparently polyfills it (`packages/engine/core/src/sab/sab-polyfill.ts`) when the native constructor is unavailable, so games run regardless. Real SAB can be enabled via the `--enable-features=SharedArrayBuffer` WebView command-line flag for debug builds. See the [Android WebView command-line flags docs](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/android_webview/docs/commandline-flags.md) for details.
 
 ## Files
 
@@ -275,10 +275,10 @@ The guard checks for WebGPU (`navigator.gpu`) directly rather than relying on `s
 | `packages/mobile-shell/` | Engine-owned canonical native shell (Android + iOS, pre-wired) |
 | `packages/mobile-shell/android/` | Pre-wired Android project (EmbeddedServer + MainActivity + NanoHTTPD) |
 | `packages/mobile-shell/ios/` | Pre-wired iOS project (EmbeddedServer + AppDelegate + ATS exception) |
-| `packages/app/src/mobile/index.ts` | `createDowndraftMobileApp()` entry point |
-| `packages/app/src/mobile/mobile-bridge.ts` | `DowndraftBridge` implementation for mobile |
-| `packages/app/src/mobile/touch-input-adapter.ts` | Touch → `InputBufferWriter` mapping |
-| `packages/app/src/mobile/webgpu-guard.ts` | Boot-time WebGPU + cross-origin isolation check |
-| `packages/app/src/vite/mobile-vite-config.ts` | Web-only Vite build config (no main/preload) |
+| `packages/engine/app/src/mobile/index.ts` | `createDowndraftMobileApp()` entry point |
+| `packages/engine/app/src/mobile/mobile-bridge.ts` | `DowndraftBridge` implementation for mobile |
+| `packages/engine/app/src/mobile/touch-input-adapter.ts` | Touch → `InputBufferWriter` mapping |
+| `packages/engine/app/src/mobile/webgpu-guard.ts` | Boot-time WebGPU + cross-origin isolation check |
+| `packages/engine/app/src/vite/mobile-vite-config.ts` | Web-only Vite build config (no main/preload) |
 | `packages/cli/src/mobile.ts` | `draft release --target=android,ios` CLI command (copy-from-shell + patch; formerly `draft mobile`) |
 | `packages/cli/src/mobile-icons.ts` | jimp-based icon generation from `icon.png` |

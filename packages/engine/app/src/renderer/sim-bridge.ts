@@ -14,7 +14,7 @@
 //   return { ...createSimBridge(deps), respawnPlayer: (id) => worker.respawnPlayer(id) };
 // ============================================================================
 
-import type { ISaveStore, IRendererStateProvider, LoadOptions, SaveOptions, SaveState } from "@downdraft/core";
+import type { ISaveStore, IRendererStateProvider, LoadOptions, SaveOptions, SaveState } from "@downdraft/engine";
 import { downdraft, type DowndraftBridge } from "./index";
 
 /** Minimal worker surface needed by the bridge (pause/resume/save/load). */

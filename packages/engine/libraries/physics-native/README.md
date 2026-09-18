@@ -1,11 +1,11 @@
-# `@downdraft/library-physics-native`
+# `@downdraft/engine/libraries/physics-native`
 
 Native physics backend — binds the engine's UniversalPhysicsAPI to the native physics library.
 
 ## Install
 
 ```sh
-bun add @downdraft/library-physics-native
+bun add @downdraft/engine/libraries/physics-native
 ```
 
 ## Key exports

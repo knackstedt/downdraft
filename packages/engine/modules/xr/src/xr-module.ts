@@ -9,7 +9,7 @@
 // docs/site/src/content/docs/guides/plugins.md.
 // ============================================================================
 
-import type { InputState, RendererModule, RendererModuleContext } from "@downdraft/core";
+import type { InputState, RendererModule, RendererModuleContext } from "@downdraft/engine";
 import { XRCameraRig } from "./camera-rig";
 import { XRFrameLoop, type XRFrameLoopOptions } from "./frame-loop";
 import { XRInputMapper } from "./input";
@@ -27,7 +27,7 @@ export interface XRModuleOptions {
 }
 
 export class XRModule implements RendererModule {
-  readonly name = "@downdraft/module-xr:renderer";
+  readonly name = "@downdraft/engine/modules/xr:renderer";
   readonly version = "0.1.0";
 
   private sessionManager: XRSessionManager;

@@ -1,5 +1,5 @@
-import { GameRenderer } from "@downdraft/core";
-import { startGame } from "@downdraft/app/renderer";
+import { GameRenderer } from "@downdraft/engine";
+import { startGame } from "@downdraft/engine/app/renderer";
 import { SimHost } from "./sim-host";
 
 // ============================================================================

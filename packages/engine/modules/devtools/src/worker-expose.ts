@@ -8,8 +8,8 @@
 // synchronously from the SAB. Only the manifest and commands use IPC.
 // ============================================================================
 
-import { exposeProfilingApi } from "@downdraft/core/worker/instrumented-worker-host";
-import type { WorkerApi } from "@downdraft/core/worker/rpc";
+import { exposeProfilingApi } from "@downdraft/engine/worker/instrumented-worker-host";
+import type { WorkerApi } from "@downdraft/engine/worker/rpc";
 import { _devtoolsImpl, devtools, type DevToolsManifest } from "./api";
 
 /**

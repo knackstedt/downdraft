@@ -9,7 +9,7 @@ import {
   Stage,
   systemWithParams,
   World,
-} from "@downdraft/core";
+} from "@downdraft/engine";
 
 const log = createLogger();
 

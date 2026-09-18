@@ -1,13 +1,13 @@
 // ============================================================================
-// @downdraft/module-sailing — sailing mechanics (wind + buoyancy + steering)
+// @downdraft/engine/modules/sailing — sailing mechanics (wind + buoyancy + steering)
 //
 // Composes water physics (wave sampling, buoyancy) with sailing mechanics
 // (wind force, sail trim, rudder steering, hull drag). Requires the water
 // library's WaterWriterTok to sample wave heights for buoyancy.
 // ============================================================================
 
-import { resourceToken, type Module, type ModuleContext } from "@downdraft/core";
-import { WaterWriterTok } from "@downdraft/library-water";
+import { resourceToken, type Module, type ModuleContext } from "@downdraft/engine";
+import { WaterWriterTok } from "@downdraft/engine/libraries/water";
 
 export interface SailingConfig {
   baseWindSpeed?: number;

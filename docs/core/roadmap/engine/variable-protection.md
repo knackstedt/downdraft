@@ -193,7 +193,7 @@ Apply to: `player.gold`, `player.health`, `player.hunger`, `player.thirst`, `pla
 - Total impact: <0.5% of tick budget.
 - Trade-off: makes code uglier and harder to debug. Recommend behind a flag (`config.enableAntiCheat`).
 
-**Implementation:** New `ProtectedValue` class in `packages/core/src/security/protected-value.ts`. Replace direct `player.gold` access with `player.gold.get()` / `.set()` in systems that touch gold (trade, progression, survival). The `SimPlayer` interface gains `gold: ProtectedValue` when anti-cheat is enabled.
+**Implementation:** New `ProtectedValue` class in `packages/engine/core/src/security/protected-value.ts`. Replace direct `player.gold` access with `player.gold.get()` / `.set()` in systems that touch gold (trade, progression, survival). The `SimPlayer` interface gains `gold: ProtectedValue` when anti-cheat is enabled.
 
 ---
 
@@ -238,7 +238,7 @@ Rust side:
 - Total: ~0.4ms (~2.4% of tick budget).
 - This is the most expensive layer but provides the strongest protection.
 
-**Implementation:** New Rust crate `protected-state` nested inside a library package (e.g. `packages/libraries/security/native/`). Compiled to WASM, loaded in `sim-worker-web.ts`. Access through typed wrapper. Requires `wasm-pack` build step.
+**Implementation:** New Rust crate `protected-state` nested inside a library package (e.g. `packages/engine/libraries/security/native/`). Compiled to WASM, loaded in `sim-worker-web.ts`. Access through typed wrapper. Requires `wasm-pack` build step.
 
 ---
 

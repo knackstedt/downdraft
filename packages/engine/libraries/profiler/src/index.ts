@@ -1,5 +1,5 @@
 // ============================================================================
-// @downdraft/library-profiler — public API barrel
+// @downdraft/engine/libraries/profiler — public API barrel
 // ============================================================================
 
 export { ProfilerLib, ProfilerOverlayTok } from "./library";

@@ -1,4 +1,4 @@
-import { InputState } from "@downdraft/core";
+import { InputState } from "@downdraft/engine";
 import { XRInputMapper } from "./input";
 
 describe("XRInputMapper", () => {

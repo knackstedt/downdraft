@@ -1,6 +1,6 @@
 // ============================================================================
 // PixiUiLib — declarative engine library descriptor for
-// @downdraft/library-pixi-ui.
+// @downdraft/engine/libraries/pixi-ui.
 //
 // A worker-hosted PixiJS UI overlay: the library spawns a Web Worker that
 // renders a GUI onto an OffscreenCanvas (via transferControlToOffscreen)
@@ -17,7 +17,7 @@
 // (escape hatch) and wire it in onReady.
 // ============================================================================
 
-import { resourceToken, type EngineLibrary } from "@downdraft/core";
+import { resourceToken, type EngineLibrary } from "@downdraft/engine";
 import { DEFAULT_STATS_LAYOUT } from "./bridge-protocol";
 import { PixiUiHost, type PixiUiHostOptions } from "./host";
 

@@ -1,5 +1,5 @@
 // ============================================================================
-// @downdraft/app/mobile — mobile host SDK for Capacitor (Android + iOS)
+// @downdraft/engine/app/mobile — mobile host SDK for Capacitor (Android + iOS)
 // ============================================================================
 //
 // `createDowndraftMobileApp()` is the mobile equivalent of
@@ -17,7 +17,7 @@
 //
 // Usage (from a game's `src/mobile.ts`):
 //
-//   import { createDowndraftMobileApp } from "@downdraft/app/mobile";
+//   import { createDowndraftMobileApp } from "@downdraft/engine/app/mobile";
 //   import { gameModule } from "./game-module";
 //
 //   createDowndraftMobileApp({
@@ -32,7 +32,7 @@
 // references SharedArrayBuffer. On desktop/Electron this is a no-op.
 // On Android WebView (where SAB is unavailable), it polyfills SAB as an
 // ArrayBuffer subclass and shims Atomics.wait. See sab-polyfill.ts.
-import "@downdraft/core/sab/sab-polyfill";
+import "@downdraft/engine/sab/sab-polyfill";
 
 // --- rAF polyfill for Android WebView ---
 // Android WebView throttles requestAnimationFrame to ~7Hz when a WebGPU
@@ -85,8 +85,8 @@ try {
   console.warn(`[rAF Polyfill] Failed to override requestAnimationFrame: ${(e as Error).message}`);
 }
 
-import type { InputBufferWriter } from "@downdraft/core";
-import { createLogger } from "@downdraft/core/util/logger";
+import type { InputBufferWriter } from "@downdraft/engine";
+import { createLogger } from "@downdraft/engine/util/logger";
 import type { GameContext } from "../renderer/game-module";
 import { startGame, type GameModule, type GameSimWorker } from "../renderer/game-module";
 import { createMobileBridge } from "./mobile-bridge";
@@ -187,7 +187,7 @@ export async function createDowndraftMobileApp<Sim extends GameSimWorker>(
   config: DowndraftMobileAppConfig<Sim>,
 ): Promise<void> {
   // 1. Inject the mobile bridge BEFORE the renderer boots so that
-  //    `@downdraft/app/renderer`'s `downdraft` accessor picks it up.
+  //    `@downdraft/engine/app/renderer`'s `downdraft` accessor picks it up.
   if (!(globalThis as any).downdraft) {
     (globalThis as any).downdraft = createMobileBridge();
   }

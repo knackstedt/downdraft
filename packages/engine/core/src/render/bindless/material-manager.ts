@@ -11,7 +11,7 @@
 // Freed material slots are returned to a free list and reused.
 // ============================================================================
 
-import type { StructView } from "@downdraft/shader-graph";
+import type { StructView } from "@downdraft/engine/shader-graph";
 import { createLogger } from "../../util/logger";
 import { BINDLESS_MATERIAL_FLOATS, BINDLESS_MATERIAL_SIZE, BindlessMaterialStruct } from "./bindless-struct";
 

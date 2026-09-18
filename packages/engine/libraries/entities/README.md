@@ -1,11 +1,11 @@
-# `@downdraft/library-entities`
+# `@downdraft/engine/libraries/entities`
 
 Generic entity rendering — ModelRenderer and entity-display plumbing shared by games (EntitiesLib descriptor).
 
 ## Install
 
 ```sh
-bun add @downdraft/library-entities
+bun add @downdraft/engine/libraries/entities
 ```
 
 ## Key exports

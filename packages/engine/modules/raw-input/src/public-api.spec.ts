@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-describe("@downdraft/module-raw-input public API", () => {
+describe("@downdraft/engine/modules/raw-input public API", () => {
   it("index exports load", async () => {
     const mod = await import("./index");
     const keys = Object.keys(mod).filter((k) => !k.startsWith("__"));

@@ -1,11 +1,11 @@
-# `@downdraft/library-recast`
+# `@downdraft/engine/libraries/recast`
 
 Recast/Detour bindings — navmesh generation from level geometry via the Recast toolchain.
 
 ## Install
 
 ```sh
-bun add @downdraft/library-recast
+bun add @downdraft/engine/libraries/recast
 ```
 
 ## Key exports

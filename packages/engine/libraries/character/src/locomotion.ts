@@ -12,7 +12,7 @@
 // SkeletonAnimator renders via its procedural idle.
 // ============================================================================
 
-import { SkeletonAnimator, type AnimState, type SkinData } from "@downdraft/core";
+import { SkeletonAnimator, type AnimState, type SkinData } from "@downdraft/engine";
 
 export interface LocomotionThresholds {
   /** Speed above which Walk engages (default 0.8). */

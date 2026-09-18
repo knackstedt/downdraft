@@ -15,7 +15,7 @@
 //   draft dist [--game=<name>] [--target=<win|linux|mac|all>]
 //              [--config=<path>] [--project-dir=<path>] [--verbose]
 
-import { createLogger } from "@downdraft/core";
+import { createLogger } from "@downdraft/engine";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseArgs, print, renderHelp } from "./args";

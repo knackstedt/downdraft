@@ -6,7 +6,7 @@
 // Map via MemoryImportCache.
 //
 
-import { MemoryImportCache, type CacheEntry, type ImportCache } from "@downdraft/core";
+import { MemoryImportCache, type CacheEntry, type ImportCache } from "@downdraft/engine";
 
 /**
  * Create an ImportCache backed by the Electron main process SQLite database.

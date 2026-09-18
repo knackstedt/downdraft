@@ -43,10 +43,10 @@ Wire validation failures into `CrashRecoveryManager` so that a validation failur
 
 ## Key Files
 
-- `packages/core/src/ecs/world.ts` — `World` class, `flushCommands()`, `step()`
-- `packages/core/src/ecs/archetype.ts` — archetype storage, entity row management
-- `packages/core/src/worker/crash-recovery.ts` — `CrashRecoveryManager`, checkpoint restore
-- `packages/core/src/ecs/events.ts` — `EventBus` for validation-failed events
+- `packages/engine/core/src/ecs/world.ts` — `World` class, `flushCommands()`, `step()`
+- `packages/engine/core/src/ecs/archetype.ts` — archetype storage, entity row management
+- `packages/engine/core/src/worker/crash-recovery.ts` — `CrashRecoveryManager`, checkpoint restore
+- `packages/engine/core/src/ecs/events.ts` — `EventBus` for validation-failed events
 
 ## Priority
 

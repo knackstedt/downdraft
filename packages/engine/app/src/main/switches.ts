@@ -2,7 +2,7 @@
 // Chrome/GPU command-line switch presets
 // ============================================================================
 
-import { createLogger } from "@downdraft/core/util/logger";
+import { createLogger } from "@downdraft/engine/util/logger";
 
 const log = createLogger("info");
 

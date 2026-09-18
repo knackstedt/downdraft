@@ -6,8 +6,8 @@
 // The game's renderer delegates material upload to the core surface via this
 // adapter, retiring the parallel material rendering path.
 
-import { BlendMode, CullMode, DEFAULT_VARIANT_FLAGS, Material, MaterialLibrary, MaterialType, type AlphaMode, type MaterialDefinition } from "@downdraft/core";
-import PHYSICAL_WGSL from "@downdraft/core/render/material-types/physical.wgsl?raw" with { type: "text" };
+import { BlendMode, CullMode, DEFAULT_VARIANT_FLAGS, Material, MaterialLibrary, MaterialType, type AlphaMode, type MaterialDefinition } from "@downdraft/engine";
+import PHYSICAL_WGSL from "@downdraft/engine/render/material-types/physical.wgsl?raw" with { type: "text" };
 import type { MaterialData } from "./types";
 
 export interface MaterialAdapterOptions {

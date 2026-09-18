@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-describe("@downdraft/module-movement-3d public API", () => {
+describe("@downdraft/engine/modules/movement-3d public API", () => {
   it("index exports load", async () => {
     const mod = await import("./index");
     const keys = Object.keys(mod).filter((k) => !k.startsWith("__"));

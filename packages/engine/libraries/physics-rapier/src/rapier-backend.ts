@@ -1,6 +1,6 @@
 import type * as Rapier from "@dimforge/rapier3d-compat";
-import type { BodyDesc, BodyType, CharacterCollisionInfo, CharacterControllerDesc, CharacterControllerHandle, CharacterMoveResult, ColliderDesc, ColliderShape, ContactManifold, Entity, IntersectionPair, IslandInfo, JointDesc, RaycastResult, ShapeCastResult } from "@downdraft/core";
-import { createLogger } from "@downdraft/core";
+import type { BodyDesc, BodyType, CharacterCollisionInfo, CharacterControllerDesc, CharacterControllerHandle, CharacterMoveResult, ColliderDesc, ColliderShape, ContactManifold, Entity, IntersectionPair, IslandInfo, JointDesc, RaycastResult, ShapeCastResult } from "@downdraft/engine";
+import { createLogger } from "@downdraft/engine";
 
 const log = createLogger();
 

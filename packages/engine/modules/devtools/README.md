@@ -1,11 +1,11 @@
-# `@downdraft/module-devtools`
+# `@downdraft/engine/modules/devtools`
 
 In-engine devtools module — scene inspector, profiling hooks, and the `downdraft doctor` diagnostics panel.
 
 ## Install
 
 ```sh
-bun add @downdraft/module-devtools
+bun add @downdraft/engine/modules/devtools
 ```
 
 ## Key exports

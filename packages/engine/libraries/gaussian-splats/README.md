@@ -1,11 +1,11 @@
-# `@downdraft/library-gaussian-splats`
+# `@downdraft/engine/libraries/gaussian-splats`
 
 Gaussian splatting renderer — loads and draws .ply/.splat radiance-field captures as a render pass.
 
 ## Install
 
 ```sh
-bun add @downdraft/library-gaussian-splats
+bun add @downdraft/engine/libraries/gaussian-splats
 ```
 
 ## Key exports

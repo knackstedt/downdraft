@@ -3,8 +3,8 @@
 // Games implement this to supply voxel fields and mesh extraction for clouds.
 // ============================================================================
 
-import type { ExtractedMesh, VoxelField } from "@downdraft/library-marching-cubes";
-import type { WeatherType } from "@downdraft/library-weather";
+import type { ExtractedMesh, VoxelField } from "@downdraft/engine/libraries/marching-cubes";
+import type { WeatherType } from "@downdraft/engine/libraries/weather";
 
 export type CloudVoxelField = VoxelField;
 export type CloudExtractedMesh = ExtractedMesh;

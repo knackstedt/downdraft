@@ -1,10 +1,10 @@
 // ============================================================================
 // Lighting System — directional sun/moon, ambient, bioluminescent
 // ============================================================================
-// Uses WeatherBlend from @downdraft/library-weather for smooth transitions.
+// Uses WeatherBlend from @downdraft/engine/libraries/weather for smooth transitions.
 //
 
-import { WeatherBlend, WeatherType } from "@downdraft/library-weather";
+import { WeatherBlend, WeatherType } from "@downdraft/engine/libraries/weather";
 
 // Base sun brightness multiplier for PBR radiance — matches core engine default (3.0).
 // The raw sunIntensity (0..1) is kept for systems that use it as a blend factor (water, clouds).

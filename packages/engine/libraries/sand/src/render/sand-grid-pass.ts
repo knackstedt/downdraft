@@ -17,7 +17,7 @@
 // declares the bindings it uses.
 // ============================================================================
 
-import { createValidatedShaderModule, FULLSCREEN_VS } from "@downdraft/core";
+import { createValidatedShaderModule, FULLSCREEN_VS } from "@downdraft/engine";
 import { buildMaterialProps, buildPalette, PALETTE_SIZE, SHADES_PER_MATERIAL } from "../palette";
 
 export interface SandGridPassConfig {

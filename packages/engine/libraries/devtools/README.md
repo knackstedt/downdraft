@@ -1,11 +1,11 @@
-# `@downdraft/library-devtools`
+# `@downdraft/engine/libraries/devtools`
 
 Native devtools bridge — mirrors profiling and inspection data to the native devtools process.
 
 ## Install
 
 ```sh
-bun add @downdraft/library-devtools
+bun add @downdraft/engine/libraries/devtools
 ```
 
 ## Key exports

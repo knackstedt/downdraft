@@ -6,7 +6,7 @@
 // NativeCanvas2D uses the 8x12 bitmap glyph atlas in that case.
 // ============================================================================
 
-import { createLogger } from "@downdraft/core";
+import { createLogger } from "@downdraft/engine";
 import { existsSync } from "node:fs";
 import { dlopen, ptr, type CFunction } from "../ffi/ffi-adapter";
 import { findShimLibrary } from "../ffi/lib-paths";

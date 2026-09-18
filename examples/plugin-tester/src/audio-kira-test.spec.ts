@@ -1,5 +1,5 @@
-import type { AudioBackendConfig, AudioBufferDesc, AudioListenerState } from "@downdraft/core";
-import { KiraAudioBackend } from "@downdraft/library-audio-kira";
+import type { AudioBackendConfig, AudioBufferDesc, AudioListenerState } from "@downdraft/engine";
+import { KiraAudioBackend } from "@downdraft/engine/libraries/audio-kira";
 import { beforeEach, describe, expect, it } from "bun:test";
 
 // ============================================================================

@@ -1,5 +1,5 @@
 // ============================================================================
-// @downdraft/asset-bake — Node-only asset optimization / bake pipeline.
+// @downdraft/engine/asset-bake — Node-only asset optimization / bake pipeline.
 // ============================================================================
 //
 // Produces GPU-ready assets from source art at build/dev time:
@@ -9,10 +9,10 @@
 //   - Audio (wav/mp3/ogg) → normalized target container/codec/bitrate.
 //
 // The runtime already decodes all of these:
-//   - meshopt  → packages/libraries/models/src/codecs/meshopt-codec.ts
-//   - basisu   → packages/libraries/models/src/codecs/basisu-codec.ts
+//   - meshopt  → packages/engine/libraries/models/src/codecs/meshopt-codec.ts
+//   - basisu   → packages/engine/libraries/models/src/codecs/basisu-codec.ts
 //                (upgraded to transcode via @h00w/basis-universal-transcoder)
-//   - KTX2     → packages/core/src/assets/loader-texture.ts
+//   - KTX2     → packages/engine/core/src/assets/loader-texture.ts
 //
 // This package is heavy (gltf-transform + meshoptimizer wasm + basisu encoder
 // wasm + jimp) and is only ever imported from the Vite plugin's `load()` hook

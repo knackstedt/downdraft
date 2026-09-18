@@ -8,7 +8,7 @@
 // byte-compatible.
 // ============================================================================
 
-import { f32, u32, vec2f, vec4f, wgsl, type WgslStruct } from "@downdraft/shader-graph";
+import { f32, u32, vec2f, vec4f, wgsl, type WgslStruct } from "@downdraft/engine/shader-graph";
 
 /**
  * WGSL `struct BindlessMaterial` — 80 bytes (20 floats), std140-friendly.

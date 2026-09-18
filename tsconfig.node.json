@@ -18,262 +18,16 @@
     "outDir": "dist",
     "paths": {
       "xxh3-ts": [
-        "./packages/libraries/persistence/src/xxh3-ts.d.ts"
+        "./packages/engine/libraries/persistence/src/xxh3-ts.d.ts"
       ],
       "@shared/*": [
-        "./packages/app/src/shared/*"
+        "./packages/engine/app/src/shared/*"
       ],
       "@sandbox/shared/*": [
         "./games/andrews-sandbox/src/shared/*"
       ],
       "@main/*": [
-        "./packages/app/src/main/*"
-      ],
-      "@downdraft/core/*": [
-        "./packages/core/src/*"
-      ],
-      "@downdraft/core": [
-        "./packages/core/src/index.ts"
-      ],
-      "@downdraft/platform-native": [
-        "./packages/platform-native/src/index.ts"
-      ],
-      "@downdraft/platform-native/*": [
-        "./packages/platform-native/src/*"
-      ],
-      "@downdraft/mcp/*": [
-        "./packages/mcp/src/*"
-      ],
-      "@downdraft/mcp": [
-        "./packages/mcp/src/index.ts"
-      ],
-      "@downdraft/ui/*": [
-        "./packages/ui/src/*"
-      ],
-      "@downdraft/ui": [
-        "./packages/ui/src/index.ts"
-      ],
-      "@downdraft/shader-graph/*": [
-        "./packages/shader-graph/src/*"
-      ],
-      "@downdraft/shader-graph": [
-        "./packages/shader-graph/src/index.ts"
-      ],
-      "@downdraft/test": [
-        "./packages/test/src/index.ts"
-      ],
-      "@downdraft/test/*": [
-        "./packages/test/src/*"
-      ],
-      "@downdraft/cli/*": [
-        "./packages/cli/src/*"
-      ],
-      "@downdraft/library-water": [
-        "./packages/libraries/water/src/index.ts"
-      ],
-      "@downdraft/library-water/*": [
-        "./packages/libraries/water/src/*"
-      ],
-      "@downdraft/library-postfx": [
-        "./packages/libraries/postfx/src/index.ts"
-      ],
-      "@downdraft/library-postfx/*": [
-        "./packages/libraries/postfx/src/*"
-      ],
-      "@downdraft/library-pixi-ui": [
-        "./packages/libraries/pixi-ui/src/index.ts"
-      ],
-      "@downdraft/library-pixi-ui/*": [
-        "./packages/libraries/pixi-ui/src/*"
-      ],
-      "@downdraft/library-pixi-ui-native": [
-        "./packages/libraries/pixi-ui-native/src/index.ts"
-      ],
-      "@downdraft/library-pixi-ui-native/*": [
-        "./packages/libraries/pixi-ui-native/src/*"
-      ],
-      "@downdraft/library-devtools": [
-        "./packages/libraries/devtools/src/index.ts"
-      ],
-      "@downdraft/library-devtools/*": [
-        "./packages/libraries/devtools/src/*"
-      ],
-      "@downdraft/library-physics-rapier": [
-        "./packages/libraries/physics-rapier/src/index.ts"
-      ],
-      "@downdraft/library-audio-kira": [
-        "./packages/libraries/audio-kira/src/index.ts"
-      ],
-      "@downdraft/library-sand": [
-        "./packages/libraries/sand/src/index.ts"
-      ],
-      "@downdraft/library-sand/*": [
-        "./packages/libraries/sand/src/*"
-      ],
-      "@downdraft/library-lighting": [
-        "./packages/libraries/lighting/src/index.ts"
-      ],
-      "@downdraft/library-lighting/*": [
-        "./packages/libraries/lighting/src/*"
-      ],
-      "@downdraft/library-weatherfx": [
-        "./packages/libraries/weatherfx/src/index.ts"
-      ],
-      "@downdraft/library-weatherfx/*": [
-        "./packages/libraries/weatherfx/src/*"
-      ],
-      "@downdraft/library-weather": [
-        "./packages/libraries/weather/src/index.ts"
-      ],
-      "@downdraft/library-weather/*": [
-        "./packages/libraries/weather/src/*"
-      ],
-      "@downdraft/library-entities": [
-        "./packages/libraries/entities/src/index.ts"
-      ],
-      "@downdraft/library-entities/*": [
-        "./packages/libraries/entities/src/*"
-      ],
-      "@downdraft/library-stickman": [
-        "./packages/libraries/stickman/src/index.ts"
-      ],
-      "@downdraft/library-stickman/*": [
-        "./packages/libraries/stickman/src/*"
-      ],
-      "@downdraft/library-models": [
-        "./packages/libraries/models/src/index.ts"
-      ],
-      "@downdraft/library-models/*": [
-        "./packages/libraries/models/src/*"
-      ],
-      "@downdraft/asset-bake": [
-        "./packages/asset-bake/src/index.ts"
-      ],
-      "@downdraft/asset-bake/*": [
-        "./packages/asset-bake/src/*"
-      ],
-      "@downdraft/module-devtools": [
-        "./packages/modules/devtools/src/index.ts"
-      ],
-      "@downdraft/module-devtools/*": [
-        "./packages/modules/devtools/src/*"
-      ],
-      "@downdraft/module-terrain": [
-        "./packages/modules/terrain/src/index.ts"
-      ],
-      "@downdraft/module-terrain/*": [
-        "./packages/modules/terrain/src/*"
-      ],
-      "@downdraft/module-movement-3d": [
-        "./packages/modules/movement-3d/src/index.ts"
-      ],
-      "@downdraft/module-movement-3d/*": [
-        "./packages/modules/movement-3d/src/*"
-      ],
-      "@downdraft/module-movement-2d": [
-        "./packages/modules/movement-2d/src/index.ts"
-      ],
-      "@downdraft/module-movement-2d/*": [
-        "./packages/modules/movement-2d/src/*"
-      ],
-      "@downdraft/module-sailing": [
-        "./packages/modules/sailing/src/index.ts"
-      ],
-      "@downdraft/module-sailing/*": [
-        "./packages/modules/sailing/src/*"
-      ],
-      "@downdraft/library-marching-cubes": [
-        "./packages/libraries/marching-cubes/src/index.ts"
-      ],
-      "@downdraft/library-marching-cubes/*": [
-        "./packages/libraries/marching-cubes/src/*"
-      ],
-      "@downdraft/library-surface-nets": [
-        "./packages/libraries/surface-nets/src/index.ts"
-      ],
-      "@downdraft/library-surface-nets/*": [
-        "./packages/libraries/surface-nets/src/*"
-      ],
-      "@downdraft/library-persistence": [
-        "./packages/libraries/persistence/src/index.ts"
-      ],
-      "@downdraft/library-persistence/*": [
-        "./packages/libraries/persistence/src/*"
-      ],
-      "@downdraft/module-electron-osr": [
-        "./packages/modules/electron-osr/src/index.ts"
-      ],
-      "@downdraft/module-electron-osr/*": [
-        "./packages/modules/electron-osr/src/*"
-      ],
-      "@downdraft/module-raw-input": [
-        "./packages/modules/raw-input/src/index.ts"
-      ],
-      "@downdraft/module-raw-input/*": [
-        "./packages/modules/raw-input/src/*"
-      ],
-      "@downdraft/module-xr": [
-        "./packages/modules/xr/src/index.ts"
-      ],
-      "@downdraft/module-xr/*": [
-        "./packages/modules/xr/src/*"
-      ],
-      "@downdraft/library-gaussian-splats": [
-        "./packages/libraries/gaussian-splats/src/index.ts"
-      ],
-      "@downdraft/library-gaussian-splats/*": [
-        "./packages/libraries/gaussian-splats/src/*"
-      ],
-      "@downdraft/module-mcp": [
-        "./packages/modules/mcp/src/index.ts"
-      ],
-      "@downdraft/module-mcp/*": [
-        "./packages/modules/mcp/src/*"
-      ],
-      "@downdraft/library-physics-native": [
-        "./packages/libraries/physics-native/src/index.ts"
-      ],
-      "@downdraft/library-physics-native/*": [
-        "./packages/libraries/physics-native/src/*"
-      ],
-      "@downdraft/library-networking": [
-        "./packages/libraries/networking/src/index.ts"
-      ],
-      "@downdraft/library-networking/*": [
-        "./packages/libraries/networking/src/*"
-      ],
-      "@downdraft/library-navmesh": [
-        "./packages/libraries/navmesh/src/index.ts"
-      ],
-      "@downdraft/library-navmesh/*": [
-        "./packages/libraries/navmesh/src/*"
-      ],
-      "@downdraft/library-recast": [
-        "./packages/libraries/recast/src/index.ts"
-      ],
-      "@downdraft/library-recast/*": [
-        "./packages/libraries/recast/src/*"
-      ],
-      "@downdraft/app": [
-        "./packages/app/src/index.ts"
-      ],
-      "@downdraft/app/main": [
-        "./packages/app/src/main/index.ts"
-      ],
-      "@downdraft/app/preload": [
-        "./packages/app/src/preload/index.ts"
-      ],
-      "@downdraft/app/shared": [
-        "./packages/app/src/shared/index.ts"
-      ],
-      "@downdraft/app/vite": [
-        "./packages/app/src/vite/index.ts"
-      ],
-      "@downdraft/app/renderer": [
-        "./packages/app/src/renderer/index.ts"
-      ],
-      "@downdraft/app/build": [
-        "./packages/app/src/build/index.ts"
+        "./packages/engine/app/src/main/*"
       ],
       "@to-the-ocean/library-boats": [
         "./games/to-the-ocean/libraries/boats/src/index.ts"
@@ -398,21 +152,21 @@
     }
   },
   "include": [
-    "packages/app/src/main/**/*",
-    "packages/app/src/preload/**/*",
-    "packages/app/src/shared/**/*",
-    "packages/app/src/renderer/**/*",
-    "packages/app/src/vite/**/*",
-    "packages/app/src/build/**/*",
-    "packages/app/src/index.ts",
-    "packages/asset-bake/src/**/*.ts",
-    "packages/core/src/**/*.ts",
-    "packages/test/src/**/*.ts",
-    "packages/mcp/src/**/*.ts",
-    "packages/ui/src/**/*",
-    "packages/shader-graph/src/**/*.ts",
-    "packages/modules/*/src/**/*.ts",
-    "packages/libraries/*/src/**/*.ts",
+    "packages/engine/app/src/main/**/*",
+    "packages/engine/app/src/preload/**/*",
+    "packages/engine/app/src/shared/**/*",
+    "packages/engine/app/src/renderer/**/*",
+    "packages/engine/app/src/vite/**/*",
+    "packages/engine/app/src/build/**/*",
+    "packages/engine/app/src/index.ts",
+    "packages/engine/asset-bake/src/**/*.ts",
+    "packages/engine/core/src/**/*.ts",
+    "packages/engine/test/src/**/*.ts",
+    "packages/engine/mcp/src/**/*.ts",
+    "packages/engine/ui/src/**/*",
+    "packages/engine/shader-graph/src/**/*.ts",
+    "packages/engine/modules/*/src/**/*.ts",
+    "packages/engine/libraries/*/src/**/*.ts",
     "packages/platform-native/src/**/*.ts",
     "games/*/plugins/*/src/**/*.ts",
     "games/*/libraries/*/src/**/*.ts",
@@ -432,6 +186,6 @@
   "exclude": [
     "dist",
     "**/*.spec.ts",
-    "packages/libraries/pixi-ui-native/src/**/*"
+    "packages/engine/libraries/pixi-ui-native/src/**/*"
   ]
 }

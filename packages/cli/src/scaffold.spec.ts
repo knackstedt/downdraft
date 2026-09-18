@@ -1,4 +1,4 @@
-import { confinePath } from "@downdraft/core";
+import { confinePath } from "@downdraft/engine";
 import { existsSync, mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";

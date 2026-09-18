@@ -4,11 +4,11 @@
 //
 // Implements the `window.downdraft` bridge surface using web APIs + optional
 // Capacitor plugins. This is injected BEFORE the renderer bundle runs so that
-// `@downdraft/app/renderer`'s `downdraft` accessor picks up the real bridge
+// `@downdraft/engine/app/renderer`'s `downdraft` accessor picks up the real bridge
 // instead of the stub.
 //
 // Strategy per feature:
-//   - Saves: OPFS via @downdraft/library-persistence/browser (no IPC needed).
+//   - Saves: OPFS via @downdraft/engine/libraries/persistence/browser (no IPC needed).
 //     The save methods here return false/null to signal the renderer to use
 //     the OPFS save store path (createSaveStore "auto" → OPFS worker).
 //   - Display info: web APIs (requestAnimationFrame timing, devicePixelRatio).
@@ -18,8 +18,8 @@
 //   - OSR / MCP / DevTools / import-cache: no-ops (not supported on mobile).
 //   - deterministic: false (mobile is never deterministic/test mode).
 
-import type { FeatureLogData } from "@downdraft/core";
-import { createLogger } from "@downdraft/core/util/logger";
+import type { FeatureLogData } from "@downdraft/engine";
+import { createLogger } from "@downdraft/engine/util/logger";
 import type {
     DisplayInfoData,
     DisplayMetricsChangedData,
@@ -70,7 +70,7 @@ function noop(): void {}
  * Create the mobile `window.downdraft` bridge.
  *
  * This bridge is exposed on `window.downdraft` before the renderer boots.
- * The renderer's `downdraft` accessor (packages/app/src/renderer/index.ts)
+ * The renderer's `downdraft` accessor (packages/engine/app/src/renderer/index.ts)
  * detects it and wraps it with `isAvailable: true`.
  *
  * Save methods return false/null so that the renderer's save-store-factory

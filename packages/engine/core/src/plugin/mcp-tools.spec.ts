@@ -1,4 +1,4 @@
-import { ModuleHost, PluginHost, World, createPluginMcpTools, setStrict } from "@downdraft/core";
+import { ModuleHost, PluginHost, World, createPluginMcpTools, setStrict } from "@downdraft/engine";
 
 describe("createPluginMcpTools", () => {
   beforeAll(() => setStrict(false));

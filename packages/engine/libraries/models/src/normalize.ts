@@ -17,7 +17,7 @@
 // transform baking) is skipped for skinned meshes — the skin matrices encode
 // the bone hierarchy and baking would double-transform the vertices.
 //
-// The transform math lives in @downdraft/core (model-normalizer.ts).
+// The transform math lives in @downdraft/engine (model-normalizer.ts).
 // This module orchestrates the pipeline and handles the plugin-level
 // concerns (node-transform baking, sidecar resolution, skin normalization).
 //
@@ -33,7 +33,7 @@ import {
     isExtremeScale,
     UNIT_TO_METERS,
     type Bounds
-} from "@downdraft/core";
+} from "@downdraft/engine";
 import { bakeNodeTransforms } from "./bake-node-transforms";
 import { resolveImportSettings, resolveImportSettingsSync, type ResolveOptions } from "./sidecar/resolver";
 import type { ImportSettings } from "./sidecar/types";

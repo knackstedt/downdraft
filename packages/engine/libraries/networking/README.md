@@ -1,11 +1,11 @@
-# `@downdraft/library-networking`
+# `@downdraft/engine/libraries/networking`
 
 Client/server networking transports — WebRTC, WebSocket, and loopback/mock transports with a shared transport contract.
 
 ## Install
 
 ```sh
-bun add @downdraft/library-networking
+bun add @downdraft/engine/libraries/networking
 ```
 
 ## Key exports

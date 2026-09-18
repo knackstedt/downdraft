@@ -1,11 +1,11 @@
-# `@downdraft/module-xr`
+# `@downdraft/engine/modules/xr`
 
 XR/WebXR module — camera rig, frame loop, input mapping, and support detection for VR/AR.
 
 ## Install
 
 ```sh
-bun add @downdraft/module-xr
+bun add @downdraft/engine/modules/xr
 ```
 
 ## Key exports

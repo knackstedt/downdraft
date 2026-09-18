@@ -14,9 +14,9 @@
 // lighting).
 // ============================================================================
 
-import { createValidatedShaderModule } from "@downdraft/core";
-import type { StructView, WgslStruct } from "@downdraft/shader-graph";
-import { f32, vec2f, vec3f, vec4f, wgsl } from "@downdraft/shader-graph";
+import { createValidatedShaderModule } from "@downdraft/engine";
+import type { StructView, WgslStruct } from "@downdraft/engine/shader-graph";
+import { f32, vec2f, vec3f, vec4f, wgsl } from "@downdraft/engine/shader-graph";
 import { DEFAULT_LINE_WIDTH } from "./proportions";
 import { STICKMAN_WGSL } from "./shader";
 import { computeSkeleton, type StickmanPose } from "./skeleton";

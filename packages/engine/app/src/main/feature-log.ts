@@ -8,7 +8,7 @@
 // the fields are omitted and the renderer's WebGPU adapter line carries GPU
 // identity. This keeps the startup emit path non-blocking.
 
-import { ENGINE_VERSION, condenseText, formatBytesShort, type FeatureLogData } from "@downdraft/core";
+import { ENGINE_VERSION, condenseText, formatBytesShort, type FeatureLogData } from "@downdraft/engine";
 import type { app as AppType } from "electron";
 import { ipcMain } from "electron";
 import os from "node:os";

@@ -4,10 +4,10 @@
 // Layers scroll with the player and drift with wind.
 // ============================================================================
 
-import { createValidatedShaderModule } from "@downdraft/core";
-import { calculateViewProj, createLogger, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, type CameraState } from "@downdraft/core";
-import { WeatherType } from "@downdraft/library-weather";
-import { StructView, wgsl } from "@downdraft/shader-graph";
+import { createValidatedShaderModule } from "@downdraft/engine";
+import { calculateViewProj, createLogger, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, type CameraState } from "@downdraft/engine";
+import { WeatherType } from "@downdraft/engine/libraries/weather";
+import { StructView, wgsl } from "@downdraft/engine/shader-graph";
 import type { CloudExtractedMesh, CloudMeshProvider, CloudVoxelField } from "./cloud-provider";
 import CLOUD_WGSL from "./shaders/cloud.wgsl?raw" with { type: "text" };
 

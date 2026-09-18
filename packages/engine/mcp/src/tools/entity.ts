@@ -1,4 +1,4 @@
-import { getColumnValue, sanitizeObject, type Entity } from "@downdraft/core";
+import { getColumnValue, sanitizeObject, type Entity } from "@downdraft/engine";
 import type { EngineContext } from "../engine-context";
 import type { ToolRegistration } from "../types";
 import { errorResult, jsonResult } from "../types";

@@ -17,8 +17,8 @@ import {
     type BindlessTextureRegistry,
     type CameraState,
     type MaterialParams
-} from "@downdraft/core";
-import type { MaterialData, MeshData } from "@downdraft/library-models";
+} from "@downdraft/engine";
+import type { MaterialData, MeshData } from "@downdraft/engine/libraries/models";
 import MODEL_WGSL from "./shaders/model.wgsl?raw" with { type: "text" };
 
 const log = createLogger();

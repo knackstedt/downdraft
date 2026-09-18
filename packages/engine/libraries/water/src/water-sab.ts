@@ -3,7 +3,7 @@
 // Uses defineChannel framework for zero-copy sim→renderer transfer.
 // ============================================================================
 
-import { defineChannel } from "@downdraft/core/sab/define";
+import { defineChannel } from "@downdraft/engine/sab/define";
 
 export const WaterChannel = defineChannel({
   name: "game-water",

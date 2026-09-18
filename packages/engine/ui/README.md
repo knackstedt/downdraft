@@ -1,11 +1,11 @@
-# `@downdraft/ui`
+# `@downdraft/engine/ui`
 
 Shared engine UI components and widgets used by games and tools.
 
 ## Install
 
 ```sh
-bun add @downdraft/ui
+bun add @downdraft/engine/ui
 ```
 
 ## Key exports

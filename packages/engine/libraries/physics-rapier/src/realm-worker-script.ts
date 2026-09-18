@@ -7,9 +7,9 @@
  * Messages follow the `RealmWorkerRequest`/`RealmWorkerResponse` protocol.
  */
 import type * as Rapier from "@dimforge/rapier3d-compat";
-import type { ColliderDesc } from "@downdraft/core";
-import { RealmTier } from "@downdraft/core";
-import type { RealmWorkerMessage, RealmWorkerRequest, RealmWorkerResponse } from "@downdraft/core/physics/worker-protocol";
+import type { ColliderDesc } from "@downdraft/engine";
+import { RealmTier } from "@downdraft/engine";
+import type { RealmWorkerMessage, RealmWorkerRequest, RealmWorkerResponse } from "@downdraft/engine/physics/worker-protocol";
 
 let rapier: typeof import("@dimforge/rapier3d-compat") | null = null;
 

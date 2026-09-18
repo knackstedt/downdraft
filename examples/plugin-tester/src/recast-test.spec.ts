@@ -1,11 +1,11 @@
-import { PhysicsTransform, Query, World } from "@downdraft/core";
+import { PhysicsTransform, Query, World } from "@downdraft/engine";
 import {
   RecastAgent,
   RecastBackend,
   RecastCrowdSystem,
   type RecastAgentData,
   type Vec3,
-} from "@downdraft/library-recast";
+} from "@downdraft/engine/libraries/recast";
 import { getRecastAgentPositions, initRecastTest, type RecastTestResult } from "./recast-test";
 
 // recast-navigation's WASM init is async — set up the test fixture once.

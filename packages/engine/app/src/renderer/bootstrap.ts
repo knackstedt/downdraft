@@ -25,7 +25,7 @@
 // that need full control can call `bootstrapGame()` directly.
 // ============================================================================
 
-import { encodeFeatureLogLine, isDevMode } from "@downdraft/core";
+import { encodeFeatureLogLine, isDevMode } from "@downdraft/engine";
 import { collectRendererFeatureLog } from "./feature-log";
 import { downdraft, getCanvas, getOverlay } from "./index";
 
@@ -154,7 +154,7 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
   // 4. Wire DevTools (if provided) — runs BEFORE onRendererInit so that
   //    games can access the ProfilingBridge + __sceneInspector API in onReady.
   if (opts.devtools) {
-    const { initDevTools } = await import("@downdraft/module-devtools");
+    const { initDevTools } = await import("@downdraft/engine/modules/devtools");
     const simStatsProvider = opts.devtools.createSimStatsProvider?.(renderer);
     const panels = typeof opts.devtools.panels === "function"
       ? opts.devtools.panels(renderer)

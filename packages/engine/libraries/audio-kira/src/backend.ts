@@ -7,8 +7,8 @@ import type {
   AudioFormat,
   AudioListenerState,
   AudioSourceHandle,
-} from "@downdraft/core";
-import { createLogger } from "@downdraft/core";
+} from "@downdraft/engine";
+import { createLogger } from "@downdraft/engine";
 
 const log = createLogger();
 

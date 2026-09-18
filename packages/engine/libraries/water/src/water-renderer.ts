@@ -3,10 +3,10 @@
 // Water renderer system
 // ============================================================================
 
-import { createValidatedShaderModule } from "@downdraft/core";
-import { createLogger, destroyAll } from "@downdraft/core";
-import type { StructView, WgslStruct } from "@downdraft/shader-graph";
-import { f32, mat4x4f, u32, vec3f, wgsl } from "@downdraft/shader-graph";
+import { createValidatedShaderModule } from "@downdraft/engine";
+import { createLogger, destroyAll } from "@downdraft/engine";
+import type { StructView, WgslStruct } from "@downdraft/engine/shader-graph";
+import { f32, mat4x4f, u32, vec3f, wgsl } from "@downdraft/engine/shader-graph";
 import { WATER_GRID, WaterBuffer } from "./water-buffer";
 import { MAX_SHORES, MAX_WAKES, SHORE_FLOATS, WAKE_FLOATS } from "./wave-sources";
 

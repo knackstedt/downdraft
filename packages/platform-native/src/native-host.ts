@@ -13,7 +13,7 @@
 // live in dom/dom-polyfills.ts.
 // ============================================================================
 
-import { installShaderValidationGuard } from "@downdraft/core";
+import { installShaderValidationGuard } from "@downdraft/engine";
 import { installAssetGlob } from "./assets/native-assets";
 import { installDOMPolyfills } from "./dom/dom-polyfills";
 import { installGPU } from "./gpu/install";

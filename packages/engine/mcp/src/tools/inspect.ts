@@ -1,4 +1,4 @@
-import { getColumnValue } from "@downdraft/core";
+import { getColumnValue } from "@downdraft/engine";
 import type { EngineContext } from "../engine-context";
 import type { ToolRegistration } from "../types";
 import { errorResult, jsonResult } from "../types";
@@ -154,7 +154,7 @@ export function createInspectTools(ctx: EngineContext): ToolRegistration[] {
   return tools;
 }
 
-function inspectEntityRecursive(ctx: EngineContext, entity: import("@downdraft/core").Entity, depth: number, maxDepth: number): Record<string, unknown> {
+function inspectEntityRecursive(ctx: EngineContext, entity: import("@downdraft/engine").Entity, depth: number, maxDepth: number): Record<string, unknown> {
   const entityKey = ctx.getEntityKey(entity);
   const arch = ctx.ecsWorld.getArchetypeForEntity(entity);
 
@@ -188,7 +188,7 @@ function inspectEntityRecursive(ctx: EngineContext, entity: import("@downdraft/c
   };
 }
 
-function buildSceneTree(ctx: EngineContext, entity: import("@downdraft/core").Entity, depth: number, maxDepth: number): Record<string, unknown> {
+function buildSceneTree(ctx: EngineContext, entity: import("@downdraft/engine").Entity, depth: number, maxDepth: number): Record<string, unknown> {
   const entityKey = ctx.getEntityKey(entity);
   const arch = ctx.ecsWorld.getArchetypeForEntity(entity);
   const compNames = arch ? [...arch.columns.keys()].map((id) => ctx.getComponentNameById(id)) : [];

@@ -1,11 +1,11 @@
-# `@downdraft/library-weatherfx`
+# `@downdraft/engine/libraries/weatherfx`
 
 Weather rendering — cloud, fog, and precipitation render passes driven by sim weather state (WeatherFxLib descriptor).
 
 ## Install
 
 ```sh
-bun add @downdraft/library-weatherfx
+bun add @downdraft/engine/libraries/weatherfx
 ```
 
 ## Key exports

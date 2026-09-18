@@ -5,8 +5,8 @@ description: Module system architecture, typed DI, declarative GameModule, and f
 
 DownDraft has a tiered extension system with three layers:
 
-1. **Engine libraries** (`@downdraft/library-*`) — standard building blocks (water, physics, terrain, audio, etc.). Used directly or via declarative `EngineLibrary` descriptors.
-2. **Engine modules** (`@downdraft/module-*`) — opt-in features with lifecycle + typed DI (devtools, camera-controls, terrain, movement, sailing, OSR, MCP, XR).
+1. **Engine libraries** (`@downdraft/engine/libraries/*`) — standard building blocks (water, physics, terrain, audio, etc.). Used directly or via declarative `EngineLibrary` descriptors.
+2. **Engine modules** (`@downdraft/engine/modules/*`) — opt-in features with lifecycle + typed DI (devtools, camera-controls, terrain, movement, sailing, OSR, MCP, XR).
 3. **Game modules** (`@<game>/module-*`) — game-specific systems (fishing, inventory, crafting, wildlife, etc.) using the same `Module` interface.
 
 > **Note on terminology:** "module" refers to the engine's compile-time DI units. "plugin" is reserved for the upcoming user-authored plugin/modding system.
@@ -16,9 +16,9 @@ DownDraft has a tiered extension system with three layers:
 Games declare their renderer-side bootstrap as a `GameModule` and call `startGame()`:
 
 ```typescript
-import { startGame } from "@downdraft/app/renderer";
-import { WaterLib } from "@downdraft/library-water";
-import { createTerrainModule } from "@downdraft/module-terrain";
+import { startGame } from "@downdraft/engine/app/renderer";
+import { WaterLib } from "@downdraft/engine/libraries/water";
+import { createTerrainModule } from "@downdraft/engine/modules/terrain";
 
 startGame({
   // Engine libraries (declarative SAB allocation + DI tokens)
@@ -59,7 +59,7 @@ startGame({
 Modules use typed `ResourceToken<T>`-based dependency injection:
 
 ```typescript
-import { resourceToken, type Module } from "@downdraft/core";
+import { resourceToken, type Module } from "@downdraft/engine";
 
 export const WeatherState = resourceToken<{ windSpeed: number }>("weatherState");
 
@@ -95,7 +95,7 @@ moduleHost.useModules([WeatherModule, SailingModule, NavigationModule]);
 Engine libraries can expose an `EngineLibrary` descriptor for declarative wiring:
 
 ```typescript
-import { WaterLib, PhysicsRapierLib } from "@downdraft/library-water";
+import { WaterLib, PhysicsRapierLib } from "@downdraft/engine/libraries/water";
 
 startGame({
   libraries: [
@@ -139,22 +139,22 @@ Feature modules are opt-in game features with the `Module` interface:
 
 | Module | Package | Description |
 |--------|---------|-------------|
-| terrain | `@downdraft/module-terrain` | Composes marching-cubes + LOD + streaming + deformation |
-| movement-3d | `@downdraft/module-movement-3d` | 3D first/third-person movement (walk, run, swim, fly) |
-| movement-2d | `@downdraft/module-movement-2d` | 2D top-down/side-scroll movement |
-| sailing | `@downdraft/module-sailing` | Sailing mechanics (wind, buoyancy, rudder, hull drag) |
-| devtools | `@downdraft/module-devtools` | Debug overlays, scene inspector, gizmos |
-| camera-controls | `@downdraft/module-camera-controls` | Camera modes (free, follow, orbit) |
-| electron-osr | `@downdraft/module-electron-osr` | Offscreen rendering for in-game web surfaces |
-| mcp | `@downdraft/module-mcp` | MCP automation harness for testing |
-| xr | `@downdraft/module-xr` | WebXR VR/AR support |
+| terrain | `@downdraft/engine/modules/terrain` | Composes marching-cubes + LOD + streaming + deformation |
+| movement-3d | `@downdraft/engine/modules/movement-3d` | 3D first/third-person movement (walk, run, swim, fly) |
+| movement-2d | `@downdraft/engine/modules/movement-2d` | 2D top-down/side-scroll movement |
+| sailing | `@downdraft/engine/modules/sailing` | Sailing mechanics (wind, buoyancy, rudder, hull drag) |
+| devtools | `@downdraft/engine/modules/devtools` | Debug overlays, scene inspector, gizmos |
+| camera-controls | `@downdraft/engine/modules/camera-controls` | Camera modes (free, follow, orbit) |
+| electron-osr | `@downdraft/engine/modules/electron-osr` | Offscreen rendering for in-game web surfaces |
+| mcp | `@downdraft/engine/modules/mcp` | MCP automation harness for testing |
+| xr | `@downdraft/engine/modules/xr` | WebXR VR/AR support |
 
 ### Module factory pattern
 
 Modules use a factory pattern so games can pass config at registration time:
 
 ```typescript
-import { createTerrainModule } from "@downdraft/module-terrain";
+import { createTerrainModule } from "@downdraft/engine/modules/terrain";
 
 const terrainModule = createTerrainModule({
   streaming: { baseVoxelSize: 0.5 },
@@ -169,7 +169,7 @@ gameWorld.moduleHost.registerModule(terrainModule);
 In multi-threaded games, the sim worker and renderer each have their own `ModuleHost`. Cross-thread tokens declare shared resources:
 
 ```typescript
-import { crossThreadToken } from "@downdraft/core";
+import { crossThreadToken } from "@downdraft/engine";
 
 // SAB written by sim, read by renderer — tag as "shared"
 export const WaterSABTok = crossThreadToken<SharedArrayBuffer>("water:sab", "shared");
@@ -192,7 +192,7 @@ The `downdraft doctor` devtools panel displays module graph diagnostics:
 Register it via:
 
 ```typescript
-import { createDoctorPanelExtension } from "@downdraft/module-devtools";
+import { createDoctorPanelExtension } from "@downdraft/engine/modules/devtools";
 
 devtools.registerPanel(createDoctorPanelExtension({
   getSimModules: () => simModuleHost.snapshot(),

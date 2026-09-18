@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-describe("@downdraft/library-audio-kira public API", () => {
+describe("@downdraft/engine/libraries/audio-kira public API", () => {
   it("index exports load", async () => {
     const mod = await import("./index");
     const keys = Object.keys(mod).filter((k) => !k.startsWith("__"));

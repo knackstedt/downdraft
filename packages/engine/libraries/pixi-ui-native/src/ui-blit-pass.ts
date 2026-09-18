@@ -10,7 +10,7 @@
 // blending.
 // ============================================================================
 
-import { createValidatedShaderModule } from "@downdraft/core";
+import { createValidatedShaderModule } from "@downdraft/engine";
 import { UI_BLIT_WGSL } from "./shaders/ui-blit.wgsl";
 
 export class UiBlitPass {

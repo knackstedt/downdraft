@@ -9,7 +9,7 @@
 //   - pixi_dispatch_pointer: send a synthetic pointer event to the worker.
 //   - pixi_set_interactive: force-toggle interactive mode.
 //
-// These integrate with the existing createMcpHarness from @downdraft/app/renderer.
+// These integrate with the existing createMcpHarness from @downdraft/engine/app/renderer.
 // ============================================================================
 
 import { blobToBase64, type McpToolRegistration } from "./mcp-types-shim";

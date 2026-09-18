@@ -1,5 +1,5 @@
-import { calculateViewProj, composeMat4Into, createValidatedShaderModule, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, multiplyMat4Into, type CameraState } from "@downdraft/core";
-import type { SkinData } from "@downdraft/library-models";
+import { calculateViewProj, composeMat4Into, createValidatedShaderModule, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, multiplyMat4Into, type CameraState } from "@downdraft/engine";
+import type { SkinData } from "@downdraft/engine/libraries/models";
 
 const SKELETON_WGSL = /* wgsl */ `
 struct Uniforms {
@@ -132,7 +132,7 @@ export class SkeletonRenderer {
     const verts: number[] = [];
     const jointSize = 0.02; // 2cm joint crosses
 
-    // --- Matrix helpers (column-major 4x4) — imported from @downdraft/core ---
+    // --- Matrix helpers (column-major 4x4) — imported from @downdraft/engine ---
 
     // --- Compute world-space bone matrices by traversing the hierarchy ---
 

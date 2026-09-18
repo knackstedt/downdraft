@@ -1,5 +1,5 @@
-import { createLogger } from "@downdraft/core";
-import { VisionTestSuite, type VisionTestResult } from "@downdraft/test";
+import { createLogger } from "@downdraft/engine";
+import { VisionTestSuite, type VisionTestResult } from "@downdraft/engine/test";
 import { visionTestSuite, type VisionTestResult as VTR } from "./vision/index";
 
 const log = createLogger();

@@ -3,7 +3,7 @@
 // Generic DOM management + projection; game provides labels via ILabelProvider.
 // ============================================================================
 
-import { calculateViewProj } from "@downdraft/core";
+import { calculateViewProj } from "@downdraft/engine";
 import type { ILabelProvider } from "./types";
 
 interface LabelEntry {

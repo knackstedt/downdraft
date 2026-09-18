@@ -1,5 +1,5 @@
 // ============================================================================
-// NavmeshLib — declarative engine library descriptor for @downdraft/library-navmesh
+// NavmeshLib — declarative engine library descriptor for @downdraft/engine/libraries/navmesh
 //
 // Games declare `libraries: [NavmeshLib]` (or with config override) in their
 // GameModule. The host creates the NavMesh + Pathfinder (sim-side) and
@@ -9,7 +9,7 @@
 // CrowdSystem directly (escape hatch).
 // ============================================================================
 
-import { resourceToken, type EngineLibrary } from "@downdraft/core";
+import { resourceToken, type EngineLibrary } from "@downdraft/engine";
 import { NavMesh } from "./navmesh";
 import { Pathfinder } from "./pathfinder";
 

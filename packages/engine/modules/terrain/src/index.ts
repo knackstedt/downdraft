@@ -1,7 +1,7 @@
 // ============================================================================
-// @downdraft/module-terrain — composable terrain plugin
+// @downdraft/engine/modules/terrain — composable terrain plugin
 //
-// Composes @downdraft/library-marching-cubes (mesh extraction + chunked voxel
+// Composes @downdraft/engine/libraries/marching-cubes (mesh extraction + chunked voxel
 // fields) with LOD management, streaming, and deformation broadcasting into a
 // single Module with typed DI. Games register this plugin instead of manually
 // wiring TerrainSystem + TerrainLODManager + mesh worker pools.
@@ -21,11 +21,11 @@ import {
     resourceToken,
     type Module,
     type ModuleContext,
-} from "@downdraft/core";
+} from "@downdraft/engine";
 import {
     DEFAULT_STREAMING_CONFIG,
     type TerrainStreamingConfig,
-} from "@downdraft/library-marching-cubes";
+} from "@downdraft/engine/libraries/marching-cubes";
 
 // ── Config ──
 
@@ -73,6 +73,6 @@ export function createTerrainModule(config: TerrainModuleConfig = {}): Module {
 }
 
 // Re-export library types for convenience
-export { DEFAULT_STREAMING_CONFIG } from "@downdraft/library-marching-cubes";
-export type { TerrainStreamingConfig } from "@downdraft/library-marching-cubes";
+export { DEFAULT_STREAMING_CONFIG } from "@downdraft/engine/libraries/marching-cubes";
+export type { TerrainStreamingConfig } from "@downdraft/engine/libraries/marching-cubes";
 

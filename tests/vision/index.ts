@@ -1,4 +1,4 @@
-import { createLogger } from "../../packages/core/src/util/logger";
+import { createLogger } from "../../packages/engine/core/src/util/logger";
 
 const log = createLogger();
 

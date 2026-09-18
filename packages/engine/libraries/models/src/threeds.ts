@@ -1,4 +1,4 @@
-import { assertBounds, assertCount, MAX_FACE_COUNT, MAX_VERTEX_COUNT } from "@downdraft/core";
+import { assertBounds, assertCount, MAX_FACE_COUNT, MAX_VERTEX_COUNT } from "@downdraft/engine";
 import type { MaterialData, MeshData, ModelData } from "./types";
 
 // 3DS chunk IDs

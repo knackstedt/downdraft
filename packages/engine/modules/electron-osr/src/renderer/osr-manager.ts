@@ -2,7 +2,7 @@
 // OSR Manager — Renderer-side coordinator for all OSR rendering
 // ============================================================================
 
-import { createLogger } from "@downdraft/core";
+import { createLogger } from "@downdraft/engine";
 import type {
   AtlasLayout,
   OSRIPC,

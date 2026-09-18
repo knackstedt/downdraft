@@ -18,8 +18,8 @@
 // endpoint.
 // ============================================================================
 
-import { createLogger } from "@downdraft/core/util/logger";
-import { errorResult, jsonResult, type ToolRegistration } from "@downdraft/mcp";
+import { createLogger } from "@downdraft/engine/util/logger";
+import { errorResult, jsonResult, type ToolRegistration } from "@downdraft/engine/mcp";
 import { contentTracing, ipcMain } from "electron";
 import { copyFile, mkdir, rename, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";

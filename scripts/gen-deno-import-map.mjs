@@ -14,9 +14,9 @@
 //   --check  verify deno.json is up-to-date (exit 1 if stale); don't write.
 // ============================================================================
 
-import { readFileSync, writeFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const tsconfigPath = join(root, "tsconfig.web.json");
@@ -33,6 +33,24 @@ for (const [key, targets] of Object.entries(paths)) {
     imports[key.slice(0, -1)] = target.replace(/\*$/, "");
   } else {
     imports[key] = target;
+  }
+}
+
+// @downdraft/engine is a real package resolved via its exports map — translate
+// that map into import-map entries (exact keys → files; "<dir>/*" → "<dir>/src/"
+// prefixes). Extension-trailer patterns (*.ts/*.wgsl) are redundant under the
+// src/ prefix mapping and are skipped.
+const enginePkgPath = join(root, "packages/engine/package.json");
+if (existsSync(enginePkgPath)) {
+  const engineExports = JSON.parse(readFileSync(enginePkgPath, "utf8")).exports ?? {};
+  for (const [key, target] of Object.entries(engineExports)) {
+    if (!key.includes("*")) {
+      imports[`@downdraft/engine${key.slice(1)}`] = `./packages/engine${target.slice(1)}`;
+    } else {
+      const m = key.match(/^(\.[a-z0-9\-/]*)\/\*$/i);
+      const t = target.match(/^(\.[a-z0-9\-/]*)\/src\/\*\.ts$/i);
+      if (m && t) imports[`@downdraft/engine${m[1].slice(1)}/`] = `./packages/engine${t[1].slice(1)}/src/`;
+    }
   }
 }
 

@@ -1,5 +1,5 @@
 // ============================================================================
-// engine-resolve.ts — locate @downdraft/* package sources in both layouts
+// engine-resolve.ts — locate the @downdraft/engine package in both layouts
 // ============================================================================
 //
 // The engine supports two consumption layouts:
@@ -20,28 +20,32 @@ import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 
 export interface EngineResolver {
-  /** Absolute path to a package's `src/` dir (e.g. packages/core/src). */
-  src(pkg: string, monorepoSubdir: string): string;
-  /** Absolute path to a package's root dir (e.g. packages/core). */
-  pkg(pkg: string, monorepoSubdir: string): string;
+  /** Absolute path to the @downdraft/engine package root (…/packages/engine). */
+  engineRoot: string;
+  /** Absolute path to a subsystem `src/` dir inside the engine package —
+   *  `src("libraries/water")` → `<engineRoot>/libraries/water/src`,
+   *  `src("core")` → `<engineRoot>/core/src`. */
+  src(rel: string): string;
+  /** Absolute path inside the engine package — `at("app/src")` → `<engineRoot>/app/src`. */
+  at(rel: string): string;
   /**
-   * Union of external (non-@downdraft) `dependencies` across the game's own
-   * package.json plus every resolvable @downdraft/* dep, transitively.
-   * Replaces the old "read the engine root package.json" behavior so it works
-   * for standalone games too.
+   * External (non-@downdraft) `dependencies` of the engine package, minus the
+   * excluded set. The engine manifest already unions every folded subsystem's
+   * externals. Used for Vite optimizeDeps.include.
    */
   engineDeps(exclude: Set<string>): string[];
   /** The monorepo root when detected (game at <root>/games/<name>), else null. */
   repoRoot: string | null;
   /**
-   * Warn once about packages that only resolved via the monorepo fallback
-   * (not declared in the game's package.json), and about packages that
-   * could not be resolved at all in standalone layouts. Call after building
-   * the alias table — alias probing engages the fallback eagerly, so
-   * per-call warnings would be noise.
+   * Warn once if @downdraft/engine only resolved via the monorepo fallback
+   * (not declared in the game's package.json) or could not be resolved at
+   * all in a standalone layout. Call after building the alias table — alias
+   * probing engages the fallback eagerly, so per-call warnings would be noise.
    */
   warnUndeclared(): void;
 }
+
+const ENGINE_PKG = "@downdraft/engine";
 
 /**
  * @param gameRoot absolute path to the game directory.
@@ -50,84 +54,58 @@ export interface EngineResolver {
  */
 export function createEngineResolver(gameRoot: string, monorepoRoot?: string): EngineResolver {
   const candidate = monorepoRoot ?? resolve(gameRoot, "../..");
-  const repoRoot = existsSync(join(candidate, "packages/core/package.json")) ? candidate : null;
+  const repoRoot = existsSync(join(candidate, "packages/engine/package.json")) ? candidate : null;
   const req = createRequire(resolve(gameRoot, "package.json"));
-  const undeclared = new Set<string>();
-  const missing = new Set<string>();
+  let undeclared = false;
+  let missing = false;
 
-  function pkg(name: string, monorepoSubdir: string): string {
-    try {
-      return dirname(req.resolve(`${name}/package.json`));
-    } catch {
-      // Not installed / not a declared dep — fall back to the monorepo layout
-      // so unaliased engine packages still resolve inside the engine repo.
-      // Standalone games have no monorepo to fall back to: return the
-      // conventional node_modules path so the failure names the package.
-      (repoRoot ? undeclared : missing).add(name);
-      return repoRoot
-        ? join(repoRoot, "packages", monorepoSubdir)
-        : join(gameRoot, "node_modules", name);
+  let engineRoot: string;
+  try {
+    engineRoot = dirname(req.resolve(`${ENGINE_PKG}/package.json`));
+  } catch {
+    // Not installed / not a declared dep — fall back to the monorepo layout
+    // so engine code still resolves inside the engine repo. Standalone games
+    // have no monorepo to fall back to: return the conventional node_modules
+    // path so the failure names the package.
+    if (repoRoot) {
+      undeclared = true;
+      engineRoot = join(repoRoot, "packages/engine");
+    } else {
+      missing = true;
+      engineRoot = join(gameRoot, "node_modules", ENGINE_PKG);
     }
   }
 
-  const src = (name: string, monorepoSubdir: string) => join(pkg(name, monorepoSubdir), "src");
+  const at = (rel: string) => join(engineRoot, rel);
+  const src = (rel: string) => join(engineRoot, rel, "src");
 
   function engineDeps(exclude: Set<string>): string[] {
-    // Monorepo: keep the legacy behavior — the engine root package.json lists
-    // the canonical external dep set.
-    if (repoRoot) {
-      try {
-        const pkgJson = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf-8"));
-        return Object.keys(pkgJson.dependencies ?? {}).filter((d) => !exclude.has(d));
-      } catch {
-        return [];
-      }
-    }
-    // Standalone: walk the game's @downdraft/* deps transitively and collect
-    // every external dependency they declare.
+    // The engine package's own dependency list is the canonical external dep
+    // set — it already unions every folded subsystem's externals.
     const out = new Set<string>();
-    const seen = new Set<string>();
-    const visit = (pkgJsonPath: string) => {
-      let pkgJson: any;
-      try {
-        pkgJson = JSON.parse(readFileSync(pkgJsonPath, "utf-8"));
-      } catch {
-        return;
-      }
+    try {
+      const pkgJson = JSON.parse(readFileSync(join(engineRoot, "package.json"), "utf-8"));
       for (const dep of Object.keys(pkgJson.dependencies ?? {})) {
-        if (!dep.startsWith("@downdraft/")) {
-          if (!exclude.has(dep)) out.add(dep);
-          continue;
-        }
-        if (seen.has(dep)) continue;
-        seen.add(dep);
-        try {
-          visit(req.resolve(`${dep}/package.json`));
-        } catch {
-          // dep declared but not installed — skip
-        }
+        if (!dep.startsWith("@downdraft/") && !exclude.has(dep)) out.add(dep);
       }
-    };
-    visit(resolve(gameRoot, "package.json"));
+    } catch { /* engine package unreadable — no deps to contribute */ }
     return [...out];
   }
 
   function warnUndeclared(): void {
-    if (undeclared.size > 0) {
-      const list = [...undeclared].sort().join(", ");
+    if (undeclared) {
       console.warn(
-        `[downdraft] ${undeclared.size} package(s) resolved via monorepo fallback (not declared in the game's package.json): ${list}\n` +
-        `  Declare them as dependencies or standalone installs will break.`,
+        `[downdraft] ${ENGINE_PKG} resolved via monorepo fallback (not declared in the game's package.json).\n` +
+        `  Declare it as a dependency or standalone installs will break.`,
       );
     }
-    if (missing.size > 0) {
-      const list = [...missing].sort().join(", ");
+    if (missing) {
       console.warn(
-        `[downdraft] ${missing.size} package(s) could not be resolved from the game's package.json: ${list}\n` +
-        `  Install and declare them as dependencies, or imports of them will fail.`,
+        `[downdraft] ${ENGINE_PKG} could not be resolved from the game's package.json.\n` +
+        `  Install and declare it as a dependency, or imports of it will fail.`,
       );
     }
   }
 
-  return { src, pkg, engineDeps, repoRoot, warnUndeclared };
+  return { engineRoot, src, at, engineDeps, repoRoot, warnUndeclared };
 }

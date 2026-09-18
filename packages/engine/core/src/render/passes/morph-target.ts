@@ -1,5 +1,5 @@
-import type { WgslStruct } from "@downdraft/shader-graph";
-import { f32, wgsl } from "@downdraft/shader-graph";
+import type { WgslStruct } from "@downdraft/engine/shader-graph";
+import { f32, wgsl } from "@downdraft/engine/shader-graph";
 
 export const MAX_MORPH_TARGETS = 64;
 

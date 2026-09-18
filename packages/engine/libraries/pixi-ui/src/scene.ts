@@ -9,7 +9,7 @@
 //
 //   // games/my-game/src/pixi-scene.ts
 //   import { Container, Text } from "pixi.js";
-//   import type { PixiUiScene, PixiUiSceneContext } from "@downdraft/library-pixi-ui";
+//   import type { PixiUiScene, PixiUiSceneContext } from "@downdraft/engine/libraries/pixi-ui";
 //
 //   export default function createHudScene(ctx: PixiUiSceneContext): PixiUiScene {
 //     const root = new Container();

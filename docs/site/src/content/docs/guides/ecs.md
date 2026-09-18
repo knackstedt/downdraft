@@ -42,7 +42,7 @@ Deferred operations (spawn/despawn entity, add/remove component) are queued duri
 ## Usage
 
 ```typescript
-import { Component, World, Stage, system } from "@downdraft/core";
+import { Component, World, Stage, system } from "@downdraft/engine";
 
 // Define a component
 const Health = Component.register("Health", {

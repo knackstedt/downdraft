@@ -20,7 +20,7 @@
 // about (e.g. a 2D click-based game may only implement setPointer +
 // setMouseButton).
 
-import { InputBufferWriter, KEY } from "@downdraft/core";
+import { InputBufferWriter, KEY } from "@downdraft/engine";
 
 /** Normalized movement state. Forward/back map to W/S, left/right to A/D,
  *  jump to Space. */

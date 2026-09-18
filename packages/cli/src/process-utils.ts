@@ -10,7 +10,7 @@
 //
 // The match key is the per-game Electron `userData` directory, which the
 // engine sets via `app.setPath("userData", join(appData, appId))` with
-// `appId = "downdraft-<game>"` (see packages/app/src/main/storage.ts). Electron
+// `appId = "downdraft-<game>"` (see packages/engine/app/src/main/storage.ts). Electron
 // propagates that path to every child process as `--user-data-dir=<path>`, so
 // matching on that path targets only the stale game's Electron processes and
 // never the `draft dev` / npx / electron-vite processes (which carry
@@ -143,7 +143,7 @@ export function collectDescendants(rootPid: number, procs: ProcInfo[]): number[]
 
 /**
  * Resolve the per-game Electron `userData` directory the same way the engine
- * does (packages/app/src/main/storage.ts:resolveUserDataDir →
+ * does (packages/engine/app/src/main/storage.ts:resolveUserDataDir →
  * `join(app.getPath("appData"), appId)`). Used to match `--user-data-dir=<path>`
  * on running Electron processes.
  *
@@ -249,7 +249,7 @@ export function killStaleInstance(gameDir: string): number {
 
   // Walk up from each root to include ancestor Electron processes that the
   // --user-data-dir match missed. The Electron main process sets userData via
-  // app.setPath() programmatically (packages/app/src/main/app.ts), so its own
+  // app.setPath() programmatically (packages/engine/app/src/main/app.ts), so its own
   // cmdline does NOT carry --user-data-dir and isn't caught by the match
   // above — only its children (renderer/GPU/zygote) get the flag propagated
   // internally by Electron. Without this walk-up, killing the renderer leaves

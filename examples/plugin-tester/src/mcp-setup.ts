@@ -2,7 +2,7 @@
 // MCP Setup — create EngineContext + MCPServer, listen for IPC requests from main process
 // ============================================================================
 
-import { EngineContext, MCPServer } from "@downdraft/mcp";
+import { EngineContext, MCPServer } from "@downdraft/engine/mcp";
 import type { TestScene } from "./test-scene";
 
 export function setupMCP(scene: TestScene): void {

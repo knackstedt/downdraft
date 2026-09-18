@@ -8,7 +8,7 @@
 //
 // Usage (inside the worker scene module / components):
 //
-//   import { FontScaleContext, useFontScale, ScaledText } from "@downdraft/library-pixi-ui/react-font-scale";
+//   import { FontScaleContext, useFontScale, ScaledText } from "@downdraft/engine/libraries/pixi-ui/react-font-scale";
 //
 // ============================================================================
 

@@ -2,7 +2,7 @@
 // World Space UI Pass — Renders OSR textures as billboarded quads in 3D space
 // ============================================================================
 
-import { createLogger, createValidatedShaderModule } from "@downdraft/core";
+import { createLogger, createValidatedShaderModule } from "@downdraft/engine";
 import type { WorldSpaceUIElement } from "../types";
 
 const log = createLogger();

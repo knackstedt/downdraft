@@ -1,5 +1,5 @@
-import type { SABChannel } from "@downdraft/core";
-import { defineChannel } from "@downdraft/core/sab/define";
+import type { SABChannel } from "@downdraft/engine";
+import { defineChannel } from "@downdraft/engine/sab/define";
 
 export const TerrainChannel = defineChannel({
   name: "terrain",

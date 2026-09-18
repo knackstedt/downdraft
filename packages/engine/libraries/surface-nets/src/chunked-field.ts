@@ -10,5 +10,5 @@ export {
   isChunkGenerated,
   markChunkGenerated,
   setChunkedVoxel,
-} from "@downdraft/library-marching-cubes";
-export type { ChunkedVoxelField } from "@downdraft/library-marching-cubes";
+} from "@downdraft/engine/libraries/marching-cubes";
+export type { ChunkedVoxelField } from "@downdraft/engine/libraries/marching-cubes";

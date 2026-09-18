@@ -1,11 +1,11 @@
-# `@downdraft/module-mcp`
+# `@downdraft/engine/modules/mcp`
 
 MCP server module — hosts the Model Context Protocol automation server inside the engine process.
 
 ## Install
 
 ```sh
-bun add @downdraft/module-mcp
+bun add @downdraft/engine/modules/mcp
 ```
 
 ## Key exports

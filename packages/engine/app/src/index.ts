@@ -1,14 +1,14 @@
 // ============================================================================
-// @downdraft/app — root re-exports for the host SDK
+// @downdraft/engine/app — root re-exports for the host SDK
 // ============================================================================
 //
 // This barrel re-exports the high-level config surface. For process-specific
 // entry points, import from the subpath exports:
-//   - @downdraft/app/main     — main process (createDowndraftApp, webGpuSwitches)
-//   - @downdraft/app/preload  — preload (createDowndraftBridge)
-//   - @downdraft/app/renderer — renderer (typed downdraft accessor)
-//   - @downdraft/app/shared   — IPC constants (all processes)
-//   - @downdraft/app/vite     — vite config factory (build-time only)
+//   - @downdraft/engine/app/main     — main process (createDowndraftApp, webGpuSwitches)
+//   - @downdraft/engine/app/preload  — preload (createDowndraftBridge)
+//   - @downdraft/engine/app/renderer — renderer (typed downdraft accessor)
+//   - @downdraft/engine/app/shared   — IPC constants (all processes)
+//   - @downdraft/engine/app/vite     — vite config factory (build-time only)
 
 export type {
   DowndraftAppConfig,

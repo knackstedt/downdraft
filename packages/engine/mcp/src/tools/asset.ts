@@ -1,5 +1,5 @@
-import type { ImportOptions } from "@downdraft/core";
-import { AssetImporter, confinePath, GLBLoader } from "@downdraft/core";
+import type { ImportOptions } from "@downdraft/engine";
+import { AssetImporter, confinePath, GLBLoader } from "@downdraft/engine";
 import type { EngineContext } from "../engine-context";
 import type { ToolRegistration } from "../types";
 import { errorResult, jsonResult } from "../types";

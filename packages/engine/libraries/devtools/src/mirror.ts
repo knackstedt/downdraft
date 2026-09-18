@@ -9,7 +9,7 @@
 // results back.
 // ============================================================================
 
-import { addLogSink, getRecentLogs, type LogSinkEntry } from "@downdraft/core/util/logger";
+import { addLogSink, getRecentLogs, type LogSinkEntry } from "@downdraft/engine/util/logger";
 import { CdpBridge, type CdpConsoleEntry, type CdpException, type CdpProfile } from "./cdp-bridge";
 import {
     devtoolsClearConsole,
@@ -45,13 +45,13 @@ import {
     type PanelSnapshot
 } from "./egui-ffi";
 
-// Lazy-load the ProfilingSAB reader (avoids importing @downdraft/core/profiling
+// Lazy-load the ProfilingSAB reader (avoids importing @downdraft/engine/profiling
 // at module load time; it may not be available in all contexts).
 let profilingMod: any = undefined;
 async function loadProfilingMod(): Promise<any> {
   if (profilingMod !== undefined) return profilingMod;
   try {
-    profilingMod = await import("@downdraft/core/profiling");
+    profilingMod = await import("@downdraft/engine/profiling");
     console.log("[DevtoolsMirror] Profiling module loaded");
   } catch (err) {
     console.warn("[DevtoolsMirror] Failed to load profiling module:", err);

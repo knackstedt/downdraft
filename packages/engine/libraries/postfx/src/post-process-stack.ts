@@ -11,7 +11,7 @@
 // A final blit copies the result to the canvas-format swapchain view.
 // ============================================================================
 
-import { createValidatedShaderModule } from "@downdraft/core";
+import { createValidatedShaderModule } from "@downdraft/engine";
 
 export interface ViewportRect { x: number; y: number; w: number; h: number; }
 export interface PostProcessStackOptions {

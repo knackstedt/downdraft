@@ -1,4 +1,4 @@
-import { type InputState, type XRControllerState } from "@downdraft/core";
+import { type InputState, type XRControllerState } from "@downdraft/engine";
 import type { XRPoseData } from "./types";
 
 const KEY_ESCAPE = 27;

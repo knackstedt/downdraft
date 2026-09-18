@@ -1,11 +1,11 @@
-# `@downdraft/library-models`
+# `@downdraft/engine/libraries/models`
 
 Model loading and mesh pipeline — GLTF/GLB/FBX/PLY/OBJ codecs, normalization, skinning, morph targets, and material adaptation.
 
 ## Install
 
 ```sh
-bun add @downdraft/library-models
+bun add @downdraft/engine/libraries/models
 ```
 
 ## Key exports

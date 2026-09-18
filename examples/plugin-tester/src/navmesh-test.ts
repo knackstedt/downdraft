@@ -2,14 +2,14 @@
 // NavMesh Test — generate navmesh, spawn agents, set targets, update each tick
 // ============================================================================
 
-import { PhysicsTransform, Query, World } from "@downdraft/core";
+import { PhysicsTransform, Query, World } from "@downdraft/engine";
 import {
     CrowdSystem, NavAgent,
     NavMesh, NavMeshGenerator, Pathfinder,
     type HeightFieldSampler,
     type NavAgentData, type NavMeshGeneratorConfig,
     type Vec3,
-} from "@downdraft/library-navmesh";
+} from "@downdraft/engine/libraries/navmesh";
 
 const NAVMESH_CONFIG: NavMeshGeneratorConfig = {
   cellSize: 1,

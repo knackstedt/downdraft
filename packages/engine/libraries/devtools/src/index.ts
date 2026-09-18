@@ -1,5 +1,5 @@
 // ============================================================================
-// @downdraft/library-devtools — native egui debugger overlay
+// @downdraft/engine/libraries/devtools — native egui debugger overlay
 //
 // A native debug overlay (egui + UiBlitPass) composited above the native game,
 // with panels mirroring Chrome DevTools:
@@ -13,7 +13,7 @@
 // Toggled by F12 in native-entry.ts. Leverages the Chrome DevTools Protocol
 // via Bun's node:inspector Session where possible.
 //
-// The UI is rendered by a Rust egui crate (packages/libraries/devtools/native/)
+// The UI is rendered by a Rust egui crate (packages/engine/libraries/devtools/native/)
 // that runs egui's layout + tessellation on the CPU and serializes PaintJobs
 // to TS, where EguiRenderer uploads + draws them on the shared wgpu-native
 // device. The existing UiBlitPass composites the UI texture over the frame.

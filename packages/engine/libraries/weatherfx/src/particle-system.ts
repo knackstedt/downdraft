@@ -4,11 +4,11 @@
 // Far-zone particles are gravity-only VFX with no collision cost.
 // ============================================================================
 
-import { createValidatedShaderModule } from "@downdraft/core";
-import type { ITrackedRenderPass } from "@downdraft/core";
-import { calculateViewProj, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, type CameraState } from "@downdraft/core";
-import { WeatherType } from "@downdraft/library-weather";
-import { StructView, wgsl } from "@downdraft/shader-graph";
+import { createValidatedShaderModule } from "@downdraft/engine";
+import type { ITrackedRenderPass } from "@downdraft/engine";
+import { calculateViewProj, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, type CameraState } from "@downdraft/engine";
+import { WeatherType } from "@downdraft/engine/libraries/weather";
+import { StructView, wgsl } from "@downdraft/engine/shader-graph";
 import COMPUTE_WGSL from "./shaders/particle-compute.wgsl?raw" with { type: "text" };
 import RENDER_WGSL from "./shaders/particle-render.wgsl?raw" with { type: "text" };
 

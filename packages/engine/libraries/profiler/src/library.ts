@@ -1,6 +1,6 @@
 // ============================================================================
 // ProfilerLib — declarative engine library descriptor for
-// @downdraft/library-profiler.
+// @downdraft/engine/libraries/profiler.
 //
 // Games declare `libraries: [ProfilerLib]` (or
 // `[[ProfilerLib, { sceneModuleUrl: "...", traceSource: "in-engine" }]]`)
@@ -15,13 +15,13 @@
 // (which creates the ProfilingBridge + ProfilingSAB).
 // ============================================================================
 
-import { resourceToken, type EngineLibrary } from "@downdraft/core";
+import { resourceToken, type EngineLibrary } from "@downdraft/engine";
 
 export interface ProfilerLibConfig {
   /**
    * URL of the profiler scene module (the ProfilerScene factory).
    * Games typically set this to `new URL("./profiler-scene.ts", import.meta.url).href`
-   * or use the built-in scene from @downdraft/library-profiler/profiler-scene.
+   * or use the built-in scene from @downdraft/engine/libraries/profiler/profiler-scene.
    * If omitted, the library uses the built-in scene URL.
    */
   sceneModuleUrl?: string;
@@ -50,11 +50,11 @@ export const ProfilerLib: EngineLibrary<ProfilerLibConfig> = {
     create(config, ctx) {
       // Lazy-import to avoid pulling pixi-ui into the main bundle if unused
       const { ProfilerOverlay } = require("./profiler-overlay");
-      const { PixiUiHost } = require("@downdraft/library-pixi-ui/host");
+      const { PixiUiHost } = require("@downdraft/engine/libraries/pixi-ui/host");
 
       // The ProfilingSAB is created by the ProfilingBridge (in initDevTools).
       // We access it via the devtools API.
-      const { devtools } = require("@downdraft/module-devtools/api");
+      const { devtools } = require("@downdraft/engine/modules/devtools/api");
       const profilingSAB = devtools.getProfilingSAB();
       if (!profilingSAB) {
         console.warn("[ProfilerLib] No ProfilingSAB found — ensure initDevTools({ profiling: true }) is called before ProfilerLib");

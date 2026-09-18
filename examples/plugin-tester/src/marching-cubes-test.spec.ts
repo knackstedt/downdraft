@@ -1,4 +1,4 @@
-import type { DeformationConfig, DensityField, MCChunkConfig, VoxelField } from "@downdraft/library-marching-cubes";
+import type { DeformationConfig, DensityField, MCChunkConfig, VoxelField } from "@downdraft/engine/libraries/marching-cubes";
 import {
     CHUNK_FULL,
     CHUNK_SOLID,
@@ -21,7 +21,7 @@ import {
     markChunkGenerated,
     promoteChunk,
     setChunkedVoxel
-} from "@downdraft/library-marching-cubes";
+} from "@downdraft/engine/libraries/marching-cubes";
 import { beforeEach, describe, expect, it, vi } from "bun:test";
 
 // ============================================================================

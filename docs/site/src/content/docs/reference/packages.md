@@ -9,37 +9,37 @@ DownDraft Engine is organized as a Bun workspace monorepo with the following pac
 
 | Package | Description |
 |---|---|
-| `@downdraft/core` | Engine core: ECS, render passes, render graph, SAB, input, telemetry, modules, particles, animation, physics, audio, assets, save system |
-| `@downdraft/app` | Electron app shell: main process, preload, renderer entry, mobile host |
-| `@downdraft/ui` | React UI: devtools panel, profiler, material graph editor, animation state machine editor, asset browser |
-| `@downdraft/mcp` | MCP server for AI agent interaction (JSON-RPC over stdio) |
-| `@downdraft/shader-graph` | Material/shader graph compiler and validator |
+| `@downdraft/engine` | Engine core: ECS, render passes, render graph, SAB, input, telemetry, modules, particles, animation, physics, audio, assets, save system |
+| `@downdraft/engine/app` | Electron app shell: main process, preload, renderer entry, mobile host |
+| `@downdraft/engine/ui` | React UI: devtools panel, profiler, material graph editor, animation state machine editor, asset browser |
+| `@downdraft/engine/mcp` | MCP server for AI agent interaction (JSON-RPC over stdio) |
+| `@downdraft/engine/shader-graph` | Material/shader graph compiler and validator |
 | `@downdraft/cli` | CLI tool (`draft new/dev/debug/build/build-games/dist/export/mobile/assets/test`) |
 
 ## Engine Libraries
 
 | Package | Description |
 |---|---|
-| `@downdraft/library-water` | Gerstner wave water rendering, buoyancy, shore/wake interactions |
-| `@downdraft/library-marching-cubes` | Voxel terrain with LOD and deformation |
-| `@downdraft/library-physics-rapier` | Rapier3D physics backend |
-| `@downdraft/library-audio-kira` | Kira audio backend (Rust FFI via `packages/audio-native`) |
-| `@downdraft/library-networking` | WebSocket transport, state replication, RPCs |
-| `@downdraft/library-weather` | Weather system |
+| `@downdraft/engine/libraries/water` | Gerstner wave water rendering, buoyancy, shore/wake interactions |
+| `@downdraft/engine/libraries/marching-cubes` | Voxel terrain with LOD and deformation |
+| `@downdraft/engine/libraries/physics-rapier` | Rapier3D physics backend |
+| `@downdraft/engine/libraries/audio-kira` | Kira audio backend (Rust FFI via `packages/audio-native`) |
+| `@downdraft/engine/libraries/networking` | WebSocket transport, state replication, RPCs |
+| `@downdraft/engine/libraries/weather` | Weather system |
 
 ## Engine Modules
 
 | Package | Description |
 |---|---|
-| `@downdraft/module-devtools` | DevTools panel, scene inspector, GPU debugging |
-| `@downdraft/module-camera-controls` | Camera input handling |
-| `@downdraft/module-terrain` | Terrain composition (marching-cubes + LOD) |
-| `@downdraft/module-movement-3d` | 3D player movement |
-| `@downdraft/module-movement-2d` | 2D grid-based movement |
-| `@downdraft/module-sailing` | Sailing mechanics (wind, buoyancy, steering) |
-| `@downdraft/module-electron-osr` | Offscreen rendering |
-| `@downdraft/module-mcp` | MCP automation server |
-| `@downdraft/module-xr` | WebXR support |
+| `@downdraft/engine/modules/devtools` | DevTools panel, scene inspector, GPU debugging |
+| `@downdraft/engine/modules/camera-controls` | Camera input handling |
+| `@downdraft/engine/modules/terrain` | Terrain composition (marching-cubes + LOD) |
+| `@downdraft/engine/modules/movement-3d` | 3D player movement |
+| `@downdraft/engine/modules/movement-2d` | 2D grid-based movement |
+| `@downdraft/engine/modules/sailing` | Sailing mechanics (wind, buoyancy, steering) |
+| `@downdraft/engine/modules/electron-osr` | Offscreen rendering |
+| `@downdraft/engine/modules/mcp` | MCP automation server |
+| `@downdraft/engine/modules/xr` | WebXR support |
 
 ## Game Libraries (to-the-ocean)
 
@@ -73,7 +73,7 @@ Game-specific modules live in `games/to-the-ocean/modules/` under the `@to-the-o
 
 ## Core Subsystems
 
-The `@downdraft/core` package exports the following subsystems:
+The `@downdraft/engine` package exports the following subsystems:
 
 - **ECS** — World, Entity, Component, Archetype, Query, System, Schedule, Events, Hierarchy
 - **Render** — Device, Surface, RenderGraph, RenderPass, Pipeline, BindGroup, Buffer

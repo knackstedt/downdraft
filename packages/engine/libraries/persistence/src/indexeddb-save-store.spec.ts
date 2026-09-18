@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach } from "bun:test";
 import { IndexedDBSaveStore } from "./indexeddb-save-store";
 import { createMockIndexedDB, type MockIDBFactory } from "./mock-indexeddb";
-import type { SaveState } from "@downdraft/core";
+import type { SaveState } from "@downdraft/engine";
 
 // ============================================================================
 // Test compression: prefix byte + copy (same as opfs/file specs)

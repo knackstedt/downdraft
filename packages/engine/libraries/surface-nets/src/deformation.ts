@@ -9,7 +9,7 @@ export interface DeformationConfig {
 
 // applyDeformation is algorithm-agnostic — it wraps a density field function.
 // Re-exported from MC plugin for convenience.
-export { applyDeformation, applyMultipleDeformations } from "@downdraft/library-marching-cubes";
+export { applyDeformation, applyMultipleDeformations } from "@downdraft/engine/libraries/marching-cubes";
 
 /**
  * Deform a surface nets mesh by displacing vertices within a spherical region.

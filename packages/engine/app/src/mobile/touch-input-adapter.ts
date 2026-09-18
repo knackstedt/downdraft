@@ -29,7 +29,7 @@
 // an on-screen display (TouchOsd) can both visualize the joystick and route
 // button presses back through the same sink.
 
-import { InputBufferWriter, KEY } from "@downdraft/core";
+import { InputBufferWriter, KEY } from "@downdraft/engine";
 import {
     InputBufferWriterSink,
     NullTouchInputSink,

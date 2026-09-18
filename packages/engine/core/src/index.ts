@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// @downdraft/core — public API barrel
+// @downdraft/engine — public API barrel
 //
 // Re-exports from sub-barrels (ecs, render, assets, material, module, scene,
 // physics, util) plus remaining direct exports for modules without a sub-barrel.
@@ -172,9 +172,9 @@ export { TelemetryReporter } from "./telemetry/reporter";
 // ─────────────────────────────────────────────────────────────────────────────
 // Profiling (in-game declarative profiling system)
 //
-// The full profiling API is available via the `@downdraft/core/profiling`
+// The full profiling API is available via the `@downdraft/engine/profiling`
 // subpath. Here we re-export the most commonly used items for convenience.
-// Workers import the prelude via `import "@downdraft/core/profiling/worker-prelude"`.
+// Workers import the prelude via `import "@downdraft/engine/profiling/worker-prelude"`.
 // ─────────────────────────────────────────────────────────────────────────────
 export {
     DEFAULT_RENDERER_WARNING_RULES, DEFAULT_WORKER_WARNING_RULES, EventLoopMonitor,

@@ -10,8 +10,8 @@
 // the host reports platform "unsupported" and the renderer falls back to the
 // real Pointer Lock API.
 
-import { IPC } from "@downdraft/core/ipc";
-import { createLogger } from "@downdraft/core/util/logger";
+import { IPC } from "@downdraft/engine/ipc";
+import { createLogger } from "@downdraft/engine/util/logger";
 import type { WebContents } from "electron";
 import { existsSync } from "fs";
 import { join } from "path";
@@ -57,7 +57,7 @@ function loadNativeAddon(): NativeAddon | null {
   // The .node file location varies between dev and packaged builds:
   //  - Dev (Vite): main process is bundled into games/<game>/dist/main/,
   //    but the .node file is in the source tree at
-  //    packages/modules/raw-input/native/.
+  //    packages/engine/modules/raw-input/native/.
   //  - Packaged: the .node file should be alongside the compiled JS or
   //    in the app's resources directory.
   const candidates = [
@@ -68,16 +68,16 @@ function loadNativeAddon(): NativeAddon | null {
     join(__dirname, "../../native", filename),
     join(__dirname, "../../../native", filename),
     // Dev mode: __dirname is <repo>/dist/main/ — up 2 levels to repo root,
-    // then into packages/modules/raw-input/native/
-    join(__dirname, "../../packages/modules/raw-input/native", filename),
+    // then into packages/engine/modules/raw-input/native/
+    join(__dirname, "../../packages/engine/modules/raw-input/native", filename),
     // Dev mode: __dirname is <game>/dist/main/ — up 4 levels to repo root
-    join(__dirname, "../../../../packages/modules/raw-input/native", filename),
+    join(__dirname, "../../../../packages/engine/modules/raw-input/native", filename),
     // Dev mode: process.cwd() is the repo root (CLI spawns with cwd: ROOT)
-    join(process.cwd(), "packages/modules/raw-input/native", filename),
+    join(process.cwd(), "packages/engine/modules/raw-input/native", filename),
     // Dev mode: process.cwd() is the game directory
-    join(process.cwd(), "../../packages/modules/raw-input/native", filename),
+    join(process.cwd(), "../../packages/engine/modules/raw-input/native", filename),
     // Packaged: node_modules
-    join(process.cwd(), "node_modules/@downdraft/module-raw-input/native", filename),
+    join(process.cwd(), "node_modules/@downdraft/engine/modules/raw-input/native", filename),
   ];
 
   log.info("raw-input", `Looking for native addon: __dirname=${__dirname} cwd=${process.cwd()}`);

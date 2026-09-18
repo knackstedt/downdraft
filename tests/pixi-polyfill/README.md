@@ -1,6 +1,6 @@
 # PixiJS Polyfill Visual Parity Test Suite
 
-Verifies that the native PixiJS polyfill (`@downdraft/library-pixi-ui-native` on
+Verifies that the native PixiJS polyfill (`@downdraft/engine/libraries/pixi-ui-native` on
 Bun + wgpu-native) renders identically to the browser reference (PixiJS v8
 WebGPU in Electron/Chromium).
 

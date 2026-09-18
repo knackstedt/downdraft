@@ -13,7 +13,7 @@
 // callers that want one splat at a time (e.g. debugging, CPU-side queries).
 // ============================================================================
 
-import { assertBounds, assertCount, MAX_VERTEX_COUNT } from "@downdraft/core";
+import { assertBounds, assertCount, MAX_VERTEX_COUNT } from "@downdraft/engine";
 
 // ── SH coefficient counts ──
 //

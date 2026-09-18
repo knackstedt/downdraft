@@ -5,7 +5,7 @@ import {
   validateManifest, type AssetManifest,
   type AssetPackEntry,
   type BlobStoreConfig
-} from "@downdraft/core";
+} from "@downdraft/engine";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "fs";
 import { join, relative, resolve, sep } from "path";
 import { parseArgs, print, renderHelp, type CommandSchema } from "./args";

@@ -2,7 +2,7 @@
 // Creates a minimal Vite project with a bakeable .gltf import, runs a real
 // Vite build and dev server, and verifies the baked asset is emitted/served.
 //
-// Run: bun test packages/asset-bake/src/e2e-vite-plugin.spec.ts
+// Run: bun test packages/engine/asset-bake/src/e2e-vite-plugin.spec.ts
 
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -15,7 +15,7 @@ let projectDir: string;
 let srcDir: string;
 let cacheDir: string;
 
-const REPO = join(import.meta.dir, "..", "..", "..");
+const REPO = join(import.meta.dir, "..", "..", "..", "..");
 const MODEL_DIR = join(
   REPO,
   "games/to-the-ocean/src/assets/models/human/Universal Base Characters[Standard]/Hairstyles/Origin at 0/glTF (Godot)",

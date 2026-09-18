@@ -5,14 +5,14 @@
 // returns a Record<string, string> mapping file paths to resolved URLs.
 //
 // In native mode, callers use `createGlob(import.meta.dir)` from
-// @downdraft/core/platform/glob-polyfill — resolving patterns relative to
+// @downdraft/engine/platform/glob-polyfill — resolving patterns relative to
 // the importing file, matching Vite semantics. This module re-exports that
 // implementation and exposes it as globalThis.__nativeGlob for the engine's
 // runtime-detection seam.
 // ============================================================================
 
-import { createLogger } from "@downdraft/core";
-import { createGlob } from "@downdraft/core/platform/glob-polyfill";
+import { createLogger } from "@downdraft/engine";
+import { createGlob } from "@downdraft/engine/platform/glob-polyfill";
 
 const log = createLogger();
 

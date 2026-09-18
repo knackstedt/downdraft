@@ -536,7 +536,7 @@ describe("generateMobileEntryStub", () => {
 
   it("imports createDowndraftMobileApp", () => {
     const stub = generateMobileEntryStub("test-game", "com.downdraft.testgame");
-    expect(stub).toContain('from "@downdraft/app/mobile"');
+    expect(stub).toContain('from "@downdraft/engine/app/mobile"');
     expect(stub).toContain("createDowndraftMobileApp");
   });
 

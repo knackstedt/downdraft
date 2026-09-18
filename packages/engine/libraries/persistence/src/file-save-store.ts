@@ -12,7 +12,7 @@
 // Forward incompatibility: saves from a newer engine version are refused.
 // Consumers should implement version backups for unstable releases.
 
-import { safeJsonParse } from "@downdraft/core";
+import { safeJsonParse } from "@downdraft/engine";
 import {
     encodeHeader,
     engineVersionString,
@@ -22,8 +22,8 @@ import {
     SAVE_FORMAT_VERSION,
     SAVE_MAGIC,
     type SaveHeader
-} from "@downdraft/core/save/binary-format";
-import { MigrationRegistryImpl } from "@downdraft/core/save/migration-registry";
+} from "@downdraft/engine/save/binary-format";
+import { MigrationRegistryImpl } from "@downdraft/engine/save/migration-registry";
 import type {
     IMigrationRegistry,
     ISaveStore,
@@ -35,8 +35,8 @@ import type {
     SaveSlotInfo,
     SaveState,
     SaveWarning
-} from "@downdraft/core/save/persist-types";
-import { createLogger } from "@downdraft/core/util/logger";
+} from "@downdraft/engine/save/persist-types";
+import { createLogger } from "@downdraft/engine/util/logger";
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
 

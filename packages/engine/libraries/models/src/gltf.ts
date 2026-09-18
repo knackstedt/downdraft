@@ -1,4 +1,4 @@
-import { assertBounds, assertCount, MAX_VERTEX_COUNT, sanitizeUri } from "@downdraft/core";
+import { assertBounds, assertCount, MAX_VERTEX_COUNT, sanitizeUri } from "@downdraft/engine";
 import { strFromU8 } from "fflate";
 import type { GLTFCodecRegistry } from "./codecs/registry";
 import { getDefaultCodecRegistry } from "./codecs/registry";

@@ -6,14 +6,14 @@
 // accessor that fetches the main-process line via IPC for the DevTools copy
 // button and the MCP `get_features` tool.
 
-import { ENGINE_VERSION, condenseText, encodeFeatures, encodeFeatureLogJSON, encodeFeatureLogLines, type FeatureLogData } from "@downdraft/core";
+import { ENGINE_VERSION, condenseText, encodeFeatures, encodeFeatureLogJSON, encodeFeatureLogLines, type FeatureLogData } from "@downdraft/engine";
 import type { McpToolRegistration } from "./mcp-harness";
 import { downdraft } from "./index";
 
 export interface RendererFeatureLogOptions {
   /** Renderer with getGPUInfo() / getAdapterInfo() (GameRenderer or similar). */
   renderer: any;
-  /** Engine version (defaults to ENGINE_VERSION from @downdraft/core). */
+  /** Engine version (defaults to ENGINE_VERSION from @downdraft/engine). */
   engineVersion?: string;
   isDev: boolean;
   deterministic: boolean;

@@ -10,7 +10,7 @@
 // This plugin intercepts `*.wgsl?raw` in its `load` hook (enforce: "pre" so
 // it runs before Vite's `vite:asset` plugin) and emits a tiny JS module that:
 //   1. Imports the zero-dependency `wgslHotReload` registry by absolute path
-//      (avoids circular deps through the @downdraft/core barrel, which itself
+//      (avoids circular deps through the @downdraft/engine barrel, which itself
 //      imports `.wgsl?raw` modules via MaterialLibrary).
 //   2. Exports the raw shader source as `default` (same contract as `?raw`).
 //   3. Registers the source with the registry.
@@ -28,11 +28,11 @@ import type { Plugin } from "vite";
 
 export function wgslHmrPlugin(hmrRegistryPath: string): Plugin {
   // Resolve the registry source file directly to avoid importing through the
-  // @downdraft/core barrel (which would create a circular dependency because
+  // @downdraft/engine barrel (which would create a circular dependency because
   // the barrel re-exports modules that themselves import `*.wgsl?raw`).
   // Callers pass the absolute path — in the monorepo that's
-  // packages/core/src/render/wgsl-hmr.ts; standalone games resolve it inside
-  // node_modules/@downdraft/core/src/.
+  // packages/engine/core/src/render/wgsl-hmr.ts; standalone games resolve it inside
+  // node_modules/@downdraft/engine/core/src/.
   const registryPath = hmrRegistryPath;
 
   return {

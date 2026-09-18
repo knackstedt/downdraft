@@ -20,6 +20,8 @@
       },
       "devDependencies": {
         "@downdraft/cli": "workspace:*",
+        "@downdraft/engine": "workspace:*",
+        "@downdraft/platform-native": "^0.1.0",
         "@napi-rs/cli": "^2.18.0",
         "@types/node": "^22.10.0",
         "@types/pngjs": "^6.0.5",
@@ -48,19 +50,7 @@
       "name": "plugin-tester-example",
       "version": "0.1.0",
       "dependencies": {
-        "@downdraft/app": "workspace:*",
-        "@downdraft/core": "workspace:*",
-        "@downdraft/library-audio-kira": "workspace:*",
-        "@downdraft/library-lighting": "workspace:*",
-        "@downdraft/library-marching-cubes": "workspace:*",
-        "@downdraft/library-navmesh": "workspace:*",
-        "@downdraft/library-networking": "workspace:*",
-        "@downdraft/library-physics-rapier": "workspace:*",
-        "@downdraft/library-recast": "workspace:*",
-        "@downdraft/library-water": "workspace:*",
-        "@downdraft/library-weather": "workspace:*",
-        "@downdraft/mcp": "workspace:*",
-        "@downdraft/module-mcp": "workspace:*",
+        "@downdraft/engine": "workspace:*",
       },
     },
     "games/andrews-sandbox": {
@@ -77,20 +67,7 @@
         "@andrews-sandbox/module-vr": "workspace:*",
         "@andrews-sandbox/module-weapons": "workspace:*",
         "@dimforge/rapier3d-compat": "^0.19.3",
-        "@downdraft/app": "^0.1.0",
-        "@downdraft/core": "^0.1.0",
-        "@downdraft/library-character": "^0.1.0",
-        "@downdraft/library-entities": "^0.1.0",
-        "@downdraft/library-models": "^0.1.0",
-        "@downdraft/library-persistence": "^0.1.0",
-        "@downdraft/library-physics-rapier": "^0.1.0",
-        "@downdraft/library-pixi-ui": "^0.1.0",
-        "@downdraft/library-postfx": "^0.1.0",
-        "@downdraft/module-camera-controls": "^0.1.0",
-        "@downdraft/module-movement-3d": "^0.1.0",
-        "@downdraft/module-raw-input": "^0.1.0",
-        "@downdraft/module-vitals": "^0.1.0",
-        "@downdraft/module-xr": "^0.1.0",
+        "@downdraft/engine": "^0.1.0",
         "@downdraft/platform-native": "^0.1.0",
         "@pixi/react": "^8.0.5",
         "fflate": "^0.8.2",
@@ -118,79 +95,71 @@
       "name": "@andrews-sandbox/library-content",
       "version": "0.1.0",
       "dependencies": {
-        "@downdraft/core": "^0.1.0",
+        "@downdraft/engine": "^0.1.0",
       },
     },
     "games/andrews-sandbox/libraries/paint": {
       "name": "@andrews-sandbox/library-paint",
       "version": "0.1.0",
       "dependencies": {
-        "@downdraft/core": "^0.1.0",
+        "@downdraft/engine": "^0.1.0",
       },
     },
     "games/andrews-sandbox/libraries/props": {
       "name": "@andrews-sandbox/library-props",
       "version": "0.1.0",
       "dependencies": {
-        "@downdraft/core": "^0.1.0",
+        "@downdraft/engine": "^0.1.0",
       },
     },
     "games/andrews-sandbox/modules/content": {
       "name": "@andrews-sandbox/module-content",
       "version": "0.1.0",
       "dependencies": {
-        "@downdraft/core": "^0.1.0",
+        "@downdraft/engine": "^0.1.0",
       },
     },
     "games/andrews-sandbox/modules/paint": {
       "name": "@andrews-sandbox/module-paint",
       "version": "0.1.0",
       "dependencies": {
-        "@downdraft/core": "^0.1.0",
+        "@downdraft/engine": "^0.1.0",
       },
     },
     "games/andrews-sandbox/modules/physics-props": {
       "name": "@andrews-sandbox/module-physics-props",
       "version": "0.1.0",
       "dependencies": {
-        "@downdraft/core": "^0.1.0",
+        "@downdraft/engine": "^0.1.0",
       },
     },
     "games/andrews-sandbox/modules/spawn": {
       "name": "@andrews-sandbox/module-spawn",
       "version": "0.1.0",
       "dependencies": {
-        "@downdraft/core": "^0.1.0",
+        "@downdraft/engine": "^0.1.0",
       },
     },
     "games/andrews-sandbox/modules/vr": {
       "name": "@andrews-sandbox/module-vr",
       "version": "0.1.0",
       "dependencies": {
-        "@downdraft/core": "^0.1.0",
+        "@downdraft/engine": "^0.1.0",
       },
     },
     "games/andrews-sandbox/modules/weapons": {
       "name": "@andrews-sandbox/module-weapons",
       "version": "0.1.0",
       "dependencies": {
-        "@downdraft/core": "^0.1.0",
+        "@downdraft/engine": "^0.1.0",
       },
     },
     "games/falling-sand": {
       "name": "falling-sand",
       "version": "0.1.0",
       "dependencies": {
-        "@downdraft/app": "^0.1.0",
-        "@downdraft/core": "^0.1.0",
-        "@downdraft/library-persistence": "^0.1.0",
-        "@downdraft/library-sand": "^0.1.0",
-        "@downdraft/library-stickman": "^0.1.0",
-        "@downdraft/module-devtools": "^0.1.0",
-        "@downdraft/module-movement-2d": "^0.1.0",
+        "@downdraft/engine": "^0.1.0",
         "@downdraft/platform-native": "^0.1.0",
-        "@downdraft/shader-graph": "^0.1.0",
-        "@downdraft/ui": "^0.1.0",
         "zustand": "^5.0.2",
       },
       "devDependencies": {
@@ -208,18 +177,8 @@
       "name": "mining-rpg",
       "version": "0.1.0",
       "dependencies": {
-        "@downdraft/app": "^0.1.0",
-        "@downdraft/core": "^0.1.0",
-        "@downdraft/library-persistence": "^0.1.0",
-        "@downdraft/library-pixi-ui": "^0.1.0",
-        "@downdraft/library-sand": "^0.1.0",
-        "@downdraft/library-stickman": "^0.1.0",
-        "@downdraft/module-devtools": "^0.1.0",
-        "@downdraft/module-movement-2d": "^0.1.0",
-        "@downdraft/module-vitals": "^0.1.0",
+        "@downdraft/engine": "^0.1.0",
         "@downdraft/platform-native": "^0.1.0",
-        "@downdraft/shader-graph": "^0.1.0",
-        "@downdraft/ui": "^0.1.0",
         "@pixi/react": "^8.0.5",
         "pixi.js": "^8.18.0",
         "react": "^19.2.8",
@@ -244,19 +203,8 @@
       "name": "overburden",
       "version": "0.1.0",
       "dependencies": {
-        "@downdraft/app": "^0.1.0",
-        "@downdraft/core": "^0.1.0",
-        "@downdraft/library-entities": "^0.1.0",
-        "@downdraft/library-models": "^0.1.0",
-        "@downdraft/library-pathfinding-2d": "^0.1.0",
-        "@downdraft/library-persistence": "^0.1.0",
-        "@downdraft/library-pixi-ui": "^0.1.0",
-        "@downdraft/library-sand": "^0.1.0",
-        "@downdraft/library-stickman": "^0.1.0",
-        "@downdraft/module-devtools": "^0.1.0",
+        "@downdraft/engine": "^0.1.0",
         "@downdraft/platform-native": "^0.1.0",
-        "@downdraft/shader-graph": "^0.1.0",
-        "@downdraft/ui": "^0.1.0",
         "@pixi/react": "^8.0.0",
         "pixi.js": "8.18.0",
         "react": "^19.2.8",
@@ -285,28 +233,22 @@
       "name": "@overburden/plugin-bronze-blocks",
       "version": "1.0.0",
       "dependencies": {
-        "@downdraft/core": "workspace:*",
+        "@downdraft/engine": "^0.1.0",
       },
     },
     "games/overburden/plugins/crop-sprites-pack": {
       "name": "@overburden/plugin-crop-sprites-pack",
       "version": "1.0.0",
       "dependencies": {
-        "@downdraft/core": "workspace:*",
+        "@downdraft/engine": "^0.1.0",
       },
     },
     "games/sandjongg": {
       "name": "sandjongg",
       "version": "0.1.0",
       "dependencies": {
-        "@downdraft/app": "^0.1.0",
-        "@downdraft/core": "^0.1.0",
-        "@downdraft/library-pixi-ui": "^0.1.0",
-        "@downdraft/library-profiler": "^0.1.0",
-        "@downdraft/library-sand": "^0.1.0",
-        "@downdraft/module-devtools": "^0.1.0",
+        "@downdraft/engine": "^0.1.0",
         "@downdraft/platform-native": "^0.1.0",
-        "@downdraft/ui": "^0.1.0",
         "pixi.js": "8.18.0",
         "zustand": "^5.0.2",
       },
@@ -329,14 +271,14 @@
       "name": "@sandjongg/plugin-custom-scorer",
       "version": "1.0.0",
       "dependencies": {
-        "@downdraft/core": "workspace:*",
+        "@downdraft/engine": "^0.1.0",
       },
     },
     "games/sandjongg/plugins/speed-mode": {
       "name": "@sandjongg/plugin-speed-mode",
       "version": "1.0.0",
       "dependencies": {
-        "@downdraft/core": "workspace:*",
+        "@downdraft/engine": "^0.1.0",
       },
     },
     "games/to-the-ocean": {
@@ -344,26 +286,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@dimforge/rapier3d-compat": "^0.19.3",
-        "@downdraft/app": "^0.1.0",
-        "@downdraft/core": "^0.1.0",
-        "@downdraft/library-character": "^0.1.0",
-        "@downdraft/library-devtools": "^0.1.0",
-        "@downdraft/library-entities": "^0.1.0",
-        "@downdraft/library-lighting": "^0.1.0",
-        "@downdraft/library-marching-cubes": "^0.1.0",
-        "@downdraft/library-models": "^0.1.0",
-        "@downdraft/library-persistence": "^0.1.0",
-        "@downdraft/library-physics-rapier": "^0.1.0",
-        "@downdraft/library-pixi-ui": "^0.1.0",
-        "@downdraft/library-pixi-ui-native": "^0.1.0",
-        "@downdraft/library-postfx": "^0.1.0",
-        "@downdraft/library-surface-nets": "^0.1.0",
-        "@downdraft/library-water": "^0.1.0",
-        "@downdraft/library-weather": "^0.1.0",
-        "@downdraft/library-weatherfx": "^0.1.0",
-        "@downdraft/module-devtools": "^0.1.0",
-        "@downdraft/module-electron-osr": "^0.1.0",
-        "@downdraft/module-movement-3d": "^0.1.0",
+        "@downdraft/engine": "^0.1.0",
         "@downdraft/platform-native": "^0.1.0",
         "@fontsource/doto": "^5.1.1",
         "@fontsource/linefont": "^5.1.1",
@@ -409,22 +332,21 @@
       "name": "@to-the-ocean/library-boats",
       "version": "0.1.0",
       "dependencies": {
-        "@downdraft/core": "^0.1.0",
+        "@downdraft/engine": "^0.1.0",
       },
     },
     "games/to-the-ocean/libraries/economy": {
       "name": "@to-the-ocean/library-economy",
       "version": "0.1.0",
       "dependencies": {
-        "@downdraft/core": "^0.1.0",
+        "@downdraft/engine": "^0.1.0",
       },
     },
     "games/to-the-ocean/libraries/fishing": {
       "name": "@to-the-ocean/library-fishing",
       "version": "0.1.0",
       "dependencies": {
-        "@downdraft/core": "^0.1.0",
-        "@downdraft/library-weather": "^0.1.0",
+        "@downdraft/engine": "^0.1.0",
       },
     },
     "games/to-the-ocean/libraries/items": {
@@ -435,29 +357,28 @@
       "name": "@to-the-ocean/library-survival",
       "version": "0.1.0",
       "dependencies": {
-        "@downdraft/core": "^0.1.0",
-        "@downdraft/library-weather": "^0.1.0",
+        "@downdraft/engine": "^0.1.0",
       },
     },
     "games/to-the-ocean/modules/buoyancy": {
       "name": "@to-the-ocean/module-buoyancy",
       "version": "0.1.0",
       "dependencies": {
-        "@downdraft/core": "^0.1.0",
+        "@downdraft/engine": "^0.1.0",
       },
     },
     "games/to-the-ocean/modules/collision": {
       "name": "@to-the-ocean/module-collision",
       "version": "0.1.0",
       "dependencies": {
-        "@downdraft/core": "^0.1.0",
+        "@downdraft/engine": "^0.1.0",
       },
     },
     "games/to-the-ocean/modules/crafting": {
       "name": "@to-the-ocean/module-crafting",
       "version": "0.1.0",
       "dependencies": {
-        "@downdraft/core": "^0.1.0",
+        "@downdraft/engine": "^0.1.0",
         "@to-the-ocean/module-inventory": "workspace:*",
       },
     },
@@ -465,7 +386,7 @@
       "name": "@to-the-ocean/module-inventory",
       "version": "0.1.0",
       "dependencies": {
-        "@downdraft/core": "^0.1.0",
+        "@downdraft/engine": "^0.1.0",
         "@to-the-ocean/library-items": "workspace:*",
       },
     },
@@ -473,35 +394,7 @@
       "name": "@to-the-ocean/module-wildlife",
       "version": "0.1.0",
       "dependencies": {
-        "@downdraft/core": "^0.1.0",
-      },
-    },
-    "packages/app": {
-      "name": "@downdraft/app",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/asset-bake": "^0.1.0",
-        "@downdraft/core": "^0.1.0",
-        "@downdraft/library-persistence": "^0.1.0",
-        "@downdraft/mcp": "^0.1.0",
-        "@downdraft/module-devtools": "^0.1.0",
-        "@downdraft/module-electron-osr": "^0.1.0",
-        "@downdraft/module-raw-input": "^0.1.0",
-        "@downdraft/ui": "^0.1.0",
-      },
-    },
-    "packages/asset-bake": {
-      "name": "@downdraft/asset-bake",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "^0.1.0",
-        "@gltf-transform/core": "^4.4.2",
-        "@gltf-transform/extensions": "^4.4.2",
-        "@gltf-transform/functions": "^4.4.2",
-        "fflate": "^0.8.2",
-        "jimp": "^1.6.1",
-        "ktx2-encoder": "^0.6.0",
-        "meshoptimizer": "^1.2.0",
+        "@downdraft/engine": "^0.1.0",
       },
     },
     "packages/cli": {
@@ -512,379 +405,62 @@
       },
       "dependencies": {
         "@aws-sdk/client-s3": "^3.700.0",
-        "@downdraft/core": "^0.1.0",
+        "@downdraft/engine": "^0.1.0",
         "eta": "^3.5.0",
         "jimp": "^1.6.1",
       },
     },
-    "packages/core": {
-      "name": "@downdraft/core",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/shader-graph": "^0.1.0",
-        "@jitl/quickjs-singlefile-browser-release-sync": "^0.32.0",
-        "quickjs-emscripten": "^0.32.0",
-        "wgpu-matrix": "^3.4.2",
-      },
-      "peerDependencies": {
-        "@downdraft/library-models": "^0.1.0",
-      },
-      "optionalPeers": [
-        "@downdraft/library-models",
-      ],
-    },
-    "packages/libraries/audio-kira": {
-      "name": "@downdraft/library-audio-kira",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-      },
-    },
-    "packages/libraries/character": {
-      "name": "@downdraft/library-character",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "^0.1.0",
-        "@downdraft/library-entities": "^0.1.0",
-        "@downdraft/library-models": "^0.1.0",
-      },
-    },
-    "packages/libraries/devtools": {
-      "name": "@downdraft/library-devtools",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "^0.1.0",
-        "@downdraft/module-devtools": "^0.1.0",
-        "@downdraft/platform-native": "^0.1.0",
-      },
-      "peerDependencies": {
-        "@downdraft/library-pixi-ui-native": "^0.1.0",
-      },
-      "optionalPeers": [
-        "@downdraft/library-pixi-ui-native",
-      ],
-    },
-    "packages/libraries/entities": {
-      "name": "@downdraft/library-entities",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "^0.1.0",
-        "@downdraft/library-models": "^0.1.0",
-      },
-    },
-    "packages/libraries/gaussian-splats": {
-      "name": "@downdraft/library-gaussian-splats",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-        "@downdraft/shader-graph": "workspace:*",
-      },
-    },
-    "packages/libraries/lighting": {
-      "name": "@downdraft/library-lighting",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "^0.1.0",
-        "@downdraft/library-weather": "^0.1.0",
-      },
-    },
-    "packages/libraries/marching-cubes": {
-      "name": "@downdraft/library-marching-cubes",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "^0.1.0",
-      },
-    },
-    "packages/libraries/models": {
-      "name": "@downdraft/library-models",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "^0.1.0",
-        "@h00w/basis-universal-transcoder": "^2.1.0",
-        "comment-json": "^5.0.0",
-        "draco3dgltf": "^1.5.7",
-        "fflate": "^0.8.2",
-        "meshoptimizer": "^1.2.0",
-      },
-    },
-    "packages/libraries/navmesh": {
-      "name": "@downdraft/library-navmesh",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-      },
-    },
-    "packages/libraries/networking": {
-      "name": "@downdraft/library-networking",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-      },
-    },
-    "packages/libraries/pathfinding-2d": {
-      "name": "@downdraft/library-pathfinding-2d",
-      "version": "0.1.0",
-    },
-    "packages/libraries/persistence": {
-      "name": "@downdraft/library-persistence",
+    "packages/engine": {
+      "name": "@downdraft/engine",
       "version": "0.1.0",
       "dependencies": {
         "@bokuweb/zstd-wasm": "^0.0.27",
-        "@downdraft/core": "^0.1.0",
+        "@gltf-transform/core": "^4.4.2",
+        "@gltf-transform/extensions": "^4.4.2",
+        "@gltf-transform/functions": "^4.4.2",
+        "@h00w/basis-universal-transcoder": "^2.1.0",
+        "@jitl/quickjs-singlefile-browser-release-sync": "^0.32.0",
         "buffer": "^6.0.3",
+        "comment-json": "^5.0.0",
+        "draco3dgltf": "^1.5.7",
+        "fflate": "^0.8.2",
+        "jimp": "^1.6.1",
+        "ktx2-encoder": "^0.6.0",
+        "lucide-react": "^0.468.0",
+        "meshoptimizer": "^1.2.0",
+        "pixi.js": "8.18.0",
+        "quickjs-emscripten": "^0.32.0",
+        "wgpu-matrix": "^3.4.2",
         "xxh3-ts": "^2.0.1",
         "xxhash-wasm": "^0.4.2",
-      },
-    },
-    "packages/libraries/physics-native": {
-      "name": "@downdraft/library-physics-native",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-      },
-    },
-    "packages/libraries/physics-rapier": {
-      "name": "@downdraft/library-physics-rapier",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "^0.1.0",
-      },
-    },
-    "packages/libraries/pixi-ui": {
-      "name": "@downdraft/library-pixi-ui",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "^0.1.0",
-        "pixi.js": "8.18.0",
-      },
-      "devDependencies": {
-        "@pixi/react": "8.0.5",
-        "@types/react": "^19.2.17",
+        "zustand": "^5.0.2",
       },
       "peerDependencies": {
-        "@pixi/react": "^8.0.5",
-        "react": "^19.0.0",
-      },
-      "optionalPeers": [
-        "@pixi/react",
-        "react",
-      ],
-    },
-    "packages/libraries/pixi-ui-native": {
-      "name": "@downdraft/library-pixi-ui-native",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "^0.1.0",
         "@downdraft/platform-native": "^0.1.0",
-        "pixi.js": "8.18.0",
-      },
-      "peerDependencies": {
         "@pixi/react": "^8.0.5",
         "react": "^19.0.0",
+        "react-dom": "^19.0.0",
       },
       "optionalPeers": [
+        "@downdraft/platform-native",
         "@pixi/react",
         "react",
+        "react-dom",
       ],
-    },
-    "packages/libraries/postfx": {
-      "name": "@downdraft/library-postfx",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "^0.1.0",
-      },
-    },
-    "packages/libraries/profiler": {
-      "name": "@downdraft/library-profiler",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "^0.1.0",
-        "@downdraft/library-pixi-ui": "^0.1.0",
-        "@downdraft/module-devtools": "^0.1.0",
-        "pixi.js": "8.18.0",
-      },
-    },
-    "packages/libraries/recast": {
-      "name": "@downdraft/library-recast",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-      },
-    },
-    "packages/libraries/sand": {
-      "name": "@downdraft/library-sand",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "^0.1.0",
-      },
-    },
-    "packages/libraries/stickman": {
-      "name": "@downdraft/library-stickman",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "^0.1.0",
-        "@downdraft/shader-graph": "^0.1.0",
-      },
-    },
-    "packages/libraries/surface-nets": {
-      "name": "@downdraft/library-surface-nets",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "^0.1.0",
-        "@downdraft/library-marching-cubes": "^0.1.0",
-      },
-    },
-    "packages/libraries/water": {
-      "name": "@downdraft/library-water",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "^0.1.0",
-        "@downdraft/shader-graph": "^0.1.0",
-      },
-    },
-    "packages/libraries/weather": {
-      "name": "@downdraft/library-weather",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "^0.1.0",
-      },
-    },
-    "packages/libraries/weatherfx": {
-      "name": "@downdraft/library-weatherfx",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "^0.1.0",
-        "@downdraft/library-marching-cubes": "^0.1.0",
-        "@downdraft/library-weather": "^0.1.0",
-        "@downdraft/shader-graph": "^0.1.0",
-      },
-    },
-    "packages/mcp": {
-      "name": "@downdraft/mcp",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "^0.1.0",
-      },
     },
     "packages/mobile-shell": {
       "name": "@downdraft/mobile-shell",
       "version": "0.1.0",
     },
-    "packages/modules/camera-controls": {
-      "name": "@downdraft/module-camera-controls",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "^0.1.0",
-      },
-    },
-    "packages/modules/devtools": {
-      "name": "@downdraft/module-devtools",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/app": "^0.1.0",
-        "@downdraft/core": "^0.1.0",
-        "@downdraft/library-models": "^0.1.0",
-        "@downdraft/library-pixi-ui": "^0.1.0",
-        "zustand": "^5.0.2",
-      },
-    },
-    "packages/modules/electron-osr": {
-      "name": "@downdraft/module-electron-osr",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "^0.1.0",
-      },
-    },
-    "packages/modules/mcp": {
-      "name": "@downdraft/module-mcp",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-        "@downdraft/mcp": "workspace:*",
-      },
-    },
-    "packages/modules/movement-2d": {
-      "name": "@downdraft/module-movement-2d",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "^0.1.0",
-      },
-    },
-    "packages/modules/movement-3d": {
-      "name": "@downdraft/module-movement-3d",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "^0.1.0",
-      },
-    },
-    "packages/modules/raw-input": {
-      "name": "@downdraft/module-raw-input",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "^0.1.0",
-      },
-    },
-    "packages/modules/sailing": {
-      "name": "@downdraft/module-sailing",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-        "@downdraft/library-water": "workspace:*",
-      },
-    },
-    "packages/modules/terrain": {
-      "name": "@downdraft/module-terrain",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-        "@downdraft/library-marching-cubes": "workspace:*",
-      },
-    },
-    "packages/modules/vitals": {
-      "name": "@downdraft/module-vitals",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "^0.1.0",
-      },
-    },
-    "packages/modules/xr": {
-      "name": "@downdraft/module-xr",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "^0.1.0",
-      },
-    },
     "packages/platform-native": {
       "name": "@downdraft/platform-native",
       "version": "0.1.0",
       "dependencies": {
-        "@downdraft/core": "^0.1.0",
+        "@downdraft/engine": "^0.1.0",
         "koffi": "^3.2.1",
       },
       "devDependencies": {
         "typescript": "^5",
-      },
-    },
-    "packages/shader-graph": {
-      "name": "@downdraft/shader-graph",
-      "version": "0.1.0",
-    },
-    "packages/test": {
-      "name": "@downdraft/test",
-      "version": "0.1.0",
-    },
-    "packages/ui": {
-      "name": "@downdraft/ui",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "^0.1.0",
-        "lucide-react": "^0.468.0",
-        "react": "^19.2.8",
-        "react-dom": "^19.2.8",
-      },
-      "devDependencies": {
-        "@types/react": "^19.2.17",
-        "@types/react-dom": "^19.2.3",
       },
     },
   },
@@ -1003,97 +579,13 @@
 
     "@dimforge/rapier3d-compat": ["@dimforge/rapier3d-compat@0.19.3", "", {}, "sha512-mMVdSj1PRTT108s9Swbu2GQOmHbn8kbJANRV5xfczL3s0T4vkgZAuoMRgvBzQcHanpKusbC0ZJj6z3mC3aj3vg=="],
 
-    "@downdraft/app": ["@downdraft/app@workspace:packages/app"],
-
-    "@downdraft/asset-bake": ["@downdraft/asset-bake@workspace:packages/asset-bake"],
-
     "@downdraft/cli": ["@downdraft/cli@workspace:packages/cli"],
 
-    "@downdraft/core": ["@downdraft/core@workspace:packages/core"],
-
-    "@downdraft/library-audio-kira": ["@downdraft/library-audio-kira@workspace:packages/libraries/audio-kira"],
-
-    "@downdraft/library-character": ["@downdraft/library-character@workspace:packages/libraries/character"],
-
-    "@downdraft/library-devtools": ["@downdraft/library-devtools@workspace:packages/libraries/devtools"],
-
-    "@downdraft/library-entities": ["@downdraft/library-entities@workspace:packages/libraries/entities"],
-
-    "@downdraft/library-gaussian-splats": ["@downdraft/library-gaussian-splats@workspace:packages/libraries/gaussian-splats"],
-
-    "@downdraft/library-lighting": ["@downdraft/library-lighting@workspace:packages/libraries/lighting"],
-
-    "@downdraft/library-marching-cubes": ["@downdraft/library-marching-cubes@workspace:packages/libraries/marching-cubes"],
-
-    "@downdraft/library-models": ["@downdraft/library-models@workspace:packages/libraries/models"],
-
-    "@downdraft/library-navmesh": ["@downdraft/library-navmesh@workspace:packages/libraries/navmesh"],
-
-    "@downdraft/library-networking": ["@downdraft/library-networking@workspace:packages/libraries/networking"],
-
-    "@downdraft/library-pathfinding-2d": ["@downdraft/library-pathfinding-2d@workspace:packages/libraries/pathfinding-2d"],
-
-    "@downdraft/library-persistence": ["@downdraft/library-persistence@workspace:packages/libraries/persistence"],
-
-    "@downdraft/library-physics-native": ["@downdraft/library-physics-native@workspace:packages/libraries/physics-native"],
-
-    "@downdraft/library-physics-rapier": ["@downdraft/library-physics-rapier@workspace:packages/libraries/physics-rapier"],
-
-    "@downdraft/library-pixi-ui": ["@downdraft/library-pixi-ui@workspace:packages/libraries/pixi-ui"],
-
-    "@downdraft/library-pixi-ui-native": ["@downdraft/library-pixi-ui-native@workspace:packages/libraries/pixi-ui-native"],
-
-    "@downdraft/library-postfx": ["@downdraft/library-postfx@workspace:packages/libraries/postfx"],
-
-    "@downdraft/library-profiler": ["@downdraft/library-profiler@workspace:packages/libraries/profiler"],
-
-    "@downdraft/library-recast": ["@downdraft/library-recast@workspace:packages/libraries/recast"],
-
-    "@downdraft/library-sand": ["@downdraft/library-sand@workspace:packages/libraries/sand"],
-
-    "@downdraft/library-stickman": ["@downdraft/library-stickman@workspace:packages/libraries/stickman"],
-
-    "@downdraft/library-surface-nets": ["@downdraft/library-surface-nets@workspace:packages/libraries/surface-nets"],
-
-    "@downdraft/library-water": ["@downdraft/library-water@workspace:packages/libraries/water"],
-
-    "@downdraft/library-weather": ["@downdraft/library-weather@workspace:packages/libraries/weather"],
-
-    "@downdraft/library-weatherfx": ["@downdraft/library-weatherfx@workspace:packages/libraries/weatherfx"],
-
-    "@downdraft/mcp": ["@downdraft/mcp@workspace:packages/mcp"],
+    "@downdraft/engine": ["@downdraft/engine@workspace:packages/engine"],
 
     "@downdraft/mobile-shell": ["@downdraft/mobile-shell@workspace:packages/mobile-shell"],
 
-    "@downdraft/module-camera-controls": ["@downdraft/module-camera-controls@workspace:packages/modules/camera-controls"],
-
-    "@downdraft/module-devtools": ["@downdraft/module-devtools@workspace:packages/modules/devtools"],
-
-    "@downdraft/module-electron-osr": ["@downdraft/module-electron-osr@workspace:packages/modules/electron-osr"],
-
-    "@downdraft/module-mcp": ["@downdraft/module-mcp@workspace:packages/modules/mcp"],
-
-    "@downdraft/module-movement-2d": ["@downdraft/module-movement-2d@workspace:packages/modules/movement-2d"],
-
-    "@downdraft/module-movement-3d": ["@downdraft/module-movement-3d@workspace:packages/modules/movement-3d"],
-
-    "@downdraft/module-raw-input": ["@downdraft/module-raw-input@workspace:packages/modules/raw-input"],
-
-    "@downdraft/module-sailing": ["@downdraft/module-sailing@workspace:packages/modules/sailing"],
-
-    "@downdraft/module-terrain": ["@downdraft/module-terrain@workspace:packages/modules/terrain"],
-
-    "@downdraft/module-vitals": ["@downdraft/module-vitals@workspace:packages/modules/vitals"],
-
-    "@downdraft/module-xr": ["@downdraft/module-xr@workspace:packages/modules/xr"],
-
     "@downdraft/platform-native": ["@downdraft/platform-native@workspace:packages/platform-native"],
-
-    "@downdraft/shader-graph": ["@downdraft/shader-graph@workspace:packages/shader-graph"],
-
-    "@downdraft/test": ["@downdraft/test@workspace:packages/test"],
-
-    "@downdraft/ui": ["@downdraft/ui@workspace:packages/ui"],
 
     "@electron-internal/extract-zip": ["@electron-internal/extract-zip@1.0.4", "", {}, "sha512-Zr1Vs7E9tpCNhZHDAbFVXc2gEVCG9RqPDjrno5+bdgB6LRAuvgyMHJut4NCVyYwtAieapMzc3fiQ3CSTi75ARg=="],
 

@@ -6,7 +6,7 @@ import type {
   BlobPutOptions,
   BlobStore,
   BlobStoreConfig,
-} from "@downdraft/core";
+} from "@downdraft/engine";
 
 /**
  * S3-compatible blob store adapter.

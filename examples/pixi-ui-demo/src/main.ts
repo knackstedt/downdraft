@@ -2,7 +2,7 @@
 // PixiUI Demo — Main Process Entry
 // ============================================================================
 
-import { createDowndraftApp, webGpuSwitches } from "@downdraft/app/main";
+import { createDowndraftApp, webGpuSwitches } from "@downdraft/engine/app/main";
 
 createDowndraftApp({
   appId: "downdraft-pixi-ui-demo",

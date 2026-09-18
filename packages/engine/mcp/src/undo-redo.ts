@@ -1,4 +1,4 @@
-import { createLogger } from "@downdraft/core";
+import { createLogger } from "@downdraft/engine";
 import type { EngineContext } from "./engine-context";
 
 const log = createLogger();

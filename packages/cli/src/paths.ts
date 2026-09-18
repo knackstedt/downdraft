@@ -23,7 +23,7 @@ export const GAME_CONFIG_FILE = "electron.vite.config.ts";
 
 /**
  * Find the downdraft monorepo root — a directory whose package.json is named
- * "downdraft-engine" and contains packages/core. Searches cwd ancestry first,
+ * "downdraft-engine" and contains packages/engine. Searches cwd ancestry first,
  * then the CLI's own location (packages/cli/src → ../../.. in the monorepo).
  * Returns null when running inside a standalone game repo.
  */
@@ -34,7 +34,7 @@ export function findMonorepoRoot(start: string = process.cwd()): string | null {
     for (;;) {
       try {
         const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
-        if (pkg.name === "downdraft-engine" && existsSync(join(dir, "packages/core"))) {
+        if (pkg.name === "downdraft-engine" && existsSync(join(dir, "packages/engine"))) {
           return dir;
         }
       } catch { /* no package.json here — keep walking */ }

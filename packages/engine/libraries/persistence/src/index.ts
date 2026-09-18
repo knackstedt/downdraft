@@ -1,10 +1,10 @@
 // ============================================================================
-// @downdraft/library-persistence — versioned, compressed save system
+// @downdraft/engine/libraries/persistence — versioned, compressed save system
 // ============================================================================
 //
 // This barrel re-exports everything including FileSaveStore (Node-only).
 // For browser/renderer code that cannot import node:fs/node:path, import from
-// @downdraft/library-persistence/browser instead.
+// @downdraft/engine/libraries/persistence/browser instead.
 
 export { FileSaveStore } from "./file-save-store";
 export type { FileSaveStoreOptions } from "./file-save-store";
@@ -27,7 +27,7 @@ export type { SaveWorkerApi } from "./save-worker";
 export {
     decodeHeader, encodeHeader, engineVersionString, HEADER_SIZE, MigrationRegistryImpl,
     packEngineVersion, readHeaderFromFile, SAVE_FORMAT_VERSION, SAVE_MAGIC, unpackEngineVersion, XXH128_SIZE
-} from "@downdraft/core/index";
+} from "@downdraft/engine/index";
 
 export type {
     ComponentMigration,
@@ -47,7 +47,7 @@ export type {
     SaveStateBuilder,
     SaveWarning,
     SaveWarningKind
-} from "@downdraft/core/index";
+} from "@downdraft/engine/index";
 
 // Declarative library descriptor
 export { PersistenceLib, PersistenceTok } from "./library";

@@ -1,4 +1,4 @@
-import { confinePath } from "@downdraft/core";
+import { confinePath } from "@downdraft/engine";
 import type { EngineContext } from "../engine-context";
 import type { ToolRegistration } from "../types";
 import { errorResult, jsonResult } from "../types";

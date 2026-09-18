@@ -1,14 +1,14 @@
 // E2E round-trip test: bake a real glTF → verify GLB has meshopt + basisu →
 // feed KTX2 bytes through the runtime basisu codec → verify it transcodes.
 //
-// Run: bun test packages/asset-bake/src/e2e-roundtrip.spec.ts
+// Run: bun test packages/engine/asset-bake/src/e2e-roundtrip.spec.ts
 
 import { describe, expect, it } from "bun:test";
 import { join } from "node:path";
 import { bakeGltf } from "./bake-gltf";
 import { resolveOptions } from "./config";
 
-const REPO = join(import.meta.dir, "..", "..", "..");
+const REPO = join(import.meta.dir, "..", "..", "..", "..");
 const MODEL_DIR = join(
   REPO,
   "games/to-the-ocean/src/assets/models/human/Universal Base Characters[Standard]/Hairstyles/Origin at 0/glTF (Godot)",

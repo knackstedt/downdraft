@@ -1,4 +1,4 @@
-import { getColumnValue } from "@downdraft/core";
+import { getColumnValue } from "@downdraft/engine";
 import type { EngineContext } from "../engine-context";
 import type { MCPResourceResult, ResourceRegistration } from "../types";
 

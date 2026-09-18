@@ -2,7 +2,7 @@
 // Water Test — initialize water physics, update each tick, expose state
 // ============================================================================
 
-import { WaterPhysics, WaterBuffer, DEFAULT_PHYSICS_CONFIG } from "@downdraft/library-water";
+import { WaterPhysics, WaterBuffer, DEFAULT_PHYSICS_CONFIG } from "@downdraft/engine/libraries/water";
 
 export interface WaterTestResult {
   physics: WaterPhysics;

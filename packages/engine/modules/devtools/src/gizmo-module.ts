@@ -12,7 +12,7 @@
 //  - render-pass hook → gizmo.render(passEncoder, camera)
 // ============================================================================
 
-import type { RendererModule } from "@downdraft/core";
+import type { RendererModule } from "@downdraft/engine";
 import type { TransformGizmo } from "./transform-gizmo";
 
 export interface TransformGizmoModuleOptions {

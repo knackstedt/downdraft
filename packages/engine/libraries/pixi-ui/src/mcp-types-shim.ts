@@ -1,9 +1,9 @@
 // ============================================================================
-// mcp-types-shim — local MCP tool types + helpers for @downdraft/library-pixi-ui.
+// mcp-types-shim — local MCP tool types + helpers for @downdraft/engine/libraries/pixi-ui.
 //
-// The library doesn't depend on @downdraft/app (engine libraries are lower
+// The library doesn't depend on @downdraft/engine/app (engine libraries are lower
 // in the dependency graph). These types are structurally compatible with
-// McpToolRegistration from @downdraft/app/renderer, so games can pass the
+// McpToolRegistration from @downdraft/engine/app/renderer, so games can pass the
 // result of createPixiUiMcpTools() directly to createMcpHarness({ tools }).
 // ============================================================================
 

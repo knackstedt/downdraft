@@ -1,4 +1,4 @@
-import type { PhysicsBackend } from "@downdraft/core";
+import type { PhysicsBackend } from "@downdraft/engine";
 
 /**
  * Bulk transform reader/writer for efficient FFI/WASM boundary crossing.

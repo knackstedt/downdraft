@@ -1,5 +1,5 @@
-import { resourceToken, type Module, type ModuleContext } from "@downdraft/core";
-import { EngineContext, MCPServer, type EngineContextFromGameOptions } from "@downdraft/mcp";
+import { resourceToken, type Module, type ModuleContext } from "@downdraft/engine";
+import { EngineContext, MCPServer, type EngineContextFromGameOptions } from "@downdraft/engine/mcp";
 
 /** Token for the MCP server instance provided by the mcp plugin. */
 export const McpServerTok = resourceToken<MCPServer>("mcp:server");

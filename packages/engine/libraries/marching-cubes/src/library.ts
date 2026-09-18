@@ -1,5 +1,5 @@
 // ============================================================================
-// MarchingCubesLib — declarative engine library descriptor for @downdraft/library-marching-cubes
+// MarchingCubesLib — declarative engine library descriptor for @downdraft/engine/libraries/marching-cubes
 //
 // Games declare `libraries: [MarchingCubesLib]` (or with config override)
 // in their GameModule. The host allocates the terrain SAB (if used —
@@ -10,7 +10,7 @@
 // functions and ChunkedVoxelField directly (escape hatch).
 // ============================================================================
 
-import { resourceToken, type EngineLibrary } from "@downdraft/core";
+import { resourceToken, type EngineLibrary } from "@downdraft/engine";
 import { TerrainChannel } from "./sab";
 import { DEFAULT_STREAMING_CONFIG, type TerrainStreamingConfig } from "./streaming-config";
 

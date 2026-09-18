@@ -34,7 +34,7 @@ import {
     type TraceSource,
     type WarningContext,
     type WarningRecordData,
-} from "@downdraft/core/profiling";
+} from "@downdraft/engine/profiling";
 import { devtools } from "./api";
 import { BUILTIN_VIEW_DESCRIPTORS } from "./debug-view-descriptors";
 

@@ -1,4 +1,4 @@
-import { safeJsonParse } from "@downdraft/core";
+import { safeJsonParse } from "@downdraft/engine";
 import type { NetMessage, NetTransport, TransportType } from "./transport";
 
 export type SignalingMessageType = "offer" | "answer" | "ice-candidate" | "join" | "leave";

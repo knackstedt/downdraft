@@ -12,7 +12,7 @@ import {
     resolveImportSettings,
     type AnimationData,
     type ModelData
-} from "@downdraft/library-models";
+} from "@downdraft/engine/libraries/models";
 
 /** A character model the loader can resolve. */
 export interface CharacterModelDef {

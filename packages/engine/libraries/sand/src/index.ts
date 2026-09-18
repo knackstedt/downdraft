@@ -1,4 +1,4 @@
-// @downdraft/library-sand — reusable falling-sand simulation primitives.
+// @downdraft/engine/libraries/sand — reusable falling-sand simulation primitives.
 //
 // Extracted from a game so multiple games share the same material definitions,
 // cell packing, and SandWorld simulation.

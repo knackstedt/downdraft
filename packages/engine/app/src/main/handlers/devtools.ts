@@ -2,8 +2,8 @@
 // DevTools + display + window control IPC handlers
 // ============================================================================
 
-import { startGCProfiler, type GCProfilerHandle, type GCStats } from "@downdraft/core";
-import { createLogger } from "@downdraft/core/util/logger";
+import { startGCProfiler, type GCProfilerHandle, type GCStats } from "@downdraft/engine";
+import { createLogger } from "@downdraft/engine/util/logger";
 import { ipcMain, screen } from "electron";
 import { IPC } from "../../shared/messages";
 import type { DevtoolsConfig, MainContext } from "../types";

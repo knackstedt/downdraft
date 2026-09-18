@@ -1,11 +1,11 @@
-# `@downdraft/library-profiler`
+# `@downdraft/engine/libraries/profiler`
 
 Runtime profiler — CPU/GPU timing, frame telemetry, and profiling overlays.
 
 ## Install
 
 ```sh
-bun add @downdraft/library-profiler
+bun add @downdraft/engine/libraries/profiler
 ```
 
 ## Key exports

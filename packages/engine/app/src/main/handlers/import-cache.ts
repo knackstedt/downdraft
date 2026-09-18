@@ -8,7 +8,7 @@
 // in-memory Map (no persistence across restarts).
 //
 
-import { createLogger } from "@downdraft/core/util/logger";
+import { createLogger } from "@downdraft/engine/util/logger";
 import { app, ipcMain } from "electron";
 import { join } from "path";
 import { IPC } from "../../shared/messages";

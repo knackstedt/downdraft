@@ -7,9 +7,9 @@
 // the requested tool name is in the main registry.
 // ============================================================================
 
-import { createLogger } from "@downdraft/core/util/logger";
-import type { ToolRegistration } from "@downdraft/mcp";
-import { McpHttpTransport, type McpProxyHandler } from "@downdraft/mcp/http-transport";
+import { createLogger } from "@downdraft/engine/util/logger";
+import type { ToolRegistration } from "@downdraft/engine/mcp";
+import { McpHttpTransport, type McpProxyHandler } from "@downdraft/engine/mcp/http-transport";
 import { ipcMain } from "electron";
 import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";

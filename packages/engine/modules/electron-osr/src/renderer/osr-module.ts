@@ -10,7 +10,7 @@
 // engine's standard renderer-plugin surface.
 // ============================================================================
 
-import type { RendererModule, RendererModuleContext } from "@downdraft/core";
+import type { RendererModule, RendererModuleContext } from "@downdraft/engine";
 import type { OSRIPC } from "../types";
 import { OSRManager } from "./osr-manager";
 

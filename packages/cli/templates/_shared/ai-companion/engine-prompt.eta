@@ -33,7 +33,7 @@ DownDraft is a TypeScript-first game engine built on Electron + Bun + WebGPU, wi
 ## Core API
 
 ```typescript
-import { World, Camera, MeshBuilder, Component, system, createLogger } from "@downdraft/core";
+import { World, Camera, MeshBuilder, Component, system, createLogger } from "@downdraft/engine";
 
 // Define components
 const Health = Component.register<{ current: number; max: number }>("Health", { current: 100, max: 100 });
@@ -71,7 +71,7 @@ const sphere = MeshBuilder.sphere(0.5, 16, 16);
 Modules are loadable packages that register systems, components, resources, and assets.
 
 ```typescript
-import { Module } from "@downdraft/core";
+import { Module } from "@downdraft/engine";
 
 const myModule: Module = {
   name: "my-module",
@@ -83,35 +83,35 @@ const myModule: Module = {
 world.registerModule(myModule);
 ```
 
-### Engine Libraries (`@downdraft/library-*`)
-- `@downdraft/library-water` — Gerstner waves, refraction, reflection
-- `@downdraft/library-physics-rapier` — Rapier physics backend
-- `@downdraft/library-physics-native` — Pure-TS physics backend
-- `@downdraft/library-marching-cubes` — Volumetric deformable terrain
-- `@downdraft/library-surface-nets` — Surface nets mesh extraction
-- `@downdraft/library-models` — GLTF/GLB/PLY/3DS model loading
-- `@downdraft/library-audio-kira` — Kira audio backend
-- `@downdraft/library-entities` — Generic model renderer
-- `@downdraft/library-lighting` — Lighting system
-- `@downdraft/library-weather` — Weather simulation
-- `@downdraft/library-weatherfx` — Cloud particle effects
-- `@downdraft/library-navmesh` — Navigation meshes
-- `@downdraft/library-persistence` — Save system (OPFS, File, IndexedDB)
-- `@downdraft/library-networking` — Multiplayer networking
-- `@downdraft/library-gaussian-splats` — Gaussian splat rendering
-- `@downdraft/library-sand` — Falling-sand simulation
-- `@downdraft/library-stickman` — Stickman skeleton rendering
+### Engine Libraries (`@downdraft/engine/libraries/*`)
+- `@downdraft/engine/libraries/water` — Gerstner waves, refraction, reflection
+- `@downdraft/engine/libraries/physics-rapier` — Rapier physics backend
+- `@downdraft/engine/libraries/physics-native` — Pure-TS physics backend
+- `@downdraft/engine/libraries/marching-cubes` — Volumetric deformable terrain
+- `@downdraft/engine/libraries/surface-nets` — Surface nets mesh extraction
+- `@downdraft/engine/libraries/models` — GLTF/GLB/PLY/3DS model loading
+- `@downdraft/engine/libraries/audio-kira` — Kira audio backend
+- `@downdraft/engine/libraries/entities` — Generic model renderer
+- `@downdraft/engine/libraries/lighting` — Lighting system
+- `@downdraft/engine/libraries/weather` — Weather simulation
+- `@downdraft/engine/libraries/weatherfx` — Cloud particle effects
+- `@downdraft/engine/libraries/navmesh` — Navigation meshes
+- `@downdraft/engine/libraries/persistence` — Save system (OPFS, File, IndexedDB)
+- `@downdraft/engine/libraries/networking` — Multiplayer networking
+- `@downdraft/engine/libraries/gaussian-splats` — Gaussian splat rendering
+- `@downdraft/engine/libraries/sand` — Falling-sand simulation
+- `@downdraft/engine/libraries/stickman` — Stickman skeleton rendering
 
-### Engine Modules (`@downdraft/module-*`)
-- `@downdraft/module-devtools` — DevTools panel, scene inspector, GPU debugging
-- `@downdraft/module-camera-controls` — Camera input handling
-- `@downdraft/module-terrain` — Terrain composition (marching-cubes + LOD)
-- `@downdraft/module-movement-3d` — 3D player movement
-- `@downdraft/module-movement-2d` — 2D grid-based movement
-- `@downdraft/module-sailing` — Sailing mechanics (wind, buoyancy, steering)
-- `@downdraft/module-electron-osr` — Offscreen rendering
-- `@downdraft/module-mcp` — MCP automation server
-- `@downdraft/module-xr` — WebXR support
+### Engine Modules (`@downdraft/engine/modules/*`)
+- `@downdraft/engine/modules/devtools` — DevTools panel, scene inspector, GPU debugging
+- `@downdraft/engine/modules/camera-controls` — Camera input handling
+- `@downdraft/engine/modules/terrain` — Terrain composition (marching-cubes + LOD)
+- `@downdraft/engine/modules/movement-3d` — 3D player movement
+- `@downdraft/engine/modules/movement-2d` — 2D grid-based movement
+- `@downdraft/engine/modules/sailing` — Sailing mechanics (wind, buoyancy, steering)
+- `@downdraft/engine/modules/electron-osr` — Offscreen rendering
+- `@downdraft/engine/modules/mcp` — MCP automation server
+- `@downdraft/engine/modules/xr` — WebXR support
 
 ### Game Modules (to-the-ocean example: `@to-the-ocean/module-*`)
 - `@to-the-ocean/module-crafting` — Crafting recipes and system

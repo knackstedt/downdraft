@@ -14,7 +14,7 @@
 // now falls back to package.json when manifest.json is absent.
 //
 
-import { Builder, confinePath, createLogger } from "@downdraft/core";
+import { Builder, confinePath, createLogger } from "@downdraft/engine";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "fs";
 import { basename, extname, join, relative, resolve } from "path";
 import { parseArgs, print, renderHelp } from "./args";

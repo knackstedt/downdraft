@@ -1,11 +1,11 @@
-# `@downdraft/module-raw-input`
+# `@downdraft/engine/modules/raw-input`
 
 Raw input module — OS-level mouse/keyboard capture for raw-delta input paths (e.g. pointer-lock-free FPS input).
 
 ## Install
 
 ```sh
-bun add @downdraft/module-raw-input
+bun add @downdraft/engine/modules/raw-input
 ```
 
 ## Key exports

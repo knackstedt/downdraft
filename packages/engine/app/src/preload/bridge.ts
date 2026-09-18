@@ -282,7 +282,7 @@ export interface DowndraftBridgeConfig {
  * Call this from your game's `src/preload.ts`:
  *
  * ```ts
- * import { createDowndraftBridge } from "@downdraft/app/preload";
+ * import { createDowndraftBridge } from "@downdraft/engine/app/preload";
  * createDowndraftBridge();
  * ```
  */

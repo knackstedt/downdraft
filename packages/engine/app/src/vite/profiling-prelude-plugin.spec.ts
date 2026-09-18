@@ -7,7 +7,7 @@ describe("profilingPreludePlugin", () => {
     const code = "export function init() { return 42; }";
     const result = plugin.transform!(code, "/src/sim-worker.ts", {} as any) as any;
     expect(result).not.toBeNull();
-    expect(result.code).toContain('import "@downdraft/core/profiling/worker-prelude"');
+    expect(result.code).toContain('import "@downdraft/engine/profiling/worker-prelude"');
     // Original code should still be present
     expect(result.code).toContain("export function init()");
   });
@@ -32,18 +32,18 @@ describe("profilingPreludePlugin", () => {
 
   it("skips the pixi-ui worker", () => {
     const code = "export const x = 1;";
-    const result = plugin.transform!(code, "/packages/libraries/pixi-ui/src/pixi-ui-worker.ts", {} as any) as any;
+    const result = plugin.transform!(code, "/packages/engine/libraries/pixi-ui/src/pixi-ui-worker.ts", {} as any) as any;
     expect(result).toBeNull();
   });
 
   it("skips the profiler scene", () => {
     const code = "export const x = 1;";
-    const result = plugin.transform!(code, "/packages/libraries/profiler/src/profiler-scene.ts", {} as any) as any;
+    const result = plugin.transform!(code, "/packages/engine/libraries/profiler/src/profiler-scene.ts", {} as any) as any;
     expect(result).toBeNull();
   });
 
   it("is idempotent — skips files that already have the import", () => {
-    const code = `import "@downdraft/core/profiling/worker-prelude";\nexport const x = 1;`;
+    const code = `import "@downdraft/engine/profiling/worker-prelude";\nexport const x = 1;`;
     const result = plugin.transform!(code, "/src/sim-worker.ts", {} as any) as any;
     expect(result).toBeNull();
   });
@@ -52,7 +52,7 @@ describe("profilingPreludePlugin", () => {
     const code = "export function MyWorker() { return <div/>; }";
     const result = plugin.transform!(code, "/src/ui-worker.tsx", {} as any) as any;
     expect(result).not.toBeNull();
-    expect(result.code).toContain('import "@downdraft/core/profiling/worker-prelude"');
+    expect(result.code).toContain('import "@downdraft/engine/profiling/worker-prelude"');
   });
 
   it("respects custom include/exclude patterns", () => {

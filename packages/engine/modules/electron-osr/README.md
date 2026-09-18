@@ -1,11 +1,11 @@
-# `@downdraft/module-electron-osr`
+# `@downdraft/engine/modules/electron-osr`
 
 Electron off-screen rendering module — OSR surfaces, shared-texture transfer, and paint routing for embedded/headless rendering.
 
 ## Install
 
 ```sh
-bun add @downdraft/module-electron-osr
+bun add @downdraft/engine/modules/electron-osr
 ```
 
 ## Key exports

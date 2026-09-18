@@ -1,4 +1,4 @@
-import { GBUFFER_PROFILE, MaterialGraph, PBR_PROFILE } from "@downdraft/shader-graph";
+import { GBUFFER_PROFILE, MaterialGraph, PBR_PROFILE } from "@downdraft/engine/shader-graph";
 import { BlendMode, CullMode, Material, MaterialType, type MaterialDefinition } from "./material";
 // Fallback WGSL sources — loaded via Vite ?raw so the render path can use
 // inlineShaderSource directly. These are the hand-written fallbacks used when

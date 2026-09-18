@@ -26,7 +26,7 @@
 //   });
 // ============================================================================
 
-import { KEY } from "@downdraft/core";
+import { KEY } from "@downdraft/engine";
 import { downdraft } from "./index";
 import {
     blobToBase64,

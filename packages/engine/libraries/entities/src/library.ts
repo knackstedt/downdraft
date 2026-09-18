@@ -1,5 +1,5 @@
 // ============================================================================
-// EntitiesLib — declarative engine library descriptor for @downdraft/library-entities
+// EntitiesLib — declarative engine library descriptor for @downdraft/engine/libraries/entities
 //
 // Renders imported 3D models (FBX/GLTF/OBJ) via WebGPU using a bindless binding
 // model. The ModelRenderer manages per-draw uniform data, GPU vertex/index
@@ -13,7 +13,7 @@
 // (escape hatch). Note: setBindlessDeps() must be called before init().
 // ============================================================================
 
-import { resourceToken, type EngineLibrary } from "@downdraft/core";
+import { resourceToken, type EngineLibrary } from "@downdraft/engine";
 import { ModelRenderer } from "./model-renderer";
 
 // ── Config ──

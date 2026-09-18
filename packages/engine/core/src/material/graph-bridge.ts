@@ -1,4 +1,4 @@
-import { GraphCompiler, MaterialGraph, getProfile, type CompileOptions, type GraphNode, type ShaderGraphProfile } from "@downdraft/shader-graph";
+import { GraphCompiler, MaterialGraph, getProfile, type CompileOptions, type GraphNode, type ShaderGraphProfile } from "@downdraft/engine/shader-graph";
 import { BlendMode, CullMode, Material, type MaterialDefinition } from "./material";
 import { DEFAULT_VARIANT_FLAGS, variantKey, withVariant, type MaterialVariantFlags } from "./variants";
 

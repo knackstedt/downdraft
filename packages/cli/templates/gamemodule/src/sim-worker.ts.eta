@@ -1,4 +1,4 @@
-import { createSimWorker } from "@downdraft/core";
+import { createSimWorker } from "@downdraft/engine";
 
 // Sim worker — runs the fixed-timestep simulation loop in a Web Worker.
 // createSimWorker handles the tick loop, pause/resume/step control, stats,

@@ -9,7 +9,7 @@
 // so capturing it does not require presenting to a window.
 // ============================================================================
 
-import { NativePixiUiHost } from "@downdraft/library-pixi-ui-native";
+import { NativePixiUiHost } from "@downdraft/engine/libraries/pixi-ui-native";
 import {
     captureScreenshot,
     createNativeHost,

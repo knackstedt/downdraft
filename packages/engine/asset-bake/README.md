@@ -1,11 +1,11 @@
-# `@downdraft/asset-bake`
+# `@downdraft/engine/asset-bake`
 
 Offline asset baking pipeline — converts and optimizes meshes, textures, and shaders into engine-ready formats at build time.
 
 ## Install
 
 ```sh
-bun add @downdraft/asset-bake
+bun add @downdraft/engine/asset-bake
 ```
 
 ## Key exports

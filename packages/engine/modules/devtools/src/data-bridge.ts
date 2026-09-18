@@ -9,7 +9,7 @@
 // material-editor methods on top.
 // ============================================================================
 
-import { startGCProfiler, TelemetryCollector, type GCProfilerHandle, type GCStats } from "@downdraft/core";
+import { startGCProfiler, TelemetryCollector, type GCProfilerHandle, type GCStats } from "@downdraft/engine";
 import { useDebugStore } from "./debug-store";
 import type {
     IDebugModeProvider,
@@ -273,8 +273,8 @@ export class DevToolsDataBridge {
       w.downdraft.getVulkanValidationStatus().then((data: any) => { this.cachedVulkanValidation = data; }).catch(() => {});
     }
     // Feature log — combined main (via IPC) + renderer (cached). Dynamic import
-    // avoids pulling @downdraft/app/renderer at data-bridge construction time.
-    import("@downdraft/app/renderer").then(({ getCombinedFeatureLog }) => {
+    // avoids pulling @downdraft/engine/app/renderer at data-bridge construction time.
+    import("@downdraft/engine/app/renderer").then(({ getCombinedFeatureLog }) => {
       getCombinedFeatureLog().then((data: any) => { this.cachedFeatureLog = data; }).catch(() => {});
     }).catch(() => {});
   }

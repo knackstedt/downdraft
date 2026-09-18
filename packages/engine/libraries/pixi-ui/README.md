@@ -1,11 +1,11 @@
-# `@downdraft/library-pixi-ui`
+# `@downdraft/engine/libraries/pixi-ui`
 
 PixiJS UI overlay — worker-hosted PixiJS GUI on an OffscreenCanvas layered above the game canvas (legacy game UI; prefer core/imui).
 
 ## Install
 
 ```sh
-bun add @downdraft/library-pixi-ui
+bun add @downdraft/engine/libraries/pixi-ui
 ```
 
 ## Key exports

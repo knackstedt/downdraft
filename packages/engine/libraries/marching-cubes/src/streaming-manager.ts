@@ -16,7 +16,7 @@
 // - A ChunkEmptyChecker to skip empty chunks
 //
 
-import { createLogger } from "@downdraft/core";
+import { createLogger } from "@downdraft/engine";
 import type { ChunkedVoxelField } from "./chunked-field";
 import {
     CHUNK_FULL,

@@ -6,7 +6,7 @@
 // cross-thread dependency report (sim + renderer).
 // ============================================================================
 
-import type { CrossThreadReport, ModuleThreadInfo, PluginInfo } from "@downdraft/core";
+import type { CrossThreadReport, ModuleThreadInfo, PluginInfo } from "@downdraft/engine";
 import type { IDevToolsPanelExtension } from "./types";
 
 export interface DoctorPanelOptions {

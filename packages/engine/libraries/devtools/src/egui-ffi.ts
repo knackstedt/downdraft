@@ -2,7 +2,7 @@
 // egui-ffi.ts — bun:ffi bindings to libdowndraft_devtools.so + PaintJobs
 // deserializer.
 //
-// The Rust crate (packages/libraries/devtools/native/) runs egui's layout +
+// The Rust crate (packages/engine/libraries/devtools/native/) runs egui's layout +
 // tessellation on the CPU and serializes the resulting PaintJobs (clipped
 // textured-triangle meshes) + texture deltas into a flat byte buffer. This
 // module loads the .so via bun:ffi, calls dd_devtools_update each frame, and
@@ -36,7 +36,7 @@ function findDevtoolsLibrary(): string {
   if (existsSync(systemPath)) return systemPath;
 
   throw new Error(
-    `libdowndraft_devtools.so not found. Build with: cd packages/libraries/devtools/native && ./build.sh`,
+    `libdowndraft_devtools.so not found. Build with: cd packages/engine/libraries/devtools/native && ./build.sh`,
   );
 }
 

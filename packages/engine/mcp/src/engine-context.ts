@@ -23,7 +23,7 @@ import type {
     TelemetryCollector,
     TelemetryReporter,
     World
-} from "@downdraft/core";
+} from "@downdraft/engine";
 
 import {
     AssetManager as AssetManagerClass,
@@ -56,9 +56,9 @@ import {
     TelemetryCollector as TelemetryCollectorClass,
     TelemetryReporter as TelemetryReporterClass,
     World as WorldClass
-} from "@downdraft/core";
+} from "@downdraft/engine";
 
-import type { Entity, PhysicsBody } from "@downdraft/core";
+import type { Entity, PhysicsBody } from "@downdraft/engine";
 
 export interface EngineContextOptions {
   sceneName?: string;

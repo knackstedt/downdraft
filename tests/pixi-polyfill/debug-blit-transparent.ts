@@ -2,7 +2,7 @@
 // The full game uses backgroundAlpha: 0 (transparent); the working harness
 // sets background.alpha = 1 AFTER init. This test uses backgroundAlpha: 0
 // throughout to match the full game and check if the rect renders half-bright.
-import { NativePixiUiHost } from "@downdraft/library-pixi-ui-native";
+import { NativePixiUiHost } from "@downdraft/engine/libraries/pixi-ui-native";
 import { captureScreenshot, createNativeHost } from "@downdraft/platform-native";
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";

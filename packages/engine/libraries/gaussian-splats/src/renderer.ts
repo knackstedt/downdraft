@@ -1,6 +1,6 @@
-import { createValidatedShaderModule } from "@downdraft/core";
-import type { StructView, WgslStruct } from "@downdraft/shader-graph";
-import { f32, mat4x4f, vec2f, vec3f, wgsl } from "@downdraft/shader-graph";
+import { createValidatedShaderModule } from "@downdraft/engine";
+import type { StructView, WgslStruct } from "@downdraft/engine/shader-graph";
+import { f32, mat4x4f, vec2f, vec3f, wgsl } from "@downdraft/engine/shader-graph";
 import { GpuSplatSorter } from "./gpu-sort";
 import type { GaussianSplatData } from "./parser";
 import { packShCoeffs, SH_COEFFS_TOTAL, SH_EVAL_WGSL } from "./sh-eval";

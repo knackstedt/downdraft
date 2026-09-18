@@ -29,7 +29,7 @@ downdraft.config.json   Engine configuration (physics-rapier plugin enabled)
 
 ## Plugins
 
-- **@downdraft/library-physics-rapier** — Rapier physics backend for rigid body simulation, colliders, and raycasting.
+- **@downdraft/engine/libraries/physics-rapier** — Rapier physics backend for rigid body simulation, colliders, and raycasting.
 
 ## Engine
 

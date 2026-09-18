@@ -7,8 +7,8 @@
 // and adds scene-tree / model / gizmo / material-editor methods.
 // ============================================================================
 
-import { compileGraphToMaterialWithGraph, compileUIGraphToMaterial, isExtremeScale, MaterialLibrary, maxDimension, uiGraphToMaterialGraph, type Material, type UIConnection, type UINodeData } from "@downdraft/core";
-import { createDefaultDdmeta, createDefaultImportSettings, detectFormat, loadModel, normalizeModel, writeDdmeta } from "@downdraft/library-models";
+import { compileGraphToMaterialWithGraph, compileUIGraphToMaterial, isExtremeScale, MaterialLibrary, maxDimension, uiGraphToMaterialGraph, type Material, type UIConnection, type UINodeData } from "@downdraft/engine";
+import { createDefaultDdmeta, createDefaultImportSettings, detectFormat, loadModel, normalizeModel, writeDdmeta } from "@downdraft/engine/libraries/models";
 import { DevToolsDataBridge } from "./data-bridge";
 import { useSceneStore, type GizmoMode, type SceneTreeSnapshot } from "./scene-store";
 import type {

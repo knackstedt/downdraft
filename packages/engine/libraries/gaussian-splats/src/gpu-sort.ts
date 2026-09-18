@@ -13,7 +13,7 @@
 // with the engine's buffer management patterns.
 // ============================================================================
 
-import { createValidatedShaderModule } from "@downdraft/core";
+import { createValidatedShaderModule } from "@downdraft/engine";
 import type { GaussianSplatData } from "./parser";
 import { sortSplats } from "./sorter";
 

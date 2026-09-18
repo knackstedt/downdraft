@@ -1,11 +1,11 @@
-# `@downdraft/library-sand`
+# `@downdraft/engine/libraries/sand`
 
 Falling-sand simulation — cellular automata world, material palette, rule engine, and parallel step pools (SandLib descriptor).
 
 ## Install
 
 ```sh
-bun add @downdraft/library-sand
+bun add @downdraft/engine/libraries/sand
 ```
 
 ## Key exports

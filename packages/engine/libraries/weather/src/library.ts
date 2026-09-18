@@ -1,5 +1,5 @@
 // ============================================================================
-// WeatherLib — declarative engine library descriptor for @downdraft/library-weather
+// WeatherLib — declarative engine library descriptor for @downdraft/engine/libraries/weather
 //
 // Dynamic weather simulation with rare events, rain collectors, wind, and
 // visibility. WeatherSystem depends on a BiomeProvider interface (game-supplied)
@@ -15,7 +15,7 @@
 // games supply it via the config or inject it from another library/plugin.
 // ============================================================================
 
-import { resourceToken, type EngineLibrary } from "@downdraft/core";
+import { resourceToken, type EngineLibrary } from "@downdraft/engine";
 import { WeatherSystem } from "./weather-system";
 import { DEFAULT_WEATHER_CONFIG, type BiomeProvider, type WeatherConfig } from "./types";
 

@@ -54,7 +54,7 @@ describe("CLI new — minimal template", () => {
     const pkg = JSON.parse(readFileSync(join(TEST_DIR, "package.json"), "utf-8"));
     expect(pkg.name).toBe("my-game");
     expect(pkg.type).toBe("module");
-    expect(pkg.dependencies["@downdraft/core"]).toBe("^0.1.0");
+    expect(pkg.dependencies["@downdraft/engine"]).toBe("^0.1.0");
     expect(pkg.scripts.dev).toBe("draft dev");
     expect(pkg.scripts.build).toBe("draft release --stage=build");
     expect(pkg.scripts.export).toBe("draft release --stage=package --format=launcher");
@@ -119,7 +119,7 @@ describe("CLI new — minimal template", () => {
     expect(pkg.devDependencies["vite"]).toBeDefined();
     expect(pkg.devDependencies["typescript"]).toBeDefined();
     expect(pkg.devDependencies["oxlint"]).toBeDefined();
-    expect(pkg.dependencies["@downdraft/app"]).toBe("^0.1.0");
+    expect(pkg.dependencies["@downdraft/engine/app"]).toBe("^0.1.0");
     expect(pkg.devDependencies["@downdraft/cli"]).toBe("^0.1.0");
   });
 
@@ -218,7 +218,7 @@ describe("CLI new — physics template", () => {
 
   it("should include physics-rapier dependency", async () => {
     const pkg = JSON.parse(readFileSync(join(TEST_DIR, "package.json"), "utf-8"));
-    expect(pkg.dependencies["@downdraft/library-physics-rapier"]).toBe("^0.1.0");
+    expect(pkg.dependencies["@downdraft/engine/libraries/physics-rapier"]).toBe("^0.1.0");
   });
 
   it("should include physics-rapier plugin in config", async () => {
@@ -268,17 +268,17 @@ describe("CLI new — full template", () => {
   it("should reference createDowndraftBuilderConfig in build.config.ts", async () => {
     const cfg = readFileSync(join(TEST_DIR, "build.config.ts"), "utf-8");
     expect(cfg).toContain("createDowndraftBuilderConfig");
-    expect(cfg).toContain("@downdraft/app/build");
+    expect(cfg).toContain("@downdraft/engine/app/build");
     expect(cfg).toContain("full-game");
   });
 
   it("should include all plugin dependencies", async () => {
     const pkg = JSON.parse(readFileSync(join(TEST_DIR, "package.json"), "utf-8"));
-    expect(pkg.dependencies["@downdraft/library-water"]).toBe("^0.1.0");
-    expect(pkg.dependencies["@downdraft/library-physics-rapier"]).toBe("^0.1.0");
-    expect(pkg.dependencies["@downdraft/library-marching-cubes"]).toBe("^0.1.0");
-    expect(pkg.dependencies["@downdraft/library-models"]).toBe("^0.1.0");
-    expect(pkg.dependencies["@downdraft/module-devtools"]).toBe("^0.1.0");
+    expect(pkg.dependencies["@downdraft/engine/libraries/water"]).toBe("^0.1.0");
+    expect(pkg.dependencies["@downdraft/engine/libraries/physics-rapier"]).toBe("^0.1.0");
+    expect(pkg.dependencies["@downdraft/engine/libraries/marching-cubes"]).toBe("^0.1.0");
+    expect(pkg.dependencies["@downdraft/engine/libraries/models"]).toBe("^0.1.0");
+    expect(pkg.dependencies["@downdraft/engine/modules/devtools"]).toBe("^0.1.0");
   });
 
   it("should include all plugins in config", async () => {

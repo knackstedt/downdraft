@@ -1,11 +1,11 @@
-# `@downdraft/library-audio-kira`
+# `@downdraft/engine/libraries/audio-kira`
 
 Audio engine backend (Kira) — spatial audio, music, and SFX playback wired as an engine library.
 
 ## Install
 
 ```sh
-bun add @downdraft/library-audio-kira
+bun add @downdraft/engine/libraries/audio-kira
 ```
 
 ## Key exports

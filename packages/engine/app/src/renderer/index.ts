@@ -1,5 +1,5 @@
 // ============================================================================
-// @downdraft/app/renderer — typed accessor for window.downdraft
+// @downdraft/engine/app/renderer — typed accessor for window.downdraft
 // ============================================================================
 //
 // Import `downdraft` from this module in renderer code instead of casting
@@ -10,7 +10,7 @@
 // and this accessor returns a stub that no-ops / returns null. Callers that
 // need real values should guard with `downdraft?.isAvailable`.
 
-import { OpfsSaveStore } from "@downdraft/library-persistence/browser";
+import { OpfsSaveStore } from "@downdraft/engine/libraries/persistence/browser";
 import type {
     DowndraftBridgeAPI,
     DowndraftOsrBridgeAPI
@@ -128,7 +128,7 @@ export { createInlineSaveStore, createSaveStore, type CreateSaveStoreOptions, ty
  * Games that want a specific backend should call `createSaveStore` directly
  * with an explicit `mode` rather than relying on this default.
  */
-export async function createDefaultSaveStore(engineVersion: string): Promise<import("@downdraft/core").ISaveStore> {
+export async function createDefaultSaveStore(engineVersion: string): Promise<import("@downdraft/engine").ISaveStore> {
   const mode = downdraft.isAvailable ? "ipc" : "auto";
   const { store } = await _createSaveStore({
     mode,
@@ -143,8 +143,8 @@ export async function createDefaultSaveStore(engineVersion: string): Promise<imp
   return store;
 }
 
-// AutosaveManager (re-exported from @downdraft/library-persistence)
-export { AutosaveManager, type AutosaveManagerOptions } from "@downdraft/library-persistence/browser";
+// AutosaveManager (re-exported from @downdraft/engine/libraries/persistence)
+export { AutosaveManager, type AutosaveManagerOptions } from "@downdraft/engine/libraries/persistence/browser";
 
 // MCP automation harness factory + shared tool helpers
 export { blobToBase64, compositeScreenshot, createMcpHarness, errorResult, jsonResult } from "./mcp-harness";

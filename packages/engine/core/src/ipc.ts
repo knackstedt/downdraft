@@ -1,8 +1,8 @@
 // ============================================================================
 // IPC Channels — shared channel names for the engine shell (main <-> renderer)
 //
-// Single source of truth for both @downdraft/app (handlers/preload) and
-// @downdraft/module-* packages that emit channels (raw-input, electron-osr).
+// Single source of truth for both @downdraft/engine/app (handlers/preload) and
+// @downdraft/engine/modules/* packages that emit channels (raw-input, electron-osr).
 // ============================================================================
 
 export const IPC = {

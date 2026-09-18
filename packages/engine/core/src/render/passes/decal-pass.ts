@@ -1,6 +1,6 @@
 import { createValidatedShaderModule } from "../shader-validator";
-import type { StructView, WgslStruct } from "@downdraft/shader-graph";
-import { mat4x4f, u32, vec3f, vec4f, wgsl } from "@downdraft/shader-graph";
+import type { StructView, WgslStruct } from "@downdraft/engine/shader-graph";
+import { mat4x4f, u32, vec3f, vec4f, wgsl } from "@downdraft/engine/shader-graph";
 import { type Mat4 } from "wgpu-matrix";
 import type { MeshData } from "../../mesh/builder";
 import type { BindlessMaterialManager, BindlessTextureRegistry, MaterialParams } from "../bindless";

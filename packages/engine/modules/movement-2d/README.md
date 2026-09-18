@@ -1,11 +1,11 @@
-# `@downdraft/module-movement-2d`
+# `@downdraft/engine/modules/movement-2d`
 
 2D movement module — grid character controller and tile-based locomotion with DI tokens.
 
 ## Install
 
 ```sh
-bun add @downdraft/module-movement-2d
+bun add @downdraft/engine/modules/movement-2d
 ```
 
 ## Key exports

@@ -10,7 +10,7 @@
 //     synchronous reads). Commands are forwarded via IPC RPC. Panel
 //     declarations are synced to the renderer via a one-time manifest RPC.
 //
-// Plugins import `devtools` from @downdraft/module-devtools and call
+// Plugins import `devtools` from @downdraft/engine/modules/devtools and call
 // registerPanel/registerDataFeed/registerCommand/registerSABStat — the same
 // API works in both realms.
 // ============================================================================
@@ -20,7 +20,7 @@ import { BUILTIN_VIEW_DESCRIPTORS } from "./debug-view-descriptors";
 import type { IDevToolsOverlayToggle, IDevToolsPanelExtension } from "./types";
 
 // --- Realm detection ---
-// Mirrors the pattern in @downdraft/core/worker/rpc.ts but is self-contained
+// Mirrors the pattern in @downdraft/engine/worker/rpc.ts but is self-contained
 // so this package doesn't depend on core's worker module (avoids pulling
 // Node worker_threads code into the renderer bundle).
 

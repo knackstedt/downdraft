@@ -1,5 +1,5 @@
-import type { StructView, WgslStruct } from "@downdraft/shader-graph";
-import { f32, mat4x4f, u32, vec3f, vec3u, vec4f, wgsl } from "@downdraft/shader-graph";
+import type { StructView, WgslStruct } from "@downdraft/engine/shader-graph";
+import { f32, mat4x4f, u32, vec3f, vec3u, vec4f, wgsl } from "@downdraft/engine/shader-graph";
 import { type Mat4 } from "wgpu-matrix";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
 import type { GBufferViews } from "../g-buffer";

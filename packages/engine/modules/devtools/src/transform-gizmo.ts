@@ -13,7 +13,7 @@ import {
     normalize3,
     transformVec4,
     type CameraState,
-} from "@downdraft/core";
+} from "@downdraft/engine";
 import type { GizmoMode } from "./index";
 import GIZMO_WGSL from "./shaders/transform-gizmo.wgsl?raw" with { type: "text" };
 

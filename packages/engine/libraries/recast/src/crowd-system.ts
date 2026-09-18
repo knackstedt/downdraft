@@ -1,19 +1,19 @@
 // ============================================================================
 // RecastCrowdSystem — ECS-integrated wrapper over recast-navigation's Crowd
 //
-// Mirrors the structure of @downdraft/library-navmesh's CrowdSystem but uses
+// Mirrors the structure of @downdraft/engine/libraries/navmesh's CrowdSystem but uses
 // recast's WASM Crowd (real RVO avoidance + Detour pathfollowing) instead of
 // the hand-rolled boids steering. Defines its own RecastAgent component so
 // the two navmesh libraries can coexist without ECS schema coupling.
 // ============================================================================
 
-import type { ComponentDefinition } from "@downdraft/core/ecs/component";
-import { Component } from "@downdraft/core/ecs/component";
-import type { Entity } from "@downdraft/core/ecs/entity";
-import type { Query } from "@downdraft/core/ecs/query";
-import { Stage, system } from "@downdraft/core/ecs/system";
-import type { World } from "@downdraft/core/ecs/world";
-import { PhysicsTransform } from "@downdraft/core/physics/body";
+import type { ComponentDefinition } from "@downdraft/engine/ecs/component";
+import { Component } from "@downdraft/engine/ecs/component";
+import type { Entity } from "@downdraft/engine/ecs/entity";
+import type { Query } from "@downdraft/engine/ecs/query";
+import { Stage, system } from "@downdraft/engine/ecs/system";
+import type { World } from "@downdraft/engine/ecs/world";
+import { PhysicsTransform } from "@downdraft/engine/physics/body";
 import type { RecastBackend } from "./backend";
 import type { RecastAgentData, RecastAgentParams, Vec3 } from "./types";
 

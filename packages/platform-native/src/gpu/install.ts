@@ -6,7 +6,7 @@
 // unchanged under Bun-native.
 // ============================================================================
 
-import { createLogger } from "@downdraft/core";
+import { createLogger } from "@downdraft/engine";
 import { WgpuGPU } from "./wgpu-wrapper";
 
 const log = createLogger();

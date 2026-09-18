@@ -7,7 +7,7 @@
 // (ProductName, FileDescription, LegalCopyright, CompanyName, FileVersion)
 // from the metadata below and patches the PE TimeDateStamp of every
 // produced .exe so VirusTotal reports the actual build date.
-import { createDowndraftBuilderConfig } from "@downdraft/app/build";
+import { createDowndraftBuilderConfig } from "@downdraft/engine/app/build";
 
 export default createDowndraftBuilderConfig({
   appId: "com.<%= it.name %>.game",

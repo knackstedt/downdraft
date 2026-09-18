@@ -1,4 +1,4 @@
-import type { DirectionalLight, Light } from "@downdraft/core";
+import type { DirectionalLight, Light } from "@downdraft/engine";
 import type { EngineContext } from "../engine-context";
 import { LightType, createDirectionalLight, createPointLight } from "../engine-context";
 import type { ToolRegistration } from "../types";

@@ -70,9 +70,9 @@ mock.module("electron", () => ({
   contentTracing: contentTracingMock,
   ipcMain: ipcMainMock,
 }));
-mock.module("@downdraft/core/util/logger", () => ({ createLogger: () => loggerMock }));
+mock.module("@downdraft/engine/util/logger", () => ({ createLogger: () => loggerMock }));
 mock.module("node:v8", () => v8Mock);
-mock.module("@downdraft/mcp", () => ({
+mock.module("@downdraft/engine/mcp", () => ({
   errorResult: (message: string) => ({ content: [{ type: "text", text: message }], isError: true }),
   jsonResult: (data: unknown) => ({ content: [{ type: "text", text: JSON.stringify(data, null, 2) }] }),
 }));

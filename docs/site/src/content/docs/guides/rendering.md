@@ -8,7 +8,7 @@ DownDraft uses WebGPU for rendering, with a deferred pipeline and a Bevy-style r
 ## RenderLoop
 
 ```typescript
-import { Camera, MeshBuilder, RenderLoop } from "@downdraft/core";
+import { Camera, MeshBuilder, RenderLoop } from "@downdraft/engine";
 
 const camera = new Camera();
 camera.setAspect(16, 9);
@@ -66,7 +66,7 @@ Built-in render passes include:
 ## Mesh System
 
 ```typescript
-import { MeshBuilder } from "@downdraft/core";
+import { MeshBuilder } from "@downdraft/engine";
 
 const cube = MeshBuilder.cube(1);
 const sphere = MeshBuilder.sphere(0.5, 32, 16);

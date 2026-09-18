@@ -1,11 +1,11 @@
-# `@downdraft/core`
+# `@downdraft/engine`
 
 Downdraft engine core — ECS, WebGPU renderer, module/DI system, SharedArrayBuffer sim channels, sim worker host, plugin API, animation, particles, and imui.
 
 ## Install
 
 ```sh
-bun add @downdraft/core
+bun add @downdraft/engine
 ```
 
 ## Key exports

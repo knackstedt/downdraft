@@ -1,5 +1,5 @@
-import type { WgslStruct } from "@downdraft/shader-graph";
-import { mat4x4f, vec4f, wgsl } from "@downdraft/shader-graph";
+import type { WgslStruct } from "@downdraft/engine/shader-graph";
+import { mat4x4f, vec4f, wgsl } from "@downdraft/engine/shader-graph";
 
 export const MAX_BONES_VS = 256;
 export const MAX_BONE_INFLUENCES = 8;

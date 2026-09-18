@@ -6,10 +6,10 @@
 //
 // Therefore the streaming manager is fully algorithm-agnostic and can be
 // re-exported as-is.
-export { TerrainStreamingManager } from "@downdraft/library-marching-cubes";
+export { TerrainStreamingManager } from "@downdraft/engine/libraries/marching-cubes";
 export type {
     ChunkEmptyChecker,
     ChunkFieldFactory,
     ChunkGenerator, DirtyTerrain, PhysicsFieldFactory, TerrainDeformation, TerrainEntityPosition, TerrainEntry, TerrainLODChange
-} from "@downdraft/library-marching-cubes";
+} from "@downdraft/engine/libraries/marching-cubes";
 

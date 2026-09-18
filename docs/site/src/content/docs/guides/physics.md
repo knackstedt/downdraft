@@ -10,7 +10,7 @@ DownDraft provides a pluggable physics abstraction layer with a Rapier3D backend
 A `PhysicsRealm` represents an isolated physics world. Multiple concurrent realms are supported.
 
 ```typescript
-import { PhysicsRealm } from "@downdraft/core";
+import { PhysicsRealm } from "@downdraft/engine";
 
 const realm = new PhysicsRealm({ gravity: [0, -9.81, 0] });
 ```
@@ -18,8 +18,8 @@ const realm = new PhysicsRealm({ gravity: [0, -9.81, 0] });
 ## Using the Rapier Module
 
 ```typescript
-import { GameWorld, Scene, World } from "@downdraft/core";
-import { PhysicsRapierModule } from "@downdraft/module-physics-rapier";
+import { GameWorld, Scene, World } from "@downdraft/engine";
+import { PhysicsRapierModule } from "@downdraft/engine/libraries/physics-rapier";
 
 const gameWorld = new GameWorld(new Scene(new World()));
 gameWorld.useModule(PhysicsRapierModule);
@@ -35,7 +35,7 @@ Physics-related components include:
 - `PhysicsTransform` — Synced transform between physics and ECS
 
 ```typescript
-import { Collider, RigidBody, Velocity, createBoxCollider } from "@downdraft/core";
+import { Collider, RigidBody, Velocity, createBoxCollider } from "@downdraft/engine";
 ```
 
 ## Character Controller

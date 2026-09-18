@@ -1,5 +1,5 @@
 // ============================================================================
-// @downdraft/module-movement-3d — 3D first-person/third-person movement
+// @downdraft/engine/modules/movement-3d — 3D first-person/third-person movement
 //
 // Provides CharacterMotor3D: a configurable character movement kernel that
 // computes desired per-tick deltas (heading-relative WASD, walk/run, jump +
@@ -10,7 +10,7 @@
 // with hand-rolled sims can import createCharacterMotor3D directly.
 // ============================================================================
 
-import { resourceToken, type Module, type ModuleContext } from "@downdraft/core";
+import { resourceToken, type Module, type ModuleContext } from "@downdraft/engine";
 import { createCharacterMotor3D, type CharacterMotor3D, type CharacterMotor3DConfig } from "./character-motor";
 
 export {

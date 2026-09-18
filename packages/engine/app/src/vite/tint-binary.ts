@@ -41,9 +41,28 @@ function downloadUrl(tag: string, platform: string): string {
 }
 
 /**
+ * Locate the `native/bin` dir of the @downdraft/platform-native package.
+ * Search order: Node package resolution (workspace link or node_modules),
+ * then the monorepo sibling layout (packages/platform-native), then the
+ * standalone scope-dir layout (node_modules/@downdraft/platform-native).
+ */
+function platformNativeBinDir(): string {
+  try {
+    const req = createRequire(join(process.cwd(), "package.json"));
+    const pkgDir = dirname(req.resolve("@downdraft/platform-native/package.json"));
+    return join(pkgDir, "native", "bin");
+  } catch { /* not declared/installed — fall through to layout heuristics */ }
+
+  // The engine package root's parent holds platform-native in both layouts:
+  //   monorepo:   packages/engine                → packages/platform-native
+  //   standalone: node_modules/@downdraft/engine → node_modules/@downdraft/platform-native
+  return resolve(_dirname, "..", "..", "..", "..", "platform-native", "native", "bin");
+}
+
+/**
  * Resolve the tint binary path. Search order:
  *   1. TINT_BIN_PATH env var
- *   2. packages/platform-native/native/bin/tint (pre-downloaded)
+ *   2. <platform-native>/native/bin/tint (pre-downloaded)
  *   3. System PATH (which tint)
  *   4. Download from eliemichel/dawn-prebuilt (cached in native/bin/)
  *
@@ -58,7 +77,7 @@ export function resolveTintBinary(): string | null {
   if (envPath && existsSync(envPath)) return envPath;
 
   // 2. Pre-downloaded in native/bin/
-  const binDir = resolve(_dirname, "..", "..", "..", "platform-native", "native", "bin");
+  const binDir = platformNativeBinDir();
   const localBin = join(binDir, process.platform === "win32" ? "tint.exe" : "tint");
   if (existsSync(localBin)) return localBin;
 

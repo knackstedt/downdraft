@@ -12,7 +12,7 @@
 // the bufferView reuse one decode.
 //
 
-import { assertFinite, assertPositive, MAX_DECOMPRESS_SIZE } from "@downdraft/core";
+import { assertFinite, assertPositive, MAX_DECOMPRESS_SIZE } from "@downdraft/engine";
 import type { BufferViewCodec, BufferViewCodecInput } from "./registry";
 
 // Minimal type for the meshoptimizer decoder module (see meshopt_decoder.d.ts).

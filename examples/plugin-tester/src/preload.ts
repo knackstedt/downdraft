@@ -2,6 +2,6 @@
 // Plugin Tester — Preload Entry
 // ============================================================================
 
-import { createDowndraftBridge } from "@downdraft/app/preload";
+import { createDowndraftBridge } from "@downdraft/engine/app/preload";
 
 createDowndraftBridge();

@@ -10,7 +10,7 @@
 //   - plugin_unload: unload a plugin by id.
 //   - plugin_get_state: get a plugin's KV state.
 //
-// These integrate with the existing createMcpHarness from @downdraft/app/renderer.
+// These integrate with the existing createMcpHarness from @downdraft/engine/app/renderer.
 // ============================================================================
 
 import type { PluginHost } from "./host";

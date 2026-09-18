@@ -1,11 +1,11 @@
-# `@downdraft/library-water`
+# `@downdraft/engine/libraries/water`
 
 Water simulation — water state channels, flow, and surface rendering (WaterLib descriptor).
 
 ## Install
 
 ```sh
-bun add @downdraft/library-water
+bun add @downdraft/engine/libraries/water
 ```
 
 ## Key exports

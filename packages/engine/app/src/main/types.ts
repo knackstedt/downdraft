@@ -2,7 +2,7 @@
 // Host SDK — config types for createDowndraftApp()
 // ============================================================================
 
-import type { OSRRendererManager } from "@downdraft/module-electron-osr/main-entry";
+import type { OSRRendererManager } from "@downdraft/engine/modules/electron-osr/main-entry";
 import type { BrowserWindow, WebPreferences } from "electron";
 import type { Switch } from "./switches";
 

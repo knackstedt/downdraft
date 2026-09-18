@@ -1,11 +1,11 @@
-# `@downdraft/library-surface-nets`
+# `@downdraft/engine/libraries/surface-nets`
 
 Surface-nets meshing — smooth isosurface extraction for density-field terrain.
 
 ## Install
 
 ```sh
-bun add @downdraft/library-surface-nets
+bun add @downdraft/engine/libraries/surface-nets
 ```
 
 ## Key exports

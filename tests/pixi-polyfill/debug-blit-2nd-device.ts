@@ -1,7 +1,7 @@
 // Test: render text via NativePixiUiHost using a SECOND device (like the game renderer).
 // The game's 3D renderer creates its own adapter+device, separate from the host's.
 // This test checks if the second device causes the half-alpha text issue.
-import { NativePixiUiHost } from "@downdraft/library-pixi-ui-native";
+import { NativePixiUiHost } from "@downdraft/engine/libraries/pixi-ui-native";
 import { createNativeHost, captureScreenshot } from "@downdraft/platform-native";
 import { Graphics, Text } from "pixi.js";
 import { mkdirSync } from "node:fs";

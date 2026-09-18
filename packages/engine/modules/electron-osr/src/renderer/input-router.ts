@@ -2,7 +2,7 @@
 // OSR Input Router — Raycasts against billboards and forwards input to OSR windows
 // ============================================================================
 
-import { invertMat4Into, transformMat4Vec4 } from "@downdraft/core";
+import { invertMat4Into, transformMat4Vec4 } from "@downdraft/engine";
 import type { AtlasLayout, OSRInputEvent, OSRRendererStatus, WorldSpaceUIElement } from "../types";
 import type { CameraState } from "./world-space-ui-pass";
 

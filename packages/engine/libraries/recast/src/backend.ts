@@ -1,17 +1,17 @@
 // ============================================================================
 // RecastBackend — WASM loader + navmesh generation/query wrapper
 //
-// Mirrors the loadPhysicsLib() pattern from @downdraft/library-physics-rapier:
+// Mirrors the loadPhysicsLib() pattern from @downdraft/engine/libraries/physics-rapier:
 //   - cached + coalesced async load (hot-reload/dispose cycles can retry)
 //   - WASM import isolated to one module so the rest of the library stays
 //     WASM-agnostic and testable.
 //
 // recast-navigation ships as ESM with the .wasm loaded via
 // `new URL(..., import.meta.url)`. It must be excluded from Vite dep
-// pre-bundling (see packages/app/src/vite/index.ts optimizeDeps.exclude).
+// pre-bundling (see packages/engine/app/src/vite/index.ts optimizeDeps.exclude).
 // ============================================================================
 
-import { createLogger } from "@downdraft/core";
+import { createLogger } from "@downdraft/engine";
 import type { Crowd, NavMesh, NavMeshQuery } from "recast-navigation";
 import type { RecastNavMeshConfig } from "./types";
 

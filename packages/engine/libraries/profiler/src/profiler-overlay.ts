@@ -12,8 +12,8 @@
 // worker) and reads the ProfilingSAB each frame.
 // ============================================================================
 
-import type { PixiUiHost } from "@downdraft/library-pixi-ui/host";
-import type { DebugViewDescriptor } from "@downdraft/module-devtools";
+import type { PixiUiHost } from "@downdraft/engine/libraries/pixi-ui/host";
+import type { DebugViewDescriptor } from "@downdraft/engine/modules/devtools";
 
 export interface ProfilerOverlayOptions {
   /** The PixiUiHost to use (created by the game or by ProfilerLib). */

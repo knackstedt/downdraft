@@ -7,7 +7,7 @@
 // Extracted from native-host.ts — no GPU/window logic lives here.
 // ============================================================================
 
-import { createLogger } from "@downdraft/core";
+import { createLogger } from "@downdraft/engine";
 import { createRequire as nodeCreateRequire } from "node:module";
 import { VirtualCanvas } from "../gpu/virtual-canvas-context";
 import { NativeCanvas2D } from "../image/native-image";

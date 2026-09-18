@@ -1,5 +1,5 @@
-import type { MCPToolResult } from "@downdraft/mcp";
-import { EngineContext, MCPServer } from "@downdraft/module-mcp";
+import type { MCPToolResult } from "@downdraft/engine/mcp";
+import { EngineContext, MCPServer } from "@downdraft/engine/modules/mcp";
 import { beforeEach, describe, expect, it, vi } from "bun:test";
 
 // ============================================================================

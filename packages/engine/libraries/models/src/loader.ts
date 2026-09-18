@@ -5,8 +5,8 @@
 // remain synchronous but are wrapped in async for uniform call sites.
 //
 
-import type { AssetManager } from "@downdraft/core";
-import { MAX_FETCH_SIZE } from "@downdraft/core";
+import type { AssetManager } from "@downdraft/engine";
+import { MAX_FETCH_SIZE } from "@downdraft/engine";
 import type { GLTFCodecRegistry } from "./codecs/registry";
 import { getDefaultCodecRegistry } from "./codecs/registry";
 import { parseDAE } from "./dae";

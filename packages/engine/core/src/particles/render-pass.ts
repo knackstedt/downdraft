@@ -1,6 +1,6 @@
 import { createValidatedShaderModule } from "../render/shader-validator";
-import type { StructView, WgslStruct } from "@downdraft/shader-graph";
-import { f32, mat4x4f, vec3f, wgsl } from "@downdraft/shader-graph";
+import type { StructView, WgslStruct } from "@downdraft/engine/shader-graph";
+import { f32, mat4x4f, vec3f, wgsl } from "@downdraft/engine/shader-graph";
 import { type Mat4 } from "wgpu-matrix";
 import type { GraphRenderContext } from "../index";
 import { RenderPass } from "../index";

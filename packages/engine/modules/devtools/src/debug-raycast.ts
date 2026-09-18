@@ -3,7 +3,7 @@
 // Generic GPU rendering logic; game provides raycast results via IRaycastProvider.
 // ============================================================================
 
-import { calculateViewProj, createValidatedShaderModule, DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "@downdraft/core";
+import { calculateViewProj, createValidatedShaderModule, DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "@downdraft/engine";
 import type { IRaycastProvider, IRaycastResult } from "./types";
 
 const RAY_MAX_DIST = 60;

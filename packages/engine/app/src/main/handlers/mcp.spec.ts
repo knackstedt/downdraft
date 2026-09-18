@@ -16,7 +16,7 @@ const ipcMainMock = {
   },
 };
 
-// --- Mock @downdraft/mcp/http-transport to capture proxyHandler ---
+// --- Mock @downdraft/engine/mcp/http-transport to capture proxyHandler ---
 let capturedProxyHandler: ((req: { method: string; params?: Record<string, unknown> }) => Promise<unknown>) | null = null;
 const McpHttpTransportMock = class {
   _port: number;
@@ -29,7 +29,7 @@ const McpHttpTransportMock = class {
   getPort() { return this._port; }
 };
 
-// --- Mock @downdraft/core/util/logger ---
+// --- Mock @downdraft/engine/util/logger ---
 const loggerMock = {
   info: mock(() => {}),
   error: mock(() => {}),
@@ -50,10 +50,10 @@ mock.module("electron", () => ({
     enableHeapProfiling: async () => {},
   },
 }));
-mock.module("@downdraft/mcp/http-transport", () => ({
+mock.module("@downdraft/engine/mcp/http-transport", () => ({
   McpHttpTransport: McpHttpTransportMock,
 }));
-mock.module("@downdraft/core/util/logger", () => ({ createLogger: () => loggerMock }));
+mock.module("@downdraft/engine/util/logger", () => ({ createLogger: () => loggerMock }));
 
 // Import after mocks are registered
 const { startMcpProxy } = await import("./mcp");

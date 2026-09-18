@@ -2,7 +2,7 @@
 // Window creation — placement, state persistence, console forwarding
 // ============================================================================
 
-import { createLogger } from "@downdraft/core/util/logger";
+import { createLogger } from "@downdraft/engine/util/logger";
 import type { app as App, BrowserWindow, screen as Screen, session as Session } from "electron";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "path";
@@ -338,7 +338,7 @@ export async function createWindow(opts: CreateWindowOptions): Promise<BrowserWi
   // Load DevTools extension for 3D Scene Inspector (only when DevTools is available)
   if (devtools.enabled) {
     const devtoolsExtPath = isDev
-      ? join(__dirname, "../../packages/modules/devtools/extension")
+      ? join(__dirname, "../../packages/engine/modules/devtools/extension")
       : join(process.resourcesPath, "devtools-extension");
 
     if (existsSync(devtoolsExtPath)) {

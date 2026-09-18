@@ -96,7 +96,7 @@ export function createMeshTools(ctx: EngineContext, undoRedo: UndoRedoManager): 
 
         try {
           const data = await ctx.assetManager.load(path);
-          ctx.meshes.set(name, data as import("@downdraft/core").MeshData);
+          ctx.meshes.set(name, data as import("@downdraft/engine").MeshData);
           return jsonResult({ imported: true, name, path });
         } catch (e) {
           return errorResult(`Failed to import mesh: ${(e as Error).message}`);

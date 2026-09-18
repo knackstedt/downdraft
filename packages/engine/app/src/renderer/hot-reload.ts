@@ -16,7 +16,7 @@
 // Status is reported through the shared useHotReloadStore (devtools reads it).
 // ============================================================================
 
-import { isDevMode, useHotReloadStore, type IRendererStateProvider, type SaveOptions } from "@downdraft/core";
+import { isDevMode, useHotReloadStore, type IRendererStateProvider, type SaveOptions } from "@downdraft/engine";
 import { downdraft, type DowndraftBridge } from "./index";
 
 /** Minimal sim surface needed by the HMR handlers. */

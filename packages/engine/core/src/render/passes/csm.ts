@@ -1,5 +1,5 @@
-import type { StructView, WgslStruct, WgslType } from "@downdraft/shader-graph";
-import { mat4x4f, vec4f, wgsl } from "@downdraft/shader-graph";
+import type { StructView, WgslStruct, WgslType } from "@downdraft/engine/shader-graph";
+import { mat4x4f, vec4f, wgsl } from "@downdraft/engine/shader-graph";
 import { mat4, vec3, type Mat4 } from "wgpu-matrix";
 import type { MeshData } from "../../mesh/builder";
 import { PassType, type FrameGraphBuilder, type GraphRenderContext, type TextureHandle } from "../frame-graph";

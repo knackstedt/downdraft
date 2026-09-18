@@ -1,5 +1,5 @@
 // ============================================================================
-// LightingLib — declarative engine library descriptor for @downdraft/library-lighting
+// LightingLib — declarative engine library descriptor for @downdraft/engine/libraries/lighting
 //
 // Provides directional sun/moon lighting, ambient, bioluminescent blending, and
 // dynamic point/spot lights. LightSystem extends LightingSystem with a
@@ -16,7 +16,7 @@
 // the GPU storage buffer + bind group.
 // ============================================================================
 
-import { resourceToken, type EngineLibrary } from "@downdraft/core";
+import { resourceToken, type EngineLibrary } from "@downdraft/engine";
 import { LightSystem } from "./light-system";
 
 // ── Config ──

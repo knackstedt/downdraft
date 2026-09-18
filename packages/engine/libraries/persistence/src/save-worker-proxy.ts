@@ -18,8 +18,8 @@ import type {
     SaveSlotInfo,
     SaveState,
     SaveWarning,
-} from "@downdraft/core";
-import { wrap, type WorkerProxy } from "@downdraft/core/worker/rpc";
+} from "@downdraft/engine";
+import { wrap, type WorkerProxy } from "@downdraft/engine/worker/rpc";
 import type { OpfsSaveStoreOptions } from "./opfs-save-store";
 import type { SaveWorkerApi } from "./save-worker";
 

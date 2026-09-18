@@ -10,7 +10,7 @@
 // On startup, after acquiring the single-instance lock, stale LOCK files and
 // Chromium temp artifacts from a crashed/killed previous run are cleaned up.
 
-import { createLogger } from "@downdraft/core/util/logger";
+import { createLogger } from "@downdraft/engine/util/logger";
 import { existsSync, readdirSync, rmSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 

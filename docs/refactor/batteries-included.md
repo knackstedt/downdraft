@@ -35,9 +35,9 @@ Deliberately skipped (superseded by Phase 5 — code gets deleted, not migrated)
 
 | # | Item | Status |
 |---|---|---|
-| 2.1 | `createSimBridge` generalized into `@downdraft/app/renderer` (from tto `sim-bridge.ts`); tto keeps a thin game-verb facade | [x] |
+| 2.1 | `createSimBridge` generalized into `@downdraft/engine/app/renderer` (from tto `sim-bridge.ts`); tto keeps a thin game-verb facade | [x] |
 | 2.2 | Entity-sim worker host base for tto + andrews-sandbox (`sim-web-worker.ts` shared skeleton) — `EntitySimWorkerHost` in `core/worker`; `SimWorkerHost` constraint loosened to `WorkerApi` | [x] |
-| 2.3 | `installSimHotReload` + `restoreHotReloadState` in `@downdraft/app/renderer` (tto HMR block: sim/renderer reload + preserve-state save + sessionStorage restore) | [x] |
+| 2.3 | `installSimHotReload` + `restoreHotReloadState` in `@downdraft/engine/app/renderer` (tto HMR block: sim/renderer reload + preserve-state save + sessionStorage restore) | [x] |
 | 2.4 | `wireProfilingBridge` + `attachProfilerOverlay` in module-devtools (tto + sandjongg) | [x] |
 | 2.5 | `bindDebugStore(renderer, bindings)` in module-devtools for tto debug-store subscriptions | [x] |
 | 2.6 | `TaskPool` + `createTaskWorker` (transferables) + `PortChannel` in `core/worker`; terrain-mesh-pool + pathfinding-broker migrated (grid-builder/backdrop already on BaseWorkerHost) | [x] |
@@ -47,8 +47,8 @@ Deliberately skipped (superseded by Phase 5 — code gets deleted, not migrated)
 
 | # | Item | Status |
 |---|---|---|
-| 3.1 | Configurable `SandGridPass` → `@downdraft/library-sand/render` (layers/reflections, camera, light inputs); migrate falling-sand, mining-rpg, sandjongg | [x] |
-| 3.2 | `StickmanPass` → `@downdraft/library-stickman`; migrate falling-sand + mining-rpg (overburden's is a different 3D-box pass — renamed `BlockheadBoxPass`) | [x] |
+| 3.1 | Configurable `SandGridPass` → `@downdraft/engine/libraries/sand/render` (layers/reflections, camera, light inputs); migrate falling-sand, mining-rpg, sandjongg | [x] |
+| 3.2 | `StickmanPass` → `@downdraft/engine/libraries/stickman`; migrate falling-sand + mining-rpg (overburden's is a different 3D-box pass — renamed `BlockheadBoxPass`) | [x] |
 | 3.3 | `PanZoomCamera2D` (overburden `camera.ts` generalized onto `core/render/camera-2d.ts`; mining-rpg already on shared `Camera2D`) | [x] |
 | 3.4 | `SabCanvasOverlay` → `core/render` (DOM canvas + seq-gated bitmap repaint); overburden `MapCanvas` migrated | [x] |
 
@@ -102,7 +102,7 @@ Every game now starts in both Electron (`draft dev`) and Bun-native
   pragmas for shaders composed at runtime (andrews-sandbox postfx, to-the-ocean
   entity/pbr/lighting pipelines). to-the-ocean's generated IBL chunk was baked to
   `ibl-bindings.wgsl` so leaf shaders validate against the runtime composition.
-- `packages/app/src/vite/index.ts` now auto-includes worker-side dependency
+- `packages/engine/app/src/vite/index.ts` now auto-includes worker-side dependency
   subpaths (`pixi.js/events`) in the initial optimizeDeps pass — fixes stale
   `webworkerAll-*` chunk fetches after mid-run re-optimization.
 

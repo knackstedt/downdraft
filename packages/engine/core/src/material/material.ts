@@ -1,5 +1,5 @@
-import type { MaterialGraph } from "@downdraft/shader-graph";
-import { GraphCompiler, getProfile } from "@downdraft/shader-graph";
+import type { MaterialGraph } from "@downdraft/engine/shader-graph";
+import { GraphCompiler, getProfile } from "@downdraft/engine/shader-graph";
 import { DEFAULT_VARIANT_FLAGS, variantKey, type MaterialVariantFlags } from "./variants";
 
 export enum MaterialType {

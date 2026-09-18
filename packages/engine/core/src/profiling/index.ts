@@ -1,5 +1,5 @@
 // ============================================================================
-// @downdraft/core/profiling — public API barrel
+// @downdraft/engine/profiling — public API barrel
 //
 // Re-exports all profiling types + functions for use by workers, the
 // devtools module, the profiler library, and games.

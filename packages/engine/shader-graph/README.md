@@ -1,11 +1,11 @@
-# `@downdraft/shader-graph`
+# `@downdraft/engine/shader-graph`
 
 Node-based WGSL shader authoring — material graphs compile to WebGPU shaders with struct-drift validation against host-side uniform layouts.
 
 ## Install
 
 ```sh
-bun add @downdraft/shader-graph
+bun add @downdraft/engine/shader-graph
 ```
 
 ## Key exports

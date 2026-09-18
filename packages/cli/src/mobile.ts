@@ -31,7 +31,7 @@
 //   - The game must have a `src/mobile.ts` entry that calls
 //     `createDowndraftMobileApp()`.
 
-import { createLogger } from "@downdraft/core";
+import { createLogger } from "@downdraft/engine";
 import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -136,8 +136,8 @@ export function generateMobileEntryStub(game: string, appId: string): string {
 // Once customized, commit this file. \`draft mobile\` will not regenerate it.
 //
 
-import { createDowndraftMobileApp } from "@downdraft/app/mobile";
-import type { GameModule, GameSimWorker } from "@downdraft/app/renderer";
+import { createDowndraftMobileApp } from "@downdraft/engine/app/mobile";
+import type { GameModule, GameSimWorker } from "@downdraft/engine/app/renderer";
 
 // TODO: Import your renderer, sim, UI — same as main.tsx
 // import React from "react";
@@ -226,7 +226,7 @@ export async function buildMobileWeb(gameDir: string, env?: Record<string, strin
   } else {
     log.warn("mobile", `No mobile.vite.config.ts found. Using default mobile Vite config.`);
     const { createDowndraftMobileViteConfig } = await import(
-      "@downdraft/app/vite/mobile"
+      "@downdraft/engine/app/vite/mobile"
     );
     config = createDowndraftMobileViteConfig({ root: gameDir, game: basename(gameDir) });
   }
