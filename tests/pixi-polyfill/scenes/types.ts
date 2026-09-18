@@ -48,6 +48,13 @@ export interface PixiScene {
    */
   background?: number;
   /**
+   * Optional per-scene comparison threshold (mean per-channel diff, 0-255).
+   * Text scenes need a higher value: browser text shaping and the native
+   * FreeType rasterizer produce different glyph outlines/AA even with the
+   * same TTF. Defaults to the suite-wide 6.0.
+   */
+  maxMeanPerChannel?: number;
+  /**
    * Build the scene tree on the given root container. Called once after the
    * renderer is initialized. Must be deterministic (no randomness, no
    * time-dependent animation state).

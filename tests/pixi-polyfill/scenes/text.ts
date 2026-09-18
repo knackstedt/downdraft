@@ -20,6 +20,9 @@ export const textScene: PixiScene = {
   name: "Text",
   category: "text",
   description: "Multiple font sizes, colors, alignments, and word-wrapped multi-line text.",
+  // Browser text shaping vs native FreeType rasterization diverge on glyph
+  // outlines/AA even with the same TTF — allow a wider mean-diff band.
+  maxMeanPerChannel: 16.0,
   build(root: Container, ctx: SceneContext) {
     root.removeChildren();
 

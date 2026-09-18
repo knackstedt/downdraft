@@ -13,8 +13,7 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { join } from "node:path";
 import { renderBrowser } from "./browser/render";
 import { compareScreenshots } from "./compare";
-import { disposeNativeHost } from "./native/render";
-import { renderNative } from "./native/render";
+import { disposeNativeHost, renderNative } from "./native/render";
 import { SCENES } from "./scenes/registry";
 
 const ARTIFACTS = join(import.meta.dir, "artifacts");
@@ -57,7 +56,7 @@ describe("pixi-polyfill visual parity", () => {
         diffPath = join(ARTIFACTS, `${scene.id}-diff.png`);
         const result = compareScreenshots(browserPath, nativePath, {
           diffPath,
-          maxMeanPerChannel: 6.0,
+          maxMeanPerChannel: scene.maxMeanPerChannel ?? 6.0,
           mismatchTolerance: 24,
         });
         if (!result.pass) {

@@ -618,11 +618,16 @@ void* wgpu_shim_begin_render_pass(
         ca->resolveTarget = rt ? (WGPUTextureView)(uintptr_t)rt : NULL;
         ca->loadOp = (WGPULoadOp)a[5];
         ca->storeOp = (WGPUStoreOp)a[6];
-        // clearValue: 4 floats stored as bit patterns
-        memcpy(&ca->clearValue.r, &a[7], sizeof(float));
-        memcpy(&ca->clearValue.g, &a[8], sizeof(float));
-        memcpy(&ca->clearValue.b, &a[9], sizeof(float));
-        memcpy(&ca->clearValue.a, &a[10], sizeof(float));
+        // clearValue: 4 f32 bit patterns → WGPUColor's double fields.
+        float fcv[4];
+        memcpy(&fcv[0], &a[7], sizeof(float));
+        memcpy(&fcv[1], &a[8], sizeof(float));
+        memcpy(&fcv[2], &a[9], sizeof(float));
+        memcpy(&fcv[3], &a[10], sizeof(float));
+        ca->clearValue.r = (double)fcv[0];
+        ca->clearValue.g = (double)fcv[1];
+        ca->clearValue.b = (double)fcv[2];
+        ca->clearValue.a = (double)fcv[3];
     }
 
     WGPURenderPassDescriptor desc = {0};
