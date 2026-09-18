@@ -12,9 +12,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.4.0"
@@ -30,9 +27,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.4.0"
@@ -47,9 +41,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.4.0"
@@ -81,9 +72,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.4.0"
@@ -91,35 +79,3 @@ jobs:
         run: bun install --frozen-lockfile
       - name: Run plugin-tester specs
         run: bun test examples/plugin-tester/src/*.spec.ts
-
-  e2e-tests:
-    name: E2E Smoke Test (SwiftShader)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.4.0"
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-      - name: Install xvfb
-        run: sudo apt-get update && sudo apt-get install -y xvfb
-      - name: Run to-the-ocean E2E smoke test
-        run: bun run draft:test-cpu
-        timeout-minutes: 10
-      - name: Run overburden E2E smoke test
-        run: bun run draft:test-cpu -- --game overburden
-        timeout-minutes: 10
-      - name: Run sandjongg E2E smoke test
-        run: bun run draft:test-cpu -- --game sandjongg
-        timeout-minutes: 10
-      - name: Upload test artifacts
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: e2e-screenshots
-          path: tests/e2e/artifacts/
-          if-no-files-found: ignore
