@@ -1,7 +1,12 @@
+import { afterAll, describe, expect, it } from "bun:test";
 import { GPUProfiler } from "./gpu-profiler";
 import type { PassTiming } from "./collector";
 
 // Stub WebGPU constants
+const _orig_GPUBufferUsage = (globalThis as any).GPUBufferUsage;
+afterAll(() => {
+  if (_orig_GPUBufferUsage === undefined) delete (globalThis as any).GPUBufferUsage; else (globalThis as any).GPUBufferUsage = _orig_GPUBufferUsage;
+});
 (globalThis as any).GPUBufferUsage = {
   MAP_READ: 1, MAP_WRITE: 2, COPY_SRC: 4, COPY_DST: 8,
   INDEX: 16, VERTEX: 32, UNIFORM: 64, STORAGE: 128,

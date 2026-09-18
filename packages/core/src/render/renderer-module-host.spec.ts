@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "bun:test";
 import { resourceToken } from "../ecs/resource";
 import { setStrict } from "../module/diagnostics";
 import type { RendererModule } from "../module/renderer-module";
@@ -8,12 +8,20 @@ import { RendererModuleHost } from "./renderer-module-host";
 afterEach(() => setStrict(null));
 
 // Mock `window` for RendererInputBusImpl which adds event listeners on construction.
-if (typeof globalThis.window === "undefined") {
-  (globalThis as any).window = {
-    addEventListener: () => {},
-    removeEventListener: () => {},
-  };
-}
+// Install per-test and restore so the fake doesn't leak into later spec files.
+const origWindow = (globalThis as any).window;
+beforeEach(() => {
+  if (origWindow === undefined) {
+    (globalThis as any).window = {
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    };
+  }
+});
+afterEach(() => {
+  if (origWindow === undefined) delete (globalThis as any).window;
+  else (globalThis as any).window = origWindow;
+});
 
 function createMockCanvas(): HTMLCanvasElement {
   return {

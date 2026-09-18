@@ -7,12 +7,9 @@
     ".": "./src/index.ts",
     "./main-entry": "./src/main-entry.ts",
     "./polyfill": "./src/renderer/polyfill.ts",
-    "./*": [
-      "./src/*.ts",
-      "./src/*/index.ts",
-      "./src/*"
-    ],
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./*": "./src/*.ts",
+    "./*.ts": "./src/*.ts"
   },
   "dependencies": {
     "@downdraft/core": "^0.1.0"

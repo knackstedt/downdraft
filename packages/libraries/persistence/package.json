@@ -6,12 +6,9 @@
   "exports": {
     ".": "./src/index.ts",
     "./browser": "./src/browser.ts",
-    "./*": [
-      "./src/*.ts",
-      "./src/*/index.ts",
-      "./src/*"
-    ],
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./*": "./src/*.ts",
+    "./*.ts": "./src/*.ts"
   },
   "dependencies": {
     "@downdraft/core": "^0.1.0",

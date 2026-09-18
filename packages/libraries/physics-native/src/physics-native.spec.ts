@@ -333,7 +333,7 @@ describe("NativePhysicsBackend", () => {
       rotation: [0, 0, 0, 1],
       mass: 1,
     }, { index: 0, generation: 0 });
-    expect(handle.bodyId).toBe(0);
+    expect(handle.id).toBe(0);
     expect(backend.getPosition(handle)).toEqual([0, 10, 0]);
     backend.destroyBody(handle);
     backend.destroy();
@@ -670,7 +670,7 @@ describe("NativePhysicsBackend", () => {
 
   it("should handle missing body gracefully", () => {
     const backend = makeBackend();
-    const fakeHandle = { realmId: 0, bodyId: 999, entity: { index: 0, generation: 0 } };
+    const fakeHandle = { realmId: 0, id: 999, entity: { index: 0, generation: 0 } };
     expect(backend.getPosition(fakeHandle)).toEqual([0, 0, 0]);
     expect(backend.getLinearVelocity(fakeHandle)).toEqual([0, 0, 0]);
     expect(backend.getRotation(fakeHandle)).toEqual([0, 0, 0, 1]);
@@ -1150,7 +1150,7 @@ describe("NativePhysicsBackend", () => {
 
   it("should handle destroyBody on non-existent body", () => {
     const backend = makeBackend();
-    backend.destroyBody({ realmId: 0, bodyId: 999, entity: { index: 0, generation: 0 } });
+    backend.destroyBody({ realmId: 0, id: 999, entity: { index: 0, generation: 0 } });
     // Should not throw
     backend.destroy();
   });
@@ -1176,14 +1176,14 @@ describe("NativePhysicsBackend", () => {
 
   it("should handle setBodyType on non-existent body", () => {
     const backend = makeBackend();
-    backend.setBodyType({ realmId: 0, bodyId: 999, entity: { index: 0, generation: 0 } }, "static");
+    backend.setBodyType({ realmId: 0, id: 999, entity: { index: 0, generation: 0 } }, "static");
     backend.destroy();
   });
 
   it("should handle addCollider to non-existent body", () => {
     const backend = makeBackend();
     const result = backend.addCollider(
-      { realmId: 0, bodyId: 999, entity: { index: 0, generation: 0 } },
+      { realmId: 0, id: 999, entity: { index: 0, generation: 0 } },
       { shape: { type: "sphere", radius: 1 } },
     );
     expect(result).toBe(-1);

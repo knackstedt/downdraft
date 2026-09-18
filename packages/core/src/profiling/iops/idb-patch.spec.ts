@@ -13,6 +13,17 @@ import {
     unpatchIndexedDbPrototypes,
 } from "./idb-patch";
 
+const _orig_IDBFactory = (globalThis as any).IDBFactory;
+const _orig_IDBDatabase = (globalThis as any).IDBDatabase;
+const _orig_IDBTransaction = (globalThis as any).IDBTransaction;
+const _orig_IDBObjectStore = (globalThis as any).IDBObjectStore;
+afterAll(() => {
+  if (_orig_IDBFactory === undefined) delete (globalThis as any).IDBFactory; else (globalThis as any).IDBFactory = _orig_IDBFactory;
+  if (_orig_IDBDatabase === undefined) delete (globalThis as any).IDBDatabase; else (globalThis as any).IDBDatabase = _orig_IDBDatabase;
+  if (_orig_IDBTransaction === undefined) delete (globalThis as any).IDBTransaction; else (globalThis as any).IDBTransaction = _orig_IDBTransaction;
+  if (_orig_IDBObjectStore === undefined) delete (globalThis as any).IDBObjectStore; else (globalThis as any).IDBObjectStore = _orig_IDBObjectStore;
+});
+
 function setupMockIdb() {
   const mockRequest = {
     result: { name: "test-db" },

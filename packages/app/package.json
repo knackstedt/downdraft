@@ -8,40 +8,22 @@
       "types": "./src/index.ts",
       "import": "./src/index.ts"
     },
-    "./main": {
-      "types": "./src/main/index.ts",
-      "import": "./src/main/index.ts"
-    },
-    "./preload": {
-      "types": "./src/preload/index.ts",
-      "import": "./src/preload/index.ts"
-    },
-    "./renderer": {
-      "types": "./src/renderer/index.ts",
-      "import": "./src/renderer/index.ts"
-    },
-    "./mobile": {
-      "types": "./src/mobile/index.ts",
-      "import": "./src/mobile/index.ts"
-    },
-    "./shared": {
-      "types": "./src/shared/index.ts",
-      "import": "./src/shared/index.ts"
-    },
-    "./vite": {
-      "types": "./src/vite/index.ts",
-      "import": "./src/vite/index.ts"
-    },
+    "./main": "./src/main/index.ts",
+    "./preload": "./src/preload/index.ts",
+    "./renderer": "./src/renderer/index.ts",
+    "./mobile": "./src/mobile/index.ts",
+    "./shared": "./src/shared/index.ts",
+    "./vite": "./src/vite/index.ts",
     "./vite/mobile": {
-      "types": "./src/vite/mobile-vite-config.ts",
-      "import": "./src/vite/mobile-vite-config.ts"
+      "types": "./src/vite/mobile.ts",
+      "import": "./src/vite/mobile.ts"
     },
-    "./build": {
-      "types": "./src/build/index.ts",
-      "import": "./src/build/index.ts"
-    },
+    "./build": "./src/build/index.ts",
     "./package.json": "./package.json",
-    "./renderer/downdraft-base.css": "./src/renderer/downdraft-base.css"
+    "./renderer/downdraft-base.css": "./src/renderer/downdraft-base.css",
+    "./*": "./src/*.ts",
+    "./*.css": "./src/*.css",
+    "./*.ts": "./src/*.ts"
   },
   "dependencies": {
     "@downdraft/asset-bake": "^0.1.0",

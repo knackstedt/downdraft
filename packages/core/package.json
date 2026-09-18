@@ -7,12 +7,26 @@
     ".": "./src/index.ts",
     "./profiling": "./src/profiling/index.ts",
     "./profiling/*": "./src/profiling/*.ts",
-    "./*": [
-      "./src/*.ts",
-      "./src/*/index.ts",
-      "./src/*"
-    ],
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./ecs": "./src/ecs/index.ts",
+    "./scene": "./src/scene/index.ts",
+    "./render": "./src/render/index.ts",
+    "./render/bindless": "./src/render/bindless/index.ts",
+    "./render/gpu-driven": "./src/render/gpu-driven/index.ts",
+    "./material": "./src/material/index.ts",
+    "./assets": "./src/assets/index.ts",
+    "./util": "./src/util/index.ts",
+    "./physics": "./src/physics/index.ts",
+    "./library": "./src/library/index.ts",
+    "./animation": "./src/animation/index.ts",
+    "./imui": "./src/imui/index.ts",
+    "./module": "./src/module/index.ts",
+    "./particles": "./src/particles/index.ts",
+    "./plugin": "./src/plugin/index.ts",
+    "./*": "./src/*.ts",
+    "./*.md": "./src/*.md",
+    "./*.wgsl": "./src/*.wgsl",
+    "./*.ts": "./src/*.ts"
   },
   "dependencies": {
     "@downdraft/shader-graph": "^0.1.0",

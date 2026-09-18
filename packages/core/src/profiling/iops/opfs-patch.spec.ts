@@ -16,6 +16,13 @@ import {
 import { WarningEngine, METRIC_IOPS_LATENCY, SEVERITY_WARN } from "../warnings";
 
 // Minimal mock OPFS for testing prototype patching
+const _orig_FileSystemDirectoryHandle = (globalThis as any).FileSystemDirectoryHandle;
+const _orig_FileSystemFileHandle = (globalThis as any).FileSystemFileHandle;
+afterAll(() => {
+  if (_orig_FileSystemDirectoryHandle === undefined) delete (globalThis as any).FileSystemDirectoryHandle; else (globalThis as any).FileSystemDirectoryHandle = _orig_FileSystemDirectoryHandle;
+  if (_orig_FileSystemFileHandle === undefined) delete (globalThis as any).FileSystemFileHandle; else (globalThis as any).FileSystemFileHandle = _orig_FileSystemFileHandle;
+});
+
 function setupMockOpfs() {
   const mockFile = { name: "test.dat", data: new Uint8Array([1, 2, 3, 4]) };
   const mockFileHandle = {

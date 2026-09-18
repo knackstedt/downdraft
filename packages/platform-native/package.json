@@ -20,12 +20,10 @@
   },
   "exports": {
     ".": "./src/index.ts",
-    "./*": [
-      "./src/*.ts",
-      "./src/*/index.ts",
-      "./src/*"
-    ],
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./*": "./src/*.ts",
+    "./*.mjs": "./src/*.mjs",
+    "./*.ts": "./src/*.ts"
   },
   "publishConfig": {
     "access": "public"

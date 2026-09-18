@@ -6,12 +6,10 @@
   "exports": {
     ".": "./src/index.ts",
     "./main-entry": "./src/main-entry.ts",
-    "./*": [
-      "./src/*.ts",
-      "./src/*/index.ts",
-      "./src/*"
-    ],
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./*": "./src/*.ts",
+    "./*.wgsl": "./src/*.wgsl",
+    "./*.ts": "./src/*.ts"
   },
   "dependencies": {
     "@downdraft/core": "^0.1.0"

@@ -226,7 +226,7 @@ export async function buildMobileWeb(gameDir: string, env?: Record<string, strin
   } else {
     log.warn("mobile", `No mobile.vite.config.ts found. Using default mobile Vite config.`);
     const { createDowndraftMobileViteConfig } = await import(
-      "../../app/src/vite/mobile-vite-config"
+      "@downdraft/app/vite/mobile"
     );
     config = createDowndraftMobileViteConfig({ root: gameDir, game: basename(gameDir) });
   }

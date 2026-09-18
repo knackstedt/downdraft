@@ -1,3 +1,4 @@
+import { afterAll, describe, expect, it } from "bun:test";
 import { allocateProfilingSAB } from "@downdraft/core/profiling/profiling-sab";
 import { ProfilerScene } from "./profiler-scene";
 
@@ -8,6 +9,14 @@ const mockContainer = {
   destroy: () => {},
   y: 0,
 };
+const _orig_Container = (globalThis as any).Container;
+const _orig_Text = (globalThis as any).Text;
+const _orig_Graphics = (globalThis as any).Graphics;
+afterAll(() => {
+  if (_orig_Container === undefined) delete (globalThis as any).Container; else (globalThis as any).Container = _orig_Container;
+  if (_orig_Text === undefined) delete (globalThis as any).Text; else (globalThis as any).Text = _orig_Text;
+  if (_orig_Graphics === undefined) delete (globalThis as any).Graphics; else (globalThis as any).Graphics = _orig_Graphics;
+});
 (globalThis as any).Container = function () { return mockContainer; };
 (globalThis as any).Text = function (opts: any) { return { ...opts, width: 100, destroy: () => {} }; };
 (globalThis as any).Graphics = function () {

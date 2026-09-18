@@ -1,6 +1,11 @@
+import { afterAll, describe, expect, it } from "bun:test";
 import { GPUTimerPool } from "./gpu-timer-pool";
 
 // Stub WebGPU constants (not available in bun test environment)
+const _orig_GPUBufferUsage = (globalThis as any).GPUBufferUsage;
+afterAll(() => {
+  if (_orig_GPUBufferUsage === undefined) delete (globalThis as any).GPUBufferUsage; else (globalThis as any).GPUBufferUsage = _orig_GPUBufferUsage;
+});
 (globalThis as any).GPUBufferUsage = {
   MAP_READ: 1,
   MAP_WRITE: 2,

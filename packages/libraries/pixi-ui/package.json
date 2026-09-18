@@ -5,13 +5,10 @@
   "main": "src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./*": [
-      "./src/*.ts",
-      "./src/*/index.ts",
-      "./src/*"
-    ],
     "./react": "./src/react.ts",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./*": "./src/*.ts",
+    "./*.ts": "./src/*.ts"
   },
   "dependencies": {
     "@downdraft/core": "^0.1.0",

@@ -8,12 +8,11 @@
   },
   "exports": {
     ".": "./src/index.ts",
-    "./*": [
-      "./src/*.ts",
-      "./src/*/index.ts",
-      "./src/*"
-    ],
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./resources": "./src/resources/index.ts",
+    "./prompts": "./src/prompts/index.ts",
+    "./*": "./src/*.ts",
+    "./*.ts": "./src/*.ts"
   },
   "publishConfig": {
     "access": "public"

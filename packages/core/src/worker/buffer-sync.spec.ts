@@ -1,6 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { BufferSyncHost, BufferSyncWorker, isBufferSyncMessage, type BufferSyncConfig } from "./buffer-sync";
 
+// `self` is a real global under bun — save it and restore rather than delete,
+// so subsequent spec files see the original environment.
+const origSelf = (globalThis as any).self;
+function restoreSelf() {
+  if (origSelf === undefined) delete (globalThis as any).self;
+  else (globalThis as any).self = origSelf;
+}
+
 // Mock requestAnimationFrame / cancelAnimationFrame for the test environment.
 // rAF callbacks are queued but NOT auto-executed (prevents infinite recursion).
 // The first sync happens synchronously in start(); subsequent syncs are via rAF.
@@ -20,7 +28,7 @@ beforeEach(() => {
 afterEach(() => {
   delete (globalThis as any).requestAnimationFrame;
   delete (globalThis as any).cancelAnimationFrame;
-  delete (globalThis as any).self;
+  restoreSelf();
 });
 
 /**
@@ -276,7 +284,7 @@ describe("buffer-sync", () => {
       expect(transfer!.length).toBe(1);
 
       // Restore self
-      delete (globalThis as any).self;
+      restoreSelf();
     });
 
     it("copies received input regions into the local buffer", () => {
@@ -315,7 +323,7 @@ describe("buffer-sync", () => {
       expect(workerI32[0]).toBe(111);
       expect(workerI32[1]).toBe(222);
 
-      delete (globalThis as any).self;
+      restoreSelf();
     });
 
     it("sequence gating skips unchanged buffers", () => {
@@ -357,7 +365,7 @@ describe("buffer-sync", () => {
       worker.syncToMain();
       expect(mockSelf.sent.length).toBe(1);
 
-      delete (globalThis as any).self;
+      restoreSelf();
     });
 
     it("filtered sync does not starve regions sharing the same seq field", () => {
@@ -419,7 +427,7 @@ describe("buffer-sync", () => {
       expect(mockSelf.sent.length).toBe(1);
       expect(mockSelf.sent[0].msg.regions.sim.some((r: any) => r.offset === 128)).toBe(true);
 
-      delete (globalThis as any).self;
+      restoreSelf();
     });
   });
 
@@ -503,7 +511,7 @@ describe("buffer-sync", () => {
         expect(r.offset).not.toBe(INPUT_OFFSET);
       }
 
-      delete (globalThis as any).self;
+      restoreSelf();
     });
   });
 });
