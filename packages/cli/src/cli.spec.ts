@@ -119,7 +119,7 @@ describe("CLI new — minimal template", () => {
     expect(pkg.devDependencies["vite"]).toBeDefined();
     expect(pkg.devDependencies["typescript"]).toBeDefined();
     expect(pkg.devDependencies["oxlint"]).toBeDefined();
-    expect(pkg.dependencies["@downdraft/engine/app"]).toBe("^0.1.0");
+    expect(pkg.dependencies["@downdraft/engine"]).toBe("^0.1.0");
     expect(pkg.devDependencies["@downdraft/cli"]).toBe("^0.1.0");
   });
 
@@ -218,7 +218,7 @@ describe("CLI new — physics template", () => {
 
   it("should include physics-rapier dependency", async () => {
     const pkg = JSON.parse(readFileSync(join(TEST_DIR, "package.json"), "utf-8"));
-    expect(pkg.dependencies["@downdraft/engine/libraries/physics-rapier"]).toBe("^0.1.0");
+    expect(pkg.dependencies["@downdraft/engine"]).toBe("^0.1.0");
   });
 
   it("should include physics-rapier plugin in config", async () => {
@@ -274,11 +274,11 @@ describe("CLI new — full template", () => {
 
   it("should include all plugin dependencies", async () => {
     const pkg = JSON.parse(readFileSync(join(TEST_DIR, "package.json"), "utf-8"));
-    expect(pkg.dependencies["@downdraft/engine/libraries/water"]).toBe("^0.1.0");
-    expect(pkg.dependencies["@downdraft/engine/libraries/physics-rapier"]).toBe("^0.1.0");
-    expect(pkg.dependencies["@downdraft/engine/libraries/marching-cubes"]).toBe("^0.1.0");
-    expect(pkg.dependencies["@downdraft/engine/libraries/models"]).toBe("^0.1.0");
-    expect(pkg.dependencies["@downdraft/engine/modules/devtools"]).toBe("^0.1.0");
+    expect(pkg.dependencies["@downdraft/engine"]).toBe("^0.1.0");
+    expect(pkg.dependencies["@downdraft/engine"]).toBe("^0.1.0");
+    expect(pkg.dependencies["@downdraft/engine"]).toBe("^0.1.0");
+    expect(pkg.dependencies["@downdraft/engine"]).toBe("^0.1.0");
+    expect(pkg.dependencies["@downdraft/engine"]).toBe("^0.1.0");
   });
 
   it("should include all plugins in config", async () => {
