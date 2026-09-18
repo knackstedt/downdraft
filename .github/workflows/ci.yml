@@ -54,22 +54,24 @@ jobs:
         run: bun install --frozen-lockfile
       - name: Run unit tests
         run: |
-          bun test packages/core/src/ecs/world.spec.ts \
-            packages/core/src/render/frustum.spec.ts \
-            packages/core/src/telemetry/collector.spec.ts \
-            packages/core/src/physics/*.spec.ts \
-            packages/libraries/physics-rapier/src/*.spec.ts \
-            packages/shader-graph/src/graph.spec.ts \
-            packages/shader-graph/src/compute-compiler.spec.ts \
-            packages/core/src/render/bindless/bindless.spec.ts \
-            packages/core/src/material/material.spec.ts \
-            packages/core/src/material/variants.spec.ts \
-            packages/libraries/models/src/material-adapter.spec.ts \
-            packages/core/src/assets/model-normalizer.spec.ts \
-            packages/libraries/models/src/bake-node-transforms.spec.ts \
-            packages/libraries/models/src/sidecar/sidecar.spec.ts \
-            packages/libraries/models/src/normalize.spec.ts \
-            packages/app/src/main/storage.spec.ts
+          bun test packages/engine/core/src/ecs/world.spec.ts \
+            packages/engine/core/src/render/frustum.spec.ts \
+            packages/engine/core/src/telemetry/collector.spec.ts \
+            packages/engine/core/src/physics/*.spec.ts \
+            packages/engine/libraries/physics-rapier/src/*.spec.ts \
+            packages/engine/shader-graph/src/graph.spec.ts \
+            packages/engine/shader-graph/src/compute-compiler.spec.ts \
+            packages/engine/core/src/render/bindless/bindless.spec.ts \
+            packages/engine/core/src/material/material.spec.ts \
+            packages/engine/core/src/material/variants.spec.ts \
+            packages/engine/libraries/models/src/material-adapter.spec.ts \
+            packages/engine/core/src/assets/model-normalizer.spec.ts \
+            packages/engine/libraries/models/src/bake-node-transforms.spec.ts \
+            packages/engine/libraries/models/src/sidecar/sidecar.spec.ts \
+            packages/engine/libraries/models/src/normalize.spec.ts \
+            packages/engine/app/src/main/storage.spec.ts
+      - name: Check engine exports map is in sync
+        run: node scripts/gen-engine-exports.mjs --check
 
   plugin-tests:
     name: Plugin Tests
