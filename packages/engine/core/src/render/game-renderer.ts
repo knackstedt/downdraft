@@ -95,6 +95,22 @@ export interface GameRendererConfig {
    * never surface telemetry to skip the per-frame recording overhead.
    */
   enableTelemetry?: boolean;
+  /**
+   * GPU device-loss handling:
+   * - "auto" (default): attempt in-place recovery — re-request the adapter/
+   *   device, reconfigure the canvas, re-prepare UI + all registered frame
+   *   graph passes, and recompile the graph's transient textures. Falls back
+   *   to a page reload if recovery fails.
+   * - "reload": reload the page after a short delay (legacy behavior). Use
+   *   for games whose passes/modules can't recreate their GPU resources.
+   *
+   * Note: recovery recreates everything GameRenderer owns plus every
+   * registered pass's `prepare()`. Renderer modules that cached
+   * `ctx.getDevice()` at register time hold stale devices — modules should
+   * call `getDevice()` lazily or re-create resources in a pass's `prepare()`.
+   * Games can also hook `callbacks.onDeviceRecovered` for custom resources.
+   */
+  deviceLossRecovery?: "auto" | "reload";
 }
 
 export interface FrameCallbacks {
@@ -105,6 +121,15 @@ export interface FrameCallbacks {
   afterFrame?: (dt: number, elapsedTime: number) => void;
   onResize?: (cssWidth: number, cssHeight: number, dpr: number) => void;
   getPostProcessInfo?: () => { pixelationEnabled: boolean; pixelSize: number; postProcessEffects: string[] };
+  /** Fired when the GPU device is lost, before recovery is attempted. */
+  onDeviceLost?: (info: GPUDeviceLostInfo) => void;
+  /**
+   * Fired after the engine re-acquired a device and re-prepared its own
+   * resources (context, UI, frame-graph passes). Recreate any game-owned GPU
+   * resources not held by a registered RenderPass here. Throwing (or a
+   * rejected promise) aborts recovery and falls back to a page reload.
+   */
+  onDeviceRecovered?: (device: GPUDevice) => void | Promise<void>;
 }
 
 export interface CameraViewportInfo {
@@ -277,37 +302,12 @@ export class GameRenderer implements CanvasResizeHandler {
         disableRendererIndexedDb();
       }
 
-      // Adapter fallback chain: high-performance → low-power → any
-      let adapter = await navigator.gpu.requestAdapter({
-        powerPreference: "high-performance",
-      });
-      if (!adapter) {
-        console.warn("No high-performance GPU adapter, trying low-power...");
-        adapter = await navigator.gpu.requestAdapter({
-          powerPreference: "low-power",
-        });
-      }
-      if (!adapter) {
-        console.warn("No low-power adapter, trying any...");
-        adapter = await navigator.gpu.requestAdapter({});
-      }
+      const adapter = await this.requestAdapterWithFallback();
       if (!adapter) {
         console.error("No GPU adapter found — check GPU drivers and /dev/dri permissions");
         return false;
       }
-
-      // Request timestamp-query features for GPU-side per-pass timing
-      const requiredFeatures: GPUFeatureName[] = [];
-      if (adapter.features.has("timestamp-query")) {
-        requiredFeatures.push("timestamp-query");
-      }
-      if (adapter.features.has("chromium-experimental-timestamp-query-inside-passes" as GPUFeatureName)) {
-        requiredFeatures.push("chromium-experimental-timestamp-query-inside-passes" as GPUFeatureName);
-      }
-      this.device = await adapter.requestDevice({
-        requiredFeatures,
-        requiredLimits: this.buildRequiredLimits(adapter),
-      });
+      this.device = await this.requestDeviceFromAdapter(adapter);
       this.adapter = adapter;
 
       // Install the shader validation guard so all createShaderModule calls
@@ -329,12 +329,7 @@ export class GameRenderer implements CanvasResizeHandler {
 
       // Device lost handler
       this.device.lost.then((info: GPUDeviceLostInfo) => {
-        this.deviceLost = true;
-        console.error(`[GameRenderer] WebGPU device lost: ${info?.reason ?? "unknown"} — ${info?.message ?? ""}`);
-        setTimeout(() => {
-          console.warn("[GameRenderer] Attempting page reload for GPU recovery...");
-          window.location.reload();
-        }, 2000);
+        this.handleDeviceLost(info);
       });
 
       // Configure surface
@@ -410,6 +405,133 @@ export class GameRenderer implements CanvasResizeHandler {
       return false;
     }
   }
+
+  // --- Device acquisition + loss recovery ---
+
+  /** Adapter fallback chain: high-performance → low-power → any. */
+  private async requestAdapterWithFallback(): Promise<GPUAdapter | null> {
+    let adapter = await navigator.gpu.requestAdapter({
+      powerPreference: "high-performance",
+    });
+    if (!adapter) {
+      console.warn("No high-performance GPU adapter, trying low-power...");
+      adapter = await navigator.gpu.requestAdapter({
+        powerPreference: "low-power",
+      });
+    }
+    if (!adapter) {
+      console.warn("No low-power adapter, trying any...");
+      adapter = await navigator.gpu.requestAdapter({});
+    }
+    return adapter;
+  }
+
+  private async requestDeviceFromAdapter(adapter: GPUAdapter): Promise<GPUDevice> {
+    // Request timestamp-query features for GPU-side per-pass timing
+    const requiredFeatures: GPUFeatureName[] = [];
+    if (adapter.features.has("timestamp-query")) {
+      requiredFeatures.push("timestamp-query");
+    }
+    if (adapter.features.has("chromium-experimental-timestamp-query-inside-passes" as GPUFeatureName)) {
+      requiredFeatures.push("chromium-experimental-timestamp-query-inside-passes" as GPUFeatureName);
+    }
+    return adapter.requestDevice({
+      requiredFeatures,
+      requiredLimits: this.buildRequiredLimits(adapter),
+    });
+  }
+
+  private recoveringDevice = false;
+
+  private handleDeviceLost(info: GPUDeviceLostInfo): void {
+    if (this.deviceLost || this.recoveringDevice) return; // already handled
+    this.deviceLost = true;
+    console.error(`[GameRenderer] WebGPU device lost: ${info?.reason ?? "unknown"} — ${info?.message ?? ""}`);
+    try { this.callbacks.onDeviceLost?.(info); } catch (err) {
+      console.error("[GameRenderer] onDeviceLost callback threw:", err);
+    }
+
+    if ((this.config.deviceLossRecovery ?? "auto") === "reload" || info?.reason === "destroyed") {
+      // "destroyed" = device.destroy() was called deliberately — a new device
+      // can't help, the app is tearing down or opted out.
+      this.reloadForDeviceLoss();
+      return;
+    }
+    this.recoverDevice();
+  }
+
+  private reloadForDeviceLoss(): void {
+    setTimeout(() => {
+      console.warn("[GameRenderer] Attempting page reload for GPU recovery...");
+      window.location.reload();
+    }, 2000);
+  }
+
+  /**
+   * Attempt in-place device recovery: re-acquire adapter+device, reconfigure
+   * the surface, re-prepare UI/profiler and every registered frame-graph
+   * pass, then recompile the graph (transient textures get fresh allocations
+   * on the new device). Falls back to a page reload on any failure.
+   */
+  private async recoverDevice(): Promise<void> {
+    this.recoveringDevice = true;
+    try {
+      const adapter = await this.requestAdapterWithFallback();
+      if (!adapter) throw new Error("no GPU adapter after device loss");
+      const device = await this.requestDeviceFromAdapter(adapter);
+      device.lost.then((info) => this.handleDeviceLost(info));
+      this.device = device;
+      this.adapter = adapter;
+
+      installShaderValidationGuard(device);
+      this.gpuResourceTracker = new GPUResourceTracker();
+      this.gpuResourceTracker.wrapDevice(device);
+
+      this.context!.configure({
+        device,
+        format: this.format,
+        alphaMode: "premultiplied",
+      });
+
+      const adapterInfo = adapter.info ?? null;
+      this.gpuProfiler?.init(device, adapterInfo, this.format, 32);
+      if (this.uiRenderer) {
+        this.uiRenderer.prepare(device);
+        this.uiRenderer.setScreenSize(this.canvas.width, this.canvas.height);
+      }
+
+      // Re-prepare every registered pass — pipelines/bind groups built on the
+      // dead device are invalid. Passes that can't recreate resources should
+      // throw here so we fall back to reload.
+      for (const pass of this.frameGraph.getPasses()) {
+        pass.prepare(device);
+      }
+
+      // Force graph recompile so transient textures are re-allocated on the
+      // new device — pooled physical textures and cached views all belong to
+      // the dead device and must not be reused.
+      this.frameGraph.invalidatePhysicalResources();
+      this.graphCompiled = false;
+
+      await this.onDeviceRecovered(device);
+      await this.callbacks.onDeviceRecovered?.(device);
+
+      this.deviceLost = false;
+      console.warn("[GameRenderer] GPU device recovered — rendering resumed without reload");
+    } catch (err) {
+      console.error("[GameRenderer] Device recovery failed:", err);
+      this.reloadForDeviceLoss();
+    } finally {
+      this.recoveringDevice = false;
+    }
+  }
+
+  /**
+   * Subclass hook — called during device-loss recovery after the engine has
+   * re-prepared its own resources and all registered passes. Recreate
+   * subclass-owned GPU resources here. Throwing aborts recovery → reload.
+   */
+  protected async onDeviceRecovered(_device: GPUDevice): Promise<void> {}
 
   // --- CanvasResizeHandler ---
 
@@ -538,8 +660,7 @@ export class GameRenderer implements CanvasResizeHandler {
       console.error(`[GameRenderer] Render loop error: ${(err as Error).message}\n${(err as Error).stack}`);
       if (this.device?.lost) {
         this.device.lost.then((info: GPUDeviceLostInfo) => {
-          this.deviceLost = true;
-          console.error(`[GameRenderer] WebGPU device lost: ${info?.reason ?? "unknown"} — ${info?.message ?? ""}`);
+          this.handleDeviceLost(info);
         });
       }
       this.currentRafId = this.rafSource ? this.rafSource(this.render) : requestAnimationFrame(this.render);

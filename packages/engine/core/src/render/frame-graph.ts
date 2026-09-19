@@ -485,8 +485,29 @@ export class FrameGraph {
     return this.executionOrder.map(e => e.pass.name);
   }
 
+  /** All registered passes (registration order). Used by device-loss recovery to re-prepare pipelines on a new device. */
+  getPasses(): RenderPass[] {
+    return this.passes.map(e => e.pass);
+  }
+
   getAliasing(): Map<string, string> {
     return new Map(this.aliasing);
+  }
+
+  /**
+   * Drop all GPU objects bound to a (lost) device: physical texture pool and
+   * every cached/transient view. Call before the next compile() on a new
+   * device so transient resources get fresh allocations instead of reusing
+   * dead-device textures from the pool.
+   */
+  invalidatePhysicalResources(): void {
+    this.physicalTextures = [];
+    for (const resource of this.resources.values()) {
+      resource.cachedView = undefined;
+      if (!resource.external) resource.texture = null;
+    }
+    this.compiled = false;
+    this.dirty = true;
   }
 
   private computeLifetimes(): void {

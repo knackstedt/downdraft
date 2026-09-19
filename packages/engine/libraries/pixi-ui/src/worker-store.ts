@@ -36,16 +36,18 @@ export interface WorkerStore<T extends object> {
    * Post a worker→main action (side-effect request). The host's onAction
    * handler receives it. Wired via setPostAction — the scene calls
    * setPostAction(ctx.postAction) during scene init.
+   * `any` — actions cross a postMessage boundary and are game-typed on the
+   * other side; a narrower param type would reject game action unions.
    */
-  postAction(action: unknown): void;
+  postAction(action: any): void;
   /** Install the action sink (called by the scene during init). */
-  setPostAction(fn: (action: unknown) => void): void;
+  setPostAction(fn: (action: any) => void): void;
 }
 
 export function createWorkerStore<T extends object>(initialState: T): WorkerStore<T> {
   let state = initialState;
   const listeners = new Set<() => void>();
-  let postActionFn: ((action: unknown) => void) | null = null;
+  let postActionFn: ((action: any) => void) | null = null;
 
   function subscribe(cb: () => void): () => void {
     listeners.add(cb);

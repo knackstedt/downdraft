@@ -40,6 +40,17 @@ import { usingRealSAB } from "../sab/sab-polyfill";
 import type { BufferSyncConfig, BufferSyncWorker } from "./buffer-sync";
 
 import { mulberry32, type RngFn } from "../math/rng";
+import type {
+    ComponentSection,
+    ISaveStore,
+    LoadOptions,
+    SaveMeta,
+    SaveOptions,
+    SaveState
+} from "../save/persist-types";
+import type {
+    GCController
+} from "../telemetry/gc-controller";
 import { expose, exposeEvents, type WorkerApi } from "./rpc";
 
 export interface SimWorkerStats {
@@ -128,6 +139,30 @@ export interface SimWorkerControl {
    * resources (e.g. SandStepPool) without racing with the tick loop.
    */
   withLoopStopped<T>(fn: () => Promise<T> | T): Promise<T>;
+  /** Current speed multiplier (after min/max clamping). */
+  getSpeed(): number;
+  /** Set the speed multiplier (clamped to minSpeed/maxSpeed). */
+  setSpeed(speed: number): void;
+  /**
+   * Accumulated wall-clock ms spent inside onTick() since the last
+   * resetTickTimeAccum(). Use for sim-CPU% diagnostics.
+   */
+  getTickTimeAccum(): number;
+  /** Reset the tick-time accumulator (see getTickTimeAccum). */
+  resetTickTimeAccum(): void;
+  /** Current tick count. */
+  getTickCount(): number;
+  /**
+   * Attach a GCController to the loop — it is offered post-tick headroom
+   * for proactive collection each frame (same contract as
+   * SimWorkerLoop.setGCController).
+   */
+  setGCController(ctrl: GCController | null): void;
+  /**
+   * Stop the loop permanently (e.g. from an uncaught-error handler).
+   * After stop() the worker only responds to RPC — no more ticks.
+   */
+  stop(): void;
   /** Get the events emitter for sending events to the host. */
   events: { emit: (kind: string, data?: any) => void };
   /**
@@ -144,6 +179,11 @@ export interface CreateSimWorkerOptions {
   fixedDt: number;
   /** Maximum ticks per loop iteration (prevents death spiral). Default: 5. */
   maxStepsPerFrame?: number;
+
+  /** Minimum speed multiplier for setSpeed(). Default: 0. */
+  minSpeed?: number;
+  /** Maximum speed multiplier for setSpeed(). Default: unbounded. */
+  maxSpeed?: number;
 
   /**
    * If true, the worker starts in paused mode. The renderer must call
@@ -246,6 +286,61 @@ export interface CreateSimWorkerOptions {
   extraApi?: Record<string, (...args: any[]) => any>;
 
   /**
+   * Save/load plumbing. When provided, the standard API gains the game
+   * persistence contract shared by the worker-host save flow:
+   *
+   *   save(slotName, opts?)           → { slotName, stateJson, success, gen? }
+   *   load(slotName, stateJson?, opts?) → boolean
+   *   initSaveStore(storeOpts)        → creates + initializes the inline store
+   *   restoreFromState(stateJson)     → applies a serialized payload directly
+   *
+   * `capture()` returns the component's data payload; it is wrapped in the
+   * standard SaveState shape (components[componentName] = { v, data }) so
+   * both OPFS and IPC save backends store the same format.
+   */
+  save?: {
+    /**
+     * Serialize the sim's current state. When `componentName` is set this
+     * returns that component's data payload (wrapped as `{ v, data }` under
+     * `components[componentName]`); when omitted it returns the full
+     * components map directly (multi-component games).
+     */
+    capture: () => unknown | Promise<unknown>;
+    /**
+     * Apply a previously captured payload. Called with the loop stopped
+     * (withLoopStopped) so the sim can't tick mid-restore. Receives the
+     * component data (componentName set) or the full parsed payload.
+     */
+    restore: (data: unknown) => void | Promise<void>;
+    /**
+     * Component key under SaveState.components (e.g. "sandbox"). Omit when
+     * capture() returns the whole components map.
+     */
+    componentName?: string;
+    /** Schema version stamped on the component section. Default: 1. */
+    version?: number;
+    /**
+     * Factory for an inline save store (e.g. `(o) => new OpfsSaveStore(o)`).
+     * Injectable because OpfsSaveStore lives in libraries/persistence —
+     * core must not import it. When omitted, save() still returns the
+     * stateJson for the caller's own (IPC) store path.
+     */
+    createStore?: (opts: unknown) => ISaveStore & { init?: () => Promise<void> };
+    /**
+     * Extra SaveState.meta fields. Receives the captured payload and the
+     * caller's SaveOptions (e.g. to forward engineVersion from
+     * saveOpts.properties).
+     */
+    meta?: (data: unknown, saveOpts?: SaveOptions) => Partial<SaveMeta>;
+  };
+
+  /**
+   * Command dispatch. When provided, the standard API gains
+   * sendCommand(cmd) which forwards to this handler.
+   */
+  onCommand?: (cmd: unknown) => void | Promise<void>;
+
+  /**
    * Wrap the exposed API with devtools + profiling RPC methods
    * (__devtoolsGetManifest, __profilingAttach, etc.). When provided, the
    * function is called with the assembled API and its return value is passed
@@ -271,6 +366,8 @@ export interface CreateSimWorkerOptions {
  *   setSpeed(speed) — sets the speed multiplier (0 = paused)
  *   step() — single-steps (runs 1 tick then pauses)
  *   getStats() — returns { fps, tick, frame }
+ *   save/load/initSaveStore/restoreFromState — when opts.save is provided
+ *   sendCommand(cmd) — when opts.onCommand is provided
  *   ...extraApi — any additional methods
  */
 export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl {
@@ -286,6 +383,7 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
   let lastTick = 0;
   let tickAccumulator = 0;
   let tickCount = 0;
+  let tickTimeAccum = 0;
   let frameCount = 0;
   let fpsTimer = 0;
   let fps = 0;
@@ -297,6 +395,28 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
   // ones) are synced every onSyncSlowInterval tick batches.
   let syncSlowCounter = 0;
   const syncSlowInterval = opts.onSyncSlowInterval ?? 10;
+
+  // Inline save store (created by initSaveStore() via opts.save.createStore).
+  let saveStore: (ISaveStore & { init?: () => Promise<void> }) | null = null;
+
+  // Optional GC controller — offered post-tick headroom each frame.
+  let gcController: GCController | null = null;
+
+  /**
+   * Extract the restore payload from a serialized state. Handles all three
+   * wire forms: raw data, a components map (`{ name: { v, data } }`), and a
+   * full SaveState (`{ components: { name: { v, data } } }`). When
+   * componentName is omitted the components map / raw payload is returned
+   * as-is for multi-component games.
+   */
+  const extractRestoreData = (parsed: any): unknown => {
+    const name = opts.save!.componentName;
+    if (!name) return parsed?.components ?? parsed;
+    return (
+      parsed?.components?.[name]?.data ??
+      (parsed?.[name]?.data !== undefined ? parsed[name].data : parsed)
+    );
+  };
   const syncFastRegions = opts.onSyncFastRegions;
   // setTimeout truncates fractional milliseconds (e.g. 32.333 → 32), losing
   // ~frac(tickMs) ms per iteration. For tickMs = 33.333 (30Hz), that's 0.333ms
@@ -345,6 +465,18 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
         loop();
       }
     },
+    getSpeed: () => speedMultiplier,
+    setSpeed: (speed: number) => {
+      speedMultiplier = Math.min(
+        opts.maxSpeed ?? Infinity,
+        Math.max(opts.minSpeed ?? 0, speed),
+      );
+    },
+    getTickTimeAccum: () => tickTimeAccum,
+    resetTickTimeAccum: () => { tickTimeAccum = 0; },
+    getTickCount: () => tickCount,
+    setGCController: (ctrl: GCController | null) => { gcController = ctrl; },
+    stop: () => { running = false; loopActive = false; },
     events,
   };
 
@@ -373,6 +505,7 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
             const tickStart = performance.now();
             await opts.onTick(opts.fixedDt, { tickCount, frameCount, fps, rng });
             const tickDurationUs = (performance.now() - tickStart) * 1000;
+            tickTimeAccum += tickDurationUs / 1000;
             // Record task latency for the flame graph + histogram
             recordTaskLatency("js", tickDurationUs, "tick");
             // Fire instantaneous tick-latency warning (if configured)
@@ -423,6 +556,15 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
 
             // Flush profiling data (ThreadMetrics + EventLoop + instant warnings)
             flushProfilingTick();
+          }
+        }
+
+        // Offer post-tick headroom to the GC controller for proactive
+        // collection (same contract as SimWorkerLoop).
+        if (gcController) {
+          const headroom = tickMs - (performance.now() - now);
+          if (headroom > 0) {
+            gcController.maybeCollect(headroom, tickMs);
           }
         }
       }
@@ -513,11 +655,15 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
       running = false;
       loopActive = false;
       syncWorker = null; // release sync worker reference
+      saveStore = null;
       await opts.onShutdown?.();
     },
 
     async setSpeed(speed: number): Promise<void> {
-      speedMultiplier = Math.max(0, speed);
+      speedMultiplier = Math.min(
+        opts.maxSpeed ?? Infinity,
+        Math.max(opts.minSpeed ?? 0, speed),
+      );
     },
 
     async step(): Promise<void> {
@@ -530,6 +676,104 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
     getStats(): SimWorkerStats {
       return { fps, tick: tickCount, frame: frameCount };
     },
+
+    ...(opts.save
+      ? {
+          async save(
+            slotName: string,
+            saveOpts?: SaveOptions,
+          ): Promise<{ slotName: string; stateJson: string; success: boolean; gen?: number }> {
+            const data = await opts.save!.capture();
+            // Always wrap in SaveState.components format so that both OPFS
+            // and IPC (FileSaveStore) backends store the state in the
+            // expected component format — FileSaveStore.load() expects each
+            // component to have a { v, data } structure.
+            const name = opts.save!.componentName;
+            const components: Record<string, ComponentSection> = name
+              ? { [name]: { v: opts.save!.version ?? 1, data } }
+              : (data as Record<string, ComponentSection>);
+            const metaExtra = opts.save!.meta?.(data, saveOpts);
+            const saveStateObj: SaveState = {
+              components,
+              meta: {
+                engineVersion: "0.0.0",
+                timestamp: Date.now() / 1000,
+                entityCount: 0,
+                playerCount: 0,
+                ...metaExtra,
+              },
+            };
+            const stateJson = JSON.stringify(saveStateObj.components);
+            let gen: number | undefined;
+            let success = true;
+            if (saveStore) {
+              const result = await saveStore.save(slotName, saveStateObj, saveOpts);
+              success = result.success;
+              gen = result.gen;
+            }
+            events.emit("saved", { slotName, stateJson, success, gen });
+            return { slotName, stateJson, success, gen };
+          },
+
+          async load(
+            slotName: string,
+            stateJson?: string,
+            loadOpts?: LoadOptions,
+          ): Promise<boolean> {
+            let json = stateJson;
+            let gen: number | undefined;
+            if (!json && saveStore) {
+              const result = await saveStore.load(slotName, loadOpts);
+              const payload = opts.save!.componentName
+                ? result.state?.components?.[opts.save!.componentName]?.data
+                : result.state?.components;
+              if (payload !== undefined && payload !== null) {
+                json = JSON.stringify(payload);
+                gen = result.gen;
+              }
+            }
+            if (!json) {
+              events.emit("loaded", { slotName, success: false });
+              return false;
+            }
+            let data: unknown = json;
+            try {
+              data = extractRestoreData(JSON.parse(json));
+            } catch {
+              // not JSON — pass through as-is
+            }
+            // Stop the loop during restore — mutating sim state while a tick
+            // is in flight is a data race.
+            await control.withLoopStopped(() => opts.save!.restore(data));
+            events.emit("loaded", { slotName, success: true, gen });
+            return true;
+          },
+
+          async initSaveStore(storeOpts: unknown): Promise<void> {
+            if (!opts.save!.createStore) return;
+            saveStore = opts.save!.createStore(storeOpts);
+            await saveStore.init?.();
+          },
+
+          async restoreFromState(stateJson: string): Promise<void> {
+            let data: unknown = stateJson;
+            try {
+              data = extractRestoreData(JSON.parse(stateJson));
+            } catch {
+              // not JSON — pass through as-is
+            }
+            await control.withLoopStopped(() => opts.save!.restore(data));
+          },
+        }
+      : {}),
+
+    ...(opts.onCommand
+      ? {
+          async sendCommand(cmd: unknown): Promise<void> {
+            await opts.onCommand!(cmd);
+          },
+        }
+      : {}),
   };
 
   const api: WorkerApi = { ...standardApi, ...(opts.extraApi ?? {}) };
