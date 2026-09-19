@@ -167,6 +167,7 @@
     "packages/platform-native/src/ffi/runtime-globals.d.ts"
   ],
   "include": [
+    "packages/engine/package.json",
     "packages/engine/app/src/shared/**/*",
     "packages/engine/app/src/renderer/**/*",
     "packages/engine/app/src/mobile/**/*",

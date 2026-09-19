@@ -7,6 +7,8 @@
 
 /// <reference path="./webgpu-destroy-augmentation.d.ts" />
 
+import pkg from "../../package.json";
+
 // Sub-barrel re-exports — these aggregate all items from their respective domains.
 export * from "./assets";
 export * from "./ecs";
@@ -23,9 +25,9 @@ export * from "./util";
 // Engine version — single source of truth for the engine's semver.
 // Used by the feature log, save headers (via features.saves.engineVersion
 // default), and any code that needs to report the running engine version.
-// Bump this in lockstep with the root package.json "version" field.
+// Sourced from package.json so it can never drift from the published version.
 // ─────────────────────────────────────────────────────────────────────────────
-export const ENGINE_VERSION = "0.1.0";
+export const ENGINE_VERSION: string = pkg.version;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Worker (task-worker lives outside ecs/)

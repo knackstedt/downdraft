@@ -37,22 +37,27 @@ export type LibraryTickPhase =
  * The `sim` context provides access to the SABs allocated by the library
  * descriptor, the world, and other libraries' provided resources.
  */
-export interface LibrarySimSetup<C = unknown> {
+export interface LibrarySimSetup<C = unknown, S = unknown> {
   /**
    * Called once during sim worker init to create the sim-side system.
    * Receives the library config + the sim context (SABs, world, inject).
    * Returns the system instance (stored and passed to `tick()`).
+   * May be async (e.g. WASM init) — the host resolves the promise before
+   * the instance is passed to `tick()`/`dispose()`. NOTE: an async create
+   * resolves after `initSim()` returns, so resources it `provide()`s are
+   * not visible to other libraries' `create()` calls in the same init pass —
+   * provide shared resources synchronously or defer injection to `tick()`.
    */
-  create(config: C, ctx: LibrarySimContext): unknown;
+  create(config: C, ctx: LibrarySimContext): S | Promise<S>;
   /**
    * Called each sim tick at the declared `tickPhase`.
    * Receives the system instance + tick context (dt, entities, etc.).
    */
-  tick?(system: unknown, ctx: LibrarySimTickContext): void;
+  tick?(system: S, ctx: LibrarySimTickContext): void;
   /**
    * Called on sim shutdown / hot-reload dispose.
    */
-  dispose?(system: unknown): void;
+  dispose?(system: S): void;
 }
 
 /** Context passed to `LibrarySimSetup.create()`. */
@@ -100,39 +105,41 @@ export interface LibraryRendererCreateContext {
  * Renderer-side library wiring. Called from the renderer during `init()`
  * and `setBuffers()`.
  */
-export interface LibraryRendererSetup<C = unknown> {
+export interface LibraryRendererSetup<C = unknown, R = unknown> {
   /**
    * Called once early during renderer setup, BEFORE the WebGPU device is
    * acquired and before `init()`. Use for renderer-only libraries that
    * don't need the GPU (e.g. a UI overlay worker host). The returned
    * instance is stored and passed to `init()`/`setBuffers()`/`draw()`/`dispose()`
    * if those are also defined. Omit for GPU-pass libraries that only need `init()`.
+   * May return null to indicate the library is unavailable (e.g. a required
+   * DI token is missing).
    */
-  create?(config: C, ctx: LibraryRendererCreateContext): unknown;
+  create?(config: C, ctx: LibraryRendererCreateContext): R | null;
   /**
    * Called once during renderer init (after WebGPU device is ready).
    * Receives the GPU device, format, and library config.
    * Returns a renderer-side instance (stored and passed to `draw()`).
-   * If `create()` returned an instance, it is passed in as the first arg
-   * instead of being overwritten.
+   * If `create()` returned an instance, it is kept unless `init()` returns
+   * a new one.
    */
-  init?(config: C, ctx: LibraryRendererInitContext): unknown;
+  init?(config: C, ctx: LibraryRendererInitContext): R | null | undefined;
   /**
    * Called when SABs are set on the renderer (`setBuffers()`).
    * Receives the renderer instance from `init()` + the SABs.
    * The optional context provides `provide()` for registering resources
    * into the DI graph (e.g. a buffer reader created during setBuffers).
    */
-  setBuffers?(instance: unknown, buffers: Record<string, SharedArrayBuffer>, ctx?: { provide<T>(token: ResourceToken<T>, value: T): void }): void;
+  setBuffers?(instance: R, buffers: Record<string, SharedArrayBuffer>, ctx?: { provide<T>(token: ResourceToken<T>, value: T): void }): void;
   /**
    * Called per frame during the render pass.
    * Receives the renderer instance + frame context.
    */
-  draw?(instance: unknown, ctx: LibraryRendererDrawContext): void;
+  draw?(instance: R, ctx: LibraryRendererDrawContext): void;
   /**
    * Called on renderer dispose.
    */
-  dispose?(instance: unknown): void;
+  dispose?(instance: R): void;
 }
 
 /** Context for `LibraryRendererSetup.init()`. */
@@ -177,7 +184,7 @@ export interface LibrarySABChannel {
  *
  * Example (water library):
  * ```ts
- * export const WaterLib: EngineLibrary<WaterConfig> = {
+ * export const WaterLib: EngineLibrary<WaterConfig, WaterBufferWriter, WaterPass> = {
  *   name: "water",
  *   version: "1.0.0",
  *   sabChannels: [{ name: "water", size: WaterChannel.BUFFER_SIZE }],
@@ -193,13 +200,13 @@ export interface LibrarySABChannel {
  *   tickPhase: "pre-physics",
  *   renderer: {
  *     init(config, rctx) { return new WaterPass(rctx.device, rctx.format); },
- *     setBuffers(pass, buffers) { (pass as any).setReader(new WaterBufferReader(buffers.water)); },
- *     draw(pass, dctx) { (pass as any).execute(dctx.passEncoder); },
+ *     setBuffers(pass, buffers) { pass.setReader(new WaterBufferReader(buffers.water)); },
+ *     draw(pass, dctx) { pass.execute(dctx.passEncoder); },
  *   },
  * };
  * ```
  */
-export interface EngineLibrary<C = unknown> {
+export interface EngineLibrary<C = unknown, S = unknown, R = unknown> {
   /** Library name (unique among the game's libraries[]). */
   name: string;
   /** Library version (semver). */
@@ -217,7 +224,7 @@ export interface EngineLibrary<C = unknown> {
 
   // ── Sim-side ──
   /** Sim-side setup (system creation + tick). Omit for renderer-only libraries. */
-  sim?: LibrarySimSetup<C>;
+  sim?: LibrarySimSetup<C, S>;
   /** When in the sim tick to call `sim.tick()`. Default: "post-physics". */
   tickPhase?: LibraryTickPhase;
 
@@ -226,7 +233,7 @@ export interface EngineLibrary<C = unknown> {
    *  Omit for sim-only libraries. `create` runs before the GPU device is ready
    *  (renderer-only host/worker libraries); `init`/`setBuffers`/`draw`/`dispose`
    *  run with the GPU device available. */
-  renderer?: LibraryRendererSetup<C>;
+  renderer?: LibraryRendererSetup<C, R>;
 
   // ── Config ──
   /** Default config. Overridden by the game's `libraries[]` entry config. */

@@ -4,6 +4,7 @@ import type { ResourceToken } from "../ecs/resource";
 import type { Stage, System, SystemFn } from "../ecs/system";
 import type { World } from "../ecs/world";
 import { createLogger } from "../util/logger";
+import type { CrossThreadToken, ModuleThreadInfo, ThreadTag } from "./cross-thread";
 import { assertNoDuplicate, assertRequired, isStrict, warnLeak } from "./diagnostics";
 import type { Module, ModuleContext, ModuleDevToolsAPI, SABChannel } from "./module";
 import { ModuleRegistry } from "./registry";
@@ -16,6 +17,8 @@ interface ActiveModule {
   disposeFns: Array<() => void>;
   sabChannels: Map<string, SharedArrayBuffer>;
   providedKeys: Set<string>;
+  /** Names of systems this module registered — removed from the schedule on unload. */
+  systemNames: string[];
 }
 
 interface ResourceEntry {
@@ -179,6 +182,7 @@ export class ModuleHost implements ModuleContext {
       disposeFns: [],
       sabChannels: new Map(),
       providedKeys: new Set(),
+      systemNames: [],
     };
     this.active.set(plugin.name, active);
     this.currentModuleName = plugin.name;
@@ -198,6 +202,10 @@ export class ModuleHost implements ModuleContext {
         } catch (disposeErr) {
           log.error("ModuleHost", `Dispose error rolling back plugin "${plugin.name}": ${disposeErr}`);
         }
+      }
+      // Remove systems the module registered before throwing.
+      for (const sysName of active.systemNames) {
+        this.world.schedule.removeSystem(sysName);
       }
       this.active.delete(plugin.name);
       throw err;
@@ -233,6 +241,11 @@ export class ModuleHost implements ModuleContext {
         log.error("ModuleHost", `Dispose error in plugin "${name}": ${err}`);
       }
     }
+    // Remove the module's systems from the world schedule — otherwise they
+    // keep running after unload (e.g. duplicated per hot-reload swap).
+    for (const sysName of active.systemNames) {
+      this.world.schedule.removeSystem(sysName);
+    }
     this.active.delete(name);
     this.pending.delete(name);
     this.registry.unregister(name);
@@ -246,11 +259,60 @@ export class ModuleHost implements ModuleContext {
     return this.registry.getAll().map((p) => p.name);
   }
 
+  /**
+   * Produce a thread-tagged snapshot of all active modules for the
+   * cross-thread report + doctor panel. `thread` identifies which side
+   * this host lives on ("sim" | "renderer").
+   *
+   * Tokens created via `crossThreadToken()` carry a `__thread` tag; the
+   * snapshot records it in `tokenThreads` so `buildCrossThreadReport()`
+   * can flag tokens provided on the wrong thread.
+   */
+  snapshot(thread: ThreadTag): ModuleThreadInfo[] {
+    const out: ModuleThreadInfo[] = [];
+    for (const [name, active] of this.active) {
+      const plugin = active.plugin;
+      const tokenThreads: Record<string, ThreadTag> = {};
+      const collectTags = (tokens?: ResourceToken<unknown>[]) => {
+        for (const t of tokens ?? []) {
+          const tag = (t as CrossThreadToken<unknown>).__thread;
+          if (tag) tokenThreads[t.key] = tag;
+        }
+      };
+      collectTags(plugin.provides);
+      collectTags(plugin.requires);
+      out.push({
+        name,
+        version: plugin.version,
+        thread,
+        provides: (plugin.provides ?? []).map((t) => t.key),
+        requires: (plugin.requires ?? []).map((t) => t.key),
+        active: true,
+        tokenThreads: Object.keys(tokenThreads).length > 0 ? tokenThreads : undefined,
+      });
+    }
+    return out;
+  }
+
   disposeAll(): void {
     const order = this.registry.resolveOrder();
     for (let i = order.length - 1; i >= 0; i--) {
       this.unloadModule(order[i]);
     }
+    // Clean up unattributed registrations (made outside a register()
+    // lifecycle — they were tracked globally so they don't leak).
+    for (const sysName of this.unattributedSystemNames) {
+      this.world.schedule.removeSystem(sysName);
+    }
+    this.unattributedSystemNames.length = 0;
+    for (let i = this.unattributedDisposeFns.length - 1; i >= 0; i--) {
+      try {
+        this.unattributedDisposeFns[i]();
+      } catch (err) {
+        log.error("ModuleHost", `Unattributed dispose error: ${err}`);
+      }
+    }
+    this.unattributedDisposeFns.length = 0;
   }
 
   registerComponent<T>(name: string, _schema: T): ComponentId {
@@ -262,16 +324,32 @@ export class ModuleHost implements ModuleContext {
       log.warn("ModuleHost", "registerSystem called outside a module register() lifecycle — the system will not be attributed to any module");
     }
     this.systemCounter++;
+    const name = `module:${this.currentModuleName || "unattributed"}:${this.systemCounter}`;
     this.world.schedule.add({
-      name: `module:${this.currentModuleName || "unattributed"}:${this.systemCounter}`,
+      name,
       stage,
       fn: system,
       queries: [],
     });
+    const active = this.active.get(this.currentModuleName);
+    if (active) {
+      active.systemNames.push(name);
+    } else {
+      this.unattributedSystemNames.push(name);
+    }
   }
 
   registerSystemObject(system: System): void {
+    if (!this.currentModuleName) {
+      log.warn("ModuleHost", `registerSystemObject("${system.name}") called outside a module register() lifecycle — the system will not be attributed to any module`);
+    }
     this.world.schedule.add(system);
+    const active = this.active.get(this.currentModuleName);
+    if (active) {
+      active.systemNames.push(system.name);
+    } else {
+      this.unattributedSystemNames.push(system.name);
+    }
   }
 
   allocateSABChannel(name: string, size: number): SABChannel {
@@ -343,12 +421,19 @@ export class ModuleHost implements ModuleContext {
     if (active) {
       active.disposeFns.push(fn);
     } else {
-      log.warn("ModuleHost", "onDispose called outside a module register() lifecycle — the callback was dropped");
+      // Don't drop the callback silently — run it at disposeAll() so
+      // resources registered outside a lifecycle still get cleaned up.
+      log.warn("ModuleHost", "onDispose called outside a module register() lifecycle — the callback will run at disposeAll() instead of being attributed to a module");
+      this.unattributedDisposeFns.push(fn);
     }
   }
 
   private currentModuleName: string = "";
   private systemCounter = 0;
+  /** Systems registered outside a register() lifecycle — removed at disposeAll(). */
+  private unattributedSystemNames: string[] = [];
+  /** Dispose callbacks registered outside a register() lifecycle — run at disposeAll(). */
+  private unattributedDisposeFns: Array<() => void> = [];
 
   setCurrentPlugin(name: string): void {
     this.currentModuleName = name;

@@ -152,6 +152,7 @@
     }
   },
   "include": [
+    "packages/engine/package.json",
     "packages/engine/app/src/main/**/*",
     "packages/engine/app/src/preload/**/*",
     "packages/engine/app/src/shared/**/*",

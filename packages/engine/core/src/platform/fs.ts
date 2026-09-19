@@ -1,4 +1,7 @@
-import { existsSync, promises as fs } from "node:fs";
+// node:fs is imported lazily inside each method — VirtualFS is re-exported
+// from the universal barrel (`core/src/index.ts`), so node builtins must not
+// be evaluated at import time in browser bundles.
+const fs = () => import("node:fs");
 
 export class VirtualFS {
   private root: string;
@@ -17,15 +20,15 @@ export class VirtualFS {
   }
 
   async readText(path: string): Promise<string> {
-    return fs.readFile(this.resolve(path), "utf-8");
+    return (await fs()).promises.readFile(this.resolve(path), "utf-8");
   }
 
   async readBinary(path: string): Promise<ArrayBuffer> {
-    const buf = await fs.readFile(this.resolve(path));
+    const buf = await (await fs()).promises.readFile(this.resolve(path));
     return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
   }
 
   async exists(path: string): Promise<boolean> {
-    return existsSync(this.resolve(path));
+    return (await fs()).existsSync(this.resolve(path));
   }
 }

@@ -15,7 +15,7 @@
 // (e.g. to-the-ocean's sceneInspector.setSimBridge()).
 // ============================================================================
 
-import { _devtoolsImpl, devtools } from "./api";
+import { _devtoolsImpl, devtools, DevToolsAPITok } from "./api";
 import { DevToolsDataBridge } from "./data-bridge";
 import { ProfilingBridge, type ProfilingBridgeOptions } from "./profiling-bridge";
 import { createDevToolsRendererAdapter } from "./renderer-adapter";
@@ -104,6 +104,11 @@ export async function initDevTools(renderer: any, options: InitDevToolsOptions =
   const rendererModuleHost = renderer?.getRendererModuleHost?.();
   if (rendererModuleHost && typeof rendererModuleHost.setDevToolsAPI === "function") {
     rendererModuleHost.setDevToolsAPI(devtools);
+  }
+  // Also provide the API as a DI token so engine libraries can inject it
+  // (ctx.injectOptional(DevToolsAPITok)) instead of importing the singleton.
+  if (rendererModuleHost && typeof rendererModuleHost.provideExternal === "function") {
+    rendererModuleHost.provideExternal("devtools", DevToolsAPITok, devtools);
   }
 
   // 5. Create the bridge

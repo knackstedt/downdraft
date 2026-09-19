@@ -15,6 +15,7 @@
 // API works in both realms.
 // ============================================================================
 
+import { resourceToken } from "@downdraft/engine/ecs/resource";
 import type { DebugViewDescriptor } from "./debug-view-descriptors";
 import { BUILTIN_VIEW_DESCRIPTORS } from "./debug-view-descriptors";
 import type { IDevToolsOverlayToggle, IDevToolsPanelExtension } from "./types";
@@ -252,6 +253,19 @@ class DevToolsAPIImpl implements DevToolsAPI {
   }
 
   registerSABStat(name: string, offset: number, type: "u32" | "f32" | "i32"): void {
+    // All stat types are 4 bytes and read via typed-array views — offsets
+    // must be 4-byte aligned and unique, or two stats silently stomp each
+    // other's values (there is no allocator for this region).
+    if (!Number.isInteger(offset) || offset < 0 || offset % 4 !== 0) {
+      console.warn(`[devtools] registerSABStat("${name}"): offset ${offset} must be a non-negative 4-byte-aligned integer — ignoring`);
+      return;
+    }
+    for (const existing of this.sabStats.values()) {
+      if (existing.name !== name && existing.offset === offset) {
+        console.warn(`[devtools] registerSABStat("${name}"): offset ${offset} is already used by stat "${existing.name}" — ignoring (duplicate offset)`);
+        return;
+      }
+    }
     this.sabStats.set(name, { name, offset, type });
     this.bumpManifest();
   }
@@ -430,6 +444,15 @@ const _devtools = new DevToolsAPIImpl(DEVTOOLS_REALM);
  * The same code works in both realms.
  */
 export const devtools: DevToolsAPI = _devtools;
+
+/**
+ * DI token for the DevTools API. `initDevTools()` provides this into the
+ * renderer module host (`provideExternal`), so engine libraries can declare
+ * it in `requires`/inject it via `ctx.injectOptional(DevToolsAPITok)` instead
+ * of importing the `devtools` singleton — keeps library code testable and
+ * realm-correct.
+ */
+export const DevToolsAPITok = resourceToken<DevToolsAPI>("devtools:api");
 
 /** @internal — exposed for the renderer bridge to access impl methods. */
 export const _devtoolsImpl = _devtools;

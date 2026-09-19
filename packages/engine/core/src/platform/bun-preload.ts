@@ -34,7 +34,10 @@ if (typeof (globalThis as any).Bun !== "undefined" && typeof (globalThis as any)
       function getTintBin(): string | null {
         if (tintBin !== undefined) return tintBin;
         try {
-          const { resolveTintBinary } = require("../../app/src/vite/tint-binary.ts");
+          // Self-reference via the package specifier + exports map
+          // ("./app/*" → "./app/src/*.ts") — never reach into app/ via
+          // relative paths from core/.
+          const { resolveTintBinary } = require("@downdraft/engine/app/vite/tint-binary");
           tintBin = resolveTintBinary() as string | null;
         } catch {
           tintBin = null;

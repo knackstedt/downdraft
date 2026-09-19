@@ -48,6 +48,12 @@ export interface ModuleThreadInfo {
   provides: string[];
   requires: string[];
   active: boolean;
+  /**
+   * Per-token thread tags carried by `CrossThreadToken`s (keyed by token
+   * key). Populated by `ModuleHost.snapshot()` / `RendererModuleHost.snapshot()`
+   * for tokens created via `crossThreadToken()`.
+   */
+  tokenThreads?: Record<string, ThreadTag>;
 }
 
 export interface CrossThreadReport {
@@ -58,6 +64,16 @@ export interface CrossThreadReport {
   shared: string[];
   /** Version conflicts: same plugin name, different version across threads. */
   versionConflicts: { name: string; simVersion?: string; rendererVersion?: string }[];
+  /**
+   * Tokens whose declared `crossThreadToken` tag doesn't match the thread
+   * that provides them (e.g. a "renderer" token provided by a sim module).
+   */
+  threadMismatches: { token: string; expected: ThreadTag; providedBy: ThreadTag }[];
+  /**
+   * Tokens tagged "shared" that are provided on only one thread — the other
+   * side will inject() nothing (or a stale copy).
+   */
+  incompleteShared: { token: string; providedBy: ThreadTag }[];
 }
 
 /**
@@ -95,6 +111,33 @@ export function buildCrossThreadReport(
     if (!providedBy.has(tok)) unresolved.push(tok);
   }
 
+  // Thread-tag validation — enforce the declared CrossThreadToken contract.
+  // A "sim" token must be provided by a sim module, a "renderer" token by a
+  // renderer module, and a "shared" token by both (one side only is flagged
+  // as incompleteShared).
+  const threadMismatches: CrossThreadReport["threadMismatches"] = [];
+  const incompleteShared: CrossThreadReport["incompleteShared"] = [];
+  for (const p of all) {
+    if (!p.active || !p.tokenThreads) continue;
+    for (const tok of p.provides) {
+      const tag = p.tokenThreads[tok];
+      if (!tag) continue;
+      if ((tag === "sim" || tag === "renderer") && p.thread !== tag) {
+        threadMismatches.push({ token: tok, expected: tag, providedBy: p.thread });
+      }
+    }
+  }
+  for (const p of all) {
+    if (!p.active || !p.tokenThreads) continue;
+    for (const tok of p.provides) {
+      if (p.tokenThreads[tok] !== "shared") continue;
+      const threads = providedBy.get(tok) ?? [];
+      if (threads.length < 2 && !incompleteShared.some((e) => e.token === tok)) {
+        incompleteShared.push({ token: tok, providedBy: p.thread });
+      }
+    }
+  }
+
   // Version conflicts
   const byName = new Map<string, { sim?: string; renderer?: string }>();
   for (const p of simModules) {
@@ -116,5 +159,5 @@ export function buildCrossThreadReport(
     }
   }
 
-  return { modules: all, unresolved, shared, versionConflicts };
+  return { modules: all, unresolved, shared, versionConflicts, threadMismatches, incompleteShared };
 }

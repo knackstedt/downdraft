@@ -8,6 +8,47 @@ export interface SABChannel {
 }
 
 /**
+ * Panel registration payload for `ctx.devtools.registerPanel()`.
+ * Structurally compatible with `IDevToolsPanelExtension` from
+ * `@downdraft/engine/modules/devtools` — core declares the minimal shape
+ * so it doesn't depend on the devtools module (layering).
+ */
+export interface DevToolsPanelRegistration {
+  /** Unique id for this extension (e.g. "debug-info", "game-panel"). */
+  id: string;
+  /** Tab label shown in the tab bar. */
+  tabLabel: string;
+  /** Tab tooltip. */
+  tabTooltip?: string;
+  /** Order/priority for tab placement. Core tabs: 0-100, game tabs: 100+. Default: 100. */
+  order?: number;
+  /** __sceneInspector methods that must exist for this tab to be shown. */
+  requiredMethods?: string[];
+  /** HTML content for the panel body. */
+  html: string;
+  /** CSS to inject into the panel document. */
+  css?: string;
+  /** JS to eval in the panel context. */
+  script?: string;
+}
+
+/**
+ * Overlay toggle registration payload for `ctx.devtools.registerOverlayToggle()`.
+ * Structurally compatible with `IDevToolsOverlayToggle` from
+ * `@downdraft/engine/modules/devtools`.
+ */
+export interface DevToolsOverlayToggleRegistration {
+  /** Unique id (e.g. "chunk-grid", "vel-arrows"). */
+  id: string;
+  /** Label shown next to the checkbox. */
+  label: string;
+  /** __sceneInspector methods that must exist for this toggle to be shown. */
+  requiredMethods?: string[];
+  /** JS to eval in the panel context. */
+  script?: string;
+}
+
+/**
  * DevTools registration surface exposed on ModuleContext.
  * Plugins call `ctx.devtools.registerPanel(...)` etc. to self-register
  * debug screens. The same interface works in both main and worker realms.
@@ -17,10 +58,10 @@ export interface SABChannel {
  * the concrete object at construction time (see ModuleHost.setDevToolsAPI).
  */
 export interface ModuleDevToolsAPI {
-  registerPanel(ext: any): void;
-  registerOverlayToggle(toggle: any): void;
-  registerDataFeed(name: string, fn: () => any, writeRateHz?: number): void;
-  registerCommand(name: string, fn: (...args: any[]) => any): void;
+  registerPanel(ext: DevToolsPanelRegistration): void;
+  registerOverlayToggle(toggle: DevToolsOverlayToggleRegistration): void;
+  registerDataFeed(name: string, fn: () => unknown, writeRateHz?: number): void;
+  registerCommand(name: string, fn: (...args: unknown[]) => unknown): void;
   registerSABStat(name: string, offset: number, type: "u32" | "f32" | "i32"): void;
 }
 

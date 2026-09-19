@@ -12,17 +12,22 @@
 // uses the pixi-ui worker's OffscreenCanvas).
 //
 // Requires the devtools module to be initialized with `profiling: true`
-// (which creates the ProfilingBridge + ProfilingSAB).
+// (which creates the ProfilingBridge + ProfilingSAB). The DevTools API is
+// injected via the DevToolsAPITok token — initDevTools() provides it into
+// the renderer module host before library `create` hooks run.
 // ============================================================================
 
 import { resourceToken, type EngineLibrary } from "@downdraft/engine";
+import { PixiUiHost } from "@downdraft/engine/libraries/pixi-ui/host";
+import { DevToolsAPITok } from "@downdraft/engine/modules/devtools/api";
+import { ProfilerOverlay } from "./profiler-overlay";
 
 export interface ProfilerLibConfig {
   /**
    * URL of the profiler scene module (the ProfilerScene factory).
    * Games typically set this to `new URL("./profiler-scene.ts", import.meta.url).href`
    * or use the built-in scene from @downdraft/engine/libraries/profiler/profiler-scene.
-   * If omitted, the library uses the built-in scene URL.
+   * Default: the built-in ProfilerScene shipped with this library.
    */
   sceneModuleUrl?: string;
   /** Trace source: "contentTracing" (Electron) or "in-engine". Default: "in-engine". */
@@ -34,11 +39,11 @@ export interface ProfilerLibConfig {
 // ── Typed tokens (DI) ──
 
 /** Token for the ProfilerOverlay. Inject in onReady to control the overlay. */
-export const ProfilerOverlayTok = resourceToken<any>("profiler:overlay");
+export const ProfilerOverlayTok = resourceToken<ProfilerOverlay>("profiler:overlay");
 
 // ── Descriptor ──
 
-export const ProfilerLib: EngineLibrary<ProfilerLibConfig> = {
+export const ProfilerLib: EngineLibrary<ProfilerLibConfig, unknown, ProfilerOverlay> = {
   name: "profiler",
   version: "0.1.0",
 
@@ -48,22 +53,21 @@ export const ProfilerLib: EngineLibrary<ProfilerLibConfig> = {
   // before the GPU device is acquired). No sim-side system, no GPU passes.
   renderer: {
     create(config, ctx) {
-      // Lazy-import to avoid pulling pixi-ui into the main bundle if unused
-      const { ProfilerOverlay } = require("./profiler-overlay");
-      const { PixiUiHost } = require("@downdraft/engine/libraries/pixi-ui/host");
-
-      // The ProfilingSAB is created by the ProfilingBridge (in initDevTools).
-      // We access it via the devtools API.
-      const { devtools } = require("@downdraft/engine/modules/devtools/api");
-      const profilingSAB = devtools.getProfilingSAB();
-      if (!profilingSAB) {
+      // The ProfilingSAB is created by the ProfilingBridge (in initDevTools)
+      // and exposed through the DevTools API token provided via DI.
+      const devtools = ctx.injectOptional(DevToolsAPITok);
+      const profilingSAB = devtools?.getProfilingSAB() ?? null;
+      if (!devtools || !profilingSAB) {
         console.warn("[ProfilerLib] No ProfilingSAB found — ensure initDevTools({ profiling: true }) is called before ProfilerLib");
         return null;
       }
 
       const views = devtools.getViews();
+      // Default: the ProfilerScene shipped in this library directory. With
+      // raw-TS publishing this resolves to the installed file; bundlers may
+      // still need an alias — games can override via config.sceneModuleUrl.
       const sceneModuleUrl = config.sceneModuleUrl
-        ?? "TODO: built-in scene URL (requires vite alias)";
+        ?? new URL("./profiler-scene.ts", import.meta.url).href;
 
       // Create a PixiUiHost for the profiler overlay
       const pixiUiHost = new PixiUiHost({
@@ -85,7 +89,8 @@ export const ProfilerLib: EngineLibrary<ProfilerLibConfig> = {
       return overlay;
     },
     dispose(overlay) {
-      (overlay as any)?.dispose?.();
+      overlay.dispose();
+      overlay.getPixiUiHost().dispose();
     },
   },
 

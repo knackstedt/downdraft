@@ -14,18 +14,22 @@ export interface WorkerHost {
   close: () => void;
 }
 
-const isNodeWorker = typeof (globalThis as any).process !== "undefined"
-  && typeof (globalThis as any).process.on === "function"
-  && typeof (globalThis as any).parentPort !== "undefined"
-  || (typeof (globalThis as any).process !== "undefined" && (globalThis as any).process.versions?.node);
-
+// In Node.js/Bun worker_threads, `parentPort` is non-null only inside a
+// worker connected to a parent — its presence IS the worker check. (The old
+// `A && B && C || isNode` expression was true on the Node main thread too.)
+// `process.getBuiltinModule` works in both CJS and ESM (Node ≥20.16, Bun);
+// fall back to globalThis.require for older CJS contexts.
+const _proc = (globalThis as any).process;
 let _nodeParentPort: any = null;
-try {
-  if (isNodeWorker) {
-    _nodeParentPort = (globalThis as any).require?.("worker_threads")?.parentPort ?? null;
+if (typeof _proc !== "undefined" && _proc.versions?.node) {
+  try {
+    const wt = typeof _proc.getBuiltinModule === "function"
+      ? _proc.getBuiltinModule("worker_threads")
+      : (globalThis as any).require?.("worker_threads");
+    _nodeParentPort = wt?.parentPort ?? null;
+  } catch {
+    // Not in Node.js / worker_threads unavailable.
   }
-} catch {
-  // Not in Node.js
 }
 
 export function getWorkerHost(): WorkerHost {

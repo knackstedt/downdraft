@@ -15,6 +15,7 @@
 import type { ResourceToken } from "../ecs/resource";
 import type { UIRoot } from "../imui/element";
 import type { UIInputRouter } from "../imui/input";
+import type { CrossThreadToken, ModuleThreadInfo, ThreadTag } from "../module/cross-thread";
 import { assertNoDuplicate, assertRequired, isStrict, warnLeak } from "../module/diagnostics";
 import type { ModuleDevToolsAPI } from "../module/module";
 import type {
@@ -205,7 +206,9 @@ export class RendererModuleHost {
 
   /**
    * Activate all plugins registered via `registerModuleDeferred()` in
-   * dependency-resolved order (topological sort by `dependencies`).
+   * dependency-resolved order (topological sort by `dependencies` AND
+   * `requires` tokens — a plugin that requires a token activates after
+   * whichever pending/active plugin provides it).
    * Plugins with no dependencies are activated first.
    *
    * In DOWNDRAFT_STRICT mode, validates the full dependency graph
@@ -213,7 +216,18 @@ export class RendererModuleHost {
    */
   activateAll(): void {
     this.validateGraph();
-    // Topological sort by dependencies (string-based plugin names).
+    // Provider map: token key → module name (across pending + active).
+    const tokenProviders = new Map<string, string>();
+    const collectProvides = (plugin: RendererModule) => {
+      for (const token of plugin.provides ?? []) {
+        if (!tokenProviders.has(token.key)) tokenProviders.set(token.key, plugin.name);
+      }
+    };
+    for (const [, active] of this.active) collectProvides(active.plugin);
+    for (const [, plugin] of this.pending) collectProvides(plugin);
+
+    // Topological sort by dependencies (string-based plugin names) and by
+    // requires (typed tokens → provider module).
     const resolved: string[] = [];
     const visited = new Set<string>();
     const visiting = new Set<string>();
@@ -224,10 +238,23 @@ export class RendererModuleHost {
       }
       visiting.add(name);
       const plugin = this.pending.get(name);
-      if (plugin?.dependencies) {
-        for (const dep of plugin.dependencies) {
-          if (this.pending.has(dep) || this.active.has(dep)) {
-            resolve(dep);
+      if (plugin) {
+        if (plugin.dependencies) {
+          for (const dep of plugin.dependencies) {
+            if (!this.plugins.has(dep)) {
+              throw new Error(
+                `Renderer plugin "${name}" requires "${dep}" which is not registered`,
+              );
+            }
+            if (this.pending.has(dep)) resolve(dep);
+          }
+        }
+        if (plugin.requires) {
+          for (const token of plugin.requires) {
+            const providerName = tokenProviders.get(token.key);
+            if (providerName && providerName !== name && this.pending.has(providerName)) {
+              resolve(providerName);
+            }
           }
         }
       }
@@ -274,9 +301,10 @@ export class RendererModuleHost {
     try {
       plugin.register(ctx);
     } catch (err) {
-      log.error("RendererModuleHost", `Register error in plugin "${plugin.name}": ${err}`);
-      // Roll back registration on failure.
+      // Roll back partial activation, then re-throw so the caller sees it —
+      // mirrors ModuleHost semantics (a failed register() must not be silent).
       this.unloadModule(plugin.name);
+      throw err;
     }
   }
 
@@ -345,6 +373,41 @@ export class RendererModuleHost {
 
   listModules(): string[] {
     return [...this.loadOrder];
+  }
+
+  /**
+   * Produce a thread-tagged snapshot of all active renderer modules for the
+   * cross-thread report + doctor panel. `thread` is normally "renderer" but
+   * is parameterized for symmetry with `ModuleHost.snapshot()`.
+   *
+   * Tokens created via `crossThreadToken()` carry a `__thread` tag; the
+   * snapshot records it in `tokenThreads` so `buildCrossThreadReport()`
+   * can flag tokens provided on the wrong thread.
+   */
+  snapshot(thread: ThreadTag): ModuleThreadInfo[] {
+    const out: ModuleThreadInfo[] = [];
+    for (const [name, active] of this.active) {
+      const plugin = active.plugin;
+      const tokenThreads: Record<string, ThreadTag> = {};
+      const collectTags = (tokens?: ResourceToken<unknown>[]) => {
+        for (const t of tokens ?? []) {
+          const tag = (t as CrossThreadToken<unknown>).__thread;
+          if (tag) tokenThreads[t.key] = tag;
+        }
+      };
+      collectTags(plugin.provides);
+      collectTags(plugin.requires);
+      out.push({
+        name,
+        version: plugin.version,
+        thread,
+        provides: (plugin.provides ?? []).map((t) => t.key),
+        requires: (plugin.requires ?? []).map((t) => t.key),
+        active: true,
+        tokenThreads: Object.keys(tokenThreads).length > 0 ? tokenThreads : undefined,
+      });
+    }
+    return out;
   }
 
   // ── Dispatch (called by GameRenderer) ──

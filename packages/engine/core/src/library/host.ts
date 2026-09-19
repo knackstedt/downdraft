@@ -136,7 +136,19 @@ export class LibraryHostImpl implements LibraryHost {
         inject: ctx.inject,
         injectOptional: ctx.injectOptional,
       };
-      active.simSystem = active.lib.sim.create(active.config, libCtx);
+      const created = active.lib.sim.create(active.config, libCtx);
+      if (typeof (created as PromiseLike<unknown> | null)?.then === "function") {
+        // Async create (e.g. WASM init) — store the resolved instance so
+        // tick()/dispose() receive the system, not a Promise. Ticks while
+        // the promise is pending are skipped (simSystem stays null).
+        active.simSystem = null;
+        (created as Promise<unknown>).then(
+          (resolved) => { active.simSystem = resolved; },
+          (err) => { console.error(`[LibraryHost] async sim.create for "${active.lib.name}" failed:`, err); },
+        );
+      } else {
+        active.simSystem = created;
+      }
       active.hasSimDispose = !!active.lib.sim.dispose;
       const phase = active.lib.tickPhase ?? "post-physics";
       this.byPhase[phase].push(active);

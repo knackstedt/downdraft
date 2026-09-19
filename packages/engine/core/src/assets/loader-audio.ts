@@ -1,4 +1,3 @@
-import { promises as fs } from "node:fs";
 import type { AudioEngine } from "../audio/engine";
 import type { AudioBufferDesc, AudioFormat } from "../audio/interface";
 import type { AssetManager } from "./manager";
@@ -26,8 +25,24 @@ export async function loadAudioFile(
     throw new Error(`Unsupported audio format: ${uri}`);
   }
 
-  const buf = await fs.readFile(uri);
-  const data = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+  // Lazy node:fs import — this module is reachable from the browser-side
+  // barrel, so node builtins must not be evaluated at import time. Fall back
+  // to fetch() when fs is unavailable (browser/worker realms).
+  let fsPromises: typeof import("node:fs").promises | null = null;
+  try {
+    fsPromises = (await import("node:fs")).promises;
+  } catch {
+    // node:fs unavailable (browser bundle) — use fetch below.
+  }
+  let data: ArrayBuffer;
+  if (fsPromises) {
+    const buf = await fsPromises.readFile(uri);
+    data = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+  } else {
+    const res = await fetch(uri);
+    if (!res.ok) throw new Error(`Failed to load audio "${uri}": HTTP ${res.status}`);
+    data = await res.arrayBuffer();
+  }
   const desc: AudioBufferDesc = {
     id: uri,
     format,
