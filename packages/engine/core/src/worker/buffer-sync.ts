@@ -107,6 +107,14 @@ export interface BufferSyncMessage {
   __bufferSync: true;
   /** Map of buffer name → list of region copies. */
   regions: Record<string, RegionCopy[]>;
+  /**
+   * Multi-message transfer metadata. Large transfers are split into one
+   * region-copy per message with a 16ms gap so the main thread can render
+   * between chunks; the receiver buffers the parts and applies them
+   * ATOMICALLY once all arrive — otherwise the buffer visibly tears for
+   * `total × 16ms` while partially-updated regions are rendered.
+   */
+  batch?: { id: number; index: number; total: number };
 }
 
 /** Check if a message is a buffer-sync message. */
@@ -122,19 +130,35 @@ export function isBufferSyncMessage(msg: unknown): msg is BufferSyncMessage {
 // Profiling support (lightweight, no deps)
 // ---------------------------------------------------------------------------
 
+/** Sync profiling is opt-in: `__DOWNDRAFT_PROFILE_SYNC__` global or
+ *  `DOWNDRAFT_PROFILE_SYNC=1` env. When off, no samples are recorded and no
+ *  console output is produced (previously it logged every 5s in production). */
+function syncProfilingEnabled(): boolean {
+  const g = globalThis as Record<string, unknown>;
+  if (g.__DOWNDRAFT_PROFILE_SYNC__ === true) return true;
+  try {
+    return (g.process as { env?: Record<string, string> } | undefined)?.env
+      ?.DOWNDRAFT_PROFILE_SYNC === "1";
+  } catch {
+    return false;
+  }
+}
+
 /** Accumulates timing samples and logs a summary every N calls. */
 class SyncProfiler {
   private samples: Array<{ label: string; ms: number; bytes: number }> = [];
   private logTimer = 0;
   private logInterval: number;
+  private enabled = syncProfilingEnabled();
 
   constructor(logIntervalMs = 5000) {
     this.logInterval = logIntervalMs;
   }
 
   /** Record a timed operation. Call begin() before, end() after. */
-  begin(): number { return performance.now(); }
+  begin(): number { return this.enabled ? performance.now() : 0; }
   end(label: string, start: number, bytes: number): void {
+    if (!this.enabled) return;
     const ms = performance.now() - start;
     this.samples.push({ label, ms, bytes });
     const now = performance.now();
@@ -280,6 +304,27 @@ export class BufferSyncHost {
     this.rafId = requestAnimationFrame(this.syncInput);
   };
 
+  /** In-flight chunked transfers, keyed by batch id. Parts are applied
+   *  atomically once the batch completes — see BufferSyncMessage.batch. */
+  private pendingBatches = new Map<number, {
+    parts: (Record<string, RegionCopy[]> | undefined)[];
+    received: number;
+  }>();
+  private lastBatchSeen = -1;
+
+  private applyRegions(regions: Record<string, RegionCopy[]>): number {
+    let totalBytes = 0;
+    for (const [name, regionList] of Object.entries(regions)) {
+      const local = this.config.buffers[name];
+      if (!local) continue;
+      for (const { offset, data } of regionList) {
+        new Uint8Array(local, offset, data.byteLength).set(new Uint8Array(data));
+        totalBytes += data.byteLength;
+      }
+    }
+    return totalBytes;
+  }
+
   /**
    * Receive sim data regions from the worker. Copies only the readRegions
    * (regions the other side writes) into the local buffer.
@@ -289,14 +334,36 @@ export class BufferSyncHost {
 
     const pStart = this.profiler.begin();
     let totalBytes = 0;
-    for (const [name, regionList] of Object.entries(msg.regions)) {
-      const local = this.config.buffers[name];
-      if (!local) continue;
-      for (const { offset, data } of regionList) {
-        new Uint8Array(local, offset, data.byteLength).set(new Uint8Array(data));
-        totalBytes += data.byteLength;
+
+    if (msg.batch) {
+      const { id, index, total } = msg.batch;
+      // Part of a batch already completed (or evicted) — a duplicate or a
+      // straggler from before a worker restart; applying it would tear.
+      if (id <= this.lastBatchSeen && !this.pendingBatches.has(id)) return;
+      let b = this.pendingBatches.get(id);
+      if (!b) {
+        b = { parts: new Array(total), received: 0 };
+        this.pendingBatches.set(id, b);
+        // Bound the map: a batch that never completes (worker died
+        // mid-transfer) must not leak entries forever.
+        if (this.pendingBatches.size > 8) {
+          const oldest = this.pendingBatches.keys().next().value!;
+          this.pendingBatches.delete(oldest);
+        }
       }
+      b.parts[index] = msg.regions;
+      b.received++;
+      if (b.received < total) return; // wait for the rest — no tearing
+      this.pendingBatches.delete(id);
+      this.lastBatchSeen = id;
+      for (const part of b.parts) {
+        if (part) totalBytes += this.applyRegions(part);
+      }
+      this.profiler.end("worker→host onMessage", pStart, totalBytes);
+      return;
     }
+
+    totalBytes = this.applyRegions(msg.regions);
     this.profiler.end("worker→host onMessage", pStart, totalBytes);
   }
 }
@@ -321,6 +388,9 @@ export class BufferSyncWorker {
   private lastRegionSeqs: Record<string, Record<string, number>> = {};
   private profiler = new SyncProfiler(5000);
   private onAfterReceive: (() => void) | null = null;
+  /** Monotonic id for chunked (multi-message) transfers — the host applies
+   *  a batch atomically once all parts arrive. */
+  private batchCounter = 0;
 
   constructor(private config: BufferSyncConfig) {}
 
@@ -423,29 +493,29 @@ export class BufferSyncWorker {
       // main thread to render between them.
       const allCopies = Object.values(regions).flat();
       if (allCopies.length > 1 && totalBytes > 256 * 1024) {
-        // Large transfer: send chunks with setTimeout between them
-        // so the main thread can render between chunks.
+        // Large transfer: send chunks with setTimeout between them so the
+        // main thread can render between chunks. Each message carries batch
+        // metadata — the receiver buffers parts and applies them atomically
+        // once all arrive, so the buffer never renders partially-updated.
+        // Precompute chunk→buffer ownership once (was O(chunks×regions) before).
+        const chunkOwner: string[] = [];
+        for (const [name, regionList] of Object.entries(regions)) {
+          for (let i = 0; i < regionList.length; i++) chunkOwner.push(name);
+        }
+        const batchId = ++this.batchCounter;
+        const total = allCopies.length;
         let chunkIdx = 0;
         const sendNextChunk = () => {
-          if (chunkIdx >= allCopies.length) return;
-          // Send 1 chunk per postMessage to minimize per-message block duration
-          const batchTransfers: ArrayBuffer[] = [];
-          const batchRegions: Record<string, RegionCopy[]> = {};
+          if (chunkIdx >= total) return;
           const copy = allCopies[chunkIdx];
-          // Find which buffer this chunk belongs to
-          for (const [name, regionList] of Object.entries(regions)) {
-            if (regionList.includes(copy)) {
-              if (!batchRegions[name]) batchRegions[name] = [];
-              batchRegions[name].push(copy);
-              break;
-            }
-          }
-          batchTransfers.push(copy.data);
+          const batchRegions: Record<string, RegionCopy[]> = {};
+          batchRegions[chunkOwner[chunkIdx]] = [copy];
           chunkIdx++;
-          if (Object.keys(batchRegions).length > 0) {
-            (self as any).postMessage({ __bufferSync: true, regions: batchRegions } as BufferSyncMessage, batchTransfers);
-          }
-          if (chunkIdx < allCopies.length) {
+          (self as any).postMessage(
+            { __bufferSync: true, regions: batchRegions, batch: { id: batchId, index: chunkIdx - 1, total } } as BufferSyncMessage,
+            [copy.data],
+          );
+          if (chunkIdx < total) {
             setTimeout(sendNextChunk, 16); // 16ms delay lets main thread render between chunks
           }
         };

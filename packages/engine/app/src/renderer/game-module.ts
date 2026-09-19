@@ -139,6 +139,47 @@ export interface GameSaveConfig {
   intervalMs?: number;
   /** Slot name for autosave. Default: "autosave". */
   slotName?: string;
+  /**
+   * Name of the save-state component that carries the game's data blob
+   * (the key under `SaveState.components`, e.g. "sandbox"). Declared
+   * explicitly so `ctx.load` forwards the right component to the sim —
+   * without it, load falls back to guessing "the first component whose
+   * data is an object", which silently picks the wrong blob when a save
+   * has multiple object-valued components.
+   */
+  componentName?: string;
+}
+
+/**
+ * Pick the game-data component from a SaveState components map.
+ * `explicit` (GameSaveConfig.componentName) wins; otherwise fall back to the
+ * legacy first-object-valued-component heuristic, with a dev-mode warning so
+ * multi-component saves don't silently restore the wrong blob.
+ */
+function pickGameComponent(
+  components: Record<string, { data?: unknown } | null | undefined>,
+  explicit: string | undefined,
+  isDev: boolean,
+): { data?: unknown } | undefined {
+  if (explicit) {
+    const comp = components[explicit];
+    if (!comp) {
+      console.warn(`[startGame] Save component "${explicit}" not found; available: ${Object.keys(components).join(", ")}`);
+      return undefined;
+    }
+    return comp;
+  }
+  const keys = Object.keys(components).filter(
+    (k) => components[k] && components[k]!.data != null && typeof components[k]!.data === "object",
+  );
+  if (keys.length === 0) return undefined;
+  if (isDev && keys.length > 1) {
+    console.warn(
+      `[startGame] Save has ${keys.length} object-valued components (${keys.join(", ")}); ` +
+      `picked "${keys[0]}". Set save.componentName to load deterministically.`,
+    );
+  }
+  return components[keys[0]] ?? undefined;
 }
 
 /**
@@ -639,15 +680,13 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
           const state = result?.state ?? null;
           if (state && simWorker?.restoreFromState) {
             // The save store returns a SaveState with `components`. Each
-            // component has { v, data } structure. Find the game component
-            // (e.g. "sandbox") and forward its `data` to the sim worker.
+            // component has { v, data } structure — forward the game
+            // component's `data` to the sim worker.
             const components = (state as any).components;
             if (components) {
-              const gameKey = Object.keys(components).find(
-                (k) => components[k] && components[k].data != null && typeof components[k].data === "object",
-              );
-              if (gameKey) {
-                await simWorker.restoreFromState(JSON.stringify(components[gameKey].data));
+              const comp = pickGameComponent(components, module.save?.componentName, isDev);
+              if (comp) {
+                await simWorker.restoreFromState(JSON.stringify(comp.data));
               }
             }
           }
@@ -668,13 +707,11 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
           }
           if (simWorker?.restoreFromState) {
             const components = parsed as Record<string, { data?: unknown }> | null;
-            const gameKey = components && typeof components === "object"
-              ? Object.keys(components).find(
-                  (k) => components[k] && components[k].data !== null && components[k].data !== undefined && typeof components[k].data === "object",
-                )
+            const comp = components && typeof components === "object"
+              ? pickGameComponent(components, module.save?.componentName, isDev)
               : undefined;
-            if (gameKey) {
-              await simWorker.restoreFromState(JSON.stringify(components![gameKey].data));
+            if (comp) {
+              await simWorker.restoreFromState(JSON.stringify(comp.data));
             } else {
               // No recognizable components map — forward the raw payload.
               await simWorker.restoreFromState(stateJson);

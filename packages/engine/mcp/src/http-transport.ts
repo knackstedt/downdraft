@@ -3,11 +3,16 @@
 // Supports direct mode (has MCPServer instance) or proxy mode (forwards via callback for IPC)
 // ============================================================================
 
+import { randomBytes } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { stat as statFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { sep as pathSep, resolve as resolvePath } from "node:path";
 import type { MCPServer } from "./server";
+
+/** Loopback hostnames accepted in Host/Origin headers. Everything else is
+ *  rejected — the endpoint binds 127.0.0.1 and is meant for local tools only. */
+const LOOPBACK_HOST_RE = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
 
 export type McpProxyHandler = (request: {
   method: string;
@@ -28,6 +33,14 @@ export class McpHttpTransport {
   private sseResponse: ServerResponse | null = null;
   /** Optional root directory for the GET /mcp/artifact/<path> download endpoint. */
   private artifactDir: string | null = null;
+  /** Bearer token for optional authentication. Always generated so it can be
+   *  advertised to trusted local clients (e.g. via the PID `.token` file). */
+  private authToken: string;
+  /** When true, every request (except /mcp/health) must carry the token.
+   *  Default false — Origin+Host checks already block browser clients, and
+   *  external stdio bridges that only read the PID port file don't yet send
+   *  a token. Enable via config `mcp.requireAuth` or `MCP_AUTH=1`. */
+  private requireAuth: boolean;
 
   constructor(opts: {
     /** Port to bind. `0` (default) = ephemeral OS-assigned port. */
@@ -36,6 +49,11 @@ export class McpHttpTransport {
     proxyHandler?: McpProxyHandler;
     /** Root directory for artifact downloads (GET /mcp/artifact/<path>). */
     artifactDir?: string;
+    /** Require `Authorization: Bearer <token>` / `X-Downdraft-Token` on all
+     *  requests. Default off (opt-in hardening for hostile local processes). */
+    requireAuth?: boolean;
+    /** Fixed auth token (defaults to a random per-process token). */
+    authToken?: string;
   }) {
     this.port = opts.port ?? 0;
     if (opts.mcpServer) {
@@ -50,6 +68,10 @@ export class McpHttpTransport {
       throw new Error("McpHttpTransport requires either mcpServer or proxyHandler");
     }
     this.artifactDir = opts.artifactDir ?? null;
+    this.authToken = opts.authToken ?? randomBytes(24).toString("hex");
+    this.requireAuth =
+      opts.requireAuth ??
+      (typeof process !== "undefined" && process.env?.MCP_AUTH === "1");
   }
 
   start(): Promise<void> {
@@ -90,10 +112,54 @@ export class McpHttpTransport {
     return this.boundPort ?? this.port;
   }
 
-  private setCORS(res: ServerResponse): void {
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  /** The bearer token required when `requireAuth` is enabled. Written to the
+   *  PID `.token` file so trusted local clients can discover it. */
+  getAuthToken(): string {
+    return this.authToken;
+  }
+
+  /**
+   * Local-client gate. The endpoint binds 127.0.0.1 but browsers treat
+   * loopback as trustworthy — without these checks any webpage could drive
+   * the JSON-RPC surface (which includes code-eval and heap-snapshot tools):
+   *
+   *  - `Host` must be loopback → defeats DNS-rebinding to 127.0.0.1.
+   *  - `Origin`, when present (browsers always send it on POST), must be
+   *    loopback → defeats fetch() from arbitrary web pages. Node fetch and
+   *    curl send no Origin, so CLI clients are unaffected.
+   *  - `requireAuth` additionally demands the bearer token.
+   *
+   * No CORS headers are ever emitted, so even if an Origin check regressed,
+   * browser JS could not read responses.
+   */
+  private checkLocalClient(req: IncomingMessage, res: ServerResponse): boolean {
+    const host = req.headers.host ?? "";
+    if (!LOOPBACK_HOST_RE.test(host)) {
+      this.sendJSON(res, 403, { error: "Forbidden: non-loopback Host" });
+      return false;
+    }
+    const origin = req.headers.origin;
+    if (origin !== undefined) {
+      let originHost = "";
+      try {
+        originHost = new URL(origin).host;
+      } catch {
+        /* invalid origin → reject below */
+      }
+      if (!LOOPBACK_HOST_RE.test(originHost)) {
+        this.sendJSON(res, 403, { error: "Forbidden: non-loopback Origin" });
+        return false;
+      }
+    }
+    if (this.requireAuth) {
+      const bearer = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1];
+      const token = req.headers["x-downdraft-token"] ?? bearer;
+      if (token !== this.authToken) {
+        this.sendJSON(res, 401, { error: "Unauthorized" });
+        return false;
+      }
+    }
+    return true;
   }
 
   private sendJSON(res: ServerResponse, status: number, data: unknown): void {
@@ -177,15 +243,16 @@ export class McpHttpTransport {
   }
 
   private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    this.setCORS(res);
-
     if (req.method === "OPTIONS") {
+      // No CORS headers — preflight gets a bare 204 and browser fetches fail.
       res.writeHead(204);
       res.end();
       return;
     }
 
-    // GET /mcp/health
+    // GET /mcp/health — readiness probe for the e2e harness; intentionally
+    // exempt from the local-client gate (it leaks only port/mode booleans).
+    // Everything else requires a loopback Host/Origin (+ token if enabled).
     if (req.method === "GET" && req.url === "/mcp/health") {
       this.sendJSON(res, 200, {
         status: "ok",
@@ -195,6 +262,8 @@ export class McpHttpTransport {
       });
       return;
     }
+
+    if (!this.checkLocalClient(req, res)) return;
 
     // GET /mcp/artifact/<path> — stream a generated trace/heap-snapshot file.
     // <path> is relative to the configured artifactDir. Path traversal is

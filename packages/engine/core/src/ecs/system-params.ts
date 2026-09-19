@@ -73,7 +73,7 @@ export function systemWithParams<P extends readonly SystemParam[]>(
   stage: Stage,
   params: P,
   fn: (ctx: SystemContext, ...args: ResolvedParamsFor<P>) => void,
-  opts: { after?: string[]; before?: string[]; parallelizable?: boolean } = {},
+  opts: { after?: string[]; before?: string[] } = {},
 ): System {
   let resolvedCache: ResolvedParam[] | null = null;
 
@@ -95,6 +95,5 @@ export function systemWithParams<P extends readonly SystemParam[]>(
     queries,
     after: opts.after,
     before: opts.before,
-    parallelizable: opts.parallelizable,
   };
 }

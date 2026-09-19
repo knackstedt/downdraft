@@ -127,6 +127,17 @@ export function registerDevtoolsHandlers(ctx: MainContext, devtools: ResolvedDev
   });
 
   ipcMain.on(IPC.OPEN_EXTERNAL, (_event, url: string) => {
+    // Scheme allowlist — the renderer is unsandboxed (WebGPU), so a remote
+    // content compromise reaching this IPC could otherwise launch arbitrary
+    // protocols (file://, custom handlers) or local files.
+    let scheme = "";
+    try {
+      scheme = new URL(url).protocol;
+    } catch { /* invalid URL → rejected below */ }
+    if (scheme !== "https:" && scheme !== "mailto:") {
+      log.warn("devtools", `OPEN_EXTERNAL rejected scheme "${scheme || "<invalid>"}": ${url.slice(0, 120)}`);
+      return;
+    }
     ctx.shell.openExternal(url);
   });
 

@@ -6,8 +6,8 @@ import { createLogger } from "@downdraft/engine/util/logger";
 import type { app as App, BrowserWindow, screen as Screen, session as Session } from "electron";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "path";
-import { setExitOnDialogClose, showErrorDialog } from "./error-dialog";
 import { IPC } from "../shared/messages";
+import { setExitOnDialogClose, showErrorDialog } from "./error-dialog";
 import type { ResolvedDevtoolsConfig } from "./handlers/devtools";
 import type { DowndraftWindowConfig, WindowPlacement } from "./types";
 
@@ -319,6 +319,20 @@ export async function createWindow(opts: CreateWindowOptions): Promise<BrowserWi
       backgroundThrottling: false,
       ...config.webPreferences,
     } as any,
+  });
+
+  // SECURITY: the renderer runs unsandboxed for WebGPU — contain what content
+  // can reach the OS. Deny window.open entirely (games use the
+  // OPEN_EXTERNAL IPC, which has a scheme allowlist) and block top-level
+  // navigation away from the loaded app URL (e.g. a compromised frame or a
+  // stray anchor click navigating to a remote page with full IPC access).
+  win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  win.webContents.on("will-navigate", (event, url) => {
+    const current = win.webContents.getURL();
+    if (url !== current) {
+      event.preventDefault();
+      log.warn("main", `Blocked navigation from ${current.slice(0, 120)} to ${url.slice(0, 120)}`);
+    }
   });
 
   win.once("ready-to-show", () => {

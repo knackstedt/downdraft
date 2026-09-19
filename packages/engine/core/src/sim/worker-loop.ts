@@ -65,6 +65,8 @@ export class SimWorkerLoop {
   // Maximum ticks per loop iteration when speed > 1x. Prevents sim-death-spiral
   // when the sim falls behind real-time (each tick takes longer than tickMs).
   private maxStepsPerFrame = 5;
+  /** Last time the clamp warning was emitted (rate-limited to 1 per 5s). */
+  private lastClampWarn = -Infinity;
 
   constructor(config: SimWorkerLoopConfig) {
     this.fixedDt = config.fixedDt;
@@ -177,7 +179,13 @@ export class SimWorkerLoop {
             // If we hit the cap, the sim is falling behind — clamp the accumulator
             // to prevent a death spiral where each frame tries to catch up more.
             if (this.tickAccumulator >= 1) {
-              console.warn(`[SimWorkerLoop] Clamped to ${this.maxStepsPerFrame} ticks this frame (sim falling behind, accumulator=${this.tickAccumulator.toFixed(1)})`);
+              // Rate-limit: under sustained overload this would otherwise warn
+              // every iteration, and console I/O makes the overload worse.
+              const nowMs = performance.now();
+              if (nowMs - this.lastClampWarn > 5000) {
+                this.lastClampWarn = nowMs;
+                console.warn(`[SimWorkerLoop] Clamped to ${this.maxStepsPerFrame} ticks this frame (sim falling behind, accumulator=${this.tickAccumulator.toFixed(1)})`);
+              }
               this.tickAccumulator = 0;
             }
             this.onAfterTicksCb?.(ticksThisIteration);

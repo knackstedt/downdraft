@@ -1,6 +1,5 @@
 import { createLogger } from "../util/logger";
 import type { Archetype } from "./archetype";
-import type { JobScheduler } from "./job-system";
 import type { Query } from "./query";
 import { Stage, type System, type SystemContext } from "./system";
 export type { SystemContext };
@@ -98,115 +97,6 @@ export class Schedule {
     for (let i = 0; i < systems.length; i++) {
       systems[i].fn(ctx);
     }
-  }
-
-  /**
-   * Run a stage with parallel execution of independent parallelizable systems.
-   * Non-parallelizable systems and those with unresolved dependencies run inline.
-   * Falls back to sequential execution if no scheduler is provided.
-   */
-  async runStageParallel(stage: Stage, ctx: SystemContext, scheduler: JobScheduler): Promise<void> {
-    if (this.dirty) {
-      this.resolveOrder();
-    }
-    const systems = this.ordered.get(stage);
-    if (!systems) return;
-
-    // Build dependency graph for this stage
-    const nameToIdx = new Map<string, number>();
-    for (let i = 0; i < systems.length; i++) {
-      nameToIdx.set(systems[i].name, i);
-    }
-
-    // Build reverse edges from `before` declarations (same as topologicalSort)
-    const implicitAfter = new Map<string, string[]>();
-    for (let i = 0; i < systems.length; i++) {
-      const sys = systems[i];
-      if (!sys.before) continue;
-      for (let j = 0; j < sys.before.length; j++) {
-        const target = sys.before[j];
-        if (!nameToIdx.has(target)) continue;
-        let list = implicitAfter.get(target);
-        if (!list) { list = []; implicitAfter.set(target, list); }
-        list.push(sys.name);
-      }
-    }
-
-    // Track completion state. pendingJobs maps a system index to the promise
-    // of its dispatched worker job — awaiting the promise guarantees the
-    // completion flag was set (the flag flips inside the promise's own .then).
-    const completed = new Array<boolean>(systems.length).fill(false);
-    const pendingJobs = new Map<number, Promise<void>>();
-
-    // Process systems in order, dispatching parallelizable ones to the scheduler
-    for (let i = 0; i < systems.length; i++) {
-      const sys = systems[i];
-
-      // Collect unmet `after` deps (explicit + implicit from `before`).
-      // A dep that was dispatched in parallel is "unmet" until its job
-      // resolves — running the dependent inline now would execute it
-      // CONCURRENTLY with its dependency, violating the ordering contract.
-      const unmetJobs: Promise<void>[] = [];
-      let depsReady = true;
-      const checkDep = (depName: string) => {
-        const depIdx = nameToIdx.get(depName);
-        if (depIdx === undefined) return;
-        const job = pendingJobs.get(depIdx);
-        if (job) {
-          unmetJobs.push(job);
-        } else if (!completed[depIdx]) {
-          depsReady = false;
-        }
-      };
-      if (sys.after) {
-        for (let j = 0; j < sys.after.length; j++) checkDep(sys.after[j]);
-      }
-      const implicit = implicitAfter.get(sys.name);
-      if (implicit) {
-        for (let j = 0; j < implicit.length; j++) checkDep(implicit[j]);
-      }
-
-      // Wait for in-flight dependency jobs before running this system.
-      if (unmetJobs.length > 0) {
-        await Promise.all(unmetJobs);
-      }
-
-      if (!depsReady) {
-        // Dep scheduled later in the array (shouldn't happen after the
-        // topological sort) — sequential fallback.
-        sys.fn(ctx);
-        completed[i] = true;
-        continue;
-      }
-
-      if (sys.parallelizable && scheduler.workerPool.hasIdleWorker()) {
-        // Dispatch to worker pool — run system function on a worker
-        // The system fn is registered with the pool under its name
-        const job = scheduler.submit({
-          fn: sys.name,
-          args: [ctx],
-          deps: [],
-          priority: 0,
-        }).then(() => {
-          completed[i] = true;
-        }).catch(() => {
-          // Fallback to inline on error
-          sys.fn(ctx);
-          completed[i] = true;
-        });
-        pendingJobs.set(i, job);
-      } else {
-        // Run inline
-        sys.fn(ctx);
-        completed[i] = true;
-      }
-    }
-
-    // Wait for all dispatched jobs to complete
-    if (pendingJobs.size > 0) {
-      await Promise.all(pendingJobs.values());
-    }
-    await scheduler.drain();
   }
 
   private resolveOrder(): void {

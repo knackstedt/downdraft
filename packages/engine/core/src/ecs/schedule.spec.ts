@@ -156,36 +156,4 @@ describe("Schedule", () => {
     expect(() => s.run(world, 0.016, 1)).not.toThrow();
   });
 
-  it("runStageParallel waits for in-flight dependency jobs", async () => {
-    const s = new Schedule();
-    const order: string[] = [];
-    let resolveA!: () => void;
-    const gate = new Promise<void>((r) => { resolveA = r; });
-
-    s.addSystem(system("a", Stage.Update, () => { order.push("a"); }, { parallelizable: true }));
-    s.addSystem(system("b", Stage.Update, () => { order.push("b"); }, { after: ["a"] }));
-
-    // Minimal JobScheduler stub: claims an idle worker, returns the gated
-    // promise for the dispatched job, drains instantly.
-    const stubScheduler = {
-      workerPool: { hasIdleWorker: () => true },
-      submit: () => gate,
-      drain: () => Promise.resolve(),
-    } as unknown as import("./job-system").JobScheduler;
-
-    const ctx = { world: makeMockWorld(), dt: 0.016, elapsed: 0, tick: 0 } as any;
-    const run = s.runStageParallel(Stage.Update, ctx, stubScheduler);
-
-    // Let the stage loop reach system b — a's job is still in flight.
-    await Promise.resolve();
-    await Promise.resolve();
-    // b must NOT have run yet — it would race its dependency.
-    expect(order).toEqual([]);
-
-    resolveA();
-    await run;
-    // a ran on the "worker" (its fn isn't called locally); b ran inline
-    // only after the job resolved.
-    expect(order).toEqual(["b"]);
-  });
 });

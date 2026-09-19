@@ -31,6 +31,33 @@ const IS_WIN = platform() === "win32";
 const IS_MAC = platform() === "darwin";
 
 /**
+ * The executable name for `npx` on this platform. On Windows, `npx` is a
+ * `npx.cmd` batch shim — `spawn("npx", ...)` without `shell: true` fails with
+ * ENOENT because there's no `npx` PE executable on PATH. Spawning `npx.cmd`
+ * directly avoids both the ENOENT and shell-quoting issues.
+ */
+export function npxBinary(): string {
+  return IS_WIN ? "npx.cmd" : "npx";
+}
+
+/**
+ * Synchronous sleep for use in kill sequences and signal handlers where the
+ * event loop can't be relied upon. `Atomics.wait` on a private SharedArrayBuffer
+ * is a pure in-process blocking sleep (no subprocess, works on the main thread
+ * in Node/Bun — unlike browsers). Falls back to a spin loop where SAB is
+ * unavailable.
+ */
+export function sleepSync(ms: number): void {
+  try {
+    const buf = new Int32Array(new SharedArrayBuffer(4));
+    Atomics.wait(buf, 0, 0, ms);
+  } catch {
+    const end = Date.now() + ms;
+    while (Date.now() < end) { /* spin */ }
+  }
+}
+
+/**
  * Enumerate all processes on the system with pid, ppid, and command line.
  *
  * - Linux: reads `/proc/<pid>/cmdline` + `/proc/<pid>/stat` (no subprocess).
@@ -283,16 +310,7 @@ export function killStaleInstance(gameDir: string): number {
 
   signal("SIGTERM");
   // Give the tree a moment to exit gracefully, then force-kill survivors.
-  // Atomics.wait is a pure in-process blocking sleep (no subprocess) and works
-  // under both Bun and Node on all platforms.
-  try {
-    const buf = new Int32Array(new SharedArrayBuffer(4));
-    Atomics.wait(buf, 0, 0, 1200);
-  } catch {
-    // SharedArrayBuffer unavailable — fall back to a tight loop. Rare.
-    const end = Date.now() + 1200;
-    while (Date.now() < end) { /* spin */ }
-  }
+  sleepSync(1200);
   signal("SIGKILL");
 
   return toKill.size;
@@ -316,12 +334,6 @@ export function killProcessTree(rootPid: number): void {
     }
   };
   signal("SIGTERM");
-  try {
-    const buf = new Int32Array(new SharedArrayBuffer(4));
-    Atomics.wait(buf, 0, 0, 2000);
-  } catch {
-    const end = Date.now() + 2000;
-    while (Date.now() < end) { /* spin */ }
-  }
+  sleepSync(2000);
   signal("SIGKILL");
 }

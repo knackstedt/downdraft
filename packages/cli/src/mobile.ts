@@ -34,7 +34,7 @@
 import { createLogger } from "@downdraft/engine";
 import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, platform } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { parseArgs as parseArgv, print, renderHelp } from "./args";
 import { generateIcons } from "./mobile-icons";
@@ -50,12 +50,19 @@ const log = createLogger();
  * node_modules and the global path — neither has it. We resolve the local
  * binary directly and fall back to `npx cap` if it's not found.
  */
-function resolveCapBinary(gameDir: string): string {
+function resolveCapBinary(gameDir: string): { bin: string; prefix: string[] } {
   const localCap = resolve(gameDir, "node_modules/.bin/cap");
-  if (existsSync(localCap)) return localCap;
+  if (existsSync(localCap)) {
+    // On Windows, .bin/cap is a .cmd shim next to the shell script.
+    const cmdCap = `${localCap}.cmd`;
+    if (platform() === "win32" && existsSync(cmdCap)) return { bin: cmdCap, prefix: [] };
+    return { bin: localCap, prefix: [] };
+  }
   // Fall back to npx (works if @capacitor/cli is globally installed or in the
-  // repo root's node_modules)
-  return "npx cap";
+  // repo root's node_modules). NOTE: the previous code returned "npx cap" as
+  // a single command string — spawnSync without a shell treats that as a
+  // literal binary name (with a space) and fails. Return bin + args instead.
+  return { bin: platform() === "win32" ? "npx.cmd" : "npx", prefix: ["cap"] };
 }
 
 export interface MobileArgs {
@@ -693,9 +700,9 @@ async function syncCapacitor(gameDir: string, target: MobileArgs["target"]): Pro
   log.info("mobile", "Syncing web bundle to native projects...");
 
   const capBin = resolveCapBinary(gameDir);
-  const capArgs = target === "all" ? ["sync"] : ["sync", target];
+  const capArgs = [...capBin.prefix, ...(target === "all" ? ["sync"] : ["sync", target])];
   try {
-    const capResult = spawnSync(capBin, capArgs, { cwd: gameDir, stdio: ["ignore", "pipe", "pipe"], timeout: 60_000 });
+    const capResult = spawnSync(capBin.bin, capArgs, { cwd: gameDir, stdio: ["ignore", "pipe", "pipe"], timeout: 60_000 });
     if (capResult.stdout) process.stdout.write(capResult.stdout);
     if (capResult.stderr) process.stderr.write(capResult.stderr);
     if (capResult.status !== 0) throw new Error(`cap sync exited with code ${capResult.status}`);

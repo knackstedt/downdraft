@@ -513,5 +513,64 @@ describe("buffer-sync", () => {
 
       restoreSelf();
     });
+
+    it("applies chunked large transfers atomically — no partial buffer updates", async () => {
+      const mockSelf = new MockSelf();
+      const mockWorker = new MockWorker();
+      const TOTAL = 320 * 1024; // > 256KB → chunked path (5 × 64KB chunks)
+      const workerBuf = new ArrayBuffer(TOTAL);
+      const mainBuf = new ArrayBuffer(TOTAL);
+
+      const workerConfig: BufferSyncConfig = {
+        buffers: { sim: workerBuf },
+        regions: { sim: { writeRegions: [{ offset: 0, length: TOTAL, name: "grid" }], readRegions: [] } },
+      };
+      const mainConfig: BufferSyncConfig = {
+        buffers: { sim: mainBuf },
+        regions: { sim: { writeRegions: [], readRegions: [{ offset: 0, length: TOTAL, name: "grid" }] } },
+      };
+
+      new Uint8Array(workerBuf).fill(0xab);
+
+      const worker = new BufferSyncWorker(workerConfig);
+      (globalThis as any).self = mockSelf;
+      worker.start();
+      mockSelf.sent.length = 0;
+      worker.syncToMain();
+
+      // Chunked path posts the first chunk immediately, rest via setTimeout.
+      expect(mockSelf.sent.length).toBe(1);
+      expect(mockSelf.sent[0].msg.batch).toBeDefined();
+      const total = mockSelf.sent[0].msg.batch.total;
+      expect(total).toBe(5);
+
+      // Host receives chunks as they arrive — feed through the real handler.
+      const host = new BufferSyncHost(mockWorker as unknown as Worker, mainConfig);
+      host.start();
+      rafCallbacks = []; // host's start() posts an input sync — ignore it
+
+      const local = new Uint8Array(mainBuf);
+      // Deliver chunk 0: buffer must remain untouched (no partial apply).
+      mockWorker.receive(mockSelf.sent[0].msg);
+      expect(local[0]).toBe(0);
+
+      // Deliver the rest as they arrive over the next ~80ms.
+      for (let i = 0; i < total - 1; i++) {
+        await new Promise((r) => setTimeout(r, 25));
+        const next = mockSelf.sent[i + 1];
+        expect(next).toBeDefined();
+        expect(next.msg.batch.id).toBe(mockSelf.sent[0].msg.batch.id);
+        if (i < total - 2) {
+          mockWorker.receive(next.msg);
+          expect(local[0]).toBe(0); // still torn — not applied yet
+        }
+      }
+      mockWorker.receive(mockSelf.sent[total - 1].msg);
+      expect(local[0]).toBe(0xab);
+      expect(local[TOTAL - 1]).toBe(0xab);
+
+      host.stop();
+      restoreSelf();
+    });
   });
 });

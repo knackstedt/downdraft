@@ -89,7 +89,7 @@ function buildGame(gameDir: string, game: string): boolean {
     // electron-vite writes dist/ relative to the spawn cwd — the monorepo root
     // when inside it, else the game directory itself.
     const cwd = buildCwd(gameDir);
-    const result = spawnSync("npx", ["electron-vite", "build", "--config", configPath], {
+    const result = spawnSync(npxBinary(), ["electron-vite", "build", "--config", configPath], {
       cwd,
       stdio: "inherit",
     });

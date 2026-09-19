@@ -42,6 +42,25 @@ export class TrackedRenderPass implements ITrackedRenderPass {
     this.pass = pass;
   }
 
+  /**
+   * Rebind to a fresh GPURenderPassEncoder and clear stats/state so this
+   * wrapper can be reused instead of allocating one per pass per frame.
+   * (FrameGraph keeps a per-slot pool.)
+   */
+  resetForReuse(pass: GPURenderPassEncoder): void {
+    this.pass = pass;
+    this.state.pipeline = null;
+    this.state.bindGroups.clear();
+    this.state.vertexBuffers.clear();
+    this.state.indexBuffer = null;
+    this.state.indexFormat = null;
+    this._drawCalls = 0;
+    this._triangles = 0;
+    this._pipelineSwitches = 0;
+    this._bindGroupChanges = 0;
+    this._bufferRebinds = 0;
+  }
+
   get drawCalls(): number {
     return this._drawCalls;
   }

@@ -121,7 +121,7 @@ export async function dev(args: string[]): Promise<void> {
   // immediately). By piping, the parent — which IS connected to the pty —
   // reads the child's output and writes it to its own stdout/stderr. This is
   // the same pattern the e2e harness uses (tests/e2e/harness.ts).
-  const child = spawn("npx", childArgs, {
+  const child = spawn(npxBinary(), childArgs, {
     cwd: buildCwd(gameDir),
     stdio: ["inherit", "pipe", "pipe"],
     env,

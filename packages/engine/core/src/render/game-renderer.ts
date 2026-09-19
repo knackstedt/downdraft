@@ -83,6 +83,18 @@ export interface GameRendererConfig {
    * Default: true.
    */
   disableRendererIndexedDb?: boolean;
+  /**
+   * Emit console warnings when a renderFrame / getCurrentTexture call exceeds
+   * 20ms. Off by default — the warnings themselves cause jank (console I/O in
+   * the frame loop is self-amplifying). Enable when profiling.
+   */
+  debugTimingWarnings?: boolean;
+  /**
+   * Enable the TelemetryCollector (frame/draw/graph stats for the profiling
+   * overlay + devtools). Default: true — set false in production builds that
+   * never surface telemetry to skip the per-frame recording overhead.
+   */
+  enableTelemetry?: boolean;
 }
 
 export interface FrameCallbacks {
@@ -194,6 +206,9 @@ export class GameRenderer implements CanvasResizeHandler {
   private colorHandle: TextureHandle | null = null;
   private depthHandle: TextureHandle | null = null;
   private graphCompiled = false;
+
+  // Reusable per-frame RenderContext (mutated per viewport — see renderViewport)
+  private frameCtx: RenderContext | null = null;
 
   // Depth texture cache (used when the graph does not own depth)
   // LRU: Map insertion order = access order (delete + re-set on access).
@@ -341,7 +356,7 @@ export class GameRenderer implements CanvasResizeHandler {
       this.inputManager.setUIInputRouter(this.uiInputRouter);
 
       // Telemetry + profiling overlay
-      this.telemetryCollector = new TelemetryCollector(true);
+      this.telemetryCollector = new TelemetryCollector(this.config.enableTelemetry ?? true);
       if (this.config.enableProfilingOverlay) {
         this.dpr = window.devicePixelRatio || 1;
         this.profilingOverlay = new ProfilingOverlay(this.telemetryCollector, {
@@ -724,7 +739,7 @@ export class GameRenderer implements CanvasResizeHandler {
     }
 
     const __rfTotal = performance.now() - now;
-    if (__rfTotal > 20) console.warn(`[GameRenderer] renderFrame took ${__rfTotal.toFixed(1)}ms`);
+    if (this.config.debugTimingWarnings && __rfTotal > 20) console.warn(`[GameRenderer] renderFrame took ${__rfTotal.toFixed(1)}ms`);
 
     this.currentRafId = this.rafSource ? this.rafSource(this.render) : requestAnimationFrame(this.render);
   }
@@ -791,7 +806,7 @@ export class GameRenderer implements CanvasResizeHandler {
         : this.context!.getCurrentTexture().createView())
       : this.context!.getCurrentTexture().createView();
     const __ctMs = performance.now() - __ctStart;
-    if (__ctMs > 20) console.warn(`[GameRenderer] getCurrentTexture took ${__ctMs.toFixed(1)}ms`);
+    if (this.config.debugTimingWarnings && __ctMs > 20) console.warn(`[GameRenderer] getCurrentTexture took ${__ctMs.toFixed(1)}ms`);
 
     const depthView = xrProvider
       ? xrProvider.getDepthView(viewportIdx, origViewport.w, origViewport.h)
@@ -826,41 +841,61 @@ export class GameRenderer implements CanvasResizeHandler {
 
     const encoder = this.device.createCommandEncoder();
 
-    const ctx: RenderContext = {
-      device: this.device,
-      encoder,
-      pass: null,
-      camera: camInfo.camera,
-      viewport,
-      viewportIdx,
-      viewportCount: this.viewportCount,
-      dt,
-      elapsedTime: this.elapsedTime,
-      isFirstViewport: isFirst,
-      isLastViewport: isLast,
-      width: viewport.w,
-      height: viewport.h,
-      viewProj: undefined,
-      invViewProj: undefined,
-      prevViewProj: undefined,
-      cameraPos: camInfo.camera.position,
-      lightData: null,
-      lightViewProj: undefined,
-      mesh: null,
-      modelMatrix: undefined,
-      shadowsEnabled: false,
-      bloomEnabled: false,
-      shadowSampler: null,
-      debugQueue: null,
-      opaqueVertexBuffer: null,
-      opaqueIndexBuffer: null,
-      opaqueIndexCount: 0,
-      opaqueIndexFormat: "uint32",
-      getView: (h: TextureHandle) => this.frameGraph.getTextureView(h),
-      getTexture: (h: TextureHandle) => this.frameGraph.getTexture(h),
-      addDrawCalls: (n: number) => { this.frameDrawCalls += n; },
-      addTriangles: (n: number) => { this.frameTriangles += n; },
-    };
+    // Reuse a single RenderContext across viewports/frames — allocating the
+    // ~35-field literal per viewport per frame was pure GC churn. Fields that
+    // vary per viewport are reassigned below; the closures capture `this` and
+    // are created once.
+    if (!this.frameCtx) {
+      this.frameCtx = {
+        device: this.device,
+        encoder,
+        pass: null,
+        camera: camInfo.camera,
+        viewport,
+        viewportIdx,
+        viewportCount: this.viewportCount,
+        dt,
+        elapsedTime: this.elapsedTime,
+        isFirstViewport: isFirst,
+        isLastViewport: isLast,
+        width: viewport.w,
+        height: viewport.h,
+        viewProj: undefined,
+        invViewProj: undefined,
+        prevViewProj: undefined,
+        cameraPos: camInfo.camera.position,
+        lightData: null,
+        lightViewProj: undefined,
+        mesh: null,
+        modelMatrix: undefined,
+        shadowsEnabled: false,
+        bloomEnabled: false,
+        shadowSampler: null,
+        debugQueue: null,
+        opaqueVertexBuffer: null,
+        opaqueIndexBuffer: null,
+        opaqueIndexCount: 0,
+        opaqueIndexFormat: "uint32",
+        getView: (h: TextureHandle) => this.frameGraph.getTextureView(h),
+        getTexture: (h: TextureHandle) => this.frameGraph.getTexture(h),
+        addDrawCalls: (n: number) => { this.frameDrawCalls += n; },
+        addTriangles: (n: number) => { this.frameTriangles += n; },
+      };
+    }
+    const ctx = this.frameCtx;
+    ctx.device = this.device;
+    ctx.encoder = encoder;
+    ctx.camera = camInfo.camera;
+    ctx.viewport = viewport;
+    ctx.viewportIdx = viewportIdx;
+    ctx.viewportCount = this.viewportCount;
+    ctx.dt = dt;
+    ctx.elapsedTime = this.elapsedTime;
+    ctx.isFirstViewport = isFirst;
+    ctx.isLastViewport = isLast;
+    ctx.width = viewport.w;
+    ctx.height = viewport.h;
+    ctx.cameraPos = camInfo.camera.position;
 
     this.frameGraph.execute(ctx);
 

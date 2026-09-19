@@ -3,6 +3,7 @@ import {
     archetypeMatches,
     createArchetype,
     findEntityRow,
+    getArchetypeForComponents,
     getComponentColumn,
     removeEntityFromArchetype,
 } from "./archetype";
@@ -146,5 +147,26 @@ describe("Archetype", () => {
 
     // Same index but different generation — should not match
     expect(findEntityRow(arch, makeEntity(5, 1))).toBe(-1);
+  });
+
+  it("hash collisions produce distinct archetypes, not a silent merge", () => {
+    // These two component-id sets collide under archetypeNumericHash
+    // (verified: both hash to the same 32-bit bucket). A hash-only map lookup
+    // would silently merge them — entities would get undefined components.
+    const setA = [2239, 4568];
+    const setB = [2866, 3740];
+    const map = new Map<number, ReturnType<typeof createArchetype>>();
+
+    const a1 = getArchetypeForComponents(map, setA);
+    const b1 = getArchetypeForComponents(map, setB);
+    expect(a1).not.toBe(b1);
+    expect(a1.componentIds).toEqual(setA);
+    expect(b1.componentIds).toEqual(setB);
+
+    // Repeated lookups must return the SAME archetype per set (chain hit).
+    expect(getArchetypeForComponents(map, setA)).toBe(a1);
+    expect(getArchetypeForComponents(map, setB)).toBe(b1);
+    // Unsorted input resolves identically.
+    expect(getArchetypeForComponents(map, [4568, 2239])).toBe(a1);
   });
 });

@@ -7,9 +7,9 @@
 // the requested tool name is in the main registry.
 // ============================================================================
 
-import { createLogger } from "@downdraft/engine/util/logger";
 import type { ToolRegistration } from "@downdraft/engine/mcp";
 import { McpHttpTransport, type McpProxyHandler } from "@downdraft/engine/mcp/http-transport";
+import { createLogger } from "@downdraft/engine/util/logger";
 import { ipcMain } from "electron";
 import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -33,20 +33,27 @@ function mcpPortDir(): string {
 
 /**
  * Write `~/.downdraft/port/<pid>` containing the bound port, so the stdio
- * bridge (and other local clients) can discover this instance. Returns a
- * cleanup function that removes the file (best-effort).
+ * bridge (and other local clients) can discover this instance. Also writes
+ * `<pid>.token` holding the transport's bearer token — clients that opt into
+ * auth (`mcp.requireAuth` / `MCP_AUTH=1`) read it and send the token via the
+ * `Authorization: Bearer` or `X-Downdraft-Token` header. The port file format
+ * stays a bare number for backward compatibility with existing bridges.
+ * Returns a cleanup function that removes both files (best-effort).
  */
-function writePidFile(port: number): () => void {
+function writePidFile(port: number, token: string): () => void {
   const dir = mcpPortDir();
   const pidFile = join(dir, String(process.pid));
+  const tokenFile = `${pidFile}.token`;
   try {
     mkdirSync(dir, { recursive: true });
     writeFileSync(pidFile, String(port));
+    writeFileSync(tokenFile, token, { mode: 0o600 });
   } catch (e) {
     log.warn("MCP", `Failed to write PID file ${pidFile}: ${(e as Error).message}`);
   }
   return () => {
     try { unlinkSync(pidFile); } catch { /* already gone */ }
+    try { unlinkSync(tokenFile); } catch { /* already gone */ }
   };
 }
 
@@ -144,7 +151,12 @@ export async function startMcpProxy(
   };
 
   try {
-    const transport = new McpHttpTransport({ port: config.port ?? 0, proxyHandler, artifactDir });
+    const transport = new McpHttpTransport({
+      port: config.port ?? 0,
+      proxyHandler,
+      artifactDir,
+      requireAuth: config.requireAuth,
+    });
     await transport.start();
     const actualPort = transport.getPort();
     const ephemeral = (config.port ?? 0) === 0;
@@ -154,7 +166,7 @@ export async function startMcpProxy(
     );
     // Advertise this instance via a PID file so the stdio bridge can
     // auto-discover it. Register best-effort cleanup on process exit.
-    const cleanupPidFile = writePidFile(actualPort);
+    const cleanupPidFile = writePidFile(actualPort, transport.getAuthToken());
     process.on("exit", cleanupPidFile);
     return actualPort;
   } catch (e) {

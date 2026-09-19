@@ -10,7 +10,8 @@ export type HostMessageHandler = (msg: any) => void;
 
 export interface WorkerHost {
   postToHost: (msg: any) => void;
-  onHostMessage: (handler: HostMessageHandler) => void;
+  /** Subscribe to host messages. May return an unsubscribe function. */
+  onHostMessage: (handler: HostMessageHandler) => (() => void) | void;
   close: () => void;
 }
 
@@ -38,16 +39,23 @@ export function getWorkerHost(): WorkerHost {
       postToHost: (msg: any) => _nodeParentPort.postMessage(msg),
       onHostMessage: (handler: HostMessageHandler) => {
         _nodeParentPort.on("message", handler);
+        return () => _nodeParentPort.off("message", handler);
       },
       close: () => { _nodeParentPort.close(); },
     };
   }
 
-  const ctx = self as unknown as { postMessage: (msg: any) => void; onmessage: ((e: MessageEvent) => void) | null; close?: () => void };
+  const ctx = self as unknown as { postMessage: (msg: any) => void; addEventListener: (t: string, h: (e: MessageEvent) => void) => void; removeEventListener: (t: string, h: (e: MessageEvent) => void) => void; close?: () => void };
   return {
     postToHost: (msg: any) => ctx.postMessage(msg),
     onHostMessage: (handler: HostMessageHandler) => {
-      ctx.onmessage = (e: MessageEvent) => handler(e.data);
+      // addEventListener — NOT ctx.onmessage assignment. The onmessage slot is
+      // single-owner: assigning it clobbers (or is clobbered by) any other
+      // message consumer in the worker (buffer sync, game code, a second
+      // expose() call). addEventListener composes.
+      const listener = (e: MessageEvent) => handler(e.data);
+      ctx.addEventListener("message", listener);
+      return () => ctx.removeEventListener("message", listener);
     },
     close: () => {
       // self.close() exists in browser Web Workers but not in all runtimes
@@ -198,6 +206,10 @@ export function wrap<T extends WorkerApi>(worker: AnyWorker, options?: WrapOptio
   const proxy = new Proxy({} as T, {
     get: (_, method: string) => {
       if (typeof method !== "string") return undefined;
+      // Thenable-protocol keys must NOT produce RPC calls: `await proxy` (or
+      // Promise.resolve(proxy)) reads `proxy.then`, and a callable `then`
+      // would fire a bogus "then" RPC instead of resolving cleanly.
+      if (method === "then" || method === "catch" || method === "finally") return undefined;
       return (...args: any[]) =>
         new Promise((resolve, reject) => {
           const id = ++reqId;

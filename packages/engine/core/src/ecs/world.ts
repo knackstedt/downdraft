@@ -7,6 +7,7 @@ import {
     findEntityRow,
     getArchetypeForComponents,
     getColumnValue,
+    removeArchetypeFromHashMap,
     removeEntityFromArchetype
 } from "./archetype";
 import type { ComponentDefinition, ComponentId, IComponent } from "./component";
@@ -206,9 +207,38 @@ export class World {
     }
     this.commands.length = 0;
     if (this.archetypesDirty) {
+      this.pruneEmptyArchetypes();
       this.schedule.updateQueryArchetypes(this.allArchetypes);
       this.archetypesDirty = false;
     }
+  }
+
+  /**
+   * Reclaim archetypes with no live entities. `allArchetypes` only ever grew —
+   * a game that churns through many component combinations (spawn/despawn
+   * variety) accumulated dead archetypes that `updateQueryArchetypes` rescanned
+   * on every structural flush. Hysteresis: only prune when the list is large
+   * AND mostly dead, so spawn/despawn oscillation between two archetypes
+   * doesn't thrash destroy→recreate.
+   */
+  private pruneEmptyArchetypes(): void {
+    const all = this.allArchetypes;
+    if (all.length < 256) return;
+    let dead = 0;
+    for (const a of all) {
+      if (a.entities.length === 0 && a !== this.emptyArchetype) dead++;
+    }
+    if (dead * 4 < all.length) return;
+    const survivors: Archetype[] = [];
+    for (const a of all) {
+      if (a.entities.length === 0 && a !== this.emptyArchetype) {
+        this.archetypeById.delete(a.id);
+        removeArchetypeFromHashMap(this.archetypes, a);
+      } else {
+        survivors.push(a);
+      }
+    }
+    this.allArchetypes = survivors;
   }
 
   step(dt: number): void {

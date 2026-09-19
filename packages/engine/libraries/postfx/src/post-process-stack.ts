@@ -942,6 +942,7 @@ export class PostProcessStack {
   }
 
   private destroyAllTargets(): void {
+    this.clearResourceCaches();
     this.destroyOptionalTargets();
     this.sceneColor?.destroy(); this.sceneColor = null;
     this.sceneDepth?.destroy(); this.sceneDepth = null;
@@ -953,7 +954,7 @@ export class PostProcessStack {
 
   getSceneColorView(): GPUTextureView {
     if (!this.sceneColor) throw new Error("PostProcess targets not created");
-    return this.sceneColor.createView();
+    return this.viewOf(this.sceneColor);
   }
 
   getSceneColorTexture(): GPUTexture {
@@ -963,22 +964,22 @@ export class PostProcessStack {
 
   getSceneDepthView(): GPUTextureView {
     if (!this.sceneDepth) throw new Error("PostProcess targets not created");
-    return this.sceneDepth.createView();
+    return this.viewOf(this.sceneDepth);
   }
 
   getSceneNormalsView(): GPUTextureView {
     if (!this.sceneNormals) throw new Error("Normals target not created — enable edges/ssao/ssr first");
-    return this.sceneNormals.createView();
+    return this.viewOf(this.sceneNormals);
   }
 
   getSceneVelocityView(): GPUTextureView {
     if (!this.sceneVelocity) throw new Error("Velocity target not created — enable taa/motion-blur first");
-    return this.sceneVelocity.createView();
+    return this.viewOf(this.sceneVelocity);
   }
 
   getSceneMaskView(): GPUTextureView {
     if (!this.sceneMask) throw new Error("Mask target not created — enable outline/highlight/glow first");
-    return this.sceneMask.createView();
+    return this.viewOf(this.sceneMask);
   }
 
   // ── Main chain ────────────────────────────────────────────────────────────
@@ -1002,8 +1003,8 @@ export class PostProcessStack {
       customByOrder["camera"].length + customByOrder["stylized"].length) > 0;
     if (active.length === 0 && !hasCustom) return;
 
-    const dv = depthView ?? this.sceneDepth?.createView() ?? null;
-    let inputView = this.sceneColor!.createView();
+    const dv = depthView ?? (this.sceneDepth ? this.viewOf(this.sceneDepth) : undefined) ?? null;
+    let inputView = this.viewOf(this.sceneColor!);
     let pingIdx = 0;
 
     // Build a combined chain: built-in effects with custom effects inserted
@@ -1036,7 +1037,7 @@ export class PostProcessStack {
 
     for (const entry of chain) {
       const outputTex = this.pingPong[pingIdx]!;
-      const outputView = outputTex.createView();
+      const outputView = this.viewOf(outputTex);
       if (entry.type === "builtin") {
         this.applyEffect(encoder, entry.id, inputView, outputView, dv, w, h);
         if (entry.id === "afterimage") {
@@ -1082,9 +1083,9 @@ export class PostProcessStack {
     }
     e.uniformValues = perFrame;
     this.device.queue.writeBuffer(e.uniform, 0, perFrame as unknown as Float32Array<ArrayBuffer>);
-    const bg = this.bg(this.ccLayout, [
+    const bg = this.bgCached(this.ccLayout, [
       { binding: 0, resource: inputView },
-      { binding: 1, resource: this.dummyTex.createView() },
+      { binding: 1, resource: this.viewOf(this.dummyTex) },
       { binding: 2, resource: this.linearSampler },
       { binding: 3, resource: { buffer: e.uniform } },
     ]);
@@ -1136,12 +1137,74 @@ export class PostProcessStack {
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
-  private wu(key: string, data: Float32Array): void {
-    this.device.queue.writeBuffer(this.uniforms[key], 0, data as unknown as Float32Array<ArrayBuffer>);
+  // Scratch buffer for number[] uniform data — writeBuffer() captures the
+  // contents synchronously at call time, so a single reusable scratch is safe
+  // and avoids allocating a Float32Array per effect per frame.
+  private wuScratch = new Float32Array(64);
+
+  private wu(key: string, data: Float32Array | number[]): void {
+    let arr: Float32Array;
+    if (data instanceof Float32Array) {
+      arr = data;
+    } else {
+      if (this.wuScratch.length < data.length) this.wuScratch = new Float32Array(data.length);
+      this.wuScratch.set(data);
+      arr = this.wuScratch.subarray(0, data.length);
+    }
+    this.device.queue.writeBuffer(this.uniforms[key], 0, arr as unknown as Float32Array<ArrayBuffer>);
   }
 
   private bg(layout: GPUBindGroupLayout, entries: GPUBindGroupEntry[]): GPUBindGroup {
     return this.device.createBindGroup({ layout, entries });
+  }
+
+  // ── Per-frame allocation caches ───────────────────────────────────────────
+  // createView()/createBindGroup() were called per effect per frame (~20+/frame).
+  // Views are immutable descriptors → cache per texture. Bind groups are pure
+  // functions of (layout, resources) → cache keyed by resource identity.
+  // Both caches are invalidated when targets are destroyed (resize/dispose).
+  private viewCache = new Map<GPUTexture, GPUTextureView>();
+  private bgCache = new Map<string, GPUBindGroup>();
+  private objIds = new WeakMap<object, number>();
+  private nextObjId = 1;
+
+  private idOf(o: object): number {
+    let id = this.objIds.get(o);
+    if (id === undefined) this.objIds.set(o, (id = this.nextObjId++));
+    return id;
+  }
+
+  /** Cached createView() for a stable texture (cleared on target rebuild). */
+  private viewOf(tex: GPUTexture): GPUTextureView {
+    let v = this.viewCache.get(tex);
+    if (!v) this.viewCache.set(tex, (v = tex.createView()));
+    return v;
+  }
+
+  /** Cached createBindGroup — entries must reference stable resources
+   *  (views from viewOf(), long-lived buffers/samplers). */
+  private bgCached(layout: GPUBindGroupLayout, entries: GPUBindGroupEntry[]): GPUBindGroup {
+    let key = `${this.idOf(layout)}`;
+    for (const e of entries) {
+      const r = e.resource as object;
+      key += `|${e.binding}:`;
+      // GPUBufferBinding literals are fresh objects per call — key on the
+      // underlying buffer + offset/size instead.
+      if (r && typeof r === "object" && "buffer" in (r as GPUBufferBinding)) {
+        const b = r as GPUBufferBinding;
+        key += `b${this.idOf(b.buffer)}@${b.offset ?? 0}+${b.size ?? -1}`;
+      } else {
+        key += `o${this.idOf(r)}`;
+      }
+    }
+    let bg = this.bgCache.get(key);
+    if (!bg) this.bgCache.set(key, (bg = this.bg(layout, entries)));
+    return bg;
+  }
+
+  private clearResourceCaches(): void {
+    this.viewCache.clear();
+    this.bgCache.clear();
   }
 
   private pass(
@@ -1170,10 +1233,10 @@ export class PostProcessStack {
     inputView: GPUTextureView, outputView: GPUTextureView,
     w: number, h: number, data: number[],
   ): void {
-    this.wu(key, new Float32Array(data));
-    const bg = this.bg(this.ccLayout, [
+    this.wu(key, data);
+    const bg = this.bgCached(this.ccLayout, [
       { binding: 0, resource: inputView },
-      { binding: 1, resource: this.dummyTex.createView() },
+      { binding: 1, resource: this.viewOf(this.dummyTex) },
       { binding: 2, resource: this.linearSampler },
       { binding: 3, resource: { buffer: this.uniforms[key] } },
     ]);
@@ -1188,8 +1251,8 @@ export class PostProcessStack {
     depthView: GPUTextureView,
     w: number, h: number, data: number[],
   ): void {
-    this.wu(key, new Float32Array(data));
-    const bg = this.bg(this.cdLayout, [
+    this.wu(key, data);
+    const bg = this.bgCached(this.cdLayout, [
       { binding: 0, resource: inputView },
       { binding: 1, resource: depthView },
       { binding: 2, resource: this.nearestSampler },
@@ -1201,10 +1264,10 @@ export class PostProcessStack {
   // ── Afterimage ────────────────────────────────────────────────────────────
 
   private applyAfterimage(encoder: GPUCommandEncoder, inputView: GPUTextureView, outputView: GPUTextureView, w: number, h: number): void {
-    this.wu("afterimage", new Float32Array([1/w, 1/h, this.afterimageDamp]));
-    const bg = this.bg(this.ccLayout, [
+    this.wu("afterimage", [1/w, 1/h, this.afterimageDamp]);
+    const bg = this.bgCached(this.ccLayout, [
       { binding: 0, resource: inputView },
-      { binding: 1, resource: this.afterimageTex!.createView() },
+      { binding: 1, resource: this.viewOf(this.afterimageTex!) },
       { binding: 2, resource: this.linearSampler },
       { binding: 3, resource: { buffer: this.uniforms["afterimage"] } },
     ]);
@@ -1214,10 +1277,10 @@ export class PostProcessStack {
   // ── ASCII ─────────────────────────────────────────────────────────────────
 
   private applyASCII(encoder: GPUCommandEncoder, inputView: GPUTextureView, outputView: GPUTextureView, w: number, h: number): void {
-    this.wu("ascii", new Float32Array([1/w, 1/h, this.asciiCellSize, this.asciiUseColor, w, h]));
-    const bg = this.bg(this.ccLayout, [
+    this.wu("ascii", [1/w, 1/h, this.asciiCellSize, this.asciiUseColor, w, h]);
+    const bg = this.bgCached(this.ccLayout, [
       { binding: 0, resource: inputView },
-      { binding: 1, resource: this.glyphTex!.createView() },
+      { binding: 1, resource: this.viewOf(this.glyphTex!) },
       { binding: 2, resource: this.linearSampler },
       { binding: 3, resource: { buffer: this.uniforms["ascii"] } },
     ]);
@@ -1227,7 +1290,7 @@ export class PostProcessStack {
   // ── Bloom (multi-MIP pyramid: downsample cascade + upsample composite) ───
 
   private applyBloom(encoder: GPUCommandEncoder, inputView: GPUTextureView, outputView: GPUTextureView, w: number, h: number): void {
-    const dummy = this.dummyTex.createView();
+    const dummy = this.viewOf(this.dummyTex);
     const mipCount = this.bloomMip.length;
     if (mipCount === 0) {
       // Fallback: no MIP targets allocated — blit input to output
@@ -1245,24 +1308,24 @@ export class PostProcessStack {
 
     // ── Downsample cascade: full → ½ → ¼ → ⅛ → ... ──
     // First downsample: bright-pass extraction from the full-res input
-    this.wu("bloom-downsample", new Float32Array([
+    this.wu("bloom-downsample", [
       1 / w, 1 / h, 1.0, this.bloomThreshold, this.bloomSoftKnee, 0, 0, 0,
-    ]));
-    this.pass(encoder, this.pipelines["bloom-downsample"], this.bg(this.ccLayout, [
+    ]);
+    this.pass(encoder, this.pipelines["bloom-downsample"], this.bgCached(this.ccLayout, [
       { binding: 0, resource: inputView }, { binding: 1, resource: dummy },
       { binding: 2, resource: this.linearSampler }, { binding: 3, resource: { buffer: this.uniforms["bloom-downsample"] } },
-    ]), this.bloomMip[0].createView(), mipW[0], mipH[0]);
+    ]), this.viewOf(this.bloomMip[0]), mipW[0], mipH[0]);
 
     // Subsequent downsamples: plain downsample from previous MIP
     for (let i = 1; i < mipCount; i++) {
       const srcW = mipW[i - 1], srcH = mipH[i - 1];
-      this.wu("bloom-downsample", new Float32Array([
+      this.wu("bloom-downsample", [
         1 / srcW, 1 / srcH, 0.0, this.bloomThreshold, this.bloomSoftKnee, 0, 0, 0,
-      ]));
-      this.pass(encoder, this.pipelines["bloom-downsample"], this.bg(this.ccLayout, [
-        { binding: 0, resource: this.bloomMip[i - 1].createView() }, { binding: 1, resource: dummy },
+      ]);
+      this.pass(encoder, this.pipelines["bloom-downsample"], this.bgCached(this.ccLayout, [
+        { binding: 0, resource: this.viewOf(this.bloomMip[i - 1]) }, { binding: 1, resource: dummy },
         { binding: 2, resource: this.linearSampler }, { binding: 3, resource: { buffer: this.uniforms["bloom-downsample"] } },
-      ]), this.bloomMip[i].createView(), mipW[i], mipH[i]);
+      ]), this.viewOf(this.bloomMip[i]), mipW[i], mipH[i]);
     }
 
     // ── Upsample cascade: smallest MIP → ... → ½ → composite to output ──
@@ -1275,35 +1338,35 @@ export class PostProcessStack {
       const srcW = mipW[i], srcH = mipH[i];
       const dstW = mipW[i - 1], dstH = mipH[i - 1];
       const weight = this.bloomMipWeights[Math.min(i, this.bloomMipWeights.length - 1)] ?? 0.5;
-      this.wu("bloom-upsample", new Float32Array([
+      this.wu("bloom-upsample", [
         1 / srcW, 1 / srcH, weight, 0,
         this.bloomTint[0], this.bloomTint[1], this.bloomTint[2], 0,
-      ]));
+      ]);
       // Blit bloomMip[i-1] → bloomTemp[i-1] to avoid read+write same texture
-      this.applyBlitHDR(encoder, this.bloomMip[i - 1].createView(), this.bloomTemp[i - 1].createView(), dstW, dstH);
-      this.pass(encoder, this.pipelines["bloom-upsample"], this.bg(this.ccLayout, [
-        { binding: 0, resource: this.bloomMip[i].createView() },
-        { binding: 1, resource: this.bloomTemp[i - 1].createView() },
+      this.applyBlitHDR(encoder, this.viewOf(this.bloomMip[i - 1]), this.viewOf(this.bloomTemp[i - 1]), dstW, dstH);
+      this.pass(encoder, this.pipelines["bloom-upsample"], this.bgCached(this.ccLayout, [
+        { binding: 0, resource: this.viewOf(this.bloomMip[i]) },
+        { binding: 1, resource: this.viewOf(this.bloomTemp[i - 1]) },
         { binding: 2, resource: this.linearSampler },
         { binding: 3, resource: { buffer: this.uniforms["bloom-upsample"] } },
-      ]), this.bloomMip[i - 1].createView(), dstW, dstH);
+      ]), this.viewOf(this.bloomMip[i - 1]), dstW, dstH);
     }
 
     // Final composite: upsample ½-res bloom → full-res, add to scene color
     const srcW = mipW[0], srcH = mipH[0];
     const finalWeight = this.bloomStrength * (this.bloomMipWeights[0] ?? 0.5);
-    this.wu("bloom-upsample", new Float32Array([
+    this.wu("bloom-upsample", [
       1 / srcW, 1 / srcH, finalWeight, 0,
       this.bloomTint[0], this.bloomTint[1], this.bloomTint[2], 0,
-    ]));
+    ]);
     // For the final pass, baseTex = inputView (scene color), output = outputView
     // We need to read inputView as base — but the upsample shader writes base+bloom.
     // Use pingPong[1] as a temp (not outputView) to avoid reading+writing the
     // same texture in the same render pass (WebGPU sync scope violation).
-    this.applyBlitHDR(encoder, inputView, this.pingPong[1]!.createView(), w, h);
-    this.pass(encoder, this.pipelines["bloom-upsample"], this.bg(this.ccLayout, [
-      { binding: 0, resource: this.bloomMip[0].createView() },
-      { binding: 1, resource: this.pingPong[1]!.createView() },
+    this.applyBlitHDR(encoder, inputView, this.viewOf(this.pingPong[1]!), w, h);
+    this.pass(encoder, this.pipelines["bloom-upsample"], this.bgCached(this.ccLayout, [
+      { binding: 0, resource: this.viewOf(this.bloomMip[0]) },
+      { binding: 1, resource: this.viewOf(this.pingPong[1]!) },
       { binding: 2, resource: this.linearSampler },
       { binding: 3, resource: { buffer: this.uniforms["bloom-upsample"] } },
     ]), outputView, w, h);
@@ -1313,31 +1376,31 @@ export class PostProcessStack {
 
   private applyBloomSoft(encoder: GPUCommandEncoder, inputView: GPUTextureView, outputView: GPUTextureView, w: number, h: number): void {
     const hw = Math.max(1, w >> 1), hh = Math.max(1, h >> 1);
-    const dummy = this.dummyTex.createView();
+    const dummy = this.viewOf(this.dummyTex);
 
     // Bright pass (dirX > 1.0 triggers bright-pass extraction)
-    this.wu("bloom-soft", new Float32Array([1/w, 1/h, 2.0, 0.0, this.bloomSoftThreshold, this.bloomSoftSoftThreshold]));
-    this.pass(encoder, this.pipelines["bloom-soft"], this.bg(this.ccLayout, [
+    this.wu("bloom-soft", [1/w, 1/h, 2.0, 0.0, this.bloomSoftThreshold, this.bloomSoftSoftThreshold]);
+    this.pass(encoder, this.pipelines["bloom-soft"], this.bgCached(this.ccLayout, [
       { binding: 0, resource: inputView }, { binding: 1, resource: dummy },
       { binding: 2, resource: this.linearSampler }, { binding: 3, resource: { buffer: this.uniforms["bloom-soft"] } },
-    ]), this.halfResA!.createView(), hw, hh);
+    ]), this.viewOf(this.halfResA!), hw, hh);
 
     // Blur H
-    this.wu("bloom-soft", new Float32Array([1/hw, 1/hh, 1.0, 0.0, this.bloomSoftThreshold, this.bloomSoftSoftThreshold]));
-    this.pass(encoder, this.pipelines["bloom-soft"], this.bg(this.ccLayout, [
-      { binding: 0, resource: this.halfResA!.createView() }, { binding: 1, resource: dummy },
+    this.wu("bloom-soft", [1/hw, 1/hh, 1.0, 0.0, this.bloomSoftThreshold, this.bloomSoftSoftThreshold]);
+    this.pass(encoder, this.pipelines["bloom-soft"], this.bgCached(this.ccLayout, [
+      { binding: 0, resource: this.viewOf(this.halfResA!) }, { binding: 1, resource: dummy },
       { binding: 2, resource: this.linearSampler }, { binding: 3, resource: { buffer: this.uniforms["bloom-soft"] } },
-    ]), this.halfResB!.createView(), hw, hh);
+    ]), this.viewOf(this.halfResB!), hw, hh);
 
     // Blur V
-    this.wu("bloom-soft", new Float32Array([1/hw, 1/hh, 0.0, 1.0, this.bloomSoftThreshold, this.bloomSoftSoftThreshold]));
-    this.pass(encoder, this.pipelines["bloom-soft"], this.bg(this.ccLayout, [
-      { binding: 0, resource: this.halfResB!.createView() }, { binding: 1, resource: dummy },
+    this.wu("bloom-soft", [1/hw, 1/hh, 0.0, 1.0, this.bloomSoftThreshold, this.bloomSoftSoftThreshold]);
+    this.pass(encoder, this.pipelines["bloom-soft"], this.bgCached(this.ccLayout, [
+      { binding: 0, resource: this.viewOf(this.halfResB!) }, { binding: 1, resource: dummy },
       { binding: 2, resource: this.linearSampler }, { binding: 3, resource: { buffer: this.uniforms["bloom-soft"] } },
-    ]), this.halfResA!.createView(), hw, hh);
+    ]), this.viewOf(this.halfResA!), hw, hh);
 
     // Store result for tonemap
-    this.bloomSoftResult = this.halfResA!.createView();
+    this.bloomSoftResult = this.viewOf(this.halfResA!);
 
     // Blit input to output (bloom-soft doesn't composite — tonemap does that)
     // Use HDR blit since outputView is an HDR ping-pong texture in the chain
@@ -1347,11 +1410,11 @@ export class PostProcessStack {
   // ── Tonemap (color + bloom + ACES + exposure/gamma/contrast/sat/vignette) ─
 
   private applyTonemap(encoder: GPUCommandEncoder, inputView: GPUTextureView, outputView: GPUTextureView, w: number, h: number): void {
-    this.wu("tonemap", new Float32Array([
+    this.wu("tonemap", [
       this.exposure, this.bloomSoftIntensity, this.gamma, this.contrast, this.saturation, this.vignette, 0, 0,
-    ]));
-    const bloomView = this.bloomSoftResult ?? this.dummyTex.createView();
-    const bg = this.bg(this.ccLayout, [
+    ]);
+    const bloomView = this.bloomSoftResult ?? this.viewOf(this.dummyTex);
+    const bg = this.bgCached(this.ccLayout, [
       { binding: 0, resource: inputView },
       { binding: 1, resource: bloomView },
       { binding: 2, resource: this.linearSampler },
@@ -1367,11 +1430,11 @@ export class PostProcessStack {
     // ignore stale history in the previously-occluded region (standard TAA
     // reset pattern, same as camera cuts).
     const blend = this.taaHistoryReset ? 1.0 : this.taaBlendFactor;
-    this.wu("taa", new Float32Array([1/w, 1/h, blend, this.taaVarianceClamp ? 1 : 0, this.taaJitterX, this.taaJitterY, 0, 0]));
-    const bg = this.bg(this.cvvhLayout, [
+    this.wu("taa", [1/w, 1/h, blend, this.taaVarianceClamp ? 1 : 0, this.taaJitterX, this.taaJitterY, 0, 0]);
+    const bg = this.bgCached(this.cvvhLayout, [
       { binding: 0, resource: inputView },
-      { binding: 1, resource: this.sceneVelocity!.createView() },
-      { binding: 2, resource: this.taaHistory!.createView() },
+      { binding: 1, resource: this.viewOf(this.sceneVelocity!) },
+      { binding: 2, resource: this.viewOf(this.taaHistory!) },
       { binding: 3, resource: this.linearSampler },
       { binding: 4, resource: { buffer: this.uniforms["taa"] } },
     ]);
@@ -1386,30 +1449,30 @@ export class PostProcessStack {
     this.writeSSAOUniform(w, h);
 
     // Compute SSAO
-    const bg0 = this.bg(this.dnfnLayout, [
+    const bg0 = this.bgCached(this.dnfnLayout, [
       { binding: 0, resource: depthView },
-      { binding: 1, resource: this.sceneNormals!.createView() },
-      { binding: 2, resource: this.noiseTex!.createView() },
+      { binding: 1, resource: this.viewOf(this.sceneNormals!) },
+      { binding: 2, resource: this.viewOf(this.noiseTex!) },
       { binding: 3, resource: this.nearestSampler },
       { binding: 4, resource: { buffer: this.uniforms["ssao"] } },
     ]);
-    this.pass(encoder, this.pipelines["ssao"], bg0, this.ssaoA!.createView(), w, h);
+    this.pass(encoder, this.pipelines["ssao"], bg0, this.viewOf(this.ssaoA!), w, h);
 
     // Blur SSAO
-    this.wu("ssao-blur", new Float32Array([1/w, 1/h]));
-    const bg1 = this.bg(this.cdLayout, [
-      { binding: 0, resource: this.ssaoA!.createView() },
+    this.wu("ssao-blur", [1/w, 1/h]);
+    const bg1 = this.bgCached(this.cdLayout, [
+      { binding: 0, resource: this.viewOf(this.ssaoA!) },
       { binding: 1, resource: depthView },
       { binding: 2, resource: this.nearestSampler },
       { binding: 3, resource: { buffer: this.uniforms["ssao-blur"] } },
     ]);
-    this.pass(encoder, this.pipelines["ssao-blur"], bg1, this.ssaoB!.createView(), w, h);
+    this.pass(encoder, this.pipelines["ssao-blur"], bg1, this.viewOf(this.ssaoB!), w, h);
 
     // Composite AO × color
-    this.wu("ssao-composite", new Float32Array([1/w, 1/h]));
-    const bg2 = this.bg(this.ccLayout, [
+    this.wu("ssao-composite", [1/w, 1/h]);
+    const bg2 = this.bgCached(this.ccLayout, [
       { binding: 0, resource: inputView },
-      { binding: 1, resource: this.ssaoB!.createView() },
+      { binding: 1, resource: this.viewOf(this.ssaoB!) },
       { binding: 2, resource: this.linearSampler },
       { binding: 3, resource: { buffer: this.uniforms["ssao-composite"] } },
     ]);
@@ -1452,9 +1515,9 @@ export class PostProcessStack {
     data[54] = this.ssrStride;
     this.device.queue.writeBuffer(this.uniforms["ssr"], 0, data as unknown as Float32Array<ArrayBuffer>);
 
-    const bg = this.bg(this.cvdLayout, [
+    const bg = this.bgCached(this.cvdLayout, [
       { binding: 0, resource: inputView },
-      { binding: 1, resource: this.sceneNormals!.createView() },
+      { binding: 1, resource: this.viewOf(this.sceneNormals!) },
       { binding: 2, resource: depthView },
       { binding: 3, resource: this.nearestSampler },
       { binding: 4, resource: { buffer: this.uniforms["ssr"] } },
@@ -1465,10 +1528,10 @@ export class PostProcessStack {
   // ── Motion blur (color + velocity + depth) ────────────────────────────────
 
   private applyMotionBlur(encoder: GPUCommandEncoder, inputView: GPUTextureView, outputView: GPUTextureView, depthView: GPUTextureView, w: number, h: number): void {
-    this.wu("motion-blur", new Float32Array([1/w, 1/h, this.motionBlurIntensity, this.motionBlurMaxSamples]));
-    const bg = this.bg(this.cvdLayout, [
+    this.wu("motion-blur", [1/w, 1/h, this.motionBlurIntensity, this.motionBlurMaxSamples]);
+    const bg = this.bgCached(this.cvdLayout, [
       { binding: 0, resource: inputView },
-      { binding: 1, resource: this.sceneVelocity!.createView() },
+      { binding: 1, resource: this.viewOf(this.sceneVelocity!) },
       { binding: 2, resource: depthView },
       { binding: 3, resource: this.nearestSampler },
       { binding: 4, resource: { buffer: this.uniforms["motion-blur"] } },
@@ -1479,10 +1542,10 @@ export class PostProcessStack {
   // ── Edges (color + normal + depth) ────────────────────────────────────────
 
   private applyEdges(encoder: GPUCommandEncoder, inputView: GPUTextureView, outputView: GPUTextureView, depthView: GPUTextureView, w: number, h: number): void {
-    this.wu("edges", new Float32Array([1/w, 1/h, this.edgesThreshold, this.edgesOpacity, 0, 0, 0, 0, ...this.edgesEdgeColor, 0, 0]));
-    const bg = this.bg(this.cvdLayout, [
+    this.wu("edges", [1/w, 1/h, this.edgesThreshold, this.edgesOpacity, 0, 0, 0, 0, ...this.edgesEdgeColor, 0, 0]);
+    const bg = this.bgCached(this.cvdLayout, [
       { binding: 0, resource: inputView },
-      { binding: 1, resource: this.sceneNormals!.createView() },
+      { binding: 1, resource: this.viewOf(this.sceneNormals!) },
       { binding: 2, resource: depthView },
       { binding: 3, resource: this.nearestSampler },
       { binding: 4, resource: { buffer: this.uniforms["edges"] } },
@@ -1493,17 +1556,17 @@ export class PostProcessStack {
   // ── Gaussian blur (two-pass: H then V) ────────────────────────────────────
 
   private applyGaussianBlur(encoder: GPUCommandEncoder, inputView: GPUTextureView, outputView: GPUTextureView, w: number, h: number): void {
-    const dummy = this.dummyTex.createView();
+    const dummy = this.viewOf(this.dummyTex);
     // H pass
-    this.wu("gaussian-blur", new Float32Array([1/w, 1/h, 1.0, 0.0, this.gaussianBlurRadius]));
-    this.pass(encoder, this.pipelines["gaussian-blur"], this.bg(this.ccLayout, [
+    this.wu("gaussian-blur", [1/w, 1/h, 1.0, 0.0, this.gaussianBlurRadius]);
+    this.pass(encoder, this.pipelines["gaussian-blur"], this.bgCached(this.ccLayout, [
       { binding: 0, resource: inputView }, { binding: 1, resource: dummy },
       { binding: 2, resource: this.linearSampler }, { binding: 3, resource: { buffer: this.uniforms["gaussian-blur"] } },
-    ]), this.blurA!.createView(), w, h);
+    ]), this.viewOf(this.blurA!), w, h);
     // V pass
-    this.wu("gaussian-blur", new Float32Array([1/w, 1/h, 0.0, 1.0, this.gaussianBlurRadius]));
-    this.pass(encoder, this.pipelines["gaussian-blur"], this.bg(this.ccLayout, [
-      { binding: 0, resource: this.blurA!.createView() }, { binding: 1, resource: dummy },
+    this.wu("gaussian-blur", [1/w, 1/h, 0.0, 1.0, this.gaussianBlurRadius]);
+    this.pass(encoder, this.pipelines["gaussian-blur"], this.bgCached(this.ccLayout, [
+      { binding: 0, resource: this.viewOf(this.blurA!) }, { binding: 1, resource: dummy },
       { binding: 2, resource: this.linearSampler }, { binding: 3, resource: { buffer: this.uniforms["gaussian-blur"] } },
     ]), outputView, w, h);
   }
@@ -1511,10 +1574,10 @@ export class PostProcessStack {
   // ── Outline (color + mask) ────────────────────────────────────────────────
 
   private applyOutline(encoder: GPUCommandEncoder, inputView: GPUTextureView, outputView: GPUTextureView, w: number, h: number): void {
-    this.wu("outline", new Float32Array([1/w, 1/h, this.outlineWidth, this.outlineOpacity, 0, 0, 0, 0, ...this.outlineColor, 0, 0]));
-    const bg = this.bg(this.ccLayout, [
+    this.wu("outline", [1/w, 1/h, this.outlineWidth, this.outlineOpacity, 0, 0, 0, 0, ...this.outlineColor, 0, 0]);
+    const bg = this.bgCached(this.ccLayout, [
       { binding: 0, resource: inputView },
-      { binding: 1, resource: this.sceneMask!.createView() },
+      { binding: 1, resource: this.viewOf(this.sceneMask!) },
       { binding: 2, resource: this.linearSampler },
       { binding: 3, resource: { buffer: this.uniforms["outline"] } },
     ]);
@@ -1524,28 +1587,28 @@ export class PostProcessStack {
   // ── Highlight (blur H + blur V + composite) ───────────────────────────────
 
   private applyHighlight(encoder: GPUCommandEncoder, inputView: GPUTextureView, outputView: GPUTextureView, w: number, h: number): void {
-    const dummy = this.dummyTex.createView();
-    const maskView = this.sceneMask!.createView();
+    const dummy = this.viewOf(this.dummyTex);
+    const maskView = this.viewOf(this.sceneMask!);
 
     // Blur H
-    this.wu("highlight-blur", new Float32Array([1/w, 1/h, 1.0, 0.0, this.highlightBlurRadius]));
-    this.pass(encoder, this.pipelines["highlight-blur"], this.bg(this.ccLayout, [
+    this.wu("highlight-blur", [1/w, 1/h, 1.0, 0.0, this.highlightBlurRadius]);
+    this.pass(encoder, this.pipelines["highlight-blur"], this.bgCached(this.ccLayout, [
       { binding: 0, resource: maskView }, { binding: 1, resource: dummy },
       { binding: 2, resource: this.linearSampler }, { binding: 3, resource: { buffer: this.uniforms["highlight-blur"] } },
-    ]), this.blurA!.createView(), w, h);
+    ]), this.viewOf(this.blurA!), w, h);
 
     // Blur V
-    this.wu("highlight-blur", new Float32Array([1/w, 1/h, 0.0, 1.0, this.highlightBlurRadius]));
-    this.pass(encoder, this.pipelines["highlight-blur"], this.bg(this.ccLayout, [
-      { binding: 0, resource: this.blurA!.createView() }, { binding: 1, resource: dummy },
+    this.wu("highlight-blur", [1/w, 1/h, 0.0, 1.0, this.highlightBlurRadius]);
+    this.pass(encoder, this.pipelines["highlight-blur"], this.bgCached(this.ccLayout, [
+      { binding: 0, resource: this.viewOf(this.blurA!) }, { binding: 1, resource: dummy },
       { binding: 2, resource: this.linearSampler }, { binding: 3, resource: { buffer: this.uniforms["highlight-blur"] } },
-    ]), this.blurB!.createView(), w, h);
+    ]), this.viewOf(this.blurB!), w, h);
 
     // Composite
-    this.wu("highlight-composite", new Float32Array([this.highlightIntensity, this.highlightInnerOpacity]));
-    const bg = this.bg(this.cvvhLayout, [
+    this.wu("highlight-composite", [this.highlightIntensity, this.highlightInnerOpacity]);
+    const bg = this.bgCached(this.cvvhLayout, [
       { binding: 0, resource: inputView },
-      { binding: 1, resource: this.blurB!.createView() },
+      { binding: 1, resource: this.viewOf(this.blurB!) },
       { binding: 2, resource: maskView },
       { binding: 3, resource: this.linearSampler },
       { binding: 4, resource: { buffer: this.uniforms["highlight-composite"] } },
@@ -1556,28 +1619,28 @@ export class PostProcessStack {
   // ── Glow (blur H + blur V + composite) ────────────────────────────────────
 
   private applyGlow(encoder: GPUCommandEncoder, inputView: GPUTextureView, outputView: GPUTextureView, w: number, h: number): void {
-    const dummy = this.dummyTex.createView();
-    const maskView = this.sceneMask!.createView();
+    const dummy = this.viewOf(this.dummyTex);
+    const maskView = this.viewOf(this.sceneMask!);
 
     // Blur H
-    this.wu("glow-blur", new Float32Array([1/w, 1/h, 1.0, 0.0, this.glowBlurRadius]));
-    this.pass(encoder, this.pipelines["glow-blur"], this.bg(this.ccLayout, [
+    this.wu("glow-blur", [1/w, 1/h, 1.0, 0.0, this.glowBlurRadius]);
+    this.pass(encoder, this.pipelines["glow-blur"], this.bgCached(this.ccLayout, [
       { binding: 0, resource: maskView }, { binding: 1, resource: dummy },
       { binding: 2, resource: this.linearSampler }, { binding: 3, resource: { buffer: this.uniforms["glow-blur"] } },
-    ]), this.blurA!.createView(), w, h);
+    ]), this.viewOf(this.blurA!), w, h);
 
     // Blur V
-    this.wu("glow-blur", new Float32Array([1/w, 1/h, 0.0, 1.0, this.glowBlurRadius]));
-    this.pass(encoder, this.pipelines["glow-blur"], this.bg(this.ccLayout, [
-      { binding: 0, resource: this.blurA!.createView() }, { binding: 1, resource: dummy },
+    this.wu("glow-blur", [1/w, 1/h, 0.0, 1.0, this.glowBlurRadius]);
+    this.pass(encoder, this.pipelines["glow-blur"], this.bgCached(this.ccLayout, [
+      { binding: 0, resource: this.viewOf(this.blurA!) }, { binding: 1, resource: dummy },
       { binding: 2, resource: this.linearSampler }, { binding: 3, resource: { buffer: this.uniforms["glow-blur"] } },
-    ]), this.blurB!.createView(), w, h);
+    ]), this.viewOf(this.blurB!), w, h);
 
     // Composite
-    this.wu("glow-composite", new Float32Array([this.glowIntensity]));
-    const bg = this.bg(this.ccLayout, [
+    this.wu("glow-composite", [this.glowIntensity]);
+    const bg = this.bgCached(this.ccLayout, [
       { binding: 0, resource: inputView },
-      { binding: 1, resource: this.blurB!.createView() },
+      { binding: 1, resource: this.viewOf(this.blurB!) },
       { binding: 2, resource: this.linearSampler },
       { binding: 3, resource: { buffer: this.uniforms["glow-composite"] } },
     ]);
@@ -1592,8 +1655,8 @@ export class PostProcessStack {
       this.applyBlitHDR(encoder, inputView, outputView, w, h);
       return;
     }
-    this.wu("lut", new Float32Array([this.lutEnabled ? 1 : 0, this.lutSize, 0, 0]));
-    const bg = this.bg(this.lutLayout, [
+    this.wu("lut", [this.lutEnabled ? 1 : 0, this.lutSize, 0, 0]);
+    const bg = this.bgCached(this.lutLayout, [
       { binding: 0, resource: inputView },
       { binding: 1, resource: this.lutView },
       { binding: 2, resource: this.linearSampler },
@@ -1605,10 +1668,10 @@ export class PostProcessStack {
   // ── Dithering (color + noise + sampler + uniform, ccLayout) ───────────────
 
   private applyDithering(encoder: GPUCommandEncoder, inputView: GPUTextureView, outputView: GPUTextureView, w: number, h: number): void {
-    this.wu("dithering", new Float32Array([1/w, 1/h, this.dMode, this.dStrength, this.dLevels, 0, 0, 0]));
-    const bg = this.bg(this.ccLayout, [
+    this.wu("dithering", [1/w, 1/h, this.dMode, this.dStrength, this.dLevels, 0, 0, 0]);
+    const bg = this.bgCached(this.ccLayout, [
       { binding: 0, resource: inputView },
-      { binding: 1, resource: this.noiseTex!.createView() },
+      { binding: 1, resource: this.viewOf(this.noiseTex!) },
       { binding: 2, resource: this.linearSampler },
       { binding: 3, resource: { buffer: this.uniforms["dithering"] } },
     ]);
@@ -1618,10 +1681,10 @@ export class PostProcessStack {
   // ── Watercolor (color + noise + sampler + uniform, ccLayout) ──────────────
 
   private applyWatercolor(encoder: GPUCommandEncoder, inputView: GPUTextureView, outputView: GPUTextureView, w: number, h: number): void {
-    this.wu("watercolor", new Float32Array([1/w, 1/h, this.wcEdgeStrength, this.wcPaperScale, this.wcBlend, 0, 0, 0]));
-    const bg = this.bg(this.ccLayout, [
+    this.wu("watercolor", [1/w, 1/h, this.wcEdgeStrength, this.wcPaperScale, this.wcBlend, 0, 0, 0]);
+    const bg = this.bgCached(this.ccLayout, [
       { binding: 0, resource: inputView },
-      { binding: 1, resource: this.noiseTex!.createView() },
+      { binding: 1, resource: this.viewOf(this.noiseTex!) },
       { binding: 2, resource: this.linearSampler },
       { binding: 3, resource: { buffer: this.uniforms["watercolor"] } },
     ]);
@@ -1631,10 +1694,10 @@ export class PostProcessStack {
   // ── Blit (copy rgba16float → canvas format) ───────────────────────────────
 
   private applyBlit(encoder: GPUCommandEncoder, inputView: GPUTextureView, outputView: GPUTextureView, w: number, h: number): void {
-    this.wu("blit", new Float32Array([1/w, 1/h]));
-    const bg = this.bg(this.ccLayout, [
+    this.wu("blit", [1/w, 1/h]);
+    const bg = this.bgCached(this.ccLayout, [
       { binding: 0, resource: inputView },
-      { binding: 1, resource: this.dummyTex.createView() },
+      { binding: 1, resource: this.viewOf(this.dummyTex) },
       { binding: 2, resource: this.linearSampler },
       { binding: 3, resource: { buffer: this.uniforms["blit"] } },
     ]);
@@ -1643,10 +1706,10 @@ export class PostProcessStack {
 
   /** HDR blit variant for intermediate chain passes (writes to rgba16float ping-pong). */
   private applyBlitHDR(encoder: GPUCommandEncoder, inputView: GPUTextureView, outputView: GPUTextureView, w: number, h: number): void {
-    this.wu("blit", new Float32Array([1/w, 1/h]));
-    const bg = this.bg(this.ccLayout, [
+    this.wu("blit", [1/w, 1/h]);
+    const bg = this.bgCached(this.ccLayout, [
       { binding: 0, resource: inputView },
-      { binding: 1, resource: this.dummyTex.createView() },
+      { binding: 1, resource: this.viewOf(this.dummyTex) },
       { binding: 2, resource: this.linearSampler },
       { binding: 3, resource: { buffer: this.uniforms["blit"] } },
     ]);

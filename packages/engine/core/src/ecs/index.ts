@@ -1,5 +1,5 @@
 // ECS sub-barrel — re-exports all ECS-related items.
-export { archetypeMatches, createArchetype, getArchetypeForComponents, getColumnValue, isSoAColumn, reconstructSoAObject } from "./archetype";
+export { archetypeMatches, createArchetype, getArchetypeForComponents, getColumnValue, isSoAColumn, reconstructSoAObject, removeArchetypeFromHashMap } from "./archetype";
 export type { Archetype, Column, SoAColumn } from "./archetype";
 export { Component, component, getComponentDefinition, getComponentId, getComponentName, isRegisteredComponentId, isSoAComponentDef, SOA_DEFAULT_VALUE, SOA_TYPED_ARRAY_CTOR, soaComponent } from "./component";
 export type { ComponentDefinition, ComponentId, IComponent, SoAComponentData, SoAComponentDefinition, SoAFieldType, SoASchema, SoATypedArray } from "./component";
@@ -21,6 +21,5 @@ export type { ParamSystemFn, QueryParam, Res, ResolvedParam, ResParam, SystemPar
 export { World } from "./world";
 
 // Job System (lives under ecs/)
-export { JobScheduler, parallelMap, WorkerPool } from "./job-system";
-export type { BatchOptions, Job, JobResult, JobSchedulerOptions, WorkerPoolOptions } from "./job-system";
+
 

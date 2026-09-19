@@ -47,6 +47,9 @@ export interface Archetype {
   entities: Entity[];
   columns: Map<ComponentId, Column>;
   entityRowMap: Map<number, number>;
+  /** Collision chain — next archetype sharing this one's numeric hash bucket.
+   *  Set when two different component sets collide on `archetypeNumericHash`. */
+  hashNext?: Archetype;
 }
 
 let nextArchetypeId = 0;
@@ -82,6 +85,12 @@ export function archetypeMatches(arch: Archetype, required: ComponentId[], exclu
   return true;
 }
 
+function sameComponentIds(a: ComponentId[], b: ComponentId[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
 export function getArchetypeForComponents(
   archetypes: Map<number, Archetype>,
   componentIds: ComponentId[],
@@ -91,12 +100,40 @@ export function getArchetypeForComponents(
     ? [...componentIds].sort((a, b) => a - b)
     : componentIds;
   const numericKey = archetypeNumericHash(sortedIds);
-  let arch = archetypes.get(numericKey);
-  if (!arch) {
-    arch = createArchetype(sortedIds);
-    archetypes.set(numericKey, arch);
+  // Walk the collision chain — a 32-bit hash is not injective, so a hit on the
+  // bucket is not proof of a match. Without this check, two distinct component
+  // sets with colliding hashes silently shared an archetype (entities would get
+  // undefined components and queries would match the wrong entity sets).
+  let head = archetypes.get(numericKey);
+  for (let arch = head; arch; arch = arch.hashNext) {
+    if (sameComponentIds(arch.componentIds, sortedIds)) return arch;
   }
+  const arch = createArchetype(sortedIds);
+  if (head) {
+    // Collision — prepend to the bucket chain.
+    arch.hashNext = head;
+  }
+  archetypes.set(numericKey, arch);
   return arch;
+}
+
+/** Remove an archetype from the hash-keyed map (used by empty-archetype
+ *  pruning). Handles both bucket heads and chained collision entries. */
+export function removeArchetypeFromHashMap(archetypes: Map<number, Archetype>, arch: Archetype): void {
+  const key = archetypeNumericHash(arch.componentIds);
+  const head = archetypes.get(key);
+  if (head === arch) {
+    if (arch.hashNext) archetypes.set(key, arch.hashNext);
+    else archetypes.delete(key);
+  } else {
+    for (let cur = head; cur; cur = cur.hashNext) {
+      if (cur.hashNext === arch) {
+        cur.hashNext = arch.hashNext;
+        break;
+      }
+    }
+  }
+  arch.hashNext = undefined;
 }
 
 // Fast numeric hash for sorted component IDs — avoids string allocation on the hot path.

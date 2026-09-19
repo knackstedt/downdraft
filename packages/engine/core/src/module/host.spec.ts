@@ -290,6 +290,35 @@ describe("ModuleHost activation", () => {
     expect(systemAdded).toBe(true);
   });
 
+  it("unloadModule removes the module's systems from the schedule", () => {
+    const world = makeWorld();
+    const host = new ModuleHost(world);
+    let ticked = false;
+    const plugin: Module = {
+      name: "test-unload-sys",
+      version: "1.0.0",
+      register(ctx) {
+        ctx.registerSystem("update" as never, () => { ticked = true; });
+        ctx.registerSystemObject({
+          name: "test-unload-sys-obj",
+          stage: "update" as never,
+          fn: () => { ticked = true; },
+          queries: [],
+        });
+      },
+    };
+    host.registerModule(plugin);
+    host.unloadModule("test-unload-sys");
+    // Neither system should remain scheduled.
+    const names = world.schedule.getAllSystems().map((s) => s.name);
+    expect(names).not.toContain("test-unload-sys-obj");
+    expect(names.filter((n) => n.startsWith("module:test-unload-sys:")).length).toBe(0);
+    // Sanity: running the schedule must not invoke the removed systems.
+    ticked = false;
+    world.schedule.run(world, 0.016, 1);
+    expect(ticked).toBe(false);
+  });
+
   it("provide/inject stores and retrieves typed values", () => {
     const world = makeWorld();
     const host = new ModuleHost(world);

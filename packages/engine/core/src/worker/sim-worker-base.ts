@@ -39,12 +39,55 @@ import "../sab/sab-polyfill";
 import { usingRealSAB } from "../sab/sab-polyfill";
 import type { BufferSyncConfig, BufferSyncWorker } from "./buffer-sync";
 
+import { mulberry32, type RngFn } from "../math/rng";
 import { expose, exposeEvents, type WorkerApi } from "./rpc";
 
 export interface SimWorkerStats {
   fps: number;
   tick: number;
   frame: number;
+}
+
+/**
+ * Detect deterministic/test mode inside a worker. `DOWNDRAFT_DETERMINISTIC`
+ * reaches workers via `globalThis.__DOWNDRAFT_DETERMINISTIC__` (set by the
+ * host before worker creation) or `process.env` (Bun/Node workers).
+ */
+function detectDeterministic(): boolean {
+  const g = globalThis as Record<string, unknown>;
+  if (g.__DOWNDRAFT_DETERMINISTIC__) return true;
+  try {
+    return (g.process as { env?: Record<string, string> } | undefined)?.env
+      ?.DOWNDRAFT_DETERMINISTIC === "1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Replace `Math.random` with a seeded-RNG-backed function that warns once per
+ * callsite. In deterministic mode this makes stray `Math.random()` calls in
+ * sim code deterministic (they draw from the same stream as `ctx.rng`) while
+ * surfacing migration targets. Only installed when deterministic mode is on.
+ */
+function installDeterministicMathGuard(rng: RngFn): void {
+  const warned = new Set<string>();
+  const original = Math.random;
+  Math.random = () => {
+    const stack = new Error().stack ?? "";
+    if (!warned.has(stack)) {
+      warned.add(stack);
+      const line = stack.split("\n")[1]?.trim() ?? "unknown callsite";
+      console.warn(
+        `[createSimWorker] Math.random() called in deterministic sim — use ctx.rng (from ${line})`,
+      );
+    }
+    return rng();
+  };
+  // Restore path for tests / unusual host reuse.
+  (Math.random as { __downdraftRestore?: () => void }).__downdraftRestore = () => {
+    Math.random = original;
+  };
 }
 
 export interface SimTickContext {
@@ -54,6 +97,12 @@ export interface SimTickContext {
   frameCount: number;
   /** Current FPS (updated once per second). */
   fps: number;
+  /**
+   * Seeded RNG (mulberry32) for deterministic randomness in sim code.
+   * Seeded by `CreateSimWorkerOptions.seed` or `control.setSeed()` — prefer
+   * this over `Math.random`, which is not deterministic across runs.
+   */
+  rng: RngFn;
 }
 
 export interface SimAfterTicksContext {
@@ -81,6 +130,13 @@ export interface SimWorkerControl {
   withLoopStopped<T>(fn: () => Promise<T> | T): Promise<T>;
   /** Get the events emitter for sending events to the host. */
   events: { emit: (kind: string, data?: any) => void };
+  /**
+   * Reseed the deterministic RNG exposed as `ctx.rng`. Call from `onInit`
+   * once the game's seed is known (e.g. `control.setSeed(simConfig.seed)`).
+   * If `Math.random` was trapped (deterministic mode), the trap draws from
+   * the reseeded stream too.
+   */
+  setSeed(seed: number): void;
 }
 
 export interface CreateSimWorkerOptions {
@@ -95,6 +151,22 @@ export interface CreateSimWorkerOptions {
    * before the sim starts (e.g. mining-rpg). Default: false.
    */
   startPaused?: boolean;
+
+  /**
+   * Seed for the deterministic RNG exposed as `ctx.rng` in `onTick`.
+   * If the real seed only becomes known inside `onInit` (e.g. from
+   * simConfig args), call `control.setSeed(seed)` there instead.
+   */
+  seed?: number;
+
+  /**
+   * Deterministic/test mode. When true, `Math.random` is replaced by a
+   * seeded-RNG-backed shim that warns once per callsite — stray entropy in
+   * sim code becomes deterministic AND visible. Default: auto-detected via
+   * `__DOWNDRAFT_DETERMINISTIC__` / `process.env.DOWNDRAFT_DETERMINISTIC`.
+   * Set explicitly to force on/off.
+   */
+  deterministic?: boolean;
 
   /**
    * Called once at init time. Receives the SharedArrayBuffer and any
@@ -238,8 +310,18 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
 
   const events = exposeEvents();
 
+  // Deterministic RNG — reseedable via control.setSeed(); the stable `rng`
+  // closure is what ctx.rng and the Math.random shim draw from.
+  let rngImpl = mulberry32(opts.seed ?? 0x9e3779b9);
+  const rng: RngFn = () => rngImpl();
+  const deterministic = opts.deterministic ?? detectDeterministic();
+  if (deterministic) {
+    installDeterministicMathGuard(rng);
+  }
+
   const control: SimWorkerControl = {
     pause: () => { paused = true; },
+    setSeed: (seed: number) => { rngImpl = mulberry32(seed); },
     resume: () => {
       paused = false;
       lastTick = performance.now();
@@ -289,7 +371,7 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
             tickCount++;
             stepInProgress = true;
             const tickStart = performance.now();
-            await opts.onTick(opts.fixedDt, { tickCount, frameCount, fps });
+            await opts.onTick(opts.fixedDt, { tickCount, frameCount, fps, rng });
             const tickDurationUs = (performance.now() - tickStart) * 1000;
             // Record task latency for the flame graph + histogram
             recordTaskLatency("js", tickDurationUs, "tick");

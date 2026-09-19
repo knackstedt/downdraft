@@ -344,7 +344,11 @@ export class FrameGraph {
     this.surfaceWidth = surfaceWidth;
     this.surfaceHeight = surfaceHeight;
 
-    this.destroyPhysicalTextures();
+    // Pool the previous compile's physical textures — resources whose specs
+    // are unchanged get the same GPUTexture back instead of a destroy+alloc
+    // cycle (pass-list churn would otherwise thrash VRAM on every recompile).
+    const pool = this.physicalTextures;
+    this.physicalTextures = [];
     this.aliasing.clear();
 
     // Resolve sizes for all transient resources.
@@ -361,8 +365,12 @@ export class FrameGraph {
     // Compute resource lifetimes over the sorted execution order.
     this.computeLifetimes();
 
-    // Allocate transient textures with lifetime-based aliasing.
-    this.allocatePhysicalTextures(device);
+    // Allocate transient textures with lifetime-based aliasing, reusing
+    // pooled textures from the previous compile where specs match.
+    this.allocatePhysicalTextures(device, pool);
+
+    // Pooled textures that no resource claimed are now garbage.
+    for (const pt of pool) pt.texture.destroy();
 
     // Validate
     this.validate();
@@ -375,9 +383,10 @@ export class FrameGraph {
     if (!this.compiled) return undefined;
 
     // Run passes sequentially on the shared encoder.
-    for (const entry of this.executionOrder) {
+    for (let i = 0; i < this.executionOrder.length; i++) {
+      const entry = this.executionOrder[i];
       if (entry.pass.passType === PassType.Render) {
-        this.executeRenderPass(ctx, entry);
+        this.executeRenderPass(ctx, entry, i);
       } else {
         this.executeCustomPass(ctx, entry);
       }
@@ -386,7 +395,11 @@ export class FrameGraph {
     return undefined; // caller submits the shared encoder
   }
 
-  private executeRenderPass(ctx: RenderContext, entry: GraphPassEntry): void {
+  /** Reusable TrackedRenderPass wrappers — one per execution slot, avoiding
+   *  an allocation per pass per frame. */
+  private trackedPassPool: TrackedRenderPass[] = [];
+
+  private executeRenderPass(ctx: RenderContext, entry: GraphPassEntry, slot: number): void {
     const { pass, builder } = entry;
 
     const colorAttachments: GPURenderPassColorAttachment[] = builder.colorAttachments.map(a => ({
@@ -413,11 +426,19 @@ export class FrameGraph {
       depthStencilAttachment: depthAttachment,
     });
 
-    const tracked = new TrackedRenderPass(renderPass);
-    const passCtx: RenderContext = { ...ctx, pass: tracked };
+    let tracked = this.trackedPassPool[slot];
+    if (!tracked) {
+      tracked = this.trackedPassPool[slot] = new TrackedRenderPass(renderPass);
+    } else {
+      tracked.resetForReuse(renderPass);
+    }
+    // Mutate the shared ctx rather than `{...ctx}` per pass — a fresh spread
+    // per pass per frame was measurable GC churn (~N objects/frame).
+    ctx.pass = tracked;
 
-    pass.execute(passCtx);
+    pass.execute(ctx);
     tracked.end();
+    ctx.pass = null;
     // Caller (GameRenderer) aggregates draw call stats from the tracked pass.
     (ctx as any).lastPassStats = {
       name: pass.name,
@@ -431,8 +452,8 @@ export class FrameGraph {
 
   private executeCustomPass(ctx: RenderContext, entry: GraphPassEntry): void {
     const { pass } = entry;
-    const passCtx: RenderContext = { ...ctx, pass: null };
-    pass.execute(passCtx);
+    ctx.pass = null;
+    pass.execute(ctx);
   }
 
   getTextureView(handle: TextureHandle): GPUTextureView {
@@ -494,7 +515,7 @@ export class FrameGraph {
     }
   }
 
-  private allocatePhysicalTextures(device: GPUDevice): void {
+  private allocatePhysicalTextures(device: GPUDevice, pool: PhysicalTexture[]): void {
     this.physicalTextures = [];
 
     const transients: GraphResource[] = [];
@@ -507,6 +528,13 @@ export class FrameGraph {
     // Sort by first-use to allocate alias-compatible resources into physical textures.
     transients.sort((a, b) => (a.lifetime!.first - b.lifetime!.first));
 
+    const specMatches = (pt: PhysicalTexture, w: number, h: number, desc: TextureDesc, sampleCount: number) =>
+      pt.width === w &&
+      pt.height === h &&
+      pt.format === desc.format &&
+      (pt.usage & desc.usage) === desc.usage &&
+      pt.sampleCount === sampleCount;
+
     for (const resource of transients) {
       const w = resource.width || this.surfaceWidth;
       const h = resource.height || this.surfaceHeight;
@@ -518,23 +546,25 @@ export class FrameGraph {
       // resource's required usage (i.e. it must support all flags the resource needs).
       let reused: PhysicalTexture | null = null;
       for (const pt of this.physicalTextures) {
-        const usageCompatible = (pt.usage & desc.usage) === desc.usage;
-        const compatible =
-          pt.width === w &&
-          pt.height === h &&
-          pt.format === desc.format &&
-          usageCompatible &&
-          pt.sampleCount === sampleCount &&
-          pt.lastUsed < resource.lifetime!.first;
-        if (compatible) {
+        if (specMatches(pt, w, h, desc, sampleCount) && pt.lastUsed < resource.lifetime!.first) {
           reused = pt;
           break;
+        }
+      }
+      // No intra-frame alias — try a pooled texture from the previous compile.
+      if (!reused) {
+        const pi = pool.findIndex((pt) => specMatches(pt, w, h, desc, sampleCount));
+        if (pi >= 0) {
+          reused = pool.splice(pi, 1)[0];
+          this.physicalTextures.push(reused);
         }
       }
 
       if (reused) {
         resource.physicalTexture = reused.texture;
         resource.texture = reused.texture;
+        // The texture may differ from the previous compile's — drop the stale view.
+        resource.cachedView = undefined;
         this.aliasing.set(resource.name, reused.name);
         reused.lastUsed = resource.lifetime!.last;
       } else {
@@ -557,6 +587,7 @@ export class FrameGraph {
         });
         resource.physicalTexture = texture;
         resource.texture = texture;
+        resource.cachedView = undefined;
         this.aliasing.set(resource.name, name);
       }
     }
@@ -570,49 +601,92 @@ export class FrameGraph {
   }
 
   private topologicalSort(): GraphPassEntry[] {
-    // First pass: collect all producers for each resource.
-    const producers = new Map<number, number>();
-    for (let i = 0; i < this.passes.length; i++) {
-      for (const writeId of this.passes[i].builder.writes) {
-        // Last writer wins for ordering purposes.
-        producers.set(writeId, i);
+    // Build dependency edges per resource, tracking ALL accesses — not just
+    // "last writer wins". For each read at registration index i of resource R:
+    //   - RAW: depends on the last writer ≤ i (its data source); if no writer
+    //     precedes i, it binds to the first writer > i — the pass that will
+    //     produce the data it reads.
+    //   - WAR: the reader must run before the next writer after its bound
+    //     producer, so that writer doesn't clobber the data first.
+    //   - WAW: consecutive writers keep registration order.
+    // Collapsing writers to the last one (the old approach) could order a
+    // sandwiched reader after the later writer (wrong data) or synthesize a
+    // false dependency cycle that silently fell back to registration order.
+    const n = this.passes.length;
+    const adj: Set<number>[] = Array.from({ length: n }, () => new Set());
+    const addEdge = (from: number, to: number) => {
+      if (from !== to) adj[from].add(to);
+    };
+
+    const writers = new Map<number, number[]>(); // resourceId -> writer indices (ascending)
+    const readsOf = new Map<number, number[]>(); // resourceId -> reader indices (ascending)
+    for (let i = 0; i < n; i++) {
+      const { reads, writes } = this.passes[i].builder;
+      for (const readId of reads) {
+        let list = readsOf.get(readId);
+        if (!list) readsOf.set(readId, (list = []));
+        list.push(i);
+      }
+      for (const writeId of writes) {
+        let list = writers.get(writeId);
+        if (!list) writers.set(writeId, (list = []));
+        list.push(i);
       }
     }
 
-    // Second pass: build adjacency from reads -> producer.
-    const adj: number[][] = Array.from({ length: this.passes.length }, () => []);
-    const inDegree = new Array(this.passes.length).fill(0);
+    // WAW edges between consecutive writers.
+    for (const ws of writers.values()) {
+      for (let k = 1; k < ws.length; k++) addEdge(ws[k - 1], ws[k]);
+    }
 
-    for (let i = 0; i < this.passes.length; i++) {
-      const { builder } = this.passes[i];
-      for (const readId of builder.reads) {
-        const producerIdx = producers.get(readId);
-        if (producerIdx !== undefined && producerIdx !== i) {
-          adj[producerIdx].push(i);
-          inDegree[i]++;
-        }
+    for (const [resId, readers] of readsOf) {
+      const ws = writers.get(resId);
+      if (!ws || ws.length === 0) continue; // no producer — validate() reports it
+      for (const i of readers) {
+        // Bound producer: last writer at-or-before i, else first writer after i.
+        let bound = -1;
+        for (const wIdx of ws) { if (wIdx <= i) bound = wIdx; else break; }
+        const boundPos = bound === -1 ? 0 : ws.indexOf(bound);
+        const producer = bound === -1 ? ws[0] : bound;
+        addEdge(producer, i); // RAW
+        // WAR: next writer after the bound producer must wait for this reader.
+        const next = ws[boundPos + 1];
+        if (next !== undefined) addEdge(i, next);
       }
     }
 
-    // Kahn's algorithm, preserving registration/slot order for ties.
+    const inDegree = new Array<number>(n).fill(0);
+    for (let i = 0; i < n; i++) {
+      for (const to of adj[i]) inDegree[to]++;
+    }
+
+    // Kahn's algorithm, preserving registration order for ties. The queue is
+    // kept sorted by binary insertion instead of re-sorting every iteration
+    // (the old sort+shift loop was O(n²·log n) per compile).
     const queue: number[] = [];
-    for (let i = 0; i < this.passes.length; i++) {
-      if (inDegree[i] === 0) queue.push(i);
+    const pushSorted = (v: number) => {
+      let lo = 0, hi = queue.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (queue[mid] < v) lo = mid + 1; else hi = mid;
+      }
+      queue.splice(lo, 0, v);
+    };
+    for (let i = 0; i < n; i++) {
+      if (inDegree[i] === 0) pushSorted(i);
     }
 
     const result: number[] = [];
     while (queue.length > 0) {
-      queue.sort((a, b) => a - b);
       const idx = queue.shift()!;
       result.push(idx);
       for (const neighbor of adj[idx]) {
-        inDegree[neighbor]--;
-        if (inDegree[neighbor] === 0) queue.push(neighbor);
+        if (--inDegree[neighbor] === 0) pushSorted(neighbor);
       }
     }
 
-    if (result.length !== this.passes.length) {
-      log.warn("FrameGraph", "Cycle detected in render graph, falling back to registration order");
+    if (result.length !== n) {
+      log.error("FrameGraph", "Cycle detected in render graph, falling back to registration order");
       return this.passes;
     }
 

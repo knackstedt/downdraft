@@ -161,6 +161,17 @@ export class GPUResourceTracker {
   private bufferCount = 0;
   private dirty = false;
   private cachedSortedResources: TrackedResource[] = [];
+  /**
+   * Capture `new Error().stack` callsites for unlabeled resources. Off by
+   * default — stack capture + regex parsing per allocation is expensive for
+   * transient per-frame resources and distorts the profiling it's meant to
+   * inform. Enable via constructor for leak-hunting sessions.
+   */
+  private captureCallsites: boolean;
+
+  constructor(opts: { captureCallsites?: boolean } = {}) {
+    this.captureCallsites = opts.captureCallsites ?? false;
+  }
 
   wrapDevice(device: GPUDevice): GPUDevice {
     const tracker = this;
@@ -172,7 +183,7 @@ export class GPUResourceTracker {
       const id = nextId();
       const hasLabel = !!descriptor.label;
       const label = descriptor.label || `texture_${id}`;
-      const callsite = hasLabel ? undefined : getCallsite();
+      const callsite = !hasLabel && tracker.captureCallsites ? getCallsite() : undefined;
       const size = descriptor.size;
       const width = Math.max(0, typeof size === "object" && "width" in size ? (size.width ?? 1) : (typeof size === "number" ? size : 1));
       const height = Math.max(0, typeof size === "object" && "height" in size ? (size.height ?? 1) : 1);
@@ -212,7 +223,7 @@ export class GPUResourceTracker {
       const id = nextId();
       const hasLabel = !!descriptor.label;
       const label = descriptor.label || `buffer_${id}`;
-      const callsite = hasLabel ? undefined : getCallsite();
+      const callsite = !hasLabel && tracker.captureCallsites ? getCallsite() : undefined;
       const bytes = descriptor.size;
 
       tracker.resources.set(id, {

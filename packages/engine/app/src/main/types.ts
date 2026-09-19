@@ -43,6 +43,16 @@ export interface DowndraftMcpConfig {
    * discovery (e.g. for the e2e test harness, which sets `MCP_PORT`).
    */
   port?: number;
+  /**
+   * Require bearer-token auth on all MCP requests (except /mcp/health).
+   * The token is generated per process and written to
+   * `~/.downdraft/port/<pid>.token` (mode 0600); clients send it via
+   * `Authorization: Bearer <token>` or `X-Downdraft-Token`. Default off —
+   * the transport already rejects non-loopback Host/Origin headers, and
+   * external bridges that only read the port file don't yet send tokens.
+   * `MCP_AUTH=1` env var also enables it.
+   */
+  requireAuth?: boolean;
 }
 
 export interface DevtoolsConfig {

@@ -27,6 +27,7 @@ const McpHttpTransportMock = class {
   async start() {}
   async stop() {}
   getPort() { return this._port; }
+  getAuthToken() { return "test-token"; }
 };
 
 // --- Mock @downdraft/engine/util/logger ---
