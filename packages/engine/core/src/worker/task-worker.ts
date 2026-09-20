@@ -9,27 +9,24 @@ import { getWorkerHost } from "./rpc";
 // Function registry — workers register functions by string key
 const registry = new Map<string, (...args: unknown[]) => unknown>();
 
-export function registerTask(name: string, fn: (...args: unknown[]) => unknown): void {
-  registry.set(name, fn);
-}
+// Message handler for job dispatch — installed lazily on the first
+// registerTask() call so that workers using other dispatch mechanisms (e.g.
+// createTaskWorker in task-pool.ts) don't get a second __job listener that
+// would post spurious "Unknown function" results.
+let dispatchInstalled = false;
+let unsubscribeDispatch: (() => void) | null = null;
 
-export function unregisterTask(name: string): void {
-  registry.delete(name);
-}
+function ensureDispatchInstalled(): void {
+  if (dispatchInstalled) return;
+  dispatchInstalled = true;
+  const isWorkerContext =
+    (typeof self !== "undefined" && typeof (self as any).postMessage === "function") ||
+    (typeof (globalThis as any).process !== "undefined" && (globalThis as any).process.env?.NODE_CHANNEL_FD !== undefined);
+  if (!isWorkerContext) return;
 
-export function hasTask(name: string): boolean {
-  return registry.has(name);
-}
-
-// Message handler for job dispatch — only set up in worker contexts
-const isWorkerContext =
-  (typeof self !== "undefined" && typeof (self as any).postMessage === "function") ||
-  (typeof (globalThis as any).process !== "undefined" && (globalThis as any).process.env?.NODE_CHANNEL_FD !== undefined);
-
-if (isWorkerContext) {
   try {
     const host = getWorkerHost();
-    host.onHostMessage((raw: any) => {
+    const unsub = host.onHostMessage((raw: any) => {
       const msg = raw?.data ?? raw;
       if (!msg || msg.__job !== true) return;
 
@@ -61,7 +58,26 @@ if (isWorkerContext) {
         host.postToHost({ __jobResult: true, id, error: String(e) });
       }
     });
+    unsubscribeDispatch = typeof unsub === "function" ? unsub : null;
   } catch {
     // Not in a worker context — module loaded in main process, skip setup
   }
+}
+
+export function registerTask(name: string, fn: (...args: unknown[]) => unknown): void {
+  registry.set(name, fn);
+  ensureDispatchInstalled();
+}
+
+export function unregisterTask(name: string): void {
+  registry.delete(name);
+  if (registry.size === 0 && dispatchInstalled) {
+    unsubscribeDispatch?.();
+    unsubscribeDispatch = null;
+    dispatchInstalled = false;
+  }
+}
+
+export function hasTask(name: string): boolean {
+  return registry.has(name);
 }
