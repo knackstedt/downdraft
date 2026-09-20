@@ -509,7 +509,14 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
           // Only accumulate sim time when actually stepping. While paused,
           // lastTick still advances (above) so we don't get a huge elapsed
           // spike on resume, but we must NOT let tickAccumulator build up.
-          tickAccumulator += (elapsed / tickMs) * speedMultiplier;
+          //
+          // Credit only WHOLE tick periods: the fractional remainder stays
+          // owed in lastTick's phase (the snap above) and is re-measured as
+          // part of the next elapsed. Crediting elapsed/tickMs fractionally
+          // here AND keeping the remainder in lastTick counts it twice —
+          // every late-timer remainder leaks ~its size in extra sim time,
+          // so the sim ran measurably fast under timer jitter.
+          tickAccumulator += Math.floor(elapsed / tickMs) * speedMultiplier;
 
           let steps = 0;
           const maxSteps = stepOnce ? 1 : maxStepsPerFrame;
@@ -593,12 +600,22 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
       }
 
       // Sleep until the next tick is due instead of spinning with setTimeout(0).
+      // The deadline is phase-aligned: lastTick holds the fractional
+      // `elapsed % tickMs` remainder from the snap above, so the next tick is
+      // due at lastTick + tickMs — NOT a fresh tickMs from now. Sleeping a
+      // whole tickMs per iteration discards that remainder: whenever the
+      // remainder + timer jitter was smaller than this iteration's work, the
+      // loop woke before the deadline, did nothing, and slept another full
+      // tickMs — producing alternating normal/doubled tick intervals.
+      // If the accumulator still holds owed ticks (step cap was hit), they're
+      // spent on the next due iteration — the backlog is clamped to
+      // maxStepsPerFrame so a deadline wait is never more than ~tickMs.
+      const remaining = lastTick + tickMs - performance.now();
       // Compensate for setTimeout's integer truncation: accumulate the sub-ms
       // fractional part and add 1ms when it exceeds 1ms, so the average delay
       // matches the desired interval exactly. Without this, a fractional tickMs
       // (e.g. 33.333 for 30Hz) loses ~0.333ms per iteration to truncation,
       // causing a ~3.3s periodic oscillation in the effective tick rate.
-      const remaining = tickMs - (performance.now() - now);
       const intRemaining = Math.max(0, Math.floor(remaining));
       timerRemainder += remaining - intRemaining;
       let delay = intRemaining;

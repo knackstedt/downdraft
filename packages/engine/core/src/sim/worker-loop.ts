@@ -210,6 +210,10 @@ export class SimWorkerLoop {
       }
     }
 
-    setTimeout(this.loop, Math.max(1, this.tickMs - (performance.now() - now)));
+    // Sleep until the next tick is due — phase-aligned to lastTick (which
+    // keeps the `elapsed % tickMs` remainder after the snap above), not a
+    // fresh tickMs from now. Otherwise a timer that fires late loses its
+    // phase remainder every iteration and tick intervals oscillate.
+    setTimeout(this.loop, Math.max(1, this.lastTick + this.tickMs - performance.now()));
   };
 }
