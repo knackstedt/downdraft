@@ -115,6 +115,9 @@ export class FileSaveStore implements ISaveStore {
       const { init } = await import("@bokuweb/zstd-wasm");
       await init();
     })();
+    // Don't cache a rejection forever — a transient failure (missing wasm
+    // asset, fs hiccup) would otherwise permanently break all saves.
+    this.zstdReady.catch(() => { this.zstdReady = null; });
     return this.zstdReady;
   }
 

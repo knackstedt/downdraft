@@ -2,8 +2,8 @@
 // Save/load IPC handlers
 // ============================================================================
 
-import { createLogger } from "@downdraft/engine/util/logger";
 import { FileSaveStore } from "@downdraft/engine/libraries/persistence";
+import { createLogger } from "@downdraft/engine/util/logger";
 import { app, ipcMain } from "electron";
 import { join } from "path";
 import { IPC } from "../../shared/messages";
@@ -42,7 +42,11 @@ export function registerSaveHandlers(config: DowndraftSavesConfig): void {
           playerCount: 0,
         },
       }, opts);
-      log.info("main", `Saved game state to slot '${slotName}' (${result.bytes} bytes)`);
+      if (result.success) {
+        log.info("main", `Saved game state to slot '${slotName}' (${result.bytes} bytes)`);
+      } else {
+        log.error("main", `Save to slot '${slotName}' failed (see FileSaveStore error above)`);
+      }
       return result.success;
     } catch (err) {
       log.error("main", `Save failed: ${err}`);

@@ -14,6 +14,10 @@ struct Uniforms {
   // Per-draw highlight mode: 0 = normal shading, 1 = ghost hologram (cyan,
   // used for the physgun's no-collision grab), 2 = hover outline (drawn by a
   // separate inverted-hull pipeline — see vs_outline / fs_outline).
+  // Values >= 3 encode per-prop material overrides (spawn settings):
+  //   combined = u32(highlight) - 3
+  //   shaderMode = combined & 3   (0=Standard 1=Toon 2=Hologram 3=Outline)
+  //   texMode    = combined >> 2  (0=Default 1=Wireframe 2=Checker)
   highlight: f32,
   // Inverted-hull outline parameters (used by vs_outline / fs_outline only).
   outlineWidth: f32,
@@ -222,9 +226,23 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
   // → unpacked to (0,0,1) → no perturbation.
   let N = perturbNormal(geometricN, vec4<f32>(input.worldPos, 1.0), input.uv, m.normalTex);
 
+  // Decode per-prop material overrides (highlight >= 3).
+  var shaderMode = 0u;
+  var texMode = 0u;
+  if (uniforms.highlight >= 3.0) {
+    let combined = u32(uniforms.highlight) - 3u;
+    shaderMode = combined & 3u;
+    texMode = combined >> 2u;
+  }
+
   // Colored directional sun light — matches the procedural cube/sphere shader.
   let sunDir = normalize(frameLighting.sunDir);
-  let ndotl = max(dot(N, sunDir), 0.0);
+  var ndotl = max(dot(N, sunDir), 0.0);
+  // Toon shader override: quantize the sun term into discrete bands.
+  if (shaderMode == 1u) {
+    ndotl = floor(ndotl * 3.0 + 0.5) / 3.0;
+    ndotl = max(ndotl, 0.15);
+  }
   let sunDiffuse = ndotl * frameLighting.sunColor;
 
   // Hemisphere ambient: blend sky/ground based on normal.y (same as cube shader).
@@ -241,7 +259,24 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
   // All inputs are sRGB: texture (rgba8unorm), vertex color (white), and
   // baseColor (parser converts FBX linear DiffuseColor to sRGB). The swapchain
   // is non-sRGB (bgra8unorm), so output sRGB directly.
-  let baseColor = texColor.rgb * input.color * m.baseColor.rgb;
+  var baseColor = texColor.rgb * input.color * m.baseColor.rgb;
+
+  // ── Texture override modes ──
+  // Wireframe: darken albedo, UV-grid lines overlaid after lighting.
+  // Checker: two-tone checkerboard over the UVs.
+  var texLine = 0.0;
+  if (texMode == 1u) {
+    let g = fract(input.uv * 6.0);
+    let lx = min(g.x, 1.0 - g.x);
+    let ly = min(g.y, 1.0 - g.y);
+    texLine = 1.0 - smoothstep(0.0, 0.08, min(lx, ly));
+    baseColor = baseColor * 0.15;
+  } else if (texMode == 2u) {
+    let cell = floor(input.uv * 8.0);
+    let check = (cell.x + cell.y) - floor((cell.x + cell.y) * 0.5) * 2.0;
+    baseColor = mix(baseColor * 0.35, baseColor * 1.4 + vec3<f32>(0.08), check);
+  }
+
   var litColor = baseColor * (ambient + sunDiffuse);
 
   // Point lights (up to 8). Each light is 2 vec4s: (pos.xyz, radius) + (color.rgb, intensity).
@@ -262,10 +297,38 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     }
   }
 
+  // Wireframe overlay: paint the UV-grid lines in a bright tint.
+  if (texLine > 0.0) {
+    litColor = mix(litColor, vec3<f32>(0.55, 0.95, 1.0), texLine * 0.9);
+  }
+
   // Distance fog — match the procedural cube/sphere shader.
   let dist = length(uniforms.cameraPos - input.worldPos);
   let fog = clamp(1.0 - dist / 400.0, 0.0, 1.0);
-  let outColor = mix(frameLighting.skyAmbient, litColor, fog);
+  var outColor = mix(frameLighting.skyAmbient, litColor, fog);
+
+  // Outline shader override (shaderMode == 3): darken the body and add a
+  // bright fresnel rim so the prop reads with a bold cel edge.
+  if (shaderMode == 3u) {
+    let viewDir = normalize(uniforms.cameraPos - input.worldPos);
+    let fresnel = pow(1.0 - max(dot(N, viewDir), 0.0), 3.0);
+    outColor = outColor * 0.7 + vec3<f32>(1.0, 0.95, 0.6) * smoothstep(0.35, 0.9, fresnel);
+  }
+
+  // Hologram shader override (shaderMode == 2): fresnel rim + scanline pulse
+  // tinted toward the prop's own base color. Opaque output (the pipeline has
+  // no blend state) but reads as a hologram.
+  if (shaderMode == 2u) {
+    let viewDir = normalize(uniforms.cameraPos - input.worldPos);
+    let fresnel = pow(1.0 - max(dot(N, viewDir), 0.0), 2.5);
+    let pulse = 0.65 + 0.35 * sin(uniforms.time * 5.0 + input.worldPos.y * 3.0);
+    let scan = 0.5 + 0.5 * sin((input.worldPos.y + uniforms.time * 2.0) * 20.0);
+    let holoBase = baseColor * vec3<f32>(0.3, 0.9, 1.1) + vec3<f32>(0.05, 0.2, 0.25);
+    let holoRim = vec3<f32>(0.7, 1.0, 1.0);
+    var holoCol = mix(holoBase, holoRim, fresnel) * pulse;
+    holoCol = holoCol + holoRim * scan * 0.15 * fresnel;
+    return vec4<f32>(holoCol, 1.0);
+  }
 
   // Ghost hologram override (highlight == 1): render the prop as a
   // translucent-looking cyan shell with a fresnel rim and a vertical

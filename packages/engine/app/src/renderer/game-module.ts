@@ -560,6 +560,11 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
     ctx.pluginHost = pluginHost;
   }
 
+  // Event kinds emitted by the engine itself (sim-worker-base lifecycle)
+  // that games are not required to handle — suppress the dev warning for
+  // these so autosave doesn't spam the console when no handler is wired.
+  const ENGINE_EMITTED_EVENT_KINDS = new Set(["ready", "saved", "loaded", "error"]);
+
   // 4. Wire event routing from the declarative events map (sim-worker only).
   //    Supports both GameSimWorker.onEvent(cb) and SimWorkerHost's
   //    subscribeEvents(cb) (renderer-owned worker hosts).
@@ -583,7 +588,7 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
         } catch (err) {
           console.error(`[startGame] Event handler error for "${msg.kind}":`, err);
         }
-      } else if (isDev && msg.kind !== "ready" && msg.kind !== "error") {
+      } else if (isDev && !ENGINE_EMITTED_EVENT_KINDS.has(msg.kind)) {
         console.warn(`[startGame] Unhandled sim event kind: "${msg.kind}"`);
       }
     });

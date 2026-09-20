@@ -16,8 +16,9 @@ import { hotReloadPlugin } from "@downdraft/engine/vite/hot-reload-plugin";
 import { wgslHmrPlugin } from "@downdraft/engine/vite/wgsl-hmr-plugin";
 import react from "@vitejs/plugin-react";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "path";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { basename, dirname, resolve } from "path";
 import { downdraftAssetBakePlugin, type AssetBakePluginOptions } from "./asset-bake-plugin.ts";
 import { downdraftHtmlPlugin, type DowndraftHtmlOptions, type LayerSpec } from "./downdraft-html-plugin.ts";
 import { createEngineResolver } from "./engine-resolve.ts";
@@ -339,6 +340,43 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
             const out = Array.isArray(output) ? output[0] : output;
             if (out) {
               out.format = "cjs";
+            }
+          },
+        },
+        // Copy runtime-loaded .wasm binaries next to the bundled chunks that
+        // read them via fs (e.g. @bokuweb/zstd-wasm's index.node.js does
+        // readFile(resolve(__dirname, "./zstd.wasm"))). Bundling the JS without
+        // the sibling wasm makes persistence compress/decompress throw ENOENT
+        // and every save silently writes 0 bytes.
+        {
+          name: "downdraft-copy-runtime-wasm",
+          closeBundle() {
+            const outDir = resolve(root, "dist/main");
+            if (!existsSync(outDir)) return;
+            const candidates: string[] = [];
+            try {
+              const req = createRequire(resolve(root, "package.json"));
+              // Resolves to dist/common/index.node.js; zstd.wasm sits beside it.
+              const zstdMain = req.resolve("@bokuweb/zstd-wasm");
+              candidates.push(resolve(dirname(zstdMain), "zstd.wasm"));
+            } catch { /* package not installed */ }
+            // Copy each found wasm into every dir under outDir that contains
+            // emitted .cjs chunks (index.cjs lives at root, chunks in chunks/).
+            const emitDirs = (dir: string): string[] => {
+              const out: string[] = [];
+              for (const entry of readdirSync(dir, { withFileTypes: true })) {
+                const p = resolve(dir, entry.name);
+                if (entry.isDirectory()) out.push(...emitDirs(p));
+                else if (entry.name.endsWith(".cjs")) out.push(dir);
+              }
+              return out;
+            };
+            for (const dir of new Set(emitDirs(outDir))) {
+              for (const wasm of candidates) {
+                if (!existsSync(wasm)) continue;
+                const dest = resolve(dir, basename(wasm));
+                if (!existsSync(dest)) copyFileSync(wasm, dest);
+              }
             }
           },
         },

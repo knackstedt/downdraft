@@ -259,6 +259,9 @@ export class IndexedDBSaveStore implements ISaveStore {
             const { init } = await import("@bokuweb/zstd-wasm");
             await init();
         })();
+        // Don't cache a rejection forever — a transient failure would
+        // otherwise permanently break all saves.
+        this.zstdReady.catch(() => { this.zstdReady = null; });
         return this.zstdReady;
     }
 

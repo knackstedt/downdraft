@@ -1027,7 +1027,10 @@ export class ModelRenderer {
     scale: [number, number, number],
     instanceIndex: number = 0,
     /** Per-draw highlight: 0 = normal shading, 1 = ghost hologram (cyan),
-     *  2 = hover outline (bright rim). Defaults to 0 (normal). */
+     *  2 = hover outline (bright rim). Values >= 3 encode per-prop material
+     *  overrides: `3 + shaderMode + texMode * 4` where shaderMode is
+     *  0=Standard 1=Toon 2=Hologram 3=Outline and texMode is
+     *  0=Default 1=Wireframe 2=Checker. Defaults to 0 (normal). */
     highlight: number = 0,
   ): void {
     if (!this.pipeline || !this.bindGroup || !this.uniformBuffer || !this.viewProjCache) return;
