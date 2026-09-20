@@ -14,6 +14,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { buildCwd } from "./paths.ts";
+import { npxBinary } from "./process-utils";
 
 const log = createLogger();
 

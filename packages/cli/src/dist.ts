@@ -23,7 +23,7 @@ import { getCommand } from "./usage";
 
 const log = createLogger();
 
-interface DistArgs {
+export interface DistArgs {
   game: string;
   target: "win" | "linux" | "mac" | "all";
   configPath: string | null;
@@ -186,13 +186,13 @@ export async function packageDesktop(
 
   const { build, Platform, Arch, createTargets } = await import("electron-builder");
 
-  const platformMap: Record<string, typeof Platform> = {
+  const platformMap: Record<string, InstanceType<typeof Platform>> = {
     win: Platform.WINDOWS,
     linux: Platform.LINUX,
     mac: Platform.MAC,
   };
 
-  let targets: Map<typeof Platform, Map<typeof Arch, string[]>>;
+  let targets: ReturnType<typeof createTargets>;
   if (opts.target === "all") {
     targets = createTargets([Platform.WINDOWS, Platform.LINUX, Platform.MAC]);
   } else {

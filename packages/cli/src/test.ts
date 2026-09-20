@@ -5,6 +5,7 @@ import { createServer } from "node:net";
 import { basename, resolve } from "node:path";
 import { parseArgs, print, renderHelp } from "./args";
 import { buildCwd, findMonorepoRoot, resolveGameDir } from "./paths";
+import { npxBinary } from "./process-utils";
 import { getCommand } from "./usage";
 
 const log = createLogger();

@@ -14,6 +14,8 @@ export interface BlobObject {
 export interface BlobListOptions {
   prefix?: string;
   maxKeys?: number;
+  /** Continuation token from a previous truncated list() result. */
+  cursor?: string;
 }
 
 export interface BlobListResult {

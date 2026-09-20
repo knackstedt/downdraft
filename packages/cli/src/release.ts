@@ -313,7 +313,7 @@ async function runPackage(
           await packageDesktop(distOpts, projectRoot, gameDir);
         } catch (err) {
           log.error("release:package:desktop", `Packaging failed for ${game} (${t}): ${(err as Error).message}`);
-          if ((err as Error).stack) log.error("release:package:desktop", (err as Error).stack);
+          if ((err as Error).stack) log.error("release:package:desktop", (err as Error).stack ?? "");
           return false;
         }
       }

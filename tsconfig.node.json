@@ -160,6 +160,7 @@
     "packages/engine/app/src/vite/**/*",
     "packages/engine/app/src/build/**/*",
     "packages/engine/app/src/index.ts",
+    "packages/cli/src/**/*.ts",
     "packages/engine/asset-bake/src/**/*.ts",
     "packages/engine/core/src/**/*.ts",
     "packages/engine/test/src/**/*.ts",

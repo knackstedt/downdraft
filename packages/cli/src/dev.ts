@@ -5,7 +5,7 @@ import { basename, dirname, resolve } from "node:path";
 import { parseArgs, print, renderHelp } from "./args";
 import { formatGamesList } from "./list-games";
 import { buildCwd, findMonorepoRoot } from "./paths";
-import { killProcessTree, killStaleInstance } from "./process-utils";
+import { killProcessTree, killStaleInstance, npxBinary } from "./process-utils";
 import { getCommand } from "./usage";
 
 const log = createLogger();
@@ -104,7 +104,7 @@ export async function dev(args: string[]): Promise<void> {
   const childArgs = ["electron-vite", "dev", "--config", gameConfig];
   if (noHmr) childArgs.push("--no-watch");
 
-  const env: Record<string, string> = { ...process.env };
+  const env = { ...process.env };
   if (port) env.MCP_PORT = String(port);
   if (devEntry) env.DOWNDRAFT_DEV_ENTRY = devEntry;
   if (noBake) env.DOWNDRAFT_BAKE = "0";
@@ -204,7 +204,7 @@ async function devNative(args: string[], parsed: any): Promise<void> {
   log.info("DownDraft", `  Entry: ${nativeEntry}`);
   if (verbose) log.info("DownDraft", "  Verbose: on");
 
-  const env: Record<string, string> = { ...process.env };
+  const env = { ...process.env };
 
   const child = spawn("bun", ["run", nativeEntry], {
     cwd: buildCwd(gameDir),

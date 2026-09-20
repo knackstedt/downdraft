@@ -23,9 +23,15 @@
 // The shell ships NO binary images — everything is generated at build time.
 
 import { createLogger } from "@downdraft/engine";
-import { Jimp } from "jimp";
+import { Jimp, type JimpInstance } from "jimp";
 import { existsSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
+
+// jimp's write() types its path as `${string}.${string}` — resolve() returns
+// plain string, so assert once here rather than at every call site.
+function writeImage(img: JimpInstance, path: string): Promise<void> {
+  return img.write(path as `${string}.${string}`);
+}
 
 const log = createLogger();
 
@@ -118,12 +124,12 @@ export async function generateIcons(
   iosAppDir: string,
 ): Promise<boolean> {
   const sourceIconPath = resolve(gameDir, "icon.png");
-  let source: Jimp;
+  let source: JimpInstance;
   let fromIcon = false;
 
   if (existsSync(sourceIconPath)) {
     log.info("mobile", `Generating app icons + splash screens from ${sourceIconPath}...`);
-    source = await Jimp.read(sourceIconPath);
+    source = (await Jimp.read(sourceIconPath)) as JimpInstance;
     fromIcon = true;
 
     if (source.width < 512 || source.height < 512) {
@@ -158,7 +164,7 @@ export async function generateIcons(
 // Android icon generation
 // ---------------------------------------------------------------------------
 
-async function generateAndroidIcons(source: Jimp, androidDir: string): Promise<void> {
+async function generateAndroidIcons(source: JimpInstance, androidDir: string): Promise<void> {
   const resDir = resolve(androidDir, "app/src/main/res");
 
   // Generate legacy launcher icons (ic_launcher.png + ic_launcher_round.png)
@@ -168,11 +174,11 @@ async function generateAndroidIcons(source: Jimp, androidDir: string): Promise<v
 
     const icon = source.clone();
     icon.resize({ w: spec.size, h: spec.size });
-    await icon.write(resolve(dir, "ic_launcher.png"));
+    await writeImage(icon, resolve(dir, "ic_launcher.png"));
 
     const iconRound = source.clone();
     iconRound.resize({ w: spec.size, h: spec.size });
-    await iconRound.write(resolve(dir, "ic_launcher_round.png"));
+    await writeImage(iconRound, resolve(dir, "ic_launcher_round.png"));
   }
 
   // Generate adaptive icon foregrounds (with safe-zone padding)
@@ -181,7 +187,7 @@ async function generateAndroidIcons(source: Jimp, androidDir: string): Promise<v
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 
     const foreground = createForegroundIcon(source, spec.size);
-    await foreground.write(resolve(dir, "ic_launcher_foreground.png"));
+    await writeImage(foreground, resolve(dir, "ic_launcher_foreground.png"));
   }
 
   log.info("mobile", "  → Android launcher icons generated (5 densities × 3 variants).");
@@ -192,7 +198,7 @@ async function generateAndroidIcons(source: Jimp, androidDir: string): Promise<v
  * transparent canvas with padding (safe zone). The foreground size is
 // 108dp per density; the safe zone is the inner ~66% (72/108).
  */
-function createForegroundIcon(source: Jimp, targetSize: number): Jimp {
+function createForegroundIcon(source: JimpInstance, targetSize: number): JimpInstance {
   const canvas = new Jimp({ width: targetSize, height: targetSize, color: 0x00000000 });
   const iconSize = Math.round(targetSize * 0.66);
   const offset = Math.round((targetSize - iconSize) / 2);
@@ -208,21 +214,21 @@ function createForegroundIcon(source: Jimp, targetSize: number): Jimp {
 // Android splash screen generation
 // ---------------------------------------------------------------------------
 
-async function generateAndroidSplash(source: Jimp, androidDir: string): Promise<void> {
+async function generateAndroidSplash(source: JimpInstance, androidDir: string): Promise<void> {
   const resDir = resolve(androidDir, "app/src/main/res");
 
   // Default (non-oriented) splash
   const drawableDir = resolve(resDir, "drawable");
   if (!existsSync(drawableDir)) mkdirSync(drawableDir, { recursive: true });
   const defaultSplash = createSplashImage(source, ANDROID_SPLASH_DEFAULT_SIZE, ANDROID_SPLASH_DEFAULT_SIZE);
-  await defaultSplash.write(resolve(drawableDir, "splash.png"));
+  await writeImage(defaultSplash, resolve(drawableDir, "splash.png"));
 
   // Portrait splashes
   for (const spec of ANDROID_SPLASH_PORTRAIT) {
     const dir = resolve(resDir, spec.dir);
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     const splash = createSplashImage(source, spec.width, spec.height);
-    await splash.write(resolve(dir, "splash.png"));
+    await writeImage(splash, resolve(dir, "splash.png"));
   }
 
   // Landscape splashes
@@ -230,7 +236,7 @@ async function generateAndroidSplash(source: Jimp, androidDir: string): Promise<
     const dir = resolve(resDir, spec.dir);
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     const splash = createSplashImage(source, spec.width, spec.height);
-    await splash.write(resolve(dir, "splash.png"));
+    await writeImage(splash, resolve(dir, "splash.png"));
   }
 
   log.info("mobile", "  → Android splash screens generated (11 variants: default + 5 portrait + 5 landscape).");
@@ -240,7 +246,7 @@ async function generateAndroidSplash(source: Jimp, androidDir: string): Promise<
  * Create a splash screen: a solid background color with the icon centered.
  * The icon is scaled to ~40% of the smaller dimension and composited in the center.
  */
-function createSplashImage(source: Jimp, width: number, height: number): Jimp {
+function createSplashImage(source: JimpInstance, width: number, height: number): JimpInstance {
   // Background: use the icon's average edge color, or the placeholder color
   const bg = new Jimp({ width, height, color: PLACEHOLDER_COLOR });
 
@@ -260,7 +266,7 @@ function createSplashImage(source: Jimp, width: number, height: number): Jimp {
 // iOS icon generation
 // ---------------------------------------------------------------------------
 
-async function generateIosIcon(source: Jimp, iosAppDir: string): Promise<void> {
+async function generateIosIcon(source: JimpInstance, iosAppDir: string): Promise<void> {
   const appIconDir = resolve(iosAppDir, "Assets.xcassets/AppIcon.appiconset");
   if (!existsSync(appIconDir)) mkdirSync(appIconDir, { recursive: true });
 
@@ -276,7 +282,7 @@ async function generateIosIcon(source: Jimp, iosAppDir: string): Promise<void> {
     icon.crop({ x: cropX, y: cropY, w: IOS_ICON_SIZE, h: IOS_ICON_SIZE });
   }
 
-  await icon.write(resolve(appIconDir, IOS_ICON_FILENAME));
+  await writeImage(icon, resolve(appIconDir, IOS_ICON_FILENAME));
   log.info("mobile", "  → iOS AppIcon generated (1024×1024, Xcode 14+ single-size format).");
 }
 
@@ -284,7 +290,7 @@ async function generateIosIcon(source: Jimp, iosAppDir: string): Promise<void> {
 // iOS splash screen generation
 // ---------------------------------------------------------------------------
 
-async function generateIosSplash(source: Jimp, iosAppDir: string): Promise<void> {
+async function generateIosSplash(source: JimpInstance, iosAppDir: string): Promise<void> {
   const splashDir = resolve(iosAppDir, "Assets.xcassets/Splash.imageset");
   if (!existsSync(splashDir)) mkdirSync(splashDir, { recursive: true });
 
@@ -293,7 +299,7 @@ async function generateIosSplash(source: Jimp, iosAppDir: string): Promise<void>
   const splash = createSplashImage(source, IOS_SPLASH_SIZE, IOS_SPLASH_SIZE);
 
   for (const filename of IOS_SPLASH_FILES) {
-    await splash.write(resolve(splashDir, filename));
+    await writeImage(splash, resolve(splashDir, filename));
   }
 
   log.info("mobile", "  → iOS splash screen generated (2732×2732 universal set).");
