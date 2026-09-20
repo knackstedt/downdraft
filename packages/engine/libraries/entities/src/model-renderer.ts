@@ -214,6 +214,9 @@ export class ModelRenderer {
     // Layout: sunDir(3)+ambientIntensity(1), sunColor(3)+pointLightCount(1),
     //         skyAmbient(3)+pad(1), groundAmbient(3)+pad(1), pointLights(16 vec4s)
     const defaultLightingData = new Float32Array(80);
+    // sunDir must be non-zero: fs_main does normalize(sunDir), and a zero
+    // vector produces NaN that turns the entire fragment output black.
+    defaultLightingData[0] = 0.4; defaultLightingData[1] = 0.8; defaultLightingData[2] = 0.3; // sunDir
     defaultLightingData[3] = 1.0; // ambientIntensity
     defaultLightingData[4] = 1.0; defaultLightingData[5] = 1.0; defaultLightingData[6] = 1.0; // sunColor
     defaultLightingData[8] = 1.0; defaultLightingData[9] = 1.0; defaultLightingData[10] = 1.0; // skyAmbient

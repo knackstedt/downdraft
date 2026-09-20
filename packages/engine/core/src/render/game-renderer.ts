@@ -651,6 +651,11 @@ export class GameRenderer implements CanvasResizeHandler {
     this.lastRafTime = rafNow;
 
     if (this.deviceLost) {
+      // Keep the loop alive while the device is lost — handleDeviceLost()
+      // re-creates the device and clears this flag; returning without
+      // re-scheduling would permanently stop rendering after a transient
+      // GPU crash.
+      this.currentRafId = this.rafSource ? this.rafSource(this.render) : requestAnimationFrame(this.render);
       return;
     }
 
