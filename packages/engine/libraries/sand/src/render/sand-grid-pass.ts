@@ -20,6 +20,26 @@
 import { createValidatedShaderModule, FULLSCREEN_VS } from "@downdraft/engine";
 import { buildMaterialProps, buildPalette, PALETTE_SIZE, SHADES_PER_MATERIAL } from "../palette";
 
+// Scatter-update compute shader: writes a packed (cellIndex, value) list into
+// the grid storage texture. Used when only a small fraction of cells changed —
+// uploading ~8B/cell beats re-uploading the whole grid through writeTexture.
+const SCATTER_CS = /* wgsl */ `
+@group(0) @binding(0) var gridTex: texture_storage_2d<r32uint, write>;
+@group(0) @binding(1) var<storage, read> cells: array<u32>;
+@group(0) @binding(2) var<uniform> uinfo: vec4<u32>; // x=count, y=gridW
+
+@compute @workgroup_size(64)
+fn cs_main(@builtin(global_invocation_id) id: vec3<u32>) {
+  if (id.x >= uinfo.x) { return; }
+  let cell = cells[id.x * 2u];
+  let val = cells[id.x * 2u + 1u];
+  textureStore(gridTex, vec2<i32>(i32(cell % uinfo.y), i32(cell / uinfo.y)), vec4<u32>(val));
+}
+`;
+
+/** Max cells per scatter update; beyond this callers fall back to updateGrid(). */
+export const MAX_SCATTER_CELLS = 16384;
+
 export interface SandGridPassConfig {
   device: GPUDevice;
   /** Canvas/present texture format. */
@@ -66,6 +86,13 @@ export class SandGridPass {
   // Extra texture views (light accumulation, volumetric, ...) set per frame.
   private extraViews: (GPUTextureView | null)[] = [];
   private uniformBuf: Float32Array = new Float32Array(4);
+  // Scatter-update path (created lazily on first queueCellUpdate).
+  private scatterPipeline: GPUComputePipeline | null = null;
+  private scatterBindGroups: (GPUBindGroup | null)[] = [];
+  private cellsBuffer: GPUBuffer | null = null;
+  private scatterMetaBuffer: GPUBuffer | null = null;
+  private pendingCellCount = 0;
+  private pendingCellLayer = 0;
   gridW: number;
   gridH: number;
   numLayers: number;
@@ -207,7 +234,9 @@ export class SandGridPass {
     const tex = this.device.createTexture({
       size: [this.gridW, this.gridH],
       format: "r32uint",
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+      // STORAGE_BINDING enables the scatter-update path (queueCellUpdate) to
+      // write changed cells directly instead of re-uploading the whole grid.
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.STORAGE_BINDING,
     });
     this.gridTextures[layer] = tex;
     this.gridViews[layer] = tex.createView();
@@ -267,6 +296,8 @@ export class SandGridPass {
   resize(gridW: number, gridH: number, canvasW?: number, canvasH?: number): void {
     this.gridW = gridW;
     this.gridH = gridH;
+    this.pendingCellCount = 0;
+    this.scatterBindGroups.fill(null); // grid views change → rebind on next use
     for (let i = 0; i < this.numLayers; i++) {
       this.createGridTexture(i);
       if (canvasW !== undefined && canvasH !== undefined && i < this.numLayers - 1) {
@@ -284,6 +315,76 @@ export class SandGridPass {
       { offset: grid.byteOffset, bytesPerRow: this.gridW * 4, rowsPerImage: this.gridH },
       [this.gridW, this.gridH],
     );
+  }
+
+  /**
+   * Stage a sparse grid update. `cells` holds packed [cellIndex, value] u32
+   * pairs; `count` is the number of pairs. Returns false when `count` exceeds
+   * the scatter capacity — the caller should fall back to updateGrid().
+   * The actual compute dispatch happens in encodeCellUpdate().
+   */
+  queueCellUpdate(cells: Uint32Array, count: number, layer = 0): boolean {
+    if (count <= 0) { this.pendingCellCount = 0; return true; }
+    if (count > MAX_SCATTER_CELLS || !this.gridTextures[layer]) return false;
+    this.ensureScatterResources(layer);
+    if (!this.scatterPipeline) return false;
+    this.device.queue.writeBuffer(this.cellsBuffer!, 0, cells.subarray(0, count * 2) as unknown as BufferSource);
+    this.device.queue.writeBuffer(this.scatterMetaBuffer!, 0, new Uint32Array([count, this.gridW, 0, 0]) as unknown as BufferSource);
+    this.pendingCellCount = count;
+    this.pendingCellLayer = layer;
+    return true;
+  }
+
+  /**
+   * Emit the pending scatter dispatch into `encoder`. Must be called on the
+   * frame's command encoder BEFORE the render pass that samples the grid, so
+   * writes are visible to the draw.
+   */
+  encodeCellUpdate(encoder: GPUCommandEncoder): void {
+    if (this.pendingCellCount === 0 || !this.scatterPipeline) return;
+    const pass = encoder.beginComputePass();
+    pass.setPipeline(this.scatterPipeline);
+    pass.setBindGroup(0, this.scatterBindGroups[this.pendingCellLayer]!);
+    pass.dispatchWorkgroups(Math.ceil(this.pendingCellCount / 64));
+    pass.end();
+    this.pendingCellCount = 0;
+  }
+
+  private ensureScatterResources(layer: number): void {
+    if (!this.cellsBuffer) {
+      this.cellsBuffer = this.device.createBuffer({
+        size: MAX_SCATTER_CELLS * 8,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      });
+      this.scatterMetaBuffer = this.device.createBuffer({
+        size: 16,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
+    }
+    if (this.scatterPipeline && this.scatterBindGroups[layer]) return;
+    if (!this.scatterPipeline) {
+      const layout = this.device.createBindGroupLayout({
+        entries: [
+          { binding: 0, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "r32uint" } },
+          { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+          { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+        ],
+      });
+      const shader = createValidatedShaderModule(this.device, { code: SCATTER_CS, label: "SandGridScatter" });
+      this.scatterPipeline = this.device.createComputePipeline({
+        layout: this.device.createPipelineLayout({ bindGroupLayouts: [layout] }),
+        compute: { module: shader, entryPoint: "cs_main" },
+      });
+      this.scatterBindGroups = new Array(this.numLayers).fill(null);
+    }
+    this.scatterBindGroups[layer] = this.device.createBindGroup({
+      layout: this.scatterPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: this.gridViews[layer]! },
+        { binding: 1, resource: { buffer: this.cellsBuffer! } },
+        { binding: 2, resource: { buffer: this.scatterMetaBuffer! } },
+      ],
+    });
   }
 
   updateUniforms(): void {
@@ -321,6 +422,8 @@ export class SandGridPass {
     this.dummyTexture?.destroy();
     this.uniformBuffer?.destroy();
     this.cameraBuffer?.destroy();
+    this.cellsBuffer?.destroy();
+    this.scatterMetaBuffer?.destroy();
     this.pipeline = null;
     this.bindGroups.fill(null);
   }

@@ -56,6 +56,11 @@ export class TextAtlasCache {
   private lastUsed: Map<string, number> = new Map();
   private accessCounter: number = 0;
   private dirty: boolean = true;
+  /** Region of the atlas written since the last flush — flush() uploads
+   *  only this rect. Uploading the whole used region each time a new string
+   *  lands (the FPS label alone churns ~1 new entry/sec) meant a multi-MB
+   *  getImageData readback + writeTexture hitch once a second. */
+  private dirtyRect: { x: number; y: number; w: number; h: number } | null = null;
   private directRenderer: DirectTextRenderer | null = null;
   /** Raw pixel buffer for direct rendering (bypasses Canvas2D). */
   private atlasPixels: Uint8Array | null = null;
@@ -151,7 +156,8 @@ export class TextAtlasCache {
           this.cursorY = 0;
           this.atlasRowHeight = 0;
           this.atlasPixels.fill(0);
-          this.dirty = true;
+          // The GPU texture still holds stale glyphs — wipe it too.
+          this.markDirtyRect(0, 0, MAX_ATLAS_WIDTH, ATLAS_HEIGHT);
         }
 
         if (th > this.atlasRowHeight) this.atlasRowHeight = th;
@@ -159,7 +165,7 @@ export class TextAtlasCache {
         const entryX = this.cursorX;
         const entryY = this.cursorY;
         this.cursorX += tw;
-        this.dirty = true;
+        this.markDirtyRect(entryX, entryY, tw, th);
 
         // Copy FreeType RGBA pixels directly into the atlas pixel buffer
         const { data: srcData, width: srcW, height: srcH } = result;
@@ -238,7 +244,8 @@ export class TextAtlasCache {
       this.cursorY = 0;
       this.atlasRowHeight = 0;
       this.atlasCtx.clearRect(0, 0, MAX_ATLAS_WIDTH, ATLAS_HEIGHT);
-      this.dirty = true;
+      // The GPU texture still holds the stale glyphs — wipe it too.
+      this.markDirtyRect(0, 0, MAX_ATLAS_WIDTH, ATLAS_HEIGHT);
     }
 
     if (textHeight > this.atlasRowHeight) {
@@ -248,7 +255,7 @@ export class TextAtlasCache {
     const entryX = this.cursorX;
     const entryY = this.cursorY;
     this.cursorX += textWidth;
-    this.dirty = true;
+    this.markDirtyRect(entryX, entryY, textWidth, textHeight);
 
     ctx.fillText(text, entryX + ATLAS_PADDING, entryY + ATLAS_PADDING);
 
@@ -276,32 +283,53 @@ export class TextAtlasCache {
     return entry;
   }
 
+  /** Union a freshly written cell into the dirty rect and flag the atlas
+   *  for upload. */
+  private markDirtyRect(x: number, y: number, w: number, h: number): void {
+    this.dirty = true;
+    if (!this.dirtyRect) {
+      this.dirtyRect = { x, y, w, h };
+    } else {
+      const r = this.dirtyRect;
+      const x1 = Math.max(r.x + r.w, x + w);
+      const y1 = Math.max(r.y + r.h, y + h);
+      r.x = Math.min(r.x, x);
+      r.y = Math.min(r.y, y);
+      r.w = x1 - r.x;
+      r.h = y1 - r.y;
+    }
+  }
+
   flush(): void {
-    if (!this.dirty || this.cursorX === 0) return;
+    if (!this.dirty || !this.dirtyRect) return;
 
     this.ensureAtlasTexture();
     const atlasTexture = this.atlasTexture!;
-
-    const usedHeight = this.cursorY + this.atlasRowHeight;
+    const { x, y, w, h } = this.dirtyRect;
 
     // Use direct pixel buffer when available (native FreeType path),
     // otherwise fall back to Canvas2D getImageData.
     if (this.atlasPixels && this.directRenderer) {
-      // Upload the direct pixel buffer (only the used region)
-      const subBuffer = this.atlasPixels.subarray(0, MAX_ATLAS_WIDTH * usedHeight * 4);
+      // Extract the dirty rect into a tightly packed buffer (atlasPixels is
+      // full-width strided).
+      const packed = new Uint8Array(w * h * 4);
+      for (let row = 0; row < h; row++) {
+        const src = ((y + row) * MAX_ATLAS_WIDTH + x) * 4;
+        packed.set(this.atlasPixels.subarray(src, src + w * 4), row * w * 4);
+      }
       this.device.queue.writeTexture(
-        { texture: atlasTexture },
-        subBuffer as unknown as BufferSource,
-        { bytesPerRow: MAX_ATLAS_WIDTH * 4, rowsPerImage: usedHeight },
-        [MAX_ATLAS_WIDTH, usedHeight],
+        { texture: atlasTexture, origin: [x, y] },
+        packed as unknown as BufferSource,
+        { bytesPerRow: w * 4, rowsPerImage: h },
+        [w, h],
       );
     } else {
-      const imageData = this.atlasCtx.getImageData(0, 0, MAX_ATLAS_WIDTH, usedHeight);
+      const imageData = this.atlasCtx.getImageData(x, y, w, h);
       this.device.queue.writeTexture(
-        { texture: atlasTexture },
+        { texture: atlasTexture, origin: [x, y] },
         imageData.data as unknown as BufferSource,
-        { bytesPerRow: MAX_ATLAS_WIDTH * 4, rowsPerImage: usedHeight },
-        [MAX_ATLAS_WIDTH, usedHeight],
+        { bytesPerRow: w * 4, rowsPerImage: h },
+        [w, h],
       );
     }
 
@@ -313,6 +341,7 @@ export class TextAtlasCache {
     }
 
     this.dirty = false;
+    this.dirtyRect = null;
   }
 
   getAtlasView(): GPUTextureView | null {
