@@ -304,14 +304,29 @@ export interface CreateSimWorkerOptions {
      * returns that component's data payload (wrapped as `{ v, data }` under
      * `components[componentName]`); when omitted it returns the full
      * components map directly (multi-component games).
+     *
+     * Optional — omit for push-model games where the renderer captures state
+     * itself (e.g. reads the SAB) and only pushes data in on load. When
+     * omitted, save()/captureState() are not exposed.
      */
-    capture: () => unknown | Promise<unknown>;
+    capture?: () => unknown | Promise<unknown>;
+    /**
+     * Binary payloads that accompany the JSON capture (typed-array state like
+     * grids/chunks that isn't JSON-expressible). Called immediately after
+     * capture() — with no sim tick able to interleave — so the two can share
+     * a captured snapshot via a worker-local variable. The blobs flow to
+     * ISaveStore.save() via SaveOptions.blobs (worker-owned stores) and are
+     * returned from captureState() (renderer-owned stores).
+     */
+    captureBlobs?: () => Record<string, ArrayBuffer> | Promise<Record<string, ArrayBuffer>>;
     /**
      * Apply a previously captured payload. Called with the loop stopped
      * (withLoopStopped) so the sim can't tick mid-restore. Receives the
-     * component data (componentName set) or the full parsed payload.
+     * component data (componentName set) or the full parsed payload, plus
+     * any binary blobs from the SaveState (grid/chunk payloads that aren't
+     * JSON-expressible).
      */
-    restore: (data: unknown) => void | Promise<void>;
+    restore?: (data: unknown, blobs?: Record<string, ArrayBuffer>) => void | Promise<void>;
     /**
      * Component key under SaveState.components (e.g. "sandbox"). Omit when
      * capture() returns the whole components map.
@@ -677,13 +692,14 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
       return { fps, tick: tickCount, frame: frameCount };
     },
 
-    ...(opts.save
+    ...(opts.save?.capture
       ? {
           async save(
             slotName: string,
             saveOpts?: SaveOptions,
           ): Promise<{ slotName: string; stateJson: string; success: boolean; gen?: number }> {
-            const data = await opts.save!.capture();
+            const data = await opts.save!.capture!();
+            const capturedBlobs = await opts.save!.captureBlobs?.();
             // Always wrap in SaveState.components format so that both OPFS
             // and IPC (FileSaveStore) backends store the state in the
             // expected component format — FileSaveStore.load() expects each
@@ -707,7 +723,10 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
             let gen: number | undefined;
             let success = true;
             if (saveStore) {
-              const result = await saveStore.save(slotName, saveStateObj, saveOpts);
+              const result = await saveStore.save(slotName, saveStateObj, {
+                ...saveOpts,
+                blobs: capturedBlobs ?? saveOpts?.blobs,
+              });
               success = result.success;
               gen = result.gen;
             }
@@ -715,12 +734,30 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
             return { slotName, stateJson, success, gen };
           },
 
+          /**
+           * Raw capture payload — no store interaction. Lets a
+           * renderer-owned save system (createGameSaveSystem) pull the
+           * worker's state and embed it in its own SaveState. Binary
+           * payloads (typed arrays) come back in `blobs`, transferred via
+           * structured clone.
+           */
+          async captureState(): Promise<{ stateJson: string; blobs?: Record<string, ArrayBuffer> }> {
+            const data = await opts.save!.capture!();
+            const blobs = await opts.save!.captureBlobs?.();
+            return { stateJson: JSON.stringify(data), blobs };
+          },
+        }
+      : {}),
+
+    ...(opts.save?.restore
+      ? {
           async load(
             slotName: string,
             stateJson?: string,
             loadOpts?: LoadOptions,
           ): Promise<boolean> {
             let json = stateJson;
+            let blobs: Record<string, ArrayBuffer> | undefined;
             let gen: number | undefined;
             if (!json && saveStore) {
               const result = await saveStore.load(slotName, loadOpts);
@@ -729,6 +766,7 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
                 : result.state?.components;
               if (payload !== undefined && payload !== null) {
                 json = JSON.stringify(payload);
+                blobs = result.blobs;
                 gen = result.gen;
               }
             }
@@ -744,25 +782,31 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
             }
             // Stop the loop during restore — mutating sim state while a tick
             // is in flight is a data race.
-            await control.withLoopStopped(() => opts.save!.restore(data));
+            await control.withLoopStopped(() => opts.save!.restore!(data, blobs));
             events.emit("loaded", { slotName, success: true, gen });
             return true;
           },
 
-          async initSaveStore(storeOpts: unknown): Promise<void> {
-            if (!opts.save!.createStore) return;
-            saveStore = opts.save!.createStore(storeOpts);
-            await saveStore.init?.();
-          },
-
-          async restoreFromState(stateJson: string): Promise<void> {
+          async restoreFromState(
+            stateJson: string,
+            blobs?: Record<string, ArrayBuffer>,
+          ): Promise<void> {
             let data: unknown = stateJson;
             try {
               data = extractRestoreData(JSON.parse(stateJson));
             } catch {
               // not JSON — pass through as-is
             }
-            await control.withLoopStopped(() => opts.save!.restore(data));
+            await control.withLoopStopped(() => opts.save!.restore!(data, blobs));
+          },
+        }
+      : {}),
+
+    ...(opts.save?.createStore
+      ? {
+          async initSaveStore(storeOpts: unknown): Promise<void> {
+            saveStore = opts.save!.createStore!(storeOpts);
+            await saveStore.init?.();
           },
         }
       : {}),

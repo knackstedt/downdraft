@@ -12,6 +12,9 @@
 export { OpfsSaveStore } from "./opfs-save-store";
 export type { OpfsSaveStoreOptions } from "./opfs-save-store";
 
+export { BinaryRecordStore, createBinaryRecordStore } from "./binary-record-store";
+export type { BinaryRecordStoreOptions, IBinaryRecordStore } from "./binary-record-store";
+
 export { AutosaveManager } from "./autosave-manager";
 export type { AutosaveManagerOptions } from "./autosave-manager";
 

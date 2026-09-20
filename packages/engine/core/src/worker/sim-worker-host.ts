@@ -33,10 +33,17 @@
 //   }
 // ============================================================================
 
+import type { LoadOptions, SaveOptions } from "../save/persist-types";
 import { BaseWorkerHost } from "./base-worker-host";
 import type { WorkerApi } from "./rpc";
 
-/** The standard control API createSimWorker() exposes worker-side. */
+/**
+ * The standard control API createSimWorker() exposes worker-side.
+ * Workers created with `save:`/`onCommand:` options additionally expose
+ * save/load/initSaveStore/restoreFromState/captureState/sendCommand —
+ * reachable via the WorkerApi index signature since their presence depends
+ * on the worker's options.
+ */
 export interface SimWorkerControlApi extends WorkerApi {
   pause(): Promise<void>;
   resume(): Promise<void>;
@@ -44,6 +51,25 @@ export interface SimWorkerControlApi extends WorkerApi {
   setSpeed(speed: number): Promise<void>;
   step(): Promise<void>;
   getStats(): Promise<{ fps: number; tick: number; frame: number }>;
+}
+
+/**
+ * Optional save/command verbs — exposed worker-side when the worker was
+ * created with createSimWorker({ save: {...}, onCommand }) or hand-rolled
+ * equivalents. Games declare this on their worker API type
+ * (`interface MyApi extends SimWorkerControlApi, SimWorkerSaveApi {...}`) to
+ * get typed captureState/restoreFromState calls through SimWorkerHost.
+ */
+export interface SimWorkerSaveApi {
+  save(
+    slotName: string,
+    opts?: SaveOptions,
+  ): Promise<{ slotName: string; stateJson: string; success: boolean; gen?: number }>;
+  load(slotName: string, stateJson?: string, opts?: LoadOptions): Promise<boolean>;
+  initSaveStore(opts: unknown): Promise<void>;
+  restoreFromState(stateJson: string, blobs?: Record<string, ArrayBuffer>): Promise<void>;
+  captureState(): Promise<{ stateJson: string; blobs?: Record<string, ArrayBuffer> }>;
+  sendCommand(cmd: unknown): Promise<void>;
 }
 
 /**
@@ -150,6 +176,57 @@ export abstract class SimWorkerHost<TApi extends WorkerApi = SimWorkerControlApi
     } catch {
       // Worker call threw synchronously — ignore (worker may be dead).
     }
+  }
+
+  // --- Standard save/command surface ---
+  // These wrappers call the RPC verbs createSimWorker() exposes when the
+  // worker was created with `save:`/`onCommand:` options (or hand-rolled
+  // equivalents). Workers without the verbs return null/false via apiCall.
+
+  /** Serialize + store sim state in the worker; null when not started or unsupported. */
+  async save(
+    slotName: string,
+    opts?: SaveOptions,
+  ): Promise<{ slotName: string; stateJson: string; success: boolean; gen?: number } | null> {
+    return this.apiCall((api) => api.save(slotName, opts));
+  }
+
+  /** Load sim state into the worker. Pass stateJson when the store lives renderer-side. */
+  async load(slotName: string, stateJson?: string, opts?: LoadOptions): Promise<boolean> {
+    return (await this.apiCall((api) => api.load(slotName, stateJson, opts))) ?? false;
+  }
+
+  /**
+   * Serialize the worker's save payload — without touching any store. For
+   * renderer-owned save flows (createGameSaveSystem) that embed the payload
+   * in their own SaveState. Binary data (typed arrays) arrives in `blobs`.
+   * Null when the worker wasn't started or doesn't expose captureState.
+   */
+  async captureState(): Promise<{ stateJson: string; blobs?: Record<string, ArrayBuffer> } | null> {
+    return this.apiCall((api) => api.captureState());
+  }
+
+  /** Initialize the worker's own save store (e.g. OPFS). Throws when not started. */
+  async initSaveStore(opts: unknown): Promise<void> {
+    const proxy = this.getProxy();
+    if (!proxy) throw new Error("Worker not started");
+    await proxy.proxy.initSaveStore(opts);
+  }
+
+  /**
+   * Restore the worker from a serialized state. Throws when not started.
+   * `blobs` carries binary payloads (grid/chunk data) for workers whose
+   * restore isn't JSON-expressible.
+   */
+  async restoreFromState(stateJson: string, blobs?: Record<string, ArrayBuffer>): Promise<void> {
+    const proxy = this.getProxy();
+    if (!proxy) throw new Error("Worker not started");
+    await proxy.proxy.restoreFromState(stateJson, blobs);
+  }
+
+  /** Fire-and-forget command dispatch. */
+  sendCommand(cmd: unknown): void {
+    this.apiSend((api) => api.sendCommand(cmd));
   }
 
   // --- SAB input writers ---

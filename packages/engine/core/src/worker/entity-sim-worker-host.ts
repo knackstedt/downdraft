@@ -28,14 +28,13 @@
 
 import { isDevMode } from "../platform/runtime";
 import { allocateInputBuffer, allocateSimBuffer } from "../sab/sim-channel";
-import type { LoadOptions, SaveOptions } from "../save/persist-types";
 import { HotReloadPipeline } from "../sim/hot-reload-pipeline";
 import type { IHotReloadable } from "../sim/types";
 import type { WorkerApi } from "./rpc";
-import { SimWorkerHost } from "./sim-worker-host";
+import { SimWorkerHost, type SimWorkerSaveApi } from "./sim-worker-host";
 
 /** Minimal worker-side API the entity sim host relies on. */
-export interface EntitySimApi extends WorkerApi {
+export interface EntitySimApi extends WorkerApi, SimWorkerSaveApi {
   init(
     simBuffer: SharedArrayBuffer,
     inputBuffer: SharedArrayBuffer,
@@ -44,14 +43,6 @@ export interface EntitySimApi extends WorkerApi {
   pause(): Promise<void>;
   resume(): Promise<void>;
   shutdown(): Promise<void>;
-  save(
-    slotName: string,
-    opts?: SaveOptions,
-  ): Promise<{ slotName: string; stateJson: string; success: boolean; gen?: number }>;
-  load(slotName: string, stateJson?: string, opts?: LoadOptions): Promise<boolean>;
-  initSaveStore(opts: unknown): Promise<void>;
-  restoreFromState(stateJson: string): Promise<void>;
-  sendCommand(cmd: unknown): Promise<void>;
 }
 
 export interface EntitySimHostOptions {
@@ -142,40 +133,6 @@ export abstract class EntitySimWorkerHost<
   /** Map the host config to the worker's init config argument. Default: identity. */
   protected buildWorkerConfig(config: TConfig): unknown {
     return config;
-  }
-
-  // --- Standard entity-sim RPC wrappers ---
-
-  /** Serialize sim state in the worker; returns null when not started or on error. */
-  async save(
-    slotName: string,
-    opts?: SaveOptions,
-  ): Promise<{ slotName: string; stateJson: string; success: boolean; gen?: number } | null> {
-    return this.apiCall((api) => api.save(slotName, opts));
-  }
-
-  /** Load sim state into the worker. Pass stateJson when the store lives renderer-side. */
-  async load(slotName: string, stateJson?: string, opts?: LoadOptions): Promise<boolean> {
-    return (await this.apiCall((api) => api.load(slotName, stateJson, opts))) ?? false;
-  }
-
-  /** Initialize the worker's own save store (e.g. OPFS). Throws when not started. */
-  async initSaveStore(opts: unknown): Promise<void> {
-    const proxy = this.getProxy();
-    if (!proxy) throw new Error("Worker not started");
-    await proxy.proxy.initSaveStore(opts);
-  }
-
-  /** Restore the worker from a serialized state. Throws when not started. */
-  async restoreFromState(stateJson: string): Promise<void> {
-    const proxy = this.getProxy();
-    if (!proxy) throw new Error("Worker not started");
-    await proxy.proxy.restoreFromState(stateJson);
-  }
-
-  /** Fire-and-forget command dispatch. */
-  sendCommand(cmd: unknown): void {
-    this.apiSend((api) => api.sendCommand(cmd));
   }
 
   // --- Hot reload ---

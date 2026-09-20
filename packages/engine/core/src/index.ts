@@ -96,7 +96,7 @@ export type { ExposeOptions, HostMessageHandler, WorkerApi, WorkerEventEmitter, 
 export { createSimWorker } from "./worker/sim-worker-base";
 export type { CreateSimWorkerOptions, SimAfterTicksContext, SimTickContext, SimWorkerControl, SimWorkerStats } from "./worker/sim-worker-base";
 export { RawInputRegionWriter, SimWorkerHost } from "./worker/sim-worker-host";
-export type { SimInputWriter, SimWorkerControlApi } from "./worker/sim-worker-host";
+export type { SimInputWriter, SimWorkerControlApi, SimWorkerSaveApi } from "./worker/sim-worker-host";
 export { createTaskWorker, PortChannel, TaskPool } from "./worker/task-pool";
 export type { JobMessage, JobResultMessage, TaskFn, TaskPoolOptions } from "./worker/task-pool";
 
