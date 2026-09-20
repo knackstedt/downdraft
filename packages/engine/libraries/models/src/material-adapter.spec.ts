@@ -1,4 +1,4 @@
-import { MaterialLibrary } from "@downdraft/engine";
+import { BlendMode, MaterialLibrary, MaterialType } from "@downdraft/engine";
 import { describe, expect, it } from "bun:test";
 import { materialDataArrayToMaterials, materialDataToMaterial } from "./material-adapter";
 import type { MaterialData } from "./types";
@@ -18,7 +18,7 @@ describe("materialDataToMaterial", () => {
     const md = makeMaterialData();
     const mat = materialDataToMaterial(md);
     expect(mat.name).toBe("test_material");
-    expect(mat.materialType).toBe("physical");
+    expect(mat.materialType).toBe(MaterialType.Physical);
   });
 
   it("should map baseColor to a uniform", () => {
@@ -49,13 +49,13 @@ describe("materialDataToMaterial", () => {
   it("should use Opaque blend mode for alpha=1", () => {
     const md = makeMaterialData({ baseColor: [1, 1, 1, 1] });
     const mat = materialDataToMaterial(md);
-    expect(mat.blendMode).toBe("opaque");
+    expect(mat.blendMode).toBe(BlendMode.Opaque);
   });
 
   it("should use AlphaBlend blend mode for alpha<1", () => {
     const md = makeMaterialData({ baseColor: [1, 1, 1, 0.5] });
     const mat = materialDataToMaterial(md);
-    expect(mat.blendMode).toBe("alpha-blend");
+    expect(mat.blendMode).toBe(BlendMode.AlphaBlend);
   });
 
   it("should register into a library when provided", () => {

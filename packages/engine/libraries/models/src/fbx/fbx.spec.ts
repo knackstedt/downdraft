@@ -324,7 +324,7 @@ function makeMaterialNode(props: Array<[string, ...number[]]>): FBXNode {
   return {
     name: "Material",
     properties: [
-      { type: "L", value: 0n },
+      { type: "L", value: 0 },
       { type: "S", value: "test_mat" },
     ],
     children: [{ name: "Properties70", properties: [], children: pNodes }],

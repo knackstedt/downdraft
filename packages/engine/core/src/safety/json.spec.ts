@@ -3,11 +3,11 @@ import { safeJsonParse, safeJsonParseWithSchema, sanitizeObject } from "./json";
 describe("safety/json", () => {
   describe("safeJsonParse", () => {
     it("parses valid JSON", () => {
-      expect(safeJsonParse('{"a":1}')).toEqual({ a: 1 });
+      expect(safeJsonParse<{ a: number }>('{"a":1}')).toEqual({ a: 1 });
     });
 
     it("parses arrays", () => {
-      expect(safeJsonParse("[1,2,3]")).toEqual([1, 2, 3]);
+      expect(safeJsonParse<number[]>("[1,2,3]")).toEqual([1, 2, 3]);
     });
 
     it("blocks __proto__ key — no own property", () => {
@@ -63,7 +63,7 @@ describe("safety/json", () => {
     });
 
     it("returns null on parse error", () => {
-      const result = safeJsonParseWithSchema("invalid", () => true);
+      const result = safeJsonParseWithSchema("invalid", (o): o is unknown => true);
       expect(result).toBeNull();
     });
   });

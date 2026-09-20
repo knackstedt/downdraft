@@ -12,6 +12,10 @@ let mockRecordingConfig: Record<string, unknown> | null = null;
 let mockTempTracePath: string | null = null;
 let mockCategories: string[] = ["toplevel", "v8", "gpu", "electron", "disabled-by-default-memory-infra"];
 
+function contentText(result: { content: { type: string }[] }): string {
+  return (result.content[0] as { type: string; text?: string }).text!;
+}
+
 const contentTracingMock = {
   enableHeapProfiling: mock(async (_opts?: any) => {
     tracingCalls.push("enableHeapProfiling");
@@ -114,7 +118,7 @@ describe("tracing tools", () => {
       const tools = createTracingTools(ctx, { current: 9876 });
       const traceStart = tools.find((t) => t.def.name === "trace_start")!;
       const result = await traceStart.handler({});
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = JSON.parse(contentText(result));
       expect(parsed.started).toBe(true);
       expect(parsed.preset).toBe("perf");
       expect(parsed.categories).toContain("toplevel");
@@ -126,7 +130,7 @@ describe("tracing tools", () => {
       const tools = createTracingTools(ctx, { current: 9876 });
       const traceStart = tools.find((t) => t.def.name === "trace_start")!;
       const result = await traceStart.handler({ preset: "memory" });
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = JSON.parse(contentText(result));
       expect(parsed.preset).toBe("memory");
       expect(parsed.categories).toContain("disabled-by-default-memory-infra");
       expect(tracingCalls).toContain("enableHeapProfiling");
@@ -141,7 +145,7 @@ describe("tracing tools", () => {
         preset: "custom",
         categories: ["my-category", "another"],
       });
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = JSON.parse(contentText(result));
       expect(parsed.preset).toBe("custom");
       expect(parsed.categories).toEqual(["my-category", "another"]);
     });
@@ -151,7 +155,7 @@ describe("tracing tools", () => {
       const traceStart = tools.find((t) => t.def.name === "trace_start")!;
       const result = await traceStart.handler({ preset: "custom", categories: [] });
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain("non-empty 'categories'");
+      expect(contentText(result)).toContain("non-empty 'categories'");
     });
 
     it("should error when starting twice without stopping", async () => {
@@ -160,7 +164,7 @@ describe("tracing tools", () => {
       await traceStart.handler({});
       const result = await traceStart.handler({});
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain("already in progress");
+      expect(contentText(result)).toContain("already in progress");
     });
 
     it("should pass recordingMode and bufferSizeKB to contentTracing", async () => {
@@ -185,7 +189,7 @@ describe("tracing tools", () => {
       const traceStop = tools.find((t) => t.def.name === "trace_stop")!;
       await traceStart.handler({});
       const result = await traceStop.handler({});
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = JSON.parse(contentText(result));
       expect(parsed.stopped).toBe(true);
       expect(parsed.path).toContain("debug-artifacts");
       expect(parsed.path).toContain("traces");
@@ -199,7 +203,7 @@ describe("tracing tools", () => {
       const traceStop = tools.find((t) => t.def.name === "trace_stop")!;
       const result = await traceStop.handler({});
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain("No trace recording in progress");
+      expect(contentText(result)).toContain("No trace recording in progress");
     });
   });
 
@@ -208,7 +212,7 @@ describe("tracing tools", () => {
       const tools = createTracingTools(ctx, { current: 9876 });
       const traceStatus = tools.find((t) => t.def.name === "trace_status")!;
       const result = await traceStatus.handler({});
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = JSON.parse(contentText(result));
       expect(parsed.recording).toBe(false);
     });
 
@@ -218,7 +222,7 @@ describe("tracing tools", () => {
       const traceStatus = tools.find((t) => t.def.name === "trace_status")!;
       await traceStart.handler({ preset: "gpu" });
       const result = await traceStatus.handler({});
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = JSON.parse(contentText(result));
       expect(parsed.recording).toBe(true);
       expect(parsed.preset).toBe("gpu");
       expect(parsed.bufferUsage).toEqual({ value: 1000, percentage: 1.5 });
@@ -230,7 +234,7 @@ describe("tracing tools", () => {
       const tools = createTracingTools(ctx, { current: 9876 });
       const traceCategories = tools.find((t) => t.def.name === "trace_categories")!;
       const result = await traceCategories.handler({});
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = JSON.parse(contentText(result));
       expect(parsed.categories).toContain("toplevel");
       expect(parsed.categories).toContain("electron");
     });
@@ -241,7 +245,7 @@ describe("tracing tools", () => {
       const tools = createTracingTools(ctx, { current: 9876 });
       const memoryDump = tools.find((t) => t.def.name === "memory_dump")!;
       const result = await memoryDump.handler({ durationMs: 10 });
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = JSON.parse(contentText(result));
       expect(parsed.stopped).toBe(true);
       expect(parsed.preset).toBe("memory");
       expect(tracingCalls).toContain("enableHeapProfiling");
@@ -265,7 +269,7 @@ describe("tracing tools", () => {
       const tools = createTracingTools(ctx, { current: 9876 });
       const tool = tools.find((t) => t.def.name === "trace_enable_heap_profiling")!;
       const result = await tool.handler({ mode: "all-renderers", samplingRate: 50000 });
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = JSON.parse(contentText(result));
       expect(parsed.enabled).toBe(true);
       expect(parsed.mode).toBe("all-renderers");
       // enableHeapProfiling was called (tracingCalls records the call)
@@ -278,7 +282,7 @@ describe("tracing tools", () => {
       const tools = createTracingTools(ctx, { current: 9876 });
       const tool = tools.find((t) => t.def.name === "heap_snapshot")!;
       const result = await tool.handler({ target: "main" });
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = JSON.parse(contentText(result));
       expect(parsed.target).toBe("main");
       expect(parsed.path).toContain("debug-artifacts");
       expect(parsed.path).toContain("heaps");
@@ -291,7 +295,7 @@ describe("tracing tools", () => {
       const tool = tools.find((t) => t.def.name === "heap_snapshot")!;
       const result = await tool.handler({ target: "renderer" });
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain("No renderer window available");
+      expect(contentText(result)).toContain("No renderer window available");
     });
   });
 
@@ -300,7 +304,7 @@ describe("tracing tools", () => {
       const tools = createTracingTools(ctx, { current: 9876 });
       const tool = tools.find((t) => t.def.name === "process_snapshot")!;
       const result = await tool.handler({ target: "main" });
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = JSON.parse(contentText(result));
       expect(parsed.target).toBe("main");
       expect(parsed.main).toBeDefined();
       expect(parsed.main.rss).toBeGreaterThan(0);
@@ -312,7 +316,7 @@ describe("tracing tools", () => {
       const tool = tools.find((t) => t.def.name === "process_snapshot")!;
       const result = await tool.handler({ target: "renderer" });
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain("No renderer window available");
+      expect(contentText(result)).toContain("No renderer window available");
     });
   });
 

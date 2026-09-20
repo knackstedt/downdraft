@@ -4,6 +4,8 @@ import type { BlobStore } from "../assets/blob-store";
 /** In-memory BlobStore for tests. */
 function makeMemoryStore(files: Record<string, string>): BlobStore {
   const store: BlobStore = {
+    async exists(key) { return files[key] !== undefined; },
+    async getMeta(key) { return files[key] !== undefined ? { key, size: files[key].length } as any : null; },
     async get(key) {
       const v = files[key];
       if (v === undefined) throw new Error(`not found: ${key}`);

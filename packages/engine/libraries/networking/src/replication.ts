@@ -18,7 +18,7 @@ export interface ReplicatedComponent {
 
 export interface ReplicationConfig {
   tickRate: number;
-  maxEntitiesPerPacket: 64;
+  maxEntitiesPerPacket: number;
   components: Map<number, ReplicatedComponent>;
 }
 
@@ -321,6 +321,7 @@ export class ReplicationManager {
   }
 
   getTickRate(): number { return this.config.tickRate; }
+  hasComponent(componentId: number): boolean { return this.config.components.has(componentId); }
   getRTT(): number { return this.transport.getRTT(); }
   getPacketLoss(): number { return this.transport.getPacketLoss(); }
 }

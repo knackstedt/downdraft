@@ -2,7 +2,7 @@ import { query } from "../ecs/query";
 import { World } from "../ecs/world";
 import type { CharacterControllerData } from "./character";
 import { CharacterController, CharacterControllerSystem } from "./character";
-import type { BodyDesc, CharacterControllerDesc, CharacterControllerHandle, CharacterMoveResult, ContactManifold, Entity, JointDesc, PhysicsBackend, PhysicsRealmConfig, RaycastResult, RigidBodyHandle, ShapeCastResult } from "./interface";
+import type { BodyDesc, CharacterControllerDesc, CharacterControllerHandle, CharacterMoveResult, ContactManifold, Entity, IntersectionPair, JointDesc, PhysicsBackend, PhysicsBody, PhysicsRealmConfig, RaycastResult, ShapeCastResult } from "./interface";
 import { PhysicsRealm } from "./realm";
 
 function makeMockBackend(): PhysicsBackend {
@@ -26,8 +26,8 @@ function makeMockBackend(): PhysicsBackend {
     getRealmIds(): number[] {
       return [...realms.keys()];
     },
-    createBody(realmId: number, _desc: BodyDesc, entity: Entity): RigidBodyHandle {
-      return { realmId, bodyId: ++nextBodyId, entity };
+    createBody(realmId: number, _desc: BodyDesc, entity: Entity): PhysicsBody {
+      return { realmId, id: ++nextBodyId, entity };
     },
     destroyBody(): void {},
     setBodyType(): void {},
@@ -60,15 +60,17 @@ function makeMockBackend(): PhysicsBackend {
     },
     destroyCharacterController(): void {},
     characterMove(_handle: CharacterControllerHandle, _desired: [number, number, number], _dt: number): CharacterMoveResult {
-      return { grounded: false, groundNormal: [0, 1, 0], groundEntity: null, slid: false, stepped: false, effectiveMovement: [0, 0, 0] };
+      return { grounded: false, groundNormal: [0, 1, 0], groundEntity: null, slid: false, stepped: false, effectiveMovement: [0, 0, 0], collisions: [] };
     },
     createJoint(): number { return ++nextJointId; },
     destroyJoint(): void {},
     syncTransforms(): void {},
     readTransforms(): void {},
     destroy(): void {},
-  };
+  } as unknown as PhysicsBackend;
 }
+
+const REALM_CONFIG = { name: "main", gravity: [0, -9.81, 0] } as unknown as Omit<PhysicsRealmConfig, "id">;
 
 function makeEntity(index: number, generation: number = 0): Entity {
   return { index, generation };
@@ -110,7 +112,7 @@ describe("CharacterController component", () => {
 describe("CharacterControllerSystem", () => {
   it("should create a controller handle via realm", () => {
     const backend = makeMockBackend();
-    const realm = new PhysicsRealm(backend, { name: "main", gravity: [0, -9.81, 0] });
+    const realm = new PhysicsRealm(backend, REALM_CONFIG);
     const sys = new CharacterControllerSystem(realm);
     const entity = makeEntity(1);
     const data: CharacterControllerData = {
@@ -143,7 +145,7 @@ describe("CharacterControllerSystem", () => {
 
   it("should destroy a controller handle", () => {
     const backend = makeMockBackend();
-    const realm = new PhysicsRealm(backend, { name: "main", gravity: [0, -9.81, 0] });
+    const realm = new PhysicsRealm(backend, REALM_CONFIG);
     const sys = new CharacterControllerSystem(realm);
     const entity = makeEntity(1);
     const data: CharacterControllerData = {
@@ -175,7 +177,7 @@ describe("CharacterControllerSystem", () => {
 
   it("should fall back to raycast mode when no controller handle", () => {
     const backend = makeMockBackend();
-    const realm = new PhysicsRealm(backend, { name: "main", gravity: [0, -9.81, 0] });
+    const realm = new PhysicsRealm(backend, REALM_CONFIG);
     const sys = new CharacterControllerSystem(realm);
     const data: CharacterControllerData = {
       handleRealmId: realm.id,
@@ -207,7 +209,7 @@ describe("CharacterControllerSystem", () => {
 
   it("should use backend characterMove when controller handle exists", () => {
     const backend = makeMockBackend();
-    const realm = new PhysicsRealm(backend, { name: "main", gravity: [0, -9.81, 0] });
+    const realm = new PhysicsRealm(backend, REALM_CONFIG);
     const sys = new CharacterControllerSystem(realm);
     const entity = makeEntity(1);
     const data: CharacterControllerData = {
@@ -243,7 +245,7 @@ describe("CharacterControllerSystem", () => {
 
   it("should apply gravity in raycast fallback when not grounded", () => {
     const backend = makeMockBackend();
-    const realm = new PhysicsRealm(backend, { name: "main", gravity: [0, -9.81, 0] });
+    const realm = new PhysicsRealm(backend, REALM_CONFIG);
     const sys = new CharacterControllerSystem(realm, [0, -9.81, 0]);
     const data: CharacterControllerData = {
       handleRealmId: realm.id,
@@ -273,7 +275,7 @@ describe("CharacterControllerSystem", () => {
 
   it("should set and clear input", () => {
     const backend = makeMockBackend();
-    const realm = new PhysicsRealm(backend, { name: "main", gravity: [0, -9.81, 0] });
+    const realm = new PhysicsRealm(backend, REALM_CONFIG);
     const sys = new CharacterControllerSystem(realm);
     const entity = makeEntity(1);
     sys.setInput(entity, [0, 0, 0], [1, 0, 0], false);
@@ -282,16 +284,16 @@ describe("CharacterControllerSystem", () => {
 
   it("should register as ECS system", () => {
     const backend = makeMockBackend();
-    const realm = new PhysicsRealm(backend, { name: "main", gravity: [0, -9.81, 0] });
+    const realm = new PhysicsRealm(backend, REALM_CONFIG);
     const sys = new CharacterControllerSystem(realm);
     const world = new World();
-    const q = query(CharacterController);
+    const q = query(CharacterController.id);
     expect(() => sys.register(world, q)).not.toThrow();
   });
 
   it("should check wall collision via raycast", () => {
     const backend = makeMockBackend();
-    const realm = new PhysicsRealm(backend, { name: "main", gravity: [0, -9.81, 0] });
+    const realm = new PhysicsRealm(backend, REALM_CONFIG);
     const sys = new CharacterControllerSystem(realm);
     const result = sys.checkWallCollision([0, 0, 0], [1, 0, 0], 1.0);
     expect(result).toBeNull();
@@ -301,7 +303,7 @@ describe("CharacterControllerSystem", () => {
 describe("PhysicsRealm character controller delegation", () => {
   it("should create and destroy character controllers", () => {
     const backend = makeMockBackend();
-    const realm = new PhysicsRealm(backend, { name: "main", gravity: [0, -9.81, 0] });
+    const realm = new PhysicsRealm(backend, REALM_CONFIG);
     const entity = makeEntity(1);
     const desc: CharacterControllerDesc = {
       offset: [0, 0.4, 0],
@@ -322,7 +324,7 @@ describe("PhysicsRealm character controller delegation", () => {
 
   it("should delegate characterMove", () => {
     const backend = makeMockBackend();
-    const realm = new PhysicsRealm(backend, { name: "main", gravity: [0, -9.81, 0] });
+    const realm = new PhysicsRealm(backend, REALM_CONFIG);
     const entity = makeEntity(1);
     const desc: CharacterControllerDesc = {
       offset: [0, 0.4, 0],
@@ -343,7 +345,7 @@ describe("PhysicsRealm character controller delegation", () => {
 
   it("should create and destroy joints", () => {
     const backend = makeMockBackend();
-    const realm = new PhysicsRealm(backend, { name: "main", gravity: [0, -9.81, 0] });
+    const realm = new PhysicsRealm(backend, REALM_CONFIG);
     const handle1 = realm.createBody({ type: "dynamic", position: [0, 0, 0], rotation: [0, 0, 0, 1] }, makeEntity(1));
     const handle2 = realm.createBody({ type: "dynamic", position: [0, 1, 0], rotation: [0, 0, 0, 1] }, makeEntity(2));
     const jointDesc: JointDesc = {

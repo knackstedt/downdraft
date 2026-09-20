@@ -39,7 +39,7 @@ describe("ShadowPass", () => {
 
     it("should have Custom pass type", () => {
       const pass = new ShadowPass(makeMockDevice() as GPUDevice);
-      expect(pass.passType).toBe("custom");
+      expect(pass.passType as string).toBe("custom");
     });
   });
 

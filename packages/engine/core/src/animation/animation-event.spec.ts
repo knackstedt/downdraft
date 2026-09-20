@@ -11,8 +11,8 @@ import { Skeleton } from "./skeleton";
 
 function makeMockSkeleton(): Skeleton {
   const bones: Bone[] = [
-    { name: "root", nodeIndex: 0, parentIndex: -1, childrenIndices: [1], inverseBindMatrix: new Float32Array(16), bindPosition: [0, 0, 0], bindRotation: [0, 0, 0, 1], bindScale: [1, 1, 1] },
-    { name: "child", nodeIndex: 1, parentIndex: 0, childrenIndices: [], inverseBindMatrix: new Float32Array(16), bindPosition: [1, 0, 0], bindRotation: [0, 0, 0, 1], bindScale: [1, 1, 1] },
+    { name: "root", parentIndex: -1, childrenIndices: [1], inverseBindMatrix: new Float32Array(16), bindPosition: [0, 0, 0], bindRotation: [0, 0, 0, 1], bindScale: [1, 1, 1] },
+    { name: "child", parentIndex: 0, childrenIndices: [], inverseBindMatrix: new Float32Array(16), bindPosition: [1, 0, 0], bindRotation: [0, 0, 0, 1], bindScale: [1, 1, 1] },
   ];
   const data: SkeletonData = { name: "test", bones, rootBoneIndex: 0 };
   return new Skeleton(data);

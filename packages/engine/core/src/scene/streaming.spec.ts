@@ -1,10 +1,6 @@
 import { World } from "../ecs/world";
 import { Camera } from "./camera";
-import { WorldStreamer, type ChunkData } from "./streaming";
-
-function makeChunkData(name: string): ChunkData {
-  return { name, entities: [] };
-}
+import { WorldStreamer } from "./streaming";
 
 describe("WorldStreamer", () => {
   it("should construct with config", () => {
@@ -34,7 +30,7 @@ describe("WorldStreamer", () => {
       loader: async (coord) => {
         const name = `${coord.x},${coord.z}`;
         loaded.push(name);
-        return makeChunkData(name);
+        return [];
       },
     });
 
@@ -54,9 +50,9 @@ describe("WorldStreamer", () => {
       loadRadius: 1,
       unloadRadius: 2,
       maxConcurrentLoads: 4,
-      loader: async (coord) => makeChunkData(`${coord.x},${coord.z}`),
+      loader: async () => [],
       unloader: async (coord, data) => {
-        unloaded.push(data.name);
+        unloaded.push(data.name ?? "unnamed");
       },
     });
 
@@ -85,7 +81,7 @@ describe("WorldStreamer", () => {
         maxConcurrent = Math.max(maxConcurrent, concurrentLoads);
         await new Promise((r) => setTimeout(r, 10));
         concurrentLoads--;
-        return makeChunkData(`${coord.x},${coord.z}`);
+        return [];
       },
     });
 
@@ -107,7 +103,7 @@ describe("WorldStreamer", () => {
       maxConcurrentLoads: 4,
       loader: async (coord) => {
         loadCount++;
-        return makeChunkData(`${coord.x},${coord.z}`);
+        return [];
       },
     });
 
@@ -142,7 +138,7 @@ describe("WorldStreamer", () => {
       loadRadius: 1,
       unloadRadius: 2,
       maxConcurrentLoads: 4,
-      loader: async (coord) => makeChunkData(`${coord.x},${coord.z}`),
+      loader: async () => [],
     });
 
     await streamer.update();

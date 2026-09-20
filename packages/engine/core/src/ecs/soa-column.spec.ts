@@ -74,7 +74,7 @@ describe("SoA Archetype Column", () => {
 
   it("should push SoA data into TypedArrays", () => {
     const arch = createArchetype([Position.id]);
-    addEntityToArchetype(arch, { index: 1, generation: 0 }, new Map([
+    addEntityToArchetype(arch, { index: 1, generation: 0 }, new Map<number, unknown>([
       [Position.id, Position.create({ x: 5, y: 10, z: 15 })],
     ]));
 
@@ -92,7 +92,7 @@ describe("SoA Archetype Column", () => {
     const arch = createArchetype([Position.id]);
     // Push 20 entities — exceeds initial capacity of 16
     for (let i = 0; i < 20; i++) {
-      addEntityToArchetype(arch, { index: i + 1, generation: 0 }, new Map([
+      addEntityToArchetype(arch, { index: i + 1, generation: 0 }, new Map<number, unknown>([
         [Position.id, Position.create({ x: i, y: i * 2, z: i * 3 })],
       ]));
     }
@@ -113,13 +113,13 @@ describe("SoA Archetype Column", () => {
 
   it("should swap-and-pop remove SoA data correctly", () => {
     const arch = createArchetype([Position.id]);
-    addEntityToArchetype(arch, { index: 1, generation: 0 }, new Map([
+    addEntityToArchetype(arch, { index: 1, generation: 0 }, new Map<number, unknown>([
       [Position.id, Position.create({ x: 10 })],
     ]));
-    addEntityToArchetype(arch, { index: 2, generation: 0 }, new Map([
+    addEntityToArchetype(arch, { index: 2, generation: 0 }, new Map<number, unknown>([
       [Position.id, Position.create({ x: 20 })],
     ]));
-    addEntityToArchetype(arch, { index: 3, generation: 0 }, new Map([
+    addEntityToArchetype(arch, { index: 3, generation: 0 }, new Map<number, unknown>([
       [Position.id, Position.create({ x: 30 })],
     ]));
 
@@ -136,11 +136,11 @@ describe("SoA Archetype Column", () => {
 
   it("should handle hybrid add/remove (SoA + AoS)", () => {
     const arch = createArchetype([Position.id, Name.id]);
-    addEntityToArchetype(arch, { index: 1, generation: 0 }, new Map([
+    addEntityToArchetype(arch, { index: 1, generation: 0 }, new Map<number, unknown>([
       [Position.id, Position.create({ x: 5 })],
       [Name.id, Name.create({ name: "foo" })],
     ]));
-    addEntityToArchetype(arch, { index: 2, generation: 0 }, new Map([
+    addEntityToArchetype(arch, { index: 2, generation: 0 }, new Map<number, unknown>([
       [Position.id, Position.create({ x: 10 })],
       [Name.id, Name.create({ name: "bar" })],
     ]));
@@ -160,7 +160,7 @@ describe("SoA Archetype Column", () => {
 describe("SoA getColumnValue", () => {
   it("should reconstruct object from SoA column", () => {
     const arch = createArchetype([Position.id]);
-    addEntityToArchetype(arch, { index: 1, generation: 0 }, new Map([
+    addEntityToArchetype(arch, { index: 1, generation: 0 }, new Map<number, unknown>([
       [Position.id, Position.create({ x: 42, y: 99, z: -7 })],
     ]));
 
@@ -171,13 +171,13 @@ describe("SoA getColumnValue", () => {
 
   it("should return object from AoS column", () => {
     const arch = createArchetype([Name.id]);
-    addEntityToArchetype(arch, { index: 1, generation: 0 }, new Map([
+    addEntityToArchetype(arch, { index: 1, generation: 0 }, new Map<number, unknown>([
       [Name.id, Name.create({ name: "hello" })],
     ]));
 
     const col = getComponentColumn(arch, Name.id);
     const obj = getColumnValue<{ name: string }>(col, 0);
-    expect(obj).toEqual({ name: "hello", __componentId: Name.id });
+    expect(obj).toEqual({ name: "hello", __componentId: Name.id } as { name: string });
   });
 
   it("should return undefined for missing column", () => {
@@ -188,7 +188,7 @@ describe("SoA getColumnValue", () => {
 describe("SoA World operations", () => {
   it("should spawn entity with SoA component", () => {
     const world = new World();
-    const entity = world.spawn(new Map([
+    const entity = world.spawn(new Map<number, unknown>([
       [Position.id, Position.create({ x: 1, y: 2, z: 3 })],
     ]));
 
@@ -201,7 +201,7 @@ describe("SoA World operations", () => {
 
   it("should spawn entity with hybrid SoA + AoS components", () => {
     const world = new World();
-    const entity = world.spawn(new Map([
+    const entity = world.spawn(new Map<number, unknown>([
       [Position.id, Position.create({ x: 5, y: 10 })],
       [Name.id, Name.create({ name: "test" })],
     ]));
@@ -216,7 +216,7 @@ describe("SoA World operations", () => {
 
   it("should despawn SoA entity", () => {
     const world = new World();
-    const entity = world.spawn(new Map([
+    const entity = world.spawn(new Map<number, unknown>([
       [Position.id, Position.create({ x: 5 })],
     ]));
 
@@ -228,7 +228,7 @@ describe("SoA World operations", () => {
 
   it("should add AoS component to SoA entity (archetype move)", () => {
     const world = new World();
-    const entity = world.spawn(new Map([
+    const entity = world.spawn(new Map<number, unknown>([
       [Position.id, Position.create({ x: 42 })],
     ]));
 
@@ -245,7 +245,7 @@ describe("SoA World operations", () => {
 
   it("should add SoA component to AoS entity (archetype move)", () => {
     const world = new World();
-    const entity = world.spawn(new Map([
+    const entity = world.spawn(new Map<number, unknown>([
       [Name.id, Name.create({ name: "original" })],
     ]));
 
@@ -263,7 +263,7 @@ describe("SoA World operations", () => {
 
   it("should remove SoA component (archetype move)", () => {
     const world = new World();
-    const entity = world.spawn(new Map([
+    const entity = world.spawn(new Map<number, unknown>([
       [Position.id, Position.create({ x: 5 })],
       [Name.id, Name.create({ name: "keep" })],
     ]));
@@ -280,11 +280,11 @@ describe("SoA World operations", () => {
 describe("SoA Query iteration", () => {
   it("should iterate SoA components and provide column + row", () => {
     const world = new World();
-    world.spawn(new Map([
+    world.spawn(new Map<number, unknown>([
       [Position.id, Position.create({ x: 10, y: 20, z: 30 })],
       [Velocity.id, Velocity.create({ vx: 1, vy: 2, vz: 3 })],
     ]));
-    world.spawn(new Map([
+    world.spawn(new Map<number, unknown>([
       [Position.id, Position.create({ x: 40, y: 50, z: 60 })],
       [Velocity.id, Velocity.create({ vx: 4, vy: 5, vz: 6 })],
     ]));
@@ -310,11 +310,11 @@ describe("SoA Query iteration", () => {
 
   it("should iterate hybrid SoA + AoS components", () => {
     const world = new World();
-    world.spawn(new Map([
+    world.spawn(new Map<number, unknown>([
       [Position.id, Position.create({ x: 5 })],
       [Name.id, Name.create({ name: "alpha" })],
     ]));
-    world.spawn(new Map([
+    world.spawn(new Map<number, unknown>([
       [Position.id, Position.create({ x: 10 })],
       [Name.id, Name.create({ name: "beta" })],
     ]));
@@ -336,7 +336,7 @@ describe("SoA Query iteration", () => {
 
   it("should support changed filter on SoA component", () => {
     const world = new World();
-    const e1 = world.spawn(new Map([
+    const e1 = world.spawn(new Map<number, unknown>([
       [Position.id, Position.create({ x: 1 })],
       [Health.id, Health.create({ hp: 100, max: 100, lastChanged: 0 })],
     ]));
@@ -367,7 +367,7 @@ describe("SoA Query iteration", () => {
 
   it("should run system with SoA query in world.step", () => {
     const world = new World();
-    world.spawn(new Map([
+    world.spawn(new Map<number, unknown>([
       [Position.id, Position.create({ x: 0, y: 0, z: 0 })],
       [Velocity.id, Velocity.create({ vx: 5, vy: 0, vz: 0 })],
     ]));
@@ -412,7 +412,7 @@ describe("SoA with different TypedArray types", () => {
 
   it("should store u32 values correctly", () => {
     const world = new World();
-    const entity = world.spawn(new Map([
+    const entity = world.spawn(new Map<number, unknown>([
       [Flags.id, Flags.create({ flags: 0xFF, type: 42 })],
     ]));
 

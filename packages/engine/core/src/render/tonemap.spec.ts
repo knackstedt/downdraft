@@ -13,14 +13,14 @@ describe("ToneMapping", () => {
     });
 
     it("should have string values", () => {
-      expect(ToneMappingOperator.ACES).toBe("aces");
-      expect(ToneMappingOperator.Reinhard).toBe("reinhard");
-      expect(ToneMappingOperator.AgX).toBe("agx");
-      expect(ToneMappingOperator.Uchimura).toBe("uchimura");
+      expect(ToneMappingOperator.ACES as string).toBe("aces");
+      expect(ToneMappingOperator.Reinhard as string).toBe("reinhard");
+      expect(ToneMappingOperator.AgX as string).toBe("agx");
+      expect(ToneMappingOperator.Uchimura as string).toBe("uchimura");
     });
 
     it("should include None as first operator", () => {
-      expect(ToneMappingOperator.None).toBe("none");
+      expect(ToneMappingOperator.None as string).toBe("none");
     });
   });
 

@@ -276,7 +276,7 @@ describe("ModuleHost activation", () => {
         const originalAdd = world.schedule.add.bind(world.schedule);
         world.schedule.add = (sys) => {
           systemAdded = true;
-          originalAdd(sys);
+          return originalAdd(sys);
         };
         ctx.registerSystemObject({
           name: "test-sys",

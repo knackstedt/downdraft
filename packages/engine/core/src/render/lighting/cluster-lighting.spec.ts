@@ -153,8 +153,8 @@ describe("cluster-types", () => {
   describe("packLightToStorageBuffer", () => {
     it("packs a point light correctly", () => {
       const packed = packLightToStorageBuffer({
-        position: [1, 2, 3],
-        color: [1, 0.5, 0.25],
+        position: new Float32Array([1, 2, 3]),
+        color: new Float32Array([1, 0.5, 0.25]),
         intensity: 5,
         range: 20,
         type: 0,
@@ -173,11 +173,11 @@ describe("cluster-types", () => {
 
     it("packs a spot light with cone angles", () => {
       const packed = packLightToStorageBuffer({
-        position: [0, 5, 0],
-        color: [1, 1, 1],
+        position: new Float32Array([0, 5, 0]),
+        color: new Float32Array([1, 1, 1]),
         intensity: 3,
         range: 30,
-        direction: [0, -1, 0],
+        direction: new Float32Array([0, -1, 0]),
         type: 1,
         innerConeCos: 0.8,
         outerConeCos: 0.6,
@@ -192,11 +192,11 @@ describe("cluster-types", () => {
 
     it("packs a rect area light with dimensions", () => {
       const packed = packLightToStorageBuffer({
-        position: [2, 3, 4],
-        color: [0.8, 0.8, 1],
+        position: new Float32Array([2, 3, 4]),
+        color: new Float32Array([0.8, 0.8, 1]),
         intensity: 2,
         range: 15,
-        direction: [0, 0, -1],
+        direction: new Float32Array([0, 0, -1]),
         type: 2,
         width: 4,
         height: 2,

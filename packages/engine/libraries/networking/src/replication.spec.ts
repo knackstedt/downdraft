@@ -38,7 +38,7 @@ describe("ReplicationManager", () => {
     const transport = new MockTransport();
     const mgr = new ReplicationManager(transport, true);
     mgr.registerComponent(1, POSITION_FIELDS, "authoritative");
-    expect(mgr.config.components.has(1)).toBe(true);
+    expect(mgr.hasComponent(1)).toBe(true);
   });
 
   it("should track and untrack entities", () => {

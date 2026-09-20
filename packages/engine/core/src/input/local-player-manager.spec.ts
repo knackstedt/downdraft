@@ -53,10 +53,10 @@ describe("LocalPlayerManager", () => {
     const disconnectHandler = (mgr as unknown as { disconnectCallbacks: Array<(d: InputDevice) => void> }).disconnectCallbacks;
 
     connectHandler[0]({ type: "gamepad", gamepadIndex: 1 });
-    expect(connected).toEqual({ type: "gamepad", gamepadIndex: 1 });
+    expect(connected as InputDevice | null).toEqual({ type: "gamepad", gamepadIndex: 1 });
 
     disconnectHandler[0]({ type: "gamepad", gamepadIndex: 1 });
-    expect(disconnected).toEqual({ type: "gamepad", gamepadIndex: 1 });
+    expect(disconnected as InputDevice | null).toEqual({ type: "gamepad", gamepadIndex: 1 });
   });
 
   it("should return device map", () => {

@@ -11,4 +11,11 @@ declare global {
   const afterAll: typeof BunTest.afterAll;
   const beforeEach: typeof BunTest.beforeEach;
   const afterEach: typeof BunTest.afterEach;
+
+  interface ImportMeta {
+    /** Bun runtime: absolute path of the directory containing this module. */
+    readonly dir: string;
+    /** Bun runtime: alias of `dir`. */
+    readonly dirname: string;
+  }
 }

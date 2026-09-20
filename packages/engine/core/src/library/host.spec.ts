@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { resourceToken } from "../ecs/resource";
 import { setStrict } from "../module/diagnostics";
 import { LibraryHostImpl } from "./host";
-import type { EngineLibrary, LibrarySimContext } from "./library";
+import type { EngineLibrary, LibraryRendererCreateContext, LibrarySimContext } from "./library";
 
 // Reset strict mode after each test.
 afterEach(() => setStrict(null));
@@ -64,7 +64,7 @@ describe("LibraryHostImpl", () => {
       const provided = new Map<string, unknown>();
       const simCtx: LibrarySimContext = {
         buffers: {},
-        provide: (token, value) => provided.set(token.key, value),
+        provide: (token: { key: string }, value: unknown) => provided.set(token.key, value),
         inject: () => { throw new Error("no provider"); },
         injectOptional: () => undefined,
       };
@@ -290,7 +290,7 @@ describe("LibraryHostImpl", () => {
 
       const provided = new Map<string, unknown>();
       const createCtx: LibraryRendererCreateContext = {
-        provide: (token, value) => provided.set(token.key, value),
+        provide: (token: { key: string }, value: unknown) => provided.set(token.key, value),
         inject: () => { throw new Error("no provider"); },
         injectOptional: () => undefined,
       };

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { Jimp } from "jimp";
+import { Jimp, type JimpInstance } from "jimp";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,6 +17,8 @@ import { generateIcons } from "./mobile-icons";
 // ---------------------------------------------------------------------------
 // Helpers: create a mock shell directory structure for testing
 // ---------------------------------------------------------------------------
+
+const writePng = (img: JimpInstance, p: string) => img.write(p as `${string}.${string}`);
 
 function createMockShell(shellDir: string): void {
   // Android
@@ -261,7 +263,7 @@ describe("generateIcons", () => {
 
   it("returns true and generates icons from icon.png", async () => {
     const icon = new Jimp({ width: 1024, height: 1024, color: 0xff0000ff });
-    await icon.write(join(gameDir, "icon.png"));
+    await writePng(icon, join(gameDir, "icon.png"));
 
     const result = await generateIcons(gameDir, androidDir, iosAppDir);
     expect(result).toBe(true);
@@ -271,7 +273,7 @@ describe("generateIcons", () => {
 
   it("generates Android launcher icons at all 5 densities", async () => {
     const icon = new Jimp({ width: 1024, height: 1024, color: 0xff0000ff });
-    await icon.write(join(gameDir, "icon.png"));
+    await writePng(icon, join(gameDir, "icon.png"));
 
     await generateIcons(gameDir, androidDir, iosAppDir);
 
@@ -287,7 +289,7 @@ describe("generateIcons", () => {
 
   it("generates Android round launcher icons at all densities", async () => {
     const icon = new Jimp({ width: 1024, height: 1024, color: 0xff0000ff });
-    await icon.write(join(gameDir, "icon.png"));
+    await writePng(icon, join(gameDir, "icon.png"));
 
     await generateIcons(gameDir, androidDir, iosAppDir);
 
@@ -299,7 +301,7 @@ describe("generateIcons", () => {
 
   it("generates Android adaptive icon foregrounds with padding", async () => {
     const icon = new Jimp({ width: 1024, height: 1024, color: 0x0000ffff });
-    await icon.write(join(gameDir, "icon.png"));
+    await writePng(icon, join(gameDir, "icon.png"));
 
     await generateIcons(gameDir, androidDir, iosAppDir);
 
@@ -317,7 +319,7 @@ describe("generateIcons", () => {
 
   it("generates Android default splash screen", async () => {
     const icon = new Jimp({ width: 1024, height: 1024, color: 0x00ff00ff });
-    await icon.write(join(gameDir, "icon.png"));
+    await writePng(icon, join(gameDir, "icon.png"));
 
     await generateIcons(gameDir, androidDir, iosAppDir);
 
@@ -330,7 +332,7 @@ describe("generateIcons", () => {
 
   it("generates Android portrait splash screens at all densities", async () => {
     const icon = new Jimp({ width: 1024, height: 1024, color: 0x00ff00ff });
-    await icon.write(join(gameDir, "icon.png"));
+    await writePng(icon, join(gameDir, "icon.png"));
 
     await generateIcons(gameDir, androidDir, iosAppDir);
 
@@ -352,7 +354,7 @@ describe("generateIcons", () => {
 
   it("generates Android landscape splash screens at all densities", async () => {
     const icon = new Jimp({ width: 1024, height: 1024, color: 0x00ff00ff });
-    await icon.write(join(gameDir, "icon.png"));
+    await writePng(icon, join(gameDir, "icon.png"));
 
     await generateIcons(gameDir, androidDir, iosAppDir);
 
@@ -376,7 +378,7 @@ describe("generateIcons", () => {
 
   it("generates iOS 1024×1024 app icon", async () => {
     const icon = new Jimp({ width: 1024, height: 1024, color: 0x00ff00ff });
-    await icon.write(join(gameDir, "icon.png"));
+    await writePng(icon, join(gameDir, "icon.png"));
 
     await generateIcons(gameDir, androidDir, iosAppDir);
 
@@ -390,7 +392,7 @@ describe("generateIcons", () => {
   it("cover-fits non-square iOS icon to 1024×1024", async () => {
     // 2048×1024 rectangular icon — should be cover-fit to 1024×1024
     const icon = new Jimp({ width: 2048, height: 1024, color: 0x0000ffff });
-    await icon.write(join(gameDir, "icon.png"));
+    await writePng(icon, join(gameDir, "icon.png"));
 
     await generateIcons(gameDir, androidDir, iosAppDir);
 
@@ -404,7 +406,7 @@ describe("generateIcons", () => {
 
   it("generates iOS splash screen set (3 universal images)", async () => {
     const icon = new Jimp({ width: 1024, height: 1024, color: 0x00ff00ff });
-    await icon.write(join(gameDir, "icon.png"));
+    await writePng(icon, join(gameDir, "icon.png"));
 
     await generateIcons(gameDir, androidDir, iosAppDir);
 

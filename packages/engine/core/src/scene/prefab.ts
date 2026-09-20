@@ -134,7 +134,7 @@ export class PrefabFactory {
 
 export function createPrefabFromComponentDefs(
   name: string,
-  defs: Array<{ def: ComponentDefinition<Record<string, unknown>>; overrides?: Partial<Record<string, unknown>> }>,
+  defs: Array<{ def: Pick<ComponentDefinition, "id" | "defaults">; overrides?: Partial<Record<string, unknown>> }>,
   tags?: string[],
 ): Prefab {
   const components: PrefabComponentEntry[] = defs.map(({ def, overrides }) => ({

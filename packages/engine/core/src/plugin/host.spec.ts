@@ -3,7 +3,7 @@ import { World } from "../ecs/world";
 import { setStrict } from "../module/diagnostics";
 import { ModuleHost } from "../module/host";
 import type { NativePluginContext, ScriptPluginContext } from "./context";
-import { PluginHost, type PluginLoader } from "./host";
+import { PluginHost, type ExtensionLoader, type PluginLoader } from "./host";
 import type { PluginManifest } from "./manifest";
 
 function nativeManifest(overrides: Partial<PluginManifest> = {}): PluginManifest {
@@ -210,7 +210,7 @@ describe("PluginHost", () => {
     expect(() => captured!.tick.onTick(() => {})).toThrow(/tick/);
     // state remains functional.
     captured!.state.set("k", 1);
-    expect(captured!.state.get("k")).toBe(1);
+    expect(captured!.state.get<number>("k")).toBe(1);
   });
 
   it("denies native host calls without the mapped permission", async () => {
@@ -284,11 +284,11 @@ describe("PluginHost", () => {
     host.registerLoader(fakeLoader("worker-js", (ctx) => { logicLoaded.push(ctx.id); }));
     const assetLoader: ExtensionLoader = {
       bucket: "assets",
-      async load(_m, ext) { extLoaded.push(`assets:${ext.id}`); return () => {}; },
+      async load(_m: PluginManifest, ext: { id?: string }) { extLoaded.push(`assets:${ext.id}`); return () => {}; },
     };
     const postfxLoader: ExtensionLoader = {
       bucket: "shader-postfx",
-      async load(_m, ext) { extLoaded.push(`shader-postfx:${ext.id}`); return () => {}; },
+      async load(_m: PluginManifest, ext: { id?: string }) { extLoaded.push(`shader-postfx:${ext.id}`); return () => {}; },
     };
     host.registerExtensionLoader(assetLoader);
     host.registerExtensionLoader(postfxLoader);
@@ -305,7 +305,7 @@ describe("PluginHost", () => {
           ],
           shaders: {
             postfx: [{
-              id: "mod:acid", name: "Acid", wgsl: "./acid.wgsl",
+              kind: "shader-postfx", id: "mod:acid", name: "Acid", wgsl: "./acid.wgsl",
               layout: "cc", order: "stylized",
             }],
           },
@@ -324,7 +324,7 @@ describe("PluginHost", () => {
     const extLoaded: string[] = [];
     const mapLoader: ExtensionLoader = {
       bucket: "maps",
-      async load(_m, ext) { extLoaded.push(`maps:${ext.id}`); return () => {}; },
+      async load(_m: PluginManifest, ext: { id?: string }) { extLoaded.push(`maps:${ext.id}`); return () => {}; },
     };
     host.registerExtensionLoader(mapLoader);
     host.discover(

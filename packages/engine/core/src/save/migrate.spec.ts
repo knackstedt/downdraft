@@ -15,15 +15,15 @@ describe("SchemaRegistry", () => {
 
   it("should register and detect migrations", () => {
     const reg = new SchemaRegistry();
-    reg.registerMigration(0, (data) => ({ ...data, migrated: true }));
+    reg.registerMigration(0, (data) => ({ ...(data as Record<string, unknown>), migrated: true }));
     expect(reg.hasMigration(0)).toBe(true);
     expect(reg.hasMigration(1)).toBe(false);
   });
 
   it("should migrate data through multiple versions", () => {
     const reg = new SchemaRegistry();
-    reg.registerMigration(0, (data) => ({ ...data, v1: true }));
-    reg.registerMigration(1, (data) => ({ ...data, v2: true }));
+    reg.registerMigration(0, (data) => ({ ...(data as Record<string, unknown>), v1: true }));
+    reg.registerMigration(1, (data) => ({ ...(data as Record<string, unknown>), v2: true }));
 
     const result = reg.migrate({ original: true }, 0, 2);
     expect((result as any).original).toBe(true);
@@ -33,7 +33,7 @@ describe("SchemaRegistry", () => {
 
   it("should skip missing migrations gracefully", () => {
     const reg = new SchemaRegistry();
-    reg.registerMigration(1, (data) => ({ ...data, v2: true }));
+    reg.registerMigration(1, (data) => ({ ...(data as Record<string, unknown>), v2: true }));
 
     const result = reg.migrate({ original: true }, 0, 2);
     expect((result as any).original).toBe(true);
@@ -117,7 +117,7 @@ describe("SaveSystem", () => {
 
   it("should register migrations through save system", () => {
     const save = new SaveSystem();
-    save.registerMigration(0, (data) => ({ ...data, migrated: true }));
+    save.registerMigration(0, (data) => ({ ...(data as Record<string, unknown>), migrated: true }));
     expect(save.getSchemaRegistry().hasMigration(0)).toBe(true);
   });
 });

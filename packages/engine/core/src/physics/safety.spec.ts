@@ -1,12 +1,12 @@
-import { SafetyLayer } from "./safety";
 import type { PhysicsBackend, PhysicsBody } from "./interface";
+import { SafetyLayer } from "./safety";
 
 function makeMockBackend(overrides: Partial<PhysicsBackend> = {}): PhysicsBackend {
   const states = new Map<number, { pos: [number, number, number]; rot: [number, number, number, number]; linVel: [number, number, number]; angVel: [number, number, number]; type: string }>();
   return {
     name: "mock", version: "1.0.0", init: async () => {},
     createRealm: () => 0, destroyRealm: () => {}, getRealmIds: () => [0],
-    createBody: (_r, desc, entity) => {
+    createBody: (_r: number, desc: { position: [number, number, number]; rotation: [number, number, number, number]; type: string }, entity: import("./interface").Entity) => {
       const id = Math.floor(Math.random() * 0x7fffffff);
       const body: PhysicsBody = { id, realmId: 0, entity };
       states.set(id, {
@@ -16,19 +16,19 @@ function makeMockBackend(overrides: Partial<PhysicsBackend> = {}): PhysicsBacken
       });
       return body;
     },
-    destroyBody: (b) => { states.delete(b.id); },
-    setBodyType: (b, t) => { const s = states.get(b.id); if (s) s.type = t; },
+    destroyBody: (b: PhysicsBody) => { states.delete(b.id); },
+    setBodyType: (b: PhysicsBody, t: string) => { const s = states.get(b.id); if (s) s.type = t; },
     addCollider: () => 0, removeCollider: () => {},
     applyForce: () => {}, applyImpulse: () => {}, applyTorque: () => {},
     applyTorqueImpulse: () => {}, applyImpulseAtPoint: () => {},
-    setLinearVelocity: (b, v) => { const s = states.get(b.id); if (s) s.linVel = [...v] as [number, number, number]; },
-    getLinearVelocity: (b) => states.get(b.id)?.linVel ?? [0, 0, 0],
-    setAngularVelocity: (b, v) => { const s = states.get(b.id); if (s) s.angVel = [...v] as [number, number, number]; },
-    getAngularVelocity: (b) => states.get(b.id)?.angVel ?? [0, 0, 0],
-    setPosition: (b, p) => { const s = states.get(b.id); if (s) s.pos = [...p] as [number, number, number]; },
-    getPosition: (b) => states.get(b.id)?.pos ?? [0, 0, 0],
-    setRotation: (b, r) => { const s = states.get(b.id); if (s) s.rot = [...r] as [number, number, number, number]; },
-    getRotation: (b) => states.get(b.id)?.rot ?? [0, 0, 0, 1],
+    setLinearVelocity: (b: PhysicsBody, v: [number, number, number]) => { const s = states.get(b.id); if (s) s.linVel = [...v]; },
+    getLinearVelocity: (b: PhysicsBody) => states.get(b.id)?.linVel ?? [0, 0, 0],
+    setAngularVelocity: (b: PhysicsBody, v: [number, number, number]) => { const s = states.get(b.id); if (s) s.angVel = [...v]; },
+    getAngularVelocity: (b: PhysicsBody) => states.get(b.id)?.angVel ?? [0, 0, 0],
+    setPosition: (b: PhysicsBody, p: [number, number, number]) => { const s = states.get(b.id); if (s) s.pos = [...p]; },
+    getPosition: (b: PhysicsBody) => states.get(b.id)?.pos ?? [0, 0, 0],
+    setRotation: (b: PhysicsBody, r: [number, number, number, number]) => { const s = states.get(b.id); if (s) s.rot = [...r]; },
+    getRotation: (b: PhysicsBody) => states.get(b.id)?.rot ?? [0, 0, 0, 1],
     wakeUp: () => {}, isSleeping: () => false,
     setSleepThresholds: () => {}, setSolverIterations: () => {}, setCCDEnabled: () => {},
     getIslands: () => [], raycast: () => null, raycastMulti: () => [], shapeCast: () => null,

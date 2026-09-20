@@ -18,6 +18,8 @@
 //   - OSR / MCP / DevTools / import-cache: no-ops (not supported on mobile).
 //   - deterministic: false (mobile is never deterministic/test mode).
 
+/// <reference path="./capacitor-plugin-types.d.ts" />
+
 import type { FeatureLogData } from "@downdraft/engine";
 import { createLogger } from "@downdraft/engine/util/logger";
 import type {

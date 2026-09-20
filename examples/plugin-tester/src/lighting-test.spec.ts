@@ -521,7 +521,7 @@ describe("LightSystem — culling and sorting", () => {
     ls.addPointLight([10, 0, 0], [0, 1, 0], 1.0, 200);  // near
     ls.addPointLight([50, 0, 0], [0, 0, 1], 1.0, 200);  // mid
     // Should not throw — sorting happens internally
-    expect(() => ls.upload([0, 0, 0]).not.toThrow());
+    expect(() => ls.upload([0, 0, 0])).not.toThrow();
   });
 
   it("should cull spot lights beyond their radius + margin", () => {
@@ -530,7 +530,7 @@ describe("LightSystem — culling and sorting", () => {
     ls.beginFrame();
     ls.addSpotLight([50, 0, 0], [0, -1, 0], [1, 1, 1], 1.0, 100, 0.9, 0.7);
     ls.addSpotLight([10000, 0, 0], [0, -1, 0], [1, 1, 1], 1.0, 10, 0.9, 0.7);
-    expect(() => ls.upload([0, 0, 0]).not.toThrow());
+    expect(() => ls.upload([0, 0, 0])).not.toThrow();
   });
 
   it("should handle all lights being culled", () => {
@@ -539,7 +539,7 @@ describe("LightSystem — culling and sorting", () => {
     ls.beginFrame();
     ls.addPointLight([10000, 0, 0], [1, 1, 1], 1.0, 10);
     ls.addSpotLight([10000, 0, 0], [0, -1, 0], [1, 1, 1], 1.0, 10, 0.9, 0.7);
-    expect(() => ls.upload([0, 0, 0]).not.toThrow());
+    expect(() => ls.upload([0, 0, 0])).not.toThrow();
   });
 
   it("should handle zero lights in upload", () => {
@@ -699,7 +699,7 @@ describe("LightSystem — WebGPU device path", () => {
   it("should init with GPUDevice when provided", () => {
     const mockDevice = makeMockDevice();
 
-    const ls = new LightSystem(mockDevice, null);
+    const ls = new LightSystem(mockDevice);
     ls.init();
 
     expect(mockDevice.createBuffer).toHaveBeenCalled();
@@ -710,7 +710,7 @@ describe("LightSystem — WebGPU device path", () => {
   it("should init debug gizmos with GPUDevice", () => {
     const mockDevice = makeMockDevice();
 
-    const ls = new LightSystem(mockDevice, null);
+    const ls = new LightSystem(mockDevice);
     ls.init();
     expect(() => ls.initDebugGizmos("bgra8unorm")).not.toThrow();
     expect(mockDevice.createRenderPipeline).toHaveBeenCalled();

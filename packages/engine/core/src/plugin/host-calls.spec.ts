@@ -9,8 +9,8 @@
 import { World } from "../ecs/world";
 import { setStrict } from "../module/diagnostics";
 import { ModuleHost } from "../module/host";
-import type { NativePluginContext, PhysicsDesc, SpawnPropDesc, SpawnedProp } from "./context";
-import { PluginHost, type PluginHostCalls } from "./host";
+import type { NativePluginContext, PhysicsDesc, PluginHostCalls, SpawnPropDesc, SpawnedProp } from "./context";
+import { PluginHost } from "./host";
 import type { PluginManifest } from "./manifest";
 
 function nativeManifest(overrides: Partial<PluginManifest> = {}): PluginManifest {
@@ -55,31 +55,31 @@ describe("host-call bridge", () => {
     let nextEntity = 100;
     return {
       ...rec,
-      spawnProp(desc) {
+      spawnProp(desc: SpawnPropDesc) {
         rec.spawns.push(desc);
         return Promise.resolve({ entityId: nextEntity++ });
       },
-      removeProp(id) {
+      removeProp(id: number) {
         rec.removes.push(id);
         return Promise.resolve();
       },
-      setPhysics(id, desc) {
+      setPhysics(id: number, desc: Partial<PhysicsDesc>) {
         rec.physicsSets.push({ id, desc });
         return Promise.resolve();
       },
-      getPhysics(id) {
+      getPhysics(id: number) {
         rec.physicsGets.push(id);
         return Promise.resolve({ mass: 1, restitution: 0.5, friction: 0.3, gravityScale: 1 });
       },
-      applyImpulse(id, v) {
+      applyImpulse(id: number, v: [number, number, number]) {
         rec.impulses.push({ id, v });
         return Promise.resolve();
       },
-      applyTorque(id, v) {
+      applyTorque(id: number, v: [number, number, number]) {
         rec.torques.push({ id, v });
         return Promise.resolve();
       },
-      getAssetRef(assetId) {
+      getAssetRef(assetId: string) {
         rec.assetRefs.push(assetId);
         return Promise.resolve(42);
       },

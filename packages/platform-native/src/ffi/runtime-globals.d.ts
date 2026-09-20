@@ -36,17 +36,6 @@ declare module "bun:ffi" {
   export enum FFIType {}
 }
 
-declare module "bun:test" {
-  export function describe(name: string, fn: () => void): void;
-  export function test(name: string, fn: () => unknown, timeout?: number): void;
-  export function it(name: string, fn: () => unknown, timeout?: number): void;
-  export function expect(actual: unknown): any;
-  export function beforeAll(fn: () => unknown): void;
-  export function afterAll(fn: () => unknown): void;
-  export function beforeEach(fn: () => unknown): void;
-  export function afterEach(fn: () => unknown): void;
-}
-
 declare namespace Deno {
   class UnsafePointer {
     static create(value: bigint | number): UnsafePointer;

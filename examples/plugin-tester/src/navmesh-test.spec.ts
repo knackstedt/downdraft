@@ -178,9 +178,9 @@ describe("CrowdSystem", () => {
     };
     const transformData = {
       position: [pos[0], pos[1], pos[2]] as Vec3,
-      rotation: [0, 0, 0, 1] as Vec3,
+      rotation: [0, 0, 0, 1] as [number, number, number, number],
       prevPosition: [...pos] as Vec3,
-      prevRotation: [0, 0, 0, 1] as Vec3,
+      prevRotation: [0, 0, 0, 1] as [number, number, number, number],
     };
     const components = new Map();
     components.set(NavAgent.id, agentData);

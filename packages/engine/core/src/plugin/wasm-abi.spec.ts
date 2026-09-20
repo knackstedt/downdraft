@@ -16,8 +16,8 @@
 import { World } from "../ecs/world";
 import { setStrict } from "../module/diagnostics";
 import { ModuleHost } from "../module/host";
-import type { PhysicsDesc, SpawnPropDesc } from "./context";
-import { PluginHost, type PluginHostCalls } from "./host";
+import type { PhysicsDesc, PluginHostCalls, SpawnPropDesc } from "./context";
+import { PluginHost } from "./host";
 import type { PluginManifest } from "./manifest";
 
 // We use the `wabt` package if available, otherwise skip the WASM-compile
@@ -57,15 +57,15 @@ describe("WASM ABI v3 host-call bridge", () => {
       hostCalls = {
         spawns: [],
         impulses: [],
-        spawnProp(desc) {
+        spawnProp(desc: SpawnPropDesc) {
           (this.spawns as any).push(desc);
           return Promise.resolve({ entityId: 777 });
         },
-        applyImpulse(id, v) {
+        applyImpulse(id: number, v: [number, number, number]) {
           (this.impulses as any).push({ id, v });
           return Promise.resolve();
         },
-        getPhysics(_id) {
+        getPhysics(_id: number) {
           return Promise.resolve({ mass: 2, restitution: 0.8, friction: 0.2, gravityScale: 1 } as PhysicsDesc);
         },
       } as any;
@@ -120,7 +120,7 @@ describe("WASM ABI v3 host-call bridge", () => {
           let exportsRef: any = { alloc: () => 0, register: () => {} };
           const imports = (buildImports as any)(ctx, () => exportsRef, subs, pending);
           const result = await WebAssembly.instantiate(bytes, imports as any);
-          exportsRef = result.instance.exports;
+          exportsRef = (result as WebAssembly.WebAssemblyInstantiatedSource).instance.exports;
           exportsRef.register();
           // Wait a tick for the async host call to resolve + on_host_call_result.
           await new Promise((r) => setTimeout(r, 10));
@@ -186,7 +186,7 @@ describe("WASM ABI v3 host-call bridge", () => {
           let exportsRef: any = { alloc: () => 0, register: () => {} };
           const imports = (buildImports as any)(ctx, () => exportsRef, subs, pending);
           const result = await WebAssembly.instantiate(bytes, imports as any);
-          exportsRef = result.instance.exports;
+          exportsRef = (result as WebAssembly.WebAssemblyInstantiatedSource).instance.exports;
           exportsRef.register();
           await new Promise((r) => setTimeout(r, 10));
           errPtr = exportsRef.get_err_ptr();

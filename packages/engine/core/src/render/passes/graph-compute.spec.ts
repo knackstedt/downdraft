@@ -67,7 +67,7 @@ describe("GraphComputePass", () => {
     const g = createSimpleGraph();
     const pass = new GraphComputePass("test-compute", g);
     expect(pass.name).toBe("test-compute");
-    expect(pass.passType).toBe("custom");
+    expect(pass.passType as string).toBe("custom");
   });
 
   it("should prepare and auto-allocate buffers", () => {
@@ -100,7 +100,7 @@ describe("GraphComputePass", () => {
     expect(owned.some((b) => b.name === "params")).toBe(true);
 
     // getBuffer should return the external one
-    expect(pass.getBuffer("data")).toBe(externalDataBuffer);
+    expect(pass.getBuffer("data")).toBe(externalDataBuffer as unknown as GPUBuffer);
     pass.destroy();
   });
 

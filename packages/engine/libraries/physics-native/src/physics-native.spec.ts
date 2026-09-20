@@ -1,3 +1,5 @@
+import { RealmTier } from "@downdraft/engine/physics";
+import type { PhysicsRealmConfig, RealmTierConfig } from "@downdraft/engine/physics/interface";
 import { describe, expect, it } from "bun:test";
 import { NativePhysicsBackend } from "./backend";
 import type { AABB } from "./broadphase";
@@ -14,6 +16,26 @@ import {
 } from "./narrowphase-shapes";
 import { integrate, resolveContact, type BodyData } from "./solver";
 import type { Vec3 } from "./types";
+
+
+const TIER_CONFIG: RealmTierConfig = {
+  tickFrequency: 1,
+  solverIterations: 4,
+  promoteThreshold: 0,
+  demoteThreshold: 0,
+  demoteDwellTime: 0,
+};
+
+function realmConfig(overrides: Partial<PhysicsRealmConfig> = {}): PhysicsRealmConfig {
+  return {
+    id: 0,
+    name: "test",
+    tier: RealmTier.Near,
+    gravity: [0, -9.81, 0],
+    tierConfig: TIER_CONFIG,
+    ...overrides,
+  };
+}
 
 // --- Broadphase tests ---
 
@@ -309,11 +331,7 @@ describe("Solver", () => {
 describe("NativePhysicsBackend", () => {
   function makeBackend() {
     const backend = new NativePhysicsBackend();
-    backend.createRealm({
-      id: 0,
-      name: "default",
-      gravity: [0, -9.81, 0],
-    });
+    backend.createRealm(realmConfig({ name: "default" }));
     return backend;
   }
 
@@ -498,7 +516,9 @@ describe("NativePhysicsBackend", () => {
       slide: true,
       autostep: { enabled: true, minWidth: 0.1, maxHeight: 0.3 },
       maxSlope: 45,
+      minSlopeSlide: 45,
       snapToGround: 0.1,
+      applyImpulsesToDynamicBodies: false,
     }, { index: 0, generation: 0 });
 
     // Move character down into floor
@@ -585,8 +605,8 @@ describe("NativePhysicsBackend", () => {
 
   it("should step all realms", () => {
     const backend = new NativePhysicsBackend();
-    backend.createRealm({ id: 0, name: "a", gravity: [0, -9.81, 0] });
-    backend.createRealm({ id: 1, name: "b", gravity: [0, -9.81, 0] });
+    backend.createRealm(realmConfig({id: 0, name: "a", gravity: [0, -9.81, 0] }));
+    backend.createRealm(realmConfig({id: 1, name: "b", gravity: [0, -9.81, 0] }));
 
     const h0 = backend.createBody(0, { type: "dynamic", position: [0, 10, 0], rotation: [0, 0, 0, 1], mass: 1 }, { index: 0, generation: 0 });
     const h1 = backend.createBody(1, { type: "dynamic", position: [0, 10, 0], rotation: [0, 0, 0, 1], mass: 1 }, { index: 0, generation: 0 });
@@ -1084,7 +1104,9 @@ describe("NativePhysicsBackend", () => {
       slide: true,
       autostep: { enabled: true, minWidth: 0.1, maxHeight: 0.3 },
       maxSlope: 45,
+      minSlopeSlide: 45,
       snapToGround: 0.1,
+      applyImpulsesToDynamicBodies: false,
     }, { index: 0, generation: 0 });
 
     const result = backend.characterMove(charHandle, [1, 0, 0], 1 / 60);
@@ -1118,8 +1140,8 @@ describe("NativePhysicsBackend", () => {
 
   it("should handle different gravity per realm", () => {
     const backend = new NativePhysicsBackend();
-    backend.createRealm({ id: 0, name: "earth", gravity: [0, -9.81, 0] });
-    backend.createRealm({ id: 1, name: "moon", gravity: [0, -1.62, 0] });
+    backend.createRealm(realmConfig({id: 0, name: "earth", gravity: [0, -9.81, 0] }));
+    backend.createRealm(realmConfig({id: 1, name: "moon", gravity: [0, -1.62, 0] }));
 
     const h0 = backend.createBody(0, { type: "dynamic", position: [0, 100, 0], rotation: [0, 0, 0, 1], mass: 1 }, { index: 0, generation: 0 });
     const h1 = backend.createBody(1, { type: "dynamic", position: [0, 100, 0], rotation: [0, 0, 0, 1], mass: 1 }, { index: 0, generation: 0 });

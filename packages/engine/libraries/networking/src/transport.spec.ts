@@ -1,4 +1,4 @@
-import { MockTransport, createTransport, type NetMessage } from "./transport";
+import { MockTransport, createTransport, type NetMessage, type TransportType } from "./transport";
 
 describe("MockTransport", () => {
   it("should start disconnected", () => {

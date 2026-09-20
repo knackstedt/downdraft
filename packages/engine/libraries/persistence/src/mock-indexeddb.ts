@@ -80,7 +80,7 @@ class MockObjectStore {
         return this.schedule(new MockRequest(result));
     }
 
-    getAll(): MockRequest {
+    getAll(): MockRequest<unknown[]> {
         return this.schedule(new MockRequest(this.records.map((r) => r.value)));
     }
 
@@ -96,7 +96,7 @@ class MockObjectStore {
     }
 
     /** Schedule onsuccess asynchronously (mimics real IDB request firing). */
-    private schedule(req: MockRequest): MockRequest {
+    private schedule<T>(req: MockRequest<T>): MockRequest<T> {
         queueMicrotask(() => req.fireSuccess());
         return req;
     }
@@ -106,14 +106,14 @@ class MockObjectStore {
     }
 }
 
-class MockRequest {
-    result: unknown;
+class MockRequest<T = unknown> {
+    result: T;
     error: unknown = null;
     onsuccess: ((ev: unknown) => void) | null = null;
     onerror: ((ev: unknown) => void) | null = null;
     readyState: "pending" | "done" = "pending";
 
-    constructor(result: unknown) {
+    constructor(result: T) {
         this.result = result;
     }
 

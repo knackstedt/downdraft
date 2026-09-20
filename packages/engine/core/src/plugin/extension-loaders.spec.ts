@@ -7,21 +7,21 @@
 //   - Unknown asset kinds throw
 //   - All 5 buckets are covered
 
+import { World } from "../ecs/world";
 import { setStrict } from "../module/diagnostics";
 import { ModuleHost } from "../module/host";
-import { World } from "../ecs/world";
-import { PluginHost } from "./host";
 import {
-  createAssetLoader,
-  createMapLoader,
-  createMaterialShaderLoader,
-  createPhysicsLoader,
-  createPostfxShaderLoader,
-  type AssetRegistry,
-  type MapRegistry,
-  type PhysicsRegistry,
-  type ShaderRegistry,
+    createAssetLoader,
+    createMapLoader,
+    createMaterialShaderLoader,
+    createPhysicsLoader,
+    createPostfxShaderLoader,
+    type AssetRegistry,
+    type MapRegistry,
+    type PhysicsRegistry,
+    type ShaderRegistry,
 } from "./extension-loaders";
+import { PluginHost } from "./host";
 import type { PluginManifest } from "./manifest";
 
 function modManifest(overrides: Partial<PluginManifest> = {}): PluginManifest {
@@ -50,14 +50,14 @@ function fakeAssetRegistry(): AssetRegistry & {
 } {
   return {
     meshes: [], textures: [], pbrMaterials: [], pipelines: [], unregistered: [],
-    async registerMesh(id, path, manifestId) { this.meshes.push({ id, path, manifestId }); },
-    async unregisterMesh(id) { this.unregistered.push(`mesh:${id}`); },
-    async registerTexture(id, path, manifestId) { this.textures.push({ id, path, manifestId }); },
-    async unregisterTexture(id) { this.unregistered.push(`texture:${id}`); },
-    async registerPBRMaterial(id, path, manifestId, props) { this.pbrMaterials.push({ id, path, manifestId, props }); },
-    async unregisterPBRMaterial(id) { this.unregistered.push(`pbr:${id}`); },
-    async registerTexturePipeline(id, path, manifestId, props) { this.pipelines.push({ id, path, manifestId, props }); },
-    async unregisterTexturePipeline(id) { this.unregistered.push(`pipeline:${id}`); },
+    async registerMesh(id: string, path: string, manifestId: string) { this.meshes.push({ id, path, manifestId }); },
+    async unregisterMesh(id: string) { this.unregistered.push(`mesh:${id}`); },
+    async registerTexture(id: string, path: string, manifestId: string) { this.textures.push({ id, path, manifestId }); },
+    async unregisterTexture(id: string) { this.unregistered.push(`texture:${id}`); },
+    async registerPBRMaterial(id: string, path: string, manifestId: string, props: Record<string, unknown>) { this.pbrMaterials.push({ id, path, manifestId, props }); },
+    async unregisterPBRMaterial(id: string) { this.unregistered.push(`pbr:${id}`); },
+    async registerTexturePipeline(id: string, path: string, manifestId: string, props: Record<string, unknown>) { this.pipelines.push({ id, path, manifestId, props }); },
+    async unregisterTexturePipeline(id: string) { this.unregistered.push(`pipeline:${id}`); },
   } as any;
 }
 
@@ -67,8 +67,8 @@ function fakeMapRegistry(): MapRegistry & {
 } {
   return {
     maps: [], unregistered: [],
-    async registerMap(id, path, manifestId) { this.maps.push({ id, path, manifestId }); },
-    async unregisterMap(id) { this.unregistered.push(`map:${id}`); },
+    async registerMap(id: string, path: string, manifestId: string) { this.maps.push({ id, path, manifestId }); },
+    async unregisterMap(id: string) { this.unregistered.push(`map:${id}`); },
   } as any;
 }
 
@@ -78,8 +78,8 @@ function fakePhysicsRegistry(): PhysicsRegistry & {
 } {
   return {
     overrides: [], unregistered: [],
-    async registerPhysicsOverride(id, path, manifestId) { this.overrides.push({ id, path, manifestId }); },
-    async unregisterPhysicsOverride(id) { this.unregistered.push(`phys:${id}`); },
+    async registerPhysicsOverride(id: string, path: string, manifestId: string) { this.overrides.push({ id, path, manifestId }); },
+    async unregisterPhysicsOverride(id: string) { this.unregistered.push(`phys:${id}`); },
   } as any;
 }
 
@@ -90,10 +90,10 @@ function fakeShaderRegistry(): ShaderRegistry & {
 } {
   return {
     postfx: [], materials: [], unregistered: [],
-    async registerPostfxEffect(id, name, wgslPath, manifestId, props) { this.postfx.push({ id, name, wgslPath, manifestId, props }); },
-    async unregisterPostfxEffect(id) { this.unregistered.push(`postfx:${id}`); },
-    async registerMaterialShader(id, wgslPath, manifestId, props) { this.materials.push({ id, wgslPath, manifestId, props }); },
-    async unregisterMaterialShader(id) { this.unregistered.push(`material:${id}`); },
+    async registerPostfxEffect(id: string, name: string, wgslPath: string, manifestId: string, props: Record<string, unknown>) { this.postfx.push({ id, name, wgslPath, manifestId, props }); },
+    async unregisterPostfxEffect(id: string) { this.unregistered.push(`postfx:${id}`); },
+    async registerMaterialShader(id: string, wgslPath: string, manifestId: string, props: Record<string, unknown>) { this.materials.push({ id, wgslPath, manifestId, props }); },
+    async unregisterMaterialShader(id: string) { this.unregistered.push(`material:${id}`); },
   } as any;
 }
 

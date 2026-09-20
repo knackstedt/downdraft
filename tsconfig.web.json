@@ -164,7 +164,9 @@
     }
   },
   "files": [
-    "packages/platform-native/src/ffi/runtime-globals.d.ts"
+    "node_modules/bun-types/test.d.ts",
+    "packages/platform-native/src/ffi/runtime-globals.d.ts",
+    "tests/bun-globals.d.ts"
   ],
   "include": [
     "packages/engine/package.json",
@@ -186,13 +188,11 @@
     "games/*/libraries/*/src/**/*.ts",
     "games/*/modules/*/src/**/*.ts",
     "games/*/stubs/**/*",
-    "examples/*/src/**/*"
+    "examples/*/src/**/*",
+    "tests/spec-globals.d.ts"
   ],
   "exclude": [
     "dist",
-    "packages/**/*.spec.ts",
-    "games/**/*.spec.ts",
-    "examples/**/*.spec.ts",
     "games/*/src/main.ts",
     "games/*/src/preload.ts",
     "games/*/src/native-entry.ts",

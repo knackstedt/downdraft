@@ -185,7 +185,6 @@ describe("createSimWorker save/command plumbing", () => {
     createSimWorker({
       fixedDt: 0.005,
       seed: 42,
-      seed: 42,
       onInit: () => {},
       onTick: (_dt, ctx) => { seqA.push(ctx.rng()); },
     });
@@ -197,7 +196,6 @@ describe("createSimWorker save/command plumbing", () => {
 
     createSimWorker({
       fixedDt: 0.005,
-      seed: 42,
       seed: 42,
       onInit: () => {},
       onTick: (_dt, ctx) => { seqB.push(ctx.rng()); },

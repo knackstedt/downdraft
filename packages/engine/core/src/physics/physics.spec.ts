@@ -1,4 +1,4 @@
-import type { BodyDesc, CharacterControllerDesc, CharacterControllerHandle, CharacterMoveResult, ContactManifold, Entity, IslandInfo, PhysicsBackend, PhysicsBody, PhysicsRealmConfig, RaycastResult, RealmTierConfig, ShapeCastResult } from "./interface";
+import type { BodyDesc, CharacterControllerDesc, CharacterControllerHandle, CharacterMoveResult, ContactManifold, Entity, IntersectionPair, IslandInfo, PhysicsBackend, PhysicsBody, PhysicsRealmConfig, RaycastResult, RealmTierConfig, ShapeCastResult } from "./interface";
 import { RealmTier } from "./interface";
 import { PhysicsLifecycle } from "./lifecycle";
 import { RaycastQuery } from "./raycast";
@@ -111,7 +111,7 @@ function makeMockBackend(): PhysicsBackend {
     },
     destroyCharacterController(): void {},
     characterMove(): CharacterMoveResult {
-      return { grounded: false, groundNormal: [0, 1, 0], groundEntity: null, slid: false, stepped: false, effectiveMovement: [0, 0, 0] };
+      return { grounded: false, groundNormal: [0, 1, 0], groundEntity: null, slid: false, stepped: false, effectiveMovement: [0, 0, 0], collisions: [] };
     },
     createJoint(): number { return ++nextBodyId; },
     destroyJoint(): void {},
@@ -120,7 +120,7 @@ function makeMockBackend(): PhysicsBackend {
     serializeRealm(): Uint8Array { return new Uint8Array(0); },
     deserializeRealm(): void {},
     destroy(): void {},
-  };
+  } as unknown as PhysicsBackend;
 }
 
 function makeEntity(index: number, generation: number = 0): Entity {

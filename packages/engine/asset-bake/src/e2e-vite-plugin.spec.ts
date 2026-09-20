@@ -75,7 +75,7 @@ describe("e2e: Vite asset-bake plugin", () => {
     });
 
     // The baked GLB should be emitted as an asset file.
-    const assetFiles = result.output.filter((f) => f.type === "asset" && f.fileName.endsWith(".glb"));
+    const assetFiles = (result as { output: { type: string; fileName: string }[] }).output.filter((f) => f.type === "asset" && f.fileName.endsWith(".glb"));
     expect(assetFiles.length).toBeGreaterThan(0);
     const glbAsset = assetFiles[0] as any;
     console.log(`  [e2e] emitted baked GLB: ${glbAsset.fileName} (${glbAsset.source.byteLength ?? glbAsset.source.length} bytes)`);
@@ -122,7 +122,7 @@ describe("e2e: Vite asset-bake plugin", () => {
       });
 
       // With baking disabled, no .glb asset should be emitted.
-      const glbAssets = result.output.filter((f) => f.type === "asset" && f.fileName.endsWith(".glb"));
+      const glbAssets = (result as { output: { type: string; fileName: string }[] }).output.filter((f) => f.type === "asset" && f.fileName.endsWith(".glb"));
       expect(glbAssets.length).toBe(0);
       console.log(`  [e2e] no-bake: 0 baked GLB assets (correct)`);
 
@@ -207,7 +207,7 @@ describe("e2e: Vite asset-bake plugin", () => {
       },
     });
 
-    const assetFiles = result.output.filter((f) => f.type === "asset" && f.fileName.endsWith(".glb"));
+    const assetFiles = (result as { output: { type: string; fileName: string }[] }).output.filter((f) => f.type === "asset" && f.fileName.endsWith(".glb"));
     expect(assetFiles.length).toBeGreaterThan(0);
     console.log(`  [e2e] cache hit build emitted: ${(assetFiles[0] as any).fileName}`);
   }, 120000);

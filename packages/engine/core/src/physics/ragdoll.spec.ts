@@ -2,7 +2,7 @@ import type { Bone, SkeletonData } from "../animation";
 import { Skeleton } from "../animation";
 import { query } from "../ecs/query";
 import { World } from "../ecs/world";
-import type { BodyDesc, CharacterControllerDesc, CharacterControllerHandle, CharacterMoveResult, ContactManifold, Entity, PhysicsBackend, PhysicsRealmConfig, RaycastResult, RigidBodyHandle, ShapeCastResult } from "./interface";
+import type { BodyDesc, CharacterControllerDesc, CharacterControllerHandle, CharacterMoveResult, ContactManifold, Entity, IntersectionPair, PhysicsBackend, PhysicsBody, PhysicsRealmConfig, RaycastResult, ShapeCastResult } from "./interface";
 import type { RagdollConfig } from "./ragdoll";
 import { createRagdoll, destroyRagdoll, Ragdoll } from "./ragdoll";
 import { humanoidRagdoll } from "./ragdoll-presets";
@@ -30,8 +30,8 @@ function makeMockBackend(): PhysicsBackend {
     getRealmIds(): number[] {
       return [...realms.keys()];
     },
-    createBody(realmId: number, _desc: BodyDesc, entity: Entity): RigidBodyHandle {
-      return { realmId, bodyId: ++nextBodyId, entity };
+    createBody(realmId: number, _desc: BodyDesc, entity: Entity): PhysicsBody {
+      return { realmId, id: ++nextBodyId, entity };
     },
     destroyBody(): void {},
     setBodyType(): void {},
@@ -64,15 +64,17 @@ function makeMockBackend(): PhysicsBackend {
     },
     destroyCharacterController(): void {},
     characterMove(): CharacterMoveResult {
-      return { grounded: false, groundNormal: [0, 1, 0], groundEntity: null, slid: false, stepped: false, effectiveMovement: [0, 0, 0] };
+      return { grounded: false, groundNormal: [0, 1, 0], groundEntity: null, slid: false, stepped: false, effectiveMovement: [0, 0, 0], collisions: [] };
     },
     createJoint(): number { return ++nextJointId; },
     destroyJoint(): void {},
     syncTransforms(): void {},
     readTransforms(): void {},
     destroy(): void {},
-  };
+  } as unknown as PhysicsBackend;
 }
+
+const REALM_CONFIG = { name: "main", gravity: [0, -9.81, 0] } as unknown as Omit<PhysicsRealmConfig, "id">;
 
 function makeEntity(index: number, generation: number = 0): Entity {
   return { index, generation };
@@ -189,7 +191,7 @@ describe("Ragdoll component", () => {
 describe("createRagdoll", () => {
   it("should create ragdoll bodies and joints from config", () => {
     const backend = makeMockBackend();
-    const realm = new PhysicsRealm(backend, { name: "main", gravity: [0, -9.81, 0] });
+    const realm = new PhysicsRealm(backend, REALM_CONFIG);
     const skeleton = makeTestSkeleton();
     const entity = makeEntity(1);
 
@@ -225,8 +227,8 @@ describe("createRagdoll", () => {
 
     const ragdoll = createRagdoll(realm, skeleton, config, entity);
     expect(ragdoll.bodyHandles.length).toBe(2);
-    expect(ragdoll.bodyHandles[0].bodyId).toBeGreaterThan(0);
-    expect(ragdoll.bodyHandles[1].bodyId).toBeGreaterThan(0);
+    expect(ragdoll.bodyHandles[0].id).toBeGreaterThan(0);
+    expect(ragdoll.bodyHandles[1].id).toBeGreaterThan(0);
     expect(ragdoll.jointIds.length).toBe(1);
     expect(ragdoll.jointIds[0]).toBeGreaterThan(0);
     expect(ragdoll.boneNames).toEqual(["Hips", "Head"]);
@@ -237,7 +239,7 @@ describe("createRagdoll", () => {
 
   it("should handle missing bones gracefully", () => {
     const backend = makeMockBackend();
-    const realm = new PhysicsRealm(backend, { name: "main", gravity: [0, -9.81, 0] });
+    const realm = new PhysicsRealm(backend, REALM_CONFIG);
     const skeleton = makeTestSkeleton();
     const entity = makeEntity(1);
 
@@ -265,7 +267,7 @@ describe("createRagdoll", () => {
 describe("destroyRagdoll", () => {
   it("should destroy all joints and bodies", () => {
     const backend = makeMockBackend();
-    const realm = new PhysicsRealm(backend, { name: "main", gravity: [0, -9.81, 0] });
+    const realm = new PhysicsRealm(backend, REALM_CONFIG);
     const skeleton = makeTestSkeleton();
     const entity = makeEntity(1);
 
@@ -370,23 +372,23 @@ describe("humanoidRagdoll preset", () => {
 describe("RagdollSystem", () => {
   it("should construct with a realm", () => {
     const backend = makeMockBackend();
-    const realm = new PhysicsRealm(backend, { name: "main", gravity: [0, -9.81, 0] });
+    const realm = new PhysicsRealm(backend, REALM_CONFIG);
     const sys = new RagdollSystem(realm);
     expect(sys).toBeDefined();
   });
 
   it("should register as ECS system", () => {
     const backend = makeMockBackend();
-    const realm = new PhysicsRealm(backend, { name: "main", gravity: [0, -9.81, 0] });
+    const realm = new PhysicsRealm(backend, REALM_CONFIG);
     const sys = new RagdollSystem(realm);
     const world = new World();
-    const q = query(Ragdoll);
+    const q = query(Ragdoll.id);
     expect(() => sys.register(world, q)).not.toThrow();
   });
 
   it("should activate and deactivate ragdoll", () => {
     const backend = makeMockBackend();
-    const realm = new PhysicsRealm(backend, { name: "main", gravity: [0, -9.81, 0] });
+    const realm = new PhysicsRealm(backend, REALM_CONFIG);
     const sys = new RagdollSystem(realm);
     const entity = makeEntity(1);
     sys.activateRagdoll(entity, 3);
@@ -395,7 +397,7 @@ describe("RagdollSystem", () => {
 
   it("should blend weight toward target over time", () => {
     const backend = makeMockBackend();
-    const realm = new PhysicsRealm(backend, { name: "main", gravity: [0, -9.81, 0] });
+    const realm = new PhysicsRealm(backend, REALM_CONFIG);
     const skeleton = makeTestSkeleton();
     const entity = makeEntity(1);
 

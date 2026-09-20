@@ -239,7 +239,7 @@ describe("CrowdSystem agent movement", () => {
       if (agent.state === "arrived") break;
     }
 
-    expect(agent.state).toBe("arrived");
+    expect(agent.state as string).toBe("arrived");
     expect(agent.velocity).toEqual([0, 0, 0]);
   });
 });
@@ -333,7 +333,7 @@ describe("CrowdSystem repathing", () => {
       if (agent.state === "arrived") break;
     }
 
-    expect(agent.state).toBe("arrived");
+    expect(agent.state as string).toBe("arrived");
   });
 });
 
@@ -384,7 +384,7 @@ describe("CrowdSystem edge cases", () => {
 
     world.step(0.1);
 
-    expect(agent.state).toBe("arrived");
+    expect(agent.state as string).toBe("arrived");
   });
 
   it("should handle agent with pathIndex beyond path length", () => {
@@ -399,14 +399,14 @@ describe("CrowdSystem edge cases", () => {
 
     world.step(0.1);
 
-    expect(agent.state).toBe("arrived");
+    expect(agent.state as string).toBe("arrived");
   });
 
   it("should handle multiple agents simultaneously", () => {
     const navMesh = makeNavMesh(12);
     const { world, crowd } = makeCrowdWorld(navMesh);
 
-    const agents: { entity: import("@downdraft/engine/ecs/entity").Entity; agent: NavAgentData }[] = [];
+    const agents: ReturnType<typeof spawnAgent>[] = [];
     for (let i = 0; i < 5; i++) {
       const a = spawnAgent(world, [1 + i * 2, 0, 1], { maxSpeed: 5, acceleration: 20 });
       agents.push(a);

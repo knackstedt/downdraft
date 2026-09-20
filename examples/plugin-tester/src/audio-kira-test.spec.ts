@@ -57,7 +57,9 @@ function makeConfig(): AudioBackendConfig {
     sampleRate: 44100,
     bufferSize: 1024,
     channels: 2,
-    masterVolume: 1.0,
+    spatialEnabled: false,
+    maxSources: 64,
+    speedOfSound: 343.3,
   };
 }
 
@@ -183,15 +185,15 @@ describe("KiraAudioBackend", () => {
 
     it("should stop a playing source", () => {
       const handle = audio.play(bufferId);
-      audio.stop(handle.sourceId);
-      const state = audio.getSourceState(handle.sourceId);
+      audio.stop(handle.sourceId!);
+      const state = audio.getSourceState(handle.sourceId!);
       expect(state).toBeNull();
     });
 
     it("should pause a playing source", () => {
       const handle = audio.play(bufferId);
-      audio.pause(handle.sourceId);
-      const state = audio.getSourceState(handle.sourceId);
+      audio.pause(handle.sourceId!);
+      const state = audio.getSourceState(handle.sourceId!);
       expect(state).not.toBeNull();
       expect(state!.playing).toBe(false);
       expect(state!.paused).toBe(true);
@@ -199,9 +201,9 @@ describe("KiraAudioBackend", () => {
 
     it("should resume a paused source", () => {
       const handle = audio.play(bufferId);
-      audio.pause(handle.sourceId);
-      audio.resume(handle.sourceId);
-      const state = audio.getSourceState(handle.sourceId);
+      audio.pause(handle.sourceId!);
+      audio.resume(handle.sourceId!);
+      const state = audio.getSourceState(handle.sourceId!);
       expect(state!.playing).toBe(true);
       expect(state!.paused).toBe(false);
     });
@@ -226,7 +228,7 @@ describe("KiraAudioBackend", () => {
       await audio.init(makeConfig());
       const buf = loadTestBuffer(audio, "wav", 100);
       const handle = audio.play(buf.id);
-      sourceId = handle.sourceId;
+      sourceId = handle.sourceId!;
     });
 
     it("should set and get source volume", () => {
@@ -295,7 +297,7 @@ describe("KiraAudioBackend", () => {
       const buf = loadTestBuffer(audio, "wav", 100);
       const h1 = audio.play(buf.id);
       audio.play(buf.id);
-      audio.stop(h1.sourceId);
+      audio.stop(h1.sourceId!);
       const active = audio.getActiveSources();
       expect(active.length).toBe(1);
     });

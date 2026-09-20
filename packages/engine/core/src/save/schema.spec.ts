@@ -34,9 +34,7 @@ describe("SchemaRegistry", () => {
     const reg = new SchemaRegistry();
     reg.registerMigration(0, (data) => ({ ...data as object, v1: true }));
     reg.registerMigration(1, (data) => ({ ...data as object, v2: true }));
-    reg.currentVersion = 2;
-
-    const result = reg.migrate({ start: true }, 0) as Record<string, unknown>;
+    const result = reg.migrate({ start: true }, 0, 2) as Record<string, unknown>;
     expect(result.v1).toBe(true);
     expect(result.v2).toBe(true);
     expect(result.start).toBe(true);
@@ -54,9 +52,8 @@ describe("SchemaRegistry", () => {
   it("should skip missing migrations gracefully", () => {
     const reg = new SchemaRegistry();
     reg.registerMigration(1, (data) => ({ ...data as object, v2: true }));
-    reg.currentVersion = 2;
 
-    const result = reg.migrate({ start: true }, 0) as Record<string, unknown>;
+    const result = reg.migrate({ start: true }, 0, 2) as Record<string, unknown>;
     expect(result.v2).toBe(true);
   });
 

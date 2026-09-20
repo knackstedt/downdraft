@@ -48,7 +48,7 @@ describe("Lighting", () => {
   it("should pack point lights into Float32Array of correct size", () => {
     const data = createDefaultLightUniform();
     data.pointLights = [
-      { position: vec3.create(1, 2, 3), color: vec3.create(1, 1, 1), intensity: 2, range: 10, type: LightType.Point, attenuation: 2 },
+      { position: vec3.create(1, 2, 3), color: vec3.create(1, 1, 1), intensity: 2, range: 10 },
     ];
     data.pointLightCount = 1;
 

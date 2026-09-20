@@ -4,6 +4,7 @@ import {
     createArchetype,
     findEntityRow,
     getArchetypeForComponents,
+    getColumnValue,
     getComponentColumn,
     removeEntityFromArchetype,
 } from "./archetype";
@@ -73,7 +74,7 @@ describe("Archetype", () => {
 
     const col = getComponentColumn(arch, Position.id);
     expect(col).toBeDefined();
-    expect(col![0]).toEqual({ x: 5, y: 10 });
+    expect(getColumnValue<{ x: number; y: number }>(col, 0)).toEqual({ x: 5, y: 10 });
   });
 
   it("removeEntityFromArchetype should remove entity", () => {
@@ -134,9 +135,9 @@ describe("Archetype", () => {
     expect(findEntityRow(arch, e2)).toBe(-1);
 
     // Component data should reflect the swap
-    const col = getComponentColumn<typeof Position.defaults>(arch, Position.id);
-    expect(col[0].x).toBe(1);
-    expect(col[1].x).toBe(3);
+    const col = getComponentColumn(arch, Position.id);
+    expect(getColumnValue<{ x: number }>(col, 0)!.x).toBe(1);
+    expect(getColumnValue<{ x: number }>(col, 1)!.x).toBe(3);
   });
 
   it("findEntityRow should return -1 for stale generation", () => {

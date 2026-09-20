@@ -3,7 +3,7 @@ import { World } from "../ecs/world";
 import { Scene } from "./scene";
 import { SceneManager } from "./scene-manager";
 
-interface PositionData { x: number; y: number; z: number }
+type PositionData = { x: number; y: number; z: number };
 const Position: ComponentDefinition<PositionData> = component<PositionData>("Position", { x: 0, y: 0, z: 0 });
 
 describe("Scene", () => {

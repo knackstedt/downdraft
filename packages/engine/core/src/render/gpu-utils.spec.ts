@@ -49,7 +49,7 @@ function makeMockDevice(): {
       } else if (Array.isArray(s)) {
         textureSize = [s[0], s[1]];
       } else {
-        textureSize = [s.width, s.height];
+        textureSize = [(s as GPUExtent3DDict).width, (s as GPUExtent3DDict).height ?? 1];
       }
       calls.push({
         type: "texture",

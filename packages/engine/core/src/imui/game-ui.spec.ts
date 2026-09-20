@@ -169,9 +169,7 @@ describe("setUIFontScale", () => {
 
 describe("UIInputRouter pointer-over-UI", () => {
   it("returns false when pointer hits only the root or is untracked", () => {
-    const root = new UIRoot();
-    root.width = 800;
-    root.height = 600;
+    const root = new UIRoot(800, 600);
     const router = new UIInputRouter();
     router.setRoot(root);
     expect(router.isPointerOverUI()).toBe(false);
@@ -180,9 +178,7 @@ describe("UIInputRouter pointer-over-UI", () => {
   });
 
   it("pointerThrough containers let children hit-test but not themselves", () => {
-    const root = new UIRoot();
-    root.width = 800;
-    root.height = 600;
+    const root = new UIRoot(800, 600);
     const wrap = new UIPanel(800, 600);
     wrap.pointerThrough = true;
     const btn = new UIPanel(40, 40);

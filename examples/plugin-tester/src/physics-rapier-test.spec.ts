@@ -1,6 +1,27 @@
-import type { BodyDesc, ColliderDesc, Entity, PhysicsRealmConfig } from "@downdraft/engine";
+import { RealmTier } from "@downdraft/engine";
+import type { BodyDesc, ColliderDesc, Entity, PhysicsRealmConfig, RealmTierConfig } from "@downdraft/engine";
 import { RapierPhysicsBackend } from "@downdraft/engine/libraries/physics-rapier";
 import { beforeEach, describe, expect, it } from "bun:test";
+
+
+const TIER_CONFIG: RealmTierConfig = {
+  tickFrequency: 1,
+  solverIterations: 4,
+  promoteThreshold: 0,
+  demoteThreshold: 0,
+  demoteDwellTime: 0,
+};
+
+function realmConfig(overrides: Partial<PhysicsRealmConfig> = {}): PhysicsRealmConfig {
+  return {
+    id: 0,
+    name: "test",
+    tier: RealmTier.Near,
+    gravity: [0, -9.81, 0],
+    tierConfig: TIER_CONFIG,
+    ...overrides,
+  };
+}
 
 // ============================================================================
 // Helper: Create a simple entity
@@ -21,7 +42,7 @@ function makeDynamicBody(pos: [number, number, number] = [0, 0, 0]): BodyDesc {
 
 function makeStaticBody(pos: [number, number, number] = [0, 0, 0]): BodyDesc {
   return {
-    type: "fixed",
+    type: "static",
     position: pos,
     rotation: [0, 0, 0, 1],
   };
@@ -49,29 +70,26 @@ describe("RapierPhysicsBackend", () => {
 
   describe("Realm Management", () => {
     it("should create a realm and return its ID", () => {
-      const config: PhysicsRealmConfig = {
-        id: 1,
-        gravity: [0, -9.81, 0],
-      };
+      const config: PhysicsRealmConfig = realmConfig({ id: 1 });
       const id = physics.createRealm(config);
       expect(id).toBe(1);
       expect(physics.getRealmIds()).toContain(1);
     });
 
     it("should auto-assign realm ID when not provided", () => {
-      const id = physics.createRealm({ gravity: [0, -9.81, 0] });
+      const id = physics.createRealm(realmConfig({gravity: [0, -9.81, 0] }));
       expect(id).toBe(1);
     });
 
     it("should create multiple realms with auto-incrementing IDs", () => {
-      const id1 = physics.createRealm({ gravity: [0, -9.81, 0] });
-      const id2 = physics.createRealm({ gravity: [0, -20, 0] });
+      const id1 = physics.createRealm(realmConfig({gravity: [0, -9.81, 0] }));
+      const id2 = physics.createRealm(realmConfig({gravity: [0, -20, 0] }));
       expect(id1).toBe(1);
       expect(id2).toBe(2);
     });
 
     it("should destroy a realm", () => {
-      physics.createRealm({ id: 5, gravity: [0, -9.81, 0] });
+      physics.createRealm(realmConfig({id: 5, gravity: [0, -9.81, 0] }));
       physics.destroyRealm(5);
       expect(physics.getRealmIds()).not.toContain(5);
     });
@@ -85,7 +103,7 @@ describe("RapierPhysicsBackend", () => {
     let realmId: number;
 
     beforeEach(() => {
-      realmId = physics.createRealm({ gravity: [0, -9.81, 0] });
+      realmId = physics.createRealm(realmConfig({gravity: [0, -9.81, 0] }));
     });
 
     it("should create a body and return a handle", () => {
@@ -110,7 +128,7 @@ describe("RapierPhysicsBackend", () => {
 
     it("should set body type", () => {
       const handle = physics.createBody(realmId, makeDynamicBody(), makeEntity(0));
-      physics.setBodyType(handle, "fixed");
+      physics.setBodyType(handle, "static");
       // No error means success
     });
 
@@ -123,7 +141,7 @@ describe("RapierPhysicsBackend", () => {
     let realmId: number;
 
     beforeEach(() => {
-      realmId = physics.createRealm({ gravity: [0, -9.81, 0] });
+      realmId = physics.createRealm(realmConfig({gravity: [0, -9.81, 0] }));
     });
 
     it("should return initial position", () => {
@@ -149,11 +167,11 @@ describe("RapierPhysicsBackend", () => {
     });
 
     it("should return [0,0,0] for position of non-existent body", () => {
-      expect(physics.getPosition({ realmId, bodyId: 999, entity: makeEntity(0) })).toEqual([0, 0, 0]);
+      expect(physics.getPosition({ realmId, id: 999, entity: makeEntity(0) })).toEqual([0, 0, 0]);
     });
 
     it("should return [0,0,0,1] for rotation of non-existent body", () => {
-      expect(physics.getRotation({ realmId, bodyId: 999, entity: makeEntity(0) })).toEqual([0, 0, 0, 1]);
+      expect(physics.getRotation({ realmId, id: 999, entity: makeEntity(0) })).toEqual([0, 0, 0, 1]);
     });
   });
 
@@ -161,7 +179,7 @@ describe("RapierPhysicsBackend", () => {
     let realmId: number;
 
     beforeEach(() => {
-      realmId = physics.createRealm({ gravity: [0, -9.81, 0] });
+      realmId = physics.createRealm(realmConfig({gravity: [0, -9.81, 0] }));
     });
 
     it("should return initial linear velocity as [0,0,0]", () => {
@@ -186,7 +204,7 @@ describe("RapierPhysicsBackend", () => {
     let realmId: number;
 
     beforeEach(() => {
-      realmId = physics.createRealm({ gravity: [0, -9.81, 0] });
+      realmId = physics.createRealm(realmConfig({gravity: [0, -9.81, 0] }));
     });
 
     it("should apply impulse to dynamic body", () => {
@@ -219,7 +237,7 @@ describe("RapierPhysicsBackend", () => {
     let realmId: number;
 
     beforeEach(() => {
-      realmId = physics.createRealm({ gravity: [0, -9.81, 0] });
+      realmId = physics.createRealm(realmConfig({gravity: [0, -9.81, 0] }));
     });
 
     it("should add a collider and return its ID", () => {
@@ -248,7 +266,7 @@ describe("RapierPhysicsBackend", () => {
     let realmId: number;
 
     beforeEach(() => {
-      realmId = physics.createRealm({ gravity: [0, -9.81, 0] });
+      realmId = physics.createRealm(realmConfig({gravity: [0, -9.81, 0] }));
     });
 
     it("should start awake by default", () => {
@@ -272,7 +290,7 @@ describe("RapierPhysicsBackend", () => {
     let realmId: number;
 
     beforeEach(() => {
-      realmId = physics.createRealm({ gravity: [0, -9.81, 0] });
+      realmId = physics.createRealm(realmConfig({gravity: [0, -9.81, 0] }));
     });
 
     it("should apply gravity during step", () => {
@@ -314,8 +332,8 @@ describe("RapierPhysicsBackend", () => {
     });
 
     it("should step all realms", () => {
-      const realm1 = physics.createRealm({ gravity: [0, -10, 0] });
-      const realm2 = physics.createRealm({ gravity: [0, -20, 0] });
+      const realm1 = physics.createRealm(realmConfig({gravity: [0, -10, 0] }));
+      const realm2 = physics.createRealm(realmConfig({gravity: [0, -20, 0] }));
       const h1 = physics.createBody(realm1, makeDynamicBody([0, 100, 0]), makeEntity(0));
       const h2 = physics.createBody(realm2, makeDynamicBody([0, 100, 0]), makeEntity(1));
       physics.stepAll(1.0);
@@ -328,7 +346,7 @@ describe("RapierPhysicsBackend", () => {
     let realmId: number;
 
     beforeEach(() => {
-      realmId = physics.createRealm({ gravity: [0, 0, 0] });
+      realmId = physics.createRealm(realmConfig({gravity: [0, 0, 0] }));
     });
 
     it("should hit a sphere collider", () => {
@@ -369,7 +387,7 @@ describe("RapierPhysicsBackend", () => {
     let realmId: number;
 
     beforeEach(() => {
-      realmId = physics.createRealm({ gravity: [0, 0, 0] });
+      realmId = physics.createRealm(realmConfig({gravity: [0, 0, 0] }));
     });
 
     it("should detect contact between overlapping spheres", () => {
@@ -397,7 +415,7 @@ describe("RapierPhysicsBackend", () => {
     let realmId: number;
 
     beforeEach(() => {
-      realmId = physics.createRealm({ gravity: [0, -9.81, 0] });
+      realmId = physics.createRealm(realmConfig({gravity: [0, -9.81, 0] }));
     });
 
     it("should read transforms into buffer", () => {
@@ -421,12 +439,12 @@ describe("RapierPhysicsBackend", () => {
 
   describe("Destroy", () => {
     it("should destroy cleanly", () => {
-      physics.createRealm({ gravity: [0, -9.81, 0] });
+      physics.createRealm(realmConfig({gravity: [0, -9.81, 0] }));
       expect(() => physics.destroy()).not.toThrow();
     });
 
     it("should clear realms on destroy", () => {
-      physics.createRealm({ gravity: [0, -9.81, 0] });
+      physics.createRealm(realmConfig({gravity: [0, -9.81, 0] }));
       physics.destroy();
       expect(physics.getRealmIds().length).toBe(0);
     });

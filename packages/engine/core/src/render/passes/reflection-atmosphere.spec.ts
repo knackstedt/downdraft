@@ -24,7 +24,7 @@ describe("reflection-probe", () => {
   describe("ReflectionProbeManager (without device)", () => {
     it("creates and retrieves probes", () => {
       const mgr = new ReflectionProbeManager();
-      const probe = mgr.addProbe("p1", [0, 0, 0], [-10, -10, -10], [10, 10, 10]);
+      const probe = mgr.addProbe("p1", new Float32Array([0, 0, 0]), new Float32Array([-10, -10, -10]), new Float32Array([10, 10, 10]));
       expect(probe).not.toBeNull();
       expect(probe!.id).toBe("p1");
       expect(mgr.getProbe("p1")).not.toBeNull();
@@ -32,26 +32,26 @@ describe("reflection-probe", () => {
 
     it("returns null when max probes exceeded", () => {
       const mgr = new ReflectionProbeManager({ maxProbes: 2 });
-      mgr.addProbe("p1", [0, 0, 0], [-1, -1, -1], [1, 1, 1]);
-      mgr.addProbe("p2", [0, 0, 0], [-1, -1, -1], [1, 1, 1]);
-      const p3 = mgr.addProbe("p3", [0, 0, 0], [-1, -1, -1], [1, 1, 1]);
+      mgr.addProbe("p1", new Float32Array([0, 0, 0]), new Float32Array([-1, -1, -1]), new Float32Array([1, 1, 1]));
+      mgr.addProbe("p2", new Float32Array([0, 0, 0]), new Float32Array([-1, -1, -1]), new Float32Array([1, 1, 1]));
+      const p3 = mgr.addProbe("p3", new Float32Array([0, 0, 0]), new Float32Array([-1, -1, -1]), new Float32Array([1, 1, 1]));
       expect(p3).toBeNull();
     });
 
     it("finds probes containing a position", () => {
       const mgr = new ReflectionProbeManager();
-      mgr.addProbe("p1", [0, 0, 0], [-10, -10, -10], [10, 10, 10], 1);
-      mgr.addProbe("p2", [20, 0, 0], [15, -10, -10], [25, 10, 10], 2);
-      const inside = mgr.findProbesForPosition([5, 0, 0]);
+      mgr.addProbe("p1", new Float32Array([0, 0, 0]), new Float32Array([-10, -10, -10]), new Float32Array([10, 10, 10]), 1);
+      mgr.addProbe("p2", new Float32Array([20, 0, 0]), new Float32Array([15, -10, -10]), new Float32Array([25, 10, 10]), 2);
+      const inside = mgr.findProbesForPosition(new Float32Array([5, 0, 0]));
       expect(inside.length).toBe(1);
       expect(inside[0].id).toBe("p1");
     });
 
     it("computes probe weights", () => {
       const mgr = new ReflectionProbeManager();
-      mgr.addProbe("p1", [0, 0, 0], [-10, -10, -10], [10, 10, 10], 1);
-      mgr.addProbe("p2", [0, 0, 0], [-10, -10, -10], [10, 10, 10], 1);
-      const weights = mgr.computeProbeWeights([0, 0, 0]);
+      mgr.addProbe("p1", new Float32Array([0, 0, 0]), new Float32Array([-10, -10, -10]), new Float32Array([10, 10, 10]), 1);
+      mgr.addProbe("p2", new Float32Array([0, 0, 0]), new Float32Array([-10, -10, -10]), new Float32Array([10, 10, 10]), 1);
+      const weights = mgr.computeProbeWeights(new Float32Array([0, 0, 0]));
       expect(weights.length).toBe(2);
       const total = weights.reduce((s, w) => s + w.weight, 0);
       expect(total).toBeCloseTo(1.0);
@@ -59,15 +59,15 @@ describe("reflection-probe", () => {
 
     it("removes probes", () => {
       const mgr = new ReflectionProbeManager();
-      mgr.addProbe("p1", [0, 0, 0], [-1, -1, -1], [1, 1, 1]);
+      mgr.addProbe("p1", new Float32Array([0, 0, 0]), new Float32Array([-1, -1, -1]), new Float32Array([1, 1, 1]));
       mgr.removeProbe("p1");
       expect(mgr.getProbe("p1")).toBeNull();
     });
 
     it("returns empty array for position outside all probes", () => {
       const mgr = new ReflectionProbeManager();
-      mgr.addProbe("p1", [0, 0, 0], [-10, -10, -10], [10, 10, 10]);
-      const inside = mgr.findProbesForPosition([100, 100, 100]);
+      mgr.addProbe("p1", new Float32Array([0, 0, 0]), new Float32Array([-10, -10, -10]), new Float32Array([10, 10, 10]));
+      const inside = mgr.findProbesForPosition(new Float32Array([100, 100, 100]));
       expect(inside.length).toBe(0);
     });
   });

@@ -1,15 +1,14 @@
-import { CrashRecoveryManager, DEFAULT_RECOVERY_CONFIG } from "./crash-recovery";
-import type { SimWorkerSupervisor } from "./supervisor";
+import { CrashRecoveryManager, DEFAULT_RECOVERY_CONFIG, type SimWorkerLike } from "./crash-recovery";
 import type { CheckpointManager, CheckpointData } from "../scene/checkpoint";
 import type { World } from "../ecs/world";
 import type { Serializer, SaveData } from "../save/serializer";
 
-function makeMockSupervisor(): SimWorkerSupervisor {
+function makeMockSupervisor(): SimWorkerLike {
   return {
     start: () => {},
     terminate: () => {},
     getHandle: () => null,
-  } as unknown as SimWorkerSupervisor;
+  } as unknown as SimWorkerLike;
 }
 
 function makeMockCheckpointManager(): CheckpointManager {

@@ -12,19 +12,19 @@ function makeBackend(overrides: Partial<PhysicsBackend> = {}): PhysicsBackend {
   return {
     name: "mock", version: "1.0.0", init: async () => {},
     createRealm: () => 0, destroyRealm: () => {}, getRealmIds: () => [0],
-    createBody: (_r, desc, entity) => {
+    createBody: (_r: number, desc: { type: string }, entity: import("./interface").Entity) => {
       const body = makeBody(Math.floor(Math.random() * 0x7fffffff));
       types.set(body.id, desc.type);
       velocities.set(body.id, [0, 0, 0]);
       return body;
     },
     destroyBody: () => {},
-    setBodyType: (b, t) => { types.set(b.id, t); },
+    setBodyType: (b: PhysicsBody, t: string) => { types.set(b.id, t); },
     addCollider: () => 0, removeCollider: () => {},
     applyForce: () => {}, applyImpulse: () => {}, applyTorque: () => {},
     applyTorqueImpulse: () => {}, applyImpulseAtPoint: () => {},
-    setLinearVelocity: (b, v) => { velocities.set(b.id, [...v] as [number, number, number]); },
-    getLinearVelocity: (b) => velocities.get(b.id) ?? [0, 0, 0],
+    setLinearVelocity: (b: PhysicsBody, v: [number, number, number]) => { velocities.set(b.id, [...v]); },
+    getLinearVelocity: (b: PhysicsBody) => velocities.get(b.id) ?? [0, 0, 0],
     setAngularVelocity: () => {}, getAngularVelocity: () => [0, 0, 0],
     setPosition: () => {}, getPosition: () => [0, 0, 0],
     setRotation: () => {}, getRotation: () => [0, 0, 0, 1],
@@ -115,8 +115,8 @@ describe("LoadShedder", () => {
     shedder.setImportance(1, 0.9); // high importance
     shedder.setImportance(2, 0.1); // low importance
     const islands: IslandInfo[] = [
-      { id: 0, bodyIds: [1], avgVelocity: 1, sleeping: false },
-      { id: 1, bodyIds: [2], avgVelocity: 0.1, sleeping: false },
+      { bodyIds: [1], maxImportance: 0, avgVelocity: 1 },
+      { bodyIds: [2], maxImportance: 0, avgVelocity: 0.1 },
     ];
     const backend = makeBackend({ getIslands: () => islands });
     const bodyMap = new Map<number, PhysicsBody>();

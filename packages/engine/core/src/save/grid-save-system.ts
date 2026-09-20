@@ -52,7 +52,7 @@ export interface GridSaveSystemOptions<Meta, Entry> {
 
 export interface GridSaveSystem<Meta, Entry> {
   /** Save to a named slot with thumbnail. Returns the generated id + timestamp. */
-  saveGame(name: string, thumbnail: ArrayBuffer, meta: Meta): Promise<{ id: string; timestamp: number }>;
+  saveGame(name: string, thumbnail: ArrayBuffer | null, meta: Meta): Promise<{ id: string; timestamp: number }>;
   /** Load from a named slot. Returns null if no save or invalid. */
   loadGame(id: string): Promise<Entry | null>;
   /** List all saves (excluding the autosave slot). */
@@ -80,12 +80,12 @@ export function createGridSaveSystem<Meta, Entry>(
   }
 
   return {
-    async saveGame(name: string, thumbnail: ArrayBuffer, meta: Meta): Promise<{ id: string; timestamp: number }> {
+    async saveGame(name: string, thumbnail: ArrayBuffer | null, meta: Meta): Promise<{ id: string; timestamp: number }> {
       const store = await getStore();
       const id = `save-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const state = opts.buildState(meta);
       await store.save(id, state, {
-        thumbnail: new Uint8Array(thumbnail),
+        thumbnail: thumbnail ? new Uint8Array(thumbnail) : undefined,
         properties: { name, savedAt: Date.now() },
         blobs: opts.buildBlobs(meta),
       });

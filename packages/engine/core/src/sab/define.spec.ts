@@ -107,14 +107,14 @@ describe("defineManifest", () => {
     expect(attached.b.writer).toBeDefined();
 
     // Verify data flows
-    attached.a.writer.fields.value[0] = 99;
-    expect(attached.a.reader.fields.value[0]).toBe(99);
+    attached.a.writer.fields!.value[0] = 99;
+    expect(attached.a.reader.fields!.value[0]).toBe(99);
 
-    const slot = attached.b.writer.sections.items.slot(0);
+    const slot = attached.b.writer.sections!.items.slot(0);
     slot.f32[0] = 1.5;
     slot.u32[1] = 7;
 
-    const rslot = attached.b.reader.sections.items.slot(0);
+    const rslot = attached.b.reader.sections!.items.slot(0);
     expect(rslot.f32[0]).toBe(1.5);
     expect(rslot.u32[1]).toBe(7);
   });

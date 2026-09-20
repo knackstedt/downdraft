@@ -11,7 +11,7 @@ function makeMockBackend(): PhysicsBackend {
     name: "mock", version: "1.0.0", init: async () => {},
     createRealm: (c: PhysicsRealmConfig) => c.id ?? 1,
     destroyRealm: () => {}, getRealmIds: () => [1],
-    createBody: (_r, desc, entity) => {
+    createBody: (_r: number, desc: { position: [number, number, number]; rotation: [number, number, number, number] }, entity: Entity) => {
       const body: PhysicsBody = { id: ++nextBodyId, realmId: _r, entity };
       bodyStates.set(key(body), {
         pos: [...desc.position] as [number, number, number],
@@ -20,18 +20,18 @@ function makeMockBackend(): PhysicsBackend {
       });
       return body;
     },
-    destroyBody: (b) => { bodyStates.delete(key(b)); },
+    destroyBody: (b: PhysicsBody) => { bodyStates.delete(key(b)); },
     setBodyType: () => {}, addCollider: () => 0, removeCollider: () => {},
     applyForce: () => {}, applyImpulse: () => {}, applyTorque: () => {},
     applyTorqueImpulse: () => {}, applyImpulseAtPoint: () => {},
-    setLinearVelocity: (b, v) => { const s = bodyStates.get(key(b)); if (s) s.linVel = [...v] as [number, number, number]; },
-    getLinearVelocity: (b) => bodyStates.get(key(b))?.linVel ?? [0, 0, 0],
-    setAngularVelocity: (b, v) => { const s = bodyStates.get(key(b)); if (s) s.angVel = [...v] as [number, number, number]; },
-    getAngularVelocity: (b) => bodyStates.get(key(b))?.angVel ?? [0, 0, 0],
-    setPosition: (b, p) => { const s = bodyStates.get(key(b)); if (s) s.pos = [...p] as [number, number, number]; },
-    getPosition: (b) => bodyStates.get(key(b))?.pos ?? [0, 0, 0],
-    setRotation: (b, r) => { const s = bodyStates.get(key(b)); if (s) s.rot = [...r] as [number, number, number, number]; },
-    getRotation: (b) => bodyStates.get(key(b))?.rot ?? [0, 0, 0, 1],
+    setLinearVelocity: (b: PhysicsBody, v: [number, number, number]) => { const s = bodyStates.get(key(b)); if (s) s.linVel = [...v]; },
+    getLinearVelocity: (b: PhysicsBody) => bodyStates.get(key(b))?.linVel ?? [0, 0, 0],
+    setAngularVelocity: (b: PhysicsBody, v: [number, number, number]) => { const s = bodyStates.get(key(b)); if (s) s.angVel = [...v]; },
+    getAngularVelocity: (b: PhysicsBody) => bodyStates.get(key(b))?.angVel ?? [0, 0, 0],
+    setPosition: (b: PhysicsBody, p: [number, number, number]) => { const s = bodyStates.get(key(b)); if (s) s.pos = [...p]; },
+    getPosition: (b: PhysicsBody) => bodyStates.get(key(b))?.pos ?? [0, 0, 0],
+    setRotation: (b: PhysicsBody, r: [number, number, number, number]) => { const s = bodyStates.get(key(b)); if (s) s.rot = [...r]; },
+    getRotation: (b: PhysicsBody) => bodyStates.get(key(b))?.rot ?? [0, 0, 0, 1],
     wakeUp: () => {}, isSleeping: () => false,
     setSleepThresholds: () => {}, setSolverIterations: () => {}, setCCDEnabled: () => {},
     getIslands: () => [] as IslandInfo[],

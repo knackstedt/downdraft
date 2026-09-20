@@ -160,11 +160,11 @@ describe("wgsl.struct layout", () => {
 
   it("nested struct via field referencing another WgslStruct", () => {
     const inner = wgsl.struct("Inner", { x: f32, y: f32 });
-    // Use the inner struct as a field type. Since WgslStruct has align/size,
-    // we can pass it directly (it satisfies the WgslType shape).
+    // Nested struct field via wgsl.ref() — emits `inner: Inner,` and lays out
+    // at the inner struct's align/size.
     const outer = wgsl.struct("Outer", {
       flag: u32,
-      inner: inner as unknown as ReturnType<typeof wgsl.struct>,
+      inner: wgsl.ref(inner),
     });
     // inner align 4, size 8. flag@0, inner@4 (align 4), size 12 → pad to 12 (align 4)
     expect(outer.fieldMap.get("flag")!.offset).toBe(0);
@@ -250,8 +250,8 @@ describe("StructView", () => {
   it("throws on unknown field", () => {
     const s = wgsl.struct("S", { a: f32 });
     const v = s.view(new Float32Array(s.floatCount));
-    expect(() => v.set("nope", 1)).toThrow(/unknown field "nope"/);
-    expect(() => v.setU32("nope", 1)).toThrow(/unknown field "nope"/);
+    expect(() => v.set("nope" as "a", 1)).toThrow(/unknown field "nope"/);
+    expect(() => v.setU32("nope" as "a", 1)).toThrow(/unknown field "nope"/);
   });
 
   it("throws when buffer too small", () => {

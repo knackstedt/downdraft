@@ -208,13 +208,13 @@ describe("MCP End-to-End: AI Agent Scene Building", () => {
     const data = parseJSON(result);
     expect(data.target).toBe("linux");
     expect(data.stats).toBeDefined();
-    expect(data.stats.entities).toBeGreaterThan(0);
+    expect((data.stats as { entities: number }).entities).toBeGreaterThan(0);
   });
 
   it("should read scene-tree resource", async () => {
     const result = await server.readResource("downdraft://scene-tree");
     expect(result.contents).toHaveLength(1);
-    const text = result.contents[0].text;
+    const text = result.contents[0].text!;
     const data = JSON.parse(text);
     expect(data.scene).toBeDefined();
     expect(data.entities).toBeDefined();
@@ -224,7 +224,7 @@ describe("MCP End-to-End: AI Agent Scene Building", () => {
   it("should read performance resource", async () => {
     const result = await server.readResource("downdraft://performance");
     expect(result.contents).toHaveLength(1);
-    const data = JSON.parse(result.contents[0].text);
+    const data = JSON.parse(result.contents[0].text!);
     expect(data.frameTime).toBeDefined();
   });
 

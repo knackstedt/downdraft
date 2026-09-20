@@ -191,9 +191,6 @@
   ],
   "exclude": [
     "dist",
-    "packages/**/*.spec.ts",
-    "games/**/*.spec.ts",
-    "examples/**/*.spec.ts",
     "packages/engine/libraries/pixi-ui-native/src/**/*",
     "tests/test-ibl.ts"
   ]

@@ -94,7 +94,7 @@ describe("e2e: bake glTF round-trip", () => {
       "../../libraries/models/src/codecs/basisu-codec"
     );
     const codec = createBasisuTextureCodec();
-    const decoded = await codec.decode({ data: ktx2Bytes });
+    const decoded = await codec.decode({ data: ktx2Bytes, extension: {} });
 
     expect(decoded.width).toBeGreaterThan(0);
     expect(decoded.height).toBeGreaterThan(0);

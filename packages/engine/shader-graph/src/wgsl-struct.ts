@@ -205,6 +205,16 @@ export const wgsl = {
   mat4x4f, mat3x3f, mat4x3f, mat3x4f, mat2x2f, mat2x4f, mat4x2f,
   array: arrayOf,
 
+  /**
+   * Reference a previously-defined `WgslStruct` as a field type inside another
+   * struct (nested-struct layout). The emitted WGSL field line uses the struct
+   * name (e.g. `inner: Inner,`); the nested struct's own declaration must be
+   * emitted separately via `inner.wgsl`.
+   */
+  ref(s: WgslStruct): WgslType {
+    return makeType(s.name, s.align, s.size, s.size, false, true);
+  },
+
   struct<T extends WgslFieldDefs>(name: string, fields: T): WgslStruct<keyof T & string> {
     const layouts: WgslFieldLayout[] = [];
     let offset = 0;

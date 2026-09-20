@@ -2,7 +2,7 @@ import { CoreInputChannel } from "../sab/core-input-channel";
 import { InputSABChannel } from "../sab/input";
 import { InputContextRouter } from "./context";
 import { InputSABBridge } from "./sab-bridge";
-import { InputContext, InputState } from "./state";
+import { InputContext, InputState, type XRControllerState } from "./state";
 
 describe("InputState", () => {
   it("should track key down and up events", () => {

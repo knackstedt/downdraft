@@ -13,7 +13,7 @@ describe("permissions", () => {
       expect(TIER_ALLOWED.data.size).toBe(0);
     });
     it("script tier allows only safe perms", () => {
-      expect([...TIER_ALLOWED.script].sort()).toEqual(
+      expect(([...TIER_ALLOWED.script] as string[]).sort()).toEqual(
         ["events", "log", "state", "storage", "tick"].sort(),
       );
     });

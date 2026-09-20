@@ -12,7 +12,7 @@ describe("ChangeTracker", () => {
 
     world.step(0); // tick = 1
 
-    tracker.write(entity, Position.id, (data) => {
+    tracker.write<{ x: number; lastChanged?: number }>(entity, Position.id, (data) => {
       data.x = 10;
     });
 
@@ -41,7 +41,7 @@ describe("ChangeTracker", () => {
     const tracker = new ChangeTracker(world);
     const entity = world.spawn(new Map());
 
-    tracker.write(entity, Position.id, (data) => {
+    tracker.write<{ x: number; lastChanged?: number }>(entity, Position.id, (data) => {
       data.x = 10;
     });
     // Should not throw

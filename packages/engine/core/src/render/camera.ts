@@ -117,6 +117,19 @@ export class CameraSystem {
   private lookPitch = 0;
   private lookSyncedTick = -1;
 
+  /**
+   * Set the look direction directly, bypassing mouse deltas, and mark it as
+   * synced (unlike resetLook(), does not trigger reinit from SAB on next tick).
+   * Used by the native/test harness.
+   */
+  setLookState(heading: number, pitch: number): void {
+    this.lookHeading = heading;
+    this.lookPitch = pitch;
+    this.lookSyncedTick = 0;
+  }
+
+  getLookSyncedTick(): number { return this.lookSyncedTick; }
+
   private firstPersonSensitivity: number;
   private thirdPersonSensitivity: number;
   private freecamSensitivity: number;

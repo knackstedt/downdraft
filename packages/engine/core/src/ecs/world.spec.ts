@@ -28,7 +28,7 @@ const Health = component("Health", {
 describe("ECS World", () => {
   it("should spawn entities with components", () => {
     const world = new World();
-    const components = new Map([
+    const components = new Map<number, unknown>([
       [Transform.id, Transform.create({ pos: [1, 2, 3] })],
       [Velocity.id, Velocity.create({ x: 5 })],
     ]);
@@ -44,7 +44,7 @@ describe("ECS World", () => {
 
   it("should despawn entities", () => {
     const world = new World();
-    const entity = world.spawn(new Map([
+    const entity = world.spawn(new Map<number, unknown>([
       [Transform.id, Transform.create()],
     ]));
 
@@ -56,14 +56,14 @@ describe("ECS World", () => {
 
   it("should recycle entity slots with new generation", () => {
     const world = new World();
-    const entity = world.spawn(new Map([
+    const entity = world.spawn(new Map<number, unknown>([
       [Transform.id, Transform.create()],
     ]));
 
     world.despawn(entity);
     world.flushCommands();
 
-    const entity2 = world.spawn(new Map([
+    const entity2 = world.spawn(new Map<number, unknown>([
       [Transform.id, Transform.create()],
     ]));
 
@@ -75,7 +75,7 @@ describe("ECS World", () => {
     const world = new World();
     const spawned: Array<{ index: number; generation: number }> = [];
     for (let i = 0; i < 1100; i++) {
-      const e = world.spawn(new Map([[Transform.id, Transform.create()]]));
+      const e = world.spawn(new Map<number, unknown>([[Transform.id, Transform.create()]]));
       spawned.push(e);
     }
     for (const e of spawned) {
@@ -86,7 +86,7 @@ describe("ECS World", () => {
     // The free list is unbounded: all 1100 dead slots are recyclable, so the
     // entity array must not grow at all (1100 spawns + 1 reserved slot).
     for (let i = 0; i < 1025; i++) {
-      world.spawn(new Map([[Transform.id, Transform.create()]]));
+      world.spawn(new Map<number, unknown>([[Transform.id, Transform.create()]]));
     }
     world.flushCommands();
     expect(world.entities.length).toBe(1101);
@@ -94,7 +94,7 @@ describe("ECS World", () => {
 
   it("should add and remove components", () => {
     const world = new World();
-    const entity = world.spawn(new Map([
+    const entity = world.spawn(new Map<number, unknown>([
       [Transform.id, Transform.create()],
     ]));
 
@@ -161,11 +161,11 @@ describe("ECS World", () => {
     const world = new World();
 
     // Spawn entity with Transform only → creates archetype id=1
-    const e1 = world.spawn(new Map([[Transform.id, Transform.create()]]));
+    const e1 = world.spawn(new Map<number, unknown>([[Transform.id, Transform.create()]]));
     // Spawn entity with Velocity only → creates archetype id=2
-    const e2 = world.spawn(new Map([[Velocity.id, Velocity.create()]]));
+    const e2 = world.spawn(new Map<number, unknown>([[Velocity.id, Velocity.create()]]));
     // Spawn entity with Health only → creates archetype id=3
-    const e3 = world.spawn(new Map([[Health.id, Health.create()]]));
+    const e3 = world.spawn(new Map<number, unknown>([[Health.id, Health.create()]]));
 
     // Now add Velocity to e1 → moves to archetype [Transform, Velocity] id=4
     world.addComponent(e1, Velocity.id, Velocity.create({ x: 5 }));
@@ -199,12 +199,12 @@ describe("ECS Hierarchy", () => {
     const world = new World();
     const hier = new Hierarchy();
 
-    const parent = world.spawn(new Map([[Transform.id, Transform.create()]]));
-    const child = world.spawn(new Map([[Transform.id, Transform.create()]]));
+    const parent = world.spawn(new Map<number, unknown>([[Transform.id, Transform.create()]]));
+    const child = world.spawn(new Map<number, unknown>([[Transform.id, Transform.create()]]));
 
     hier.setParent(child, parent);
 
-    expect(hier.getParent(child).index).toBe(parent.index);
+    expect(hier.getParent(child)!.index).toBe(parent.index);
     const children = hier.getChildren(parent);
     expect(children.length).toBe(1);
     expect(children[0].index).toBe(child.index);
@@ -214,8 +214,8 @@ describe("ECS Hierarchy", () => {
     const world = new World();
     const hier = new Hierarchy();
 
-    const parent = world.spawn(new Map([[Transform.id, Transform.create()]]));
-    const child = world.spawn(new Map([[Transform.id, Transform.create()]]));
+    const parent = world.spawn(new Map<number, unknown>([[Transform.id, Transform.create()]]));
+    const child = world.spawn(new Map<number, unknown>([[Transform.id, Transform.create()]]));
 
     hier.setParent(child, parent);
     expect(hier.isDirty(child)).toBe(true); // setParent marks dirty
@@ -233,10 +233,10 @@ describe("ECS Hierarchy", () => {
     const world = new World();
     const hier = new Hierarchy();
 
-    const parent = world.spawn(new Map([[Transform.id, Transform.create()]]));
-    const child1 = world.spawn(new Map([[Transform.id, Transform.create()]]));
-    const child2 = world.spawn(new Map([[Transform.id, Transform.create()]]));
-    const grandchild = world.spawn(new Map([[Transform.id, Transform.create()]]));
+    const parent = world.spawn(new Map<number, unknown>([[Transform.id, Transform.create()]]));
+    const child1 = world.spawn(new Map<number, unknown>([[Transform.id, Transform.create()]]));
+    const child2 = world.spawn(new Map<number, unknown>([[Transform.id, Transform.create()]]));
+    const grandchild = world.spawn(new Map<number, unknown>([[Transform.id, Transform.create()]]));
 
     hier.setParent(child1, parent);
     hier.setParent(child2, parent);
@@ -256,11 +256,11 @@ describe("ECS Queries", () => {
   it("should iterate matching entities", () => {
     const world = new World();
 
-    const e1 = world.spawn(new Map([
+    const e1 = world.spawn(new Map<number, unknown>([
       [Transform.id, Transform.create()],
       [Velocity.id, Velocity.create()],
     ]));
-    const e2 = world.spawn(new Map([
+    const e2 = world.spawn(new Map<number, unknown>([
       [Transform.id, Transform.create()],
       [Health.id, Health.create()],
     ]));
@@ -280,7 +280,7 @@ describe("ECS Queries", () => {
   it("should filter by changed components", () => {
     const world = new World();
 
-    const e1 = world.spawn(new Map([
+    const e1 = world.spawn(new Map<number, unknown>([
       [Transform.id, Transform.create()],
       [Velocity.id, Velocity.create({ x: 5 })],
     ]));
@@ -305,7 +305,7 @@ describe("ECS Queries", () => {
 
   it("getArchetypeAndRow should return correct archetype and row for an entity", () => {
     const world = new World();
-    const e = world.spawn(new Map([[Transform.id, Transform.create()]]));
+    const e = world.spawn(new Map<number, unknown>([[Transform.id, Transform.create()]]));
     const ar = world.getArchetypeAndRow(e);
     expect(ar).not.toBeNull();
     expect(ar!.arch).toBeDefined();
@@ -314,7 +314,7 @@ describe("ECS Queries", () => {
 
   it("getArchetypeAndRow should return null for a despawned entity", () => {
     const world = new World();
-    const e = world.spawn(new Map([[Transform.id, Transform.create()]]));
+    const e = world.spawn(new Map<number, unknown>([[Transform.id, Transform.create()]]));
     world.despawn(e);
     world.flushCommands();
     expect(world.getArchetypeAndRow(e)).toBeNull();
@@ -323,7 +323,7 @@ describe("ECS Queries", () => {
   it("archetypesDirty should be set on spawn and cleared on step", () => {
     const world = new World();
     expect(world.archetypesDirty).toBe(false);
-    world.spawn(new Map([[Transform.id, Transform.create()]]));
+    world.spawn(new Map<number, unknown>([[Transform.id, Transform.create()]]));
     expect(world.archetypesDirty).toBe(true);
     world.step(0.016);
     expect(world.archetypesDirty).toBe(false);
@@ -331,7 +331,7 @@ describe("ECS Queries", () => {
 
   it("archetypesDirty should be set on addComponent and cleared on flushCommands", () => {
     const world = new World();
-    const e = world.spawn(new Map([[Transform.id, Transform.create()]]));
+    const e = world.spawn(new Map<number, unknown>([[Transform.id, Transform.create()]]));
     world.step(0.016);
     expect(world.archetypesDirty).toBe(false);
     world.addComponent(e, Velocity.id, Velocity.defaults);
@@ -341,7 +341,7 @@ describe("ECS Queries", () => {
 
   it("step should not call updateQueryArchetypes when no structural changes occurred", () => {
     const world = new World();
-    const e = world.spawn(new Map([[Transform.id, Transform.create()]]));
+    const e = world.spawn(new Map<number, unknown>([[Transform.id, Transform.create()]]));
     world.step(0.016);
     world.archetypesDirty = false;
 

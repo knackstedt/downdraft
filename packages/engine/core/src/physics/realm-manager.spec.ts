@@ -73,7 +73,7 @@ function makeMockBackend(): PhysicsBackend {
     syncTransforms(): void {}, readTransforms(): void {},
     serializeRealm(): Uint8Array { return new Uint8Array(0); }, deserializeRealm(): void {},
     destroy(): void {},
-  };
+  } as unknown as PhysicsBackend;
 }
 
 const TIER_CONFIG: RealmTierConfig = {

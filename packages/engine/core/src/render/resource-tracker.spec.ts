@@ -43,7 +43,7 @@ describe("render/resource-tracker", () => {
     });
 
     it("handles maps with non-destroyable values", () => {
-      const map = new Map([["n", 42], ["s", "hello"]]);
+      const map = new Map<string, unknown>([["n", 42], ["s", "hello"]]);
       expect(() => destroyMapValues(map)).not.toThrow();
       expect(map.size).toBe(0);
     });
@@ -64,7 +64,7 @@ describe("render/resource-tracker", () => {
     });
 
     it("handles already-null resources", () => {
-      let holder: unknown = null;
+      let holder: { destroy(): void } | null = null;
       destroyAndNull(() => holder, (v) => { holder = v; });
       expect(holder).toBeNull();
     });

@@ -74,7 +74,7 @@ describe("System parameter injection", () => {
     const gravitySystem = systemWithParams(
       "gravity",
       Stage.Update,
-      [res(GravityToken), q(Position)],
+      [res(GravityToken), q(Position)] as const,
       (ctx, gravity, entities) => {
         appliedGravity = gravity.value!;
         entities.iterate(ctx.tick, () => {

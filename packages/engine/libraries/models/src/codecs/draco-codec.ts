@@ -11,6 +11,8 @@
 // attribute typed arrays.
 //
 
+/// <reference path="./draco3dgltf.d.ts" />
+
 import { assertCount, MAX_DECOMPRESS_SIZE, MAX_FACE_COUNT, MAX_VERTEX_COUNT } from "@downdraft/engine";
 import type {
     AccessorLike,

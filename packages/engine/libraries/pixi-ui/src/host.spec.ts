@@ -210,7 +210,7 @@ describe("PixiUiHost (logic, no worker spawn)", () => {
       { x: 100, y: 200, width: 300, height: 400 },
     ] };
     (host as unknown as { handleWorkerMessage: (m: unknown) => void }).handleWorkerMessage(msg);
-    expect(received).toEqual([{ x: 100, y: 200, width: 300, height: 400 }]);
+    expect(received as { x: number; y: number; width: number; height: number }[] | null).toEqual([{ x: 100, y: 200, width: 300, height: 400 }]);
     expect(host.getOpaqueRegions()).toEqual([{ x: 100, y: 200, width: 300, height: 400 }]);
     host.dispose();
   });

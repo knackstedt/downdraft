@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "bun:test";
 import { PassType, type FrameGraphBuilder, type GraphRenderContext } from "./frame-graph";
-import { RenderPass, type RenderPassContext } from "./render-pass";
+import { RenderPass, type RenderContext } from "./render-pass";
 
 class TestPass extends RenderPass {
   name = "test-pass";
@@ -109,12 +109,43 @@ describe("RenderPass", () => {
   });
 });
 
-describe("RenderPassContext", () => {
+describe("RenderContext", () => {
   it("accepts device and pass fields", () => {
     const device = {} as GPUDevice;
-    const ctx: RenderPassContext = {
+    const ctx: RenderContext = {
       device,
-      pass: {} as GPURenderPassEncoder,
+      encoder: {} as GPUCommandEncoder,
+      pass: null,
+      camera: {} as RenderContext["camera"],
+      viewport: {} as RenderContext["viewport"],
+      viewportIdx: 0,
+      viewportCount: 1,
+      dt: 0,
+      elapsedTime: 0,
+      isFirstViewport: true,
+      isLastViewport: true,
+      getView: () => ({} as GPUTextureView),
+      getTexture: () => ({} as GPUTexture),
+      width: 0,
+      height: 0,
+      viewProj: null,
+      invViewProj: null,
+      prevViewProj: null,
+      cameraPos: [0, 0, 0],
+      lightData: null,
+      lightViewProj: null,
+      mesh: null,
+      modelMatrix: null,
+      shadowsEnabled: false,
+      bloomEnabled: false,
+      shadowSampler: null,
+      debugQueue: null,
+      opaqueVertexBuffer: null,
+      opaqueIndexBuffer: null,
+      opaqueIndexCount: 0,
+      opaqueIndexFormat: "uint16",
+      addDrawCalls: () => {},
+      addTriangles: () => {},
     };
     expect(ctx.device).toBe(device);
     expect(ctx.pass).toBeDefined();
