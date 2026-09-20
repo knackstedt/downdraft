@@ -79,7 +79,10 @@ export class TextAtlasCache {
       (this.atlasCanvas as HTMLCanvasElement).width = MAX_ATLAS_WIDTH;
       (this.atlasCanvas as HTMLCanvasElement).height = ATLAS_HEIGHT;
     }
-    const ctx = this.atlasCanvas.getContext("2d")!;
+    // willReadFrequently keeps this canvas CPU-rasterized — flush() does a
+    // getImageData readback every time a new string lands, which would
+    // otherwise force a GPU→CPU sync per text change.
+    const ctx = this.atlasCanvas.getContext("2d", { willReadFrequently: true })!;
     this.atlasCtx = ctx as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
   }
 
@@ -223,22 +226,17 @@ export class TextAtlasCache {
     }
 
     if (this.cursorY + textHeight > ATLAS_HEIGHT) {
-      // Atlas full — evict the 25% least recently used entries instead of
-      // clearing everything, so frequently-used text survives.
-      const evictCount = Math.max(1, Math.floor(this.entries.size * 0.25));
-      const sortedKeys = [...this.entries.keys()].sort(
-        (a, b) => (this.lastUsed.get(a) ?? 0) - (this.lastUsed.get(b) ?? 0),
-      );
-      for (let e = 0; e < evictCount && e < sortedKeys.length; e++) {
-        const k = sortedKeys[e];
-        this.entries.delete(k);
-        this.lastUsed.delete(k);
-      }
-      // Reset cursor to rebuild from the top of the atlas.
+      // Atlas full — clear ALL entries. A partial eviction can't work here:
+      // resetting the cursor to the top means new entries overwrite the
+      // pixel regions that surviving entries' UVs still point at, so their
+      // text would render as fragments of unrelated strings. A full reset
+      // re-rasterizes every string on demand next frame — a brief, correct
+      // flash rather than persistent glyph corruption.
+      this.entries.clear();
+      this.lastUsed.clear();
       this.cursorX = 0;
       this.cursorY = 0;
       this.atlasRowHeight = 0;
-      // Clear the canvas so stale pixels don't bleed into new entries.
       this.atlasCtx.clearRect(0, 0, MAX_ATLAS_WIDTH, ATLAS_HEIGHT);
       this.dirty = true;
     }
@@ -254,16 +252,23 @@ export class TextAtlasCache {
 
     ctx.fillText(text, entryX + ATLAS_PADDING, entryY + ATLAS_PADDING);
 
+    // The glyph occupies the region inside the padding. The quad must be
+    // exactly that size and the UVs must cover exactly those texels —
+    // sampling the padding (or vice versa) scales the text, and with the
+    // nearest sampler that drops pixel columns, producing ragged glyphs
+    // (worse for short strings: ~8px of error regardless of width).
+    const glyphW = textWidth - ATLAS_PADDING * 2;
+    const glyphH = textHeight - ATLAS_PADDING * 2;
     const entry: TextCacheEntry = {
       texture: null as any,
       view: null as any,
-      width: textWidth - ATLAS_PADDING * 2,
-      height: textHeight,
+      width: glyphW,
+      height: glyphH,
       uv: [
-        (entryX + 0.5) / MAX_ATLAS_WIDTH,
-        (entryY + 0.5) / ATLAS_HEIGHT,
-        (entryX + textWidth - 0.5) / MAX_ATLAS_WIDTH,
-        (entryY + textHeight - 0.5) / ATLAS_HEIGHT,
+        (entryX + ATLAS_PADDING + 0.5) / MAX_ATLAS_WIDTH,
+        (entryY + ATLAS_PADDING + 0.5) / ATLAS_HEIGHT,
+        (entryX + ATLAS_PADDING + glyphW - 0.5) / MAX_ATLAS_WIDTH,
+        (entryY + ATLAS_PADDING + glyphH - 0.5) / ATLAS_HEIGHT,
       ],
     };
     this.entries.set(key, entry);

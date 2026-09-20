@@ -1,6 +1,6 @@
-import { createValidatedShaderModule } from "../render/shader-validator";
 import { StructView, wgsl } from "@downdraft/engine/shader-graph";
 import type { GraphRenderContext } from "../index";
+import { createValidatedShaderModule } from "../render/shader-validator";
 import type { UIDrawable } from "./element";
 import { buildGlyphAtlasData, getAtlasDimensions, getGlyphUV } from "./glyph-atlas";
 import { TextAtlasCache } from "./text-cache";
@@ -306,18 +306,13 @@ export class UIRenderer {
         this.buildQuadVertices(d, quadVerts);
       } else if (d.kind === "text" && d.text) {
         // Try canvas-rendered text first (supports custom fonts/sizes).
-        // Fall back to built-in glyph atlas if canvas text is unavailable
-        // (e.g. native runtime without a real Canvas2D implementation).
-        // Track total vertex count (not entry count) because all text
-        // shares the same atlas texture view, so canvasTextEntries.length
-        // only increases for the first text drawable.
-        const beforeVerts = canvasTextEntries.reduce((s, e) => s + e.verts.length, 0);
-        if (d.fontFamily && this.textCache) {
-          this.buildCanvasTextVertices(d, canvasTextEntries);
-        }
-        const afterVerts = canvasTextEntries.reduce((s, e) => s + e.verts.length, 0);
-        if (afterVerts === beforeVerts) {
-          // Canvas text produced nothing — use glyph atlas
+        // Fall back to built-in glyph atlas only if canvas text is truly
+        // unavailable (native runtime without a real Canvas2D).
+        const added =
+          d.fontFamily && this.textCache
+            ? this.buildCanvasTextVertices(d, canvasTextEntries)
+            : 0;
+        if (added === 0) {
           this.buildTextVertices(d, textVerts);
         }
       } else if (d.kind === "image" && d.textureView) {
@@ -361,14 +356,7 @@ export class UIRenderer {
       const count = Math.min(entry.verts.length / 8, MAX_IMAGE_VERTICES);
       const data = new Float32Array(entry.verts.slice(0, count * 8));
       this.device.queue.writeBuffer(this.imageVertexBuffer!, 0, data as unknown as BufferSource);
-      const bindGroup = this.device.createBindGroup({
-        layout: this.imagePipeline.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: { buffer: this.screenBuffer! } },
-          { binding: 1, resource: entry.textureView },
-          { binding: 2, resource: this.imageSampler! },
-        ],
-      });
+      const bindGroup = this.getImageBindGroup(entry.textureView);
       tracked.setPipeline(this.imagePipeline);
       tracked.setBindGroup(0, bindGroup);
       tracked.setVertexBuffer(0, this.imageVertexBuffer!);
@@ -380,14 +368,7 @@ export class UIRenderer {
       const count = Math.min(entry.verts.length / 8, MAX_IMAGE_VERTICES);
       const data = new Float32Array(entry.verts.slice(0, count * 8));
       this.device.queue.writeBuffer(this.imageVertexBuffer!, 0, data as unknown as BufferSource);
-      const bindGroup = this.device.createBindGroup({
-        layout: this.canvasTextPipeline.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: { buffer: this.screenBuffer! } },
-          { binding: 1, resource: entry.textureView },
-          { binding: 2, resource: this.textCache!.getSampler() },
-        ],
-      });
+      const bindGroup = this.getCanvasTextBindGroup(entry.textureView);
       tracked.setPipeline(this.canvasTextPipeline);
       tracked.setBindGroup(0, bindGroup);
       tracked.setVertexBuffer(0, this.imageVertexBuffer!);
@@ -491,8 +472,13 @@ export class UIRenderer {
     }
   }
 
-  private buildCanvasTextVertices(d: UIDrawable, entries: { verts: number[]; textureView: GPUTextureView }[]): void {
-    if (!d.text || !d.fontSize || !d.textColor || !d.fontFamily || !this.textCache) return;
+  /**
+   * Emit vertices for a text drawable via the Canvas2D atlas.
+   * Returns the number of vertex floats pushed (0 → caller should fall back
+   * to the bitmap glyph atlas).
+   */
+  private buildCanvasTextVertices(d: UIDrawable, entries: { verts: number[]; textureView: GPUTextureView }[]): number {
+    if (!d.text || !d.fontSize || !d.textColor || !d.fontFamily || !this.textCache) return 0;
     const opts = {
       fontFamily: d.fontFamily,
       fontSize: d.fontSize,
@@ -506,6 +492,7 @@ export class UIRenderer {
       ? this.textCache.wrapText(d.text, opts, d.maxWidth)
       : d.text.split("\n");
 
+    let pushed = 0;
     let yOffset = 0;
     for (const line of lines) {
       if (line.length === 0) {
@@ -513,6 +500,10 @@ export class UIRenderer {
         continue;
       }
       const entry = this.textCache.getText(line, opts);
+      // Freshly rasterized entries have no GPU view until flush() runs —
+      // flush eagerly so first-use text renders via the canvas path in the
+      // same frame instead of flashing the bitmap fallback for one frame.
+      if (entry && !entry.view) this.textCache.flush();
       if (!entry || !entry.view) {
         yOffset += d.fontSize * 1.3;
         continue;
@@ -548,12 +539,53 @@ export class UIRenderer {
         entryObj.verts.push(corners[i][0], corners[i][1]);
         entryObj.verts.push(uvs[i][0], uvs[i][1]);
         entryObj.verts.push(r, g, b, a);
+        pushed += 8;
       }
       // Advance by the actual rendered height plus a small gap,
       // not the estimated fontSize * 1.3 — this keeps line spacing
       // consistent with the real glyph metrics.
       yOffset += entry.height + 2;
     }
+    return pushed;
+  }
+
+  /** Bind groups keyed by texture view — creating a bind group is a device
+   *  call (serialized over the Dawn wire in Electron), and the text atlas /
+   *  image views are stable across frames, so re-creating them per draw was
+   *  pure waste (~1 call per text batch per frame). */
+  private imageBindGroups = new Map<GPUTextureView, GPUBindGroup>();
+  private canvasTextBindGroups = new Map<GPUTextureView, GPUBindGroup>();
+
+  private getImageBindGroup(view: GPUTextureView): GPUBindGroup {
+    let bg = this.imageBindGroups.get(view);
+    if (!bg) {
+      bg = this.device!.createBindGroup({
+        layout: this.imagePipeline!.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: this.screenBuffer! } },
+          { binding: 1, resource: view },
+          { binding: 2, resource: this.imageSampler! },
+        ],
+      });
+      this.imageBindGroups.set(view, bg);
+    }
+    return bg;
+  }
+
+  private getCanvasTextBindGroup(view: GPUTextureView): GPUBindGroup {
+    let bg = this.canvasTextBindGroups.get(view);
+    if (!bg) {
+      bg = this.device!.createBindGroup({
+        layout: this.canvasTextPipeline!.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: this.screenBuffer! } },
+          { binding: 1, resource: view },
+          { binding: 2, resource: this.textCache!.getSampler() },
+        ],
+      });
+      this.canvasTextBindGroups.set(view, bg);
+    }
+    return bg;
   }
 
   private buildLineVertices(d: UIDrawable, out: number[]): void {
@@ -588,6 +620,8 @@ export class UIRenderer {
     this.screenBuffer = null;
     this._screenView = null;
     this._screenBuf = null;
+    this.imageBindGroups.clear();
+    this.canvasTextBindGroups.clear();
     this.glyphAtlasTexture = null;
     this.textCache = null;
     this.quadPipeline = null;
