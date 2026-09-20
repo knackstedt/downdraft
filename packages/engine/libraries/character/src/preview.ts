@@ -12,9 +12,11 @@ import {
     BindlessFrameBindings,
     BindlessMaterialManager,
     BindlessTextureRegistry,
+    DEPTH_FORMAT,
 } from "@downdraft/engine";
 import { ModelRenderer } from "@downdraft/engine/libraries/entities";
 import type { ModelData } from "@downdraft/engine/libraries/models";
+import { mat4 } from "wgpu-matrix";
 import type { CharacterAnimator } from "./character-animator";
 
 export interface CharacterPreviewOptions {
@@ -33,47 +35,7 @@ export interface CharacterPreviewOptions {
   clearColor?: { r: number; g: number; b: number; a: number };
 }
 
-// Simple look-at camera (perspective).
-function mat4Perspective(fov: number, aspect: number, near: number, far: number): Float32Array {
-  const f = 1 / Math.tan(fov / 2);
-  const nf = 1 / (near - far);
-  const m = new Float32Array(16);
-  m[0] = f / aspect;
-  m[5] = f;
-  m[10] = (far + near) * nf;
-  m[11] = -1;
-  m[14] = 2 * far * near * nf;
-  return m;
-}
-
-function mat4LookAt(eye: [number, number, number], target: [number, number, number]): Float32Array {
-  const z = [eye[0] - target[0], eye[1] - target[1], eye[2] - target[2]];
-  let zl = Math.hypot(z[0], z[1], z[2]) || 1;
-  z[0] /= zl; z[1] /= zl; z[2] /= zl;
-  const x = [z[1] * 0 - z[2] * 1, z[2] * 0 - z[0] * 0, z[0] * 1 - z[1] * 0]; // up=(0,1,0)
-  let xl = Math.hypot(x[0], x[1], x[2]) || 1;
-  x[0] /= xl; x[1] /= xl; x[2] /= xl;
-  const y = [z[2] * x[0] - z[0] * x[2], z[0] * x[1] - z[1] * x[0], z[1] * x[2] - z[2] * x[1]];
-  const m = new Float32Array(16);
-  m[0] = x[0]; m[1] = y[0]; m[2] = z[0]; m[3] = 0;
-  m[4] = x[1]; m[5] = y[1]; m[6] = z[1]; m[7] = 0;
-  m[8] = x[2]; m[9] = y[2]; m[10] = z[2]; m[11] = 0;
-  m[12] = -(x[0] * eye[0] + x[1] * eye[1] + x[2] * eye[2]);
-  m[13] = -(y[0] * eye[0] + y[1] * eye[1] + y[2] * eye[2]);
-  m[14] = -(z[0] * eye[0] + z[1] * eye[1] + z[2] * eye[2]);
-  m[15] = 1;
-  return m;
-}
-
-function mat4Mul(a: Float32Array, b: Float32Array): Float32Array {
-  const out = new Float32Array(16);
-  for (let i = 0; i < 4; i++) {
-    for (let j = 0; j < 4; j++) {
-      out[i * 4 + j] = a[i * 4] * b[j] + a[i * 4 + 1] * b[4 + j] + a[i * 4 + 2] * b[8 + j] + a[i * 4 + 3] * b[12 + j];
-    }
-  }
-  return out;
-}
+const UP: [number, number, number] = [0, 1, 0];
 
 export class CharacterPreview {
   private canvas: HTMLCanvasElement;
@@ -94,6 +56,10 @@ export class CharacterPreview {
   private lastTime = performance.now();
   private currentModelId: string | null = null;
   private running = false;
+  // Scale + Y-offset to fit the model to a ~1.8m capsule (matches the game's
+  // playerScale logic — some rigs are authored in cm and span ~200 units).
+  private modelScale = 1;
+  private modelYOffset = 0;
 
   constructor(canvas: HTMLCanvasElement, opts: CharacterPreviewOptions) {
     this.canvas = canvas;
@@ -105,6 +71,12 @@ export class CharacterPreview {
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) throw new Error("[CharacterPreview] No WebGPU adapter");
     this.device = await adapter.requestDevice();
+    this.device.lost.then((info) => {
+      console.warn(`[CharacterPreview] GPUDevice LOST: ${info.reason} ${info.message}`);
+    });
+    this.device.addEventListener("uncapturederror", (e) => {
+      console.error(`[CharacterPreview] uncaptured GPU error:`, (e as GPUUncapturedErrorEvent).error?.message);
+    });
     this.context = this.canvas.getContext("webgpu") as GPUCanvasContext;
     this.format = navigator.gpu.getPreferredCanvasFormat();
     this.context.configure({
@@ -143,6 +115,14 @@ export class CharacterPreview {
         this.modelRenderer.removeModel("preview");
       }
       this.modelRenderer.uploadModel("preview", loaded.modelData.meshes, loaded.modelData.materials, loaded.meshBaseUrl);
+      const bounds = loaded.modelData.bounds;
+      if (bounds && bounds.max[1] - bounds.min[1] > 0) {
+        this.modelScale = 1.8 / (bounds.max[1] - bounds.min[1]);
+        this.modelYOffset = -bounds.min[1] * this.modelScale;
+      } else {
+        this.modelScale = 1;
+        this.modelYOffset = 0;
+      }
       this.animator?.dispose();
       this.animator = this.opts.createAnimator(loaded.modelData);
       this.currentModelId = modelId;
@@ -177,7 +157,7 @@ export class CharacterPreview {
     this.depthTexture = this.device!.createTexture({
       label: "character-preview-depth",
       size: [w, h, 1],
-      format: "depth24plus",
+      format: DEPTH_FORMAT,
       usage: GPUTextureUsage.RENDER_ATTACHMENT,
     });
     this.depthW = w;
@@ -206,19 +186,18 @@ export class CharacterPreview {
       Math.cos(this.rotationAngle) * dist,
     ];
     const target: [number, number, number] = [0, this.opts.targetHeight ?? 0.9, 0];
-    const proj = mat4Perspective(Math.PI / 4, W / H, 0.1, 100);
-    const view = mat4LookAt(pos, target);
-    const viewProj = mat4Mul(proj, view);
-
+    const proj = mat4.perspective(Math.PI / 4, W / H, 0.1, 100);
+    const view = mat4.lookAt(pos, target, UP);
     const camera = {
       position: pos,
-      viewProj,
-      view,
-      proj,
       target,
-      width: W,
-      height: H,
-      time: now / 1000,
+      up: [0, 1, 0] as [number, number, number],
+      fov: 45,
+      near: 0.1,
+      far: 100,
+      aspect: W / H,
+      viewMatrix: view,
+      projectionMatrix: proj,
     };
 
     // Advance the animation (idle by default) + upload skin matrices.
@@ -254,7 +233,13 @@ export class CharacterPreview {
       const yaw = this.rotationAngle;
       const halfYaw = yaw * 0.5;
       const rot: [number, number, number, number] = [0, Math.sin(halfYaw), 0, Math.cos(halfYaw)];
-      this.modelRenderer.render(pass, "preview", [0, 0, 0], rot, [1, 1, 1], 0, 0);
+      this.modelRenderer.render(
+        pass,
+        "preview",
+        [0, this.modelYOffset, 0],
+        rot,
+        [this.modelScale, this.modelScale, this.modelScale],
+      );
     }
 
     pass.end();

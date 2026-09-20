@@ -694,7 +694,7 @@ export async function parseGLTF(
       boneNameToIndex.set(boneName, j);
     }
 
-    skin = { bones, boneNameToIndex };
+    skin = { bones, boneNameToIndex, skeletonUpAxis: "y" };
     console.log(`[gltf] Parsed skin: ${bones.length} bones`);
   }
 

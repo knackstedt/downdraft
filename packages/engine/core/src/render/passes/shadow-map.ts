@@ -121,10 +121,12 @@ export class ShadowMapSystem {
       sunDir[2] / len,
     ];
 
+    // sunDir points toward the sun — the light sits on the sun side of the
+    // target and looks back down at it.
     const lightPos: [number, number, number] = [
-      cameraTarget[0] - dir[0] * this.shadowDistance,
-      cameraTarget[1] - dir[1] * this.shadowDistance,
-      cameraTarget[2] - dir[2] * this.shadowDistance,
+      cameraTarget[0] + dir[0] * this.shadowDistance,
+      cameraTarget[1] + dir[1] * this.shadowDistance,
+      cameraTarget[2] + dir[2] * this.shadowDistance,
     ];
 
     const up: [number, number, number] =

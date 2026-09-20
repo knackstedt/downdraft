@@ -12,15 +12,13 @@
 //  - Humanoid bone-name resolver + procedural locomotion clip builders.
 // ============================================================================
 
+export { buildLocomotionClips, CharacterAnimator, findBoneIndex, positionTrack, resolveHumanoidBones, rotationTrack, type HumanoidBoneIndices } from "./character-animator";
 export {
-    CharacterAnimator, buildLocomotionClips, findBoneIndex, positionTrack, resolveHumanoidBones, rotationTrack, type HumanoidBoneIndices
-} from "./character-animator";
-export {
-    createCharacterModelLoader, DEFAULT_OPTIONAL_MESH_PATTERNS, filterOptionalMeshes,
-    isDecodableImage, loadExternalTextures, type CharacterAnimationDef, type CharacterModelDef,
+    createCharacterModelLoader, DEFAULT_OPTIONAL_MESH_PATTERNS, filterOptionalMeshes, isDecodableImage, loadExternalTextures, selectVariantMeshes, type CharacterAnimationDef, type CharacterModelDef,
     type CharacterModelLoader, type CharacterModelLoaderOptions
 } from "./loader";
 export {
     LocomotionAnimator, type LocomotionConfig, type LocomotionInput, type LocomotionThresholds
 } from "./locomotion";
 export { CharacterPreview, type CharacterPreviewOptions } from "./preview";
+

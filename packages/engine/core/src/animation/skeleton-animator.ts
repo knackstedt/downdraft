@@ -42,6 +42,8 @@ export interface BoneData {
 export interface SkinData {
   bones: BoneData[];
   boneNameToIndex: Map<string, number>;
+  /** Native bone-space up axis of the rig ("z" for UE-style rigs). */
+  skeletonUpAxis?: "y" | "z";
 }
 
 export type AnimState = string;
@@ -295,6 +297,12 @@ export class SkeletonAnimator {
   private headIdx = -1;
   private proceduralTime = 0;
   private isMixamoSkeleton = false;
+  /** True when the target skeleton's native bone space is Z-up (e.g. UE-style
+   *  rigs like Aisha). Mixamo clips are Y-up, so world deltas and rest-pose
+   *  direction alignment must be axis-swapped for Z-up targets but passed
+   *  through unchanged for natively Y-up rigs (e.g. Humanling). Defaults to
+   *  true for rigs loaded before SkinData.skeletonUpAxis existed. */
+  private targetZUp = true;
 
   constructor(skin: SkinData) {
     this.boneCount = skin.bones.length;
@@ -365,6 +373,7 @@ export class SkeletonAnimator {
     this.spineIdx = this.findBone(["Spine", "spine_01", "Spine_01", "mixamorig:Spine"]);
     this.headIdx = this.findBone(["Head", "head", "mixamorig:Head"]);
 
+    this.targetZUp = skin.skeletonUpAxis !== "y";
     this.isMixamoSkeleton = this.boneNameToIndex.has("mixamorig:Hips");
     if (this.isMixamoSkeleton) {
       console.log("[Anim] Mixamo skeleton detected — direct animation mapping (no retargeting)");
@@ -628,6 +637,10 @@ export class SkeletonAnimator {
       // directions already match (e.g. legs), R ≈ identity and this reduces
       // to the plain rest-pose delta.
       const dirAlignMemo = new Map<number, Float32Array | null>();
+      // UE target name → mixamorig source name, for leaf-bone alignment
+      // inheritance (reverse of MIXAMO_TO_UE).
+      const ueToSrc = new Map<string, string>();
+      for (const [s, t] of Object.entries(SkeletonAnimator.MIXAMO_TO_UE)) ueToSrc.set(t, s);
       const srcDirAlign = (srcName: string, boneIdx: number): Float32Array | null => {
         let r = dirAlignMemo.get(boneIdx);
         if (r !== undefined) return r;
@@ -643,8 +656,11 @@ export class SkeletonAnimator {
           const lt = Math.hypot(dt[0], dt[1], dt[2]);
           if (ls > 1e-4 && lt > 1e-4) {
             const from = [ds[0] / ls, ds[1] / ls, ds[2] / ls];
-            // Target dir (Z-up) → source Y-up space: (x,y,z) → (x,z,-y).
-            const to = [dt[0] / lt, dt[2] / lt, -dt[1] / lt];
+            // Target bind dir → source Y-up space. Z-up targets need
+            // (x,y,z) → (x,z,-y); Y-up targets are already in source space.
+            const to = this.targetZUp
+              ? [dt[0] / lt, dt[2] / lt, -dt[1] / lt]
+              : [dt[0] / lt, dt[1] / lt, dt[2] / lt];
             const dot = from[0] * to[0] + from[1] * to[1] + from[2] * to[2];
             if (dot < 0.999999) {
               let ax: number, ay: number, az: number;
@@ -665,6 +681,18 @@ export class SkeletonAnimator {
                 r = new Float32Array([ax / al, ay / al, az / al, (1 + dot) / al]);
               }
             }
+          }
+        } else {
+          // Leaf bone — no tip child to define a bone direction, so no R can
+          // be computed. Without one, the raw source delta carries the
+          // accumulated rest-pose mismatch of every ancestor in the chain
+          // (e.g. Mixamo finger tips deviating ~120° from the target bind).
+          // Inherit the parent's alignment so the leaf rides the corrected
+          // frame and stays at its bind local when the source is at rest.
+          const pIdx = this.parentIndices[boneIdx];
+          if (pIdx >= 0) {
+            const pSrc = ueToSrc.get(this.boneNames[pIdx]);
+            if (pSrc) r = srcDirAlign(pSrc, pIdx);
           }
         }
         dirAlignMemo.set(boneIdx, r);
@@ -702,7 +730,7 @@ export class SkeletonAnimator {
         let prev: Float32Array | null = null;
         for (let k = 0; k < times.length; k++) {
           quatMul(srcWorld(srcName, times[k]), invSrcRef, tmpA); // source deviation from reference frame
-          quatYupToZup(tmpA, tmpB);
+          if (this.targetZUp) quatYupToZup(tmpA, tmpB); else tmpB.set(tmpA);
           const w = new Float32Array(4);
           quatMul(tmpB, tgtRef, w);
           if (prev && w[0] * prev[0] + w[1] * prev[1] + w[2] * prev[2] + w[3] * prev[3] < 0) {
@@ -809,15 +837,17 @@ export class SkeletonAnimator {
         const times = hipsPosChannel.keyframeTimes;
         const v = hipsPosChannel.keyframeValues;
         const rest = this.restPos[pelvisIdx];
+        // The pelvis' vertical rest component — Z for Z-up rigs, Y for Y-up.
+        const upAxis = this.targetZUp ? 2 : 1;
         const srcY0 = v[1];
-        const scale = Math.abs(srcY0) > 1e-3 ? Math.abs(rest[2]) / Math.abs(srcY0) : 0.01;
+        const scale = Math.abs(srcY0) > 1e-3 ? Math.abs(rest[upAxis]) / Math.abs(srcY0) : 0.01;
         const values = new Float32Array(times.length * 3);
         for (let k = 0; k < times.length; k++) {
           const dx = (v[k * 3] - v[0]) * scale;
           const dy = (v[k * 3 + 1] - v[1]) * scale;
           values[k * 3] = rest[0] + dx;
-          values[k * 3 + 1] = rest[1];
-          values[k * 3 + 2] = rest[2] + dy;
+          values[k * 3 + 1] = rest[1] + (this.targetZUp ? 0 : dy);
+          values[k * 3 + 2] = rest[2] + (this.targetZUp ? dy : 0);
         }
         tracks.push({
           boneName: this.boneNames[pelvisIdx],

@@ -31,7 +31,7 @@
 // --- Bridge shape (subset of DowndraftRawInputBridgeAPI) ---
 // We avoid importing the full bridge type to keep this module dependency-free.
 interface RawInputBridge {
-  start(): void;
+  start(): Promise<{ platform?: string; capturing?: boolean } | void> | void;
   stop(): void;
   onDelta(cb: (dx: number, dy: number) => void): void;
   onStopped(cb: () => void): void;
@@ -104,16 +104,34 @@ function scheduleFlush(): void {
 
 function polyfillRequestPointerLock(this: Element): Promise<void> | void {
   if (fakeLockedElement === this) return;
-  fakeLockedElement = this;
-  (this as HTMLElement).style.cursor = "none";
+  const el = this;
+  // Start native capture first and inspect the returned status. The preload
+  // bridge is exposed unconditionally, so the addon may be missing — in that
+  // case start() resolves { capturing: false } and we must fall back to the
+  // real Pointer Lock API instead of faking a lock that never gets deltas.
+  let started: Promise<{ capturing?: boolean } | null>;
   try {
-    getRawInputBridge().start();
+    started = Promise.resolve(getRawInputBridge().start()).then((s) => s ?? null);
   } catch (e) {
     console.error("[raw-input] Failed to start native capture:", e);
+    started = Promise.resolve(null);
   }
-  // Dispatch pointerlockchange so existing listeners (InputManager,
-  // RendererInputHandler) update their pointerLocked state.
-  document.dispatchEvent(new Event("pointerlockchange"));
+  started.then((status) => {
+    if (status && status.capturing) {
+      fakeLockedElement = el;
+      (el as HTMLElement).style.cursor = "none";
+      // Dispatch pointerlockchange so existing listeners (InputManager,
+      // RendererInputHandler) update their pointerLocked state.
+      document.dispatchEvent(new Event("pointerlockchange"));
+    } else {
+      // Native capture unavailable — uninstall so every subsequent call uses
+      // the real API directly, then request the lock for real.
+      uninstallPointerLockPolyfill();
+      // The modern API returns a Promise that can reject (e.g. gesture
+      // expiry, ESC cooldown) — swallow it like the legacy void return.
+      (el.requestPointerLock() as Promise<void> | undefined)?.catch?.(() => {});
+    }
+  });
   // The real API returns undefined (legacy) or Promise<void> (newer Chrome).
   // Return undefined — callers that expect a Promise use .catch guards that
   // handle undefined (see RendererInputHandler.tryLockPointer).

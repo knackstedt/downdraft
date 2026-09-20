@@ -117,6 +117,12 @@ export interface SkinData {
    * has no skin.
    */
   normalizationMatrix?: Float32Array;
+  /** Native up-axis of the skeleton's bone space (the space rest transforms
+   *  and animation tracks live in, before normalizationMatrix conjugation).
+   *  Retargeting must convert source-space deltas into this space. Defaults
+   *  to "z" when absent for backward compatibility with rigs authored before
+   *  this field existed. */
+  skeletonUpAxis?: "y" | "z";
 }
 
 export interface PunctualLightData {

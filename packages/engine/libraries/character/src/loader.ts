@@ -185,7 +185,15 @@ export function filterOptionalMeshes(
     }
     console.log(`[CharacterModel] Filtered ${exclude.size} optional item mesh(es): [${excludedNames.join(", ")}]`);
 
-    // Build the filtered meshes array + a remapping from old index → new index.
+    excludeMeshIndices(modelData, exclude);
+    console.log(`[CharacterModel] Filtered optional meshes, keeping ${modelData.meshes.length}`);
+}
+
+/**
+ * Rebuild `modelData.meshes` without the given indices, remapping
+ * `nodes[].mesh`/`meshes` into the filtered array.
+ */
+function excludeMeshIndices(modelData: ModelData, exclude: Set<number>): void {
     const oldToNew = new Map<number, number>();
     const filtered: typeof modelData.meshes = [];
     for (let i = 0; i < modelData.meshes.length; i++) {
@@ -193,12 +201,9 @@ export function filterOptionalMeshes(
         oldToNew.set(i, filtered.length);
         filtered.push(modelData.meshes[i]);
     }
-
-    console.log(`[CharacterModel] Filtered ${exclude.size} optional item mesh(es), keeping ${filtered.length}/${modelData.meshes.length}`);
     modelData.meshes = filtered;
 
-    // Update node mesh indices to point into the filtered array.
-    for (const node of modelData.nodes) {
+    for (const node of modelData.nodes ?? []) {
         if (node.mesh !== undefined) {
             node.mesh = oldToNew.get(node.mesh);
         }
@@ -208,6 +213,51 @@ export function filterOptionalMeshes(
                 .filter((idx): idx is number => idx !== undefined);
         }
     }
+}
+
+/**
+ * Strip the trailing `.NNN` / `_NNN` variant suffix from a node name to get
+ * its equipment-slot group (e.g. `f_torso.007` → `f_torso`).
+ */
+function variantGroupKey(name: string): string {
+    return name.replace(/[._]\d+$/, "");
+}
+
+/**
+ * Modular character kits (Humanling `f_*`, Aisha `ash_*`) ship every outfit /
+ * hairstyle / accessory variant as sibling mesh nodes named `slot.NNN`.
+ * Rendering all of them stacks every garment on the character at once. This
+ * keeps exactly ONE mesh-bearing node per group — the first in node order —
+ * so the model renders a single coherent outfit. Single-node groups and
+ * non-variant nodes are untouched.
+ */
+export function selectVariantMeshes(modelData: ModelData): void {
+    if (!modelData.nodes || modelData.nodes.length === 0) return;
+
+    const groups = new Map<string, typeof modelData.nodes>();
+    for (const node of modelData.nodes) {
+        if (node.mesh === undefined && (!node.meshes || node.meshes.length === 0)) continue;
+        const key = variantGroupKey(node.name);
+        let list = groups.get(key);
+        if (!list) { list = []; groups.set(key, list); }
+        list.push(node);
+    }
+
+    const exclude = new Set<number>();
+    const kept: string[] = [];
+    for (const list of groups.values()) {
+        if (list.length < 2) continue;
+        kept.push(list[0].name);
+        for (let i = 1; i < list.length; i++) {
+            const node = list[i];
+            if (node.meshes) for (const idx of node.meshes) exclude.add(idx);
+            if (node.mesh !== undefined) exclude.add(node.mesh);
+        }
+    }
+
+    if (exclude.size === 0) return;
+    console.log(`[CharacterModel] Variant selection kept [${kept.join(", ")}], dropping ${exclude.size} meshes`);
+    excludeMeshIndices(modelData, exclude);
 }
 
 export interface CharacterModelLoaderOptions {
@@ -223,6 +273,8 @@ export interface CharacterModelLoaderOptions {
   optionalMeshPatterns?: readonly RegExp[];
   /** Set false to keep accessory meshes (default: filter them). */
   filterOptionalMeshes?: boolean;
+  /** Keep one mesh node per variant group (`slot.NNN` siblings). Default true. */
+  selectVariantMeshes?: boolean;
 }
 
 export interface CharacterModelLoader {
@@ -297,6 +349,9 @@ export function createCharacterModelLoader(opts: CharacterModelLoaderOptions = {
       await loadExternalTextures(modelData, def.textureDirs);
       if (opts.filterOptionalMeshes !== false) {
         filterOptionalMeshes(modelData, opts.optionalMeshPatterns);
+      }
+      if (opts.selectVariantMeshes !== false) {
+        selectVariantMeshes(modelData);
       }
 
       // Load shared animations and merge into the model data.

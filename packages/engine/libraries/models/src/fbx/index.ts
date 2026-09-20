@@ -130,6 +130,7 @@ export function parseFBX(data: ArrayBuffer, name: string): ModelData {
     result.skin = {
       bones: skinResult.bones,
       boneNameToIndex: skinResult.boneNameToIndex,
+      skeletonUpAxis: settings.upAxis,
     };
   }
 
