@@ -3,7 +3,14 @@
 // Renders ground grid, water plane, colored agent cubes, and lighting
 // ============================================================================
 
-import { createValidatedShaderModule } from "@downdraft/engine";
+import {
+    createValidatedShaderModule,
+    FrameGraph,
+    PassType,
+    RenderPass,
+    type FrameGraphBuilder,
+    type RenderContext,
+} from "@downdraft/engine";
 
 const GROUND_VS = /* wgsl */ `
 struct Uniforms {

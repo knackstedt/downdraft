@@ -115,7 +115,7 @@ export class NativePixiUiHost {
 
   /** The UI texture view the game samples in its compositing blit pass. */
   getUiTextureView(): GPUTextureView | null {
-    return this.canvas.getWebgpuContext().getUiTextureView();
+    return this.canvas.getWebgpuContext().getUiTextureView() as GPUTextureView | null;
   }
 
   resize(width: number, height: number): void {

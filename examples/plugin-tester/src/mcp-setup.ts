@@ -17,7 +17,6 @@ export function setupMCP(scene: TestScene): void {
     getSnapshot: () => scene.getSnapshot(),
     navmesh: scene.navmesh,
     water: scene.water,
-    gameplay: scene.gameplay,
   };
 
   // Expose MCP server for IPC forwarding

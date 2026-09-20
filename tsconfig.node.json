@@ -11,6 +11,7 @@
     "jsx": "react-jsx",
     "types": [
       "node",
+      "bun-types",
       "@webgpu/types",
       "vite/client"
     ],
@@ -183,11 +184,17 @@
     "games/*/src/preload.ts",
     "examples/*/electron.vite.config.ts",
     "examples/*/src/main.ts",
-    "examples/*/src/preload.ts"
+    "examples/*/src/preload.ts",
+    "tests/**/*.ts",
+    "packages/platform-native/test/**/*.ts",
+    "games/*/tests/**/*.ts"
   ],
   "exclude": [
     "dist",
-    "**/*.spec.ts",
-    "packages/engine/libraries/pixi-ui-native/src/**/*"
+    "packages/**/*.spec.ts",
+    "games/**/*.spec.ts",
+    "examples/**/*.spec.ts",
+    "packages/engine/libraries/pixi-ui-native/src/**/*",
+    "tests/test-ibl.ts"
   ]
 }

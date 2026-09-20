@@ -171,6 +171,7 @@
     "packages/engine/app/src/shared/**/*",
     "packages/engine/app/src/renderer/**/*",
     "packages/engine/app/src/mobile/**/*",
+    "packages/engine/app/src/renderer-shims/**/*",
     "packages/engine/app/src/vite/**/*",
     "packages/engine/core/src/**/*.ts",
     "packages/engine/test/src/**/*.ts",
@@ -183,11 +184,15 @@
     "games/*/src/**/*",
     "games/*/plugins/*/src/**/*.ts",
     "games/*/libraries/*/src/**/*.ts",
-    "games/*/modules/*/src/**/*.ts"
+    "games/*/modules/*/src/**/*.ts",
+    "games/*/stubs/**/*",
+    "examples/*/src/**/*"
   ],
   "exclude": [
     "dist",
-    "**/*.spec.ts",
+    "packages/**/*.spec.ts",
+    "games/**/*.spec.ts",
+    "examples/**/*.spec.ts",
     "games/*/src/main.ts",
     "games/*/src/preload.ts",
     "games/*/src/native-entry.ts",

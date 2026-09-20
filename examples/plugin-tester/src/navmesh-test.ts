@@ -2,7 +2,7 @@
 // NavMesh Test — generate navmesh, spawn agents, set targets, update each tick
 // ============================================================================
 
-import { PhysicsTransform, Query, World } from "@downdraft/engine";
+import { PhysicsTransform, Query, World, type Entity, type PhysicsTransformData } from "@downdraft/engine";
 import {
     CrowdSystem, NavAgent,
     NavMesh, NavMeshGenerator, Pathfinder,
@@ -100,11 +100,11 @@ export function initNavMeshTest(): NavMeshTestResult {
       repathTimer: 0,
     };
 
-    const transformData = {
-      position: [startPositions[i][0], startPositions[i][1], startPositions[i][2]] as Vec3,
-      rotation: [0, 0, 0, 1] as Vec3,
-      prevPosition: [...startPositions[i]] as Vec3,
-      prevRotation: [0, 0, 0, 1] as Vec3,
+    const transformData: PhysicsTransformData = {
+      position: [startPositions[i][0], startPositions[i][1], startPositions[i][2]],
+      rotation: [0, 0, 0, 1],
+      prevPosition: [...startPositions[i]],
+      prevRotation: [0, 0, 0, 1],
     };
 
     const components = new Map();

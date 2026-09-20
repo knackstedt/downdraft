@@ -89,7 +89,7 @@ async function main() {
   // Debug: confirm the DejaVu Sans font actually loaded and measure a sample.
   try {
     const loaded = await (document as any).fonts?.check?.("32px 'DejaVu Sans'");
-    const probe = document.createElement("canvas").getContext("2d");
+    const probe = document.createElement("canvas").getContext("2d")!;
     probe.font = "32px 'DejaVu Sans'";
     const m = probe.measureText("PixiJS Text Rendering");
     console.log("[harness] font check:", loaded, "measure width:", m.width);

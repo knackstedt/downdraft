@@ -160,7 +160,7 @@ function generate3DS(): ArrayBuffer {
   // Main chunk (0x4d4d) contains edit
   const mainChunk = buildChunk(0x4d4d, editChunk);
 
-  return mainChunk.buffer;
+  return mainChunk.buffer as ArrayBuffer;
 }
 
 // ─── DDS (uncompressed RGBA8, 4x4) ─────────────────────────────────────────

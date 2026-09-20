@@ -75,10 +75,6 @@ declare namespace Deno {
 
 // NOTE: no `declare const Deno`/`Bun` — a const cannot merge with a same-named
 // namespace (duplicate identifier), and all runtime access goes through
-// `(globalThis as any).Deno` / `.Bun` anyway. The namespaces above exist for
-// type-space only.
-
-declare namespace Bun {
-  function file(path: string): { text(): Promise<string> };
-  function plugin(options: unknown): void;
-}
+// `(globalThis as any).Deno` / `.Bun` anyway. The Deno namespace above exists
+// for type-space only. No `Bun` namespace is declared here: bun-types provides
+// the real global, and a stub namespace would shadow it.

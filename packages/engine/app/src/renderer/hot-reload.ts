@@ -47,7 +47,13 @@ const SLOT = "hot-reload";
  */
 export function installSimHotReload(deps: SimHotReloadDeps): void {
   if (!isDevMode || !import.meta.hot) return;
-  const hot = import.meta.hot;
+  // Cast: bun-types' ImportMeta augmentation can shadow vite/client's HMR
+  // typing when both are in the program (node config). This code is
+  // Vite-specific, so pin the subset of the vite HMR surface we use.
+  const hot = import.meta.hot as unknown as {
+    on(event: string, cb: (data: any) => void): void;
+    send(event: string, data?: any): void;
+  };
   const bridge = () => deps.downdraft ?? downdraft;
   const getConfig = () =>
     typeof deps.simConfig === "function" ? (deps.simConfig as () => unknown)() : deps.simConfig;

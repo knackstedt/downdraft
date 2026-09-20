@@ -623,7 +623,7 @@ export async function launchGame(opts: LaunchOptions = {}): Promise<GameProcess>
   let stdoutBuffer = "";
   let stderrBuffer = "";
   (async () => {
-    for await (const chunk of proc.stdout) {
+    for await (const chunk of proc.stdout as unknown as AsyncIterable<Uint8Array>) {
       const text = decoder.decode(chunk);
       stdoutBuffer += text;
       process.stdout.write(text);
@@ -637,7 +637,7 @@ export async function launchGame(opts: LaunchOptions = {}): Promise<GameProcess>
     }
   })();
   (async () => {
-    for await (const chunk of proc.stderr) {
+    for await (const chunk of proc.stderr as unknown as AsyncIterable<Uint8Array>) {
       const text = decoder.decode(chunk);
       stderrBuffer += text;
       process.stderr.write(text);
