@@ -332,6 +332,19 @@ export class PixiUiHost {
     this.worker.postMessage(msg);
   }
 
+  /**
+   * Suspend/resume the worker's render loop. While paused the worker stops
+   * requesting animation frames — no scene updates, no rendering, no GPU
+   * work — but stays alive and still answers queryScene/captureOverlay.
+   * Use this to keep a hidden overlay (e.g. the profiler) from burning a
+   * full PixiJS render loop every frame.
+   */
+  setPaused(paused: boolean): void {
+    if (!this.worker || this.disposed) return;
+    const msg: MainToWorkerMessage = { kind: "setPaused", paused };
+    this.worker.postMessage(msg);
+  }
+
   /** Query the worker for a scene-graph summary (used by MCP tools). */
   queryScene(timeoutMs = 5000): Promise<SceneStateMessage["state"]> {
     if (!this.worker) return Promise.reject(new Error("PixiUI worker not started"));

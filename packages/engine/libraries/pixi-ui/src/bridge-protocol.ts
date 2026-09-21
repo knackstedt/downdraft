@@ -110,6 +110,17 @@ export interface StatsSyncMessage {
   data: ArrayBuffer;
 }
 
+/**
+ * Suspend/resume the worker's render loop. While paused the ticker stops
+ * requesting animation frames — no scene updates, no GPU work — but the
+ * worker stays alive and still answers queryScene/captureOverlay. Used to
+ * keep a hidden overlay (e.g. the profiler) from burning a full render loop.
+ */
+export interface SetPausedMessage {
+  kind: "setPaused";
+  paused: boolean;
+}
+
 export type MainToWorkerMessage =
   | InitMessage
   | EventMessage
@@ -119,7 +130,8 @@ export type MainToWorkerMessage =
   | CaptureOverlayMessage
   | DisposeMessage
   | SetFontScaleMessage
-  | StatsSyncMessage;
+  | StatsSyncMessage
+  | SetPausedMessage;
 
 // --- Worker → main ---
 

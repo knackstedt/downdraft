@@ -372,6 +372,9 @@ const messageHandler = async (e: MessageEvent<MainToWorkerMessage>) => {
       case "statsSync":
         handleStatsSync(msg);
         break;
+      case "setPaused":
+        setPaused(msg.paused);
+        break;
     }
   } catch (err) {
     postError(`Message handler error for "${msg.kind}": ${(err as Error).message}`, (err as Error).stack);
@@ -551,6 +554,8 @@ async function handleInit(msg: InitMessage): Promise<void> {
     // in tick() with proper error handling.
     app.ticker.remove(app.render, app);
     app.ticker.add((_ticker: Ticker) => tick());
+    // A setPaused message may have arrived before init completed.
+    if (paused) app.ticker.stop();
   } else {
     // Fallback: manual rAF loop (shouldn't be needed in v8, but defensive).
     const rafLoop = () => {
@@ -564,11 +569,27 @@ async function handleInit(msg: InitMessage): Promise<void> {
 }
 
 let disposed = false;
+let paused = false;
+
+/**
+ * Suspend/resume the render loop. While paused the ticker stops requesting
+ * animation frames entirely — no scene.update, no app.render, no GPU work.
+ * The worker stays alive for queryScene/captureOverlay (capture renders on
+ * demand). May arrive before init completes, so the flag is also consulted
+ * when the ticker is set up.
+ */
+function setPaused(p: boolean): void {
+  paused = p;
+  if (app?.ticker) {
+    if (p) app.ticker.stop();
+    else app.ticker.start();
+  }
+}
 
 // ── Per-frame tick ──
 
 function tick(): void {
-  if (!scene || !config || !uiStatsSab) return;
+  if (paused || !scene || !config || !uiStatsSab) return;
   try {
     const now = performance.now();
     const dt = (now - lastTime) / 1000;

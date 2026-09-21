@@ -161,6 +161,10 @@ export function attachProfilerOverlay(opts: ProfilerOverlayOptions): ProfilerOve
     if (!opts.startVisible) {
       const canvas = document.getElementById(canvasId) as HTMLCanvasElement | null;
       if (canvas) canvas.style.display = "none";
+      // Suspend the worker's render loop while hidden — otherwise the pixi
+      // worker rebuilds + renders the scene every frame (invisible), which
+      // floods the GPU channel and churns heap into constant GC pauses.
+      host.setPaused(true);
     }
   }, (e) => console.error("[profiler] Profiler overlay failed to start:", e));
 
@@ -169,7 +173,9 @@ export function attachProfilerOverlay(opts: ProfilerOverlayOptions): ProfilerOve
       e.preventDefault();
       const canvas = document.getElementById(canvasId) as HTMLCanvasElement | null;
       if (canvas) {
-        canvas.style.display = canvas.style.display === "none" ? "block" : "none";
+        const show = canvas.style.display === "none";
+        canvas.style.display = show ? "block" : "none";
+        host.setPaused(!show);
       }
     }
   };
