@@ -52,6 +52,11 @@ describe("overburden MCP automation smoke", () => {
     expect(names.has("add_fuel")).toBe(true);
     expect(names.has("rush_craft")).toBe(true);
     expect(names.has("abort_craft")).toBe(true);
+    // Trading
+    expect(names.has("set_block")).toBe(true);
+    expect(names.has("select_station")).toBe(true);
+    expect(names.has("get_trade_offers")).toBe(true);
+    expect(names.has("trade")).toBe(true);
     // Task queue
     expect(names.has("queue_task")).toBe(true);
     expect(names.has("get_tasks")).toBe(true);
@@ -238,4 +243,79 @@ describe("overburden MCP automation smoke", () => {
     }
     expect(errors).toHaveLength(0);
   });
+
+  // --- Trade post feature tests ---
+  it("places a trade post, reads offers, and executes a trade", async () => {
+    // Place a trade post adjacent to the active blockhead. get_player_state
+    // reports active-grid coords; convert to world coords via the origin.
+    const ws = parseJsonContent(await game!.mcpClient.callTool("get_world_state", {}));
+    const player = parseJsonContent(await game!.mcpClient.callTool("get_player_state", { playerIndex: 0 }));
+    const px = Math.floor(player.x as number) + (ws.originCx as number) * 64;
+    const py = Math.floor(player.y as number) + (ws.originCy as number) * 64;
+    const post = parseJsonContent(await game!.mcpClient.callTool("set_block", {
+      x: px + 1, y: py, block: "trade_post",
+    }));
+    expect(post.ok).toBe(true);
+
+    // Read today's offers for the post.
+    const offersData = parseJsonContent(await game!.mcpClient.callTool("get_trade_offers", {
+      x: px + 1, y: py,
+    }));
+    const offers = offersData.offers as {
+      id: string;
+      inputs: { itemId: string; count: number; have: number }[];
+      outputs: { itemId: string; count: number }[];
+      affordable: boolean;
+    }[];
+    expect(offers.length).toBeGreaterThan(0);
+
+    // Same query again → identical offers (deterministic per post + day).
+    const again = parseJsonContent(await game!.mcpClient.callTool("get_trade_offers", {
+      x: px + 1, y: py,
+    }));
+    expect((again.offers as { id: string }[]).map((o) => o.id))
+      .toEqual(offers.map((o) => o.id));
+
+    // Grant the inputs for the first offer, then trade.
+    const offer = offers[0];
+    for (const inp of offer.inputs) {
+      await game!.mcpClient.callTool("give_item", { itemId: inp.itemId, count: inp.count });
+    }
+    await sleep(200);
+    const result = parseJsonContent(await game!.mcpClient.callTool("trade", {
+      x: px + 1, y: py, offerId: offer.id,
+    }));
+    expect(result.ok).toBe(true);
+
+    // Outputs should now be in the inventory.
+    const invData = parseJsonContent(await game!.mcpClient.callTool("get_inventory", { playerIndex: 0 }));
+    const inv = invData.inventory as ({ itemId: string; count: number } | null)[];
+    for (const out of offer.outputs) {
+      const slot = inv.find((s) => s && s.itemId === out.itemId);
+      expect(slot, `missing trade output ${out.itemId}`).toBeDefined();
+      expect(slot!.count).toBeGreaterThanOrEqual(out.count);
+    }
+  }, 20000);
+
+  it("rejects a trade when the blockhead can't cover the inputs", async () => {
+    const ws = parseJsonContent(await game!.mcpClient.callTool("get_world_state", {}));
+    const player = parseJsonContent(await game!.mcpClient.callTool("get_player_state", { playerIndex: 0 }));
+    const px = Math.floor(player.x as number) + (ws.originCx as number) * 64;
+    const py = Math.floor(player.y as number) + (ws.originCy as number) * 64;
+    // Reuse the post from the previous test (same coords).
+    const offersData = parseJsonContent(await game!.mcpClient.callTool("get_trade_offers", {
+      x: px + 1, y: py,
+    }));
+    const offers = offersData.offers as {
+      id: string;
+      inputs: { itemId: string; count: number; have: number }[];
+      affordable: boolean;
+    }[];
+    const unaffordable = offers.find((o) => !o.affordable);
+    if (!unaffordable) return; // all offers affordable — nothing to assert
+    const result = parseJsonContent(await game!.mcpClient.callTool("trade", {
+      x: px + 1, y: py, offerId: unaffordable.id,
+    }));
+    expect(result.ok).toBe(false);
+  }, 15000);
 });
