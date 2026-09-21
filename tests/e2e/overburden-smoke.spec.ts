@@ -66,6 +66,10 @@ describe("overburden MCP automation smoke", () => {
     expect(names.has("set_active_blockhead")).toBe(true);
     expect(names.has("get_all_players")).toBe(true);
     expect(names.has("use_item")).toBe(true);
+    // Combat
+    expect(names.has("spawn_critter")).toBe(true);
+    expect(names.has("get_critters")).toBe(true);
+    expect(names.has("force_raid")).toBe(true);
   });
 
   it("captures a non-empty screenshot", async () => {
@@ -318,4 +322,40 @@ describe("overburden MCP automation smoke", () => {
     }));
     expect(result.ok).toBe(false);
   }, 15000);
+
+  // --- Combat feature tests ---
+  it("spawns a hostile critter that chases and damages the blockhead", async () => {
+    const ws = parseJsonContent(await game!.mcpClient.callTool("get_world_state", {}));
+    const player = parseJsonContent(await game!.mcpClient.callTool("get_player_state", { playerIndex: 0 }));
+    const px = Math.floor(player.x as number) + (ws.originCx as number) * 64;
+    const py = Math.floor(player.y as number) + (ws.originCy as number) * 64;
+
+    // Spawn a crawler right next to the blockhead (world coords).
+    const spawn = parseJsonContent(await game!.mcpClient.callTool("spawn_critter", {
+      type: 1, x: px + 2, y: py - 1,
+    }));
+    expect(spawn.ok).toBe(true);
+    expect(typeof spawn.id).toBe("number");
+
+    // It appears in get_critters with full hp.
+    await sleep(300);
+    const list = parseJsonContent(await game!.mcpClient.callTool("get_critters", {}));
+    const critters = list.critters as { id: number; hp: number; x: number; y: number }[];
+    const mine = critters.find((c) => c.id === spawn.id);
+    expect(mine).toBeDefined();
+    expect(mine!.hp).toBe(30);
+
+    // Within aggro range it should close in and land hits — blockhead health
+    // drops below 100 within a few seconds.
+    const startHp = player.health as number;
+    const deadline = Date.now() + 12000;
+    let hp = startHp;
+    while (Date.now() < deadline && hp >= startHp) {
+      await sleep(400);
+      const p = parseJsonContent(await game!.mcpClient.callTool("get_player_state", { playerIndex: 0 }));
+      if (typeof p.health !== "number") break; // blockhead died — that counts as damage
+      hp = p.health as number;
+    }
+    expect(hp).toBeLessThan(startHp);
+  }, 20000);
 });
