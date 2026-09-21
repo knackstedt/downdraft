@@ -36,6 +36,7 @@
 import type { LoadOptions, SaveOptions } from "../save/persist-types";
 import { BaseWorkerHost } from "./base-worker-host";
 import type { WorkerApi } from "./rpc";
+import type { SimWorkerStats } from "./sim-worker-base";
 
 /**
  * The standard control API createSimWorker() exposes worker-side.
@@ -50,7 +51,7 @@ export interface SimWorkerControlApi extends WorkerApi {
   shutdown(): Promise<void>;
   setSpeed(speed: number): Promise<void>;
   step(): Promise<void>;
-  getStats(): Promise<{ fps: number; tick: number; frame: number }>;
+  getStats(): Promise<SimWorkerStats>;
 }
 
 /**
@@ -135,7 +136,7 @@ export abstract class SimWorkerHost<TApi extends WorkerApi = SimWorkerControlApi
     this.apiSend((api) => api.setSpeed(speed));
   }
 
-  async getStats(): Promise<{ fps: number; tick: number; frame: number } | null> {
+  async getStats(): Promise<SimWorkerStats | null> {
     const proxy = this.getProxy();
     if (!proxy?.proxy.getStats) return null;
     try {

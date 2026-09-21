@@ -377,6 +377,16 @@ export interface PhysicsBackend {
   isSleepingRaw(body: PhysicsBody): boolean;
 
   /**
+   * Bulk readback of AWAKE bodies in a realm. Writes idsOut[i] = body.id and
+   * out[i*10 .. +9] = [pos.x, pos.y, pos.z, rot.x, rot.y, rot.z, rot.w,
+   * linvel.x, linvel.y, linvel.z] for each awake body. Returns the number of
+   * bodies written (≤ maxCount). Sleeping bodies are excluded — they cannot
+   * move, so callers keep their last-synced values. One WASM→JS enumeration
+   * + raw scalar reads; replaces per-body isSleepingRaw checks in hot loops.
+   */
+  readAwakeBodyStates?(realmId: number, idsOut: Uint32Array, out: Float32Array, maxCount: number): number;
+
+  /**
    * Swap a trimesh collider's shape in-place (avoids remove/create + broadphase
    * re-insertion). Returns true if the swap succeeded, false if the backend
    * doesn't support in-place swap (caller should fall back to remove+create).

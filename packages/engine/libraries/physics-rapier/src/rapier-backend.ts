@@ -33,6 +33,15 @@ export interface PhysicsLib {
   setLinearVelocityRaw?(realmId: number, bodyId: number, x: number, y: number, z: number, wakeUp: boolean): void;
   setAngularVelocityRaw?(realmId: number, bodyId: number, x: number, y: number, z: number, wakeUp: boolean): void;
   isSleepingRaw?(realmId: number, bodyId: number): boolean;
+  /**
+   * Bulk readback of AWAKE bodies: enumerates the island manager's active set
+   * in one WASM→JS pass, then reads each body's transform via the raw scalar
+   * API. Writes idsOut[i] = bodyId and out[i*10 .. +9] =
+   * [pos.x, pos.y, pos.z, rot.x, rot.y, rot.z, rot.w, linvel.x, linvel.y, linvel.z].
+   * Returns the number of bodies written (≤ maxCount). Sleeping bodies are
+   * excluded — they cannot move, so callers keep their last-synced values.
+   */
+  readAwakeBodyStates?(realmId: number, idsOut: Uint32Array, out: Float32Array, maxCount: number): number;
   swapColliderShapeRaw?(realmId: number, colliderId: number, vertices: Float32Array, indices: Uint32Array): boolean;
   testConvexHull?(vertices: Float32Array): boolean;
   /** Returns the Rapier ShapeType enum value of the live collider (0=Ball,1=Cuboid,9=ConvexPolyhedron,...). -1 if not found. */
@@ -147,6 +156,13 @@ async function doLoadPhysicsLib(): Promise<PhysicsLib> {
     // Reverse map: Rapier rigid-body handle -> Entity, for collision reporting.
     // Populated in createBody, cleared in destroyBody/destroyRealm.
     const entityByBodyHandle = new Map<number, Map<number, Entity>>();
+    // Reverse map: Rapier rigid-body handle -> game bodyId, for the bulk
+    // awake-body readback (forEachActiveRigidBodyHandle yields raw handles).
+    const bodyIdByHandle = new Map<number, Map<number, number>>();
+    // Scratch for the awake-handle enumeration (grown on demand). Rapier
+    // handles are u64s passed through JS as f64 bit patterns (e.g. handle 1
+    // reads as 5e-324) — MUST be Float64Array, a Uint32Array truncates to 0.
+    let awakeHandleScratch = new Float64Array(1024);
 
     function makeColliderDesc(desc: ColliderDesc): Rapier.ColliderDesc {
       const shape = desc.shape;
@@ -215,6 +231,7 @@ async function doLoadPhysicsLib(): Promise<PhysicsLib> {
         controllerMaps.set(id, new Map());
         jointMaps.set(id, new Map());
         entityByBodyHandle.set(id, new Map());
+        bodyIdByHandle.set(id, new Map());
       },
       destroyRealm(id) {
         realms.delete(id);
@@ -223,6 +240,7 @@ async function doLoadPhysicsLib(): Promise<PhysicsLib> {
         controllerMaps.delete(id);
         jointMaps.delete(id);
         entityByBodyHandle.delete(id);
+        bodyIdByHandle.delete(id);
       },
       createBody(realmId, bodyId, desc, entity) {
         const world = realms.get(realmId);
@@ -267,6 +285,7 @@ async function doLoadPhysicsLib(): Promise<PhysicsLib> {
         const body = world.createRigidBody(rbDesc);
         bodyMaps.get(realmId)?.set(bodyId, body);
         entityByBodyHandle.get(realmId)?.set(body.handle, entity);
+        bodyIdByHandle.get(realmId)?.set(body.handle, bodyId);
       },
       destroyBody(realmId, bodyId) {
         const world = realms.get(realmId);
@@ -275,6 +294,7 @@ async function doLoadPhysicsLib(): Promise<PhysicsLib> {
         const body = map.get(bodyId);
         if (body) {
           entityByBodyHandle.get(realmId)?.delete(body.handle);
+          bodyIdByHandle.get(realmId)?.delete(body.handle);
           world.removeRigidBody(body);
           map.delete(bodyId);
         }
@@ -376,54 +396,67 @@ async function doLoadPhysicsLib(): Promise<PhysicsLib> {
         const contacts: ContactManifold[] = [];
         const seen = new Set<string>(); // dedup pairs (c1,c2) and (c2,c1)
 
-        world.forEachCollider((c1) => {
-          if (c1.isSensor()) return; // sensors don't produce contact manifolds
-          world.contactPairsWith(c1, (c2) => {
-            if (c2.isSensor()) return;
-            const key = c1.handle < c2.handle
-              ? `${c1.handle}:${c2.handle}`
-              : `${c2.handle}:${c1.handle}`;
-            if (seen.has(key)) return;
-            seen.add(key);
+        // Enumerate only colliders owned by ACTIVE bodies. Contacts between
+        // sleeping bodies are static and produce no new impulses — matching
+        // Rapier's own EventQueue semantics, which only reports activity for
+        // bodies in active islands. Enumerating every collider in the world
+        // (forEachCollider + contactPairsWith per collider + parent() per
+        // pair) costs ~15ms per call on a ~1.8k-collider resting scene even
+        // when everything is asleep.
+        world.islands.raw.forEachActiveRigidBodyHandle((handle: number) => {
+          const rb = world.getRigidBody(handle);
+          if (!rb) return;
+          const numColliders = rb.numColliders();
+          for (let i = 0; i < numColliders; i++) {
+            const c1 = rb.collider(i);
+            if (c1.isSensor()) continue; // sensors don't produce contact manifolds
+            world.contactPairsWith(c1, (c2) => {
+              if (c2.isSensor()) return;
+              const key = c1.handle < c2.handle
+                ? `${c1.handle}:${c2.handle}`
+                : `${c2.handle}:${c1.handle}`;
+              if (seen.has(key)) return;
+              seen.add(key);
 
-            const bodyA = c1.parent();
-            const bodyB = c2.parent();
-            if (!bodyA || !bodyB) return;
-            const entityA = entityMap.get(bodyA.handle);
-            const entityB = entityMap.get(bodyB.handle);
-            if (!entityA || !entityB) return;
+              const bodyA = c1.parent();
+              const bodyB = c2.parent();
+              if (!bodyA || !bodyB) return;
+              const entityA = entityMap.get(bodyA.handle);
+              const entityB = entityMap.get(bodyB.handle);
+              if (!entityA || !entityB) return;
 
-            world.contactPair(c1, c2, (manifold, flipped) => {
-              const normal = manifold.normal();
-              const numContacts = manifold.numContacts();
-              const points: Array<[number, number, number]> = [];
-              for (let i = 0; i < numContacts; i++) {
-                const pt = manifold.localContactPoint1(i);
-                if (pt) {
-                  points.push([pt.x, pt.y, pt.z]);
-                  try { (pt as any).free?.(); } catch {}
+              world.contactPair(c1, c2, (manifold, flipped) => {
+                const normal = manifold.normal();
+                const numContacts = manifold.numContacts();
+                const points: Array<[number, number, number]> = [];
+                for (let i = 0; i < numContacts; i++) {
+                  const pt = manifold.localContactPoint1(i);
+                  if (pt) {
+                    points.push([pt.x, pt.y, pt.z]);
+                    try { (pt as any).free?.(); } catch {}
+                  }
                 }
-              }
-              // Contact distance — use first contact's distance as penetration depth
-              let penetration = 0;
-              if (numContacts > 0) {
-                penetration = Math.max(0, -manifold.contactDist(0));
-              }
-              const nx = flipped ? -normal.x : normal.x;
-              const ny = flipped ? -normal.y : normal.y;
-              const nz = flipped ? -normal.z : normal.z;
-              try { (normal as any).free?.(); } catch {}
-              try { (manifold as any).free?.(); } catch {}
+                // Contact distance — use first contact's distance as penetration depth
+                let penetration = 0;
+                if (numContacts > 0) {
+                  penetration = Math.max(0, -manifold.contactDist(0));
+                }
+                const nx = flipped ? -normal.x : normal.x;
+                const ny = flipped ? -normal.y : normal.y;
+                const nz = flipped ? -normal.z : normal.z;
+                try { (normal as any).free?.(); } catch {}
+                try { (manifold as any).free?.(); } catch {}
 
-              contacts.push({
-                entityA,
-                entityB,
-                normal: [nx, ny, nz],
-                points,
-                penetrationDepth: penetration,
+                contacts.push({
+                  entityA,
+                  entityB,
+                  normal: [nx, ny, nz],
+                  points,
+                  penetrationDepth: penetration,
+                });
               });
             });
-          });
+          }
         });
 
         return contacts;
@@ -437,23 +470,30 @@ async function doLoadPhysicsLib(): Promise<PhysicsLib> {
         const intersections: IntersectionPair[] = [];
         const seen = new Set<string>();
 
-        world.forEachCollider((c1) => {
-          world.intersectionPairsWith(c1, (c2) => {
-            const key = c1.handle < c2.handle
-              ? `${c1.handle}:${c2.handle}`
-              : `${c2.handle}:${c1.handle}`;
-            if (seen.has(key)) return;
-            seen.add(key);
+        // Active-body-only enumeration — same rationale as getContacts.
+        world.islands.raw.forEachActiveRigidBodyHandle((handle: number) => {
+          const rb = world.getRigidBody(handle);
+          if (!rb) return;
+          const numColliders = rb.numColliders();
+          for (let i = 0; i < numColliders; i++) {
+            const c1 = rb.collider(i);
+            world.intersectionPairsWith(c1, (c2) => {
+              const key = c1.handle < c2.handle
+                ? `${c1.handle}:${c2.handle}`
+                : `${c2.handle}:${c1.handle}`;
+              if (seen.has(key)) return;
+              seen.add(key);
 
-            const bodyA = c1.parent();
-            const bodyB = c2.parent();
-            if (!bodyA || !bodyB) return;
-            const entityA = entityMap.get(bodyA.handle);
-            const entityB = entityMap.get(bodyB.handle);
-            if (!entityA || !entityB) return;
+              const bodyA = c1.parent();
+              const bodyB = c2.parent();
+              if (!bodyA || !bodyB) return;
+              const entityA = entityMap.get(bodyA.handle);
+              const entityB = entityMap.get(bodyB.handle);
+              if (!entityA || !entityB) return;
 
-            intersections.push({ entityA, entityB });
-          });
+              intersections.push({ entityA, entityB });
+            });
+          }
         });
 
         return intersections;
@@ -884,6 +924,51 @@ async function doLoadPhysicsLib(): Promise<PhysicsLib> {
         }
         return body.isSleeping();
       },
+      readAwakeBodyStates(realmId, idsOut, out, maxCount) {
+        const world = realms.get(realmId);
+        const handleMap = bodyIdByHandle.get(realmId);
+        const rawBodies = world?.bodies.raw;
+        if (!world || !handleMap || !rawBodies) return 0;
+
+        // Phase 1: enumerate awake handles in ONE wasm call. The JS callback
+        // only stores integers — no reentrant wasm calls inside the iteration.
+        let count = 0;
+        world.islands.raw.forEachActiveRigidBodyHandle((handle: number) => {
+          if (count < awakeHandleScratch.length) {
+            awakeHandleScratch[count] = handle;
+          }
+          count++;
+        });
+        if (count > awakeHandleScratch.length) {
+          awakeHandleScratch = new Float64Array(count * 2);
+          count = 0;
+          world.islands.raw.forEachActiveRigidBodyHandle((handle: number) => {
+            awakeHandleScratch[count++] = handle;
+          });
+        }
+
+        // Phase 2: raw scalar reads per awake body. Each rb* call allocates a
+        // RawVector/RawRotation in the wasm heap — free() it immediately.
+        let written = 0;
+        for (let i = 0; i < count && written < maxCount; i++) {
+          const handle = awakeHandleScratch[i];
+          const bodyId = handleMap.get(handle);
+          if (bodyId === undefined) continue;
+          const o = written * 10;
+          const v = rawBodies.rbTranslation(handle);
+          out[o] = v.x; out[o + 1] = v.y; out[o + 2] = v.z;
+          v.free();
+          const r = rawBodies.rbRotation(handle);
+          out[o + 3] = r.x; out[o + 4] = r.y; out[o + 5] = r.z; out[o + 6] = r.w;
+          r.free();
+          const l = rawBodies.rbLinvel(handle);
+          out[o + 7] = l.x; out[o + 8] = l.y; out[o + 9] = l.z;
+          l.free();
+          idsOut[written] = bodyId;
+          written++;
+        }
+        return written;
+      },
       swapColliderShapeRaw(realmId, colliderId, vertices, indices) {
         const world = realms.get(realmId);
         const rawColliders = world?.colliders.raw;
@@ -943,6 +1028,8 @@ async function doLoadPhysicsLib(): Promise<PhysicsLib> {
         colliderMaps.clear();
         controllerMaps.clear();
         jointMaps.clear();
+        entityByBodyHandle.clear();
+        bodyIdByHandle.clear();
       },
     };
 

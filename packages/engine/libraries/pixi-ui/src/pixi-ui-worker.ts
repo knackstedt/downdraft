@@ -712,6 +712,14 @@ function handlePointer(msg: { type: string; x: number; y: number; button: number
   if (config?.passThrough) {
     if (msg.type === "pointerdown") {
       const rootBoundary = eventSystem.rootBoundary;
+      // rootTarget is normally populated inside _onPointer* handlers from
+      // renderer.lastObjectRendered — but that creates a chicken-and-egg
+      // deadlock here: a pointerdown before any event ran has no rootTarget,
+      // so it misses, and every subsequent event stays a miss forever. Seed
+      // it from the rendered stage so the first click can hit-test.
+      if (rootBoundary && !rootBoundary.rootTarget) {
+        rootBoundary.rootTarget = (((app.renderer as any)?.lastObjectRendered) ?? app?.stage) as any;
+      }
       if (rootBoundary && typeof rootBoundary.hitTest === "function" && rootBoundary.rootTarget) {
         let hit: unknown = null;
         try {

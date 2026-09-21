@@ -415,6 +415,26 @@ export class RapierPhysicsBackend implements PhysicsBackend {
     return state ? state.sleeping : false;
   }
 
+  readAwakeBodyStates(realmId: number, idsOut: Uint32Array, out: Float32Array, maxCount: number): number {
+    if (this.lib?.readAwakeBodyStates) {
+      return this.lib.readAwakeBodyStates(realmId, idsOut, out, maxCount);
+    }
+    const realm = this.realms.get(realmId);
+    if (!realm) return 0;
+    let n = 0;
+    for (const [bodyId, b] of realm.bodies) {
+      if (n >= maxCount) break;
+      if (b.sleeping || b.desc.type !== "dynamic") continue;
+      const o = n * 10;
+      out[o] = b.position[0]; out[o + 1] = b.position[1]; out[o + 2] = b.position[2];
+      out[o + 3] = b.rotation[0]; out[o + 4] = b.rotation[1]; out[o + 5] = b.rotation[2]; out[o + 6] = b.rotation[3];
+      out[o + 7] = b.linearVelocity[0]; out[o + 8] = b.linearVelocity[1]; out[o + 9] = b.linearVelocity[2];
+      idsOut[n] = bodyId;
+      n++;
+    }
+    return n;
+  }
+
   swapColliderShapeRaw(realmId: number, colliderId: number, vertices: Float32Array, indices: Uint32Array): boolean {
     if (this.lib && this.lib.swapColliderShapeRaw) {
       return this.lib.swapColliderShapeRaw(realmId, colliderId, vertices, indices);

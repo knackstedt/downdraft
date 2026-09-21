@@ -66,7 +66,10 @@ export abstract class BaseWorkerHost<TApi extends WorkerApi> {
    */
   async start(): Promise<void> {
     this.worker = this.createWorker();
-    this.proxy = wrap<TApi>(this.worker);
+    // 120s rather than the 30s default: in dev, vite's cold transform of a
+    // large worker module can exceed 30s, killing init with a spurious
+    // timeout while the worker is still legitimately loading.
+    this.proxy = wrap<TApi>(this.worker, { timeoutMs: 120_000 });
 
     this.worker.onerror = (e: ErrorEvent) => {
       this.onError(e);

@@ -57,6 +57,8 @@ export interface SimWorkerStats {
   fps: number;
   tick: number;
   frame: number;
+  /** Cumulative onTick wall time in ms — diff with tick to get avg tick cost. */
+  tickMs: number;
 }
 
 /**
@@ -706,7 +708,7 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
     },
 
     getStats(): SimWorkerStats {
-      return { fps, tick: tickCount, frame: frameCount };
+      return { fps, tick: tickCount, frame: frameCount, tickMs: tickTimeAccum };
     },
 
     ...(opts.save?.capture

@@ -535,12 +535,34 @@ export class GameRenderer implements CanvasResizeHandler {
 
   // --- CanvasResizeHandler ---
 
+  private resolutionScale = 1;
+  private lastCssW = 0;
+  private lastCssH = 0;
+  private lastRawDpr = 1;
+
+  /**
+   * Render-resolution scale [0.25..1]. Multiplies the effective DPR so the
+   * swap chain renders fewer pixels (performance) and the compositor
+   * upscales. Re-applies the last known canvas size immediately.
+   */
+  setResolutionScale(scale: number): void {
+    this.resolutionScale = Math.max(0.25, Math.min(1, scale));
+    if (this.lastCssW > 0) this.onResize(this.lastCssW, this.lastCssH, this.lastRawDpr);
+  }
+
+  getResolutionScale(): number {
+    return this.resolutionScale;
+  }
+
   onResize(cssWidth: number, cssHeight: number, dpr: number): void {
+    this.lastCssW = cssWidth;
+    this.lastCssH = cssHeight;
+    this.lastRawDpr = dpr;
     // Cap DPR at 1.5 on mobile to reduce WebGPU compositing cost.
     // Android WebView's compositor blocks the main thread proportionally
     // to canvas pixel count. On a 3x DPR phone, capping to 1.5x reduces
     // compositing work by ~4x with minimal visual quality loss.
-    const cappedDpr = Math.min(dpr, 1.5);
+    const cappedDpr = Math.min(dpr, 1.5) * this.resolutionScale;
     this.dpr = cappedDpr;
     const w = Math.round(cssWidth * cappedDpr);
     const h = Math.round(cssHeight * cappedDpr);

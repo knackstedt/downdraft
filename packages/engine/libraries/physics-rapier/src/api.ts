@@ -271,6 +271,23 @@ export class UniversalPhysicsAPI {
   isSleepingRaw(body: PhysicsBody): boolean {
     return this.backend.isSleepingRaw(body);
   }
+
+  /**
+   * Bulk fast path: reads pos/rot/linvel of all AWAKE bodies in the near realm
+   * in a single WASM boundary session (island-manager enumeration + raw scalar
+   * reads). Writes idsOut[i] = body.id and out[i*10 .. +9] =
+   * [px,py,pz, qx,qy,qz,qw, vx,vy,vz]. Returns the number of awake bodies
+   * written (≤ maxCount). Sleeping bodies are excluded — they cannot move, so
+   * callers keep their last-synced values.
+   */
+  readAwakeBodyStates(idsOut: Uint32Array, out: Float32Array, maxCount: number): number {
+    const nearRealm = this.realmManager.getRealm(RealmTier.Near);
+    const rb = this.backend as RapierPhysicsBackend;
+    if (typeof rb.readAwakeBodyStates === "function") {
+      return rb.readAwakeBodyStates(nearRealm.id, idsOut, out, maxCount);
+    }
+    return 0;
+  }
   swapColliderShapeRaw(realmId: number, colliderId: number, vertices: Float32Array, indices: Uint32Array): boolean {
     return this.backend.swapColliderShapeRaw(realmId, colliderId, vertices, indices);
   }
