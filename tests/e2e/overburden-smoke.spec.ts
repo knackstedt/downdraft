@@ -70,6 +70,15 @@ describe("overburden MCP automation smoke", () => {
     expect(names.has("spawn_critter")).toBe(true);
     expect(names.has("get_critters")).toBe(true);
     expect(names.has("force_raid")).toBe(true);
+    // Physics sandbox
+    expect(names.has("spawn_prop")).toBe(true);
+    expect(names.has("get_props")).toBe(true);
+    expect(names.has("link_props")).toBe(true);
+    expect(names.has("get_links")).toBe(true);
+    expect(names.has("unlink_props")).toBe(true);
+    expect(names.has("remove_prop")).toBe(true);
+    expect(names.has("spray_decal")).toBe(true);
+    expect(names.has("get_decals")).toBe(true);
   });
 
   it("captures a non-empty screenshot", async () => {
@@ -357,5 +366,73 @@ describe("overburden MCP automation smoke", () => {
       hp = p.health as number;
     }
     expect(hp).toBeLessThan(startHp);
+  }, 20000);
+
+  // --- Physics sandbox tests ---
+  it("spawns a prop, welds it to terrain, and sprays a decal", async () => {
+    const ws = parseJsonContent(await game!.mcpClient.callTool("get_world_state", {}));
+    const player = parseJsonContent(await game!.mcpClient.callTool("get_player_state", { playerIndex: 0 }));
+    const px = Math.floor(player.x as number) + (ws.originCx as number) * 64;
+    const py = Math.floor(player.y as number) + (ws.originCy as number) * 64;
+
+    // Spawn a crate in the air near the blockhead.
+    const spawn = parseJsonContent(await game!.mcpClient.callTool("spawn_prop", {
+      kind: 1, x: px + 2, y: py - 4,
+    }));
+    expect(spawn.ok).toBe(true);
+    expect(typeof spawn.id).toBe("number");
+
+    await sleep(300);
+    const list = parseJsonContent(await game!.mcpClient.callTool("get_props", {}));
+    const mine = (list.props as { id: number; kind: number; x: number; y: number }[])
+      .find((p) => p.id === spawn.id);
+    expect(mine).toBeDefined();
+    expect(mine!.kind).toBe(1);
+
+    // Weld the crate (at its CURRENT position — it falls after spawning) to
+    // a fixed point above it — it should stop falling with nothing under it.
+    const cwx = mine!.x + (ws.originCx as number) * 64;
+    const cwy = mine!.y + (ws.originCy as number) * 64;
+    const weld = parseJsonContent(await game!.mcpClient.callTool("link_props", {
+      type: 3, ax: cwx, ay: cwy, bx: cwx, by: cwy - 4,
+    }));
+    expect(weld.ok).toBe(true);
+    const links = parseJsonContent(await game!.mcpClient.callTool("get_links", {}));
+    expect((links.links as unknown[]).length).toBeGreaterThanOrEqual(1);
+
+    // Rope another crate to the welded one: prop↔prop constraint. Anchor B
+    // on the new crate's live position (it starts falling immediately).
+    const spawn2 = parseJsonContent(await game!.mcpClient.callTool("spawn_prop", {
+      kind: 1, x: px + 4, y: py - 6,
+    }));
+    expect(spawn2.ok).toBe(true);
+    const list2 = parseJsonContent(await game!.mcpClient.callTool("get_props", {}));
+    const mine2 = (list2.props as { id: number; x: number; y: number }[])
+      .find((p) => p.id === spawn2.id);
+    expect(mine2).toBeDefined();
+    const rope = parseJsonContent(await game!.mcpClient.callTool("link_props", {
+      type: 1, ax: cwx, ay: cwy,
+      bx: mine2!.x + (ws.originCx as number) * 64,
+      by: mine2!.y + (ws.originCy as number) * 64,
+    }));
+    expect(rope.ok).toBe(true);
+
+    // Spray a paint decal on the ground next to the blockhead.
+    const decal = parseJsonContent(await game!.mcpClient.callTool("spray_decal", {
+      type: 1, x: px + 1, y: py + 1, color: 4,
+    }));
+    expect(decal.ok).toBe(true);
+    const decals = parseJsonContent(await game!.mcpClient.callTool("get_decals", {}));
+    expect((decals.decals as { type: number }[]).some((d) => d.type === 1)).toBe(true);
+
+    // Removing the props cleans up their links.
+    expect(parseJsonContent(await game!.mcpClient.callTool("remove_prop", { id: spawn.id })).ok).toBe(true);
+    expect(parseJsonContent(await game!.mcpClient.callTool("remove_prop", { id: spawn2.id })).ok).toBe(true);
+    await sleep(200);
+    const linksAfter = parseJsonContent(await game!.mcpClient.callTool("get_links", {}));
+    const touching = (linksAfter.links as { aPropId: number; bPropId: number }[])
+      .filter((l) => l.aPropId === spawn.id || l.bPropId === spawn.id
+                  || l.aPropId === spawn2.id || l.bPropId === spawn2.id);
+    expect(touching.length).toBe(0);
   }, 20000);
 });
