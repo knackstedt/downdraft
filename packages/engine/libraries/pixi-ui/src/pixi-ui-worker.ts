@@ -526,6 +526,15 @@ async function handleInit(msg: InitMessage): Promise<void> {
     if (eventSystem?.rootBoundary && !eventSystem.rootBoundary.rootTarget) {
       eventSystem.rootBoundary.rootTarget = app?.stage ?? null;
     }
+    // Also seed renderer._lastObjectRendered: every _onPointer* handler
+    // reassigns rootTarget from it, so a pointer event arriving before the
+    // first screen render would clobber the seeded stage with null and
+    // permanently disable hit-testing (all clicks become misses). The
+    // public property is a readonly getter — write the backing field.
+    const rendererAny = app?.renderer as any;
+    if (rendererAny && !rendererAny.lastObjectRendered && app?.stage) {
+      rendererAny._lastObjectRendered = app.stage;
+    }
   } catch (err) {
     postError(`Scene init failed: ${(err as Error).message}`, (err as Error).stack);
     // Still report ready so the host doesn't hang — the overlay will be blank
@@ -750,9 +759,10 @@ function handlePointer(msg: { type: string; x: number; y: number; button: number
     if (msg.type === "pointerdown") {
       // PixiJS v8 _onPointerDown sets rootBoundary.rootTarget = renderer.lastObjectRendered.
       // In a worker, lastObjectRendered may be null/stale — ensure it's the stage.
+      // (lastObjectRendered is a readonly getter — write the backing field.)
       const renderer = app.renderer as any;
       if (renderer?.lastObjectRendered !== app?.stage) {
-        renderer.lastObjectRendered = app?.stage;
+        renderer._lastObjectRendered = app?.stage;
       }
       eventSystem._onPointerDown(syntheticEvent as any);
     }
