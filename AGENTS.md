@@ -767,6 +767,14 @@ To connect:
 
 **Multiple instances:** Launch as many games as you like — each gets its own ephemeral port and PID file. The bridge connects to the newest by default; set `MCP_APP_ID` in `.devin/mcp_config.json`'s `env` to target a specific game.
 
+**One-shot shell access:** `scripts/mcp-call.mjs` calls game MCP tools directly from bash — handy for quick debugging when no MCP client is attached. Each run performs its own `initialize` handshake, so it never depends on a cached session id. Uses the same `~/.downdraft/port/` discovery and `MCP_APP_ID`/`MCP_PID`/`MCP_HTTP_URL` selectors as the bridge, and sends the `<pid>.token` auth header when present.
+
+```bash
+node scripts/mcp-call.mjs --list                          # tools/list
+node scripts/mcp-call.mjs get_world_state                 # tools/call, no args
+node scripts/mcp-call.mjs set_test_state '{"weather":1}'  # tools/call with JSON args
+```
+
 Key bridge fixes:
 - Notifications (no `id`) must not receive a response — the bridge silently drops them.
 - The proxy handler wraps errors in the `result` field; the bridge detects `result.error` and converts it to a proper MCP `error` response.
