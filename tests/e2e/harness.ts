@@ -64,6 +64,15 @@ export interface LaunchOptions {
    *  the default `games/<game>/electron.vite.config.ts` path — use for
    *  launching examples (`examples/<name>/electron.vite.config.ts`). */
   configPath?: string;
+  /** Launch target. "electron" (default) spawns electron-vite dev or the built
+   *  app; "native" runs games/<game>/src/native-entry.ts under Bun (SDL +
+   *  wgpu-native host, in-process MCP — no Electron). Also selectable via the
+   *  DOWNDRAFT_RUNTIME env var (`draft test --runtime=native`). */
+  runtime?: "electron" | "native";
+  /** Override for the native entry point (default: src/native-entry.ts
+   *  inside the game dir, or games/<game>/src/native-entry.ts when running
+   *  from the monorepo root). */
+  nativeEntry?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -177,7 +186,14 @@ export async function findFreePort(startPort: number = 9976, maxAttempts: number
 // Startup helpers
 // ---------------------------------------------------------------------------
 
-async function waitForHealth(port: number, proc: ReturnType<typeof Bun.spawn>, timeoutMs = 90000): Promise<void> {
+function mcpHeaders(token?: string | null): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
+async function waitForHealth(port: number, proc: ReturnType<typeof Bun.spawn>, timeoutMs = 90000, token?: string | null): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   let lastErr = "";
   while (Date.now() < deadline) {
@@ -192,7 +208,7 @@ async function waitForHealth(port: number, proc: ReturnType<typeof Bun.spawn>, t
       // proc.exited throws if killed — that's fine, we check proc.killed above
     }
     try {
-      const res = await fetch(`http://localhost:${port}/mcp/health`);
+      const res = await fetch(`http://localhost:${port}/mcp/health`, { headers: mcpHeaders(token) });
       if (res.ok) return;
     } catch (e) {
       lastErr = (e as Error).message;
@@ -202,7 +218,7 @@ async function waitForHealth(port: number, proc: ReturnType<typeof Bun.spawn>, t
   throw new Error(`MCP health endpoint did not become ready on port ${port}: ${lastErr}`);
 }
 
-async function waitForTools(port: number, proc: ReturnType<typeof Bun.spawn>, timeoutMs = 90000): Promise<void> {
+async function waitForTools(port: number, proc: ReturnType<typeof Bun.spawn>, timeoutMs = 90000, token?: string | null): Promise<void> {
   // The MCP transport requires `initialize` before any other method.
   // Send it once, then poll `tools/list` until the renderer has registered
   // its automation tools (the harness attaches after the sim worker starts).
@@ -220,7 +236,7 @@ async function waitForTools(port: number, proc: ReturnType<typeof Bun.spawn>, ti
       const timeout = setTimeout(() => controller.abort(), 5000);
       const initRes = await fetch(`http://localhost:${port}/mcp`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: mcpHeaders(token),
         signal: controller.signal,
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
       });
@@ -242,7 +258,7 @@ async function waitForTools(port: number, proc: ReturnType<typeof Bun.spawn>, ti
       const timeout = setTimeout(() => controller.abort(), 10000);
       const res = await fetch(`http://localhost:${port}/mcp`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: mcpHeaders(token),
         signal: controller.signal,
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
       });
@@ -274,7 +290,7 @@ async function waitForTools(port: number, proc: ReturnType<typeof Bun.spawn>, ti
  * This catches WebGPU init failures and other startup issues early, before
  * tests start failing with mysterious tool errors.
  */
-async function verifyGameReady(port: number, proc: ReturnType<typeof Bun.spawn>, timeoutMs = 30000): Promise<void> {
+async function verifyGameReady(port: number, proc: ReturnType<typeof Bun.spawn>, timeoutMs = 30000, token?: string | null): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   let lastErr = "";
   while (Date.now() < deadline) {
@@ -287,7 +303,7 @@ async function verifyGameReady(port: number, proc: ReturnType<typeof Bun.spawn>,
       const timeout = setTimeout(() => controller.abort(), 10000);
       const res = await fetch(`http://localhost:${port}/mcp`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: mcpHeaders(token),
         signal: controller.signal,
         body: JSON.stringify({
           jsonrpc: "2.0",
@@ -328,14 +344,14 @@ async function verifyGameReady(port: number, proc: ReturnType<typeof Bun.spawn>,
 // MCP client
 // ---------------------------------------------------------------------------
 
-function createMcpClient(port: number): McpClient {
+function createMcpClient(port: number, token?: string | null): McpClient {
   async function rpc(method: string, params?: Record<string, unknown>, timeoutMs?: number): Promise<unknown> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs ?? 60000);
     try {
       const res = await fetch(`http://localhost:${port}/mcp`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: mcpHeaders(token),
         signal: controller.signal,
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
       });
@@ -554,7 +570,13 @@ function isRealError(line: string, extraIgnorePatterns: RegExp[] = []): boolean 
 // ---------------------------------------------------------------------------
 
 export async function launchGame(opts: LaunchOptions = {}): Promise<GameProcess> {
-  const game = opts.game ?? "to-the-ocean";
+  // Infer the game name from configPath when not given — specs select the
+  // game via `games/<name>/electron.vite.config.ts` and rely on the harness
+  // to pick the matching native entry under runtime=native.
+  const game = opts.game
+    ?? opts.configPath?.match(/(?:^|\/)(?:games|examples)\/([^/]+)\//)?.[1]
+    ?? "to-the-ocean";
+  const runtime = opts.runtime ?? (process.env.DOWNDRAFT_RUNTIME === "native" ? "native" : "electron");
   // Use dynamic port allocation if no port specified — avoids conflicts
   // when running multiple specs in parallel.
   const port = opts.mcpPort ?? (await findFreePort());
@@ -586,7 +608,26 @@ export async function launchGame(opts: LaunchOptions = {}): Promise<GameProcess>
   let cmdArgs: string[];
   let cwd: string;
 
-  if (useBuilt) {
+  if (runtime === "native") {
+    // Native mode: run the game's shared GameModule through
+    // runNativeGameModule — Bun + SDL + wgpu-native, in-process MCP server
+    // (no Electron, no Vite). The MCP port is passed via MCP_PORT (the
+    // native server honors it); PID-file discovery under ~/.downdraft/port
+    // also works for ad-hoc runs.
+    const { existsSync } = await import("node:fs");
+    const rootEntry = resolve(process.cwd(), "games", game, "src", "native-entry.ts");
+    const localEntry = resolve(process.cwd(), "src", "native-entry.ts");
+    const entry = opts.nativeEntry
+      ? resolve(opts.nativeEntry)
+      : existsSync(rootEntry)
+        ? rootEntry
+        : localEntry;
+    // cwd = monorepo root (or the standalone game dir) so the bunfig.toml
+    // preload registers the ?raw/.wgsl/.css loaders for shader/CSS imports.
+    cwd = process.cwd();
+    cmd = "bun";
+    cmdArgs = [entry];
+  } else if (useBuilt) {
     // Built mode: launch the packaged Electron app directly.
     cmd = "npx";
     cmdArgs = ["electron", "."];
@@ -651,10 +692,29 @@ export async function launchGame(opts: LaunchOptions = {}): Promise<GameProcess>
     }
   })();
 
+  // Native MCP transports require a bearer token (written next to the port
+  // PID file as ~/.downdraft/port/<pid>.token). Poll briefly — the file is
+  // written synchronously when the server binds.
+  let authToken: string | null = null;
+  if (runtime === "native") {
+    const { readFileSync, existsSync } = await import("node:fs");
+    const { homedir } = await import("node:os");
+    const { join } = await import("node:path");
+    const tokenFile = join(homedir(), ".downdraft", "port", `${proc.pid}.token`);
+    const deadline = Date.now() + 15000;
+    while (Date.now() < deadline && !proc.killed) {
+      if (existsSync(tokenFile)) {
+        try { authToken = readFileSync(tokenFile, "utf8").trim() || null; } catch { /* retry */ }
+        if (authToken) break;
+      }
+      await sleep(100);
+    }
+  }
+
   try {
-    await waitForHealth(port, proc, 90000);
-    await waitForTools(port, proc, 90000);
-    await verifyGameReady(port, proc, 30000);
+    await waitForHealth(port, proc, 90000, authToken);
+    await waitForTools(port, proc, 90000, authToken);
+    await verifyGameReady(port, proc, 30000, authToken);
   } catch (e) {
     await killProcessGroup(proc);
     throw e;
@@ -662,7 +722,7 @@ export async function launchGame(opts: LaunchOptions = {}): Promise<GameProcess>
 
   return {
     process: proc,
-    mcpClient: createMcpClient(port),
+    mcpClient: createMcpClient(port, authToken),
     mcpPort: port,
     getConsoleErrors(): string[] { return [...consoleErrors]; },
     async kill(): Promise<void> {

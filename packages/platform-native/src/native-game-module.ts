@@ -18,12 +18,11 @@
 // through the bridge — no IPC, no second process.
 // ============================================================================
 
-import type { GameModule, GameContext, GameSimWorker } from "@downdraft/engine/app/renderer";
+import type { GameContext, GameModule, GameSimWorker } from "@downdraft/engine/app/renderer";
 import { createLogger } from "@downdraft/engine/util/logger";
-import { getFreeTypeTextRenderer } from "./image/native-image";
 import { startNativeMcpServer, type NativeMcpOptions } from "./mcp/native-mcp";
-import { createNativeHost, type NativeHostConfig } from "./native-host";
 import { wireFreeTypeText } from "./native-game";
+import { createNativeHost, type NativeHostConfig } from "./native-host";
 
 const log = createLogger();
 
@@ -83,7 +82,18 @@ export async function runNativeGameModule<Sim extends GameSimWorker>(
       ...module,
       onReady: async (ctx: GameContext<Sim>) => {
         wireFreeTypeText(ctx.renderer);
+        // Let the bridge's capturePage force an on-demand frame when the
+        // render loop is stopped (deterministic mode).
+        (globalThis as any).__ddRequestFrame = () => {
+          // renderOnce() is the GameRenderer one-shot API; renderOneFrame()
+          // is the name bespoke renderers (e.g. to-the-ocean) use.
+          try { (ctx.renderer?.renderOnce ?? ctx.renderer?.renderOneFrame)?.call(ctx.renderer); } catch { /* loop stopped mid-frame */ }
+        };
         await module.onReady?.(ctx);
+      },
+      onDispose: (ctx: GameContext<Sim>) => {
+        try { delete (globalThis as any).__ddRequestFrame; } catch {}
+        module.onDispose?.(ctx);
       },
     };
 

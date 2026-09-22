@@ -143,6 +143,12 @@ export class WgpuTexture {
   readonly dimension: GPUTextureDimension;
   readonly usage: number;
   label = "";
+  /** Set by encoder ops that write to this texture (render attachment with
+   *  storeOp=store, copy destination). Surface contexts use it to skip
+   *  presenting acquired-but-untouched swapchain textures — presenting an
+   *  unwritten texture shows a blank frame instead of retaining the last
+   *  one, which breaks games with dirty-tracking. */
+  __ddWritten = false;
   private destroyed = false;
 
   constructor(ptr: number, desc: GPUTextureDescriptor) {
@@ -177,7 +183,7 @@ export class WgpuTexture {
       descriptor?.arrayLayerCount ?? defaultArrayLayerCount,
     ) as unknown as number;
     if (!viewPtr) throw new Error("Failed to create texture view");
-    const view = new WgpuTextureView(viewPtr);
+    const view = new WgpuTextureView(viewPtr, this);
     trackForRelease(view, () => wgpu.wgpu_shim_release_texture_view(viewPtr));
     return view;
   }
@@ -197,10 +203,14 @@ export class WgpuTexture {
 export class WgpuTextureView {
   readonly ptr: number;
   label = "";
+  /** The texture this view was created from — lets encoder ops attribute
+   *  writes back to the texture (see WgpuTexture.__ddWritten). */
+  readonly sourceTexture: WgpuTexture | null;
   private released = false;
 
-  constructor(ptr: number) {
+  constructor(ptr: number, sourceTexture: WgpuTexture | null = null) {
     this.ptr = ptr;
+    this.sourceTexture = sourceTexture;
   }
 
   /** Explicitly release the native view handle (mirrors texture.destroy()). */

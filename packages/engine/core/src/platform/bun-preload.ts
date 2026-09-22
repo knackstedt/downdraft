@@ -45,8 +45,23 @@ if (typeof (globalThis as any).Bun !== "undefined" && typeof (globalThis as any)
         return tintBin;
       }
 
+      // Fragment shaders that only compile when concatenated with shared
+      // preludes declare them with `// wgsl-validate: prelude <file>`
+      // (mirrors the Vite wgslValidatePlugin). Unconcatenable chunks opt out
+      // entirely with `// wgsl-validate: skip`.
+      function applyPreludePragmas(source: string, filePath: string): string {
+        const { readFileSync } = require("node:fs");
+        const { dirname, resolve } = require("node:path");
+        const parts: string[] = [];
+        for (const m of source.matchAll(/^\/\/\s*wgsl-validate:\s*prelude\s+(\S+)\s*$/gm)) {
+          try { parts.push(readFileSync(resolve(dirname(filePath), m[1]), "utf-8")); } catch {}
+        }
+        return parts.length ? parts.join("\n") + "\n" + source : source;
+      }
+
       function validateWgsl(path: string, text: string): void {
         if (process.env.DOWNDRAFT_SHADER_VALIDATE === "0") return;
+        if (/^\/\/\s*wgsl-validate:\s*skip\s*$/m.test(text)) return;
         const bin = getTintBin();
         if (!bin) return;
         try {
@@ -57,7 +72,7 @@ if (typeof (globalThis as any).Bun !== "undefined" && typeof (globalThis as any)
           const tmpDir = mkdtempSync(join(tmpdir(), "dd-tint-"));
           const tmpFile = join(tmpDir, "shader.wgsl");
           const outFile = join(tmpDir, "out.spvasm");
-          writeFileSync(tmpFile, text, "utf-8");
+          writeFileSync(tmpFile, applyPreludePragmas(text, path), "utf-8");
           try {
             execSync(`"${bin}" -f spvasm "${tmpFile}" -o "${outFile}"`, {
               stdio: ["ignore", "pipe", "pipe"],

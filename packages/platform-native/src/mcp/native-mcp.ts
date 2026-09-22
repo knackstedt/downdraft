@@ -46,8 +46,17 @@ export function createNativeHostTools(bridge: DowndraftBridgeAPI): ToolRegistrat
       handler: async () => {
         const png = await bridge.capturePage();
         if (!png) throw new Error("capturePage returned null (no surface texture available)");
+        // Text part mirrors the renderer-harness tool's metadata so the e2e
+        // harness's captureAndSaveScreenshot works unchanged. The native
+        // surface IS the full page (UI is composited into the swapchain).
+        // Dims come from the PNG IHDR — the bridge API doesn't expose them.
+        const dv = new DataView(png);
+        const meta = { width: dv.getUint32(16), height: dv.getUint32(20), fullPage: true };
         return {
-          content: [{ type: "image", data: Buffer.from(png).toString("base64"), mimeType: "image/png" }],
+          content: [
+            { type: "text", text: JSON.stringify(meta, null, 2) },
+            { type: "image", data: Buffer.from(png).toString("base64"), mimeType: "image/png" },
+          ],
         };
       },
     },
@@ -112,7 +121,9 @@ export async function startNativeMcpServer(
   const proxyHandler = createMcpProxyHandler(hostTools, forwardToHarness);
 
   const transport = new McpHttpTransport({
-    port: opts.port ?? 0,
+    // MCP_PORT lets the e2e harness (`draft test --runtime=native`) pin the
+    // port the same way it does for the Electron transport.
+    port: opts.port ?? (Number(process.env.MCP_PORT) || 0),
     requireAuth: opts.requireAuth,
     artifactDir: opts.artifactDir,
     proxyHandler,

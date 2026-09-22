@@ -269,7 +269,14 @@ export function createNativeBridge(opts: NativeBridgeOptions): DowndraftBridgeAP
     // present() — captureNextFrame() schedules the copy there. ──
     capturePage: async (): Promise<ArrayBuffer | null> => {
       try {
-        const rgba = await opts.surface.captureNextFrame();
+        // Subscribe BEFORE requesting a frame — the copy must be registered
+        // when present() runs. __ddRequestFrame (installed by
+        // runNativeGameModule) forces an on-demand frame when the render
+        // loop is stopped (deterministic/test mode); on a live loop it
+        // just makes the capture fresh.
+        const pending = opts.surface.captureNextFrame();
+        try { (globalThis as any).__ddRequestFrame?.(); } catch { /* no-op */ }
+        const rgba = await pending;
         if (!rgba) return null;
         const png = encodePNG(opts.surface.width, opts.surface.height, rgba);
         return png.buffer.slice(png.byteOffset, png.byteOffset + png.byteLength) as ArrayBuffer;

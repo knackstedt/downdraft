@@ -751,6 +751,7 @@ export class WgpuQueue {
       throw new Error("writeTexture: unsupported data type");
     }
     const texture = destination.texture as unknown as WgpuTexture;
+    texture.__ddWritten = true;
     const { width, height, depthOrArrayLayers } = parseExtent3D(size);
     const origin = parseOrigin3D(destination.origin);
     wgpu.wgpu_shim_queue_write_texture(
@@ -801,6 +802,7 @@ export class WgpuQueue {
   copyExternalImageToTexture(source: GPUCopyExternalImageSourceInfo, destination: GPUCopyExternalImageDestInfo, copySize: GPUExtent3D): void {
     const img = (source as any).source ?? source;
     const texture = destination.texture as unknown as WgpuTexture;
+    texture.__ddWritten = true;
     const { width, height } = parseExtent3D(copySize);
 
     let rgba: Uint8Array | Uint8ClampedArray | null = null;

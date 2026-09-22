@@ -212,6 +212,7 @@ export const COMMANDS: CommandEntry[] = [
         { name: "spec", alias: "s", type: "string", description: "Spec file to run (default: tests/e2e/<game>-smoke.spec.ts)" },
         { name: "port", alias: "p", type: "number", default: 0, description: "MCP port (0 = auto-assign a free port)" },
         { name: "renderer", alias: "r", type: "string", default: "cpu", enum: [...RENDERER_TARGETS], description: "WebGPU backend: cpu=SwiftShader, gpu=hardware" },
+        { name: "runtime", type: "string", enum: ["electron", "native"], default: "electron", description: "Launch target: electron (dev server or built app) or native (Bun + SDL + wgpu-native, no Electron)" },
         { name: "no-deterministic", type: "boolean", description: "Disable fixed seed / render loop pause" },
         { name: "headed", type: "boolean", description: "Show the window instead of running headless" },
         { name: "build", type: "boolean", description: "Build the game with electron-vite before testing" },

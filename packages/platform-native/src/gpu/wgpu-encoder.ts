@@ -55,7 +55,12 @@ export class WgpuCommandEncoder {
       for (let i = 0; i < colorCount; i++) {
         const att = colorAttachments[i] as any;
         const base = i * 11;
-        const viewPtr = BigInt((att.view as unknown as WgpuTextureView).ptr);
+        const view = att.view as unknown as WgpuTextureView;
+        // Track writes so the surface context can skip presenting an
+        // acquired-but-untouched swapchain texture (dirty-skip frames).
+        if (att.storeOp !== "discard" && view.sourceTexture) view.sourceTexture.__ddWritten = true;
+        if (att.resolveTarget?.sourceTexture) (att.resolveTarget as WgpuTextureView).sourceTexture!.__ddWritten = true;
+        const viewPtr = BigInt(view.ptr);
         colorFlat[base + 0] = Number(viewPtr & 0xFFFFFFFFn);
         colorFlat[base + 1] = Number(viewPtr >> 32n);
         colorFlat[base + 2] = att.depthSlice ?? 0xFFFFFFFF; // WGPU_DEPTH_SLICE_UNDEFINED
@@ -153,6 +158,7 @@ export class WgpuCommandEncoder {
   copyBufferToTexture(source: GPUTexelCopyBufferInfo, destination: GPUTexelCopyTextureInfo, copySize: GPUExtent3D): void {
     const srcBuffer = source.buffer as unknown as WgpuBuffer;
     const dstTexture = destination.texture as unknown as WgpuTexture;
+    dstTexture.__ddWritten = true;
     const { width, height, depthOrArrayLayers } = parseExtent3D(copySize);
     const origin = parseOrigin3D(destination.origin);
     wgpu.wgpu_shim_copy_buffer_to_texture(
@@ -191,6 +197,7 @@ export class WgpuCommandEncoder {
   copyTextureToTexture(source: GPUTexelCopyTextureInfo, destination: GPUTexelCopyTextureInfo, copySize: GPUExtent3D): void {
     const srcTexture = source.texture as unknown as WgpuTexture;
     const dstTexture = destination.texture as unknown as WgpuTexture;
+    dstTexture.__ddWritten = true;
     const { width, height, depthOrArrayLayers } = parseExtent3D(copySize);
     const sOrigin = parseOrigin3D(source.origin);
     const dOrigin = parseOrigin3D(destination.origin);

@@ -41,8 +41,7 @@ describe("mining-rpg MCP automation smoke", () => {
   });
 
   it("reports game state via get_ui_state", async () => {
-    const result = (await game!.mcpClient.callTool("get_ui_state", {})) as McpToolResult;
-    const state = parseJsonContent(result) as {
+    type UiState = {
       paused: boolean;
       gameOver: boolean;
       health: number;
@@ -50,10 +49,20 @@ describe("mining-rpg MCP automation smoke", () => {
       tick: number;
       loadedChunks: number;
     };
-    expect(state.gameOver).toBe(false);
-    expect(state.health).toBeGreaterThan(0);
-    expect(state.tick).toBeGreaterThanOrEqual(0);
-    expect(state.loadedChunks).toBeGreaterThanOrEqual(0);
+    // The sim needs a few ticks before the player state is populated —
+    // poll rather than asserting on a fixed sleep (native boots slower).
+    let state: UiState | null = null;
+    for (let i = 0; i < 100 && !(state && state.health > 0); i++) {
+      const result = (await game!.mcpClient.callTool("get_ui_state", {})) as McpToolResult;
+      state = parseJsonContent(result) as UiState;
+      if (state.health > 0) break;
+      await sleep(100);
+    }
+    expect(state).not.toBeNull();
+    expect(state!.gameOver).toBe(false);
+    expect(state!.health).toBeGreaterThan(0);
+    expect(state!.tick).toBeGreaterThanOrEqual(0);
+    expect(state!.loadedChunks).toBeGreaterThanOrEqual(0);
   }, 30000);
 
   it("captures a non-empty screenshot", async () => {

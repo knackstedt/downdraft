@@ -105,6 +105,7 @@ export class NativeCanvasContext {
       format: this.format,
       usage: this.usage,
     });
+    this.currentTexture.__ddWritten = false;
     return this.currentTexture;
   }
 
@@ -134,6 +135,13 @@ export class NativeCanvasContext {
     // an empty swapchain image (black), so skip it — and keep pre-present
     // hooks queued for the next frame that actually draws.
     if (!this.currentTexture) return;
+    // Acquired but never written (e.g. GameRenderer acquired the texture
+    // for a viewport, then the game's dirty-tracking skipped all draws).
+    // Presenting it would show a blank frame — skip the present so the
+    // swapchain retains the last real frame. Keep the texture outstanding:
+    // the next getCurrentTexture() returns it, a later frame can still
+    // draw into it, and pre-present hooks stay queued for a real frame.
+    if (!this.currentTexture.__ddWritten) return;
     // Run pending pre-present work (e.g. screenshot copies) while the
     // texture is still valid — submissions queued here precede the present.
     if (this.prePresentHooks.length > 0) {

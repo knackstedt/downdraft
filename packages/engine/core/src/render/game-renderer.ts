@@ -652,6 +652,26 @@ export class GameRenderer implements CanvasResizeHandler {
     }
   }
 
+  /** Render a single frame on demand — deterministic/test mode and native
+   *  screenshot capture call this while the loop is stopped. Bypasses the
+   *  frame limiter; safe to call with the loop running or stopped. */
+  renderOnce(): void {
+    if (!this.device || !this.context || this.deviceLost) return;
+    const savedLimiter = this.limiterActive;
+    this.limiterActive = false;
+    try {
+      this.prepareForcedFrame();
+      this.renderFrame();
+    } finally {
+      this.limiterActive = savedLimiter;
+    }
+  }
+
+  /** Subclass hook: clear internal dirty-tracking so renderOnce() actually
+   *  draws. Renderers that skip unchanged frames (e.g. MiningRenderer's
+   *  forceDirty check) override this to force the next frame out. */
+  protected prepareForcedFrame(): void {}
+
   private render = (): void => {
     if (!this.running || !this.device || !this.context) {
       this.currentRafId = this.rafSource ? this.rafSource(this.render) : requestAnimationFrame(this.render);

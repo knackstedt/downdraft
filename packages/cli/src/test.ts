@@ -26,11 +26,14 @@ function findFreePort(): Promise<number> {
   });
 }
 
+type Runtime = "electron" | "native";
+
 interface TestArgs {
   game: string;
   mcpPort: number;
   spec: string | null;
   renderer: Renderer;
+  runtime: Runtime;
   deterministic: boolean;
   headed: boolean;
   verbose: boolean;
@@ -56,6 +59,7 @@ function parseTestArgs(args: string[]): TestArgs {
     mcpPort: port,
     spec: (parsed.flags.spec as string) || null,
     renderer: parsed.flags.renderer as Renderer,
+    runtime: parsed.flags.runtime as Runtime,
     deterministic: !(parsed.flags["no-deterministic"] as boolean),
     headed: parsed.flags.headed as boolean,
     verbose: parsed.flags.verbose as boolean,
@@ -160,6 +164,7 @@ export async function runTest(args: string[]): Promise<void> {
   log.info("test", `  Spec:          ${specPath}`);
   log.info("test", `  MCP port:      ${opts.mcpPort}`);
   log.info("test", `  Renderer:      ${opts.renderer === "cpu" ? "SwiftShader (software)" : "hardware GPU"}`);
+  log.info("test", `  Runtime:       ${opts.runtime}`);
   log.info("test", `  Deterministic: ${opts.deterministic}`);
   log.info("test", `  Headed:        ${opts.headed}`);
   log.info("test", `  Mode:          ${opts.build ? "built" : "dev"}${opts.buildOnly ? " (build-only)" : ""}`);
@@ -182,6 +187,7 @@ export async function runTest(args: string[]): Promise<void> {
     ...process.env,
     MCP_PORT: String(opts.mcpPort),
     MCP_TIMEOUT_MS: "120000",
+    DOWNDRAFT_RUNTIME: opts.runtime,
   };
 
   if (opts.renderer === "cpu") {
