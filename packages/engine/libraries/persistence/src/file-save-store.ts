@@ -139,7 +139,18 @@ export class FileSaveStore implements ISaveStore {
     return decompress(data);
   }
 
+  // Saves are serialized — concurrent save() calls (e.g. an autosave tick
+  // racing a sim-emitted 'saved' event forwarded through the bridge) share
+  // the same .tmp path and would otherwise rename-fail with ENOENT.
+  private saveQueue: Promise<unknown> = Promise.resolve();
+
   async save(slot: string, state: SaveState, opts?: SaveOptions): Promise<SaveResult> {
+    const run = this.saveQueue.then(() => this.doSave(slot, state, opts));
+    this.saveQueue = run.catch(() => { /* error reported via SaveResult */ });
+    return run;
+  }
+
+  private async doSave(slot: string, state: SaveState, opts?: SaveOptions): Promise<SaveResult> {
     try {
       await fs.mkdir(this.saveDir, { recursive: true });
       const bodyJson = JSON.stringify(state.components);
