@@ -71,6 +71,7 @@
         "@downdraft/engine": "^0.1.0",
         "@downdraft/platform-native": "^0.1.0",
         "@pixi/react": "^8.0.5",
+        "@sandbox/shared": "workspace:*",
         "fflate": "^0.8.2",
         "pixi.js": "^8.18.0",
         "react": "^19.2.0",
@@ -85,6 +86,7 @@
         "@types/react-dom": "^19.2.3",
         "@vitejs/plugin-react": "^5.0.0",
         "@webgpu/types": "^0.1.71",
+        "bun-types": "^1.4.2",
         "electron": "^43.0.0",
         "electron-builder": "^25.1.8",
         "electron-vite": "^2.3.0",
@@ -155,6 +157,13 @@
         "@downdraft/engine": "^0.1.0",
       },
     },
+    "games/andrews-sandbox/src/shared": {
+      "name": "@sandbox/shared",
+      "version": "0.0.0",
+      "dependencies": {
+        "@downdraft/engine": "^0.1.0",
+      },
+    },
     "games/falling-sand": {
       "name": "falling-sand",
       "version": "0.1.0",
@@ -167,6 +176,7 @@
         "@downdraft/cli": "^0.1.0",
         "@types/node": "^22.10.0",
         "@webgpu/types": "^0.1.71",
+        "bun-types": "^1.4.2",
         "electron": "^43.0.0",
         "electron-builder": "^25.1.8",
         "electron-vite": "^2.3.0",
@@ -193,6 +203,7 @@
         "@types/react-dom": "^19.2.3",
         "@vitejs/plugin-react": "^5.0.0",
         "@webgpu/types": "^0.1.71",
+        "bun-types": "^1.4.2",
         "electron": "^43.0.0",
         "electron-builder": "^25.1.8",
         "electron-vite": "^2.3.0",
@@ -223,6 +234,7 @@
         "@types/react-dom": "^19.2.3",
         "@vitejs/plugin-react": "^5.0.0",
         "@webgpu/types": "^0.1.71",
+        "bun-types": "^1.4.2",
         "electron": "^43.0.0",
         "electron-builder": "^25.1.8",
         "electron-vite": "^2.3.0",
@@ -261,6 +273,7 @@
         "@downdraft/cli": "^0.1.0",
         "@types/node": "^22.10.0",
         "@webgpu/types": "^0.1.71",
+        "bun-types": "^1.4.2",
         "electron": "^43.0.0",
         "electron-builder": "^25.1.8",
         "electron-vite": "^2.3.0",
@@ -321,6 +334,7 @@
         "@vitejs/plugin-react": "^5.0.0",
         "@webgpu/types": "^0.1.71",
         "autoprefixer": "^10.4.0",
+        "bun-types": "^1.4.2",
         "electron": "^43.0.0",
         "electron-builder": "^25.1.8",
         "electron-vite": "^2.3.0",
@@ -987,6 +1001,8 @@
     "@rollup/rollup-win32-x64-gnu": ["@rollup/rollup-win32-x64-gnu@4.62.3", "", { "os": "win32", "cpu": "x64" }, "sha512-vp7N084ew/odXn2gi/mzm9mUkQu9l6AiN6dt4IeUM2Uvm9o+cVmP+YkqbMOteLbiGgqBBlJZjIMYVCfOOIVbVQ=="],
 
     "@rollup/rollup-win32-x64-msvc": ["@rollup/rollup-win32-x64-msvc@4.62.3", "", { "os": "win32", "cpu": "x64" }, "sha512-MOG/3gTOn4Fwf574RVOaY61I5o6P90legkFADiTyn1hyjNydT+cerU2rLUwPdZkKKyJ+iT+K9p7WXK4LM1Ka6g=="],
+
+    "@sandbox/shared": ["@sandbox/shared@workspace:games/andrews-sandbox/src/shared"],
 
     "@sandjongg/plugin-custom-scorer": ["@sandjongg/plugin-custom-scorer@workspace:games/sandjongg/plugins/custom-scorer"],
 

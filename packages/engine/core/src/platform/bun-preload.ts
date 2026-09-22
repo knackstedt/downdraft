@@ -157,3 +157,12 @@ if (typeof (globalThis as any).Bun !== "undefined" && typeof (globalThis as any)
   // use createGlob(import.meta.dir) from "./glob-polyfill" — see
   // games/to-the-ocean/src/engine/webgpu-renderer.ts for the pattern.
 }
+
+// ── Native-host marker ──
+// Games detect the native runtime via globalThis.__nativeHost. Module-eval-time
+// checks (top-level import.meta.glob fallbacks, feature gates) run BEFORE
+// createNativeHost() can install the real host object, so seed a truthy marker
+// here — createNativeHost() replaces it with the actual host instance later.
+if (typeof (globalThis as any).Bun !== "undefined") {
+  (globalThis as any).__nativeHost ??= true;
+}

@@ -5,16 +5,22 @@
 // filesystem-based implementation of Vite's import.meta.glob().
 // ============================================================================
 
-import { readdirSync, statSync, existsSync } from "node:fs";
-import { join, relative, resolve, dirname, sep } from "node:path";
-import { pathToFileURL, fileURLToPath } from "node:url";
+import { existsSync, readdirSync, statSync } from "node:fs";
+import { join, relative, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 function globToRegex(pattern: string): RegExp {
+  // Order matters: `**` must be handled before `*` (a single `*` matches one
+  // path segment; `**` matches zero or more segments). `**/` additionally
+  // collapses to zero segments so `a/**/b` also matches `a/b`.
   let regex = pattern
     .replace(/[.+^$()|[\]\\]/g, "\\$&")
+    .replace(/\*\*\//g, "\x00")
+    .replace(/\*\*/g, "\x01")
     .replace(/\*/g, "[^/]*")
-    .replace(/\*\*/g, ".*")
-    .replace(/\{([^}]+)\}/g, (_, group) => `(${group.replace(/,/g, "|")})`);
+    .replace(/\{([^}]+)\}/g, (_, group) => `(${group.replace(/,/g, "|")})`)
+    .replace(/\x00/g, "(?:.*/)?")
+    .replace(/\x01/g, ".*");
   return new RegExp(`^${regex}$`, "i");
 }
 

@@ -38,6 +38,7 @@
     "games/sandjongg",
     "games/sandjongg/plugins/*",
     "games/andrews-sandbox",
+    "games/andrews-sandbox/src/shared",
     "games/andrews-sandbox/libraries/*",
     "games/andrews-sandbox/modules/*",
     "games/andrews-sandbox/plugins/*",
