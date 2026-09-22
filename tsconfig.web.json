@@ -204,6 +204,7 @@
     "examples/*/src/preload.ts",
     "examples/*/electron.vite.config.ts",
     "packages/engine/libraries/pixi-ui-native/src/**/*",
+    "packages/engine/libraries/blitz-ui/src/native-module.ts",
     "packages/platform-native/src/**/*"
   ]
 }

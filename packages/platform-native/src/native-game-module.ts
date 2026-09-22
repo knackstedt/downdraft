@@ -86,9 +86,12 @@ export async function runNativeGameModule<Sim extends GameSimWorker>(
         // Let the bridge's capturePage force an on-demand frame when the
         // render loop is stopped (deterministic mode).
         (globalThis as any).__ddRequestFrame = () => {
-          // renderOnce() is the GameRenderer one-shot API; renderOneFrame()
-          // is the name bespoke renderers (e.g. to-the-ocean) use.
-          try { (ctx.renderer?.renderOnce ?? ctx.renderer?.renderOneFrame)?.call(ctx.renderer); } catch { /* loop stopped mid-frame */ }
+          // renderOneFrame() is the bespoke one-shot on renderers that draw
+          // outside the GameRenderer frame graph (e.g. to-the-ocean) — it
+          // must take precedence: the inherited renderOnce() would run the
+          // (empty) graph path, acquire the surface texture without writing
+          // it, and the write-tracking present-skip then starves capture.
+          try { (ctx.renderer?.renderOneFrame ?? ctx.renderer?.renderOnce)?.call(ctx.renderer); } catch { /* loop stopped mid-frame */ }
         };
 
         // SDL resizes (incl. the window-state restore at startup, which can

@@ -7,6 +7,12 @@ export async function load(url, context, nextLoad) {
   const urlObj = new URL(url);
   const query = urlObj.searchParams;
 
+  // .css — native has no stylesheet application; discard like the Bun
+  // preload and package-native build do.
+  if (urlObj.pathname.endsWith(".css")) {
+    return { format: "module", source: "export default {};", shortCircuit: true };
+  }
+
   // .wgsl?raw or bare .wgsl → return file contents as string
   if (urlObj.pathname.endsWith(".wgsl")) {
     const filePath = fileURLToPath(url);

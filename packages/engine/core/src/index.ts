@@ -7,7 +7,7 @@
 
 /// <reference path="./webgpu-destroy-augmentation.d.ts" />
 
-import pkg from "../../package.json";
+import pkg from "../../package.json" with { type: "json" };
 
 // Sub-barrel re-exports — these aggregate all items from their respective domains.
 export * from "./assets";

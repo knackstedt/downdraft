@@ -20,7 +20,27 @@
 //
 
 import { Buffer } from "buffer";
-import { XXH3_128 } from "xxh3-ts";
+import * as xxh3ns from "xxh3-ts";
+
+// The bare "xxh3-ts" specifier resolves to the real CJS package under Vite,
+// Bun and Node, but tsconfig `paths` (and the generated deno.json import
+// map) alias it to the type-only ./xxh3-ts.d.ts — tsx and Deno honor the
+// alias at runtime and load the .d.ts, yielding an empty module. Fall back
+// to a require() of the deep /index.js subpath, which the alias doesn't
+// cover (only ever reached on tsx/Deno; the static import always provides
+// the export in Vite/Bun/Node contexts).
+let XXH3_128: ((data: Buffer) => bigint) | undefined =
+  (xxh3ns as any).XXH3_128 ?? (xxh3ns as any).default?.XXH3_128;
+
+async function getXXH3(): Promise<(data: Buffer) => bigint> {
+  if (!XXH3_128) {
+    const { createRequire } = await import("node:module");
+    const f = createRequire(import.meta.url)("xxh3-ts/index.js").XXH3_128;
+    XXH3_128 = f;
+    return f;
+  }
+  return XXH3_128;
+}
 
 /**
  * Compute a true XXH3-128 hash of the input data.
@@ -29,7 +49,7 @@ import { XXH3_128 } from "xxh3-ts";
 export async function xxh3_128(data: Uint8Array): Promise<Uint8Array> {
   // Buffer.from(uint8array) works in both Node.js (native Buffer) and browser (polyfill).
   const buf = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
-  const hash = XXH3_128(buf);
+  const hash = (await getXXH3())(buf);
   const result = new Uint8Array(16);
   const view = new DataView(result.buffer);
   // Low 64 bits at offset 0, high 64 bits at offset 8 (little-endian).

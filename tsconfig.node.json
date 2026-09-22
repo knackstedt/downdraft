@@ -192,6 +192,7 @@
   "exclude": [
     "dist",
     "packages/engine/libraries/pixi-ui-native/src/**/*",
+    "packages/engine/libraries/blitz-ui/src/native-module.ts",
     "tests/test-ibl.ts"
   ]
 }

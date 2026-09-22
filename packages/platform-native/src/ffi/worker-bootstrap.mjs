@@ -79,3 +79,39 @@ if (typeof globalThis.addEventListener === "undefined") {
 }
 
 // `import.meta.url` — already available in ESM. No polyfill needed.
+
+// `Worker` — nested worker spawns (e.g. sim worker → pool workers). Node
+// worker_threads supports nesting but exposes no global Worker. Mirror the
+// BrowserWorker wrapper from dom-polyfills.ts and re-apply this bootstrap +
+// tsx + the wgsl loader via execArgv so the child gets the same environment.
+if (typeof globalThis.Worker === "undefined") {
+  const { Worker: NodeWorker } = await import("node:worker_threads");
+  const { createRequire } = await import("node:module");
+  const wgslLoaderPath = new URL("./wgsl-loader.mjs", import.meta.url).href;
+  const execArgv = [];
+  try {
+    execArgv.push("--import", createRequire(import.meta.url).resolve("tsx"));
+  } catch { /* tsx absent — .ts children won't load */ }
+  execArgv.push("--import", wgslLoaderPath, "--import", import.meta.url);
+  globalThis.Worker = class BrowserWorker extends NodeWorker {
+    constructor(specifier, options) {
+      let filename;
+      if (specifier instanceof URL) {
+        filename = specifier.pathname;
+      } else {
+        try { filename = new URL(specifier).pathname; } catch { filename = specifier; }
+      }
+      super(filename, { ...options, execArgv });
+    }
+    set onmessage(h) { this.on("message", (data) => h({ data })); }
+    set onerror(h) { this.on("error", (err) => h({ error: err, message: err?.message ?? String(err) })); }
+    set onmessageerror(h) { this.on("messageerror", (data) => h({ data })); }
+    addEventListener(type, listener) {
+      if (type === "message") this.on("message", (data) => listener({ data }));
+      else if (type === "error") this.on("error", (err) => listener({ error: err, message: err?.message ?? String(err) }));
+      else if (type === "messageerror") this.on("messageerror", (data) => listener({ data }));
+      else this.on(type, listener);
+    }
+    removeEventListener(type, listener) { this.off(type, listener); }
+  };
+}

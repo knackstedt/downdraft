@@ -1693,6 +1693,15 @@ deno run --config ../../deno.json --allow-all --unstable-sloppy-imports src/nati
 
 `deno.json` at the repo root is a generated import map mirroring `tsconfig.web.json` `paths` (`foo/*` → `dir/*` trailing-slash form, required for `@`-scoped aliases). Regenerate with `bun run gen:deno-import-map` whenever tsconfig paths change (CI checks it stays in sync). Known Deno limitations: `@pixi/react` scene setup fails (npm `react-reconciler/constants` subpath), and basis-universal `?url` wasm imports are resolved lazily with a disk fallback.
 
+Verified tri-runtime (mining-rpg native, ~20s steady state): all three boot the full stack — GPU via FFI (bun:ffi/koffi/Deno.dlopen), nested workers, MCP, saves, screenshots. Bench: bun boot ~0.5–1.0s RSS ~520MB; node+tsx boot ~1.0s RSS ~1.05GB; deno boot ~1.0s RSS ~690MB; sim runs at its fixed 60t/s on all three (runtime choice doesn't move steady-state perf — work is GPU/native + fixed-dt sim).
+
+Cross-runtime landmines to keep in mind:
+- **tsconfig `paths` are type-only, but tsx and Deno honor them at runtime.** The `"xxh3-ts"` alias maps to a `.d.ts` — under tsx/Deno `import "xxh3-ts"` loads the declaration file as an empty module. Runtime workarounds must use a subpath the alias doesn't cover (e.g. `require("xxh3-ts/index.js")`), never a bare specifier.
+- **CSS imports must stay out of shared modules** — `game-module.ts` runs on native where `.css` can't load (Deno has no loader hooks at all). Keep `import "./x.css"` in browser-only `main.tsx` entries.
+- **JSON imports need `with { type: "json" }`** for Deno (supported by Node ≥20, Vite, Bun, Chromium).
+- **Node has no global `Worker`** — dom-polyfills wraps worker_threads on the main thread and `ffi/worker-bootstrap.mjs` re-installs the same wrapper inside workers for nested spawns.
+- **`__ddRequestFrame` prefers a renderer's own `renderOneFrame()`** over the inherited `GameRenderer.renderOnce()` — renderers that draw outside the GameRenderer frame graph (tto) would otherwise acquire-but-not-write the surface texture and starve the capture hook via the write-tracking present-skip.
+
 ### wgpu-native crash notes
 
 wgpu-native turns **any** validation error into a fatal `handle_error_fatal` abort — not just internal panics. Hardening applied: (1) `wgpu_shim.c` validates every `WGPUTextureFormat`/`WGPURenderPipelineDescriptor` enum before the call and returns NULL with an error log instead of aborting; (2) `wgpu-device.ts` counts only non-null vertex-buffer slots (sparse `buffers` arrays desynced the flat-descriptor walk); (3) bind groups created with `hasDynamicOffset` layouts must be bound with a dynamic-offsets array (`setBindGroup(i, bg, [0])` — the shim plumbs them; the old "no dynamic offsets" comment was stale); (4) `PostProcessStack` takes a `sceneFormat` option — games whose scene pipelines target the surface format pass it (the default `rgba16float` requires HDR scene pipelines).
