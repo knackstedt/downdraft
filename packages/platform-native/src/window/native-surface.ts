@@ -61,6 +61,16 @@ export class NativeCanvasContext {
     return this.configured ? this.format : null;
   }
 
+  /**
+   * The device from the most recent configure() call. Renderers may create
+   * their own device (GameRenderer.init does) and reconfigure the surface —
+   * readback/copy machinery MUST use this device, not the host's, or the
+   * copy validates as cross-device usage and panics wgpu-native.
+   */
+  getDevice(): WgpuDevice | null {
+    return this.device;
+  }
+
   unconfigure(): void {
     // Destroy any acquired-but-unpresented surface texture first — releasing
     // the surface while a SurfaceTexture is alive panics in wgpu-hal
@@ -98,7 +108,33 @@ export class NativeCanvasContext {
     return this.currentTexture;
   }
 
+  // ── Pre-present hooks ──
+  // One-shot callbacks fired inside present(), while the surface texture is
+  // still acquired-and-unpresented — the ONLY point where reading the
+  // swapchain texture is guaranteed valid. Screenshot/readback consumers
+  // (canvas.toBlob, downdraft.capturePage, MCP capture_screenshot) defer
+  // their copy here instead of racing the render loop.
+  private prePresentHooks: Array<() => void> = [];
+
+  /** Register a one-shot callback fired just before the next present().
+   *  Returns an unsubscribe function. */
+  onBeforePresent(cb: () => void): () => void {
+    this.prePresentHooks.push(cb);
+    return () => {
+      const i = this.prePresentHooks.indexOf(cb);
+      if (i >= 0) this.prePresentHooks.splice(i, 1);
+    };
+  }
+
   present(): void {
+    // Run pending pre-present work (e.g. screenshot copies) while the
+    // texture is still valid — submissions queued here precede the present.
+    if (this.prePresentHooks.length > 0) {
+      const hooks = this.prePresentHooks.splice(0);
+      for (const cb of hooks) {
+        try { cb(); } catch (e) { console.error("[surface] pre-present hook error:", e); }
+      }
+    }
     if (this.surfacePtr) {
       wgpu.wgpu_shim_surface_present(this.surfacePtr);
     }
@@ -202,31 +238,67 @@ export class NativeSurface extends MiniEventTarget {
 
   // ── Pixel readback (canvas.toBlob / drawImage sources) ──
   //
-  // The host injects a readback hook once the GPU device exists (it owns the
-  // copy machinery). `getPixelData` is the drawImage-compatible accessor;
-  // `toBlob`/`toDataURL` mirror HTMLCanvasElement for save thumbnails and
-  // MCP screenshots. Encoding is always PNG regardless of the requested
-  // MIME — consumers only need decodable bytes.
+  // Reading the swapchain texture is only valid inside a frame, before
+  // present(). The host injects `readbackHook` (the GPU copy machinery);
+  // `captureNextFrame()` defers the copy into the next pre-present hook and
+  // caches the result. `getPixelData()`/`drawImage` consumers get the cache;
+  // async consumers (toBlob, capturePage) await the next frame.
   private readbackHook: (() => Uint8Array | null) | null = null;
+  private lastPixels: Uint8Array | null = null;
+  private captureInFlight: Promise<Uint8Array | null> | null = null;
 
   /** Called by createNativeHost after the device + context are configured. */
   setReadbackHook(hook: () => Uint8Array | null): void {
     this.readbackHook = hook;
   }
 
-  /** Tightly-packed RGBA8 pixels of the current surface texture, or null. */
+  /**
+   * Capture the next presented frame as tightly-packed RGBA8. The copy runs
+   * inside the context's pre-present hook — the only point where the surface
+   * texture is valid. Resolves with the last captured frame on timeout
+   * (paused render loop) or null if no capture has ever succeeded.
+   */
+  captureNextFrame(timeoutMs = 3000): Promise<Uint8Array | null> {
+    if (this.captureInFlight) return this.captureInFlight;
+    const hook = this.readbackHook;
+    if (!hook) return Promise.resolve(this.lastPixels);
+    this.captureInFlight = new Promise<Uint8Array | null>((resolve) => {
+      const ctx = this.context;
+      if (!ctx) { this.captureInFlight = null; resolve(this.lastPixels); return; }
+      let done = false;
+      const finish = (v: Uint8Array | null) => {
+        if (done) return;
+        done = true;
+        this.captureInFlight = null;
+        resolve(v);
+      };
+      const unsub = ctx.onBeforePresent(() => {
+        unsub();
+        let pixels: Uint8Array | null = null;
+        try { pixels = hook(); } catch { /* readback failed */ }
+        if (pixels) this.lastPixels = pixels;
+        finish(pixels ?? this.lastPixels);
+      });
+      setTimeout(() => { unsub(); finish(this.lastPixels); }, timeoutMs).unref?.();
+    });
+    return this.captureInFlight;
+  }
+
+  /** Pixels of the most recent captured frame (drawImage-compatible), or null
+   *  before the first async capture completes. */
   getPixelData(): Uint8Array | null {
-    return this.readbackHook?.() ?? null;
+    return this.lastPixels;
   }
 
   toBlob(callback: (blob: Blob | null) => void, _type?: string, _quality?: number): void {
-    const pixels = this.getPixelData();
-    if (!pixels) { callback(null); return; }
-    callback(new Blob([new Uint8Array(encodePNG(this._width, this._height, pixels))], { type: "image/png" }));
+    void this.captureNextFrame().then((pixels) => {
+      if (!pixels) { callback(null); return; }
+      callback(new Blob([new Uint8Array(encodePNG(this._width, this._height, pixels))], { type: "image/png" }));
+    });
   }
 
   toDataURL(_type?: string, _quality?: number): string {
-    const pixels = this.getPixelData();
+    const pixels = this.lastPixels;
     if (!pixels) return "data:,";
     const png = encodePNG(this._width, this._height, pixels);
     return `data:image/png;base64,${Buffer.from(png).toString("base64")}`;

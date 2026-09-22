@@ -15,12 +15,16 @@
 // ============================================================================
 
 export { installAssetGlob, nativeGlob } from "./assets/native-assets";
+export { createNativeBridge, type NativeBridgeOptions } from "./bridge/native-bridge";
+export { resolveNativeUserDataDir } from "./bridge/user-data-dir";
 export { dlopen, ptr, readMappedRange, type CFunction } from "./ffi/ffi-adapter";
 export { installGPU, resetGPU } from "./gpu/install";
 export { VirtualCanvas, VirtualCanvasContext } from "./gpu/virtual-canvas-context";
 export { WgpuAdapter, WgpuBindGroup, WgpuBindGroupLayout, WgpuBuffer, WgpuCommandBuffer, WgpuCommandEncoder, WgpuComputePassEncoder, WgpuComputePipeline, WgpuDevice, WgpuGPU, WgpuPipelineLayout, WgpuQueue, WgpuRenderPassEncoder, WgpuRenderPipeline, WgpuSampler, WgpuShaderModule, WgpuTexture, WgpuTextureView } from "./gpu/wgpu-wrapper";
 export { createImageBitmapNative, getFreeTypeTextRenderer, installImagePolyfills, NativeCanvas2D, NativeImageBitmap } from "./image/native-image";
+export { createNativeHostTools, startNativeMcpServer, type NativeMcpOptions, type NativeMcpServer } from "./mcp/native-mcp";
 export { startNativeGame, wireFreeTypeText, type NativeGameContext, type NativeGameOptions } from "./native-game";
+export { runNativeGameModule, type RunNativeGameModuleOptions } from "./native-game-module";
 export { createNativeHost, type NativeHostConfig, type NativeHostContext } from "./native-host";
 export { captureScreenshot, encodePNG, paddedReadbackToRGBA } from "./screenshot/screenshot";
 export { NativeCanvasContext, NativeSurface } from "./window/native-surface";

@@ -94,16 +94,17 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   const format = gpu.getPreferredCanvasFormat();
   ctx.configure({ device: gpuDevice, format, usage: 0x0010 | 0x0002 | 0x0001 }); // RENDER_ATTACHMENT | COPY_DST | COPY_SRC
 
-  // 4b. Surface pixel readback — powers canvas.toBlob/getPixelData for save
-  // thumbnails, MCP screenshots, and drawImage compositing. Returns the
-  // in-flight swapchain texture's contents (whatever has been rendered so
-  // far); wgpu only permits one outstanding surface texture, so we reuse
-  // the context's cached acquisition rather than acquiring a second one.
+  // 4b. Surface pixel readback — invoked from the context's pre-present hook
+  // (see NativeSurface.captureNextFrame), the only point where the swapchain
+  // texture is guaranteed valid for a copy. IMPORTANT: the copy must run on
+  // the device that last configured the surface — GameRenderer.init()
+  // creates its own device and reconfigures, so we read it dynamically.
   surface.setReadbackHook(() => {
     const tex = ctx.getCurrentTexture();
+    const dev = ctx.getDevice() ?? device;
     if (!tex) return null;
     try {
-      return captureScreenshotPixels(device, tex, surface.width, surface.height, format);
+      return captureScreenshotPixels(dev, tex, surface.width, surface.height, ctx.getFormat() ?? format);
     } catch {
       return null;
     }
@@ -184,6 +185,10 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
     : null;
   if (bridge) {
     (globalThis as any).downdraft = bridge;
+    // Game code reads `window.downdraft` too (e.g. renderer factories that
+    // check `window.downdraft?.deterministic`) — mirror it on the polyfill.
+    const win = (globalThis as any).window;
+    if (win) win.downdraft = bridge;
   }
 
   // 6d. Start the in-process MCP server (tools/list, tools/call, artifacts,

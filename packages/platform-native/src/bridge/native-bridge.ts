@@ -43,7 +43,7 @@ import { createLogger } from "@downdraft/engine/util/logger";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { WgpuDevice } from "../gpu/wgpu-wrapper";
-import { captureScreenshotPixels, encodePNG } from "../screenshot/screenshot";
+import { encodePNG } from "../screenshot/screenshot";
 import type { NativeSurface } from "../window/native-surface";
 import type { NativeWindow } from "../window/native-window";
 import { resolveNativeUserDataDir } from "./user-data-dir";
@@ -264,19 +264,13 @@ export function createNativeBridge(opts: NativeBridgeOptions): DowndraftBridgeAP
     // ── Feature log ──
     getFeatureLog: async () => featureLog,
 
-    // ── Page capture: GPU readback of the current surface texture ──
+    // ── Page capture: deferred GPU readback of the next presented frame.
+    // Copying the swapchain texture is only valid inside a frame before
+    // present() — captureNextFrame() schedules the copy there. ──
     capturePage: async (): Promise<ArrayBuffer | null> => {
       try {
-        const ctx = opts.surface.getContext("webgpu");
-        const texture = ctx?.getCurrentTexture();
-        if (!ctx || !texture) return null;
-        const rgba = captureScreenshotPixels(
-          opts.device,
-          texture,
-          opts.surface.width,
-          opts.surface.height,
-          ctx.getFormat() ?? undefined,
-        );
+        const rgba = await opts.surface.captureNextFrame();
+        if (!rgba) return null;
         const png = encodePNG(opts.surface.width, opts.surface.height, rgba);
         return png.buffer.slice(png.byteOffset, png.byteOffset + png.byteLength) as ArrayBuffer;
       } catch (e) {
@@ -340,8 +334,9 @@ export function createNativeBridge(opts: NativeBridgeOptions): DowndraftBridgeAP
     // pointer-lock semantics without a native addon.
     removeAllListeners: (channel: string) => { emitters.delete(channel); },
     log: (level: string, message: string) => {
-      const fn = level === "error" ? log.error : level === "warn" ? log.warn : log.info;
-      fn("bridge", message);
+      if (level === "error") log.error("bridge", message);
+      else if (level === "warn") log.warn("bridge", message);
+      else log.info("bridge", message);
     },
     deterministic,
 

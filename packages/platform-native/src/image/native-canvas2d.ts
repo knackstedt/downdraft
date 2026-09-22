@@ -456,22 +456,50 @@ export class NativeCanvas2D {
       ?? image?.getBitmap?.()?.getPixelData?.()
       ?? image?.data;
     if (!src) return;
-    const sw = image?.width ?? dw ?? 0;
-    const sh = image?.height ?? dh ?? 0;
+    const sw = image?.width ?? image?.naturalWidth ?? dw ?? 0;
+    const sh = image?.height ?? image?.naturalHeight ?? dh ?? 0;
     if (!sw || !sh) return;
     const fx = Math.floor(dx);
     const fy = Math.floor(dy);
-    // Clip the blit rect to the canvas — copy contiguous row spans.
+    const destW = Math.floor(dw ?? sw);
+    const destH = Math.floor(dh ?? sh);
+    if (destW <= 0 || destH <= 0) return;
+
+    if (destW === sw && destH === sh) {
+      // 1:1 blit — copy contiguous row spans (clipped to the canvas).
+      const x0 = Math.max(0, fx);
+      const y0 = Math.max(0, fy);
+      const x1 = Math.min(this.width, fx + sw);
+      const y1 = Math.min(this.height, fy + sh);
+      if (x1 <= x0 || y1 <= y0) return;
+      const rowBytes = (x1 - x0) * 4;
+      for (let py = y0; py < y1; py++) {
+        const sIdx = ((py - fy) * sw + (x0 - fx)) * 4;
+        const dIdx = (py * this.width + x0) * 4;
+        this.pixels.set(src.subarray(sIdx, sIdx + rowBytes), dIdx);
+      }
+      return;
+    }
+
+    // Scaled blit — nearest-neighbor resample into the dest rect (clipped).
     const x0 = Math.max(0, fx);
     const y0 = Math.max(0, fy);
-    const x1 = Math.min(this.width, fx + sw);
-    const y1 = Math.min(this.height, fy + sh);
+    const x1 = Math.min(this.width, fx + destW);
+    const y1 = Math.min(this.height, fy + destH);
     if (x1 <= x0 || y1 <= y0) return;
-    const rowBytes = (x1 - x0) * 4;
     for (let py = y0; py < y1; py++) {
-      const sIdx = ((py - fy) * sw + (x0 - fx)) * 4;
-      const dIdx = (py * this.width + x0) * 4;
-      this.pixels.set(src.subarray(sIdx, sIdx + rowBytes), dIdx);
+      const sy = Math.min(sh - 1, Math.floor(((py - fy) * sh) / destH));
+      const dRow = (py * this.width + x0) * 4;
+      const sRow = sy * sw * 4;
+      for (let px = x0; px < x1; px++) {
+        const sx = Math.min(sw - 1, Math.floor(((px - fx) * sw) / destW));
+        const sIdx = sRow + sx * 4;
+        const dIdx = dRow + (px - x0) * 4;
+        this.pixels[dIdx] = src[sIdx]!;
+        this.pixels[dIdx + 1] = src[sIdx + 1]!;
+        this.pixels[dIdx + 2] = src[sIdx + 2]!;
+        this.pixels[dIdx + 3] = src[sIdx + 3]!;
+      }
     }
   }
 }
