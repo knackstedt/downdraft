@@ -8,10 +8,10 @@
 // the fields are omitted and the renderer's WebGPU adapter line carries GPU
 // identity. This keeps the startup emit path non-blocking.
 
-import { ENGINE_VERSION, condenseText, formatBytesShort, type FeatureLogData } from "@downdraft/engine";
+import { type FeatureLogData } from "@downdraft/engine";
 import type { app as AppType } from "electron";
 import { ipcMain } from "electron";
-import os from "node:os";
+import { collectHostFeatureLog } from "../shared/feature-log";
 import { IPC } from "../shared/messages";
 import type { ElectronGPUInfo } from "../shared/types";
 
@@ -37,36 +37,15 @@ let cachedMainFeatureLog: FeatureLogData | null = null;
  * crash dialog and the FEATURE_LOG IPC handler.
  */
 export function collectMainFeatureLog(opts: CollectMainFeatureLogOptions): FeatureLogData {
-  const { isDev, deterministic, switches } = opts;
-  const versions = process.versions;
-  const cpus = os.cpus();
-  const cpuModel = cpus.length > 0 ? cpus[0]!.model : "";
-
-  const data: FeatureLogData = {
-    sv: 1,
-    scope: "main",
-    v: ENGINE_VERSION,
-    mode: deterministic ? "deterministic" : isDev ? "dev" : "packaged",
-    os: process.platform,
-    osRel: os.release(),
-    arch: process.arch,
-    cpu: condenseText(cpuModel, 48),
-    cpuCores: cpus.length,
-    mem: formatBytesShort(os.totalmem()),
-    el: versions.electron,
-    chr: versions.chrome,
-    node: versions.node,
-    v8: versions.v8,
-    sw: switches.length > 0 ? switches.join(",") : undefined,
-  };
-
-  // GPU identity from cached Electron GPU info (best-effort, sync).
   const gpuInfo = opts.electronGpuInfo ?? null;
-  if (gpuInfo) {
-    if (gpuInfo.gpuDevice) data.gpu = condenseText(gpuInfo.gpuDevice, 48);
-    if (gpuInfo.gpuDriverVersion) data.drv = condenseText(gpuInfo.gpuDriverVersion, 32);
-  }
-
+  const data = collectHostFeatureLog({
+    isDev: opts.isDev,
+    deterministic: opts.deterministic,
+    flags: opts.switches,
+    gpuDevice: gpuInfo?.gpuDevice,
+    gpuDriverVersion: gpuInfo?.gpuDriverVersion,
+    runtime: "electron",
+  });
   cachedMainFeatureLog = data;
   return data;
 }

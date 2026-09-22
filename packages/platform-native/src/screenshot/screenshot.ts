@@ -131,14 +131,18 @@ export interface ScreenshotOptions {
   outputPath: string;
 }
 
-export function captureScreenshot(
+/**
+ * Read back a render target's pixels as tightly-packed RGBA8.
+ * Shared by captureScreenshot (file output) and the native bridge's
+ * capturePage (ArrayBuffer output for MCP tooling).
+ */
+export function captureScreenshotPixels(
   device: WgpuDevice,
   sourceTexture: WgpuTexture,
   width: number,
   height: number,
-  outputPath: string,
   format?: GPUTextureFormat,
-): void {
+): Uint8Array {
   // Create a destination buffer for the copy
   const bytesPerPixel = 4;
   // Padded bytesPerRow to 256 (wgpu requirement)
@@ -176,7 +180,18 @@ export function captureScreenshot(
 
   destBuffer.unmap();
   destBuffer.destroy();
+  return unpadded;
+}
 
+export function captureScreenshot(
+  device: WgpuDevice,
+  sourceTexture: WgpuTexture,
+  width: number,
+  height: number,
+  outputPath: string,
+  format?: GPUTextureFormat,
+): void {
+  const unpadded = captureScreenshotPixels(device, sourceTexture, width, height, format);
   // Encode as PNG and write to file
   const png = encodePNG(width, height, unpadded);
   writeFileSync(outputPath, png);

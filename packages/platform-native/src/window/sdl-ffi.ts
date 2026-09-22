@@ -23,6 +23,14 @@ const SDL_SHIM_SPEC: Record<string, CFunction> = {
   sdl_shim_destroy_window: { args: [], returns: "void" },
   sdl_shim_delay: { args: ["u32"], returns: "void" },
   sdl_shim_create_wgpu_surface: { args: ["ptr"], returns: "ptr" },
+  sdl_shim_set_fullscreen: { args: ["i32"], returns: "void" },
+  sdl_shim_get_window_pos: { args: ["ptr", "ptr"], returns: "void" },
+  sdl_shim_set_window_pos: { args: ["i32", "i32"], returns: "void" },
+  sdl_shim_get_display_info: { args: ["ptr", "ptr"], returns: "void" },
+  sdl_shim_request_quit: { args: [], returns: "void" },
+  sdl_shim_show_message_box: { args: ["cstring", "cstring"], returns: "i32" },
+  sdl_shim_set_clipboard: { args: ["cstring"], returns: "void" },
+  sdl_shim_get_clipboard: { args: ["ptr", "i32"], returns: "i32" },
 };
 
 let _sdl: SdlShimSymbols | null = null;
@@ -61,6 +69,14 @@ export interface SdlShimSymbols {
   sdl_shim_destroy_window: () => void;
   sdl_shim_delay: (ms: number) => void;
   sdl_shim_create_wgpu_surface: (instance: ptr) => ptr;
+  sdl_shim_set_fullscreen: (enabled: number) => void;
+  sdl_shim_get_window_pos: (xOut: ptr, yOut: ptr) => void;
+  sdl_shim_set_window_pos: (x: number, y: number) => void;
+  sdl_shim_get_display_info: (refreshOut: ptr, scaleOut: ptr) => void;
+  sdl_shim_request_quit: () => void;
+  sdl_shim_show_message_box: (title: string, message: string) => number;
+  sdl_shim_set_clipboard: (text: string) => void;
+  sdl_shim_get_clipboard: (out: ptr, maxLen: number) => number;
 }
 
 // Event type constants (matching sdl_shim.c)
@@ -75,6 +91,9 @@ export const SDL_EVENT_WHEEL = 7;
 export const SDL_EVENT_RESIZE = 8;
 export const SDL_EVENT_TEXT_INPUT = 9;
 export const SDL_EVENT_FOCUS_LOST = 10;
+export const SDL_EVENT_MOVED = 11;
+export const SDL_EVENT_DROP_FILE = 12;
+export const SDL_EVENT_FOCUS_GAINED = 13;
 
 // SDL_Keymod bitmask (SDL_keymod.h)
 export const KMOD_SHIFT = 0x0001 | 0x0002; // LSHIFT | RSHIFT

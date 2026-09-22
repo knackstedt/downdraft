@@ -18,6 +18,7 @@ import { MiniEventTarget } from "../dom/mini-event-target";
 import { parseFormat } from "../gpu/enums";
 import { wgpu } from "../gpu/wgpu-ffi";
 import { WgpuDevice, WgpuTexture } from "../gpu/wgpu-wrapper";
+import { encodePNG } from "../screenshot/screenshot";
 
 // Note: no `implements GPUCanvasContext` — @webgpu/types brands the interface
 // (declare const __brand), so structural conformance is impossible. Conformance
@@ -198,4 +199,36 @@ export class NativeSurface extends MiniEventTarget {
   }
 
   getSurfacePtr(): number { return this.surfacePtr; }
+
+  // ── Pixel readback (canvas.toBlob / drawImage sources) ──
+  //
+  // The host injects a readback hook once the GPU device exists (it owns the
+  // copy machinery). `getPixelData` is the drawImage-compatible accessor;
+  // `toBlob`/`toDataURL` mirror HTMLCanvasElement for save thumbnails and
+  // MCP screenshots. Encoding is always PNG regardless of the requested
+  // MIME — consumers only need decodable bytes.
+  private readbackHook: (() => Uint8Array | null) | null = null;
+
+  /** Called by createNativeHost after the device + context are configured. */
+  setReadbackHook(hook: () => Uint8Array | null): void {
+    this.readbackHook = hook;
+  }
+
+  /** Tightly-packed RGBA8 pixels of the current surface texture, or null. */
+  getPixelData(): Uint8Array | null {
+    return this.readbackHook?.() ?? null;
+  }
+
+  toBlob(callback: (blob: Blob | null) => void, _type?: string, _quality?: number): void {
+    const pixels = this.getPixelData();
+    if (!pixels) { callback(null); return; }
+    callback(new Blob([new Uint8Array(encodePNG(this._width, this._height, pixels))], { type: "image/png" }));
+  }
+
+  toDataURL(_type?: string, _quality?: number): string {
+    const pixels = this.getPixelData();
+    if (!pixels) return "data:,";
+    const png = encodePNG(this._width, this._height, pixels);
+    return `data:image/png;base64,${Buffer.from(png).toString("base64")}`;
+  }
 }

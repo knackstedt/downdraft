@@ -449,7 +449,12 @@ export class NativeCanvas2D {
   drawImage(image: any, dx: number, dy: number, dw?: number, dh?: number): void {
     // Blit a NativeImageBitmap (RGBA) into the pixel buffer — used by PixiJS
     // text when compositing canvas snapshots and by getPixels paths.
-    const src = image?.getPixelData?.() ?? image?.data;
+    // Sources: NativeImageBitmap (getPixelData), NativeImage (getBitmap),
+    // canvas-like objects (getPixelData on NativeSurface/VirtualCanvas),
+    // and ImageData-shaped {data, width, height}.
+    const src = image?.getPixelData?.()
+      ?? image?.getBitmap?.()?.getPixelData?.()
+      ?? image?.data;
     if (!src) return;
     const sw = image?.width ?? dw ?? 0;
     const sh = image?.height ?? dh ?? 0;

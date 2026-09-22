@@ -76,14 +76,30 @@ const stubBridge: DowndraftBridge = {
  *
  * In Electron mode, this is the real bridge. In browser-only mode (e.g.
  * model-viewer running standalone), it returns a stub with `isAvailable: false`.
+ *
+ * The accessor is lazy: the bridge may be installed AFTER this module is
+ * evaluated (the native host installs `globalThis.downdraft` once its
+ * window/device exist — after static imports have already run). Reads go
+ * through a Proxy so `downdraft.isAvailable` flips live when a bridge
+ * appears. Callers that need a stable snapshot should read it at use time,
+ * not module-eval time (all engine consumers already do).
  */
-export const downdraft: DowndraftBridge = (() => {
+function currentBridge(): DowndraftBridge {
   const raw = (globalThis as unknown as { downdraft?: DowndraftBridgeAPI }).downdraft;
   if (raw) {
     return { ...raw, isAvailable: true } as DowndraftBridge;
   }
   return stubBridge;
-})();
+}
+
+export const downdraft: DowndraftBridge = new Proxy({} as DowndraftBridge, {
+  get(_target, prop) {
+    return (currentBridge() as unknown as Record<string | symbol, unknown>)[prop];
+  },
+  has(_target, prop) {
+    return prop in currentBridge();
+  },
+});
 
 // Import cache adapter — Electron IPC-backed with memory fallback
 export { createElectronImportCache } from "./import-cache";

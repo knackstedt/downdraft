@@ -62,6 +62,9 @@ int sdl_shim_create_window(const char* title, int width, int height) {
 #define SDL_SHIM_EVENT_RESIZE     8
 #define SDL_SHIM_EVENT_TEXT_INPUT 9
 #define SDL_SHIM_EVENT_FOCUS_LOST 10
+#define SDL_SHIM_EVENT_MOVED      11
+#define SDL_SHIM_EVENT_DROP_FILE  12
+#define SDL_SHIM_EVENT_FOCUS_GAINED 13
 
 // Poll one event. Returns the event type (0 = no event).
 // out_data: pointer to a buffer for event data (int32 slots):
@@ -137,6 +140,88 @@ void sdl_shim_set_window_title(const char* title) {
     if (g_window && title) SDL_SetWindowTitle(g_window, title);
 }
 
+// ── Fullscreen / window geometry / display info ──
+
+// Toggle borderless-desktop fullscreen (SDL_WINDOW_FULLSCREEN_DESKTOP keeps
+// the native display mode, avoiding mode-switch flicker).
+void sdl_shim_set_fullscreen(int enabled) {
+    if (!g_window) return;
+    SDL_SetWindowFullscreen(g_window, enabled ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+}
+
+// Current window position (for window-state persistence).
+void sdl_shim_get_window_pos(int* x_out, int* y_out) {
+    int x = 0, y = 0;
+    if (g_window) SDL_GetWindowPosition(g_window, &x, &y);
+    if (x_out) *x_out = x;
+    if (y_out) *y_out = y;
+}
+
+void sdl_shim_set_window_pos(int x, int y) {
+    if (g_window) SDL_SetWindowPosition(g_window, x, y);
+}
+
+// Query the display the window is on: refresh rate (Hz) and content scale
+// factor (DPI / 96). Writes 0/1.0 on failure.
+void sdl_shim_get_display_info(int* refresh_out, float* scale_out) {
+    int refresh = 0;
+    float scale = 1.0f;
+    if (g_window) {
+        int idx = SDL_GetWindowDisplayIndex(g_window);
+        if (idx >= 0) {
+            SDL_DisplayMode mode;
+            if (SDL_GetCurrentDisplayMode(idx, &mode) == 0 && mode.refresh_rate > 0) {
+                refresh = mode.refresh_rate;
+            }
+            float ddpi = 0.0f;
+            if (SDL_GetDisplayDPI(idx, &ddpi, NULL, NULL) == 0 && ddpi > 0.0f) {
+                scale = ddpi / 96.0f;
+            }
+        }
+    }
+    if (refresh_out) *refresh_out = refresh;
+    if (scale_out) *scale_out = scale;
+}
+
+// Push an SDL_QUIT event so the event loop exits through the normal close
+// path (JS "close" listeners fire, cleanup runs).
+void sdl_shim_request_quit(void) {
+    SDL_Event ev;
+    memset(&ev, 0, sizeof(ev));
+    ev.type = SDL_QUIT;
+    SDL_PushEvent(&ev);
+}
+
+// Modal error dialog — used for uncaughtException / unhandledRejection
+// parity with the Electron error dialog.
+int sdl_shim_show_message_box(const char* title, const char* message) {
+    return SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR,
+        title ? title : "Error",
+        message ? message : "",
+        g_window);
+}
+
+// ── Clipboard ──
+
+void sdl_shim_set_clipboard(const char* text) {
+    if (text) SDL_SetClipboardText(text);
+}
+
+// Copy the clipboard text into out (NUL-terminated). Returns the number of
+// bytes that would have been written (like snprintf), or 0 on empty/failure.
+int sdl_shim_get_clipboard(char* out, int max_len) {
+    if (!out || max_len <= 0) return 0;
+    out[0] = '\0';
+    char* text = SDL_GetClipboardText();
+    if (!text) return 0;
+    int len = (int)strlen(text);
+    int copy = len < max_len - 1 ? len : max_len - 1;
+    memcpy(out, text, copy);
+    out[copy] = '\0';
+    SDL_free(text);
+    return len;
+}
+
 // Translate an SDL_Event into the flat out_data layout. Returns the shim
 // event type (SDL_SHIM_EVENT_NONE for events we don't surface).
 static int translate_event(const SDL_Event* event, void* out_data) {
@@ -191,14 +276,33 @@ static int translate_event(const SDL_Event* event, void* out_data) {
                 iout[1] = event->window.data2; // height
                 return SDL_SHIM_EVENT_RESIZE;
             }
+            if (event->window.event == SDL_WINDOWEVENT_MOVED) {
+                iout[0] = event->window.data1; // x
+                iout[1] = event->window.data2; // y
+                return SDL_SHIM_EVENT_MOVED;
+            }
             if (event->window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
                 // Lets JS clear its pressed-keys tracking so keys don't get
                 // "stuck" when focus is lost mid-press.
                 return SDL_SHIM_EVENT_FOCUS_LOST;
             }
+            if (event->window.event == SDL_WINDOWEVENT_FOCUS_GAINED) {
+                return SDL_SHIM_EVENT_FOCUS_GAINED;
+            }
             // Do NOT re-grab on focus-gained — let the user explicitly
             // click the window to engage pointer lock.
             return SDL_SHIM_EVENT_NONE;
+
+        case SDL_DROPFILE:
+            // event.drop.file is a heap-allocated path that must be SDL_free'd.
+            if (event->drop.file) {
+                strncpy((char*)out_data, event->drop.file, 255);
+                ((char*)out_data)[255] = '\0';
+                SDL_free(event->drop.file);
+            } else {
+                ((char*)out_data)[0] = '\0';
+            }
+            return SDL_SHIM_EVENT_DROP_FILE;
 
         case SDL_TEXTINPUT:
             strncpy((char*)out_data, event->text.text, 31);

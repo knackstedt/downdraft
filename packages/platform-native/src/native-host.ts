@@ -14,16 +14,31 @@
 // ============================================================================
 
 import { installShaderValidationGuard } from "@downdraft/engine";
+import { join } from "node:path";
 import { installAssetGlob } from "./assets/native-assets";
+import { createNativeBridge } from "./bridge/native-bridge";
+import { resolveNativeUserDataDir } from "./bridge/user-data-dir";
 import { installDOMPolyfills } from "./dom/dom-polyfills";
 import { installGPU } from "./gpu/install";
 import { installImagePolyfills } from "./image/native-image";
-import { captureScreenshot } from "./screenshot/screenshot";
+import { startNativeMcpServer, type NativeMcpOptions, type NativeMcpServer } from "./mcp/native-mcp";
+import { captureScreenshot, captureScreenshotPixels } from "./screenshot/screenshot";
 import { NativeSurface } from "./window/native-surface";
 import { NativeWindow, type NativeWindowConfig } from "./window/native-window";
 
 export interface NativeHostConfig {
   window: NativeWindowConfig;
+  /** Per-game application identifier (e.g. "to-the-ocean"). When set, the
+   *  host installs `globalThis.downdraft` — the DowndraftBridgeAPI impl that
+   *  makes `startGame()`, saves, MCP, and the standard automation tools work
+   *  with zero per-game wiring. Omit only for bespoke debug harnesses. */
+  appId?: string;
+  /** Engine version stamped into save files / feature log. */
+  engineVersion?: string;
+  /** Start the in-process MCP HTTP server (PID-file discoverable).
+   *  Default: enabled when `appId` is set, port ephemeral. Pass `false` to
+   *  disable, or options to configure. */
+  mcp?: boolean | NativeMcpOptions;
   screenshotPath?: string;
   screenshotAfterFrames?: number;
 }
@@ -34,6 +49,9 @@ export interface NativeHostContext {
   gpu: any;
   adapter: any;
   device: any;
+  /** The installed `downdraft` bridge, when `appId` was provided. */
+  bridge: (ReturnType<typeof createNativeBridge>) | null;
+  mcp: NativeMcpServer | null;
   requestAnimationFrame: (callback: (time: number) => void) => number;
   cancelAnimationFrame: (id: number) => void;
   captureScreenshot: (path: string, texture?: any) => void;
@@ -76,6 +94,21 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   const format = gpu.getPreferredCanvasFormat();
   ctx.configure({ device: gpuDevice, format, usage: 0x0010 | 0x0002 | 0x0001 }); // RENDER_ATTACHMENT | COPY_DST | COPY_SRC
 
+  // 4b. Surface pixel readback — powers canvas.toBlob/getPixelData for save
+  // thumbnails, MCP screenshots, and drawImage compositing. Returns the
+  // in-flight swapchain texture's contents (whatever has been rendered so
+  // far); wgpu only permits one outstanding surface texture, so we reuse
+  // the context's cached acquisition rather than acquiring a second one.
+  surface.setReadbackHook(() => {
+    const tex = ctx.getCurrentTexture();
+    if (!tex) return null;
+    try {
+      return captureScreenshotPixels(device, tex, surface.width, surface.height, format);
+    } catch {
+      return null;
+    }
+  });
+
   // 5. Install requestAnimationFrame on globalThis
   const rafSource = {
     request: (callback: (time: number) => void) => window.requestAnimationFrame(callback),
@@ -84,8 +117,13 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   (globalThis as any).requestAnimationFrame = rafSource.request.bind(window);
   (globalThis as any).cancelAnimationFrame = rafSource.cancel.bind(window);
 
-  // 6. Install other DOM polyfills
-  installDOMPolyfills(window, surface);
+  // 6. Install other DOM polyfills (file-backed localStorage under the
+  // per-game userData dir when appId is set).
+  installDOMPolyfills(window, surface, {
+    storagePath: config.appId
+      ? join(resolveNativeUserDataDir(config.appId), "localstorage.json")
+      : undefined,
+  });
 
   // 6b. Forward mouse/click/wheel events from the window to the surface (canvas).
   // The renderer's input handler listens on `canvas` for these events, but
@@ -129,6 +167,32 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
     forwardToSurface("contextmenu", e);
   });
 
+  // 6c. Install the `downdraft` bridge — the single-process implementation
+  // of the same API the Electron preload exposes over IPC. The lazy accessor
+  // in app/renderer picks it up whenever `startGame()` (or game code) first
+  // touches `downdraft.*`.
+  const bridge = config.appId
+    ? createNativeBridge({
+        appId: config.appId,
+        window,
+        surface,
+        device,
+        adapter,
+        engineVersion: config.engineVersion,
+        isDev: !config.screenshotPath, // dev hosts don't pass a screenshot path
+      })
+    : null;
+  if (bridge) {
+    (globalThis as any).downdraft = bridge;
+  }
+
+  // 6d. Start the in-process MCP server (tools/list, tools/call, artifacts,
+  // PID discovery — identical endpoints to the Electron proxy).
+  const mcpEnabled = config.mcp !== false && config.appId != null;
+  const mcp = mcpEnabled && bridge
+    ? await startNativeMcpServer(bridge, typeof config.mcp === "object" ? config.mcp : {})
+    : null;
+
   // 7. Start the event loop
   window.start();
 
@@ -148,10 +212,14 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
     gpu,
     adapter,
     device,
+    bridge,
+    mcp,
     requestAnimationFrame: rafSource.request.bind(window),
     cancelAnimationFrame: rafSource.cancel.bind(window),
     captureScreenshot: screenshotFn,
     destroy: () => {
+      void mcp?.stop();
+      bridge?.dispose();
       window.destroy();
     },
   };

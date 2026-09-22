@@ -8,18 +8,95 @@
 // ============================================================================
 
 import { createLogger } from "@downdraft/engine";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { createRequire as nodeCreateRequire } from "node:module";
+import { dirname } from "node:path";
 import { VirtualCanvas } from "../gpu/virtual-canvas-context";
 import { NativeCanvas2D } from "../image/native-image";
 import type { NativeSurface } from "../window/native-surface";
 import type { NativeWindow } from "../window/native-window";
+import { installBlobUrls, resolveBlobUrl } from "./blob-urls";
 import { MiniEventTarget } from "./mini-event-target";
 
 const log = createLogger();
 
-export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface): void {
+export interface DOMPolyfillOptions {
+  /** When set, localStorage persists to this JSON file (atomic writes). */
+  storagePath?: string;
+}
+
+/** Minimal HTMLElement stub — enough shape for element APIs that
+ *  startGame()/devtools touch without a real DOM (classList, dataset,
+ *  event listeners, child management). */
+function createStubElement(tag: string): any {
+  const children: any[] = [];
+  const classes = new Set<string>();
+  const el: any = {
+    tagName: tag.toUpperCase(),
+    nodeName: tag.toUpperCase(),
+    nodeType: 1,
+    style: {},
+    dataset: {},
+    children,
+    childNodes: children,
+    classList: {
+      add: (...c: string[]) => c.forEach((x) => classes.add(x)),
+      remove: (...c: string[]) => c.forEach((x) => classes.delete(x)),
+      contains: (c: string) => classes.has(c),
+      toggle: (c: string) => (classes.has(c) ? (classes.delete(c), false) : (classes.add(c), true)),
+    },
+    setAttribute: (k: string, v: string) => { if (k === "id") el.id = v; },
+    getAttribute: () => null,
+    appendChild: (n: any) => { children.push(n); return n; },
+    removeChild: (n: any) => { const i = children.indexOf(n); if (i >= 0) children.splice(i, 1); return n; },
+    replaceChildren: (...nodes: any[]) => { children.length = 0; children.push(...nodes); },
+    insertBefore: (n: any) => { children.push(n); return n; },
+    remove: () => {},
+    contains: () => false,
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => true,
+    focus: () => {},
+    blur: () => {},
+    click: () => {},
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0, x: 0, y: 0 }),
+    clientWidth: 0,
+    clientHeight: 0,
+    innerHTML: "",
+    textContent: "",
+    id: "",
+  };
+  return el;
+}
+
+export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface, opts: DOMPolyfillOptions = {}): void {
   // document polyfill
   if (typeof (globalThis as any).document === "undefined") {
+    // Persistent overlay stubs — getOverlay(n) maps div[data-dd-overlay="n"]
+    // (and legacy #root for n=0). There's no real DOM compositor; the stubs
+    // let mountUI callers get an element instead of throwing. Games should
+    // use the imui `ui:` path on native — DOM UI won't display.
+    const overlays = new Map<number, any>();
+
+    const getOverlayElement = (index: number): any => {
+      let el = overlays.get(index);
+      if (!el) {
+        el = createStubElement("div");
+        el.id = index === 0 ? "root" : `dd-overlay-${index}`;
+        el.dataset.ddOverlay = String(index);
+        overlays.set(index, el);
+      }
+      return el;
+    };
+
+    const matchCanvasSelector = (sel: string): boolean =>
+      sel === "canvas" ||
+      sel === "#game-canvas" ||
+      /^canvas\[data-dd-layer="0"\]$/.test(sel) ||
+      sel === "canvas[data-dd-layer]";
+
     const doc = {
       createElement: (tag: string) => {
         if (tag === "canvas") {
@@ -31,29 +108,32 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
           // is FreeType-backed for text rasterization.
           return new VirtualCanvas(surface.width, surface.height);
         }
-        return {
-          style: {},
-          setAttribute: () => {},
-          getAttribute: () => null,
-          appendChild: (n: any) => n,
-          removeChild: (n: any) => n,
-          remove: () => {},
-          contains: () => false,
-          addEventListener: () => {},
-          removeEventListener: () => {},
-          dispatchEvent: () => true,
-          focus: () => {},
-          blur: () => {},
-          click: () => {},
-        };
+        return createStubElement(tag);
       },
       getElementById: (id: string) => {
         if (id === "game-canvas" || id === "canvas") return surface;
+        if (id === "root") return getOverlayElement(0);
+        for (const [i, el] of overlays) if (el.id === id) { void i; return el; }
         return null;
       },
       querySelector: (selector: string) => {
-        if (selector === "canvas") return surface;
+        if (matchCanvasSelector(selector)) return surface;
+        const overlayMatch = selector.match(/^div\[data-dd-overlay="(\d+)"\]$/);
+        if (overlayMatch) return getOverlayElement(Number(overlayMatch[1]));
+        if (selector === "#root" || selector === "div#root") return getOverlayElement(0);
         return null;
+      },
+      querySelectorAll: (selector: string) => {
+        // Layer/canvases
+        if (selector === "canvas" || selector === "canvas[data-dd-layer]" ||
+            /^canvas\[data-dd-layer="0"\]$/.test(selector)) {
+          return [surface];
+        }
+        if (selector === "div[data-dd-overlay]") {
+          return [getOverlayElement(0)];
+        }
+        // Stylesheets and everything else: no real DOM → empty.
+        return [];
       },
       // Document-level events (pointerlockchange, etc.) live on a shared
       // MiniEventTarget that NativeSurface can dispatch to directly.
@@ -193,14 +273,37 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
     (globalThis as any).performance = { now: () => Date.now() - start };
   }
 
-  // localStorage polyfill (engine save system may use it)
+  // localStorage polyfill — in-memory by default; file-backed (atomic JSON
+  // writes) when opts.storagePath is provided, so prefs like imui font-scale
+  // survive restarts on the native host.
   if (typeof (globalThis as any).localStorage === "undefined") {
     const store: Record<string, string> = {};
+    let dirty = false;
+    if (opts.storagePath) {
+      try {
+        const raw = readFileSync(opts.storagePath, "utf8");
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") Object.assign(store, parsed);
+      } catch { /* missing/corrupt file — start empty */ }
+    }
+    const flush = () => {
+      if (!opts.storagePath || !dirty) return;
+      dirty = false;
+      try {
+        mkdirSync(dirname(opts.storagePath), { recursive: true });
+        const tmp = `${opts.storagePath}.tmp`;
+        writeFileSync(tmp, JSON.stringify(store));
+        renameSync(tmp, opts.storagePath);
+      } catch (e) {
+        log.warn("platform-native", `localStorage persist failed: ${(e as Error).message}`);
+      }
+    };
+    if (opts.storagePath) process.on("exit", flush);
     (globalThis as any).localStorage = {
       getItem: (key: string) => store[key] ?? null,
-      setItem: (key: string, value: string) => { store[key] = value; },
-      removeItem: (key: string) => { delete store[key]; },
-      clear: () => { for (const k of Object.keys(store)) delete store[k]; },
+      setItem: (key: string, value: string) => { store[key] = String(value); dirty = true; flush(); },
+      removeItem: (key: string) => { if (key in store) { delete store[key]; dirty = true; flush(); } },
+      clear: () => { for (const k of Object.keys(store)) delete store[k]; dirty = true; flush(); },
       key: (index: number) => Object.keys(store)[index] ?? null,
       get length() { return Object.keys(store).length; },
     };
@@ -309,14 +412,23 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
     (globalThis as any).Worker = BrowserWorker;
   }
 
-  // fetch() file:// support — `?url` asset imports resolve to file:// URLs
-  // under Bun, whose fetch rejects them. Wrap fetch so those reads fall back
-  // to the filesystem. Also accepts bare absolute paths for robustness.
+  // URL.createObjectURL / revokeObjectURL — blob registry for the thumbnail
+  // pipeline (img.src = blob:...) and any engine code round-tripping blobs.
+  installBlobUrls();
+
+  // fetch() file:// + blob: support — `?url` asset imports resolve to file://
+  // URLs under Bun, whose fetch rejects them. Wrap fetch so those reads fall
+  // back to the filesystem/blob registry. Also accepts bare absolute paths.
   const origFetch = globalThis.fetch?.bind(globalThis);
   if (origFetch && !(globalThis as any).__ddFileFetchPatched) {
     (globalThis as any).__ddFileFetchPatched = true;
     (globalThis as any).fetch = async (input: any, init?: any): Promise<Response> => {
       const urlStr = typeof input === "string" ? input : input?.url ?? "";
+      if (urlStr.startsWith("blob:")) {
+        const blob = resolveBlobUrl(urlStr);
+        if (!blob) return new Response("Unknown blob URL", { status: 404 });
+        return new Response(blob);
+      }
       const isFileUrl = urlStr.startsWith("file://");
       const isBarePath = !isFileUrl && urlStr.startsWith("/") && !urlStr.startsWith("//");
       if (isFileUrl || isBarePath) {

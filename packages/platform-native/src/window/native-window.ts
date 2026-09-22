@@ -18,12 +18,15 @@ import {
     KMOD_GUI,
     KMOD_SHIFT,
     sdl,
+    SDL_EVENT_DROP_FILE,
+    SDL_EVENT_FOCUS_GAINED,
     SDL_EVENT_FOCUS_LOST,
     SDL_EVENT_KEY_DOWN,
     SDL_EVENT_KEY_UP,
     SDL_EVENT_MOUSE_DOWN,
     SDL_EVENT_MOUSE_MOVE,
     SDL_EVENT_MOUSE_UP,
+    SDL_EVENT_MOVED,
     SDL_EVENT_NONE,
     SDL_EVENT_QUIT,
     SDL_EVENT_RESIZE,
@@ -132,6 +135,51 @@ export class NativeWindow extends MiniEventTarget {
     sdl.sdl_shim_set_text_input_rect(x, y, w, h);
   }
 
+  /** Toggle borderless-desktop fullscreen. */
+  setFullscreen(enabled: boolean): void {
+    sdl.sdl_shim_set_fullscreen(enabled ? 1 : 0);
+  }
+
+  /** Window position in screen coordinates. */
+  getWindowPos(): { x: number; y: number } {
+    const out = new Int32Array(2);
+    sdl.sdl_shim_get_window_pos(out.subarray(0, 1) as any, out.subarray(1, 2) as any);
+    return { x: out[0]!, y: out[1]! };
+  }
+
+  setWindowPos(x: number, y: number): void {
+    sdl.sdl_shim_set_window_pos(x, y);
+  }
+
+  /** Refresh rate (Hz) and content scale factor of the display the window is on. */
+  getDisplayInfo(): { refreshRate: number; scaleFactor: number } {
+    const refresh = new Int32Array(1);
+    const scale = new Float32Array(1);
+    sdl.sdl_shim_get_display_info(refresh as any, scale as any);
+    return { refreshRate: refresh[0] ?? 0, scaleFactor: scale[0] ?? 1.0 };
+  }
+
+  /** Push SDL_QUIT so the event loop exits through the normal close path. */
+  requestQuit(): void {
+    sdl.sdl_shim_request_quit();
+  }
+
+  /** Modal error dialog. */
+  showMessageBox(title: string, message: string): void {
+    sdl.sdl_shim_show_message_box(title, message);
+  }
+
+  setClipboardText(text: string): void {
+    sdl.sdl_shim_set_clipboard(text);
+  }
+
+  getClipboardText(): string {
+    const buf = new Uint8Array(4096);
+    const len = sdl.sdl_shim_get_clipboard(buf as any, buf.length);
+    if (len <= 0) return "";
+    return new TextDecoder().decode(buf.subarray(0, Math.min(len, buf.length - 1)));
+  }
+
   private runLoop(): void {
     if (!this.running) return;
 
@@ -210,6 +258,20 @@ export class NativeWindow extends MiniEventTarget {
         this.pressedKeys.clear();
         this.dispatchEvent({ type: "blur" });
         break;
+
+      case SDL_EVENT_FOCUS_GAINED:
+        this.dispatchEvent({ type: "focus" });
+        break;
+
+      case SDL_EVENT_MOVED:
+        this.dispatchEvent({ type: "moved", x: eventView[0], y: eventView[1] });
+        break;
+
+      case SDL_EVENT_DROP_FILE: {
+        const path = new TextDecoder().decode(new Uint8Array(this.eventData)).replace(/\0.*$/, "");
+        if (path) this.dispatchEvent({ type: "dropfile", path });
+        break;
+      }
 
       case SDL_EVENT_KEY_DOWN: {
         const keycode = eventView[0];

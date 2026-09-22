@@ -10,8 +10,10 @@
 // ============================================================================
 
 import { createLogger } from "@downdraft/engine";
+import { resolveBlobUrl } from "../dom/blob-urls";
 import { dlopen, type CFunction } from "../ffi/ffi-adapter";
 import { resolveShimLibrary } from "../ffi/lib-paths";
+import { encodePNG } from "../screenshot/screenshot";
 import { NativeCanvas2D } from "./native-canvas2d";
 
 export { NativeCanvas2D } from "./native-canvas2d";
@@ -162,6 +164,25 @@ export function installImagePolyfills(): void {
         return null;
       }
 
+      /** Pixels of the 2D backing store (drawImage source compatibility). */
+      getPixelData(): Uint8Array | null {
+        if (!this.ctx2d) return null;
+        return new Uint8Array(this.ctx2d["pixels"].buffer.slice(0));
+      }
+
+      toBlob(callback: (blob: Blob | null) => void, _type?: string): void {
+        const pixels = this.getPixelData();
+        if (!pixels) { callback(null); return; }
+        callback(new Blob([new Uint8Array(encodePNG(this.width, this.height, pixels))], { type: "image/png" }));
+      }
+
+      toDataURL(_type?: string): string {
+        const pixels = this.getPixelData();
+        if (!pixels) return "data:,";
+        const png = encodePNG(this.width, this.height, pixels);
+        return `data:image/png;base64,${Buffer.from(png).toString("base64")}`;
+      }
+
       transferToImageBitmap(): NativeImageBitmap {
         // Copy the 2D context's pixel data so text textures are not empty.
         if (this.ctx2d) {
@@ -227,6 +248,10 @@ export function installImagePolyfills(): void {
               ? Buffer.from(b64, "base64")
               : Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
             source = bin instanceof Uint8Array ? bin : Uint8Array.from(bin);
+          } else if (src.startsWith("blob:")) {
+            const blob = resolveBlobUrl(src);
+            if (!blob) throw new Error(`Unknown blob URL: ${src}`);
+            source = blob;
           } else if (src.startsWith("http://") || src.startsWith("https://")) {
             const resp = await fetch(src);
             source = new Uint8Array(await resp.arrayBuffer());

@@ -22,6 +22,7 @@
 
 import { MiniEventTarget } from "../dom/mini-event-target";
 import { NativeCanvas2D, NativeImageBitmap } from "../image/native-image";
+import { captureScreenshotPixels, encodePNG } from "../screenshot/screenshot";
 import type { WgpuDevice, WgpuTexture, WgpuTextureView } from "./wgpu-wrapper";
 
 export interface VirtualCanvasConfig {
@@ -116,6 +117,16 @@ export class VirtualCanvasContext {
 
   getFormat(): GPUTextureFormat | null {
     return this.config?.format ?? null;
+  }
+
+  /**
+   * Read back the UI texture as tightly-packed RGBA8. Powers
+   * VirtualCanvas.toBlob/getPixelData for screenshots and thumbnails.
+   * Returns null before configure() or while no texture exists.
+   */
+  getPixelData(): Uint8Array | null {
+    if (!this.device || !this.texture) return null;
+    return captureScreenshotPixels(this.device, this.texture, this.textureWidth, this.textureHeight, this.config?.format);
   }
 
   /** Called by VirtualCanvas when width/height change. */
@@ -237,6 +248,30 @@ export class VirtualCanvas extends MiniEventTarget {
   appendChild(_node: any): any { return _node; }
   removeChild(_node: any): any { return _node; }
   contains(_node: any): boolean { return false; }
+
+  // ── Pixel readback (canvas.toBlob / drawImage sources) ──
+  // Prefers the 2D context's pixels when one exists (text/shape canvases);
+  // otherwise reads back the persistent WebGPU texture. Encoding is always
+  // PNG regardless of the requested MIME.
+  getPixelData(): Uint8Array | null {
+    if (this.ctx2d) {
+      return new Uint8Array(this.ctx2d["pixels"].buffer.slice(0));
+    }
+    return this.webgpuContext.getPixelData();
+  }
+
+  toBlob(callback: (blob: Blob | null) => void, _type?: string, _quality?: number): void {
+    const pixels = this.getPixelData();
+    if (!pixels) { callback(null); return; }
+    callback(new Blob([new Uint8Array(encodePNG(this._width, this._height, pixels))], { type: "image/png" }));
+  }
+
+  toDataURL(_type?: string, _quality?: number): string {
+    const pixels = this.getPixelData();
+    if (!pixels) return "data:,";
+    const png = encodePNG(this._width, this._height, pixels);
+    return `data:image/png;base64,${Buffer.from(png).toString("base64")}`;
+  }
   focus(): void {}
   blur(): void {}
   click(): void {}
