@@ -161,6 +161,11 @@ void sdl_shim_set_window_pos(int x, int y) {
     if (g_window) SDL_SetWindowPosition(g_window, x, y);
 }
 
+// Resize the window (window-state persistence restores saved bounds).
+void sdl_shim_set_window_size(int width, int height) {
+    if (g_window) SDL_SetWindowSize(g_window, width, height);
+}
+
 // Query the display the window is on: refresh rate (Hz) and content scale
 // factor (DPI / 96). Writes 0/1.0 on failure.
 void sdl_shim_get_display_info(int* refresh_out, float* scale_out) {

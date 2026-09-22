@@ -151,6 +151,17 @@ export class NativeWindow extends MiniEventTarget {
     sdl.sdl_shim_set_window_pos(x, y);
   }
 
+  /** Window size in pixels. */
+  getWindowSize(): { width: number; height: number } {
+    const out = new Int32Array(2);
+    sdl.sdl_shim_get_window_size(out.subarray(0, 1) as any, out.subarray(1, 2) as any);
+    return { width: out[0]!, height: out[1]! };
+  }
+
+  setWindowSize(width: number, height: number): void {
+    sdl.sdl_shim_set_window_size(width, height);
+  }
+
   /** Refresh rate (Hz) and content scale factor of the display the window is on. */
   getDisplayInfo(): { refreshRate: number; scaleFactor: number } {
     const refresh = new Int32Array(1);

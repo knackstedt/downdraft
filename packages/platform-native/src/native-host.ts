@@ -20,6 +20,12 @@ import { createNativeBridge } from "./bridge/native-bridge";
 import { resolveNativeUserDataDir } from "./bridge/user-data-dir";
 import { installDOMPolyfills } from "./dom/dom-polyfills";
 import { installGPU } from "./gpu/install";
+import {
+    acquireSingleInstanceLock,
+    installNativeErrorHandlers,
+    installWindowStatePersistence,
+    releaseSingleInstanceLock,
+} from "./host-lifecycle";
 import { installImagePolyfills } from "./image/native-image";
 import { startNativeMcpServer, type NativeMcpOptions, type NativeMcpServer } from "./mcp/native-mcp";
 import { captureScreenshot, captureScreenshotPixels } from "./screenshot/screenshot";
@@ -64,8 +70,21 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   installImagePolyfills();
   installAssetGlob();
 
+  // Single-instance lock — the Electron app calls requestSingleInstanceLock
+  // before creating the window; second instances quit. Deterministic/test
+  // mode and DOWNDRAFT_MULTI_INSTANCE=1 opt out so e2e/dev can overlap.
+  const deterministic = process.env.DOWNDRAFT_DETERMINISTIC === "1";
+  if (config.appId && !deterministic && !acquireSingleInstanceLock(config.appId)) {
+    console.error(`[native] Another ${config.appId} instance is already running — exiting.`);
+    process.exit(0);
+  }
+
   // 2. Create native window
   const window = new NativeWindow(config.window);
+  if (config.appId && !deterministic) {
+    installWindowStatePersistence(config.appId, window);
+    installNativeErrorHandlers(window);
+  }
   const surface = window.getSurface();
   (globalThis as any).__nativeWindow = window;
 
@@ -227,6 +246,7 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
       void mcp?.stop();
       bridge?.dispose();
       window.destroy();
+      releaseSingleInstanceLock();
     },
   };
   // Bespoke entries (model-viewer, visual-test-bench) run their own loops and
