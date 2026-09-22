@@ -127,6 +127,13 @@ export class NativeCanvasContext {
   }
 
   present(): void {
+    // Nothing acquired this frame → nothing to present. Games with
+    // dirty-tracking (e.g. mining-rpg) skip all render work on idle frames
+    // and rely on the canvas retaining the last presented frame. Calling
+    // wgpuSurfacePresent without an outstanding surface texture presents
+    // an empty swapchain image (black), so skip it — and keep pre-present
+    // hooks queued for the next frame that actually draws.
+    if (!this.currentTexture) return;
     // Run pending pre-present work (e.g. screenshot copies) while the
     // texture is still valid — submissions queued here precede the present.
     if (this.prePresentHooks.length > 0) {

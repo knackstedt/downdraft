@@ -210,17 +210,24 @@ export class UIPanel extends UIElement {
   getDrawable(): UIDrawable[] {
     if (!this.visible) return [];
     const drawables: UIDrawable[] = [];
-    drawables.push({
-      kind: "rect",
-      x: this.x,
-      y: this.y,
-      width: this.width,
-      height: this.height,
-      color: [...this.style.backgroundColor] as UIColor,
-      borderRadius: this.style.borderRadius,
-      borderWidth: this.style.borderWidth,
-      borderColor: [...this.style.borderColor] as UIColor,
-    });
+    // Skip the panel's own rect when nothing would paint — a fully
+    // transparent fill with no visible border produces no output. This
+    // matters for full-screen container roots (UIRoot): emitting a rect
+    // anyway forces the UI render pass to run (and acquire the swapchain
+    // texture) every frame even when the tree is empty.
+    if (this.style.backgroundColor[3] > 0 || (this.style.borderWidth > 0 && this.style.borderColor[3] > 0)) {
+      drawables.push({
+        kind: "rect",
+        x: this.x,
+        y: this.y,
+        width: this.width,
+        height: this.height,
+        color: [...this.style.backgroundColor] as UIColor,
+        borderRadius: this.style.borderRadius,
+        borderWidth: this.style.borderWidth,
+        borderColor: [...this.style.borderColor] as UIColor,
+      });
+    }
     for (const child of this.children) {
       if (!child.visible) continue;
       // Children's coordinates are local to this panel. Offset them by
@@ -407,5 +414,8 @@ export class UIRoot extends UIPanel {
     super(width, height);
     this.type = "root";
     this.style.backgroundColor = [0, 0, 0, 0];
+    // The root is a full-screen layout container — drawing the default
+    // 1px panel border would put a stray outline around the whole canvas.
+    this.style.borderWidth = 0;
   }
 }

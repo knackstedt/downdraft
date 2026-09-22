@@ -169,6 +169,11 @@ export function captureScreenshotPixels(
   const cmdBuffer = encoder.finish();
   device.queue.submit([cmdBuffer]);
 
+  // Wait for the copy to land before mapping — the shim's mapAsync may
+  // resolve as soon as the buffer is mappable, before the queued copy has
+  // executed, which yields a zeroed buffer (all-black captures).
+  void device.queue.onSubmittedWorkDone();
+
   // Map the buffer and read back the pixels.
   // mapAsync completes synchronously in the shim — the returned promise is
   // already resolved, but we still handle rejections for correctness.
