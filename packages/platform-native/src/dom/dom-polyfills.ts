@@ -259,6 +259,124 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
     (globalThis as any).window.location = { reload: () => {} };
   }
 
+  // DOM event constructors — Bun ships Event/CustomEvent but not the UI
+  // event subclasses. The native event targets dispatch plain objects, so
+  // these only need to carry the init-dict fields. Subclassing Event gives
+  // real preventDefault/stopPropagation/defaultPrevented semantics.
+  if (typeof (globalThis as any).KeyboardEvent === "undefined") {
+    const NativeEvent = (globalThis as any).Event ?? class {
+      type: string; bubbles: boolean; cancelable: boolean; defaultPrevented = false;
+      constructor(type: string, init: any = {}) {
+        this.type = type; this.bubbles = !!init.bubbles; this.cancelable = !!init.cancelable;
+      }
+      preventDefault() { if (this.cancelable) this.defaultPrevented = true; }
+      stopPropagation() {}
+      stopImmediatePropagation() {}
+    };
+    const defineEvent = (name: string, fields: string[]) => {
+      const cls = class extends NativeEvent {
+        constructor(type: string, init: any = {}) {
+          super(type, init);
+          for (const f of fields) (this as any)[f] = init[f] ?? (this as any)[f];
+        }
+      };
+      Object.defineProperty(cls, "name", { value: name });
+      (globalThis as any)[name] = cls;
+    };
+    defineEvent("KeyboardEvent", [
+      "key", "code", "location", "repeat", "isComposing",
+      "ctrlKey", "shiftKey", "altKey", "metaKey",
+      "charCode", "keyCode", "which",
+    ]);
+    defineEvent("MouseEvent", [
+      "screenX", "screenY", "clientX", "clientY", "button", "buttons",
+      "relatedTarget", "ctrlKey", "shiftKey", "altKey", "metaKey",
+      "movementX", "movementY",
+    ]);
+    defineEvent("PointerEvent", [
+      "screenX", "screenY", "clientX", "clientY", "button", "buttons",
+      "relatedTarget", "ctrlKey", "shiftKey", "altKey", "metaKey",
+      "movementX", "movementY", "pointerId", "pointerType", "pressure",
+      "width", "height", "isPrimary",
+    ]);
+    defineEvent("WheelEvent", [
+      "screenX", "screenY", "clientX", "clientY", "button", "buttons",
+      "ctrlKey", "shiftKey", "altKey", "metaKey",
+      "deltaX", "deltaY", "deltaZ", "deltaMode",
+    ]);
+    defineEvent("InputEvent", ["data", "inputType", "isComposing"]);
+    defineEvent("FocusEvent", ["relatedTarget"]);
+  }
+
+  // FileReader — async Blob reader with onload/onerror/onloadend callbacks.
+  if (typeof (globalThis as any).FileReader === "undefined") {
+    (globalThis as any).FileReader = class FileReader {
+      result: string | ArrayBuffer | null = null;
+      error: Error | null = null;
+      readyState = 0; // EMPTY
+      onload: ((ev: any) => void) | null = null;
+      onerror: ((ev: any) => void) | null = null;
+      onloadend: ((ev: any) => void) | null = null;
+      private listeners = new Map<string, Set<(ev: any) => void>>();
+      addEventListener(type: string, fn: (ev: any) => void) {
+        if (!this.listeners.has(type)) this.listeners.set(type, new Set());
+        this.listeners.get(type)!.add(fn);
+      }
+      removeEventListener(type: string, fn: (ev: any) => void) {
+        this.listeners.get(type)?.delete(fn);
+      }
+      private emit(type: string) {
+        const ev = { type, target: this };
+        for (const fn of this.listeners.get(type) ?? []) fn(ev);
+      }
+      private read(p: Promise<string | ArrayBuffer>) {
+        this.readyState = 1; // LOADING
+        p.then((r) => {
+          this.result = r;
+          this.readyState = 2; // DONE
+          this.onload?.({ target: this }); this.emit("load");
+          this.onloadend?.({ target: this }); this.emit("loadend");
+        }).catch((e) => {
+          this.error = e;
+          this.readyState = 2;
+          this.onerror?.({ target: this }); this.emit("error");
+          this.onloadend?.({ target: this }); this.emit("loadend");
+        });
+      }
+      readAsText(blob: Blob) { this.read(blob.text()); }
+      readAsArrayBuffer(blob: Blob) { this.read(blob.arrayBuffer()); }
+      readAsDataURL(blob: Blob) {
+        this.read(blob.arrayBuffer().then((buf) =>
+          `data:${blob.type || "application/octet-stream"};base64,${Buffer.from(buf).toString("base64")}`));
+      }
+      abort() { /* no-op — reads are already async/atomic */ }
+    };
+  }
+
+  // DOMRect / DOMRectReadOnly
+  if (typeof (globalThis as any).DOMRect === "undefined") {
+    (globalThis as any).DOMRect = class DOMRect {
+      x: number; y: number; width: number; height: number;
+      constructor(x = 0, y = 0, width = 0, height = 0) {
+        this.x = x; this.y = y; this.width = width; this.height = height;
+      }
+      get top() { return this.y; }
+      get left() { return this.x; }
+      get right() { return this.x + this.width; }
+      get bottom() { return this.y + this.height; }
+      toJSON() { return { x: this.x, y: this.y, width: this.width, height: this.height, top: this.top, left: this.left, right: this.right, bottom: this.bottom }; }
+      static fromRect(r: any = {}) { return new (globalThis as any).DOMRect(r.x ?? 0, r.y ?? 0, r.width ?? 0, r.height ?? 0); }
+    };
+    (globalThis as any).DOMRectReadOnly = (globalThis as any).DOMRect;
+  }
+
+  // document.elementFromPoint — no layout engine, so hit-testing is
+  // positional only in the trivial sense: return the canvas surface.
+  // dispatch_click and friends target canvas-level handlers through it.
+  if ((globalThis as any).document && typeof (globalThis as any).document.elementFromPoint !== "function") {
+    (globalThis as any).document.elementFromPoint = (_x: number, _y: number) => surface;
+  }
+
   // ResizeObserver polyfill — calls the callback once on observe()
   if (typeof (globalThis as any).ResizeObserver === "undefined") {
     (globalThis as any).ResizeObserver = class ResizeObserver {
