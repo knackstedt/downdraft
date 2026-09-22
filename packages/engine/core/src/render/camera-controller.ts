@@ -201,6 +201,13 @@ export class CameraController implements CameraControllerLike {
     const padding = 1.5;
     const distance = (halfDiag / Math.sin(effectiveFov / 2)) * padding;
 
+    // Scale the depth range to the framed subject: a fixed near/far either
+    // clips large models (framing distance beyond far) or wastes precision
+    // on small ones. Keep 500m far as the floor so ordinary scenes are
+    // unchanged.
+    cam.near = Math.max(0.01, distance / 1000);
+    cam.far = Math.max(500, distance * 8);
+
     // Drive the orbit params directly so subsequent orbit/zoom/pan work.
     cam.distance = Math.max(0.1, distance);
     cam.yaw = Math.PI * 0.25;

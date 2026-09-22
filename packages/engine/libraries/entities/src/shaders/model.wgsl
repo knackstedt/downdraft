@@ -304,9 +304,15 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     litColor = mix(litColor, vec3<f32>(0.55, 0.95, 1.0), texLine * 0.9);
   }
 
-  // Distance fog — match the procedural cube/sphere shader.
+  // Distance fog — anchored to the camera→model distance so it scales with
+  // the subject instead of a fixed 400m absolute (a 200m model viewed from
+  // 500m would otherwise fog to the ambient color entirely). Small models
+  // near the camera keep the original ~400m reach.
+  let modelDist = length(uniforms.cameraPos - uniforms.modelPos);
+  let fogStart = max(modelDist * 1.5, 60.0);
+  let fogEnd = max(modelDist * 4.0, 400.0);
   let dist = length(uniforms.cameraPos - input.worldPos);
-  let fog = clamp(1.0 - dist / 400.0, 0.0, 1.0);
+  let fog = clamp(1.0 - (dist - fogStart) / (fogEnd - fogStart), 0.0, 1.0);
   var outColor = mix(frameLighting.skyAmbient, litColor, fog);
 
   // Outline shader override (shaderMode == 3): darken the body and add a

@@ -207,6 +207,7 @@ export function extractMaterialProperties(node: FBXNode): MaterialProps {
 
   let diffuse: [number, number, number] = [1, 1, 1];
   let emissive: [number, number, number] | undefined;
+  let emissiveFactor: number | undefined;
   let opacity: number | undefined;
 
   for (const p of props70.children) {
@@ -226,6 +227,11 @@ export function extractMaterialProperties(node: FBXNode): MaterialProps {
         p.properties[5].value as number,
         p.properties[6].value as number,
       ]);
+    } else if (propLower === "emissivefactor") {
+      // Effective emission is color × factor — exporters (Blender 4.x) write
+      // EmissiveColor=(1,1,1) with EmissiveFactor=0 when emission is unused,
+      // which would otherwise render the material fully white.
+      emissiveFactor = p.properties[4].value as number;
     } else if (propLower === "transparencyfactor") {
       // TransparencyFactor uses the 3ds Max convention: 0 = opaque, 1 = fully
       // transparent. Convert to opacity (alpha) so the rest of the pipeline
@@ -235,6 +241,11 @@ export function extractMaterialProperties(node: FBXNode): MaterialProps {
       // Opacity is already in alpha convention: 0 = transparent, 1 = opaque.
       opacity = p.properties[4].value as number;
     }
+  }
+
+  if (emissive && emissiveFactor !== undefined) {
+    emissive = [emissive[0] * emissiveFactor, emissive[1] * emissiveFactor, emissive[2] * emissiveFactor];
+    if (emissive[0] <= 0 && emissive[1] <= 0 && emissive[2] <= 0) emissive = undefined;
   }
 
   return { diffuse, emissive, opacity };

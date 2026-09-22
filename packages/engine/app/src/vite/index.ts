@@ -522,6 +522,17 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
         // reload via wgslHotReload, full page reload fallback). Applies to
         // all games and CLI templates automatically via this factory.
         wgslHmrPlugin(resolve(engine.src("core"), "render/wgsl-hmr.ts")),
+        // Symlinked workspace packages (the monorepo's @downdraft/engine)
+        // resolve to realpaths outside the renderer root, and Vite's watcher
+        // only covers the root tree plus non-ignored module files — engine
+        // edits (notably *.wgsl shaders) would never invalidate their modules.
+        // Watch the engine package source explicitly so HMR works for it.
+        {
+          name: "downdraft-watch-engine-sources",
+          configureServer(server) {
+            server.watcher.add(engine.engineRoot);
+          },
+        },
         hotReloadPlugin({
           simPaths,
           rendererPaths,
