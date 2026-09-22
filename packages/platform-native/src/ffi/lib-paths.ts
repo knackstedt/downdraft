@@ -8,7 +8,8 @@
 //   2. <pkg>/native/<lib>.<ext>            (repo/dev build, shim next to deps)
 //   3. <pkg>/native/lib/<lib>.<ext>        (fetch-at-install layout)
 //   4. <pkg>/native/<platform>-<arch>/<lib>.<ext> (per-platform artifacts)
-//   5. /usr/local/lib/<lib>.<ext>          (system install)
+//   5. <execDir>/native/<lib>.<ext>        (packaged binary layout)
+//   6. /usr/local/lib/<lib>.<ext>          (system install)
 //
 // Directory layout is relative to the package root (two levels above this
 // file: src/ffi → package root).
@@ -29,6 +30,11 @@ export const packageRoot: string = join(_dirname, "..", "..");
 export const nativeDir: string = join(packageRoot, "native");
 
 const PLATFORM_DIR = `${process.platform}-${process.arch}`;
+
+// Packaged layout: bun --compile produces a single binary; the shim libs ship
+// in a native/ dir next to it. In dev, process.execPath is the bun binary —
+// dirname(execPath)/native doesn't exist, so this candidate is a no-op there.
+const execDir = dirname(process.execPath);
 
 function libFileName(baseName: string): string {
   if (process.platform === "win32") return `${baseName}.dll`;
@@ -59,6 +65,7 @@ export function resolveShimLibrary(baseName: string, envVar: string, buildHint?:
     join(nativeDir, file),                       // dev build (rpath $ORIGIN/lib)
     join(nativeDir, "lib", file),                // legacy lib/ subdir
     join(nativeDir, PLATFORM_DIR, file),         // fetch-at-install layout
+    join(execDir, "native", file),               // packaged binary layout
     join("/usr/local/lib", file),                // system install
   ];
   for (const p of candidates) {
@@ -80,6 +87,7 @@ export function findShimLibrary(baseName: string, envVar: string): string | null
     join(nativeDir, file),
     join(nativeDir, "lib", file),
     join(nativeDir, PLATFORM_DIR, file),
+    join(execDir, "native", file),
     join("/usr/local/lib", file),
   ];
   for (const p of candidates) {
