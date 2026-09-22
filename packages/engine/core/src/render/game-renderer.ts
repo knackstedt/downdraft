@@ -218,6 +218,7 @@ export class GameRenderer implements CanvasResizeHandler {
   private targetFrameTime = 0;
   private limiterActive = false;
   private frameAccum = 0;
+  private lastLimiterTick = 0;
   private rafInterval = 0;
   private rafSum = 0;
   private rafCount = 0;
@@ -633,7 +634,6 @@ export class GameRenderer implements CanvasResizeHandler {
       return;
     }
     this.limiterActive = this.rafInterval < this.targetFrameTime * 0.85;
-    this.frameAccum = 0;
   }
 
   // --- Render loop ---
@@ -698,13 +698,22 @@ export class GameRenderer implements CanvasResizeHandler {
     const now = performance.now();
 
     // Frame rate limiter: phase accumulator (skip during XR — XR drives its own cadence)
+    // Accumulate real elapsed time in frame units — NOT rafInterval ratios.
+    // The ratio variant starved on hosts with a faster-than-vsync rAF pump
+    // (native SDL loop ticks at ~µs cadence): updateLimiterState() resets
+    // frameAccum every 60 rAF samples, and 60 × rafInterval/targetFrameTime
+    // never reached 1, so present() was never called.
     if (!this.renderTargetProvider && this.limiterActive && this.targetFrameTime > 0) {
-      this.frameAccum += this.rafInterval / this.targetFrameTime;
+      if (this.lastLimiterTick === 0) this.lastLimiterTick = now;
+      this.frameAccum += (now - this.lastLimiterTick) / this.targetFrameTime;
+      this.lastLimiterTick = now;
       if (this.frameAccum < 1) {
         this.currentRafId = this.rafSource ? this.rafSource(this.render) : requestAnimationFrame(this.render);
         return;
       }
-      this.frameAccum -= 1;
+      // Cap carry at one frame — a stale lastLimiterTick (limiter toggled
+      // off→on) would otherwise burst-render to drain a huge accumulator.
+      this.frameAccum = Math.min(this.frameAccum - 1, 1);
     }
     const dt = Math.min(0.1, (now - this.lastTime) / 1000);
     this.lastTime = now;

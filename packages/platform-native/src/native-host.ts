@@ -102,10 +102,11 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   surface.setReadbackHook(() => {
     const tex = ctx.getCurrentTexture();
     const dev = ctx.getDevice() ?? device;
-    if (!tex) return null;
+    if (!tex) { console.error("[native-host] readback hook: no surface texture"); return null; }
     try {
       return captureScreenshotPixels(dev, tex, surface.width, surface.height, ctx.getFormat() ?? format);
-    } catch {
+    } catch (e) {
+      console.error("[native-host] readback hook failed:", e);
       return null;
     }
   });

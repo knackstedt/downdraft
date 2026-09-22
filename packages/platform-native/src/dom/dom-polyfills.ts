@@ -97,6 +97,19 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
       /^canvas\[data-dd-layer="0"\]$/.test(sel) ||
       sel === "canvas[data-dd-layer]";
 
+    // Elements appended to document.body — lets `#id` / `tag#id` selectors
+    // find game-created overlays (e.g. sandjongg's #sandjongg-tile-canvas).
+    const bodyChildren = new Set<any>();
+    const matchIdSelector = (sel: string): any => {
+      const m = sel.match(/^(?:([a-zA-Z][\w-]*)?)#([\w-]+)$/);
+      if (!m) return undefined;
+      const [, tag, id] = m;
+      for (const el of bodyChildren) {
+        if (el?.id === id && (!tag || el.tagName?.toLowerCase() === tag.toLowerCase())) return el;
+      }
+      return undefined;
+    };
+
     const doc = {
       createElement: (tag: string) => {
         if (tag === "canvas") {
@@ -114,13 +127,16 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
         if (id === "game-canvas" || id === "canvas") return surface;
         if (id === "root") return getOverlayElement(0);
         for (const [i, el] of overlays) if (el.id === id) { void i; return el; }
-        return null;
+        const found = matchIdSelector(`#${id}`);
+        return found === undefined ? null : found;
       },
       querySelector: (selector: string) => {
         if (matchCanvasSelector(selector)) return surface;
         const overlayMatch = selector.match(/^div\[data-dd-overlay="(\d+)"\]$/);
         if (overlayMatch) return getOverlayElement(Number(overlayMatch[1]));
         if (selector === "#root" || selector === "div#root") return getOverlayElement(0);
+        const byId = matchIdSelector(selector);
+        if (byId !== undefined) return byId;
         return null;
       },
       querySelectorAll: (selector: string) => {
@@ -132,6 +148,8 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
         if (selector === "div[data-dd-overlay]") {
           return [getOverlayElement(0)];
         }
+        const byId = matchIdSelector(selector);
+        if (byId !== undefined && byId !== null) return [byId];
         // Stylesheets and everything else: no real DOM → empty.
         return [];
       },
@@ -147,7 +165,12 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
         (doc as any).__events.removeEventListener(type, listener);
         window.removeEventListener(type, listener);
       },
-      body: { appendChild: () => {}, removeChild: (n: any) => n, contains: () => true },
+      body: {
+        appendChild: (n: any) => { bodyChildren.add(n); return n; },
+        removeChild: (n: any) => { bodyChildren.delete(n); return n; },
+        contains: (n: any) => bodyChildren.has(n),
+        get children() { return [...bodyChildren]; },
+      },
       documentElement: { style: {} },
       hidden: false,
       pointerLockElement: null as any,

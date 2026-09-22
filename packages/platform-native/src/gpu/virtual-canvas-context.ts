@@ -180,6 +180,9 @@ export class VirtualCanvasContext {
 export class VirtualCanvas extends MiniEventTarget {
   private _width: number;
   private _height: number;
+  readonly tagName = "CANVAS";
+  readonly nodeName = "CANVAS";
+  id = "";
   style: Record<string, string> = {};
   private webgpuContext: VirtualCanvasContext;
   private ctx2d: NativeCanvas2D | null = null;
@@ -243,8 +246,8 @@ export class VirtualCanvas extends MiniEventTarget {
     return this;
   }
 
-  setAttribute(_key: string, _value: string): void {}
-  getAttribute(_key: string): string | null { return null; }
+  setAttribute(key: string, value: string): void { if (key === "id") this.id = value; }
+  getAttribute(key: string): string | null { return key === "id" && this.id ? this.id : null; }
   appendChild(_node: any): any { return _node; }
   removeChild(_node: any): any { return _node; }
   contains(_node: any): boolean { return false; }
