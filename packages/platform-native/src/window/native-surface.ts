@@ -203,6 +203,13 @@ export class NativeSurface extends MiniEventTarget {
 
   get width(): number { return this._width; }
   get height(): number { return this._height; }
+  // HTMLCanvasElement semantics: assigning width/height resizes the backing
+  // store. Without these setters `canvas.width = w` (GameRenderer.onResize)
+  // silently no-ops and the UI/render layout stays at the stale size while
+  // the swapchain tracks the real window size — the frame ends up uniformly
+  // stretched, which reads as blurry text and edges.
+  set width(w: number) { this.setSize(w, this._height); }
+  set height(h: number) { this.setSize(this._width, h); }
   get clientWidth(): number { return this._width; }
   get clientHeight(): number { return this._height; }
 
@@ -243,10 +250,18 @@ export class NativeSurface extends MiniEventTarget {
   }
 
   resize(width: number, height: number): void {
+    this.setSize(width, height);
+    this.dispatchEvent({ type: "resize", width, height });
+  }
+
+  /** Update backing dims + reconfigure the wgpu surface (no event). */
+  private setSize(width: number, height: number): void {
+    width = Math.max(1, Math.floor(width));
+    height = Math.max(1, Math.floor(height));
+    if (width === this._width && height === this._height) return;
     this._width = width;
     this._height = height;
     this.context?.resize(width, height);
-    this.dispatchEvent({ type: "resize", width, height });
   }
 
   getSurfacePtr(): number { return this.surfacePtr; }
