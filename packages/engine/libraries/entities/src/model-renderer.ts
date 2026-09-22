@@ -121,6 +121,10 @@ export class ModelRenderer {
   private meshNormalTextureSourceId = new Map<string, string>();
   /** Track the current albedo handle per materialKey (for normal texture updates). */
   private meshAlbedoHandle = new Map<string, number>();
+  /** When true, newly registered mesh textures get a full mip chain.
+   *  Toggle takes effect on the next uploadModel/reuploadModel (textures are
+   *  re-registered into a mipmapped bucket). */
+  private mipmapsEnabled = false;
 
   constructor(device: GPUDevice, format: GPUTextureFormat) {
     this.device = device;
@@ -650,7 +654,7 @@ export class ModelRenderer {
         // the srgb format so the GPU decodes to linear on sample. Treating them as
         // linear (rgba8unorm) washes out midtones since the pipeline renders in
         // linear HDR and re-encodes to sRGB at the tonemap/output stage.
-        const reg = this.bindless.registry.registerFromImageBitmap(sourceId, imageBitmap, "rgba8unorm-srgb", 1, false);
+        const reg = this.bindless.registry.registerFromImageBitmap(sourceId, imageBitmap, "rgba8unorm-srgb", 1, this.mipmapsEnabled);
         handle = reg.handle;
       }
       this.meshTextureSourceId.set(materialKey, sourceId);
@@ -705,7 +709,7 @@ export class ModelRenderer {
         handle = existing.handle;
       } else {
         // sRGB-encoded albedo (see loadMeshTexture for rationale).
-        const reg = this.bindless.registry.registerFromImageBitmap(sourceId, imageBitmap, "rgba8unorm-srgb", 1, false);
+        const reg = this.bindless.registry.registerFromImageBitmap(sourceId, imageBitmap, "rgba8unorm-srgb", 1, this.mipmapsEnabled);
         handle = reg.handle;
       }
       this.meshTextureSourceId.set(materialKey, sourceId);
@@ -765,7 +769,7 @@ export class ModelRenderer {
         this.bindless.registry.updateFromImageBitmap(sourceId, imageBitmap);
         handle = existing.handle;
       } else {
-        const reg = this.bindless.registry.registerFromImageBitmap(sourceId, imageBitmap, "rgba8unorm", 1, false);
+        const reg = this.bindless.registry.registerFromImageBitmap(sourceId, imageBitmap, "rgba8unorm", 1, this.mipmapsEnabled);
         handle = reg.handle;
       }
       this.meshNormalTextureSourceId.set(materialKey, sourceId);
@@ -982,6 +986,20 @@ export class ModelRenderer {
     this.lightDirCache = dir;
     this.lightAmbientCache = ambient;
     this.lightIntensityCache = intensity;
+  }
+
+  /**
+   * Enable/disable mip-chain generation for mesh textures. Takes effect on
+   * the next uploadModel/reuploadModel — existing registrations are not
+   * re-bucketed. Callers should re-upload (removeModel + uploadModel) to
+   * apply the change to already-loaded models.
+   */
+  setMipmapsEnabled(enabled: boolean): void {
+    this.mipmapsEnabled = enabled;
+  }
+
+  getMipmapsEnabled(): boolean {
+    return this.mipmapsEnabled;
   }
 
   /**
@@ -1277,6 +1295,17 @@ export class ModelRenderer {
 
   hasModel(nodeId: string): boolean {
     return this.modelResources.has(nodeId);
+  }
+
+  /**
+   * Overwrite a mesh's vertex buffer with new interleaved data (stride 11:
+   * pos3 + normal3 + uv2 + color3). Used for CPU-side mesh deformation —
+   * the caller owns the vertex layout and must supply vertexCount*11 floats.
+   */
+  updateVertexBuffer(nodeId: string, meshIndex: number, interleaved: Float32Array): void {
+    const res = this.modelResources.get(nodeId)?.[meshIndex];
+    if (!res) return;
+    this.device.queue.writeBuffer(res.vertexBuffer, 0, interleaved as Float32Array<ArrayBuffer>);
   }
 
   destroy(): void {

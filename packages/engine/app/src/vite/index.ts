@@ -546,7 +546,8 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
 
 // Re-export the engine resolver for game configs that build custom aliases
 export { createEngineResolver, type EngineResolver } from "./engine-resolve.ts";
-// Re-export HTML generation types for games that need them
+// Re-export HTML generation plugin + types for games that need them
+export { downdraftHtmlPlugin } from "./downdraft-html-plugin.ts";
 export type { CanvasLayer, DomLayer, DowndraftHtmlOptions, LayerSpec } from "./downdraft-html-plugin.ts";
 // Re-export asset bake types
 export type { AssetBakeOptions, AssetBakePluginOptions } from "./asset-bake-plugin.ts";

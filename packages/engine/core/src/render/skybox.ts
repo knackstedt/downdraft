@@ -1,8 +1,10 @@
+import { mat4 } from "wgpu-matrix";
 import { createValidatedShaderModule } from "./shader-validator";
 
 const SKYBOX_SHADER = /* wgsl */ `
 struct CameraUniforms {
   viewProj: mat4x4<f32>,
+  invViewProj: mat4x4<f32>,
   position: vec4<f32>,
 };
 
@@ -28,9 +30,8 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> VertexOutput {
   var output: VertexOutput;
   output.clipPosition = vec4<f32>(pos, 1.0, 1.0);
   // Reconstruct direction from clip position using inverse view-proj
-  let invViewProj = inverse(camera.viewProj);
-  let farPoint = invViewProj * vec4<f32>(pos, 1.0, 1.0);
-  let nearPoint = invViewProj * vec4<f32>(pos, -1.0, 1.0);
+  let farPoint = camera.invViewProj * vec4<f32>(pos, 1.0, 1.0);
+  let nearPoint = camera.invViewProj * vec4<f32>(pos, -1.0, 1.0);
   let dir = normalize(farPoint.xyz / farPoint.w - nearPoint.xyz / nearPoint.w);
   output.direction = dir;
   return output;
@@ -100,7 +101,7 @@ export class SkyboxRenderer {
     });
 
     this.cameraBuffer = this.device.createBuffer({
-      size: 80, // mat4x4 (64) + vec4 (16)
+      size: 144, // mat4x4 (64) + mat4x4 (64) + vec4 (16)
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
   }
@@ -114,12 +115,13 @@ export class SkyboxRenderer {
     this.ensurePipeline();
 
     // Update camera buffer
-    const camData = new Float32Array(20);
+    const camData = new Float32Array(36);
     camData.set(viewProj, 0);
-    camData[16] = cameraPos[0];
-    camData[17] = cameraPos[1];
-    camData[18] = cameraPos[2];
-    camData[19] = 0;
+    camData.set(mat4.invert(viewProj) as Float32Array, 16);
+    camData[32] = cameraPos[0];
+    camData[33] = cameraPos[1];
+    camData[34] = cameraPos[2];
+    camData[35] = 0;
     this.device.queue.writeBuffer(this.cameraBuffer!, 0, camData);
 
     const cubemapView = cubemap.createView({ dimension: "cube" });

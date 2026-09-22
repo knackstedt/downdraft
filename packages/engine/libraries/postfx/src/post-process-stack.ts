@@ -201,6 +201,7 @@ export class PostProcessStack {
   private bloomBlurV: GPUTexture | null = null;
   private bloomMip: GPUTexture[] = [];          // multi-MIP pyramid (downsample cascade)
   private bloomTemp: GPUTexture[] = [];         // temp targets for upsample (avoid read+write same texture)
+  private bloomBase: GPUTexture | null = null;  // full-res scene copy for the final composite (avoid read+write same texture)
   private halfResA: GPUTexture | null = null;  // shared by bloom-soft
   private halfResB: GPUTexture | null = null;
   private ssaoA: GPUTexture | null = null;
@@ -895,6 +896,7 @@ export class PostProcessStack {
       this.bloomBright = mkTex(HDR_FORMAT, hw, hh);
       this.bloomBlurH = mkTex(HDR_FORMAT, hw, hh);
       this.bloomBlurV = mkTex(HDR_FORMAT, hw, hh);
+      this.bloomBase = mkTex(HDR_FORMAT, w, h);
       // Multi-MIP pyramid: bloomMip[0] = ½res, [1] = ¼res, [2] = ⅛res, [3] = 1/16, [4] = 1/32
       this.bloomMip = [];
       this.bloomTemp = [];
@@ -932,6 +934,7 @@ export class PostProcessStack {
     this.bloomMip = [];
     for (const m of this.bloomTemp) m.destroy();
     this.bloomTemp = [];
+    destroy(this.bloomBase); this.bloomBase = null;
     destroy(this.halfResA); this.halfResA = null;
     destroy(this.halfResB); this.halfResB = null;
     destroy(this.ssaoA); this.ssaoA = null;
@@ -1361,12 +1364,13 @@ export class PostProcessStack {
     ]);
     // For the final pass, baseTex = inputView (scene color), output = outputView
     // We need to read inputView as base — but the upsample shader writes base+bloom.
-    // Use pingPong[1] as a temp (not outputView) to avoid reading+writing the
-    // same texture in the same render pass (WebGPU sync scope violation).
-    this.applyBlitHDR(encoder, inputView, this.viewOf(this.pingPong[1]!), w, h);
+    // Copy inputView to a dedicated scratch (bloomBase): outputView may be any
+    // ping-pong texture, so neither pingPong[0] nor pingPong[1] is guaranteed
+    // safe here (read+write same texture = WebGPU sync scope violation).
+    this.applyBlitHDR(encoder, inputView, this.viewOf(this.bloomBase!), w, h);
     this.pass(encoder, this.pipelines["bloom-upsample"], this.bgCached(this.ccLayout, [
       { binding: 0, resource: this.viewOf(this.bloomMip[0]) },
-      { binding: 1, resource: this.viewOf(this.pingPong[1]!) },
+      { binding: 1, resource: this.viewOf(this.bloomBase!) },
       { binding: 2, resource: this.linearSampler },
       { binding: 3, resource: { buffer: this.uniforms["bloom-upsample"] } },
     ]), outputView, w, h);

@@ -87,15 +87,17 @@ fn unpackArrayIndex(handle: u32) -> u32 { return (handle >> 16u) & 0xFFFFu; }
 fn unpackLayerIndex(handle: u32) -> u32 { return handle & 0xFFFFu; }
 
 fn sampleBindlessArray(arr: u32, uv: vec2<f32>, layer: u32) -> vec4<f32> {
+  // textureSample (auto-LOD) so mipmapped registrations actually filter;
+  // single-mip textures behave identically to textureSampleLevel(..., 0.0).
   switch (arr) {
-    case 0u: { return textureSampleLevel(albedoArray0, bindlessSamplerRepeat, uv, layer, 0.0); }
-    case 1u: { return textureSampleLevel(albedoArray1, bindlessSamplerRepeat, uv, layer, 0.0); }
-    case 2u: { return textureSampleLevel(albedoArray2, bindlessSamplerRepeat, uv, layer, 0.0); }
-    case 3u: { return textureSampleLevel(albedoArray3, bindlessSamplerRepeat, uv, layer, 0.0); }
-    case 4u: { return textureSampleLevel(albedoArray4, bindlessSamplerRepeat, uv, layer, 0.0); }
-    case 5u: { return textureSampleLevel(albedoArray5, bindlessSamplerRepeat, uv, layer, 0.0); }
-    case 6u: { return textureSampleLevel(albedoArray6, bindlessSamplerRepeat, uv, layer, 0.0); }
-    case 7u: { return textureSampleLevel(albedoArray7, bindlessSamplerRepeat, uv, layer, 0.0); }
+    case 0u: { return textureSample(albedoArray0, bindlessSamplerRepeat, uv, layer); }
+    case 1u: { return textureSample(albedoArray1, bindlessSamplerRepeat, uv, layer); }
+    case 2u: { return textureSample(albedoArray2, bindlessSamplerRepeat, uv, layer); }
+    case 3u: { return textureSample(albedoArray3, bindlessSamplerRepeat, uv, layer); }
+    case 4u: { return textureSample(albedoArray4, bindlessSamplerRepeat, uv, layer); }
+    case 5u: { return textureSample(albedoArray5, bindlessSamplerRepeat, uv, layer); }
+    case 6u: { return textureSample(albedoArray6, bindlessSamplerRepeat, uv, layer); }
+    case 7u: { return textureSample(albedoArray7, bindlessSamplerRepeat, uv, layer); }
     default: { return vec4<f32>(1.0, 1.0, 1.0, 1.0); }
   }
 }

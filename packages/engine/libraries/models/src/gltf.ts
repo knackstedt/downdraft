@@ -378,8 +378,12 @@ export async function parseGLTF(
 
     const binChunkStart = 20 + jsonLength;
     if (binChunkStart + 8 <= data.byteLength) {
-      const binLength = view.getUint32(binChunkStart + 4, true);
-      binaryBuffer = data.slice(binChunkStart + 8, binChunkStart + 8 + binLength);
+      // Chunk header is [length: u32][type: u32] — verify it's a BIN chunk.
+      const binLength = view.getUint32(binChunkStart, true);
+      const binType = view.getUint32(binChunkStart + 4, true);
+      if (binType === 0x004e4942) {
+        binaryBuffer = data.slice(binChunkStart + 8, binChunkStart + 8 + binLength);
+      }
     }
   } else {
     json = JSON.parse(new TextDecoder().decode(data));

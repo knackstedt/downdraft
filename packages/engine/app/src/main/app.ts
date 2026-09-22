@@ -3,8 +3,8 @@
 // ============================================================================
 
 import { encodeFeatureLogLine, ENGINE_VERSION } from "@downdraft/engine";
-import { createLogger } from "@downdraft/engine/util/logger";
 import type { ToolRegistration } from "@downdraft/engine/mcp";
+import { createLogger } from "@downdraft/engine/util/logger";
 import { app, BrowserWindow, ipcMain, Menu, screen, session, shell } from "electron";
 import { join } from "path";
 import { IPC } from "../shared/messages";
@@ -154,28 +154,12 @@ export function createDowndraftApp(config: DowndraftAppConfig): void {
   async function init(): Promise<void> {
     Menu.setApplicationMenu(null);
 
-    // --- Create the main window ---
-    mainWindow = await createWindow({
-      config: windowConfig,
-      isDev,
-      app,
-      BrowserWindow,
-      screen,
-      session,
-      consoleForwarding: features.consoleForwarding !== false,
-      windowStatePersistence: features.windowStatePersistence !== false,
-      devtools,
-      preloadPath,
-    });
-    ctx.window = mainWindow;
-
-    // --- Register IPC handlers based on features ---
+    // --- Register window-independent IPC handlers BEFORE the window loads ---
+    // createWindow() awaits did-finish-load, so handlers registered after it
+    // race the renderer bootstrap's first IPC invocations and log
+    // "No handler registered" errors.
     if (features.saves) {
       registerSaveHandlers(features.saves);
-    }
-
-    if (devtools.enabled) {
-      registerDevtoolsHandlers(ctx, devtools);
     }
 
     if (features.gpuInfo !== false) {
@@ -197,15 +181,6 @@ export function createDowndraftApp(config: DowndraftAppConfig): void {
     log.info("feature", encodeFeatureLogLine(mainFeatureLog));
     registerFeatureLogHandlers();
 
-    if (features.osr) {
-      osrManager = registerOsrHandlers(ctx);
-      ctx.osr = osrManager;
-    }
-
-    if (features.rawInput) {
-      registerRawInputHandlers(ctx);
-    }
-
     if (features.importCache !== false) {
       registerImportCacheHandlers();
     }
@@ -226,6 +201,35 @@ export function createDowndraftApp(config: DowndraftAppConfig): void {
       tracingTools = createTracingTools(ctx, mcpPortRef);
       registerTracingHandlers(ctx, mcpPortRef);
       artifactDir = join(app.getPath("userData"), "debug-artifacts");
+    }
+
+    // --- Create the main window ---
+    mainWindow = await createWindow({
+      config: windowConfig,
+      isDev,
+      app,
+      BrowserWindow,
+      screen,
+      session,
+      consoleForwarding: features.consoleForwarding !== false,
+      windowStatePersistence: features.windowStatePersistence !== false,
+      devtools,
+      preloadPath,
+    });
+    ctx.window = mainWindow;
+
+    // --- Register window-dependent IPC handlers ---
+    if (devtools.enabled) {
+      registerDevtoolsHandlers(ctx, devtools);
+    }
+
+    if (features.osr) {
+      osrManager = registerOsrHandlers(ctx);
+      ctx.osr = osrManager;
+    }
+
+    if (features.rawInput) {
+      registerRawInputHandlers(ctx);
     }
 
     // --- Deliberate escape hatch: raw Electron access ---
