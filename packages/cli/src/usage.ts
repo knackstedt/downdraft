@@ -87,7 +87,7 @@ export const COMMANDS: CommandEntry[] = [
   {
     name: "dev",
     usage: "draft dev [options]",
-    summary: "Start the dev server with HMR (electron-vite dev). Run from a game directory (cwd inference) — the stale-instance kill is handled automatically. Use --native for Bun-native mode (SDL + wgpu-native, no Electron).",
+    summary: "Start the game on the native runtime (Bun + SDL + wgpu-native). Run from a game directory (cwd inference). Use --electron for the deprecated Electron path (electron-vite dev).",
     schema: {
       flags: [
         { name: "entry", type: "string", description: "Game entrypoint file (reserved for future mobile support)" },
@@ -95,7 +95,8 @@ export const COMMANDS: CommandEntry[] = [
         { name: "watch", type: "boolean", description: "Alias for HMR (always on; accepted for back-compat)" },
         { name: "no-hmr", type: "boolean", description: "Disable hot-module replacement" },
         { name: "no-bake", type: "boolean", description: "Disable the asset bake/optimization step (sets DOWNDRAFT_BAKE=0)" },
-        { name: "native", type: "boolean", description: "Run in Bun-native mode (SDL + wgpu-native, no Electron/browser)" },
+        { name: "native", type: "boolean", description: "Back-compat alias — native is the default runtime" },
+        { name: "electron", type: "boolean", description: "Run the deprecated Electron path (electron-vite dev)" },
         { name: "verbose", alias: "v", type: "boolean", description: "Verbose logging" },
       ],
     },
@@ -212,7 +213,7 @@ export const COMMANDS: CommandEntry[] = [
         { name: "spec", alias: "s", type: "string", description: "Spec file to run (default: tests/e2e/<game>-smoke.spec.ts)" },
         { name: "port", alias: "p", type: "number", default: 0, description: "MCP port (0 = auto-assign a free port)" },
         { name: "renderer", alias: "r", type: "string", default: "cpu", enum: [...RENDERER_TARGETS], description: "WebGPU backend: cpu=SwiftShader, gpu=hardware" },
-        { name: "runtime", type: "string", enum: ["electron", "native"], default: "electron", description: "Launch target: electron (dev server or built app) or native (Bun + SDL + wgpu-native, no Electron)" },
+        { name: "runtime", type: "string", enum: ["electron", "native"], default: "native", description: "Launch target: native (Bun + SDL + wgpu-native, default) or electron (deprecated)" },
         { name: "no-deterministic", type: "boolean", description: "Disable fixed seed / render loop pause" },
         { name: "headed", type: "boolean", description: "Show the window instead of running headless" },
         { name: "build", type: "boolean", description: "Build the game with electron-vite before testing" },

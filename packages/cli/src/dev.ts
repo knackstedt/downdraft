@@ -61,12 +61,16 @@ export async function dev(args: string[]): Promise<void> {
     return;
   }
 
-  const native = parsed.flags.native as boolean;
+  // Phase K: native is the default runtime. `--native` is kept as a
+  // back-compat alias; `--electron` runs the legacy Electron path while it
+  // remains supported during the deprecation period.
+  const electron = parsed.flags.electron as boolean;
 
-  if (native) {
+  if (!electron) {
     return devNative(args, parsed);
   }
 
+  log.warn("DownDraft", "The Electron runtime is deprecated — native (Bun + SDL + wgpu-native) is the default. Electron support will be removed in a future release.");
   const resolved = resolveGameConfig();
   if (!resolved) {
     log.error("DownDraft", `No electron.vite.config.ts found in "${process.cwd()}" (or any parent directory).`);
@@ -183,7 +187,7 @@ async function devNative(args: string[], parsed: any): Promise<void> {
   const resolved = resolveGameDir();
   if (!resolved) {
     log.error("DownDraft", `No game directory found (looking for electron.vite.config.ts from "${process.cwd()}").`);
-    log.error("DownDraft", `Run "draft dev --native" from a game directory.`);
+    log.error("DownDraft", `Run "draft dev" from a game directory.`);
     print(formatGamesList(findMonorepoRoot() ?? process.cwd()));
     process.exit(1);
   }
@@ -193,7 +197,8 @@ async function devNative(args: string[], parsed: any): Promise<void> {
 
   if (!existsSync(nativeEntry)) {
     log.error("DownDraft", `No native entry point found at "${nativeEntry}".`);
-    log.error("DownDraft", `The game "${game}" needs a src/native-entry.ts to run in --native mode.`);
+    log.error("DownDraft", `The game "${game}" needs a src/native-entry.ts to run on the native runtime (the default).`);
+    log.error("DownDraft", `Use "draft dev --electron" for the deprecated Electron path.`);
     process.exit(1);
   }
 
@@ -205,6 +210,8 @@ async function devNative(args: string[], parsed: any): Promise<void> {
   if (verbose) log.info("DownDraft", "  Verbose: on");
 
   const env = { ...process.env };
+  const port = parsed.flags.port as number;
+  if (port) env.MCP_PORT = String(port);
 
   const child = spawn("bun", ["run", nativeEntry], {
     cwd: buildCwd(gameDir),

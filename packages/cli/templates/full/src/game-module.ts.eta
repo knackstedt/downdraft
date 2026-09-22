@@ -1,0 +1,37 @@
+import { GameRenderer } from "@downdraft/engine";
+import type { GameModule } from "@downdraft/engine/app/renderer";
+import { SimHost } from "./sim-host";
+
+// ============================================================================
+// Full template — ECS sim worker + GameRenderer + engine libraries
+//
+// The sim runs in sim-worker.ts (a Web Worker): an ECS World with a rotation
+// system. The SAME module drives both entry points:
+//   src/main.tsx        — browser/Electron (draft dev --electron)
+//   src/native-entry.ts — Bun + SDL + wgpu-native (draft dev, the default)
+// Engine libraries can be declared via GameModule.libraries[] for automatic
+// SAB allocation + DI wiring.
+// ============================================================================
+
+export const gameModule: GameModule = {
+  // ── Renderer + Sim ──
+  renderer: (canvas) => new GameRenderer(canvas),
+  sim: () => new SimHost(),
+  simConfig: { seed: 12345 },
+
+  // ── UI ──
+  mountUI: (overlay) => {
+    overlay.innerHTML =
+      '<h1 style="color:white;font-family:monospace">Downdraft game</h1>';
+  },
+
+  // ── Post-init wiring ──
+  onReady: (ctx) => {
+    console.log("[game] ready", { simSAB: ctx.simSAB, inputSAB: ctx.inputSAB });
+  },
+
+  // ── Cleanup ──
+  onDispose: () => {
+    console.log("[game] disposed");
+  },
+};

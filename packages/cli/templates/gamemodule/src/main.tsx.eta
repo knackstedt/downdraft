@@ -1,70 +1,9 @@
-import { GameRenderer } from "@downdraft/engine";
-import { startGame, type SimWorkerSeed } from "@downdraft/engine/app/renderer";
-import { WaterLib } from "@downdraft/engine/libraries/water";
-import { SimHost } from "./sim-host";
+import { startGame } from "@downdraft/engine/app/renderer";
+import { gameModule } from "./game-module";
 
-// ============================================================================
-// GameModule template — declarative game with libraries + plugins
-//
-// This template shows the full declarative pattern:
-// - Engine libraries (WaterLib) for SAB allocation + DI tokens
-// - Declarative event routing (events map)
-// - Save config
-// - Game-specific hooks (onReady, onDispose)
-//
-// Feature modules such as @downdraft/engine/modules/terrain can be registered on the
-// renderer's module host inside onReady.
-// ============================================================================
+// Browser/Electron entry — the deprecated runtime. The default `draft dev`
+// uses src/native-entry.ts instead.
 
-startGame({
-  // ── Engine libraries (declarative SAB allocation + DI tokens) ──
-  libraries: [WaterLib],
-
-  // ── Renderer + Sim ──
-  renderer: (canvas) => new GameRenderer(canvas),
-  sim: (seed?: SimWorkerSeed) => new SimHost(seed?.libraryBuffers),
-  simConfig: { seed: 12345, gamemode: 0, rules: {} },
-
-  // ── UI ──
-  mountUI: (overlay) => {
-    // Mount your UI framework here
-    // React: createRoot(overlay).render(<App />)
-    // Solid: render(() => <App />, overlay)
-    overlay.innerHTML = '<div id="root"></div>';
-  },
-
-  // ── Sim→Renderer event routing (declarative) ──
-  events: {
-    ready: (_data, _ctx) => {
-      console.log("[game] Sim ready");
-    },
-    error: (data) => {
-      console.error("[game] Sim error:", data);
-    },
-  },
-
-  // ── Save ──
-  save: {
-    mode: "auto",
-    engineVersion: "0.1.0",
-    maxGenerations: 3,
-  },
-
-  // ── Post-init wiring ──
-  onReady: (ctx) => {
-    // Library-allocated SABs are available on ctx.extraBuffers, keyed by the
-    // library descriptor's channel name.
-    console.log("[game] ready", {
-      simSAB: ctx.simSAB,
-      inputSAB: ctx.inputSAB,
-      water: ctx.extraBuffers.water,
-    });
-  },
-
-  // ── Cleanup ──
-  onDispose: () => {
-    console.log("[game] disposed");
-  },
-}).catch((e) => {
+startGame(gameModule).catch((e) => {
   console.error("[game] Fatal:", e);
 });

@@ -295,8 +295,11 @@ async function runPackage(
     const launcherPlatforms = groups.desktop.filter((t) => formats[t] === "launcher");
     const ebPlatforms = groups.desktop.filter((t) => formats[t] !== "launcher");
 
-    // electron-builder packaging (default path).
+    // electron-builder packaging (default path). Deprecated — desktop
+    // distribution is moving to the native runtime; electron-builder remains
+    // for the deprecation period only.
     if (ebPlatforms.length > 0) {
+      log.warn("release", "DEPRECATED: electron-builder desktop packaging. Native packaging (scripts/package-native.mjs) will replace this path.");
       // electron-builder handles "all" or individual platforms. If all desktop
       // targets are selected, pass "all"; otherwise pass the first (eb handles
       // one platform per invocation in our usage — for multiple, we loop).

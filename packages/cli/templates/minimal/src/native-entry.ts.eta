@@ -1,0 +1,14 @@
+import { runNativeGameModule } from "@downdraft/platform-native";
+import { gameModule } from "./game-module";
+
+// Native entry — the default `draft dev` runtime (Bun + SDL + wgpu-native).
+// Runs the SAME GameModule as the browser/Electron path; saves, MCP,
+// display info, and screenshots work through the in-process bridge.
+
+await runNativeGameModule(gameModule, {
+  title: "<%= it.name %> — Native",
+  appId: "downdraft-<%= it.name %>",
+}).catch((e) => {
+  console.error("[native-entry] Fatal:", e);
+  process.exit(1);
+});

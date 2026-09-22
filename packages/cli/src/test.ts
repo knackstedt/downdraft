@@ -164,7 +164,7 @@ export async function runTest(args: string[]): Promise<void> {
   log.info("test", `  Spec:          ${specPath}`);
   log.info("test", `  MCP port:      ${opts.mcpPort}`);
   log.info("test", `  Renderer:      ${opts.renderer === "cpu" ? "SwiftShader (software)" : "hardware GPU"}`);
-  log.info("test", `  Runtime:       ${opts.runtime}`);
+  log.info("test", `  Runtime:       ${opts.runtime}${opts.runtime === "electron" ? " (deprecated)" : ""}`);
   log.info("test", `  Deterministic: ${opts.deterministic}`);
   log.info("test", `  Headed:        ${opts.headed}`);
   log.info("test", `  Mode:          ${opts.build ? "built" : "dev"}${opts.buildOnly ? " (build-only)" : ""}`);

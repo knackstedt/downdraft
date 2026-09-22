@@ -199,6 +199,7 @@
     "games/*/src/pixi/native-data-bridge.ts",
     "games/*/src/pixi/native-input-router.ts",
     "games/*/src/pixi/native-scene.tsx",
+    "games/*/src/pixi/native-ui-setup.ts",
     "games/*/electron.vite.config.ts",
     "examples/*/src/main.ts",
     "examples/*/src/preload.ts",

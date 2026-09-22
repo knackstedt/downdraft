@@ -81,7 +81,7 @@ No engine package depends on any game package (verified). The `entities` library
 
 A graphical test program (modeled on `games/downdraft-model-viewer`) for visually verifying engine effects and functional systems. Provides a React DOM menu of minimal tests, each with its own renderer factory. Extensible via a `TestRegistry` API — game authors add tests by creating `*.test.ts` files in `src/tests/` that call `registerTest()`. Vite glob import auto-discovers them.
 
-- **Run**: `cd games/downdraft-gpu-bench && ../../node_modules/.bin/electron-vite dev --config electron.vite.config.ts` (or `draft dev` from the game directory via cwd inference).
+- **Run**: `cd games/downdraft-gpu-bench && draft dev` (native, default) or `draft dev --electron` (deprecated Electron path via `electron-vite dev --config electron.vite.config.ts`).
 - **Not in root workspaces** (follows downdraft-model-viewer pattern: `@downdraft/*` resolved via vite aliases, not type-checked by root tsconfig).
 - **Test interface**: `VisualTest { id, name, category, description, createRenderer(canvas): ITestRenderer, getControls?(): TestControl[] }`. Each test owns its own GPU resources; the bench disposes + recreates the renderer when switching tests.
 - **Built-in tests**: navmesh (recast + legacy, with mesh wireframe + path debug viz), postfx (the PostProcessStack with 21 chainable effects — TAA, SSAO, SSR, DOF, Motion Blur, Bloom, Bloom-Soft, Tonemap, FXAA, Sharpen, Grain, Sobel, Edges, Lens Flare, Pixelation, Gaussian Blur, Afterimage, Outline, Highlight, Glow, ASCII — on a 3D scene).
@@ -363,7 +363,7 @@ In packaged builds, the renderer loads via `win.loadFile()` → `file://` protoc
 
 **NEVER run `pkill -9 electron`, `pkill -f electron`, `killall electron`, or any other generic Electron-killing command.** The user's machine may have other Electron apps running (VS Code, Slack, Discord, other games, the Devin desktop app itself). A generic pkill will terminate all of them, destroying the user's work and your own session.
 
-Each game runs as an Electron process launched against its own `games/<game>/electron.vite.config.ts` entrypoint (dev mode: `draft dev` from inside `games/<game>/`, or `npx electron-vite dev --config games/<game>/electron.vite.config.ts` from the repo root; built mode: `npx electron .` from `games/<game>`). `draft dev` automatically kills any stale Electron instance from a previous run of the same game before spawning (cross-platform: Linux `/proc`, macOS/`ps`, Windows PowerShell) — you do not need to do this manually. To kill a specific game instance yourself, target **that game only**:
+**`draft dev` now defaults to the native runtime** (Bun + SDL + wgpu-native via `src/native-entry.ts`) — Electron is the deprecated opt-in (`draft dev --electron`). The native runtime uses a single-instance lock (`singleton.lock` in the game's userData dir) instead of Electron's `requestSingleInstanceLock`; re-running `draft dev` handles stale instances on both paths. The notes below apply to the deprecated Electron path. Each game runs as an Electron process launched against its own `games/<game>/electron.vite.config.ts` entrypoint (dev mode: `draft dev --electron` from inside `games/<game>/`, or `npx electron-vite dev --config games/<game>/electron.vite.config.ts` from the repo root; built mode: `npx electron .` from `games/<game>`). `draft dev --electron` automatically kills any stale Electron instance from a previous run of the same game before spawning (cross-platform: Linux `/proc`, macOS/`ps`, Windows PowerShell) — you do not need to do this manually. To kill a specific game instance yourself, target **that game only**:
 
 - **Let `draft dev` handle it** — re-running `draft dev` from the game directory tears down the previous instance automatically. This is the preferred path.
 - **Match the per-game `--user-data-dir`** (each game sets a unique `downdraft-<game>` userData dir, visible in the process args) only if you need to kill a process you did not launch via `draft dev`:
@@ -396,7 +396,7 @@ A plain browser cannot reproduce any of this, and Playwright driving a browser w
 
 **Instead, use the in-game MCP automation harness and `draft test`:**
 
-1. **`bun run draft:test-cpu`** (or `bun run draft:test`) — the canonical way to launch and exercise a game headlessly. `draft test` sets `DOWNDRAFT_DETERMINISTIC=1` and spawns `bun test <spec>`; the default smoke specs use the in-game MCP RPC harness to boot the real Electron app and drive it. See "Running the smoke test" below for the full CLI flag reference.
+1. **`bun run draft:test-cpu`** (or `bun run draft:test`) — the canonical way to launch and exercise a game headlessly. `draft test` sets `DOWNDRAFT_DETERMINISTIC=1` and spawns `bun test <spec>`; the default smoke specs use the in-game MCP RPC harness to boot the real game and drive it. The default runtime is **native** (`--runtime=native`); `--runtime=electron` selects the deprecated Electron path. See "Running the smoke test" below for the full CLI flag reference.
 2. **The `game` MCP server** (configured in `.devin/mcp_config.json` via the stdio→HTTP bridge at `.devin/mcp-stdio-bridge.mjs`) — once a game is running, this exposes the game's automation tools directly to your MCP client. The bridge auto-discovers the running instance via PID files in `~/.downdraft/port/<pid>` (content = the bound port). **List the tools first with `mcp_list_tools` before calling any of them** — never guess tool names or argument schemas. The currently registered tools (see `games/to-the-ocean/src/mcp/automation-tools.ts`) include:
    - `inject_input` / `clear_injected_input` — hold keys/mouse/wheel for N frames.
    - `dispatch_key` / `dispatch_click` — fire real DOM events on the main thread (full input pipeline).
@@ -1616,9 +1616,13 @@ cd packages/platform-native && bun run fetch:native && bun run build:shims
 
 `packages/engine/core/src/platform/bun-preload.ts` registers Bun plugin loaders for `?raw` and `?url` import suffixes, plus CSS imports. Configured in root `bunfig.toml`.
 
-### Current status
+### Current status — native is the default runtime; Electron is deprecated
 
-Phases 0-6 are complete. The native GPU pipeline works end-to-end: a triangle can be rendered to an SDL2 window via wgpu-native and captured as a PNG screenshot. The native PixiUI pipeline (below) is also complete — the real `@pixi/react` OceanApp renders over the 3D frame in native mode. Remaining work: engine core adaptation (feature detection at seams), Android target, performance optimization.
+`draft dev` defaults to native (`src/native-entry.ts` via `runNativeGameModule`); Electron is the deprecated opt-in (`draft dev --electron`, `draft test --runtime=electron`). All games have `src/native-entry.ts` sharing the same `GameModule` as their browser `main.tsx`, and `draft new` scaffolds both entries + the `@downdraft/platform-native` dep. Electron-only surfaces remaining (intentionally, pending removal): `electron.vite.config.ts` dev, `electron-builder` packaging (`draft release`/`dist` desktop), `modules/electron-osr` (live-web OSR — to-the-ocean's debug billboard; authored UI uses the `blitz-ui` library), and Chromium tracing. Native equivalents exist for everything else — saves, screenshots, MCP (in-process, PID-file discovery), diagnostics, import cache, window state, single-instance, error dialogs, gamepad, clipboard, dialogs, drop events.
+
+Native runs on three JS runtimes — **Bun** (default, `bun:ffi`), **Node+tsx** (`koffi`, `wgsl-loader.mjs`), **Deno** (`Deno.dlopen`, root `deno.json` + `--allow-all --unstable-sloppy-imports`). Steady-state perf is identical across runtimes (GPU + fixed-dt sim don't depend on the JS runtime); differences are boot time (~0.5–1.0s Bun, ~1.0s Node/Deno) and footprint (~520MB Bun / ~1.05GB Node / ~690MB Deno RSS on mining-rpg). Packaging spike: `scripts/package-native.mjs` compiles a game's native entry into a standalone Bun binary (verified end-to-end on mining-rpg — workers, saves, MCP, screenshots all work in the packaged binary).
+
+Cross-runtime gotchas: tsconfig `paths` and `deno.json` alias `xxh3-ts` → a `.d.ts`, and tsx/Deno honor it at runtime — `hash-utils.ts` requires `xxh3-ts/index.js` (deep path) in its fallback to bypass the alias. Shared `game-module.ts` files must not import `.css` (Deno has no loader hooks) — keep CSS in the browser-only `main.tsx`. `node:module` imports must be lazy dynamic imports in shared code (browser bundles).
 
 ## Native PixiUI (`@downdraft/engine/libraries/pixi-ui-native`)
 

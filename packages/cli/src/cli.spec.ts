@@ -186,8 +186,19 @@ describe("CLI new — minimal template", () => {
   it("should write main.tsx with a startGame() entry", async () => {
     const main = readFileSync(join(TEST_DIR, "src/main.tsx"), "utf-8");
     expect(main).toContain("startGame");
-    expect(main).toContain("onReady");
-    expect(main).toContain("onDispose");
+    expect(main).toContain("gameModule");
+    const module = readFileSync(join(TEST_DIR, "src/game-module.ts"), "utf-8");
+    expect(module).toContain("GameModule");
+    expect(module).toContain("onReady");
+    expect(module).toContain("onDispose");
+  });
+
+  it("should write a native entry for the default runtime", async () => {
+    const entry = readFileSync(join(TEST_DIR, "src/native-entry.ts"), "utf-8");
+    expect(entry).toContain("runNativeGameModule");
+    expect(entry).toContain("gameModule");
+    const pkg = JSON.parse(readFileSync(join(TEST_DIR, "package.json"), "utf-8"));
+    expect(pkg.dependencies["@downdraft/platform-native"]).toBeDefined();
   });
 
   it("should not scaffold AI companion files by default", async () => {
@@ -483,5 +494,22 @@ describe("CLI --help and --version", () => {
     const { getCommand } = await import("./usage");
     expect(getCommand("nonexistent")).toBeUndefined();
     expect(getCommand("test")?.name).toBe("test");
+  });
+
+  it("dev exposes --electron opt-in and --native back-compat flags", async () => {
+    const { getCommand } = await import("./usage");
+    const { parseArgs } = await import("./args");
+    const schema = getCommand("dev")!.schema;
+    expect(parseArgs([], schema).flags.electron).toBe(false);
+    expect(parseArgs(["--electron"], schema).flags.electron).toBe(true);
+    expect(parseArgs(["--native"], schema).flags.native).toBe(true);
+  });
+
+  it("test defaults --runtime to native", async () => {
+    const { getCommand } = await import("./usage");
+    const { parseArgs } = await import("./args");
+    const schema = getCommand("test")!.schema;
+    expect(parseArgs(["--game=x"], schema).flags.runtime).toBe("native");
+    expect(parseArgs(["--game=x", "--runtime=electron"], schema).flags.runtime).toBe("electron");
   });
 });
