@@ -1004,7 +1004,15 @@ export class PostProcessStack {
     }
     const hasCustom = (customByOrder["hdr"].length + customByOrder["color-grading"].length +
       customByOrder["camera"].length + customByOrder["stylized"].length) > 0;
-    if (active.length === 0 && !hasCustom) return;
+    if (active.length === 0 && !hasCustom) {
+      // Empty chain: still blit the scene color to the canvas. Callers that
+      // render scene pipelines compiled for the HDR scene format must always
+      // go through this stack — a direct-to-surface fallback binds those
+      // pipelines against the swapchain format (e.g. bgra8unorm), which is a
+      // validation error on native and renders nothing on Chrome.
+      if (this.sceneColor) this.applyBlit(encoder, this.viewOf(this.sceneColor), canvasView, w, h);
+      return;
+    }
 
     const dv = depthView ?? (this.sceneDepth ? this.viewOf(this.sceneDepth) : undefined) ?? null;
     let inputView = this.viewOf(this.sceneColor!);

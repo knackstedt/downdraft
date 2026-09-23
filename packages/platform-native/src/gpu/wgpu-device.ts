@@ -682,7 +682,7 @@ export class WgpuDevice {
   createCommandEncoder(_descriptor?: GPUCommandEncoderDescriptor): WgpuCommandEncoder {
     const encPtr = wgpu.wgpu_shim_create_command_encoder(this.ptr) as unknown as number;
     if (!encPtr) throw new Error("Failed to create command encoder");
-    return new WgpuCommandEncoder(encPtr);
+    return new WgpuCommandEncoder(encPtr, this.ptr);
   }
 
   createQuerySet(descriptor: GPUQuerySetDescriptor): WgpuQuerySet {
@@ -770,7 +770,13 @@ export class WgpuQueue {
   }
 
   submit(commandBuffers: Iterable<WgpuCommandBuffer>): void {
-    const list = Array.from(commandBuffers) as WgpuCommandBuffer[];
+    const all = Array.from(commandBuffers) as WgpuCommandBuffer[];
+    // Skip buffers whose finish() captured a validation error — submitting
+    // an errored buffer makes wgpu-native panic (process abort), not report
+    // an uncaptured error.
+    const skipped = all.filter((cb) => cb.invalid);
+    const list = all.filter((cb) => !cb.invalid);
+    for (const cb of skipped) cb.dispose();
     if (list.length === 0) return;
     const ptrs = new BigUint64Array(list.length);
     for (let i = 0; i < list.length; i++) {

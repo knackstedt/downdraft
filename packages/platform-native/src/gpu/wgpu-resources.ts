@@ -389,6 +389,13 @@ export class WgpuCommandBuffer {
   readonly ptr: number;
   label = "";
   private released = false;
+  /**
+   * Set when finish() captured a validation error — the native handle is
+   * technically valid but encodes no commands, and submitting an errored
+   * buffer makes wgpu-native abort the process. WgpuQueue.submit() skips
+   * invalid buffers.
+   */
+  invalid = false;
 
   constructor(ptr: number) {
     this.ptr = ptr;

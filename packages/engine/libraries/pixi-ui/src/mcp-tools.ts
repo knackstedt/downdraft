@@ -12,15 +12,25 @@
 // These integrate with the existing createMcpHarness from @downdraft/engine/app/renderer.
 // ============================================================================
 
-import { blobToBase64, type McpToolRegistration } from "./mcp-types-shim";
-import type { PixiUiHost } from "./host";
 import type { SceneStateSummary } from "./bridge-protocol";
+import type { PixiUiHost } from "./host";
+import { blobToBase64, type McpToolRegistration } from "./mcp-types-shim";
+
+/**
+ * Structural subset of {@link PixiUiHost} the MCP tools need. The worker-based
+ * host satisfies this directly; in-process native adapters (e.g. hosts built
+ * on `@downdraft/engine/libraries/pixi-ui-native`) implement the same surface.
+ */
+export type PixiUiMcpHost = Pick<
+  PixiUiHost,
+  "captureOverlay" | "queryScene" | "dispatchPointer" | "setInteractive"
+>;
 
 /**
  * Create MCP tool registrations for driving the PixiUI overlay.
  * Games pass these to `createMcpHarness({ tools: [...] })`.
  */
-export function createPixiUiMcpTools(host: PixiUiHost): McpToolRegistration[] {
+export function createPixiUiMcpTools(host: PixiUiMcpHost): McpToolRegistration[] {
   return [
     {
       def: {

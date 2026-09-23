@@ -36,9 +36,11 @@ export class WgpuCommandEncoder {
   readonly ptr: number;
   label = "";
   private finished = false;
+  private devicePtr: number;
 
-  constructor(ptr: number) {
+  constructor(ptr: number, devicePtr = 0) {
     this.ptr = ptr;
+    this.devicePtr = devicePtr;
     trackForRelease(this, () => wgpu.wgpu_shim_release_command_encoder(ptr));
   }
 
@@ -212,12 +214,28 @@ export class WgpuCommandEncoder {
   finish(_descriptor?: GPUCommandBufferDescriptor): WgpuCommandBuffer {
     if (this.finished) throw new Error("Command encoder already finished");
     this.finished = true;
+    // Catch validation errors generated while finishing (e.g. a bad
+    // set_pipeline in a recorded pass): wgpu-native still returns a buffer
+    // handle, but it is invalid, and submitting it aborts the process. Scope
+    // the finish and flag the buffer so queue.submit() can skip it.
+    if (this.devicePtr) wgpu.wgpu_shim_device_push_error_scope(this.devicePtr, 1);
     const cmdPtr = wgpu.wgpu_shim_command_encoder_finish(this.ptr) as unknown as number;
+    let invalid = false;
+    if (this.devicePtr) {
+      const msgBuf = new Uint8Array(4096);
+      const errType = wgpu.wgpu_shim_device_pop_error_scope(this.devicePtr, msgBuf as any, msgBuf.length);
+      if (errType !== 0 && errType !== 1) {
+        invalid = true;
+        const msg = new TextDecoder().decode(msgBuf).replace(/\0+$/, "");
+        console.error(`[wgpu] validation error during command encoder finish: ${msg}`);
+      }
+    }
     if (!cmdPtr) throw new Error("Failed to finish command encoder");
     // The encoder is consumed by finish — release it now.
     untrack(this);
     wgpu.wgpu_shim_release_command_encoder(this.ptr);
     const cmd = new WgpuCommandBuffer(cmdPtr);
+    cmd.invalid = invalid;
     trackForRelease(cmd, () => wgpu.wgpu_shim_release_command_buffer(cmdPtr));
     return cmd;
   }

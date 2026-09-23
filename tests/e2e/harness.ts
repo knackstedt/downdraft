@@ -615,13 +615,14 @@ export async function launchGame(opts: LaunchOptions = {}): Promise<GameProcess>
     // native server honors it); PID-file discovery under ~/.downdraft/port
     // also works for ad-hoc runs.
     const { existsSync } = await import("node:fs");
-    const rootEntry = resolve(process.cwd(), "games", game, "src", "native-entry.ts");
-    const localEntry = resolve(process.cwd(), "src", "native-entry.ts");
     const entry = opts.nativeEntry
       ? resolve(opts.nativeEntry)
-      : existsSync(rootEntry)
-        ? rootEntry
-        : localEntry;
+      : [
+          resolve(process.cwd(), "games", game, "src", "native-entry.ts"),
+          resolve(process.cwd(), "examples", game, "src", "native-entry.ts"),
+          resolve(process.cwd(), "src", "native-entry.ts"),
+        ].find((p) => existsSync(p)) ??
+        resolve(process.cwd(), "games", game, "src", "native-entry.ts");
     // cwd = monorepo root (or the standalone game dir) so the bunfig.toml
     // preload registers the ?raw/.wgsl/.css loaders for shader/CSS imports.
     cwd = process.cwd();
