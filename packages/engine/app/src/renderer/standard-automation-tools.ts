@@ -373,6 +373,8 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
           properties: {
             x: { type: "number", description: "X coordinate (default: center of canvas)" },
             y: { type: "number", description: "Y coordinate (default: center of canvas)" },
+            type: { type: "string", enum: ["click", "mousedown", "mouseup", "mousemove"], default: "click", description: "Event type — mousedown/mouseup exercise native pointer routing (real clicks arrive as down/up pairs; 'click' alone does not reach them)" },
+            button: { type: "number", description: "Mouse button (0=left, 1=middle, 2=right). Default 0." },
           },
         },
       },
@@ -381,14 +383,16 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
         if (!canvas) return errorResult("Canvas not available");
         const x = (params.x as number) ?? canvas.clientWidth / 2;
         const y = (params.y as number) ?? canvas.clientHeight / 2;
+        const type = (params.type as string) ?? "click";
+        const button = (params.button as number) ?? 0;
         const rect = canvas.getBoundingClientRect();
         const clientX = rect.left + x;
         const clientY = rect.top + y;
         const target = document.elementFromPoint(clientX, clientY) ?? canvas;
-        const ev = new MouseEvent("click", { bubbles: true, cancelable: true, clientX, clientY });
+        const ev = new MouseEvent(type, { bubbles: true, cancelable: true, clientX, clientY, button });
         target.dispatchEvent(ev);
         return jsonResult({
-          dispatched: true, x, y,
+          dispatched: true, x, y, type,
           targetTag: target.tagName,
           targetClass: (target as HTMLElement).className?.toString().slice(0, 80),
         });

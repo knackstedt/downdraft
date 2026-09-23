@@ -22,6 +22,7 @@ interface UiState {
     showEscMenu: boolean;
     showContentBrowser: boolean;
     activeTool: number;
+    escMenuTab: string;
 }
 
 interface WorldState {
@@ -123,6 +124,31 @@ describe("andrews-sandbox gameplay parity", () => {
       await key("f", "KeyF");
       await sleep(200);
     }
+  }, 30000);
+
+  it("responds to mouse clicks in the ESC menu", async () => {
+    // mousedown+mouseup reaches the native PixiUI router (real clicks arrive
+    // as down/up pairs); a bare "click" hits DOM handlers on Electron. Send
+    // all three — each runtime consumes its own half, no double-activation.
+    const click = async (x: number, y: number) => {
+      for (const type of ["mousedown", "mouseup", "click"]) {
+        await game!.mcpClient.callTool("dispatch_click", { x, y, type });
+      }
+    };
+    await key("Escape", "Escape");
+    await sleep(400);
+    expect((await uiState()).showEscMenu).toBe(true);
+    // Sidebar is 220px wide on both runtimes; tab centers are at
+    // y = 100 + i*43 (native mirrors the DOM sidebar geometry).
+    await click(40, 186); // "Mods" is index 2
+    await sleep(400);
+    expect((await uiState()).escMenuTab).toBe("mods");
+    await click(40, 144); // "Graphics" is index 1
+    await sleep(400);
+    expect((await uiState()).escMenuTab).toBe("graphics");
+    await key("Escape", "Escape");
+    await sleep(400);
+    expect((await uiState()).showEscMenu).toBe(false);
   }, 30000);
 
   it("spawns a prop via sandbox_command", async () => {
