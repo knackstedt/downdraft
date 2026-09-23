@@ -455,84 +455,109 @@ export class NativeWindow extends MiniEventTarget {
   }
 }
 
-// ── SDL key code → DOM key mapping ──
+// ── SDL3 keycode → DOM KeyboardEvent mapping ──
+// SDL3 keycodes: printable chars are ASCII (a-z, 0-9, punctuation, space),
+// special keys are scancode | (1<<30) = 0x40000000+.
+// NOTE: DOM `key`/`code`/`keyCode` are three different fields:
+//   key  = "w", "Shift", "Escape"   (typed value, layout-dependent)
+//   code = "KeyW", "ShiftLeft"      (physical position — what games bind on)
+//   keyCode = 87, 16, 27            (deprecated numeric)
+const SDL3 = 0x40000000; // SDL_SCANCODE_TO_KEYCODE base
+
+// keycode → [domKey, domCode, domKeyCode]
+const SDL_SPECIAL_KEYS: Record<number, [string, string, number]> = {
+  // ASCII-range specials (keycodes 8-127 share their ASCII value)
+  8:   ["Backspace", "Backspace", 8],
+  9:   ["Tab", "Tab", 9],
+  13:  ["Enter", "Enter", 13],
+  27:  ["Escape", "Escape", 27],
+  32:  [" ", "Space", 32],
+  45:  ["-", "Minus", 189],
+  61:  ["=", "Equal", 187],
+  91:  ["[", "BracketLeft", 219],
+  93:  ["]", "BracketRight", 221],
+  92:  ["\\", "Backslash", 220],
+  59:  [";", "Semicolon", 186],
+  39:  ["'", "Quote", 222],
+  96:  ["`", "Backquote", 192],
+  44:  [",", "Comma", 188],
+  46:  [".", "Period", 190],
+  47:  ["/", "Slash", 191],
+  127: ["Delete", "Delete", 46],
+  // Scancode-based specials
+  [SDL3 + 57]:  ["CapsLock", "CapsLock", 20],          // CAPSLOCK
+  [SDL3 + 58]:  ["F1", "F1", 112],
+  [SDL3 + 59]:  ["F2", "F2", 113],
+  [SDL3 + 60]:  ["F3", "F3", 114],
+  [SDL3 + 61]:  ["F4", "F4", 115],
+  [SDL3 + 62]:  ["F5", "F5", 116],
+  [SDL3 + 63]:  ["F6", "F6", 117],
+  [SDL3 + 64]:  ["F7", "F7", 118],
+  [SDL3 + 65]:  ["F8", "F8", 119],
+  [SDL3 + 66]:  ["F9", "F9", 120],
+  [SDL3 + 67]:  ["F10", "F10", 121],
+  [SDL3 + 68]:  ["F11", "F11", 122],
+  [SDL3 + 69]:  ["F12", "F12", 123],
+  [SDL3 + 70]:  ["PrintScreen", "PrintScreen", 44],
+  [SDL3 + 71]:  ["ScrollLock", "ScrollLock", 145],
+  [SDL3 + 72]:  ["Pause", "Pause", 19],
+  [SDL3 + 73]:  ["Insert", "Insert", 45],
+  [SDL3 + 74]:  ["Home", "Home", 36],
+  [SDL3 + 75]:  ["PageUp", "PageUp", 33],
+  [SDL3 + 77]:  ["End", "End", 35],
+  [SDL3 + 78]:  ["PageDown", "PageDown", 34],
+  [SDL3 + 79]:  ["ArrowRight", "ArrowRight", 39],
+  [SDL3 + 80]:  ["ArrowLeft", "ArrowLeft", 37],
+  [SDL3 + 81]:  ["ArrowDown", "ArrowDown", 40],
+  [SDL3 + 82]:  ["ArrowUp", "ArrowUp", 38],
+  // Numpad
+  [SDL3 + 83]:  ["NumLock", "NumLock", 144],
+  [SDL3 + 84]:  ["/", "NumpadDivide", 111],
+  [SDL3 + 85]:  ["*", "NumpadMultiply", 106],
+  [SDL3 + 86]:  ["-", "NumpadSubtract", 109],
+  [SDL3 + 87]:  ["+", "NumpadAdd", 107],
+  [SDL3 + 88]:  ["Enter", "NumpadEnter", 13],
+  [SDL3 + 89]:  ["1", "Numpad1", 97],
+  [SDL3 + 90]:  ["2", "Numpad2", 98],
+  [SDL3 + 91]:  ["3", "Numpad3", 99],
+  [SDL3 + 92]:  ["4", "Numpad4", 100],
+  [SDL3 + 93]:  ["5", "Numpad5", 101],
+  [SDL3 + 94]:  ["6", "Numpad6", 102],
+  [SDL3 + 95]:  ["7", "Numpad7", 103],
+  [SDL3 + 96]:  ["8", "Numpad8", 104],
+  [SDL3 + 97]:  ["9", "Numpad9", 105],
+  [SDL3 + 98]:  ["0", "Numpad0", 96],
+  [SDL3 + 99]:  [".", "NumpadDecimal", 110],
+  // Modifiers — SDL3 modifier keycodes live at 0x400000E0+, NOT 0x40000049+
+  // (0x40000049-0x4000004E are Insert/Home/PageUp/End/PageDown).
+  [SDL3 + 224]: ["Control", "ControlLeft", 17],
+  [SDL3 + 225]: ["Shift", "ShiftLeft", 16],
+  [SDL3 + 226]: ["Alt", "AltLeft", 18],
+  [SDL3 + 227]: ["Meta", "MetaLeft", 91],
+  [SDL3 + 228]: ["Control", "ControlRight", 17],
+  [SDL3 + 229]: ["Shift", "ShiftRight", 16],
+  [SDL3 + 230]: ["Alt", "AltRight", 18],
+  [SDL3 + 231]: ["Meta", "MetaRight", 91],
+};
+
 function sdlKeyToKey(keycode: number): string {
-  // SDL2 keycodes: printable chars use ASCII, special keys use 107374xxxx range.
-  // But some keys (ESC=27, ENTER=13, TAB=9, BACKSPACE=8) use their ASCII values.
-  if (keycode >= 32 && keycode <= 126) return String.fromCharCode(keycode);
-  // Special keys — both ASCII-range and SDL scancode-based
-  const map: Record<number, string> = {
-    27: "Escape",             // SDLK_ESCAPE (ASCII)
-    13: "Enter",              // SDLK_RETURN (ASCII)
-    9: "Tab",                 // SDLK_TAB (ASCII)
-    8: "Backspace",           // SDLK_BACKSPACE (ASCII)
-    1073741881: "Escape",     // SDLK_ESCAPE (scancode-based, just in case)
-    1073741904: "ArrowLeft",  // SDLK_LEFT
-    1073741903: "ArrowRight", // SDLK_RIGHT
-    1073741906: "ArrowUp",    // SDLK_UP
-    1073741905: "ArrowDown",  // SDLK_DOWN
-    1073741898: "Shift",      // SDLK_LSHIFT
-    1073741897: "Ctrl",       // SDLK_LCTRL
-    1073741899: "Alt",        // SDLK_LALT
-    1073741922: "Shift",      // SDLK_RSHIFT
-    1073741921: "Ctrl",       // SDLK_RCTRL
-    1073741923: "Alt",        // SDLK_RALT
-    1073741882: "F1",         // SDLK_F1
-    1073741883: "F2",
-    1073741884: "F3",
-    1073741885: "F4",
-    1073741886: "F5",
-    1073741887: "F6",
-    1073741888: "F7",
-    1073741889: "F8",
-    1073741890: "F9",
-    1073741891: "F10",
-    1073741892: "F11",
-    1073741893: "F12",
-  };
-  return map[keycode] ?? `Unknown(${keycode})`;
+  if (keycode >= 32 && keycode <= 126 && !SDL_SPECIAL_KEYS[keycode]) {
+    return String.fromCharCode(keycode);
+  }
+  return SDL_SPECIAL_KEYS[keycode]?.[0] ?? `Unknown(${keycode})`;
 }
 
 function sdlKeyToCode(keycode: number): string {
-  // SDL2 returns lowercase ASCII for letters; DOM code uses uppercase KeyX
+  // Letters: SDL is lowercase ASCII, DOM code is uppercase KeyX
   if (keycode >= 65 && keycode <= 90) return `Key${String.fromCharCode(keycode)}`;
   if (keycode >= 97 && keycode <= 122) return `Key${String.fromCharCode(keycode - 32)}`;
   if (keycode >= 48 && keycode <= 57) return `Digit${String.fromCharCode(keycode)}`;
-  return sdlKeyToKey(keycode);
+  return SDL_SPECIAL_KEYS[keycode]?.[1] ?? sdlKeyToKey(keycode);
 }
 
 // Map SDL keycodes to DOM keyCode values so the engine's KEY constants work.
 function sdlToDomKeyCode(keycode: number): number {
-  // SDL2 returns lowercase ASCII for letter keys (a=97, w=119, etc.).
-  // The engine's KEY constants use DOM keyCodes which are uppercase ASCII
-  // (A=65, W=87, etc.). Convert lowercase letters to uppercase.
-  if (keycode >= 97 && keycode <= 122) return keycode - 32;
-  // Non-letter ASCII-range keycodes are the same in SDL and DOM
-  if (keycode >= 32 && keycode <= 126) return keycode;
-  // SDL scancode-based keys → DOM keyCode
-  const map: Record<number, number> = {
-    1073741904: 37, // ArrowLeft
-    1073741903: 39, // ArrowRight
-    1073741906: 38, // ArrowUp
-    1073741905: 40, // ArrowDown
-    1073741898: 16, // LShift
-    1073741897: 17, // LCtrl
-    1073741899: 18, // LAlt
-    1073741922: 16, // RShift
-    1073741921: 17, // RCtrl
-    1073741923: 18, // RAlt
-    1073741882: 112, // F1
-    1073741883: 113, // F2
-    1073741884: 114, // F3
-    1073741885: 115, // F4
-    1073741886: 116, // F5
-    1073741887: 117, // F6
-    1073741888: 118, // F7
-    1073741889: 119, // F8
-    1073741890: 120, // F9
-    1073741891: 121, // F10
-    1073741892: 122, // F11
-    1073741893: 123, // F12
-  };
-  return map[keycode] ?? keycode;
+  if (keycode >= 97 && keycode <= 122) return keycode - 32; // lowercase → uppercase
+  if (keycode >= 32 && keycode <= 126 && !SDL_SPECIAL_KEYS[keycode]) return keycode;
+  return SDL_SPECIAL_KEYS[keycode]?.[2] ?? keycode;
 }

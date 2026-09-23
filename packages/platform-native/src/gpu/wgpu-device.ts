@@ -826,6 +826,10 @@ export class WgpuQueue {
 
     const isBGRA = isBGRAFormat(texture?.format);
     const premultiply = (destination as any)?.premultipliedAlpha === true;
+    // destination.origin[2] selects the array layer — the bindless registry
+    // relies on it (origin [0,0,layer]); ignoring it writes everything to
+    // layer 0 and leaves other layers black.
+    const origin = parseOrigin3D((destination as any).origin);
 
     // wgpu requires rowsPerImage-aligned writes: pad to 256-byte rows.
     const srcRowBytes = srcW * 4;
@@ -865,7 +869,7 @@ export class WgpuQueue {
       padded as unknown as ptr,
       BigInt(padded.byteLength),
       destination.mipLevel ?? 0,
-      0, 0, 0,
+      origin.x, origin.y, origin.z,
       1, // all aspects
       0n,
       dstRowBytes,
