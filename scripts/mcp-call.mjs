@@ -148,6 +148,12 @@ async function rpc(url, token, sessionId, method, params) {
 function printResult(result) {
   // MCP tool results are {content: [{type, text, ...}], isError?}. Print text
   // blocks directly; fall back to the raw JSON for anything else.
+  // MCP_RAW=1 always dumps the full result JSON (needed for non-text content
+  // like capture_screenshot's image blocks).
+  if (process.env.MCP_RAW) {
+    console.log(JSON.stringify(result));
+    return;
+  }
   if (result?.isError) {
     for (const c of result.content ?? []) {
       if (c.type === "text") console.error(c.text);

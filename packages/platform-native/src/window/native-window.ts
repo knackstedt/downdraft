@@ -232,6 +232,18 @@ export class NativeWindow extends MiniEventTarget {
       for (const cb of callbacks) {
         try { cb(now); } catch (e) { console.error("[NativeWindow] rAF callback error:", e); }
       }
+      // Browser semantics: the canvas auto-presents at end of frame, after
+      // the rAF callbacks AND the microtask checkpoint. Renderers driving the
+      // surface through GameRenderer already call context.present() (a no-op
+      // here — the texture was consumed); bespoke loops (model-viewer,
+      // gpu-bench) never call it and rely on auto-present. Deferring a
+      // microtask lets synchronous submits and inline promise continuations
+      // land before the present; present() itself skips frames that acquired
+      // nothing or acquired-but-never-wrote (__ddWritten). present() lives
+      // on the webgpu context, not the canvas — getContext returns the
+      // NativeCanvasContext that owns the acquired surface texture.
+      const ctx = this.surface?.getContext("webgpu") as { present?: () => void } | null;
+      if (ctx?.present) queueMicrotask(() => ctx.present!());
     }
 
     // Process wgpu events (for async callback delivery)

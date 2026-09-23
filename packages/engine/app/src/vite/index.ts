@@ -446,7 +446,11 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
           // resolve to real paths Vite must be allowed to serve. The engine
           // package root covers all @downdraft/engine code in both layouts
           // (packages/engine in the monorepo, node_modules in standalone).
-          allow: [rendererRoot, root, engine.engineRoot],
+          // repoRoot covers deps hoisted to the monorepo root — notably
+          // runtime-fetched assets like `@bokuweb/zstd-wasm`'s zstd.wasm,
+          // which Bun installs under <repo>/node_modules/.bun/ and Vite
+          // serves via /@fs/ URLs.
+          allow: [rendererRoot, root, engine.engineRoot, engine.repoRoot ?? root],
         },
       },
       resolve: {

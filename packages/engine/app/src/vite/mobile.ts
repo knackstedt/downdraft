@@ -169,8 +169,9 @@ export function createDowndraftMobileViteConfig(
     server: {
       fs: {
         // Engine sources may resolve outside the game root (symlinked
-        // workspace checkouts, bun link, file: deps).
-        allow: [rendererRoot, root, engine.engineRoot],
+        // workspace checkouts, bun link, file: deps). repoRoot covers deps
+        // hoisted to the monorepo node_modules (e.g. runtime-fetched wasm).
+        allow: [rendererRoot, root, engine.engineRoot, engine.repoRoot ?? root],
       },
     },
     worker: {
