@@ -1,41 +1,79 @@
+use rapier3d::control::KinematicCharacterController;
 use rapier3d::prelude::*;
+use std::collections::HashMap;
+
+/// A kinematic character controller plus the collider it drives.
+/// `body` is set when the controller is attached to an existing rigid body;
+/// `collider` is set for the parentless variant (capsule with no rigid body).
+pub struct CharController {
+    pub controller: KinematicCharacterController,
+    pub body: Option<RigidBodyHandle>,
+    pub collider: Option<ColliderHandle>,
+}
 
 pub struct PhysicsWorld {
     pub physics: PhysicsPipeline,
-    pub broadphase: BroadPhase,
+    pub broadphase: DefaultBroadPhase,
     pub narrowphase: NarrowPhase,
     pub bodies: RigidBodySet,
     pub colliders: ColliderSet,
     pub impulse_joints: ImpulseJointSet,
     pub multibody_joints: MultibodyJointSet,
     pub island_manager: IslandManager,
+    pub query_pipeline: QueryPipeline,
     pub gravity: Vector<f32>,
-    pub body_map: std::collections::HashMap<i32, RigidBodyHandle>,
-    pub ccd_solver: CcdSolver,
+    /// Game body id → Rapier handle.
+    pub body_map: HashMap<i32, RigidBodyHandle>,
+    /// Rapier handle → game body id (awake-state readback, contact reporting).
+    pub body_id_by_handle: HashMap<RigidBodyHandle, i32>,
+    /// Game collider id → Rapier handle.
+    pub collider_map: HashMap<i32, ColliderHandle>,
+    /// Game controller id → controller state.
+    pub controller_map: HashMap<i32, CharController>,
+    /// Controllers with applyImpulsesToDynamicBodies enabled.
+    pub impulse_controllers: std::collections::HashSet<i32>,
+    /// Game joint id → Rapier impulse joint handle.
+    pub joint_map: HashMap<i32, ImpulseJointHandle>,
+    pub ccd_solver: CCDSolver,
+    /// Persistent integration params — dt is stored here so `setIntegrationDt`
+    /// matches the WASM backend's semantics (step() reads the stored dt).
+    pub integration_params: IntegrationParameters,
 }
 
 impl PhysicsWorld {
     pub fn new(gravity: [f32; 3]) -> Self {
         PhysicsWorld {
             physics: PhysicsPipeline::new(),
-            broadphase: BroadPhase::new(),
+            broadphase: DefaultBroadPhase::new(),
             narrowphase: NarrowPhase::new(),
             bodies: RigidBodySet::new(),
             colliders: ColliderSet::new(),
             impulse_joints: ImpulseJointSet::new(),
             multibody_joints: MultibodyJointSet::new(),
             island_manager: IslandManager::new(),
+            query_pipeline: QueryPipeline::new(),
             gravity: Vector::new(gravity[0], gravity[1], gravity[2]),
-            body_map: std::collections::HashMap::new(),
-            ccd_solver: CcdSolver::new(),
+            body_map: HashMap::new(),
+            body_id_by_handle: HashMap::new(),
+            collider_map: HashMap::new(),
+            controller_map: HashMap::new(),
+            impulse_controllers: std::collections::HashSet::new(),
+            joint_map: HashMap::new(),
+            ccd_solver: CCDSolver::new(),
+            integration_params: IntegrationParameters::default(),
         }
     }
 
+    /// Step with the stored integration parameters. `dt > 0` overrides the
+    /// stored dt for this step (and becomes the new stored value — matching
+    /// the WASM backend where step uses integrationParameters.dt).
     pub fn step(&mut self, dt: f32) {
-        let integration_params = IntegrationParameters::default().with_dt(dt);
+        if dt > 0.0 {
+            self.integration_params.dt = dt;
+        }
         self.physics.step(
             &self.gravity,
-            &integration_params,
+            &self.integration_params,
             &mut self.island_manager,
             &mut self.broadphase,
             &mut self.narrowphase,
@@ -44,63 +82,65 @@ impl PhysicsWorld {
             &mut self.impulse_joints,
             &mut self.multibody_joints,
             &mut self.ccd_solver,
-            &PhysicsHooks::default(),
+            Some(&mut self.query_pipeline),
+            &(),
+            &(),
         );
     }
 
-    pub fn step_batched(
-        &mut self,
-        dt: f32,
-        transform_buffer: *const f32,
-        velocity_buffer: *mut f32,
-        entity_count: usize,
-    ) -> i32 {
-        // Read transforms from SAB buffer (7 floats per entity: x,y,z, qx,qy,qz,qw)
-        unsafe {
-            let transforms = std::slice::from_raw_parts(transform_buffer, entity_count * 7);
-            let velocities = std::slice::from_raw_parts_mut(velocity_buffer, entity_count * 6);
-
-            let mut idx = 0;
-            for (_, body) in self.bodies.iter_mut() {
-                if idx >= entity_count {
-                    break;
-                }
-                let offset = idx * 7;
-                let pos = Translation::new([transforms[offset], transforms[offset + 1], transforms[offset + 2]]);
-                let rot = UnitQuaternion::from_quaternion(Quaternion::new(
-                    transforms[offset + 6],
-                    transforms[offset + 3],
-                    transforms[offset + 4],
-                    transforms[offset + 5],
-                ));
-                body.set_position(pos * rot, true);
-                idx += 1;
+    /// Enumerate awake dynamic bodies via the island manager's active set —
+    /// the native equivalent of `forEachActiveRigidBodyHandle`.
+    /// Writes ids_out[i] = body_id and out[i*10..+9] =
+    /// [pos.x, pos.y, pos.z, rot.x, rot.y, rot.z, rot.w, linvel.x, linvel.y, linvel.z].
+    /// Returns the number of bodies written (≤ max_count).
+    ///
+    /// # Safety
+    /// `ids_out` must point to at least `max_count` i32s and `out` to at
+    /// least `max_count * 10` f32s.
+    pub unsafe fn read_awake_states(
+        &self,
+        ids_out: *mut i32,
+        out: *mut f32,
+        max_count: usize,
+    ) -> usize {
+        let ids = std::slice::from_raw_parts_mut(ids_out, max_count);
+        let states = std::slice::from_raw_parts_mut(out, max_count * 10);
+        let mut written = 0usize;
+        // Active set = awake dynamic + kinematic bodies (matching the WASM
+        // backend's forEachActiveRigidBodyHandle). Sleeping bodies are
+        // excluded — they cannot move, so callers keep last-synced values.
+        let active = self
+            .island_manager
+            .active_dynamic_bodies()
+            .iter()
+            .chain(self.island_manager.active_kinematic_bodies().iter());
+        for &handle in active {
+            if written >= max_count {
+                break;
             }
+            let Some(body_id) = self.body_id_by_handle.get(&handle) else {
+                continue;
+            };
+            let Some(body) = self.bodies.get(handle) else {
+                continue;
+            };
+            let t = body.translation();
+            let r = body.rotation().quaternion();
+            let v = body.linvel();
+            let o = written * 10;
+            states[o] = t.x;
+            states[o + 1] = t.y;
+            states[o + 2] = t.z;
+            states[o + 3] = r.i;
+            states[o + 4] = r.j;
+            states[o + 5] = r.k;
+            states[o + 6] = r.w;
+            states[o + 7] = v.x;
+            states[o + 8] = v.y;
+            states[o + 9] = v.z;
+            ids[written] = *body_id;
+            written += 1;
         }
-
-        self.step(dt);
-
-        // Write results back to velocity buffer (6 floats per entity: vx,vy,vz, wx,wy,wz)
-        unsafe {
-            let velocities = std::slice::from_raw_parts_mut(velocity_buffer, entity_count * 6);
-            let mut idx = 0;
-            for (_, body) in self.bodies.iter() {
-                if idx >= entity_count {
-                    break;
-                }
-                let linvel = body.linvel();
-                let angvel = body.angvel();
-                let offset = idx * 6;
-                velocities[offset] = linvel.x;
-                velocities[offset + 1] = linvel.y;
-                velocities[offset + 2] = linvel.z;
-                velocities[offset + 3] = angvel.x;
-                velocities[offset + 4] = angvel.y;
-                velocities[offset + 5] = angvel.z;
-                idx += 1;
-            }
-        }
-
-        0
+        written
     }
 }

@@ -1,0 +1,79 @@
+// ffi-bench.ts — native Rapier cdylib counterpart to wasm-baseline.ts.
+// Measures the same hot loop (step + awake-body sync) plus the fused
+// stepAndReadAwake fast path the FFI backend adds.
+//
+// Run: bun run packages/engine/libraries/physics-rapier/bench/ffi-bench.ts
+// Requires: cd packages/engine/libraries/physics-native/native && cargo build --release
+
+import { loadFfiPhysicsLib } from "../src/ffi-lib";
+
+const DT = 1 / 60;
+const WARMUP = 30;
+const STEPS = 180;
+const SIZES = [100, 500, 1000, 2000];
+
+async function bench(n: number, floor: boolean, fused: boolean) {
+    const lib = await loadFfiPhysicsLib();
+    lib.createRealm(0, [0, -9.81, 0]);
+    lib.setIntegrationDt?.(0, DT);
+
+    let nextId = 0;
+    if (floor) {
+        lib.createBody(0, nextId, { type: "static", position: [0, 0, 0], rotation: [0, 0, 0, 1] }, { index: nextId, generation: 0 });
+        lib.addCollider(0, nextId, nextId, { shape: { type: "box", halfExtents: [60, 0.5, 60] }, friction: 0.8 });
+        nextId++;
+    }
+
+    const cols = Math.ceil(Math.sqrt(n));
+    for (let i = 0; i < n; i++) {
+        const bodyId = nextId++;
+        const x = (i % cols) * 1.2 - cols * 0.6;
+        const z = Math.floor(i / cols) % cols * 1.2 - cols * 0.6;
+        const y = 2 + Math.floor(i / (cols * cols)) * 1.3 + (i % 7) * 0.02;
+        lib.createBody(0, bodyId, { type: "dynamic", position: [x, y, z], rotation: [0, 0, 0, 1], mass: 1 }, { index: bodyId, generation: 0 });
+        lib.addCollider(0, bodyId, bodyId, { shape: { type: "sphere", radius: 0.5 }, friction: 0.6 });
+    }
+
+    const idsOut = new Uint32Array(nextId);
+    const states = new Float32Array(nextId * 10);
+
+    for (let i = 0; i < WARMUP; i++) lib.step(0, DT);
+
+    let stepMs = 0;
+    let syncMs = 0;
+    let awake = 0;
+    for (let i = 0; i < STEPS; i++) {
+        const t0 = performance.now();
+        if (fused) {
+            awake = lib.stepAndReadAwake(0, DT, idsOut, states, nextId);
+            stepMs += performance.now() - t0;
+        } else {
+            lib.step(0, DT);
+            const t1 = performance.now();
+            awake = lib.readAwakeBodyStates!(0, idsOut, states, nextId);
+            const t2 = performance.now();
+            stepMs += t1 - t0;
+            syncMs += t2 - t1;
+        }
+    }
+
+    lib.destroyRealm(0);
+    return { stepAvg: stepMs / STEPS, syncAvg: syncMs / STEPS, totalAvg: (stepMs + syncMs) / STEPS, awake };
+}
+
+console.log(`FFI Rapier (native cdylib) — Bun ${Bun.version}`);
+console.log(`${"scenario".padEnd(40)} ${"N".padStart(5)} ${"step ms".padStart(9)} ${"sync ms".padStart(9)} ${"total ms".padStart(9)} ${"awake".padStart(7)}`);
+
+for (const floor of [false, true]) {
+    for (const fused of [false, true]) {
+        for (const n of SIZES) {
+            const r = await bench(n, floor, fused);
+            const name = `${floor ? "piled" : "freefall"}${fused ? " (fused)" : ""}`;
+            console.log(
+                `${name.padEnd(40)} ${String(n).padStart(5)} ` +
+                `${r.stepAvg.toFixed(3).padStart(9)} ${r.syncAvg.toFixed(3).padStart(9)} ` +
+                `${r.totalAvg.toFixed(3).padStart(9)} ${String(r.awake).padStart(7)}`
+            );
+        }
+    }
+}

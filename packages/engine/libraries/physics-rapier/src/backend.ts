@@ -28,6 +28,9 @@ interface RealmState {
   intersections: IntersectionPair[];
   nextControllerId: number;
   nextJointId: number;
+  /** Scratch buffers for the batched awake-body readback path in step(). */
+  readbackIds: Uint32Array;
+  readbackStates: Float32Array;
 }
 
 interface BodyState {
@@ -43,10 +46,11 @@ interface BodyState {
 }
 
 export class RapierPhysicsBackend implements PhysicsBackend {
-  readonly name = "rapier";
-  readonly version = "0.2.0";
+  readonly name: string = "rapier";
+  readonly version: string = "0.2.0";
 
   private lib: PhysicsLib | null = null;
+  private readonly libFactory?: () => Promise<PhysicsLib>;
   private realms: Map<number, RealmState> = new Map();
   private realmIds: number[] = [];
   private nextRealmId = 1;
@@ -62,9 +66,18 @@ export class RapierPhysicsBackend implements PhysicsBackend {
   extractContacts = true;
   readBackTransformsOnStep = true;
 
+  /**
+   * @param libFactory — override the PhysicsLib source. Defaults to the WASM
+   * Rapier bundle; the native runtime passes `loadFfiPhysicsLib` from
+   * `./ffi-lib` to drive the Rust cdylib instead.
+   */
+  constructor(libFactory?: () => Promise<PhysicsLib>) {
+    this.libFactory = libFactory;
+  }
+
   async init(): Promise<void> {
     if (this.lib) return;
-    this.lib = await loadPhysicsLib();
+    this.lib = await (this.libFactory ? this.libFactory() : loadPhysicsLib());
   }
 
   private ensureLib(): PhysicsLib {
@@ -85,6 +98,8 @@ export class RapierPhysicsBackend implements PhysicsBackend {
       intersections: [],
       nextControllerId: 1,
       nextJointId: 1,
+      readbackIds: new Uint32Array(0),
+      readbackStates: new Float32Array(0),
  };
     this.realms.set(id, realm);
     this.realmIds.push(id);
@@ -575,8 +590,38 @@ export class RapierPhysicsBackend implements PhysicsBackend {
     if (!realm) return;
 
     if (this.lib) {
-      this.lib.step(realmId, dt);
-      if (this.readBackTransformsOnStep) this.readBackTransforms(realm);
+      if (this.readBackTransformsOnStep && this.lib.readAwakeBodyStates) {
+        // Batched readback: one lib call for the whole awake set instead of a
+        // per-body getBodyTransform round trip. Sleeping bodies don't move, so
+        // the JS cache keeps last-synced values for them.
+        const cap = realm.bodies.size;
+        if (realm.readbackIds.length < cap) {
+          realm.readbackIds = new Uint32Array(cap);
+          realm.readbackStates = new Float32Array(cap * 10);
+        }
+        const n = this.lib.stepAndReadAwake
+          ? this.lib.stepAndReadAwake(realmId, dt, realm.readbackIds, realm.readbackStates, cap)
+          : (this.lib.step(realmId, dt),
+             this.lib.readAwakeBodyStates(realmId, realm.readbackIds, realm.readbackStates, cap));
+        for (let i = 0; i < n; i++) {
+          const b = realm.bodies.get(realm.readbackIds[i]);
+          if (!b) continue;
+          const o = i * 10;
+          b.position[0] = realm.readbackStates[o];
+          b.position[1] = realm.readbackStates[o + 1];
+          b.position[2] = realm.readbackStates[o + 2];
+          b.rotation[0] = realm.readbackStates[o + 3];
+          b.rotation[1] = realm.readbackStates[o + 4];
+          b.rotation[2] = realm.readbackStates[o + 5];
+          b.rotation[3] = realm.readbackStates[o + 6];
+          b.linearVelocity[0] = realm.readbackStates[o + 7];
+          b.linearVelocity[1] = realm.readbackStates[o + 8];
+          b.linearVelocity[2] = realm.readbackStates[o + 9];
+        }
+      } else {
+        this.lib.step(realmId, dt);
+        if (this.readBackTransformsOnStep) this.readBackTransforms(realm);
+      }
       if (this.extractContacts) {
         realm.contacts = this.lib.getContacts(realmId);
         realm.intersections = this.lib.getIntersections(realmId);

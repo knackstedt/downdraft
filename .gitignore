@@ -49,6 +49,11 @@ packages/engine/libraries/devtools/native/target/
 packages/engine/libraries/devtools/native/dist/
 packages/engine/libraries/devtools/native/*.so
 
+# Other Rust cdylib crates — same rule: cargo target/ + built .so are artifacts.
+packages/engine/libraries/physics-native/native/target/
+packages/engine/libraries/audio-kira/native/target/
+packages/engine/libraries/blitz-ui/native-osr/target/
+
 # Mobile native projects (generated from packages/mobile-shell by `draft mobile`)
 # These are gitignored — regenerated from the engine-owned shell on each run.
 games/*/android/

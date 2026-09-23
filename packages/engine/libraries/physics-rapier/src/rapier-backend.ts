@@ -42,6 +42,12 @@ export interface PhysicsLib {
    * excluded — they cannot move, so callers keep their last-synced values.
    */
   readAwakeBodyStates?(realmId: number, idsOut: Uint32Array, out: Float32Array, maxCount: number): number;
+  /**
+   * Fused step + awake-body readback (native FFI fast path — one call per
+   * tick). Same output layout as readAwakeBodyStates; dt follows step()
+   * semantics (dt <= 0 uses the stored integration dt).
+   */
+  stepAndReadAwake?(realmId: number, dt: number, idsOut: Uint32Array, out: Float32Array, maxCount: number): number;
   swapColliderShapeRaw?(realmId: number, colliderId: number, vertices: Float32Array, indices: Uint32Array): boolean;
   testConvexHull?(vertices: Float32Array): boolean;
   /** Returns the Rapier ShapeType enum value of the live collider (0=Ball,1=Cuboid,9=ConvexPolyhedron,...). -1 if not found. */
