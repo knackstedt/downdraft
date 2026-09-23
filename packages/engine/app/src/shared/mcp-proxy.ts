@@ -66,7 +66,14 @@ export function createMcpProxyHandler(
         description: t.def.description,
         inputSchema: t.def.inputSchema,
       }));
-      return { tools: [...hostDefs, ...rendererTools] };
+      // tools/call prefers host tools by name — the list must match that
+      // dispatch order or clients see a tool that never actually runs (e.g.
+      // the renderer's own capture_screenshot loses to the host's).
+      const hostNames = new Set(hostToolMap.keys());
+      const deduped = (rendererTools as Array<{ name?: string }>).filter(
+        (t) => !t?.name || !hostNames.has(t.name),
+      );
+      return { tools: [...hostDefs, ...deduped] };
     }
 
     // --- All other methods: forward to renderer ---

@@ -56,6 +56,7 @@ function mcp(tool, args = {}, pid, timeoutMs = 30000, extraEnv = {}) {
       env: { ...process.env, MCP_PID: String(pid), ...extraEnv },
       timeout: timeoutMs,
       encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024, // screenshot base64 payloads can exceed the 1MB default
       stdio: ["ignore", "pipe", "pipe"],
     });
     return { ok: true, text: res.trim() };
