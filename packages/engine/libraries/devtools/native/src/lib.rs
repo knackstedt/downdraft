@@ -14,6 +14,16 @@ mod state;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::os::raw::c_char;
+use std::panic::{catch_unwind, AssertUnwindSafe};
+
+/// Run an FFI body with panic isolation — a Rust panic must never unwind
+/// across the FFI boundary. Returns `default` on panic.
+fn ffi<R, F>(default: R, f: F) -> R
+where
+    F: FnOnce() -> R,
+{
+    catch_unwind(AssertUnwindSafe(f)).unwrap_or(default)
+}
 
 use state::{
     CdpProfile, ConsoleEntry, ConsoleSeverity, ConsoleState, Control, DevtoolsCommand, EvalRequest,
@@ -123,19 +133,24 @@ const OVERFLOW: usize = usize::MAX;
 
 #[no_mangle]
 pub extern "C" fn dd_devtools_init(width: f32, height: f32, dpr: f32) -> *mut DevtoolsState {
+    ffi(std::ptr::null_mut(), || {
     let state = DevtoolsState::new(width, height, dpr);
     Box::into_raw(Box::new(state))
+    })
 }
 
 #[no_mangle]
 pub extern "C" fn dd_devtools_destroy(handle: *mut DevtoolsState) {
+    ffi((), || {
     if !handle.is_null() {
         unsafe { drop(Box::from_raw(handle)) };
     }
+    })
 }
 
 #[no_mangle]
 pub extern "C" fn dd_devtools_resize(handle: *mut DevtoolsState, width: f32, height: f32) {
+    ffi((), || {
     let s = unsafe_mut(handle);
     if let Some(s) = s {
         s.width = width;
@@ -146,42 +161,53 @@ pub extern "C" fn dd_devtools_resize(handle: *mut DevtoolsState, width: f32, hei
         // We use 1.0 since native mode uses physical pixels directly.
         s.ctx.set_pixels_per_point(1.0);
     }
+    })
 }
 
 #[no_mangle]
 pub extern "C" fn dd_devtools_set_visible(_handle: *mut DevtoolsState, _visible: i32) {
+    ffi((), || {
     // Visibility is managed by TS (it only calls update() when visible).
+    })
 }
 
 #[no_mangle]
 pub extern "C" fn dd_devtools_set_active_panel(handle: *mut DevtoolsState, panel: u8) {
+    ffi((), || {
     if let Some(s) = unsafe_mut(handle) {
         s.active_panel = PanelId::from_u8(panel);
     }
+    })
 }
 
 #[no_mangle]
 pub extern "C" fn dd_devtools_get_active_panel(handle: *mut DevtoolsState) -> u8 {
+    ffi(0, || {
     unsafe { handle.as_ref().map(|s| s.active_panel as u8).unwrap_or(0) }
+    })
 }
 
 // ── Input ──
 
 #[no_mangle]
 pub extern "C" fn dd_devtools_set_mouse_pos(handle: *mut DevtoolsState, x: f32, y: f32) {
+    ffi((), || {
     if let Some(s) = unsafe_mut(handle) {
         let (ox, oy) = s.input.mouse_pos;
         s.input.mouse_delta = (x - ox, y - oy);
         s.input.mouse_pos = (x, y);
         s.input.mouse_in_window = true;
     }
+    })
 }
 
 #[no_mangle]
 pub extern "C" fn dd_devtools_mouse_leave(handle: *mut DevtoolsState) {
+    ffi((), || {
     if let Some(s) = unsafe_mut(handle) {
         s.input.mouse_in_window = false;
     }
+    })
 }
 
 #[no_mangle]
@@ -190,18 +216,22 @@ pub extern "C" fn dd_devtools_mouse_button(
     button: u8,
     pressed: i32,
 ) {
+    ffi((), || {
     if let Some(s) = unsafe_mut(handle) {
         let idx = (button as usize).min(2);
         s.input.mouse_down[idx] = pressed != 0;
         s.input.mouse_events.push_back((idx, pressed != 0));
     }
+    })
 }
 
 #[no_mangle]
 pub extern "C" fn dd_devtools_set_wheel(handle: *mut DevtoolsState, delta_y: f32) {
+    ffi((), || {
     if let Some(s) = unsafe_mut(handle) {
         s.input.wheel += delta_y;
     }
+    })
 }
 
 #[no_mangle]
@@ -211,15 +241,18 @@ pub extern "C" fn dd_devtools_set_modifiers(
     ctrl: i32,
     shift: i32,
 ) {
+    ffi((), || {
     if let Some(s) = unsafe_mut(handle) {
         s.input.modifiers_alt = alt != 0;
         s.input.modifiers_ctrl = ctrl != 0;
         s.input.modifiers_shift = shift != 0;
     }
+    })
 }
 
 #[no_mangle]
 pub extern "C" fn dd_devtools_key_down(handle: *mut DevtoolsState, key_name: *const c_char) {
+    ffi((), || {
     if let Some(s) = unsafe_mut(handle) {
         if let Some(name) = unsafe { cstr_to_str(key_name) } {
             if let Some(k) = key_from_name(name) {
@@ -227,15 +260,18 @@ pub extern "C" fn dd_devtools_key_down(handle: *mut DevtoolsState, key_name: *co
             }
         }
     }
+    })
 }
 
 #[no_mangle]
 pub extern "C" fn dd_devtools_text_input(handle: *mut DevtoolsState, text: *const c_char) {
+    ffi((), || {
     if let Some(s) = unsafe_mut(handle) {
         if let Some(t) = unsafe { cstr_to_str(text) } {
             s.input.text.push_str(t);
         }
     }
+    })
 }
 
 // ── Data mirror ──
@@ -251,6 +287,7 @@ pub extern "C" fn dd_devtools_push_console(
     timestamp: f64,
     has_stack: i32,
 ) {
+    ffi((), || {
     if let Some(s) = unsafe_mut(handle) {
         let text = unsafe { read_str(text, text_len) }.unwrap_or_default();
         let thread = unsafe { read_str(thread, thread_len) }.unwrap_or_else(|| "main".to_string());
@@ -265,6 +302,7 @@ pub extern "C" fn dd_devtools_push_console(
             s.console.entries.remove(0);
         }
     }
+    })
 }
 
 #[no_mangle]
@@ -275,6 +313,7 @@ pub extern "C" fn dd_devtools_push_repl_result(
     is_error: i32,
     timestamp: f64,
 ) {
+    ffi((), || {
     if let Some(s) = unsafe_mut(handle) {
         let text = unsafe { read_str(text, text_len) }.unwrap_or_default();
         s.console.entries.push(ConsoleEntry {
@@ -288,17 +327,21 @@ pub extern "C" fn dd_devtools_push_repl_result(
             s.console.entries.remove(0);
         }
     }
+    })
 }
 
 #[no_mangle]
 pub extern "C" fn dd_devtools_clear_console(handle: *mut DevtoolsState) {
+    ffi((), || {
     if let Some(s) = unsafe_mut(handle) {
         s.console.entries.clear();
     }
+    })
 }
 
 #[no_mangle]
 pub extern "C" fn dd_devtools_set_threads(handle: *mut DevtoolsState, buf: *const u8, len: u64) {
+    ffi((), || {
     if let Some(s) = unsafe_mut(handle) {
         if let Some(slice) = unsafe { read_buf(buf, len) } {
             let mut r = Reader::new(slice);
@@ -313,28 +356,34 @@ pub extern "C" fn dd_devtools_set_threads(handle: *mut DevtoolsState, buf: *cons
             s.console.threads = threads;
         }
     }
+    })
 }
 
 #[no_mangle]
 pub extern "C" fn dd_devtools_set_scene_tree(handle: *mut DevtoolsState, buf: *const u8, len: u64) {
+    ffi((), || {
     if let Some(s) = unsafe_mut(handle) {
         if let Some(slice) = unsafe { read_buf(buf, len) } {
             s.scene_tree.nodes = decode_tree(slice);
         }
     }
+    })
 }
 
 #[no_mangle]
 pub extern "C" fn dd_devtools_set_dom_tree(handle: *mut DevtoolsState, buf: *const u8, len: u64) {
+    ffi((), || {
     if let Some(s) = unsafe_mut(handle) {
         if let Some(slice) = unsafe { read_buf(buf, len) } {
             s.dom_tree.nodes = decode_tree(slice);
         }
     }
+    })
 }
 
 #[no_mangle]
 pub extern "C" fn dd_devtools_set_gpu_info(handle: *mut DevtoolsState, buf: *const u8, len: u64) {
+    ffi((), || {
     if let Some(s) = unsafe_mut(handle) {
         if let Some(slice) = unsafe { read_buf(buf, len) } {
             let mut r = Reader::new(slice);
@@ -361,19 +410,23 @@ pub extern "C" fn dd_devtools_set_gpu_info(handle: *mut DevtoolsState, buf: *con
             s.gpu_info = GpuInfoSnapshot { entries, frame_times, mem_history: mem };
         }
     }
+    })
 }
 
 #[no_mangle]
 pub extern "C" fn dd_devtools_set_profile(handle: *mut DevtoolsState, buf: *const u8, len: u64) {
+    ffi((), || {
     if let Some(s) = unsafe_mut(handle) {
         if let Some(slice) = unsafe { read_buf(buf, len) } {
             s.profile = Some(decode_profile(slice));
         }
     }
+    })
 }
 
 #[no_mangle]
 pub extern "C" fn dd_devtools_set_metrics(handle: *mut DevtoolsState, buf: *const u8, len: u64) {
+    ffi((), || {
     if let Some(s) = unsafe_mut(handle) {
         if let Some(slice) = unsafe { read_buf(buf, len) } {
             let new_metrics = decode_metrics(slice);
@@ -396,6 +449,7 @@ pub extern "C" fn dd_devtools_set_metrics(handle: *mut DevtoolsState, buf: *cons
             }
         }
     }
+    })
 }
 
 // ── Generic snapshots (KV/table/series/lines/controls per panel slot) ──
@@ -407,6 +461,7 @@ pub extern "C" fn dd_devtools_set_snapshot(
     buf: *const u8,
     len: u64,
 ) {
+    ffi((), || {
     if let Some(s) = unsafe_mut(handle) {
         if let Some(slice) = unsafe { read_buf(buf, len) } {
             let mut snap = decode_snapshot(slice);
@@ -414,6 +469,7 @@ pub extern "C" fn dd_devtools_set_snapshot(
             s.snapshots.insert(slot, snap);
         }
     }
+    })
 }
 
 /// Take the next queued UI command. Returns total bytes written to out_buf
@@ -425,6 +481,7 @@ pub extern "C" fn dd_devtools_take_command(
     out_buf: *mut u8,
     out_cap: u64,
 ) -> u64 {
+    ffi(0, || {
     let s = match unsafe_mut(handle) {
         Some(s) => s,
         None => return 0,
@@ -451,6 +508,7 @@ pub extern "C" fn dd_devtools_take_command(
     w.write_u16(payload.len() as u16);
     w.write_bytes(payload);
     w.pos as u64
+    })
 }
 
 // ── Eval round-trip ──
@@ -466,6 +524,7 @@ pub extern "C" fn dd_devtools_take_eval_request(
     out_expr: *mut u8,
     out_expr_cap: u64,
 ) -> u64 {
+    ffi(0, || {
     let s = match unsafe_mut(handle) {
         Some(s) => s,
         None => return 0,
@@ -510,6 +569,7 @@ pub extern "C" fn dd_devtools_take_eval_request(
         // Still count as taken; TS will see a truncated expr.
         expr_bytes.len() as u64
     }
+    })
 }
 
 #[no_mangle]
@@ -520,6 +580,7 @@ pub extern "C" fn dd_devtools_push_eval_result(
     text_len: u64,
     is_error: i32,
 ) {
+    ffi((), || {
     if let Some(s) = unsafe_mut(handle) {
         let text = unsafe { read_str(text, text_len) }.unwrap_or_default();
         s.eval_results.push(EvalResult { request_id, text: text.clone(), is_error: is_error != 0 });
@@ -535,12 +596,14 @@ pub extern "C" fn dd_devtools_push_eval_result(
             s.console.entries.remove(0);
         }
     }
+    })
 }
 
 // ── Refresh requests (bitmask: 1=scene 2=dom 4=gpu 8=metrics 16=perf_record 32=perf_stop) ──
 
 #[no_mangle]
 pub extern "C" fn dd_devtools_take_refresh_requests(handle: *mut DevtoolsState) -> u32 {
+    ffi(0, || {
     if let Some(s) = unsafe_mut(handle) {
         let mut mask = 0u32;
         if s.scene_refresh_requested { mask |= 1; s.scene_refresh_requested = false; }
@@ -553,17 +616,20 @@ pub extern "C" fn dd_devtools_take_refresh_requests(handle: *mut DevtoolsState) 
     } else {
         0
     }
+    })
 }
 
 /// Returns the current DOM tree mode (0=pixi, 1=ecs). TS reads this to know
 /// which data source to push when REFRESH_DOM is requested.
 #[no_mangle]
 pub extern "C" fn dd_devtools_get_dom_tree_mode(handle: *mut DevtoolsState) -> u8 {
+    ffi(0, || {
     if let Some(s) = unsafe_mut(handle) {
         s.dom_tree.mode
     } else {
         0
     }
+    })
 }
 
 // ── Update: run egui, tessellate, serialize PaintJobs ──
@@ -574,6 +640,7 @@ pub extern "C" fn dd_devtools_update(
     out_ptr: *mut u8,
     out_cap: u64,
 ) -> u64 {
+    ffi(0, || {
     let s = match unsafe_mut(handle) {
         Some(s) => s,
         None => return 0,
@@ -601,16 +668,19 @@ pub extern "C" fn dd_devtools_update(
         Some(n) => n as u64,
         None => OVERFLOW as u64,
     }
+    })
 }
 
 #[no_mangle]
 pub extern "C" fn dd_devtools_wants_text_input(handle: *mut DevtoolsState) -> i32 {
+    ffi(0, || {
     if let Some(s) = unsafe_mut(handle) {
         let ctx = s.ctx.clone();
         ctx.wants_keyboard_input() as i32
     } else {
         0
     }
+    })
 }
 
 // ============================================================================
