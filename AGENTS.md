@@ -775,6 +775,10 @@ node scripts/mcp-call.mjs get_world_state                 # tools/call, no args
 node scripts/mcp-call.mjs set_test_state '{"weather":1}'  # tools/call with JSON args
 ```
 
+`MCP_RAW=1` dumps the full tool-result JSON — needed for non-text content like `capture_screenshot`'s image blocks (otherwise only text blocks print).
+
+**Runtime benchmark:** `node scripts/bench-runtime.mjs <game> <native|electron> [--settle=8] [--sample=15] [--no-mcp]` launches a game, measures boot→MCP-ready, sim tick rate, whole-process-tree RSS/CPU (`/proc` group stats — fair for Electron's multi-process model), captures a screenshot, and scans the log for errors. Prints one JSON line. `--no-mcp` waits on a log marker for games with MCP disabled (gpu-bench on Electron).
+
 Key bridge fixes:
 - Notifications (no `id`) must not receive a response — the bridge silently drops them.
 - The proxy handler wraps errors in the `result` field; the bridge detects `result.error` and converts it to a proper MCP `error` response.
@@ -1563,7 +1567,7 @@ A Bun-native platform layer that replaces Electron + WebView with direct native 
 ### Architecture
 
 - **GPU**: `wgpu-native` v29 accessed through a C shim (`native/wgpu_shim.c`) that flattens complex WebGPU C descriptors into FFI-friendly functions. The TypeScript wrapper (`src/gpu/wgpu-wrapper.ts`) implements the standard WebGPU JS API (`GPU`, `GPUAdapter`, `GPUDevice`, `GPUQueue`, etc.) on top of the FFI calls. `installGPU()` sets `globalThis.navigator.gpu` so the engine's `GPUDeviceManager` works unchanged.
-- **Window**: SDL2 for window creation, input polling, and native surface handle extraction (`native/sdl_shim.c`). The `NativeWindow` class runs the event loop, translates SDL events to DOM-compatible events, and provides `requestAnimationFrame`. `NativeSurface` implements the `HTMLCanvasElement` / `GPUCanvasContext` interface.
+- **Window**: SDL2 for window creation, input polling, and native surface handle extraction (`native/sdl_shim.c`). The `NativeWindow` class runs the event loop, translates SDL events to DOM-compatible events, and provides `requestAnimationFrame`. `NativeSurface` implements the `HTMLCanvasElement` / `GPUCanvasContext` interface. After each rAF dispatch the window auto-presents via `queueMicrotask` (Chromium end-of-frame semantics), so bespoke render loops that never call `context.present()` still present — `present()` itself skips frames that acquired nothing or acquired-but-never-wrote (`__ddWritten`).
 - **Image decoding**: `stb_image` (`native/image_shim.c`) replaces `createImageBitmap`. `installImagePolyfills()` sets `globalThis.createImageBitmap`, `ImageBitmap`, `OffscreenCanvas`, and `ImageData`.
 - **Asset discovery**: `nativeGlob()` replaces `import.meta.glob` with filesystem-based globbing.
 - **Screenshot**: `captureScreenshot()` copies a render target to a buffer, reads back pixels, and encodes a PNG (acceptance mechanism for native rendering).
