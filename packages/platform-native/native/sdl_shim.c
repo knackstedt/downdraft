@@ -298,8 +298,11 @@ static int translate_event(const SDL_Event* event, void* out_data) {
                 ? SDL_SHIM_EVENT_MOUSE_DOWN : SDL_SHIM_EVENT_MOUSE_UP;
 
         case SDL_MOUSEWHEEL:
-            fout[0] = event->wheel.x;
-            fout[1] = event->wheel.y;
+            // preciseX/Y carry fractional detents for hi-res scroll devices
+            // (touchpads); x/y are the integer detents. SDL +y = scrolled
+            // away (up) — the TS side negates/scales to DOM pixel deltas.
+            fout[0] = event->wheel.preciseX;
+            fout[1] = event->wheel.preciseY;
             iout[2] = (int)SDL_GetModState();
             // DOM WheelEvent carries pointer coords — include them so
             // clientX/clientY exist for hit-testing and position tracking.

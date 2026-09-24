@@ -48,6 +48,10 @@ type RAFCallback = (time: number) => void;
 const scheduleImmediate: (fn: () => void) => void =
   typeof setImmediate === "function" ? setImmediate : (fn) => setTimeout(fn, 0);
 
+// Chromium emits ±100px of deltaY per wheel detent in DOM_DELTA_PIXEL mode;
+// SDL reports raw detents, so scale to match the DOM consumers were tuned on.
+const WHEEL_PIXELS_PER_DETENT = 100;
+
 export class NativeWindow extends MiniEventTarget {
   private surface: NativeSurface | null = null;
   // rAF handles: unique IDs → callbacks. The previous implementation used a
@@ -461,15 +465,19 @@ export class NativeWindow extends MiniEventTarget {
       }
 
       case SDL_EVENT_WHEEL: {
-        const deltaX = floatView[0];
-        const deltaY = floatView[1];
+        // SDL reports wheel movement in detents (+y = scrolled up/away);
+        // DOM WheelEvent reports pixels (+deltaY = scrolled down) at ~100px
+        // per detent (Chromium's convention). Flip Y and scale both axes so
+        // pixel-based consumers (scroll panels, camera zoom) behave the same
+        // as on the DOM path. Precise (fractional) detents come through in
+        // floatView for hi-res scroll devices.
         const mod = eventView[2];
-        // mouse_x/mouse_y are carried in slots 3/4 (see sdl_shim.c).
         this.dispatchInputEvent({
           type: "wheel",
-          deltaX,
-          deltaY,
-          clientX: eventView[3],
+          deltaX: floatView[0] * WHEEL_PIXELS_PER_DETENT,
+          deltaY: -floatView[1] * WHEEL_PIXELS_PER_DETENT,
+          deltaMode: 0, // DOM_DELTA_PIXEL
+          clientX: eventView[3], // mouse_x/mouse_y in slots 3/4 (sdl_shim.c)
           clientY: eventView[4],
           ...this.modifiers(mod),
           preventDefault: () => {},

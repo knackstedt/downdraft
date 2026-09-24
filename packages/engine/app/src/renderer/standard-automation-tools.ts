@@ -70,6 +70,33 @@ export type StandardToolName =
   | "inspect_dom"
   | "get_element_style";
 
+// dispatch_click: real pointer input produces a pointer* event before its
+// compat mouse* event (pointerdown→mousedown, pointermove→mousemove,
+// pointerup→mouseup).
+const POINTER_COMPANION: Record<string, string> = {
+  mousedown: "pointerdown",
+  mouseup: "pointerup",
+  mousemove: "pointermove",
+};
+// DOM `buttons` bitmask per `button` index (0=left→1, 1=middle→4, 2=right→2).
+const MOUSE_BUTTON_MASK = [1, 4, 2];
+
+// dispatch_key: KeyboardEventInit carries no keyCode, but engine UI code
+// (e.g. UITextInput) reads it — derive the legacy DOM value from `key`.
+const DOM_KEY_CODES: Record<string, number> = {
+  Backspace: 8, Tab: 9, Enter: 13, Shift: 16, Control: 17, Alt: 18,
+  Pause: 19, CapsLock: 20, Escape: 27, " ": 32, PageUp: 33, PageDown: 34,
+  End: 35, Home: 36, ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39,
+  ArrowDown: 40, Insert: 45, Delete: 46, Meta: 91,
+};
+function domKeyCodeFor(key: string): number {
+  if (key.length === 1) {
+    const c = key.toUpperCase().charCodeAt(0);
+    if (c >= 32 && c <= 126) return c;
+  }
+  return DOM_KEY_CODES[key] ?? 0;
+}
+
 export interface StandardAutomationContext {
   /** The game canvas (layer 0). Used by capture_screenshot + dispatch_click. */
   canvas: HTMLCanvasElement | (() => HTMLCanvasElement | null);
@@ -355,7 +382,12 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
         const key = params.key as string;
         const code = (params.code as string) ?? key;
         const type = (params.type as string) ?? "keydown";
-        const ev = new KeyboardEvent(type, { key, code, bubbles: true, cancelable: true, repeat: !!params.repeat });
+        const ev = new KeyboardEvent(type, {
+          key, code, keyCode: domKeyCodeFor(key),
+          bubbles: true, cancelable: true, repeat: !!params.repeat,
+        } as KeyboardEventInit);
+        // Real KeyboardEvent ignores keyCode in the init dict — force it.
+        try { Object.defineProperty(ev, "keyCode", { value: domKeyCodeFor(key) }); } catch { /* polyfill already set it */ }
         window.dispatchEvent(ev);
         return jsonResult({ dispatched: true, key, code, type });
       },
@@ -373,8 +405,10 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
           properties: {
             x: { type: "number", description: "X coordinate (default: center of canvas)" },
             y: { type: "number", description: "Y coordinate (default: center of canvas)" },
-            type: { type: "string", enum: ["click", "mousedown", "mouseup", "mousemove"], default: "click", description: "Event type — mousedown/mouseup exercise native pointer routing (real clicks arrive as down/up pairs; 'click' alone does not reach them)" },
+            type: { type: "string", enum: ["click", "mousedown", "mouseup", "mousemove", "wheel"], default: "click", description: "Event type — 'click' fires the full press/release sequence (pointerdown→mousedown→pointerup→mouseup→click); mousedown/mouseup/mousemove fire just that event plus its pointer* companion. 'wheel' fires a WheelEvent with deltaX/deltaY." },
             button: { type: "number", description: "Mouse button (0=left, 1=middle, 2=right). Default 0." },
+            deltaX: { type: "number", description: "Wheel deltaX in pixels (type=wheel only). Default 0." },
+            deltaY: { type: "number", description: "Wheel deltaY in pixels (type=wheel only). Default 120 (one detent down)." },
           },
         },
       },
@@ -389,8 +423,51 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
         const clientX = rect.left + x;
         const clientY = rect.top + y;
         const target = document.elementFromPoint(clientX, clientY) ?? canvas;
-        const ev = new MouseEvent(type, { bubbles: true, cancelable: true, clientX, clientY, button });
-        target.dispatchEvent(ev);
+        // MiniEventTarget (native DOM polyfill) has no capture/bubble —
+        // mirror real propagation by also dispatching on window. In a real
+        // DOM this would double-fire, so only do it under the polyfill.
+        const isNativeDom = typeof (globalThis as any).__nativeHost !== "undefined";
+        const fire = (ev: Event) => {
+          target.dispatchEvent(ev);
+          if (isNativeDom) (window as any).dispatchEvent?.(ev);
+        };
+        if (type === "wheel") {
+          const deltaX = (params.deltaX as number) ?? 0;
+          const deltaY = (params.deltaY as number) ?? 120;
+          fire(new WheelEvent("wheel", {
+            bubbles: true, cancelable: true, clientX, clientY, deltaX, deltaY, deltaMode: 0,
+          }));
+          return jsonResult({ dispatched: true, x, y, type, deltaX, deltaY });
+        }
+        // Real pointer input produces the pointer* event before its compat
+        // mouse* event. RendererInputBus listens on pointer*; older UI code
+        // listens on mouse* — emit both so either sees a real click.
+        const PtrEvent = (globalThis as any).PointerEvent;
+        const downMask = MOUSE_BUTTON_MASK[button] ?? 1;
+        const fireOne = (name: string, isPointer: boolean, buttons: number) => {
+          if (isPointer && PtrEvent) {
+            fire(new PtrEvent(name, {
+              bubbles: true, cancelable: true, clientX, clientY, button, buttons,
+              pointerId: 1, pointerType: "mouse", isPrimary: true,
+            }));
+          } else if (!isPointer) {
+            fire(new MouseEvent(name, { bubbles: true, cancelable: true, clientX, clientY, button, buttons }));
+          }
+        };
+        if (type === "click") {
+          // A real click is a full press/release cycle — UI hit-testing needs
+          // the pointerdown→pointerup pair to register press and click.
+          fireOne("pointerdown", true, downMask);
+          fireOne("mousedown", false, downMask);
+          fireOne("pointerup", true, 0);
+          fireOne("mouseup", false, 0);
+          fireOne("click", false, 0);
+        } else {
+          const buttons = type === "mouseup" || type === "mousemove" ? 0 : downMask;
+          const pointerType = POINTER_COMPANION[type];
+          if (pointerType) fireOne(pointerType, true, buttons);
+          fireOne(type, false, buttons);
+        }
         return jsonResult({
           dispatched: true, x, y, type,
           targetTag: target.tagName,

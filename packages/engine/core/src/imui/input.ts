@@ -200,10 +200,16 @@ export class UIInputRouter {
     }
   }
 
+  /** Programmatically focus a focusable element (e.g. focus a search box
+   *  when its dialog opens) — same path as a pointer press on it. */
+  setFocus(el: UIElement | null): void {
+    if (el === this.focusedElement) return;
+    this.focusedElement?.setFocused(false);
+    this.focusedElement = el && el.focusable ? el : null;
+    this.focusedElement?.setFocused(true);
+  }
+
   clearFocus(): void {
-    if (this.focusedElement) {
-      this.focusedElement.setFocused(false);
-      this.focusedElement = null;
-    }
+    this.setFocus(null);
   }
 }
