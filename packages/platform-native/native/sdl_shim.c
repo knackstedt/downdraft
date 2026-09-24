@@ -15,6 +15,30 @@
 static SDL_Window* g_window = NULL;
 static int g_initialized = 0;
 
+// ── Window title ──
+// Some SDL2 builds only write the legacy WM_NAME property (XA_STRING —
+// nominally Latin-1) on X11, so a UTF-8 title like "Model Viewer — Native"
+// renders as mojibake ("…Viewer â€" Native") in WMs that honor it. The
+// modern _NET_WM_NAME (UTF8_STRING) property is what KWin/GNOME actually
+// display — set it ourselves. Wayland/Windows/macOS take UTF-8 natively.
+#if defined(SDL_VIDEO_DRIVER_X11)
+static void x11_set_utf8_title(const char* title) {
+    if (!g_window || !title) return;
+    SDL_SysWMinfo wmInfo;
+    SDL_VERSION(&wmInfo.version);
+    if (SDL_GetWindowWMInfo(g_window, &wmInfo) && wmInfo.subsystem == SDL_SYSWM_X11) {
+        Display* dpy = wmInfo.info.x11.display;
+        Atom netWmName = XInternAtom(dpy, "_NET_WM_NAME", False);
+        Atom utf8String = XInternAtom(dpy, "UTF8_STRING", False);
+        XChangeProperty(dpy, wmInfo.info.x11.window, netWmName, utf8String, 8,
+                        PropModeReplace, (const unsigned char*)title, (int)strlen(title));
+        XFlush(dpy);
+    }
+}
+#else
+static void x11_set_utf8_title(const char* title) { (void)title; }
+#endif
+
 // ── Window creation ──
 
 // Create a window. Returns 0 on success, non-zero on failure.
@@ -41,6 +65,7 @@ int sdl_shim_create_window(const char* title, int width, int height) {
     }
 
     SDL_ShowWindow(g_window);
+    x11_set_utf8_title(title);
     // Do NOT grab input on startup — let the user click the window to
     // engage pointer lock. Grabbing immediately steals focus from whatever
     // the user was doing (IDE, terminal, etc.) which is hostile UX.
@@ -71,7 +96,8 @@ int sdl_shim_create_window(const char* title, int width, int height) {
 //   Key:        [0]=keycode, [1]=SDL_Keymod bitmask, [2]=repeat flag
 //   Mouse move: [0]=x, [1]=y, [2]=xrel, [3]=yrel, [4]=button state, [5]=mod
 //   Mouse btn:  [0]=x, [1]=y, [2]=button (1=l,2=m,3=r), [3]=button state, [4]=mod
-//   Wheel:      [0]=delta_x (f32 bits), [1]=delta_y (f32 bits), [2]=mod
+//   Wheel:      [0]=delta_x (f32 bits), [1]=delta_y (f32 bits), [2]=mod,
+//               [3]=mouse_x, [4]=mouse_y
 //   Resize:     [0]=width, [1]=height
 //   Text input: out_data is a char buffer (32 bytes)
 // ── Input grab ──
@@ -137,7 +163,10 @@ void sdl_shim_get_window_size(int* width_out, int* height_out) {
 
 // Update the window title (e.g. to show FPS in the title bar).
 void sdl_shim_set_window_title(const char* title) {
-    if (g_window && title) SDL_SetWindowTitle(g_window, title);
+    if (g_window && title) {
+        SDL_SetWindowTitle(g_window, title);
+        x11_set_utf8_title(title);
+    }
 }
 
 // ── Fullscreen / window geometry / display info ──
@@ -272,6 +301,10 @@ static int translate_event(const SDL_Event* event, void* out_data) {
             fout[0] = event->wheel.x;
             fout[1] = event->wheel.y;
             iout[2] = (int)SDL_GetModState();
+            // DOM WheelEvent carries pointer coords — include them so
+            // clientX/clientY exist for hit-testing and position tracking.
+            iout[3] = event->wheel.mouseX;
+            iout[4] = event->wheel.mouseY;
             return SDL_SHIM_EVENT_WHEEL;
 
         case SDL_WINDOWEVENT:

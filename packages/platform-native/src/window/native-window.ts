@@ -265,6 +265,25 @@ export class NativeWindow extends MiniEventTarget {
     };
   }
 
+  /**
+   * DOM-parity dispatch for pointer input: the surface is the event target
+   * (canvas listeners — RendererInputBus, InputManager mouse tracking), the
+   * window sees the bubbled event (window-level listeners — UI router,
+   * bus key/up handlers). MiniEventTarget has no real bubbling, so we
+   * dispatch the same event object to both, target first.
+   */
+  private dispatchInputEvent(event: any): void {
+    this.surface?.dispatchEvent(event);
+    this.dispatchEvent(event);
+  }
+
+  /** Fire `pointerType` then `mouseType` (DOM order), each on target+window. */
+  private dispatchPointerAndMouse(pointerType: string, pointerEvent: any, mouseEvent: any): void {
+    pointerEvent.type = pointerType;
+    this.dispatchInputEvent(pointerEvent);
+    this.dispatchInputEvent(mouseEvent);
+  }
+
   private handleEvent(eventType: number, eventView: Int32Array, floatView: Float32Array): void {
     switch (eventType) {
       case SDL_EVENT_NONE:
@@ -344,8 +363,7 @@ export class NativeWindow extends MiniEventTarget {
         const yrel = eventView[3];
         const buttons = sdlButtonsToDom(eventView[4]);
         const mod = eventView[5];
-        this.dispatchEvent({
-          type: "mousemove",
+        const base = {
           clientX: x,
           clientY: y,
           movementX: xrel,
@@ -354,7 +372,21 @@ export class NativeWindow extends MiniEventTarget {
           ...this.modifiers(mod),
           preventDefault: () => {},
           stopPropagation: () => {},
-        });
+          stopImmediatePropagation: () => {},
+        };
+        // DOM parity: the pointer event fires first, then its compat mouse
+        // event; both target the canvas and bubble to window. Engine code
+        // listens on either (RendererInputBus → pointer*, InputManager →
+        // mouse*), so both must exist on both targets.
+        this.dispatchPointerAndMouse("pointermove", {
+          ...base,
+          pointerId: 1,
+          pointerType: "mouse",
+          isPrimary: true,
+          pressure: buttons !== 0 ? 0.5 : 0,
+          width: 1,
+          height: 1,
+        }, { ...base, type: "mousemove" });
         break;
       }
 
@@ -365,8 +397,7 @@ export class NativeWindow extends MiniEventTarget {
         const buttons = sdlButtonsToDom(eventView[3]);
         const mod = eventView[4];
         const domButton = button - 1; // SDL: 1=l,2=m,3=r → DOM: 0=l,1=m,2=r
-        this.dispatchEvent({
-          type: "mousedown",
+        const base = {
           clientX: x,
           clientY: y,
           button: domButton,
@@ -374,7 +405,17 @@ export class NativeWindow extends MiniEventTarget {
           ...this.modifiers(mod),
           preventDefault: () => {},
           stopPropagation: () => {},
-        });
+          stopImmediatePropagation: () => {},
+        };
+        this.dispatchPointerAndMouse("pointerdown", {
+          ...base,
+          pointerId: 1,
+          pointerType: "mouse",
+          isPrimary: true,
+          pressure: 0.5,
+          width: 1,
+          height: 1,
+        }, { ...base, type: "mousedown" });
         // DOM dispatches "contextmenu" on right-button press.
         if (domButton === 2) {
           this.dispatchEvent({
@@ -397,8 +438,7 @@ export class NativeWindow extends MiniEventTarget {
         const button = eventView[2];
         const buttons = sdlButtonsToDom(eventView[3]);
         const mod = eventView[4];
-        this.dispatchEvent({
-          type: "mouseup",
+        const base = {
           clientX: x,
           clientY: y,
           button: button - 1,
@@ -406,7 +446,17 @@ export class NativeWindow extends MiniEventTarget {
           ...this.modifiers(mod),
           preventDefault: () => {},
           stopPropagation: () => {},
-        });
+          stopImmediatePropagation: () => {},
+        };
+        this.dispatchPointerAndMouse("pointerup", {
+          ...base,
+          pointerId: 1,
+          pointerType: "mouse",
+          isPrimary: true,
+          pressure: 0,
+          width: 1,
+          height: 1,
+        }, { ...base, type: "mouseup" });
         break;
       }
 
@@ -414,13 +464,17 @@ export class NativeWindow extends MiniEventTarget {
         const deltaX = floatView[0];
         const deltaY = floatView[1];
         const mod = eventView[2];
-        this.dispatchEvent({
+        // mouse_x/mouse_y are carried in slots 3/4 (see sdl_shim.c).
+        this.dispatchInputEvent({
           type: "wheel",
           deltaX,
           deltaY,
+          clientX: eventView[3],
+          clientY: eventView[4],
           ...this.modifiers(mod),
           preventDefault: () => {},
           stopPropagation: () => {},
+          stopImmediatePropagation: () => {},
         });
         break;
       }
