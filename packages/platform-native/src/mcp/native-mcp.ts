@@ -13,6 +13,7 @@ import type { DowndraftBridgeAPI, McpRequest, McpResponse } from "@downdraft/eng
 import type { ToolRegistration } from "@downdraft/engine/mcp";
 import { McpHttpTransport } from "@downdraft/engine/mcp/http-transport";
 import { createLogger } from "@downdraft/engine/util/logger";
+import { createNativeTracingTools } from "./native-tracing";
 
 const log = createLogger("info");
 
@@ -117,7 +118,18 @@ export async function startNativeMcpServer(
     return res.result;
   };
 
-  const hostTools = [...createNativeHostTools(bridge), ...(opts.extraHostTools ?? [])];
+  // portRef is filled after transport.start() — tracing tools read it lazily
+  // for artifact download URLs (same pattern as the Electron MCP proxy).
+  const portRef = { current: opts.port ?? (Number(process.env.MCP_PORT) || 0) };
+  const tracingTools = opts.artifactDir
+    ? createNativeTracingTools({ artifactDir: opts.artifactDir, portRef })
+    : [];
+
+  const hostTools = [
+    ...createNativeHostTools(bridge),
+    ...tracingTools,
+    ...(opts.extraHostTools ?? []),
+  ];
   const proxyHandler = createMcpProxyHandler(hostTools, forwardToHarness);
 
   const transport = new McpHttpTransport({
@@ -130,6 +142,7 @@ export async function startNativeMcpServer(
   });
   await transport.start();
   const port = transport.getPort();
+  portRef.current = port;
   const removePidFile = writeMcpPidFile(port, transport.getAuthToken());
 
   const cleanup = () => {

@@ -53,6 +53,12 @@ export interface ProfilingBridgeOptions {
   warningRingCap?: number;
   /** String table capacity per slot. Default: 64. */
   stringTableCap?: number;
+  /**
+   * Reuse an externally-allocated ProfilingSAB instead of allocating a new
+   * one. Needed when another subsystem already handed a SAB to the workers
+   * (e.g. the native debugger overlay) — two SABs would split the metrics.
+   */
+  sharedSAB?: { sab: SharedArrayBuffer; layout: ProfilingSABLayout };
 }
 
 export interface ProfilingBridgeSnapshot {
@@ -82,13 +88,13 @@ export class ProfilingBridge {
   private seenWarningIds: Set<string> = new Set(); // dedup across workers
 
   constructor(opts: ProfilingBridgeOptions = {}) {
-    this.layout = computeProfilingSABLayout(
+    this.layout = opts.sharedSAB?.layout ?? computeProfilingSABLayout(
       opts.maxSlots ?? 16,
       opts.iopsRingCap ?? 256,
       opts.warningRingCap ?? 128,
       opts.stringTableCap ?? 64,
     );
-    const allocated = allocateProfilingSAB(
+    const allocated = opts.sharedSAB ?? allocateProfilingSAB(
       this.layout.maxSlots,
       this.layout.iopsRingCap,
       this.layout.warningRingCap,

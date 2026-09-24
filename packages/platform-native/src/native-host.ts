@@ -212,10 +212,16 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   }
 
   // 6d. Start the in-process MCP server (tools/list, tools/call, artifacts,
-  // PID discovery — identical endpoints to the Electron proxy).
+  // PID discovery — identical endpoints to the Electron proxy). artifactDir
+  // enables the tracing/heap-snapshot tools + the /mcp/artifact/ download
+  // endpoint, mirroring Electron's ${userData}/debug-artifacts layout.
   const mcpEnabled = config.mcp !== false && config.appId != null;
+  const mcpOpts: NativeMcpOptions = typeof config.mcp === "object" ? config.mcp : {};
   const mcp = mcpEnabled && bridge
-    ? await startNativeMcpServer(bridge, typeof config.mcp === "object" ? config.mcp : {})
+    ? await startNativeMcpServer(bridge, {
+        ...mcpOpts,
+        artifactDir: mcpOpts.artifactDir ?? join(resolveNativeUserDataDir(config.appId!), "debug-artifacts"),
+      })
     : null;
 
   // 7. Start the event loop

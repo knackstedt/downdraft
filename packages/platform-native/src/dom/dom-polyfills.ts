@@ -414,6 +414,22 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
     (globalThis as any).performance = { now: () => Date.now() - start };
   }
 
+  // performance.memory — Chrome-only API the profiling bridge reads for the
+  // renderer heap metrics. Back it with bun:jsc heapStats so the ProfilingSAB
+  // renderer slot reports real numbers on the native host. jsHeapSizeLimit
+  // has no JSC equivalent — report the current heap capacity as the ceiling.
+  if ((globalThis as any).Bun && !(globalThis as any).performance.memory) {
+    try {
+      const hs = nodeCreateRequire(import.meta.url)("bun:jsc").heapStats as
+        () => { heapSize: number; heapCapacity: number };
+      (globalThis as any).performance.memory = {
+        get usedJSHeapSize() { return hs().heapSize; },
+        get totalJSHeapSize() { return hs().heapCapacity; },
+        get jsHeapSizeLimit() { return hs().heapCapacity; },
+      };
+    } catch { /* bun:jsc unavailable — leave memory unset */ }
+  }
+
   // localStorage polyfill — in-memory by default; file-backed (atomic JSON
   // writes) when opts.storagePath is provided, so prefs like imui font-scale
   // survive restarts on the native host.

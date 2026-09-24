@@ -46,13 +46,19 @@ describe("tracing toolkit e2e (main-process MCP tools)", () => {
     expect(names.has("process_snapshot")).toBe(true);
   });
 
-  it("trace_categories returns real Chromium tracing categories", async () => {
+  it("trace_categories returns real tracing categories", async () => {
     const result = await game!.mcpClient.callTool("trace_categories", {});
     const data = parseJsonContent(result) as { categories: string[] };
     expect(Array.isArray(data.categories)).toBe(true);
-    expect(data.categories.length).toBeGreaterThan(10);
-    // Chromium always includes these built-in categories
-    expect(data.categories.some((c) => c.includes("toplevel"))).toBe(true);
+    if (game!.runtime === "native") {
+      // Engine's in-engine instrumentation categories (TraceEventWriter)
+      expect(data.categories.length).toBeGreaterThan(3);
+      expect(data.categories).toContain("task");
+    } else {
+      expect(data.categories.length).toBeGreaterThan(10);
+      // Chromium always includes these built-in categories
+      expect(data.categories.some((c) => c.includes("toplevel"))).toBe(true);
+    }
   });
 
   it("trace_status reports not recording when idle", async () => {

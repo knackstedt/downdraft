@@ -41,6 +41,8 @@ export interface GameProcess {
   process: ReturnType<typeof Bun.spawn>;
   mcpClient: McpClient;
   mcpPort: number;
+  /** Which runtime the game was launched under. */
+  runtime: "electron" | "native";
   /** Returns JS errors captured from the game process console output.
    *  Call after tests to verify no uncaught errors occurred. */
   getConsoleErrors(): string[];
@@ -725,6 +727,7 @@ export async function launchGame(opts: LaunchOptions = {}): Promise<GameProcess>
     process: proc,
     mcpClient: createMcpClient(port, authToken),
     mcpPort: port,
+    runtime,
     getConsoleErrors(): string[] { return [...consoleErrors]; },
     async kill(): Promise<void> {
       await killProcessGroup(proc);
