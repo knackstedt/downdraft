@@ -48,6 +48,24 @@ const THUMB_EXT = ".thumb";
 const PROPS_EXT = ".props.json";
 const BLOBS_DIR_SUFFIX = ".blobs";
 
+// zstd-wasm init() is NOT idempotent — a second call re-instantiates the
+// wasm module while Module.HEAP8 still points at the old memory, silently
+// corrupting every subsequent decompress. Guard it at module level so all
+// FileSaveStore instances (and the services worker's) share one init.
+let zstdInitPromise: Promise<void> | null = null;
+function ensureZstdGlobal(): Promise<void> {
+  if (!zstdInitPromise) {
+    zstdInitPromise = (async () => {
+      const { init } = await import("@bokuweb/zstd-wasm");
+      await init();
+    })();
+    // Don't cache a rejection forever — a transient failure (missing wasm
+    // asset, fs hiccup) would otherwise permanently break all saves.
+    zstdInitPromise.catch(() => { zstdInitPromise = null; });
+  }
+  return zstdInitPromise;
+}
+
 export interface FileSaveStoreOptions {
   /** Directory to store save files (typically app.getPath("userData") + "/saves") */
   saveDir: string;
@@ -110,14 +128,7 @@ export class FileSaveStore implements ISaveStore {
   }
 
   private async ensureZstd(): Promise<void> {
-    if (this.zstdReady) return this.zstdReady;
-    this.zstdReady = (async () => {
-      const { init } = await import("@bokuweb/zstd-wasm");
-      await init();
-    })();
-    // Don't cache a rejection forever — a transient failure (missing wasm
-    // asset, fs hiccup) would otherwise permanently break all saves.
-    this.zstdReady.catch(() => { this.zstdReady = null; });
+    if (!this.zstdReady) this.zstdReady = ensureZstdGlobal();
     return this.zstdReady;
   }
 
@@ -277,7 +288,10 @@ export class FileSaveStore implements ISaveStore {
   private async loadFromFile(filePath: string, slot: string, includeBlobs: boolean): Promise<LoadResult> {
     try {
       const fileBuf = await fs.readFile(filePath);
-      const header = readHeaderFromFile(fileBuf.buffer);
+      // fs.readFile returns a Buffer that may be a view into a shared pool —
+      // .buffer alone ignores byteOffset and reads garbage. Slice first.
+      const fileBytes = fileBuf.buffer.slice(fileBuf.byteOffset, fileBuf.byteOffset + fileBuf.byteLength);
+      const header = readHeaderFromFile(fileBytes);
       if (!header) {
         this.warn({ kind: "corruption", slot, message: `Invalid header in ${filePath}` });
         return { state: null };
@@ -294,7 +308,7 @@ export class FileSaveStore implements ISaveStore {
         return { state: null };
       }
 
-      const compressedBody = new Uint8Array(fileBuf.buffer, HEADER_SIZE);
+      const compressedBody = new Uint8Array(fileBytes, HEADER_SIZE);
       const decompressed = this._decompress
         ? this._decompress(compressedBody, header.uncompressedBodyLength)
         : await this.decompressBytes(compressedBody, header.uncompressedBodyLength);
@@ -383,7 +397,8 @@ export class FileSaveStore implements ISaveStore {
         const filePath = join(this.saveDir, file);
         const stat = await fs.stat(filePath);
         const fileBuf = await fs.readFile(filePath);
-        const header = readHeaderFromFile(fileBuf.buffer);
+        const header = readHeaderFromFile(
+          fileBuf.buffer.slice(fileBuf.byteOffset, fileBuf.byteOffset + fileBuf.byteLength));
         if (!header) continue;
 
         const slotName = file.replace(SAVE_EXT, "");
@@ -415,7 +430,8 @@ export class FileSaveStore implements ISaveStore {
     try {
       const filePath = this.slotPath(slot);
       const fileBuf = await fs.readFile(filePath);
-      const header = readHeaderFromFile(fileBuf.buffer);
+      const header = readHeaderFromFile(
+        fileBuf.buffer.slice(fileBuf.byteOffset, fileBuf.byteOffset + fileBuf.byteLength));
       if (!header) return [];
       const stat = await fs.stat(filePath);
       return [{

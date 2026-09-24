@@ -10,10 +10,9 @@
 // lazy Proxy, so install order only needs to precede first use).
 // ============================================================================
 
-import { ENGINE_VERSION, type FeatureLogData } from "@downdraft/engine";
+import { type FeatureLogData } from "@downdraft/engine";
 import { collectHostFeatureLog } from "@downdraft/engine/app/shared/feature-log";
 import { getVulkanValidationStatus, queryNvidiaSmi } from "@downdraft/engine/app/shared/gpu-info";
-import { createImportCacheStore, type ImportCacheStore } from "@downdraft/engine/app/shared/import-cache-store";
 import type {
     DisplayInfoData,
     DisplayMetricsChangedData,
@@ -23,30 +22,24 @@ import type {
     GCStatsData,
     HeapSnapshotResult,
     ImportCacheEntry,
-    LoadOptions,
     McpRequest,
     McpResponse,
     PerfStatsData,
     ProcessSnapshotResult,
-    SaveGenerationInfo,
-    SaveOptions,
-    SaveSlotInfo,
     SimReadyData,
     TraceStartOptions,
     TraceStartResult,
     TraceStatusResult,
     TraceStopResult,
-    VulkanValidationStatus,
+    VulkanValidationStatus
 } from "@downdraft/engine/app/shared/types";
-import { FileSaveStore } from "@downdraft/engine/libraries/persistence";
 import { createLogger } from "@downdraft/engine/util/logger";
 import { spawn } from "node:child_process";
-import { join } from "node:path";
 import { WgpuDevice } from "../gpu/wgpu-wrapper";
 import { encodePNG } from "../screenshot/screenshot";
+import type { HostServices } from "../services/host-services";
 import type { NativeSurface } from "../window/native-surface";
 import type { NativeWindow } from "../window/native-window";
-import { resolveNativeUserDataDir } from "./user-data-dir";
 
 const log = createLogger("info");
 
@@ -57,11 +50,13 @@ export interface NativeBridgeOptions {
   surface: NativeSurface;
   device: WgpuDevice;
   adapter: { info?: { vendor?: string; architecture?: string; device?: string; description?: string } };
-  /** Engine version stamped into save files. Default: ENGINE_VERSION. */
-  engineVersion?: string;
   isDev?: boolean;
   /** Extra host flag names recorded in the feature log (e.g. shim options). */
   hostFlags?: string[];
+  /** Host services handle (save store + import cache). Created by
+   *  createNativeHost — worker-backed by default so blocking I/O stays
+   *  off the frame thread. */
+  services: HostServices;
 }
 
 type Emitter = Map<string, Set<(data: unknown) => void>>;
@@ -71,8 +66,6 @@ type Emitter = Map<string, Set<(data: unknown) => void>>;
  * `dispose()` that tears down intervals and the import cache.
  */
 export function createNativeBridge(opts: NativeBridgeOptions): DowndraftBridgeAPI & { dispose(): void } {
-  const userData = resolveNativeUserDataDir(opts.appId);
-  const engineVersion = opts.engineVersion ?? ENGINE_VERSION;
   const deterministic = process.env.DOWNDRAFT_DETERMINISTIC === "1";
   const isDev = opts.isDev ?? !isPackaged();
 
@@ -94,28 +87,9 @@ export function createNativeBridge(opts: NativeBridgeOptions): DowndraftBridgeAP
     emit("display-info", { refreshRate: opts.window.getDisplayInfo().refreshRate } satisfies DisplayInfoData);
   });
 
-  // ── Save store (FileSaveStore, in-process — the IPC-free path) ──
-  let saveStore: FileSaveStore | null = null;
-  const getStore = (): FileSaveStore => {
-    if (!saveStore) {
-      saveStore = new FileSaveStore({
-        saveDir: join(userData, "saves"),
-        engineVersion,
-        skipMigrations: true,
-      });
-      saveStore.onWarning((w) => log.warn("save", `[${w.kind}] slot='${w.slot}': ${w.message}`));
-    }
-    return saveStore;
-  };
-
-  // ── Import cache ──
-  let importCache: ImportCacheStore | null = null;
-  const getImportCache = (): ImportCacheStore => {
-    if (!importCache) {
-      importCache = createImportCacheStore(join(userData, "downdraft-import-cache.db"));
-    }
-    return importCache;
-  };
+  // ── Services (save store + import cache) — worker-backed by default ──
+  const services = opts.services;
+  services.onWarning((w) => log.warn("save", `[${w.kind}] slot='${w.slot}': ${w.message}`));
 
   // ── Feature log (collected once, served forever) ──
   const adapterInfo = opts.adapter?.info;
@@ -178,39 +152,18 @@ export function createNativeBridge(opts: NativeBridgeOptions): DowndraftBridgeAP
   const simReadyData: SimReadyData = { isDev, deterministic };
 
   const bridge: DowndraftBridgeAPI & { dispose(): void } = {
-    // ── Saves: FileSaveStore, same semantics as handlers/saves.ts ──
-    async saveGameState(slotName: string, stateJson: string, saveOpts?: SaveOptions): Promise<boolean> {
-      try {
-        const components = JSON.parse(stateJson);
-        const result = await getStore().save(slotName, {
-          components,
-          meta: { engineVersion, timestamp: Date.now() / 1000, entityCount: 0, playerCount: 0 },
-        }, saveOpts);
-        if (!result.success) log.error("bridge", `Save to slot '${slotName}' failed`);
-        return result.success;
-      } catch (err) {
-        log.error("bridge", `Save failed: ${err}`);
-        return false;
-      }
-    },
-    async loadGameState(slotName: string, loadOpts?: LoadOptions): Promise<string | null> {
-      try {
-        const result = await getStore().load(slotName, loadOpts);
-        return result.state ? JSON.stringify(result.state.components) : null;
-      } catch (err) {
-        log.error("bridge", `Load failed: ${err}`);
-        return null;
-      }
-    },
-    deleteGameState: (slotName) => getStore().deleteSave(slotName),
-    listSaveSlots: (): Promise<SaveSlotInfo[]> => getStore().listSaves() as Promise<SaveSlotInfo[]>,
-    listSaveGenerations: (slotName): Promise<SaveGenerationInfo[]> =>
-      getStore().listGenerations(slotName) as Promise<SaveGenerationInfo[]>,
-    deleteSaveGeneration: (slotName, gen) => getStore().deleteGeneration(slotName, gen),
-    setThumbnail: (slotName, data) => getStore().setThumbnail(slotName, data),
-    getThumbnail: (slotName) => getStore().getThumbnail(slotName),
-    setSaveProperties: (slotName, props) => getStore().setProperties(slotName, props),
-    getSaveProperties: (slotName) => getStore().getProperties(slotName),
+    // ── Saves: routed through HostServices (services worker by default) ──
+    saveGameState: (slotName, stateJson, saveOpts) =>
+      services.api.saveGame(slotName, stateJson, saveOpts),
+    loadGameState: (slotName, loadOpts) => services.api.loadGame(slotName, loadOpts),
+    deleteGameState: (slotName) => services.api.deleteSave(slotName),
+    listSaveSlots: () => services.api.listSaves(),
+    listSaveGenerations: (slotName) => services.api.listGenerations(slotName),
+    deleteSaveGeneration: (slotName, gen) => services.api.deleteGeneration(slotName, gen),
+    setThumbnail: (slotName, data) => services.api.setThumbnail(slotName, data),
+    getThumbnail: (slotName) => services.api.getThumbnail(slotName),
+    setSaveProperties: (slotName, props) => services.api.setProperties(slotName, props),
+    getSaveProperties: (slotName) => services.api.getProperties(slotName),
 
     // ── App lifecycle ──
     quit: async () => {
@@ -316,13 +269,13 @@ export function createNativeBridge(opts: NativeBridgeOptions): DowndraftBridgeAP
       };
     },
 
-    // ── Import cache ──
+    // ── Import cache (through HostServices — SQLite lives off-thread) ──
     importCacheGet: (modelPath: string): Promise<ImportCacheEntry | null> =>
-      Promise.resolve(getImportCache().get(modelPath)),
+      services.api.importCacheGet(modelPath),
     importCacheSet: (modelPath: string, entry: ImportCacheEntry): Promise<void> =>
-      Promise.resolve(getImportCache().set(modelPath, entry)),
+      services.api.importCacheSet(modelPath, entry),
     importCacheInvalidate: (modelPath: string): Promise<void> =>
-      Promise.resolve(getImportCache().invalidate(modelPath)),
+      services.api.importCacheInvalidate(modelPath),
 
     // ── Event listeners ──
     onSimReady: (cb: (data: SimReadyData) => void) => {
@@ -355,8 +308,7 @@ export function createNativeBridge(opts: NativeBridgeOptions): DowndraftBridgeAP
 
     dispose(): void {
       if (perfTimer) { clearInterval(perfTimer); perfTimer = null; }
-      importCache?.close();
-      importCache = null;
+      void services.dispose();
       emitters.clear();
       delete (globalThis as Record<string, unknown>).__ddMcpHandler;
     },

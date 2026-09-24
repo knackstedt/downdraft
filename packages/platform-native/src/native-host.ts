@@ -13,7 +13,7 @@
 // live in dom/dom-polyfills.ts.
 // ============================================================================
 
-import { installShaderValidationGuard } from "@downdraft/engine";
+import { ENGINE_VERSION, installShaderValidationGuard } from "@downdraft/engine";
 import { join } from "node:path";
 import { installAssetGlob } from "./assets/native-assets";
 import { createNativeBridge } from "./bridge/native-bridge";
@@ -29,6 +29,7 @@ import {
 import { installImagePolyfills } from "./image/native-image";
 import { startNativeMcpServer, type NativeMcpOptions, type NativeMcpServer } from "./mcp/native-mcp";
 import { captureScreenshot, captureScreenshotPixels } from "./screenshot/screenshot";
+import { createHostServices, type HostServices } from "./services/host-services";
 import { NativeSurface } from "./window/native-surface";
 import { NativeWindow, type NativeWindowConfig } from "./window/native-window";
 
@@ -45,6 +46,11 @@ export interface NativeHostConfig {
    *  Default: enabled when `appId` is set, port ephemeral. Pass `false` to
    *  disable, or options to configure. */
   mcp?: boolean | NativeMcpOptions;
+  /** Where host services (save I/O, SQLite import cache) run. Default
+   *  "worker" — a dedicated services thread keeps blocking I/O off the
+   *  frame loop. "inline" runs in-process (debug/tests). Env override:
+   *  DOWNDRAFT_SERVICES=inline. */
+  services?: "inline" | "worker";
   screenshotPath?: string;
   screenshotAfterFrames?: number;
 }
@@ -57,6 +63,8 @@ export interface NativeHostContext {
   device: any;
   /** The installed `downdraft` bridge, when `appId` was provided. */
   bridge: (ReturnType<typeof createNativeBridge>) | null;
+  /** Host services handle (worker-backed save store + import cache). */
+  services: HostServices | null;
   mcp: NativeMcpServer | null;
   requestAnimationFrame: (callback: (time: number) => void) => number;
   cancelAnimationFrame: (id: number) => void;
@@ -192,14 +200,24 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   // of the same API the Electron preload exposes over IPC. The lazy accessor
   // in app/renderer picks it up whenever `startGame()` (or game code) first
   // touches `downdraft.*`.
-  const bridge = config.appId
+  // Services worker owns FileSaveStore + the SQLite import cache so save
+  // serialization and sync sqlite calls stay off the frame thread. Same
+  // process shape the plugin sandbox will use.
+  const services = config.appId
+    ? await createHostServices({
+        appId: config.appId,
+        engineVersion: config.engineVersion ?? ENGINE_VERSION,
+        mode: config.services,
+      })
+    : null;
+  const bridge = config.appId && services
     ? createNativeBridge({
         appId: config.appId,
         window,
         surface,
         device,
         adapter,
-        engineVersion: config.engineVersion,
+        services,
         isDev: !config.screenshotPath, // dev hosts don't pass a screenshot path
       })
     : null;
@@ -244,6 +262,7 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
     adapter,
     device,
     bridge,
+    services,
     mcp,
     requestAnimationFrame: rafSource.request.bind(window),
     cancelAnimationFrame: rafSource.cancel.bind(window),

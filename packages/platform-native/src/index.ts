@@ -29,6 +29,7 @@ export { startNativeGame, wireFreeTypeText, type NativeGameContext, type NativeG
 export { runNativeGameModule, type RunNativeGameModuleOptions } from "./native-game-module";
 export { createNativeHost, type NativeHostConfig, type NativeHostContext } from "./native-host";
 export { captureScreenshot, encodePNG, paddedReadbackToRGBA } from "./screenshot/screenshot";
+export { createHostServices, scopeServicesForPlugin, type HostServices, type HostServicesApi, type HostServicesOptions } from "./services/host-services";
 export { NativeCanvasContext, NativeSurface } from "./window/native-surface";
 export { NativeWindow } from "./window/native-window";
 
