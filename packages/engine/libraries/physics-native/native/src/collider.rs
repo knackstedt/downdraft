@@ -237,12 +237,39 @@ pub unsafe fn get_collider_position(realm: &PhysicsWorld, collider_id: i32, out:
 }
 
 /// Rapier `ShapeType` discriminant for the live collider (-1 if absent).
+///
+/// The value is translated to the @dimforge/rapier3d-compat JS enum so
+/// callers see identical numbers across WASM and native backends. The two
+/// differ: native parry3d orders Segment, Triangle, TriMesh, Polyline,
+/// HalfSpace mid-enum (HalfSpace=7, ConvexPolyhedron=10), while the WASM
+/// bindings move HalfSpace to 17 and order the mid-enum Segment, Polyline,
+/// Triangle, TriMesh (ConvexPolyhedron=9).
 pub fn collider_shape_type(realm: &PhysicsWorld, collider_id: i32) -> i32 {
+    use rapier3d::parry::shape::ShapeType as T;
     realm
         .collider_map
         .get(&collider_id)
         .and_then(|&h| realm.colliders.get(h))
-        .map(|c| c.shape().shape_type() as i32)
+        .map(|c| match c.shape().shape_type() {
+            T::Segment => 3,
+            T::Polyline => 4,
+            T::Triangle => 5,
+            T::TriMesh => 6,
+            T::HeightField => 7,
+            T::Compound => 8,
+            T::ConvexPolyhedron => 9,
+            T::Cylinder => 10,
+            T::Cone => 11,
+            T::RoundCuboid => 12,
+            T::RoundTriangle => 13,
+            T::RoundCylinder => 14,
+            T::RoundCone => 15,
+            T::RoundConvexPolyhedron => 16,
+            T::HalfSpace => 17,
+            // Ball=0, Cuboid=1, Capsule=2 line up; Custom has no JS analog.
+            T::Ball | T::Cuboid | T::Capsule => c.shape().shape_type() as i32,
+            _ => -1,
+        })
         .unwrap_or(-1)
 }
 

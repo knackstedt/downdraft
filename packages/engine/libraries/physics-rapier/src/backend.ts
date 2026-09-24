@@ -37,7 +37,6 @@ interface BodyState {
   body: PhysicsBody;
   desc: BodyDesc;
   colliders: Map<number, ColliderDesc>;
-  nextColliderId: number;
   position: [number, number, number];
   rotation: [number, number, number, number];
   linearVelocity: [number, number, number];
@@ -54,6 +53,7 @@ export class RapierPhysicsBackend implements PhysicsBackend {
   private realms: Map<number, RealmState> = new Map();
   private realmIds: number[] = [];
   private nextRealmId = 1;
+  private nextColliderId = 1;
   private destroyed = false;
 
   /**
@@ -136,7 +136,6 @@ export class RapierPhysicsBackend implements PhysicsBackend {
       body,
       desc,
       colliders: new Map(),
-      nextColliderId: 1,
       position: [...desc.position] as [number, number, number],
       rotation: [...desc.rotation] as [number, number, number, number],
       linearVelocity: [...(desc.linearVelocity ?? [0, 0, 0])] as [number, number, number],
@@ -174,7 +173,11 @@ export class RapierPhysicsBackend implements PhysicsBackend {
   addCollider(body: PhysicsBody, desc: ColliderDesc): number {
     const state = this.getBodyState(body);
     if (!state) return -1;
-    const id = state.nextColliderId++;
+    // Collider ids are allocated from a backend-global counter — the
+    // realm-scoped lib APIs (colliderMaps, FFI collider_map) key by
+    // colliderId alone, so per-body counters would collide across bodies
+    // and silently swap/remove the wrong collider.
+    const id = this.nextColliderId++;
     state.colliders.set(id, desc);
     if (this.lib) {
       this.lib.addCollider(body.realmId, body.id, id, desc);

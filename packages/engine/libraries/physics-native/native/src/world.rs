@@ -27,6 +27,8 @@ pub struct PhysicsWorld {
     /// Rapier handle → game body id (awake-state readback, contact reporting).
     pub body_id_by_handle: HashMap<RigidBodyHandle, i32>,
     /// Game collider id → Rapier handle.
+    // Keyed by collider_id — the JS backend allocates ids from a global
+    // counter so they're unique across the realm.
     pub collider_map: HashMap<i32, ColliderHandle>,
     /// Game controller id → controller state.
     pub controller_map: HashMap<i32, CharController>,
