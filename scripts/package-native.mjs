@@ -285,10 +285,14 @@ const makePlugin = (collectWorkers) => ({
       // inside the staged dd-assets tree (real FS — sibling asset reads,
       // glob enumeration, and wasm/binary loads all resolve there).
       // Bun flattens all of these to /$bunfs/root in compiled binaries.
-      if (out !== src || needsGlob) {
-        out = out.replace(META_DIR_RE, "__ddModDir");
-        out = out.replace(META_URL_RE, "__ddModUrl");
-        out = out.replace(/(?<![.\w$])__dirname\b/g, "__ddModDir");
+      // Apply unconditionally — a file that only reads import.meta.url for
+      // a `new URL("./x.png", ...)` still needs the rewrite even though no
+      // earlier step changed its source.
+      const metaOut = out
+        .replace(META_DIR_RE, "__ddModDir")
+        .replace(META_URL_RE, "__ddModUrl")
+        .replace(/(?<![.\w$])__dirname\b/g, "__ddModDir");
+      if (metaOut !== out || needsGlob) {
         out =
           `import { dirname as __ddDirname } from "node:path";\n` +
           `import { pathToFileURL as __ddP2F } from "node:url";\n` +
@@ -298,7 +302,7 @@ const makePlugin = (collectWorkers) => ({
             ? `import { createGlob as __ddCreateGlob } from "@downdraft/engine/platform/glob-polyfill";\n` +
               `const __ddGlob = __ddCreateGlob(__ddModDir);\n`
             : "") +
-          out;
+          metaOut;
       }
       const loader = { ts: "ts", tsx: "tsx", js: "js", jsx: "jsx", mts: "ts", mjs: "js" }[args.path.split(".").pop()] || "ts";
       return out === src ? undefined : { contents: out, loader };
