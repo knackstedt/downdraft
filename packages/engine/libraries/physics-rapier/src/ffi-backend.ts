@@ -9,6 +9,8 @@
 import { RapierPhysicsBackend } from "./backend";
 import { loadFfiPhysicsLib } from "./ffi-lib";
 
+export { loadFfiPhysicsLib };
+
 export class RapierFfiBackend extends RapierPhysicsBackend {
   override readonly name = "rapier-ffi";
   override readonly version = "0.1.0";

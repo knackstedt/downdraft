@@ -590,7 +590,7 @@ export class RapierPhysicsBackend implements PhysicsBackend {
     if (!realm) return;
 
     if (this.lib) {
-      if (this.readBackTransformsOnStep && this.lib.readAwakeBodyStates) {
+      if (this.readBackTransformsOnStep && this.lib.readAwakeBodyStates && realm.bodies.size > 0) {
         // Batched readback: one lib call for the whole awake set instead of a
         // per-body getBodyTransform round trip. Sleeping bodies don't move, so
         // the JS cache keeps last-synced values for them.

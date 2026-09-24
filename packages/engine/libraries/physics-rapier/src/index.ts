@@ -4,6 +4,7 @@ export { bulkReadMultiRealm, bulkReadTransforms, bulkWriteTransforms } from "./b
 // Native FFI backend intentionally not re-exported here — ffi-lib.ts pulls
 // @downdraft/platform-native, which must stay out of Electron/web bundles.
 // Native code imports "@downdraft/engine/libraries/physics-rapier/ffi-backend".
+export { createRapierBackend, isNativeRuntime } from "./auto-backend";
 
 // Declarative library descriptor
 export { PhysicsAPITok, PhysicsRapierLib } from "./library";
