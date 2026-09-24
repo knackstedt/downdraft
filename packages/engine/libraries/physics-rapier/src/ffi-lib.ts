@@ -49,6 +49,8 @@ function findPhysicsLibrary(): string {
     join(_dirname, "..", "..", "physics-native", "native", "target", "release", base),
     join(_dirname, "..", "..", "physics-native", "native", "target", "debug", base),
     join(_dirname, "..", "..", "physics-native", "native", base),
+    // Packaged layout — native/ dir next to the compiled binary.
+    join(dirname(process.execPath), "native", base),
     join("/usr/local/lib", base),
   ];
   for (const p of candidates) {

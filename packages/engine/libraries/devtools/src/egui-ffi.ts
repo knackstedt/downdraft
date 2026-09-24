@@ -32,6 +32,10 @@ function findDevtoolsLibrary(): string {
   const sidePath = join(_dirname, "..", "..", "devtools", "native", "libdowndraft_devtools.so");
   if (existsSync(sidePath)) return sidePath;
 
+  // Packaged layout — native/ dir next to the compiled binary.
+  const execPath = join(dirname(process.execPath), "native", "libdowndraft_devtools.so");
+  if (existsSync(execPath)) return execPath;
+
   const systemPath = "/usr/local/lib/libdowndraft_devtools.so";
   if (existsSync(systemPath)) return systemPath;
 

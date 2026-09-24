@@ -6,8 +6,23 @@
 // ============================================================================
 
 import { existsSync, readdirSync, statSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+
+// Compiled-binary layout: `bun build --compile` embeds modules under
+// /$bunfs/root/<repo-rel> (Windows: B:\~BUN\root\). Asset files aren't
+// embedded — package-native.mjs stages them at <execDir>/dd-assets/
+// <repo-rel>, so a $bunfs callerDir maps onto the staged tree. The keys
+// stay identical because both trees share the same relative structure.
+const BUNFS_ROOT_RE = /^\/\$bunfs\/root\/|^B:\\~BUN\\root\\/i;
+
+function mapCallerDir(callerDir: string): string {
+  if (!BUNFS_ROOT_RE.test(callerDir)) return callerDir;
+  const rel = callerDir.replace(BUNFS_ROOT_RE, "");
+  const root = process.env.DOWNDRAFT_ASSET_ROOT
+    ?? join(dirname(process.execPath), "dd-assets");
+  return join(root, rel);
+}
 
 function globToRegex(pattern: string): RegExp {
   // Order matters: `**` must be handled before `*` (a single `*` matches one
@@ -38,6 +53,7 @@ function walkDir(dir: string, results: string[] = []): string[] {
 }
 
 export function createGlob(callerDir: string): (pattern: string, options?: any) => Record<string, string> {
+  const fsCallerDir = mapCallerDir(callerDir);
   return function glob(pattern: string, options?: any): Record<string, string> {
     // Extract the non-glob prefix to find the search root
     const patternParts = pattern.split("/");
@@ -46,7 +62,7 @@ export function createGlob(callerDir: string): (pattern: string, options?: any) 
       if (part.includes("*") || part.includes("{")) break;
       rootParts.push(part);
     }
-    const searchDir = resolve(callerDir, ...rootParts);
+    const searchDir = resolve(fsCallerDir, ...rootParts);
     if (!existsSync(searchDir) || !statSync(searchDir).isDirectory()) return {};
 
     const allFiles = walkDir(searchDir);
@@ -55,7 +71,7 @@ export function createGlob(callerDir: string): (pattern: string, options?: any) 
     const matchRegex = globToRegex(normalizedPattern);
 
     for (const file of allFiles) {
-      const relPath = relative(callerDir, file).replace(/\\/g, "/");
+      const relPath = relative(fsCallerDir, file).replace(/\\/g, "/");
       const prefixedPath = relPath.startsWith("..") ? relPath : "./" + relPath;
       if (matchRegex.test(relPath) || matchRegex.test(prefixedPath)) {
         // For ?url queries, return the file:// URL
