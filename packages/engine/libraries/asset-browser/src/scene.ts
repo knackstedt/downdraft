@@ -90,8 +90,9 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
   const visibleStat = config.visibleStat ?? "showBrowser";
   const hasSidePanel = !!config.sidePanel;
   const sidePanelW = hasSidePanel ? SETTINGS_W : 0;
-  const hasFilters = !!(config.categories?.length || (config.sortModes?.length ?? 0) > 1);
-  const filtersH = hasFilters ? FILTERS_H : 0;
+  let categories = config.categories ?? [];
+  const hasFilters = () => categories.length > 0 || sortModes.length > 1;
+  const filtersH = () => (hasFilters() ? FILTERS_H : 0);
   const searchText = config.searchText ?? ((i: T) => i.name);
   const thumbKind = config.thumbKind ?? ((i: T) =>
     i.modelUri ? "model" : (i.id.includes("sphere") || i.id.includes("ball")) ? "sphere" : "cube");
@@ -184,10 +185,10 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
     return app.screen.width - sidePanelW - PADDING * 3;
   }
   function getGridHeight(): number {
-    return app.screen.height - HEADER_H - TABS_H - filtersH - FOOTER_H - PADDING * 2;
+    return app.screen.height - HEADER_H - TABS_H - filtersH() - FOOTER_H - PADDING * 2;
   }
   function getGridX(): number { return PADDING; }
-  function getGridY(): number { return HEADER_H + TABS_H + filtersH + PADDING; }
+  function getGridY(): number { return HEADER_H + TABS_H + filtersH() + PADDING; }
 
   // ── Build backdrop ──
   function buildBackdrop(): void {
@@ -264,7 +265,7 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
   // ── Build filters ──
   function buildFilters(): void {
     filtersBar.removeChildren();
-    if (!hasFilters) return;
+    if (!hasFilters()) return;
     const bg = new Graphics();
     bg.rect(0, HEADER_H + TABS_H, app.screen.width, FILTERS_H);
     bg.fill({ color: C_PANEL, alpha: 0.6 });
@@ -272,7 +273,7 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
 
     let x = PADDING;
     const y = HEADER_H + TABS_H + 8;
-    for (const c of config.categories ?? []) {
+    for (const c of categories) {
       const isActive = categoryFilter === c.id;
       const btn = new Text({
         text: isActive ? `[${c.label}]` : c.label,
@@ -365,6 +366,15 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
     });
     gridBg.on("pointerup", () => { dragScrolling = false; gridBg.cursor = "grab"; });
     gridBg.on("pointerupoutside", () => { dragScrolling = false; gridBg.cursor = "grab"; });
+    // Wheel scroll — deltaY is already pixel-scaled by the host's input path.
+    // Attached to gridArea (the cards' parent), not gridBg: wheel events
+    // bubble up ancestors, and a card hover would otherwise never reach the
+    // sibling gridBg.
+    gridArea.eventMode = "static";
+    gridArea.on("wheel", (e: any) => {
+      scrollY = Math.max(0, Math.min(maxScrollY, scrollY + (e.deltaY ?? 0)));
+      layoutCards();
+    });
 
     // Create cards
     for (let i = 0; i < items.length; i++) {
@@ -566,17 +576,18 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
     footerBar.addChild(bg);
 
     let infoX = PADDING;
-    if (config.footerButton) {
+    for (const fb of config.footerButtons ?? []) {
       const btn = new Text({
-        text: config.footerButton.label,
-        style: { fill: config.footerButton.color ?? 0xff6666, fontSize: 13, fontFamily: FONT },
+        text: fb.label,
+        style: { fill: fb.color ?? 0xff6666, fontSize: 13, fontFamily: FONT },
       });
-      btn.x = PADDING; btn.y = fy + 8;
+      btn.x = infoX; btn.y = fy + 8;
       btn.eventMode = "static"; btn.cursor = "pointer";
-      btn.onclick = () => config.footerButton!.onClick();
+      btn.onclick = () => fb.onClick();
       footerBar.addChild(btn);
-      infoX = PADDING + btn.width + 32;
+      infoX += btn.width + 24;
     }
+    infoX += 8;
 
     const allItems = getFilteredItems();
     const info = new Text({
@@ -863,6 +874,13 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
     },
     setItems: applyItems,
     setBadges: applyBadges,
+    setCategories(cats) {
+      categories = cats;
+      if (!categories.some((c) => c.id === categoryFilter)) categoryFilter = "all";
+      buildFilters();
+      rebuildGrid();
+      buildSettingsPanel();
+    },
     setVisible: setShowBrowser,
     isVisible: () => showBrowser,
     getSelected: () => cards.find((c) => c.item.id === selectedContentId)?.item

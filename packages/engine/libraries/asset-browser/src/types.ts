@@ -124,8 +124,8 @@ export interface AssetBrowserConfig<T extends AssetBrowserItem = AssetBrowserIte
   sidePanel?: (ctx: SidePanelContext<T>) => void;
   /** Hint shown in the side panel when nothing is selected. */
   emptyHint?: string;
-  /** Optional left footer button (e.g. "[Clear All Props]"). */
-  footerButton?: { label: string; color?: number; onClick: () => void };
+  /** Optional left footer buttons (e.g. "[Clear All Props]"). */
+  footerButtons?: { label: string; color?: number; onClick: () => void }[];
   /** Right footer text — receives the sum of all badge counts (default
    *  `Total: N`). */
   footerRight?: (totalBadgeCount: number) => string;
@@ -145,6 +145,8 @@ export interface AssetBrowserScene<T extends AssetBrowserItem = AssetBrowserItem
   setItems(items: T[]): void;
   /** Replace the badge-count map (also reachable via `badges`/`spawnCounts` event). */
   setBadges(counts: Record<string, number>): void;
+  /** Replace the category filter chips at runtime (e.g. derived from items). */
+  setCategories(cats: { id: string; label: string }[]): void;
   /** Show/hide the browser (also driven by `stats[visibleStat]`). */
   setVisible(show: boolean): void;
   /** Whether the browser overlay is currently visible. */
