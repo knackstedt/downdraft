@@ -58,3 +58,4 @@ packages/engine/libraries/blitz-ui/native-osr/target/
 # These are gitignored — regenerated from the engine-owned shell on each run.
 games/*/android/
 games/*/ios/
+test-results/
