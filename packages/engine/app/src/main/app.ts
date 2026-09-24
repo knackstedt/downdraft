@@ -1,3 +1,4 @@
+// DORMANT — Electron-only path. See DORMANT.md in this directory.
 // ============================================================================
 // createDowndraftApp() — main process orchestrator
 // ============================================================================

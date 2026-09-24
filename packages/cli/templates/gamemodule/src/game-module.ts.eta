@@ -7,7 +7,7 @@ import { SimHost } from "./sim-host";
 // GameModule template — declarative game with libraries + plugins
 //
 // The SAME module drives both entry points:
-//   src/main.tsx        — browser/Electron (draft dev --electron)
+//   src/main.tsx        — web bundle entry (build output)
 //   src/native-entry.ts — Bun + SDL + wgpu-native (draft dev, the default)
 //
 // This template shows the full declarative pattern:

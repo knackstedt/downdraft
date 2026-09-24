@@ -22,11 +22,12 @@ npm run export
 
 ```
 src/          Game source code
-  main.ts     Entry point (init, tick, dispose)
+  main.tsx    Renderer entry (game module mount)
+  native-entry.ts  Native runtime entry (draft dev)
 assets/       Game assets (models, textures, shaders)
 downdraft.config.json   Engine configuration
 ```
 
 ## Engine
 
-Built with [DownDraft Engine](https://github.com/downdraft-engine) — a TypeScript-first game engine on Electron + WebGPU.
+Built with [DownDraft Engine](https://github.com/downdraft-engine) — a TypeScript-first game engine on WebGPU — native runtime (Bun + SDL + wgpu).

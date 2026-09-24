@@ -1,3 +1,0 @@
-import { createDowndraftBridge } from "@downdraft/engine/app/preload";
-
-createDowndraftBridge();

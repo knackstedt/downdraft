@@ -11,6 +11,5 @@
     "release": "draft release",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint",
-    "test": "npm test",
-    "postinstall": "node node_modules/electron/install.js"
+    "test": "npm test"
   },

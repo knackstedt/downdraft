@@ -6,6 +6,16 @@ Every directory under `games/` is a **git submodule** pointing at its own reposi
 
 `@downdraft/*` packages are published to npm (`node scripts/publish-packages.mjs` / the `publish.yml` workflow). `packages/mobile-shell` stays private — mobile packaging (`draft release --target=android,ios`) only works inside the monorepo.
 
+## Runtime status: native is the active runtime
+
+DownDraft runs on a **native runtime** — Bun + SDL2 + wgpu-native via `@downdraft/platform-native`. A game boots from `src/native-entry.ts`, which calls `runNativeGameModule(...)`; there is no Electron, no Chromium, no Vite dev server, and no renderer/preload process split. The simulation still runs in a dedicated worker thread with SharedArrayBuffer protocols — that isolation is deliberate and is preserved on native.
+
+**Electron is dormant.** `draft dev`/`draft test`/`draft release` run native only; `--electron` / `--runtime=electron` hard-error. Electron code stays in-tree during the migration bake (marked with `// DORMANT` headers and `DORMANT.md` files) but is unreachable — do not build on it; it will be deleted after the bake. Dormant surfaces: `packages/engine/app/src/main`, `app/src/preload`, `app/src/renderer/ipc-save-store.ts`, `core/src/ipc.ts`, `modules/electron-osr`, `modules/raw-input`, per-game `electron.vite.config.ts`/`src/main.ts`/`src/preload.ts`, and `packages/mobile-shell` (mobile packaging warns and is unmaintained). `app/src/renderer` is runtime-agnostic and remains live — `startGame()`/`bootstrapGame()` run on the native main thread.
+
+Native dev is restart-based — there is no native HMR. Native packaging is staged by `scripts/package-native.mjs` (a game `bun build --compile` plus asset staging); `draft release --target=win|linux|mac` currently points there while electron-builder is disabled.
+
+Game detection: a directory is a game when it has `downdraft.config.json` or `src/native-entry.ts`; `electron.vite.config.ts` is a legacy fallback marker during the bake.
+
 ## Module architecture: engine vs game boundary
 
 > **Terminology note:** The compile-time DI units that were previously called "plugins" are now called **modules** to disambiguate. The term **"plugin" is now reserved for the upcoming user-authored plugin system** (runtime-loadable extensions authored by end users / modders). Throughout this document, "module" refers to the engine's compile-time DI units (`Module`, `RendererModule`, `ModuleHost`, etc.).
@@ -81,7 +91,7 @@ No engine package depends on any game package (verified). The `entities` library
 
 A graphical test program (modeled on `games/downdraft-model-viewer`) for visually verifying engine effects and functional systems. Provides a React DOM menu of minimal tests, each with its own renderer factory. Extensible via a `TestRegistry` API — game authors add tests by creating `*.test.ts` files in `src/tests/` that call `registerTest()`. Vite glob import auto-discovers them.
 
-- **Run**: `cd games/downdraft-gpu-bench && draft dev` (native, default) or `draft dev --electron` (deprecated Electron path via `electron-vite dev --config electron.vite.config.ts`).
+- **Run**: `cd games/downdraft-gpu-bench && draft dev` (native — the only runtime).
 - **Not in root workspaces** (follows downdraft-model-viewer pattern: `@downdraft/*` resolved via vite aliases, not type-checked by root tsconfig).
 - **Test interface**: `VisualTest { id, name, category, description, createRenderer(canvas): ITestRenderer, getControls?(): TestControl[] }`. Each test owns its own GPU resources; the bench disposes + recreates the renderer when switching tests.
 - **Built-in tests**: navmesh (recast + legacy, with mesh wireframe + path debug viz), postfx (the PostProcessStack with 21 chainable effects — TAA, SSAO, SSR, DOF, Motion Blur, Bloom, Bloom-Soft, Tonemap, FXAA, Sharpen, Grain, Sobel, Edges, Lens Flare, Pixelation, Gaussian Blur, Afterimage, Outline, Highlight, Glow, ASCII — on a 3D scene).
@@ -319,11 +329,11 @@ The library uses the `renderer.create` hook on `EngineLibrary` (the early render
 
 ## Per-game storage isolation
 
-Each game MUST pass a unique `appId` to `createDowndraftApp()`. This sets a per-game Electron `userData` directory (e.g. `~/.config/downdraft-mining-rpg/`) so that Chromium storage subsystems (OPFS, IndexedDB, Service Worker DB, cookies, cache) are fully isolated per game. Without this, all games share the same `--user-data-dir` and concurrent instances corrupt each other's LevelDB locks (`File System/Origins/LOCK`, `Service Worker/LOCK`), causing OPFS init failures and games not loading.
+Each game MUST pass a unique `appId` (`downdraft-<game>`) so the native host resolves a per-game `userData` directory (e.g. `~/.config/downdraft-mining-rpg/`). Save files, SQLite import cache, debug artifacts, and the singleton lock all live under it — sharing one between games would corrupt save state and collide on the lock.
 
 When `appId` is set, `createDowndraftApp()` also:
 1. Calls `app.requestSingleInstanceLock()` — prevents two instances of the same game from running concurrently (which would corrupt storage). A second launch focuses the existing window and quits. **Skipped in deterministic/test mode** (`DOWNDRAFT_DETERMINISTIC=1`): the test harness controls process lifecycle itself (dynamic MCP ports + process-group kills), and the singleton lock mechanism (Unix socket + `SingletonLock` file in userData) can fail to initialize in sandboxed CI environments, causing the game to quit immediately and fail every E2E smoke test.
-2. Calls `cleanupStaleStorage()` — removes stale LevelDB `LOCK` files, Electron `SingletonLock`/`SingletonSocket` artifacts, and `.org.chromium.Chromium.*` temp files from a previous run that crashed or was killed. In non-deterministic mode this is safe because the single-instance lock guarantees no live process is using the directory; in deterministic mode the test harness guarantees no concurrent instance.
+2. Cleans up stale lock artifacts from a previous run that crashed or was killed. In non-deterministic mode this is safe because the single-instance lock guarantees no live process is using the directory; in deterministic mode the test harness guarantees no concurrent instance.
 
 ### Files
 
@@ -359,11 +369,11 @@ In packaged builds, the renderer loads via `win.loadFile()` → `file://` protoc
 
 ## Process management & debugging games
 
-### Killing game processes — never use generic `pkill electron`
+### Killing game processes — never use generic `pkill bun`/`pkill electron`
 
-**NEVER run `pkill -9 electron`, `pkill -f electron`, `killall electron`, or any other generic Electron-killing command.** The user's machine may have other Electron apps running (VS Code, Slack, Discord, other games, the Devin desktop app itself). A generic pkill will terminate all of them, destroying the user's work and your own session.
+**NEVER run `pkill -9 bun`, `pkill -f bun`, `killall bun`, or any other generic runtime-killing command.** The user's machine may run other Bun processes (and other Electron apps: VS Code, Slack, the Devin desktop app itself). A generic pkill will terminate all of them, destroying the user's work and your own session.
 
-**`draft dev` now defaults to the native runtime** (Bun + SDL + wgpu-native via `src/native-entry.ts`) — Electron is the deprecated opt-in (`draft dev --electron`). The native runtime uses a single-instance lock (`singleton.lock` in the game's userData dir) instead of Electron's `requestSingleInstanceLock`; re-running `draft dev` handles stale instances on both paths. The notes below apply to the deprecated Electron path. Each game runs as an Electron process launched against its own `games/<game>/electron.vite.config.ts` entrypoint (dev mode: `draft dev --electron` from inside `games/<game>/`, or `npx electron-vite dev --config games/<game>/electron.vite.config.ts` from the repo root; built mode: `npx electron .` from `games/<game>`). `draft dev --electron` automatically kills any stale Electron instance from a previous run of the same game before spawning (cross-platform: Linux `/proc`, macOS/`ps`, Windows PowerShell) — you do not need to do this manually. To kill a specific game instance yourself, target **that game only**:
+**`draft dev` runs only the native runtime** (Bun + SDL + wgpu-native via `src/native-entry.ts`) — the Electron path is dormant and `--electron` errors. The native runtime uses a single-instance lock (`singleton.lock` in the game's userData dir); re-running `draft dev` handles stale instances. Each game runs as a **single Bun process** (plus worker threads). To kill a specific game instance, target **that game only**:
 
 - **Let `draft dev` handle it** — re-running `draft dev` from the game directory tears down the previous instance automatically. This is the preferred path.
 - **Match the per-game `--user-data-dir`** (each game sets a unique `downdraft-<game>` userData dir, visible in the process args) only if you need to kill a process you did not launch via `draft dev`:
@@ -380,23 +390,21 @@ In packaged builds, the renderer loads via `win.loadFile()` → `file://` protoc
   fuser -k <port>/tcp   # kills whatever is bound to that port
   ```
 
-Prefer `kill -TERM` first (lets the game clean up storage locks via `cleanupStaleStorage()` and `requestSingleInstanceLock()`); only escalate to `kill -9` if the process doesn't exit within a few seconds. If you launched the game yourself (via `draft dev`, `draft test`, or the e2e harness), prefer terminating the parent shell/process you spawned rather than hunting for the Electron child.
+Prefer `kill -TERM` first (lets the game release the singleton lock and flush saves); only escalate to `kill -9` if the process doesn't exit within a few seconds. If you launched the game yourself (via `draft dev`, `draft test`, or the e2e harness), prefer terminating the parent shell/process you spawned rather than hunting for the `bun` child.
 
 ### Debugging games — do NOT use a browser / Playwright
 
-**Do NOT use a browser (Chrome, Playwright, `browser_preview`, the `devin/mcp-playwright` MCP server, or any other web browser tool) to debug or drive Downdraft games.** The games are Electron + WebGPU apps that rely on:
+**Do NOT use a browser (Chrome, Playwright, `browser_preview`, the `devin/mcp-playwright` MCP server, or any other web browser tool) to debug or drive Downdraft games.** The games are native Bun + SDL + wgpu apps — there is no browser or DOM to attach to. They rely on:
 
-- Pointer lock and raw input events (browsers block or interfere with these).
-- Offscreen rendering (OSR) and Chromium-specific GPU switches (`webGpuSwitches()`).
-- Per-game `--user-data-dir` isolation (see "Per-game storage isolation" above).
-- Worker threads, SharedArrayBuffer, COOP/COEP headers set in `window.ts`.
-- `window.downdraft` preload bridge APIs that only exist inside the Electron preload context.
+- The SDL window/input path and wgpu-native device — there is no DOM, no DevTools protocol, and no remote-debugging port.
+- `window.downdraft` bridge APIs installed by the native bridge, which only exist inside the game process.
+- Worker threads + SharedArrayBuffer sim isolation.
 
 A plain browser cannot reproduce any of this, and Playwright driving a browser will not exercise the real game code paths. The `devin/mcp-playwright` MCP server is for general web pages, **not** for Downdraft games.
 
 **Instead, use the in-game MCP automation harness and `draft test`:**
 
-1. **`bun run draft:test-cpu`** (or `bun run draft:test`) — the canonical way to launch and exercise a game headlessly. `draft test` sets `DOWNDRAFT_DETERMINISTIC=1` and spawns `bun test <spec>`; the default smoke specs use the in-game MCP RPC harness to boot the real game and drive it. The default runtime is **native** (`--runtime=native`); `--runtime=electron` selects the deprecated Electron path. See "Running the smoke test" below for the full CLI flag reference.
+1. **`bun run draft:test-cpu`** (or `bun run draft:test`) — the canonical way to launch and exercise a game headlessly. `draft test` sets `DOWNDRAFT_DETERMINISTIC=1` and spawns `bun test <spec>`; the default smoke specs use the in-game MCP RPC harness to boot the real game and drive it. The only runtime is **native** — `--runtime=electron` errors. See "Running the smoke test" below for the full CLI flag reference.
 2. **The `game` MCP server** (configured in `.devin/mcp_config.json` via the stdio→HTTP bridge at `.devin/mcp-stdio-bridge.mjs`) — once a game is running, this exposes the game's automation tools directly to your MCP client. The bridge auto-discovers the running instance via PID files in `~/.downdraft/port/<pid>` (content = the bound port). **List the tools first with `mcp_list_tools` before calling any of them** — never guess tool names or argument schemas. The currently registered tools (see `games/to-the-ocean/src/mcp/automation-tools.ts`) include:
    - `inject_input` / `clear_injected_input` — hold keys/mouse/wheel for N frames.
    - `dispatch_key` / `dispatch_click` — fire real DOM events on the main thread (full input pipeline).
@@ -456,11 +464,9 @@ The `opts` object encapsulates all config and dependencies. This is the standard
 - `bun test packages/engine/modules/persistence/src/opfs-save-store.spec.ts` — OpfsSaveStore (OPFS ISaveStore) specs (22 tests). Uses mock OPFS — no browser/worker environment needed.
 - `bun run draft:test` — e2e smoke test with hardware GPU (headless, deterministic). Equivalent to `draft test --renderer=gpu`.
 - `bun run draft:test-cpu` — e2e smoke test with SwiftShader software rendering (headless, deterministic). Equivalent to `draft test --renderer=cpu`. Use this for CI.
-- `bun run draft:test -- --headed` — same but shows the Electron window (useful for debugging).
+- `bun run draft:test -- --headed` — same but shows the native SDL window (useful for debugging).
 - `bun run draft:test -- --game blockheads` — run the blockheads e2e smoke test.
 - `bun run draft:test -- --game sandjongg` — run the sandjongg e2e smoke test.
-- `bun run draft:test -- --build` — build the game with electron-vite first, then test the packaged app (production-build mode).
-- `bun run draft:test -- --build-only` — only test the pre-built app (skip dev server; requires prior `electron-vite build`).
 - `bun run test:e2e` — legacy: runs the spec directly via `bun test` (bypasses the CLI).
 - `bun run tsc:e2e` — type-checks e2e test files against `tsconfig.e2e.json`.
 - `bun test examples/plugin-tester/src/*.spec.ts` — run all plugin-tester specs (488 tests across 11 files: audio-kira, lighting, marching-cubes, navmesh, networking, physics-rapier, water, weather, mcp, engine, test-scene).
@@ -473,9 +479,9 @@ The `opts` object encapsulates all config and dependencies. This is the standard
 
 These are set automatically by `draft test`. See the "Running the smoke test" section below for the full CLI flag reference.
 
-- `DOWNDRAFT_GPU=swiftshader|hardware` — selects WebGPU backend via `webGpuSwitches()`. `swiftshader` = software Vulkan (CI), `hardware` = NVIDIA Vulkan (local).
-- `DOWNDRAFT_DETERMINISTIC=1` — fixed seed (99999), skip autosave loading, disable devtools auto-open and error dialogs, pause the render loop (on-demand rendering only via `set_test_state` or `capture_screenshot`). The flag is passed from the main process to the renderer via the `downdraft.deterministic` bridge property (set in `packages/engine/app/src/preload/bridge.ts`).
-- `DOWNDRAFT_HEADED=1` — show the Electron window even in deterministic mode. Without this, `window.ts` suppresses `win.show()` when `DOWNDRAFT_DETERMINISTIC=1`.
+- `DOWNDRAFT_GPU=swiftshader|hardware` — selects the wgpu-native backend. `swiftshader` = software Vulkan (CI), `hardware` = NVIDIA Vulkan (local).
+- `DOWNDRAFT_DETERMINISTIC=1` — fixed seed (99999), skip autosave loading, disable devtools auto-open and error dialogs, pause the render loop (on-demand rendering only via `set_test_state` or `capture_screenshot`). The flag reaches the game via the `downdraft.deterministic` bridge property (set by the native bridge).
+- `DOWNDRAFT_HEADED=1` — show the native SDL window even in deterministic mode.
 - `MCP_PORT=<port>` — MCP HTTP transport port. Unset = ephemeral OS-assigned port (default; advertised via `~/.downdraft/port/<pid>` for auto-discovery). Set explicitly for the e2e test harness (9976).
 - `MCP_TIMEOUT_MS=120000` — MCP proxy IPC round-trip timeout in ms (must be longer than the longest `wait_for_condition` call).
 
@@ -700,6 +706,8 @@ The engine uses a bindless material binding model to eliminate per-draw bind-gro
 
 ## Host SDK (`@downdraft/engine/app` — game-bootstrapped host layer)
 
+> **Dormant:** The Electron main/preload shell described below is retired — see "Runtime status" above. On native, `src/native-entry.ts` calls `runNativeGameModule()` and the native host (`packages/platform-native`) provides the window, GPU device, `window.downdraft` bridge, and MCP server in-process. The subpaths below remain exported for typecheck compat during the bake but are unreachable at runtime.
+
 Games bootstrap themselves by calling engine-exported host methods, instead of the engine owning a monolithic main/preload process. The engine obscures Electron's main/preload/renderer machinery behind a config-driven surface (Angular-style: devs set config, rarely touch raw Electron APIs). Raw process access is a deliberate `extend(ctx)` escape hatch.
 
 ### Subpath exports
@@ -777,12 +785,11 @@ node scripts/mcp-call.mjs set_test_state '{"weather":1}'  # tools/call with JSON
 
 `MCP_RAW=1` dumps the full tool-result JSON — needed for non-text content like `capture_screenshot`'s image blocks (otherwise only text blocks print).
 
-**Runtime benchmark:** `node scripts/bench-runtime.mjs <game> <native|electron> [--settle=8] [--sample=15] [--no-mcp]` launches a game, measures boot→MCP-ready, sim tick rate, whole-process-tree RSS/CPU (`/proc` group stats — fair for Electron's multi-process model), captures a screenshot, and scans the log for errors. Prints one JSON line. `--no-mcp` waits on a log marker for games with MCP disabled (gpu-bench on Electron).
+**Runtime benchmark:** `node scripts/bench-runtime.mjs <game> native [--settle=8] [--sample=15] [--no-mcp]` launches a game, measures boot→MCP-ready, sim tick rate, process RSS/CPU, captures a screenshot, and scans the log for errors. Prints one JSON line. The `electron` target is dormant.
 
 Key bridge fixes:
 - Notifications (no `id`) must not receive a response — the bridge silently drops them.
 - The proxy handler wraps errors in the `result` field; the bridge detects `result.error` and converts it to a proper MCP `error` response.
-- `ELECTRON_RUN_AS_NODE` must be unset in the game's env or Electron's `app` object is undefined.
 
 ### Running the smoke test
 
@@ -806,13 +813,12 @@ draft test --renderer=cpu --spec tests/e2e/my-game.spec.ts
 
 **CLI flags:**
 - `--renderer <gpu|cpu>` — WebGPU backend. `cpu` = SwiftShader software (default), `gpu` = hardware Vulkan.
-- `--headed` — Show the Electron window instead of running headless. Sets `DOWNDRAFT_HEADED=1`.
+- `--headed` — Show the native SDL window instead of running headless. Sets `DOWNDRAFT_HEADED=1`.
 - `--game <name>` — Game to test (default: `to-the-ocean`). Resolves spec to `tests/e2e/<game>-smoke.spec.ts`.
 - `--spec <path>` — Override the spec file path.
 - `--port <n>` — MCP port (default: 9976). If omitted, the harness auto-allocates a free port.
 - `--no-deterministic` — Disable fixed seed / render loop pause / window hiding.
-- `--build` — Build the game with `electron-vite build` before testing, then test the packaged app from `dist/main/index.cjs`. Catches production-only bugs.
-- `--build-only` — Only test the built app (skip dev server; requires prior `electron-vite build`).
+- `--build` / `--build-only` — dormant: they used the electron-vite pipeline and now error. Native packaging is staged by `scripts/package-native.mjs`.
 
 **Environment variables (set automatically by `draft test`):**
 - `DOWNDRAFT_GPU=swiftshader|hardware` — selects the WebGPU backend via `webGpuSwitches()`.
@@ -821,20 +827,20 @@ draft test --renderer=cpu --spec tests/e2e/my-game.spec.ts
 - `MCP_PORT=9976` — MCP HTTP transport port (explicit; unset = ephemeral for dev).
 - `MCP_TIMEOUT_MS=120000` — MCP proxy IPC round-trip timeout.
 
-**Headless / CI without a display:** The CLI auto-detects missing `DISPLAY` and wraps in `xvfb-run` if available. Install it with `sudo apt install xvfb`. Electron still needs an X server even when the window is hidden — SwiftShader renders to an offscreen surface but Chromium's ozone platform requires a display connection.
+**Headless / CI without a display:** The CLI auto-detects missing `DISPLAY` and wraps in `xvfb-run` if available. Install it with `sudo apt install xvfb`. SDL still needs an X server even when the window is hidden — wgpu-native renders to the window surface via SwiftShader when `DOWNDRAFT_GPU=swiftshader`.
 
 **Legacy scripts** (still available, bypass the CLI):
 - `bun run test:e2e` — runs the spec directly via `bun test` (uses whatever env vars are set).
 - `bun run test:e2e:headless` — same, but forces `DOWNDRAFT_GPU=swiftshader`.
 - `bun run test:e2e:local` — same, no env override (uses hardware GPU by default).
 
-`tests/e2e/harness.ts` launches `npx electron-vite dev --config games/<game>/electron.vite.config.ts`, waits for the MCP HTTP health endpoint, and drives the game through MCP tool calls. The smoke test (`tests/e2e/to-the-ocean-smoke.spec.ts`) verifies that the tool surface exists, the simulation ticks, injected input advances the world, and a screenshot can be captured.
+`tests/e2e/harness.ts` launches `bun games/<game>/src/native-entry.ts`, waits for the native MCP HTTP health endpoint, and drives the game through MCP tool calls. The smoke test (`tests/e2e/to-the-ocean-smoke.spec.ts`) verifies that the tool surface exists, the simulation ticks, injected input advances the world, and a screenshot can be captured.
 
-**Build mode:** Pass `--build` to `draft test` to build the game with `electron-vite build` first, then test the packaged app from `dist/main/index.cjs` instead of the dev server. This catches production-only bugs (e.g. minification issues, missing assets, tree-shaking problems). Use `--build-only` to skip the dev server entirely (requires a prior build). The harness detects built mode via the `DOWNDRAFT_TEST_BUILT=1` env var.
+**Build mode:** dormant — `--build`/`--build-only` used the electron-vite pipeline and now error. Production-build e2e returns with native packaging (Track F).
 
 **Dynamic ports:** The harness auto-allocates a free MCP port starting from 9976, enabling parallel spec execution. Specs read the port from `process.env.MCP_PORT` (set by `draft test --port`). To run multiple specs simultaneously, omit `--port` and let each spec pick its own.
 
-**Process cleanup:** The harness kills the entire process group (bun + Electron + Vite) on test completion, preventing orphaned Electron processes. It uses `process.kill(-pid, SIGTERM)` with a SIGKILL fallback after 5s.
+**Process cleanup:** The harness kills the entire process group (the `bun` game process and its worker threads) on test completion. It uses `process.kill(-pid, SIGTERM)` with a SIGKILL fallback after 5s.
 
 **Retry logic:** The harness `callToolWithRetry()` method retries MCP operations on transport errors (connection refused, timeouts) with exponential backoff. Tool-level errors (isError: true) are not retried.
 
@@ -867,7 +873,6 @@ The CLI reads and sets a number of environment variables. This is the complete l
 | `ANDROID_SDK_ROOT` | `mobile` | Android SDK path (fallback) |
 | `HOME` | `mobile` | `~/Android/Sdk`, `~/.android/debug.keystore`, `~/.downdraft/keystore.properties` |
 | `DISPLAY` | `test` | When absent, wraps in `xvfb-run` |
-| `ELECTRON_RUN_AS_NODE` | `test` | **Deleted** before spawning Electron |
 | `DOWNDRAFT_STRICT` | all commands | `1` → hard-error on unknown CLI flags (warns otherwise) |
 
 **Read by the runtime (set by CLI or user):**
@@ -904,7 +909,7 @@ Common false positives to filter out: Chromium storage errors (`ERROR:components
 
 ### E2E test gotchas
 
-- **MCP port conflicts**: If a previous test run didn't clean up, port 9977 may still be in use. Free it with `fuser -k 9977/tcp`, then kill **only the specific game instance** as described in "Killing game processes" above — do NOT use a generic `pkill -9 -f electron` (it will kill unrelated Electron apps).
+- **MCP port conflicts**: If a previous test run didn't clean up, port 9977 may still be in use. Free it with `fuser -k 9977/tcp`, then kill **only the specific game instance** as described in "Killing game processes" above — do NOT use a generic `pkill -9 bun` (it will kill unrelated Bun processes).
 - **Save store hangs in test environments**: `createSaveStore()` can hang when OPFS is not available (SwiftShader/headless). The MCP harness must be registered BEFORE the save store init so e2e tests can connect.
 - **`requestPointerLock()` returns a Promise in newer Chrome**: The Promise can reject with `WrongDocumentError` if the canvas was detached or during ESC cooldown. Always `.catch()` the return value to avoid uncaught rejections.
 
@@ -932,7 +937,7 @@ VirusTotal analysis of Windows `.exe` builds reported two issues:
 
 ### Solution
 
-**Per-game branding** — `createDowndraftBuilderConfig()` factory (`packages/engine/app/src/build/index.ts`) produces an electron-builder `Configuration` with per-game `appId`, `productName`, `copyright`, `description` (→ Windows `FileDescription`), `author` (→ Windows `CompanyName`), and `version` (→ Windows `FileVersion`). Each game has a `build.config.ts` that calls this factory. electron-builder's `WinPackager.signAndEditResources()` maps these fields to rcedit version-string arguments (`FileDescription`, `ProductName`, `LegalCopyright`, `CompanyName`, `FileVersion`, `ProductVersion`, `InternalName`).
+**Per-game branding** — `createDowndraftBuilderConfig()` factory (`packages/engine/app/src/build/index.ts`) produces an electron-builder `Configuration` with per-game `appId`, `productName`, `copyright`, `description` (→ Windows `FileDescription`), `author` (→ Windows `CompanyName`), and `version` (→ Windows `FileVersion`). Each game has a `build.config.ts` that calls this factory. electron-builder's `WinPackager.signAndEditResources()` maps these fields to rcedit version-string arguments (`FileDescription`, `ProductName`, `LegalCopyright`, `CompanyName`, `FileVersion`, `ProductVersion`, `InternalName`). **Dormant:** this whole branding path targets electron-builder, which is disabled — native packaging metadata is handled by `scripts/package-native.mjs`.
 
 **PE timestamp patching** — `patchPeTimestamps()` (`packages/engine/app/src/build/pe-timestamp.ts`) writes the actual build timestamp into the COFF `TimeDateStamp` field (`e_lfanew + 8`) of every produced `.exe`. The factory wires this into `afterAllArtifactBuild` automatically.
 
@@ -945,6 +950,8 @@ VirusTotal analysis of Windows `.exe` builds reported two issues:
 
 `draft release` is the unified build + package + sign pipeline that replaces the separate `build`, `dist`, `export`, `mobile`, and `build-games` commands. The old commands remain as deprecated backward-compat aliases that delegate to `release`.
 
+> **Dormant paths:** Desktop targets (`win|linux|mac`) used electron-vite + electron-builder and now hard-error — native packaging is staged by `scripts/package-native.mjs`. Mobile targets (`android|ios`) still run but are dormant/unmaintained during the native bake. The electron-builder details below are retained for reference only.
+
 ```
 draft release [--game=<name>] [--games=<csv>] [--target=<win|linux|mac|android|ios|all>]
               [--format=<csv>] [--stage=<build|package|release>] [--mode=<dev|debug|prod>]
@@ -953,7 +960,7 @@ draft release [--game=<name>] [--games=<csv>] [--target=<win|linux|mac|android|i
 ```
 
 Stages:
-- `build` = Vite-bundle only (desktop electron-vite + mobile web bundle)
+- `build` = Vite-bundle only (mobile web bundle; desktop electron-vite disabled)
 - `package` = package an existing build (electron-builder / Capacitor+Gradle)
 - `release` = build + package + sign + collect to `release/` (default)
 

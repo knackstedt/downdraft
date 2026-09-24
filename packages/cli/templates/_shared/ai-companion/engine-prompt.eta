@@ -109,7 +109,7 @@ world.registerModule(myModule);
 - `@downdraft/engine/modules/movement-3d` — 3D player movement
 - `@downdraft/engine/modules/movement-2d` — 2D grid-based movement
 - `@downdraft/engine/modules/sailing` — Sailing mechanics (wind, buoyancy, steering)
-- `@downdraft/engine/modules/electron-osr` — Offscreen rendering
+- `@downdraft/engine/modules/electron-osr` — DORMANT (Electron-only; native panels use Blitz)
 - `@downdraft/engine/modules/mcp` — MCP automation server
 - `@downdraft/engine/modules/xr` — WebXR support
 

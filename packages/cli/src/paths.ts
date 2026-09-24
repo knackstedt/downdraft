@@ -12,14 +12,23 @@
 //   - The monorepo root is detected by walking up looking for a package.json
 //     named "downdraft-engine" (the CLI's own install location is checked too,
 //     so `draft --game <x>` still works when invoked from outside the repo).
-//   - A game directory is identified by containing `electron.vite.config.ts`.
-//     Inside the monorepo, `games/<name>` resolves by name; standalone games
-//     are found by walking up from cwd (or verified against the name).
+//   - A game directory is identified by `downdraft.config.json`, falling back
+//     to `src/native-entry.ts` (un-migrated games) and, last-resort, the
+//     dormant `electron.vite.config.ts`. Inside the monorepo, `games/<name>`
+//     resolves by name; standalone games are found by walking up from cwd.
 
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
 
-export const GAME_CONFIG_FILE = "electron.vite.config.ts";
+export const GAME_CONFIG_FILE = "downdraft.config.json";
+const NATIVE_ENTRY_FILE = "src/native-entry.ts";
+const LEGACY_CONFIG_FILE = "electron.vite.config.ts";
+
+function isGameDir(dir: string): boolean {
+  return existsSync(join(dir, GAME_CONFIG_FILE))
+    || existsSync(join(dir, NATIVE_ENTRY_FILE))
+    || existsSync(join(dir, LEGACY_CONFIG_FILE));
+}
 
 /**
  * Find the downdraft monorepo root — a directory whose package.json is named
@@ -47,14 +56,15 @@ export function findMonorepoRoot(start: string = process.cwd()): string | null {
 }
 
 /**
- * Walk up from `start` looking for a directory containing
- * `electron.vite.config.ts` — the marker for a game directory. Works for both
- * `games/<name>` inside the monorepo and standalone game repos.
+ * Walk up from `start` looking for a game directory — `downdraft.config.json`
+ * or `src/native-entry.ts` (dormant `electron.vite.config.ts` accepted as a
+ * legacy fallback). Works for both `games/<name>` inside the monorepo and
+ * standalone game repos.
  */
 export function findGameDirUpward(start: string = process.cwd()): string | null {
   let dir = resolve(start);
   for (;;) {
-    if (existsSync(join(dir, GAME_CONFIG_FILE))) return dir;
+    if (isGameDir(dir)) return dir;
     const up = dirname(dir);
     if (up === dir) return null;
     dir = up;

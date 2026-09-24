@@ -1,5 +1,8 @@
 // ============================================================================
-// draft dist — package a game for distribution via electron-builder
+// draft dist — DORMANT: packaged games via electron-builder (Electron runtime
+// is disabled — desktop packaging moves to scripts/package-native.mjs).
+// The code below is kept in-tree for the migration bake period but is
+// unreachable from default flows and will be deleted in the cleanup pass.
 // ============================================================================
 //
 // Loads the game's `build.config.ts` (which calls
@@ -171,6 +174,23 @@ export async function resolveConfig(
  * @returns array of artifact paths produced by electron-builder.
  */
 export async function packageDesktop(
+  opts: DistArgs,
+  repoRoot: string | null,
+  gameDir?: string | null,
+): Promise<string[]> {
+  void opts; void repoRoot; void gameDir;
+  throw new Error(
+    "electron-builder packaging is disabled — the Electron runtime is dormant. " +
+    "Native packaging: bun scripts/package-native.mjs <game>/src/native-entry.ts <outfile>");
+}
+
+/**
+ * DORMANT — the pre-dormancy electron-builder implementation, kept inert for
+ * the migration bake. Never called; delete with the rest of the Electron
+ * packaging path in the post-bake cleanup.
+ */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+async function packageDesktopElectron(
   opts: DistArgs,
   repoRoot: string | null,
   gameDir?: string | null,

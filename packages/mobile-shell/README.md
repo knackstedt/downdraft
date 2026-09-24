@@ -1,6 +1,6 @@
-# @downdraft/mobile-shell — Experimental
+# @downdraft/mobile-shell — Dormant
 
-> **⚠️ Experimental:** Mobile (Android/iOS) builds are under active development. The native shell, build pipeline, and WebGPU-on-WebView path have known limitations. Desktop builds are the stable, recommended target.
+> **⚠️ Dormant:** Mobile packaging is unmaintained during the native desktop migration bake. `draft release --target=android,ios` still runs but is not exercised by CI; expect drift. The Capacitor/WebView shell survives in-tree for a future revisit — do not build new features on it.
 
 Canonical pre-wired Capacitor native shell for Android + iOS mobile builds.
 

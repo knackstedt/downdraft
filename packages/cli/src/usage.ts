@@ -51,7 +51,7 @@ export const COMMANDS: CommandEntry[] = [
         { name: "stage", type: "string", default: "release", enum: [...RELEASE_STAGES], description: "Stage: build (Vite only), package (package existing build), release (build+package+sign)" },
         { name: "mode", type: "string", default: "prod", enum: [...BUILD_MODES], description: "Build mode" },
         { name: "out", type: "string", default: "release", description: "Artifact output directory" },
-        { name: "config", alias: "c", type: "string", description: "Explicit path to an electron-builder config file" },
+        { name: "config", alias: "c", type: "string", description: "Explicit path to a build config file" },
         { name: "project-dir", type: "string", description: "Override the project directory (default: repo root)" },
         { name: "port", type: "number", default: 8765, description: "Embedded HTTP server port (mobile)" },
         { name: "skip-build", type: "boolean", description: "Alias for --stage=package (skip the Vite build step)" },
@@ -87,16 +87,16 @@ export const COMMANDS: CommandEntry[] = [
   {
     name: "dev",
     usage: "draft dev [options]",
-    summary: "Start the game on the native runtime (Bun + SDL + wgpu-native). Run from a game directory (cwd inference). Use --electron for the deprecated Electron path (electron-vite dev).",
+    summary: "Start the game on the native runtime (Bun + SDL + wgpu-native). Run from a game directory (cwd inference). The Electron path is dormant.",
     schema: {
       flags: [
         { name: "entry", type: "string", description: "Game entrypoint file (reserved for future mobile support)" },
         { name: "port", type: "number", description: "MCP HTTP port (default: 9876)" },
-        { name: "watch", type: "boolean", description: "Alias for HMR (always on; accepted for back-compat)" },
-        { name: "no-hmr", type: "boolean", description: "Disable hot-module replacement" },
+        { name: "watch", type: "boolean", description: "Back-compat no-op — native dev is restart-based (no HMR)" },
+        { name: "no-hmr", type: "boolean", description: "Back-compat no-op — native dev is restart-based (no HMR)" },
         { name: "no-bake", type: "boolean", description: "Disable the asset bake/optimization step (sets DOWNDRAFT_BAKE=0)" },
         { name: "native", type: "boolean", description: "Back-compat alias — native is the default runtime" },
-        { name: "electron", type: "boolean", description: "Run the deprecated Electron path (electron-vite dev)" },
+        { name: "electron", type: "boolean", description: "Disabled — the Electron runtime is dormant; native is the only runtime" },
         { name: "verbose", alias: "v", type: "boolean", description: "Verbose logging" },
       ],
     },
@@ -147,7 +147,7 @@ export const COMMANDS: CommandEntry[] = [
   {
     name: "dist",
     usage: "draft dist [options]",
-    summary: "Package a game for distribution via electron-builder",
+    summary: "Package a game for distribution (dormant: electron-builder is disabled; use scripts/package-native.mjs)",
     schema: {
       flags: [
         { name: "game", alias: "g", type: "string", required: true, description: "Game to package (games/<game>)" },
@@ -213,11 +213,11 @@ export const COMMANDS: CommandEntry[] = [
         { name: "spec", alias: "s", type: "string", description: "Spec file to run (default: tests/e2e/<game>-smoke.spec.ts)" },
         { name: "port", alias: "p", type: "number", default: 0, description: "MCP port (0 = auto-assign a free port)" },
         { name: "renderer", alias: "r", type: "string", default: "cpu", enum: [...RENDERER_TARGETS], description: "WebGPU backend: cpu=SwiftShader, gpu=hardware" },
-        { name: "runtime", type: "string", enum: ["electron", "native"], default: "native", description: "Launch target: native (Bun + SDL + wgpu-native, default) or electron (deprecated)" },
+        { name: "runtime", type: "string", enum: ["electron", "native"], default: "native", description: "Launch target: native (Bun + SDL + wgpu-native, default). electron is disabled" },
         { name: "no-deterministic", type: "boolean", description: "Disable fixed seed / render loop pause" },
         { name: "headed", type: "boolean", description: "Show the window instead of running headless" },
-        { name: "build", type: "boolean", description: "Build the game with electron-vite before testing" },
-        { name: "build-only", type: "boolean", description: "Only test the built app (skip dev server; requires prior build)" },
+        { name: "build", type: "boolean", description: "Disabled — electron-vite pipeline is dormant" },
+        { name: "build-only", type: "boolean", description: "Disabled — electron-vite pipeline is dormant" },
         { name: "verbose", alias: "v", type: "boolean", description: "Verbose logging" },
       ],
     },

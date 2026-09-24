@@ -8,7 +8,7 @@ import { SimHost } from "./sim-host";
 // The sim runs in sim-worker.ts (a Web Worker): an ECS World with gravity and
 // integration systems that spawns falling shapes. The SAME module drives
 // both entry points:
-//   src/main.tsx        — browser/Electron (draft dev --electron)
+//   src/main.tsx        — web bundle entry (build output)
 //   src/native-entry.ts — Bun + SDL + wgpu-native (draft dev, the default)
 // ============================================================================
 

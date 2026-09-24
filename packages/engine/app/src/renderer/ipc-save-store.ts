@@ -1,3 +1,4 @@
+// DORMANT — Electron-only path. See DORMANT.md in this directory.
 // ============================================================================
 // IpcSaveStore — ISaveStore implementation that delegates to the Electron
 // main process via the `downdraft` preload bridge (IPC).

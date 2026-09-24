@@ -12,7 +12,7 @@ interface TestApi extends SimWorkerControlApi {
   shutdown(): Promise<void>;
   setSpeed(speed: number): Promise<void>;
   step(): Promise<void>;
-  getStats(): Promise<{ fps: number; tick: number; frame: number }>;
+  getStats(): Promise<{ fps: number; tick: number; tickMs: number; frame: number }>;
   explode(x: number): Promise<void>;
   getThing(): Promise<{ value: number }>;
 }
@@ -21,7 +21,7 @@ class MockWorker {
   private listeners: ((e: MessageEvent) => void)[] = [];
   calls: { method: string; args: any[] }[] = [];
   terminated = false;
-  stats = { fps: 60, tick: 42, frame: 10 };
+  stats = { fps: 60, tick: 42, tickMs: 16.7, frame: 10 };
   failNext: string | null = null;
 
   postMessage(msg: any): void {
@@ -138,7 +138,7 @@ describe("SimWorkerHost", () => {
     const host = new TestHost();
     await host.start();
     const stats = await host.getStats();
-    expect(stats).toEqual({ fps: 60, tick: 42, frame: 10 });
+    expect(stats).toEqual({ fps: 60, tick: 42, tickMs: 16.7, frame: 10 });
     await host.stop();
     expect(await host.getStats()).toBeNull();
   });

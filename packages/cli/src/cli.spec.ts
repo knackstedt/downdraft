@@ -42,12 +42,16 @@ describe("CLI new — minimal template", () => {
     await newProject([TEST_DIR, "--template=minimal", "--name=my-game"]);
 
     expect(existsSync(join(TEST_DIR, "package.json"))).toBe(true);
-    expect(existsSync(join(TEST_DIR, "src/main.ts"))).toBe(true);
+    expect(existsSync(join(TEST_DIR, "src/main.tsx"))).toBe(true);
+    expect(existsSync(join(TEST_DIR, "src/native-entry.ts"))).toBe(true);
     expect(existsSync(join(TEST_DIR, "downdraft.config.json"))).toBe(true);
     expect(existsSync(join(TEST_DIR, "README.md"))).toBe(true);
     expect(existsSync(join(TEST_DIR, ".gitignore"))).toBe(true);
     expect(existsSync(join(TEST_DIR, "tsconfig.json"))).toBe(true);
-    expect(existsSync(join(TEST_DIR, "electron.vite.config.ts"))).toBe(true);
+    // Electron is dormant — scaffolds no longer emit the Electron entries.
+    expect(existsSync(join(TEST_DIR, "electron.vite.config.ts"))).toBe(false);
+    expect(existsSync(join(TEST_DIR, "src/main.ts"))).toBe(false);
+    expect(existsSync(join(TEST_DIR, "src/preload.ts"))).toBe(false);
   });
 
   it("should write valid package.json", async () => {
@@ -64,23 +68,14 @@ describe("CLI new — minimal template", () => {
     expect(pkg.scripts.typecheck).toBe("tsc --noEmit");
     expect(pkg.scripts.lint).toBe("oxlint");
     expect(pkg.scripts.test).toBe("npm test");
-    expect(pkg.scripts.postinstall).toBe("node node_modules/electron/install.js");
+    expect(pkg.scripts.postinstall).toBeUndefined();
   });
 
-  it("should preconfigure electron-builder in package.json", async () => {
+  it("should not emit an electron-builder build block", async () => {
     const pkg = JSON.parse(readFileSync(join(TEST_DIR, "package.json"), "utf-8"));
-    expect(pkg.build).toBeDefined();
-    expect(pkg.build.appId).toBe("com.my-game.game");
-    expect(pkg.build.productName).toBe("My Game");
-    expect(pkg.build.directories.output).toBe("release");
-    expect(pkg.build.files).toContain("dist/**/*");
-    expect(pkg.build.win.target).toContain("portable");
-    expect(pkg.build.linux.target).toContain("AppImage");
-    expect(pkg.build.linux.target).toContain("deb");
-    expect(pkg.build.linux.target).toContain("rpm");
-    expect(pkg.build.linux.target).toContain("flatpak");
-    expect(pkg.build.deb.depends).toContain("libgtk-3-0");
-    expect(pkg.build.flatpak.base).toBe("org.electronjs.Electron2.BaseApp");
+    // Desktop packaging is native (scripts/package-native.mjs) — no
+    // electron-builder config in scaffolded package.json.
+    expect(pkg.build).toBeUndefined();
   });
 
   it("should include copyright + author object when --author is provided", async () => {
@@ -98,25 +93,18 @@ describe("CLI new — minimal template", () => {
     ]);
 
     const pkg = JSON.parse(readFileSync(join(authorDir, "package.json"), "utf-8"));
-    // author is written as an object so electron-builder's AppInfo.companyName
-    // (which reads metadata.author.name) resolves correctly.
     expect(pkg.author).toEqual({ name: "Jane Developer" });
     expect(pkg.description).toBe("A test game");
-    // copyright is derived from author + current year in the build config.
-    expect(pkg.build.copyright).toBeDefined();
-    expect(pkg.build.copyright).toContain("Jane Developer");
-    expect(pkg.build.copyright).toContain("Copyright");
 
     try { rmSync(authorDir, { recursive: true, force: true }); } catch {}
   });
 
-  it("should include builder devDependencies", async () => {
+  it("should include devDependencies (no Electron toolchain)", async () => {
     const pkg = JSON.parse(readFileSync(join(TEST_DIR, "package.json"), "utf-8"));
     expect(pkg.devDependencies).toBeDefined();
-    expect(pkg.devDependencies["electron"]).toBeDefined();
-    expect(pkg.devDependencies["electron-builder"]).toBeDefined();
-    expect(pkg.devDependencies["electron-vite"]).toBeDefined();
-    expect(pkg.devDependencies["vite"]).toBeDefined();
+    expect(pkg.devDependencies["electron"]).toBeUndefined();
+    expect(pkg.devDependencies["electron-builder"]).toBeUndefined();
+    expect(pkg.devDependencies["electron-vite"]).toBeUndefined();
     expect(pkg.devDependencies["typescript"]).toBeDefined();
     expect(pkg.devDependencies["oxlint"]).toBeDefined();
     expect(pkg.dependencies["@downdraft/engine"]).toBe("^0.1.0");
@@ -176,11 +164,9 @@ describe("CLI new — minimal template", () => {
     expect(config.builder.mode).toBe("dev");
   });
 
-  it("should write the electron main + preload + renderer entries", async () => {
-    const main = readFileSync(join(TEST_DIR, "src/main.ts"), "utf-8");
-    expect(main).toContain("createDowndraftApp");
-    const preload = readFileSync(join(TEST_DIR, "src/preload.ts"), "utf-8");
-    expect(preload).toContain("createDowndraftBridge");
+  it("should not emit electron main/preload entries (dormant)", async () => {
+    expect(existsSync(join(TEST_DIR, "src/main.ts"))).toBe(false);
+    expect(existsSync(join(TEST_DIR, "src/preload.ts"))).toBe(false);
   });
 
   it("should write main.tsx with a startGame() entry", async () => {
@@ -220,11 +206,12 @@ describe("CLI new — physics template", () => {
     await newProject([TEST_DIR, "--template=physics", "--name=physics-game"]);
 
     expect(existsSync(join(TEST_DIR, "package.json"))).toBe(true);
-    expect(existsSync(join(TEST_DIR, "src/main.ts"))).toBe(true);
+    expect(existsSync(join(TEST_DIR, "src/main.tsx"))).toBe(true);
+    expect(existsSync(join(TEST_DIR, "src/native-entry.ts"))).toBe(true);
     expect(existsSync(join(TEST_DIR, "downdraft.config.json"))).toBe(true);
     expect(existsSync(join(TEST_DIR, ".vscode", "tasks.json"))).toBe(true);
     expect(existsSync(join(TEST_DIR, "tsconfig.json"))).toBe(true);
-    expect(existsSync(join(TEST_DIR, "electron.vite.config.ts"))).toBe(true);
+    expect(existsSync(join(TEST_DIR, "electron.vite.config.ts"))).toBe(false);
   });
 
   it("should include physics-rapier dependency", async () => {
@@ -259,28 +246,22 @@ describe("CLI new — full template", () => {
     await newProject([TEST_DIR, "--template=full", "--name=full-game"]);
 
     expect(existsSync(join(TEST_DIR, "package.json"))).toBe(true);
-    expect(existsSync(join(TEST_DIR, "src/main.ts"))).toBe(true);
+    expect(existsSync(join(TEST_DIR, "src/main.tsx"))).toBe(true);
+    expect(existsSync(join(TEST_DIR, "src/native-entry.ts"))).toBe(true);
     expect(existsSync(join(TEST_DIR, "src/systems"))).toBe(true);
     expect(existsSync(join(TEST_DIR, "src/entities"))).toBe(true);
     expect(existsSync(join(TEST_DIR, "assets/shaders"))).toBe(true);
     expect(existsSync(join(TEST_DIR, ".vscode", "extensions.json"))).toBe(true);
     expect(existsSync(join(TEST_DIR, ".vscode", "tasks.json"))).toBe(true);
     expect(existsSync(join(TEST_DIR, "tsconfig.json"))).toBe(true);
-    expect(existsSync(join(TEST_DIR, "electron.vite.config.ts"))).toBe(true);
-    // full template includes a build.config.ts for branded packaging via `draft dist`.
-    expect(existsSync(join(TEST_DIR, "build.config.ts"))).toBe(true);
+    expect(existsSync(join(TEST_DIR, "electron.vite.config.ts"))).toBe(false);
+    // electron-builder config is dormant — native packaging replaces it.
+    expect(existsSync(join(TEST_DIR, "build.config.ts"))).toBe(false);
   });
 
   it("should use draft release in the full template dist script", async () => {
     const pkg = JSON.parse(readFileSync(join(TEST_DIR, "package.json"), "utf-8"));
     expect(pkg.scripts.dist).toBe("draft release");
-  });
-
-  it("should reference createDowndraftBuilderConfig in build.config.ts", async () => {
-    const cfg = readFileSync(join(TEST_DIR, "build.config.ts"), "utf-8");
-    expect(cfg).toContain("createDowndraftBuilderConfig");
-    expect(cfg).toContain("@downdraft/engine/app/build");
-    expect(cfg).toContain("full-game");
   });
 
   it("should include all plugin dependencies", async () => {
@@ -372,7 +353,7 @@ describe("CLI build", () => {
   });
 
   it("should copy source files", async () => {
-    expect(existsSync(join(TEST_DIR, "dist/src/main.ts"))).toBe(true);
+    expect(existsSync(join(TEST_DIR, "dist/src/main.tsx"))).toBe(true);
   });
 });
 

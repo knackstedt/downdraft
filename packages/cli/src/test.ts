@@ -4,8 +4,7 @@ import { existsSync } from "node:fs";
 import { createServer } from "node:net";
 import { basename, resolve } from "node:path";
 import { parseArgs, print, renderHelp } from "./args";
-import { buildCwd, findMonorepoRoot, resolveGameDir } from "./paths";
-import { npxBinary } from "./process-utils";
+import { findMonorepoRoot, resolveGameDir } from "./paths";
 import { getCommand } from "./usage";
 
 const log = createLogger();
@@ -79,45 +78,7 @@ function hasXvfb(): boolean {
   }
 }
 
-/**
- * Build the game with electron-vite before running tests.
- * Returns true if the build succeeded, false otherwise.
- */
-function buildGame(gameDir: string, game: string): boolean {
-  const configPath = resolve(gameDir, "electron.vite.config.ts");
-  if (!existsSync(configPath)) {
-    log.error("test", `No electron.vite.config.ts found for game "${game}" at ${configPath}`);
-    return false;
-  }
-  log.info("test", `Building game "${game}" with electron-vite...`);
-  try {
-    // electron-vite writes dist/ relative to the spawn cwd — the monorepo root
-    // when inside it, else the game directory itself.
-    const cwd = buildCwd(gameDir);
-    const result = spawnSync(npxBinary(), ["electron-vite", "build", "--config", configPath], {
-      cwd,
-      stdio: "inherit",
-    });
-    if (result.status !== 0) {
-      log.error("test", `Build failed with exit code ${result.status}`);
-      return false;
-    }
-    // Verify the build output exists
-    const distMain = resolve(cwd, "dist", "main", "index.cjs");
-    if (!existsSync(distMain)) {
-      log.error("test", `Build completed but dist/main/index.cjs not found at ${distMain}`);
-      return false;
-    }
-    log.info("test", "Build succeeded.");
-    return true;
-  } catch (e) {
-    log.error("test", `Build failed: ${(e as Error).message}`);
-    return false;
-  }
-}
 
-// Use spawnSync for the build step (blocking — we need it done before tests)
-import { spawnSync } from "child_process";
 
 export async function runTest(args: string[]): Promise<void> {
   const opts = parseTestArgs(args);
@@ -130,6 +91,17 @@ export async function runTest(args: string[]): Promise<void> {
   if (!opts.game) {
     log.error("test", `No game specified and none could be inferred from "${process.cwd()}".`);
     log.error("test", `Run "draft test --game=<name>" or pass --spec=<path>.`);
+    process.exit(1);
+  }
+
+  // Native is the only active runtime — the Electron lane is dormant.
+  if (opts.runtime === "electron") {
+    log.error("test", "The Electron runtime is disabled. Re-run without --runtime=electron (native is the default).");
+    process.exit(1);
+  }
+  if (opts.build || opts.buildOnly) {
+    log.error("test", "--build/--build-only used the electron-vite pipeline, which is disabled.");
+    log.error("test", "Native packaging is handled by scripts/package-native.mjs (draft release).");
     process.exit(1);
   }
 
@@ -164,24 +136,11 @@ export async function runTest(args: string[]): Promise<void> {
   log.info("test", `  Spec:          ${specPath}`);
   log.info("test", `  MCP port:      ${opts.mcpPort}`);
   log.info("test", `  Renderer:      ${opts.renderer === "cpu" ? "SwiftShader (software)" : "hardware GPU"}`);
-  log.info("test", `  Runtime:       ${opts.runtime}${opts.runtime === "electron" ? " (deprecated)" : ""}`);
+  log.info("test", `  Runtime:       ${opts.runtime}`);
   log.info("test", `  Deterministic: ${opts.deterministic}`);
   log.info("test", `  Headed:        ${opts.headed}`);
-  log.info("test", `  Mode:          ${opts.build ? "built" : "dev"}${opts.buildOnly ? " (build-only)" : ""}`);
   if (opts.verbose) log.info("test", `  Verbose:       on`);
   log.info("test", "");
-
-  // If --build or --build-only is specified, build the game first.
-  if (opts.build) {
-    if (!gameDir) {
-      log.error("test", `Could not resolve game directory for "${opts.game}".`);
-      process.exit(1);
-    }
-    const buildOk = buildGame(gameDir, opts.game);
-    if (!buildOk) {
-      process.exit(1);
-    }
-  }
 
   const env: Record<string, string> = {
     ...process.env,
@@ -202,13 +161,6 @@ export async function runTest(args: string[]): Promise<void> {
     // Show the window instead of running headless.
     env.DOWNDRAFT_HEADED = "1";
   }
-  // Tell the harness to launch the built app instead of the dev server.
-  if (opts.build) {
-    env.DOWNDRAFT_TEST_BUILT = "1";
-  }
-
-  // Critical: Electron must NOT run as Node.js.
-  delete env.ELECTRON_RUN_AS_NODE;
 
   // If no display is available, wrap in xvfb-run (common in CI).
   let cmd = "bun";

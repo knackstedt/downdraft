@@ -33,18 +33,14 @@
 
 import { createLogger } from "@downdraft/engine";
 import { existsSync, readFileSync } from "node:fs";
-import { basename, dirname, resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import { parseArgs, print, renderHelp } from "./args";
-import { buildDesktop } from "./build-helpers";
-import { packageDesktop, type DistArgs } from "./dist";
-import { packageLauncher } from "./export";
 import { formatGamesList, listGames } from "./list-games";
 import { buildMobileWeb, packageMobile, type MobileArgs } from "./mobile";
-import { findMonorepoRoot, resolveGameDir } from "./paths";
+import { findGameDirUpward, findMonorepoRoot, resolveGameDir } from "./paths";
 import { getCommand } from "./usage";
 
 const log = createLogger();
-const CONFIG_FILE = "electron.vite.config.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -136,23 +132,17 @@ function parseReleaseArgs(args: string[]): ReleaseArgs {
  * Resolution order:
  *  1. Explicit flags (--game / --games) — handled by the caller before this.
  *  2. cwd inference — walk up from `process.cwd()` looking for
- *     `electron.vite.config.ts`. Lets games run `draft release` from their
- *     own directory (the scaffolded `package.json` sets
- *     `"release": "draft release"`).
+ *     `downdraft.config.json` or `src/native-entry.ts`. Lets games run
+ *     `draft release` from their own directory (the scaffolded
+ *     `package.json` sets `"release": "draft release"`).
  *  3. Single-game fallback — if `games/` contains exactly one game, use it.
  *
  * Returns the detected game name, or `null` if none could be determined.
  */
 function detectGame(monorepoRoot: string | null): string | null {
-  // 2. Cwd inference: walk up looking for electron.vite.config.ts.
-  let dir = process.cwd();
-  for (;;) {
-    const candidate = resolve(dir, CONFIG_FILE);
-    if (existsSync(candidate)) return basename(dir);
-    const parent = dirname(dir);
-    if (parent === dir) break; // reached filesystem root
-    dir = parent;
-  }
+  // 2. Cwd inference: walk up looking for the game-dir markers.
+  const upward = findGameDirUpward();
+  if (upward) return basename(upward);
 
   // 3. Single-game fallback (monorepo only).
   if (monorepoRoot) {
@@ -263,10 +253,12 @@ async function runBuild(
   const buildEnv: Record<string, string> = {};
   if (opts.noBake) buildEnv.DOWNDRAFT_BAKE = "0";
 
-  // Desktop: electron-vite build (produces dist/).
+  // Desktop: the electron-vite pipeline is disabled (Electron runtime is
+  // dormant). Native packaging is staged by scripts/package-native.mjs —
+  // Track F wires it into this command.
   if (groups.desktop.length > 0) {
-    const ok = buildDesktop(gameDir, game, buildEnv);
-    if (!ok) return false;
+    log.error("release:build", "Desktop builds via electron-vite are disabled. Native packaging: bun scripts/package-native.mjs <game>/src/native-entry.ts <outfile>");
+    return false;
   }
 
   // Mobile: Vite build with mobile config (produces dist/mobile/).
@@ -291,57 +283,18 @@ async function runPackage(
   projectRoot: string | null,
 ): Promise<boolean> {
   // --- Desktop packaging ---
+  // electron-builder and launcher packaging are disabled — the Electron
+  // runtime is dormant. Native packaging is staged by
+  // scripts/package-native.mjs (Track F wires it into this command).
   if (groups.desktop.length > 0) {
-    const launcherPlatforms = groups.desktop.filter((t) => formats[t] === "launcher");
-    const ebPlatforms = groups.desktop.filter((t) => formats[t] !== "launcher");
-
-    // electron-builder packaging (default path). Deprecated — desktop
-    // distribution is moving to the native runtime; electron-builder remains
-    // for the deprecation period only.
-    if (ebPlatforms.length > 0) {
-      log.warn("release", "DEPRECATED: electron-builder desktop packaging. Native packaging (scripts/package-native.mjs) will replace this path.");
-      // electron-builder handles "all" or individual platforms. If all desktop
-      // targets are selected, pass "all"; otherwise pass the first (eb handles
-      // one platform per invocation in our usage — for multiple, we loop).
-      const ebTarget = ebPlatforms.length === 3 ? "all" : ebPlatforms[0];
-      for (const t of ebPlatforms.length === 3 ? ["all"] : ebPlatforms) {
-        const distOpts: DistArgs = {
-          game,
-          target: t as DistArgs["target"],
-          configPath: opts.configPath,
-          projectDir: opts.projectDir,
-          verbose: opts.verbose,
-        };
-        try {
-          await packageDesktop(distOpts, projectRoot, gameDir);
-        } catch (err) {
-          log.error("release:package:desktop", `Packaging failed for ${game} (${t}): ${(err as Error).message}`);
-          if ((err as Error).stack) log.error("release:package:desktop", (err as Error).stack ?? "");
-          return false;
-        }
-      }
-    }
-
-    // Launcher packaging (old `export` path, now with compression).
-    if (launcherPlatforms.length > 0) {
-      const launcherTarget = launcherPlatforms.length === 3 ? "all" : launcherPlatforms[0];
-      try {
-        await packageLauncher(
-          gameDir,
-          launcherTarget,
-          "export",
-          !opts.noMinify, // compress unless --no-minify (reuse as compress toggle)
-          opts.verbose,
-        );
-      } catch (err) {
-        log.error("release:package:launcher", `Launcher packaging failed for ${game}: ${(err as Error).message}`);
-        return false;
-      }
-    }
+    log.error("release:package", "Desktop packaging via electron-builder is disabled. Native packaging: bun scripts/package-native.mjs <game>/src/native-entry.ts <outfile>");
+    return false;
   }
 
-  // --- Mobile packaging ---
+  // --- Mobile packaging (Capacitor) — dormant: kept functional during the
+  // migration bake, but not the shipping target. ---
   if (groups.mobile.length > 0) {
+    log.warn("release:package", "Mobile packaging is dormant — the Capacitor path is unmaintained during the native migration bake.");
     const mobileTarget = groups.mobile.length === 2 ? "all" : groups.mobile[0] as "android" | "ios";
     const mobileOpts: MobileArgs = {
       game,

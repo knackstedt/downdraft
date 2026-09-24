@@ -1,3 +1,4 @@
+// DORMANT — Electron-only path. See DORMANT.md in this directory.
 // ============================================================================
 // Raw Input Module — Renderer-side Barrel Exports
 // ============================================================================

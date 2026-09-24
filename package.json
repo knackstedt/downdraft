@@ -19,7 +19,7 @@
     "gen:engine-exports": "node scripts/gen-engine-exports.mjs",
     "link:games": "node scripts/link-games.mjs",
     "lint": "oxlint",
-    "postinstall": "node scripts/patch-pixi.mjs && node node_modules/electron/install.js"
+    "postinstall": "node scripts/patch-pixi.mjs"
   },
   "workspaces": [
     "packages/engine",

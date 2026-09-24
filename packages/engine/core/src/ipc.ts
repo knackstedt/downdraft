@@ -1,3 +1,4 @@
+// DORMANT — Electron-only path. See DORMANT.md in this directory.
 // ============================================================================
 // IPC Channels — shared channel names for the engine shell (main <-> renderer)
 //

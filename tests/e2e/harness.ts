@@ -55,21 +55,19 @@ export interface LaunchOptions {
   gpu?: "auto" | "hardware" | "swiftshader";
   deterministic?: boolean;
   extraEnv?: Record<string, string>;
-  /** When true, launch the built app (dist/main/index.cjs) instead of the dev server.
-   *  Requires the game to have been built first (`electron-vite build`). */
+  /** Dormant: Electron built-app launch is disabled. Kept for interface
+   *  compat during the bake; setting it has no effect. */
   built?: boolean;
-  /** Working directory for the built app. Defaults to the game root. */
+  /** Dormant: see `built`. */
   builtCwd?: string;
   /** Additional error patterns to ignore (regexes, matched against console output). */
   ignoreErrorPatterns?: RegExp[];
-  /** Explicit path to the electron.vite.config.ts (relative to cwd). Overrides
-   *  the default `games/<game>/electron.vite.config.ts` path — use for
-   *  launching examples (`examples/<name>/electron.vite.config.ts`). */
+  /** Explicit path to the game's legacy electron.vite.config.ts — used only
+   *  to infer the game name for native launches (`games/<game>/...` or
+   *  `examples/<name>/...`). */
   configPath?: string;
-  /** Launch target. "electron" (default) spawns electron-vite dev or the built
-   *  app; "native" runs games/<game>/src/native-entry.ts under Bun (SDL +
-   *  wgpu-native host, in-process MCP — no Electron). Also selectable via the
-   *  DOWNDRAFT_RUNTIME env var (`draft test --runtime=native`). */
+  /** Launch target. Only "native" is supported — "electron" throws. Also
+   *  selectable via the DOWNDRAFT_RUNTIME env var (`draft test --runtime=...`). */
   runtime?: "electron" | "native";
   /** Override for the native entry point (default: src/native-entry.ts
    *  inside the game dir, or games/<game>/src/native-entry.ts when running
@@ -91,7 +89,7 @@ export interface McpToolResult {
  * Throws a clear assertion error if the tool returned an error (isError: true)
  * or if the text is not valid JSON.
  */
-export function parseJsonContent(result: unknown): Record<string, unknown> {
+export function parseJsonContent<T = any>(result: unknown): T {
   const r = result as McpToolResult;
   const text = r.content?.[0]?.text ?? "";
   if (r.isError) {
@@ -578,7 +576,13 @@ export async function launchGame(opts: LaunchOptions = {}): Promise<GameProcess>
   const game = opts.game
     ?? opts.configPath?.match(/(?:^|\/)(?:games|examples)\/([^/]+)\//)?.[1]
     ?? "to-the-ocean";
-  const runtime = opts.runtime ?? (process.env.DOWNDRAFT_RUNTIME === "native" ? "native" : "electron");
+  const runtime = opts.runtime ?? (process.env.DOWNDRAFT_RUNTIME === "electron" ? "electron" : "native");
+  if (runtime === "electron") {
+    throw new Error(
+      "The Electron runtime is dormant — e2e tests run on the native runtime only. " +
+      "Remove --runtime=electron / DOWNDRAFT_RUNTIME=electron.",
+    );
+  }
   // Use dynamic port allocation if no port specified — avoids conflicts
   // when running multiple specs in parallel.
   const port = opts.mcpPort ?? (await findFreePort());
@@ -600,50 +604,25 @@ export async function launchGame(opts: LaunchOptions = {}): Promise<GameProcess>
   // causes electron.app to be undefined and the app crashes immediately.
   delete env.ELECTRON_RUN_AS_NODE;
 
-  // Determine the launch command based on mode.
-  // - Dev mode (default): `electron-vite dev --config games/<game>/electron.vite.config.ts`
-  //   (each game owns its own entrypoint — no root dispatcher / env var).
-  // - Built mode: `electron .` (launches the packaged app from dist/)
-  // The DOWNDRAFT_TEST_BUILT env var is set by `draft test --build`.
-  const useBuilt = opts.built || process.env.DOWNDRAFT_TEST_BUILT === "1";
-  let cmd: string;
-  let cmdArgs: string[];
-  let cwd: string;
-
-  if (runtime === "native") {
-    // Native mode: run the game's shared GameModule through
-    // runNativeGameModule — Bun + SDL + wgpu-native, in-process MCP server
-    // (no Electron, no Vite). The MCP port is passed via MCP_PORT (the
-    // native server honors it); PID-file discovery under ~/.downdraft/port
-    // also works for ad-hoc runs.
-    const { existsSync } = await import("node:fs");
-    const entry = opts.nativeEntry
-      ? resolve(opts.nativeEntry)
-      : [
-          resolve(process.cwd(), "games", game, "src", "native-entry.ts"),
-          resolve(process.cwd(), "examples", game, "src", "native-entry.ts"),
-          resolve(process.cwd(), "src", "native-entry.ts"),
-        ].find((p) => existsSync(p)) ??
-        resolve(process.cwd(), "games", game, "src", "native-entry.ts");
-    // cwd = monorepo root (or the standalone game dir) so the bunfig.toml
-    // preload registers the ?raw/.wgsl/.css loaders for shader/CSS imports.
-    cwd = process.cwd();
-    cmd = "bun";
-    cmdArgs = [entry];
-  } else if (useBuilt) {
-    // Built mode: launch the packaged Electron app directly.
-    cmd = "npx";
-    cmdArgs = ["electron", "."];
-    cwd = opts.builtCwd ?? resolve(process.cwd(), "games", game);
-  } else {
-    // Dev mode: start the Vite dev server which launches Electron, loading
-    // the game's own electron.vite.config.ts entrypoint directly.
-    // If configPath is provided (e.g. for examples), use it instead of the
-    // default games/<game>/ path.
-    cmd = "npx";
-    cmdArgs = ["electron-vite", "dev", "--config", opts.configPath ?? `games/${game}/electron.vite.config.ts`];
-    cwd = process.cwd();
-  }
+  // Native mode: run the game's shared GameModule through
+  // runNativeGameModule — Bun + SDL + wgpu-native, in-process MCP server
+  // (no Electron, no Vite). The MCP port is passed via MCP_PORT (the
+  // native server honors it); PID-file discovery under ~/.downdraft/port
+  // also works for ad-hoc runs.
+  const { existsSync } = await import("node:fs");
+  const entry = opts.nativeEntry
+    ? resolve(opts.nativeEntry)
+    : [
+        resolve(process.cwd(), "games", game, "src", "native-entry.ts"),
+        resolve(process.cwd(), "examples", game, "src", "native-entry.ts"),
+        resolve(process.cwd(), "src", "native-entry.ts"),
+      ].find((p) => existsSync(p)) ??
+      resolve(process.cwd(), "games", game, "src", "native-entry.ts");
+  // cwd = monorepo root (or the standalone game dir) so the bunfig.toml
+  // preload registers the ?raw/.wgsl/.css loaders for shader/CSS imports.
+  const cwd = process.cwd();
+  const cmd = "bun";
+  const cmdArgs = [entry];
 
   // Spawn in a new session (detached) so the child becomes a process-group
   // leader (PGID == child PID). This lets `killProcessGroup` use
@@ -699,8 +678,8 @@ export async function launchGame(opts: LaunchOptions = {}): Promise<GameProcess>
   // PID file as ~/.downdraft/port/<pid>.token). Poll briefly — the file is
   // written synchronously when the server binds.
   let authToken: string | null = null;
-  if (runtime === "native") {
-    const { readFileSync, existsSync } = await import("node:fs");
+  {
+    const { readFileSync } = await import("node:fs");
     const { homedir } = await import("node:os");
     const { join } = await import("node:path");
     const tokenFile = join(homedir(), ".downdraft", "port", `${proc.pid}.token`);

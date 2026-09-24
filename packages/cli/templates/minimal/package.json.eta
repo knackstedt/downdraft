@@ -6,5 +6,4 @@
     "@downdraft/platform-native": "^0.1.0"
   },
 <%~ include("_shared/partials/dev-deps", it) %>
-<%~ include("_shared/partials/build-config", it) %>
 }

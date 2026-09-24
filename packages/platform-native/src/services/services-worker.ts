@@ -13,4 +13,6 @@ import { createInlineServices } from "./host-services";
 (globalThis as any).__ddThreadTag = "SVC";
 
 const events = exposeEvents();
-expose(createInlineServices((w) => events.emit("save-warning", w)));
+// HostServicesApi lacks WorkerApi's index signature — the runtime contract is
+// method-name dispatch, so the cast is safe.
+expose(createInlineServices((w) => events.emit("save-warning", w)) as unknown as Record<string, (...args: any[]) => any>);

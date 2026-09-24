@@ -1,3 +1,4 @@
+// DORMANT — Electron-only path. See DORMANT.md in this directory.
 // ============================================================================
 // createDowndraftBridge() — preload context bridge with default API + extend hook
 // ============================================================================

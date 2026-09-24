@@ -1,3 +1,4 @@
+// DORMANT — Electron-only path. See DORMANT.md in this directory.
 // ============================================================================
 // Electron OSR Module — Renderer-side Barrel Exports
 // ============================================================================

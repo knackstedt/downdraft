@@ -1,3 +1,4 @@
+// DORMANT — Electron-only path. See DORMANT.md in this directory.
 // ============================================================================
 // @downdraft/engine/app/main — main process host SDK entry point
 // ============================================================================
