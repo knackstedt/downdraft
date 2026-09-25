@@ -129,7 +129,8 @@ export interface AssetBrowserConfig<T extends AssetBrowserItem = AssetBrowserIte
   /** Right footer text — receives the sum of all badge counts (default
    *  `Total: N`). */
   footerRight?: (totalBadgeCount: number) => string;
-  /** Cap on instantiated cards (default 200). */
+  /** Deprecated — the grid is virtualized (pooled cards); every filtered
+   *  item is scrollable. Kept for API compatibility, ignored. */
   maxCards?: number;
   /** When true, a single click selects AND activates the card (default
    *  false — click selects, double-click/Enter activates). */

@@ -59,9 +59,15 @@ const FOOTER_H = 36;
 const PADDING = 12;
 const FONT = "Segoe UI, Arial, sans-serif";
 
+// All browser text rasterizes at 2× — the native canvas path scales FreeType
+// glyph rasterization by the render transform, so this produces sharp glyphs
+// without supersampling the whole UI surface.
+const mkText = (opts: any): Text => { opts.resolution ??= 2; return new Text(opts); };
+
 // ── Textures per card (2D OffscreenCanvas → PIXI Texture) ──
 interface CardEntry<T extends AssetBrowserItem> {
-  item: T;
+  /** Bound item — null when the slot is beyond the filtered list. */
+  item: T | null;
   container: Container;
   thumbCanvas: OffscreenCanvas;
   thumbCtx: OffscreenCanvasRenderingContext2D;
@@ -69,10 +75,12 @@ interface CardEntry<T extends AssetBrowserItem> {
   sprite: Sprite;
   nameText: Text;
   countText: Text;
+  packText: Text;
   angle: number;
   modelLoaded: boolean;
   thumbRendered: boolean;
   angleBucket: number;
+  lastClickTime: number;
 }
 
 const DEFAULT_HINT =
@@ -87,7 +95,6 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
 
   const title = config.title ?? "Asset Browser";
   const closeLabel = config.closeLabel ?? "[X] Close";
-  const maxCards = config.maxCards ?? 200;
   const visibleStat = config.visibleStat ?? "showBrowser";
   const hasSidePanel = !!config.sidePanel;
   const sidePanelW = hasSidePanel ? SETTINGS_W : 0;
@@ -119,13 +126,26 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
   let selectedContentId: string | null = null;
   let scrollY = 0;
   let maxScrollY = 0;
+  // Card pool — fixed set of recycled card containers covering the visible
+  // scroll window (+1 row buffer). Cards rebind to filteredItems slots on
+  // scroll; thousands of items scroll without thousands of containers.
   let cards: CardEntry<T>[] = [];
+  let boundRow = -1; // first grid row the pool is currently bound to
   let thumbRenderer: ThumbnailBackend | null = null;
   let caretBlink = 0;
   let dragScrolling = false;
   let dragStartY = 0;
   let dragStartScroll = 0;
   let dragMoved = false;
+  // Filtered+sorted items — recomputed only when inputs change. Sorting is
+  // the expensive part, so the base (pack+category+sort, no query) result is
+  // cached separately: a keystroke then costs one linear filter pass, which
+  // preserves the base's sort order.
+  let filteredItems: T[] = [];
+  let baseSorted: T[] = [];
+  let baseDirty = true;
+  // Lowercased search haystack per item id, built once per item set.
+  const searchCache = new Map<string, string>();
 
   // ── UI Containers ──
   const backdrop = new Graphics();
@@ -167,18 +187,29 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
   }
 
   // ── Filtered items ──
-  function getFilteredItems(): T[] {
+  // Rebuild the sorted base (pack + category + sort, no query) — the
+  // expensive pass. Runs only when baseDirty.
+  function recomputeBase(): void {
     let items = contentItems;
     if (activePack !== "all") items = items.filter((i) => i.pack === activePack);
     if (categoryFilter !== "all") items = items.filter((i) => i.category === categoryFilter);
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      items = items.filter((i) => searchText(i).toLowerCase().includes(q));
-    }
     const sorted = [...items];
     if (sortBy === "name") sorted.sort((a, b) => a.name.localeCompare(b.name));
     else sorted.sort((a, b) => (badgeCounts[b.id] ?? 0) - (badgeCounts[a.id] ?? 0));
-    return sorted;
+    baseSorted = sorted;
+    baseDirty = false;
+  }
+
+  // Final list = baseSorted filtered by the search query (order preserved).
+  function recomputeFiltered(): void {
+    if (baseDirty) recomputeBase();
+    if (!searchQuery) { filteredItems = baseSorted; return; }
+    const q = searchQuery.toLowerCase();
+    filteredItems = baseSorted.filter((i) => {
+      let h = searchCache.get(i.id);
+      if (h === undefined) { h = searchText(i).toLowerCase(); searchCache.set(i.id, h); }
+      return h.includes(q);
+    });
   }
 
   // ── Layout dimensions ──
@@ -199,9 +230,9 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
   }
 
   // ── Build header ──
-  const searchLabel = new Text({ text: "Search:", style: { fill: C_TEXT_DIM, fontSize: 13, fontFamily: FONT } });
-  const searchInput = new Text({ text: "", style: { fill: C_TEXT, fontSize: 14, fontFamily: FONT } });
-  const closeBtn = new Text({ text: closeLabel, style: { fill: C_ACCENT, fontSize: 14, fontFamily: FONT } });
+  const searchLabel = mkText({ text: "Search:", style: { fill: C_TEXT_DIM, fontSize: 13, fontFamily: FONT } });
+  const searchInput = mkText({ text: "", style: { fill: C_TEXT, fontSize: 14, fontFamily: FONT } });
+  const closeBtn = mkText({ text: closeLabel, style: { fill: C_ACCENT, fontSize: 14, fontFamily: FONT } });
 
   function buildHeader(): void {
     headerBar.removeChildren();
@@ -211,7 +242,7 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
     bg.stroke({ color: C_PANEL_BORDER, width: 1 });
     headerBar.addChild(bg);
 
-    const titleText = new Text({ text: title, style: { fill: C_ACCENT, fontSize: 18, fontFamily: FONT, fontWeight: "bold" } });
+    const titleText = mkText({ text: title, style: { fill: C_ACCENT, fontSize: 18, fontFamily: FONT, fontWeight: "bold" } });
     titleText.x = PADDING; titleText.y = 10;
     headerBar.addChild(titleText);
 
@@ -250,14 +281,14 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
     const y = HEADER_H + 8;
     for (const p of packs) {
       const isActive = activePack === p.id;
-      const btn = new Text({
+      const btn = mkText({
         text: isActive ? `[${p.label}]` : p.label,
         style: { fill: isActive ? C_ACCENT : C_TEXT, fontSize: 13, fontFamily: FONT },
       });
       btn.x = x; btn.y = y;
       btn.eventMode = "static";
       btn.cursor = "pointer";
-      btn.onclick = () => { activePack = p.id; scrollY = 0; rebuildGrid(); buildTabs(); buildFilters(); };
+      btn.onclick = () => { activePack = p.id; baseDirty = true; scrollY = 0; refreshGrid(); buildTabs(); buildFilters(); };
       tabsBar.addChild(btn);
       x += btn.width + 16;
     }
@@ -276,25 +307,25 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
     const y = HEADER_H + TABS_H + 8;
     for (const c of categories) {
       const isActive = categoryFilter === c.id;
-      const btn = new Text({
+      const btn = mkText({
         text: isActive ? `[${c.label}]` : c.label,
         style: { fill: isActive ? C_ACCENT : C_TEXT_DIM, fontSize: 12, fontFamily: FONT },
       });
       btn.x = x; btn.y = y;
       btn.eventMode = "static";
       btn.cursor = "pointer";
-      btn.onclick = () => { categoryFilter = c.id; scrollY = 0; rebuildGrid(); buildFilters(); };
+      btn.onclick = () => { categoryFilter = c.id; baseDirty = true; scrollY = 0; refreshGrid(); buildFilters(); };
       filtersBar.addChild(btn);
       x += btn.width + 12;
     }
 
     // Sort toggle (only with >1 sort mode)
     if (sortModes.length > 1) {
-      const sortLabel = new Text({ text: "Sort:", style: { fill: C_TEXT_DIM, fontSize: 12, fontFamily: FONT } });
+      const sortLabel = mkText({ text: "Sort:", style: { fill: C_TEXT_DIM, fontSize: 12, fontFamily: FONT } });
       sortLabel.x = x + 20; sortLabel.y = y;
       filtersBar.addChild(sortLabel);
       const activeMode = sortModes.find((m) => m.id === sortBy) ?? sortModes[0];
-      const sortBtn = new Text({
+      const sortBtn = mkText({
         text: activeMode.label,
         style: { fill: C_ACCENT, fontSize: 12, fontFamily: FONT },
       });
@@ -304,15 +335,23 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
       sortBtn.onclick = () => {
         const idx = sortModes.findIndex((m) => m.id === sortBy);
         sortBy = sortModes[(idx + 1) % sortModes.length].id;
-        rebuildGrid(); buildFilters();
+        baseDirty = true;
+        refreshGrid(); buildFilters();
       };
       filtersBar.addChild(sortBtn);
     }
   }
 
-  // ── Build grid (cards) ──
+  function gridCols(): number {
+    const gridW = getGridWidth();
+    return Math.max(1, Math.floor((gridW + CARD_GAP) / (CARD_W + CARD_GAP)));
+  }
+
+  // ── Build grid (card pool) ──
+  // Cards are a fixed pool covering the visible rows + 1 buffer row; the
+  // whole filtered list scrolls through them via bindCard(). Rebuilding is
+  // cheap — only the pool (≈visible cards) is created, never the full list.
   function rebuildGrid(): void {
-    // Clear old cards
     for (const c of cards) {
       c.container.destroy({ children: true });
       c.texture.destroy(true);
@@ -320,18 +359,15 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
     cards = [];
     gridArea.removeChildren();
 
-    const allItems = getFilteredItems();
-    // Limit cards to avoid the lag of creating thousands of containers at once.
-    const items = allItems.slice(0, maxCards);
-    const gridW = getGridWidth();
-    const cols = Math.max(1, Math.floor((gridW + CARD_GAP) / (CARD_W + CARD_GAP)));
+    recomputeFiltered();
+    const cols = gridCols();
     const colW = CARD_W + CARD_GAP;
+    const gy = getGridY();
+    const gh = getGridHeight();
 
     // Grid background + drag-to-scroll
     const gridBg = new Graphics();
-    const gy = getGridY();
-    const gh = getGridHeight();
-    gridBg.rect(0, gy, gridW, gh);
+    gridBg.rect(0, gy, getGridWidth(), gh);
     gridBg.fill({ color: 0x0a0a14, alpha: 0.5 });
     gridBg.stroke({ color: 0x333355, width: 1 });
     gridArea.addChild(gridBg);
@@ -342,7 +378,7 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
     // acceptable vs a white mask rect covering the grid).
     if (!isNativeRuntime()) {
       const mask = new Graphics();
-      mask.rect(0, gy, gridW, gh);
+      mask.rect(0, gy, getGridWidth(), gh);
       mask.fill({ color: 0xffffff });
       gridArea.addChild(mask);
       gridArea.mask = mask;
@@ -377,29 +413,42 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
       layoutCards();
     });
 
-    // Create cards
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      const card = createCard(item);
+    // Pool: visible rows + 1 buffer row.
+    const visRows = Math.ceil(gh / (CARD_H + CARD_GAP)) + 1;
+    const poolSize = cols * visRows;
+    for (let i = 0; i < poolSize; i++) {
+      const card = createCard();
       const row = Math.floor(i / cols);
       const col = i % cols;
       card.container.x = getGridX() + col * colW + CARD_GAP;
-      card.container.y = gy + row * (CARD_H + CARD_GAP) + CARD_GAP - scrollY;
+      card.container.y = gy + row * (CARD_H + CARD_GAP) + CARD_GAP;
+      card.container.visible = false;
       cards.push(card);
       gridArea.addChild(card.container);
     }
 
-    // Compute max scroll
-    const totalRows = Math.ceil(items.length / cols);
+    refreshGrid();
+  }
+
+  // ── Rebind pool to current filter/sort state — cheap: no container churn ──
+  // Used on every query/tab/category/sort change; rebuildGrid() is only
+  // needed when the pool itself must be recreated (first show, resize).
+  function refreshGrid(): void {
+    recomputeFiltered();
+    const cols = gridCols();
+    const gh = getGridHeight();
+    // Scroll range covers the FULL filtered list.
+    const totalRows = Math.ceil(filteredItems.length / cols);
     const totalH = totalRows * (CARD_H + CARD_GAP) + CARD_GAP;
     maxScrollY = Math.max(0, totalH - gh);
-
-    // Update footer count
+    scrollY = Math.max(0, Math.min(maxScrollY, scrollY));
+    boundRow = -1; // force rebind
+    layoutCards();
     buildFooter();
   }
 
-  // ── Create a single card ──
-  function createCard(item: T): CardEntry<T> {
+  // ── Create a pooled card (item bound later by bindCard) ──
+  function createCard(): CardEntry<T> {
     const container = new Container();
     container.eventMode = "static";
     container.cursor = "pointer";
@@ -407,24 +456,20 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
     // Card background
     const bg = new Graphics();
     bg.roundRect(0, 0, CARD_W, CARD_H, 6);
-    bg.fill({ color: item.id === selectedContentId ? C_CARD_SELECTED : C_CARD });
-    bg.stroke({ color: item.id === selectedContentId ? C_ACCENT : 0x333355, width: item.id === selectedContentId ? 2 : 1 });
+    bg.fill({ color: C_CARD });
+    bg.stroke({ color: 0x333355, width: 1 });
     container.addChild(bg);
 
-    // Thumbnail canvas (2D) + PIXI texture
+    // Thumbnail canvas (2D) + PIXI texture — persists across rebinds; the
+    // card's canvas is cleared and redrawn, only the texture stays alive.
     const thumbCanvas = new OffscreenCanvas(THUMB_SIZE, THUMB_SIZE);
     const thumbCtx = thumbCanvas.getContext("2d")!;
-    // Fill with a placeholder color
     thumbCtx.fillStyle = "#1a1a2e";
     thumbCtx.fillRect(0, 0, THUMB_SIZE, THUMB_SIZE);
-
-    // Use Texture.from() to create a canvas-backed texture. In PIXI v8 this
-    // auto-detects the CanvasSource extension for OffscreenCanvas resources.
     let texture: Texture;
     try {
       texture = Texture.from(thumbCanvas);
     } catch {
-      // Fallback: create a blank texture
       texture = Texture.EMPTY;
     }
     const sprite = new Sprite(texture);
@@ -432,76 +477,129 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
     sprite.y = 8;
     container.addChild(sprite);
 
-    // Name text
-    const nameText = new Text({
-      text: item.name.length > 18 ? item.name.substring(0, 17) + "…" : item.name,
+    const nameText = mkText({
+      text: "",
       style: { fill: C_TEXT, fontSize: 11, fontFamily: FONT, align: "center" },
+      resolution: 2,
     });
     nameText.anchor.set(0.5, 0);
     nameText.x = CARD_W / 2;
     nameText.y = THUMB_SIZE + 14;
     container.addChild(nameText);
 
-    // Secondary label (pack label or game-provided sub)
-    const packText = new Text({
-      text: item.sub ?? item.packLabel,
+    const packText = mkText({
+      text: "",
       style: { fill: C_TEXT_DIM, fontSize: 9, fontFamily: FONT },
+      resolution: 2,
     });
     packText.anchor.set(0.5, 0);
     packText.x = CARD_W / 2;
     packText.y = THUMB_SIZE + 30;
     container.addChild(packText);
 
-    // Badge (top-right corner)
-    const countText = new Text({
-      text: badgeText(item, badgeCounts[item.id] ?? 0) ?? "",
+    const countText = mkText({
+      text: "",
       style: { fill: C_COUNT, fontSize: 12, fontFamily: FONT, fontWeight: "bold" },
+      resolution: 2,
     });
     countText.x = CARD_W - 30;
     countText.y = 4;
     container.addChild(countText);
 
-    // Selection + activate (double-click, or single-click when configured)
-    let lastClickTime = 0;
-    container.onclick = () => {
-      if (dragMoved) return;
-      setSearchFocused(false);
-      const now = performance.now();
-      selectCard(item.id);
-      if (config.activateOnSingleClick || now - lastClickTime < 350) {
-        handlers.onActivate?.(item);
-      }
-      lastClickTime = now;
+    const card: CardEntry<T> = {
+      item: null,
+      container, thumbCanvas, thumbCtx, texture, sprite, nameText, countText,
+      packText, angle: 0, modelLoaded: false, thumbRendered: false, angleBucket: -1,
+      lastClickTime: 0,
     };
 
-    return { item, container, thumbCanvas, thumbCtx, texture, sprite, nameText, countText, angle: 0, modelLoaded: false, thumbRendered: false, angleBucket: -1 };
+    // Selection + activate (double-click, or single-click when configured)
+    container.onclick = () => {
+      if (dragMoved || !card.item) return;
+      setSearchFocused(false);
+      const now = performance.now();
+      selectCard(card.item.id);
+      if (config.activateOnSingleClick || now - card.lastClickTime < 350) {
+        handlers.onActivate?.(card.item);
+      }
+      card.lastClickTime = now;
+    };
+
+    return card;
   }
 
-  // ── Layout cards (reposition based on scroll) ──
+  // ── Bind a pooled card to an item (or hide it) ──
+  function bindCard(card: CardEntry<T>, item: T | null): void {
+    if (!item) {
+      card.item = null;
+      card.container.visible = false;
+      return;
+    }
+    if (card.item?.id === item.id) {
+      card.container.visible = true;
+      return; // already bound — nothing to redo
+    }
+    card.item = item;
+    card.container.visible = true;
+    card.modelLoaded = false;
+    card.thumbRendered = false;
+    card.angleBucket = -1;
+    // Placeholder until the model raster lands.
+    card.thumbCtx.fillStyle = "#1a1a2e";
+    card.thumbCtx.fillRect(0, 0, THUMB_SIZE, THUMB_SIZE);
+
+    card.nameText.text = item.name.length > 18 ? item.name.substring(0, 17) + "…" : item.name;
+    card.packText.text = item.sub ?? item.packLabel;
+    card.countText.text = badgeText(item, badgeCounts[item.id] ?? 0) ?? "";
+
+    const isSelected = item.id === selectedContentId;
+    const bg = card.container.children[0] as Graphics;
+    bg.clear();
+    bg.roundRect(0, 0, CARD_W, CARD_H, 6);
+    bg.fill({ color: isSelected ? C_CARD_SELECTED : C_CARD });
+    bg.stroke({ color: isSelected ? C_ACCENT : 0x333355, width: isSelected ? 2 : 1 });
+  }
+
+  // ── Layout cards: map the pool onto the scroll window ──
   function layoutCards(): void {
-    const gridW = getGridWidth();
-    const cols = Math.max(1, Math.floor((gridW + CARD_GAP) / (CARD_W + CARD_GAP)));
+    const cols = gridCols();
     const colW = CARD_W + CARD_GAP;
+    const rowH = CARD_H + CARD_GAP;
     const gy = getGridY();
     const gh = getGridHeight();
 
+    const firstRow = Math.max(0, Math.floor(scrollY / rowH));
+    if (firstRow !== boundRow) {
+      boundRow = firstRow;
+      for (let i = 0; i < cards.length; i++) {
+        const row = firstRow + Math.floor(i / cols);
+        const idx = row * cols + (i % cols);
+        bindCard(cards[i], idx < filteredItems.length ? filteredItems[idx] : null);
+      }
+    } else {
+      // Same window — still refresh visibility for edge rows on resize.
+      for (let i = 0; i < cards.length; i++) {
+        const row = firstRow + Math.floor(i / cols);
+        const idx = row * cols + (i % cols);
+        if (idx < filteredItems.length && cards[i].item) cards[i].container.visible = true;
+        else cards[i].container.visible = false;
+      }
+    }
     for (let i = 0; i < cards.length; i++) {
       const card = cards[i];
-      const row = Math.floor(i / cols);
+      const row = firstRow + Math.floor(i / cols);
       const col = i % cols;
-      const y = gy + row * (CARD_H + CARD_GAP) + CARD_GAP - scrollY;
       card.container.x = getGridX() + col * colW + CARD_GAP;
-      card.container.y = y;
-      // Only show cards within the visible area (+ buffer)
-      card.container.visible = y > gy - CARD_H && y < gy + gh;
+      card.container.y = gy + row * rowH + CARD_GAP - scrollY;
     }
   }
 
   // ── Select a card ──
   function selectCard(contentId: string): void {
     selectedContentId = contentId;
-    // Update card backgrounds
+    // Update backgrounds of any pool cards bound to the new/old selection.
     for (const c of cards) {
+      if (!c.item) continue;
       const bg = c.container.children[0] as Graphics;
       const isSelected = c.item.id === contentId;
       bg.clear();
@@ -509,7 +607,7 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
       bg.fill({ color: isSelected ? C_CARD_SELECTED : C_CARD });
       bg.stroke({ color: isSelected ? C_ACCENT : 0x333355, width: isSelected ? 2 : 1 });
     }
-    const item = cards.find((c) => c.item.id === contentId)?.item
+    const item = filteredItems.find((i) => i.id === contentId)
       ?? contentItems.find((i) => i.id === contentId) ?? null;
     handlers.onSelect?.(item);
     buildSettingsPanel();
@@ -534,9 +632,9 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
     const labelW = sidePanelW - 24;
 
     // Selected name
-    const selItem = cards.find((c) => c.item.id === selectedContentId)?.item
+    const selItem = filteredItems.find((i) => i.id === selectedContentId)
       ?? contentItems.find((i) => i.id === selectedContentId) ?? null;
-    const selLabel = new Text({
+    const selLabel = mkText({
       text: selItem ? selItem.name : "No selection",
       style: { fill: C_ACCENT, fontSize: 14, fontFamily: FONT, fontWeight: "bold" },
     });
@@ -545,7 +643,7 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
     y += 24;
 
     if (!selItem) {
-      const hint = new Text({
+      const hint = mkText({
         text: emptyHint,
         style: { fill: C_TEXT_DIM, fontSize: 11, fontFamily: FONT },
       });
@@ -577,7 +675,7 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
 
     let infoX = PADDING;
     for (const fb of config.footerButtons ?? []) {
-      const btn = new Text({
+      const btn = mkText({
         text: fb.label,
         style: { fill: fb.color ?? 0xff6666, fontSize: 13, fontFamily: FONT },
       });
@@ -589,10 +687,12 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
     }
     infoX += 8;
 
-    const allItems = getFilteredItems();
-    const info = new Text({
-      text: `Showing ${Math.min(allItems.length, maxCards)} of ${allItems.length} items${allItems.length > maxCards ? " — use search/filters to narrow" : ""}`,
+    const info = mkText({
+      text: filteredItems.length === contentItems.length
+        ? `${filteredItems.length} items`
+        : `${filteredItems.length} of ${contentItems.length} items`,
       style: { fill: C_TEXT_DIM, fontSize: 12, fontFamily: FONT },
+      resolution: 2,
     });
     info.x = infoX; info.y = fy + 8;
     footerBar.addChild(info);
@@ -601,7 +701,7 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
     const rightText = config.footerRight
       ? config.footerRight(badgeTotal)
       : `Total: ${badgeTotal}`;
-    const rightLabel = new Text({ text: rightText, style: { fill: C_ACCENT, fontSize: 12, fontFamily: FONT } });
+    const rightLabel = mkText({ text: rightText, style: { fill: C_ACCENT, fontSize: 12, fontFamily: FONT } });
     rightLabel.x = app.screen.width - rightLabel.width - PADDING;
     rightLabel.y = fy + 8;
     footerBar.addChild(rightLabel);
@@ -626,11 +726,11 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
     // Load models for visible cards that haven't been loaded yet (limit concurrency).
     let loadCount = 0;
     const MAX_CONCURRENT_LOADS = 6;
-    const pendingLoads = cards.filter((c) => c.container.visible && !c.modelLoaded);
+    const pendingLoads = cards.filter((c) => c.container.visible && c.item && !c.modelLoaded);
     for (const card of pendingLoads) {
       if (loadCount >= MAX_CONCURRENT_LOADS) break;
       card.modelLoaded = true;
-      const item = card.item;
+      const item = card.item!;
       const kind = thumbKind(item);
       if (kind === "model" && item.modelUri) {
         tr.loadModelThumb(item.modelUri, item.id);
@@ -648,7 +748,7 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
     // The software backend rasterizes on the CPU, so the angle is quantized:
     // frames where the quantized angle didn't change reuse the card canvas
     // as-is instead of re-rasterizing an identical image.
-    const visibleCards = cards.filter((c) => c.container.visible);
+    const visibleCards = cards.filter((c) => c.container.visible && c.item);
     // ~0.5 rad/s → one turntable revolution per ~12s, framerate-independent.
     const spin = Math.min(dt, 0.1) * 0.5;
     const ANGLE_STEP = (Math.PI * 2) / 96;
@@ -656,9 +756,9 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
       card.angle += spin;
       const bucket = Math.floor(card.angle / ANGLE_STEP);
       if (card.thumbRendered && card.angleBucket === bucket) continue;
-      if (!tr.has(card.item.id)) continue;
+      if (!tr.has(card.item!.id)) continue;
       try {
-        if (!tr.renderThumb(card.item.id, card.angle)) continue;
+        if (!tr.renderThumb(card.item!.id, card.angle)) continue;
         card.angleBucket = bucket;
         card.thumbCtx.clearRect(0, 0, THUMB_SIZE, THUMB_SIZE);
         card.thumbCtx.drawImage(tr.canvasElement, 0, 0);
@@ -669,7 +769,7 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
       } catch (e) {
         if (!(card as any)._renderErr) {
           (card as any)._renderErr = true;
-          console.error(`[AssetBrowser] Render error for "${card.item.id}":`, e);
+          console.error(`[AssetBrowser] Render error for "${card.item!.id}":`, e);
         }
       }
     }
@@ -693,14 +793,14 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
           searchQuery = searchQuery.slice(0, -1);
           searchInput.text = searchQuery;
           scrollY = 0;
-          rebuildGrid();
+          refreshGrid();
         }
       } else if (code === "Escape") {
         if (searchQuery.length > 0) {
           searchQuery = "";
           searchInput.text = "";
           scrollY = 0;
-          rebuildGrid();
+          refreshGrid();
         }
         setSearchFocused(false);
       } else if (code === "Enter") {
@@ -709,7 +809,7 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
         searchQuery += key;
         searchInput.text = searchQuery;
         scrollY = 0;
-        rebuildGrid();
+        refreshGrid();
       }
       return;
     }
@@ -719,7 +819,7 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
         searchQuery = searchQuery.slice(0, -1);
         searchInput.text = searchQuery;
         scrollY = 0;
-        rebuildGrid();
+        refreshGrid();
       }
       return;
     }
@@ -728,7 +828,7 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
         searchQuery = "";
         searchInput.text = "";
         scrollY = 0;
-        rebuildGrid();
+        refreshGrid();
       } else {
         handlers.onClose?.();
       }
@@ -738,8 +838,9 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
       // Cycle to next pack
       const idx = packs.findIndex((p) => p.id === activePack);
       activePack = packs[(idx + 1) % packs.length].id;
+      baseDirty = true;
       scrollY = 0;
-      rebuildGrid();
+      refreshGrid();
       buildTabs();
       return;
     }
@@ -760,37 +861,35 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
       searchQuery += key;
       searchInput.text = searchQuery;
       scrollY = 0;
-      rebuildGrid();
+      refreshGrid();
     }
   }
 
   function activateSelection(): void {
-    const item = cards.find((c) => c.item.id === selectedContentId)?.item
+    const item = filteredItems.find((i) => i.id === selectedContentId)
       ?? contentItems.find((i) => i.id === selectedContentId);
     if (item) handlers.onActivate?.(item);
   }
 
   function moveSelection(dx: number, dy: number): void {
-    if (cards.length === 0) return;
-    const gridW = getGridWidth();
-    const cols = Math.max(1, Math.floor((gridW + CARD_GAP) / (CARD_W + CARD_GAP)));
-    let idx = cards.findIndex((c) => c.item.id === selectedContentId);
+    if (filteredItems.length === 0) return;
+    const cols = gridCols();
+    let idx = filteredItems.findIndex((i) => i.id === selectedContentId);
     if (idx < 0) idx = 0;
     let row = Math.floor(idx / cols);
     let col = idx % cols;
     col = Math.max(0, Math.min(cols - 1, col + dx));
     row = Math.max(0, row + dy);
     let newIdx = row * cols + col;
-    if (newIdx >= cards.length) newIdx = cards.length - 1;
+    if (newIdx >= filteredItems.length) newIdx = filteredItems.length - 1;
     if (newIdx < 0) return;
-    const newId = cards[newIdx].item.id;
-    selectCard(newId);
-    // Auto-scroll to keep the selected card visible
-    const gy = getGridY();
+    selectCard(filteredItems[newIdx].id);
+    // Auto-scroll to keep the selected row visible
     const gh = getGridHeight();
-    const cardY = gy + row * (CARD_H + CARD_GAP) + CARD_GAP - scrollY;
-    if (cardY < gy) scrollY -= (gy - cardY);
-    else if (cardY + CARD_H > gy + gh) scrollY += (cardY + CARD_H - gy - gh);
+    const rowTop = row * (CARD_H + CARD_GAP) + CARD_GAP;
+    const rowBottom = rowTop + CARD_H;
+    if (rowTop < scrollY) scrollY = rowTop;
+    else if (rowBottom > scrollY + gh) scrollY = rowBottom - gh;
     scrollY = Math.max(0, Math.min(maxScrollY, scrollY));
     layoutCards();
   }
@@ -811,9 +910,11 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
 
   function applyItems(items: T[]): void {
     contentItems = items;
+    searchCache.clear();
     derivePacks();
+    baseDirty = true;
     scrollY = 0;
-    rebuildGrid();
+    refreshGrid();
     buildTabs();
     buildFilters();
     buildSettingsPanel();
@@ -821,10 +922,11 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
 
   function applyBadges(counts: Record<string, number>): void {
     badgeCounts = counts;
-    // Update badge text on live cards
+    // Update badge text on bound cards
     for (const card of cards) {
-      card.countText.text = badgeText(card.item, badgeCounts[card.item.id] ?? 0) ?? "";
+      if (card.item) card.countText.text = badgeText(card.item, badgeCounts[card.item.id] ?? 0) ?? "";
     }
+    if (sortBy !== "name") { baseDirty = true; recomputeFiltered(); }
     buildFooter();
     buildSettingsPanel();
   }
@@ -865,7 +967,10 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
       if (showBrowser) {
         caretBlink += data.dt;
         const showCaret = searchFocused && Math.floor(caretBlink / 0.5) % 2 === 0;
-        searchInput.text = searchQuery + (showCaret ? "_" : " ");
+        const nextTxt = searchQuery + (showCaret ? "_" : " ");
+        // Guard: assigning .text re-rasterizes the glyph texture even when
+        // the string is identical.
+        if (searchInput.text !== nextTxt) searchInput.text = nextTxt;
       }
 
       // Render thumbnails
@@ -885,13 +990,14 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
     setCategories(cats) {
       categories = cats;
       if (!categories.some((c) => c.id === categoryFilter)) categoryFilter = "all";
+      baseDirty = true;
       buildFilters();
-      rebuildGrid();
+      refreshGrid();
       buildSettingsPanel();
     },
     setVisible: setShowBrowser,
     isVisible: () => showBrowser,
-    getSelected: () => cards.find((c) => c.item.id === selectedContentId)?.item
+    getSelected: () => filteredItems.find((i) => i.id === selectedContentId)
       ?? contentItems.find((i) => i.id === selectedContentId) ?? null,
     dispose() {
       if (thumbRenderer) { thumbRenderer.dispose(); thumbRenderer = null; }

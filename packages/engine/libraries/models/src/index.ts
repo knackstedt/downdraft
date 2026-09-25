@@ -28,20 +28,24 @@ export type {
 } from "./codecs";
 
 export { parseDAE } from "./dae";
+export { parseDXF } from "./dxf";
 export { parseGLTF } from "./gltf";
 export type { ParseGLTFOptions } from "./gltf";
 export { extractTextureTransform, getSupportedExtensions, isExtensionSupported, parseAnimationEvents, parseMorphTargets, processMaterialExtensions, processMeshPrimitiveExtensions } from "./gltf-extensions";
 export { parseOBJ } from "./obj";
+export { parseOFF } from "./off";
 export { parsePLY } from "./ply";
 export { parseSTL } from "./stl";
 export { parse3DS } from "./threeds";
+export { parse3MF } from "./threemf";
 export { detectFormat, getMaterialVariant } from "./types";
 export type {
     AnimationChannel, AnimationData, AnimationEvent, BoneData, MaterialData, MeshData, ModelData,
     ModelFormat, ModelNode, MorphTargetData, PunctualLightData, SkinData, TextureTransform
 } from "./types";
+export { parseVTK } from "./vtk";
 
-export { loadModel } from "./loader";
+export { declaredCompanionUri, loadModel } from "./loader";
 
 // FBX parser (for direct parsing without normalization)
 export { parseFBX } from "./fbx";

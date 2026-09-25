@@ -14,7 +14,7 @@
 // reading absolute filesystem paths through a game's IPC bridge on native.
 // ============================================================================
 
-import { loadModel, type ModelData } from "@downdraft/engine/libraries/models";
+import { declaredCompanionUri, loadModel, type ModelData } from "@downdraft/engine/libraries/models";
 
 export interface SoftwareThumbnailOptions {
   /** Resolve a modelUri to bytes. Default: fetch(uri).arrayBuffer(). */
@@ -140,8 +140,14 @@ export class SoftwareThumbnailRenderer {
       let mtl: ArrayBuffer | null = null, bin: ArrayBuffer | null = null;
       if (this.resolveTexture) {
         const stem = filename.replace(/\.[^.]+$/, "");
-        if (ext === "obj") mtl = await this.resolveTexture(modelUri, `${stem}.mtl`);
-        else if (ext === "gltf") bin = await this.resolveTexture(modelUri, `${stem}.bin`);
+        const declared = declaredCompanionUri(buffer, ext ?? "");
+        if (ext === "obj") {
+          mtl = (declared ? await this.resolveTexture(modelUri, decodeURIComponent(declared)) : null)
+            ?? await this.resolveTexture(modelUri, `${stem}.mtl`);
+        } else if (ext === "gltf") {
+          bin = (declared ? await this.resolveTexture(modelUri, decodeURIComponent(declared)) : null)
+            ?? await this.resolveTexture(modelUri, `${stem}.bin`);
+        }
       }
       const model = await loadModel(buffer, filename, mtl, bin) as ModelData;
       this.uploadModel(contentId, model, modelUri);

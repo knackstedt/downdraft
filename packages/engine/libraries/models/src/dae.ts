@@ -1,4 +1,20 @@
+import { parseMiniXml } from "./mini-xml";
 import type { AnimationChannel, AnimationData, MaterialData, MeshData, ModelData, ModelNode } from "./types";
+
+/**
+ * Parse Collada XML into a Document. Uses a real DOMParser when available;
+ * on the native runtime DOMParser is an empty Pixi stub, so fall back to the
+ * built-in mini parser when the result has no COLLADA root.
+ */
+function parseColladaDocument(text: string): Document {
+  if (typeof DOMParser !== "undefined") {
+    try {
+      const doc = new DOMParser().parseFromString(text, "application/xml");
+      if (doc.getElementsByTagName("COLLADA").length > 0) return doc;
+    } catch { /* stub or unavailable — fall through */ }
+  }
+  return parseMiniXml(text) as unknown as Document;
+}
 
 // Minimal DOM-based Collada parser
 // Supports: mesh (positions, normals, UVs), materials, textures, animations, node hierarchy
@@ -662,8 +678,7 @@ function geometryToMeshes(geom: DAEGeometry, materials: Map<string, DAEMaterial>
 
 export function parseDAE(data: ArrayBuffer, name: string): ModelData {
   const text = new TextDecoder().decode(data);
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(text, "application/xml");
+  const doc = parseColladaDocument(text);
 
   // Check for parse errors
   const parseError = doc.getElementsByTagName("parsererror");

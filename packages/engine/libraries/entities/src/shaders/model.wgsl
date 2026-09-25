@@ -279,6 +279,13 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     baseColor = mix(baseColor * 0.35, baseColor * 1.4 + vec3<f32>(0.08), check);
   }
 
+  // Channel-inspection modes — bypass lighting entirely for material review.
+  // 3 = perturbed normals (normal-map contribution visible), 4 = unlit albedo
+  // (texture/baseColor only), 5 = geometric normals (no normal map).
+  if (texMode == 3u) { return vec4<f32>(N * 0.5 + vec3<f32>(0.5), 1.0); }
+  if (texMode == 4u) { return vec4<f32>(baseColor, 1.0); }
+  if (texMode == 5u) { return vec4<f32>(geometricN * 0.5 + vec3<f32>(0.5), 1.0); }
+
   var litColor = baseColor * (ambient + sunDiffuse);
 
   // Point lights (up to 8). Each light is 2 vec4s: (pos.xyz, radius) + (color.rgb, intensity).

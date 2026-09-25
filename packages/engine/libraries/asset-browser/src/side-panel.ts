@@ -15,12 +15,15 @@ const C_TEXT = 0xe0e0e0;
 const C_TEXT_DIM = 0x888888;
 const FONT = "Segoe UI, Arial, sans-serif";
 
+// 2× glyph rasterization — matches the scene's text (see mkText there).
+const mkText = (opts: any): Text => { opts.resolution ??= 2; return new Text(opts); };
+
 export function createSidePanelUi(panel: Container, x: number, startY: number, width: number): SidePanelUi {
   let y = startY;
 
   return {
     text(text, opts) {
-      const t = new Text({
+      const t = mkText({
         text,
         style: {
           fill: opts?.accent ? C_ACCENT : opts?.dim ? C_TEXT_DIM : C_TEXT,
@@ -35,7 +38,7 @@ export function createSidePanelUi(panel: Container, x: number, startY: number, w
     },
 
     button(label, onClick, opts) {
-      const btn = new Text({
+      const btn = mkText({
         text: opts?.accent === false ? label : `[ ${label} ]`,
         style: {
           fill: opts?.danger ? 0xff6666 : opts?.accent === false ? C_TEXT : C_ACCENT,
@@ -52,7 +55,7 @@ export function createSidePanelUi(panel: Container, x: number, startY: number, w
     },
 
     slider(label, value, min, max, step, onChange) {
-      const lbl = new Text({
+      const lbl = mkText({
         text: `${label}: ${value.toFixed(value < 10 ? 2 : 0)}`,
         style: { fill: C_TEXT, fontSize: 12, fontFamily: FONT },
       });
@@ -92,10 +95,10 @@ export function createSidePanelUi(panel: Container, x: number, startY: number, w
     },
 
     toggle(label, value, onChange) {
-      const lbl = new Text({ text: `${label}:`, style: { fill: C_TEXT_DIM, fontSize: 12, fontFamily: FONT } });
+      const lbl = mkText({ text: `${label}:`, style: { fill: C_TEXT_DIM, fontSize: 12, fontFamily: FONT } });
       lbl.x = x; lbl.y = y;
       panel.addChild(lbl);
-      const btn = new Text({
+      const btn = mkText({
         text: value ? "[On]" : "Off",
         style: { fill: value ? C_ACCENT : C_TEXT, fontSize: 13, fontFamily: FONT },
       });
@@ -107,7 +110,7 @@ export function createSidePanelUi(panel: Container, x: number, startY: number, w
     },
 
     dropdown(label, current, options, onChange) {
-      const lbl = new Text({
+      const lbl = mkText({
         text: `${label}: ${current} ▾`,
         style: { fill: C_TEXT, fontSize: 12, fontFamily: FONT },
       });
@@ -133,7 +136,7 @@ export function createSidePanelUi(panel: Container, x: number, startY: number, w
         let dy = y + 18;
         for (const opt of options) {
           const isSel = opt === current;
-          const optText = new Text({
+          const optText = mkText({
             text: isSel ? `▸ ${opt}` : `  ${opt}`,
             style: { fill: isSel ? C_ACCENT : C_TEXT, fontSize: 12, fontFamily: FONT },
           });

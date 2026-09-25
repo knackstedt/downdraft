@@ -168,7 +168,7 @@ export function getMaterialVariant(model: ModelData, name: string): number {
   return model.materialVariants.indexOf(name);
 }
 
-export type ModelFormat = "obj" | "gltf" | "glb" | "fbx" | "dae" | "stl" | "ply" | "3ds";
+export type ModelFormat = "obj" | "gltf" | "glb" | "fbx" | "dae" | "stl" | "ply" | "3ds" | "off" | "vtk" | "dxf" | "3mf";
 
 export function detectFormat(filename: string): ModelFormat | null {
   const lower = filename.toLowerCase();
@@ -180,5 +180,9 @@ export function detectFormat(filename: string): ModelFormat | null {
   if (lower.endsWith(".stl")) return "stl";
   if (lower.endsWith(".ply")) return "ply";
   if (lower.endsWith(".3ds")) return "3ds";
+  if (lower.endsWith(".off")) return "off";
+  if (lower.endsWith(".vtk")) return "vtk";
+  if (lower.endsWith(".dxf")) return "dxf";
+  if (lower.endsWith(".3mf")) return "3mf";
   return null;
 }

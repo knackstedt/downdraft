@@ -10,15 +10,40 @@ import { MAX_FETCH_SIZE } from "@downdraft/engine";
 import type { GLTFCodecRegistry } from "./codecs/registry";
 import { getDefaultCodecRegistry } from "./codecs/registry";
 import { parseDAE } from "./dae";
+import { parseDXF } from "./dxf";
 import { parseFBX } from "./fbx";
 import { parseGLTF } from "./gltf";
 import { normalizeModel, normalizeModelWithResolution, resolveImportSettingsSync } from "./normalize";
 import { parseOBJ } from "./obj";
+import { parseOFF } from "./off";
 import { parsePLY } from "./ply";
 import { parseSTL } from "./stl";
 import { parse3DS } from "./threeds";
+import { parse3MF } from "./threemf";
 import type { ModelData } from "./types";
 import { detectFormat } from "./types";
+import { parseVTK } from "./vtk";
+
+/**
+ * Companion filename declared inside the model file — `mtllib` for OBJ and
+ * `buffers[0].uri` for glTF. Real assets frequently name sidecars something
+ * other than `<stem>.mtl`/`<stem>.bin`, so resolve the declared name first.
+ */
+export function declaredCompanionUri(data: ArrayBuffer, format: string): string | null {
+  if (format === "obj") {
+    const m = new TextDecoder().decode(data.slice(0, 65536)).match(/^[ \t]*mtllib[ \t]+(.+?)[ \t]*$/m);
+    // mtllib can be a space-separated list; take the first entry.
+    return m?.[1]?.split(/\s+/)[0] ?? null;
+  }
+  if (format === "gltf") {
+    try {
+      const json = JSON.parse(new TextDecoder().decode(data));
+      const uri = json?.buffers?.[0]?.uri;
+      return typeof uri === "string" && !uri.startsWith("data:") ? uri : null;
+    } catch { return null; }
+  }
+  return null;
+}
 
 export interface ModelLoaderOptions {
   fetchFn?: (uri: string) => Promise<Response>;
@@ -80,6 +105,18 @@ export async function loadModel(
     case "3ds":
       modelData = parse3DS(data, baseName);
       break;
+    case "off":
+      modelData = parseOFF(data, baseName);
+      break;
+    case "vtk":
+      modelData = parseVTK(data, baseName);
+      break;
+    case "dxf":
+      modelData = parseDXF(data, baseName);
+      break;
+    case "3mf":
+      modelData = parse3MF(data, baseName);
+      break;
     default:
       throw new Error(`Unknown model format: ${filename}`);
   }
@@ -130,8 +167,10 @@ export function createModelAsyncLoader(opts: ModelLoaderOptions = {}) {
       case "obj": {
         let mtlData: ArrayBuffer | null = null;
         if (opts.mtlResolver) {
-          const mtlUri = uri.replace(/\.[^.]+$/, ".mtl");
-          mtlData = await opts.mtlResolver(mtlUri);
+          const dir = uri.slice(0, uri.lastIndexOf("/") + 1);
+          const declared = declaredCompanionUri(data, "obj");
+          if (declared) mtlData = await opts.mtlResolver(dir + decodeURIComponent(declared));
+          mtlData ??= await opts.mtlResolver(uri.replace(/\.[^.]+$/, ".mtl"));
         }
         modelData = parseOBJ(data, baseName, mtlData);
         break;
@@ -139,8 +178,10 @@ export function createModelAsyncLoader(opts: ModelLoaderOptions = {}) {
       case "gltf": {
         let binData: ArrayBuffer | null = null;
         if (opts.binResolver) {
-          const binUri = uri.replace(/\.[^.]+$/, ".bin");
-          binData = await opts.binResolver(binUri);
+          const dir = uri.slice(0, uri.lastIndexOf("/") + 1);
+          const declared = declaredCompanionUri(data, "gltf");
+          if (declared) binData = await opts.binResolver(dir + decodeURIComponent(declared));
+          binData ??= await opts.binResolver(uri.replace(/\.[^.]+$/, ".bin"));
         }
         modelData = await parseGLTF(data, baseName, false, binData, { registry });
         break;
@@ -162,6 +203,18 @@ export function createModelAsyncLoader(opts: ModelLoaderOptions = {}) {
         break;
       case "3ds":
         modelData = parse3DS(data, baseName);
+        break;
+      case "off":
+        modelData = parseOFF(data, baseName);
+        break;
+      case "vtk":
+        modelData = parseVTK(data, baseName);
+        break;
+      case "dxf":
+        modelData = parseDXF(data, baseName);
+        break;
+      case "3mf":
+        modelData = parse3MF(data, baseName);
         break;
       default:
         throw new Error(`Unknown model format: ${filename}`);
@@ -185,7 +238,7 @@ export function registerModelLoaders(
   opts: ModelLoaderOptions = {},
 ): void {
   const loader = createModelAsyncLoader(opts);
-  const extensions = ["fbx", "gltf", "glb", "obj", "dae", "stl", "ply", "3ds"];
+  const extensions = ["fbx", "gltf", "glb", "obj", "dae", "stl", "ply", "3ds", "off", "vtk", "dxf", "3mf"];
   for (const ext of extensions) {
     assetManager.registerLoader(ext, loader);
   }
