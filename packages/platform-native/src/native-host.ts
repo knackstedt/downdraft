@@ -91,7 +91,7 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   const window = new NativeWindow(config.window);
   if (config.appId && !deterministic) {
     installWindowStatePersistence(config.appId, window);
-    installNativeErrorHandlers(window);
+    installNativeErrorHandlers(window, config.appId);
   }
   const surface = window.getSurface();
   (globalThis as any).__nativeWindow = window;
@@ -154,46 +154,23 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
       : undefined,
   });
 
-  // 6b. Forward mouse/click/wheel events from the window to the surface (canvas).
-  // The renderer's input handler listens on `canvas` for these events, but
-  // SDL events are dispatched to the NativeWindow. We bridge them here.
-  // Also synthesize `click` events from mousedown+mouseup pairs.
+  // 6b. Synthesize `click` events on the canvas from mousedown+mouseup pairs
+  // (SDL has no click event). Do NOT forward the raw mouse events here —
+  // NativeWindow.dispatchInputEvent already delivers them to the surface,
+  // and re-dispatching double-counts movementX deltas and wheel/button
+  // transitions for canvas listeners.
   let lastMouseDown: { x: number; y: number; button: number; time: number } | null = null;
-  let lastMouseX = 0;
-  let lastMouseY = 0;
-  const forwardToSurface = (type: string, event: any) => {
-    surface.dispatchEvent({ ...event, type });
-  };
-  window.addEventListener("mousemove", (e: any) => {
-    // SDL already provides relative motion (xrel/yrel) via movementX/movementY
-    // when relative mouse mode is enabled. Prefer those over recomputing from
-    // absolute positions, which gives wrong deltas under pointer lock.
-    const movementX = (typeof e.movementX === "number") ? e.movementX : e.clientX - lastMouseX;
-    const movementY = (typeof e.movementY === "number") ? e.movementY : e.clientY - lastMouseY;
-    lastMouseX = e.clientX;
-    lastMouseY = e.clientY;
-    forwardToSurface("mousemove", { ...e, movementX, movementY });
-  });
   window.addEventListener("mousedown", (e: any) => {
     lastMouseDown = { x: e.clientX, y: e.clientY, button: e.button, time: performance.now() };
-    forwardToSurface("mousedown", e);
   });
   window.addEventListener("mouseup", (e: any) => {
-    forwardToSurface("mouseup", e);
-    // Synthesize a click event if mouseup is close to the last mousedown
     if (lastMouseDown && lastMouseDown.button === e.button &&
         Math.abs(e.clientX - lastMouseDown.x) < 5 &&
         Math.abs(e.clientY - lastMouseDown.y) < 5 &&
         performance.now() - lastMouseDown.time < 500) {
-      forwardToSurface("click", { ...e, type: "click" });
+      surface.dispatchEvent({ ...e, type: "click" });
     }
     lastMouseDown = null;
-  });
-  window.addEventListener("wheel", (e: any) => {
-    forwardToSurface("wheel", e);
-  });
-  window.addEventListener("contextmenu", (e: any) => {
-    forwardToSurface("contextmenu", e);
   });
 
   // 6c. Install the `downdraft` bridge — the single-process implementation

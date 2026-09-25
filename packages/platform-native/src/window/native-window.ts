@@ -278,7 +278,9 @@ export class NativeWindow extends MiniEventTarget {
    */
   private dispatchInputEvent(event: any): void {
     this.surface?.dispatchEvent(event);
-    this.dispatchEvent(event);
+    // MiniEventTarget sets __miniStop when a surface listener calls
+    // stopPropagation — skip the window dispatch (DOM bubble semantics).
+    if (!event?.__miniStop) this.dispatchEvent(event);
   }
 
   /** Fire `pointerType` then `mouseType` (DOM order), each on target+window. */

@@ -65,7 +65,9 @@ export class NativePixiUiHost {
       preference: "webgpu",
       antialias: false,
       resolution: opts.resolution ?? 1,
-      autoDensity: false,
+      // autoDensity resizes the canvas backing to logical*resolution; our
+      // VirtualCanvas width setter recreates the GPU texture accordingly.
+      autoDensity: true,
       autoStart: false,
       gpu: { adapter: opts.adapter, device: opts.device } as any,
     }).then(() => {
@@ -113,9 +115,27 @@ export class NativePixiUiHost {
     }
   }
 
+  /**
+   * Change the rasterization resolution while keeping the logical stage
+   * size fixed — like a DPR change. The canvas backing becomes
+   * (width*res) x (height*res); screen stays logical, so layout and input
+   * coordinates are unaffected. Use to match the UI texture to the
+   * (possibly resized) swapchain surface for 1:1, sharp compositing.
+   */
+  setResolution(resolution: number): void {
+    if (this.disposed || !(resolution > 0)) return;
+    const r = this.app.renderer as any;
+    if (Math.abs((r.resolution ?? 1) - resolution) < 1e-4) return;
+    try {
+      r.resize(this.width, this.height, resolution);
+    } catch (err) {
+      console.error("[NativePixiUiHost] setResolution failed:", err);
+    }
+  }
+
   /** The UI texture view the game samples in its compositing blit pass. */
   getUiTextureView(): GPUTextureView | null {
-    return this.canvas.getWebgpuContext().getUiTextureView() as GPUTextureView | null;
+    return this.canvas.getWebgpuContext().getUiTextureView() as unknown as GPUTextureView | null;
   }
 
   resize(width: number, height: number): void {
