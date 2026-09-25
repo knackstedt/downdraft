@@ -11,11 +11,13 @@ crate-type = ["cdylib"]
 
 [dependencies]
 blitz-html = { git = "https://github.com/DioxusLabs/blitz", rev = "efef6519fe6520caf66dc82df557580eecbf652b" }
-blitz-dom = { git = "https://github.com/DioxusLabs/blitz", rev = "efef6519fe6520caf66dc82df557580eecbf652b", default-features = false }
+blitz-dom = { git = "https://github.com/DioxusLabs/blitz", rev = "efef6519fe6520caf66dc82df557580eecbf652b", default-features = false, features = ["woff"] }
 blitz-traits = { git = "https://github.com/DioxusLabs/blitz", rev = "efef6519fe6520caf66dc82df557580eecbf652b" }
 blitz-paint = { git = "https://github.com/DioxusLabs/blitz", rev = "efef6519fe6520caf66dc82df557580eecbf652b", features = ["custom-widget"] }
 anyrender_vello_cpu = "0.17.0"
 anyrender = "0.13.0"
+atomic_refcell = "0.1"
+keyboard-types = "0.7"
 linebender_resource_handle = "0.1"
 # Workaround copied from blitz examples: disable unicode URL support
 # (see https://github.com/hsivonen/idna_adapter)

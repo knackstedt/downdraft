@@ -36,6 +36,7 @@ import type {
 import { createLogger } from "@downdraft/engine/util/logger";
 import { spawn } from "node:child_process";
 import { WgpuDevice } from "../gpu/wgpu-wrapper";
+import { createNativeOsrHost } from "../osr/native-osr-host";
 import { encodePNG } from "../screenshot/screenshot";
 import type { HostServices } from "../services/host-services";
 import type { NativeSurface } from "../window/native-surface";
@@ -127,26 +128,12 @@ export function createNativeBridge(opts: NativeBridgeOptions): DowndraftBridgeAP
     perfTimer.unref?.();
   };
 
-  // ── OSR: stub until the Blitz-based native OSR module lands (Phase I) ──
-  const osrStub: DowndraftOsrBridgeAPI = {
-    createRenderer: () => Promise.resolve(),
-    destroyRenderer: () => Promise.resolve(),
-    addPanel: () => Promise.resolve(null),
-    removePanel: () => Promise.resolve(null),
-    updatePanel: () => Promise.resolve(),
-    updateData: () => {},
-    setContent: () => Promise.resolve(),
-    loadURL: () => Promise.resolve(),
-    sendInputEvent: () => {},
-    setSoftwareCursor: () => {},
-    onPanelLayout: () => {},
-    onRendererEvent: () => {},
-    onCursorStyle: () => {},
-    registerSharedTextureReceiver: () => false,
-    onPaintImage: () => {},
-    onPaintRegion: () => {},
-    createPaintPort: () => {},
-  };
+  // ── OSR: Blitz-backed native panels (see osr/native-osr-host.ts) ──
+  const osrHost = createNativeOsrHost();
+  const osrApi: DowndraftOsrBridgeAPI = osrHost.api;
+  if (osrHost.available) {
+    (globalThis as Record<string, unknown>).__ddOsrAvailable = true;
+  }
 
   let fullscreen = false;
   const simReadyData: SimReadyData = { isDev, deterministic };
@@ -289,7 +276,7 @@ export function createNativeBridge(opts: NativeBridgeOptions): DowndraftBridgeAP
     onGCStats: (cb: (data: GCStatsData) => void) => { void cb; /* no V8 GC events on native */ },
     onPerfStats: (cb: (data: PerfStatsData) => void) => { on("perf-stats", cb); ensurePerfStats(); },
 
-    osr: osrStub,
+    osr: osrApi,
     // rawInput is intentionally absent: SDL relative-mouse grab covers
     // pointer-lock semantics without a native addon.
     removeAllListeners: (channel: string) => { emitters.delete(channel); },
@@ -308,6 +295,7 @@ export function createNativeBridge(opts: NativeBridgeOptions): DowndraftBridgeAP
 
     dispose(): void {
       if (perfTimer) { clearInterval(perfTimer); perfTimer = null; }
+      osrHost.dispose();
       void services.dispose();
       emitters.clear();
       delete (globalThis as Record<string, unknown>).__ddMcpHandler;

@@ -157,6 +157,8 @@
     "@downdraft/engine/modules/movement-2d/": "./packages/engine/modules/movement-2d/src/",
     "@downdraft/engine/modules/movement-3d": "./packages/engine/modules/movement-3d/src/index.ts",
     "@downdraft/engine/modules/movement-3d/": "./packages/engine/modules/movement-3d/src/",
+    "@downdraft/engine/modules/native-osr": "./packages/engine/modules/native-osr/src/index.ts",
+    "@downdraft/engine/modules/native-osr/": "./packages/engine/modules/native-osr/src/",
     "@downdraft/engine/modules/raw-input": "./packages/engine/modules/raw-input/src/index.ts",
     "@downdraft/engine/modules/raw-input/": "./packages/engine/modules/raw-input/src/",
     "@downdraft/engine/modules/sailing": "./packages/engine/modules/sailing/src/index.ts",

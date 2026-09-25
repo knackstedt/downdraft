@@ -14,7 +14,7 @@ import type {
     OSRPanelConfig,
     OSRRendererConfig,
     OSRRendererEvent,
-} from "@downdraft/engine/modules/electron-osr";
+} from "@downdraft/engine/modules/native-osr";
 export type { FeatureLogData };
 
 // ---------------------------------------------------------------------------
@@ -325,6 +325,18 @@ export interface DowndraftOsrBridgeAPI {
   onPaintImage(cb: (rendererId: string, image: unknown) => void): void;
   onPaintRegion(cb: (rendererId: string, region: PaintRegionData) => void): void;
   createPaintPort(rendererId: string): void;
+
+  // ── Native-only in-process frame pull (Blitz backend) ──
+  // Present only on the native host; absent under Electron. The renderer-side
+  // NativeOSRManager uses these instead of the shared-texture/paint machinery.
+  /** Marks the Blitz-backed native OSR implementation. */
+  __nativeIsBlitz?: boolean;
+  /** Pull the renderer's dirty RGBA8 frame; null when clean or unknown. */
+  pullFrame?(rendererId: string): Uint8Array | null;
+  /** Renderer texture dimensions in physical px. */
+  getDimensions?(rendererId: string): { width: number; height: number } | null;
+  /** Hit-test against `data-ui` elements in the Blitz document. */
+  hitTest?(rendererId: string, x: number, y: number): boolean;
 }
 
 // ---------------------------------------------------------------------------
