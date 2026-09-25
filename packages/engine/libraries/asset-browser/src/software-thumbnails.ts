@@ -468,9 +468,11 @@ export class SoftwareThumbnailRenderer {
       if (az > 1 && bz > 1 && cz2 > 1) continue;
 
       // Two-sided: flip shading normal by screen-space winding (same signal
-      // the GLSL uses via gl_FrontFacing).
+      // the GLSL uses via gl_FrontFacing). Screen y is flipped vs NDC, so a
+      // front-facing (CCW in NDC) tri has negative signed area here — keep
+      // its authored normal; only back faces get flipped toward the camera.
       const winding = (bx - ax) * (cy2 - ay) - (cx2 - ax) * (by - ay);
-      const nSign = winding < 0 ? -1 : 1;
+      const nSign = winding < 0 ? 1 : -1;
 
       const mat = mats[triMat ? triMat[t / 3] : 0] ?? mats[0];
       const br = mat.baseColor[0], bg = mat.baseColor[1], bb = mat.baseColor[2];

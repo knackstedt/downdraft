@@ -284,110 +284,171 @@ function applyMorphTargets(
   }
 }
 
-// ── ASCII fallback (minimal — vertices/faces/normals only) ─────────────────
-// The full ASCII parser is deferred. All repo FBX files are binary.
+// ── ASCII fallback (vertices/faces/normals/uvs — no materials or hierarchy) ─
+// The full ASCII parser is deferred; this handles the common `Name: *N {
+// a: n,n,... }` array blocks found in e.g. Kenney's ASCII FBX exports.
+
+interface ASCIIGeometry {
+  verts: number[] | null;
+  pvi: number[] | null;
+  normals: number[] | null;
+  uvs: number[] | null;
+  uvIndex: number[] | null;
+}
+
+/** Read an ASCII FBX numeric array. Handles both `Name: *N {` + `a: …` +
+ * `}` block form and the inline `Name: n,n,n` form. */
+function readASCIIArray(lines: string[], i: number): { nums: number[]; end: number } {
+  const nums: number[] = [];
+  const header = lines[i];
+  const take = (s: string) => {
+    for (const part of s.split(",")) {
+      const v = parseFloat(part.trim());
+      if (!Number.isNaN(v)) nums.push(v);
+    }
+  };
+  const open = header.indexOf("{");
+  if (open === -1) {
+    take(header.substring(header.indexOf(":") + 1));
+    return { nums, end: i };
+  }
+  const close = header.indexOf("}", open);
+  if (close !== -1) { // `Name: *N { a: … }` complete on one line
+    take(header.substring(open + 1, close).replace(/^a:/, ""));
+    return { nums, end: i };
+  }
+  for (let j = i + 1; j < lines.length; j++) {
+    let l = lines[j].trim();
+    if (l.startsWith("}")) return { nums, end: j };
+    if (l.startsWith("a:")) l = l.substring(2);
+    take(l);
+  }
+  return { nums, end: lines.length - 1 };
+}
+
+function buildASCIIMesh(geo: ASCIIGeometry): MeshData | null {
+  const v = geo.verts, pvi = geo.pvi;
+  if (!v || !pvi || v.length < 3 || pvi.length === 0) return null;
+
+  // PolygonVertexIndex: negative last index of each polygon is bitwise-NOT.
+  // Emit one vertex per polygon corner (normals/uvs are per-polyvertex in
+  // FBX, so corners can't be shared without a (pos,attr) key map — emitting
+  // unshared keeps hard edges correct and the code simple).
+  const cornerPos: number[] = [];
+  const cornerSlot: number[] = [];
+  const tris: number[] = [];
+  const posAt = (k: number) => (pvi[k] < 0 ? ~pvi[k] : pvi[k]);
+  let polyStart = 0;
+  for (let k = 0; k < pvi.length; k++) {
+    if (pvi[k] >= 0) continue;
+    const len = k - polyStart + 1;
+    for (let t = 1; t < len - 1; t++) {
+      const base = cornerPos.length;
+      cornerPos.push(posAt(polyStart), posAt(polyStart + t), posAt(polyStart + t + 1));
+      cornerSlot.push(polyStart, polyStart + t, polyStart + t + 1);
+      tris.push(base, base + 1, base + 2);
+    }
+    polyStart = k + 1;
+  }
+  if (tris.length === 0) return null;
+
+  const nV = cornerPos.length;
+  const nPos = v.length / 3;
+  const nrm = geo.normals;
+  const nPerPolyVert = !!nrm && nrm.length === pvi.length * 3;
+  const nPerVert = !!nrm && nrm.length === nPos * 3;
+  const uv = geo.uvs;
+  const uvi = geo.uvIndex;
+  const hasUv = !!uv && uv.length >= 2;
+  // IndexToDirect: UVIndex[pviSlot] → uv pair. Direct: uv[pviSlot].
+  const uvByIndex = hasUv && !!uvi && uvi.length === pvi.length;
+
+  const vertArray = new Float32Array(nV * 6);
+  const uvArray = hasUv ? new Float32Array(nV * 2) : null;
+  for (let e = 0; e < nV; e++) {
+    const p = cornerPos[e], s = cornerSlot[e];
+    vertArray[e * 6] = v[p * 3]; vertArray[e * 6 + 1] = v[p * 3 + 1]; vertArray[e * 6 + 2] = v[p * 3 + 2];
+    if (nrm && (nPerPolyVert || nPerVert)) {
+      const ni = (nPerPolyVert ? s : p) * 3;
+      vertArray[e * 6 + 3] = nrm[ni]; vertArray[e * 6 + 4] = nrm[ni + 1]; vertArray[e * 6 + 5] = nrm[ni + 2];
+    } else {
+      vertArray[e * 6 + 4] = 1; // placeholder up — flat-shaded below if absent
+    }
+    if (uvArray && uv) {
+      const ui = uvByIndex && uvi ? uvi[s] : s;
+      if (ui * 2 + 1 < uv.length) { uvArray[e * 2] = uv[ui * 2]; uvArray[e * 2 + 1] = uv[ui * 2 + 1]; }
+    }
+  }
+
+  // No normals in the file → flat face normal per triangle.
+  if (!nrm || (!nPerPolyVert && !nPerVert)) {
+    for (let t = 0; t < tris.length; t += 3) {
+      const a = tris[t] * 6, b = tris[t + 1] * 6, c = tris[t + 2] * 6;
+      const ux = vertArray[b] - vertArray[a], uy = vertArray[b + 1] - vertArray[a + 1], uz = vertArray[b + 2] - vertArray[a + 2];
+      const vx = vertArray[c] - vertArray[a], vy = vertArray[c + 1] - vertArray[a + 1], vz = vertArray[c + 2] - vertArray[a + 2];
+      let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+      const nl = Math.hypot(nx, ny, nz) || 1;
+      nx /= nl; ny /= nl; nz /= nl;
+      for (const j of [a, b, c]) { vertArray[j + 3] = nx; vertArray[j + 4] = ny; vertArray[j + 5] = nz; }
+    }
+  }
+
+  const indices = nV > 65535 ? new Uint32Array(tris) : new Uint16Array(tris);
+  return {
+    vertices: vertArray,
+    indices,
+    vertexCount: nV,
+    indexCount: tris.length,
+    uvs: uvArray,
+    colors: null,
+  };
+}
 
 function parseFBXASCII(data: ArrayBuffer, name: string): ModelData {
   const text = new TextDecoder().decode(data);
   const lines = text.split("\n");
 
-  const positions: number[][] = [];
-  const faces: number[][] = [];
-  let normals: number[] | null = null;
+  const meshes: MeshData[] = [];
+  let geo: ASCIIGeometry | null = null;
+  let depth = 0;
+  let geoDepth = 0; // depth the Geometry node sits at — emit when we return to it
   let asciiUpAxis: "y" | "z" = "y";
   let asciiUnitScale: number | undefined;
 
   for (let i = 0; i < lines.length; i++) {
-    const trimmed = lines[i].trim();
-    if (trimmed.startsWith("Vertices:")) {
-      const arrayStr = trimmed.substring(trimmed.indexOf("{") + 1, trimmed.lastIndexOf("}"));
-      const nums = arrayStr.split(",").map((s) => parseFloat(s.trim()));
-      for (let i = 0; i < nums.length; i += 3) {
-        positions.push([nums[i], nums[i + 1], nums[i + 2]]);
-      }
-    } else if (trimmed.startsWith("PolygonVertexIndex:")) {
-      const arrayStr = trimmed.substring(trimmed.indexOf("{") + 1, trimmed.lastIndexOf("}"));
-      const nums = arrayStr.split(",").map((s) => parseInt(s.trim()));
-      faces.push(nums);
-    } else if (trimmed.startsWith("Normals:")) {
-      const arrayStr = trimmed.substring(trimmed.indexOf("{") + 1, trimmed.lastIndexOf("}"));
-      normals = arrayStr.split(",").map((s) => parseFloat(s.trim()));
-    } else if (trimmed.startsWith("UpAxis:")) {
-      const val = parseInt(trimmed.substring(trimmed.indexOf(":") + 1).trim());
-      if (val === 2) asciiUpAxis = "z";
-    } else if (trimmed.startsWith("UnitScaleFactor:")) {
-      asciiUnitScale = parseFloat(trimmed.substring(trimmed.indexOf(":") + 1).trim());
+    const l = lines[i].trim();
+    if (l.startsWith("UpAxis:")) {
+      if (parseInt(l.substring(l.indexOf(":") + 1).trim()) === 2) asciiUpAxis = "z";
+    } else if (l.startsWith("UnitScaleFactor:")) {
+      asciiUnitScale = parseFloat(l.substring(l.indexOf(":") + 1).trim());
+    }
+
+    if (!geo && /^Geometry:\s*[^,]+,\s*"Geometry::[^"]*",\s*"Mesh"/.test(l)) {
+      geo = { verts: null, pvi: null, normals: null, uvs: null, uvIndex: null };
+      geoDepth = depth;
+    }
+    if (geo) {
+      if (l.startsWith("Vertices:")) { const r = readASCIIArray(lines, i); geo.verts = r.nums; i = r.end; continue; }
+      if (l.startsWith("PolygonVertexIndex:")) { const r = readASCIIArray(lines, i); geo.pvi = r.nums; i = r.end; continue; }
+      if (l.startsWith("Normals:")) { const r = readASCIIArray(lines, i); geo.normals = r.nums; i = r.end; continue; }
+      if (l.startsWith("UV:")) { const r = readASCIIArray(lines, i); geo.uvs = geo.uvs ?? r.nums; i = r.end; continue; }
+      if (l.startsWith("UVIndex:")) { const r = readASCIIArray(lines, i); geo.uvIndex = geo.uvIndex ?? r.nums; i = r.end; continue; }
+    }
+    depth += (l.match(/{/g) ?? []).length - (l.match(/}/g) ?? []).length;
+    if (geo && depth === geoDepth) {
+      const mesh = buildASCIIMesh(geo);
+      if (mesh) meshes.push(mesh);
+      geo = null;
     }
   }
-
-  if (positions.length === 0) {
-    return { meshes: [], name, format: "fbx" };
+  // File ended mid-block — emit whatever was collected.
+  if (geo) {
+    const mesh = buildASCIIMesh(geo);
+    if (mesh) meshes.push(mesh);
   }
-
-  const triIndices: number[] = [];
-  let polyStart = 0;
-  const polyIndices = faces.flat();
-
-  for (let i = 0; i < polyIndices.length; i++) {
-    const idx = polyIndices[i];
-    if (idx < 0) {
-      const endIdx = ~idx;
-      const polyLen = i - polyStart + 1;
-      if (polyLen === 3) {
-        triIndices.push(polyIndices[polyStart], polyIndices[polyStart + 1], endIdx);
-      } else if (polyLen === 4) {
-        triIndices.push(
-          polyIndices[polyStart],
-          polyIndices[polyStart + 1],
-          polyIndices[polyStart + 2],
-        );
-        triIndices.push(polyIndices[polyStart], polyIndices[polyStart + 2], endIdx);
-      } else {
-        for (let j = 1; j < polyLen - 1; j++) {
-          triIndices.push(
-            polyIndices[polyStart],
-            polyIndices[polyStart + j] >= 0 ? polyIndices[polyStart + j] : ~polyIndices[polyStart + j],
-            polyIndices[polyStart + j + 1] >= 0 ? polyIndices[polyStart + j + 1] : ~polyIndices[polyStart + j + 1],
-          );
-        }
-      }
-      polyStart = i + 1;
-    }
-  }
-
-  const vertexCount = positions.length;
-  const vertArray = new Float32Array(vertexCount * 6);
-
-  for (let i = 0; i < vertexCount; i++) {
-    vertArray[i * 6] = positions[i][0];
-    vertArray[i * 6 + 1] = positions[i][1];
-    vertArray[i * 6 + 2] = positions[i][2];
-    if (normals && normals.length >= (i + 1) * 3) {
-      vertArray[i * 6 + 3] = normals[i * 3];
-      vertArray[i * 6 + 4] = normals[i * 3 + 1];
-      vertArray[i * 6 + 5] = normals[i * 3 + 2];
-    } else {
-      vertArray[i * 6 + 3] = 0;
-      vertArray[i * 6 + 4] = 1;
-      vertArray[i * 6 + 5] = 0;
-    }
-  }
-
-  const indexCount = triIndices.length;
-  const useUint32 = vertexCount > 65535;
-  const indices = useUint32
-    ? new Uint32Array(triIndices)
-    : new Uint16Array(triIndices);
 
   return {
-    meshes: [{
-      vertices: vertArray,
-      indices,
-      vertexCount,
-      indexCount,
-      uvs: null,
-      colors: null,
-    }],
+    meshes,
     name,
     format: "fbx",
     sourceUpAxis: asciiUpAxis,

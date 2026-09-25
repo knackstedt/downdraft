@@ -300,7 +300,12 @@ export class WgpuRenderPassEncoder {
   setIndexBuffer(buffer: WgpuBuffer | null, format: GPUIndexFormat, offset?: number, size?: number): void {
     if (buffer) {
       const off = offset ?? 0;
-      wgpu.wgpu_shim_render_pass_set_index_buffer(this.ptr, buffer.ptr, parseIndexFormat(format), BigInt(off), BigInt(size ?? (buffer.size - off)));
+      const sz = size ?? (buffer.size - off);
+      // Binding an empty index range is meaningless — and wgpu-native panics
+      // on it ("invalid size"), which aborts the process since the panic
+      // crosses the FFI boundary. Skip instead.
+      if (sz <= 0) return;
+      wgpu.wgpu_shim_render_pass_set_index_buffer(this.ptr, buffer.ptr, parseIndexFormat(format), BigInt(off), BigInt(sz));
     }
   }
 

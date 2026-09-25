@@ -430,6 +430,10 @@ export class ModelRenderer {
 
     for (let i = 0; i < meshes.length && uniformOffset < ModelRenderer.MAX_MODELS; i++) {
       const mesh = meshes[i];
+      // Degenerate mesh (partial parse failure, empty geometry): nothing to
+      // draw, and a 0-byte index buffer trips wgpu-native's setIndexBuffer
+      // validation — a Rust panic that aborts the whole process.
+      if (mesh.indexCount === 0 || mesh.vertexCount === 0 || mesh.indices.byteLength === 0) continue;
       const vertexCount = mesh.vertexCount;
       const stride = 11; // pos3 + normal3 + uv2 + color3
       const interleaved = new Float32Array(vertexCount * stride);
@@ -848,6 +852,7 @@ export class ModelRenderer {
 
     for (let i = 0; i < meshes.length && uniformOffset < ModelRenderer.MAX_MODELS; i++) {
       const mesh = meshes[i];
+      if (mesh.indexCount === 0 || mesh.vertexCount === 0 || mesh.indices.byteLength === 0) continue;
       const vertexCount = mesh.vertexCount;
       const stride = 11;
       const interleaved = new Float32Array(vertexCount * stride);
