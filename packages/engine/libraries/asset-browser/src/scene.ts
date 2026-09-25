@@ -72,6 +72,7 @@ interface CardEntry<T extends AssetBrowserItem> {
   angle: number;
   modelLoaded: boolean;
   thumbRendered: boolean;
+  angleBucket: number;
 }
 
 const DEFAULT_HINT =
@@ -460,21 +461,20 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
     countText.y = 4;
     container.addChild(countText);
 
-    // Selection + double-click activate
+    // Selection + activate (double-click, or single-click when configured)
     let lastClickTime = 0;
     container.onclick = () => {
       if (dragMoved) return;
       setSearchFocused(false);
       const now = performance.now();
       selectCard(item.id);
-      if (now - lastClickTime < 350) {
-        // Double-click → activate
+      if (config.activateOnSingleClick || now - lastClickTime < 350) {
         handlers.onActivate?.(item);
       }
       lastClickTime = now;
     };
 
-    return { item, container, thumbCanvas, thumbCtx, texture, sprite, nameText, countText, angle: 0, modelLoaded: false, thumbRendered: false };
+    return { item, container, thumbCanvas, thumbCtx, texture, sprite, nameText, countText, angle: 0, modelLoaded: false, thumbRendered: false, angleBucket: -1 };
   }
 
   // ── Layout cards (reposition based on scroll) ──
@@ -620,7 +620,7 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
     }
   }
 
-  function updateThumbnails(): void {
+  function updateThumbnails(dt: number): void {
     const tr = thumbRenderer;
     if (!showBrowser || !tr) return;
     // Load models for visible cards that haven't been loaded yet (limit concurrency).
@@ -644,14 +644,22 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
 
     // Render thumbnails for every visible card with a loaded model.
     // renderThumb draws into the shared canvas; drawImage composites it
-    // into the card's 2D canvas — a GPU-side copy with no CPU readback, so
-    // every visible card can spin every frame (no render budget needed).
+    // into the card's 2D canvas — a GPU-side copy with no CPU readback.
+    // The software backend rasterizes on the CPU, so the angle is quantized:
+    // frames where the quantized angle didn't change reuse the card canvas
+    // as-is instead of re-rasterizing an identical image.
     const visibleCards = cards.filter((c) => c.container.visible);
+    // ~0.5 rad/s → one turntable revolution per ~12s, framerate-independent.
+    const spin = Math.min(dt, 0.1) * 0.5;
+    const ANGLE_STEP = (Math.PI * 2) / 96;
     for (const card of visibleCards) {
-      card.angle += 0.02; // uniform turntable speed for all cards
+      card.angle += spin;
+      const bucket = Math.floor(card.angle / ANGLE_STEP);
+      if (card.thumbRendered && card.angleBucket === bucket) continue;
       if (!tr.has(card.item.id)) continue;
       try {
         if (!tr.renderThumb(card.item.id, card.angle)) continue;
+        card.angleBucket = bucket;
         card.thumbCtx.clearRect(0, 0, THUMB_SIZE, THUMB_SIZE);
         card.thumbCtx.drawImage(tr.canvasElement, 0, 0);
         // Bypass update() — emit "update" directly to trigger GPU re-upload.
@@ -861,7 +869,7 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
       }
 
       // Render thumbnails
-      updateThumbnails();
+      updateThumbnails(data.dt);
     },
     resize(width: number, height: number) {
       buildBackdrop();

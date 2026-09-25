@@ -131,6 +131,9 @@ export interface AssetBrowserConfig<T extends AssetBrowserItem = AssetBrowserIte
   footerRight?: (totalBadgeCount: number) => string;
   /** Cap on instantiated cards (default 200). */
   maxCards?: number;
+  /** When true, a single click selects AND activates the card (default
+   *  false — click selects, double-click/Enter activates). */
+  activateOnSingleClick?: boolean;
   /** Stats key that drives visibility (default "showBrowser"). */
   visibleStat?: string;
   /** Override thumbnail backend construction (else sceneConfig factory,

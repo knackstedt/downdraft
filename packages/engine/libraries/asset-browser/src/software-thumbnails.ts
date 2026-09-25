@@ -19,15 +19,37 @@ import { loadModel, type ModelData } from "@downdraft/engine/libraries/models";
 export interface SoftwareThumbnailOptions {
   /** Resolve a modelUri to bytes. Default: fetch(uri).arrayBuffer(). */
   loadBytes?: (uri: string) => Promise<ArrayBuffer>;
+  /** Resolve a material texture URI to bytes (e.g. sibling-file lookup
+   *  relative to the model's directory). Omit to skip external textures. */
+  resolveTexture?: (modelUri: string, uri: string) => Promise<ArrayBuffer | null>;
+}
+
+interface SoftTex {
+  w: number;
+  h: number;
+  data: Uint8Array | Uint8ClampedArray; // RGBA
+}
+
+interface SoftMat {
+  baseColor: [number, number, number];
+  emissive: [number, number, number];
+  tex: SoftTex | null;
+  /** Decoding in flight — render untextured until it lands. */
+  texPending: boolean;
+  texOffset: [number, number];
+  texScale: [number, number];
 }
 
 interface SoftModel {
   positions: Float32Array; // xyz per vertex
   indices: Uint16Array | Uint32Array;
-  normals: Float32Array;   // flat normals, xyz per vertex
+  normals: Float32Array;   // smooth vertex normals, xyz per vertex
+  uvs: Float32Array | null;      // uv per vertex
+  vcols: Float32Array | null;    // rgb per vertex
+  triMat: Uint16Array | null;    // material index per triangle (null → mats[0])
+  mats: SoftMat[];
   center: [number, number, number];
   radius: number;
-  baseColor: [number, number, number];
 }
 
 function computeFlatNormals(positions: Float32Array, indices: Uint16Array | Uint32Array): Float32Array {
@@ -63,6 +85,7 @@ export class SoftwareThumbnailRenderer {
   private pixels: Uint8ClampedArray;
   private depth: Float32Array;
   private loadBytes: (uri: string) => Promise<ArrayBuffer>;
+  private resolveTexture: ((modelUri: string, uri: string) => Promise<ArrayBuffer | null>) | null;
 
   /** LRU cache: contentId → SoftModel. */
   private cache = new Map<string, SoftModel>();
@@ -88,6 +111,7 @@ export class SoftwareThumbnailRenderer {
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       return resp.arrayBuffer();
     });
+    this.resolveTexture = opts?.resolveTexture ?? null;
     const MAX_VERTS = 1 << 16;
     this.sx = new Float32Array(MAX_VERTS);
     this.sy = new Float32Array(MAX_VERTS);
@@ -109,8 +133,18 @@ export class SoftwareThumbnailRenderer {
     try {
       const buffer = await this.loadBytes(modelUri);
       const filename = modelUri.split("/").pop() ?? "model.glb";
-      const model = await loadModel(buffer, filename) as ModelData;
-      this.uploadModel(contentId, model);
+      // Companion files — .mtl for OBJ (carries material colors + texture
+      // URIs) and .bin for text .gltf. Resolved through the same sibling
+      // mechanism as textures so filesystem-backed libraries work natively.
+      const ext = filename.split(".").pop()?.toLowerCase();
+      let mtl: ArrayBuffer | null = null, bin: ArrayBuffer | null = null;
+      if (this.resolveTexture) {
+        const stem = filename.replace(/\.[^.]+$/, "");
+        if (ext === "obj") mtl = await this.resolveTexture(modelUri, `${stem}.mtl`);
+        else if (ext === "gltf") bin = await this.resolveTexture(modelUri, `${stem}.bin`);
+      }
+      const model = await loadModel(buffer, filename, mtl, bin) as ModelData;
+      this.uploadModel(contentId, model, modelUri);
     } catch (err) {
       console.warn(`[SoftwareThumbnailRenderer] Failed to load ${contentId} (${modelUri}):`, err);
       this.loadBuiltinCube(contentId);
@@ -164,7 +198,7 @@ export class SoftwareThumbnailRenderer {
     this.uploadModel(contentId, model);
   }
 
-  private uploadModel(contentId: string, model: ModelData): void {
+  private uploadModel(contentId: string, model: ModelData, modelUri?: string): void {
     const meshes = model.meshes;
     if (!meshes || meshes.length === 0) { this.loadBuiltinCube(contentId); return; }
     let totalVerts = 0, totalIdx = 0;
@@ -178,6 +212,13 @@ export class SoftwareThumbnailRenderer {
     const positions = new Float32Array(totalVerts * 3);
     const is32 = totalIdx > 65535;
     const indices = is32 ? new Uint32Array(totalIdx) : new Uint16Array(totalIdx);
+    const multiMat = (model.materials?.length ?? 0) > 1
+      || meshes.some((m) => (m.materialIndex ?? 0) > 0);
+    const triMat = multiMat ? new Uint16Array(totalIdx / 3) : null;
+    const anyUvs = meshes.some((m) => !!m.uvs);
+    const anyCols = meshes.some((m) => !!m.colors);
+    const uvs = anyUvs ? new Float32Array(totalVerts * 2) : null;
+    const vcols = anyCols ? new Float32Array(totalVerts * 3).fill(1) : null;
     let vOff = 0, iOff = 0, vBase = 0;
     for (const m of meshes) {
       const stride = m.vertices.length / m.vertexCount;
@@ -186,9 +227,23 @@ export class SoftwareThumbnailRenderer {
         positions[vOff + v * 3 + 1] = m.vertices[v * stride + 1];
         positions[vOff + v * 3 + 2] = m.vertices[v * stride + 2];
       }
+      if (uvs) {
+        if (m.uvs) uvs.set(m.uvs.subarray(0, m.vertexCount * 2), vOff / 3 * 2);
+        // missing uvs leave (0,0) — samples the texture's corner; acceptable
+      }
+      if (vcols && m.colors) {
+        const cstride = m.colors.length / m.vertexCount;
+        for (let v = 0; v < m.vertexCount; v++) {
+          vcols[vOff + v * 3] = m.colors[v * cstride];
+          vcols[vOff + v * 3 + 1] = m.colors[v * cstride + 1];
+          vcols[vOff + v * 3 + 2] = m.colors[v * cstride + 2];
+        }
+      }
       vOff += m.vertexCount * 3;
       const src = m.indices;
+      const mi = m.materialIndex ?? 0;
       for (let i = 0; i < m.indexCount; i++) (indices as any)[iOff + i] = src[i] + vBase;
+      if (triMat) triMat.fill(mi, iOff / 3, (iOff + m.indexCount) / 3);
       iOff += m.indexCount;
       vBase += m.vertexCount;
     }
@@ -216,12 +271,79 @@ export class SoftwareThumbnailRenderer {
       );
     }
     if (radius <= 0) radius = 0.5;
-    let baseColor: [number, number, number] = [0.78, 0.82, 0.88];
-    if (model.materials && model.materials.length > 0) {
-      const mat = model.materials[0];
-      baseColor = [mat.baseColor[0], mat.baseColor[1], mat.baseColor[2]];
+
+    // Materials: per-mesh baseColor/emissive + async texture decode.
+    const mats: SoftMat[] = (model.materials ?? []).map((mat, mi) => {
+      const sm: SoftMat = {
+        baseColor: [mat.baseColor[0], mat.baseColor[1], mat.baseColor[2]],
+        emissive: mat.emissiveColor ? [...mat.emissiveColor] : [0, 0, 0],
+        tex: null,
+        texPending: !!(mat.textureData || mat.textureUri),
+        texOffset: mat.textureTransform?.offset ?? [0, 0],
+        texScale: mat.textureTransform?.scale ?? [1, 1],
+      };
+      if (sm.texPending) {
+        void this.decodeMaterialTexture(mat.textureData, mat.textureUri, modelUri)
+          .then((tex) => { sm.tex = tex; sm.texPending = false; })
+          .catch(() => { sm.texPending = false; });
+      }
+      return sm;
+    });
+    if (mats.length === 0) {
+      mats.push({
+        baseColor: [0.78, 0.82, 0.88], emissive: [0, 0, 0],
+        tex: null, texPending: false, texOffset: [0, 0], texScale: [1, 1],
+      });
     }
-    this.uploadGeometry(contentId, positions, indices, { center, radius }, baseColor);
+
+    const normals = computeFlatNormals(positions, indices);
+    if (this.cache.size >= this.maxCache) {
+      const oldest = this.cache.keys().next().value;
+      if (oldest) this.cache.delete(oldest);
+    }
+    this.cache.set(contentId, {
+      positions, indices, normals, uvs, vcols, triMat, mats,
+      center, radius,
+    });
+  }
+
+  /** Decode embedded bytes or a resolved external URI into an RGBA tex map.
+   *  Downscales to <=256px — thumbnails sample at 96px, no need for more. */
+  private async decodeMaterialTexture(
+    textureData: ArrayBuffer | null | undefined,
+    textureUri: string | undefined,
+    modelUri: string | undefined,
+  ): Promise<SoftTex | null> {
+    let bytes: ArrayBuffer | null = textureData ?? null;
+    if (!bytes && textureUri && !textureUri.startsWith("data:") && modelUri && this.resolveTexture) {
+      bytes = await this.resolveTexture(modelUri, decodeURIComponent(textureUri));
+      // Basename fallback — FBX URIs frequently carry stale absolute paths.
+      if (!bytes) {
+        const base = decodeURIComponent(textureUri).split("/").pop() ?? "";
+        if (base) bytes = await this.resolveTexture(modelUri, base);
+      }
+    }
+    if (!bytes || bytes.byteLength <= 4) return null;
+    try {
+      const bmp = await createImageBitmap(bytes as any);
+      const anyBmp = bmp as any;
+      const MAX_TEX = 256;
+      const scale = Math.min(1, MAX_TEX / Math.max(bmp.width, bmp.height));
+      const w = Math.max(1, Math.round(bmp.width * scale));
+      const h = Math.max(1, Math.round(bmp.height * scale));
+      // Native fast path — raw pixels, no canvas readback.
+      if (scale >= 1 && typeof anyBmp.getPixelData === "function") {
+        return { w, h, data: anyBmp.getPixelData() };
+      }
+      const c = new OffscreenCanvas(w, h);
+      const cx = c.getContext("2d")!;
+      cx.drawImage(bmp as any, 0, 0, w, h);
+      const id = cx.getImageData(0, 0, w, h);
+      try { (bmp as any).close?.(); } catch {}
+      return { w, h, data: id.data };
+    } catch {
+      return null;
+    }
   }
 
   private uploadGeometry(
@@ -238,7 +360,12 @@ export class SoftwareThumbnailRenderer {
     }
     this.cache.set(contentId, {
       positions, indices, normals,
-      center: bounds.center, radius: bounds.radius, baseColor,
+      uvs: null, vcols: null, triMat: null,
+      mats: [{
+        baseColor, emissive: [0, 0, 0], tex: null, texPending: false,
+        texOffset: [0, 0], texScale: [1, 1],
+      }],
+      center: bounds.center, radius: bounds.radius,
     });
   }
 
@@ -319,12 +446,15 @@ export class SoftwareThumbnailRenderer {
       snz[v] = rotS * nx + rotC * nz;
     }
 
-    // Light: matches THUMB_FS — L = normalize(0.5, 0.8, 0.4), fill 0.2, ndl*0.6.
-    const lx = 0.5, ly = 0.8, lz = 0.4;
-    const ll = Math.hypot(lx, ly, lz);
-    const Lx = lx / ll, Ly = ly / ll, Lz = lz / ll;
-    const br = m.baseColor[0], bg = m.baseColor[1], bb = m.baseColor[2];
+    // Lighting: hemisphere ambient (brighter from above) + key + weak fill.
+    // Per-pixel interpolated normals → smooth shading instead of flat facets.
+    const kl = Math.hypot(0.55, 0.75, 0.65);
+    const Kx = 0.55 / kl, Ky = 0.75 / kl, Kz = 0.65 / kl;
+    const fl2 = Math.hypot(-0.5, 0.1, 0.55);
+    const Fx = -0.5 / fl2, Fy = 0.1 / fl2, Fz = 0.55 / fl2;
     const indices = m.indices;
+    const uvs = m.uvs, vcols = m.vcols, triMat = m.triMat;
+    const mats = m.mats;
 
     for (let t = 0; t < indices.length; t += 3) {
       const a = indices[t], b = indices[t + 1], c = indices[t + 2];
@@ -337,31 +467,30 @@ export class SoftwareThumbnailRenderer {
       if (az < -1 && bz < -1 && cz2 < -1) continue;
       if (az > 1 && bz > 1 && cz2 > 1) continue;
 
-      // Face normal (screen-space winding for two-sided shading parity).
-      const fnx = snx[a] + snx[b] + snx[c];
-      const fny = sny[a] + sny[b] + sny[c];
-      const fnz = snz[a] + snz[b] + snz[c];
-      const fl = Math.hypot(fnx, fny, fnz) || 1;
-      let Nx = fnx / fl, Ny = fny / fl, Nz = fnz / fl;
-      // Two-sided lighting: the GLSL flips the normal for back faces
-      // (gl_FrontFacing). The screen-space winding gives the same signal.
+      // Two-sided: flip shading normal by screen-space winding (same signal
+      // the GLSL uses via gl_FrontFacing).
       const winding = (bx - ax) * (cy2 - ay) - (cx2 - ax) * (by - ay);
-      if (winding < 0) { Nx = -Nx; Ny = -Ny; Nz = -Nz; }
+      const nSign = winding < 0 ? -1 : 1;
 
-      let ndl = Nx * Lx + Ny * Ly + Nz * Lz;
-      if (ndl < 0) ndl = 0;
-      let r = br * (0.2 + ndl * 0.6);
-      let g = bg * (0.2 + ndl * 0.6);
-      let bCol = bb * (0.2 + ndl * 0.6);
-      // Rim: pow(1 - max(dot(N, (0,0,1)), 0), 2) * 0.15 — N is the rotated
-      // model-space normal; the camera looks down +Z of that space.
-      const ndz = Nz > 0 ? Nz : 0;
-      const rimT = 1 - ndz;
-      const rim = rimT * rimT * 0.15;
-      r += rim; g += rim; bCol += rim;
-      const R = Math.min(255, (r * 255) | 0);
-      const G = Math.min(255, (g * 255) | 0);
-      const B = Math.min(255, (bCol * 255) | 0);
+      const mat = mats[triMat ? triMat[t / 3] : 0] ?? mats[0];
+      const br = mat.baseColor[0], bg = mat.baseColor[1], bb = mat.baseColor[2];
+      const er = mat.emissive[0], eg = mat.emissive[1], eb = mat.emissive[2];
+      const tex = mat.tex;
+      const to0 = mat.texOffset[0], to1 = mat.texOffset[1];
+      const ts0 = mat.texScale[0], ts1 = mat.texScale[1];
+      const useTex = !!(tex && uvs);
+
+      // Per-vertex shading inputs.
+      const nax = snx[a] * nSign, nay = sny[a] * nSign, naz = snz[a] * nSign;
+      const nbx = snx[b] * nSign, nby = sny[b] * nSign, nbz = snz[b] * nSign;
+      const ncx = snx[c] * nSign, ncy = sny[c] * nSign, ncz = snz[c] * nSign;
+      const ua = uvs ? uvs[a * 2] * ts0 + to0 : 0, va = uvs ? uvs[a * 2 + 1] * ts1 + to1 : 0;
+      const ub = uvs ? uvs[b * 2] * ts0 + to0 : 0, vb = uvs ? uvs[b * 2 + 1] * ts1 + to1 : 0;
+      const uc = uvs ? uvs[c * 2] * ts0 + to0 : 0, vc = uvs ? uvs[c * 2 + 1] * ts1 + to1 : 0;
+      const cra = vcols ? vcols[a * 3] : 1, cga = vcols ? vcols[a * 3 + 1] : 1, cba = vcols ? vcols[a * 3 + 2] : 1;
+      const crb = vcols ? vcols[b * 3] : 1, cgb = vcols ? vcols[b * 3 + 1] : 1, cbb = vcols ? vcols[b * 3 + 2] : 1;
+      const crc = vcols ? vcols[c * 3] : 1, cgc = vcols ? vcols[c * 3 + 1] : 1, cbc = vcols ? vcols[c * 3 + 2] : 1;
+      const tw = tex?.w ?? 0, th = tex?.h ?? 0, td = tex?.data;
 
       // Rasterize: bounding box + edge functions, z-interpolated.
       const minX = Math.max(0, Math.floor(Math.min(ax, bx, cx2)));
@@ -383,8 +512,53 @@ export class SoftwareThumbnailRenderer {
           const di = y * size + x;
           if (z >= depth[di]) continue;
           depth[di] = z;
+
+          // Interpolated normal → per-pixel lighting.
+          let nx = w0 * nax + w1 * nbx + w2 * ncx;
+          let ny = w0 * nay + w1 * nby + w2 * ncy;
+          let nz = w0 * naz + w1 * nbz + w2 * ncz;
+          const nl = Math.hypot(nx, ny, nz) || 1;
+          nx /= nl; ny /= nl; nz /= nl;
+          const key = nx * Kx + ny * Ky + nz * Kz;
+          const fill = nx * Fx + ny * Fy + nz * Fz;
+          const hemi = ny * 0.5 + 0.5;
+          const light = 0.30 + 0.30 * hemi + (key > 0 ? key * 0.62 : 0) + (fill > 0 ? fill * 0.16 : 0);
+
+          // Albedo: material baseColor × vertex color × texture.
+          let ar = br, ag = bg, ab = bb;
+          if (vcols) {
+            ar *= w0 * cra + w1 * crb + w2 * crc;
+            ag *= w0 * cga + w1 * cgb + w2 * cgc;
+            ab *= w0 * cba + w1 * cbb + w2 * cbc;
+          }
+          if (useTex && td) {
+            let u = w0 * ua + w1 * ub + w2 * uc;
+            let v = w0 * va + w1 * vb + w2 * vc;
+            u -= Math.floor(u); v -= Math.floor(v);
+            // Bilinear sample.
+            const fu = u * tw - 0.5, fv = v * th - 0.5;
+            let x0 = Math.floor(fu), y0 = Math.floor(fv);
+            const fx = fu - x0, fy = fv - y0;
+            x0 = ((x0 % tw) + tw) % tw; y0 = ((y0 % th) + th) % th;
+            const x1 = (x0 + 1) % tw, y1 = (y0 + 1) % th;
+            const p00 = (y0 * tw + x0) * 4, p10 = (y0 * tw + x1) * 4;
+            const p01 = (y1 * tw + x0) * 4, p11 = (y1 * tw + x1) * 4;
+            const wA = (1 - fx) * (1 - fy), wB = fx * (1 - fy);
+            const wC = (1 - fx) * fy, wD = fx * fy;
+            const inv255 = 1 / 255;
+            ar *= (td[p00] * wA + td[p10] * wB + td[p01] * wC + td[p11] * wD) * inv255;
+            ag *= (td[p00 + 1] * wA + td[p10 + 1] * wB + td[p01 + 1] * wC + td[p11 + 1] * wD) * inv255;
+            ab *= (td[p00 + 2] * wA + td[p10 + 2] * wB + td[p01 + 2] * wC + td[p11 + 2] * wD) * inv255;
+          }
+
+          const ndz = nz > 0 ? nz : 0;
+          const rimT = 1 - ndz;
+          const rim = rimT * rimT * 0.10;
           const pi = di * 4;
-          px[pi] = R; px[pi + 1] = G; px[pi + 2] = B; px[pi + 3] = 255;
+          px[pi] = Math.min(255, (ar * light + er + rim) * 255) | 0;
+          px[pi + 1] = Math.min(255, (ag * light + eg + rim) * 255) | 0;
+          px[pi + 2] = Math.min(255, (ab * light + eb + rim) * 255) | 0;
+          px[pi + 3] = 255;
         }
       }
     }
