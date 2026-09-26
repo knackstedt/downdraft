@@ -62,7 +62,13 @@ const liveDevices = new Set<WgpuDevice>();
 /** Poll the native device-lost flag on every live device. Called once per
  *  frame by the NativeWindow event loop. */
 export function pollLiveDevicesLost(): void {
-  for (const d of liveDevices) d.pollLost();
+  for (const d of liveDevices.values()) d.pollLost();
+}
+
+/** Snapshot of currently-live devices — the dev shell diffs this set to
+ *  destroy only session-created devices on an HMR session restart. */
+export function getLiveDevices(): ReadonlySet<WgpuDevice> {
+  return liveDevices;
 }
 
 // ============================================================================
@@ -321,13 +327,13 @@ export class WgpuDevice {
     const entries = Array.from(descriptor.entries);
 
     const seen = new Set<number>();
-    for (const e of entries) {
+    entries.forEach((e) => {
       if (seen.has(e.binding)) {
         log.warn("createBindGroupLayout", `Duplicate binding ${e.binding} — entries: ${
           entries.map((e) => `b${e.binding}:${e.buffer ? "buf" : e.texture ? "tex" : e.sampler ? "smp" : e.storageTexture ? "stex" : "?"}`).join(", ")}`);
       }
       seen.add(e.binding);
-    }
+    });
 
     // 11 u32 per entry: binding, visibility, buffer_type, sampler_type,
     // texture_sample_type, texture_view_dimension, storage_access,
@@ -447,13 +453,13 @@ export class WgpuDevice {
   private createAutoBindGroupLayouts(shaders: WgpuShaderModule[]): WgpuBindGroupLayout[] {
     // Merge per-module binding tables into a single group→binding map.
     const merged = new Map<number, Map<number, ParsedBinding>>();
-    for (const shader of shaders) {
+    shaders.forEach((shader) => {
       for (const [groupIdx, bindings] of this.parseShaderBindings(shader)) {
         if (!merged.has(groupIdx)) merged.set(groupIdx, new Map());
         const group = merged.get(groupIdx)!;
-        for (const [bindingIdx, info] of bindings) group.set(bindingIdx, info);
+        for (const [bindingIdx, info] of bindings.entries()) group.set(bindingIdx, info);
       }
-    }
+    });
 
     const layouts: WgpuBindGroupLayout[] = [];
     for (const groupIdx of Array.from(merged.keys()).sort((a, b) => a - b)) {
@@ -634,22 +640,22 @@ export class WgpuDevice {
     let vertexBufferFlat: Uint32Array | null = null;
     if (buffers.length > 0) {
       let totalSize = 0;
-      for (const buf of buffers) {
+      buffers.forEach((buf) => {
         totalSize += 3 + (buf?.attributes ? Array.from(buf.attributes).length : 0) * 3;
-      }
+      });
       vertexBufferFlat = new Uint32Array(totalSize);
       let offset = 0;
-      for (const buf of buffers) {
+      for (let _i29326 = 0, _it29326 = buffers, _n29326 = _it29326.length; _i29326 < _n29326; _i29326++) { const buf = _it29326[_i29326];
         vertexBufferFlat[offset++] = buf?.arrayStride ?? 0;
         vertexBufferFlat[offset++] = buf?.stepMode === "instance" ? 1 : 0;
         const attrs = buf?.attributes ? Array.from(buf.attributes) : [];
         vertexBufferFlat[offset++] = attrs.length;
-        for (const attr of attrs) {
+        for (let _i29725 = 0, _it29725 = attrs, _n29725 = _it29725.length; _i29725 < _n29725; _i29725++) { const attr = _it29725[_i29725];
           vertexBufferFlat[offset++] = parseVertexFormat(attr.format);
           vertexBufferFlat[offset++] = attr.offset;
           vertexBufferFlat[offset++] = attr.shaderLocation;
-        }
-      }
+        };
+      };
       vertexBufferCount = buffers.length;
     }
 
@@ -807,7 +813,7 @@ export class WgpuQueue {
     // an uncaptured error.
     const skipped = all.filter((cb) => cb.invalid);
     const list = all.filter((cb) => !cb.invalid);
-    for (const cb of skipped) cb.dispose();
+    skipped.forEach((cb) => { cb.dispose();; });
     if (list.length === 0) return;
     const ptrs = new BigUint64Array(list.length);
     for (let i = 0; i < list.length; i++) {
@@ -815,7 +821,7 @@ export class WgpuQueue {
     }
     wgpu.wgpu_shim_queue_submit(this.ptr, ptrs as unknown as ptr, list.length);
     // Command buffers are single-use — release the native handles now.
-    for (const cb of list) cb.dispose();
+    list.forEach((cb) => { cb.dispose();; });
   }
 
   onSubmittedWorkDone(): Promise<undefined> {

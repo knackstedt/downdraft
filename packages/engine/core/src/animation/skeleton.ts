@@ -33,6 +33,19 @@ export class Skeleton {
   // Scratch buffers to avoid per-frame allocations
   private scratchLocal: Float32Array;
   private scratchProduct: Float32Array;
+  private scratchSkin: Float32Array;
+  // Per-bone (rootAncestorMatrix, inverse) resolved to the bone's chain ROOT.
+  // Root bones carry the accumulated non-bone-ancestor world transform A in
+  // rootAncestorMatrix, so W = A·chain while inverseBind = chain_bind⁻¹·A⁻¹.
+  // The raw skin matrix W·IBM = A·(chain·chain_bind⁻¹)·A⁻¹ is the vertex delta
+  // conjugated by A — for A≠identity that rotates verts about the scene origin
+  // and scales translations, mangling any animated pose (bind pose stays
+  // identity, which hides the bug until the first animated frame). Skin
+  // vertices live in pre-ancestor space, so the correct matrix is the
+  // de-conjugated A⁻¹·W·IBM·A. Bones whose root has no ancestor transform
+  // keep a null entry (no correction needed).
+  private boneAncestor: (Float32Array | null)[];
+  private boneAncestorInv: (Float32Array | null)[];
 
   constructor(data: SkeletonData) {
     this.data = data;
@@ -43,6 +56,20 @@ export class Skeleton {
     this.skinMatrices = new Float32Array(data.bones.length * 16);
     this.scratchLocal = new Float32Array(16);
     this.scratchProduct = new Float32Array(16);
+    this.scratchSkin = new Float32Array(16);
+    this.boneAncestor = data.bones.map(() => null);
+    this.boneAncestorInv = data.bones.map(() => null);
+    for (let i = 0; i < data.bones.length; i++) {
+      let r = i;
+      while (data.bones[r].parentIndex >= 0) r = data.bones[r].parentIndex;
+      const a = data.bones[r].rootAncestorMatrix;
+      if (!a) continue;
+      const inv = invertMat4(new Float32Array(a));
+      // invertMat4 returns all-zeros for singular matrices — skip correction.
+      if (inv[15] === 0) continue;
+      this.boneAncestor[i] = a;
+      this.boneAncestorInv[i] = inv;
+    }
   }
 
   getBoneIndex(name: string): number {
@@ -82,6 +109,13 @@ export class Skeleton {
 
     for (let i = 0; i < bones.length; i++) {
       multiplyMat4Into(this.boneWorldMatrices[i], bones[i].inverseBindMatrix, scratchProduct);
+      const aInv = this.boneAncestorInv[i];
+      if (aInv) {
+        // De-conjugate the root ancestor transform: verts live in
+        // pre-ancestor space, so S = A⁻¹·W·IBM·A (see boneAncestor comment).
+        multiplyMat4Into(aInv, scratchProduct, this.scratchSkin);
+        multiplyMat4Into(this.scratchSkin, this.boneAncestor[i]!, scratchProduct);
+      }
       this.skinMatrices.set(scratchProduct, i * 16);
     }
 
@@ -154,13 +188,13 @@ export function buildSkeletonFromGLTF(
     const nodeIndex = skin.joints[i];
     const node = nodes[nodeIndex];
     if (node.children) {
-      for (const childNodeIndex of node.children) {
+      node.children.forEach((childNodeIndex) => {
         const childBoneIndex = jointToBoneIndex.get(childNodeIndex);
         if (childBoneIndex !== undefined) {
           bones[i].childrenIndices.push(childBoneIndex);
           bones[childBoneIndex].parentIndex = i;
         }
-      }
+      });
     }
   }
 

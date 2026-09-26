@@ -78,10 +78,23 @@ export interface NativeHostContext {
   requestAnimationFrame: (callback: (time: number) => void) => number;
   cancelAnimationFrame: (id: number) => void;
   captureScreenshot: (path: string, texture?: any) => void;
+  /** True after destroy() ran — the dev shell checks this before reusing the
+   *  host across HMR session restarts. */
+  destroyed: boolean;
   destroy: () => void;
 }
 
 export async function createNativeHost(config: NativeHostConfig): Promise<NativeHostContext> {
+  // HMR session reuse — the dev shell keeps one host (window/device/bridge/
+  // MCP) alive across session restarts. Entries re-call createNativeHost on
+  // every session; reuse the live host instead of opening a second window.
+  // A Tier-4 restart deletes __nativeHost first, so only live hosts hit this.
+  const existing = (globalThis as any).__nativeHost;
+  if (existing && typeof existing === "object" && !existing.destroyed && existing.window) {
+    (globalThis as any).__ddSession?.attachHost?.(existing);
+    return existing;
+  }
+
   // 1. Install polyfills
   const gpu = installGPU();
   installImagePolyfills();
@@ -108,8 +121,18 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   // Process-restart recovery hook — the native equivalent of
   // window.location.reload() for unrecoverable GPU/renderer failures.
   // GameRenderer's device-loss fallback, location.reload(), and bespoke
-  // render loops all route through __ddRequestRestart.
-  installRestartHook(window);
+  // render loops all route through __ddRequestRestart. Under the HMR dev
+  // shell the "reload" is a session restart (in-process) — much cheaper than
+  // a detached respawn and it preserves the window.
+  const hmrCtl = (globalThis as any).__ddHmr;
+  if (typeof hmrCtl?.restartSession === "function") {
+    (globalThis as any).__ddRequestRestart = (reason: string) => {
+      hmrCtl.restartSession(reason);
+      return true;
+    };
+  } else {
+    installRestartHook(window);
+  }
 
   // 3. Get adapter + device
   const adapter = await gpu.requestAdapter({ powerPreference: "high-performance" });
@@ -268,7 +291,9 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
     requestAnimationFrame: rafSource.request.bind(window),
     cancelAnimationFrame: rafSource.cancel.bind(window),
     captureScreenshot: screenshotFn,
+    destroyed: false,
     destroy: () => {
+      host.destroyed = true;
       void mcp?.stop();
       bridge?.dispose();
       window.destroy();
@@ -279,5 +304,9 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   // need the shared device — expose the host so they can reuse it instead of
   // opening a second wgpu device on the same surface.
   (globalThis as any).__nativeHost = host;
+  // HMR session tracking — wraps this host's window/surface listeners,
+  // RAF + Worker globals, and snapshots the device baseline. No-op without
+  // the dev shell.
+  (globalThis as any).__ddSession?.attachHost?.(host);
   return host;
 }

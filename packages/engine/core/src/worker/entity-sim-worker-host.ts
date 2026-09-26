@@ -66,11 +66,37 @@ export abstract class EntitySimWorkerHost<
   private simConfig: TConfig | null = null;
   private cacheBust: number | undefined;
   private pipeline: HotReloadPipeline | null = null;
+  private ddSessionSim: {
+    label: string;
+    host: any;
+    hotReload: (preserve: boolean) => Promise<void>;
+    save: () => Promise<string | null>;
+    restore: (json: string) => Promise<void>;
+    stop: () => Promise<void>;
+  } | null = null;
 
   constructor(opts?: EntitySimHostOptions) {
     super(opts?.simBuffer ?? allocateSimBuffer());
     this.inputBuffer = opts?.inputBuffer ?? allocateInputBuffer();
     this.extraBuffers = opts?.extraBuffers ?? {};
+
+    // Native dev shell: register for transparent sim hot-swap + session
+    // state save/restore. The registry lives on globalThis.__ddSession
+    // (installed by @downdraft/platform-native's dev runtime) — outside the
+    // shell this is absent and registration is a no-op. Deliberately global-
+    // keyed so engine core never imports platform-native.
+    const session = (globalThis as any).__ddSession;
+    if (session?.registerSim) {
+      this.ddSessionSim = {
+        label: this.constructor.name,
+        host: this,
+        hotReload: (preserve: boolean) => this.hotReload(this.simConfig as TConfig, preserve),
+        save: async () => (await this.save("hot-reload"))?.stateJson ?? null,
+        restore: (json: string) => this.restoreFromState(json),
+        stop: () => this.stop(),
+      };
+      session.registerSim(this.ddSessionSim);
+    }
   }
 
   override getInputBuffer(): SharedArrayBuffer {
@@ -98,6 +124,14 @@ export abstract class EntitySimWorkerHost<
     // Entity sim workers don't emit "ready" themselves — the host marks
     // ready + dispatches the event after the init RPC resolves.
     this.onEvent("ready", {});
+    // Session restart restore: after a dev-shell session restart, pending
+    // hot-reload state (saved before teardown) is pushed onto the fresh
+    // worker here — before the game sees "ready"-driven work.
+    if (this.ddSessionSim) {
+      try {
+        await (globalThis as any).__ddSession?.notifySimStarted?.(this.ddSessionSim);
+      } catch { /* restore is best-effort */ }
+    }
   }
 
   /**

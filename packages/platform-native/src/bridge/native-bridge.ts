@@ -80,9 +80,9 @@ export function createNativeBridge(opts: NativeBridgeOptions): DowndraftBridgeAP
     set.add(cb as (data: unknown) => void);
   };
   const emit = (channel: string, data: unknown) => {
-    for (const cb of emitters.get(channel) ?? []) {
+    (emitters.get(channel) ?? []).forEach((cb) => {
       try { cb(data); } catch (e) { log.error("bridge", `listener error on ${channel}: ${e}`); }
-    }
+    });
   };
 
   // Display-info emission on window move (may have crossed displays).

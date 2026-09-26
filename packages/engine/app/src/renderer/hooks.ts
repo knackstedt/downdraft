@@ -70,10 +70,23 @@ export function useHotReloadDispose(
 /**
  * Internal: register a dispose callback via Vite's import.meta.hot API.
  * Exported for bootstrapGame() to use.
+ *
+ * Under the native dev shell the callback also lands on the __ddSession
+ * dispose registry — vite only fires hot.dispose on targeted invalidation,
+ * NOT when a session restart clears the whole module cache, so the session
+ * teardown must own the second copy. The wrapper unregisters from the
+ * session when vite fires it (directed update) so it never runs twice.
  */
 export function dispose(disposeFn: () => Promise<void> | void): void {
   const hot = (import.meta as any).hot;
-  if (hot?.dispose) {
-    hot.dispose(disposeFn);
-  }
+  const session = (globalThis as any).__ddSession;
+  if (!hot?.dispose && !session?.onDispose) return;
+  let offSession: (() => void) | null = null;
+  const wrapped = () => {
+    offSession?.();
+    offSession = null;
+    return disposeFn();
+  };
+  if (hot?.dispose) hot.dispose(wrapped);
+  if (session?.onDispose) offSession = session.onDispose(wrapped);
 }

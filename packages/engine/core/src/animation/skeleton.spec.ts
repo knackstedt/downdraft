@@ -210,4 +210,71 @@ describe("Skeleton", () => {
       }
     }
   });
+
+  it("de-conjugates the root ancestor transform in skin matrices", () => {
+    // Regression test: FBX skins store inverseBindMatrix = inverse(A·chain_bind)
+    // where A is the non-bone ancestor world transform (e.g. 0.01 unit scale).
+    // W·IBM = A·(chain·chain_bind⁻¹)·A⁻¹ conjugates the vertex-space delta by A
+    // — invisible at bind pose (identity) but pivots rotations about the scene
+    // origin under animation. Skin verts live in pre-ancestor space, so the
+    // emitted matrix must be A⁻¹·W·IBM·A = chain_anim·chain_bind⁻¹.
+    const A = new Float32Array(16);
+    A[0] = A[5] = A[10] = 0.01; A[15] = 1; // uniform 0.01 scale (cm→m)
+
+    const pelvisLocal = composeMat4([0, 89, 0], [0, 0, 0, 1], [1, 1, 1]);
+    const armLocal = composeMat4([-18, 44, -4], [0, 0, 0, 1], [1, 1, 1]);
+    const chainBind = matMul(pelvisLocal, armLocal); // raw vertex space
+
+    const bones: Bone[] = [
+      {
+        name: "pelvis", parentIndex: -1, childrenIndices: [1],
+        bindPosition: [0, 89, 0], bindRotation: [0, 0, 0, 1], bindScale: [1, 1, 1],
+        inverseBindMatrix: invertMat4(matMul(A, pelvisLocal)),
+        rootAncestorMatrix: A,
+      },
+      {
+        name: "upperarm", parentIndex: 0, childrenIndices: [],
+        bindPosition: [-18, 44, -4], bindRotation: [0, 0, 0, 1], bindScale: [1, 1, 1],
+        inverseBindMatrix: invertMat4(matMul(A, chainBind)),
+      },
+    ];
+    const skeleton = new Skeleton({ bones, name: "t", rootBoneIndex: 0 });
+
+    // Bind pose → identity skin matrices.
+    const bind = skeleton.computeSkinMatrices(skeleton.getBindPose());
+    for (let b = 0; b < 2; b++) {
+      for (let i = 0; i < 16; i++) {
+        expect(Math.abs(bind[b * 16 + i] - (i % 5 === 0 ? 1 : 0))).toBeLessThan(1e-4);
+      }
+    }
+
+    // Rotate the child 90° about local Z. Expected vertex-space skin matrix is
+    // the raw-space delta chain_anim·chain_bind⁻¹ (rotation about the joint,
+    // NOT about the scene origin).
+    const halfRoot2 = Math.sqrt(0.5);
+    const armLocalAnim = composeMat4([-18, 44, -4], [0, 0, halfRoot2, halfRoot2], [1, 1, 1]);
+    const chainAnim = matMul(pelvisLocal, armLocalAnim);
+    const expected = matMul(chainAnim, invertMat4(chainBind));
+
+    const pose = skeleton.getBindPose();
+    pose[1].rotation = [0, 0, halfRoot2, halfRoot2];
+    const mats = skeleton.computeSkinMatrices(pose);
+    const off = 16; // bone 1
+    for (let i = 0; i < 16; i++) {
+      expect(Math.abs(mats[off + i] - expected[i])).toBeLessThan(1e-3);
+    }
+
+    // Sanity: a vertex at the child's raw bind joint position lands where the
+    // raw-space chain puts the joint — the rotation pivots at the joint.
+    const jointBind = [chainBind[12], chainBind[13], chainBind[14]];
+    const jointAnim = [chainAnim[12], chainAnim[13], chainAnim[14]];
+    const skinned = [
+      mats[off + 0] * jointBind[0] + mats[off + 4] * jointBind[1] + mats[off + 8] * jointBind[2] + mats[off + 12],
+      mats[off + 1] * jointBind[0] + mats[off + 5] * jointBind[1] + mats[off + 9] * jointBind[2] + mats[off + 13],
+      mats[off + 2] * jointBind[0] + mats[off + 6] * jointBind[1] + mats[off + 10] * jointBind[2] + mats[off + 14],
+    ];
+    for (let i = 0; i < 3; i++) {
+      expect(Math.abs(skinned[i] - jointAnim[i])).toBeLessThan(0.01);
+    }
+  });
 });

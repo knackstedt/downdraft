@@ -50,6 +50,36 @@ const SLOT = "hot-reload";
  */
 export function installSimHotReload(deps: SimHotReloadDeps): void {
   if (!isDevMode || !import.meta.hot) return;
+  const bridge = () => deps.downdraft ?? downdraft;
+  const getConfig = () =>
+    typeof deps.simConfig === "function" ? (deps.simConfig as () => unknown)() : deps.simConfig;
+
+  // Native dev shell: the in-runner runtime (@downdraft/platform-native
+  // dev/native-dev-runtime) owns the single sim:hot-reload / renderer:
+  // hot-reload handler set, fanning out over the __ddSession registry.
+  // Registering hot.on here too would fire the swap twice. Contribute the
+  // sim handle + renderer meta provider to the session instead.
+  const session = (globalThis as any).__ddSession;
+  if (session) {
+    if (deps.sim?.hotReload && !session.hasSimFor?.(deps.sim)) {
+      session.registerSim?.({
+        label: "game-sim",
+        host: deps.sim,
+        hotReload: (preserve: boolean) => deps.sim.hotReload!(getConfig(), preserve),
+        save: async () => (await deps.sim.save?.(SLOT))?.stateJson ?? null,
+        restore: (json: string) => deps.sim.restoreFromState?.(json),
+      });
+    }
+    if (deps.renderer?.serializeRendererMeta) {
+      const renderer = deps.renderer;
+      session.registerMetaProvider?.({
+        serialize: () => renderer.serializeRendererMeta!(),
+        restore: (meta: unknown) => renderer.restoreRendererMeta?.(meta as Record<string, unknown>),
+      });
+    }
+    return;
+  }
+
   // Cast: bun-types' ImportMeta augmentation can shadow vite/client's HMR
   // typing when both are in the program (node config). This code is
   // Vite-specific, so pin the subset of the vite HMR surface we use.
@@ -57,9 +87,6 @@ export function installSimHotReload(deps: SimHotReloadDeps): void {
     on(event: string, cb: (data: any) => void): void;
     send(event: string, data?: any): void;
   };
-  const bridge = () => deps.downdraft ?? downdraft;
-  const getConfig = () =>
-    typeof deps.simConfig === "function" ? (deps.simConfig as () => unknown)() : deps.simConfig;
 
   hot.on("sim:hot-reload", async (data: { file: string; timestamp: number }) => {
     const store = useHotReloadStore.getState();
@@ -117,6 +144,12 @@ export function installSimHotReload(deps: SimHotReloadDeps): void {
 export async function restoreHotReloadState(
   deps: Pick<SimHotReloadDeps, "sim" | "renderer" | "downdraft">,
 ): Promise<boolean> {
+  // Native dev shell: state restore is pushed by the session tracker
+  // (notifySimStarted on sim start + registerMetaProvider for renderer
+  // meta). If this sim was already restored, report success without a
+  // second restore.
+  const session = (globalThis as any).__ddSession;
+  if (session?.wasRestored?.(deps.sim)) return true;
   if (!sessionStorage.getItem(PENDING_KEY)) return false;
   sessionStorage.removeItem(PENDING_KEY);
   const dd = deps.downdraft ?? downdraft;
