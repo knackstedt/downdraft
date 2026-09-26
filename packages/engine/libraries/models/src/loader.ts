@@ -17,6 +17,7 @@ import { normalizeModel, normalizeModelWithResolution, resolveImportSettingsSync
 import { parseOBJ } from "./obj";
 import { parseOFF } from "./off";
 import { parsePLY } from "./ply";
+import { synthesizeSkeletonSkin } from "./skeleton-synthesis";
 import { parseSTL } from "./stl";
 import { parse3DS } from "./threeds";
 import { parse3MF } from "./threemf";
@@ -121,6 +122,8 @@ export async function loadModel(
       throw new Error(`Unknown model format: ${filename}`);
   }
 
+  synthesizeSkeletonIfNeeded(modelData);
+
   if (!shouldNormalize) return modelData;
 
   // Use custom sidecar resolver if provided, otherwise use sync parser defaults.
@@ -138,6 +141,21 @@ export async function loadModel(
 
 async function defaultFetch(uri: string): Promise<Response> {
   return fetch(uri);
+}
+
+/**
+ * Animation-only / skeleton-only files (e.g. Mixamo clip exports) carry a
+ * node hierarchy but no skin deformers and no meshes. Synthesize a SkinData
+ * from the node tree so viewers, animators, and retargeting can use it.
+ * Runs before normalization so skin.normalizationMatrix is accumulated.
+ */
+function synthesizeSkeletonIfNeeded(modelData: ModelData): void {
+  if (modelData.skin || modelData.meshes.length > 0 || !modelData.nodes?.length) return;
+  modelData.skin = synthesizeSkeletonSkin(
+    modelData.nodes,
+    modelData.animations ?? [],
+    modelData.sourceUpAxis,
+  );
 }
 
 export function createModelAsyncLoader(opts: ModelLoaderOptions = {}) {
@@ -219,6 +237,8 @@ export function createModelAsyncLoader(opts: ModelLoaderOptions = {}) {
       default:
         throw new Error(`Unknown model format: ${filename}`);
     }
+
+    synthesizeSkeletonIfNeeded(modelData);
 
     if (!shouldNormalize) return modelData;
 

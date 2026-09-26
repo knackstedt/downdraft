@@ -1,4 +1,4 @@
-import { calculateViewProj, composeMat4Into, createValidatedShaderModule, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, multiplyMat4Into, type CameraState } from "@downdraft/engine";
+import { calculateViewProj, composeMat4Into, createValidatedShaderModule, DEPTH_FORMAT, invertMat4, MSAA_SAMPLE_COUNT, multiplyMat4Into, type CameraState } from "@downdraft/engine";
 import type { SkinData } from "@downdraft/engine/libraries/models";
 
 const SKELETON_WGSL = /* wgsl */ `
@@ -57,6 +57,13 @@ export class SkeletonRenderer {
   private boneWorldPositions: [number, number, number][] = [];
   // Cached bone parent indices (for rebuilding vertex buffer in updateBonePositions)
   private boneParentIndices: number[] = [];
+  // Per-bone inverse of the bone's root ancestor transform. The animated
+  // path (updateBonePositions, fed by Skeleton.computeSkinMatrices) applies
+  // rootAncestorMatrix to root bones while setSkin deliberately ignores it —
+  // it typically encodes the FBX scene's unit scale (e.g. 0.01 for cm→m) and
+  // bone rest translations already live in raw mesh space. Premultiplying by
+  // this inverse keeps the animated skeleton in the same space as setSkin.
+  private boneCorrections: (Float32Array | null)[] = [];
   private boneCount = 0;
 
   constructor(device: GPUDevice, format: GPUTextureFormat) {
@@ -144,6 +151,15 @@ export class SkeletonRenderer {
     // Cache bone hierarchy for updateBonePositions()
     this.boneCount = bones.length;
     this.boneParentIndices = bones.map((b) => b.parentIndex);
+    this.boneCorrections = bones.map((_b, i) => {
+      let r = i;
+      while (bones[r].parentIndex >= 0) r = bones[r].parentIndex;
+      const a = bones[r].rootAncestorMatrix;
+      if (!a) return null;
+      const inv = invertMat4(new Float32Array(a));
+      // invertMat4 returns zeros for singular matrices — treat as no correction.
+      return inv[15] !== 0 ? inv : null;
+    });
 
     for (let i = 0; i < bones.length; i++) {
       const bone = bones[i];
@@ -236,23 +252,24 @@ export class SkeletonRenderer {
     const jointSize = 0.02;
     const verts: number[] = [];
     const scratch = new Float32Array(16);
+    const corrected = new Float32Array(16);
 
-    // Compute normalized world positions for each bone
+    // Compute normalized world positions for each bone. Strip the root
+    // ancestor transform first (see boneCorrections in setSkin) so the
+    // positions land in raw mesh space, then apply the normalization matrix.
     const positions: [number, number, number][] = [];
     for (let i = 0; i < this.boneCount; i++) {
-      const wm = worldMats[i];
+      const corr = this.boneCorrections[i];
+      let base = worldMats[i];
+      if (corr) {
+        multiplyMat4Into(corr, base, corrected);
+        base = corrected;
+      }
       if (normMat) {
-        // scratch = normMat * wm (column-major multiply)
-        for (let c = 0; c < 4; c++) {
-          const wm0 = wm[c * 4], wm1 = wm[c * 4 + 1], wm2 = wm[c * 4 + 2], wm3 = wm[c * 4 + 3];
-          scratch[c * 4]     = normMat[0] * wm0 + normMat[4] * wm1 + normMat[8]  * wm2 + normMat[12] * wm3;
-          scratch[c * 4 + 1] = normMat[1] * wm0 + normMat[5] * wm1 + normMat[9]  * wm2 + normMat[13] * wm3;
-          scratch[c * 4 + 2] = normMat[2] * wm0 + normMat[6] * wm1 + normMat[10] * wm2 + normMat[14] * wm3;
-          scratch[c * 4 + 3] = normMat[3] * wm0 + normMat[7] * wm1 + normMat[11] * wm2 + normMat[15] * wm3;
-        }
+        multiplyMat4Into(normMat, base, scratch);
         positions.push([scratch[12], scratch[13], scratch[14]]);
       } else {
-        positions.push([wm[12], wm[13], wm[14]]);
+        positions.push([base[12], base[13], base[14]]);
       }
     }
 
@@ -283,6 +300,20 @@ export class SkeletonRenderer {
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
     });
     this.device.queue.writeBuffer(this.vertexBuffer, 0, new Float32Array(verts));
+  }
+
+  /**
+   * Drop all bone geometry. Call when a skin-less model is selected so stale
+   * geometry from the previous skinned model doesn't linger on screen.
+   */
+  clear() {
+    this.vertexCount = 0;
+    this.boneCount = 0;
+    this.boneWorldPositions = [];
+    this.boneParentIndices = [];
+    this.boneCorrections = [];
+    this.vertexBuffer?.destroy();
+    this.vertexBuffer = null;
   }
 
   render(passEncoder: GPURenderPassEncoder, camera: CameraState, modelMatrix: Float32Array | null = null) {

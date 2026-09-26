@@ -56,6 +56,7 @@ export type { ModelLoaderOptions } from "./loader";
 export { bakeNodeTransforms } from "./bake-node-transforms";
 export { normalizeModel, normalizeModelWithResolution, resolveImportSettings, resolveImportSettingsSync } from "./normalize";
 export type { ResolveOptions } from "./sidecar/resolver";
+export { synthesizeSkeletonSkin } from "./skeleton-synthesis";
 
 // Sidecar system — per-model import settings
 export { parseBlenderExtras } from "./sidecar/blender-extras";
