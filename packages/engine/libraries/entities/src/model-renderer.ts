@@ -540,8 +540,9 @@ export class ModelRenderer {
     this.modelResources.set(nodeId, resources);
 
     if (resources.length < meshes.length) {
-      console.warn(
-        `[ModelRenderer] Uniform buffer full: uploaded ${resources.length}/${meshes.length} meshes for "${nodeId}" ` +
+      log.warn(
+        "ModelRenderer",
+        `Uniform buffer full: uploaded ${resources.length}/${meshes.length} meshes for "${nodeId}" ` +
         `(${uniformOffset}/${ModelRenderer.MAX_MODELS} slots used). ` +
         `Increase MAX_MODELS to avoid invisible models.`,
       );
@@ -684,7 +685,7 @@ export class ModelRenderer {
       log.info("ModelRenderer", `Texture ready for ${materialKey}: ${imageBitmap.width}x${imageBitmap.height} (bindless)`);
       imageBitmap.close();
     } catch (e) {
-      console.error(`[ModelRenderer] Failed to load texture for ${materialKey}:`, e);
+      log.error("ModelRenderer", `Failed to load texture for ${materialKey}: ${e}`);
     }
   }
 
@@ -737,7 +738,7 @@ export class ModelRenderer {
 
       imageBitmap.close();
     } catch (e) {
-      console.error(`[ModelRenderer] Failed to load texture from URI for ${materialKey} (${textureUri}):`, e);
+      log.error("ModelRenderer", `Failed to load texture from URI for ${materialKey} (${textureUri}): ${e}`);
     }
   }
 
@@ -799,7 +800,7 @@ export class ModelRenderer {
       log.info("ModelRenderer", `Normal texture ready for ${materialKey}: ${imageBitmap.width}x${imageBitmap.height}`);
       imageBitmap.close();
     } catch (e) {
-      console.error(`[ModelRenderer] Failed to load normal texture for ${materialKey}:`, e);
+      log.error("ModelRenderer", `Failed to load normal texture for ${materialKey}: ${e}`);
     }
   }
 
@@ -1311,6 +1312,27 @@ export class ModelRenderer {
     const res = this.modelResources.get(nodeId)?.[meshIndex];
     if (!res) return;
     this.device.queue.writeBuffer(res.vertexBuffer, 0, interleaved as Float32Array<ArrayBuffer>);
+  }
+
+  /**
+   * Overwrite a mesh's index buffer with a compacted triangle list and update
+   * the draw count. Used for CPU-side mesh deformation that deletes triangles
+   * (e.g. punched-through holes). `indices`/`indexCount` describe the live
+   * prefix of the caller's index array.
+   */
+  updateIndexBuffer(nodeId: string, meshIndex: number, indices: Uint16Array | Uint32Array, indexCount: number): void {
+    const res = this.modelResources.get(nodeId)?.[meshIndex];
+    if (!res) return;
+    const live = indices.subarray(0, indexCount);
+    const byteLen = live.byteLength;
+    if (byteLen % 4 === 0) {
+      this.device.queue.writeBuffer(res.indexBuffer, 0, live as (Uint16Array<ArrayBuffer> | Uint32Array<ArrayBuffer>));
+    } else {
+      const padded = new Uint8Array(Math.ceil(byteLen / 4) * 4);
+      padded.set(new Uint8Array(live.buffer, live.byteOffset, byteLen));
+      this.device.queue.writeBuffer(res.indexBuffer, 0, padded);
+    }
+    res.indexCount = indexCount;
   }
 
   destroy(): void {
