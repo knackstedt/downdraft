@@ -26,6 +26,7 @@ const SDL_SHIM_SPEC: Record<string, CFunction> = {
   sdl_shim_set_fullscreen: { args: ["i32"], returns: "void" },
   sdl_shim_get_window_pos: { args: ["ptr", "ptr"], returns: "void" },
   sdl_shim_set_window_pos: { args: ["i32", "i32"], returns: "void" },
+  sdl_shim_get_window_borders: { args: ["ptr", "ptr", "ptr", "ptr"], returns: "i32" },
   sdl_shim_set_window_size: { args: ["i32", "i32"], returns: "void" },
   sdl_shim_get_display_info: { args: ["ptr", "ptr"], returns: "void" },
   sdl_shim_request_quit: { args: [], returns: "void" },
@@ -73,6 +74,7 @@ export interface SdlShimSymbols {
   sdl_shim_set_fullscreen: (enabled: number) => void;
   sdl_shim_get_window_pos: (xOut: ptr, yOut: ptr) => void;
   sdl_shim_set_window_pos: (x: number, y: number) => void;
+  sdl_shim_get_window_borders: (topOut: ptr, leftOut: ptr, bottomOut: ptr, rightOut: ptr) => number;
   sdl_shim_set_window_size: (width: number, height: number) => void;
   sdl_shim_get_display_info: (refreshOut: ptr, scaleOut: ptr) => void;
   sdl_shim_request_quit: () => void;

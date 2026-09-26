@@ -190,6 +190,20 @@ void sdl_shim_set_window_pos(int x, int y) {
     if (g_window) SDL_SetWindowPosition(g_window, x, y);
 }
 
+// Window frame border sizes (titlebar height in top_out, side/bottom frame
+// widths in the rest). Returns SDL_GetWindowBordersSize's code: 0 once the
+// WM has framed the window (_NET_FRAME_EXTENTS on X11), negative before
+// that or when the WM doesn't report extents.
+int sdl_shim_get_window_borders(int* top_out, int* left_out, int* bottom_out, int* right_out) {
+    int t = 0, l = 0, b = 0, r = 0;
+    int rc = g_window ? SDL_GetWindowBordersSize(g_window, &t, &l, &b, &r) : -1;
+    if (top_out) *top_out = t;
+    if (left_out) *left_out = l;
+    if (bottom_out) *bottom_out = b;
+    if (right_out) *right_out = r;
+    return rc;
+}
+
 // Resize the window (window-state persistence restores saved bounds).
 void sdl_shim_set_window_size(int width, int height) {
     if (g_window) SDL_SetWindowSize(g_window, width, height);

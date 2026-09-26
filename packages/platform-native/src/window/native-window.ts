@@ -177,6 +177,17 @@ export class NativeWindow extends MiniEventTarget {
     sdl.sdl_shim_set_window_pos(x, y);
   }
 
+  /** Frame border sizes ({top,left,bottom,right}); null when the WM hasn't
+   *  framed the window yet or doesn't report extents (Wayland). */
+  getWindowBorders(): { top: number; left: number; bottom: number; right: number } | null {
+    const out = new Int32Array(4);
+    const rc = sdl.sdl_shim_get_window_borders(
+      out.subarray(0, 1) as any, out.subarray(1, 2) as any,
+      out.subarray(2, 3) as any, out.subarray(3, 4) as any);
+    if (rc !== 0) return null;
+    return { top: out[0]!, left: out[1]!, bottom: out[2]!, right: out[3]! };
+  }
+
   /** Window size in pixels. */
   getWindowSize(): { width: number; height: number } {
     const out = new Int32Array(2);

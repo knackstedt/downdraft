@@ -117,8 +117,36 @@ export function installWindowStatePersistence(appId: string, window: NativeWindo
     // Stale local shim builds may predate sdl_shim_set_window_size.
     try {
       window.setWindowSize(saved.width, saved.height);
-      window.setWindowPos(saved.x, saved.y);
     } catch { /* best-effort */ }
+
+    // Position restore must wait until the WM has framed the window: an
+    // SDL_SetWindowPosition issued earlier is taken as the *frame* origin
+    // on X11 (an initial-geometry hint), while SDL_GetWindowPosition always
+    // reports the *client-area* origin — restoring immediately shifts the
+    // window down by the titlebar height on every launch. Once the frame
+    // exists, set/get share client-area coordinates and the restore lands
+    // exactly. SDL_GetWindowBordersSize reads _NET_FRAME_EXTENTS and only
+    // reports nonzero borders post-framing, so poll it as the "framed"
+    // signal; the fallback timer covers WMs that never report extents
+    // (Wayland, borderless setups — where the restore is a no-op or the
+    // frame==client anyway).
+    let applied = false;
+    const applyPos = () => {
+      if (applied) return;
+      applied = true;
+      clearInterval(poll);
+      clearTimeout(fallback);
+      try { window.setWindowPos(saved.x, saved.y); } catch { /* best-effort */ }
+    };
+    const poll = setInterval(() => {
+      try {
+        const b = window.getWindowBorders();
+        if (b && (b.top | b.left | b.bottom | b.right) !== 0) applyPos();
+      } catch { /* best-effort */ }
+    }, 25);
+    poll.unref?.();
+    const fallback = setTimeout(applyPos, 750);
+    fallback.unref?.();
   }
   const scheduleSave = () => {
     if (saveTimer) clearTimeout(saveTimer);
