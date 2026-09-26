@@ -20,6 +20,7 @@
 
 import type { GameContext, GameModule, GameSimWorker } from "@downdraft/engine/app/renderer";
 import { createLogger } from "@downdraft/engine/util/logger";
+import { addCrashFeatureLog } from "./host-lifecycle";
 import { startNativeMcpServer, type NativeMcpOptions } from "./mcp/native-mcp";
 import { wireFreeTypeText } from "./native-game";
 import { createNativeHost, type NativeHostConfig } from "./native-host";
@@ -74,7 +75,10 @@ export async function runNativeGameModule<Sim extends GameSimWorker>(
   try {
     // 2. Run the shared bootstrap. Dynamic import keeps the renderer bundle
     //    out of the module graph for tools that only need the host.
-    const { startGame } = await import("@downdraft/engine/app/renderer");
+    const { startGame, getRendererFeatureLog } = await import("@downdraft/engine/app/renderer");
+    // The render feature line (WebGPU adapter/features/limits) is collected
+    // during startGame's bootstrap — register it so a later crash carries it.
+    addCrashFeatureLog(getRendererFeatureLog);
 
     // Native needs FreeType wired into the renderer's IMUI text atlas after
     // init — chain it into the module's onReady (runs post-init, before

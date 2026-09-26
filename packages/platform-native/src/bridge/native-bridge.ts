@@ -36,6 +36,7 @@ import type {
 import { createLogger } from "@downdraft/engine/util/logger";
 import { spawn } from "node:child_process";
 import { WgpuDevice } from "../gpu/wgpu-wrapper";
+import { addCrashFeatureLog } from "../host-lifecycle";
 import { createNativeOsrHost } from "../osr/native-osr-host";
 import { isPackaged } from "../packaged";
 import { encodePNG } from "../screenshot/screenshot";
@@ -102,6 +103,9 @@ export function createNativeBridge(opts: NativeBridgeOptions): DowndraftBridgeAP
     gpuDevice: adapterInfo?.device ?? adapterInfo?.description ?? null,
     gpuDriverVersion: null,
   });
+  // Fatal-error dialog includes this line (host-lifecycle.ts) — it replaces
+  // the GPU-less baseline the error handlers registered at install time.
+  addCrashFeatureLog(() => featureLog);
 
   // ── Perf stats emitter (lazy — only when a listener registers) ──
   let perfTimer: ReturnType<typeof setInterval> | null = null;
