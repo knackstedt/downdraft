@@ -1,7 +1,14 @@
 {
   "$schema": "https://raw.githubusercontent.com/oxc-project/oxc-assets/main/schema.json",
   "rules": {
-    "no-console": "error",
+    "no-console": [
+      "error",
+      {
+        "allow": [
+          "trace"
+        ]
+      }
+    ],
     "no-unused-vars": "warn",
     "no-debugger": "error",
     "no-empty": "warn",
