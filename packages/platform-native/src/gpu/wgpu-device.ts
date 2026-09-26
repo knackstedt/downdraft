@@ -8,6 +8,7 @@
 // boundary in install.ts via `as unknown as GPU` casts.
 // ============================================================================
 
+import { createLogger } from "@downdraft/engine/util/logger";
 import type { ptr } from "../ffi/ffi-adapter";
 import {
     formatName,
@@ -47,6 +48,8 @@ import {
     WgpuTexture,
     WgpuTextureView,
 } from "./wgpu-resources";
+
+const log = createLogger("info");
 
 // ============================================================================
 // WgpuGPU — the navigator.gpu equivalent
@@ -293,8 +296,8 @@ export class WgpuDevice {
     const seen = new Set<number>();
     for (const e of entries) {
       if (seen.has(e.binding)) {
-        console.warn(`[createBindGroupLayout] Duplicate binding ${e.binding} — entries:`,
-          entries.map((e) => `b${e.binding}:${e.buffer ? "buf" : e.texture ? "tex" : e.sampler ? "smp" : e.storageTexture ? "stex" : "?"}`));
+        log.warn("createBindGroupLayout", `Duplicate binding ${e.binding} — entries: ${
+          entries.map((e) => `b${e.binding}:${e.buffer ? "buf" : e.texture ? "tex" : e.sampler ? "smp" : e.storageTexture ? "stex" : "?"}`).join(", ")}`);
       }
       seen.add(e.binding);
     }

@@ -150,6 +150,7 @@ import { Application, Container, Text, WebGLRenderer, type Ticker } from "pixi.j
 // Side-effect import: registers the EventSystem as a renderer extension so
 // that `app.renderer.events` is available. Without this, PixiJS v8's
 // tree-shaking omits the EventSystem and pointer hit-testing doesn't work.
+import { createLogger } from "@downdraft/engine/util/logger";
 import "pixi.js/events";
 import {
     type InitMessage,
@@ -165,6 +166,8 @@ import {
 } from "./bridge-protocol";
 import type { PixiUiScene, PixiUiSceneContext, PixiUiSceneFactory } from "./scene";
 import { readUiStats, validateUiStatsSab } from "./ui-stats-sab";
+
+const log = createLogger("info");
 
 // ── Bypass autoDetectRenderer's dynamic import in the worker ──
 //
@@ -442,10 +445,10 @@ async function handleInit(msg: InitMessage): Promise<void> {
     postAction,
     log: (level: "info" | "warn" | "error", text: string) => {
       // Forward logs via the error channel with a [debug] prefix (the host
-      // routes "error" kind to console.error; for dev logs we use console too).
+      // routes "error" kind to log.error; dev logs go through the logger).
       if (level === "error") postError(text);
-      else if (level === "warn") console.warn(`[PixiUI scene] ${text}`);
-      else console.info(`[PixiUI scene] ${text}`);
+      else if (level === "warn") log.warn("PixiUI scene", text);
+      else log.info("PixiUI scene", text);
     },
     extraSharedBuffers: extraSharedBuffers ?? undefined,
   };

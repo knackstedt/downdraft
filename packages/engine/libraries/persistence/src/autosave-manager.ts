@@ -5,6 +5,10 @@
 // any save function (not just saveWorld). Skipped in deterministic mode.
 // ============================================================================
 
+import { createLogger } from "@downdraft/engine/util/logger";
+
+const log = createLogger("info");
+
 export interface AutosaveManagerOptions {
   /** Called on each autosave interval to persist the current state. */
   save: () => Promise<void>;
@@ -78,7 +82,7 @@ export class AutosaveManager {
     try {
       await this.runSave();
     } catch (e) {
-      console.error("[AutosaveManager] Save failed:", e);
+      log.error("AutosaveManager", `Save failed: ${e}`);
     }
   }
 

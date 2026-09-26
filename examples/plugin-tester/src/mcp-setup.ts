@@ -4,6 +4,9 @@
 
 import { EngineContext, MCPServer } from "@downdraft/engine/mcp";
 import type { TestScene } from "./test-scene";
+import { createLogger } from "@downdraft/engine/util/logger";
+const log = createLogger();
+
 
 export function setupMCP(scene: TestScene): void {
   // Create engine context — use a fresh EngineContext since this is a standalone test
@@ -80,6 +83,6 @@ export function setupMCP(scene: TestScene): void {
       }
     });
   } else {
-    console.warn("[MCP] No electron IPC bridge available — MCP HTTP transport will not work");
+    log.warn("MCP", 'No electron IPC bridge available — MCP HTTP transport will not work');
   }
 }

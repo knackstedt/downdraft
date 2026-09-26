@@ -14,6 +14,10 @@
 // rather than failing — a stale-format save should never wedge the game.
 // ============================================================================
 
+import { createLogger } from "@downdraft/engine/util/logger";
+
+const log = createLogger("info");
+
 export interface BinaryRecordStoreOptions {
   /** File name within `directory` (e.g. "chunks.bin"). */
   fileName: string;
@@ -37,7 +41,7 @@ export interface BinaryRecordStoreOptions {
     fromVersion: number,
     records: Map<string, Uint8Array>,
   ) => Map<string, Uint8Array> | null | Promise<Map<string, Uint8Array> | null>;
-  /** Log tag prefix. Default: "[BinaryRecordStore]". */
+  /** Log tag prefix. Default: "BinaryRecordStore". */
   logTag?: string;
 }
 
@@ -68,7 +72,7 @@ export class BinaryRecordStore implements IBinaryRecordStore {
   private tag: string;
 
   constructor(private opts: BinaryRecordStoreOptions) {
-    this.tag = opts.logTag ?? "[BinaryRecordStore]";
+    this.tag = (opts.logTag ?? "BinaryRecordStore").replace(/^\[|\]$/g, "");
   }
 
   private async getRoot(): Promise<FileSystemDirectoryHandle | null> {
@@ -126,8 +130,9 @@ export class BinaryRecordStore implements IBinaryRecordStore {
     const records = this.parse(buf);
     if (version === this.opts.version) return records ?? new Map();
     if (!this.opts.migrate) {
-      console.warn(
-        `${this.tag} ${this.opts.fileName}: discarding save with version ${version} (expected ${this.opts.version})`,
+      log.warn(
+        this.tag,
+        `${this.opts.fileName}: discarding save with version ${version} (expected ${this.opts.version})`,
       );
       return new Map();
     }
@@ -177,7 +182,7 @@ export class BinaryRecordStore implements IBinaryRecordStore {
     try {
       return (await this.readCurrent()) ?? new Map();
     } catch (e) {
-      console.warn(`${this.tag} readAll failed:`, e);
+      log.warn(this.tag, `readAll failed: ${e}`);
       return new Map();
     }
   }
@@ -191,7 +196,7 @@ export class BinaryRecordStore implements IBinaryRecordStore {
       if (!(await this.writeFile(merged))) return 0;
       return updates.size;
     } catch (e) {
-      console.warn(`${this.tag} write failed:`, e);
+      log.warn(this.tag, `write failed: ${e}`);
       return 0;
     }
   }
@@ -205,7 +210,7 @@ export class BinaryRecordStore implements IBinaryRecordStore {
       if (!(await this.writeFile(merged))) return 0;
       return removed;
     } catch (e) {
-      console.warn(`${this.tag} delete failed:`, e);
+      log.warn(this.tag, `delete failed: ${e}`);
       return 0;
     }
   }
@@ -220,7 +225,7 @@ export class BinaryRecordStore implements IBinaryRecordStore {
       }
       await dir.removeEntry(this.opts.fileName).catch(() => {});
     } catch (e) {
-      console.warn(`${this.tag} deleteAll failed:`, e);
+      log.warn(this.tag, `deleteAll failed: ${e}`);
     }
   }
 }

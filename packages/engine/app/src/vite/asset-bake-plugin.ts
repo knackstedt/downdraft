@@ -21,9 +21,12 @@
 // wasm, jimp) never enter the renderer bundle.
 //
 
+import { createLogger } from "@downdraft/engine/util/logger";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, extname, resolve as resolvePath } from "node:path";
 import type { Plugin } from "vite";
+
+const log = createLogger("info");
 
 /**
  * Bake options — mirrors the `AssetBakeOptions` type from
@@ -139,11 +142,11 @@ export function downdraftAssetBakePlugin(opts: AssetBakePluginOptions = {}): Plu
       const sourceAbs = id.slice(VIRTUAL_PREFIX.length);
       const api = await ensureBakeApi();
 
-      const log = verbose
-        ? (msg: string) => console.log(`[downdraft-asset-bake] ${basename(sourceAbs)}${msg}`)
+      const bakeLog = verbose
+        ? (msg: string) => log.info("downdraft-asset-bake", `${basename(sourceAbs)}${msg}`)
         : undefined;
 
-      const hit = await api.bakeAsset(sourceAbs, gameRoot, opts.options, log);
+      const hit = await api.bakeAsset(sourceAbs, gameRoot, opts.options, bakeLog);
       virtualToPath.set(id, { path: hit.path, mime: hit.mimeType });
 
       // Read the baked bytes.

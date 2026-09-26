@@ -18,7 +18,10 @@
 // ============================================================================
 
 import { PixiUiHost } from "@downdraft/engine/libraries/pixi-ui";
+import { createLogger } from "@downdraft/engine/util/logger";
 import type { ProfilingBridge } from "./profiling-bridge";
+
+const log = createLogger("info");
 
 /** Frame-callback surface used by wireProfilingBridge (duck-typed). */
 export interface ProfilingLoopCallbacks {
@@ -157,7 +160,7 @@ export function attachProfilerOverlay(opts: ProfilerOverlayOptions): ProfilerOve
   } as any);
 
   host.start().then(() => {
-    console.log(`[profiler] Profiler overlay started — press ${toggleKey} to toggle`);
+    log.info("profiler", `Profiler overlay started — press ${toggleKey} to toggle`);
     if (!opts.startVisible) {
       const canvas = document.getElementById(canvasId) as HTMLCanvasElement | null;
       if (canvas) canvas.style.display = "none";
@@ -166,7 +169,7 @@ export function attachProfilerOverlay(opts: ProfilerOverlayOptions): ProfilerOve
       // floods the GPU channel and churns heap into constant GC pauses.
       host.setPaused(true);
     }
-  }, (e) => console.error("[profiler] Profiler overlay failed to start:", e));
+  }, (e) => log.error("profiler", `Profiler overlay failed to start: ${e}`));
 
   const toggle = (e: KeyboardEvent) => {
     if (e.key === toggleKey) {

@@ -34,9 +34,12 @@ import {
     type PluginPermission,
     type PluginSource
 } from "@downdraft/engine";
+import { createLogger } from "@downdraft/engine/util/logger";
 import { bootstrapGame, type BootstrapDevToolsOptions } from "./bootstrap";
 import { downdraft, getCanvas, getOverlay } from "./index";
 import { createSaveStore, isOpfsAvailable, type SaveStoreMode } from "./save-store-factory";
+
+const log = createLogger("info");
 
 // ── Types ──
 
@@ -164,7 +167,7 @@ function pickGameComponent(
   if (explicit) {
     const comp = components[explicit];
     if (!comp) {
-      console.warn(`[startGame] Save component "${explicit}" not found; available: ${Object.keys(components).join(", ")}`);
+      log.warn("startGame", `Save component "${explicit}" not found; available: ${Object.keys(components).join(", ")}`);
       return undefined;
     }
     return comp;
@@ -174,8 +177,9 @@ function pickGameComponent(
   );
   if (keys.length === 0) return undefined;
   if (isDev && keys.length > 1) {
-    console.warn(
-      `[startGame] Save has ${keys.length} object-valued components (${keys.join(", ")}); ` +
+    log.warn(
+      "startGame",
+      `Save has ${keys.length} object-valued components (${keys.join(", ")}); ` +
       `picked "${keys[0]}". Set save.componentName to load deterministically.`,
     );
   }
@@ -586,10 +590,10 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
         try {
           handler(msg.data, ctx);
         } catch (err) {
-          console.error(`[startGame] Event handler error for "${msg.kind}":`, err);
+          log.error("startGame", `Event handler error for "${msg.kind}": ${err}`);
         }
       } else if (isDev && !ENGINE_EMITTED_EVENT_KINDS.has(msg.kind)) {
-        console.warn(`[startGame] Unhandled sim event kind: "${msg.kind}"`);
+        log.warn("startGame", `Unhandled sim event kind: "${msg.kind}"`);
       }
     });
   };
@@ -632,7 +636,7 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
         ctx.saveMode = store ? (resolvedMode === "worker" ? "worker" : "ipc") : "ipc";
       }
     } catch (e) {
-      console.warn("[startGame] Save store init failed, falling back to IPC:", e);
+      log.warn("startGame", `Save store init failed, falling back to IPC: ${e}`);
       ctx.saveMode = "ipc";
     }
   }
@@ -661,7 +665,7 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
         }
         return result?.success ?? false;
       } catch (e) {
-        console.error("[startGame] Manual save failed:", e);
+        log.error("startGame", `Manual save failed: ${e}`);
         return false;
       }
     };
@@ -729,7 +733,7 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
         }
         return null;
       } catch (e) {
-        console.error("[startGame] Manual load failed:", e);
+        log.error("startGame", `Manual load failed: ${e}`);
         return null;
       }
     };
@@ -801,7 +805,7 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
             wireSimEvents(owned);
           }
         } catch (e) {
-          console.warn("[startGame] simFromRenderer resolution failed:", e);
+          log.warn("startGame", `simFromRenderer resolution failed: ${e}`);
         }
       }
 
@@ -830,7 +834,7 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
             maxGenerations: module.save.maxGenerations ?? 3,
           });
         } catch (e) {
-          console.warn("[startGame] Inline save store init failed, falling back to IPC:", e);
+          log.warn("startGame", `Inline save store init failed, falling back to IPC: ${e}`);
           ctx.saveMode = "ipc";
         }
       }
@@ -851,7 +855,7 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
           if (mh) pluginHost.setModuleHost(mh);
           await pluginHost.loadAll();
         } catch (e) {
-          console.warn("[startGame] Plugin loading error:", e);
+          log.warn("startGame", `Plugin loading error: ${e}`);
         }
       }
 
@@ -864,7 +868,7 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
           await ctx.ui.start();
         } catch (e) {
           // UI failure is non-fatal — the game canvas still runs.
-          console.error("[startGame] UI start failed:", e);
+          log.error("startGame", `UI start failed: ${e}`);
           ctx.ui = undefined;
         }
       }

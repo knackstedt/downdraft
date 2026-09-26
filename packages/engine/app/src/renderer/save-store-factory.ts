@@ -25,7 +25,10 @@
 
 import type { ISaveStore } from "@downdraft/engine";
 import { OpfsSaveStore, SaveWorkerProxy, type OpfsSaveStoreOptions } from "@downdraft/engine/libraries/persistence/browser";
+import { createLogger } from "@downdraft/engine/util/logger";
 import { IpcSaveStore, type SaveBridge } from "./ipc-save-store";
+
+const log = createLogger("info");
 
 export type SaveStoreMode = "inline" | "worker" | "ipc" | "auto";
 
@@ -118,7 +121,7 @@ export async function createSaveStore(opts: CreateSaveStoreOptions): Promise<Cre
           return { store: proxy, mode: "worker" };
         } catch (err) {
           // Worker spawn failed or timed out — fall through to IPC
-          console.warn("[createSaveStore] Worker mode failed, falling back to IPC:", err);
+          log.warn("createSaveStore", `Worker mode failed, falling back to IPC: ${err}`);
         }
       }
       // IPC fallback

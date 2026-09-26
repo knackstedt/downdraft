@@ -18,10 +18,13 @@
 // created. If validation passes, this plugin returns null (lets
 // wgslHmrPlugin handle the actual module creation).
 
+import { createLogger } from "@downdraft/engine/util/logger";
 import { readFileSync, statSync } from "node:fs";
 import { dirname, resolve as resolvePath } from "node:path";
 import type { Plugin } from "vite";
 import { resolveTintBinary, validateWgslWithTint } from "./tint-binary.ts";
+
+const log = createLogger("info");
 
 /**
  * Some WGSL sources are fragments that only compile when concatenated with
@@ -125,7 +128,7 @@ export function wgslValidatePlugin(): Plugin {
         for (const w of cached.warnings) {
           if (!warnedWarnings.has(w)) {
             warnedWarnings.add(w);
-            console.warn(`[wgsl-validate] ${w}`);
+            log.warn("wgsl-validate", w);
           }
         }
         return null; // Let wgslHmrPlugin handle module creation
@@ -151,7 +154,7 @@ export function wgslValidatePlugin(): Plugin {
       for (const w of result.warnings) {
         if (!warnedWarnings.has(w)) {
           warnedWarnings.add(w);
-          console.warn(`[wgsl-validate] ${w}`);
+          log.warn("wgsl-validate", w);
         }
       }
 

@@ -34,9 +34,12 @@
 // ============================================================================
 
 import type { LoadOptions, SaveOptions } from "../save/persist-types";
+import { createLogger } from "../util/logger";
 import { BaseWorkerHost } from "./base-worker-host";
 import type { WorkerApi } from "./rpc";
 import type { SimWorkerStats } from "./sim-worker-base";
+
+const log = createLogger();
 
 /**
  * The standard control API createSimWorker() exposes worker-side.
@@ -295,7 +298,7 @@ export abstract class SimWorkerHost<TApi extends WorkerApi = SimWorkerControlApi
         try {
           cb(data, kind);
         } catch (err) {
-          console.error(`[${this.constructor.name}] Event handler for "${kind}" threw:`, err);
+          log.error(this.constructor.name, `Event handler for "${kind}" threw: ${err}`);
         }
       }
     }
@@ -305,7 +308,7 @@ export abstract class SimWorkerHost<TApi extends WorkerApi = SimWorkerControlApi
         try {
           cb(data, kind);
         } catch (err) {
-          console.error(`[${this.constructor.name}] Wildcard event handler threw:`, err);
+          log.error(this.constructor.name, `Wildcard event handler threw: ${err}`);
         }
       }
     }
@@ -349,7 +352,7 @@ export abstract class SimWorkerHost<TApi extends WorkerApi = SimWorkerControlApi
         layout: opts?.layout,
       });
     } catch (err) {
-      console.warn(`[${this.constructor.name}] Profiling SAB attach failed:`, err);
+      log.warn(this.constructor.name, `Profiling SAB attach failed: ${err}`);
     }
   }
 }

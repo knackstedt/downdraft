@@ -27,7 +27,10 @@
 //   saves.stop();
 // ============================================================================
 
+import { createLogger } from "../util/logger";
 import { createGridSaveSystem, type GridSaveSystem, type GridSaveSystemOptions } from "./grid-save-system";
+
+const log = createLogger();
 
 export interface GameSaveSystemOptions<Meta, Entry> extends GridSaveSystemOptions<Meta, Entry> {
   /**
@@ -47,7 +50,7 @@ export interface GameSaveSystemOptions<Meta, Entry> extends GridSaveSystemOption
   intervalMs?: number;
   /** Skip the autosave interval + autosave writes entirely (test mode). */
   deterministic?: boolean;
-  /** Called on autosave errors. Default: console.warn. */
+  /** Called on autosave errors. Default: logs a warning via the engine logger. */
   onError?: (err: unknown) => void;
 }
 
@@ -74,7 +77,7 @@ export function createGameSaveSystem<Meta, Entry>(
 ): GameSaveSystem<Meta, Entry> {
   const system: GridSaveSystem<Meta, Entry> = createGridSaveSystem(opts);
   const intervalMs = opts.intervalMs ?? 3000;
-  const onError = opts.onError ?? ((e) => console.warn("[save] autosave failed:", e));
+  const onError = opts.onError ?? ((e) => log.warn("save", `autosave failed: ${e}`));
   let interval: ReturnType<typeof setInterval> | null = null;
 
   const tick = async () => {

@@ -13,6 +13,9 @@
 // ============================================================================
 
 import type { ResourceToken } from "../ecs/resource";
+import { createLogger } from "../util/logger";
+
+const log = createLogger();
 
 /** Error thrown when STRICT validation catches a footgun. */
 export class DiagnosticError extends Error {
@@ -112,8 +115,9 @@ export function warnLeak(
   if (details.providedCount > 0) parts.push(`${details.providedCount} resource(s)`);
   if (details.sabCount > 0) parts.push(`${details.sabCount} SAB channel(s)`);
   if (parts.length === 0) return;
-  console.warn(
-    `[downdraft:diagnostics] Module "${moduleName}" provided ${parts.join(" and ")} but registered no onDispose() cleanup. ` +
+  log.warn(
+    "downdraft:diagnostics",
+    `Module "${moduleName}" provided ${parts.join(" and ")} but registered no onDispose() cleanup. ` +
       `This may leak resources on unload.`,
   );
 }

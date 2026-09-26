@@ -26,8 +26,11 @@
 // ============================================================================
 
 import { encodeFeatureLogLine, isDevMode } from "@downdraft/engine";
+import { createLogger } from "@downdraft/engine/util/logger";
 import { collectRendererFeatureLog } from "./feature-log";
 import { downdraft, getCanvas, getOverlay } from "./index";
+
+const log = createLogger("info");
 
 export interface BootstrapAutosaveOptions {
   /** Load saved state. Returns null if no save exists. */
@@ -146,7 +149,7 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
   if (opts.initRenderer) {
     const ok = await opts.initRenderer(renderer);
     if (!ok) {
-      console.error("[bootstrapGame] Renderer init failed");
+      log.error("bootstrapGame", "Renderer init failed");
       return;
     }
   }
@@ -192,7 +195,7 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
     deterministic,
     getActiveModules: opts.getActiveModules,
   });
-  console.info(encodeFeatureLogLine(renderFeatureLog));
+  log.info("bootstrapGame", encodeFeatureLogLine(renderFeatureLog));
 
   // 7. FPS polling (if onFpsUpdate provided)
   if (opts.onFpsUpdate) {
@@ -237,7 +240,7 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
         await autosaveOpts.onLoad(saved);
       }
     } catch (e) {
-      console.warn("[bootstrapGame] Autosave load failed:", e);
+      log.warn("bootstrapGame", `Autosave load failed: ${e}`);
     }
 
     let saveInProgress = false;
@@ -247,7 +250,7 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
       try {
         await autosaveOpts.save();
       } catch (e) {
-        console.warn("[bootstrapGame] Autosave save failed:", e);
+        log.warn("bootstrapGame", `Autosave save failed: ${e}`);
       } finally {
         saveInProgress = false;
       }

@@ -13,6 +13,7 @@
 // public surface is preserved so native-entry.ts needs minimal changes.
 // ============================================================================
 
+import { createLogger } from "@downdraft/engine/util/logger";
 import { CdpBridge } from "./cdp-bridge";
 import {
     devtoolsDestroy,
@@ -34,6 +35,8 @@ import {
 } from "./egui-ffi";
 import { EguiRenderer } from "./egui-renderer";
 import { DevtoolsMirror } from "./mirror";
+
+const log = createLogger("info");
 
 export interface NativeDebuggerOptions {
   /** The shared wgpu-native GPUDevice (same as the game renderer's). */
@@ -178,7 +181,7 @@ export class NativeDebuggerHost {
     this.cdp.start();
 
     this._ready = true;
-    console.log("[NativeDebuggerHost] Ready (egui) (F12 to toggle)");
+    log.info("NativeDebuggerHost", "Ready (egui) (F12 to toggle)");
   }
 
   /** Register a thread eval function (delegates to the mirror). */
@@ -210,9 +213,9 @@ export class NativeDebuggerHost {
     this._visible = !this._visible;
     if (this._visible) {
       this.mirror?.resetFirstUpdate();
-      console.log("[NativeDebuggerHost] Debugger visible");
+      log.info("NativeDebuggerHost", "Debugger visible");
     } else {
-      console.log("[NativeDebuggerHost] Debugger hidden");
+      log.info("NativeDebuggerHost", "Debugger hidden");
     }
   }
 
@@ -239,7 +242,7 @@ export class NativeDebuggerHost {
     try {
       this.mirror?.update();
     } catch (err) {
-      console.error("[NativeDebuggerHost] Mirror update error:", err);
+      log.error("NativeDebuggerHost", `Mirror update error: ${err}`);
     }
 
     // 2. Run egui for one frame → get serialized PaintJobs.
@@ -247,7 +250,7 @@ export class NativeDebuggerHost {
     try {
       paintJobs = devtoolsUpdate(this.handle, this.scratch);
     } catch (err) {
-      console.error("[NativeDebuggerHost] egui update error:", err);
+      log.error("NativeDebuggerHost", `egui update error: ${err}`);
     }
 
     // 3. Render the PaintJobs into the UI texture.
@@ -255,7 +258,7 @@ export class NativeDebuggerHost {
       try {
         this.renderer.render(paintJobs, externalEncoder);
       } catch (err) {
-        console.error("[NativeDebuggerHost] egui render error:", err);
+        log.error("NativeDebuggerHost", `egui render error: ${err}`);
       }
     }
   }

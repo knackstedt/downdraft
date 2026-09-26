@@ -1,3 +1,4 @@
+import { addLogSink } from "@downdraft/engine/util/logger";
 import {
     arrayOf,
     f32,
@@ -414,14 +415,14 @@ describe("assertWgslStructMatches", () => {
   it("warns (no throw) when struct not found and not strict", () => {
     const def = wgsl.struct("Missing", { a: f32 });
     const src = "struct Other { a: f32, }";
-    // Suppress console.warn for this test.
-    const orig = console.warn;
     const warns: string[] = [];
-    console.warn = (msg: string) => warns.push(msg);
+    const unbindSink = addLogSink((e) => {
+      if (e.level === "warn") warns.push(e.message);
+    });
     try {
       assertWgslStructMatches(src, def);
     } finally {
-      console.warn = orig;
+      unbindSink();
     }
     expect(warns.some((w) => w.includes("not found"))).toBe(true);
   });

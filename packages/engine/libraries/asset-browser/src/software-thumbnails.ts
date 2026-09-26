@@ -15,6 +15,9 @@
 // ============================================================================
 
 import { declaredCompanionUri, loadModel, type ModelData } from "@downdraft/engine/libraries/models";
+import { createLogger } from "@downdraft/engine/util/logger";
+
+const log = createLogger("info");
 
 export interface SoftwareThumbnailOptions {
   /** Resolve a modelUri to bytes. Default: fetch(uri).arrayBuffer(). */
@@ -152,7 +155,7 @@ export class SoftwareThumbnailRenderer {
       const model = await loadModel(buffer, filename, mtl, bin) as ModelData;
       this.uploadModel(contentId, model, modelUri);
     } catch (err) {
-      console.warn(`[SoftwareThumbnailRenderer] Failed to load ${contentId} (${modelUri}):`, err);
+      log.warn("SoftwareThumbnailRenderer", `Failed to load ${contentId} (${modelUri}): ${err}`);
       this.loadBuiltinCube(contentId);
     } finally {
       this.loading.delete(contentId);

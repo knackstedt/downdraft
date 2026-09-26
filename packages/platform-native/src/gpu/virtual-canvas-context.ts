@@ -20,10 +20,13 @@
 // rasterization via DOMAdapter.get().createCanvas()).
 // ============================================================================
 
+import { createLogger } from "@downdraft/engine/util/logger";
 import { MiniEventTarget } from "../dom/mini-event-target";
 import { NativeCanvas2D, NativeImageBitmap } from "../image/native-image";
 import { captureScreenshotPixels, encodePNG } from "../screenshot/screenshot";
 import type { WgpuDevice, WgpuTexture, WgpuTextureView } from "./wgpu-wrapper";
+
+const log = createLogger("info");
 
 export interface VirtualCanvasConfig {
   format: GPUTextureFormat;
@@ -165,7 +168,7 @@ export class VirtualCanvasContext {
       this.textureWidth = w;
       this.textureHeight = h;
     } catch (err) {
-      console.error("[VirtualCanvasContext] Failed to create UI texture:", err);
+      log.error("VirtualCanvasContext", `Failed to create UI texture: ${err}`);
       this.texture = null;
     }
     return this.texture;

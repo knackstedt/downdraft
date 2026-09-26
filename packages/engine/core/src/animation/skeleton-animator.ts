@@ -4,12 +4,15 @@
 // Uses AnimationPlayer internally for blending (bone masks, additive, root motion).
 // ============================================================================
 
+import { createLogger } from "../util/logger";
 import type { AnimationEvent } from "./animation-event";
 import type { KeyframeTrack, TrackPath } from "./clip";
 import { AnimationClip } from "./clip";
 import { AnimationPlayer } from "./player";
 import type { Bone, SkeletonData } from "./skeleton";
 import { Skeleton } from "./skeleton";
+
+const log = createLogger();
 
 export interface AnimationChannel {
   targetNode: string;
@@ -376,7 +379,7 @@ export class SkeletonAnimator {
     this.targetZUp = skin.skeletonUpAxis !== "y";
     this.isMixamoSkeleton = this.boneNameToIndex.has("mixamorig:Hips");
     if (this.isMixamoSkeleton) {
-      console.log("[Anim] Mixamo skeleton detected — direct animation mapping (no retargeting)");
+      log.info("Anim", "Mixamo skeleton detected — direct animation mapping (no retargeting)");
     }
   }
 
@@ -1115,7 +1118,7 @@ export class SkeletonAnimator {
     const clip = this.animationDataToClip(mergedAnim, stateName);
     if (clip) {
       this.clips.set(stateName, clip);
-      console.log(`[Anim] Registered: ${stateName} (${allChannels.length} channels, ${this.isMixamoSkeleton ? "direct Mixamo" : "retargeted-v2"})`);
+      log.info("Anim", `Registered: ${stateName} (${allChannels.length} channels, ${this.isMixamoSkeleton ? "direct Mixamo" : "retargeted-v2"})`);
     }
   }
 

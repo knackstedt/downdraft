@@ -33,6 +33,9 @@
 // On Android WebView (where SAB is unavailable), it polyfills SAB as an
 // ArrayBuffer subclass and shims Atomics.wait. See sab-polyfill.ts.
 import "@downdraft/engine/sab/sab-polyfill";
+import { createLogger } from "@downdraft/engine/util/logger";
+
+const log = createLogger("info");
 
 // --- rAF polyfill for Android WebView ---
 // Android WebView throttles requestAnimationFrame to ~7Hz when a WebGPU
@@ -82,11 +85,10 @@ try {
     configurable: true,
   });
 } catch (e) {
-  console.warn(`[rAF Polyfill] Failed to override requestAnimationFrame: ${(e as Error).message}`);
+  log.warn("rAF Polyfill", `Failed to override requestAnimationFrame: ${(e as Error).message}`);
 }
 
 import type { InputBufferWriter } from "@downdraft/engine";
-import { createLogger } from "@downdraft/engine/util/logger";
 import type { GameContext } from "../renderer/game-module";
 import { startGame, type GameModule, type GameSimWorker } from "../renderer/game-module";
 import { createMobileBridge } from "./mobile-bridge";
@@ -95,15 +97,13 @@ import { InputBufferWriterSink, NullTouchInputSink, type TouchInputSink } from "
 import { TouchOsd, type TouchOsdButtonId } from "./touch-osd";
 import { checkWebGpuAndIsolation, showUnsupportedDeviceScreen } from "./webgpu-guard";
 
-const log = createLogger("info");
-
 // Diagnostic: log cross-origin isolation status + check COOP/COEP headers
-console.warn(`[SAB Diag] crossOriginIsolated=${self.crossOriginIsolated} SharedArrayBuffer=${typeof SharedArrayBuffer !== "undefined"} location=${self.location?.href}`);
+log.warn("SAB Diag", `crossOriginIsolated=${self.crossOriginIsolated} SharedArrayBuffer=${typeof SharedArrayBuffer !== "undefined"} location=${self.location?.href}`);
 fetch(self.location.href).then(r => {
   const coop = r.headers.get("Cross-Origin-Opener-Policy");
   const coep = r.headers.get("Cross-Origin-Embedder-Policy");
-  console.warn(`[SAB Diag] Response headers: COOP=${coop} COEP=${coep} status=${r.status}`);
-}).catch(e => console.warn(`[SAB Diag] fetch failed: ${e.message}`));
+  log.warn("SAB Diag", `Response headers: COOP=${coop} COEP=${coep} status=${r.status}`);
+}).catch(e => log.warn("SAB Diag", `fetch failed: ${e.message}`));
 
 export { createMobileBridge } from "./mobile-bridge";
 export { TouchInputAdapter, type TouchInputScheme } from "./touch-input-adapter";

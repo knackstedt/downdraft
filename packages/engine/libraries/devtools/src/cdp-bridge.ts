@@ -20,7 +20,10 @@
 // node:inspector is a Node/Bun built-in. Use createRequire (ESM-safe) so the
 // import doesn't fail at typecheck time in environments without the module.
 // At runtime in Bun, `require("node:inspector")` returns the inspector API.
+import { createLogger } from "@downdraft/engine/util/logger";
 import { createRequire as nodeCreateRequire } from "node:module";
+
+const log = createLogger("info");
 
 let insp: any;
 try {
@@ -138,7 +141,7 @@ export class CdpBridge {
       this.session = new insp.Session();
       this.session.connect();
       this.connected = true;
-      console.log("[CdpBridge] Session connected, enabling domains...");
+      log.info("CdpBridge", "Session connected, enabling domains...");
 
       // Wire event handlers BEFORE enabling domains so we don't miss events.
       this.session.on("Runtime.consoleAPICalled", (e: any) => {
@@ -152,7 +155,7 @@ export class CdpBridge {
       this.post("Runtime.enable", {});
       this.post("Profiler.enable", {});
     } catch (err) {
-      console.warn("[CdpBridge] Failed to connect session:", err);
+      log.warn("CdpBridge", `Failed to connect session: ${err}`);
       this.available = false;
       this.connected = false;
     }
@@ -185,11 +188,11 @@ export class CdpBridge {
   /** Start CPU profiling. */
   startProfile(intervalUs = 100): void {
     if (!this.connected || this.profiling) {
-      console.log("[CdpBridge] startProfile skipped: connected=", this.connected, "profiling=", this.profiling);
+      log.info("CdpBridge", `startProfile skipped: connected=${this.connected} profiling=${this.profiling}`);
       return;
     }
     this.profiling = true;
-    console.log("[CdpBridge] Starting CPU profile...");
+    log.info("CdpBridge", "Starting CPU profile...");
     this.post("Profiler.setSamplingInterval", { interval: intervalUs });
     this.post("Profiler.start", {});
   }
@@ -197,15 +200,15 @@ export class CdpBridge {
   /** Stop CPU profiling and return the profile. */
   stopProfile(): Promise<CdpProfile | null> {
     if (!this.connected || !this.profiling) {
-      console.log("[CdpBridge] stopProfile skipped: connected=", this.connected, "profiling=", this.profiling);
+      log.info("CdpBridge", `stopProfile skipped: connected=${this.connected} profiling=${this.profiling}`);
       return Promise.resolve(null);
     }
     this.profiling = false;
-    console.log("[CdpBridge] Stopping CPU profile...");
+    log.info("CdpBridge", "Stopping CPU profile...");
     return new Promise((resolve) => {
       this.session.post("Profiler.stop", (_err: any, res: any) => {
         if (_err || !res?.profile) {
-          console.warn("[CdpBridge] Profiler.stop error:", _err, "res:", res);
+          log.warn("CdpBridge", `Profiler.stop error: ${_err} res: ${JSON.stringify(res)}`);
           resolve(null);
           return;
         }
@@ -214,7 +217,7 @@ export class CdpBridge {
         prof.nodeCount = prof.nodes?.length ?? 0;
         prof.sampleCount = prof.samples?.length ?? 0;
         this.lastProfile = prof;
-        console.log("[CdpBridge] Profile received:", prof.nodeCount, "nodes,", prof.sampleCount, "samples");
+        log.info("CdpBridge", `Profile received: ${prof.nodeCount} nodes, ${prof.sampleCount} samples`);
         resolve(prof);
       });
     });

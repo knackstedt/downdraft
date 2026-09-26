@@ -3,8 +3,11 @@
 // GPU info/limits snapshot, and tracked render pass wrapping.
 // ============================================================================
 
+import { createLogger } from "../util/logger";
 import type { PassTiming } from "./collector";
 import { GPUTimerPool } from "./gpu-timer-pool";
+
+const log = createLogger();
 
 // ─── Frame Graph Visualizer Data ──────────────────────────────────────────
 
@@ -155,7 +158,7 @@ export class GPUProfiler {
       if (!state) {
         // First occurrence — log immediately and start a throttle window.
         self.errorThrottle.set(key, { count: 1, firstSeen: now, lastLogged: now, suppressed: 0 });
-        console.error(`[GPU] ${label || ""} WebGPU uncaptured error: ${message}`);
+        log.error("GPU", `${label ? label + " " : ""}WebGPU uncaptured error: ${message}`);
         return;
       }
       state.count++;
@@ -167,8 +170,9 @@ export class GPUProfiler {
       }
       // Window elapsed — emit a summary of suppressed duplicates and reset.
       const suppressed = state.suppressed + 1; // +1 for this occurrence
-      console.error(
-        `[GPU] ${label || ""} WebGPU uncaptured error: ${message} ` +
+      log.error(
+        "GPU",
+        `${label ? label + " " : ""}WebGPU uncaptured error: ${message} ` +
           `(repeated ${suppressed}× in ${Math.round(elapsed)}ms)`,
       );
       state.lastLogged = now;
@@ -177,7 +181,7 @@ export class GPUProfiler {
 
     device.lost.then((info: GPUDeviceLostInfo) => {
       self.deviceLost = true;
-      console.error(`[GPU] WebGPU device lost: ${info?.reason ?? "unknown"} — ${info?.message ?? ""}`);
+      log.error("GPU", `WebGPU device lost: ${info?.reason ?? "unknown"} — ${info?.message ?? ""}`);
     });
   }
 

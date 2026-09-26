@@ -13,6 +13,9 @@ import {
     type AnimationData,
     type ModelData
 } from "@downdraft/engine/libraries/models";
+import { createLogger } from "@downdraft/engine/util/logger";
+
+const log = createLogger("info");
 
 /** A character model the loader can resolve. */
 export interface CharacterModelDef {
@@ -114,7 +117,7 @@ export async function loadExternalTextures(
             if (data.byteLength > 4 && isDecodableImage(new Uint8Array(data, 0, 4))) {
               mat.textureData = data;
               foundExternal = true;
-              console.log(`[CharacterModel] Material[${mi}] "${mat.name}": loaded ${candidate} from ${dir}`);
+              log.info("CharacterModel", `Material[${mi}] "${mat.name}": loaded ${candidate} from ${dir}`);
               break;
             }
           } catch {
@@ -183,10 +186,10 @@ export function filterOptionalMeshes(
     for (const node of modelData.nodes) {
         if (isOptional(node.name)) excludedNames.push(node.name);
     }
-    console.log(`[CharacterModel] Filtered ${exclude.size} optional item mesh(es): [${excludedNames.join(", ")}]`);
+    log.info("CharacterModel", `Filtered ${exclude.size} optional item mesh(es): [${excludedNames.join(", ")}]`);
 
     excludeMeshIndices(modelData, exclude);
-    console.log(`[CharacterModel] Filtered optional meshes, keeping ${modelData.meshes.length}`);
+    log.info("CharacterModel", `Filtered optional meshes, keeping ${modelData.meshes.length}`);
 }
 
 /**
@@ -256,7 +259,7 @@ export function selectVariantMeshes(modelData: ModelData): void {
     }
 
     if (exclude.size === 0) return;
-    console.log(`[CharacterModel] Variant selection kept [${kept.join(", ")}], dropping ${exclude.size} meshes`);
+    log.info("CharacterModel", `Variant selection kept [${kept.join(", ")}], dropping ${exclude.size} meshes`);
     excludeMeshIndices(modelData, exclude);
 }
 
@@ -300,13 +303,13 @@ export function createCharacterModelLoader(opts: CharacterModelLoaderOptions = {
     for (const animDef of opts.animations ?? []) {
       const url = opts.resolveAnimationUrl?.(animDef.filename) ?? null;
       if (!url) {
-        console.warn(`[CharacterModel] Animation not found: ${animDef.filename}`);
+        log.warn("CharacterModel", `Animation not found: ${animDef.filename}`);
         continue;
       }
       try {
         const resp = await fetch(url);
         if (!resp.ok) {
-          console.warn(`[CharacterModel] Failed to fetch animation ${animDef.filename}: ${resp.status}`);
+          log.warn("CharacterModel", `Failed to fetch animation ${animDef.filename}: ${resp.status}`);
           continue;
         }
         const buffer = await resp.arrayBuffer();
@@ -316,12 +319,12 @@ export function createCharacterModelLoader(opts: CharacterModelLoaderOptions = {
           const anim = animModel.animations[0];
           anim.name = animDef.state; // Override name with the state name.
           anims.set(animDef.state, anim);
-          console.log(`[CharacterModel] Loaded animation: ${animDef.state} from ${animDef.filename} (${anim.duration.toFixed(2)}s, ${anim.channels.length} channels)`);
+          log.info("CharacterModel", `Loaded animation: ${animDef.state} from ${animDef.filename} (${anim.duration.toFixed(2)}s, ${anim.channels.length} channels)`);
         } else {
-          console.warn(`[CharacterModel] No animations in ${animDef.filename}`);
+          log.warn("CharacterModel", `No animations in ${animDef.filename}`);
         }
       } catch (err) {
-        console.warn(`[CharacterModel] Failed to load animation ${animDef.filename}:`, err);
+        log.warn("CharacterModel", `Failed to load animation ${animDef.filename}: ${err}`);
       }
     }
     animCache = anims;
@@ -358,7 +361,7 @@ export function createCharacterModelLoader(opts: CharacterModelLoaderOptions = {
       const anims = await loadAnimations();
       if (anims.size > 0) {
         modelData.animations = Array.from(anims.values());
-        console.log(`[CharacterModel] Attached ${anims.size} animations to ${def.id}`);
+        log.info("CharacterModel", `Attached ${anims.size} animations to ${def.id}`);
       }
 
       cache.set(def.id, modelData);

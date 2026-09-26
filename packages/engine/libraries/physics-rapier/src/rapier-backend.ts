@@ -143,7 +143,9 @@ async function doLoadPhysicsLib(): Promise<PhysicsLib> {
     // __wbg_init — it fires because rapier.init() passes an ArrayBuffer
     // directly, and the init function's deprecation check treats any
     // non-plain-object argument as "deprecated" (an upstream Rapier bug).
+    // oxlint-disable-next-line no-console -- intentional interception, not logging
     const origWarn = console.warn;
+    // oxlint-disable-next-line no-console -- intentional interception, not logging
     console.warn = (...args: any[]) => {
       if (typeof args[0] === "string" && args[0].includes("deprecated parameters for the initialization function")) return;
       origWarn.apply(console, args as any);
@@ -151,6 +153,7 @@ async function doLoadPhysicsLib(): Promise<PhysicsLib> {
     try {
       await rapier.init();
     } finally {
+      // oxlint-disable-next-line no-console -- restore the intercepted binding
       console.warn = origWarn;
     }
 

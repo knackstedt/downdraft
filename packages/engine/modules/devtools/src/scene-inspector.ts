@@ -9,6 +9,7 @@
 
 import { compileGraphToMaterialWithGraph, compileUIGraphToMaterial, isExtremeScale, MaterialLibrary, maxDimension, uiGraphToMaterialGraph, type Material, type UIConnection, type UINodeData } from "@downdraft/engine";
 import { createDefaultDdmeta, createDefaultImportSettings, detectFormat, loadModel, normalizeModel, writeDdmeta } from "@downdraft/engine/libraries/models";
+import { createLogger } from "@downdraft/engine/util/logger";
 import { DevToolsDataBridge } from "./data-bridge";
 import { useSceneStore, type GizmoMode, type SceneTreeSnapshot } from "./scene-store";
 import type {
@@ -16,6 +17,8 @@ import type {
     IDebugOverlayProvider,
     IDevToolsRenderer,
 } from "./types";
+
+const log = createLogger("info");
 
 export abstract class BaseSceneInspector extends DevToolsDataBridge {
   // Core material library — the single source of truth for materials created
@@ -619,7 +622,7 @@ export abstract class BaseSceneInspector extends DevToolsDataBridge {
       this.thumbnailCache.set(path, dataUrl);
       return dataUrl;
     } catch (e) {
-      console.error("[BaseSceneInspector] Thumbnail error for path:", path, e);
+      log.error("BaseSceneInspector", `Thumbnail error for path ${path}: ${e}`);
       this.evictThumbnailCache();
       this.thumbnailCache.set(path, null);
       return null;

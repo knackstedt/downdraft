@@ -15,9 +15,16 @@
 //   const getBaseUrl = pluginBaseUrlLookup(found);
 // ============================================================================
 
+import { createLogger } from "../util/logger";
 import type { AssetRegistry, MapRegistry, PhysicsRegistry } from "./extension-loaders";
 import type { PluginHost } from "./host";
 import type { PluginManifest } from "./manifest";
+
+const log = createLogger();
+
+function tagFromPrefix(logPrefix: string): string {
+  return logPrefix.replace(/^\[|\]$/g, "");
+}
 
 export interface DiscoveredPlugin {
   manifest: PluginManifest;
@@ -59,7 +66,7 @@ export async function discoverPlugins(
     const r = host.discover(manifest, baseUrl);
     if (!r.ok) {
       rejected.push({ id: manifest.id, errors: r.errors });
-      console.warn(`[PluginHost] Rejected manifest "${manifest.id}":`, r.errors);
+      log.warn("PluginHost", `Rejected manifest "${manifest.id}": ${r.errors.join("; ")}`);
     }
   }
   await host.loadAll();
@@ -163,7 +170,7 @@ export function createAssetRegistryBridge(hooks: AssetRegistryBridgeHooks): Asse
 export function createNoopMapRegistry(logPrefix = "[PluginHost]"): MapRegistry {
   return {
     async registerMap(id, _path, manifestId) {
-      console.log(`${logPrefix} Map "${id}" from mod "${manifestId}" registered (noop)`);
+      log.info(tagFromPrefix(logPrefix), `Map "${id}" from mod "${manifestId}" registered (noop)`);
     },
     async unregisterMap() { /* noop */ },
   };
@@ -172,7 +179,7 @@ export function createNoopMapRegistry(logPrefix = "[PluginHost]"): MapRegistry {
 export function createNoopPhysicsRegistry(logPrefix = "[PluginHost]"): PhysicsRegistry {
   return {
     async registerPhysicsOverride(id, _path, manifestId) {
-      console.log(`${logPrefix} Physics override "${id}" from mod "${manifestId}" registered (noop)`);
+      log.info(tagFromPrefix(logPrefix), `Physics override "${id}" from mod "${manifestId}" registered (noop)`);
     },
     async unregisterPhysicsOverride() { /* noop */ },
   };

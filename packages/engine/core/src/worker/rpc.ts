@@ -4,6 +4,10 @@
 // Works in both Web Workers and Node.js worker_threads.
 // ============================================================================
 
+import { createLogger } from "../util/logger";
+
+const log = createLogger();
+
 // --- Environment detection (from worker-compat.ts) ---
 
 export type HostMessageHandler = (msg: any) => void;
@@ -191,7 +195,7 @@ export function wrap<T extends WorkerApi>(worker: AnyWorker, options?: WrapOptio
     if (isEventMessage(msg)) {
       for (const cb of eventListeners) {
         try { cb(msg.kind, msg.data); } catch (err) {
-          console.error("[WorkerProxy] Event listener error:", err);
+          log.error("WorkerProxy", `Event listener error: ${err}`);
         }
       }
     }

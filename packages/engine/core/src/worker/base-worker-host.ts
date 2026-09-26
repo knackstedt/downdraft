@@ -23,8 +23,11 @@
 // ============================================================================
 
 import { usingRealSAB } from "../sab/sab-polyfill";
+import { createLogger } from "../util/logger";
 import type { BufferSyncConfig, BufferSyncHost } from "./buffer-sync";
 import { wrap, type WorkerApi, type WorkerProxy } from "./rpc";
+
+const log = createLogger();
 
 export abstract class BaseWorkerHost<TApi extends WorkerApi> {
   protected sab: SharedArrayBuffer;
@@ -175,6 +178,6 @@ export abstract class BaseWorkerHost<TApi extends WorkerApi> {
    * Default: logs to console with the class name.
    */
   protected onError(e: ErrorEvent): void {
-    console.error(`[${this.constructor.name}] Worker error:`, e.message);
+    log.error(this.constructor.name, `Worker error: ${e.message}`);
   }
 }

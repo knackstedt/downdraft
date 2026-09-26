@@ -27,6 +27,7 @@
 // ============================================================================
 
 import { KEY } from "@downdraft/engine";
+import { createLogger } from "@downdraft/engine/util/logger";
 import { downdraft } from "./index";
 import {
     blobToBase64,
@@ -35,6 +36,8 @@ import {
     jsonResult,
     type McpToolRegistration,
 } from "./mcp-harness";
+
+const log = createLogger("info");
 
 // ── Types ──
 
@@ -280,7 +283,7 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
                 }
               }
             } catch (e) {
-              console.warn(`[MCP] Composite screenshot failed, falling back to canvas-only: ${(e as Error).message}`);
+              log.warn("MCP", `Composite screenshot failed, falling back to canvas-only: ${(e as Error).message}`);
             }
           }
         }

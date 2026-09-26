@@ -6,7 +6,10 @@
 // with transient flag stripping and system reset.
 // ============================================================================
 
+import { createLogger } from "../util/logger";
 import type { IWorkerManager } from "./types";
+
+const log = createLogger();
 
 export class HotReloadPipeline {
   private workerManager: IWorkerManager;
@@ -24,7 +27,7 @@ export class HotReloadPipeline {
         const result = await this.workerManager.save("hot-reload");
         if (result?.stateJson) stateJson = result.stateJson;
       } catch (err) {
-        console.warn(`[HotReloadPipeline] State save failed, reloading without preservation: ${err}`);
+        log.warn("HotReloadPipeline", `State save failed, reloading without preservation: ${err}`);
       }
     }
 
@@ -39,7 +42,7 @@ export class HotReloadPipeline {
       try {
         await this.workerManager.restoreFromState(stateJson);
       } catch (err) {
-        console.error(`[HotReloadPipeline] State restore failed: ${err}. Starting fresh.`);
+        log.error("HotReloadPipeline", `State restore failed: ${err}. Starting fresh.`);
       }
     }
   }

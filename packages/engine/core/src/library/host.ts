@@ -12,6 +12,7 @@
 
 import type { ResourceToken } from "../ecs/resource";
 import { assertNoDuplicate, assertRequired, isStrict, warnLeak } from "../module/diagnostics";
+import { createLogger } from "../util/logger";
 import type {
     EngineLibrary,
     LibraryEntry,
@@ -23,6 +24,8 @@ import type {
     LibrarySimTickContext,
     LibraryTickPhase
 } from "./library";
+
+const log = createLogger();
 
 interface ActiveLibrary<C = unknown> {
   lib: EngineLibrary<C>;
@@ -79,7 +82,7 @@ export class LibraryHostImpl implements LibraryHost {
         if (this.buffers[ch.name]) {
           const msg = `SAB channel "${ch.name}" declared by library "${active.lib.name}" is already allocated — duplicate channel names across libraries are not allowed`;
           if (isStrict()) throw new Error(msg);
-          console.warn(`[LibraryHost] ${msg}`);
+          log.warn("LibraryHost", msg);
           continue;
         }
         this.buffers[ch.name] = new SharedArrayBuffer(ch.size);
@@ -144,7 +147,7 @@ export class LibraryHostImpl implements LibraryHost {
         active.simSystem = null;
         (created as Promise<unknown>).then(
           (resolved) => { active.simSystem = resolved; },
-          (err) => { console.error(`[LibraryHost] async sim.create for "${active.lib.name}" failed:`, err); },
+          (err) => { log.error("LibraryHost", `async sim.create for "${active.lib.name}" failed: ${err}`); },
         );
       } else {
         active.simSystem = created;

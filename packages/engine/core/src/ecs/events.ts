@@ -1,3 +1,7 @@
+import { createLogger } from "../util/logger";
+
+const log = createLogger();
+
 export interface EventChannel<T> {
   send(event: T): void;
   read(): T[];
@@ -20,8 +24,9 @@ export function createEventChannel<T>(): EventChannel<T> {
         pending.shift();
         droppedCount++;
         if (droppedCount === 1 || droppedCount % 1000 === 0) {
-          console.warn(
-            `EventChannel: queue full (${MAX_QUEUE_SIZE}), dropped ${droppedCount} oldest event(s) total`,
+          log.warn(
+            "EventChannel",
+            `queue full (${MAX_QUEUE_SIZE}), dropped ${droppedCount} oldest event(s) total`,
           );
         }
       }

@@ -17,7 +17,10 @@
 // ============================================================================
 
 import { isDevMode, useHotReloadStore, type IRendererStateProvider, type SaveOptions } from "@downdraft/engine";
+import { createLogger } from "@downdraft/engine/util/logger";
 import { downdraft, type DowndraftBridge } from "./index";
+
+const log = createLogger("info");
 
 /** Minimal sim surface needed by the HMR handlers. */
 export interface HotReloadableSim {
@@ -62,19 +65,19 @@ export function installSimHotReload(deps: SimHotReloadDeps): void {
     const store = useHotReloadStore.getState();
     if (!store.enabled) return;
     hot.send("sim:hot-reload:ack", {});
-    console.log(`%c[HMR] Sim file changed: ${data.file}`, "color: cyan");
+    log.info("HMR", `Sim file changed: ${data.file}`);
     store.setStatus("reloading");
     const t0 = performance.now();
     try {
       await deps.sim.hotReload?.(getConfig(), store.preserveState);
       const elapsed = (performance.now() - t0).toFixed(0);
-      console.log(`%c[HMR] Sim worker swap complete (${elapsed}ms)`, "color: cyan; font-weight: bold");
+      log.info("HMR", `Sim worker swap complete (${elapsed}ms)`);
       store.setStatus("ready");
       store.setLastReload({ file: data.file, elapsed: Number(elapsed), timestamp: data.timestamp });
     } catch (err) {
-      console.error(`%c[HMR] Sim hot-reload failed: ${(err as Error).message}`, "color: red; font-weight: bold");
+      log.error("HMR", `Sim hot-reload failed: ${(err as Error).message}`);
       store.setStatus("error", (err as Error).message);
-      console.warn("[HMR] Falling back to full page reload");
+      log.warn("HMR", "Falling back to full page reload");
       window.location.reload();
     }
   });
@@ -83,7 +86,7 @@ export function installSimHotReload(deps: SimHotReloadDeps): void {
     const store = useHotReloadStore.getState();
     if (!store.enabled) return;
     hot.send("renderer:hot-reload:ack", {});
-    console.log(`%c[HMR] Renderer file changed: ${data.file}`, "color: yellow");
+    log.info("HMR", `Renderer file changed: ${data.file}`);
     store.setStatus("reloading");
     if (store.preserveState) {
       try {
@@ -96,10 +99,10 @@ export function installSimHotReload(deps: SimHotReloadDeps): void {
           }
           dd.saveGameState(SLOT, JSON.stringify(components));
           sessionStorage.setItem(PENDING_KEY, "1");
-          console.log("[HMR] State saved, reloading page...");
+          log.info("HMR", "State saved, reloading page...");
         }
       } catch (err) {
-        console.warn(`[HMR] State save failed, reloading without preservation: ${err}`);
+        log.warn("HMR", `State save failed, reloading without preservation: ${err}`);
       }
     }
     window.location.reload();
@@ -128,11 +131,11 @@ export async function restoreHotReloadState(
         deps.renderer?.restoreRendererMeta?.(components.renderer.data);
       }
     } catch { /* ignore */ }
-    console.log("[HMR] Restored state after page reload");
+    log.info("HMR", "Restored state after page reload");
     if (dd.deleteGameState) dd.deleteGameState(SLOT);
     return true;
   } catch (err) {
-    console.error(`[HMR] Failed to restore hot-reload state: ${err}. Starting fresh.`);
+    log.error("HMR", `Failed to restore hot-reload state: ${err}. Starting fresh.`);
     return false;
   }
 }

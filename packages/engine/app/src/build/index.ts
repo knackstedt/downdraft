@@ -26,9 +26,12 @@
 // and version / description / author (via extraMetadata, which is deep-merged
 // into the package.json metadata that AppInfo reads from).
 
+import { createLogger } from "@downdraft/engine/util/logger";
 import type { BuildResult, Configuration } from "electron-builder";
 import { execSync } from "node:child_process";
 import { patchPeTimestamps } from "./pe-timestamp";
+
+const log = createLogger("info");
 
 export interface DowndraftBuilderOptions {
   /** Reverse-DNS app identifier (e.g. "downdraft-to-the-ocean"). */
@@ -177,8 +180,9 @@ export function createDowndraftBuilderConfig(
             if (exes.length === 0) return [];
             const results = await patchPeTimestamps(exes, ts);
             for (const r of results) {
-              console.log(
-                `[downdraft] Patched PE TimeDateStamp for ${r.file}: ` +
+              log.info(
+                "downdraft",
+                `Patched PE TimeDateStamp for ${r.file}: ` +
                   `${r.previous} → ${r.next}`,
               );
             }

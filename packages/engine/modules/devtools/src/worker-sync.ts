@@ -8,8 +8,11 @@
 // Panel declarations are merged into the global registry.
 // ============================================================================
 
+import { createLogger } from "@downdraft/engine/util/logger";
 import { _devtoolsImpl, devtools, type DevToolsManifest } from "./api";
 import type { IDevToolsPanelExtension } from "./types";
+
+const log = createLogger("info");
 
 /** Minimal worker proxy interface for devtools RPC. */
 export interface DevToolsWorkerProxy {
@@ -54,7 +57,7 @@ async function syncOneWorker(entry: WorkerSyncEntry): Promise<void> {
   try {
     manifest = await proxy.__devtoolsGetManifest();
   } catch (e) {
-    console.warn(`[devtools] Failed to fetch manifest from worker "${prefix}":`, e);
+    log.warn("devtools", `Failed to fetch manifest from worker "${prefix}": ${e}`);
     return;
   }
 
@@ -101,7 +104,7 @@ async function syncOneWorker(entry: WorkerSyncEntry): Promise<void> {
     _devtoolsImpl.registerCommand(namespacedCmd, (...args: any[]) => {
       // Fire-and-forget (commands return void in the panel context)
       proxy.__devtoolsCallCommand(cmdName, args).catch((e) => {
-        console.warn(`[devtools] Worker command "${cmdName}" failed:`, e);
+        log.warn("devtools", `Worker command "${cmdName}" failed: ${e}`);
       });
     });
   }

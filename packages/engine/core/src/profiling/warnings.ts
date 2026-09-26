@@ -13,6 +13,7 @@
 // Cooldown prevents a rule from re-firing within cooldownMs.
 // ============================================================================
 
+import { createLogger } from "../util/logger";
 import {
     fnv1a32,
     METRIC_CPU_PERCENT,
@@ -32,6 +33,8 @@ import {
     SEVERITY_WARN,
     type ProfilingSABWriter,
 } from "./profiling-sab";
+
+const log = createLogger();
 
 export { SEVERITY_CRITICAL, SEVERITY_ERROR, SEVERITY_INFO, SEVERITY_WARN };
 export type SeverityLevel = typeof SEVERITY_INFO | typeof SEVERITY_WARN | typeof SEVERITY_ERROR | typeof SEVERITY_CRITICAL;
@@ -281,7 +284,7 @@ export class WarningEngine {
         cb(record, ctx);
       } catch (err) {
         // Don't let a callback error stop other callbacks
-        console.error(`[WarningEngine] callback error for rule "${rule.id}":`, err);
+        log.error("WarningEngine", `callback error for rule "${rule.id}": ${err}`);
       }
     }
   }

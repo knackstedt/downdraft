@@ -26,6 +26,10 @@
 // It is a no-op when real SharedArrayBuffer is available (desktop/Electron).
 //
 
+import { createLogger } from "../util/logger";
+
+const log = createLogger();
+
 /** True if the real SharedArrayBuffer is available. False if polyfilled. */
 export const usingRealSAB = typeof SharedArrayBuffer !== "undefined";
 
@@ -46,8 +50,9 @@ if (!usingRealSAB) {
 
   // Debug identifier — detectable from console/devtools.
   (globalThis as any).__DOWNDRAFT_SAB_POLYFILL = true;
-  console.warn(
-    "[Downdraft SAB Polyfill] SharedArrayBuffer is not available — using copy-based buffer sync protocol.\n" +
+  log.warn(
+    "SAB Polyfill",
+    "SharedArrayBuffer is not available — using copy-based buffer sync protocol.\n" +
     "This is expected on Android WebView production builds.\n" +
     "If you see this in a desktop browser or Electron, COOP/COEP headers may be missing.",
   );

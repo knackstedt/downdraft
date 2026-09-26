@@ -1,4 +1,5 @@
 import { assertBounds, assertCount, MAX_VERTEX_COUNT, sanitizeUri } from "@downdraft/engine";
+import { createLogger } from "@downdraft/engine/util/logger";
 import { strFromU8 } from "fflate";
 import type { GLTFCodecRegistry } from "./codecs/registry";
 import { getDefaultCodecRegistry } from "./codecs/registry";
@@ -14,6 +15,8 @@ import type {
     PunctualLightData,
     SkinData,
 } from "./types";
+
+const log = createLogger("info");
 
 // --- Extended GLTF JSON types -------------------------------------------------
 
@@ -615,7 +618,7 @@ export async function parseGLTF(
           }
         } catch (meshErr) {
           const msg = `Error parsing mesh "${mesh.name}" (index ${i}, primitive ${p}): ${meshErr instanceof Error ? meshErr.message : String(meshErr)}`;
-          console.error(`[gltf] ${msg}`);
+          log.error("gltf", msg);
           parseWarnings.push(msg);
           continue;
         }
@@ -699,7 +702,7 @@ export async function parseGLTF(
     }
 
     skin = { bones, boneNameToIndex, skeletonUpAxis: "y" };
-    console.log(`[gltf] Parsed skin: ${bones.length} bones`);
+    log.info("gltf", `Parsed skin: ${bones.length} bones`);
   }
 
   // Parse animations

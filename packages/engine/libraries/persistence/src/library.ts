@@ -11,7 +11,10 @@
 
 import { resourceToken, type EngineLibrary } from "@downdraft/engine";
 import type { ISaveStore } from "@downdraft/engine/save/persist-types";
+import { createLogger } from "@downdraft/engine/util/logger";
 import { OpfsSaveStore } from "./opfs-save-store";
+
+const log = createLogger("info");
 
 // ── Config ──
 
@@ -49,7 +52,7 @@ export const PersistenceLib: EngineLibrary<PersistenceLibConfig> = {
       // it in onReady if needed. The store is safe to provide immediately;
       // save/load calls will throw until init() resolves.
       store.init().catch((err) => {
-        console.error("[PersistenceLib] OpfsSaveStore init failed:", err);
+        log.error("PersistenceLib", `OpfsSaveStore init failed: ${err}`);
       });
       ctx.provide(PersistenceTok, store);
       return store;

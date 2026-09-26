@@ -9,11 +9,14 @@
 // conformance) — see wgpu-device.ts for the boundary-cast strategy.
 // ============================================================================
 
+import { createLogger } from "@downdraft/engine/util/logger";
 import type { ptr } from "../ffi/ffi-adapter";
 import { parseAspect, parseExtent3D, parseFormat, parseViewDimension } from "./enums";
 import { trackForRelease, untrack } from "./registry";
 import type { WgpuQueue } from "./wgpu-device";
 import { wgpu } from "./wgpu-ffi";
+
+const log = createLogger("info");
 
 // ============================================================================
 // WgpuBuffer
@@ -108,7 +111,7 @@ export class WgpuBuffer {
           BigInt(range.buffer.byteLength),
         );
         if (status !== 0) {
-          console.error(`[WgpuBuffer] write_mapped failed (status ${status})`);
+          log.error("WgpuBuffer", `write_mapped failed (status ${status})`);
         }
       }
     }

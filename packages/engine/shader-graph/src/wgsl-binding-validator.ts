@@ -15,6 +15,10 @@
 // before parsing, same as wgsl-struct-validator.ts.
 // ============================================================================
 
+import { createLogger } from "@downdraft/engine/util/logger";
+
+const log = createLogger("info");
+
 export interface ParsedBinding {
   group: number;
   binding: number;
@@ -128,8 +132,7 @@ export function assertNoDuplicateBindings(wgslSource: string): void {
     lines.join("\n");
 
   if (isStrict()) throw new Error(msg);
-  // eslint-disable-next-line no-console
-  console.warn(msg);
+  log.warn("wgsl-binding-validator", msg);
 }
 
 function isStrict(): boolean {

@@ -17,6 +17,9 @@
 // ============================================================================
 
 import { loadModel, type ModelData } from "@downdraft/engine/libraries/models";
+import { createLogger } from "@downdraft/engine/util/logger";
+
+const log = createLogger("info");
 
 const THUMB_VS = /* glsl */ `
 attribute vec3 aPosition;
@@ -240,7 +243,7 @@ export class ThumbnailRenderer {
       const model = await loadModel(buffer, filename) as ModelData;
       this.uploadModel(contentId, model);
     } catch (err) {
-      console.warn(`[ThumbnailRenderer] Failed to load ${contentId} (${modelUri}):`, err);
+      log.warn("ThumbnailRenderer", `Failed to load ${contentId} (${modelUri}): ${err}`);
       // Fall back to a builtin cube so the card isn't blank.
       this.uploadBuiltinCube(contentId);
     } finally {

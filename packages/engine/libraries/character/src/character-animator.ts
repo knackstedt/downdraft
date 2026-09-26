@@ -22,6 +22,9 @@ import {
     type KeyframeTrack,
 } from "@downdraft/engine";
 import type { ModelData, SkinData } from "@downdraft/engine/libraries/models";
+import { createLogger } from "@downdraft/engine/util/logger";
+
+const log = createLogger("info");
 
 // ── Bone-name resolver ──
 // Tries UE-style, generic, and Mixamo names so procedural clips work across
@@ -248,7 +251,7 @@ export class CharacterAnimator {
       for (const anim of modelData.animations) {
         this.animator.registerRetargetedAnimations([anim], anim.name);
       }
-      console.log(`[CharacterAnimator] Registered ${modelData.animations.length} retargeted animations: ${modelData.animations.map((a) => a.name).join(", ")}`);
+      log.info("CharacterAnimator", `Registered ${modelData.animations.length} retargeted animations: ${modelData.animations.map((a) => a.name).join(", ")}`);
     }
 
     // Skeleton for computing final skin matrices.

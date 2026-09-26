@@ -12,7 +12,10 @@
 
 import type { PixiUiScene, PixiUiSceneContext } from "@downdraft/engine/libraries/pixi-ui";
 import { NativePixiUiHost } from "@downdraft/engine/libraries/pixi-ui-native";
+import { createLogger } from "@downdraft/engine/util/logger";
 import createDemoScene from "./pixi-scene";
+const log = createLogger();
+
 
 /** PixiUiHost-shaped surface consumed by createPixiUiMcpTools + game wiring. */
 export interface NativePixiHostAdapter {
@@ -106,9 +109,9 @@ export async function createNativeDemoUi(opts: {
     setInteractive(v) { host.setInteractive(v); },
     postAction: (a) => host.onAction?.(a),
     log: (level, msg) => {
-      if (level === "error") console.error("[pixi-scene]", msg);
-      else if (level === "warn") console.warn("[pixi-scene]", msg);
-      else console.log("[pixi-scene]", msg);
+      if (level === "error") log.error("pixi-scene", `${msg}`);
+      else if (level === "warn") log.warn("pixi-scene", `${msg}`);
+      else log.info("pixi-scene", `${msg}`);
     },
   };
   const scene: PixiUiScene = createDemoScene(sceneCtx);
@@ -179,7 +182,7 @@ export async function createNativeDemoUi(opts: {
     const events = eventQueue.length ? eventQueue.splice(0, eventQueue.length) : [];
     try {
       scene.update({ stats: latestStats, events, dt, elapsedTime: elapsed });
-    } catch (e) { console.error("[native-ui] scene update:", e); }
+    } catch (e) { log.error("native-ui", `scene update: ${e}`); }
   }
 
   // ── Composite: render Pixi into the UI texture, blit onto the swapchain ──
@@ -195,7 +198,7 @@ export async function createNativeDemoUi(opts: {
       pixiUi.blitPass.execute(encoder, tex.createView(), uiView);
       (device as any).queue.submit([encoder.finish()]);
     } catch (e) {
-      console.error("[native-ui] composite error:", e);
+      log.error("native-ui", `composite error: ${e}`);
     }
   }
 

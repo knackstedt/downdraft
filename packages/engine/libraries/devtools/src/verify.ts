@@ -6,7 +6,10 @@
 // by sampling specific pixels.
 // ============================================================================
 
+import { createLogger } from "@downdraft/engine/util/logger";
 import { existsSync } from "node:fs";
+
+const log = createLogger("info");
 
 // ── notify-send (Linux desktop notification) ──
 
@@ -116,24 +119,25 @@ export function verifyPixel(
 ): boolean {
   const png = readPng(pngPath);
   if (!png) {
-    console.error(`[verify] Could not read PNG: ${pngPath}`);
+    log.error("verify", `Could not read PNG: ${pngPath}`);
     return false;
   }
   if (x < 0 || x >= png.width || y < 0 || y >= png.height) {
-    console.error(`[verify] Pixel (${x},${y}) out of bounds (${png.width}x${png.height})`);
+    log.error("verify", `Pixel (${x},${y}) out of bounds (${png.width}x${png.height})`);
     return false;
   }
   const idx = (y * png.width + x) * 4;
   const actual = [png.rgba[idx], png.rgba[idx + 1], png.rgba[idx + 2], png.rgba[idx + 3]];
   for (let i = 0; i < expected.length; i++) {
     if (Math.abs(actual[i] - expected[i]) > tolerance) {
-      console.error(
-        `[verify] Pixel (${x},${y}) channel ${i}: expected ${expected[i]}, got ${actual[i]} (tolerance ${tolerance})`,
+      log.error(
+        "verify",
+        `Pixel (${x},${y}) channel ${i}: expected ${expected[i]}, got ${actual[i]} (tolerance ${tolerance})`,
       );
       return false;
     }
   }
-  console.log(`[verify] Pixel (${x},${y}) OK: rgba(${actual.join(",")})`);
+  log.info("verify", `Pixel (${x},${y}) OK: rgba(${actual.join(",")})`);
   return true;
 }
 
@@ -159,5 +163,5 @@ export function verifyPixels(pngPath: string, checks: PixelCheck[]): number {
 export function checkpoint(name: string, screenshotPath?: string): void {
   const body = screenshotPath ? `${name} — screenshot: ${screenshotPath}` : name;
   notify("Devin Checkpoint", body);
-  console.log(`[checkpoint] ${body}`);
+  log.info("checkpoint", body);
 }

@@ -12,10 +12,13 @@
 // command submission is ordered before the game's read on the shared queue.
 // ============================================================================
 
+import { createLogger } from "@downdraft/engine/util/logger";
 import { VirtualCanvas } from "@downdraft/platform-native";
 import { AccessibilitySystem, Application, extensions } from "pixi.js";
 import "pixi.js/events";
 import { UiBlitPass } from "./ui-blit-pass";
+
+const log = createLogger("info");
 
 export interface NativePixiUiHostOptions {
   device: GPUDevice;
@@ -74,7 +77,7 @@ export class NativePixiUiHost {
       // Stop the ticker — the game drives rendering manually.
       try { this.app.ticker.stop(); } catch { /* ignore */ }
     }).catch((err) => {
-      console.error("[NativePixiUiHost] PIXI.Application init failed:", err);
+      log.error("NativePixiUiHost", `PIXI.Application init failed: ${err}`);
       throw err;
     });
 
@@ -111,7 +114,7 @@ export class NativePixiUiHost {
         clearColor: this.app.renderer.background.colorRgba,
       });
     } catch (err) {
-      console.error("[NativePixiUiHost] render error:", err);
+      log.error("NativePixiUiHost", `render error: ${err}`);
     }
   }
 
@@ -129,7 +132,7 @@ export class NativePixiUiHost {
     try {
       r.resize(this.width, this.height, resolution);
     } catch (err) {
-      console.error("[NativePixiUiHost] setResolution failed:", err);
+      log.error("NativePixiUiHost", `setResolution failed: ${err}`);
     }
   }
 
@@ -146,7 +149,7 @@ export class NativePixiUiHost {
     try {
       this.app.renderer.resize(width, height);
     } catch (err) {
-      console.error("[NativePixiUiHost] resize error:", err);
+      log.error("NativePixiUiHost", `resize error: ${err}`);
     }
   }
 

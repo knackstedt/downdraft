@@ -9,7 +9,10 @@ import { writeFileSync } from "node:fs";
 import { WgpuDevice, WgpuTexture } from "../gpu/wgpu-wrapper";
 
 // ── Minimal PNG encoder (uncompressed, using zlib for deflate) ──
+import { createLogger } from "@downdraft/engine/util/logger";
 import { deflateSync } from "node:zlib";
+
+const log = createLogger("info");
 
 export function encodePNG(width: number, height: number, rgba: Uint8Array): Buffer {
   // PNG signature
@@ -200,5 +203,5 @@ export function captureScreenshot(
   // Encode as PNG and write to file
   const png = encodePNG(width, height, unpadded);
   writeFileSync(outputPath, png);
-  console.log(`[screenshot] Saved ${width}x${height} to ${outputPath} (${png.length} bytes)`);
+  log.info("screenshot", `Saved ${width}x${height} to ${outputPath} (${png.length} bytes)`);
 }

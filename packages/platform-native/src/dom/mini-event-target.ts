@@ -6,6 +6,10 @@
 // Map<string, Set<listener>> + add/remove/dispatch pattern.
 // ============================================================================
 
+import { createLogger } from "@downdraft/engine/util/logger";
+
+const log = createLogger("info");
+
 export type EventListener = (event: any) => void;
 
 export class MiniEventTarget {
@@ -46,13 +50,13 @@ export class MiniEventTarget {
       if (cap) {
         for (const listener of cap) {
           if (event?.__miniStop) break;
-          try { listener(event); } catch (e) { console.error(`[MiniEventTarget] "${event.type}" capture listener error:`, e); }
+          try { listener(event); } catch (e) { log.error("MiniEventTarget", `"${event.type}" capture listener error: ${e}`); }
         }
       }
       if (set) {
         for (const listener of set) {
           if (event?.__miniStop) break;
-          try { listener(event); } catch (e) { console.error(`[MiniEventTarget] "${event.type}" listener error:`, e); }
+          try { listener(event); } catch (e) { log.error("MiniEventTarget", `"${event.type}" listener error: ${e}`); }
         }
       }
     }

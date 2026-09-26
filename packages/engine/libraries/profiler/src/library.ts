@@ -20,7 +20,10 @@
 import { resourceToken, type EngineLibrary } from "@downdraft/engine";
 import { PixiUiHost } from "@downdraft/engine/libraries/pixi-ui/host";
 import { DevToolsAPITok } from "@downdraft/engine/modules/devtools/api";
+import { createLogger } from "@downdraft/engine/util/logger";
 import { ProfilerOverlay } from "./profiler-overlay";
+
+const log = createLogger("info");
 
 export interface ProfilerLibConfig {
   /**
@@ -58,7 +61,7 @@ export const ProfilerLib: EngineLibrary<ProfilerLibConfig, unknown, ProfilerOver
       const devtools = ctx.injectOptional(DevToolsAPITok);
       const profilingSAB = devtools?.getProfilingSAB() ?? null;
       if (!devtools || !profilingSAB) {
-        console.warn("[ProfilerLib] No ProfilingSAB found — ensure initDevTools({ profiling: true }) is called before ProfilerLib");
+        log.warn("ProfilerLib", "No ProfilingSAB found — ensure initDevTools({ profiling: true }) is called before ProfilerLib");
         return null;
       }
 

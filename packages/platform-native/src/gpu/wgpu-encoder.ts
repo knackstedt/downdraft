@@ -3,6 +3,7 @@
 //   WgpuComputePassEncoder
 // ============================================================================
 
+import { createLogger } from "@downdraft/engine/util/logger";
 import type { ptr } from "../ffi/ffi-adapter";
 import { parseAspect, parseExtent3D, parseOrigin3D } from "./enums";
 import { trackForRelease, untrack } from "./registry";
@@ -17,6 +18,8 @@ import {
     WgpuTexture,
     WgpuTextureView,
 } from "./wgpu-resources";
+
+const log = createLogger("info");
 
 function parseIndexFormat(format: string): number {
   return format === "uint16" ? 1 : format === "uint32" ? 2 : 0;
@@ -227,7 +230,7 @@ export class WgpuCommandEncoder {
       if (errType !== 0 && errType !== 1) {
         invalid = true;
         const msg = new TextDecoder().decode(msgBuf).replace(/\0+$/, "");
-        console.error(`[wgpu] validation error during command encoder finish: ${msg}`);
+        log.error("wgpu", `validation error during command encoder finish: ${msg}`);
       }
     }
     if (!cmdPtr) throw new Error("Failed to finish command encoder");

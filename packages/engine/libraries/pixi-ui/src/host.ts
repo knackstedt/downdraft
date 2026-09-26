@@ -10,6 +10,7 @@
 // ============================================================================
 
 import { usingRealSAB } from "@downdraft/engine/sab/sab-polyfill";
+import { createLogger } from "@downdraft/engine/util/logger";
 import {
     DEFAULT_STATS_LAYOUT,
     serializeConfig,
@@ -25,6 +26,8 @@ import {
 import { detectSystemFontScale } from "./font-scale";
 import type { PixiUiLibConfig } from "./library";
 import { allocateUiStatsSab, writeUiStats } from "./ui-stats-sab";
+
+const log = createLogger("info");
 
 export interface PixiUiHostOptions {
   /** Canvas layer index for the overlay. Default: 1 (above the game canvas at 0). */
@@ -250,7 +253,7 @@ export class PixiUiHost {
     };
     this.worker.onerror = (e: ErrorEvent) => {
       const msg = `PixiUI worker error: ${e.message ?? "unknown"} (${e.filename}:${e.lineno})`;
-      console.error(msg);
+      log.error("PixiUI", msg);
       if (!this.ready) this.readyReject(new Error(msg));
     };
 
@@ -507,7 +510,7 @@ export class PixiUiHost {
         break;
       }
       case "error":
-        console.error(`[PixiUI worker] ${msg.message}`, msg.stack ?? "");
+        log.error("PixiUI", `worker: ${msg.message}${msg.stack ? `\n${msg.stack}` : ""}`);
         if (!this.ready) this.readyReject(new Error(msg.message));
         break;
       case "interactiveRegions":

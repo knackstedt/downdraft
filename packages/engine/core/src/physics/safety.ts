@@ -1,4 +1,7 @@
+import { createLogger } from "../util/logger";
 import type { BodyDesc, PhysicsBackend, PhysicsBody } from "./interface";
+
+const log = createLogger();
 
 /**
  * NaN/Inf safety and physical-validity validation for the physics API.
@@ -238,7 +241,7 @@ export class SafetyLayer {
       throw new Error(`[Physics Safety] ${msg}`);
     } else {
       // Shipped: log and continue (never crash)
-      console.warn(`[Physics Safety] ${msg}`);
+      log.warn("Physics Safety", msg);
     }
   }
 }

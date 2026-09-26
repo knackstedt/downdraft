@@ -35,8 +35,11 @@ import {
     type WarningContext,
     type WarningRecordData,
 } from "@downdraft/engine/profiling";
+import { createLogger } from "@downdraft/engine/util/logger";
 import { devtools } from "./api";
 import { BUILTIN_VIEW_DESCRIPTORS } from "./debug-view-descriptors";
+
+const log = createLogger("info");
 
 export interface ProfilingBridgeOptions {
   /** Trace source for auto-trace: "contentTracing" (Electron) or "in-engine". */
@@ -214,7 +217,7 @@ export class ProfilingBridge {
         const { contentTracing } = (globalThis as any).require("electron");
         contentTracing.startRecording({ categoryFilter: "*", traceOptions: "record-until-full" });
       } catch (err) {
-        console.warn("[ProfilingBridge] contentTracing start failed:", err);
+        log.warn("ProfilingBridge", `contentTracing start failed: ${err}`);
       }
     }
   }
@@ -237,7 +240,7 @@ export class ProfilingBridge {
         });
         return { ...result, source: "contentTracing" };
       } catch (err) {
-        console.warn("[ProfilingBridge] contentTracing stop failed:", err);
+        log.warn("ProfilingBridge", `contentTracing stop failed: ${err}`);
         return { json: "{}", bytes: 0, source: "contentTracing" };
       }
     }
@@ -341,7 +344,7 @@ export class ProfilingBridge {
       // Fire callbacks
       for (const cb of this.warningCallbacks) {
         try { cb(record, ctx); } catch (err) {
-          console.error("[ProfilingBridge] Warning callback error:", err);
+          log.error("ProfilingBridge", `Warning callback error: ${err}`);
         }
       }
 
@@ -351,7 +354,7 @@ export class ProfilingBridge {
         this.autoTraceActive = true;
         this.autoTraceWarningId = warningId;
         this.startRecording();
-        console.warn(`[ProfilingBridge] Auto-trace started due to warning ${w.ruleIdHash}`);
+        log.warn("ProfilingBridge", `Auto-trace started due to warning ${w.ruleIdHash}`);
       }
     }
 

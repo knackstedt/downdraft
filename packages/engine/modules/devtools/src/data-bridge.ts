@@ -10,6 +10,7 @@
 // ============================================================================
 
 import { startGCProfiler, TelemetryCollector, type GCProfilerHandle, type GCStats } from "@downdraft/engine";
+import { createLogger } from "@downdraft/engine/util/logger";
 import { useDebugStore } from "./debug-store";
 import type {
     IDebugModeProvider,
@@ -19,6 +20,8 @@ import type {
     IPerformanceMetricsProvider,
     ISimStatsProvider,
 } from "./types";
+
+const log = createLogger("info");
 
 export class DevToolsDataBridge {
   protected renderer: IDevToolsDataRenderer | null = null;
@@ -67,7 +70,7 @@ export class DevToolsDataBridge {
 
     const api = this.buildApi();
     (window as any).__sceneInspector = api;
-    console.log("[DevToolsDataBridge] API exposed on window.__sceneInspector");
+    log.info("DevToolsDataBridge", "API exposed on window.__sceneInspector");
   }
 
   protected buildApi(): Record<string, any> {

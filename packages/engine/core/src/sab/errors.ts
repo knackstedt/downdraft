@@ -1,3 +1,7 @@
+import { createLogger } from "../util/logger";
+
+const log = createLogger();
+
 const warned = new Set<string>();
 
 let debugMode = false;
@@ -13,7 +17,7 @@ export function isDebug(): boolean {
 export function warnOnce(key: string, msg: string): void {
   if (warned.has(key)) return;
   warned.add(key);
-  console.warn(`[SAB] ${msg}`);
+  log.warn("SAB", msg);
 }
 
 export function resetWarnings(): void {

@@ -20,10 +20,13 @@
 
 import { UIInputRouter, type RendererModule, type UIRoot } from "@downdraft/engine";
 import { UiBlitPass } from "@downdraft/engine/libraries/pixi-ui-native";
+import { createLogger } from "@downdraft/engine/util/logger";
 import { captureScreenshot } from "@downdraft/platform-native";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { BlitzUiRouter, type BlitzWasmInput } from "./router";
+
+const log = createLogger("info");
 
 /** The wasm-bindgen module surface a game's generated pkg must provide. */
 export interface BlitzWasmModule extends BlitzWasmInput {
@@ -80,7 +83,7 @@ export function createBlitzUiNativeModule<S>(options: BlitzUiNativeOptions<S>): 
         wasm.ui_init_headless(width, height, scale, (action, payload) => {
             options.dispatch(action, payload);
         });
-        console.log(`[${options.name ?? "blitz-ui-native"}] started`);
+        log.info(options.name ?? "blitz-ui-native", "started");
         return { wasm };
     };
 
@@ -104,7 +107,7 @@ export function createBlitzUiNativeModule<S>(options: BlitzUiNativeOptions<S>): 
                 try {
                     wasm.ui_set_state(JSON.stringify(options.snapshot(options.store.getState())));
                 } catch (e) {
-                    console.warn("[blitz-ui-native] ui_set_state failed:", e);
+                    log.warn("blitz-ui-native", `ui_set_state failed: ${e}`);
                 }
             };
 
@@ -135,7 +138,7 @@ export function createBlitzUiNativeModule<S>(options: BlitzUiNativeOptions<S>): 
 
                     (globalThis as Record<string, unknown>).__blitzDump = wasm.ui_dump;
                 } catch (e) {
-                    console.error("[blitz-ui-native] failed to start — UI will be unavailable:", e);
+                    log.error("blitz-ui-native", `failed to start — UI will be unavailable: ${e}`);
                 }
             })();
 
@@ -189,7 +192,7 @@ export function createBlitzUiNativeModule<S>(options: BlitzUiNativeOptions<S>): 
 
                 if (shotPath && frameCount === 4) {
                     captureScreenshot(device as any, targetTex as any, canvas.width, canvas.height, shotPath, ctx.getFormat());
-                    console.log(`[blitz-ui-native] screenshot → ${shotPath}`);
+                    log.info("blitz-ui-native", `screenshot → ${shotPath}`);
                 }
             });
 

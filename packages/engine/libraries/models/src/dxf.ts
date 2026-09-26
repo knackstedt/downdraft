@@ -92,8 +92,6 @@ export function parseDXF(data: ArrayBuffer, name: string): ModelData {
           }
           continue;
         }
-        if (h.code === 0) break;
-        i++;
       }
       // Emit polyface triangles (face indices are local vertex numbers).
       for (const f of faces) {

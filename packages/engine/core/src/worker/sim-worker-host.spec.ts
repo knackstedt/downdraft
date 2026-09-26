@@ -1,5 +1,6 @@
-import { RawInputRegionWriter, SimWorkerHost } from "./sim-worker-host";
+import { addLogSink } from "../util/logger";
 import type { SimWorkerControlApi } from "./sim-worker-host";
+import { RawInputRegionWriter, SimWorkerHost } from "./sim-worker-host";
 
 // ============================================================================
 // Mock worker: answers RPC requests immediately and can emit events.
@@ -210,15 +211,14 @@ describe("SimWorkerHost", () => {
       throw new Error("handler boom");
     });
     host.onSimEvent("ev", (d) => seen.push(d));
-    const errSpy = console.error;
     let logged = 0;
-    console.error = (..._a: any[]) => {
-      logged++;
-    };
+    const unbindSink = addLogSink((e) => {
+      if (e.level === "error") logged++;
+    });
     try {
       host.mock.emit("ev", 1);
     } finally {
-      console.error = errSpy;
+      unbindSink();
     }
     expect(seen).toEqual([1]);
     expect(logged).toBeGreaterThan(0);

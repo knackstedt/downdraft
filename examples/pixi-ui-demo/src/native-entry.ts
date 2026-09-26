@@ -11,11 +11,14 @@
 
 import { runNativeGameModule } from "@downdraft/platform-native";
 import { pixiUiDemoModule } from "./game-module";
+import { createLogger } from "@downdraft/engine/util/logger";
+const log = createLogger();
+
 
 await runNativeGameModule(pixiUiDemoModule, {
   title: "PixiUI Demo — Native",
   appId: "downdraft-pixi-ui-demo",
 }).catch((e) => {
-  console.error("[native-entry] Fatal:", e);
+  log.error("native-entry", `Fatal: ${e}`);
   process.exit(1);
 });

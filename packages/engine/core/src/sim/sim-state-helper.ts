@@ -8,8 +8,11 @@
 // state via registry.resetAll(), then calls sim.rebuildAfterRestore().
 // ============================================================================
 
-import type { ISimulation } from "./types";
+import { createLogger } from "../util/logger";
 import { TransientStateRegistry } from "./transient-state-registry";
+import type { ISimulation } from "./types";
+
+const log = createLogger();
 
 export class SimStateHelper {
   private sim: ISimulation;
@@ -31,7 +34,7 @@ export class SimStateHelper {
       this.registry.stripTransientFlags(state);
       return JSON.stringify(state);
     } catch (err) {
-      console.error(`[SimStateHelper] Failed to strip transient flags: ${err}`);
+      log.error("SimStateHelper", `Failed to strip transient flags: ${err}`);
       return stateJson;
     }
   }

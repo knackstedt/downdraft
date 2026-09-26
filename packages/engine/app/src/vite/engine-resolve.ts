@@ -15,9 +15,12 @@
 // from the game directory at all (e.g. the game doesn't declare it as a dep —
 // the alias then still works inside the monorepo, matching legacy behavior).
 
+import { createLogger } from "@downdraft/engine/util/logger";
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
+
+const log = createLogger("info");
 
 export interface EngineResolver {
   /** Absolute path to the @downdraft/engine package root (…/packages/engine). */
@@ -94,14 +97,16 @@ export function createEngineResolver(gameRoot: string, monorepoRoot?: string): E
 
   function warnUndeclared(): void {
     if (undeclared) {
-      console.warn(
-        `[downdraft] ${ENGINE_PKG} resolved via monorepo fallback (not declared in the game's package.json).\n` +
+      log.warn(
+        "downdraft",
+        `${ENGINE_PKG} resolved via monorepo fallback (not declared in the game's package.json).\n` +
         `  Declare it as a dependency or standalone installs will break.`,
       );
     }
     if (missing) {
-      console.warn(
-        `[downdraft] ${ENGINE_PKG} could not be resolved from the game's package.json.\n` +
+      log.warn(
+        "downdraft",
+        `${ENGINE_PKG} could not be resolved from the game's package.json.\n` +
         `  Install and declare it as a dependency, or imports of it will fail.`,
       );
     }

@@ -249,7 +249,7 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
       dispatchEvent: (event: any) => window.dispatchEvent(event),
       requestAnimationFrame: (callback: (time: number) => void) => window.requestAnimationFrame(callback),
       cancelAnimationFrame: (id: number) => window.cancelAnimationFrame(id),
-      location: { reload: () => { console.warn("[native] window.location.reload() called — no-op in native mode"); } },
+      location: { reload: () => { log.warn("native", "window.location.reload() called — no-op in native mode"); } },
     };
     (globalThis as any).window = win;
   } else {

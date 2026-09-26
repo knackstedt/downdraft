@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/oxc-project/oxc-assets/main/schema.json",
   "rules": {
-    "no-console": "warn",
+    "no-console": "error",
     "no-unused-vars": "warn",
     "no-debugger": "error",
     "no-empty": "warn",
@@ -19,8 +19,27 @@
   "overrides": [
     {
       "files": [
-        "packages/modules/devtools/extension/**/*.js",
-        "docs/site/src/pages/index.astro"
+        "packages/cli/**",
+        "tests/**",
+        "**/test/**",
+        "**/bench/**",
+        "**/test-*.ts",
+        "**/*.mjs",
+        "scripts/**",
+        "packages/*/scripts/**",
+        "docs/**",
+        "packages/engine/modules/devtools/extension/**",
+        "packages/engine/core/src/util/logger.ts",
+        "packages/engine/app/src/main/**",
+        "packages/engine/app/src/preload/**",
+        "packages/engine/app/src/renderer/ipc-save-store.ts",
+        "packages/engine/core/src/ipc.ts",
+        "packages/engine/modules/electron-osr/**",
+        "packages/engine/modules/raw-input/**",
+        "packages/mobile-shell/**",
+        "games/*/src/main.ts",
+        "games/*/src/preload.ts",
+        "games/*/electron.vite.config.ts"
       ],
       "rules": {
         "no-console": "off"

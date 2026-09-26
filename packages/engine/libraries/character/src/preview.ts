@@ -16,8 +16,11 @@ import {
 } from "@downdraft/engine";
 import { ModelRenderer } from "@downdraft/engine/libraries/entities";
 import type { ModelData } from "@downdraft/engine/libraries/models";
+import { createLogger } from "@downdraft/engine/util/logger";
 import { mat4 } from "wgpu-matrix";
 import type { CharacterAnimator } from "./character-animator";
+
+const log = createLogger("info");
 
 export interface CharacterPreviewOptions {
   /** Resolve a model id to its ModelData (e.g. createCharacterModelLoader). */
@@ -72,10 +75,10 @@ export class CharacterPreview {
     if (!adapter) throw new Error("[CharacterPreview] No WebGPU adapter");
     this.device = await adapter.requestDevice();
     this.device.lost.then((info) => {
-      console.warn(`[CharacterPreview] GPUDevice LOST: ${info.reason} ${info.message}`);
+      log.warn("CharacterPreview", `GPUDevice LOST: ${info.reason} ${info.message}`);
     });
     this.device.addEventListener("uncapturederror", (e) => {
-      console.error(`[CharacterPreview] uncaptured GPU error:`, (e as GPUUncapturedErrorEvent).error?.message);
+      log.error("CharacterPreview", `uncaptured GPU error: ${(e as GPUUncapturedErrorEvent).error?.message}`);
     });
     this.context = this.canvas.getContext("webgpu") as GPUCanvasContext;
     this.format = navigator.gpu.getPreferredCanvasFormat();
@@ -127,7 +130,7 @@ export class CharacterPreview {
       this.animator = this.opts.createAnimator(loaded.modelData);
       this.currentModelId = modelId;
     } catch (err) {
-      console.error(`[CharacterPreview] Failed to load model ${modelId}:`, err);
+      log.error("CharacterPreview", `Failed to load model ${modelId}: ${err}`);
     }
   }
 

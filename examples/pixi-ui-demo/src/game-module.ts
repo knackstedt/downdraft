@@ -19,6 +19,9 @@ import {
     PixiUiHost,
 } from "@downdraft/engine/libraries/pixi-ui";
 import type { NativeDemoUiHandle } from "./native-pixi-host";
+import { createLogger } from "@downdraft/engine/util/logger";
+const log = createLogger();
+
 
 // ── Trivial sim worker (no-op — this demo is UI-only) ──
 
@@ -114,7 +117,7 @@ export const pixiUiDemoModule: GameModule<NoopSim> = {
         surface,
       });
       pixiHost = nativeUi.host;
-      console.log("[demo] Native PixiUI host started (in-process, wgpu-native)");
+      log.info("demo", 'Native PixiUI host started (in-process, wgpu-native)');
     } else {
       // ── Browser/Electron path: PixiJS in a worker on OffscreenCanvas ──
       const workerHost = new PixiUiHost({
@@ -126,10 +129,10 @@ export const pixiUiDemoModule: GameModule<NoopSim> = {
       pixiHost = workerHost;
       try {
         await workerHost.start();
-        console.log("[demo] PixiUI host started");
+        log.info("demo", 'PixiUI host started');
       } catch (e) {
         const err = e as Error & { name?: string };
-        console.error("[demo] PixiUI host failed to start:", err.name, err.message, err.stack);
+        log.error("demo", `PixiUI host failed to start: ${err.name} ${err.message} ${err.stack}`);
         return;
       }
     }
@@ -137,9 +140,9 @@ export const pixiUiDemoModule: GameModule<NoopSim> = {
     // Handle UI→game actions (pause/resume from the button).
     pixiHost.onAction = (action) => {
       if (action.kind === "pause") {
-        console.log("[demo] Game paused via PixiUI button");
+        log.info("demo", 'Game paused via PixiUI button');
       } else if (action.kind === "resume") {
-        console.log("[demo] Game resumed via PixiUI button");
+        log.info("demo", 'Game resumed via PixiUI button');
       }
     };
 

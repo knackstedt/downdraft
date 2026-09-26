@@ -23,6 +23,7 @@
 // ============================================================================
 
 import { GCTracker } from "../telemetry/gc-tracker";
+import { createLogger } from "../util/logger";
 import { EventLoopMonitor } from "./event-loop";
 import { patchIndexedDbPrototypes, unpatchIndexedDbPrototypes } from "./iops/idb-patch";
 import { patchOpfsPrototypes, unpatchOpfsPrototypes } from "./iops/opfs-patch";
@@ -45,6 +46,8 @@ import {
     WarningEngine,
     type WarningRule
 } from "./warnings";
+
+const log = createLogger();
 
 export interface ProfilingAttachConfig {
   workerTag: string;
@@ -152,8 +155,9 @@ export function attachProfilingSAB(
   // Proceeding would cause out-of-bounds Atomics access ("Invalid atomic
   // access index"). Disable profiling for this worker instead of crashing.
   if (s.layout.byteLength !== sharedBuffer.byteLength) {
-    console.warn(
-      `[profiling] SAB layout mismatch for worker "${s.workerTag}": ` +
+    log.warn(
+      "profiling",
+      `SAB layout mismatch for worker "${s.workerTag}": ` +
         `computed ${s.layout.byteLength} bytes but buffer is ${sharedBuffer.byteLength} bytes ` +
         `(pass layout params matching ProfilingBridge.getLayoutParams()) — profiling disabled`,
     );
@@ -165,7 +169,7 @@ export function attachProfilingSAB(
   // Claim a slot
   s.slotIndex = claimSlot(s.sab, s.layout, s.workerTagHash, s.runtime, s.workerTag);
   if (s.slotIndex < 0) {
-    console.warn(`[profiling] No free slots for worker "${s.workerTag}" — profiling disabled`);
+    log.warn("profiling", `No free slots for worker "${s.workerTag}" — profiling disabled`);
     return { slotIndex: -1, success: false };
   }
 

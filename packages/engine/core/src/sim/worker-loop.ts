@@ -11,6 +11,9 @@
 // ============================================================================
 
 import type { GCController } from "../telemetry/gc-controller";
+import { createLogger } from "../util/logger";
+
+const log = createLogger();
 
 export interface SimWorkerLoopConfig {
   /** Fixed simulation timestep in seconds (e.g., 1/60 for 60Hz). */
@@ -184,7 +187,7 @@ export class SimWorkerLoop {
               const nowMs = performance.now();
               if (nowMs - this.lastClampWarn > 5000) {
                 this.lastClampWarn = nowMs;
-                console.warn(`[SimWorkerLoop] Clamped to ${this.maxStepsPerFrame} ticks this frame (sim falling behind, accumulator=${this.tickAccumulator.toFixed(1)})`);
+                log.warn("SimWorkerLoop", `Clamped to ${this.maxStepsPerFrame} ticks this frame (sim falling behind, accumulator=${this.tickAccumulator.toFixed(1)})`);
               }
               this.tickAccumulator = 0;
             }
@@ -192,7 +195,7 @@ export class SimWorkerLoop {
           }
         } catch (err) {
           const error = err as Error;
-          console.error(`[SimWorkerLoop] Tick crashed at tick ${this.tickCount}: ${error.message}\n${error.stack}`);
+          log.error("SimWorkerLoop", `Tick crashed at tick ${this.tickCount}: ${error.message}\n${error.stack}`);
           this.onErrorCb?.(error);
           this.running = false;
           return;

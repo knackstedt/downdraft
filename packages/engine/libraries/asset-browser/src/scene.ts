@@ -18,6 +18,7 @@
 // ============================================================================
 
 import type { PixiUiSceneContext, PixiUiUpdateData } from "@downdraft/engine/libraries/pixi-ui";
+import { createLogger } from "@downdraft/engine/util/logger";
 import { Container, Graphics, Sprite, Text, Texture, type Application } from "pixi.js";
 import { createSidePanelUi } from "./side-panel";
 import { ThumbnailRenderer } from "./thumbnail-renderer";
@@ -28,6 +29,8 @@ import type {
     AssetBrowserScene,
     ThumbnailBackend,
 } from "./types";
+
+const log = createLogger("info");
 
 // The thumbnail backend is pluggable: the worker uses the WebGL2
 // ThumbnailRenderer; the native host injects a software rasterizer via
@@ -716,7 +719,7 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
           ?.createThumbnailRenderer;
       thumbRenderer = factory ? factory(THUMB_SIZE) : new ThumbnailRenderer(THUMB_SIZE);
     } catch (err) {
-      console.warn("[AssetBrowser] ThumbnailRenderer init failed:", err);
+      log.warn("AssetBrowser", `ThumbnailRenderer init failed: ${err}`);
     }
   }
 
@@ -769,7 +772,7 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
       } catch (e) {
         if (!(card as any)._renderErr) {
           (card as any)._renderErr = true;
-          console.error(`[AssetBrowser] Render error for "${card.item!.id}":`, e);
+          log.error("AssetBrowser", `Render error for "${card.item!.id}": ${e}`);
         }
       }
     }

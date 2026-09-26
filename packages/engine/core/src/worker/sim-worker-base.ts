@@ -51,7 +51,10 @@ import type {
 import type {
     GCController
 } from "../telemetry/gc-controller";
+import { createLogger } from "../util/logger";
 import { expose, exposeEvents, type WorkerApi } from "./rpc";
+
+const log = createLogger();
 
 export interface SimWorkerStats {
   fps: number;
@@ -91,8 +94,9 @@ function installDeterministicMathGuard(rng: RngFn): void {
     if (!warned.has(stack)) {
       warned.add(stack);
       const line = stack.split("\n")[1]?.trim() ?? "unknown callsite";
-      console.warn(
-        `[createSimWorker] Math.random() called in deterministic sim — use ctx.rng (from ${line})`,
+      log.warn(
+        "createSimWorker",
+        `Math.random() called in deterministic sim — use ctx.rng (from ${line})`,
       );
     }
     return rng();
@@ -628,7 +632,7 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
       if (loopActive) setTimeout(loop, delay);
     } catch (e) {
       const err = e as Error;
-      console.error(`[createSimWorker] Loop error: ${err.message}\n${err.stack}`);
+      log.error("createSimWorker", `Loop error: ${err.message}\n${err.stack}`);
       opts.onError?.(err);
       if (loopActive) setTimeout(loop, 100);
     }

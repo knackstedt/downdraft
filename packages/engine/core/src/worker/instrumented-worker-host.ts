@@ -13,8 +13,11 @@
 
 import type { ProfilingSABLayout, RuntimeKind } from "../profiling/profiling-sab";
 import type { WarningRule } from "../profiling/warnings";
+import { createLogger } from "../util/logger";
 import { BaseWorkerHost } from "./base-worker-host";
 import type { WorkerApi } from "./rpc";
+
+const log = createLogger();
 
 export interface InstrumentedWorkerHostOptions {
   /** The global ProfilingSAB shared with all workers. */
@@ -82,7 +85,7 @@ export abstract class InstrumentedWorkerHost<TApi extends WorkerApi> extends Bas
         },
       );
     } catch (err) {
-      console.warn(`[InstrumentedWorkerHost] __profilingAttach failed for "${opts.workerTag}":`, err);
+      log.warn("InstrumentedWorkerHost", `__profilingAttach failed for "${opts.workerTag}": ${err}`);
     }
   }
 
@@ -95,7 +98,7 @@ export abstract class InstrumentedWorkerHost<TApi extends WorkerApi> extends Bas
     try {
       await (proxy.proxy as any).__profilingAddRule(rule);
     } catch (err) {
-      console.warn(`[InstrumentedWorkerHost] __profilingAddRule failed:`, err);
+      log.warn("InstrumentedWorkerHost", `__profilingAddRule failed: ${err}`);
     }
   }
 
@@ -115,7 +118,7 @@ export abstract class InstrumentedWorkerHost<TApi extends WorkerApi> extends Bas
       await (proxy.proxy as any).__profilingOnWarning();
       return unsub;
     } catch (err) {
-      console.warn(`[InstrumentedWorkerHost] __profilingOnWarning failed:`, err);
+      log.warn("InstrumentedWorkerHost", `__profilingOnWarning failed: ${err}`);
       return () => {};
     }
   }

@@ -3,6 +3,10 @@
 // Works in Node.js (main/worker) and browser (renderer) via PerformanceObserver
 // ============================================================================
 
+import { createLogger } from "../util/logger";
+
+const log = createLogger();
+
 export interface GCStats {
   label: string;
   interval: {
@@ -44,7 +48,7 @@ export function startGCProfiler(
 ): GCProfilerHandle | null {
   const PO = globalThis.PerformanceObserver;
   if (!PO) {
-    console.warn(`[GC:${label}] PerformanceObserver unavailable — skipping GC profiling`);
+    log.warn(`GC:${label}`, "PerformanceObserver unavailable — skipping GC profiling");
     return null;
   }
 
@@ -84,7 +88,7 @@ export function startGCProfiler(
   try {
     obs.observe({ entryTypes: ['gc'], buffered: true });
   } catch (e) {
-    console.warn(`[GC:${label}] Failed to observe GC events:`, e);
+    log.warn(`GC:${label}`, `Failed to observe GC events: ${e}`);
     return null;
   }
 

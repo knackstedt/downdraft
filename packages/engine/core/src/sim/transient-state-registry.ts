@@ -15,6 +15,10 @@
 // state after hot-reload.
 // ============================================================================
 
+import { createLogger } from "../util/logger";
+
+const log = createLogger();
+
 type ResetCallback = () => void;
 
 interface TransientFlagEntry {
@@ -53,7 +57,7 @@ export class TransientStateRegistry {
       try {
         this.resetCallbacks[i]();
       } catch (err) {
-        console.error(`[TransientStateRegistry] Reset callback ${i} failed: ${err}`);
+        log.error("TransientStateRegistry", `Reset callback ${i} failed: ${err}`);
       }
     }
   }

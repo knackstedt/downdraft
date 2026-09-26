@@ -11,7 +11,10 @@
 // Comments (line `//...` and block `slash-star ... star-slash`) are stripped.
 // ============================================================================
 
+import { createLogger } from "@downdraft/engine/util/logger";
 import { wgsl, type WgslStruct, type WgslType } from "./wgsl-struct";
+
+const log = createLogger("info");
 
 // ─── WGSL struct parser ─────────────────────────────────────────────────────
 
@@ -221,8 +224,7 @@ export function assertWgslStructMatches(wgslSource: string, def: WgslStruct): vo
   if (!match) {
     const msg = `assertWgslStructMatches: struct "${def.name}" not found in WGSL source`;
     if (isStrict()) throw new Error(msg);
-    // eslint-disable-next-line no-console
-    console.warn(msg);
+    log.warn("wgsl-struct-validator", msg);
     return;
   }
   const result = compareStruct(match, def);
@@ -231,8 +233,7 @@ export function assertWgslStructMatches(wgslSource: string, def: WgslStruct): vo
       `assertWgslStructMatches: struct "${def.name}" drift:\n` +
       result.errors.map((e) => `  - ${e}`).join("\n");
     if (isStrict()) throw new Error(msg);
-    // eslint-disable-next-line no-console
-    console.warn(msg);
+    log.warn("wgsl-struct-validator", msg);
   }
 }
 

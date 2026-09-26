@@ -16,9 +16,12 @@
 // ============================================================================
 
 import { resourceToken } from "@downdraft/engine/ecs/resource";
+import { createLogger } from "@downdraft/engine/util/logger";
 import type { DebugViewDescriptor } from "./debug-view-descriptors";
 import { BUILTIN_VIEW_DESCRIPTORS } from "./debug-view-descriptors";
 import type { IDevToolsOverlayToggle, IDevToolsPanelExtension } from "./types";
+
+const log = createLogger("info");
 
 // --- Realm detection ---
 // Mirrors the pattern in @downdraft/engine/worker/rpc.ts but is self-contained
@@ -239,7 +242,7 @@ class DevToolsAPIImpl implements DevToolsAPI {
     }
     const feedIndex = this.dataFeedNames.length;
     if (feedIndex >= DEVTOOLS_SAB_MAX_FEEDS) {
-      console.warn(`[devtools] Max data feeds (${DEVTOOLS_SAB_MAX_FEEDS}) reached, ignoring "${name}"`);
+      log.warn("devtools", `Max data feeds (${DEVTOOLS_SAB_MAX_FEEDS}) reached, ignoring "${name}"`);
       return;
     }
     this.dataFeedNames.push(name);
@@ -257,12 +260,12 @@ class DevToolsAPIImpl implements DevToolsAPI {
     // must be 4-byte aligned and unique, or two stats silently stomp each
     // other's values (there is no allocator for this region).
     if (!Number.isInteger(offset) || offset < 0 || offset % 4 !== 0) {
-      console.warn(`[devtools] registerSABStat("${name}"): offset ${offset} must be a non-negative 4-byte-aligned integer — ignoring`);
+      log.warn("devtools", `registerSABStat("${name}"): offset ${offset} must be a non-negative 4-byte-aligned integer — ignoring`);
       return;
     }
     for (const existing of this.sabStats.values()) {
       if (existing.name !== name && existing.offset === offset) {
-        console.warn(`[devtools] registerSABStat("${name}"): offset ${offset} is already used by stat "${existing.name}" — ignoring (duplicate offset)`);
+        log.warn("devtools", `registerSABStat("${name}"): offset ${offset} is already used by stat "${existing.name}" — ignoring (duplicate offset)`);
         return;
       }
     }

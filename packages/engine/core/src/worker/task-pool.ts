@@ -90,7 +90,7 @@ export interface TaskPoolOptions {
    * pattern (Vite static analysis — see base-worker-host.ts).
    */
   createWorker: () => Worker;
-  /** Optional worker error hook (default: console.error). */
+  /** Optional worker error hook (default: logs via engine logger). */
   onWorkerError?: (index: number, e: ErrorEvent) => void;
 }
 
@@ -122,7 +122,7 @@ export class TaskPool {
         const worker = this.createWorker();
         worker.onerror = (e: ErrorEvent) => {
           if (this.onWorkerError) this.onWorkerError(i, e);
-          else console.error(`[TaskPool] Worker ${i} error:`, e.message);
+          else log.error("TaskPool", `Worker ${i} error: ${e.message}`);
         };
         worker.addEventListener("message", (e: MessageEvent) => {
           const msg = e.data as JobResultMessage;
@@ -139,7 +139,7 @@ export class TaskPool {
         this.workers.push(worker);
       }
     } catch (err) {
-      console.warn("[TaskPool] Failed to spawn workers, falling back to synchronous:", err);
+      log.warn("TaskPool", `Failed to spawn workers, falling back to synchronous: ${err}`);
       this.fallback = true;
     }
   }
@@ -210,7 +210,10 @@ export class TaskPool {
 // attachPort() replaces any existing channel, dispose() shuts it down.
 // ============================================================================
 
+import { createLogger } from "../util/logger";
 import { wrap, type WorkerApi, type WorkerProxy } from "./rpc";
+
+const log = createLogger();
 
 export class PortChannel<TApi extends WorkerApi> {
   protected proxy: WorkerProxy<TApi> | null = null;

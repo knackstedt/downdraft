@@ -1,4 +1,5 @@
 import { resourceToken } from "../ecs/resource";
+import { addLogSink } from "../util/logger";
 import { assertNoDuplicate, assertRequired, DiagnosticError, isStrict, setStrict, warnLeak } from "./diagnostics";
 
 const Tok = resourceToken<number>("test:tok");
@@ -32,16 +33,17 @@ describe("diagnostics", () => {
   });
 
   describe("warnLeak", () => {
-    let origWarn: typeof console.warn;
     let warnings: string[];
+    let unbindSink: () => void;
 
     beforeEach(() => {
-      origWarn = console.warn;
       warnings = [];
-      console.warn = (msg: string) => warnings.push(msg);
+      unbindSink = addLogSink((e) => {
+        if (e.level === "warn") warnings.push(e.message);
+      });
     });
     afterEach(() => {
-      console.warn = origWarn;
+      unbindSink();
     });
 
     it("does not warn when dispose fns are registered", () => {

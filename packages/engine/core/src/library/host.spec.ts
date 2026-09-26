@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { resourceToken } from "../ecs/resource";
 import { setStrict } from "../module/diagnostics";
+import { addLogSink } from "../util/logger";
 import { LibraryHostImpl } from "./host";
 import type { EngineLibrary, LibraryRendererCreateContext, LibrarySimContext } from "./library";
 
@@ -175,8 +176,7 @@ describe("LibraryHostImpl", () => {
     it("warns when library provides resources but has no dispose hook (strict)", () => {
       setStrict(true);
       const calls: string[] = [];
-      const origWarn = console.warn;
-      console.warn = (...args: any[]) => { calls.push(String(args[0])); };
+      const unbindSink = addLogSink((e) => { if (e.level === "warn") calls.push(String(e.message)); });
       const lib = makeLibrary("leaky", {
         provides: [TestTok],
         sim: {
@@ -196,7 +196,7 @@ describe("LibraryHostImpl", () => {
         injectOptional: () => undefined,
       });
       host.disposeSim();
-      console.warn = origWarn;
+      unbindSink();
       expect(calls.length).toBeGreaterThan(0);
       expect(calls[0]).toContain("leaky");
     });
@@ -204,8 +204,7 @@ describe("LibraryHostImpl", () => {
     it("does not warn when library has a dispose hook (strict)", () => {
       setStrict(true);
       const calls: string[] = [];
-      const origWarn = console.warn;
-      console.warn = (...args: any[]) => { calls.push(String(args[0])); };
+      const unbindSink = addLogSink((e) => { if (e.level === "warn") calls.push(String(e.message)); });
       const lib = makeLibrary("clean", {
         provides: [TestTok],
         sim: {
@@ -225,7 +224,7 @@ describe("LibraryHostImpl", () => {
         injectOptional: () => undefined,
       });
       host.disposeSim();
-      console.warn = origWarn;
+      unbindSink();
       expect(calls.length).toBe(0);
     });
   });

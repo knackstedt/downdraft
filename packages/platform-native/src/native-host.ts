@@ -14,6 +14,7 @@
 // ============================================================================
 
 import { ENGINE_VERSION, installShaderValidationGuard } from "@downdraft/engine";
+import { createLogger } from "@downdraft/engine/util/logger";
 import { join } from "node:path";
 import { installAssetGlob } from "./assets/native-assets";
 import { createNativeBridge } from "./bridge/native-bridge";
@@ -32,6 +33,8 @@ import { captureScreenshot, captureScreenshotPixels } from "./screenshot/screens
 import { createHostServices, type HostServices } from "./services/host-services";
 import { NativeSurface } from "./window/native-surface";
 import { NativeWindow, type NativeWindowConfig } from "./window/native-window";
+
+const log = createLogger("info");
 
 export interface NativeHostConfig {
   window: NativeWindowConfig;
@@ -83,7 +86,7 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   // mode and DOWNDRAFT_MULTI_INSTANCE=1 opt out so e2e/dev can overlap.
   const deterministic = process.env.DOWNDRAFT_DETERMINISTIC === "1";
   if (config.appId && !deterministic && !acquireSingleInstanceLock(config.appId)) {
-    console.error(`[native] Another ${config.appId} instance is already running — exiting.`);
+    log.error("native", `Another ${config.appId} instance is already running — exiting.`);
     process.exit(0);
   }
 
@@ -129,11 +132,11 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   surface.setReadbackHook(() => {
     const tex = ctx.getCurrentTexture();
     const dev = ctx.getDevice() ?? device;
-    if (!tex) { console.error("[native-host] readback hook: no surface texture"); return null; }
+    if (!tex) { log.error("native-host", "readback hook: no surface texture"); return null; }
     try {
       return captureScreenshotPixels(dev, tex, surface.width, surface.height, ctx.getFormat() ?? format);
     } catch (e) {
-      console.error("[native-host] readback hook failed:", e);
+      log.error("native-host", `readback hook failed: ${e}`);
       return null;
     }
   });

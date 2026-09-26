@@ -10,7 +10,10 @@
 // Vite from trying to bundle the native path into web builds.
 // ============================================================================
 
+import { createLogger } from "@downdraft/engine/util/logger";
 import { RapierPhysicsBackend } from "./backend";
+
+const log = createLogger("info");
 
 /** True when running inside the native Bun runtime (main thread or worker). */
 export function isNativeRuntime(): boolean {
@@ -30,9 +33,9 @@ async function probeFfi(): Promise<(new () => RapierPhysicsBackend) | null | und
     // WASM here instead of throwing later in backend.init().
     await mod.loadFfiPhysicsLib();
     ffiCtor = mod.RapierFfiBackend;
-    console.info("[physics] using native Rapier FFI backend");
+    log.info("physics", "using native Rapier FFI backend");
   } catch (err) {
-    console.warn("[physics] native FFI lib unavailable, falling back to WASM:", err);
+    log.warn("physics", `native FFI lib unavailable, falling back to WASM: ${err}`);
     ffiCtor = null;
   }
   return ffiCtor;

@@ -9,7 +9,7 @@
 // results back.
 // ============================================================================
 
-import { addLogSink, getRecentLogs, type LogSinkEntry } from "@downdraft/engine/util/logger";
+import { addLogSink, createLogger, getRecentLogs, type LogSinkEntry } from "@downdraft/engine/util/logger";
 import { CdpBridge, type CdpConsoleEntry, type CdpException, type CdpProfile } from "./cdp-bridge";
 import {
     devtoolsClearConsole,
@@ -45,6 +45,8 @@ import {
     type PanelSnapshot
 } from "./egui-ffi";
 
+const log = createLogger("info");
+
 // Lazy-load the ProfilingSAB reader (avoids importing @downdraft/engine/profiling
 // at module load time; it may not be available in all contexts).
 let profilingMod: any = undefined;
@@ -52,9 +54,9 @@ async function loadProfilingMod(): Promise<any> {
   if (profilingMod !== undefined) return profilingMod;
   try {
     profilingMod = await import("@downdraft/engine/profiling");
-    console.log("[DevtoolsMirror] Profiling module loaded");
+    log.info("DevtoolsMirror", "Profiling module loaded");
   } catch (err) {
-    console.warn("[DevtoolsMirror] Failed to load profiling module:", err);
+    log.warn("DevtoolsMirror", `Failed to load profiling module: ${err}`);
     profilingMod = null;
   }
   return profilingMod;
@@ -218,7 +220,7 @@ export class DevtoolsMirror {
           }
         }
       } catch (err) {
-        console.warn("[DevtoolsMirror] ProfilingSAB read failed:", err);
+        log.warn("DevtoolsMirror", `ProfilingSAB read failed: ${err}`);
       }
     }
     // Registered eval fns (e.g. "sim" worker).
@@ -525,7 +527,7 @@ export class DevtoolsMirror {
           }
         }
       } catch (err) {
-        console.warn("[DevtoolsMirror] pushMetrics ProfilingSAB read failed:", err);
+        log.warn("DevtoolsMirror", `pushMetrics ProfilingSAB read failed: ${err}`);
       }
     }
 
@@ -637,14 +639,14 @@ export class DevtoolsMirror {
     }
     const handler = this.commandHandlers.get(cmd.panel) ?? this.globalCommandHandler;
     if (!handler) {
-      console.warn(`[DevtoolsMirror] unhandled command panel=${cmd.panel} action=${cmd.action}`);
+      log.warn("DevtoolsMirror", `unhandled command panel=${cmd.panel} action=${cmd.action}`);
       return;
     }
     try {
       const r = handler(cmd);
-      if (r instanceof Promise) r.catch((err) => console.warn("[DevtoolsMirror] command error:", err));
+      if (r instanceof Promise) r.catch((err) => log.warn("DevtoolsMirror", `command error: ${err}`));
     } catch (err) {
-      console.warn("[DevtoolsMirror] command error:", err);
+      log.warn("DevtoolsMirror", `command error: ${err}`);
     }
   }
 
@@ -742,20 +744,20 @@ export class DevtoolsMirror {
   private startProfiling(): void {
     try {
       this.cdp.startProfile();
-      console.log("[DevtoolsMirror] Profiling started");
+      log.info("DevtoolsMirror", "Profiling started");
     } catch (err) {
-      console.warn("[DevtoolsMirror] Failed to start profiling:", err);
+      log.warn("DevtoolsMirror", `Failed to start profiling: ${err}`);
     }
   }
 
   private async stopProfiling(): Promise<void> {
     try {
-      console.log("[DevtoolsMirror] Stopping profile...");
+      log.info("DevtoolsMirror", "Stopping profile...");
       const profile = await this.cdp.stopProfile();
-      console.log("[DevtoolsMirror] Profile result:", profile ? `${profile.nodes?.length ?? 0} nodes` : "null");
+      log.info("DevtoolsMirror", `Profile result: ${profile ? `${profile.nodes?.length ?? 0} nodes` : "null"}`);
       if (profile) this.pushProfile(profile);
     } catch (err) {
-      console.warn("[DevtoolsMirror] Failed to stop profiling:", err);
+      log.warn("DevtoolsMirror", `Failed to stop profiling: ${err}`);
     }
   }
 

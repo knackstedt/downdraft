@@ -409,7 +409,7 @@ export class IndexedDBSaveStore implements ISaveStore {
             await this.writeSlotMeta(newMeta);
 
             const totalBytes = compressed.length + hashBytes.length + (opts?.blobs ? Object.values(opts.blobs).reduce((s, b) => s + b.byteLength, 0) : 0);
-            log.info("IndexedDBSaveStore", `Saved slot '${slot}' gen ${currentGen} (${totalBytes} bytes)`);
+            log.debug("IndexedDBSaveStore", `Saved slot '${slot}' gen ${currentGen} (${totalBytes} bytes)`);
             return { success: true, bytes: totalBytes, gen: currentGen };
         } catch (err) {
             log.error("IndexedDBSaveStore", `Save failed for slot '${slot}': ${err}`);

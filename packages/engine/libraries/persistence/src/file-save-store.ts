@@ -250,7 +250,7 @@ export class FileSaveStore implements ISaveStore {
         await fs.writeFile(this.propsPath(slot), JSON.stringify(opts.properties, null, 2));
       }
 
-      log.info("FileSaveStore", `Saved slot '${slot}' (${fileBuf.length + blobBytes} bytes)`);
+      log.debug("FileSaveStore", `Saved slot '${slot}' (${fileBuf.length + blobBytes} bytes)`);
       return { success: true, bytes: fileBuf.length + blobBytes, gen: 1 };
     } catch (err) {
       log.error("FileSaveStore", `Save failed for slot '${slot}': ${err}`);

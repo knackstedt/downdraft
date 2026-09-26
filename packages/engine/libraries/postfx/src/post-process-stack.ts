@@ -25,6 +25,7 @@ export interface PostProcessStackOptions {
   sceneFormat?: GPUTextureFormat;
 }
 
+import { createLogger } from "@downdraft/engine/util/logger";
 import AFTERIMAGE_FS from "./shaders/post-process/afterimage.wgsl?raw" with { type: "text" };
 import ASCII_FS from "./shaders/post-process/ascii.wgsl?raw" with { type: "text" };
 import BLIT_FS from "./shaders/post-process/blit.wgsl?raw" with { type: "text" };
@@ -66,6 +67,8 @@ import TAA_FS from "./shaders/post-process/taa.wgsl?raw" with { type: "text" };
 import TONEMAP_FS from "./shaders/post-process/tonemap.wgsl?raw" with { type: "text" };
 import WATERCOLOR_FS from "./shaders/post-process/watercolor.wgsl?raw" with { type: "text" };
 import WHITE_BALANCE_FS from "./shaders/post-process/white-balance.wgsl?raw" with { type: "text" };
+
+const log = createLogger("info");
 
 // ── Effect IDs ──────────────────────────────────────────────────────────────
 
@@ -656,7 +659,7 @@ export class PostProcessStack {
     try {
       pipeline = this.makePipeline(effect.wgsl, this.ccLayout, HDR_FORMAT);
     } catch (e) {
-      console.error(`[PostProcessStack] Failed to compile custom effect "${effect.id}":`, e);
+      log.error("PostProcessStack", `Failed to compile custom effect "${effect.id}": ${e}`);
       throw e;
     }
     this.customEffects.set(effect.id, { effect, pipeline, uniform, uniformValues: null, enabled: false });

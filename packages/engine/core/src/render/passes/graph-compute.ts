@@ -11,11 +11,14 @@ import {
     type ComputeGraph,
     type ComputeProfile
 } from "@downdraft/engine/shader-graph";
+import { createLogger } from "../../util/logger";
 import type { RenderContext } from "../frame-graph";
 import { PassType } from "../frame-graph";
 import type { FrameGraphBuilder } from "../render-pass";
 import { RenderPass } from "../render-pass";
 import { createValidatedShaderModule } from "../shader-validator";
+
+const log = createLogger();
 
 /** Default allocation size for runtime-sized storage buffers (1 MB). */
 const DEFAULT_RUNTIME_BUFFER_SIZE = 1 << 20;
@@ -74,8 +77,7 @@ export class GraphComputePass extends RenderPass {
     const compiler = new ComputeGraphCompiler();
     const result = compiler.compileDetailed(this.graph, { profile: this.profile });
     if (result.errors.length > 0) {
-      // eslint-disable-next-line no-console
-      console.warn(`[GraphComputePass:${this.name}] Compilation errors:`, result.errors);
+      log.warn(`GraphComputePass:${this.name}`, `Compilation errors: ${result.errors.join("; ")}`);
     }
 
     this.shaderModule = createValidatedShaderModule(this.device, {

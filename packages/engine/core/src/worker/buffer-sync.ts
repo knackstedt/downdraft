@@ -29,6 +29,10 @@
 //   this — the sync manager only copies declared write regions.
 //
 
+import { createLogger } from "../util/logger";
+
+const log = createLogger();
+
 /** A region within a buffer (offset + length in bytes). */
 export interface BufferRegion {
   offset: number;
@@ -186,7 +190,7 @@ class SyncProfiler {
       const avgKB = (e.totalBytes / e.count / 1024).toFixed(1);
       lines.push(`  ${label}: ${e.count}x avg=${avgMs}ms max=${maxMs}ms avgSize=${avgKB}KB total=${totalKB}KB`);
     }
-    console.warn(`[BufferSync Profiling] ${this.samples.length} samples over last ${this.logInterval}ms:\n${lines.join("\n")}`);
+    log.warn("BufferSync", `Profiling: ${this.samples.length} samples over last ${this.logInterval}ms:\n${lines.join("\n")}`);
     this.samples = [];
   }
 }

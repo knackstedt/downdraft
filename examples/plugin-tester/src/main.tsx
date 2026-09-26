@@ -6,6 +6,9 @@
 import { SimpleRenderer, type AgentVisual } from "./engine";
 import { setupMCP } from "./mcp-setup";
 import { initTestScene, type TestScene } from "./test-scene";
+import { createLogger } from "@downdraft/engine/util/logger";
+const log = createLogger();
+
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return Promise.race([
@@ -96,7 +99,7 @@ async function main(): Promise<void> {
       useWebGPU = true;
       statusLine.textContent = `Running — Renderer: WebGPU`;
     } catch (e) {
-      console.warn("[main] WebGPU init failed, using Canvas2D fallback:", e);
+      log.warn("main", `WebGPU init failed, using Canvas2D fallback: ${e}`);
       statusLine.textContent = `Running — Renderer: Canvas2D (WebGPU unavailable: ${(e as Error).message})`;
       fallback.style.display = "none";
     }
@@ -164,7 +167,7 @@ async function main(): Promise<void> {
 }
 
 main().catch((e) => {
-  console.error("[main] Fatal error:", e);
+  log.error("main", `Fatal error: ${e}`);
   const errorLine = document.getElementById("error-line");
   if (errorLine) {
     errorLine.textContent = `Fatal: ${e.message}`;

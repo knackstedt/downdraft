@@ -4,8 +4,7 @@
 // Layers scroll with the player and drift with wind.
 // ============================================================================
 
-import { createValidatedShaderModule } from "@downdraft/engine";
-import { calculateViewProj, createLogger, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, type CameraState } from "@downdraft/engine";
+import { calculateViewProj, createLogger, createValidatedShaderModule, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, type CameraState } from "@downdraft/engine";
 import { WeatherType } from "@downdraft/engine/libraries/weather";
 import { StructView, wgsl } from "@downdraft/engine/shader-graph";
 import type { CloudExtractedMesh, CloudMeshProvider, CloudVoxelField } from "./cloud-provider";
@@ -243,7 +242,7 @@ export class CloudSystem {
         if (v > maxD) maxD = v;
         if (v < field.isoLevel) solidCount++;
       }
-      console.warn(`[CloudSystem] Empty mesh for layer=${layer.layerType} iso=${field.isoLevel} densityRange=[${minD.toFixed(3)}, ${maxD.toFixed(3)}] solidVoxels=${solidCount}/${field.data.length} (${(solidCount/field.data.length*100).toFixed(1)}%)`);
+      log.warn("CloudSystem", `Empty mesh for layer=${layer.layerType} iso=${field.isoLevel} densityRange=[${minD.toFixed(3)}, ${maxD.toFixed(3)}] solidVoxels=${solidCount}/${field.data.length} (${(solidCount/field.data.length*100).toFixed(1)}%)`);
       return;
     }
 

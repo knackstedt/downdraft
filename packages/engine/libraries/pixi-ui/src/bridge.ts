@@ -24,9 +24,12 @@
 // (escape hatch) — construct, start(), dispose().
 // ============================================================================
 
+import { createLogger } from "@downdraft/engine/util/logger";
 import type { PixiUiAction, PixiUiEvent, Rect } from "./bridge-protocol";
 import { PixiUiHost } from "./host";
 import type { PixiUiLibConfig } from "./library";
+
+const log = createLogger("info");
 
 export interface PixiUiBridgeConfig extends PixiUiLibConfig {
   /**
@@ -60,7 +63,7 @@ export interface PixiUiBridgeConfig extends PixiUiLibConfig {
    */
   trackPointer?: boolean | { canvas?: HTMLCanvasElement | (() => HTMLCanvasElement | null) };
 
-  /** Called when host.start() rejects. Default: console.error. */
+  /** Called when host.start() rejects. Default: logs via engine logger. */
   onError?: (err: unknown) => void;
 }
 
@@ -85,7 +88,7 @@ export class PixiUiBridge {
   /**
    * Start the overlay: spawn the UI worker, begin the stats rAF loop and
    * pointer tracking. Resolves when the worker reports ready. Start errors
-   * are routed to onError (default console.error) and re-thrown — callers
+   * are routed to onError (default: engine logger) and re-thrown — callers
    * that want non-fatal UI failures should catch.
    */
   async start(): Promise<void> {
@@ -97,7 +100,7 @@ export class PixiUiBridge {
     try {
       await this.host.start();
     } catch (err) {
-      (this.config.onError ?? ((e) => console.error("[PixiUiBridge] start failed:", e)))(err);
+      (this.config.onError ?? ((e) => log.error("PixiUiBridge", `start failed: ${e}`)))(err);
       throw err;
     }
 
