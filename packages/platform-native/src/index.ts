@@ -28,6 +28,7 @@ export { createNativeHostTools, startNativeMcpServer, type NativeMcpOptions, typ
 export { startNativeGame, wireFreeTypeText, type NativeGameContext, type NativeGameOptions } from "./native-game";
 export { runNativeGameModule, type RunNativeGameModuleOptions } from "./native-game-module";
 export { createNativeHost, type NativeHostConfig, type NativeHostContext } from "./native-host";
+export { installRestartHook, requestGameRestart, type RestartHookOptions } from "./native-restart";
 export { captureScreenshot, encodePNG, paddedReadbackToRGBA } from "./screenshot/screenshot";
 export { createHostServices, scopeServicesForPlugin, type HostServices, type HostServicesApi, type HostServicesOptions } from "./services/host-services";
 export { NativeCanvasContext, NativeSurface } from "./window/native-surface";

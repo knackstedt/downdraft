@@ -51,6 +51,20 @@ import {
 
 const log = createLogger("info");
 
+// ── Live-device registry ──
+// Every WgpuDevice registers itself so the window event loop can poll the
+// native device-lost flag for ALL devices (the host's device, plus any device
+// a renderer created itself — GameRenderer.init opens its own). Without this
+// pump, device.lost never resolves on native and the entire loss-recovery
+// path (GameRenderer.recoverDevice, game .lost handlers) is dead code.
+const liveDevices = new Set<WgpuDevice>();
+
+/** Poll the native device-lost flag on every live device. Called once per
+ *  frame by the NativeWindow event loop. */
+export function pollLiveDevicesLost(): void {
+  for (const d of liveDevices) d.pollLost();
+}
+
 // ============================================================================
 // WgpuGPU — the navigator.gpu equivalent
 // ============================================================================
@@ -172,6 +186,7 @@ export class WgpuDevice {
     const queuePtr = wgpu.wgpu_shim_device_get_queue(ptr) as unknown as number;
     this.queue = new WgpuQueue(queuePtr);
     this.lost = new Promise((resolve) => { this.lostResolve = resolve; });
+    liveDevices.add(this);
   }
 
   /**
@@ -181,16 +196,28 @@ export class WgpuDevice {
    */
   processEvents(): void {
     wgpu.wgpu_shim_process_events(this.instancePtr as any);
-    if (!this._lostReported && !this.destroyed) {
-      const reason = wgpu.wgpu_shim_device_poll_lost(this.ptr, null as unknown as ptr, 0);
-      if (reason !== 0) {
-        this._lostReported = true;
-        this.lostResolve?.({
-          reason: reason === 2 ? "destroyed" : "unknown",
-          message: "wgpu device lost",
-        } as GPUDeviceLostInfo);
-      }
-    }
+    this.pollLost();
+  }
+
+  /**
+   * Poll the device-lost flag the C shim records from the device-lost
+   * callback and resolve `.lost` when the device died. Called once per frame
+   * by pollLiveDevicesLost() from the window loop — the instance-level
+   * wgpuInstanceProcessEvents() pump does NOT cover this check on its own.
+   */
+  pollLost(): void {
+    if (this._lostReported || this.destroyed) return;
+    const msgBuf = new Uint8Array(512);
+    const reason = wgpu.wgpu_shim_device_poll_lost(this.ptr, msgBuf as unknown as ptr, msgBuf.length);
+    if (reason === 0) return;
+    this._lostReported = true;
+    const message = new TextDecoder().decode(msgBuf).replace(/\0.*$/, "") || "wgpu device lost";
+    // WGPUDeviceLostReason: Unknown=1, Destroyed=2, CallbackCancelled=3,
+    // FailedCreation=4. GPUDeviceLostInfo only knows "unknown"/"destroyed".
+    this.lostResolve?.({
+      reason: reason === 2 ? "destroyed" : "unknown",
+      message,
+    } as GPUDeviceLostInfo);
   }
 
   get features(): GPUSupportedFeatures {
@@ -701,6 +728,7 @@ export class WgpuDevice {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    liveDevices.delete(this);
     if (!this._lostReported) {
       this._lostReported = true;
       this.lostResolve?.({ reason: "destroyed", message: "Device destroyed" } as GPUDeviceLostInfo);

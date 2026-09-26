@@ -1017,6 +1017,11 @@ void wgpu_shim_surface_configure(void* surface_ptr, void* device_ptr, uint32_t f
         fprintf(stderr, "[wgpu_shim] surface_configure: invalid texture format 0x%x\n", format);
         return;
     }
+    // Transient 0-size windows (mid-resize, occluded/minimized) must never
+    // reach the HAL — backends treat 0 as either a validation error or a
+    // real 0-sized allocation and destabilize the swapchain.
+    if (width == 0) width = 1;
+    if (height == 0) height = 1;
     WGPUSurfaceConfiguration config = {0};
     config.nextInChain = NULL;
     config.device = (WGPUDevice)device_ptr;

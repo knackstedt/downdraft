@@ -29,6 +29,7 @@ import {
 } from "./host-lifecycle";
 import { installImagePolyfills } from "./image/native-image";
 import { startNativeMcpServer, type NativeMcpOptions, type NativeMcpServer } from "./mcp/native-mcp";
+import { installRestartHook } from "./native-restart";
 import { captureScreenshot, captureScreenshotPixels } from "./screenshot/screenshot";
 import { createHostServices, type HostServices } from "./services/host-services";
 import { NativeSurface } from "./window/native-surface";
@@ -98,6 +99,12 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   }
   const surface = window.getSurface();
   (globalThis as any).__nativeWindow = window;
+
+  // Process-restart recovery hook — the native equivalent of
+  // window.location.reload() for unrecoverable GPU/renderer failures.
+  // GameRenderer's device-loss fallback, location.reload(), and bespoke
+  // render loops all route through __ddRequestRestart.
+  installRestartHook(window);
 
   // 3. Get adapter + device
   const adapter = await gpu.requestAdapter({ powerPreference: "high-performance" });

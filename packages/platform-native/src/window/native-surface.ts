@@ -23,6 +23,13 @@ import { encodePNG } from "../screenshot/screenshot";
 
 const log = createLogger("info");
 
+// WGPUSurfaceGetCurrentTextureStatus (webgpu.h) + the wgpu-native extension.
+const SURFACE_TEX_TIMEOUT = 3;
+const SURFACE_TEX_OUTDATED = 4;
+const SURFACE_TEX_LOST = 5;
+const SURFACE_TEX_ERROR = 6;
+const SURFACE_TEX_OCCLUDED = 0x00030001;
+
 // Note: no `implements GPUCanvasContext` — @webgpu/types brands the interface
 // (declare const __brand), so structural conformance is impossible. Conformance
 // is enforced at the boundary instead.
@@ -31,32 +38,58 @@ export class NativeCanvasContext {
   private device: WgpuDevice | null = null;
   private format: GPUTextureFormat = "bgra8unorm";
   private usage: number = 0x0010 | 0x0001; // RENDER_ATTACHMENT | COPY_SRC (for screenshots)
+  private presentMode: number = 0; // FIFO (vsync)
+  /** Requested size — what resize() last delivered. */
   private width: number = 0;
   private height: number = 0;
+  /** Size the native swapchain was last configured with. */
+  private configuredWidth: number = 0;
+  private configuredHeight: number = 0;
   private configured: boolean = false;
   private currentTexture: WgpuTexture | null = null;
+  // Consecutive acquire failures — throttled logging, and lets callers
+  // distinguish a transient failure from a wedged swapchain.
+  private acquireFailures = 0;
+  private lastAcquireLog = 0;
 
   constructor(surfacePtr: number) {
     this.surfacePtr = surfacePtr;
   }
 
   configure(config: GPUCanvasConfiguration): void {
+    // An acquired-but-unpresented texture belongs to the previous
+    // configuration — drop it before touching the swapchain.
+    this.dropCurrentTexture();
     this.device = config.device as unknown as WgpuDevice;
     this.format = config.format;
     this.usage = config.usage ?? (0x0010 | 0x0001); // RENDER_ATTACHMENT | COPY_SRC
-
-    const formatNum = parseFormat(this.format);
-    const presentMode = 0; // FIFO (vsync)
-    wgpu.wgpu_shim_surface_configure(
-      this.surfacePtr,
-      this.device.ptr,
-      formatNum,
-      this.usage,
-      this.width,
-      this.height,
-      presentMode,
-    );
     this.configured = true;
+    this.applyConfigure();
+  }
+
+  /** Push the current requested size + config into the native swapchain. */
+  private applyConfigure(): void {
+    if (!this.device || !this.surfacePtr) return;
+    const w = Math.max(1, this.width);
+    const h = Math.max(1, this.height);
+    const formatNum = parseFormat(this.format);
+    try {
+      wgpu.wgpu_shim_surface_configure(
+        this.surfacePtr,
+        this.device.ptr,
+        formatNum,
+        this.usage,
+        w,
+        h,
+        this.presentMode,
+      );
+      this.configuredWidth = w;
+      this.configuredHeight = h;
+    } catch (e) {
+      // A failed configure must not tear down the context — the next acquire
+      // retries the same reconfigure.
+      log.error("surface", `surface configure failed (${w}x${h}): ${e}`);
+    }
   }
 
   /** The format passed to the most recent configure() call. */
@@ -78,13 +111,20 @@ export class NativeCanvasContext {
     // Destroy any acquired-but-unpresented surface texture first — releasing
     // the surface while a SurfaceTexture is alive panics in wgpu-hal
     // ("destroy a SwapchainAcquireSemaphore that is still in use").
-    try { (this.currentTexture as any)?.destroy?.(); } catch { /* best-effort */ }
-    this.currentTexture = null;
+    this.dropCurrentTexture();
     if (this.configured && this.surfacePtr) {
       try { wgpu.wgpu_shim_surface_unconfigure(this.surfacePtr); } catch { /* best-effort */ }
     }
     this.configured = false;
+    this.configuredWidth = 0;
+    this.configuredHeight = 0;
     this.device = null;
+  }
+
+  /** Release the outstanding surface texture (if any) without presenting. */
+  private dropCurrentTexture(): void {
+    try { (this.currentTexture as any)?.destroy?.(); } catch { /* best-effort */ }
+    this.currentTexture = null;
   }
 
   getCurrentTexture(): WgpuTexture | null {
@@ -95,21 +135,55 @@ export class NativeCanvasContext {
     // calling getCurrentTexture again before present() is a validation error.
     if (this.currentTexture) return this.currentTexture;
 
-    // Use a pointer to receive the texture handle
-    const outPtr = new BigUint64Array(1);
-    const status = wgpu.wgpu_shim_surface_get_current_texture(this.surfacePtr, outPtr as any);
-    const texPtr = Number(outPtr[0]);
+    // Deferred resize — the swapchain is rebuilt here, at acquire time, so a
+    // storm of SDL resize events costs at most one reconfigure per frame and
+    // a reconfigure can never land while a surface texture is outstanding.
+    if (this.width !== this.configuredWidth || this.height !== this.configuredHeight) {
+      this.applyConfigure();
+    }
 
-    // Status 0 = success, other statuses may still have a valid texture
-    if (texPtr === 0) return null;
+    // Outdated/Lost acquire statuses mean the swapchain needs a reconfigure —
+    // retry once after pushing the config. Timeout/Occluded/Error are
+    // transient (minimized window, compositor busy): bail and let the next
+    // frame retry rather than blocking the loop on a wedged swapchain.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const outPtr = new BigUint64Array(1);
+      const status = wgpu.wgpu_shim_surface_get_current_texture(this.surfacePtr, outPtr as any);
+      const texPtr = Number(outPtr[0]);
 
-    this.currentTexture = new WgpuTexture(texPtr, {
-      size: { width: this.width, height: this.height },
-      format: this.format,
-      usage: this.usage,
-    });
-    this.currentTexture.__ddWritten = false;
-    return this.currentTexture;
+      if (texPtr !== 0) {
+        this.acquireFailures = 0;
+        this.currentTexture = new WgpuTexture(texPtr, {
+          size: { width: this.width, height: this.height },
+          format: this.format,
+          usage: this.usage,
+        });
+        this.currentTexture.__ddWritten = false;
+        return this.currentTexture;
+      }
+
+      if ((status === SURFACE_TEX_OUTDATED || status === SURFACE_TEX_LOST) && attempt === 0) {
+        this.applyConfigure();
+        continue;
+      }
+
+      this.acquireFailures++;
+      // Throttle the log — a minimized/occluded window otherwise spams this
+      // every frame for the entire occlusion.
+      const now = performance.now();
+      if (this.acquireFailures === 1 || now - this.lastAcquireLog > 5000) {
+        this.lastAcquireLog = now;
+        const name = status === SURFACE_TEX_TIMEOUT ? "timeout"
+          : status === SURFACE_TEX_OCCLUDED ? "occluded"
+          : status === SURFACE_TEX_ERROR ? "error"
+          : status === SURFACE_TEX_OUTDATED ? "outdated"
+          : status === SURFACE_TEX_LOST ? "lost"
+          : `status ${status}`;
+        log.warn("surface", `getCurrentTexture failed (${name}) — skipping frame (streak ${this.acquireFailures})`);
+      }
+      return null;
+    }
+    return null;
   }
 
   // ── Pre-present hooks ──
@@ -161,25 +235,19 @@ export class NativeCanvasContext {
   }
 
   resize(width: number, height: number): void {
+    width = Math.max(1, Math.floor(width));
+    height = Math.max(1, Math.floor(height));
+    if (width === this.width && height === this.height) return;
     this.width = width;
     this.height = height;
     // The previously acquired surface texture is stale after a resize —
     // destroy it so getCurrentTexture() re-acquires at the new size.
-    try { (this.currentTexture as any)?.destroy?.(); } catch { /* best-effort */ }
-    this.currentTexture = null;
-    if (this.configured && this.device) {
-      const formatNum = parseFormat(this.format);
-      wgpu.wgpu_shim_surface_configure(
-        this.surfacePtr,
-        this.device.ptr,
-        formatNum,
-        this.usage,
-        width,
-        height,
-        0, // FIFO
-      );
-    }
-
+    this.dropCurrentTexture();
+    // NOTE: no wgpuSurfaceConfigure here. The swapchain rebuild is deferred
+    // to the next getCurrentTexture() — SDL delivers a resize event per
+    // pixel during drags (and a burst on maximize), and each eager
+    // reconfigure tore down + recreated the whole swapchain mid-storm,
+    // which is what wedged the GPU in practice.
   }
 }
 

@@ -249,7 +249,17 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
       dispatchEvent: (event: any) => window.dispatchEvent(event),
       requestAnimationFrame: (callback: (time: number) => void) => window.requestAnimationFrame(callback),
       cancelAnimationFrame: (id: number) => window.cancelAnimationFrame(id),
-      location: { reload: () => { log.warn("native", "window.location.reload() called — no-op in native mode"); } },
+      location: {
+        // Browser callers use reload() as the everything-is-broken escape
+        // hatch (device loss, HMR). On native it routes through the host's
+        // restart hook — a detached self-respawn — which is the real reload
+        // equivalent. Without the hook (unhosted run) it stays a no-op.
+        reload: () => {
+          const req = (globalThis as any).__ddRequestRestart;
+          if (typeof req === "function" && req("window.location.reload()")) return;
+          log.warn("native", "window.location.reload() called — no restart hook installed");
+        },
+      },
     };
     (globalThis as any).window = win;
   } else {

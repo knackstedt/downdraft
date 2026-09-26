@@ -141,7 +141,9 @@ export class CharacterPreview {
     this.lastTime = performance.now();
     const loop = () => {
       if (!this.running) return;
-      this.render();
+      // Keep the chain alive even when a frame throws — a pre-scheduling
+      // error would otherwise freeze the preview permanently.
+      try { this.render(); } catch { /* skip frame */ }
       this.rafHandle = requestAnimationFrame(loop);
     };
     this.rafHandle = requestAnimationFrame(loop);
@@ -214,7 +216,9 @@ export class CharacterPreview {
     this.modelRenderer.setBindlessBindGroup(this.bindlessFrameBindings.prepareFrame());
 
     const encoder = this.device.createCommandEncoder();
-    const colorView = this.context.getCurrentTexture().createView();
+    // Native swapchain may return no texture mid-resize — skip the frame.
+    const colorView = this.context.getCurrentTexture()?.createView();
+    if (!colorView) return;
     const depthView = this.getDepthTexture(W, H).createView();
 
     const pass = encoder.beginRenderPass({

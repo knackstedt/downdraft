@@ -93,6 +93,7 @@ export class VisionTest {
     const context = canvas.getContext("webgpu");
     if (!context) throw new Error("Canvas does not have a WebGPU context");
     const texture = context.getCurrentTexture();
+    if (!texture) throw new Error("Surface acquire failed (resize in flight?) — retry next frame");
     return this.captureTexture(texture, width, height);
   }
 

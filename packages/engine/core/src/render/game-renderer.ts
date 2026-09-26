@@ -472,6 +472,23 @@ export class GameRenderer implements CanvasResizeHandler {
 
   private reloadForDeviceLoss(): void {
     setTimeout(() => {
+      // Native runtime: window.location.reload() is a no-op. Route through
+      // the host's restart hook (detached self-respawn — the real reload
+      // equivalent), then fall back to a dialog + clean quit if the restart
+      // budget is exhausted.
+      const req = (globalThis as any).__ddRequestRestart;
+      if (typeof req === "function" && req("GPU device lost")) return;
+      const nativeWin = (globalThis as any).__nativeWindow;
+      if (nativeWin?.showMessageBox) {
+        try {
+          nativeWin.showMessageBox(
+            "GPU Device Lost",
+            "The GPU device was lost and could not be recovered. The application will now close.",
+          );
+        } catch { /* window may be gone */ }
+        try { nativeWin.requestQuit?.(); } catch { /* best-effort */ }
+        return;
+      }
       log.warn("GameRenderer", "Attempting page reload for GPU recovery...");
       window.location.reload();
     }, 2000);
@@ -817,17 +834,20 @@ export class GameRenderer implements CanvasResizeHandler {
       // 2D mode with viewportCount=0: clear the canvas if a clearColor is
       // configured, then let the afterFrame callback do custom rendering.
       if (this.viewportCount === 0 && this.device && this.context && this.config.clearColor !== null) {
-        const clearEncoder = this.device.createCommandEncoder();
-        const clearPass = clearEncoder.beginRenderPass({
-          colorAttachments: [{
-            view: this.context.getCurrentTexture().createView(),
-            clearValue: this.config.clearColor ?? { r: 0, g: 0, b: 0, a: 1 },
-            loadOp: "clear" as GPULoadOp,
-            storeOp: "store" as GPUStoreOp,
-          }],
-        });
-        clearPass.end();
-        frameCommandBuffers.push(clearEncoder.finish());
+        const clearTex = this.getSurfaceTexture();
+        if (clearTex) {
+          const clearEncoder = this.device.createCommandEncoder();
+          const clearPass = clearEncoder.beginRenderPass({
+            colorAttachments: [{
+              view: clearTex.createView(),
+              clearValue: this.config.clearColor ?? { r: 0, g: 0, b: 0, a: 1 },
+              loadOp: "clear" as GPULoadOp,
+              storeOp: "store" as GPUStoreOp,
+            }],
+          });
+          clearPass.end();
+          frameCommandBuffers.push(clearEncoder.finish());
+        }
       }
 
       for (let v = 0; v < this.viewportCount; v++) {
@@ -837,10 +857,12 @@ export class GameRenderer implements CanvasResizeHandler {
 
       // Apply postprocessing
       if (offscreen && useOffscreen && offscreen.applyPostprocess) {
-        const canvasView = this.context!.getCurrentTexture().createView();
-        const postEncoder = this.device!.createCommandEncoder();
-        offscreen.applyPostprocess(postEncoder, canvasView, this.canvas.width, this.canvas.height);
-        frameCommandBuffers.push(postEncoder.finish());
+        const canvasView = this.getSurfaceTexture()?.createView();
+        if (canvasView) {
+          const postEncoder = this.device!.createCommandEncoder();
+          offscreen.applyPostprocess(postEncoder, canvasView, this.canvas.width, this.canvas.height);
+          frameCommandBuffers.push(postEncoder.finish());
+        }
       }
     }
 
@@ -920,12 +942,12 @@ export class GameRenderer implements CanvasResizeHandler {
         this.uiNeedsLayout = false;
       }
       const drawables = this.uiRoot.getDrawable();
-      if (drawables.length > 0) {
-        const canvasView = this.context.getCurrentTexture().createView();
+      const uiCanvasView = drawables.length > 0 ? this.getSurfaceTexture()?.createView() : undefined;
+      if (drawables.length > 0 && uiCanvasView) {
         const uiEncoder = this.device.createCommandEncoder();
         const uiPass = uiEncoder.beginRenderPass({
           colorAttachments: [{
-            view: canvasView,
+            view: uiCanvasView,
             clearValue: { r: 0, g: 0, b: 0, a: 0 },
             loadOp: "load" as GPULoadOp,
             storeOp: "store" as GPUStoreOp,
@@ -949,6 +971,21 @@ export class GameRenderer implements CanvasResizeHandler {
     // NOTE: renderFrame() intentionally does NOT schedule the next frame —
     // render() owns the rAF chain so one-shot callers (renderOnce, MCP
     // screenshot capture) can't leak parallel loops.
+  }
+
+  /**
+   * Acquire this frame's swapchain texture. May return null on the native
+   * runtime while the surface can't produce a frame (in-flight resize,
+   * occluded window, transient swapchain failure) — callers must skip the
+   * canvas-targeted GPU work for that frame instead of crashing on
+   * `null.createView()`.
+   */
+  private getSurfaceTexture(): GPUTexture | null {
+    try {
+      return (this.context?.getCurrentTexture() as unknown as GPUTexture | null) ?? null;
+    } catch {
+      return null;
+    }
   }
 
   private renderViewport(viewportIdx: number, dt: number, offscreen: OffscreenMode | null): GPUCommandBuffer | null {
@@ -1009,10 +1046,14 @@ export class GameRenderer implements CanvasResizeHandler {
       ? (offscreen.type === "pixelation"
         ? offscreen.getColorView()
         : offscreen.type === "postprocess"
-        ? (offscreen.getSceneColorView?.() ?? this.context!.getCurrentTexture().createView())
-        : this.context!.getCurrentTexture().createView())
-      : this.context!.getCurrentTexture().createView();
+        ? (offscreen.getSceneColorView?.() ?? this.getSurfaceTexture()?.createView())
+        : this.getSurfaceTexture()?.createView())
+      : this.getSurfaceTexture()?.createView();
     const __ctMs = performance.now() - __ctStart;
+    // Swapchain couldn't produce a frame (native resize in flight, occluded
+    // window, transient failure) — skip this viewport's GPU work; game
+    // callbacks already ran above and the loop stays alive for next frame.
+    if (!colorView) return null;
     if (this.config.debugTimingWarnings && __ctMs > 20) log.warn("GameRenderer", `getCurrentTexture took ${__ctMs.toFixed(1)}ms`);
 
     const depthView = xrProvider

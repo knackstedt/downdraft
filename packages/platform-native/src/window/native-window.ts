@@ -11,6 +11,7 @@
 
 import { createLogger } from "@downdraft/engine/util/logger";
 import { MiniEventTarget } from "../dom/mini-event-target";
+import { pollLiveDevicesLost } from "../gpu/wgpu-device";
 import { wgpu } from "../gpu/wgpu-ffi";
 import { NativeSurface } from "./native-surface";
 import {
@@ -85,6 +86,10 @@ export class NativeWindow extends MiniEventTarget {
   private eventData = new ArrayBuffer(64);
   private eventView = new Int32Array(this.eventData);
   private eventFloatView = new Float32Array(this.eventData);
+  // Latest window resize, coalesced — SDL emits one event per pixel during a
+  // drag (and a burst on maximize); only the newest dims are applied, once
+  // per loop iteration, so listeners + the surface see a single resize.
+  private pendingResize: { width: number; height: number } | null = null;
 
   constructor(config: NativeWindowConfig) {
     super();
@@ -235,7 +240,7 @@ export class NativeWindow extends MiniEventTarget {
       eventType = sdl.sdl_shim_poll_event(this.eventData as any);
       if (eventType !== SDL_EVENT_NONE) {
         sawEvent = true;
-        this.handleEvent(eventType, this.eventView, this.eventFloatView);
+        this.safeHandleEvent(eventType, this.eventView, this.eventFloatView);
       }
     } while (eventType !== SDL_EVENT_NONE);
 
@@ -256,17 +261,22 @@ export class NativeWindow extends MiniEventTarget {
       if (waitMs > 0) {
         const wt = sdl.sdl_shim_wait_event(this.eventData as any, waitMs);
         if (wt !== SDL_EVENT_NONE) {
-          this.handleEvent(wt, this.eventView, this.eventFloatView);
+          this.safeHandleEvent(wt, this.eventView, this.eventFloatView);
           // Drain anything that arrived behind it.
           do {
             eventType = sdl.sdl_shim_poll_event(this.eventData as any);
             if (eventType !== SDL_EVENT_NONE) {
-              this.handleEvent(eventType, this.eventView, this.eventFloatView);
+              this.safeHandleEvent(eventType, this.eventView, this.eventFloatView);
             }
           } while (eventType !== SDL_EVENT_NONE);
         }
       }
     }
+
+    // Apply the newest pending resize once — never mid-event-drain, so the
+    // surface and window listeners observe a single coherent resize per
+    // iteration instead of the raw SDL event storm.
+    this.flushPendingResize();
 
     // Dispatch rAF callbacks — at most once per refresh interval (see
     // frameInterval). Callbacks run once per dispatch; anything a callback
@@ -297,11 +307,14 @@ export class NativeWindow extends MiniEventTarget {
       if (ctx?.present) queueMicrotask(() => ctx.present!());
     }
 
-    // Process wgpu events (for async callback delivery)
+    // Process wgpu events (for async callback delivery), then poll the
+    // device-lost flag on every live device — this is what resolves
+    // GPUDevice.lost on native (GameRenderer recovery hooks off that).
     const instancePtr = (globalThis as any).__wgpuInstancePtr ?? 0;
     if (instancePtr) {
       wgpu.wgpu_shim_process_events(instancePtr);
     }
+    try { pollLiveDevicesLost(); } catch { /* poll is best-effort */ }
 
     // Schedule next frame
     scheduleImmediate(() => this.runLoop());
@@ -335,6 +348,29 @@ export class NativeWindow extends MiniEventTarget {
     pointerEvent.type = pointerType;
     this.dispatchInputEvent(pointerEvent);
     this.dispatchInputEvent(mouseEvent);
+  }
+
+  /** Apply the newest coalesced resize (see pendingResize). */
+  private flushPendingResize(): void {
+    const r = this.pendingResize;
+    this.pendingResize = null;
+    if (!r || !this.running) return;
+    try {
+      this.surface?.resize(r.width, r.height);
+      this.dispatchEvent({ type: "resize", width: r.width, height: r.height });
+    } catch (e) {
+      log.error("NativeWindow", `resize failed (${r.width}x${r.height}): ${e}`);
+    }
+  }
+
+  /** Dispatch one SDL event; a throwing handler must not kill the loop —
+   *  without this, a single bad event strands the whole window frozen. */
+  private safeHandleEvent(eventType: number, eventView: Int32Array, floatView: Float32Array): void {
+    try {
+      this.handleEvent(eventType, eventView, floatView);
+    } catch (e) {
+      log.error("NativeWindow", `event ${eventType} handler error: ${e}`);
+    }
   }
 
   private handleEvent(eventType: number, eventView: Int32Array, floatView: Float32Array): void {
@@ -539,13 +575,10 @@ export class NativeWindow extends MiniEventTarget {
         break;
       }
 
-      case SDL_EVENT_RESIZE: {
-        const width = eventView[0];
-        const height = eventView[1];
-        this.surface?.resize(width, height);
-        this.dispatchEvent({ type: "resize", width, height });
+      case SDL_EVENT_RESIZE:
+        // Coalesced — applied once per loop iteration by flushPendingResize().
+        this.pendingResize = { width: eventView[0], height: eventView[1] };
         break;
-      }
 
       case SDL_EVENT_TEXT_INPUT: {
         const text = new TextDecoder().decode(new Uint8Array(this.eventData, 0, 32)).replace(/\0.*$/, "");
