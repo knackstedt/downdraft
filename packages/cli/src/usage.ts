@@ -92,8 +92,9 @@ export const COMMANDS: CommandEntry[] = [
       flags: [
         { name: "entry", type: "string", description: "Game entrypoint file (reserved for future mobile support)" },
         { name: "port", type: "number", description: "MCP HTTP port (default: 9876)" },
-        { name: "watch", type: "boolean", description: "Back-compat no-op — native dev is restart-based (no HMR)" },
-        { name: "no-hmr", type: "boolean", description: "Back-compat no-op — native dev is restart-based (no HMR)" },
+        { name: "runtime", type: "string", enum: ["bun", "node", "deno"], description: "JS runtime hosting the dev shell (default: bun → node → deno auto-detect)" },
+        { name: "watch", type: "boolean", description: "Back-compat no-op — the HMR dev shell always watches" },
+        { name: "no-hmr", type: "boolean", description: "Disable HMR — spawn the entry directly (bun run), no dev shell" },
         { name: "no-bake", type: "boolean", description: "Disable the asset bake/optimization step (sets DOWNDRAFT_BAKE=0)" },
         { name: "native", type: "boolean", description: "Back-compat alias — native is the default runtime" },
         { name: "electron", type: "boolean", description: "Disabled — the Electron runtime is dormant; native is the only runtime" },

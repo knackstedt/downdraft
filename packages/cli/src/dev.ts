@@ -1,7 +1,9 @@
 import { createLogger } from "@downdraft/engine";
 import { spawn } from "child_process";
 import { existsSync } from "node:fs";
-import { basename, dirname, resolve } from "node:path";
+import { createRequire } from "node:module";
+import { basename, dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseArgs, print, renderHelp } from "./args";
 import { formatGamesList } from "./list-games";
 import { buildCwd, findMonorepoRoot } from "./paths";
@@ -11,6 +13,29 @@ import { getCommand } from "./usage";
 const log = createLogger();
 const GAME_CONFIG = "downdraft.config.json";
 const NATIVE_ENTRY = "src/native-entry.ts";
+
+/**
+ * Exit code the dev shell uses to request a clean process restart
+ * (Tier-5: dev-shell/loader/config changes, unrecoverable teardown failure).
+ * Duplicated from platform-native's dev-constants.mjs — the CLI cannot import
+ * engine package internals at type-check time in every layout, so keep the
+ * literal in sync.
+ */
+const DD_RESTART_EXIT = 75;
+
+/** Resolve packages/platform-native/src/dev/ — via package resolution first
+ *  (standalone installs), then the monorepo layout. */
+function resolveDevShellDir(): string {
+  try {
+    const req = createRequire(import.meta.url);
+    const pkgJson = req.resolve("@downdraft/platform-native/package.json");
+    const dir = join(dirname(pkgJson), "src", "dev");
+    if (existsSync(join(dir, "dev-shell.mjs"))) return dir;
+  } catch { /* fall through to monorepo guess */ }
+  const root = findMonorepoRoot();
+  if (root) return join(root, "packages/platform-native/src/dev");
+  return join(dirname(fileURLToPath(import.meta.url)), "../../platform-native/src/dev");
+}
 
 /**
  * Resolve the game directory by walking up from `process.cwd()` looking for
@@ -73,58 +98,140 @@ async function devNative(parsed: any): Promise<void> {
   }
 
   const verbose = parsed.flags.verbose as boolean;
-
-  log.info("DownDraft", "Starting in native mode (Bun + SDL + wgpu-native)...");
-  log.info("DownDraft", `  Game: ${game}`);
-  log.info("DownDraft", `  Entry: ${nativeEntry}`);
-  if (verbose) log.info("DownDraft", "  Verbose: on");
+  const noHmr = parsed.flags["no-hmr"] as boolean;
 
   const env = { ...process.env };
   const port = parsed.flags.port as number;
   if (port) env.MCP_PORT = String(port);
 
-  const child = spawn("bun", ["run", nativeEntry], {
-    cwd: buildCwd(gameDir),
+  // Signal handling lives outside the respawn loop — each spawn registers
+  // itself as the current child so SIGINT/SIGTERM always hit the live one.
+  let currentChild: import("child_process").ChildProcess | null = null;
+  let shuttingDown = false;
+  const onSignal = () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    log.info("DownDraft", "Shutting down...");
+    const child = currentChild;
+    try { child?.kill("SIGINT"); } catch {}
+    if (child?.pid) {
+      try { process.kill(-child.pid, "SIGTERM"); } catch {}
+    }
+    setTimeout(() => {
+      if (child?.pid) {
+        try { process.kill(-child.pid, "SIGKILL"); } catch {}
+        killProcessTree(child.pid);
+      }
+      process.exit(130);
+    }, 2000);
+  };
+  process.on("SIGINT", onSignal);
+  process.on("SIGTERM", onSignal);
+  process.on("SIGHUP", onSignal);
+
+  // ── Legacy path: --no-hmr spawns the entry directly under Bun (no watcher,
+  //    no ModuleRunner — the pre-HMR behavior, kept as an escape hatch). ──
+  if (noHmr) {
+    log.info("DownDraft", "Starting in native mode — direct spawn, no HMR (--no-hmr)...");
+    log.info("DownDraft", `  Game: ${game}`);
+    log.info("DownDraft", `  Entry: ${nativeEntry}`);
+    const code = await spawnAndForward("bun", ["run", nativeEntry], buildCwd(gameDir), env, {
+      onChild: (c) => { currentChild = c; },
+    });
+    if (!shuttingDown) process.exit(code);
+    return;
+  }
+
+  // ── HMR path: spawn the dev shell under the selected JS runtime. ──
+  const devDir = resolveDevShellDir();
+  const devShell = join(devDir, "dev-shell.mjs");
+  if (!existsSync(devShell)) {
+    log.error("DownDraft", `Dev shell not found at "${devShell}".`);
+    log.error("DownDraft", "Is @downdraft/platform-native installed? Try `draft dev --no-hmr` for the legacy path.");
+    process.exit(1);
+  }
+
+  // Runtime detection is delegated to the dev package (it owns the matrix).
+  const { detectRuntime, spawnArgsFor, findDenoConfig } =
+    await import(resolve(devDir, "runtime-detect.mjs"));
+
+  const requested = (parsed.flags.runtime as string | undefined) ?? process.env.DD_RUNTIME;
+  const runtime = detectRuntime(requested);
+  if (!runtime) {
+    if (requested) {
+      log.error("DownDraft", `Requested runtime "${requested}" is not available on PATH.`);
+    } else {
+      log.error("DownDraft", "No JS runtime found — need one of: bun, node, deno.");
+    }
+    process.exit(1);
+  }
+
+  env.DD_GAME_DIR = gameDir;
+  env.DD_ENTRY = nativeEntry;
+  env.DD_RUNTIME = runtime;
+  env.DD_HMR = "1";
+  env.DOWNDRAFT_DEV = "1";
+  if (verbose) env.DD_VERBOSE = "1";
+  const repoRoot = findMonorepoRoot();
+  if (repoRoot) env.DD_REPO_ROOT = repoRoot;
+
+  const { cmd, args } = spawnArgsFor(runtime, devShell, {
+    configPath: runtime === "deno" ? findDenoConfig(gameDir, repoRoot) : undefined,
+  });
+
+  log.info("DownDraft", `Starting in native mode (${runtime} + SDL + wgpu-native, HMR on)...`);
+  log.info("DownDraft", `  Game: ${game}`);
+  log.info("DownDraft", `  Entry: ${nativeEntry}`);
+  log.info("DownDraft", `  Runtime: ${cmd} ${args.join(" ")}`);
+  if (verbose) log.info("DownDraft", "  Verbose: on");
+
+  // Respawn loop: the dev shell exits with DD_RESTART_EXIT when a changed
+  // file affects the loader/config layer (Tier-5) — respawn in place.
+  for (;;) {
+    const code = await spawnAndForward(cmd, args, buildCwd(gameDir), env, {
+      onChild: (c) => { currentChild = c; },
+    });
+    if (shuttingDown) return; // signal handler already owns exit
+    if (code === DD_RESTART_EXIT) {
+      log.info("DownDraft", "Restarting dev shell (infrastructure change)...");
+      continue;
+    }
+    process.exit(code);
+  }
+}
+
+/** Spawn `cmd args`, forward stdio, resolve the exit code (signal exits are
+ *  mapped to 128+n so the caller's respawn loop can distinguish them). */
+function spawnAndForward(
+  cmd: string,
+  args: string[],
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+  opts: { onChild?: (child: import("child_process").ChildProcess) => void } = {},
+): Promise<number> {
+  const child = spawn(cmd, args, {
+    cwd,
     stdio: ["inherit", "pipe", "pipe"],
     env,
     detached: true,
   });
+  opts.onChild?.(child);
 
   child.stdout?.on("data", (data: Buffer) => process.stdout.write(data));
   child.stderr?.on("data", (data: Buffer) => process.stderr.write(data));
 
-  return new Promise<void>((resolvePromise, reject) => {
+  return new Promise<number>((resolvePromise, reject) => {
     child.on("error", (err) => {
-      log.error("DownDraft", `Failed to spawn bun: ${err.message}`);
+      log.error("DownDraft", `Failed to spawn ${cmd}: ${err.message}`);
       reject(err);
     });
 
     child.on("exit", (code, signal) => {
       if (signal) {
-        process.exit(128 + (signal === "SIGINT" ? 2 : signal === "SIGTERM" ? 15 : 1));
+        resolvePromise(128 + (signal === "SIGINT" ? 2 : signal === "SIGTERM" ? 15 : 1));
+        return;
       }
-      process.exit(code ?? 0);
+      resolvePromise(code ?? 0);
     });
-
-    let shuttingDown = false;
-    const shutdown = () => {
-      if (shuttingDown) return;
-      shuttingDown = true;
-      log.info("DownDraft", "Shutting down...");
-      try { child.kill("SIGINT"); } catch {}
-      if (child.pid) {
-        try { process.kill(-child.pid, "SIGTERM"); } catch {}
-      }
-      setTimeout(() => {
-        if (child.pid) {
-          try { process.kill(-child.pid, "SIGKILL"); } catch {}
-          killProcessTree(child.pid);
-        }
-        process.exit(130);
-      }, 2000);
-    };
-    process.on("SIGINT", shutdown);
-    process.on("SIGTERM", shutdown);
-    process.on("SIGHUP", shutdown);
   });
 }
