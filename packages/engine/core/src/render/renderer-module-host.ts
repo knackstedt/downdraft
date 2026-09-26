@@ -56,6 +56,7 @@ export interface RendererModuleHostCallbacks {
   getUIRoot: () => UIRoot;
   getUIInputRouter: () => UIInputRouter | null;
   invalidateUILayout: () => void;
+  registerUiCompositor?: (c: import("../module/renderer-module").ScreenUiCompositor) => () => void;
 }
 
 interface ActiveRendererModule {
@@ -136,20 +137,20 @@ export class RendererModuleHost {
     if (isStrict()) {
       const selfProvides = new Set(plugin.provides?.map((t) => t.key) ?? []);
       // Check for duplicate provides
-      for (const token of plugin.provides ?? []) {
+      (plugin.provides ?? []).forEach((token) => {
         if (this.providers.has(token.key)) {
           throw new Error(
             `Renderer plugin "${plugin.name}" provides "${token.key}" but it is already provided by "${this.providers.get(token.key)}". ` +
               `Duplicate provides are not allowed.`,
           );
         }
-      }
+      });
       // Check requires
-      for (const token of plugin.requires ?? []) {
+      (plugin.requires ?? []).forEach((token) => {
         if (!this.providers.has(token.key) && !selfProvides.has(token.key)) {
           assertRequired(this.providers, token, plugin.name);
         }
-      }
+      });
     }
     this.plugins.set(plugin.name, plugin);
     this.loadOrder.push(plugin.name);
@@ -177,13 +178,13 @@ export class RendererModuleHost {
     if (!isStrict()) return;
     // Build a complete providers map from all pending + active plugins
     const allProviders = new Map<string, string>();
-    for (const [name, active] of this.active) {
-      for (const token of active.plugin.provides ?? []) {
+    for (const [name, active] of this.active.entries()) {
+      (active.plugin.provides ?? []).forEach((token) => {
         allProviders.set(token.key, name);
-      }
+      });
     }
-    for (const [name, plugin] of this.pending) {
-      for (const token of plugin.provides ?? []) {
+    for (const [name, plugin] of this.pending.entries()) {
+      (plugin.provides ?? []).forEach((token) => {
         if (allProviders.has(token.key)) {
           throw new Error(
             `Renderer plugin "${name}" provides "${token.key}" but it is already provided by "${allProviders.get(token.key)}". ` +
@@ -191,16 +192,16 @@ export class RendererModuleHost {
           );
         }
         allProviders.set(token.key, name);
-      }
+      });
     }
     // Check all requires
-    for (const [name, plugin] of this.pending) {
+    for (const [name, plugin] of this.pending.entries()) {
       if (!plugin.requires) continue;
-      for (const token of plugin.requires) {
+      plugin.requires.forEach((token) => {
         if (!allProviders.has(token.key)) {
           assertRequired(allProviders, token, name);
         }
-      }
+      });
     }
   }
 
@@ -219,12 +220,12 @@ export class RendererModuleHost {
     // Provider map: token key → module name (across pending + active).
     const tokenProviders = new Map<string, string>();
     const collectProvides = (plugin: RendererModule) => {
-      for (const token of plugin.provides ?? []) {
+      (plugin.provides ?? []).forEach((token) => {
         if (!tokenProviders.has(token.key)) tokenProviders.set(token.key, plugin.name);
-      }
+      });
     };
-    for (const [, active] of this.active) collectProvides(active.plugin);
-    for (const [, plugin] of this.pending) collectProvides(plugin);
+    for (const [, active] of this.active.entries()) collectProvides(active.plugin);
+    for (const [, plugin] of this.pending.entries()) collectProvides(plugin);
 
     // Topological sort by dependencies (string-based plugin names) and by
     // requires (typed tokens → provider module).
@@ -240,22 +241,22 @@ export class RendererModuleHost {
       const plugin = this.pending.get(name);
       if (plugin) {
         if (plugin.dependencies) {
-          for (const dep of plugin.dependencies) {
+          plugin.dependencies.forEach((dep) => {
             if (!this.plugins.has(dep)) {
               throw new Error(
                 `Renderer plugin "${name}" requires "${dep}" which is not registered`,
               );
             }
             if (this.pending.has(dep)) resolve(dep);
-          }
+          });
         }
         if (plugin.requires) {
-          for (const token of plugin.requires) {
+          plugin.requires.forEach((token) => {
             const providerName = tokenProviders.get(token.key);
             if (providerName && providerName !== name && this.pending.has(providerName)) {
               resolve(providerName);
             }
-          }
+          });
         }
       }
       visiting.delete(name);
@@ -265,14 +266,14 @@ export class RendererModuleHost {
     for (const name of this.pending.keys()) {
       resolve(name);
     }
-    for (const name of resolved) {
+    resolved.forEach((name) => {
       if (this.pending.has(name) && !this.active.has(name)) {
         const plugin = this.pending.get(name)!;
         this.pending.delete(name);
         this.loadOrder.push(name);
         this.activateModule(plugin);
       }
-    }
+    });
   }
 
   /**
@@ -319,7 +320,7 @@ export class RendererModuleHost {
       });
     }
     // Clean up provided resources
-    for (const key of active.providedKeys) {
+    for (const key of active.providedKeys.values()) {
       this.resources.delete(key);
       this.providers.delete(key);
     }
@@ -352,7 +353,7 @@ export class RendererModuleHost {
   disposeAll(): void {
     // Unload in reverse registration order.
     const names = [...this.loadOrder].reverse();
-    for (const name of names) this.unloadModule(name);
+    names.forEach((name) => { this.unloadModule(name);; });
     this.inputBus.destroy();
     this.cameraController = null;
   }
@@ -386,14 +387,14 @@ export class RendererModuleHost {
    */
   snapshot(thread: ThreadTag): ModuleThreadInfo[] {
     const out: ModuleThreadInfo[] = [];
-    for (const [name, active] of this.active) {
+    for (const [name, active] of this.active.entries()) {
       const plugin = active.plugin;
       const tokenThreads: Record<string, ThreadTag> = {};
       const collectTags = (tokens?: ResourceToken<unknown>[]) => {
-        for (const t of tokens ?? []) {
+        (tokens ?? []).forEach((t) => {
           const tag = (t as CrossThreadToken<unknown>).__thread;
           if (tag) tokenThreads[t.key] = tag;
-        }
+        });
       };
       collectTags(plugin.provides);
       collectTags(plugin.requires);
@@ -551,6 +552,9 @@ export class RendererModuleHost {
       getUIRoot: () => this.callbacks.getUIRoot(),
       getUIInputRouter: () => this.callbacks.getUIInputRouter(),
       invalidateUILayout: () => this.callbacks.invalidateUILayout(),
+      registerUiCompositor: this.callbacks.registerUiCompositor
+        ? (c) => this.callbacks.registerUiCompositor!(c)
+        : undefined,
 
       onFrame: (phase, fn) => {
         const entry: OwnedFrameHook = { owner: name, fn };

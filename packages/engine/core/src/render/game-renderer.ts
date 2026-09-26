@@ -204,6 +204,8 @@ export class GameRenderer implements CanvasResizeHandler {
   uiRoot: UIRoot | null = null;
   uiLayoutEngine: LayoutEngine | null = null;
   uiInputRouter: UIInputRouter | null = null;
+  /** Screen-space compositors (html-ui panels etc.) drawn in the UI pass. */
+  private uiCompositors = new Set<import("../module/renderer-module").ScreenUiCompositor>();
   private uiNeedsLayout = false;
 
   // Render loop state
@@ -293,14 +295,14 @@ export class GameRenderer implements CanvasResizeHandler {
       return [key, Math.min(want, Number(have))];
     };
     const entries: Array<[string, number]> = [];
-    for (const e of [
+    [
       clamp("maxTextureArrayLayers", 512),
       clamp("maxStorageBuffersPerShaderStage", 8),
       clamp("maxStorageBufferBindingSize", 64 * 1024 * 1024),
       clamp("maxSampledTexturesPerShaderStage", 16),
-    ]) {
+    ].forEach((e) => {
       if (e) entries.push(e);
-    }
+    });
     return Object.fromEntries(entries);
   }
 
@@ -403,6 +405,10 @@ export class GameRenderer implements CanvasResizeHandler {
         },
         getUIInputRouter: () => this.uiInputRouter,
         invalidateUILayout: () => { this.uiNeedsLayout = true; },
+        registerUiCompositor: (c) => {
+          this.uiCompositors.add(c);
+          return () => this.uiCompositors.delete(c);
+        },
       });
 
       // Initial viewport layout
@@ -942,8 +948,11 @@ export class GameRenderer implements CanvasResizeHandler {
         this.uiNeedsLayout = false;
       }
       const drawables = this.uiRoot.getDrawable();
-      const uiCanvasView = drawables.length > 0 ? this.getSurfaceTexture()?.createView() : undefined;
-      if (drawables.length > 0 && uiCanvasView) {
+      const compositors = [...this.uiCompositors].filter((c) => c.hasContent());
+      const uiCanvasView = (drawables.length > 0 || compositors.length > 0)
+        ? this.getSurfaceTexture()?.createView()
+        : undefined;
+      if (uiCanvasView) {
         const uiEncoder = this.device.createCommandEncoder();
         const uiPass = uiEncoder.beginRenderPass({
           colorAttachments: [{
@@ -953,7 +962,10 @@ export class GameRenderer implements CanvasResizeHandler {
             storeOp: "store" as GPUStoreOp,
           }],
         });
-        this.uiRenderer.render({ device: this.device, pass: new TrackedRenderPass(uiPass) } as unknown as RenderContext, drawables);
+        if (drawables.length > 0 && this.uiRenderer) {
+          this.uiRenderer.render({ device: this.device, pass: new TrackedRenderPass(uiPass) } as unknown as RenderContext, drawables);
+        }
+        compositors.forEach((c) => { c.render(uiPass, this.canvas.width, this.canvas.height);; });
         uiPass.end();
         this.device.queue.submit([uiEncoder.finish()]);
       }

@@ -26,6 +26,10 @@ interface WasmModule {
     ui_dump(): string;
 }
 
+// Supersample factor — same rationale as the OSR stack: vello_cpu has no
+// subpixel AA, so rasterize at SS× and let the blit downsample.
+const SS = 2;
+
 export function createDioxusStack(): UiStack {
     let wasm: WasmModule | null = null;
     let blit: RgbaBlit;
@@ -45,27 +49,27 @@ export function createDioxusStack(): UiStack {
             }
             const mod = (await import(pkgUrl.href)) as unknown as WasmModule;
             mod.initSync({ module: readFileSync(fileURLToPath(wasmUrl)) });
-            mod.ui_init_headless(c.width, c.height, 1, (action, payload) => c.onAction(action, payload));
+            mod.ui_init_headless(c.width * SS, c.height * SS, SS, (action, payload) => c.onAction(action, payload));
             mod.ui_set_state(JSON.stringify({ note: "snapshot channel live", clicks: 0 }));
             wasm = mod;
-            blit = new RgbaBlit(c.device, c.format);
+            blit = new RgbaBlit(c.device, c.format, { linearResolve: true });
         },
         frame(target) {
             if (!wasm) return;
             if (wasm.ui_tick()) {
                 const rgba = wasm.ui_frame();
-                if (rgba && rgba.length > 0) blit.frame(target, rgba, W, H);
+                if (rgba && rgba.length > 0) blit.frame(target, rgba, W * SS, H * SS);
             } else {
                 // No damage — composite the persisted UI texture.
                 blit.blit(target);
             }
         },
-        resize(w, h) { W = w; H = h; wasm?.ui_resize(w, h, 1); },
+        resize(w, h) { W = w; H = h; wasm?.ui_resize(w * SS, h * SS, SS); },
         dispose() { wasm?.ui_shutdown(); blit?.dispose(); },
-        pointerDown(x, y, button) { wasm?.ui_pointer(1, x, y, button, 0); return wasm?.ui_hit_test(x, y) ?? false; },
-        pointerUp(x, y, button) { wasm?.ui_pointer(2, x, y, button, 0); return wasm?.ui_hit_test(x, y) ?? false; },
-        pointerMove(x, y) { wasm?.ui_pointer(0, x, y, 0, 0); return wasm?.ui_hit_test(x, y) ?? false; },
-        wheel(x, y, dx, dy) { wasm?.ui_wheel(dx, dy, x, y, 0); return wasm?.ui_hit_test(x, y) ?? false; },
+        pointerDown(x, y, button) { wasm?.ui_pointer(1, x * SS, y * SS, button, 0); return wasm?.ui_hit_test(x * SS, y * SS) ?? false; },
+        pointerUp(x, y, button) { wasm?.ui_pointer(2, x * SS, y * SS, button, 0); return wasm?.ui_hit_test(x * SS, y * SS) ?? false; },
+        pointerMove(x, y) { wasm?.ui_pointer(0, x * SS, y * SS, 0, 0); return wasm?.ui_hit_test(x * SS, y * SS) ?? false; },
+        wheel(x, y, dx, dy) { wasm?.ui_wheel(dx, dy, x * SS, y * SS, 0); return wasm?.ui_hit_test(x * SS, y * SS) ?? false; },
         key(down, key, code, _keyCode, mods) {
             wasm?.ui_key(down, key, code, mods, key.length === 1 ? key : undefined);
             return false;

@@ -17,7 +17,7 @@ use std::sync::Arc;
 use anyrender::ImageRenderer;
 use anyrender_vello_cpu::VelloCpuImageRenderer;
 use atomic_refcell::AtomicRefCell;
-use blitz_dom::{Document, DocumentConfig, FontContext};
+use blitz_dom::{Document, DocumentConfig, EventDriver, FontContext};
 use blitz_html::HtmlDocument;
 use blitz_paint::paint_scene;
 use blitz_traits::events::{
@@ -28,6 +28,13 @@ use blitz_traits::events::{
 use blitz_traits::shell::{ColorScheme, Viewport};
 use keyboard_types::{Code, Key, Location, Modifiers};
 use linebender_resource_handle::Blob;
+
+mod events;
+mod mutate;
+mod resources;
+
+use events::{new_event_queue, EventQueue, QueueingHandler};
+use resources::{register_resource, UiNetProvider};
 
 /// Same single-font fallback the Dioxus shell uses — the OSR crate has no
 /// system font collection either.
@@ -75,22 +82,88 @@ fn build_doc(width: u32, height: u32, scale: f32, html: &str) -> HtmlDocument {
         DocumentConfig {
             font_ctx: Some(font_ctx()),
             viewport: Some(Viewport::new(width, height, scale, ColorScheme::Dark)),
+            net_provider: Some(Arc::new(UiNetProvider)),
+            html_parser_provider: Some(Arc::new(blitz_html::HtmlProvider)),
             ..Default::default()
         },
     )
 }
 
 pub struct OsrDoc {
-    doc: HtmlDocument,
+    pub(crate) doc: HtmlDocument,
     renderer: VelloCpuImageRenderer,
     pixels: Vec<u8>,
-    dirty: bool,
+    /// Previous frame's pixels — diffed against to produce the dirty rect.
+    prev_pixels: Vec<u8>,
+    /// Pixel-space bounding box [x,y,w,h] of the last frame()'s changes.
+    dirty_rect: [u32; 4],
+    pub(crate) dirty: bool,
     /// Currently-pressed mouse buttons (mirrors winit shell bookkeeping).
     buttons: MouseEventButtons,
     /// Last pointer position in physical px — wheel events reuse it.
     pointer_pos: (f64, f64),
     /// Active-pointer list shared into every dispatched event (multi-touch).
     active_pointers: Arc<AtomicRefCell<Vec<BlitzPointerEvent>>>,
+    /// DOM events captured during dispatch — drained by dd_osr_poll_events.
+    events: EventQueue,
+    /// Owned buffer returned by dd_osr_poll_events (JSON array).
+    events_buf: Vec<u8>,
+    /// Owned buffer for string-returning FFI calls (dd_osr_get_attr).
+    pub(crate) out_buf: Vec<u8>,
+}
+
+/// Dispatch a UiEvent through the EventDriver, observing DOM events via
+/// QueueingHandler (replaces the default NoopEventHandler dispatch).
+fn dispatch(d: &mut OsrDoc, ui_event: UiEvent) {
+    let mut driver = EventDriver::new(
+        &mut d.doc,
+        QueueingHandler {
+            queue: std::rc::Rc::clone(&d.events),
+        },
+    );
+    driver.handle_ui_event(ui_event);
+}
+
+/// Pixel-space bounding box of the difference between `prev` and `cur`
+/// (w = row width in px), or None when identical. Size mismatch → full rect.
+fn diff_rect(prev: &[u8], cur: &[u8], w: usize) -> Option<[u32; 4]> {
+    let h = if w > 0 { cur.len() / (w * 4) } else { 0 };
+    if prev.len() != cur.len() || h == 0 {
+        return Some([0, 0, w as u32, h as u32]);
+    }
+    let mut min_x = w;
+    let mut min_y = h;
+    let mut max_x = 0usize;
+    let mut max_y = 0usize;
+    for y in 0..h {
+        let rs = y * w * 4;
+        let row = &cur[rs..rs + w * 4];
+        let prow = &prev[rs..rs + w * 4];
+        if row == prow {
+            continue;
+        }
+        min_y = min_y.min(y);
+        max_y = y;
+        let mut first = None;
+        let mut last = 0usize;
+        for x in 0..w {
+            let i = x * 4;
+            if row[i..i + 4] != prow[i..i + 4] {
+                if first.is_none() {
+                    first = Some(x);
+                }
+                last = x;
+            }
+        }
+        if let Some(f) = first {
+            min_x = min_x.min(f);
+            max_x = max_x.max(last);
+        }
+    }
+    if min_y > max_y {
+        return None;
+    }
+    Some([min_x as u32, min_y as u32, (max_x + 1 - min_x) as u32, (max_y + 1 - min_y) as u32])
 }
 
 /// Run an FFI body with panic isolation — a Rust panic must never unwind
@@ -132,10 +205,15 @@ pub extern "C" fn dd_osr_init(
             doc: build_doc(w, h, scale, html),
             renderer: VelloCpuImageRenderer::new(w, h),
             pixels: Vec::new(),
+            prev_pixels: Vec::new(),
+            dirty_rect: [0, 0, 0, 0],
             dirty: true,
             buttons: MouseEventButtons::None,
             pointer_pos: (0.0, 0.0),
             active_pointers: Arc::new(AtomicRefCell::new(Vec::new())),
+            events: new_event_queue(),
+            events_buf: Vec::new(),
+            out_buf: Vec::new(),
         };
         Box::into_raw(Box::new(doc))
     })
@@ -158,6 +236,8 @@ pub extern "C" fn dd_osr_set_html(handle: *mut OsrDoc, html_ptr: *const u8, html
         d.doc = build_doc(w, h, scale, html);
         d.buttons = MouseEventButtons::None;
         d.active_pointers.borrow_mut().clear();
+        d.events.borrow_mut().clear();
+        d.prev_pixels.clear();
         d.dirty = true;
         0
     })
@@ -189,7 +269,17 @@ pub extern "C" fn dd_osr_frame(handle: *mut OsrDoc) -> *const u8 {
             &mut d.pixels,
         );
         d.dirty = inner.is_animating();
-        d.pixels.as_ptr()
+        drop(inner);
+        // Diff against the retained frame — identical output means no upload.
+        match diff_rect(&d.prev_pixels, &d.pixels, w as usize) {
+            Some(rect) => {
+                d.dirty_rect = rect;
+                d.prev_pixels.clear();
+                d.prev_pixels.extend_from_slice(&d.pixels);
+                d.pixels.as_ptr()
+            }
+            None => std::ptr::null(),
+        }
     })
 }
 
@@ -299,7 +389,7 @@ pub extern "C" fn dd_osr_pointer(
             }
             _ => UiEvent::PointerMove(event),
         };
-        d.doc.handle_ui_event(ui_event);
+        dispatch(d, ui_event);
         d.dirty = true;
         0
     })
@@ -326,7 +416,7 @@ pub extern "C" fn dd_osr_wheel(
             mods: kbt_modifiers(mods),
             element: Default::default(),
         };
-        d.doc.handle_ui_event(UiEvent::Wheel(event));
+        dispatch(d, UiEvent::Wheel(event));
         d.dirty = true;
         0
     })
@@ -375,7 +465,7 @@ pub extern "C" fn dd_osr_key(
         } else {
             UiEvent::KeyDown(event)
         };
-        d.doc.handle_ui_event(ui_event);
+        dispatch(d, ui_event);
         d.dirty = true;
         0
     })
@@ -401,6 +491,95 @@ pub extern "C" fn dd_osr_hit_test(handle: *mut OsrDoc, x: f64, y: f64) -> c_int 
             }
             id = node.parent;
         }
+        0
+    })
+}
+
+/// Packed dirty rect for the last successful dd_osr_frame: x<<48|y<<32|w<<16|h.
+#[no_mangle]
+pub extern "C" fn dd_osr_frame_rect(handle: *mut OsrDoc) -> u64 {
+    ffi(0, || {
+        let Some(d) = (unsafe { handle.as_ref() }) else {
+            return 0;
+        };
+        let [x, y, w, h] = d.dirty_rect;
+        ((x as u64) << 48) | ((y as u64) << 32) | ((w as u64) << 16) | h as u64
+    })
+}
+
+/// Non-destructive dirty check: does this doc have damage worth a raster?
+/// (dirty flag set by input/mutations, or CSS animations still running)
+#[no_mangle]
+pub extern "C" fn dd_osr_pending(handle: *mut OsrDoc) -> c_int {
+    ffi(0, || {
+        let Some(d) = (unsafe { handle.as_mut() }) else {
+            return 0;
+        };
+        if d.dirty || d.doc.inner().is_animating() {
+            1
+        } else {
+            0
+        }
+    })
+}
+
+/// Drain the DOM-event queue into a JSON array in events_buf → ptr.
+/// NULL (len 0) when no events are pending.
+#[no_mangle]
+pub extern "C" fn dd_osr_poll_events(handle: *mut OsrDoc) -> *const u8 {
+    ffi(std::ptr::null(), || {
+        let Some(d) = (unsafe { handle.as_mut() }) else {
+            return std::ptr::null();
+        };
+        let mut q = d.events.borrow_mut();
+        if q.is_empty() {
+            return std::ptr::null();
+        }
+        d.events_buf.clear();
+        d.events_buf.push(b'[');
+        let mut first = true;
+        while let Some(ev) = q.pop_front() {
+            if !first {
+                d.events_buf.push(b',');
+            }
+            first = false;
+            d.events_buf.extend_from_slice(ev.as_bytes());
+        }
+        d.events_buf.push(b']');
+        d.events_buf.as_ptr()
+    })
+}
+
+/// Byte length of the buffer returned by dd_osr_poll_events.
+#[no_mangle]
+pub extern "C" fn dd_osr_events_len(handle: *mut OsrDoc) -> usize {
+    ffi(0, || {
+        let Some(d) = (unsafe { handle.as_ref() }) else {
+            return 0;
+        };
+        d.events_buf.len()
+    })
+}
+
+/// Register a process-wide `ui://` resource (fonts, images, stylesheets)
+/// served to every document's NetProvider. Copy semantics — safe to reuse
+/// the caller's buffer after return.
+#[no_mangle]
+pub extern "C" fn dd_osr_register_resource(
+    url_ptr: *const u8,
+    url_len: usize,
+    bytes_ptr: *const u8,
+    bytes_len: usize,
+) -> c_int {
+    ffi(-1, || {
+        let Some(url) = (unsafe { read_str(url_ptr, url_len) }) else {
+            return -1;
+        };
+        if bytes_ptr.is_null() && bytes_len > 0 {
+            return -1;
+        }
+        let bytes = unsafe { std::slice::from_raw_parts(bytes_ptr, bytes_len) };
+        register_resource(url, bytes);
         0
     })
 }

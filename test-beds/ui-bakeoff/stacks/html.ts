@@ -15,6 +15,11 @@ import {
 
 const MY_TAB = 3;
 
+// Supersample factor — the doc rasterizes at SS× CSS size and the blit pass
+// linear-downsamples to the surface. vello_cpu has no subpixel (LCD) AA, so
+// this is the sharpness lever: 2× ≈ 4 samples/px for edges and glyphs.
+const SS = 2;
+
 const CSS = `
 * { margin:0; padding:0; box-sizing:border-box; }
 body { background:#10141a; color:#e8ecf1; font-family:sans-serif; overflow:hidden; }
@@ -175,7 +180,7 @@ export function createHtmlStack(): UiStack {
         const rx = 412 + 14;
         const rw = 1176 - rx; // panel spans to window edge -16
         let ry = LEFT_Y + 14 + 14 + 10 + 15 + 4; // section + label margin
-        for (const [get, set] of [[() => state.hp, (v: number) => state.hp = v], [() => state.mana, (v: number) => state.mana = v]] as const) {
+        ([[() => state.hp, (v: number) => state.hp = v], [() => state.mana, (v: number) => state.mana = v]] as const).forEach(([get, set]) => {
             void get;
             hits.regions.push({
                 x: rx, y: ry, w: rw, h: 16, drag: true,
@@ -183,7 +188,7 @@ export function createHtmlStack(): UiStack {
                 onDrag: (x) => { set(Math.round(clampPct(x, rx, rw))); regen(); },
             });
             ry += 16 + 8 + 15 + 4;
-        }
+        });
     }
 
     return {
@@ -192,33 +197,35 @@ export function createHtmlStack(): UiStack {
         async init(c: StackCtx) {
             ctx = c;
             W = c.width; H = c.height;
-            doc = OsrDoc.create(c.width, c.height, 1, buildHtml(state));
+            // Raster buffer is W*SS × H*SS physical; CSS viewport stays W×H.
+            doc = OsrDoc.create(c.width * SS, c.height * SS, SS, buildHtml(state));
             if (!doc) throw new Error("downdraft-blitz-osr library not available");
-            blit = new RgbaBlit(c.device, c.format);
+            blit = new RgbaBlit(c.device, c.format, { linearResolve: true });
             buildRegions();
         },
         frame(target) {
             const px = doc?.frame();
-            if (px) blit.frame(target, px, W, H);
+            if (px) blit.frame(target, px, W * SS, H * SS);
             else blit.blit(target); // clean doc — composite the last raster
         },
-        resize(w, h) { W = w; H = h; doc?.resize(w, h, 1); },
+        resize(w, h) { W = w; H = h; doc?.resize(w * SS, h * SS, SS); },
         dispose() { doc?.destroy(); blit.dispose(); },
+        // The doc's "physical" coords are SS× the surface's.
         pointerDown(x, y) {
-            doc?.pointerDown(x, y);
+            doc?.pointerDown(x * SS, y * SS);
             return hits.pointerDown(x, y);
         },
         pointerMove(x, y) {
-            doc?.pointerMove(x, y);
+            doc?.pointerMove(x * SS, y * SS);
             return hits.pointerMove(x, y);
         },
         pointerUp(x, y) {
-            doc?.pointerUp(x, y);
+            doc?.pointerUp(x * SS, y * SS);
             return hits.pointerUp(x, y);
         },
         wheel(x, y, dx, dy) {
-            doc?.wheel(x, y, dx, dy);
-            return doc?.hitTest(x, y) ?? false;
+            doc?.wheel(x * SS, y * SS, dx, dy);
+            return doc?.hitTest(x * SS, y * SS) ?? false;
         },
     };
 }

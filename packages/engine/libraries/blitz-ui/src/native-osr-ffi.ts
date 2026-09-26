@@ -36,7 +36,7 @@ function findOsrLibrary(): string | null {
     join(dirname(process.execPath), "native", base),
     join("/usr/local/lib", base),
   ];
-  for (const p of candidates) {
+  for (let _i = 0, _it = candidates, _n = _it.length; _i < _n; _i++) { const p = _it[_i];
     if (existsSync(p)) return p;
   }
   return null;
@@ -61,9 +61,58 @@ const OSR_SPEC: Record<string, CFunction> = {
   dd_osr_key: { args: ["ptr", "i32", "ptr", "usize", "ptr", "usize", "ptr", "usize", "u32"], returns: "i32" },
   dd_osr_hit_test: { args: ["ptr", "f64", "f64"], returns: "i32" },
   dd_osr_destroy: { args: ["ptr"], returns: "i32" },
+  // ── Frame metadata / refresh control ──
+  dd_osr_frame_rect: { args: ["ptr"], returns: "u64" },
+  dd_osr_pending: { args: ["ptr"], returns: "i32" },
+  // ── DOM event queue ──
+  dd_osr_poll_events: { args: ["ptr"], returns: "ptr" },
+  dd_osr_events_len: { args: ["ptr"], returns: "usize" },
+  // ── Incremental DOM mutation ──
+  dd_osr_query: { args: ["ptr", "ptr", "usize"], returns: "u64" },
+  dd_osr_set_text: { args: ["ptr", "u64", "ptr", "usize"], returns: "i32" },
+  dd_osr_set_attr: { args: ["ptr", "u64", "ptr", "usize", "ptr", "usize"], returns: "i32" },
+  dd_osr_remove_attr: { args: ["ptr", "u64", "ptr", "usize"], returns: "i32" },
+  dd_osr_set_style: { args: ["ptr", "u64", "ptr", "usize", "ptr", "usize"], returns: "i32" },
+  dd_osr_set_inner_html: { args: ["ptr", "u64", "ptr", "usize"], returns: "i32" },
+  dd_osr_get_attr: { args: ["ptr", "u64", "ptr", "usize"], returns: "ptr" },
+  dd_osr_out_len: { args: ["ptr"], returns: "usize" },
+  dd_osr_focus: { args: ["ptr", "u64"], returns: "i32" },
+  // ── Process-wide ui:// resources (fonts, images, stylesheets) ──
+  dd_osr_register_resource: { args: ["ptr", "usize", "ptr", "usize"], returns: "i32" },
 };
 
 export type OsrSymbols = Record<keyof typeof OSR_SPEC, (...args: any[]) => any>;
+
+/** One DOM event emitted by a document — see events.rs for the field schema. */
+export interface OsrDomEvent {
+  /** Event type: "click" | "mousedown" | "input" | "keydown" | "scroll" | ... */
+  t: string;
+  /** Target node id (raw u64, matches query() results). */
+  n: number;
+  g?: string;               // target element tag name ("input", "button", ...)
+  x?: number; y?: number;   // pointer coords (logical px)
+  b?: number;               // button (DOM numbering)
+  m?: number;               // modifier bitmask (shift=1 ctrl=2 alt=4 meta=8)
+  k?: string; c?: string;   // key / code (keyboard events)
+  v?: string;               // value (input events)
+  st?: number; sl?: number; // scroll offsets
+  id?: string;              // first non-empty id attr on target→ancestors
+  d?: Record<string, string>; // merged data-* attrs (prefix stripped)
+}
+
+/**
+ * Register a process-wide `ui://` resource served to every document's
+ * NetProvider — fonts (@font-face src), images (<img src>), stylesheets.
+ */
+export function registerOsrResource(url: string, bytes: Uint8Array | ArrayBuffer): boolean {
+  const entry = loadOsrLib();
+  if (!entry) return false;
+  const u = enc.encode(url);
+  const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  return (entry.symbols.dd_osr_register_resource(
+    ptr(u), u.length, ptr(b.length ? b : EMPTY_STR), b.length,
+  ) as number) === 0;
+}
 
 let cached: { symbols: OsrSymbols; path: string } | null = null;
 
@@ -94,13 +143,13 @@ function domButton(b?: "left" | "middle" | "right"): number {
 /** Modifier names → the u32 bitmask the ABI expects. */
 export function osrModifierBits(mods?: string[]): number {
   let bits = 0;
-  for (const m of mods ?? []) {
+  (mods ?? []).forEach((m) => {
     const k = m.toLowerCase();
     if (k === "shift") bits |= 1;
     else if (k === "control" || k === "ctrl") bits |= 2;
     else if (k === "alt") bits |= 4;
     else if (k === "meta" || k === "super" || k === "cmd") bits |= 8;
-  }
+  });
   return bits;
 }
 
@@ -180,6 +229,81 @@ export class OsrDoc {
   /** Is (x, y) over a `data-ui` element? */
   hitTest(x: number, y: number): boolean {
     return (this.lib.dd_osr_hit_test(this.handle, x, y) as number) === 1;
+  }
+
+  /**
+   * Dirty rect of the last successful frame() in physical px, or null when
+   * the whole buffer is new/changed shape. Packed u64: x<<48|y<<32|w<<16|h.
+   */
+  frameRect(): { x: number; y: number; w: number; h: number } | null {
+    const v = BigInt(this.lib.dd_osr_frame_rect(this.handle) as bigint | number);
+    const x = Number(v >> 48n), y = Number((v >> 32n) & 0xffffn);
+    const w = Number((v >> 16n) & 0xffffn), h = Number(v & 0xffffn);
+    return w > 0 && h > 0 ? { x, y, w, h } : null;
+  }
+
+  /** True when the doc has damage worth rasterizing (dirty or animating). */
+  pending(): boolean {
+    return (this.lib.dd_osr_pending(this.handle) as number) !== 0;
+  }
+
+  /** Drain queued DOM events (click/input/key/focus/scroll) as parsed JSON. */
+  pollEvents(): OsrDomEvent[] {
+    const p = this.lib.dd_osr_poll_events(this.handle) as number;
+    if (!p) return [];
+    const len = Number(this.lib.dd_osr_events_len(this.handle));
+    if (len <= 0) return [];
+    try {
+      return JSON.parse(new TextDecoder().decode(readMappedRange(p, len))) as OsrDomEvent[];
+    } catch {
+      return [];
+    }
+  }
+
+  /** CSS selector → node handle (0 on miss). Re-query after structural edits. */
+  query(selector: string): number {
+    const s = enc.encode(selector);
+    return Number(this.lib.dd_osr_query(this.handle, ptr(s), s.length) as bigint | number);
+  }
+
+  setText(node: number, text: string): boolean {
+    const t = enc.encode(text);
+    return (this.lib.dd_osr_set_text(this.handle, BigInt(node), ptr(t.length ? t : EMPTY_STR), t.length) as number) === 0;
+  }
+
+  setAttr(node: number, name: string, value: string): boolean {
+    const n = enc.encode(name), v = enc.encode(value);
+    return (this.lib.dd_osr_set_attr(this.handle, BigInt(node), ptr(n), n.length, ptr(v.length ? v : EMPTY_STR), v.length) as number) === 0;
+  }
+
+  removeAttr(node: number, name: string): boolean {
+    const n = enc.encode(name);
+    return (this.lib.dd_osr_remove_attr(this.handle, BigInt(node), ptr(n), n.length) as number) === 0;
+  }
+
+  setStyle(node: number, prop: string, value: string): boolean {
+    const p = enc.encode(prop), v = enc.encode(value);
+    return (this.lib.dd_osr_set_style(this.handle, BigInt(node), ptr(p), p.length, ptr(v.length ? v : EMPTY_STR), v.length) as number) === 0;
+  }
+
+  /** Replace a node's children with parsed HTML (invalidates child NodeIds). */
+  setInnerHtml(node: number, html: string): boolean {
+    const h = enc.encode(html);
+    return (this.lib.dd_osr_set_inner_html(this.handle, BigInt(node), ptr(h.length ? h : EMPTY_STR), h.length) as number) === 0;
+  }
+
+  /** Attribute value — for "value" on <input>/<textarea> returns live text. */
+  getAttr(node: number, name: string): string | null {
+    const n = enc.encode(name);
+    const p = this.lib.dd_osr_get_attr(this.handle, BigInt(node), ptr(n), n.length) as number;
+    if (!p) return null;
+    const len = Number(this.lib.dd_osr_out_len(this.handle));
+    return new TextDecoder().decode(readMappedRange(p, len));
+  }
+
+  /** Focus a node (0 = blur). */
+  focus(node: number): boolean {
+    return (this.lib.dd_osr_focus(this.handle, BigInt(node)) as number) === 0;
   }
 
   destroy(): void {

@@ -21,6 +21,7 @@ import type { StackCtx, UiStack } from "./stack";
 import { createCanvas2dStack } from "./stacks/canvas2d";
 import { createDioxusStack } from "./stacks/dioxus";
 import { createHtmlStack } from "./stacks/html";
+import { createHtmlUiStack } from "./stacks/htmlui";
 import { createImuiStack } from "./stacks/imui";
 import { createPixiStack } from "./stacks/pixi";
 
@@ -42,7 +43,7 @@ const CLEAR = { r: 0.063, g: 0.078, b: 0.102, a: 1 };
 // ── Stacks ──
 // Order matches the tab indices shown in each gallery's tab bar.
 
-const factories = [createImuiStack, createPixiStack, createDioxusStack, createHtmlStack, createCanvas2dStack];
+const factories = [createImuiStack, createPixiStack, createDioxusStack, createHtmlStack, createCanvas2dStack, createHtmlUiStack];
 const stacks: (UiStack | null)[] = new Array(factories.length).fill(null);
 const stackErrors: (string | null)[] = new Array(factories.length).fill(null);
 
@@ -82,14 +83,15 @@ async function ensureStack(i: number): Promise<boolean> {
 }
 
 async function setActive(i: number): Promise<void> {
-    if (i === active || i < 0 || i > 4 || switching) return;
+    if (i === active || i < 0 || i > NTABS - 1 || switching) return;
     switching = true;
     active = i;
     switching = false;
     log.info("bakeoff", `→ ${TABCODES[i]}`);
 }
 
-const TABCODES = ["imui", "pixi", "dioxus", "html", "canvas2d"];
+const TABCODES = ["imui", "pixi", "dioxus", "html", "canvas2d", "htmlui"];
+const NTABS = TABCODES.length;
 
 // ── Input routing ──
 
@@ -109,10 +111,11 @@ surface.addEventListener("wheel", (e: any) => {
 win.addEventListener("keydown", (e: any) => {
     if (e.repeat) return;
     const code = e.code ?? "";
-    if (/^Digit[1-5]$/.test(code)) { void setActive(Number(code[5]) - 1); return; }
-    if (code === "ArrowRight") { void setActive((active + 1) % 5); return; }
-    if (code === "ArrowLeft") { void setActive((active + 4) % 5); return; }
-    stacks[active]?.key?.(true, e.key ?? "", code, e.keyCode ?? 0, modBits(e));
+    // Give the active stack first claim — a focused <input> eats digits/arrows.
+    if (stacks[active]?.key?.(true, e.key ?? "", code, e.keyCode ?? 0, modBits(e))) return;
+    if (/^Digit[1-6]$/.test(code)) { void setActive(Number(code[5]) - 1); return; }
+    if (code === "ArrowRight") { void setActive((active + 1) % NTABS); return; }
+    if (code === "ArrowLeft") { void setActive((active + NTABS - 1) % NTABS); return; }
 });
 win.addEventListener("keyup", (e: any) => {
     stacks[active]?.key?.(false, e.key ?? "", e.code ?? "", e.keyCode ?? 0, modBits(e));

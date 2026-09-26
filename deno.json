@@ -151,6 +151,8 @@
     "@downdraft/engine/modules/devtools/": "./packages/engine/modules/devtools/src/",
     "@downdraft/engine/modules/electron-osr": "./packages/engine/modules/electron-osr/src/index.ts",
     "@downdraft/engine/modules/electron-osr/": "./packages/engine/modules/electron-osr/src/",
+    "@downdraft/engine/modules/html-ui": "./packages/engine/modules/html-ui/src/index.ts",
+    "@downdraft/engine/modules/html-ui/": "./packages/engine/modules/html-ui/src/",
     "@downdraft/engine/modules/mcp": "./packages/engine/modules/mcp/src/index.ts",
     "@downdraft/engine/modules/mcp/": "./packages/engine/modules/mcp/src/",
     "@downdraft/engine/modules/movement-2d": "./packages/engine/modules/movement-2d/src/index.ts",

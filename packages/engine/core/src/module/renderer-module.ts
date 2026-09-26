@@ -115,6 +115,18 @@ export type FramePhase =
 export type FrameHook = (dt: number, elapsedTime: number) => void;
 export type ResizeHook = (cssWidth: number, cssHeight: number, dpr: number) => void;
 
+/**
+ * Draws UI textures into the surface pass during GameRenderer's end-of-frame
+ * UI block (after afterFrame callbacks — same slot as imui drawables).
+ * Registered by the html-ui module; kept in core so host and module share it.
+ */
+export interface ScreenUiCompositor {
+  /** Draw into the open surface render pass. */
+  render(pass: GPURenderPassEncoder, surfaceWidth: number, surfaceHeight: number): void;
+  /** When false for all compositors and imui is empty, no UI pass is opened. */
+  hasContent(): boolean;
+}
+
 // ── Renderer plugin context ──
 
 /**
@@ -147,6 +159,12 @@ export interface RendererModuleContext {
   getUIInputRouter(): UIInputRouter | null;
   /** Mark the UI tree dirty so `GameRenderer` re-runs layout next frame. */
   invalidateUILayout(): void;
+
+  /**
+   * Register a screen-space UI compositor drawn in GameRenderer's
+   * end-of-frame UI pass. Returns an unregister function.
+   */
+  registerUiCompositor?(c: ScreenUiCompositor): () => void;
 
   // ── Frame / resize hooks ──
   onFrame(phase: FramePhase, fn: FrameHook): () => void;
