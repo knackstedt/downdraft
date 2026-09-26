@@ -21,7 +21,7 @@ const rootPkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 
 // Expand the packages/* workspace globs to discover engine packages.
 const enginePkgs = new Map();
-for (const pattern of rootPkg.workspaces ?? []) {
+for (let _i = 0, _it = rootPkg.workspaces ?? [], _n = _it.length; _i < _n; _i++) { const pattern = _it[_i];
   if (!pattern.startsWith("packages/")) continue;
   const star = pattern.endsWith("/*");
   const base = star ? pattern.slice(0, -2) : pattern;
@@ -30,7 +30,7 @@ for (const pattern of rootPkg.workspaces ?? []) {
         .filter((d) => d.isDirectory())
         .map((d) => join(base, d.name))
     : [base];
-  for (const dir of dirs) {
+  for (let _i = 0, _it = dirs, _n = _it.length; _i < _n; _i++) { const dir = _it[_i];
     const manifest = join(root, dir, "package.json");
     if (!existsSync(manifest)) continue;
     const pkg = JSON.parse(readFileSync(manifest, "utf8"));
@@ -65,7 +65,7 @@ for (const entry of readdirSync(join(root, "games"), { withFileTypes: true })) {
   const gameDir = join(root, "games", entry.name);
   if (!existsSync(join(gameDir, "package.json"))) continue;
 
-  for (const [name, target] of enginePkgs) {
+  for (const [name, target] of enginePkgs.entries()) {
     const linkPath = join(gameDir, "node_modules", "@downdraft", name.slice("@downdraft/".length));
     const result = ensureLink(linkPath, target);
     if (result === "linked") created++;
@@ -82,5 +82,5 @@ for (const entry of readdirSync(join(root, "games"), { withFileTypes: true })) {
   }
 }
 
-for (const w of warnings) console.warn(`link-games: ${w}`);
+warnings.forEach((w) => { console.warn(`link-games: ${w}`);; });
 console.log(`link-games: ${created} link(s) created, ${existing} already correct`);

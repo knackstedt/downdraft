@@ -64,7 +64,7 @@ function processCompilationInfo(
   module
     .getCompilationInfo()
     .then((info: GPUCompilationInfo) => {
-      for (const msg of info.messages) {
+      for (let _i = 0, _it = info.messages, _n = _it.length; _i < _n; _i++) { const msg = _it[_i];
         const key = dedupKey(label, msg.message, msg.lineNum);
         if (validatedDedup.has(key)) {
           suppressedCount++;
@@ -136,7 +136,7 @@ export async function createValidatedShaderModuleAsync(
   try {
     const info = await module.getCompilationInfo();
     const errors: string[] = [];
-    for (const msg of info.messages) {
+    for (let _i = 0, _it = info.messages, _n = _it.length; _i < _n; _i++) { const msg = _it[_i];
       const key = dedupKey(label, msg.message, msg.lineNum);
       if (validatedDedup.has(key)) continue;
       validatedDedup.add(key);

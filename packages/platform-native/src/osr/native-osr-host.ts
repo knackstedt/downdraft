@@ -82,11 +82,11 @@ export function createNativeOsrHost(): NativeOsrHost {
       height: r.config.height,
       panels: new Map([...r.panels.values()].map((p) => [p.id, p.rect])),
     };
-    for (const cb of layoutCbs) cb(r.id, layout);
+    for (const cb of layoutCbs.values()) cb(r.id, layout);
   };
 
   const emitEvent = (r: RendererState, status: OSRRendererEvent["status"], crashCount = 0) => {
-    for (const cb of eventCbs) cb({ rendererId: r.id, status, crashCount });
+    for (const cb of eventCbs.values()) cb({ rendererId: r.id, status, crashCount });
   };
 
   /** Shelf-pack a new panel into the atlas — same algorithm as the Electron

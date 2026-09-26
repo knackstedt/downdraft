@@ -51,7 +51,7 @@ export function bulkReadMultiRealm(
   const results: Array<{ realmId: number; offset: number; count: number }> = [];
   let offset = 0;
 
-  for (const realmId of realmIds) {
+  realmIds.forEach((realmId) => {
     const slice = buffer.subarray(offset, offset + maxEntitiesPerRealm * 8);
     // readTransforms writes into the buffer at the slice's offset;
     // but since it writes by entity index, we need a separate buffer per realm
@@ -62,7 +62,7 @@ export function bulkReadMultiRealm(
     buffer.set(tempBuf, offset);
     results.push({ realmId, offset, count: maxEntitiesPerRealm });
     offset += maxEntitiesPerRealm * 8;
-  }
+  });
 
   return results;
 }

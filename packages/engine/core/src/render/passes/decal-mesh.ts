@@ -48,13 +48,13 @@ export function createDecalMesh(projector: DecalProjector): MeshData {
     { indices: [3, 0, 4, 7], normal: [-trueUp[0], -trueUp[1], -trueUp[2]] },
   ];
 
-  for (const face of faces) {
+  faces.forEach((face) => {
     const base = builder.addVertex(corners[face.indices[0]], face.normal, uvs[0]);
     const v1 = builder.addVertex(corners[face.indices[1]], face.normal, uvs[1]);
     const v2 = builder.addVertex(corners[face.indices[2]], face.normal, uvs[2]);
     const v3 = builder.addVertex(corners[face.indices[3]], face.normal, uvs[3]);
     builder.addQuad(base, v1, v2, v3);
-  }
+  });
 
   return builder.build();
 }

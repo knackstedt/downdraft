@@ -29,7 +29,7 @@ export interface GraphToMaterialOptions {
 export function uiGraphToMaterialGraph(nodes: UINodeData[], connections: UIConnection[]): MaterialGraph {
   const graph = new MaterialGraph();
 
-  for (const node of nodes) {
+  nodes.forEach((node) => {
     const graphNode: GraphNode = {
       id: node.id,
       type: node.type,
@@ -37,14 +37,14 @@ export function uiGraphToMaterialGraph(nodes: UINodeData[], connections: UIConne
       outputs: {},
       properties: node.properties,
     };
-    for (const inp of node.inputs) graphNode.inputs[inp.name] = inp.id;
-    for (const out of node.outputs) graphNode.outputs[out.name] = out.id;
+    node.inputs.forEach((inp) => { graphNode.inputs[inp.name] = inp.id;; });
+    node.outputs.forEach((out) => { graphNode.outputs[out.name] = out.id;; });
     graph.addNode(graphNode);
-  }
+  });
 
-  for (const conn of connections) {
+  connections.forEach((conn) => {
     graph.connect(conn.fromNode, conn.fromPort, conn.toNode, conn.toPort);
-  }
+  });
 
   return graph;
 }
@@ -155,18 +155,18 @@ export function compileVariant(
  */
 export function enumerateVariants(base: MaterialVariantFlags): MaterialVariantFlags[] {
   const out: MaterialVariantFlags[] = [];
-  for (const sc of [false, true]) {
-    for (const sk of [false, true]) {
-      for (const am of ["opaque", "clip", "blend"] as const) {
-        for (const mo of [false, true]) {
-          for (const in_ of [false, true]) {
+  [false, true].forEach((sc) => {
+    [false, true].forEach((sk) => {
+      (["opaque", "clip", "blend"] as const).forEach((am) => {
+        [false, true].forEach((mo) => {
+          [false, true].forEach((in_) => {
             out.push(withVariant(base, {
               shadowCaster: sc, skinning: sk, alphaMode: am, morph: mo, instanced: in_,
             }));
-          }
-        }
-      }
-    }
-  }
+          });
+        });
+      });
+    });
+  });
   return out;
 }

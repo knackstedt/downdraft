@@ -48,7 +48,7 @@ export class AudioEngine {
   unloadBuffer(bufferId: string): void {
     const buffer = this.buffers.get(bufferId);
     if (!buffer) return;
-    for (const [id, source] of this.sources) {
+    for (const [id, source] of this.sources.entries()) {
       if (source.bufferId === bufferId) {
         this.backend.stop(source);
         this.sources.delete(id);
@@ -76,7 +76,7 @@ export class AudioEngine {
   }
 
   stopAll(): void {
-    for (const [, source] of this.sources) {
+    for (const [, source] of this.sources.entries()) {
       this.backend.stop(source);
     }
     this.sources.clear();
@@ -156,10 +156,10 @@ export class AudioEngine {
     this.backend.update(dt ?? 0);
     const active = this.backend.getActiveSources?.() ?? [];
     const rebuilt = new Map<number, AudioSourceHandle>();
-    for (const source of active) {
+    active.forEach((source) => {
       const id = source.id ?? source.sourceId ?? this.nextSourceId++;
       rebuilt.set(id, source);
-    }
+    });
     this.sources = rebuilt;
   }
 

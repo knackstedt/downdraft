@@ -818,7 +818,7 @@ export class ModelRenderer {
     // Unregister all per-mesh textures + materials from the bindless managers.
     // Clean up any materialKey that starts with `${nodeId}:`.
     const prefix = `${nodeId}:`;
-    for (const [materialKey, matIdx] of this.meshMaterialIndex) {
+    for (const [materialKey, matIdx] of this.meshMaterialIndex.entries()) {
       if (materialKey.startsWith(prefix)) {
         const sourceId = this.meshTextureSourceId.get(materialKey);
         if (sourceId && this.bindless) {

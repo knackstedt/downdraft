@@ -245,7 +245,7 @@ export class PluginHost {
    */
   async loadAll(): Promise<void> {
     // Register all discovered manifests with the registry for topo sort.
-    for (const [id, d] of this.discovered) {
+    for (const [id, d] of this.discovered.entries()) {
       if (!this.registry.has(id)) this.registry.register(d.manifest);
     }
     let order: string[];
@@ -254,7 +254,7 @@ export class PluginHost {
     } catch (e) {
       log.error("PluginHost", `Dependency resolution failed: ${(e as Error).message}`);
       // Mark all discovered as errored.
-      for (const [id, d] of this.discovered) {
+      for (const [id, d] of this.discovered.entries()) {
         this.active.set(id, {
           manifest: d.manifest,
           status: "error",
@@ -266,7 +266,7 @@ export class PluginHost {
       }
       return;
     }
-    for (const id of order) {
+    for (let _i = 0, _it = order, _n = _it.length; _i < _n; _i++) { const id = _it[_i];
       const d = this.discovered.get(id);
       if (!d) continue;
       if (this.active.has(id)) continue; // already loaded (reload path)
@@ -343,7 +343,7 @@ export class PluginHost {
       //    recorded on the plugin snapshot but do not abort the whole mod —
       //    a bad shader shouldn't prevent the mod's assets from loading.
       const exts = flattenExtensions(m);
-      for (const ext of exts) {
+      for (let _i = 0, _it = exts, _n = _it.length; _i < _n; _i++) { const ext = _it[_i];
         const extLoader = this.extensionLoaders.get(ext.bucket);
         if (!extLoader) {
           log.warn("PluginHost", `No extension loader for bucket "${ext.bucket}" (mod "${id}") — skipping`);
@@ -500,7 +500,7 @@ export class PluginHost {
 
   snapshot(): PluginInfo[] {
     const out: PluginInfo[] = [];
-    for (const [, a] of this.active) {
+    for (const [, a] of this.active.entries()) {
       out.push(
         pluginInfoFromManifest(a.manifest, a.status, {
           error: a.error,
@@ -510,7 +510,7 @@ export class PluginHost {
       );
     }
     // Include discovered-but-not-loaded (pending) for diagnostics.
-    for (const [id, d] of this.discovered) {
+    for (const [id, d] of this.discovered.entries()) {
       if (!this.active.has(id)) {
         out.push(pluginInfoFromManifest(d.manifest, "pending", { source: d.source }));
       }
@@ -602,7 +602,7 @@ function makeEventBus(): PluginEventBus {
     },
     publish(event, data) {
       const set = handlers.get(event);
-      if (set) for (const h of set) h(data);
+      if (set) for (const h of set.values()) h(data);
     },
   };
 }
@@ -638,7 +638,7 @@ function makeTickApi(_pluginId: string): PluginTickApi {
       return () => callbacks.delete(fn);
     },
     _drain(dt, t) {
-      for (const cb of callbacks) cb(dt, t);
+      for (const cb of callbacks.values()) cb(dt, t);
     },
   };
   return api;

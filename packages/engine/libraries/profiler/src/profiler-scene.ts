@@ -95,7 +95,7 @@ class MetricsHistory {
   /** Record a snapshot's per-slot metrics into the history. */
   record(snapshot: ProfilingSnapshot): void {
     const seenSlots = new Set<number>();
-    for (const slot of snapshot.slots) {
+    snapshot.slots.forEach((slot) => {
       seenSlots.add(slot.slotIndex);
       let h = this.slots.get(slot.slotIndex);
       if (!h) {
@@ -132,9 +132,9 @@ class MetricsHistory {
       this.push(h.rafJitterMax, el.rafJitterMaxUs);
       this.push(h.idleHeadroom, el.idleHeadroomMs);
       this.push(h.tick, m.tick);
-    }
+    });
     // Remove slots that are no longer alive
-    for (const [idx, h] of this.slots) {
+    for (const [idx, h] of this.slots.entries()) {
       if (!seenSlots.has(idx)) {
         this.slots.delete(idx);
       }
@@ -260,7 +260,7 @@ export class ProfilerScene implements PixiUiScene {
     }
 
     // Handle pointer events (tab clicks, record bar)
-    for (const ev of data.events) {
+    data.events.forEach((ev) => {
       if (ev.kind === "pointerdown" && (ev as any).button === 0) {
         const x = (ev as any).x as number;
         const y = (ev as any).y as number;
@@ -277,7 +277,7 @@ export class ProfilerScene implements PixiUiScene {
           }
         }
       }
-    }
+    });
 
     // Clear + redraw
     this.contentContainer.removeChildren().forEach((c) => c.destroy({ children: true }));
@@ -360,7 +360,7 @@ export class ProfilerScene implements PixiUiScene {
     const now = performance.now();
     this.toasts = this.toasts.filter((t) => now - t.createdAt < t.duration);
     let y = this.ctx.height - 30;
-    for (const toast of this.toasts) {
+    this.toasts.forEach((toast) => {
       const colors = [COLOR_BLUE, COLOR_YELLOW, COLOR_RED, COLOR_PURPLE];
       const color = colors[toast.severity] ?? COLOR_TEXT_DIM;
       const bg = new Graphics();
@@ -376,7 +376,7 @@ export class ProfilerScene implements PixiUiScene {
       this.toastContainer.addChild(bg);
       this.toastContainer.addChild(text);
       y -= 30;
-    }
+    });
   }
 
   private drawRecordBar(): void {
@@ -515,11 +515,11 @@ function drawLineChart(
   // Auto-scale Y
   let maxVal = yMax;
   if (maxVal <= 0) {
-    for (const s of series) {
-      for (const v of s.data) {
+    series.forEach((s) => {
+      s.data.forEach((v) => {
         if (v > maxVal) maxVal = v;
-      }
-    }
+      });
+    });
   }
   if (maxVal <= 0) maxVal = 1;
 
@@ -577,7 +577,7 @@ function drawLineChart(
   // Draw each series as a line.
   // scrollOffset interpolates x positions so the chart scrolls smoothly
   // between samples instead of jumping one column per tick.
-  for (const s of series) {
+  for (let _i = 0, _it = series, _n = _it.length; _i < _n; _i++) { const s = _it[_i];
     if (s.data.length < 2) continue;
     const line = new Graphics();
     const n = s.data.length;
@@ -600,7 +600,7 @@ function drawLineChart(
   // Legend
   let legendX = chartX + 5;
   const legendY = chartY + 3;
-  for (const s of series) {
+  series.forEach((s) => {
     const dot = new Graphics();
     dot.circle(legendX, legendY + 5, 4);
     dot.fill({ color: s.color });
@@ -613,7 +613,7 @@ function drawLineChart(
     lbl.y = legendY;
     container.addChild(lbl);
     legendX += lbl.width + 20;
-  }
+  });
 }
 
 /**
@@ -636,9 +636,9 @@ function drawBarChart(
 
   let maxVal = yMax;
   if (maxVal <= 0) {
-    for (const b of bars) {
+    bars.forEach((b) => {
       if (b.value > maxVal) maxVal = b.value;
-    }
+    });
   }
   if (maxVal <= 0) maxVal = 1;
 
@@ -753,14 +753,14 @@ function renderMemoryView(ctx: ViewRendererContext): Container {
   y += CHART_HEIGHT + 10;
 
   // Current values summary
-  for (const sh of slots) {
+  slots.forEach((sh) => {
     const name = slotDisplayName(sh);
     const lastUsed = sh.heapUsed.length > 0 ? sh.heapUsed[sh.heapUsed.length - 1] : 0;
     const lastTotal = sh.heapTotal.length > 0 ? sh.heapTotal[sh.heapTotal.length - 1] : 0;
     const pct = lastTotal > 0 ? (lastUsed / lastTotal) * 100 : 0;
     c.addChild(makeLabel(`${name}: ${formatBytes(lastUsed)} / ${formatBytes(lastTotal)} (${pct.toFixed(0)}%)`, 10, y, COLOR_TEXT_DIM, 12));
     y += 14;
-  }
+  });
 
   return c;
 }
@@ -780,13 +780,13 @@ function renderCpuView(ctx: ViewRendererContext): Container {
   drawLineChart(c, getWorkerSeries(slots, s => s.cpuPercent), 10, y, ctx.width - 20, CHART_HEIGHT, 100, "%", ctx.scrollOffset);
   y += CHART_HEIGHT + 10;
 
-  for (const sh of slots) {
+  slots.forEach((sh) => {
     const name = slotDisplayName(sh);
     const lastCpu = sh.cpuPercent.length > 0 ? sh.cpuPercent[sh.cpuPercent.length - 1] : 0;
     const lastTick = sh.tick.length > 0 ? sh.tick[sh.tick.length - 1] : 0;
     c.addChild(makeLabel(`${name}: ${lastCpu.toFixed(1)}%  tick: ${lastTick}`, 10, y, COLOR_TEXT_DIM, 12));
     y += 14;
-  }
+  });
 
   return c;
 }
@@ -818,14 +818,14 @@ function renderTaskLatencyView(ctx: ViewRendererContext): Container {
   drawLineChart(c, getWorkerSeries(slots, s => s.taskLatencyMax), 10, y, ctx.width - 20, CHART_HEIGHT, 0, "us", ctx.scrollOffset);
   y += CHART_HEIGHT + 10;
 
-  for (const sh of slots) {
+  slots.forEach((sh) => {
     const name = slotDisplayName(sh);
     const p50 = sh.taskLatencyP50.length > 0 ? sh.taskLatencyP50[sh.taskLatencyP50.length - 1] : 0;
     const p95 = sh.taskLatencyP95.length > 0 ? sh.taskLatencyP95[sh.taskLatencyP95.length - 1] : 0;
     const max = sh.taskLatencyMax.length > 0 ? sh.taskLatencyMax[sh.taskLatencyMax.length - 1] : 0;
     c.addChild(makeLabel(`${name}: p50=${formatUs(p50)}  p95=${formatUs(p95)}  max=${formatUs(max)}`, 10, y, COLOR_TEXT_DIM, 12));
     y += 14;
-  }
+  });
 
   return c;
 }
@@ -900,13 +900,13 @@ function renderEventLoopView(ctx: ViewRendererContext): Container {
   drawLineChart(c, getWorkerSeries(slots, s => s.idleHeadroom), 10, y, ctx.width - 20, CHART_HEIGHT, 16.67, "ms", ctx.scrollOffset);
   y += CHART_HEIGHT + 10;
 
-  for (const sh of slots) {
+  slots.forEach((sh) => {
     const name = slotDisplayName(sh);
     const j95 = sh.rafJitterP95.length > 0 ? sh.rafJitterP95[sh.rafJitterP95.length - 1] : 0;
     const idle = sh.idleHeadroom.length > 0 ? sh.idleHeadroom[sh.idleHeadroom.length - 1] : 0;
     c.addChild(makeLabel(`${name}: jitter p95=${formatUs(j95)} | idle=${idle.toFixed(1)}ms`, 10, y, COLOR_TEXT_DIM, 12));
     y += 14;
-  }
+  });
 
   return c;
 }
@@ -933,13 +933,13 @@ function renderGcHeapView(ctx: ViewRendererContext): Container {
   drawLineChart(c, getWorkerSeries(slots, s => s.heapUsed), 10, y, ctx.width - 20, CHART_HEIGHT, 0, "bytes", ctx.scrollOffset);
   y += CHART_HEIGHT + 10;
 
-  for (const sh of slots) {
+  slots.forEach((sh) => {
     const name = slotDisplayName(sh);
     const gcMax = sh.gcPauseMax.length > 0 ? sh.gcPauseMax[sh.gcPauseMax.length - 1] : 0;
     const used = sh.heapUsed.length > 0 ? sh.heapUsed[sh.heapUsed.length - 1] : 0;
     c.addChild(makeLabel(`${name}: gc max=${formatUs(gcMax)} | heap ${formatBytes(used)}`, 10, y, COLOR_TEXT_DIM, 12));
     y += 14;
-  }
+  });
 
   return c;
 }
@@ -978,9 +978,9 @@ function renderFlameGraphView(ctx: ViewRendererContext): Container {
 
     // Find max for scaling
     let maxLat = 1;
-    for (const v of sh.taskLatencyMax) {
+    sh.taskLatencyMax.forEach((v) => {
       if (v > maxLat) maxLat = v;
-    }
+    });
 
     // Draw bars with smooth scroll offset
     const data = sh.taskLatencyMax;
@@ -1028,11 +1028,11 @@ function renderGpuPassesView(ctx: ViewRendererContext): Container {
   }
   let y = 30;
   let totalGpuMs = 0;
-  for (const p of gpuPasses) {
+  gpuPasses.forEach((p: any) => {
     c.addChild(makeLabel(`${p.name}: ${p.ms.toFixed(2)}ms (${p.type})`, 10, y, COLOR_TEXT));
     totalGpuMs += p.ms;
     y += 14;
-  }
+  });
   c.addChild(makeLabel(`Total GPU: ${totalGpuMs.toFixed(2)}ms`, 10, y + 5, COLOR_GREEN, 13));
   return c;
 }

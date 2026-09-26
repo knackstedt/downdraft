@@ -39,7 +39,7 @@ export const UNIT_TO_METERS: Record<string, number> = {
 export function applyUpAxisConversion(meshes: PluginMesh[], fromAxis: "y" | "z"): void {
   if (fromAxis === "y") return;
 
-  for (const mesh of meshes) {
+  meshes.forEach((mesh) => {
     const verts = mesh.vertices;
     for (let v = 0; v < mesh.vertexCount; v++) {
       const base = v * VERTEX_STRIDE;
@@ -54,7 +54,7 @@ export function applyUpAxisConversion(meshes: PluginMesh[], fromAxis: "y" | "z")
       verts[base + 4] = nz;
       verts[base + 5] = -ny;
     }
-  }
+  });
 }
 
 /**
@@ -65,7 +65,7 @@ export function applyUnitScale(meshes: PluginMesh[], fromUnits: string): void {
   const factor = UNIT_TO_METERS[fromUnits] ?? 1.0;
   if (factor === 1.0) return;
 
-  for (const mesh of meshes) {
+  meshes.forEach((mesh) => {
     const verts = mesh.vertices;
     for (let v = 0; v < mesh.vertexCount; v++) {
       const base = v * VERTEX_STRIDE;
@@ -73,7 +73,7 @@ export function applyUnitScale(meshes: PluginMesh[], fromUnits: string): void {
       verts[base + 1] *= factor;
       verts[base + 2] *= factor;
     }
-  }
+  });
 }
 
 /**
@@ -83,7 +83,7 @@ export function applyUnitScale(meshes: PluginMesh[], fromUnits: string): void {
 export function applyRootScale(meshes: PluginMesh[], scaleFactor: number): void {
   if (scaleFactor === 1.0) return;
 
-  for (const mesh of meshes) {
+  meshes.forEach((mesh) => {
     const verts = mesh.vertices;
     for (let v = 0; v < mesh.vertexCount; v++) {
       const base = v * VERTEX_STRIDE;
@@ -91,7 +91,7 @@ export function applyRootScale(meshes: PluginMesh[], scaleFactor: number): void 
       verts[base + 1] *= scaleFactor;
       verts[base + 2] *= scaleFactor;
     }
-  }
+  });
 }
 
 /** Quaternion multiply: a * b (Hamilton product). */
@@ -132,7 +132,7 @@ function isIdentityQuat(q: Quat): boolean {
 export function applyRootRotation(meshes: PluginMesh[], rotation: Quat): void {
   if (isIdentityQuat(rotation)) return;
 
-  for (const mesh of meshes) {
+  meshes.forEach((mesh) => {
     const verts = mesh.vertices;
     for (let v = 0; v < mesh.vertexCount; v++) {
       const base = v * VERTEX_STRIDE;
@@ -149,7 +149,7 @@ export function applyRootRotation(meshes: PluginMesh[], rotation: Quat): void {
       verts[base + 4] = rotatedN[1];
       verts[base + 5] = rotatedN[2];
     }
-  }
+  });
 }
 
 export interface Bounds {
@@ -165,7 +165,7 @@ export function computeBounds(meshes: PluginMesh[]): Bounds {
   let minX = Infinity, minY = Infinity, minZ = Infinity;
   let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
 
-  for (const mesh of meshes) {
+  meshes.forEach((mesh) => {
     const verts = mesh.vertices;
     for (let v = 0; v < mesh.vertexCount; v++) {
       const base = v * VERTEX_STRIDE;
@@ -179,7 +179,7 @@ export function computeBounds(meshes: PluginMesh[]): Bounds {
       if (z < minZ) minZ = z;
       if (z > maxZ) maxZ = z;
     }
-  }
+  });
 
   if (minX === Infinity) {
     return { min: [0, 0, 0], max: [0, 0, 0] };
@@ -208,7 +208,7 @@ export function centerToOrigin(meshes: PluginMesh[], bounds: Bounds): void {
 
   if (cx === 0 && cy === 0 && cz === 0) return;
 
-  for (const mesh of meshes) {
+  meshes.forEach((mesh) => {
     const verts = mesh.vertices;
     for (let v = 0; v < mesh.vertexCount; v++) {
       const base = v * VERTEX_STRIDE;
@@ -216,7 +216,7 @@ export function centerToOrigin(meshes: PluginMesh[], bounds: Bounds): void {
       verts[base + 1] -= cy;
       verts[base + 2] -= cz;
     }
-  }
+  });
 }
 
 /**

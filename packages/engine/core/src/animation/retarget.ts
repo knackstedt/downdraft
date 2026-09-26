@@ -58,7 +58,7 @@ export function retargetClip(
 ): AnimationClipData {
   const retargetedTracks: KeyframeTrack[] = [];
 
-  for (const track of clip.tracks) {
+  for (let _i = 0, _it = clip.tracks, _n = _it.length; _i < _n; _i++) { const track = _it[_i];
     const m = mapping.mappings.find((m) => m.sourceBoneIndex === track.boneIndex);
     if (!m) continue;
 

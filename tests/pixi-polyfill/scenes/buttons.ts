@@ -87,19 +87,19 @@ export const buttonsScene: PixiScene = {
     const gap = 12;
     let x = 16;
     let y = 56;
-    for (const s of states) {
+    states.forEach((s) => {
       drawButton(root, x, y, bw, bh, s.charAt(0).toUpperCase() + s.slice(1), STYLES[s], 16);
       x += bw + gap;
-    }
+    });
 
     // ── Variants row ──
     x = 16;
     y += bh + 20;
     const variants = ["primary", "secondary", "danger"] as const;
-    for (const v of variants) {
+    variants.forEach((v) => {
       drawButton(root, x, y, bw, bh, v.charAt(0).toUpperCase() + v.slice(1), VARIANTS[v], 16);
       x += bw + gap;
-    }
+    });
 
     // ── Sizes row ──
     x = 16;
@@ -109,10 +109,10 @@ export const buttonsScene: PixiScene = {
       { w: 104, h: 36, fs: 16, label: "Medium" },
       { w: 140, h: 48, fs: 20, label: "Large" },
     ];
-    for (const s of sizes) {
+    sizes.forEach((s) => {
       drawButton(root, x, y, s.w, s.h, s.label, STYLES.idle, s.fs);
       x += s.w + gap;
-    }
+    });
 
     // ── Icon-ish buttons (square + glyph) ──
     x = 16;

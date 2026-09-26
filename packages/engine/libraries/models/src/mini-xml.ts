@@ -39,7 +39,7 @@ class El implements MiniXmlElement {
 
   get textContent(): string {
     let s = this.textParts.join("");
-    for (const c of this.children) s += c.textContent;
+    this.children.forEach((c) => { s += c.textContent;; });
     return s;
   }
 
@@ -51,10 +51,10 @@ class El implements MiniXmlElement {
     const out: MiniXmlElement[] = [];
     const lower = name.toLowerCase();
     const walk = (el: El) => {
-      for (const c of el.children) {
+      el.children.forEach((c) => {
         if (c.tagName.toLowerCase() === lower) out.push(c);
         walk(c);
-      }
+      });
     };
     walk(this);
     return out;

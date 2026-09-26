@@ -233,7 +233,7 @@ async function main() {
   let failed = 0;
   const failures: string[] = [];
 
-  for (const test of tests) {
+  for (let _i = 0, _it = tests, _n = _it.length; _i < _n; _i++) { const test = _it[_i];
     try {
       await test.fn();
       passed++;
@@ -249,7 +249,7 @@ async function main() {
   console.log(`  Results: ${passed} passed, ${failed} failed, ${tests.length} total`);
   if (failures.length > 0) {
     console.log("\n  Failures:");
-    for (const f of failures) console.log(f);
+    failures.forEach((f) => { console.log(f);; });
   }
   console.log("═══════════════════════════════════════════════════════════════");
 

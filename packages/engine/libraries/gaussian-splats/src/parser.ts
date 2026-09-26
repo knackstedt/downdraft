@@ -87,9 +87,9 @@ function sigmoidOpacity(o: number): number {
 /** Detect SH degree from the number of f_rest properties. */
 function detectShDegree(propertyNames: string[]): number {
   let restCount = 0;
-  for (const name of propertyNames) {
+  propertyNames.forEach((name) => {
     if (name.startsWith("f_rest_")) restCount++;
-  }
+  });
   if (restCount >= 45) return 3;
   if (restCount >= 24) return 2;
   if (restCount >= 9) return 1;

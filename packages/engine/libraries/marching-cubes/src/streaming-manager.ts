@@ -492,7 +492,7 @@ export class TerrainStreamingManager {
 
   getDirtyIslands(): number[] {
     const dirty: number[] = [];
-    for (const [id, terrain] of this.terrains) {
+    for (const [id, terrain] of this.terrains.entries()) {
       if (terrain.dirty) dirty.push(id);
     }
     return dirty;
@@ -507,7 +507,7 @@ export class TerrainStreamingManager {
   }
 
   hasDirtyIslands(): boolean {
-    for (const [, terrain] of this.terrains) {
+    for (const [, terrain] of this.terrains.entries()) {
       if (terrain.dirty) return true;
     }
     return false;
@@ -638,7 +638,7 @@ export class TerrainStreamingManager {
     const startTime = performance.now();
     let generated = 0;
 
-    for (const [, terrain] of this.terrains) {
+    for (const [, terrain] of this.terrains.entries()) {
       if (!terrain.pendingChunkGen || terrain.pendingChunkGen.length === 0) continue;
       if (!terrain.chunkedField) continue;
 

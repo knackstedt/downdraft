@@ -279,14 +279,14 @@ export class WarningEngine {
     }
 
     // Invoke callbacks
-    for (const cb of this.callbacks) {
+    this.callbacks.forEach((cb) => {
       try {
         cb(record, ctx);
       } catch (err) {
         // Don't let a callback error stop other callbacks
         log.error("WarningEngine", `callback error for rule "${rule.id}": ${err}`);
       }
-    }
+    });
   }
 
   private compare(value: number, op: WarningRule["compare"], threshold: number): boolean {

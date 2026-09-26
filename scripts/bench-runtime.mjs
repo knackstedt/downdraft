@@ -215,10 +215,10 @@ out.fps = findNum(ui1, /fps/i) ?? findNum(ui0, /fps/i);
 // Fold snapshots into rss/heap/cpu metrics. cpuUser/cpuSystem are cumulative
 // microseconds (process.cpuUsage) — diff first↔last for a real %.
 const rsses = [], heaps = [];
-for (const s of snaps) {
+snaps.forEach((s) => {
   const rss = findNum(s.data, /^rss$/i); if (rss) rsses.push(rss);
   const heap = findNum(s.data, /heapUsed|heap_used/i); if (heap) heaps.push(heap);
-}
+});
 if (rsses.length) out.rssMB = Math.max(...rsses) / (1024 * 1024);
 if (heaps.length) out.heapMB = Math.max(...heaps) / (1024 * 1024);
 if (snaps.length >= 2) {

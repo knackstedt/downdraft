@@ -65,7 +65,7 @@ export class TraceEventWriter {
     if (!this.recording) return;
     const tsOffsetUs = (performance.now() - this.startTimeMs) * 1000;
 
-    for (const slot of snapshot.slots) {
+    snapshot.slots.forEach((slot) => {
       const pid = slot.slotIndex;
       const tid = slot.runtime;
 
@@ -132,17 +132,17 @@ export class TraceEventWriter {
 
       // IOPS records
       if (this.opts.includeIops) {
-        for (const iops of slot.iopsRecords) {
+        slot.iopsRecords.forEach((iops) => {
           this.events.push(this.iopsToEvent(iops, pid, tid, slot.tagTable));
-        }
+        });
       }
-    }
+    });
 
     // Warnings as instant events
     if (this.opts.includeWarnings) {
-      for (const w of snapshot.warnings) {
+      snapshot.warnings.forEach((w) => {
         this.events.push(this.warningToEvent(w));
-      }
+      });
     }
   }
 

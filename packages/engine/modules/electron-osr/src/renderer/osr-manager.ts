@@ -97,7 +97,7 @@ export class OSRManager {
 
     // Remove elements referencing this renderer
     const texIdx = this.rendererIds.indexOf(id);
-    for (const [elId, el] of this.elements) {
+    for (const [elId, el] of this.elements.entries()) {
       if (el.textureIndex === texIdx) {
         this.elements.delete(elId);
       }
@@ -136,9 +136,9 @@ export class OSRManager {
 
   updateElements(elements: WorldSpaceUIElement[]): void {
     this.elements.clear();
-    for (const el of elements) {
+    elements.forEach((el) => {
       this.elements.set(el.id, el);
-    }
+    });
   }
 
   render(camera: CameraState, passEncoder: GPURenderPassEncoder): void {
@@ -206,9 +206,9 @@ export class OSRManager {
 
   setSoftwareCursorEnabled(enabled: boolean): void {
     if (!this.ipc || typeof this.ipc.setSoftwareCursor !== "function") return;
-    for (const id of this.rendererIds) {
+    for (let _i6602 = 0, _it6602 = this.rendererIds, _n6602 = _it6602.length; _i6602 < _n6602; _i6602++) { const id = _it6602[_i6602];
       this.ipc.setSoftwareCursor(id, enabled);
-    }
+    };
   }
 
   destroy(): void {
@@ -255,10 +255,10 @@ export class OSRManager {
     }
 
     const rendererDimensions = new Map<string, { width: number; height: number }>();
-    for (const id of this.rendererIds) {
+    this.rendererIds.forEach((id) => {
       const dims = this.textureManager.getReceiverDimensions(id);
       if (dims) rendererDimensions.set(id, dims);
-    }
+    });
 
     const config = {
       textureIndexToRendererId,

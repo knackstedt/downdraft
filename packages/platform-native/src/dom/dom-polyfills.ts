@@ -104,7 +104,7 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
       const m = sel.match(/^(?:([a-zA-Z][\w-]*)?)#([\w-]+)$/);
       if (!m) return undefined;
       const [, tag, id] = m;
-      for (const el of bodyChildren) {
+      for (const el of bodyChildren.values()) {
         if (el?.id === id && (!tag || el.tagName?.toLowerCase() === tag.toLowerCase())) return el;
       }
       return undefined;
@@ -126,7 +126,7 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
       getElementById: (id: string) => {
         if (id === "game-canvas" || id === "canvas") return surface;
         if (id === "root") return getOverlayElement(0);
-        for (const [i, el] of overlays) if (el.id === id) { void i; return el; }
+        for (const [i, el] of overlays.entries()) if (el.id === id) { void i; return el; }
         const found = matchIdSelector(`#${id}`);
         return found === undefined ? null : found;
       },
@@ -287,7 +287,7 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
       const cls = class extends NativeEvent {
         constructor(type: string, init: any = {}) {
           super(type, init);
-          for (const f of fields) (this as any)[f] = init[f] ?? (this as any)[f];
+          fields.forEach((f) => { (this as any)[f] = init[f] ?? (this as any)[f];; });
         }
       };
       Object.defineProperty(cls, "name", { value: name });
@@ -337,7 +337,7 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
       }
       private emit(type: string) {
         const ev = { type, target: this };
-        for (const fn of this.listeners.get(type) ?? []) fn(ev);
+        (this.listeners.get(type) ?? []).forEach((fn) => { fn(ev);; });
       }
       private read(p: Promise<string | ArrayBuffer>) {
         this.readyState = 1; // LOADING

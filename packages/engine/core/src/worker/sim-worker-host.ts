@@ -294,7 +294,7 @@ export abstract class SimWorkerHost<TApi extends WorkerApi = SimWorkerControlApi
     super.onEvent(kind, data);
     const specific = this.eventHandlers.get(kind);
     if (specific) {
-      for (const cb of specific) {
+      for (const cb of specific.values()) {
         try {
           cb(data, kind);
         } catch (err) {
@@ -304,7 +304,7 @@ export abstract class SimWorkerHost<TApi extends WorkerApi = SimWorkerControlApi
     }
     const wildcard = this.eventHandlers.get("*");
     if (wildcard) {
-      for (const cb of wildcard) {
+      for (const cb of wildcard.values()) {
         try {
           cb(data, kind);
         } catch (err) {

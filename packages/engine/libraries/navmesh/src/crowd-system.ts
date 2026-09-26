@@ -63,9 +63,9 @@ export class CrowdSystem {
           }
         });
 
-        for (const { entity, data } of agents) {
+        agents.forEach(({ entity, data }) => {
           self.updateAgent(entity, data, ctx.dt);
-        }
+        });
       },
       { queries: [query] },
     );
@@ -170,7 +170,7 @@ export class CrowdSystem {
     let cohesion: Vec3 = [0, 0, 0];
     let count = 0;
 
-    for (const entry of nearby) {
+    for (let _i = 0, _it = nearby, _n = _it.length; _i < _n; _i++) { const entry = _it[_i];
       if (entry.entity.index === entity.index) continue;
       const otherAgent = this.world?.getComponent<NavAgentData>(entry.entity, NavAgent.id);
       if (!otherAgent) continue;

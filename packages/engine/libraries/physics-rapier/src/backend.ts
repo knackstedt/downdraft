@@ -440,7 +440,7 @@ export class RapierPhysicsBackend implements PhysicsBackend {
     const realm = this.realms.get(realmId);
     if (!realm) return 0;
     let n = 0;
-    for (const [bodyId, b] of realm.bodies) {
+    for (const [bodyId, b] of realm.bodies.entries()) {
       if (n >= maxCount) break;
       if (b.sleeping || b.desc.type !== "dynamic") continue;
       const o = n * 10;
@@ -513,7 +513,7 @@ export class RapierPhysicsBackend implements PhysicsBackend {
     let closest: RaycastResult | null = null;
     let closestDist = maxDistance;
 
-    for (const [, b] of realm.bodies) {
+    for (const [, b] of realm.bodies.entries()) {
       if (filter?.excludeEntity && b.body.entity.index === filter.excludeEntity.index) continue;
 
       for (const collider of b.colliders.values()) {
@@ -554,7 +554,7 @@ export class RapierPhysicsBackend implements PhysicsBackend {
     const realm = this.realms.get(realmId);
     if (!realm) return [];
 
-    for (const [, b] of realm.bodies) {
+    for (const [, b] of realm.bodies.entries()) {
       if (filter?.excludeEntity && b.body.entity.index === filter.excludeEntity.index) continue;
 
       for (const collider of b.colliders.values()) {
@@ -639,9 +639,9 @@ export class RapierPhysicsBackend implements PhysicsBackend {
   }
 
   stepAll(dt: number): void {
-    for (const realmId of this.realmIds) {
+    this.realmIds.forEach((realmId) => {
       this.step(realmId, dt);
-    }
+    });
   }
 
   getContacts(realmId: number): ContactManifold[] {
@@ -662,7 +662,7 @@ export class RapierPhysicsBackend implements PhysicsBackend {
     const realm = this.realms.get(realmId);
     if (!realm) return [];
     const islands: IslandInfo[] = [];
-    for (const [bodyId, b] of realm.bodies) {
+    for (const [bodyId, b] of realm.bodies.entries()) {
       const speed = Math.sqrt(
         b.linearVelocity[0] ** 2 + b.linearVelocity[1] ** 2 + b.linearVelocity[2] ** 2,
       );
@@ -720,7 +720,7 @@ export class RapierPhysicsBackend implements PhysicsBackend {
   syncTransforms(realmId: number, transformBuffer: Float32Array, entityCount: number): void {
     const realm = this.realms.get(realmId);
     if (!realm) return;
-    for (const [, b] of realm.bodies) {
+    for (const [, b] of realm.bodies.entries()) {
       const idx = b.body.entity.index;
       if (idx < entityCount) {
         const offset = idx * 8;
@@ -738,7 +738,7 @@ export class RapierPhysicsBackend implements PhysicsBackend {
   readTransforms(realmId: number, transformBuffer: Float32Array, entityCount: number): void {
     const realm = this.realms.get(realmId);
     if (!realm) return;
-    for (const [, b] of realm.bodies) {
+    for (const [, b] of realm.bodies.entries()) {
       const idx = b.body.entity.index;
       if (idx < entityCount) {
         const offset = idx * 8;
@@ -773,9 +773,9 @@ export class RapierPhysicsBackend implements PhysicsBackend {
       // Only destroy this backend's realms — do NOT call this.lib.destroy(),
       // which would clear the shared lib's closure maps for ALL backends
       // (the lib is a process-wide singleton via cachedLib).
-      for (const realmId of this.realmIds) {
+      for (let _i26137 = 0, _it26137 = this.realmIds, _n26137 = _it26137.length; _i26137 < _n26137; _i26137++) { const realmId = _it26137[_i26137];
         this.lib.destroyRealm(realmId);
-      }
+      };
     }
     this.realms.clear();
     this.realmIds = [];
@@ -850,7 +850,7 @@ export class RapierPhysicsBackend implements PhysicsBackend {
 
   private readBackTransforms(realm: RealmState): void {
     if (!this.lib) return;
-    for (const [bodyId, b] of realm.bodies) {
+    for (const [bodyId, b] of realm.bodies.entries()) {
       const transform = this.lib.getBodyTransform(realm.id, bodyId);
       if (transform) {
         b.position = transform.position;
@@ -862,7 +862,7 @@ export class RapierPhysicsBackend implements PhysicsBackend {
   private stepFallback(realm: RealmState, dt: number): void {
     const gravity = realm.config.gravity;
 
-    for (const [, b] of realm.bodies) {
+    for (const [, b] of realm.bodies.entries()) {
       if (b.desc.type !== "dynamic" || b.sleeping) continue;
 
       b.linearVelocity[0] += gravity[0] * (b.desc.gravityScale ?? 1) * dt;

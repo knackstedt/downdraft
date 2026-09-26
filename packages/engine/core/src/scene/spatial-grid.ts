@@ -103,7 +103,7 @@ export class SpatialGrid {
       for (let cz = minCz; cz <= maxCz; cz++) {
         const cell = this.cells.get(this.cellKey(cx, cz));
         if (!cell) continue;
-        for (const entry of cell.entries) {
+        for (let _i = 0, _it = cell.entries, _n = _it.length; _i < _n; _i++) { const entry = _it[_i];
           if (layer !== undefined && entry.layer !== layer) continue;
           if (
             entry.position[0] >= min[0] && entry.position[0] <= max[0] &&

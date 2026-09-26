@@ -87,18 +87,18 @@ describe("MaterialVariantFlags", () => {
 
   it("variantKey should produce unique keys for all 48 permutations", () => {
     const keys = new Set<string>();
-    for (const sc of [false, true]) {
-      for (const sk of [false, true]) {
-        for (const am of ["opaque", "clip", "blend"] as const) {
-          for (const mo of [false, true]) {
-            for (const inn of [false, true]) {
+    [false, true].forEach((sc) => {
+      [false, true].forEach((sk) => {
+        (["opaque", "clip", "blend"] as const).forEach((am) => {
+          [false, true].forEach((mo) => {
+            [false, true].forEach((inn) => {
               const key = variantKey({ ...DEFAULT_VARIANT_FLAGS, shadowCaster: sc, skinning: sk, alphaMode: am, morph: mo, instanced: inn });
               keys.add(key);
-            }
-          }
-        }
-      }
-    }
+            });
+          });
+        });
+      });
+    });
     expect(keys.size).toBe(48);
   });
 });

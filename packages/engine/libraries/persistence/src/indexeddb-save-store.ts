@@ -246,9 +246,9 @@ export class IndexedDBSaveStore implements ISaveStore {
     }
 
     private warn(warning: SaveWarning): void {
-        for (const cb of this.warningCallbacks) {
+        this.warningCallbacks.forEach((cb) => {
             try { cb(warning); } catch { /* ignore callback errors */ }
-        }
+        });
     }
 
     // ── Compression / hashing (lazy init, same as OpfsSaveStore) ────────────
@@ -369,9 +369,9 @@ export class IndexedDBSaveStore implements ISaveStore {
                 blobCount: blobEntries.length,
             };
             writeTx.objectStore(GENS_STORE).put(genRecord);
-            for (const b of blobEntries) {
+            blobEntries.forEach((b) => {
                 writeTx.objectStore(BLOBS_STORE).put(b);
-            }
+            });
             if (thumbRecord) {
                 writeTx.objectStore(THUMBS_STORE).put(thumbRecord);
             }
@@ -424,11 +424,11 @@ export class IndexedDBSaveStore implements ISaveStore {
             tx.objectStore(GENS_STORE).delete([slot, gen]);
             // Delete all blobs for this gen — getAll then delete each (no index).
             const blobs = (await this.reqToPromise(tx.objectStore(BLOBS_STORE).getAll())) as BlobRecord[];
-            for (const b of blobs) {
+            blobs.forEach((b) => {
                 if (b.slot === slot && b.gen === gen) {
                     tx.objectStore(BLOBS_STORE).delete([slot, gen, b.key]);
                 }
-            }
+            });
             await this.txDone(tx);
         } catch {
             // Already gone — fine
@@ -454,7 +454,7 @@ export class IndexedDBSaveStore implements ISaveStore {
                 .filter((g) => g.gen <= targetGen)
                 .sort((a, b) => b.gen - a.gen);
 
-            for (const genMeta of gensToTry) {
+            for (let _i = 0, _it = gensToTry, _n = _it.length; _i < _n; _i++) { const genMeta = _it[_i];
                 const result = await this.loadFromGen(safeSlot, slot, genMeta, includeBlobs);
                 if (result.state) {
                     if (genMeta.gen !== targetGen) {
@@ -568,11 +568,11 @@ export class IndexedDBSaveStore implements ISaveStore {
             )) as SlotMeta[];
 
             const slots: SaveSlotInfo[] = [];
-            for (const meta of metas) {
+            for (let _i = 0, _it = metas, _n = _it.length; _i < _n; _i++) { const meta = _it[_i];
                 const latest = meta.generations[meta.generations.length - 1] ?? meta.generations[0];
                 if (!latest) continue;
                 let totalSize = 0;
-                for (const g of meta.generations) totalSize += g.bodySize;
+                meta.generations.forEach((g) => { totalSize += g.bodySize;; });
                 slots.push({
                     slot: meta.slot,
                     timestamp: latest.timestamp,
@@ -618,14 +618,14 @@ export class IndexedDBSaveStore implements ISaveStore {
             const db = this.ensureDb();
             const tx = db.transaction([SLOTS_STORE, GENS_STORE, BLOBS_STORE, THUMBS_STORE], "readwrite");
             tx.objectStore(SLOTS_STORE).delete(safeSlot);
-            for (const g of gens) {
+            gens.forEach((g) => {
                 tx.objectStore(GENS_STORE).delete([safeSlot, g.gen]);
-            }
+            });
             // Delete blobs + thumbnail (getAll then filter, no index).
             const allBlobs = (await this.reqToPromise(tx.objectStore(BLOBS_STORE).getAll())) as BlobRecord[];
-            for (const b of allBlobs) {
+            allBlobs.forEach((b) => {
                 if (b.slot === safeSlot) tx.objectStore(BLOBS_STORE).delete([safeSlot, b.gen, b.key]);
-            }
+            });
             tx.objectStore(THUMBS_STORE).delete(safeSlot);
             await this.txDone(tx);
 

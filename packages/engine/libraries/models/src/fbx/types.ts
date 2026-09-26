@@ -108,9 +108,9 @@ export function findNodesByName(node: FBXNode, name: string, results: FBXNode[] 
 /** Recursively find all descendant nodes by name (across multiple root nodes). */
 export function findNodesInTree(nodes: FBXNode[], name: string): FBXNode[] {
   const results: FBXNode[] = [];
-  for (const node of nodes) {
+  nodes.forEach((node) => {
     findNodesByName(node, name, results);
-  }
+  });
   return results;
 }
 

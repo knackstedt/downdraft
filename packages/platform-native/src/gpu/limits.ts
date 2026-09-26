@@ -106,6 +106,7 @@ export function serializeRequiredLimits(requiredLimits?: Record<string, number |
 export function serializeRequiredFeatures(requiredFeatures?: Iterable<string>): Uint32Array {
   if (!requiredFeatures) return new Uint32Array(0);
   const values: number[] = [];
+  // oxlint-disable-next-line downdraft/no-for-of -- iterates Iterable<string>; for..of required
   for (const name of requiredFeatures) {
     const v = FEATURE_VALUE_MAP[name];
     if (v === undefined) {

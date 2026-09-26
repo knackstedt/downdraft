@@ -293,10 +293,10 @@ describe("generateIcons", () => {
 
     await generateIcons(gameDir, androidDir, iosAppDir);
 
-    for (const density of ["mdpi", "hdpi", "xhdpi", "xxhdpi", "xxxhdpi"]) {
+    ["mdpi", "hdpi", "xhdpi", "xxhdpi", "xxxhdpi"].forEach((density) => {
       const roundPath = join(androidDir, `app/src/main/res/mipmap-${density}/ic_launcher_round.png`);
       expect(existsSync(roundPath)).toBe(true);
-    }
+    });
   });
 
   it("generates Android adaptive icon foregrounds with padding", async () => {
@@ -343,7 +343,7 @@ describe("generateIcons", () => {
       ["drawable-port-xxhdpi", 1440, 2560],
       ["drawable-port-xxxhdpi", 1920, 3200],
     ];
-    for (const [dir, w, h] of specs) {
+    for (let _i = 0, _it = specs, _n = _it.length; _i < _n; _i++) { const [dir, w, h] = _it[_i];
       const splashPath = join(androidDir, `app/src/main/res/${dir}/splash.png`);
       expect(existsSync(splashPath)).toBe(true);
       const splash = await Jimp.read(splashPath);
@@ -365,7 +365,7 @@ describe("generateIcons", () => {
       ["drawable-land-xxhdpi", 2560, 1440],
       ["drawable-land-xxxhdpi", 3200, 1920],
     ];
-    for (const [dir, w, h] of specs) {
+    for (let _i = 0, _it = specs, _n = _it.length; _i < _n; _i++) { const [dir, w, h] = _it[_i];
       const splashPath = join(androidDir, `app/src/main/res/${dir}/splash.png`);
       expect(existsSync(splashPath)).toBe(true);
       const splash = await Jimp.read(splashPath);
@@ -411,7 +411,7 @@ describe("generateIcons", () => {
     await generateIcons(gameDir, androidDir, iosAppDir);
 
     const splashDir = join(iosAppDir, "Assets.xcassets/Splash.imageset");
-    for (const filename of ["splash-2732x2732.png", "splash-2732x2732-1.png", "splash-2732x2732-2.png"]) {
+    for (let _i = 0, _it = ["splash-2732x2732.png", "splash-2732x2732-1.png", "splash-2732x2732-2.png"], _n = _it.length; _i < _n; _i++) { const filename = _it[_i];
       const splashPath = join(splashDir, filename);
       expect(existsSync(splashPath)).toBe(true);
       const splash = await Jimp.read(splashPath);
@@ -675,7 +675,7 @@ describe("resolveSigningConfig", () => {
     tempHome = mkdtempSync(join(tmpdir(), "mobile-sign-home-"));
     savedHome = process.env.HOME;
     savedEnv = {};
-    for (const k of envKeys) savedEnv[k] = process.env[k];
+    envKeys.forEach((k) => { savedEnv[k] = process.env[k];; });
     // os.homedir() reads HOME on POSIX; set it so the function looks in tempHome.
     process.env.HOME = tempHome;
   });
@@ -683,10 +683,10 @@ describe("resolveSigningConfig", () => {
   afterEach(() => {
     if (savedHome === undefined) delete process.env.HOME;
     else process.env.HOME = savedHome;
-    for (const k of envKeys) {
+    envKeys.forEach((k) => {
       if (savedEnv[k] === undefined) delete process.env[k];
       else process.env[k] = savedEnv[k];
-    }
+    });
     rmSync(tempHome, { recursive: true, force: true });
   });
 
@@ -824,12 +824,12 @@ describe("resolveAndroidBuildTools", () => {
   it("locates apksigner + zipalign in the highest build-tools version under ~/Android/Sdk", () => {
     const sdk = join(tempHome, "Android", "Sdk", "build-tools");
     // Two versions present; 36.0.0 should win over 35.0.0.
-    for (const v of ["35.0.0", "36.0.0"]) {
+    ["35.0.0", "36.0.0"].forEach((v) => {
       const dir = join(sdk, v);
       mkdirSync(dir, { recursive: true });
       writeFileSync(join(dir, "apksigner"), "#!/bin/sh\n");
       writeFileSync(join(dir, "zipalign"), "#!/bin/sh\n");
-    }
+    });
 
     const tools = resolveAndroidBuildTools();
 

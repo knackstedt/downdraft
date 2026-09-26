@@ -222,9 +222,9 @@ export class OpfsSaveStore implements ISaveStore {
   }
 
   private warn(warning: SaveWarning): void {
-    for (const cb of this.warningCallbacks) {
+    this.warningCallbacks.forEach((cb) => {
       try { cb(warning); } catch { /* ignore callback errors */ }
-    }
+    });
   }
 
   // ── Compression / hashing (lazy init, same as FileSaveStore) ────────────
@@ -469,7 +469,7 @@ export class OpfsSaveStore implements ISaveStore {
         .filter(g => g.gen <= targetGen)
         .sort((a, b) => b.gen - a.gen);
 
-      for (const genMeta of gensToTry) {
+      for (let _i = 0, _it = gensToTry, _n = _it.length; _i < _n; _i++) { const genMeta = _it[_i];
         const result = await this.loadFromGen(slotDir, slot, genMeta, includeBlobs);
         if (result.state) {
           if (genMeta.gen !== targetGen) {
@@ -599,9 +599,9 @@ export class OpfsSaveStore implements ISaveStore {
 
         // Compute total file size across all generations
         let totalSize = 0;
-        for (const g of meta.generations) {
+        meta.generations.forEach((g) => {
           totalSize += g.bodySize;
-        }
+        });
 
         slots.push({
           slot: handle.name,

@@ -995,7 +995,7 @@ describe("AnimationStateMachine advanced", () => {
       { op: "<=", value: 1, param: 1, shouldTransition: true },
     ] as const;
 
-    for (const { op, value, param, shouldTransition } of ops) {
+    ops.forEach(({ op, value, param, shouldTransition }) => {
       const sm = new AnimationStateMachine(player);
       const clip = makeSimpleClip();
       sm.addState("idle", { clip });
@@ -1004,7 +1004,7 @@ describe("AnimationStateMachine advanced", () => {
       sm.setInitialState("idle");
       sm.update(0.016, { x: param });
       expect(sm.getCurrentState() === "walk").toBe(shouldTransition);
-    }
+    });
   });
 
   it("should not transition from wrong source state", () => {

@@ -153,7 +153,7 @@ async function handleRequest(req: RealmWorkerRequest): Promise<RealmWorkerRespon
       const buf = req.buffer;
       // Bulk read: iterate all bodies, write pos+rot into buffer by bodyId slot
       // The buffer is indexed by entity slot (bodyId × 8)
-      for (const [bodyId, body] of realm.bodies) {
+      for (const [bodyId, body] of realm.bodies.entries()) {
         const offset = bodyId * 8;
         if (offset + 7 >= buf.length) continue;
         const pos = body.translation();

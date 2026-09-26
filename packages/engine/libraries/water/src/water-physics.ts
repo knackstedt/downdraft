@@ -198,18 +198,18 @@ export class WaterPhysics {
     }
 
     // Remove inactive chunks
-    for (const [key] of this.chunks) {
+    for (const [key] of this.chunks.entries()) {
       if (!seenKeys.has(key)) this.chunks.delete(key);
     }
     this.activeChunks = newActive;
 
     // Compute heights for each active chunk
-    for (const chunk of newActive) {
+    newActive.forEach((chunk) => {
       this.computeChunkHeights(chunk, playerX, playerZ, renderDistSq, patchSize, {
         chopAmp, waveScale, t, waves, numWaves, shoreSrcs, shoreCnt, wakeSrcs, wakeCnt,
         chopT1a, chopT1b, chopT2a, chopT2b, chopT3, shoreTime,
       });
-    }
+    });
   }
 
   private computeChunkHeights(
@@ -342,7 +342,7 @@ export class WaterPhysics {
     // Sample from active chunks
     const patchSize = this.buffer.getPatchSize();
     let rawH = 0;
-    for (const chunk of this.activeChunks) {
+    for (let _i = 0, _it = this.activeChunks, _n = _it.length; _i < _n; _i++) { const chunk = _it[_i];
       const gx = (worldX - chunk.originX) / patchSize;
       const gz = (worldZ - chunk.originZ) / patchSize;
       if (gx >= 0 && gx < CHUNK_GRID && gz >= 0 && gz < CHUNK_GRID) {

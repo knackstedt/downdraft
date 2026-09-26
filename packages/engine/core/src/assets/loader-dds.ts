@@ -210,10 +210,10 @@ export function parseDDS(data: ArrayBuffer): TextureData | null {
   const totalSize = levels.reduce((sum, l) => sum + l.length, 0);
   const combined = new Uint8Array(totalSize);
   let dstOffset = 0;
-  for (const level of levels) {
+  levels.forEach((level) => {
     combined.set(level, dstOffset);
     dstOffset += level.length;
-  }
+  });
 
   return {
     width: header.width,

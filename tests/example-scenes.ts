@@ -129,7 +129,7 @@ export async function runExampleSceneTests(
   const suite = new VisionTestSuite(device);
   const coreResults: VisionTestResult[] = [];
 
-  for (const test of EXAMPLE_SCENE_TESTS) {
+  for (let _i = 0, _it = EXAMPLE_SCENE_TESTS, _n = _it.length; _i < _n; _i++) { const test = _it[_i];
     if (test.assertions.length > 0) {
       const result = await suite.runPixelTest(
         test.name,

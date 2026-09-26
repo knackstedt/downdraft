@@ -37,9 +37,9 @@ function makeCtx() {
   } as unknown as RendererModuleContext;
 
   const dispatch = (phase: string, dt = 16, t = 100) => {
-    for (const fn of frameHooks.get(phase) ?? []) fn(dt, t);
+    (frameHooks.get(phase) ?? []).forEach((fn) => { fn(dt, t);; });
   };
-  const dispose = () => { for (const fn of disposeFns) fn(); };
+  const dispose = () => { disposeFns.forEach((fn) => { fn();; }); };
 
   return { ctx, uiRoot, router, dispatch, dispose, get layoutInvalidated() { return layoutInvalidated; }, provided };
 }
@@ -52,7 +52,7 @@ function makeStore<S>(initial: S): UISubscribable<S> & { set(s: S): void } {
     set(s: S) {
       const prev = state;
       state = s;
-      for (const l of listeners) l(state, prev);
+      listeners.forEach((l) => { l(state, prev);; });
     },
     subscribe(l) {
       listeners.push(l);

@@ -74,7 +74,7 @@ export class DebugVizPass extends RenderPass {
       ["lod", LOD_SHADER],
     ];
 
-    for (const [mode, code] of meshShaders) {
+    meshShaders.forEach(([mode, code]) => {
       const module = createValidatedShaderModule(device, { code, label: "DebugViz" });
       const primitive: GPUPrimitiveState = mode === "wireframe"
         ? { topology: "line-list" }
@@ -109,7 +109,7 @@ export class DebugVizPass extends RenderPass {
         primitive,
       });
       this.pipelines.set(mode, pipeline);
-    }
+    });
 
     // LOD bind group (needs lod uniform in addition to camera)
     const lodPipeline = this.pipelines.get("lod");

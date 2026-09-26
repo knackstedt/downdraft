@@ -21,10 +21,10 @@ export function spawn(
   ...specs: ComponentSpec<any>[]
 ): Entity {
   const components = new Map<number, unknown>();
-  for (const spec of specs) {
+  specs.forEach((spec) => {
     const data = spec.def.create(spec.overrides);
     components.set(spec.def.id, data);
-  }
+  });
   return world.spawn(components);
 }
 

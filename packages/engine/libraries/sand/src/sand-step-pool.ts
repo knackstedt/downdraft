@@ -118,10 +118,10 @@ export class SandStepPool {
     // Apply gravity overrides to the coordinator's boundary world too.
     if (opts.gravityOverrides) {
       this.gravityOverrides = opts.gravityOverrides;
-      for (const o of opts.gravityOverrides) {
+      opts.gravityOverrides.forEach((o) => {
         MAT_GRAVITY_DIR[o.mat] = o.gravityDir;
         if (o.gravity !== 0) MAT_GRAVITY[o.mat] = o.gravity;
-      }
+      });
     }
     // Custom worker URL — when provided, workers are created from this URL.
     // When not provided, init() uses the inline `new Worker(new URL(...))`
@@ -468,10 +468,10 @@ export class SandStepPool {
 
   /** Shut down all workers. */
   shutdown(): void {
-    for (const worker of this.workers) {
+    this.workers.forEach((worker) => {
       worker.postMessage({ type: "shutdown" });
       worker.terminate();
-    }
+    });
     this.workers = [];
     this.initialized = false;
     // Clear any in-flight init promise so a subsequent init() can rebuild

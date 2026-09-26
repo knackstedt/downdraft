@@ -47,10 +47,10 @@ const MAX_ACTIONS = 8;
 export function compileRules(allRules: ReactionRule[]): CompiledRuleSet {
   // Group rules by material
   const byMaterial: ReactionRule[][] = new Array(MAX_MATERIAL + 1);
-  for (const rule of allRules) {
+  allRules.forEach((rule) => {
     if (!byMaterial[rule.material]) byMaterial[rule.material] = [];
     byMaterial[rule.material].push(rule);
-  }
+  });
 
   const ruleIndices = new Int32Array(MAX_MATERIAL + 1).fill(-1);
   const ruleCounts = new Uint8Array(MAX_MATERIAL + 1);
@@ -64,10 +64,10 @@ export function compileRules(allRules: ReactionRule[]): CompiledRuleSet {
     rules.sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
     ruleIndices[mat] = cursor;
     ruleCounts[mat] = rules.length;
-    for (const rule of rules) {
+    rules.forEach((rule) => {
       compiled.push(compileRule(rule));
       cursor++;
-    }
+    });
   }
 
   return { ruleIndices, ruleCounts, rules: compiled };

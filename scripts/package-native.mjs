@@ -121,7 +121,7 @@ function assetRel(absPath) {
 function walkDir(dir, results = []) {
   let entries;
   try { entries = readdirSync(dir); } catch { return results; }
-  for (const e of entries) {
+  for (let _i = 0, _it = entries, _n = _it.length; _i < _n; _i++) { const e = _it[_i];
     const full = `${dir}/${e}`;
     let st;
     try { st = statSync(full); } catch { continue; }
@@ -180,13 +180,13 @@ const makePlugin = (collectWorkers) => ({
       };
     });
     // Bare .wgsl/.glsl imports (no ?raw suffix) → text default export.
-    for (const ext of ["wgsl", "glsl"]) {
+    ["wgsl", "glsl"].forEach((ext) => {
       build.onResolve({ filter: new RegExp(`\\.${ext}$`) }, (args) => {
         const resolved = resolveImport(args.path, args.importer);
         if (resolved.endsWith(".ts")) return { path: resolved };
         return { path: resolved, namespace: "dd-raw" };
       });
-    }
+    });
     // CSS — no DOM in native mode; discard like the runtime loader does.
     // Resolve to an absolute path — a relative namespaced path can be
     // re-serialized as "dd-css:./x.css" and rejected as a bogus package.
@@ -344,7 +344,7 @@ while (workerEntries.size !== prevCount) {
     outdir: "/tmp/dd-scan-out",
   });
   if (!scan.success) {
-    for (const msg of scan.logs) console.error(msg);
+    scan.logs.forEach((msg) => { console.error(msg);; });
     process.exit(1);
   }
 }
@@ -370,12 +370,12 @@ const result = await Bun.build({
 });
 
 if (!result.success) {
-  for (const msg of result.logs) console.error(msg);
+  result.logs.forEach((msg) => { console.error(msg);; });
   process.exit(1);
 }
-for (const out of result.outputs) {
+result.outputs.forEach((out) => {
   console.log(`${out.kind.padEnd(18)} ${out.path} ${(out.size / 1024 / 1024).toFixed(1)}MB`);
-}
+});
 
 // ── Stage runtime tree ──
 const outdir = dirname(resolve(outfile));
@@ -406,19 +406,19 @@ const engineLibs = [
   "packages/engine/libraries/blitz-ui/native-osr/target/release/libdowndraft_blitz_osr",
 ];
 const staged = new Set();
-for (const base of engineLibs) {
+engineLibs.forEach((base) => {
   const p = resolve(repoRoot, base + libExt);
   const name = basename(base) + libExt;
   if (existsSync(p) && !staged.has(name)) {
     copyFileSync(p, join(nativeDir, name));
     staged.add(name);
   }
-}
+});
 
 // Assets referenced via ?url / new URL / import.meta.glob.
 const assetRoot = join(outdir, "dd-assets");
 let stagedAssets = 0;
-for (const f of assetFiles) {
+for (const f of assetFiles.values()) {
   const dest = join(assetRoot, assetRel(f));
   mkdirSync(dirname(dest), { recursive: true });
   copyFileSync(f, dest);

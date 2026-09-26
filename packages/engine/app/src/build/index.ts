@@ -179,13 +179,13 @@ export function createDowndraftBuilderConfig(
             const exes = buildResult.artifactPaths.filter((p) => p.endsWith(".exe"));
             if (exes.length === 0) return [];
             const results = await patchPeTimestamps(exes, ts);
-            for (const r of results) {
+            results.forEach((r) => {
               log.info(
                 "downdraft",
                 `Patched PE TimeDateStamp for ${r.file}: ` +
                   `${r.previous} → ${r.next}`,
               );
-            }
+            });
             return [];
           },
         }

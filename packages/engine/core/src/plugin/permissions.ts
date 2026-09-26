@@ -146,7 +146,7 @@ export function resolvePermissions(
   const granted = new Set<PluginPermission>();
   const denied: Array<{ permission: PluginPermission; reason: string }> = [];
 
-  for (const p of requested) {
+  for (let _i = 0, _it = requested, _n = _it.length; _i < _n; _i++) { const p = _it[_i];
     if (!tierSet.has(p)) {
       denied.push({ permission: p, reason: `not allowed for tier "${tier}"` });
       continue;
@@ -168,8 +168,8 @@ export function resolvePermissions(
  */
 export function computeGlobalAllowlist(granted: ReadonlySet<PluginPermission>): Set<string> {
   const keep = new Set<string>(BASELINE_GLOBALS);
-  for (const p of granted) {
-    for (const g of PERMISSION_GLOBALS[p]) keep.add(g);
+  for (const p of granted.values()) {
+    PERMISSION_GLOBALS[p].forEach((g) => { keep.add(g);; });
   }
   return keep;
 }

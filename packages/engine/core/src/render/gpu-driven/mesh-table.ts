@@ -77,12 +77,12 @@ export class GpuMeshTable {
 
   /** Build (or rebuild) merged GPU buffers. Call after all addMesh / structural changes. */
   build(device: GPUDevice): void {
-    for (const group of this.groups) {
+    this.groups.forEach((group) => {
       // Pack vertices
       let totalVertices = 0;
-      for (const mesh of group.meshes) {
+      group.meshes.forEach((mesh) => {
         totalVertices += mesh.vertexCount;
-      }
+      });
       const vertexByteSize = totalVertices * group.layoutStride;
 
       const vertexStaging = new Float32Array(totalVertices * (group.layoutStride / 4));
@@ -109,9 +109,9 @@ export class GpuMeshTable {
       // Pack indices
       const indexByteSize = group.indexFormat === "uint32" ? 4 : 2;
       let totalIndices = 0;
-      for (const mesh of group.meshes) {
+      group.meshes.forEach((mesh) => {
         totalIndices += mesh.indexCount;
-      }
+      });
       const indexByteTotal = totalIndices * indexByteSize;
 
       const indexStaging = group.indexFormat === "uint32" ? new Uint32Array(totalIndices) : new Uint16Array(totalIndices);
@@ -135,7 +135,7 @@ export class GpuMeshTable {
         usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
       });
       device.queue.writeBuffer(group.indexBuffer, 0, indexStaging as unknown as BufferSource);
-    }
+    });
 
     this.built = true;
   }
@@ -161,12 +161,12 @@ export class GpuMeshTable {
 
   /** Destroy all created GPU buffers. */
   destroy(): void {
-    for (const group of this.groups) {
+    this.groups.forEach((group) => {
       group.vertexBuffer?.destroy();
       group.indexBuffer?.destroy();
       group.vertexBuffer = null;
       group.indexBuffer = null;
-    }
+    });
   }
 
   get isBuilt(): boolean {

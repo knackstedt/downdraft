@@ -57,7 +57,7 @@ export function validateManifest(manifest: unknown): manifest is AssetManifest {
   if (typeof m.version !== "string") return false;
   if (!Array.isArray(m.packs)) return false;
   if (!m.stores || typeof m.stores !== "object") return false;
-  for (const pack of m.packs) {
+  for (let _i = 0, _it = m.packs, _n = _it.length; _i < _n; _i++) { const pack = _it[_i];
     if (typeof pack.name !== "string") return false;
     if (typeof pack.version !== "string") return false;
     if (typeof pack.store !== "string") return false;
@@ -66,7 +66,7 @@ export function validateManifest(manifest: unknown): manifest is AssetManifest {
   // plugins section is optional; validate if present.
   if (m.plugins !== undefined) {
     if (!Array.isArray(m.plugins)) return false;
-    for (const p of m.plugins) {
+    for (let _i = 0, _it = m.plugins, _n = _it.length; _i < _n; _i++) { const p = _it[_i];
       if (typeof p.id !== "string") return false;
       if (typeof p.version !== "string") return false;
       if (typeof p.store !== "string") return false;

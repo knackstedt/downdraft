@@ -122,13 +122,13 @@ export class GPUResourceCache {
 
   cleanup(): void {
     const now = Date.now();
-    for (const [key, entry] of this.textures) {
+    for (const [key, entry] of this.textures.entries()) {
       if (entry.refCount <= 0 && now - entry.lastUsed > this.maxAge) {
         (entry.resource as GPUTexture).destroy();
         this.textures.delete(key);
       }
     }
-    for (const [key, entry] of this.buffers) {
+    for (const [key, entry] of this.buffers.entries()) {
       if (entry.refCount <= 0 && now - entry.lastUsed > this.maxAge) {
         (entry.resource as GPUBuffer).destroy();
         this.buffers.delete(key);
@@ -137,7 +137,7 @@ export class GPUResourceCache {
     // Evict stale generic resources (refCount <= 0 and past maxAge), then
     // enforce an LRU cap of 64 entries by evicting least-recently-used items.
     const GENERIC_LRU_MAX = 64;
-    for (const [key, entry] of this.genericResources) {
+    for (const [key, entry] of this.genericResources.entries()) {
       if (entry.refCount <= 0 && now - entry.lastUsed > this.maxAge) {
         if (entry.cleanup) entry.cleanup();
         this.genericResources.delete(key);

@@ -115,9 +115,9 @@ export class Scene {
       this._teardown(this);
     }
 
-    for (const entity of this._entities) {
+    this._entities.forEach((entity) => {
       this.world._despawnImmediate(entity);
-    }
+    });
 
     this._entities = [];
     this._entitySet.clear();
@@ -151,13 +151,13 @@ export class Scene {
   serialize(): SerializedScene {
     const entities: SerializedScene["entities"] = [];
 
-    for (const entity of this._entities) {
+    for (let _i = 0, _it = this._entities, _n = _it.length; _i < _n; _i++) { const entity = _it[_i];
       if (!isAlive(this.world.entities, entity)) continue;
       const arch = this.world.getArchetypeForEntity(entity);
       if (!arch) continue;
 
       const components: Array<{ id: number; data: unknown }> = [];
-      for (const [cid, col] of arch.columns) {
+      for (const [cid, col] of arch.columns.entries()) {
         const row = findEntityRow(arch, entity);
         if (row >= 0) {
           components.push({ id: cid, data: getColumnValue(col, row) });
@@ -175,17 +175,17 @@ export class Scene {
     this.name = data.name;
     this.persistent = data.persistent ?? false;
 
-    for (const entry of data.entities) {
+    data.entities.forEach((entry) => {
       const components = new Map<ComponentId, unknown>();
-      for (const comp of entry.components) {
+      entry.components.forEach((comp) => {
         if (!isRegisteredComponentId(comp.id)) {
           throw new RangeError(`Scene deserialize: unregistered component ID ${comp.id}`);
         }
         components.set(comp.id, comp.data);
-      }
+      });
       const entity = this.world.spawn(components);
       this.trackEntity(entity);
-    }
+    });
 
     this.state = data.state === "active" ? "active" : "loaded";
   }

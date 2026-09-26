@@ -83,7 +83,7 @@ export function webGpuSwitches(): Switch[] {
  */
 export function applySwitches(app: { commandLine: { appendSwitch: (name: string, value?: string) => void } }, switches: Switch[]): void {
   const merged = new Map<string, string | undefined>();
-  for (const [name, value] of switches) {
+  switches.forEach(([name, value]) => {
     if (value !== undefined && merged.has(name) && merged.get(name) !== undefined) {
       const prev = merged.get(name)!;
       // For feature lists, merge comma-separated values instead of overwriting.
@@ -97,8 +97,8 @@ export function applySwitches(app: { commandLine: { appendSwitch: (name: string,
     } else {
       merged.set(name, value);
     }
-  }
-  for (const [name, value] of merged) {
+  });
+  for (const [name, value] of merged.entries()) {
     app.commandLine.appendSwitch(name, value);
   }
 }

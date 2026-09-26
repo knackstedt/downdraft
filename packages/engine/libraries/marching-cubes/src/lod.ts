@@ -82,7 +82,7 @@ export class TerrainLODManager {
     const toGenerate: Array<{ x: number; z: number; lod: number }> = [];
     const toUnload: string[] = [];
 
-    for (const [key, entry] of this.chunks) {
+    for (const [key, entry] of this.chunks.entries()) {
       const newLOD = this.selectLOD(entry.coord.x, entry.coord.z);
       if (newLOD !== entry.lod) {
         entry.lod = newLOD;

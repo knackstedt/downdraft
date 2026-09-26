@@ -26,6 +26,7 @@ const checkOnly = process.argv.includes("--check");
 // Subpaths that don't follow the <name>/src/<rest> convention.
 const OVERRIDES = {
   "./modules/raw-input/polyfill": "./modules/raw-input/src/renderer/polyfill.ts",
+  "./lint-plugin": "./lint-plugin.mjs",
 };
 
 // Non-source extensions that must map to themselves (not "*.ts").
@@ -62,9 +63,9 @@ const indexDirs = (srcDir) => {
 const dirPatterns = (prefix, name, srcDir) => {
   const base = `${prefix}/${name}`;
   const out = [[`${base}/*`, `${base}/src/*.ts`], [`${base}/*.ts`, `${base}/src/*.ts`]];
-  for (const ext of PASSTHROUGH_EXTS) {
+  PASSTHROUGH_EXTS.forEach((ext) => {
     if (hasExt(srcDir, ext)) out.push([`${base}/*${ext}`, `${base}/src/*${ext}`]);
-  }
+  });
   return out;
 };
 
@@ -100,12 +101,12 @@ for (const rel of indexDirs(appSrc)) {
   }
 }
 entries.push(["./app/*", "./app/src/*.ts"], ["./app/*.ts", "./app/src/*.ts"]);
-for (const ext of PASSTHROUGH_EXTS) {
+PASSTHROUGH_EXTS.forEach((ext) => {
   if (hasExt(appSrc, ext)) entries.push([`./app/*${ext}`, `./app/src/*${ext}`]);
-}
+});
 
 // -- other folded top-level dirs --------------------------------------------
-for (const name of ["ui", "shader-graph", "mcp", "test", "asset-bake"]) {
+for (let _i = 0, _it = ["ui", "shader-graph", "mcp", "test", "asset-bake"], _n = _it.length; _i < _n; _i++) { const name = _it[_i];
   const srcDir = join(engineDir, name, "src");
   if (!existsSync(srcDir)) continue;
   entries.push([`./${name}`, `./${name}/src/index.ts`]);
@@ -116,7 +117,7 @@ for (const name of ["ui", "shader-graph", "mcp", "test", "asset-bake"]) {
 }
 
 // -- libraries + modules -----------------------------------------------------
-for (const prefix of ["./libraries", "./modules"]) {
+for (let _i = 0, _it = ["./libraries", "./modules"], _n = _it.length; _i < _n; _i++) { const prefix = _it[_i];
   const baseDir = join(engineDir, prefix.slice(2));
   if (!existsSync(baseDir)) continue;
   for (const name of readdirSync(baseDir).sort()) {
@@ -135,9 +136,9 @@ for (const [k, v] of Object.entries(OVERRIDES)) entries.push([k, v]);
 
 // -- core catch-alls (least specific; lose to every longer-base pattern) ------
 entries.push(["./*", "./core/src/*.ts"], ["./*.ts", "./core/src/*.ts"]);
-for (const ext of [...PASSTHROUGH_EXTS, ".md"]) {
+[...PASSTHROUGH_EXTS, ".md"].forEach((ext) => {
   if (hasExt(coreSrc, ext) || ext === ".md") entries.push([`./*${ext}`, `./core/src/*${ext}`]);
-}
+});
 
 // ---------------------------------------------------------------------------
 const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
@@ -154,9 +155,9 @@ if (checkOnly) {
     process.exit(0);
   }
   console.error("engine exports map is stale — run `node scripts/gen-engine-exports.mjs`.");
-  for (const k of added) console.error(`  + ${k}`);
-  for (const k of removed) console.error(`  - ${k}`);
-  for (const k of changed) console.error(`  ~ ${k}`);
+  added.forEach((k) => { console.error(`  + ${k}`);; });
+  removed.forEach((k) => { console.error(`  - ${k}`);; });
+  changed.forEach((k) => { console.error(`  ~ ${k}`);; });
   process.exit(1);
 }
 

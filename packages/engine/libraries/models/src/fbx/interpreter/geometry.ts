@@ -57,7 +57,7 @@ export function parseGeometry(
   const meshes: MeshData[] = [];
   const geoIdToMeshIndices = new Map<string, number[]>();
 
-  for (const geoNode of geometryNodes) {
+  for (let _i = 0, _it = geometryNodes, _n = _it.length; _i < _n; _i++) { const geoNode = _it[_i];
     const geoId = getObjectId(geoNode, "");
     const geoData = extractGeometryData(geoNode);
     if (!geoData) continue;
@@ -80,11 +80,11 @@ export function parseGeometry(
     const splitMeshes = buildMeshesFromGeometry(geoData, materials, skin, diag);
 
     const meshIndices: number[] = [];
-    for (const mesh of splitMeshes) {
+    splitMeshes.forEach((mesh) => {
       const idx = meshes.length;
       meshes.push(mesh);
       meshIndices.push(idx);
-    }
+    });
     if (geoId && meshIndices.length > 0) {
       geoIdToMeshIndices.set(geoId, meshIndices);
     }
@@ -104,7 +104,7 @@ function extractGeometryData(node: FBXNode): GeometryData | null {
   let colors: LayerElement | null = null;
   let materials: { indices: number[]; mappingType: string } | null = null;
 
-  for (const child of node.children) {
+  node.children.forEach((child) => {
     if (child.name === "Vertices" && child.properties.length > 0) {
       vertices = propArray(child, 0) ?? null;
     } else if (child.name === "PolygonVertexIndex" && child.properties.length > 0) {
@@ -124,7 +124,7 @@ function extractGeometryData(node: FBXNode): GeometryData | null {
         materials = { indices, mappingType: String(mt) };
       }
     }
-  }
+  });
 
   if (!vertices || !polygonIndices) return null;
 
@@ -145,7 +145,7 @@ function parseLayerElement(node: FBXNode, dataName: string): LayerElement | null
   let mappingType = "";
   let refType = "";
 
-  for (const sub of node.children) {
+  node.children.forEach((sub) => {
     if (sub.name === dataName && sub.properties.length > 0) {
       data = propArray(sub, 0) ?? null;
     } else if (sub.name === `${dataName}Index` && sub.properties.length > 0) {
@@ -155,7 +155,7 @@ function parseLayerElement(node: FBXNode, dataName: string): LayerElement | null
     } else if (sub.name === "ReferenceInformationType" && sub.properties.length > 0) {
       refType = String(sub.properties[0].value);
     }
-  }
+  });
 
   if (!data) return null;
   return { data, index, mappingType, refType };
@@ -191,10 +191,10 @@ function buildMeshesFromGeometry(
 
   // Multi-material — split into separate MeshData per material
   const meshes: MeshData[] = [];
-  for (const group of materialGroups) {
+  materialGroups.forEach((group) => {
     const mesh = buildSingleMesh(geo, triangles, group.materialIndex, group, materials, skin, vertexCount);
     if (mesh) meshes.push(mesh);
-  }
+  });
   diag.debug("geometry", `Multi-material split: ${materialGroups.length} groups → ${meshes.length} meshes`);
   return meshes;
 }
@@ -377,7 +377,7 @@ function buildSingleMesh(
       let newIdx = -1;
       const entries = remap.get(vertexIdx);
       if (entries) {
-        for (const e of entries) {
+        for (let _i = 0, _it = entries, _n = _it.length; _i < _n; _i++) { const e = _it[_i];
           if (
             e.nx === tmpNormal[0] && e.ny === tmpNormal[1] && e.nz === tmpNormal[2] &&
             e.u === tmpUV[0] && e.v === tmpUV[1]

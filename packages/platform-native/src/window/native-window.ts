@@ -301,9 +301,9 @@ export class NativeWindow extends MiniEventTarget {
       if (now - this.lastRafDispatch >= this.frameInterval()) this.lastRafDispatch = now;
       const callbacks = Array.from(this.rafCallbacks.values());
       this.rafCallbacks.clear();
-      for (const cb of callbacks) {
+      callbacks.forEach((cb) => {
         try { cb(now); } catch (e) { log.error("NativeWindow", `rAF callback error: ${e}`); }
-      }
+      });
       // Browser semantics: the canvas auto-presents at end of frame, after
       // the rAF callbacks AND the microtask checkpoint. Renderers driving the
       // surface through GameRenderer already call context.present() (a no-op

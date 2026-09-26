@@ -64,7 +64,7 @@ describe("permissions", () => {
   describe("computeGlobalAllowlist", () => {
     it("baseline only when no perms granted", () => {
       const keep = computeGlobalAllowlist(new Set());
-      for (const g of BASELINE_GLOBALS) expect(keep.has(g)).toBe(true);
+      BASELINE_GLOBALS.forEach((g) => { expect(keep.has(g)).toBe(true);; });
       expect(keep.has("fetch")).toBe(false);
       expect(keep.has("WebSocket")).toBe(false);
       expect(keep.has("indexedDB")).toBe(false);
@@ -103,6 +103,6 @@ describe("permissions", () => {
 
   it("PERMISSION_GLOBALS lists every permission", () => {
     const all: PluginPermission[] = ["ecs", "sab", "gpu", "events", "state", "tick", "storage", "network", "log"];
-    for (const p of all) expect(Array.isArray(PERMISSION_GLOBALS[p])).toBe(true);
+    all.forEach((p) => { expect(Array.isArray(PERMISSION_GLOBALS[p])).toBe(true);; });
   });
 });

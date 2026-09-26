@@ -128,9 +128,9 @@ export async function legacyFileCopyBuild(args: string[]): Promise<void> {
 
   if (verbose) {
     log.debug("build", `Source files: ${sourceFiles.length}`);
-    for (const f of sourceFiles) {
+    sourceFiles.forEach((f) => {
       log.debug("build", `  - ${relative(projectPath, f)}`);
-    }
+    });
   }
 
   const manifest = {
@@ -150,22 +150,22 @@ export async function legacyFileCopyBuild(args: string[]): Promise<void> {
   writeFileSync(join(outPath, "manifest.json"), JSON.stringify(manifest, null, 2));
   log.info("build", `Build manifest written`);
 
-  for (const srcFile of sourceFiles) {
+  sourceFiles.forEach((srcFile) => {
     const rel = relative(srcDir, srcFile);
     const dest = join(outPath, "src", rel);
     ensureDirExists(dest);
     copyFileSync(srcFile, dest);
-  }
+  });
   log.info("build", `${sourceFiles.length} source files copied`);
 
   if (existsSync(assetsDir)) {
     const assetFiles = collectFiles(assetsDir, [".png", ".jpg", ".jpeg", ".webp", ".wav", ".mp3", ".ogg", ".glb", ".gltf", ".obj", ".fbx", ".wgsl"]);
-    for (const assetFile of assetFiles) {
+    assetFiles.forEach((assetFile) => {
       const rel = relative(assetsDir, assetFile);
       const dest = join(outPath, "assets", rel);
       ensureDirExists(dest);
       copyFileSync(assetFile, dest);
-    }
+    });
     log.info("build", `${assetFiles.length} asset files copied`);
   }
 
@@ -185,7 +185,7 @@ function collectFiles(dir: string, extensions: string[]): string[] {
   if (!existsSync(dir)) return results;
 
   const entries = readdirSync(dir);
-  for (const entry of entries) {
+  for (let _i = 0, _it = entries, _n = _it.length; _i < _n; _i++) { const entry = _it[_i];
     const fullPath = join(dir, entry);
     const stat = statSync(fullPath);
     if (stat.isDirectory()) {

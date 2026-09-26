@@ -24,7 +24,7 @@ export function createSceneTreeResource(ctx: EngineContext): ResourceRegistratio
         const entities = ctx.getAllAliveEntities();
         const tree: Array<{ entity: string; parent: string; children: string[]; components: string[] }> = [];
 
-        for (const e of entities) {
+        entities.forEach((e) => {
           const arch = ctx.ecsWorld.getArchetypeForEntity(e);
           const compNames = arch ? [...arch.columns.keys()].map((id) => ctx.getComponentNameById(id)) : [];
           const parent = ctx.hierarchy.getParent(e);
@@ -34,7 +34,7 @@ export function createSceneTreeResource(ctx: EngineContext): ResourceRegistratio
             children: ctx.hierarchy.getChildren(e).map((c) => ctx.getEntityKey(c)),
             components: compNames,
           });
-        }
+        });
 
         return resourceJSON(uri, { scene: ctx.scene.name, entities: tree });
       },

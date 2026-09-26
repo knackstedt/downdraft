@@ -106,9 +106,9 @@ export async function loadExternalTextures(
         candidates.push(origName.slice(2));
       }
 
-      for (const dir of textureDirs) {
+      for (let _i = 0, _it = textureDirs, _n = _it.length; _i < _n; _i++) { const dir = _it[_i];
         if (foundExternal) break;
-        for (const candidate of candidates) {
+        for (let _i = 0, _it = candidates, _n = _it.length; _i < _n; _i++) { const candidate = _it[_i];
           const url = `${dir}${candidate}`;
           try {
             const resp = await fetch(url);
@@ -171,21 +171,21 @@ export function filterOptionalMeshes(
 
     // Collect mesh indices to exclude (from nodes with optional item names).
     const exclude = new Set<number>();
-    for (const node of modelData.nodes) {
+    modelData.nodes.forEach((node) => {
         if (isOptional(node.name)) {
             if (node.meshes) {
-                for (const idx of node.meshes) exclude.add(idx);
+                node.meshes.forEach((idx) => { exclude.add(idx);; });
             }
             if (node.mesh !== undefined) exclude.add(node.mesh);
         }
-    }
+    });
 
     if (exclude.size === 0) return;
 
     const excludedNames: string[] = [];
-    for (const node of modelData.nodes) {
+    modelData.nodes.forEach((node) => {
         if (isOptional(node.name)) excludedNames.push(node.name);
-    }
+    });
     log.info("CharacterModel", `Filtered ${exclude.size} optional item mesh(es): [${excludedNames.join(", ")}]`);
 
     excludeMeshIndices(modelData, exclude);
@@ -206,7 +206,7 @@ function excludeMeshIndices(modelData: ModelData, exclude: Set<number>): void {
     }
     modelData.meshes = filtered;
 
-    for (const node of modelData.nodes ?? []) {
+    (modelData.nodes ?? []).forEach((node) => {
         if (node.mesh !== undefined) {
             node.mesh = oldToNew.get(node.mesh);
         }
@@ -215,7 +215,7 @@ function excludeMeshIndices(modelData: ModelData, exclude: Set<number>): void {
                 .map((idx) => oldToNew.get(idx))
                 .filter((idx): idx is number => idx !== undefined);
         }
-    }
+    });
 }
 
 /**
@@ -238,7 +238,7 @@ export function selectVariantMeshes(modelData: ModelData): void {
     if (!modelData.nodes || modelData.nodes.length === 0) return;
 
     const groups = new Map<string, typeof modelData.nodes>();
-    for (const node of modelData.nodes) {
+    for (let _i = 0, _it = modelData.nodes, _n = _it.length; _i < _n; _i++) { const node = _it[_i];
         if (node.mesh === undefined && (!node.meshes || node.meshes.length === 0)) continue;
         const key = variantGroupKey(node.name);
         let list = groups.get(key);
@@ -253,7 +253,7 @@ export function selectVariantMeshes(modelData: ModelData): void {
         kept.push(list[0].name);
         for (let i = 1; i < list.length; i++) {
             const node = list[i];
-            if (node.meshes) for (const idx of node.meshes) exclude.add(idx);
+            if (node.meshes) node.meshes.forEach((idx) => { exclude.add(idx);; });
             if (node.mesh !== undefined) exclude.add(node.mesh);
         }
     }
@@ -300,7 +300,7 @@ export function createCharacterModelLoader(opts: CharacterModelLoaderOptions = {
   async function loadAnimations(): Promise<Map<string, AnimationData>> {
     if (animCache) return animCache;
     const anims = new Map<string, AnimationData>();
-    for (const animDef of opts.animations ?? []) {
+    for (let _i = 0, _it = opts.animations ?? [], _n = _it.length; _i < _n; _i++) { const animDef = _it[_i];
       const url = opts.resolveAnimationUrl?.(animDef.filename) ?? null;
       if (!url) {
         log.warn("CharacterModel", `Animation not found: ${animDef.filename}`);

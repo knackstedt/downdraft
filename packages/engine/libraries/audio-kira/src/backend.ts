@@ -306,7 +306,7 @@ export class KiraAudioBackend implements AudioBackend {
 
   getActiveSources(): AudioSourceHandle[] {
     const active: AudioSourceHandle[] = [];
-    for (const [sourceId, source] of this.sources) {
+    for (const [sourceId, source] of this.sources.entries()) {
       if (this.lib && source.nativeSoundId > 0) {
         const playing = this.lib.isPlaying(source.nativeSoundId);
         if (playing === 0) {
@@ -333,7 +333,7 @@ export class KiraAudioBackend implements AudioBackend {
     if (channel === "master" && this.lib) {
       this.lib.setMasterVolume(volume);
     }
-    for (const [, source] of this.sources) {
+    for (const [, source] of this.sources.entries()) {
       if (source.handle.channel === channel && this.lib && source.nativeSoundId > 0) {
         this.lib.setVolume(source.nativeSoundId, (source.handle.volume ?? 1.0) * volume);
       }
@@ -342,7 +342,7 @@ export class KiraAudioBackend implements AudioBackend {
 
   setChannelMuted(channel: AudioChannel, muted: boolean): void {
     CHANNEL_MUTED[channel] = muted;
-    for (const [, source] of this.sources) {
+    for (const [, source] of this.sources.entries()) {
       if (source.handle.channel === channel && this.lib && source.nativeSoundId > 0) {
         this.lib.setVolume(source.nativeSoundId, muted ? 0 : (source.handle.volume ?? 1.0) * CHANNEL_VOLUMES[channel]);
       }
@@ -371,7 +371,7 @@ export class KiraAudioBackend implements AudioBackend {
     if (this.lib) {
       this.lib.update();
     }
-    for (const [sourceId, source] of this.sources) {
+    for (const [sourceId, source] of this.sources.entries()) {
       if (this.lib && source.nativeSoundId > 0) {
         const playing = this.lib.isPlaying(source.nativeSoundId);
         if (playing === 0) {
@@ -384,7 +384,7 @@ export class KiraAudioBackend implements AudioBackend {
 
   syncPositions(positionBuffer: Float32Array, sourceCount: number): void {
     let idx = 0;
-    for (const [, source] of this.sources) {
+    for (const [, source] of this.sources.entries()) {
       if (idx >= sourceCount) break;
       if (!source.handle.spatial) continue;
       const offset = idx * 3;
@@ -400,7 +400,7 @@ export class KiraAudioBackend implements AudioBackend {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
-    for (const [, source] of this.sources) {
+    for (const [, source] of this.sources.entries()) {
       if (this.lib && source.nativeSoundId > 0) {
         this.lib.stop(source.nativeSoundId);
       }

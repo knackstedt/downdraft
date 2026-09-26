@@ -152,7 +152,7 @@ function listWindows(): ProcInfo[] {
  */
 export function collectDescendants(rootPid: number, procs: ProcInfo[]): number[] {
   const childrenOf = new Map<number, number[]>();
-  for (const p of procs) {
+  for (let _i = 0, _it = procs, _n = _it.length; _i < _n; _i++) { const p = _it[_i];
     if (p.pid === rootPid) continue;
     const list = childrenOf.get(p.ppid) ?? [];
     list.push(p.pid);
@@ -163,7 +163,7 @@ export function collectDescendants(rootPid: number, procs: ProcInfo[]): number[]
   while (queue.length) {
     const cur = queue.shift()!;
     const kids = childrenOf.get(cur);
-    if (kids) for (const k of kids) { result.push(k); queue.push(k); }
+    if (kids) kids.forEach((k) => { result.push(k); queue.push(k); });
   }
   return result;
 }
@@ -198,7 +198,7 @@ export function resolveUserDataDir(gameDir: string, appId?: string): string {
  * Returns `undefined` if not found.
  */
 function readAppId(gameDir: string): string | undefined {
-  for (const rel of ["build.config.ts", "src/main.ts"]) {
+  for (let _i = 0, _it = ["build.config.ts", "src/main.ts"], _n = _it.length; _i < _n; _i++) { const rel = _it[_i];
     const path = resolve(gameDir, rel);
     if (!existsSync(path)) continue;
     try {
@@ -258,7 +258,7 @@ export function killStaleInstance(gameDir: string): number {
   const matchedPids = new Set(matched.map((m) => m.pid));
   const cmdlineOf = new Map<number, string>(procs.map((p) => [p.pid, p.cmdline]));
   const roots = new Set<number>();
-  for (const m of matched) {
+  matched.forEach((m) => {
     let root = m.pid;
     let p = ppidOf.get(m.pid);
     while (p && matchedPids.has(p)) {
@@ -266,10 +266,10 @@ export function killStaleInstance(gameDir: string): number {
       p = ppidOf.get(p);
     }
     roots.add(root);
-  }
+  });
 
   const toKill = new Set<number>();
-  for (const root of roots) {
+  for (const root of roots.values()) {
     toKill.add(root);
     for (const d of collectDescendants(root, procs)) toKill.add(d);
   }
@@ -289,7 +289,7 @@ export function killStaleInstance(gameDir: string): number {
   // skip set (self/current-process-tree) or whose cmdline doesn't contain
   // "electron" (npx, draft dev, shell — those exit on their own when their
   // electron-vite child dies).
-  for (const root of roots) {
+  for (const root of roots.values()) {
     let p = ppidOf.get(root);
     while (p && !skip.has(p)) {
       const cl = cmdlineOf.get(p);
@@ -300,7 +300,7 @@ export function killStaleInstance(gameDir: string): number {
   }
 
   const signal = (sig: NodeJS.Signals) => {
-    for (const pid of toKill) {
+    for (const pid of toKill.values()) {
       try { process.kill(pid, sig); } catch { /* already dead */ }
       // Also try the process group (catches helpers that stayed in the group
       // after being re-parented to init). No-op if pid isn't a group leader.

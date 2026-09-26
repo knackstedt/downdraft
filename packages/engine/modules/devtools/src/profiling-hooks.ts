@@ -95,7 +95,7 @@ export function wireProfilingBridge(opts: WireProfilingBridgeOptions): Profiling
   // Share the ProfilingSAB with each worker host so it can claim a slot.
   const sab = bridge.getProfilingSAB();
   const layout = bridge.getLayoutParams?.();
-  for (const entry of opts.workerHosts ?? []) {
+  for (let _i = 0, _it = opts.workerHosts ?? [], _n = _it.length; _i < _n; _i++) { const entry = _it[_i];
     if (!entry) continue;
     const host = "attachProfilingSAB" in entry ? entry : entry.host;
     const workerTag = "attachProfilingSAB" in entry ? undefined : entry.workerTag;

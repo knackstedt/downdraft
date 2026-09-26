@@ -23,18 +23,18 @@ export function getEventsInRange(
 
   if (toTime > fromTime) {
     // Forward playback: events in (fromTime, toTime]
-    for (const e of track.events) {
+    track.events.forEach((e) => {
       if (e.time > fromTime && e.time <= toTime) {
         result.push(e);
       }
-    }
+    });
   } else if (toTime < fromTime) {
     // Backward or wraparound: events in (fromTime, duration] ∪ [0, toTime]
-    for (const e of track.events) {
+    track.events.forEach((e) => {
       if (e.time > fromTime || e.time <= toTime) {
         result.push(e);
       }
-    }
+    });
   }
 
   return result;

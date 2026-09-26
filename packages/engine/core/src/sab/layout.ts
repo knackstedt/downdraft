@@ -108,7 +108,7 @@ function computeSlotSectionLayouts(
   const layouts: SlotSectionLayout[] = [];
   let offset = headerSize;
 
-  for (const section of sections) {
+  sections.forEach((section) => {
     const { layouts: fieldLayouts, endOffset: fieldsEnd } = computeFieldMap(
       section.fields,
       0,
@@ -133,7 +133,7 @@ function computeSlotSectionLayouts(
     });
 
     offset += section.maxSlots * section.slotSize;
-  }
+  });
 
   return { layouts, endOffset: offset };
 }

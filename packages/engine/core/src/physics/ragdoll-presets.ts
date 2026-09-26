@@ -219,7 +219,7 @@ const JOINT_MATCHES: JointMatch[] = [
 ];
 
 function findBoneInSkeleton(skeleton: Skeleton, names: string[]): string | null {
-  for (const name of names) {
+  for (let _i = 0, _it = names, _n = _it.length; _i < _n; _i++) { const name = _it[_i];
     if (skeleton.getBoneIndex(name) >= 0) return name;
   }
   return null;
@@ -229,7 +229,7 @@ export function humanoidRagdoll(skeleton: Skeleton): RagdollConfig {
   const bones: RagdollBoneConfig[] = [];
   const boneNameMap = new Map<string, string>();
 
-  for (const match of BONE_MATCHES) {
+  for (let _i = 0, _it = BONE_MATCHES, _n = _it.length; _i < _n; _i++) { const match = _it[_i];
     const foundName = findBoneInSkeleton(skeleton, match.names);
     if (!foundName) continue;
 
@@ -254,7 +254,7 @@ export function humanoidRagdoll(skeleton: Skeleton): RagdollConfig {
   }
 
   const joints: RagdollJointConfig[] = [];
-  for (const jmatch of JOINT_MATCHES) {
+  for (let _i = 0, _it = JOINT_MATCHES, _n = _it.length; _i < _n; _i++) { const jmatch = _it[_i];
     const parentName = findBoneInSkeleton(skeleton, jmatch.parent);
     const childName = findBoneInSkeleton(skeleton, jmatch.child);
     if (!parentName || !childName) continue;

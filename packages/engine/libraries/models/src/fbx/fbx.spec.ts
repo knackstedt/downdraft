@@ -101,9 +101,9 @@ describe("FBX m01-m16: Babylon test suite", () => {
     // geometry appears missing/invisible.
     if (model.nodes) {
       const linkedViaMeshes = new Set<number>();
-      for (const n of model.nodes) {
-        if (n.meshes) for (const mi of n.meshes) linkedViaMeshes.add(mi);
-      }
+      model.nodes.forEach((n) => {
+        if (n.meshes) n.meshes.forEach((mi) => { linkedViaMeshes.add(mi);; });
+      });
       // Every mesh should be reachable through some node's meshes[] array.
       for (let i = 0; i < model.meshes.length; i++) {
         expect(linkedViaMeshes.has(i)).toBe(true);
@@ -135,12 +135,12 @@ describe("FBX m01-m16: Babylon test suite", () => {
     if (!model.materials) return;
 
     // Every mesh's materialIndex must be a valid index into the materials array.
-    for (const mesh of model.meshes) {
+    model.meshes.forEach((mesh) => {
       if (mesh.materialIndex !== undefined) {
         expect(mesh.materialIndex).toBeGreaterThanOrEqual(0);
         expect(mesh.materialIndex).toBeLessThan(model.materials!.length);
       }
-    }
+    });
 
     // For models with per-model material connections, the mesh materialIndex
     // should reflect the connected material's global index, not just 0.
@@ -148,15 +148,15 @@ describe("FBX m01-m16: Babylon test suite", () => {
     // per-model material connections like the Stylized Lowpoly Characters pack.)
     if (model.nodes) {
       const usedMatIndices = new Set<number>();
-      for (const n of model.nodes) {
+      model.nodes.forEach((n) => {
         const meshIndices = n.meshes ?? (n.mesh !== undefined ? [n.mesh] : []);
-        for (const mi of meshIndices) {
+        meshIndices.forEach((mi) => {
           if (mi < model.meshes.length) {
             const matIdx = model.meshes[mi].materialIndex;
             if (matIdx !== undefined) usedMatIndices.add(matIdx);
           }
-        }
-      }
+        });
+      });
       // At least one material index should be used.
       expect(usedMatIndices.size).toBeGreaterThan(0);
     }
@@ -169,9 +169,9 @@ describe("FBX m01-m16: Babylon test suite", () => {
     expect(model.skin).toBeDefined();
     expect(model.skin!.bones.length).toBeGreaterThan(0);
     // Each bone has an inverse bind matrix (16 floats)
-    for (const bone of model.skin!.bones) {
+    model.skin!.bones.forEach((bone) => {
       expect(bone.inverseBindMatrix.length).toBe(16);
-    }
+    });
     // Skinned mesh should have joints + weights
     const skinnedMesh = model.meshes.find(
       (m) => m.joints && m.joints.length > 0,

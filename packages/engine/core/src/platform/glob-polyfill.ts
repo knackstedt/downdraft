@@ -42,7 +42,7 @@ function globToRegex(pattern: string): RegExp {
 function walkDir(dir: string, results: string[] = []): string[] {
   let entries: string[];
   try { entries = readdirSync(dir); } catch { return results; }
-  for (const entry of entries) {
+  for (let _i = 0, _it = entries, _n = _it.length; _i < _n; _i++) { const entry = _it[_i];
     const fullPath = join(dir, entry);
     let stat;
     try { stat = statSync(fullPath); } catch { continue; }
@@ -58,7 +58,7 @@ export function createGlob(callerDir: string): (pattern: string, options?: any) 
     // Extract the non-glob prefix to find the search root
     const patternParts = pattern.split("/");
     let rootParts: string[] = [];
-    for (const part of patternParts) {
+    for (let _i = 0, _it = patternParts, _n = _it.length; _i < _n; _i++) { const part = _it[_i];
       if (part.includes("*") || part.includes("{")) break;
       rootParts.push(part);
     }
@@ -70,14 +70,14 @@ export function createGlob(callerDir: string): (pattern: string, options?: any) 
     const normalizedPattern = pattern.replace(/^\.\//, "");
     const matchRegex = globToRegex(normalizedPattern);
 
-    for (const file of allFiles) {
+    allFiles.forEach((file) => {
       const relPath = relative(fsCallerDir, file).replace(/\\/g, "/");
       const prefixedPath = relPath.startsWith("..") ? relPath : "./" + relPath;
       if (matchRegex.test(relPath) || matchRegex.test(prefixedPath)) {
         // For ?url queries, return the file:// URL
         result["./" + relPath] = pathToFileURL(file).href;
       }
-    }
+    });
     return result;
   };
 }

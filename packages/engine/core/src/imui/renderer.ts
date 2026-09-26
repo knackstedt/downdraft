@@ -301,7 +301,7 @@ export class UIRenderer {
     const imageEntries: { verts: number[]; textureView: GPUTextureView }[] = [];
     const lineVerts: number[] = [];
 
-    for (const d of drawables) {
+    drawables.forEach((d) => {
       if (d.kind === "rect") {
         this.buildQuadVertices(d, quadVerts);
       } else if (d.kind === "text" && d.text) {
@@ -325,7 +325,7 @@ export class UIRenderer {
       } else if (d.kind === "lines" && d.lines) {
         this.buildLineVertices(d, lineVerts);
       }
-    }
+    });
 
     if (this.textCache) {
       this.textCache.flush();
@@ -351,7 +351,7 @@ export class UIRenderer {
       tracked.draw(count);
     }
 
-    for (const entry of imageEntries) {
+    for (let _i = 0, _it = imageEntries, _n = _it.length; _i < _n; _i++) { const entry = _it[_i];
       if (entry.verts.length === 0 || !this.imagePipeline) continue;
       const count = Math.min(entry.verts.length / 8, MAX_IMAGE_VERTICES);
       const data = new Float32Array(entry.verts.slice(0, count * 8));
@@ -363,7 +363,7 @@ export class UIRenderer {
       tracked.draw(count);
     }
 
-    for (const entry of canvasTextEntries) {
+    for (let _i = 0, _it = canvasTextEntries, _n = _it.length; _i < _n; _i++) { const entry = _it[_i];
       if (entry.verts.length === 0 || !this.canvasTextPipeline) continue;
       const count = Math.min(entry.verts.length / 8, MAX_IMAGE_VERTICES);
       const data = new Float32Array(entry.verts.slice(0, count * 8));
@@ -494,7 +494,7 @@ export class UIRenderer {
 
     let pushed = 0;
     let yOffset = 0;
-    for (const line of lines) {
+    for (let _i = 0, _it = lines, _n = _it.length; _i < _n; _i++) { const line = _it[_i];
       if (line.length === 0) {
         yOffset += d.fontSize * 1.3;
         continue;

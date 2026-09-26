@@ -168,9 +168,9 @@ export const PostfxLib: EngineLibrary<PostfxLibConfig> = {
 
       // Enable requested effects
       if (config.enabled) {
-        for (const id of config.enabled) {
+        config.enabled.forEach((id) => {
           stack.setEnabled(id, true);
-        }
+        });
       }
 
       // Apply per-effect parameters

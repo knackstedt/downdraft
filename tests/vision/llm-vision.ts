@@ -101,7 +101,7 @@ export async function llmVisionBatch(
   screenshots: Array<{ name: string; data: Uint8Array; prompt: string }>,
 ): Promise<Array<{ name: string; result: LLMVisionResult }>> {
   const results: Array<{ name: string; result: LLMVisionResult }> = [];
-  for (const screenshot of screenshots) {
+  for (let _i = 0, _it = screenshots, _n = _it.length; _i < _n; _i++) { const screenshot = _it[_i];
     const result = await llmVisionVerify({
       prompt: screenshot.prompt,
       imageData: screenshot.data,

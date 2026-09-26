@@ -66,9 +66,9 @@ describe("Serializer", () => {
     newWorld.flushCommands();
 
     let aliveCount = 0;
-    for (const meta of newWorld.entities) {
+    newWorld.entities.forEach((meta) => {
       if (meta.alive) aliveCount++;
-    }
+    });
     expect(aliveCount).toBe(1);
   });
 

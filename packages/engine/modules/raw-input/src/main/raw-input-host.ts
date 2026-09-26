@@ -81,7 +81,7 @@ function loadNativeAddon(): NativeAddon | null {
   ];
 
   log.info("raw-input", `Looking for native addon: __dirname=${__dirname} cwd=${process.cwd()}`);
-  for (const candidate of candidates) {
+  for (let _i = 0, _it = candidates, _n = _it.length; _i < _n; _i++) { const candidate = _it[_i];
     if (!existsSync(candidate)) continue;
     try {
       // require() is needed for .node files — import() doesn't work for

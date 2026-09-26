@@ -57,7 +57,7 @@ interface PlatformGroups {
 
 function groupPlatforms(platforms: string[]): PlatformGroups {
   const groups: PlatformGroups = { win: [], linux: [], mac: [], android: false, ios: false };
-  for (const spec of platforms) {
+  platforms.forEach((spec) => {
     const [p, t] = spec.includes(":") ? spec.split(":") : [spec, ""];
     switch (p) {
       case "win": groups.win.push(t); break;
@@ -66,7 +66,7 @@ function groupPlatforms(platforms: string[]): PlatformGroups {
       case "android": groups.android = true; break;
       case "ios": groups.ios = true; break;
     }
-  }
+  });
   return groups;
 }
 
@@ -98,9 +98,9 @@ export async function buildGames(argv: string[]): Promise<void> {
 
   // Build the release format string from the platform sub-targets.
   const formats: string[] = [];
-  for (const t of groups.win) if (t) formats.push(`win:${t}`);
-  for (const t of groups.linux) if (t) formats.push(`linux:${t}`);
-  for (const t of groups.mac) if (t) formats.push(`mac:${t}`);
+  groups.win.forEach((t) => { if (t) formats.push(`win:${t}`);; });
+  groups.linux.forEach((t) => { if (t) formats.push(`linux:${t}`);; });
+  groups.mac.forEach((t) => { if (t) formats.push(`mac:${t}`);; });
 
   const releaseArgs: string[] = [
     `--games=${games.join(",")}`,

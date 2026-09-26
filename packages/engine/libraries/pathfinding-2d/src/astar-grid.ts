@@ -144,10 +144,10 @@ export function createAStarGrid<Mode = string>(config: AStarGridConfig<Mode>): A
 
   function minHeuristic(x: number, y: number, goals: ReadonlyArray<{ x: number; y: number }>): number {
     let min = Infinity;
-    for (const g of goals) {
+    goals.forEach((g) => {
       const h = heuristic(x, y, g.x, g.y);
       if (h < min) min = h;
-    }
+    });
     return min;
   }
 
@@ -270,14 +270,14 @@ export function createAStarGrid<Mode = string>(config: AStarGridConfig<Mode>): A
       const cSx = clampX(sx), cSy = clampY(sy);
       const goalSet = new Set<number>();
       const goalCoords: { x: number; y: number }[] = [];
-      for (const g of goals) {
+      goals.forEach((g) => {
         const gx = clampX(g.x), gy = clampY(g.y);
         const idx = gy * W + gx;
         if (!goalSet.has(idx)) {
           goalSet.add(idx);
           goalCoords.push({ x: gx, y: gy });
         }
-      }
+      });
       if (goalSet.size === 0) return null;
       return findPathMultiGoal(cSx, cSy, goalSet, goalCoords);
     },

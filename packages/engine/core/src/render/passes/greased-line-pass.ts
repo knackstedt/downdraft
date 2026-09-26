@@ -185,13 +185,13 @@ export class GreasedLinePass extends RenderPass {
     tracked.setPipeline(this.pipeline);
     tracked.setBindGroup(0, this.bindGroup);
 
-    for (const line of this.lines) {
+    this.lines.forEach((line) => {
       const vb = this.getVertexBuffer(line.data);
       const ib = this.getIndexBuffer(line.data);
       tracked.setVertexBuffer(0, vb);
       tracked.setIndexBuffer(ib, line.data.indices instanceof Uint16Array ? "uint16" : "uint32");
       tracked.drawIndexed(line.data.indexCount);
-    }
+    });
   }
 
   private getVertexBuffer(data: GreasedLineData): GPUBuffer {

@@ -48,13 +48,13 @@ export class MiniEventTarget {
         event.stopImmediatePropagation = () => { event.__miniStop = true; origImm?.(); };
       }
       if (cap) {
-        for (const listener of cap) {
+        for (const listener of cap.values()) {
           if (event?.__miniStop) break;
           try { listener(event); } catch (e) { log.error("MiniEventTarget", `"${event.type}" capture listener error: ${e}`); }
         }
       }
       if (set) {
-        for (const listener of set) {
+        for (const listener of set.values()) {
           if (event?.__miniStop) break;
           try { listener(event); } catch (e) { log.error("MiniEventTarget", `"${event.type}" listener error: ${e}`); }
         }

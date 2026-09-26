@@ -57,7 +57,7 @@ export class ConnectionManager {
   }
 
   broadcast(data: Uint8Array, reliable: boolean = true): void {
-    for (const [peerId] of this.peers) {
+    for (const [peerId] of this.peers.entries()) {
       this.platform.sendToPeer(peerId, data, reliable);
     }
   }
@@ -89,7 +89,7 @@ export class ConnectionManager {
   }
 
   updatePeerRTTs(): void {
-    for (const [peerId, peer] of this.peers) {
+    for (const [peerId, peer] of this.peers.entries()) {
       peer.rtt = this.platform.getRTT(peerId);
       peer.lastSeen = Date.now();
     }

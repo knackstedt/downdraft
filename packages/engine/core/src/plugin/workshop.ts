@@ -73,7 +73,7 @@ export class WorkshopFetcher {
 
     const subscribed = this.opts.loadSubscriptions ? await this.opts.loadSubscriptions() : null;
 
-    for (const source of this.sources) {
+    for (let _i = 0, _it = this.sources, _n = _it.length; _i < _n; _i++) { const source = _it[_i];
       let rawManifest: Uint8Array;
       try {
         rawManifest = await source.store.get(source.manifestKey);
@@ -95,7 +95,7 @@ export class WorkshopFetcher {
       const assetManifest = parsed as AssetManifest;
       const pluginEntries = assetManifest.plugins ?? [];
 
-      for (const entry of pluginEntries) {
+      for (let _i = 0, _it = pluginEntries, _n = _it.length; _i < _n; _i++) { const entry = _it[_i];
         if (subscribed && !subscribed.includes(entry.id)) continue;
         try {
           const result = await this.fetchPack(source, entry);

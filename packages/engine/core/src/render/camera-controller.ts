@@ -395,11 +395,11 @@ export class CameraController implements CameraControllerLike {
   tick(dt: number): void {
     if (this.lerpFactor <= 0) {
       // Snapping — just ensure initialized.
-      for (const [id, cam] of this.cameras) this.tickSmoothing(id, cam);
+      for (const [id, cam] of this.cameras.entries()) this.tickSmoothing(id, cam);
       return;
     }
     const t = 1 - Math.pow(this.lerpFactor, dt * 60);
-    for (const [id, cam] of this.cameras) {
+    for (const [id, cam] of this.cameras.entries()) {
       const goalPos = cam.position;
       const goalTarget = cam.target;
       const goalRot = this.rotationGoal.get(id) ?? null;

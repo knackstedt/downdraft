@@ -287,7 +287,7 @@ async function pullAssets(projectPath: string, verbose: boolean): Promise<void> 
   let totalFiles = 0;
   let totalBytes = 0;
 
-  for (const pack of manifest.packs) {
+  for (let _i = 0, _it = manifest.packs, _n = _it.length; _i < _n; _i++) { const pack = _it[_i];
     const storeConfig = resolveStoreConfig(manifest, pack.store);
     if (!storeConfig) continue;
 
@@ -302,7 +302,7 @@ async function pullAssets(projectPath: string, verbose: boolean): Promise<void> 
 
     do {
       const result = await store.list({ prefix, cursor });
-      for (const obj of result.objects) {
+      for (let _i = 0, _it = result.objects, _n = _it.length; _i < _n; _i++) { const obj = _it[_i];
         const relPath = obj.key.slice(prefix.length);
         if (!relPath) continue;
 
@@ -401,7 +401,7 @@ async function pushAssets(
   let totalFiles = 0;
   let totalBytes = 0;
 
-  for (const file of files) {
+  for (let _i = 0, _it = files, _n = _it.length; _i < _n; _i++) { const file = _it[_i];
     const relPath = relative(assetsDir, file);
     const key = normalizedPrefix + relPath.split(sep).join("/");
     const data = readFileSync(file);
@@ -449,7 +449,7 @@ async function listAssets(projectPath: string, verbose: boolean): Promise<void> 
   if (manifest.packs.length === 0) {
     log.info("assets", "  (none — run 'draft assets add')");
   }
-  for (const pack of manifest.packs) {
+  manifest.packs.forEach((pack) => {
     const packCachePath = join(cacheDir, pack.name, pack.version);
     let cachedFiles = 0;
     let cachedBytes = 0;
@@ -460,7 +460,7 @@ async function listAssets(projectPath: string, verbose: boolean): Promise<void> 
     }
     log.info("assets", `  ${pack.name}@${pack.version} → ${pack.store}/${pack.path}`);
     log.info("assets", `    cached: ${cachedFiles} files, ${formatBytes(cachedBytes)}`);
-  }
+  });
 
   // Cache dir
   log.info("assets", `\nCache: ${existsSync(cacheDir) ? relative(projectPath, cacheDir) : "(not created)"}`);
@@ -468,9 +468,9 @@ async function listAssets(projectPath: string, verbose: boolean): Promise<void> 
   if (verbose && existsSync(cacheDir)) {
     const allCached = collectAssetFiles(cacheDir);
     log.debug("assets", `  total cached files: ${allCached.length}`);
-    for (const f of allCached) {
+    allCached.forEach((f) => {
       log.debug("assets", `    ${relative(cacheDir, f)}`);
-    }
+    });
   }
 }
 
@@ -481,7 +481,7 @@ function collectAssetFiles(dir: string): string[] {
   if (!existsSync(dir)) return results;
 
   const entries = readdirSync(dir);
-  for (const entry of entries) {
+  for (let _i = 0, _it = entries, _n = _it.length; _i < _n; _i++) { const entry = _it[_i];
     if (entry === "node_modules" || entry === ".git") continue;
     const fullPath = join(dir, entry);
     const stat = statSync(fullPath);

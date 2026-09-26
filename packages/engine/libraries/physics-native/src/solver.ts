@@ -53,7 +53,7 @@ export function resolveContact(
   }
 
   // --- Velocity resolution ---
-  for (const cp of manifold.points) {
+  for (let _i = 0, _it = manifold.points, _n = _it.length; _i < _n; _i++) { const cp = _it[_i];
     const ra = sub(cp.point, a.position);
     const rb = sub(cp.point, b.position);
 

@@ -51,12 +51,12 @@ function expectInverseOfRestWorld(skin: NonNullable<ReturnType<typeof synthesize
     const w = nodeWorld[ni];
     if (parentWorld) multiplyMat4Into(parentWorld, local, w);
     else w.set(local);
-    for (const c of n.children ?? []) emit(c, w);
+    (n.children ?? []).forEach((c) => { emit(c, w);; });
   };
   nodes.forEach((_, i) => { if (!parentOf.has(i)) emit(i, null); });
 
   const product = new Float32Array(16);
-  for (const b of skin.bones) {
+  skin.bones.forEach((b) => {
     const bi = nodeToBone.get(b.nodeIndex)!;
     expect(skin.bones[bi].name).toBe(nodes[b.nodeIndex].name);
     multiplyMat4Into(nodeWorld[b.nodeIndex], b.inverseBindMatrix, product);
@@ -65,7 +65,7 @@ function expectInverseOfRestWorld(skin: NonNullable<ReturnType<typeof synthesize
       const expected = c % 5 === 0 ? 1 : 0;
       expect(Math.abs(product[c] - expected)).toBeLessThan(1e-4);
     }
-  }
+  });
 }
 
 describe("synthesizeSkeletonSkin", () => {
@@ -138,9 +138,9 @@ describe("loadModel skeleton synthesis (real fixture)", () => {
     // Animation channels resolve to bones by name.
     const anim = model.animations![0];
     let mapped = 0;
-    for (const ch of anim.channels) {
+    anim.channels.forEach((ch) => {
       if (model.skin!.boneNameToIndex.has(ch.targetNode)) mapped++;
-    }
+    });
     expect(mapped).toBe(anim.channels.length);
   });
 });

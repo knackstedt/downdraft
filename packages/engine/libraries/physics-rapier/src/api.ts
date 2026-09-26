@@ -389,7 +389,7 @@ export class UniversalPhysicsAPI {
   }
 
   restore(data: Map<RealmTier, Uint8Array>): void {
-    for (const [tier, tierData] of data) {
+    for (const [tier, tierData] of data.entries()) {
       this.snapshotManager.restoreRealm(tier, tierData);
     }
   }

@@ -50,9 +50,9 @@ export class ModuleRegistry {
     // Provider map: token key → module name that provides it.
     const providers = new Map<string, string>();
     for (const m of this.getAll()) {
-      for (const token of m.provides ?? []) {
+      (m.provides ?? []).forEach((token) => {
         providers.set(token.key, m.name);
-      }
+      });
     }
 
     const visited = new Set<string>();
@@ -74,10 +74,10 @@ export class ModuleRegistry {
       }
       // requires (typed tokens → provider module)
       if (plugin?.requires) {
-        for (const token of plugin.requires) {
+        plugin.requires.forEach((token) => {
           const providerName = providers.get(token.key);
           if (providerName && providerName !== name) visit(providerName);
-        }
+        });
       }
 
       visiting.delete(name);

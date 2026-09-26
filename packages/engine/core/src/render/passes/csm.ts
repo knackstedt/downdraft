@@ -346,7 +346,7 @@ export class CSMPass extends RenderPass {
     });
 
     const tracked = new TrackedRenderPass(pass);
-    for (const { mesh, model } of meshes) {
+    meshes.forEach(({ mesh, model }) => {
       this.setModelMatrix(model);
       const pipeline = this.getPipeline(mesh.layout.stride);
       const bindGroup = this.bindGroups.get(mesh.layout.stride)!;
@@ -355,7 +355,7 @@ export class CSMPass extends RenderPass {
       tracked.setVertexBuffer(0, this.getVertexBuffer(mesh));
       tracked.setIndexBuffer(this.getIndexBuffer(mesh), mesh.indices instanceof Uint16Array ? "uint16" : "uint32");
       tracked.drawIndexed(mesh.indexCount);
-    }
+    });
     tracked.end();
   }
 

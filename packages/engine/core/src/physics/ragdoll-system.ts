@@ -195,7 +195,7 @@ export class RagdollSystem {
   }
 
   private processRequests(): void {
-    for (const [entityIdx, req] of this.activationRequests) {
+    for (const [entityIdx, req] of this.activationRequests.entries()) {
       if (!this.world) continue;
       const ragdoll = this.world.getComponent<RagdollData>(req.entity, Ragdoll.id);
       if (ragdoll) {
@@ -206,7 +206,7 @@ export class RagdollSystem {
     }
     this.activationRequests.clear();
 
-    for (const entityIdx of this.deactivationRequests) {
+    for (const entityIdx of this.deactivationRequests.values()) {
       if (!this.world) continue;
       const entity = { index: entityIdx, generation: 0 };
       const ragdoll = this.world.getComponent<RagdollData>(entity, Ragdoll.id);

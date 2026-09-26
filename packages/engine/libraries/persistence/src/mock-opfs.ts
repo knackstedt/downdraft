@@ -51,7 +51,7 @@ class MockFileHandle {
         const total = chunks.reduce((s, c) => s + c.length, 0);
         const merged = new Uint8Array(total);
         let off = 0;
-        for (const c of chunks) { merged.set(c, off); off += c.length; }
+        chunks.forEach((c) => { merged.set(c, off); off += c.length; });
         this.file.data = merged;
       },
     };

@@ -196,7 +196,7 @@ export function validateWgslWithTint(
     const errors: string[] = [];
     const warnings: string[] = [];
     const lines = output.split("\n");
-    for (const line of lines) {
+    for (let _i = 0, _it = lines, _n = _it.length; _i < _n; _i++) { const line = _it[_i];
       const trimmed = line.trim();
       if (!trimmed) continue;
       // Tint prefixes errors with the filename:line:col

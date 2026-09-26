@@ -193,7 +193,7 @@ export function wrap<T extends WorkerApi>(worker: AnyWorker, options?: WrapOptio
     }
 
     if (isEventMessage(msg)) {
-      for (const cb of eventListeners) {
+      for (const cb of eventListeners.values()) {
         try { cb(msg.kind, msg.data); } catch (err) {
           log.error("WorkerProxy", `Event listener error: ${err}`);
         }

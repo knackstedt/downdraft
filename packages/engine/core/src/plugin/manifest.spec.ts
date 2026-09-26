@@ -140,13 +140,13 @@ describe("validatePluginManifest", () => {
   });
 
   it("code-bearing formats require an entry", () => {
-    for (const f of ["worker-js", "wasm", "quickjs"] as const) {
+    (["worker-js", "wasm", "quickjs"] as const).forEach((f) => {
       const r = validatePluginManifest(
         validManifest({ format: f, entry: undefined, thread: f === "wasm" ? "own-worker" : "sim" }),
       );
       expect(r.valid).toBe(false);
       expect(r.errors.some((e) => e.includes('requires an "entry"'))).toBe(true);
-    }
+    });
   });
 
   it("rejects non-array provides/requires/dependencies", () => {

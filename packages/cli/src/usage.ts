@@ -268,9 +268,9 @@ export function renderTopLevelHelp(version: string): string {
   lines.push("");
   lines.push("Commands:");
   const maxName = Math.max(...COMMANDS.map((c) => c.name.length));
-  for (const c of COMMANDS) {
+  COMMANDS.forEach((c) => {
     lines.push(`  ${c.name.padEnd(maxName + 2)} ${c.summary}`);
-  }
+  });
   lines.push("");
   lines.push("Global options:");
   lines.push("  -h, --help     Show help for a command (draft <cmd> --help)");

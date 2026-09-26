@@ -383,9 +383,9 @@ async function processSnapshot(ctx: MainContext, target: "main" | "renderer" = "
     const metricsRes = await dbg.sendCommand("Performance.getMetrics");
     const metrics: Record<string, number> = {};
     if (Array.isArray(metricsRes?.metrics)) {
-      for (const m of metricsRes.metrics) {
+      metricsRes.metrics.forEach((m: any) => {
         metrics[m.name] = m.value;
-      }
+      });
     }
     let domCounters: Record<string, number> | undefined;
     try {

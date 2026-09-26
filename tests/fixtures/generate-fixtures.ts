@@ -71,12 +71,12 @@ function generateBinaryPLY(): ArrayBuffer {
     [0, 1, 0],
     [0, 0, 1],
   ];
-  for (const v of verts) {
-    for (const c of v) {
+  verts.forEach((v) => {
+    v.forEach((c) => {
       view.setFloat32(offset, c, true);
       offset += 4;
-    }
-  }
+    });
+  });
 
   // Faces
   const faces = [
@@ -85,14 +85,14 @@ function generateBinaryPLY(): ArrayBuffer {
     [0, 3, 1],
     [1, 3, 2],
   ];
-  for (const f of faces) {
+  faces.forEach((f) => {
     view.setUint8(offset, 3);
     offset += 1;
-    for (const idx of f) {
+    f.forEach((idx) => {
       view.setUint32(offset, idx, true);
       offset += 4;
-    }
-  }
+    });
+  });
 
   return buf;
 }
@@ -125,11 +125,11 @@ function generate3DS(): ArrayBuffer {
     [0, 1, 0],
   ];
   let vo = 2;
-  for (const v of verts) {
+  verts.forEach((v) => {
     vView.setFloat32(vo, v[0], true); vo += 4;
     vView.setFloat32(vo, v[1], true); vo += 4;
     vView.setFloat32(vo, v[2], true); vo += 4;
-  }
+  });
   const vertChunk = buildChunk(0x4110, new Uint8Array(vertData));
 
   // Faces chunk (0x4120): 1 face

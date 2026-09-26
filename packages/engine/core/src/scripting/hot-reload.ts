@@ -88,7 +88,7 @@ export class HotReloader {
   }
 
   async reloadAll(): Promise<void> {
-    for (const [name, entry] of this.entries) {
+    for (const [name, entry] of this.entries.entries()) {
       await this.reloadScript(name, entry.path);
     }
   }

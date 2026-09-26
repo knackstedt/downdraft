@@ -479,13 +479,13 @@ function deserializePaintJobs(view: DataView): PaintJobs {
 /** Encode threads: u32 count, then per thread: u8 kind, u16 id_len, id bytes, u16 name_len, name bytes. */
 export function encodeThreads(threads: { id: string; name: string; kind: number }[]): Uint8Array {
   let size = 4;
-  for (const t of threads) {
+  threads.forEach((t) => {
     size += 1 + 2 + Buffer.byteLength(t.id) + 2 + Buffer.byteLength(t.name);
-  }
+  });
   const buf = Buffer.alloc(size);
   let off = 0;
   buf.writeUInt32LE(threads.length, off); off += 4;
-  for (const t of threads) {
+  threads.forEach((t) => {
     buf.writeUInt8(t.kind, off); off += 1;
     const idBytes = Buffer.from(t.id, "utf8");
     buf.writeUInt16LE(idBytes.length, off); off += 2;
@@ -493,7 +493,7 @@ export function encodeThreads(threads: { id: string; name: string; kind: number 
     const nameBytes = Buffer.from(t.name, "utf8");
     buf.writeUInt16LE(nameBytes.length, off); off += 2;
     nameBytes.copy(buf, off); off += nameBytes.length;
-  }
+  });
   return new Uint8Array(buf.buffer, buf.byteOffset, buf.length);
 }
 
@@ -502,13 +502,13 @@ export function encodeTree(
   nodes: { id: number; parentId: number; depth: number; childCount: number; kind: number; label: string; detail: string }[],
 ): Uint8Array {
   let size = 4;
-  for (const n of nodes) {
+  nodes.forEach((n) => {
     size += 4 + 4 + 2 + 4 + 1 + 2 + Buffer.byteLength(n.label) + 2 + Buffer.byteLength(n.detail);
-  }
+  });
   const buf = Buffer.alloc(size);
   let off = 0;
   buf.writeUInt32LE(nodes.length, off); off += 4;
-  for (const n of nodes) {
+  nodes.forEach((n) => {
     buf.writeUInt32LE(n.id, off); off += 4;
     buf.writeInt32LE(n.parentId, off); off += 4;
     buf.writeUInt16LE(n.depth, off); off += 2;
@@ -520,7 +520,7 @@ export function encodeTree(
     const detailBytes = Buffer.from(n.detail, "utf8");
     buf.writeUInt16LE(detailBytes.length, off); off += 2;
     detailBytes.copy(buf, off); off += detailBytes.length;
-  }
+  });
   return new Uint8Array(buf.buffer, buf.byteOffset, buf.length);
 }
 
@@ -531,15 +531,15 @@ export function encodeGpuInfo(
   memHistory: number[],
 ): Uint8Array {
   let size = 4;
-  for (const e of entries) {
+  entries.forEach((e) => {
     size += 1 + 2 + Buffer.byteLength(e.key) + 2 + Buffer.byteLength(e.value);
-  }
+  });
   size += 4 + frameTimes.length * 8;
   size += 4 + memHistory.length * 8;
   const buf = Buffer.alloc(size);
   let off = 0;
   buf.writeUInt32LE(entries.length, off); off += 4;
-  for (const e of entries) {
+  entries.forEach((e) => {
     buf.writeUInt8(e.isHeader ? 1 : 0, off); off += 1;
     const keyBytes = Buffer.from(e.key, "utf8");
     buf.writeUInt16LE(keyBytes.length, off); off += 2;
@@ -547,16 +547,16 @@ export function encodeGpuInfo(
     const valBytes = Buffer.from(e.value, "utf8");
     buf.writeUInt16LE(valBytes.length, off); off += 2;
     valBytes.copy(buf, off); off += valBytes.length;
-  }
+  });
   buf.writeUInt32LE(frameTimes.length, off); off += 4;
-  for (const [cpu, gpu] of frameTimes) {
+  frameTimes.forEach(([cpu, gpu]) => {
     buf.writeFloatLE(cpu, off); off += 4;
     buf.writeFloatLE(gpu, off); off += 4;
-  }
+  });
   buf.writeUInt32LE(memHistory.length, off); off += 4;
-  for (const m of memHistory) {
+  memHistory.forEach((m) => {
     buf.writeDoubleLE(m, off); off += 8;
-  }
+  });
   return new Uint8Array(buf.buffer, buf.byteOffset, buf.length);
 }
 
@@ -569,17 +569,17 @@ export function encodeProfile(profile: {
   timeDeltasUs: number[];
 }): Uint8Array {
   let size = 4;
-  for (const n of profile.nodes) {
+  profile.nodes.forEach((n) => {
     size += 4 + 4 + 2 + Buffer.byteLength(n.callFrame) + 2 + Buffer.byteLength(n.url) + 4 + 4;
-    for (const _ of n.children) size += 4;
-  }
+    n.children.forEach((_) => { size += 4;; });
+  });
   size += 8 + 8;
   size += 4 + profile.samples.length * 4;
   size += 4 + profile.timeDeltasUs.length * 8;
   const buf = Buffer.alloc(size);
   let off = 0;
   buf.writeUInt32LE(profile.nodes.length, off); off += 4;
-  for (const n of profile.nodes) {
+  profile.nodes.forEach((n) => {
     buf.writeUInt32LE(Math.max(0, n.id) >>> 0, off); off += 4;
     buf.writeUInt32LE(Math.max(0, n.hitCount) >>> 0, off); off += 4;
     const cf = Buffer.from(n.callFrame, "utf8");
@@ -590,20 +590,20 @@ export function encodeProfile(profile: {
     url.copy(buf, off); off += url.length;
     buf.writeUInt32LE(Math.max(0, n.line) >>> 0, off); off += 4;
     buf.writeUInt32LE(n.children.length, off); off += 4;
-    for (const c of n.children) {
+    n.children.forEach((c) => {
       buf.writeUInt32LE(Math.max(0, c) >>> 0, off); off += 4;
-    }
-  }
+    });
+  });
   buf.writeDoubleLE(profile.startUs, off); off += 8;
   buf.writeDoubleLE(profile.endUs, off); off += 8;
   buf.writeUInt32LE(profile.samples.length, off); off += 4;
-  for (const s of profile.samples) {
+  profile.samples.forEach((s) => {
     buf.writeUInt32LE(Math.max(0, s) >>> 0, off); off += 4;
-  }
+  });
   buf.writeUInt32LE(profile.timeDeltasUs.length, off); off += 4;
-  for (const d of profile.timeDeltasUs) {
+  profile.timeDeltasUs.forEach((d) => {
     buf.writeDoubleLE(d, off); off += 8;
-  }
+  });
   return new Uint8Array(buf.buffer, buf.byteOffset, buf.length);
 }
 
@@ -617,27 +617,27 @@ export function encodeMetrics(
   }[],
 ): Uint8Array {
   let size = 4;
-  for (const s of slots) {
+  slots.forEach((s) => {
     size += 4 + 1 + 2 + Buffer.byteLength(s.name) + 4 + s.history.length * (4 + 8 + 8 + 8 + 8);
-  }
+  });
   const buf = Buffer.alloc(size);
   let off = 0;
   buf.writeUInt32LE(slots.length, off); off += 4;
-  for (const s of slots) {
+  slots.forEach((s) => {
     buf.writeUInt32LE(s.slotIndex, off); off += 4;
     buf.writeUInt8(s.runtime, off); off += 1;
     const nameBytes = Buffer.from(s.name, "utf8");
     buf.writeUInt16LE(nameBytes.length, off); off += 2;
     nameBytes.copy(buf, off); off += nameBytes.length;
     buf.writeUInt32LE(s.history.length, off); off += 4;
-    for (const h of s.history) {
+    s.history.forEach((h) => {
       buf.writeFloatLE(h.cpuPercent, off); off += 4;
       buf.writeDoubleLE(h.heapUsed, off); off += 8;
       buf.writeDoubleLE(h.heapTotal, off); off += 8;
       buf.writeDoubleLE(h.gcPauseMaxUs, off); off += 8;
       buf.writeDoubleLE(h.taskLatencyP95Us, off); off += 8;
-    }
-  }
+    });
+  });
   return new Uint8Array(buf.buffer, buf.byteOffset, buf.length);
 }
 
@@ -683,38 +683,38 @@ export function encodeSnapshot(snap: PanelSnapshot): Uint8Array {
   const statusMsg = snap.statusMsg ?? "";
 
   let size = 1 + 2 + Buffer.byteLength(statusMsg) + 4;
-  for (const s of sections) {
+  sections.forEach((s) => {
     size += 2 + Buffer.byteLength(s.name) + 1;
     switch (s.kind) {
       case "kv":
         size += 4;
-        for (const r of s.rows) size += 1 + 2 + Buffer.byteLength(r.key) + 2 + Buffer.byteLength(r.value);
+        s.rows.forEach((r) => { size += 1 + 2 + Buffer.byteLength(r.key) + 2 + Buffer.byteLength(r.value);; });
         break;
       case "table":
         size += 2;
-        for (const c of s.cols) size += 2 + Buffer.byteLength(c);
+        s.cols.forEach((c) => { size += 2 + Buffer.byteLength(c);; });
         size += 4;
-        for (const row of s.rows) for (const cell of row) size += 2 + Buffer.byteLength(cell);
+        s.rows.forEach((row) => { row.forEach((cell) => { size += 2 + Buffer.byteLength(cell);; });; });
         break;
       case "series":
         size += 2;
-        for (const ser of s.series) size += 2 + Buffer.byteLength(ser.name) + 4 + ser.values.length * 4;
+        s.series.forEach((ser) => { size += 2 + Buffer.byteLength(ser.name) + 4 + ser.values.length * 4;; });
         break;
       case "lines":
         size += 4;
-        for (const l of s.lines) size += 1 + 2 + Buffer.byteLength(l.text);
+        s.lines.forEach((l) => { size += 1 + 2 + Buffer.byteLength(l.text);; });
         break;
       case "controls":
         size += 2;
-        for (const c of s.controls) {
+        s.controls.forEach((c) => {
           size += 1 + 2 + Buffer.byteLength(c.id) + 2 + Buffer.byteLength(c.label);
           if (c.type === "button") size += 2 + Buffer.byteLength(c.payload ?? "");
           else if (c.type === "checkbox") size += 1;
           else size += 12;
-        }
+        });
         break;
     }
-  }
+  });
 
   const buf = Buffer.alloc(size);
   let off = 0;
@@ -728,52 +728,52 @@ export function encodeSnapshot(snap: PanelSnapshot): Uint8Array {
   w16(statusMsg);
   buf.writeUInt32LE(sections.length, off); off += 4;
 
-  for (const s of sections) {
+  sections.forEach((s) => {
     w16(s.name);
     switch (s.kind) {
       case "kv": {
         buf.writeUInt8(0, off); off += 1;
         buf.writeUInt32LE(s.rows.length, off); off += 4;
-        for (const r of s.rows) {
+        s.rows.forEach((r) => {
           buf.writeUInt8(r.flags ?? 0, off); off += 1;
           w16(r.key);
           w16(r.value);
-        }
+        });
         break;
       }
       case "table": {
         buf.writeUInt8(1, off); off += 1;
         buf.writeUInt16LE(s.cols.length, off); off += 2;
-        for (const c of s.cols) w16(c);
+        s.cols.forEach((c) => { w16(c);; });
         buf.writeUInt32LE(s.rows.length, off); off += 4;
-        for (const row of s.rows) for (const cell of row) w16(cell);
+        s.rows.forEach((row) => { row.forEach((cell) => { w16(cell);; });; });
         break;
       }
       case "series": {
         buf.writeUInt8(2, off); off += 1;
         buf.writeUInt16LE(s.series.length, off); off += 2;
-        for (const ser of s.series) {
+        s.series.forEach((ser) => {
           w16(ser.name);
           buf.writeUInt32LE(ser.values.length, off); off += 4;
-          for (const v of ser.values) {
+          ser.values.forEach((v) => {
             buf.writeFloatLE(v, off); off += 4;
-          }
-        }
+          });
+        });
         break;
       }
       case "lines": {
         buf.writeUInt8(3, off); off += 1;
         buf.writeUInt32LE(s.lines.length, off); off += 4;
-        for (const l of s.lines) {
+        s.lines.forEach((l) => {
           buf.writeUInt8(l.flags ?? 0, off); off += 1;
           w16(l.text);
-        }
+        });
         break;
       }
       case "controls": {
         buf.writeUInt8(4, off); off += 1;
         buf.writeUInt16LE(s.controls.length, off); off += 2;
-        for (const c of s.controls) {
+        s.controls.forEach((c) => {
           if (c.type === "button") {
             buf.writeUInt8(0, off); off += 1;
             w16(c.id); w16(c.label); w16(c.payload ?? "");
@@ -788,11 +788,11 @@ export function encodeSnapshot(snap: PanelSnapshot): Uint8Array {
             buf.writeFloatLE(c.min, off); off += 4;
             buf.writeFloatLE(c.max, off); off += 4;
           }
-        }
+        });
         break;
       }
     }
-  }
+  });
   return new Uint8Array(buf.buffer, buf.byteOffset, buf.length);
 }
 

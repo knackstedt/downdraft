@@ -67,11 +67,11 @@ async function testShaderChunkWithoutLUT() {
 async function testShaderChunkDifferentGroups() {
   const { createIBLShaderChunk } = await import("../packages/engine/core/src/render/ibl-bind-group");
 
-  for (const g of [0, 1, 2, 3, 4]) {
+  [0, 1, 2, 3, 4].forEach((g) => {
     const chunk = createIBLShaderChunk(g, true);
     assert(chunk.includes(`@group(${g}) @binding(0)`), `IBL chunk group ${g}: should have @group(${g})`);
     assert(!chunk.includes(`@group(${g + 1})`), `IBL chunk group ${g}: should not reference group ${g + 1}`);
-  }
+  });
 
   console.log("✓ Shader chunk groups: all group indices 0-4 produce correct @group(N) annotations");
 }
@@ -228,7 +228,7 @@ async function main() {
   let failed = 0;
   const failures: string[] = [];
 
-  for (const test of tests) {
+  for (let _i = 0, _it = tests, _n = _it.length; _i < _n; _i++) { const test = _it[_i];
     try {
       await test.fn();
       passed++;
@@ -244,7 +244,7 @@ async function main() {
   console.log(`  Results: ${passed} passed, ${failed} failed, ${tests.length} total`);
   if (failures.length > 0) {
     console.log("\n  Failures:");
-    for (const f of failures) console.log(f);
+    failures.forEach((f) => { console.log(f);; });
   }
   console.log("═══════════════════════════════════════════════════════════════");
 

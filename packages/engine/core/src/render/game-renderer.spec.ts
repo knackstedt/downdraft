@@ -128,7 +128,7 @@ describe("GameRenderer — one-shot rendering", () => {
     const fireAll = () => {
       const cbs = [...pending.values()];
       pending.clear();
-      for (const cb of cbs) cb(performance.now());
+      cbs.forEach((cb) => { cb(performance.now());; });
     };
     const restore = () => {
       (globalThis as any).requestAnimationFrame = prevRaf;

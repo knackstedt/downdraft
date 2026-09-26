@@ -87,27 +87,27 @@ export function buildCrossThreadReport(
   const all = [...simModules, ...rendererModules];
   const providedBy = new Map<string, ThreadTag[]>();
 
-  for (const p of all) {
+  for (let _i = 0, _it = all, _n = _it.length; _i < _n; _i++) { const p = _it[_i];
     if (!p.active) continue;
-    for (const tok of p.provides) {
+    p.provides.forEach((tok) => {
       const threads = providedBy.get(tok) ?? [];
       if (!threads.includes(p.thread)) threads.push(p.thread);
       providedBy.set(tok, threads);
-    }
+    });
   }
 
   const required = new Set<string>();
-  for (const p of all) {
+  for (let _i = 0, _it = all, _n = _it.length; _i < _n; _i++) { const p = _it[_i];
     if (!p.active) continue;
-    for (const tok of p.requires) required.add(tok);
+    p.requires.forEach((tok) => { required.add(tok);; });
   }
 
   const unresolved: string[] = [];
   const shared: string[] = [];
-  for (const [tok, threads] of providedBy) {
+  for (const [tok, threads] of providedBy.entries()) {
     if (threads.length > 1) shared.push(tok);
   }
-  for (const tok of required) {
+  for (const tok of required.values()) {
     if (!providedBy.has(tok)) unresolved.push(tok);
   }
 
@@ -117,9 +117,9 @@ export function buildCrossThreadReport(
   // as incompleteShared).
   const threadMismatches: CrossThreadReport["threadMismatches"] = [];
   const incompleteShared: CrossThreadReport["incompleteShared"] = [];
-  for (const p of all) {
+  for (let _i = 0, _it = all, _n = _it.length; _i < _n; _i++) { const p = _it[_i];
     if (!p.active || !p.tokenThreads) continue;
-    for (const tok of p.provides) {
+    for (let _i = 0, _it = p.provides, _n = _it.length; _i < _n; _i++) { const tok = _it[_i];
       const tag = p.tokenThreads[tok];
       if (!tag) continue;
       if ((tag === "sim" || tag === "renderer") && p.thread !== tag) {
@@ -127,9 +127,9 @@ export function buildCrossThreadReport(
       }
     }
   }
-  for (const p of all) {
+  for (let _i = 0, _it = all, _n = _it.length; _i < _n; _i++) { const p = _it[_i];
     if (!p.active || !p.tokenThreads) continue;
-    for (const tok of p.provides) {
+    for (let _i = 0, _it = p.provides, _n = _it.length; _i < _n; _i++) { const tok = _it[_i];
       if (p.tokenThreads[tok] !== "shared") continue;
       const threads = providedBy.get(tok) ?? [];
       if (threads.length < 2 && !incompleteShared.some((e) => e.token === tok)) {
@@ -140,20 +140,20 @@ export function buildCrossThreadReport(
 
   // Version conflicts
   const byName = new Map<string, { sim?: string; renderer?: string }>();
-  for (const p of simModules) {
+  for (let _i = 0, _it = simModules, _n = _it.length; _i < _n; _i++) { const p = _it[_i];
     if (!p.active) continue;
     const entry = byName.get(p.name) ?? {};
     entry.sim = p.version;
     byName.set(p.name, entry);
   }
-  for (const p of rendererModules) {
+  for (let _i = 0, _it = rendererModules, _n = _it.length; _i < _n; _i++) { const p = _it[_i];
     if (!p.active) continue;
     const entry = byName.get(p.name) ?? {};
     entry.renderer = p.version;
     byName.set(p.name, entry);
   }
   const versionConflicts: CrossThreadReport["versionConflicts"] = [];
-  for (const [name, versions] of byName) {
+  for (const [name, versions] of byName.entries()) {
     if (versions.sim && versions.renderer && versions.sim !== versions.renderer) {
       versionConflicts.push({ name, simVersion: versions.sim, rendererVersion: versions.renderer });
     }

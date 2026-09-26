@@ -115,7 +115,7 @@ export class Pathfinder {
       closed.add(current.polyId);
 
       const neighbors = this.navMesh.getPolyNeighbors(current.polyId);
-      for (const neighborId of neighbors) {
+      for (let _i = 0, _it = neighbors, _n = _it.length; _i < _n; _i++) { const neighborId = _it[_i];
         if (closed.has(neighborId)) continue;
 
         const neighborCenter = this.navMesh.getPolyCenter(neighborId);

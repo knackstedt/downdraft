@@ -165,7 +165,7 @@ export function createEntityTools(ctx: EngineContext, undoRedo: UndoRedoManager)
         const arch = ctx.ecsWorld.getArchetypeForEntity(entity);
         const savedComponents = new Map<number, unknown>();
         if (arch) {
-          for (const [cid, col] of arch.columns) {
+          for (const [cid, col] of arch.columns.entries()) {
             const row = arch.entities.findIndex(
               (e) => e.index === entity.index && e.generation === entity.generation,
             );
@@ -190,11 +190,11 @@ export function createEntityTools(ctx: EngineContext, undoRedo: UndoRedoManager)
             ctx.ecsWorld.flushCommands();
             ctx.scene.addEntity(restored);
             ctx.hierarchy.setParent(restored, savedParent);
-            for (const child of savedChildren) {
+            savedChildren.forEach((child) => {
               if (ctx.isEntityAlive(child)) {
                 ctx.hierarchy.setParent(child, restored);
               }
-            }
+            });
           },
           redo: () => {
             const e = ctx.parseEntityKey(entityKey);
@@ -235,7 +235,7 @@ export function createEntityTools(ctx: EngineContext, undoRedo: UndoRedoManager)
         }
 
         const components: Record<string, unknown> = {};
-        for (const [cid, col] of arch.columns) {
+        for (const [cid, col] of arch.columns.entries()) {
           const row = arch.entities.findIndex(
             (e) => e.index === entity.index && e.generation === entity.generation,
           );

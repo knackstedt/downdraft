@@ -72,30 +72,30 @@ describe("PostProcessStack", () => {
       const stack = new PostProcessStack(makeMockDevice() as GPUDevice, "rgba8unorm");
       stack.init();
       const newEffects: EffectId[] = ["lut", "white-balance", "channel-mixer", "split-tone"];
-      for (const id of newEffects) {
+      newEffects.forEach((id) => {
         stack.setEnabled(id, true);
         expect(stack.isEnabled(id)).toBe(true);
-      }
+      });
     });
 
     it("should toggle new camera/lens effects", () => {
       const stack = new PostProcessStack(makeMockDevice() as GPUDevice, "rgba8unorm");
       stack.init();
       const newEffects: EffectId[] = ["chromatic-aberration", "lens-distortion"];
-      for (const id of newEffects) {
+      newEffects.forEach((id) => {
         stack.setEnabled(id, true);
         expect(stack.isEnabled(id)).toBe(true);
-      }
+      });
     });
 
     it("should toggle new stylized effects", () => {
       const stack = new PostProcessStack(makeMockDevice() as GPUDevice, "rgba8unorm");
       stack.init();
       const newEffects: EffectId[] = ["halftone", "dithering", "watercolor"];
-      for (const id of newEffects) {
+      newEffects.forEach((id) => {
         stack.setEnabled(id, true);
         expect(stack.isEnabled(id)).toBe(true);
-      }
+      });
     });
   });
 

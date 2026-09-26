@@ -98,7 +98,7 @@ export function createScriptBinding(
 
     spawn(components: Map<string, unknown>): Entity {
       const idMap = new Map<ComponentId, unknown>();
-      for (const [name, data] of components) {
+      for (const [name, data] of components.entries()) {
         idMap.set(getComponentId(name), data);
       }
       return world.spawn(idMap);

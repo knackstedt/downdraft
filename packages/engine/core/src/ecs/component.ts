@@ -132,9 +132,9 @@ export function soaComponent<S extends Record<string, SoAFieldType>>(
 
   // Build defaults object from schema (all zeros — ZAII)
   const defaults = {} as Record<string, number>;
-  for (const f of fields) {
+  fields.forEach((f) => {
     defaults[f] = SOA_DEFAULT_VALUE[schema[f]!]!;
-  }
+  });
 
   type Data = SoAComponentData<S>;
 

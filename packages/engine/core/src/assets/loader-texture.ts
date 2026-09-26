@@ -92,10 +92,10 @@ function generateMipChain(
   const totalSize = levels.reduce((sum, l) => sum + l.length, 0);
   const result = new Uint8Array(totalSize);
   let offset = 0;
-  for (const level of levels) {
+  levels.forEach((level) => {
     result.set(level, offset);
     offset += level.length;
-  }
+  });
   return result;
 }
 

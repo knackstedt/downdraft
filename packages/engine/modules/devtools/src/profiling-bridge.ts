@@ -110,9 +110,9 @@ export class ProfilingBridge {
     this.warningEngine.setAutoTraceAvailable(this.contentTracingAvailable || true);
 
     // Register default renderer warning rules
-    for (const rule of DEFAULT_RENDERER_WARNING_RULES) {
+    DEFAULT_RENDERER_WARNING_RULES.forEach((rule) => {
       this.warningEngine.addRule(rule);
-    }
+    });
 
     // Event loop monitor (renderer) — writer is set after slot claim below
     if (opts.enableEventLoopMonitor !== false) {
@@ -140,9 +140,9 @@ export class ProfilingBridge {
     devtools.attachProfilingSAB(this.profilingSAB);
 
     // Register built-in view descriptors
-    for (const view of BUILTIN_VIEW_DESCRIPTORS) {
+    BUILTIN_VIEW_DESCRIPTORS.forEach((view) => {
       devtools.registerView(view);
-    }
+    });
 
     // Claim a renderer slot so the profiler overlay always has at least one
     // slot to display (renderer heap/CPU/GC metrics).
@@ -311,7 +311,7 @@ export class ProfilingBridge {
     }
 
     // Drain warning ring — merge worker warnings into the renderer's callback set
-    for (const w of snapshot.warnings) {
+    for (let _i = 0, _it = snapshot.warnings, _n = _it.length; _i < _n; _i++) { const w = _it[_i];
       // Dedup by ruleIdHash + ts (a warning may appear in multiple reads)
       const warningId = `${w.ruleIdHash}:${w.ts}`;
       if (this.seenWarningIds.has(warningId)) continue;
@@ -342,7 +342,7 @@ export class ProfilingBridge {
       };
 
       // Fire callbacks
-      for (const cb of this.warningCallbacks) {
+      for (const cb of this.warningCallbacks.values()) {
         try { cb(record, ctx); } catch (err) {
           log.error("ProfilingBridge", `Warning callback error: ${err}`);
         }

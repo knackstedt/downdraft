@@ -21,7 +21,7 @@ const filter = args.find((a) => a.startsWith("--filter="))?.split("=")[1];
 // Collect every publishable package (private:true is skipped). Engine
 // libraries/modules live inside @downdraft/engine — not separate packages.
 const dirs = [];
-for (const top of ["packages"]) {
+for (let _i = 0, _it = ["packages"], _n = _it.length; _i < _n; _i++) { const top = _it[_i];
   const abs = join(root, top);
   if (!existsSync(abs)) continue;
   for (const entry of readdirSync(abs)) {
@@ -33,7 +33,7 @@ for (const top of ["packages"]) {
 }
 
 const pkgs = new Map(); // name -> { dir, pkg }
-for (const dir of dirs) {
+for (let _i = 0, _it = dirs, _n = _it.length; _i < _n; _i++) { const dir = _it[_i];
   const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
   if (!pkg.name?.startsWith("@downdraft/") || pkg.private) continue;
   pkgs.set(pkg.name, { dir, pkg });
@@ -46,9 +46,9 @@ function visit(name) {
   if (seen.has(name) || !pkgs.has(name)) return;
   seen.add(name);
   const { pkg } = pkgs.get(name);
-  for (const field of ["dependencies", "peerDependencies"]) {
+  ["dependencies", "peerDependencies"].forEach((field) => {
     for (const dep of Object.keys(pkg[field] ?? {})) visit(dep);
-  }
+  });
   order.push(name);
 }
 for (const name of pkgs.keys()) visit(name);
@@ -62,7 +62,7 @@ function isPublished(name, version) {
 }
 
 let published = 0;
-for (const name of order) {
+for (let _i = 0, _it = order, _n = _it.length; _i < _n; _i++) { const name = _it[_i];
   if (filter && !name.includes(filter)) continue;
   const { dir, pkg } = pkgs.get(name);
   if (isPublished(name, pkg.version)) {

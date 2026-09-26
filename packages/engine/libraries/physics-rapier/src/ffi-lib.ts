@@ -53,7 +53,7 @@ function findPhysicsLibrary(): string {
     join(dirname(process.execPath), "native", base),
     join("/usr/local/lib", base),
   ];
-  for (const p of candidates) {
+  for (let _i = 0, _it = candidates, _n = _it.length; _i < _n; _i++) { const p = _it[_i];
     if (existsSync(p)) return p;
   }
   throw new Error(

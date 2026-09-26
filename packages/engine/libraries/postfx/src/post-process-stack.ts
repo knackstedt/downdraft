@@ -477,7 +477,7 @@ export class PostProcessStack {
       "chromatic-aberration", "lens-distortion",
       "halftone", "dithering", "watercolor",
     ];
-    for (const k of simpleKeys) this.uniforms[k] = this.device.createBuffer({ size: 64, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    simpleKeys.forEach((k) => { this.uniforms[k] = this.device.createBuffer({ size: 64, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });; });
     this.uniforms["ssao"] = this.device.createBuffer({ size: 256, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.uniforms["ssr"] = this.device.createBuffer({ size: 256, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 
@@ -582,7 +582,7 @@ export class PostProcessStack {
 
   hasEnabledEffects(): boolean {
     if ((Object.values(this.enabled) as boolean[]).some(v => v)) return true;
-    for (const [, e] of this.customEffects) if (e.enabled) return true;
+    for (const [, e] of this.customEffects.entries()) if (e.enabled) return true;
     return false;
   }
 
@@ -854,7 +854,7 @@ export class PostProcessStack {
   private needsMask(): boolean { return this.enabled["outline"] || this.enabled["highlight"] || this.enabled["glow"]; }
 
   private effectsChanged(): boolean {
-    for (const id of ALL_EFFECTS) {
+    for (let _i = 0, _it = ALL_EFFECTS, _n = _it.length; _i < _n; _i++) { const id = _it[_i];
       if (this.enabled[id] !== this.prevEnabled[id]) {
         this.prevEnabled = { ...this.enabled };
         return true;
@@ -933,9 +933,9 @@ export class PostProcessStack {
     destroy(this.bloomBright); this.bloomBright = null;
     destroy(this.bloomBlurH); this.bloomBlurH = null;
     destroy(this.bloomBlurV); this.bloomBlurV = null;
-    for (const m of this.bloomMip) m.destroy();
+    this.bloomMip.forEach((m) => { m.destroy();; });
     this.bloomMip = [];
-    for (const m of this.bloomTemp) m.destroy();
+    this.bloomTemp.forEach((m) => { m.destroy();; });
     this.bloomTemp = [];
     destroy(this.bloomBase); this.bloomBase = null;
     destroy(this.halfResA); this.halfResA = null;
@@ -1002,7 +1002,7 @@ export class PostProcessStack {
     const customByOrder: Record<CustomEffectOrder, string[]> = {
       "hdr": [], "color-grading": [], "camera": [], "stylized": [],
     };
-    for (const [id, e] of this.customEffects) {
+    for (const [id, e] of this.customEffects.entries()) {
       if (e.enabled) customByOrder[e.effect.order].push(id);
     }
     const hasCustom = (customByOrder["hdr"].length + customByOrder["color-grading"].length +
@@ -1036,20 +1036,20 @@ export class PostProcessStack {
         chain.push({ type: "builtin", id: CHAIN_ORDER[i] });
       }
       // Insert custom effects at group boundaries (after the last effect in each group).
-      if (i === HDR_END - 1) for (const cid of customByOrder["hdr"]) chain.push({ type: "custom", id: cid });
-      if (i === COLOR_END - 1) for (const cid of customByOrder["color-grading"]) chain.push({ type: "custom", id: cid });
-      if (i === CAMERA_END - 1) for (const cid of customByOrder["camera"]) chain.push({ type: "custom", id: cid });
+      if (i === HDR_END - 1) customByOrder["hdr"].forEach((cid) => { chain.push({ type: "custom", id: cid });; });
+      if (i === COLOR_END - 1) customByOrder["color-grading"].forEach((cid) => { chain.push({ type: "custom", id: cid });; });
+      if (i === CAMERA_END - 1) customByOrder["camera"].forEach((cid) => { chain.push({ type: "custom", id: cid });; });
     }
     // Stylized custom effects run after all built-in stylized effects.
-    for (const cid of customByOrder["stylized"]) chain.push({ type: "custom", id: cid });
+    customByOrder["stylized"].forEach((cid) => { chain.push({ type: "custom", id: cid });; });
     // If there are no built-in effects but there are custom effects, run them.
     if (active.length === 0) {
-      for (const order of ["hdr", "color-grading", "camera", "stylized"] as CustomEffectOrder[]) {
-        for (const cid of customByOrder[order]) chain.push({ type: "custom", id: cid });
-      }
+      (["hdr", "color-grading", "camera", "stylized"] as CustomEffectOrder[]).forEach((order) => {
+        customByOrder[order].forEach((cid) => { chain.push({ type: "custom", id: cid });; });
+      });
     }
 
-    for (const entry of chain) {
+    chain.forEach((entry) => {
       const outputTex = this.pingPong[pingIdx]!;
       const outputView = this.viewOf(outputTex);
       if (entry.type === "builtin") {
@@ -1065,7 +1065,7 @@ export class PostProcessStack {
       }
       inputView = outputView;
       pingIdx = 1 - pingIdx;
-    }
+    });
 
     // Blit final result to canvas
     this.applyBlit(encoder, inputView, canvasView, w, h);
@@ -1199,7 +1199,7 @@ export class PostProcessStack {
    *  (views from viewOf(), long-lived buffers/samplers). */
   private bgCached(layout: GPUBindGroupLayout, entries: GPUBindGroupEntry[]): GPUBindGroup {
     let key = `${this.idOf(layout)}`;
-    for (const e of entries) {
+    entries.forEach((e) => {
       const r = e.resource as object;
       key += `|${e.binding}:`;
       // GPUBufferBinding literals are fresh objects per call — key on the
@@ -1210,7 +1210,7 @@ export class PostProcessStack {
       } else {
         key += `o${this.idOf(r)}`;
       }
-    }
+    });
     let bg = this.bgCache.get(key);
     if (!bg) this.bgCache.set(key, (bg = this.bg(layout, entries)));
     return bg;
@@ -1743,7 +1743,7 @@ export class PostProcessStack {
     for (const key in this.uniforms) this.uniforms[key]?.destroy();
     for (const key in this.pipelines) this.pipelines[key]?.destroy?.();
     // Custom effects
-    for (const [, e] of this.customEffects) {
+    for (const [, e] of this.customEffects.entries()) {
       e.pipeline.destroy?.();
       e.uniform.destroy();
     }

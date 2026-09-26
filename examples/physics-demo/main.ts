@@ -117,9 +117,9 @@ export function tick(_ctx: any, dt: number) {
   const accumulator = api.getAccumulator();
   accumulator.accumulate(dt);
   const steps = accumulator.consumeSteps();
-  for (const fixedDt of steps) {
+  steps.forEach((fixedDt) => {
     api.getRealmManager().step(fixedDt);
-  }
+  });
 
   // Update realm membership based on player position
   api.getRealmManager().updateRealmMembership([playerPos], dt);
@@ -144,12 +144,12 @@ export function tick(_ctx: any, dt: number) {
     );
 
     // Log realm tiers of each body
-    for (const { body, name } of bodies) {
+    bodies.forEach(({ body, name }) => {
       const tier = api.getRealmTier(body);
       const tierName = tier === RealmTier.Near ? "near" : tier === RealmTier.Mid ? "mid" : "far";
       const pos = api.getPosition(body);
       log.info("physics-demo", `  ${name}: tier=${tierName} pos=[${pos[0].toFixed(1)}, ${pos[1].toFixed(1)}, ${pos[2].toFixed(1)}]`);
-    }
+    });
   }
 
   // Snapshot/restore test at frame 300

@@ -185,11 +185,11 @@ export function createPixiStack(): UiStack {
         const refreshClip = () => {
             // Manual windowing — no scissor/mask: rows outside the viewport
             // are simply not rendered. Row base offset lives on __rowY.
-            for (const r of rows) {
+            rows.forEach((r) => {
                 const ry = (r as any).__rowY - listScroll;
                 r.y = ry;
                 r.visible = ry + rowH > 0 && ry < listH;
-            }
+            });
         };
         LIST_ITEMS.forEach((item, i) => {
             const row = new Container();

@@ -134,7 +134,7 @@ export function createSidePanelUi(panel: Container, x: number, startY: number, w
           .stroke({ color: C_PANEL_BORDER, width: 1 });
         dropdownContainer.addChild(optBg);
         let dy = y + 18;
-        for (const opt of options) {
+        options.forEach((opt) => {
           const isSel = opt === current;
           const optText = mkText({
             text: isSel ? `▸ ${opt}` : `  ${opt}`,
@@ -148,7 +148,7 @@ export function createSidePanelUi(panel: Container, x: number, startY: number, w
           };
           dropdownContainer!.addChild(optText);
           dy += 16;
-        }
+        });
         panel.addChild(dropdownContainer);
       };
       panel.addChild(lbl);

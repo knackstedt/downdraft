@@ -415,8 +415,8 @@ export class SandGridPass {
   }
 
   destroy(): void {
-    for (const t of this.gridTextures) t?.destroy();
-    for (const t of this.offscreenTargets) t?.destroy();
+    this.gridTextures.forEach((t) => { t?.destroy();; });
+    this.offscreenTargets.forEach((t) => { t?.destroy();; });
     this.paletteTexture?.destroy();
     this.propsTexture?.destroy();
     this.dummyTexture?.destroy();

@@ -444,9 +444,9 @@ export class DebugRenderPass extends RenderPass {
     const texts = this.debugQueue.getTexts();
     if (texts.length > 0 && this.textPipeline && this.textBindGroup) {
       const vertices: number[] = [];
-      for (const t of texts) {
+      texts.forEach((t) => {
         this.buildTextVertices(t, vertices);
-      }
+      });
       const vertexCount = Math.min(Math.floor(vertices.length / 9), this.maxTextVertices);
       if (vertexCount > 0) {
         const data = new Float32Array(vertexCount * 9);
@@ -492,11 +492,11 @@ export class DebugRenderPass extends RenderPass {
         ];
         const uvs = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
         const indices = [0, 1, 2, 0, 2, 3];
-        for (const idx of indices) {
+        indices.forEach((idx) => {
           out.push(corners[idx][0], corners[idx][1], corners[idx][2]);
           out.push(uvs[idx][0], uvs[idx][1]);
           out.push(r, g, b, a);
-        }
+        });
       } else {
         // world space: offset each glyph quad in world units (scaled)
         const scale = 0.01;
@@ -512,11 +512,11 @@ export class DebugRenderPass extends RenderPass {
         ];
         const uvs = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
         const indices = [0, 1, 2, 0, 2, 3];
-        for (const idx of indices) {
+        indices.forEach((idx) => {
           out.push(corners[idx][0], corners[idx][1], corners[idx][2]);
           out.push(uvs[idx][0], uvs[idx][1]);
           out.push(r, g, b, a);
-        }
+        });
       }
     }
   }

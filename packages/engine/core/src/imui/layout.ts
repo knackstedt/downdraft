@@ -20,12 +20,12 @@ export class LayoutEngine {
     const innerH = el.height - pt - pb;
 
     if (el.layoutMode === "absolute") {
-      for (const child of el.children) {
+      el.children.forEach((child) => {
         this.layoutElement(child, innerX, innerY);
-      }
+      });
     } else if (el.layoutMode === "vertical") {
       let cursorY = innerY;
-      for (const child of el.children) {
+      for (let _i = 0, _it = el.children, _n = _it.length; _i < _n; _i++) { const child = _it[_i];
         if (!child.visible) continue;
         const [mt, mr, mb, ml] = child.style.margin;
         child.x = ml;
@@ -35,7 +35,7 @@ export class LayoutEngine {
       }
     } else if (el.layoutMode === "horizontal") {
       let cursorX = innerX;
-      for (const child of el.children) {
+      for (let _i = 0, _it = el.children, _n = _it.length; _i < _n; _i++) { const child = _it[_i];
         if (!child.visible) continue;
         const [mt, mr, mb, ml] = child.style.margin;
         child.x = cursorX - innerX + ml;
@@ -50,7 +50,7 @@ export class LayoutEngine {
       let cursorY = innerY;
       let col = 0;
       const cellW = (innerW - gap * (cols - 1)) / cols;
-      for (const child of el.children) {
+      for (let _i = 0, _it = el.children, _n = _it.length; _i < _n; _i++) { const child = _it[_i];
         if (!child.visible) continue;
         if (col >= cols) {
           col = 0;
@@ -84,10 +84,10 @@ export class LayoutEngine {
     const charH = fontSize * 1.2;
     const lines = text.split("\n");
     let maxW = 0;
-    for (const line of lines) {
+    lines.forEach((line) => {
       const w = line.length * charW;
       if (w > maxW) maxW = w;
-    }
+    });
     return { width: maxW, height: lines.length * charH };
   }
 
@@ -98,8 +98,8 @@ export class LayoutEngine {
       if (el.width === 0) el.width = measured.width + el.style.padding[1] + el.style.padding[3];
       if (el.height === 0) el.height = measured.height + el.style.padding[0] + el.style.padding[2];
     }
-    for (const child of el.children) {
+    el.children.forEach((child) => {
       this.autoSize(child);
-    }
+    });
   }
 }

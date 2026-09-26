@@ -58,7 +58,7 @@ export class LibraryHostImpl implements LibraryHost {
   private providers: Map<string, string> = new Map();
 
   constructor(entries: LibraryEntry[]) {
-    for (const entry of entries) {
+    entries.forEach((entry) => {
       const lib = Array.isArray(entry) ? entry[0] : entry;
       const config = (Array.isArray(entry) ? entry[1] : lib.defaultConfig) as unknown;
       this.libraries.push({
@@ -72,13 +72,13 @@ export class LibraryHostImpl implements LibraryHost {
         hasSimDispose: false,
         hasRendererDispose: false,
       });
-    }
+    });
   }
 
   allocateBuffers(): Record<string, SharedArrayBuffer> {
-    for (const active of this.libraries) {
+    this.libraries.forEach((active) => {
       const channels = active.lib.sabChannels ?? [];
-      for (const ch of channels) {
+      for (let _i = 0, _it = channels, _n = _it.length; _i < _n; _i++) { const ch = _it[_i];
         if (this.buffers[ch.name]) {
           const msg = `SAB channel "${ch.name}" declared by library "${active.lib.name}" is already allocated — duplicate channel names across libraries are not allowed`;
           if (isStrict()) throw new Error(msg);
@@ -88,7 +88,7 @@ export class LibraryHostImpl implements LibraryHost {
         this.buffers[ch.name] = new SharedArrayBuffer(ch.size);
         active.sabChannelNames.add(ch.name);
       }
-    }
+    });
     return this.buffers;
   }
 
@@ -100,8 +100,8 @@ export class LibraryHostImpl implements LibraryHost {
   validateGraph(): void {
     if (!isStrict()) return;
     const allProviders = new Map<string, string>();
-    for (const active of this.libraries) {
-      for (const token of active.lib.provides ?? []) {
+    this.libraries.forEach((active) => {
+      (active.lib.provides ?? []).forEach((token) => {
         if (allProviders.has(token.key)) {
           throw new Error(
             `Library "${active.lib.name}" provides "${token.key}" but it is already provided by "${allProviders.get(token.key)}". ` +
@@ -109,21 +109,21 @@ export class LibraryHostImpl implements LibraryHost {
           );
         }
         allProviders.set(token.key, active.lib.name);
-      }
-    }
-    for (const active of this.libraries) {
+      });
+    });
+    for (let _i = 0, _it = this.libraries, _n = _it.length; _i < _n; _i++) { const active = _it[_i];
       if (!active.lib.requires) continue;
-      for (const token of active.lib.requires) {
+      active.lib.requires.forEach((token) => {
         if (!allProviders.has(token.key)) {
           assertRequired(allProviders, token, active.lib.name);
         }
-      }
+      });
     }
   }
 
   initSim(ctx: LibrarySimContext): void {
     this.validateGraph();
-    for (const active of this.libraries) {
+    for (let _i = 0, _it = this.libraries, _n = _it.length; _i < _n; _i++) { const active = _it[_i];
       if (!active.lib.sim) continue;
       const libCtx: LibrarySimContext = {
         buffers: this.buffers,
@@ -165,24 +165,24 @@ export class LibraryHostImpl implements LibraryHost {
     // Reuse pre-allocated SABs (e.g. from the renderer side) instead of allocating new ones.
     this.buffers = buffers;
     // Record SAB channel names for leak detection.
-    for (const active of this.libraries) {
+    this.libraries.forEach((active) => {
       const channels = active.lib.sabChannels ?? [];
-      for (const ch of channels) {
+      channels.forEach((ch) => {
         if (buffers[ch.name]) {
           active.sabChannelNames.add(ch.name);
         }
-      }
-    }
+      });
+    });
     this.initSim({ buffers: this.buffers, ...ctx });
   }
 
   tickPhase(phase: LibraryTickPhase, tickCtx: LibrarySimTickContext): void {
     const libs = this.byPhase[phase];
-    for (const active of libs) {
+    libs.forEach((active) => {
       if (active.lib.sim?.tick && active.simSystem !== null) {
         active.lib.sim.tick(active.simSystem, tickCtx);
       }
-    }
+    });
   }
 
   /**
@@ -193,7 +193,7 @@ export class LibraryHostImpl implements LibraryHost {
    */
   createRenderer(ctx: LibraryRendererCreateContext): void {
     this.validateGraph();
-    for (const active of this.libraries) {
+    for (let _i = 0, _it = this.libraries, _n = _it.length; _i < _n; _i++) { const active = _it[_i];
       if (!active.lib.renderer?.create) continue;
       const cctx: LibraryRendererCreateContext = {
         provide: (token: ResourceToken<unknown>, value: unknown) => {
@@ -215,7 +215,7 @@ export class LibraryHostImpl implements LibraryHost {
 
   initRenderer(ctx: LibraryRendererInitContext): void {
     this.validateGraph();
-    for (const active of this.libraries) {
+    for (let _i = 0, _it = this.libraries, _n = _it.length; _i < _n; _i++) { const active = _it[_i];
       if (!active.lib.renderer?.init) continue;
       const rctx: LibraryRendererInitContext = {
         device: ctx.device,
@@ -244,7 +244,7 @@ export class LibraryHostImpl implements LibraryHost {
   }
 
   setRendererBuffers(buffers: Record<string, SharedArrayBuffer>): void {
-    for (const active of this.libraries) {
+    for (let _i = 0, _it = this.libraries, _n = _it.length; _i < _n; _i++) { const active = _it[_i];
       if (!active.lib.renderer?.setBuffers || active.rendererInstance === null) continue;
       active.lib.renderer.setBuffers(active.rendererInstance, buffers, {
         provide: (token: ResourceToken<unknown>, _value: unknown) => {
@@ -259,15 +259,15 @@ export class LibraryHostImpl implements LibraryHost {
   }
 
   drawRenderer(ctx: LibraryRendererDrawContext): void {
-    for (const active of this.libraries) {
+    this.libraries.forEach((active) => {
       if (active.lib.renderer?.draw && active.rendererInstance !== null) {
         active.lib.renderer.draw(active.rendererInstance, ctx);
       }
-    }
+    });
   }
 
   disposeSim(): void {
-    for (const active of this.libraries) {
+    this.libraries.forEach((active) => {
       // Leak detection: warn if library provided resources or allocated SAB
       // channels but has no sim dispose hook.
       if (isStrict()) {
@@ -283,20 +283,20 @@ export class LibraryHostImpl implements LibraryHost {
       active.simSystem = null;
       // Clean up sim-side provided tokens only — renderer-side providers
       // belong to the renderer lifecycle and are cleaned by disposeRenderer().
-      for (const key of active.simProvidedKeys) {
+      for (const key of active.simProvidedKeys.values()) {
         this.providers.delete(key);
       }
       active.simProvidedKeys.clear();
-    }
+    });
     // Clear tick-phase registrations so a subsequent initSim doesn't
     // double-register libraries and double-tick them.
-    for (const phase of Object.keys(this.byPhase) as LibraryTickPhase[]) {
+    (Object.keys(this.byPhase) as LibraryTickPhase[]).forEach((phase) => {
       this.byPhase[phase].length = 0;
-    }
+    });
   }
 
   disposeRenderer(): void {
-    for (const active of this.libraries) {
+    this.libraries.forEach((active) => {
       if (isStrict()) {
         warnLeak(active.lib.name, {
           providedCount: active.rendererProvidedKeys.size,
@@ -308,10 +308,10 @@ export class LibraryHostImpl implements LibraryHost {
         try { active.lib.renderer.dispose(active.rendererInstance); } catch { /* ignore */ }
       }
       active.rendererInstance = null;
-      for (const key of active.rendererProvidedKeys) {
+      for (const key of active.rendererProvidedKeys.values()) {
         this.providers.delete(key);
       }
       active.rendererProvidedKeys.clear();
-    }
+    });
   }
 }

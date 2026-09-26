@@ -79,9 +79,9 @@ export class InspectorPanel {
     if (!this.entity) return;
     const arch = this.world.getArchetypeForEntity(this.entity);
     if (!arch) return;
-    for (const cid of arch.componentIds) {
+    arch.componentIds.forEach((cid) => {
       this.expandedComponents.add(cid);
-    }
+    });
   }
 
   collapseAll(): void {
@@ -161,7 +161,7 @@ export class InspectorPanel {
     }
 
     const components: InspectorComponent[] = [];
-    for (const cid of arch.componentIds) {
+    for (let _i = 0, _it = arch.componentIds, _n = _it.length; _i < _n; _i++) { const cid = _it[_i];
       const row = arch.entities.findIndex(
         (e) => e.index === this.entity!.index && e.generation === this.entity!.generation,
       );

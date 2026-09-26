@@ -61,9 +61,9 @@ describe("NavMeshGenerator", () => {
     const data = gen.generate(sampler, 0, 0, 4, 4);
 
     expect(data.polygons.length).toBeGreaterThan(0);
-    for (const poly of data.polygons) {
+    data.polygons.forEach((poly) => {
       expect(poly.region).toBeGreaterThanOrEqual(0);
-    }
+    });
   });
 
   it("should partition separate regions", () => {
@@ -85,11 +85,11 @@ describe("NavMeshGenerator", () => {
     const sampler = makeFlatSampler(0);
     const data = gen.generate(sampler, 0, 0, 8, 8);
 
-    for (const poly of data.polygons) {
+    data.polygons.forEach((poly) => {
       expect(poly.centroid[0]).toBeGreaterThanOrEqual(-0.01);
       expect(poly.centroid[1]).toBe(0);
       expect(poly.area).toBeGreaterThan(0);
-    }
+    });
   });
 });
 

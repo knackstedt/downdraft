@@ -262,7 +262,7 @@ export async function buildMobileWeb(gameDir: string, env?: Record<string, strin
 function copyShell(gameDir: string, shellDir: string, target: MobileArgs["target"]): boolean {
   const platforms = target === "all" ? ["android", "ios"] : [target];
 
-  for (const platform of platforms) {
+  for (let _i = 0, _it = platforms, _n = _it.length; _i < _n; _i++) { const platform = _it[_i];
     const src = resolve(shellDir, platform);
     if (!existsSync(src)) {
       log.error("mobile", `Shell ${platform} project not found at ${src}`);
@@ -312,7 +312,7 @@ export function patchShell(
   const portStr = String(port);
   const platforms = target === "all" ? ["android", "ios"] : [target];
 
-  for (const platform of platforms) {
+  for (let _i = 0, _it = platforms, _n = _it.length; _i < _n; _i++) { const platform = _it[_i];
     const platformDir = resolve(gameDir, platform);
     if (!existsSync(platformDir)) continue;
 
@@ -356,12 +356,12 @@ function patchFile(
   }
   let content = readFileSync(filePath, "utf-8");
   let changed = false;
-  for (const { from, to } of replacements) {
+  replacements.forEach(({ from, to }) => {
     if (content.includes(from)) {
       content = content.split(from).join(to);
       changed = true;
     }
-  }
+  });
   if (changed) {
     writeFileSync(filePath, content);
     log.info("mobile", `  ✓ Patched ${basename(filePath)}`);
@@ -399,7 +399,7 @@ export function applyOverrides(gameDir: string, target: MobileArgs["target"]): v
   log.info("mobile", `Applying overrides from ${overridesDir}/...`);
   const platforms = target === "all" ? ["android", "ios"] : [target];
 
-  for (const platform of platforms) {
+  for (let _i = 0, _it = platforms, _n = _it.length; _i < _n; _i++) { const platform = _it[_i];
     const platformOverrides = resolve(overridesDir, platform);
     if (!existsSync(platformOverrides)) continue;
 
@@ -574,7 +574,7 @@ function mergeInfoPlist(shellPath: string, overridePath: string): void {
 
   // Find which keys are already in the shell
   const newPairs: string[] = [];
-  for (const [key, xml] of overridePairs) {
+  for (const [key, xml] of overridePairs.entries()) {
     if (!shell.includes(`<key>${key}</key>`)) {
       newPairs.push(xml);
     }
@@ -614,7 +614,7 @@ function applyNativeDeps(
   const deps = JSON.parse(readFileSync(depsPath, "utf-8"));
   const platforms = target === "all" ? ["android", "ios"] : [target];
 
-  for (const platform of platforms) {
+  for (let _i = 0, _it = platforms, _n = _it.length; _i < _n; _i++) { const platform = _it[_i];
     const platformDeps = deps[platform];
     if (!platformDeps || !Array.isArray(platformDeps) || platformDeps.length === 0) continue;
 
@@ -631,9 +631,9 @@ function applyNativeDeps(
       // iOS deps go into a Podfile memo — Capacitor manages the Podfile,
       // so we just log instructions.
       log.info("mobile", `  → iOS deps from native-deps.json: add to Podfile manually:`);
-      for (const dep of platformDeps) {
+      platformDeps.forEach((dep) => {
         log.info("mobile", `      ${dep}`);
-      }
+      });
     }
   }
 }
@@ -1018,7 +1018,7 @@ export function resolveAndroidBuildTools(): BuildToolsBinaries | null {
     join(userHome(), "Android", "Sdk"),
   ].filter((p): p is string => !!p && existsSync(p));
 
-  for (const sdk of candidates) {
+  for (let _i = 0, _it = candidates, _n = _it.length; _i < _n; _i++) { const sdk = _it[_i];
     const buildToolsRoot = join(sdk, "build-tools");
     if (!existsSync(buildToolsRoot)) continue;
     // Pick the highest version directory. Versions are like "35.0.0", "36.0.0".

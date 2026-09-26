@@ -99,12 +99,12 @@ function fetchWgpuNative() {
   mkdirSync(libDir, { recursive: true });
   mkdirSync(join(includeDir, "webgpu"), { recursive: true });
 
-  for (const [name, dest] of [
+  [
     [libName, join(libDir, libName)],
     [staticName, join(libDir, staticName)],
     ["webgpu.h", join(includeDir, "webgpu", "webgpu.h")],
     ["wgpu.h", join(includeDir, "webgpu", "wgpu.h")],
-  ]) {
+  ].forEach(([name, dest]) => {
     const found = findFile(extractDir, name);
     if (found) {
       renameSync(found, dest);
@@ -112,7 +112,7 @@ function fetchWgpuNative() {
     } else {
       console.warn(`  warning: ${name} not found in archive`);
     }
-  }
+  });
 
   execSync(`rm -rf "${extractDir}" "${zipPath}"`, { stdio: "ignore" });
 }

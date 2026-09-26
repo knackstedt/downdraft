@@ -31,7 +31,7 @@ export class AssetImporter {
     let processedMeshes = meshes;
     if (options?.scale && options.scale !== 1) {
       const s = options.scale;
-      for (const mesh of processedMeshes) {
+      processedMeshes.forEach((mesh) => {
         const verts = mesh.vertices;
         // Engine MeshData vertices are interleaved; position is at offset 0
         // per vertex. The stride depends on the layout. We use the layout
@@ -43,7 +43,7 @@ export class AssetImporter {
           verts[base + 1] *= s;
           verts[base + 2] *= s;
         }
-      }
+      });
     }
 
     // Apply flipY: when flipY === false, flip UV V coordinate (1 - v).
@@ -51,14 +51,14 @@ export class AssetImporter {
     if (options?.flipY === false) {
       // UVs are not stored separately in engine MeshData; they're interleaved
       // at offset 6-7 per vertex. Flip the V component.
-      for (const mesh of processedMeshes) {
+      processedMeshes.forEach((mesh) => {
         const verts = mesh.vertices;
         const stride = mesh.layout.stride / 4;
         for (let i = 0; i < mesh.vertexCount; i++) {
           const base = i * stride;
           verts[base + 7] = 1 - verts[base + 7];
         }
-      }
+      });
     }
 
     // Build a GLTFDocument-shaped object that retains mesh/node counts.

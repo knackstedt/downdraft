@@ -177,9 +177,9 @@ export class DevtoolsMirror {
     if (this.loggerBuffer.length === 0) return;
     const entries = this.loggerBuffer;
     this.loggerBuffer = [];
-    for (const entry of entries) {
+    entries.forEach((entry) => {
       this.pushLogEntry(entry);
-    }
+    });
   }
 
   /** Map a LogSinkEntry to a devtools console entry + push to Rust. */
@@ -212,11 +212,11 @@ export class DevtoolsMirror {
           if (this.profilingSAB.byteLength >= layout.byteLength) {
             const reader = new ProfilingSABReader(this.profilingSAB, layout);
             const snapshot = reader.readSnapshot();
-            for (const slot of snapshot.slots) {
+            snapshot.slots.forEach((slot: any) => {
               const name = slot.name || `worker-${slot.slotIndex}`;
               const id = `slot-${slot.slotIndex}`;
               threads.push({ id, name, kind: 1 });
-            }
+            });
           }
         }
       } catch (err) {
@@ -253,9 +253,9 @@ export class DevtoolsMirror {
       const childCount = node.children?.length ?? 0;
       nodes.push({ id, parentId, depth, childCount, kind: 0, label, detail });
       if (node.children) {
-        for (const child of node.children) {
+        node.children.forEach((child: any) => {
           collect(child, id, depth + 1);
-        }
+        });
       }
     };
     collect(stage, -1, 0);
@@ -283,9 +283,9 @@ export class DevtoolsMirror {
         const childCount = node.children?.length ?? 0;
         nodes.push({ id, parentId, depth, childCount, kind: 0, label, detail });
         if (node.children) {
-          for (const child of node.children) {
+          node.children.forEach((child: any) => {
             collect(child, id, depth + 1);
-          }
+          });
         }
       };
       collect(stage, -1, 0);
@@ -304,7 +304,7 @@ export class DevtoolsMirror {
       const count = simReader.getEntityCount();
       const iter = simReader.iterEntities?.();
       if (iter) {
-        for (const ent of iter) {
+        iter.forEach((ent: any) => {
           const id = idCounter++;
           const f32 = ent.f32;
           const u32 = ent.u32;
@@ -316,7 +316,7 @@ export class DevtoolsMirror {
           const label = `Entity ${ent.idx}`;
           const detail = `type=${entityType} pos=(${x.toFixed(1)},${y.toFixed(1)},${z.toFixed(1)})`;
           nodes.push({ id, parentId: -1, depth: 0, childCount: 0, kind: 1, label, detail });
-        }
+        });
       }
     } catch { /* ignore */ }
     devtoolsSetDomTree(this.handle, encodeTree(nodes));
@@ -388,13 +388,13 @@ export class DevtoolsMirror {
         const topResources = (stats.resources ?? []).slice(0, 15);
         if (topResources.length > 0) {
           entries.push({ key: "Top Resources", value: "", isHeader: true });
-          for (const res of topResources) {
+          topResources.forEach((res: any) => {
             entries.push({
               key: res.label ?? res.type ?? "resource",
               value: `${res.type} ${this.formatBytes(res.size)} ${res.dims ?? ""}`.trim(),
               isHeader: false,
             });
-          }
+          });
         }
       }
 
@@ -404,14 +404,14 @@ export class DevtoolsMirror {
         const timings = profiler.getPassTimings();
         if (timings.length > 0) {
           entries.push({ key: "Per-Pass GPU Timing", value: "", isHeader: true });
-          for (const t of timings) {
+          timings.forEach((t: any) => {
             const gpu = t.gpuMs > 0 ? `gpu=${t.gpuMs.toFixed(2)}ms` : "";
             entries.push({
               key: t.name ?? "pass",
               value: `cpu=${t.cpuMs.toFixed(2)}ms ${gpu} draws=${t.drawCalls} tris=${t.triangles}`.trim(),
               isHeader: false,
             });
-          }
+          });
         }
       }
 
@@ -420,9 +420,9 @@ export class DevtoolsMirror {
         const errors = profiler.getGPUErrors();
         if (errors.length > 0) {
           entries.push({ key: "GPU Errors", value: "", isHeader: true });
-          for (const e of errors) {
+          errors.forEach((e: any) => {
             entries.push({ key: e.type ?? "error", value: e.message ?? String(e), isHeader: false });
-          }
+          });
         }
       }
 
@@ -432,10 +432,10 @@ export class DevtoolsMirror {
         const slots = frameGraph.getSlots?.() ?? frameGraph.getSlotRegistry?.()?.getAll?.() ?? [];
         if (slots.length > 0) {
           entries.push({ key: "Frame Graph Passes", value: "", isHeader: true });
-          for (const s of slots) {
+          slots.forEach((s: any) => {
             const name = typeof s === "string" ? s : (s.name ?? s.label ?? "slot");
             entries.push({ key: name, value: "", isHeader: false });
-          }
+          });
         }
       }
     } catch (err) {
@@ -459,7 +459,7 @@ export class DevtoolsMirror {
         const timings = profiler.getPassTimings();
         if (timings.length > 0 && frameTimes.length > 0) {
           let gpuTotal = 0;
-          for (const t of timings) gpuTotal += t.gpuMs ?? 0;
+          timings.forEach((t: any) => { gpuTotal += t.gpuMs ?? 0;; });
           // Add GPU total to the most recent frame's GPU column.
           if (frameTimes.length > 0) {
             frameTimes[frameTimes.length - 1][1] = gpuTotal;
@@ -510,7 +510,7 @@ export class DevtoolsMirror {
           if (this.profilingSAB.byteLength >= layout.byteLength) {
             const reader = new ProfilingSABReader(this.profilingSAB, layout);
             const snapshot = reader.readSnapshot();
-            for (const slot of snapshot.slots) {
+            snapshot.slots.forEach((slot: any) => {
               slots.push({
                 slotIndex: slot.slotIndex,
                 name: slot.name || `worker-${slot.slotIndex}`,
@@ -523,7 +523,7 @@ export class DevtoolsMirror {
                   taskLatencyP95Us: slot.metrics?.taskLatencyP95Us ?? 0,
                 }],
               });
-            }
+            });
           }
         }
       } catch (err) {

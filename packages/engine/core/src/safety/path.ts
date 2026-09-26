@@ -23,7 +23,7 @@ function normalizePath(p: string): string {
   const parts = p.replace(/\\/g, "/").split("/");
   const result: string[] = [];
 
-  for (const part of parts) {
+  for (let _i = 0, _it = parts, _n = _it.length; _i < _n; _i++) { const part = _it[_i];
     if (part === "" || part === ".") continue;
     if (part === "..") {
       if (result.length > 0 && result[result.length - 1] !== "..") {

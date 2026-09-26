@@ -239,7 +239,7 @@ export const useSceneStore = create<SceneStoreState>((set, get) => ({
       const newRootIds: string[] = [];
       const existingEntityIds = new Set<string>();
 
-      for (const ent of entities) {
+      entities.forEach((ent) => {
         const id = `entity-${ent.id}`;
         existingEntityIds.add(id);
         const existing = nodes[id];
@@ -269,7 +269,7 @@ export const useSceneStore = create<SceneStoreState>((set, get) => ({
           };
         }
         newRootIds.push(id);
-      }
+      });
 
       // Remove stale entity nodes
       for (const key of Object.keys(nodes)) {
@@ -279,11 +279,11 @@ export const useSceneStore = create<SceneStoreState>((set, get) => ({
       }
 
       // Keep model nodes in rootIds
-      for (const rid of s.rootIds) {
+      s.rootIds.forEach((rid) => {
         if (!rid.startsWith("entity-") && !newRootIds.includes(rid)) {
           newRootIds.push(rid);
         }
-      }
+      });
 
       return { nodes, rootIds: newRootIds, version: s.version + 1 };
     });

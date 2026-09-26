@@ -78,8 +78,8 @@ const lib = await loadPhysicsLib();
 console.log(`WASM Rapier baseline — Bun ${Bun.version} (JSC)`);
 console.log(`${"scenario".padEnd(40)} ${"N".padStart(5)} ${"step ms".padStart(9)} ${"sync ms".padStart(9)} ${"total ms".padStart(9)} ${"awake".padStart(7)}`);
 
-for (const scenario of SCENARIOS) {
-    for (const n of SIZES) {
+for (let _i = 0, _it = SCENARIOS, _n = _it.length; _i < _n; _i++) { const scenario = _it[_i];
+    for (let _i = 0, _it = SIZES, _n = _it.length; _i < _n; _i++) { const n = _it[_i];
         const r = await bench(lib, n, scenario.floor);
         console.log(
             `${scenario.name.padEnd(40)} ${String(n).padStart(5)} ` +

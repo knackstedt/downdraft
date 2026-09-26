@@ -71,13 +71,13 @@ export function createBuildTools(ctx: EngineContext): ToolRegistration[] {
         const target = (params.target as string) ?? "linux";
         const issues: string[] = [];
 
-        for (const [entityKey, meshName] of ctx.entityMeshes) {
+        for (const [entityKey, meshName] of ctx.entityMeshes.entries()) {
           if (!ctx.meshes.has(meshName)) {
             issues.push(`Entity ${entityKey} references missing mesh "${meshName}"`);
           }
         }
 
-        for (const [entityKey, materialName] of ctx.entityMaterials) {
+        for (const [entityKey, materialName] of ctx.entityMaterials.entries()) {
           if (!ctx.materialLibrary.get(materialName)) {
             issues.push(`Entity ${entityKey} references missing material "${materialName}"`);
           }

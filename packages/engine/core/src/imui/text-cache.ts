@@ -366,7 +366,7 @@ export class TextAtlasCache {
     for (const para of text.split("\n")) {
       const words = para.split(" ");
       let currentLine = "";
-      for (const word of words) {
+      words.forEach((word) => {
         const testLine = currentLine ? `${currentLine} ${word}` : word;
         const width = ctx.measureText(testLine).width;
         if (width > maxWidth && currentLine) {
@@ -375,7 +375,7 @@ export class TextAtlasCache {
         } else {
           currentLine = testLine;
         }
-      }
+      });
       lines.push(currentLine);
     }
     return lines;

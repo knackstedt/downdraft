@@ -89,7 +89,7 @@ function parseClassicBlendShapes(
 
   // Build BlendShapeChannel → SubDeformer (shape) connections
   const channelToShape = new Map<string, string>();
-  for (const [shapeId] of shapeNodes) {
+  for (const [shapeId] of shapeNodes.entries()) {
     for (const conn of graph.getConnectionsFromChild(shapeId)) {
       if (conn.type === "OO") {
         channelToShape.set(conn.parentId, shapeId);
@@ -105,10 +105,10 @@ function parseClassicBlendShapes(
     channelIdToName.set(id, name);
   }
 
-  for (const [shapeId, shapeNode] of shapeNodes) {
+  for (const [shapeId, shapeNode] of shapeNodes.entries()) {
     // Find the BlendShapeChannel that owns this shape
     let channelId: string | undefined;
-    for (const [chId, shId] of channelToShape) {
+    for (const [chId, shId] of channelToShape.entries()) {
       if (shId === shapeId) {
         channelId = chId;
         break;
@@ -168,7 +168,7 @@ function parseModernBlendShapes(
 
   if (blendShapeDeformers.length === 0) return;
 
-  for (const bs of blendShapeDeformers) {
+  for (let _i = 0, _it = blendShapeDeformers, _n = _it.length; _i < _n; _i++) { const bs = _it[_i];
     // Find the skin deformer connected to this blendshape deformer (either direction)
     let skinDeformerId: string | undefined;
     for (const conn of graph.getConnectionsFromChild(bs.id)) {

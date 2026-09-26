@@ -84,9 +84,9 @@ describe("GpuSplatSorter", () => {
       (c: any[]) => c[0].label?.includes("keys"),
     );
     expect(keyBufferCalls.length).toBe(2);
-    for (const call of keyBufferCalls) {
+    keyBufferCalls.forEach((call: any) => {
       expect(call[0].size).toBe(100_000 * 4);
-    }
+    });
     // Compacted buffer: 100k * 48 bytes
     const compactedCalls = (device as any).createBuffer.mock.calls.filter(
       (c: any[]) => c[0].label?.includes("compacted"),
@@ -168,9 +168,9 @@ describe("GpuSplatSorter", () => {
     const buffersCreated = (device as any).createBuffer.mock.results;
     expect(() => sorter.destroy()).not.toThrow();
     // All created buffers should have destroy called
-    for (const result of buffersCreated) {
+    buffersCreated.forEach((result: any) => {
       expect(result.value.destroy).toHaveBeenCalled();
-    }
+    });
   });
 
   it("should handle null splatData in CPU fallback gracefully", () => {

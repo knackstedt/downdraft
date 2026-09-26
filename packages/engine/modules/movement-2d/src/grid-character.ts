@@ -246,7 +246,7 @@ export function createGridCharacterController(cfg: GridCharacterConfig): GridCha
     const y0 = Math.floor(py), y1 = Math.floor(py + H - 1);
     let cleared = 0;
     const xs = dirX > 0 ? [x1, x1 - 1, x0] : dirX < 0 ? [x0, x0 + 1, x1] : [x0, x1];
-    for (const x of xs) {
+    for (let _i = 0, _it = xs, _n = _it.length; _i < _n; _i++) { const x = _it[_i];
       if (cleared >= maxClear) break;
       for (let y = y0; y <= y1; y++) {
         if (cleared >= maxClear) break;

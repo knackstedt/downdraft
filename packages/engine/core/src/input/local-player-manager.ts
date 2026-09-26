@@ -95,11 +95,11 @@ export class LocalPlayerManager {
 
     this.gamepadConnectedHandler = (e: GamepadEvent) => {
       const device: InputDevice = { type: "gamepad", gamepadIndex: e.gamepad.index };
-      for (const cb of this.connectCallbacks) cb(device);
+      this.connectCallbacks.forEach((cb) => { cb(device);; });
     };
     this.gamepadDisconnectedHandler = (e: GamepadEvent) => {
       const device: InputDevice = { type: "gamepad", gamepadIndex: e.gamepad.index };
-      for (const cb of this.disconnectCallbacks) cb(device);
+      this.disconnectCallbacks.forEach((cb) => { cb(device);; });
     };
 
     window.addEventListener("gamepadconnected", this.gamepadConnectedHandler);
@@ -140,7 +140,7 @@ export class LocalPlayerManager {
 
       if (device.type === "keyboard-mouse") {
         const keys: number[] = [];
-        for (const k of this.keyState) keys.push(k);
+        for (const k of this.keyState.values()) keys.push(k);
         this.writer.writePlayerInput(
           p,
           keys,

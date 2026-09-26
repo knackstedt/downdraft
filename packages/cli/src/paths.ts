@@ -38,7 +38,7 @@ function isGameDir(dir: string): boolean {
  */
 export function findMonorepoRoot(start: string = process.cwd()): string | null {
   const candidates = [resolve(start), resolve(import.meta.dir, "../../..")];
-  for (const seed of candidates) {
+  for (let _i = 0, _it = candidates, _n = _it.length; _i < _n; _i++) { const seed = _it[_i];
     let dir = seed;
     for (;;) {
       try {

@@ -122,7 +122,7 @@ export async function patchPeTimestamps(
   opts: PePatchOptions = {},
 ): Promise<PePatchResult[]> {
   const results: PePatchResult[] = [];
-  for (const p of paths) {
+  for (let _i = 0, _it = paths, _n = _it.length; _i < _n; _i++) { const p = _it[_i];
     try {
       const r = await patchPeTimestamp(p, unixTimestamp, opts);
       if (r) results.push(r);

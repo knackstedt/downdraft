@@ -118,7 +118,7 @@ function extractNodeProperties(node: FBXNode): NodeProperties {
   let preRotation: [number, number, number, number] | undefined;
   let scale: [number, number, number] | undefined;
 
-  for (const p of props70.children) {
+  for (let _i = 0, _it = props70.children, _n = _it.length; _i < _n; _i++) { const p = _it[_i];
     if (p.name !== "P" || p.properties.length < 5) continue;
     const propName = String(p.properties[0].value);
 

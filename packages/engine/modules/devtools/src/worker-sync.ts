@@ -38,13 +38,13 @@ export interface WorkerSyncEntry {
 export async function syncWorkerManifests(
   entries: WorkerSyncEntry[],
 ): Promise<() => Promise<void>> {
-  for (const entry of entries) {
+  for (let _i = 0, _it = entries, _n = _it.length; _i < _n; _i++) { const entry = _it[_i];
     await syncOneWorker(entry);
   }
 
   // Return a re-sync function for hot-reload
   return async () => {
-    for (const entry of entries) {
+    for (let _i = 0, _it = entries, _n = _it.length; _i < _n; _i++) { const entry = _it[_i];
       await syncOneWorker(entry);
     }
   };
@@ -72,34 +72,34 @@ async function syncOneWorker(entry: WorkerSyncEntry): Promise<void> {
   }
 
   // Register panels (namespaced by prefix to avoid collisions)
-  for (const panel of manifest.panels) {
+  manifest.panels.forEach((panel) => {
     const namespaced: IDevToolsPanelExtension = prefix
       ? { ...panel, id: `${prefix}:${panel.id}` }
       : panel;
     devtools.registerPanel(namespaced);
-  }
+  });
 
   // Register data feed readers — these read from the SAB synchronously
   // We register them as main-realm data feeds that read from the worker SAB
   if (sab) {
-    for (const feed of manifest.dataFeeds) {
+    manifest.dataFeeds.forEach((feed) => {
       const feedIndex = feed.feedIndex;
       const readName = prefix ? `${prefix}:${feed.name}` : feed.name;
       // Register a main-realm data feed that reads from the worker's SAB
       _devtoolsImpl.registerDataFeed(readName, () => {
         return readDataFeedFromSAB(sab, feedIndex);
       }, 0); // writeRateHz=0 means "read on demand" (no polling needed)
-    }
+    });
 
     // Register SAB stat readers
-    for (const stat of manifest.sabStats) {
+    manifest.sabStats.forEach((stat) => {
       const statName = prefix ? `${prefix}:${stat.name}` : stat.name;
       _devtoolsImpl.registerSABStat(statName, stat.offset, stat.type);
-    }
+    });
   }
 
   // Register command forwarders — these call the worker via IPC
-  for (const cmdName of manifest.commands) {
+  manifest.commands.forEach((cmdName) => {
     const namespacedCmd = prefix ? `${prefix}:${cmdName}` : cmdName;
     _devtoolsImpl.registerCommand(namespacedCmd, (...args: any[]) => {
       // Fire-and-forget (commands return void in the panel context)
@@ -107,7 +107,7 @@ async function syncOneWorker(entry: WorkerSyncEntry): Promise<void> {
         log.warn("devtools", `Worker command "${cmdName}" failed: ${e}`);
       });
     });
-  }
+  });
 }
 
 /**

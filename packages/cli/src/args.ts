@@ -103,14 +103,14 @@ export function parseArgs(argv: string[], schema: CommandSchema): ParsedArgs {
   // Build lookup maps.
   const byLong = new Map<string, FlagSpec>();
   const byShort = new Map<string, FlagSpec>();
-  for (const f of flags) {
+  flags.forEach((f) => {
     byLong.set(f.name, f);
     if (f.alias) byShort.set(f.alias, f);
-  }
+  });
 
   // Initialize defaults.
   const out: Record<string, string | boolean | number | string[]> = {};
-  for (const f of flags) {
+  flags.forEach((f) => {
     if (f.repeatable) {
       out[f.name] = f.default ? [...(f.default as string[])] : [];
     } else if (f.default !== undefined) {
@@ -120,7 +120,7 @@ export function parseArgs(argv: string[], schema: CommandSchema): ParsedArgs {
     } else {
       out[f.name] = "";
     }
-  }
+  });
 
   const posValues: string[] = [];
   let help = false;
@@ -212,7 +212,7 @@ export function parseArgs(argv: string[], schema: CommandSchema): ParsedArgs {
   if (help) return { positionals: posValues, flags: out, help: true };
 
   // Validate required flags.
-  for (const f of flags) {
+  for (let _i = 0, _it = flags, _n = _it.length; _i < _n; _i++) { const f = _it[_i];
     if (!f.required) continue;
     const v = out[f.name];
     const missing =
@@ -226,7 +226,7 @@ export function parseArgs(argv: string[], schema: CommandSchema): ParsedArgs {
 
   // Validate positionals.
   let pi = 0;
-  for (const p of positionals) {
+  for (let _i = 0, _it = positionals, _n = _it.length; _i < _n; _i++) { const p = _it[_i];
     if (p.variadic) {
       // Variadic absorbs the rest; required means at least one.
       if (p.required && posValues.slice(pi).length === 0) {
@@ -304,10 +304,10 @@ export function renderHelp(usage: string, schema: CommandSchema): string {
   const pos = schema.positionals ?? [];
   if (pos.length > 0) {
     lines.push("Arguments:");
-    for (const p of pos) {
+    pos.forEach((p) => {
       const label = p.variadic ? `<${p.name}...>` : `<${p.name}>`;
       lines.push(`  ${label.padEnd(22)} ${p.description ?? ""}`.trimEnd());
-    }
+    });
     lines.push("");
   }
 
@@ -315,7 +315,7 @@ export function renderHelp(usage: string, schema: CommandSchema): string {
   if (flags.length > 0) {
     lines.push("Options:");
     lines.push(`  ${"-h, --help".padEnd(22)} Show this help and exit`);
-    for (const f of flags) {
+    flags.forEach((f) => {
       const left = formatFlag(f);
       const desc = f.description ?? "";
       const req = f.required ? " (required)" : "";
@@ -325,7 +325,7 @@ export function renderHelp(usage: string, schema: CommandSchema): string {
           : "";
       const en = f.enum ? ` (one of: ${f.enum.join("|")})` : "";
       lines.push(`  ${left.padEnd(22)} ${desc}${req}${def}${en}`.trimEnd());
-    }
+    });
     lines.push("");
   }
 

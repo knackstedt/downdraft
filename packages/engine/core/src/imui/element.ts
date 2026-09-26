@@ -100,7 +100,7 @@ export abstract class UIElement {
   }
 
   removeChildren(): void {
-    for (const c of this.children) c.parent = null;
+    this.children.forEach((c) => { c.parent = null;; });
     this.children = [];
   }
 
@@ -228,17 +228,17 @@ export class UIPanel extends UIElement {
         borderColor: [...this.style.borderColor] as UIColor,
       });
     }
-    for (const child of this.children) {
+    for (let _i = 0, _it = this.children, _n = _it.length; _i < _n; _i++) { const child = _it[_i];
       if (!child.visible) continue;
       // Children's coordinates are local to this panel. Offset them by
       // this panel's position so drawables are in the parent's coordinate
       // system (i.e. screen space at the root level). This cascades
       // correctly through nested panels.
       const childDrawables = child.getDrawable();
-      for (const d of childDrawables) {
+      childDrawables.forEach((d) => {
         d.x += this.x;
         d.y += this.y;
-      }
+      });
       drawables.push(...childDrawables);
     }
     return drawables;

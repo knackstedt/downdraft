@@ -33,9 +33,9 @@ export function synthesizeSkeletonSkin(
   // node index → parent index
   const parentOf = new Int32Array(nodes.length).fill(-1);
   for (let i = 0; i < nodes.length; i++) {
-    for (const c of nodes[i].children ?? []) {
+    (nodes[i].children ?? []).forEach((c) => {
       if (c >= 0 && c < nodes.length) parentOf[c] = i;
-    }
+    });
   }
 
   // Node indices targeted by at least one animation channel.
@@ -44,19 +44,19 @@ export function synthesizeSkeletonSkin(
     if (!nameToNode.has(nodes[i].name)) nameToNode.set(nodes[i].name, i);
   }
   const animated = new Set<number>();
-  for (const anim of animations) {
-    for (const ch of anim.channels) {
+  animations.forEach((anim) => {
+    anim.channels.forEach((ch) => {
       const idx = nameToNode.get(ch.targetNode);
       if (idx !== undefined) animated.add(idx);
-    }
-  }
+    });
+  });
 
   // Bone set = all descendants of the root-most ancestors of animated nodes.
   // This captures the full skeleton subtree (including unanimated leaf bones).
   const boneSet = new Set<number>();
   if (animated.size > 0) {
     const roots = new Set<number>();
-    for (const idx of animated) {
+    for (const idx of animated.values()) {
       let r = idx;
       while (parentOf[r] >= 0) r = parentOf[r];
       roots.add(r);
@@ -66,7 +66,7 @@ export function synthesizeSkeletonSkin(
       const i = stack.pop()!;
       if (boneSet.has(i)) continue;
       boneSet.add(i);
-      for (const c of nodes[i].children ?? []) stack.push(c);
+      (nodes[i].children ?? []).forEach((c) => { stack.push(c);; });
     }
   } else {
     for (let i = 0; i < nodes.length; i++) boneSet.add(i);
@@ -81,12 +81,12 @@ export function synthesizeSkeletonSkin(
   const world = new Float32Array(16);
 
   const componentRoots: number[] = [];
-  for (const i of boneSet) {
+  for (const i of boneSet.values()) {
     if (!boneSet.has(parentOf[i])) componentRoots.push(i);
   }
   componentRoots.sort((a, b) => a - b);
 
-  for (const root of componentRoots) {
+  componentRoots.forEach((root) => {
     const stack: { node: number; parentBone: number; parentWorld: Float32Array | null }[] = [
       { node: root, parentBone: -1, parentWorld: null },
     ];
@@ -126,7 +126,7 @@ export function synthesizeSkeletonSkin(
         }
       }
     }
-  }
+  });
 
   return { bones, boneNameToIndex, skeletonUpAxis: upAxis };
 }

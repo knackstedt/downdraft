@@ -45,11 +45,11 @@ export class CCDHeuristic {
     dt: number,
     getColliderSize: (body: PhysicsBody) => number,
   ): void {
-    for (const body of bodies) {
+    bodies.forEach((body) => {
       const vel = backend.getLinearVelocity(body);
       const size = getColliderSize(body);
       const enable = this.shouldEnableCCD(vel, size, dt);
       backend.setCCDEnabled(body, enable);
-    }
+    });
   }
 }

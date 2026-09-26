@@ -73,7 +73,7 @@ function printCapped(text: string, maxBytes: number): void {
 /** Image/binary blocks are never printed inline — describe or write them. */
 function writeBinaryBlocks(result: MCPToolResult, outPath: string): void {
     let i = 0;
-    for (const c of result.content ?? []) {
+    for (let _i = 0, _it = result.content ?? [], _n = _it.length; _i < _n; _i++) { const c = _it[_i];
         if (c.type !== "image") continue;
         const name = i === 0 ? outPath : `${outPath}.${i}`;
         mkdirSync(dirname(resolve(name)), { recursive: true });
@@ -103,9 +103,9 @@ function printResult(result: MCPToolResult, f: McpFlags): void {
     }
 
     if (result.isError) {
-        for (const c of result.content ?? []) {
+        (result.content ?? []).forEach((c) => {
             if (c.type === "text") process.stderr.write(c.text + "\n");
-        }
+        });
         process.exit(1);
     }
     const textBlocks = (result.content ?? []).filter((c) => c.type === "text");
@@ -113,12 +113,12 @@ function printResult(result: MCPToolResult, f: McpFlags): void {
         printCapped(textBlocks.map((c) => ("text" in c ? c.text : "")).join("\n"), f.maxBytes);
     }
     // Non-text blocks that weren't written via --out get a one-line marker.
-    for (const c of result.content ?? []) {
+    (result.content ?? []).forEach((c) => {
         if (c.type === "image") {
             const bytes = Buffer.from(c.data, "base64").length;
             process.stderr.write(`draft-mcp: [image ${c.mimeType}: ${bytes} bytes${f.out ? " → file" : " — pass --out <file>"}]\n`);
         }
-    }
+    });
 }
 
 /** stdio→HTTP bridge: newline-delimited JSON-RPC on stdin forwarded to the
@@ -241,9 +241,9 @@ export async function mcp(argv: string[]): Promise<void> {
                 process.stderr.write("draft-mcp: no running instances\n");
                 return;
             }
-            for (const i of insts) {
+            insts.forEach((i) => {
                 print(`${i.pid}\t${i.port}\t${i.appId ?? "-"}`);
-            }
+            });
             return;
         }
 
@@ -260,9 +260,9 @@ export async function mcp(argv: string[]): Promise<void> {
                 return;
             }
             const tools = await client.listTools();
-            for (const t of tools) {
+            tools.forEach((t) => {
                 print(`${t.name}\t${t.description ?? ""}`);
-            }
+            });
             return;
         }
 

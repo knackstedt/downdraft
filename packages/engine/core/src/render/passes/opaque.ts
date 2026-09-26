@@ -566,7 +566,7 @@ export class OpaquePass extends RenderPass {
     if (profile) {
       const g0 = profile.bindGroups.find((bg) => bg.group === 0);
       if (g0) {
-        for (const entry of g0.entries) {
+        for (let _i = 0, _it = g0.entries, _n = _it.length; _i < _n; _i++) { const entry = _it[_i];
           if (entry.binding === 0) continue; // Already added uniform
           // These resources need to be provided externally — skip if not set
         }
@@ -581,7 +581,7 @@ export class OpaquePass extends RenderPass {
 
   private calcUniformSize(profile: ShaderGraphProfile): number {
     let size = 0;
-    for (const field of profile.uniformFields) {
+    profile.uniformFields.forEach((field) => {
       if (field.type === "mat4x4<f32>") size += 64;
       else if (field.type === "vec4<f32>") size += 16;
       else if (field.type === "vec3<f32>") size += 16; // vec3 aligned to 16
@@ -589,7 +589,7 @@ export class OpaquePass extends RenderPass {
       else if (field.type === "f32") size += 4;
       else if (field.type === "u32") size += 4;
       else size += 16;
-    }
+    });
     // Align to 16
     return Math.ceil(size / 16) * 16;
   }
@@ -894,7 +894,7 @@ export class OpaquePass extends RenderPass {
       tracked.setPipeline(this.graphPipeline);
       tracked.setBindGroup(0, this.graphBindGroup);
       // Set extra bind groups (lights, IBL, etc.)
-      for (const [group, bg] of this.graphExtraBindGroups) {
+      for (const [group, bg] of this.graphExtraBindGroups.entries()) {
         tracked.setBindGroup(group, bg);
       }
       tracked.setVertexBuffer(0, this.vertexBuffer);
@@ -952,7 +952,7 @@ export class OpaquePass extends RenderPass {
   }
 
   endFrame(): void {
-    for (const t of this.deferredDepthTextures) t.destroy();
+    this.deferredDepthTextures.forEach((t) => { t.destroy();; });
     this.deferredDepthTextures = [];
   }
 
@@ -980,7 +980,7 @@ export class OpaquePass extends RenderPass {
     this.vertexBuffer?.destroy();
     this.indexBuffer?.destroy();
     this.depthTexture?.destroy();
-    for (const t of this.deferredDepthTextures) t.destroy();
+    this.deferredDepthTextures.forEach((t) => { t.destroy();; });
     this.deferredDepthTextures = [];
     this.cameraBuffer?.destroy();
     this.pbrCameraBuffer?.destroy();

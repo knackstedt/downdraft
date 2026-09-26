@@ -702,7 +702,7 @@ export class PixiUiHost {
       const stack = document.elementsFromPoint(e.clientX, e.clientY);
       // Skip ALL pixi-ui overlay canvases (data-dd-layer >= 1) to prevent
       // infinite recursion when multiple overlays are stacked.
-      for (const el of stack) {
+      for (let _i = 0, _it = stack, _n = _it.length; _i < _n; _i++) { const el = _it[_i];
         if (this.isOverlayCanvas(el)) continue;
         target = el;
         break;
@@ -779,7 +779,7 @@ export class PixiUiHost {
       // each canvas has its own pointer listener. Dispatching a synthetic event
       // on another overlay canvas would re-trigger its forwardPointer →
       // dispatchOnGameCanvas → infinite recursion.
-      for (const el of stack) {
+      for (let _i = 0, _it = stack, _n = _it.length; _i < _n; _i++) { const el = _it[_i];
         if (this.isOverlayCanvas(el)) continue;
         target = el;
         break;
@@ -815,7 +815,7 @@ export class PixiUiHost {
     if (typeof document !== "undefined" && typeof document.elementsFromPoint === "function") {
       const stack = document.elementsFromPoint(clientX, clientY);
       // Skip ALL pixi-ui overlay canvases (see dispatchOnGameCanvas for rationale).
-      for (const el of stack) {
+      for (let _i = 0, _it = stack, _n = _it.length; _i < _n; _i++) { const el = _it[_i];
         if (this.isOverlayCanvas(el)) continue;
         target = el;
         break;

@@ -122,7 +122,7 @@ function buildOffsets(layout: ChannelLayout): Record<string, unknown> {
 
   if (layout.mode === "slots" && layout.sections) {
     const sections: Record<string, unknown> = {};
-    for (const section of layout.sections) {
+    layout.sections.forEach((section) => {
       const fieldOffsets: Record<string, number> = {};
       for (const [name, field] of Object.entries(section.fields)) {
         fieldOffsets[name] = field.index;
@@ -132,7 +132,7 @@ function buildOffsets(layout: ChannelLayout): Record<string, unknown> {
         slotStride: section.slotStride,
         fields: fieldOffsets,
       };
-    }
+    });
     return { header: headerOffsets, sections };
   }
 

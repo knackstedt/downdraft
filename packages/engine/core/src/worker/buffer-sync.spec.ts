@@ -55,9 +55,9 @@ class MockWorker {
 
   /** Simulate receiving a message from the worker. */
   receive(msg: any): void {
-    for (const cb of this.listeners) {
+    this.listeners.forEach((cb) => {
       cb({ data: msg } as MessageEvent);
-    }
+    });
   }
 }
 
@@ -78,9 +78,9 @@ class MockSelf {
 
   /** Simulate receiving a message from the main thread. */
   receive(msg: any): void {
-    for (const cb of this.listeners) {
+    this.listeners.forEach((cb) => {
       cb({ data: msg } as MessageEvent);
-    }
+    });
   }
 }
 
@@ -507,9 +507,9 @@ describe("buffer-sync", () => {
       expect(workerMsg.regions.sim[1].data.byteLength).toBe(TOTAL - INPUT_OFFSET - INPUT_BYTES);
 
       // Verify the worker did NOT send the input region
-      for (const r of workerMsg.regions.sim) {
+      workerMsg.regions.sim.forEach((r: any) => {
         expect(r.offset).not.toBe(INPUT_OFFSET);
-      }
+      });
 
       restoreSelf();
     });

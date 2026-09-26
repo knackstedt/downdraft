@@ -152,7 +152,7 @@ export class InterpolationBuffer {
     const slot = this.entityToSlot.get(entityIndex);
     if (slot === undefined) return;
     const offset = slot * 8;
-    for (const buf of [this.prev, this.curr]) {
+    [this.prev, this.curr].forEach((buf) => {
       buf[offset] = pos[0];
       buf[offset + 1] = pos[1];
       buf[offset + 2] = pos[2];
@@ -161,7 +161,7 @@ export class InterpolationBuffer {
       buf[offset + 5] = rot[2];
       buf[offset + 6] = rot[3];
       buf[offset + 7] = scale;
-    }
+    });
   }
 
   /**

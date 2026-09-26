@@ -23,7 +23,7 @@ function findSystemFont(): string {
     "/System/Library/Fonts/Helvetica.ttc",
     "C:\\Windows\\Fonts\\arial.ttf",
   ];
-  for (const p of candidates) {
+  for (let _i = 0, _it = candidates, _n = _it.length; _i < _n; _i++) { const p = _it[_i];
     if (existsSync(p)) return p;
   }
   return "";

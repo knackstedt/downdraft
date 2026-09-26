@@ -127,7 +127,7 @@ export class SessionTracker {
 
   /** True when a registered sim wraps this underlying host object. */
   hasSimFor(host: any): boolean {
-    for (const s of this.sims) if (s.host === host) return true;
+    for (const s of this.sims.values()) if (s.host === host) return true;
     return false;
   }
 
@@ -194,7 +194,7 @@ export class SessionTracker {
     try {
       const components: Record<string, any> = {};
       let anySaved = false;
-      for (const sim of this.sims) {
+      for (const sim of this.sims.values()) {
         try {
           const json = await sim.save?.();
           if (json) {
@@ -207,7 +207,7 @@ export class SessionTracker {
           log.warn("hmr-session", `sim save failed (${sim.label ?? "?"}): ${(e as Error).message}`);
         }
       }
-      for (const provider of this.metaProviders) {
+      for (const provider of this.metaProviders.values()) {
         try {
           const data = provider.serialize();
           if (data !== undefined) components.renderer = { v: 1, data };
@@ -246,7 +246,7 @@ export class SessionTracker {
     try {
       const meta = JSON.parse(stateJson)?.renderer?.data;
       if (meta !== undefined) {
-        for (const provider of this.metaProviders) provider.restore?.(meta);
+        for (const provider of this.metaProviders.values()) provider.restore?.(meta);
       }
     } catch { /* ignore malformed */ }
   }
@@ -266,7 +266,7 @@ export class SessionTracker {
    */
   async hotReloadSims(preserveState: boolean): Promise<number> {
     let swapped = 0;
-    for (const sim of this.sims) {
+    for (const sim of this.sims.values()) {
       if (!sim.hotReload) continue;
       await sim.hotReload(preserveState);
       swapped++;
@@ -331,9 +331,9 @@ export class SessionTracker {
       this.baselineCaptured = true;
       const s = this.session;
       if (s) {
-        for (const id of s.timeouts) this.baseline.timeouts.add(id);
-        for (const id of s.intervals) this.baseline.intervals.add(id);
-        for (const id of s.immediates) this.baseline.immediates.add(id);
+        for (const id of s.timeouts.values()) this.baseline.timeouts.add(id);
+        for (const id of s.intervals.values()) this.baseline.intervals.add(id);
+        for (const id of s.immediates.values()) this.baseline.immediates.add(id);
       }
     }
 
@@ -391,7 +391,7 @@ export class SessionTracker {
     // 2. Registered sims — stop workers via their shutdown protocol before
     //    the blunt tracked-worker terminate pass (clean exit > SIGKILL),
     //    then drop the registrations: they reference the dying module graph.
-    for (const sim of this.sims) {
+    for (const sim of this.sims.values()) {
       try { await sim.stop?.(); } catch { /* already stopped */ }
     }
     this.sims.clear();
@@ -401,27 +401,27 @@ export class SessionTracker {
     this.metaProviders.clear();
 
     // 3. Tracked listeners.
-    for (const l of s.listeners) {
+    s.listeners.forEach((l) => {
       try { l.remove(); } catch { /* target gone */ }
-    }
+    });
     s.listeners.length = 0;
 
     // 4. Timers + immediates + RAF (session-owned only — host baseline survives).
-    for (const id of s.timeouts) {
+    for (const id of s.timeouts.values()) {
       if (!this.baseline.timeouts.has(id)) { try { clearTimeout(id); } catch {} }
     }
-    for (const id of s.intervals) {
+    for (const id of s.intervals.values()) {
       if (!this.baseline.intervals.has(id)) { try { clearInterval(id); } catch {} }
     }
-    for (const id of s.immediates) {
+    for (const id of s.immediates.values()) {
       if (!this.baseline.immediates.has(id)) { try { (globalThis as any).clearImmediate?.(id); } catch {} }
     }
-    for (const id of s.rafIds) {
+    for (const id of s.rafIds.values()) {
       try { (globalThis as any).cancelAnimationFrame?.(id); } catch {}
     }
 
     // 5. Tracked workers (belt — sims already stopped via step 2).
-    for (const w of s.workers) {
+    for (const w of s.workers.values()) {
       try { w.terminate?.(); } catch { /* already dead */ }
     }
     s.workers.clear();
@@ -446,23 +446,23 @@ export class SessionTracker {
     //    steps above ran is still in `s` and dies here. After this point no
     //    user callback can interleave (synchronous tail), so the session is
     //    airtight when nulled.
-    for (const l of s.listeners) {
+    s.listeners.forEach((l) => {
       try { l.remove(); } catch { /* target gone */ }
-    }
+    });
     s.listeners.length = 0;
-    for (const id of s.timeouts) {
+    for (const id of s.timeouts.values()) {
       if (!this.baseline.timeouts.has(id)) { try { clearTimeout(id); } catch {} }
     }
-    for (const id of s.intervals) {
+    for (const id of s.intervals.values()) {
       if (!this.baseline.intervals.has(id)) { try { clearInterval(id); } catch {} }
     }
-    for (const id of s.immediates) {
+    for (const id of s.immediates.values()) {
       if (!this.baseline.immediates.has(id)) { try { (globalThis as any).clearImmediate?.(id); } catch {} }
     }
-    for (const id of s.rafIds) {
+    for (const id of s.rafIds.values()) {
       try { (globalThis as any).cancelAnimationFrame?.(id); } catch {}
     }
-    for (const w of s.workers) {
+    for (const w of s.workers.values()) {
       try { w.terminate?.(); } catch { /* already dead */ }
     }
     s.workers.clear();

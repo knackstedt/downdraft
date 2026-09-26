@@ -61,13 +61,13 @@ export function computeCollisionEvents(
   const contacts: ContactEvent[] = [];
 
   const prevPairs = new Set<string>();
-  for (const m of previousContacts) {
+  previousContacts.forEach((m) => {
     const key = pairKey(m.entityA, m.entityB);
     prevPairs.add(key);
-  }
+  });
 
   const currPairs = new Set<string>();
-  for (const m of currentContacts) {
+  currentContacts.forEach((m) => {
     const key = pairKey(m.entityA, m.entityB);
     currPairs.add(key);
     contacts.push({
@@ -80,14 +80,14 @@ export function computeCollisionEvents(
     if (!prevPairs.has(key)) {
       started.push(manifoldToStartedEvent(m));
     }
-  }
+  });
 
-  for (const m of previousContacts) {
+  previousContacts.forEach((m) => {
     const key = pairKey(m.entityA, m.entityB);
     if (!currPairs.has(key)) {
       stopped.push({ entityA: m.entityA, entityB: m.entityB });
     }
-  }
+  });
 
   return { started, stopped, contacts };
 }
@@ -103,25 +103,25 @@ export function computeTriggerEvents(
   const exited: TriggerExitEvent[] = [];
 
   const prevPairs = new Set<string>();
-  for (const p of previousIntersections) {
+  previousIntersections.forEach((p) => {
     prevPairs.add(pairKey(p.entityA, p.entityB));
-  }
+  });
 
   const currPairs = new Set<string>();
-  for (const p of currentIntersections) {
+  currentIntersections.forEach((p) => {
     const key = pairKey(p.entityA, p.entityB);
     currPairs.add(key);
     if (!prevPairs.has(key)) {
       entered.push({ entityA: p.entityA, entityB: p.entityB });
     }
-  }
+  });
 
-  for (const p of previousIntersections) {
+  previousIntersections.forEach((p) => {
     const key = pairKey(p.entityA, p.entityB);
     if (!currPairs.has(key)) {
       exited.push({ entityA: p.entityA, entityB: p.entityB });
     }
-  }
+  });
 
   return { entered, exited };
 }

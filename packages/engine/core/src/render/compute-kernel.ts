@@ -147,7 +147,7 @@ export async function runComputeKernel(
   pass.end();
 
   // Copy storage buffers to readback buffers
-  for (const [name, readbackBuf] of readbackBuffers) {
+  for (const [name, readbackBuf] of readbackBuffers.entries()) {
     const src = buffers.get(name);
     if (src) {
       encoder.copyBufferToBuffer(src, 0, readbackBuf, 0, readbackBuf.size);

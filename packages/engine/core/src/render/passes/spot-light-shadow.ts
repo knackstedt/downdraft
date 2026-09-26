@@ -194,7 +194,7 @@ export class SpotLightShadowPass extends RenderPass {
     });
 
     const tracked = new TrackedRenderPass(pass);
-    for (const { mesh, model } of meshes) {
+    meshes.forEach(({ mesh, model }) => {
       this.device.queue.writeBuffer(this.modelBuffer!, 0, model as unknown as BufferSource);
       const pipeline = this.getPipeline(mesh.layout.stride);
       const bindGroup = this.bindGroups.get(mesh.layout.stride)!;
@@ -203,7 +203,7 @@ export class SpotLightShadowPass extends RenderPass {
       tracked.setVertexBuffer(0, this.getVertexBuffer(mesh));
       tracked.setIndexBuffer(this.getIndexBuffer(mesh), mesh.indices instanceof Uint16Array ? "uint16" : "uint32");
       tracked.drawIndexed(mesh.indexCount);
-    }
+    });
     tracked.end();
   }
 
@@ -255,7 +255,7 @@ export class SpotLightShadowPass extends RenderPass {
   }
 
   destroy(): void {
-    for (const tex of this.shadowTextures) tex.destroy();
+    this.shadowTextures.forEach((tex) => { tex.destroy();; });
     // GPUSampler has no destroy() — it's GC'd automatically.
     this.shadowSamplers.length = 0;
     this.uniformBuffer?.destroy();

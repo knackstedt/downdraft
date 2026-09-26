@@ -14,9 +14,9 @@ describe("ViewportLayout", () => {
   it("should return fullscreen for shared mode regardless of player count", () => {
     const rects = ViewportLayout.compute(4, 1920, 1080, "shared");
     expect(rects).toHaveLength(4);
-    for (const r of rects) {
+    rects.forEach((r) => {
       expect(r).toEqual({ x: 0, y: 0, w: 1, h: 1 });
-    }
+    });
   });
 
   it("should split horizontally for 2 players on landscape", () => {

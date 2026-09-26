@@ -35,7 +35,7 @@ export function detectRuntime(preferred) {
     if (!RUNTIMES.includes(preferred)) return null;
     return commandExists(preferred) ? preferred : null;
   }
-  for (const r of RUNTIMES) {
+  for (let _i = 0, _it = RUNTIMES, _n = _it.length; _i < _n; _i++) { const r = _it[_i];
     if (commandExists(r)) return r;
   }
   return null;

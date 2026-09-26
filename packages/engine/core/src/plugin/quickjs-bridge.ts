@@ -266,7 +266,7 @@ export function createQuickjsBridge(
       recordTaskLatency("quickjs", durationUs, fnName);
       getWarningEngine()?.checkInstant(METRIC_TASK_LATENCY, durationUs);
       fn.dispose();
-      for (const h of argHandles) { try { h.dispose?.(); } catch { /* */ } }
+      argHandles.forEach((h) => { try { h.dispose?.(); } catch { /* */ } });
       if (result.error) {
         const err = ctx.dump(result.error);
         result.error.dispose();
@@ -281,11 +281,11 @@ export function createQuickjsBridge(
     },
     dispose() {
       // Run dispose callbacks while the VM is still alive.
-      for (const cb of disposeCbs) cb();
+      disposeCbs.forEach((cb) => { cb();; });
       disposeCbs.length = 0;
-      for (const unsub of unsubFns) unsub();
+      unsubFns.forEach((unsub) => { unsub();; });
       // Dispose all tracked handles before the context.
-      for (const h of handles) { try { h.dispose?.(); } catch { /* */ } }
+      handles.forEach((h) => { try { h.dispose?.(); } catch { /* */ } });
       handles.length = 0;
       ctx.dispose();
       runtime.dispose();

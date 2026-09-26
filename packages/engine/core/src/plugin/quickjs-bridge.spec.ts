@@ -32,7 +32,7 @@ describe("createQuickjsBridge", () => {
           },
           publish(event: string, data: unknown) {
             const set = eventHandlers.get(event);
-            if (set) for (const h of set) h(data);
+            if (set) for (const h of set.values()) h(data);
           },
         },
         state: {

@@ -410,7 +410,7 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
   getTotalLayersInUse(): number {
     let total = 0;
     for (const b of this.buckets.values()) {
-      for (const c of b.layerCursor) total += c;
+      b.layerCursor.forEach((c) => { total += c;; });
       total -= b.freeList.length;
     }
     return total;
@@ -418,7 +418,7 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
 
   destroy(): void {
     for (const b of this.buckets.values()) {
-      for (const t of b.pages) t.destroy();
+      b.pages.forEach((t) => { t.destroy();; });
     }
     this.buckets.clear();
   }

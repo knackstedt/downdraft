@@ -54,7 +54,7 @@ function renderCanvas2D(
   const scale = Math.min(w, h) / 60;
   const cx = w / 2;
   const cy = h / 2;
-  for (const a of agents) {
+  agents.forEach((a) => {
     const px = cx + a.position[0] * scale;
     const py = cy + a.position[2] * scale;
     ctx.fillStyle = `rgb(${Math.round(a.color[0] * 255)},${Math.round(a.color[1] * 255)},${Math.round(a.color[2] * 255)})`;
@@ -62,7 +62,7 @@ function renderCanvas2D(
     ctx.strokeStyle = "#fff";
     ctx.lineWidth = 1;
     ctx.strokeRect(px - 6, py - 6, 12, 12);
-  }
+  });
 }
 
 async function main(): Promise<void> {

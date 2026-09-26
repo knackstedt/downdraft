@@ -134,11 +134,11 @@ export class ModuleHost implements ModuleContext {
     if (!isStrict()) return;
     if (!plugin.requires) return;
     const selfProvides = new Set(plugin.provides?.map((t) => t.key) ?? []);
-    for (const token of plugin.requires) {
+    plugin.requires.forEach((token) => {
       if (!this.providers.has(token.key) && !selfProvides.has(token.key)) {
         assertRequired(this.providers, token, plugin.name);
       }
-    }
+    });
   }
 
   /**
@@ -149,13 +149,13 @@ export class ModuleHost implements ModuleContext {
     if (!isStrict()) return;
     // Build a complete providers map from all pending + active plugins
     const allProviders = new Map<string, string>();
-    for (const [name, active] of this.active) {
-      for (const token of active.plugin.provides ?? []) {
+    for (const [name, active] of this.active.entries()) {
+      (active.plugin.provides ?? []).forEach((token) => {
         allProviders.set(token.key, name);
-      }
+      });
     }
-    for (const [name, plugin] of this.pending) {
-      for (const token of plugin.provides ?? []) {
+    for (const [name, plugin] of this.pending.entries()) {
+      (plugin.provides ?? []).forEach((token) => {
         if (allProviders.has(token.key)) {
           throw new Error(
             `Module "${name}" provides "${token.key}" but it is already provided by "${allProviders.get(token.key)}". ` +
@@ -163,16 +163,16 @@ export class ModuleHost implements ModuleContext {
           );
         }
         allProviders.set(token.key, name);
-      }
+      });
     }
     // Check all requires
-    for (const [name, plugin] of this.pending) {
+    for (const [name, plugin] of this.pending.entries()) {
       if (!plugin.requires) continue;
-      for (const token of plugin.requires) {
+      plugin.requires.forEach((token) => {
         if (!allProviders.has(token.key)) {
           assertRequired(allProviders, token, name);
         }
-      }
+      });
     }
   }
 
@@ -192,7 +192,7 @@ export class ModuleHost implements ModuleContext {
       // Roll back partial activation: the module must not stay "active"
       // with half-wired resources. Clean up anything it provided or
       // registered for disposal, then re-throw so the caller sees it.
-      for (const key of active.providedKeys) {
+      for (const key of active.providedKeys.values()) {
         this.resources.delete(key);
         this.providers.delete(key);
       }
@@ -204,9 +204,9 @@ export class ModuleHost implements ModuleContext {
         }
       }
       // Remove systems the module registered before throwing.
-      for (const sysName of active.systemNames) {
+      active.systemNames.forEach((sysName) => {
         this.world.schedule.removeSystem(sysName);
-      }
+      });
       this.active.delete(plugin.name);
       throw err;
     } finally {
@@ -230,7 +230,7 @@ export class ModuleHost implements ModuleContext {
       });
     }
     // Clean up provided resources
-    for (const key of active.providedKeys) {
+    for (const key of active.providedKeys.values()) {
       this.resources.delete(key);
       this.providers.delete(key);
     }
@@ -243,9 +243,9 @@ export class ModuleHost implements ModuleContext {
     }
     // Remove the module's systems from the world schedule — otherwise they
     // keep running after unload (e.g. duplicated per hot-reload swap).
-    for (const sysName of active.systemNames) {
+    active.systemNames.forEach((sysName) => {
       this.world.schedule.removeSystem(sysName);
-    }
+    });
     this.active.delete(name);
     this.pending.delete(name);
     this.registry.unregister(name);
@@ -270,14 +270,14 @@ export class ModuleHost implements ModuleContext {
    */
   snapshot(thread: ThreadTag): ModuleThreadInfo[] {
     const out: ModuleThreadInfo[] = [];
-    for (const [name, active] of this.active) {
+    for (const [name, active] of this.active.entries()) {
       const plugin = active.plugin;
       const tokenThreads: Record<string, ThreadTag> = {};
       const collectTags = (tokens?: ResourceToken<unknown>[]) => {
-        for (const t of tokens ?? []) {
+        (tokens ?? []).forEach((t) => {
           const tag = (t as CrossThreadToken<unknown>).__thread;
           if (tag) tokenThreads[t.key] = tag;
-        }
+        });
       };
       collectTags(plugin.provides);
       collectTags(plugin.requires);
@@ -301,9 +301,9 @@ export class ModuleHost implements ModuleContext {
     }
     // Clean up unattributed registrations (made outside a register()
     // lifecycle — they were tracked globally so they don't leak).
-    for (const sysName of this.unattributedSystemNames) {
+    this.unattributedSystemNames.forEach((sysName) => {
       this.world.schedule.removeSystem(sysName);
-    }
+    });
     this.unattributedSystemNames.length = 0;
     for (let i = this.unattributedDisposeFns.length - 1; i >= 0; i--) {
       try {

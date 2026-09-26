@@ -37,7 +37,7 @@ export class Serializer {
       const entity: Entity = { index: i, generation: meta.generation };
       const components: Array<{ id: number; data: unknown }> = [];
 
-      for (const [cid, col] of arch.columns) {
+      for (const [cid, col] of arch.columns.entries()) {
         const row = arch.entities.findIndex(
           (e) => e.index === entity.index && e.generation === entity.generation,
         );

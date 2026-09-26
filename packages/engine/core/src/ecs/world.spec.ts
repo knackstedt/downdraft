@@ -78,9 +78,9 @@ describe("ECS World", () => {
       const e = world.spawn(new Map<number, unknown>([[Transform.id, Transform.create()]]));
       spawned.push(e);
     }
-    for (const e of spawned) {
+    spawned.forEach((e) => {
       world.despawn(e);
-    }
+    });
     world.flushCommands();
 
     // The free list is unbounded: all 1100 dead slots are recyclable, so the

@@ -200,7 +200,7 @@ export class EguiRenderer {
    *  corrupts the entire texture. To work around this, we maintain a full
    *  pixel copy per texture and always do full writeTexture updates. */
   private applyTextureDeltas(texturesSet: TextureSet[], texturesFree: number[]): void {
-    for (const ts of texturesSet) {
+    texturesSet.forEach((ts) => {
       const existing = this.textures.get(ts.id);
       if (!existing || ts.posX < 0) {
         // Full (re)create.
@@ -239,14 +239,14 @@ export class EguiRenderer {
           [existing.width, existing.height],
         );
       }
-    }
-    for (const id of texturesFree) {
+    });
+    texturesFree.forEach((id) => {
       const t = this.textures.get(id);
       if (t) {
         t.texture.destroy();
         this.textures.delete(id);
       }
-    }
+    });
   }
 
   /** Ensure vertex/index buffers are large enough. */
@@ -286,29 +286,29 @@ export class EguiRenderer {
     // 2. Compute total vertex/index buffer sizes.
     let totalVertexBytes = 0;
     let totalIndexBytes = 0;
-    for (const m of paintJobs.meshes) {
+    paintJobs.meshes.forEach((m) => {
       totalVertexBytes += m.vertices.byteLength;
       totalIndexBytes += m.indices.byteLength;
-    }
+    });
     this.ensureBuffers(totalVertexBytes, totalIndexBytes);
 
     // 3. Upload vertex/index data into the big buffers (concatenated).
     if (totalVertexBytes > 0 && this.vertexBuffer) {
       const allVerts = new Float32Array(totalVertexBytes / 4);
       let voff = 0;
-      for (const m of paintJobs.meshes) {
+      paintJobs.meshes.forEach((m) => {
         allVerts.set(m.vertices, voff);
         voff += m.vertices.length;
-      }
+      });
       this.device.queue.writeBuffer(this.vertexBuffer, 0, allVerts.buffer, allVerts.byteOffset, allVerts.byteLength);
     }
     if (totalIndexBytes > 0 && this.indexBuffer) {
       const allIndices = new Uint32Array(totalIndexBytes / 4);
       let ioff = 0;
-      for (const m of paintJobs.meshes) {
+      paintJobs.meshes.forEach((m) => {
         allIndices.set(m.indices, ioff);
         ioff += m.indices.length;
-      }
+      });
       this.device.queue.writeBuffer(this.indexBuffer, 0, allIndices.buffer, allIndices.byteOffset, allIndices.byteLength);
     }
 
@@ -337,7 +337,7 @@ export class EguiRenderer {
     // 6. Draw each mesh with its own scissor + bind group (texture).
     let vOffset = 0; // in bytes
     let iOffset = 0; // in bytes
-    for (const m of paintJobs.meshes) {
+    for (let _i = 0, _it = paintJobs.meshes, _n = _it.length; _i < _n; _i++) { const m = _it[_i];
       const tex = this.textures.get(m.textureId);
       if (!tex || m.vertices.length === 0 || m.indices.length === 0) {
         vOffset += m.vertices.byteLength;

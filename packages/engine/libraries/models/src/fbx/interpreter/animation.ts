@@ -152,14 +152,14 @@ export function parseAnimations(
   // Build curve node → model node mapping via connections
   const modelNodes = findNodesInTree([objectsNode], "Model");
   const modelIdToName = new Map<string, string>();
-  for (const node of modelNodes) {
+  modelNodes.forEach((node) => {
     const id = getObjectId(node, `model_${modelIdToName.size}`);
     const rawName = getObjectName(node, `node_${modelIdToName.size}`);
     modelIdToName.set(id, normalizeNodeName(rawName));
-  }
+  });
 
   const curveNodeToModel = new Map<string, string>();
-  for (const [modelId, modelName] of modelIdToName) {
+  for (const [modelId, modelName] of modelIdToName.entries()) {
     for (const childId of graph.getChildren(modelId)) {
       if (curveNodes.has(childId)) {
         curveNodeToModel.set(childId, modelName);
@@ -172,15 +172,15 @@ export function parseAnimations(
   // connection with property "DeformPercent".
   const deformerNodes = findNodesInTree([objectsNode], "Deformer");
   const deformerIdToName = new Map<string, string>();
-  for (const node of deformerNodes) {
+  deformerNodes.forEach((node) => {
     const id = getObjectId(node, `deformer_${deformerIdToName.size}`);
     // Use the deformer's name property if available, otherwise use a generic name
     const name = getObjectName(node, `deformer_${deformerIdToName.size}`);
     deformerIdToName.set(id, name);
-  }
+  });
 
   const curveNodeToDeformer = new Map<string, string>();
-  for (const [deformerId, deformerName] of deformerIdToName) {
+  for (const [deformerId, deformerName] of deformerIdToName.entries()) {
     for (const childId of graph.getChildren(deformerId)) {
       if (curveNodes.has(childId)) {
         curveNodeToDeformer.set(childId, deformerName);
@@ -192,7 +192,7 @@ export function parseAnimations(
   const sourceRestRotations = new Map<string, [number, number, number, number]>();
   const sourcePreRotations = new Map<string, [number, number, number, number]>();
   const sourceRestTranslations = new Map<string, [number, number, number]>();
-  for (const node of modelNodes) {
+  for (let _i = 0, _it = modelNodes, _n = _it.length; _i < _n; _i++) { const node = _it[_i];
     const id = getObjectId(node, `model_${sourceRestRotations.size}`);
     const rawName = getObjectName(node, `node_${sourceRestRotations.size}`);
     const modelName = normalizeNodeName(rawName);
@@ -204,7 +204,7 @@ export function parseAnimations(
     let lclRot: [number, number, number, number] | null = null;
     let lclTrans: [number, number, number] | null = null;
 
-    for (const p of props70.children) {
+    for (let _i = 0, _it = props70.children, _n = _it.length; _i < _n; _i++) { const p = _it[_i];
       if (p.name !== "P" || p.properties.length < 7) continue;
       const propName = String(p.properties[0].value);
       if (propName === "Lcl Rotation" || propName === "PreRotation") {
@@ -240,7 +240,7 @@ export function parseAnimations(
   // Build AnimationData for each stack
   const animations: AnimationData[] = [];
 
-  for (const stack of stacks) {
+  for (let _i = 0, _it = stacks, _n = _it.length; _i < _n; _i++) { const stack = _it[_i];
     const channels: AnimationChannel[] = [];
     let maxTime = 0;
 
@@ -251,11 +251,11 @@ export function parseAnimations(
       curves: { axis: string; times: number[]; values: number[] }[];
     }>();
 
-    for (const layerId of stack.layerIds) {
+    for (let _i = 0, _it = stack.layerIds, _n = _it.length; _i < _n; _i++) { const layerId = _it[_i];
       const layer = layers.get(layerId);
       if (!layer) continue;
 
-      for (const curveNodeId of layer.curveNodeIds) {
+      for (let _i = 0, _it = layer.curveNodeIds, _n = _it.length; _i < _n; _i++) { const curveNodeId = _it[_i];
         const curveNode = curveNodes.get(curveNodeId);
         if (!curveNode) continue;
 

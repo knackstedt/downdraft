@@ -26,12 +26,12 @@ export class InputSABBridge {
 
     // Process keyboard — diff against current state
     const incomingKeys = new Set(keys.filter((k) => k !== 0));
-    for (const code of incomingKeys) {
+    for (const code of incomingKeys.values()) {
       if (!this.state.isKeyDown(code)) {
         this.state.keyDown(code);
       }
     }
-    for (const code of this.state.keys) {
+    for (const code of this.state.keys.values()) {
       if (!incomingKeys.has(code)) {
         this.state.keyUp(code);
       }
@@ -49,10 +49,10 @@ export class InputSABBridge {
     }
 
     const incomingGamepad = new Set(gamepadButtons.filter((b) => b !== 0).map((b, i) => i));
-    for (const btn of incomingGamepad) {
+    for (const btn of incomingGamepad.values()) {
       this.state.gamepadButtons.add(btn);
     }
-    for (const btn of this.state.gamepadButtons) {
+    for (const btn of this.state.gamepadButtons.values()) {
       if (!incomingGamepad.has(btn)) {
         this.state.gamepadButtons.delete(btn);
       }

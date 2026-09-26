@@ -74,9 +74,9 @@ describe("pixi-ui-demo MCP automation smoke", () => {
     expect(nodeNames.has("pause-button")).toBe(true);
 
     // All nodes should be visible.
-    for (const node of state.nodes) {
+    state.nodes.forEach((node) => {
       expect(node.visible).toBe(true);
-    }
+    });
 
     // The backend should be reported (webgl2 or webgpu).
     expect(state.backend).toBeTruthy();

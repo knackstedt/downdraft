@@ -133,9 +133,9 @@ export class BSPNode {
     const frontPolys: CSGPolygon[] = [];
     const backPolys: CSGPolygon[] = [];
 
-    for (const poly of polygons) {
+    polygons.forEach((poly) => {
       splitPolygon(this.plane!, poly, this.polygons, this.polygons, frontPolys, backPolys);
-    }
+    });
 
     if (frontPolys.length > 0) {
       if (!this.front) this.front = new BSPNode();
@@ -154,9 +154,9 @@ export class BSPNode {
     const front: CSGPolygon[] = [];
     const back: CSGPolygon[] = [];
 
-    for (const poly of polygons) {
+    for (let _i3842 = 0, _it3842 = polygons, _n3842 = _it3842.length; _i3842 < _n3842; _i3842++) { const poly = _it3842[_i3842];
       splitPolygon(this.plane, poly, front, back, front, back);
-    }
+    };
 
     let frontResult = front;
     let backResult = back;
@@ -178,10 +178,10 @@ export class BSPNode {
     this.plane.normal = scale(this.plane.normal, -1);
     this.plane.w = -this.plane.w;
 
-    for (const poly of this.polygons) {
+    this.polygons.forEach((poly) => {
       poly.normal = scale(poly.normal, -1);
       poly.vertices.reverse();
-    }
+    });
 
     const temp = this.front;
     this.front = this.back;
@@ -224,18 +224,18 @@ function polygonsToMesh(polygons: CSGPolygon[], layout: VertexLayout): MeshData 
   const vertices: number[] = [];
   const indices: number[] = [];
 
-  for (const poly of polygons) {
+  polygons.forEach((poly) => {
     const baseIdx = vertices.length / stride;
-    for (const v of poly.vertices) {
+    poly.vertices.forEach((v) => {
       vertices.push(v[0], v[1], v[2]);
       vertices.push(poly.normal[0], poly.normal[1], poly.normal[2]);
       vertices.push(0, 0);
       vertices.push(1, 1, 1, 1);
-    }
+    });
     for (let i = 1; i < poly.vertices.length - 1; i++) {
       indices.push(baseIdx, baseIdx + i, baseIdx + i + 1);
     }
-  }
+  });
 
   const vertArr = new Float32Array(vertices);
   const indexCount = indices.length;

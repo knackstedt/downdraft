@@ -39,7 +39,7 @@ export class NavMesh {
     let bestDistSq = Infinity;
 
     const candidates = this.getPolysInRadius(point, this.spatialCellSize * 2);
-    for (const polyId of candidates) {
+    for (let _i = 0, _it = candidates, _n = _it.length; _i < _n; _i++) { const polyId = _it[_i];
       if (this.isPointInPoly(polyId, point)) {
         return polyId;
       }
@@ -103,7 +103,7 @@ export class NavMesh {
   getPortalEdge(fromPoly: number, toPoly: number): PortalEdge | null {
     const poly = this.polygons[fromPoly];
     if (!poly) return null;
-    for (const pe of poly.portalEdges) {
+    for (let _i = 0, _it = poly.portalEdges, _n = _it.length; _i < _n; _i++) { const pe = _it[_i];
       if (pe.toPoly === toPoly) return pe;
     }
     return null;
@@ -129,12 +129,12 @@ export class NavMesh {
       for (let cz = minCz; cz <= maxCz; cz++) {
         const cell = this.spatialGrid.get(`${cx}:${cz}`);
         if (!cell) continue;
-        for (const pid of cell.polys) {
+        cell.polys.forEach((pid) => {
           if (!seen.has(pid)) {
             seen.add(pid);
             result.push(pid);
           }
-        }
+        });
       }
     }
     return result;

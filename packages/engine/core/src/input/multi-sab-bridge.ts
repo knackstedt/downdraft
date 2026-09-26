@@ -87,18 +87,18 @@ export class MultiInputSABBridge {
     }
 
     const prev = this.prevKeys[playerIdx];
-    for (const code of incoming) {
+    for (const code of incoming.values()) {
       if (!prev.has(code)) {
         state.keyDown(code);
       }
     }
-    for (const code of prev) {
+    for (const code of prev.values()) {
       if (!incoming.has(code)) {
         state.keyUp(code);
       }
     }
     prev.clear();
-    for (const code of incoming) prev.add(code);
+    for (const code of incoming.values()) prev.add(code);
   }
 
   private pollMouse(slot: { f32: Float32Array; i32: Int32Array }, state: InputState): void {
@@ -138,10 +138,10 @@ export class MultiInputSABBridge {
         incomingGamepad.add(i);
       }
     }
-    for (const btn of incomingGamepad) {
+    for (const btn of incomingGamepad.values()) {
       state.gamepadButtons.add(btn);
     }
-    for (const btn of state.gamepadButtons) {
+    for (const btn of state.gamepadButtons.values()) {
       if (!incomingGamepad.has(btn)) {
         state.gamepadButtons.delete(btn);
       }
@@ -195,7 +195,7 @@ export class MultiInputSABWriter {
       throw new RangeError(`MultiInputSABWriter: keys range [${idx.keysIdx}, ${fillEnd}) exceeds i32 buffer length ${i32.length}`);
     }
     i32.fill(0, idx.keysIdx, fillEnd);
-    for (const key of keys) {
+    for (let _i = 0, _it = keys, _n = _it.length; _i < _n; _i++) { const key = _it[_i];
       if (key < 0 || !Number.isInteger(key)) continue;
       const wordIdx = Math.floor(key / 32);
       const bitIdx = key % 32;

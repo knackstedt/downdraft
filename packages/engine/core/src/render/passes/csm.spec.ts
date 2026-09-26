@@ -67,10 +67,10 @@ describe("CSMPass", () => {
       const near = 0.1;
       const far = 100.0;
       const splits = pass.computeCascadeSplits(near, far);
-      for (const s of splits) {
+      splits.forEach((s) => {
         expect(s).toBeGreaterThan(near);
         expect(s).toBeLessThanOrEqual(far);
-      }
+      });
     });
 
     it("should respect custom cascade count", () => {

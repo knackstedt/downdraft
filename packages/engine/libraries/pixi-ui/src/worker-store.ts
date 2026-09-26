@@ -62,7 +62,7 @@ export function createWorkerStore<T extends object>(initialState: T): WorkerStor
     setState(partial) {
       const patch = typeof partial === "function" ? partial(state) : partial;
       state = { ...state, ...patch };
-      for (const l of listeners) l();
+      for (const l of listeners.values()) l();
     },
 
     subscribe,

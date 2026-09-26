@@ -272,7 +272,7 @@ export class InlineWasmPluginLoader implements PluginLoader {
     return () => {
       const unsubTick = (subscriptions as any).__tickUnsub;
       if (typeof unsubTick === "function") unsubTick();
-      for (const [, unsub] of subscriptions) {
+      for (const [, unsub] of subscriptions.entries()) {
         if (typeof unsub === "function") (unsub as any)();
       }
       subscriptions.clear();
@@ -405,7 +405,7 @@ export class WasmPluginLoader implements PluginLoader {
   }
 
   disposeAll(): void {
-    for (const [, w] of this.workers) w.terminate();
+    for (const [, w] of this.workers.entries()) w.terminate();
     this.workers.clear();
   }
 }

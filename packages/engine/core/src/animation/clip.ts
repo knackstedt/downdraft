@@ -30,7 +30,7 @@ export class AnimationClip {
   constructor(data: AnimationClipData) {
     this.data = data;
     this.trackedBones = new Set();
-    for (const track of data.tracks) {
+    data.tracks.forEach((track) => {
       this.trackedBones.add(track.boneIndex);
       const key = `${track.boneIndex}:${track.path}`;
       let tracks = this.trackIndexMap.get(key);
@@ -39,11 +39,11 @@ export class AnimationClip {
         this.trackIndexMap.set(key, tracks);
       }
       tracks.push(track);
-    }
+    });
     if (data.morphTracks) {
-      for (const mt of data.morphTracks) {
+      data.morphTracks.forEach((mt) => {
         this.morphTrackedTargets.add(mt.targetIndex);
-      }
+      });
     }
   }
 
@@ -89,7 +89,7 @@ export class AnimationClip {
       t = 0;
     }
 
-    for (const track of this.data.tracks) {
+    this.data.tracks.forEach((track) => {
       switch (track.path) {
         case "position":
           outPositions[track.boneIndex] = sampleVec3(track, t, outPositions[track.boneIndex] ?? [0, 0, 0]);
@@ -101,7 +101,7 @@ export class AnimationClip {
           outScales[track.boneIndex] = sampleVec3(track, t, outScales[track.boneIndex] ?? [1, 1, 1]);
           break;
       }
-    }
+    });
   }
 
   sampleMorphWeights(time: number, outWeights: Float32Array): void {
@@ -113,9 +113,9 @@ export class AnimationClip {
     } else {
       t = 0;
     }
-    for (const track of this.data.morphTracks) {
+    this.data.morphTracks.forEach((track) => {
       outWeights[track.targetIndex] = sampleMorphWeight(track, t);
-    }
+    });
   }
 }
 
@@ -221,17 +221,17 @@ export function buildAnimationClipFromGLTF(
   morphTracks?: MorphTargetTrack[],
 ): AnimationClip {
   let maxTime = 0;
-  for (const ch of channels) {
+  channels.forEach((ch) => {
     for (let i = 0; i < ch.times.length; i++) {
       if (ch.times[i] > maxTime) maxTime = ch.times[i];
     }
-  }
+  });
   if (morphTracks) {
-    for (const mt of morphTracks) {
+    morphTracks.forEach((mt) => {
       for (let i = 0; i < mt.times.length; i++) {
         if (mt.times[i] > maxTime) maxTime = mt.times[i];
       }
-    }
+    });
   }
 
   const tracks: KeyframeTrack[] = channels.map((ch) => ({

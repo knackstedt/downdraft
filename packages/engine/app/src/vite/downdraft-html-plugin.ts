@@ -66,7 +66,7 @@ function buildHtml(opts: DowndraftHtmlOptions): string {
   let domIdx = 0;
   const bodyParts: string[] = [];
 
-  for (const layer of layers) {
+  layers.forEach((layer) => {
     if (layer.type === "canvas") {
       const id = layer.id ?? (canvasIdx === 0 ? "game-canvas" : `canvas-${canvasIdx}`);
       const cls = layer.className ? ` class="${layer.className}"` : "";
@@ -84,7 +84,7 @@ function buildHtml(opts: DowndraftHtmlOptions): string {
       bodyParts.push(`  <div data-dd-overlay="${domIdx}" id="${id}"${cls}${extraAttrs}></div>`);
       domIdx++;
     }
-  }
+  });
 
   if (opts.bodyExtra) {
     bodyParts.push(opts.bodyExtra);

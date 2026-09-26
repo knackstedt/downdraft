@@ -62,7 +62,7 @@ export class AssetPluginLoader implements PluginLoader {
 
     // Eagerly load declared asset categories. Each entry is a path relative
     // to the plugin dir; the search path makes them resolvable.
-    for (const path of assets.textures ?? []) {
+    for (let _i = 0, _it = assets.textures ?? [], _n = _it.length; _i < _n; _i++) { const path = _it[_i];
       try {
         await am.load(path);
         loaded.push(path);
@@ -70,7 +70,7 @@ export class AssetPluginLoader implements PluginLoader {
         log.error("AssetPluginLoader", `Failed to load texture "${path}" for plugin "${manifest.id}": ${(e as Error).message}`);
       }
     }
-    for (const path of assets.audio ?? []) {
+    for (let _i = 0, _it = assets.audio ?? [], _n = _it.length; _i < _n; _i++) { const path = _it[_i];
       try {
         await am.load(path);
         loaded.push(path);
@@ -78,7 +78,7 @@ export class AssetPluginLoader implements PluginLoader {
         log.error("AssetPluginLoader", `Failed to load audio "${path}" for plugin "${manifest.id}": ${(e as Error).message}`);
       }
     }
-    for (const path of assets.meshes ?? []) {
+    for (let _i = 0, _it = assets.meshes ?? [], _n = _it.length; _i < _n; _i++) { const path = _it[_i];
       try {
         await am.load(path);
         loaded.push(path);
@@ -87,7 +87,7 @@ export class AssetPluginLoader implements PluginLoader {
       }
     }
     // Data files (JSON etc.) — loaded as raw text via the generic loader.
-    for (const path of assets.data ?? []) {
+    for (let _i = 0, _it = assets.data ?? [], _n = _it.length; _i < _n; _i++) { const path = _it[_i];
       try {
         await am.load(path);
         loaded.push(path);
@@ -106,13 +106,13 @@ export class AssetPluginLoader implements PluginLoader {
     const am = this.opts.assetManager;
     const uris = this.loadedUris.get(pluginId);
     if (uris) {
-      for (const uri of uris) {
+      uris.forEach((uri) => {
         try {
           am.releaseSync(uri);
         } catch {
           /* best-effort */
         }
-      }
+      });
       this.loadedUris.delete(pluginId);
     }
     const spName = this.searchPathNames.get(pluginId);

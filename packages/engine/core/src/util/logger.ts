@@ -54,7 +54,7 @@ function stripAnsi(s: string): string {
 function emitToSinks(entry: LogSinkEntry): void {
     recentLogs.push(entry);
     if (recentLogs.length > RECENT_LOG_CAP) recentLogs.shift();
-    for (const sink of logSinks) {
+    for (const sink of logSinks.values()) {
         try { sink(entry); } catch { /* sink errors must never break logging */ }
     }
 }

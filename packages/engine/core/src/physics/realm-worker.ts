@@ -32,7 +32,7 @@ export class RealmWorker {
     };
     this.worker.onerror = (e) => {
       // Reject all pending requests on error
-      for (const [, pending] of this.pending) {
+      for (const [, pending] of this.pending.entries()) {
         pending.reject(new Error(`Worker error: ${e.message}`));
       }
       this.pending.clear();
@@ -72,7 +72,7 @@ export class RealmWorker {
 
   terminate(): void {
     this.worker.terminate();
-    for (const [, pending] of this.pending) {
+    for (const [, pending] of this.pending.entries()) {
       pending.reject(new Error("Worker terminated"));
     }
     this.pending.clear();

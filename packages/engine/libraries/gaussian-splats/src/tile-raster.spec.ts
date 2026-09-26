@@ -217,8 +217,8 @@ describe("TileRasterPipeline", () => {
 
     const buffersCreated = createBufferMock.mock.results;
     expect(() => pipeline.destroy()).not.toThrow();
-    for (const result of buffersCreated) {
+    buffersCreated.forEach((result: any) => {
       expect(result.value.destroy).toHaveBeenCalled();
-    }
+    });
   });
 });

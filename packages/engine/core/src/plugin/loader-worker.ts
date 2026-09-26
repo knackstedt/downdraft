@@ -178,9 +178,9 @@ export class WorkerPluginLoader implements PluginLoader {
         }
         case "state.save": {
           // Worker pushes its KV entries; host persists via its own store.
-          for (const [k, v] of args[0] as Array<[string, unknown]>) {
+          (args[0] as Array<[string, unknown]>).forEach(([k, v]) => {
             ctx.state.set(k, v);
-          }
+          });
           await ctx.state.save();
           break;
         }
@@ -207,13 +207,13 @@ export class WorkerPluginLoader implements PluginLoader {
 
   /** Forward a host tick to every worker plugin (drives ctx.tick.onTick). */
   tick(dt: number, elapsedTime: number): void {
-    for (const [, worker] of this.workers) {
+    for (const [, worker] of this.workers.entries()) {
       worker.postMessage({ __tick: true, dt, elapsedTime });
     }
   }
 
   disposeAll(): void {
-    for (const [, w] of this.workers) w.terminate();
+    for (const [, w] of this.workers.entries()) w.terminate();
     this.workers.clear();
   }
 }

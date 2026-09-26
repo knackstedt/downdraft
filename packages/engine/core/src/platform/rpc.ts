@@ -83,7 +83,7 @@ export class RPC {
     } else if (msg.type === "event") {
       const listeners = this.eventListeners.get(msg.channel);
       if (listeners) {
-        for (const fn of listeners) {
+        for (const fn of listeners.values()) {
           fn(msg.payload);
         }
       }

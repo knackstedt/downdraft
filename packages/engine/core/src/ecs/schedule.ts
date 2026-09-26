@@ -38,7 +38,7 @@ export class Schedule {
   }
 
   removeSystem(name: string): this {
-    for (const [stage, bucket] of this.systems) {
+    for (const [stage, bucket] of this.systems.entries()) {
       const idx = bucket.findIndex((s) => s.system.name === name);
       if (idx >= 0) {
         bucket.splice(idx, 1);
@@ -100,7 +100,7 @@ export class Schedule {
   }
 
   private resolveOrder(): void {
-    for (const [stage, bucket] of this.systems) {
+    for (const [stage, bucket] of this.systems.entries()) {
       const sorted = this.topologicalSort(bucket);
       this.ordered.set(stage, sorted);
     }

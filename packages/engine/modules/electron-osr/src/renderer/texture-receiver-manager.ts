@@ -43,7 +43,7 @@ export class OSRTextureReceiverManager {
 
   getTextureList(): { rendererId: string; textureView: GPUTextureView }[] {
     const list: { rendererId: string; textureView: GPUTextureView }[] = [];
-    for (const [rendererId, receiver] of this.receivers) {
+    for (const [rendererId, receiver] of this.receivers.entries()) {
       const view = receiver.getTextureView();
       if (view) {
         list.push({ rendererId, textureView: view });

@@ -38,15 +38,15 @@ export class CollisionEventSystem {
     const stoppedChannel = this.world.events.get<CollisionStoppedEvent>(COLLISION_STOPPED_CHANNEL);
     const contactChannel = this.world.events.get<ContactEvent>(CONTACT_CHANNEL);
 
-    for (const event of started) {
+    started.forEach((event) => {
       startedChannel.send(event);
-    }
-    for (const event of stopped) {
+    });
+    stopped.forEach((event) => {
       stoppedChannel.send(event);
-    }
-    for (const event of contacts) {
+    });
+    contacts.forEach((event) => {
       contactChannel.send(event);
-    }
+    });
 
     this.previousContacts = currentContacts;
 
@@ -57,12 +57,12 @@ export class CollisionEventSystem {
     const enterChannel = this.world.events.get<TriggerEnterEvent>(TRIGGER_ENTER_CHANNEL);
     const exitChannel = this.world.events.get<TriggerExitEvent>(TRIGGER_EXIT_CHANNEL);
 
-    for (const event of entered) {
+    entered.forEach((event) => {
       enterChannel.send(event);
-    }
-    for (const event of exited) {
+    });
+    exited.forEach((event) => {
       exitChannel.send(event);
-    }
+    });
 
     this.previousIntersections = currentIntersections;
   }

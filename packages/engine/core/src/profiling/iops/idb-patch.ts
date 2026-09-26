@@ -132,9 +132,9 @@ export function unpatchIndexedDbPrototypes(): void {
     if (originalIdb.objectStore) txProto.objectStore = originalIdb.objectStore;
   }
   if (storeProto) {
-    for (const name of ["get", "put", "add", "delete", "getAll", "getAllKeys", "count", "openCursor", "openKeyCursor", "clear"]) {
+    for (let _i5270 = 0, _it5270 = ["get", "put", "add", "delete", "getAll", "getAllKeys", "count", "openCursor", "openKeyCursor", "clear"], _n5270 = _it5270.length; _i5270 < _n5270; _i5270++) { const name = _it5270[_i5270];
       if (originalIdb[name]) storeProto[name] = originalIdb[name];
-    }
+    };
   }
 
   originalIdb = null;

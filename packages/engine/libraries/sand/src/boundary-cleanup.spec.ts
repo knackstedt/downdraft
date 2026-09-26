@@ -65,10 +65,10 @@ function multiStripStep(
   frame: number,
 ): void {
   // Step all strip worlds (sequentially — simulates parallel workers).
-  for (const w of strips) {
+  strips.forEach((w) => {
     w.frame = frame;
     w.step();
-  }
+  });
   // Boundary cleanup — replicate SandStepPool.runBoundaryCleanup.
   const W = boundary.W;
   const H = boundary.H;

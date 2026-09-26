@@ -94,14 +94,14 @@ export function parseDXF(data: ArrayBuffer, name: string): ModelData {
         }
       }
       // Emit polyface triangles (face indices are local vertex numbers).
-      for (const f of faces) {
+      faces.forEach((f) => {
         if (f.length >= 3) {
           for (let j = 1; j < f.length - 1; j++) {
             indices.push(verts[f[0]] ?? 0, verts[f[j]] ?? 0, verts[f[j + 1]] ?? 0);
           }
           sawMesh = true;
         }
-      }
+      });
       // Polygon mesh (flag 16/8 without face records) — grid of verts only;
       // tessellate as a quad strip grid is ambiguous without M×N dims, skip.
     } else if (entity === "LWPOLYLINE") {
@@ -160,11 +160,11 @@ export function parseDXF(data: ArrayBuffer, name: string): ModelData {
         }
         if (facesTotal > 0 && facesRead >= facesTotal) break;
       }
-      for (const f of faces) {
+      faces.forEach((f) => {
         for (let j = 1; j < f.length - 1; j++) {
           indices.push(verts[f[0]] ?? 0, verts[f[j]] ?? 0, verts[f[j + 1]] ?? 0);
         }
-      }
+      });
       if (verts.length > 0) sawMesh = true;
       void vertsExpected;
     }

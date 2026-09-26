@@ -93,7 +93,7 @@ export async function visionTestSuite(
   tests: Array<{ name: string; canvas: HTMLCanvasElement | OffscreenCanvas; options: VisionTestOptions }>,
 ): Promise<Array<VisionTestResult>> {
   const results: VisionTestResult[] = [];
-  for (const test of tests) {
+  for (let _i = 0, _it = tests, _n = _it.length; _i < _n; _i++) { const test = _it[_i];
     const result = await visionTest(test.name, test.canvas, test.options);
     results.push(result);
     const status = result.passed ? "PASS" : "FAIL";

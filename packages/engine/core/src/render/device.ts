@@ -29,14 +29,14 @@ export class GPUDeviceManager {
       return [key, Math.min(want, have)];
     };
     const entries: Array<[string, number]> = [];
-    for (const e of [
+    [
       clamp("maxTextureArrayLayers", 512),
       clamp("maxStorageBuffersPerShaderStage", 8),
       clamp("maxStorageBufferBindingSize", 64 * 1024 * 1024),
       clamp("maxSampledTexturesPerShaderStage", 16),
-    ]) {
+    ].forEach((e) => {
       if (e) entries.push(e);
-    }
+    });
     return Object.fromEntries(entries);
   }
 

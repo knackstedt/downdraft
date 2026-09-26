@@ -86,7 +86,7 @@ export class BinaryRecordStore implements IBinaryRecordStore {
   private async getFileHandle(create: boolean): Promise<FileSystemFileHandle | null> {
     let dir = await this.getRoot();
     if (!dir) return null;
-    for (const seg of this.opts.directory ?? []) {
+    for (let _i = 0, _it = this.opts.directory ?? [], _n = _it.length; _i < _n; _i++) { const seg = _it[_i];
       dir = await dir.getDirectoryHandle(seg, { create });
     }
     return dir.getFileHandle(this.opts.fileName, { create });
@@ -143,7 +143,7 @@ export class BinaryRecordStore implements IBinaryRecordStore {
   private serialize(records: Map<string, Uint8Array>): ArrayBuffer {
     let total = HEADER_BYTES;
     const keys = new Map<string, Uint8Array>();
-    for (const [key, payload] of records) {
+    for (const [key, payload] of records.entries()) {
       const keyBytes = this.encoder.encode(key);
       keys.set(key, keyBytes);
       total += RECORD_HEADER_BYTES + keyBytes.byteLength + payload.byteLength;
@@ -155,7 +155,7 @@ export class BinaryRecordStore implements IBinaryRecordStore {
     dv.setUint32(4, this.opts.version, true);
     dv.setUint32(8, records.size, true);
     let offset = HEADER_BYTES;
-    for (const [key, payload] of records) {
+    for (const [key, payload] of records.entries()) {
       const keyBytes = keys.get(key)!;
       dv.setUint32(offset, keyBytes.byteLength, true);
       dv.setUint32(offset + 4, payload.byteLength, true);
@@ -192,7 +192,7 @@ export class BinaryRecordStore implements IBinaryRecordStore {
       const updates = new Map(records);
       if (updates.size === 0) return 0;
       const merged = (await this.readCurrent()) ?? new Map();
-      for (const [key, payload] of updates) merged.set(key, payload);
+      for (const [key, payload] of updates.entries()) merged.set(key, payload);
       if (!(await this.writeFile(merged))) return 0;
       return updates.size;
     } catch (e) {
@@ -205,6 +205,7 @@ export class BinaryRecordStore implements IBinaryRecordStore {
     try {
       const merged = (await this.readCurrent()) ?? new Map();
       let removed = 0;
+      // oxlint-disable-next-line downdraft/no-for-of -- iterates Iterable<string>; for..of required
       for (const key of keys) removed += merged.delete(key) ? 1 : 0;
       if (removed === 0) return 0;
       if (!(await this.writeFile(merged))) return 0;
@@ -219,7 +220,7 @@ export class BinaryRecordStore implements IBinaryRecordStore {
     try {
       let dir: FileSystemDirectoryHandle | null = await this.getRoot();
       if (!dir) return;
-      for (const seg of this.opts.directory ?? []) {
+      for (let _i = 0, _it = this.opts.directory ?? [], _n = _it.length; _i < _n; _i++) { const seg = _it[_i];
         dir = await dir.getDirectoryHandle(seg).catch(() => null);
         if (!dir) return; // directory chain absent → file can't exist
       }

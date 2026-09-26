@@ -68,7 +68,7 @@ export function resolveShimLibrary(baseName: string, envVar: string, buildHint?:
     join(execDir, "native", file),               // packaged binary layout
     join("/usr/local/lib", file),                // system install
   ];
-  for (const p of candidates) {
+  for (let _i = 0, _it = candidates, _n = _it.length; _i < _n; _i++) { const p = _it[_i];
     if (existsSync(p)) return p;
   }
 
@@ -90,7 +90,7 @@ export function findShimLibrary(baseName: string, envVar: string): string | null
     join(execDir, "native", file),
     join("/usr/local/lib", file),
   ];
-  for (const p of candidates) {
+  for (let _i = 0, _it = candidates, _n = _it.length; _i < _n; _i++) { const p = _it[_i];
     if (existsSync(p)) return p;
   }
   return null;

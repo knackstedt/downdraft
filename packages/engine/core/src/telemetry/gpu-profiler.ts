@@ -359,7 +359,7 @@ export class GPUProfiler {
 
   getPassTimings(): PassTiming[] {
     const result: PassTiming[] = [];
-    for (const [name, t] of this.passTimings) {
+    for (const [name, t] of this.passTimings.entries()) {
       result.push({
         name,
         cpuMs: t.cpuMs,
@@ -508,7 +508,7 @@ export class GPUProfiler {
     alwaysOnPasses: string[] = [],
   ): FrameGraphData {
     const timingMap = new Map<string, PassTiming>();
-    for (const t of passTimings) timingMap.set(t.name, t);
+    passTimings.forEach((t) => { timingMap.set(t.name, t);; });
 
     const nodes: FrameGraphNode[] = [];
     const edges: FrameGraphEdge[] = [];
@@ -521,7 +521,7 @@ export class GPUProfiler {
 
     // --- Scene passes (layer 0) ---
     const activeScenePasses: string[] = [];
-    for (const name of scenePassOrder) {
+    scenePassOrder.forEach((name) => {
       const t = timingMap.get(name);
       const active = !!t;
       const node: FrameGraphNode = {
@@ -546,7 +546,7 @@ export class GPUProfiler {
         totalDrawCalls += node.drawCalls;
         totalTriangles += node.triangles;
       }
-    }
+    });
 
     // Edges between consecutive active scene passes (shared color+depth)
     for (let i = 0; i < activeScenePasses.length - 1; i++) {
@@ -574,7 +574,7 @@ export class GPUProfiler {
       });
       layer1NodeIds.push(pxId);
     } else if (ppInfo.postProcessEffects.length > 0) {
-      for (const effName of ppInfo.postProcessEffects) {
+      ppInfo.postProcessEffects.forEach((effName) => {
         const eid = "pp:" + effName;
         nodes.push({
           id: eid,
@@ -586,7 +586,7 @@ export class GPUProfiler {
           active: true,
         });
         layer1NodeIds.push(eid);
-      }
+      });
       // Chain edges between consecutive post-process effects
       for (let i = 0; i < layer1NodeIds.length - 1; i++) {
         edges.push({
@@ -642,7 +642,7 @@ export class GPUProfiler {
     }
 
     // --- Validation warnings ---
-    for (const node of nodes) {
+    for (let _i = 0, _it = nodes, _n = _it.length; _i < _n; _i++) { const node = _it[_i];
       if (node.category !== "scene") continue;
       if (!node.active) continue;
       if (node.drawCalls === 0 && !alwaysOnPasses.includes(node.name)) {
@@ -672,7 +672,7 @@ export class GPUProfiler {
     }
 
     // Check for inactive scene passes that are always-on
-    for (const name of alwaysOnPasses) {
+    alwaysOnPasses.forEach((name) => {
       const node = nodes.find(n => n.name === name);
       if (node && !node.active) {
         validations.push({
@@ -681,7 +681,7 @@ export class GPUProfiler {
           passName: name,
         });
       }
-    }
+    });
 
     return {
       nodes,

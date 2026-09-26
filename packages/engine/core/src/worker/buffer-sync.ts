@@ -175,13 +175,13 @@ class SyncProfiler {
   private flush(): void {
     if (this.samples.length === 0) return;
     const byLabel: Record<string, { count: number; totalMs: number; totalBytes: number; maxMs: number }> = {};
-    for (const s of this.samples) {
+    this.samples.forEach((s) => {
       const e = byLabel[s.label] ?? (byLabel[s.label] = { count: 0, totalMs: 0, totalBytes: 0, maxMs: 0 });
       e.count++;
       e.totalMs += s.ms;
       e.totalBytes += s.bytes;
       if (s.ms > e.maxMs) e.maxMs = s.ms;
-    }
+    });
     const lines: string[] = [];
     for (const [label, e] of Object.entries(byLabel)) {
       const avgMs = (e.totalMs / e.count).toFixed(2);
@@ -255,7 +255,7 @@ export class BufferSyncHost {
       const seq = seqField ? new Int32Array(buf, seqField.offset, 1)[0] : 0;
 
       const copies: RegionCopy[] = [];
-      for (const r of regionDef.writeRegions) {
+      for (let _i = 0, _it = regionDef.writeRegions, _n = _it.length; _i < _n; _i++) { const r = _it[_i];
         // Throttle: skip regions with syncInterval > 1 on most frames.
         // Only sync them every syncInterval frames.
         if (r.syncInterval && r.syncInterval > 1) {
@@ -321,10 +321,10 @@ export class BufferSyncHost {
     for (const [name, regionList] of Object.entries(regions)) {
       const local = this.config.buffers[name];
       if (!local) continue;
-      for (const { offset, data } of regionList) {
+      regionList.forEach(({ offset, data }) => {
         new Uint8Array(local, offset, data.byteLength).set(new Uint8Array(data));
         totalBytes += data.byteLength;
-      }
+      });
     }
     return totalBytes;
   }
@@ -360,9 +360,9 @@ export class BufferSyncHost {
       if (b.received < total) return; // wait for the rest — no tearing
       this.pendingBatches.delete(id);
       this.lastBatchSeen = id;
-      for (const part of b.parts) {
+      b.parts.forEach((part) => {
         if (part) totalBytes += this.applyRegions(part);
-      }
+      });
       this.profiler.end("worker→host onMessage", pStart, totalBytes);
       return;
     }
@@ -439,7 +439,7 @@ export class BufferSyncWorker {
       const seq = seqField ? new Int32Array(buf, seqField.offset, 1)[0] : 0;
 
       const copies: RegionCopy[] = [];
-      for (const r of regionDef.writeRegions) {
+      for (let _i = 0, _it = regionDef.writeRegions, _n = _it.length; _i < _n; _i++) { const r = _it[_i];
         // Region name filter: skip regions not in the filter set.
         if (filter && !filter.has(r.name)) continue;
         // Per-region sequence gating: skip if this region's last-synced seq
@@ -542,9 +542,9 @@ export class BufferSyncWorker {
     for (const [name, regionList] of Object.entries(msg.regions)) {
       const local = this.config.buffers[name];
       if (!local) continue;
-      for (const { offset, data } of regionList) {
+      regionList.forEach(({ offset, data }) => {
         new Uint8Array(local, offset, data.byteLength).set(new Uint8Array(data));
-      }
+      });
     }
   }
 }

@@ -135,7 +135,7 @@ export class MaterialHotReloader {
   }
 
   private async checkShaders(): Promise<void> {
-    for (const [path, watched] of this.watchedShaders) {
+    for (const [path, watched] of this.watchedShaders.entries()) {
       try {
         const response = await fetch(path, { method: "HEAD" });
         const lastMod = response.headers.get("last-modified");
@@ -153,7 +153,7 @@ export class MaterialHotReloader {
   }
 
   private async checkMeshes(): Promise<void> {
-    for (const [path, watched] of this.watchedMeshes) {
+    for (const [path, watched] of this.watchedMeshes.entries()) {
       try {
         const response = await fetch(path, { method: "HEAD" });
         const lastMod = response.headers.get("last-modified");
@@ -171,7 +171,7 @@ export class MaterialHotReloader {
   }
 
   private async checkTextures(): Promise<void> {
-    for (const [path, watched] of this.watchedTextures) {
+    for (const [path, watched] of this.watchedTextures.entries()) {
       try {
         const response = await fetch(path, { method: "HEAD" });
         const lastMod = response.headers.get("last-modified");

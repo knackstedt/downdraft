@@ -219,9 +219,9 @@ describe("procedural-texture", () => {
 
   it("supports all texture types", () => {
     const types: ProceduralTextureType[] = ["checkerboard", "noise", "perlin", "voronoi", "brick", "wood", "marble", "grid", "gradient"];
-    for (const type of types) {
+    types.forEach((type) => {
       const data = generateProceduralTexture({ ...DEFAULT_PROCEDURAL_CONFIG, type, width: 4, height: 4 });
       expect(data.length).toBe(4 * 4 * 4);
-    }
+    });
   });
 });

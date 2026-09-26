@@ -88,16 +88,16 @@ export function createMobileBridge(): DowndraftBridgeAPI {
   let cachedRefreshRate = 0;
   (async () => {
     cachedRefreshRate = await estimateRefreshRate();
-    for (const cb of displayInfoCallbacks) {
+    displayInfoCallbacks.forEach((cb) => {
       cb({ refreshRate: cachedRefreshRate });
-    }
+    });
   })();
 
   // Forward devicePixelRatio changes (orientation change, zoom).
   window.addEventListener("resize", () => {
-    for (const cb of displayMetricsCallbacks) {
+    displayMetricsCallbacks.forEach((cb) => {
       cb({ scaleFactor: window.devicePixelRatio });
-    }
+    });
   });
 
   return {

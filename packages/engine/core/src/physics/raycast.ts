@@ -74,7 +74,7 @@ export class RaycastQuery {
       ];
       this.debugQueue.line(origin, endPoint, RAY_COLOR);
 
-      for (const result of results) {
+      for (let _i2870 = 0, _it2870 = results, _n2870 = _it2870.length; _i2870 < _n2870; _i2870++) { const result = _it2870[_i2870];
         this.debugQueue.point(result.point, HIT_COLOR, 5);
         const normalEnd: [number, number, number] = [
           result.point[0] + result.normal[0] * NORMAL_LENGTH,
@@ -82,7 +82,7 @@ export class RaycastQuery {
           result.point[2] + result.normal[2] * NORMAL_LENGTH,
         ];
         this.debugQueue.line(result.point, normalEnd, NORMAL_COLOR);
-      }
+      };
     }
 
     return results;

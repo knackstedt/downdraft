@@ -73,7 +73,7 @@ if (typeof globalThis.addEventListener === "undefined") {
   };
   globalThis.dispatchEvent = (event) => {
     const set = listeners.get(event?.type);
-    if (set) for (const l of set) l(event);
+    if (set) set.forEach((l) => { l(event);; });
     return true;
   };
 }

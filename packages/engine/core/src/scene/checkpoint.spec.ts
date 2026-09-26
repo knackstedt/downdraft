@@ -44,9 +44,9 @@ describe("CheckpointManager", () => {
     world.flushCommands();
 
     let count = 0;
-    for (const meta of world.entities) {
+    world.entities.forEach((meta) => {
       if (meta.alive) count++;
-    }
+    });
     expect(count).toBe(1);
   });
 

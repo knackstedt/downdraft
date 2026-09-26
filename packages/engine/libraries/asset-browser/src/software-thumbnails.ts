@@ -70,9 +70,9 @@ function computeFlatNormals(positions: Float32Array, indices: Uint16Array | Uint
     let nz = ux * vy - uy * vx;
     const nl = Math.hypot(nx, ny, nz) || 1;
     nx /= nl; ny /= nl; nz /= nl;
-    for (const j of [a, b, c]) {
+    [a, b, c].forEach((j) => {
       normals[j] += nx; normals[j + 1] += ny; normals[j + 2] += nz;
-    }
+    });
   }
   for (let i = 0; i < normals.length; i += 3) {
     const nl = Math.hypot(normals[i], normals[i + 1], normals[i + 2]) || 1;
@@ -211,7 +211,7 @@ export class SoftwareThumbnailRenderer {
     const meshes = model.meshes;
     if (!meshes || meshes.length === 0) { this.loadBuiltinCube(contentId); return; }
     let totalVerts = 0, totalIdx = 0;
-    for (const m of meshes) { totalVerts += m.vertexCount; totalIdx += m.indexCount; }
+    meshes.forEach((m) => { totalVerts += m.vertexCount; totalIdx += m.indexCount; });
     if (totalVerts > this.sx.length) {
       // Extremely large model — fall back to a cube rather than allocating
       // giant scratch buffers for a thumbnail.
@@ -229,7 +229,7 @@ export class SoftwareThumbnailRenderer {
     const uvs = anyUvs ? new Float32Array(totalVerts * 2) : null;
     const vcols = anyCols ? new Float32Array(totalVerts * 3).fill(1) : null;
     let vOff = 0, iOff = 0, vBase = 0;
-    for (const m of meshes) {
+    meshes.forEach((m) => {
       const stride = m.vertices.length / m.vertexCount;
       for (let v = 0; v < m.vertexCount; v++) {
         positions[vOff + v * 3] = m.vertices[v * stride];
@@ -255,7 +255,7 @@ export class SoftwareThumbnailRenderer {
       if (triMat) triMat.fill(mi, iOff / 3, (iOff + m.indexCount) / 3);
       iOff += m.indexCount;
       vBase += m.vertexCount;
-    }
+    });
     let center: [number, number, number] = [0, 0, 0];
     let radius = 0.5;
     if (model.bounds) {

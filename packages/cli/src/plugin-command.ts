@@ -103,12 +103,12 @@ async function pluginNew(args: string[], modMode: boolean): Promise<void> {
     }
   }
   const validExtensions = ["assets", "maps", "physics", "shader-postfx", "shader-material"];
-  for (const ext of withFlags) {
+  withFlags.forEach((ext) => {
     if (!validExtensions.includes(ext)) {
       log.error("plugin", `Invalid --with extension "${ext}". Valid: ${validExtensions.join(", ")}`);
       process.exit(1);
     }
-  }
+  });
 
   await scaffoldPlugin({
     id,
@@ -152,7 +152,7 @@ function pluginList(args: string[]): void {
 
   let found = 0;
 
-  for (const { name: game, dir: gameDirPath } of gameDirs) {
+  for (let _i = 0, _it = gameDirs, _n = _it.length; _i < _n; _i++) { const { name: game, dir: gameDirPath } = _it[_i];
     if (filterGame && game !== filterGame) continue;
     const pluginsDir = join(gameDirPath, "plugins");
     if (!existsSync(pluginsDir)) continue;

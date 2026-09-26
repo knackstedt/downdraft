@@ -67,7 +67,7 @@ function* walk(dir) {
   } catch {
     return;
   }
-  for (const e of entries) {
+  for (let _i = 0, _it = entries, _n = _it.length; _i < _n; _i++) { const e = _it[_i];
     const p = join(dir, e.name);
     if (e.isDirectory()) {
       if (!SKIP_DIRS.has(e.name)) yield* walk(p);
@@ -89,26 +89,26 @@ let filesChanged = 0;
 let totalReplacements = 0;
 const inventory = new Map(); // specifier -> count (post-rewrite view is what matters)
 
-for (const rel of ROOTS) {
+for (let _i = 0, _it = ROOTS, _n = _it.length; _i < _n; _i++) { const rel = _it[_i];
   const abs = join(root, rel);
   if (!existsSync(abs)) continue;
   for (const file of walk(abs)) {
     if (!isTargetFile(file)) continue;
     const src = readFileSync(file, "utf8");
     let out = src;
-    for (const [re, rep] of RULES) out = out.replace(re, rep);
+    RULES.forEach(([re, rep]) => { out = out.replace(re, rep);; });
     if (out !== src) {
       filesChanged++;
       if (!dryRun) writeFileSync(file, out);
     }
   }
 }
-for (const rel of ROOT_FILES) {
+for (let _i = 0, _it = ROOT_FILES, _n = _it.length; _i < _n; _i++) { const rel = _it[_i];
   const abs = join(root, rel);
   if (!existsSync(abs)) continue;
   const src = readFileSync(abs, "utf8");
   let out = src;
-  for (const [re, rep] of RULES) out = out.replace(re, rep);
+  RULES.forEach(([re, rep]) => { out = out.replace(re, rep);; });
   if (out !== src) {
     filesChanged++;
     if (!dryRun) writeFileSync(abs, out);
@@ -116,7 +116,7 @@ for (const rel of ROOT_FILES) {
 }
 
 // Inventory pass (always on current file contents — after rewrite when not dry).
-for (const rel of ROOTS) {
+for (let _i = 0, _it = ROOTS, _n = _it.length; _i < _n; _i++) { const rel = _it[_i];
   const abs = join(root, rel);
   if (!existsSync(abs)) continue;
   for (const file of walk(abs)) {

@@ -118,13 +118,13 @@ export class FileSaveStore implements ISaveStore {
   }
 
   private warn(warning: SaveWarning): void {
-    for (const cb of this.warningCallbacks) {
+    this.warningCallbacks.forEach((cb) => {
       try {
         cb(warning);
       } catch {
         // ignore callback errors
       }
-    }
+    });
   }
 
   private async ensureZstd(): Promise<void> {
@@ -204,7 +204,7 @@ export class FileSaveStore implements ISaveStore {
       let blobBytes = 0;
       if (opts?.blobs && Object.keys(opts.blobs).length > 0) {
         await fs.mkdir(tmpBlobsDir, { recursive: true });
-        for (const [key, buf] of Object.entries(opts.blobs) as Array<[string, ArrayBuffer]>) {
+        for (let _i = 0, _it = Object.entries(opts.blobs) as Array<[string, ArrayBuffer]>, _n = _it.length; _i < _n; _i++) { const [key, buf] = _it[_i];
           const safeKey = key.replace(/[^a-zA-Z0-9_\-]/g, "_");
           await fs.writeFile(join(tmpBlobsDir, safeKey), new Uint8Array(buf));
           blobBytes += buf.byteLength;
@@ -377,7 +377,7 @@ export class FileSaveStore implements ISaveStore {
       const blobsDir = this.blobsDirPath(slot);
       const files = await fs.readdir(blobsDir);
       const blobs: Record<string, ArrayBuffer> = {};
-      for (const file of files) {
+      for (let _i = 0, _it = files, _n = _it.length; _i < _n; _i++) { const file = _it[_i];
         const buf = await fs.readFile(join(blobsDir, file));
         blobs[file] = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
       }
@@ -392,7 +392,7 @@ export class FileSaveStore implements ISaveStore {
       const files = await fs.readdir(this.saveDir);
       const saves: SaveSlotInfo[] = [];
 
-      for (const file of files) {
+      for (let _i = 0, _it = files, _n = _it.length; _i < _n; _i++) { const file = _it[_i];
         if (!file.endsWith(SAVE_EXT)) continue;
         const filePath = join(this.saveDir, file);
         const stat = await fs.stat(filePath);

@@ -18,7 +18,7 @@ export interface Destroyable {
  * prevent cleanup of remaining resources.
  */
 export function destroyAll(resources: (Destroyable | null | undefined)[]): void {
-  for (const res of resources) {
+  resources.forEach((res) => {
     if (res) {
       try {
         res.destroy();
@@ -26,7 +26,7 @@ export function destroyAll(resources: (Destroyable | null | undefined)[]): void 
         // Swallow — resource may already be destroyed or invalid
       }
     }
-  }
+  });
 }
 
 /**

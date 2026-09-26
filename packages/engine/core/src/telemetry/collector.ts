@@ -386,10 +386,10 @@ export class TelemetryCollector {
       addDiff("Textures", a.resourceStats.textureCount, b.resourceStats.textureCount);
       addDiff("Buffers", a.resourceStats.bufferCount, b.resourceStats.bufferCount);
     }
-    for (const pa of a.passTimings) {
+    a.passTimings.forEach((pa) => {
       const pb = b.passTimings.find((p) => p.name === pa.name);
       if (pb) addDiff(`Pass: ${pa.name} (ms)`, pa.cpuMs, pb.cpuMs);
-    }
+    });
     return diffs;
   }
 

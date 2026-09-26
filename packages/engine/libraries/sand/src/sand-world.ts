@@ -570,9 +570,9 @@ export class SandWorld {
     // Sort columns in the iteration order matching the main movement pass.
     const sorted = cols.slice().sort((a, b) => leftToRight ? a - b : b - a);
     for (let y = maxY; y >= minY; y--) {
-      for (const x of sorted) {
+      sorted.forEach((x) => {
         this.tryMove(x, y);
-      }
+      });
     }
   }
 

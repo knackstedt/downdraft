@@ -214,9 +214,9 @@ export class AnimationStateMachine {
     const activeClips = this.getActiveBlendClips(state.blendTree);
 
     // Stop old blend layers
-    for (const name of this.blendLayerNames) {
+    for (let _i6966 = 0, _it6966 = this.blendLayerNames, _n6966 = _it6966.length; _i6966 < _n6966; _i6966++) { const name = _it6966[_i6966];
       this.player.stop(name);
-    }
+    };
     // Also stop the initial state layer (played by playState)
     this.player.stop(this.currentState);
     this.blendLayerNames = [];
@@ -233,11 +233,11 @@ export class AnimationStateMachine {
   private checkTransitions(): void {
     if (!this.currentState) return;
 
-    for (const t of this.transitions) {
+    for (let _i = 0, _it = this.transitions, _n = _it.length; _i < _n; _i++) { const t = _it[_i];
       if (t.from !== this.currentState) continue;
 
       let allMet = true;
-      for (const cond of t.conditions) {
+      for (let _i = 0, _it = t.conditions, _n = _it.length; _i < _n; _i++) { const cond = _it[_i];
         const val = this.getParameter(cond.parameter);
         switch (cond.op) {
           case ">": if (!(val > cond.value)) allMet = false; break;

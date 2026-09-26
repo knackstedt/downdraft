@@ -197,10 +197,10 @@ export class RealmManager {
     if (isStatic && this.duplicateStatics) {
       const copies = new Map<RealmTier, PhysicsBody>();
       copies.set(initialTier, body);
-      for (const tier of [RealmTier.Mid, RealmTier.Far]) {
+      [RealmTier.Mid, RealmTier.Far].forEach((tier) => {
         const r = this.getRealm(tier);
         copies.set(tier, r.createBody(desc, entity));
-      }
+      });
       meta.staticCopies = copies;
     }
 
@@ -214,7 +214,7 @@ export class RealmManager {
     if (!meta) return;
 
     if (meta.staticCopies) {
-      for (const [tier, copy] of meta.staticCopies) {
+      for (const [tier, copy] of meta.staticCopies.entries()) {
         this.getRealm(tier).destroyBody(copy);
         this.bodyIdByBackendId.delete(copy.id);
       }
@@ -232,7 +232,7 @@ export class RealmManager {
     let colliderId = -1;
     if (meta.staticCopies) {
       // Add to all copies; return the near-realm collider id as canonical
-      for (const [tier, copy] of meta.staticCopies) {
+      for (const [tier, copy] of meta.staticCopies.entries()) {
         const id = this.getRealm(tier).addCollider(copy, desc);
         if (tier === meta.tier) colliderId = id;
       }
@@ -254,7 +254,7 @@ export class RealmManager {
     if (meta.staticCopies) {
       // Remove from each copy's own realm. Collider ids may differ per realm;
       // the backend handles missing ids gracefully (no-op if not found).
-      for (const [tier, copy] of meta.staticCopies) {
+      for (const [tier, copy] of meta.staticCopies.entries()) {
         this.getRealm(tier).removeCollider(copy, colliderId);
       }
     } else {
@@ -300,13 +300,13 @@ export class RealmManager {
       ];
 
       let minDist = Infinity;
-      for (const cam of playerCameras) {
+      playerCameras.forEach((cam) => {
         const dx = predicted[0] - cam[0];
         const dy = predicted[1] - cam[1];
         const dz = predicted[2] - cam[2];
         const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
         if (d < minDist) minDist = d;
-      }
+      });
 
       // Promotion: immediate if within a higher tier's promote threshold
       const higherTier = this.nextHigherTier(meta.tier);
@@ -441,7 +441,7 @@ export class RealmManager {
   private flushTransfers(): void {
     if (this.pendingTransfers.length === 0) return;
 
-    for (const { meta, toTier } of this.pendingTransfers) {
+    for (let _i = 0, _it = this.pendingTransfers, _n = _it.length; _i < _n; _i++) { const { meta, toTier } = _it[_i];
       if (meta.tier === toTier) continue;
       this.transferBody(meta, toTier);
     }
@@ -476,9 +476,9 @@ export class RealmManager {
     const newBody = toRealm.createBody(newDesc, meta.entity);
 
     // Re-add colliders
-    for (const { desc: colliderDesc } of meta.colliders) {
+    meta.colliders.forEach(({ desc: colliderDesc }) => {
       toRealm.addCollider(newBody, colliderDesc);
-    }
+    });
 
     // Update metadata + reverse lookup (add new backend id)
     const fromTier = meta.tier;

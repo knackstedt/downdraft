@@ -78,7 +78,7 @@ export class SceneTreePanel {
       allNodes.push(node);
     }
 
-    for (const node of allNodes) {
+    allNodes.forEach((node) => {
       if (node.parentId >= 0 && node.parentId !== ROOT_ENTITY.index) {
         const parent = this.nodes.get(node.parentId);
         if (parent) {
@@ -86,7 +86,7 @@ export class SceneTreePanel {
           node.depth = parent.depth + 1;
         }
       }
-    }
+    });
   }
 
   select(entity: Entity | null): void {

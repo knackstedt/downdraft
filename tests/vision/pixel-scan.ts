@@ -84,7 +84,7 @@ export function scanRegions(
   let sumDelta = 0;
   const regions: Array<{ x: number; y: number; width: number; height: number; passed: boolean }> = [];
 
-  for (const check of checks) {
+  checks.forEach((check) => {
     const { region, expectedColor, tolerance = 5 } = check;
     let regionMismatched = 0;
     let regionTotal = 0;
@@ -115,7 +115,7 @@ export function scanRegions(
     const regionPassed = regionMismatched === 0;
     if (!regionPassed) allPassed = false;
     regions.push({ ...region, passed: regionPassed });
-  }
+  });
 
   return {
     passed: allPassed,

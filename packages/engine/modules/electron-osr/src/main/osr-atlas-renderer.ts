@@ -92,7 +92,7 @@ export class OSRAtlasRenderer extends OSRRenderer {
 
   getLayout(): AtlasLayout {
     const panelMap = new Map<string, AtlasPanelRect>();
-    for (const [id, panel] of this.panels) {
+    for (const [id, panel] of this.panels.entries()) {
       panelMap.set(id, panel.rect);
     }
     return { width: this.width, height: this.height, panels: panelMap };

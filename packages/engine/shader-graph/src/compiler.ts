@@ -185,13 +185,13 @@ export class GraphCompiler {
     const connections = graph.getConnections();
 
     const nodeMap = new Map<string, GraphNode>();
-    for (const n of nodes) nodeMap.set(n.id, n);
+    nodes.forEach((n) => { nodeMap.set(n.id, n);; });
 
     const inputConnections = new Map<string, Map<string, Connection>>();
-    for (const conn of connections) {
+    connections.forEach((conn) => {
       if (!inputConnections.has(conn.to)) inputConnections.set(conn.to, new Map());
       inputConnections.get(conn.to)!.set(conn.toPort, conn);
-    }
+    });
 
     const outputNodes = nodes.filter((n) => n.type === "output");
     if (outputNodes.length === 0) {
@@ -251,9 +251,9 @@ export class GraphCompiler {
       return generator(node, inputExprs, ctx);
     };
 
-    for (const outNode of outputNodes) {
+    outputNodes.forEach((outNode) => {
       compileNode(outNode.id);
-    }
+    });
 
     if (expressions.length === 0) {
       expressions.push("vec4<f32>(1.0)");
@@ -267,7 +267,7 @@ export class GraphCompiler {
     // profile.bindGroups); chunks must NOT declare `@group/@binding var` inline.
     // A duplicate is a WGSL validation error that would fail createShaderModule.
     const dupes = findDuplicateBindings(parseWgslBindings(wgsl));
-    for (const d of dupes) {
+    dupes.forEach((d) => {
       const declLines = d.declarations.map(
         (dec) => `@group(${dec.group}) @binding(${dec.binding}) var${dec.access ? `<${dec.access}>` : ""} ${dec.name}: ${dec.typeWgsl};`,
       );
@@ -275,7 +275,7 @@ export class GraphCompiler {
         `Duplicate @group(${d.group}) @binding(${d.binding}) var declaration (${d.declarations.length} times):\n` +
           declLines.map((l) => `  - ${l}`).join("\n"),
       );
-    }
+    });
 
     return { wgsl, errors };
   }
@@ -504,8 +504,8 @@ ${fields}
     if (profile.skinned) vertexInputBindings.add("0:3");
 
     const lines: string[] = [];
-    for (const bg of profile.bindGroups) {
-      for (const entry of bg.entries) {
+    profile.bindGroups.forEach((bg) => {
+      for (let _i = 0, _it = bg.entries, _n = _it.length; _i < _n; _i++) { const entry = _it[_i];
         if (entry.binding === 0 && bg.group === 0) continue; // Already declared in uniform struct
         if (vertexInputBindings.has(`${bg.group}:${entry.binding}`)) continue; // Declared in buildVertexInput
         const label = entry.label ?? `binding_${entry.binding}`;
@@ -531,7 +531,7 @@ ${fields}
             break;
         }
       }
-    }
+    });
     return lines.join("\n");
   }
 

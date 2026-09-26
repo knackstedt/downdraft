@@ -168,7 +168,7 @@ async function generateAndroidIcons(source: JimpInstance, androidDir: string): P
   const resDir = resolve(androidDir, "app/src/main/res");
 
   // Generate legacy launcher icons (ic_launcher.png + ic_launcher_round.png)
-  for (const spec of ANDROID_LAUNCHER_ICONS) {
+  for (let _i = 0, _it = ANDROID_LAUNCHER_ICONS, _n = _it.length; _i < _n; _i++) { const spec = _it[_i];
     const dir = resolve(resDir, spec.dir);
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 
@@ -182,7 +182,7 @@ async function generateAndroidIcons(source: JimpInstance, androidDir: string): P
   }
 
   // Generate adaptive icon foregrounds (with safe-zone padding)
-  for (const spec of ANDROID_FOREGROUND_ICONS) {
+  for (let _i = 0, _it = ANDROID_FOREGROUND_ICONS, _n = _it.length; _i < _n; _i++) { const spec = _it[_i];
     const dir = resolve(resDir, spec.dir);
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 
@@ -224,7 +224,7 @@ async function generateAndroidSplash(source: JimpInstance, androidDir: string): 
   await writeImage(defaultSplash, resolve(drawableDir, "splash.png"));
 
   // Portrait splashes
-  for (const spec of ANDROID_SPLASH_PORTRAIT) {
+  for (let _i = 0, _it = ANDROID_SPLASH_PORTRAIT, _n = _it.length; _i < _n; _i++) { const spec = _it[_i];
     const dir = resolve(resDir, spec.dir);
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     const splash = createSplashImage(source, spec.width, spec.height);
@@ -232,7 +232,7 @@ async function generateAndroidSplash(source: JimpInstance, androidDir: string): 
   }
 
   // Landscape splashes
-  for (const spec of ANDROID_SPLASH_LANDSCAPE) {
+  for (let _i = 0, _it = ANDROID_SPLASH_LANDSCAPE, _n = _it.length; _i < _n; _i++) { const spec = _it[_i];
     const dir = resolve(resDir, spec.dir);
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     const splash = createSplashImage(source, spec.width, spec.height);
@@ -298,7 +298,7 @@ async function generateIosSplash(source: JimpInstance, iosAppDir: string): Promi
   // referenced by Contents.json (@1x, @2x, @3x all use the same universal image)
   const splash = createSplashImage(source, IOS_SPLASH_SIZE, IOS_SPLASH_SIZE);
 
-  for (const filename of IOS_SPLASH_FILES) {
+  for (let _i = 0, _it = IOS_SPLASH_FILES, _n = _it.length; _i < _n; _i++) { const filename = _it[_i];
     await writeImage(splash, resolve(splashDir, filename));
   }
 

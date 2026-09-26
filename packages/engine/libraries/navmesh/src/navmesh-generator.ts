@@ -85,7 +85,7 @@ export class NavMeshGenerator {
             [cx, cz + 1], [cx, cz - 1],
           ];
 
-          for (const [nx, nz] of neighbors) {
+          for (let _i = 0, _it = neighbors, _n = _it.length; _i < _n; _i++) { const [nx, nz] = _it[_i];
             if (nx < 0 || nx >= cols || nz < 0 || nz >= rows) continue;
             if (visited[nz][nx]) continue;
             const nc = cells[nz][nx];
@@ -100,9 +100,9 @@ export class NavMeshGenerator {
         }
 
         if (flood.length < minSize) {
-          for (const c of flood) {
+          flood.forEach((c) => {
             c.region = -1;
-          }
+          });
         } else {
           nextRegion++;
         }
@@ -155,7 +155,7 @@ export class NavMeshGenerator {
       }
     }
 
-    for (const [region, edges] of regionEdges) {
+    for (const [region, edges] of regionEdges.entries()) {
       const contour = this.chainEdges(edges);
       if (contour.length >= 3) {
         contours.set(region, this.simplifyContour(contour));
@@ -269,7 +269,7 @@ export class NavMeshGenerator {
         ];
 
         const vertexIndices: number[] = [];
-        for (const v of corners) {
+        corners.forEach((v) => {
           const key = `${v[0].toFixed(3)}:${v[1].toFixed(3)}:${v[2].toFixed(3)}`;
           let idx = vertexMap.get(key);
           if (idx === undefined) {
@@ -278,7 +278,7 @@ export class NavMeshGenerator {
             vertexMap.set(key, idx);
           }
           vertexIndices.push(idx);
-        }
+        });
 
         const polyId = polygons.length;
         polyGrid[z][x] = polyId;
@@ -300,7 +300,7 @@ export class NavMeshGenerator {
         if (polyId < 0) continue;
 
         const neighbors: [number, number][] = [[x + 1, z], [x, z + 1]];
-        for (const [nx, nz] of neighbors) {
+        for (let _i = 0, _it = neighbors, _n = _it.length; _i < _n; _i++) { const [nx, nz] = _it[_i];
           if (nx >= cols || nz >= rows) continue;
           const neighborId = polyGrid[nz][nx];
           if (neighborId < 0) continue;
@@ -316,7 +316,7 @@ export class NavMeshGenerator {
 
   private detectPortals(polygons: NavPoly[], vertices: Float32Array): NavPoly[] {
     for (let i = 0; i < polygons.length; i++) {
-      for (const j of polygons[i].neighborPolys) {
+      for (let _i = 0, _it = polygons[i].neighborPolys, _n = _it.length; _i < _n; _i++) { const j = _it[_i];
         if (j <= i) continue;
         const shared = this.findSharedEdge(polygons[i], polygons[j], vertices);
         if (shared) {
@@ -371,7 +371,7 @@ export class NavMeshGenerator {
   }
 
   private computeCentroidsAndArea(polygons: NavPoly[], vertices: Float32Array): void {
-    for (const poly of polygons) {
+    polygons.forEach((poly) => {
       let cx = 0, cy = 0, cz = 0;
       let area = 0;
       const verts = poly.vertexIndices;
@@ -402,6 +402,6 @@ export class NavMeshGenerator {
         poly.centroid = [cx / n, cy / n, cz / n];
       }
       poly.area = area;
-    }
+    });
   }
 }

@@ -152,6 +152,7 @@ export function featureCode(name: string): string {
 /** Encode a set of WebGPU feature names into comma-separated short codes. */
 export function encodeFeatures(features: Iterable<string>): string {
   const codes: string[] = [];
+  // oxlint-disable-next-line downdraft/no-for-of -- iterates Iterable<string>; for..of required
   for (const f of features) {
     const c = featureCode(f);
     if (c) codes.push(c);
@@ -167,7 +168,7 @@ export function encodeFeatures(features: Iterable<string>): string {
  */
 export function encodeFeatureLogLine(data: FeatureLogData): string {
   const parts: string[] = [`dd${data.sv ?? FEATURE_LOG_SCHEMA_VERSION}`];
-  for (const { key, fmt } of KEY_ORDER) {
+  for (let _i = 0, _it = KEY_ORDER, _n = _it.length; _i < _n; _i++) { const { key, fmt } = _it[_i];
     const raw = (data as unknown as Record<string, unknown>)[key];
     const val = fmt(raw);
     if (val === null || val === undefined || val === "") continue;
@@ -195,7 +196,7 @@ export function decodeFeatureLogLine(line: string): Partial<FeatureLogData> | nu
   const head = parts.shift()!;
   const sv = parseInt(head.slice(2), 10);
   const out: Record<string, unknown> = { sv };
-  for (const part of parts) {
+  for (let _i = 0, _it = parts, _n = _it.length; _i < _n; _i++) { const part = _it[_i];
     const eq = part.indexOf("=");
     if (eq <= 0) continue;
     const key = part.slice(0, eq);

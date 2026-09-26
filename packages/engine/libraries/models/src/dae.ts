@@ -722,7 +722,7 @@ export function parseDAE(data: ArrayBuffer, name: string): ModelData {
   const materialList: MaterialData[] = [];
 
   // Build material list
-  for (const [, mat] of materials) {
+  for (const [, mat] of materials.entries()) {
     materialList.push({
       name: mat.name,
       baseColor: mat.diffuseColor,
@@ -733,7 +733,7 @@ export function parseDAE(data: ArrayBuffer, name: string): ModelData {
     });
   }
 
-  for (const [, geom] of geometries) {
+  for (const [, geom] of geometries.entries()) {
     const geomMeshes = geometryToMeshes(geom, materials);
     for (let i = 0; i < geomMeshes.length; i++) {
       meshes.push(geomMeshes[i]);

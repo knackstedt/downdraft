@@ -24,14 +24,14 @@ export class PhysicsLifecycle {
   }
 
   bootstrap(phase: BootstrapPhase): void {
-    for (const pending of this.pending) {
+    this.pending.forEach((pending) => {
       if (pending.phase === phase && pending.realm === null) {
         const realm = new PhysicsRealm(this.backend, pending.config);
         pending.realm = realm;
         this.realms.set(realm.id, realm);
         this.realmNames.set(pending.config.name, realm.id);
       }
-    }
+    });
   }
 
   getRealm(id: number): PhysicsRealm | undefined {
@@ -55,7 +55,7 @@ export class PhysicsLifecycle {
     if (realm) {
       realm.destroy();
       this.realms.delete(id);
-      for (const [name, rid] of this.realmNames) {
+      for (const [name, rid] of this.realmNames.entries()) {
         if (rid === id) {
           this.realmNames.delete(name);
           break;

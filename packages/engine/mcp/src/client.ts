@@ -98,7 +98,7 @@ export function listGameInstances(sel: InstanceSelector = {}): GameInstance[] {
         return [];
     }
     const out: GameInstance[] = [];
-    for (const name of entries) {
+    for (let _i = 0, _it = entries, _n = _it.length; _i < _n; _i++) { const name = _it[_i];
         if (!/^\d+$/.test(name)) continue;
         const pid = Number(name);
         if (!isAlive(pid)) {
@@ -565,10 +565,10 @@ function collectDescendants(rootPid: number): number[] {
     const queue = [rootPid];
     while (queue.length) {
         const cur = queue.shift()!;
-        for (const k of childrenOf.get(cur) ?? []) {
+        (childrenOf.get(cur) ?? []).forEach((k) => {
             result.push(k);
             queue.push(k);
-        }
+        });
     }
     return result;
 }
@@ -628,11 +628,11 @@ export async function launchGame(opts: LaunchGameOptions = {}): Promise<Launched
             if (opts.mirrorOutput) mirror(text);
             const lines = buf.split("\n");
             buf = lines.pop() ?? "";
-            for (const line of lines) {
+            lines.forEach((line) => {
                 if (isRealError(line, opts.ignoreErrorPatterns)) {
                     consoleErrors.push(line.replace(/\x1b\[[0-9;]*m/g, "").trim());
                 }
-            }
+            });
         });
     };
     watchStream(proc.stdout, (s) => process.stdout.write(s));
@@ -643,9 +643,9 @@ export async function launchGame(opts: LaunchGameOptions = {}): Promise<Launched
         const signalAll = (sig: NodeJS.Signals) => {
             if (pid) {
                 try { process.kill(-pid, sig); } catch { /* group already gone */ }
-                for (const p of [pid, ...collectDescendants(pid)]) {
+                [pid, ...collectDescendants(pid)].forEach((p) => {
                     try { process.kill(p, sig); } catch { /* already dead */ }
-                }
+                });
             } else {
                 try { proc.kill(sig); } catch { /* already dead */ }
             }

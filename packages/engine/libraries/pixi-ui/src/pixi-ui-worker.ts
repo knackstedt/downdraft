@@ -867,9 +867,9 @@ function handleQueryScene(requestId: number): void {
 function summarizeScene(root: Container | null): SceneNodeSummary[] {
   if (!root) return [];
   const out: SceneNodeSummary[] = [];
-  for (const child of root.children) {
+  root.children.forEach((child) => {
     out.push(summarizeNode(child));
-  }
+  });
   return out;
 }
 

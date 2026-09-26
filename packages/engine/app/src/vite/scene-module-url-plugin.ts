@@ -164,14 +164,14 @@ export function sceneModuleUrlPlugin(_opts: SceneModuleUrlPluginOptions = {}): P
             resolvedPath = candidate;
           } else {
             // Try common extensions, then /index.* for directory imports.
-            for (const ext of [".ts", ".tsx", ".mts", ".jsx", ".js", ".mjs", ".cjs"]) {
+            for (let _i = 0, _it = [".ts", ".tsx", ".mts", ".jsx", ".js", ".mjs", ".cjs"], _n = _it.length; _i < _n; _i++) { const ext = _it[_i];
               if (existsSync(candidate + ext)) {
                 resolvedPath = candidate + ext;
                 break;
               }
             }
             if (!resolvedPath) {
-              for (const ext of [".ts", ".tsx", ".mts", ".jsx", ".js", ".mjs"]) {
+              for (let _i = 0, _it = [".ts", ".tsx", ".mts", ".jsx", ".js", ".mjs"], _n = _it.length; _i < _n; _i++) { const ext = _it[_i];
                 const idx = candidate + "/index" + ext;
                 if (existsSync(idx)) {
                   resolvedPath = idx;
@@ -384,14 +384,14 @@ export function sceneModuleUrlPlugin(_opts: SceneModuleUrlPluginOptions = {}): P
       // Apply replacements right-to-left so indices stay valid.
       replacements.sort((a, b) => b.start - a.start);
       let out = code;
-      for (const r of replacements) {
+      replacements.forEach((r) => {
         out = out.slice(0, r.start) + r.replacement + out.slice(r.end);
-      }
+      });
       return { code: out, map: null };
     },
 
     generateBundle(_opts, bundle) {
-      for (const [placeholder, refId] of placeholderToRefId) {
+      for (const [placeholder, refId] of placeholderToRefId.entries()) {
         const sceneFileName = this.getFileName(refId);
         if (!sceneFileName) {
           // Fail fast: a missing chunk means the scene module was not bundled
@@ -406,7 +406,7 @@ export function sceneModuleUrlPlugin(_opts: SceneModuleUrlPluginOptions = {}): P
           continue;
         }
         const needle = `"${placeholder}"`;
-        for (const chunk of Object.values(bundle) as Array<any>) {
+        for (let _i = 0, _it = Object.values(bundle) as Array<any>, _n = _it.length; _i < _n; _i++) { const chunk = _it[_i];
           if (chunk.type !== "chunk" || !chunk.code || !chunk.code.includes(needle)) continue;
           // Relative path from this chunk's directory to the scene chunk.
           // Both are typically under assets/, so this resolves to

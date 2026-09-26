@@ -90,7 +90,7 @@ export function parseWgslBindings(source: string): ParsedBinding[] {
  */
 export function findDuplicateBindings(parsed: ParsedBinding[]): DuplicateBinding[] {
   const byKey = new Map<string, ParsedBinding[]>();
-  for (const b of parsed) {
+  parsed.forEach((b) => {
     const key = `${b.group}:${b.binding}`;
     let arr = byKey.get(key);
     if (!arr) {
@@ -98,9 +98,9 @@ export function findDuplicateBindings(parsed: ParsedBinding[]): DuplicateBinding
       byKey.set(key, arr);
     }
     arr.push(b);
-  }
+  });
   const dupes: DuplicateBinding[] = [];
-  for (const [key, decls] of byKey) {
+  for (const [key, decls] of byKey.entries()) {
     if (decls.length > 1) {
       const [g, b] = key.split(":").map(Number);
       dupes.push({ group: g, binding: b, declarations: decls });

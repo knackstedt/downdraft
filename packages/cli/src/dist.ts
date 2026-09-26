@@ -233,9 +233,9 @@ async function packageDesktopElectron(
 
   log.info("release:package:desktop", "");
   log.info("release:package:desktop", `Packaging complete. ${artifactPaths.length} artifact(s) produced:`);
-  for (const p of artifactPaths) {
+  artifactPaths.forEach((p) => {
     log.info("release:package:desktop", `  → ${p}`);
-  }
+  });
   return artifactPaths;
 }
 

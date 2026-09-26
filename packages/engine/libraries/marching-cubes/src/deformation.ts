@@ -30,9 +30,9 @@ export function applyMultipleDeformations(
   deformations: Array<{ pos: [number, number, number]; config: DeformationConfig }>,
 ): DensityField {
   let result = field;
-  for (const def of deformations) {
+  deformations.forEach((def) => {
     result = applyDeformation(result, def.pos, def.config);
-  }
+  });
   return result;
 }
 

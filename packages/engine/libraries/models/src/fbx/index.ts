@@ -59,7 +59,7 @@ export function parseFBX(data: ArrayBuffer, name: string): ModelData {
     ? materials.map((m) => [m.baseColor[0], m.baseColor[1], m.baseColor[2]])
     : [];
   const hasTextures = new Set<number>();
-  for (const [idx, tex] of materialTextures) {
+  for (const [idx, tex] of materialTextures.entries()) {
     if (tex.textureData || tex.textureUri) hasTextures.add(idx);
   }
 
@@ -168,7 +168,7 @@ function linkMeshesToNodes(
   }
 
   // Find Geometry→Model connections and set ModelNode.mesh + ModelNode.meshes.
-  for (const conn of graph.connections) {
+  for (let _i = 0, _it = graph.connections, _n = _it.length; _i < _n; _i++) { const conn = _it[_i];
     if (conn.type !== "OO") continue;
     const meshIndices = geoIdToMeshIndices.get(conn.childId);
     if (!meshIndices || meshIndices.length === 0) continue;
@@ -223,7 +223,7 @@ function buildMaterialRemap(
   // 2. For each Model, build local → global material index map
   const modelNodes = findNodesInTree([objectsNode], "Model");
   const modelMatRemap = new Map<string, Map<number, number>>();
-  for (const modelNode of modelNodes) {
+  for (let _i = 0, _it = modelNodes, _n = _it.length; _i < _n; _i++) { const modelNode = _it[_i];
     const modelId = getObjectId(modelNode, "");
     if (!modelId) continue;
 
@@ -231,12 +231,12 @@ function buildMaterialRemap(
     // The LayerElementMaterial local index refers to this order.
     const conns = graph.getConnectionsToParent(modelId);
     const globalIndices: number[] = [];
-    for (const conn of conns) {
+    conns.forEach((conn) => {
       const globalIdx = matIdToGlobal.get(conn.childId);
       if (globalIdx !== undefined) {
         globalIndices.push(globalIdx);
       }
-    }
+    });
 
     if (globalIndices.length > 0) {
       const localToGlobal = new Map<number, number>();
@@ -249,7 +249,7 @@ function buildMaterialRemap(
 
   // 3. For each Geometry, find its parent Model and inherit the remapping
   const geometryNodes = findNodesInTree([objectsNode], "Geometry");
-  for (const geoNode of geometryNodes) {
+  for (let _i = 0, _it = geometryNodes, _n = _it.length; _i < _n; _i++) { const geoNode = _it[_i];
     const geoId = getObjectId(geoNode, "");
     if (!geoId) continue;
 
@@ -272,7 +272,7 @@ function applyMorphTargets(
   geoIdToMeshIndices: Map<string, number[]>,
   morphData: Map<string, { morphTargets: MorphTargetData[]; morphTargetNames: string[] }>,
 ): void {
-  for (const [geoId, geoMorphData] of morphData) {
+  for (const [geoId, geoMorphData] of morphData.entries()) {
     const meshIndices = geoIdToMeshIndices.get(geoId);
     if (!meshIndices || meshIndices.length === 0) continue;
     // Apply to the first mesh (morph targets are per-geometry, not per-material-split)
@@ -389,7 +389,7 @@ function buildASCIIMesh(geo: ASCIIGeometry): MeshData | null {
       let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
       const nl = Math.hypot(nx, ny, nz) || 1;
       nx /= nl; ny /= nl; nz /= nl;
-      for (const j of [a, b, c]) { vertArray[j + 3] = nx; vertArray[j + 4] = ny; vertArray[j + 5] = nz; }
+      [a, b, c].forEach((j) => { vertArray[j + 3] = nx; vertArray[j + 4] = ny; vertArray[j + 5] = nz; });
     }
   }
 

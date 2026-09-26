@@ -33,7 +33,7 @@ export class FBXConnectionGraph {
     const connectionsNode = nodes.find((n) => n.name === "Connections");
     if (!connectionsNode) return;
 
-    for (const c of connectionsNode.children) {
+    for (let _i = 0, _it = connectionsNode.children, _n = _it.length; _i < _n; _i++) { const c = _it[_i];
       if (c.name !== "C" || c.properties.length < 3) continue;
       const type = String(c.properties[0].value);
       const childId = String(c.properties[1].value);
@@ -111,7 +111,7 @@ export class FBXConnectionGraph {
   getHierarchyParent(childId: string): string | undefined {
     const conns = this.childToConnections.get(childId);
     if (conns) {
-      for (const conn of conns) {
+      for (let _i = 0, _it = conns, _n = _it.length; _i < _n; _i++) { const conn = _it[_i];
         if (conn.type === "OO") return conn.parentId;
       }
     }
@@ -141,9 +141,9 @@ function collectObjects(node: FBXNode, map: Map<string, FBXNode>): void {
       map.set(id, node);
     }
   }
-  for (const child of node.children) {
+  node.children.forEach((child) => {
     collectObjects(child, map);
-  }
+  });
 }
 
 /**

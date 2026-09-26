@@ -78,7 +78,7 @@ export class MixamoRetargeter {
       "LeftUpArm", "RightUpArm",
     ];
 
-    for (const m of mapping.mappings) {
+    mapping.mappings.forEach((m) => {
       const targetBone = targetSkeleton.bones[m.targetBoneIndex];
       if (armBones.includes(targetBone.name)) {
         const isLeft = targetBone.name.startsWith("Left");
@@ -92,7 +92,7 @@ export class MixamoRetargeter {
         ];
         m.rotationOffset = multiplyQuat(correction, m.rotationOffset);
       }
-    }
+    });
   }
 
   clearCache(): void {

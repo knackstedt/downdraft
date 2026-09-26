@@ -745,7 +745,7 @@ export class SkeletonAnimator {
         boneChannels.set(boneIdx, { srcName, times, desired, interpolation });
       };
 
-      for (const [srcName, ch] of srcRotChannels) {
+      for (const [srcName, ch] of srcRotChannels.entries()) {
         if (ch.boneIdx === undefined) continue;
         emitDesired(srcName, ch.boneIdx, ch.times, ch.interpolation);
       }
@@ -768,7 +768,7 @@ export class SkeletonAnimator {
         if (boneIdx === undefined || !hasChanneledAncestor(srcName)) continue;
         if (!unionTimes) {
           const set = new Set<number>();
-          for (const ch of srcRotChannels.values()) for (const t of ch.times) set.add(t);
+          for (const ch of srcRotChannels.values()) ch.times.forEach((t) => { set.add(t);; });
           unionTimes = new Float32Array([...set].sort((a, b) => a - b));
         }
         emitDesired(srcName, boneIdx, unionTimes, "LINEAR");
@@ -798,7 +798,7 @@ export class SkeletonAnimator {
       };
 
       // ── Emit local rotation tracks ──
-      for (const [i, ch] of boneChannels) {
+      for (const [i, ch] of boneChannels.entries()) {
         const times = ch.times;
         const values = new Float32Array(times.length * 4);
         const parentIdx = this.parentIndices[i];
@@ -1066,12 +1066,12 @@ export class SkeletonAnimator {
     // (including bones with no target counterpart, since they still
     // participate in the source world-rotation chain).
     if (sourcePreRots) {
-      for (const [boneName, quat] of sourcePreRots) {
+      for (const [boneName, quat] of sourcePreRots.entries()) {
         preRotMap.set(boneName, quat);
       }
     }
     if (sourceRests) {
-      for (const [boneName, quat] of sourceRests) {
+      for (const [boneName, quat] of sourceRests.entries()) {
         restRotMap.set(boneName, quat);
       }
     }

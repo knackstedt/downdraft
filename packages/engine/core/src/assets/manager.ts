@@ -73,9 +73,9 @@ export class AssetManager {
     this.memoryBudget = opts.memoryBudget ?? 0;
     this.globalProgressCallback = opts.progressCallback;
     if (opts.searchPaths) {
-      for (const sp of opts.searchPaths) {
+      opts.searchPaths.forEach((sp) => {
         this.addSearchPath(sp.name, sp.basePath);
-      }
+      });
     }
   }
 
@@ -247,7 +247,7 @@ export class AssetManager {
       try {
         let data: unknown | undefined;
         let lastError: Error | null = null;
-        for (const candidate of candidates) {
+        for (let _i = 0, _it = candidates, _n = _it.length; _i < _n; _i++) { const candidate = _it[_i];
           try {
             data = await loader(candidate);
             break;
@@ -270,7 +270,7 @@ export class AssetManager {
           entry.reject(budgetError);
           const rejectors = this.pendingRejectors.get(uri);
           if (rejectors) {
-            for (const r of rejectors) r(budgetError);
+            rejectors.forEach((r) => { r(budgetError);; });
             this.pendingRejectors.delete(uri);
             this.pendingResolvers.delete(uri);
           }
@@ -293,7 +293,7 @@ export class AssetManager {
 
         const resolvers = this.pendingResolvers.get(uri);
         if (resolvers) {
-          for (const r of resolvers) r(data);
+          resolvers.forEach((r) => { r(data);; });
           this.pendingResolvers.delete(uri);
           this.pendingRejectors.delete(uri);
         }
@@ -303,7 +303,7 @@ export class AssetManager {
 
         const rejectors = this.pendingRejectors.get(uri);
         if (rejectors) {
-          for (const r of rejectors) r(error);
+          rejectors.forEach((r) => { r(error);; });
           this.pendingRejectors.delete(uri);
           this.pendingResolvers.delete(uri);
         }
@@ -343,7 +343,7 @@ export class AssetManager {
     let oldest: AssetRef | null = null;
     let oldestKey: string | null = null;
 
-    for (const [key, ref] of this.assets) {
+    for (const [key, ref] of this.assets.entries()) {
       if (ref.refCount > 0) continue;
       if (!oldest || ref.lastUsed < oldest.lastUsed) {
         oldest = ref;
@@ -450,7 +450,7 @@ export class AssetManager {
   }
 
   async unloadAll(): Promise<void> {
-    for (const [key, ref] of this.assets) {
+    for (const [key, ref] of this.assets.entries()) {
       this.destroyAsset(key, ref);
     }
     this.assets.clear();

@@ -173,7 +173,7 @@ export function setUIFontScale(root: UIElement, scale: number): void {
       baseFontSizes.set(el, base);
     }
     el.style.fontSize = Math.round(base * scale);
-    for (const child of el.children) walk(child);
+    el.children.forEach((child) => { walk(child);; });
   };
   walk(root);
 }

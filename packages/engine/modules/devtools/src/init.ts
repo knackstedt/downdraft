@@ -84,14 +84,14 @@ export async function initDevTools(renderer: any, options: InitDevToolsOptions =
   // 3. Register game-declared panels/toggles into the global registry
   //    (these merge with plugin-registered ones)
   if (options.panels) {
-    for (const panel of options.panels) {
+    options.panels.forEach((panel) => {
       devtools.registerPanel(panel);
-    }
+    });
   }
   if (options.overlayToggles) {
-    for (const toggle of options.overlayToggles) {
+    options.overlayToggles.forEach((toggle) => {
       devtools.registerOverlayToggle(toggle);
-    }
+    });
   }
 
   // 4. Sync worker manifests (fetches panels/feeds/commands from sim workers)
@@ -210,8 +210,8 @@ function mergeGlobalRegistrations(bridge: DevToolsDataBridge): void {
     const gamePanels = originalGetPanels?.() ?? [];
     // Merge: game panels take precedence on id collisions
     const merged = new Map<string, IDevToolsPanelExtension>();
-    for (const p of manifest.panels) merged.set(p.id, p);
-    for (const p of gamePanels) merged.set(p.id, p);
+    manifest.panels.forEach((p) => { merged.set(p.id, p);; });
+    gamePanels.forEach((p: any) => { merged.set(p.id, p);; });
     return Array.from(merged.values()).sort((a, b) => (a.order ?? 100) - (b.order ?? 100));
   };
 
@@ -220,8 +220,8 @@ function mergeGlobalRegistrations(bridge: DevToolsDataBridge): void {
   (bridge as any).getOverlayToggles = (): IDevToolsOverlayToggle[] => {
     const gameToggles = originalGetToggles?.() ?? [];
     const merged = new Map<string, IDevToolsOverlayToggle>();
-    for (const t of manifest.toggles) merged.set(t.id, t);
-    for (const t of gameToggles) merged.set(t.id, t);
+    manifest.toggles.forEach((t) => { merged.set(t.id, t);; });
+    gameToggles.forEach((t: any) => { merged.set(t.id, t);; });
     return Array.from(merged.values());
   };
 
@@ -229,7 +229,7 @@ function mergeGlobalRegistrations(bridge: DevToolsDataBridge): void {
   // These are called synchronously by the panel via callInspector()
   const api = (window as any).__sceneInspector;
   if (api) {
-    for (const feed of manifest.dataFeeds) {
+    for (let _i = 0, _it = manifest.dataFeeds, _n = _it.length; _i < _n; _i++) { const feed = _it[_i];
       if (typeof api[feed.name] === "function") continue; // don't override game-provided
       const feedName = feed.name;
       api[feedName] = (): any => {
@@ -242,7 +242,7 @@ function mergeGlobalRegistrations(bridge: DevToolsDataBridge): void {
     }
 
     // Add command methods
-    for (const cmdName of manifest.commands) {
+    for (let _i = 0, _it = manifest.commands, _n = _it.length; _i < _n; _i++) { const cmdName = _it[_i];
       if (typeof api[cmdName] === "function") continue;
       api[cmdName] = (...args: any[]): any => {
         return _devtoolsImpl.callCommand(cmdName, args);
@@ -250,7 +250,7 @@ function mergeGlobalRegistrations(bridge: DevToolsDataBridge): void {
     }
 
     // Add SAB stat methods (get{Name} → number)
-    for (const stat of manifest.sabStats) {
+    for (let _i = 0, _it = manifest.sabStats, _n = _it.length; _i < _n; _i++) { const stat = _it[_i];
       const methodName = `get${stat.name.charAt(0).toUpperCase()}${stat.name.slice(1)}`;
       if (typeof api[methodName] === "function") continue;
       api[methodName] = (): number | null => {

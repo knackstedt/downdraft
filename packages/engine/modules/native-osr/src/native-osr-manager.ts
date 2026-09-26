@@ -100,7 +100,7 @@ export class NativeOSRManager {
     this.rendererStatuses.delete(id);
     this.atlasLayouts.delete(id);
     this.errorTextureIndices.delete(texIdx);
-    for (const [elId, el] of this.elements) {
+    for (const [elId, el] of this.elements.entries()) {
       if (el.textureIndex === texIdx) this.elements.delete(elId);
     }
     this.updateTextureBindings();
@@ -138,7 +138,7 @@ export class NativeOSRManager {
 
   updateElements(elements: WorldSpaceUIElement[]): void {
     this.elements.clear();
-    for (const el of elements) this.elements.set(el.id, el);
+    elements.forEach((el) => { this.elements.set(el.id, el);; });
   }
 
   /** Pull dirty frames from the host and upload — call once per frame before
@@ -198,7 +198,7 @@ export class NativeOSRManager {
 
   setSoftwareCursorEnabled(enabled: boolean): void {
     if (!this.ipc || typeof this.ipc.setSoftwareCursor !== "function") return;
-    for (const id of this.rendererIds) this.ipc.setSoftwareCursor(id, enabled);
+    for (let _i7044 = 0, _it7044 = this.rendererIds, _n7044 = _it7044.length; _i7044 < _n7044; _i7044++) { const id = _it7044[_i7044]; this.ipc.setSoftwareCursor(id, enabled);; };
   }
 
   destroy(): void {
@@ -213,7 +213,7 @@ export class NativeOSRManager {
 
   private getTextureList(): { rendererId: string; textureView: GPUTextureView }[] {
     const list: { rendererId: string; textureView: GPUTextureView }[] = [];
-    for (const [id, s] of this.sources) list.push({ rendererId: id, textureView: s.getTextureView() });
+    for (const [id, s] of this.sources.entries()) list.push({ rendererId: id, textureView: s.getTextureView() });
     return list;
   }
 
@@ -226,10 +226,10 @@ export class NativeOSRManager {
     for (let i = 0; i < this.rendererIds.length; i++) textureIndexToRendererId.set(i, this.rendererIds[i]);
 
     const rendererDimensions = new Map<string, { width: number; height: number }>();
-    for (const id of this.rendererIds) {
+    this.rendererIds.forEach((id) => {
       const s = this.sources.get(id);
       if (s) rendererDimensions.set(id, { width: s.width, height: s.height });
-    }
+    });
 
     const config = {
       textureIndexToRendererId,

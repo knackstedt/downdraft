@@ -82,7 +82,7 @@ export class SlotReader {
 
     this.sections = {};
     if (layout.sections) {
-      for (const section of layout.sections) {
+      layout.sections.forEach((section) => {
         this.sections[section.name] = new SlotAccessorImpl(
           sab,
           section.byteOffset,
@@ -91,7 +91,7 @@ export class SlotReader {
           section.slotStride,
           section.name,
         );
-      }
+      });
     }
   }
 
@@ -121,7 +121,7 @@ export class SlotReader {
     const data: Record<string, unknown> = {};
     data["sequence"] = this.getSequence();
     if (this.layout.sections) {
-      for (const section of this.layout.sections) {
+      this.layout.sections.forEach((section) => {
         const accessor = this.sections[section.name];
         const slots: Record<string, unknown>[] = [];
         const count = this.header.u32[0 + 4];
@@ -143,7 +143,7 @@ export class SlotReader {
           slots.push(slotData);
         }
         data[section.name] = slots;
-      }
+      });
     }
     return data;
   }
@@ -162,7 +162,7 @@ export class SlotWriter {
 
     this.sections = {};
     if (layout.sections) {
-      for (const section of layout.sections) {
+      layout.sections.forEach((section) => {
         this.sections[section.name] = new SlotAccessorImpl(
           sab,
           section.byteOffset,
@@ -171,7 +171,7 @@ export class SlotWriter {
           section.slotStride,
           section.name,
         );
-      }
+      });
     }
   }
 

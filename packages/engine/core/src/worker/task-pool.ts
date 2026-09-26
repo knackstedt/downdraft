@@ -189,9 +189,9 @@ export class TaskPool {
   /** Terminate all workers and reject pending jobs. Safe to call twice. */
   destroy(): void {
     this.destroyed = true;
-    for (const worker of this.workers) {
+    this.workers.forEach((worker) => {
       worker.terminate();
-    }
+    });
     this.workers = [];
     for (const pending of this.pending.values()) {
       pending.reject(new Error("TaskPool destroyed"));

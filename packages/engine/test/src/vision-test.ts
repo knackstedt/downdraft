@@ -319,7 +319,7 @@ export class VisionTestSuite {
     let allPassed = true;
     const failures: string[] = [];
 
-    for (const assertion of assertions) {
+    assertions.forEach((assertion) => {
       const passed = this.vision.assertPixel(
         data,
         width,
@@ -335,7 +335,7 @@ export class VisionTestSuite {
           `Pixel (${assertion.x}, ${assertion.y}): expected [${assertion.expected}], got [${pixel.r}, ${pixel.g}, ${pixel.b}, ${pixel.a}]`,
         );
       }
-    }
+    });
 
     const result: VisionTestResult = {
       name,

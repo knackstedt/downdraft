@@ -183,7 +183,7 @@ export function boxBoxContact(
   let minPen = Infinity;
   let minAxis: Vec3 = [0, 1, 0];
 
-  for (const axis of axes) {
+  for (let _i = 0, _it = axes, _n = _it.length; _i < _n; _i++) { const axis = _it[_i];
     const projA = projectBox(posA, axesA, halfA, axis);
     const projB = projectBox(posB, axesB, halfB, axis);
     const overlap = Math.min(projA.max, projB.max) - Math.max(projA.min, projB.min);

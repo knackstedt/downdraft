@@ -23,14 +23,14 @@ export class NavMeshDebugViz {
     const lines: DebugLine[] = [];
     const color: [number, number, number, number] = [0, 1, 0, 0.5];
 
-    for (const poly of this.navMesh.polygons) {
+    this.navMesh.polygons.forEach((poly) => {
       const verts = poly.vertexIndices;
       for (let i = 0; i < verts.length; i++) {
         const v0 = this.navMesh.getVertex(verts[i]);
         const v1 = this.navMesh.getVertex(verts[(i + 1) % verts.length]);
         lines.push({ start: v0, end: v1, color });
       }
-    }
+    });
 
     return lines;
   }
@@ -40,14 +40,14 @@ export class NavMeshDebugViz {
     const color: [number, number, number, number] = [1, 1, 0, 0.8];
     const seen = new Set<string>();
 
-    for (const poly of this.navMesh.polygons) {
-      for (const pe of poly.portalEdges) {
+    this.navMesh.polygons.forEach((poly) => {
+      for (let _i = 0, _it = poly.portalEdges, _n = _it.length; _i < _n; _i++) { const pe = _it[_i];
         const key = `${Math.min(pe.fromPoly, pe.toPoly)}:${Math.max(pe.fromPoly, pe.toPoly)}`;
         if (seen.has(key)) continue;
         seen.add(key);
         lines.push({ start: pe.left, end: pe.right, color });
       }
-    }
+    });
 
     return lines;
   }

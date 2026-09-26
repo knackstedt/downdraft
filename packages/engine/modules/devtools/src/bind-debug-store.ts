@@ -43,6 +43,6 @@ export function bindDebugStore<T extends object>(
     );
   }
   return () => {
-    for (const unsub of unsubs) unsub();
+    unsubs.forEach((unsub) => { unsub();; });
   };
 }

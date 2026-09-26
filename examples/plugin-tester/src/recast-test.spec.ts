@@ -102,11 +102,11 @@ describe("RecastCrowdSystem", () => {
     expect(result).not.toBeNull();
     const r = result!;
     expect(r.agents.length).toBe(5);
-    for (const { entity } of r.agents) {
+    r.agents.forEach(({ entity }) => {
       const agent = r.world.getComponent<RecastAgentData>(entity, RecastAgent.id);
       expect(agent).toBeDefined();
       expect(agent!.agentId).toBeGreaterThanOrEqual(0);
-    }
+    });
   });
 
   it("should move agents toward their targets on tick", () => {

@@ -33,10 +33,10 @@ export function restrictGlobals(granted: ReadonlySet<PluginPermission>): Restric
   const allKeys = new Set<string>();
   for (const k of Object.getOwnPropertyNames(self)) allKeys.add(k);
   // Don't strip the host bridge or baseline runtime globals.
-  for (const g of BASELINE_GLOBALS) keep.add(g);
+  BASELINE_GLOBALS.forEach((g) => { keep.add(g);; });
   // Snapshot the original descriptors so the globals can be restored later.
   const originals = new Map<string, PropertyDescriptor | undefined>();
-  for (const key of allKeys) {
+  for (const key of allKeys.values()) {
     if (keep.has(key)) continue;
     // Skip non-configurable / non-writable props silently (can't delete them).
     const desc = Object.getOwnPropertyDescriptor(self, key);
@@ -69,7 +69,7 @@ export function restrictGlobals(granted: ReadonlySet<PluginPermission>): Restric
   return {
     keep,
     restore() {
-      for (const [key, desc] of originals) {
+      for (const [key, desc] of originals.entries()) {
         try {
           if (desc) {
             Object.defineProperty(self, key, desc);

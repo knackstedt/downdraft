@@ -164,7 +164,7 @@ async function collectMemory(ctx: EngineProviderContext): Promise<PanelSnapshot>
     const slots = await readSabSlots(ctx.profilingSAB);
     if (slots.length > 0) {
         const table: string[][] = [];
-        for (const s of slots) {
+        slots.forEach((s) => {
             const m = s.metrics ?? {};
             table.push([
                 s.name || `slot-${s.slotIndex}`,
@@ -173,7 +173,7 @@ async function collectMemory(ctx: EngineProviderContext): Promise<PanelSnapshot>
                 `${((m.gcPauseMaxUs ?? 0) / 1000).toFixed(2)} ms`,
                 `${((m.taskLatencyP95Us ?? 0) / 1000).toFixed(2)} ms`,
             ]);
-        }
+        });
         sections.push({
             kind: "table",
             name: "Per-thread memory (ProfilingSAB)",
@@ -298,6 +298,7 @@ function collectMaterials(ctx: EngineProviderContext): PanelSnapshot {
             const registry = (mr as any).bindless?.registry;
             const buckets = registry?.buckets as Map<string, any> | undefined;
             let texCount = 0;
+            // oxlint-disable-next-line downdraft/no-for-of -- iterates never[] | MapIterator<any>; for..of required
             for (const b of buckets?.values?.() ?? []) texCount += b?.sources?.size ?? 0;
             const rows: SnapshotKvRow[] = [
                 kv("Material slots", matIdx?.size ?? "?"),
@@ -308,7 +309,8 @@ function collectMaterials(ctx: EngineProviderContext): PanelSnapshot {
                 header("Per-model"),
             ];
             const table: string[][] = [];
-            for (const [id] of models ?? []) {
+            // oxlint-disable-next-line downdraft/no-for-of -- iterates MapIterator via `?? []`; for..of required
+            for (const [id] of models?.entries() ?? []) {
                 const instances = instOffsets?.get(id)?.length ?? 0;
                 table.push([id, num(instances)]);
             }
@@ -329,15 +331,15 @@ function collectMaterials(ctx: EngineProviderContext): PanelSnapshot {
         let pipelines = 0;
         let shaders = 0;
         const types = new Map<string, number>();
-        for (const m of all) {
+        all.forEach((m: any) => {
             const t = (m as any).type ?? (m as any).kind ?? "material";
             types.set(t, (types.get(t) ?? 0) + 1);
             if ((m as any).pipeline) pipelines++;
             if ((m as any).shaderModule || (m as any).shader) shaders++;
-        }
+        });
         rows.push(kv("Pipelines", pipelines));
         rows.push(kv("Shader modules", shaders));
-        for (const [t, c] of types) rows.push(kv(`  ${t}`, c));
+        for (const [t, c] of types.entries()) rows.push(kv(`  ${t}`, c));
         if (all.length > 0) {
             return {
                 sections: [
@@ -398,22 +400,22 @@ function collectDoctor(ctx: EngineProviderContext): PanelSnapshot {
     // Inline buildCrossThreadReport logic (avoids a hard core import cycle).
     const providedBy = new Map<string, string[]>();
     const required = new Set<string>();
-    for (const m of modules) {
+    for (let _i = 0, _it = modules, _n = _it.length; _i < _n; _i++) { const m = _it[_i];
         if (!m.active) continue;
-        for (const tok of m.provides) {
+        m.provides.forEach((tok: any) => {
             const t = providedBy.get(tok) ?? [];
             if (!t.includes(m.thread)) t.push(m.thread);
             providedBy.set(tok, t);
-        }
-        for (const tok of m.requires) required.add(tok);
+        });
+        m.requires.forEach((tok: any) => { required.add(tok);; });
     }
     const unresolved = [...required].filter((t) => !providedBy.has(t));
     const shared = [...providedBy.entries()].filter(([, t]) => t.length > 1).map(([k]) => k);
     const conflicts: string[] = [];
     const byName = new Map<string, { sim?: string; renderer?: string }>();
-    for (const m of simModules) if (m.active) byName.set(m.name, { ...byName.get(m.name), sim: m.version });
-    for (const m of renModules) if (m.active) byName.set(m.name, { ...byName.get(m.name), renderer: m.version });
-    for (const [name, v] of byName) {
+    simModules.forEach((m) => { if (m.active) byName.set(m.name, { ...byName.get(m.name), sim: m.version });; });
+    renModules.forEach((m) => { if (m.active) byName.set(m.name, { ...byName.get(m.name), renderer: m.version });; });
+    for (const [name, v] of byName.entries()) {
         if (v.sim && v.renderer && v.sim !== v.renderer) conflicts.push(`${name}: sim=${v.sim} renderer=${v.renderer}`);
     }
 
@@ -453,7 +455,7 @@ function collectDoctor(ctx: EngineProviderContext): PanelSnapshot {
 async function collectWorkers(ctx: EngineProviderContext): Promise<PanelSnapshot> {
     const rows: string[][] = [];
     const slots = await readSabSlots(ctx.profilingSAB);
-    for (const s of slots) {
+    slots.forEach((s) => {
         const m = s.metrics ?? {};
         rows.push([
             s.name || `slot-${s.slotIndex}`,
@@ -461,7 +463,7 @@ async function collectWorkers(ctx: EngineProviderContext): Promise<PanelSnapshot
             `${(m.cpuPercent ?? 0).toFixed(1)}%`,
             fmtBytes(m.heapUsed),
         ]);
-    }
+    });
     const evalTargets = ctx.evalTargetNames?.() ?? [];
     const sections: SnapshotSection[] = [];
     sections.push({
@@ -546,7 +548,7 @@ function collectInput(ctx: EngineProviderContext): PanelSnapshot {
         rows.push(kv("Canvas", `${canvas.w}×${canvas.h}`));
     } catch { /* */ }
     const extra = ctx.inputInfo?.() ?? [];
-    for (const e of extra) rows.push(kv(e.key, e.value, e.flags));
+    extra.forEach((e) => { rows.push(kv(e.key, e.value, e.flags));; });
     if (rows.length === 0) rows.push(kv("(no game input info)", "register inputInfo()"));
     return { sections: [{ kind: "kv", name: "Game input", rows }] };
 }

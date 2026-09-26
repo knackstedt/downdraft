@@ -62,13 +62,13 @@ export async function discoverPlugins(
   manifests: DiscoveredPlugin[],
 ): Promise<{ active: number; rejected: Array<{ id: string; errors: string[] }> }> {
   const rejected: Array<{ id: string; errors: string[] }> = [];
-  for (const { manifest, baseUrl } of manifests) {
+  manifests.forEach(({ manifest, baseUrl }) => {
     const r = host.discover(manifest, baseUrl);
     if (!r.ok) {
       rejected.push({ id: manifest.id, errors: r.errors });
       log.warn("PluginHost", `Rejected manifest "${manifest.id}": ${r.errors.join("; ")}`);
     }
-  }
+  });
   await host.loadAll();
   const active = host.snapshot().filter((p) => p.status === "active").length;
   return { active, rejected };
@@ -79,9 +79,9 @@ export function pluginBaseUrlLookup(
   manifests: DiscoveredPlugin[],
 ): (manifestId: string) => string {
   const map = new Map<string, string>();
-  for (const { manifest, baseUrl } of manifests) {
+  manifests.forEach(({ manifest, baseUrl }) => {
     map.set(manifest.id, baseUrl);
-  }
+  });
   return (manifestId) => map.get(manifestId) ?? "";
 }
 

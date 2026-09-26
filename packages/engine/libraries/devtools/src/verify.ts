@@ -146,11 +146,11 @@ export function verifyPixel(
  */
 export function verifyPixels(pngPath: string, checks: PixelCheck[]): number {
   let failures = 0;
-  for (const check of checks) {
+  checks.forEach((check) => {
     if (!verifyPixel(pngPath, check.x, check.y, check.expected, check.tolerance)) {
       failures++;
     }
-  }
+  });
   return failures;
 }
 

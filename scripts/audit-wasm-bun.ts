@@ -108,9 +108,9 @@ await check("marching-cubes / surface-nets (pure TS)", async () => {
 
 console.log(`WASM audit — Bun ${Bun.version} (JSC)\n`);
 let failures = 0;
-for (const r of results) {
+results.forEach((r) => {
     const mark = r.ok ? "PASS" : "FAIL";
     if (!r.ok) failures++;
     console.log(`${mark}  ${r.name.padEnd(42)} ${r.detail}`);
-}
+});
 process.exit(failures === 0 ? 0 : 1);

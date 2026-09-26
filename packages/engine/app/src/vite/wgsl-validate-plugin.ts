@@ -41,6 +41,7 @@ const log = createLogger("info");
 function applyPreludePragmas(source: string, filePath: string): string {
   const pragmas = source.matchAll(/^\/\/\s*wgsl-validate:\s*prelude\s+(\S+)\s*$/gm);
   const parts: string[] = [];
+  // oxlint-disable-next-line downdraft/no-for-of -- iterates RegExpStringIterator<RegExpExecArray>; for..of required
   for (const m of pragmas) {
     try {
       parts.push(readFileSync(resolvePath(dirname(filePath), m[1]), "utf-8"));
@@ -125,12 +126,12 @@ export function wgslValidatePlugin(): Plugin {
           this.error(`WGSL validation failed for ${filePath}:\n${cached.errors.join("\n")}`);
         }
         // Log cached warnings once
-        for (const w of cached.warnings) {
+        cached.warnings.forEach((w) => {
           if (!warnedWarnings.has(w)) {
             warnedWarnings.add(w);
             log.warn("wgsl-validate", w);
           }
-        }
+        });
         return null; // Let wgslHmrPlugin handle module creation
       }
 
@@ -151,12 +152,12 @@ export function wgslValidatePlugin(): Plugin {
       }
 
       // Log warnings (deduplicated)
-      for (const w of result.warnings) {
+      result.warnings.forEach((w) => {
         if (!warnedWarnings.has(w)) {
           warnedWarnings.add(w);
           log.warn("wgsl-validate", w);
         }
-      }
+      });
 
       // Return null to let wgslHmrPlugin create the actual module.
       return null;

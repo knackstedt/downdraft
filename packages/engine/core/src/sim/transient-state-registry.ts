@@ -39,7 +39,7 @@ export class TransientStateRegistry {
   }
 
   stripTransientFlags(state: Record<string, unknown>): void {
-    for (const entry of this.transientFlags) {
+    for (let _i = 0, _it = this.transientFlags, _n = _it.length; _i < _n; _i++) { const entry = _it[_i];
       const arr = state[entry.category];
       if (!Array.isArray(arr)) continue;
       for (let i = 0; i < arr.length; i++) {

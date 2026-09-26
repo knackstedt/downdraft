@@ -91,14 +91,14 @@ export class LODGenerator {
 
   selectLOD(levels: LODLevel[], distance: number, screenSize: number): LODLevel {
     let selected = levels[0];
-    for (const level of levels) {
+    levels.forEach((level) => {
       if (distance >= level.distance) {
         const projectedSize = screenSize / Math.max(distance, 0.1);
         if (projectedSize > level.screenSpaceError || level === levels[levels.length - 1]) {
           selected = level;
         }
       }
-    }
+    });
     return selected;
   }
 
@@ -153,9 +153,9 @@ export class LODGenerator {
     stride: number,
   ): { newVertices: Float32Array; newIndices: Uint32Array } {
     const remap = new Map<number, number>();
-    for (const c of collapses) {
+    collapses.forEach((c) => {
       remap.set(c.from, c.to);
-    }
+    });
 
     const newIndices: number[] = [];
     for (let i = 0; i < indices.length; i += 3) {
@@ -173,7 +173,7 @@ export class LODGenerator {
     }
 
     const usedVertices = new Set<number>();
-    for (const idx of newIndices) usedVertices.add(idx);
+    newIndices.forEach((idx) => { usedVertices.add(idx);; });
 
     const compactedVertices: number[] = [];
     const vertexRemap = new Map<number, number>();

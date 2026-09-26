@@ -55,7 +55,7 @@ export function parseSkinData(
   // For each object ID, store its OO parents and children.
   const ooParents = new Map<string, string[]>();
   const ooChildren = new Map<string, string[]>();
-  for (const conn of graph.connections) {
+  for (let _i = 0, _it = graph.connections, _n = _it.length; _i < _n; _i++) { const conn = _it[_i];
     if (conn.type !== "OO") continue;
     let p = ooParents.get(conn.childId);
     if (!p) { p = []; ooParents.set(conn.childId, p); }
@@ -118,7 +118,7 @@ export function parseSkinData(
     }
   }
 
-  for (const [clusterId, clusterNode] of clusterNodes) {
+  for (const [clusterId, clusterNode] of clusterNodes.entries()) {
     // Find the Model node connected to this cluster (via OO connection, either direction)
     const boneModelId = findConnectedOfType(clusterId, "Model");
     if (!boneModelId) {
@@ -197,13 +197,13 @@ export function parseSkinData(
   // transform for roots. We compute the composed ancestor world transform and
   // store it as rootAncestorMatrix so the animator can apply it.
   const boneIdxToModelId = new Map<number, string>();
-  for (const [modelId, idx] of boneIdToIndex) {
+  for (const [modelId, idx] of boneIdToIndex.entries()) {
     boneIdxToModelId.set(idx, modelId);
   }
 
   // Build model node ID → ModelNode map (for rest transforms of non-bone ancestors)
   const modelNodeIdToNode = new Map<string, { translation?: [number, number, number]; rotation?: [number, number, number, number]; scale?: [number, number, number] }>();
-  for (const [id, idx] of modelNodeIdToIdx) {
+  for (const [id, idx] of modelNodeIdToIdx.entries()) {
     if (idx < modelNodes.length) {
       modelNodeIdToNode.set(id, modelNodes[idx]);
     }
@@ -273,7 +273,7 @@ export function parseSkinData(
 
   // Pre-build skinId → clusterIds[] map (O(1) per skin instead of O(n×m))
   const skinToClusters = new Map<string, string[]>();
-  for (const [clusterId] of clusterNodes) {
+  for (const [clusterId] of clusterNodes.entries()) {
     // A cluster is connected to a skin if the skin is an OO parent or child
     for (const pid of getOOParents(clusterId)) {
       if (skinDeformerIds.has(pid)) {
@@ -291,7 +291,7 @@ export function parseSkinData(
     }
   }
 
-  for (const skinId of skinDeformerIds) {
+  for (const skinId of skinDeformerIds.values()) {
     // Find the geometry connected to this skin (either direction, O(1))
     const geometryId = findConnectedOfType(skinId, "Geometry");
     if (!geometryId) continue;
@@ -300,7 +300,7 @@ export function parseSkinData(
     const clusters = skinToClusters.get(skinId) ?? [];
     const vertexBones = new Map<number, { boneIdx: number; weight: number }[]>();
 
-    for (const clusterId of clusters) {
+    for (let _i = 0, _it = clusters, _n = _it.length; _i < _n; _i++) { const clusterId = _it[_i];
       const clusterNode = clusterNodes.get(clusterId);
       if (!clusterNode) continue;
 
@@ -360,7 +360,7 @@ export function parseSkinData(
     oldToNew[oldIdx] = newIdx;
     newBones.push(bones[oldIdx]);
     const children = childMap.get(oldIdx);
-    if (children) for (const c of children) queue.push(c);
+    if (children) children.forEach((c) => { queue.push(c);; });
   }
   // Safety: if any bones weren't reached (cycle or disconnected), append them.
   for (let i = 0; i < bones.length; i++) {
@@ -378,7 +378,7 @@ export function parseSkinData(
 
   // Remap boneNameToIndex values.
   const newBoneNameToIndex = new Map<string, number>();
-  for (const [name, oldIdx] of boneNameToIndex) {
+  for (const [name, oldIdx] of boneNameToIndex.entries()) {
     newBoneNameToIndex.set(name, oldToNew[oldIdx]);
   }
 
@@ -386,9 +386,9 @@ export function parseSkinData(
   // bone order. Without this, meshes would reference the wrong bones.
   for (const geoSkin of geometrySkins.values()) {
     for (const boneList of geoSkin.vertexBones.values()) {
-      for (const entry of boneList) {
+      boneList.forEach((entry) => {
         entry.boneIdx = oldToNew[entry.boneIdx];
-      }
+      });
     }
   }
 

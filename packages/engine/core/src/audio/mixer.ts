@@ -25,7 +25,7 @@ export class AudioMixer {
 
   constructor(backend: AudioBackend) {
     this.backend = backend;
-    for (const name of DEFAULT_CHANNELS) {
+    DEFAULT_CHANNELS.forEach((name) => {
       this.channels.set(name, {
         name,
         volume: name === "master" ? 1.0 : 0.8,
@@ -33,7 +33,7 @@ export class AudioMixer {
         effects: new Map(),
       });
       this.backend.setChannelVolume(name, name === "master" ? 1.0 : 0.8);
-    }
+    });
   }
 
   setVolume(channel: AudioChannel, volume: number): void {
@@ -130,7 +130,7 @@ export class AudioMixer {
   }
 
   reset(): void {
-    for (const [name, state] of this.channels) {
+    for (const [name, state] of this.channels.entries()) {
       state.volume = name === "master" ? 1.0 : 0.8;
       state.muted = false;
       state.effects.clear();

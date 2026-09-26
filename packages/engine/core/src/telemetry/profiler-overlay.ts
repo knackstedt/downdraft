@@ -564,7 +564,7 @@ export class ProfilerOverlay {
     const totalBind = timings.reduce((s, p) => s + p.bindGroupChanges, 0);
     const totalRebind = timings.reduce((s, p) => s + p.bufferRebinds, 0);
 
-    for (const t of timings) {
+    for (let _i = 0, _it = timings, _n = _it.length; _i < _n; _i++) { const t = _it[_i];
       if (idx >= this.renderTexts.length) break;
       const color = t.pipelineSwitches > 5 ? COLORS.red : t.bindGroupChanges > 10 ? COLORS.yellow : COLORS.white;
       set(
@@ -648,7 +648,7 @@ export class ProfilerOverlay {
     if (this.snapshotDiffs.length > 0) {
       set("");
       set("── Diff A → B ──", COLORS.cyan);
-      for (const d of this.snapshotDiffs) {
+      for (let _i = 0, _it = this.snapshotDiffs, _n = _it.length; _i < _n; _i++) { const d = _it[_i];
         if (idx >= this.snapshotTexts.length) break;
         const sign = d.delta > 0 ? "+" : "";
         const color = Math.abs(d.deltaPct) < 5 ? COLORS.white : d.delta > 0 ? COLORS.red : COLORS.green;

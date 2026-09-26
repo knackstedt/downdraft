@@ -29,7 +29,7 @@ export class CheckpointManager {
       const entity: Entity = { index: i, generation: meta.generation };
       const components: Array<{ id: number; data: unknown }> = [];
 
-      for (const [cid, col] of arch.columns) {
+      for (const [cid, col] of arch.columns.entries()) {
         const row = findEntityRow(arch, entity);
         if (row >= 0) {
           components.push({ id: cid, data: getColumnValue(col, row) });
@@ -97,10 +97,10 @@ export class CheckpointManager {
     const added: string[] = [];
     const removed: string[] = [];
 
-    for (const id of entitiesB) {
+    for (const id of entitiesB.values()) {
       if (!entitiesA.has(id)) added.push(id);
     }
-    for (const id of entitiesA) {
+    for (const id of entitiesA.values()) {
       if (!entitiesB.has(id)) removed.push(id);
     }
 

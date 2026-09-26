@@ -59,7 +59,7 @@ export function workerUrlGuardPlugin(opts: WorkerUrlGuardOptions = {}): Plugin {
       const violations: string[] = [];
       const workerChunks: string[] = [];
 
-      for (const [fileName, chunk] of Object.entries(bundle) as [string, any][]) {
+      for (let _i = 0, _it = Object.entries(bundle) as [string, any][], _n = _it.length; _i < _n; _i++) { const [fileName, chunk] = _it[_i];
         if (chunk.type !== "chunk" || !chunk.code) continue;
 
         // Skip chunks that are entirely from node_modules (third-party libraries
@@ -134,12 +134,12 @@ export function workerUrlGuardPlugin(opts: WorkerUrlGuardOptions = {}): Plugin {
       // Optional: warn about worker chunks that don't use SimWorkerLoop
       if (warnOnMissingSimWorkerLoop && workerChunks.length > 0) {
         const missingSimLoop: string[] = [];
-        for (const fileName of workerChunks) {
+        workerChunks.forEach((fileName) => {
           const chunk = bundle[fileName];
           if (chunk?.code && !chunk.code.includes("SimWorkerLoop")) {
             missingSimLoop.push(fileName);
           }
-        }
+        });
         if (missingSimLoop.length > 0) {
           this.warn(
             `[downdraft-worker-url-guard] Worker chunks without SimWorkerLoop (consider migrating):\n` +

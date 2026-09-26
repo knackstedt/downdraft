@@ -150,6 +150,9 @@
     "./modules/electron-osr/*": "./modules/electron-osr/src/*.ts",
     "./modules/electron-osr/*.ts": "./modules/electron-osr/src/*.ts",
     "./modules/electron-osr/*.wgsl": "./modules/electron-osr/src/*.wgsl",
+    "./modules/html-ui": "./modules/html-ui/src/index.ts",
+    "./modules/html-ui/*": "./modules/html-ui/src/*.ts",
+    "./modules/html-ui/*.ts": "./modules/html-ui/src/*.ts",
     "./modules/mcp": "./modules/mcp/src/index.ts",
     "./modules/mcp/*": "./modules/mcp/src/*.ts",
     "./modules/mcp/*.ts": "./modules/mcp/src/*.ts",
@@ -178,6 +181,7 @@
     "./modules/xr/*": "./modules/xr/src/*.ts",
     "./modules/xr/*.ts": "./modules/xr/src/*.ts",
     "./modules/raw-input/polyfill": "./modules/raw-input/src/renderer/polyfill.ts",
+    "./lint-plugin": "./lint-plugin.mjs",
     "./*": "./core/src/*.ts",
     "./*.ts": "./core/src/*.ts",
     "./*.wgsl": "./core/src/*.wgsl",
@@ -238,6 +242,7 @@
     "asset-bake/src",
     "libraries",
     "modules",
+    "lint-plugin.mjs",
     "README.md",
     "!**/*.spec.ts"
   ]

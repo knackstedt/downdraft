@@ -338,10 +338,10 @@ describe("tracing tools", () => {
 
     it("should have descriptions and input schemas", () => {
       const tools = createTracingTools(ctx, { current: 9876 });
-      for (const tool of tools) {
+      tools.forEach((tool) => {
         expect(tool.def.description.length).toBeGreaterThan(10);
         expect(tool.def.inputSchema.type).toBe("object");
-      }
+      });
     });
   });
 });

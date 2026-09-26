@@ -129,7 +129,7 @@ export function parse3MF(data: ArrayBuffer, name: string): ModelData {
   const meshes: MeshData[] = [];
   const positions: number[] = [];
 
-  for (const item of items) {
+  items.forEach((item) => {
     const obj = objects.get(item.id)!;
     // Group triangles by resolved material index (-1 = none).
     const byMat = new Map<number, number[]>();
@@ -141,19 +141,19 @@ export function parse3MF(data: ArrayBuffer, name: string): ModelData {
       const p = t.p1 ?? obj.pindex ?? 0;
       return group[Math.min(p, group.length - 1)] ?? -1;
     };
-    for (const t of obj.tris) {
+    obj.tris.forEach((t) => {
       const mi = triMat(t);
       let arr = byMat.get(mi);
       if (!arr) { arr = []; byMat.set(mi, arr); }
       arr.push(t.v[0], t.v[1], t.v[2]);
-    }
+    });
 
-    for (const [mi, triIdx] of byMat) {
+    for (const [mi, triIdx] of byMat.entries()) {
       // Remap: local vertex list per material mesh.
       const local = new Map<number, number>();
       const indexArr: number[] = [];
       const startPos = positions.length / 3;
-      for (const gv of triIdx) {
+      triIdx.forEach((gv) => {
         let li = local.get(gv);
         if (li === undefined) {
           li = positions.length / 3 - startPos;
@@ -163,7 +163,7 @@ export function parse3MF(data: ArrayBuffer, name: string): ModelData {
           local.set(gv, li);
         }
         indexArr.push(li);
-      }
+      });
       const vCount = positions.length / 3 - startPos;
       if (vCount === 0 || indexArr.length === 0) continue;
       const verts = new Float32Array(vCount * 6);
@@ -183,7 +183,7 @@ export function parse3MF(data: ArrayBuffer, name: string): ModelData {
       if (mi >= 0) mesh.materialIndex = mi;
       meshes.push(mesh);
     }
-  }
+  });
 
   if (meshes.length === 0) throw new Error("3MF: objects contain no triangles");
   const totalVerts = meshes.reduce((s, m) => s + m.vertexCount, 0);

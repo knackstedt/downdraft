@@ -223,9 +223,9 @@ export function createMaterialTools(ctx: EngineContext, undoRedo: UndoRedoManage
         const path = params.path as string;
 
         const matchingMaterials = ctx.materialLibrary.list().filter((m) => m.shader === path);
-        for (const mat of matchingMaterials) {
+        matchingMaterials.forEach((mat) => {
           ctx.materialHotReloader.watch(mat, path);
-        }
+        });
 
         await ctx.materialHotReloader.checkNow();
 

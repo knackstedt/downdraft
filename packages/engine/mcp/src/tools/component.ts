@@ -180,14 +180,14 @@ export function createComponentTools(ctx: EngineContext, undoRedo: UndoRedoManag
         const entities = ctx.getAllAliveEntities();
         const componentNames = new Set<string>();
 
-        for (const e of entities) {
+        entities.forEach((e) => {
           const arch = ctx.ecsWorld.getArchetypeForEntity(e);
           if (arch) {
             for (const cid of arch.columns.keys()) {
               componentNames.add(ctx.getComponentNameById(cid));
             }
           }
-        }
+        });
 
         return jsonResult({ components: [...componentNames] });
       },

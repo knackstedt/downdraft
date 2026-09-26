@@ -182,11 +182,11 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
 
   function derivePacks(): void {
     const map = new Map<string, string>();
-    for (const item of contentItems) {
+    contentItems.forEach((item) => {
       if (!map.has(item.pack)) map.set(item.pack, item.packLabel);
-    }
+    });
     packs = [{ id: "all", label: "All" }];
-    for (const [id, label] of map) packs.push({ id, label });
+    for (const [id, label] of map.entries()) packs.push({ id, label });
   }
 
   // ── Filtered items ──
@@ -282,7 +282,7 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
 
     let x = PADDING;
     const y = HEADER_H + 8;
-    for (const p of packs) {
+    packs.forEach((p) => {
       const isActive = activePack === p.id;
       const btn = mkText({
         text: isActive ? `[${p.label}]` : p.label,
@@ -294,7 +294,7 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
       btn.onclick = () => { activePack = p.id; baseDirty = true; scrollY = 0; refreshGrid(); buildTabs(); buildFilters(); };
       tabsBar.addChild(btn);
       x += btn.width + 16;
-    }
+    });
   }
 
   // ── Build filters ──
@@ -308,7 +308,7 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
 
     let x = PADDING;
     const y = HEADER_H + TABS_H + 8;
-    for (const c of categories) {
+    categories.forEach((c) => {
       const isActive = categoryFilter === c.id;
       const btn = mkText({
         text: isActive ? `[${c.label}]` : c.label,
@@ -320,7 +320,7 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
       btn.onclick = () => { categoryFilter = c.id; baseDirty = true; scrollY = 0; refreshGrid(); buildFilters(); };
       filtersBar.addChild(btn);
       x += btn.width + 12;
-    }
+    });
 
     // Sort toggle (only with >1 sort mode)
     if (sortModes.length > 1) {
@@ -355,10 +355,10 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
   // whole filtered list scrolls through them via bindCard(). Rebuilding is
   // cheap — only the pool (≈visible cards) is created, never the full list.
   function rebuildGrid(): void {
-    for (const c of cards) {
+    cards.forEach((c) => {
       c.container.destroy({ children: true });
       c.texture.destroy(true);
-    }
+    });
     cards = [];
     gridArea.removeChildren();
 
@@ -601,7 +601,7 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
   function selectCard(contentId: string): void {
     selectedContentId = contentId;
     // Update backgrounds of any pool cards bound to the new/old selection.
-    for (const c of cards) {
+    for (let _i = 0, _it = cards, _n = _it.length; _i < _n; _i++) { const c = _it[_i];
       if (!c.item) continue;
       const bg = c.container.children[0] as Graphics;
       const isSelected = c.item.id === contentId;
@@ -677,7 +677,7 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
     footerBar.addChild(bg);
 
     let infoX = PADDING;
-    for (const fb of config.footerButtons ?? []) {
+    (config.footerButtons ?? []).forEach((fb) => {
       const btn = mkText({
         text: fb.label,
         style: { fill: fb.color ?? 0xff6666, fontSize: 13, fontFamily: FONT },
@@ -687,7 +687,7 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
       btn.onclick = () => fb.onClick();
       footerBar.addChild(btn);
       infoX += btn.width + 24;
-    }
+    });
     infoX += 8;
 
     const info = mkText({
@@ -730,7 +730,7 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
     let loadCount = 0;
     const MAX_CONCURRENT_LOADS = 6;
     const pendingLoads = cards.filter((c) => c.container.visible && c.item && !c.modelLoaded);
-    for (const card of pendingLoads) {
+    for (let _i = 0, _it = pendingLoads, _n = _it.length; _i < _n; _i++) { const card = _it[_i];
       if (loadCount >= MAX_CONCURRENT_LOADS) break;
       card.modelLoaded = true;
       const item = card.item!;
@@ -755,7 +755,7 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
     // ~0.5 rad/s → one turntable revolution per ~12s, framerate-independent.
     const spin = Math.min(dt, 0.1) * 0.5;
     const ANGLE_STEP = (Math.PI * 2) / 96;
-    for (const card of visibleCards) {
+    for (let _i = 0, _it = visibleCards, _n = _it.length; _i < _n; _i++) { const card = _it[_i];
       card.angle += spin;
       const bucket = Math.floor(card.angle / ANGLE_STEP);
       if (card.thumbRendered && card.angleBucket === bucket) continue;
@@ -926,9 +926,9 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
   function applyBadges(counts: Record<string, number>): void {
     badgeCounts = counts;
     // Update badge text on bound cards
-    for (const card of cards) {
+    cards.forEach((card) => {
       if (card.item) card.countText.text = badgeText(card.item, badgeCounts[card.item.id] ?? 0) ?? "";
-    }
+    });
     if (sortBy !== "name") { baseDirty = true; recomputeFiltered(); }
     buildFooter();
     buildSettingsPanel();
@@ -955,7 +955,7 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
 
       // Process events
       if (events) {
-        for (const evt of events) {
+        events.forEach((evt) => {
           if (evt.kind === "items" || evt.kind === "contentList") {
             applyItems(evt.items as T[]);
           } else if (evt.kind === "badges" || evt.kind === "spawnCounts") {
@@ -963,7 +963,7 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
           } else if (evt.kind === "keydown") {
             handleKeydown(evt.key, evt.code);
           }
-        }
+        });
       }
 
       // Update caret blink (only while the search field is focused)
@@ -1004,7 +1004,7 @@ export function createAssetBrowserScene<T extends AssetBrowserItem>(
       ?? contentItems.find((i) => i.id === selectedContentId) ?? null,
     dispose() {
       if (thumbRenderer) { thumbRenderer.dispose(); thumbRenderer = null; }
-      for (const c of cards) { c.texture.destroy(true); }
+      cards.forEach((c) => { c.texture.destroy(true); });
       root.destroy({ children: true });
     },
   };

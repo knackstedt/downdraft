@@ -241,7 +241,7 @@ export const wgsl = {
     const wgslStr = `struct ${name} {\n${fieldLines}\n}`;
 
     const fieldMap = new Map<string, WgslFieldLayout>();
-    for (const f of layouts) fieldMap.set(f.name, f);
+    layouts.forEach((f) => { fieldMap.set(f.name, f);; });
     const fieldNames = layouts.map((f) => f.name as (keyof T & string));
 
     const descriptor = {

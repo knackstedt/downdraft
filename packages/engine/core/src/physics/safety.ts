@@ -120,7 +120,7 @@ export class SafetyLayer {
    * hard-locked to kinematic.
    */
   sanitizeSolverOutput(backend: PhysicsBackend, bodies: PhysicsBody[]): void {
-    for (const body of bodies) {
+    for (let _i = 0, _it = bodies, _n = _it.length; _i < _n; _i++) { const body = _it[_i];
       if (this.hardLocked.has(body.id)) continue;
 
       const pos = backend.getPosition(body);
@@ -207,7 +207,7 @@ export class SafetyLayer {
     this.sweepTickCounter++;
     if (this.sweepTickCounter % interval !== 0) return;
 
-    for (const body of bodies) {
+    for (let _i = 0, _it = bodies, _n = _it.length; _i < _n; _i++) { const body = _it[_i];
       if (this.hardLocked.has(body.id)) continue;
       const vel = backend.getLinearVelocity(body);
       const speed = Math.sqrt(vel[0] ** 2 + vel[1] ** 2 + vel[2] ** 2);

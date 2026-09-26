@@ -44,13 +44,13 @@ export class LoadShedder {
    * Leverages Rapier's native island-aware sleep.
    */
   aggressiveSleep(realmId: number, backend: PhysicsBackend, bodies: PhysicsBody[]): void {
-    for (const body of bodies) {
+    bodies.forEach((body) => {
       const weight = this.importanceWeights.get(body.id) ?? 0;
       if (weight < 0.3) {
         // Low importance — make it easier to sleep (higher threshold = sleeps sooner)
         backend.setSleepThresholds(realmId, 0.5, 0.5);
       }
-    }
+    });
   }
 
   /**
@@ -67,10 +67,10 @@ export class LoadShedder {
     // Score each island: max importance of any member (lower = freeze first)
     const scored = islands.map((island) => {
       let maxImportance = 0;
-      for (const bodyId of island.bodyIds) {
+      island.bodyIds.forEach((bodyId) => {
         const w = this.importanceWeights.get(bodyId) ?? 0;
         if (w > maxImportance) maxImportance = w;
-      }
+      });
       return { island, maxImportance, avgVelocity: island.avgVelocity };
     });
 
@@ -81,9 +81,9 @@ export class LoadShedder {
     });
 
     let frozenCount = 0;
-    for (const { island } of scored) {
+    scored.forEach(({ island }) => {
       // Freeze this entire island
-      for (const bodyId of island.bodyIds) {
+      for (let _i = 0, _it = island.bodyIds, _n = _it.length; _i < _n; _i++) { const bodyId = _it[_i];
         if (this.frozenBodies.has(bodyId)) continue;
         const body = bodyMap?.get(bodyId);
         if (body) {
@@ -97,7 +97,7 @@ export class LoadShedder {
       }
       // In a real implementation, we'd check the accumulator after each
       // island and stop once budget recovers. The caller drives this.
-    }
+    });
 
     return frozenCount;
   }

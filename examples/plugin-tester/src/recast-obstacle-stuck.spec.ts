@@ -40,7 +40,7 @@ function buildBoxTriangles(
     [minX, y0, minZ], [maxX, y0, minZ], [maxX, y0, maxZ], [minX, y0, maxZ],
     [minX, y1, minZ], [maxX, y1, minZ], [maxX, y1, maxZ], [minX, y1, maxZ],
   ];
-  for (const p of c) positions.push(p[0], p[1], p[2]);
+  c.forEach((p) => { positions.push(p[0], p[1], p[2]);; });
   indices.push(4, 5, 6, 4, 6, 7); // top (walkable)
   indices.push(0, 2, 1, 0, 3, 2); // bottom
   indices.push(0, 1, 5, 0, 5, 4, 1, 2, 6, 1, 6, 5, 2, 3, 7, 2, 7, 6, 3, 0, 4, 3, 4, 7); // sides
@@ -61,18 +61,18 @@ function buildObstacleScene(): { positions: number[]; indices: number[] } {
       indices.push(v0, v2, v1, v1, v2, v3);
     }
   let bv = positions.length / 3;
-  for (const obs of OBSTACLES) {
+  OBSTACLES.forEach((obs) => {
     const box = buildBoxTriangles(obs.minX, obs.maxX, obs.minZ, obs.maxZ, obs.height, bv);
     positions.push(...box.positions);
     indices.push(...box.indices);
     bv += 8;
-  }
+  });
   return { positions, indices };
 }
 
 /** True if (x,z) lies inside any obstacle footprint (at ground level). */
 function isInsideObstacle(x: number, z: number): boolean {
-  for (const o of OBSTACLES) if (x >= o.minX && x <= o.maxX && z >= o.minZ && z <= o.maxZ) return true;
+  for (let _i = 0, _it = OBSTACLES, _n = _it.length; _i < _n; _i++) { const o = _it[_i]; if (x >= o.minX && x <= o.maxX && z >= o.minZ && z <= o.maxZ) return true; }
   return false;
 }
 

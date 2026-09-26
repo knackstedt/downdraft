@@ -63,7 +63,7 @@ export class GameWorld {
 
   registerPrefab(name: string, components: Map<number, unknown>, tags?: string[]): void {
     const entries = [];
-    for (const [componentId, data] of components) {
+    for (const [componentId, data] of components.entries()) {
       entries.push({ componentId, data: data as Record<string, unknown> });
     }
     this.prefabRegistry.register({ name, components: entries, tags });

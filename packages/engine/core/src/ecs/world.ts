@@ -116,9 +116,9 @@ export class World {
     if (oldRow < 0) return;
 
     const existingComponents = new Map<ComponentId, unknown>();
-    for (const cid of oldArch.componentIds) {
+    oldArch.componentIds.forEach((cid) => {
       existingComponents.set(cid, getColumnValue(oldArch.columns.get(cid), oldRow));
-    }
+    });
     existingComponents.set(componentId, data);
 
     removeEntityFromArchetype(oldArch, entity);
@@ -146,11 +146,11 @@ export class World {
     if (oldRow < 0) return;
 
     const existingComponents = new Map<ComponentId, unknown>();
-    for (const cid of oldArch.componentIds) {
+    oldArch.componentIds.forEach((cid) => {
       if (cid !== componentId) {
         existingComponents.set(cid, getColumnValue(oldArch.columns.get(cid), oldRow));
       }
-    }
+    });
 
     removeEntityFromArchetype(oldArch, entity);
 
@@ -225,19 +225,19 @@ export class World {
     const all = this.allArchetypes;
     if (all.length < 256) return;
     let dead = 0;
-    for (const a of all) {
+    all.forEach((a) => {
       if (a.entities.length === 0 && a !== this.emptyArchetype) dead++;
-    }
+    });
     if (dead * 4 < all.length) return;
     const survivors: Archetype[] = [];
-    for (const a of all) {
+    all.forEach((a) => {
       if (a.entities.length === 0 && a !== this.emptyArchetype) {
         this.archetypeById.delete(a.id);
         removeArchetypeFromHashMap(this.archetypes, a);
       } else {
         survivors.push(a);
       }
-    }
+    });
     this.allArchetypes = survivors;
   }
 

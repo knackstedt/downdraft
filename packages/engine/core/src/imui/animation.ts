@@ -93,9 +93,9 @@ export class UIAnimationManager {
   }
 
   clear(): void {
-    for (const anim of this.animations) {
+    this.animations.forEach((anim) => {
       anim.finished = true;
-    }
+    });
     this.animations = [];
   }
 

@@ -89,9 +89,9 @@ export function createPhysicsSystem(resources: PhysicsSystemResources): System {
       const steps = accumulator.consumeSteps();
 
       const stepStart = performance.now();
-      for (const fixedDt of steps) {
+      steps.forEach((fixedDt) => {
         realmManager.step(fixedDt);
-      }
+      });
       const stepWallMs = steps.length > 0 ? (performance.now() - stepStart) / steps.length : 0;
       accumulator.recordStepWallTime(stepWallMs);
 
@@ -112,7 +112,7 @@ export function createPhysicsSystem(resources: PhysicsSystemResources): System {
         loadShedder.aggressiveSleep(nearRealm.id, backend, nearBodies);
         if (accumulator.isOverBudget()) {
           const bodyMap = new Map<number, PhysicsBody>();
-          for (const b of nearBodies) bodyMap.set(b.id, b);
+          nearBodies.forEach((b) => { bodyMap.set(b.id, b);; });
           loadShedder.shed(nearRealm.id, backend, RealmTier.Near, bodyMap);
         }
       }
@@ -147,7 +147,7 @@ function* iterRigidBodies(world: World): Generator<{ entity: Entity; rb: RigidBo
   const transformId = PhysicsTransform.id;
   const velocityId = Velocity.id;
 
-  for (const arch of world.allArchetypes) {
+  for (let _i = 0, _it = world.allArchetypes, _n = _it.length; _i < _n; _i++) { const arch = _it[_i];
     if (!arch.componentSet.has(rbId) || !arch.componentSet.has(transformId)) continue;
 
     const rbCol = arch.columns.get(rbId);
@@ -213,7 +213,7 @@ function syncPhysicsToEcs(world: World, realmManager: RealmManager): void {
 
 /** Look up a PhysicsBody by bodyId + realmId in the RealmManager. */
 function findBody(realmManager: RealmManager, bodyId: number, realmId: number): PhysicsBody | null {
-  for (const tier of [RealmTier.Near, RealmTier.Mid, RealmTier.Far]) {
+  for (let _i = 0, _it = [RealmTier.Near, RealmTier.Mid, RealmTier.Far], _n = _it.length; _i < _n; _i++) { const tier = _it[_i];
     const realm = realmManager.getRealm(tier);
     if (realm.id !== realmId) continue;
     const body = realm.getBody(bodyId);

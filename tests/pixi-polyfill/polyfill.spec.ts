@@ -32,7 +32,7 @@ afterAll(async () => {
 });
 
 describe("pixi-polyfill visual parity", () => {
-  for (const scene of scenes) {
+  scenes.forEach((scene) => {
     describe(`scene: ${scene.id} (${scene.name})`, () => {
       let browserPath: string;
       let nativePath: string;
@@ -70,5 +70,5 @@ describe("pixi-polyfill visual parity", () => {
         expect(result.pass).toBe(true);
       }, 60000);
     });
-  }
+  });
 });

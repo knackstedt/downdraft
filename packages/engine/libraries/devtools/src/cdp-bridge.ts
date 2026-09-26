@@ -300,7 +300,7 @@ export class CdpBridge {
     };
     this.entries.push(entry);
     if (this.entries.length > MAX_ENTRIES) this.entries.shift();
-    for (const cb of this.consoleCallbacks) {
+    for (const cb of this.consoleCallbacks.values()) {
       try { cb(entry); } catch { /* ignore callback errors */ }
     }
   }
@@ -320,7 +320,7 @@ export class CdpBridge {
     };
     this.exceptions.push(exc);
     if (this.exceptions.length > MAX_ENTRIES) this.exceptions.shift();
-    for (const cb of this.exceptionCallbacks) {
+    for (const cb of this.exceptionCallbacks.values()) {
       try { cb(exc); } catch { /* ignore */ }
     }
   }

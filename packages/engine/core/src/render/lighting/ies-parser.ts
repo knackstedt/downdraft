@@ -62,11 +62,11 @@ export function parseIES(data: string, options?: IESLoadOptions): IESProfile {
   let vIdx = 0;
   while (vIdx < numVerticalAngles && lineIdx < lines.length) {
     const parts = lines[lineIdx++].split(/\s+/).filter((s) => s.length > 0);
-    for (const p of parts) {
+    parts.forEach((p) => {
       if (vIdx < numVerticalAngles) {
         verticalAngles[vIdx++] = parseFloat(p);
       }
-    }
+    });
   }
 
   // Read horizontal angles + candela values
@@ -82,20 +82,20 @@ export function parseIES(data: string, options?: IESLoadOptions): IESProfile {
 
     horizontalAngles[hIdx] = parseFloat(firstParts[0]);
     const remaining = firstParts.slice(1);
-    for (const p of remaining) {
+    remaining.forEach((p) => {
       if (cIdx < candelaValues.length) {
         candelaValues[cIdx++] = parseFloat(p);
       }
-    }
+    });
 
     // Read remaining candela values for this horizontal angle
     while (cIdx < (hIdx + 1) * numVerticalAngles && lineIdx < lines.length) {
       const parts = lines[lineIdx++].split(/\s+/).filter((s) => s.length > 0);
-      for (const p of parts) {
+      parts.forEach((p) => {
         if (cIdx < candelaValues.length) {
           candelaValues[cIdx++] = parseFloat(p);
         }
-      }
+      });
     }
     hIdx++;
   }

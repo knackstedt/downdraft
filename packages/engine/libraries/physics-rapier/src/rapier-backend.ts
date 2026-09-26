@@ -802,7 +802,7 @@ async function doLoadPhysicsLib(): Promise<PhysicsLib> {
         // Group bodies by their island: use the body's island number if available,
         // otherwise each body is its own island. Sleeping bodies form one island.
         const islands = new Map<number, number[]>();
-        for (const [bodyId, body] of map) {
+        for (const [bodyId, body] of map.entries()) {
           let islandId: number;
           try {
             islandId = (body as any).island ?? bodyId;
@@ -816,13 +816,13 @@ async function doLoadPhysicsLib(): Promise<PhysicsLib> {
         const result: IslandInfo[] = [];
         for (const bodyIds of islands.values()) {
           let totalSpeed = 0;
-          for (const bid of bodyIds) {
+          bodyIds.forEach((bid) => {
             const b = map.get(bid);
             if (b) {
               const lv = b.linvel();
               totalSpeed += Math.sqrt(lv.x * lv.x + lv.y * lv.y + lv.z * lv.z);
             }
-          }
+          });
           result.push({
             bodyIds,
             maxImportance: 0,

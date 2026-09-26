@@ -179,13 +179,13 @@ const DEFAULT_KEY_MAP: Record<string, number> = { ...KEY };
 
 function resolveKeys(keys: (string | number)[], keyMap: Record<string, number>): Set<number> {
   const out = new Set<number>();
-  for (const k of keys) {
+  keys.forEach((k) => {
     if (typeof k === "number") out.add(k);
     else {
       const code = keyMap[k.toUpperCase()];
       if (code !== undefined) out.add(code);
     }
-  }
+  });
   return out;
 }
 
@@ -250,9 +250,9 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
                 const off2d = offscreen.getContext("2d");
                 if (off2d) {
                   off2d.drawImage(canvas, 0, 0, width, height);
-                  for (const layer of ctx.extraLayers?.() ?? []) {
+                  (ctx.extraLayers?.() ?? []).forEach((layer) => {
                     off2d.drawImage(layer, 0, 0, width, height);
-                  }
+                  });
                   const overlayBlob = new Blob([overlayPng], { type: "image/png" });
                   const overlayBitmap = await createImageBitmap(overlayBlob);
                   off2d.drawImage(overlayBitmap, 0, 0, width, height);
@@ -719,7 +719,7 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
           if (!el) return jsonResult({ found: false, selector });
           const cs = getComputedStyle(el);
           const result: Record<string, unknown> = { found: true, selector };
-          for (const p of props) result[p] = cs.getPropertyValue(p);
+          props.forEach((p) => { result[p] = cs.getPropertyValue(p);; });
           result._className = el.className;
           return jsonResult(result);
         } catch (e) {

@@ -113,9 +113,9 @@ export class EnvironmentManager {
     if (!this.currentEnv) return;
     this.currentEnv.cubemap.destroy();
     this.currentEnv.irradiance.destroy();
-    for (const tex of this.currentEnv.prefilteredSpecular) {
+    this.currentEnv.prefilteredSpecular.forEach((tex) => {
       tex.destroy();
-    }
+    });
     this.currentEnv = null;
   }
 }

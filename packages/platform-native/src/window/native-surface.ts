@@ -223,9 +223,9 @@ export class NativeCanvasContext {
     // texture is still valid — submissions queued here precede the present.
     if (this.prePresentHooks.length > 0) {
       const hooks = this.prePresentHooks.splice(0);
-      for (const cb of hooks) {
+      hooks.forEach((cb) => {
         try { cb(); } catch (e) { log.error("surface", `pre-present hook error: ${e}`); }
-      }
+      });
     }
     if (this.surfacePtr) {
       wgpu.wgpu_shim_surface_present(this.surfacePtr);

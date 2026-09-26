@@ -328,7 +328,7 @@ export class NativePhysicsBackend implements PhysicsBackend {
     if (!realm) return [];
     // Native backend: each body is its own island (no island solver)
     const islands: IslandInfo[] = [];
-    for (const [bodyId, b] of realm.bodies) {
+    for (const [bodyId, b] of realm.bodies.entries()) {
       const speed = Math.sqrt(
         b.linearVelocity[0] ** 2 + b.linearVelocity[1] ** 2 + b.linearVelocity[2] ** 2,
       );
@@ -375,7 +375,7 @@ export class NativePhysicsBackend implements PhysicsBackend {
     for (const body of realm.bodies.values()) {
       if (filter?.excludeEntity && body.entityIndex === filter.excludeEntity.index) continue;
 
-      for (const collider of body.colliders) {
+      body.colliders.forEach((collider) => {
         const hit = this.raycastShape(
           origin, dirNorm, maxDistance,
           body, collider,
@@ -388,7 +388,7 @@ export class NativePhysicsBackend implements PhysicsBackend {
             distance: hit.distance,
           });
         }
-      }
+      });
     }
 
     results.sort((a, b) => a.distance - b.distance);
@@ -415,7 +415,7 @@ export class NativePhysicsBackend implements PhysicsBackend {
       if (filter?.excludeEntity && body.entityIndex === filter.excludeEntity.index) continue;
       if (body.type === "static" || body.type === "kinematic") {
         // Check each collider
-        for (const collider of body.colliders) {
+        body.colliders.forEach((collider) => {
           const hit = this.raycastShape(origin, dirNorm, maxDistance, body, collider);
           if (hit && (!bestHit || hit.distance < bestHit.distance)) {
             bestHit = {
@@ -426,7 +426,7 @@ export class NativePhysicsBackend implements PhysicsBackend {
               hitFraction: hit.distance / maxDistance,
             };
           }
-        }
+        });
       }
     }
 
@@ -443,7 +443,7 @@ export class NativePhysicsBackend implements PhysicsBackend {
     const dynamicBodies = bodies.filter(b => b.type === "dynamic");
 
     // 1. Integrate (apply gravity + update position)
-    for (const body of dynamicBodies) {
+    for (let _i = 0, _it = dynamicBodies, _n = _it.length; _i < _n; _i++) { const body = _it[_i];
       if (body.sleeping) continue;
       const gravity: Vec3 = [
         realm.gravity[0] * body.gravityScale,
@@ -457,22 +457,22 @@ export class NativePhysicsBackend implements PhysicsBackend {
 
     // 2. Broadphase: build AABBs and generate pairs
     const broadphase = new Broadphase(realm.broadphaseCellSize);
-    for (const body of bodies) {
+    bodies.forEach((body) => {
       const aabb = this.computeAABB(body);
       if (aabb) broadphase.insert(body.id, aabb);
-    }
+    });
     const pairs = broadphase.generatePairs();
 
     // 3. Narrowphase + solve
-    for (const [idA, idB] of pairs) {
+    for (let _i = 0, _it = pairs, _n = _it.length; _i < _n; _i++) { const [idA, idB] = _it[_i];
       const bodyA = realm.bodies.get(idA);
       const bodyB = realm.bodies.get(idB);
       if (!bodyA || !bodyB) continue;
       if (bodyA.type === "static" && bodyB.type === "static") continue;
 
-      for (const colA of bodyA.colliders) {
+      for (let _i = 0, _it = bodyA.colliders, _n = _it.length; _i < _n; _i++) { const colA = _it[_i];
         if (colA.sensor) continue;
-        for (const colB of bodyB.colliders) {
+        for (let _i = 0, _it = bodyB.colliders, _n = _it.length; _i < _n; _i++) { const colB = _it[_i];
           if (colB.sensor) continue;
 
           const manifold = detectCollision(
@@ -491,7 +491,7 @@ export class NativePhysicsBackend implements PhysicsBackend {
     }
 
     // 4. Apply damping
-    for (const body of dynamicBodies) {
+    for (let _i = 0, _it = dynamicBodies, _n = _it.length; _i < _n; _i++) { const body = _it[_i];
       if (body.sleeping) continue;
       const ld = 1 - body.linearDamping * dt;
       const ad = 1 - body.angularDamping * dt;
@@ -536,20 +536,20 @@ export class NativePhysicsBackend implements PhysicsBackend {
     const broadphase = new Broadphase(realm.broadphaseCellSize);
     const bodies = [...realm.bodies.values()];
 
-    for (const body of bodies) {
+    bodies.forEach((body) => {
       const aabb = this.computeAABB(body);
       if (aabb) broadphase.insert(body.id, aabb);
-    }
+    });
     const pairs = broadphase.generatePairs();
 
-    for (const [idA, idB] of pairs) {
+    for (let _i = 0, _it = pairs, _n = _it.length; _i < _n; _i++) { const [idA, idB] = _it[_i];
       const bodyA = realm.bodies.get(idA);
       const bodyB = realm.bodies.get(idB);
       if (!bodyA || !bodyB) continue;
 
-      for (const colA of bodyA.colliders) {
+      for (let _i = 0, _it = bodyA.colliders, _n = _it.length; _i < _n; _i++) { const colA = _it[_i];
         if (colA.sensor) continue;
-        for (const colB of bodyB.colliders) {
+        for (let _i = 0, _it = bodyB.colliders, _n = _it.length; _i < _n; _i++) { const colB = _it[_i];
           if (colB.sensor) continue;
           const manifold = detectCollision(
             colA.shape, bodyA.position, bodyA.rotation,
@@ -579,19 +579,19 @@ export class NativePhysicsBackend implements PhysicsBackend {
     const broadphase = new Broadphase(realm.broadphaseCellSize);
     const bodies = [...realm.bodies.values()];
 
-    for (const body of bodies) {
+    bodies.forEach((body) => {
       const aabb = this.computeAABB(body);
       if (aabb) broadphase.insert(body.id, aabb);
-    }
+    });
     const pairs = broadphase.generatePairs();
 
-    for (const [idA, idB] of pairs) {
+    for (let _i = 0, _it = pairs, _n = _it.length; _i < _n; _i++) { const [idA, idB] = _it[_i];
       const bodyA = realm.bodies.get(idA);
       const bodyB = realm.bodies.get(idB);
       if (!bodyA || !bodyB) continue;
 
-      for (const colA of bodyA.colliders) {
-        for (const colB of bodyB.colliders) {
+      bodyA.colliders.forEach((colA) => {
+        for (let _i = 0, _it = bodyB.colliders, _n = _it.length; _i < _n; _i++) { const colB = _it[_i];
           // Only report pairs where at least one collider is a sensor
           if (!colA.sensor && !colB.sensor) continue;
           const manifold = detectCollision(
@@ -604,7 +604,7 @@ export class NativePhysicsBackend implements PhysicsBackend {
             entityB: { index: bodyB.entityIndex, generation: bodyB.entityGeneration },
           });
         }
-      }
+      });
     }
     return intersections;
   }
@@ -667,7 +667,7 @@ export class NativePhysicsBackend implements PhysicsBackend {
       if (otherBody.id === char.bodyId) continue;
       if (otherBody.type !== "static" && otherBody.type !== "kinematic") continue;
 
-      for (const collider of otherBody.colliders) {
+      for (let _i = 0, _it = otherBody.colliders, _n = _it.length; _i < _n; _i++) { const collider = _it[_i];
         const manifold = detectCollision(
           { type: "capsule", halfHeight: char.halfHeight, radius: char.radius },
           newPos, [0, 0, 0, 1],
@@ -849,7 +849,7 @@ export class NativePhysicsBackend implements PhysicsBackend {
     let minX = Infinity, minY = Infinity, minZ = Infinity;
     let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
 
-    for (const collider of body.colliders) {
+    body.colliders.forEach((collider) => {
       const shape = collider.shape;
       if (shape.type === "sphere") {
         const r = shape.radius;
@@ -881,7 +881,7 @@ export class NativePhysicsBackend implements PhysicsBackend {
         maxY = Math.max(maxY, body.position[1] + totalR);
         maxZ = Math.max(maxZ, body.position[2] + r);
       }
-    }
+    });
 
     return { minX, minY, minZ, maxX, maxY, maxZ };
   }

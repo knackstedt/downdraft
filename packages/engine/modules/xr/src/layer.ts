@@ -79,7 +79,7 @@ export class XRLayerManager {
       return;
     }
 
-    for (const view of pose.views) {
+    for (let _i = 0, _it = pose.views, _n = _it.length; _i < _n; _i++) { const view = _it[_i];
       const eye = view.eye as XREye;
       if (eye !== "left" && eye !== "right") continue;
       const layerView = this.layer.getView(view);

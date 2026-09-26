@@ -85,10 +85,10 @@ export function computeGridSimOffsets(layout: GridSimBufferLayout): GridSimBuffe
   let cursor = allLayersBytes;
 
   const extraGridOffset: Record<string, number> = {};
-  for (const eg of layout.extraGrids ?? []) {
+  (layout.extraGrids ?? []).forEach((eg) => {
     extraGridOffset[eg.name] = cursor;
     cursor += layout.maxGridW * layout.maxGridH * eg.cellBytes;
-  }
+  });
 
   const inputOffset = cursor;
   cursor += inputBytes;
@@ -100,10 +100,10 @@ export function computeGridSimOffsets(layout: GridSimBufferLayout): GridSimBuffe
   if (playerBytes > 0) cursor += playerBytes;
 
   const extraRegionOffset: Record<string, number> = {};
-  for (const er of layout.extraRegions ?? []) {
+  (layout.extraRegions ?? []).forEach((er) => {
     extraRegionOffset[er.name] = cursor;
     cursor += er.bytes;
-  }
+  });
 
   return {
     gridOffset, fieldOffset, extraGridOffset,

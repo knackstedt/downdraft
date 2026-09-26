@@ -93,7 +93,7 @@ describe("BinaryRecordStore", () => {
       migrate: (from, records) => {
         expect(from).toBe(1);
         const out = new Map<string, Uint8Array>();
-        for (const [k, v] of records) out.set(`${k}-migrated`, v);
+        for (const [k, v] of records.entries()) out.set(`${k}-migrated`, v);
         return out;
       },
     });

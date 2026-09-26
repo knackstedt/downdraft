@@ -78,7 +78,7 @@ export class QuickjsPluginLoader implements PluginLoader {
   }
 
   disposeAll(): void {
-    for (const [, b] of this.bridges) b.dispose();
+    for (const [, b] of this.bridges.entries()) b.dispose();
     this.bridges.clear();
   }
 }

@@ -13,10 +13,10 @@ export function parseOFF(data: ArrayBuffer, name: string): ModelData {
   const text = new TextDecoder().decode(data);
   const rawLines = text.split("\n");
   const lines: string[] = [];
-  for (const raw of rawLines) {
+  rawLines.forEach((raw) => {
     const t = raw.replace(/#.*/, "").trim();
     if (t.length > 0) lines.push(t);
-  }
+  });
   if (lines.length < 2) throw new Error("OFF: file too short");
 
   let li = 1;

@@ -218,11 +218,11 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
   const subpathDeps: Record<string, string[]> = {
     "pixi.js": ["pixi.js/events"],
   };
-  for (const dep of autoOptimizeDepsInclude) {
-    for (const sub of subpathDeps[dep] ?? []) {
+  autoOptimizeDepsInclude.forEach((dep) => {
+    (subpathDeps[dep] ?? []).forEach((sub) => {
       if (!autoOptimizeDepsInclude.includes(sub)) autoOptimizeDepsInclude.push(sub);
-    }
-  }
+    });
+  });
 
   // --- Shared alias sets ---
   //
@@ -371,8 +371,8 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
               }
               return out;
             };
-            for (const dir of new Set(emitDirs(outDir))) {
-              for (const wasm of candidates) {
+            for (const dir of new Set(emitDirs(outDir)).values()) {
+              for (let _i = 0, _it = candidates, _n = _it.length; _i < _n; _i++) { const wasm = _it[_i];
                 if (!existsSync(wasm)) continue;
                 const dest = resolve(dir, basename(wasm));
                 if (!existsSync(dest)) copyFileSync(wasm, dest);

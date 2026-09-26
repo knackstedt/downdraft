@@ -22,10 +22,10 @@ describe("TestScene Integration", () => {
     const scene = initTestScene();
     const snapshot = scene.getSnapshot() as any;
     expect(snapshot.navmesh.agents.length).toBe(5);
-    for (const agent of snapshot.navmesh.agents) {
+    snapshot.navmesh.agents.forEach((agent: any) => {
       expect(agent.pos.length).toBe(3);
       expect(typeof agent.state).toBe("string");
-    }
+    });
   });
 
   it("should report water state", () => {
@@ -40,11 +40,11 @@ describe("TestScene Integration", () => {
     const scene = initTestScene();
     const visuals = scene.getAgentVisuals();
     expect(visuals.length).toBe(5);
-    for (const v of visuals) {
+    visuals.forEach((v) => {
       expect(v.position.length).toBe(3);
       expect(v.color.length).toBe(3);
       expect(v.size).toBeGreaterThan(0);
-    }
+    });
   });
 
   it("should tick without errors", () => {

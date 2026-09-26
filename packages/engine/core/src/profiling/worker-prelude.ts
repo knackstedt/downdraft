@@ -189,9 +189,9 @@ export function attachProfilingSAB(
 
   // Register default warning rules
   if (config.defaultWarningRules !== false) {
-    for (const rule of DEFAULT_WORKER_WARNING_RULES) {
+    for (let _i7220 = 0, _it7220 = DEFAULT_WORKER_WARNING_RULES, _n7220 = _it7220.length; _i7220 < _n7220; _i7220++) { const rule = _it7220[_i7220];
       s.warningEngine.addRule(rule);
-    }
+    };
   }
 
   // Initialize thread metrics writer with a heap estimator.

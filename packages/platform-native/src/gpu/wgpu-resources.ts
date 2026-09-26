@@ -103,7 +103,7 @@ export class WgpuBuffer {
   unmap(): void {
     if (this.mapMode === null) return;
     if (this.mapMode === "write") {
-      for (const range of this.mappedRanges) {
+      this.mappedRanges.forEach((range) => {
         const status = wgpu.wgpu_shim_buffer_write_mapped(
           this.ptr,
           BigInt(range.offset),
@@ -113,7 +113,7 @@ export class WgpuBuffer {
         if (status !== 0) {
           log.error("WgpuBuffer", `write_mapped failed (status ${status})`);
         }
-      }
+      });
     }
     this.mappedRanges.length = 0;
     wgpu.wgpu_shim_buffer_unmap(this.ptr);

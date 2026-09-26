@@ -485,12 +485,12 @@ describe("Pathfinder with obstacles", () => {
 
     expect(path.length).toBeGreaterThanOrEqual(2);
 
-    for (const pt of path) {
+    path.forEach((pt) => {
       const polyId = navMesh.findClosestPoly(pt);
       expect(polyId).toBeGreaterThanOrEqual(0);
       const poly = navMesh.polygons[polyId];
       expect(poly.region).toBeGreaterThanOrEqual(0);
-    }
+    });
   });
 
   it("should return empty path when no route exists", () => {
@@ -622,9 +622,9 @@ describe("NavMeshGenerator with heightmap", () => {
     const data = gen.generate(sampler, 0, 0, 8, 8);
 
     expect(data.polygons.length).toBeGreaterThan(0);
-    for (const poly of data.polygons) {
+    data.polygons.forEach((poly) => {
       expect(poly.region).toBeGreaterThanOrEqual(0);
-    }
+    });
   });
 });
 
@@ -655,9 +655,9 @@ describe("NavMeshDebugViz additional", () => {
     const viz = new NavMeshDebugViz(navMesh);
     const centers = viz.getPolyCenters();
     expect(centers.length).toBeGreaterThan(0);
-    for (const c of centers) {
+    centers.forEach((c) => {
       expect(c.length).toBe(3);
-    }
+    });
   });
 
   it("should generate empty path lines for empty path", () => {

@@ -100,9 +100,9 @@ const HOST_GLOBALS = [
 
 function destroyHostLayer(): void {
   try { g.__nativeHost?.destroy?.(); } catch { /* already down */ }
-  for (const key of HOST_GLOBALS) {
+  HOST_GLOBALS.forEach((key) => {
     try { delete g[key]; } catch { g[key] = undefined; }
-  }
+  });
   try { if (g.navigator) g.navigator.gpu = undefined; } catch { /* getter-only */ }
   session.resetTrackedTargets();
 }

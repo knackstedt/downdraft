@@ -61,9 +61,9 @@ export class RemoteInputBridge {
     packet: RemoteInputPacket,
   ): void {
     const data = this.serializePacket(packet);
-    for (const peerId of peerIds) {
+    peerIds.forEach((peerId) => {
       this.platform.sendToPeer(peerId, data, false);
-    }
+    });
   }
 
   private handleMessage(peerId: string, data: Uint8Array): void {
@@ -123,18 +123,18 @@ export class RemoteInputBridge {
     buf[offset++] = gpBtnCount;
     buf[offset++] = gpAxisCount;
 
-    for (const key of packet.keys) {
+    packet.keys.forEach((key) => {
       dv.setUint32(offset, key); offset += 4;
-    }
-    for (const mb of packet.mouseButtons) {
+    });
+    packet.mouseButtons.forEach((mb) => {
       dv.setUint32(offset, mb); offset += 4;
-    }
-    for (const btn of packet.gamepadButtons) {
+    });
+    packet.gamepadButtons.forEach((btn) => {
       dv.setUint32(offset, btn); offset += 4;
-    }
-    for (const axis of packet.gamepadAxes) {
+    });
+    packet.gamepadAxes.forEach((axis) => {
       dv.setFloat32(offset, axis); offset += 4;
-    }
+    });
 
     return buf;
   }

@@ -26,10 +26,10 @@ let gravityOverrides: { mat: number; gravityDir: number; gravity: number }[] | n
 
 function applyGravityOverrides(): void {
   if (!gravityOverrides) return;
-  for (const o of gravityOverrides) {
+  gravityOverrides.forEach((o) => {
     MAT_GRAVITY_DIR[o.mat] = o.gravityDir;
     if (o.gravity !== 0) MAT_GRAVITY[o.mat] = o.gravity;
-  }
+  });
 }
 
 let world: SandWorld | null = null;

@@ -184,6 +184,7 @@ export function createDomInputHandler(opts: DomInputOptions): DomInputHandler {
   const liveFrames = new Set<DomInjectedFrame>();
 
   const releaseFrame = (f: DomInjectedFrame) => {
+    // oxlint-disable-next-line downdraft/no-for-of -- iterates Iterable<number>; for..of required
     for (const code of f.keys ?? []) {
       const n = (injectedKeys.get(code) ?? 1) - 1;
       if (n > 0) injectedKeys.set(code, n);
@@ -192,6 +193,7 @@ export function createDomInputHandler(opts: DomInputOptions): DomInputHandler {
         if (!physKeys.has(code)) state.keyUp(code);
       }
     }
+    // oxlint-disable-next-line downdraft/no-for-of -- iterates Iterable<string>; for..of required
     for (const action of f.actions ?? []) {
       const n = (injectedActions.get(action) ?? 1) - 1;
       if (n > 0) injectedActions.set(action, n);
@@ -201,7 +203,7 @@ export function createDomInputHandler(opts: DomInputOptions): DomInputHandler {
       }
     }
     const buttons = [f.leftMouse ? 0 : -1, f.middleMouse ? 1 : -1, f.rightMouse ? 2 : -1];
-    for (const button of buttons) {
+    for (let _i = 0, _it = buttons, _n = _it.length; _i < _n; _i++) { const button = _it[_i];
       if (button < 0) continue;
       const n = (injectedButtons.get(button) ?? 1) - 1;
       if (n > 0) injectedButtons.set(button, n);
@@ -268,7 +270,7 @@ export function createDomInputHandler(opts: DomInputOptions): DomInputHandler {
       injected.push(frame);
     },
     clearInjectedInput() {
-      for (const f of injected) releaseFrame(f);
+      injected.forEach((f) => { releaseFrame(f);; });
       injected.length = 0;
       liveFrames.clear();
     },
@@ -277,13 +279,17 @@ export function createDomInputHandler(opts: DomInputOptions): DomInputHandler {
         const f = injected[i];
         if (!liveFrames.has(f)) {
           liveFrames.add(f);
+          // oxlint-disable-next-line downdraft/no-for-of -- iterates Iterable<number>; for..of required
           for (const code of f.keys ?? []) injectedKeys.set(code, (injectedKeys.get(code) ?? 0) + 1);
+          // oxlint-disable-next-line downdraft/no-for-of -- iterates Iterable<string>; for..of required
           for (const action of f.actions ?? []) injectedActions.set(action, (injectedActions.get(action) ?? 0) + 1);
           if (f.leftMouse) injectedButtons.set(0, (injectedButtons.get(0) ?? 0) + 1);
           if (f.middleMouse) injectedButtons.set(1, (injectedButtons.get(1) ?? 0) + 1);
           if (f.rightMouse) injectedButtons.set(2, (injectedButtons.get(2) ?? 0) + 1);
         }
+        // oxlint-disable-next-line downdraft/no-for-of -- iterates Iterable<number>; for..of required
         for (const code of f.keys ?? []) state.keyDown(code);
+        // oxlint-disable-next-line downdraft/no-for-of -- iterates Iterable<string>; for..of required
         for (const action of f.actions ?? []) held[action] = true;
         if (f.leftMouse) state.mouseDown(0);
         if (f.middleMouse) state.mouseDown(1);

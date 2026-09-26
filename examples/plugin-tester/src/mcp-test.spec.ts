@@ -66,13 +66,13 @@ describe("MCPServer Tools", () => {
 
   it("should have each tool with name, description, and inputSchema", () => {
     const tools = server.listTools();
-    for (const tool of tools) {
+    tools.forEach((tool) => {
       expect(tool.name).toBeDefined();
       expect(typeof tool.name).toBe("string");
       expect(tool.description).toBeDefined();
       expect(tool.inputSchema).toBeDefined();
       expect(tool.inputSchema.type).toBe("object");
-    }
+    });
   });
 
   it("should include scene tools", () => {
@@ -177,11 +177,11 @@ describe("MCPServer Resources", () => {
 
   it("should have each resource with uri, name, description", () => {
     const resources = server.listResources();
-    for (const res of resources) {
+    resources.forEach((res) => {
       expect(res.uri).toBeDefined();
       expect(res.name).toBeDefined();
       expect(res.description).toBeDefined();
-    }
+    });
   });
 
   it("should include scene-tree resource", () => {
@@ -234,10 +234,10 @@ describe("MCPServer Prompts", () => {
 
   it("should have each prompt with name and description", () => {
     const prompts = server.listPrompts();
-    for (const p of prompts) {
+    prompts.forEach((p) => {
       expect(p.name).toBeDefined();
       expect(p.description).toBeDefined();
-    }
+    });
   });
 
   it("should include create-scene prompt", () => {

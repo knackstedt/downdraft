@@ -42,14 +42,14 @@ export class XRSessionManager {
         try {
           this.cleanup();
         } finally {
-          for (const cb of this.sessionEndCallbacks) {
+          this.sessionEndCallbacks.forEach((cb) => {
             try { cb(); } catch {}
-          }
+          });
         }
       };
       this.onVisibilityChangeHandler = ((e: Event) => {
         const visible = (e as XRVisibilityChangeEvent).visibilityState === "visible";
-        for (const cb of this.visibilityChangeCallbacks) cb(visible);
+        this.visibilityChangeCallbacks.forEach((cb) => { cb(visible);; });
       }) as EventListener;
 
       session.addEventListener("end", this.onSessionEndHandler);
@@ -69,7 +69,7 @@ export class XRSessionManager {
 
     this.onReferenceSpaceResetHandler = ((e: Event) => {
       this.referenceSpace = (e as XRReferenceSpaceEvent).referenceSpace;
-      for (const cb of this.resetCallbacks) cb();
+      this.resetCallbacks.forEach((cb) => { cb();; });
     }) as EventListener;
     this.referenceSpace.addEventListener("reset", this.onReferenceSpaceResetHandler);
   }

@@ -54,7 +54,7 @@ export function parseMaterials(
   for (let i = 0; i < textureNodes.length; i++) {
     const texId = getObjectId(textureNodes[i], `tex_${i}`);
     // Connection can be either direction: Texture→Video or Video→Texture
-    for (const conn of graph.connections) {
+    for (let _i = 0, _it = graph.connections, _n = _it.length; _i < _n; _i++) { const conn = _it[_i];
       if (conn.childId === texId && videoInfo.has(conn.parentId)) {
         textureToVideo.set(texId, conn.parentId);
         break;
@@ -80,7 +80,7 @@ export function parseMaterials(
 
     // Find connected textures
     const texInfo: FBXTextureInfo = {};
-    for (const conn of graph.connections) {
+    for (let _i = 0, _it = graph.connections, _n = _it.length; _i < _n; _i++) { const conn = _it[_i];
       if (conn.parentId !== matId) continue;
       const videoId = textureToVideo.get(conn.childId);
       if (!videoId) continue;
@@ -134,7 +134,7 @@ function extractVideoInfo(node: FBXNode): { data?: Uint8Array; filename?: string
   let data: Uint8Array | undefined;
   let filename: string | undefined;
 
-  for (const child of node.children) {
+  node.children.forEach((child) => {
     const childNameLower = child.name.toLowerCase();
     if (childNameLower === "content" && child.properties.length > 0) {
       const prop = child.properties[0];
@@ -146,11 +146,11 @@ function extractVideoInfo(node: FBXNode): { data?: Uint8Array; filename?: string
     } else if (childNameLower === "relativefilename" && child.properties.length > 0 && !filename) {
       filename = String(child.properties[0].value);
     }
-  }
+  });
 
   // Also check the Video node's own properties for a filename
   if (!filename && node.properties.length >= 2) {
-    for (const prop of node.properties) {
+    for (let _i = 0, _it = node.properties, _n = _it.length; _i < _n; _i++) { const prop = _it[_i];
       if (prop.type === "S") {
         const val = String(prop.value);
         if (val.match(/\.(png|jpg|jpeg|tga|bmp|webp)$/i)) {
@@ -210,7 +210,7 @@ export function extractMaterialProperties(node: FBXNode): MaterialProps {
   let emissiveFactor: number | undefined;
   let opacity: number | undefined;
 
-  for (const p of props70.children) {
+  for (let _i = 0, _it = props70.children, _n = _it.length; _i < _n; _i++) { const p = _it[_i];
     if (p.name !== "P" || p.properties.length < 5) continue;
     const propName = String(p.properties[0].value);
     const propLower = propName.toLowerCase();

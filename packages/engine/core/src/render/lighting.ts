@@ -441,7 +441,7 @@ export function extractPointAndSpotLights(
   const pointLights: PointLight[] = [];
   const spotLights: SpotLight[] = [];
   const otherLights: Light[] = [];
-  for (const light of lights) {
+  lights.forEach((light) => {
     if (light.type === LightType.Point) {
       pointLights.push(light);
     } else if (light.type === LightType.Spot) {
@@ -449,6 +449,6 @@ export function extractPointAndSpotLights(
     } else {
       otherLights.push(light);
     }
-  }
+  });
   return { pointLights, spotLights, otherLights };
 }

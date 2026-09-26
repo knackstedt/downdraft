@@ -282,14 +282,14 @@ export class UITabBar extends UIPanel {
 
   private rebuildTabs(): void {
     this.children = [];
-    for (const tab of this.tabs) {
+    this.tabs.forEach((tab) => {
       const btn = new UIButton(tab.label, 80, this.tabHeight);
       btn.style.fontSize = 11;
       btn.style.fontWeight = "bold";
       btn.style.backgroundColor = tab.id === this.activeTabId ? [...this.activeColor] : [...this.inactiveColor];
       btn.callbacks.onClick = () => this.setActiveTab(tab.id);
       this.addChild(btn);
-    }
+    });
   }
 }
 
@@ -523,7 +523,7 @@ export class UIToastStack extends UIPanel {
   }
 
   clear(): void {
-    for (const t of this.toasts) this.removeChild(t.panel);
+    this.toasts.forEach((t) => { this.removeChild(t.panel);; });
     this.toasts = [];
   }
 

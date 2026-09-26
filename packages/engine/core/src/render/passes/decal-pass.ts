@@ -258,7 +258,7 @@ export class DecalPass extends RenderPass {
     }
     tracked.setBindGroup(0, this.bindGroup!);
 
-    for (const item of this.items) {
+    for (let _i9949 = 0, _it9949 = this.items, _n9949 = _it9949.length; _i9949 < _n9949; _i9949++) { const item = _it9949[_i9949];
       const dv = this._decalView!;
       dv.set("decalViewProj", item.decalViewProj as Float32Array);
       dv.set("invViewProj", ctx.viewProj as Float32Array);
@@ -270,7 +270,7 @@ export class DecalPass extends RenderPass {
       tracked.setVertexBuffer(0, this.getVertexBuffer(item.mesh));
       tracked.setIndexBuffer(this.getIndexBuffer(item.mesh), item.mesh.indices instanceof Uint16Array ? "uint16" : "uint32");
       tracked.drawIndexed(item.mesh.indexCount);
-    }
+    };
   }
 
   /** Get or create a bindless material index for a decal item. */

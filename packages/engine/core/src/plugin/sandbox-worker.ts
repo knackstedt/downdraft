@@ -79,19 +79,19 @@ self.addEventListener("message", (ev: MessageEvent) => {
   }
   // Host-driven tick → ctx.tick.onTick callbacks.
   if (msg.__tick) {
-    for (const cb of tickCallbacks) cb(msg.dt, msg.elapsedTime);
+    for (const cb of tickCallbacks.values()) cb(msg.dt, msg.elapsedTime);
     return;
   }
   // Host-published event → local subscribers (registered via ctx.events.subscribe).
   if (msg.__event) {
     const set = eventHandlers.get(msg.event);
-    if (set) for (const h of set) h(msg.data);
+    if (set) for (const h of set.values()) h(msg.data);
     return;
   }
   if (msg.__dispose) {
-    for (const cb of disposeCallbacks) {
+    disposeCallbacks.forEach((cb) => {
       try { cb(); } catch { /* dispose errors are non-fatal */ }
-    }
+    });
     return;
   }
 });
@@ -177,7 +177,7 @@ function makeBridgeContext(
         const entries = (await bridgeCall("state.load", [])) as Array<[string, unknown]> | undefined;
         if (entries) {
           localState.clear();
-          for (const [k, v] of entries) localState.set(k, v);
+          entries.forEach(([k, v]) => { localState.set(k, v);; });
         }
       },
     },
@@ -204,9 +204,9 @@ function makeBridgeContext(
   const hasHostCallPerm = HOST_CALL_PERMS.some((p) => granted.has(p));
   if (hasHostCallPerm) {
     const hostCalls: Record<string, (...args: unknown[]) => Promise<unknown>> = {};
-    for (const m of HOST_CALL_METHODS) {
+    HOST_CALL_METHODS.forEach((m) => {
       hostCalls[m] = (...args: unknown[]) => bridgeCall(m, args) as Promise<never>;
-    }
+    });
     (ctx as ScriptPluginContext & { hostCalls: PluginHostCalls }).hostCalls =
       hostCalls as unknown as PluginHostCalls;
   }

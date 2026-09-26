@@ -89,9 +89,9 @@ export class SnapshotManager {
    */
   snapshotAll(): Map<RealmTier, Uint8Array> {
     const result = new Map<RealmTier, Uint8Array>();
-    for (const tier of [RealmTier.Near, RealmTier.Mid, RealmTier.Far]) {
+    [RealmTier.Near, RealmTier.Mid, RealmTier.Far].forEach((tier) => {
       result.set(tier, this.snapshotRealm(tier));
-    }
+    });
     return result;
   }
 

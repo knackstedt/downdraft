@@ -95,11 +95,11 @@ export class ReplicationManager {
     const entities: ReplicationSnapshot["entities"] = [];
     let count = 0;
 
-    for (const [entityId, components] of this.entityComponents) {
+    for (const [entityId, components] of this.entityComponents.entries()) {
       if (count >= this.config.maxEntitiesPerPacket) break;
 
       const componentData: Array<{ componentId: number; data: Uint8Array }> = [];
-      for (const [componentId, data] of components) {
+      for (const [componentId, data] of components.entries()) {
         const replComp = this.config.components.get(componentId);
         if (!replComp) continue;
         const serialized = this.serializeComponent(data, replComp.fields);
@@ -146,19 +146,19 @@ export class ReplicationManager {
   }
 
   private applySnapshot(snapshot: ReplicationSnapshot): void {
-    for (const entity of snapshot.entities) {
+    snapshot.entities.forEach((entity) => {
       let entityMap = this.entityComponents.get(entity.entityId);
       if (!entityMap) {
         entityMap = new Map();
         this.entityComponents.set(entity.entityId, entityMap);
       }
-      for (const comp of entity.components) {
+      for (let _i = 0, _it = entity.components, _n = _it.length; _i < _n; _i++) { const comp = _it[_i];
         const replComp = this.config.components.get(comp.componentId);
         if (!replComp) continue;
         const data = this.deserializeComponent(comp.data, replComp.fields);
         entityMap.set(comp.componentId, data);
       }
-    }
+    });
   }
 
   getEntityData(entityId: number, componentId: number): Record<string, unknown> | undefined {
@@ -167,7 +167,7 @@ export class ReplicationManager {
 
   private serializeComponent(data: Record<string, unknown>, fields: ReplicatedField[]): Uint8Array {
     const buffers: Uint8Array[] = [];
-    for (const field of fields) {
+    for (let _i = 0, _it = fields, _n = _it.length; _i < _n; _i++) { const field = _it[_i];
       const value = data[field.name];
       if (value === undefined) continue;
       const buf = this.serializeField(value, field.type, field.precision);
@@ -176,21 +176,21 @@ export class ReplicationManager {
     const total = buffers.reduce((sum, b) => sum + b.length, 0);
     const result = new Uint8Array(total);
     let offset = 0;
-    for (const buf of buffers) {
+    buffers.forEach((buf) => {
       result.set(buf, offset);
       offset += buf.length;
-    }
+    });
     return result;
   }
 
   private deserializeComponent(data: Uint8Array, fields: ReplicatedField[]): Record<string, unknown> {
     const result: Record<string, unknown> = {};
     let offset = 0;
-    for (const field of fields) {
+    fields.forEach((field) => {
       const { value, size } = this.deserializeField(data, offset, field.type);
       result[field.name] = value;
       offset += size;
-    }
+    });
     return result;
   }
 
@@ -263,7 +263,7 @@ export class ReplicationManager {
     new DataView(countBuf).setUint16(0, snapshot.entities.length);
     parts.push(new Uint8Array(countBuf));
 
-    for (const entity of snapshot.entities) {
+    snapshot.entities.forEach((entity) => {
       const idBuf = new ArrayBuffer(4);
       new DataView(idBuf).setUint32(0, entity.entityId);
       parts.push(new Uint8Array(idBuf));
@@ -272,7 +272,7 @@ export class ReplicationManager {
       new DataView(compCountBuf).setUint16(0, entity.components.length);
       parts.push(new Uint8Array(compCountBuf));
 
-      for (const comp of entity.components) {
+      entity.components.forEach((comp) => {
         const compIdBuf = new ArrayBuffer(4);
         new DataView(compIdBuf).setUint32(0, comp.componentId);
         parts.push(new Uint8Array(compIdBuf));
@@ -282,16 +282,16 @@ export class ReplicationManager {
         parts.push(new Uint8Array(lenBuf));
 
         parts.push(comp.data);
-      }
-    }
+      });
+    });
 
     const total = parts.reduce((sum, p) => sum + p.length, 0);
     const result = new Uint8Array(total);
     let offset = 0;
-    for (const part of parts) {
+    parts.forEach((part) => {
       result.set(part, offset);
       offset += part.length;
-    }
+    });
     return result;
   }
 

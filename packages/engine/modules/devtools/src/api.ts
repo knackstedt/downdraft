@@ -311,7 +311,7 @@ class DevToolsAPIImpl implements DevToolsAPI {
   getViews(): DebugViewDescriptor[] {
     // Merge built-in views with custom ones (custom takes precedence on id collision)
     const merged = new Map<string, DebugViewDescriptor>();
-    for (const v of BUILTIN_VIEW_DESCRIPTORS) merged.set(v.id, v);
+    BUILTIN_VIEW_DESCRIPTORS.forEach((v) => { merged.set(v.id, v);; });
     for (const v of this.views.values()) merged.set(v.id, v);
     return Array.from(merged.values()).sort((a, b) => (a.order ?? 100) - (b.order ?? 100));
   }

@@ -30,7 +30,7 @@ export function parseSDFFont(json: string): SDFFontData {
   const glyphs = new Map<number, SDFGlyph>();
 
   if (data.glyphs) {
-    for (const glyph of data.glyphs) {
+    data.glyphs.forEach((glyph: any) => {
       glyphs.set(glyph.unicode, {
         char: String.fromCodePoint(glyph.unicode),
         charCode: glyph.unicode,
@@ -42,7 +42,7 @@ export function parseSDFFont(json: string): SDFFontData {
         bearingX: glyph.planeBounds?.left ?? 0,
         bearingY: glyph.planeBounds?.top ?? 0,
       });
-    }
+    });
   }
 
   return {
@@ -70,7 +70,7 @@ export function layoutSDFText(
   let penY = 0;
   const lineHeight = font.lineHeight * fontSize;
 
-  for (const char of text) {
+  for (let _i = 0, _it = text, _n = _it.length; _i < _n; _i++) { const char = _it[_i];
     const charCode = char.codePointAt(0);
     if (charCode === undefined) continue;
 

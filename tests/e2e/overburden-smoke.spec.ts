@@ -291,7 +291,7 @@ describe("overburden MCP automation smoke", () => {
 
     // Grant the inputs for the first offer, then trade.
     const offer = offers[0];
-    for (const inp of offer.inputs) {
+    for (let _i = 0, _it = offer.inputs, _n = _it.length; _i < _n; _i++) { const inp = _it[_i];
       await game!.mcpClient.callTool("give_item", { itemId: inp.itemId, count: inp.count });
     }
     await sleep(200);
@@ -303,11 +303,11 @@ describe("overburden MCP automation smoke", () => {
     // Outputs should now be in the inventory.
     const invData = parseJsonContent(await game!.mcpClient.callTool("get_inventory", { playerIndex: 0 }));
     const inv = invData.inventory as ({ itemId: string; count: number } | null)[];
-    for (const out of offer.outputs) {
+    offer.outputs.forEach((out) => {
       const slot = inv.find((s) => s && s.itemId === out.itemId);
       expect(slot, `missing trade output ${out.itemId}`).toBeDefined();
       expect(slot!.count).toBeGreaterThanOrEqual(out.count);
-    }
+    });
   }, 20000);
 
   it("rejects a trade when the blockhead can't cover the inputs", async () => {

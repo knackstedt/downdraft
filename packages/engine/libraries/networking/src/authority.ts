@@ -85,7 +85,7 @@ export class AuthorityManager {
 
   getOwnedEntities(): number[] {
     const result: number[] = [];
-    for (const [entityId, auth] of this.authorities) {
+    for (const [entityId, auth] of this.authorities.entries()) {
       if (auth.ownerPeerId === this.localPeerId) {
         result.push(entityId);
       }
@@ -95,7 +95,7 @@ export class AuthorityManager {
 
   getServerEntities(): number[] {
     const result: number[] = [];
-    for (const [entityId, auth] of this.authorities) {
+    for (const [entityId, auth] of this.authorities.entries()) {
       if (auth.authorityLevel === "server") {
         result.push(entityId);
       }

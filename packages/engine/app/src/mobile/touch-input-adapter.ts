@@ -168,9 +168,9 @@ export class TouchInputAdapter {
 
   /** Stop listening and release resources. */
   detach(): void {
-    for (const { target, event, handler } of this.listeners) {
+    this.listeners.forEach(({ target, event, handler }) => {
       target.removeEventListener(event, handler);
-    }
+    });
     this.listeners = [];
     this.touches.clear();
     this.moveTouchId = null;

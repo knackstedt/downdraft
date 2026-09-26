@@ -25,13 +25,13 @@ export function createEntityStateResource(ctx: EngineContext): ResourceRegistrat
         const entities = ctx.getAllAliveEntities();
         const dump: Record<string, unknown> = {};
 
-        for (const e of entities) {
+        entities.forEach((e) => {
           const key = ctx.getEntityKey(e);
           const arch = ctx.ecsWorld.getArchetypeForEntity(e);
           const components: Record<string, unknown> = {};
 
           if (arch) {
-            for (const [cid, col] of arch.columns) {
+            for (const [cid, col] of arch.columns.entries()) {
               const row = arch.entities.findIndex(
                 (en) => en.index === e.index && en.generation === e.generation,
               );
@@ -46,7 +46,7 @@ export function createEntityStateResource(ctx: EngineContext): ResourceRegistrat
             mesh: ctx.entityMeshes.get(key) ?? null,
             material: ctx.entityMaterials.get(key) ?? null,
           };
-        }
+        });
 
         return resourceJSON(uri, dump);
       },

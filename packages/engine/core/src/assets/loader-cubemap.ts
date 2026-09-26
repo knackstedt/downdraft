@@ -64,9 +64,9 @@ export async function loadCubemapFromDirectory(
     string, string, string, string, string, string,
   ];
   // Validate each constructed face URI for path safety
-  for (const uri of faceUris) {
+  faceUris.forEach((uri) => {
     sanitizeUri(uri);
-  }
+  });
   return loadCubemapFromFiles(faceUris);
 }
 

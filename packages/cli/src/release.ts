@@ -175,14 +175,14 @@ function classifyTargets(target: string): TargetGroups {
   const parts = target.split(",").map((s) => s.trim()).filter(Boolean);
   const desktop: string[] = [];
   const mobile: string[] = [];
-  for (const t of parts) {
+  parts.forEach((t) => {
     if (DESKTOP_TARGETS.has(t)) desktop.push(t);
     else if (MOBILE_TARGETS.has(t)) mobile.push(t);
     else {
       log.error("release", `Unknown target: ${t}. Use win, linux, mac, android, ios, or all.`);
       process.exit(1);
     }
-  }
+  });
   return { desktop, mobile };
 }
 
@@ -207,7 +207,7 @@ function parseFormats(format: string): Record<string, string> {
       out[plat.trim()] = fmt.trim();
     } else {
       // Bare format applies to all desktop platforms (e.g. --format=launcher).
-      for (const p of DESKTOP_TARGETS) out[p] = spec;
+      for (const p of DESKTOP_TARGETS.values()) out[p] = spec;
     }
   }
   return out;
@@ -363,7 +363,7 @@ export async function release(args: string[]): Promise<void> {
 
   let fail = 0;
 
-  for (const game of games) {
+  for (let _i = 0, _it = games, _n = _it.length; _i < _n; _i++) { const game = _it[_i];
     const gameDir = resolveGameDir(game) ?? resolve(monorepoRoot ?? process.cwd(), "games", game);
     const { productName, appId, version } = getGameInfo(gameDir, game);
     log.info("release", `Game: ${game} | Product: "${productName}" | AppId: ${appId} | v${version}`);

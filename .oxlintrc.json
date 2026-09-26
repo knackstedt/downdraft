@@ -1,5 +1,11 @@
 {
   "$schema": "https://raw.githubusercontent.com/oxc-project/oxc-assets/main/schema.json",
+  "jsPlugins": [
+    {
+      "name": "downdraft",
+      "specifier": "@downdraft/engine/lint-plugin"
+    }
+  ],
   "rules": {
     "no-console": [
       "error",
@@ -21,7 +27,8 @@
     "no-unsafe-optional-chaining": "error",
     "no-useless-catch": "warn",
     "eqeqeq": "warn",
-    "default-case-last": "warn"
+    "default-case-last": "warn",
+    "downdraft/no-for-of": "error"
   },
   "overrides": [
     {

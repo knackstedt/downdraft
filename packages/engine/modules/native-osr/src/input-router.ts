@@ -218,7 +218,7 @@ export class OSRInputRouter {
    * Sets forced focus mode so all mouse/keyboard events are forwarded to this renderer.
    */
   focusBillboard(): string | null {
-    for (const [texIdx, rendererId] of this.config.textureIndexToRendererId) {
+    for (const [texIdx, rendererId] of this.config.textureIndexToRendererId.entries()) {
       const status = this.config.rendererStatuses.get(rendererId);
       if (status === "crashed" || status === "failed") continue;
       this.hoveredRendererId = rendererId;
@@ -275,7 +275,7 @@ export class OSRInputRouter {
       const panelV = (hit.uv[1] - hit.element.uvOffset[1]) / hit.element.uvScale[1];
 
       // Find which panel this UV falls within
-      for (const [, rect] of layout.panels) {
+      for (const [, rect] of layout.panels.entries()) {
         const panelX = rect.x / layout.width;
         const panelY = rect.y / layout.height;
         const panelW = rect.w / layout.width;
@@ -347,7 +347,7 @@ export class OSRInputRouter {
     let closestHit: RaycastHit | null = null;
     let closestDist = Infinity;
 
-    for (const el of elements) {
+    for (let _i = 0, _it = elements, _n = _it.length; _i < _n; _i++) { const el = _it[_i];
       const cx = el.position[0];
       const cy = el.position[1];
       const cz = el.position[2];

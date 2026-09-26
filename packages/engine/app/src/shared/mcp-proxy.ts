@@ -24,7 +24,7 @@ export function createMcpProxyHandler(
   forwardToRenderer: (request: { method: string; params?: Record<string, unknown> }) => Promise<unknown>,
 ): McpProxyHandler {
   const hostToolMap = new Map<string, ToolRegistration>();
-  for (const t of hostTools) hostToolMap.set(t.def.name, t);
+  hostTools.forEach((t) => { hostToolMap.set(t.def.name, t);; });
 
   return async (request) => {
     const { method, params = {} } = request;

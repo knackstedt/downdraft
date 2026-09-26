@@ -78,10 +78,10 @@ export class UIScrollPanel extends UIPanel {
   updateContentSize(): void {
     let maxW = 0;
     let maxH = 0;
-    for (const child of this.children) {
+    this.children.forEach((child) => {
       maxW = Math.max(maxW, child.x + child.width);
       maxH = Math.max(maxH, child.y + child.height);
-    }
+    });
     this.contentWidth = maxW;
     this.contentHeight = maxH;
   }
@@ -114,12 +114,12 @@ export class UIScrollPanel extends UIPanel {
       });
     }
 
-    for (const child of this.children) {
+    for (let _i = 0, _it = this.children, _n = _it.length; _i < _n; _i++) { const child = _it[_i];
       if (!child.visible) continue;
       child.x -= this.scrollX;
       child.y -= this.scrollY;
       const childDrawables = child.getDrawable();
-      for (const d of childDrawables) {
+      for (let _i = 0, _it = childDrawables, _n = _it.length; _i < _n; _i++) { const d = _it[_i];
         // Offset by this panel's position to convert to parent coordinate system
         d.x += this.x;
         d.y += this.y;

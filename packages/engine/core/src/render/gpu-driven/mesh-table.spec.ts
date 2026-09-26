@@ -4,9 +4,9 @@ import { GpuMeshTable } from "./mesh-table";
 
 function makeMesh(verts: number[][], indices: number[], indexFormat?: "uint16" | "uint32"): ReturnType<typeof MeshBuilder.prototype.build> {
   const builder = new MeshBuilder();
-  for (const v of verts) {
+  verts.forEach((v) => {
     builder.addVertex(v as [number, number, number]);
-  }
+  });
   for (let i = 0; i < indices.length; i += 3) {
     builder.addTriangle(indices[i]!, indices[i + 1]!, indices[i + 2]!);
   }

@@ -35,9 +35,9 @@ describe("andrews-sandbox MCP automation smoke", () => {
   it("exposes the automation tool set", async () => {
     const tools = await game!.mcpClient.listTools();
     const names = new Set(tools.map((t) => t.name));
-    for (const name of ["capture_screenshot", "get_ui_state", "dispatch_key", "wait_for_condition"]) {
+    ["capture_screenshot", "get_ui_state", "dispatch_key", "wait_for_condition"].forEach((name) => {
       expect(names.has(name)).toBe(true);
-    }
+    });
   });
 
   it("reports game state via get_ui_state", async () => {

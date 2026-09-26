@@ -152,16 +152,16 @@ export class SessionManager {
     const oldIds = new Set(this.players.map((p) => p.platformPlayerId));
     const newIds = new Set(members.map((p) => p.platformPlayerId));
 
-    for (const p of members) {
+    members.forEach((p) => {
       if (!oldIds.has(p.platformPlayerId)) {
         this.playerJoinCbs.forEach((cb) => cb(p));
       }
-    }
-    for (const p of this.players) {
+    });
+    this.players.forEach((p) => {
       if (!newIds.has(p.platformPlayerId)) {
         this.playerLeaveCbs.forEach((cb) => cb(p));
       }
-    }
+    });
     this.players = [...members];
   }
 

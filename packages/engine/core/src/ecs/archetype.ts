@@ -57,14 +57,14 @@ let nextArchetypeId = 0;
 export function createArchetype(componentIds: ComponentId[]): Archetype {
   const id = nextArchetypeId++;
   const columns = new Map<ComponentId, Column>();
-  for (const cid of componentIds) {
+  componentIds.forEach((cid) => {
     const def = getComponentDefinition(cid);
     if (def?.soa) {
       columns.set(cid, createSoAColumn(def.soa));
     } else {
       columns.set(cid, []);
     }
-  }
+  });
   return {
     id,
     componentIds: [...componentIds],
@@ -76,10 +76,10 @@ export function createArchetype(componentIds: ComponentId[]): Archetype {
 }
 
 export function archetypeMatches(arch: Archetype, required: ComponentId[], excluded: ComponentId[] = []): boolean {
-  for (const cid of required) {
+  for (let _i = 0, _it = required, _n = _it.length; _i < _n; _i++) { const cid = _it[_i];
     if (!arch.componentSet.has(cid)) return false;
   }
-  for (const cid of excluded) {
+  for (let _i = 0, _it = excluded, _n = _it.length; _i < _n; _i++) { const cid = _it[_i];
     if (arch.componentSet.has(cid)) return false;
   }
   return true;
@@ -154,10 +154,10 @@ const SOA_INITIAL_CAPACITY = 16;
 /** Create a new SoA column from a schema, with initial capacity. */
 function createSoAColumn(schema: SoASchema): SoAColumn {
   const arrays: Record<string, SoATypedArray> = {};
-  for (const field of schema.fields) {
+  schema.fields.forEach((field) => {
     const type = schema.types[field]!;
     arrays[field] = new SOA_TYPED_ARRAY_CTOR[type]!(SOA_INITIAL_CAPACITY);
-  }
+  });
   return {
     __soa: true,
     length: 0,
@@ -171,13 +171,13 @@ function createSoAColumn(schema: SoASchema): SoAColumn {
 /** Double the capacity of a SoA column's TypedArrays, preserving existing data. */
 function growSoAColumn(col: SoAColumn): void {
   const newCapacity = col.capacity * 2;
-  for (const field of col.fieldNames) {
+  col.fieldNames.forEach((field) => {
     const type = col.schema.types[field]!;
     const oldArr = col.arrays[field]!;
     const newArr = new SOA_TYPED_ARRAY_CTOR[type]!(newCapacity);
     newArr.set(oldArr);
     col.arrays[field] = newArr;
-  }
+  });
   col.capacity = newCapacity;
 }
 
@@ -187,10 +187,10 @@ function soaColumnPush(col: SoAColumn, data: Record<string, unknown>): void {
     growSoAColumn(col);
   }
   const row = col.length;
-  for (const field of col.fieldNames) {
+  col.fieldNames.forEach((field) => {
     const val = data[field];
     col.arrays[field]![row] = typeof val === "number" ? val : SOA_DEFAULT_VALUE[col.schema.types[field]!]!;
-  }
+  });
   col.length++;
 }
 
@@ -198,15 +198,15 @@ function soaColumnPush(col: SoAColumn, data: Record<string, unknown>): void {
 function soaColumnSwapRemove(col: SoAColumn, row: number): void {
   const last = col.length - 1;
   if (row !== last) {
-    for (const field of col.fieldNames) {
+    col.fieldNames.forEach((field) => {
       const arr = col.arrays[field]!;
       arr[row] = arr[last]!;
-    }
+    });
   }
   // Zero out the last row (ZAII — keep TypedArrays clean for future reuse)
-  for (const field of col.fieldNames) {
+  col.fieldNames.forEach((field) => {
     col.arrays[field]![last] = 0;
-  }
+  });
   col.length--;
 }
 
@@ -217,9 +217,9 @@ function soaColumnSwapRemove(col: SoAColumn, row: number): void {
  */
 export function reconstructSoAObject(col: SoAColumn, row: number): Record<string, number> {
   const obj: Record<string, number> = {};
-  for (const field of col.fieldNames) {
+  col.fieldNames.forEach((field) => {
     obj[field] = col.arrays[field]![row]!;
-  }
+  });
   return obj;
 }
 
@@ -244,7 +244,7 @@ export function addEntityToArchetype(arch: Archetype, entity: Entity, components
   const row = arch.entities.length;
   arch.entities.push(entity);
   arch.entityRowMap.set(entity.index, row);
-  for (const cid of arch.componentIds) {
+  arch.componentIds.forEach((cid) => {
     const col = arch.columns.get(cid);
     if (col === undefined) throw new Error(`Missing column for component ${cid}`);
     if (isSoAColumn(col)) {
@@ -253,7 +253,7 @@ export function addEntityToArchetype(arch: Archetype, entity: Entity, components
     } else {
       (col as unknown[]).push(components.get(cid));
     }
-  }
+  });
 }
 
 export function removeEntityFromArchetype(arch: Archetype, entity: Entity): void {

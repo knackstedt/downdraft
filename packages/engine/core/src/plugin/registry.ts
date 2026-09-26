@@ -52,14 +52,14 @@ export class PluginRegistry {
     // Build provider map: resourceKey → plugin id that provides it.
     const providers = new Map<string, string>();
     for (const m of this.getAll()) {
-      for (const key of m.provides ?? []) {
+      (m.provides ?? []).forEach((key) => {
         if (providers.has(key)) {
           throw new Error(
             `Plugin resource "${key}" is provided by both "${providers.get(key)}" and "${m.id}".`,
           );
         }
         providers.set(key, m.id);
-      }
+      });
     }
 
     const visited = new Set<string>();
@@ -78,15 +78,15 @@ export class PluginRegistry {
       visiting.add(id);
 
       // dependencies (other plugin ids)
-      for (const dep of m.dependencies ?? []) {
+      (m.dependencies ?? []).forEach((dep) => {
         const depId = dep.split("@")[0];
         if (!this.manifests.has(depId)) {
           throw new Error(`Plugin "${id}" depends on "${depId}" which is not registered`);
         }
         visit(depId);
-      }
+      });
       // requires (resource keys → provider plugin id)
-      for (const key of m.requires ?? []) {
+      (m.requires ?? []).forEach((key) => {
         const providerId = providers.get(key);
         if (!providerId) {
           throw new Error(
@@ -94,14 +94,14 @@ export class PluginRegistry {
           );
         }
         if (providerId !== id) visit(providerId);
-      }
+      });
 
       visiting.delete(id);
       visited.add(id);
       result.push(id);
     };
 
-    for (const id of this.loadOrder) visit(id);
+    this.loadOrder.forEach((id) => { visit(id);; });
     return result;
   }
 }

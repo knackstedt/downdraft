@@ -78,9 +78,9 @@ export class IBLSystem {
       // in-flight command buffers from the current frame's render passes.
       // They will be destroyed after the frame completes via endFrame().
       this.pendingDestroy.push(this.currentEnv.irradiance);
-      for (const tex of this.currentEnv.prefilteredSpecular) {
+      this.currentEnv.prefilteredSpecular.forEach((tex) => {
         this.pendingDestroy.push(tex);
-      }
+      });
       // The cubemap is also deferred (not destroyed immediately) because it
       // may still be referenced by a previously submitted command buffer, and
       // CubemapCapturePass now creates a fresh texture each capture so the
@@ -160,9 +160,9 @@ export class IBLSystem {
 
   /** Destroy textures deferred from a mid-frame recapture. Call after the frame's command buffers have been submitted. */
   endFrame(): void {
-    for (const tex of this.pendingDestroy) {
+    this.pendingDestroy.forEach((tex) => {
       try { tex.destroy(); } catch {}
-    }
+    });
     this.pendingDestroy = [];
   }
 
@@ -170,9 +170,9 @@ export class IBLSystem {
     this.cubemapCapture?.destroy();
     this.iblBindGroup?.destroy();
     this.envManager?.destroy();
-    for (const tex of this.pendingDestroy) {
+    this.pendingDestroy.forEach((tex) => {
       try { tex.destroy(); } catch {}
-    }
+    });
     this.pendingDestroy = [];
     this.currentEnv = null;
     this.initialized = false;

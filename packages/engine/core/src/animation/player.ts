@@ -396,13 +396,13 @@ export class AnimationPlayer {
       const prevTime = this.lastSampleTimes.get(l.name) ?? l.time;
       if (l.clip.eventTrack && !l.paused) {
         const events = getEventsInRange(l.clip.eventTrack, prevTime, l.time, l.clip.duration);
-        for (const e of events) {
+        events.forEach((e) => {
           this.pendingEvents.push(e);
           const handlers = this.eventHandlers.get(e.type);
           if (handlers) {
-            for (const h of handlers) h(e);
+            handlers.forEach((h) => { h(e);; });
           }
-        }
+        });
       }
       this.lastSampleTimes.set(l.name, l.time);
 
@@ -412,10 +412,10 @@ export class AnimationPlayer {
     }
 
     // Remove faded-out layers
-    for (const name of toRemove) {
+    toRemove.forEach((name) => {
       this.layers.delete(name);
       this.layerOrder = this.layerOrder.filter((n) => n !== name);
-    }
+    });
 
     // Phase 2: Reset accumulators
     this.accPos.fill(0);
@@ -426,7 +426,7 @@ export class AnimationPlayer {
     this.accMorphWeight.fill(0);
 
     // Phase 3: Sample and accumulate non-additive layers (weighted average)
-    for (const l of activeNonAdditive) {
+    activeNonAdditive.forEach((l) => {
       // Reset result arrays to bind pose before sampling so bones without
       // tracks in this clip get bind pose values (not stale data from a
       // previous clip or the [0,0,0] initialization). This is critical for
@@ -448,11 +448,11 @@ export class AnimationPlayer {
       l.clip.sample(l.time, this.resultPositions, this.resultRotations, this.resultScales);
       l.clip.sampleMorphWeights(l.time, this.resultMorphWeights);
       const w = l.weight;
-      for (const targetIdx of l.clip.morphTrackedTargets) {
+      for (const targetIdx of l.clip.morphTrackedTargets.values()) {
         this.accMorphWeights[targetIdx] += this.resultMorphWeights[targetIdx] * w;
         this.accMorphWeight[targetIdx] += w;
       }
-      for (const boneIdx of l.clip.trackedBones) {
+      for (const boneIdx of l.clip.trackedBones.values()) {
         if (l.boneMask && !l.boneMask.has(boneIdx)) continue;
         const i3 = boneIdx * 3;
         const i4 = boneIdx * 4;
@@ -486,7 +486,7 @@ export class AnimationPlayer {
 
         this.accWeight[boneIdx] += w;
       }
-    }
+    });
 
     // Phase 4: Normalize by total weight, fallback to bind pose
     for (let i = 0; i < this.maxMorphTargets; i++) {
@@ -530,7 +530,7 @@ export class AnimationPlayer {
     }
 
     // Phase 5: Apply additive layers on top
-    for (const l of activeAdditive) {
+    activeAdditive.forEach((l) => {
       // Reset result arrays to bind pose (same reason as Phase 3).
       for (let i = 0; i < this.boneCount; i++) {
         this.resultPositions[i][0] = this.bindPositions[i][0];
@@ -547,10 +547,10 @@ export class AnimationPlayer {
       l.clip.sample(l.time, this.resultPositions, this.resultRotations, this.resultScales);
       l.clip.sampleMorphWeights(l.time, this.resultMorphWeights);
       const w = l.weight;
-      for (const targetIdx of l.clip.morphTrackedTargets) {
+      for (const targetIdx of l.clip.morphTrackedTargets.values()) {
         this.morphWeights[targetIdx] += this.resultMorphWeights[targetIdx] * w;
       }
-      for (const boneIdx of l.clip.trackedBones) {
+      for (const boneIdx of l.clip.trackedBones.values()) {
         if (l.boneMask && !l.boneMask.has(boneIdx)) continue;
 
         const rp = this.resultPositions[boneIdx];
@@ -569,7 +569,7 @@ export class AnimationPlayer {
         this.scales[boneIdx][1] += (rs[1] - bs[1]) * w;
         this.scales[boneIdx][2] += (rs[2] - bs[2]) * w;
       }
-    }
+    });
 
     this.skinMatrices = null;
 

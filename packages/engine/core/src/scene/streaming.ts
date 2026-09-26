@@ -141,7 +141,7 @@ export class WorldStreamer {
     const unloadRadius = this.config.unloadRadius;
     const toUnload: string[] = [];
 
-    for (const [key, chunk] of this.chunks) {
+    for (const [key, chunk] of this.chunks.entries()) {
       if (!chunk.loaded) continue;
       const dx = chunk.coord.x - camChunk.x;
       const dz = chunk.coord.z - camChunk.z;
@@ -151,15 +151,15 @@ export class WorldStreamer {
       }
     }
 
-    for (const key of toUnload) {
+    for (let _i = 0, _it = toUnload, _n = _it.length; _i < _n; _i++) { const key = _it[_i];
       const chunk = this.chunks.get(key);
       if (!chunk) continue;
       if (this.config.unloader) {
         this.config.unloader(chunk.coord, chunk);
       } else {
-        for (const entity of chunk.entities) {
+        chunk.entities.forEach((entity) => {
           this.world._despawnImmediate(entity);
-        }
+        });
       }
       chunk.loaded = false;
       chunk.entities = [];
@@ -267,9 +267,9 @@ export class WorldStreamer {
     if (this.config.unloader) {
       this.config.unloader(chunk.coord, chunk);
     } else {
-      for (const entity of chunk.entities) {
+      chunk.entities.forEach((entity) => {
         this.world._despawnImmediate(entity);
-      }
+      });
     }
     chunk.loaded = false;
     chunk.entities = [];
@@ -277,14 +277,14 @@ export class WorldStreamer {
   }
 
   unloadAll(): void {
-    for (const [key, chunk] of this.chunks) {
+    for (const [key, chunk] of this.chunks.entries()) {
       if (chunk.loaded) {
         if (this.config.unloader) {
           this.config.unloader(chunk.coord, chunk);
         } else {
-          for (const entity of chunk.entities) {
+          chunk.entities.forEach((entity) => {
             this.world._despawnImmediate(entity);
-          }
+          });
         }
       }
     }

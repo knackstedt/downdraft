@@ -160,7 +160,7 @@ function inspectEntityRecursive(ctx: EngineContext, entity: import("@downdraft/e
 
   const components: Record<string, unknown> = {};
   if (arch) {
-    for (const [cid, col] of arch.columns) {
+    for (const [cid, col] of arch.columns.entries()) {
       const row = arch.entities.findIndex(
         (e) => e.index === entity.index && e.generation === entity.generation,
       );

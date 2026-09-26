@@ -142,7 +142,7 @@ export class CloudSystem {
 
     // Initialize cloud layers from provider
     const layerTypes = this.provider.getLayerTypes();
-    for (const layerType of layerTypes) {
+    layerTypes.forEach((layerType) => {
       const cfg = this.provider.getLayerConfig(layerType);
       this.layers.push({
         layerType,
@@ -165,7 +165,7 @@ export class CloudSystem {
         genCenterZ: 0,
         pendingRegen: true,
       });
-    }
+    });
 
     log.info("CloudSystem", `Initialized with ${this.layers.length} layers`);
   }
@@ -180,7 +180,7 @@ export class CloudSystem {
   ): void {
     this.genThisFrame = 0;
 
-    for (const layer of this.layers) {
+    this.layers.forEach((layer) => {
       // Accumulate wind drift
       layer.windOffsetX += windDirX * windSpeed * dt;
       layer.windOffsetZ += windDirZ * windSpeed * dt;
@@ -198,7 +198,7 @@ export class CloudSystem {
       if (!layer.generated || distSq > regenDist * regenDist) {
         layer.pendingRegen = true;
       }
-    }
+    });
 
     // Process pending layer generation (one at a time for performance)
     this.processPendingGen(weatherType);
@@ -209,7 +209,7 @@ export class CloudSystem {
     const budgetMs = this.provider.getLayerGenTimeBudgetMs();
     const startTime = performance.now();
 
-    for (const layer of this.layers) {
+    for (let _i = 0, _it = this.layers, _n = _it.length; _i < _n; _i++) { const layer = _it[_i];
       if (!layer.pendingRegen) continue;
       if (this.genThisFrame >= maxPerFrame) break;
       if (performance.now() - startTime > budgetMs) break;
@@ -331,7 +331,7 @@ export class CloudSystem {
 
     passEncoder.setPipeline(this.pipeline);
 
-    for (const layer of this.layers) {
+    for (let _i = 0, _it = this.layers, _n = _it.length; _i < _n; _i++) { const layer = _it[_i];
       if (!layer.generated || !layer.vertexBuffer || !layer.indexBuffer || !layer.bindGroup) continue;
       if (layer.indexCount === 0) continue;
 
@@ -349,13 +349,13 @@ export class CloudSystem {
   }
 
   destroy(): void {
-    for (const layer of this.layers) {
+    this.layers.forEach((layer) => {
       if (layer.vertexBuffer) { layer.vertexBuffer.destroy(); layer.vertexBuffer = null; }
       if (layer.indexBuffer) { layer.indexBuffer.destroy(); layer.indexBuffer = null; }
       layer.perLayerUniform.destroy();
       // GPUBindGroup has no destroy() — just null it.
       layer.bindGroup = null;
-    }
+    });
     if (this.uniformBuffer) {
       this.uniformBuffer.destroy();
       this.uniformBuffer = null;

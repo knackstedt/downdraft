@@ -64,9 +64,9 @@ async function bench(n: number, floor: boolean, fused: boolean) {
 console.log(`FFI Rapier (native cdylib) — Bun ${Bun.version}`);
 console.log(`${"scenario".padEnd(40)} ${"N".padStart(5)} ${"step ms".padStart(9)} ${"sync ms".padStart(9)} ${"total ms".padStart(9)} ${"awake".padStart(7)}`);
 
-for (const floor of [false, true]) {
-    for (const fused of [false, true]) {
-        for (const n of SIZES) {
+for (let _i = 0, _it = [false, true], _n = _it.length; _i < _n; _i++) { const floor = _it[_i];
+    for (let _i = 0, _it = [false, true], _n = _it.length; _i < _n; _i++) { const fused = _it[_i];
+        for (let _i = 0, _it = SIZES, _n = _it.length; _i < _n; _i++) { const n = _it[_i];
             const r = await bench(n, floor, fused);
             const name = `${floor ? "piled" : "freefall"}${fused ? " (fused)" : ""}`;
             console.log(

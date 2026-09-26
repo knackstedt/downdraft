@@ -154,14 +154,14 @@ export class TouchOsd {
     const order: string[] = ["zoom-in", "zoom-out", "place", "mine", "jump"];
     let actionY = h - actionBottom - actionSize;
     const seen = new Set<string>();
-    for (const id of order) {
+    for (let _i = 0, _it = order, _n = _it.length; _i < _n; _i++) { const id = _it[_i];
       if (!actionBtns.includes(id) || seen.has(id)) continue;
       seen.add(id);
       this.makeActionButton(id as TouchOsdButtonId, w - actionRight - actionSize, actionY, actionSize);
       actionY -= actionSize + actionGap;
     }
     // Any action buttons not in the canonical order (defensive) — stack below.
-    for (const id of actionBtns) {
+    for (let _i = 0, _it = actionBtns, _n = _it.length; _i < _n; _i++) { const id = _it[_i];
       if (seen.has(id)) continue;
       seen.add(id);
       this.makeActionButton(id as TouchOsdButtonId, w - actionRight - actionSize, actionY, actionSize);
@@ -301,10 +301,10 @@ export class TouchOsd {
   }
 
   private destroyButtons(): void {
-    for (const { el } of this.buttonEls) {
+    this.buttonEls.forEach(({ el }) => {
       (el as any).__osdCleanup?.();
       el.remove();
-    }
+    });
     this.buttonEls = [];
   }
 

@@ -44,7 +44,7 @@ function parsePLYHeader(data: ArrayBuffer): { header: PLYHeader; headerLength: n
 
   let currentElement: PLYElement | null = null;
 
-  for (const line of lines) {
+  for (let _i = 0, _it = lines, _n = _it.length; _i < _n; _i++) { const line = _it[_i];
     const trimmed = line.trim();
     if (trimmed.length === 0 || trimmed.startsWith("comment")) continue;
 
@@ -135,7 +135,7 @@ function parseASCIIPLY(data: ArrayBuffer, header: PLYHeader, headerLength: numbe
   for (let i = 0; i < vertexElement.count && lineIdx < lines.length; i++, lineIdx++) {
     const parts = lines[lineIdx].trim().split(/\s+/);
     let pi = 0;
-    for (const prop of vertexElement.properties) {
+    vertexElement.properties.forEach((prop) => {
       const val = parseFloat(parts[pi]);
       if (prop.name === "x") positions.push(val);
       else if (prop.name === "y") positions.push(val);
@@ -150,7 +150,7 @@ function parseASCIIPLY(data: ArrayBuffer, header: PLYHeader, headerLength: numbe
       else if (prop.name === "blue") colors.push(val / 255);
       else if (prop.name === "alpha") colors.push(val / 255);
       pi++;
-    }
+    });
   }
 
   // Read faces
@@ -239,7 +239,7 @@ function parseBinaryPLY(data: ArrayBuffer, header: PLYHeader, headerLength: numb
 
   // Read vertices
   for (let i = 0; i < vertexElement.count; i++) {
-    for (const prop of vertexElement.properties) {
+    vertexElement.properties.forEach((prop) => {
       const [val, size] = readPLYValue(view, offset, prop.type, littleEndian);
       offset += size;
 
@@ -255,7 +255,7 @@ function parseBinaryPLY(data: ArrayBuffer, header: PLYHeader, headerLength: numb
       else if (prop.name === "green") colors.push(val / 255);
       else if (prop.name === "blue") colors.push(val / 255);
       else if (prop.name === "alpha") colors.push(val / 255);
-    }
+    });
   }
 
   // Read faces
@@ -266,10 +266,10 @@ function parseBinaryPLY(data: ArrayBuffer, header: PLYHeader, headerLength: numb
       const countProp = faceElement.properties.find((p) => p.isList);
       if (!countProp) {
         // Non-list face element, skip
-        for (const prop of faceElement.properties) {
+        faceElement.properties.forEach((prop) => {
           const [, size] = readPLYValue(view, offset, prop.type, littleEndian);
           offset += size;
-        }
+        });
         continue;
       }
 
@@ -284,7 +284,7 @@ function parseBinaryPLY(data: ArrayBuffer, header: PLYHeader, headerLength: numb
       }
 
       // Skip remaining properties
-      for (const prop of faceElement.properties) {
+      for (let _i = 0, _it = faceElement.properties, _n = _it.length; _i < _n; _i++) { const prop = _it[_i];
         if (prop.isList) continue;
         const [, size] = readPLYValue(view, offset, prop.type, littleEndian);
         offset += size;

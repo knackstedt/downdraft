@@ -121,7 +121,7 @@ export class LabelOverlay {
     const labels = this.provider.getLabels();
     const usedKeys = new Set<string>();
 
-    for (const label of labels) {
+    for (let _i = 0, _it = labels, _n = _it.length; _i < _n; _i++) { const label = _it[_i];
       usedKeys.add(label.key);
       const proj = this.projectToScreen(label.x, label.y, label.z, viewProj, canvasW, canvasH);
       if (!proj || proj.behind) continue;
@@ -136,7 +136,7 @@ export class LabelOverlay {
       el.style.display = "block";
     }
 
-    for (const [key, entry] of this.labels) {
+    for (const [key, entry] of this.labels.entries()) {
       if (!usedKeys.has(key)) {
         entry.el.style.display = "none";
       }

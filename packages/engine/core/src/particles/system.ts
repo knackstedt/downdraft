@@ -93,7 +93,7 @@ export class ParticleSystem {
   }
 
   update(dt: number): void {
-    for (const [id, entry] of this.emitters) {
+    for (const [id, entry] of this.emitters.entries()) {
       if (!entry.data.active) continue;
 
       if (this.config.useGPUCompute && this.device) {
@@ -148,7 +148,7 @@ export class ParticleSystem {
 
     this.renderPass.setCamera(viewProj, cameraPos);
 
-    for (const [, entry] of this.emitters) {
+    for (const [, entry] of this.emitters.entries()) {
       if (this.config.useGPUCompute) {
         // GPU compute path: render directly from compute buffer
         // This requires the render pass to read from the compute buffer
@@ -181,7 +181,7 @@ export class ParticleSystem {
   }
 
   destroy(): void {
-    for (const [, compute] of this.computePasses) {
+    for (const [, compute] of this.computePasses.entries()) {
       compute.destroy();
     }
     this.computePasses.clear();

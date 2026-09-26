@@ -259,7 +259,7 @@ export function registerModelLoaders(
 ): void {
   const loader = createModelAsyncLoader(opts);
   const extensions = ["fbx", "gltf", "glb", "obj", "dae", "stl", "ply", "3ds", "off", "vtk", "dxf", "3mf"];
-  for (const ext of extensions) {
+  extensions.forEach((ext) => {
     assetManager.registerLoader(ext, loader);
-  }
+  });
 }

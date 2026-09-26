@@ -370,7 +370,7 @@ export class FrameGraph {
     this.allocatePhysicalTextures(device, pool);
 
     // Pooled textures that no resource claimed are now garbage.
-    for (const pt of pool) pt.texture.destroy();
+    pool.forEach((pt) => { pt.texture.destroy();; });
 
     // Validate
     this.validate();
@@ -520,7 +520,7 @@ export class FrameGraph {
     for (let i = 0; i < this.executionOrder.length; i++) {
       const { builder } = this.executionOrder[i];
       const all = new Set([...builder.reads, ...builder.writes]);
-      for (const id of all) {
+      for (const id of all.values()) {
         const resource = this.resources.get(id);
         if (!resource || resource.external || !resource.lifetime) continue;
         resource.lifetime.first = Math.min(resource.lifetime.first, i);
@@ -556,7 +556,7 @@ export class FrameGraph {
       (pt.usage & desc.usage) === desc.usage &&
       pt.sampleCount === sampleCount;
 
-    for (const resource of transients) {
+    transients.forEach((resource) => {
       const w = resource.width || this.surfaceWidth;
       const h = resource.height || this.surfaceHeight;
       const desc = resource.desc!;
@@ -566,7 +566,7 @@ export class FrameGraph {
       // Usage compatibility: the physical texture's usage must be a superset of the
       // resource's required usage (i.e. it must support all flags the resource needs).
       let reused: PhysicalTexture | null = null;
-      for (const pt of this.physicalTextures) {
+      for (let _i = 0, _it = this.physicalTextures, _n = _it.length; _i < _n; _i++) { const pt = _it[_i];
         if (specMatches(pt, w, h, desc, sampleCount) && pt.lastUsed < resource.lifetime!.first) {
           reused = pt;
           break;
@@ -611,13 +611,13 @@ export class FrameGraph {
         resource.cachedView = undefined;
         this.aliasing.set(resource.name, name);
       }
-    }
+    });
   }
 
   private destroyPhysicalTextures(): void {
-    for (const pt of this.physicalTextures) {
+    this.physicalTextures.forEach((pt) => {
       pt.texture.destroy();
-    }
+    });
     this.physicalTextures = [];
   }
 
@@ -643,12 +643,12 @@ export class FrameGraph {
     const readsOf = new Map<number, number[]>(); // resourceId -> reader indices (ascending)
     for (let i = 0; i < n; i++) {
       const { reads, writes } = this.passes[i].builder;
-      for (const readId of reads) {
+      for (const readId of reads.values()) {
         let list = readsOf.get(readId);
         if (!list) readsOf.set(readId, (list = []));
         list.push(i);
       }
-      for (const writeId of writes) {
+      for (const writeId of writes.values()) {
         let list = writers.get(writeId);
         if (!list) writers.set(writeId, (list = []));
         list.push(i);
@@ -660,25 +660,25 @@ export class FrameGraph {
       for (let k = 1; k < ws.length; k++) addEdge(ws[k - 1], ws[k]);
     }
 
-    for (const [resId, readers] of readsOf) {
+    for (const [resId, readers] of readsOf.entries()) {
       const ws = writers.get(resId);
       if (!ws || ws.length === 0) continue; // no producer — validate() reports it
-      for (const i of readers) {
+      readers.forEach((i) => {
         // Bound producer: last writer at-or-before i, else first writer after i.
         let bound = -1;
-        for (const wIdx of ws) { if (wIdx <= i) bound = wIdx; else break; }
+        for (let _i = 0, _it = ws, _n = _it.length; _i < _n; _i++) { const wIdx = _it[_i]; if (wIdx <= i) bound = wIdx; else break; }
         const boundPos = bound === -1 ? 0 : ws.indexOf(bound);
         const producer = bound === -1 ? ws[0] : bound;
         addEdge(producer, i); // RAW
         // WAR: next writer after the bound producer must wait for this reader.
         const next = ws[boundPos + 1];
         if (next !== undefined) addEdge(i, next);
-      }
+      });
     }
 
     const inDegree = new Array<number>(n).fill(0);
     for (let i = 0; i < n; i++) {
-      for (const to of adj[i]) inDegree[to]++;
+      for (const to of adj[i].values()) inDegree[to]++;
     }
 
     // Kahn's algorithm, preserving registration order for ties. The queue is
@@ -701,7 +701,7 @@ export class FrameGraph {
     while (queue.length > 0) {
       const idx = queue.shift()!;
       result.push(idx);
-      for (const neighbor of adj[idx]) {
+      for (const neighbor of adj[idx].values()) {
         if (--inDegree[neighbor] === 0) pushSorted(neighbor);
       }
     }
@@ -718,16 +718,16 @@ export class FrameGraph {
     const produced = new Set<number>();
     const errors: string[] = [];
 
-    for (const entry of this.executionOrder) {
-      for (const readId of entry.builder.reads) {
+    this.executionOrder.forEach((entry) => {
+      for (const readId of entry.builder.reads.values()) {
         if (!produced.has(readId) && !this.resources.get(readId)?.external) {
           errors.push(`Pass "${entry.pass.name}" reads "${this.resources.get(readId)?.name ?? readId}" before it is produced`);
         }
       }
-      for (const writeId of entry.builder.writes) {
+      for (const writeId of entry.builder.writes.values()) {
         produced.add(writeId);
       }
-    }
+    });
 
     if (errors.length > 0) {
       log.warn("FrameGraph", `Validation errors:\n${errors.join("\n")}`);

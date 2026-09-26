@@ -362,9 +362,9 @@ describe("OpfsSaveStore", () => {
     );
 
     // All saves should succeed
-    for (const result of saves) {
+    saves.forEach((result) => {
       expect(result.success).toBe(true);
-    }
+    });
 
     // Generations should be 1, 2, 3, 4, 5 (not all 1)
     const gens = saves.map(r => r.gen);

@@ -72,17 +72,17 @@ export class PrefabFactory {
     if (!prefab) throw new Error(`Prefab "${prefabName}" not found`);
 
     const components = new Map<ComponentId, unknown>();
-    for (const entry of prefab.components) {
+    prefab.components.forEach((entry) => {
       components.set(entry.componentId, { ...entry.data });
-    }
+    });
 
     const entity = this.world.spawn(components);
     this.hierarchy.setParent(entity, parent ?? ROOT_ENTITY);
 
     if (prefab.children) {
-      for (const child of prefab.children) {
+      prefab.children.forEach((child) => {
         this.spawnChild(child, entity);
-      }
+      });
     }
 
     return entity;
@@ -92,19 +92,19 @@ export class PrefabFactory {
     const components = new Map<ComponentId, unknown>();
 
     if (child.components) {
-      for (const entry of child.components) {
+      child.components.forEach((entry) => {
         components.set(entry.componentId, { ...entry.data });
-      }
+      });
     }
 
     if (child.prefab) {
       const prefab = this.registry.get(child.prefab);
       if (prefab) {
-        for (const entry of prefab.components) {
+        prefab.components.forEach((entry) => {
           if (!components.has(entry.componentId)) {
             components.set(entry.componentId, { ...entry.data });
           }
-        }
+        });
       }
     }
 
@@ -114,9 +114,9 @@ export class PrefabFactory {
     if (child.prefab) {
       const prefab = this.registry.get(child.prefab);
       if (prefab?.children) {
-        for (const grandchild of prefab.children) {
+        prefab.children.forEach((grandchild) => {
           this.spawnChild(grandchild, entity);
-        }
+        });
       }
     }
 

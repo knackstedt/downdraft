@@ -345,12 +345,12 @@ export function validatePluginManifest(raw: unknown): PluginManifestValidation {
   }
 
   // provides / requires / dependencies
-  for (const field of ["provides", "requires", "dependencies"] as const) {
+  (["provides", "requires", "dependencies"] as const).forEach((field) => {
     const v = m[field];
     if (v !== undefined && (!Array.isArray(v) || !v.every((x) => typeof x === "string"))) {
       errors.push(`${field}: must be an array of strings`);
     }
-  }
+  });
 
   // assets
   if (m.assets !== undefined) {
@@ -365,11 +365,11 @@ export function validatePluginManifest(raw: unknown): PluginManifestValidation {
           if (typeof v !== "string") errors.push(`assets.files["${k}"]: must be a string path`);
         }
       }
-      for (const sub of ["textures", "audio", "meshes", "data"] as const) {
+      (["textures", "audio", "meshes", "data"] as const).forEach((sub) => {
         if (a[sub] !== undefined && (!Array.isArray(a[sub]) || !a[sub].every((x) => typeof x === "string"))) {
           errors.push(`assets.${sub}: must be an array of strings`);
         }
-      }
+      });
     }
   }
 
@@ -620,19 +620,19 @@ function normalizeLogicAndExtensions(m: PluginManifest): void {
   // already present (data-tier asset plugins).
   if (!m.extensions && m.assets) {
     const assets: ModAssetExtension[] = [];
-    for (const meshPath of m.assets.meshes ?? []) {
+    (m.assets.meshes ?? []).forEach((meshPath) => {
       assets.push({ kind: "mesh", id: meshPath, path: meshPath });
-    }
-    for (const texPath of m.assets.textures ?? []) {
+    });
+    (m.assets.textures ?? []).forEach((texPath) => {
       assets.push({ kind: "texture", id: texPath, path: texPath });
-    }
-    for (const dataPath of m.assets.data ?? []) {
+    });
+    (m.assets.data ?? []).forEach((dataPath) => {
       // Legacy data files are registered as textures of kind "texture" only if
       // they're image files; otherwise they're opaque data. Keep them as
       // texture-kind entries with the data path so the asset loader can
       // dispatch by extension.
       assets.push({ kind: "texture", id: dataPath, path: dataPath });
-    }
+    });
     if (assets.length > 0) m.extensions = { assets };
   }
 }
@@ -644,10 +644,10 @@ export function flattenExtensions(m: PluginManifest): ModExtensionDispatch[] {
   const out: ModExtensionDispatch[] = [];
   const ext = m.extensions;
   if (!ext) return out;
-  for (const a of ext.assets ?? []) out.push({ bucket: "assets", extension: a as unknown as Record<string, unknown> });
-  for (const mp of ext.maps ?? []) out.push({ bucket: "maps", extension: mp as unknown as Record<string, unknown> });
-  for (const p of ext.physics ?? []) out.push({ bucket: "physics", extension: p as unknown as Record<string, unknown> });
-  for (const fx of ext.shaders?.postfx ?? []) out.push({ bucket: "shader-postfx", extension: fx as unknown as Record<string, unknown> });
-  for (const mat of ext.shaders?.materials ?? []) out.push({ bucket: "shader-material", extension: mat as unknown as Record<string, unknown> });
+  (ext.assets ?? []).forEach((a) => { out.push({ bucket: "assets", extension: a as unknown as Record<string, unknown> });; });
+  (ext.maps ?? []).forEach((mp) => { out.push({ bucket: "maps", extension: mp as unknown as Record<string, unknown> });; });
+  (ext.physics ?? []).forEach((p) => { out.push({ bucket: "physics", extension: p as unknown as Record<string, unknown> });; });
+  (ext.shaders?.postfx ?? []).forEach((fx) => { out.push({ bucket: "shader-postfx", extension: fx as unknown as Record<string, unknown> });; });
+  (ext.shaders?.materials ?? []).forEach((mat) => { out.push({ bucket: "shader-material", extension: mat as unknown as Record<string, unknown> });; });
   return out;
 }

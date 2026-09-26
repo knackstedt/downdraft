@@ -16,7 +16,7 @@ try {
     await call("dispatch_key", { key: k, code, type: "keyup" });
   };
   const click = async (x: number, y: number) => {
-    for (const type of ["mousedown", "mouseup", "click"]) {
+    for (let _i = 0, _it = ["mousedown", "mouseup", "click"], _n = _it.length; _i < _n; _i++) { const type = _it[_i];
       await call("dispatch_click", { x, y, type });
     }
   };

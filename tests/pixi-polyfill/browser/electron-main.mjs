@@ -44,9 +44,9 @@ if (useSwiftshader) {
     ["disable-gpu-sandbox"],
   );
 }
-for (const [name, value] of switches) {
+switches.forEach(([name, value]) => {
   app.commandLine.appendSwitch(name, value);
-}
+});
 
 const HARNESS_URL = process.env.HARNESS_URL ?? "http://localhost:0/";
 const WIN_W = parseInt(process.env.HARNESS_W ?? "1024", 10);

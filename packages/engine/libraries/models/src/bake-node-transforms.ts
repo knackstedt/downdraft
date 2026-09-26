@@ -89,13 +89,13 @@ export function bakeNodeTransforms(modelData: ModelData): void {
 
   // Find root nodes (nodes with no parent).
   const hasParent = new Set<number>();
-  for (const node of modelData.nodes) {
+  modelData.nodes.forEach((node) => {
     if (node.children) {
-      for (const childIdx of node.children) {
+      node.children.forEach((childIdx) => {
         hasParent.add(childIdx);
-      }
+      });
     }
-  }
+  });
   const rootIndices: number[] = [];
   for (let i = 0; i < modelData.nodes.length; i++) {
     if (!hasParent.has(i)) rootIndices.push(i);
@@ -108,15 +108,15 @@ export function bakeNodeTransforms(modelData: ModelData): void {
     worldTransforms[nodeIdx] = world;
 
     if (node.children) {
-      for (const childIdx of node.children) {
+      node.children.forEach((childIdx) => {
         traverse(childIdx, world);
-      }
+      });
     }
   }
 
-  for (const rootIdx of rootIndices) {
+  rootIndices.forEach((rootIdx) => {
     traverse(rootIdx, identityTransform());
-  }
+  });
 
   // Apply world transforms to mesh vertices and normals.
   // Skip skinned meshes — their node hierarchy transforms are encoded in the
@@ -137,7 +137,7 @@ export function bakeNodeTransforms(modelData: ModelData): void {
       wt.scale[0] === 1 && wt.scale[1] === 1 && wt.scale[2] === 1;
     if (isIdentity) continue;
 
-    for (const meshIdx of nodeMeshes) {
+    for (let _i = 0, _it = nodeMeshes, _n = _it.length; _i < _n; _i++) { const meshIdx = _it[_i];
       if (meshIdx >= modelData.meshes.length) continue;
       const mesh = modelData.meshes[meshIdx];
       // Skip skinned meshes (see comment above).

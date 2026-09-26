@@ -99,7 +99,7 @@ async function hydrateState(): Promise<void> {
     await bridgeCall("state.load", []);
     const keys = (await bridgeCall("state.keys", [])) as string[] | undefined;
     if (Array.isArray(keys)) {
-      for (const k of keys) {
+      for (let _i = 0, _it = keys, _n = _it.length; _i < _n; _i++) { const k = _it[_i];
         localState.set(k, await bridgeCall("state.get", [k]));
       }
     }

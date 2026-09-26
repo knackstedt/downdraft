@@ -55,7 +55,7 @@ class MockWorker {
   }
 
   receive(msg: any): void {
-    for (const cb of this.listeners) cb({ data: msg } as MessageEvent);
+    this.listeners.forEach((cb) => { cb({ data: msg } as MessageEvent);; });
   }
 
   emit(kind: string, data?: unknown): void {

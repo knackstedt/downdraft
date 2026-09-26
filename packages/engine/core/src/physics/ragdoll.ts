@@ -68,7 +68,7 @@ export function createRagdoll(
   const jointIds: number[] = [];
   const boneNames: string[] = [];
 
-  for (const boneCfg of config.bones) {
+  for (let _i = 0, _it = config.bones, _n = _it.length; _i < _n; _i++) { const boneCfg = _it[_i];
     const boneIdx = skeleton.getBoneIndex(boneCfg.boneName);
     if (boneIdx < 0) {
       bodyHandles.push({ realmId: realm.id, id: -1, entity });
@@ -100,7 +100,7 @@ export function createRagdoll(
     boneNames.push(boneCfg.boneName);
   }
 
-  for (const jointCfg of config.joints) {
+  for (let _i = 0, _it = config.joints, _n = _it.length; _i < _n; _i++) { const jointCfg = _it[_i];
     const parentIdx = boneNames.indexOf(jointCfg.parentBone);
     const childIdx = boneNames.indexOf(jointCfg.childBone);
     if (parentIdx < 0 || childIdx < 0) {
@@ -142,16 +142,16 @@ export function createRagdoll(
 }
 
 export function destroyRagdoll(realm: PhysicsRealm, ragdoll: RagdollData): void {
-  for (const jointId of ragdoll.jointIds) {
+  ragdoll.jointIds.forEach((jointId) => {
     if (jointId >= 0) {
       realm.destroyJoint(jointId);
     }
-  }
-  for (const handle of ragdoll.bodyHandles) {
+  });
+  ragdoll.bodyHandles.forEach((handle) => {
     if (handle.id >= 0) {
       realm.destroyBody(handle);
     }
-  }
+  });
   ragdoll.jointIds = [];
   ragdoll.bodyHandles = [];
   ragdoll.active = false;
@@ -170,13 +170,13 @@ function computeBoneWorldPosition(skeleton: Skeleton, boneIdx: number): [number,
     chain.unshift(idx);
     idx = bones[idx].parentIndex;
   }
-  for (const bi of chain) {
+  chain.forEach((bi) => {
     const bone = bones[bi];
     pos = [
       pos[0] + bone.bindPosition[0],
       pos[1] + bone.bindPosition[1],
       pos[2] + bone.bindPosition[2],
     ];
-  }
+  });
   return pos;
 }

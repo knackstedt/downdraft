@@ -39,7 +39,7 @@ export function resolveParams(
   params: SystemParam[],
 ): ResolvedParam[] {
   const resolved: ResolvedParam[] = [];
-  for (const param of params) {
+  params.forEach((param) => {
     if (param.kind === "res") {
       // Live view: the getter reads from the world on every .value access,
       // so resource updates (including hot-reload) are reflected immediately.
@@ -51,7 +51,7 @@ export function resolveParams(
     } else {
       resolved.push(param.query);
     }
-  }
+  });
   return resolved;
 }
 

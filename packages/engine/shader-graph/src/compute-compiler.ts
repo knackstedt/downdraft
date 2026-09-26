@@ -188,13 +188,13 @@ export class ComputeGraphCompiler {
     const connections = graph.getConnections();
 
     const nodeMap = new Map<string, GraphNode>();
-    for (const n of nodes) nodeMap.set(n.id, n);
+    nodes.forEach((n) => { nodeMap.set(n.id, n);; });
 
     const inputConnections = new Map<string, Map<string, Connection>>();
-    for (const conn of connections) {
+    connections.forEach((conn) => {
       if (!inputConnections.has(conn.to)) inputConnections.set(conn.to, new Map());
       inputConnections.get(conn.to)!.set(conn.toPort, conn);
-    }
+    });
 
     // Output nodes are buffer_store nodes — they produce side-effect writes.
     const outputNodes = nodes.filter((n) => n.type === "buffer_store");
@@ -264,13 +264,13 @@ export class ComputeGraphCompiler {
       return expr;
     };
 
-    for (const outNode of outputNodes) {
+    outputNodes.forEach((outNode) => {
       compileNode(outNode.id);
-    }
+    });
 
     // Also compile any standalone side-effect nodes (barriers, atomics) not
     // connected to a buffer_store output.
-    for (const node of nodes) {
+    nodes.forEach((node) => {
       const sideEffectTypes = [
         "workgroup_barrier", "storage_barrier", "all_barrier",
         "atomic_add", "atomic_sub", "atomic_min", "atomic_max", "atomic_exchange",
@@ -278,7 +278,7 @@ export class ComputeGraphCompiler {
       if (sideEffectTypes.includes(node.type) && !visited.has(node.id)) {
         compileNode(node.id);
       }
-    }
+    });
 
     const wgsl = this.buildComputeShader(graph, profile, statements, errors);
     return { wgsl, errors };

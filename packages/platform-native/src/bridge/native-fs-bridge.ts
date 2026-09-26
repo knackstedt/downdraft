@@ -45,7 +45,7 @@ async function listDirTree(dir: string, fileFilter: ((n: string) => boolean) | u
     return [];
   }
   const entries: NativeFsTreeEntry[] = [];
-  for (const d of dirents) {
+  for (let _i = 0, _it = dirents, _n = _it.length; _i < _n; _i++) { const d = _it[_i];
     if (d.name.startsWith(".")) continue;
     const full = join(dir, d.name);
     if (d.isDirectory()) {
@@ -81,7 +81,7 @@ export function createNativeMvBridge(window: NativeWindow, opts: NativeMvBridgeO
   window.addEventListener("dropfile", (e: any) => {
     const p = e?.path ?? e?.data;
     if (typeof p === "string" && p.length > 0) {
-      for (const cb of openPathListeners) cb([p]);
+      for (const cb of openPathListeners.values()) cb([p]);
     }
   });
 

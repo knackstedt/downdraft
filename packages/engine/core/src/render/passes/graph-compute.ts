@@ -108,7 +108,7 @@ export class GraphComputePass extends RenderPass {
     if (!this.pipeline || !this.bindGroup || !this.device) return;
 
     // Flush pending uniform data
-    for (const [name, data] of this.pendingUniformData) {
+    for (const [name, data] of this.pendingUniformData.entries()) {
       const buf = this.getBuffer(name);
       if (buf) {
         ctx.device.queue.writeBuffer(buf, 0, data as unknown as BufferSource);
@@ -281,9 +281,9 @@ export class GraphComputePass extends RenderPass {
 
   private computeStructSize(fields: { name: string; type: string }[]): number {
     let size = 0;
-    for (const f of fields) {
+    fields.forEach((f) => {
       size += this.wgslTypeSize(f.type);
-    }
+    });
     // Round up to 16-byte alignment (WGSL uniform buffer min alignment)
     return Math.ceil(size / 16) * 16;
   }

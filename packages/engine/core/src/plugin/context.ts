@@ -324,7 +324,7 @@ export function makeNativeContext(
   ): ((...args: A) => Promise<R>) => {
     return (...args: A) => {
       if (granted) {
-        for (const perm of HOST_CALL_PERMS[name] ?? []) {
+        for (let _i = 0, _it = HOST_CALL_PERMS[name] ?? [], _n = _it.length; _i < _n; _i++) { const perm = _it[_i];
           if (!granted.has(perm)) {
             return Promise.reject(permError(name as string, perm, b.id));
           }

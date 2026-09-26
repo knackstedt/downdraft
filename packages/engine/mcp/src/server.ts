@@ -98,23 +98,23 @@ export class MCPServer {
       ...(this.opts?.extraTools ?? []),
     ];
 
-    for (const tool of allTools) {
+    allTools.forEach((tool) => {
       this.tools.set(tool.def.name, tool);
-    }
+    });
   }
 
   private registerAllResources(): void {
     const allResources = createResources(this.ctx);
-    for (const res of allResources) {
+    allResources.forEach((res) => {
       this.resources.set(res.def.uri, res);
-    }
+    });
   }
 
   private registerAllPrompts(): void {
     const allPrompts = createPrompts();
-    for (const prompt of allPrompts) {
+    allPrompts.forEach((prompt) => {
       this.prompts.set(prompt.def.name, prompt);
-    }
+    });
   }
 
   getEngineContext(): EngineContext {
@@ -161,7 +161,7 @@ export class MCPServer {
     if (!schema || schema.type !== "object") return null;
     const required = schema.required ?? [];
     const properties = schema.properties ?? {};
-    for (const req of required) {
+    for (let _i = 0, _it = required, _n = _it.length; _i < _n; _i++) { const req = _it[_i];
       if (!(req in params)) {
         return `Missing required parameter: ${req}`;
       }

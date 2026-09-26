@@ -182,7 +182,7 @@ export class GraphModel {
     if (!fromNodeData || !toNodeData) return null;
 
     // No duplicate connections to same input
-    for (const c of this.connections) {
+    for (let _i = 0, _it = this.connections, _n = _it.length; _i < _n; _i++) { const c = _it[_i];
       if (c.toNode === toNode && c.toPort === toPort) return null;
     }
 
@@ -243,7 +243,7 @@ export class GraphModel {
     this.connections = [];
 
     if (data.nodes) {
-      for (const n of data.nodes) {
+      for (let _i = 0, _it = data.nodes, _n = _it.length; _i < _n; _i++) { const n = _it[_i];
         const def = this.nodeRegistry[n.type];
         if (!def) continue;
         const node: GraphNode = {
@@ -264,7 +264,7 @@ export class GraphModel {
     }
 
     if (data.connections) {
-      for (const c of data.connections) {
+      data.connections.forEach((c) => {
         if (this.nodes.has(c.fromNode) && this.nodes.has(c.toNode)) {
           this.connections.push({
             id: connId(),
@@ -274,7 +274,7 @@ export class GraphModel {
             toPort: c.toPort,
           });
         }
-      }
+      });
     }
   }
 
@@ -322,10 +322,10 @@ export class GraphModel {
 
     // Cycle detection via DFS
     const adj: Record<string, string[]> = {};
-    for (const n of nodes) adj[n.id] = [];
-    for (const c of connections) {
+    nodes.forEach((n) => { adj[n.id] = [];; });
+    connections.forEach((c) => {
       if (adj[c.fromNode]) adj[c.fromNode].push(c.toNode);
-    }
+    });
 
     const visited = new Set<string>();
     const stack = new Set<string>();
@@ -334,7 +334,7 @@ export class GraphModel {
       visited.add(nodeId);
       stack.add(nodeId);
       const neighbors = adj[nodeId] || [];
-      for (const neighbor of neighbors) {
+      for (let _i = 0, _it = neighbors, _n = _it.length; _i < _n; _i++) { const neighbor = _it[_i];
         if (!visited.has(neighbor)) {
           if (dfs(neighbor)) return true;
         } else if (stack.has(neighbor)) {
@@ -345,7 +345,7 @@ export class GraphModel {
       return false;
     }
 
-    for (const n of nodes) {
+    for (let _i = 0, _it = nodes, _n = _it.length; _i < _n; _i++) { const n = _it[_i];
       if (!visited.has(n.id)) {
         if (dfs(n.id)) {
           errors.push("Graph contains a cycle");
@@ -355,24 +355,24 @@ export class GraphModel {
     }
 
     // Check disconnected non-optional inputs
-    for (const n of nodes) {
-      for (const inp of n.inputs || []) {
+    nodes.forEach((n) => {
+      for (let _i = 0, _it = n.inputs || [], _n = _it.length; _i < _n; _i++) { const inp = _it[_i];
         if (inp.optional) continue;
         const hasConn = connections.some((c) => c.toNode === n.id && c.toPort === inp.name);
         if (!hasConn) {
           warnings.push(`Node '${n.label || n.type}' has unconnected input: ${inp.name}`);
         }
       }
-    }
+    });
 
     // Check for orphan nodes
     if (nodes.length > 1) {
-      for (const n of nodes) {
+      nodes.forEach((n) => {
         const hasConn = connections.some((c) => c.fromNode === n.id || c.toNode === n.id);
         if (!hasConn) {
           warnings.push(`Node '${n.label || n.type}' is not connected to anything`);
         }
-      }
+      });
     }
 
     return { errors, warnings, valid: errors.length === 0 };
@@ -445,9 +445,9 @@ export class GraphModel {
   private _defaultProperties(def: NodeTypeDef): Record<string, unknown> {
     const props: Record<string, unknown> = {};
     if (def.properties) {
-      for (const p of def.properties) {
+      def.properties.forEach((p) => {
         props[p.name] = p.default !== undefined ? p.default : null;
-      }
+      });
     }
     return props;
   }

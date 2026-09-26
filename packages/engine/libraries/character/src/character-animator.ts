@@ -31,7 +31,7 @@ const log = createLogger("info");
 // rigs that use different naming conventions.
 
 export function findBoneIndex(boneNameToIndex: Map<string, number>, names: string[]): number {
-  for (const n of names) {
+  for (let _i = 0, _it = names, _n = _it.length; _i < _n; _i++) { const n = _it[_i];
     const idx = boneNameToIndex.get(n);
     if (idx !== undefined) return idx;
   }
@@ -248,9 +248,9 @@ export class CharacterAnimator {
     // Register retargeted animations (handles mixamorig: → UE bone name
     // mapping + pre-rotation/rest-rotation baking).
     if (modelData.animations) {
-      for (const anim of modelData.animations) {
+      modelData.animations.forEach((anim) => {
         this.animator.registerRetargetedAnimations([anim], anim.name);
-      }
+      });
       log.info("CharacterAnimator", `Registered ${modelData.animations.length} retargeted animations: ${modelData.animations.map((a) => a.name).join(", ")}`);
     }
 

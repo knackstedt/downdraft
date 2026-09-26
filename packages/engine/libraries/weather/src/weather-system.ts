@@ -48,7 +48,7 @@ export class WeatherSystem {
 
     if (this.state.type === WeatherType.Rain || this.state.type === WeatherType.Storm ||
         this.state.type === WeatherType.HellStorm) {
-      for (const [id, amount] of this.rainCollectors) {
+      for (const [id, amount] of this.rainCollectors.entries()) {
         const newAmount = Math.min(
           this.config.rainCollectorCapacity,
           amount + this.config.rainCollectorFillRate * dt * this.state.intensity,

@@ -34,11 +34,11 @@ export class DeltaEncoder {
   encodeDelta(snapshot: ReplicationSnapshot, componentDefs: Map<number, ReplicatedComponent>): DeltaSnapshot {
     const entities: DeltaSnapshot["entities"] = [];
 
-    for (const entity of snapshot.entities) {
+    snapshot.entities.forEach((entity) => {
       const prevEntity = this.previousData.get(entity.entityId);
       const changedComponents: DeltaSnapshot["entities"][0]["changedComponents"] = [];
 
-      for (const comp of entity.components) {
+      for (let _i = 0, _it = entity.components, _n = _it.length; _i < _n; _i++) { const comp = _it[_i];
         const compDef = componentDefs.get(comp.componentId);
         if (!compDef) continue;
 
@@ -77,10 +77,10 @@ export class DeltaEncoder {
           const totalSize = changedFields.reduce((s, f) => s + f.length, 0);
           const merged = new Uint8Array(totalSize);
           let off = 0;
-          for (const f of changedFields) {
+          changedFields.forEach((f) => {
             merged.set(f, off);
             off += f.length;
-          }
+          });
           changedComponents.push({ componentId: comp.componentId, fieldMask, data: merged });
         }
       }
@@ -88,7 +88,7 @@ export class DeltaEncoder {
       if (changedComponents.length > 0) {
         entities.push({ entityId: entity.entityId, changedComponents });
       }
-    }
+    });
 
     const delta: DeltaSnapshot = {
       tick: snapshot.tick,
@@ -96,14 +96,14 @@ export class DeltaEncoder {
       entities,
     };
 
-    for (const entity of snapshot.entities) {
+    snapshot.entities.forEach((entity) => {
       if (!this.previousData.has(entity.entityId)) {
         this.previousData.set(entity.entityId, new Map());
       }
-      for (const comp of entity.components) {
+      entity.components.forEach((comp) => {
         this.previousData.get(entity.entityId)!.set(comp.componentId, comp.data);
-      }
-    }
+      });
+    });
     this.previousTick = snapshot.tick;
 
     return delta;
@@ -148,10 +148,10 @@ export class DeltaDecoder {
   decodeDelta(delta: DeltaSnapshot, componentDefs: Map<number, ReplicatedComponent>): ReplicationSnapshot {
     const entities: ReplicationSnapshot["entities"] = [];
 
-    for (const entity of delta.entities) {
+    delta.entities.forEach((entity) => {
       const components: ReplicationSnapshot["entities"][0]["components"] = [];
 
-      for (const comp of entity.changedComponents) {
+      for (let _i = 0, _it = entity.changedComponents, _n = _it.length; _i < _n; _i++) { const comp = _it[_i];
         const compDef = componentDefs.get(comp.componentId);
         if (!compDef) continue;
 
@@ -196,7 +196,7 @@ export class DeltaDecoder {
       if (components.length > 0) {
         entities.push({ entityId: entity.entityId, components });
       }
-    }
+    });
 
     return { tick: delta.tick, entities };
   }
@@ -257,7 +257,7 @@ export class InterestManager {
 
     const relevant: number[] = [];
     const radiusSq = area.radius * area.radius;
-    for (const [entityId, pos] of this.entityPositions) {
+    for (const [entityId, pos] of this.entityPositions.entries()) {
       const dx = pos.x - area.centerX;
       const dy = pos.y - area.centerY;
       const dz = pos.z - area.centerZ;

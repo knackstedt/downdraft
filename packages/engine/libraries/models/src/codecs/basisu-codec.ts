@@ -162,10 +162,10 @@ export function createBasisuTextureCodec(): TextureCodec {
 
       const combined = new Uint8Array(totalSize);
       let offset = 0;
-      for (const lb of levelBytes) {
+      levelBytes.forEach((lb) => {
         combined.set(lb, offset);
         offset += lb.byteLength;
-      }
+      });
 
       return {
         data: combined,

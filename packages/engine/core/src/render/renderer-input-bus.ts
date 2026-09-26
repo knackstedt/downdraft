@@ -92,9 +92,9 @@ export class RendererInputBusImpl implements RendererInputBus {
   // ── Lifecycle ──
 
   destroy(): void {
-    for (const { target, event, handler } of this.listeners) {
+    this.listeners.forEach(({ target, event, handler }) => {
       target.removeEventListener(event, handler);
-    }
+    });
     this.listeners = [];
     this.pointerDownSubs = [];
     this.pointerMoveSubs = [];

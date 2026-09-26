@@ -70,19 +70,19 @@ export async function packageLauncher(
 
   const artifacts: string[] = [];
 
-  for (const platform of platforms) {
+  for (let _i = 0, _it = platforms, _n = _it.length; _i < _n; _i++) { const platform = _it[_i];
     const platformDir = join(outPath, platform);
     if (!existsSync(platformDir)) {
       mkdirSync(platformDir, { recursive: true });
     }
 
     const buildFiles = collectAllFiles(buildDir);
-    for (const file of buildFiles) {
+    buildFiles.forEach((file) => {
       const rel = relative(buildDir, file);
       const dest = join(platformDir, rel);
       ensureDirExists(dest);
       copyFileSync(file, dest);
-    }
+    });
 
     const launcherName = manifest.name ?? "game";
     if (platform === "windows") {
@@ -173,7 +173,7 @@ function collectAllFiles(dir: string): string[] {
   if (!existsSync(dir)) return results;
 
   const entries = readdirSync(dir);
-  for (const entry of entries) {
+  for (let _i = 0, _it = entries, _n = _it.length; _i < _n; _i++) { const entry = _it[_i];
     const fullPath = join(dir, entry);
     const stat = statSync(fullPath);
     if (stat.isDirectory()) {

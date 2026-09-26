@@ -58,7 +58,7 @@ function parseStructBody(body: string): ParsedWgslField[] {
   // Split on commas (top-level — struct bodies here don't nest commas in
   // practice; array sizes are numeric literals).
   const parts = body.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
-  for (const part of parts) {
+  for (let _i = 0, _it = parts, _n = _it.length; _i < _n; _i++) { const part = _it[_i];
     // Strip leading attributes: @location(0), @builtin(x), @align(16), etc.
     const stripped = part.replace(/@\w+(\([^)]*\))?/g, "").trim();
     if (!stripped) continue;
@@ -161,7 +161,7 @@ export function compareStruct(
   let offset = 0;
   let structAlign = 4;
   const parsedLayout: { name: string; offset: number; type: WgslType }[] = [];
-  for (const f of parsed.fields) {
+  for (let _i = 0, _it = parsed.fields, _n = _it.length; _i < _n; _i++) { const f = _it[_i];
     let type: WgslType;
     try {
       type = wgslTypeFromString(f.typeWgsl);
@@ -180,15 +180,15 @@ export function compareStruct(
   // Compare field sets.
   const defNames = new Set(def.fieldMap.keys());
   const parsedNames = new Set(parsed.fields.map((f) => f.name));
-  for (const n of defNames) {
+  for (const n of defNames.values()) {
     if (!parsedNames.has(n)) errors.push(`field "${n}" missing in wgsl`);
   }
-  for (const n of parsedNames) {
+  for (const n of parsedNames.values()) {
     if (!defNames.has(n)) errors.push(`field "${n}" missing in def`);
   }
 
   // Compare offsets + types for shared fields.
-  for (const pl of parsedLayout) {
+  for (let _i = 0, _it = parsedLayout, _n = _it.length; _i < _n; _i++) { const pl = _it[_i];
     const df = def.fieldMap.get(pl.name);
     if (!df) continue;
     if (df.offset !== pl.offset) {

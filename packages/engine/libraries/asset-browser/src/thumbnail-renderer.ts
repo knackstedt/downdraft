@@ -146,11 +146,11 @@ function computeFlatNormals(positions: Float32Array, indices: Uint16Array | Uint
     let nz = ux*vy - uy*vx;
     const nl = Math.hypot(nx, ny, nz) || 1;
     nx /= nl; ny /= nl; nz /= nl;
-    for (const j of [a, b, c]) {
+    [a, b, c].forEach((j) => {
       normals[j]   += nx;
       normals[j+1] += ny;
       normals[j+2] += nz;
-    }
+    });
   }
   // Normalize accumulated normals
   for (let i = 0; i < normals.length; i += 3) {
@@ -302,12 +302,12 @@ export class ThumbnailRenderer {
     const meshes = model.meshes;
     if (!meshes || meshes.length === 0) { this.uploadBuiltinCube(contentId); return; }
     let totalVerts = 0, totalIdx = 0;
-    for (const m of meshes) { totalVerts += m.vertexCount; totalIdx += m.indexCount; }
+    meshes.forEach((m) => { totalVerts += m.vertexCount; totalIdx += m.indexCount; });
     const positions = new Float32Array(totalVerts * 3);
     const is32 = totalIdx > 65535;
     const indices = is32 ? new Uint32Array(totalIdx) : new Uint16Array(totalIdx);
     let vOff = 0, iOff = 0, vBase = 0;
-    for (const m of meshes) {
+    meshes.forEach((m) => {
       // GLTF parser stores 6 floats/vert (pos.xyz + norm.xyz interleaved).
       // Other parsers may store 3 floats/vert (pos.xyz only). Detect stride.
       const stride = m.vertices.length / m.vertexCount;
@@ -324,7 +324,7 @@ export class ThumbnailRenderer {
       }
       iOff += m.indexCount;
       vBase += m.vertexCount;
-    }
+    });
     // Bounds
     let center: [number, number, number] = [0, 0, 0];
     let radius = 0.5;

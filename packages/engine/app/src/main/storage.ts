@@ -73,7 +73,7 @@ export function cleanupStaleStorage(userDataDir: string): void {
   let cleanedLocks = 0;
   let cleanedTemps = 0;
 
-  for (const relPath of STALE_LOCK_REL_PATHS) {
+  STALE_LOCK_REL_PATHS.forEach((relPath) => {
     const lockPath = join(userDataDir, relPath);
     try {
       if (existsSync(lockPath)) {
@@ -84,12 +84,12 @@ export function cleanupStaleStorage(userDataDir: string): void {
       // Lock file is held by a live process (shouldn't happen after
       // single-instance lock) or already removed — ignore.
     }
-  }
+  });
 
   // Clean up Chromium temp/crash-dump files (.org.chromium.Chromium.*)
   try {
     const entries = readdirSync(userDataDir);
-    for (const entry of entries) {
+    entries.forEach((entry) => {
       if (entry.startsWith(CHROMIUM_TEMP_PREFIX)) {
         try {
           rmSync(join(userDataDir, entry), { recursive: true, force: true });
@@ -98,7 +98,7 @@ export function cleanupStaleStorage(userDataDir: string): void {
           // In use or permission issue — skip.
         }
       }
-    }
+    });
   } catch {
     // userData dir doesn't exist yet (first run) — nothing to clean.
   }
