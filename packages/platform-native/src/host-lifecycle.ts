@@ -11,10 +11,15 @@
 // dev workflows can still run concurrent instances.
 // ============================================================================
 
+import { createLogger } from "@downdraft/engine/util/logger";
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveNativeUserDataDir } from "./bridge/user-data-dir";
 import type { NativeWindow } from "./window/native-window";
+
+const log = createLogger("info");
 
 // ── Single-instance lock ─────────────────────────────────────────────────────
 // A lock file at <userData>/singleton.lock holds the owning PID. A live PID
@@ -127,7 +132,11 @@ export function installWindowStatePersistence(appId: string, window: NativeWindo
 
 // ── Error dialogs ────────────────────────────────────────────────────────────
 // SDL_ShowSimpleMessageBox is modal + blocking — the nearest native equivalent
-// of the Electron HTML error window (main/error-dialog.ts). Install once.
+// of the Electron HTML error window (main/error-dialog.ts) — but its X11
+// fallback renders unselectable text in a barebones window. So the full error
+// is mirrored to stderr, the clipboard, and <userData>/crash.log before the
+// dialog opens, and on Linux a zenity/kdialog text view (selectable,
+// scrollable) is preferred when available. Install once.
 
 let errorHandlersInstalled = false;
 
@@ -138,13 +147,54 @@ function isEpipeError(err: unknown): boolean {
   return err instanceof Error && err.message.includes("write EPIPE");
 }
 
-/** uncaughtException/unhandledRejection → modal SDL message box, then exit.
+/** Modal fatal-error dialog. On Linux, prefer zenity/kdialog showing the crash
+ *  log in a selectable text view; fall back to SDL's simple message box. */
+function showFatalDialog(window: NativeWindow, title: string, message: string, logPath: string | null): void {
+  if (process.platform === "linux" && logPath) {
+    const attempts: [string, string[]][] = [
+      ["zenity", ["--text-info", "--title", title, "--filename", logPath, "--width", "900", "--height", "600"]],
+      ["kdialog", ["--title", title, "--textbox", logPath, "900", "600"]],
+    ];
+    for (const [cmd, args] of attempts) {
+      try {
+        const t = Date.now();
+        const r = spawnSync(cmd, args, { stdio: "ignore" });
+        // A fast nonzero exit means the dialog never appeared (binary
+        // missing, can't open display) — fall through to the next option.
+        if (!r.error && (r.status === 0 || Date.now() - t > 500)) return;
+      } catch { /* not installed — try next */ }
+    }
+  }
+  try { window.showMessageBox(title, message); } catch { /* SDL gone */ }
+}
+
+/** uncaughtException/unhandledRejection → fatal report + modal dialog, then exit.
  *  Mirrors the Electron path's "dialog closes → app quits" fatal semantics. */
-export function installNativeErrorHandlers(window: NativeWindow): void {
+export function installNativeErrorHandlers(window: NativeWindow, appId?: string): void {
   if (errorHandlersInstalled) return;
   errorHandlersInstalled = true;
   const show = (title: string, detail: string) => {
-    try { window.showMessageBox(title, detail.slice(0, 4000)); } catch { /* SDL gone */ }
+    // stderr first — `draft dev` pipes it to the terminal, so the error is
+    // never trapped inside the unselectable SDL box.
+    log.fatal("NativeErrorHandlers", `\n${title}:\n${detail}\n`);
+
+    let logPath: string | null = null;
+    try {
+      const dir = appId ? resolveNativeUserDataDir(appId) : tmpdir();
+      mkdirSync(dir, { recursive: true });
+      logPath = join(dir, "crash.log");
+      writeFileSync(logPath, `${title} — ${new Date().toISOString()}\n\n${detail}\n`);
+    } catch { logPath = null; }
+
+    let copied = false;
+    try { window.setClipboardText(detail); copied = true; } catch { /* optional */ }
+
+    const notes = ["printed to stderr"];
+    if (copied) notes.push("copied to the clipboard");
+    if (logPath) notes.push(`written to ${logPath}`);
+    const message = detail.slice(0, 4000) + `\n\n(Full error ${notes.join(", ")}.)`;
+
+    showFatalDialog(window, title, message, logPath);
     process.exit(1);
   };
   process.on("uncaughtException", (err) => {
