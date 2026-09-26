@@ -10,6 +10,7 @@ import { debug } from "./debug";
 import { dev } from "./dev";
 import { dist } from "./dist";
 import { exportGame } from "./export";
+import { mcp } from "./mcp";
 import { mobile } from "./mobile";
 import { newProject } from "./new";
 import { pluginCommand } from "./plugin-command";
@@ -95,6 +96,9 @@ async function main() {
         break;
       case "test":
         await runTest(process.argv.slice(3));
+        break;
+      case "mcp":
+        await mcp(process.argv.slice(3));
         break;
       case "plugin":
         await pluginCommand(process.argv.slice(3));

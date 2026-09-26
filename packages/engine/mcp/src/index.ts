@@ -1,3 +1,5 @@
+export { discoverGameInstance, findFreePort, GameClient, launchGame, listGameInstances, McpClientError, mcpPortDir } from "./client";
+export type { CallOptions, GameClientOptions, GameInstance, InstanceSelector, LaunchedGame, LaunchGameOptions, ProcessProbe } from "./client";
 export { EngineContext } from "./engine-context";
 export type { EngineContextFromGameOptions, EngineContextOptions } from "./engine-context";
 export { MCPServer } from "./server";

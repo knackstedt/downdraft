@@ -61,3 +61,31 @@ In dev mode or with `--debug` flag, telemetry is exposed via MCP tools:
 - `get_telemetry(duration)` — Get telemetry for a duration
 
 All threads and processes report GC pause duration, memory usage, and CPU time. Telemetry has zero overhead in prod mode (instrumentation is compiled out).
+
+## Game automation endpoint (running games)
+
+Separate from the editor server above, every running game exposes an in-process MCP automation endpoint (JSON-RPC over HTTP on `127.0.0.1`) for testing and scripted verification: `capture_screenshot`, `inject_input`, `wait_for_condition`, `get_player_state`, `get_world_state`, `set_test_state`, and game-specific tools. Each instance writes `~/.downdraft/port/<pid>` with its bound port; clients discover the newest live instance automatically.
+
+The endpoint is dev/test infrastructure — `draft release` / `scripts/package-native.mjs` compile it out of distributed binaries (`--mcp` retains it, still runtime-gated by `DOWNDRAFT_MCP=1`).
+
+Three ways to talk to it:
+
+```bash
+draft mcp instances                      # list live game instances
+draft mcp tools                          # list tools (name + description)
+draft mcp call get_world_state           # call a tool, JSON args optional
+draft mcp screenshot shot.png            # capture_screenshot → file
+draft mcp run verify.ts --game my-game   # launch game → run script → kill
+draft mcp stdio                          # stdio→HTTP bridge for MCP clients
+```
+
+```ts
+import { GameClient, launchGame } from "@downdraft/engine/mcp/client";
+
+const game = await launchGame({ game: "my-game", deterministic: true });
+const state = await game.client.callJson("get_world_state");
+await game.client.screenshot("shot.png");
+await game.kill();
+```
+
+`draft mcp` prints tool text output to stdout (capped at `--max-bytes`, default 256 KiB); image/binary blocks are never inlined — pass `--out <file>` or `--json`.

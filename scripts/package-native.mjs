@@ -3,6 +3,12 @@
 // binary plus a staged runtime tree:
 //
 //   bun scripts/package-native.mjs games/mining-rpg/src/native-entry.ts /tmp/out/mining
+//   bun scripts/package-native.mjs --mcp <entry> <outfile>   # retain the MCP endpoint
+//
+// By default the in-process MCP automation endpoint is compiled OUT of
+// packaged binaries (__DD_MCP_STRIP__ define → dead code). --mcp retains it:
+// the endpoint still stays off at runtime unless DOWNDRAFT_MCP=1 is set
+// (see native-host.ts).
 //
 // Produces:
 //   <outfile>                    compiled binary
@@ -34,9 +40,13 @@ import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 
-const [entry, outfile] = process.argv.slice(2);
+const argv = process.argv.slice(2);
+// --mcp retains the MCP automation endpoint in the packaged binary (still
+// gated at runtime by DOWNDRAFT_MCP=1). Default: strip it.
+const retainMcp = argv.includes("--mcp");
+const [entry, outfile] = argv.filter((a) => a !== "--mcp");
 if (!entry || !outfile) {
-  console.error("usage: bun scripts/package-native.mjs <entry.ts> <outfile>");
+  console.error("usage: bun scripts/package-native.mjs [--mcp] <entry.ts> <outfile>");
   process.exit(1);
 }
 
@@ -178,9 +188,15 @@ const makePlugin = (collectWorkers) => ({
       });
     }
     // CSS — no DOM in native mode; discard like the runtime loader does.
-    build.onResolve({ filter: /\.css$/ }, (args) => ({
-      path: args.path, namespace: "dd-css",
-    }));
+    // Resolve to an absolute path — a relative namespaced path can be
+    // re-serialized as "dd-css:./x.css" and rejected as a bogus package.
+    // Unresolvable package-rooted CSS (exports-map-hidden) still stubs out.
+    build.onResolve({ filter: /\.css$/ }, (args) => {
+      let path;
+      try { path = resolveImport(args.path, args.importer); }
+      catch { path = resolve(dirname(args.importer), args.path); }
+      return { path, namespace: "dd-css" };
+    });
     build.onLoad({ filter: /.*/, namespace: "dd-css" }, () => ({
       contents: `export default "";`, loader: "js",
     }));
@@ -324,6 +340,7 @@ while (workerEntries.size !== prevCount) {
     splitting: false,
     sourcemap: "none",
     minify: false,
+    define: retainMcp ? {} : { __DD_MCP_STRIP__: "true" },
     outdir: "/tmp/dd-scan-out",
   });
   if (!scan.success) {
@@ -345,6 +362,8 @@ const result = await Bun.build({
   splitting: false,
   sourcemap: "none",
   minify: false,
+  // Strip the MCP endpoint from distributed binaries unless --mcp was passed.
+  define: retainMcp ? {} : { __DD_MCP_STRIP__: "true" },
   // koffi is the Node-only FFI fallback (dead under Bun); its native addon
   // can't bundle, and the import is guarded by runtime detection anyway.
   external: ["koffi"],

@@ -405,7 +405,7 @@ A plain browser cannot reproduce any of this, and Playwright driving a browser w
 **Instead, use the in-game MCP automation harness and `draft test`:**
 
 1. **`bun run draft:test-cpu`** (or `bun run draft:test`) — the canonical way to launch and exercise a game headlessly. `draft test` sets `DOWNDRAFT_DETERMINISTIC=1` and spawns `bun test <spec>`; the default smoke specs use the in-game MCP RPC harness to boot the real game and drive it. The only runtime is **native** — `--runtime=electron` errors. See "Running the smoke test" below for the full CLI flag reference.
-2. **The `game` MCP server** (configured in `.devin/mcp_config.json` via the stdio→HTTP bridge at `.devin/mcp-stdio-bridge.mjs`) — once a game is running, this exposes the game's automation tools directly to your MCP client. The bridge auto-discovers the running instance via PID files in `~/.downdraft/port/<pid>` (content = the bound port). **List the tools first with `mcp_list_tools` before calling any of them** — never guess tool names or argument schemas. The currently registered tools (see `games/to-the-ocean/src/mcp/automation-tools.ts`) include:
+2. **The `game` MCP server** (configured in `.devin/mcp_config.json` as `bun packages/cli/src/index.ts mcp stdio` — a stdio→HTTP bridge inside `draft mcp`) — once a game is running, this exposes the game's automation tools directly to your MCP client. The bridge auto-discovers the running instance via PID files in `~/.downdraft/port/<pid>` (content = the bound port). **List the tools first with `mcp_list_tools` before calling any of them** — never guess tool names or argument schemas. The currently registered tools (see `games/to-the-ocean/src/mcp/automation-tools.ts`) include:
    - `inject_input` / `clear_injected_input` — hold keys/mouse/wheel for N frames.
    - `dispatch_key` / `dispatch_click` — fire real DOM events on the main thread (full input pipeline).
    - `get_player_state` / `get_world_state` / `get_ui_state` — read simulation/UI state.
@@ -759,31 +759,48 @@ Input injection is merged with real DOM input in `processInput()` so the game lo
 
 ### Connecting Devin's MCP client to the game
 
-The game's MCP HTTP transport (`packages/engine/mcp/src/http-transport.ts`) supports both Streamable HTTP and HTTP+SSE transports. By default it binds to an **ephemeral OS-assigned port** (port 0) so multiple game instances never collide. Devin's MCP client uses stdio for local servers, so a stdio-to-HTTP bridge (`.devin/mcp-stdio-bridge.mjs`) forwards JSON-RPC messages from stdin/stdout to the game's HTTP endpoint.
+The game's MCP HTTP transport (`packages/engine/mcp/src/http-transport.ts`) supports both Streamable HTTP and HTTP+SSE transports. By default it binds to an **ephemeral OS-assigned port** (port 0) so multiple game instances never collide. **The endpoint is dev/test infrastructure only — `scripts/package-native.mjs` (`draft release`) defines `__DD_MCP_STRIP__` so it's compiled out of distributed binaries; `--mcp` retains it (still runtime-gated by `DOWNDRAFT_MCP=1`).** Devin's MCP client uses stdio for local servers, so `draft mcp stdio` forwards JSON-RPC messages from stdin/stdout to the game's HTTP endpoint.
 
-**Instance discovery:** Each running game writes `~/.downdraft/port/<pid>` (content = the bound port number). The bridge reads this directory, prunes dead-PID files, and connects to the newest live instance. Optional env vars on the bridge:
+**Instance discovery:** Each running game writes `~/.downdraft/port/<pid>` (content = the bound port number; `<pid>.token` holds the bearer token when auth is required). `GameClient.connect()` / `draft mcp` / the stdio bridge all read this directory, prune dead-PID files, and connect to the newest live instance. Optional env vars:
 - `MCP_APP_ID=<appId>` — narrow to instances of a specific game (matches `--user-data-dir=<path>` basename on Linux; e.g. `downdraft-to-the-ocean`).
 - `MCP_PID=<pid>` — connect to a specific PID.
-- `MCP_HTTP_URL=<url>` — explicit URL override (skips discovery; used by the e2e test harness).
+- `DOWNDRAFT_MCP_URL` / `MCP_HTTP_URL=<url>` — explicit URL override (skips discovery; used by the e2e test harness and `draft mcp run`).
 
 To connect:
 1. Start the game: `cd games/to-the-ocean && DOWNDRAFT_GPU=swiftshader DOWNDRAFT_DETERMINISTIC=1 draft dev`
-2. The MCP config (`.devin/mcp_config.json`) defines the `game` server using the bridge script.
+2. The MCP config (`.devin/mcp_config.json`) runs `bun packages/cli/src/index.ts mcp stdio`.
 3. The bridge discovers the port from `~/.downdraft/port/<pid>` and forwards `initialize`, `tools/list`, `tools/call` to `http://localhost:<port>/mcp`.
 4. Notifications (messages without an `id` field, like `notifications/initialized`) are silently ignored by the bridge.
 5. `resources/list` and `prompts/list` return empty lists (the game doesn't expose resources or prompts).
 
-**Multiple instances:** Launch as many games as you like — each gets its own ephemeral port and PID file. The bridge connects to the newest by default; set `MCP_APP_ID` in `.devin/mcp_config.json`'s `env` to target a specific game.
+**Multiple instances:** Launch as many games as you like — each gets its own ephemeral port and PID file. Clients connect to the newest by default; use `--app`/`--pid` (or `MCP_APP_ID`/`MCP_PID`) to target a specific game.
 
-**One-shot shell access:** `scripts/mcp-call.mjs` calls game MCP tools directly from bash — handy for quick debugging when no MCP client is attached. Each run performs its own `initialize` handshake, so it never depends on a cached session id. Uses the same `~/.downdraft/port/` discovery and `MCP_APP_ID`/`MCP_PID`/`MCP_HTTP_URL` selectors as the bridge, and sends the `<pid>.token` auth header when present.
+**Programmatic client (`@downdraft/engine/mcp/client`):** the single implementation of discovery + handshake + envelope unwrapping — used by `draft mcp`, the stdio bridge, and the e2e harness. Node- and Bun-compatible.
 
-```bash
-node scripts/mcp-call.mjs --list                          # tools/list
-node scripts/mcp-call.mjs get_world_state                 # tools/call, no args
-node scripts/mcp-call.mjs set_test_state '{"weather":1}'  # tools/call with JSON args
+```ts
+import { GameClient, launchGame } from "@downdraft/engine/mcp/client";
+
+const client = await GameClient.connect();          // PID-file discovery
+const tools = await client.listTools();
+const state = await client.callJson("get_world_state");
+await client.screenshot("shot.png");
+
+const game = await launchGame({ game: "to-the-ocean", deterministic: true });
+await game.client.callText("get_player_state");
+await game.kill();                                   // process-tree kill
 ```
 
-`MCP_RAW=1` dumps the full tool-result JSON — needed for non-text content like `capture_screenshot`'s image blocks (otherwise only text blocks print).
+**One-shot shell access:** `draft mcp` calls game MCP tools directly from bash (replaces the old `scripts/mcp-call.mjs`). Output contract: payload on stdout, diagnostics on stderr, text capped at `--max-bytes` (256 KiB), image blocks never inline — `--out <file>` writes them to disk, `--json` prints the raw envelope with `data` elided to `{bytes}`.
+
+```bash
+draft mcp instances                              # live instances (pid, port, appId)
+draft mcp tools                                  # tools/list (name + description)
+draft mcp tools --schema get_world_state         # one tool's inputSchema
+draft mcp call get_world_state                   # tools/call, no args
+draft mcp call set_test_state '{"weather":1}'    # tools/call with JSON args
+draft mcp screenshot shot.png                    # capture_screenshot → file
+draft mcp run script.ts --game to-the-ocean      # launch game → run script (gets DOWNDRAFT_MCP_URL) → kill
+```
 
 **Runtime benchmark:** `node scripts/bench-runtime.mjs <game> native [--settle=8] [--sample=15] [--no-mcp]` launches a game, measures boot→MCP-ready, sim tick rate, process RSS/CPU, captures a screenshot, and scans the log for errors. Prints one JSON line. The `electron` target is dormant.
 

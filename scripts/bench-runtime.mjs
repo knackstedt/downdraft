@@ -16,7 +16,9 @@ import { join, resolve } from "node:path";
 
 const ROOT = resolve(new URL("..", import.meta.url).pathname);
 const PORT_DIR = join(homedir(), ".downdraft", "port");
-const MCP_CALL = join(ROOT, "scripts", "mcp-call.mjs");
+// One-shot MCP calls go through `draft mcp` (the script it replaced,
+// scripts/mcp-call.mjs, was a hand-rolled copy of the same protocol).
+const MCP_CLI = join(ROOT, "packages", "cli", "src", "index.ts");
 
 const [game, runtime] = process.argv.slice(2);
 if (!game || !["native", "electron"].includes(runtime)) {
@@ -52,11 +54,11 @@ function portEntries() {
 
 function mcp(tool, args = {}, pid, timeoutMs = 30000, extraEnv = {}) {
   try {
-    const res = execFileSync("node", [MCP_CALL, tool, JSON.stringify(args)], {
+    const res = execFileSync("bun", [MCP_CLI, "mcp", "call", tool, JSON.stringify(args)], {
       env: { ...process.env, MCP_PID: String(pid), ...extraEnv },
       timeout: timeoutMs,
       encoding: "utf8",
-      maxBuffer: 64 * 1024 * 1024, // screenshot base64 payloads can exceed the 1MB default
+      maxBuffer: 64 * 1024 * 1024,
       stdio: ["ignore", "pipe", "pipe"],
     });
     return { ok: true, text: res.trim() };
@@ -240,22 +242,31 @@ if (group.length >= 2) {
 }
 
 // ── Screenshot ──
-const shot = inst ? mcp("capture_screenshot", {}, inst.pid, 30000) : { ok: false, error: "no MCP" };
-out.screenshot = { ok: shot.ok };
-if (shot.ok) {
-  // capture_screenshot returns a text block + an image block; mcp-call
-  // prints text-only unless MCP_RAW is set — retry raw to get the PNG.
-  const raw = mcp("capture_screenshot", {}, inst.pid, 30000, { MCP_RAW: "1" });
-  const parsed = parseJson(raw.ok ? raw : shot);
-  const imgBlock = parsed?.content?.find?.((c) => c.type === "image" && c.data);
-  const b64 = imgBlock?.data ?? parsed?.data ?? parsed?.png ?? (shot.text.match(/[A-Za-z0-9+/=]{1000,}/)?.[0]);
-  if (b64) {
-    writeFileSync(shotPath, Buffer.from(b64, "base64"));
+// `draft mcp screenshot` writes the image block straight to a file — no
+// base64 round-trip through stdout.
+if (inst) {
+  const shot = (() => {
+    try {
+      execFileSync("bun", [MCP_CLI, "mcp", "screenshot", shotPath], {
+        env: { ...process.env, MCP_PID: String(inst.pid) },
+        timeout: 30000,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: (e.stderr || e.message || String(e)).toString().slice(0, 300) };
+    }
+  })();
+  out.screenshot = { ok: shot.ok };
+  if (shot.ok) {
     out.screenshot.bytes = statSync(shotPath).size;
+    out.screenshot.path = shotPath;
+  } else {
+    out.screenshot.error = shot.error;
   }
-  out.screenshot.path = shotPath;
 } else {
-  out.screenshot.error = shot.error;
+  out.screenshot = { ok: false, error: "no MCP" };
 }
 
 // ── Error scan ──

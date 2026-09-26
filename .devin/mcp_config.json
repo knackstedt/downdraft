@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "game": {
-      "command": "node",
-      "args": [".devin/mcp-stdio-bridge.mjs"]
+      "command": "bun",
+      "args": ["packages/cli/src/index.ts", "mcp", "stdio"]
     }
   }
 }

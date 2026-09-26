@@ -37,6 +37,7 @@ import { createLogger } from "@downdraft/engine/util/logger";
 import { spawn } from "node:child_process";
 import { WgpuDevice } from "../gpu/wgpu-wrapper";
 import { createNativeOsrHost } from "../osr/native-osr-host";
+import { isPackaged } from "../packaged";
 import { encodePNG } from "../screenshot/screenshot";
 import type { HostServices } from "../services/host-services";
 import type { NativeSurface } from "../window/native-surface";
@@ -303,17 +304,6 @@ export function createNativeBridge(opts: NativeBridgeOptions): DowndraftBridgeAP
   };
 
   return bridge;
-}
-
-function isPackaged(): boolean {
-  // Bun-compiled executables expose Bun.embeddedFiles / execPath inside the
-  // binary; env override wins for tests and packaging dry-runs.
-  if (process.env.DOWNDRAFT_PACKAGED === "1") return true;
-  const g = globalThis as Record<string, unknown>;
-  if (typeof g.Bun === "object" && g.Bun && Array.isArray((g.Bun as { embeddedFiles?: unknown[] }).embeddedFiles)) {
-    return ((g.Bun as { embeddedFiles: unknown[] }).embeddedFiles?.length ?? 0) > 0;
-  }
-  return false;
 }
 
 function openExternal(url: string): void {
