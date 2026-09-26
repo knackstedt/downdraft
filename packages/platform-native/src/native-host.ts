@@ -28,14 +28,19 @@ import {
     releaseSingleInstanceLock,
 } from "./host-lifecycle";
 import { installImagePolyfills } from "./image/native-image";
-import { startNativeMcpServer, type NativeMcpOptions, type NativeMcpServer } from "./mcp/native-mcp";
+import type { NativeMcpOptions, NativeMcpServer } from "./mcp/native-mcp";
 import { installRestartHook } from "./native-restart";
+import { isPackaged } from "./packaged";
 import { captureScreenshot, captureScreenshotPixels } from "./screenshot/screenshot";
 import { createHostServices, type HostServices } from "./services/host-services";
 import { NativeSurface } from "./window/native-surface";
 import { NativeWindow, type NativeWindowConfig } from "./window/native-window";
 
 const log = createLogger("info");
+
+// Defined by scripts/package-native.mjs (draft release) to strip the in-
+// process MCP endpoint from distributed binaries; absent in dev.
+declare const __DD_MCP_STRIP__: boolean | undefined;
 
 export interface NativeHostConfig {
   window: NativeWindowConfig;
@@ -220,10 +225,19 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   // PID discovery — identical endpoints to the Electron proxy). artifactDir
   // enables the tracing/heap-snapshot tools + the /mcp/artifact/ download
   // endpoint, mirroring Electron's ${userData}/debug-artifacts layout.
-  const mcpEnabled = config.mcp !== false && config.appId != null;
+  //
+  // The endpoint is dev/test infrastructure — it must not ship in packaged
+  // binaries. __DD_MCP_STRIP__ folds this whole block to dead code in
+  // `bun build --compile` output; builds that retain MCP (package --mcp)
+  // still default off at runtime unless DOWNDRAFT_MCP=1 is set.
+  const MCP_STRIPPED = typeof __DD_MCP_STRIP__ !== "undefined" && __DD_MCP_STRIP__;
+  const mcpEnabled = !MCP_STRIPPED
+    && config.mcp !== false
+    && config.appId != null
+    && (!isPackaged() || process.env.DOWNDRAFT_MCP === "1");
   const mcpOpts: NativeMcpOptions = typeof config.mcp === "object" ? config.mcp : {};
   const mcp = mcpEnabled && bridge
-    ? await startNativeMcpServer(bridge, {
+    ? await (await import("./mcp/native-mcp")).startNativeMcpServer(bridge, {
         ...mcpOpts,
         artifactDir: mcpOpts.artifactDir ?? join(resolveNativeUserDataDir(config.appId!), "debug-artifacts"),
       })
