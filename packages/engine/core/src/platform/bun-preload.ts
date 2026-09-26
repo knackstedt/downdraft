@@ -125,13 +125,26 @@ if (typeof (globalThis as any).Bun !== "undefined" && typeof (globalThis as any)
   Bun.plugin({
     name: "downdraft-css-loader",
     setup(build: any) {
+      const { resolve, dirname, isAbsolute } = require("node:path");
       // Short-circuit resolution for package-rooted CSS (e.g.
       // "@downdraft/engine/app/renderer/downdraft-base.css") which the package's
       // exports map may not expose — native mode discards CSS anyway.
-      build.onResolve({ filter: /\.css$/ }, (args: any) => ({
-        path: args.path,
-        namespace: "dd-css",
-      }));
+      // The returned path must be ABSOLUTE: Bun bakes the resolved specifier
+      // into its persistent transpile cache (~/.bun/install/cache/@t@/*.pile),
+      // so a relative result produces a cached "dd-css:./x.css" specifier that
+      // fails resolution ("Cannot find package 'dd-css:.'") whenever a later
+      // run loads the cache without this plugin (e.g. bun run from a game dir,
+      // where the root bunfig.toml preload doesn't apply).
+      build.onResolve({ filter: /\.css$/ }, (args: any) => {
+        const base = args.resolveDir ?? (args.importer ? dirname(args.importer) : ".");
+        let path: string;
+        try {
+          path = Bun.resolveSync(args.path, base);
+        } catch {
+          path = resolve(base, args.path);
+        }
+        return { path: isAbsolute(path) ? path : resolve(base, path), namespace: "dd-css" };
+      });
       build.onLoad({ filter: /.*/, namespace: "dd-css" }, async (_args: any) => {
         return { exports: { default: "" }, loader: "object" };
       });
