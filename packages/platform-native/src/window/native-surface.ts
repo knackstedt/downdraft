@@ -14,11 +14,14 @@
 //   - unconfigure()
 // ============================================================================
 
+import { createLogger } from "@downdraft/engine/util/logger";
 import { MiniEventTarget } from "../dom/mini-event-target";
 import { parseFormat } from "../gpu/enums";
 import { wgpu } from "../gpu/wgpu-ffi";
 import { WgpuDevice, WgpuTexture } from "../gpu/wgpu-wrapper";
 import { encodePNG } from "../screenshot/screenshot";
+
+const log = createLogger("info");
 
 // Note: no `implements GPUCanvasContext` — @webgpu/types brands the interface
 // (declare const __brand), so structural conformance is impossible. Conformance
@@ -147,7 +150,7 @@ export class NativeCanvasContext {
     if (this.prePresentHooks.length > 0) {
       const hooks = this.prePresentHooks.splice(0);
       for (const cb of hooks) {
-        try { cb(); } catch (e) { console.error("[surface] pre-present hook error:", e); }
+        try { cb(); } catch (e) { log.error("surface", `pre-present hook error: ${e}`); }
       }
     }
     if (this.surfacePtr) {

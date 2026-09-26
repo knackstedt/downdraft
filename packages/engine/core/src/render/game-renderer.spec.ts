@@ -112,3 +112,90 @@ describe("GameRenderer — render loop", () => {
     expect(true).toBe(true);
   });
 });
+
+describe("GameRenderer — one-shot rendering", () => {
+  function stubRaf() {
+    const pending = new Map<number, (t: number) => void>();
+    let nextId = 1;
+    const prevRaf = (globalThis as any).requestAnimationFrame;
+    const prevCancel = (globalThis as any).cancelAnimationFrame;
+    (globalThis as any).requestAnimationFrame = (cb: (t: number) => void) => {
+      const id = nextId++;
+      pending.set(id, cb);
+      return id;
+    };
+    (globalThis as any).cancelAnimationFrame = (id: number) => pending.delete(id);
+    const fireAll = () => {
+      const cbs = [...pending.values()];
+      pending.clear();
+      for (const cb of cbs) cb(performance.now());
+    };
+    const restore = () => {
+      (globalThis as any).requestAnimationFrame = prevRaf;
+      (globalThis as any).cancelAnimationFrame = prevCancel;
+    };
+    return { pending, fireAll, restore };
+  }
+
+  function fakeDeviceAndContext(renderer: GameRenderer) {
+    // Minimal stand-ins so renderFrame() runs the frame path without a GPU.
+    // No camera module/callback → renderViewport returns early, which is fine:
+    // the scheduling behavior under test happens regardless of draw output.
+    (renderer as any).device = { queue: { submit() {} } };
+    (renderer as any).context = { present() {} };
+  }
+
+  it("renderOnce() while the loop is running does not leak a parallel rAF chain", () => {
+    const { pending, fireAll, restore } = stubRaf();
+    try {
+      const renderer = new GameRenderer(createMockCanvas());
+      fakeDeviceAndContext(renderer);
+      renderer.start();
+      expect(pending.size).toBe(1);
+
+      // MCP screenshot paths (__ddRequestFrame → renderOnce) must not leave
+      // a second permanent render loop behind.
+      renderer.renderOnce();
+      expect(pending.size).toBe(1);
+
+      renderer.renderOnce();
+      renderer.renderOnce();
+      expect(pending.size).toBe(1);
+
+      // Firing the pending callback keeps exactly one chain alive.
+      fireAll();
+      expect(pending.size).toBe(1);
+    } finally {
+      restore();
+    }
+  });
+
+  it("renderOnce() while stopped does not resurrect the loop", () => {
+    const { pending, fireAll, restore } = stubRaf();
+    try {
+      const renderer = new GameRenderer(createMockCanvas());
+      fakeDeviceAndContext(renderer);
+      renderer.renderOnce();
+      expect(pending.size).toBe(0);
+      fireAll();
+      expect(pending.size).toBe(0);
+    } finally {
+      restore();
+    }
+  });
+
+  it("a stopped loop does not self-reschedule", () => {
+    const { pending, fireAll, restore } = stubRaf();
+    try {
+      const renderer = new GameRenderer(createMockCanvas());
+      fakeDeviceAndContext(renderer);
+      renderer.start();
+      renderer.stop();
+      expect(pending.size).toBe(0);
+      fireAll();
+      expect(pending.size).toBe(0);
+    } finally {
+      restore();
+    }
+  });
+});

@@ -14,6 +14,7 @@ import { DebugOverlay as ProfilingOverlay } from "../telemetry/debug-overlay";
 import type { GPUAdapterInfo as GPUAdapterInfoData } from "../telemetry/gpu-profiler";
 import { GPUProfiler, type FrameGraphData, type GPUInfo } from "../telemetry/gpu-profiler";
 import { GPUResourceTracker } from "../telemetry/gpu-resource-tracker";
+import { createLogger } from "../util/logger";
 import { CanvasResizeWatcher, type CanvasResizeHandler } from "./canvas-resize-watcher";
 import { GPUDeviceManager } from "./device";
 import type { RenderContext } from "./frame-graph";
@@ -23,6 +24,8 @@ import { RendererModuleHost } from "./renderer-module-host";
 import { installShaderValidationGuard } from "./shader-validator";
 import { SurfaceManager } from "./surface";
 import { TrackedRenderPass } from "./tracked-render-pass";
+
+const log = createLogger();
 
 export interface ViewportRect {
   x: number;
@@ -258,6 +261,13 @@ export class GameRenderer implements CanvasResizeHandler {
   private rafSource: RAFSource | null = null;
   private cancelRaf: CancelRAF | null = null;
   private currentRafId: number = 0;
+  // Dedup for the render chain: exactly one pending rAF may exist at a time.
+  // renderFrame() is also called outside the loop by renderOnce() (native
+  // screenshots, deterministic steps); letting it re-schedule leaked a
+  // permanent second (third, ...) render chain per call — each chain ran
+  // renderFrame() every pump tick, multiplying both real render work and the
+  // FPS counter (the "1100 fps" badge after MCP screenshot calls).
+  private rafPending = false;
 
   // Dpr
   private dpr = 1;
@@ -305,7 +315,7 @@ export class GameRenderer implements CanvasResizeHandler {
 
       const adapter = await this.requestAdapterWithFallback();
       if (!adapter) {
-        console.error("No GPU adapter found — check GPU drivers and /dev/dri permissions");
+        log.error("GameRenderer", "No GPU adapter found — check GPU drivers and /dev/dri permissions");
         return false;
       }
       this.device = await this.requestDeviceFromAdapter(adapter);
@@ -325,8 +335,7 @@ export class GameRenderer implements CanvasResizeHandler {
       this.format = navigator.gpu.getPreferredCanvasFormat();
       this.gpuProfiler = new GPUProfiler();
       this.gpuProfiler.init(this.device, adapterInfo, this.format, 32);
-      console.log("[GameRenderer] GPU timer pool supported:", this.gpuProfiler.isGpuTimerSupported(),
-        "features:", Array.from(this.device.features));
+      log.info("GameRenderer", `GPU timer pool supported: ${this.gpuProfiler.isGpuTimerSupported()} features: ${Array.from(this.device.features).join(", ")}`);
 
       // Device lost handler
       this.device.lost.then((info: GPUDeviceLostInfo) => {
@@ -399,10 +408,10 @@ export class GameRenderer implements CanvasResizeHandler {
       // Initial viewport layout
       this.updateViewports(1);
 
-      console.log("[GameRenderer] initialized");
+      log.info("GameRenderer", "initialized");
       return true;
     } catch (err) {
-      console.error("[GameRenderer] Init failed:", err);
+      log.error("GameRenderer", `Init failed: ${err}`);
       return false;
     }
   }
@@ -415,13 +424,13 @@ export class GameRenderer implements CanvasResizeHandler {
       powerPreference: "high-performance",
     });
     if (!adapter) {
-      console.warn("No high-performance GPU adapter, trying low-power...");
+      log.warn("GameRenderer", "No high-performance GPU adapter, trying low-power...");
       adapter = await navigator.gpu.requestAdapter({
         powerPreference: "low-power",
       });
     }
     if (!adapter) {
-      console.warn("No low-power adapter, trying any...");
+      log.warn("GameRenderer", "No low-power adapter, trying any...");
       adapter = await navigator.gpu.requestAdapter({});
     }
     return adapter;
@@ -447,9 +456,9 @@ export class GameRenderer implements CanvasResizeHandler {
   private handleDeviceLost(info: GPUDeviceLostInfo): void {
     if (this.deviceLost || this.recoveringDevice) return; // already handled
     this.deviceLost = true;
-    console.error(`[GameRenderer] WebGPU device lost: ${info?.reason ?? "unknown"} — ${info?.message ?? ""}`);
+    log.error("GameRenderer", `WebGPU device lost: ${info?.reason ?? "unknown"} — ${info?.message ?? ""}`);
     try { this.callbacks.onDeviceLost?.(info); } catch (err) {
-      console.error("[GameRenderer] onDeviceLost callback threw:", err);
+      log.error("GameRenderer", `onDeviceLost callback threw: ${err}`);
     }
 
     if ((this.config.deviceLossRecovery ?? "auto") === "reload" || info?.reason === "destroyed") {
@@ -463,7 +472,7 @@ export class GameRenderer implements CanvasResizeHandler {
 
   private reloadForDeviceLoss(): void {
     setTimeout(() => {
-      console.warn("[GameRenderer] Attempting page reload for GPU recovery...");
+      log.warn("GameRenderer", "Attempting page reload for GPU recovery...");
       window.location.reload();
     }, 2000);
   }
@@ -518,9 +527,9 @@ export class GameRenderer implements CanvasResizeHandler {
       await this.callbacks.onDeviceRecovered?.(device);
 
       this.deviceLost = false;
-      console.warn("[GameRenderer] GPU device recovered — rendering resumed without reload");
+      log.warn("GameRenderer", "GPU device recovered — rendering resumed without reload");
     } catch (err) {
-      console.error("[GameRenderer] Device recovery failed:", err);
+      log.error("GameRenderer", `Device recovery failed: ${err}`);
       this.reloadForDeviceLoss();
     } finally {
       this.recoveringDevice = false;
@@ -641,15 +650,22 @@ export class GameRenderer implements CanvasResizeHandler {
   start(): void {
     this.running = true;
     this.lastTime = performance.now();
-    this.render();
+    // Go through scheduleRender() rather than invoking render() inline — a
+    // pending rAF (loop already primed) would otherwise survive alongside the
+    // new registration and double the chain.
+    this.scheduleRender();
   }
 
   stop(): void {
     this.running = false;
-    if (this.cancelRaf && this.currentRafId) {
-      this.cancelRaf(this.currentRafId);
+    // cancelRaf only exists when a rAF source override (XR) is installed —
+    // fall back to the global so the pending callback is actually removed.
+    const cancel = this.cancelRaf ?? (typeof cancelAnimationFrame === "function" ? cancelAnimationFrame : null);
+    if (cancel && this.currentRafId) {
+      cancel(this.currentRafId);
       this.currentRafId = 0;
     }
+    this.rafPending = false;
   }
 
   /** Render a single frame on demand — deterministic/test mode and native
@@ -672,9 +688,22 @@ export class GameRenderer implements CanvasResizeHandler {
    *  forceDirty check) override this to force the next frame out. */
   protected prepareForcedFrame(): void {}
 
+  /** Schedule the next render() invocation. Centralized here so renderFrame()
+   *  stays scheduling-free — renderOnce() and test paths call renderFrame()
+   *  directly and must never grow a parallel loop. */
+  private scheduleRender(): void {
+    if (this.rafPending) return;
+    this.rafPending = true;
+    this.currentRafId = this.rafSource ? this.rafSource(this.render) : requestAnimationFrame(this.render);
+  }
+
   private render = (): void => {
-    if (!this.running || !this.device || !this.context) {
-      this.currentRafId = this.rafSource ? this.rafSource(this.render) : requestAnimationFrame(this.render);
+    this.rafPending = false;
+    this.currentRafId = 0;
+    if (!this.running) return;
+    if (!this.device || !this.context) {
+      // init() hasn't finished — keep the chain alive until it has.
+      this.scheduleRender();
       return;
     }
 
@@ -697,21 +726,21 @@ export class GameRenderer implements CanvasResizeHandler {
       // re-creates the device and clears this flag; returning without
       // re-scheduling would permanently stop rendering after a transient
       // GPU crash.
-      this.currentRafId = this.rafSource ? this.rafSource(this.render) : requestAnimationFrame(this.render);
+      this.scheduleRender();
       return;
     }
 
     try {
       this.renderFrame();
     } catch (err) {
-      console.error(`[GameRenderer] Render loop error: ${(err as Error).message}\n${(err as Error).stack}`);
+      log.error("GameRenderer", `Render loop error: ${(err as Error).message}\n${(err as Error).stack}`);
       if (this.device?.lost) {
         this.device.lost.then((info: GPUDeviceLostInfo) => {
           this.handleDeviceLost(info);
         });
       }
-      this.currentRafId = this.rafSource ? this.rafSource(this.render) : requestAnimationFrame(this.render);
     }
+    this.scheduleRender();
   };
 
   private renderFrame(): void {
@@ -728,7 +757,7 @@ export class GameRenderer implements CanvasResizeHandler {
       this.frameAccum += (now - this.lastLimiterTick) / this.targetFrameTime;
       this.lastLimiterTick = now;
       if (this.frameAccum < 1) {
-        this.currentRafId = this.rafSource ? this.rafSource(this.render) : requestAnimationFrame(this.render);
+        // render() owns re-scheduling — just skip the frame's work.
         return;
       }
       // Cap carry at one frame — a stale lastLimiterTick (limiter toggled
@@ -916,9 +945,10 @@ export class GameRenderer implements CanvasResizeHandler {
     }
 
     const __rfTotal = performance.now() - now;
-    if (this.config.debugTimingWarnings && __rfTotal > 20) console.warn(`[GameRenderer] renderFrame took ${__rfTotal.toFixed(1)}ms`);
-
-    this.currentRafId = this.rafSource ? this.rafSource(this.render) : requestAnimationFrame(this.render);
+    if (this.config.debugTimingWarnings && __rfTotal > 20) log.warn("GameRenderer", `renderFrame took ${__rfTotal.toFixed(1)}ms`);
+    // NOTE: renderFrame() intentionally does NOT schedule the next frame —
+    // render() owns the rAF chain so one-shot callers (renderOnce, MCP
+    // screenshot capture) can't leak parallel loops.
   }
 
   private renderViewport(viewportIdx: number, dt: number, offscreen: OffscreenMode | null): GPUCommandBuffer | null {
@@ -983,7 +1013,7 @@ export class GameRenderer implements CanvasResizeHandler {
         : this.context!.getCurrentTexture().createView())
       : this.context!.getCurrentTexture().createView();
     const __ctMs = performance.now() - __ctStart;
-    if (this.config.debugTimingWarnings && __ctMs > 20) console.warn(`[GameRenderer] getCurrentTexture took ${__ctMs.toFixed(1)}ms`);
+    if (this.config.debugTimingWarnings && __ctMs > 20) log.warn("GameRenderer", `getCurrentTexture took ${__ctMs.toFixed(1)}ms`);
 
     const depthView = xrProvider
       ? xrProvider.getDepthView(viewportIdx, origViewport.w, origViewport.h)

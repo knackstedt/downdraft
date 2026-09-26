@@ -9,6 +9,7 @@
 //   5. Translates SDL events to DOM-compatible events
 // ============================================================================
 
+import { createLogger } from "@downdraft/engine/util/logger";
 import { MiniEventTarget } from "../dom/mini-event-target";
 import { wgpu } from "../gpu/wgpu-ffi";
 import { NativeSurface } from "./native-surface";
@@ -35,6 +36,8 @@ import {
     sdlButtonsToDom,
 } from "./sdl-ffi";
 
+const log = createLogger("info");
+
 export interface NativeWindowConfig {
   title: string;
   width: number;
@@ -52,6 +55,11 @@ const scheduleImmediate: (fn: () => void) => void =
 // SDL reports raw detents, so scale to match the DOM consumers were tuned on.
 const WHEEL_PIXELS_PER_DETENT = 100;
 
+// rAF dispatches may fire up to this much early — absorbs sub-ms timing noise
+// so a frame whose acquire blocked ~one vsync isn't double-parked by the
+// pacing check.
+const RAF_DISPATCH_EPSILON_MS = 0.5;
+
 export class NativeWindow extends MiniEventTarget {
   private surface: NativeSurface | null = null;
   // rAF handles: unique IDs → callbacks. The previous implementation used a
@@ -62,6 +70,15 @@ export class NativeWindow extends MiniEventTarget {
   private running: boolean = false;
   private startTime: number = 0;
   private surfacePtr: number = 0;
+  // rAF dispatch pacing. Browsers fire rAF at most once per vsync; the native
+  // pump otherwise runs at event-loop speed whenever no callback blocks
+  // inside getCurrentTexture() — e.g. dirty-tracked frames that skip draws,
+  // one-shot renderers, or an acquired-but-unwritten texture left cached.
+  // The render loop then free-runs (~1100 "fps" on a 360Hz panel) and burns
+  // a core. lastRafDispatch timestamps the previous dispatch; frameIntervalMs
+  // is derived from the display's refresh rate (re-queried on window moves).
+  private lastRafDispatch = -1e9;
+  private frameIntervalMs = 0;
   private pressedKeys = new Set<number>();
   // SDL event read buffer — hoisted out of the loop so we don't allocate a
   // new ArrayBuffer every frame.
@@ -179,6 +196,19 @@ export class NativeWindow extends MiniEventTarget {
     sdl.sdl_shim_request_quit();
   }
 
+  /**
+   * Minimum milliseconds between rAF dispatches — the display's refresh
+   * interval. Late-initialized so a failed display-info query falls back to
+   * 60Hz; reset on window moves (the window may land on a different monitor).
+   */
+  private frameInterval(): number {
+    if (this.frameIntervalMs <= 0) {
+      const hz = this.getDisplayInfo().refreshRate;
+      this.frameIntervalMs = 1000 / (hz > 0 ? hz : 60);
+    }
+    return this.frameIntervalMs;
+  }
+
   /** Modal error dialog. */
   showMessageBox(title: string, message: string): void {
     sdl.sdl_shim_show_message_box(title, message);
@@ -209,32 +239,49 @@ export class NativeWindow extends MiniEventTarget {
       }
     } while (eventType !== SDL_EVENT_NONE);
 
-    // When idle (no pending rAF work and no events just arrived), briefly
-    // block on the SDL event queue instead of busy-spinning through
-    // setImmediate. 4ms keeps the loop responsive while taking the thread
-    // off the CPU between frames.
-    if (!sawEvent && this.rafCallbacks.size === 0) {
-      const wt = sdl.sdl_shim_wait_event(this.eventData as any, 4);
-      if (wt !== SDL_EVENT_NONE) {
-        this.handleEvent(wt, this.eventView, this.eventFloatView);
-        // Drain anything that arrived behind it.
-        do {
-          eventType = sdl.sdl_shim_poll_event(this.eventData as any);
-          if (eventType !== SDL_EVENT_NONE) {
-            this.handleEvent(eventType, this.eventView, this.eventFloatView);
-          }
-        } while (eventType !== SDL_EVENT_NONE);
+    // Wait on the SDL event queue instead of busy-spinning through
+    // setImmediate whenever this iteration has no due work:
+    //   - no rAF pending → the original 4ms idle poll;
+    //   - rAF pending but the frame interval hasn't elapsed → sleep the
+    //     remainder of the interval, capped at 4ms so JS timers and the MCP
+    //     server stay responsive between frames.
+    if (!sawEvent) {
+      let waitMs = 4;
+      if (this.rafCallbacks.size > 0) {
+        const remain = this.lastRafDispatch + this.frameInterval() - (performance.now() - this.startTime);
+        // floor() — never overshoot the deadline. The remaining sub-ms tail
+        // is absorbed by the setImmediate loop re-checking the dispatch gate.
+        waitMs = remain > RAF_DISPATCH_EPSILON_MS ? Math.min(4, Math.floor(remain)) : 0;
+      }
+      if (waitMs > 0) {
+        const wt = sdl.sdl_shim_wait_event(this.eventData as any, waitMs);
+        if (wt !== SDL_EVENT_NONE) {
+          this.handleEvent(wt, this.eventView, this.eventFloatView);
+          // Drain anything that arrived behind it.
+          do {
+            eventType = sdl.sdl_shim_poll_event(this.eventData as any);
+            if (eventType !== SDL_EVENT_NONE) {
+              this.handleEvent(eventType, this.eventView, this.eventFloatView);
+            }
+          } while (eventType !== SDL_EVENT_NONE);
+        }
       }
     }
 
-    // Dispatch rAF callbacks. Callbacks run once per dispatch; anything a
-    // callback re-registers lands in the map for the next frame.
+    // Dispatch rAF callbacks — at most once per refresh interval (see
+    // frameInterval). Callbacks run once per dispatch; anything a callback
+    // re-registers lands in the map for the next frame.
     const now = performance.now() - this.startTime;
-    if (this.rafCallbacks.size > 0) {
+    if (this.rafCallbacks.size > 0 && now - this.lastRafDispatch >= this.frameInterval() - RAF_DISPATCH_EPSILON_MS) {
+      // Advance on a fixed grid so sleep/timer jitter doesn't accumulate
+      // drift; if we fell more than a frame behind (startup, a long frame,
+      // a stall) reset the phase instead of bursting catch-up dispatches.
+      this.lastRafDispatch += this.frameInterval();
+      if (now - this.lastRafDispatch >= this.frameInterval()) this.lastRafDispatch = now;
       const callbacks = Array.from(this.rafCallbacks.values());
       this.rafCallbacks.clear();
       for (const cb of callbacks) {
-        try { cb(now); } catch (e) { console.error("[NativeWindow] rAF callback error:", e); }
+        try { cb(now); } catch (e) { log.error("NativeWindow", `rAF callback error: ${e}`); }
       }
       // Browser semantics: the canvas auto-presents at end of frame, after
       // the rAF callbacks AND the microtask checkpoint. Renderers driving the
@@ -312,6 +359,9 @@ export class NativeWindow extends MiniEventTarget {
         break;
 
       case SDL_EVENT_MOVED:
+        // The window may have landed on a different monitor — re-query the
+        // refresh rate the rAF pacing interval is derived from.
+        this.frameIntervalMs = 0;
         this.dispatchEvent({ type: "moved", x: eventView[0], y: eventView[1] });
         break;
 
