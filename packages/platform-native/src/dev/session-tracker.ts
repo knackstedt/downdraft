@@ -470,6 +470,17 @@ export class SessionTracker {
     this.session = null;
   }
 
+  /**
+   * Host-internal scheduling that must survive session teardown. The
+   * NativeWindow run loop reschedules itself every iteration — routing it
+   * through the wrapped setImmediate would let teardown cancel the event
+   * pump entirely (dead window: no RAF dispatch, no SDL input, stale frame).
+   */
+  untrackedImmediate(fn: () => void): void {
+    if (this.orig.setImmediate) { this.orig.setImmediate(fn); return; }
+    this.orig.setTimeout?.(fn, 0);
+  }
+
   /** Diagnostics counters (strict-mode leak checks). */
   stats(): { listeners: number; timers: number; workers: number; disposes: number; sims: number } {
     const s = this.session;

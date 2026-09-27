@@ -49,8 +49,19 @@ export interface NativeWindowConfig {
 type RAFCallback = (time: number) => void;
 
 // setImmediate is Node/Bun-only — Deno and browser-likes use setTimeout(0).
-const scheduleImmediate: (fn: () => void) => void =
-  typeof setImmediate === "function" ? setImmediate : (fn) => setTimeout(fn, 0);
+// Under the dev shell the session tracker wraps the global timers and
+// cancels session-owned handles on restart; the run loop is host-internal
+// and must keep scheduling across session restarts, so it goes through the
+// tracker's untracked channel whenever a tracker is installed.
+const scheduleImmediate: (fn: () => void) => void = (fn) => {
+  const tracker = (globalThis as any).__ddSession;
+  if (typeof tracker?.untrackedImmediate === "function") {
+    tracker.untrackedImmediate(fn);
+    return;
+  }
+  if (typeof setImmediate === "function") setImmediate(fn);
+  else setTimeout(fn, 0);
+};
 
 // Chromium emits ±100px of deltaY per wheel detent in DOM_DELTA_PIXEL mode;
 // SDL reports raw detents, so scale to match the DOM consumers were tuned on.

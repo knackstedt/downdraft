@@ -6,6 +6,9 @@
 import { createDocCore } from "./doc-backend";
 import type { UiToWorker } from "./protocol";
 
-const core = createDocCore((m) => postMessage(m));
+// Frame buffers are freshly allocated per emit (see createDocCore) — transfer
+// them instead of structured-cloning, so a fullscreen repaint doesn't memcpy
+// tens of MB through postMessage.
+const core = createDocCore((m) => postMessage(m, m.type === "frame" ? [m.pixels] : []));
 
 self.onmessage = (e: MessageEvent) => core.handle(e.data as UiToWorker);

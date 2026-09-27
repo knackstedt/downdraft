@@ -410,6 +410,26 @@ export class SkeletonAnimator {
     this.clips.set(name, clip);
   }
 
+  /**
+   * Bake an external AnimationData (e.g. a Mixamo clip dropped onto a rigged
+   * model) into an AnimationClip for this skeleton — the same retargeting
+   * pipeline used by registerRetargetedAnimations, but the clip is returned
+   * instead of being registered under a state name. The clip's tracks are
+   * indexed against this skeleton's bone indices.
+   */
+  bakeAnimationClip(anim: AnimationData, clipName: string): AnimationClip | null {
+    if (anim.sourceRestRotations?.size) {
+      this.sourceRestRotations.set(clipName, new Map(anim.sourceRestRotations));
+    }
+    if (anim.sourcePreRotations?.size) {
+      this.sourcePreRotations.set(clipName, new Map(anim.sourcePreRotations));
+    }
+    if (anim.sourceRestTranslations?.size) {
+      this.sourceRestTranslations.set(clipName, new Map(anim.sourceRestTranslations));
+    }
+    return this.animationDataToClip(anim, clipName);
+  }
+
   private animationDataToClip(anim: AnimationData, animName: string): AnimationClip | null {
     const tracks: KeyframeTrack[] = [];
     // Keyed by SOURCE node name; falls back to the AnimationData's own maps

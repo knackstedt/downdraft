@@ -52,6 +52,13 @@ int sdl_shim_create_window(const char* title, int width, int height) {
         return 1;
     }
 
+    // Click-through: by default SDL eats the mouse click that focuses an
+    // unfocused window, so the user has to click twice (once to focus, once
+    // to hit the widget). Delivering the click matches browser/Electron
+    // behavior — the focus click both raises the window and dispatches a
+    // normal SDL_MOUSEBUTTONDOWN to it.
+    SDL_SetHint(SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1");
+
     g_window = SDL_CreateWindow(
         title,
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
