@@ -243,6 +243,9 @@ fn no_window() -> bool {
 }
 
 /// Write one queued event into out_data. Returns the SDL_SHIM_EVENT_* type.
+/// `timeout` bounds the pump's wait: `Some(ZERO)` = SDL_PollEvent (never
+/// blocks); a real duration = SDL_WaitEventTimeout. winit's `pump_app_events`
+/// treats `None` as "wait indefinitely", so `None` must never be passed.
 fn emit(out_data: *mut c_void, timeout: Option<Duration>) -> c_int {
     if no_window() {
         return events::NONE;
@@ -259,7 +262,9 @@ fn emit(out_data: *mut c_void, timeout: Option<Duration>) -> c_int {
 
 #[no_mangle]
 pub extern "C" fn sdl_shim_poll_event(out_data: *mut c_void) -> c_int {
-    ffi!(events::NONE, { emit(out_data, None) })
+    // SDL_PollEvent semantics: non-blocking. pump_app_events(None) would wait
+    // indefinitely for an event — starving the rAF loop between input bursts.
+    ffi!(events::NONE, { emit(out_data, Some(Duration::ZERO)) })
 }
 
 #[no_mangle]
