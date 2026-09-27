@@ -58,6 +58,9 @@ export { normalizeModel, normalizeModelWithResolution, resolveImportSettings, re
 export type { ResolveOptions } from "./sidecar/resolver";
 export { synthesizeSkeletonSkin } from "./skeleton-synthesis";
 
+// CPU pose sampling — AnimationData → AnimationClip → skin matrices
+export { buildClip, PoseSampler } from "./pose-sampler";
+
 // Sidecar system — per-model import settings
 export { parseBlenderExtras } from "./sidecar/blender-extras";
 export { createDefaultDdmeta, parseDdmeta, writeDdmeta } from "./sidecar/ddmeta";

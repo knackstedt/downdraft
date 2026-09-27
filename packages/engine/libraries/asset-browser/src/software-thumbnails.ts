@@ -14,7 +14,7 @@
 // reading absolute filesystem paths through a game's IPC bridge on native.
 // ============================================================================
 
-import { declaredCompanionUri, loadModel, type ModelData } from "@downdraft/engine/libraries/models";
+import { declaredCompanionUri, loadModel, PoseSampler, resolveImportSettings, type ModelData } from "@downdraft/engine/libraries/models";
 import { createLogger } from "@downdraft/engine/util/logger";
 
 const log = createLogger("info");
@@ -43,20 +43,43 @@ interface SoftMat {
   texScale: [number, number];
 }
 
+interface SoftAnim {
+  /** Skeleton + clip sampling (null for static models). */
+  sampler: PoseSampler;
+  /** First playable clip index (as accepted by sampler.sample), or -1. */
+  clipIndex: number;
+  /** Duration of the previewed clip in seconds (0 = no playable clip). */
+  duration: number;
+  /** Per-frame skinned/scratch position buffer (xyz per vertex). */
+  posedPos: Float32Array;
+  /** Per-frame normal buffer (xyz per vertex). */
+  posedNrm: Float32Array;
+  /** Skeleton-only models: fixed index topology for the bone octahedra. */
+  skelIndices: Uint32Array | null;
+  /** Skeleton-only models: bone world positions from the last pose (xyz/bone). */
+  bonePos: Float32Array | null;
+}
+
 interface SoftModel {
-  positions: Float32Array; // xyz per vertex
+  positions: Float32Array; // xyz per vertex (bind pose)
   indices: Uint16Array | Uint32Array;
   normals: Float32Array;   // smooth vertex normals, xyz per vertex
   uvs: Float32Array | null;      // uv per vertex
   vcols: Float32Array | null;    // rgb per vertex
   triMat: Uint16Array | null;    // material index per triangle (null → mats[0])
   mats: SoftMat[];
+  joints: Uint32Array | null;    // 4 bone indices per vertex (skinned meshes)
+  weights: Float32Array | null;  // 4 bone weights per vertex (all-zero = rigid)
+  /** True for animation-only files (no meshes) — bones are the content. */
+  skeletonOnly: boolean;
+  anim: SoftAnim | null;
   center: [number, number, number];
   radius: number;
 }
 
-function computeFlatNormals(positions: Float32Array, indices: Uint16Array | Uint32Array): Float32Array {
-  const normals = new Float32Array(positions.length);
+function computeFlatNormals(positions: Float32Array, indices: Uint16Array | Uint32Array, out?: Float32Array): Float32Array {
+  const normals = out ?? new Float32Array(positions.length);
+  normals.fill(0);
   for (let i = 0; i < indices.length; i += 3) {
     const a = indices[i] * 3, b = indices[i + 1] * 3, c = indices[i + 2] * 3;
     const ux = positions[b] - positions[a];
@@ -115,13 +138,28 @@ export class SoftwareThumbnailRenderer {
       return resp.arrayBuffer();
     });
     this.resolveTexture = opts?.resolveTexture ?? null;
-    const MAX_VERTS = 1 << 16;
-    this.sx = new Float32Array(MAX_VERTS);
-    this.sy = new Float32Array(MAX_VERTS);
-    this.sz = new Float32Array(MAX_VERTS);
-    this.snx = new Float32Array(MAX_VERTS);
-    this.sny = new Float32Array(MAX_VERTS);
-    this.snz = new Float32Array(MAX_VERTS);
+    const INIT_VERTS = 1 << 16;
+    this.sx = new Float32Array(INIT_VERTS);
+    this.sy = new Float32Array(INIT_VERTS);
+    this.sz = new Float32Array(INIT_VERTS);
+    this.snx = new Float32Array(INIT_VERTS);
+    this.sny = new Float32Array(INIT_VERTS);
+    this.snz = new Float32Array(INIT_VERTS);
+  }
+
+  /** Grow the transform scratch buffers to fit `vcount` vertices. Called once
+   *  per renderThumb — arrays double in place so a single oversized model
+   *  doesn't wedge every subsequent card into the cube fallback. */
+  private ensureScratch(vcount: number): void {
+    if (vcount <= this.sx.length) return;
+    let cap = this.sx.length;
+    while (cap < vcount) cap <<= 1;
+    this.sx = new Float32Array(cap);
+    this.sy = new Float32Array(cap);
+    this.sz = new Float32Array(cap);
+    this.snx = new Float32Array(cap);
+    this.sny = new Float32Array(cap);
+    this.snz = new Float32Array(cap);
   }
 
   get canvasElement(): OffscreenCanvas { return this.canvas; }
@@ -152,7 +190,29 @@ export class SoftwareThumbnailRenderer {
             ?? await this.resolveTexture(modelUri, `${stem}.bin`);
         }
       }
-      const model = await loadModel(buffer, filename, mtl, bin) as ModelData;
+      const model = await loadModel(buffer, filename, mtl, bin, {
+        // Apply the same sidecar import settings (.ddmeta.json/.meta/.import)
+        // the game's loader uses — thumbnails should match what Load shows.
+        // The resolver's relative URIs route through the sibling-resolution
+        // callback, wrapped in a minimal Response shim.
+        sidecarResolver: this.resolveTexture
+          ? (_name, md) => resolveImportSettings({
+            modelPath: filename,
+            modelData: md,
+            fetchFn: async (uri) => {
+              const bytes = await this.resolveTexture!(modelUri, decodeURIComponent(uri));
+              if (!bytes) {
+                return { ok: false, status: 404, text: async () => "", arrayBuffer: async () => new ArrayBuffer(0) } as Response;
+              }
+              return {
+                ok: true, status: 200,
+                text: async () => new TextDecoder().decode(bytes),
+                arrayBuffer: async () => bytes,
+              } as Response;
+            },
+          })
+          : undefined,
+      }) as ModelData;
       this.uploadModel(contentId, model, modelUri);
     } catch (err) {
       log.warn("SoftwareThumbnailRenderer", `Failed to load ${contentId} (${modelUri}): ${err}`);
@@ -209,25 +269,36 @@ export class SoftwareThumbnailRenderer {
 
   private uploadModel(contentId: string, model: ModelData, modelUri?: string): void {
     const meshes = model.meshes;
-    if (!meshes || meshes.length === 0) { this.loadBuiltinCube(contentId); return; }
-    let totalVerts = 0, totalIdx = 0;
-    meshes.forEach((m) => { totalVerts += m.vertexCount; totalIdx += m.indexCount; });
-    if (totalVerts > this.sx.length) {
-      // Extremely large model — fall back to a cube rather than allocating
-      // giant scratch buffers for a thumbnail.
+    if (!meshes || meshes.length === 0) {
+      // Mesh-less files aren't necessarily empty — animation-only exports
+      // (e.g. Mixamo `Character@Action.fbx`) carry a synthesized skeleton the
+      // loader builds from the node tree. Show the bones, not a cube.
+      if (model.skin && model.skin.bones.length > 0) {
+        this.uploadSkeletonModel(contentId, model);
+        if (!this.cache.get(contentId)?.anim) {
+          // No usable skeleton after all — fall through to the cube.
+          this.loadBuiltinCube(contentId);
+        }
+        return;
+      }
       this.loadBuiltinCube(contentId);
       return;
     }
+    let totalVerts = 0, totalIdx = 0;
+    meshes.forEach((m) => { totalVerts += m.vertexCount; totalIdx += m.indexCount; });
     const positions = new Float32Array(totalVerts * 3);
-    const is32 = totalIdx > 65535;
+    const is32 = totalVerts > 65535;
     const indices = is32 ? new Uint32Array(totalIdx) : new Uint16Array(totalIdx);
     const multiMat = (model.materials?.length ?? 0) > 1
       || meshes.some((m) => (m.materialIndex ?? 0) > 0);
     const triMat = multiMat ? new Uint16Array(totalIdx / 3) : null;
     const anyUvs = meshes.some((m) => !!m.uvs);
     const anyCols = meshes.some((m) => !!m.colors);
+    const anySkin = meshes.some((m) => !!m.joints && !!m.weights);
     const uvs = anyUvs ? new Float32Array(totalVerts * 2) : null;
     const vcols = anyCols ? new Float32Array(totalVerts * 3).fill(1) : null;
+    const joints = anySkin ? new Uint32Array(totalVerts * 4) : null;
+    const weights = anySkin ? new Float32Array(totalVerts * 4) : null;
     let vOff = 0, iOff = 0, vBase = 0;
     meshes.forEach((m) => {
       const stride = m.vertices.length / m.vertexCount;
@@ -246,6 +317,23 @@ export class SoftwareThumbnailRenderer {
           vcols[vOff + v * 3] = m.colors[v * cstride];
           vcols[vOff + v * 3 + 1] = m.colors[v * cstride + 1];
           vcols[vOff + v * 3 + 2] = m.colors[v * cstride + 2];
+        }
+      }
+      if (joints && weights) {
+        // Bone indices are into the shared skeleton — no vBase rebase.
+        // Rigid (unskinned) vertices keep all-zero weights → bind pose.
+        if (m.joints && m.weights) {
+          for (let v = 0; v < m.vertexCount; v++) {
+            const j4 = v * 4, o4 = vOff / 3 * 4 + j4;
+            joints[o4] = m.joints[j4];
+            joints[o4 + 1] = m.joints[j4 + 1];
+            joints[o4 + 2] = m.joints[j4 + 2];
+            joints[o4 + 3] = m.joints[j4 + 3];
+            weights[o4] = m.weights[j4];
+            weights[o4 + 1] = m.weights[j4 + 1];
+            weights[o4 + 2] = m.weights[j4 + 2];
+            weights[o4 + 3] = m.weights[j4 + 3];
+          }
         }
       }
       vOff += m.vertexCount * 3;
@@ -312,8 +400,229 @@ export class SoftwareThumbnailRenderer {
     }
     this.cache.set(contentId, {
       positions, indices, normals, uvs, vcols, triMat, mats,
+      joints, weights, skeletonOnly: false,
+      anim: this.buildAnim(contentId, model, joints !== null ? totalVerts : 0),
       center, radius,
     });
+  }
+
+  /**
+   * Animation-only model (no meshes): synthesize a bone-octahedron thumbnail
+   * source. Bounds come from the skeleton's bind world positions; per-frame
+   * geometry is generated by poseSkeleton() during renderThumb.
+   */
+  private uploadSkeletonModel(contentId: string, model: ModelData): void {
+    const anim = this.buildAnim(contentId, model, model.skin!.bones.length * 6);
+    if (!anim) return; // caller falls back to the cube
+    let center: [number, number, number] = [0, 0, 0];
+    let radius = 0.5;
+    {
+      // Bind-pose bone world positions define the framing.
+      anim.sampler.sample(null);
+      const T = anim.sampler.normalizationMatrix;
+      const world = anim.sampler.getBoneWorldMatrices();
+      let min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+      for (let i = 0; i < world.length; i++) {
+        const w = world[i];
+        let px = w[12], py = w[13], pz = w[14];
+        if (T) {
+          const nx = T[0] * px + T[4] * py + T[8] * pz + T[12];
+          const ny = T[1] * px + T[5] * py + T[9] * pz + T[13];
+          const nz = T[2] * px + T[6] * py + T[10] * pz + T[14];
+          px = nx; py = ny; pz = nz;
+        }
+        for (let k = 0; k < 3; k++) {
+          const v = k === 0 ? px : k === 1 ? py : pz;
+          if (v < min[k]) min[k] = v;
+          if (v > max[k]) max[k] = v;
+        }
+      }
+      if (min[0] !== Infinity) {
+        center = [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2];
+        radius = Math.max(
+          Math.hypot(max[0] - center[0], max[1] - center[1], max[2] - center[2]),
+          Math.hypot(min[0] - center[0], min[1] - center[1], min[2] - center[2]),
+          0.05,
+        );
+      }
+    }
+    if (this.cache.size >= this.maxCache) {
+      const oldest = this.cache.keys().next().value;
+      if (oldest) this.cache.delete(oldest);
+    }
+    this.cache.set(contentId, {
+      positions: new Float32Array(0), indices: new Uint16Array(0),
+      normals: new Float32Array(0),
+      uvs: null, vcols: null, triMat: null,
+      mats: [{ baseColor: [0.52, 0.8, 0.97], emissive: [0, 0, 0], tex: null, texPending: false, texOffset: [0, 0], texScale: [1, 1] }],
+      joints: null, weights: null,
+      skeletonOnly: true, anim, center, radius,
+    });
+  }
+
+  /**
+   * Build the animation state for a model — a PoseSampler over its skin plus
+   * scratch buffers sized for the per-frame posed geometry. `vertOrBoneVerts`
+   * is the vertex count for skinned meshes or bones*6 for skeleton models.
+   * Returns null when the model has no usable skeleton.
+   */
+  private buildAnim(contentId: string, model: ModelData, vertOrBoneVerts: number): SoftAnim | null {
+    const skin = model.skin;
+    if (!skin || skin.bones.length === 0) return null;
+    try {
+      const sampler = new PoseSampler(skin, model.animations ?? []);
+      const clipIndex = sampler.firstClipIndex();
+      const duration = clipIndex >= 0 ? sampler.clips[clipIndex]!.duration : 0;
+      return {
+        sampler, clipIndex, duration,
+        posedPos: new Float32Array(Math.max(1, vertOrBoneVerts) * 3),
+        posedNrm: new Float32Array(Math.max(1, vertOrBoneVerts) * 3),
+        skelIndices: null, bonePos: null,
+      };
+    } catch (err) {
+      log.warn("SoftwareThumbnailRenderer", `Pose sampler failed for ${contentId}: ${err}`);
+      return null;
+    }
+  }
+
+  /** Duration of the model's preview animation in seconds (0 = static).
+   *  Reports 0 when the clip can't affect the rendered geometry — mesh
+   *  models without skinning data render identically at every time. */
+  thumbDuration(contentId: string): number {
+    const m = this.cache.get(contentId);
+    if (!m?.anim) return 0;
+    if (!m.skeletonOnly && (!m.joints || !m.weights)) return 0;
+    return m.anim.duration;
+  }
+
+  /**
+   * CPU linear-blend skinning: posed = Σ wᵢ · (skinMatrix[jᵢ] · bind).
+   * Vertices with all-zero weights (rigid meshes sharing a skinned model)
+   * keep their bind position. Writes anim.posedPos + anim.posedNrm.
+   */
+  private skinVertices(m: SoftModel): void {
+    const anim = m.anim!;
+    const mats = anim.sampler.skinMatrices; // already normalization-conjugated
+    const out = anim.posedPos;
+    const pos = m.positions;
+    const joints = m.joints!;
+    const weights = m.weights!;
+    const vcount = pos.length / 3;
+    for (let v = 0; v < vcount; v++) {
+      const i3 = v * 3, i4 = v * 4;
+      const x = pos[i3], y = pos[i3 + 1], z = pos[i3 + 2];
+      let ax = 0, ay = 0, az = 0, sum = 0;
+      for (let k = 0; k < 4; k++) {
+        const wk = weights[i4 + k];
+        if (wk <= 0) continue;
+        const M = joints[i4 + k] * 16;
+        ax += wk * (mats[M] * x + mats[M + 4] * y + mats[M + 8] * z + mats[M + 12]);
+        ay += wk * (mats[M + 1] * x + mats[M + 5] * y + mats[M + 9] * z + mats[M + 13]);
+        az += wk * (mats[M + 2] * x + mats[M + 6] * y + mats[M + 10] * z + mats[M + 14]);
+        sum += wk;
+      }
+      if (sum > 1e-6) {
+        const s = 1 / sum;
+        out[i3] = ax * s; out[i3 + 1] = ay * s; out[i3 + 2] = az * s;
+      } else {
+        out[i3] = x; out[i3 + 1] = y; out[i3 + 2] = z;
+      }
+    }
+    computeFlatNormals(out, m.indices, anim.posedNrm);
+  }
+
+  /**
+   * Generate bone-octahedron geometry for a skeleton-only model at the pose
+   * currently sampled in m.anim.sampler. Bone world positions (source space)
+   * are mapped through the normalization matrix into vertex space. Each bone
+   * is a tapered 8-triangle octahedron from its parent's joint to its own;
+   * roots and zero-length segments get a small joint marker instead.
+   */
+  private poseSkeleton(m: SoftModel): { pos: Float32Array; nrm: Float32Array; idx: Uint32Array } {
+    const anim = m.anim!;
+    const sampler = anim.sampler;
+    const bones = sampler.skeleton.data.bones;
+    const world = sampler.getBoneWorldMatrices();
+    const T = sampler.normalizationMatrix;
+    const n = bones.length;
+
+    if (!anim.bonePos || anim.bonePos.length < n * 3) anim.bonePos = new Float32Array(n * 3);
+    const bp = anim.bonePos;
+    for (let i = 0; i < n; i++) {
+      const w = world[i];
+      let x = w[12], y = w[13], z = w[14];
+      if (T) {
+        const nx = T[0] * x + T[4] * y + T[8] * z + T[12];
+        const ny = T[1] * x + T[5] * y + T[9] * z + T[13];
+        const nz = T[2] * x + T[6] * y + T[10] * z + T[14];
+        x = nx; y = ny; z = nz;
+      }
+      bp[i * 3] = x; bp[i * 3 + 1] = y; bp[i * 3 + 2] = z;
+    }
+
+    // Topology is constant per skeleton — 6 verts / 8 tris per bone.
+    if (!anim.skelIndices) {
+      const idx = new Uint32Array(n * 24);
+      for (let b = 0; b < n; b++) {
+        const vb = b * 6, ib = b * 24;
+        for (let k = 0; k < 4; k++) {
+          idx[ib + k * 3] = vb;
+          idx[ib + k * 3 + 1] = vb + 1 + k;
+          idx[ib + k * 3 + 2] = vb + 1 + ((k + 1) % 4);
+          idx[ib + 12 + k * 3] = vb + 5;
+          idx[ib + 12 + k * 3 + 1] = vb + 1 + ((k + 1) % 4);
+          idx[ib + 12 + k * 3 + 2] = vb + 1 + k;
+        }
+      }
+      anim.skelIndices = idx;
+    }
+
+    const posed = anim.posedPos;
+    const dotR = Math.max(0.02 * m.radius, 1e-4);
+    for (let b = 0; b < n; b++) {
+      const vb = b * 18;
+      const hx = bp[b * 3], hy = bp[b * 3 + 1], hz = bp[b * 3 + 2];
+      const p = bones[b].parentIndex;
+      let ux = 0, uy = 1, uz = 0, len = 0, tx = hx, ty = hy, tz = hz;
+      if (p >= 0) {
+        tx = bp[p * 3]; ty = bp[p * 3 + 1]; tz = bp[p * 3 + 2];
+        ux = hx - tx; uy = hy - ty; uz = hz - tz;
+        len = Math.hypot(ux, uy, uz);
+      }
+      if (p < 0 || len < m.radius * 0.005) {
+        // Root or degenerate segment → small octahedron joint marker.
+        const r = dotR;
+        posed[vb] = hx; posed[vb + 1] = hy - r; posed[vb + 2] = hz;
+        posed[vb + 3] = hx + r; posed[vb + 4] = hy; posed[vb + 5] = hz;
+        posed[vb + 6] = hx; posed[vb + 7] = hy; posed[vb + 8] = hz + r;
+        posed[vb + 9] = hx - r; posed[vb + 10] = hy; posed[vb + 11] = hz;
+        posed[vb + 12] = hx; posed[vb + 13] = hy; posed[vb + 14] = hz - r;
+        posed[vb + 15] = hx; posed[vb + 16] = hy + r; posed[vb + 17] = hz;
+        continue;
+      }
+      ux /= len; uy /= len; uz /= len;
+      // Orthonormal frame around the bone axis: v1 = normalize(u × a) where
+      // a = +Y unless the bone runs near-vertical (then a = +X).
+      let v1x: number, v1y: number, v1z: number;
+      if (Math.abs(uy) < 0.9) { v1x = -uz; v1y = 0; v1z = ux; }
+      else { v1x = 0; v1y = uz; v1z = -uy; }
+      const v1l = Math.hypot(v1x, v1y, v1z) || 1;
+      v1x /= v1l; v1y /= v1l; v1z /= v1l;
+      const v2x = uy * v1z - uz * v1y;
+      const v2y = uz * v1x - ux * v1z;
+      const v2z = ux * v1y - uy * v1x;
+      const r = len * 0.09;
+      const cx = tx + ux * len * 0.18, cy = ty + uy * len * 0.18, cz = tz + uz * len * 0.18;
+      // tail, ring ×4, head
+      posed[vb] = tx; posed[vb + 1] = ty; posed[vb + 2] = tz;
+      posed[vb + 3] = cx + v1x * r; posed[vb + 4] = cy + v1y * r; posed[vb + 5] = cz + v1z * r;
+      posed[vb + 6] = cx + v2x * r; posed[vb + 7] = cy + v2y * r; posed[vb + 8] = cz + v2z * r;
+      posed[vb + 9] = cx - v1x * r; posed[vb + 10] = cy - v1y * r; posed[vb + 11] = cz - v1z * r;
+      posed[vb + 12] = cx - v2x * r; posed[vb + 13] = cy - v2y * r; posed[vb + 14] = cz - v2z * r;
+      posed[vb + 15] = hx; posed[vb + 16] = hy; posed[vb + 17] = hz;
+    }
+    computeFlatNormals(posed, anim.skelIndices, anim.posedNrm);
+    return { pos: posed, nrm: anim.posedNrm, idx: anim.skelIndices };
   }
 
   /** Decode embedded bytes or a resolved external URI into an RGBA tex map.
@@ -374,20 +683,44 @@ export class SoftwareThumbnailRenderer {
         baseColor, emissive: [0, 0, 0], tex: null, texPending: false,
         texOffset: [0, 0], texScale: [1, 1],
       }],
+      joints: null, weights: null, skeletonOnly: false, anim: null,
       center: bounds.center, radius: bounds.radius,
     });
   }
 
   /**
    * Rasterize one turntable frame for contentId into the canvas.
+   * `time` (seconds) samples the model's first embedded clip — skinned meshes
+   * are CPU-skinned per frame and skeleton-only models (animation-only files)
+   * draw their bones. Omit it for a static bind-pose frame.
    * Returns false when the model isn't loaded yet.
    */
-  renderThumb(contentId: string, angle: number): boolean {
+  renderThumb(contentId: string, angle: number, time?: number): boolean {
     const m = this.cache.get(contentId);
     if (!m) return false;
     const size = this.size;
     const px = this.pixels;
     const depth = this.depth;
+
+    // Pick the geometry to draw: bind-pose mesh, CPU-skinned mesh at `time`,
+    // or generated bone octahedra for skeleton-only models.
+    let positions = m.positions;
+    let normals = m.normals;
+    let indices: Uint16Array | Uint32Array = m.indices;
+    let uvs = m.uvs, vcols = m.vcols, triMat = m.triMat;
+    if (m.anim) {
+      if (m.skeletonOnly) {
+        // Bones are the content — pose even for a static frame.
+        m.anim.sampler.sample(m.anim.clipIndex >= 0 ? m.anim.clipIndex : null, time ?? 0);
+        const g = this.poseSkeleton(m);
+        positions = g.pos; normals = g.nrm; indices = g.idx;
+        uvs = null; vcols = null; triMat = null;
+      } else if (time !== undefined && m.joints && m.weights && m.anim.clipIndex >= 0) {
+        m.anim.sampler.sample(m.anim.clipIndex, time);
+        this.skinVertices(m);
+        positions = m.anim.posedPos; normals = m.anim.posedNrm;
+      }
+    }
 
     // Clear to the same bg the WebGL version uses: rgba(0.16, 0.17, 0.22, 1).
     for (let i = 0; i < px.length; i += 4) {
@@ -416,8 +749,8 @@ export class SoftwareThumbnailRenderer {
     const nf = 1 / (near - far);
     const rotC = Math.cos(angle), rotS = Math.sin(angle);
 
-    const vcount = m.positions.length / 3;
-    const positions = m.positions, normals = m.normals;
+    const vcount = positions.length / 3;
+    this.ensureScratch(vcount);
     const sx = this.sx, sy = this.sy, sz = this.sz;
     const snx = this.snx, sny = this.sny, snz = this.snz;
     const cx = m.center[0], cy = m.center[1], cz = m.center[2];
@@ -461,8 +794,6 @@ export class SoftwareThumbnailRenderer {
     const Kx = 0.55 / kl, Ky = 0.75 / kl, Kz = 0.65 / kl;
     const fl2 = Math.hypot(-0.5, 0.1, 0.55);
     const Fx = -0.5 / fl2, Fy = 0.1 / fl2, Fz = 0.55 / fl2;
-    const indices = m.indices;
-    const uvs = m.uvs, vcols = m.vcols, triMat = m.triMat;
     const mats = m.mats;
 
     for (let t = 0; t < indices.length; t += 3) {
