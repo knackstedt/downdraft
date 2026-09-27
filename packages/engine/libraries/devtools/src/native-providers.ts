@@ -5,6 +5,7 @@
 // Game-specific data registers separately via mirror.registerProvider("game").
 // ============================================================================
 
+import type { PanelName } from "./egui-ffi";
 import {
     type DevtoolsCommand,
     type PanelSnapshot,
@@ -12,7 +13,14 @@ import {
     type SnapshotKvRow,
     type SnapshotSection,
 } from "./egui-ffi";
-import type { DevtoolsMirror } from "./mirror";
+import type { PanelCommandHandler, PanelProvider } from "./mirror";
+
+/** Minimal provider-registration surface — satisfied by both DevtoolsMirror
+ *  (egui FFI transport) and WebDevtoolsMirror (WS/JSON transport). */
+export interface DevtoolsProviderTarget {
+    registerProvider(panel: PanelName | number, collect: PanelProvider): void;
+    registerCommandHandler(panel: PanelName | number | "*", handler: PanelCommandHandler): void;
+}
 
 export interface EngineProviderContext {
     /** The game renderer / accessors (duck-typed — getters are probed). */
@@ -722,7 +730,7 @@ function handleEngineCommand(ctx: EngineProviderContext, cmd: DevtoolsCommand): 
  * Register engine-generic providers + command handlers for all provider-fed
  * panels. Game-specific data registers separately on the "game" slot.
  */
-export function registerEngineProviders(mirror: DevtoolsMirror, ctx: EngineProviderContext): void {
+export function registerEngineProviders(mirror: DevtoolsProviderTarget, ctx: EngineProviderContext): void {
     mirror.registerProvider("sim", () => collectSim(ctx));
     mirror.registerProvider("memory", () => collectMemory(ctx));
     mirror.registerProvider("render-graph", () => collectRenderGraph(ctx));
