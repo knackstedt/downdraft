@@ -61,6 +61,9 @@ export { synthesizeSkeletonSkin } from "./skeleton-synthesis";
 // CPU pose sampling — AnimationData → AnimationClip → skin matrices
 export { buildClip, PoseSampler } from "./pose-sampler";
 
+// Default outfit selection for skinned variant-packed character models
+export { defaultCharacterMeshIndices, defaultCharacterParts } from "./default-part-selection";
+
 // Sidecar system — per-model import settings
 export { parseBlenderExtras } from "./sidecar/blender-extras";
 export { createDefaultDdmeta, parseDdmeta, writeDdmeta } from "./sidecar/ddmeta";

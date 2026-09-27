@@ -14,7 +14,7 @@
 // reading absolute filesystem paths through a game's IPC bridge on native.
 // ============================================================================
 
-import { declaredCompanionUri, loadModel, PoseSampler, resolveImportSettings, type ModelData } from "@downdraft/engine/libraries/models";
+import { declaredCompanionUri, defaultCharacterMeshIndices, loadModel, PoseSampler, resolveImportSettings, type ModelData } from "@downdraft/engine/libraries/models";
 import { createLogger } from "@downdraft/engine/util/logger";
 
 const log = createLogger("info");
@@ -276,7 +276,12 @@ export class SoftwareThumbnailRenderer {
   }
 
   private uploadModel(contentId: string, model: ModelData, modelUri?: string): void {
-    const meshes = model.meshes;
+    // Rigged character packs ship every outfit/body variant as its own mesh
+    // node (ash_torso, ash_torso.001…); drawing all of them superimposes
+    // hundreds of overlapping parts. Keep the first variant per name-prefix
+    // group — the same default outfit the model viewer loads with.
+    const sel = defaultCharacterMeshIndices(model);
+    const meshes = sel ? model.meshes.filter((_, i) => sel.has(i)) : model.meshes;
     if (!meshes || meshes.length === 0) {
       // Mesh-less files aren't necessarily empty — animation-only exports
       // (e.g. Mixamo `Character@Action.fbx`) carry a synthesized skeleton the
@@ -354,7 +359,9 @@ export class SoftwareThumbnailRenderer {
     });
     let center: [number, number, number] = [0, 0, 0];
     let radius = 0.5;
-    if (model.bounds) {
+    // model.bounds covers every variant — when a part selection trimmed the
+    // mesh list, recompute framing from the merged vertices instead.
+    if (model.bounds && !sel) {
       const b = model.bounds;
       center = [(b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2];
       radius = Math.max(
