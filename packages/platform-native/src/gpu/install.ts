@@ -1,5 +1,5 @@
 // ============================================================================
-// install.ts — installs the wgpu-native GPU binding as navigator.gpu
+// install.ts — installs the wgpu GPU binding as navigator.gpu
 //
 // Sets globalThis.navigator.gpu to a WgpuGPU instance so the engine's
 // GPUDeviceManager (which calls navigator.gpu.requestAdapter()) works
@@ -219,11 +219,11 @@ export function installGPU(): WgpuGPU {
   // Also set globalThis.__nativeGpu as a fallback
   (globalThis as any).__nativeGpu = gpu;
 
-  // Store the instance pointer for SDL surface creation
+  // Store the instance pointer for winit surface creation
   (globalThis as any).__wgpuInstancePtr = gpu.getInstancePtr();
 
   installed = true;
-  log.info("platform-native", "GPU binding installed (wgpu-native)");
+  log.info("platform-native", "GPU binding installed (wgpu)");
   return gpu;
 }
 

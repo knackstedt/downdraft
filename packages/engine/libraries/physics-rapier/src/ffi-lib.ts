@@ -23,8 +23,7 @@ import type {
     IntersectionPair,
     IslandInfo
 } from "@downdraft/engine";
-import { dlopen, ptr, type CFunction } from "@downdraft/platform-native";
-import { existsSync } from "node:fs";
+import { dlopen, ptr, resolveNativeLibrary, type CFunction } from "@downdraft/platform-native";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { PhysicsLib } from "./rapier-backend";
@@ -35,31 +34,11 @@ const _dirname =
     : dirname(fileURLToPath(import.meta.url));
 
 function findPhysicsLibrary(): string {
-  const envPath = process.env.DOWNDRAFT_PHYSICS_LIB ?? process.env.PHYSICS_NATIVE_PATH;
-  if (envPath) {
-    if (existsSync(envPath)) return envPath;
-    throw new Error(`DOWNDRAFT_PHYSICS_LIB is set to "${envPath}" but the file does not exist.`);
-  }
-  const base =
-    process.platform === "win32" ? "downdraft_physics.dll"
-    : process.platform === "darwin" ? "libdowndraft_physics.dylib"
-    : "libdowndraft_physics.so";
-  const candidates = [
-    // Dev builds — release first, then debug.
-    join(_dirname, "..", "..", "physics-native", "native", "target", "release", base),
-    join(_dirname, "..", "..", "physics-native", "native", "target", "debug", base),
-    join(_dirname, "..", "..", "physics-native", "native", base),
-    // Packaged layout — native/ dir next to the compiled binary.
-    join(dirname(process.execPath), "native", base),
-    join("/usr/local/lib", base),
-  ];
-  for (let _i = 0, _it = candidates, _n = _it.length; _i < _n; _i++) { const p = _it[_i];
-    if (existsSync(p)) return p;
-  }
-  throw new Error(
-    `${base} not found. Searched:\n${candidates.map((c) => `  - ${c}`).join("\n")}\n` +
-    `Build with: cd packages/engine/libraries/physics-native/native && cargo build --release`,
-  );
+  return resolveNativeLibrary("downdraft_physics", {
+    envVars: ["DOWNDRAFT_PHYSICS_LIB", "PHYSICS_NATIVE_PATH"],
+    crateDir: join(_dirname, "..", "..", "physics-native", "native"),
+    buildHint: 'run "bun run build:native" from the repo root',
+  });
 }
 
 // ── FFI symbol table ──

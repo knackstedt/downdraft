@@ -9,9 +9,8 @@
 // parses the returned buffer into typed JS objects that EguiRenderer consumes.
 // ============================================================================
 
-import { dlopen, ptr, type CFunction } from "@downdraft/platform-native";
+import { dlopen, ptr, resolveNativeLibrary, type CFunction } from "@downdraft/platform-native";
 import { Buffer } from "node:buffer";
-import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -23,25 +22,11 @@ const _dirname =
 // ── Locate the devtools native library ──
 
 function findDevtoolsLibrary(): string {
-  const envPath = process.env.DEVTOOLS_NATIVE_PATH;
-  if (envPath && existsSync(envPath)) return envPath;
-
-  const distPath = join(_dirname, "..", "..", "devtools", "native", "dist", "libdowndraft_devtools.so");
-  if (existsSync(distPath)) return distPath;
-
-  const sidePath = join(_dirname, "..", "..", "devtools", "native", "libdowndraft_devtools.so");
-  if (existsSync(sidePath)) return sidePath;
-
-  // Packaged layout — native/ dir next to the compiled binary.
-  const execPath = join(dirname(process.execPath), "native", "libdowndraft_devtools.so");
-  if (existsSync(execPath)) return execPath;
-
-  const systemPath = "/usr/local/lib/libdowndraft_devtools.so";
-  if (existsSync(systemPath)) return systemPath;
-
-  throw new Error(
-    `libdowndraft_devtools.so not found. Build with: cd packages/engine/libraries/devtools/native && ./build.sh`,
-  );
+  return resolveNativeLibrary("downdraft_devtools", {
+    envVars: ["DEVTOOLS_NATIVE_PATH"],
+    crateDir: join(_dirname, "..", "..", "devtools", "native"),
+    buildHint: 'run "bun run build:native" from the repo root',
+  });
 }
 
 // ── FFI symbol table ──

@@ -1,15 +1,16 @@
 // ============================================================================
 // wgsl-validate-plugin.ts — Vite plugin that validates WGSL shaders at
-// build/compile time using the Tint CLI.
+// build/compile time using naga (in-process, via libdowndraft_platform).
 // ============================================================================
 //
-// Intercepts `*.wgsl` and `*.wgsl?raw` imports in its `load` hook and shells
-// out to the Tint binary to validate the WGSL source. On error, fails the
-// build (or dev module load). On warning, logs to console (deduplicated).
+// Intercepts `*.wgsl` and `*.wgsl?raw` imports in its `load` hook and runs
+// `dd_wgsl_validate` — naga's frontend + validator, the exact checks wgpu
+// applies when a shader module is created. On error, fails the build (or
+// dev module load).
 //
 // Caches validation results by file path + mtime to avoid re-validating
 // unchanged files. Disabled when DOWNDRAFT_SHADER_VALIDATE=0 or when the
-// Tint binary is not available (falls through to runtime validation).
+// native validator is unavailable (falls through to runtime validation).
 //
 // This plugin runs alongside wgslHmrPlugin — both intercept *.wgsl?raw in
 // their load hooks. This plugin runs with enforce: "pre" so it validates
@@ -19,10 +20,10 @@
 // wgslHmrPlugin handle the actual module creation).
 
 import { createLogger } from "@downdraft/engine/util/logger";
+import { validateWgslNative } from "@downdraft/platform-native";
 import { readFileSync, statSync } from "node:fs";
 import { dirname, resolve as resolvePath } from "node:path";
 import type { Plugin } from "vite";
-import { resolveTintBinary, validateWgslWithTint } from "./tint-binary.ts";
 
 const log = createLogger("info");
 
@@ -35,7 +36,7 @@ const log = createLogger("info");
  *   // wgsl-validate: prelude ./fullscreen-vs.wgsl
  *
  * The validator prepends each referenced file (in order, relative to the
- * shader's directory) before invoking tint, so the check matches the runtime
+ * shader's directory) before invoking naga, so the check matches the runtime
  * concatenation.
  */
 function applyPreludePragmas(source: string, filePath: string): string {
@@ -46,7 +47,7 @@ function applyPreludePragmas(source: string, filePath: string): string {
     try {
       parts.push(readFileSync(resolvePath(dirname(filePath), m[1]), "utf-8"));
     } catch {
-      // Missing prelude — validate without it; tint will report the fallout.
+      // Missing prelude — validate without it; naga will report the fallout.
     }
   }
   return parts.length ? parts.join("\n") + "\n" + source : source;
@@ -68,8 +69,10 @@ function hasSkipPragma(source: string): boolean {
 }
 
 export function wgslValidatePlugin(): Plugin {
-  const tintBin = resolveTintBinary();
-  const enabled = tintBin !== null && process.env.DOWNDRAFT_SHADER_VALIDATE !== "0";
+  const enabled = process.env.DOWNDRAFT_SHADER_VALIDATE !== "0";
+  // null = not yet probed; lazily resolved on the first shader load so a
+  // missing platform library disables validation instead of erroring.
+  let validatorAvailable: boolean | null = null;
 
   // Validation cache: filePath → { mtime, result }
   const cache = new Map<string, { mtime: number; ok: boolean; errors: string[]; warnings: string[] }>();
@@ -81,15 +84,18 @@ export function wgslValidatePlugin(): Plugin {
     enforce: "pre",
 
     configResolved(config) {
-      if (enabled) {
-        config.logger.info(`[downdraft-wgsl-validate] enabled (tint: ${tintBin})`);
-      } else if (process.env.DOWNDRAFT_SHADER_VALIDATE !== "0") {
-        config.logger.warn(`[downdraft-wgsl-validate] Tint binary not found — build-time WGSL validation disabled (runtime validation still active)`);
+      if (!enabled) return;
+      const probe = validateWgslNative("fn _probe() {}");
+      validatorAvailable = probe !== null;
+      if (validatorAvailable) {
+        config.logger.info("[downdraft-wgsl-validate] enabled (naga via libdowndraft_platform)");
+      } else {
+        config.logger.warn("[downdraft-wgsl-validate] native validator not found — build-time WGSL validation disabled (runtime validation still active)");
       }
     },
 
     load(id) {
-      if (!enabled) return null;
+      if (!enabled || validatorAvailable === false) return null;
 
       // Match *.wgsl?raw and bare *.wgsl (same logic as wgslHmrPlugin)
       let filePath: string | null = null;
@@ -141,8 +147,14 @@ export function wgslValidatePlugin(): Plugin {
         return null;
       }
 
-      // Validate with Tint (with any declared prelude files prepended)
-      const result = validateWgslWithTint(tintBin!, applyPreludePragmas(source, filePath), filePath);
+      // Validate with naga (with any declared prelude files prepended).
+      // null → platform library missing; disable for the rest of the run.
+      const result = validateWgslNative(applyPreludePragmas(source, filePath), filePath);
+      if (result === null) {
+        validatorAvailable = false;
+        log.warn("wgsl-validate", `native validator unavailable — skipping ${filePath}`);
+        return null;
+      }
       cache.set(filePath, { mtime, ok: result.ok, errors: result.errors, warnings: result.warnings });
 
       if (!result.ok) {

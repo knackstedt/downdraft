@@ -1,0 +1,27 @@
+[package]
+name = "downdraft-platform"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Unified native platform library for Downdraft — windowing (winit), GPU (wgpu), image decode, text rasterization, WGSL validation"
+
+[lib]
+name = "downdraft_platform"
+crate-type = ["cdylib"]
+
+# Dependencies are added per porting phase:
+#   image    — image_shim_*  (replaces stb_image)
+#   cosmic-text — ft_shim_*  (replaces SDL2_ttf)
+#   winit + arboard + rfd — sdl_shim_* (replaces SDL2)
+#   wgpu 29 + pollster    — wgpu_shim_* (replaces wgpu-native + webgpu.h)
+#   naga                  — dd_wgsl_validate (replaces the tint binary)
+[dependencies]
+image = "0.25"
+cosmic-text = "0.14"
+winit = "0.30"
+raw-window-handle = "0.6"
+arboard = "3"
+rfd = "0.15"
+wgpu = "29"
+pollster = "0.4"

@@ -30,6 +30,18 @@ jobs:
         with:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
+      # Populate packages/native-*/lib/ from the native-v<version> release
+      # bundles (built by native.yml). Non-fatal: publishing may target
+      # code-only packages before artifacts exist.
+      - name: Stage native platform packages
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VER=$(node -p "require('./packages/platform-native/package.json').version")
+          mkdir -p /tmp/native-bundles
+          gh release download "native-v${VER}" --pattern 'downdraft-native-*.tar.gz' --dir /tmp/native-bundles
+          node scripts/stage-native-packages.mjs /tmp/native-bundles
       - name: Publish packages in dependency order
         run: |
           FILTER="${{ inputs.filter }}"

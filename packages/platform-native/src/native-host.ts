@@ -2,9 +2,9 @@
 // native-host.ts — Bun-native host layer
 //
 // Ties together:
-//   - GPU binding (wgpu-native via FFI)
-//   - Native window (SDL2)
-//   - Image polyfills (stb_image)
+//   - GPU binding (wgpu via FFI)
+//   - Native window (winit)
+//   - Image polyfills (image crate)
 //   - Asset glob (filesystem-based)
 //   - requestAnimationFrame (vsync-driven)
 //   - Screenshot capture

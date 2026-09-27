@@ -5,8 +5,7 @@
   "main": "src/index.ts",
   "types": "src/index.ts",
   "scripts": {
-    "build:shim": "cd native && gcc -shared -fPIC -o libwgpu_shim.so wgpu_shim.c -I./include -L./lib -lwgpu_native -lSDL2 -Wl,-rpath,'$ORIGIN/lib'",
-    "build:shims": "bash native/build-shims.sh",
+    "build:native": "node ../../scripts/build-native.mjs --pkg=downdraft-platform",
     "fetch:native": "node native/fetch-native.mjs",
     "postinstall": "node native/fetch-native.mjs || echo '[platform-native] native fetch skipped (offline?) \u2014 run bun run fetch:native later'",
     "test": "bun test"
@@ -14,6 +13,13 @@
   "dependencies": {
     "@downdraft/engine": "^0.1.0",
     "koffi": "^3.2.1"
+  },
+  "optionalDependencies": {
+    "@downdraft/native-darwin-arm64": "^0.1.0",
+    "@downdraft/native-darwin-x64": "^0.1.0",
+    "@downdraft/native-linux-arm64": "^0.1.0",
+    "@downdraft/native-linux-x64": "^0.1.0",
+    "@downdraft/native-win32-x64": "^0.1.0"
   },
   "devDependencies": {
     "typescript": "^5"
@@ -34,5 +40,5 @@
     "README.md",
     "!**/*.spec.ts"
   ],
-  "description": "Native platform bindings \u2014 wgpu-native/tint binaries and the native device layer for running Downdraft outside Electron."
+  "description": "Native platform bindings \u2014 the Rust libdowndraft_platform cdylib (wgpu + winit + cosmic-text + image + naga) and the native device layer for running Downdraft outside Electron."
 }

@@ -31,8 +31,8 @@ tests/pixi-polyfill/browser/entry.js
 native-screenshot.png
 
 # Native binaries — fetched at install via `bun run fetch:native` in
-# packages/platform-native, not committed. Shim .so files are built from
-# source via `bun run build:shims`.
+# packages/platform-native, not committed. Rust cdylibs are built from source
+# via `bun run build:native` (root Cargo workspace + scripts/build-native.mjs).
 packages/platform-native/native/bin/
 packages/platform-native/native/lib/
 packages/platform-native/native/*.so
@@ -41,6 +41,16 @@ packages/platform-native/native/*.dylib
 packages/platform-native/native/*.zip
 packages/platform-native/native/*-extract/
 packages/platform-native/native/*-download.zip
+# Per-platform artifact dirs staged by build-native.mjs / fetch-at-install.
+packages/platform-native/native/linux-*/
+packages/platform-native/native/darwin-*/
+packages/platform-native/native/win32-*/
+# npm platform packages — lib/ is populated from artifact bundles at publish.
+packages/native-*/lib/
+artifacts/
+
+# Root Cargo workspace target dir (crates are members — artifacts land here).
+/target/
 
 # Rust devtools native lib — built from packages/engine/libraries/devtools/native via
 # build.sh (cargo). The .so copy next to src/ and the cargo target/ dir are

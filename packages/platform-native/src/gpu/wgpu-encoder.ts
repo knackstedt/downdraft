@@ -86,7 +86,7 @@ export class WgpuCommandEncoder {
       }
     }
 
-    // Depth-stencil attachment: 10 u32 (see wgpu_shim.c)
+    // Depth-stencil attachment: 10 u32 (see native-rs/src/gpu/mod.rs)
     let depthFlat: Uint32Array | null = null;
     const da = descriptor.depthStencilAttachment;
     if (da) {

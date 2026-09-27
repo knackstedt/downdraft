@@ -10,8 +10,7 @@
 // GPU textures.
 // ============================================================================
 
-import { dlopen, ptr, readMappedRange, type CFunction } from "@downdraft/platform-native";
-import { existsSync } from "node:fs";
+import { dlopen, ptr, readMappedRange, resolveNativeLibrary, type CFunction } from "@downdraft/platform-native";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -21,25 +20,11 @@ const _dirname =
     : dirname(fileURLToPath(import.meta.url));
 
 function findOsrLibrary(): string | null {
-  const envPath = process.env.DOWNDRAFT_OSR_LIB;
-  if (envPath) return existsSync(envPath) ? envPath : null;
-  const base =
-    process.platform === "win32" ? "downdraft_blitz_osr.dll"
-    : process.platform === "darwin" ? "libdowndraft_blitz_osr.dylib"
-    : "libdowndraft_blitz_osr.so";
-  const candidates = [
-    // Dev builds — release first, then debug.
-    join(_dirname, "..", "native-osr", "target", "release", base),
-    join(_dirname, "..", "native-osr", "target", "debug", base),
-    join(_dirname, "..", "native-osr", base),
-    // Packaged layout — native/ dir next to the compiled binary.
-    join(dirname(process.execPath), "native", base),
-    join("/usr/local/lib", base),
-  ];
-  for (let _i = 0, _it = candidates, _n = _it.length; _i < _n; _i++) { const p = _it[_i];
-    if (existsSync(p)) return p;
-  }
-  return null;
+  return resolveNativeLibrary("downdraft_blitz_osr", {
+    envVars: ["DOWNDRAFT_OSR_LIB"],
+    crateDir: join(_dirname, "..", "native-osr"),
+    optional: true,
+  });
 }
 
 // ── FFI symbol table ──

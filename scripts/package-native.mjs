@@ -12,8 +12,7 @@
 //
 // Produces:
 //   <outfile>                    compiled binary
-//   <outdir>/native/*.so         platform shims + engine cdylibs (dlopen'd)
-//   <outdir>/native/lib/*.so     shim dependencies (rpath $ORIGIN/lib)
+//   <outdir>/native/*.so         platform lib + engine cdylibs (dlopen'd)
 //   <outdir>/dd-assets/<repo-rel>  ?url imports + glob-matched asset files
 //
 // The runtime Bun.plugin() loaders in bun-preload.ts handle ?raw/.wgsl/?url
@@ -39,6 +38,7 @@
 import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
+import { CRATES, libFileName } from "./native-crates.mjs";
 
 const argv = process.argv.slice(2);
 // --mcp retains the MCP automation endpoint in the packaged binary (still
@@ -383,35 +383,39 @@ const isWin = process.platform === "win32";
 const libExt = isWin ? ".dll" : process.platform === "darwin" ? ".dylib" : ".so";
 
 const nativeDir = join(outdir, "native");
-const nativeLibDir = join(nativeDir, "lib");
-mkdirSync(nativeLibDir, { recursive: true });
+mkdirSync(nativeDir, { recursive: true });
 
-// Platform shims + their lib/ dependencies (rpath $ORIGIN/lib).
+// Platform lib — the unified libdowndraft_platform (Rust, statically links
+// wgpu — no external deps) stages under native/<platform>-<arch>/.
 const shimDir = resolve(repoRoot, "packages/platform-native/native");
-for (const f of readdirSync(shimDir)) {
-  if (f.endsWith(libExt)) copyFileSync(join(shimDir, f), join(nativeDir, f));
-}
-const shimLibDir = join(shimDir, "lib");
-if (existsSync(shimLibDir)) {
-  for (const f of readdirSync(shimLibDir)) {
-    if (f.endsWith(libExt) || f.endsWith(".a")) copyFileSync(join(shimLibDir, f), join(nativeLibDir, f));
+const platStageDir = join(shimDir, `${process.platform}-${process.arch}`);
+if (existsSync(platStageDir)) {
+  for (const f of readdirSync(platStageDir)) {
+    if (f.endsWith(libExt)) copyFileSync(join(platStageDir, f), join(nativeDir, f));
   }
 }
 
-// Engine cdylibs — staged if a release build exists.
-const engineLibs = [
-  "packages/engine/libraries/physics-native/native/target/release/libdowndraft_physics",
-  "packages/engine/libraries/devtools/native/dist/libdowndraft_devtools",
-  "packages/engine/libraries/devtools/native/libdowndraft_devtools",
-  "packages/engine/libraries/blitz-ui/native-osr/target/release/libdowndraft_blitz_osr",
-];
+// Engine cdylibs — staged if a build exists: new dist/<plat>-<arch>/ and
+// dist/ layouts (build-native.mjs), plus the legacy standalone-crate
+// target/ + crate-dir layouts.
+const engineCrates = CRATES.filter((c) => c.pkg !== "downdraft-platform");
+const nodePlat = `${process.platform}-${process.arch}`;
 const staged = new Set();
-engineLibs.forEach((base) => {
-  const p = resolve(repoRoot, base + libExt);
-  const name = basename(base) + libExt;
-  if (existsSync(p) && !staged.has(name)) {
-    copyFileSync(p, join(nativeDir, name));
-    staged.add(name);
+engineCrates.forEach((crate) => {
+  const file = libFileName(crate.lib, nodePlat);
+  const candidates = [
+    join(repoRoot, crate.dest, nodePlat, file),
+    join(repoRoot, crate.dest, file),
+    join(repoRoot, crate.dir, "target", "release", file),
+    join(repoRoot, crate.dir, file),
+  ];
+  for (let _i = 0, _it = candidates, _n = _it.length; _i < _n; _i++) {
+    const p = _it[_i];
+    if (existsSync(p) && !staged.has(file)) {
+      copyFileSync(p, join(nativeDir, file));
+      staged.add(file);
+      break;
+    }
   }
 });
 

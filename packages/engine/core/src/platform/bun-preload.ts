@@ -24,25 +24,23 @@ if (typeof (globalThis as any).Bun !== "undefined" && typeof (globalThis as any)
 
   // ── WGSL shader loader (?raw and bare) ──
   // Matches: "./foo.wgsl?raw", "./foo.wgsl"
-  // Also validates with the Tint CLI if available (build-time parity with
-  // the Vite wgslValidatePlugin). Disabled when DOWNDRAFT_SHADER_VALIDATE=0.
+  // Also validates with naga in-process via libdowndraft_platform (build-time
+  // parity with the Vite wgslValidatePlugin). Disabled when
+  // DOWNDRAFT_SHADER_VALIDATE=0 or the native validator is unavailable.
   Bun.plugin({
     name: "downdraft-wgsl-loader",
     setup(build: any) {
-      // Tint binary resolution — best-effort, cached after first call.
-      let tintBin: string | null | undefined = undefined;
-      function getTintBin(): string | null {
-        if (tintBin !== undefined) return tintBin;
+      // Native validator resolution — best-effort, cached after first call.
+      let validateNative: ((src: string, path?: string) => { ok: boolean; errors: string[] } | null) | null | undefined = undefined;
+      function getValidator() {
+        if (validateNative !== undefined) return validateNative;
         try {
-          // Self-reference via the package specifier + exports map
-          // ("./app/*" → "./app/src/*.ts") — never reach into app/ via
-          // relative paths from core/.
-          const { resolveTintBinary } = require("@downdraft/engine/app/vite/tint-binary");
-          tintBin = resolveTintBinary() as string | null;
+          const { validateWgslNative } = require("@downdraft/platform-native");
+          validateNative = validateWgslNative;
         } catch {
-          tintBin = null;
+          validateNative = null;
         }
-        return tintBin;
+        return validateNative;
       }
 
       // Fragment shaders that only compile when concatenated with shared
@@ -62,33 +60,11 @@ if (typeof (globalThis as any).Bun !== "undefined" && typeof (globalThis as any)
       function validateWgsl(path: string, text: string): void {
         if (process.env.DOWNDRAFT_SHADER_VALIDATE === "0") return;
         if (/^\/\/\s*wgsl-validate:\s*skip\s*$/m.test(text)) return;
-        const bin = getTintBin();
-        if (!bin) return;
-        try {
-          const { writeFileSync, mkdtempSync, unlinkSync, rmdirSync } = require("node:fs");
-          const { tmpdir } = require("node:os");
-          const { join } = require("node:path");
-          const { execSync } = require("node:child_process");
-          const tmpDir = mkdtempSync(join(tmpdir(), "dd-tint-"));
-          const tmpFile = join(tmpDir, "shader.wgsl");
-          const outFile = join(tmpDir, "out.spvasm");
-          writeFileSync(tmpFile, applyPreludePragmas(text, path), "utf-8");
-          try {
-            execSync(`"${bin}" -f spvasm "${tmpFile}" -o "${outFile}"`, {
-              stdio: ["ignore", "pipe", "pipe"],
-              encoding: "utf-8",
-              timeout: 30000,
-            });
-          } catch (e: any) {
-            const output = (e.stdout ?? "") + (e.stderr ?? "");
-            throw new Error(`WGSL validation failed for ${path}:\n${output.trim()}`);
-          } finally {
-            try { unlinkSync(tmpFile); } catch {}
-            try { rmdirSync(tmpDir); } catch {}
-          }
-        } catch (e: any) {
-          // Re-throw validation errors so they block the module load.
-          if (e.message?.includes("WGSL validation failed")) throw e;
+        const validate = getValidator();
+        if (!validate) return;
+        const result = validate(applyPreludePragmas(text, path), path);
+        if (result !== null && !result.ok) {
+          throw new Error(`WGSL validation failed for ${path}:\n${result.errors.join("\n")}`);
         }
       }
 

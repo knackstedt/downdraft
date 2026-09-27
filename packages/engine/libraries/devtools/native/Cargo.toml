@@ -10,6 +10,3 @@ crate-type = ["cdylib"]
 [dependencies]
 egui = "0.31"
 epaint = "0.31"
-
-[profile.release]
-opt-level = 2

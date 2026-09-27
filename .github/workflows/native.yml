@@ -1,0 +1,68 @@
+name: Native artifacts
+
+# Builds the Rust cdylibs for every supported platform and uploads
+# downdraft-native-<platform>-<arch>.tar.gz bundles to a GitHub release
+# tagged native-v<platform-native version>. fetch-native.mjs downloads that
+# bundle at install time; the @downdraft/native-* npm packages are populated
+# from the same bundles during publish.yml.
+#
+# Trigger manually (workflow_dispatch) or by pushing a native-v* tag.
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["native-v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          VER=$(node -p "require('./packages/platform-native/package.json').version")
+          echo "tag=native-v${VER}" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # x86_64 linux on the oldest supported glibc (ubuntu-22.04).
+          - { os: ubuntu-22.04, triples: "x86_64-unknown-linux-gnu", nodePlats: "linux-x64" }
+          - { os: ubuntu-24.04-arm, triples: "aarch64-unknown-linux-gnu", nodePlats: "linux-arm64" }
+          - { os: macos-latest, triples: "aarch64-apple-darwin x86_64-apple-darwin", nodePlats: "darwin-arm64 darwin-x64" }
+          - { os: windows-latest, triples: "x86_64-pc-windows-msvc", nodePlats: "win32-x64" }
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Rust toolchain (pinned by rust-toolchain.toml)
+        run: |
+          rustup toolchain install --profile minimal
+          rustup target add ${{ matrix.triples }}
+
+      - name: Build Rust cdylibs
+        run: |
+          for t in ${{ matrix.triples }}; do
+            node scripts/build-native.mjs --target="$t" --profile=dist
+          done
+
+      - name: Assemble artifact bundles
+        run: node scripts/make-native-bundle.mjs ${{ matrix.nodePlats }}
+
+      - name: Upload to GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.version.outputs.tag }}
+          files: artifacts/downdraft-native-*.tar.gz

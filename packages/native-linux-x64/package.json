@@ -1,0 +1,10 @@
+{
+  "name": "@downdraft/native-linux-x64",
+  "version": "0.1.0",
+  "description": "Prebuilt Downdraft native binaries (linux x64)",
+  "license": "MIT",
+  "os": ["linux"],
+  "cpu": ["x64"],
+  "files": ["lib/"],
+  "publishConfig": { "access": "public" }
+}

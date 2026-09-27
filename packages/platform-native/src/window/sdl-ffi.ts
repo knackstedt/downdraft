@@ -1,5 +1,6 @@
 // ============================================================================
-// sdl-ffi.ts — FFI bindings to the SDL2 shim
+// sdl-ffi.ts — FFI bindings to the window/event shim (winit in
+// libdowndraft_platform; the sdl_shim_* symbol names are the frozen ABI)
 //
 // Loading is LAZY: importing this module does not call dlopen. The shared
 // library is opened on the first symbol access (e.g. create_window), so
@@ -7,7 +8,7 @@
 // ============================================================================
 
 import { dlopen, type CFunction, type ptr } from "../ffi/ffi-adapter";
-import { resolveShimLibrary } from "../ffi/lib-paths";
+import { resolvePlatformLibrary, resolveShimLibrary } from "../ffi/lib-paths";
 
 const SDL_SHIM_SPEC: Record<string, CFunction> = {
   sdl_shim_create_window: { args: ["cstring", "i32", "i32"], returns: "i32" },
@@ -39,7 +40,11 @@ let _sdl: SdlShimSymbols | null = null;
 
 function loadSdl(): SdlShimSymbols {
   if (_sdl) return _sdl;
-  const libPath = resolveShimLibrary("sdl_shim", "SDL_SHIM_PATH");
+  // Resolution order: explicit SDL_SHIM_PATH override → unified Rust
+  // platform lib (downdraft_platform, winit + wgpu surface).
+  const libPath = process.env.SDL_SHIM_PATH
+    ? resolveShimLibrary("sdl_shim", "SDL_SHIM_PATH")
+    : resolvePlatformLibrary();
   const { symbols } = dlopen(libPath, SDL_SHIM_SPEC);
   _sdl = symbols as unknown as SdlShimSymbols;
   return _sdl;
@@ -83,7 +88,7 @@ export interface SdlShimSymbols {
   sdl_shim_get_clipboard: (out: ptr, maxLen: number) => number;
 }
 
-// Event type constants (matching sdl_shim.c)
+// Event type constants (matching native-rs/src/window/events.rs)
 export const SDL_EVENT_NONE = 0;
 export const SDL_EVENT_QUIT = 1;
 export const SDL_EVENT_KEY_DOWN = 2;

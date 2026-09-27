@@ -31,8 +31,3 @@ web-time = "1"
 # Workaround copied from blitz examples: disable unicode URL support
 # (see https://github.com/hsivonen/idna_adapter)
 idna_adapter = "=1.0.0"
-
-[profile.release]
-opt-level = 3
-lto = true
-codegen-units = 1

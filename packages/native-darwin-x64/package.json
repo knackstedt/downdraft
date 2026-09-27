@@ -1,0 +1,10 @@
+{
+  "name": "@downdraft/native-darwin-x64",
+  "version": "0.1.0",
+  "description": "Prebuilt Downdraft native binaries (darwin x64)",
+  "license": "MIT",
+  "os": ["darwin"],
+  "cpu": ["x64"],
+  "files": ["lib/"],
+  "publishConfig": { "access": "public" }
+}

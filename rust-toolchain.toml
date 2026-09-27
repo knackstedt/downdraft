@@ -1,0 +1,5 @@
+# Pinned toolchain so `cargo build` is reproducible across dev machines and CI.
+# wgpu 29.x MSRV is 1.87; we pin the current stable used in this repo.
+# CI installs extra targets on demand (`rustup target add <triple>`).
+[toolchain]
+channel = "1.96.0"

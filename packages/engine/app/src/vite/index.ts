@@ -516,8 +516,9 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
         // React Refresh code (which references `window`) into the Solid worker
         // chunk. The Solid plugin (added via rendererPlugins) handles those files.
         react({ exclude: "**/src/solid/**" }),
-        // WGSL validation — validates .wgsl files with the Tint CLI at
-        // build/compile time. Runs before wgslHmrPlugin so malformed shaders
+        // WGSL validation — validates .wgsl files with naga (in-process via
+        // libdowndraft_platform) at build/compile time. Runs before
+        // wgslHmrPlugin so malformed shaders
         // are caught before module creation. Disabled when Tint is unavailable
         // or DOWNDRAFT_SHADER_VALIDATE=0 (runtime validation still active).
         wgslValidatePlugin(),

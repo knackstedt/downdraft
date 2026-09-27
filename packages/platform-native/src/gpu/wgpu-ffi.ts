@@ -1,12 +1,12 @@
 // ============================================================================
-// wgpu-ffi.ts — FFI bindings to the wgpu_shim C library
+// wgpu-ffi.ts — FFI bindings to the wgpu shim surface
 //
-// Loads libwgpu_shim (compiled from native/wgpu_shim.c) and exposes its
-// functions as typed JS functions. The C shim flattens the wgpu-native
+// Loads libdowndraft_platform (native-rs/src/gpu/ — Rust `wgpu` crate) and
+// exposes its functions as typed JS functions. The shim flattens wgpu's
 // struct-based API into individual parameters for easy FFI binding.
 //
 // The shim handles async APIs (requestAdapter, requestDevice, bufferMapAsync)
-// synchronously by polling wgpuInstanceProcessEvents() until callbacks fire.
+// synchronously via instance.poll(Wait) until callbacks fire.
 //
 // Loading is LAZY: importing this module does not call dlopen. The shared
 // library is opened on the first symbol access (e.g. installGPU()). This
@@ -15,7 +15,7 @@
 // ============================================================================
 
 import { dlopen, type CFunction, type ptr } from "../ffi/ffi-adapter";
-import { resolveShimLibrary } from "../ffi/lib-paths";
+import { resolvePlatformLibrary, resolveShimLibrary } from "../ffi/lib-paths";
 
 // ── FFI symbol definitions ──
 // Each entry maps a C function to a JS function with typed parameters.
@@ -314,7 +314,11 @@ let _wgpu: WgpuShimSymbols | null = null;
 
 function loadWgpu(): WgpuShimSymbols {
   if (_wgpu) return _wgpu;
-  const shimPath = resolveShimLibrary("wgpu_shim", "WGPU_SHIM_PATH");
+  // Resolution order: explicit WGPU_SHIM_PATH override → unified Rust
+  // platform lib (downdraft_platform, wgpu crate).
+  const shimPath = process.env.WGPU_SHIM_PATH
+    ? resolveShimLibrary("wgpu_shim", "WGPU_SHIM_PATH")
+    : resolvePlatformLibrary();
   const { symbols } = dlopen(shimPath, WGPU_SHIM_SPEC);
   _wgpu = symbols as unknown as WgpuShimSymbols;
   return _wgpu;

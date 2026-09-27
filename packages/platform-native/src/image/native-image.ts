@@ -1,7 +1,8 @@
 // ============================================================================
 // native-image.ts — Native image decoding replacing createImageBitmap
 //
-// Uses stb_image via FFI to decode PNG/JPEG/BMP/TGA images.
+// Uses the Rust `image` crate (in libdowndraft_platform) via FFI to decode
+// PNG/JPEG/BMP/TGA images.
 // Implements the ImageBitmap interface that the engine's asset loaders expect.
 //
 // Text rasterization lives in native-canvas2d.ts (Canvas2D + glyph atlas)
@@ -12,7 +13,7 @@
 import { createLogger } from "@downdraft/engine";
 import { resolveBlobUrl } from "../dom/blob-urls";
 import { dlopen, type CFunction } from "../ffi/ffi-adapter";
-import { resolveShimLibrary } from "../ffi/lib-paths";
+import { resolvePlatformLibrary, resolveShimLibrary } from "../ffi/lib-paths";
 import { encodePNG } from "../screenshot/screenshot";
 import { NativeCanvas2D } from "./native-canvas2d";
 
@@ -38,7 +39,11 @@ interface ImageShimSymbols {
 let _imageShim: ImageShimSymbols | null = null;
 function imageShim(): ImageShimSymbols {
   if (!_imageShim) {
-    const libPath = resolveShimLibrary("image_shim", "IMAGE_SHIM_PATH");
+    // Resolution order: explicit IMAGE_SHIM_PATH override → unified Rust
+    // platform lib (downdraft_platform).
+    const libPath = process.env.IMAGE_SHIM_PATH
+      ? resolveShimLibrary("image_shim", "IMAGE_SHIM_PATH")
+      : resolvePlatformLibrary();
     _imageShim = dlopen(libPath, IMAGE_SHIM_SPEC).symbols as unknown as ImageShimSymbols;
   }
   return _imageShim;
@@ -211,7 +216,7 @@ export function installImagePolyfills(): void {
   }
 
   // Image polyfill — PixiJS DOMAdapter.createImage() returns `new Image()`.
-  // Setting `src` decodes the file via stb_image (createImageBitmapNative) and
+  // Setting `src` decodes the file via the image crate (createImageBitmapNative) and
   // fires onload/onerror. Supports file paths, data: URLs, and http(s) via fetch.
   if (typeof (globalThis as any).Image === "undefined") {
     (globalThis as any).Image = class NativeImage {
@@ -286,5 +291,5 @@ export function installImagePolyfills(): void {
     };
   }
 
-  log.info("platform-native", "Image polyfills installed (stb_image + OffscreenCanvas + Image)");
+  log.info("platform-native", "Image polyfills installed (image crate + OffscreenCanvas + Image)");
 }

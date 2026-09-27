@@ -1,0 +1,40 @@
+# Root Cargo workspace — one lockfile, one `cargo build`, one target dir for
+# every native artifact in the repo. Build via `node scripts/build-native.mjs`
+# (cross-platform replacement for the old per-crate build.sh scripts).
+#
+# Member crates are cdylibs loaded by the engine via bun:ffi/koffi. They are
+# NOT published to crates.io.
+[workspace]
+resolver = "2"
+members = [
+    # Unified platform library — windowing (winit), GPU (wgpu), image decode,
+    # text rasterization, WGSL validation. Replaces native/*.c.
+    "packages/platform-native/native-rs",
+    "packages/engine/libraries/physics-native/native",
+    "packages/engine/libraries/devtools/native",
+    "packages/engine/libraries/blitz-ui/native",
+    "packages/engine/libraries/blitz-ui/native-osr",
+    "test-beds/ui-bakeoff/blitz-app",
+]
+# raw-input: dormant Electron-era napi crate, slated for deletion.
+# audio-kira: dormant — does not compile at HEAD (written against a pre-0.8
+# kira API; the JS audio backend is the active path). Rejoins the workspace
+# when revived.
+exclude = [
+    "packages/engine/modules/raw-input/native",
+    "packages/engine/libraries/audio-kira/native",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+# `cargo build --release` stays fast for local dev. CI artifact builds use
+# `cargo build --profile dist` — fat LTO + single codegen unit, matching what
+# the old per-crate release profiles did for the blitz natives.
+[profile.dist]
+inherits = "release"
+lto = true
+codegen-units = 1
+strip = "symbols"

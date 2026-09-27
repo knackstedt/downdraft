@@ -587,7 +587,7 @@ export class NativeWindow extends MiniEventTarget {
           deltaX: floatView[0] * WHEEL_PIXELS_PER_DETENT,
           deltaY: -floatView[1] * WHEEL_PIXELS_PER_DETENT,
           deltaMode: 0, // DOM_DELTA_PIXEL
-          clientX: eventView[3], // mouse_x/mouse_y in slots 3/4 (sdl_shim.c)
+          clientX: eventView[3], // mouse_x/mouse_y in slots 3/4 (native-rs/src/window/events.rs)
           clientY: eventView[4],
           ...this.modifiers(mod),
           preventDefault: () => {},

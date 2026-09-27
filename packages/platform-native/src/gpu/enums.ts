@@ -1,9 +1,10 @@
 // ============================================================================
 // enums.ts — WebGPU enum/string mappings and descriptor normalization
 //
-// All numeric values match the vendored webgpu.h (see native/include/webgpu).
-// These are the single source of truth — do NOT duplicate them in
-// native-surface.ts or elsewhere.
+// All numeric values match the WebGPU C ABI (webgpu.h v29) that
+// libdowndraft_platform implements — see native-rs/src/gpu/enums.rs for the
+// same table on the Rust side. These are the single source of truth — do
+// NOT duplicate them in native-surface.ts or elsewhere.
 // ============================================================================
 
 // ── Format name → WGPUTextureFormat (webgpu.h v29) ──
@@ -208,7 +209,7 @@ export function parseOrigin3D(origin?: GPUOrigin3D | number): Origin3D {
 }
 
 // ── WGPULimits field order ──
-// Must stay in sync with the LIMIT_* enum in native/wgpu_shim.c.
+// Must stay in sync with the limit read/write logic in native-rs/src/gpu/.
 export const LIMIT_FIELD_INDEX: Record<string, number> = {
   maxTextureDimension1D: 0,
   maxTextureDimension2D: 1,
