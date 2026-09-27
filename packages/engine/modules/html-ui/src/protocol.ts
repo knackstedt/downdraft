@@ -31,12 +31,26 @@ export type UiToWorker =
   | { type: "input"; id: string; msg: DocInputMsg }
   | { type: "mutate"; id: string; ops: DocMutation[] }
   | { type: "resource"; url: string; bytes: ArrayBuffer }
-  | { type: "getAttr"; reqId: number; id: string; sel?: string; node?: number; name: string };
+  | { type: "getAttr"; reqId: number; id: string; sel?: string; node?: number; name: string }
+  | { type: "getRect"; reqId: number; id: string; sel?: string; node?: number }
+  /** Host detected a torn SAB frame read — re-emit the current pixels. */
+  | { type: "refresh"; id: string };
 
 /** Backend → host */
 export type WorkerToUi =
   | { type: "ready" }
-  | { type: "frame"; id: string; x: number; y: number; w: number; h: number; pw: number; ph: number; pixels: ArrayBuffer }
+  /**
+   * A frame is ready. Two shapes:
+   *  - pixel-carrying (`pixels` present): `w*h*4` tightly-packed RGBA bytes to
+   *    upload at (x, y). Used when no SharedArrayBuffer channel is bound.
+   *  - SAB (`seq` present): the backend wrote the dirty rect into the bound
+   *    buffer at `stride`-aligned rows — the host reads pixels itself.
+   */
+  | { type: "frame"; id: string; x: number; y: number; w: number; h: number; pw: number; ph: number; pixels?: ArrayBuffer; seq?: number; stride?: number }
+  /** Bind/rebind the per-doc SAB frame staging buffer (sent before first frame). */
+  | { type: "bind"; id: string; buf: SharedArrayBuffer }
   | { type: "events"; id: string; events: OsrDomEvent[] }
   | { type: "attr"; reqId: number; value: string | null }
+  | { type: "rect"; reqId: number; rect: { x: number; y: number; w: number; h: number } | null }
+  | { type: "stats"; id: string; frames: number; resolveMs: number; paintMs: number; diffMs: number; bytes: number }
   | { type: "error"; id?: string; message: string };

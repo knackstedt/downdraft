@@ -53,6 +53,19 @@ interface DocState {
   /** 0 = uncapped. Caps raster frequency for animating docs. */
   maxFps: number;
   lastFrame: number;
+  /** SAB frame channel — bound while zero-copy delivery is working. */
+  sab: SharedArrayBuffer | null;
+  sabU32: Int32Array | null;
+  sabDisabled: boolean;
+  stats: { frames: number; resolveMs: number; paintMs: number; diffMs: number; bytes: number };
+  statsLast: number;
+}
+
+// Bound-buffer header (u32 indices) — mirrors BoundBuf layout in lib.rs.
+const H_SEQ = 0, H_X = 1, H_Y = 2, H_W = 3, H_H = 4, H_PW = 5, H_PH = 6, H_STRIDE = 8;
+
+function freshStats() {
+  return { frames: 0, resolveMs: 0, paintMs: 0, diffMs: 0, bytes: 0 };
 }
 
 export function createDocCore(emit: (m: WorkerToUi) => void): {
@@ -62,6 +75,51 @@ export function createDocCore(emit: (m: WorkerToUi) => void): {
   const docs = new Map<string, DocState>();
   let destroyed = false;
 
+  /** Allocate + bind the doc's SAB frame channel; emits a bind message. */
+  function bindSab(id: string, s: DocState): void {
+    s.sab = null;
+    s.sabU32 = null;
+    if (typeof SharedArrayBuffer === "undefined") { s.sabDisabled = true; return; }
+    const need = s.doc.bufNeeded();
+    if (need <= 0) { s.sabDisabled = true; return; }
+    const sab = new SharedArrayBuffer(need);
+    if (!s.doc.bindFrameBuf(sab)) { s.sabDisabled = true; return; }
+    s.sab = sab;
+    s.sabU32 = new Int32Array(sab);
+    emit({ type: "bind", id, buf: sab });
+  }
+
+  /** Emit a frame message describing what frame_into()/refresh_into() wrote. */
+  function emitSabFrame(id: string, s: DocState): void {
+    const u = s.sabU32!;
+    emit({
+      type: "frame", id,
+      seq: Atomics.load(u, H_SEQ),
+      x: u[H_X], y: u[H_Y], w: u[H_W], h: u[H_H],
+      pw: u[H_PW], ph: u[H_PH], stride: u[H_STRIDE],
+    });
+  }
+
+  /** Fold the last raster's timings into the per-doc accumulator. */
+  function collectStats(s: DocState, rectBytes: number): void {
+    const st = s.doc.lastStats();
+    if (!st) return;
+    s.stats.frames++;
+    s.stats.resolveMs += st.resolveMs;
+    s.stats.paintMs += st.paintMs;
+    s.stats.diffMs += st.diffMs;
+    s.stats.bytes += rectBytes;
+  }
+
+  function emitStats(now: number): void {
+    for (const [id, s] of docs.entries()) {
+      if (now - s.statsLast < 1000 || s.stats.frames === 0) continue;
+      emit({ type: "stats", id, ...s.stats });
+      s.stats = freshStats();
+      s.statsLast = now;
+    }
+  }
+
   function pump() {
     const now = performance.now();
     for (const [id, s] of docs.entries()) {
@@ -69,6 +127,24 @@ export function createDocCore(emit: (m: WorkerToUi) => void): {
       if (events.length) emit({ type: "events", id, events });
       if (!s.doc.pending()) continue;
       if (s.maxFps > 0 && now - s.lastFrame < 1000 / s.maxFps) continue;
+      if (s.sabU32) {
+        const rc = s.doc.frameInto();
+        if (rc === 1) {
+          s.lastFrame = now;
+          collectStats(s, s.sabU32[H_W] * s.sabU32[H_H] * 4);
+          emitSabFrame(id, s);
+        } else if (rc === -2) {
+          // Doc grew past the bound buffer — regrow, then re-emit.
+          bindSab(id, s);
+          if (s.sabU32 && s.doc.refreshInto() === 1) emitSabFrame(id, s);
+        } else if (rc === -3) {
+          // Binding unsupported — drop the channel and fall to legacy below.
+          s.sabDisabled = true;
+          s.sab = null;
+          s.sabU32 = null;
+        }
+        if (rc !== -3) continue;
+      }
       const pixels = s.doc.frame();
       if (!pixels) continue;
       s.lastFrame = now;
@@ -76,6 +152,7 @@ export function createDocCore(emit: (m: WorkerToUi) => void): {
       const pw = s.doc.width;
       const ph = s.doc.height;
       if (rect && (rect.w < pw || rect.h < ph)) {
+        collectStats(s, rect.w * rect.h * 4);
         // Slice dirty rows into a tight buffer for a partial upload.
         const tight = new Uint8Array(rect.w * rect.h * 4);
         for (let r = 0; r < rect.h; r++) {
@@ -84,10 +161,12 @@ export function createDocCore(emit: (m: WorkerToUi) => void): {
         }
         emit({ type: "frame", id, x: rect.x, y: rect.y, w: rect.w, h: rect.h, pw, ph, pixels: tight.buffer });
       } else {
+        collectStats(s, pw * ph * 4);
         const copy = pixels.slice();
         emit({ type: "frame", id, x: 0, y: 0, w: pw, h: ph, pw, ph, pixels: copy.buffer as ArrayBuffer });
       }
     }
+    emitStats(now);
   }
 
   function handle(m: UiToWorker) {
@@ -99,7 +178,14 @@ export function createDocCore(emit: (m: WorkerToUi) => void): {
           if (/float\s*:/.test(m.html)) emit({ type: "error", id: m.id, message: "CSS float hangs Blitz layout — use flex instead" });
           const doc = OsrDoc.create(m.cssW * m.scale, m.cssH * m.scale, m.scale, m.html);
           if (!doc) { emit({ type: "error", id: m.id, message: "OsrDoc.create failed" }); return; }
-          docs.set(m.id, { doc, scale: m.scale, cssW: m.cssW, cssH: m.cssH, maxFps: m.maxFps ?? 0, lastFrame: -1e9 });
+          const s: DocState = {
+            doc, scale: m.scale, cssW: m.cssW, cssH: m.cssH,
+            maxFps: m.maxFps ?? 0, lastFrame: -1e9,
+            sab: null, sabU32: null, sabDisabled: false,
+            stats: freshStats(), statsLast: 0,
+          };
+          docs.set(m.id, s);
+          bindSab(m.id, s);
           break;
         }
         case "fps": {
@@ -112,7 +198,17 @@ export function createDocCore(emit: (m: WorkerToUi) => void): {
           docs.get(m.id)?.doc.setHtml(m.html); break;
         case "resize": {
           const s = docs.get(m.id);
-          if (s) { s.doc.resize(m.cssW * m.scale, m.cssH * m.scale, m.scale); s.scale = m.scale; s.cssW = m.cssW; s.cssH = m.cssH; }
+          if (s) {
+            s.doc.resize(m.cssW * m.scale, m.cssH * m.scale, m.scale);
+            s.scale = m.scale; s.cssW = m.cssW; s.cssH = m.cssH;
+            if (s.sabU32 && !s.sabDisabled) bindSab(m.id, s); // regrow to the new frame size
+          }
+          break;
+        }
+        case "refresh": {
+          // Host saw a torn seqlock read — re-emit the current pixels.
+          const s = docs.get(m.id);
+          if (s?.sabU32 && s.doc.refreshInto() === 1) emitSabFrame(m.id, s);
           break;
         }
         case "destroy": docs.get(m.id)?.doc.destroy(); docs.delete(m.id); break;
@@ -154,6 +250,13 @@ export function createDocCore(emit: (m: WorkerToUi) => void): {
           if (!s) { emit({ type: "attr", reqId: m.reqId, value: null }); break; }
           const node = m.node ?? (m.sel ? s.doc.query(m.sel) : 0);
           emit({ type: "attr", reqId: m.reqId, value: node ? s.doc.getAttr(node, m.name) : null });
+          break;
+        }
+        case "getRect": {
+          const s = docs.get(m.id);
+          if (!s) { emit({ type: "rect", reqId: m.reqId, rect: null }); break; }
+          const node = m.node ?? (m.sel ? s.doc.query(m.sel) : 0);
+          emit({ type: "rect", reqId: m.reqId, rect: node ? s.doc.nodeRect(node) : null });
           break;
         }
       }

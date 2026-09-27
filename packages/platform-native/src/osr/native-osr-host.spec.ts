@@ -33,17 +33,35 @@ describe.skipIf(!host.available)("native-osr host (bridge API over Blitz)", () =
     await host.api.destroyRenderer("r1");
   });
 
-  it("input events route to the doc and mark dirty", async () => {
+  it("input events that change visuals mark the frame dirty", async () => {
     await host.api.createRenderer({ id: "r2", mode: "dedicated", width: W, height: H, frameRate: 30 });
-    await host.api.setContent("r2", HTML);
+    // :hover restyle — pointer arrival produces real damage, so the frame
+    // repaints (input no longer unconditionally dirties the doc). The base
+    // style must come from the stylesheet — inline styles outrank :hover.
+    await host.api.setContent("r2", `<html><body style="margin:0;background:#123456;">
+      <style>#box { background: #ff8800; } #box:hover { background: #00ff00; }</style>
+      <div id="box" data-ui style="position:absolute;left:10px;top:10px;width:100px;height:50px;">Hi</div>
+    </body></html>`);
     host.api.pullFrame!("r2"); // drain initial frame
     host.api.sendInputEvent("r2", { type: "mouseMove", x: 20, y: 20 });
-    host.api.sendInputEvent("r2", { type: "mouseDown", x: 20, y: 20, button: "left" });
-    host.api.sendInputEvent("r2", { type: "mouseUp", x: 20, y: 20, button: "left" });
-    host.api.sendInputEvent("r2", { type: "mouseWheel", x: 20, y: 20, deltaY: 120 });
-    host.api.sendInputEvent("r2", { type: "keyDown", x: 0, y: 0, keyCode: "a" });
-    expect(host.api.pullFrame!("r2")).not.toBeNull(); // dirty from input
+    const px = host.api.pullFrame!("r2");
+    expect(px).not.toBeNull(); // hovered box repaints green
     await host.api.destroyRenderer("r2");
+  });
+
+  it("input that changes nothing leaves the frame clean", async () => {
+    await host.api.createRenderer({ id: "r2b", mode: "dedicated", width: W, height: H, frameRate: 30 });
+    await host.api.setContent("r2b", HTML);
+    host.api.pullFrame!("r2b"); // drain initial frame
+    host.api.sendInputEvent("r2b", { type: "mouseMove", x: 20, y: 20 });
+    host.api.sendInputEvent("r2b", { type: "mouseDown", x: 20, y: 20, button: "left" });
+    host.api.sendInputEvent("r2b", { type: "mouseUp", x: 20, y: 20, button: "left" });
+    host.api.sendInputEvent("r2b", { type: "mouseWheel", x: 20, y: 20, deltaY: 120 });
+    host.api.sendInputEvent("r2b", { type: "keyDown", x: 0, y: 0, keyCode: "a" });
+    // No :hover/:active rules, nothing scrollable, no focused input — the
+    // repaint never happens and the pixel diff stays clean.
+    expect(host.api.pullFrame!("r2b")).toBeNull();
+    await host.api.destroyRenderer("r2b");
   });
 
   it("atlas mode packs panels and emits layout callbacks", async () => {

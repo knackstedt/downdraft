@@ -51,6 +51,21 @@ interface Panel {
   handlers: Set<PanelEventHandler>;
   /** True while an editable element (<input>/<textarea>) holds DOM focus. */
   editing: boolean;
+  /** Bound SAB frame channel — frames arrive as headers, pixels stay shared. */
+  sab: SharedArrayBuffer | null;
+  sabI32: Int32Array | null;
+}
+
+const UI_TRACE = typeof process !== "undefined" && !!process.env?.DD_UI_TRACE;
+
+/** Per-doc raster/upload stats — surfaced on globalThis.__ddUiStats. */
+export interface UiDocStats {
+  frames: number;
+  resolveMs: number;
+  paintMs: number;
+  diffMs: number;
+  bytes: number;
+  at: number;
 }
 
 export interface UiPanelHandle {
@@ -69,6 +84,8 @@ export interface UiPanelHandle {
   setZ(z: number): void;
   onEvent(fn: PanelEventHandler): () => void;
   getAttr(target: number | string, name: string): Promise<string | null>;
+  /** Border-box rect in panel-local CSS px (same space as event x/y). */
+  getRect(target: number | string): Promise<{ x: number; y: number; w: number; h: number } | null>;
   dispose(): void;
 }
 
@@ -79,6 +96,7 @@ export class HtmlUiHost {
   private nextId = 0;
   private nextReqId = 1;
   private attrReqs = new Map<number, (v: string | null) => void>();
+  private rectReqs = new Map<number, (v: { x: number; y: number; w: number; h: number } | null) => void>();
   private actionHandlers = new Map<string, Set<PanelActionHandler>>();
   private unsubInput: Array<() => void> = [];
   private focusedPanel: string | null = null;
@@ -117,7 +135,7 @@ export class HtmlUiHost {
       id, spec, rect: { ...spec.rect }, z: spec.z ?? 0, scale,
       texture: null, texW: 0, texH: 0, ubo: null, bindGroup: null,
       handlers: new Set(spec.onEvent ? [spec.onEvent] : []),
-      editing: false,
+      editing: false, sab: null, sabI32: null,
     };
     this.panels.set(id, panel);
     this.order.push(id);
@@ -158,6 +176,11 @@ export class HtmlUiHost {
         this.attrReqs.set(reqId, resolve);
         this.send({ type: "getAttr", reqId, id: p.id, name, ...tgt(t) });
       }),
+      getRect: (t) => new Promise((resolve) => {
+        const reqId = this.nextReqId++;
+        this.rectReqs.set(reqId, resolve);
+        this.send({ type: "getRect", reqId, id: p.id, ...tgt(t) });
+      }),
       dispose: () => this.unmount(p.id),
     };
   }
@@ -169,6 +192,8 @@ export class HtmlUiHost {
     this.order = this.order.filter((x) => x !== id);
     p.texture?.destroy();
     p.ubo?.destroy();
+    p.sab = null;
+    p.sabI32 = null;
     if (this.focusedPanel === id) this.focusedPanel = null;
     this.send({ type: "destroy", id });
   }
@@ -208,10 +233,39 @@ export class HtmlUiHost {
   dispose(): void {
     this.unsubInput.forEach((u) => u());
     this.unsubInput = [];
-    for (const p of this.panels.values()) { p.texture?.destroy(); p.ubo?.destroy(); }
+    if (this.moveTimer) { clearTimeout(this.moveTimer); this.moveTimer = null; }
+    for (const p of this.panels.values()) { p.texture?.destroy(); p.ubo?.destroy(); p.sab = null; p.sabI32 = null; }
     this.panels.clear();
     this.order = [];
     this.backend.dispose();
+  }
+
+  // ── Input coalescing ──
+  // Pointermove dominates UI input traffic; at 120Hz+ input rates each move
+  // used to become its own worker message + DOM dispatch. Keep only the
+  // latest move per panel and flush at ~8ms — ordering vs. down/up/wheel/key
+  // is preserved by flushing pending moves before any other input send.
+  private pendingMoves = new Map<string, DocInputMsg>();
+  private moveTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private queueMove(id: string, msg: DocInputMsg): void {
+    this.pendingMoves.set(id, msg);
+    if (!this.moveTimer) {
+      this.moveTimer = setTimeout(() => this.flushMoves(), 8);
+    }
+  }
+
+  private flushMoves(): void {
+    if (this.moveTimer) { clearTimeout(this.moveTimer); this.moveTimer = null; }
+    if (!this.pendingMoves.size) return;
+    this.pendingMoves.forEach((msg, id) => this.send({ type: "input", id, msg }));
+    this.pendingMoves.clear();
+  }
+
+  private input(id: string, msg: DocInputMsg): void {
+    if (msg.kind === "move") { this.queueMove(id, msg); return; }
+    this.flushMoves();
+    this.send({ type: "input", id, msg });
   }
 
   // ── Input ──
@@ -226,7 +280,7 @@ export class HtmlUiHost {
       if (e.metaKey) m.push("meta");
       return m;
     };
-    const input = (id: string, msg: DocInputMsg) => this.send({ type: "input", id, msg });
+    const input = (id: string, msg: DocInputMsg) => this.input(id, msg);
     const local = (p: Panel, e: { clientX: number; clientY: number }) => ({
       x: e.clientX - p.rect.x, y: e.clientY - p.rect.y,
     });
@@ -309,9 +363,40 @@ export class HtmlUiHost {
 
   private handleMessage(m: WorkerToUi): void {
     switch (m.type) {
+      case "bind": {
+        const p = this.panels.get(m.id);
+        if (!p) return;
+        p.sab = m.buf;
+        p.sabI32 = new Int32Array(m.buf);
+        break;
+      }
       case "frame": {
         const p = this.panels.get(m.id);
         if (!p) return;
+        if (m.seq !== undefined && m.stride !== undefined && p.sab && p.sabI32) {
+          // Zero-copy path: the backend wrote the dirty rect into the shared
+          // buffer — seqlock-check and upload straight from it.
+          const i32 = p.sabI32;
+          const seq0 = Atomics.load(i32, 0);
+          if (seq0 === 0 || (seq0 & 1) !== 0) { this.send({ type: "refresh", id: p.id }); break; }
+          const x = Atomics.load(i32, 1), y = Atomics.load(i32, 2);
+          const w = Atomics.load(i32, 3), h = Atomics.load(i32, 4);
+          const pw = Atomics.load(i32, 5), ph = Atomics.load(i32, 6);
+          const stride = Atomics.load(i32, 8);
+          if (w <= 0 || h <= 0) break;
+          this.ensureTexture(p, pw, ph);
+          if (!p.texture) break;
+          this.device.queue.writeTexture(
+            { texture: p.texture, origin: [x, y, 0] },
+            p.sab as unknown as GPUAllowSharedBufferSource,
+            { offset: 64 + y * stride + x * 4, bytesPerRow: stride, rowsPerImage: h },
+            { width: w, height: h, depthOrArrayLayers: 1 },
+          );
+          // Torn read (a newer write started mid-upload) — ask for a re-emit.
+          if (Atomics.load(i32, 0) !== seq0) this.send({ type: "refresh", id: p.id });
+          break;
+        }
+        if (!m.pixels) break;
         this.ensureTexture(p, m.pw, m.ph);
         if (!p.texture) return;
         this.device.queue.copyExternalImageToTexture(
@@ -319,6 +404,18 @@ export class HtmlUiHost {
           { texture: p.texture, origin: [m.x, m.y, 0] } as unknown as GPUCopyExternalImageDestInfo,
           { width: m.w, height: m.h },
         );
+        break;
+      }
+      case "stats": {
+        const stats = (globalThis as Record<string, unknown>).__ddUiStats ??= {};
+        (stats as Record<string, UiDocStats>)[m.id] = {
+          frames: m.frames, resolveMs: m.resolveMs, paintMs: m.paintMs,
+          diffMs: m.diffMs, bytes: m.bytes, at: performance.now(),
+        };
+        if (UI_TRACE) {
+          const mb = (m.bytes / 1048576).toFixed(1);
+          log.info("html-ui", `doc ${m.id}: ${m.frames}f res=${m.resolveMs.toFixed(1)}ms paint=${m.paintMs.toFixed(1)}ms diff=${m.diffMs.toFixed(1)}ms up=${mb}MB`);
+        }
         break;
       }
       case "events": {
@@ -339,6 +436,12 @@ export class HtmlUiHost {
         const fn = this.attrReqs.get(m.reqId);
         this.attrReqs.delete(m.reqId);
         fn?.(m.value);
+        break;
+      }
+      case "rect": {
+        const fn = this.rectReqs.get(m.reqId);
+        this.rectReqs.delete(m.reqId);
+        fn?.(m.rect);
         break;
       }
       case "error": log.error("html-ui", `doc ${m.id} backend error: ${m.message}`); break;

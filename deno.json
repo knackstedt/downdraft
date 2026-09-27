@@ -103,6 +103,8 @@
     "@downdraft/engine/libraries/entities/": "./packages/engine/libraries/entities/src/",
     "@downdraft/engine/libraries/gaussian-splats": "./packages/engine/libraries/gaussian-splats/src/index.ts",
     "@downdraft/engine/libraries/gaussian-splats/": "./packages/engine/libraries/gaussian-splats/src/",
+    "@downdraft/engine/libraries/html-ui-kit": "./packages/engine/libraries/html-ui-kit/src/index.ts",
+    "@downdraft/engine/libraries/html-ui-kit/": "./packages/engine/libraries/html-ui-kit/src/",
     "@downdraft/engine/libraries/lighting": "./packages/engine/libraries/lighting/src/index.ts",
     "@downdraft/engine/libraries/lighting/": "./packages/engine/libraries/lighting/src/",
     "@downdraft/engine/libraries/marching-cubes": "./packages/engine/libraries/marching-cubes/src/index.ts",
@@ -172,6 +174,7 @@
     "@downdraft/engine/modules/xr": "./packages/engine/modules/xr/src/index.ts",
     "@downdraft/engine/modules/xr/": "./packages/engine/modules/xr/src/",
     "@downdraft/engine/modules/raw-input/polyfill": "./packages/engine/modules/raw-input/src/renderer/polyfill.ts",
+    "@downdraft/engine/lint-plugin": "./packages/engine/lint-plugin.mjs",
     "@downdraft/engine/": "./packages/engine/core/src/"
   }
 }

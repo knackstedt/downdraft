@@ -574,7 +574,7 @@ export class WgpuDevice {
       }
     }
 
-    // Depth-stencil: 16 u32 (see wgpu_shim.c for layout)
+    // Depth-stencil: 16 u32 (see native-rs/src/gpu/mod.rs for layout)
     let depthStencilFlat: Uint32Array | null = null;
     const ds = descriptor.depthStencil;
     if (ds) {
@@ -874,8 +874,26 @@ export class WgpuQueue {
     // layer 0 and leaves other layers black.
     const origin = parseOrigin3D((destination as any).origin);
 
-    // wgpu requires rowsPerImage-aligned writes: pad to 256-byte rows.
+    // wgpu requires 256-byte-aligned row strides. When the source is already
+    // aligned and needs no conversion, hand it to the queue as-is — the hot
+    // path for raw RGBA uploads (html-ui, pixi text) skips a full-frame copy.
     const srcRowBytes = srcW * 4;
+    if (!isBGRA && !premultiply && srcRowBytes % 256 === 0) {
+      wgpu.wgpu_shim_queue_write_texture(
+        this.ptr,
+        texture.ptr,
+        rgba as unknown as ptr,
+        BigInt(rgba.byteLength),
+        destination.mipLevel ?? 0,
+        origin.x, origin.y, origin.z,
+        1, // all aspects
+        0n,
+        srcRowBytes,
+        height,
+        width, height, 1,
+      );
+      return;
+    }
     const dstRowBytes = Math.ceil(srcRowBytes / 256) * 256;
     const copyRowBytes = width * 4;
     const padded = new Uint8Array(dstRowBytes * height);

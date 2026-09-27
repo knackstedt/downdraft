@@ -241,6 +241,7 @@ export function createNativeOsrHost(): NativeOsrHost {
 
     __nativeIsBlitz: true,
     pullFrame: (rendererId) => renderers.get(rendererId)?.doc.frame() ?? null,
+    frameRect: (rendererId) => renderers.get(rendererId)?.doc.frameRect() ?? null,
     getDimensions: (rendererId) => {
       const r = renderers.get(rendererId);
       return r ? { width: r.config.width, height: r.config.height } : null;

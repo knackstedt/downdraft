@@ -333,6 +333,8 @@ export interface DowndraftOsrBridgeAPI {
   __nativeIsBlitz?: boolean;
   /** Pull the renderer's dirty RGBA8 frame; null when clean or unknown. */
   pullFrame?(rendererId: string): Uint8Array | null;
+  /** Pixel-space dirty rect of the frame pullFrame just produced. */
+  frameRect?(rendererId: string): { x: number; y: number; w: number; h: number } | null;
   /** Renderer texture dimensions in physical px. */
   getDimensions?(rendererId: string): { width: number; height: number } | null;
   /** Hit-test against `data-ui` elements in the Blitz document. */

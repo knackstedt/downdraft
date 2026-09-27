@@ -203,6 +203,33 @@ pub extern "C" fn dd_osr_get_attr(
     })
 }
 
+/// Node border-box rect in logical (CSS) px relative to the document origin:
+/// writes [x, y, w, h] into the doc's rect buffer and returns its pointer.
+/// NULL when the node id is stale/missing. Matches the coordinate space of
+/// DOM event client_x/client_y.
+#[no_mangle]
+pub extern "C" fn dd_osr_node_rect(handle: *mut OsrDoc, node: u64) -> *const f64 {
+    ffi(std::ptr::null(), || {
+        let Some(d) = (unsafe { handle.as_mut() }) else {
+            return std::ptr::null();
+        };
+        if node == 0 {
+            return std::ptr::null();
+        }
+        let rect = {
+            let doc = d.doc.inner();
+            let Some(node_ref) = doc.get_node(node_id(node)) else {
+                return std::ptr::null();
+            };
+            let pos = node_ref.unrounded_absolute_position(0.0, 0.0);
+            let size = node_ref.final_layout().size;
+            [pos.x as f64, pos.y as f64, size.width as f64, size.height as f64]
+        };
+        d.rect_buf = rect;
+        d.rect_buf.as_ptr()
+    })
+}
+
 /// Byte length of the out-buffer written by dd_osr_get_attr.
 #[no_mangle]
 pub extern "C" fn dd_osr_out_len(handle: *mut OsrDoc) -> usize {

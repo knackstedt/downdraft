@@ -49,6 +49,15 @@ const OSR_SPEC: Record<string, CFunction> = {
   // ── Frame metadata / refresh control ──
   dd_osr_frame_rect: { args: ["ptr"], returns: "u64" },
   dd_osr_pending: { args: ["ptr"], returns: "i32" },
+  // ── Zero-copy frame channel (SharedArrayBuffer staging) ──
+  dd_osr_buf_needed: { args: ["ptr"], returns: "usize" },
+  dd_osr_bind_frame_buf: { args: ["ptr", "ptr", "usize"], returns: "i32" },
+  dd_osr_frame_into: { args: ["ptr"], returns: "i32" },
+  dd_osr_refresh_into: { args: ["ptr"], returns: "i32" },
+  // ── Per-frame instrumentation ──
+  dd_osr_last_stats: { args: ["ptr"], returns: "ptr" },
+  // ── Layout query ──
+  dd_osr_node_rect: { args: ["ptr", "u64"], returns: "ptr" },
   // ── DOM event queue ──
   dd_osr_poll_events: { args: ["ptr"], returns: "ptr" },
   dd_osr_events_len: { args: ["ptr"], returns: "usize" },
@@ -138,13 +147,26 @@ export function osrModifierBits(mods?: string[]): number {
   return bits;
 }
 
+/** Per-frame raster stats — slots match the Rust `stats` array. */
+export interface OsrStats {
+  resolveMs: number;
+  paintMs: number;
+  diffMs: number;
+  pixelsLen: number;
+  rasters: number;
+  skippedClean: number;
+}
+
+/** Byte offset of the pixel region inside a bound frame buffer. */
+export const OSR_FRAME_HEADER = 64;
+
 /** Typed handle over one Blitz document. */
 export class OsrDoc {
   private handle: number;
   private lib: OsrSymbols;
-  /** Physical px dimensions tracked host-side (they're set at init/resize). */
-  readonly width: number;
-  readonly height: number;
+  /** Physical px dimensions tracked host-side (updated on resize). */
+  width: number;
+  height: number;
 
   private constructor(lib: OsrSymbols, handle: number, width: number, height: number) {
     this.lib = lib;
@@ -178,7 +200,9 @@ export class OsrDoc {
   }
 
   resize(width: number, height: number, scale: number): boolean {
-    return (this.lib.dd_osr_resize(this.handle, width, height, scale) as number) === 0;
+    const ok = (this.lib.dd_osr_resize(this.handle, width, height, scale) as number) === 0;
+    if (ok) { this.width = width; this.height = height; }
+    return ok;
   }
 
   pointerMove(x: number, y: number, mods?: string[]): void {
@@ -289,6 +313,61 @@ export class OsrDoc {
   /** Focus a node (0 = blur). */
   focus(node: number): boolean {
     return (this.lib.dd_osr_focus(this.handle, BigInt(node)) as number) === 0;
+  }
+
+  // ── Zero-copy frame channel ──
+
+  /** Bytes the bound frame buffer must hold at the doc's current size. */
+  bufNeeded(): number {
+    return Number(this.lib.dd_osr_buf_needed(this.handle));
+  }
+
+  /**
+   * Bind a SharedArrayBuffer as the frame staging buffer. The Rust side
+   * writes a 64-byte header + dirty pixel rows at 256-aligned stride.
+   * Returns true when bound (false = buffer too small / lib absent).
+   */
+  bindFrameBuf(sab: SharedArrayBuffer): boolean {
+    const view = new Uint8Array(sab);
+    return (this.lib.dd_osr_bind_frame_buf(this.handle, ptr(view), view.byteLength) as number) === 0;
+  }
+
+  /**
+   * Rasterize (when dirty) straight into the bound buffer.
+   * Returns 1 = frame written, 0 = nothing new, -2 = buffer too small
+   * (rebind + refreshInto), -3 = unbound.
+   */
+  frameInto(): number {
+    return this.lib.dd_osr_frame_into(this.handle) as number;
+  }
+
+  /** Re-emit the current pixels into the bound buffer (no raster). */
+  refreshInto(): number {
+    return this.lib.dd_osr_refresh_into(this.handle) as number;
+  }
+
+  /**
+   * Border-box rect of a node in logical px (doc-space — matches DOM event
+   * client_x/client_y). Null when the node id is stale.
+   */
+  nodeRect(node: number): { x: number; y: number; w: number; h: number } | null {
+    const p = this.lib.dd_osr_node_rect(this.handle, BigInt(node)) as number;
+    if (!p) return null;
+    const u8 = readMappedRange(p, 32);
+    const f = new Float64Array(u8.buffer, u8.byteOffset, 4);
+    return { x: f[0], y: f[1], w: f[2], h: f[3] };
+  }
+
+  /** Per-frame timings from the last raster, or null when unavailable. */
+  lastStats(): OsrStats | null {
+    const p = this.lib.dd_osr_last_stats(this.handle) as number;
+    if (!p) return null;
+    const u8 = readMappedRange(p, 64);
+    const f = new Float64Array(u8.buffer, u8.byteOffset, 8);
+    return {
+      resolveMs: f[0], paintMs: f[1], diffMs: f[2], pixelsLen: f[3],
+      rasters: f[4], skippedClean: f[5],
+    };
   }
 
   destroy(): void {

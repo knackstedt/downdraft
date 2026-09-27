@@ -15,9 +15,43 @@ import type { UiToWorker, WorkerToUi } from "./protocol";
 
 const hasLib = loadOsrLib() !== null;
 
-function collect(): { msgs: WorkerToUi[]; emit: (m: WorkerToUi) => void } {
+function collect(): {
+  msgs: WorkerToUi[];
+  binds: Map<string, SharedArrayBuffer>;
+  emit: (m: WorkerToUi) => void;
+} {
   const msgs: WorkerToUi[] = [];
-  return { msgs, emit: (m) => msgs.push(m) };
+  // Tests wipe `msgs` between steps — bound buffers are tracked separately.
+  const binds = new Map<string, SharedArrayBuffer>();
+  return {
+    msgs,
+    binds,
+    emit: (m) => {
+      msgs.push(m);
+      if (m.type === "bind") binds.set(m.id, m.buf);
+    },
+  };
+}
+
+type FrameMsg = Extract<WorkerToUi, { type: "frame" }>;
+
+/** Resolve a frame's dirty-rect pixels — message payload (legacy path) or
+ *  the bound SAB's aligned-stride rows (zero-copy path). */
+function framePixels(
+  binds: Map<string, SharedArrayBuffer>,
+  frame: FrameMsg,
+): Uint8Array {
+  if (frame.pixels) return new Uint8Array(frame.pixels);
+  const buf = binds.get(frame.id);
+  if (!buf) throw new Error("frame carried neither pixels nor a bound SAB");
+  const u8 = new Uint8Array(buf);
+  const stride = frame.stride ?? frame.w * 4;
+  const out = new Uint8Array(frame.w * frame.h * 4);
+  for (let r = 0; r < frame.h; r++) {
+    const src = 64 + (frame.y + r) * stride + frame.x * 4;
+    out.set(u8.subarray(src, src + frame.w * 4), r * frame.w * 4);
+  }
+  return out;
 }
 
 const CSS = `
@@ -30,7 +64,7 @@ const CSS = `
 
 describe.skipIf(!hasLib)("html-ui doc core", () => {
   test("create → initial frame is full-rect", () => {
-    const { msgs, emit } = collect();
+    const { msgs, binds, emit } = collect();
     const core = createDocCore(emit);
     core.handle({ type: "create", id: "p1", cssW: 200, cssH: 100, scale: 1, html: `${CSS}<div id="btn" data-action="go">Go</div>` });
     const frame = msgs.find((m): m is Extract<WorkerToUi, { type: "frame" }> => m.type === "frame");
@@ -39,7 +73,7 @@ describe.skipIf(!hasLib)("html-ui doc core", () => {
     expect(frame!.ph).toBe(100);
     expect(frame!.x).toBe(0);
     expect(frame!.y).toBe(0);
-    expect(new Uint8Array(frame!.pixels).length).toBe(200 * 100 * 4);
+    expect(framePixels(binds, frame!).length).toBe(200 * 100 * 4);
     core.dispose();
   });
 
@@ -54,7 +88,7 @@ describe.skipIf(!hasLib)("html-ui doc core", () => {
   });
 
   test("mutate text emits a (possibly partial) dirty-rect frame", () => {
-    const { msgs, emit } = collect();
+    const { msgs, binds, emit } = collect();
     const core = createDocCore(emit);
     core.handle({ type: "create", id: "p1", cssW: 200, cssH: 100, scale: 1, html: `${CSS}<div id="label">before</div>` });
     msgs.length = 0;
@@ -62,7 +96,34 @@ describe.skipIf(!hasLib)("html-ui doc core", () => {
     const frame = msgs.find((m) => m.type === "frame") as Extract<WorkerToUi, { type: "frame" }> | undefined;
     expect(frame).toBeTruthy();
     // Tight slice: buffer matches the emitted dirty rect exactly.
-    expect(new Uint8Array(frame!.pixels).length).toBe(frame!.w * frame!.h * 4);
+    expect(framePixels(binds, frame!).length).toBe(frame!.w * frame!.h * 4);
+    core.dispose();
+  });
+
+  test("SAB channel: bind message precedes seq-stamped frames", () => {
+    const { msgs, emit } = collect();
+    const core = createDocCore(emit);
+    core.handle({ type: "create", id: "p1", cssW: 200, cssH: 100, scale: 1, html: `${CSS}<div>x</div>` });
+    const bind = msgs.find((m) => m.type === "bind");
+    const frame = msgs.find((m): m is FrameMsg => m.type === "frame");
+    expect(bind).toBeTruthy();
+    // Zero-copy frames carry a seqlock sequence, not a pixel payload.
+    expect(frame!.seq).toBeTruthy();
+    expect(frame!.pixels).toBeUndefined();
+    expect(frame!.stride! % 64).toBe(0);
+    core.dispose();
+  });
+
+  test("pointer move over a style-free region emits no frame", () => {
+    const { msgs, emit } = collect();
+    const core = createDocCore(emit);
+    core.handle({ type: "create", id: "p1", cssW: 200, cssH: 100, scale: 1, html: `${CSS}<div>plain</div>` });
+    msgs.length = 0;
+    // No :hover rules anywhere — the doc requests no repaint for this move.
+    for (let i = 0; i < 5; i++) {
+      core.handle({ type: "input", id: "p1", msg: { kind: "move", x: 10 + i, y: 10 } });
+    }
+    expect(msgs.some((m) => m.type === "frame")).toBe(false);
     core.dispose();
   });
 
