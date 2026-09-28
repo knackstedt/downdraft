@@ -35,6 +35,7 @@ import { captureScreenshot, captureScreenshotPixels } from "./screenshot/screens
 import { createHostServices, type HostServices } from "./services/host-services";
 import { NativeSurface } from "./window/native-surface";
 import { NativeWindow, type NativeWindowConfig } from "./window/native-window";
+import { SplashScreen } from "./window/splash-screen";
 
 const log = createLogger("info");
 
@@ -62,6 +63,11 @@ export interface NativeHostConfig {
   services?: "inline" | "worker";
   screenshotPath?: string;
   screenshotAfterFrames?: number;
+  /** Boot splash — an animated spinner pass on the surface until the game's
+   *  render loop registers its first rAF. Default on; force-disabled in
+   *  deterministic mode and for screenshot harnesses (a splash frame must
+   *  never land in a captured image). */
+  splash?: boolean;
 }
 
 export interface NativeHostContext {
@@ -268,6 +274,14 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
 
   // 7. Start the event loop
   window.start();
+
+  // 7b. Boot splash — the window would otherwise show an unpresented (black)
+  //  swapchain for the whole module-load + renderer-init stretch (seconds
+  //  under the dev shell). Runs until the game's rAF loop registers.
+  if (config.splash !== false && !deterministic && !config.screenshotPath && config.screenshotAfterFrames === undefined) {
+    try { window.attachSplash(new SplashScreen(window, surface)); }
+    catch (e) { log.warn("platform-native", `splash unavailable: ${e}`); }
+  }
 
   // 8. Create the screenshot capture function
   // The caller must pass the texture from getCurrentTexture() — we don't

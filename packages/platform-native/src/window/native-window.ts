@@ -101,6 +101,19 @@ export class NativeWindow extends MiniEventTarget {
   // drag (and a burst on maximize); only the newest dims are applied, once
   // per loop iteration, so listeners + the surface see a single resize.
   private pendingResize: { width: number; height: number } | null = null;
+  // Click synthesis — SDL reports raw button transitions only; DOM click /
+  // dblclick (which games gate pointer lock and UI activation on) are
+  // derived here: a mouseup matching the last mousedown's button fires click.
+  private lastMouseDown: { button: number } | null = null;
+  private lastClickAt = -1e9;
+  private lastClickButton = -1;
+  private lastClickX = -1;
+  private lastClickY = -1;
+  private clickCount = 0;
+  // Boot splash (SplashScreen) — covers the window with a procedural spinner
+  // from host creation until the game's render loop registers its first rAF
+  // callback (detected in requestAnimationFrame below).
+  private splash: { tick: RAFCallback; stop(): void } | null = null;
 
   constructor(config: NativeWindowConfig) {
     super();
@@ -130,7 +143,19 @@ export class NativeWindow extends MiniEventTarget {
 
   // ── requestAnimationFrame ──
 
+  /** Attach the boot splash. It runs until the first rAF callback that is
+   *  not its own tick registers — i.e. the game's render loop starting. */
+  attachSplash(splash: { tick: RAFCallback; start(): void; stop(): void }): void {
+    this.splash?.stop();
+    this.splash = splash;
+    splash.start();
+  }
+
   requestAnimationFrame(callback: RAFCallback): number {
+    if (this.splash && callback !== this.splash.tick) {
+      this.splash.stop();
+      this.splash = null;
+    }
     const id = this.nextRafId++;
     this.rafCallbacks.set(id, callback);
     return id;
@@ -530,6 +555,7 @@ export class NativeWindow extends MiniEventTarget {
           width: 1,
           height: 1,
         }, { ...base, type: "mousedown" });
+        this.lastMouseDown = { button: domButton };
         // DOM dispatches "contextmenu" on right-button press.
         if (domButton === 2) {
           this.dispatchEvent({
@@ -571,6 +597,33 @@ export class NativeWindow extends MiniEventTarget {
           width: 1,
           height: 1,
         }, { ...base, type: "mouseup" });
+        // DOM parity: mouseup after a mousedown on the same button fires a
+        // "click" on the common target (always the canvas here — the surface
+        // is the only pointer target), and a second click within 500ms at
+        // ~the same spot fires "dblclick". Without this, listeners that gate
+        // pointer lock / UI activation on click never run.
+        if (this.lastMouseDown?.button === base.button) {
+          const now = performance.now();
+          if (
+            base.button === this.lastClickButton
+            && now - this.lastClickAt < 500
+            && Math.abs(x - this.lastClickX) < 5
+            && Math.abs(y - this.lastClickY) < 5
+          ) {
+            this.clickCount++;
+          } else {
+            this.clickCount = 1;
+          }
+          this.lastClickAt = now;
+          this.lastClickButton = base.button;
+          this.lastClickX = x;
+          this.lastClickY = y;
+          this.dispatchInputEvent({ ...base, type: "click", detail: this.clickCount });
+          if (this.clickCount === 2) {
+            this.dispatchInputEvent({ ...base, type: "dblclick", detail: this.clickCount });
+          }
+        }
+        this.lastMouseDown = null;
         break;
       }
 
@@ -612,6 +665,8 @@ export class NativeWindow extends MiniEventTarget {
 
   destroy(): void {
     this.running = false;
+    try { this.splash?.stop(); } catch { /* best-effort */ }
+    this.splash = null;
     // Unconfigure then release the wgpu surface before destroying the
     // window — the surface holds a reference to the native window handle.
     try { this.surface?.getContext("webgpu")?.unconfigure(); } catch { /* best-effort */ }

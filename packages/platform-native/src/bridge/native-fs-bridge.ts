@@ -11,9 +11,9 @@
 // ============================================================================
 
 import { spawn } from "node:child_process";
-import { homedir } from "node:os";
-import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { mkdirSync } from "node:fs";
+import { readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import type { NativeWindow } from "../window/native-window";
 
@@ -44,17 +44,20 @@ async function listDirTree(dir: string, fileFilter: ((n: string) => boolean) | u
   } catch {
     return [];
   }
-  const entries: NativeFsTreeEntry[] = [];
-  for (let _i = 0, _it = dirents, _n = _it.length; _i < _n; _i++) { const d = _it[_i];
-    if (d.name.startsWith(".")) continue;
+  // Walk subdirectories concurrently — a serial await per directory turns a
+  // large asset root (tens of thousands of files) into a multi-second stall
+  // on whatever callsite awaits the scan (typically game boot).
+  const entries = (await Promise.all(dirents.map(async (d): Promise<NativeFsTreeEntry | null> => {
+    if (d.name.startsWith(".")) return null;
     const full = join(dir, d.name);
     if (d.isDirectory()) {
       const children = await listDirTree(full, fileFilter, depth + 1);
-      if (children.length > 0) entries.push({ name: d.name, path: full, isDir: true, children });
-    } else if (!fileFilter || fileFilter(d.name.toLowerCase())) {
-      entries.push({ name: d.name, path: full, isDir: false });
+      return children.length > 0 ? { name: d.name, path: full, isDir: true, children } : null;
     }
-  }
+    return !fileFilter || fileFilter(d.name.toLowerCase())
+      ? { name: d.name, path: full, isDir: false }
+      : null;
+  }))).filter((e): e is NativeFsTreeEntry => e !== null);
   entries.sort((a, b) => (a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1));
   return entries;
 }
