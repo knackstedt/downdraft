@@ -150,19 +150,33 @@ export function installImagePolyfills(): void {
   // copies the 2D context's pixel data (not empty) so text textures upload correctly.
   {
     (globalThis as any).OffscreenCanvas = class OffscreenCanvas {
-      width: number;
-      height: number;
+      private _width: number;
+      private _height: number;
       private ctx2d: NativeCanvas2D | null = null;
 
       constructor(width: number, height: number) {
-        this.width = width;
-        this.height = height;
+        this._width = width;
+        this._height = height;
+      }
+
+      get width(): number { return this._width; }
+      get height(): number { return this._height; }
+
+      // DOM semantics: assigning width/height (even the same value) clears the
+      // bitmap AND resets the drawing state (transform, globalAlpha, styles).
+      // PixiJS's CanvasPool relies on this — without it, stale globalAlpha /
+      // scale(res,res) transforms leak between text renders (ghosted text).
+      set width(w: number) { this._width = w; this.resetCtx(); }
+      set height(h: number) { this._height = h; this.resetCtx(); }
+
+      private resetCtx(): void {
+        if (this.ctx2d) this.ctx2d = new NativeCanvas2D(this._width, this._height);
       }
 
       getContext(contextType: string): any {
         if (contextType === "2d") {
-          if (!this.ctx2d || this.ctx2d.width !== this.width || this.ctx2d.height !== this.height) {
-            this.ctx2d = new NativeCanvas2D(this.width, this.height);
+          if (!this.ctx2d || this.ctx2d.width !== this._width || this.ctx2d.height !== this._height) {
+            this.ctx2d = new NativeCanvas2D(this._width, this._height);
           }
           return this.ctx2d;
         }

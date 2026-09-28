@@ -197,23 +197,24 @@ export class VirtualCanvas extends MiniEventTarget {
     this.webgpuContext = new VirtualCanvasContext(width, height);
   }
 
-  /** Setting width (like a real canvas) clears the 2D context and
-   *  resizes the WebGPU backing texture. */
+  /** Setting width/height (like a real canvas — even to the same value)
+   *  clears the 2D context bitmap AND resets drawing state (transform,
+   *  globalAlpha, styles). PixiJS's CanvasPool relies on this reset; without
+   *  it, stale globalAlpha/scale transforms leak between text renders.
+   *  Resizes the WebGPU backing texture when the size actually changed. */
   get width(): number { return this._width; }
   set width(v: number) {
-    if (this._width !== v) {
-      this._width = v;
-      this.ctx2d = null;
-      this.webgpuContext.resize(this._width, this._height);
-    }
+    const changed = this._width !== v;
+    this._width = v;
+    this.ctx2d = null;
+    if (changed) this.webgpuContext.resize(this._width, this._height);
   }
   get height(): number { return this._height; }
   set height(v: number) {
-    if (this._height !== v) {
-      this._height = v;
-      this.ctx2d = null;
-      this.webgpuContext.resize(this._width, this._height);
-    }
+    const changed = this._height !== v;
+    this._height = v;
+    this.ctx2d = null;
+    if (changed) this.webgpuContext.resize(this._width, this._height);
   }
 
   get clientWidth(): number { return this.width; }

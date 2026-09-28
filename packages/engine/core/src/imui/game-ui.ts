@@ -128,17 +128,21 @@ export function createGameUi(options: GameUiOptions): RendererModule {
         },
       };
 
-      options.build(ui);
-      uiRoot.addChild(container);
-      ctx.invalidateUILayout();
-      ctx.provide(GameUiTok, ui);
-
-      // Keep the hit-test container covering the screen on resize.
+      // Keep the hit-test container covering the screen on resize. This hook
+      // must be registered BEFORE options.build() — resize hooks run in
+      // registration order, and game layout callbacks read container.width /
+      // .height via ui.root; if the container resized after them, every game
+      // layout would lag one resize behind the real surface size.
       ctx.onResize(() => {
         container.width = uiRoot.width;
         container.height = uiRoot.height;
         ctx.invalidateUILayout();
       });
+
+      options.build(ui);
+      uiRoot.addChild(container);
+      ctx.invalidateUILayout();
+      ctx.provide(GameUiTok, ui);
 
       ctx.onFrame("afterViewports", (dt, elapsedTime) => {
         for (let i = 0; i < updateFns.length; i++) {

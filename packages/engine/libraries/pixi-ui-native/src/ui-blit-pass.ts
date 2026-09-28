@@ -89,6 +89,25 @@ export class UiBlitPass {
     pass.end();
   }
 
+  /**
+   * Draw the UI texture into an already-open render pass (fullscreen
+   * triangle, premultiplied-alpha blend). Used by `ScreenUiCompositor`
+   * integrations where `GameRenderer` owns the surface pass.
+   */
+  renderInto(pass: GPURenderPassEncoder, uiTextureView: GPUTextureView): void {
+    if (this.disposed || !uiTextureView) return;
+    const bindGroup = this.device.createBindGroup({
+      layout: this.bindGroupLayout,
+      entries: [
+        { binding: 0, resource: uiTextureView },
+        { binding: 1, resource: this.sampler },
+      ],
+    });
+    pass.setPipeline(this.pipeline);
+    pass.setBindGroup(0, bindGroup);
+    pass.draw(3, 1, 0, 0);
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;

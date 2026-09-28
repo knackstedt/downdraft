@@ -147,10 +147,69 @@ function parseColor(color: string): [number, number, number, number] {
   return [0, 0, 0, 255];
 }
 
+// ── Gradients ──
+// PixiJS's FillGradient renders through createLinearGradient/createRadialGradient
+// + fillRect on a small texture-generation canvas — implement real gradients
+// so those fills don't collapse to solid white.
+
+interface GradientStop { offset: number; color: [number, number, number, number]; }
+
+class NativeCanvasGradient {
+  __ddGradient = true;
+  constructor(
+    public kind: "linear" | "radial",
+    public x0: number, public y0: number,
+    public x1: number, public y1: number,
+    public r0 = 0, public r1 = 0,
+  ) {}
+  stops: GradientStop[] = [];
+  addColorStop(offset: number, color: string): void {
+    this.stops.push({ offset, color: parseColor(color) });
+    this.stops.sort((a, b) => a.offset - b.offset);
+  }
+  /** Interpolated RGBA at t in [0,1] (clamped — Canvas "pad" spread). */
+  colorAt(t: number): [number, number, number, number] {
+    const s = this.stops;
+    if (s.length === 0) return [0, 0, 0, 255];
+    if (t <= s[0]!.offset) return s[0]!.color;
+    if (t >= s[s.length - 1]!.offset) return s[s.length - 1]!.color;
+    for (let i = 1; i < s.length; i++) {
+      if (t <= s[i]!.offset) {
+        const a = s[i - 1]!;
+        const b = s[i]!;
+        const f = b.offset > a.offset ? (t - a.offset) / (b.offset - a.offset) : 0;
+        return [
+          a.color[0] + (b.color[0] - a.color[0]) * f,
+          a.color[1] + (b.color[1] - a.color[1]) * f,
+          a.color[2] + (b.color[2] - a.color[2]) * f,
+          a.color[3] + (b.color[3] - a.color[3]) * f,
+        ];
+      }
+    }
+    return s[s.length - 1]!.color;
+  }
+  /** Gradient parameter at canvas point (x,y). */
+  tAt(x: number, y: number): number {
+    if (this.kind === "linear") {
+      const dx = this.x1 - this.x0;
+      const dy = this.y1 - this.y0;
+      const len2 = dx * dx + dy * dy;
+      if (len2 <= 0) return 1;
+      return Math.max(0, Math.min(1, ((x - this.x0) * dx + (y - this.y0) * dy) / len2));
+    }
+    // Radial: interpolate along the focal→outer axis using the inner radius.
+    const d = Math.hypot(x - this.x0, y - this.y0);
+    const span = this.r1 - this.r0;
+    if (span <= 0) return 1;
+    return Math.max(0, Math.min(1, (d - this.r0) / span));
+  }
+}
+
 export class NativeCanvas2D {
   width: number;
   height: number;
   private _fillStyle: string = "#000000";
+  private _fillGradient: NativeCanvasGradient | null = null;
   private _strokeStyle: string = "#000000";
   private _font: string = "16px sans-serif";
   private _textAlign: string = "left";
@@ -170,13 +229,18 @@ export class NativeCanvas2D {
     this.pixels = new Uint8ClampedArray(width * height * 4);
   }
 
-  get fillStyle(): string { return this._fillStyle; }
+  get fillStyle(): any { return this._fillGradient ?? this._fillStyle; }
   set fillStyle(v: any) {
     // PixiJS may set fillStyle to a CanvasPattern or CanvasGradient object
     // (when the fill style's texture !== Texture.WHITE, e.g. due to a
     // PixiJS version mismatch). parseColor handles non-string values by
     // returning black, which would make text invisible on dark backgrounds.
     // Fall back to white for pattern/gradient objects so text remains visible.
+    if (v instanceof NativeCanvasGradient) {
+      this._fillGradient = v;
+      return;
+    }
+    this._fillGradient = null;
     if (typeof v === "string") this._fillStyle = v;
     else this._fillStyle = "#ffffff";
   }
@@ -347,6 +411,7 @@ export class NativeCanvas2D {
   }
 
   fillRect(x: number, y: number, w: number, h: number): void {
+    if (this._fillGradient) return this.fillRectGradient(x, y, w, h);
     const [r, g, b, a] = parseColor(this._fillStyle);
     const x0 = Math.max(0, Math.floor(x));
     const y0 = Math.max(0, Math.floor(y));
@@ -361,6 +426,27 @@ export class NativeCanvas2D {
     }
     for (let py = y0; py < y1; py++) {
       this.pixels.set(row, (py * this.width + x0) * 4);
+    }
+  }
+
+  /** Per-pixel gradient fill — used by PixiJS FillGradient texture generation. */
+  private fillRectGradient(x: number, y: number, w: number, h: number): void {
+    const grad = this._fillGradient!;
+    const x0 = Math.max(0, Math.floor(x));
+    const y0 = Math.max(0, Math.floor(y));
+    const x1 = Math.min(this.width, Math.ceil(x + w));
+    const y1 = Math.min(this.height, Math.ceil(y + h));
+    if (x1 <= x0 || y1 <= y0) return;
+    for (let py = y0; py < y1; py++) {
+      let idx = (py * this.width + x0) * 4;
+      for (let px = x0; px < x1; px++) {
+        const [r, g, b, a] = grad.colorAt(grad.tAt(px + 0.5, py + 0.5));
+        this.pixels[idx] = r;
+        this.pixels[idx + 1] = g;
+        this.pixels[idx + 2] = b;
+        this.pixels[idx + 3] = a;
+        idx += 4;
+      }
     }
   }
 
@@ -436,8 +522,12 @@ export class NativeCanvas2D {
   stroke(): void {}
   clip(): void {}
   setLineDash(_dash: number[]): void {}
-  createLinearGradient(_x0: number, _y0: number, _x1: number, _y1: number): any { return { addColorStop: () => {} }; }
-  createRadialGradient(_x0: number, _y0: number, _r0: number, _x1: number, _y1: number, _r1: number): any { return { addColorStop: () => {} }; }
+  createLinearGradient(x0: number, y0: number, x1: number, y1: number): NativeCanvasGradient {
+    return new NativeCanvasGradient("linear", x0, y0, x1, y1);
+  }
+  createRadialGradient(x0: number, y0: number, r0: number, x1: number, y1: number, r1: number): NativeCanvasGradient {
+    return new NativeCanvasGradient("radial", x0, y0, x1, y1, r0, r1);
+  }
   createPattern(_image: any, _repetition: string): any {
     // PixiJS getCanvasFillStyle calls createPattern when the fill style's
     // texture is not Texture.WHITE (e.g. due to a PixiJS version mismatch

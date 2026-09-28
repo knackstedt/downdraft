@@ -7,4 +7,12 @@
 // ============================================================================
 
 export { NativePixiUiHost, type NativePixiUiHostOptions } from "./host";
+export { NativePixiInputRouter, type NativePixiInputRouterOptions } from "./input-router";
+export {
+    createNativePixiUiScene,
+    NativePixiUiSceneTok,
+    type NativePixiUiSceneHandle,
+    type NativePixiUiSceneOptions
+} from "./scene-module";
 export { UiBlitPass } from "./ui-blit-pass";
+

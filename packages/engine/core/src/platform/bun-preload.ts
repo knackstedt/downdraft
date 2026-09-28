@@ -101,29 +101,26 @@ if (typeof (globalThis as any).Bun !== "undefined" && typeof (globalThis as any)
   Bun.plugin({
     name: "downdraft-css-loader",
     setup(build: any) {
-      const { resolve, dirname, isAbsolute } = require("node:path");
-      // Short-circuit resolution for package-rooted CSS (e.g.
-      // "@downdraft/engine/app/renderer/downdraft-base.css") which the package's
-      // exports map may not expose — native mode discards CSS anyway.
-      // The returned path must be ABSOLUTE: Bun bakes the resolved specifier
-      // into its persistent transpile cache (~/.bun/install/cache/@t@/*.pile),
-      // so a relative result produces a cached "dd-css:./x.css" specifier that
-      // fails resolution ("Cannot find package 'dd-css:.'") whenever a later
-      // run loads the cache without this plugin (e.g. bun run from a game dir,
-      // where the root bunfig.toml preload doesn't apply).
-      build.onResolve({ filter: /\.css$/ }, (args: any) => {
-        const base = args.resolveDir ?? (args.importer ? dirname(args.importer) : ".");
-        let path: string;
-        try {
-          path = Bun.resolveSync(args.path, base);
-        } catch {
-          path = resolve(base, args.path);
-        }
-        return { path: isAbsolute(path) ? path : resolve(base, path), namespace: "dd-css" };
-      });
-      build.onLoad({ filter: /.*/, namespace: "dd-css" }, async (_args: any) => {
-        return { exports: { default: "" }, loader: "object" };
-      });
+      const { resolve } = require("node:path");
+      // Resolve EVERY .css import — real files and exports-map-hidden package
+      // CSS alike — to a real stub file. Bun bakes the resolved specifier into
+      // its persistent transpile cache (~/.bun/install/cache/@t@/*.pile), so
+      // the result must be a plain path that replays without this plugin
+      // (e.g. `bun dev-shell.mjs` / `bun run` from a game dir, where the root
+      // bunfig.toml preload doesn't apply). A virtual "dd-css:<path>"
+      // namespace gets cached as a package-looking specifier: re-resolution
+      // wraps it in another "dd-css:<dir>" layer per ancestor walked, looping
+      // forever at "/" until ENAMETOOLONG.
+      const stub = resolve(import.meta.dir, "css-stub.ts");
+      // NOTE: the stub is a .ts file specifically so the baked specifier never
+      // re-matches this /\.css$/ filter.
+      build.onResolve({ filter: /\.css$/ }, () => ({ path: stub }));
+      // Transpile-cache entries written by older versions still carry
+      // "dd-css:<...>" specifiers — Bun routes those straight to the namespace
+      // loader, so keep answering them until the entries age out.
+      build.onLoad({ filter: /.*/, namespace: "dd-css" }, () => ({
+        exports: { default: "" }, loader: "object",
+      }));
     },
   });
 

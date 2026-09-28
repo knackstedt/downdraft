@@ -192,6 +192,12 @@ const makePlugin = (collectWorkers) => ({
     // re-serialized as "dd-css:./x.css" and rejected as a bogus package.
     // Unresolvable package-rooted CSS (exports-map-hidden) still stubs out.
     build.onResolve({ filter: /\.css$/ }, (args) => {
+      // A re-serialized "dd-css:<path>" specifier (Bun transpile cache replay)
+      // must be returned unchanged — resolving it as a package/relative path
+      // wraps it in another "dd-css:<dir>" layer each pass until ENAMETOOLONG.
+      if (args.path.startsWith("dd-css:")) {
+        return { path: args.path.slice("dd-css:".length), namespace: "dd-css" };
+      }
       let path;
       try { path = resolveImport(args.path, args.importer); }
       catch { path = resolve(dirname(args.importer), args.path); }
