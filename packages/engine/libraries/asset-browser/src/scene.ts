@@ -17,6 +17,7 @@
 //   - user intent via the config handlers (onActivate/onSelect/onClose/...)
 // ============================================================================
 
+import { getHostCapabilities } from "@downdraft/engine";
 import type { PixiUiSceneContext, PixiUiUpdateData } from "@downdraft/engine/libraries/pixi-ui";
 import { createLogger } from "@downdraft/engine/util/logger";
 import { Container, Graphics, Sprite, Text, Texture, type Application } from "pixi.js";
@@ -36,7 +37,7 @@ const log = createLogger("info");
 // ThumbnailRenderer; the native host injects a software rasterizer via
 // ctx.sceneConfig.createThumbnailRenderer (WebGL2 doesn't exist there).
 const isNativeRuntime = (): boolean =>
-  !!(globalThis as { __nativeHost?: unknown }).__nativeHost;
+  getHostCapabilities().runtime === "native";
 
 // ── Colors ──
 const C_BG = 0x0a0a14;

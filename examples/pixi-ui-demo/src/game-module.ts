@@ -7,6 +7,7 @@
 // NativePixiUiHost adapter (native-pixi-host.ts) instead.
 // ============================================================================
 
+import { getNativeHost } from "@downdraft/engine";
 import {
     createMcpHarness,
     getCanvas,
@@ -18,8 +19,8 @@ import {
     createPixiUiMcpTools,
     PixiUiHost,
 } from "@downdraft/engine/libraries/pixi-ui";
-import type { NativeDemoUiHandle } from "./native-pixi-host";
 import { createLogger } from "@downdraft/engine/util/logger";
+import type { NativeDemoUiHandle } from "./native-pixi-host";
 const log = createLogger();
 
 
@@ -105,14 +106,14 @@ export const pixiUiDemoModule: GameModule<NoopSim> = {
   },
 
   onReady: async (ctx: GameContext<any>) => {
-    const nativeHost = (globalThis as any).__nativeHost;
+    const nativeHost = getNativeHost();
 
     if (nativeHost?.device) {
       // ── Native path: in-process PixiUI on the shared wgpu-native device ──
       const { createNativeDemoUi } = await import("./native-pixi-host");
       const surface = getCanvas(0) as any;
       nativeUi = await createNativeDemoUi({
-        device: nativeHost.device as GPUDevice,
+        device: nativeHost.device,
         adapter: nativeHost.adapter as GPUAdapter,
         surface,
       });

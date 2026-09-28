@@ -10,7 +10,7 @@
 // lazy Proxy, so install order only needs to precede first use).
 // ============================================================================
 
-import { type FeatureLogData } from "@downdraft/engine";
+import { NATIVE_HOST_CAPABILITIES, type FeatureLogData } from "@downdraft/engine";
 import { collectHostFeatureLog } from "@downdraft/engine/app/shared/feature-log";
 import { getVulkanValidationStatus, queryNvidiaSmi } from "@downdraft/engine/app/shared/gpu-info";
 import type {
@@ -144,6 +144,7 @@ export function createNativeBridge(opts: NativeBridgeOptions): DowndraftBridgeAP
   const simReadyData: SimReadyData = { isDev, deterministic };
 
   const bridge: DowndraftBridgeAPI & { dispose(): void } = {
+    capabilities: NATIVE_HOST_CAPABILITIES,
     // ── Saves: routed through HostServices (services worker by default) ──
     saveGameState: (slotName, stateJson, saveOpts) =>
       services.api.saveGame(slotName, stateJson, saveOpts),

@@ -6,7 +6,7 @@
 // bridge, IPC handlers, and renderer accessor.  They are type-only — no runtime
 // code — so importing them from any process (main / preload / renderer) is safe.
 
-import type { FeatureLogData } from "@downdraft/engine";
+import type { FeatureLogData, HostCapabilities } from "@downdraft/engine";
 import type {
     AtlasLayout,
     AtlasPanelRect,
@@ -346,6 +346,12 @@ export interface DowndraftOsrBridgeAPI {
 // ---------------------------------------------------------------------------
 
 export interface DowndraftBridgeAPI {
+  /** Host feature descriptor — what this host can actually do. Games should
+   *  gate on `getHostCapabilities()` (which prefers this field and falls
+   *  back to runtime detection) rather than reading `__nativeHost` or
+   *  probing globals. Optional because browser/Electron bridge stubs predate
+   *  the capability surface. */
+  readonly capabilities?: HostCapabilities;
   saveGameState(slotName: string, stateJson: string, opts?: SaveOptions): Promise<boolean>;
   loadGameState(slotName: string, opts?: LoadOptions): Promise<string | null>;
   deleteGameState(slotName: string): Promise<boolean>;

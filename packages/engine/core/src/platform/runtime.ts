@@ -59,3 +59,87 @@ export const hasHMR: boolean = (() => {
     return false;
   }
 })();
+
+// ---------------------------------------------------------------------------
+// Host capability surface
+//
+// Runtime-name booleans (`isBun`, `isElectron`) answer "what am I running
+// on" — feature gates need "what can this host do". getHostCapabilities()
+// answers that: it prefers the bridge-installed descriptor, then falls back
+// to the `__nativeHost` marker (seeded by bun-preload before createNativeHost
+// runs, so module-eval-time checks work), then to browser defaults.
+// ---------------------------------------------------------------------------
+
+export type HostRuntime = "native" | "browser";
+
+export interface HostCapabilities {
+  readonly runtime: HostRuntime;
+  /** A real DOM compositor exists — DOM overlays, React roots, real
+   *  elementFromPoint. False on native (the DOM there is a polyfill for
+   *  canvas-shaped APIs, not a compositor). */
+  readonly hasDom: boolean;
+  /** OPFS persistence is reachable (navigator.storage.getDirectory). */
+  readonly hasOpfs: boolean;
+  /** Chromium shared-texture OSR machinery exists. Electron-only; always
+   *  false on the live native path. */
+  readonly hasSharedTexture: boolean;
+  /** V8-style CPU tracing (contentTracing) is available. */
+  readonly hasTracing: boolean;
+  /** V8 heap snapshots (.heapsnapshot) are available. */
+  readonly hasHeapSnapshot: boolean;
+  /** The host can expose its wgpu device to multiple worker threads.
+   *  Pending the shared-device spike (Phase 5 of the native
+   *  re-architecture) — always false until proven. */
+  readonly supportsMultiWorkerGpu: boolean;
+}
+
+export const NATIVE_HOST_CAPABILITIES: HostCapabilities = {
+  runtime: "native",
+  hasDom: false,
+  hasOpfs: false,
+  hasSharedTexture: false,
+  hasTracing: false,
+  hasHeapSnapshot: false,
+  supportsMultiWorkerGpu: false,
+};
+
+const DOM_HOST_CAPABILITIES: HostCapabilities = {
+  runtime: "browser",
+  hasDom: true,
+  hasOpfs: true,
+  hasSharedTexture: false,
+  hasTracing: false,
+  hasHeapSnapshot: false,
+  supportsMultiWorkerGpu: false,
+};
+
+/** The host's capability descriptor. Prefers `downdraft.capabilities` when a
+ *  bridge is installed; otherwise detects the native host marker and finally
+ *  assumes a plain browser/DOM host. */
+export function getHostCapabilities(): HostCapabilities {
+  const caps = (globalThis as { downdraft?: { capabilities?: HostCapabilities } })
+    .downdraft?.capabilities;
+  if (caps) return caps;
+  if ((globalThis as { __nativeHost?: unknown }).__nativeHost) {
+    return NATIVE_HOST_CAPABILITIES;
+  }
+  return DOM_HOST_CAPABILITIES;
+}
+
+/** The subset of the live native host object games legitimately reach for —
+ *  primarily its GPU handles until the renderer gets an injected device
+ *  (Phase 2 of the native re-architecture). */
+export interface NativeHostHandle {
+  device?: GPUDevice;
+  adapter?: GPUAdapter;
+  [key: string]: unknown;
+}
+
+/** The live native host object, or null when not on native — or when only
+ *  the pre-boot `__nativeHost = true` marker exists (no device yet). Prefer
+ *  `getHostCapabilities()` for feature gates; use this only when the host's
+ *  concrete handles are genuinely needed. */
+export function getNativeHost(): NativeHostHandle | null {
+  const host = (globalThis as { __nativeHost?: unknown }).__nativeHost;
+  return host && typeof host === "object" ? (host as NativeHostHandle) : null;
+}

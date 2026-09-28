@@ -1,3 +1,4 @@
+// DORMANT — Capacitor mobile path. See DORMANT.md in this directory.
 // ============================================================================
 // @downdraft/engine/app/mobile — mobile host SDK for Capacitor (Android + iOS)
 // ============================================================================

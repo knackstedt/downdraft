@@ -1,15 +1,18 @@
-// DORMANT — Electron-only path. See DORMANT.md in this directory.
 // ============================================================================
-// IpcSaveStore — ISaveStore implementation that delegates to the Electron
-// main process via the `downdraft` preload bridge (IPC).
+// IpcSaveStore — ISaveStore implementation that delegates to the `downdraft`
+// bridge.
 // ============================================================================
 //
-// This is the fallback when OPFS is unavailable (e.g. browser-only mode
-// without COOP/COEP, or test environments). The main process uses
-// FileSaveStore to write to disk.
+// Named for the Electron IPC path it replaced: under the native host the
+// bridge resolves these calls in-process through HostServices. This is the
+// LIVE default on native whenever `saveMode` selects the bridge — and it
+// pays for the legacy wire format: JSON-string save payloads plus
+// fabricated SaveResult/LoadResult metadata (gen: 1, bytes: 0). Phase 1 of
+// docs/refactor/native-rearchitecture-plan.md replaces this adapter with a
+// native HostSaveStore that keeps real FileSaveStore metadata.
 //
 // The bridge methods are defined in DowndraftBridgeAPI and wired in the
-// preload script. This adapter translates ISaveStore calls to bridge calls.
+// host's bridge implementation.
 
 import type {
     ISaveStore,

@@ -1,3 +1,7 @@
+// DORMANT — pre-GameRenderer initEngine() bootstrap, superseded by
+// GameRenderer + startGame(). Not exported by core/index.ts; kept reachable
+// only via the "./*" wildcard until deletion (Phase 7 of
+// docs/refactor/native-rearchitecture-plan.md).
 import { RPC } from "./platform/rpc";
 import { GPUDeviceManager } from "./render/device";
 import { SurfaceManager } from "./render/surface";

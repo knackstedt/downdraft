@@ -1,3 +1,6 @@
+// DORMANT — Electron test harness; the pixi-polyfill browser runner is part
+// of the dormant Electron path (Phase 7 deletion,
+// docs/refactor/native-rearchitecture-plan.md).
 // ============================================================================
 // main.mjs — Minimal Electron main process for the pixi-polyfill browser
 // reference renderer.

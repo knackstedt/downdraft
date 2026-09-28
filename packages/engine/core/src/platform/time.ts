@@ -1,3 +1,7 @@
+// DORMANT — no live consumers; frame timing is owned by GameRenderer and
+// the native host's rAF driver. Retained only for the core/index.ts
+// re-export until deletion (Phase 7 of
+// docs/refactor/native-rearchitecture-plan.md).
 export class HighResTimer {
   private lastTime: number = 0;
   private frameCount: number = 0;

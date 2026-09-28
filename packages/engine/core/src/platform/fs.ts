@@ -1,3 +1,6 @@
+// DORMANT — no live consumers; superseded by native FS access in
+// platform-native. Retained only for the core/index.ts re-export until
+// deletion (Phase 7 of docs/refactor/native-rearchitecture-plan.md).
 // node:fs is imported lazily inside each method — VirtualFS is re-exported
 // from the universal barrel (`core/src/index.ts`), so node builtins must not
 // be evaluated at import time in browser bundles.

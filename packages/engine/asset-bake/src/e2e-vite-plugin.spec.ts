@@ -1,3 +1,7 @@
+// NOTE: exercises `../../app/src/vite/asset-bake-plugin` — a DORMANT
+// electron-vite plugin. Keep this spec only while that directory exists;
+// delete both together in Phase 7 of
+// docs/refactor/native-rearchitecture-plan.md.
 // E2E test: Vite plugin build + dev modes.
 // Creates a minimal Vite project with a bakeable .gltf import, runs a real
 // Vite build and dev server, and verifies the baked asset is emitted/served.

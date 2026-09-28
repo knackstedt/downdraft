@@ -7,6 +7,7 @@
 // EventSystem (same approach as the games' native input routers).
 // ============================================================================
 
+import { getNativeHost } from "@downdraft/engine";
 import { NativePixiUiHost } from "@downdraft/engine/libraries/pixi-ui-native";
 import { Container, Graphics, Text, TextStyle } from "pixi.js";
 import "pixi.js/events";
@@ -314,7 +315,7 @@ export function createPixiStack(): UiStack {
             ctx = c;
             host = new NativePixiUiHost({
                 device: c.device as any,
-                adapter: (globalThis as any).__nativeHost?.adapter ?? (c as any).adapter,
+                adapter: getNativeHost()?.adapter ?? (c as any).adapter,
                 targetFormat: c.format,
                 width: c.width,
                 height: c.height,

@@ -1,3 +1,4 @@
+// DORMANT — Capacitor mobile path. See DORMANT.md in this directory.
 // ============================================================================
 // createDowndraftMobileViteConfig() — Vite build config for mobile (Capacitor)
 // ============================================================================

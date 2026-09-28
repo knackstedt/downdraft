@@ -1,3 +1,4 @@
+// DORMANT — Electron/browser entry point; the example runs native-only now.
 // ============================================================================
 // PixiUI Demo — Main Process Entry
 // ============================================================================

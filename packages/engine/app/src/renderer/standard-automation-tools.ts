@@ -26,7 +26,7 @@
 //   });
 // ============================================================================
 
-import { KEY } from "@downdraft/engine";
+import { getHostCapabilities, KEY } from "@downdraft/engine";
 import { createLogger } from "@downdraft/engine/util/logger";
 import { downdraft } from "./index";
 import {
@@ -429,7 +429,7 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
         // MiniEventTarget (native DOM polyfill) has no capture/bubble —
         // mirror real propagation by also dispatching on window. In a real
         // DOM this would double-fire, so only do it under the polyfill.
-        const isNativeDom = typeof (globalThis as any).__nativeHost !== "undefined";
+        const isNativeDom = !getHostCapabilities().hasDom;
         const fire = (ev: Event) => {
           target.dispatchEvent(ev);
           if (isNativeDom) (window as any).dispatchEvent?.(ev);

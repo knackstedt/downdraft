@@ -1,3 +1,6 @@
+// DORMANT — no live consumers; the native surface reports its format via
+// DisplayInfoData. Retained only for the core/index.ts re-export until
+// deletion (Phase 7 of docs/refactor/native-rearchitecture-plan.md).
 export type HDRMode = "hdr" | "sdr";
 
 export interface HDRConfig {

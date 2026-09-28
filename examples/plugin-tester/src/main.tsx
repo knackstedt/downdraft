@@ -1,3 +1,4 @@
+// DORMANT — Electron/browser entry point; the example runs native-only now.
 // ============================================================================
 // Plugin Tester — Main Entry Point
 // WebGPU init (with Canvas2D fallback), game loop, scene setup, MCP setup

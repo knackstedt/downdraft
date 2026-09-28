@@ -1,3 +1,6 @@
+// DORMANT — no live consumers; superseded by platform-native's NativeWindow.
+// Retained only for the core/index.ts re-export until deletion (Phase 7 of
+// docs/refactor/native-rearchitecture-plan.md).
 export interface WindowConfig {
   width: number;
   height: number;
