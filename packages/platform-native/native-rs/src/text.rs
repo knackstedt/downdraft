@@ -60,20 +60,28 @@ pub unsafe extern "C" fn ft_shim_init(font_path: *const c_char) -> i64 {
                 return 0;
             }
         };
-        let fs =
-            FontSystem::new_with_fonts(std::iter::once(fontdb::Source::Binary(Arc::new(data))));
-        let face = match fs.db().faces().next() {
-            Some(f) => f,
-            None => {
-                eprintln!("[downdraft_platform] ft_shim_init: no usable face in {path}");
-                return 0;
-            }
-        };
-        let family = face
-            .families
+        // Load ONLY the requested file — FontSystem::new_with_fonts also pulls
+        // in every system font, and picking faces().next() from that db resolves
+        // to an arbitrary installed face (e.g. MathJax symbol fonts whose
+        // capitals are double-struck glyphs).
+        let mut db = fontdb::Database::new();
+        let ids = db.load_font_source(fontdb::Source::Binary(Arc::new(data)));
+        let family = ids
             .first()
+            .and_then(|id| db.face(*id))
+            .and_then(|f| f.families.first())
             .map(|(name, _)| name.clone())
             .unwrap_or_else(|| "sans-serif".to_string());
+        if ids.is_empty() {
+            eprintln!("[downdraft_platform] ft_shim_init: no usable face in {path}");
+            return 0;
+        }
+        let locale = std::env::var("LANG")
+            .ok()
+            .and_then(|l| l.split('.').next().map(str::to_string))
+            .filter(|l| !l.is_empty())
+            .unwrap_or_else(|| "en-US".to_string());
+        let fs = FontSystem::new_with_locale_and_db(locale, db);
         Box::into_raw(Box::new(TextRenderer {
             fs,
             swash: SwashCache::new(),

@@ -56,6 +56,16 @@ unsafe fn cstr(p: *const c_char) -> String {
     }
 }
 
+/// Null-tolerant slice view — `from_raw_parts` is UB on a null pointer even
+/// at len 0, and JS callers legitimately pass null for empty flat arrays.
+unsafe fn flat<'a, T>(p: *const T, n: usize) -> &'a [T] {
+    if p.is_null() {
+        &[]
+    } else {
+        std::slice::from_raw_parts(p, n)
+    }
+}
+
 unsafe fn read_ptr(lo_hi: &[u32]) -> Handle {
     ((lo_hi[1] as u64) << 32 | lo_hi[0] as u64) as Handle
 }
@@ -381,7 +391,7 @@ pub extern "C" fn wgpu_shim_queue_write_buffer(
     size: usize,
 ) {
     ffi!((), unsafe {
-        let bytes = std::slice::from_raw_parts(data, size);
+        let bytes = flat(data, size);
         obj::<Queue>(queue).write_buffer(obj::<Buffer>(buffer), offset, bytes);
     });
 }
@@ -420,7 +430,7 @@ pub extern "C" fn wgpu_shim_buffer_write_mapped(
     size: u64,
 ) -> i32 {
     ffi!(1, unsafe {
-        let src = std::slice::from_raw_parts(data, size as usize);
+        let src = flat(data, size as usize);
         let mut view = obj::<Buffer>(buffer).get_mapped_range_mut(offset..offset + size);
         view.copy_from_slice(src);
         0
@@ -602,7 +612,7 @@ pub extern "C" fn wgpu_shim_queue_write_texture(
     depth: u32,
 ) {
     ffi!((), unsafe {
-        let bytes = std::slice::from_raw_parts(data, data_size);
+        let bytes = flat(data, data_size);
         let dest = TexelCopyTextureInfo {
             texture: obj::<Texture>(texture),
             mip_level,
@@ -701,7 +711,7 @@ pub extern "C" fn wgpu_shim_create_bind_group_layout(
     entries_flat: *const u32,
 ) -> Handle {
     ffi!(ptr::null_mut(), unsafe {
-        let flat = std::slice::from_raw_parts(entries_flat, entry_count as usize * 11);
+        let flat = flat(entries_flat, entry_count as usize * 11);
         let mut entries = Vec::with_capacity(entry_count as usize);
         for i in 0..entry_count as usize {
             let e = &flat[i * 11..];
@@ -757,7 +767,7 @@ pub extern "C" fn wgpu_shim_create_pipeline_layout(
     layouts: *const Handle,
 ) -> Handle {
     ffi!(ptr::null_mut(), unsafe {
-        let ptrs = std::slice::from_raw_parts(layouts, layout_count as usize);
+        let ptrs = flat(layouts, layout_count as usize);
         let bgls: Vec<Option<&BindGroupLayout>> = ptrs
             .iter()
             .map(|&p| {
@@ -791,7 +801,7 @@ pub extern "C" fn wgpu_shim_create_bind_group(
     entries_flat: *const u32,
 ) -> Handle {
     ffi!(ptr::null_mut(), unsafe {
-        let flat = std::slice::from_raw_parts(entries_flat, entry_count as usize * 8);
+        let flat = flat(entries_flat, entry_count as usize * 8);
         let mut entries = Vec::with_capacity(entry_count as usize);
         for i in 0..entry_count as usize {
             let e = &flat[i * 8..];
@@ -858,7 +868,7 @@ pub extern "C" fn wgpu_shim_queue_submit(
     count: u32,
 ) {
     ffi!((), unsafe {
-        let ptrs = std::slice::from_raw_parts(command_buffers, count as usize);
+        let ptrs = flat(command_buffers, count as usize);
         let mut cmds = Vec::with_capacity(ptrs.len());
         for &p in ptrs {
             if let Some(cb) = obj_mut::<ShimCommandBuffer>(p).0.take() {
@@ -888,7 +898,7 @@ pub extern "C" fn wgpu_shim_begin_render_pass(
 ) -> Handle {
     ffi!(ptr::null_mut(), unsafe {
         let n = color_count.min(8) as usize;
-        let flat = std::slice::from_raw_parts(color_attachments, n * 11);
+        let flat = flat(color_attachments, n * 11);
         let mut atts: Vec<Option<RenderPassColorAttachment>> = Vec::with_capacity(n);
         for i in 0..n {
             let a = &flat[i * 11..];

@@ -24,5 +24,5 @@
 mod ffi;
 mod gpu;
 mod image;
-mod text;
+pub mod text;
 mod window;

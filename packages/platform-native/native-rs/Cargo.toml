@@ -8,7 +8,7 @@ description = "Unified native platform library for Downdraft — windowing (wini
 
 [lib]
 name = "downdraft_platform"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 # Dependencies are added per porting phase:
 #   image    — image_shim_*  (replaces stb_image)
