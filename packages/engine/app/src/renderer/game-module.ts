@@ -32,7 +32,8 @@ import {
     type PluginHostOptions,
     type PluginManifest,
     type PluginPermission,
-    type PluginSource
+    type PluginSource,
+    type SaveState
 } from "@downdraft/engine";
 import { createLogger } from "@downdraft/engine/util/logger";
 import { bootstrapGame, type BootstrapDevToolsOptions } from "./bootstrap";
@@ -129,10 +130,9 @@ export type SimEventMap<C extends GameContext = GameContext> = Record<string, (d
 
 /** Save configuration. If omitted, no autosave is wired. */
 export interface GameSaveConfig {
-  /** Save mode. Default: "ipc" in Electron (disk, stable), "auto" in browser.
-   *  Games should pin an explicit mode rather than relying on "auto" — "auto"
-   *  picks OPFS-vs-IPC per session via a 5s timeout, and the two backends never
-   *  reconcile, which can produce two divergent autosaves. */
+  /** Save mode. Default: "host" when a native host save store is installed
+   *  (disk, stable), "auto" in browser. Games should pin an explicit mode
+   *  rather than relying on "auto" — see createSaveStore for resolution. */
   mode?: SaveStoreMode;
   /** Engine version string for save slots. */
   engineVersion: string;
@@ -234,12 +234,12 @@ export interface GameContext<Sim extends GameSimWorker = GameSimWorker> {
   /** The save store, if save config was provided and init succeeded. May be null. */
   saveStore: ISaveStore | null;
   /** The save mode that was actually selected (may differ from config in fallback). */
-  saveMode: "inline" | "worker" | "ipc";
+  saveMode: "inline" | "worker" | "host";
   /**
    * Mode-aware save: persists the current state to the selected backend
-   * (inline OPFS / worker OPFS / IPC disk). Games should call this for manual
-   * saves instead of `sim.save()` directly — `sim.save()` only writes in
-   * inline mode and silently drops the save in IPC mode.
+   * (inline OPFS / worker OPFS / host store disk). Games should call this for
+   * manual saves instead of `sim.save()` directly — `sim.save()` only writes
+   * in inline mode and silently drops the save in host mode.
    * Returns true if the save succeeded. Undefined when no save config was declared.
    */
   save?: (slotName: string) => Promise<boolean>;
@@ -544,7 +544,7 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
     inputSAB,
     extraBuffers,
     saveStore: null,
-    saveMode: "ipc",
+    saveMode: "host",
     saveSource: module.saveSource,
     bridge: downdraft,
     deterministic,
@@ -610,12 +610,12 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
   //    after the sim worker has started.
   if (module.save && !deterministic) {
     try {
-      // Default to "ipc" (disk) in Electron — stable across sessions and not
-      // origin-scoped. Fall back to "auto" (OPFS) only in a pure browser where
-      // there is no IPC bridge. Games should pin an explicit mode to avoid the
-      // per-session OPFS-vs-IPC flip that "auto" produces.
-      const saveMode = module.save.mode ?? (downdraft.isAvailable ? "ipc" : "auto");
-      if (saveMode === "auto" && simWorker?.initSaveStore && isOpfsAvailable()) {
+      // Default to "host" (disk via the host's typed save store) when the
+      // bridge exposes one — on native this is HostSaveStore over
+      // HostServices. Fall back to "auto" (OPFS) only in a pure browser
+      // where there is no host bridge.
+      const saveMode = module.save.mode ?? (downdraft.saveStore ? "host" : "auto");
+      if (saveMode === "auto" && simWorker?.initSaveStore && isOpfsAvailable() && !downdraft.saveStore) {
         // Inline mode — defer init to onRendererInit (after sim worker starts).
         ctx.saveMode = "inline";
         ctx.saveStore = null;
@@ -629,15 +629,13 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
           bridge: downdraft,
         });
         ctx.saveStore = store;
-        // Use the backend that createSaveStore actually resolved (fixes the
-        // previous mislabel where an IPC fallback in "auto" was tagged "worker").
-        // When store is non-null, resolvedMode is "worker" or "ipc" (inline
-        // returns a null store); narrow to the ctx.saveMode union accordingly.
-        ctx.saveMode = store ? (resolvedMode === "worker" ? "worker" : "ipc") : "ipc";
+        // resolvedMode is "worker" or "host" (inline returns a null store);
+        // narrow to the ctx.saveMode union accordingly.
+        ctx.saveMode = store ? (resolvedMode === "worker" ? "worker" : "host") : "host";
       }
     } catch (e) {
-      log.warn("startGame", `Save store init failed, falling back to IPC: ${e}`);
-      ctx.saveMode = "ipc";
+      log.warn("startGame", `Save store init failed, falling back to host bridge: ${e}`);
+      ctx.saveMode = "host";
     }
   }
 
@@ -646,7 +644,7 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
   //     same logic the autosave interval uses below. Games MUST use ctx.save /
   //     ctx.load instead of sim.save / sim.load directly: sim.save only writes
   //     in inline mode (it has its own OPFS store) and silently drops the save
-  //     in IPC mode (it returns stateJson but nothing forwards it to disk).
+  //     in host mode (it returns stateJson but nothing forwards it to disk).
   if (module.save && !deterministic) {
     ctx.save = async (slotName: string): Promise<boolean> => {
       try {
@@ -658,10 +656,28 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
             ? await simWorker.save(slotName)
             : null;
         // In inline mode, the sim worker's save() already persisted to its own
-        // OPFS store — nothing more to do. In IPC mode, forward the state JSON
-        // to the main process so it lands on disk.
-        if (result?.stateJson && ctx.saveMode === "ipc" && downdraft?.saveGameState) {
-          await downdraft.saveGameState(slotName, result.stateJson);
+        // OPFS store — nothing more to do. In host mode, write the state
+        // through the typed save store (real SaveResult metadata).
+        if (result?.stateJson && ctx.saveMode === "host") {
+          const components = JSON.parse(result.stateJson);
+          const state: SaveState = {
+            components,
+            meta: {
+              engineVersion: module.save?.engineVersion ?? "",
+              timestamp: Date.now() / 1000,
+              entityCount: 0,
+              playerCount: 0,
+            },
+          };
+          if (ctx.saveStore) {
+            const sr = await ctx.saveStore.save(slotName, state);
+            return result.success !== false && sr.success;
+          }
+          // Fallback when the host store is absent (browser stub bridge):
+          // forward through the legacy JSON methods.
+          if (downdraft?.saveGameState) {
+            return downdraft.saveGameState(slotName, JSON.stringify(components));
+          }
         }
         return result?.success ?? false;
       } catch (e) {
@@ -834,8 +850,8 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
             maxGenerations: module.save.maxGenerations ?? 3,
           });
         } catch (e) {
-          log.warn("startGame", `Inline save store init failed, falling back to IPC: ${e}`);
-          ctx.saveMode = "ipc";
+          log.warn("startGame", `Inline save store init failed, falling back to host save store: ${e}`);
+          ctx.saveMode = "host";
         }
       }
 

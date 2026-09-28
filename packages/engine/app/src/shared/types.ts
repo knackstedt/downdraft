@@ -6,7 +6,7 @@
 // bridge, IPC handlers, and renderer accessor.  They are type-only — no runtime
 // code — so importing them from any process (main / preload / renderer) is safe.
 
-import type { FeatureLogData, HostCapabilities } from "@downdraft/engine";
+import type { FeatureLogData, HostCapabilities, ISaveStore } from "@downdraft/engine";
 import type {
     AtlasLayout,
     AtlasPanelRect,
@@ -352,6 +352,11 @@ export interface DowndraftBridgeAPI {
    *  probing globals. Optional because browser/Electron bridge stubs predate
    *  the capability surface. */
   readonly capabilities?: HostCapabilities;
+  /** Typed host save store — present on the native host, absent under
+   *  Electron/browser. Carries real SaveState/LoadResult with no JSON
+   *  boundary, unlike the saveGameState/loadGameState methods below which
+   *  keep the JSON-string wire shape for the dormant Electron path. */
+  readonly saveStore?: ISaveStore;
   saveGameState(slotName: string, stateJson: string, opts?: SaveOptions): Promise<boolean>;
   loadGameState(slotName: string, opts?: LoadOptions): Promise<string | null>;
   deleteGameState(slotName: string): Promise<boolean>;

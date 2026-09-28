@@ -40,6 +40,7 @@ import { addCrashFeatureLog } from "../host-lifecycle";
 import { createNativeOsrHost } from "../osr/native-osr-host";
 import { isPackaged } from "../packaged";
 import { encodePNG } from "../screenshot/screenshot";
+import { HostSaveStore } from "../services/host-save-store";
 import type { HostServices } from "../services/host-services";
 import type { NativeSurface } from "../window/native-surface";
 import type { NativeWindow } from "../window/native-window";
@@ -145,6 +146,9 @@ export function createNativeBridge(opts: NativeBridgeOptions): DowndraftBridgeAP
 
   const bridge: DowndraftBridgeAPI & { dispose(): void } = {
     capabilities: NATIVE_HOST_CAPABILITIES,
+    // Typed host save store — the native save path. Real SaveState in,
+    // real SaveResult/LoadResult out; no JSON boundary.
+    saveStore: new HostSaveStore(services.api, (cb) => services.onWarning(cb)),
     // ── Saves: routed through HostServices (services worker by default) ──
     saveGameState: (slotName, stateJson, saveOpts) =>
       services.api.saveGame(slotName, stateJson, saveOpts),

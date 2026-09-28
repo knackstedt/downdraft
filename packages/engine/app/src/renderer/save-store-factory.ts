@@ -8,36 +8,53 @@
 //               for creating it there). The factory returns null here; the
 //               sim worker creates the store directly.
 //   "worker"  — Spawns a dedicated save Web Worker with OpfsSaveStore inside.
-//               Returns a SaveWorkerProxy.
-//   "ipc"     — Electron IPC → main process FileSaveStore (disk). Stable across
-//               sessions; not origin-scoped. The default for Electron games.
-//   "auto"    — Picks "worker" if OPFS is available, else falls back to
-//               IpcSaveStore (Electron IPC → main process FileSaveStore).
-//
-// IMPORTANT: "auto" selects its backend per-session based on a 5s worker-init
-// timeout. Because OPFS (origin-scoped browser storage) and IPC (disk) are
-// separate locations that never reconcile, a session whose worker init times
-// out writes a *new* autosave to disk while a previous session's autosave
-// remains in OPFS — producing two divergent "autosave" worlds. Games should
-// pin an explicit mode ("ipc" in Electron) instead of relying on "auto".
+//               Returns a SaveWorkerProxy. (Browser builds only — the native
+//               host has no OPFS.)
+//   "host"    — The host's own save store (`downdraft.saveStore`). On native
+//               this is HostSaveStore over HostServices → FileSaveStore: real
+//               SaveState in, real SaveResult/LoadResult out, no JSON
+//               boundary. The default when a host bridge is installed.
+//   "auto"    — Picks "host" when the host exposes a typed save store, else
+//               "worker" if OPFS is available. (The legacy worker-timeout →
+//               IPC-fallback dance is gone: on native there is no OPFS and
+//               no process boundary, so the flip can never produce a
+//               divergent save location.)
 //
 // The factory is called from the renderer after the sim worker is initialized.
 
-import type { ISaveStore } from "@downdraft/engine";
+import type { ISaveStore, SaveGenerationInfo, SaveOptions, SaveSlotInfo } from "@downdraft/engine";
 import { OpfsSaveStore, SaveWorkerProxy, type OpfsSaveStoreOptions } from "@downdraft/engine/libraries/persistence/browser";
 import { createLogger } from "@downdraft/engine/util/logger";
-import { IpcSaveStore, type SaveBridge } from "./ipc-save-store";
 
 const log = createLogger("info");
 
-export type SaveStoreMode = "inline" | "worker" | "ipc" | "auto";
+export type SaveStoreMode = "inline" | "worker" | "host" | "auto";
+
+/**
+ * The subset of the host bridge needed for save operations. `saveStore` is
+ * the typed native path; the `saveGameState`/`loadGameState` JSON-string
+ * methods only remain for the dormant Electron bridge.
+ */
+export interface SaveBridge {
+  saveStore?: ISaveStore;
+  saveGameState(slotName: string, stateJson: string, opts?: SaveOptions): Promise<boolean>;
+  loadGameState(slotName: string, opts?: unknown): Promise<string | null>;
+  listSaveSlots(): Promise<SaveSlotInfo[]>;
+  deleteGameState(slotName: string): Promise<boolean>;
+  listSaveGenerations?(slotName: string): Promise<SaveGenerationInfo[]>;
+  deleteSaveGeneration?(slotName: string, gen: number): Promise<boolean>;
+  setThumbnail?(slotName: string, data: ArrayBuffer | Uint8Array): Promise<void>;
+  getThumbnail?(slotName: string): Promise<ArrayBuffer | null>;
+  setSaveProperties?(slotName: string, props: Record<string, unknown>): Promise<void>;
+  getSaveProperties?(slotName: string): Promise<Record<string, unknown>>;
+}
 
 export interface CreateSaveStoreOptions {
   /** Mode selection. Default: "auto". */
   mode?: SaveStoreMode;
   /** Options for the OpfsSaveStore (used in inline and worker modes). */
   opfsOptions: OpfsSaveStoreOptions;
-  /** The downdraft bridge for IPC fallback. Required for "ipc" and "auto" modes. */
+  /** The host bridge. Required for "host" mode; preferred in "auto". */
   bridge?: SaveBridge | null;
   /** Worker URL for dedicated worker mode. Defaults to the library's save-worker.ts. */
   workerUrl?: URL;
@@ -67,9 +84,10 @@ export function isOpfsAvailable(): boolean {
  *   write to OPFS without crossing worker boundaries).
  * - "worker": Spawns a dedicated save worker with OpfsSaveStore. Returns
  *   a SaveWorkerProxy. The caller must call init() on it.
- * - "ipc": Returns an IpcSaveStore backed by the Electron main process
- *   FileSaveStore (disk). Stable across sessions; not origin-scoped.
- * - "auto": Picks "worker" if OPFS is available, else IpcSaveStore.
+ * - "host": Returns the host's save store (native HostSaveStore →
+ *   FileSaveStore on disk). Stable across sessions; not origin-scoped.
+ * - "auto": Picks "host" when the bridge exposes a typed save store, else
+ *   "worker" when OPFS is available.
  *
  * Returns `{ store, mode }` where `mode` is the backend that was actually
  * selected (which may differ from the requested mode in "auto" fallback).
@@ -95,40 +113,37 @@ export async function createSaveStore(opts: CreateSaveStoreOptions): Promise<Cre
       return { store: proxy, mode: "worker" };
     }
 
-    case "ipc": {
-      if (!opts.bridge) {
-        throw new Error("No bridge provided for 'ipc' mode");
+    case "host": {
+      if (!opts.bridge?.saveStore) {
+        throw new Error("No host save store on the bridge — 'host' mode requires a native host (downdraft.saveStore)");
       }
-      return { store: new IpcSaveStore(opts.bridge), mode: "ipc" };
+      return { store: opts.bridge.saveStore, mode: "host" };
     }
 
     case "auto": {
+      // Native-first: when the host exposes a typed save store, use it.
+      // There is no OPFS and no process boundary on native, so the old
+      // 5s worker-timeout → IPC-fallback flip is unnecessary.
+      if (opts.bridge?.saveStore) {
+        return { store: opts.bridge.saveStore, mode: "host" };
+      }
       if (isOpfsAvailable()) {
-        // Try dedicated worker mode first, with a 5s timeout.
-        // The worker spawn can hang in some environments (e.g. when Vite's
-        // worker URL resolution fails in dev mode). Fall back to IPC on timeout.
-        try {
-          const proxy = new SaveWorkerProxy({
-            storeOptions: opts.opfsOptions,
-            workerUrl: opts.workerUrl,
-          });
-          await Promise.race([
-            proxy.init(),
-            new Promise<never>((_, reject) =>
-              setTimeout(() => reject(new Error("SaveWorkerProxy init timeout (5s)")), 5000),
-            ),
-          ]);
-          return { store: proxy, mode: "worker" };
-        } catch (err) {
-          // Worker spawn failed or timed out — fall through to IPC
-          log.warn("createSaveStore", `Worker mode failed, falling back to IPC: ${err}`);
-        }
+        // Try dedicated worker mode, with a 5s init timeout — the worker
+        // spawn can hang in some environments (e.g. when Vite's worker URL
+        // resolution fails in dev mode).
+        const proxy = new SaveWorkerProxy({
+          storeOptions: opts.opfsOptions,
+          workerUrl: opts.workerUrl,
+        });
+        await Promise.race([
+          proxy.init(),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("SaveWorkerProxy init timeout (5s)")), 5000),
+          ),
+        ]);
+        return { store: proxy, mode: "worker" };
       }
-      // IPC fallback
-      if (!opts.bridge) {
-        throw new Error("No bridge provided for IPC fallback in 'auto' mode");
-      }
-      return { store: new IpcSaveStore(opts.bridge), mode: "ipc" };
+      throw new Error("No save backend available in 'auto' mode — no host save store and no OPFS");
     }
 
     default:

@@ -127,25 +127,24 @@ export type { HotReloadableSim, SimHotReloadDeps } from "./hot-reload";
 export { createSimBridge } from "./sim-bridge";
 export type { SimBridge, SimBridgeDeps, SimBridgeWorker } from "./sim-bridge";
 
-// Save store factory + IPC fallback
-export { IpcSaveStore, type SaveBridge } from "./ipc-save-store";
-export { createInlineSaveStore, createSaveStore, type CreateSaveStoreOptions, type CreateSaveStoreResult, type SaveStoreMode } from "./save-store-factory";
+// Save store factory + host save-store bridge type
+export { createInlineSaveStore, createSaveStore, type CreateSaveStoreOptions, type CreateSaveStoreResult, type SaveBridge, type SaveStoreMode } from "./save-store-factory";
 
 /**
  * Create the default ISaveStore for a game.
  *
- * In Electron (the `downdraft` bridge is available), defaults to "ipc" mode —
- * the main-process FileSaveStore on disk. This is stable across sessions and
- * not origin-scoped, so the same autosave is always found.
+ * When the host exposes a typed save store (`downdraft.saveStore` — the
+ * native host's HostSaveStore over FileSaveStore), defaults to "host" mode —
+ * disk persistence, stable across sessions, not origin-scoped.
  *
  * In a pure browser (no bridge), falls back to "auto" (OPFS worker → inline
- * OPFS), since there is no IPC path available.
+ * OPFS), since there is no host save path available.
  *
  * Games that want a specific backend should call `createSaveStore` directly
  * with an explicit `mode` rather than relying on this default.
  */
 export async function createDefaultSaveStore(engineVersion: string): Promise<import("@downdraft/engine").ISaveStore> {
-  const mode = downdraft.isAvailable ? "ipc" : "auto";
+  const mode = downdraft.saveStore ? "host" : "auto";
   const { store } = await _createSaveStore({
     mode,
     opfsOptions: { engineVersion },

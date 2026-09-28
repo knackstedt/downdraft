@@ -12,7 +12,7 @@
 // surface is unchanged — services mode is a host-level config decision.
 // ============================================================================
 
-import type { SaveWarning } from "@downdraft/engine";
+import type { LoadResult, SaveResult, SaveState, SaveWarning } from "@downdraft/engine";
 import { createImportCacheStore, type ImportCacheStore } from "@downdraft/engine/app/shared/import-cache-store";
 import type {
     ImportCacheEntry,
@@ -37,6 +37,12 @@ export interface HostServicesApi {
 
   saveGame(slot: string, stateJson: string, saveOpts?: SaveOptions): Promise<boolean>;
   loadGame(slot: string, loadOpts?: LoadOptions): Promise<string | null>;
+  /** Typed save/load — the native path. No JSON boundary: the caller hands
+   *  over a real SaveState and gets the FileSaveStore's real SaveResult
+   *  (bytes, gen) / LoadResult (meta, gen, blobs) back. Structured-cloneable
+   *  across the services worker. */
+  saveState(slot: string, state: SaveState, saveOpts?: SaveOptions): Promise<SaveResult>;
+  loadState(slot: string, loadOpts?: LoadOptions): Promise<LoadResult>;
   deleteSave(slot: string): Promise<boolean>;
   listSaves(): Promise<SaveSlotInfo[]>;
   listGenerations(slot: string): Promise<SaveGenerationInfo[]>;
@@ -106,6 +112,30 @@ export function createInlineServices(emitWarning: (w: SaveWarning) => void): Hos
       } catch (err) {
         log.error("services", `Load failed: ${err}`);
         return null;
+      }
+    },
+    async saveState(slot, state, saveOpts) {
+      try {
+        const meta = {
+          engineVersion: state.meta?.engineVersion || engineVersion,
+          timestamp: state.meta?.timestamp || Date.now() / 1000,
+          entityCount: state.meta?.entityCount ?? 0,
+          playerCount: state.meta?.playerCount ?? 0,
+        };
+        const result = await store().save(slot, { ...state, meta }, saveOpts);
+        if (!result.success) log.error("services", `Save to slot '${slot}' failed`);
+        return result;
+      } catch (err) {
+        log.error("services", `Save failed: ${err}`);
+        return { success: false, bytes: 0 };
+      }
+    },
+    async loadState(slot, loadOpts) {
+      try {
+        return await store().load(slot, loadOpts);
+      } catch (err) {
+        log.error("services", `Load failed: ${err}`);
+        return { state: null };
       }
     },
     deleteSave: (slot) => store().deleteSave(slot),
@@ -229,6 +259,8 @@ export function scopeServicesForPlugin(api: HostServicesApi, namespace: string):
     init: unscoped("init"),
     saveGame: (slot, json, opts) => api.saveGame(ns(slot), json, opts),
     loadGame: (slot, opts) => api.loadGame(ns(slot), opts),
+    saveState: (slot, state, opts) => api.saveState(ns(slot), state, opts),
+    loadState: (slot, opts) => api.loadState(ns(slot), opts),
     deleteSave: (slot) => api.deleteSave(ns(slot)),
     listSaves: async () =>
       (await api.listSaves())
