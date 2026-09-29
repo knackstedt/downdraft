@@ -11,12 +11,12 @@
 // ============================================================================
 
 import type { RendererModule, RendererModuleContext } from "@downdraft/engine";
-import type { OSRIPC } from "../types";
+import type { OSRHostBridge } from "../types";
 import { OSRManager } from "./osr-manager";
 
 export interface ElectronOSRModuleOptions {
   /** Electron IPC bridge for OSR panel/texture events. */
-  ipc: OSRIPC;
+  ipc: OSRHostBridge;
   /** Surface format (defaults to bgra8unorm, should match the renderer). */
   surfaceFormat?: GPUTextureFormat;
   /** Depth format (defaults to depth24plus). */
@@ -27,7 +27,7 @@ export class ElectronOSRModule implements RendererModule {
   readonly name = "electron-osr";
   readonly version = "0.1.0";
 
-  private ipc: OSRIPC;
+  private ipc: OSRHostBridge;
   private surfaceFormat: GPUTextureFormat;
   private depthFormat: GPUTextureFormat;
   private manager: OSRManager | null = null;

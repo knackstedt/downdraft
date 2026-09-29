@@ -23,6 +23,9 @@ export interface CollectHostFeatureLogOptions {
   gpuDriverVersion?: string | null;
   /** Runtime tag — "electron", "bun", "node", "deno". Defaults from process. */
   runtime?: string;
+  /** Scope label — "host" for the single-process native runtime
+   *  (dd-host|...), "main" for the Electron main process (dd-main|...). */
+  scope?: "main" | "host";
 }
 
 /**
@@ -37,7 +40,7 @@ export function collectHostFeatureLog(opts: CollectHostFeatureLogOptions): Featu
 
   const data: FeatureLogData = {
     sv: 1,
-    scope: "main",
+    scope: opts.scope ?? "main",
     v: ENGINE_VERSION,
     mode: deterministic ? "deterministic" : isDev ? "dev" : "packaged",
     os: process.platform,
@@ -61,7 +64,7 @@ export function collectHostFeatureLog(opts: CollectHostFeatureLogOptions): Featu
   // the runtime field distinguishes bun/node/deno hosts in combined views.
   const runtime = opts.runtime ?? runtimeTag();
   if (runtime !== "electron") {
-    (data as unknown as Record<string, unknown>).rt = runtime;
+    data.rt = runtime;
   }
 
   return data;

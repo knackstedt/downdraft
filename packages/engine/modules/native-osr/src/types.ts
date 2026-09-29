@@ -1,10 +1,10 @@
 // ============================================================================
-// Electron OSR Module — Shared Types
+// Native OSR Module — Shared Types
 // ============================================================================
 
 export type OSRRendererMode = "atlas" | "dedicated";
 
-export type OSRSharedTexturePixelFormat = "rgba" | "bgra";
+export type OSRPixelFormat = "rgba" | "bgra";
 
 export interface OSRRendererConfig {
   id: string;
@@ -13,12 +13,10 @@ export interface OSRRendererConfig {
   height: number;
   /** Target draw frequency in Hz. Default 60. Clamped to display refresh rate. */
   frameRate: number;
-  /** Pixel format of the shared texture. Default 'rgba'. */
-  sharedTexturePixelFormat?: OSRSharedTexturePixelFormat;
+  /** Pixel format of the pulled frame texture. Default 'rgba'. */
+  pixelFormat?: OSRPixelFormat;
   /** Max auto-recreate attempts on crash (dedicated mode). Default 3. */
   maxCrashRetries?: number;
-  /** Enable GPU zero-copy shared texture path. Default true. Set false to force CPU path. */
-  useSharedTexture?: boolean;
 }
 
 export interface OSRPanelConfig {
@@ -96,8 +94,8 @@ export interface OSRTextureHandle {
   textureView: GPUTextureView;
 }
 
-/** IPC surface exposed via preload bridge. */
-export interface OSRIPC {
+/** Host surface consumed by OSR managers — direct in-process calls on native. */
+export interface OSRHostBridge {
   createRenderer(config: OSRRendererConfig): Promise<void>;
   destroyRenderer(id: string): Promise<void>;
   addPanel(config: OSRPanelConfig): Promise<AtlasPanelRect | null>;

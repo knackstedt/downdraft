@@ -32,8 +32,8 @@ console.log("[ok] importCacheGet →", await d.importCacheGet("/models/test.glb"
 // ── diagnostics ──
 console.log("[ok] getDisplayInfo →", await d.getDisplayInfo());
 console.log("[ok] getFeatureLog.rt →", (await d.getFeatureLog())?.rt);
-console.log("[ok] processSnapshot.rss →", (await d.processSnapshot()).main?.rss > 0);
-console.log("[ok] capturePage bytes →", (await d.capturePage())?.byteLength);
+console.log("[ok] getProcessStats.rss →", (await d.getProcessStats()).rss > 0);
+console.log("[ok] captureFrame bytes →", (await d.captureFrame())?.byteLength);
 
 // ── MCP ──
 const port = host.mcp!.port;

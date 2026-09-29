@@ -1,10 +1,20 @@
 // ============================================================================
-// @downdraft/engine/app/shared/types — IPC payload interfaces shared across processes
+// @downdraft/engine/app/shared/types — host ↔ engine contract types
 // ============================================================================
 //
-// These interfaces describe the shape of data that flows through the preload
-// bridge, IPC handlers, and renderer accessor.  They are type-only — no runtime
-// code — so importing them from any process (main / preload / renderer) is safe.
+// These interfaces describe the `HostAPI` contract: the object the host
+// installs on `globalThis.downdraft` (native bridge — see
+// @downdraft/platform-native) and that renderer/bootstrap code consumes
+// through the typed `downdraft` accessor. There is no process boundary on
+// native — every method is a direct in-process call.
+//
+// The Electron-shaped predecessor contract (`DowndraftBridgeAPI` plus the
+// tracing/heap-snapshot/shared-texture types) lives in
+// ./electron-bridge-types.ts — DORMANT, kept only so the dormant preload
+// tree still typechecks until Phase 7 deletes it.
+//
+// These are type-only — no runtime code — so importing them from any
+// context (main / preload / renderer / worker) is safe.
 
 import type { FeatureLogData, HostCapabilities, ISaveStore } from "@downdraft/engine";
 import type {
@@ -30,14 +40,14 @@ export type { FeatureLogData };
         OSRRendererEvent
     };
 
-/** Layout data sent via the `OSR_PANEL_LAYOUT` IPC event. */
+/** Layout data delivered by `HostOsrAPI.onPanelLayout`. */
 export type OSRPanelLayout = AtlasLayout;
 
 // ---------------------------------------------------------------------------
 // GPU Info
 // ---------------------------------------------------------------------------
 
-/** Response from `nvidia-smi` query (GPU_SYSTEM_INFO channel). */
+/** Response from `nvidia-smi` query (host system probe — runtime-agnostic). */
 export interface GPUSystemInfo {
   gpus: Array<Record<string, string | number>>;
   processes: Array<{
@@ -49,70 +59,52 @@ export interface GPUSystemInfo {
   timestamp: number;
 }
 
-/** Response from `app.getGPUInfo("complete")` (ELECTRON_GPU_INFO channel). */
-export interface ElectronGPUInfo {
-  gpuVendor: string;
-  gpuDevice: string;
-  gpuDriver: string;
-  gpuDriverVersion: string;
-  gpuActive: unknown;
-  auxAttributes: unknown;
-  featureStatus: unknown;
-  source: "electron app.getGPUInfo";
+/** Host GPU adapter identity + negotiated device features.
+ *  On native this is the wgpu adapter info + the feature set the single
+ *  host-owned device was created with. */
+export interface HostGpuInfo {
+  vendor: string;
+  architecture: string;
+  device: string;
+  description: string;
+  /** GPU backend label — e.g. "wgpu/vulkan", "wgpu/metal", "webgpu". */
+  backend: string;
+  /** Feature names enabled on the device (e.g. "timestamp-query"). */
+  features: string[];
 }
 
-/** Response from the Vulkan validation status query. */
+/** Response from the Vulkan validation status query (env-var probe —
+ *  meaningful only on hosts where validation is switchable). */
 export interface VulkanValidationStatus {
   enabled: boolean;
   envVar: string | null;
 }
 
-/** Union of all GPU info response shapes. */
-export type GPUInfoResponse = GPUSystemInfo | ElectronGPUInfo | VulkanValidationStatus;
-
 // ---------------------------------------------------------------------------
-// Event Payloads (Main -> Renderer)
+// Event Payloads (host -> engine)
 // ---------------------------------------------------------------------------
 
-/** Payload for the `SIM_READY` event. */
+/** Payload for the `sim-ready` event. */
 export interface SimReadyData {
   isDev: boolean;
   deterministic: boolean;
 }
 
-/** Payload for the `GC_STATS` event. */
-export interface GCStatsData {
-  label: string;
-  interval: {
-    count: number;
-    totalTime: number;
-    scavengeCount: number;
-    scavengeTime: number;
-    majorCount: number;
-    majorTime: number;
-    otherCount: number;
-    otherTime: number;
-  };
-  overall: {
-    count: number;
-    totalTime: number;
-    wallMs: number;
-  };
-}
-
-/** Payload for the `DISPLAY_INFO` event and `getDisplayInfo()` response. */
+/** Payload for the `display-info` event and `getDisplayInfo()` response. */
 export interface DisplayInfoData {
   refreshRate: number;
 }
 
-/** Payload for the `DISPLAY_METRICS_CHANGED` event. */
+/** Payload for the `display-metrics-changed` event. */
 export interface DisplayMetricsChangedData {
   scaleFactor: number;
 }
 
-/** Payload for the `PERF_STATS` event. */
+/** Payload for the `perf-stats` event (single-process — no process field). */
 export interface PerfStatsData {
-  process: string;
+  /** Kept for payload compatibility with dormant emitters; always "native"
+   *  on the live host. Ignored by consumers — Phase 6 removes it. */
+  process?: string;
   cpuPercent: number;
   memUsedMB: number;
   heapUsedMB: number;
@@ -121,20 +113,15 @@ export interface PerfStatsData {
   timestamp: number;
 }
 
-// ---------------------------------------------------------------------------
-// Paint Region (CPU fallback for OSR)
-// ---------------------------------------------------------------------------
-
-/** Region data sent via the `__osr_paint_region` IPC event. */
-export interface PaintRegionData {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  fullWidth: number;
-  fullHeight: number;
-  data: ArrayBuffer;
-  compressed: boolean;
+/** Typed host event names + payloads — the union behind the `on*` event
+ *  methods. There is no free-form channel registry on the live contract. */
+export interface HostEventMap {
+  "sim-ready": SimReadyData;
+  "display-info": DisplayInfoData;
+  "display-metrics-changed": DisplayMetricsChangedData;
+  "perf-stats": PerfStatsData;
+  "debug-mode": boolean;
+  "devtools-toggle": undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -204,110 +191,30 @@ export interface LoadOptions {
 }
 
 // ---------------------------------------------------------------------------
-// Shared Texture (Electron internal — minimal typing with type guards)
+// Process stats (single process — replaces the Electron main/renderer split)
 // ---------------------------------------------------------------------------
 
-/** Minimal interface for an imported shared texture (Electron internal). */
-export interface ImportedSharedTexture {
-  getVideoFrame(): VideoFrameLike | null;
-  getFrameCreationSyncToken?(): unknown;
-  release(cb: () => void): void;
-  setReleaseSyncToken?(syncToken: unknown): void;
-}
-
-/** Minimal VideoFrame shape used by the shared texture receiver. */
-export interface VideoFrameLike {
-  displayWidth: number;
-  displayHeight: number;
-  format: string;
-}
-
-/** Minimal interface for the `electron.sharedTexture` subtle API. */
-export interface SharedTextureSubtle {
-  finishTransferSharedTexture(transfer: unknown): ImportedSharedTexture;
-  importSharedTexture?(texture: unknown): ImportedSharedTexture;
-}
-
-/** Minimal interface for the `electron.sharedTexture` API. */
-export interface SharedTextureApi {
-  subtle?: SharedTextureSubtle;
-  setSharedTextureReceiver?(cb: (received: unknown, ...args: unknown[]) => void): void;
-}
-
-// ---------------------------------------------------------------------------
-// Tracing & memory-dump toolkit (main process)
-// ---------------------------------------------------------------------------
-
-export type TracePreset = "perf" | "memory" | "gpu" | "v8" | "custom";
-
-export interface TraceStartOptions {
-  preset?: TracePreset;
-  categories?: string[];
-  recordingMode?: "record-until-full" | "record-continuously" | "record-as-much-as-possible" | "trace-to-console";
-  bufferSizeKB?: number;
-  memoryDumpIntervalMs?: number;
-}
-
-export interface TraceStartResult {
-  started: boolean;
-  preset: TracePreset;
-  categories: string[];
-  recordingMode: string;
-}
-
-export interface TraceStopResult {
-  stopped: boolean;
-  path: string;
-  relativePath: string;
-  downloadUrl: string;
-  sizeBytes: number;
-  durationMs: number;
-  categories: string[];
-  preset: TracePreset;
-}
-
-export interface TraceStatusResult {
-  recording: boolean;
-  startedAt?: number;
-  preset?: TracePreset;
-  categories?: string[];
-  recordingMode?: string;
-  bufferUsage?: { value: number; percentage: number };
-}
-
-export interface HeapSnapshotResult {
-  path: string;
-  relativePath: string;
-  downloadUrl: string;
-  sizeBytes: number;
-  target: "main" | "renderer";
-  chunks?: number;
-}
-
-export interface ProcessSnapshotResult {
-  target: "main" | "renderer";
+export interface ProcessStatsData {
   timestamp: number;
-  main?: {
-    rss: number;
-    heapTotal: number;
-    heapUsed: number;
-    external: number;
-    arrayBuffers: number;
-    cpuUser: number;
-    cpuSystem: number;
-    uptimeSec: number;
-  };
-  renderer?: {
-    metrics: Record<string, number>;
-    domCounters?: Record<string, number>;
-  };
+  rss: number;
+  heapTotal: number;
+  heapUsed: number;
+  external: number;
+  arrayBuffers: number;
+  cpuUser: number;
+  cpuSystem: number;
+  uptimeSec: number;
 }
 
 // ---------------------------------------------------------------------------
-// OSR Bridge API (sub-object of DowndraftBridgeAPI)
+// OSR host API (sub-object of HostAPI)
 // ---------------------------------------------------------------------------
 
-export interface DowndraftOsrBridgeAPI {
+/** Host-side OSR surface — Blitz-backed native implementation. Panels render
+ *  offscreen on the host; the engine pulls dirty RGBA frames + hit-tests
+ *  directly (no shared-texture or paint-region machinery — that was the
+ *  Electron path, kept on the dormant contract). */
+export interface HostOsrAPI {
   createRenderer(config: OSRRendererConfig): Promise<void>;
   destroyRenderer(id: string): Promise<void>;
   addPanel(config: OSRPanelConfig): Promise<AtlasPanelRect | null>;
@@ -321,41 +228,31 @@ export interface DowndraftOsrBridgeAPI {
   onPanelLayout(cb: (rendererId: string, layout: OSRPanelLayout) => void): void;
   onRendererEvent(cb: (event: OSRRendererEvent) => void): void;
   onCursorStyle(cb: (rendererId: string, cursor: string) => void): void;
-  registerSharedTextureReceiver(): boolean;
-  onPaintImage(cb: (rendererId: string, image: unknown) => void): void;
-  onPaintRegion(cb: (rendererId: string, region: PaintRegionData) => void): void;
-  createPaintPort(rendererId: string): void;
 
-  // ── Native-only in-process frame pull (Blitz backend) ──
-  // Present only on the native host; absent under Electron. The renderer-side
-  // NativeOSRManager uses these instead of the shared-texture/paint machinery.
-  /** Marks the Blitz-backed native OSR implementation. */
-  __nativeIsBlitz?: boolean;
+  // ── In-process frame pull (Blitz backend) ──
   /** Pull the renderer's dirty RGBA8 frame; null when clean or unknown. */
-  pullFrame?(rendererId: string): Uint8Array | null;
+  pullFrame(rendererId: string): Uint8Array | null;
   /** Pixel-space dirty rect of the frame pullFrame just produced. */
-  frameRect?(rendererId: string): { x: number; y: number; w: number; h: number } | null;
+  frameRect(rendererId: string): { x: number; y: number; w: number; h: number } | null;
   /** Renderer texture dimensions in physical px. */
-  getDimensions?(rendererId: string): { width: number; height: number } | null;
+  getDimensions(rendererId: string): { width: number; height: number } | null;
   /** Hit-test against `data-ui` elements in the Blitz document. */
-  hitTest?(rendererId: string, x: number, y: number): boolean;
+  hitTest(rendererId: string, x: number, y: number): boolean;
 }
 
 // ---------------------------------------------------------------------------
-// Full Bridge API — the shape returned by `createDefaultBridge()`
+// HostAPI — the object installed on `globalThis.downdraft`
 // ---------------------------------------------------------------------------
 
-export interface DowndraftBridgeAPI {
+export interface HostAPI {
   /** Host feature descriptor — what this host can actually do. Games should
    *  gate on `getHostCapabilities()` (which prefers this field and falls
-   *  back to runtime detection) rather than reading `__nativeHost` or
-   *  probing globals. Optional because browser/Electron bridge stubs predate
-   *  the capability surface. */
+   *  back to runtime detection) rather than probing globals. */
   readonly capabilities?: HostCapabilities;
-  /** Typed host save store — present on the native host, absent under
-   *  Electron/browser. Carries real SaveState/LoadResult with no JSON
-   *  boundary, unlike the saveGameState/loadGameState methods below which
-   *  keep the JSON-string wire shape for the dormant Electron path. */
+  /** Typed host save store — present on the native host. Carries real
+   *  SaveState/LoadResult with no JSON boundary; the saveGameState/
+   *  loadGameState methods below are the JSON-string compatibility surface
+   *  for hosts without a typed store. */
   readonly saveStore?: ISaveStore;
   saveGameState(slotName: string, stateJson: string, opts?: SaveOptions): Promise<boolean>;
   loadGameState(slotName: string, opts?: LoadOptions): Promise<string | null>;
@@ -373,49 +270,41 @@ export interface DowndraftBridgeAPI {
   toggleFullscreen(): void;
   getDisplayInfo(): Promise<DisplayInfoData>;
   openExternal(url: string): void;
+  /** Host system GPU probe (nvidia-smi); null when unavailable. */
   getGPUSystemInfo(): Promise<GPUSystemInfo | null>;
-  getElectronGPUInfo(): Promise<ElectronGPUInfo | null>;
-  getVulkanValidationStatus(): Promise<VulkanValidationStatus>;
-  /** Fetch the cached main-process feature log (for the combined DevTools/MCP view). */
+  /** GPU adapter identity + negotiated features (wgpu on native). */
+  getGpuInfo(): Promise<HostGpuInfo | null>;
+  /** Fetch the host's feature log (for the combined DevTools/MCP view). */
   getFeatureLog(): Promise<FeatureLogData | null>;
-  openChromeUrl(url: string): void;
-  /** Capture the full page (WebGPU canvas + DOM overlay) as a PNG buffer.
-   *  Returns null if the window is gone or the capture is empty. */
-  capturePage(): Promise<ArrayBuffer | null>;
-
-  // --- Tracing & memory-dump toolkit (main process) ---
-  /** Start a Chrome/Perfetto trace recording. */
-  startTrace(opts?: TraceStartOptions): Promise<TraceStartResult>;
-  /** Stop the current trace recording and write it to disk. */
-  stopTrace(): Promise<TraceStopResult>;
-  /** Get the current trace recording status. */
-  traceStatus(): Promise<TraceStatusResult>;
-  /** List available tracing category groups. */
-  traceCategories(): Promise<{ categories: string[] }>;
-  /** Capture a V8 heap snapshot (.heapsnapshot). */
-  captureHeapSnapshot(opts?: { target?: "main" | "renderer" }): Promise<HeapSnapshotResult>;
-  /** Capture a quick process memory/CPU snapshot. */
-  processSnapshot(opts?: { target?: "main" | "renderer" }): Promise<ProcessSnapshotResult>;
+  /** Capture the composited frame (swapchain + overlay layers) as a PNG
+   *  buffer. Returns null if the window is gone or the capture is empty. */
+  captureFrame(): Promise<ArrayBuffer | null>;
+  /** Single-process memory/CPU snapshot. */
+  getProcessStats(): Promise<ProcessStatsData>;
 
   importCacheGet(modelPath: string): Promise<ImportCacheEntry | null>;
   importCacheSet(modelPath: string, entry: ImportCacheEntry): Promise<void>;
   importCacheInvalidate(modelPath: string): Promise<void>;
-  onSimReady(cb: (data: SimReadyData) => void): void;
-  onDisplayInfo(cb: (data: DisplayInfoData) => void): void;
-  onDisplayMetricsChanged(cb: (data: DisplayMetricsChangedData) => void): void;
-  onGCStats(cb: (data: GCStatsData) => void): void;
-  onPerfStats(cb: (data: PerfStatsData) => void): void;
-  osr: DowndraftOsrBridgeAPI;
+
+  // ── Typed events (see HostEventMap). Each returns an unsubscribe fn. ──
+  onSimReady(cb: (data: SimReadyData) => void): () => void;
+  onDisplayInfo(cb: (data: DisplayInfoData) => void): () => void;
+  onDisplayMetricsChanged(cb: (data: DisplayMetricsChangedData) => void): () => void;
+  onPerfStats(cb: (data: PerfStatsData) => void): () => void;
+  /** Debug-mode intent relayed by `setDebugMode` — subscribe to react. */
+  onDebugMode(cb: (enabled: boolean) => void): () => void;
+  /** DevTools-toggle intent relayed by `toggleDevtools`. */
+  onDevtoolsToggle(cb: () => void): () => void;
+
+  osr: HostOsrAPI;
   /** Native raw mouse capture (pointer lock polyfill). Undefined when the feature is disabled. */
-  rawInput?: DowndraftRawInputBridgeAPI;
-  removeAllListeners(channel: string): void;
-  log(level: string, message: string): void;
+  rawInput?: HostRawInputAPI;
   deterministic: boolean;
   onMcpRequest(cb: (request: McpRequest) => Promise<McpResponse>): void;
 }
 
 // ---------------------------------------------------------------------------
-// Raw Input Bridge API (sub-object of DowndraftBridgeAPI)
+// Raw Input host API (sub-object of HostAPI)
 // ---------------------------------------------------------------------------
 
 /** Status returned by the native raw input addon. */
@@ -425,7 +314,7 @@ export interface RawInputStatus {
   detail: string;
 }
 
-export interface DowndraftRawInputBridgeAPI {
+export interface HostRawInputAPI {
   /** Begin raw mouse capture (called by the polyfill on requestPointerLock). */
   start(): Promise<RawInputStatus>;
   /** Stop raw mouse capture (called by the polyfill on exitPointerLock). */

@@ -7,10 +7,11 @@
 // environment (OS, CPU, RAM, GPU, WebGPU features/limits, runtime versions,
 // active plugins, SAB/COOP-COEP/worker status).
 //
-// Two lines are emitted, one per process:
-//   dd-main|...   — Electron main process (OS/CPU/RAM/runtime/switches/GPU id)
-//   dd-render|... — renderer (WebGPU adapter/features/limits, navigator, display,
-//                   active plugins, SAB/COOP-COEP/worker status)
+// On the native runtime a single line is emitted (one process):
+//   dd-host|...   — host scope: OS/CPU/RAM/runtime + WebGPU adapter/features/
+//                   limits + display + plugins merged into one record
+// Multi-process hosts (dormant Electron) keep the two-line split:
+//   dd-main|... / dd-render|...
 //
 // ── Backwards-compatibility contract ─────────────────────────────────────────
 //
@@ -57,7 +58,7 @@ const WGPU_FEATURE_CODES: Record<string, string> = {
  */
 export interface FeatureLogData {
   sv: number; // schema version (always FEATURE_LOG_SCHEMA_VERSION)
-  scope: "main" | "render";
+  scope: "main" | "render" | "host"; // "host" = single-process (native) merged log
   v: string; // engine version ("0.1.0")
   mode: "dev" | "packaged" | "deterministic";
   // --- main-only ---
@@ -82,6 +83,7 @@ export interface FeatureLogData {
   coi?: 0 | 1; // crossOriginIsolated
   wk?: "ok" | "fail" | "na"; // worker load status (best-effort)
   plug?: string; // active plugin names, comma-sep
+  rt?: string; // JS runtime tag — "bun" | "node" | "deno" | "electron" (appended; sv stays 1)
 }
 
 // ── Key-order table (the stable contract) ───────────────────────────────────
@@ -118,6 +120,7 @@ const KEY_ORDER: Array<{ key: string; fmt: Formatter }> = [
   { key: "coi", fmt: NUM },
   { key: "wk", fmt: IDENTITY },
   { key: "plug", fmt: IDENTITY },
+  { key: "rt", fmt: IDENTITY },
 ];
 
 // ── Value condensers ────────────────────────────────────────────────────────

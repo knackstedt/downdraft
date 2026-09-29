@@ -140,30 +140,70 @@ fn pump(wait: bool) {
 
 /// block_on equivalent that pumps the GPU stack while the future is pending.
 /// wgpu-native resolves request_adapter/request_device internally on poll —
-/// the spin never hangs because the callback is already queued.
-fn block_on_gpu<F: Future>(fut: F) -> F::Output {
+/// the spin never hangs because the callback is already queued. Bounded like
+/// [`pump_until`]: a future that never resolves (device lost, hung queue)
+/// returns None after the timeout so the caller fails instead of wedging
+/// the JS thread at 100% CPU.
+fn block_on_gpu<F: Future>(fut: F) -> Option<F::Output> {
     let mut fut = std::pin::pin!(fut);
     let waker = noop_waker();
     let mut cx = Context::from_waker(&waker);
+    let start = std::time::Instant::now();
+    let mut warned = false;
     loop {
         if let Poll::Ready(v) = fut.as_mut().poll(&mut cx) {
-            return v;
+            return Some(v);
         }
         pump(false);
-        std::thread::yield_now();
+        let elapsed = start.elapsed();
+        if !warned && elapsed > std::time::Duration::from_secs(2) {
+            warned = true;
+            eprintln!("[wgpu_shim] GPU future not resolving after 2s — device hung or callback dropped");
+        }
+        if elapsed > std::time::Duration::from_secs(15) {
+            eprintln!("[wgpu_shim] block_on_gpu timed out after 15s — returning failure to caller");
+            return None;
+        }
+        // Same pacing as pump_until — spin fast for µs-scale resolves, then
+        // 1ms sleeps so a genuinely-hung wait doesn't pin a core.
+        if elapsed < std::time::Duration::from_millis(50) {
+            std::thread::yield_now();
+        } else {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
     }
 }
 
 /// Pump until `rx` delivers — used after registering map_async / pop_error /
 /// on_submitted_work_done callbacks. Mirrors the C shim's
-/// `while (!done) wgpuInstanceProcessEvents()` spin.
+/// `while (!done) wgpuInstanceProcessEvents()` spin — but bounded: a callback
+/// that never arrives (device lost, hung queue) would otherwise wedge the JS
+/// thread at 100% CPU with the event loop, HTTP servers, and signal handlers
+/// all starved. After the timeout we return None so the caller fails instead.
 fn pump_until<T>(rx: &std::sync::mpsc::Receiver<T>) -> Option<T> {
+    let start = std::time::Instant::now();
+    let mut warned = false;
     loop {
         if let Ok(v) = rx.try_recv() {
             return Some(v);
         }
         pump(false);
-        std::thread::yield_now();
+        let elapsed = start.elapsed();
+        if !warned && elapsed > std::time::Duration::from_secs(2) {
+            warned = true;
+            eprintln!("[wgpu_shim] GPU callback not delivered after 2s — device may be lost or the queue hung");
+        }
+        if elapsed > std::time::Duration::from_secs(15) {
+            eprintln!("[wgpu_shim] pump_until timed out after 15s — returning failure to caller");
+            return None;
+        }
+        // Spin fast at first (maps normally complete in µs), then fall back to
+        // a 1ms sleep so a genuinely-hung wait doesn't pin a core forever.
+        if elapsed < std::time::Duration::from_millis(50) {
+            std::thread::yield_now();
+        } else {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
     }
 }
 
@@ -206,9 +246,13 @@ pub extern "C" fn wgpu_shim_request_adapter(instance: Handle, power_preference: 
             compatible_surface: None,
         };
         match block_on_gpu(instance.request_adapter(&options)) {
-            Ok(adapter) => boxed(adapter),
-            Err(e) => {
+            Some(Ok(adapter)) => boxed(adapter),
+            Some(Err(e)) => {
                 eprintln!("[wgpu_shim] adapter request failed: {e}");
+                ptr::null_mut()
+            }
+            None => {
+                eprintln!("[wgpu_shim] adapter request timed out");
                 ptr::null_mut()
             }
         }
@@ -294,7 +338,7 @@ pub extern "C" fn wgpu_shim_request_device(
         };
 
         match block_on_gpu(adapter.request_device(&desc)) {
-            Ok((device, queue)) => {
+            Some(Ok((device, queue))) => {
                 let lost = std::sync::Arc::new(Mutex::new(None));
                 let lost_cb = lost.clone();
                 device.set_device_lost_callback(move |reason, msg| {
@@ -309,8 +353,12 @@ pub extern "C" fn wgpu_shim_request_device(
                     lost,
                 })
             }
-            Err(e) => {
+            Some(Err(e)) => {
                 eprintln!("[wgpu_shim] device request failed: {e}");
+                ptr::null_mut()
+            }
+            None => {
+                eprintln!("[wgpu_shim] device request timed out");
                 ptr::null_mut()
             }
         }
@@ -1975,8 +2023,8 @@ pub extern "C" fn wgpu_shim_device_pop_error_scope(
         // same spin as the C shim's wgpuInstanceProcessEvents loop.
         let result = block_on_gpu(guard.pop());
         match result {
-            None => 1, // NoError
-            Some(e) => {
+            Some(None) => 1, // NoError
+            Some(Some(e)) => {
                 if !out_msg.is_null() && out_msg_size > 0 {
                     let msg = e.to_string();
                     let bytes = msg.as_bytes();
@@ -1985,6 +2033,17 @@ pub extern "C" fn wgpu_shim_device_pop_error_scope(
                     *out_msg.add(n) = 0;
                 }
                 enums::error_type(&e)
+            }
+            // Timed out waiting for the GPU — report an internal error with
+            // a synthetic message rather than wedging the caller.
+            None => {
+                if !out_msg.is_null() && out_msg_size > 0 {
+                    let msg = b"pop_error_scope timed out (GPU queue hung or device lost)";
+                    let n = msg.len().min(out_msg_size as usize - 1);
+                    ptr::copy_nonoverlapping(msg.as_ptr(), out_msg as *mut u8, n);
+                    *out_msg.add(n) = 0;
+                }
+                4 // Internal
             }
         }
     })

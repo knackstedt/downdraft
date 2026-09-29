@@ -46,7 +46,7 @@ declare const __DD_MCP_STRIP__: boolean | undefined;
 export interface NativeHostConfig {
   window: NativeWindowConfig;
   /** Per-game application identifier (e.g. "to-the-ocean"). When set, the
-   *  host installs `globalThis.downdraft` — the DowndraftBridgeAPI impl that
+   *  host installs `globalThis.downdraft` — the HostAPI impl that
    *  makes `startGame()`, saves, MCP, and the standard automation tools work
    *  with zero per-game wiring. Omit only for bespoke debug harnesses. */
   appId?: string;

@@ -17,7 +17,7 @@
 // ============================================================================
 
 import type { IRendererStateProvider, ISaveStore, LoadOptions, SaveMeta, SaveOptions, SaveState } from "@downdraft/engine";
-import { downdraft, type DowndraftBridge } from "./index";
+import { downdraft, type Host } from "./index";
 
 /** Minimal worker surface needed by the bridge (pause/resume/save/load). */
 export interface SimBridgeWorker {
@@ -35,7 +35,7 @@ export interface SimBridgeDeps {
   /** Optional renderer meta provider — grafted into saves as components.renderer. */
   renderer?: IRendererStateProvider | null;
   /** App bridge — defaults to the window.downdraft singleton (or its stub). */
-  downdraft?: DowndraftBridge | null;
+  downdraft?: Host | null;
   /** Optional save store (OPFS worker proxy or the host's typed store). When provided, saves bypass the JSON bridge methods. */
   saveStore?: ISaveStore | null;
   /** Save mode: "inline" (worker has OPFS store), "worker" (dedicated save store), "host" (host save store / bridge). Default: "host". */

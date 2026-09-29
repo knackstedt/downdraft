@@ -60,26 +60,14 @@ async function queryNvidiaSmiProcesses(): Promise<Array<Record<string, unknown>>
   }
 }
 
-async function queryElectronGPUInfo(): Promise<Record<string, unknown> | null> {
+async function queryHostGpuInfo(): Promise<Record<string, unknown> | null> {
   try {
-    const electron = await import("electron");
-    if (electron && electron.app && electron.app.getGPUInfo) {
-      const info = await electron.app.getGPUInfo("complete") as Record<string, unknown>;
-      if (info) {
-        return {
-          gpuDevice: info.gpuDevice,
-          gpuDriver: info.gpuDriver,
-          gpuDriverVersion: info.gpuDriverVersion,
-          gpuVendor: info.gpuVendor,
-          gpuActive: info.gpuActive,
-          auxAttributes: info.auxAttributes,
-          featureStatus: info.featureStatus,
-          source: "electron app.getGPUInfo",
-        };
-      }
+    const bridge = (globalThis as { downdraft?: { getGpuInfo?: () => Promise<Record<string, unknown> | null> } }).downdraft;
+    if (typeof bridge?.getGpuInfo === "function") {
+      return await bridge.getGpuInfo();
     }
   } catch {
-    // Not running in Electron or app not available
+    // No host bridge installed
   }
   return null;
 }
@@ -90,17 +78,17 @@ export function createGPUInfoResource(ctx: EngineContext): ResourceRegistration[
       def: {
         uri: "downdraft://gpu-info",
         name: "GPU Info",
-        description: "Real-time GPU system metrics: utilization, VRAM, temperature, power, clocks, per-process VRAM, Electron GPU info, and engine resource counts",
+        description: "Real-time GPU system metrics: utilization, VRAM, temperature, power, clocks, per-process VRAM, host GPU info, and engine resource counts",
         mimeType: "application/json",
       },
       handler: async (uri) => {
         const nvidia = await queryNvidiaSmi();
         const processes = await queryNvidiaSmiProcesses();
-        const electronGPU = await queryElectronGPUInfo();
+        const hostGPU = await queryHostGpuInfo();
 
         return resourceJSON(uri, {
           nvidiaSmi: nvidia,
-          electronGPU: electronGPU,
+          hostGPU: hostGPU,
           processes: processes,
           engineResources: {
             meshes: ctx.meshes.size,

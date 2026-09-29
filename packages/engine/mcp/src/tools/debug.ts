@@ -52,26 +52,14 @@ async function queryNvidiaSmiProcesses(): Promise<Array<Record<string, unknown>>
   }
 }
 
-async function queryElectronGPUInfo(): Promise<Record<string, unknown> | null> {
+async function queryHostGpuInfo(): Promise<Record<string, unknown> | null> {
   try {
-    const electron = await import("electron");
-    if (electron && electron.app && electron.app.getGPUInfo) {
-      const info = await electron.app.getGPUInfo("complete") as Record<string, unknown>;
-      if (info) {
-        return {
-          gpuDevice: info.gpuDevice,
-          gpuDriver: info.gpuDriver,
-          gpuDriverVersion: info.gpuDriverVersion,
-          gpuVendor: info.gpuVendor,
-          gpuActive: info.gpuActive,
-          auxAttributes: info.auxAttributes,
-          featureStatus: info.featureStatus,
-          source: "electron app.getGPUInfo",
-        };
-      }
+    const bridge = (globalThis as { downdraft?: { getGpuInfo?: () => Promise<Record<string, unknown> | null> } }).downdraft;
+    if (typeof bridge?.getGpuInfo === "function") {
+      return await bridge.getGpuInfo();
     }
   } catch {
-    // Not running in Electron or app not available
+    // No host bridge installed
   }
   return null;
 }
@@ -168,12 +156,12 @@ export function createDebugTools(ctx: EngineContext, undoRedo: UndoRedoManager):
       },
       handler: async () => {
         const nvidia = await queryNvidiaSmi();
-        const electronGPU = await queryElectronGPUInfo();
+        const hostGPU = await queryHostGpuInfo();
         return jsonResult({
           meshes: ctx.meshes.size,
           materials: ctx.materialLibrary.list().length,
           systemGPU: nvidia,
-          electronGPU: electronGPU,
+          hostGPU: hostGPU,
           note: "For live WebGPU adapter info, device limits, resource tracking, and GPU errors, use the DevTools GPU tab or SceneInspector API (getGPUInfo, getGPUErrors, getFrameTelemetry, getGPUResourceStats).",
         });
       },
@@ -182,7 +170,7 @@ export function createDebugTools(ctx: EngineContext, undoRedo: UndoRedoManager):
     {
       def: {
         name: "gpu_system_info",
-        description: "Get real-time GPU system metrics from nvidia-smi: GPU utilization %, VRAM usage, temperature, power draw, clock speeds, and per-process VRAM allocation. Also includes Electron GPU info (driver, vendor, features) when available. This data is NOT available from inside WebGPU — it comes from the NVIDIA driver.",
+        description: "Get real-time GPU system metrics from nvidia-smi: GPU utilization %, VRAM usage, temperature, power draw, clock speeds, and per-process VRAM allocation. Also includes host GPU info (backend, vendor, features) when available. This data is NOT available from inside WebGPU — it comes from the NVIDIA driver.",
         inputSchema: {
           type: "object",
           properties: {
@@ -196,20 +184,20 @@ export function createDebugTools(ctx: EngineContext, undoRedo: UndoRedoManager):
       handler: async (params) => {
         const includeProcesses = (params.includeProcesses as boolean) ?? true;
         const nvidia = await queryNvidiaSmi();
-        const electronGPU = await queryElectronGPUInfo();
+        const hostGPU = await queryHostGpuInfo();
         const processes = includeProcesses ? await queryNvidiaSmiProcesses() : null;
 
-        if (!nvidia && !electronGPU) {
+        if (!nvidia && !hostGPU) {
           return jsonResult({
-            error: "No GPU system info available. nvidia-smi not found and Electron GPU info not accessible.",
+            error: "No GPU system info available. nvidia-smi not found and host GPU info not accessible.",
             nvidiaSmi: null,
-            electronGPU: null,
+            hostGPU: null,
           });
         }
 
         return jsonResult({
           nvidiaSmi: nvidia,
-          electronGPU: electronGPU,
+          hostGPU: hostGPU,
           processes: processes,
           timestamp: Date.now(),
         });

@@ -13,7 +13,7 @@ import type { app as AppType } from "electron";
 import { ipcMain } from "electron";
 import { collectHostFeatureLog } from "../shared/feature-log";
 import { IPC } from "../shared/messages";
-import type { ElectronGPUInfo } from "../shared/types";
+import type { ElectronGPUInfo } from "../shared/electron-bridge-types";
 
 export interface CollectMainFeatureLogOptions {
   app: typeof AppType;

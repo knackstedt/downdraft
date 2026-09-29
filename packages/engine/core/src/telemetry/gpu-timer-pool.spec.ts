@@ -58,8 +58,21 @@ describe("GPUTimerPool", () => {
     expect(pool.isEncoderTimestampSupported()).toBe(true); // but encoder-level is
   });
 
-  it("inside-pass timestamps work on native with only timestamp-query (wgpu)", () => {
+  it("timestamps are off on native by default (writeTimestamp/resolve lose the wgpu device)", () => {
     (globalThis as any).__nativeHost = {};
+    try {
+      const device = createMockDevice(["timestamp-query"]);
+      const pool = new GPUTimerPool(device, 8);
+      expect(pool.isSupported()).toBe(false);
+      expect(pool.isEncoderTimestampSupported()).toBe(false);
+    } finally {
+      delete (globalThis as any).__nativeHost;
+    }
+  });
+
+  it("DOWNDRAFT_GPU_TIMESTAMPS opts back in on native", () => {
+    (globalThis as any).__nativeHost = {};
+    process.env.DOWNDRAFT_GPU_TIMESTAMPS = "1";
     try {
       const device = createMockDevice(["timestamp-query"]);
       const pool = new GPUTimerPool(device, 8);
@@ -67,6 +80,7 @@ describe("GPUTimerPool", () => {
       expect(pool.isEncoderTimestampSupported()).toBe(true);
     } finally {
       delete (globalThis as any).__nativeHost;
+      delete process.env.DOWNDRAFT_GPU_TIMESTAMPS;
     }
   });
 

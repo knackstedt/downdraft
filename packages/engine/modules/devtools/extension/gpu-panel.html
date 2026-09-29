@@ -10,7 +10,7 @@
       <div class="panel-header">
         <h3>GPU Debugging</h3>
         <span id="gpu-status" class="perf-status">Waiting for data...</span>
-        <span id="vulkan-validation-badge" class="validation-badge validation-unknown">Vulkan Validation: ?</span>
+        <span id="host-runtime-badge" class="validation-badge validation-unknown"></span>
       </div>
       <div id="gpu-content">
         <div class="debug-section">
@@ -42,8 +42,8 @@
           </div>
         </div>
         <div class="debug-section">
-          <h4>Electron GPU Info <span class="gpu-section-source">app.getGPUInfo</span></h4>
-          <div id="gpu-electron-info" class="debug-grid"></div>
+          <h4>Host GPU <span class="gpu-section-source">downdraft.getGpuInfo</span></h4>
+          <div id="gpu-host-info" class="debug-grid"></div>
         </div>
         <div class="debug-section">
           <h4>GPU Error Log <button id="btn-clear-gpu-errors" class="gpu-clear-btn">Clear</button></h4>
@@ -125,13 +125,6 @@
             <div id="gpu-framegraph-detail" class="gpu-framegraph-detail"></div>
           </div>
           <div id="gpu-framegraph-validations" class="gpu-framegraph-validations"></div>
-        </div>
-        <div class="debug-section">
-          <h4>Quick Launch</h4>
-          <div class="gpu-quick-launch">
-            <button class="gpu-launch-btn" id="btn-open-chrome-tracing">Open chrome://tracing</button>
-            <button class="gpu-launch-btn" id="btn-open-chrome-gpu">Open chrome://gpu</button>
-          </div>
         </div>
         <div class="debug-section">
           <h4>External Tools (require manual launch)</h4>

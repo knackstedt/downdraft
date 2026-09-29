@@ -4,13 +4,13 @@
 // Same public surface as electron-osr's OSRManager (createRenderer, addElement,
 // render, handleInput, focusBillboard, …) so games can swap implementations by
 // runtime. Differences: textures come from in-process `pullFrame` + writeTexture
-// instead of shared-texture receivers, and the ipc object is the native
+// instead of shared-texture receivers, and the host object is the native
 // bridge's osr sub-API.
 // ============================================================================
 
 import type {
   AtlasLayout,
-  OSRIPC,
+  OSRHostBridge,
   OSRPanelConfig,
   OSRRendererConfig,
   OSRRendererEvent,
@@ -23,16 +23,16 @@ import { WorldSpaceUIPass, type CameraState } from "./world-space-ui-pass";
 
 
 
-/** The native bridge surface consumed by the manager — OSRIPC plus the
+/** The native bridge surface consumed by the manager — OSRHostBridge plus the
  *  in-process frame-pull extension installed by NativeOsrHost. */
-export type NativeOsrIPC = OSRIPC & NativeOsrFrameSource & {
+export type NativeOsrHostBridge = OSRHostBridge & NativeOsrFrameSource & {
   getDimensions?(rendererId: string): { width: number; height: number } | null;
   hitTest?(rendererId: string, x: number, y: number): boolean;
 };
 
 export class NativeOSRManager {
   private device: GPUDevice;
-  private ipc: NativeOsrIPC | null = null;
+  private host: NativeOsrHostBridge | null = null;
   private sources = new Map<string, NativeOsrTextureSource>();
   private renderPass: WorldSpaceUIPass;
   private inputRouter: OSRInputRouter | null = null;
@@ -49,16 +49,16 @@ export class NativeOSRManager {
     this.renderPass = new WorldSpaceUIPass(device, surfaceFormat, depthFormat);
   }
 
-  init(ipc: NativeOsrIPC): void {
-    this.ipc = ipc;
+  init(host: NativeOsrHostBridge): void {
+    this.host = host;
     this.renderPass.prepare();
 
-    ipc.onPanelLayout((rendererId, layout) => {
+    host.onPanelLayout((rendererId, layout) => {
       this.atlasLayouts.set(rendererId, layout);
       this.updateInputRouterConfig();
     });
 
-    ipc.onRendererEvent((event: OSRRendererEvent) => {
+    host.onRendererEvent((event: OSRRendererEvent) => {
       this.rendererStatuses.set(event.rendererId, event.status);
       const texIdx = this.rendererIds.indexOf(event.rendererId);
       if (texIdx >= 0) {
@@ -68,8 +68,8 @@ export class NativeOSRManager {
       this.updateInputRouterConfig();
     });
 
-    if (typeof ipc.onCursorStyle === "function") {
-      ipc.onCursorStyle((_id, cursor) => {
+    if (typeof host.onCursorStyle === "function") {
+      host.onCursorStyle((_id, cursor) => {
         if (this.cursorStyle !== cursor) {
           this.cursorStyle = cursor;
           this.onCursorStyleCb?.(cursor);
@@ -79,20 +79,20 @@ export class NativeOSRManager {
   }
 
   createRenderer(config: OSRRendererConfig): void {
-    if (!this.ipc) return;
+    if (!this.host) return;
     this.sources.set(
       config.id,
-      new NativeOsrTextureSource(this.device, config.id, config.width, config.height, config.sharedTexturePixelFormat ?? "rgba"),
+      new NativeOsrTextureSource(this.device, config.id, config.width, config.height, config.pixelFormat ?? "rgba"),
     );
     this.rendererIds.push(config.id);
     this.rendererStatuses.set(config.id, "running");
     this.updateTextureBindings();
     this.updateInputRouterConfig();
-    void this.ipc.createRenderer(config);
+    void this.host.createRenderer(config);
   }
 
   destroyRenderer(id: string): void {
-    if (!this.ipc) return;
+    if (!this.host) return;
     const texIdx = this.rendererIds.indexOf(id);
     this.sources.get(id)?.destroy();
     this.sources.delete(id);
@@ -105,27 +105,27 @@ export class NativeOSRManager {
     }
     this.updateTextureBindings();
     this.updateInputRouterConfig();
-    void this.ipc.destroyRenderer(id);
+    void this.host.destroyRenderer(id);
   }
 
   addPanel(config: OSRPanelConfig): void {
-    void this.ipc?.addPanel(config);
+    void this.host?.addPanel(config);
   }
 
   removePanel(rendererId: string, panelId: string): void {
-    void this.ipc?.removePanel(rendererId, panelId);
+    void this.host?.removePanel(rendererId, panelId);
   }
 
   updatePanel(rendererId: string, panelId: string, html: string): void {
-    void this.ipc?.updatePanel(rendererId, panelId, html);
+    void this.host?.updatePanel(rendererId, panelId, html);
   }
 
   updateData(rendererId: string, panelId: string, values: Record<string, string | number | boolean>): void {
-    this.ipc?.updateData(rendererId, panelId, values);
+    this.host?.updateData(rendererId, panelId, values);
   }
 
   setContent(rendererId: string, html: string): void {
-    void this.ipc?.setContent(rendererId, html);
+    void this.host?.setContent(rendererId, html);
   }
 
   addElement(element: WorldSpaceUIElement): void {
@@ -144,9 +144,9 @@ export class NativeOSRManager {
   /** Pull dirty frames from the host and upload — call once per frame before
    *  render(). Cheap when clean (the cdylib returns null without rasterizing). */
   update(): void {
-    if (!this.ipc) return;
+    if (!this.host) return;
     for (const source of this.sources.values()) {
-      source.update(this.ipc);
+      source.update(this.host);
     }
   }
 
@@ -197,8 +197,8 @@ export class NativeOSRManager {
   }
 
   setSoftwareCursorEnabled(enabled: boolean): void {
-    if (!this.ipc || typeof this.ipc.setSoftwareCursor !== "function") return;
-    for (let _i7044 = 0, _it7044 = this.rendererIds, _n7044 = _it7044.length; _i7044 < _n7044; _i7044++) { const id = _it7044[_i7044]; this.ipc.setSoftwareCursor(id, enabled);; };
+    if (!this.host || typeof this.host.setSoftwareCursor !== "function") return;
+    for (let _i7044 = 0, _it7044 = this.rendererIds, _n7044 = _it7044.length; _i7044 < _n7044; _i7044++) { const id = _it7044[_i7044]; this.host.setSoftwareCursor(id, enabled);; };
   }
 
   destroy(): void {
@@ -238,9 +238,9 @@ export class NativeOSRManager {
       rendererDimensions,
     };
 
-    if (!this.inputRouter && this.ipc) {
+    if (!this.inputRouter && this.host) {
       this.inputRouter = new OSRInputRouter(config, (rendererId, event) => {
-        this.ipc?.sendInputEvent(rendererId, event);
+        this.host?.sendInputEvent(rendererId, event);
       });
     } else {
       this.inputRouter?.updateConfig(config);

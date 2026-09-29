@@ -8,7 +8,7 @@
 // frame thread, and gives the future user-plugin sandbox a capability-
 // filtered facade to wrap (see scopeServicesForPlugin).
 //
-// The bridge (native-bridge.ts) is the only consumer; its DowndraftBridgeAPI
+// The bridge (native-bridge.ts) is the only consumer; its HostAPI
 // surface is unchanged — services mode is a host-level config decision.
 // ============================================================================
 

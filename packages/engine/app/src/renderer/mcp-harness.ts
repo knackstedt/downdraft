@@ -10,7 +10,11 @@
 // Games provide only their tool definitions + handlers.
 // ============================================================================
 
+import { createLogger } from "@downdraft/engine/util/logger";
+import type { McpRequest, McpResponse } from "../shared/types";
 import { downdraft } from "./index";
+
+const log = createLogger();
 
 export interface McpToolDef {
   name: string;
@@ -23,13 +27,7 @@ export interface McpToolRegistration {
   handler: (params: Record<string, unknown>) => Promise<unknown> | unknown;
 }
 
-export interface McpRequest {
-  id: number;
-  method: string;
-  params?: Record<string, unknown>;
-}
-
-export type McpResponse = { id: number; result?: unknown; error?: { code: number; message: string } };
+export type { McpRequest, McpResponse } from "../shared/types";
 
 export interface McpHarnessOptions {
   /** Server name reported in the initialize response. */
@@ -47,7 +45,7 @@ export interface McpHarnessOptions {
  * (initialize, tools/list, tools/call, shutdown) and dispatches tool calls
  * to the provided handlers.
  *
- * If the Electron bridge is not available (e.g. running in a browser),
+ * If no host bridge is installed (e.g. running standalone in a browser),
  * this is a no-op.
  *
  * @example
@@ -109,12 +107,12 @@ export function createMcpHarness(opts: McpHarnessOptions): void {
   };
 
   if (!downdraft?.isAvailable || typeof downdraft.onMcpRequest !== "function") {
-    downdraft?.log?.("warn", `[MCP] Electron bridge or onMcpRequest not available; automation harness disabled`);
+    log.warn("MCP", "Host bridge or onMcpRequest not available; automation harness disabled");
     return;
   }
 
   downdraft.onMcpRequest(async (request) => handleRequest(request as McpRequest));
-  downdraft.log("info", `[MCP] ${serverName} registered; tools: ${tools.map((t) => t.def.name).join(", ")}`);
+  log.info("MCP", `${serverName} registered; tools: ${tools.map((t) => t.def.name).join(", ")}`);
 }
 
 // ── Shared MCP tool helpers ──────────────────────────────────────────────────
@@ -136,23 +134,21 @@ export function blobToBase64(blob: Blob): Promise<string> {
 }
 
 /**
- * Composite the WebGPU canvas screenshot with the DOM overlay into a single
- * PNG. The canvas is drawn first (bottom layer), then the overlay (captured
- * via Electron's webContents.capturePage()) is drawn on top.
+ * Composite the WebGPU canvas screenshot with a DOM-overlay PNG into a single
+ * PNG. The canvas is drawn first (bottom layer), then the overlay PNG on top.
  *
- * webContents.capturePage() captures the DOM compositor output (which includes
- * the HTML/React overlay) but NOT the WebGPU canvas (which renders directly to
- * the GPU, bypassing the DOM compositor). So we composite renderer-side:
+ * Browser/standalone fallback only — on the native host `downdraft.captureFrame()`
+ * already returns the composited frame (game + overlay layers), so callers
+ * should prefer it and only reach for this helper when no host exists.
+ *
  *   1. Draw the WebGPU canvas onto an offscreen 2D canvas
- *   2. Load the capturePage() PNG (DOM overlay) as an ImageBitmap
+ *   2. Load the overlay PNG as an ImageBitmap
  *   3. Draw the overlay ImageBitmap on top
  *   4. Export the composited canvas as PNG
- *
- * Both images are same-origin (canvas.toBlob + IPC), so the canvas is NOT tainted.
  */
 export async function compositeScreenshot(
   canvas: HTMLCanvasElement,
-  capturePagePng: ArrayBuffer,
+  overlayPng: ArrayBuffer,
   width: number,
   height: number,
 ): Promise<Blob | null> {
@@ -165,8 +161,8 @@ export async function compositeScreenshot(
   // Layer 1: WebGPU canvas (bottom)
   ctx.drawImage(canvas, 0, 0, width, height);
 
-  // Layer 2: DOM overlay from webContents.capturePage() (top)
-  const overlayBlob = new Blob([capturePagePng], { type: "image/png" });
+  // Layer 2: DOM overlay PNG (top)
+  const overlayBlob = new Blob([overlayPng], { type: "image/png" });
   const overlayBitmap = await createImageBitmap(overlayBlob);
   ctx.drawImage(overlayBitmap, 0, 0, width, height);
   overlayBitmap.close();

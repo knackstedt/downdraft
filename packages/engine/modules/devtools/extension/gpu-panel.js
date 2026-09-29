@@ -377,81 +377,33 @@
     });
   }
 
-  // --- Electron GPU Info (app.getGPUInfo via IPC) ---
+  // --- Host GPU Info (downdraft.getGpuInfo — wgpu adapter identity) ---
 
-  function refreshElectronGPUInfo() {
-    callInspector("getElectronGPUInfo").then(function (res) {
+  function refreshHostGpuInfo() {
+    callInspector("getGPUAdapterInfo").then(function (res) {
       var info = res.result;
-      var el = document.getElementById("gpu-electron-info");
+      var el = document.getElementById("gpu-host-info");
       if (!el) return;
       if (res.err || !info) {
-        el.innerHTML = '<div class="debug-row"><div class="debug-label">Status</div><div class="debug-value" style="color:#666">Not available (Electron GPU info not accessible)</div></div>';
+        el.innerHTML = '<div class="debug-row"><div class="debug-label">Status</div><div class="debug-value" style="color:#666">Not available (no host bridge)</div></div>';
         return;
       }
       var rows = [
-        ["GPU Vendor", info.gpuVendor || "—"],
-        ["GPU Device", info.gpuDevice || "—"],
-        ["GPU Driver", info.gpuDriver || "—"],
-        ["Driver Version", info.gpuDriverVersion || "—"],
-        ["GPU Active", info.gpuActive ? "Yes" : "No"],
+        ["Backend", info.backend || "—"],
+        ["Vendor", info.vendor || "—"],
+        ["Architecture", info.architecture || "—"],
+        ["Device", info.device || "—"],
+        ["Description", info.description || "—"],
       ];
-      if (info.auxAttributes) {
-        var aux = info.auxAttributes;
-        if (aux.vendorId) rows.push(["Vendor ID", aux.vendorId]);
-        if (aux.deviceId) rows.push(["Device ID", aux.deviceId]);
-        if (aux.optimus !== undefined) rows.push(["Optimus", aux.optimus ? "Yes" : "No"]);
-      }
-      if (info.featureStatus) {
-        var fs = info.featureStatus;
-        function fmtFs(val) {
-          if (val === undefined || val === null) return null;
-          var s = String(val);
-          if (s === "enabled" || s === "true") return "Enabled";
-          if (s === "disabled" || s === "false") return "Disabled";
-          if (s === "software" || s === "software_only") return "Software only";
-          return s.charAt(0).toUpperCase() + s.slice(1);
-        }
-        var fsMap = [
-          ["2d_canvas", "Canvas"],
-          ["direct_rendering_display_compositor", "Direct Rendering Display Compositor"],
-          ["gpu_compositing", "Compositing"],
-          ["multiple_raster_threads", "Multiple Raster Threads"],
-          ["opengl", "OpenGL"],
-          ["rasterization", "Rasterization"],
-          ["raw_draw", "Raw Draw"],
-          ["skia_graphite", "Skia Graphite"],
-          ["trees_in_viz", "TreesInViz"],
-          ["video_decode", "Video Decode"],
-          ["video_encode", "Video Encode"],
-          ["vulkan", "Vulkan"],
-          ["webgl", "WebGL"],
-          ["webgpu", "WebGPU"],
-          ["webgpu_interop", "WebGPU interop"],
-          ["webnn", "WebNN"],
-        ];
-        for (var i = 0; i < fsMap.length; i++) {
-          var key = fsMap[i][0], label = fsMap[i][1];
-          var val = fmtFs(fs[key]);
-          if (val !== null) rows.push([label, val]);
-        }
+      if (info.features && info.features.length) {
+        rows.push(["Features", info.features.join(", ")]);
       }
       el.innerHTML = debugGridHtml(rows);
-    });
-  }
 
-  // --- Vulkan Validation Layer Status ---
-
-  function refreshVulkanValidationStatus() {
-    callInspector("getVulkanValidationStatus").then(function (res) {
-      var badge = document.getElementById("vulkan-validation-badge");
-      if (!badge || res.err || !res.result) return;
-      var data = res.result;
-      if (data.enabled) {
-        badge.textContent = "Vulkan Validation: ON";
+      var badge = document.getElementById("host-runtime-badge");
+      if (badge && info.backend) {
+        badge.textContent = "Backend: " + info.backend;
         badge.className = "validation-badge validation-on";
-      } else {
-        badge.textContent = "Vulkan Validation: OFF";
-        badge.className = "validation-badge validation-off";
       }
     });
   }
@@ -1122,23 +1074,6 @@
   // Initial detail placeholder
   renderFrameGraphDetail(null);
 
-  // Quick Launch buttons (chrome://tracing, chrome://gpu)
-  // DevTools panel runs in its own context — window.downdraft is on the inspected page,
-  // so we use evalInPage to invoke the IPC call from there.
-  var btnChromeTracing = document.getElementById("btn-open-chrome-tracing");
-  if (btnChromeTracing) {
-    btnChromeTracing.addEventListener("click", function () {
-      evalInPage("window.downdraft && window.downdraft.openChromeUrl && window.downdraft.openChromeUrl('chrome://tracing')", function () {});
-    });
-  }
-
-  var btnChromeGpu = document.getElementById("btn-open-chrome-gpu");
-  if (btnChromeGpu) {
-    btnChromeGpu.addEventListener("click", function () {
-      evalInPage("window.downdraft && window.downdraft.openChromeUrl && window.downdraft.openChromeUrl('chrome://gpu')", function () {});
-    });
-  }
-
   // Copy-to-clipboard for external tool commands
   var toolCmds = document.querySelectorAll(".gpu-tool-command");
   for (var ci = 0; ci < toolCmds.length; ci++) {
@@ -1243,8 +1178,7 @@
   refreshSnapshots();
   refreshFrameGraph();
   refreshGPUSystemMetrics();
-  refreshElectronGPUInfo();
-  refreshVulkanValidationStatus();
+  refreshHostGpuInfo();
   refreshFeatureLog();
 
   gpuTimer = setInterval(function () {
@@ -1256,11 +1190,8 @@
     drawPerfGraph();
     refreshFrameGraph();
     refreshGPUSystemMetrics();
-    refreshElectronGPUInfo();
+    refreshHostGpuInfo();
     refreshFeatureLog();
   }, 500);
-
-  // Vulkan validation status rarely changes — check once on load
-  setInterval(refreshVulkanValidationStatus, 10000);
 
 })();

@@ -10,7 +10,7 @@
 // (dormant) — that module re-exports them until Track E2 deletes it.
 
 export type {
-    AtlasLayout, AtlasPanelRect, OSRDataUpdate, OSRInputEvent, OSRIPC, OSRPanelConfig, OSRRendererConfig, OSRRendererEvent, OSRRendererMode, OSRRendererStatus, OSRSharedTexturePixelFormat, OSRTextureHandle, WorldSpaceUIElement
+    AtlasLayout, AtlasPanelRect, OSRDataUpdate, OSRInputEvent, OSRHostBridge, OSRPanelConfig, OSRRendererConfig, OSRRendererEvent, OSRRendererMode, OSRRendererStatus, OSRPixelFormat, OSRTextureHandle, WorldSpaceUIElement
 } from "./types";
 
 export { BillboardMode } from "./types";

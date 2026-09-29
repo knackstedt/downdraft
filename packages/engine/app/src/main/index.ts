@@ -11,7 +11,7 @@ export type {
     TraceStartResult,
     TraceStatusResult,
     TraceStopResult
-} from "../shared/types";
+} from "../shared/electron-bridge-types";
 export { createDowndraftApp } from "./app";
 export { installErrorHandlers, setExitOnDialogClose, showErrorDialog } from "./error-dialog";
 export { registerDevtoolsHandlers, resolveDevtoolsConfig } from "./handlers/devtools";

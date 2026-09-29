@@ -32,7 +32,7 @@ import type {
     PerfStatsData,
     SimReadyData,
     VulkanValidationStatus
-} from "../shared/types";
+} from "../shared/electron-bridge-types";
 
 const log = createLogger("info");
 

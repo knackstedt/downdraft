@@ -33,7 +33,7 @@ import type {
     TraceStartResult,
     TraceStatusResult,
     TraceStopResult,
-} from "../../shared/types";
+} from "../../shared/electron-bridge-types";
 import type { MainContext } from "../types";
 
 // Re-export the result types for convenience (e.g. game main.ts imports).

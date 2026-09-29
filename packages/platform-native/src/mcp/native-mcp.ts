@@ -9,7 +9,7 @@
 
 import { writeMcpPidFile } from "@downdraft/engine/app/shared/mcp-discovery";
 import { createMcpProxyHandler } from "@downdraft/engine/app/shared/mcp-proxy";
-import type { DowndraftBridgeAPI, McpRequest, McpResponse } from "@downdraft/engine/app/shared/types";
+import type { HostAPI, McpRequest, McpResponse } from "@downdraft/engine/app/shared/types";
 import type { ToolRegistration } from "@downdraft/engine/mcp";
 import { McpHttpTransport } from "@downdraft/engine/mcp/http-transport";
 import { createLogger } from "@downdraft/engine/util/logger";
@@ -36,7 +36,7 @@ export interface NativeMcpServer {
  * Standard host-side tools, mirroring the Electron main-process tool set:
  * capture_screenshot, process_snapshot, display_info, quit.
  */
-export function createNativeHostTools(bridge: DowndraftBridgeAPI): ToolRegistration[] {
+export function createNativeHostTools(bridge: HostAPI): ToolRegistration[] {
   return [
     {
       def: {
@@ -45,8 +45,8 @@ export function createNativeHostTools(bridge: DowndraftBridgeAPI): ToolRegistrat
         inputSchema: { type: "object", properties: {} },
       },
       handler: async () => {
-        const png = await bridge.capturePage();
-        if (!png) throw new Error("capturePage returned null (no surface texture available)");
+        const png = await bridge.captureFrame();
+        if (!png) throw new Error("captureFrame returned null (no surface texture available)");
         // Text part mirrors the renderer-harness tool's metadata so the e2e
         // harness's captureAndSaveScreenshot works unchanged. The native
         // surface IS the full page (UI is composited into the swapchain).
@@ -68,7 +68,7 @@ export function createNativeHostTools(bridge: DowndraftBridgeAPI): ToolRegistrat
         inputSchema: { type: "object", properties: {} },
       },
       handler: async () => ({
-        content: [{ type: "text", text: JSON.stringify(await bridge.processSnapshot(), null, 2) }],
+        content: [{ type: "text", text: JSON.stringify(await bridge.getProcessStats(), null, 2) }],
       }),
     },
     {
@@ -101,7 +101,7 @@ export function createNativeHostTools(bridge: DowndraftBridgeAPI): ToolRegistrat
  * `createMcpHarness` registered via `downdraft.onMcpRequest` — no IPC.
  */
 export async function startNativeMcpServer(
-  bridge: DowndraftBridgeAPI,
+  bridge: HostAPI,
   opts: NativeMcpOptions = {},
 ): Promise<NativeMcpServer> {
   const forwardToHarness = async (request: { method: string; params?: Record<string, unknown> }): Promise<unknown> => {

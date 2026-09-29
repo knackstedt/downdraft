@@ -9,7 +9,8 @@
 //   3. Drain the warning ring from the ProfilingSAB each frame + merge with
 //      renderer-side warnings → emit toasts + forward to onWarning callbacks.
 //   4. Wire auto-trace: when a warning with autoTrace config fires, start
-//      recording (either contentTracing or in-engine TraceEventWriter).
+//      recording with the in-engine TraceEventWriter (auto-stopping after
+//      the rule's configured duration).
 //   5. Wire the TelemetryCollector (pass timings, system timings) into the
 //      ProfilingSAB so the profiler overlay can read them.
 //   6. Register the 10 built-in view descriptors with the devtools API.
@@ -41,8 +42,20 @@ import { BUILTIN_VIEW_DESCRIPTORS } from "./debug-view-descriptors";
 
 const log = createLogger("info");
 
+/** contentTracing is a Chromium API — on the native host only the in-engine
+ *  TraceEventWriter exists. Normalize instead of failing so callers (e.g.
+ *  the profiler library's `traceSource` option) degrade gracefully. */
+function normalizeTraceSource(source: TraceSource): TraceSource {
+  if (source !== "in-engine") {
+    log.warn("ProfilingBridge", `traceSource "${source}" is Chromium-only — using the in-engine trace writer`);
+    return "in-engine";
+  }
+  return source;
+}
+
 export interface ProfilingBridgeOptions {
-  /** Trace source for auto-trace: "contentTracing" (Electron) or "in-engine". */
+  /** Trace source for auto-trace. Default: "in-engine". "contentTracing" is
+   *  Chromium-only and falls back to the in-engine writer with a warning. */
   traceSource?: TraceSource;
   /** Whether to enable the EventLoopMonitor on the renderer. Default: true. */
   enableEventLoopMonitor?: boolean;
@@ -85,7 +98,8 @@ export class ProfilingBridge {
   private traceSource: TraceSource;
   private autoTraceActive: boolean = false;
   private autoTraceWarningId: string | null = null;
-  private contentTracingAvailable: boolean = false;
+  /** Result of the most recent auto-trace recording (for tooling/MCP). */
+  private lastAutoTrace: { json: string; bytes: number; source: TraceSource } | null = null;
   private lastSnapshot: ProfilingSnapshot | null = null;
   private warningCallbacks: Set<(record: WarningRecordData, ctx: WarningContext) => void> = new Set();
   private seenWarningIds: Set<string> = new Set(); // dedup across workers
@@ -107,7 +121,7 @@ export class ProfilingBridge {
     this.reader = new ProfilingSABReader(this.profilingSAB, this.layout);
     this.warningEngine = new WarningEngine(null); // renderer writes warnings directly
     this.warningEngine.setWorkerTag(0); // renderer tag = 0
-    this.warningEngine.setAutoTraceAvailable(this.contentTracingAvailable || true);
+    this.warningEngine.setAutoTraceAvailable(true); // in-engine writer is always available
 
     // Register default renderer warning rules
     DEFAULT_RENDERER_WARNING_RULES.forEach((rule) => {
@@ -126,15 +140,7 @@ export class ProfilingBridge {
     }
 
     this.traceEventWriter = new TraceEventWriter();
-    this.traceSource = opts.traceSource ?? "in-engine";
-
-    // Check if contentTracing is available (Electron)
-    try {
-      this.contentTracingAvailable = typeof (globalThis as any).require === "function"
-        && typeof (globalThis as any).require("electron").contentTracing === "object";
-    } catch {
-      this.contentTracingAvailable = false;
-    }
+    this.traceSource = normalizeTraceSource(opts.traceSource ?? "in-engine");
 
     // Attach the ProfilingSAB to the devtools API
     devtools.attachProfilingSAB(this.profilingSAB);
@@ -205,54 +211,28 @@ export class ProfilingBridge {
 
   /** Set the trace source for auto-trace. */
   setTraceSource(source: TraceSource): void {
-    this.traceSource = source;
+    this.traceSource = normalizeTraceSource(source);
   }
 
   /** Start a manual trace recording. */
   startRecording(): void {
-    if (this.traceSource === "in-engine") {
-      this.traceEventWriter.startRecording();
-    } else if (this.traceSource === "contentTracing" && this.contentTracingAvailable) {
-      try {
-        const { contentTracing } = (globalThis as any).require("electron");
-        contentTracing.startRecording({ categoryFilter: "*", traceOptions: "record-until-full" });
-      } catch (err) {
-        log.warn("ProfilingBridge", `contentTracing start failed: ${err}`);
-      }
-    }
+    this.traceEventWriter.startRecording();
   }
 
   /** Stop recording and return the trace data. */
   async stopRecording(): Promise<{ json: string; bytes: number; source: TraceSource }> {
-    if (this.traceSource === "in-engine") {
-      const result = this.traceEventWriter.stopRecording();
-      return { ...result, source: "in-engine" };
-    } else if (this.traceSource === "contentTracing" && this.contentTracingAvailable) {
-      try {
-        const { contentTracing } = (globalThis as any).require("electron");
-        // contentTracing.captureMonitoringSnapshot returns a path to the trace file
-        const result = await new Promise<{ json: string; bytes: number }>((resolve) => {
-          contentTracing.stopRecording((path: string) => {
-            // Read the file — in Electron, this is a file path
-            // The caller can read it; for now we return the path as json
-            resolve({ json: JSON.stringify({ traceFile: path }), bytes: 0 });
-          });
-        });
-        return { ...result, source: "contentTracing" };
-      } catch (err) {
-        log.warn("ProfilingBridge", `contentTracing stop failed: ${err}`);
-        return { json: "{}", bytes: 0, source: "contentTracing" };
-      }
-    }
-    return { json: "{}", bytes: 0, source: this.traceSource };
+    const result = this.traceEventWriter.stopRecording();
+    return { ...result, source: this.traceSource };
+  }
+
+  /** The last completed auto-trace payload, if any. */
+  getLastAutoTrace(): { json: string; bytes: number; source: TraceSource } | null {
+    return this.lastAutoTrace;
   }
 
   /** Check if currently recording. */
   isRecording(): boolean {
-    if (this.traceSource === "in-engine") {
-      return this.traceEventWriter.isRecording();
-    }
-    return this.autoTraceActive;
+    return this.traceEventWriter.isRecording();
   }
 
   /**
@@ -349,12 +329,25 @@ export class ProfilingBridge {
       }
 
       // Auto-trace: if this warning has autoTrace and we're not already tracing,
-      // start recording
+      // start recording — then auto-stop after the rule's configured duration.
+      // Without the stop the writer ingests a snapshot per frame forever and
+      // the event array wedges the main thread.
       if (w.autoTraceFired && !this.autoTraceActive) {
         this.autoTraceActive = true;
         this.autoTraceWarningId = warningId;
         this.startRecording();
         log.warn("ProfilingBridge", `Auto-trace started due to warning ${w.ruleIdHash}`);
+        const rule = this.warningEngine.getRules().find((r) => fnv1a32(r.id) === w.ruleIdHash);
+        const durationMs = rule?.autoTrace?.durationMs ?? 3000;
+        const timer = setTimeout(() => {
+          this.autoTraceActive = false;
+          this.autoTraceWarningId = null;
+          void this.stopRecording().then((result) => {
+            this.lastAutoTrace = result;
+            log.info("ProfilingBridge", `Auto-trace captured ${result.bytes} bytes`);
+          }).catch(() => {});
+        }, durationMs);
+        timer.unref?.();
       }
     }
 

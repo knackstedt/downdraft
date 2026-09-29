@@ -6,7 +6,7 @@
 // (child_process, path, __dirname) into the renderer bundle.
 
 export type {
-    AtlasLayout, AtlasPanelRect, OSRDataUpdate, OSRInputEvent, OSRIPC, OSRPanelConfig, OSRRendererConfig, OSRRendererEvent, OSRRendererMode, OSRRendererStatus, OSRSharedTexturePixelFormat, OSRTextureHandle, WorldSpaceUIElement
+    AtlasLayout, AtlasPanelRect, OSRDataUpdate, OSRInputEvent, OSRHostBridge, OSRPanelConfig, OSRRendererConfig, OSRRendererEvent, OSRRendererMode, OSRRendererStatus, OSRSharedTexturePixelFormat, OSRTextureHandle, WorldSpaceUIElement
 } from "./types";
 
 export { BillboardMode } from "./types";

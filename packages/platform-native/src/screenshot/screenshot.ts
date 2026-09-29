@@ -137,7 +137,7 @@ export interface ScreenshotOptions {
 /**
  * Read back a render target's pixels as tightly-packed RGBA8.
  * Shared by captureScreenshot (file output) and the native bridge's
- * capturePage (ArrayBuffer output for MCP tooling).
+ * captureFrame (ArrayBuffer output for MCP tooling).
  */
 export function captureScreenshotPixels(
   device: WgpuDevice,

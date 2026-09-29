@@ -17,7 +17,7 @@ export type {
   OSRRendererEvent,
   OSRInputEvent,
   OSRTextureHandle,
-  OSRIPC,
+  OSRHostBridge,
 } from "./types";
 
 export { BillboardMode } from "./types";

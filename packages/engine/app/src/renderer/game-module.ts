@@ -117,7 +117,7 @@ export interface GameSaveSource {
    *  real SaveMeta for the renderer-side store write when available. */
   save(slotName: string): Promise<{ stateJson: string; success: boolean; meta?: Partial<SaveMeta> } | null>;
   /** Optional: load a previously saved state. If omitted, the save store's
-   *  own load path is used (OPFS / IPC). */
+   *  own load path is used (OPFS / host bridge). */
   load?(slotName: string): Promise<string | null>;
 }
 
@@ -718,7 +718,7 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
         if (downdraft?.loadGameState) {
           const stateJson = await downdraft.loadGameState(slotName);
           if (!stateJson) return null;
-          // The IPC bridge returns JSON.stringify(result.state.components),
+          // The host bridge returns JSON.stringify(result.state.components),
           // so the parsed result is the components map directly (not a
           // SaveState). Find the game component (e.g. "sandbox") and
           // forward its `data` to the sim worker.

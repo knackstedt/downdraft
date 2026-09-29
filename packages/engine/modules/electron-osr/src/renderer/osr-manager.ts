@@ -5,7 +5,7 @@
 import { createLogger } from "@downdraft/engine";
 import type {
   AtlasLayout,
-  OSRIPC,
+  OSRHostBridge,
   OSRPanelConfig,
   OSRRendererConfig,
   OSRRendererEvent,
@@ -21,7 +21,7 @@ const log = createLogger();
 
 export class OSRManager {
   private device: GPUDevice;
-  private ipc: OSRIPC | null = null;
+  private ipc: OSRHostBridge | null = null;
   private textureManager: OSRTextureReceiverManager;
   private renderPass: WorldSpaceUIPass;
   private inputRouter: OSRInputRouter | null = null;
@@ -41,7 +41,7 @@ export class OSRManager {
     this.renderPass = new WorldSpaceUIPass(device, surfaceFormat, depthFormat);
   }
 
-  init(ipc: OSRIPC): void {
+  init(ipc: OSRHostBridge): void {
     this.ipc = ipc;
 
     this.renderPass.prepare();

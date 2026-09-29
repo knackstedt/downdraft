@@ -107,8 +107,8 @@ describe("to-the-ocean MCP automation smoke", () => {
     expect(meta.width).toBeGreaterThan(0);
     expect(meta.height).toBeGreaterThan(0);
     // The screenshot should be a full-page capture (canvas + overlay), not
-    // a canvas-only fallback. If this fails, the Electron bridge's
-    // capturePage() is not wired up or returned an empty image.
+    // a canvas-only fallback. If this fails, the host bridge's
+    // captureFrame() is not wired up or returned an empty image.
     expect(meta.fullPage).toBe(true);
   }, 30000);
 

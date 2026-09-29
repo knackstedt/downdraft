@@ -186,7 +186,7 @@ export function addCrashFeatureLog(provider: () => FeatureLogData | null): void 
 }
 
 interface CrashFeatureLogs {
-  main: FeatureLogData | null;
+  host: FeatureLogData | null;
   render: FeatureLogData | null;
 }
 
@@ -198,13 +198,15 @@ function collectCrashFeatureLogs(): CrashFeatureLogs {
       if (data) byScope.set(data.scope, data);
     } catch { /* provider failed mid-crash — skip it */ }
   });
-  return { main: byScope.get("main") ?? null, render: byScope.get("render") ?? null };
+  // "host" is the single-process native scope; "main" tolerated for a
+  // hypothetical multi-process host.
+  return { host: byScope.get("host") ?? byScope.get("main") ?? null, render: byScope.get("render") ?? null };
 }
 
 /** Human-readable rendering of the feature-log data — the dd1| lines are kept
  *  separately below for pasting into bug reports. */
 function systemSection(logs: CrashFeatureLogs, window: NativeWindow): string | null {
-  const m = logs.main;
+  const m = logs.host;
   const r = logs.render;
   const rows: Array<[string, string]> = [];
 
@@ -252,7 +254,7 @@ function environmentSection(appId?: string): string {
 }
 
 function featureLogSection(logs: CrashFeatureLogs): string | null {
-  const encoded = encodeFeatureLogLines(logs.main, logs.render);
+  const encoded = encodeFeatureLogLines(logs.host, logs.render);
   return encoded ? `--- Feature Log ---\n${encoded}` : null;
 }
 

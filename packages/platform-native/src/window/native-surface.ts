@@ -190,7 +190,7 @@ export class NativeCanvasContext {
   // One-shot callbacks fired inside present(), while the surface texture is
   // still acquired-and-unpresented — the ONLY point where reading the
   // swapchain texture is guaranteed valid. Screenshot/readback consumers
-  // (canvas.toBlob, downdraft.capturePage, MCP capture_screenshot) defer
+  // (canvas.toBlob, downdraft.captureFrame, MCP capture_screenshot) defer
   // their copy here instead of racing the render loop.
   private prePresentHooks: Array<() => void> = [];
 
@@ -343,7 +343,7 @@ export class NativeSurface extends MiniEventTarget {
   // present(). The host injects `readbackHook` (the GPU copy machinery);
   // `captureNextFrame()` defers the copy into the next pre-present hook and
   // caches the result. `getPixelData()`/`drawImage` consumers get the cache;
-  // async consumers (toBlob, capturePage) await the next frame.
+  // async consumers (toBlob, captureFrame) await the next frame.
   private readbackHook: (() => Uint8Array | null) | null = null;
   private lastPixels: Uint8Array | null = null;
   private captureInFlight: Promise<Uint8Array | null> | null = null;

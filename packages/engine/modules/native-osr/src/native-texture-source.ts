@@ -8,7 +8,7 @@
 // and uploaded.
 // ============================================================================
 
-import type { OSRSharedTexturePixelFormat } from "./types";
+import type { OSRPixelFormat } from "./types";
 
 export interface NativeOsrFrameSource {
   pullFrame(rendererId: string): Uint8Array | null;
@@ -26,7 +26,7 @@ export class NativeOsrTextureSource {
   /** Reusable staging buffer for unaligned-strided partial uploads. */
   private scratch = new Uint8Array(0);
 
-  constructor(device: GPUDevice, rendererId: string, width: number, height: number, _pixelFormat: OSRSharedTexturePixelFormat) {
+  constructor(device: GPUDevice, rendererId: string, width: number, height: number, _pixelFormat: OSRPixelFormat) {
     this.device = device;
     this.rendererId = rendererId;
     this.width = width;

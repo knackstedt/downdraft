@@ -3,9 +3,9 @@
 // ============================================================================
 
 import { app, ipcMain } from "electron";
+import type { ElectronGPUInfo, GPUSystemInfo, VulkanValidationStatus } from "../../shared/electron-bridge-types";
 import { getVulkanValidationStatus, queryNvidiaSmi } from "../../shared/gpu-info";
 import { IPC } from "../../shared/messages";
-import type { ElectronGPUInfo, GPUSystemInfo, VulkanValidationStatus } from "../../shared/types";
 
 /** Minimal shape of Electron's `app.getGPUInfo("complete")` result. */
 interface ElectronGPUInfoRaw {

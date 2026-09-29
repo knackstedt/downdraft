@@ -29,7 +29,7 @@ import type {
     SharedTextureApi,
     SimReadyData,
     VulkanValidationStatus
-} from "../shared/types";
+} from "../shared/electron-bridge-types";
 
 // --- Shared Texture Receiver ---
 // Electron's sharedTexture API is only available in the preload's isolated world.

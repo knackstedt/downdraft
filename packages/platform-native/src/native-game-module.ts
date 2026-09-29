@@ -87,7 +87,7 @@ export async function runNativeGameModule<Sim extends GameSimWorker>(
       ...module,
       onReady: async (ctx: GameContext<Sim>) => {
         wireFreeTypeText(ctx.renderer);
-        // Let the bridge's capturePage force an on-demand frame when the
+        // Let the bridge's captureFrame force an on-demand frame when the
         // render loop is stopped (deterministic mode).
         (globalThis as any).__ddRequestFrame = () => {
           // renderOneFrame() is the bespoke one-shot on renderers that draw

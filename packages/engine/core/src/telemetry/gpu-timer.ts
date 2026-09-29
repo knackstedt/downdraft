@@ -1,3 +1,6 @@
+
+import { getHostCapabilities } from "../platform/runtime";
+
 /**
  * GPU timestamp query helper for measuring GPU execution time.
  *
@@ -19,7 +22,12 @@ export class GPUTimer {
 
   private init(device: GPUDevice): void {
     const features = device.features;
-    if (!features.has("timestamp-query")) {
+    // The wgpu-native timestamp path (writeTimestamp / resolveQuerySet /
+    // map_async readback) loses the device on lavapipe-class drivers — keep it
+    // off on native unless DOWNDRAFT_GPU_TIMESTAMPS is set for debugging.
+    const timestampsOk =
+      getHostCapabilities().runtime !== "native" || !!process.env.DOWNDRAFT_GPU_TIMESTAMPS;
+    if (!features.has("timestamp-query") || !timestampsOk) {
       this.supported = false;
       return;
     }
@@ -56,12 +64,16 @@ export class GPUTimer {
    */
   begin(pass: GPURenderPassEncoder | GPUComputePassEncoder): void {
     if (!this.supported || !this.querySet) return;
-    (pass as (GPURenderPassEncoder | GPUComputePassEncoder) & { writeTimestamp(querySet: GPUQuerySet, queryIndex: number): void }).writeTimestamp(this.querySet, 0);
+    const write = (pass as { writeTimestamp?: unknown }).writeTimestamp;
+    if (typeof write !== "function") { this.supported = false; return; }
+    (write as (this: unknown, qs: GPUQuerySet, i: number) => void).call(pass, this.querySet, 0);
   }
 
   end(pass: GPURenderPassEncoder | GPUComputePassEncoder): void {
     if (!this.supported || !this.querySet) return;
-    (pass as (GPURenderPassEncoder | GPUComputePassEncoder) & { writeTimestamp(querySet: GPUQuerySet, queryIndex: number): void }).writeTimestamp(this.querySet, 1);
+    const write = (pass as { writeTimestamp?: unknown }).writeTimestamp;
+    if (typeof write !== "function") { this.supported = false; return; }
+    (write as (this: unknown, qs: GPUQuerySet, i: number) => void).call(pass, this.querySet, 1);
   }
 
   /**

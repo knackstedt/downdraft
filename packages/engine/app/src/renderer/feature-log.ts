@@ -1,14 +1,16 @@
 // ============================================================================
-// Renderer-process feature log — collects WebGPU/navigator/display/plugin data
+// Renderer feature log — collects WebGPU/adapter/display/module data
 // ============================================================================
 //
-// Synchronous collector for the `dd-render|...` startup line, plus a combined
-// accessor that fetches the main-process line via IPC for the DevTools copy
-// button and the MCP `get_features` tool.
+// Synchronous collector for the render-side fields of the feature log, plus
+// a combined accessor that fetches the host log via `downdraft.getFeatureLog`
+// for the DevTools copy button and the MCP `get_features` tool. On the
+// single-process native runtime the two halves merge into one `dd-host|...`
+// line; multi-process hosts keep `dd-main|...` + `dd-render|...`.
 
-import { ENGINE_VERSION, condenseText, encodeFeatures, encodeFeatureLogJSON, encodeFeatureLogLines, type FeatureLogData } from "@downdraft/engine";
-import type { McpToolRegistration } from "./mcp-harness";
+import { ENGINE_VERSION, condenseText, encodeFeatureLogJSON, encodeFeatureLogLine, encodeFeatureLogLines, encodeFeatures, getHostCapabilities, type FeatureLogData } from "@downdraft/engine";
 import { downdraft } from "./index";
+import type { McpToolRegistration } from "./mcp-harness";
 
 export interface RendererFeatureLogOptions {
   /** Renderer with getGPUInfo() / getAdapterInfo() (GameRenderer or similar). */
@@ -84,16 +86,19 @@ export function collectRendererFeatureLog(opts: RendererFeatureLogOptions): Feat
     if (nav?.deviceMemory) data.mem = `${nav.deviceMemory}G`;
   } catch { /* navigator unavailable */ }
 
-  // --- SharedArrayBuffer + crossOriginIsolated ---
+  // --- SharedArrayBuffer + crossOriginIsolated (browser isolation only —
+  // there is no origin model on the native host) ---
   try {
     data.sab = typeof SharedArrayBuffer !== "undefined" ? 1 : 0;
   } catch {
     data.sab = 0;
   }
-  try {
-    data.coi = (self as any).crossOriginIsolated ? 1 : 0;
-  } catch {
-    data.coi = 0;
+  if (getHostCapabilities().hasDom) {
+    try {
+      data.coi = (self as any).crossOriginIsolated ? 1 : 0;
+    } catch {
+      data.coi = 0;
+    }
   }
 
   // --- Worker load status (best-effort; na = not checked) ---
@@ -118,33 +123,50 @@ export function getRendererFeatureLog(): FeatureLogData | null {
   return cachedRendererFeatureLog;
 }
 
-/** Combined feature log result: both lines + structured payload. */
+/** Combined feature log result: merged host line + structured payload. */
 export interface CombinedFeatureLog {
+  /** Single-process merged log (native). Null on multi-process hosts. */
+  host: FeatureLogData | null;
   main: FeatureLogData | null;
   render: FeatureLogData | null;
-  /** Two-line pasteable string (`dd-main|...\ndd-render|...`). */
+  /** Pasteable string — `dd-host|...` on native, `dd-main|...` + `dd-render|...` elsewhere. */
   line: string;
-  /** Minified JSON of `{ main, render }` for tooling. */
+  /** Minified JSON of `{ host }` or `{ main, render }` for tooling. */
   json: string;
 }
 
 /**
- * Fetch the main-process feature log via IPC and merge with the cached
- * renderer feature log. Used by the DevTools copy button and the MCP
- * `get_features` tool. Returns null halves gracefully if a process hasn't
- * collected yet.
+ * Fetch the host's feature log and merge with the cached render-side log.
+ * Used by the DevTools copy button and the MCP `get_features` tool.
+ * On the native host both halves describe the same process — the result is
+ * a single `dd-host` scope. Browser/multi-process hosts keep the split.
  */
 export async function getCombinedFeatureLog(): Promise<CombinedFeatureLog> {
-  let main: FeatureLogData | null = null;
+  let hostLog: FeatureLogData | null = null;
   try {
-    main = downdraft?.isAvailable ? await downdraft.getFeatureLog() : null;
-  } catch { /* IPC unavailable */ }
+    hostLog = downdraft?.isAvailable ? await downdraft.getFeatureLog() : null;
+  } catch { /* host log unavailable */ }
   const render = cachedRendererFeatureLog;
+  if (hostLog?.scope === "host" || getHostCapabilities().runtime === "native") {
+    // Single process — merge render fields (wgpu/disp/sab/wk/plug) into the
+    // host line. Host fields win on overlap (v, mode, cpuCores).
+    const host: FeatureLogData | null = hostLog || render
+      ? { ...(render ?? {}), ...(hostLog ?? {}), scope: "host" } as FeatureLogData
+      : null;
+    return {
+      host,
+      main: null,
+      render: null,
+      line: host ? encodeFeatureLogLine(host) : "",
+      json: JSON.stringify({ host }),
+    };
+  }
   return {
-    main,
+    host: null,
+    main: hostLog,
     render,
-    line: encodeFeatureLogLines(main, render),
-    json: JSON.stringify({ main, render }),
+    line: encodeFeatureLogLines(hostLog, render),
+    json: JSON.stringify({ main: hostLog, render }),
   };
 }
 
@@ -158,7 +180,7 @@ export function createFeatureLogMcpTool(): McpToolRegistration {
       name: "get_features",
       description:
         "Return the engine feature log: a terse, versioned, pipe-delimited diagnostic string " +
-        "(dd-main|... and dd-render|... lines) plus the structured { main, render } payload. " +
+        "(dd-host|... on the single-process native host) plus the structured { host } payload. " +
         "Use this to inspect the running environment (OS, CPU, GPU, WebGPU features/limits, " +
         "runtime versions, active plugins, SAB/COOP-COEP status).",
       inputSchema: {

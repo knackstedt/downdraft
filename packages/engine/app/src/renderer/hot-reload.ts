@@ -18,7 +18,7 @@
 
 import { isDevMode, useHotReloadStore, type IRendererStateProvider, type SaveOptions } from "@downdraft/engine";
 import { createLogger } from "@downdraft/engine/util/logger";
-import { downdraft, type DowndraftBridge } from "./index";
+import { downdraft, type Host } from "./index";
 
 const log = createLogger("info");
 
@@ -36,7 +36,7 @@ export interface SimHotReloadDeps {
   /** Config passed to sim.hotReload(). May be a getter evaluated per reload. */
   simConfig: unknown | (() => unknown);
   /** App bridge — defaults to the window.downdraft singleton (or its stub). */
-  downdraft?: DowndraftBridge | null;
+  downdraft?: Host | null;
 }
 
 const PENDING_KEY = "hot-reload-pending";

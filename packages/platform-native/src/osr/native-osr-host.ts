@@ -1,5 +1,5 @@
 // ============================================================================
-// native-osr-host.ts — Blitz-backed implementation of DowndraftOsrBridgeAPI
+// native-osr-host.ts — Blitz-backed implementation of HostOsrAPI
 //
 // Replaces the Electron OSR stack (BrowserWindow + shared textures + IPC) with
 // in-process Blitz documents. One `OsrDoc` per renderer:
@@ -14,7 +14,7 @@
 // ============================================================================
 
 import { createLogger } from "@downdraft/engine";
-import type { DowndraftOsrBridgeAPI } from "@downdraft/engine/app/shared/types";
+import type { HostOsrAPI } from "@downdraft/engine/app/shared/types";
 import { OsrDoc } from "@downdraft/engine/libraries/blitz-ui/native-osr-ffi";
 import type {
     AtlasLayout,
@@ -40,7 +40,7 @@ interface RendererState {
 }
 
 export interface NativeOsrHost {
-  api: DowndraftOsrBridgeAPI;
+  api: HostOsrAPI;
   /** False when the cdylib is missing — the API stays callable but no-ops. */
   available: boolean;
   dispose(): void;
@@ -118,7 +118,7 @@ export function createNativeOsrHost(): NativeOsrHost {
     emitLayout(r);
   };
 
-  const api: DowndraftOsrBridgeAPI = {
+  const api: HostOsrAPI = {
     createRenderer: async (config) => {
       if (!available) return;
       if (renderers.has(config.id)) return;
@@ -232,14 +232,6 @@ export function createNativeOsrHost(): NativeOsrHost {
     onRendererEvent: (cb) => { eventCbs.add(cb); },
     onCursorStyle: (cb) => { cursorCbs.add(cb); },
 
-    // Electron shared-texture machinery — meaningless in-process; the native
-    // manager pulls frames via `pullFrame` below.
-    registerSharedTextureReceiver: () => false,
-    onPaintImage: () => {},
-    onPaintRegion: () => {},
-    createPaintPort: () => {},
-
-    __nativeIsBlitz: true,
     pullFrame: (rendererId) => renderers.get(rendererId)?.doc.frame() ?? null,
     frameRect: (rendererId) => renderers.get(rendererId)?.doc.frameRect() ?? null,
     getDimensions: (rendererId) => {

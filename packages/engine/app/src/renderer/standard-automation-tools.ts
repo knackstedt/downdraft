@@ -31,10 +31,9 @@ import { createLogger } from "@downdraft/engine/util/logger";
 import { downdraft } from "./index";
 import {
     blobToBase64,
-    compositeScreenshot,
     errorResult,
     jsonResult,
-    type McpToolRegistration,
+    type McpToolRegistration
 } from "./mcp-harness";
 
 const log = createLogger("info");
@@ -239,51 +238,29 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
         if (ctx.isRunning && !ctx.isRunning()) ctx.renderOneFrame?.();
 
         if (fullPage) {
-          if (typeof downdraft?.capturePage === "function") {
+          // Host capture: on native, captureFrame() returns the fully
+          // composited swapchain (game + all overlay layers) — no DOM
+          // composite needed. The old Electron path composited because
+          // capturePage() saw the DOM but not the WebGPU canvas.
+          if (typeof downdraft?.captureFrame === "function") {
             try {
-              const overlayPng = await downdraft.capturePage();
-              if (overlayPng && overlayPng.byteLength > 0) {
-                // Composite: game canvas → extra layers → DOM overlay.
-                const offscreen = document.createElement("canvas");
-                offscreen.width = width;
-                offscreen.height = height;
-                const off2d = offscreen.getContext("2d");
-                if (off2d) {
-                  off2d.drawImage(canvas, 0, 0, width, height);
-                  (ctx.extraLayers?.() ?? []).forEach((layer) => {
-                    off2d.drawImage(layer, 0, 0, width, height);
-                  });
-                  const overlayBlob = new Blob([overlayPng], { type: "image/png" });
-                  const overlayBitmap = await createImageBitmap(overlayBlob);
-                  off2d.drawImage(overlayBitmap, 0, 0, width, height);
-                  overlayBitmap.close();
-                  const blob = await new Promise<Blob | null>((resolve) => {
-                    offscreen.toBlob((b) => resolve(b), "image/png");
-                  });
-                  if (blob) {
-                    const base64 = await blobToBase64(blob);
-                    return {
-                      content: [
-                        { type: "text", text: JSON.stringify({ width, height, fullPage: true }, null, 2) },
-                        { type: "image", data: base64, mimeType: "image/png" },
-                      ],
-                    };
-                  }
+              const framePng = await downdraft.captureFrame();
+              if (framePng && framePng.byteLength > 0) {
+                const u8 = new Uint8Array(framePng);
+                let bin = "";
+                for (let i = 0; i < u8.length; i += 0x8000) {
+                  bin += String.fromCharCode(...u8.subarray(i, i + 0x8000));
                 }
-                // Fall back to the shared 2-layer composite.
-                const blob = await compositeScreenshot(canvas, overlayPng, width, height);
-                if (blob) {
-                  const base64 = await blobToBase64(blob);
-                  return {
-                    content: [
-                      { type: "text", text: JSON.stringify({ width, height, fullPage: true }, null, 2) },
-                      { type: "image", data: base64, mimeType: "image/png" },
-                    ],
-                  };
-                }
+                const base64 = btoa(bin);
+                return {
+                  content: [
+                    { type: "text", text: JSON.stringify({ width, height, fullPage: true }, null, 2) },
+                    { type: "image", data: base64, mimeType: "image/png" },
+                  ],
+                };
               }
             } catch (e) {
-              log.warn("MCP", `Composite screenshot failed, falling back to canvas-only: ${(e as Error).message}`);
+              log.warn("MCP", `Host frame capture failed, falling back to canvas-only: ${(e as Error).message}`);
             }
           }
         }

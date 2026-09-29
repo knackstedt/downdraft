@@ -29,10 +29,9 @@ export class DevToolsDataBridge {
   protected perfGcHandle: GCProfilerHandle | null = null;
   protected perfActive = false;
   protected cachedGpuSystemInfo: any = null;
-  protected cachedElectronGpuInfo: any = null;
-  protected cachedVulkanValidation: any = null;
+  protected cachedGpuAdapterInfo: any = null;
   protected cachedFeatureLog: any = null;
-  protected ipcFetchInterval: ReturnType<typeof setInterval> | null = null;
+  protected hostFetchInterval: ReturnType<typeof setInterval> | null = null;
 
   // --- Optional overrides ---
 
@@ -65,8 +64,8 @@ export class DevToolsDataBridge {
     this.renderer = renderer ?? null;
     this.initialized = true;
 
-    this.fetchIpcData();
-    this.ipcFetchInterval = setInterval(() => this.fetchIpcData(), 2000);
+    this.fetchHostData();
+    this.hostFetchInterval = setInterval(() => this.fetchHostData(), 2000);
 
     const api = this.buildApi();
     (window as any).__sceneInspector = api;
@@ -148,7 +147,7 @@ export class DevToolsDataBridge {
         return this.renderer?.getGPUInfo?.() ?? null;
       },
 
-      // --- Feature Log (cached by fetchIpcData; sync for callInspector) ---
+      // --- Feature Log (cached by fetchHostData; sync for callInspector) ---
       getFeatureLog: (): any => {
         return this.cachedFeatureLog;
       },
@@ -240,12 +239,8 @@ export class DevToolsDataBridge {
         return this.cachedGpuSystemInfo;
       },
 
-      getElectronGPUInfo: (): any => {
-        return this.cachedElectronGpuInfo;
-      },
-
-      getVulkanValidationStatus: (): any => {
-        return this.cachedVulkanValidation;
+      getGPUAdapterInfo: (): any => {
+        return this.cachedGpuAdapterInfo;
       },
 
       // --- Panel extensions (game-specific tabs and overlay toggles) ---
@@ -262,20 +257,17 @@ export class DevToolsDataBridge {
     };
   }
 
-  // --- IPC data fetching (generic Electron) ---
+  // --- Host data fetching ---
 
-  private fetchIpcData(): void {
+  private fetchHostData(): void {
     const w = window as any;
     if (w.downdraft?.getGPUSystemInfo) {
       w.downdraft.getGPUSystemInfo().then((data: any) => { this.cachedGpuSystemInfo = data; }).catch(() => {});
     }
-    if (w.downdraft?.getElectronGPUInfo) {
-      w.downdraft.getElectronGPUInfo().then((info: any) => { this.cachedElectronGpuInfo = info; }).catch(() => {});
+    if (w.downdraft?.getGpuInfo) {
+      w.downdraft.getGpuInfo().then((info: any) => { this.cachedGpuAdapterInfo = info; }).catch(() => {});
     }
-    if (w.downdraft?.getVulkanValidationStatus) {
-      w.downdraft.getVulkanValidationStatus().then((data: any) => { this.cachedVulkanValidation = data; }).catch(() => {});
-    }
-    // Feature log — combined main (via IPC) + renderer (cached). Dynamic import
+    // Feature log — host (direct call) merged with renderer cache. Dynamic import
     // avoids pulling @downdraft/engine/app/renderer at data-bridge construction time.
     import("@downdraft/engine/app/renderer").then(({ getCombinedFeatureLog }) => {
       getCombinedFeatureLog().then((data: any) => { this.cachedFeatureLog = data; }).catch(() => {});
@@ -285,9 +277,9 @@ export class DevToolsDataBridge {
   destroy(): void {
     this.initialized = false;
     this.renderer = null;
-    if (this.ipcFetchInterval) {
-      clearInterval(this.ipcFetchInterval);
-      this.ipcFetchInterval = null;
+    if (this.hostFetchInterval) {
+      clearInterval(this.hostFetchInterval);
+      this.hostFetchInterval = null;
     }
     delete (window as any).__sceneInspector;
   }

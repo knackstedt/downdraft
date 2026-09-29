@@ -51,7 +51,7 @@ export type TraceSource = "contentTracing" | "in-engine";
 export interface AutoTraceConfig {
   preset: TracePreset;
   durationMs: number;
-  source?: TraceSource; // default "contentTracing"
+  source?: TraceSource; // default "in-engine" — contentTracing is Chromium-only
 }
 
 export interface WarningRule {
@@ -322,7 +322,7 @@ export const DEFAULT_WORKER_WARNING_RULES: WarningRule[] = [
     compare: ">",
     threshold: 200_000, // 200ms in us
     cooldownMs: 5000,
-    autoTrace: { preset: "perf", durationMs: 3000, source: "contentTracing" },
+    autoTrace: { preset: "perf", durationMs: 3000, source: "in-engine" },
     description: "A sim tick took >200ms — auto-trace fired",
   },
   {
@@ -384,7 +384,7 @@ export const DEFAULT_RENDERER_WARNING_RULES: WarningRule[] = [
     sustained: true,
     windowMs: 2000,
     cooldownMs: 10000,
-    autoTrace: { preset: "memory", durationMs: 2000, source: "contentTracing" },
+    autoTrace: { preset: "memory", durationMs: 2000, source: "in-engine" },
     description: "Heap usage >95% sustained for 2s — auto-trace fired",
   },
   {

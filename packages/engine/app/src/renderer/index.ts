@@ -1,33 +1,33 @@
 // ============================================================================
-// @downdraft/engine/app/renderer — typed accessor for window.downdraft
+// @downdraft/engine/app/renderer — typed accessor for globalThis.downdraft
 // ============================================================================
 //
-// Import `downdraft` from this module in renderer code instead of casting
-// `(window as any).downdraft`. The default bridge is still exposed on
-// `window.downdraft` by the preload; this module provides a typed view.
+// Import `downdraft` from this module in game/bootstrap code instead of
+// casting `(globalThis as any).downdraft`. The host installs the HostAPI
+// object on `globalThis.downdraft`; this module provides a typed view.
 //
-// In browser-only mode (no Electron preload), `window.downdraft` is absent
-// and this accessor returns a stub that no-ops / returns null. Callers that
-// need real values should guard with `downdraft?.isAvailable`.
+// When no host bridge is installed (pure browser, headless test), the
+// accessor returns a stub that no-ops / returns null. Callers that need
+// real values should guard with `downdraft?.isAvailable`.
 
 import { OpfsSaveStore } from "@downdraft/engine/libraries/persistence/browser";
 import type {
-    DowndraftBridgeAPI,
-    DowndraftOsrBridgeAPI
+    HostAPI,
+    HostOsrAPI
 } from "../shared/types";
 import { createSaveStore as _createSaveStore } from "./save-store-factory";
 
-export type DowndraftOsrBridge = DowndraftOsrBridgeAPI;
+export type HostOsr = HostOsrAPI;
 
-export interface DowndraftBridge extends Omit<DowndraftBridgeAPI, "osr"> {
+export interface Host extends Omit<HostAPI, "osr"> {
   isAvailable: boolean;
   isDev?: boolean;
-  osr?: DowndraftOsrBridge;
+  osr?: HostOsr;
 }
 
 function noop(): void {}
 
-const stubBridge: DowndraftBridge = {
+const stubBridge: Host = {
   isAvailable: false,
   saveGameState: () => Promise.resolve(false),
   loadGameState: () => Promise.resolve(null),
@@ -46,36 +46,29 @@ const stubBridge: DowndraftBridge = {
   getDisplayInfo: () => Promise.resolve({ refreshRate: 0 }),
   openExternal: noop,
   getGPUSystemInfo: () => Promise.resolve(null),
-  getElectronGPUInfo: () => Promise.resolve(null),
-  getVulkanValidationStatus: () => Promise.resolve({ enabled: false, envVar: null }),
+  getGpuInfo: () => Promise.resolve(null),
   getFeatureLog: () => Promise.resolve(null),
-  openChromeUrl: noop,
-  capturePage: () => Promise.resolve(null),
-  startTrace: () => Promise.reject(new Error("Tracing not available in browser mode")),
-  stopTrace: () => Promise.reject(new Error("Tracing not available in browser mode")),
-  traceStatus: () => Promise.resolve({ recording: false }),
-  traceCategories: () => Promise.resolve({ categories: [] }),
-  captureHeapSnapshot: () => Promise.reject(new Error("Heap snapshot not available in browser mode")),
-  processSnapshot: () => Promise.reject(new Error("Process snapshot not available in browser mode")),
+  captureFrame: () => Promise.resolve(null),
+  getProcessStats: () => Promise.reject(new Error("Process stats not available on this host")),
   importCacheGet: () => Promise.resolve(null),
   importCacheSet: () => Promise.resolve(),
   importCacheInvalidate: () => Promise.resolve(),
-  onSimReady: noop,
-  onDisplayInfo: noop,
-  onDisplayMetricsChanged: noop,
-  onGCStats: noop,
-  onPerfStats: noop,
-  removeAllListeners: noop,
-  log: noop,
+  onSimReady: () => noop,
+  onDisplayInfo: () => noop,
+  onDisplayMetricsChanged: () => noop,
+  onPerfStats: () => noop,
+  onDebugMode: () => noop,
+  onDevtoolsToggle: () => noop,
   deterministic: false,
   onMcpRequest: noop,
 };
 
 /**
- * Typed accessor for the `window.downdraft` bridge exposed by the preload.
+ * Typed accessor for the `globalThis.downdraft` host bridge.
  *
- * In Electron mode, this is the real bridge. In browser-only mode (e.g.
- * model-viewer running standalone), it returns a stub with `isAvailable: false`.
+ * On the native runtime this is the real HostAPI. In a host-less context
+ * (e.g. model-viewer running standalone in a browser), it returns a stub
+ * with `isAvailable: false`.
  *
  * The accessor is lazy: the bridge may be installed AFTER this module is
  * evaluated (the native host installs `globalThis.downdraft` once its
@@ -84,15 +77,15 @@ const stubBridge: DowndraftBridge = {
  * appears. Callers that need a stable snapshot should read it at use time,
  * not module-eval time (all engine consumers already do).
  */
-function currentBridge(): DowndraftBridge {
-  const raw = (globalThis as unknown as { downdraft?: DowndraftBridgeAPI }).downdraft;
+function currentBridge(): Host {
+  const raw = (globalThis as unknown as { downdraft?: HostAPI }).downdraft;
   if (raw) {
-    return { ...raw, isAvailable: true } as DowndraftBridge;
+    return { ...raw, isAvailable: true } as Host;
   }
   return stubBridge;
 }
 
-export const downdraft: DowndraftBridge = new Proxy({} as DowndraftBridge, {
+export const downdraft: Host = new Proxy({} as Host, {
   get(_target, prop) {
     return (currentBridge() as unknown as Record<string | symbol, unknown>)[prop];
   },
@@ -101,8 +94,8 @@ export const downdraft: DowndraftBridge = new Proxy({} as DowndraftBridge, {
   },
 });
 
-// Import cache adapter — Electron IPC-backed with memory fallback
-export { createElectronImportCache } from "./import-cache";
+// Import cache adapter — host-backed with memory fallback
+export { createHostImportCache } from "./import-cache";
 
 // Bootstrap orchestrator + composable hooks
 export { bootstrapGame } from "./bootstrap";
