@@ -14,14 +14,15 @@
 // ============================================================================
 
 import type {
-  DragDelta,
-  DragHandler,
-  InputEventControl,
-  KeyHandler,
-  PointerHandler,
-  RendererInputBus,
-  WheelHandler,
+    DragDelta,
+    DragHandler,
+    InputEventControl,
+    KeyHandler,
+    PointerHandler,
+    RendererInputBus,
+    WheelHandler,
 } from "../module/renderer-module";
+import type { RenderSurface } from "../platform/render-surface";
 
 interface Subscription<H> {
   handler: H;
@@ -34,7 +35,7 @@ interface Subscription<H> {
 const DEFAULT_PRIORITY = 100;
 
 export class RendererInputBusImpl implements RendererInputBus {
-  private canvas: HTMLCanvasElement;
+  private canvas: RenderSurface;
   private listeners: Array<{ target: EventTarget; event: string; handler: EventListener }> = [];
 
   private pointerDownSubs: Subscription<PointerHandler>[] = [];
@@ -54,7 +55,7 @@ export class RendererInputBusImpl implements RendererInputBus {
   private dragShift = false;
   private dragSeq = 0; // increments per subscription for stable ordering
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: RenderSurface) {
     this.canvas = canvas;
     this.setupListeners();
   }

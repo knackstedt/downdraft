@@ -10,11 +10,13 @@
 // accessor returns a stub that no-ops / returns null. Callers that need
 // real values should guard with `downdraft?.isAvailable`.
 
+import { getHostCapabilities, getNativeHost, type RenderSurface } from "@downdraft/engine";
 import { OpfsSaveStore } from "@downdraft/engine/libraries/persistence/browser";
 import type {
     HostAPI,
     HostOsrAPI
 } from "../shared/types";
+import { getCanvas } from "./compat/dom";
 import { createSaveStore as _createSaveStore } from "./save-store-factory";
 
 export type HostOsr = HostOsrAPI;
@@ -155,7 +157,7 @@ export async function createDefaultSaveStore(engineVersion: string): Promise<imp
 export { AutosaveManager, type AutosaveManagerOptions } from "@downdraft/engine/libraries/persistence/browser";
 
 // MCP automation harness factory + shared tool helpers
-export { blobToBase64, compositeScreenshot, createMcpHarness, errorResult, jsonResult } from "./mcp-harness";
+export { blobToBase64, createMcpHarness, errorResult, jsonResult } from "./mcp-harness";
 export type { McpHarnessOptions, McpRequest, McpResponse, McpToolDef, McpToolRegistration } from "./mcp-harness";
 export { createStandardAutomationTools } from "./standard-automation-tools";
 export type {
@@ -174,101 +176,41 @@ export {
 } from "./feature-log";
 export type { CombinedFeatureLog, RendererFeatureLogOptions } from "./feature-log";
 
-// --- Canvas / overlay layer helpers ---
+// --- Render surface ---
 
 /**
- * Get the canvas element for a given layer index.
- * Layer 0 is the primary game canvas (id="game-canvas" by default).
- * Higher indices are additional canvases (e.g. minimap, debug overlay).
- */
-export function getCanvas(layer: number = 0): HTMLCanvasElement {
-  const el = document.querySelector(`canvas[data-dd-layer="${layer}"]`) as HTMLCanvasElement | null;
-  if (el) return el;
-  // Fallback to legacy id-based lookup for backward compatibility
-  if (layer === 0) {
-    const legacy = document.getElementById("game-canvas") as HTMLCanvasElement | null;
-    if (legacy) return legacy;
-  }
-  throw new Error(`No canvas found for layer ${layer}. Ensure the HTML has <canvas data-dd-layer="${layer}">.`);
-}
-
-/**
- * Get the DOM overlay element for a given overlay index.
- * Overlay 0 is the primary React root (id="root" by default).
- */
-export function getOverlay(overlay: number = 0): HTMLElement {
-  const el = document.querySelector(`div[data-dd-overlay="${overlay}"]`) as HTMLElement | null;
-  if (el) return el;
-  if (overlay === 0) {
-    const legacy = document.getElementById("root") as HTMLElement | null;
-    if (legacy) return legacy;
-  }
-  throw new Error(`No overlay found for index ${overlay}. Ensure the HTML has <div data-dd-overlay="${overlay}">.`);
-}
-
-/**
- * Get all canvas layers in order (layer 0 first).
- */
-export function getAllCanvases(): HTMLCanvasElement[] {
-  return Array.from(document.querySelectorAll("canvas[data-dd-layer]")) as HTMLCanvasElement[];
-}
-
-// --- Thumbnail capture ---
-
-/**
- * Capture a downscaled JPEG thumbnail of a canvas as an ArrayBuffer.
+ * Get the renderer-facing surface for a given layer index.
  *
- * Downscaled to a max width of 320px (preserving aspect ratio). Falls back to
- * a placeholder image if canvas capture fails. The returned ArrayBuffer is
- * suitable for `ISaveStore.setThumbnail()` / `SaveOptions.thumbnail`.
+ * This is the canonical accessor — it returns the host-owned `RenderSurface`
+ * on the native runtime (the SDL-windowed wgpu surface installed by
+ * `createNativeHost`) and the DOM `<canvas>` element on browser hosts (which
+ * satisfies `RenderSurface` structurally).
+ *
+ * Layer 0 is the primary game surface. On native, layer 0 is the only
+ * surface — requesting any other layer throws (multi-canvas layering is a
+ * DOM-host concept).
  */
-export async function captureCanvasThumbnail(canvas: HTMLCanvasElement): Promise<ArrayBuffer> {
-  const maxW = 320;
-  const scale = Math.min(1, maxW / canvas.width);
-  const thumbW = Math.floor(canvas.width * scale);
-  const thumbH = Math.floor(canvas.height * scale);
-
-  const fullBlob = await new Promise<Blob | null>((resolve) => {
-    canvas.toBlob((b) => resolve(b), "image/jpeg", 0.8);
-  });
-
-  if (fullBlob) {
-    const img = new Image();
-    const url = URL.createObjectURL(fullBlob);
-    try {
-      await new Promise<void>((resolve, reject) => {
-        img.onload = () => resolve();
-        img.onerror = () => reject(new Error("img load"));
-        img.src = url;
-      });
-      const off = document.createElement("canvas");
-      off.width = thumbW;
-      off.height = thumbH;
-      const ctx = off.getContext("2d")!;
-      ctx.drawImage(img, 0, 0, thumbW, thumbH);
-      const thumbBlob = await new Promise<Blob | null>((resolve) => {
-        off.toBlob((b) => resolve(b), "image/jpeg", 0.8);
-      });
-      if (thumbBlob) return await thumbBlob.arrayBuffer();
-    } finally {
-      URL.revokeObjectURL(url);
+export function getSurface(layer: number = 0): RenderSurface {
+  if (!getHostCapabilities().hasDom) {
+    if (layer !== 0) {
+      throw new Error(`No surface for layer ${layer} — the native host exposes exactly one RenderSurface (layer 0).`);
     }
+    // The boundary cast: NativeSurface's WebGPU context returns the wgpu
+    // wrapper types (WgpuTexture), not @webgpu/types' branded GPUTexture.
+    // The contract is honored at runtime; the cast bridges the two type
+    // universes.
+    const surface = getNativeHost()?.surface;
+    if (!surface) {
+      throw new Error("No native surface — the host has not installed __nativeHost.surface yet");
+    }
+    return surface as RenderSurface;
   }
-
-  // Placeholder if capture fails
-  const placeholder = document.createElement("canvas");
-  placeholder.width = 320;
-  placeholder.height = 180;
-  const pctx = placeholder.getContext("2d")!;
-  pctx.fillStyle = "#0a0a12";
-  pctx.fillRect(0, 0, 320, 180);
-  pctx.fillStyle = "rgba(255,255,255,0.5)";
-  pctx.font = "14px monospace";
-  pctx.textAlign = "center";
-  pctx.fillText("No preview", 160, 90);
-  const phBlob = await new Promise<Blob | null>((resolve) => {
-    placeholder.toBlob((b) => resolve(b), "image/jpeg", 0.8);
-  });
-  if (phBlob) return await phBlob.arrayBuffer();
-  throw new Error("Thumbnail capture failed");
+  // DOM host — the layer canvas is the surface.
+  return getCanvas(layer) as RenderSurface;
 }
+
+// --- DOM compat (deprecated — DOM hosts only) ---
+// Canvas/overlay layer helpers, thumbnail capture, and screenshot compositing
+// all require a real DOM. They live in renderer/compat/dom.ts and are
+// re-exported here for compatibility during the RenderSurface migration.
+export { captureCanvasThumbnail, compositeScreenshot, getAllCanvases, getCanvas, getOverlay } from "./compat/dom";

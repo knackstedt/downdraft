@@ -9,6 +9,7 @@
 // using the escape hatch.
 // ============================================================================
 
+import { getHostCapabilities, getNativeHost } from "@downdraft/engine";
 import { usingRealSAB } from "@downdraft/engine/sab/sab-polyfill";
 import { createLogger } from "@downdraft/engine/util/logger";
 import {
@@ -218,7 +219,9 @@ export class PixiUiHost {
     // Ensure the game canvas (layer 0) is below the overlay. If the game
     // doesn't import downdraft-base.css, the game canvas may lack
     // position:fixed + z-index:0, causing stacking issues.
-    const gameCanvas = document.querySelector('canvas[data-dd-layer="0"]') as HTMLCanvasElement | null;
+    const gameCanvas = getHostCapabilities().hasDom
+      ? document.querySelector('canvas[data-dd-layer="0"]') as HTMLCanvasElement | null
+      : null;
     if (gameCanvas) {
       gameCanvas.style.position = "fixed";
       gameCanvas.style.top = "0";
@@ -286,7 +289,11 @@ export class PixiUiHost {
     // canvas creation has settled.
     if (this.passThrough) {
       queueMicrotask(() => {
-        this.gameCanvas = document.querySelector('canvas[data-dd-layer="0"]');
+        // On native there is no canvas layer tree — the surface itself is
+        // the dispatch target for events that miss the overlay.
+        this.gameCanvas = getHostCapabilities().hasDom
+          ? document.querySelector('canvas[data-dd-layer="0"]')
+          : (getNativeHost()?.surface as HTMLCanvasElement | undefined) ?? null;
       });
     }
 
@@ -450,10 +457,11 @@ export class PixiUiHost {
   // ── Internal ──
 
   private acquireCanvas(): HTMLCanvasElement {
-    // Try to find an existing canvas for the configured layer.
-    const existing = document.querySelector(
-      `canvas[data-dd-layer="${this.canvasLayer}"]`,
-    ) as HTMLCanvasElement | null;
+    // Try to find an existing canvas for the configured layer (DOM hosts —
+    // native has no canvas layer tree; createElement returns a VirtualCanvas).
+    const existing = getHostCapabilities().hasDom
+      ? document.querySelector(`canvas[data-dd-layer="${this.canvasLayer}"]`) as HTMLCanvasElement | null
+      : null;
     if (existing) return existing;
 
     // Create one and insert it above the game canvas (layer 0).
@@ -467,8 +475,12 @@ export class PixiUiHost {
     canvas.style.height = "100vh";
     canvas.style.display = "block";
     canvas.style.pointerEvents = "none";
-    // Insert after the game canvas (so it stacks above in DOM order).
-    const gameCanvas = document.querySelector('canvas[data-dd-layer="0"]');
+    // Insert after the game canvas (so it stacks above in DOM order). On
+    // native there's no stacking order — appendChild just registers the
+    // element in the polyfill's body bookkeeping.
+    const gameCanvas = getHostCapabilities().hasDom
+      ? document.querySelector('canvas[data-dd-layer="0"]')
+      : null;
     if (gameCanvas?.parentNode) {
       gameCanvas.parentNode.insertBefore(canvas, gameCanvas.nextSibling);
     } else {

@@ -22,7 +22,7 @@ export { dlopen, ptr, readMappedRange, type CFunction } from "./ffi/ffi-adapter"
 export { findShimLibrary, libFileName, PLATFORM_DIR, resolveNativeLibrary, resolvePlatformLibrary, resolveShimLibrary, RUST_TRIPLE } from "./ffi/lib-paths";
 export { installGPU, resetGPU } from "./gpu/install";
 export { validateWgslNative, type WgslValidationResult } from "./gpu/native-wgsl";
-export { VirtualCanvas, VirtualCanvasContext } from "./gpu/virtual-canvas-context";
+export { VirtualCanvas, VirtualCanvasContext } from "./compat/virtual-canvas-context";
 export { WgpuAdapter, WgpuBindGroup, WgpuBindGroupLayout, WgpuBuffer, WgpuCommandBuffer, WgpuCommandEncoder, WgpuComputePassEncoder, WgpuComputePipeline, WgpuDevice, WgpuGPU, WgpuPipelineLayout, WgpuQueue, WgpuRenderPassEncoder, WgpuRenderPipeline, WgpuSampler, WgpuShaderModule, WgpuTexture, WgpuTextureView } from "./gpu/wgpu-wrapper";
 export { acquireSingleInstanceLock, addCrashFeatureLog, installNativeErrorHandlers, installWindowStatePersistence, releaseSingleInstanceLock } from "./host-lifecycle";
 export { createImageBitmapNative, getFreeTypeTextRenderer, installImagePolyfills, NativeCanvas2D, NativeImageBitmap } from "./image/native-image";

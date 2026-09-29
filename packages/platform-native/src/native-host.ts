@@ -211,24 +211,11 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
       : undefined,
   });
 
-  // 6b. Synthesize `click` events on the canvas from mousedown+mouseup pairs
-  // (SDL has no click event). Do NOT forward the raw mouse events here —
-  // NativeWindow.dispatchInputEvent already delivers them to the surface,
-  // and re-dispatching double-counts movementX deltas and wheel/button
-  // transitions for canvas listeners.
-  let lastMouseDown: { x: number; y: number; button: number; time: number } | null = null;
-  window.addEventListener("mousedown", (e: any) => {
-    lastMouseDown = { x: e.clientX, y: e.clientY, button: e.button, time: performance.now() };
-  });
-  window.addEventListener("mouseup", (e: any) => {
-    if (lastMouseDown && lastMouseDown.button === e.button &&
-        Math.abs(e.clientX - lastMouseDown.x) < 5 &&
-        Math.abs(e.clientY - lastMouseDown.y) < 5 &&
-        performance.now() - lastMouseDown.time < 500) {
-      surface.dispatchEvent({ ...e, type: "click" });
-    }
-    lastMouseDown = null;
-  });
+  // 6b. Click synthesis lives in NativeWindow.dispatchInputEvent (SDL_EVENT_
+  // MOUSEBUTTONUP → click/dblclick with proper click counting). Do NOT
+  // synthesize or forward pointer events here — dispatchInputEvent already
+  // delivers them to the surface, and a second synthesis double-fires
+  // `click` on surface listeners.
 
   // 6c. Install the `downdraft` bridge — the single-process implementation
   // of the same API the Electron preload exposes over IPC. The lazy accessor

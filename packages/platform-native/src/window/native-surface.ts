@@ -284,8 +284,8 @@ export class NativeSurface extends MiniEventTarget {
   get clientWidth(): number { return this._width; }
   get clientHeight(): number { return this._height; }
 
-  getBoundingClientRect(): { left: number; top: number; width: number; height: number } {
-    return { left: 0, top: 0, width: this._width, height: this._height };
+  getBoundingClientRect(): { left: number; top: number; right: number; bottom: number; width: number; height: number } {
+    return { left: 0, top: 0, right: this._width, bottom: this._height, width: this._width, height: this._height };
   }
 
   get pointerLocked(): boolean { return this._pointerLocked; }
@@ -321,18 +321,20 @@ export class NativeSurface extends MiniEventTarget {
   }
 
   resize(width: number, height: number): void {
-    this.setSize(width, height);
+    if (!this.setSize(width, height)) return;
     this.dispatchEvent({ type: "resize", width, height });
   }
 
-  /** Update backing dims + reconfigure the wgpu surface (no event). */
-  private setSize(width: number, height: number): void {
+  /** Update backing dims + reconfigure the wgpu surface (no event).
+   *  Returns false when the dims didn't change (callers skip the event). */
+  private setSize(width: number, height: number): boolean {
     width = Math.max(1, Math.floor(width));
     height = Math.max(1, Math.floor(height));
-    if (width === this._width && height === this._height) return;
+    if (width === this._width && height === this._height) return false;
     this._width = width;
     this._height = height;
     this.context?.resize(width, height);
+    return true;
   }
 
   getSurfacePtr(): number { return this.surfacePtr; }

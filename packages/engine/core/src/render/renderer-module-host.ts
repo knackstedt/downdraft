@@ -28,6 +28,7 @@ import type {
     RenderPassHook,
     ResizeHook,
 } from "../module/renderer-module";
+import type { RenderSurface } from "../platform/render-surface";
 import { createLogger } from "../util/logger";
 import type { CameraState } from "./camera";
 import type { FrameGraph, SlotRegistry } from "./frame-graph";
@@ -44,7 +45,9 @@ const log = createLogger();
 
 /** Callbacks the host owner (GameRenderer) supplies so plugin setters route through it. */
 export interface RendererModuleHostCallbacks {
-  getCanvas: () => HTMLCanvasElement;
+  getSurface: () => RenderSurface;
+  /** @deprecated Use getSurface — kept so existing callback objects keep compiling. */
+  getCanvas?: () => RenderSurface;
   getDevice: () => GPUDevice;
   getFormat: () => GPUTextureFormat;
   getGraph: () => FrameGraph;
@@ -78,7 +81,7 @@ interface OwnedResizeHook { owner: string; fn: ResizeHook; }
 interface OwnedRenderPassHook { owner: string; fn: RenderPassHook; }
 
 export class RendererModuleHost {
-  private canvas: HTMLCanvasElement;
+  private canvas: RenderSurface;
   private callbacks: RendererModuleHostCallbacks;
   private inputBus: RendererInputBus;
   private plugins: Map<string, RendererModule> = new Map();
@@ -104,7 +107,7 @@ export class RendererModuleHost {
   private viewportCameraProvider: ((viewportIdx: number, dt: number, elapsedTime: number) => CameraViewportInfo | null) | null = null;
   private _devtools: ModuleDevToolsAPI | null = null;
 
-  constructor(canvas: HTMLCanvasElement, callbacks: RendererModuleHostCallbacks) {
+  constructor(canvas: RenderSurface, callbacks: RendererModuleHostCallbacks) {
     this.canvas = canvas;
     this.callbacks = callbacks;
     this.inputBus = new RendererInputBusImpl(canvas);
@@ -541,7 +544,8 @@ export class RendererModuleHost {
     return {
       name,
 
-      getCanvas: () => this.callbacks.getCanvas(),
+      getSurface: () => this.callbacks.getSurface(),
+      getCanvas: () => this.callbacks.getSurface(),
       getDevice: () => this.callbacks.getDevice(),
       getFormat: () => this.callbacks.getFormat(),
       getGraph: () => this.callbacks.getGraph(),

@@ -66,7 +66,7 @@ export class XRModule implements RendererModule {
     const frameLoopOptions: XRFrameLoopOptions = {
       inputState: this.inputState,
       inputMapper: this.inputMapper,
-      canvas: ctx.getCanvas(),
+      canvas: ctx.getSurface(),
     };
     this.frameLoop = new XRFrameLoop(
       ctx,

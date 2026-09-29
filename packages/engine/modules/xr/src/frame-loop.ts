@@ -15,6 +15,7 @@ import type {
     CameraViewportInfo,
     InputState,
     RendererModuleContext,
+    RenderSurface,
     RenderTargetProvider,
     ViewportRect,
 } from "@downdraft/engine";
@@ -67,7 +68,7 @@ class XRRenderTargetProvider implements RenderTargetProvider {
 export interface XRFrameLoopOptions {
   inputState?: InputState | null;
   inputMapper?: XRInputMapper | null;
-  canvas: HTMLCanvasElement;
+  canvas: RenderSurface;
 }
 
 export class XRFrameLoop {
@@ -77,7 +78,7 @@ export class XRFrameLoop {
   private cameraRig: XRCameraRig;
   private inputState: InputState | null;
   private inputMapper: XRInputMapper | null;
-  private canvas: HTMLCanvasElement;
+  private canvas: RenderSurface;
 
   private targetProvider: XRRenderTargetProvider;
   private active = false;

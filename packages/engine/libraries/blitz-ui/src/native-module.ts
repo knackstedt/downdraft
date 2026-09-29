@@ -100,7 +100,7 @@ export function createBlitzUiNativeModule<S>(options: BlitzUiNativeOptions<S>): 
             let uiTextureView: GPUTextureView | null = null;
             let wasmRef: BlitzWasmModule | null = null;
 
-            const canvas = ctx.getCanvas();
+            const canvas = ctx.getSurface();
             const renderer = options.renderer;
 
             const push = (wasm: BlitzWasmModule) => {
@@ -169,7 +169,7 @@ export function createBlitzUiNativeModule<S>(options: BlitzUiNativeOptions<S>): 
                 if (!wasm || disposed || !blitPass) return;
                 const device = ctx.getDevice();
                 const view = ensureTexture(device);
-                const context = ctx.getCanvas().getContext("webgpu");
+                const context = ctx.getSurface().getContext("webgpu");
                 const targetTex = context?.getCurrentTexture();
                 const target = targetTex?.createView();
                 if (!view || !target || !targetTex) return;

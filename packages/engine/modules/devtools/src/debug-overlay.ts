@@ -3,7 +3,7 @@
 // Generic rendering logic; game provides data via IDebugOverlayData interface.
 // ============================================================================
 
-import { calculateViewProj, CanvasResizeWatcher } from "@downdraft/engine";
+import { calculateViewProj, CanvasResizeWatcher, type RenderSurface } from "@downdraft/engine";
 import type { IDebugOverlayData } from "./types";
 
 export class DebugOverlay {
@@ -14,7 +14,11 @@ export class DebugOverlay {
   private showVelocityArrows = false;
   private resizeWatcher: CanvasResizeWatcher;
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(surface: RenderSurface) {
+    // DOM-overlay widget — the canvas/element members it touches
+    // (parentElement, 2d overlay canvas) are DOM-host concepts; on native
+    // they degrade to the compat stubs (display:none anyway).
+    const canvas = surface as unknown as HTMLCanvasElement;
     this.canvas = canvas;
     this.overlay = document.createElement("canvas");
     this.overlay.className = "debug-overlay";

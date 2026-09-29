@@ -70,7 +70,6 @@ export async function runNativeGameModule<Sim extends GameSimWorker>(
     ...(opts.host ?? {}),
   });
   const { window } = host;
-  let resizeSyncCleanup: (() => void) | null = null;
 
   try {
     // 2. Run the shared bootstrap. Dynamic import keeps the renderer bundle
@@ -98,36 +97,15 @@ export async function runNativeGameModule<Sim extends GameSimWorker>(
           try { (ctx.renderer?.renderOneFrame ?? ctx.renderer?.renderOnce)?.call(ctx.renderer); } catch { /* loop stopped mid-frame */ }
         };
 
-        // SDL resizes (incl. the window-state restore at startup, which can
-        // fire before anything is listening) update the NativeSurface
-        // backing dims, but nothing notifies the renderer — it keeps laying
-        // out at the old size and the whole frame uniformly stretches,
-        // which reads as blurry text/edges. Forward surface resizes into
-        // renderer.onResize, and run one sync now for the startup case.
-        const canvas = ctx.renderer?.getCanvas?.() as {
-          width: number; height: number;
-          addEventListener?: (t: string, cb: () => void) => void;
-          removeEventListener?: (t: string, cb: () => void) => void;
-        } | null;
-        if (canvas?.addEventListener) {
-          const sync = () => {
-            const w = canvas.width | 0;
-            const h = canvas.height | 0;
-            if (w > 0 && h > 0) {
-              try { ctx.renderer.onResize?.(w, h, 1); } catch (e) { log.error("native-game-module", `resize: ${e}`); }
-            }
-          };
-          canvas.addEventListener("resize", sync);
-          resizeSyncCleanup = () => canvas.removeEventListener?.("resize", sync);
-          sync();
-        }
-
+        // Resize delivery: the surface pushes "resize" events and
+        // GameRenderer's CanvasResizeWatcher subscribes to them (with a
+        // synchronous initial call covering the startup case). Don't
+        // forward to onResize here — that's a second subscription onto the
+        // same event and double-fires every resize.
         await module.onReady?.(ctx);
       },
       onDispose: (ctx: GameContext<Sim>) => {
         try { delete (globalThis as any).__ddRequestFrame; } catch {}
-        try { resizeSyncCleanup?.(); } catch {}
-        resizeSyncCleanup = null;
         module.onDispose?.(ctx);
       },
     };

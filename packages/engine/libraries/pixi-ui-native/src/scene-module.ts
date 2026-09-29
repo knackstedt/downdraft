@@ -166,7 +166,7 @@ export function createNativePixiUiScene(options: NativePixiUiSceneOptions): Rend
     },
 
     register(ctx: RendererModuleContext) {
-      const canvas = ctx.getCanvas() as any;
+      const canvas = ctx.getSurface() as any;
       const w = canvas.width || canvas.clientWidth || 1280;
       const h = canvas.height || canvas.clientHeight || 720;
       const unsubs: Array<() => void> = [];

@@ -11,7 +11,7 @@ import { createLogger } from "@downdraft/engine";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { createRequire as nodeCreateRequire } from "node:module";
 import { dirname } from "node:path";
-import { VirtualCanvas } from "../gpu/virtual-canvas-context";
+import { VirtualCanvas } from "../compat/virtual-canvas-context";
 import { NativeCanvas2D } from "../image/native-image";
 import type { NativeSurface } from "../window/native-surface";
 import type { NativeWindow } from "../window/native-window";
@@ -74,31 +74,16 @@ function createStubElement(tag: string): any {
 export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface, opts: DOMPolyfillOptions = {}): void {
   // document polyfill
   if (typeof (globalThis as any).document === "undefined") {
-    // Persistent overlay stubs — getOverlay(n) maps div[data-dd-overlay="n"]
-    // (and legacy #root for n=0). There's no real DOM compositor; the stubs
-    // let mountUI callers get an element instead of throwing. Games should
-    // use the imui `ui:` path on native — DOM UI won't display.
-    const overlays = new Map<number, any>();
-
-    const getOverlayElement = (index: number): any => {
-      let el = overlays.get(index);
-      if (!el) {
-        el = createStubElement("div");
-        el.id = index === 0 ? "root" : `dd-overlay-${index}`;
-        el.dataset.ddOverlay = String(index);
-        overlays.set(index, el);
-      }
-      return el;
-    };
-
-    const matchCanvasSelector = (sel: string): boolean =>
-      sel === "canvas" ||
-      sel === "#game-canvas" ||
-      /^canvas\[data-dd-layer="0"\]$/.test(sel) ||
-      sel === "canvas[data-dd-layer]";
-
+    // This document is a *compat facade* for PixiJS and legacy canvas-shaped
+    // consumers — NOT a DOM compositor. It deliberately has no surface
+    // mapping, no overlay stubs, and no elementFromPoint: the live renderer
+    // reaches the render surface via getSurface()/ctx.surface, and input is
+    // dispatched on the surface directly. Code that still queries for
+    // "canvas" / "#game-canvas" / overlay divs gets null — that's the signal
+    // to migrate, not a thing to polyfill.
+    //
     // Elements appended to document.body — lets `#id` / `tag#id` selectors
-    // find game-created overlays (e.g. sandjongg's #sandjongg-tile-canvas).
+    // find game-created elements (e.g. a game's offscreen helper canvas).
     const bodyChildren = new Set<any>();
     const matchIdSelector = (sel: string): any => {
       const m = sel.match(/^(?:([a-zA-Z][\w-]*)?)#([\w-]+)$/);
@@ -124,30 +109,15 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
         return createStubElement(tag);
       },
       getElementById: (id: string) => {
-        if (id === "game-canvas" || id === "canvas") return surface;
-        if (id === "root") return getOverlayElement(0);
-        for (const [i, el] of overlays.entries()) if (el.id === id) { void i; return el; }
         const found = matchIdSelector(`#${id}`);
         return found === undefined ? null : found;
       },
       querySelector: (selector: string) => {
-        if (matchCanvasSelector(selector)) return surface;
-        const overlayMatch = selector.match(/^div\[data-dd-overlay="(\d+)"\]$/);
-        if (overlayMatch) return getOverlayElement(Number(overlayMatch[1]));
-        if (selector === "#root" || selector === "div#root") return getOverlayElement(0);
         const byId = matchIdSelector(selector);
         if (byId !== undefined) return byId;
         return null;
       },
       querySelectorAll: (selector: string) => {
-        // Layer/canvases
-        if (selector === "canvas" || selector === "canvas[data-dd-layer]" ||
-            /^canvas\[data-dd-layer="0"\]$/.test(selector)) {
-          return [surface];
-        }
-        if (selector === "div[data-dd-overlay]") {
-          return [getOverlayElement(0)];
-        }
         const byId = matchIdSelector(selector);
         if (byId !== undefined && byId !== null) return [byId];
         // Stylesheets and everything else: no real DOM → empty.
@@ -380,12 +350,8 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
     (globalThis as any).DOMRectReadOnly = (globalThis as any).DOMRect;
   }
 
-  // document.elementFromPoint — no layout engine, so hit-testing is
-  // positional only in the trivial sense: return the canvas surface.
-  // dispatch_click and friends target canvas-level handlers through it.
-  if ((globalThis as any).document && typeof (globalThis as any).document.elementFromPoint !== "function") {
-    (globalThis as any).document.elementFromPoint = (_x: number, _y: number) => surface;
-  }
+  // No document.elementFromPoint — native input dispatch targets the
+  // RenderSurface directly; there is no DOM tree to hit-test.
 
   // ResizeObserver polyfill — calls the callback once on observe()
   if (typeof (globalThis as any).ResizeObserver === "undefined") {

@@ -31,6 +31,7 @@
 //   input.destroy();
 // ============================================================================
 
+import type { RenderSurface } from "../platform/render-surface";
 import { InputState } from "./state";
 
 /** Standard WASD+arrows+Space preset: e.key → action name. */
@@ -58,7 +59,7 @@ export interface DomInjectedFrame {
 }
 
 export interface DomInputOptions {
-  canvas: HTMLCanvasElement;
+  canvas: RenderSurface;
   /**
    * Map from `e.key` to a held-action name (e.g. `{ "a": "left" }`).
    * Prefix with "code:" to match `e.code` instead (layout-independent,

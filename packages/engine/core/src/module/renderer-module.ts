@@ -14,6 +14,7 @@
 import type { ResourceToken } from "../ecs/resource";
 import type { UIRoot } from "../imui/element";
 import type { UIInputRouter } from "../imui/input";
+import type { RenderSurface } from "../platform/render-surface";
 import type { CameraState } from "../render/camera";
 import type { FrameGraph, SlotRegistry } from "../render/frame-graph";
 import type {
@@ -138,8 +139,11 @@ export interface RendererModuleContext {
   /** Module name (set by the host during activation). */
   readonly name: string;
 
-  // ── GPU / canvas ──
-  getCanvas(): HTMLCanvasElement;
+  // ── GPU / surface ──
+  /** The render surface this renderer draws into. Canonical accessor. */
+  getSurface(): RenderSurface;
+  /** @deprecated Use getSurface() — the surface is not necessarily a DOM canvas. */
+  getCanvas(): RenderSurface;
   getDevice(): GPUDevice;
   getFormat(): GPUTextureFormat;
   getGraph(): FrameGraph;

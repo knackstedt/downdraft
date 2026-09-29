@@ -24,6 +24,7 @@
 // (escape hatch) — construct, start(), dispose().
 // ============================================================================
 
+import { getHostCapabilities, getNativeHost } from "@downdraft/engine";
 import { createLogger } from "@downdraft/engine/util/logger";
 import type { PixiUiAction, PixiUiEvent, Rect } from "./bridge-protocol";
 import { PixiUiHost } from "./host";
@@ -148,7 +149,9 @@ export class PixiUiBridge {
     const opt = this.config.trackPointer;
     const resolveCanvas = typeof opt === "object" && opt.canvas
       ? typeof opt.canvas === "function" ? opt.canvas : () => opt.canvas as HTMLCanvasElement
-      : () => document.querySelector('canvas[data-dd-layer="0"]') as HTMLCanvasElement | null;
+      : () => (getHostCapabilities().hasDom
+          ? document.querySelector('canvas[data-dd-layer="0"]') as HTMLCanvasElement | null
+          : (getNativeHost()?.surface as HTMLCanvasElement | undefined) ?? null);
 
     this.mouseMoveHandler = (e: MouseEvent) => {
       const canvas = resolveCanvas();

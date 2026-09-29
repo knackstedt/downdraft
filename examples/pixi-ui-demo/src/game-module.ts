@@ -7,10 +7,10 @@
 // NativePixiUiHost adapter (native-pixi-host.ts) instead.
 // ============================================================================
 
-import { getNativeHost } from "@downdraft/engine";
+import { getNativeHost, type RenderSurface } from "@downdraft/engine";
 import {
     createMcpHarness,
-    getCanvas,
+    getSurface,
     type GameContext,
     type GameModule,
     type GameSimWorker,
@@ -37,13 +37,15 @@ class NoopSim implements GameSimWorker {
 // ── Trivial renderer (Canvas2D — just clears the game canvas) ──
 
 class TrivialRenderer {
-  private canvas: HTMLCanvasElement;
+  private surface: RenderSurface;
   private ctx: CanvasRenderingContext2D | null;
   private frame = 0;
 
-  constructor(canvas: HTMLCanvasElement) {
-    this.canvas = canvas;
-    this.ctx = canvas.getContext("2d");
+  constructor(surface: RenderSurface) {
+    this.surface = surface;
+    // "2d" is a canvas-compat context — not part of the RenderSurface
+    // contract; on native it's served by the VirtualCanvas adapter.
+    this.ctx = surface.getContext("2d") as CanvasRenderingContext2D | null;
   }
 
   async init(): Promise<boolean> {
@@ -53,8 +55,8 @@ class TrivialRenderer {
   render(): void {
     if (!this.ctx) return;
     this.frame++;
-    const w = this.canvas.width;
-    const h = this.canvas.height;
+    const w = this.surface.width;
+    const h = this.surface.height;
     const t = this.frame * 0.01;
     const grad = this.ctx.createLinearGradient(0, 0, w, h);
     grad.addColorStop(0, `rgb(${20 + Math.sin(t) * 10}, 10, 30)`);
@@ -67,8 +69,8 @@ class TrivialRenderer {
   }
 
   resize(w: number, h: number): void {
-    this.canvas.width = w;
-    this.canvas.height = h;
+    this.surface.width = w;
+    this.surface.height = h;
   }
 }
 
@@ -90,15 +92,12 @@ const maxHealth = 100;
 let healthDir = -1;
 
 export const pixiUiDemoModule: GameModule<NoopSim> = {
-  renderer: (canvas) => {
-    renderer = new TrivialRenderer(canvas);
+  renderer: (surface) => {
+    renderer = new TrivialRenderer(surface);
     return renderer as any;
   },
   sim: () => new NoopSim(),
   simConfig: {},
-
-  // No DOM UI overlay — the PixiJS overlay IS the UI.
-  mountUI: () => {},
 
   onInit: async (ctx) => {
     const ok = await (ctx.renderer as any).init();
@@ -111,7 +110,7 @@ export const pixiUiDemoModule: GameModule<NoopSim> = {
     if (nativeHost?.device) {
       // ── Native path: in-process PixiUI on the shared wgpu-native device ──
       const { createNativeDemoUi } = await import("./native-pixi-host");
-      const surface = getCanvas(0) as any;
+      const surface = getSurface(0) as any;
       nativeUi = await createNativeDemoUi({
         device: nativeHost.device,
         adapter: nativeHost.adapter as GPUAdapter,
@@ -197,7 +196,7 @@ export const pixiUiDemoModule: GameModule<NoopSim> = {
 
     // Handle canvas resize.
     function resize(): void {
-      const canvas = getCanvas(0);
+      const canvas = getSurface(0);
       if (canvas && renderer) {
         renderer.resize(window.innerWidth, window.innerHeight);
         nativeUi?.resize(window.innerWidth, window.innerHeight);

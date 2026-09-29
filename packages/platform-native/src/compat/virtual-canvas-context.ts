@@ -1,5 +1,10 @@
 // ============================================================================
-// virtual-canvas-context.ts — texture-backed GPUCanvasContext for PixiJS
+// compat/virtual-canvas-context.ts — texture-backed GPUCanvasContext for PixiJS
+//
+// COMPAT LAYER: this file exists to serve PixiJS (and other legacy
+// canvas-shaped consumers) — it is NOT the render surface abstraction.
+// The game-facing surface is `RenderSurface`/`NativeSurface`; nothing outside
+// the PixiJS/canvas-compat path should construct a VirtualCanvas.
 //
 // PixiJS v8's WebGPU render target calls `canvas.getContext("webgpu")` and
 // expects a GPUCanvasContext with `configure()`, `getCurrentTexture()`, and
@@ -22,9 +27,9 @@
 
 import { createLogger } from "@downdraft/engine/util/logger";
 import { MiniEventTarget } from "../dom/mini-event-target";
+import type { WgpuDevice, WgpuTexture, WgpuTextureView } from "../gpu/wgpu-wrapper";
 import { NativeCanvas2D, NativeImageBitmap } from "../image/native-image";
 import { captureScreenshotPixels, encodePNG } from "../screenshot/screenshot";
-import type { WgpuDevice, WgpuTexture, WgpuTextureView } from "./wgpu-wrapper";
 
 const log = createLogger("info");
 

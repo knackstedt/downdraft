@@ -47,6 +47,14 @@ export class MiniEventTarget {
         const origImm = event.stopImmediatePropagation?.bind(event);
         event.stopImmediatePropagation = () => { event.__miniStop = true; origImm?.(); };
       }
+      // DOM parity for plain-object events: `target` is the first dispatching
+      // element (persists through the surface→window hop), `currentTarget` is
+      // the element whose listeners are running. Handlers that gate on
+      // `e.target === canvas` (e.g. InputManager's wheel path) depend on this.
+      if (event && typeof event === "object") {
+        if (event.target === undefined) { try { event.target = this; } catch {} }
+        try { event.currentTarget = this; } catch {}
+      }
       if (cap) {
         for (const listener of cap.values()) {
           if (event?.__miniStop) break;

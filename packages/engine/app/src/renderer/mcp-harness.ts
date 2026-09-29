@@ -133,45 +133,6 @@ export function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
-/**
- * Composite the WebGPU canvas screenshot with a DOM-overlay PNG into a single
- * PNG. The canvas is drawn first (bottom layer), then the overlay PNG on top.
- *
- * Browser/standalone fallback only — on the native host `downdraft.captureFrame()`
- * already returns the composited frame (game + overlay layers), so callers
- * should prefer it and only reach for this helper when no host exists.
- *
- *   1. Draw the WebGPU canvas onto an offscreen 2D canvas
- *   2. Load the overlay PNG as an ImageBitmap
- *   3. Draw the overlay ImageBitmap on top
- *   4. Export the composited canvas as PNG
- */
-export async function compositeScreenshot(
-  canvas: HTMLCanvasElement,
-  overlayPng: ArrayBuffer,
-  width: number,
-  height: number,
-): Promise<Blob | null> {
-  const offscreen = document.createElement("canvas");
-  offscreen.width = width;
-  offscreen.height = height;
-  const ctx = offscreen.getContext("2d");
-  if (!ctx) return null;
-
-  // Layer 1: WebGPU canvas (bottom)
-  ctx.drawImage(canvas, 0, 0, width, height);
-
-  // Layer 2: DOM overlay PNG (top)
-  const overlayBlob = new Blob([overlayPng], { type: "image/png" });
-  const overlayBitmap = await createImageBitmap(overlayBlob);
-  ctx.drawImage(overlayBitmap, 0, 0, width, height);
-  overlayBitmap.close();
-
-  return new Promise((resolve) => {
-    offscreen.toBlob((blob) => resolve(blob), "image/png");
-  });
-}
-
 /** MCP result helper: wrap data as a JSON content array. */
 export function jsonResult(data: unknown): { content: Array<{ type: string; text: string }> } {
   return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };

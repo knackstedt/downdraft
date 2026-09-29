@@ -26,7 +26,7 @@
 //   });
 // ============================================================================
 
-import { getHostCapabilities, KEY } from "@downdraft/engine";
+import { getHostCapabilities, KEY, type RenderSurface } from "@downdraft/engine";
 import { createLogger } from "@downdraft/engine/util/logger";
 import { downdraft } from "./index";
 import {
@@ -100,12 +100,14 @@ function domKeyCodeFor(key: string): number {
 }
 
 export interface StandardAutomationContext {
-  /** The game canvas (layer 0). Used by capture_screenshot + dispatch_click. */
-  canvas: HTMLCanvasElement | (() => HTMLCanvasElement | null);
+  /** The game render surface (layer 0). Used by capture_screenshot + dispatch_click. */
+  surface: RenderSurface | (() => RenderSurface | null);
 
   /**
    * Extra canvases to composite between the game canvas and the DOM overlay
-   * in full-page screenshots (e.g. a 2D tile canvas). Default: none.
+   * in full-page screenshots (e.g. a 2D tile canvas). DOM hosts only —
+   * native capture returns the composited swapchain via captureFrame().
+   * Default: none.
    */
   extraLayers?: () => HTMLCanvasElement[];
 
@@ -188,8 +190,8 @@ function resolveKeys(keys: (string | number)[], keyMap: Record<string, number>):
   return out;
 }
 
-function resolveCanvas(canvas: StandardAutomationContext["canvas"]): HTMLCanvasElement | null {
-  return typeof canvas === "function" ? canvas() : canvas;
+function resolveSurface(surface: StandardAutomationContext["surface"]): RenderSurface | null {
+  return typeof surface === "function" ? surface() : surface;
 }
 
 // ── Factory ──
@@ -227,11 +229,11 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
         },
       },
       handler: async (params: Record<string, unknown>) => {
-        const canvas = resolveCanvas(ctx.canvas);
-        if (!canvas) return errorResult("Canvas not available");
+        const surface = resolveSurface(ctx.surface);
+        if (!surface) return errorResult("Surface not available");
         const fullPage = (params.fullPage as boolean | undefined) ?? ctx.fullPageDefault ?? true;
-        const width = canvas.width;
-        const height = canvas.height;
+        const width = surface.width;
+        const height = surface.height;
 
         // If the render loop is paused (test/headless mode), render one frame
         // first so the screenshot reflects current simulation state.
@@ -265,9 +267,15 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
           }
         }
 
-        // Canvas-only capture.
+        // Surface-only capture. toBlob is a canvas-compat API — it exists on
+        // HTMLCanvasElement and the native surface's PixiJS adapter, but is
+        // not part of the RenderSurface contract.
+        const toBlob = (surface as { toBlob?: (cb: (b: Blob | null) => void, type?: string) => void }).toBlob;
+        if (typeof toBlob !== "function") {
+          return errorResult("Screenshot capture requires canvas.toBlob or a host captureFrame()");
+        }
         const blob = await new Promise<Blob | null>((resolve) => {
-          canvas.toBlob((b) => resolve(b), "image/png");
+          toBlob.call(surface, (b) => resolve(b), "image/png");
         });
         if (!blob) return errorResult("Screenshot capture failed");
         const base64 = await blobToBase64(blob);
@@ -393,20 +401,26 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
         },
       },
       handler: (params: Record<string, unknown>) => {
-        const canvas = resolveCanvas(ctx.canvas);
-        if (!canvas) return errorResult("Canvas not available");
-        const x = (params.x as number) ?? canvas.clientWidth / 2;
-        const y = (params.y as number) ?? canvas.clientHeight / 2;
+        const surface = resolveSurface(ctx.surface);
+        if (!surface) return errorResult("Surface not available");
+        const x = (params.x as number) ?? surface.clientWidth / 2;
+        const y = (params.y as number) ?? surface.clientHeight / 2;
         const type = (params.type as string) ?? "click";
         const button = (params.button as number) ?? 0;
-        const rect = canvas.getBoundingClientRect();
+        const rect = surface.getBoundingClientRect();
         const clientX = rect.left + x;
         const clientY = rect.top + y;
-        const target = document.elementFromPoint(clientX, clientY) ?? canvas;
-        // MiniEventTarget (native DOM polyfill) has no capture/bubble —
+        const hasDom = getHostCapabilities().hasDom;
+        // DOM hosts hit-test the topmost element (mimics a real user click
+        // through UI overlays). On native there is no DOM tree — the surface
+        // itself is the input target.
+        const target = hasDom
+          ? (document.elementFromPoint(clientX, clientY) ?? (surface as unknown as HTMLElement))
+          : (surface as unknown as EventTarget);
+        // MiniEventTarget (native event polyfill) has no capture/bubble —
         // mirror real propagation by also dispatching on window. In a real
         // DOM this would double-fire, so only do it under the polyfill.
-        const isNativeDom = !getHostCapabilities().hasDom;
+        const isNativeDom = !hasDom;
         const fire = (ev: Event) => {
           target.dispatchEvent(ev);
           if (isNativeDom) (window as any).dispatchEvent?.(ev);
@@ -448,10 +462,11 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
           if (pointerType) fireOne(pointerType, true, buttons);
           fireOne(type, false, buttons);
         }
+        const targetEl = target as Partial<HTMLElement>;
         return jsonResult({
           dispatched: true, x, y, type,
-          targetTag: target.tagName,
-          targetClass: (target as HTMLElement).className?.toString().slice(0, 80),
+          targetTag: targetEl.tagName ?? (targetEl as { id?: string }).id ?? "surface",
+          targetClass: targetEl.className?.toString().slice(0, 80),
         });
       },
     });

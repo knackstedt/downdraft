@@ -33,12 +33,13 @@ import {
     type PluginManifest,
     type PluginPermission,
     type PluginSource,
+    type RenderSurface,
     type SaveMeta,
     type SaveState
 } from "@downdraft/engine";
 import { createLogger } from "@downdraft/engine/util/logger";
 import { bootstrapGame, type BootstrapDevToolsOptions } from "./bootstrap";
-import { downdraft, getCanvas, getOverlay } from "./index";
+import { downdraft, getSurface } from "./index";
 import { createSaveStore, isOpfsAvailable, type SaveStoreMode } from "./save-store-factory";
 
 const log = createLogger("info");
@@ -99,8 +100,8 @@ export interface SimWorkerSeed {
  *  constructor to avoid double-allocating SABs. */
 export type SimWorkerFactory<T extends GameSimWorker = GameSimWorker> = (seed?: SimWorkerSeed) => T;
 
-/** Factory that creates the renderer from a canvas element. */
-export type RendererFactory = (canvas: HTMLCanvasElement) => any;
+/** Factory that creates the renderer from the render surface. */
+export type RendererFactory = (surface: RenderSurface) => any;
 
 /**
  * Renderer-side save source — an alternative to the sim worker for providing
@@ -214,10 +215,9 @@ export interface GameUiHandle {
 export interface GameContext<Sim extends GameSimWorker = GameSimWorker> {
   /** The renderer instance (typed as `any` — games cast to their renderer class). */
   renderer: any;
-  /** The canvas element the renderer is attached to. */
-  canvas: HTMLCanvasElement;
-  /** The DOM overlay element (for UI mounting). */
-  overlay: HTMLElement;
+  /** The render surface the renderer is attached to (canvas on DOM hosts,
+   *  NativeSurface on the native runtime). */
+  surface: RenderSurface;
   /** The sim worker instance. Undefined for renderer-only games (no `sim` declared). */
   sim?: Sim;
   /** The sim SAB (entity/component data, zero-copy shared with the sim worker).
@@ -342,7 +342,10 @@ export interface GameModule<Sim extends GameSimWorker = GameSimWorker> {
   simFromRenderer?: (renderer: any, ctx: GameContext<Sim>) => Sim | undefined | Promise<Sim | undefined>;
 
   // ── UI ──
-  /** Mount the UI framework (React: createRoot().render(), Solid: render(), etc). */
+  /** Mount the UI framework (React: createRoot().render(), Solid: render(), etc).
+   *  DOM hosts only — on the native runtime there is no DOM overlay tree, so
+   *  a declared mountUI is skipped with an error logged (UI on native renders
+   *  into the surface via imui/pixi-ui). */
   mountUI?: (overlay: HTMLElement, ctx: GameContext<Sim>) => Promise<void> | void;
   /** CSS imports / side-effect imports to run before UI mount. Optional. */
   imports?: () => void;
@@ -441,10 +444,10 @@ export interface GameModule<Sim extends GameSimWorker = GameSimWorker> {
   /** Called with the display refresh rate when available. */
   onDisplayInfo?: (refreshRate: number, ctx: GameContext<Sim>) => void;
 
-  // ── Canvas/overlay ──
-  /** Canvas layer index. Default: 0. */
+  // ── Surface/overlay ──
+  /** Surface/canvas layer index. Default: 0 — the only layer on native hosts. */
   canvasLayer?: number;
-  /** Overlay layer index. Default: 0. */
+  /** Overlay layer index. Default: 0. DOM hosts only. */
   overlayLayer?: number;
   /** FPS polling interval in ms. Default: 500. */
   fpsPollIntervalMs?: number;
@@ -481,9 +484,8 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
   const isDev = !!(downdraft?.isDev) || isDevMode;
   const hasSim = !!module.sim;
 
-  // 0. Resolve canvas + overlay
-  const canvas = getCanvas(module.canvasLayer ?? 0);
-  const overlay = getOverlay(module.overlayLayer ?? 0);
+  // 0. Resolve the render surface (canvas on DOM hosts, NativeSurface on native)
+  const surface = getSurface(module.canvasLayer ?? 0);
 
   // 0b. Allocate library SABs (if any libraries declared) — before sim worker
   //     creation so the sim factory can receive externally-allocated SABs.
@@ -530,13 +532,12 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
   const extraBuffers = simWorker?.getExtraBuffers?.() ?? {};
 
   // 2. Create renderer
-  const renderer = module.renderer(canvas);
+  const renderer = module.renderer(surface);
 
   // 3. Build the game context. Sim fields are undefined for renderer-only games.
   const ctx: GameContext<Sim> = {
     renderer,
-    canvas,
-    overlay,
+    surface,
     sim: simWorker as Sim | undefined,
     simSAB,
     inputSAB,

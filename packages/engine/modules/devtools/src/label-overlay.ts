@@ -3,7 +3,7 @@
 // Generic DOM management + projection; game provides labels via ILabelProvider.
 // ============================================================================
 
-import { calculateViewProj } from "@downdraft/engine";
+import { calculateViewProj, type RenderSurface } from "@downdraft/engine";
 import type { ILabelProvider } from "./types";
 
 interface LabelEntry {
@@ -19,7 +19,11 @@ export class LabelOverlay {
   private canvas: HTMLCanvasElement;
   private provider: ILabelProvider | null = null;
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(surface: RenderSurface) {
+    // DOM-overlay widget — the canvas/element members it touches
+    // (parentElement, 2d overlay canvas) are DOM-host concepts; on native
+    // they degrade to the compat stubs (display:none anyway).
+    const canvas = surface as unknown as HTMLCanvasElement;
     this.canvas = canvas;
     this.container = document.createElement("div");
     this.container.className = "label-overlay";

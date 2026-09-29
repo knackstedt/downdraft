@@ -39,7 +39,7 @@ function createMockCanvas(): HTMLCanvasElement {
 
 function createMockCallbacks() {
   return {
-    getCanvas: () => createMockCanvas(),
+    getSurface: () => createMockCanvas() as unknown as import("../platform/render-surface").RenderSurface,
     getDevice: () => ({} as GPUDevice),
     getFormat: () => "bgra8unorm" as GPUTextureFormat,
     getGraph: () => ({} as any),

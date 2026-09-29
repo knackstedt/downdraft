@@ -64,7 +64,7 @@ export function createTransformGizmoModule(
 
     register(ctx) {
       const bus = ctx.getInputBus();
-      const canvas = ctx.getCanvas();
+      const canvas = ctx.getSurface();
 
       const onPointerDown = (e: PointerEvent, ctrl: { stopPropagation: () => void }) => {
         if (!gizmo.isVisible()) return;

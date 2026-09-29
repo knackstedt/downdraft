@@ -4,6 +4,7 @@
 // ============================================================================
 
 import { UIInputRouter } from "../imui";
+import type { RenderSurface } from "../platform/render-surface";
 
 export interface RenderInputState {
   keysDown: Set<number>;
@@ -13,7 +14,7 @@ export interface RenderInputState {
 }
 
 export class InputManager {
-  private canvas: HTMLCanvasElement;
+  private canvas: RenderSurface;
   private keysDown = new Set<number>();
   private mouseState = { x: 0, y: 0, left: false, right: false, wheel: 0, _wheel: 0 };
   private mouseDelta = { dx: 0, dy: 0 };
@@ -30,7 +31,7 @@ export class InputManager {
   private uiInputRouter: UIInputRouter | null = null;
   private listeners: Array<{ target: EventTarget; event: string; handler: EventListener }> = [];
 
-  constructor(canvas: HTMLCanvasElement, enablePointerLock = false) {
+  constructor(canvas: RenderSurface, enablePointerLock = false) {
     this.canvas = canvas;
     this.enablePointerLock = enablePointerLock;
   }
@@ -80,7 +81,7 @@ export class InputManager {
 
       add(document, "pointerlockchange", (() => {
         const wasLocked = this.pointerLocked;
-        this.pointerLocked = document.pointerLockElement === this.canvas;
+        this.pointerLocked = (document.pointerLockElement as unknown) === this.canvas;
         if (this.pointerLocked) {
           this.pointerLockRetryCount = 0;
           if (this.pointerLockRetryTimer) {
@@ -202,7 +203,7 @@ export class InputManager {
     if (this.pointerLockRetryCount >= 20) return;
     this.pointerLockRetryCount++;
     try {
-      this.canvas.requestPointerLock();
+      this.canvas.requestPointerLock?.();
     } catch (_e) {
       // ignore — fallback timer below will retry
     }

@@ -25,10 +25,11 @@
 // that need full control can call `bootstrapGame()` directly.
 // ============================================================================
 
-import { encodeFeatureLogLine, isDevMode } from "@downdraft/engine";
+import { encodeFeatureLogLine, getHostCapabilities, isDevMode, type RenderSurface } from "@downdraft/engine";
 import { createLogger } from "@downdraft/engine/util/logger";
+import { getOverlay } from "./compat/dom";
 import { collectRendererFeatureLog } from "./feature-log";
-import { downdraft, getCanvas, getOverlay } from "./index";
+import { downdraft, getSurface } from "./index";
 
 const log = createLogger("info");
 
@@ -63,21 +64,25 @@ export interface BootstrapDevToolsOptions {
 
 export interface BootstrapGameOptions {
   // --- Canvas/overlay ---
-  /** Canvas layer index. Default: 0. */
+  /** Surface/canvas layer index. Default: 0. Native hosts have exactly one
+   *  surface (layer 0). */
   canvasLayer?: number;
-  /** Overlay layer index. Default: 0. */
+  /** Overlay layer index. Default: 0. DOM hosts only. */
   overlayLayer?: number;
 
   // --- Renderer ---
-  /** Factory that creates the renderer from a canvas element. */
-  createRenderer: (canvas: HTMLCanvasElement) => any;
+  /** Factory that creates the renderer from the render surface. */
+  createRenderer: (surface: RenderSurface) => any;
   /** Called after renderer creation to initialize it. Should return false on failure. */
   initRenderer?: (renderer: any) => Promise<boolean> | boolean;
   /** Called after renderer init to let the game wire the renderer to its store. */
   onRendererInit?: (renderer: any) => Promise<void> | void;
 
   // --- UI (framework-agnostic) ---
-  /** Mount the UI framework (React: createRoot().render(), Solid: render(), etc). */
+  /** Mount the UI framework (React: createRoot().render(), Solid: render(), etc).
+   *  DOM hosts only — on the native runtime there is no DOM overlay tree, so
+   *  mountUI is never invoked (an error is logged instead of silently
+   *  mounting into a synthetic element). */
   mountUI?: (overlay: HTMLElement) => Promise<void> | void;
 
   // --- DevTools ---
@@ -133,19 +138,26 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
   const canvasLayer = opts.canvasLayer ?? 0;
   const overlayLayer = opts.overlayLayer ?? 0;
   const deterministic = downdraft?.deterministic === true;
+  const hasDom = getHostCapabilities().hasDom;
 
   // 1. Mount UI (if provided) — before renderer init so the UI is visible
   //    while the renderer initializes (WebGPU adapter acquisition can take
-  //    a moment on first launch).
+  //    a moment on first launch). DOM hosts only — the native runtime has no
+  //    DOM overlay tree, so a declared mountUI is an explicit config error
+  //    rather than a silent mount into a synthetic element.
   if (opts.mountUI) {
-    await opts.mountUI(getOverlay(overlayLayer));
+    if (!hasDom) {
+      log.error("bootstrapGame", "mountUI declared but this host has no DOM — the UI mount was skipped. Remove the mountUI declaration (UI on native renders into the surface via imui/pixi-ui).");
+    } else {
+      await opts.mountUI(getOverlay(overlayLayer));
+    }
   }
 
-  // 2. Get canvas
-  const canvas = getCanvas(canvasLayer);
+  // 2. Get the render surface
+  const surface = getSurface(canvasLayer);
 
   // 3. Create + init renderer
-  const renderer = opts.createRenderer(canvas);
+  const renderer = opts.createRenderer(surface);
   if (opts.initRenderer) {
     const ok = await opts.initRenderer(renderer);
     if (!ok) {

@@ -3,6 +3,7 @@
 // GPU info/limits snapshot, and tracked render pass wrapping.
 // ============================================================================
 
+import type { RenderSurface } from "../platform/render-surface";
 import { createLogger } from "../util/logger";
 import type { PassTiming } from "./collector";
 import { GPUTimerPool } from "./gpu-timer-pool";
@@ -442,7 +443,7 @@ export class GPUProfiler {
 
   // --- GPU info / limits ---
 
-  getGPUInfo(canvas: HTMLCanvasElement, msaaSampleCount: number): GPUInfo {
+  getGPUInfo(canvas: RenderSurface, msaaSampleCount: number): GPUInfo {
     const a = this.adapterInfo;
     const adapter = a ? {
       vendor: a.vendor ?? "",

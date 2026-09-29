@@ -87,22 +87,15 @@ export async function startNativeGame(options: NativeGameOptions): Promise<void>
     // globalThis — the renderer's own RAF loop just works.
     ctx.renderer.start?.();
 
-    // Resize: poll surface dims each frame (initial WM-driven resizes can
-    // fire before listeners attach). Games can also hook `onFrame`.
-    let curW = surface.width | 0;
-    let curH = surface.height | 0;
-    const pumpResize = () => {
-      const w = surface.width | 0;
-      const h = surface.height | 0;
-      if (w > 0 && h > 0 && (w !== curW || h !== curH)) {
-        curW = w;
-        curH = h;
-        try { ctx.renderer.onResize?.(w, h, 1); } catch (e) { log.error("native-game", `resize: ${e}`); }
-      }
+    // Resize delivery: NativeSurface pushes "resize" events and
+    // GameRenderer's CanvasResizeWatcher subscribes at init() (its
+    // synchronous initial call covers early WM resizes). Don't call
+    // renderer.onResize here — that double-fires every resize.
+    const pumpFrame = () => {
       try { options.onFrame?.(ctx); } catch (e) { log.error("native-game", `onFrame: ${e}`); }
+      requestAnimationFrame(pumpFrame);
     };
-    const pumpRaf = () => { pumpResize(); requestAnimationFrame(pumpRaf); };
-    requestAnimationFrame(pumpRaf);
+    requestAnimationFrame(pumpFrame);
 
     // Wait for the window to close.
     await new Promise<void>((resolve) => {

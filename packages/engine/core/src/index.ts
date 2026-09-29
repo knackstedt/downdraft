@@ -126,6 +126,7 @@ export { HDRManager } from "./platform/hdr";
 export type { HDRConfig, HDRMode } from "./platform/hdr";
 export { getDpr, HiDPIManager } from "./platform/hidpi";
 export { Lifecycle } from "./platform/lifecycle";
+export type { RenderSurface, RenderSurfaceContext, RenderSurfaceListener } from "./platform/render-surface";
 export { RPC } from "./platform/rpc";
 export type { RPCHandler, RPCMessage, RPCMessageType } from "./platform/rpc";
 export {

@@ -14,6 +14,7 @@ import {
     BindlessTextureRegistry,
     DEPTH_FORMAT,
     getNativeHost,
+    type RenderSurface,
 } from "@downdraft/engine";
 import { ModelRenderer } from "@downdraft/engine/libraries/entities";
 import type { ModelData } from "@downdraft/engine/libraries/models";
@@ -42,7 +43,7 @@ export interface CharacterPreviewOptions {
 const UP: [number, number, number] = [0, 1, 0];
 
 export class CharacterPreview {
-  private canvas: HTMLCanvasElement;
+  private canvas: RenderSurface;
   private opts: CharacterPreviewOptions;
   private device: GPUDevice | null = null;
   private context: GPUCanvasContext | null = null;
@@ -66,7 +67,7 @@ export class CharacterPreview {
   private modelYOffset = 0;
   private ownsDevice = false;
 
-  constructor(canvas: HTMLCanvasElement, opts: CharacterPreviewOptions) {
+  constructor(canvas: RenderSurface, opts: CharacterPreviewOptions) {
     this.canvas = canvas;
     this.opts = opts;
   }
@@ -92,7 +93,7 @@ export class CharacterPreview {
     this.device.addEventListener("uncapturederror", (e) => {
       log.error("CharacterPreview", `uncaptured GPU error: ${(e as GPUUncapturedErrorEvent).error?.message}`);
     });
-    this.context = this.canvas.getContext("webgpu") as GPUCanvasContext;
+    this.context = this.canvas.getContext("webgpu") as unknown as GPUCanvasContext;
     this.format = navigator.gpu.getPreferredCanvasFormat();
     this.context.configure({
       device: this.device,

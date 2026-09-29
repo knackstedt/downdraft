@@ -231,7 +231,7 @@ export async function createDowndraftMobileApp<Sim extends GameSimWorker>(
       // events on it instead. Touch events and pointer events are separate
       // event systems, so the TouchInputAdapter's touch listeners coexist with
       // the pixi-ui host's pointer listeners on the same canvas.
-      let touchCanvas: HTMLCanvasElement = ctx.canvas;
+      let touchCanvas: HTMLCanvasElement = ctx.surface as HTMLCanvasElement;
       const pixiCanvas = document.querySelector(
         'canvas[data-dd-layer="1"]',
       ) as HTMLCanvasElement | null;

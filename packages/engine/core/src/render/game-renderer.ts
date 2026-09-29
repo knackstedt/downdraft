@@ -8,6 +8,7 @@
 
 import { LayoutEngine, UIInputRouter, UIRenderer, UIRoot } from "../imui";
 import type { RendererModule } from "../module/renderer-module";
+import type { RenderSurface, RenderSurfaceContext } from "../platform/render-surface";
 import { getNativeHost } from "../platform/runtime";
 import { disableRendererIndexedDb } from "../profiling/iops/renderer-idb-disable";
 import { TelemetryCollector } from "../telemetry/collector";
@@ -23,7 +24,6 @@ import { FrameGraph, SlotRegistry, type TextureHandle } from "./frame-graph";
 import { InputManager } from "./input-manager";
 import { RendererModuleHost } from "./renderer-module-host";
 import { installShaderValidationGuard } from "./shader-validator";
-import { SurfaceManager } from "./surface";
 import { TrackedRenderPass } from "./tracked-render-pass";
 
 const log = createLogger();
@@ -191,10 +191,10 @@ export type RAFSource = (callback: (time: number) => void) => number;
 export type CancelRAF = (id: number) => void;
 
 export class GameRenderer implements CanvasResizeHandler {
-  private canvas: HTMLCanvasElement;
+  private canvas: RenderSurface;
   private device: GPUDevice | null = null;
   private adapter: GPUAdapter | null = null;
-  private context: GPUCanvasContext | null = null;
+  private context: RenderSurfaceContext | null = null;
   private format: GPUTextureFormat = "bgra8unorm";
   private config: GameRendererConfig;
 
@@ -204,7 +204,6 @@ export class GameRenderer implements CanvasResizeHandler {
 
   // Infrastructure
   private deviceManager: GPUDeviceManager;
-  private surface: SurfaceManager | null = null;
   private resizeWatcher: CanvasResizeWatcher | null = null;
   private inputManager: InputManager;
   private frameGraph: FrameGraph;
@@ -294,7 +293,7 @@ export class GameRenderer implements CanvasResizeHandler {
   // Dpr
   private dpr = 1;
 
-  constructor(canvas: HTMLCanvasElement, config: GameRendererConfig = {}) {
+  constructor(canvas: RenderSurface, config: GameRendererConfig = {}) {
     this.canvas = canvas;
     this.config = config;
     this.depthFormat = config.depthFormat ?? "depth32float";
@@ -428,7 +427,7 @@ export class GameRenderer implements CanvasResizeHandler {
       // controllers, gizmos, XR frame loops, OSR). Created after InputManager
       // so the host's input bus coexists with the FPS/pointer-lock layer.
       this.rendererModuleHost = new RendererModuleHost(this.canvas, {
-        getCanvas: () => this.canvas,
+        getSurface: () => this.canvas,
         getDevice: () => this.device!,
         getFormat: () => this.format,
         getGraph: () => this.frameGraph,
@@ -1345,7 +1344,7 @@ export class GameRenderer implements CanvasResizeHandler {
     return this.adapter;
   }
 
-  getContext(): GPUCanvasContext | null {
+  getContext(): RenderSurfaceContext | null {
     return this.context;
   }
 
@@ -1361,7 +1360,13 @@ export class GameRenderer implements CanvasResizeHandler {
     return this.msaaSampleCount;
   }
 
-  getCanvas(): HTMLCanvasElement {
+  /** The render surface this renderer draws into. Canonical accessor. */
+  getSurface(): RenderSurface {
+    return this.canvas;
+  }
+
+  /** @deprecated Use getSurface() — the surface is not necessarily a DOM canvas. */
+  getCanvas(): RenderSurface {
     return this.canvas;
   }
 
