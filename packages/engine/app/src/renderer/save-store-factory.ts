@@ -22,11 +22,8 @@
 //
 // The factory is called from the renderer after the sim worker is initialized.
 
-import type { ISaveStore, SaveGenerationInfo, SaveOptions, SaveSlotInfo } from "@downdraft/engine";
+import type { ISaveStore, LoadOptions, LoadResult, SaveGenerationInfo, SaveOptions, SaveResult, SaveSlotInfo, SaveState, SaveWarning } from "@downdraft/engine";
 import { OpfsSaveStore, SaveWorkerProxy, type OpfsSaveStoreOptions } from "@downdraft/engine/libraries/persistence/browser";
-import { createLogger } from "@downdraft/engine/util/logger";
-
-const log = createLogger("info");
 
 export type SaveStoreMode = "inline" | "worker" | "host" | "auto";
 
@@ -143,11 +140,93 @@ export async function createSaveStore(opts: CreateSaveStoreOptions): Promise<Cre
         ]);
         return { store: proxy, mode: "worker" };
       }
-      throw new Error("No save backend available in 'auto' mode — no host save store and no OPFS");
+      // Last resort: the bridge's JSON save methods. On native this only
+      // happens in headless/test hosts with no appId (the stub bridge) —
+      // saves no-op but callers get a well-formed store. In a browser with
+      // a real bridge this preserves the pre-migration fallback behavior.
+      if (opts.bridge) {
+        return { store: new BridgeJsonSaveStore(opts.bridge), mode: "host" };
+      }
+      throw new Error("No save backend available in 'auto' mode — no host save store, no OPFS, no bridge");
     }
 
     default:
       throw new Error(`Unknown save store mode: ${mode}`);
+  }
+}
+
+/**
+ * ISaveStore over the bridge's JSON-string save methods — the last-resort
+ * "auto" backend for headless hosts (stub bridge) and dormant-Electron
+ * browsers without a typed store or OPFS. The wire format is the components
+ * map (what host `saveGame`/`loadGame` handlers parse/return); SaveResult
+ * metadata is unavailable across the JSON boundary.
+ */
+export class BridgeJsonSaveStore implements ISaveStore {
+  private warningCallbacks = new Set<(w: SaveWarning) => void>();
+
+  constructor(private bridge: SaveBridge) {}
+
+  async save(slot: string, state: SaveState, opts?: SaveOptions): Promise<SaveResult> {
+    try {
+      const success = await this.bridge.saveGameState(slot, JSON.stringify(state.components), opts);
+      return { success, bytes: 0 };
+    } catch {
+      return { success: false, bytes: 0 };
+    }
+  }
+
+  async load(slot: string, opts?: LoadOptions): Promise<LoadResult> {
+    try {
+      const result = await this.bridge.loadGameState(slot, opts);
+      if (!result) return { state: null };
+      const components = JSON.parse(result);
+      return {
+        state: {
+          components,
+          meta: { engineVersion: "", timestamp: 0, entityCount: 0, playerCount: 0 },
+        },
+      };
+    } catch {
+      return { state: null };
+    }
+  }
+
+  listSaves(): Promise<SaveSlotInfo[]> {
+    return this.bridge.listSaveSlots();
+  }
+
+  async listGenerations(slot: string): Promise<SaveGenerationInfo[]> {
+    return this.bridge.listSaveGenerations?.(slot) ?? [];
+  }
+
+  deleteSave(slot: string): Promise<boolean> {
+    return this.bridge.deleteGameState(slot);
+  }
+
+  async deleteGeneration(slot: string, gen: number): Promise<boolean> {
+    return this.bridge.deleteSaveGeneration?.(slot, gen) ?? false;
+  }
+
+  async setThumbnail(slot: string, data: ArrayBuffer | Uint8Array): Promise<void> {
+    await this.bridge.setThumbnail?.(slot, data);
+  }
+
+  async getThumbnail(slot: string): Promise<ArrayBuffer | null> {
+    return (await this.bridge.getThumbnail?.(slot)) ?? null;
+  }
+
+  async setProperties(slot: string, props: Record<string, unknown>): Promise<void> {
+    await this.bridge.setSaveProperties?.(slot, props);
+  }
+
+  async getProperties(slot: string): Promise<Record<string, unknown>> {
+    return (await this.bridge.getSaveProperties?.(slot)) ?? {};
+  }
+
+  onWarning(cb: (w: SaveWarning) => void): () => void {
+    this.warningCallbacks.add(cb);
+    return () => { this.warningCallbacks.delete(cb); };
   }
 }
 

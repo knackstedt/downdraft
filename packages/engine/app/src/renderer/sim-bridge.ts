@@ -16,7 +16,7 @@
 //   return { ...createSimBridge(deps), respawnPlayer: (id) => worker.respawnPlayer(id) };
 // ============================================================================
 
-import type { IRendererStateProvider, ISaveStore, LoadOptions, SaveOptions, SaveState } from "@downdraft/engine";
+import type { IRendererStateProvider, ISaveStore, LoadOptions, SaveMeta, SaveOptions, SaveState } from "@downdraft/engine";
 import { downdraft, type DowndraftBridge } from "./index";
 
 /** Minimal worker surface needed by the bridge (pause/resume/save/load). */
@@ -24,7 +24,7 @@ export interface SimBridgeWorker {
   save(
     slotName: string,
     opts?: SaveOptions,
-  ): Promise<{ slotName?: string; stateJson?: string; success?: boolean } | null | undefined>;
+  ): Promise<{ slotName?: string; stateJson?: string; success?: boolean; gen?: number; meta?: SaveMeta } | null | undefined>;
   load(slotName: string, stateJson?: string, opts?: LoadOptions): Promise<boolean>;
   pause(): void;
   resume(): void;
@@ -81,6 +81,8 @@ export function createSimBridge(deps: SimBridgeDeps): SimBridge {
             timestamp: Date.now() / 1000,
             entityCount: 0,
             playerCount: 0,
+            // Real SaveMeta computed by the worker's save.meta() hook wins.
+            ...result.meta,
           },
         };
         const saveResult = await saveStore.save(slotName, state, mergedOpts);

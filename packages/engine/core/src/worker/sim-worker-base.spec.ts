@@ -107,10 +107,16 @@ describe("createSimWorker save/command plumbing", () => {
       stateJson: string;
       success: boolean;
       gen?: number;
+      meta?: { entityCount?: number; playerCount?: number; engineVersion?: string };
     };
     expect(saveRes.slotName).toBe("slot1");
     expect(saveRes.success).toBe(true);
     expect(saveRes.gen).toBe(3);
+    // Real SaveMeta flows back through the RPC result so the renderer's
+    // save store can persist it instead of fabricating zeros.
+    expect(saveRes.meta?.entityCount).toBe(3);
+    expect(saveRes.meta?.playerCount).toBe(1);
+    expect(saveRes.meta?.engineVersion).toBe("0.1.0");
 
     // stateJson is the components map; store received the full SaveState.
     const components = JSON.parse(saveRes.stateJson);
@@ -133,6 +139,13 @@ describe("createSimWorker save/command plumbing", () => {
     expect(lastCmd).toEqual({ type: "spawn", id: 7 });
 
     expect(eventsOf("saved").length).toBe(1);
+    const savedEvt = eventsOf("saved")[0].data as {
+      slotName: string; meta?: { entityCount?: number }; origin?: string;
+    };
+    expect(savedEvt.meta?.entityCount).toBe(3);
+    // Renderer-initiated saves are tagged so game "saved" handlers don't
+    // double-write them (the caller already persists the payload).
+    expect(savedEvt.origin).toBe("renderer");
     expect(eventsOf("loaded").length).toBe(1);
     await rpc("shutdown");
   });

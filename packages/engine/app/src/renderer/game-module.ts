@@ -33,6 +33,7 @@ import {
     type PluginManifest,
     type PluginPermission,
     type PluginSource,
+    type SaveMeta,
     type SaveState
 } from "@downdraft/engine";
 import { createLogger } from "@downdraft/engine/util/logger";
@@ -79,7 +80,7 @@ export interface GameSimWorker {
   /** Optional additional SABs the game wants exposed via GameContext. */
   getExtraBuffers?(): Record<string, SharedArrayBuffer>;
   addPlayer?(playerId: number, name: string): Promise<void> | void;
-  save?(slotName: string, opts?: unknown): Promise<{ stateJson: string; success: boolean } | null>;
+  save?(slotName: string, opts?: unknown): Promise<{ stateJson: string; success: boolean; meta?: Partial<SaveMeta> } | null>;
   load?(slotName: string, stateJson?: string): Promise<boolean>;
   initSaveStore?(opts: unknown): Promise<void>;
   restoreFromState?(stateJson: string): Promise<void>;
@@ -112,8 +113,9 @@ export type RendererFactory = (canvas: HTMLCanvasElement) => any;
  * is a configuration error; `saveSource` takes priority.
  */
 export interface GameSaveSource {
-  /** Serialize current state and return it as a JSON string. */
-  save(slotName: string): Promise<{ stateJson: string; success: boolean } | null>;
+  /** Serialize current state and return it as a JSON string. `meta` carries
+   *  real SaveMeta for the renderer-side store write when available. */
+  save(slotName: string): Promise<{ stateJson: string; success: boolean; meta?: Partial<SaveMeta> } | null>;
   /** Optional: load a previously saved state. If omitted, the save store's
    *  own load path is used (OPFS / IPC). */
   load?(slotName: string): Promise<string | null>;
@@ -154,36 +156,32 @@ export interface GameSaveConfig {
 }
 
 /**
- * Pick the game-data component from a SaveState components map.
- * `explicit` (GameSaveConfig.componentName) wins; otherwise fall back to the
- * legacy first-object-valued-component heuristic, with a dev-mode warning so
- * multi-component saves don't silently restore the wrong blob.
+ * Serialize the restore payload for a SaveState components map.
+ * `explicit` (GameSaveConfig.componentName) selects a single component's
+ * `data`. Otherwise: a single-component save unwraps to its `data` (the raw
+ * payload restores expect), while a multi-component save forwards the whole
+ * map — the worker's extractRestoreData passes component-map input through
+ * to the game's restore, which selects the sections it owns. Picking the
+ * first component would silently drop the rest of the world.
  */
-function pickGameComponent(
+export function serializeRestorePayload(
   components: Record<string, { data?: unknown } | null | undefined>,
   explicit: string | undefined,
-  isDev: boolean,
-): { data?: unknown } | undefined {
+): string | undefined {
   if (explicit) {
     const comp = components[explicit];
     if (!comp) {
       log.warn("startGame", `Save component "${explicit}" not found; available: ${Object.keys(components).join(", ")}`);
       return undefined;
     }
-    return comp;
+    return JSON.stringify(comp.data);
   }
   const keys = Object.keys(components).filter(
-    (k) => components[k] && components[k]!.data != null && typeof components[k]!.data === "object",
+    (k) => components[k]?.data !== undefined && components[k]?.data !== null,
   );
   if (keys.length === 0) return undefined;
-  if (isDev && keys.length > 1) {
-    log.warn(
-      "startGame",
-      `Save has ${keys.length} object-valued components (${keys.join(", ")}); ` +
-      `picked "${keys[0]}". Set save.componentName to load deterministically.`,
-    );
-  }
-  return components[keys[0]] ?? undefined;
+  if (keys.length === 1) return JSON.stringify(components[keys[0]]!.data);
+  return JSON.stringify(components);
 }
 
 /**
@@ -629,9 +627,10 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
           bridge: downdraft,
         });
         ctx.saveStore = store;
-        // resolvedMode is "worker" or "host" (inline returns a null store);
-        // narrow to the ctx.saveMode union accordingly.
-        ctx.saveMode = store ? (resolvedMode === "worker" ? "worker" : "host") : "host";
+        // resolvedMode is "worker" | "host" | "inline" (inline returns a
+        // null store); narrow to the ctx.saveMode union accordingly.
+        ctx.saveMode = resolvedMode === "inline" ? "inline"
+          : resolvedMode === "worker" ? "worker" : "host";
       }
     } catch (e) {
       log.warn("startGame", `Save store init failed, falling back to host bridge: ${e}`);
@@ -667,6 +666,8 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
               timestamp: Date.now() / 1000,
               entityCount: 0,
               playerCount: 0,
+              // Real SaveMeta from the worker's save.meta() hook wins.
+              ...result.meta,
             },
           };
           if (ctx.saveStore) {
@@ -705,13 +706,13 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
           const state = result?.state ?? null;
           if (state && simWorker?.restoreFromState) {
             // The save store returns a SaveState with `components`. Each
-            // component has { v, data } structure — forward the game
-            // component's `data` to the sim worker.
+            // component has { v, data } structure — forward the restore
+            // payload to the sim worker.
             const components = (state as any).components;
             if (components) {
-              const comp = pickGameComponent(components, module.save?.componentName, isDev);
-              if (comp) {
-                await simWorker.restoreFromState(JSON.stringify(comp.data));
+              const payload = serializeRestorePayload(components, module.save?.componentName);
+              if (payload !== undefined) {
+                await simWorker.restoreFromState(payload);
               }
             }
           }
@@ -732,11 +733,11 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
           }
           if (simWorker?.restoreFromState) {
             const components = parsed as Record<string, { data?: unknown }> | null;
-            const comp = components && typeof components === "object"
-              ? pickGameComponent(components, module.save?.componentName, isDev)
+            const payload = components && typeof components === "object"
+              ? serializeRestorePayload(components, module.save?.componentName)
               : undefined;
-            if (comp) {
-              await simWorker.restoreFromState(JSON.stringify(comp.data));
+            if (payload !== undefined) {
+              await simWorker.restoreFromState(payload);
             } else {
               // No recognizable components map — forward the raw payload.
               await simWorker.restoreFromState(stateJson);

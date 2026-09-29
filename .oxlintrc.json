@@ -46,7 +46,6 @@
         "packages/engine/core/src/util/logger.ts",
         "packages/engine/app/src/main/**",
         "packages/engine/app/src/preload/**",
-        "packages/engine/app/src/renderer/ipc-save-store.ts",
         "packages/engine/core/src/ipc.ts",
         "packages/engine/modules/electron-osr/**",
         "packages/engine/modules/raw-input/**",

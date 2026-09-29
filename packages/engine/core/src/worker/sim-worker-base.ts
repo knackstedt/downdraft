@@ -295,14 +295,19 @@ export interface CreateSimWorkerOptions {
    * Save/load plumbing. When provided, the standard API gains the game
    * persistence contract shared by the worker-host save flow:
    *
-   *   save(slotName, opts?)           → { slotName, stateJson, success, gen? }
+   *   save(slotName, opts?)           → { slotName, stateJson, success, gen?, meta? }
    *   load(slotName, stateJson?, opts?) → boolean
    *   initSaveStore(storeOpts)        → creates + initializes the inline store
    *   restoreFromState(stateJson)     → applies a serialized payload directly
    *
    * `capture()` returns the component's data payload; it is wrapped in the
    * standard SaveState shape (components[componentName] = { v, data }) so
-   * both OPFS and IPC save backends store the same format.
+   * both OPFS and IPC save backends store the same format. The computed
+   * SaveMeta (defaults merged with the `meta()` hook's extras) is returned
+   * as `meta` so the renderer-side store can persist real metadata.
+   * The emitted "saved" event carries `origin: "renderer"` — sim-initiated
+   * saves (Simulation.save) emit without an origin so game handlers can
+   * distinguish who must persist the payload.
    */
   save?: {
     /**
@@ -720,7 +725,7 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
           async save(
             slotName: string,
             saveOpts?: SaveOptions,
-          ): Promise<{ slotName: string; stateJson: string; success: boolean; gen?: number }> {
+          ): Promise<{ slotName: string; stateJson: string; success: boolean; gen?: number; meta?: SaveMeta }> {
             const data = await opts.save!.capture!();
             const capturedBlobs = await opts.save!.captureBlobs?.();
             // Always wrap in SaveState.components format so that both OPFS
@@ -753,8 +758,8 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
               success = result.success;
               gen = result.gen;
             }
-            events.emit("saved", { slotName, stateJson, success, gen });
-            return { slotName, stateJson, success, gen };
+            events.emit("saved", { slotName, stateJson, success, gen, meta: saveStateObj.meta, origin: "renderer" });
+            return { slotName, stateJson, success, gen, meta: saveStateObj.meta };
           },
 
           /**
