@@ -88,8 +88,9 @@ export interface HostCapabilities {
   /** V8 heap snapshots (.heapsnapshot) are available. */
   readonly hasHeapSnapshot: boolean;
   /** The host can expose its wgpu device to multiple worker threads.
-   *  Pending the shared-device spike (Phase 5 of the native
-   *  re-architecture) — always false until proven. */
+   *  True on native: wgpu handles are process-global and workers attach a
+   *  non-owning view via shareDevice/attachSharedDevice. Intended for
+   *  coarse-grained work — per-pass splitting loses to worker overhead. */
   readonly supportsMultiWorkerGpu: boolean;
 }
 
@@ -100,7 +101,7 @@ export const NATIVE_HOST_CAPABILITIES: HostCapabilities = {
   hasSharedTexture: false,
   hasTracing: false,
   hasHeapSnapshot: false,
-  supportsMultiWorkerGpu: false,
+  supportsMultiWorkerGpu: true,
 };
 
 const DOM_HOST_CAPABILITIES: HostCapabilities = {

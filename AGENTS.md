@@ -1641,6 +1641,10 @@ Native binaries are **not committed** and consumers never compile them:
 
 `packages/engine/core/src/platform/runtime.ts` provides `isBun`, `isNative`, `isDevMode` for feature-detecting the runtime. Engine code should use these instead of `import.meta.env.DEV` or `typeof navigator !== "undefined"`.
 
+`packages/engine/core/src/platform/render-surface.ts` defines `RenderSurface` — the host-neutral render target (WebGPU context, dims, event target, pointer-lock). `GameRenderer`/`GameContext`/`startGame` use it; `NativeSurface` and `HTMLCanvasElement` both satisfy it. DOM helpers (`getCanvas`/`getOverlay`/`captureCanvasThumbnail`/`compositeScreenshot`) live in `app/src/renderer/compat/dom.ts` and are deprecated.
+
+**Shared GPU device across workers** (`@downdraft/platform-native` `gpu/shared-device.ts`): wgpu handles are process-global — a worker can attach to the host device via `shareDevice(device, cells)` + `attachSharedDevice(handle, cells)` (non-owning view; worker `destroy()` never releases the native device). Liveness propagates through a SAB cell — owner `pollLost`/`destroy()`/`markDeviceLost` all write it dead; workers must check `isValid()` before FFI calls (calling into a freed device is a UAF). Hand resources/command buffers to the owner by ptr (`submitCommandPtrs`, `importCommandBuffer`; `{ptr, invalid}` refs keep validation errors out of submission) — once posted, the worker must not dispose or drop the wrapper (GC would free the shared handle). Use for coarse subsystems (terrain bake, UI raster) — fine-grained per-pass splits lose to submission overhead.
+
 ### Bun preload
 
 `packages/engine/core/src/platform/bun-preload.ts` registers Bun plugin loaders for `?raw` and `?url` import suffixes, plus CSS imports. Configured in root `bunfig.toml`.

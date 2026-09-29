@@ -179,6 +179,17 @@ export class WgpuDevice {
   label = "";
 
   private instancePtr: number;
+  /** False for worker-attached (non-owning) device views — destroy() only
+   *  unwires local state and never releases the native device handle. */
+  private readonly ownsHandle: boolean;
+  /** Set by shareDevice() — an i64[2] SAB view [generation, alive]. When the
+   *  owner observes device loss it stores 0 to cell 1 so attached workers
+   *  can observe the death without a message round-trip. */
+  sharedState: BigInt64Array | null = null;
+  /** Generation this device was shared at (set by shareDevice) — guards
+   *  liveness writes so a replaced device can't clobber a newer
+   *  generation's cells. */
+  sharedStateGen = 0n;
   private destroyed = false;
   private lostResolve: ((info: GPUDeviceLostInfo) => void) | null = null;
   readonly lost: Promise<GPUDeviceLostInfo>;
@@ -186,9 +197,10 @@ export class WgpuDevice {
   private _features: GPUSupportedFeatures | null = null;
   private _lostReported = false;
 
-  constructor(ptr: number, instancePtr: number) {
+  constructor(ptr: number, instancePtr: number, options?: { ownsHandle?: boolean }) {
     this.ptr = ptr;
     this.instancePtr = instancePtr;
+    this.ownsHandle = options?.ownsHandle !== false;
     const queuePtr = wgpu.wgpu_shim_device_get_queue(ptr) as unknown as number;
     this.queue = new WgpuQueue(queuePtr);
     this.lost = new Promise((resolve) => { this.lostResolve = resolve; });
@@ -205,6 +217,18 @@ export class WgpuDevice {
     this.pollLost();
   }
 
+  getInstancePtr(): number { return this.instancePtr; }
+
+  /** Write the shared alive-cell to 0, unless the cells have moved on to a
+   *  newer generation (a re-share) — guards a replaced device from clobbering
+   *  the new device's liveness. */
+  private writeDead(): void {
+    const s = this.sharedState;
+    if (s && Atomics.load(s as any, 0) === this.sharedStateGen) {
+      Atomics.store(s as any, 1, 0n);
+    }
+  }
+
   /**
    * Poll the device-lost flag the C shim records from the device-lost
    * callback and resolve `.lost` when the device died. Called once per frame
@@ -217,6 +241,7 @@ export class WgpuDevice {
     const reason = wgpu.wgpu_shim_device_poll_lost(this.ptr, msgBuf as unknown as ptr, msgBuf.length);
     if (reason === 0) return;
     this._lostReported = true;
+    this.writeDead();
     const message = new TextDecoder().decode(msgBuf).replace(/\0.*$/, "") || "wgpu device lost";
     // WGPUDeviceLostReason: Unknown=1, Destroyed=2, CallbackCancelled=3,
     // FailedCreation=4. GPUDeviceLostInfo only knows "unknown"/"destroyed".
@@ -398,7 +423,10 @@ export class WgpuDevice {
       if (line.includes("var<uniform>")) {
         bindingType = "uniform";
       } else if (line.includes("var<storage,")) {
-        bindingType = line.includes("read") ? "read-only-storage" : "storage";
+        // read_write must be checked before "read" — `includes("read")` also
+        // matches "read_write" and would silently demote it to read-only.
+        bindingType = line.includes("read_write") ? "storage"
+          : line.includes("read") ? "read-only-storage" : "storage";
       } else if (line.includes("var<storage>")) {
         bindingType = "storage";
       } else if (line.includes("texture_depth")) {
@@ -740,8 +768,13 @@ export class WgpuDevice {
       this.lostResolve?.({ reason: "destroyed", message: "Device destroyed" } as GPUDeviceLostInfo);
     }
     untrack(this);
-    // wgpuDeviceGetQueue returns an owned handle — release it before the device.
+    // Signal attached workers before freeing handles — an alive=1 cell on a
+    // released device is a use-after-free on the worker's next FFI call.
+    this.writeDead();
+    // wgpuDeviceGetQueue returns an owned box per call — this wrapper's clone
+    // is always ours to release, regardless of device ownership.
     try { wgpu.wgpu_shim_release_queue(this.queue.ptr); } catch { /* best-effort */ }
+    if (!this.ownsHandle) return; // worker-attached view — owner releases the device.
     wgpu.wgpu_shim_release_device(this.ptr);
   }
 }
