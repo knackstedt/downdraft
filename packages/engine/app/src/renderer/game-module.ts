@@ -649,15 +649,17 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
       try {
         // Renderer-side save source takes priority (renderer-only games);
         // otherwise fall back to the sim worker's save() (sim-worker games).
+        // ctx.sim covers simFromRenderer games, resolved after renderer init.
+        const sim = ctx.sim ?? simWorker;
         const result = ctx.saveSource
           ? await ctx.saveSource.save(slotName)
-          : simWorker?.save
-            ? await simWorker.save(slotName)
+          : sim?.save
+            ? await sim.save(slotName)
             : null;
         // In inline mode, the sim worker's save() already persisted to its own
-        // OPFS store — nothing more to do. In host mode, write the state
-        // through the typed save store (real SaveResult metadata).
-        if (result?.stateJson && ctx.saveMode === "host") {
+        // OPFS store — nothing more to do. In host/worker mode the sim worker
+        // only serialized — the renderer owns the store write.
+        if (result?.stateJson && ctx.saveMode !== "inline" && ctx.saveStore) {
           const components = JSON.parse(result.stateJson);
           const state: SaveState = {
             components,
@@ -670,15 +672,8 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
               ...result.meta,
             },
           };
-          if (ctx.saveStore) {
-            const sr = await ctx.saveStore.save(slotName, state);
-            return result.success !== false && sr.success;
-          }
-          // Fallback when the host store is absent (browser stub bridge):
-          // forward through the legacy JSON methods.
-          if (downdraft?.saveGameState) {
-            return downdraft.saveGameState(slotName, JSON.stringify(components));
-          }
+          const sr = await ctx.saveStore.save(slotName, state);
+          return result.success !== false && sr.success;
         }
         return result?.success ?? false;
       } catch (e) {
@@ -694,17 +689,19 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
           const stateJson = await ctx.saveSource.load(slotName);
           return stateJson ? JSON.parse(stateJson) : null;
         }
+        // ctx.sim covers simFromRenderer games (resolved post renderer-init).
+        const sim = ctx.sim ?? simWorker;
         // Inline mode: sim worker loads directly from its own OPFS store.
         // The sim worker's load() restores state internally; we just need a
         // truthy return value so any onLoad hook fires.
-        if (ctx.saveMode === "inline" && simWorker?.load) {
-          const success = await simWorker.load(slotName);
+        if (ctx.saveMode === "inline" && sim?.load) {
+          const success = await sim.load(slotName);
           return success ? { restored: true } : null;
         }
         if (ctx.saveStore) {
           const result = await ctx.saveStore.load(slotName);
           const state = result?.state ?? null;
-          if (state && simWorker?.restoreFromState) {
+          if (state && sim?.restoreFromState) {
             // The save store returns a SaveState with `components`. Each
             // component has { v, data } structure — forward the restore
             // payload to the sim worker.
@@ -712,7 +709,7 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
             if (components) {
               const payload = serializeRestorePayload(components, module.save?.componentName);
               if (payload !== undefined) {
-                await simWorker.restoreFromState(payload);
+                await sim.restoreFromState(payload);
               }
             }
           }
@@ -731,16 +728,16 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
           } catch {
             // Non-JSON payload — fall through to raw restore.
           }
-          if (simWorker?.restoreFromState) {
+          if (sim?.restoreFromState) {
             const components = parsed as Record<string, { data?: unknown }> | null;
             const payload = components && typeof components === "object"
               ? serializeRestorePayload(components, module.save?.componentName)
               : undefined;
             if (payload !== undefined) {
-              await simWorker.restoreFromState(payload);
+              await sim.restoreFromState(payload);
             } else {
               // No recognizable components map — forward the raw payload.
-              await simWorker.restoreFromState(stateJson);
+              await sim.restoreFromState(stateJson);
             }
           }
           // Return the parsed payload (or the raw string when it isn't JSON)
@@ -844,9 +841,9 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
       // Now that the sim worker is started, initialize its inline OPFS store.
       // This must happen before the autosave load (which runs in bootstrapGame
       // after onRendererInit returns) so that the sim worker can load from OPFS.
-      if (ctx.saveMode === "inline" && simWorker?.initSaveStore && module.save) {
+      if (ctx.saveMode === "inline" && (ctx.sim ?? simWorker)?.initSaveStore && module.save) {
         try {
-          await simWorker.initSaveStore({
+          await (ctx.sim ?? simWorker)!.initSaveStore!({
             engineVersion: module.save.engineVersion,
             maxGenerations: module.save.maxGenerations ?? 3,
           });

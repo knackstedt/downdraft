@@ -33,7 +33,7 @@
 //   }
 // ============================================================================
 
-import type { LoadOptions, SaveOptions } from "../save/persist-types";
+import type { LoadOptions, SaveMeta, SaveOptions } from "../save/persist-types";
 import { createLogger } from "../util/logger";
 import { BaseWorkerHost } from "./base-worker-host";
 import type { WorkerApi } from "./rpc";
@@ -68,7 +68,7 @@ export interface SimWorkerSaveApi {
   save(
     slotName: string,
     opts?: SaveOptions,
-  ): Promise<{ slotName: string; stateJson: string; success: boolean; gen?: number }>;
+  ): Promise<{ slotName: string; stateJson: string; success: boolean; gen?: number; meta?: SaveMeta }>;
   load(slotName: string, stateJson?: string, opts?: LoadOptions): Promise<boolean>;
   initSaveStore(opts: unknown): Promise<void>;
   restoreFromState(stateJson: string, blobs?: Record<string, ArrayBuffer>): Promise<void>;
