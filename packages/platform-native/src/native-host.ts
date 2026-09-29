@@ -140,18 +140,33 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
     installRestartHook(window);
   }
 
-  // 3. Get adapter + device
+  // 3. Get adapter + device — THE single wgpu device for this process.
+  //    The renderer (GameRenderer) borrows it via getNativeHost(); it does
+  //    not request a second device or reconfigure the surface. The limits/
+  //    features below are the UNION of what the host and GameRenderer
+  //    request (clamped to what the adapter supports).
   const adapter = await gpu.requestAdapter({ powerPreference: "high-performance" });
   if (!adapter) throw new Error("No GPU adapter found");
 
+  const adapterLimits = adapter.limits as unknown as Record<string, number>;
+  // Request the min of what we want and what the adapter reports. If the
+  // adapter doesn't advertise the limit (non-finite / 0), don't request it —
+  // requesting a limit above the adapter's reported max fails requestDevice.
+  const requiredLimits: Record<string, number> = {};
+  const requestLimit = (key: string, want: number): void => {
+    const have = Number(adapterLimits[key]);
+    if (Number.isFinite(have) && have > 0) requiredLimits[key] = Math.min(want, have);
+  };
+  requestLimit("maxStorageBufferBindingSize", 256 * 1024 * 1024);
+  requestLimit("maxStorageBuffersPerShaderStage", 16);
+  requestLimit("maxSampledTexturesPerShaderStage", 32);
+  requestLimit("maxSamplersPerShaderStage", 32);
+  requestLimit("maxTextureArrayLayers", 512);
   const device = await adapter.requestDevice({
-    requiredLimits: {
-      maxStorageBufferBindingSize: 256 * 1024 * 1024,
-      maxStorageBuffersPerShaderStage: 16,
-      maxSampledTexturesPerShaderStage: 32,
-      maxSamplersPerShaderStage: 32,
-      maxTextureArrayLayers: 256,
-    },
+    requiredFeatures: adapter.features.has("timestamp-query")
+      ? ["timestamp-query" as GPUFeatureName]
+      : [],
+    requiredLimits,
   });
 
   // Install the shader validation guard so all createShaderModule calls
@@ -167,15 +182,13 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
 
   // 4b. Surface pixel readback — invoked from the context's pre-present hook
   // (see NativeSurface.captureNextFrame), the only point where the swapchain
-  // texture is guaranteed valid for a copy. IMPORTANT: the copy must run on
-  // the device that last configured the surface — GameRenderer.init()
-  // creates its own device and reconfigures, so we read it dynamically.
+  // texture is guaranteed valid for a copy. There is exactly one device in
+  // the process — GameRenderer borrows it, it does not reconfigure.
   surface.setReadbackHook(() => {
     const tex = ctx.getCurrentTexture();
-    const dev = ctx.getDevice() ?? device;
     if (!tex) { log.error("native-host", "readback hook: no surface texture"); return null; }
     try {
-      return captureScreenshotPixels(dev, tex, surface.width, surface.height, ctx.getFormat() ?? format);
+      return captureScreenshotPixels(device, tex, surface.width, surface.height, ctx.getFormat() ?? format);
     } catch (e) {
       log.error("native-host", `readback hook failed: ${e}`);
       return null;

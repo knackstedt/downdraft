@@ -1,6 +1,4 @@
-import { createLogger } from "../util/logger";
-
-const log = createLogger();
+import { getHostCapabilities } from "../platform/runtime";
 
 /**
  * Multi-pass GPU timestamp query pool.
@@ -37,8 +35,13 @@ export class GPUTimerPool {
 
   private init(device: GPUDevice): void {
     const features = device.features;
-    // writeTimestamp on GPURenderPassEncoder requires the inside-passes experimental feature
-    if (!features.has("timestamp-query") || !features.has("chromium-experimental-timestamp-query-inside-passes")) {
+    // writeTimestamp on GPURenderPassEncoder requires the inside-passes
+    // experimental feature on Dawn/Chromium. wgpu (the native runtime)
+    // supports inside-pass timestamps with plain "timestamp-query".
+    const insidePassTimestamps =
+      features.has("chromium-experimental-timestamp-query-inside-passes") ||
+      getHostCapabilities().runtime === "native";
+    if (!features.has("timestamp-query") || !insidePassTimestamps) {
       this.supported = false;
       // Encoder-level timestamps may still be available (base "timestamp-query")
       this.initEncoderTimestamps(device);
@@ -107,7 +110,9 @@ export class GPUTimerPool {
   }
 
   resolve(encoder: GPUCommandEncoder): void {
-    if (!this.supported || !this.querySet || !this.resolveBuffer || !this.readBuffer) return;
+    // Encoder-level timestamps (blit/copy passes) can be resolved even when
+    // inside-pass timestamps aren't supported.
+    if ((!this.supported && !this.encoderTimestampSupported) || !this.querySet || !this.resolveBuffer || !this.readBuffer) return;
     if (this.bufferMapped) {
       // Queue the resolve for the next frame — readBuffer is still mapped.
       this.pendingResolve = true;
@@ -120,7 +125,7 @@ export class GPUTimerPool {
   }
 
   async readAll(): Promise<Map<number, number>> {
-    if (!this.supported || !this.readBuffer || !this.pending) return this.lastResults;
+    if ((!this.supported && !this.encoderTimestampSupported) || !this.readBuffer || !this.pending) return this.lastResults;
     this.pending = false;
     this.bufferMapped = true;
 

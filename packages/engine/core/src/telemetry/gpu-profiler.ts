@@ -345,13 +345,13 @@ export class GPUProfiler {
   }
 
   resolveGpuTimers(encoder: GPUCommandEncoder): void {
-    if (this.gpuTimerPool && this.gpuTimerPool.isSupported()) {
+    if (this.gpuTimerPool && (this.gpuTimerPool.isSupported() || this.gpuTimerPool.isEncoderTimestampSupported())) {
       this.gpuTimerPool.resolve(encoder);
     }
   }
 
   readGpuTimers(): Promise<Map<number, number>> {
-    if (this.gpuTimerPool && this.gpuTimerPool.isSupported()) {
+    if (this.gpuTimerPool && (this.gpuTimerPool.isSupported() || this.gpuTimerPool.isEncoderTimestampSupported())) {
       return this.gpuTimerPool.readAll();
     }
     return Promise.resolve(new Map());

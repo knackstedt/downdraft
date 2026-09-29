@@ -8,6 +8,7 @@
 
 import { LayoutEngine, UIInputRouter, UIRenderer, UIRoot } from "../imui";
 import type { RendererModule } from "../module/renderer-module";
+import { getNativeHost } from "../platform/runtime";
 import { disableRendererIndexedDb } from "../profiling/iops/renderer-idb-disable";
 import { TelemetryCollector } from "../telemetry/collector";
 import { DebugOverlay as ProfilingOverlay } from "../telemetry/debug-overlay";
@@ -35,6 +36,22 @@ export interface ViewportRect {
 }
 
 export interface GameRendererConfig {
+  /**
+   * Pre-created device/adapter to borrow instead of requesting new ones.
+   * On the native host a single wgpu device is shared between the host and
+   * the renderer — this path avoids a second requestDevice() on the same
+   * surface. When omitted, init() falls back to the native host's device
+   * (getNativeHost()) before self-acquiring via navigator.gpu.
+   */
+  device?: GPUDevice;
+  adapter?: GPUAdapter;
+  /**
+   * Configure the surface context at init. Defaults to true — set false
+   * when the surface was already configured by the device owner (e.g. the
+   * native host configures it at window creation). Automatically skipped
+   * when the device was borrowed from the native host.
+   */
+  configureSurface?: boolean;
   depthFormat?: GPUTextureFormat;
   msaaSampleCount?: number;
   enableProfilingOverlay?: boolean;
@@ -211,6 +228,9 @@ export class GameRenderer implements CanvasResizeHandler {
   // Render loop state
   private running = false;
   private deviceLost = false;
+  /** True when init() borrowed the native host's device — the surface was
+   *  already configured by the host, so the renderer must not reconfigure. */
+  private hostConfiguredSurface = false;
   private lastTime = 0;
   private elapsedTime = 0;
   private fps = 0;
@@ -315,13 +335,29 @@ export class GameRenderer implements CanvasResizeHandler {
         disableRendererIndexedDb();
       }
 
-      const adapter = await this.requestAdapterWithFallback();
-      if (!adapter) {
+      // Device resolution order: explicit config → native host's device →
+      // self-acquire. On native the host owns the only wgpu device and the
+      // surface context — borrowing it avoids a second requestDevice() and
+      // a reconfigure race on the same surface (the Electron model created
+      // one device per process; in-process there is exactly one).
+      const nativeHost = getNativeHost();
+      const borrowedDevice = this.config.device ?? nativeHost?.device;
+      const borrowedAdapter = this.config.adapter ?? nativeHost?.adapter;
+      // An adapter is only required when we must acquire the device ourselves;
+      // a borrowed device is already usable (adapter.info is null-tolerated
+      // below).
+      const adapter = borrowedAdapter ?? await this.requestAdapterWithFallback();
+      if (!adapter && !borrowedDevice) {
         log.error("GameRenderer", "No GPU adapter found — check GPU drivers and /dev/dri permissions");
         return false;
       }
-      this.device = await this.requestDeviceFromAdapter(adapter);
+      this.device = borrowedDevice ?? await this.requestDeviceFromAdapter(adapter!);
       this.adapter = adapter;
+      // The host configured the surface with its own usage set at creation —
+      // reconfiguring here would tear down the swapchain and race the host's
+      // readback hook. Skip when borrowing the host's device.
+      this.hostConfiguredSurface =
+        borrowedDevice !== undefined && borrowedDevice === nativeHost?.device;
 
       // Install the shader validation guard so all createShaderModule calls
       // route through getCompilationInfo() validation.
@@ -332,7 +368,7 @@ export class GameRenderer implements CanvasResizeHandler {
       this.gpuResourceTracker.wrapDevice(this.device);
 
       // GPU profiler
-      const adapterInfo = adapter.info ?? null;
+      const adapterInfo = adapter?.info ?? null;
       this.context = this.canvas.getContext("webgpu")!;
       this.format = navigator.gpu.getPreferredCanvasFormat();
       this.gpuProfiler = new GPUProfiler();
@@ -344,12 +380,17 @@ export class GameRenderer implements CanvasResizeHandler {
         this.handleDeviceLost(info);
       });
 
-      // Configure surface
-      this.context.configure({
-        device: this.device,
-        format: this.format,
-        alphaMode: "premultiplied",
-      });
+      // Configure surface — skipped when the surface was already configured
+      // by the device owner (native host) or the caller opted out. A borrowed
+      // host surface is never reconfigured: the host's usage set and
+      // pre-present readback hook are bound to its configure call.
+      if (!this.hostConfiguredSurface && (this.config.configureSurface ?? true)) {
+        this.context.configure({
+          device: this.device,
+          format: this.format,
+          alphaMode: "premultiplied",
+        });
+      }
 
       // Initialize GPU UI system
       this.uiRenderer = new UIRenderer(this.format);
@@ -448,9 +489,6 @@ export class GameRenderer implements CanvasResizeHandler {
     if (adapter.features.has("timestamp-query")) {
       requiredFeatures.push("timestamp-query");
     }
-    if (adapter.features.has("chromium-experimental-timestamp-query-inside-passes" as GPUFeatureName)) {
-      requiredFeatures.push("chromium-experimental-timestamp-query-inside-passes" as GPUFeatureName);
-    }
     return adapter.requestDevice({
       requiredFeatures,
       requiredLimits: this.buildRequiredLimits(adapter),
@@ -467,9 +505,17 @@ export class GameRenderer implements CanvasResizeHandler {
       log.error("GameRenderer", `onDeviceLost callback threw: ${err}`);
     }
 
-    if ((this.config.deviceLossRecovery ?? "auto") === "reload" || info?.reason === "destroyed") {
+    if (
+      (this.config.deviceLossRecovery ?? "auto") === "reload" ||
+      info?.reason === "destroyed" ||
+      this.hostConfiguredSurface
+    ) {
       // "destroyed" = device.destroy() was called deliberately — a new device
-      // can't help, the app is tearing down or opted out.
+      // can't help, the app is tearing down or opted out. A borrowed host
+      // device can't be recovered in place either: the host's surface
+      // configure and readback hook are bound to the dead device, and every
+      // other holder of it (bridge, PixiJS, devtools) would still point at
+      // the old handle. Restart instead.
       this.reloadForDeviceLoss();
       return;
     }

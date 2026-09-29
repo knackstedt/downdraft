@@ -24,7 +24,7 @@
 // ============================================================================
 
 import type { RendererModule, RendererModuleContext } from "@downdraft/engine";
-import { createLogger, resourceToken } from "@downdraft/engine";
+import { createLogger, getNativeHost, resourceToken } from "@downdraft/engine";
 import type {
     PixiUiAction,
     PixiUiEvent,
@@ -176,6 +176,7 @@ export function createNativePixiUiScene(options: NativePixiUiSceneOptions): Rend
       // the scene resolves.
       const init = (async () => {
         const adapter = options.adapter
+          ?? getNativeHost()?.adapter
           ?? await (navigator.gpu as GPU).requestAdapter()
           ?? (() => { throw new Error("navigator.gpu.requestAdapter returned null"); })();
         host = new NativePixiUiHost({

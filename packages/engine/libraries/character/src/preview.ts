@@ -13,6 +13,7 @@ import {
     BindlessMaterialManager,
     BindlessTextureRegistry,
     DEPTH_FORMAT,
+    getNativeHost,
 } from "@downdraft/engine";
 import { ModelRenderer } from "@downdraft/engine/libraries/entities";
 import type { ModelData } from "@downdraft/engine/libraries/models";
@@ -63,6 +64,7 @@ export class CharacterPreview {
   // playerScale logic — some rigs are authored in cm and span ~200 units).
   private modelScale = 1;
   private modelYOffset = 0;
+  private ownsDevice = false;
 
   constructor(canvas: HTMLCanvasElement, opts: CharacterPreviewOptions) {
     this.canvas = canvas;
@@ -71,9 +73,19 @@ export class CharacterPreview {
 
   /** Initialize the GPU device + ModelRenderer. Must be called before setModel. */
   async init(): Promise<void> {
-    const adapter = await navigator.gpu.requestAdapter();
-    if (!adapter) throw new Error("[CharacterPreview] No WebGPU adapter");
-    this.device = await adapter.requestDevice();
+    // Borrow the host's device on native — there is exactly one wgpu device
+    // per process; requesting a second one is the bug the shared-device
+    // architecture exists to prevent.
+    const host = getNativeHost();
+    if (host?.device) {
+      this.device = host.device;
+      this.ownsDevice = false;
+    } else {
+      const adapter = await navigator.gpu.requestAdapter();
+      if (!adapter) throw new Error("[CharacterPreview] No WebGPU adapter");
+      this.device = await adapter.requestDevice();
+      this.ownsDevice = true;
+    }
     this.device.lost.then((info) => {
       log.warn("CharacterPreview", `GPUDevice LOST: ${info.reason} ${info.message}`);
     });
@@ -266,7 +278,9 @@ export class CharacterPreview {
     this.depthTexture = null;
     this.modelRenderer?.destroy();
     this.modelRenderer = null;
-    this.device?.destroy();
+    // Only destroy a device we created — a borrowed host device outlives us.
+    if (this.ownsDevice) this.device?.destroy();
     this.device = null;
+    this.ownsDevice = false;
   }
 }

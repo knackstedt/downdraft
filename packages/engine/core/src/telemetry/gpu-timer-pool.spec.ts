@@ -58,6 +58,18 @@ describe("GPUTimerPool", () => {
     expect(pool.isEncoderTimestampSupported()).toBe(true); // but encoder-level is
   });
 
+  it("inside-pass timestamps work on native with only timestamp-query (wgpu)", () => {
+    (globalThis as any).__nativeHost = {};
+    try {
+      const device = createMockDevice(["timestamp-query"]);
+      const pool = new GPUTimerPool(device, 8);
+      expect(pool.isSupported()).toBe(true); // wgpu: inside-pass via timestamp-query
+      expect(pool.isEncoderTimestampSupported()).toBe(true);
+    } finally {
+      delete (globalThis as any).__nativeHost;
+    }
+  });
+
   it("getMaxPasses returns the configured value", () => {
     const device = createMockDevice(["timestamp-query", "chromium-experimental-timestamp-query-inside-passes"]);
     const pool = new GPUTimerPool(device, 16);
