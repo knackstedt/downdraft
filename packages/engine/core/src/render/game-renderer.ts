@@ -9,7 +9,7 @@
 import { LayoutEngine, UIInputRouter, UIRenderer, UIRoot } from "../imui";
 import type { RendererModule } from "../module/renderer-module";
 import type { RenderSurface, RenderSurfaceContext } from "../platform/render-surface";
-import { getNativeHost } from "../platform/runtime";
+import { getHostCapabilities, getNativeHost } from "../platform/runtime";
 import { disableRendererIndexedDb } from "../profiling/iops/renderer-idb-disable";
 import { TelemetryCollector } from "../telemetry/collector";
 import { DebugOverlay as ProfilingOverlay } from "../telemetry/debug-overlay";
@@ -327,10 +327,12 @@ export class GameRenderer implements CanvasResizeHandler {
 
   async init(): Promise<boolean> {
     try {
-      // Disable IndexedDB in the renderer thread by default — the renderer
-      // should not do I/O. All persistence goes through the save worker.
-      // Games can opt out via config.disableRendererIndexedDb = false.
-      if (this.config.disableRendererIndexedDb !== false) {
+      // Disable IndexedDB in the renderer thread by default on DOM hosts —
+      // the renderer should not do I/O. Single-process hosts (native) have
+      // no renderer sandbox to protect; all persistence goes through the
+      // save path anyway. Games can opt out via
+      // config.disableRendererIndexedDb = false.
+      if (this.config.disableRendererIndexedDb !== false && getHostCapabilities().hasDom) {
         disableRendererIndexedDb();
       }
 
@@ -524,10 +526,10 @@ export class GameRenderer implements CanvasResizeHandler {
   private reloadForDeviceLoss(): void {
     setTimeout(() => {
       // Native runtime: window.location.reload() is a no-op. Route through
-      // the host's restart hook (detached self-respawn — the real reload
-      // equivalent), then fall back to a dialog + clean quit if the restart
-      // budget is exhausted.
-      const req = (globalThis as any).__ddRequestRestart;
+      // the host's first-class restart hook (detached self-respawn — the
+      // real reload equivalent), then fall back to a dialog + clean quit if
+      // the restart budget is exhausted.
+      const req = (globalThis as any).downdraft?.requestRestart;
       if (typeof req === "function" && req("GPU device lost")) return;
       const nativeWin = (globalThis as any).__nativeWindow;
       if (nativeWin?.showMessageBox) {

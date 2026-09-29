@@ -161,7 +161,7 @@ describe("CLI new — minimal template", () => {
     const config = JSON.parse(readFileSync(join(TEST_DIR, "downdraft.config.json"), "utf-8"));
     expect(config.engine).toBe("downdraft");
     expect(config.name).toBe("my-game");
-    expect(config.builder.mode).toBe("dev");
+    expect(config.builder).toBeUndefined();
   });
 
   it("should not emit electron main/preload entries (dormant)", async () => {

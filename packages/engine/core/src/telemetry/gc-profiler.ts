@@ -51,6 +51,14 @@ export function startGCProfiler(
     log.warn(`GC:${label}`, "PerformanceObserver unavailable — skipping GC profiling");
     return null;
   }
+  // 'gc' entries are a V8/Node entry type — JSC (Bun) supports
+  // PerformanceObserver but never emits them. Bail rather than run a
+  // setInterval that reports empty stats forever.
+  const supported = (PO as unknown as { supportedEntryTypes?: string[] }).supportedEntryTypes;
+  if (supported && !supported.includes("gc")) {
+    log.warn(`GC:${label}`, "host does not emit 'gc' performance entries — skipping GC profiling");
+    return null;
+  }
 
   let cur: GCInterval = {
     count: 0, totalTime: 0,

@@ -30,6 +30,7 @@ import { createLogger } from "@downdraft/engine/util/logger";
 import { spawn } from "node:child_process";
 import { WgpuDevice } from "../gpu/wgpu-wrapper";
 import { addCrashFeatureLog } from "../host-lifecycle";
+import { requestGameRestart } from "../native-restart";
 import { createNativeOsrHost } from "../osr/native-osr-host";
 import { isPackaged } from "../packaged";
 import { encodePNG } from "../screenshot/screenshot";
@@ -118,7 +119,6 @@ export function createNativeBridge(opts: NativeBridgeOptions): HostAPI & { dispo
       const wallUs = Math.max(1, (now - lastTime) * 1000);
       lastTime = now;
       emit("perf-stats", {
-        process: "native",
         cpuPercent: Math.min(100, ((cpu.user + cpu.system) / wallUs) * 100),
         memUsedMB: mem.rss / (1024 * 1024),
         heapUsedMB: mem.heapUsed / (1024 * 1024),
@@ -162,6 +162,7 @@ export function createNativeBridge(opts: NativeBridgeOptions): HostAPI & { dispo
     quit: async () => {
       opts.window.requestQuit();
     },
+    requestRestart: (reason: string) => requestGameRestart(reason),
     // Single process — the caller already applied the flag locally; these
     // exist to relay intent to subscribers (devtools overlay, game UI).
     setDebugMode: (enabled: boolean) => {

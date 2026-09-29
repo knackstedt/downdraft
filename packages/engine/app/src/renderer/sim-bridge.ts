@@ -174,6 +174,9 @@ export function createSimBridge(deps: SimBridgeDeps): SimBridge {
     },
 
     resetGame(): void {
+      // Host-owned restart on native (detached self-respawn); DOM hosts
+      // reload the page.
+      if (bridge().requestRestart?.("game reset")) return;
       window.location.reload();
     },
   };

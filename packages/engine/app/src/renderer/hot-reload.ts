@@ -104,8 +104,10 @@ export function installSimHotReload(deps: SimHotReloadDeps): void {
     } catch (err) {
       log.error("HMR", `Sim hot-reload failed: ${(err as Error).message}`);
       store.setStatus("error", (err as Error).message);
-      log.warn("HMR", "Falling back to full page reload");
-      window.location.reload();
+      log.warn("HMR", "Falling back to full reload");
+      if (!bridge().requestRestart?.("sim hot-reload failed")) {
+        window.location.reload();
+      }
     }
   });
 
@@ -132,7 +134,9 @@ export function installSimHotReload(deps: SimHotReloadDeps): void {
         log.warn("HMR", `State save failed, reloading without preservation: ${err}`);
       }
     }
-    window.location.reload();
+    if (!bridge().requestRestart?.("renderer hot-reload")) {
+      window.location.reload();
+    }
   });
 }
 

@@ -1,6 +1,3 @@
   "name": "<%= it.name %>",
   "version": "<%= it.version %>",
-  "engine": "downdraft",
-  "builder": {
-    "mode": "dev"
-  }
+  "engine": "downdraft"

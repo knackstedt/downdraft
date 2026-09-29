@@ -100,11 +100,8 @@ export interface DisplayMetricsChangedData {
   scaleFactor: number;
 }
 
-/** Payload for the `perf-stats` event (single-process — no process field). */
+/** Payload for the `perf-stats` event (single-process host). */
 export interface PerfStatsData {
-  /** Kept for payload compatibility with dormant emitters; always "native"
-   *  on the live host. Ignored by consumers — Phase 6 removes it. */
-  process?: string;
   cpuPercent: number;
   memUsedMB: number;
   heapUsedMB: number;
@@ -265,6 +262,11 @@ export interface HostAPI {
   setSaveProperties(slotName: string, props: Record<string, unknown>): Promise<void>;
   getSaveProperties(slotName: string): Promise<Record<string, unknown>>;
   quit(): Promise<void>;
+  /** Request a full host restart for unrecoverable failures (device loss,
+   *  resetGame, HMR fallback). Native: detached self-respawn with a restart
+   *  budget; DOM hosts may leave this unimplemented — callers fall back to
+   *  `window.location.reload()`. Returns false when refused. */
+  requestRestart?(reason: string): boolean;
   setDebugMode(enabled: boolean): void;
   toggleDevtools(): void;
   toggleFullscreen(): void;

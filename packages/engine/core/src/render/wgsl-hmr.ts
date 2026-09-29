@@ -56,9 +56,13 @@ class WgslHotReloadRegistry {
     const set = this.listeners.get(id);
     if (set && set.size > 0) {
       set.forEach((fn) => fn(newSource));
-    } else if (typeof window !== "undefined") {
-      // No fine-grained subscriber — reload the page so the change is visible.
-      window.location.reload();
+    } else {
+      // No fine-grained subscriber — restart so the change is visible. The
+      // host's requestRestart handles native (self-respawn); DOM hosts
+      // fall back to a page reload.
+      const req = (globalThis as any).downdraft?.requestRestart;
+      if (typeof req === "function" && req("WGSL reload — no subscriber")) return;
+      if (typeof window !== "undefined") window.location.reload();
     }
   }
 }

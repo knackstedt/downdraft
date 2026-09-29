@@ -32,6 +32,7 @@ class HostImportCache implements ImportCache {
   // persistence. This is a pragmatic trade-off: the cache is eventually
   // consistent with the SQLite store.
   private memory = new Map<string, CacheEntry>();
+  private pending = new Set<string>();
   private bridge: NonNullable<Parameters<typeof createHostImportCache>[0]>;
 
   constructor(bridge: NonNullable<Parameters<typeof createHostImportCache>[0]>) {
@@ -39,7 +40,18 @@ class HostImportCache implements ImportCache {
   }
 
   get(modelPath: string): CacheEntry | null {
-    return this.memory.get(modelPath) ?? null;
+    const hit = this.memory.get(modelPath);
+    if (hit) return hit;
+    // Sync interface over an async store: on a miss, hydrate the mirror in
+    // the background so a later get() sees the persisted entry. First-read
+    // after restart can still miss — callers treat null as "reimport".
+    if (!this.pending.has(modelPath)) {
+      this.pending.add(modelPath);
+      this.bridge.importCacheGet?.(modelPath).then((entry) => {
+        if (entry) this.memory.set(modelPath, entry as CacheEntry);
+      }).catch(() => {}).finally(() => this.pending.delete(modelPath));
+    }
+    return null;
   }
 
   set(modelPath: string, entry: CacheEntry): void {
