@@ -26,12 +26,15 @@ export function createHostImportCache(bridge?: {
 /**
  * ImportCache implementation that delegates to the host's SQLite store.
  */
+/** Marker for a confirmed-persisted miss — prevents refetching absent paths. */
+const ABSENT = Symbol("absent");
+
 class HostImportCache implements ImportCache {
   // Synchronous get/set are backed by an in-memory mirror, since the host
   // calls are async. The async methods on the bridge are used for actual
   // persistence. This is a pragmatic trade-off: the cache is eventually
   // consistent with the SQLite store.
-  private memory = new Map<string, CacheEntry>();
+  private memory = new Map<string, CacheEntry | typeof ABSENT>();
   private pending = new Set<string>();
   private bridge: NonNullable<Parameters<typeof createHostImportCache>[0]>;
 
@@ -41,20 +44,26 @@ class HostImportCache implements ImportCache {
 
   get(modelPath: string): CacheEntry | null {
     const hit = this.memory.get(modelPath);
-    if (hit) return hit;
+    if (hit) return hit === ABSENT ? null : hit;
     // Sync interface over an async store: on a miss, hydrate the mirror in
     // the background so a later get() sees the persisted entry. First-read
-    // after restart can still miss — callers treat null as "reimport".
+    // after restart can still miss — callers treat null as "reimport". A
+    // negative result is cached so absent paths don't refire per get().
     if (!this.pending.has(modelPath)) {
       this.pending.add(modelPath);
       this.bridge.importCacheGet?.(modelPath).then((entry) => {
-        if (entry) this.memory.set(modelPath, entry as CacheEntry);
-      }).catch(() => {}).finally(() => this.pending.delete(modelPath));
+        // Only commit if the fetch is still pending — set()/invalidate()
+        // clear the marker, and an in-flight result must not resurrect an
+        // invalidated entry or clobber a fresher local write.
+        if (!this.pending.delete(modelPath)) return;
+        this.memory.set(modelPath, entry === null ? ABSENT : (entry as CacheEntry));
+      }).catch(() => { this.pending.delete(modelPath); });
     }
     return null;
   }
 
   set(modelPath: string, entry: CacheEntry): void {
+    this.pending.delete(modelPath);
     this.memory.set(modelPath, entry);
     // Persist to SQLite via the host bridge (fire-and-forget)
     this.bridge.importCacheSet?.(modelPath, {
@@ -68,6 +77,7 @@ class HostImportCache implements ImportCache {
   }
 
   invalidate(modelPath: string): void {
+    this.pending.delete(modelPath);
     this.memory.delete(modelPath);
     this.bridge.importCacheInvalidate?.(modelPath).catch(() => {});
   }
