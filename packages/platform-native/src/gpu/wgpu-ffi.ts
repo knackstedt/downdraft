@@ -148,6 +148,8 @@ const WGPU_SHIM_SPEC: Record<string, CFunction> = {
     returns: "void",
   },
   wgpu_shim_render_pass_end: { args: ["ptr"], returns: "void" },
+  wgpu_shim_render_pass_write_timestamp: { args: ["ptr", "ptr", "u32"], returns: "void" },
+  wgpu_shim_compute_pass_write_timestamp: { args: ["ptr", "ptr", "u32"], returns: "void" },
   wgpu_shim_render_pass_set_scissor_rect: {
     args: ["ptr", "u32", "u32", "u32", "u32"],
     returns: "void",
@@ -267,6 +269,7 @@ const WGPU_SHIM_SPEC: Record<string, CFunction> = {
   wgpu_shim_adapter_get_limits: { args: ["ptr", "ptr"], returns: "i32" },
   wgpu_shim_device_get_limits: { args: ["ptr", "ptr"], returns: "i32" },
   wgpu_shim_adapter_get_features: { args: ["ptr", "ptr", "u32"], returns: "u32" },
+  wgpu_shim_adapter_get_info: { args: ["ptr", "ptr", "i32"], returns: "i32" },
   wgpu_shim_device_get_features: { args: ["ptr", "ptr", "u32"], returns: "u32" },
 
   // Queue onSubmittedWorkDone
@@ -515,6 +518,8 @@ export interface WgpuShimSymbols {
     firstInstance: number,
   ) => void;
   wgpu_shim_render_pass_end: (pass: ptr) => void;
+  wgpu_shim_render_pass_write_timestamp: (pass: ptr, querySet: ptr, queryIndex: number) => void;
+  wgpu_shim_compute_pass_write_timestamp: (pass: ptr, querySet: ptr, queryIndex: number) => void;
   wgpu_shim_render_pass_set_scissor_rect: (
     pass: ptr,
     x: number,
@@ -637,6 +642,7 @@ export interface WgpuShimSymbols {
   wgpu_shim_adapter_get_limits: (adapter: ptr, outBuffer: ptr) => number;
   wgpu_shim_device_get_limits: (device: ptr, outBuffer: ptr) => number;
   wgpu_shim_adapter_get_features: (adapter: ptr, outFeatures: ptr, maxCount: number) => number;
+  wgpu_shim_adapter_get_info: (adapter: ptr, outBuf: ptr, outSize: number) => number;
   wgpu_shim_device_get_features: (device: ptr, outFeatures: ptr, maxCount: number) => number;
   wgpu_shim_queue_on_submitted_work_done: (queue: ptr) => void;
 

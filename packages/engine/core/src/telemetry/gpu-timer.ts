@@ -1,5 +1,6 @@
 
-import { getHostCapabilities } from "../platform/runtime";
+
+import { isGpuTimestampSafe } from "./gpu-timestamp-gate";
 
 /**
  * GPU timestamp query helper for measuring GPU execution time.
@@ -22,12 +23,7 @@ export class GPUTimer {
 
   private init(device: GPUDevice): void {
     const features = device.features;
-    // The wgpu-native timestamp path (writeTimestamp / resolveQuerySet /
-    // map_async readback) loses the device on lavapipe-class drivers — keep it
-    // off on native unless DOWNDRAFT_GPU_TIMESTAMPS is set for debugging.
-    const timestampsOk =
-      getHostCapabilities().runtime !== "native" || !!process.env.DOWNDRAFT_GPU_TIMESTAMPS;
-    if (!features.has("timestamp-query") || !timestampsOk) {
+    if (!features.has("timestamp-query") || !isGpuTimestampSafe(device)) {
       this.supported = false;
       return;
     }

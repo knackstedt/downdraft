@@ -74,9 +74,15 @@ describe("GPUTimerPool", () => {
     (globalThis as any).__nativeHost = {};
     process.env.DOWNDRAFT_GPU_TIMESTAMPS = "1";
     try {
-      const device = createMockDevice(["timestamp-query"]);
+      // Native inside-pass/inside-encoder timestamps need the wgpu
+      // extension features, requested alongside base timestamp-query.
+      const device = createMockDevice([
+        "timestamp-query",
+        "timestamp-query-inside-passes",
+        "timestamp-query-inside-encoders",
+      ]);
       const pool = new GPUTimerPool(device, 8);
-      expect(pool.isSupported()).toBe(true); // wgpu: inside-pass via timestamp-query
+      expect(pool.isSupported()).toBe(true);
       expect(pool.isEncoderTimestampSupported()).toBe(true);
     } finally {
       delete (globalThis as any).__nativeHost;

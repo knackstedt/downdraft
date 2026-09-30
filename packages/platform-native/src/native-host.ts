@@ -162,10 +162,23 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   requestLimit("maxSampledTexturesPerShaderStage", 32);
   requestLimit("maxSamplersPerShaderStage", 32);
   requestLimit("maxTextureArrayLayers", 512);
+  // Timestamp queries are opt-in on native: the wgpu timestamp path loses
+  // the device on lavapipe-class rasterizers AND has been observed to lose
+  // real discrete Vulkan devices under sustained in-game use — keep it behind
+  // DOWNDRAFT_GPU_TIMESTAMPS until the driver-level issue is resolved
+  // upstream. The base feature is still requested unconditionally (harmless
+  // while unused; consumers gate on isGpuTimestampSafe).
+  const adapterType = (adapter as unknown as { nativeInfo?: { deviceType?: string } | null }).nativeInfo?.deviceType;
+  const wantTimestampExtensions =
+    !!process.env.DOWNDRAFT_GPU_TIMESTAMPS && adapterType !== "cpu";
+  const timestampFeatures = [
+    "timestamp-query",
+    ...(wantTimestampExtensions
+      ? ["timestamp-query-inside-passes", "timestamp-query-inside-encoders"]
+      : []),
+  ].filter((f) => adapter.features.has(f as GPUFeatureName));
   const device = await adapter.requestDevice({
-    requiredFeatures: adapter.features.has("timestamp-query")
-      ? ["timestamp-query" as GPUFeatureName]
-      : [],
+    requiredFeatures: timestampFeatures as GPUFeatureName[],
     requiredLimits,
   });
 

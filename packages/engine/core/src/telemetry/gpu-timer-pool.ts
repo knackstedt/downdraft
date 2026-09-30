@@ -1,4 +1,4 @@
-import { getHostCapabilities } from "../platform/runtime";
+import { isGpuTimestampSafe } from "./gpu-timestamp-gate";
 
 /**
  * Multi-pass GPU timestamp query pool.
@@ -35,21 +35,17 @@ export class GPUTimerPool {
 
   private init(device: GPUDevice): void {
     const features = device.features;
-    // writeTimestamp on GPURenderPassEncoder requires the inside-passes
-    // experimental feature on Dawn/Chromium. wgpu (the native runtime)
-    // supports inside-pass timestamps with plain "timestamp-query".
-    // The wgpu-native shim's timestamp path is unsafe: encoder.writeTimestamp /
-    // resolveQuerySet lose the device on lavapipe-class drivers, and the
-    // synchronous map_async FFI then wedges the whole process. Keep the entire
-    // timestamp path off on native unless explicitly opted in for debugging —
-    // the correct reimplementation writes via pass-descriptor timestamp_writes
-    // (the shim already accepts them), which is a larger refactor.
-    const timestampsOk =
-      getHostCapabilities().runtime !== "native" || !!process.env.DOWNDRAFT_GPU_TIMESTAMPS;
+    // writeTimestamp on a pass encoder requires the inside-passes feature:
+    // "chromium-experimental-timestamp-query-inside-passes" on Dawn/Chromium,
+    // "timestamp-query-inside-passes" (FeaturesWGPU) on the native wgpu shim.
+    // On native the whole timestamp path is additionally gated on real hardware
+    // — lavapipe-class software rasterizers lose the device on
+    // writeTimestamp/resolveQuerySet (see isGpuTimestampSafe).
+    const timestampsOk = isGpuTimestampSafe(device);
     const insidePassTimestamps =
       timestampsOk &&
       (features.has("chromium-experimental-timestamp-query-inside-passes") ||
-        getHostCapabilities().runtime === "native");
+        features.has("timestamp-query-inside-passes" as GPUFeatureName));
     if (!features.has("timestamp-query") || !insidePassTimestamps) {
       this.supported = false;
       // Encoder-level timestamps may still be available (base "timestamp-query")
@@ -215,15 +211,15 @@ export class GPUTimerPool {
    * variant). Can also be called manually after construction.
    */
   initEncoderTimestamps(device: GPUDevice): void {
-    // Encoder-level timestamps require "timestamp-query" (base feature).
-    // The chromium-experimental variant is only needed for inside-pass timestamps.
-    // Encoder-level timestamps require "timestamp-query" (base feature).
-    // The chromium-experimental variant is only needed for inside-pass timestamps.
-    // Native: same unsafe-path gate as init() — encoder writeTimestamp and
-    // resolveQuerySet lose the wgpu device on lavapipe-class drivers.
-    const timestampsOk =
-      getHostCapabilities().runtime !== "native" || !!process.env.DOWNDRAFT_GPU_TIMESTAMPS;
-    this.encoderTimestampSupported = device.features.has("timestamp-query") && timestampsOk;
+    // Encoder-level timestamps require "timestamp-query-inside-encoders" on
+    // native (a FeaturesWGPU extension); on Chromium commandEncoder.
+    // writeTimestamp is allowed with plain "timestamp-query". Native is
+    // additionally gated on real hardware (isGpuTimestampSafe).
+    const isNative = "adapterInfo" in device;
+    this.encoderTimestampSupported =
+      device.features.has("timestamp-query") &&
+      isGpuTimestampSafe(device) &&
+      (!isNative || device.features.has("timestamp-query-inside-encoders" as GPUFeatureName));
   }
 
   /**

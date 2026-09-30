@@ -43,6 +43,10 @@ pub fn feature(v: u32) -> Features {
         // have no wgpu-29 Features counterpart — dropped, same as the C shim
         // passing unknown bits wgpu ignored.
         21 => Features::PRIMITIVE_INDEX,
+        // wgpu-extension features — high wire ids so future WGPUFeatureName
+        // values can't collide. These map to FeaturesWGPU bits.
+        0x80000001 => Features::TIMESTAMP_QUERY_INSIDE_ENCODERS,
+        0x80000002 => Features::TIMESTAMP_QUERY_INSIDE_PASSES,
         _ => Features::empty(),
     }
 }
@@ -70,6 +74,8 @@ pub fn features_to_wire(f: Features) -> Vec<u32> {
         (Features::DUAL_SOURCE_BLENDING, 17),
         (Features::SUBGROUP, 18),
         (Features::PRIMITIVE_INDEX, 21),
+        (Features::TIMESTAMP_QUERY_INSIDE_ENCODERS, 0x80000001),
+        (Features::TIMESTAMP_QUERY_INSIDE_PASSES, 0x80000002),
     ];
     for (bit, wire) in map {
         if f.contains(*bit) {

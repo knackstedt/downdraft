@@ -1520,6 +1520,39 @@ pub extern "C" fn wgpu_shim_compute_pass_end(pass: Handle) {
     });
 }
 
+/// Inside-pass timestamp writes — require TIMESTAMP_QUERY_INSIDE_PASSES on
+/// the device (the host requests it when the adapter supports it and the
+/// device isn't a software rasterizer).
+#[no_mangle]
+pub extern "C" fn wgpu_shim_render_pass_write_timestamp(
+    pass: Handle,
+    query_set: Handle,
+    query_index: u32,
+) {
+    ffi!((), unsafe {
+        if let Some(p) = obj_mut::<ShimRenderPass>(pass).0.as_mut() {
+            if let Some(qs) = obj::<ShimQuerySet>(query_set).0.as_ref() {
+                p.write_timestamp(qs, query_index);
+            }
+        }
+    });
+}
+
+#[no_mangle]
+pub extern "C" fn wgpu_shim_compute_pass_write_timestamp(
+    pass: Handle,
+    query_set: Handle,
+    query_index: u32,
+) {
+    ffi!((), unsafe {
+        if let Some(p) = obj_mut::<ShimComputePass>(pass).0.as_mut() {
+            if let Some(qs) = obj::<ShimQuerySet>(query_set).0.as_ref() {
+                p.write_timestamp(qs, query_index);
+            }
+        }
+    });
+}
+
 // ── Copies ──
 
 unsafe fn tex_copy_info<'a>(
@@ -2094,6 +2127,55 @@ pub extern "C" fn wgpu_shim_adapter_get_features(adapter: Handle, out: *mut u32,
 pub extern "C" fn wgpu_shim_device_get_features(device: Handle, out: *mut u32, max: u32) -> u32 {
     ffi!(0, unsafe {
         write_features(obj::<ShimDevice>(device).device.features(), out, max)
+    })
+}
+
+fn json_escape(s: &str, out: &mut String) {
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+}
+
+/// Serializes wgpu::AdapterInfo as JSON into out_buf (NUL-terminated).
+/// Returns bytes written excluding NUL; 0 on failure or too-small buffer.
+/// Callers pass a fixed buffer — info strings are short (<< 1 KiB).
+#[no_mangle]
+pub extern "C" fn wgpu_shim_adapter_get_info(
+    adapter: Handle,
+    out_buf: *mut c_char,
+    out_size: i32,
+) -> i32 {
+    ffi!(0, unsafe {
+        if out_buf.is_null() || out_size <= 0 { return 0; }
+        let info = obj::<Adapter>(adapter).get_info();
+        let device_type = match info.device_type {
+            DeviceType::IntegratedGpu => "integrated-gpu",
+            DeviceType::DiscreteGpu => "discrete-gpu",
+            DeviceType::VirtualGpu => "virtual-gpu",
+            DeviceType::Cpu => "cpu",
+            _ => "other",
+        };
+        let backend = format!("{:?}", info.backend).to_lowercase();
+        let (mut name, mut driver, mut driver_info) = (String::new(), String::new(), String::new());
+        json_escape(&info.name, &mut name);
+        json_escape(&info.driver, &mut driver);
+        json_escape(&info.driver_info, &mut driver_info);
+        let json = format!(
+            "{{\"name\":{name},\"vendor\":{},\"device\":{},\"deviceType\":\"{device_type}\",\"backend\":\"{backend}\",\"driver\":{driver},\"driverInfo\":{driver_info}}}",
+            info.vendor, info.device,
+        );
+        let bytes = json.as_bytes();
+        if out_size as usize <= bytes.len() { return 0; }
+        ptr::copy_nonoverlapping(bytes.as_ptr(), out_buf as *mut u8, bytes.len());
+        *out_buf.add(bytes.len()) = 0;
+        bytes.len() as i32
     })
 }
 

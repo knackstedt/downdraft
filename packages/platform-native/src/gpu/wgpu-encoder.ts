@@ -336,6 +336,11 @@ export class WgpuRenderPassEncoder {
     wgpu.wgpu_shim_render_pass_set_scissor_rect(this.ptr, x, y, width, height);
   }
 
+  /** Inside-pass timestamp write — requires the "timestamp-query-inside-passes" feature. */
+  writeTimestamp(querySet: WgpuQuerySet, queryIndex: number): void {
+    wgpu.wgpu_shim_render_pass_write_timestamp(this.ptr, querySet.ptr, queryIndex);
+  }
+
   end(): void {
     if (this.ended) return;
     this.ended = true;
@@ -406,6 +411,11 @@ export class WgpuComputePassEncoder {
 
   dispatchWorkgroupsIndirect(indirectBuffer: WgpuBuffer, indirectOffset: number): void {
     wgpu.wgpu_shim_compute_pass_dispatch_indirect(this.ptr, indirectBuffer.ptr, BigInt(indirectOffset));
+  }
+
+  /** Inside-pass timestamp write — requires the "timestamp-query-inside-passes" feature. */
+  writeTimestamp(querySet: WgpuQuerySet, queryIndex: number): void {
+    wgpu.wgpu_shim_compute_pass_write_timestamp(this.ptr, querySet.ptr, queryIndex);
   }
 
   end(): void {

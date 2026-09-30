@@ -102,24 +102,72 @@ export class WgpuGPU {
 // WgpuAdapter
 // ============================================================================
 
+/** Parsed wgpu AdapterInfo — the structured counterpart to GPUAdapterInfo. */
+export interface NativeAdapterInfo {
+  name: string;
+  vendor: number;
+  device: number;
+  /** "integrated-gpu" | "discrete-gpu" | "virtual-gpu" | "cpu" | "other". */
+  deviceType: string;
+  backend: string;
+  driver: string;
+  driverInfo: string;
+}
+
+/** Read the adapter's real info over FFI. Returns null on failure. */
+export function queryNativeAdapterInfo(adapterPtr: number): NativeAdapterInfo | null {
+  const buf = new Uint8Array(2048);
+  const n = wgpu.wgpu_shim_adapter_get_info(adapterPtr, buf as any, buf.length);
+  if (n <= 0) return null;
+  try {
+    return JSON.parse(new TextDecoder().decode(buf.subarray(0, n))) as NativeAdapterInfo;
+  } catch {
+    return null;
+  }
+}
+
 export class WgpuAdapter {
   readonly ptr: number;
   private instancePtr: number;
   private _limits: GPUSupportedLimits | null = null;
   private _features: GPUSupportedFeatures | null = null;
+  private _info: NativeAdapterInfo | null | undefined;
 
   constructor(ptr: number, instancePtr: number) {
     this.ptr = ptr;
     this.instancePtr = instancePtr;
   }
 
+  /** Structured adapter info (deviceType, backend, driver) — null if the FFI query failed. */
+  get nativeInfo(): NativeAdapterInfo | null {
+    if (this._info === undefined) this._info = queryNativeAdapterInfo(this.ptr);
+    return this._info;
+  }
+
   get info(): GPUAdapterInfo {
+    const n = this.nativeInfo;
+    if (!n) {
+      return {
+        vendor: "wgpu-native",
+        architecture: "unknown",
+        description: "wgpu-native",
+        subgroupMinSize: 0,
+      } as GPUAdapterInfo;
+    }
     return {
-      vendor: "wgpu-native",
-      architecture: "unknown",
-      description: "wgpu-native",
+      // WebGPU spec fields: vendor/architecture are hex strings on web;
+      // wgpu gives us numeric IDs + the real name instead.
+      vendor: n.vendor ? `0x${n.vendor.toString(16)}` : "unknown",
+      architecture: n.backend,
+      device: n.name,
+      description: [n.driver, n.driverInfo].filter(Boolean).join(" ") || n.name,
       subgroupMinSize: 0,
-    } as GPUAdapterInfo;
+      // Non-standard extras (deviceType is the software-rasterizer signal
+      // used to gate timestamp queries on lavapipe-class drivers).
+      deviceType: n.deviceType,
+      driver: n.driver,
+      driverInfo: n.driverInfo,
+    } as unknown as GPUAdapterInfo;
   }
 
   get limits(): GPUSupportedLimits {
@@ -151,6 +199,7 @@ export class WgpuAdapter {
     if (!devicePtr) throw new Error("Failed to create GPU device");
 
     const device = new WgpuDevice(devicePtr, this.instancePtr);
+    device.adapterInfo = this.nativeInfo;
     trackForRelease(device, () => wgpu.wgpu_shim_release_device(devicePtr));
     return device;
   }
@@ -177,6 +226,9 @@ export class WgpuDevice {
   /** The default queue. Public so callers can writeBuffer/submit directly. */
   readonly queue: WgpuQueue;
   label = "";
+  /** Adapter info captured at requestDevice() — null on worker-attached views
+   *  (the shared-device attach path never sees the adapter). */
+  adapterInfo: NativeAdapterInfo | null = null;
 
   private instancePtr: number;
   /** False for worker-attached (non-owning) device views — destroy() only

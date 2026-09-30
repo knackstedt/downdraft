@@ -92,6 +92,10 @@ export const FEATURE_NAME_MAP: Record<number, string> = {
   0x00000014: "texture-formats-tier2",
   0x00000015: "primitive-index",
   0x00000016: "texture-component-swizzle",
+  // wgpu-extension features (FeaturesWGPU bits) — high wire ids that can't
+  // collide with future WGPUFeatureName values.
+  0x80000001: "timestamp-query-inside-encoders",
+  0x80000002: "timestamp-query-inside-passes",
 };
 
 export const FEATURE_VALUE_MAP: Record<string, number> = Object.fromEntries(
