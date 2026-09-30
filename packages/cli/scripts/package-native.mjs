@@ -6,6 +6,9 @@
 //   bun scripts/package-native.mjs --mcp <entry> <outfile>   # retain the MCP endpoint
 //   --target=win|linux|mac   cross-compile (default: host)
 //   --mode=dev|debug|prod    prod minifies (default: prod)
+//   --product-name=<name>    PE/branding product name (win target)
+//   --product-version=<v>    PE/branding version (win target)
+//   --icon=<path>            .ico/.png icon to stamp (win target)
 //
 // By default the in-process MCP automation endpoint is compiled OUT of
 // packaged binaries (__DD_MCP_STRIP__ define → dead code). --mcp retains it:
@@ -38,7 +41,7 @@
 // ============================================================================
 
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
@@ -67,6 +70,11 @@ const retainMcp = argv.includes("--mcp");
 const targetArg = argv.find((a) => a.startsWith("--target="))?.split("=")[1];
 // --mode=<dev|debug|prod> — prod minifies; dev/debug leave the bundle readable.
 const modeArg = argv.find((a) => a.startsWith("--mode="))?.split("=")[1] ?? "prod";
+// Branding flags — value may itself contain '=' so split on the first only.
+const flagValue = (name) => argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 2);
+const productNameFlag = flagValue("product-name");
+const productVersionFlag = flagValue("product-version");
+const iconFlag = flagValue("icon");
 const positional = argv.filter((a) => !a.startsWith("--"));
 const [entry, outfileArg] = positional;
 if (!entry || !outfileArg) {
@@ -425,6 +433,105 @@ if (!result.success) {
 result.outputs.forEach((out) => {
   console.log(`${out.kind.padEnd(18)} ${out.path} ${(out.size / 1024 / 1024).toFixed(1)}MB`);
 });
+
+// ── Windows PE branding ──
+// Stamp version info + icon into the compiled .exe so it doesn't identify
+// itself as "Bun runtime". resedit is pure JS — no wine/rcedit needed.
+// Metadata precedence: --product-name/--product-version/--icon flags, then
+// the game's package.json (productName / build.productName, version,
+// build.icon or icon.ico|icon.png in the game dir), then the game name.
+if (target.exe) {
+  const gameDir = dirname(dirname(resolve(entry))); // src/native-entry.ts → game root
+  let pkg = {};
+  try { pkg = JSON.parse(readFileSync(join(gameDir, "package.json"), "utf-8")); } catch { /* standalone entry */ }
+  const titleize = (s) => String(s).replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  const productName = productNameFlag ?? pkg.productName ?? pkg.build?.productName
+    ?? titleize(pkg.name ?? basename(outfile, ".exe"));
+  const version = productVersionFlag ?? pkg.version ?? "0.0.0";
+  const author = typeof pkg.author === "string" ? pkg.author : pkg.author?.name ?? "DownDraft Engine";
+  let iconPath = iconFlag
+    ?? (pkg.build?.icon ? resolve(gameDir, pkg.build.icon) : undefined);
+  if (!iconPath) {
+    iconPath = ["icon.ico", "assets/icon.ico", "icon.png", "assets/icon.png"]
+      .map((p) => join(gameDir, p)).find((p) => existsSync(p));
+  }
+  try {
+    const ResEdit = await import("resedit");
+    const exe = ResEdit.NtExecutable.from(readFileSync(resolve(outfile)));
+    // Bun appends a `.bun` trailer section after `.reloc`, which
+    // NtExecutableResource.from() rejects outright — it only tolerates
+    // .reloc after .rsrc. Hide .bun from the order check; resources are
+    // regenerated in place below (noGrow), so no section ever moves.
+    const allSections = exe.getAllSections.bind(exe);
+    let rsrcVa = -1;
+    let reloc;
+    for (const s of allSections()) {
+      if (s.info.name === ".rsrc") rsrcVa = s.info.virtualAddress;
+      if (s.info.name === ".reloc") reloc = s;
+    }
+    exe.getAllSections = () =>
+      allSections().filter((s) => s === reloc || s.info.virtualAddress <= rsrcVa || rsrcVa < 0);
+    const res = ResEdit.NtExecutableResource.from(exe);
+    exe.getAllSections = allSections;
+    const lang = { lang: 1033, codepage: 1200 };
+    const vi = ResEdit.Resource.VersionInfo.createEmpty();
+    // PE versions are numeric quads — strip any semver suffix/prefix.
+    const verNum = (version.match(/\d+(?:\.\d+)*/) ?? ["0.0.0"])[0];
+    vi.setFileVersion(verNum, lang.lang);
+    vi.setProductVersion(verNum, lang.lang);
+    vi.setStringValues(lang, {
+      CompanyName: author,
+      FileDescription: productName,
+      FileVersion: version,
+      InternalName: basename(outfile, ".exe"),
+      OriginalFilename: basename(outfile),
+      ProductName: productName,
+      ProductVersion: version,
+    }, /* addToAvailableLanguage */ true);
+    // Replace Bun's stock version resource entirely — Windows reads the
+    // first RT_VERSION it finds, so a leftover one can shadow ours.
+    res.entries = res.entries.filter((e) => e.type !== 16);
+    vi.outputToResourceEntries(res.entries);
+    for (const e of res.entries.filter((e) => e.type === 16)) e.lang = lang.lang;
+
+    if (iconPath && existsSync(iconPath)) {
+      const iconBin = readFileSync(iconPath);
+      let items;
+      if (iconPath.endsWith(".ico")) {
+        items = ResEdit.Data.IconFile.from(iconBin).icons;
+      } else if (iconPath.endsWith(".png")) {
+        // PNG-compressed icons are valid in PE resources (Vista+). Width and
+        // height come from the IHDR chunk (bytes 16–24).
+        const w = iconBin.readUInt32BE(16), h = iconBin.readUInt32BE(20);
+        items = [new ResEdit.Data.RawIconItem(iconBin, w, h, 32)];
+      }
+      if (items?.length) {
+        // Reuse an existing icon-group id when present (Bun embeds one);
+        // otherwise allocate 101 — Windows picks the lowest group anyway.
+        const existing = res.entries.filter((e) => e.type === 14); // RT_GROUP_ICON
+        const groupId = existing.length ? existing[0].id : 101;
+        ResEdit.Resource.IconGroupEntry.replaceIconsForResource(
+          res.entries, groupId, lang.lang, items);
+      }
+    } else {
+      // No game icon — drop Bun's ~270KB stock icon (RT_ICON + its
+      // RT_GROUP_ICON) so the version strings fit inside the existing .rsrc
+      // under noGrow below. The exe falls back to the generic Windows icon,
+      // which is better branding than shipping the Bun logo.
+      res.entries = res.entries.filter((e) => e.type !== 3 && e.type !== 14);
+    }
+
+    // noGrow: fit inside the existing .rsrc — the new data must not push
+    // .reloc/.bun because pe-library can't relocate arbitrary trailers.
+    // Bun's stock .rsrc is ~270KB, ample for version strings + an icon.
+    res.outputResource(exe, /* noGrow */ true);
+    writeFileSync(resolve(outfile), Buffer.from(exe.generate()));
+    console.log(`branding: ${productName} v${version}${iconPath ? ` + icon ${basename(iconPath)}` : ""}`);
+  } catch (e) {
+    // Cosmetic only — never fail the package over resource stamping.
+    console.warn(`warning: PE branding skipped (${e?.message ?? e})`);
+  }
+}
 
 // ── Stage runtime tree ──
 const outdir = dirname(resolve(outfile));

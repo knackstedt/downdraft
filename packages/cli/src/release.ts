@@ -188,6 +188,7 @@ function packageNative(
   gameDir: string,
   targets: string[],
   opts: ReleaseArgs,
+  info: { productName: string; appId: string; version: string },
 ): boolean {
   const entry = resolve(gameDir, "src/native-entry.ts");
   if (!existsSync(entry)) {
@@ -208,6 +209,8 @@ function packageNative(
       script,
       `--target=${target}`,
       `--mode=${opts.mode}`,
+      `--product-name=${info.productName}`,
+      `--product-version=${info.version}`,
       ...(opts.retainMcp ? ["--mcp"] : []),
       entry,
       outfile,
@@ -279,7 +282,7 @@ export async function release(args: string[]): Promise<void> {
     // Native packaging is a single compile step — build/package/release
     // all produce the same artifact.
     log.info("release", `[package] Compiling ${game} (${targets.join(", ")})...`);
-    const ok = packageNative(game, gameDir, targets, opts);
+    const ok = packageNative(game, gameDir, targets, opts, { productName, appId, version });
     if (!ok) {
       log.error("release", `Packaging failed for ${game} — skipping.`);
       fail = 1;
