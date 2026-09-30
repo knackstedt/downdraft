@@ -82,9 +82,29 @@ export function createNativeBridge(opts: NativeBridgeOptions): HostAPI & { dispo
     });
   };
 
-  // Display-info emission on window move (may have crossed displays).
+  // Display-metrics emission. winit's ScaleFactorChanged covers OS scale
+  // changes and most monitor crossings; the moved-handler re-query is a
+  // fallback for backends that don't deliver it. Emitted only on change.
+  let lastScaleFactor: number | null = null;
+  const checkScaleFactor = (reported?: number) => {
+    const scaleFactor = reported ?? opts.window.getDisplayInfo().scaleFactor;
+    if (!(scaleFactor > 0)) return;
+    if (lastScaleFactor === null) {
+      // First observation is the boot baseline, not a change.
+      lastScaleFactor = scaleFactor;
+      return;
+    }
+    if (scaleFactor !== lastScaleFactor) {
+      lastScaleFactor = scaleFactor;
+      emit("display-metrics-changed", { scaleFactor } satisfies DisplayMetricsChangedData);
+    }
+  };
+  opts.window.addEventListener("scale-changed", (e: { scaleFactor?: number }) => {
+    checkScaleFactor(e.scaleFactor);
+  });
   opts.window.addEventListener("moved", () => {
     emit("display-info", { refreshRate: opts.window.getDisplayInfo().refreshRate } satisfies DisplayInfoData);
+    checkScaleFactor();
   });
 
   // ── Services (save store + import cache) — worker-backed by default ──

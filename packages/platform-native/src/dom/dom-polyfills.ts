@@ -213,7 +213,8 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
       // Live getters — reflect SDL window resizes.
       get innerWidth() { return surface.width; },
       get innerHeight() { return surface.height; },
-      devicePixelRatio: 1,
+      // Live getter — reflects the window's monitor scale factor (HiDPI).
+      get devicePixelRatio() { return window.getDisplayInfo().scaleFactor; },
       addEventListener: (type: string, listener: any) => window.addEventListener(type, listener),
       removeEventListener: (type: string, listener: any) => window.removeEventListener(type, listener),
       dispatchEvent: (event: any) => window.dispatchEvent(event),

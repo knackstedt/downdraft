@@ -103,6 +103,7 @@ export const SDL_EVENT_FOCUS_LOST = 10;
 export const SDL_EVENT_MOVED = 11;
 export const SDL_EVENT_DROP_FILE = 12;
 export const SDL_EVENT_FOCUS_GAINED = 13;
+export const SDL_EVENT_SCALE_CHANGED = 14;
 
 // SDL_Keymod bitmask (SDL_keymod.h)
 export const KMOD_SHIFT = 0x0001 | 0x0002; // LSHIFT | RSHIFT

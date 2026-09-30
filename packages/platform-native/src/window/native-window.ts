@@ -32,6 +32,7 @@ import {
     SDL_EVENT_NONE,
     SDL_EVENT_QUIT,
     SDL_EVENT_RESIZE,
+    SDL_EVENT_SCALE_CHANGED,
     SDL_EVENT_TEXT_INPUT,
     SDL_EVENT_WHEEL,
     sdlButtonsToDom,
@@ -446,6 +447,11 @@ export class NativeWindow extends MiniEventTarget {
         // refresh rate the rAF pacing interval is derived from.
         this.frameIntervalMs = 0;
         this.dispatchEvent({ type: "moved", x: eventView[0], y: eventView[1] });
+        break;
+
+      case SDL_EVENT_SCALE_CHANGED:
+        // DPI scale changed (OS scale setting or monitor crossing).
+        this.dispatchEvent({ type: "scale-changed", scaleFactor: floatView[0] });
         break;
 
       case SDL_EVENT_DROP_FILE: {

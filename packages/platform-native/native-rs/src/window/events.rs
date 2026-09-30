@@ -25,6 +25,7 @@ const FOCUS_LOST: i32 = 10;
 const MOVED: i32 = 11;
 const DROP_FILE: i32 = 12;
 const FOCUS_GAINED: i32 = 13;
+const SCALE_CHANGED: i32 = 14;
 
 /// Line-detent approximation for pixel-precise scroll deltas (PixelDelta
 /// arrives from touchpads; SDL always reports line units).
@@ -71,6 +72,9 @@ pub enum Ev {
     Moved {
         x: i32,
         y: i32,
+    },
+    ScaleChanged {
+        scale: f64,
     },
     Drop(String),
     Text(String),
@@ -184,6 +188,10 @@ pub fn write(ev: Ev, out_data: *mut c_void) -> i32 {
                 *iout.add(1) = y;
                 MOVED
             }
+            Ev::ScaleChanged { scale } => {
+                *fout.add(0) = scale as f32;
+                SCALE_CHANGED
+            }
             Ev::Drop(path) => {
                 write_cstr(out_data as *mut u8, &path, 255);
                 DROP_FILE
@@ -220,6 +228,13 @@ pub fn translate_window_event(
 
         WindowEvent::Moved(pos) => {
             push(Ev::Moved { x: pos.x, y: pos.y });
+        }
+
+        // DPI scale change — OS scaling change or drag to a differently-
+        // scaled monitor. Resized usually follows; emit both so the host
+        // can re-render at the new density.
+        WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+            push(Ev::ScaleChanged { scale: scale_factor });
         }
 
         WindowEvent::Focused(gained) => push(Ev::Focused { gained }),
