@@ -75,12 +75,20 @@ export class BinaryRecordStore implements IBinaryRecordStore {
     this.tag = (opts.logTag ?? "BinaryRecordStore").replace(/^\[|\]$/g, "");
   }
 
+  private nodeRoot: Promise<FileSystemDirectoryHandle | null> | null = null;
+
   private async getRoot(): Promise<FileSystemDirectoryHandle | null> {
     if (this.opts.root) return this.opts.root;
-    if (typeof navigator === "undefined" || !navigator.storage?.getDirectory) {
-      return null;
+    if (typeof navigator !== "undefined" && navigator.storage?.getDirectory) {
+      return navigator.storage.getDirectory();
     }
-    return navigator.storage.getDirectory();
+    // Native (Bun, incl. sim workers): no OPFS — fall back to a node:fs
+    // handle rooted at the game's userData dir when the host exports it.
+    const base = typeof process !== "undefined" ? process.env.DOWNDRAFT_USER_DATA : undefined;
+    if (!base) return null;
+    return (this.nodeRoot ??= import("./node-fs-directory-handle").then((m) =>
+      m.createNodeFsDirectoryHandle(base) as FileSystemDirectoryHandle | null,
+    ));
   }
 
   private async getFileHandle(create: boolean): Promise<FileSystemFileHandle | null> {

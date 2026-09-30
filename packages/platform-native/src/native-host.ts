@@ -115,6 +115,13 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
     process.exit(0);
   }
 
+  // Export the userData dir so worker threads (env is inherited under Bun)
+  // can reach persistence fallbacks — e.g. BinaryRecordStore's node:fs
+  // OPFS replacement. An inherited override (test isolation) wins.
+  if (config.appId && !process.env.DOWNDRAFT_USER_DATA) {
+    process.env.DOWNDRAFT_USER_DATA = resolveNativeUserDataDir(config.appId);
+  }
+
   // 2. Create native window
   const window = new NativeWindow(config.window);
   if (config.appId && !deterministic) {

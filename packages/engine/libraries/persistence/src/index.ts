@@ -9,6 +9,8 @@
 export { FileSaveStore } from "./file-save-store";
 export type { FileSaveStoreOptions } from "./file-save-store";
 
+export { createNodeFsDirectoryHandle } from "./node-fs-directory-handle";
+
 export { AutosaveManager } from "./autosave-manager";
 export type { AutosaveManagerOptions } from "./autosave-manager";
 
