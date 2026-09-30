@@ -1,10 +1,9 @@
 {
   "name": "downdraft-engine",
   "version": "0.1.0",
-  "description": "AI-Driven Game Engine on Electron + WebGPU",
+  "description": "AI-Driven Game Engine — native Bun + winit + wgpu runtime",
   "license": "MIT",
   "type": "module",
-  "main": "./dist/main/index.cjs",
   "scripts": {
     "dist": "draft dist",
     "test": "echo 'run bun test <path>.spec.ts for unit tests, or bun run draft:test / draft:test-cpu for e2e' && exit 0",
@@ -26,7 +25,6 @@
     "packages/engine",
     "packages/cli",
     "packages/platform-native",
-    "packages/mobile-shell",
     "games/to-the-ocean",
     "games/to-the-ocean/libraries/*",
     "games/to-the-ocean/modules/*",
@@ -57,9 +55,6 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.3.4",
     "@webgpu/types": "^0.1.71",
-    "electron": "^43.0.0",
-    "electron-builder": "^25.1.8",
-    "electron-vite": "^2.3.0",
     "fake-indexeddb": "^6.2.5",
     "happy-dom": "^20.11.2",
     "oxlint": "^1.4.0",
@@ -86,70 +81,5 @@
     "xxh3-ts": "^2.0.1",
     "xxhash-wasm": "^0.4.2",
     "zustand": "^5.0.2"
-  },
-  "build": {
-    "appId": "com.downdraft.engine",
-    "productName": "Downdraft Engine",
-    "directories": {
-      "output": "release"
-    },
-    "files": [
-      "dist/**/*",
-      "resources/**/*"
-    ],
-    "win": {
-      "target": [
-        "portable"
-      ],
-      "artifactName": "${productName}-${version}-${arch}-portable.exe"
-    },
-    "linux": {
-      "target": [
-        "AppImage",
-        "deb",
-        "rpm",
-        "flatpak"
-      ],
-      "category": "Game",
-      "artifactName": "${productName}-${version}-${arch}.${ext}"
-    },
-    "deb": {
-      "depends": [
-        "libgtk-3-0",
-        "libnotify4",
-        "libnss3",
-        "libxss1",
-        "libxtst6",
-        "xdg-utils",
-        "libatspi2.0-0",
-        "libuuid1",
-        "libsecret-1-0"
-      ]
-    },
-    "rpm": {
-      "depends": [
-        "gtk3",
-        "libnotify",
-        "nss",
-        "libXScrnSaver",
-        "libXtst",
-        "xdg-utils",
-        "at-spi2-atk",
-        "libuuid",
-        "libsecret"
-      ]
-    },
-    "flatpak": {
-      "base": "org.electronjs.Electron2.BaseApp",
-      "baseVersion": "23.08",
-      "finishArgs": [
-        "--socket=x11",
-        "--socket=wayland",
-        "--share=ipc",
-        "--share=network",
-        "--device=dri",
-        "--filesystem=home"
-      ]
-    }
   }
 }

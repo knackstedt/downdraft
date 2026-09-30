@@ -2,7 +2,7 @@ import { launchGame, parseJsonContent, sleep, type McpToolResult } from "./harne
 import { $ } from "bun";
 
 const game = await launchGame({
-  configPath: "games/andrews-sandbox/electron.vite.config.ts",
+  game: "andrews-sandbox",
   gpu: (process.env.DOWNDRAFT_GPU as "swiftshader" | undefined) ?? "swiftshader",
   deterministic: true,
   ignoreErrorPatterns: [/PIXI.*warning/i, /WebGL.*context.*lost/i, /perf.*extension/i, /dynamic import will not move/i],

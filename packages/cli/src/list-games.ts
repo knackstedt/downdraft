@@ -1,9 +1,12 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { GAME_CONFIG_FILE } from "./paths";
+
 /**
  * List available game names from the monorepo `games/` directory.
- * A directory counts as a game if it contains an `electron.vite.config.ts`.
+ * A directory counts as a game if it contains `downdraft.config.json` or
+ * `src/native-entry.ts` (same predicate as `isGameDir` in paths.ts).
  * Returns an empty array if the `games/` directory doesn't exist.
  */
 export function listGames(repoRoot: string): string[] {
@@ -17,7 +20,7 @@ export function listGames(repoRoot: string): string[] {
     } catch {
       continue;
     }
-    if (existsSync(resolve(dir, "electron.vite.config.ts"))) {
+    if (existsSync(resolve(dir, GAME_CONFIG_FILE)) || existsSync(resolve(dir, "src/native-entry.ts"))) {
       out.push(entry);
     }
   }

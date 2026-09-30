@@ -42,17 +42,7 @@
         "scripts/**",
         "packages/*/scripts/**",
         "docs/**",
-        "packages/engine/modules/devtools/extension/**",
-        "packages/engine/core/src/util/logger.ts",
-        "packages/engine/app/src/main/**",
-        "packages/engine/app/src/preload/**",
-        "packages/engine/core/src/ipc.ts",
-        "packages/engine/modules/electron-osr/**",
-        "packages/engine/modules/raw-input/**",
-        "packages/mobile-shell/**",
-        "games/*/src/main.ts",
-        "games/*/src/preload.ts",
-        "games/*/electron.vite.config.ts"
+        "packages/engine/core/src/util/logger.ts"
       ],
       "rules": {
         "no-console": "off"

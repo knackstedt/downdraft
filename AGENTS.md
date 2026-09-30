@@ -4,28 +4,28 @@
 
 Every directory under `games/` is a **git submodule** pointing at its own repository (`github.com/knackstedt/<game>`). Each game is a standalone-installable repo — it consumes engine packages via `@downdraft/*` semver deps (`^0.1.0`), which resolve to workspace links inside the monorepo and to npm in a standalone checkout. When changing a game's code, commit inside the submodule repo first, then bump the gitlink in this repo. `git submodule update --init --recursive` is required after clone (CI does **not** fetch submodules — engine CI is self-contained and never builds games). After `bun install`, run `bun run link:games` to symlink `@downdraft/*` packages into every game's `node_modules` — workspace-member games are linked automatically, but `downdraft-model-viewer` and `downdraft-gpu-bench` are not workspace members and need the script (it also adds a `node_modules/.bin/draft` shim per game).
 
-`@downdraft/*` packages are published to npm (`node scripts/publish-packages.mjs` / the `publish.yml` workflow). `packages/mobile-shell` stays private — mobile packaging (`draft release --target=android,ios`) only works inside the monorepo.
+`@downdraft/*` packages are published to npm (`node scripts/publish-packages.mjs` / the `publish.yml` workflow).
 
 ## Runtime status: native is the active runtime
 
 DownDraft runs on a **native runtime** — Bun + winit + wgpu via `@downdraft/platform-native` (a single Rust cdylib, `libdowndraft_platform`). A game boots from `src/native-entry.ts`, which calls `runNativeGameModule(...)`; there is no Electron, no Chromium, no browser-facing Vite dev server (the dev shell embeds Vite only as a transform/HMR engine), and no renderer/preload process split. The simulation still runs in a dedicated worker thread with SharedArrayBuffer protocols — that isolation is deliberate and is preserved on native.
 
-**Electron is dormant.** `draft dev`/`draft test`/`draft release` run native only; `--electron` / `--runtime=electron` hard-error. Electron code stays in-tree during the migration bake (marked with `// DORMANT` headers and `DORMANT.md` files) but is unreachable — do not build on it; it will be deleted after the bake. Dormant surfaces: `packages/engine/app/src/main`, `app/src/preload`, `app/src/vite` (electron-vite factory + plugins), `app/src/mobile`, `core/src/ipc.ts`, `core/src/main.ts`, `core/src/platform/{fs,lifecycle,window,time,hdr}.ts` (dead exports retained for `core/index.ts`), `modules/electron-osr`, `modules/raw-input`, `modules/devtools/extension`, per-game `electron.vite.config.ts`/`vite*.config.ts`/`index.html`/`src/main.ts`/`src/preload.ts`, `examples/*` Electron/browser entries and `electron.vite.config.ts`, `tests/electron-mock.ts` + `tests/pixi-polyfill/browser/`, and `packages/mobile-shell` (mobile packaging warns and is unmaintained). `app/src/renderer` is runtime-agnostic and remains live — `startGame()`/`bootstrapGame()` run on the native main thread.
+**Electron is removed.** `draft dev`/`draft test`/`draft release` run native only; `--electron` / `--runtime=electron` hard-error. The Electron/Capacitor trees (main/preload/vite/mobile shells, `core/ipc.ts`, `electron-osr`, `raw-input`, devtools extension, per-game `electron.vite.config.ts`/`index.html`/`src/main.ts`/`src/preload.ts`, `mobile-shell`, electron-builder config) have been deleted — do not resurrect them; a future mobile port would be native (winit+wgpu), not a WebView shell. `app/src/renderer` is runtime-agnostic and remains live — `startGame()`/`bootstrapGame()` run on the native main thread.
 
-Native dev has tiered HMR: `dev-shell.mjs` + `native-dev-runtime.ts` run an embedded Vite `RunnableDevEnvironment` (module-level invalidation through full session/host restart tiers) — it is not restart-only. Game-facing `import.meta.hot` semantics work through the dev runtime, not `vite dev`. Native packaging is staged by `scripts/package-native.mjs` (a game `bun build --compile` plus asset staging); `draft release --target=win|linux|mac` currently points there while electron-builder is disabled.
+Native dev has tiered HMR: `dev-shell.mjs` + `native-dev-runtime.ts` run an embedded Vite `RunnableDevEnvironment` (module-level invalidation through full session/host restart tiers) — it is not restart-only. Game-facing `import.meta.hot` semantics work through the dev runtime, not `vite dev`. Native packaging is `scripts/package-native.mjs` (a game `bun build --compile` plus asset staging); `draft release --target=win|linux|mac` invokes it.
 
-Game detection: a directory is a game when it has `downdraft.config.json` or `src/native-entry.ts`; `electron.vite.config.ts` is a legacy fallback marker during the bake.
+Game detection: a directory is a game when it has `downdraft.config.json` or `src/native-entry.ts`.
 
 ## Module architecture: engine vs game boundary
 
 > **Terminology note:** The compile-time DI units that were previously called "plugins" are now called **modules** to disambiguate. The term **"plugin" is now reserved for the upcoming user-authored plugin system** (runtime-loadable extensions authored by end users / modders). Throughout this document, "module" refers to the engine's compile-time DI units (`Module`, `RendererModule`, `ModuleHost`, etc.).
 
-The engine is a **single npm package**, `@downdraft/engine` (manifest at `packages/engine/package.json`), which exposes everything through subpath exports: `@downdraft/engine` (core index), `@downdraft/engine/core/<path>` (deep core imports), `@downdraft/engine/app/<main|preload|renderer|vite|mobile|build|shared>`, `@downdraft/engine/libraries/<name>`, `@downdraft/engine/modules/<name>`, plus `ui`, `shader-graph`, `mcp`, `test`, and `asset-bake` subpaths. The only other published packages are `@downdraft/cli` (the `draft` binary) and `@downdraft/platform-native` (native binaries). The exports map is generated — run `node scripts/gen-engine-exports.mjs` after adding/removing a library or module directory.
+The engine is a **single npm package**, `@downdraft/engine` (manifest at `packages/engine/package.json`), which exposes everything through subpath exports: `@downdraft/engine` (core index), `@downdraft/engine/core/<path>` (deep core imports), `@downdraft/engine/app/<renderer|shared>`, `@downdraft/engine/libraries/<name>`, `@downdraft/engine/modules/<name>`, plus `ui`, `shader-graph`, `mcp`, `test`, and `asset-bake` subpaths. The only other published packages are `@downdraft/cli` (the `draft` binary) and `@downdraft/platform-native` (native binaries). The exports map is generated — run `node scripts/gen-engine-exports.mjs` after adding/removing a library or module directory.
 
 Architecturally the engine is split into **core + libraries** (standard engine building blocks, used directly by games) vs **modules** (opt-in game features with lifecycle + typed DI + diagnostics). Core also includes animation, particles, and imui subsystems directly.
 
 - **Engine libraries** (imported as `@downdraft/engine/libraries/<name>`, located in `packages/engine/libraries/`): directories that export classes/functions without a module lifecycle. Games can either import and wire these directly, or declare them via `EngineLibrary` descriptors in `GameModule.libraries[]` for auto-wiring (SAB allocation, sim system creation, renderer pass creation, typed DI tokens). Engine libraries: water, physics-rapier, physics-native, marching-cubes, surface-nets, audio-kira, models, networking, weatherfx, pixi-ui, entities, lighting, weather, navmesh, recast, persistence, gaussian-splats, sand, stickman, profiler, pathfinding-2d, character.
-- **Engine modules** (imported as `@downdraft/engine/modules/<name>`, located in `packages/engine/modules/`): directories that implement the `Module` or `RendererModule` interface with a `register()` lifecycle + typed DI. Engine modules: camera-controls, devtools, electron-osr, mcp, xr, terrain, movement-3d, movement-2d, vitals, sailing, raw-input.
+- **Engine modules** (imported as `@downdraft/engine/modules/<name>`, located in `packages/engine/modules/`): directories that implement the `Module` or `RendererModule` interface with a `register()` lifecycle + typed DI. Engine modules: camera-controls, devtools, native-osr, mcp, xr, terrain, movement-3d, movement-2d, vitals, sailing.
 - **Game modules** (namespace `@to-the-ocean/module-*`, located in `games/<game>/modules/`): game-specific features with a module lifecycle. Game modules: crafting, inventory, buoyancy, collision, wildlife.
 - **Game libraries** (namespace `@to-the-ocean/library-*`, located in `games/<game>/libraries/`): game-specific pure libraries without a module lifecycle. Game libraries: boats, economy, fishing, items, survival.
 
@@ -151,7 +151,6 @@ Before writing per-game infrastructure, check whether the engine already provide
 | Autosave interval | `AutosaveManager({ save, shouldSave, intervalMs, deterministic })` | `@downdraft/engine/libraries/persistence/browser` |
 | MCP automation tools | `createStandardAutomationTools(ctx)` + `createMcpHarness` — the ~13 standard tools; game tools via `extraTools` | `@downdraft/engine/app/renderer` |
 | DevTools | `initDevTools(renderer, {...})` + `createSimStatsProvider`/`createSimStatsPanelExtension` | `@downdraft/engine/modules/devtools` |
-| Mobile shell | `createDowndraftMobileApp({ appId, module, touchInput })` | `@downdraft/engine/app/mobile` |
 | Sand simulation | `SandWorld`, `SandStepPool`, `SandLib`, palette/materials | `@downdraft/engine/libraries/sand` |
 | Game UI | `createGameUi({ build })` renderer module over `core/imui` (UIRoot/UIRenderer/widgets) — **canonical game-UI system**; pixi-ui is legacy for games | `@downdraft/engine` |
 
@@ -181,33 +180,26 @@ renderer.useRendererModule(createGameUi({
 
 Conventions: `ui.root` is a full-screen `pointerThrough` container — size interactive children tightly so non-UI canvas clicks fall through to game input (`ui.isPointerOverUI()` for paint-style games). Widgets: `UIButton`/`UIToggle`/`UISlider`/`UITabBar`/`UIModal`/`UIScrollPanel`/`UITextInput`/`UIProgressBar`/`UIToastStack` + `UIPanel`/`UIText`/`UIImage`/`UILine`. `setUIFontScale(ui.root, scale)` for font scaling.
 
-## HTML generation and canvas/DOM layer stacking
+## RenderSurface and overlay layering
 
-The framework generates `index.html` from a layer spec, so games don't need to maintain their own HTML or CSS stacking rules.
+On the native runtime there is no DOM or HTML document. The single render target is the `RenderSurface` contract (`core/src/platform/render-surface.ts`), implemented by `NativeSurface` (a wgpu-backed native window surface). UI overlays render into the same surface via offscreen wgpu textures (`modules/native-osr`) and are composited as final-present quads.
 
 ### How it works
 
-- `createDowndraftViteConfig()` accepts an `html` option (or `layers` shorthand). When provided, the `downdraftHtmlPlugin` generates `index.html` at build/dev time with the correct canvas + DOM overlay structure.
-- Default: one canvas (`<canvas data-dd-layer="0" id="game-canvas">`) + one DOM root (`<div data-dd-overlay="0" id="root">`).
-- Games with multiple canvases (e.g. minimap + main) can specify multiple `layers`.
-- The framework provides `@downdraft/engine/app/renderer/downdraft-base.css` with the stacking rules (canvases at `z-index: 0`, overlays at `z-index: 100`, `pointer-events: none` on overlays). Games import it and add theme overrides.
-- Renderer code uses `getCanvas(layer)` and `getOverlay(index)` from `@downdraft/engine/app/renderer` instead of `document.getElementById`.
-- Games that want to keep their own `index.html` can set `html: false` to opt out.
-
-### Files
-
-- `packages/engine/app/src/vite/downdraft-html-plugin.ts` — Vite plugin that generates HTML from `LayerSpec[]`.
-- `packages/engine/app/src/renderer/downdraft-base.css` — framework base CSS with canvas/overlay stacking.
-- `packages/engine/app/src/renderer/index.ts` — exports `getCanvas()`, `getOverlay()`, `getAllCanvases()`.
-- `packages/engine/app/src/vite/index.ts` — `DowndraftViteConfigOptions.html` and `.layers` options.
+- `GameModule.renderer: (surface: RenderSurface) => IRenderer` — the surface is injected by `bootstrapGame()`; never query `document` for a canvas.
+- `ctx.surface` / `GameRenderer.getSurface()` are the canonical accessors. `getCanvas()` / `getOverlay()` / `elementFromPoint` live in `renderer/compat/dom.ts` as deprecated DOM-host compatibility shims — they hard-fail on native (`hasDom()` is `false`).
+- The DOM-overlay `mountUI` hook is skipped on native; game UI uses `core/imui` (see the shared-APIs table above).
+- Multiple render areas (minimap, picture-in-picture) are implemented as additional OSR surfaces or viewport regions, not stacked canvases.
 
 ## PixiJS UI overlay library (`@downdraft/engine/libraries/pixi-ui`)
 
 A worker-hosted PixiJS UI overlay: the library spawns a Web Worker that renders a GUI onto an `OffscreenCanvas` (via `transferControlToOffscreen`) stacked above the main game canvas. Games feed per-frame scalars via a `SharedArrayBuffer` (UiStatsSAB) and event-driven data via `postMessage`. The overlay canvas is `pointer-events: none` by default (game keeps all input); when the worker signals interactive/modal UI, the host flips the canvas to `pointer-events: auto` and forwards pointer events to the worker for PixiJS hit-testing.
 
+> **DOM-only library:** this section describes the browser/DOM host path. On the native runtime, `libraries/pixi-ui` resolves its target via `getSurface()` and the DOM queries below are skipped (`hasDom()` is false). The native equivalent is `libraries/pixi-ui-native` (see below); new game UI should target `core/imui` instead.
+
 ### Architecture
 
-- **Canvas layering**: the overlay canvas is `data-dd-layer="1"` (z-index 50, above the game canvas at z 0, below the DOM overlay at z 100). The host acquires an existing canvas with `data-dd-layer="1"` or creates one if absent. `PixiUiHost.start()` sets inline styles (`position: fixed; z-index: 50`) on the overlay canvas AND `position: fixed; z-index: 0` on the game canvas (layer 0) to ensure correct stacking even if the game doesn't import `downdraft-base.css`. Games MUST still `@import "@downdraft/engine/app/renderer/downdraft-base.css"` in their globals.css for the full stacking rules (pointer-events, image-rendering, DOM overlay z-index 100). The `#root` div MUST have `background: transparent` so it doesn't cover the pixi-ui canvas.
+- **Canvas layering (DOM hosts)**: the overlay canvas is `data-dd-layer="1"` (z-index 50, above the game canvas at z 0, below the DOM overlay at z 100). The host acquires an existing canvas with `data-dd-layer="1"` or creates one if absent. `PixiUiHost.start()` sets inline styles (`position: fixed; z-index: 50`) on the overlay canvas AND `position: fixed; z-index: 0` on the game canvas (layer 0) to ensure correct stacking even if the game doesn't import `downdraft-base.css`. DOM-hosted games must `@import "@downdraft/engine/app/renderer/downdraft-base.css"` in their globals.css for the full stacking rules (pointer-events, image-rendering, DOM overlay z-index 100). The `#root` div MUST have `background: transparent` so it doesn't cover the pixi-ui canvas. On native the game canvas resolves through `getSurface()` instead of the `data-dd-layer` query.
 - **Worker lifecycle**: `PixiUiHost.start()` → `transferControlToOffscreen()` → spawn worker → send init message (OffscreenCanvas + UiStatsSAB + config, all transferable). Worker creates `PIXI.Application` on the OffscreenCanvas, dynamically imports the game's scene module, and runs a ticker loop.
 - **Worker message handler**: The worker uses `self.addEventListener("message", ...)` instead of `self.onmessage = ...` because PixiJS's internal worker code (e.g. `loadImageBitmap` worker) overwrites `self.onmessage` during `Application.init()`. `addEventListener` handlers cannot be overwritten by assignment, so the message handler survives PixiJS init. The worker also removes the Application's auto-render callback from the ticker and handles `app.render()` in its own `tick()` function with try/catch — if `app.render()` throws (e.g. WebGL context issues on OffscreenCanvas), the uncaught error would stop the PixiJS ticker and make the worker unresponsive.
 - **Worker EventSystem + document stub**: PixiJS v8's EventSystem is not loaded by default in the worker because `pixi.js/events` (the side-effect import that registers it as a renderer extension) is not imported. The worker explicitly imports `pixi.js/events` to register the EventSystem so `app.renderer.events` is available for pointer hit-testing. However, the EventSystem's `_addEvents()` method registers DOM event listeners on `globalThis.document` and `globalThis` — neither exists in a Web Worker. The worker stubs `globalThis.document` with no-op `addEventListener`/`removeEventListener`/`dispatchEvent`, `createElement('canvas')` returning an `OffscreenCanvas` (for PixiJS text rasterization), and `body.contains()` returning `true` (for `isRenderingToScreen()`). Pointer events are dispatched manually via `eventSystem._onPointerDown(syntheticEvent)` etc. (underscore-prefixed methods, not `onPointerDown`). The synthetic event must include `type`, `target`, `composedPath`, `cancelable`, `isPrimary`, `width`, `height`, `tiltX`, `tiltY`, `pressure`, `twist`, `tangentialPressure` — `_bootstrapEvent` reads these and `_onPointerUp` checks `target === domElement` to determine if the pointerup is "inside" (enabling click).
@@ -278,7 +270,7 @@ A per-game **worker-side store mirror** (`src/pixi/store.ts`) holds the worker's
 1. **Create `src/pixi/bridge-protocol.ts`** — define event kinds (main→worker) and action kinds (worker→main) by auditing every zustand store field the React components read (→ event or SAB slot) and every store mutation they trigger (→ action kind).
 2. **Create the scene module** (`src/pixi-scene.ts` for raw PixiJS, or `src/pixi/scene.tsx` + `src/pixi/components/*` for `@pixi/react`). Port each React component's visual structure to PIXI display objects (`Container`, `Graphics`, `Text`, `Sprite`). Replace `useGameStore` reads with SAB stats / worker store mirror reads. Replace `useGameStore` mutations with `ctx.postAction(...)`.
 3. **Rewire `main.tsx`**: replace `mountUI: (overlay) => createRoot(overlay).render(<App/>)` with the pixi-ui escape hatch (`new PixiUiHost(...)`) or declarative `libraries: [[PixiUiLib, config]]`. In `onReady`: get the host, set `onAction` to dispatch into the store/renderer, start a per-frame `host.writeStats(...)` loop (rAF or `onFpsUpdate`), subscribe to store changes → `host.postEvent(...)`. In `onDispose`: `host.dispose()`.
-4. **HTML layer spec** (`electron.vite.config.ts`): add the pixi overlay canvas layer (`{ type: "canvas", id: "pixi-ui-canvas" }`) above the game canvas. Import `@downdraft/engine/app/renderer/downdraft-base.css`.
+4. **Overlay surface**: the pixi scene renders through `libraries/pixi-ui-native` (`NativePixiUiHost`/`NativePixiUiSceneHandle`) onto the native RenderSurface — there is no HTML layer spec on native.
 5. **Dependencies**: add `@downdraft/engine/libraries/pixi-ui` + `pixi.js` to game deps. For `@pixi/react` games, also add `@pixi/react`, `react`, `react-dom`, and `@vitejs/plugin-react` to `workerPlugins` in the vite config.
 6. **Delete** the old `src/app.tsx`, `src/components/*`, and UI-only CSS.
 7. **Interactive UI + game input**: if the game has clickable UI elements that coexist with game-canvas mouse input, set `passThrough: true` and implement `getInteractiveRegions()` in the scene. If the game only has modal menus (full-screen overlays that capture all input), use the default non-pass-through mode + `setInteractive(true)`.
@@ -331,41 +323,24 @@ The library uses the `renderer.create` hook on `EngineLibrary` (the early render
 
 Each game MUST pass a unique `appId` (`downdraft-<game>`) so the native host resolves a per-game `userData` directory (e.g. `~/.config/downdraft-mining-rpg/`). Save files, SQLite import cache, debug artifacts, and the singleton lock all live under it — sharing one between games would corrupt save state and collide on the lock.
 
-When `appId` is set, `createDowndraftApp()` also:
-1. Calls `app.requestSingleInstanceLock()` — prevents two instances of the same game from running concurrently (which would corrupt storage). A second launch focuses the existing window and quits. **Skipped in deterministic/test mode** (`DOWNDRAFT_DETERMINISTIC=1`): the test harness controls process lifecycle itself (dynamic MCP ports + process-group kills), and the singleton lock mechanism (Unix socket + `SingletonLock` file in userData) can fail to initialize in sandboxed CI environments, causing the game to quit immediately and fail every E2E smoke test.
+When `appId` is set, `createNativeHost()` (via `runNativeGameModule`) also:
+1. Acquires a singleton lock (`<userData>/singleton.lock`, PID-owned) — prevents two instances of the same game from running concurrently (which would corrupt storage). **Skipped in deterministic/test mode** (`DOWNDRAFT_DETERMINISTIC=1`): the test harness controls process lifecycle itself (dynamic MCP ports + process-group kills).
 2. Cleans up stale lock artifacts from a previous run that crashed or was killed. In non-deterministic mode this is safe because the single-instance lock guarantees no live process is using the directory; in deterministic mode the test harness guarantees no concurrent instance.
 
 ### Files
 
-- `packages/engine/app/src/main/storage.ts` — `resolveUserDataDir()` (builds the per-game path) and `cleanupStaleStorage()` (stale lock + temp file cleanup).
-- `packages/engine/app/src/main/app.ts` — wires `app.setPath("userData", ...)` + `requestSingleInstanceLock()` + `cleanupStaleStorage()` early in `createDowndraftApp()`, before `app.whenReady()`.
+- `packages/platform-native/src/bridge/user-data-dir.ts` — `resolveNativeUserDataDir()` (builds the per-game path).
+- `packages/platform-native/src/host-lifecycle.ts` — singleton lock acquisition + stale-lock cleanup in `createNativeHost()`.
 
 ### Adding a new game
 
-Always set `appId` in the game's `src/main.ts`:
+Always set `appId` in the game's `src/native-entry.ts`:
 ```ts
-createDowndraftApp({
+await runNativeGameModule(gameModule, {
   appId: "downdraft-my-game",  // → ~/.config/downdraft-my-game/
-  window: { title: "My Game" },
-  // ...
+  title: "My Game",
 });
 ```
-
-## Cross-origin isolation: COEP and file:// worker loading
-
-The engine sets `Cross-Origin-Opener-Policy: same-origin` (COOP) and `Cross-Origin-Embedder-Policy: require-corp` (COEP) on all responses to enable `SharedArrayBuffer` via cross-origin isolation. **However, COEP is only set for non-`file://` responses.**
-
-In packaged builds, the renderer loads via `win.loadFile()` → `file://` protocol. Chromium blocks Web Worker creation from `file://` when the parent page has `COEP: require-corp` — the worker script is **never fetched** and `Worker.onerror` fires with `message: undefined`, `filename: undefined`, `lineno: undefined`. This silently breaks ALL game workers (mining-worker, sand-step-worker, save-worker, solid-worker, etc.) in production builds. In dev mode the renderer loads from `http://localhost:5173` (Vite dev server), where COEP works fine — which is why this bug only appears in packaged builds.
-
-`SharedArrayBuffer` still works in packaged builds without COEP because `webPreferences.enableBlinkFeatures: "SharedArrayBuffer"` is set on the BrowserWindow, which enables SAB regardless of cross-origin isolation.
-
-**Never add `Cross-Origin-Embedder-Policy: require-corp` unconditionally to all responses.** Always check `details.url.startsWith("file:")` and skip COEP for file:// URLs. The header logic is extracted into `buildCrossOriginIsolationHeaders()` in `packages/engine/app/src/main/window.ts` and covered by `packages/engine/app/src/main/window.spec.ts`.
-
-### Files
-
-- `packages/engine/app/src/main/window.ts` — `buildCrossOriginIsolationHeaders()` (the header logic) + `createWindow()` (wires it into `session.defaultSession.webRequest.onHeadersReceived`).
-- `packages/engine/app/src/main/window.spec.ts` — unit tests for the COEP/file:// logic (7 tests).
-- `tests/e2e/harness.ts` — `DEFAULT_ERROR_PATTERNS` includes `Worker error:` patterns so e2e tests catch worker load failures.
 
 ## Process management & debugging games
 
@@ -373,7 +348,7 @@ In packaged builds, the renderer loads via `win.loadFile()` → `file://` protoc
 
 **NEVER run `pkill -9 bun`, `pkill -f bun`, `killall bun`, or any other generic runtime-killing command.** The user's machine may run other Bun processes (and other Electron apps: VS Code, Slack, the Devin desktop app itself). A generic pkill will terminate all of them, destroying the user's work and your own session.
 
-**`draft dev` runs only the native runtime** (Bun + winit + wgpu via `src/native-entry.ts`) — the Electron path is dormant and `--electron` errors. The native runtime uses a single-instance lock (`singleton.lock` in the game's userData dir); re-running `draft dev` handles stale instances. Each game runs as a **single Bun process** (plus worker threads). To kill a specific game instance, target **that game only**:
+**`draft dev` runs only the native runtime** (Bun + winit + wgpu via `src/native-entry.ts`) — the Electron path is removed and `--electron` errors. The native runtime uses a single-instance lock (`singleton.lock` in the game's userData dir); re-running `draft dev` handles stale instances. Each game runs as a **single Bun process** (plus worker threads). To kill a specific game instance, target **that game only**:
 
 - **Let `draft dev` handle it** — re-running `draft dev` from the game directory tears down the previous instance automatically. This is the preferred path.
 - **Match the per-game `--user-data-dir`** (each game sets a unique `downdraft-<game>` userData dir, visible in the process args) only if you need to kill a process you did not launch via `draft dev`:
@@ -458,7 +433,6 @@ The `opts` object encapsulates all config and dependencies. This is the standard
 - `bun test packages/engine/modules/models/src/normalize.spec.ts` — full normalization pipeline specs.
 - `bun test packages/engine/core/src/module/host.spec.ts` — ModuleHost activation order, deferred registration, dispose order (12 tests).
 - `bun test packages/engine/modules/devtools/src/api.spec.ts` — Unified DevTools API: realm detection, SAB data feeds, manifest, panel/command registration (17 tests).
-- `bun test packages/engine/app/src/main/window.spec.ts` — cross-origin isolation header logic (COEP/file:// worker loading, 7 tests).
 - `bun test packages/engine/core/src/render/gpu-utils.spec.ts` — GPU resource creation utilities (8 tests, uses mock GPUDevice).
 - `bun test games/to-the-ocean/modules/wildlife/src/wildlife-module.spec.ts` — game module wrappers (wildlife, buoyancy, collision) (9 tests).
 - `bun test packages/engine/modules/persistence/src/file-save-store.spec.ts` — FileSaveStore (filesystem ISaveStore) specs (9 tests).
@@ -527,7 +501,7 @@ The host injects the `devtools` singleton via `ModuleHost.setDevToolsAPI()` / `R
 
 ### Deterministic mode
 
-`resolveDevtoolsConfig()` in `packages/engine/app/src/main/handlers/devtools.ts` is now deterministic-aware: when `DOWNDRAFT_DETERMINISTIC=1`, autoOpen defaults to `false` and keybind defaults to `""` (disabled). Games no longer need to plumb `devtools: { autoOpen: !deterministic, keybind: deterministic ? "" : "F12" }` — just use `devtools: true`.
+`resolveDevtoolsConfig()` in `packages/platform-native/src/host-lifecycle.ts` is deterministic-aware: when `DOWNDRAFT_DETERMINISTIC=1`, autoOpen defaults to `false` and keybind defaults to `""` (disabled). Games no longer need to plumb `devtools: { autoOpen: !deterministic, keybind: deterministic ? "" : "F12" }` — just use `devtools: true`.
 
 ### Panel order convention
 
@@ -586,7 +560,7 @@ FBX parser reads `GlobalSettings` for `UpAxis` (0/1=Y-up, 2=Z-up) and `UnitScale
 
 ### Import Cache
 
-`ImportCache` (`packages/engine/core/src/assets/import-cache.ts`) caches resolved `ImportSettings` keyed by model path. `MemoryImportCache` is the in-memory fallback. In Electron, `registerImportCacheHandlers()` (`packages/engine/app/src/main/handlers/import-cache.ts`) provides a SQLite-backed cache via `node:sqlite` (stable in Node 24+ / Electron 43+, no flag required), accessed through IPC (`IMPORT_CACHE_GET/SET/INVALIDATE`). The renderer-side adapter (`packages/engine/app/src/renderer/import-cache.ts`) bridges to the IPC with a memory fallback for browser-only mode.
+`ImportCache` (`packages/engine/core/src/assets/import-cache.ts`) caches resolved `ImportSettings` keyed by model path. `MemoryImportCache` is the in-memory fallback. On native, `createHostImportCache()` wraps `downdraft.importCache*` — the host keeps a SQLite-backed cache beside saves/ in the game's userData dir, and the wrapper warms an in-memory mirror asynchronously so `get()` stays synchronous.
 
 ## Save system / storage backends
 
@@ -597,11 +571,11 @@ FBX parser reads `GlobalSettings` for `UpAxis` (0/1=Y-up, 2=Z-up) and `UnitScale
   **Three save modes** (game selects via `DowndraftSavesConfig.mode`):
   - `"inline"` — `OpfsSaveStore` runs inside the sim worker. Sim loop pauses during save (sync OPFS handles). Zero-copy: no data crosses worker boundaries. The sim worker calls `initSaveStore()` to create the store, then `save()`/`load()` use it directly.
   - `"worker"` — Renderer spawns a dedicated `save-worker.ts` Web Worker. Sim worker sends serialized state as transferable `ArrayBuffer` via `MessageChannel`. Sim loop continues running during save. The `SaveWorkerProxy` (`save-worker-proxy.ts`) implements `ISaveStore` by delegating to the worker via the RPC layer.
-  - `"auto"` (default) — Picks `"worker"` if OPFS is available (`navigator.storage.getDirectory`), else falls back to IPC.
+  - `"auto"` (default) — Picks `"worker"` if OPFS is available (`navigator.storage.getDirectory`), else falls back to the filesystem store.
 
   The `createSaveStore()` factory (`packages/engine/app/src/renderer/save-store-factory.ts`) handles mode selection and OPFS detection. The `SimBridgeDeps.saveMode` field tells the sim bridge which path to use.
 
-- **`FileSaveStore`** (`file-save-store.ts`) — filesystem backend, used as the IPC fallback. One `.ddsave` file per slot (header + zstd body), rotated to `.bak` on each save; `.bak` is the load fallback on corruption/hash-mismatch. Node-only (`node:fs`). Now supports the extended `ISaveStore` interface: blobs stored in `<slot>.blobs/` directory, thumbnails in `<slot>.thumb`, properties in `<slot>.props.json` sidecar. `listGenerations()` returns a single synthetic generation; `deleteGeneration()` delegates to `deleteSave()`.
+- **`FileSaveStore`** (`file-save-store.ts`) — filesystem backend, used on native where OPFS does not exist. One `.ddsave` file per slot (header + zstd body), rotated to `.bak` on each save; `.bak` is the load fallback on corruption/hash-mismatch. Node-only (`node:fs`). Now supports the extended `ISaveStore` interface: blobs stored in `<slot>.blobs/` directory, thumbnails in `<slot>.thumb`, properties in `<slot>.props.json` sidecar. `listGenerations()` returns a single synthetic generation; `deleteGeneration()` delegates to `deleteSave()`.
 
 ### Devtools Auto-Fit
 
@@ -679,7 +653,7 @@ The engine uses a bindless material binding model to eliminate per-draw bind-gro
 - `GPUTexelCopyTextureInfo` and `GPUCopyExternalImageDestInfo` use `origin: [x, y, layer]` (z component = array layer), not a separate `arrayLayer` property.
 - `GPUSupportedLimits` → `Record<string, number>` conversion requires `any` cast.
 
-- `tsconfig.web.json` and `tsconfig.node.json` are composite projects with `outDir: "dist"`. electron-vite also emits its bundles to `dist/main`, `dist/preload`, `dist/renderer` (configured in `electron.vite.config.ts`).
+- `tsconfig.web.json` and `tsconfig.node.json` are composite projects with `outDir: "dist"`.
 - `@dimforge/rapier3d-compat` is at `0.19.3`. The internal `RawRigidBodySet`/`RawColliderSet` types are not exported in that version, so `rapier-physics-system.ts` uses `any` for the raw body/collider references.
 - **WASM borrow aliasing:** Rapier 0.19.x returns `RawVector`/`RawRotation`/`RawColliderShape` objects from methods like `body.translation()`, `controller.computedMovement()`, and `ColliderDesc.trimesh()`. These hold WASM borrows that must be explicitly `.free()`d before `world.step()`. The `rapier-backend.ts` `addCollider` frees `cd.shape` after `world.createCollider()` (the collider set clones the `SharedShape` Arc). Same for `getColliderPosition`, `getBodyTransform`, `characterMove`, and the raw fast-path fallbacks. Failure to free causes "recursive use of an object detected which would lead to unsafe aliasing in rust" panics during `world.step()`.
 - **Raw fast-path handle mapping:** The `*Raw` methods in `rapier-backend.ts` receive `bodyId` (the game's `PhysicsBody.id`, sequential: 1, 2, 3...) but must pass the **Rapier rigid-body handle** (`body.handle`, starts at 0) to WASM functions like `rbSetTranslation`. The raw fast paths look up the `RigidBody` from `bodyMaps` to get `body.handle`. Passing `bodyId` directly causes out-of-bounds WASM access that corrupts internal state and triggers the aliasing panic.
@@ -705,38 +679,18 @@ The engine uses a bindless material binding model to eliminate per-draw bind-gro
 - `TelemetryCollector.passTimings` is now a bounded `Map` instead of an unbounded array.
 - `GPUProfiler` supports up to 32 passes (was hardcoded to 16).
 
-## Host SDK (`@downdraft/engine/app` — game-bootstrapped host layer)
+## Host SDK (`@downdraft/engine/app` — runtime-agnostic host layer)
 
-> **Dormant:** The Electron main/preload shell described below is retired — see "Runtime status" above. On native, `src/native-entry.ts` calls `runNativeGameModule()` and the native host (`packages/platform-native`) provides the window, GPU device, `window.downdraft` bridge, and MCP server in-process. The subpaths below remain exported for typecheck compat during the bake but are unreachable at runtime.
-
-Games bootstrap themselves by calling engine-exported host methods, instead of the engine owning a monolithic main/preload process. The engine obscures Electron's main/preload/renderer machinery behind a config-driven surface (Angular-style: devs set config, rarely touch raw Electron APIs). Raw process access is a deliberate `extend(ctx)` escape hatch.
+The native host (`packages/platform-native`) owns the process: it creates the winit window, the wgpu device/surface, installs the `window.downdraft` `HostAPI` bridge in-process (no IPC, no preload), and runs the MCP server. A game boots from `src/native-entry.ts` → `runNativeGameModule()` / `startNativeGame()` / `createNativeHost()`.
 
 ### Subpath exports
 
-- `@downdraft/engine/app/main` — `createDowndraftApp(config)`, `webGpuSwitches()`, composable handlers, `MainContext` types.
-- `@downdraft/engine/app/preload` — `createDowndraftBridge(config)` with default `window.downdraft` API + `extend` hook.
-- `@downdraft/engine/app/renderer` — typed `downdraft` accessor (coexists with `window.downdraft`; stubs to no-op in browser-only mode).
-- `@downdraft/engine/app/shared` — IPC channel constants (safe in all processes).
-- `@downdraft/engine/app/vite` — `createDowndraftViteConfig({ root, ...overrides })` build-config factory.
+- `@downdraft/engine/app/renderer` — `startGame()`/`bootstrapGame()` (run on the native main thread), typed `downdraft` HostAPI accessor (stubs to no-op when absent), save-store factory, standard MCP automation tools.
+- `@downdraft/engine/app/shared` — the `HostAPI` contract types (`packages/engine/app/src/shared/types.ts`).
 
-### Per-game files
+### Process model
 
-Each Electron game owns:
-- `electron.vite.config.ts` — calls `createDowndraftViteConfig({ root: __dirname })`.
-- `src/main.ts` — calls `createDowndraftApp({ window, switches, features, lifecycle, extend })`.
-- `src/preload.ts` — calls `createDowndraftBridge({ extend })`.
-
-Each game owns its own `games/<game>/electron.vite.config.ts` entrypoint, loaded directly by `draft dev` (run from inside `games/<game>/`) or `npx electron-vite dev --config games/<game>/electron.vite.config.ts` (from the repo root). There is no root dispatcher or `DOWNDRAFT_GAME` env var.
-
-### Config-driven features
-
-`features` in `createDowndraftApp()` gates which IPC handlers are registered: `saves`, `osr`, `mcp`, `devtools`, `gpuInfo`, `consoleForwarding`, `errorDialog`, `windowStatePersistence`. Set to `false` to disable.
-
-`features.devtools` accepts a `DevtoolsConfig` object (or boolean shorthand): `enabled` (master switch, default true), `keybind` (key that toggles DevTools via main-process `before-input-event`, matched against `KeyboardEvent.key`; default `"F12"`, set to `""` to disable), `autoOpen` (auto-open on window ready-to-show; default true), `debugPort` (optional; sets Chromium's `--remote-debugging-port` switch before app ready). The keybind is handled in the main process, so renderer keydown listeners for the same key are suppressed via `preventDefault()`. `resolveDevtoolsConfig(feature)` returns the resolved `{ enabled, autoOpen, keybind, debugPort }`.
-
-### Deliberate escape hatch
-
-`extend(ctx)` in both `createDowndraftApp()` and `createDowndraftBridge()` provides raw Electron access (`ctx.app`, `ctx.BrowserWindow`, `ctx.ipcMain`, etc.) for game-specific needs. This is the intended way to reach Electron APIs directly — "deliberate" by API design, not by lint/runtime guards.
+Single process: the game module, renderer, host services, sim-worker host, and MCP server all live in the one Bun process; the simulation runs in a dedicated Bun worker (SAB channels, unchanged). Recovery is restart-based — `downdraft.requestRestart(reason)` respawns the process (see `packages/platform-native/src/native-restart.ts`); `window.location.reload()` is not a recovery path on native. Devtools + OSR are in-process WebGPU overlays (`modules/native-osr`), not Chromium panels or webviews.
 
 ## Game automation & headless testing
 
@@ -803,8 +757,6 @@ draft mcp screenshot shot.png                    # capture_screenshot → file
 draft mcp run script.ts --game to-the-ocean      # launch game → run script (gets DOWNDRAFT_MCP_URL) → kill
 ```
 
-**Runtime benchmark:** `node scripts/bench-runtime.mjs <game> native [--settle=8] [--sample=15] [--no-mcp]` launches a game, measures boot→MCP-ready, sim tick rate, process RSS/CPU, captures a screenshot, and scans the log for errors. Prints one JSON line. The `electron` target is dormant.
-
 Key bridge fixes:
 - Notifications (no `id`) must not receive a response — the bridge silently drops them.
 - The proxy handler wraps errors in the `result` field; the bridge detects `result.error` and converts it to a proper MCP `error` response.
@@ -836,11 +788,11 @@ draft test --renderer=cpu --spec tests/e2e/my-game.spec.ts
 - `--spec <path>` — Override the spec file path.
 - `--port <n>` — MCP port (default: 9976). If omitted, the harness auto-allocates a free port.
 - `--no-deterministic` — Disable fixed seed / render loop pause / window hiding.
-- `--build` / `--build-only` — dormant: they used the electron-vite pipeline and now error. Native packaging is staged by `scripts/package-native.mjs`.
+- `--build` / `--build-only` — removed with the electron-vite pipeline; they hard-error. Native packaging is `scripts/package-native.mjs` (`draft release`).
 
 **Environment variables (set automatically by `draft test`):**
 - `DOWNDRAFT_GPU=swiftshader|hardware` — selects the WebGPU backend via `webGpuSwitches()`.
-- `DOWNDRAFT_DETERMINISTIC=1` — fixed seed (99999), skip autosave, disable devtools auto-open, pause render loop (on-demand rendering only). Passed to the renderer via the `downdraft.deterministic` preload bridge property.
+- `DOWNDRAFT_DETERMINISTIC=1` — fixed seed (99999), skip autosave, disable devtools auto-open, pause render loop (on-demand rendering only). Exposed via `downdraft.deterministic` on the HostAPI bridge.
 - `DOWNDRAFT_HEADED=1` — show the window even in deterministic mode. Without this, `window.ts` suppresses `win.show()` when `DOWNDRAFT_DETERMINISTIC=1`.
 - `MCP_PORT=9976` — MCP HTTP transport port (explicit; unset = ephemeral for dev).
 - `MCP_TIMEOUT_MS=120000` — MCP proxy IPC round-trip timeout.
@@ -854,7 +806,7 @@ draft test --renderer=cpu --spec tests/e2e/my-game.spec.ts
 
 `tests/e2e/harness.ts` launches `bun games/<game>/src/native-entry.ts`, waits for the native MCP HTTP health endpoint, and drives the game through MCP tool calls. The smoke test (`tests/e2e/to-the-ocean-smoke.spec.ts`) verifies that the tool surface exists, the simulation ticks, injected input advances the world, and a screenshot can be captured.
 
-**Build mode:** dormant — `--build`/`--build-only` used the electron-vite pipeline and now error. Production-build e2e returns with native packaging (Track F).
+**Build mode:** removed — `--build`/`--build-only` used the electron-vite pipeline and now hard-error. Production-build e2e uses `draft release` (native packaging).
 
 **Dynamic ports:** The harness auto-allocates a free MCP port starting from 9976, enabling parallel spec execution. Specs read the port from `process.env.MCP_PORT` (set by `draft test --port`). To run multiple specs simultaneously, omit `--port` and let each spec pick its own.
 
@@ -881,15 +833,8 @@ The CLI reads and sets a number of environment variables. This is the complete l
 
 | Variable | Used by | Purpose |
 |---|---|---|
-| `DD_RELEASE_KEYSTORE` | `mobile` | Release keystore path |
-| `DD_RELEASE_KEYSTORE_PASS` | `mobile` | Keystore password |
-| `DD_RELEASE_KEY_ALIAS` | `mobile` | Key alias |
-| `DD_RELEASE_KEY_PASS` | `mobile` | Key password (falls back to store pass) |
 | `AWS_ACCESS_KEY_ID` | `assets` | S3 credentials fallback (manifest config wins) |
 | `AWS_SECRET_ACCESS_KEY` | `assets` | S3 credentials fallback |
-| `ANDROID_HOME` | `mobile` | Android SDK path (build-tools + `local.properties`) |
-| `ANDROID_SDK_ROOT` | `mobile` | Android SDK path (fallback) |
-| `HOME` | `mobile` | `~/Android/Sdk`, `~/.android/debug.keystore`, `~/.downdraft/keystore.properties` |
 | `DISPLAY` | `test` | When absent, wraps in `xvfb-run` |
 | `DOWNDRAFT_STRICT` | all commands | `1` → hard-error on unknown CLI flags (warns otherwise) |
 
@@ -898,9 +843,8 @@ The CLI reads and sets a number of environment variables. This is the complete l
 | Variable | Used by | Purpose |
 |---|---|---|
 | `DOWNDRAFT_STRICT` | `packages/engine/core/src/module/diagnostics.ts` | `0`/`1` force-disable/enable module DI validation (else = Vite dev mode) |
-| `DOWNDRAFT_OSR_DISABLE_SHARED_TEXTURE` | `packages/engine/modules/electron-osr/.../osr-renderer.ts` | `1`/`true` disables OSR shared-texture path |
 | `DOWNDRAFT_MCP` | `packages/engine/core/src/util/logger.ts` | `1` routes logs to stderr (keeps stdout clean for MCP JSON-RPC) |
-| `DOWNDRAFT_DISABLE_DEVTOOLS` | `packages/engine/app/src/main/handlers/devtools.ts` | `1` disables devtools auto-open (set by `draft debug --no-devtools`) |
+| `DOWNDRAFT_DISABLE_DEVTOOLS` | `packages/cli/src/debug.ts` | `1` suppresses devtools auto-open (set by `draft debug --no-devtools`) |
 
 ### E2E test verification — checking for JS errors
 
@@ -944,260 +888,23 @@ All UI text rendered by the engine and games MUST use a font size of **at least 
 - The base stylesheet (`packages/engine/app/src/renderer/downdraft-base.css`) should not introduce a root font size below 12px; game theme overrides layered on top of it must also respect this floor.
 - This is a readability/accessibility floor, not a target — larger sizes are fine where appropriate.
 
-## Windows packaging — version info & PE compilation timestamp
+## Native packaging (`draft release`)
 
-### Problem
-
-VirusTotal analysis of Windows `.exe` builds reported two issues:
-
-1. **File Version Information** showed engine branding (`Downdraft Engine`, `com.downdraft.engine`) instead of the game's name/copyright/description. This was because only the root `package.json` had an electron-builder `build` block — no game had its own config, so all games inherited engine metadata.
-2. **Compilation Timestamp** showed 2018-12-15 even though the build was done in 2026. electron-builder copies Electron's prebuilt `electron.exe` without recompiling, so the PE COFF `TimeDateStamp` field stays at Electron's fixed build timestamp.
-
-### Solution
-
-**Per-game branding** — `createDowndraftBuilderConfig()` factory (`packages/engine/app/src/build/index.ts`) produces an electron-builder `Configuration` with per-game `appId`, `productName`, `copyright`, `description` (→ Windows `FileDescription`), `author` (→ Windows `CompanyName`), and `version` (→ Windows `FileVersion`). Each game has a `build.config.ts` that calls this factory. electron-builder's `WinPackager.signAndEditResources()` maps these fields to rcedit version-string arguments (`FileDescription`, `ProductName`, `LegalCopyright`, `CompanyName`, `FileVersion`, `ProductVersion`, `InternalName`). **Dormant:** this whole branding path targets electron-builder, which is disabled — native packaging metadata is handled by `scripts/package-native.mjs`.
-
-**PE timestamp patching** — `patchPeTimestamps()` (`packages/engine/app/src/build/pe-timestamp.ts`) writes the actual build timestamp into the COFF `TimeDateStamp` field (`e_lfanew + 8`) of every produced `.exe`. The factory wires this into `afterAllArtifactBuild` automatically.
-
-**Timestamp source** — `resolveBuildTimestamp()` uses:
-1. `SOURCE_DATE_EPOCH` env var (reproducible builds) — if set & valid.
-2. Git HEAD commit date (`git log -1 --format=%ct`) — deterministic per commit.
-3. `Date.now() / 1000` — wall-clock fallback when git is unavailable.
-
-### `draft release` CLI command (unified pipeline)
-
-`draft release` is the unified build + package + sign pipeline that replaces the separate `build`, `dist`, `export`, `mobile`, and `build-games` commands. The old commands remain as deprecated backward-compat aliases that delegate to `release`.
-
-> **Dormant paths:** Desktop targets (`win|linux|mac`) used electron-vite + electron-builder and now hard-error — native packaging is staged by `scripts/package-native.mjs`. Mobile targets (`android|ios`) still run but are dormant/unmaintained during the native bake. The electron-builder details below are retained for reference only.
+`draft release` is the unified build + package pipeline that replaced the separate `build`, `dist`, `export`, `mobile`, and `build-games` commands. The old commands remain as deprecated backward-compat aliases that delegate to `release`.
 
 ```
-draft release [--game=<name>] [--games=<csv>] [--target=<win|linux|mac|android|ios|all>]
-              [--format=<csv>] [--stage=<build|package|release>] [--mode=<dev|debug|prod>]
-              [--out=<dir>] [--config=<path>] [--port=<n>] [--skip-build] [--build-only]
-              [--skip-gradle] [--no-icons] [--no-overrides] [--no-minify] [--sourcemap] [--verbose]
+draft release [--game=<name>] [--games=<csv>] [--target=<win|linux|mac|all>]
+              [--stage=<build|package|release>] [--mode=<dev|debug|prod>]
+              [--out=<dir>] [--mcp] [--verbose]
 ```
 
-Stages:
-- `build` = Vite-bundle only (mobile web bundle; desktop electron-vite disabled)
-- `package` = package an existing build (electron-builder / Capacitor+Gradle)
-- `release` = build + package + sign + collect to `release/` (default)
+All stages compile the same artifact via `scripts/package-native.mjs`: a standalone Bun binary (`<out>/<game>-<target>`) plus a sibling `native/` cdylib and `dd-assets/` staging tree. `--mcp` retains the MCP endpoint in the packaged binary (stripped by default via `__DD_MCP_STRIP__`). Mobile targets are removed — a future mobile port would be native, not WebView.
 
-The desktop packaging step loads the game's `build.config.ts` (or falls back to the `build` block in `package.json`) and invokes electron-builder's programmatic `build()` API. Config resolution order:
+Windows version-info/PE-timestamp branding is a gap: the electron-builder `build.config.ts` pipeline is deleted and `package-native.mjs` does not yet stamp PE resources — add rcedit/`@resedit` stamping there when shipping Windows builds.
 
-1. `--config=<path>` flag (explicit).
-2. `games/<game>/build.config.ts` (monorepo layout).
-3. `./build.config.ts` in the current directory (standalone scaffolded project).
-4. `build` block in `games/<game>/package.json` (inline, back-compat).
-5. `build` block in `./package.json` (standalone inline).
-6. Root `package.json` `build` block (engine default — last resort).
+## Mobile targets — removed
 
-### Files
-
-- `packages/engine/app/src/build/index.ts` — `createDowndraftBuilderConfig()` factory + `resolveBuildTimestamp()`.
-- `packages/engine/app/src/build/pe-timestamp.ts` — `patchPeTimestamp()` / `patchPeTimestamps()`.
-- `packages/engine/app/src/build/pe-timestamp.spec.ts` — PE patcher specs (11 tests).
-- `packages/engine/app/package.json` — `./build` subpath export.
-- `packages/cli/src/dist.ts` — `draft dist` command (deprecated alias for `draft release --stage=package`) + `packageDesktop()` export.
-- `packages/cli/src/release.ts` — `draft release` unified pipeline (build + package + sign).
-- `games/<game>/build.config.ts` — per-game builder config (to-the-ocean, mining-rpg, overburden, alchemy, falling-sand, sandjongg).
-- `packages/cli/templates/full/build.config.ts.eta` — scaffolded `build.config.ts` for the `full` template.
-
-### Code-signing note
-
-For signed Windows builds, the PE timestamp patch runs in `afterAllArtifactBuild` — **after** electron-builder's signing step. If you need the timestamp patched before signing, set `patchPeTimestamp: false` in `createDowndraftBuilderConfig()` and run `patchPeTimestamps()` manually before signing.
-
-## mining-rpg: Solid-js-in-Worker Vite workaround
-
-**Status:** Known workaround — revisit when `vite-plugin-solid` adds native worker support.
-
-mining-rpg runs its UI (Solid-js components) inside a Web Worker for offscreen rendering. This requires `vite-plugin-solid` to apply its JSX transform to `.tsx` files in worker bundles. The solid-js package has a `"worker"` export condition that maps to `dist/server.js` — a non-reactive SSR build where `createSignal`/`createStore` are no-ops. Vite uses the `"worker"` condition when resolving modules in a Web Worker context, which breaks all reactivity.
-
-### The 4 custom Vite plugins (`games/mining-rpg/vite-options.ts`)
-
-1. **`solidRemoveWorkerConditionPlugin()`** — A `"post"` plugin that removes `"worker"` from `resolve.conditions` so the `"browser"` → `"development"` conditions are used instead (selects `dist/dev.js` with real reactivity).
-
-2. **`solidBrowserResolvePlugin()`** — A `"pre"` plugin that intercepts `resolveId` for `solid-js`, `solid-js/web`, and `solid-js/store` and redirects them to the browser dev build files. Also includes a `configureServer` middleware that intercepts Vite's pre-bundled dep URLs (`.vite/deps/solid-js*.js`) and serves the browser dev build content instead — necessary because Vite's dep optimizer pre-bundles solid-js using the `"worker"` export condition, and no combination of `resolve.alias` / `optimizeDeps.exclude` / `esbuildOptions.conditions` reliably overrides this for the worker context.
-
-3. **`solidWorkerUrlPlugin()`** — A build-only plugin that replaces `__SOLID_WORKER_URL__` in the main bundle with the emitted worker chunk's URL. Uses `generateBundle` to find the worker filename and patch the main bundle's code before it's written to disk.
-
-4. **`solidEsbuildPlugin()`** — An esbuild plugin for Vite's dep pre-bundler that overrides solid-js resolution (forces the browser build instead of the server build).
-
-### Dev-vs-prod variance
-
-- **Dev mode:** Vite's dep pre-bundler uses the `"worker"` export condition → non-reactive server build. The `configureServer` middleware in `solidBrowserResolvePlugin` intercepts pre-bundled dep URLs and serves the browser dev build content instead. This is fragile — it depends on URL pattern matching (`/.vite/deps/solid-js*.js`).
-
-- **Prod build:** Rollup resolves via the `resolveId` hook in `solidBrowserResolvePlugin` (no pre-bundler). The `resolve.alias` entries also force the browser build. More robust than dev mode.
-
-### Future plan
-
-Extract these plugins into `@downdraft/engine/app/vite` as a `solidWorkerPlugin()` factory, so other games that want Solid-js-in-worker can use it without copying the workaround. This should be done after `vite-plugin-solid` adds native worker context support (tracking: https://github.com/solidjs/vite-plugin-solid/issues). Until then, the workaround stays in `games/mining-rpg/vite-options.ts`.
-
-## Mobile targets (Android + iOS via Capacitor) — Experimental
-
-> **⚠️ Experimental:** Mobile builds are under active development. The build pipeline, native shell, and WebGPU-on-WebView path have known limitations (e.g. the Android emulator does not expose a WebGPU-compatible backend — see "WebGPU on the Android emulator" below). Desktop builds are the stable, recommended target.
-
-The engine supports Android and iOS build targets by wrapping the existing web-portable renderer/sim/worker stack in Capacitor (system WebView). The renderer, sim workers, SAB layout, and libraries are **unchanged** from desktop — they run in the system WebView with the exact same WebGPU + Worker + SharedArrayBuffer code path.
-
-### Engine-owned native shell (zero native files per game)
-
-The engine owns a **canonical, pre-wired native shell** at `packages/mobile-shell/` containing complete Android + iOS projects with the embedded HTTP server (COOP/COEP for SharedArrayBuffer) already wired in. `draft mobile` copies this shell into a per-game **gitignored** `android/` + `ios/` directory and patches in game-specific values (appId, appName, port, icons).
-
-**Games commit zero native files.** The `android/` and `ios/` directories in each game are gitignored (via `games/*/android/` + `games/*/ios/` in root `.gitignore`) — regenerated from the shell on each `draft mobile` run. Games only commit:
-- `capacitor.config.ts`, `src/mobile.ts` (or `.tsx`), `mobile.vite.config.ts`
-- Optionally `icon.png` (1024×1024, auto-generates all icon sizes via jimp)
-- Optionally `mobile-overrides/` (game-specific native permissions, deps, resources)
-
-The shell's `MainActivity.java` / `AppDelegate.swift` / `SceneDelegate.swift` already start the embedded server and override the WebView URL. **No manual native code editing is required.**
-
-### Architecture: what is portable vs Electron-only
-
-- **Already web-portable (runs unchanged in a WebView):** `packages/engine/core/src/render/*`, `packages/engine/core/src/worker/*`, `packages/engine/core/src/sab/*`, `packages/engine/core/src/input/*`, `packages/engine/core/src/ecs/*`, all `packages/engine/libraries/*`, all `packages/engine/modules/*` (except `electron-osr`), `packages/shader-graph`, `packages/ui`, `packages/mcp`, and `packages/engine/app/src/renderer/*` (the `downdraft` bridge accessor already returns a stub when `window.downdraft` is absent).
-- **Electron-only (replaced/skipped on mobile):** `packages/engine/app/src/main/*` (Electron main process), `packages/engine/app/src/preload/*` (IPC bridge), `packages/engine/modules/electron-osr/*` (Offscreen Rendering), `electron.vite.config.ts` / `createDowndraftViteConfig()` (electron-vite build), `draft release --target=win,linux,mac` (electron-builder desktop packaging).
-
-### Gating constraints
-
-- **WebGPU floor:** Android WebView 121+ / iOS WKWebView 26+ (iPadOS 26+). **iOS 26, not iOS 18**, is the real WKWebView WebGPU floor — Safari-the-browser got WebGPU at iOS 18, but the WKWebView component only enabled it at iOS 26 (Tahoe). Older iOS devices cannot run Downdraft games via this path.
-- **SharedArrayBuffer:** Requires cross-origin isolation (COOP `same-origin` + COEP `require-corp`). Capacitor's default custom-scheme loading (`capacitor://localhost`) makes header control unreliable. The reliable fix is an **embedded local HTTP server** inside the native app that serves web assets with COOP/COEP headers, pointing the WebView at `http://127.0.0.1:<port>`. This is **pre-wired in the engine-owned shell** — no manual native editing needed.
-
-### Files
-
-- `packages/mobile-shell/` — engine-owned canonical native shell (Android + iOS, pre-wired with embedded server).
-- `packages/mobile-shell/android/` — pre-wired Android project (`MainActivity` starts `EmbeddedServer` + overrides WebView URL; `app/build.gradle` has NanoHTTPD dep).
-- `packages/mobile-shell/ios/` — pre-wired iOS project (`AppDelegate` starts `EmbeddedServer`; `SceneDelegate` overrides WebView URL; `Info.plist` has ATS exception).
-- `packages/engine/app/src/mobile/index.ts` — `createDowndraftMobileApp()` entry point (mobile equivalent of `createDowndraftApp()`).
-- `packages/engine/app/src/mobile/mobile-bridge.ts` — `DowndraftBridge` implementation for mobile (OPFS saves, web-API display info, Capacitor plugins for quit/external, no-ops for OSR/MCP/devtools).
-- `packages/engine/app/src/mobile/touch-input-adapter.ts` — maps touch events → `InputBufferWriter` (dual-stick, tap-to-move, tap schemes).
-- `packages/engine/app/src/mobile/webgpu-guard.ts` — boot-time WebGPU + cross-origin isolation check with user-facing error screen.
-- `packages/engine/app/src/mobile/capacitor-plugin-types.d.ts` — ambient type declarations for optional `@capacitor/app` and `@capacitor/browser` plugins.
-- `packages/engine/app/src/vite/mobile-vite-config.ts` — `createDowndraftMobileViteConfig()` web-only Vite build config (no main/preload, outputs `dist/mobile/`).
-- `packages/cli/src/mobile.ts` — `draft mobile` CLI command (deprecated alias for `draft release --target=android,ios`) + `packageMobile()` / `buildMobileWeb()` exports.
-- `packages/cli/src/mobile-icons.ts` — jimp-based icon + splash generation from `icon.png` (Android mipmaps + splash screens + iOS AppIcon + splash set). Generates solid-color placeholders if no `icon.png` is provided. The shell ships NO binary images.
-
-### Per-feature Electron-only strategy
-
-| Electron-only feature | Mobile strategy |
-|---|---|
-| OSR (Offscreen Rendering) | Skip (`features.osr: false`). Use DOM overlay for UI. |
-| MCP automation harness | Skip in production (desktop dev/test only). |
-| DevTools extension | Skip (use Safari Web Inspector / Chrome Remote Debug). |
-| Pointer lock | Replace with `TouchInputAdapter` (dual-stick / tap-to-move / tap). |
-| Save game state via IPC | OPFS / IndexedDB (already supported via `createSaveStore("auto")` fallback). |
-| Per-game userData isolation | Handled by OS (each installed app is sandboxed). |
-| Chromium GPU switches | N/A (WebGPU enabled by the WebView itself on supported OS versions). |
-| Display refresh rate / DPR | Web APIs (`requestAnimationFrame` timing, `window.devicePixelRatio`). |
-| GPU info / feature log | WebGPU adapter info (`GPUDeviceManager` already captures `adapter.info`). |
-| Import cache | No-op on mobile (re-import each launch, or use IndexedDB adapter). |
-| `quit()` / `openExternal()` | Capacitor plugins (`@capacitor/app`, `@capacitor/browser`). |
-
-### Adding mobile support to a game
-
-**Zero-config path:** Just run `draft release --game=<name> --target=android,ios` (or the deprecated `draft mobile --game=<name>`). The command auto-generates everything:
-- `capacitor.config.ts` — written if missing (correct appId, appName, webDir, server URL)
-- `mobile.vite.config.ts` — defaulted at build time (no file needed unless customizing)
-- `src/mobile.tsx` — auto-generated stub if missing (wire up renderer/sim/UI, then commit)
-
-The only prerequisite is installing Capacitor deps: `bun add -d @capacitor/cli @capacitor/core @capacitor/android @capacitor/ios`
-
-**Full setup:**
-
-1. Run `draft release --game=<name> --target=android,ios`. This will:
-   - Auto-generate `src/mobile.tsx` (stub with placeholder GameModule)
-   - Auto-generate `capacitor.config.ts` (if missing)
-   - Copy the engine shell → gitignored `android/` + `ios/`
-   - Generate icons + splash screens (from `icon.png` or solid-color placeholders)
-   - Run `cap sync`
-   - Build the release APK via the Gradle wrapper (Android target) and collect it into `release/android/` (+ unpacked to `release/android-unpacked/`)
-
-2. Wire up the generated `src/mobile.tsx` stub — copy your renderer factory, sim adapter, and UI mount from `main.tsx`. Replace `startGame()` with `createDowndraftMobileApp()`.
-
-3. (Optional) Add a 1024×1024 `icon.png` to the game directory for custom app icons.
-
-4. (Optional) Create a `mobile-overrides/` directory for game-specific native customization (extra permissions, deps, resources).
-
-5. Re-run `draft release --target=android,ios` to regenerate native projects with your wired-up entry. The release APK lands at `release/<appName>-<version>-android.apk` (signed in place — release keystore → debug fallback).
-
-6. To run on a device/emulator (rather than just producing the APK): `npx cap open android` (or `ios`) and Run in Android Studio / Xcode.
-
-**TODO (revisit later):** Extract a shared `game-module.ts` from each game's `main.tsx` so the auto-generated `mobile.tsx` stub can import and reuse it directly, eliminating the manual wiring step. Currently the stub has placeholder TODOs because games inline their `GameModule` into `startGame()` rather than exporting it.
-
-### `draft release --target=android,ios` (mobile) / `draft mobile` (deprecated alias)
-
-```
-draft release [--game=<name>] [--target=<android|ios|all>] [--port=<n>] [--skip-build] [--no-icons] [--no-overrides]
-```
-
-- Builds the web bundle via `createDowndraftMobileViteConfig()` → `dist/mobile/`.
-- Copies the engine-owned shell (`packages/mobile-shell/`) → gitignored `android/` + `ios/` in the game dir.
-- Patches game-specific values (appId, appName, port) into the native projects.
-- Generates app icons from `icon.png` (via jimp) if provided.
-- Applies `mobile-overrides/` merge layer if present.
-- Ensures `capacitor.config.ts` exists (writes if missing).
-- Syncs the web bundle to native projects (`npx cap sync`).
-- Builds the release APK via the Gradle wrapper (`./gradlew assembleRelease`) and collects it into `release/android/<appName>-<version>-android.apk` (+ unpacked to `release/android-unpacked/`). Mirrors `draft dist` → electron-builder `release/` for desktop. Requires the Android SDK. The APK is unsigned — sign before distribution.
-- Prints next steps (APK location + open Android Studio / Xcode to run on device).
-
-### Config that must be updated when adding mobile support
-
-- `packages/engine/app/package.json` — `./mobile` and `./vite/mobile` export mappings (already done).
-- `tsconfig.web.json` — `packages/engine/app/src/mobile/**` include + `@downdraft/engine/app/mobile` path mapping (already done).
-- Game's `capacitor.config.ts` — `appId`, `webDir: "dist/mobile"`, `server.url: "http://127.0.0.1:<port>/index.html"`, `server.androidScheme: "http"`, `server.iosScheme: "http"`.
-- No native project editing required — the shell is pre-wired.
-
-### Android emulator + adb — always use hard timeouts
-
-**ALWAYS pass a hard `timeout` to `exec` when running `adb` or emulator commands.** The `adb` shell, `adb wait-for-device`, and emulator boot sequences can hang indefinitely (emulator fails to start, `adb` daemon dies, device enters an unrecoverable state). Without a hard timeout the exec call blocks forever and the session stalls.
-
-```bash
-# GOOD — hard timeout, fails fast if something is wrong
-timeout 120 adb wait-for-device
-timeout 30 adb shell getprop sys.boot_completed
-
-# BAD — can hang forever if the emulator never boots
-adb wait-for-device
-```
-
-Recommended timeout values:
-- `adb wait-for-device` — 120s (emulator boot can take 60-90s)
-- `adb shell <cmd>` — 15-30s (most shell commands return in <5s)
-- `adb install` — 60s (large APKs on slow emulators)
-- `adb logcat -d` — 10s (dump only, no streaming)
-- `emulator` startup — background it, then poll `adb shell getprop sys.boot_completed` with 5s sleeps inside a `timeout 120` loop
-- `gradlew assembleDebug` — 180s (cold Gradle daemon + first build can be slow)
-
-If a command times out, kill the emulator (`adb emu kill`) and restart it rather than retrying the same hung command.
-
-### WebGPU on the Android emulator
-
-The Android emulator's WebView often returns `null` from `navigator.gpu.requestAdapter()` even though `navigator.gpu` exists and `canvas.getContext('webgpu')` returns an object. This is because:
-
-1. **WebGPU requires a functional GPU backend** (Vulkan 1.1+ or OpenGL ES 3.1+ via compatibility mode). The emulator's GPU emulation (`-gpu host`, `-gpu swiftshader_indirect`) may not expose a Vulkan backend that Dawn (Chrome's WebGPU implementation) can use.
-2. **The GPU blocklist** may disable WebGPU even when a GPU is present. Enable `--ignore-gpu-blocklist` and `--enable-unsafe-webgpu` via the WebView command-line file.
-3. **Compatibility mode** (`featureLevel: "compatibility"` or `compatibilityMode: true` in `requestAdapter()`) can use the OpenGL ES backend on Chrome 135+, but the emulator's GLES emulation may still fail.
-
-**Emulator GPU modes to try (in order):**
-1. `-gpu host` — uses the host GPU (NVIDIA/AMD). Best chance of WebGPU working, but can crash with SIGSEGV if the Vulkan driver has issues.
-2. `-gpu swiftshader_indirect` — software renderer. Slower but more stable. WebGPU may still fail (SwiftShader doesn't always expose a WebGPU-compatible backend).
-3. `-gpu host -feature GLESDynamicVersion` — forces GLES version detection, sometimes helps with WebView GPU init.
-
-**WebView command-line flags to try:**
-```bash
-adb shell "echo 'webview --enable-features=SharedArrayBuffer,UnsafeWebGPU --ignore-gpu-blocklist' > /data/local/tmp/webview-command-line"
-```
-
-**If WebGPU cannot be enabled on the emulator**, the game will boot (React UI renders, sim worker runs) but the canvas will be blank — `renderer.init()` returns `false` because `requestAdapter()` returns `null`. This is an emulator limitation, not a code bug. Test on a physical Android device with Chrome 121+ (Mali/Adreno GPUs) for real WebGPU validation.
-
-### Debugging the running app via CDP
-
-The WebView exposes a Chrome DevTools Protocol endpoint that can be used for runtime inspection:
-
-```bash
-PID=$(adb shell pidof com.downdraft.sandjongg | tr -d '\r')
-adb forward tcp:9222 localabstract:webview_devtools_remote_$PID
-# Then connect to http://127.0.0.1:9222/json via Python websocket
-# or open chrome://inspect in a desktop Chrome browser
-```
-
-This allows evaluating JS in the WebView context to check `navigator.gpu`, `requestAdapter()`, DOM state, and console output — useful for diagnosing boot failures without logcat noise.
+The Capacitor/WebView mobile path (`draft mobile`, `release --target=android,ios`, `packages/mobile-shell`, per-game `android/`/`ios/` dirs) is **deleted** — it was dormant and unmaintained. A future mobile port would target the native runtime (winit/SDL + wgpu), not a WebView shell.
 
 ## User-authored plugin (modding) system
 
@@ -1406,7 +1113,6 @@ The following execution paths are instrumented with `recordTaskLatency()` + `che
 - `packages/engine/core/src/profiling/iops/idb-patch.ts` — IndexedDB prototype patching.
 - `packages/engine/core/src/profiling/iops/renderer-idb-disable.ts` — renderer IDB disabling.
 - `packages/engine/core/src/worker/instrumented-worker-host.ts` — InstrumentedWorkerHost + exposeProfilingApi.
-- `packages/engine/app/src/vite/profiling-prelude-plugin.ts` — Vite plugin.
 - `packages/engine/modules/devtools/src/profiling-bridge.ts` — ProfilingBridge.
 - `packages/engine/modules/devtools/src/debug-view-descriptors.ts` — DebugViewDescriptor + 10 built-in views.
 - `packages/engine/libraries/profiler/src/profiler-scene.ts` — ProfilerScene (pixi-ui overlay).
@@ -1533,7 +1239,7 @@ The engine has a runtime modding system built on `PluginHost` (`packages/engine/
 
 ### Game migration (Andrew's Sandbox)
 
-Andrew's Sandbox migrated from direct `PluginScanner → ContentRegistry` wiring to `PluginHost` with bridged extension loaders. See `games/andrews-sandbox/src/plugin-host-bridge.ts` and the plugin discovery section in `games/andrews-sandbox/src/main.tsx`.
+Andrew's Sandbox migrated from direct `PluginScanner → ContentRegistry` wiring to `PluginHost` with bridged extension loaders. See `games/andrews-sandbox/src/plugin-host-bridge.ts` and the plugin discovery section in `games/andrews-sandbox/src/game-module.tsx`.
 
 The bridge adapts:
 - `ContentRegistry` → `AssetRegistry` (meshes/textures/pbr-materials/texture-pipelines)
@@ -1572,7 +1278,7 @@ dd plugin list [--game <game>]
 - `packages/engine/core/src/plugin/material-registry.ts` — mod-defined material shader registry.
 - `packages/engine/libraries/postfx/src/post-process-stack.ts` — custom effect registration.
 - `games/andrews-sandbox/src/plugin-host-bridge.ts` — sandbox bridge adapters.
-- `games/andrews-sandbox/src/main.tsx` — PluginHost wiring in sandbox.
+- `games/andrews-sandbox/src/game-module.tsx` — PluginHost wiring in sandbox.
 - `packages/cli/src/scaffold-plugin.ts` — mod/plugin scaffold.
 - `packages/cli/src/plugin-command.ts` — `dd plugin` / `dd mod` CLI commands.
 
@@ -1639,7 +1345,7 @@ Native binaries are **not committed** and consumers never compile them:
 
 ### Runtime detection
 
-`packages/engine/core/src/platform/runtime.ts` provides `isBun`, `isNative`, `isDevMode` for feature-detecting the runtime. Engine code should use these instead of `import.meta.env.DEV` or `typeof navigator !== "undefined"`.
+`packages/engine/core/src/platform/runtime.ts` provides `isBun`, `isBrowser`, `isDevMode`, `getHostCapabilities()`, and `getNativeHost()` for feature-detecting the runtime. Engine code should use these instead of `import.meta.env.DEV` or `typeof navigator !== "undefined"`.
 
 `packages/engine/core/src/platform/render-surface.ts` defines `RenderSurface` — the host-neutral render target (WebGPU context, dims, event target, pointer-lock). `GameRenderer`/`GameContext`/`startGame` use it; `NativeSurface` and `HTMLCanvasElement` both satisfy it. DOM helpers (`getCanvas`/`getOverlay`/`captureCanvasThumbnail`/`compositeScreenshot`) live in `app/src/renderer/compat/dom.ts` and are deprecated.
 
@@ -1649,9 +1355,9 @@ Native binaries are **not committed** and consumers never compile them:
 
 `packages/engine/core/src/platform/bun-preload.ts` registers Bun plugin loaders for `?raw` and `?url` import suffixes, plus CSS imports. Configured in root `bunfig.toml`.
 
-### Current status — native is the default runtime; Electron is deprecated
+### Current status — native is the only runtime; Electron is deleted
 
-`draft dev` defaults to native (`src/native-entry.ts` via `runNativeGameModule`); Electron is the deprecated opt-in (`draft dev --electron`, `draft test --runtime=electron`). All games have `src/native-entry.ts` sharing the same `GameModule` as their browser `main.tsx`, and `draft new` scaffolds both entries + the `@downdraft/platform-native` dep. Electron-only surfaces remaining (intentionally, pending removal): `electron.vite.config.ts` dev, `electron-builder` packaging (`draft release`/`dist` desktop), `modules/electron-osr` (live-web OSR — to-the-ocean's debug billboard; authored UI uses the `blitz-ui` library), and Chromium tracing. Native equivalents exist for everything else — saves, screenshots, MCP (in-process, PID-file discovery), diagnostics, import cache, window state, single-instance, error dialogs, gamepad, clipboard, dialogs, drop events.
+`draft dev`/`draft test`/`draft release` run native only — `--electron`/`--runtime=electron`/`--build` are hard-error stubs. Games boot from `src/native-entry.ts` (`runNativeGameModule`/`startNativeGame`/`createNativeHost`); the Electron main/preload/vite/mobile trees, `electron-osr`, `raw-input`, `core/ipc.ts`, and the electron-builder pipeline are deleted. OSR (devtools/web overlays) is `modules/native-osr` — in-process WebGPU, no webviews.
 
 Native runs on three JS runtimes — **Bun** (default, `bun:ffi`), **Node+tsx** (`koffi`, `wgsl-loader.mjs`), **Deno** (`Deno.dlopen`, root `deno.json` + `--allow-all --unstable-sloppy-imports`). Steady-state perf is identical across runtimes (GPU + fixed-dt sim don't depend on the JS runtime); differences are boot time (~0.5–1.0s Bun, ~1.0s Node/Deno) and footprint (~520MB Bun / ~1.05GB Node / ~690MB Deno RSS on mining-rpg). Packaging spike: `scripts/package-native.mjs` compiles a game's native entry into a standalone Bun binary (verified end-to-end on mining-rpg — workers, saves, MCP, screenshots all work in the packaged binary).
 

@@ -11,11 +11,6 @@
 /** True when running under Bun (typeof Bun !== "undefined"). */
 export const isBun: boolean = typeof (globalThis as any).Bun !== "undefined";
 
-/** True when running under Electron (process.versions.electron exists). */
-export const isElectron: boolean =
-  typeof (globalThis as any).process !== "undefined" &&
-  !!(globalThis as any).process?.versions?.electron;
-
 /** True when running in a browser (window + document exist). */
 export const isBrowser: boolean =
   typeof (globalThis as any).window !== "undefined" &&
@@ -63,7 +58,7 @@ export const hasHMR: boolean = (() => {
 // ---------------------------------------------------------------------------
 // Host capability surface
 //
-// Runtime-name booleans (`isBun`, `isElectron`) answer "what am I running
+// Runtime-name booleans (`isBun`, `isBrowser`) answer "what am I running
 // on" — feature gates need "what can this host do". getHostCapabilities()
 // answers that: it prefers the bridge-installed descriptor, then falls back
 // to the `__nativeHost` marker (seeded by bun-preload before createNativeHost

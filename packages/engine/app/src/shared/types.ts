@@ -8,11 +8,6 @@
 // through the typed `downdraft` accessor. There is no process boundary on
 // native — every method is a direct in-process call.
 //
-// The Electron-shaped predecessor contract (`DowndraftBridgeAPI` plus the
-// tracing/heap-snapshot/shared-texture types) lives in
-// ./electron-bridge-types.ts — DORMANT, kept only so the dormant preload
-// tree still typechecks until Phase 7 deletes it.
-//
 // These are type-only — no runtime code — so importing them from any
 // context (main / preload / renderer / worker) is safe.
 

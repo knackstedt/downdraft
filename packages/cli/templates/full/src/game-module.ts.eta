@@ -7,7 +7,6 @@ import { SimHost } from "./sim-host";
 //
 // The sim runs in sim-worker.ts (a Web Worker): an ECS World with a rotation
 // system. The SAME module drives both entry points:
-//   src/main.tsx        — web bundle entry (build output)
 //   src/native-entry.ts — Bun + SDL + wgpu-native (draft dev, the default)
 // Engine libraries can be declared via GameModule.libraries[] for automatic
 // SAB allocation + DI wiring.

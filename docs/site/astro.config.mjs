@@ -41,8 +41,7 @@ export default defineConfig({
 						{ label: 'Particles', slug: 'guides/particles' },
 						{ label: 'Plugins', slug: 'guides/plugins' },
 						{ label: 'MCP & AI Agents', slug: 'guides/mcp' },
-						{ label: 'Mobile (Android & iOS)', slug: 'guides/mobile' },
-					],
+						],
 				},
 				{
 					label: 'Architecture',
@@ -69,7 +68,7 @@ export default defineConfig({
 				starlightImageZoom({ showCaptions: true }),
 				starlightLlmsTxt({
 					projectName: 'DownDraft Engine',
-					description: 'An AI-Driven Game Engine built on Electron + WebGPU with TypeScript-first design and a built-in MCP server for AI agent interaction',
+					description: 'An AI-Driven Game Engine built on a native runtime (Bun + winit + wgpu) with TypeScript-first design and a built-in MCP server for AI agent interaction',
 					promote: ['index*']
 				}),
 			]

@@ -22,7 +22,6 @@ npm run export
 
 ```
 src/          Game source code
-  main.tsx    Renderer entry (game module mount)
   native-entry.ts  Native runtime entry (draft dev)
 assets/       Game assets (models, textures, shaders)
 downdraft.config.json   Engine configuration (physics-rapier plugin enabled)

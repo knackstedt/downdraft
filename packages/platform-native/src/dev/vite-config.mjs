@@ -294,7 +294,8 @@ export function buildNativeDevConfig(opts) {
         consumer: "server",
         resolve: {
           // Runtime-specific exports first (e.g. a package's "bun" condition),
-          // then browser — matching the electron-renderer resolution heritage.
+          // then browser — packages without a runtime export get their
+          // browser build, which is what the native surface expects.
           conditions: [runtime, "browser", "module", "import", "default"],
           // All node builtins (bare + node: prefixed), plus bun:/deno:/
           // npm: namespaces — vite's default server-consumer builtins cover

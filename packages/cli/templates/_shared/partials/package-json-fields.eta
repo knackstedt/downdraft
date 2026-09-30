@@ -5,9 +5,6 @@
   "scripts": {
     "dev": "draft dev",
     "build": "draft release --stage=build",
-    "dist": "draft release",
-    "export": "draft release --stage=package --format=launcher",
-    "mobile": "draft release --target=android,ios",
     "release": "draft release",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint",

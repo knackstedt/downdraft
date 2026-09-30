@@ -50,15 +50,9 @@ describe("tracing toolkit e2e (main-process MCP tools)", () => {
     const result = await game!.mcpClient.callTool("trace_categories", {});
     const data = parseJsonContent(result) as { categories: string[] };
     expect(Array.isArray(data.categories)).toBe(true);
-    if (game!.runtime === "native") {
-      // Engine's in-engine instrumentation categories (TraceEventWriter)
-      expect(data.categories.length).toBeGreaterThan(3);
-      expect(data.categories).toContain("task");
-    } else {
-      expect(data.categories.length).toBeGreaterThan(10);
-      // Chromium always includes these built-in categories
-      expect(data.categories.some((c) => c.includes("toplevel"))).toBe(true);
-    }
+    // Engine's in-engine instrumentation categories (TraceEventWriter)
+    expect(data.categories.length).toBeGreaterThan(3);
+    expect(data.categories).toContain("task");
   });
 
   it("trace_status reports not recording when idle", async () => {

@@ -26,7 +26,7 @@ describe("pixi-ui-demo MCP automation smoke", () => {
 
   beforeAll(async () => {
     game = await launchGame({
-      configPath: "examples/pixi-ui-demo/electron.vite.config.ts",
+      game: "pixi-ui-demo",
       mcpPort: MCP_PORT,
       gpu: (process.env.DOWNDRAFT_GPU as "swiftshader" | undefined) ?? "swiftshader",
       deterministic: true,

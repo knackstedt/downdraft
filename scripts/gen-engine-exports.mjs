@@ -25,7 +25,6 @@ const checkOnly = process.argv.includes("--check");
 
 // Subpaths that don't follow the <name>/src/<rest> convention.
 const OVERRIDES = {
-  "./modules/raw-input/polyfill": "./modules/raw-input/src/renderer/polyfill.ts",
   "./lint-plugin": "./lint-plugin.mjs",
 };
 
@@ -85,18 +84,12 @@ for (const rel of indexDirs(coreSrc)) {
 const appSrc = join(engineDir, "app/src");
 entries.push(
   ["./app", "./app/src/index.ts"],
-  ["./app/main", "./app/src/main/index.ts"],
-  ["./app/preload", "./app/src/preload/index.ts"],
   ["./app/renderer", "./app/src/renderer/index.ts"],
-  ["./app/mobile", "./app/src/mobile/index.ts"],
   ["./app/shared", "./app/src/shared/index.ts"],
-  ["./app/vite", "./app/src/vite/index.ts"],
-  ["./app/vite/mobile", "./app/src/vite/mobile.ts"],
-  ["./app/build", "./app/src/build/index.ts"],
   ["./app/renderer/downdraft-base.css", "./app/src/renderer/downdraft-base.css"],
 );
 for (const rel of indexDirs(appSrc)) {
-  if (rel && !["main", "preload", "renderer", "mobile", "shared", "vite", "build"].includes(rel)) {
+  if (rel && !["renderer", "shared"].includes(rel)) {
     entries.push([`./app/${rel}`, `./app/src/${rel}/index.ts`]);
   }
 }

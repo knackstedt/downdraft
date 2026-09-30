@@ -10,11 +10,12 @@ DownDraft Engine is organized as a Bun workspace monorepo with the following pac
 | Package | Description |
 |---|---|
 | `@downdraft/engine` | Engine core: ECS, render passes, render graph, SAB, input, telemetry, modules, particles, animation, physics, audio, assets, save system |
-| `@downdraft/engine/app` | Electron app shell: main process, preload, renderer entry, mobile host |
-| `@downdraft/engine/ui` | React UI: devtools panel, profiler, material graph editor, animation state machine editor, asset browser |
+| `@downdraft/engine/app` | Runtime-agnostic game bootstrap: `startGame()`/`bootstrapGame()`, HostAPI types |
+| `@downdraft/engine/ui` | Devtools/editor UI sources: devtools panel, profiler, material graph editor, animation state machine editor, asset browser |
 | `@downdraft/engine/mcp` | MCP server for AI agent interaction (JSON-RPC over stdio) |
 | `@downdraft/engine/shader-graph` | Material/shader graph compiler and validator |
-| `@downdraft/cli` | CLI tool (`draft new/dev/debug/build/build-games/dist/export/mobile/assets/test`) |
+| `@downdraft/cli` | CLI tool (`draft new/dev/debug/release/assets/test`) |
+| `@downdraft/platform-native` | Native runtime host: winit windowing, wgpu device, HostAPI bridge, MCP server (Rust cdylib via `bun:ffi`) |
 
 ## Engine Libraries
 
@@ -37,7 +38,7 @@ DownDraft Engine is organized as a Bun workspace monorepo with the following pac
 | `@downdraft/engine/modules/movement-3d` | 3D player movement |
 | `@downdraft/engine/modules/movement-2d` | 2D grid-based movement |
 | `@downdraft/engine/modules/sailing` | Sailing mechanics (wind, buoyancy, steering) |
-| `@downdraft/engine/modules/electron-osr` | Offscreen rendering |
+| `@downdraft/engine/modules/native-osr` | Offscreen rendering (native WebGPU surfaces) |
 | `@downdraft/engine/modules/mcp` | MCP automation server |
 | `@downdraft/engine/modules/xr` | WebXR support |
 
@@ -89,7 +90,7 @@ The `@downdraft/engine` package exports the following subsystems:
 - **Input** — State, Mapping, Context, SAB Bridge
 - **SAB** — SeqlockBuffer, Protocol, Writer, Reader, Input
 - **Worker** — SimWorker, Supervisor, DBWorker, Protocol
-- **Platform** — Window, Electrobun, HiDPI, HDR, FS, Time
+- **Platform** — Window, RenderSurface, HostAPI bridge, HiDPI, HDR, FS, Time
 - **Change Detection** — Tracker, Atomics
 - **Module** — Module, Registry, TSLoader, WASMLoader, ABI
 - **Save** — Serializer, Schema, Migrate

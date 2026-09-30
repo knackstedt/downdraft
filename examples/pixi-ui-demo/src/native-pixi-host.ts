@@ -6,8 +6,7 @@
 // shared wgpu-native device). This adapter exposes the PixiUiHost-shaped
 // surface the demo wiring + pixi_* MCP tools consume.
 //
-// Only reachable via dynamic import on the native path — must never enter
-// the Electron/browser bundle.
+// Only reachable via dynamic import on the native path.
 // ============================================================================
 
 import type { PixiUiScene, PixiUiSceneContext } from "@downdraft/engine/libraries/pixi-ui";

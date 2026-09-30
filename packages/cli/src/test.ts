@@ -25,23 +25,18 @@ function findFreePort(): Promise<number> {
   });
 }
 
-type Runtime = "electron" | "native";
-
 interface TestArgs {
   game: string;
   mcpPort: number;
   spec: string | null;
   renderer: Renderer;
-  runtime: Runtime;
   deterministic: boolean;
   headed: boolean;
   verbose: boolean;
-  /** When true, build the game with electron-vite before running tests.
-   *  The harness then launches the built app (dist/main/index.cjs) instead
-   *  of the dev server. */
+  /** Removed flags kept in the schema so they hard-error instead of being
+   *  silently ignored by the arg parser. */
+  runtime: string;
   build: boolean;
-  /** When true, skip the dev server entirely — only run against a pre-built app.
-   *  Requires the game to have been built already. */
   buildOnly: boolean;
 }
 
@@ -58,10 +53,10 @@ function parseTestArgs(args: string[]): TestArgs {
     mcpPort: port,
     spec: (parsed.flags.spec as string) || null,
     renderer: parsed.flags.renderer as Renderer,
-    runtime: parsed.flags.runtime as Runtime,
     deterministic: !(parsed.flags["no-deterministic"] as boolean),
     headed: parsed.flags.headed as boolean,
     verbose: parsed.flags.verbose as boolean,
+    runtime: parsed.flags.runtime as string,
     build: parsed.flags.build as boolean,
     buildOnly: parsed.flags["build-only"] as boolean,
   };
@@ -94,14 +89,14 @@ export async function runTest(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  // Native is the only active runtime — the Electron lane is dormant.
+  // Hard-error stubs — the Electron/electron-vite lanes are gone.
   if (opts.runtime === "electron") {
-    log.error("test", "The Electron runtime is disabled. Re-run without --runtime=electron (native is the default).");
+    log.error("test", "The Electron runtime is removed. Re-run without --runtime=electron (native is the only runtime).");
     process.exit(1);
   }
   if (opts.build || opts.buildOnly) {
-    log.error("test", "--build/--build-only used the electron-vite pipeline, which is disabled.");
-    log.error("test", "Native packaging is handled by scripts/package-native.mjs (draft release).");
+    log.error("test", "--build/--build-only used the removed electron-vite pipeline.");
+    log.error("test", "Native packaging is handled by `draft release` (scripts/package-native.mjs).");
     process.exit(1);
   }
 
@@ -136,7 +131,6 @@ export async function runTest(args: string[]): Promise<void> {
   log.info("test", `  Spec:          ${specPath}`);
   log.info("test", `  MCP port:      ${opts.mcpPort}`);
   log.info("test", `  Renderer:      ${opts.renderer === "cpu" ? "SwiftShader (software)" : "hardware GPU"}`);
-  log.info("test", `  Runtime:       ${opts.runtime}`);
   log.info("test", `  Deterministic: ${opts.deterministic}`);
   log.info("test", `  Headed:        ${opts.headed}`);
   if (opts.verbose) log.info("test", `  Verbose:       on`);
@@ -146,7 +140,6 @@ export async function runTest(args: string[]): Promise<void> {
     ...process.env,
     MCP_PORT: String(opts.mcpPort),
     MCP_TIMEOUT_MS: "120000",
-    DOWNDRAFT_RUNTIME: opts.runtime,
   };
 
   if (opts.renderer === "cpu") {
@@ -171,7 +164,7 @@ export async function runTest(args: string[]): Promise<void> {
     cmd = "xvfb-run";
     cmdArgs = ["-a", "--", "bun", "test", specPath];
   } else if (noDisplay) {
-    log.warn("test", "No DISPLAY and xvfb-run not found — Electron may fail to start.");
+    log.warn("test", "No DISPLAY and xvfb-run not found — the native window may fail to start.");
     log.warn("test", "Install xvfb with: sudo apt install xvfb");
   }
 
@@ -191,13 +184,11 @@ export async function runTest(args: string[]): Promise<void> {
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
 
-  // Await the child process so `draft test` blocks until the spec (and its
-  // spawned electron-vite/Electron) fully finishes + cleans up. Without this,
-  // the async function resolves immediately after spawning, `bun run` returns
-  // in ~1s while the game is still booting, and the next sequential e2e run
-  // starts concurrently — colliding on the Vite dev port (5173) and MCP port
-  // (9976), causing "Game process was killed before MCP health endpoint
-  // became ready" failures.
+  // Await the child process so `draft test` blocks until the spec (and the
+  // spawned game) fully finishes + cleans up. Without this, the async
+  // function resolves immediately after spawning while the game is still
+  // booting, and the next sequential e2e run starts concurrently — colliding
+  // on the MCP port.
   const exitCode = await new Promise<number>((resolve) => {
     child.on("exit", (code) => resolve(code ?? 1));
     child.on("error", (err) => {

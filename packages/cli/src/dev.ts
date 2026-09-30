@@ -66,7 +66,7 @@ export async function dev(args: string[]): Promise<void> {
     return;
   }
 
-  // Native is the only active runtime — the Electron path is dormant.
+  // Native is the only runtime — the Electron path is removed.
   if (parsed.flags.electron as boolean) {
     log.error("DownDraft", "The Electron runtime is disabled. The engine runs on the native runtime (Bun + winit + wgpu).");
     log.error("DownDraft", "Run \"draft dev\" without --electron.");

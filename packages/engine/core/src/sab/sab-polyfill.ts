@@ -1,11 +1,10 @@
 // ============================================================================
-// sab-polyfill — SharedArrayBuffer polyfill for Android WebView
+// sab-polyfill — SharedArrayBuffer polyfill for hosts without real SAB
 // ============================================================================
 //
-// Android WebView on production devices does not support SharedArrayBuffer
-// (no process isolation → logical COI only, never concrete COI). This polyfill
-// replaces SharedArrayBuffer with an ArrayBuffer subclass so that all existing
-// channel code (typed array views, Atomics.load/add/store) works unchanged.
+// Some JS hosts do not support SharedArrayBuffer. This polyfill replaces it
+// with an ArrayBuffer subclass so that all existing channel code (typed array
+// views, Atomics.load/add/store) works unchanged.
 //
 // The "sharing" is implemented separately by the BufferSyncManager
 // (packages/engine/core/src/worker/buffer-sync.ts), which copies buffer regions
@@ -18,9 +17,8 @@
 //     doesn't enforce the SAB requirement for these — verified). They perform
 //     non-atomic reads/writes, which is correct for the copy-based protocol
 //     (each side has its own buffer copy — no concurrent access).
-//   - Only `Atomics.wait` throws on non-SAB arrays. It's only used in
-//     electron-osr (Electron-only, not used by mobile games).
-//     We shim it to return "timed-out" as a safety net.
+//   - Only `Atomics.wait` throws on non-SAB arrays. We shim it to return
+//     "timed-out" as a safety net.
 //
 // This file must be imported BEFORE any code that references SharedArrayBuffer.
 // It is a no-op when real SharedArrayBuffer is available (desktop/Electron).
@@ -45,7 +43,6 @@ if (!usingRealSAB) {
 
   // Shim Atomics.wait — only wait throws on non-SAB arrays.
   // load/add/store/store/notify all work without throwing on ArrayBuffer.
-  // wait is only used by electron-osr (not on mobile).
   (Atomics as any).wait = () => "timed-out" as const;
 
   // Debug identifier — detectable from console/devtools.

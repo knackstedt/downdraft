@@ -25,14 +25,9 @@ startGame({
   libraries: [WaterLib],
 
   // Renderer + Sim
-  renderer: (canvas) => new WebGPURenderer(canvas),
+  renderer: (surface) => new WebGPURenderer(surface),
   sim: (seed) => new SimWebWorker(seed?.libraryBuffers),
   simConfig: { seed: 12345, gamemode: 0, rules: {} },
-
-  // UI
-  mountUI: (overlay) => {
-    createRoot(overlay).render(<App />);
-  },
 
   // Sim→Renderer event routing (declarative)
   events: {
@@ -145,7 +140,7 @@ Feature modules are opt-in game features with the `Module` interface:
 | sailing | `@downdraft/engine/modules/sailing` | Sailing mechanics (wind, buoyancy, rudder, hull drag) |
 | devtools | `@downdraft/engine/modules/devtools` | Debug overlays, scene inspector, gizmos |
 | camera-controls | `@downdraft/engine/modules/camera-controls` | Camera modes (free, follow, orbit) |
-| electron-osr | `@downdraft/engine/modules/electron-osr` | Offscreen rendering for in-game web surfaces |
+| native-osr | `@downdraft/engine/modules/native-osr` | Offscreen rendering for in-game UI surfaces |
 | mcp | `@downdraft/engine/modules/mcp` | MCP automation harness for testing |
 | xr | `@downdraft/engine/modules/xr` | WebXR VR/AR support |
 

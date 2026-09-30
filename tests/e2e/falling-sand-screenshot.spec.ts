@@ -15,7 +15,7 @@ describe("falling-sand screenshot", () => {
 
   beforeAll(async () => {
     game = await launchGame({
-      configPath: "games/falling-sand/electron.vite.config.ts",
+      game: "falling-sand",
       mcpPort: MCP_PORT,
       gpu: (process.env.DOWNDRAFT_GPU as "swiftshader" | undefined) ?? "swiftshader",
       deterministic: true,

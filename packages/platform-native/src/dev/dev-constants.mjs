@@ -40,7 +40,7 @@ export const DEFAULT_PROCESS_RESTART_PATTERNS = [
   "downdraft.config.json",
   "bunfig.toml",
   "deno.json",
-  "electron.vite.config.ts",
+  "vite.config.ts",
   "vite-options.ts",
 ];
 

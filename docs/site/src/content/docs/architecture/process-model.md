@@ -1,75 +1,68 @@
 ---
 title: Process Model
-description: Four isolated execution contexts and their responsibilities
+description: Single-process native runtime and its execution contexts
 ---
 
-DownDraft Engine runs across four isolated execution contexts, each with distinct responsibilities.
+DownDraft Engine runs as a **single native process** — Bun + winit + wgpu, no browser, no renderer process, no IPC boundary. Isolation is achieved with worker threads and SharedArrayBuffer rather than OS processes.
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────┐
-  Electron Main Process (game-owned src/main.ts)
-    • Calls createDowndraftApp() from @downdraft/engine/app/main
-    • Window lifecycle, display info, IPC (config-driven)
-    • GC profiling, performance stats
-├─────────────────────────────────────────────┤
-  Renderer Process (BrowserWindow)
+  Bun Process (game src/native-entry.ts)
+    • createNativeHost() / runNativeGameModule()
+    • Window lifecycle (winit), GPU device (wgpu)
+    • HostAPI bridge — direct in-process calls
+    • Saves, import cache, MCP server, tracing
     ┌───────────────────┐  ┌──────────────────┐
-    │  WebGPU Canvas    │  │  React UI Overlay │
-    │  (RenderLoop)     │  │  (DevTools, HUD)  │
+    │  RenderSurface    │  │  imui / PixiJS   │
+    │  (RenderLoop)     │  │  UI + devtools   │
     └────────┬──────────┘  └──────────────────┘
              │ SharedArrayBuffer (zero-copy)
     ┌────────┴──────────┐
-    │  Sim Web Worker   │
+    │  Sim Worker       │
     │  (ECS World,      │
     │   game systems,   │
     │   physics, plugins)│
     └───────────────────┘
-└─────────────────────────────────────────────┘
 ```
 
 ## Execution Contexts
 
-### 1. Electron Main Process
+### 1. Host (main thread)
 
-- Game-owned `src/main.ts` calls `createDowndraftApp()` from `@downdraft/engine/app/main`
-- Window/lifecycle management, IPC handlers — all config-driven
-- GC/performance profiling
-- No render loop here
+- Game-owned `src/native-entry.ts` calls `runNativeGameModule()` / `createNativeHost()` from `@downdraft/platform-native`
+- Owns the winit window, the single wgpu device, and the `RenderSurface`
+- Exposes the `HostAPI` (`downdraft.*`) as direct in-process calls — saves, screenshots, import cache, window state, dialogs, restart routing
+- MCP server (in-process, PID-file discovery), telemetry, native tracing
+- The `RenderLoop` runs here, driven by the window's redraw events
 
-### 2. Renderer Process (BrowserWindow)
+### 2. Sim Worker
 
-- React UI overlay + WebGPU `<canvas>` rendering
-- The `RenderLoop` runs here via `requestAnimationFrame`
-- Input capture (keyboard, mouse, gamepad, touch)
-- DevTools panel (dev mode only)
-
-### 3. Sim Web Worker
-
-- Spawned from the renderer
-- Runs the ECS `World`, game systems, physics, and plugins
-- Communicates with the renderer via `SharedArrayBuffer` (zero-copy) and `postMessage` events
+- Spawned from the host; runs the ECS `World`, game systems, physics, and plugins
+- Communicates with the host via `SharedArrayBuffer` (zero-copy) and `postMessage` events
 - WASM plugins run in an isolated runtime within the sim worker
+- Workers can attach a non-owning view of the shared GPU device to encode command buffers in parallel
 
-### 4. DB Worker Thread
+### 3. DB / Service Workers
 
-- SurrealDB (SurrealKV) embedded in a Node.js worker thread in the main process
-- Handles save/load and game state queries
-- Schema versioning and migration registry
+- Background workers host services like the SurrealDB (SurrealKV) embedded store
+- Handle save/load and game state queries, schema versioning and migrations
 
 ## Build Modes
 
-| Mode | WebView | Use case |
-|---|---|---|
-| **dev** | Chromium (Blink) | Development with full DevTools, hot reload, telemetry |
-| **debug** | WebKit | Local verification on the production WebView engine |
-| **prod** | System WebView | Optimized production build, no debug overhead |
+| Mode | Use case |
+|---|---|
+| **dev** | Development with devtools overlay, HMR dev shell, telemetry |
+| **debug** | Local verification with debug draw and profiling enabled |
+| **prod** | Optimized production build, no debug overhead |
 
 ## Crash Recovery
 
 The sim worker supervisor handles crashes:
 
-1. **First crash** — Restart once from DB checkpoint, surface non-blocking error banner
+1. **First crash** — Restart once from checkpoint, surface a non-blocking error banner
 2. **Second crash in short window** — Halt render loop, show fatal error
 3. **Philosophy** — Fail loud, don't retry forever
+
+Host-level recovery goes through `downdraft.requestRestart(reason)` — the native host owns restart routing rather than page reloads.

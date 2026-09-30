@@ -1,8 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { legacyFileCopyBuild } from "./build";
-import { packageLauncher } from "./export";
 import { newProject } from "./new";
 import { listTemplates } from "./scaffold";
 
@@ -42,7 +40,7 @@ describe("CLI new — minimal template", () => {
     await newProject([TEST_DIR, "--template=minimal", "--name=my-game"]);
 
     expect(existsSync(join(TEST_DIR, "package.json"))).toBe(true);
-    expect(existsSync(join(TEST_DIR, "src/main.tsx"))).toBe(true);
+    expect(existsSync(join(TEST_DIR, "src/main.tsx"))).toBe(false);
     expect(existsSync(join(TEST_DIR, "src/native-entry.ts"))).toBe(true);
     expect(existsSync(join(TEST_DIR, "downdraft.config.json"))).toBe(true);
     expect(existsSync(join(TEST_DIR, "README.md"))).toBe(true);
@@ -61,10 +59,8 @@ describe("CLI new — minimal template", () => {
     expect(pkg.dependencies["@downdraft/engine"]).toBe("^0.1.0");
     expect(pkg.scripts.dev).toBe("draft dev");
     expect(pkg.scripts.build).toBe("draft release --stage=build");
-    expect(pkg.scripts.export).toBe("draft release --stage=package --format=launcher");
-    expect(pkg.scripts.dist).toBe("draft release");
     expect(pkg.scripts.release).toBe("draft release");
-    expect(pkg.scripts.mobile).toBe("draft release --target=android,ios");
+    expect(pkg.scripts.mobile).toBeUndefined();
     expect(pkg.scripts.typecheck).toBe("tsc --noEmit");
     expect(pkg.scripts.lint).toBe("oxlint");
     expect(pkg.scripts.test).toBe("npm test");
@@ -164,15 +160,12 @@ describe("CLI new — minimal template", () => {
     expect(config.builder).toBeUndefined();
   });
 
-  it("should not emit electron main/preload entries (dormant)", async () => {
+  it("should not emit electron main/preload entries", async () => {
     expect(existsSync(join(TEST_DIR, "src/main.ts"))).toBe(false);
     expect(existsSync(join(TEST_DIR, "src/preload.ts"))).toBe(false);
   });
 
-  it("should write main.tsx with a startGame() entry", async () => {
-    const main = readFileSync(join(TEST_DIR, "src/main.tsx"), "utf-8");
-    expect(main).toContain("startGame");
-    expect(main).toContain("gameModule");
+  it("should write a game module with the GameModule shape", async () => {
     const module = readFileSync(join(TEST_DIR, "src/game-module.ts"), "utf-8");
     expect(module).toContain("GameModule");
     expect(module).toContain("onReady");
@@ -206,7 +199,7 @@ describe("CLI new — physics template", () => {
     await newProject([TEST_DIR, "--template=physics", "--name=physics-game"]);
 
     expect(existsSync(join(TEST_DIR, "package.json"))).toBe(true);
-    expect(existsSync(join(TEST_DIR, "src/main.tsx"))).toBe(true);
+    expect(existsSync(join(TEST_DIR, "src/main.tsx"))).toBe(false);
     expect(existsSync(join(TEST_DIR, "src/native-entry.ts"))).toBe(true);
     expect(existsSync(join(TEST_DIR, "downdraft.config.json"))).toBe(true);
     expect(existsSync(join(TEST_DIR, ".vscode", "tasks.json"))).toBe(true);
@@ -246,7 +239,7 @@ describe("CLI new — full template", () => {
     await newProject([TEST_DIR, "--template=full", "--name=full-game"]);
 
     expect(existsSync(join(TEST_DIR, "package.json"))).toBe(true);
-    expect(existsSync(join(TEST_DIR, "src/main.tsx"))).toBe(true);
+    expect(existsSync(join(TEST_DIR, "src/main.tsx"))).toBe(false);
     expect(existsSync(join(TEST_DIR, "src/native-entry.ts"))).toBe(true);
     expect(existsSync(join(TEST_DIR, "src/systems"))).toBe(true);
     expect(existsSync(join(TEST_DIR, "src/entities"))).toBe(true);
@@ -261,7 +254,7 @@ describe("CLI new — full template", () => {
 
   it("should use draft release in the full template dist script", async () => {
     const pkg = JSON.parse(readFileSync(join(TEST_DIR, "package.json"), "utf-8"));
-    expect(pkg.scripts.dist).toBe("draft release");
+    expect(pkg.scripts.release).toBe("draft release");
   });
 
   it("should include all plugin dependencies", async () => {
@@ -324,78 +317,7 @@ describe("CLI new — template listing", () => {
   });
 });
 
-describe("CLI build", () => {
-  beforeAll(async () => {
-    ensureCleanDir();
-    await newProject([TEST_DIR, "--template=minimal", "--name=my-game"]);
-  });
 
-  afterAll(() => {
-    cleanup();
-  });
-
-  it("should build the project", async () => {
-    await legacyFileCopyBuild([TEST_DIR, "--out=dist"]);
-
-    const distDir = join(TEST_DIR, "dist");
-    expect(existsSync(distDir)).toBe(true);
-    expect(existsSync(join(distDir, "manifest.json"))).toBe(true);
-    expect(existsSync(join(distDir, "package.json"))).toBe(true);
-    expect(existsSync(join(distDir, "src"))).toBe(true);
-  });
-
-  it("should write valid manifest.json", async () => {
-    const manifest = JSON.parse(readFileSync(join(TEST_DIR, "dist/manifest.json"), "utf-8"));
-    expect(manifest.name).toBe("my-game");
-    expect(manifest.mode).toBe("prod");
-    expect(manifest.files).toBeDefined();
-    expect(manifest.builtAt).toBeDefined();
-  });
-
-  it("should copy source files", async () => {
-    expect(existsSync(join(TEST_DIR, "dist/src/main.tsx"))).toBe(true);
-  });
-});
-
-describe("CLI export", () => {
-  beforeAll(async () => {
-    ensureCleanDir();
-    await newProject([TEST_DIR, "--template=minimal", "--name=my-game"]);
-    await legacyFileCopyBuild([TEST_DIR, "--out=dist"]);
-  });
-
-  afterAll(() => {
-    cleanup();
-  });
-
-  it("should export for all platforms", async () => {
-    await packageLauncher(TEST_DIR, "all", "export", false, false);
-
-    const exportDir = join(TEST_DIR, "export");
-    expect(existsSync(join(exportDir, "windows"))).toBe(true);
-    expect(existsSync(join(exportDir, "macos"))).toBe(true);
-    expect(existsSync(join(exportDir, "linux"))).toBe(true);
-    expect(existsSync(join(exportDir, "export-summary.json"))).toBe(true);
-  });
-
-  it("should write platform-specific launchers", async () => {
-    expect(existsSync(join(TEST_DIR, "export/windows/my-game.bat"))).toBe(true);
-    expect(existsSync(join(TEST_DIR, "export/linux/my-game"))).toBe(true);
-    expect(existsSync(join(TEST_DIR, "export/macos/my-game"))).toBe(true);
-  });
-
-  it("should write platform.json for each platform", async () => {
-    const winPlatform = JSON.parse(readFileSync(join(TEST_DIR, "export/windows/platform.json"), "utf-8"));
-    expect(winPlatform.platform).toBe("windows");
-    expect(winPlatform.runtime).toBe("bun");
-  });
-
-  it("should write export-summary.json", async () => {
-    const summary = JSON.parse(readFileSync(join(TEST_DIR, "export/export-summary.json"), "utf-8"));
-    expect(summary.platforms).toEqual(["windows", "macos", "linux"]);
-    expect(summary.exportedAt).toBeDefined();
-  });
-});
 
 describe("CLI --help and --version", () => {
   it("export --target rejects old 'windows' value", async () => {
@@ -467,17 +389,18 @@ describe("CLI --help and --version", () => {
     expect(help).toContain("release");
     expect(help).toContain("test");
     expect(help).toContain("assets");
-    expect(help).toContain("mobile");
+    expect(help).not.toContain("mobile");
     expect(help).toContain("--version");
   });
 
   it("getCommand returns undefined for unknown command", async () => {
     const { getCommand } = await import("./usage");
     expect(getCommand("nonexistent")).toBeUndefined();
+    expect(getCommand("mobile")).toBeUndefined();
     expect(getCommand("test")?.name).toBe("test");
   });
 
-  it("dev exposes --electron opt-in and --native back-compat flags", async () => {
+  it("dev parses --electron (removed-runtime hard-error flag) and --native back-compat flags", async () => {
     const { getCommand } = await import("./usage");
     const { parseArgs } = await import("./args");
     const schema = getCommand("dev")!.schema;
@@ -486,10 +409,11 @@ describe("CLI --help and --version", () => {
     expect(parseArgs(["--native"], schema).flags.native).toBe(true);
   });
 
-  it("test defaults --runtime to native", async () => {
+  it("test keeps --runtime/--build as hard-error stubs", async () => {
     const { getCommand } = await import("./usage");
     const { parseArgs } = await import("./args");
     const schema = getCommand("test")!.schema;
+    // Still parseable — test.ts rejects them at dispatch with a clear error.
     expect(parseArgs(["--game=x"], schema).flags.runtime).toBe("native");
     expect(parseArgs(["--game=x", "--runtime=electron"], schema).flags.runtime).toBe("electron");
   });

@@ -21,9 +21,6 @@
       "@sandbox/shared/*": [
         "./games/andrews-sandbox/src/shared/*"
       ],
-      "@main/*": [
-        "./packages/engine/app/src/main/*"
-      ],
       "@sim/*": [
         "./games/to-the-ocean/src/simulation/*"
       ],

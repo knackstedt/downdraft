@@ -27,8 +27,7 @@ export interface CommandEntry {
 
 const DESKTOP_TARGETS = ["win", "linux", "mac", "all"] as const;
 const BUILD_TARGETS = ["current", "win", "linux", "mac"] as const;
-const MOBILE_TARGETS = ["android", "ios", "all"] as const;
-const RELEASE_TARGETS = ["win", "linux", "mac", "android", "ios", "all"] as const;
+const RELEASE_TARGETS = ["win", "linux", "mac", "all"] as const;
 const RELEASE_STAGES = ["build", "package", "release"] as const;
 const RENDERER_TARGETS = ["gpu", "cpu"] as const;
 const BUILD_MODES = ["dev", "debug", "prod"] as const;
@@ -41,27 +40,19 @@ export const COMMANDS: CommandEntry[] = [
   {
     name: "release",
     usage: "draft release [options]",
-    summary: "Unified build + package + sign pipeline (desktop + mobile)",
+    summary: "Native build + package pipeline — compiles the game to a standalone binary via scripts/package-native.mjs",
     schema: {
       flags: [
-        { name: "game", alias: "g", type: "string", description: "Game to release (games/<game>). For multiple games, use --games. If omitted, infers from the current directory (walks up for electron.vite.config.ts), or defaults to the only game in games/." },
+        { name: "game", alias: "g", type: "string", description: "Game to release (games/<game>). For multiple games, use --games. If omitted, infers from the current directory, or defaults to the only game in games/." },
         { name: "games", type: "string", description: "Comma-separated game names (e.g. sandjongg,to-the-ocean)" },
-        { name: "target", alias: "t", type: "string", default: "all", enum: [...RELEASE_TARGETS], description: "Target platform(s): win, linux, mac, android, ios, or all" },
-        { name: "format", type: "string", description: "Per-platform format (e.g. win:portable,linux:AppImage). Use 'launcher' for bun-launcher folders." },
-        { name: "stage", type: "string", default: "release", enum: [...RELEASE_STAGES], description: "Stage: build (Vite only), package (package existing build), release (build+package+sign)" },
+        { name: "target", alias: "t", type: "string", default: "all", enum: [...RELEASE_TARGETS], description: "Target platform(s): win, linux, mac, or all" },
+        { name: "format", type: "string", description: "Deprecated no-op — native packaging produces a single binary + staged tree" },
+        { name: "stage", type: "string", default: "release", enum: [...RELEASE_STAGES], description: "Stage: build, package, or release (all compile the native binary)" },
         { name: "mode", type: "string", default: "prod", enum: [...BUILD_MODES], description: "Build mode" },
         { name: "out", type: "string", default: "release", description: "Artifact output directory" },
-        { name: "config", alias: "c", type: "string", description: "Explicit path to a build config file" },
-        { name: "project-dir", type: "string", description: "Override the project directory (default: repo root)" },
-        { name: "port", type: "number", default: 8765, description: "Embedded HTTP server port (mobile)" },
-        { name: "skip-build", type: "boolean", description: "Alias for --stage=package (skip the Vite build step)" },
-        { name: "build-only", type: "boolean", description: "Alias for --stage=build (only bundle, don't package)" },
-        { name: "skip-gradle", type: "boolean", description: "Skip the Gradle APK build (mobile)" },
-        { name: "no-icons", type: "boolean", description: "Skip icon generation (mobile)" },
-        { name: "no-overrides", type: "boolean", description: "Skip the mobile-overrides/ merge layer" },
-        { name: "no-minify", type: "boolean", description: "Disable minification (build stage)" },
-        { name: "no-bake", type: "boolean", description: "Disable the asset bake/optimization step (sets DOWNDRAFT_BAKE=0)" },
-        { name: "sourcemap", type: "boolean", description: "Generate source maps" },
+        { name: "skip-build", type: "boolean", description: "Alias for --stage=package" },
+        { name: "build-only", type: "boolean", description: "Alias for --stage=build" },
+        { name: "mcp", type: "boolean", description: "Retain the MCP automation endpoint in the packaged binary" },
         { name: "verbose", alias: "v", type: "boolean", description: "Verbose logging" },
       ],
     },
@@ -87,17 +78,16 @@ export const COMMANDS: CommandEntry[] = [
   {
     name: "dev",
     usage: "draft dev [options]",
-    summary: "Start the game on the native runtime (Bun + winit + wgpu). Run from a game directory (cwd inference). The Electron path is dormant.",
+    summary: "Start the game on the native runtime (Bun + winit + wgpu). Run from a game directory (cwd inference). The Electron path was removed.",
     schema: {
       flags: [
-        { name: "entry", type: "string", description: "Game entrypoint file (reserved for future mobile support)" },
-        { name: "port", type: "number", description: "MCP HTTP port (default: 9876)" },
+        { name: "entry", type: "string", description: "Game entrypoint file (defaults to src/native-entry.ts)" },
+        { name: "port", type: "number", description: "MCP HTTP port (default: auto-assign)" },
         { name: "runtime", type: "string", enum: ["bun", "node", "deno"], description: "JS runtime hosting the dev shell (default: bun → node → deno auto-detect)" },
         { name: "watch", type: "boolean", description: "Back-compat no-op — the HMR dev shell always watches" },
         { name: "no-hmr", type: "boolean", description: "Disable HMR — spawn the entry directly (bun run), no dev shell" },
-        { name: "no-bake", type: "boolean", description: "Disable the asset bake/optimization step (sets DOWNDRAFT_BAKE=0)" },
         { name: "native", type: "boolean", description: "Back-compat alias — native is the default runtime" },
-        { name: "electron", type: "boolean", description: "Disabled — the Electron runtime is dormant; native is the only runtime" },
+        { name: "electron", type: "boolean", description: "Removed — the Electron runtime is deleted; native is the only runtime" },
         { name: "verbose", alias: "v", type: "boolean", description: "Verbose logging" },
       ],
     },
@@ -127,7 +117,6 @@ export const COMMANDS: CommandEntry[] = [
         { name: "mode", type: "string", default: "prod", enum: [...BUILD_MODES], description: "Build mode" },
         { name: "out", type: "string", default: "dist", description: "Output directory" },
         { name: "no-minify", type: "boolean", description: "Disable minification" },
-        { name: "no-bake", type: "boolean", description: "Disable the asset bake/optimization step (sets DOWNDRAFT_BAKE=0)" },
         { name: "sourcemap", type: "boolean", description: "Generate source maps (on by default in non-prod modes)" },
         { name: "verbose", alias: "v", type: "boolean", description: "Verbose logging" },
       ],
@@ -136,11 +125,11 @@ export const COMMANDS: CommandEntry[] = [
   {
     name: "build-games",
     usage: "draft build-games --games=<csv> --platforms=<csv>",
-    summary: "Build + package multiple games for desktop/mobile (VSCode task)",
+    summary: "Deprecated alias for `draft release --games=<csv>` (VSCode task)",
     schema: {
       flags: [
         { name: "games", type: "string", required: true, description: "Comma-separated game directory names (e.g. sandjongg)" },
-        { name: "platforms", type: "string", required: true, description: "Comma-separated platform specs (e.g. win:portable,android:all)" },
+        { name: "platforms", type: "string", required: true, description: "Comma-separated desktop targets (win | linux | mac; legacy :format suffixes are ignored)" },
         { name: "verbose", alias: "v", type: "boolean", description: "Verbose logging" },
       ],
     },
@@ -148,7 +137,7 @@ export const COMMANDS: CommandEntry[] = [
   {
     name: "dist",
     usage: "draft dist [options]",
-    summary: "Package a game for distribution (dormant: electron-builder is disabled; use scripts/package-native.mjs)",
+    summary: "Package a game for distribution (deprecated alias for `draft release`)",
     schema: {
       flags: [
         { name: "game", alias: "g", type: "string", required: true, description: "Game to package (games/<game>)" },
@@ -169,23 +158,6 @@ export const COMMANDS: CommandEntry[] = [
         { name: "target", type: "string", default: "all", enum: [...DESKTOP_TARGETS], description: "Target platform" },
         { name: "out", type: "string", default: "export", description: "Output directory" },
         { name: "no-compress", type: "boolean", description: "Disable compression" },
-        { name: "verbose", alias: "v", type: "boolean", description: "Verbose logging" },
-      ],
-    },
-  },
-  {
-    name: "mobile",
-    usage: "draft mobile [options]",
-    summary: "Build + scaffold a Capacitor mobile target (Android / iOS)",
-    schema: {
-      flags: [
-        { name: "game", alias: "g", type: "string", required: true, description: "Game to build (games/<game>)" },
-        { name: "target", alias: "t", type: "string", default: "all", enum: [...MOBILE_TARGETS], description: "Target platform" },
-        { name: "port", type: "number", default: 8765, description: "Embedded HTTP server port" },
-        { name: "skip-build", type: "boolean", description: "Skip the web bundle build (use existing dist/mobile/)" },
-        { name: "skip-gradle", type: "boolean", description: "Skip the Gradle APK build (shell + sync only)" },
-        { name: "no-icons", type: "boolean", description: "Skip icon generation (use mobile-overrides/ or fail)" },
-        { name: "no-overrides", type: "boolean", description: "Skip the mobile-overrides/ merge layer" },
         { name: "verbose", alias: "v", type: "boolean", description: "Verbose logging" },
       ],
     },
@@ -243,11 +215,11 @@ export const COMMANDS: CommandEntry[] = [
         { name: "spec", alias: "s", type: "string", description: "Spec file to run (default: tests/e2e/<game>-smoke.spec.ts)" },
         { name: "port", alias: "p", type: "number", default: 0, description: "MCP port (0 = auto-assign a free port)" },
         { name: "renderer", alias: "r", type: "string", default: "cpu", enum: [...RENDERER_TARGETS], description: "WebGPU backend: cpu=SwiftShader, gpu=hardware" },
-        { name: "runtime", type: "string", enum: ["electron", "native"], default: "native", description: "Launch target: native (Bun + winit + wgpu, default). electron is disabled" },
+        { name: "runtime", type: "string", enum: ["electron", "native"], default: "native", description: "Removed — only native exists; passing electron hard-errors" },
         { name: "no-deterministic", type: "boolean", description: "Disable fixed seed / render loop pause" },
         { name: "headed", type: "boolean", description: "Show the window instead of running headless" },
-        { name: "build", type: "boolean", description: "Disabled — electron-vite pipeline is dormant" },
-        { name: "build-only", type: "boolean", description: "Disabled — electron-vite pipeline is dormant" },
+        { name: "build", type: "boolean", description: "Removed — native packaging is `draft release`; passing it hard-errors" },
+        { name: "build-only", type: "boolean", description: "Removed — native packaging is `draft release`; passing it hard-errors" },
         { name: "verbose", alias: "v", type: "boolean", description: "Verbose logging" },
       ],
     },

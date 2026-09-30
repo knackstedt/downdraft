@@ -11,7 +11,6 @@ import { dev } from "./dev";
 import { dist } from "./dist";
 import { exportGame } from "./export";
 import { mcp } from "./mcp";
-import { mobile } from "./mobile";
 import { newProject } from "./new";
 import { pluginCommand } from "./plugin-command";
 import { release } from "./release";
@@ -89,8 +88,8 @@ async function main() {
         await exportGame(process.argv.slice(3));
         break;
       case "mobile":
-        await mobile(process.argv.slice(3));
-        break;
+        log.error("CLI", "`draft mobile` is removed — the Capacitor WebView shell was dormant and has been deleted. Mobile support returns with a native (winit+wgpu) port.");
+        process.exit(1);
       case "assets":
         await assets(process.argv.slice(3));
         break;

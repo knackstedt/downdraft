@@ -38,7 +38,7 @@ The sim worker supervisor automatically restarts on first crash from a DB checkp
 1. Check the console output for the crash reason
 2. Try running in debug mode for more verbose logging:
    ```bash
-   draft dev --game=<game-name> --verbose
+   cd games/<game-name> && draft dev --verbose
    ```
 3. If the crash is reproducible, use MCP `checkpoint` tools to save state before the crash point
 
@@ -48,12 +48,8 @@ The sim worker supervisor automatically restarts on first crash from a DB checkp
 
 **Solutions:**
 
-1. Ensure the native audio library is built:
-   ```bash
-   cd packages/audio-native && ./build.sh
-   ```
-2. Verify the library exists for your platform in the expected path
-3. Check that Rust is installed if building from source
+1. The JS audio backend is the active path — no native audio library is required for sound. The `audio-kira` Rust backend (`packages/engine/libraries/audio-kira/native`) is dormant and does not compile at HEAD.
+2. If reviving `audio-kira`, build it with `cargo build -p audio-kira` after updating to the current kira API.
 
 ## Build Fails
 
@@ -71,7 +67,7 @@ The sim worker supervisor automatically restarts on first crash from a DB checkp
    ```
 3. Try building with verbose logging:
    ```bash
-   draft release --stage=build --mode=prod --out=dist --sourcemap
+   draft release --stage=build --mode=prod --out=dist --verbose
    ```
 
 ## High CPU Usage in Dev Mode
@@ -100,11 +96,11 @@ renderer.setFrameRateLimit(60); // or your monitor's refresh rate
 
 ## Blank Screen / White Screen
 
-**Symptom:** Electron window opens but shows a blank or white screen.
+**Symptom:** The native window opens but shows a blank or black screen.
 
 **Solutions:**
 
-1. Check the DevTools console (Ctrl+Shift+I) for errors
+1. Check the terminal output and the devtools overlay console for errors
 2. Ensure WebGPU is available (see above)
 3. Try running in dev mode to see detailed error messages
-4. Check that the correct game is being loaded (pass `--game=<name>` to `draft dev`)
+4. Check that the correct game is being loaded — run `draft dev` from inside `games/<name>` (the game is inferred from the current directory)

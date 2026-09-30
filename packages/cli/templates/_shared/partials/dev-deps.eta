@@ -3,5 +3,6 @@
     "@types/node": "^22.10.0",
     "@webgpu/types": "^0.1.71",
     "oxlint": "^1.4.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vite": "^6.0.0"
   }

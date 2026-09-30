@@ -36,10 +36,9 @@ import logoSvg from '../assets/logo.svg';
 					<span class="line accent">TypeScript-first.</span>
 				</h1>
 				<p class="subheadline">
-					A loosely AAA-class game engine built on Electron + WebGPU, with excellent
-					performance diagnostics via the Chromium Performance Profiler. TypeScript-first
-					workflow, a modular plugin ecosystem, and a built-in MCP server for AI-assisted
-					asset management.
+					A loosely AAA-class game engine built on a native runtime — Bun + winit + wgpu,
+					no browser in the loop. TypeScript-first workflow, a modular plugin ecosystem,
+					and a built-in MCP server for AI-assisted asset management.
 				</p>
 				<div class="cta-row">
 					<a href="/getting-started/introduction/" class="btn btn-primary">
@@ -78,7 +77,8 @@ import logoSvg from '../assets/logo.svg';
 					</div>
 				</div>
 				<div class="install-meta">
-					<span class="pill">Electron</span>
+					<span class="pill">Bun</span>
+					<span class="pill">winit</span>
 					<span class="pill">WebGPU</span>
 					<span class="pill">TypeScript</span>
 					<span class="pill">Rapier3D</span>
@@ -104,7 +104,7 @@ import logoSvg from '../assets/logo.svg';
 							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>
 						</div>
 						<h3 class="feature-title">WebGPU Rendering</h3>
-						<p class="feature-desc">Deferred pipeline with shadows, post-processing, and a render graph with automatic resource aliasing. Ships with two Chromium-based DOM/CSS/JS interface stacks — a flat overlay for HUDs and menus, and an in-game texture mode for world-space UI.</p>
+						<p class="feature-desc">Deferred pipeline with shadows, post-processing, and a render graph with automatic resource aliasing. Ships with an immediate-mode WebGPU UI system for HUDs and tooling, plus an offscreen-rendered surface mode for world-space UI.</p>
 					</article>
 					<article class="feature-card">
 						<div class="feature-icon">
@@ -145,14 +145,14 @@ import logoSvg from '../assets/logo.svg';
 				<h2 class="section-title">Built for performance</h2>
 				<p class="section-lead">
 					DownDraft pairs a deferred WebGPU render pipeline with a modular plugin
-					ecosystem, all orchestrated through Electron's multi-process architecture.
-					Zero-copy SharedArrayBuffer keeps data flowing between threads with no
-					serialization overhead.
+					ecosystem in a single native process — Bun for the runtime, winit for
+					windowing, wgpu for the GPU. Zero-copy SharedArrayBuffer keeps data
+					flowing between threads with no serialization overhead.
 				</p>
 				<div class="stack-grid">
 					<div class="stack-item">
 						<div class="stack-dot" />
-						<span>Electron + electron-vite</span>
+						<span>Bun + winit</span>
 					</div>
 					<div class="stack-item">
 						<div class="stack-dot" />
@@ -172,7 +172,7 @@ import logoSvg from '../assets/logo.svg';
 					</div>
 					<div class="stack-item">
 						<div class="stack-dot" />
-						<span>React + Tailwind UI</span>
+						<span>imui + PixiJS UI</span>
 					</div>
 					<div class="stack-item">
 						<div class="stack-dot" />
@@ -182,41 +182,41 @@ import logoSvg from '../assets/logo.svg';
 			</div>
 		</section>
 
-		<!-- WHY ELECTRON -->
-		<section class="electron-section">
+		<!-- WHY NATIVE -->
+		<section class="native-section">
 			<div class="section-inner narrow">
-				<p class="section-eyebrow">Hot Take</p>
-				<h2 class="section-title">Electron isn't an insane choice</h2>
+				<p class="section-eyebrow">Runtime</p>
+				<h2 class="section-title">Native all the way down</h2>
 				<p class="section-lead">
-					We know what you're thinking. But for a game engine, Electron's architecture is
-					genuinely a perfect fit — and here's why.
+					No browser, no renderer process, no IPC boundary. DownDraft games run as a
+					single Bun process driving a native window and the GPU directly.
 				</p>
-				<div class="electron-grid">
-					<div class="electron-point">
-						<div class="electron-icon">
-							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m7 14 4-4 4 4 5-5"/></svg>
+				<div class="native-grid">
+					<div class="native-point">
+						<div class="native-icon">
+							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
 						</div>
 						<div>
-							<h3>DevTools that actually matter</h3>
-							<p>Chromium's built-in Performance Profiler gives you frame-by-frame flame charts, memory snapshots, and CPU profiling with zero setup. No custom profiler to build, no guessing where your frame time went — just open DevTools and optimize.</p>
+							<h3>One process, zero IPC</h3>
+							<p>Windowing, rendering, assets, and the MCP server all live in one Bun process. The host API is a direct function call — no IPC channels, no preload bridge, no message serialization between your game and the platform.</p>
 						</div>
 					</div>
-					<div class="electron-point">
-						<div class="electron-icon">
+					<div class="native-point">
+						<div class="native-icon">
 							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
 						</div>
 						<div>
-							<h3>Thread model that maps to games</h3>
-							<p>Electron's multi-process architecture — main process, renderer processes, worker threads — maps naturally to game loops. Your simulation runs on one thread, rendering on another, asset loading on workers. Zero-copy SharedArrayBuffer means no serialization between them.</p>
+							<h3>Threads where they matter</h3>
+							<p>The simulation runs in a dedicated worker thread with SharedArrayBuffer — deliberate isolation, not browser constraint. Workers can even share the GPU device and encode command buffers in parallel.</p>
 						</div>
 					</div>
-					<div class="electron-point">
-						<div class="electron-icon">
+					<div class="native-point">
+						<div class="native-icon">
 							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7h-9"/><path d="M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></svg>
 						</div>
 						<div>
-							<h3>The web is your toolkit</h3>
-							<p>DOM, CSS, Canvas, WebGL2 fallback — it's all there. Build your editor UI with React and Tailwind, your in-game UI with the GPU texture system, and mix freely. No need to reinvent UI frameworks or build a custom editor from scratch.</p>
+							<h3>A fraction of the footprint</h3>
+							<p>Shipping Bun + a Rust cdylib instead of a bundled Chromium means smaller binaries, lower baseline memory, and no compositor in the render path. What your GPU does is what your code asked for.</p>
 						</div>
 					</div>
 				</div>
@@ -229,44 +229,44 @@ import logoSvg from '../assets/logo.svg';
 				<p class="section-eyebrow">Render Pipeline</p>
 				<h2 class="section-title">How a frame gets built</h2>
 				<p class="section-lead">
-					Everything — simulation, rendering, and UI — runs inside the Electron renderer
-					and web workers. No native module boundary to cross, no separate UI process
-					to synchronize.
+					Everything — simulation, rendering, and UI — runs inside one native process.
+					The host owns the window and GPU device; workers handle simulation over
+					SharedArrayBuffer. No IPC boundary to cross, no browser compositor in the way.
 				</p>
 				<div class="pipeline">
 					<div class="pipeline-step">
 						<span class="pipeline-tag">01</span>
 						<div>
 							<h3>Simulation</h3>
-							<p>Single-threaded scheduling for the ECS, with multicore work dispatched to web workers via SharedArrayBuffer — no locks, no serialization.</p>
+							<p>Single-threaded scheduling for the ECS in a dedicated worker thread, with multicore work dispatched over SharedArrayBuffer — no locks, no serialization.</p>
 						</div>
 					</div>
 					<div class="pipeline-step">
 						<span class="pipeline-tag">02</span>
 						<div>
 							<h3>Render graph</h3>
-							<p>WebGPU drives the scene — compute shaders, explicit resource binding, and a Bevy-style render graph with automatic resource aliasing. Translated to Vulkan, Metal, or D3D12 depending on platform.</p>
+							<p>wgpu drives the scene — compute shaders, explicit resource binding, and a Bevy-style render graph with automatic resource aliasing. Translated to Vulkan, Metal, or D3D12 depending on platform.</p>
 						</div>
 					</div>
 					<div class="pipeline-step">
 						<span class="pipeline-tag">03</span>
 						<div>
 							<h3>UI — flat path</h3>
-							<p>Ordinary DOM and CSS, composited above the canvas by Chromium for HUDs, menus, and anything that always sits in screen space.</p>
+							<p>An immediate-mode WebGPU UI (imui) rendered directly onto the render surface for HUDs, menus, and devtools panels — no DOM, no compositor.</p>
 						</div>
 					</div>
 					<div class="pipeline-step">
 						<span class="pipeline-tag">04</span>
 						<div>
 							<h3>UI — world-space path</h3>
-							<p>Offscreen-rendered DOM, imported into the render graph as a shared GPU texture and drawn as geometry — for panels that need to exist inside the 3D scene.</p>
+							<p>Offscreen UI rendered to a GPU texture, imported into the render graph and drawn as geometry — for panels that need to exist inside the 3D scene.</p>
 						</div>
 					</div>
 					<div class="pipeline-step">
 						<span class="pipeline-tag">05</span>
 						<div>
 							<h3>Composite</h3>
-							<p>One frame, one process — simulation, scene, and interface presented together. Open Chromium DevTools to profile any of it.</p>
+							<p>One frame, one process — simulation, scene, and interface presented together on the native window. Built-in devtools and tracing profile any of it.</p>
 						</div>
 					</div>
 				</div>
@@ -336,7 +336,7 @@ import logoSvg from '../assets/logo.svg';
 		});
 	}, { threshold: 0.1 });
 
-	document.querySelectorAll('.feature-card, .stack-item, .electron-point, .pipeline-step, .status-stamp, .section-title, .section-lead').forEach(el => {
+	document.querySelectorAll('.feature-card, .stack-item, .native-point, .pipeline-step, .status-stamp, .section-title, .section-lead').forEach(el => {
 		el.classList.add('reveal');
 		observer.observe(el);
 	});
@@ -730,16 +730,16 @@ import logoSvg from '../assets/logo.svg';
 		box-shadow: 0 0 8px rgba(255,94,26,0.4);
 	}
 
-	/* Electron section */
-	.electron-section {
+	/* Native section */
+	.native-section {
 		background: linear-gradient(180deg, transparent 0%, rgba(255,94,26,0.04) 50%, transparent 100%);
 	}
-	.electron-grid {
+	.native-grid {
 		display: grid;
 		gap: 1.5rem;
 		margin-top: 2.5rem;
 	}
-	.electron-point {
+	.native-point {
 		display: flex;
 		gap: 1.25rem;
 		padding: 1.5rem;
@@ -748,11 +748,11 @@ import logoSvg from '../assets/logo.svg';
 		border: 1px solid rgba(255,255,255,0.06);
 		transition: transform 0.25s ease, border-color 0.25s ease;
 	}
-	.electron-point:hover {
+	.native-point:hover {
 		transform: translateY(-2px);
 		border-color: rgba(255,94,26,0.15);
 	}
-	.electron-icon {
+	.native-icon {
 		flex-shrink: 0;
 		width: 44px;
 		height: 44px;
@@ -762,13 +762,13 @@ import logoSvg from '../assets/logo.svg';
 		background: linear-gradient(135deg, rgba(255,94,26,0.15), rgba(255,140,66,0.05));
 		color: var(--ember-orange);
 	}
-	.electron-point h3 {
+	.native-point h3 {
 		font-size: 1.1rem;
 		font-weight: 700;
 		margin: 0 0 0.5rem;
 		color: var(--text-primary);
 	}
-	.electron-point p {
+	.native-point p {
 		font-size: 0.95rem;
 		line-height: 1.55;
 		color: var(--text-secondary);

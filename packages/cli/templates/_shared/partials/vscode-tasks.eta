@@ -18,7 +18,7 @@
     },
     {
       "label": "Release",
-      "detail": "Build + package for a target platform (desktop + mobile)",
+      "detail": "Build + package for a desktop target",
       "type": "shell",
       "command": "draft release --target=${input:releaseTarget} --mode=${input:buildMode}",
       "options": {
@@ -78,7 +78,7 @@
     {
       "id": "releaseTarget",
       "type": "pickString",
-      "options": ["all", "win", "linux", "mac", "android", "ios"],
+      "options": ["all", "win", "linux", "mac"],
       "default": "all",
       "description": "Target platform(s)"
     },

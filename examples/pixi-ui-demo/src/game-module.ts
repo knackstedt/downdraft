@@ -1,10 +1,9 @@
 // ============================================================================
 // PixiUI Demo — shared GameModule
 //
-// The SAME module runs on Electron/browser (`main.tsx` → startGame) and on
-// the native host (`native-entry.ts` → runNativeGameModule). On native there
-// is no OffscreenCanvas/WebGL2 worker — onReady branches to the in-process
-// NativePixiUiHost adapter (native-pixi-host.ts) instead.
+// Runs on the native runtime via `native-entry.ts` → runNativeGameModule.
+// The PixiUI overlay runs in-process via the NativePixiUiHost adapter
+// (native-pixi-host.ts) on the shared wgpu-native device.
 // ============================================================================
 
 import { getNativeHost, type RenderSurface } from "@downdraft/engine";
@@ -119,7 +118,7 @@ export const pixiUiDemoModule: GameModule<NoopSim> = {
       pixiHost = nativeUi.host;
       log.info("demo", 'Native PixiUI host started (in-process, wgpu-native)');
     } else {
-      // ── Browser/Electron path: PixiJS in a worker on OffscreenCanvas ──
+      // ── PixiJS path: scene host on the shared device ──
       const workerHost = new PixiUiHost({
         backend: "webgl2",
         sceneModuleUrl: new URL("./pixi-scene.ts", import.meta.url).href,

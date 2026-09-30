@@ -121,11 +121,7 @@ export type { XRControllerState } from "./input/state";
 // ─────────────────────────────────────────────────────────────────────────────
 // Platform
 // ─────────────────────────────────────────────────────────────────────────────
-export { VirtualFS } from "./platform/fs";
-export { HDRManager } from "./platform/hdr";
-export type { HDRConfig, HDRMode } from "./platform/hdr";
 export { getDpr, HiDPIManager } from "./platform/hidpi";
-export { Lifecycle } from "./platform/lifecycle";
 export type { RenderSurface, RenderSurfaceContext, RenderSurfaceListener } from "./platform/render-surface";
 export { RPC } from "./platform/rpc";
 export type { RPCHandler, RPCMessage, RPCMessageType } from "./platform/rpc";
@@ -137,13 +133,9 @@ export {
     isBun,
     isDev,
     isDevMode,
-    isElectron,
     NATIVE_HOST_CAPABILITIES
 } from "./platform/runtime";
 export type { HostCapabilities, HostRuntime, NativeHostHandle } from "./platform/runtime";
-export { HighResTimer } from "./platform/time";
-export { WindowManager } from "./platform/window";
-export type { WindowConfig, WindowState } from "./platform/window";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mesh

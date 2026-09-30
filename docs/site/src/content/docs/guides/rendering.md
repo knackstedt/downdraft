@@ -17,7 +17,7 @@ camera.distance = 5;
 const mesh = MeshBuilder.cube(1);
 
 const renderLoop = new RenderLoop({
-  canvas,        // HTMLCanvasElement or OffscreenCanvas
+  surface,       // RenderSurface — native window surface or HTMLCanvasElement
   mesh,
   camera,
   mode: "gbuffer",  // or "simple" for forward rendering

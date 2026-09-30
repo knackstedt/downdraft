@@ -43,8 +43,6 @@ export interface GameProcess {
   process: import("node:child_process").ChildProcess;
   mcpClient: McpClient;
   mcpPort: number;
-  /** Which runtime the game was launched under. */
-  runtime: "electron" | "native";
   /** Returns JS errors captured from the game process console output.
    *  Call after tests to verify no uncaught errors occurred. */
   getConsoleErrors(): string[];
@@ -57,20 +55,11 @@ export interface LaunchOptions {
   gpu?: "auto" | "hardware" | "swiftshader";
   deterministic?: boolean;
   extraEnv?: Record<string, string>;
-  /** Dormant: Electron built-app launch is disabled. Kept for interface
-   *  compat during the bake; setting it has no effect. */
-  built?: boolean;
-  /** Dormant: see `built`. */
-  builtCwd?: string;
   /** Additional error patterns to ignore (regexes, matched against console output). */
   ignoreErrorPatterns?: RegExp[];
-  /** Explicit path to the game's legacy electron.vite.config.ts — used only
-   *  to infer the game name for native launches (`games/<game>/...` or
-   *  `examples/<name>/...`). */
+  /** Deprecated alias for `game` — a path whose `games/<name>/` or
+   *  `examples/<name>/` segment supplies the game name. */
   configPath?: string;
-  /** Launch target. Only "native" is supported — "electron" throws. Also
-   *  selectable via the DOWNDRAFT_RUNTIME env var (`draft test --runtime=...`). */
-  runtime?: "electron" | "native";
   /** Override for the native entry point (default: src/native-entry.ts
    *  inside the game dir, or games/<game>/src/native-entry.ts when running
    *  from the monorepo root). */
@@ -145,19 +134,11 @@ export { findFreePort };
 // ---------------------------------------------------------------------------
 
 export async function launchGame(opts: LaunchOptions = {}): Promise<GameProcess> {
-  // Infer the game name from configPath when not given — specs select the
-  // game via `games/<name>/electron.vite.config.ts` and rely on the harness
-  // to pick the matching native entry under runtime=native.
+  // Infer the game name from configPath when not given — legacy specs pass a
+  // `games/<name>/...` path whose first segment names the game.
   const game = opts.game
     ?? opts.configPath?.match(/(?:^|\/)(?:games|examples)\/([^/]+)\//)?.[1]
     ?? "to-the-ocean";
-  const runtime = opts.runtime ?? (process.env.DOWNDRAFT_RUNTIME === "electron" ? "electron" : "native");
-  if (runtime === "electron") {
-    throw new Error(
-      "The Electron runtime is dormant — e2e tests run on the native runtime only. " +
-      "Remove --runtime=electron / DOWNDRAFT_RUNTIME=electron.",
-    );
-  }
 
   const launched = await launchGameProcess({
     game,
@@ -177,7 +158,6 @@ export async function launchGame(opts: LaunchOptions = {}): Promise<GameProcess>
     process: launched.process,
     mcpClient: launched.client,
     mcpPort: launched.port,
-    runtime,
     getConsoleErrors: launched.getConsoleErrors,
     kill: launched.kill,
   };

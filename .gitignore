@@ -66,8 +66,4 @@ packages/engine/libraries/blitz-ui/native-osr/target/
 # Test-bed Rust crates (e.g. ui-bakeoff's blitz-app wasm) — same rule.
 test-beds/**/target/
 
-# Mobile native projects (generated from packages/mobile-shell by `draft mobile`)
-# These are gitignored — regenerated from the engine-owned shell on each run.
-games/*/android/
-games/*/ios/
 test-results/

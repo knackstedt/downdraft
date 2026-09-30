@@ -15,7 +15,7 @@ describe("mining-rpg MCP automation smoke", () => {
 
   beforeAll(async () => {
     game = await launchGame({
-      configPath: "games/mining-rpg/electron.vite.config.ts",
+      game: "mining-rpg",
       mcpPort: MCP_PORT,
       gpu: (process.env.DOWNDRAFT_GPU as "swiftshader" | undefined) ?? "swiftshader",
       deterministic: true,

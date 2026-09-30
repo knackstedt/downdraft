@@ -27,9 +27,6 @@
       "@sandbox/shared/*": [
         "./games/andrews-sandbox/src/shared/*"
       ],
-      "@main/*": [
-        "./packages/engine/app/src/main/*"
-      ],
       "@to-the-ocean/library-boats": [
         "./games/to-the-ocean/libraries/boats/src/index.ts"
       ],
@@ -154,12 +151,8 @@
   },
   "include": [
     "packages/engine/package.json",
-    "packages/engine/app/src/main/**/*",
-    "packages/engine/app/src/preload/**/*",
     "packages/engine/app/src/shared/**/*",
     "packages/engine/app/src/renderer/**/*",
-    "packages/engine/app/src/vite/**/*",
-    "packages/engine/app/src/build/**/*",
     "packages/engine/app/src/index.ts",
     "packages/cli/src/**/*.ts",
     "packages/engine/asset-bake/src/**/*.ts",
@@ -177,14 +170,6 @@
     "games/*/src/util/**/*.ts",
     "games/*/src/shared/plugin-interfaces.ts",
     "games/andrews-sandbox/src/shared/**/*.ts",
-    "games/*/electron.vite.config.ts",
-    "games/*/vite-options.ts",
-    "games/*/build.config.ts",
-    "games/*/src/main.ts",
-    "games/*/src/preload.ts",
-    "examples/*/electron.vite.config.ts",
-    "examples/*/src/main.ts",
-    "examples/*/src/preload.ts",
     "tests/**/*.ts",
     "packages/platform-native/test/**/*.ts",
     "games/*/tests/**/*.ts"

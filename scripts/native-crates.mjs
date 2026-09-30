@@ -6,8 +6,8 @@
 // packages). Keep this in sync with the workspace members in root Cargo.toml.
 //
 // Not listed: downdraft-blitz-shell (rlib, linked into blitz-app — never
-// shipped), bakeoff-blitz-ui (wasm testbed), raw-input (dormant + excluded
-// from the workspace), audio-kira (dormant — doesn't compile at HEAD; JS
+// shipped), bakeoff-blitz-ui (wasm testbed), raw-input (deleted with the
+// Electron input path), audio-kira (dormant — doesn't compile at HEAD; JS
 // audio backend is the active path).
 // ============================================================================
 

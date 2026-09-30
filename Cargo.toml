@@ -16,12 +16,10 @@ members = [
     "packages/engine/libraries/blitz-ui/native-osr",
     "test-beds/ui-bakeoff/blitz-app",
 ]
-# raw-input: dormant Electron-era napi crate, slated for deletion.
 # audio-kira: dormant — does not compile at HEAD (written against a pre-0.8
 # kira API; the JS audio backend is the active path). Rejoins the workspace
 # when revived.
 exclude = [
-    "packages/engine/modules/raw-input/native",
     "packages/engine/libraries/audio-kira/native",
 ]
 

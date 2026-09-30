@@ -4,7 +4,6 @@ import type { GameModule } from "@downdraft/engine/app/renderer";
 // Minimal game template — declarative GameModule
 //
 // The SAME module drives both entry points:
-//   src/main.tsx        — web bundle entry (build output)
 //   src/native-entry.ts — Bun + SDL + wgpu-native (draft dev, the default)
 //
 // For a more complete example with WebGPU rendering, sim worker, and

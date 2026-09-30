@@ -1,7 +1,6 @@
 // ============================================================================
-// @downdraft/engine/app/shared — IPC channel constants + shared types (all processes)
+// @downdraft/engine/app/shared — HostAPI contract types (host + engine)
 // ============================================================================
 
-export { IPC } from "./messages";
 export * from "./types";
 

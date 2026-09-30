@@ -15,7 +15,7 @@ describe("andrews-sandbox MCP automation smoke", () => {
 
   beforeAll(async () => {
     game = await launchGame({
-      configPath: "games/andrews-sandbox/electron.vite.config.ts",
+      game: "andrews-sandbox",
       mcpPort: MCP_PORT,
       gpu: (process.env.DOWNDRAFT_GPU as "swiftshader" | undefined) ?? "swiftshader",
       deterministic: true,

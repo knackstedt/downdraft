@@ -1,42 +1,35 @@
 // ============================================================================
-// draft release — unified build + package + sign pipeline
+// draft release — native build + package pipeline
 // ============================================================================
 //
 // Replaces the separate `build`, `dist`, `export`, `mobile`, and
 // `build-games` commands with a single pipeline:
 //
-//   draft release [--game=<name>] [--target=<csv>] [--format=<csv>]
+//   draft release [--game=<name>] [--target=<csv>]
 //                 (auto-detects the game from cwd or games/ when --game is omitted)
 //                 [--stage=<build|package|release>] [--games=<csv>]
-//                 [--mode=<dev|debug|prod>] [--out=<dir>] [--config=<path>]
-//                 [--port=<n>] [--skip-build] [--build-only]
-//                 [--skip-gradle] [--no-icons] [--no-overrides]
-//                 [--no-minify] [--sourcemap] [--verbose]
+//                 [--mode=<dev|debug|prod>] [--out=<dir>]
+//                 [--mcp] [--verbose]
 //
-// Stages:
-//   build   = Vite-bundle only (desktop electron-vite + mobile web bundle)
-//   package = package an existing build (electron-builder / Capacitor+Gradle)
-//   release = build + package + sign + collect to release/  (default)
+// Stages (all stages produce the same artifact — a compiled Bun binary plus
+// the staged native/ + dd-assets/ tree — via scripts/package-native.mjs):
+//   build   = compile only
+//   package = package an existing build (for native: same compile step)
+//   release = build + package + collect to release/  (default)
 //
-// Targets (one vocabulary for all platforms):
-//   win | linux | mac | android | ios | all
-//
-// Formats (optional, per-platform):
-//   portable | nsis | appimage | deb | rpm | flatpak | dmg | zip | apk | launcher
-//   e.g. --format=win:portable,linux:AppImage
-//   Omitted = use each platform's configured default from build.config.ts.
-//   --format=launcher = the bun-launcher lightweight distribution (old `export`).
+// Targets: win | linux | mac | all
 //
 // The old commands remain as backward-compat aliases that delegate here with
 // a deprecation warning.
 //
 
 import { createLogger } from "@downdraft/engine";
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseArgs, print, renderHelp } from "./args";
 import { formatGamesList, listGames } from "./list-games";
-import { buildMobileWeb, packageMobile, type MobileArgs } from "./mobile";
 import { findGameDirUpward, findMonorepoRoot, resolveGameDir } from "./paths";
 import { getCommand } from "./usage";
 
@@ -47,27 +40,15 @@ const log = createLogger();
 // ---------------------------------------------------------------------------
 
 type Stage = "build" | "package" | "release";
-type Target = "win" | "linux" | "mac" | "android" | "ios" | "all";
 
 interface ReleaseArgs {
   game: string | null;
   games: string[];
   target: string;
-  format: string;
   stage: Stage;
   mode: string;
   out: string;
-  configPath: string | null;
-  projectDir: string | null;
-  port: number;
-  skipBuild: boolean;
-  buildOnly: boolean;
-  skipGradle: boolean;
-  noIcons: boolean;
-  noOverrides: boolean;
-  noMinify: boolean;
-  noBake: boolean;
-  sourcemap: boolean;
+  retainMcp: boolean;
   verbose: boolean;
 }
 
@@ -97,27 +78,18 @@ function parseReleaseArgs(args: string[]): ReleaseArgs {
   if (buildOnly) stage = "build";
   else if (skipBuild) stage = "package";
 
-  const port = parsed.flags.port as number;
+  if (parsed.flags.format) {
+    log.warn("release", "--format is gone — native packaging produces a single binary + staged tree.");
+  }
 
   return {
     game,
     games,
     target: parsed.flags.target as string,
-    format: (parsed.flags.format as string) || "",
     stage,
     mode: (parsed.flags.mode as string) || "prod",
     out: (parsed.flags.out as string) || "release",
-    configPath: (parsed.flags.config as string) || null,
-    projectDir: (parsed.flags["project-dir"] as string) || null,
-    port: port === 0 ? 8765 : port,
-    skipBuild,
-    buildOnly,
-    skipGradle: parsed.flags["skip-gradle"] as boolean,
-    noIcons: parsed.flags["no-icons"] as boolean,
-    noOverrides: parsed.flags["no-overrides"] as boolean,
-    noMinify: parsed.flags["no-minify"] as boolean,
-    noBake: parsed.flags["no-bake"] as boolean,
-    sourcemap: parsed.flags.sourcemap as boolean,
+    retainMcp: parsed.flags.mcp as boolean,
     verbose: parsed.flags.verbose as boolean,
   };
 }
@@ -161,56 +133,23 @@ function detectGame(monorepoRoot: string | null): string | null {
 // ---------------------------------------------------------------------------
 
 const DESKTOP_TARGETS = new Set(["win", "linux", "mac"]);
-const MOBILE_TARGETS = new Set(["android", "ios"]);
 
-interface TargetGroups {
-  desktop: string[];   // e.g. ["win", "linux"]
-  mobile: string[];    // e.g. ["android"]
-}
-
-function classifyTargets(target: string): TargetGroups {
+function classifyTargets(target: string): string[] {
   if (target === "all") {
-    return { desktop: ["win", "linux", "mac"], mobile: ["android", "ios"] };
+    return ["win", "linux", "mac"];
   }
   const parts = target.split(",").map((s) => s.trim()).filter(Boolean);
-  const desktop: string[] = [];
-  const mobile: string[] = [];
   parts.forEach((t) => {
-    if (DESKTOP_TARGETS.has(t)) desktop.push(t);
-    else if (MOBILE_TARGETS.has(t)) mobile.push(t);
-    else {
-      log.error("release", `Unknown target: ${t}. Use win, linux, mac, android, ios, or all.`);
+    if (t === "android" || t === "ios") {
+      log.error("release", `Mobile targets are removed — the Capacitor shell was dormant and has been deleted.`);
+      process.exit(1);
+    }
+    if (!DESKTOP_TARGETS.has(t)) {
+      log.error("release", `Unknown target: ${t}. Use win, linux, mac, or all.`);
       process.exit(1);
     }
   });
-  return { desktop, mobile };
-}
-
-// ---------------------------------------------------------------------------
-// Format parsing
-// ---------------------------------------------------------------------------
-
-/**
- * Parse the --format flag into a map of platform → format.
- *
- * Format grammar:
- *   --format=win:portable,linux:AppImage   → { win: "portable", linux: "AppImage" }
- *   --format=launcher                       → all desktop platforms get "launcher"
- *   (empty)                                 → {} (use configured defaults)
- */
-function parseFormats(format: string): Record<string, string> {
-  if (!format) return {};
-  const out: Record<string, string> = {};
-  for (const spec of format.split(",").map((s) => s.trim()).filter(Boolean)) {
-    if (spec.includes(":")) {
-      const [plat, fmt] = spec.split(":");
-      out[plat.trim()] = fmt.trim();
-    } else {
-      // Bare format applies to all desktop platforms (e.g. --format=launcher).
-      for (const p of DESKTOP_TARGETS.values()) out[p] = spec;
-    }
-  }
-  return out;
+  return parts;
 }
 
 // ---------------------------------------------------------------------------
@@ -235,86 +174,56 @@ function getGameInfo(gameDir: string, game: string): { productName: string; appI
 }
 
 // ---------------------------------------------------------------------------
-// Stage: build
+// Native packaging — scripts/package-native.mjs
 // ---------------------------------------------------------------------------
 
-async function runBuild(
+/**
+ * Compile the game's native entry into a standalone Bun binary plus the
+ * staged runtime tree (<out>/<game>-<target> + sibling native/ + dd-assets/).
+ * One compile covers both the build and package stages — the binary IS the
+ * artifact.
+ */
+function packageNative(
   game: string,
-  groups: TargetGroups,
   gameDir: string,
+  targets: string[],
   opts: ReleaseArgs,
-): Promise<boolean> {
-  if (!existsSync(gameDir)) {
-    log.error("release:build", `Game directory not found: ${gameDir}`);
+): boolean {
+  const entry = resolve(gameDir, "src/native-entry.ts");
+  if (!existsSync(entry)) {
+    log.error("release:package", `No src/native-entry.ts in ${gameDir} — the game has no native entry.`);
     return false;
   }
-
-  // Forward bake disable to the Vite plugin via env.
-  const buildEnv: Record<string, string> = {};
-  if (opts.noBake) buildEnv.DOWNDRAFT_BAKE = "0";
-
-  // Desktop: the electron-vite pipeline is disabled (Electron runtime is
-  // dormant). Native packaging is staged by scripts/package-native.mjs —
-  // Track F wires it into this command.
-  if (groups.desktop.length > 0) {
-    log.error("release:build", "Desktop builds via electron-vite are disabled. Native packaging: bun scripts/package-native.mjs <game>/src/native-entry.ts <outfile>");
-    return false;
-  }
-
-  // Mobile: Vite build with mobile config (produces dist/mobile/).
-  if (groups.mobile.length > 0) {
-    const ok = await buildMobileWeb(gameDir, buildEnv);
-    if (!ok) return false;
-  }
-
-  return true;
-}
-
-// ---------------------------------------------------------------------------
-// Stage: package
-// ---------------------------------------------------------------------------
-
-async function runPackage(
-  game: string,
-  groups: TargetGroups,
-  formats: Record<string, string>,
-  opts: ReleaseArgs,
-  gameDir: string,
-  projectRoot: string | null,
-): Promise<boolean> {
-  // --- Desktop packaging ---
-  // electron-builder and launcher packaging are disabled — the Electron
-  // runtime is dormant. Native packaging is staged by
-  // scripts/package-native.mjs (Track F wires it into this command).
-  if (groups.desktop.length > 0) {
-    log.error("release:package", "Desktop packaging via electron-builder is disabled. Native packaging: bun scripts/package-native.mjs <game>/src/native-entry.ts <outfile>");
-    return false;
-  }
-
-  // --- Mobile packaging (Capacitor) — dormant: kept functional during the
-  // migration bake, but not the shipping target. ---
-  if (groups.mobile.length > 0) {
-    log.warn("release:package", "Mobile packaging is dormant — the Capacitor path is unmaintained during the native migration bake.");
-    const mobileTarget = groups.mobile.length === 2 ? "all" : groups.mobile[0] as "android" | "ios";
-    const mobileOpts: MobileArgs = {
-      game,
-      target: mobileTarget,
-      port: opts.port,
-      skipBuild: true, // build already ran in runBuild()
-      skipGradle: opts.skipGradle,
-      noIcons: opts.noIcons,
-      noOverrides: opts.noOverrides,
-      verbose: opts.verbose,
-    };
-    try {
-      await packageMobile(mobileOpts, gameDir, projectRoot);
-    } catch (err) {
-      log.error("release:package:mobile", `Mobile packaging failed for ${game}: ${(err as Error).message}`);
-      return false;
+  // The packaging script ships inside @downdraft/cli (files: ["scripts"]) so
+  // standalone game repos resolve it through the installed package, not the
+  // engine monorepo.
+  const script = fileURLToPath(new URL("../scripts/package-native.mjs", import.meta.url));
+  // cwd is the relativization root for staged assets — the monorepo root
+  // when present (engine sources relativize cleanly), else the game dir.
+  const cwd = findMonorepoRoot(gameDir) ?? gameDir;
+  let ok = true;
+  targets.forEach((target) => {
+    const outfile = resolve(opts.out, `${game}-${target}`);
+    const argv = [
+      script,
+      `--target=${target}`,
+      `--mode=${opts.mode}`,
+      ...(opts.retainMcp ? ["--mcp"] : []),
+      entry,
+      outfile,
+    ];
+    log.info("release:package", `bun ${argv.map((a) => basename(a)).join(" ")}`);
+    const result = spawnSync("bun", argv, {
+      cwd,
+      stdio: "inherit",
+      env: process.env,
+    });
+    if (result.status !== 0) {
+      log.error("release:package", `Native packaging failed for ${game} (${target})`);
+      ok = false;
     }
-  }
-
-  return true;
+  });
+  return ok;
 }
 
 // ---------------------------------------------------------------------------
@@ -343,8 +252,7 @@ export async function release(args: string[]): Promise<void> {
     }
   }
 
-  const groups = classifyTargets(opts.target);
-  const formats = parseFormats(opts.format);
+  const targets = classifyTargets(opts.target);
 
   log.info("release", `
   ╔══════════════════════════════════════════╗
@@ -357,7 +265,6 @@ export async function release(args: string[]): Promise<void> {
   log.info("release", `  Stage:       ${opts.stage}`);
   log.info("release", `  Mode:        ${opts.mode}`);
   log.info("release", `  Output:      ${opts.out}`);
-  if (opts.format) log.info("release", `  Format:      ${opts.format}`);
   if (opts.verbose) log.info("release", `  Verbose:     on`);
   log.info("release", "");
 
@@ -369,28 +276,14 @@ export async function release(args: string[]): Promise<void> {
     log.info("release", `Game: ${game} | Product: "${productName}" | AppId: ${appId} | v${version}`);
     log.info("release", "");
 
-    let ok = true;
-
-    // Stage: build
-    if (opts.stage === "build" || opts.stage === "release") {
-      log.info("release", `[build] Building ${game}...`);
-      ok = await runBuild(game, groups, gameDir, opts);
-      if (!ok) {
-        log.error("release", `Build failed for ${game} — skipping remaining stages.`);
-        fail = 1;
-        continue;
-      }
-    }
-
-    // Stage: package
-    if (opts.stage === "package" || opts.stage === "release") {
-      log.info("release", `[package] Packaging ${game}...`);
-      ok = await runPackage(game, groups, formats, opts, gameDir, monorepoRoot);
-      if (!ok) {
-        log.error("release", `Packaging failed for ${game} — skipping.`);
-        fail = 1;
-        continue;
-      }
+    // Native packaging is a single compile step — build/package/release
+    // all produce the same artifact.
+    log.info("release", `[package] Compiling ${game} (${targets.join(", ")})...`);
+    const ok = packageNative(game, gameDir, targets, opts);
+    if (!ok) {
+      log.error("release", `Packaging failed for ${game} — skipping.`);
+      fail = 1;
+      continue;
     }
 
     log.info("release", `${game} done.`);
@@ -404,14 +297,7 @@ export async function release(args: string[]): Promise<void> {
   } else {
     log.info("release", "All selected games processed successfully.");
   }
-  if (groups.desktop.length > 0) {
-    log.info("release", `Desktop artifacts: ${opts.out}/`);
-  }
-  if (groups.mobile.length > 0) {
-    log.info("release", `Android APK: ${opts.out}/<name>-<version>-android.apk`);
-    log.info("release", `iOS: open games/<game>/ios with Xcode`);
-  }
+  log.info("release", `Artifacts: ${opts.out}/`);
 
-  // Hard exit — Vite/Capacitor/Gradle/electron-builder leave lingering handles.
   process.exit(fail);
 }

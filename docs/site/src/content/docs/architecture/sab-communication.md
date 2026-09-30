@@ -10,10 +10,9 @@ DownDraft uses multiple SharedArrayBuffer (SAB) channels with a `SeqlockBuffer` 
 | Boundary | Mechanism | Use case |
 |---|---|---|
 | Sim → Render | Multiple SharedArrayBuffers + Atomics | Transforms, water, terrain, physics, audio positions (60fps, zero-copy) |
-| UI ↔ Main | Electrobun RPC | Commands, queries, UI state updates |
-| Main ↔ Sim | postMessage + multiple SABs | Commands/events (postMessage), state (SABs via SeqlockBuffer) |
-| Main ↔ DB | postMessage | Save/load, asset queries, schema migrations |
-| Main ↔ Render | Direct function calls (same process) | Camera, viewport, debug overlays, HiDPI scale, HDR mode |
+| Game ↔ Host | Direct function calls (HostAPI) | Saves, screenshots, window state, dialogs, restart |
+| Host ↔ Sim | postMessage + multiple SABs | Commands/events (postMessage), state (SABs via SeqlockBuffer) |
+| Host ↔ Service workers | postMessage | Save/load, asset queries, schema migrations |
 | Cross-thread sync | Atomics on SAB headers | Frame synchronization, seqlock read/write coordination |
 
 ## SeqlockBuffer
@@ -31,7 +30,7 @@ Each channel has its own independent sequence counter, enabling fine-grained fra
 | Channel | Data |
 |---|---|
 | Transform | Entity positions, rotations, scales |
-| Input | Keyboard, mouse, gamepad state (webview → sim) |
+| Input | Keyboard, mouse, gamepad state (host → sim) |
 | Physics | Physics body transforms |
 | Audio Position | Spatial audio source positions |
 | Water | Water height field, dynamics |

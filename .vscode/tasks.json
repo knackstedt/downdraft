@@ -114,30 +114,8 @@
       "filePattern": "games/downdraft-gpu-bench/**"
     },
     {
-      "label": "Android: Sandjongg",
-      "detail": "Build web bundle, assemble debug APK via Gradle, install + launch on connected device or emulator",
-      "type": "shell",
-      "command": "set -e; ADB=\"${ANDROID_HOME:-$HOME/Android/Sdk}/platform-tools/adb\"; SDK=\"${ANDROID_HOME:-$HOME/Android/Sdk}\"; echo '[Android] Building web bundle + scaffolding Android project...'; bun run packages/cli/src/index.ts mobile --game=sandjongg --target=android --skip-gradle; echo ''; echo '[Android] Assembling debug APK via Gradle...'; cd games/sandjongg/android; echo \"sdk.dir=$SDK\" > local.properties; echo '[Android] Stopping stale Gradle daemons...'; timeout 15 ./gradlew --stop </dev/null 2>/dev/null; sleep 1; echo '[Android] Running gradlew assembleDebug...'; timeout 180 ./gradlew assembleDebug --no-daemon </dev/null 2>&1 | tail -5; APK=app/build/outputs/apk/debug/app-debug.apk; if [ ! -f \"$APK\" ]; then echo '[Android] ERROR: APK not found at $APK'; exit 1; fi; echo ''; echo '[Android] Checking for connected devices...'; DEVICES=$(timeout 10 \"$ADB\" devices 2>/dev/null | grep -v '^List' | grep -v '^$' | grep 'device$' | head -1); if [ -z \"$DEVICES\" ]; then echo '[Android] No device connected. Starting emulator...'; EMU_BIN=\"$SDK/emulator/emulator\"; AVD_NAME=$(timeout 10 \"$EMU_BIN\" -list-avds 2>/dev/null | head -1); if [ -z \"$AVD_NAME\" ]; then echo '[Android] No AVD found. Create one via Android Studio or:'; echo '  avdmanager create avd -n downdraft -k \"system-images;android-36;google_apis;x86_64\" -d pixel_7'; exit 1; fi; echo \"[Android] Starting emulator: $AVD_NAME\"; (\"$EMU_BIN\" -avd \"$AVD_NAME\" -gpu host -no-snapshot -no-audio -no-boot-anim > /tmp/emulator.log 2>&1 &); echo '[Android] Waiting for emulator to boot (120s timeout)...'; timeout 120 bash -c \"\\\"$ADB\\\" wait-for-device && for i in \\$(seq 1 60); do BOOT=\\$(\\\"$ADB\\\" shell getprop sys.boot_completed 2>/dev/null | tr -d '\\\\r'); [ \\\"\\$BOOT\\\" = \\\"1\\\" ] && break; sleep 2; done\" || { echo '[Android] ERROR: Emulator failed to boot within 120s. Check /tmp/emulator.log.'; exit 1; }; echo '[Android] Emulator booted.'; fi; echo ''; echo '[Android] Installing APK...'; timeout 60 \"$ADB\" install -r \"$APK\" 2>&1; echo ''; echo '[Android] Enabling SharedArrayBuffer + WebGPU flags...'; timeout 10 \"$ADB\" shell \"echo 'webview --enable-features=SharedArrayBuffer,UnsafeWebGPU --ignore-gpu-blocklist' > /data/local/tmp/webview-command-line\" 2>/dev/null || echo '[Android] WARN: Could not set WebView flags (device may not be writable)'; echo ''; echo '[Android] Launching app...'; timeout 10 \"$ADB\" shell am force-stop com.downdraft.sandjongg 2>/dev/null; timeout 10 \"$ADB\" logcat -c 2>/dev/null; timeout 10 \"$ADB\" shell am start -n com.downdraft.sandjongg/com.downdraft.shell.MainActivity 2>&1; echo ''; echo '[Android] App launched. Waiting 8s for boot...'; sleep 8; echo '[Android] Boot logs:'; timeout 10 \"$ADB\" logcat -d 2>&1 | grep -iE 'DowndraftShell|Capacitor/Console|webgpu|guard|mobile.*ready|mobile.*Fatal|No GPU adapter' | head -15; echo ''; if timeout 10 \"$ADB\" logcat -d 2>&1 | grep -q 'No GPU adapter found'; then echo '[Android] WARNING: WebGPU adapter not available on this device/emulator.'; echo '[Android] The game UI will render but the WebGPU canvas will be blank.'; echo '[Android] The Android emulator does not support WebGPU — use a physical device for rendering.'; echo '[Android] See README.md > \"WebGPU on the Android emulator\" for details.'; fi; echo ''; echo '[Android] Done. Follow logs with: adb logcat | grep -i downdraft'",
-      "options": {
-        "cwd": "${workspaceFolder}",
-        "env": {
-          "JAVA_HOME": "${env:JAVA_HOME:-/usr/lib/jvm/java-21-openjdk-amd64}",
-          "ANDROID_HOME": "${env:ANDROID_HOME:-${env:HOME}/Android/Sdk}"
-        }
-      },
-      "presentation": {
-        "echo": true,
-        "reveal": "always",
-        "panel": "dedicated",
-        "clear": true,
-        "showReuseMessage": false
-      },
-      "problemMatcher": [],
-      "filePattern": "games/sandjongg/**"
-    },
-    {
       "label": "Build: Game(s)",
-      "detail": "Pick game(s) + target platform(s), then build + package each (desktop + mobile via draft release)",
+      "detail": "Pick game(s) + target platform(s), then build + package each (native compile via draft release)",
       "type": "shell",
       "command": "bun run packages/cli/src/index.ts build-games --games=\"${input:game}\" --platforms=\"${input:platforms}\"",
       "options": {
@@ -160,11 +138,11 @@
       "type": "command",
       "command": "shellCommand.execute",
       "args": {
-        "command": "printf '%s\\n' 'win:portable|Windows Portable|Single .exe, no install needed' 'win:nsis|Windows Installer|NSIS .exe installer' 'mac:dmg|macOS DMG|Disk image installer' 'mac:zip|macOS Zip|Zipped app bundle' 'linux:AppImage|Linux AppImage|Portable single-file executable' 'linux:deb|Linux .deb|Debian/Ubuntu package' 'linux:rpm|Linux .rpm|Fedora/RHEL package' 'linux:flatpak|Linux Flatpak|Sandboxed Flathub package' 'android:all|Android|Capacitor Android build (requires WebView 121+)' 'ios:all|iOS|Capacitor iOS build (requires iOS 26+ / iPadOS 26+)'",
+        "command": "printf '%s\\n' 'win|Windows|Standalone .exe + runtime tree' 'linux|Linux|Standalone binary + runtime tree' 'mac|macOS|Standalone binary + runtime tree' 'all|All desktop|win + linux + mac'",
         "fieldSeparator": "|",
         "multiselect": true,
         "multiselectSeparator": ",",
-        "description": "Select target format(s) — pick multiple to build several at once"
+        "description": "Select target platform(s) \u2014 pick multiple to build several at once"
       }
     },
     {
@@ -172,12 +150,12 @@
       "type": "command",
       "command": "shellCommand.execute",
       "args": {
-        "command": "node -e \"const fs=require('fs');for(const d of fs.readdirSync('games')){const c='games/'+d+'/electron.vite.config.ts',j='games/'+d+'/package.json';if(!fs.existsSync(c))continue;let pn=d;try{pn=JSON.parse(fs.readFileSync(j,'utf8')).productName||d}catch{};console.log(d+'|'+pn+'|Build '+pn)}\"",
+        "command": "node -e \"const fs=require('fs');for(const d of fs.readdirSync('games')){const c='games/'+d+'/src/native-entry.ts',j='games/'+d+'/package.json';if(!fs.existsSync(c))continue;let pn=d;try{pn=JSON.parse(fs.readFileSync(j,'utf8')).productName||d}catch{};console.log(d+'|'+pn+'|Build '+pn)}\"",
         "cwd": "${workspaceFolder}",
         "fieldSeparator": "|",
         "multiselect": true,
         "multiselectSeparator": ",",
-        "description": "Select game(s) to build — pick multiple to build several at once"
+        "description": "Select game(s) to build \u2014 pick multiple to build several at once"
       }
     }
   ]

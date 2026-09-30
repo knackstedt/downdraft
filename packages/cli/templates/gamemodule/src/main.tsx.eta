@@ -1,9 +1,0 @@
-import { startGame } from "@downdraft/engine/app/renderer";
-import { gameModule } from "./game-module";
-
-// Browser/Electron entry — the deprecated runtime. The default `draft dev`
-// uses src/native-entry.ts instead.
-
-startGame(gameModule).catch((e) => {
-  console.error("[game] Fatal:", e);
-});
