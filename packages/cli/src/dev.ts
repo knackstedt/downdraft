@@ -70,7 +70,7 @@ export async function dev(args: string[]): Promise<void> {
 }
 
 /**
- * Native dev mode — runs the game with Bun + winit + wgpu.
+ * Native dev mode — runs the game with winit + wgpu under Bun, Node, or Deno.
  * Looks for `src/native-entry.ts` in the game directory.
  */
 async function devNative(parsed: any): Promise<void> {

@@ -1,5 +1,5 @@
 // ============================================================================
-// native-entry.ts — Bun-native entry point for pixi-ui-demo
+// native-entry.ts — native entry point for pixi-ui-demo (Bun/Node/Deno)
 //
 // Runs the GameModule (src/game-module.ts). The PixiUI overlay runs
 // in-process via NativePixiUiHost (PixiJS v8 WebGPU on the shared
@@ -8,9 +8,9 @@
 // Run: draft dev  (native is the default) — or: bun run src/native-entry.ts
 // ============================================================================
 
+import { createLogger } from "@downdraft/engine/util/logger";
 import { runNativeGameModule } from "@downdraft/platform-native";
 import { pixiUiDemoModule } from "./game-module";
-import { createLogger } from "@downdraft/engine/util/logger";
 const log = createLogger();
 
 

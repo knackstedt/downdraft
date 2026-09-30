@@ -36,8 +36,8 @@ import logoSvg from '../assets/logo.svg';
 					<span class="line accent">TypeScript-first.</span>
 				</h1>
 				<p class="subheadline">
-					A loosely AAA-class game engine built on a native runtime — Bun + winit + wgpu,
-					no browser in the loop. TypeScript-first workflow, a modular plugin ecosystem,
+					A loosely AAA-class game engine built on a native runtime — winit + wgpu under
+					Bun, Node, or Deno, no browser in the loop. TypeScript-first workflow, a modular plugin ecosystem,
 					and a built-in MCP server for AI-assisted asset management.
 				</p>
 				<div class="cta-row">
@@ -145,14 +145,14 @@ import logoSvg from '../assets/logo.svg';
 				<h2 class="section-title">Built for performance</h2>
 				<p class="section-lead">
 					DownDraft pairs a deferred WebGPU render pipeline with a modular plugin
-					ecosystem in a single native process — Bun for the runtime, winit for
-					windowing, wgpu for the GPU. Zero-copy SharedArrayBuffer keeps data
+					ecosystem in a single native process — Bun, Node, or Deno for the JS
+					runtime, winit for windowing, wgpu for the GPU. Zero-copy SharedArrayBuffer keeps data
 					flowing between threads with no serialization overhead.
 				</p>
 				<div class="stack-grid">
 					<div class="stack-item">
 						<div class="stack-dot" />
-						<span>Bun + winit</span>
+						<span>Bun/Node/Deno + winit</span>
 					</div>
 					<div class="stack-item">
 						<div class="stack-dot" />
@@ -189,7 +189,8 @@ import logoSvg from '../assets/logo.svg';
 				<h2 class="section-title">Native all the way down</h2>
 				<p class="section-lead">
 					No browser, no renderer process, no IPC boundary. DownDraft games run as a
-					single Bun process driving a native window and the GPU directly.
+					single JS-runtime process (Bun by default; Node and Deno supported) driving a
+					native window and the GPU directly.
 				</p>
 				<div class="native-grid">
 					<div class="native-point">
@@ -198,7 +199,7 @@ import logoSvg from '../assets/logo.svg';
 						</div>
 						<div>
 							<h3>One process, zero IPC</h3>
-							<p>Windowing, rendering, assets, and the MCP server all live in one Bun process. The host API is a direct function call — no IPC channels, no preload bridge, no message serialization between your game and the platform.</p>
+							<p>Windowing, rendering, assets, and the MCP server all live in one JS-runtime process. The host API is a direct function call — no IPC channels, no preload bridge, no message serialization between your game and the platform.</p>
 						</div>
 					</div>
 					<div class="native-point">

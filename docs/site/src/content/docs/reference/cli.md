@@ -37,7 +37,7 @@ draft new --list-templates
 
 ## `draft dev [options]`
 
-Starts the game on the native runtime — a Bun process hosting a winit window and the wgpu device, with an embedded Vite dev shell providing tiered HMR. Run from a game directory (the game is inferred by walking up from cwd looking for `downdraft.config.json` or `src/native-entry.ts`).
+Starts the game on the native runtime — a JS-runtime process hosting a winit window and the wgpu device, with an embedded Vite dev shell providing tiered HMR. Run from a game directory (the game is inferred by walking up from cwd looking for `downdraft.config.json` or `src/native-entry.ts`).
 
 | Flag | Description |
 |---|---|

@@ -78,7 +78,7 @@ export const COMMANDS: CommandEntry[] = [
   {
     name: "dev",
     usage: "draft dev [options]",
-    summary: "Start the game on the native runtime (Bun + winit + wgpu). Run from a game directory (cwd inference).",
+    summary: "Start the game on the native runtime (winit + wgpu; Bun, Node, or Deno host — see --runtime). Run from a game directory (cwd inference).",
     schema: {
       flags: [
         { name: "entry", type: "string", description: "Game entrypoint file (defaults to src/native-entry.ts)" },

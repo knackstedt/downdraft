@@ -3,7 +3,7 @@
 //
 // Sets globalThis.navigator.gpu to a WgpuGPU instance so the engine's
 // GPUDeviceManager (which calls navigator.gpu.requestAdapter()) works
-// unchanged under Bun-native.
+// unchanged on the native runtime.
 // ============================================================================
 
 import { createLogger } from "@downdraft/engine";

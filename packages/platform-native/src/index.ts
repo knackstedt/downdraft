@@ -1,8 +1,8 @@
 // ============================================================================
-// @downdraft/platform-native — Bun-native platform layer
+// @downdraft/platform-native — native platform layer (Bun/Node/Deno host)
 //
 // Provides:
-//   - GPU binding (wgpu-native via bun:ffi) → installs as navigator.gpu
+//   - GPU binding (wgpu-native via cross-runtime FFI) → installs as navigator.gpu
 //   - Native window (SDL2) → implements HTMLCanvasElement interface
 //   - Native rAF (vsync-driven) → installs as requestAnimationFrame
 //   - Native input (SDL2 events → DOM-compatible events)

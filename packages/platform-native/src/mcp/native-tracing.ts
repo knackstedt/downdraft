@@ -1,7 +1,7 @@
 // ============================================================================
 // native-tracing.ts — tracing + heap-snapshot MCP tools for the native host.
 //
-// Tracing + heap-snapshot MCP tools for the single-process Bun runtime:
+// Tracing + heap-snapshot MCP tools for the single-process native runtime:
 //
 //   - trace_start/stop/status drive the in-engine TraceEventWriter fed by the
 //     ProfilingSAB (engine instrumentation: task latency, GC pauses, event-loop

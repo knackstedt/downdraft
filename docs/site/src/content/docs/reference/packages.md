@@ -15,7 +15,7 @@ DownDraft Engine is organized as a Bun workspace monorepo with the following pac
 | `@downdraft/engine/mcp` | MCP server for AI agent interaction (JSON-RPC over stdio) |
 | `@downdraft/engine/shader-graph` | Material/shader graph compiler and validator |
 | `@downdraft/cli` | CLI tool (`draft new/dev/debug/release/assets/test`) |
-| `@downdraft/platform-native` | Native runtime host: winit windowing, wgpu device, HostAPI bridge, MCP server (Rust cdylib via `bun:ffi`) |
+| `@downdraft/platform-native` | Native runtime host: winit windowing, wgpu device, HostAPI bridge, MCP server (Rust cdylib via FFI — `bun:ffi`/`koffi`/`Deno.dlopen`) |
 
 ## Engine Libraries
 

@@ -1,5 +1,5 @@
 // ============================================================================
-// native-host.ts — Bun-native host layer
+// native-host.ts — native host layer (runs under Bun, Node, or Deno)
 //
 // Ties together:
 //   - GPU binding (wgpu via FFI)

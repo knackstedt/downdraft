@@ -2,7 +2,7 @@
 
 ## Architecture
 
-DownDraft is a TypeScript-first game engine built on Bun + winit + wgpu (a single native process) + WebGPU, with an MCP server enabling AI agents to design, build, debug, and manage games via natural language.
+DownDraft is a TypeScript-first game engine built on winit + wgpu (a single native process, hosted under Bun, Node, or Deno — Bun is the default) + WebGPU, with an MCP server enabling AI agents to design, build, debug, and manage games via natural language.
 
 **Execution contexts:**
 1. **Native host (main thread)** — Game module, renderer, render loop, engine orchestrator, MCP server, asset manager

@@ -1,7 +1,7 @@
 // ============================================================================
-// createBlitzUiNativeModule — native (Bun/SDL) Blitz UI renderer module.
+// createBlitzUiNativeModule — native (winit/SDL) Blitz UI renderer module.
 //
-// The Bun runtime can't attach winit-web + WebGL2 to a DOM canvas, so this
+// The native runtime can't attach winit-web + WebGL2 to a DOM canvas, so this
 // module drives the headless wasm build instead: DioxusDocument + vello_cpu
 // rasterize the UI into an RGBA8 buffer on ui_frame(), which is uploaded to
 // a GPUTexture and composited over the swapchain with UiBlitPass (the same

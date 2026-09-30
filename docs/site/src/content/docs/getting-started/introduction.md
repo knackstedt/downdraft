@@ -3,7 +3,7 @@ title: Introduction
 description: What DownDraft Engine is and what it can do
 ---
 
-DownDraft Engine is an AI-driven game engine built on a **native runtime — Bun + winit + wgpu** (TypeScript-first, Rust native modules for platform and audio). Games run as a single Bun process driving a native window and the GPU directly — no browser, no renderer process, no IPC boundary. It includes a built-in MCP server that enables AI agents to design, build, debug, and manage game assets via natural language prompts.
+DownDraft Engine is an AI-driven game engine built on a **native runtime — winit + wgpu, hosted by Bun, Node, or Deno** (TypeScript-first, Rust native modules for platform and audio). Games run as a single JS-runtime process driving a native window and the GPU directly — no browser, no renderer process, no IPC boundary. It includes a built-in MCP server that enables AI agents to design, build, debug, and manage game assets via natural language prompts.
 
 ## What can it do?
 
@@ -24,7 +24,7 @@ DownDraft runs on **Linux, macOS, and Windows** via the native runtime (winit fo
 
 | Layer | Technology |
 |---|---|
-| Runtime | Bun + winit (native windowing) |
+| Runtime | Bun (default) / Node+tsx / Deno + winit (native windowing) |
 | Rendering | WebGPU / wgpu |
 | Language | TypeScript (engine), Rust (platform + native modules) |
 | Physics | Rapier3D (Rust FFI) |

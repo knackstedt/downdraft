@@ -1,6 +1,6 @@
 # DownDraft Engine
 
-A game engine built on a **native runtime — Bun + winit + wgpu** (TypeScript-first, Rust native modules for platform and audio). Games run as a single Bun process driving a native window and the GPU directly — no browser, no renderer process, no IPC boundary. It ships with a built-in MCP server so AI agents can help build your game — designing, building, debugging, and managing assets via natural language prompts — but AI is one workflow among many: the engine is fully usable by hand, end to end, without any AI tooling.
+A game engine built on a **native runtime — winit + wgpu, hosted by Bun, Node, or Deno** (TypeScript-first, Rust native modules for platform and audio). Games run as a single JS-runtime process driving a native window and the GPU directly — no browser, no renderer process, no IPC boundary. Bun is the default JS runtime (and the repo's package manager / test runner / packaging compiler), but Node+tsx and Deno are fully supported via `draft dev --runtime=node|deno`. It ships with a built-in MCP server so AI agents can help build your game — designing, building, debugging, and managing assets via natural language prompts — but AI is one workflow among many: the engine is fully usable by hand, end to end, without any AI tooling.
 
 ## Quick Start
 
@@ -43,7 +43,8 @@ See `AGENTS.md` for the full architecture reference (module system, HostAPI surf
 
 ```
 ┌─────────────────────────────────────────────┐
-  Bun Process (game-owned src/native-entry.ts)
+  Game Process (src/native-entry.ts)
+  runtime: Bun (default) / Node / Deno
     • createNativeHost() — window lifecycle, display info
     • Owns the wgpu device + RenderSurface
     • HostAPI bridge, MCP server, saves, import cache
@@ -77,7 +78,7 @@ See `AGENTS.md` for the full architecture reference (module system, HostAPI surf
 | `@downdraft/engine/mcp` | MCP server for AI agent interaction (JSON-RPC) |
 | `@downdraft/engine/shader-graph` | Material/shader graph compiler and validator |
 | `@downdraft/cli` | CLI tool (`draft new/dev/debug/release/assets/test`) |
-| `@downdraft/platform-native` | Native runtime host: winit windowing, wgpu device, HostAPI bridge, MCP server (Rust cdylib via `bun:ffi`) |
+| `@downdraft/platform-native` | Native runtime host: winit windowing, wgpu device, HostAPI bridge, MCP server (Rust cdylib via FFI — `bun:ffi`/`koffi`/`Deno.dlopen`) |
 
 ### Engine libraries (`packages/engine/libraries/`)
 
@@ -136,8 +137,9 @@ Scaffolds a new game project (native-only: `src/native-entry.ts` + `downdraft.co
 - `--list-templates` — List available templates
 
 ### `draft dev [options]`
-Starts the game on the native runtime — a Bun process hosting a winit window and the wgpu device, with an embedded Vite dev shell providing tiered HMR. Run from a game directory.
+Starts the game on the native runtime — a JS-runtime process hosting a winit window and the wgpu device, with an embedded Vite dev shell providing tiered HMR. Run from a game directory.
 - `--game <name>`, `-g` — Game to run (resolves `games/<game>` from the engine root). If omitted, `draft dev` walks up from cwd looking for `downdraft.config.json`/`src/native-entry.ts`.
+- `--runtime <r>` — JS runtime hosting the game: `bun` / `node` / `deno` (default: auto-detect, preferring bun)
 - `--port <n>` — MCP HTTP port (default: auto-assign)
 - `--no-hmr` — Disable HMR — spawn the entry directly, no dev shell
 - `--native` — Back-compat no-op (native is the only runtime)

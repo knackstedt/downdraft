@@ -8,7 +8,7 @@ Every directory under `games/` is a **git submodule** pointing at its own reposi
 
 ## Runtime status: native is the active runtime
 
-DownDraft runs on a **native runtime** — Bun + winit + wgpu via `@downdraft/platform-native` (a single Rust cdylib, `libdowndraft_platform`). A game boots from `src/native-entry.ts`, which calls `runNativeGameModule(...)`; there is no Electron, no Chromium, no browser-facing Vite dev server (the dev shell embeds Vite only as a transform/HMR engine), and no renderer/preload process split. The simulation still runs in a dedicated worker thread with SharedArrayBuffer protocols — that isolation is deliberate and is preserved on native.
+DownDraft runs on a **native runtime** — winit + wgpu via `@downdraft/platform-native` (a single Rust cdylib, `libdowndraft_platform`). **The JS runtime is interchangeable: Bun (default), Node+tsx, and Deno are all supported hosts** (`draft dev --runtime bun|node|deno`, default auto-detect; FFI adapts via `bun:ffi`/`koffi`/`Deno.dlopen` — see "Running the native entry (tri-runtime)" near the bottom). This is **not** a Bun-only project — Bun is merely the repo's package manager (`bun.lock`), unit-test runner (`bun test`), and packaging compiler (`bun build --compile`); the game runtime itself is runtime-agnostic, so never assume Bun-only APIs (`Bun.*`, `bun:ffi`, `bun:test`) are available in game/engine runtime code — use the `ffi-adapter.ts` and `platform/runtime.ts` abstractions instead. A game boots from `src/native-entry.ts`, which calls `runNativeGameModule(...)`; there is no Electron, no Chromium, no browser-facing Vite dev server (the dev shell embeds Vite only as a transform/HMR engine), and no renderer/preload process split. The simulation still runs in a dedicated worker thread with SharedArrayBuffer protocols — that isolation is deliberate and is preserved on native.
 
 **Electron is removed.** `draft dev`/`draft test`/`draft release` run native only — there are no Electron flags or compatibility paths. The Electron/Capacitor trees (main/preload/vite/mobile shells, `core/ipc.ts`, `electron-osr`, `raw-input`, devtools extension, per-game `electron.vite.config.ts`/`index.html`/`src/main.ts`/`src/preload.ts`, `mobile-shell`, electron-builder config) have been deleted — do not resurrect them; a future mobile port would be native (winit+wgpu), not a WebView shell. `app/src/renderer` is runtime-agnostic and remains live — `startGame()`/`bootstrapGame()` run on the native main thread.
 
@@ -346,9 +346,9 @@ await runNativeGameModule(gameModule, {
 
 ### Killing game processes — never use generic `pkill bun`/`pkill electron`
 
-**NEVER run `pkill -9 bun`, `pkill -f bun`, `killall bun`, or any other generic runtime-killing command.** The user's machine may run other Bun processes (and other Electron apps: VS Code, Slack, the Devin desktop app itself). A generic pkill will terminate all of them, destroying the user's work and your own session.
+**NEVER run `pkill -9 bun`, `pkill -f bun`, `killall bun`, `pkill -f tsx`, `pkill deno`, or any other generic runtime-killing command.** The user's machine may run other Bun/Node/Deno processes (and other Electron apps: VS Code, Slack, the Devin desktop app itself). A generic pkill will terminate all of them, destroying the user's work and your own session.
 
-**`draft dev` runs only the native runtime** (Bun + winit + wgpu via `src/native-entry.ts`) — the Electron path is removed entirely. The native runtime uses a single-instance lock (`singleton.lock` in the game's userData dir); re-running `draft dev` handles stale instances. Each game runs as a **single Bun process** (plus worker threads). To kill a specific game instance, target **that game only**:
+**`draft dev` runs only the native runtime** (winit + wgpu via `src/native-entry.ts`) — the Electron path is removed entirely. The native runtime uses a single-instance lock (`singleton.lock` in the game's userData dir); re-running `draft dev` handles stale instances. Each game runs as a **single JS-runtime process** (Bun by default, or Node+tsx/Deno via `--runtime`; plus worker threads). To kill a specific game instance, target **that game only**:
 
 - **Let `draft dev` handle it** — re-running `draft dev` from the game directory tears down the previous instance automatically. This is the preferred path.
 - **Match the per-game `--user-data-dir`** (each game sets a unique `downdraft-<game>` userData dir, visible in the process args) only if you need to kill a process you did not launch via `draft dev`:
@@ -369,7 +369,7 @@ Prefer `kill -TERM` first (lets the game release the singleton lock and flush sa
 
 ### Debugging games — do NOT use a browser / Playwright
 
-**Do NOT use a browser (Chrome, Playwright, `browser_preview`, the `devin/mcp-playwright` MCP server, or any other web browser tool) to debug or drive Downdraft games.** The games are native Bun + winit + wgpu apps — there is no browser or DOM to attach to. They rely on:
+**Do NOT use a browser (Chrome, Playwright, `browser_preview`, the `devin/mcp-playwright` MCP server, or any other web browser tool) to debug or drive Downdraft games.** The games are native winit + wgpu apps — there is no browser or DOM to attach to. They rely on:
 
 - The winit window/input path and wgpu device — there is no DOM, no DevTools protocol, and no remote-debugging port.
 - `window.downdraft` bridge APIs installed by the native bridge, which only exist inside the game process.
@@ -690,7 +690,7 @@ The native host (`packages/platform-native`) owns the process: it creates the wi
 
 ### Process model
 
-Single process: the game module, renderer, host services, sim-worker host, and MCP server all live in the one Bun process; the simulation runs in a dedicated Bun worker (SAB channels, unchanged). Recovery is restart-based — `downdraft.requestRestart(reason)` respawns the process (see `packages/platform-native/src/native-restart.ts`); `window.location.reload()` is not a recovery path on native. Devtools + OSR are in-process WebGPU overlays (`modules/native-osr`), not embedded web panels.
+Single process: the game module, renderer, host services, sim-worker host, and MCP server all live in the one JS-runtime process; the simulation runs in a dedicated worker thread (SAB channels, unchanged). Recovery is restart-based — `downdraft.requestRestart(reason)` respawns the process (see `packages/platform-native/src/native-restart.ts`); `window.location.reload()` is not a recovery path on native. Devtools + OSR are in-process WebGPU overlays (`modules/native-osr`), not embedded web panels.
 
 ## Game automation & headless testing
 
@@ -810,7 +810,7 @@ draft test --renderer=cpu --spec tests/e2e/my-game.spec.ts
 
 **Dynamic ports:** The harness auto-allocates a free MCP port starting from 9976, enabling parallel spec execution. Specs read the port from `process.env.MCP_PORT` (set by `draft test --port`). To run multiple specs simultaneously, omit `--port` and let each spec pick its own.
 
-**Process cleanup:** The harness kills the entire process group (the `bun` game process and its worker threads) on test completion. It uses `process.kill(-pid, SIGTERM)` with a SIGKILL fallback after 5s.
+**Process cleanup:** The harness kills the entire process group (the game process and its worker threads) on test completion. It uses `process.kill(-pid, SIGTERM)` with a SIGKILL fallback after 5s.
 
 **Retry logic:** The harness `callToolWithRetry()` method retries MCP operations on transport errors (connection refused, timeouts) with exponential backoff. Tool-level errors (isError: true) are not retried.
 
@@ -1293,7 +1293,7 @@ bun test packages/engine/libraries/postfx
 ```
 ## Native platform (`@downdraft/platform-native`)
 
-A Bun-native platform layer providing direct native GPU rendering via a single Rust cdylib (`libdowndraft_platform`, crate at `native-rs/`) and `bun:ffi`. Located in `packages/platform-native/`.
+A native platform layer providing direct GPU rendering via a single Rust cdylib (`libdowndraft_platform`, crate at `native-rs/`), accessed over runtime-adapted FFI (`bun:ffi` under Bun, `koffi` under Node, `Deno.dlopen` under Deno — see `ffi/ffi-adapter.ts`). Located in `packages/platform-native/`.
 
 ### Architecture
 
@@ -1351,11 +1351,11 @@ Native binaries are **not committed** and consumers never compile them:
 
 **Shared GPU device across workers** (`@downdraft/platform-native` `gpu/shared-device.ts`): wgpu handles are process-global — a worker can attach to the host device via `shareDevice(device, cells)` + `attachSharedDevice(handle, cells)` (non-owning view; worker `destroy()` never releases the native device). Liveness propagates through a SAB cell — owner `pollLost`/`destroy()`/`markDeviceLost` all write it dead; workers must check `isValid()` before FFI calls (calling into a freed device is a UAF). Hand resources/command buffers to the owner by ptr (`submitCommandPtrs`, `importCommandBuffer`; `{ptr, invalid}` refs keep validation errors out of submission) — once posted, the worker must not dispose or drop the wrapper (GC would free the shared handle). Use for coarse subsystems (terrain bake, UI raster) — fine-grained per-pass splits lose to submission overhead.
 
-### Bun preload
+### Runtime-specific import loaders
 
-`packages/engine/core/src/platform/bun-preload.ts` registers Bun plugin loaders for `?raw` and `?url` import suffixes, plus CSS imports. Configured in root `bunfig.toml`.
+`packages/engine/core/src/platform/bun-preload.ts` registers Bun plugin loaders for `?raw` and `?url` import suffixes, plus CSS imports — configured in root `bunfig.toml`, Bun-only. The Node+tsx path gets the same handling from `packages/platform-native/src/ffi/wgsl-loader.mjs` (passed via `NODE_OPTIONS=--import`); Deno has no loader hooks, so shared code must never depend on loader transforms.
 
-### Current status — native is the only runtime; Electron is deleted
+### Current status — native is the only shell (Electron is deleted); JS runtime is tri-runtime
 
 `draft dev`/`draft test`/`draft release` run native only — all Electron-era flags and entrypoints are removed. Games boot from `src/native-entry.ts` (`runNativeGameModule`/`startNativeGame`/`createNativeHost`); the Electron main/preload/vite/mobile trees, `electron-osr`, `raw-input`, `core/ipc.ts`, and the electron-builder pipeline are deleted. OSR (devtools/web overlays) is `modules/native-osr` — in-process WebGPU, no webviews.
 
@@ -1365,7 +1365,7 @@ Cross-runtime gotchas: tsconfig `paths` and `deno.json` alias `xxh3-ts` → a `.
 
 ## Native PixiUI (`@downdraft/engine/libraries/pixi-ui-native`)
 
-In-process PixiJS v8 WebGPU UI renderer for native (Bun + winit + wgpu) mode. Reuses the browser `@pixi/react` scene (e.g. `OceanApp`) in-process on native. PixiJS runs on the main thread on the **same `GPUDevice`** as the game, rendering into a texture-backed virtual canvas; the game composites that texture over the 3D frame each render pass via a fullscreen blit. No CPU readback in the compositing path.
+In-process PixiJS v8 WebGPU UI renderer for native (winit + wgpu) mode. Reuses the browser `@pixi/react` scene (e.g. `OceanApp`) in-process on native. PixiJS runs on the main thread on the **same `GPUDevice`** as the game, rendering into a texture-backed virtual canvas; the game composites that texture over the 3D frame each render pass via a fullscreen blit. No CPU readback in the compositing path.
 
 ### Architecture
 

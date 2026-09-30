@@ -1,5 +1,5 @@
 // ============================================================================
-// glob-polyfill.ts — import.meta.glob replacement for Bun-native mode
+// glob-polyfill.ts — import.meta.glob replacement for the native runtime
 //
 // This module is imported by the bun-preload glob plugin. It provides a
 // filesystem-based implementation of Vite's import.meta.glob().

@@ -22,7 +22,7 @@ export const isBrowser: boolean =
  *   2. Vite's import.meta.env.DEV (injected at build time by Vite)
  *   3. NODE_ENV !== "production" (Bun / Node)
  *
- * In Bun-native mode, set DOWNDRAFT_DEV=1 or NODE_ENV=development.
+ * In native mode (Bun/Node/Deno), set DOWNDRAFT_DEV=1 or NODE_ENV=development.
  * In Vite mode, Vite injects import.meta.env.DEV automatically.
  */
 export const isDev: boolean = (() => {

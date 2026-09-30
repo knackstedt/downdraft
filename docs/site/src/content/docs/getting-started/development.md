@@ -12,7 +12,7 @@ cd games/<game-name>
 draft dev
 ```
 
-This boots the game's `src/native-entry.ts` entrypoint inside the native dev shell — a Bun process hosting a winit window and the wgpu device, with an embedded Vite module runner providing tiered HMR (module-level invalidation through full session/host restart). Telemetry, devtools, and the MCP endpoint are enabled in dev mode.
+This boots the game's `src/native-entry.ts` entrypoint inside the native dev shell — a JS-runtime process (Bun by default; `--runtime=node|deno` selects Node+tsx or Deno) hosting a winit window and the wgpu device, with an embedded Vite module runner providing tiered HMR (module-level invalidation through full session/host restart). Telemetry, devtools, and the MCP endpoint are enabled in dev mode.
 
 Use `--no-hmr` to spawn the entry directly without the dev shell, or `--no-bake` to skip the asset bake step.
 
@@ -38,7 +38,7 @@ downdraft-engine/
 │   │   ├── libraries/  # Engine libraries (water, physics, audio, models, ...)
 │   │   └── modules/    # Engine modules (devtools, mcp, terrain, camera-controls, ...)
 │   ├── cli/            # CLI tool (draft new/dev/debug/release/assets/test)
-│   ├── platform-native/# Native runtime host (Bun FFI → Rust cdylib)
+│   ├── platform-native/# Native runtime host (FFI → Rust cdylib; Bun/Node/Deno)
 │   ├── devtools-web/   # Web devtools UI served by the native OSR shell
 │   └── native-*/       # Prebuilt platform binaries per target
 ├── examples/           # Example projects

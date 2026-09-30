@@ -1,9 +1,9 @@
 // ============================================================================
 // auto-backend.ts — runtime-aware RapierPhysicsBackend construction.
 //
-// Under the native Bun runtime, physics runs on the Rust cdylib via
-// RapierFfiBackend (batched FFI ABI, no WASM↔JS crossings in the hot loop).
-// Everywhere else (web) it falls back to the WASM bundle.
+// Under the native runtime (Bun, Node, or Deno), physics runs on the Rust
+// cdylib via RapierFfiBackend (batched FFI ABI, no WASM↔JS crossings in the
+// hot loop). Everywhere else (web) it falls back to the WASM bundle.
 //
 // The FFI module is loaded via dynamic import so @downdraft/platform-native
 // never enters browser bundles. The @vite-ignore + variable specifier keeps
@@ -15,9 +15,16 @@ import { RapierPhysicsBackend } from "./backend";
 
 const log = createLogger("info");
 
-/** True when running inside the native Bun runtime (main thread or worker). */
+/** True when running inside the native runtime — Bun, Node, or Deno (main
+ *  thread or worker). The FFI backend adapts via ffi-adapter (bun:ffi /
+ *  koffi / Deno.dlopen); browsers lack all three markers and skip the probe. */
 export function isNativeRuntime(): boolean {
-  return typeof (globalThis as any).Bun !== "undefined";
+  const g = globalThis as any;
+  return (
+    typeof g.Bun !== "undefined" ||
+    typeof g.Deno?.dlopen === "function" ||
+    typeof g.process?.versions?.node === "string"
+  );
 }
 
 let ffiCtor: (new () => RapierPhysicsBackend) | null | undefined;
@@ -43,7 +50,7 @@ async function probeFfi(): Promise<(new () => RapierPhysicsBackend) | null | und
 
 /**
  * Create a RapierPhysicsBackend with the best available PhysicsLib for this
- * runtime — native cdylib under Bun (RapierFfiBackend), WASM elsewhere.
+ * runtime — native cdylib under Bun/Node/Deno (RapierFfiBackend), WASM elsewhere.
  * Call `init()` as usual.
  */
 export async function createRapierBackend(): Promise<RapierPhysicsBackend> {

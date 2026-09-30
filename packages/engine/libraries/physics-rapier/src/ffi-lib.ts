@@ -1,6 +1,7 @@
 // ============================================================================
 // ffi-lib.ts — PhysicsLib implementation backed by the native Rapier cdylib
-// (packages/engine/libraries/physics-native/native) via bun:ffi.
+// (packages/engine/libraries/physics-native/native) via the cross-runtime
+// FFI adapter (bun:ffi / koffi / Deno.dlopen).
 //
 // Replaces the WASM @dimforge/rapier3d-compat path on the native runtime.
 // Same PhysicsLib contract as rapier-backend.ts — RapierPhysicsBackend keeps
