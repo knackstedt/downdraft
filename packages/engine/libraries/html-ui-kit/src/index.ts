@@ -20,7 +20,11 @@ export { keyToNavAction, PadNavDriver } from "./nav/nav-input";
 export type { NavInputOptions } from "./nav/nav-input";
 export { openOsk } from "./nav/osk";
 export type { OskOptions, OskSession } from "./nav/osk";
+export { UiNavRouter } from "./nav/router";
+export type { UiNavRouterOptions } from "./nav/router";
 export { PadCursorDriver, VirtualCursor } from "./nav/vcursor";
 export type { PadCursorOptions, VirtualCursorOptions } from "./nav/vcursor";
+export { blade, commandPalette, detailPanel, mediaCard, mediaGrid, settingsRow, shelf, tvCss } from "./ten-foot";
+export type { MediaCardOpts, PaletteItem } from "./ten-foot";
 export { KIT_CSS, KIT_FONT_FAMILY, kitStyleTag } from "./theme";
 

@@ -127,9 +127,19 @@ const KEY_ACTIONS: Record<number, NavAction> = {
   9: "next",     // Tab (shift+Tab → prev handled via event)
 };
 
-/** Arrow-key nav for keyboard users / dev without a pad. Wire into the
- *  app's keydown path; returns false for unhandled keys. */
-export function keyToNavAction(keyCode: number, shiftKey = false): NavAction | null {
-  if (keyCode === 9) return shiftKey ? "prev" : "next";
-  return KEY_ACTIONS[keyCode] ?? null;
+const KEY_NAMES: Record<string, NavAction> = {
+  ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right",
+  Enter: "confirm", Escape: "cancel", Tab: "next",
+};
+
+/** Arrow-key nav for keyboard users / dev without a pad. Accepts a DOM
+ *  keyCode (browser) or `key` string (native) — wire into the app's keydown
+ *  path; returns false for unhandled keys. */
+export function keyToNavAction(key: number | string, shiftKey = false): NavAction | null {
+  if (typeof key === "number") {
+    if (key === 9) return shiftKey ? "prev" : "next";
+    return KEY_ACTIONS[key] ?? null;
+  }
+  if (key === "Tab") return shiftKey ? "prev" : "next";
+  return KEY_NAMES[key] ?? null;
 }

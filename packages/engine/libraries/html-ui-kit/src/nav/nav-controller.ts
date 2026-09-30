@@ -118,6 +118,12 @@ export class NavController {
     return this.nodes.find((n) => n.node === id) ?? null;
   }
 
+  /** Sync lookup of the focused node in the last snapshot (may be stale —
+   *  cheap check for callers that can't await, e.g. key interception). */
+  focusedInfo(): NavNodeInfo | null {
+    return this.focused ? this.byNode(this.focused) : null;
+  }
+
   /** Focused node info, or the first candidate when nothing is focused yet. */
   async current(): Promise<NavNodeInfo | null> {
     if (this.dirty) await this.refresh();

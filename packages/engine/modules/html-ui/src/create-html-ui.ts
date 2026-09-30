@@ -12,6 +12,8 @@
 import type { RendererModule, RendererModuleContext } from "@downdraft/engine";
 import { createLogger, resourceToken } from "@downdraft/engine";
 import type { OsrDomEvent } from "@downdraft/engine/libraries/blitz-ui/native-osr-ffi";
+import { GamepadSourceTok } from "@downdraft/engine/libraries/gamepad/library";
+import { UiNavRouter, type UiNavRouterOptions } from "@downdraft/engine/libraries/html-ui-kit/nav/router";
 import { HtmlUiHost, type PanelSpec, type UiPanelHandle } from "./host";
 import { renderHtml, type Child } from "./jsx-runtime";
 
@@ -44,12 +46,25 @@ export interface HtmlUiContext {
   onUpdate(fn: (dt: number, elapsed: number) => void): void;
   onResize(fn: (w: number, h: number, dpr: number) => void): void;
   onDispose(fn: () => void): void;
+  /**
+   * Controller/keyboard navigation router — every mounted panel is
+   * auto-attached, the topmost panel captures input, and confirming an
+   * editable node with a pad auto-opens the OSK. `null` when `nav:false`.
+   */
+  readonly nav: UiNavRouter | null;
   /** The host, for bespoke integration (devtools overlay, world-space reuse). */
   readonly host: HtmlUiHost;
 }
 
 export interface HtmlUiOptions {
   name?: string;
+  /**
+   * Controller nav wiring. `false` disables; `true`/object enables
+   * (default). The pad source comes from `GamepadSourceTok` (GamepadLib)
+   * unless `source` is supplied explicitly. Keyboard arrow/enter/escape
+   * nav is always wired when enabled.
+   */
+  nav?: boolean | Omit<UiNavRouterOptions, "screenW" | "screenH">;
   build(ui: HtmlUiContext): void;
 }
 
@@ -71,12 +86,39 @@ export function createHtmlUi(options: HtmlUiOptions): RendererModule {
       const updateSubs: Array<(dt: number, e: number) => void> = [];
       const disposeFns: Array<() => void> = [];
 
+      // Controller/keyboard navigation — batteries-included when enabled:
+      // every mounted panel gets a NavController, any connected pad or the
+      // keyboard drives the topmost panel, OSK auto-opens on editable focus.
+      const navCfg = options.nav;
+      const nav = navCfg !== false
+        ? new UiNavRouter(host, {
+            ...(typeof navCfg === "object" ? navCfg : {}),
+            source: (typeof navCfg === "object" ? navCfg.source : undefined)
+              ?? ctx.injectOptional(GamepadSourceTok)
+              ?? null,
+            screenW: ctx.getSurface().clientWidth,
+            screenH: ctx.getSurface().clientHeight,
+          })
+        : null;
+      if (nav) {
+        ctx.onDispose(() => nav.dispose());
+        ctx.onResize((w, h) => nav.setScreen(w, h));
+        // Before the host's key routing (-10): consume nav keys unless the
+        // focused node is editable (then the doc owns the keys).
+        const offKey = ctx.getInputBus().onKeyDown((e) => {
+          if (nav.handleKey(e as KeyboardEvent)) { /* consumed */ }
+        }, -20);
+        disposeFns.push(offKey);
+      }
+
       const ui: HtmlUiContext = {
         host,
+        nav,
         mount(markup, spec) {
           const html = typeof markup === "string" ? markup : renderHtml(markup);
           const handle = host.mount({ ...spec, html });
-          disposeFns.push(() => handle.dispose());
+          disposeFns.push(() => { nav?.detach(handle); handle.dispose(); });
+          if (spec.interactive !== false && nav) nav.attach(handle);
           return handle;
         },
         onAction: (action, fn) => {
@@ -114,7 +156,10 @@ export function createHtmlUi(options: HtmlUiOptions): RendererModule {
       };
 
       ctx.provide(HtmlUiTok, ui);
-      ctx.onFrame("afterViewports", (dt: number, e: number) => { updateSubs.forEach((fn) => { fn(dt, e);; }); });
+      ctx.onFrame("afterViewports", (dt: number, e: number) => {
+        nav?.update();
+        updateSubs.forEach((fn) => { fn(dt, e);; });
+      });
       ctx.onDispose(() => { disposeFns.forEach((fn) => { fn();; }); disposeFns.length = 0; });
 
       try {

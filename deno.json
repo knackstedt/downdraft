@@ -145,6 +145,8 @@
     "@downdraft/engine/libraries/weatherfx/": "./packages/engine/libraries/weatherfx/src/",
     "@downdraft/engine/modules/camera-controls": "./packages/engine/modules/camera-controls/src/index.ts",
     "@downdraft/engine/modules/camera-controls/": "./packages/engine/modules/camera-controls/src/",
+    "@downdraft/engine/modules/controller-ui": "./packages/engine/modules/controller-ui/src/index.ts",
+    "@downdraft/engine/modules/controller-ui/": "./packages/engine/modules/controller-ui/src/",
     "@downdraft/engine/modules/devtools": "./packages/engine/modules/devtools/src/index.ts",
     "@downdraft/engine/modules/devtools/": "./packages/engine/modules/devtools/src/",
     "@downdraft/engine/modules/html-ui": "./packages/engine/modules/html-ui/src/index.ts",
