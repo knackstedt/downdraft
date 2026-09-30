@@ -1,6 +1,6 @@
 // ============================================================================
 // MCP HTTP Transport — HTTP server that bridges JSON-RPC requests to MCPServer
-// Supports direct mode (has MCPServer instance) or proxy mode (forwards via callback for IPC)
+// Supports direct mode (has MCPServer instance) or proxy mode (forwards via callback)
 // ============================================================================
 
 import { randomBytes } from "node:crypto";

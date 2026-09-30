@@ -1,8 +1,7 @@
 // ============================================================================
 // NativeOsrTextureSource — GPUTexture sink for one Blitz OSR renderer
 //
-// Replaces Electron's OSRTextureReceiver (shared-texture + SAB + decompress
-// worker pipeline) with a plain in-process pull: the bridge's `pullFrame`
+// In-process pull pipeline: the bridge's `pullFrame`
 // hands back a dirty RGBA8 buffer which is uploaded via queue.writeTexture.
 // When the source also exposes `frameRect` only the changed region is copied
 // and uploaded.
@@ -31,8 +30,8 @@ export class NativeOsrTextureSource {
     this.rendererId = rendererId;
     this.width = width;
     this.height = height;
-    // Blitz rasterizes RGBA8; the Electron pixelFormat flag is ignored —
-    // wgpu textures are always rgba8unorm here (no bgra swapchain semantics).
+    // Blitz rasterizes RGBA8; the pixelFormat flag is ignored — wgpu
+    // textures are always rgba8unorm here (no bgra swapchain semantics).
     this.texture = device.createTexture({
       size: { width, height },
       format: "rgba8unorm",

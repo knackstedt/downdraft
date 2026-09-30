@@ -30,7 +30,7 @@ function createMockDevice(features: string[]): any {
 
 describe("GPUProfiler compute/blit pass timing", () => {
   it("beginComputePass/endComputePass record category='compute'", () => {
-    const device = createMockDevice(["timestamp-query", "chromium-experimental-timestamp-query-inside-passes"]);
+    const device = createMockDevice(["timestamp-query", "timestamp-query-inside-passes"]);
     const profiler = new GPUProfiler();
     profiler.init(device, null, "bgra8unorm", 16);
 
@@ -47,7 +47,7 @@ describe("GPUProfiler compute/blit pass timing", () => {
   });
 
   it("beginBlitPass/endBlitPass record category='blit'", () => {
-    const device = createMockDevice(["timestamp-query", "chromium-experimental-timestamp-query-inside-passes"]);
+    const device = createMockDevice(["timestamp-query", "timestamp-query-inside-passes"]);
     const profiler = new GPUProfiler();
     profiler.init(device, null, "bgra8unorm", 16);
 
@@ -63,7 +63,7 @@ describe("GPUProfiler compute/blit pass timing", () => {
   });
 
   it("beginPass/endPass still record category='render'", () => {
-    const device = createMockDevice(["timestamp-query", "chromium-experimental-timestamp-query-inside-passes"]);
+    const device = createMockDevice(["timestamp-query", "timestamp-query-inside-passes"]);
     const profiler = new GPUProfiler();
     profiler.init(device, null, "bgra8unorm", 16);
 
@@ -97,7 +97,7 @@ describe("GPUProfiler compute/blit pass timing", () => {
   });
 
   it("beginFrame clears all pass timings", () => {
-    const device = createMockDevice(["timestamp-query", "chromium-experimental-timestamp-query-inside-passes"]);
+    const device = createMockDevice(["timestamp-query", "timestamp-query-inside-passes"]);
     const profiler = new GPUProfiler();
     profiler.init(device, null, "bgra8unorm", 16);
 

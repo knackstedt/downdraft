@@ -173,7 +173,7 @@ let modulePromise: Promise<DracoModule> | null = null;
 /**
  * Override the WASM binary path for the Draco decoder. Set this before any
  * Draco-compressed asset is loaded if the default resolution does not work in
- * your runtime (e.g. Electron renderer needs a served URL).
+ * your runtime (e.g. a renderer that needs a served URL rather than a path).
  *
  * Pass either a URL string (located via fetch) or a pre-loaded ArrayBuffer.
  */

@@ -21,7 +21,7 @@
 //     "timed-out" as a safety net.
 //
 // This file must be imported BEFORE any code that references SharedArrayBuffer.
-// It is a no-op when real SharedArrayBuffer is available (desktop/Electron).
+// It is a no-op when real SharedArrayBuffer is available.
 //
 
 import { createLogger } from "../util/logger";
@@ -50,7 +50,7 @@ if (!usingRealSAB) {
   log.warn(
     "SAB Polyfill",
     "SharedArrayBuffer is not available — using copy-based buffer sync protocol.\n" +
-    "This is expected on Android WebView production builds.\n" +
-    "If you see this in a desktop browser or Electron, COOP/COEP headers may be missing.",
+    "If you see this on a runtime that should have real SABs, COOP/COEP\n" +
+    "headers may be missing.",
   );
 }

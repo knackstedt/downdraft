@@ -1,6 +1,6 @@
 // ============================================================================
-// MCP instance discovery — PID-file based, shared by Electron main and the
-// native host. Lets the stdio bridge auto-discover running game instances.
+// MCP instance discovery — PID-file based. Lets the stdio bridge
+// auto-discover running game instances.
 // ============================================================================
 
 import { createLogger } from "@downdraft/engine/util/logger";

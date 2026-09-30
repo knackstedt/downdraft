@@ -51,7 +51,7 @@ export interface InitDevToolsOptions {
   bridgeClass?: new () => BaseSceneInspector;
 
   // --- Worker sync ---
-  /** Worker hosts to sync manifests from. Data feeds read from SAB, commands forwarded via IPC. */
+  /** Worker hosts to sync manifests from. Data feeds read from SAB, commands forwarded via worker RPC. */
   workerHosts?: WorkerSyncEntry[];
 
   // --- Renderer ---

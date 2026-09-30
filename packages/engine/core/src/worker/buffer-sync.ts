@@ -2,7 +2,7 @@
 // buffer-sync — copy-based buffer synchronization for the SAB polyfill
 // ============================================================================
 //
-// When SharedArrayBuffer is polyfilled (Android WebView), each thread has its
+// When SharedArrayBuffer is polyfilled, each thread has its
 // own ArrayBuffer instance. This module synchronizes them via postMessage at
 // tick/frame boundaries:
 //
@@ -403,7 +403,7 @@ export class BufferSyncWorker {
    * @param onAfterReceive - Optional callback fired after each received
    *   message is processed. Use this to trigger event-driven work (e.g.
    *   the grid builder calls build() here instead of polling on a timer,
-   *   which avoids Android WebView's timer throttling in workers).
+   *   which avoids timer throttling in workers on some hosts).
    */
   start(onAfterReceive?: () => void): void {
     this.onAfterReceive = onAfterReceive ?? null;
@@ -459,7 +459,7 @@ export class BufferSyncWorker {
         // Chunked transfer: if the region is large, split into chunks
         // and send with setTimeout between them so the main thread
         // can process rAF/render between chunks. This prevents 100-900ms
-        // main-thread blocks on Android WebView (where SAB is unavailable
+        // main-thread blocks where SAB is unavailable
         // and postMessage structured clone is ~10MB/s).
         const CHUNK_SIZE = 64 * 1024; // 64KB per chunk — small enough to avoid >50ms blocks
         if (len > CHUNK_SIZE) {

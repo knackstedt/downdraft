@@ -52,9 +52,8 @@ export const DEFAULT_HOST_RESTART_PATTERNS = [
 ];
 
 /** Default sim/worker path classification (substring match, normalized
- *  POSIX-style). Mirrors the electron-era simPaths semantics: shared dirs +
- *  engine module/library dirs can feed the sim worker graph. Games override
- *  via downdraft.config.json → hmr.simPaths. */
+ *  POSIX-style). Shared dirs + engine module/library dirs can feed the sim
+ *  worker graph. Games override via downdraft.config.json → hmr.simPaths. */
 export const DEFAULT_SIM_PATTERNS = [
   "/src/simulation/",
   "/src/sim/",

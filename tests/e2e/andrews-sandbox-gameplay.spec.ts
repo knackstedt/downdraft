@@ -128,8 +128,7 @@ describe("andrews-sandbox gameplay parity", () => {
 
   it("responds to mouse clicks in the ESC menu", async () => {
     // mousedown+mouseup reaches the native PixiUI router (real clicks arrive
-    // as down/up pairs); a bare "click" hits DOM handlers on Electron. Send
-    // all three — each runtime consumes its own half, no double-activation.
+    // as down/up pairs); send all three so both handler styles see the press.
     const click = async (x: number, y: number) => {
       for (let _i = 0, _it = ["mousedown", "mouseup", "click"], _n = _it.length; _i < _n; _i++) { const type = _it[_i];
         await game!.mcpClient.callTool("dispatch_click", { x, y, type });

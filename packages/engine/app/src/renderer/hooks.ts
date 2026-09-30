@@ -48,13 +48,9 @@ export function useDisplayInfo(
     if (info.refreshRate > 0) onRefreshRate(info.refreshRate);
   }).catch(() => { /* ignore */ });
 
-  downdraft.onDisplayInfo((info: any) => {
+  return downdraft.onDisplayInfo((info: any) => {
     if (info?.refreshRate > 0) onRefreshRate(info.refreshRate);
   });
-
-  // No way to remove the onDisplayInfo listener (preload API limitation),
-  // so cleanup is a no-op.
-  return () => {};
 }
 
 /**

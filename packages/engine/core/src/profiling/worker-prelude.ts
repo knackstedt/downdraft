@@ -91,9 +91,9 @@ interface ProfilingState {
   attached: boolean;
 }
 
-// Use globalThis which exists in workers, browsers, and Node.js (Electron main).
-// `self` only exists in workers/browsers, not in Node, so we must not reference it
-// at module top level in code that may be bundled into the Electron main process.
+// Use globalThis which exists in workers, browsers, and Bun/Node.
+// `self` only exists in workers/browsers, not in Node, so we must not
+// reference it at module top level in code that may run on the host.
 const GLOBAL = globalThis as any;
 
 function getState(): ProfilingState {

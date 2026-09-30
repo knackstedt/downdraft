@@ -5,9 +5,9 @@
 // windows. Records invocation durations, warns on slow GCs, and tracks V8's
 // own automatic GCs for comparison.
 //
-// Requires --expose-gc to be active (set via js-flags in the Electron main
-// process). When globalThis.gc is unavailable, the controller still tracks
-// V8 auto-GCs and headroom but does not trigger proactive collections.
+// Requires a runtime-exposed globalThis.gc (--expose-gc where supported).
+// When unavailable, the controller still tracks auto-GCs and headroom but
+// does not trigger proactive collections.
 //
 // Usage:
 //   const ctrl = new GCController("renderer");
@@ -200,7 +200,7 @@ export class GCController {
   /** The controller's label (e.g. "renderer", "sim-worker"). */
   getLabel(): string { return this.label; }
 
-  /** Whether globalThis.gc is available (requires --expose-gc). */
+  /** Whether globalThis.gc is available. */
   isGcAvailable(): boolean { return this.gcAvailable; }
 
   /** Current configuration. */

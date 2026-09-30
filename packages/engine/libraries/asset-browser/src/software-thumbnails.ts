@@ -11,7 +11,8 @@
 // Shading mirrors THUMB_VS/THUMB_FS: two-sided lambert fill + subtle rim.
 //
 // `loadBytes` (optional) replaces fetch() for URI → bytes resolution, e.g.
-// reading absolute filesystem paths through a game's IPC bridge on native.
+// reading absolute filesystem paths through a game's `downdraft` bridge on
+// native.
 // ============================================================================
 
 import { declaredCompanionUri, defaultCharacterMeshIndices, loadModel, PoseSampler, resolveImportSettings, type ModelData } from "@downdraft/engine/libraries/models";

@@ -4,9 +4,8 @@
 // The native save path: a SaveState travels to FileSaveStore (inline or
 // through the services worker's structured-clone boundary) with NO JSON
 // serialization layer in between, and the real SaveResult/LoadResult
-// (bytes, gen, meta) comes back. Replaces the Electron-era IpcSaveStore,
-// which forced a JSON-string contract and fabricated metadata to fit the
-// IPC wire format.
+// (bytes, gen, meta) comes back — no JSON-string contract and no
+// fabricated metadata.
 // ============================================================================
 
 import type {

@@ -46,12 +46,12 @@ export type MetricKind = number;
 export type TracePreset = "perf" | "memory" | "detailed";
 
 /** Source for auto-trace recording. */
-export type TraceSource = "contentTracing" | "in-engine";
+export type TraceSource = "in-engine";
 
 export interface AutoTraceConfig {
   preset: TracePreset;
   durationMs: number;
-  source?: TraceSource; // default "in-engine" — contentTracing is Chromium-only
+  source?: TraceSource; // default "in-engine"
 }
 
 export interface WarningRule {
@@ -89,13 +89,13 @@ export interface WarningContext {
   runtime: number;
   /** The rule that fired. */
   rule: WarningRule;
-  /** Whether auto-trace is available (Electron contentTracing or in-engine writer). */
+  /** Whether auto-trace is available (in-engine writer). */
   autoTraceAvailable: boolean;
   /** If auto-trace fired, the artifact URL (set by the bridge, not the engine). */
   traceUrl?: string;
   /** If auto-trace was suppressed (a trace was already recording). */
   traceSuppressed?: boolean;
-  /** If auto-trace was unavailable (non-Electron). */
+  /** If auto-trace was unavailable on this host. */
   traceUnavailable?: boolean;
   /** Extra tag info (e.g. file path for IOPS warnings). */
   tag?: string;

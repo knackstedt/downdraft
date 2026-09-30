@@ -2,10 +2,9 @@
 // draft build-games — [DEPRECATED] alias for `draft release --games=<csv>`
 // ============================================================================
 //
-// The old `draft build-games` drove the electron-vite + electron-builder +
-// Capacitor pipelines. Native packaging produces a single compiled binary per
-// desktop target — the legacy `platform:format` specs collapse to plain
-// targets (win | linux | mac); android/ios hard-error in `release`.
+// Native packaging produces a single compiled binary per desktop target —
+// the legacy `platform:format` specs collapse to plain targets
+// (win | linux | mac); android/ios hard-error in `release`.
 
 import { createLogger } from "@downdraft/engine";
 import { ArgError, parseArgs as parseArgv, print, renderHelp } from "./args";

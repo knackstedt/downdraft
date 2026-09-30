@@ -2,13 +2,12 @@
 
 ## Architecture
 
-DownDraft is a TypeScript-first game engine built on Electron + Bun + WebGPU, with an MCP server enabling AI agents to design, build, debug, and manage games via natural language.
+DownDraft is a TypeScript-first game engine built on Bun + winit + wgpu (a single native process) + WebGPU, with an MCP server enabling AI agents to design, build, debug, and manage games via natural language.
 
-**Four execution contexts:**
-1. **BrowserWindow** — React UI + input capture (transparent overlay)
-2. **Bun main process** — Engine orchestrator, render loop, MCP server, asset manager
-3. **Sim worker** — ECS world, game systems, physics, AI, modules
-4. **DB worker** — Persistence layer with schema versioning
+**Execution contexts:**
+1. **Native host (main thread)** — Game module, renderer, render loop, engine orchestrator, MCP server, asset manager
+2. **Sim worker** — ECS world, game systems, physics, AI, modules (SharedArrayBuffer channels for frame sync)
+3. **DB worker** — Persistence layer with schema versioning
 
 ## ECS (Entity Component System)
 
@@ -131,7 +130,7 @@ world.registerModule(myModule);
 | Mode | Use case |
 |---|---|
 | **dev** | Full DevTools, hot-reload, telemetry. Fastest iteration. |
-| **debug** | Local verification on production WebView engine. |
+| **debug** | Local verification on the production native runtime. |
 | **prod** | Optimized production build. No devtools/debug overhead. |
 
 ## CLI Commands

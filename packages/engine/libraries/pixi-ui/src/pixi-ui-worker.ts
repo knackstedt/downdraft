@@ -174,7 +174,7 @@ const log = createLogger("info");
 // PixiJS v8's autoDetectRenderer() uses `await import('./gl/WebGLRenderer.mjs')`
 // to lazily load the WebGL renderer. When bundled by Vite (esbuild pre-bundling
 // in dev, Rollup in prod), this dynamic import is split into a separate chunk
-// (e.g. WebGLRenderer-XXXXX.js). In a Web Worker — especially in Electron with
+// (e.g. WebGLRenderer-XXXXX.js). In a Web Worker — especially under
 // file:// protocol or when the worker's import.meta.url doesn't resolve chunk
 // paths correctly — this chunk cannot be fetched, causing:
 //   "Failed to fetch dynamically imported module: WebGLRenderer-XXXXX.js"

@@ -240,10 +240,9 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
         if (ctx.isRunning && !ctx.isRunning()) ctx.renderOneFrame?.();
 
         if (fullPage) {
-          // Host capture: on native, captureFrame() returns the fully
-          // composited swapchain (game + all overlay layers) — no DOM
-          // composite needed. The old Electron path composited because
-          // capturePage() saw the DOM but not the WebGPU canvas.
+          // Host capture: captureFrame() returns the fully composited
+          // swapchain (game + all overlay layers) — no DOM composite
+          // needed.
           if (typeof downdraft?.captureFrame === "function") {
             try {
               const framePng = await downdraft.captureFrame();

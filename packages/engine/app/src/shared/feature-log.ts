@@ -2,11 +2,10 @@
 // Host-process feature log — collects OS/CPU/RAM/runtime/flags/GPU identity
 // ============================================================================
 //
-// Synchronous collector for the `dd-main|...` / `dd-host|...` startup line.
-// Electron-free — used by both the Electron main process and the native host
-// bridge. GPU identity is passed in by the caller (Electron GPU info or
-// wgpu adapter info); otherwise the fields are omitted and the renderer's
-// WebGPU adapter line carries GPU identity.
+// Synchronous collector for the `dd-host|...` startup line — used by the
+// native host bridge. GPU identity is passed in by the caller (wgpu adapter
+// info); otherwise the fields are omitted and the renderer's WebGPU adapter
+// line carries GPU identity.
 // ============================================================================
 
 import { ENGINE_VERSION, condenseText, formatBytesShort, type FeatureLogData } from "@downdraft/engine";
@@ -15,17 +14,16 @@ import os from "node:os";
 export interface CollectHostFeatureLogOptions {
   isDev: boolean;
   deterministic: boolean;
-  /** Applied host flag names (e.g. chrome switches, native shim options). */
+  /** Applied host flag names (e.g. native shim options). */
   flags: string[];
   /** GPU device name (best-effort). Omitted when unknown. */
   gpuDevice?: string | null;
   /** GPU driver version (best-effort). Omitted when unknown. */
   gpuDriverVersion?: string | null;
-  /** Runtime tag — "electron", "bun", "node", "deno". Defaults from process. */
+  /** Runtime tag — "bun", "node", "deno". Defaults from process. */
   runtime?: string;
-  /** Scope label — "host" for the single-process native runtime
-   *  (dd-host|...), "main" for the Electron main process (dd-main|...). */
-  scope?: "main" | "host";
+  /** Scope label — the single-process native runtime (dd-host|...). */
+  scope?: "host";
 }
 
 /**
@@ -40,7 +38,7 @@ export function collectHostFeatureLog(opts: CollectHostFeatureLogOptions): Featu
 
   const data: FeatureLogData = {
     sv: 1,
-    scope: opts.scope ?? "main",
+    scope: opts.scope ?? "host",
     v: ENGINE_VERSION,
     mode: deterministic ? "deterministic" : isDev ? "dev" : "packaged",
     os: process.platform,
@@ -49,8 +47,6 @@ export function collectHostFeatureLog(opts: CollectHostFeatureLogOptions): Featu
     cpu: condenseText(cpuModel, 48),
     cpuCores: cpus.length,
     mem: formatBytesShort(os.totalmem()),
-    el: versions.electron,
-    chr: versions.chrome,
     node: versions.node,
     v8: versions.v8,
     sw: flags.length > 0 ? flags.join(",") : undefined,
@@ -60,12 +56,8 @@ export function collectHostFeatureLog(opts: CollectHostFeatureLogOptions): Featu
   if (opts.gpuDevice) data.gpu = condenseText(opts.gpuDevice, 48);
   if (opts.gpuDriverVersion) data.drv = condenseText(opts.gpuDriverVersion, 32);
 
-  // Runtime tag for non-Electron hosts — `el`/`chr` stay undefined there and
-  // the runtime field distinguishes bun/node/deno hosts in combined views.
-  const runtime = opts.runtime ?? runtimeTag();
-  if (runtime !== "electron") {
-    data.rt = runtime;
-  }
+  // Runtime tag — distinguishes bun/node/deno hosts in combined views.
+  data.rt = opts.runtime ?? runtimeTag();
 
   return data;
 }
@@ -75,6 +67,5 @@ function runtimeTag(): string {
   const p = process as unknown as Record<string, unknown>;
   if (typeof p.bun !== "undefined" || (process.versions as Record<string, string>).bun) return "bun";
   if ((globalThis as unknown as Record<string, unknown>).Deno) return "deno";
-  if (process.versions.electron) return "electron";
   return "node";
 }

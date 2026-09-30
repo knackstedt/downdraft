@@ -140,7 +140,7 @@ Starts the game on the native runtime — a Bun process hosting a winit window a
 - `--game <name>`, `-g` — Game to run (resolves `games/<game>` from the engine root). If omitted, `draft dev` walks up from cwd looking for `downdraft.config.json`/`src/native-entry.ts`.
 - `--port <n>` — MCP HTTP port (default: auto-assign)
 - `--no-hmr` — Disable HMR — spawn the entry directly, no dev shell
-- `--electron`, `--native` — Removed/back-compat stubs (`--electron` errors)
+- `--native` — Back-compat no-op (native is the only runtime)
 
 ### `draft debug [path] [options]`
 Runs the engine in debug mode with profiling, debug draw, and visualization tools. `path` defaults to `.`.

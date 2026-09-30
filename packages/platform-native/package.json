@@ -40,5 +40,5 @@
     "README.md",
     "!**/*.spec.ts"
   ],
-  "description": "Native platform bindings \u2014 the Rust libdowndraft_platform cdylib (wgpu + winit + cosmic-text + image + naga) and the native device layer for running Downdraft outside Electron."
+  "description": "Native platform bindings \u2014 the Rust libdowndraft_platform cdylib (wgpu + winit + cosmic-text + image + naga) and the native device layer DownDraft runs on."
 }

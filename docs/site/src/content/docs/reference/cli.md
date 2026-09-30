@@ -46,7 +46,6 @@ Starts the game on the native runtime — a Bun process hosting a winit window a
 | `--runtime <r>` | JS runtime hosting the dev shell: `bun` / `node` / `deno` (default: auto-detect) |
 | `--watch` | Back-compat no-op — the dev shell always watches |
 | `--no-hmr` | Disable HMR — spawn the entry directly (`bun run`), no dev shell |
-| `--electron` | Removed compatibility flag — hard-errors |
 | `--verbose`, `-v` | Verbose logging |
 
 > **Note:** Each game boots from its own `src/native-entry.ts`. `draft dev` infers the game from the current directory; there is no root dispatcher or `DOWNDRAFT_GAME` env var.

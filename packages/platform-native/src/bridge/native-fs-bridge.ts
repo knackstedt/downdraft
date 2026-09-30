@@ -1,10 +1,8 @@
 // ============================================================================
 // native-fs-bridge.ts — native implementation of the model-viewer `mv` bridge
 //
-// The Electron build exposes `downdraft.mv` over IPC (see
-// games/downdraft-model-viewer/src/main.ts). On the native host there's no IPC
-// — the same surface is implemented directly over node:fs, and file dialogs
-// go through zenity/kdialog when available (SDL2 has no file dialog).
+// `downdraft.mv` is implemented directly over node:fs — file dialogs go
+// through zenity/kdialog when available (SDL has no file dialog).
 //
 // Attach from a game's native entry:
 //   (globalThis as any).downdraft.mv = createNativeMvBridge(host.window, { ... });
@@ -79,8 +77,8 @@ export function createNativeMvBridge(window: NativeWindow, opts: NativeMvBridgeO
   let initialPathsDrained = false;
   const openPathListeners = new Set<(paths: string[]) => void>();
 
-  // Drag-dropped files map to "open" paths, matching the Electron
-  // mv:open-paths channel (files dropped onto the window open in the viewer).
+  // Drag-dropped files map to "open" paths — files dropped onto the
+  // window open in the viewer.
   window.addEventListener("dropfile", (e: any) => {
     const p = e?.path ?? e?.data;
     if (typeof p === "string" && p.length > 0) {

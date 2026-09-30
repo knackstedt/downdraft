@@ -42,20 +42,20 @@ import { BUILTIN_VIEW_DESCRIPTORS } from "./debug-view-descriptors";
 
 const log = createLogger("info");
 
-/** contentTracing is a Chromium API — on the native host only the in-engine
- *  TraceEventWriter exists. Normalize instead of failing so callers (e.g.
- *  the profiler library's `traceSource` option) degrade gracefully. */
+/** Only the in-engine TraceEventWriter exists on the native host.
+ *  Normalize instead of failing so untyped callers (MCP tool args, saved
+ *  configs) degrade gracefully. */
 function normalizeTraceSource(source: TraceSource): TraceSource {
   if (source !== "in-engine") {
-    log.warn("ProfilingBridge", `traceSource "${source}" is Chromium-only — using the in-engine trace writer`);
+    log.warn("ProfilingBridge", `traceSource "${source}" is unsupported — using the in-engine trace writer`);
     return "in-engine";
   }
   return source;
 }
 
 export interface ProfilingBridgeOptions {
-  /** Trace source for auto-trace. Default: "in-engine". "contentTracing" is
-   *  Chromium-only and falls back to the in-engine writer with a warning. */
+  /** Trace source for auto-trace. Only "in-engine" exists; unknown values
+   *  fall back to the in-engine writer with a warning. */
   traceSource?: TraceSource;
   /** Whether to enable the EventLoopMonitor on the renderer. Default: true. */
   enableEventLoopMonitor?: boolean;
@@ -247,7 +247,7 @@ export class ProfilingBridge {
     // Write renderer metrics to the ProfilingSAB (heap, CPU, GC, tick count)
     this.tickCount++;
     if (this.writer) {
-      const mem = (performance as any).memory; // Chrome/Electron only
+      const mem = (performance as any).memory; // performance.memory is non-standard; undefined outside Blink
       const cpuMs = performance.now() - this.cpuTimeStart;
       const now = performance.now();
       const frameMs = now - this.lastFrameMs;

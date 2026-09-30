@@ -98,7 +98,7 @@ export interface SetFontScaleMessage {
 
 /**
  * SAB polyfill fallback: when real SharedArrayBuffer is unavailable (Android
- * WebView), the UiStatsSAB is a polyfilled ArrayBuffer that gets structured-
+ * hosts without real SABs), the UiStatsSAB is a polyfilled ArrayBuffer that gets structured-
  * cloned (not shared) when passed to the worker. The worker's copy never
  * receives the host's writes, so the host posts the raw SAB bytes each frame
  * via this message. The worker copies them into its local SAB so

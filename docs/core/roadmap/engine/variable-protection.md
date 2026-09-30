@@ -257,7 +257,7 @@ Rust side:
 
 3. **Trade validation (already partial):** `handleCommand` at `Simulation.ts:1209-1227` checks `player.gold < totalPrice` for buys. But `sellToPort` at `:1223` doesn't verify the player actually has the item in inventory. Add inventory verification.
 
-4. **Production hardening:** Strip `(window as any).__renderer` and `(window as any).__simWorker` globals in production builds. Disable DevTools in production Electron windows.
+4. **Production hardening:** Strip `(window as any).__renderer` and `(window as any).__simWorker` globals in production builds. Disable DevTools in production builds.
 
 **Mathematical gotchas:**
 - **Rate limit threshold:** At 60Hz, a legitimate player can issue at most 60 commands/sec (one per tick). Most commands are user-initiated (button clicks) at ~1-5/sec. Set threshold to 20/sec for non-movement commands. Movement commands (sleep/wake) are already low-frequency.
@@ -310,7 +310,7 @@ All layers fit comfortably within the 16.67ms tick budget. The sim's current tic
 
 ### Phase 4: Production Hardening
 - Strip debug globals in production
-- Disable DevTools in production Electron
+- Disable DevTools in production
 - Obfuscate SAB layout (randomize field order per build)
 - Add `enableAntiCheat` config flag (default: on in production, off in dev)
 - **Effort:** ~1-2 days.
@@ -319,7 +319,7 @@ All layers fit comfortably within the 16.67ms tick budget. The sim's current tic
 
 ## What This Does NOT Protect Against
 
-- **DLL injection / process hollowing:** A cheat that injects into the Electron process can hook any function, including V8 internals. This is beyond the scope of application-level protection.
+- **DLL injection / process hollowing:** A cheat that injects into the game process can hook any function, including JS engine internals. This is beyond the scope of application-level protection.
 - **Renderer-side visual cheats:** Wallhacks, ESP, custom shaders that read entity positions from the SAB. The SAB is intentionally readable by the renderer. Mitigation: only send entity data for entities within the player's view frustum + fog distance (server-side culling). This is a rendering concern, not a sim concern.
 - **Timing attacks:** A cheat that measures sim tick timing to infer entity positions (e.g., "physics took longer → more entities near me"). Mitigation: constant-time tick execution (pad to fixed duration). Not practical at 60Hz.
 - **Multiplayer authority:** This plan is for single-player. For multiplayer, the sim worker pattern extends to a server-side authoritative sim. The same protection layers apply, but the server is the source of truth, not the client.

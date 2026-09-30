@@ -4,7 +4,7 @@
 //
 // Exercises:
 //   - tools/list includes the tracing tools (trace_start, trace_stop, etc.)
-//   - trace_categories returns real Chromium categories
+//   - trace_categories returns the engine's category list
 //   - trace_start + trace_stop produces a real trace file on disk
 //   - the artifact download endpoint serves the trace file
 //   - process_snapshot returns real main-process memory stats

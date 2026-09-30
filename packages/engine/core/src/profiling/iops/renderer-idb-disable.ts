@@ -56,7 +56,7 @@ export function disableRendererIndexedDb(): void {
   });
 
   // window.indexedDB is a getter-only property on the Window prototype in
-  // some environments (Electron, some browsers). Use defineProperty to
+  // some environments. Use defineProperty to
   // override it with a getter that returns our proxy.
   try {
     Object.defineProperty(win, "indexedDB", {

@@ -45,7 +45,7 @@ describe("GPUTimerPool", () => {
   });
 
   it("is supported with timestamp-query + inside-passes", () => {
-    const device = createMockDevice(["timestamp-query", "chromium-experimental-timestamp-query-inside-passes"]);
+    const device = createMockDevice(["timestamp-query", "timestamp-query-inside-passes"]);
     const pool = new GPUTimerPool(device, 8);
     expect(pool.isSupported()).toBe(true);
     expect(pool.isEncoderTimestampSupported()).toBe(true);
@@ -91,7 +91,7 @@ describe("GPUTimerPool", () => {
   });
 
   it("getMaxPasses returns the configured value", () => {
-    const device = createMockDevice(["timestamp-query", "chromium-experimental-timestamp-query-inside-passes"]);
+    const device = createMockDevice(["timestamp-query", "timestamp-query-inside-passes"]);
     const pool = new GPUTimerPool(device, 16);
     expect(pool.getMaxPasses()).toBe(16);
   });
@@ -115,7 +115,7 @@ describe("GPUTimerPool", () => {
   });
 
   it("destroy cleans up resources", () => {
-    const device = createMockDevice(["timestamp-query", "chromium-experimental-timestamp-query-inside-passes"]);
+    const device = createMockDevice(["timestamp-query", "timestamp-query-inside-passes"]);
     const pool = new GPUTimerPool(device, 8);
     pool.destroy();
     expect(pool.isSupported()).toBe(false);

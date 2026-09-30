@@ -6,8 +6,7 @@
 // packages). Keep this in sync with the workspace members in root Cargo.toml.
 //
 // Not listed: downdraft-blitz-shell (rlib, linked into blitz-app — never
-// shipped), bakeoff-blitz-ui (wasm testbed), raw-input (deleted with the
-// Electron input path).
+// shipped), bakeoff-blitz-ui (wasm testbed), raw-input (deleted input path).
 // ============================================================================
 
 export const CRATES = [

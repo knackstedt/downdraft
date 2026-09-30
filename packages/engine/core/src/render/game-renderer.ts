@@ -339,8 +339,8 @@ export class GameRenderer implements CanvasResizeHandler {
       // Device resolution order: explicit config → native host's device →
       // self-acquire. On native the host owns the only wgpu device and the
       // surface context — borrowing it avoids a second requestDevice() and
-      // a reconfigure race on the same surface (the Electron model created
-      // one device per process; in-process there is exactly one).
+      // a reconfigure race on the same surface. In-process there is
+      // exactly one device.
       const nativeHost = getNativeHost();
       const borrowedDevice = this.config.device ?? nativeHost?.device;
       const borrowedAdapter = this.config.adapter ?? nativeHost?.adapter;
@@ -638,11 +638,9 @@ export class GameRenderer implements CanvasResizeHandler {
     this.lastCssW = cssWidth;
     this.lastCssH = cssHeight;
     this.lastRawDpr = dpr;
-    // Cap DPR at 1.5 on mobile to reduce WebGPU compositing cost.
-    // Android WebView's compositor blocks the main thread proportionally
-    // to canvas pixel count. On a 3x DPR phone, capping to 1.5x reduces
-    // compositing work by ~4x with minimal visual quality loss.
-    const cappedDpr = Math.min(dpr, 1.5) * this.resolutionScale;
+    // Render at the display's real DPR — resolutionScale is the opt-in
+    // performance knob when fill rate is a concern.
+    const cappedDpr = dpr * this.resolutionScale;
     this.dpr = cappedDpr;
     const w = Math.round(cssWidth * cappedDpr);
     const h = Math.round(cssHeight * cappedDpr);

@@ -7,7 +7,7 @@
 //     window.__sceneInspector via DevToolsDataBridge.
 //   - Worker realm: panels/feeds/commands registered in a worker-side
 //     registry. Data feeds are written to a devtools SAB region (zero-copy,
-//     synchronous reads). Commands are forwarded via IPC RPC. Panel
+//     synchronous reads). Commands are forwarded via worker RPC. Panel
 //     declarations are synced to the renderer via a one-time manifest RPC.
 //
 // Plugins import `devtools` from @downdraft/engine/modules/devtools and call
@@ -53,7 +53,7 @@ export const DEVTOOLS_REALM = detectRealm();
 //
 // The devtools SAB is a dedicated region for JSON-serialized data feed
 // results + direct numeric stats. The worker writes; the renderer reads
-// synchronously. No IPC polling needed.
+// synchronously. No RPC polling needed.
 //
 // Layout:
 //   [0..3]   manifestVersion: Uint32  (bumped when panels/feeds change)
@@ -134,9 +134,9 @@ export interface DevToolsAPI {
   //   to the devtools SAB. Renderer reads synchronously from SAB.
   registerDataFeed(name: string, fn: () => any, writeRateHz?: number): void;
 
-  // --- Commands (write/trigger, always IPC in worker realm) ---
+  // --- Commands (write/trigger, always worker RPC in worker realm) ---
   // In main realm: fn is called directly.
-  // In worker realm: fn is stored; renderer forwards calls via IPC RPC.
+  // In worker realm: fn is stored; renderer forwards calls via worker RPC.
   registerCommand(name: string, fn: (...args: any[]) => any): void;
 
   // --- Direct SAB stats (high-frequency numerics, zero-cost reads) ---
@@ -164,7 +164,7 @@ export interface DevToolsAPI {
   /** Get all registered view descriptors (built-in + custom). */
   getViews(): DebugViewDescriptor[];
 
-  // --- Manifest (renderer fetches from worker via IPC) ---
+  // --- Manifest (renderer fetches from worker via RPC) ---
   /** Get the full manifest: panels, toggles, data feed names, commands, SAB stats. */
   getManifest(): DevToolsManifest;
 
@@ -396,7 +396,7 @@ class DevToolsAPIImpl implements DevToolsAPI {
     }
   }
 
-  /** Call a command (renderer-side, for worker realm commands forwarded via IPC). */
+  /** Call a command (renderer-side, for worker realm commands forwarded via RPC). */
   callCommand(name: string, args: any[]): any {
     const fn = this.commands.get(name);
     if (!fn) throw new Error(`Unknown devtools command: ${name}`);
@@ -441,7 +441,7 @@ const _devtools = new DevToolsAPIImpl(DEVTOOLS_REALM);
 /**
  * Unified DevTools API. Auto-detects realm (main vs worker) and chooses
  * the appropriate transport for data feeds (direct call vs SAB) and
- * commands (direct call vs IPC forwarding).
+ * commands (direct call vs RPC forwarding).
  *
  * Plugins import this and call registerPanel/registerDataFeed/registerCommand.
  * The same code works in both realms.

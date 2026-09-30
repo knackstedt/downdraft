@@ -4,7 +4,7 @@
 // The cache eliminates repeated sidecar resolution + HTTP requests on
 // subsequent loads of the same model. Two implementations:
 //   - MemoryImportCache: in-process Map, used in browser-only mode
-//   - SQLiteImportCache: persistent, used in Electron (via IPC to main process)
+//   - SQLiteImportCache: persistent, used on the native host
 //
 // The cache is keyed by model file path. Entries are invalidated when the
 // source file or sidecar mtime changes.
@@ -30,8 +30,8 @@ export interface ImportCache {
 }
 
 /**
- * In-memory import cache. Used in browser-only mode (no Electron main process)
- * or as a fallback when SQLite is unavailable. Does not persist across restarts.
+ * In-memory import cache. Used when no host cache store is available or as
+ * a fallback when SQLite is unavailable. Does not persist across restarts.
  */
 export class MemoryImportCache implements ImportCache {
   private cache = new Map<string, CacheEntry>();

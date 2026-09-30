@@ -33,11 +33,6 @@ interface TestArgs {
   deterministic: boolean;
   headed: boolean;
   verbose: boolean;
-  /** Removed flags kept in the schema so they hard-error instead of being
-   *  silently ignored by the arg parser. */
-  runtime: string;
-  build: boolean;
-  buildOnly: boolean;
 }
 
 function parseTestArgs(args: string[]): TestArgs {
@@ -56,9 +51,6 @@ function parseTestArgs(args: string[]): TestArgs {
     deterministic: !(parsed.flags["no-deterministic"] as boolean),
     headed: parsed.flags.headed as boolean,
     verbose: parsed.flags.verbose as boolean,
-    runtime: parsed.flags.runtime as string,
-    build: parsed.flags.build as boolean,
-    buildOnly: parsed.flags["build-only"] as boolean,
   };
 }
 
@@ -86,17 +78,6 @@ export async function runTest(args: string[]): Promise<void> {
   if (!opts.game) {
     log.error("test", `No game specified and none could be inferred from "${process.cwd()}".`);
     log.error("test", `Run "draft test --game=<name>" or pass --spec=<path>.`);
-    process.exit(1);
-  }
-
-  // Hard-error stubs — the Electron/electron-vite lanes are gone.
-  if (opts.runtime === "electron") {
-    log.error("test", "The Electron runtime is removed. Re-run without --runtime=electron (native is the only runtime).");
-    process.exit(1);
-  }
-  if (opts.build || opts.buildOnly) {
-    log.error("test", "--build/--build-only used the removed electron-vite pipeline.");
-    log.error("test", "Native packaging is handled by `draft release` (scripts/package-native.mjs).");
     process.exit(1);
   }
 

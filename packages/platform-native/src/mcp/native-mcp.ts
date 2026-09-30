@@ -1,8 +1,7 @@
 // ============================================================================
 // native-mcp.ts — in-process MCP server for the native host
 //
-// Electron's MCP path is: HTTP transport → IPC → renderer harness. On native
-// there is no second process: the harness handler registered via
+// Single process: the harness handler registered via
 // `downdraft.onMcpRequest` is called directly, and host tools (screenshot,
 // process snapshot, display info, quit) execute locally.
 // ============================================================================
@@ -33,8 +32,8 @@ export interface NativeMcpServer {
 }
 
 /**
- * Standard host-side tools, mirroring the Electron main-process tool set:
- * capture_screenshot, process_snapshot, display_info, quit.
+ * Standard host-side tools: capture_screenshot, process_snapshot,
+ * display_info, quit.
  */
 export function createNativeHostTools(bridge: HostAPI): ToolRegistration[] {
   return [
@@ -75,8 +74,8 @@ export function createNativeHostTools(bridge: HostAPI): ToolRegistration[] {
       handler: async (params: Record<string, unknown>) => {
         const stats = await bridge.getProcessStats();
         // Single-process native: the only target is the host ("main"). The
-        // { target, main } envelope mirrors the Electron-era tool shape so
-        // e2e/spec consumers keep working.
+        // { target, main } envelope is the documented tool shape e2e/spec
+        // consumers rely on.
         return {
           content: [{
             type: "text",
@@ -133,7 +132,7 @@ export async function startNativeMcpServer(
   };
 
   // portRef is filled after transport.start() — tracing tools read it lazily
-  // for artifact download URLs (same pattern as the Electron MCP proxy).
+  // for artifact download URLs.
   const portRef = { current: opts.port ?? (Number(process.env.MCP_PORT) || 0) };
   const tracingTools = opts.artifactDir
     ? createNativeTracingTools({ artifactDir: opts.artifactDir, portRef })
@@ -147,8 +146,7 @@ export async function startNativeMcpServer(
   const proxyHandler = createMcpProxyHandler(hostTools, forwardToHarness);
 
   const transport = new McpHttpTransport({
-    // MCP_PORT lets the e2e harness (`draft test --runtime=native`) pin the
-    // port the same way it does for the Electron transport.
+    // MCP_PORT lets the e2e harness pin the port.
     port: opts.port ?? (Number(process.env.MCP_PORT) || 0),
     requireAuth: opts.requireAuth,
     artifactDir: opts.artifactDir,

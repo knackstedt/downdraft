@@ -603,10 +603,6 @@ export async function launchGame(opts: LaunchGameOptions = {}): Promise<Launched
         ...(opts.headed ? { DOWNDRAFT_HEADED: "1" } : {}),
         ...opts.env,
     };
-    // VS Code / Devin often leak ELECTRON_RUN_AS_NODE=1; harmless on native
-    // but stripped for parity with the old harness.
-    delete env.ELECTRON_RUN_AS_NODE;
-
     const proc = spawn("bun", [entry], {
         cwd,
         env,

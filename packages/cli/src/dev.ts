@@ -66,18 +66,12 @@ export async function dev(args: string[]): Promise<void> {
     return;
   }
 
-  // Native is the only runtime — the Electron path is removed.
-  if (parsed.flags.electron as boolean) {
-    log.error("DownDraft", "The Electron runtime is disabled. The engine runs on the native runtime (Bun + winit + wgpu).");
-    log.error("DownDraft", "Run \"draft dev\" without --electron.");
-    process.exit(1);
-  }
   return devNative(parsed);
 }
 
 /**
- * Native dev mode — runs the game with Bun + winit + wgpu instead of
- * Electron + Chrome. Looks for `src/native-entry.ts` in the game directory.
+ * Native dev mode — runs the game with Bun + winit + wgpu.
+ * Looks for `src/native-entry.ts` in the game directory.
  */
 async function devNative(parsed: any): Promise<void> {
   const resolved = resolveGameDir();

@@ -2,9 +2,9 @@
 // MCP proxy-handler factory — merges "host-side" tools with the renderer
 // harness's tools behind a single JSON-RPC proxy handler.
 //
-// Electron-free: the caller provides `forwardToRenderer`. In Electron that's
-// an IPC round-trip; on the native host it's a direct function call into the
-// handler registered via `downdraft.onMcpRequest`.
+// The caller provides `forwardToRenderer` — on the native host it's a
+// direct function call into the handler registered via
+// `downdraft.onMcpRequest`.
 // ============================================================================
 
 import type { ToolRegistration } from "@downdraft/engine/mcp";

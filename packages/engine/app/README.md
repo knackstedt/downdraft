@@ -1,6 +1,6 @@
 # `@downdraft/engine/app`
 
-Downdraft application shell — Electron main process (createDowndraftApp), preload bridge, renderer runtime (startGame/GameModule), Vite config, and mobile shell.
+Downdraft application runtime — renderer runtime (startGame/GameModule), shared host services, and dev-shell support.
 
 ## Install
 

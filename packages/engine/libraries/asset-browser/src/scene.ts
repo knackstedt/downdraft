@@ -4,7 +4,7 @@
 // Extracted from andrews-sandbox's pixi-scene.tsx (GMod-style spawn browser)
 // and generalized: pack tabs, category filter chips, search, a virtualized
 // thumbnail card grid, keyboard nav, and a pluggable right-hand side panel.
-// Runs both in the pixi-ui worker (Electron, WebGL2 thumbnails) and
+// Runs both in the pixi-ui worker (browser, WebGL2 thumbnails) and
 // in-process on the native host (software thumbnails via sceneConfig).
 //
 // Game contract:

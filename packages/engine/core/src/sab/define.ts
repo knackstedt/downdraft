@@ -21,7 +21,7 @@ import type {
 // board) has exactly ONE thread that writes to it. The other thread only reads.
 //
 // This constraint is critical for the SAB polyfill (sab-polyfill.ts), which
-// replaces SharedArrayBuffer with an ArrayBuffer subclass on Android WebView.
+// replaces SharedArrayBuffer with an ArrayBuffer subclass when it is unavailable.
 // The polyfill uses a copy-based buffer-sync protocol (buffer-sync.ts) that
 // copies each side's written regions to the other side via postMessage. If
 // both sides write to the same region, the sync will overwrite one side's

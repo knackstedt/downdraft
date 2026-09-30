@@ -9,7 +9,7 @@
 // native — every method is a direct in-process call.
 //
 // These are type-only — no runtime code — so importing them from any
-// context (main / preload / renderer / worker) is safe.
+// context (host / renderer / worker) is safe.
 
 import type { FeatureLogData, HostCapabilities, ISaveStore } from "@downdraft/engine";
 import type {
@@ -183,7 +183,7 @@ export interface LoadOptions {
 }
 
 // ---------------------------------------------------------------------------
-// Process stats (single process — replaces the Electron main/renderer split)
+// Process stats (single native process)
 // ---------------------------------------------------------------------------
 
 export interface ProcessStatsData {
@@ -204,8 +204,7 @@ export interface ProcessStatsData {
 
 /** Host-side OSR surface — Blitz-backed native implementation. Panels render
  *  offscreen on the host; the engine pulls dirty RGBA frames + hit-tests
- *  directly (no shared-texture or paint-region machinery — that was the
- *  Electron path, kept on the dormant contract). */
+ *  directly (no shared-texture or paint-region machinery). */
 export interface HostOsrAPI {
   createRenderer(config: OSRRendererConfig): Promise<void>;
   destroyRenderer(id: string): Promise<void>;

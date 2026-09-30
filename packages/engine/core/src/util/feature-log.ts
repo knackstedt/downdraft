@@ -10,8 +10,8 @@
 // On the native runtime a single line is emitted (one process):
 //   dd-host|...   — host scope: OS/CPU/RAM/runtime + WebGPU adapter/features/
 //                   limits + display + plugins merged into one record
-// Multi-process hosts (dormant Electron) keep the two-line split:
-//   dd-main|... / dd-render|...
+// The "render" scope remains for callers that log renderer-side data
+// separately (dd-render|...).
 //
 // ── Backwards-compatibility contract ─────────────────────────────────────────
 //
@@ -31,7 +31,7 @@ export const FEATURE_LOG_SCHEMA_VERSION = 1;
 /** Short codes for WebGPU features (additive; never reuse a code). */
 const WGPU_FEATURE_CODES: Record<string, string> = {
   "timestamp-query": "tsq",
-  "chromium-experimental-timestamp-query-inside-passes": "tsqip",
+  "timestamp-query-inside-passes": "tsqip",
   "depth-clip-control": "dclip",
   "depth32float-stencil8": "d32s8",
   "texture-compression-bc": "bc",
@@ -58,7 +58,7 @@ const WGPU_FEATURE_CODES: Record<string, string> = {
  */
 export interface FeatureLogData {
   sv: number; // schema version (always FEATURE_LOG_SCHEMA_VERSION)
-  scope: "main" | "render" | "host"; // "host" = single-process (native) merged log
+  scope: "render" | "host"; // "host" = single-process (native) merged log
   v: string; // engine version ("0.1.0")
   mode: "dev" | "packaged" | "deterministic";
   // --- main-only ---
@@ -68,13 +68,11 @@ export interface FeatureLogData {
   cpu?: string; // CPU model (condensed)
   cpuCores?: number; // logical core count
   mem?: string; // total RAM, human ("64G")
-  el?: string; // Electron version
-  chr?: string; // Chromium version
   node?: string; // Node version
   v8?: string; // V8 version
-  gpu?: string; // GPU name (Electron gpuDevice / nvidia-smi name)
+  gpu?: string; // GPU name (wgpu adapter info / nvidia-smi name)
   drv?: string; // GPU driver version
-  sw?: string; // applied chrome switches, comma-sep ("swiftshader,vulkan")
+  sw?: string; // applied host flags, comma-sep ("swiftshader,vulkan")
   // --- render-only ---
   wgpu?: string; // "vendor=...;dev=...;arch=...;fmt=...;feat=...;lim=..."
   disp?: string; // "WxH@Hz"
@@ -83,7 +81,7 @@ export interface FeatureLogData {
   coi?: 0 | 1; // crossOriginIsolated
   wk?: "ok" | "fail" | "na"; // worker load status (best-effort)
   plug?: string; // active plugin names, comma-sep
-  rt?: string; // JS runtime tag — "bun" | "node" | "deno" | "electron" (appended; sv stays 1)
+  rt?: string; // JS runtime tag — "bun" | "node" | "deno" (appended; sv stays 1)
 }
 
 // ── Key-order table (the stable contract) ───────────────────────────────────
@@ -106,8 +104,6 @@ const KEY_ORDER: Array<{ key: string; fmt: Formatter }> = [
   { key: "cpu", fmt: IDENTITY },
   { key: "cpuCores", fmt: NUM },
   { key: "mem", fmt: IDENTITY },
-  { key: "el", fmt: IDENTITY },
-  { key: "chr", fmt: IDENTITY },
   { key: "node", fmt: IDENTITY },
   { key: "v8", fmt: IDENTITY },
   { key: "gpu", fmt: IDENTITY },
@@ -215,10 +211,10 @@ export function decodeFeatureLogLine(line: string): Partial<FeatureLogData> | nu
   return out as Partial<FeatureLogData>;
 }
 
-/** Encode both main + render lines (newline-separated) for clipboard/MCP. */
-export function encodeFeatureLogLines(main: FeatureLogData | null, render: FeatureLogData | null): string {
+/** Encode host + render lines (newline-separated) for clipboard/MCP. */
+export function encodeFeatureLogLines(host: FeatureLogData | null, render: FeatureLogData | null): string {
   const lines: string[] = [];
-  if (main) lines.push(encodeFeatureLogLine(main));
+  if (host) lines.push(encodeFeatureLogLine(host));
   if (render) lines.push(encodeFeatureLogLine(render));
   return lines.join("\n");
 }

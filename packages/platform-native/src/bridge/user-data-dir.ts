@@ -1,9 +1,8 @@
 // ============================================================================
 // user-data-dir.ts — per-game userData directory resolution for the native host
 //
-// Mirrors Electron's `app.setPath("userData", join(appData, appId))` behavior
-// (app/src/main/storage.ts): each game gets an isolated directory for saves,
-// import cache, window state, and debug artifacts.
+// Each game gets an isolated directory for saves, import cache, window
+// state, and debug artifacts.
 // ============================================================================
 
 import { homedir } from "node:os";
@@ -11,7 +10,7 @@ import { join } from "node:path";
 
 /**
  * Resolve the per-game userData directory from an `appId`, following the
- * platform conventions Electron uses for `app.getPath("appData")`:
+ * platform's application-data convention:
  *   linux:   $XDG_CONFIG_HOME/<appId>   (~/.config/<appId>)
  *   darwin:  ~/Library/Application Support/<appId>
  *   win32:   %APPDATA%/<appId>

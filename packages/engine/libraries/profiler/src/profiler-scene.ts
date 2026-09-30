@@ -8,7 +8,7 @@
 //   - A warning toast stack (auto-expiring)
 //   - A record/export bar (start/stop trace recording, download JSON)
 //
-// This is a pure pixi-ui implementation — no DOM, no React, no Electron deps.
+// This is a pure pixi-ui implementation — no DOM, no React.
 // ============================================================================
 
 import {
@@ -171,7 +171,7 @@ const MAX_TOASTS = 5;
 
 interface RecordBarState {
   recording: boolean;
-  source: "contentTracing" | "in-engine";
+  source: "in-engine";
   startTime: number;
 }
 

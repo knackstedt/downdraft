@@ -1,10 +1,10 @@
 // ============================================================================
 // Renderer-side worker manifest sync — fetches the devtools manifest from
-// one or more sim workers via IPC, then wires the worker-registered panels,
+// one or more sim workers via worker RPC, then wires the worker-registered panels,
 // data feeds, and commands into the renderer-side __sceneInspector API.
 //
 // Data feeds from workers are read from the devtools SAB (zero-copy).
-// Commands are forwarded via IPC RPC.
+// Commands are forwarded via worker RPC.
 // Panel declarations are merged into the global registry.
 // ============================================================================
 
@@ -98,7 +98,7 @@ async function syncOneWorker(entry: WorkerSyncEntry): Promise<void> {
     });
   }
 
-  // Register command forwarders — these call the worker via IPC
+  // Register command forwarders — these call the worker via RPC
   manifest.commands.forEach((cmdName) => {
     const namespacedCmd = prefix ? `${prefix}:${cmdName}` : cmdName;
     _devtoolsImpl.registerCommand(namespacedCmd, (...args: any[]) => {

@@ -7,7 +7,7 @@
 //     with a setInterval/setTimeout loop (measures jitter vs the configured
 //     interval).
 //   - longtask: PerformanceObserver for "longtask" entries (renderer + workers
-//     where available — Chromium-only, no-ops elsewhere).
+//     where available — a Blink API, no-ops elsewhere).
 //   - idle headroom: gap between when a frame's work completes and the next
 //     frame deadline.
 //

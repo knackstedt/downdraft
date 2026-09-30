@@ -550,9 +550,9 @@ export class UIRenderer {
   }
 
   /** Bind groups keyed by texture view — creating a bind group is a device
-   *  call (serialized over the Dawn wire in Electron), and the text atlas /
-   *  image views are stable across frames, so re-creating them per draw was
-   *  pure waste (~1 call per text batch per frame). */
+   *  call, and the text atlas / image views are stable across frames, so
+   *  re-creating them per draw was pure waste (~1 call per text batch per
+   *  frame). */
   private imageBindGroups = new Map<GPUTextureView, GPUBindGroup>();
   private canvasTextBindGroups = new Map<GPUTextureView, GPUBindGroup>();
 

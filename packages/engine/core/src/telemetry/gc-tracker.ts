@@ -54,7 +54,7 @@ export class GCTracker {
         external: mem.external,
       };
     }
-    // Browser fallback — performance.memory is non-standard but available in Chromium
+    // Browser fallback — performance.memory is a non-standard Blink API
     const perfMem = (performance as Performance & { memory?: { usedJSHeapSize: number; totalJSHeapSize: number } }).memory;
     if (perfMem) {
       return {

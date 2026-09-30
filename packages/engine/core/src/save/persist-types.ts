@@ -162,7 +162,7 @@ export interface IMigrationRegistry {
 }
 
 // --- Save Store Interface ---
-// The unified interface for all save backends (OPFS, File, IPC fallback).
+// The unified interface for all save backends (OPFS, File, host bridge).
 // save() and load() accept optional options for generation control, blobs,
 // thumbnails, and properties. Backends that don't support a feature degrade
 // gracefully (e.g. FileSaveStore returns generationCount: 1).

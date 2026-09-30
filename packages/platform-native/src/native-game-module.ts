@@ -2,11 +2,10 @@
 // native-game-module.ts — run a shared GameModule on the native host
 //
 // The convergence entry point: the SAME GameModule a game passes to
-// `startGame()` under Electron/browser/mobile runs unchanged on the native
-// host — SDL window + wgpu device + the in-process `downdraft` bridge.
+// `startGame()` runs unchanged on the native host — SDL window + wgpu
+// device + the in-process `downdraft` bridge.
 //
-//   // Electron (main.tsx):              startGame(gameModule)
-//   // Native (native-entry.ts):
+//   // native-entry.ts:
 //   await runNativeGameModule(gameModule, {
 //     title: "My Game",
 //     appId: "downdraft-my-game",
@@ -31,8 +30,7 @@ export interface RunNativeGameModuleOptions {
   /** Window title. */
   title: string;
   /** Per-game application identifier — REQUIRED: scopes the userData dir
-   *  (saves, import cache, localStorage) and enables the bridge. Use the
-   *  same appId the Electron config declares so saves are shared. */
+   *  (saves, import cache, localStorage) and enables the bridge. */
   appId: string;
   /** Window size (default 1280x720). */
   width?: number;
@@ -47,9 +45,8 @@ export interface RunNativeGameModuleOptions {
 
 /**
  * Boot a shared `GameModule` on the native host and block until the window
- * closes. Equivalent to `startGame(module)` after Electron main has created
- * the BrowserWindow — but with the native bridge installed instead of the
- * preload IPC bridge.
+ * closes. Equivalent to `startGame(module)` once the window exists — but
+ * with the native bridge installed in-process.
  */
 export async function runNativeGameModule<Sim extends GameSimWorker>(
   module: GameModule<Sim>,

@@ -2,11 +2,10 @@
 // TraceEventWriter — in-engine Chrome Trace Event format export.
 //
 // Serializes the ProfilingSAB's task/IOPS/GC/event-loop samples to Chrome
-// Trace Event JSON. Pure-web/mobile compatible (no Electron dependency).
-// The resulting .json is viewable in chrome://tracing, Perfetto UI, and Spall.
+// Trace Event JSON — no host dependency. The resulting .json is viewable
+// in Perfetto UI and Spall.
 //
-// Lower fidelity than contentTracing (no V8/GPU/compositor detail) but
-// captures the engine's own instrumentation.
+// Captures the engine's own instrumentation only (no VM/GPU/driver detail).
 // ============================================================================
 
 import type { ProfilingSnapshot, IopsRecordSnapshot, WarningRecordSnapshot } from "./profiling-sab";

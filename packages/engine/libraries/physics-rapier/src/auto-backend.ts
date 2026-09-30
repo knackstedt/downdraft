@@ -3,7 +3,7 @@
 //
 // Under the native Bun runtime, physics runs on the Rust cdylib via
 // RapierFfiBackend (batched FFI ABI, no WASM↔JS crossings in the hot loop).
-// Everywhere else (Electron renderer, web) it falls back to the WASM bundle.
+// Everywhere else (web) it falls back to the WASM bundle.
 //
 // The FFI module is loaded via dynamic import so @downdraft/platform-native
 // never enters browser bundles. The @vite-ignore + variable specifier keeps

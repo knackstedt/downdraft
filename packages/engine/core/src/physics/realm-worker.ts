@@ -89,7 +89,7 @@ export function supportsSharedArrayBuffer(): boolean {
 
 /**
  * Checks if nested Web Workers are supported (creating a Worker from within
- * another Worker). In some environments (e.g. older Electron), this may fail.
+ * another Worker). Not every worker host allows this.
  */
 export function supportsNestedWorkers(): boolean {
   try {

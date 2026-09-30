@@ -1,10 +1,9 @@
 // ============================================================================
-// host-lifecycle.ts — native equivalents of the Electron main-process
-// lifecycle features:
+// host-lifecycle.ts — native host lifecycle features:
 //
-//   - single-instance lock (app.requestSingleInstanceLock)
-//   - window-state persistence (main/window.ts loadWindowState/saveWindowState)
-//   - error dialogs (main/error-dialog.ts → SDL_ShowSimpleMessageBox)
+//   - single-instance lock (per-appId singleton.lock in userData)
+//   - window-state persistence (size/position restored across runs)
+//   - error dialogs (SDL_ShowSimpleMessageBox + stderr/clipboard mirror)
 //
 // Wired into createNativeHost when appId is set; deterministic/test mode and
 // DOWNDRAFT_MULTI_INSTANCE=1 opt out of the single-instance lock so e2e and
@@ -27,8 +26,7 @@ const log = createLogger("info");
 // ── Single-instance lock ─────────────────────────────────────────────────────
 // A lock file at <userData>/singleton.lock holds the owning PID. A live PID
 // means another instance is running — the new one exits. Stale locks (dead
-// PID) are reclaimed, mirroring the stale-lockfile recovery in
-// app/src/main/storage.ts.
+// PID) are reclaimed.
 
 function pidAlive(pid: number): boolean {
   try {
@@ -44,8 +42,7 @@ let heldLockPath: string | null = null;
 /**
  * Returns true when this process acquired (or already holds) the per-appId
  * instance lock. When false, another live instance owns it and the caller
- * should exit — Electron focuses the existing window instead, which has no
- * cross-process native equivalent.
+ * should exit — a second instance simply quits rather than handing off.
  */
 export function acquireSingleInstanceLock(appId: string): boolean {
   if (process.env.DOWNDRAFT_MULTI_INSTANCE === "1") return true;
@@ -162,12 +159,11 @@ export function installWindowStatePersistence(appId: string, window: NativeWindo
 }
 
 // ── Error dialogs ────────────────────────────────────────────────────────────
-// SDL_ShowSimpleMessageBox is modal + blocking — the nearest native equivalent
-// of the Electron HTML error window (main/error-dialog.ts) — but its X11
-// fallback renders unselectable text in a barebones window. So the full error
-// is mirrored to stderr, the clipboard, and <userData>/crash.log before the
-// dialog opens, and on Linux a zenity/kdialog text view (selectable,
-// scrollable) is preferred when available. Install once.
+// SDL_ShowSimpleMessageBox is modal + blocking, but its X11 fallback renders
+// unselectable text in a barebones window. So the full error is mirrored to
+// stderr, the clipboard, and <userData>/crash.log before the dialog opens,
+// and on Linux a zenity/kdialog text view (selectable, scrollable) is
+// preferred when available. Install once.
 
 let errorHandlersInstalled = false;
 
@@ -198,9 +194,8 @@ function collectCrashFeatureLogs(): CrashFeatureLogs {
       if (data) byScope.set(data.scope, data);
     } catch { /* provider failed mid-crash — skip it */ }
   });
-  // "host" is the single-process native scope; "main" tolerated for a
-  // hypothetical multi-process host.
-  return { host: byScope.get("host") ?? byScope.get("main") ?? null, render: byScope.get("render") ?? null };
+  // "host" is the single-process native scope.
+  return { host: byScope.get("host") ?? null, render: byScope.get("render") ?? null };
 }
 
 /** Human-readable rendering of the feature-log data — the dd1| lines are kept
@@ -219,7 +214,7 @@ function systemSection(logs: CrashFeatureLogs, window: NativeWindow): string | n
   const mode = m?.mode ?? r?.mode;
   if (version) rows.push(["engine", `v${version}${mode ? ` · ${mode}` : ""}`]);
   const rt = (m as unknown as Record<string, unknown> | null)?.rt as string | undefined;
-  const runtimes = [rt, m?.node && `node ${m.node}`, m?.v8 && `v8 ${m.v8}`, m?.el && `electron ${m.el}`]
+  const runtimes = [rt, m?.node && `node ${m.node}`, m?.v8 && `v8 ${m.v8}`]
     .filter((s): s is string => !!s);
   if (runtimes.length > 0) rows.push(["runtime", runtimes.join(" · ")]);
   try {
@@ -307,7 +302,7 @@ function showFatalDialog(window: NativeWindow, title: string, message: string, l
 }
 
 /** uncaughtException/unhandledRejection → fatal report + modal dialog, then exit.
- *  Mirrors the Electron path's "dialog closes → app quits" fatal semantics. */
+ *  "Dialog closes → app quits" fatal semantics. */
 export function installNativeErrorHandlers(window: NativeWindow, appId?: string): void {
   if (errorHandlersInstalled) return;
   errorHandlersInstalled = true;

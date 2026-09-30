@@ -1,6 +1,6 @@
 # `@downdraft/platform-native`
 
-Native platform bindings — the Rust `downdraft_platform` cdylib (winit + wgpu + cosmic-text + image + naga) and the native device layer for running Downdraft outside Electron. Prebuilt binaries install automatically via platform packages or `bun run fetch:native`; build locally with `bun run build:native`.
+Native platform bindings — the Rust `downdraft_platform` cdylib (winit + wgpu + cosmic-text + image + naga) and the native device layer Downdraft runs on. Prebuilt binaries install automatically via platform packages or `bun run fetch:native`; build locally with `bun run build:native`.
 
 ## Install
 

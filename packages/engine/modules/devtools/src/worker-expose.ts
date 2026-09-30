@@ -5,7 +5,7 @@
 //
 // Data feeds are NOT served via RPC — they're written to the devtools SAB
 // by flushDataFeeds() (called from the sim loop). The renderer reads them
-// synchronously from the SAB. Only the manifest and commands use IPC.
+// synchronously from the SAB. Only the manifest and commands use worker RPC.
 // ============================================================================
 
 import { exposeProfilingApi } from "@downdraft/engine/worker/instrumented-worker-host";

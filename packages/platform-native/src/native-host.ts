@@ -106,8 +106,7 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   installImagePolyfills();
   installAssetGlob();
 
-  // Single-instance lock — the Electron app calls requestSingleInstanceLock
-  // before creating the window; second instances quit. Deterministic/test
+  // Single-instance lock — second instances quit. Deterministic/test
   // mode and DOWNDRAFT_MULTI_INSTANCE=1 opt out so e2e/dev can overlap.
   const deterministic = process.env.DOWNDRAFT_DETERMINISTIC === "1";
   if (config.appId && !deterministic && !acquireSingleInstanceLock(config.appId)) {
@@ -237,10 +236,9 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   // delivers them to the surface, and a second synthesis double-fires
   // `click` on surface listeners.
 
-  // 6c. Install the `downdraft` bridge — the single-process implementation
-  // of the same API the Electron preload exposes over IPC. The lazy accessor
-  // in app/renderer picks it up whenever `startGame()` (or game code) first
-  // touches `downdraft.*`.
+  // 6c. Install the `downdraft` bridge — the single-process HostAPI
+  // implementation. The lazy accessor in app/renderer picks it up whenever
+  // `startGame()` (or game code) first touches `downdraft.*`.
   // Services worker owns FileSaveStore + the SQLite import cache so save
   // serialization and sync sqlite calls stay off the frame thread. Same
   // process shape the plugin sandbox will use.
@@ -271,9 +269,9 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   }
 
   // 6d. Start the in-process MCP server (tools/list, tools/call, artifacts,
-  // PID discovery — identical endpoints to the Electron proxy). artifactDir
-  // enables the tracing/heap-snapshot tools + the /mcp/artifact/ download
-  // endpoint, mirroring Electron's ${userData}/debug-artifacts layout.
+  // PID discovery). artifactDir enables the tracing/heap-snapshot tools +
+  // the /mcp/artifact/ download endpoint, stored under
+  // ${userData}/debug-artifacts.
   //
   // The endpoint is dev/test infrastructure — it must not ship in packaged
   // binaries. __DD_MCP_STRIP__ folds this whole block to dead code in

@@ -78,7 +78,7 @@ export const COMMANDS: CommandEntry[] = [
   {
     name: "dev",
     usage: "draft dev [options]",
-    summary: "Start the game on the native runtime (Bun + winit + wgpu). Run from a game directory (cwd inference). The Electron path was removed.",
+    summary: "Start the game on the native runtime (Bun + winit + wgpu). Run from a game directory (cwd inference).",
     schema: {
       flags: [
         { name: "entry", type: "string", description: "Game entrypoint file (defaults to src/native-entry.ts)" },
@@ -87,7 +87,6 @@ export const COMMANDS: CommandEntry[] = [
         { name: "watch", type: "boolean", description: "Back-compat no-op — the HMR dev shell always watches" },
         { name: "no-hmr", type: "boolean", description: "Disable HMR — spawn the entry directly (bun run), no dev shell" },
         { name: "native", type: "boolean", description: "Back-compat alias — native is the default runtime" },
-        { name: "electron", type: "boolean", description: "Removed — the Electron runtime is deleted; native is the only runtime" },
         { name: "verbose", alias: "v", type: "boolean", description: "Verbose logging" },
       ],
     },
@@ -215,11 +214,8 @@ export const COMMANDS: CommandEntry[] = [
         { name: "spec", alias: "s", type: "string", description: "Spec file to run (default: tests/e2e/<game>-smoke.spec.ts)" },
         { name: "port", alias: "p", type: "number", default: 0, description: "MCP port (0 = auto-assign a free port)" },
         { name: "renderer", alias: "r", type: "string", default: "cpu", enum: [...RENDERER_TARGETS], description: "WebGPU backend: cpu=SwiftShader, gpu=hardware" },
-        { name: "runtime", type: "string", enum: ["electron", "native"], default: "native", description: "Removed — only native exists; passing electron hard-errors" },
         { name: "no-deterministic", type: "boolean", description: "Disable fixed seed / render loop pause" },
         { name: "headed", type: "boolean", description: "Show the window instead of running headless" },
-        { name: "build", type: "boolean", description: "Removed — native packaging is `draft release`; passing it hard-errors" },
-        { name: "build-only", type: "boolean", description: "Removed — native packaging is `draft release`; passing it hard-errors" },
         { name: "verbose", alias: "v", type: "boolean", description: "Verbose logging" },
       ],
     },

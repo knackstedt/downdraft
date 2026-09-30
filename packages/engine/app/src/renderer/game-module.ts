@@ -517,8 +517,7 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
     for (let _i23990 = 0, _it23990 = (pCfg.manifests ?? []), _n23990 = _it23990.length; _i23990 < _n23990; _i23990++) { const m = _it23990[_i23990];
       pluginHost.discover(m, "inline");
     };
-    // Local-dir discovery is performed by the game's vite config / preload;
-    // manifests are discovered via the plugin host's discover() API. Here we
+    // Manifests are discovered via the plugin host's discover() API. Here we
     // only load what's been discovered so far.
   }
 

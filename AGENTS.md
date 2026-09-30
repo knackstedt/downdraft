@@ -10,7 +10,7 @@ Every directory under `games/` is a **git submodule** pointing at its own reposi
 
 DownDraft runs on a **native runtime** — Bun + winit + wgpu via `@downdraft/platform-native` (a single Rust cdylib, `libdowndraft_platform`). A game boots from `src/native-entry.ts`, which calls `runNativeGameModule(...)`; there is no Electron, no Chromium, no browser-facing Vite dev server (the dev shell embeds Vite only as a transform/HMR engine), and no renderer/preload process split. The simulation still runs in a dedicated worker thread with SharedArrayBuffer protocols — that isolation is deliberate and is preserved on native.
 
-**Electron is removed.** `draft dev`/`draft test`/`draft release` run native only; `--electron` / `--runtime=electron` hard-error. The Electron/Capacitor trees (main/preload/vite/mobile shells, `core/ipc.ts`, `electron-osr`, `raw-input`, devtools extension, per-game `electron.vite.config.ts`/`index.html`/`src/main.ts`/`src/preload.ts`, `mobile-shell`, electron-builder config) have been deleted — do not resurrect them; a future mobile port would be native (winit+wgpu), not a WebView shell. `app/src/renderer` is runtime-agnostic and remains live — `startGame()`/`bootstrapGame()` run on the native main thread.
+**Electron is removed.** `draft dev`/`draft test`/`draft release` run native only — there are no Electron flags or compatibility paths. The Electron/Capacitor trees (main/preload/vite/mobile shells, `core/ipc.ts`, `electron-osr`, `raw-input`, devtools extension, per-game `electron.vite.config.ts`/`index.html`/`src/main.ts`/`src/preload.ts`, `mobile-shell`, electron-builder config) have been deleted — do not resurrect them; a future mobile port would be native (winit+wgpu), not a WebView shell. `app/src/renderer` is runtime-agnostic and remains live — `startGame()`/`bootstrapGame()` run on the native main thread.
 
 Native dev has tiered HMR: `dev-shell.mjs` + `native-dev-runtime.ts` run an embedded Vite `RunnableDevEnvironment` (module-level invalidation through full session/host restart tiers) — it is not restart-only. Game-facing `import.meta.hot` semantics work through the dev runtime, not `vite dev`. Native packaging is `scripts/package-native.mjs` (a game `bun build --compile` plus asset staging); `draft release --target=win|linux|mac` invokes it.
 
@@ -348,7 +348,7 @@ await runNativeGameModule(gameModule, {
 
 **NEVER run `pkill -9 bun`, `pkill -f bun`, `killall bun`, or any other generic runtime-killing command.** The user's machine may run other Bun processes (and other Electron apps: VS Code, Slack, the Devin desktop app itself). A generic pkill will terminate all of them, destroying the user's work and your own session.
 
-**`draft dev` runs only the native runtime** (Bun + winit + wgpu via `src/native-entry.ts`) — the Electron path is removed and `--electron` errors. The native runtime uses a single-instance lock (`singleton.lock` in the game's userData dir); re-running `draft dev` handles stale instances. Each game runs as a **single Bun process** (plus worker threads). To kill a specific game instance, target **that game only**:
+**`draft dev` runs only the native runtime** (Bun + winit + wgpu via `src/native-entry.ts`) — the Electron path is removed entirely. The native runtime uses a single-instance lock (`singleton.lock` in the game's userData dir); re-running `draft dev` handles stale instances. Each game runs as a **single Bun process** (plus worker threads). To kill a specific game instance, target **that game only**:
 
 - **Let `draft dev` handle it** — re-running `draft dev` from the game directory tears down the previous instance automatically. This is the preferred path.
 - **Match the per-game `--user-data-dir`** (each game sets a unique `downdraft-<game>` userData dir, visible in the process args) only if you need to kill a process you did not launch via `draft dev`:
@@ -379,7 +379,7 @@ A plain browser cannot reproduce any of this, and Playwright driving a browser w
 
 **Instead, use the in-game MCP automation harness and `draft test`:**
 
-1. **`bun run draft:test-cpu`** (or `bun run draft:test`) — the canonical way to launch and exercise a game headlessly. `draft test` sets `DOWNDRAFT_DETERMINISTIC=1` and spawns `bun test <spec>`; the default smoke specs use the in-game MCP RPC harness to boot the real game and drive it. The only runtime is **native** — `--runtime=electron` errors. See "Running the smoke test" below for the full CLI flag reference.
+1. **`bun run draft:test-cpu`** (or `bun run draft:test`) — the canonical way to launch and exercise a game headlessly. `draft test` sets `DOWNDRAFT_DETERMINISTIC=1` and spawns `bun test <spec>`; the default smoke specs use the in-game MCP RPC harness to boot the real game and drive it. The only runtime is **native**. See "Running the smoke test" below for the full CLI flag reference.
 2. **The `game` MCP server** (configured in `.devin/mcp_config.json` as `bun packages/cli/src/index.ts mcp stdio` — a stdio→HTTP bridge inside `draft mcp`) — once a game is running, this exposes the game's automation tools directly to your MCP client. The bridge auto-discovers the running instance via PID files in `~/.downdraft/port/<pid>` (content = the bound port). **List the tools first with `mcp_list_tools` before calling any of them** — never guess tool names or argument schemas. The currently registered tools (see `games/to-the-ocean/src/mcp/automation-tools.ts`) include:
    - `inject_input` / `clear_injected_input` — hold keys/mouse/wheel for N frames.
    - `dispatch_key` / `dispatch_click` — fire real DOM events on the main thread (full input pipeline).
@@ -690,13 +690,13 @@ The native host (`packages/platform-native`) owns the process: it creates the wi
 
 ### Process model
 
-Single process: the game module, renderer, host services, sim-worker host, and MCP server all live in the one Bun process; the simulation runs in a dedicated Bun worker (SAB channels, unchanged). Recovery is restart-based — `downdraft.requestRestart(reason)` respawns the process (see `packages/platform-native/src/native-restart.ts`); `window.location.reload()` is not a recovery path on native. Devtools + OSR are in-process WebGPU overlays (`modules/native-osr`), not Chromium panels or webviews.
+Single process: the game module, renderer, host services, sim-worker host, and MCP server all live in the one Bun process; the simulation runs in a dedicated Bun worker (SAB channels, unchanged). Recovery is restart-based — `downdraft.requestRestart(reason)` respawns the process (see `packages/platform-native/src/native-restart.ts`); `window.location.reload()` is not a recovery path on native. Devtools + OSR are in-process WebGPU overlays (`modules/native-osr`), not embedded web panels.
 
 ## Game automation & headless testing
 
 ### GPU mode environment variable
 
-Set `DOWNDRAFT_GPU=swiftshader` to force Chromium's software Vulkan backend for headless CI / testing without a GPU. Without this env var, the engine uses the hardware GPU (NVIDIA Vulkan on Linux, D3D12 on Windows).
+Set `DOWNDRAFT_GPU=swiftshader` to force the SwiftShader software Vulkan backend for headless CI / testing without a GPU. Without this env var, the engine uses the hardware GPU (NVIDIA Vulkan on Linux, D3D12 on Windows).
 
 ### MCP automation harness (`to-the-ocean`)
 
@@ -788,7 +788,7 @@ draft test --renderer=cpu --spec tests/e2e/my-game.spec.ts
 - `--spec <path>` — Override the spec file path.
 - `--port <n>` — MCP port (default: 9976). If omitted, the harness auto-allocates a free port.
 - `--no-deterministic` — Disable fixed seed / render loop pause / window hiding.
-- `--build` / `--build-only` — removed with the electron-vite pipeline; they hard-error. Native packaging is `scripts/package-native.mjs` (`draft release`).
+- `--build` / `--build-only` — on `draft release` these are aliases for `--stage=build`. Native packaging is `scripts/package-native.mjs`.
 
 **Environment variables (set automatically by `draft test`):**
 - `DOWNDRAFT_GPU=swiftshader|hardware` — selects the WebGPU backend via `webGpuSwitches()`.
@@ -806,7 +806,7 @@ draft test --renderer=cpu --spec tests/e2e/my-game.spec.ts
 
 `tests/e2e/harness.ts` launches `bun games/<game>/src/native-entry.ts`, waits for the native MCP HTTP health endpoint, and drives the game through MCP tool calls. The smoke test (`tests/e2e/to-the-ocean-smoke.spec.ts`) verifies that the tool surface exists, the simulation ticks, injected input advances the world, and a screenshot can be captured.
 
-**Build mode:** removed — `--build`/`--build-only` used the electron-vite pipeline and now hard-error. Production-build e2e uses `draft release` (native packaging).
+**Build mode:** `draft release --stage=build` (or `--build-only`) compiles the native binary without packaging. Production-build e2e uses `draft release`.
 
 **Dynamic ports:** The harness auto-allocates a free MCP port starting from 9976, enabling parallel spec execution. Specs read the port from `process.env.MCP_PORT` (set by `draft test --port`). To run multiple specs simultaneously, omit `--port` and let each spec pick its own.
 
@@ -867,7 +867,7 @@ When verifying changes, always:
 3. Grep the full test output for error patterns: `grep -E "Uncaught|TypeError|ReferenceError|WrongDocumentError|is not a function|is not defined" /tmp/downdraft-test-*.log`
 4. Do NOT ignore errors that appear "during teardown" — they may indicate real bugs (e.g. uncaught Promise rejections from `requestPointerLock()`)
 
-Common false positives to filter out: Chromium storage errors (`ERROR:components/services/storage`, `ERROR:storage/browser`), GTK module warnings, WebSocket connection failures during teardown, `session.loadExtension` deprecation warnings.
+Common false positives to filter out: GTK module warnings, WebSocket connection failures during teardown, Vulkan/ICD loader chatter.
 
 ### E2E test gotchas
 
@@ -900,7 +900,7 @@ draft release [--game=<name>] [--games=<csv>] [--target=<win|linux|mac|all>]
 
 All stages compile the same artifact via `scripts/package-native.mjs`: a standalone Bun binary (`<out>/<game>-<target>`) plus a sibling `native/` cdylib and `dd-assets/` staging tree. `--mcp` retains the MCP endpoint in the packaged binary (stripped by default via `__DD_MCP_STRIP__`). Mobile targets are removed — a future mobile port would be native, not WebView.
 
-Windows version-info/PE-timestamp branding is a gap: the electron-builder `build.config.ts` pipeline is deleted and `package-native.mjs` does not yet stamp PE resources — add rcedit/`@resedit` stamping there when shipping Windows builds.
+Windows binaries are stamped with version info and icons by `package-native.mjs` via `resedit` (in-place `.rsrc` regeneration — the `.bun` trailer is preserved).
 
 ## Mobile targets — removed
 
@@ -1076,7 +1076,7 @@ A comprehensive cross-thread profiling + tracing system with an in-game overlay 
 ### WebGPU timestamp queries
 
 `GPUTimerPool` supports two levels of timestamp queries:
-- **Inside-pass timestamps** (render/compute passes) — requires `timestamp-query` + `chromium-experimental-timestamp-query-inside-passes`.
+- **Inside-pass timestamps** (render/compute passes) — requires `timestamp-query` + `timestamp-query-inside-passes` (wgpu extension).
 - **Encoder-level timestamps** (blit/copy passes) — requires only `timestamp-query` (base feature). Uses `commandEncoder.writeTimestamp()`.
 
 `GPUProfiler` exposes `beginComputePass()` / `endComputePass()` / `beginBlitPass()` / `endBlitPass()` for compute + blit pass timing. `PassTiming.category` is `"render" | "compute" | "blit"`.
@@ -1293,12 +1293,12 @@ bun test packages/engine/libraries/postfx
 ```
 ## Native platform (`@downdraft/platform-native`)
 
-A Bun-native platform layer that replaces Electron + WebView with direct native GPU rendering via a single Rust cdylib (`libdowndraft_platform`, crate at `native-rs/`) and `bun:ffi`. Located in `packages/platform-native/`.
+A Bun-native platform layer providing direct native GPU rendering via a single Rust cdylib (`libdowndraft_platform`, crate at `native-rs/`) and `bun:ffi`. Located in `packages/platform-native/`.
 
 ### Architecture
 
 - **GPU**: the `wgpu` crate accessed through `wgpu_shim_*` exports (`native-rs/src/gpu/`) that flatten complex WebGPU descriptors into FFI-friendly functions — same ABI the old C shim exposed. The TypeScript wrapper (`src/gpu/wgpu-wrapper.ts`) implements the standard WebGPU JS API (`GPU`, `GPUAdapter`, `GPUDevice`, `GPUQueue`, etc.) on top of the FFI calls. `installGPU()` sets `globalThis.navigator.gpu` so the engine's `GPUDeviceManager` works unchanged.
-- **Window**: `winit` for window creation, input polling, and surface handles (`native-rs/src/window/`, exported as `sdl_shim_*` for ABI compat). The `NativeWindow` class runs the event loop, translates events to DOM-compatible events, and provides `requestAnimationFrame`. `NativeSurface` implements the `HTMLCanvasElement` / `GPUCanvasContext` interface. After each rAF dispatch the window auto-presents via `queueMicrotask` (Chromium end-of-frame semantics), so bespoke render loops that never call `context.present()` still present — `present()` itself skips frames that acquired nothing or acquired-but-never-wrote (`__ddWritten`).
+- **Window**: `winit` for window creation, input polling, and surface handles (`native-rs/src/window/`, exported as `sdl_shim_*` for ABI compat). The `NativeWindow` class runs the event loop, translates events to DOM-compatible events, and provides `requestAnimationFrame`. `NativeSurface` implements the `HTMLCanvasElement` / `GPUCanvasContext` interface. After each rAF dispatch the window auto-presents via `queueMicrotask` (DOM end-of-frame semantics), so bespoke render loops that never call `context.present()` still present — `present()` itself skips frames that acquired nothing or acquired-but-never-wrote (`__ddWritten`).
 - **Image decoding**: the `image` crate (`native-rs/src/image.rs`, `image_shim_*` exports) replaces `createImageBitmap`. `installImagePolyfills()` sets `globalThis.createImageBitmap`, `ImageBitmap`, `OffscreenCanvas`, and `ImageData`.
 - **WGSL validation**: `dd_wgsl_validate` runs naga (wgpu's own frontend + validator) in-process for build-time shader checks — used by `wgslValidatePlugin` and `bun-preload.ts`. No external tint binary.
 - **Asset discovery**: `nativeGlob()` replaces `import.meta.glob` with filesystem-based globbing.
@@ -1357,7 +1357,7 @@ Native binaries are **not committed** and consumers never compile them:
 
 ### Current status — native is the only runtime; Electron is deleted
 
-`draft dev`/`draft test`/`draft release` run native only — `--electron`/`--runtime=electron`/`--build` are hard-error stubs. Games boot from `src/native-entry.ts` (`runNativeGameModule`/`startNativeGame`/`createNativeHost`); the Electron main/preload/vite/mobile trees, `electron-osr`, `raw-input`, `core/ipc.ts`, and the electron-builder pipeline are deleted. OSR (devtools/web overlays) is `modules/native-osr` — in-process WebGPU, no webviews.
+`draft dev`/`draft test`/`draft release` run native only — all Electron-era flags and entrypoints are removed. Games boot from `src/native-entry.ts` (`runNativeGameModule`/`startNativeGame`/`createNativeHost`); the Electron main/preload/vite/mobile trees, `electron-osr`, `raw-input`, `core/ipc.ts`, and the electron-builder pipeline are deleted. OSR (devtools/web overlays) is `modules/native-osr` — in-process WebGPU, no webviews.
 
 Native runs on three JS runtimes — **Bun** (default, `bun:ffi`), **Node+tsx** (`koffi`, `wgsl-loader.mjs`), **Deno** (`Deno.dlopen`, root `deno.json` + `--allow-all --unstable-sloppy-imports`). Steady-state perf is identical across runtimes (GPU + fixed-dt sim don't depend on the JS runtime); differences are boot time (~0.5–1.0s Bun, ~1.0s Node/Deno) and footprint (~520MB Bun / ~1.05GB Node / ~690MB Deno RSS on mining-rpg). Packaging spike: `scripts/package-native.mjs` compiles a game's native entry into a standalone Bun binary (verified end-to-end on mining-rpg — workers, saves, MCP, screenshots all work in the packaged binary).
 
@@ -1365,7 +1365,7 @@ Cross-runtime gotchas: tsconfig `paths` and `deno.json` alias `xxh3-ts` → a `.
 
 ## Native PixiUI (`@downdraft/engine/libraries/pixi-ui-native`)
 
-In-process PixiJS v8 WebGPU UI renderer for native (Bun + winit + wgpu) mode. Reuses the browser `@pixi/react` scene (e.g. `OceanApp`) without Electron/Chromium. PixiJS runs on the main thread on the **same `GPUDevice`** as the game, rendering into a texture-backed virtual canvas; the game composites that texture over the 3D frame each render pass via a fullscreen blit. No CPU readback in the compositing path.
+In-process PixiJS v8 WebGPU UI renderer for native (Bun + winit + wgpu) mode. Reuses the browser `@pixi/react` scene (e.g. `OceanApp`) in-process on native. PixiJS runs on the main thread on the **same `GPUDevice`** as the game, rendering into a texture-backed virtual canvas; the game composites that texture over the 3D frame each render pass via a fullscreen blit. No CPU readback in the compositing path.
 
 ### Architecture
 
@@ -1441,7 +1441,7 @@ Verified tri-runtime (mining-rpg native, ~20s steady state): all three boot the 
 Cross-runtime landmines to keep in mind:
 - **tsconfig `paths` are type-only, but tsx and Deno honor them at runtime.** The `"xxh3-ts"` alias maps to a `.d.ts` — under tsx/Deno `import "xxh3-ts"` loads the declaration file as an empty module. Runtime workarounds must use a subpath the alias doesn't cover (e.g. `require("xxh3-ts/index.js")`), never a bare specifier.
 - **CSS imports must stay out of shared modules** — `game-module.ts` runs on native where `.css` can't load (Deno has no loader hooks at all). Keep `import "./x.css"` in browser-only `main.tsx` entries.
-- **JSON imports need `with { type: "json" }`** for Deno (supported by Node ≥20, Vite, Bun, Chromium).
+- **JSON imports need `with { type: "json" }`** for Deno (supported by Node ≥20, Vite, Bun, browsers).
 - **Node has no global `Worker`** — dom-polyfills wraps worker_threads on the main thread and `ffi/worker-bootstrap.mjs` re-installs the same wrapper inside workers for nested spawns.
 - **`__ddRequestFrame` prefers a renderer's own `renderOneFrame()`** over the inherited `GameRenderer.renderOnce()` — renderers that draw outside the GameRenderer frame graph (tto) would otherwise acquire-but-not-write the surface texture and starve the capture hook via the write-tracking present-skip.
 

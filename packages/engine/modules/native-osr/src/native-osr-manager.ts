@@ -1,24 +1,22 @@
 // ============================================================================
 // NativeOSRManager — Renderer-side coordinator for Blitz-backed OSR
 //
-// Same public surface as electron-osr's OSRManager (createRenderer, addElement,
-// render, handleInput, focusBillboard, …) so games can swap implementations by
-// runtime. Differences: textures come from in-process `pullFrame` + writeTexture
-// instead of shared-texture receivers, and the host object is the native
-// bridge's osr sub-API.
+// Coordinates panel renderers (createRenderer, addElement, render,
+// handleInput, focusBillboard, …). Textures come from in-process `pullFrame`
+// + writeTexture, and the host object is the native bridge's osr sub-API.
 // ============================================================================
 
-import type {
-  AtlasLayout,
-  OSRHostBridge,
-  OSRPanelConfig,
-  OSRRendererConfig,
-  OSRRendererEvent,
-  OSRRendererStatus,
-  WorldSpaceUIElement,
-} from "./types";
 import { OSRInputRouter, type MouseState } from "./input-router";
 import { NativeOsrTextureSource, type NativeOsrFrameSource } from "./native-texture-source";
+import type {
+    AtlasLayout,
+    OSRHostBridge,
+    OSRPanelConfig,
+    OSRRendererConfig,
+    OSRRendererEvent,
+    OSRRendererStatus,
+    WorldSpaceUIElement,
+} from "./types";
 import { WorldSpaceUIPass, type CameraState } from "./world-space-ui-pass";
 
 

@@ -3,21 +3,21 @@
 // ============================================================================
 import { describe, expect, it } from "bun:test";
 import {
-  FEATURE_LOG_SCHEMA_VERSION,
-  type FeatureLogData,
-  condenseText,
-  decodeFeatureLogLine,
-  encodeFeatureLogJSON,
-  encodeFeatureLogLine,
-  encodeFeatureLogLines,
-  encodeFeatures,
-  featureCode,
-  formatBytesShort,
+    FEATURE_LOG_SCHEMA_VERSION,
+    type FeatureLogData,
+    condenseText,
+    decodeFeatureLogLine,
+    encodeFeatureLogJSON,
+    encodeFeatureLogLine,
+    encodeFeatureLogLines,
+    encodeFeatures,
+    featureCode,
+    formatBytesShort,
 } from "./feature-log";
 
 const MAIN: FeatureLogData = {
   sv: FEATURE_LOG_SCHEMA_VERSION,
-  scope: "main",
+  scope: "host",
   v: "0.1.0",
   mode: "dev",
   os: "linux",
@@ -26,8 +26,6 @@ const MAIN: FeatureLogData = {
   cpu: "AMD Ryzen 9 7950X",
   cpuCores: 16,
   mem: "64G",
-  el: "31.6.0",
-  chr: "126.0",
   node: "20.11.0",
   v8: "12.4.0",
   gpu: "NVIDIA RTX 4090",
@@ -60,16 +58,16 @@ describe("encodeFeatureLogLine", () => {
     // Fixed-order prefix for the fields present in MAIN.
     expect(keys).toEqual([
       "sv", "scope", "v", "mode", "os", "osRel", "arch", "cpu", "cpuCores",
-      "mem", "el", "chr", "node", "v8", "gpu", "drv", "sw",
+      "mem", "node", "v8", "gpu", "drv", "sw",
     ]);
   });
 
   it("omits absent optional fields", () => {
     const line = encodeFeatureLogLine(RENDER);
-    // main-only fields are absent on the render line.
+    // host-only fields are absent on the render line.
     expect(line).not.toContain("os=");
     expect(line).not.toContain("cpu=");
-    expect(line).not.toContain("el=");
+    expect(line).not.toContain("drv=");
     // render-only fields are present.
     expect(line).toContain("wgpu=");
     expect(line).toContain("plug=");
@@ -81,12 +79,12 @@ describe("encodeFeatureLogLine", () => {
 });
 
 describe("decodeFeatureLogLine", () => {
-  it("round-trips a main line", () => {
+  it("round-trips a host line", () => {
     const line = encodeFeatureLogLine(MAIN);
     const decoded = decodeFeatureLogLine(line);
     expect(decoded).not.toBeNull();
     expect(decoded!.sv).toBe(FEATURE_LOG_SCHEMA_VERSION);
-    expect(decoded!.scope).toBe("main");
+    expect(decoded!.scope).toBe("host");
     expect(decoded!.v).toBe("0.1.0");
     expect(decoded!.os).toBe("linux");
     expect(decoded!.cpuCores).toBe(16);
@@ -117,13 +115,13 @@ describe("decodeFeatureLogLine", () => {
 });
 
 describe("encodeFeatureLogLines", () => {
-  it("joins main + render with newline", () => {
+  it("joins host + render with newline", () => {
     const joined = encodeFeatureLogLines(MAIN, RENDER);
     const lines = joined.split("\n");
     expect(lines).toHaveLength(2);
     expect(lines[0].startsWith("dd1|")).toBe(true);
     expect(lines[1].startsWith("dd1|")).toBe(true);
-    expect(lines[0]).toContain("scope=main");
+    expect(lines[0]).toContain("scope=host");
     expect(lines[1]).toContain("scope=render");
   });
 
@@ -137,7 +135,7 @@ describe("encodeFeatureLogLines", () => {
 describe("encodeFeatureLogJSON", () => {
   it("produces minified JSON", () => {
     const json = encodeFeatureLogJSON(MAIN);
-    expect(JSON.parse(json).scope).toBe("main");
+    expect(JSON.parse(json).scope).toBe("host");
     expect(json).not.toContain("\n");
   });
 });
@@ -175,12 +173,12 @@ describe("schema stability", () => {
     expect(FEATURE_LOG_SCHEMA_VERSION).toBe(1);
   });
 
-  it("a golden main line is byte-stable", () => {
+  it("a golden host line is byte-stable", () => {
     // Snapshot guard: if the encoder changes field order or formatting, this
     // breaks loudly. Update intentionally when appending fields.
     const line = encodeFeatureLogLine(MAIN);
     expect(line).toBe(
-      "dd1|sv=1|scope=main|v=0.1.0|mode=dev|os=linux|osRel=6.8.0-30-generic|arch=x64|cpu=AMD Ryzen 9 7950X|cpuCores=16|mem=64G|el=31.6.0|chr=126.0|node=20.11.0|v8=12.4.0|gpu=NVIDIA RTX 4090|drv=535.104|sw=swiftshader,vulkan",
+      "dd1|sv=1|scope=host|v=0.1.0|mode=dev|os=linux|osRel=6.8.0-30-generic|arch=x64|cpu=AMD Ryzen 9 7950X|cpuCores=16|mem=64G|node=20.11.0|v8=12.4.0|gpu=NVIDIA RTX 4090|drv=535.104|sw=swiftshader,vulkan",
     );
   });
 

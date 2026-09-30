@@ -33,8 +33,8 @@ export interface ProfilerLibConfig {
    * Default: the built-in ProfilerScene shipped with this library.
    */
   sceneModuleUrl?: string;
-  /** Trace source: "contentTracing" (Electron) or "in-engine". Default: "in-engine". */
-  traceSource?: "contentTracing" | "in-engine";
+  /** Trace source. Only "in-engine" exists on the native runtime. */
+  traceSource?: "in-engine";
   /** Whether to enable the event-loop monitor on the renderer. Default: true. */
   enableEventLoopMonitor?: boolean;
 }

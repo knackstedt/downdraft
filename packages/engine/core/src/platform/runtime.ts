@@ -75,13 +75,6 @@ export interface HostCapabilities {
   readonly hasDom: boolean;
   /** OPFS persistence is reachable (navigator.storage.getDirectory). */
   readonly hasOpfs: boolean;
-  /** Chromium shared-texture OSR machinery exists. Electron-only; always
-   *  false on the live native path. */
-  readonly hasSharedTexture: boolean;
-  /** V8-style CPU tracing (contentTracing) is available. */
-  readonly hasTracing: boolean;
-  /** V8 heap snapshots (.heapsnapshot) are available. */
-  readonly hasHeapSnapshot: boolean;
   /** The host can expose its wgpu device to multiple worker threads.
    *  True on native: wgpu handles are process-global and workers attach a
    *  non-owning view via shareDevice/attachSharedDevice. Intended for
@@ -93,9 +86,6 @@ export const NATIVE_HOST_CAPABILITIES: HostCapabilities = {
   runtime: "native",
   hasDom: false,
   hasOpfs: false,
-  hasSharedTexture: false,
-  hasTracing: false,
-  hasHeapSnapshot: false,
   supportsMultiWorkerGpu: true,
 };
 
@@ -103,9 +93,6 @@ const DOM_HOST_CAPABILITIES: HostCapabilities = {
   runtime: "browser",
   hasDom: true,
   hasOpfs: true,
-  hasSharedTexture: false,
-  hasTracing: false,
-  hasHeapSnapshot: false,
   supportsMultiWorkerGpu: false,
 };
 

@@ -15,7 +15,7 @@
 // pattern. Assigning the URL to a variable first breaks production builds
 // (Vite emits the worker as a raw unbundled asset with unresolved bare imports).
 //
-// SAB polyfill: when SharedArrayBuffer is unavailable (Android WebView), the
+// SAB polyfill: when SharedArrayBuffer is unavailable, the
 // base class creates a BufferSyncHost that syncs input regions to the worker
 // via requestAnimationFrame + postMessage (transfer). The worker side syncs
 // sim data back after each tick batch. See buffer-sync.ts + sab-polyfill.ts.
@@ -63,7 +63,7 @@ export abstract class BaseWorkerHost<TApi extends WorkerApi> {
    * `new Worker(new URL("./xxx-worker.ts", import.meta.url), { type: "module" })`
    * pattern. See the file-level comment for why.
    *
-   * When SAB is unavailable (Android WebView), a BufferSyncHost is created
+   * When SAB is unavailable, a BufferSyncHost is created
    * to sync input regions to the worker via rAF + postMessage. Subclasses
    * override getSyncConfig() to declare the region layout.
    */

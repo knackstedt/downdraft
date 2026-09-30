@@ -101,7 +101,7 @@ describe("to-the-ocean MCP automation smoke", () => {
     // Give the renderer a moment to produce at least one frame.
     await sleep(500);
 
-    // Default: fullPage=true — captures canvas + DOM overlay via Electron.
+    // Default: fullPage=true — captures the composited frame via the host.
     const meta = await captureAndSaveScreenshot(game!, "ttol-smoke.png", true);
 
     expect(meta.width).toBeGreaterThan(0);

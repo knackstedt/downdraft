@@ -1,8 +1,7 @@
 // ============================================================================
-// GPU system info helpers — shared by the Electron main process and the
-// native (Bun/Node/Deno) host bridge.
+// GPU system info helpers for the native (Bun/Node) host bridge.
 //
-// Electron-free: nvidia-smi is queried via child_process; Vulkan validation
+// nvidia-smi is queried via child_process; Vulkan validation
 // status reads environment variables. Importable from any process — the only
 // hard requirement is that `nvidia-smi` exists on PATH (returns null when it
 // does not, e.g. non-NVIDIA systems).

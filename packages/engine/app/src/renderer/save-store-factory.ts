@@ -15,9 +15,8 @@
 //               SaveState in, real SaveResult/LoadResult out, no JSON
 //               boundary. The default when a host bridge is installed.
 //   "auto"    — Picks "host" when the host exposes a typed save store, else
-//               "worker" if OPFS is available. (The legacy worker-timeout →
-//               IPC-fallback dance is gone: on native there is no OPFS and
-//               no process boundary, so the flip can never produce a
+//               "worker" if OPFS is available. (On native there is no OPFS
+//               and no process boundary, so no fallback flip can produce a
 //               divergent save location.)
 //
 // The factory is called from the renderer after the sim worker is initialized.
@@ -30,7 +29,7 @@ export type SaveStoreMode = "inline" | "worker" | "host" | "auto";
 /**
  * The subset of the host bridge needed for save operations. `saveStore` is
  * the typed native path; the `saveGameState`/`loadGameState` JSON-string
- * methods only remain for the dormant Electron bridge.
+ * methods are the last-resort generic fallback.
  */
 export interface SaveBridge {
   saveStore?: ISaveStore;
@@ -119,8 +118,7 @@ export async function createSaveStore(opts: CreateSaveStoreOptions): Promise<Cre
 
     case "auto": {
       // Native-first: when the host exposes a typed save store, use it.
-      // There is no OPFS and no process boundary on native, so the old
-      // 5s worker-timeout → IPC-fallback flip is unnecessary.
+      // There is no OPFS and no process boundary on native.
       if (opts.bridge?.saveStore) {
         return { store: opts.bridge.saveStore, mode: "host" };
       }
@@ -157,8 +155,8 @@ export async function createSaveStore(opts: CreateSaveStoreOptions): Promise<Cre
 
 /**
  * ISaveStore over the bridge's JSON-string save methods — the last-resort
- * "auto" backend for headless hosts (stub bridge) and dormant-Electron
- * browsers without a typed store or OPFS. The wire format is the components
+ * "auto" backend for headless hosts (stub bridge) and environments without
+ * a typed store or OPFS. The wire format is the components
  * map (what host `saveGame`/`loadGame` handlers parse/return); SaveResult
  * metadata is unavailable across the JSON boundary.
  */

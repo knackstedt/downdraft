@@ -1,7 +1,7 @@
 // HostSaveStore spec — the typed native save path. Verifies that a SaveState
 // travels to FileSaveStore with no JSON round-trip and that real
 // SaveResult/LoadResult metadata (bytes, gen, entityCount, timestamps) comes
-// back — the properties the Electron-era IpcSaveStore fabricated away.
+// back — no JSON-string contract and no fabricated metadata.
 
 import type { SaveState, SaveWarning } from "@downdraft/engine";
 import { afterAll, describe, expect, it } from "bun:test";

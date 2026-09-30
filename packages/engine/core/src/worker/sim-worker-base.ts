@@ -17,7 +17,7 @@
 //   - "ready" event emission after onInit
 //   - Error recovery (logs error, retries after 100ms)
 //   - SAB polyfill buffer sync (when SharedArrayBuffer is unavailable, e.g.
-//     Android WebView — see sab-polyfill.ts + buffer-sync.ts)
+//     polyfilled — see sab-polyfill.ts + buffer-sync.ts)
 //
 // Usage in a game worker entry:
 //   createSimWorker({
@@ -33,7 +33,7 @@
 // ============================================================================
 
 // Import the SAB polyfill FIRST — it must execute before any code that
-// references SharedArrayBuffer. On desktop/Electron this is a no-op.
+// references SharedArrayBuffer. On hosts with real SABs this is a no-op.
 import { flushProfilingTick, getWarningEngine, METRIC_TICK_LATENCY, recordTaskLatency } from "../profiling/worker-prelude";
 import "../sab/sab-polyfill";
 import { usingRealSAB } from "../sab/sab-polyfill";
@@ -260,7 +260,7 @@ export interface CreateSimWorkerOptions {
   /**
    * Returns the buffer sync config for the SAB polyfill (worker side).
    * Called after onInit with the SAB. If provided and SharedArrayBuffer is
-   * unavailable (Android WebView), a BufferSyncWorker is created that syncs
+   * unavailable, a BufferSyncWorker is created that syncs
    * the declared write regions to the main thread after each tick batch.
    * The regions should declare which regions the WORKER writes (sim data,
    * stats, board) vs which it reads (input). See buffer-sync.ts.
@@ -302,7 +302,7 @@ export interface CreateSimWorkerOptions {
    *
    * `capture()` returns the component's data payload; it is wrapped in the
    * standard SaveState shape (components[componentName] = { v, data }) so
-   * both OPFS and IPC save backends store the same format. The computed
+   * all save backends store the same format. The computed
    * SaveMeta (defaults merged with the `meta()` hook's extras) is returned
    * as `meta` so the renderer-side store can persist real metadata.
    * The emitted "saved" event carries `origin: "renderer"` — sim-initiated
@@ -349,7 +349,7 @@ export interface CreateSimWorkerOptions {
      * Factory for an inline save store (e.g. `(o) => new OpfsSaveStore(o)`).
      * Injectable because OpfsSaveStore lives in libraries/persistence —
      * core must not import it. When omitted, save() still returns the
-     * stateJson for the caller's own (IPC) store path.
+     * stateJson for the caller's own store path.
      */
     createStore?: (opts: unknown) => ISaveStore & { init?: () => Promise<void> };
     /**
@@ -728,10 +728,10 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
           ): Promise<{ slotName: string; stateJson: string; success: boolean; gen?: number; meta?: SaveMeta }> {
             const data = await opts.save!.capture!();
             const capturedBlobs = await opts.save!.captureBlobs?.();
-            // Always wrap in SaveState.components format so that both OPFS
-            // and IPC (FileSaveStore) backends store the state in the
-            // expected component format — FileSaveStore.load() expects each
-            // component to have a { v, data } structure.
+            // Always wrap in SaveState.components format so every backend
+            // stores the state in the expected component format —
+            // FileSaveStore.load() expects each component to have a
+            // { v, data } structure.
             const name = opts.save!.componentName;
             const components: Record<string, ComponentSection> = name
               ? { [name]: { v: opts.save!.version ?? 1, data } }

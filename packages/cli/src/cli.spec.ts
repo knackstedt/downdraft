@@ -46,8 +46,6 @@ describe("CLI new — minimal template", () => {
     expect(existsSync(join(TEST_DIR, "README.md"))).toBe(true);
     expect(existsSync(join(TEST_DIR, ".gitignore"))).toBe(true);
     expect(existsSync(join(TEST_DIR, "tsconfig.json"))).toBe(true);
-    // Electron is dormant — scaffolds no longer emit the Electron entries.
-    expect(existsSync(join(TEST_DIR, "electron.vite.config.ts"))).toBe(false);
     expect(existsSync(join(TEST_DIR, "src/main.ts"))).toBe(false);
     expect(existsSync(join(TEST_DIR, "src/preload.ts"))).toBe(false);
   });
@@ -67,10 +65,10 @@ describe("CLI new — minimal template", () => {
     expect(pkg.scripts.postinstall).toBeUndefined();
   });
 
-  it("should not emit an electron-builder build block", async () => {
+  it("should not emit a packaging build block", async () => {
     const pkg = JSON.parse(readFileSync(join(TEST_DIR, "package.json"), "utf-8"));
-    // Desktop packaging is native (scripts/package-native.mjs) — no
-    // electron-builder config in scaffolded package.json.
+    // Desktop packaging is native (scripts/package-native.mjs) — scaffolded
+    // package.json carries no bundler config.
     expect(pkg.build).toBeUndefined();
   });
 
@@ -95,12 +93,9 @@ describe("CLI new — minimal template", () => {
     try { rmSync(authorDir, { recursive: true, force: true }); } catch {}
   });
 
-  it("should include devDependencies (no Electron toolchain)", async () => {
+  it("should include devDependencies", async () => {
     const pkg = JSON.parse(readFileSync(join(TEST_DIR, "package.json"), "utf-8"));
     expect(pkg.devDependencies).toBeDefined();
-    expect(pkg.devDependencies["electron"]).toBeUndefined();
-    expect(pkg.devDependencies["electron-builder"]).toBeUndefined();
-    expect(pkg.devDependencies["electron-vite"]).toBeUndefined();
     expect(pkg.devDependencies["typescript"]).toBeDefined();
     expect(pkg.devDependencies["oxlint"]).toBeDefined();
     expect(pkg.dependencies["@downdraft/engine"]).toBe("^0.1.0");
@@ -160,7 +155,7 @@ describe("CLI new — minimal template", () => {
     expect(config.builder).toBeUndefined();
   });
 
-  it("should not emit electron main/preload entries", async () => {
+  it("should not emit legacy main/preload entries", async () => {
     expect(existsSync(join(TEST_DIR, "src/main.ts"))).toBe(false);
     expect(existsSync(join(TEST_DIR, "src/preload.ts"))).toBe(false);
   });
@@ -204,7 +199,6 @@ describe("CLI new — physics template", () => {
     expect(existsSync(join(TEST_DIR, "downdraft.config.json"))).toBe(true);
     expect(existsSync(join(TEST_DIR, ".vscode", "tasks.json"))).toBe(true);
     expect(existsSync(join(TEST_DIR, "tsconfig.json"))).toBe(true);
-    expect(existsSync(join(TEST_DIR, "electron.vite.config.ts"))).toBe(false);
   });
 
   it("should include physics-rapier dependency", async () => {
@@ -247,8 +241,6 @@ describe("CLI new — full template", () => {
     expect(existsSync(join(TEST_DIR, ".vscode", "extensions.json"))).toBe(true);
     expect(existsSync(join(TEST_DIR, ".vscode", "tasks.json"))).toBe(true);
     expect(existsSync(join(TEST_DIR, "tsconfig.json"))).toBe(true);
-    expect(existsSync(join(TEST_DIR, "electron.vite.config.ts"))).toBe(false);
-    // electron-builder config is dormant — native packaging replaces it.
     expect(existsSync(join(TEST_DIR, "build.config.ts"))).toBe(false);
   });
 
@@ -400,21 +392,20 @@ describe("CLI --help and --version", () => {
     expect(getCommand("test")?.name).toBe("test");
   });
 
-  it("dev parses --electron (removed-runtime hard-error flag) and --native back-compat flags", async () => {
+  it("dev parses the --native back-compat flag", async () => {
     const { getCommand } = await import("./usage");
     const { parseArgs } = await import("./args");
     const schema = getCommand("dev")!.schema;
-    expect(parseArgs([], schema).flags.electron).toBe(false);
-    expect(parseArgs(["--electron"], schema).flags.electron).toBe(true);
+    expect(parseArgs([], schema).flags.native).toBe(false);
     expect(parseArgs(["--native"], schema).flags.native).toBe(true);
   });
 
-  it("test keeps --runtime/--build as hard-error stubs", async () => {
+  it("test schema carries no removed-runtime flags", async () => {
     const { getCommand } = await import("./usage");
-    const { parseArgs } = await import("./args");
     const schema = getCommand("test")!.schema;
-    // Still parseable — test.ts rejects them at dispatch with a clear error.
-    expect(parseArgs(["--game=x"], schema).flags.runtime).toBe("native");
-    expect(parseArgs(["--game=x", "--runtime=electron"], schema).flags.runtime).toBe("electron");
+    const names = (schema.flags as Array<{ name: string }>).map((f) => f.name);
+    expect(names).not.toContain("runtime");
+    expect(names).not.toContain("build");
+    expect(names).not.toContain("build-only");
   });
 });

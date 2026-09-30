@@ -1,19 +1,18 @@
 // ============================================================================
 // native-tracing.ts — tracing + heap-snapshot MCP tools for the native host.
 //
-// Native equivalent of app/main/handlers/tracing.ts (Electron contentTracing
-// + CDP). Differences on the single-process Bun runtime:
+// Tracing + heap-snapshot MCP tools for the single-process Bun runtime:
 //
 //   - trace_start/stop/status drive the in-engine TraceEventWriter fed by the
 //     ProfilingSAB (engine instrumentation: task latency, GC pauses, event-loop
-//     jitter, IOPS, warnings) instead of Chromium contentTracing. The resulting
+//     jitter, IOPS, warnings). The resulting
 //     file is Chrome Trace Event JSON — loadable in chrome://tracing, Perfetto.
 //   - trace_categories returns the engine's own category list.
 //   - heap_snapshot uses Bun.generateHeapSnapshot("v8") — a real DevTools-
 //     compatible .heapsnapshot of the calling thread's JSC heap. "main" and
 //     "renderer" are the same process on native; both capture this heap.
 //   - memory_dump writes a trace containing periodic memory instant events
-//     (process.memoryUsage + JSC heapStats) rather than Chromium memory-infra.
+//     (process.memoryUsage + JSC heapStats).
 //   - trace_enable_heap_profiling is a documented no-op: JSC sampling isn't
 //     configurable from JS; heap_snapshot always captures the full heap.
 //
@@ -307,7 +306,7 @@ export function createNativeTracingTools(opts: NativeTracingOptions): ToolRegist
       def: {
         name: "trace_start",
         description:
-          "Start an in-engine Chrome Trace Event recording (native equivalent of contentTracing). Captures the engine's ProfilingSAB instrumentation — task latency, GC pauses, event-loop jitter, IOPS, warnings. Stop with trace_stop; the file loads in chrome://tracing or perfetto.dev.",
+          "Start an in-engine Chrome Trace Event recording. Captures the engine's ProfilingSAB instrumentation — task latency, GC pauses, event-loop jitter, IOPS, warnings. Stop with trace_stop; the file loads in chrome://tracing or perfetto.dev.",
         inputSchema: {
           type: "object",
           properties: {
@@ -373,7 +372,7 @@ export function createNativeTracingTools(opts: NativeTracingOptions): ToolRegist
     {
       def: {
         name: "trace_categories",
-        description: "List the engine's tracing categories (native equivalent of Chromium's category list).",
+        description: "List the engine's tracing categories.",
         inputSchema: { type: "object", properties: {} },
       },
       handler: async () => jsonResult({ categories: NATIVE_TRACE_CATEGORIES }),
@@ -382,7 +381,7 @@ export function createNativeTracingTools(opts: NativeTracingOptions): ToolRegist
       def: {
         name: "memory_dump",
         description:
-          "Write a trace containing periodic memory instant events (process.memoryUsage: rss/heapTotal/heapUsed/external/arrayBuffers) over the given duration. Native equivalent of the Chromium memory-infra dump.",
+          "Write a trace containing periodic memory instant events (process.memoryUsage: rss/heapTotal/heapUsed/external/arrayBuffers) over the given duration.",
         inputSchema: {
           type: "object",
           properties: {

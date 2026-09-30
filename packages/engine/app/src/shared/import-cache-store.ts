@@ -2,10 +2,9 @@
 // Import cache store — SQLite-backed cache for resolved ImportSettings
 // ============================================================================
 //
-// Storage layer shared by the Electron main process (IPC handler) and the
-// native host bridge. Uses node:sqlite (stable in Node 24+ / Electron 43+,
-// implemented by Bun ≥1.1). If node:sqlite is unavailable, falls back to an
-// in-memory Map (no persistence across restarts).
+// Storage layer used by the native host bridge. Uses node:sqlite (stable in
+// Node 24+, implemented by Bun ≥1.1). If node:sqlite is unavailable, falls
+// back to an in-memory Map (no persistence across restarts).
 // ============================================================================
 
 import { createLogger } from "@downdraft/engine/util/logger";

@@ -94,10 +94,10 @@ if imui is incapable: the egui snapshot protocol used by native devtools.
 
 ## Launch sweep — all games × {chrome, native} (2025-XX)
 
-Every game now starts in both Electron (`draft dev`) and Bun-native
-(`draft dev --native`) mode. Fixes landed during the sweep:
+Every game was verified to start on the native runtime (`draft dev`).
+Fixes landed during the sweep:
 
-**Chrome mode**
+**Legacy web path**
 - WGSL validator gained `// wgsl-validate: prelude <path>` + `// wgsl-validate: skip`
   pragmas for shaders composed at runtime (andrews-sandbox postfx, to-the-ocean
   entity/pbr/lighting pipelines). to-the-ocean's generated IBL chunk was baked to

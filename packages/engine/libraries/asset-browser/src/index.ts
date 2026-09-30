@@ -8,7 +8,7 @@
 // pluggable right-hand panel (spawn settings, model details, ...).
 //
 // Rendering backends:
-//   - ThumbnailRenderer: WebGL2 OffscreenCanvas (pixi-ui worker / Electron)
+//   - ThumbnailRenderer: WebGL2 OffscreenCanvas (pixi-ui worker / browser)
 //   - SoftwareThumbnailRenderer: CPU rasterizer (native — no WebGL2)
 // Both are injected via PixiUiSceneContext.sceneConfig.createThumbnailRenderer
 // or the scene config's `thumbnailBackend`.

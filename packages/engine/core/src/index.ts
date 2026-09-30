@@ -100,7 +100,7 @@ export type { SimInputWriter, SimWorkerControlApi, SimWorkerSaveApi } from "./wo
 export { createTaskWorker, PortChannel, TaskPool } from "./worker/task-pool";
 export type { JobMessage, JobResultMessage, TaskFn, TaskPoolOptions } from "./worker/task-pool";
 
-// SAB polyfill (for Android WebView — no-op on desktop/Electron)
+// SAB polyfill (no-op where SharedArrayBuffer is native)
 export { usingRealSAB } from "./sab/sab-polyfill";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -206,12 +206,6 @@ export { DebugPoints } from "./debug-draw/points";
 export { DebugDrawQueue } from "./debug-draw/queue";
 export type { DebugLine, DebugPoint, DebugText } from "./debug-draw/queue";
 export { DebugTextRenderer } from "./debug-draw/text";
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Builder
-// ─────────────────────────────────────────────────────────────────────────────
-export { Builder, getBuilderConfig } from "./builder/builder";
-export type { BuilderConfig, BuilderMode } from "./builder/builder";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Scripting

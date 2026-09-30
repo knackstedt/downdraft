@@ -64,8 +64,8 @@ const scheduleImmediate: (fn: () => void) => void = (fn) => {
   else setTimeout(fn, 0);
 };
 
-// Chromium emits ±100px of deltaY per wheel detent in DOM_DELTA_PIXEL mode;
-// SDL reports raw detents, so scale to match the DOM consumers were tuned on.
+// DOM wheel events report ±100px of deltaY per detent in pixel mode;
+// SDL reports raw detents, so scale to match what DOM consumers expect.
 const WHEEL_PIXELS_PER_DETENT = 100;
 
 // rAF dispatches may fire up to this much early — absorbs sub-ms timing noise

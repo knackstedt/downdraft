@@ -1,12 +1,11 @@
 // ============================================================================
 // native-osr-host.ts — Blitz-backed implementation of HostOsrAPI
 //
-// Replaces the Electron OSR stack (BrowserWindow + shared textures + IPC) with
-// in-process Blitz documents. One `OsrDoc` per renderer:
+// In-process Blitz documents render OSR surfaces directly — no shared
+// textures, no IPC. One `OsrDoc` per renderer:
 //   - dedicated mode: the doc IS the surface (full renderer size)
 //   - atlas mode: the doc is a wrapper page whose absolutely-positioned
-//     panel divs each carry one panel's HTML (same model as Electron's
-//     atlas webview — see electron-osr/main/atlas-html.ts)
+//     panel divs each carry one panel's HTML
 //
 // Blitz has no JS engine: `loadURL` fetches the document's HTML only (scripts
 // never execute) and `updateData` is `{{key}}` template substitution on the
@@ -89,8 +88,8 @@ export function createNativeOsrHost(): NativeOsrHost {
     for (const cb of eventCbs.values()) cb({ rendererId: r.id, status, crashCount });
   };
 
-  /** Shelf-pack a new panel into the atlas — same algorithm as the Electron
-   *  atlas renderer (left-to-right, wrap when the row overflows). */
+  /** Shelf-pack a new panel into the atlas — left-to-right, wrap when the
+   *  row overflows. */
   const packPanel = (r: RendererState, w: number, h: number): AtlasPanelRect | null => {
     const last = [...r.panels.values()].at(-1);
     let x = 0;
@@ -190,7 +189,7 @@ export function createNativeOsrHost(): NativeOsrHost {
       if (r.panels.size === 0) r.doc.setHtml(html);
       else {
         // Dedicated-style full-document replace on an atlas renderer clears
-        // the panel set — matches Electron's setContent semantics (whole page).
+        // the panel set (whole-page setContent semantics).
         r.panels.clear();
         r.doc.setHtml(html);
         emitLayout(r);
