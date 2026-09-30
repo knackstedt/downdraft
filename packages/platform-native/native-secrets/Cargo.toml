@@ -1,0 +1,19 @@
+[package]
+name = "downdraft-secrets"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Optional OS-keychain cdylib for Downdraft — get/set/delete credentials via the platform secret store (secret-service / macOS Keychain / Windows Credential Manager)"
+
+[lib]
+name = "downdraft_secrets"
+crate-type = ["cdylib", "rlib"]
+
+# keyring → zbus-secret-service-keyring-store on Linux pulls in zbus/tokio —
+# a heavy DT_NEEDED chain. That is why this crate is a SEPARATE optional
+# library instead of living inside downdraft_platform: a host without a
+# session secret-service simply has no credential store instead of failing
+# to load the platform library entirely.
+[dependencies]
+keyring = "4"

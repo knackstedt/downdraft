@@ -33,6 +33,7 @@ import type { NativeMcpOptions, NativeMcpServer } from "./mcp/native-mcp";
 import { installRestartHook } from "./native-restart";
 import { isPackaged } from "./packaged";
 import { captureScreenshot, captureScreenshotPixels } from "./screenshot/screenshot";
+import { initNativeSecrets } from "./secrets/index";
 import { createHostServices, type HostServices } from "./services/host-services";
 import { NativeSurface } from "./window/native-surface";
 import { NativeWindow, type NativeWindowConfig } from "./window/native-window";
@@ -263,6 +264,12 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
     gamepadDestroyFn = () => { stopEnrich?.(); gamepad.destroy(); };
   }
 
+  // 6c-3. OS keychain — optional downdraft_secrets cdylib (keyring). Exposed
+  //   as globalThis.__ddSecrets so engine/worker code can reach it without
+  //   importing platform-native; null when no credential backend exists.
+  const secrets = process.env.DOWNDRAFT_NO_SECRETS !== "1" ? initNativeSecrets() : null;
+  if (secrets) (globalThis as any).__ddSecrets = secrets;
+
   const bridge = config.appId && services
     ? createNativeBridge({
         appId: config.appId,
@@ -343,6 +350,7 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
       void mcp?.stop();
       gamepadDestroyFn?.();
       delete (globalThis as any).__ddGamepad;
+      delete (globalThis as any).__ddSecrets;
       bridge?.dispose();
       window.destroy();
       releaseSingleInstanceLock();

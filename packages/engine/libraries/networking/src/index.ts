@@ -40,3 +40,6 @@ export type { AuthorityLevel, EntityAuthority } from "./authority";
 export { NetworkClientTok, NetworkingLib } from "./library";
 export type { NetworkingLibConfig } from "./library";
 
+
+export { LanDiscovery, MdnsBrowser } from "./discovery";
+export type { LanBeacon, LanDiscoveryOptions, LanPeer, MdnsBrowseOptions, MdnsService } from "./discovery";

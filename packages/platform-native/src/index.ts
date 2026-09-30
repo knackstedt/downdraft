@@ -33,6 +33,7 @@ export { runNativeGameModule, type RunNativeGameModuleOptions } from "./native-g
 export { createNativeHost, type NativeHostConfig, type NativeHostContext } from "./native-host";
 export { installRestartHook, requestGameRestart, type RestartHookOptions } from "./native-restart";
 export { captureScreenshot, encodePNG, paddedReadbackToRGBA } from "./screenshot/screenshot";
+export { initNativeSecrets, type SecretsStore } from "./secrets/index";
 export { createHostServices, scopeServicesForPlugin, type HostServices, type HostServicesApi, type HostServicesOptions } from "./services/host-services";
 export { NativeCanvasContext, NativeSurface } from "./window/native-surface";
 export { NativeWindow } from "./window/native-window";

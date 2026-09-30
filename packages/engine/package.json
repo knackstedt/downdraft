@@ -191,6 +191,7 @@
     "@jitl/quickjs-singlefile-browser-release-sync": "^0.32.0",
     "buffer": "^6.0.3",
     "comment-json": "^5.0.0",
+    "dns-packet": "^5.6.1",
     "draco3dgltf": "^1.5.7",
     "fflate": "^0.8.2",
     "jimp": "^1.6.1",
@@ -240,5 +241,8 @@
     "lint-plugin.mjs",
     "README.md",
     "!**/*.spec.ts"
-  ]
+  ],
+  "devDependencies": {
+    "@types/dns-packet": "^5.6.5"
+  }
 }

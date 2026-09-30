@@ -28,6 +28,15 @@ export const CRATES = [
     dest: "packages/platform-native/native",
     flatCopy: false,
   },
+  // Optional OS-keychain backend (keyring). Same rationale as gamepad —
+  // a missing session secret-service must not take the platform lib down.
+  {
+    pkg: "downdraft-secrets",
+    lib: "downdraft_secrets",
+    dir: "packages/platform-native/native-secrets",
+    dest: "packages/platform-native/native",
+    flatCopy: false,
+  },
   { pkg: "downdraft-physics", lib: "downdraft_physics", dir: "packages/engine/libraries/physics-native/native", dest: "packages/engine/libraries/physics-native/native/dist", flatCopy: true },
   { pkg: "downdraft-devtools", lib: "downdraft_devtools", dir: "packages/engine/libraries/devtools/native", dest: "packages/engine/libraries/devtools/native/dist", flatCopy: true },
 
