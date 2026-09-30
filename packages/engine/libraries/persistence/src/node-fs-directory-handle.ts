@@ -130,21 +130,20 @@ export class NodeFsDirectoryHandle {
   // The rest of the FileSystemDirectoryHandle surface isn't needed by the
   // persistence stores — present as throwing stubs to satisfy the interface.
   async *entries(): AsyncIterableIterator<[string, FileSystemHandle]> {
-    for (const e of await fs.readdir(this.path, { withFileTypes: true })) {
+    const dirents = await fs.readdir(this.path, { withFileTypes: true });
+    for (let i = 0; i < dirents.length; i++) {
+      const e = dirents[i];
       yield [e.name, e.isDirectory()
         ? (new NodeFsDirectoryHandle(join(this.path, e.name)) as unknown as FileSystemHandle)
         : (new NodeFsFileHandle(join(this.path, e.name)) as unknown as FileSystemHandle)];
     }
   }
-  keys(): AsyncIterableIterator<string> { return this.iterKeys(); }
-  private async *iterKeys(): AsyncIterableIterator<string> {
-    for (const e of await fs.readdir(this.path)) yield e;
+  async *keys(): AsyncIterableIterator<string> {
+    const names = await fs.readdir(this.path);
+    for (let i = 0; i < names.length; i++) yield names[i];
   }
-  values(): AsyncIterableIterator<FileSystemHandle> {
-    const self = this;
-    return (async function* () {
-      for await (const [, h] of self.entries()) yield h;
-    })();
+  async *values(): AsyncIterableIterator<FileSystemHandle> {
+    for await (const [, h] of this.entries()) yield h;
   }
   [Symbol.asyncIterator]() { return this.entries(); }
   async isSameEntry(other: FileSystemHandle): Promise<boolean> {
