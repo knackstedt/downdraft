@@ -10,6 +10,9 @@ members = [
     # Unified platform library — windowing (winit), GPU (wgpu), image decode,
     # text rasterization, WGSL validation. Replaces native/*.c.
     "packages/platform-native/native-rs",
+    # Optional gamepad backend (gilrs). Separate cdylib so its libudev link
+    # dep can't take down the platform library on systems without udev.
+    "packages/platform-native/native-gamepad",
     "packages/engine/libraries/physics-native/native",
     "packages/engine/libraries/devtools/native",
     "packages/engine/libraries/blitz-ui/native",

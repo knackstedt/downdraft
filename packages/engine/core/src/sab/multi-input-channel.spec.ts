@@ -95,12 +95,20 @@ describe("MultiInputChannel", () => {
     const state = new MultiInputState(2);
     const bridge = new MultiInputSABBridge(sab, state, ch);
 
-    writer.writePlayerInput(0, [], 0, 0, 0, 0, [0, 0, 0], 0, [1, 1, 0, 0], [0, 0, 0, 0]);
+    // gamepadButtons is a [lo, hi] u32 bitmask pair (W3C standard order):
+    // bits 0 (south), 1 (east), 9 (start) set in lo; bit 32 in hi.
+    writer.writePlayerInput(0, [], 0, 0, 0, 0, [0, 0, 0], 0, [(1 | 2 | (1 << 9)) >>> 0, 1], [0, 0, 0, 0, 0.5, 0, -1, 1]);
     bridge.poll();
 
-    expect(state.getPlayerState(0).gamepadButtons.has(0)).toBe(true);
-    expect(state.getPlayerState(0).gamepadButtons.has(1)).toBe(true);
-    expect(state.getPlayerState(0).gamepadButtons.has(2)).toBe(false);
+    const gp = state.getPlayerState(0);
+    expect(gp.gamepadButtons.has(0)).toBe(true);
+    expect(gp.gamepadButtons.has(1)).toBe(true);
+    expect(gp.gamepadButtons.has(9)).toBe(true);
+    expect(gp.gamepadButtons.has(32)).toBe(true);
+    expect(gp.gamepadButtons.has(2)).toBe(false);
+    expect(gp.gamepadAxes[4]).toBeCloseTo(0.5);
+    expect(gp.gamepadAxes[6]).toBeCloseTo(-1);
+    expect(gp.gamepadAxes[7]).toBeCloseTo(1);
   });
 
   it("should use default MultiInputChannel constant", () => {

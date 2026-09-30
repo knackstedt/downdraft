@@ -1,0 +1,18 @@
+[package]
+name = "downdraft-gamepad"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Optional gamepad backend cdylib for Downdraft — gilrs-based device discovery, normalization, SAB slot writer, force feedback"
+
+[lib]
+name = "downdraft_gamepad"
+crate-type = ["cdylib", "rlib"]
+
+# gilrs → gilrs-core → libudev-sys hard-links -ludev on Linux. That DT_NEEDED
+# is why this crate is a SEPARATE optional library instead of living inside
+# downdraft_platform: a host without libudev simply has no gamepad support
+# instead of failing to load the platform library entirely.
+[dependencies]
+gilrs = "0.11"

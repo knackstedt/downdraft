@@ -20,6 +20,7 @@ import { installAssetGlob } from "./assets/native-assets";
 import { createNativeBridge } from "./bridge/native-bridge";
 import { resolveNativeUserDataDir } from "./bridge/user-data-dir";
 import { installDOMPolyfills } from "./dom/dom-polyfills";
+import { initNativeGamepad, startGamepadEnrichment } from "./gamepad/index";
 import { installGPU } from "./gpu/install";
 import {
     acquireSingleInstanceLock,
@@ -249,6 +250,19 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
         mode: config.services,
       })
     : null;
+  // 6c-2. Gamepad backend — optional downdraft_gamepad cdylib (gilrs).
+  //   Owns the 'gamepad-devices' SAB channel; GamepadLib picks the buffer
+  //   up via globalThis.__ddGamepad. Absent library / gilrs failure → null,
+  //   gamepad support just isn't available. Disabled via DOWNDRAFT_NO_GAMEPAD.
+  let gamepadDestroyFn: (() => void) | null = null;
+  const gamepad = process.env.DOWNDRAFT_NO_GAMEPAD !== "1" ? initNativeGamepad() : null;
+  if (gamepad) {
+    (globalThis as any).__ddGamepad = gamepad;
+    let stopEnrich: (() => void) | null = null;
+    void startGamepadEnrichment(gamepad.sab).then((stop) => { stopEnrich = stop; });
+    gamepadDestroyFn = () => { stopEnrich?.(); gamepad.destroy(); };
+  }
+
   const bridge = config.appId && services
     ? createNativeBridge({
         appId: config.appId,
@@ -327,6 +341,8 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
     destroy: () => {
       host.destroyed = true;
       void mcp?.stop();
+      gamepadDestroyFn?.();
+      delete (globalThis as any).__ddGamepad;
       bridge?.dispose();
       window.destroy();
       releaseSingleInstanceLock();

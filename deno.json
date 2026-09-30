@@ -95,6 +95,8 @@
     "@downdraft/engine/libraries/devtools/": "./packages/engine/libraries/devtools/src/",
     "@downdraft/engine/libraries/entities": "./packages/engine/libraries/entities/src/index.ts",
     "@downdraft/engine/libraries/entities/": "./packages/engine/libraries/entities/src/",
+    "@downdraft/engine/libraries/gamepad": "./packages/engine/libraries/gamepad/src/index.ts",
+    "@downdraft/engine/libraries/gamepad/": "./packages/engine/libraries/gamepad/src/",
     "@downdraft/engine/libraries/gaussian-splats": "./packages/engine/libraries/gaussian-splats/src/index.ts",
     "@downdraft/engine/libraries/gaussian-splats/": "./packages/engine/libraries/gaussian-splats/src/",
     "@downdraft/engine/libraries/html-ui-kit": "./packages/engine/libraries/html-ui-kit/src/index.ts",

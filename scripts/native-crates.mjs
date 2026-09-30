@@ -19,6 +19,15 @@ export const CRATES = [
     dest: "packages/platform-native/native",
     flatCopy: false,
   },
+  // Optional gamepad backend (gilrs). Ships beside the platform lib; loads
+  // lazily — missing libudev etc. must never block the main platform lib.
+  {
+    pkg: "downdraft-gamepad",
+    lib: "downdraft_gamepad",
+    dir: "packages/platform-native/native-gamepad",
+    dest: "packages/platform-native/native",
+    flatCopy: false,
+  },
   { pkg: "downdraft-physics", lib: "downdraft_physics", dir: "packages/engine/libraries/physics-native/native", dest: "packages/engine/libraries/physics-native/native/dist", flatCopy: true },
   { pkg: "downdraft-devtools", lib: "downdraft_devtools", dir: "packages/engine/libraries/devtools/native", dest: "packages/engine/libraries/devtools/native/dist", flatCopy: true },
 

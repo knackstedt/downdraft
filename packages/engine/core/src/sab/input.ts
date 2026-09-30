@@ -37,10 +37,11 @@ export class InputSABChannel {
       (w.fields.mouseButtons as Int32Array)[i] = i < mouseButtons.length ? mouseButtons[i] : 0;
     }
     (w.fields.wheelDelta as Float32Array)[0] = wheelDelta;
-    for (let i = 0; i < 4; i++) {
-      (w.fields.gamepadButtons as Int32Array)[i] = i < gamepadButtons.length ? gamepadButtons[i] : 0;
-    }
-    for (let i = 0; i < 4; i++) {
+    // gamepadButtons is the bitmask pair [lo, hi] — W3C standard order.
+    const gp = w.fields.gamepadButtons as Uint32Array;
+    gp[0] = (gamepadButtons[0] ?? 0) >>> 0;
+    gp[1] = (gamepadButtons[1] ?? 0) >>> 0;
+    for (let i = 0; i < 8; i++) {
       (w.fields.gamepadAxes as Float32Array)[i] = i < gamepadAxes.length ? gamepadAxes[i] : 0;
     }
 

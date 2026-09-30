@@ -48,7 +48,14 @@ export class InputSABBridge {
       }
     }
 
-    const incomingGamepad = new Set(gamepadButtons.filter((b) => b !== 0).map((b, i) => i));
+    // gamepadButtons is the u32 bitmask pair [lo, hi] (W3C standard order).
+    const lo = (gamepadButtons[0] ?? 0) >>> 0;
+    const hi = (gamepadButtons[1] ?? 0) >>> 0;
+    const incomingGamepad = new Set<number>();
+    for (let b = 0; b < 32; b++) {
+      if (lo & (1 << b)) incomingGamepad.add(b);
+      if (hi & (1 << b)) incomingGamepad.add(32 + b);
+    }
     for (const btn of incomingGamepad.values()) {
       this.state.gamepadButtons.add(btn);
     }

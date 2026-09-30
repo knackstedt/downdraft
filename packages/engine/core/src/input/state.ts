@@ -25,7 +25,8 @@ export class InputState {
   mouseButtonsReleased: Set<number> = new Set();
   wheelDelta: number = 0;
   gamepadButtons: Set<number> = new Set();
-  gamepadAxes: number[] = [0, 0, 0, 0];
+  /** lx ly rx ry lt rt dpadX dpadY (triggers are 0..1). */
+  gamepadAxes: number[] = [0, 0, 0, 0, 0, 0, 0, 0];
   xrControllers: XRControllerState[] = [];
 
   private context: InputContext = InputContext.Editor;

@@ -2,7 +2,7 @@
   "name": "@downdraft/engine",
   "version": "0.1.0",
   "type": "module",
-  "description": "Downdraft engine \u2014 core runtime (ECS, WebGPU renderer, module/DI system, SAB sim channels, imui), runtime-agnostic game bootstrap (startGame/bootstrapGame, HostAPI types), and all engine libraries + feature modules, exposed as subpath exports.",
+  "description": "Downdraft engine — core runtime (ECS, WebGPU renderer, module/DI system, SAB sim channels, imui), runtime-agnostic game bootstrap (startGame/bootstrapGame, HostAPI types), and all engine libraries + feature modules, exposed as subpath exports.",
   "exports": {
     ".": "./core/src/index.ts",
     "./package.json": "./package.json",
@@ -65,6 +65,9 @@
     "./libraries/entities/*": "./libraries/entities/src/*.ts",
     "./libraries/entities/*.ts": "./libraries/entities/src/*.ts",
     "./libraries/entities/*.wgsl": "./libraries/entities/src/*.wgsl",
+    "./libraries/gamepad": "./libraries/gamepad/src/index.ts",
+    "./libraries/gamepad/*": "./libraries/gamepad/src/*.ts",
+    "./libraries/gamepad/*.ts": "./libraries/gamepad/src/*.ts",
     "./libraries/gaussian-splats": "./libraries/gaussian-splats/src/index.ts",
     "./libraries/gaussian-splats/*": "./libraries/gaussian-splats/src/*.ts",
     "./libraries/gaussian-splats/*.ts": "./libraries/gaussian-splats/src/*.ts",
