@@ -65,11 +65,25 @@ export function createNativeHostTools(bridge: HostAPI): ToolRegistration[] {
       def: {
         name: "process_snapshot",
         description: "Capture native-process memory and CPU usage.",
-        inputSchema: { type: "object", properties: {} },
+        inputSchema: {
+          type: "object",
+          properties: {
+            target: { type: "string", description: "Process target — always \"main\" on the single-process native host" },
+          },
+        },
       },
-      handler: async () => ({
-        content: [{ type: "text", text: JSON.stringify(await bridge.getProcessStats(), null, 2) }],
-      }),
+      handler: async (params: Record<string, unknown>) => {
+        const stats = await bridge.getProcessStats();
+        // Single-process native: the only target is the host ("main"). The
+        // { target, main } envelope mirrors the Electron-era tool shape so
+        // e2e/spec consumers keep working.
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({ target: (params.target as string) ?? "main", timestamp: stats.timestamp, main: stats }, null, 2),
+          }],
+        };
+      },
     },
     {
       def: {
