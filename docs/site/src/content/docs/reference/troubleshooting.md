@@ -48,7 +48,7 @@ The sim worker supervisor automatically restarts on first crash from a DB checkp
 
 **Solutions:**
 
-1. The JS audio backend is the active path — no native audio library is required for sound. The `audio-kira` Rust backend (`packages/engine/libraries/audio-kira/native`) is dormant and does not compile at HEAD.
+1. The JS audio backend is the default path — no native audio library is required for sound. The optional `audio-kira` Rust backend (`libdowndraft_audio`, kira + symphonia) is used when the cdylib is present; set `AUDIO_NATIVE_PATH` to point at a specific build.
 2. If reviving `audio-kira`, build it with `cargo build -p audio-kira` after updating to the current kira API.
 
 ## Build Fails

@@ -7,8 +7,7 @@
 //
 // Not listed: downdraft-blitz-shell (rlib, linked into blitz-app — never
 // shipped), bakeoff-blitz-ui (wasm testbed), raw-input (deleted with the
-// Electron input path), audio-kira (dormant — doesn't compile at HEAD; JS
-// audio backend is the active path).
+// Electron input path).
 // ============================================================================
 
 export const CRATES = [
@@ -25,6 +24,8 @@ export const CRATES = [
   { pkg: "downdraft-devtools", lib: "downdraft_devtools", dir: "packages/engine/libraries/devtools/native", dest: "packages/engine/libraries/devtools/native/dist", flatCopy: true },
 
   { pkg: "downdraft-blitz-osr", lib: "downdraft_blitz_osr", dir: "packages/engine/libraries/blitz-ui/native-osr", dest: "packages/engine/libraries/blitz-ui/native-osr/dist", flatCopy: true },
+
+  { pkg: "downdraft-audio", lib: "downdraft_audio", dir: "packages/engine/libraries/audio-kira/native", dest: "packages/engine/libraries/audio-kira/native/dist", flatCopy: true },
 ];
 
 // node (process.platform-process.arch) ↔ rust target triples.

@@ -7,9 +7,8 @@ edition = "2021"
 name = "downdraft_audio"
 crate-type = ["cdylib"]
 
-# Dormant — excluded from the workspace. The source targets a pre-0.8 kira
-# API (StaticSoundData::from_wav_bytes, CpalBackend::new, etc. no longer
-# exist); it needs a port, not a version bump, when revived.
 [dependencies]
+# kira's default features pull symphonia with mp3/ogg/flac/wav decode —
+# StaticSoundData::from_cursor covers every format the FFI accepts, so no
+# direct symphonia dependency is needed.
 kira = "0.9"
-symphonia = { version = "0.5", features = ["mp3", "ogg", "flac", "wav", "pcm"] }

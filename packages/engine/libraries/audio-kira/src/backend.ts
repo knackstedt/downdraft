@@ -1,22 +1,24 @@
 import type {
-  AudioBackend,
-  AudioBackendConfig,
-  AudioBufferDesc,
-  AudioChannel,
-  AudioEffectDesc,
-  AudioFormat,
-  AudioListenerState,
-  AudioSourceHandle,
+    AudioBackend,
+    AudioBackendConfig,
+    AudioBufferDesc,
+    AudioChannel,
+    AudioEffectDesc,
+    AudioFormat,
+    AudioListenerState,
+    AudioSourceHandle,
 } from "@downdraft/engine";
 import { createLogger } from "@downdraft/engine";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const log = createLogger();
 
 /**
- * Native audio library interface. When a native backend is available (loaded
- * via node-rs or Node FFI/napi, never bun:ffi), these methods are implemented
- * in native code. Currently no native library is built, so `loadAudioLib`
- * returns null and the backend runs in JS mode.
+ * Native audio library interface — implemented by libdowndraft_audio
+ * (the audio-kira Rust crate, loaded via bun:ffi through the
+ * platform-native resolver). When the cdylib is absent the backend runs
+ * in JS mode; init/decode errors fall back the same way.
  */
 interface AudioLib {
   init(sampleRate: number, bufferSize: number): number;
@@ -38,8 +40,52 @@ let audioLoadAttempted = false;
 async function loadAudioLib(): Promise<AudioLib | null> {
   if (audioLoadAttempted) return null;
   audioLoadAttempted = true;
-  log.info("audio-kira", "Using JS audio backend (no native library available).");
-  return null;
+  try {
+    const { dlopen, ptr, resolveNativeLibrary } = await import("@downdraft/platform-native");
+    const libPath = resolveNativeLibrary("downdraft_audio", {
+      envVars: ["AUDIO_NATIVE_PATH"],
+      crateDir: join(dirname(fileURLToPath(import.meta.url)), "..", "native"),
+      buildHint: 'run "bun run build:native" from the repo root',
+      optional: true,
+    });
+    if (!libPath) {
+      log.info("audio-kira", "Using JS audio backend (no native library available).");
+      return null;
+    }
+    const s = dlopen(libPath, {
+      dd_audio_init: { args: ["i32", "i32"], returns: "i32" },
+      dd_audio_destroy: { args: [], returns: "i32" },
+      dd_audio_load_buffer: { args: ["ptr", "u64", "i32"], returns: "i32" },
+      dd_audio_unload_buffer: { args: ["i32"], returns: "i32" },
+      dd_audio_play: { args: ["i32", "i32", "f32"], returns: "i32" },
+      dd_audio_stop: { args: ["i32"], returns: "i32" },
+      dd_audio_pause: { args: ["i32"], returns: "i32" },
+      dd_audio_resume: { args: ["i32"], returns: "i32" },
+      dd_audio_set_volume: { args: ["i32", "f32"], returns: "i32" },
+      dd_audio_set_master_volume: { args: ["f32"], returns: "i32" },
+      dd_audio_update: { args: [], returns: "i32" },
+      dd_audio_is_playing: { args: ["i32"], returns: "i32" },
+    }).symbols;
+    log.info("audio-kira", `Native audio backend: ${libPath}`);
+    return {
+      init: (sr, bs) => s.dd_audio_init(sr, bs),
+      destroy: () => s.dd_audio_destroy(),
+      // from_cursor copies the bytes — safe to hand over a transient view.
+      loadBuffer: (data, format) => s.dd_audio_load_buffer(ptr(data), data.byteLength, format),
+      unloadBuffer: (id) => s.dd_audio_unload_buffer(id),
+      play: (b, loop, vol) => s.dd_audio_play(b, loop, vol),
+      stop: (id) => s.dd_audio_stop(id),
+      pause: (id) => s.dd_audio_pause(id),
+      resume: (id) => s.dd_audio_resume(id),
+      setVolume: (id, v) => s.dd_audio_set_volume(id, v),
+      setMasterVolume: (v) => s.dd_audio_set_master_volume(v),
+      update: () => s.dd_audio_update(),
+      isPlaying: (id) => s.dd_audio_is_playing(id),
+    };
+  } catch (e) {
+    log.info("audio-kira", `Native audio unavailable (${e}) — using JS backend.`);
+    return null;
+  }
 }
 
 interface InternalSource {
