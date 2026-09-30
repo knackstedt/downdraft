@@ -5,7 +5,10 @@
 
 use std::os::raw::c_int;
 
-use blitz_dom::{Document, DocumentMutator, LocalName, NodeId, QualName, ns};
+use blitz_dom::{
+    Document, DocumentMutator, LocalName, NodeId, QualName, ScrollBehavior, ScrollLogicalPosition,
+    ns,
+};
 
 use crate::{OsrDoc, ffi, read_str};
 
@@ -260,5 +263,123 @@ pub extern "C" fn dd_osr_focus(handle: *mut OsrDoc, node: u64) -> c_int {
         }
         d.dirty = true;
         0
+    })
+}
+
+/// CSS selector → all matching raw NodeIds, written into the doc's query
+/// buffer. Returns the buffer pointer; read `dd_osr_query_all_len` for the
+/// element count. Pointer is invalidated by the next query_all call (and by
+/// doc teardown). NodeIds invalidate on structural mutations.
+#[no_mangle]
+pub extern "C" fn dd_osr_query_all(
+    handle: *mut OsrDoc,
+    sel_ptr: *const u8,
+    sel_len: usize,
+) -> *const u64 {
+    ffi(std::ptr::null(), || {
+        let Some(d) = (unsafe { handle.as_mut() }) else {
+            return std::ptr::null();
+        };
+        let Some(sel) = (unsafe { read_str(sel_ptr, sel_len) }) else {
+            return std::ptr::null();
+        };
+        let doc = d.doc.inner();
+        d.query_buf.clear();
+        if let Ok(ids) = doc.query_selector_all(sel) {
+            d.query_buf.extend(ids.into_iter().map(|n| n.as_u64()));
+        }
+        d.query_buf.as_ptr()
+    })
+}
+
+/// Element count in the buffer returned by dd_osr_query_all.
+#[no_mangle]
+pub extern "C" fn dd_osr_query_all_len(handle: *mut OsrDoc) -> usize {
+    ffi(0, || {
+        let Some(d) = (unsafe { handle.as_ref() }) else {
+            return 0;
+        };
+        d.query_buf.len()
+    })
+}
+
+/// Scroll the viewport so that `node` is visible.
+///   behavior: 0 = instant, 1 = smooth
+///   v_align/h_align: 0 = start, 1 = center, 2 = end, 3 = nearest
+#[no_mangle]
+pub extern "C" fn dd_osr_scroll_into_view(
+    handle: *mut OsrDoc,
+    node: u64,
+    behavior: c_int,
+    v_align: c_int,
+    h_align: c_int,
+) -> c_int {
+    fn align(v: c_int) -> ScrollLogicalPosition {
+        match v {
+            0 => ScrollLogicalPosition::Start,
+            1 => ScrollLogicalPosition::Center,
+            2 => ScrollLogicalPosition::End,
+            _ => ScrollLogicalPosition::Nearest,
+        }
+    }
+    ffi(-1, || {
+        let Some(d) = (unsafe { handle.as_mut() }) else {
+            return -1;
+        };
+        let id = node_id(node);
+        {
+            let doc = d.doc.inner();
+            if node == 0 || doc.get_node(id).is_none() {
+                return -1;
+            }
+        }
+        d.doc.inner_mut().scroll_into_view(
+            id,
+            if behavior == 1 { ScrollBehavior::Smooth } else { ScrollBehavior::Instant },
+            align(v_align),
+            align(h_align),
+        );
+        d.dirty = true;
+        0
+    })
+}
+
+/// Nearest ancestor-or-self matching a CSS selector → raw NodeId (0 on miss).
+/// Used by nav zoning (e.g. closest("[data-nav-zone]")).
+#[no_mangle]
+pub extern "C" fn dd_osr_closest(
+    handle: *mut OsrDoc,
+    node: u64,
+    sel_ptr: *const u8,
+    sel_len: usize,
+) -> u64 {
+    ffi(0, || {
+        let Some(d) = (unsafe { handle.as_mut() }) else {
+            return 0;
+        };
+        let Some(sel) = (unsafe { read_str(sel_ptr, sel_len) }) else {
+            return 0;
+        };
+        let doc = d.doc.inner();
+        doc.closest(node_id(node), sel)
+            .ok()
+            .flatten()
+            .map(|n| n.as_u64())
+            .unwrap_or(0)
+    })
+}
+
+/// Currently-focused node id, or 0 when nothing is focused.
+#[no_mangle]
+pub extern "C" fn dd_osr_focused_node(handle: *mut OsrDoc) -> u64 {
+    ffi(0, || {
+        let Some(d) = (unsafe { handle.as_ref() }) else {
+            return 0;
+        };
+        d.doc
+            .inner()
+            .get_focussed_node_id()
+            .map(|id| id.as_u64())
+            .unwrap_or(0)
     })
 }

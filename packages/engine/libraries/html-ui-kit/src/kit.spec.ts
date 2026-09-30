@@ -38,6 +38,10 @@ function docPanel(html: string, w = 400, h = 300): DocPanel {
         if (m.type === "events") m.events.forEach((e) => { [...handlers].forEach((fn) => { fn(e);; }); });
         if (m.type === "attr") { const f = reqs.get(m.reqId); reqs.delete(m.reqId); f?.(m.value); }
         if (m.type === "rect") { const f = reqs.get(m.reqId); reqs.delete(m.reqId); f?.(m.rect); }
+        if (m.type === "nodes") { const f = reqs.get(m.reqId); reqs.delete(m.reqId); f?.(m.nodes); }
+        if (m.type === "rects") { const f = reqs.get(m.reqId); reqs.delete(m.reqId); f?.(m.rects); }
+        if (m.type === "focused") { const f = reqs.get(m.reqId); reqs.delete(m.reqId); f?.(m.node); }
+        if (m.type === "navNodes") { const f = reqs.get(m.reqId); reqs.delete(m.reqId); f?.(m.nodes); }
     });
     core.handle({ type: "create", id: "p", cssW: w, cssH: h, scale: 1, html });
     const send = (msg: UiToWorker) => core.handle(msg);
@@ -45,6 +49,7 @@ function docPanel(html: string, w = 400, h = 300): DocPanel {
     const tgt = (t: number | string) => typeof t === "number" ? { node: t } : { sel: t };
     const handle: UiPanelHandle = {
         id: "p",
+        rect: { x: 0, y: 0, w, h },
         setHtml: (html2) => send({ type: "setHtml", id: "p", html: html2 }),
         setText: (t, text) => mutate([{ op: "text", ...tgt(t), text }]),
         setAttr: (t, name, value) => mutate([{ op: "attr", ...tgt(t), name, value }]),
@@ -65,6 +70,26 @@ function docPanel(html: string, w = 400, h = 300): DocPanel {
             const q = ++reqId; reqs.set(q, r as (v: unknown) => void);
             send({ type: "getRect", reqId: q, id: "p", ...tgt(t) });
         }),
+        queryAll: (sel) => new Promise((r) => {
+            const q = ++reqId; reqs.set(q, r as (v: unknown) => void);
+            send({ type: "queryAll", reqId: q, id: "p", sel });
+        }),
+        getRects: (nodes) => new Promise((r) => {
+            const q = ++reqId; reqs.set(q, r as (v: unknown) => void);
+            send({ type: "getRects", reqId: q, id: "p", nodes });
+        }),
+        focusedNode: () => new Promise((r) => {
+            const q = ++reqId; reqs.set(q, r as (v: unknown) => void);
+            send({ type: "getFocused", reqId: q, id: "p" });
+        }),
+        scrollIntoView: (t, opts) => mutate([{ op: "scrollIntoView", ...tgt(t), smooth: opts?.smooth, vertical: opts?.vertical, horizontal: opts?.horizontal }]),
+        navSnapshot: (sel) => new Promise((r) => {
+            const q = ++reqId; reqs.set(q, r as (v: unknown) => void);
+            send({ type: "navSnapshot", reqId: q, id: "p", sel });
+        }),
+        click: (t) => mutate([{ op: "click", ...tgt(t) }]),
+        sendKey: (down, key, opts) => send({ type: "input", id: "p", msg: { kind: "key", down, key, code: opts?.code, text: opts?.text, mods: opts?.mods } }),
+        sendPointer: (msg) => send({ type: "input", id: "p", msg }),
         dispose: () => core.dispose(),
     };
     const input = (msg: DocInputMsg) => send({ type: "input", id: "p", msg });

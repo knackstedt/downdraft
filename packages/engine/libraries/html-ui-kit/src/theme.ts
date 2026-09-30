@@ -37,6 +37,10 @@ body { background: var(--dd-bg); color: var(--dd-text); font-family: ${KIT_FONT_
 .dd-btn[data-disabled="true"] { opacity:.45; }
 .dd-btn[data-on="true"] { background:var(--dd-accent-bg); color:var(--dd-accent); border-color:var(--dd-accent); }
 
+/* NavController focus ring — applied via data-nav-focus on any focusable. */
+[data-nav-focus="1"] { border-color:var(--dd-accent); }
+.dd-btn[data-nav-focus="1"], .dd-input[data-nav-focus="1"] { background:#26303d; border-color:var(--dd-accent); }
+
 .dd-badge { display:inline-block; padding:1px 8px; border-radius:8px; font-size:10px;
   background:var(--dd-panel2); color:var(--dd-dim); border:1px solid var(--dd-line); }
 .dd-badge[data-kind="accent"] { color:var(--dd-accent); border-color:var(--dd-accent); }

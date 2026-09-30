@@ -165,6 +165,8 @@ pub struct OsrDoc {
     pub(crate) out_buf: Vec<u8>,
     /// Owned rect buffer written by dd_osr_node_rect: [x, y, w, h] logical px.
     pub(crate) rect_buf: [f64; 4],
+    /// Owned node-id list written by dd_osr_query_all.
+    pub(crate) query_buf: Vec<u64>,
 }
 
 /// O(1) "did anything change" check: Blitz propagates a damaged_descendants
@@ -291,6 +293,7 @@ pub extern "C" fn dd_osr_init(
             events_buf: Vec::new(),
             out_buf: Vec::new(),
             rect_buf: [0.0; 4],
+            query_buf: Vec::new(),
         };
         Box::into_raw(Box::new(doc))
     })

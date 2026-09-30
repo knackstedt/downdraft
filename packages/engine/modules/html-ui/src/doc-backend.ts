@@ -242,7 +242,57 @@ export function createDocCore(emit: (m: WorkerToUi) => void): {
             else if (op.op === "style") s.doc.setStyle(node, op.prop, op.value);
             else if (op.op === "innerHtml") s.doc.setInnerHtml(node, op.html);
             else if (op.op === "focus") s.doc.focus(node);
+            else if (op.op === "scrollIntoView") {
+              s.doc.scrollIntoView(node, { smooth: op.smooth, vertical: op.vertical, horizontal: op.horizontal });
+            }
+            else if (op.op === "click") {
+              const r = s.doc.nodeRect(node);
+              if (r) {
+                const k = s.scale;
+                const cx = (r.x + r.w / 2) * k, cy = (r.y + r.h / 2) * k;
+                s.doc.pointerMove(cx, cy);
+                s.doc.pointerDown(cx, cy, "left");
+                s.doc.pointerUp(cx, cy, "left");
+              }
+            }
           });
+          break;
+        }
+        case "queryAll": {
+          const s = docs.get(m.id);
+          emit({ type: "nodes", reqId: m.reqId, nodes: s ? s.doc.queryAll(m.sel) : [] });
+          break;
+        }
+        case "getRects": {
+          const s = docs.get(m.id);
+          emit({
+            type: "rects", reqId: m.reqId,
+            rects: s ? m.nodes.map((n) => s.doc.nodeRect(n)) : m.nodes.map(() => null),
+          });
+          break;
+        }
+        case "getFocused": {
+          const s = docs.get(m.id);
+          emit({ type: "focused", reqId: m.reqId, node: s ? s.doc.focusedNode() : 0 });
+          break;
+        }
+        case "navSnapshot": {
+          const s = docs.get(m.id);
+          if (!s) { emit({ type: "navNodes", reqId: m.reqId, nodes: [] }); break; }
+          const nodes = s.doc.queryAll(m.sel).map((n) => ({
+            node: n,
+            rect: s.doc.nodeRect(n),
+            zone: (() => {
+              const z = s.doc.closest(n, "[data-nav-zone]");
+              return z ? s.doc.getAttr(z, "data-nav-zone") : null;
+            })(),
+            disabled:
+              s.doc.getAttr(n, "data-disabled") === "true"
+              || s.doc.getAttr(n, "disabled") !== null
+              || s.doc.getAttr(n, "aria-disabled") === "true",
+            editable: s.doc.getAttr(n, "value") !== null,
+          }));
+          emit({ type: "navNodes", reqId: m.reqId, nodes });
           break;
         }
         case "getAttr": {

@@ -11,7 +11,7 @@ import { createLogger } from "@downdraft/engine";
 import type { OsrDomEvent } from "@downdraft/engine/libraries/blitz-ui/native-osr-ffi";
 import { PanelBlitPass } from "./composite";
 import { createLocalBackend, createWorkerBackend, type DocBackend } from "./doc-backend";
-import type { DocInputMsg, DocMutation, WorkerToUi } from "./protocol";
+import type { DocInputMsg, DocMutation, NavNodeInfo, UiPointerMsg, WorkerToUi } from "./protocol";
 
 const log = createLogger("info");
 
@@ -30,6 +30,9 @@ export interface PanelSpec {
   maxFps?: number;
   /** Initial markup (or `vdom` rendered beforehand by the caller). */
   html: string;
+  /** When false the panel never receives pointer input and `panelAt` skips
+   *  it — overlay/cursor/HUD layers that must not eat clicks. Default true. */
+  interactive?: boolean;
   /** Per-panel DOM event hook — receives events whose target is in this doc. */
   onEvent?: (ev: OsrDomEvent) => void;
 }
@@ -70,6 +73,8 @@ export interface UiDocStats {
 
 export interface UiPanelHandle {
   readonly id: string;
+  /** Current screen-space rect (CSS px) — a snapshot copy. */
+  readonly rect: PanelRect;
   setHtml(html: string): void;
   setText(target: number | string, text: string): void;
   setAttr(target: number | string, name: string, value: string): void;
@@ -86,6 +91,25 @@ export interface UiPanelHandle {
   getAttr(target: number | string, name: string): Promise<string | null>;
   /** Border-box rect in panel-local CSS px (same space as event x/y). */
   getRect(target: number | string): Promise<{ x: number; y: number; w: number; h: number } | null>;
+  /** CSS selector → all matching node handles (re-query after structural edits). */
+  queryAll(selector: string): Promise<number[]>;
+  /** Batched rect lookup for a node set — one backend roundtrip. */
+  getRects(nodes: number[]): Promise<({ x: number; y: number; w: number; h: number } | null)[]>;
+  /** Currently-focused node handle (0 = none). */
+  focusedNode(): Promise<number>;
+  /** Scroll the doc so `target` is visible. */
+  scrollIntoView(target: number | string, opts?: { smooth?: boolean; vertical?: "start" | "center" | "end" | "nearest"; horizontal?: "start" | "center" | "end" | "nearest" }): void;
+  /** Snapshot every node matching `sel` with rect/zone/disabled/editable —
+   *  the nav engine's focusable enumeration. */
+  navSnapshot(selector: string): Promise<NavNodeInfo[]>;
+  /** Synthetic click on a node (real pointer down/up at its rect center). */
+  click(target: number | string): void;
+  /** Inject a key event into the doc (OSK/virtual-keyboard path).
+   *  `key`/`code` are W3C UI-Events strings; `text` inserts into inputs. */
+  sendKey(down: boolean, key: string, opts?: { code?: string; text?: string; mods?: string[] }): void;
+  /** Inject a pointer event in panel-local CSS px (virtual-cursor path).
+   *  Move messages are coalesced like real pointer input. */
+  sendPointer(msg: UiPointerMsg): void;
   dispose(): void;
 }
 
@@ -97,6 +121,10 @@ export class HtmlUiHost {
   private nextReqId = 1;
   private attrReqs = new Map<number, (v: string | null) => void>();
   private rectReqs = new Map<number, (v: { x: number; y: number; w: number; h: number } | null) => void>();
+  private nodesReqs = new Map<number, (v: number[]) => void>();
+  private rectsReqs = new Map<number, (v: ({ x: number; y: number; w: number; h: number } | null)[]) => void>();
+  private focusedReqs = new Map<number, (v: number) => void>();
+  private navReqs = new Map<number, (v: NavNodeInfo[]) => void>();
   private actionHandlers = new Map<string, Set<PanelActionHandler>>();
   private unsubInput: Array<() => void> = [];
   private focusedPanel: string | null = null;
@@ -149,6 +177,7 @@ export class HtmlUiHost {
       typeof t === "number" ? { node: t } : { sel: t };
     return {
       id: p.id,
+      get rect() { return { ...p.rect }; },
       setHtml: (html) => this.send({ type: "setHtml", id: p.id, html }),
       setText: (t, text) => mutate({ op: "text", ...tgt(t), text }),
       setAttr: (t, name, value) => mutate({ op: "attr", ...tgt(t), name, value }),
@@ -180,6 +209,32 @@ export class HtmlUiHost {
         const reqId = this.nextReqId++;
         this.rectReqs.set(reqId, resolve);
         this.send({ type: "getRect", reqId, id: p.id, ...tgt(t) });
+      }),
+      queryAll: (selector) => new Promise((resolve) => {
+        const reqId = this.nextReqId++;
+        this.nodesReqs.set(reqId, resolve);
+        this.send({ type: "queryAll", reqId, id: p.id, sel: selector });
+      }),
+      getRects: (nodes) => new Promise((resolve) => {
+        const reqId = this.nextReqId++;
+        this.rectsReqs.set(reqId, resolve);
+        this.send({ type: "getRects", reqId, id: p.id, nodes });
+      }),
+      focusedNode: () => new Promise((resolve) => {
+        const reqId = this.nextReqId++;
+        this.focusedReqs.set(reqId, resolve);
+        this.send({ type: "getFocused", reqId, id: p.id });
+      }),
+      scrollIntoView: (t, opts) =>
+        mutate({ op: "scrollIntoView", ...tgt(t), smooth: opts?.smooth, vertical: opts?.vertical, horizontal: opts?.horizontal }),
+      click: (t) => mutate({ op: "click", ...tgt(t) }),
+      sendKey: (down, key, opts) =>
+        this.send({ type: "input", id: p.id, msg: { kind: "key", down, key, code: opts?.code, text: opts?.text, mods: opts?.mods } }),
+      sendPointer: (msg) => this.input(p.id, msg),
+      navSnapshot: (sel) => new Promise((resolve) => {
+        const reqId = this.nextReqId++;
+        this.navReqs.set(reqId, resolve);
+        this.send({ type: "navSnapshot", reqId, id: p.id, sel });
       }),
       dispose: () => this.unmount(p.id),
     };
@@ -341,15 +396,25 @@ export class HtmlUiHost {
 
   private pointerDownOn: string | null = null;
 
-  /** Topmost panel whose rect contains (x, y) — rect-based capture gating. */
+  /** Topmost interactive panel whose rect contains (x, y) — rect-based
+   *  capture gating. Non-interactive overlays (`interactive:false`) are
+   *  skipped so pointer events fall through to panels beneath them. */
   private panelAt(x: number, y: number): Panel | null {
     const sorted = this.sortedPanels();
     for (let i = sorted.length - 1; i >= 0; i--) {
       const p = sorted[i]!;
+      if (p.spec.interactive === false) continue;
       const r = p.rect;
       if (x >= r.x && y >= r.y && x < r.x + r.w && y < r.y + r.h) return p;
     }
     return null;
+  }
+
+  /** Handle for the topmost interactive panel at screen (x, y), or null.
+   *  Public sibling of `panelAt` for virtual-pointer routing. */
+  panelAtHandle(x: number, y: number): UiPanelHandle | null {
+    const p = this.panelAt(x, y);
+    return p ? this.handleFor(p) : null;
   }
 
   private sortedPanels(): Panel[] {
@@ -372,6 +437,9 @@ export class HtmlUiHost {
       }
       case "frame": {
         const p = this.panels.get(m.id);
+        if (process.env.DD_UI_TRACE_FRAMES === "1") {
+          log.info("html-ui", `frame ${m.id} x=${m.x} y=${m.y} w=${m.w} h=${m.h} pw=${m.pw} ph=${m.ph} seq=${m.seq ?? "-"}`);
+        }
         if (!p) return;
         if (m.seq !== undefined && m.stride !== undefined && p.sab && p.sabI32) {
           // Zero-copy path: the backend wrote the dirty rect into the shared
@@ -442,6 +510,30 @@ export class HtmlUiHost {
         const fn = this.rectReqs.get(m.reqId);
         this.rectReqs.delete(m.reqId);
         fn?.(m.rect);
+        break;
+      }
+      case "nodes": {
+        const fn = this.nodesReqs.get(m.reqId);
+        this.nodesReqs.delete(m.reqId);
+        fn?.(m.nodes);
+        break;
+      }
+      case "rects": {
+        const fn = this.rectsReqs.get(m.reqId);
+        this.rectsReqs.delete(m.reqId);
+        fn?.(m.rects);
+        break;
+      }
+      case "focused": {
+        const fn = this.focusedReqs.get(m.reqId);
+        this.focusedReqs.delete(m.reqId);
+        fn?.(m.node);
+        break;
+      }
+      case "navNodes": {
+        const fn = this.navReqs.get(m.reqId);
+        this.navReqs.delete(m.reqId);
+        fn?.(m.nodes);
         break;
       }
       case "error": log.error("html-ui", `doc ${m.id} backend error: ${m.message}`); break;

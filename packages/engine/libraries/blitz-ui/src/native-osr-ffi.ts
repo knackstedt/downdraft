@@ -71,6 +71,11 @@ const OSR_SPEC: Record<string, CFunction> = {
   dd_osr_get_attr: { args: ["ptr", "u64", "ptr", "usize"], returns: "ptr" },
   dd_osr_out_len: { args: ["ptr"], returns: "usize" },
   dd_osr_focus: { args: ["ptr", "u64"], returns: "i32" },
+  dd_osr_focused_node: { args: ["ptr"], returns: "u64" },
+  dd_osr_query_all: { args: ["ptr", "ptr", "usize"], returns: "ptr" },
+  dd_osr_query_all_len: { args: ["ptr"], returns: "usize" },
+  dd_osr_closest: { args: ["ptr", "u64", "ptr", "usize"], returns: "u64" },
+  dd_osr_scroll_into_view: { args: ["ptr", "u64", "i32", "i32", "i32"], returns: "i32" },
   // ── Process-wide ui:// resources (fonts, images, stylesheets) ──
   dd_osr_register_resource: { args: ["ptr", "usize", "ptr", "usize"], returns: "i32" },
 };
@@ -307,12 +312,49 @@ export class OsrDoc {
     const p = this.lib.dd_osr_get_attr(this.handle, BigInt(node), ptr(n), n.length) as number;
     if (!p) return null;
     const len = Number(this.lib.dd_osr_out_len(this.handle));
+    if (len === 0) return ""; // attr/value present but empty
     return new TextDecoder().decode(readMappedRange(p, len));
   }
 
   /** Focus a node (0 = blur). */
   focus(node: number): boolean {
     return (this.lib.dd_osr_focus(this.handle, BigInt(node)) as number) === 0;
+  }
+
+  /** Currently-focused node handle, or 0. */
+  focusedNode(): number {
+    return Number(this.lib.dd_osr_focused_node(this.handle) as bigint | number);
+  }
+
+  /** CSS selector → all matching node handles (empty on miss/parse error).
+   *  Re-query after structural edits. */
+  queryAll(selector: string): number[] {
+    const s = enc.encode(selector);
+    const p = this.lib.dd_osr_query_all(this.handle, ptr(s), s.length) as number;
+    const len = Number(this.lib.dd_osr_query_all_len(this.handle));
+    if (!p || len === 0) return [];
+    const u8 = readMappedRange(p, len * 8);
+    const u64 = new BigUint64Array(u8.buffer, u8.byteOffset, len);
+    return Array.from(u64, (v) => Number(v));
+  }
+
+  /** Nearest ancestor-or-self matching `selector` → node handle (0 on miss). */
+  closest(node: number, selector: string): number {
+    const s = enc.encode(selector);
+    return Number(this.lib.dd_osr_closest(this.handle, BigInt(node), ptr(s), s.length) as bigint | number);
+  }
+
+  /** Scroll the viewport so `node` is visible.
+   *  align: "start" | "center" | "end" | "nearest" (nearest = minimal scroll). */
+  scrollIntoView(
+    node: number,
+    opts?: { smooth?: boolean; vertical?: "start" | "center" | "end" | "nearest"; horizontal?: "start" | "center" | "end" | "nearest" },
+  ): boolean {
+    const A = { start: 0, center: 1, end: 2, nearest: 3 } as const;
+    return (this.lib.dd_osr_scroll_into_view(
+      this.handle, BigInt(node), opts?.smooth ? 1 : 0,
+      A[opts?.vertical ?? "nearest"], A[opts?.horizontal ?? "nearest"],
+    ) as number) === 0;
   }
 
   // ── Zero-copy frame channel ──
