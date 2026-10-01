@@ -23,7 +23,7 @@ export const NECK_Y = 1.8; // neck (top of spine)
 export const SHOULDER_Y = 2.2; // shoulder pivot
 export const HIP_Y = 4.5; // hip pivot (bottom of spine)
 export const ARM_LEN = 1.5; // full arm length (shoulder -> hand)
-export const LEG_LEN = 2.0; // full leg length (hip -> foot)
+export const LEG_LEN = 2.5; // full leg length (hip -> foot) — reaches AABB bottom
 
 // 2-segment limb split: upper segment (shoulder->elbow / hip->knee) is this
 // fraction of the full limb length; the remainder is the lower segment.
@@ -42,4 +42,4 @@ export const JUMP_ARM_SWING = 0.5;
 
 // Render defaults. Line width is in cell units so strokes scale with zoom
 // (matches the SVG NPC overlay's strokeW = max(1, scale * 0.25)).
-export const DEFAULT_LINE_WIDTH = 0.25;
+export const DEFAULT_LINE_WIDTH = 0.3;

@@ -100,13 +100,11 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let lighting = light.rgb + vol.rgb;
 
   if (in.circleRadius > 0.0) {
-    // SDF circle ring: draw if |dist - radius| < lineWidth.
-    // Anti-alias with a 1-cell smoothstep edge.
+    // Filled head disc with a soft anti-aliased rim (a thin ring read as a
+    // floating block at game zooms).
     let dist = distance(in.worldPos, in.circleCenter);
-    let ringHalf = u.lineWidth;
     let aa = 0.5;
-    let d = abs(dist - in.circleRadius);
-    let alpha = 1.0 - smoothstep(ringHalf, ringHalf + aa, d);
+    let alpha = 1.0 - smoothstep(in.circleRadius - aa, in.circleRadius, dist);
     if (alpha < 0.01) {
       discard;
     }
