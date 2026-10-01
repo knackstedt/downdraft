@@ -89,6 +89,14 @@ static G_DEVICE: Mutex<Option<Device>> = Mutex::new(None);
 /// on "whatever the last get_current_texture acquired".
 static G_SURFACE_TEXTURES: LazyLock<Mutex<HashMap<usize, SurfaceTexture>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+/// Surfaces whose configure() completed without panicking. wgpu panics
+/// inside get_current_texture when the surface was never configured (or a
+/// configure attempt itself panicked) — ffi! catches the unwind but the
+/// panic hook still prints a scary record per frame. Gating the call here
+/// turns that case into a plain SURFACE_TEX_ERROR status the JS side
+/// already handles as a skipped frame.
+static G_CONFIGURED_SURFACES: LazyLock<Mutex<HashSet<usize>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
 
 thread_local! {
     /// ErrorScopeGuard is !Send (per-thread by design in wgpu) — scopes are
@@ -2266,6 +2274,13 @@ pub extern "C" fn wgpu_shim_surface_configure(
                 view_formats: vec![],
             },
         );
+        // Only reachable when configure() didn't panic — a panicked
+        // configure leaves the surface unconfigured and the acquire guard
+        // below keeps it out of wgpu.
+        G_CONFIGURED_SURFACES
+            .lock()
+            .unwrap()
+            .insert(surface as usize);
     });
 }
 
@@ -2280,6 +2295,16 @@ pub extern "C" fn wgpu_shim_surface_get_current_texture(
     ffi!(6, unsafe {
         if !texture_out.is_null() {
             *texture_out = ptr::null_mut();
+        }
+        // wgpu panics on get_current_texture for a never-configured (or
+        // failed-configure) surface. Check our own bookkeeping first and
+        // report Error instead of unwinding through the panic hook.
+        if !G_CONFIGURED_SURFACES
+            .lock()
+            .unwrap()
+            .contains(&(surface as usize))
+        {
+            return 6;
         }
         let result = obj::<Surface>(surface).get_current_texture();
         let (st, status) = match result {
@@ -2325,6 +2350,10 @@ pub extern "C" fn wgpu_shim_surface_present(surface: Handle) {
 pub extern "C" fn wgpu_shim_surface_unconfigure(surface: Handle) {
     ffi!((), {
         G_SURFACE_TEXTURES
+            .lock()
+            .unwrap()
+            .remove(&(surface as usize));
+        G_CONFIGURED_SURFACES
             .lock()
             .unwrap()
             .remove(&(surface as usize));
@@ -2383,6 +2412,7 @@ pub extern "C" fn wgpu_shim_release_instance(p: Handle) {
 pub extern "C" fn wgpu_shim_release_surface(p: Handle) {
     ffi!((), unsafe {
         G_SURFACE_TEXTURES.lock().unwrap().remove(&(p as usize));
+        G_CONFIGURED_SURFACES.lock().unwrap().remove(&(p as usize));
         release::<Surface>(p);
     });
 }

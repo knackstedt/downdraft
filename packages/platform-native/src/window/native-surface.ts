@@ -128,7 +128,7 @@ export class NativeCanvasContext {
   }
 
   getCurrentTexture(): WgpuTexture | null {
-    if (!this.configured || !this.surfacePtr) return null;
+    if (!this.configured || !this.surfacePtr || !this.device) return null;
 
     // Return cached texture if we already acquired one this frame.
     // wgpu-native only allows one outstanding surface texture at a time;
@@ -140,6 +140,12 @@ export class NativeCanvasContext {
     // a reconfigure can never land while a surface texture is outstanding.
     if (this.width !== this.configuredWidth || this.height !== this.configuredHeight) {
       this.applyConfigure();
+      // applyConfigure can no-op (no device/surface) or fail internally —
+      // configuredWidth/Height only latch on success. Acquiring while the
+      // native side is still unconfigured panics inside wgpu.
+      if (this.width !== this.configuredWidth || this.height !== this.configuredHeight) {
+        return null;
+      }
     }
 
     // Outdated/Lost acquire statuses mean the swapchain needs a reconfigure —
@@ -165,6 +171,15 @@ export class NativeCanvasContext {
       if ((status === SURFACE_TEX_OUTDATED || status === SURFACE_TEX_LOST) && attempt === 0) {
         this.applyConfigure();
         continue;
+      }
+
+      // An Error status means the native side rejected the acquire — with the
+      // configured-surface guard in the shim that includes "not configured"
+      // (e.g. a configure that panicked internally). Clear the latched dims
+      // so the next frame re-runs applyConfigure instead of trusting them.
+      if (status === SURFACE_TEX_ERROR) {
+        this.configuredWidth = 0;
+        this.configuredHeight = 0;
       }
 
       this.acquireFailures++;
