@@ -22,10 +22,10 @@ Game detection: a directory is a game when it has `downdraft.config.json` or `sr
 
 The engine is a **single npm package**, `@downdraft/engine` (manifest at `packages/engine/package.json`), which exposes everything through subpath exports: `@downdraft/engine` (core index), `@downdraft/engine/core/<path>` (deep core imports), `@downdraft/engine/app/<renderer|shared>`, `@downdraft/engine/libraries/<name>`, `@downdraft/engine/modules/<name>`, plus `ui`, `shader-graph`, `mcp`, `test`, and `asset-bake` subpaths. The only other published packages are `@downdraft/cli` (the `draft` binary) and `@downdraft/platform-native` (native binaries). The exports map is generated — run `node scripts/gen-engine-exports.mjs` after adding/removing a library or module directory.
 
-Architecturally the engine is split into **core + libraries** (standard engine building blocks, used directly by games) vs **modules** (opt-in game features with lifecycle + typed DI + diagnostics). Core also includes animation, particles, and imui subsystems directly.
+Architecturally the engine is split into **core + libraries** (standard engine building blocks, used directly by games) vs **modules** (opt-in game features with lifecycle + typed DI + diagnostics). Core also includes animation, particles, and the legacy `imui` subsystem directly (superseded for game UI by `modules/html-ui` — see "UI direction" below).
 
-- **Engine libraries** (imported as `@downdraft/engine/libraries/<name>`, located in `packages/engine/libraries/`): directories that export classes/functions without a module lifecycle. Games can either import and wire these directly, or declare them via `EngineLibrary` descriptors in `GameModule.libraries[]` for auto-wiring (SAB allocation, sim system creation, renderer pass creation, typed DI tokens). Engine libraries: water, physics-rapier, physics-native, marching-cubes, surface-nets, audio-kira, models, networking, weatherfx, pixi-ui, entities, lighting, weather, navmesh, recast, persistence, gaussian-splats, sand, stickman, profiler, pathfinding-2d, character.
-- **Engine modules** (imported as `@downdraft/engine/modules/<name>`, located in `packages/engine/modules/`): directories that implement the `Module` or `RendererModule` interface with a `register()` lifecycle + typed DI. Engine modules: camera-controls, devtools, native-osr, mcp, xr, terrain, movement-3d, movement-2d, vitals, sailing.
+- **Engine libraries** (imported as `@downdraft/engine/libraries/<name>`, located in `packages/engine/libraries/`): directories that export classes/functions without a module lifecycle. Games can either import and wire these directly, or declare them via `EngineLibrary` descriptors in `GameModule.libraries[]` for auto-wiring (SAB allocation, sim system creation, renderer pass creation, typed DI tokens). Engine libraries: asset-browser, audio-kira, blitz-ui, character, devtools, entities, gamepad, gaussian-splats, html-ui-kit, lighting, marching-cubes, models, navmesh, networking, pathfinding-2d, persistence, physics-native, physics-rapier, pixi-ui (legacy), pixi-ui-native (legacy), postfx, profiler, recast, sand, stickman, surface-nets, water, weather, weatherfx.
+- **Engine modules** (imported as `@downdraft/engine/modules/<name>`, located in `packages/engine/modules/`): directories that implement the `Module` or `RendererModule` interface with a `register()` lifecycle + typed DI. Engine modules: camera-controls, controller-ui, devtools, html-ui, mcp, movement-2d, movement-3d, native-osr, sailing, terrain, vitals, xr.
 - **Game modules** (namespace `@to-the-ocean/module-*`, located in `games/<game>/modules/`): game-specific features with a module lifecycle. Game modules: crafting, inventory, buoyancy, collision, wildlife.
 - **Game libraries** (namespace `@to-the-ocean/library-*`, located in `games/<game>/libraries/`): game-specific pure libraries without a module lifecycle. Game libraries: boats, economy, fishing, items, survival.
 
@@ -153,33 +153,59 @@ Before writing per-game infrastructure, check whether the engine already provide
 | MCP automation tools | `createStandardAutomationTools(ctx)` + `createMcpHarness` — the ~13 standard tools; game tools via `extraTools` | `@downdraft/engine/app/renderer` |
 | DevTools | `initDevTools(renderer, {...})` + `createSimStatsProvider`/`createSimStatsPanelExtension` | `@downdraft/engine/modules/devtools` |
 | Sand simulation | `SandWorld`, `SandStepPool`, `SandLib`, palette/materials | `@downdraft/engine/libraries/sand` |
-| Game UI | `createGameUi({ build })` renderer module over `core/imui` (UIRoot/UIRenderer/widgets) — **canonical game-UI system**; pixi-ui is legacy for games | `@downdraft/engine` |
+| Game UI | `createHtmlUi({ build })` renderer module over `modules/html-ui` (Blitz HTML/CSS docs rasterized in a UI worker, composited as panel quads) — **canonical game-UI system** | `@downdraft/engine/modules/html-ui` |
 
-**UI direction:** game UI is migrating from PixiJS-in-worker (`library-pixi-ui`) to `core/imui` (the same WebGPU UI system family the native devtools use). New games must target imui; do not add new pixi-ui scenes to games. `library-pixi-ui` remains for plugin/compat surfaces.
+**UI direction:** the framework bakeoff (`test-beds/ui-bakeoff` — imui vs pixi vs Blitz stacks) settled on **Blitz** for game UI. `modules/html-ui` (worker-backed Blitz HTML/CSS documents with a JSX authoring layer) is the forward direction; native devtools/OSR panels are already Blitz-backed. `core/imui` and `libraries/pixi-ui`/`pixi-ui-native` are **legacy** — do not add new UI to either stack; new games and all new UI work target html-ui.
 
-**Game UI pattern:** `GameRenderer` already owns the imui lifecycle. A game mounts its UI as a renderer module:
+**Ports still owed.** Most games have NOT been ported to html-ui yet:
 
-```ts
-renderer.useRendererModule(createGameUi({
+| Game | Current UI stack | Port status |
+|---|---|---|
+| `falling-sand` | `core/imui` (`createGameUi`) | needs port to html-ui |
+| `sandjongg` | `core/imui` (`createGameUi`) | needs port to html-ui |
+| `overburden` | `pixi-ui-native` (`@pixi/react`, ~11 components) | needs port |
+| `to-the-ocean` | `pixi-ui-native` (`@pixi/react`, ~17 components) | needs port |
+| `mining-rpg` | `pixi-ui-native` (`@pixi/react`, ~24 components) | needs port |
+| `andrews-sandbox` | `pixi-ui-native` | needs port |
+| `downdraft-model-viewer` | `modules/html-ui` | done — reference port |
+| `downdraft-gpu-bench` | `modules/html-ui` (nav bench test) | partial |
+
+> Until those ports land, `core/imui`, `pixi-ui`, and `pixi-ui-native` must NOT be deleted — they are still load-bearing for the games above (and `libraries/profiler` renders its overlay as a pixi-ui scene).
+
+**Game UI pattern:** a game mounts its UI as a renderer module. Each panel is a Blitz HTML/CSS document rasterized in a dedicated UI worker (layout + vello raster off the main thread); the host owns per-panel WebGPU textures with dirty-rect partial uploads, composited at the end of `GameRenderer`'s frame. Input routes through the input bus — rect/z-ordered panels, `:hover`/`:active`/DOM focus inside the doc, keyboard claimed only while an editable element holds focus. Controller/keyboard spatial navigation (focus zones, on-screen keyboard, virtual cursor) is auto-wired from `html-ui-kit` + `GamepadLib` unless `nav: false`.
+
+```tsx
+/** @jsxImportSource @downdraft/engine/modules/html-ui */
+
+renderer.useRendererModule(createHtmlUi({
   build(ui) {
-    const hud = new UIPanel(220, 60);
-    hud.name = "hud";
-    const hp = new UIText("HP");
-    hp.name = "hp";
-    hud.addChild(hp);
-    ui.root.addChild(hud);
+    const hud = ui.mount(
+      <div class="hud"><span id="hp">HP</span><button data-action="pause">Pause</button></div>,
+      { id: "hud", rect: { x: 8, y: 8, w: 220, h: 60 } },
+    );
 
-    // Push-style: store subscription → element mutation
-    ui.bind(store, (s) => s.health, (v) => hp.setText(`HP ${v}`));
+    // Push-style: store subscription → selector-scoped doc mutations
+    ui.bind(store, (s) => s.health, (v) => hud.setText("#hp", `HP ${v}`));
+    // Actions: data-action attributes → host-side handlers (no bridge protocol)
+    ui.onAction("pause", () => sim.setSpeed(0));
     // Poll-style: per-frame sync (SAB scalars, positions, visibility)
-    ui.onUpdate(() => { menuPanel.visible = store.getState().menuOpen; });
-    // Actions: onClick calls sim directly — no bridge protocol
-    btn.callbacks.onClick = () => sim.setSpeed(2);
+    ui.onUpdate(() => { hud.setStyle("#boss", "display", bossVisible ? "flex" : "none"); });
   },
 }));
 ```
 
-Conventions: `ui.root` is a full-screen `pointerThrough` container — size interactive children tightly so non-UI canvas clicks fall through to game input (`ui.isPointerOverUI()` for paint-style games). Widgets: `UIButton`/`UIToggle`/`UISlider`/`UITabBar`/`UIModal`/`UIScrollPanel`/`UITextInput`/`UIProgressBar`/`UIToastStack` + `UIPanel`/`UIText`/`UIImage`/`UILine`. `setUIFontScale(ui.root, scale)` for font scaling.
+`UiPanelHandle` mutations are selector-scoped (`setText`/`setAttr`/`setStyle`/`setInnerHtml`/`setHtml`/`setRect`/`focus`/`click`/`scrollIntoView`/`mutate(ops)`) so HUD ticks don't reparse the document. `ui.isPointerOverUI()` gates canvas input for paint-style games; `ui.loadResource`/`fontFaceCss` register fonts/images for `ui://` URLs. Widget/theme/nav helpers live in `@downdraft/engine/libraries/html-ui-kit` (components like `button`/`slider`/`dropdown`/`tabs`/`toast`, `kitStyleTag()`/`KIT_CSS`, `UiNavRouter`/`NavController`/`openOsk`/`VirtualCursor`, ten-foot widgets); the low-level FFI surface is `@downdraft/engine/libraries/blitz-ui` (`native-osr-ffi`).
+
+html-ui files:
+- `packages/engine/modules/html-ui/src/create-html-ui.ts` — `createHtmlUi` + `HtmlUiContext` + `HtmlUiTok`.
+- `packages/engine/modules/html-ui/src/host.ts` — `HtmlUiHost`, `PanelSpec`, `UiPanelHandle`, panel input routing.
+- `packages/engine/modules/html-ui/src/ui-worker.ts` + `doc-backend.ts` + `protocol.ts` — worker-side document host + main↔worker protocol.
+- `packages/engine/modules/html-ui/src/jsx-runtime.ts` — JSX → markup (`jsxImportSource` for per-game tsconfigs).
+- `packages/engine/libraries/html-ui-kit/` — widget kit, theme, nav, ten-foot UI.
+- `packages/engine/libraries/blitz-ui/` — native Blitz/vello cdylib FFI (`native-osr-ffi`, OSR frame channel).
+- `test-beds/ui-bakeoff/` — the framework comparison bench that produced this decision.
+
+The legacy imui pattern (`createGameUi` over `core/imui`) still applies to `falling-sand`/`sandjongg` until their ports land — see `core/src/imui` widgets (`UIPanel`/`UIText`/`UIButton`/`UIToggle`/`UISlider`/`UITabBar`/`UIModal`/`UIScrollPanel`/`UITextInput`/`UIProgressBar`/`UIToastStack`) and `game-ui.ts`.
 
 ## RenderSurface and overlay layering
 
@@ -189,14 +215,16 @@ On the native runtime there is no DOM or HTML document. The single render target
 
 - `GameModule.renderer: (surface: RenderSurface) => IRenderer` — the surface is injected by `bootstrapGame()`; never query `document` for a canvas.
 - `ctx.surface` / `GameRenderer.getSurface()` are the canonical accessors. `getCanvas()` / `getOverlay()` / `elementFromPoint` live in `renderer/compat/dom.ts` as deprecated DOM-host compatibility shims — they hard-fail on native (`hasDom()` is `false`).
-- The DOM-overlay `mountUI` hook is skipped on native; game UI uses `core/imui` (see the shared-APIs table above).
+- The DOM-overlay `mountUI` hook is skipped on native; game UI uses `modules/html-ui` (Blitz — see the shared-APIs table above).
 - Multiple render areas (minimap, picture-in-picture) are implemented as additional OSR surfaces or viewport regions, not stacked canvases.
 
 ## PixiJS UI overlay library (`@downdraft/engine/libraries/pixi-ui`)
 
+> **Legacy — still deployed.** pixi-ui/pixi-ui-native still render the entire UI for `overburden`, `to-the-ocean`, `mining-rpg`, and `andrews-sandbox`, and `libraries/profiler` draws its overlay as a pixi-ui scene. Do not extend this stack for new game UI — target `modules/html-ui` — but do not delete it until those ports land. This section is kept as the reference for the deployed games.
+
 A worker-hosted PixiJS UI overlay: the library spawns a Web Worker that renders a GUI onto an `OffscreenCanvas` (via `transferControlToOffscreen`) stacked above the main game canvas. Games feed per-frame scalars via a `SharedArrayBuffer` (UiStatsSAB) and event-driven data via `postMessage`. The overlay canvas is `pointer-events: none` by default (game keeps all input); when the worker signals interactive/modal UI, the host flips the canvas to `pointer-events: auto` and forwards pointer events to the worker for PixiJS hit-testing.
 
-> **DOM-only library:** this section describes the browser/DOM host path. On the native runtime, `libraries/pixi-ui` resolves its target via `getSurface()` and the DOM queries below are skipped (`hasDom()` is false). The native equivalent is `libraries/pixi-ui-native` (see below); new game UI should target `core/imui` instead.
+> **DOM-only library:** this section describes the browser/DOM host path. On the native runtime, `libraries/pixi-ui` resolves its target via `getSurface()` and the DOM queries below are skipped (`hasDom()` is false). The native equivalent is `libraries/pixi-ui-native` (see below); new game UI should target `modules/html-ui` (Blitz) instead.
 
 ### Architecture
 
@@ -276,9 +304,9 @@ A per-game **worker-side store mirror** (`src/pixi/store.ts`) holds the worker's
 6. **Delete** the old `src/app.tsx`, `src/components/*`, and UI-only CSS.
 7. **Interactive UI + game input**: if the game has clickable UI elements that coexist with game-canvas mouse input, set `passThrough: true` and implement `getInteractiveRegions()` in the scene. If the game only has modal menus (full-screen overlays that capture all input), use the default non-pass-through mode + `setInteractive(true)`.
 
-### Migration status (all games migrated to pixi-ui)
+### Migration status (historical — the pixi-ui era)
 
-All five games have been migrated from React/Solid DOM overlays to the worker-hosted PixiJS overlay:
+Historical record: all five games were migrated from React/Solid DOM overlays to the worker-hosted PixiJS overlay. `falling-sand` and `sandjongg` have since moved to `core/imui`, and every stack in this table is slated for replacement by `modules/html-ui` (see "UI direction" above):
 
 | Game | Renderer | Components | E2E tests | Notes |
 |---|---|---|---|---|
@@ -1365,6 +1393,8 @@ Native runs on three JS runtimes — **Bun** (default, `bun:ffi`), **Node+tsx** 
 Cross-runtime gotchas: tsconfig `paths` and `deno.json` alias `xxh3-ts` → a `.d.ts`, and tsx/Deno honor it at runtime — `hash-utils.ts` requires `xxh3-ts/index.js` (deep path) in its fallback to bypass the alias. Shared `game-module.ts` files must not import `.css` (Deno has no loader hooks) — keep CSS in the browser-only `main.tsx`. `node:module` imports must be lazy dynamic imports in shared code (browser bundles).
 
 ## Native PixiUI (`@downdraft/engine/libraries/pixi-ui-native`)
+
+> **Legacy — still deployed** by `overburden`, `to-the-ocean`, `mining-rpg`, and `andrews-sandbox`; superseded by `modules/html-ui` for new work. See "UI direction" above.
 
 In-process PixiJS v8 WebGPU UI renderer for native (winit + wgpu) mode. Reuses the browser `@pixi/react` scene (e.g. `OceanApp`) in-process on native. PixiJS runs on the main thread on the **same `GPUDevice`** as the game, rendering into a texture-backed virtual canvas; the game composites that texture over the 3D frame each render pass via a fullscreen blit. No CPU readback in the compositing path.
 
