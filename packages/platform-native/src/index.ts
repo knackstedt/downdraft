@@ -23,6 +23,7 @@ export { dlopen, ptr, readMappedRange, type CFunction } from "./ffi/ffi-adapter"
 export { findShimLibrary, libFileName, PLATFORM_DIR, resolveNativeLibrary, resolvePlatformLibrary, resolveShimLibrary, RUST_TRIPLE } from "./ffi/lib-paths";
 export { installGPU, resetGPU } from "./gpu/install";
 export { validateWgslNative, type WgslValidationResult } from "./gpu/native-wgsl";
+export { isTransferred, markTransferred } from "./gpu/registry";
 export { attachSharedDevice, createDeviceStateCells, exportCommandBuffer, exportGpuResource, importCommandBuffer, markDeviceLost, retireSharedDevice, sharedDeviceAlive, sharedDeviceAttachedCount, shareDevice, submitCommandPtrs, type DeviceStateCells, type GpuDeviceHandle, type SharedDeviceView, type WorkerCommandRef } from "./gpu/shared-device";
 export { WgpuAdapter, WgpuBindGroup, WgpuBindGroupLayout, WgpuBuffer, WgpuCommandBuffer, WgpuCommandEncoder, WgpuComputePassEncoder, WgpuComputePipeline, WgpuDevice, WgpuGPU, WgpuPipelineLayout, WgpuQueue, WgpuRenderPassEncoder, WgpuRenderPipeline, WgpuSampler, WgpuShaderModule, WgpuTexture, WgpuTextureView } from "./gpu/wgpu-wrapper";
 export { acquireSingleInstanceLock, addCrashFeatureLog, installNativeErrorHandlers, installWindowStatePersistence, releaseSingleInstanceLock } from "./host-lifecycle";
