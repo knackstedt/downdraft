@@ -443,14 +443,15 @@ export class HtmlUiHost {
         if (!p) return;
         if (m.seq !== undefined && m.stride !== undefined && p.sab && p.sabI32) {
           // Zero-copy path: the backend wrote the dirty rect into the shared
-          // buffer — seqlock-check and upload straight from it.
+          // buffer — seqlock-check and upload straight from it. Use the
+          // message's captured rect, NOT the live SAB header: a newer write
+          // may have already overwritten the header, and re-reading it would
+          // silently drop this emit's dirty region (ghost pixels).
           const i32 = p.sabI32;
           const seq0 = Atomics.load(i32, 0);
           if (seq0 === 0 || (seq0 & 1) !== 0) { this.send({ type: "refresh", id: p.id }); break; }
-          const x = Atomics.load(i32, 1), y = Atomics.load(i32, 2);
-          const w = Atomics.load(i32, 3), h = Atomics.load(i32, 4);
-          const pw = Atomics.load(i32, 5), ph = Atomics.load(i32, 6);
-          const stride = Atomics.load(i32, 8);
+          const x = m.x, y = m.y, w = m.w, h = m.h;
+          const pw = m.pw, ph = m.ph, stride = m.stride;
           if (w <= 0 || h <= 0) break;
           this.ensureTexture(p, pw, ph);
           if (!p.texture) break;

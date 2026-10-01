@@ -481,6 +481,9 @@ pub extern "C" fn dd_osr_frame_into(handle: *mut OsrDoc) -> c_int {
 
 /// Re-emit the current pixel buffer into the bound buffer (no raster) — used
 /// by the host to recover from a torn seqlock read or after a rebind.
+/// Always writes the FULL frame: the host's texture may have been recreated
+/// (resize) since the last upload, so the last raster's partial dirty rect
+/// is not guaranteed to cover what's missing.
 #[no_mangle]
 pub extern "C" fn dd_osr_refresh_into(handle: *mut OsrDoc) -> c_int {
     ffi(-1, || {
@@ -493,10 +496,13 @@ pub extern "C" fn dd_osr_refresh_into(handle: *mut OsrDoc) -> c_int {
         if buf.len < needed_buf_len(d) {
             return -2;
         }
-        if d.pixels.is_empty() {
+        let (pw, ph) = d.doc.inner().viewport().window_size;
+        if d.pixels.len() != (pw as usize) * (ph as usize) * 4 {
+            // Retained pixels are stale-size (resized, not yet re-rastered) —
+            // the pending raster will emit a full frame instead.
             return 0;
         }
-        write_bound_frame(d, d.dirty_rect)
+        write_bound_frame(d, [0, 0, pw, ph])
     })
 }
 

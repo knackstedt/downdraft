@@ -134,9 +134,18 @@ export function createDocCore(emit: (m: WorkerToUi) => void): {
           collectStats(s, s.sabU32[H_W] * s.sabU32[H_H] * 4);
           emitSabFrame(id, s);
         } else if (rc === -2) {
-          // Doc grew past the bound buffer — regrow, then re-emit.
+          // Doc grew past the bound buffer — regrow, then retry the frame
+          // (the doc is still dirty, so frameInto rasters the full frame now;
+          // refreshInto would only emit the retained — stale-size — pixels).
           bindSab(id, s);
-          if (s.sabU32 && s.doc.refreshInto() === 1) emitSabFrame(id, s);
+          if (s.sabU32) {
+            const rc2 = s.doc.frameInto();
+            if (rc2 === 1) {
+              s.lastFrame = now;
+              collectStats(s, s.sabU32[H_W] * s.sabU32[H_H] * 4);
+              emitSabFrame(id, s);
+            }
+          }
         } else if (rc === -3) {
           // Binding unsupported — drop the channel and fall to legacy below.
           s.sabDisabled = true;
