@@ -1352,6 +1352,36 @@ export class GameRenderer implements CanvasResizeHandler {
     return this.rendererModuleHost;
   }
 
+  /**
+   * Composite registered screen-space UI (html-ui panels via
+   * ctx.registerUiCompositor) onto the current surface texture.
+   *
+   * Renderers with a custom drawFrame()/present path that bypass
+   * renderFrame() must call this at end-of-frame — after post-processing
+   * lands on the surface, before present — or module-registered UI will
+   * never be drawn. renderFrame() itself uses the equivalent block inline
+   * (which also covers the legacy imui path); this helper only runs the
+   * compositors.
+   */
+  protected renderScreenUiCompositors(): void {
+    const compositors = [...this.uiCompositors].filter((c) => c.hasContent());
+    if (compositors.length === 0 || !this.device || !this.context) return;
+    const canvasView = this.getSurfaceTexture()?.createView();
+    if (!canvasView) return;
+    const uiEncoder = this.device.createCommandEncoder();
+    const uiPass = uiEncoder.beginRenderPass({
+      colorAttachments: [{
+        view: canvasView,
+        clearValue: { r: 0, g: 0, b: 0, a: 0 },
+        loadOp: "load" as GPULoadOp,
+        storeOp: "store" as GPUStoreOp,
+      }],
+    });
+    compositors.forEach((c) => { c.render(uiPass, this.canvas.width, this.canvas.height); });
+    uiPass.end();
+    this.device.queue.submit([uiEncoder.finish()]);
+  }
+
   // --- Getters ---
 
   getDevice(): GPUDevice | null {

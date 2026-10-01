@@ -87,6 +87,10 @@ export interface UiPanelHandle {
   setMaxFps(maxFps: number): void;
   setRect(rect: PanelRect): void;
   setZ(z: number): void;
+  /** Toggle pointer-input eligibility at runtime — `panelAt` skips
+   *  non-interactive panels. HUD strips use this to stop eating clicks
+   *  while the game holds pointer lock. */
+  setInteractive(on: boolean): void;
   onEvent(fn: PanelEventHandler): () => void;
   getAttr(target: number | string, name: string): Promise<string | null>;
   /** Border-box rect in panel-local CSS px (same space as event x/y). */
@@ -199,6 +203,7 @@ export class HtmlUiHost {
         this.send({ type: "resize", id: p.id, cssW: rect.w, cssH: rect.h, scale: p.scale });
       },
       setZ: (z) => { p.z = z; },
+      setInteractive: (on) => { p.spec.interactive = on; },
       onEvent: (fn) => { p.handlers.add(fn); return () => { p.handlers.delete(fn); }; },
       getAttr: (t, name) => new Promise((resolve) => {
         const reqId = this.nextReqId++;
