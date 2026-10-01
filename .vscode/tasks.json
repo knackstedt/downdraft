@@ -114,6 +114,20 @@
       "filePattern": "games/downdraft-gpu-bench/**"
     },
     {
+      "label": "Dev: Archery",
+      "type": "shell",
+      "command": "bun ../../packages/cli/src/index.ts dev",
+      "runOptions": {
+        "instanceLimit": 2
+      },
+      "options": {
+        "cwd": "${workspaceFolder}/games/archery-game"
+      },
+      "isBackground": true,
+      "problemMatcher": [],
+      "filePattern": "games/archery-game/**"
+    },
+    {
       "label": "Build: Game(s)",
       "detail": "Pick game(s) + target platform(s), then build + package each (native compile via draft release)",
       "type": "shell",
