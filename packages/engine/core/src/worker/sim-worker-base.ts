@@ -402,7 +402,6 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
 
   let running = false;
   let loopActive = false;
-  let stepInProgress = false;
   let paused = false;
   let stepOnce = false;
   let speedMultiplier = 1;
@@ -454,6 +453,18 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
   // so the average setTimeout delay matches the desired interval exactly.
   let timerRemainder = 0;
 
+  // The single armed loop timer — loop() schedules through scheduleLoop so
+  // withLoopStopped/stop/shutdown can disarm it. Without this, stopping the
+  // loop left a pending setTimeout that fired after the stop and spawned a
+  // second parallel loop chain.
+  let loopTimer: ReturnType<typeof setTimeout> | null = null;
+  // Promise for the in-flight onTick() call — the real barrier
+  // withLoopStopped waits on (the old code polled a flag for ~50ms then
+  // proceeded anyway, letting a suspended tick race the critical section).
+  let tickInFlight: Promise<void> | null = null;
+  // Serializes withLoopStopped critical sections.
+  let stopChain: Promise<unknown> = Promise.resolve();
+
   const events = exposeEvents();
 
   // Deterministic RNG — reseedable via control.setSeed(); the stable `rng`
@@ -474,22 +485,36 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
       tickAccumulator = 0;
     },
     async withLoopStopped<T>(fn: () => Promise<T> | T): Promise<T> {
-      // Stop the loop from scheduling another iteration.
-      loopActive = false;
-      // Wait for any in-flight onTick() to complete (max ~50ms).
-      for (let i = 0; i < 50 && stepInProgress; i++) {
-        await new Promise(resolve => setTimeout(resolve, 1));
-      }
-      stepInProgress = false;
-      try {
-        return await fn();
-      } finally {
-        // Restart the loop.
-        loopActive = true;
-        lastTick = performance.now();
-        tickAccumulator = 0;
-        loop();
-      }
+      // Serialize concurrent callers — a second caller queues behind the
+      // first's stop → critical section → restart cycle.
+      const run = stopChain.then(async (): Promise<T> => {
+        // Stop the loop from scheduling another iteration AND disarm the
+        // pending one — an armed setTimeout that fires while loopActive was
+        // already restored used to spawn a second parallel loop chain.
+        loopActive = false;
+        clearLoopTimer();
+        // Hard barrier: if onTick is mid-flight, wait for it to actually
+        // return. Its continuation observes loopActive === false and exits
+        // before touching the accumulator or rescheduling. No timeout —
+        // running fn() while a tick still mutates state is exactly the
+        // race this exists to prevent.
+        if (tickInFlight) await tickInFlight.catch(() => {});
+        try {
+          return await fn();
+        } finally {
+          // Restart the loop — unless shutdown landed while we held the
+          // barrier (running === false is the permanent stop signal).
+          if (running) {
+            loopActive = true;
+            lastTick = performance.now();
+            tickAccumulator = 0;
+            void loop();
+          }
+        }
+      });
+      // Keep the chain alive across failures in fn().
+      stopChain = run.then(() => undefined, () => undefined);
+      return run;
     },
     getSpeed: () => speedMultiplier,
     setSpeed: (speed: number) => {
@@ -502,9 +527,26 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
     resetTickTimeAccum: () => { tickTimeAccum = 0; },
     getTickCount: () => tickCount,
     setGCController: (ctrl: GCController | null) => { gcController = ctrl; },
-    stop: () => { running = false; loopActive = false; },
+    stop: () => { running = false; loopActive = false; clearLoopTimer(); },
     events,
   };
+
+  /** Arm the next loop iteration — the ONLY place a loop timer is created. */
+  function scheduleLoop(delay: number): void {
+    if (!loopActive) return;
+    if (loopTimer !== null) clearTimeout(loopTimer); // never stack timers
+    loopTimer = setTimeout(() => {
+      loopTimer = null;
+      void loop();
+    }, delay);
+  }
+
+  function clearLoopTimer(): void {
+    if (loopTimer !== null) {
+      clearTimeout(loopTimer);
+      loopTimer = null;
+    }
+  }
 
   async function loop(): Promise<void> {
     if (!running || !loopActive) return;
@@ -534,16 +576,22 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
 
           while (tickAccumulator >= 1 && steps < maxSteps) {
             tickCount++;
-            stepInProgress = true;
             const tickStart = performance.now();
-            await opts.onTick(opts.fixedDt, { tickCount, frameCount, fps, rng });
+            const tick = Promise.resolve(
+              opts.onTick(opts.fixedDt, { tickCount, frameCount, fps, rng }),
+            );
+            tickInFlight = tick;
+            try {
+              await tick;
+            } finally {
+              tickInFlight = null;
+            }
             const tickDurationUs = (performance.now() - tickStart) * 1000;
             tickTimeAccum += tickDurationUs / 1000;
             // Record task latency for the flame graph + histogram
             recordTaskLatency("js", tickDurationUs, "tick");
             // Fire instantaneous tick-latency warning (if configured)
             getWarningEngine()?.checkInstant(METRIC_TICK_LATENCY, tickDurationUs);
-            stepInProgress = false;
             if (!loopActive) return; // resize/withLoopStopped interrupted
             tickAccumulator -= 1;
             steps++;
@@ -634,12 +682,12 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
         delay += 1;
         timerRemainder -= 1;
       }
-      if (loopActive) setTimeout(loop, delay);
+      scheduleLoop(delay);
     } catch (e) {
       const err = e as Error;
       log.error("createSimWorker", `Loop error: ${err.message}\n${err.stack}`);
       opts.onError?.(err);
-      if (loopActive) setTimeout(loop, 100);
+      scheduleLoop(100);
     }
   }
 
@@ -672,8 +720,9 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
       fpsTimer = 0;
       fps = 0;
       timerRemainder = 0;
+      clearLoopTimer();
       events.emit("ready", {});
-      loop();
+      void loop();
     },
 
     async resize(...args: any[]): Promise<void> {
@@ -697,6 +746,7 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
     async shutdown(): Promise<void> {
       running = false;
       loopActive = false;
+      clearLoopTimer();
       syncWorker = null; // release sync worker reference
       saveStore = null;
       await opts.onShutdown?.();

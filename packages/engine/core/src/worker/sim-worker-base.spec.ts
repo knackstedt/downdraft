@@ -222,4 +222,45 @@ describe("createSimWorker save/command plumbing", () => {
     // Same seed → identical draws.
     expect(seqB).toEqual(seqA);
   });
+
+  it("withLoopStopped is a hard barrier — restore waits for an in-flight tick", async () => {
+    let gate: (() => void) | null = null;
+    let tickRunning = false;
+    let restored = false;
+    let restoredDuringTick: boolean | null = null;
+
+    createSimWorker({
+      fixedDt: 0.001,
+      seed: 42,
+      onInit: () => {},
+      onTick: async () => {
+        // Suspend mid-tick until the test releases the gate — simulates a
+        // long/awaited tick that the old ~50ms poll would have raced.
+        tickRunning = true;
+        await new Promise<void>((r) => { gate = r; });
+        tickRunning = false;
+      },
+      save: {
+        componentName: "x",
+        restore: () => { restored = true; restoredDuringTick = tickRunning; },
+      },
+    });
+    await rpc("init", new SharedArrayBuffer(64));
+
+    // Wait for the loop to land inside the gated tick.
+    for (let i = 0; i < 500 && !gate; i++) await new Promise((r) => setTimeout(r, 1));
+    expect(gate).not.toBeNull();
+
+    const loadP = rpc("restoreFromState", JSON.stringify({ v: 1 }));
+    // Give it real time — the restore must NOT proceed while the tick hangs.
+    await new Promise((r) => setTimeout(r, 60));
+    expect(restored).toBe(false);
+
+    gate!();
+    await loadP;
+    expect(restored).toBe(true);
+    // The restore ran strictly after the tick fully unwound — no overlap.
+    expect(restoredDuringTick === false).toBe(true);
+    await rpc("shutdown");
+  });
 });

@@ -147,7 +147,9 @@ export class InputBufferWriter {
   setWheel(playerIdx: number, delta: number) {
     const sv = this.slot(playerIdx);
     const f = InputChannel.offsets.sections.players.fields;
-    sv.f32[f.wheel] += delta;
+    // Absolute per-flush value, not an accumulation — the reader never
+    // clears this field (single-writer rule); the writer owns it outright.
+    sv.f32[f.wheel] = delta;
   }
 
   setMouseDelta(playerIdx: number, dx: number, dy: number) {
@@ -260,12 +262,20 @@ export class InputBufferReader {
     return sv.f32[f.wheel];
   }
 
+  // Sequence-gated consumption state. Transient fields (wheel, mouseDelta)
+  // are writer-owned: the reader must NEVER write into a slot (that would
+  // make the region two-writer — a lost-update race on real SAB and a
+  // protocol violation under the polyfill's whole-region sync). Instead the
+  // reader yields each written value exactly once per writer sequence bump.
+  private lastWheelSeq = new Uint32Array(MAX_INPUT_PLAYERS).fill(0xffffffff);
+  private lastMouseDeltaSeq = new Uint32Array(MAX_INPUT_PLAYERS).fill(0xffffffff);
+
   consumeWheel(playerIdx: number): number {
+    const seq = this.reader.getSequence();
+    if (seq === this.lastWheelSeq[playerIdx]) return 0;
+    this.lastWheelSeq[playerIdx] = seq;
     const sv = this.slot(playerIdx);
-    const f = InputChannel.offsets.sections.players.fields;
-    const w = sv.f32[f.wheel];
-    sv.f32[f.wheel] = 0;
-    return w;
+    return sv.f32[InputChannel.offsets.sections.players.fields.wheel];
   }
 
   getMouseDelta(playerIdx: number): { dx: number; dy: number } {
@@ -275,13 +285,12 @@ export class InputBufferReader {
   }
 
   consumeMouseDelta(playerIdx: number): { dx: number; dy: number } {
+    const seq = this.reader.getSequence();
+    if (seq === this.lastMouseDeltaSeq[playerIdx]) return { dx: 0, dy: 0 };
+    this.lastMouseDeltaSeq[playerIdx] = seq;
     const sv = this.slot(playerIdx);
     const f = InputChannel.offsets.sections.players.fields;
-    const dx = sv.f32[f.mouseDx];
-    const dy = sv.f32[f.mouseDy];
-    sv.f32[f.mouseDx] = 0;
-    sv.f32[f.mouseDy] = 0;
-    return { dx, dy };
+    return { dx: sv.f32[f.mouseDx], dy: sv.f32[f.mouseDy] };
   }
 
   getGamepadAxis(playerIdx: number, axis: number): number {
