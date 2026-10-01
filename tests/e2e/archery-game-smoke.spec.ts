@@ -1,11 +1,14 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
-  captureAndSaveScreenshot,
-  launchGame,
-  parseJsonContent,
-  sleep,
-  type GameProcess,
-  type McpToolResult,
+    captureAndSaveScreenshot,
+    launchGame,
+    parseJsonContent,
+    sleep,
+    type GameProcess,
+    type McpToolResult,
 } from "./harness";
 
 const MCP_PORT = process.env.MCP_PORT ? parseInt(process.env.MCP_PORT, 10) : undefined;
@@ -19,6 +22,9 @@ describe("archery-game MCP automation smoke", () => {
       mcpPort: MCP_PORT,
       gpu: (process.env.DOWNDRAFT_GPU as "swiftshader" | undefined) ?? "swiftshader",
       deterministic: true,
+      // Fresh userData dir per run — a stale autosave (e.g. a dead player)
+      // otherwise restores mid-test and flakes get_ui_state assertions.
+      env: { XDG_CONFIG_HOME: mkdtempSync(join(tmpdir(), "archery-smoke-")) },
       ignoreErrorPatterns: [
         /WebGL.*context.*lost/i,
         /perf.*extension/i,
