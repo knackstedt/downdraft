@@ -3,8 +3,8 @@ import { Material, MATERIALS, MAX_MATERIAL } from "./materials";
 export const SHADES_PER_MATERIAL = 4;
 export const PALETTE_SIZE = MAX_MATERIAL;
 
-const DEFAULT_SHADES = [0.82, 0.91, 1.0, 1.08];
-const SUBTLE_SHADES = [0.93, 0.97, 1.0, 1.03];
+const DEFAULT_SHADES = [0.90, 0.95, 1.0, 1.05];
+const SUBTLE_SHADES = [0.95, 0.98, 1.0, 1.02];
 // Fireflies: dramatic brightness range for visible flickering (dark → bright)
 const FIREFLY_SHADES = [0.15, 0.5, 1.0, 1.6];
 
