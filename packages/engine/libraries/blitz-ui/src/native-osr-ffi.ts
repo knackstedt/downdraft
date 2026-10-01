@@ -296,7 +296,10 @@ export class OsrDoc {
   }
 
   setStyle(node: number, prop: string, value: string): boolean {
-    const p = enc.encode(prop), v = enc.encode(value);
+    // Stylo's PropertyId::parse wants CSS names — accept JS-style camelCase
+    // too ("fontSize" → "font-size") so callers can use DOM-style props.
+    const name = /[A-Z]/.test(prop) ? prop.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`) : prop;
+    const p = enc.encode(name), v = enc.encode(value);
     return (this.lib.dd_osr_set_style(this.handle, BigInt(node), ptr(p), p.length, ptr(v.length ? v : EMPTY_STR), v.length) as number) === 0;
   }
 
