@@ -85,21 +85,24 @@ export class SandStepPool {
     const skipMaskBytes = cells; // 1 byte per cell
     const deferredMaskBytes = cells; // 1 byte per cell
     const histogramBytes = opts.W * 4; // 1 uint32 per column
+    // The histogram is a Uint32Array view — its byte offset must stay
+    // 4-aligned even when `cells` is odd (skip/deferred are 1B per cell).
+    const align4 = (n: number) => (n + 3) & ~3;
     if (opts.sab) {
       this.sab = opts.sab;
       this.gridOffset = opts.gridOffset ?? 0;
       this.fieldsOffset = opts.fieldsOffset ?? gridBytes;
       this.skipMaskOffset = opts.skipMaskOffset ?? (gridBytes + fieldsBytes);
       this.deferredMaskOffset = opts.deferredMaskOffset ?? (gridBytes + fieldsBytes + skipMaskBytes);
-      this.histogramOffset = opts.histogramOffset ?? (gridBytes + fieldsBytes + skipMaskBytes + deferredMaskBytes);
+      this.histogramOffset = opts.histogramOffset ?? align4(gridBytes + fieldsBytes + skipMaskBytes + deferredMaskBytes);
     } else {
       // Allocate a SAB for grid + fields + skip mask + deferred mask + histogram.
-      this.sab = new SharedArrayBuffer(gridBytes + fieldsBytes + skipMaskBytes + deferredMaskBytes + histogramBytes);
       this.gridOffset = 0;
       this.fieldsOffset = gridBytes;
       this.skipMaskOffset = gridBytes + fieldsBytes;
       this.deferredMaskOffset = gridBytes + fieldsBytes + skipMaskBytes;
-      this.histogramOffset = gridBytes + fieldsBytes + skipMaskBytes + deferredMaskBytes;
+      this.histogramOffset = align4(gridBytes + fieldsBytes + skipMaskBytes + deferredMaskBytes);
+      this.sab = new SharedArrayBuffer(this.histogramOffset + histogramBytes);
     }
     // Compute strip boundaries — divide W into numWorkers roughly-equal strips.
     this.strips = this.computeStrips(opts.W, this.numWorkers);
