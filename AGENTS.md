@@ -146,6 +146,7 @@ Before writing per-game infrastructure, check whether the engine already provide
 | Sim worker entry | `createSimWorker({ fixedDt, onInit, onTick, ... })` — tick loop, speed, step, stats, SAB-polyfill sync | `@downdraft/engine` |
 | Deterministic RNG in sim | `ctx.rng` in `onTick(dt, ctx)` (mulberry32, seeded via `createSimWorker({ seed })` / `control.setSeed()`). In deterministic mode `Math.random` is trapped to the same seeded stream — sim code should use `ctx.rng`, never `Math.random`/`Date.now` IDs | `@downdraft/engine` |
 | Worker host (main side) | `SimWorkerHost<TApi>` / `BaseWorkerHost<TApi>` — pause/resume/step/setSpeed/getStats + input writing | `@downdraft/engine` |
+| GPU in a worker | `shareDevice` / `attachSharedDevice` / `exportGpuResource` / `exportCommandBuffer` / `retireSharedDevice` — the host's wgpu device is usable from any worker; see the ownership contract in `shared-device.ts`. Never call `installGPU`/`requestDevice` on a worker | `@downdraft/platform-native` |
 | DOM input | `createDomInputHandler({ canvas, preset, ... })` — keyMap, mouse buttons, canvas coords, MCP `injectInput` | `@downdraft/engine` |
 | Save system | `createGameSaveSystem` / `createGridSaveSystem` + `createDefaultSaveStore` | `@downdraft/engine`, `@downdraft/engine/app/renderer` |
 | Autosave interval | `AutosaveManager({ save, shouldSave, intervalMs, deterministic })` | `@downdraft/engine/libraries/persistence/browser` |
