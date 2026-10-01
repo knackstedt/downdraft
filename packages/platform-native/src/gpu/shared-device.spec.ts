@@ -9,9 +9,13 @@ import { ptr } from "../ffi/ffi-adapter";
 import {
     attachSharedDevice,
     createDeviceStateCells,
+    exportCommandBuffer,
+    importCommandBuffer,
     markDeviceLost,
+    retireSharedDevice,
     shareDevice,
     sharedDeviceAlive,
+    sharedDeviceAttachedCount,
 } from "./shared-device";
 import { WgpuDevice } from "./wgpu-device";
 import { wgpu } from "./wgpu-ffi";
@@ -80,6 +84,11 @@ describe("shared GPU device across workers", () => {
     const last = (64 * 63 + 63) * 4;
     expect(Math.abs(out[last + 1] - 230)).toBeLessThanOrEqual(2);
 
+    // Worker detached before posting — the attached count must be back to 0.
+    expect(sharedDeviceAttachedCount(cells)).toBe(0);
+
+    tex.destroy();
+    readback.destroy();
     for (let i = 0; i < 5; i++) wgpu.wgpu_shim_process_events(instance);
     device.destroy();
   }, 60_000);
@@ -104,5 +113,61 @@ describe("shared GPU device across workers", () => {
     expect(sharedDeviceAlive(cells)).toBe(false);
     // A stale attach attempt after owner death rejects via liveness.
     expect(() => attachSharedDevice(handle, cells.sab)).toThrow(/stale|dead|empty|invalid/i);
+  });
+
+  it("guarded view rejects FFI calls after owner destroy", () => {
+    const { device } = makeDevice();
+    const cells = createDeviceStateCells();
+    const handle = shareDevice(device, cells);
+    // Same-thread attach — the guard path is identical for real workers.
+    const view = attachSharedDevice(handle, cells.sab);
+    expect(view.isValid()).toBe(true);
+    expect(sharedDeviceAttachedCount(cells)).toBe(1);
+    device.destroy();
+    expect(view.isValid()).toBe(false);
+    expect(() =>
+      view.device.createTexture({ size: [8, 8, 1], format: "rgba8unorm", usage: 0x10 })
+    ).toThrow(/no longer valid/);
+    expect(() => view.queue.submit([])).toThrow(/no longer valid/);
+    // device.queue must hand out the guarded queue, not the raw wrapper.
+    expect(() => view.device.queue.submit([])).toThrow(/no longer valid/);
+    view.detach();
+    expect(sharedDeviceAttachedCount(cells)).toBe(0);
+  });
+
+  it("retireSharedDevice raises detachReq and waits for views to detach", async () => {
+    const { device } = makeDevice();
+    const cells = createDeviceStateCells();
+    const handle = shareDevice(device, cells);
+    const view = attachSharedDevice(handle, cells.sab);
+    const retired = retireSharedDevice(cells, 5_000);
+    // The retire request is immediately visible to the view.
+    expect(view.isValid()).toBe(false);
+    view.detach();
+    expect(await retired).toBe(true);
+    device.destroy();
+  });
+
+  it("retireSharedDevice times out when a view never detaches", async () => {
+    const { device } = makeDevice();
+    const cells = createDeviceStateCells();
+    const handle = shareDevice(device, cells);
+    const view = attachSharedDevice(handle, cells.sab);
+    expect(await retireSharedDevice(cells, 100)).toBe(false);
+    view.detach();
+    device.destroy();
+  });
+
+  it("exportCommandBuffer/importCommandBuffer transfer ownership to the submitter", () => {
+    const { device } = makeDevice();
+    const enc = device.createCommandEncoder();
+    const cmd = enc.finish();
+    // After export the source wrapper's dispose()/finalizer are inert —
+    // the imported wrapper owns the handle and submit() releases it once.
+    const ref = exportCommandBuffer(cmd);
+    cmd.dispose(); // no-op post-transfer
+    const imported = importCommandBuffer(ref);
+    device.queue.submit([imported]);
+    device.destroy();
   });
 });

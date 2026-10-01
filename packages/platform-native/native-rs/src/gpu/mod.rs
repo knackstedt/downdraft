@@ -76,7 +76,13 @@ const WHOLE_SIZE: u64 = u64::MAX;
 // Replaces the C shim's bare statics (g_instance, g_lost_device, the single-
 // slot g_map_complete / g_pending_adapter races) with Mutex-guarded slots.
 
-static G_INSTANCE: Mutex<Option<Instance>> = Mutex::new(None);
+/// All live instances, keyed by their boxed handle address. pump() drives
+/// every one — a second instance (specs, bespoke harnesses, anything that
+/// calls installGPU off the main thread) must not steal the pump from the
+/// instance whose devices still have pending callbacks, which a single
+/// Option<Instance> slot would silently do.
+static G_INSTANCES: LazyLock<Mutex<Vec<(usize, Instance)>>> =
+    LazyLock::new(|| Mutex::new(Vec::new()));
 static G_DEVICE: Mutex<Option<Device>> = Mutex::new(None);
 /// SurfaceTexture stashed between getCurrentTexture → present, keyed by the
 /// surface handle value. Mirrors the C model where wgpuSurfacePresent works
@@ -123,9 +129,16 @@ fn noop_waker() -> Waker {
 /// Drive all device work in the instance once. `force_wait` blocks until a
 /// callback fires — used inside poll loops where a callback is known pending.
 fn pump(wait: bool) {
-    let inst = G_INSTANCE.lock().unwrap().clone();
-    if let Some(i) = inst {
-        i.poll_all(wait);
+    let insts = G_INSTANCES.lock().unwrap().clone();
+    if !insts.is_empty() {
+        // wait=true is only meaningful with a single live instance — a
+        // blocking poll on the wrong instance could wedge on a callback that
+        // lives on another. All callers currently pass false; degrade wait
+        // to a non-blocking sweep when several instances are registered.
+        let blocking = wait && insts.len() == 1;
+        for (_, i) in insts {
+            i.poll_all(blocking);
+        }
         return;
     }
     let dev = G_DEVICE.lock().unwrap().clone();
@@ -231,8 +244,12 @@ fn log_uncaptured(err: Error) {
 pub extern "C" fn wgpu_shim_create_instance() -> Handle {
     ffi!(ptr::null_mut(), {
         let instance = Instance::new(InstanceDescriptor::new_without_display_handle_from_env());
-        *G_INSTANCE.lock().unwrap() = Some(instance.clone());
-        boxed(instance)
+        let handle = boxed(instance.clone());
+        G_INSTANCES.lock().unwrap().push((handle as usize, instance));
+        if G_INSTANCES.lock().unwrap().len() > 1 {
+            eprintln!("[wgpu_shim] WARNING: second wgpu instance created — instances share the process-global pump; release the first before creating another");
+        }
+        handle
     })
 }
 
@@ -2358,7 +2375,7 @@ pub extern "C" fn wgpu_shim_release_device(p: Handle) {
 pub extern "C" fn wgpu_shim_release_instance(p: Handle) {
     ffi!((), unsafe {
         release::<Instance>(p);
-        *G_INSTANCE.lock().unwrap() = None;
+        G_INSTANCES.lock().unwrap().retain(|(h, _)| *h != p as usize);
     });
 }
 

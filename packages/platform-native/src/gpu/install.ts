@@ -13,6 +13,23 @@ const log = createLogger();
 
 let installed = false;
 
+// GPU creation is owner-thread only. A worker must attach to the host's
+// shared device via attachSharedDevice() — a second installGPU() would bind
+// a second wgpu instance whose device/queue calls still work but whose
+// callbacks (mapAsync, onSubmittedWorkDone, device-lost) depend on the
+// shared native pump driving every live instance. Deno workers expose
+// DedicatedWorkerGlobalScope; Bun/Node workers report via worker_threads.
+const g = globalThis as any;
+let IS_MAIN_THREAD = !(typeof g.DedicatedWorkerGlobalScope === "function" && g.self instanceof g.DedicatedWorkerGlobalScope);
+if (IS_MAIN_THREAD) {
+  try {
+    const wt = await import("node:worker_threads");
+    IS_MAIN_THREAD = wt.isMainThread !== false;
+  } catch {
+    // No node:worker_threads compat in this runtime — keep the DOM-style result.
+  }
+}
+
 // ── WebGPU global constants ──
 // The engine uses GPUBufferUsage, GPUTextureUsage, etc. as global constants.
 // In the browser, these are provided by the WebGPU implementation. In native
@@ -197,6 +214,12 @@ function installGPUConstants(): void {
 }
 
 export function installGPU(): WgpuGPU {
+  if (!IS_MAIN_THREAD) {
+    throw new Error(
+      "installGPU() must run on the thread that owns the native GPU device. " +
+      "On a worker, attach to the host device with attachSharedDevice() instead.",
+    );
+  }
   if (installed) return (globalThis as any).navigator.gpu;
 
   // Install WebGPU global constants first

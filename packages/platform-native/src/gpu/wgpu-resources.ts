@@ -12,7 +12,7 @@
 import { createLogger } from "@downdraft/engine/util/logger";
 import type { ptr } from "../ffi/ffi-adapter";
 import { parseAspect, parseExtent3D, parseFormat, parseViewDimension } from "./enums";
-import { trackForRelease, untrack } from "./registry";
+import { isTransferred, trackForRelease, untrack } from "./registry";
 import type { WgpuQueue } from "./wgpu-device";
 import { wgpu } from "./wgpu-ffi";
 
@@ -123,6 +123,7 @@ export class WgpuBuffer {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    if (isTransferred(this)) return; // ownership lives on another thread
     if (this.mapMode !== null) {
       try { this.unmap(); } catch { /* already unmapped natively */ }
     }
@@ -194,6 +195,7 @@ export class WgpuTexture {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    if (isTransferred(this)) return; // ownership lives on another thread
     untrack(this);
     wgpu.wgpu_shim_release_texture(this.ptr);
   }
@@ -220,6 +222,7 @@ export class WgpuTextureView {
   release(): void {
     if (this.released) return;
     this.released = true;
+    if (isTransferred(this)) return; // ownership lives on another thread
     untrack(this);
     wgpu.wgpu_shim_release_texture_view(this.ptr);
   }
@@ -258,6 +261,7 @@ export class WgpuQuerySet {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    if (isTransferred(this)) return; // ownership lives on another thread
     untrack(this);
     wgpu.wgpu_shim_destroy_query_set(this.ptr);
   }
@@ -411,6 +415,7 @@ export class WgpuCommandBuffer {
   dispose(): void {
     if (this.released) return;
     this.released = true;
+    if (isTransferred(this)) return; // ownership lives on another thread
     untrack(this);
     wgpu.wgpu_shim_release_command_buffer(this.ptr);
   }

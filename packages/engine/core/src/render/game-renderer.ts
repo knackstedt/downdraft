@@ -525,6 +525,10 @@ export class GameRenderer implements CanvasResizeHandler {
 
   private reloadForDeviceLoss(): void {
     setTimeout(() => {
+      // Host already tearing down (host.destroy() destroys the device,
+      // which resolves .lost with reason "destroyed") — restarting now
+      // would respawn a session on top of a dead window.
+      if ((globalThis as any).__nativeHost?.destroyed) return;
       // Native runtime: window.location.reload() is a no-op. Route through
       // the host's first-class restart hook (detached self-respawn — the
       // real reload equivalent), then fall back to a dialog + clean quit if

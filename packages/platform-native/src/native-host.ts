@@ -22,6 +22,7 @@ import { resolveNativeUserDataDir } from "./bridge/user-data-dir";
 import { installDOMPolyfills } from "./dom/dom-polyfills";
 import { initNativeGamepad, startGamepadEnrichment } from "./gamepad/index";
 import { installGPU } from "./gpu/install";
+import { wgpu } from "./gpu/wgpu-ffi";
 import {
     acquireSingleInstanceLock,
     installNativeErrorHandlers,
@@ -353,6 +354,13 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
       delete (globalThis as any).__ddSecrets;
       bridge?.dispose();
       window.destroy();
+      // GPU teardown, strictly after window.destroy() released the surface:
+      // device first — destroy() marks every SharedArrayBuffer view dead
+      // (markDeviceLost) so attached workers stop issuing FFI calls against
+      // it — then the instance, so late-arriving finalizer polls still have
+      // a live pump target until the very end.
+      try { device.destroy(); } catch { /* best-effort */ }
+      try { wgpu.wgpu_shim_release_instance(gpu.getInstancePtr()); } catch { /* best-effort */ }
       releaseSingleInstanceLock();
     },
   };
