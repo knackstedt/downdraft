@@ -35,7 +35,7 @@ import {
     SDL_EVENT_SCALE_CHANGED,
     SDL_EVENT_TEXT_INPUT,
     SDL_EVENT_WHEEL,
-    sdlButtonsToDom,
+    sdlButtonsToDom
 } from "./sdl-ffi";
 
 const log = createLogger("info");
@@ -111,6 +111,16 @@ export class NativeWindow extends MiniEventTarget {
   private lastClickX = -1;
   private lastClickY = -1;
   private clickCount = 0;
+  // Focus-click suppression: on X11 a click that raises/focuses an unfocused
+  // window is still delivered to it as a normal press+release, so the
+  // synthesized "click" would fire pointer-lock / UI-activation handlers for
+  // what the user meant as pure window activation (e.g. launching the game
+  // and clicking the new window to focus it locks the pointer instantly).
+  // Any click completing within this window of a Focused(true) is treated as
+  // the focus click and its click/dblclick synthesis is skipped — the press
+  // and release events themselves still flow through.
+  private focusGainedAt = -1e9;
+  private static readonly FOCUS_CLICK_SUPPRESS_MS = 250;
   // Boot splash (SplashScreen) — covers the window with a procedural spinner
   // from host creation until the game's render loop registers its first rAF
   // callback (detected in requestAnimationFrame below).
@@ -439,6 +449,7 @@ export class NativeWindow extends MiniEventTarget {
         break;
 
       case SDL_EVENT_FOCUS_GAINED:
+        this.focusGainedAt = performance.now();
         this.dispatchEvent({ type: "focus" });
         break;
 
@@ -608,7 +619,11 @@ export class NativeWindow extends MiniEventTarget {
         // is the only pointer target), and a second click within 500ms at
         // ~the same spot fires "dblclick". Without this, listeners that gate
         // pointer lock / UI activation on click never run.
-        if (this.lastMouseDown?.button === base.button) {
+        // The press that (re)focused the window doesn't count — otherwise
+        // focusing the game window with a click would immediately lock the
+        // pointer / activate whatever UI sits under the cursor.
+        const isFocusClick = performance.now() - this.focusGainedAt < NativeWindow.FOCUS_CLICK_SUPPRESS_MS;
+        if (this.lastMouseDown?.button === base.button && !isFocusClick) {
           const now = performance.now();
           if (
             base.button === this.lastClickButton
@@ -636,7 +651,7 @@ export class NativeWindow extends MiniEventTarget {
       case SDL_EVENT_WHEEL: {
         // SDL reports wheel movement in detents (+y = scrolled up/away);
         // DOM WheelEvent reports pixels (+deltaY = scrolled down) at ~100px
-        // per detent (Chromium's convention). Flip Y and scale both axes so
+        // per detent. Flip Y and scale both axes so
         // pixel-based consumers (scroll panels, camera zoom) behave the same
         // as on the DOM path. Precise (fractional) detents come through in
         // floatView for hi-res scroll devices.
