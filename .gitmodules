@@ -22,3 +22,6 @@
 [submodule "games/downdraft-gpu-bench"]
 	path = games/downdraft-gpu-bench
 	url = git@github.com:knackstedt/downdraft-gpu-bench.git
+[submodule "games/archery-game"]
+	path = games/archery-game
+	url = git@github.com:knackstedt/archery-game.git

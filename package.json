@@ -36,6 +36,7 @@
     "games/overburden/plugins/*",
     "games/sandjongg",
     "games/sandjongg/plugins/*",
+    "games/archery-game",
     "games/andrews-sandbox",
     "games/andrews-sandbox/src/shared",
     "games/andrews-sandbox/libraries/*",
