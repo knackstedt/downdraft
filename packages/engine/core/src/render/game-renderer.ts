@@ -631,6 +631,18 @@ export class GameRenderer implements CanvasResizeHandler {
    */
   setResolutionScale(scale: number): void {
     this.resolutionScale = Math.max(0.25, Math.min(1, scale));
+    if (!getHostCapabilities().hasDom) {
+      // On the native host the swapchain extent must equal the window's
+      // real size — wgpu compares the configured size against the surface's
+      // currentExtent at acquire time and returns Outdated forever when
+      // they differ. Shrinking canvas.width/height would also corrupt
+      // clientWidth (UI layout + input coords). Resolution scaling needs
+      // an offscreen-render + upscale path to work here; for now it is a
+      // no-op rather than a brick.
+      if (this.resolutionScale < 1) {
+        log.warn("GameRenderer", "resolutionScale is not supported on the native surface (swapchain must match the window size) — ignoring");
+      }
+    }
     if (this.lastCssW > 0) this.onResize(this.lastCssW, this.lastCssH, this.lastRawDpr);
   }
 
@@ -643,8 +655,10 @@ export class GameRenderer implements CanvasResizeHandler {
     this.lastCssH = cssHeight;
     this.lastRawDpr = dpr;
     // Render at the display's real DPR — resolutionScale is the opt-in
-    // performance knob when fill rate is a concern.
-    const cappedDpr = dpr * this.resolutionScale;
+    // performance knob when fill rate is a concern. On native the
+    // swapchain is window-sized (see setResolutionScale) so the scale is
+    // never applied to the backing store.
+    const cappedDpr = dpr * (getHostCapabilities().hasDom ? this.resolutionScale : 1);
     this.dpr = cappedDpr;
     const w = Math.round(cssWidth * cappedDpr);
     const h = Math.round(cssHeight * cappedDpr);
