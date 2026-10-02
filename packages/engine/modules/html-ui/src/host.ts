@@ -22,6 +22,10 @@ export interface PanelSpec {
   id?: string;
   /** Screen-space rect in CSS px. */
   rect: PanelRect;
+  /** Doc layout height when it differs from `rect.h` — the panel then
+   *  displays a `src` sub-region of a taller texture (scrollable views that
+   *  scroll via `setSrcRect` without any doc repaint). */
+  docH?: number;
   /** Paint order — higher draws later (on top). Default: insertion order. */
   z?: number;
   /** Supersample factor (raster size = rect * scale). Default 2 — crisper text. */
@@ -46,6 +50,10 @@ interface Panel {
   rect: PanelRect;
   z: number;
   scale: number;
+  /** Doc layout height when it differs from rect.h (scrollable texture). */
+  docH: number | null;
+  /** Texture sub-region in texel px — displayed at `rect` (GPU scroll). */
+  src: { x: number; y: number; w: number; h: number } | null;
   texture: GPUTexture | null;
   texW: number;
   texH: number;
@@ -86,6 +94,14 @@ export interface UiPanelHandle {
   focus(target?: number | string): void;
   setMaxFps(maxFps: number): void;
   setRect(rect: PanelRect): void;
+  /** Resize the doc's layout height without moving the display rect —
+   *  pair with `setSrcRect` for scroll views rasterized at full content
+   *  height. */
+  setDocHeight(h: number): void;
+  /** Set the texture sub-region (texel px) drawn at `rect`, or null for the
+   *  full texture. Pure compositor state — no doc repaint, so this is the
+   *  cheap per-frame scroll path. */
+  setSrcRect(src: { x: number; y: number; w: number; h: number } | null): void;
   setZ(z: number): void;
   /** Toggle pointer-input eligibility at runtime — `panelAt` skips
    *  non-interactive panels. HUD strips use this to stop eating clicks
@@ -165,13 +181,14 @@ export class HtmlUiHost {
     const scale = spec.scale ?? 2;
     const panel: Panel = {
       id, spec, rect: { ...spec.rect }, z: spec.z ?? 0, scale,
+      docH: spec.docH ?? null, src: null,
       texture: null, texW: 0, texH: 0, ubo: null, bindGroup: null,
       handlers: new Set(spec.onEvent ? [spec.onEvent] : []),
       editing: false, sab: null, sabI32: null,
     };
     this.panels.set(id, panel);
     this.order.push(id);
-    this.send({ type: "create", id, cssW: spec.rect.w, cssH: spec.rect.h, scale, html: spec.html, maxFps: spec.maxFps });
+    this.send({ type: "create", id, cssW: spec.rect.w, cssH: spec.docH ?? spec.rect.h, scale, html: spec.html, maxFps: spec.maxFps });
     return this.handleFor(panel);
   }
 
@@ -200,8 +217,14 @@ export class HtmlUiHost {
         const r = p.rect;
         if (r.x === rect.x && r.y === rect.y && r.w === rect.w && r.h === rect.h) return;
         p.rect = { ...rect };
-        this.send({ type: "resize", id: p.id, cssW: rect.w, cssH: rect.h, scale: p.scale });
+        this.send({ type: "resize", id: p.id, cssW: rect.w, cssH: p.docH ?? rect.h, scale: p.scale });
       },
+      setDocHeight: (h) => {
+        if (p.docH === h) return;
+        p.docH = h;
+        this.send({ type: "resize", id: p.id, cssW: p.rect.w, cssH: h, scale: p.scale });
+      },
+      setSrcRect: (src) => { p.src = src ? { ...src } : null; },
       setZ: (z) => { p.z = z; },
       setInteractive: (on) => { p.spec.interactive = on; },
       onEvent: (fn) => { p.handlers.add(fn); return () => { p.handlers.delete(fn); }; },
@@ -284,7 +307,13 @@ export class HtmlUiHost {
       render: (pass, w, h) => {
         const draw = this.sortedPanels()
           .filter((p) => p.bindGroup && p.ubo)
-          .map((p) => ({ bindGroup: p.bindGroup!, ubo: p.ubo!, rect: p.rect }));
+          .map((p) => ({
+            bindGroup: p.bindGroup!, ubo: p.ubo!, rect: p.rect,
+            src: p.src
+              ? [p.src.x / p.texW, p.src.y / p.texH,
+                 (p.src.x + p.src.w) / p.texW, (p.src.y + p.src.h) / p.texH] as [number, number, number, number]
+              : undefined,
+          }));
         this.blit.render(pass, draw, w, h);
       },
     };
@@ -550,12 +579,22 @@ export class HtmlUiHost {
   private ensureTexture(p: Panel, w: number, h: number): void {
     if (p.texture && p.texW === w && p.texH === h) return;
     p.texture?.destroy();
+    const tw = Math.max(1, w), th = Math.max(1, h);
     p.texture = this.device.createTexture({
-      size: { width: Math.max(1, w), height: Math.max(1, h) },
+      size: { width: tw, height: th },
       format: "rgba8unorm",
       viewFormats: ["rgba8unorm-srgb"],
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
     } as GPUTextureDescriptor);
+    // Zero-fill — dirty-rect uploads only cover painted regions, so
+    // un-painted texels (e.g. transparent spacers in overlay docs) would
+    // otherwise composite uninitialized garbage over panels beneath.
+    this.device.queue.writeTexture(
+      { texture: p.texture },
+      new Uint8Array(tw * th * 4),
+      { bytesPerRow: tw * 4, rowsPerImage: th },
+      { width: tw, height: th, depthOrArrayLayers: 1 },
+    );
     p.texW = w;
     p.texH = h;
     if (!p.ubo) p.ubo = this.blit.createUbo();

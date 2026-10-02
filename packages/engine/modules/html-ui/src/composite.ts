@@ -10,6 +10,7 @@ import { createValidatedShaderModule } from "@downdraft/engine";
 const BLIT_WGSL = `
 struct Uniforms {
   dstRect: vec4<f32>,     // x, y, w, h in surface px
+  srcUV: vec4<f32>,       // u0, v0, u1, v1 — texture subregion (GPU scroll)
   surfaceSize: vec2<f32>,
   pad: vec2<f32>,
 };
@@ -33,7 +34,7 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VertexOutput {
                  1.0 - px.y / u.surfaceSize.y * 2.0);
   var o: VertexOutput;
   o.clipPos = vec4(ndc, 0.0, 1.0);
-  o.uv = c;
+  o.uv = u.srcUV.xy + c * (u.srcUV.zw - u.srcUV.xy);
   return o;
 }
 
@@ -56,6 +57,10 @@ export interface CompositePanel {
   /** Bind group for this panel's texture (recreated on texture rebuild). */
   bindGroup: GPUBindGroup;
   rect: { x: number; y: number; w: number; h: number };
+  /** Normalized texture subregion [u0, v0, u1, v1] — defaults to [0,0,1,1].
+   *  Lets a panel display a window into a taller texture (scroll views that
+   *  scroll without a doc repaint). */
+  src?: [number, number, number, number];
 }
 
 export class PanelBlitPass {
@@ -116,7 +121,10 @@ export class PanelBlitPass {
     pass.setPipeline(this.pipeline);
     const uni = new Float32Array(12);
     panels.forEach((p) => {
-      uni.set([p.rect.x, p.rect.y, p.rect.w, p.rect.h, surfaceW, surfaceH]);
+      const s = p.src;
+      uni.set([p.rect.x, p.rect.y, p.rect.w, p.rect.h,
+        s?.[0] ?? 0, s?.[1] ?? 0, s?.[2] ?? 1, s?.[3] ?? 1,
+        surfaceW, surfaceH]);
       this.device.queue.writeBuffer(p.ubo, 0, uni);
       pass.setBindGroup(0, p.bindGroup);
       pass.draw(6, 1, 0, 0);

@@ -143,9 +143,13 @@ function resolveSpec(spec, importer) {
   } catch { return null; }
 }
 
-/** Repo-relative bundle path for a module, with .mjs extension. */
+/** Repo-relative bundle path for a module, with .mjs extension. Bun's
+ *  `[dir]` naming escapes out-of-root `..` segments as `_.._` — the staged
+ *  tree contains `_.._/_.._/packages/...`, so emit the same encoding or
+ *  spawned Worker paths resolve outside the extracted bundle. */
 function bundlePath(absPath) {
-  return relative(repoRoot, absPath).replace(/\\/g, "/").replace(/\.[jt]sx?$/, ".mjs");
+  return relative(repoRoot, absPath).replace(/\\/g, "/").replace(/\.[jt]sx?$/, ".mjs")
+    .split("/").map((s) => (s === ".." ? "_.._" : s)).join("/");
 }
 
 function assetRel(absPath) {
@@ -347,6 +351,17 @@ const makePlugin = (collectWorkers) => ({
       out = out.replace(WORKER_URL_RE, (m, spec) => {
         const rel = bundlePath(resolve(modDir, spec));
         return `new Worker(process.env.DOWNDRAFT_BUNDLE_DIR + "/${rel}"`;
+      });
+      // 1.5 new URL("<asset>", import.meta.url) → absolute file URL into the
+      //     staged dd-assets tree. assetRel() gives the TARGET's own staged
+      //     dir — resolving the spec textually against __ddModUrl breaks when
+      //     the target lives under a different hashed dir (repo-external
+      //     sources stage at external/<sha1(dir)>/, so "../ffi/x.mjs" would
+      //     escape into external/ffi/).
+      out = out.replace(ASSET_URL_RE, (m, spec) => {
+        const p = resolve(modDir, spec);
+        if (!existsSync(p)) return m;
+        return `new URL("file://" + process.env.DOWNDRAFT_BUNDLE_DIR + "/dd-assets/" + ${JSON.stringify(assetRel(p))})`;
       });
       // 2. Variable-specifier dynamic imports → bundled module path.
       for (const m of out.matchAll(DYN_IMPORT_RE)) {
