@@ -1,0 +1,59 @@
+Subject: src: expose the mobile version key in metadata — ported to v26.10.0
+
+Derived from gmaclennan/nodejs-mobile recipe (Node 24.18.0); re-anchored for
+v26 (HAVE_LIEF block added upstream; same semantics: process.versions.mobile
+identifies a nodejs-mobile-flavored build while process.version stays the
+untouched upstream version).
+---
+diff --git a/src/node_metadata.cc b/src/node_metadata.cc
+index b91b1b4881..e7ffe0457e 100644
+--- a/src/node_metadata.cc
++++ b/src/node_metadata.cc
+@@ -55,6 +55,10 @@
+ #include "LIEF/version.h"
+ #endif
+ 
++#ifdef NODE_MOBILE
++#include "node_mobile_version.h"
++#endif  // NODE_MOBILE
++
+ namespace node {
+ 
+ namespace per_process {
+@@ -130,6 +134,9 @@ Metadata::Versions::Versions() {
+       NODE_STRINGIFY(LLHTTP_VERSION_MINOR)
+       "."
+       NODE_STRINGIFY(LLHTTP_VERSION_PATCH);
++#ifdef NODE_MOBILE
++  mobile = NODE_MOBILE_VERSION_STRING;
++#endif  // NODE_MOBILE
+ 
+   brotli =
+     std::to_string(BrotliEncoderVersion() >> 24) +
+diff --git a/src/node_metadata.h b/src/node_metadata.h
+index 57043a0356..d32c8f0a9a 100644
+--- a/src/node_metadata.h
++++ b/src/node_metadata.h
+@@ -100,13 +100,21 @@ namespace node {
+ #define NODE_VERSIONS_KEY_LIEF(V)
+ #endif
+ 
++#ifdef NODE_MOBILE
++#define NODE_VERSIONS_KEY_MOBILE(V)                                            \
++  V(mobile)
++#else
++#define NODE_VERSIONS_KEY_MOBILE(V)
++#endif  // NODE_MOBILE
++
+ #define NODE_VERSIONS_KEYS(V)                                                  \
+   NODE_VERSIONS_KEYS_BASE(V)                                                   \
+   NODE_VERSIONS_KEY_CRYPTO(V)                                                  \
+   NODE_VERSIONS_KEY_INTL(V)                                                    \
+   NODE_VERSIONS_KEY_SQLITE(V)                                                  \
+   NODE_VERSIONS_KEY_LIBFFI(V)                                                  \
+-  NODE_VERSIONS_KEY_LIEF(V)
++  NODE_VERSIONS_KEY_LIEF(V)                                                    \
++  NODE_VERSIONS_KEY_MOBILE(V)
+ 
+ #define V(key) +1
+ constexpr int NODE_VERSIONS_KEY_COUNT = NODE_VERSIONS_KEYS(V);

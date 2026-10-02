@@ -54,10 +54,36 @@ const targets =
     : [argVal("target") ?? host];
 
 const pkgFilter = args.filter((a) => a.startsWith("--pkg=")).map((a) => a.split("=")[1]);
-const crates = pkgFilter.length ? CRATES.filter((c) => pkgFilter.includes(c.pkg) || pkgFilter.includes(c.lib)) : CRATES;
-if (!crates.length) {
+const baseCrates = pkgFilter.length ? CRATES.filter((c) => pkgFilter.includes(c.pkg) || pkgFilter.includes(c.lib)) : CRATES;
+if (!baseCrates.length) {
   console.error(`no crates matched ${pkgFilter.join(", ")} — known: ${CRATES.map((c) => c.pkg).join(", ")}`);
   process.exit(1);
+}
+
+// Android min-SDK level for the NDK toolchain wrappers.
+const androidApi = argVal("android-api") ?? "30";
+const ndk = process.env.ANDROID_NDK_HOME ?? process.env.ANDROID_NDK ?? process.env.NDK_PATH;
+
+/** Extra env needed to cross-link android cdylibs (NDK clang wrappers). */
+function androidEnv(target) {
+  const isAndroid = target.endsWith("-linux-android");
+  if (!isAndroid) return process.env;
+  const abiPrefix = target.startsWith("aarch64") ? "aarch64-linux-android" : "x86_64-linux-android";
+  const hostTag = process.platform === "darwin" ? "darwin-x86_64" : "linux-x86_64";
+  if (!ndk) {
+    console.error(`[build-native] ${target} needs the Android NDK — set ANDROID_NDK_HOME`);
+    process.exit(1);
+  }
+  const bin = join(ndk, "toolchains/llvm/prebuilt", hostTag, "bin");
+  const envKey = target.replaceAll("-", "_").toUpperCase();
+  const cc = `${bin}/${abiPrefix}${androidApi}-clang`;
+  const cxx = `${cc}++`;
+  return {
+    ...process.env,
+    [`CARGO_TARGET_${envKey}_LINKER`]: cc,
+    [`CC_${envKey.toLowerCase()}`]: cc,
+    [`CXX_${envKey.toLowerCase()}`]: cxx,
+  };
 }
 
 // ── build ──
@@ -65,8 +91,16 @@ if (!crates.length) {
 for (let _i = 0, _it = targets, _n = _it.length; _i < _n; _i++) {
   const target = _it[_i];
   const nodePlat = RUST_TO_NODE[target];
+  const isAndroid = target.endsWith("-linux-android");
   if (!nodePlat) {
     console.warn(`[build-native] no node-triple mapping for ${target} — skipping staging`);
+  }
+  // Per-target crate set: androidOnly crates only build for android targets,
+  // noAndroid crates are excluded there (e.g. the platform is inside the shell).
+  const crates = baseCrates.filter((c) => isAndroid ? !c.noAndroid : !c.androidOnly);
+  if (!crates.length) {
+    console.log(`[build-native] no crates apply to ${target} — skipping`);
+    continue;
   }
   const cargoArgs = [
     "build",
@@ -75,7 +109,7 @@ for (let _i = 0, _it = targets, _n = _it.length; _i < _n; _i++) {
     ...crates.flatMap((c) => ["-p", c.pkg]),
   ];
   console.log(`[build-native] cargo ${cargoArgs.join(" ")}`);
-  const r = spawnSync("cargo", cargoArgs, { cwd: root, stdio: "inherit" });
+  const r = spawnSync("cargo", cargoArgs, { cwd: root, stdio: "inherit", env: androidEnv(target) });
   if (r.status !== 0) process.exit(r.status ?? 1);
 
   if (!nodePlat) continue;

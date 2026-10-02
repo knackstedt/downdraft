@@ -31,7 +31,7 @@ interface MappedRange {
 }
 
 export class WgpuBuffer {
-  readonly ptr: number;
+  readonly ptr: ptr;
   readonly size: number;
   label = "";
 
@@ -42,7 +42,7 @@ export class WgpuBuffer {
   private mapSize = 0;
   private mappedRanges: MappedRange[] = [];
 
-  constructor(ptr: number, size: number, queue: WgpuQueue, mappedAtCreation = false) {
+  constructor(ptr: ptr, size: number, queue: WgpuQueue, mappedAtCreation = false) {
     this.ptr = ptr;
     this.size = size;
     this.queue = queue;
@@ -137,7 +137,7 @@ export class WgpuBuffer {
 // ============================================================================
 
 export class WgpuTexture {
-  readonly ptr: number;
+  readonly ptr: ptr;
   readonly width: number;
   readonly height: number;
   readonly depthOrArrayLayers: number;
@@ -155,7 +155,7 @@ export class WgpuTexture {
   __ddWritten = false;
   private destroyed = false;
 
-  constructor(ptr: number, desc: GPUTextureDescriptor) {
+  constructor(ptr: ptr, desc: GPUTextureDescriptor) {
     this.ptr = ptr;
     const ext = parseExtent3D(desc.size);
     this.width = ext.width;
@@ -206,14 +206,14 @@ export class WgpuTexture {
 // ============================================================================
 
 export class WgpuTextureView {
-  readonly ptr: number;
+  readonly ptr: ptr;
   label = "";
   /** The texture this view was created from — lets encoder ops attribute
    *  writes back to the texture (see WgpuTexture.__ddWritten). */
   readonly sourceTexture: WgpuTexture | null;
   private released = false;
 
-  constructor(ptr: number, sourceTexture: WgpuTexture | null = null) {
+  constructor(ptr: ptr, sourceTexture: WgpuTexture | null = null) {
     this.ptr = ptr;
     this.sourceTexture = sourceTexture;
   }
@@ -233,10 +233,10 @@ export class WgpuTextureView {
 // ============================================================================
 
 export class WgpuSampler {
-  readonly ptr: number;
+  readonly ptr: ptr;
   label = "";
 
-  constructor(ptr: number) {
+  constructor(ptr: ptr) {
     this.ptr = ptr;
   }
 }
@@ -246,13 +246,13 @@ export class WgpuSampler {
 // ============================================================================
 
 export class WgpuQuerySet {
-  readonly ptr: number;
+  readonly ptr: ptr;
   readonly type: GPUQueryType;
   readonly count: number;
   label = "";
   private destroyed = false;
 
-  constructor(ptr: number, type: GPUQueryType, count: number) {
+  constructor(ptr: ptr, type: GPUQueryType, count: number) {
     this.ptr = ptr;
     this.type = type;
     this.count = count;
@@ -272,12 +272,12 @@ export class WgpuQuerySet {
 // ============================================================================
 
 export class WgpuShaderModule {
-  readonly ptr: number;
+  readonly ptr: ptr;
   /** The WGSL source — kept for `layout: "auto"` bind group parsing. */
   readonly code: string;
   label = "";
 
-  constructor(ptr: number, code: string = "") {
+  constructor(ptr: ptr, code: string = "") {
     this.ptr = ptr;
     this.code = code;
   }
@@ -320,30 +320,30 @@ export class WgpuShaderModule {
 // ============================================================================
 
 export class WgpuBindGroupLayout {
-  readonly ptr: number;
+  readonly ptr: ptr;
   label = "";
 
-  constructor(ptr: number) {
+  constructor(ptr: ptr) {
     this.ptr = ptr;
   }
 }
 
 export class WgpuPipelineLayout {
-  readonly ptr: number;
+  readonly ptr: ptr;
   readonly bindGroupLayouts: WgpuBindGroupLayout[];
   label = "";
 
-  constructor(ptr: number, bindGroupLayouts: WgpuBindGroupLayout[] = []) {
+  constructor(ptr: ptr, bindGroupLayouts: WgpuBindGroupLayout[] = []) {
     this.ptr = ptr;
     this.bindGroupLayouts = bindGroupLayouts;
   }
 }
 
 export class WgpuBindGroup {
-  readonly ptr: number;
+  readonly ptr: ptr;
   label = "";
 
-  constructor(ptr: number) {
+  constructor(ptr: ptr) {
     this.ptr = ptr;
   }
 }
@@ -353,11 +353,11 @@ export class WgpuBindGroup {
 // ============================================================================
 
 export class WgpuRenderPipeline {
-  readonly ptr: number;
+  readonly ptr: ptr;
   label = "";
   private bindGroupLayouts: WgpuBindGroupLayout[];
 
-  constructor(ptr: number, bindGroupLayouts: WgpuBindGroupLayout[] = []) {
+  constructor(ptr: ptr, bindGroupLayouts: WgpuBindGroupLayout[] = []) {
     this.ptr = ptr;
     this.bindGroupLayouts = bindGroupLayouts;
   }
@@ -371,11 +371,11 @@ export class WgpuRenderPipeline {
 }
 
 export class WgpuComputePipeline {
-  readonly ptr: number;
+  readonly ptr: ptr;
   label = "";
   private bindGroupLayouts: WgpuBindGroupLayout[];
 
-  constructor(ptr: number, bindGroupLayouts: WgpuBindGroupLayout[] = []) {
+  constructor(ptr: ptr, bindGroupLayouts: WgpuBindGroupLayout[] = []) {
     this.ptr = ptr;
     this.bindGroupLayouts = bindGroupLayouts;
   }
@@ -393,7 +393,7 @@ export class WgpuComputePipeline {
 // ============================================================================
 
 export class WgpuCommandBuffer {
-  readonly ptr: number;
+  readonly ptr: ptr;
   label = "";
   private released = false;
   /**
@@ -404,7 +404,7 @@ export class WgpuCommandBuffer {
    */
   invalid = false;
 
-  constructor(ptr: number) {
+  constructor(ptr: ptr) {
     this.ptr = ptr;
   }
 

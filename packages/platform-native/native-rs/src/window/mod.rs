@@ -32,8 +32,12 @@
 //!   Resize/Moved: [0],[1]
 //!   Text input / drop file: char buffer (31 / 255 bytes + NUL)
 //!
-//! Threading: winit objects are !Send — everything lives in thread_locals and
-//! is driven by the JS main thread, exactly like the SDL version.
+//! Threading: on desktop everything runs on the JS main thread exactly like
+//! the SDL version. On Android winit's event loop must run on the app thread
+//! (created by android_main) while sdl_shim_* calls arrive on the JS thread —
+//! so shared state is a Mutex<Ctx> + a cross-thread event queue, and winit's
+//! Android Window is Send/Sync by design (operations are queued to the main
+//! thread internally).
 //! Keycodes: SDL3 values — ASCII for printables, scancode|0x40000000 for
 //! named keys — so the existing TS SDL_* tables keep working unchanged.
 //! Wheel deltas are line detents; winit PixelDelta is converted (~16px/line).
@@ -41,20 +45,29 @@
 //! logical — identical at scale factor 1.0, which is the common case on the
 //! native Linux path.
 
+#[cfg(target_os = "android")]
+pub mod android;
 mod events;
 mod keys;
 
 use events::{take, Ev};
 use raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
-use std::cell::{Cell, RefCell};
+#[cfg(not(target_os = "android"))]
+use std::cell::RefCell;
 use std::ffi::{c_char, c_int, c_void, CStr};
 use std::ptr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
+#[cfg(not(target_os = "android"))]
 use winit::application::ApplicationHandler;
-use winit::dpi::{LogicalSize, PhysicalPosition, PhysicalSize, Position, Size};
+#[cfg(not(target_os = "android"))]
+use winit::dpi::LogicalSize;
+use winit::dpi::{PhysicalPosition, PhysicalSize, Position, Size};
+#[cfg(not(target_os = "android"))]
 use winit::event::{DeviceEvent, WindowEvent};
+#[cfg(not(target_os = "android"))]
 use winit::event_loop::EventLoop;
+#[cfg(not(target_os = "android"))]
 use winit::platform::pump_events::EventLoopExtPumpEvents;
 use winit::window::{CursorGrabMode, Fullscreen, Window};
 
@@ -65,6 +78,8 @@ mod syswm {
     pub const X11: i32 = 2;
     pub const WAYLAND: i32 = 3;
     pub const COCOA: i32 = 4;
+    /// SDL_SYSWM_ANDROID (SDL_syswm.h)
+    pub const ANDROID: i32 = 13;
 }
 
 /// SDL_Keymod bits — combined L|R (TS masks with KMOD_SHIFT etc.).
@@ -84,6 +99,13 @@ struct Ctx {
     text_input: bool,
 }
 
+/// Shared window/app state. On Android the winit loop runs on the app thread
+/// (downdraft_platform_android_main) while all sdl_shim_* calls come from the
+/// JS thread, so this is a Mutex; on desktop the same fns run on one thread
+/// and the lock is never contended.
+static CTX: Mutex<Option<Ctx>> = Mutex::new(None);
+
+#[cfg(not(target_os = "android"))]
 thread_local! {
     /// Separate from CTX: pump_app_events dispatches into the handler, which
     /// borrows CTX — holding the loop's borrow across the call would panic.
@@ -92,15 +114,14 @@ thread_local! {
     /// destruction at process exit — that can race the display connection.
     static EVENT_LOOP: RefCell<Option<std::mem::ManuallyDrop<EventLoop<()>>>> =
         const { RefCell::new(None) };
-    static CTX: RefCell<Option<Ctx>> = const { RefCell::new(None) };
-    /// Synthetic QUIT injected by sdl_shim_request_quit.
-    static QUIT: Cell<bool> = const { Cell::new(false) };
 }
 
 /// ApplicationHandler that translates winit events into queued shim events.
 /// `resumed`/`window_event` are the trait's required methods.
+#[cfg(not(target_os = "android"))]
 struct Pump;
 
+#[cfg(not(target_os = "android"))]
 impl ApplicationHandler for Pump {
     fn resumed(&mut self, _el: &winit::event_loop::ActiveEventLoop) {}
 
@@ -110,11 +131,9 @@ impl ApplicationHandler for Pump {
         _id: winit::window::WindowId,
         ev: WindowEvent,
     ) {
-        CTX.with(|c| {
-            let mut borrow = c.borrow_mut();
-            let Some(ctx) = borrow.as_mut() else { return };
+        if let Some(ctx) = CTX.lock().unwrap().as_mut() {
             events::translate_window_event(ctx, ev, el);
-        });
+        }
     }
 
     fn device_event(
@@ -123,21 +142,20 @@ impl ApplicationHandler for Pump {
         _id: winit::event::DeviceId,
         ev: DeviceEvent,
     ) {
-        CTX.with(|c| {
-            let mut borrow = c.borrow_mut();
-            let Some(ctx) = borrow.as_mut() else { return };
+        if let Some(ctx) = CTX.lock().unwrap().as_mut() {
             events::translate_device_event(ctx, ev);
-        });
+        }
     }
 }
 
 fn with_ctx<R>(f: impl FnOnce(&mut Ctx) -> R) -> Option<R> {
-    CTX.with(|c| c.borrow_mut().as_mut().map(f))
+    CTX.lock().unwrap().as_mut().map(f)
 }
 
-/// Pump the winit event queue (pump_events extension — desktop targets only,
-/// which is everything this shim targets). Queued events are then drained one
-/// per poll call, mirroring SDL_PollEvent.
+/// Pump the winit event queue (pump_events extension — desktop targets only;
+/// Android's loop is owned by the app thread in android.rs).
+/// Queued events are then drained one per poll call, mirroring SDL_PollEvent.
+#[cfg(not(target_os = "android"))]
 fn pump(timeout: Option<Duration>) {
     EVENT_LOOP.with(|e| {
         if let Some(l) = e.borrow_mut().as_mut() {
@@ -148,6 +166,36 @@ fn pump(timeout: Option<Duration>) {
 
 // ── Window creation ──
 
+/// Install `window` into shared state, creating Ctx on first use. Shared by
+/// the desktop create_window path and Android's deferred resumed() creation.
+pub(crate) fn install_window(window: Arc<Window>) {
+    let mut guard = CTX.lock().unwrap();
+    match guard.as_mut() {
+        Some(ctx) => ctx.window = Some(window),
+        None => {
+            *guard = Some(Ctx {
+                window: Some(window),
+                mods: 0,
+                buttons: 0,
+                cursor: (0.0, 0.0),
+                grabbed: false,
+                text_input: false,
+            });
+        }
+    }
+}
+
+fn cstr_title(title: *const c_char) -> String {
+    if title.is_null() {
+        "Downdraft".to_string()
+    } else {
+        unsafe { CStr::from_ptr(title) }
+            .to_string_lossy()
+            .into_owned()
+    }
+}
+
+#[cfg(not(target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn sdl_shim_create_window(
     title: *const c_char,
@@ -157,16 +205,15 @@ pub extern "C" fn sdl_shim_create_window(
     ffi!(2, {
         // C semantic: already-live window → 0. A destroyed window (CTX present
         // but window None) falls through and recreates on the kept EventLoop.
-        if CTX.with(|c| c.borrow().as_ref().is_some_and(|x| x.window.is_some())) {
+        if CTX
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|x| x.window.is_some())
+        {
             return 0;
         }
-        let title = if title.is_null() {
-            "Downdraft".to_string()
-        } else {
-            unsafe { CStr::from_ptr(title) }
-                .to_string_lossy()
-                .into_owned()
-        };
+        let title = cstr_title(title);
 
         let created = EVENT_LOOP.with(|e| -> Result<Arc<Window>, c_int> {
             let mut slot = e.borrow_mut();
@@ -212,22 +259,7 @@ pub extern "C" fn sdl_shim_create_window(
             ));
         }
 
-        CTX.with(|c| {
-            let mut borrow = c.borrow_mut();
-            match borrow.as_mut() {
-                Some(ctx) => ctx.window = Some(window),
-                None => {
-                    *borrow = Some(Ctx {
-                        window: Some(window),
-                        mods: 0,
-                        buttons: 0,
-                        cursor: (0.0, 0.0),
-                        grabbed: false,
-                        text_input: false,
-                    });
-                }
-            }
-        });
+        install_window(window);
         // First pump surfaces Resized/focus so the initial state settles.
         pump(Some(Duration::ZERO));
         0
@@ -238,23 +270,35 @@ pub extern "C" fn sdl_shim_create_window(
 
 /// No live window → NONE, same as the C shim's g_window null check. (The
 /// EventLoop outlives the window — winit allows only one per process.)
+/// Desktop-only — Android's emit must NOT gate on this (see below).
+#[cfg(not(target_os = "android"))]
 fn no_window() -> bool {
-    CTX.with(|c| c.borrow().as_ref().is_none_or(|ctx| ctx.window.is_none()))
+    CTX.lock()
+        .unwrap()
+        .as_ref()
+        .is_none_or(|ctx| ctx.window.is_none())
 }
 
 /// Write one queued event into out_data. Returns the SDL_SHIM_EVENT_* type.
 /// `timeout` bounds the pump's wait: `Some(ZERO)` = SDL_PollEvent (never
 /// blocks); a real duration = SDL_WaitEventTimeout. winit's `pump_app_events`
 /// treats `None` as "wait indefinitely", so `None` must never be passed.
+#[cfg(not(target_os = "android"))]
 fn emit(out_data: *mut c_void, timeout: Option<Duration>) -> c_int {
     if no_window() {
         return events::NONE;
     }
-    // Injected quit takes priority (request_quit between polls).
-    if QUIT.with(|q| q.replace(false)) {
-        return events::write(Ev::Quit, out_data);
-    }
     pump(timeout);
+    take()
+        .map(|ev| events::write(ev, out_data))
+        .unwrap_or(events::NONE)
+}
+
+/// Android: the app thread's run_app handler fills the shared queue — poll
+/// just drains it. We deliberately do NOT gate on no_window: before the first
+/// resumed() there is no window, and RESUMED itself is the event JS waits on.
+#[cfg(target_os = "android")]
+fn emit(out_data: *mut c_void, _timeout: Option<Duration>) -> c_int {
     take()
         .map(|ev| events::write(ev, out_data))
         .unwrap_or(events::NONE)
@@ -267,6 +311,7 @@ pub extern "C" fn sdl_shim_poll_event(out_data: *mut c_void) -> c_int {
     ffi!(events::NONE, { emit(out_data, Some(Duration::ZERO)) })
 }
 
+#[cfg(not(target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn sdl_shim_wait_event(out_data: *mut c_void, timeout_ms: u32) -> c_int {
     ffi!(events::NONE, {
@@ -275,6 +320,18 @@ pub extern "C" fn sdl_shim_wait_event(out_data: *mut c_void, timeout_ms: u32) ->
             return events::NONE;
         }
         emit(out_data, Some(Duration::from_millis(timeout_ms as u64)))
+    })
+}
+
+/// Android: block on the shared queue's condvar — the app thread pushes and
+/// notifies. Not gated on no_window (see emit above).
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "C" fn sdl_shim_wait_event(out_data: *mut c_void, timeout_ms: u32) -> c_int {
+    ffi!(events::NONE, {
+        events::take_timeout(Duration::from_millis(timeout_ms as u64))
+            .map(|ev| events::write(ev, out_data))
+            .unwrap_or(events::NONE)
     })
 }
 
@@ -356,6 +413,7 @@ pub extern "C" fn sdl_shim_get_window_subsystem() -> c_int {
                 Ok(RawDisplayHandle::Wayland(_)) => syswm::WAYLAND,
                 Ok(RawDisplayHandle::Windows(_)) => syswm::WINDOWS,
                 Ok(RawDisplayHandle::AppKit(_)) => syswm::COCOA,
+                Ok(RawDisplayHandle::Android(_)) => syswm::ANDROID,
                 _ => syswm::UNKNOWN,
             }
         })
@@ -554,7 +612,7 @@ pub extern "C" fn sdl_shim_get_display_info(refresh_out: *mut c_int, scale_out: 
 #[no_mangle]
 pub extern "C" fn sdl_shim_request_quit() {
     ffi!((), {
-        QUIT.with(|q| q.set(true));
+        events::push(Ev::Quit);
     });
 }
 
@@ -575,8 +633,11 @@ pub extern "C" fn sdl_shim_show_message_box(title: *const c_char, message: *cons
                 .to_string_lossy()
                 .into_owned()
         };
-        // rfd's MessageDialog is modal on all desktop targets. The result is
-        // which button dismissed it — SDL returns 0 whenever the dialog ran.
+        // rfd's MessageDialog is modal on all desktop targets; Android has no
+        // rfd backend — the message reaches logcat via the shell's fd redirect.
+        #[cfg(target_os = "android")]
+        eprintln!("[downdraft_platform] message box: {title}: {message}");
+        #[cfg(not(target_os = "android"))]
         let _ = rfd::MessageDialog::new()
             .set_level(rfd::MessageLevel::Error)
             .set_title(&title)
@@ -588,6 +649,7 @@ pub extern "C" fn sdl_shim_show_message_box(title: *const c_char, message: *cons
 
 // ── Clipboard ──
 
+#[cfg(not(target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn sdl_shim_set_clipboard(text: *const c_char) {
     ffi!((), {
@@ -603,7 +665,25 @@ pub extern "C" fn sdl_shim_set_clipboard(text: *const c_char) {
     });
 }
 
+/// Android: arboard has no Android backend; stub until JNI clipboard lands.
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "C" fn sdl_shim_set_clipboard(_text: *const c_char) {}
+
+/// Android: no arboard backend — report empty clipboard.
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "C" fn sdl_shim_get_clipboard(out: *mut c_char, _max_len: c_int) -> c_int {
+    ffi!(0, {
+        if !out.is_null() {
+            unsafe { *out = 0 };
+        }
+        0
+    })
+}
+
 /// snprintf semantics: returns the untruncated length, copies max_len-1 + NUL.
+#[cfg(not(target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn sdl_shim_get_clipboard(out: *mut c_char, max_len: c_int) -> c_int {
     ffi!(0, {
@@ -631,11 +711,9 @@ pub extern "C" fn sdl_shim_get_clipboard(out: *mut c_char, max_len: c_int) -> c_
 pub extern "C" fn sdl_shim_destroy_window() {
     ffi!((), {
         events::clear();
-        CTX.with(|c| {
-            if let Some(ctx) = c.borrow_mut().as_mut() {
-                ctx.window = None;
-            }
-        });
+        if let Some(ctx) = CTX.lock().unwrap().as_mut() {
+            ctx.window = None;
+        }
         // Keep EVENT_LOOP alive — winit allows exactly one EventLoop per
         // process, and SDL semantics let games destroy + recreate the window.
     });
@@ -656,7 +734,11 @@ pub extern "C" fn sdl_shim_delay(ms: u32) {
 #[no_mangle]
 pub extern "C" fn sdl_shim_create_wgpu_surface(instance: *mut c_void) -> *mut c_void {
     ffi!(ptr::null_mut(), {
-        let window = CTX.with(|c| c.borrow().as_ref().and_then(|ctx| ctx.window.clone()));
+        let window = CTX
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|ctx| ctx.window.clone());
         match window {
             Some(w) => crate::gpu::create_surface_for_window(instance, w),
             None => ptr::null_mut(),

@@ -43,7 +43,7 @@ let active: NativeGamepadHandle | null = null;
 
 interface PadSymbols {
   dd_pad_init(): number;
-  dd_pad_attach_sab(ptr: number, len: number): number;
+  dd_pad_attach_sab(ptr: ptr, len: number): number;
   dd_pad_detach_sab(): void;
   dd_pad_rumble(slot: number, weak: number, strong: number, ms: number): number;
   dd_pad_set_deadzone(radius: number): number;

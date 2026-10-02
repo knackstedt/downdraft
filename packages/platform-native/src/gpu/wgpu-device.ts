@@ -76,23 +76,46 @@ export function getLiveDevices(): ReadonlySet<WgpuDevice> {
 // ============================================================================
 
 export class WgpuGPU {
-  private instancePtr: number = 0;
+  private instancePtr: ptr = 0;
 
   constructor() {
-    this.instancePtr = wgpu.wgpu_shim_create_instance() as unknown as number;
+    this.instancePtr = wgpu.wgpu_shim_create_instance();
     if (!this.instancePtr) throw new Error("Failed to create wgpu instance");
   }
 
-  getInstancePtr(): number { return this.instancePtr; }
+  getInstancePtr(): ptr { return this.instancePtr; }
 
   getPreferredCanvasFormat(): GPUTextureFormat {
-    const fmt = wgpu.wgpu_shim_get_preferred_format();
-    return formatName(fmt);
+    // When a native surface + device already exist, return the format the
+    // surface actually supports — the shim's global default bakes the
+    // desktop Bgra8 choice, but Android surfaces commonly offer only Rgba
+    // variants, so the "preferred" format must come from real caps or
+    // pipelines built with it fail validation at render time.
+    const host = (globalThis as {
+      __nativeHost?: {
+        surface?: { getSurfacePtr?: () => ptr };
+        device?: { adapterPtr?: ptr };
+      };
+    }).__nativeHost;
+    const surfacePtr = host?.surface?.getSurfacePtr?.();
+    const adapterPtr = host?.device?.adapterPtr;
+    if (surfacePtr && adapterPtr) {
+      const candidates = new Uint32Array([
+        parseFormat("bgra8unorm"),
+        parseFormat("bgra8unorm-srgb"),
+        parseFormat("rgba8unorm"),
+        parseFormat("rgba8unorm-srgb"),
+      ]);
+      const fmt = wgpu.wgpu_shim_surface_pick_format(
+        surfacePtr, adapterPtr, candidates as any, candidates.length);
+      if (fmt) return formatName(fmt);
+    }
+    return formatName(wgpu.wgpu_shim_get_preferred_format());
   }
 
   async requestAdapter(options?: GPURequestAdapterOptions): Promise<WgpuAdapter | null> {
     const powerPref = options?.powerPreference === "low-power" ? 1 : 2;
-    const adapterPtr = wgpu.wgpu_shim_request_adapter(this.instancePtr, powerPref) as unknown as number;
+    const adapterPtr = wgpu.wgpu_shim_request_adapter(this.instancePtr, powerPref);
     if (!adapterPtr) return null;
     return new WgpuAdapter(adapterPtr, this.instancePtr);
   }
@@ -115,7 +138,7 @@ export interface NativeAdapterInfo {
 }
 
 /** Read the adapter's real info over FFI. Returns null on failure. */
-export function queryNativeAdapterInfo(adapterPtr: number): NativeAdapterInfo | null {
+export function queryNativeAdapterInfo(adapterPtr: ptr): NativeAdapterInfo | null {
   const buf = new Uint8Array(2048);
   const n = wgpu.wgpu_shim_adapter_get_info(adapterPtr, buf as any, buf.length);
   if (n <= 0) return null;
@@ -127,13 +150,13 @@ export function queryNativeAdapterInfo(adapterPtr: number): NativeAdapterInfo | 
 }
 
 export class WgpuAdapter {
-  readonly ptr: number;
-  private instancePtr: number;
+  readonly ptr: ptr;
+  private instancePtr: ptr;
   private _limits: GPUSupportedLimits | null = null;
   private _features: GPUSupportedFeatures | null = null;
   private _info: NativeAdapterInfo | null | undefined;
 
-  constructor(ptr: number, instancePtr: number) {
+  constructor(ptr: ptr, instancePtr: ptr) {
     this.ptr = ptr;
     this.instancePtr = instancePtr;
   }
@@ -200,6 +223,7 @@ export class WgpuAdapter {
 
     const device = new WgpuDevice(devicePtr, this.instancePtr);
     device.adapterInfo = this.nativeInfo;
+    device.adapterPtr = this.ptr;
     trackForRelease(device, () => wgpu.wgpu_shim_release_device(devicePtr));
     return device;
   }
@@ -222,15 +246,18 @@ interface ParsedBinding {
 }
 
 export class WgpuDevice {
-  readonly ptr: number;
+  readonly ptr: ptr;
   /** The default queue. Public so callers can writeBuffer/submit directly. */
   readonly queue: WgpuQueue;
   label = "";
   /** Adapter info captured at requestDevice() — null on worker-attached views
    *  (the shared-device attach path never sees the adapter). */
   adapterInfo: NativeAdapterInfo | null = null;
+  /** Raw wgpu adapter handle — needed for surface-capability queries
+   *  (get_capabilities takes &Adapter). 0 on worker-attached devices. */
+  adapterPtr: ptr = 0;
 
-  private instancePtr: number;
+  private instancePtr: ptr;
   /** False for worker-attached (non-owning) device views — destroy() only
    *  unwires local state and never releases the native device handle. */
   private readonly ownsHandle: boolean;
@@ -249,7 +276,7 @@ export class WgpuDevice {
   private _features: GPUSupportedFeatures | null = null;
   private _lostReported = false;
 
-  constructor(ptr: number, instancePtr: number, options?: { ownsHandle?: boolean }) {
+  constructor(ptr: ptr, instancePtr: ptr, options?: { ownsHandle?: boolean }) {
     this.ptr = ptr;
     this.instancePtr = instancePtr;
     this.ownsHandle = options?.ownsHandle !== false;
@@ -269,7 +296,7 @@ export class WgpuDevice {
     this.pollLost();
   }
 
-  getInstancePtr(): number { return this.instancePtr; }
+  getInstancePtr(): ptr { return this.instancePtr; }
 
   /** Write the shared alive-cell to 0, unless the cells have moved on to a
    *  newer generation (a re-share) — guards a replaced device from clobbering
@@ -585,24 +612,28 @@ export class WgpuDevice {
       flat[base + 0] = e.binding;
       const res = e.resource;
       if (res instanceof WgpuBuffer) {
+        const rp = BigInt(res.ptr);
         flat[base + 1] = 0;
-        flat[base + 2] = res.ptr & 0xFFFFFFFF;
-        flat[base + 3] = Math.floor(res.ptr / 0x100000000);
+        flat[base + 2] = Number(rp & 0xFFFFFFFFn);
+        flat[base + 3] = Number(rp >> 32n);
         flat[base + 6] = res.size & 0xFFFFFFFF;
         flat[base + 7] = Math.floor(res.size / 0x100000000);
       } else if (res instanceof WgpuSampler) {
+        const rp = BigInt(res.ptr);
         flat[base + 1] = 1;
-        flat[base + 2] = res.ptr & 0xFFFFFFFF;
-        flat[base + 3] = Math.floor(res.ptr / 0x100000000);
+        flat[base + 2] = Number(rp & 0xFFFFFFFFn);
+        flat[base + 3] = Number(rp >> 32n);
       } else if (res instanceof WgpuTextureView) {
+        const rp = BigInt(res.ptr);
         flat[base + 1] = 2;
-        flat[base + 2] = res.ptr & 0xFFFFFFFF;
-        flat[base + 3] = Math.floor(res.ptr / 0x100000000);
+        flat[base + 2] = Number(rp & 0xFFFFFFFFn);
+        flat[base + 3] = Number(rp >> 32n);
       } else if (typeof res === "object" && res !== null && "buffer" in res) {
         const buf = res.buffer as unknown as WgpuBuffer;
+        const rp = BigInt(buf.ptr);
         flat[base + 1] = 0;
-        flat[base + 2] = buf.ptr & 0xFFFFFFFF;
-        flat[base + 3] = Math.floor(buf.ptr / 0x100000000);
+        flat[base + 2] = Number(rp & 0xFFFFFFFFn);
+        flat[base + 3] = Number(rp >> 32n);
         const offset = BigInt(res.offset ?? 0);
         const size = BigInt(res.size ?? buf.size);
         flat[base + 4] = Number(offset & 0xFFFFFFFFn);
@@ -698,7 +729,7 @@ export class WgpuDevice {
     // layout: "auto" → parse the shader sources for @group/@binding
     let layout = descriptor.layout as unknown as WgpuPipelineLayout | "auto" | null;
     let autoBindGroupLayouts: WgpuBindGroupLayout[] = [];
-    let layoutPtr: number = 0;
+    let layoutPtr: ptr = 0;
     if (layout === "auto") {
       const shaders = fragmentShader ? [vertexShader, fragmentShader] : [vertexShader];
       autoBindGroupLayouts = this.createAutoBindGroupLayouts(shaders);
@@ -773,7 +804,7 @@ export class WgpuDevice {
 
     let layout = descriptor.layout as unknown as WgpuPipelineLayout | "auto" | null;
     let autoBindGroupLayouts: WgpuBindGroupLayout[] = [];
-    let layoutPtr: number = 0;
+    let layoutPtr: ptr = 0;
     if (layout === "auto") {
       autoBindGroupLayouts = this.createAutoBindGroupLayouts([shader]);
       if (autoBindGroupLayouts.length > 0) {
@@ -836,10 +867,10 @@ export class WgpuDevice {
 // ============================================================================
 
 export class WgpuQueue {
-  readonly ptr: number;
+  readonly ptr: ptr;
   label = "";
 
-  constructor(ptr: number) {
+  constructor(ptr: ptr) {
     this.ptr = ptr;
   }
 

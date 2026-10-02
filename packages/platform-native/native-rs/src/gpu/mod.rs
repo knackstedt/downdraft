@@ -179,7 +179,9 @@ fn block_on_gpu<F: Future>(fut: F) -> Option<F::Output> {
         let elapsed = start.elapsed();
         if !warned && elapsed > std::time::Duration::from_secs(2) {
             warned = true;
-            eprintln!("[wgpu_shim] GPU future not resolving after 2s — device hung or callback dropped");
+            eprintln!(
+                "[wgpu_shim] GPU future not resolving after 2s — device hung or callback dropped"
+            );
         }
         if elapsed > std::time::Duration::from_secs(15) {
             eprintln!("[wgpu_shim] block_on_gpu timed out after 15s — returning failure to caller");
@@ -253,7 +255,10 @@ pub extern "C" fn wgpu_shim_create_instance() -> Handle {
     ffi!(ptr::null_mut(), {
         let instance = Instance::new(InstanceDescriptor::new_without_display_handle_from_env());
         let handle = boxed(instance.clone());
-        G_INSTANCES.lock().unwrap().push((handle as usize, instance));
+        G_INSTANCES
+            .lock()
+            .unwrap()
+            .push((handle as usize, instance));
         if G_INSTANCES.lock().unwrap().len() > 1 {
             eprintln!("[wgpu_shim] WARNING: second wgpu instance created — instances share the process-global pump; release the first before creating another");
         }
@@ -2178,7 +2183,9 @@ pub extern "C" fn wgpu_shim_adapter_get_info(
     out_size: i32,
 ) -> i32 {
     ffi!(0, unsafe {
-        if out_buf.is_null() || out_size <= 0 { return 0; }
+        if out_buf.is_null() || out_size <= 0 {
+            return 0;
+        }
         let info = obj::<Adapter>(adapter).get_info();
         let device_type = match info.device_type {
             DeviceType::IntegratedGpu => "integrated-gpu",
@@ -2197,7 +2204,9 @@ pub extern "C" fn wgpu_shim_adapter_get_info(
             info.vendor, info.device,
         );
         let bytes = json.as_bytes();
-        if out_size as usize <= bytes.len() { return 0; }
+        if out_size as usize <= bytes.len() {
+            return 0;
+        }
         ptr::copy_nonoverlapping(bytes.as_ptr(), out_buf as *mut u8, bytes.len());
         *out_buf.add(bytes.len()) = 0;
         bytes.len() as i32
@@ -2228,12 +2237,62 @@ pub(crate) fn create_surface_for_window(
     if instance.is_null() {
         return ptr::null_mut();
     }
+    #[cfg(target_os = "android")]
+    {
+        use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
+        let wh = window.window_handle().map(|h| h.as_raw());
+        let dh = window.display_handle().map(|h| h.as_raw());
+        eprintln!("[wgpu_shim] create_surface: window_handle={wh:?} display_handle={dh:?}");
+        android_segv_probe::install();
+    }
     let instance = unsafe { obj::<Instance>(instance) };
     match instance.create_surface(window) {
         Ok(s) => boxed(s),
         Err(e) => {
             eprintln!("[wgpu_shim] surface creation failed: {e}");
             ptr::null_mut()
+        }
+    }
+}
+
+/// One-shot SIGSEGV reporter (diagnostic): logs si_addr/si_code for faults
+/// inside the wgpu surface-creation call, then re-raises as SIG_DFL.
+#[cfg(target_os = "android")]
+mod android_segv_probe {
+    use std::ffi::{c_char, c_int};
+
+    extern "C" {
+        fn __android_log_write(prio: c_int, tag: *const c_char, text: *const c_char) -> c_int;
+    }
+
+    unsafe extern "C" fn handler(sig: c_int, info: *mut libc::siginfo_t, ctx: *mut libc::c_void) {
+        let code = unsafe { (*info).si_code };
+        let addr = unsafe { (*info).si_addr() } as usize;
+        // ucontext_t → uc_mcontext (mcontext_t: 64-bit regs array + pc on arm64).
+        let (pc, sp, x1) = unsafe {
+            let uc = ctx as *const libc::ucontext_t;
+            let mc = &(*uc).uc_mcontext;
+            (mc.pc, mc.sp, mc.regs[1])
+        };
+        // Async-signal-unsafe formatting is fine — we re-raise and die anyway.
+        let msg = std::ffi::CString::new(format!(
+            "segv probe: sig={sig} code={code} addr={addr:#x} pc={pc:#x} sp={sp:#x} x1={x1:#x}"
+        ))
+        .unwrap();
+        unsafe {
+            __android_log_write(6, c"downdraft".as_ptr(), msg.as_ptr());
+            libc::signal(sig, libc::SIG_DFL);
+            libc::raise(sig);
+        }
+    }
+
+    pub(super) fn install() {
+        unsafe {
+            let mut sa: libc::sigaction = std::mem::zeroed();
+            sa.sa_sigaction = handler as usize;
+            sa.sa_flags = libc::SA_SIGINFO | libc::SA_RESETHAND;
+            libc::sigemptyset(&mut sa.sa_mask);
+            libc::sigaction(libc::SIGSEGV, &sa, std::ptr::null_mut());
         }
     }
 }
@@ -2366,6 +2425,50 @@ pub extern "C" fn wgpu_shim_get_preferred_format() -> u32 {
     ffi!(27, { 27 })
 }
 
+/// Pick a surface-supported format: returns the first `candidates` entry
+/// present in `surface.get_capabilities(adapter).formats`, else the caps'
+/// own first format (wgpu's preferred ordering), else 0. The global
+/// `get_preferred_format` bakes the desktop default (Bgra8) — Android
+/// surfaces commonly offer only Rgba variants, so configure must pick
+/// from the actual caps or validation rejects it.
+#[no_mangle]
+pub extern "C" fn wgpu_shim_surface_pick_format(
+    surface: Handle,
+    adapter: Handle,
+    candidates: *const u32,
+    count: usize,
+) -> u32 {
+    ffi!(0, unsafe {
+        if adapter.is_null() {
+            eprintln!("[wgpu_shim] surface_pick_format: null adapter");
+            return 0;
+        }
+        let caps = obj::<Surface>(surface).get_capabilities(obj::<Adapter>(adapter));
+        eprintln!(
+            "[wgpu_shim] surface_pick_format: caps={:?} count={count} c0={:?}",
+            caps.formats,
+            if count > 0 { Some(*candidates) } else { None },
+        );
+        for i in 0..count {
+            let code = *candidates.add(i);
+            if let Some(f) = enums::texture_format(code) {
+                if caps.formats.contains(&f) {
+                    return code;
+                }
+            }
+        }
+        // No candidate matched — report the surface's own first choice. The
+        // enum table has no reverse map, so scan the code space for the
+        // format (called once per surface, so the linear scan is fine).
+        match caps.formats.first() {
+            Some(f) => (0u32..1024)
+                .find(|c| enums::texture_format(*c) == Some(*f))
+                .unwrap_or(0),
+            None => 0,
+        }
+    })
+}
+
 // ── Release ──
 
 macro_rules! release_fn {
@@ -2404,7 +2507,10 @@ pub extern "C" fn wgpu_shim_release_device(p: Handle) {
 pub extern "C" fn wgpu_shim_release_instance(p: Handle) {
     ffi!((), unsafe {
         release::<Instance>(p);
-        G_INSTANCES.lock().unwrap().retain(|(h, _)| *h != p as usize);
+        G_INSTANCES
+            .lock()
+            .unwrap()
+            .retain(|(h, _)| *h != p as usize);
     });
 }
 

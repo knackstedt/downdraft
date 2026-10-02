@@ -11,6 +11,30 @@ import { WgpuGPU } from "./wgpu-wrapper";
 
 const log = createLogger();
 
+// Android: logcat drops oversized stderr writes, and Node's default
+// uncaught-exception dump emits multi-KB minified source excerpts — the
+// actual `Error:` line never surfaces. Chunk the error+stack into small
+// writes so crashes stay debuggable. Same crash semantics as the default
+// (print, then exit nonzero). Module top-level so it lands before any
+// platform install runs.
+if (typeof process !== "undefined" && (process as any).platform === "android" && !(process as any).__ddCrashHooks) {
+  (process as any).__ddCrashHooks = true;
+  const dump = (label: string, err: any) => {
+    const text = `${label}: ${err?.stack ?? err}`;
+    for (let i = 0; i < text.length; i += 900) {
+      process.stderr.write(text.slice(i, i + 900) + "\n");
+    }
+  };
+  process.on("uncaughtException", (err) => {
+    dump("uncaughtException", err);
+    process.exit(1);
+  });
+  process.on("unhandledRejection", (err) => {
+    dump("unhandledRejection", err);
+    process.exit(1);
+  });
+}
+
 let installed = false;
 
 // GPU creation is owner-thread only. A worker must attach to the host's

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Gradle variant of the manifest — app metadata flows through
+     manifestPlaceholders/DSL from gradle.properties (DD_* props). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <uses-feature android:name="android.hardware.vulkan.version"
+        android:required="false" android:version="0x400003" />
+
+    <application
+        android:label="${appName}"
+        android:hasCode="false"
+        android:extractNativeLibs="true"
+        android:usesCleartextTraffic="false"
+        android:allowBackup="false">
+
+        <activity
+            android:name="android.app.NativeActivity"
+            android:exported="true"
+            android:configChanges="orientation|keyboardHidden|screenSize|screenLayout|smallestScreenSize|uiMode|density|fontScale"
+            android:screenOrientation="fullSensor">
+            <meta-data android:name="android.app.lib_name" android:value="downdraft_android" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

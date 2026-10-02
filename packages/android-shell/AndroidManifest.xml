@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- AndroidManifest template for a Downdraft native Android app.
+
+     @APP_ID@, @APP_NAME@, @VERSION_CODE@, @VERSION_NAME@, @MIN_SDK@ are
+     substituted by packages/cli/scripts/package-mobile.mjs.
+
+     hasCode="false" — there is no Java bytecode; android.app.NativeActivity
+     dlopens libdowndraft_android.so (android.app.lib_name) and hands us the
+     process. The engine, winit event loop, wgpu stack, and embedded libnode
+     are all native.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="@APP_ID@"
+    android:versionCode="@VERSION_CODE@"
+    android:versionName="@VERSION_NAME@">
+
+    <uses-sdk android:minSdkVersion="@MIN_SDK@" android:targetSdkVersion="36" />
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- wgpu needs Vulkan on essentially every device we care about; not
+         marked required so the APK still installs for debugging on
+         GLES-only targets (rendering will fail at adapter request). -->
+    <uses-feature android:name="android.hardware.vulkan.version"
+        android:required="false" android:version="0x400003" />
+
+    <application
+        android:label="@APP_NAME@"
+        android:hasCode="false"
+        android:extractNativeLibs="true"
+        android:usesCleartextTraffic="false"
+        android:allowBackup="false">
+
+        <activity
+            android:name="android.app.NativeActivity"
+            android:exported="true"
+            android:configChanges="orientation|keyboardHidden|screenSize|screenLayout|smallestScreenSize|uiMode|density|fontScale"
+            android:screenOrientation="fullSensor">
+            <!-- NativeActivity loads libdowndraft_android.so and calls
+                 ANativeActivity_onCreate → android_main. -->
+            <meta-data android:name="android.app.lib_name" android:value="downdraft_android" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

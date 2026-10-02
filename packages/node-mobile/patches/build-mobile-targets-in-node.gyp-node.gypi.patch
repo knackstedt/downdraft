@@ -1,0 +1,102 @@
+Subject: build: mobile targets in node.gyp / node.gypi — ported to v26.10.0
+
+Derived from gmaclennan/nodejs-mobile recipe (Node 24.18.0). Changes vs the
+reference patch for the v26 port:
+ - dropped the deps/polywasm/polywasm.js builtin-list entry (polywasm is an
+   iOS-jitless concern; not shipped in this recipe's overlay)
+ - dropped the NODE_ENABLE_LARGE_CODE_PAGES hunk (upstream removed it)
+ - the cctest skip now also covers embedtest (same node_shared failure mode)
+---
+diff --git a/node.gyp b/node.gyp
+index 2cf1e62b56..84a94d0db8 100644
+--- a/node.gyp
++++ b/node.gyp
+@@ -1434,8 +1434,9 @@
+         ['OS=="solaris"', {
+           'ldflags': [ '-I<(SHARED_INTERMEDIATE_DIR)' ]
+         }],
+-        # Skip cctest while building shared lib node for Windows
+-        [ 'OS=="win" and node_shared=="true"', {
++        # Skip cctest while building shared lib node for Windows and Android
++        # (the only mobile target built --shared; iOS links libnode statically)
++        [ 'OS in ("win", "android") and node_shared=="true"', {
+           'type': 'none',
+         }],
+         [ 'node_shared=="true"', {
+@@ -1497,8 +1498,9 @@
+         ['OS=="solaris"', {
+           'ldflags': [ '-I<(SHARED_INTERMEDIATE_DIR)' ]
+         }],
+-        # Skip cctest while building shared lib node for Windows
+-        [ 'OS=="win" and node_shared=="true"', {
++        # Skip cctest while building shared lib node for Windows and Android
++        # (the only mobile target built --shared; iOS links libnode statically)
++        [ 'OS in ("win", "android") and node_shared=="true"', {
+           'type': 'none',
+         }],
+         [ 'node_shared=="true"', {
+@@ -1659,7 +1661,8 @@
+         [ 'node_shared_libuv=="false"', {
+           'dependencies': [ 'deps/uv/uv.gyp:libuv#host' ],
+         }],
+-        [ 'OS in "linux mac openharmony"', {
++        # nodejs-mobile patch: add ios
++        [ 'OS in "linux mac ios openharmony"', {
+           'defines': ['NODE_JS2C_USE_STRING_LITERALS'],
+         }],
+         [ 'debug_node=="true"', {
+diff --git a/node.gypi b/node.gypi
+index b382784e61..75d619dbeb 100644
+--- a/node.gypi
++++ b/node.gypi
+@@ -280,6 +280,11 @@
+         'NODE_PLATFORM="darwin"',
+       ],
+     }],
++    # nodejs-mobile patch: link CoreFoundation and Security frameworks when compiling for iOS
++    [ 'OS=="ios"', {
++      # linking Corefoundation and Security is needed for crypto functionality
++      'libraries': [ '-framework CoreFoundation -framework Security' ],
++    }],
+     [ 'OS=="freebsd"', {
+       'libraries': [
+         '-lutil',
+@@ -358,7 +363,7 @@
+         ],
+       },
+     }],
+-    [ 'coverage=="true" and node_shared=="false" and OS in "mac freebsd linux openharmony"', {
++    [ 'coverage=="true" and node_shared=="false" and OS in "mac ios freebsd linux openharmony"', {
+       'cflags!': [ '-O3' ],
+       'ldflags': [ '--coverage',
+                    '-g',
+@@ -406,11 +411,15 @@
+           'defines': [ 'OPENSSL_API_COMPAT=0x10100000L', ],
+           'dependencies': [
+             './deps/openssl/openssl.gyp:openssl',
+-
+-            # For tests
+-            './deps/openssl/openssl.gyp:openssl-cli',
+           ],
+           'conditions': [
++            [ 'OS not in "ios android"', {
++              'dependencies': [
++                # Not needed for iOS and Android, doesn't build
++                # For tests
++                './deps/openssl/openssl.gyp:openssl-cli',
++              ],
++            }],
+             # -force_load or --whole-archive are not applicable for
+             # the static library
+             [ 'force_load=="true"', {
+@@ -487,5 +496,10 @@
+     }, {
+       'defines': [ 'HAVE_QUIC=0' ]
+     }],
++    [ 'OS=="android" or OS=="ios"', {
++      'defines': [
++        'NODE_MOBILE',
++      ],
++    }],
+   ],
+ }

@@ -24,8 +24,15 @@ export interface CFunction {
   returns: FFIType;
 }
 
-/** Opaque pointer type (same as bun:ffi's `ptr` type — a JS number). */
-export type ptr = number;
+/**
+ * Opaque pointer type (same role as bun:ffi's `ptr`). bun:ffi returns a JS
+ * number; koffi and Deno return bigint — which is the only lossless JS
+ * representation for addresses > 2^53 (all Android heap pointers live at
+ * ~0xb400_xxxx_xxxx_xxxx, so Number() would corrupt the low bits). Always
+ * treat `ptr` as opaque: normalize with BigInt() before splitting, use
+ * `!p`/`p == 0` for null checks (never `=== 0`), and don't do arithmetic.
+ */
+export type ptr = number | bigint;
 
 export interface FFILibrary {
   symbols: Record<string, (...args: any[]) => any>;
@@ -124,15 +131,17 @@ export function dlopen(
 }
 
 /**
- * Get the native pointer address of a Buffer/TypedArray as a `number`.
+ * Get the native pointer address of a Buffer/TypedArray. Returns `number`
+ * under Bun and `bigint` under Node/Deno — keep it lossless, never Number()
+ * a value meant to round-trip back into FFI.
  */
-export function ptr(buffer: ArrayBufferView | ArrayBuffer): number {
+export function ptr(buffer: ArrayBufferView | ArrayBuffer): ptr {
   if (runtime === "bun") {
     return bunPtr(buffer);
   }
 
   if (runtime === "node") {
-    return Number(koffi.address(buffer));
+    return koffi.address(buffer);
   }
 
   // deno
@@ -140,7 +149,7 @@ export function ptr(buffer: ArrayBufferView | ArrayBuffer): number {
   const p = Deno.UnsafePointer.of(buffer);
   // UnsafePointer.of returns null for empty buffers. Pointer objects are
   // opaque Externals in Deno 2.x — UnsafePointer.value extracts the address.
-  return p == null ? 0 : Number(Deno.UnsafePointer.value(p));
+  return p == null ? 0n : Deno.UnsafePointer.value(p);
 }
 
 // ── Node (koffi) implementation ──
@@ -157,10 +166,11 @@ function nodeDlopen(
     const retType = KOFFI_TYPE_MAP[spec.returns];
     const fn = lib.func(name, retType, argTypes);
 
-    // Wrap to normalize pointer representation:
+    // Wrap to normalize representations:
     // - ptr args: number → bigint (koffi requires bigint for void *)
     // - cstring args: Buffer → string (koffi "str" expects JS string)
-    // - ptr returns: bigint → number (normalize to bun:ffi behavior)
+    // - ptr returns: keep koffi's bigint — converting to Number would drop
+    //   low bits on any address > 2^53 (always true for Android heap).
     const wrapped = wrapKoffiFn(fn, spec);
     symbols[name] = wrapped;
   }
@@ -197,10 +207,8 @@ function wrapKoffiFn(
 
     const result = fn(...args);
 
-    // Convert return value
-    if (retType === "ptr" && typeof result === "bigint") {
-      return Number(result);
-    }
+    // Pointer returns stay bigint — lossless for 64-bit addresses.
+    if (retType === "ptr" && result == null) return 0n;
 
     return result;
   };
@@ -285,15 +293,15 @@ function wrapDenoFn(
 
     const result = fn(...args);
 
-    // Convert return value — normalize everything to `number` (bun:ffi shape).
+    // Pointer returns normalize to bigint (lossless for 64-bit addresses).
     if (retType === "ptr") {
-      if (result == null) return 0;
-      if (typeof result === "bigint") return Number(result);
+      if (result == null) return 0n;
+      if (typeof result === "bigint") return result;
       if (typeof result === "object") {
         // Deno 2.x: pointer results are opaque Externals — UnsafePointer.value
         // extracts the address; older versions expose .value as bigint.
-        if (typeof (result as any).value === "bigint") return Number((result as any).value);
-        try { return Number(Deno.UnsafePointer.value(result)); } catch { return 0; }
+        if (typeof (result as any).value === "bigint") return (result as any).value;
+        try { return Deno.UnsafePointer.value(result); } catch { return 0n; }
       }
       return result;
     }
@@ -310,11 +318,11 @@ function wrapDenoFn(
 
 // ── Utility: read native memory into a Uint8Array ──
 
-export function readMappedRange(nativePtr: number, byteLength: number): Uint8Array {
+export function readMappedRange(nativePtr: ptr, byteLength: number): Uint8Array {
   if (runtime === "bun") {
     // bun:ffi toArrayBuffer(ptr, byteOffset, byteCount) — the previous
     // Buffer.from(ptr-as-ArrayBuffer) call was invalid.
-    const ab = bunToArrayBuffer(nativePtr, 0, byteLength);
+    const ab = bunToArrayBuffer(Number(nativePtr), 0, byteLength);
     return new Uint8Array(ab);
   }
 

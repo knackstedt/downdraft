@@ -45,8 +45,12 @@ packages/platform-native/native/*-download.zip
 packages/platform-native/native/linux-*/
 packages/platform-native/native/darwin-*/
 packages/platform-native/native/win32-*/
+packages/platform-native/native/android-*/
 # npm platform packages — lib/ is populated from artifact bundles at publish.
 packages/native-*/lib/
+# npm node-mobile packages — lib/ + include/ populated from bundles at publish.
+packages/node-mobile-android-*/lib/
+packages/node-mobile-android-*/include/
 artifacts/
 
 # Root Cargo workspace target dir (crates are members — artifacts land here).

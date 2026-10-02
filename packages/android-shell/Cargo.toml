@@ -1,0 +1,25 @@
+[package]
+name = "downdraft-android-shell"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Android NativeActivity entry point — statically links downdraft-platform and launches embedded libnode; JS dlopens this .so for FFI so platform statics are shared"
+
+[lib]
+name = "downdraft_android"
+crate-type = ["cdylib"]
+
+[dependencies]
+downdraft-platform = { path = "../platform-native/native-rs" }
+
+# native-activity must match the backend downdraft-platform selects (Cargo
+# unifies the feature across the build graph; android-activity requires the
+# leaf artifact to pick it).
+[target.'cfg(target_os = "android")'.dependencies]
+android-activity = { version = "0.6", features = ["native-activity"] }
+ndk = "0.9"
+libc = "0.2"
+
+[build-dependencies]
+# build.rs uses std::env only — no build deps.

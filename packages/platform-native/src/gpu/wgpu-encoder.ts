@@ -36,12 +36,12 @@ function dynamicOffsetsArray(dynamicOffsets?: Iterable<number>): Uint32Array | n
 // ============================================================================
 
 export class WgpuCommandEncoder {
-  readonly ptr: number;
+  readonly ptr: ptr;
   label = "";
   private finished = false;
-  private devicePtr: number;
+  private devicePtr: ptr;
 
-  constructor(ptr: number, devicePtr = 0) {
+  constructor(ptr: ptr, devicePtr: ptr = 0) {
     this.ptr = ptr;
     this.devicePtr = devicePtr;
     trackForRelease(this, () => wgpu.wgpu_shim_release_command_encoder(ptr));
@@ -269,11 +269,11 @@ export class WgpuCommandEncoder {
 // ============================================================================
 
 export class WgpuRenderPassEncoder {
-  readonly ptr: number;
+  readonly ptr: ptr;
   label = "";
   private ended = false;
 
-  constructor(ptr: number) {
+  constructor(ptr: ptr) {
     this.ptr = ptr;
     trackForRelease(this, () => wgpu.wgpu_shim_release_render_pass(ptr));
   }
@@ -381,11 +381,11 @@ export class WgpuRenderPassEncoder {
 // ============================================================================
 
 export class WgpuComputePassEncoder {
-  readonly ptr: number;
+  readonly ptr: ptr;
   label = "";
   private ended = false;
 
-  constructor(ptr: number) {
+  constructor(ptr: ptr) {
     this.ptr = ptr;
     trackForRelease(this, () => wgpu.wgpu_shim_release_compute_pass(ptr));
   }

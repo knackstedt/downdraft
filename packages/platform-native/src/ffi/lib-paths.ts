@@ -137,6 +137,15 @@ export function resolveNativeLibrary(baseName: string, opts: NativeLibraryOption
     }
   }
 
+  // Android: every native lib ships in the APK's jniLibs — dlopen by bare
+  // soname resolves through the app's native library dir, no filesystem
+  // path needed (or exists). The platform crate is statically linked into
+  // the shell's libdowndraft_android.so so its statics are shared with the
+  // winit loop on the app thread.
+  if (process.platform === "android") {
+    return baseName === "downdraft_platform" ? "libdowndraft_android.so" : file;
+  }
+
   const candidates = [
     ...(opts.dirs ?? []).map((d) => join(d, file)),
     ...(opts.crateDir ? crateDirs(opts.crateDir) : []).map((d) => join(d, file)),

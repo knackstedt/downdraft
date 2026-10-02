@@ -22,7 +22,14 @@ members = [
     "packages/engine/libraries/blitz-ui/native-osr",
     "packages/engine/libraries/audio-kira/native",
     "test-beds/ui-bakeoff/blitz-app",
+    # Android NativeActivity shell — cdylib that embeds libnode and statically
+    # links downdraft-platform (JS dlopens the shell .so for FFI on Android).
+    "packages/android-shell",
 ]
+
+# Materialized Node source trees (packages/node-mobile/build/node-v*) contain
+# a vendored deps/crates/Cargo.toml that must not join this workspace.
+exclude = ["packages/node-mobile/build"]
 
 [workspace.package]
 version = "0.1.0"

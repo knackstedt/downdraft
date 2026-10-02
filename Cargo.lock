@@ -2024,6 +2024,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
 
 [[package]]
+name = "downdraft-android-shell"
+version = "0.1.0"
+dependencies = [
+ "android-activity",
+ "downdraft-platform",
+ "libc",
+ "ndk 0.9.0",
+]
+
+[[package]]
 name = "downdraft-audio"
 version = "0.1.0"
 dependencies = [
@@ -2098,9 +2108,11 @@ dependencies = [
 name = "downdraft-platform"
 version = "0.1.0"
 dependencies = [
+ "android-activity",
  "arboard",
  "cosmic-text",
  "image",
+ "libc",
  "pollster",
  "raw-window-handle",
  "rfd",

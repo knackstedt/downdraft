@@ -1,0 +1,122 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Andrew knackstedt
+Date: Wed, 1 Oct 2026 12:00:00 +0000
+Subject: [PATCH] deps/v8: shim std::atomic_ref for Android libc++
+
+Android's libc++ — in every current NDK, including r28 — is built without
+std::atomic_ref: the __atomic/atomic_ref.h pieces are absent and
+__cpp_lib_atomic_ref stays undefined. V8 14.x started using
+std::atomic_ref pervasively (src/base/atomicops.h, cppgc headers, simd,
+sweeper), which Chrome never notices because V8-on-Android builds with
+Chromium's bundled libc++, not the NDK's.
+
+This patch includes a recipe-provided shim header
+(deps/v8/include/atomic-ref-shim.h — copied into the tree by the overlay
+step, see files.map) into every TUp-facing V8 header/source that spells
+std::atomic_ref. The shim defines std::atomic_ref<T> by reinterpreting
+the referent as std::atomic<T> — the same mechanism libc++/libstdc++
+use internally — guarded by __ANDROID__ && !__cpp_lib_atomic_ref so it
+can never collide with a conforming <atomic> or affect other platforms.
+
+simdutf needs no change: its atomic_ref paths are already gated behind
+__cpp_lib_atomic_ref feature detection.
+
+New-in-this-recipe; no upstream equivalent exists because upstream never
+builds V8 against Android libc++.
+--- a/deps/v8/src/base/atomicops.h
++++ b/deps/v8/src/base/atomicops.h
+@@ -9,6 +9,7 @@
+ 
+ #include <atomic>
+ 
++#include "atomic-ref-shim.h"  // NOLINT(build/include_directory)
+ #include "src/base/base-export.h"
+ #include "src/base/macros.h"
+ 
+--- a/deps/v8/src/base/memcopy.h
++++ b/deps/v8/src/base/memcopy.h
+@@ -10,6 +10,7 @@
+ #include <atomic>
+ 
+ #include "include/v8config.h"
++#include "atomic-ref-shim.h"  // NOLINT(build/include_directory)
+ #include "src/base/base-export.h"
+ #include "src/base/bits.h"
+ #include "src/base/macros.h"
+--- a/deps/v8/src/heap/cppgc/heap-page.h
++++ b/deps/v8/src/heap/cppgc/heap-page.h
+@@ -10,6 +10,7 @@
+ #include "include/cppgc/internal/base-page-handle.h"
+ #include "src/base/hashing.h"
+ #include "src/base/iterator.h"
++#include "atomic-ref-shim.h"  // NOLINT(build/include_directory)
+ #include "src/base/macros.h"
+ #include "src/heap/base/basic-slot-set.h"
+ #include "src/heap/cppgc/globals.h"
+--- a/deps/v8/src/heap/cppgc/heap-object-header.h
++++ b/deps/v8/src/heap/cppgc/heap-object-header.h
+@@ -12,6 +12,7 @@
+ #include "include/cppgc/internal/gc-info.h"
+ #include "include/cppgc/internal/member-storage.h"
+ #include "include/cppgc/internal/name-trait.h"
++#include "atomic-ref-shim.h"  // NOLINT(build/include_directory)
+ #include "src/base/atomic-utils.h"
+ #include "src/base/bit-field.h"
+ #include "src/base/logging.h"
+--- a/deps/v8/src/heap/cppgc/object-start-bitmap.h
++++ b/deps/v8/src/heap/cppgc/object-start-bitmap.h
+@@ -11,6 +11,7 @@
+ #include <array>
+ 
+ #include "include/cppgc/internal/write-barrier.h"
++#include "atomic-ref-shim.h"  // NOLINT(build/include_directory)
+ #include "src/base/atomic-utils.h"
+ #include "src/base/bits.h"
+ #include "src/base/macros.h"
+--- a/deps/v8/src/heap/sweeper.cc
++++ b/deps/v8/src/heap/sweeper.cc
+@@ -10,6 +10,7 @@
+ #include <optional>
+ #include <vector>
+ 
++#include "atomic-ref-shim.h"  // NOLINT(build/include_directory)
+ #include "src/base/atomic-utils.h"
+ #include "src/base/logging.h"
+ #include "src/common/globals.h"
+--- a/deps/v8/src/objects/simd.cc
++++ b/deps/v8/src/objects/simd.cc
+@@ -4,6 +4,7 @@
+ 
+ #include "src/objects/simd.h"
+ 
++#include "atomic-ref-shim.h"  // NOLINT(build/include_directory)
+ #include "src/base/cpu.h"
+ #include "src/codegen/cpu-features.h"
+ #include "src/objects/compressed-slots.h"
+--- a/deps/v8/include/cppgc/allocation.h
++++ b/deps/v8/include/cppgc/allocation.h
+@@ -16,6 +16,7 @@
+ #include "cppgc/internal/api-constants.h"
+ #include "cppgc/internal/gc-info.h"
+ #include "cppgc/type-traits.h"
++#include "atomic-ref-shim.h"  // NOLINT(build/include_directory)
+ #include "v8config.h"  // NOLINT(build/include_directory)
+ 
+ #if defined(__has_attribute)
+
+diff --git a/deps/v8/third_party/simdutf/simdutf.h b/deps/v8/third_party/simdutf/simdutf.h
+--- a/deps/v8/third_party/simdutf/simdutf.h
++++ b/deps/v8/third_party/simdutf/simdutf.h
+@@ -2,6 +2,12 @@
+ /* begin file include/simdutf.h */
+ #ifndef SIMDUTF_H
+ #define SIMDUTF_H
++// nodejs-mobile: Android libc++ lacks std::atomic_ref — the shim defines
++// __cpp_lib_atomic_ref so SIMDUTF_ATOMIC_REF (atomic_base64_*) enables.
++// Relative include — the simdutf gyp target has no deps/v8/include path.
++#if defined(__ANDROID__)
++  #include "../../include/atomic-ref-shim.h"
++#endif
+ #include <cstring>
+ 
+ /* begin file include/simdutf/compiler_check.h */

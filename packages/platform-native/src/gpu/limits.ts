@@ -10,6 +10,7 @@
 // flat arrays the shim's wgpu_shim_request_device expects.
 // ============================================================================
 
+import type { ptr } from "../ffi/ffi-adapter";
 import { FEATURE_NAME_MAP, FEATURE_VALUE_MAP, LIMIT_FIELD_INDEX } from "./enums";
 import { wgpu } from "./wgpu-ffi";
 
@@ -37,7 +38,7 @@ const LIMIT_READ_ORDER: (string | null)[] = [
 ];
 
 /** Query real limits from an adapter or device pointer. Cached per call site. */
-export function queryNativeLimits(nativePtr: number, isDevice: boolean): GPUSupportedLimits {
+export function queryNativeLimits(nativePtr: ptr, isDevice: boolean): GPUSupportedLimits {
   const buf = new Uint8Array(256);
   const status = isDevice
     ? wgpu.wgpu_shim_device_get_limits(nativePtr, buf as any)
@@ -66,7 +67,7 @@ export function queryNativeLimits(nativePtr: number, isDevice: boolean): GPUSupp
 }
 
 /** Query real features from an adapter or device pointer. */
-export function queryNativeFeatures(nativePtr: number, isDevice: boolean): GPUSupportedFeatures {
+export function queryNativeFeatures(nativePtr: ptr, isDevice: boolean): GPUSupportedFeatures {
   const maxCount = 64;
   const featBuf = new Uint32Array(maxCount);
   const count = isDevice

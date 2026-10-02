@@ -1,0 +1,82 @@
+name: Node mobile (Android libnode)
+
+# Builds libnode.so for Android from the overlay recipe in
+# packages/node-mobile (pristine upstream Node + patch series), and uploads
+# downdraft-node-mobile-android-<arch>.tar.gz bundles to a GitHub release
+# tagged node-mobile-v<node-version>-<revision>.
+# stage-node-packages.mjs populates the @downdraft/node-mobile-android-*
+# npm packages from the same bundles during publish.yml.
+#
+# Trigger manually (workflow_dispatch) or by pushing a node-mobile-v* tag.
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["node-mobile-v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          VER=$(tr -d '[:space:]' < packages/node-mobile/node-version.txt)
+          REV=$(grep -oP 'NODE_MOBILE_REVISION \K\d+' packages/node-mobile/overlay/src/node_mobile_version.h)
+          echo "tag=node-mobile-v${VER}-${REV}" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: arm64, abi: arm64-v8a, pkgArch: arm64 }
+          - { arch: x86_64, abi: x86_64, pkgArch: x64 }
+
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: mozilla-actions/sccache-action@v0.0.9
+
+      # NDK r30 — pinned for reproducibility. V8 14.6 needs clang ≥20 on the
+      # target side (consteval immediate-invocation in the regexp engine —
+      # r28's clang 19 fails); r30 ships clang 21.
+      - name: Install Android NDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;30.0.16248370"
+
+      - name: Materialize Node source tree
+        run: node packages/node-mobile/scripts/prepare.mjs
+
+      - name: Build libnode.so (${{ matrix.abi }})
+        env:
+          NODEJS_MOBILE_SCCACHE: "1"
+        run: |
+          ANDROID_NDK_HOME="$ANDROID_HOME/ndk/30.0.16248370" \
+            node packages/node-mobile/scripts/build-android.mjs --arch=${{ matrix.arch }}
+
+      - name: Smoke-check materialized tree + artifact
+        run: node packages/node-mobile/scripts/smoke.mjs
+
+      - name: Assemble artifact bundle
+        run: |
+          mkdir -p artifacts
+          tar -czf "artifacts/downdraft-node-mobile-android-${{ matrix.pkgArch }}.tar.gz" \
+            -C packages/node-mobile/build/dist/android \
+            "${{ matrix.abi }}/libnode.so" include
+
+      - name: Upload to GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.version.outputs.tag }}
+          files: artifacts/downdraft-node-mobile-*.tar.gz

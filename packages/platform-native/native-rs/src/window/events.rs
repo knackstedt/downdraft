@@ -5,10 +5,11 @@
 //! one and writes its int/float/char slots.
 
 use super::{Ctx, KMOD_ALT, KMOD_CTRL, KMOD_GUI, KMOD_SHIFT};
-use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::ffi::c_void;
 use std::ptr;
+use std::sync::{Condvar, Mutex};
+use std::time::Duration;
 use winit::event::{DeviceEvent, ElementState, Ime, MouseButton, MouseScrollDelta, WindowEvent};
 
 pub const NONE: i32 = 0;
@@ -26,6 +27,9 @@ const MOVED: i32 = 11;
 const DROP_FILE: i32 = 12;
 const FOCUS_GAINED: i32 = 13;
 const SCALE_CHANGED: i32 = 14;
+const TOUCH: i32 = 15;
+const SUSPENDED: i32 = 16;
+const RESUMED: i32 = 17;
 
 /// Line-detent approximation for pixel-precise scroll deltas (PixelDelta
 /// arrives from touchpads; SDL always reports line units).
@@ -76,24 +80,54 @@ pub enum Ev {
     ScaleChanged {
         scale: f64,
     },
+    /// Touch contact. phase: 0=down 1=move 2=up 3=cancel (mirrors winit's
+    /// TouchPhase order). id is winit's per-pointer id.
+    Touch {
+        phase: i32,
+        id: i32,
+        x: i32,
+        y: i32,
+    },
+    /// App suspended — the OS destroyed the surface (Android). JS must drop
+    /// the wgpu surface; the window is re-created on the next Resumed.
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    Suspended,
+    /// App resumed — a fresh window exists again (Android). JS should
+    /// re-create its wgpu surface.
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    Resumed,
     Drop(String),
     Text(String),
 }
 
-thread_local! {
-    static QUEUE: RefCell<VecDeque<Ev>> = RefCell::new(VecDeque::new());
-}
+// Shared across threads: on Android the winit loop runs on the app thread
+// while sdl_shim_poll_event/wait_event are called from the JS thread. On
+// desktop everything is the JS thread, so the Mutex is never contended.
+static QUEUE: Mutex<VecDeque<Ev>> = Mutex::new(VecDeque::new());
+static NOTIFY: Condvar = Condvar::new();
 
 pub fn push(ev: Ev) {
-    QUEUE.with(|q| q.borrow_mut().push_back(ev));
+    QUEUE.lock().unwrap().push_back(ev);
+    NOTIFY.notify_one();
 }
 
 pub fn take() -> Option<Ev> {
-    QUEUE.with(|q| q.borrow_mut().pop_front())
+    QUEUE.lock().unwrap().pop_front()
+}
+
+/// Block up to `timeout` for an event to arrive (Android's wait_event path).
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+pub fn take_timeout(timeout: Duration) -> Option<Ev> {
+    let mut guard = QUEUE.lock().unwrap();
+    if guard.is_empty() {
+        let (g, _) = NOTIFY.wait_timeout(guard, timeout).unwrap();
+        guard = g;
+    }
+    guard.pop_front()
 }
 
 pub fn clear() {
-    QUEUE.with(|q| q.borrow_mut().clear());
+    QUEUE.lock().unwrap().clear();
 }
 
 /// Write one queued event into the caller's out_data buffer. Returns the
@@ -192,6 +226,15 @@ pub fn write(ev: Ev, out_data: *mut c_void) -> i32 {
                 *fout.add(0) = scale as f32;
                 SCALE_CHANGED
             }
+            Ev::Touch { phase, id, x, y } => {
+                *iout.add(0) = phase;
+                *iout.add(1) = x;
+                *iout.add(2) = y;
+                *iout.add(3) = id;
+                TOUCH
+            }
+            Ev::Suspended => SUSPENDED,
+            Ev::Resumed => RESUMED,
             Ev::Drop(path) => {
                 write_cstr(out_data as *mut u8, &path, 255);
                 DROP_FILE
@@ -234,7 +277,9 @@ pub fn translate_window_event(
         // scaled monitor. Resized usually follows; emit both so the host
         // can re-render at the new density.
         WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-            push(Ev::ScaleChanged { scale: scale_factor });
+            push(Ev::ScaleChanged {
+                scale: scale_factor,
+            });
         }
 
         WindowEvent::Focused(gained) => push(Ev::Focused { gained }),
@@ -333,6 +378,23 @@ pub fn translate_window_event(
 
         WindowEvent::DroppedFile(path) => {
             push(Ev::Drop(path.to_string_lossy().into_owned()));
+        }
+
+        // Primary input on Android; also reachable on desktop touchscreens.
+        // The JS side synthesizes pointer events from these.
+        WindowEvent::Touch(touch) => {
+            let phase = match touch.phase {
+                winit::event::TouchPhase::Started => 0,
+                winit::event::TouchPhase::Moved => 1,
+                winit::event::TouchPhase::Ended => 2,
+                winit::event::TouchPhase::Cancelled => 3,
+            };
+            push(Ev::Touch {
+                phase,
+                id: touch.id as i32,
+                x: touch.location.x.round() as i32,
+                y: touch.location.y.round() as i32,
+            });
         }
 
         _ => {}

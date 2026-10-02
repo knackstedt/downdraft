@@ -21,7 +21,17 @@ image = "0.25"
 cosmic-text = "0.14"
 winit = "0.30"
 raw-window-handle = "0.6"
-arboard = "3"
-rfd = "0.15"
 wgpu = "29"
 pollster = "0.4"
+
+# No Android backend for either — sdl_shim_* clipboard/dialog paths are
+# stubbed under cfg(android) in src/window/mod.rs.
+[target.'cfg(not(target_os = "android"))'.dependencies]
+arboard = "3"
+rfd = "0.15"
+
+# android-activity requires the leaf crate to pick a backend; native-activity
+# matches our NativeActivity-based shell (no Java GameActivity needed).
+[target.'cfg(target_os = "android")'.dependencies]
+android-activity = { version = "0.6", features = ["native-activity"] }
+libc = "0.2"

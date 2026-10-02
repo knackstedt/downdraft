@@ -34,7 +34,7 @@ export interface SecretsStore {
 
 interface SecSymbols {
   dd_sec_set(service: string, account: string, secret: string): number;
-  dd_sec_get(service: string, account: string, out: number, cap: number): number;
+  dd_sec_get(service: string, account: string, out: ptr, cap: number): number;
   dd_sec_del(service: string, account: string): number;
 }
 

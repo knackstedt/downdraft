@@ -51,14 +51,14 @@ const log = createLogger();
 /** Serializes GPU-device liveness between owner thread and attached workers. */
 export interface GpuDeviceHandle {
   /** Raw wgpu device handle (process-global boxed pointer). */
-  devicePtr: number;
+  devicePtr: ptr;
   /** Raw wgpu instance handle — needed for event pumping in the worker. */
-  instancePtr: number;
+  instancePtr: ptr;
   /** Raw wgpu queue handle (device_get_queue result). Retained for wire
    *  compat — attached views no longer wrap it; they hold their own
    *  device_get_queue clone so an owner-side release can never leave the
    *  worker holding a dangling queue box. */
-  queuePtr: number;
+  queuePtr: ptr;
   /** Handle generation — bumped when the owner re-creates the device after
    *  loss. Workers compare it against cell 0 and must re-attach on change. */
   generation: number;
@@ -298,7 +298,7 @@ export function attachSharedDevice(
  * when the worker's finish() captured a validation error — invalid buffers
  * are released without submitting (submitting one aborts the process).
  */
-export type WorkerCommandRef = number | bigint | { ptr: number | bigint; invalid?: boolean };
+export type WorkerCommandRef = number | bigint | { ptr: ptr; invalid?: boolean };
 
 /**
  * Transfer ownership of a finished command buffer to the thread that will
@@ -317,7 +317,7 @@ export function exportCommandBuffer(cmd: WgpuCommandBuffer): WorkerCommandRef {
  * exportCommandBuffer: after the call, this thread's wrapper will never
  * release the handle — the receiving side owns it.
  */
-export function exportGpuResource<T extends { ptr: number }>(res: T): number {
+export function exportGpuResource<T extends { ptr: ptr }>(res: T): ptr {
   markTransferred(res);
   return res.ptr;
 }
@@ -351,7 +351,8 @@ export function submitCommandPtrs(queue: WgpuQueue, cmds: ArrayLike<WorkerComman
  * normal queue.submit([...]) path (mixes with locally-encoded buffers).
  */
 export function importCommandBuffer(cmd: WorkerCommandRef): WgpuCommandBuffer {
-  const cb = new WgpuCommandBuffer(Number(typeof cmd === "object" ? cmd.ptr : cmd));
+  // Keep the raw handle lossless — Number() on a 64-bit address truncates.
+  const cb = new WgpuCommandBuffer(typeof cmd === "object" ? cmd.ptr : cmd);
   if (typeof cmd === "object" && cmd.invalid) cb.invalid = true;
   // Same finalizer finish() registers — this thread owns the handle now, so
   // a dropped wrapper must still release it (submit() untracks + releases).

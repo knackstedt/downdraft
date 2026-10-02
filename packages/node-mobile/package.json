@@ -1,0 +1,14 @@
+{
+  "name": "node-mobile-recipe",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Overlay recipe producing libnode.so for Android from pristine upstream Node sources",
+  "scripts": {
+    "prepare": "node scripts/prepare.mjs",
+    "build:android": "node scripts/build-android.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "bump": "node scripts/bump.mjs",
+    "fetch": "node scripts/fetch.mjs"
+  }
+}

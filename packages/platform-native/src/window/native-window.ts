@@ -11,34 +11,48 @@
 
 import { createLogger } from "@downdraft/engine/util/logger";
 import { MiniEventTarget } from "../dom/mini-event-target";
+import type { ptr } from "../ffi/ffi-adapter";
 import { pollLiveDevicesLost } from "../gpu/wgpu-device";
 import { wgpu } from "../gpu/wgpu-ffi";
 import { NativeSurface } from "./native-surface";
 import {
-    KMOD_ALT,
-    KMOD_CTRL,
-    KMOD_GUI,
-    KMOD_SHIFT,
-    sdl,
-    SDL_EVENT_DROP_FILE,
-    SDL_EVENT_FOCUS_GAINED,
-    SDL_EVENT_FOCUS_LOST,
-    SDL_EVENT_KEY_DOWN,
-    SDL_EVENT_KEY_UP,
-    SDL_EVENT_MOUSE_DOWN,
-    SDL_EVENT_MOUSE_MOVE,
-    SDL_EVENT_MOUSE_UP,
-    SDL_EVENT_MOVED,
-    SDL_EVENT_NONE,
-    SDL_EVENT_QUIT,
-    SDL_EVENT_RESIZE,
-    SDL_EVENT_SCALE_CHANGED,
-    SDL_EVENT_TEXT_INPUT,
-    SDL_EVENT_WHEEL,
-    sdlButtonsToDom
+  KMOD_ALT,
+  KMOD_CTRL,
+  KMOD_GUI,
+  KMOD_SHIFT,
+  sdl,
+  SDL_EVENT_DROP_FILE,
+  SDL_EVENT_FOCUS_GAINED,
+  SDL_EVENT_FOCUS_LOST,
+  SDL_EVENT_KEY_DOWN,
+  SDL_EVENT_KEY_UP,
+  SDL_EVENT_MOUSE_DOWN,
+  SDL_EVENT_MOUSE_MOVE,
+  SDL_EVENT_MOUSE_UP,
+  SDL_EVENT_MOVED,
+  SDL_EVENT_NONE,
+  SDL_EVENT_QUIT,
+  SDL_EVENT_RESIZE,
+  SDL_EVENT_RESUMED,
+  SDL_EVENT_SCALE_CHANGED,
+  SDL_EVENT_SUSPENDED,
+  SDL_EVENT_TEXT_INPUT,
+  SDL_EVENT_TOUCH,
+  SDL_EVENT_WHEEL,
+  sdlButtonsToDom
 } from "./sdl-ffi";
 
 const log = createLogger("info");
+
+// Embedded-node-mobile builds report process.platform === "android". On
+// Android the window is created by the app thread's winit loop — async from
+// this thread's perspective — and can be destroyed/recreated by the OS at
+// suspend/resume boundaries.
+const IS_ANDROID = process.platform === "android";
+
+// Touch events synthesize pointer events with ids in a dedicated range so
+// they can never collide with the synthetic mouse pointerId (1).
+const TOUCH_POINTER_BASE = 1000;
 
 export interface NativeWindowConfig {
   title: string;
@@ -82,7 +96,7 @@ export class NativeWindow extends MiniEventTarget {
   private nextRafId = 1;
   private running: boolean = false;
   private startTime: number = 0;
-  private surfacePtr: number = 0;
+  private surfacePtr: ptr = 0;
   // rAF dispatch pacing. Browsers fire rAF at most once per vsync; the native
   // pump otherwise runs at event-loop speed whenever no callback blocks
   // inside getCurrentTexture() — e.g. dirty-tracked frames that skip draws,
@@ -91,6 +105,7 @@ export class NativeWindow extends MiniEventTarget {
   // a core. lastRafDispatch timestamps the previous dispatch; frameIntervalMs
   // is derived from the display's refresh rate (re-queried on window moves).
   private lastRafDispatch = -1e9;
+  private loggedFirstRaf = false;
   private frameIntervalMs = 0;
   private pressedKeys = new Set<number>();
   // SDL event read buffer — hoisted out of the loop so we don't allocate a
@@ -126,12 +141,33 @@ export class NativeWindow extends MiniEventTarget {
   // callback (detected in requestAnimationFrame below).
   private splash: { tick: RAFCallback; stop(): void } | null = null;
 
+  // Touch: id of the pointer currently treated as primary (first active
+  // contact) — DOM compat mouse events are synthesized only for it.
+  private primaryTouchId: number | null = null;
+  // Set on SDL_EVENT_SUSPENDED, cleared on RESUMED — gates the resume path's
+  // surface recreation.
+  private surfaceSuspended = false;
+
   constructor(config: NativeWindowConfig) {
     super();
     // 1. Create SDL2 window
     const result = sdl.sdl_shim_create_window(config.title, config.width, config.height);
     if (result !== 0) {
       throw new Error(`Failed to create SDL2 window (error ${result})`);
+    }
+
+    // Android: create_window only *records* the request — the app thread's
+    // winit loop creates the Window when resumed() lands (which may have
+    // happened before we even started). Block here until the RESUMED wire
+    // event arrives, then the real surface exists for step 2.
+    if (IS_ANDROID) {
+      this.waitForAndroidResume();
+      // The requested dims are advisory — adopt the actual window size.
+      const sz = this.getWindowSize();
+      if (sz.width > 0 && sz.height > 0) {
+        config.width = sz.width;
+        config.height = sz.height;
+      }
     }
 
     // 2. Create wgpu surface from the window.
@@ -142,9 +178,30 @@ export class NativeWindow extends MiniEventTarget {
       throw new Error("Failed to create wgpu surface from SDL2 window");
     }
 
-    // 3. Create NativeSurface
-    this.surface = new NativeSurface(config.width, config.height, this.surfacePtr);
+    // 3. Create NativeSurface — the scale-factor getter feeds its CSS-px
+    //    clientWidth/clientHeight (the window polyfill doesn't exist yet).
+    this.surface = new NativeSurface(
+      config.width, config.height, this.surfacePtr,
+      () => this.getDisplayInfo().scaleFactor,
+    );
     this.startTime = performance.now();
+  }
+
+  /**
+   * Block until the Android winit loop reports RESUMED (window created).
+   * Non-RESUMED events can only be pre-window noise — dropped. Bounded so a
+   * wedged surface handshake throws instead of hanging startup forever.
+   */
+  private waitForAndroidResume(): void {
+    const deadline = performance.now() + 30_000;
+    while (performance.now() < deadline) {
+      const t = sdl.sdl_shim_wait_event(this.eventData as any, 500);
+      if (t === SDL_EVENT_RESUMED) {
+        this.surfaceSuspended = false;
+        return;
+      }
+    }
+    throw new Error("Timed out waiting for Android window resume (30s)");
   }
 
   getSurface(): NativeSurface {
@@ -338,9 +395,12 @@ export class NativeWindow extends MiniEventTarget {
 
     // Dispatch rAF callbacks — at most once per refresh interval (see
     // frameInterval). Callbacks run once per dispatch; anything a callback
-    // re-registers lands in the map for the next frame.
+    // re-registers lands in the map for the next frame. On Android the
+    // surface is dead while suspended — the window stays "open" logically,
+    // but frames can't acquire; hold the callbacks until RESUMED rebinds it
+    // rather than letting them fault on a stale swapchain.
     const now = performance.now() - this.startTime;
-    if (this.rafCallbacks.size > 0 && now - this.lastRafDispatch >= this.frameInterval() - RAF_DISPATCH_EPSILON_MS) {
+    if (!this.surfaceSuspended && this.rafCallbacks.size > 0 && now - this.lastRafDispatch >= this.frameInterval() - RAF_DISPATCH_EPSILON_MS) {
       // Advance on a fixed grid so sleep/timer jitter doesn't accumulate
       // drift; if we fell more than a frame behind (startup, a long frame,
       // a stall) reset the phase instead of bursting catch-up dispatches.
@@ -348,6 +408,10 @@ export class NativeWindow extends MiniEventTarget {
       if (now - this.lastRafDispatch >= this.frameInterval()) this.lastRafDispatch = now;
       const callbacks = Array.from(this.rafCallbacks.values());
       this.rafCallbacks.clear();
+      if (!this.loggedFirstRaf) {
+        this.loggedFirstRaf = true;
+        log.info("NativeWindow", `first rAF dispatch — ${callbacks.length} callback(s)`);
+      }
       callbacks.forEach((cb) => {
         try { cb(now); } catch (e) { log.error("NativeWindow", `rAF callback error: ${e}`); }
       });
@@ -679,6 +743,90 @@ export class NativeWindow extends MiniEventTarget {
       case SDL_EVENT_TEXT_INPUT: {
         const text = new TextDecoder().decode(new Uint8Array(this.eventData, 0, 32)).replace(/\0.*$/, "");
         this.dispatchEvent({ type: "textinput", text });
+        break;
+      }
+
+      case SDL_EVENT_TOUCH: {
+        // Wire slots: [phase, x, y, id] — phase 0=down 1=move 2=up 3=cancel.
+        const phase = eventView[0];
+        const x = eventView[1];
+        const y = eventView[2];
+        const id = eventView[3];
+        const type = phase === 0 ? "pointerdown"
+          : phase === 1 ? "pointermove"
+          : phase === 2 ? "pointerup"
+          : "pointercancel";
+        if (phase === 0 && this.primaryTouchId === null) this.primaryTouchId = id;
+        const isPrimary = this.primaryTouchId === id;
+        const down = phase === 0 || phase === 1;
+        const base = {
+          clientX: x,
+          clientY: y,
+          button: 0,
+          buttons: down ? 1 : 0,
+          ...this.modifiers(0),
+          preventDefault: () => {},
+          stopPropagation: () => {},
+          stopImmediatePropagation: () => {},
+        };
+        this.dispatchInputEvent({
+          ...base,
+          type,
+          pointerId: TOUCH_POINTER_BASE + id,
+          pointerType: "touch",
+          isPrimary,
+          pressure: down ? 0.5 : 0,
+          width: 1,
+          height: 1,
+        });
+        // DOM parity: the primary touch also fires compat mouse events —
+        // engine input paths (InputManager, ui drag) listen on mouse events
+        // and must keep working on touch-only devices.
+        if (isPrimary && phase !== 3) {
+          const mouseType = phase === 0 ? "mousedown" : phase === 1 ? "mousemove" : "mouseup";
+          this.dispatchInputEvent({ ...base, type: mouseType });
+          if (phase === 0) this.lastMouseDown = { button: 0 };
+          if (phase === 2 && this.lastMouseDown) {
+            this.dispatchInputEvent({ ...base, type: "click", detail: 1 });
+            this.lastMouseDown = null;
+          }
+        }
+        if ((phase === 2 || phase === 3) && isPrimary) this.primaryTouchId = null;
+        break;
+      }
+
+      case SDL_EVENT_SUSPENDED: {
+        // The OS destroyed the ANativeWindow — the wgpu surface is already
+        // dead on the Rust side (CTX.window dropped first). Unconfigure +
+        // release at the FFI level only: the context keeps its cached
+        // device/format so RESUMED can reconfigure the fresh surface without
+        // renderer involvement.
+        if (this.surfacePtr) {
+          try { wgpu.wgpu_shim_surface_unconfigure(this.surfacePtr); } catch { /* best-effort */ }
+          try { wgpu.wgpu_shim_release_surface(this.surfacePtr); } catch { /* best-effort */ }
+          this.surfacePtr = 0;
+        }
+        this.surface?.rebindSurface(0);
+        this.surfaceSuspended = true;
+        this.dispatchEvent({ type: "suspend" });
+        break;
+      }
+
+      case SDL_EVENT_RESUMED: {
+        if (this.surfaceSuspended) {
+          // The Rust side re-created the Window — make a fresh wgpu surface
+          // and rebind the canvas context; the next acquire lazily
+          // reconfigures the swapchain (rebindSurface zeroes configured dims).
+          const instance = (globalThis as any).__wgpuInstancePtr ?? 0;
+          this.surfacePtr = sdl.sdl_shim_create_wgpu_surface(instance) as unknown as number;
+          this.surface?.rebindSurface(this.surfacePtr);
+          const sz = this.getWindowSize();
+          if (sz.width > 0 && sz.height > 0) {
+            this.pendingResize = { width: sz.width, height: sz.height };
+          }
+        }
+        this.surfaceSuspended = false;
+        this.dispatchEvent({ type: "resume" });
         break;
       }
     }

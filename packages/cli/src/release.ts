@@ -47,6 +47,7 @@ interface ReleaseArgs {
   target: string;
   stage: Stage;
   mode: string;
+  abi: string;
   out: string;
   retainMcp: boolean;
   verbose: boolean;
@@ -88,6 +89,7 @@ function parseReleaseArgs(args: string[]): ReleaseArgs {
     target: parsed.flags.target as string,
     stage,
     mode: (parsed.flags.mode as string) || "prod",
+    abi: (parsed.flags.abi as string) || "arm64-v8a",
     out: (parsed.flags.out as string) || "release",
     retainMcp: parsed.flags.mcp as boolean,
     verbose: parsed.flags.verbose as boolean,
@@ -133,6 +135,7 @@ function detectGame(monorepoRoot: string | null): string | null {
 // ---------------------------------------------------------------------------
 
 const DESKTOP_TARGETS = new Set(["win", "linux", "mac"]);
+const MOBILE_TARGETS = new Set(["android"]);
 
 function classifyTargets(target: string): string[] {
   if (target === "all") {
@@ -140,15 +143,19 @@ function classifyTargets(target: string): string[] {
   }
   const parts = target.split(",").map((s) => s.trim()).filter(Boolean);
   parts.forEach((t) => {
-    if (t === "android" || t === "ios") {
-      log.error("release", `Mobile targets are removed — the Capacitor shell was dormant and has been deleted.`);
+    if (t === "ios") {
+      log.error("release", `iOS is not implemented yet — the native mobile port currently supports android only.`);
       process.exit(1);
     }
-    if (!DESKTOP_TARGETS.has(t)) {
-      log.error("release", `Unknown target: ${t}. Use win, linux, mac, or all.`);
+    if (!DESKTOP_TARGETS.has(t) && !MOBILE_TARGETS.has(t)) {
+      log.error("release", `Unknown target: ${t}. Use win, linux, mac, android, or all.`);
       process.exit(1);
     }
   });
+  if (parts.some((t) => MOBILE_TARGETS.has(t)) && parts.some((t) => DESKTOP_TARGETS.has(t))) {
+    log.error("release", `Can't mix mobile and desktop targets in one release — run android separately.`);
+    process.exit(1);
+  }
   return parts;
 }
 
@@ -230,6 +237,49 @@ function packageNative(
 }
 
 // ---------------------------------------------------------------------------
+// Android packaging — scripts/package-mobile.mjs
+// ---------------------------------------------------------------------------
+
+/**
+ * Bundle the game + native libs + embedded libnode into an APK. Single
+ * target ("android") produces lib/<abi>/ entries for --abi (default
+ * arm64-v8a). Unlike the desktop path the artifact is the APK itself.
+ */
+function packageAndroid(
+  game: string,
+  gameDir: string,
+  opts: ReleaseArgs,
+  info: { productName: string; appId: string; version: string },
+): boolean {
+  const entry = resolve(gameDir, "src/native-entry.ts");
+  if (!existsSync(entry)) {
+    log.error("release:package", `No src/native-entry.ts in ${gameDir} — the game has no native entry.`);
+    return false;
+  }
+  const script = fileURLToPath(new URL("../scripts/package-mobile.mjs", import.meta.url));
+  const cwd = findMonorepoRoot(gameDir) ?? gameDir;
+  const outfile = resolve(opts.out, `${game}-android.apk`);
+  const argv = [
+    script,
+    `--mode=${opts.mode}`,
+    `--abi=${opts.abi}`,
+    `--app-id=${info.appId}`,
+    `--app-name=${info.productName}`,
+    `--version=${info.version}`,
+    ...(opts.retainMcp ? ["--mcp"] : []),
+    entry,
+    outfile,
+  ];
+  log.info("release:package", `bun ${argv.map((a) => basename(a)).join(" ")}`);
+  const result = spawnSync("bun", argv, { cwd, stdio: "inherit", env: process.env });
+  if (result.status !== 0) {
+    log.error("release:package", `Android packaging failed for ${game}`);
+    return false;
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // Main entry point
 // ---------------------------------------------------------------------------
 
@@ -281,8 +331,11 @@ export async function release(args: string[]): Promise<void> {
 
     // Native packaging is a single compile step — build/package/release
     // all produce the same artifact.
+    const isAndroid = targets.every((t) => MOBILE_TARGETS.has(t));
     log.info("release", `[package] Compiling ${game} (${targets.join(", ")})...`);
-    const ok = packageNative(game, gameDir, targets, opts, { productName, appId, version });
+    const ok = isAndroid
+      ? packageAndroid(game, gameDir, opts, { productName, appId, version })
+      : packageNative(game, gameDir, targets, opts, { productName, appId, version });
     if (!ok) {
       log.error("release", `Packaging failed for ${game} — skipping.`);
       fail = 1;

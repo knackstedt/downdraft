@@ -1,0 +1,10 @@
+{
+  "name": "@downdraft/node-mobile-android-arm64",
+  "version": "0.1.0",
+  "description": "Prebuilt libnode.so for Android arm64-v8a (embedded Node for Downdraft)",
+  "license": "MIT",
+  "os": ["android"],
+  "cpu": ["arm64"],
+  "files": ["lib/", "include/"],
+  "publishConfig": { "access": "public" }
+}

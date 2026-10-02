@@ -18,6 +18,11 @@ export const CRATES = [
     // — the same dir the artifact bundle and npm platform packages feed.
     dest: "packages/platform-native/native",
     flatCopy: false,
+    // Android: the platform rlib is statically linked into
+    // libdowndraft_android.so (the shell) — a standalone platform .so would
+    // carry a second copy of the event queue / window statics and is dead
+    // weight in the APK.
+    noAndroid: true,
   },
   // Optional gamepad backend (gilrs). Ships beside the platform lib; loads
   // lazily — missing libudev etc. must never block the main platform lib.
@@ -43,6 +48,18 @@ export const CRATES = [
   { pkg: "downdraft-blitz-osr", lib: "downdraft_blitz_osr", dir: "packages/engine/libraries/blitz-ui/native-osr", dest: "packages/engine/libraries/blitz-ui/native-osr/dist", flatCopy: true },
 
   { pkg: "downdraft-audio", lib: "downdraft_audio", dir: "packages/engine/libraries/audio-kira/native", dest: "packages/engine/libraries/audio-kira/native/dist", flatCopy: true },
+
+  // Android only — the NativeActivity shell statically links downdraft-platform
+  // and spawns embedded libnode; JS dlopens this .so so platform statics are
+  // shared with the winit loop. Never a host target.
+  {
+    pkg: "downdraft-android-shell",
+    lib: "downdraft_android",
+    dir: "packages/android-shell",
+    dest: "packages/android-shell/dist",
+    flatCopy: false,
+    androidOnly: true,
+  },
 ];
 
 // node (process.platform-process.arch) ↔ rust target triples.
@@ -53,6 +70,8 @@ export const NODE_TO_RUST = {
   "darwin-arm64": "aarch64-apple-darwin",
   "win32-x64": "x86_64-pc-windows-msvc",
   "win32-arm64": "aarch64-pc-windows-msvc",
+  "android-arm64": "aarch64-linux-android",
+  "android-x64": "x86_64-linux-android",
 };
 export const RUST_TO_NODE = Object.fromEntries(Object.entries(NODE_TO_RUST).map(([k, v]) => [v, k]));
 

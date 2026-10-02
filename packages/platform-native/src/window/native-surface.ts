@@ -16,7 +16,8 @@
 
 import { createLogger } from "@downdraft/engine/util/logger";
 import { MiniEventTarget } from "../dom/mini-event-target";
-import { parseFormat } from "../gpu/enums";
+import type { ptr } from "../ffi/ffi-adapter";
+import { formatName, parseFormat } from "../gpu/enums";
 import { wgpu } from "../gpu/wgpu-ffi";
 import { WgpuDevice, WgpuTexture } from "../gpu/wgpu-wrapper";
 import { encodePNG } from "../screenshot/screenshot";
@@ -34,7 +35,7 @@ const SURFACE_TEX_OCCLUDED = 0x00030001;
 // (declare const __brand), so structural conformance is impossible. Conformance
 // is enforced at the boundary instead.
 export class NativeCanvasContext {
-  private surfacePtr: number = 0;
+  private surfacePtr: ptr = 0;
   private device: WgpuDevice | null = null;
   private format: GPUTextureFormat = "bgra8unorm";
   private usage: number = 0x0010 | 0x0001; // RENDER_ATTACHMENT | COPY_SRC (for screenshots)
@@ -51,8 +52,9 @@ export class NativeCanvasContext {
   // distinguish a transient failure from a wedged swapchain.
   private acquireFailures = 0;
   private lastAcquireLog = 0;
+  private static loggedFirstAcquire = false;
 
-  constructor(surfacePtr: number) {
+  constructor(surfacePtr: ptr) {
     this.surfacePtr = surfacePtr;
   }
 
@@ -72,7 +74,31 @@ export class NativeCanvasContext {
     if (!this.device || !this.surfacePtr) return;
     const w = Math.max(1, this.width);
     const h = Math.max(1, this.height);
-    const formatNum = parseFormat(this.format);
+    // configure() validates the format against the surface's capability
+    // list — the desktop default (bgra8unorm) is absent on Android (Adreno
+    // offers Rgba8*/Rgba16Float/Rgb10a2 only). Pick the first candidate the
+    // surface actually supports; fall back to the surface's own preferred.
+    const candidates = new Uint32Array([
+      parseFormat(this.format),
+      parseFormat("rgba8unorm"),
+      parseFormat("rgba8unorm-srgb"),
+      parseFormat("bgra8unorm"),
+      parseFormat("bgra8unorm-srgb"),
+    ]);
+    const formatNum = wgpu.wgpu_shim_surface_pick_format(
+      this.surfacePtr,
+      this.device.adapterPtr,
+      candidates as any,
+      candidates.length,
+    );
+    if (!formatNum) {
+      throw new Error(`surface reports no usable texture format (adapterPtr=${this.device.adapterPtr})`);
+    }
+    // Reflect the ACTUAL format — renderers read getFormat() for pipeline
+    // targets, and a Bgra-requested surface on Android configures as Rgba.
+    if (formatNum !== parseFormat(this.format)) {
+      this.format = formatName(formatNum);
+    }
     try {
       wgpu.wgpu_shim_surface_configure(
         this.surfacePtr,
@@ -121,6 +147,21 @@ export class NativeCanvasContext {
     this.device = null;
   }
 
+  /**
+   * Repoint this context at a new native surface — Android resume after the
+   * OS destroyed the previous ANativeWindow. The old surface is already
+   * released on the Rust side; we keep device/format/usage so the next
+   * acquire lazily reconfigures the fresh swapchain (configured dims are
+   * zeroed, forcing applyConfigure through the normal deferred path).
+   * surfacePtr=0 = suspended — getCurrentTexture() then returns null.
+   */
+  rebindSurface(surfacePtr: ptr): void {
+    this.dropCurrentTexture();
+    this.surfacePtr = surfacePtr;
+    this.configuredWidth = 0;
+    this.configuredHeight = 0;
+  }
+
   /** Release the outstanding surface texture (if any) without presenting. */
   private dropCurrentTexture(): void {
     try { (this.currentTexture as any)?.destroy?.(); } catch { /* best-effort */ }
@@ -155,9 +196,13 @@ export class NativeCanvasContext {
     for (let attempt = 0; attempt < 2; attempt++) {
       const outPtr = new BigUint64Array(1);
       const status = wgpu.wgpu_shim_surface_get_current_texture(this.surfacePtr, outPtr as any);
-      const texPtr = Number(outPtr[0]);
+      const texPtr = outPtr[0];
 
-      if (texPtr !== 0) {
+      if (texPtr !== 0n) {
+        if (!NativeCanvasContext.loggedFirstAcquire) {
+          NativeCanvasContext.loggedFirstAcquire = true;
+          log.info("surface", `first swapchain acquire ok — fmt=${this.format} ${this.width}x${this.height}`);
+        }
         this.acquireFailures = 0;
         this.currentTexture = new WgpuTexture(texPtr, {
           size: { width: this.width, height: this.height },
@@ -269,8 +314,17 @@ export class NativeCanvasContext {
 export class NativeSurface extends MiniEventTarget {
   private _width: number;
   private _height: number;
+  /** CSS layout px — the window's logical extent. Independent of the
+   *  backing-buffer dims (_width/_height), matching HTMLCanvasElement
+   *  semantics where clientWidth is layout and width is the buffer.
+   *  Updated on real window resizes and construction, NOT on
+   *  `canvas.width=` buffer sizing — otherwise `clientWidth * dpr`
+   *  (the standard HiDPI sizing idiom) feeds back into clientWidth and
+   *  the swapchain shrinks/grows every frame when scaleFactor ≠ dpr. */
+  private _cssWidth: number;
+  private _cssHeight: number;
   private context: NativeCanvasContext | null = null;
-  private surfacePtr: number;
+  private surfacePtr: ptr;
   private _pointerLocked = false;
   /** CSSStyleDeclaration stand-in — renderers set style props (opacity,
    *  cursor, imageRendering); all writes are no-ops under SDL. */
@@ -278,11 +332,15 @@ export class NativeSurface extends MiniEventTarget {
   /** Canvas id (renderers query element ids for multi-canvas setups). */
   id = "game-canvas";
 
-  constructor(width: number, height: number, surfacePtr: number) {
+  constructor(width: number, height: number, surfacePtr: ptr,
+    scaleFactor?: () => number) {
     super();
     this._width = width;
     this._height = height;
     this.surfacePtr = surfacePtr;
+    this.scaleFactor = scaleFactor;
+    this._cssWidth = width / this.cssScale;
+    this._cssHeight = height / this.cssScale;
     this.context = new NativeCanvasContext(surfacePtr);
     this.context["resize"](width, height);
   }
@@ -296,8 +354,17 @@ export class NativeSurface extends MiniEventTarget {
   // stretched, which reads as blurry text and edges.
   set width(w: number) { this.setSize(w, this._height); }
   set height(h: number) { this.setSize(this._width, h); }
-  get clientWidth(): number { return this._width; }
-  get clientHeight(): number { return this._height; }
+  // HTMLCanvasElement semantics: width/height are backing-buffer px while
+  // clientWidth/Height are CSS layout px (= physical extent / scaleFactor).
+  private scaleFactor?: () => number;
+  private get cssScale(): number {
+    const dpr = this.scaleFactor?.()
+      ?? (globalThis as { window?: { devicePixelRatio?: number } })
+        .window?.devicePixelRatio;
+    return typeof dpr === "number" && dpr > 0 ? dpr : 1;
+  }
+  get clientWidth(): number { return this._cssWidth; }
+  get clientHeight(): number { return this._cssHeight; }
 
   getBoundingClientRect(): { left: number; top: number; right: number; bottom: number; width: number; height: number } {
     return { left: 0, top: 0, right: this._width, bottom: this._height, width: this._width, height: this._height };
@@ -336,6 +403,9 @@ export class NativeSurface extends MiniEventTarget {
   }
 
   resize(width: number, height: number): void {
+    // Real window-extent change (physical px) — refresh the logical size.
+    this._cssWidth = width / this.cssScale;
+    this._cssHeight = height / this.cssScale;
     if (!this.setSize(width, height)) return;
     this.dispatchEvent({ type: "resize", width, height });
   }
@@ -352,7 +422,15 @@ export class NativeSurface extends MiniEventTarget {
     return true;
   }
 
-  getSurfacePtr(): number { return this.surfacePtr; }
+  getSurfacePtr(): ptr { return this.surfacePtr; }
+
+  /** Swap the native surface backing this canvas — Android resume recreates
+   *  the wgpu surface after suspend destroyed it. The renderer-visible canvas
+   *  identity stays the same (listeners, getContext handle). */
+  rebindSurface(surfacePtr: ptr): void {
+    this.surfacePtr = surfacePtr;
+    this.context?.rebindSurface(surfacePtr);
+  }
 
   // ── Pixel readback (canvas.toBlob / drawImage sources) ──
   //

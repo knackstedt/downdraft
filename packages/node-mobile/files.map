@@ -1,0 +1,39 @@
+# files.map — upstream files each patch touches. scripts/bump.mjs uses this to
+# pinpoint which patches need re-porting when the Node pin moves: a file whose
+# upstream contents changed between releases flags its owning patch for review.
+build-Android-iOS-dest-os-and-toolchain-configure.py.patch	android_configure.py
+build-Android-iOS-dest-os-and-toolchain-configure.py.patch	configure.py
+build-mobile-platform-settings-in-common.gypi.patch	common.gypi
+build-mobile-targets-in-node.gyp-node.gypi.patch	node.gyp
+build-mobile-targets-in-node.gyp-node.gypi.patch	node.gypi
+build-v8-mobile-host-target-settings-in-v8-gypfiles.patch	tools/v8_gypfiles/toolchain.gypi
+build-v8-mobile-host-target-settings-in-v8-gypfiles.patch	tools/v8_gypfiles/v8.gyp
+build-gyp-mobile-flavor-handling-in-gyp-generators.patch	tools/gyp/pylib/gyp/common.py
+build-gyp-mobile-flavor-handling-in-gyp-generators.patch	tools/gyp/pylib/gyp/generator/make.py
+build-gyp-mobile-flavor-handling-in-gyp-generators.patch	tools/gyp/pylib/gyp/generator/ninja.py
+build-gyp-mobile-flavor-handling-in-gyp-generators.patch	tools/gyp/pylib/gyp/xcode_emulation.py
+src-mobile-platform-guards-in-node.cc-node_internals.patch	src/node.cc
+src-mobile-platform-guards-in-node.cc-node_internals.patch	src/node_internals.h
+src-guard-POSIX-credential-APIs-on-Android.patch	src/node_credentials.cc
+src-skip-unclonable-env-vars-on-Android.patch	src/node_env_var.cc
+src-expose-the-mobile-version-key-in-metadata.patch	src/node_metadata.cc
+src-expose-the-mobile-version-key-in-metadata.patch	src/node_metadata.h
+src-crypto-mobile-adjustment-in-crypto_context.cc.patch	src/crypto/crypto_context.cc
+deps-uv-mobile-libuv-patches.patch	deps/uv/src/unix/darwin.c
+deps-uv-mobile-libuv-patches.patch	deps/uv/src/unix/fs.c
+deps-uv-mobile-libuv-patches.patch	deps/uv/uv.gyp
+deps-v8-disable-trap-handler-mobile-platform-tweaks.patch	android-patches/trap-handler.h.patch
+deps-v8-disable-trap-handler-mobile-platform-tweaks.patch	deps/v8/src/base/platform/platform-posix.cc
+deps-v8-disable-trap-handler-mobile-platform-tweaks.patch	deps/v8/src/trap-handler/trap-handler.h
+deps-v8-atomic-ref-shim-includes-for-android.patch	deps/v8/include/cppgc/allocation.h
+deps-v8-atomic-ref-shim-includes-for-android.patch	deps/v8/src/base/atomicops.h
+deps-v8-atomic-ref-shim-includes-for-android.patch	deps/v8/src/base/memcopy.h
+deps-v8-atomic-ref-shim-includes-for-android.patch	deps/v8/src/heap/cppgc/heap-object-header.h
+deps-v8-atomic-ref-shim-includes-for-android.patch	deps/v8/src/heap/cppgc/heap-page.h
+deps-v8-atomic-ref-shim-includes-for-android.patch	deps/v8/src/heap/cppgc/object-start-bitmap.h
+deps-v8-atomic-ref-shim-includes-for-android.patch	deps/v8/src/heap/sweeper.cc
+deps-v8-atomic-ref-shim-includes-for-android.patch	deps/v8/src/objects/simd.cc
+deps-cares-guard-sys-random.h-on-iOS.patch	deps/cares/config/darwin/ares_config.h
+deps-mobile-gyp-tweaks-zlib-openssl.patch	deps/openssl/openssl_no_asm.gypi
+deps-mobile-gyp-tweaks-zlib-openssl.patch	deps/zlib/zlib.gyp
+deps-v8-atomic-ref-shim-includes-for-android.patch	deps/v8/third_party/simdutf/simdutf.h

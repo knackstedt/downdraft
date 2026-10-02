@@ -42,6 +42,19 @@ jobs:
           mkdir -p /tmp/native-bundles
           gh release download "native-v${VER}" --pattern 'downdraft-native-*.tar.gz' --dir /tmp/native-bundles
           node scripts/stage-native-packages.mjs /tmp/native-bundles
+      # Populate packages/node-mobile-android-*/{lib,include} from the
+      # node-mobile-v<node version>-<revision> release (built by
+      # node-mobile.yml). Non-fatal for the same reason as above.
+      - name: Stage node-mobile packages
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VER=$(tr -d '[:space:]' < packages/node-mobile/node-version.txt)
+          REV=$(grep -oP 'NODE_MOBILE_REVISION \K\d+' packages/node-mobile/overlay/src/node_mobile_version.h)
+          mkdir -p /tmp/node-mobile-bundles
+          gh release download "node-mobile-v${VER}-${REV}" --pattern 'downdraft-node-mobile-*.tar.gz' --dir /tmp/node-mobile-bundles
+          node scripts/stage-node-packages.mjs /tmp/node-mobile-bundles
       - name: Publish packages in dependency order
         run: |
           FILTER="${{ inputs.filter }}"

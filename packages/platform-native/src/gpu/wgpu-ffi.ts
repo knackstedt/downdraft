@@ -287,6 +287,10 @@ const WGPU_SHIM_SPEC: Record<string, CFunction> = {
   wgpu_shim_surface_present: { args: ["ptr"], returns: "void" },
   wgpu_shim_surface_unconfigure: { args: ["ptr"], returns: "void" },
   wgpu_shim_get_preferred_format: { args: [], returns: "u32" },
+  wgpu_shim_surface_pick_format: {
+    args: ["ptr", "ptr", "ptr", "usize"],
+    returns: "u32",
+  },
 
   // ── Release ──
   wgpu_shim_release_buffer: { args: ["ptr"], returns: "void" },
@@ -659,6 +663,12 @@ export interface WgpuShimSymbols {
   wgpu_shim_surface_present: (surface: ptr) => void;
   wgpu_shim_surface_unconfigure: (surface: ptr) => void;
   wgpu_shim_get_preferred_format: () => number;
+  wgpu_shim_surface_pick_format: (
+    surface: ptr,
+    adapter: ptr,
+    candidates: ptr,
+    count: number,
+  ) => number;
 
   // Release functions
   wgpu_shim_release_buffer: (p: ptr) => void;

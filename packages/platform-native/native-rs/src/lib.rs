@@ -26,3 +26,9 @@ mod gpu;
 mod image;
 pub mod text;
 mod window;
+
+/// Android entry point — the shell crate's `android_main` hands the
+/// `AndroidApp` to this on the app thread; it runs winit's `run_app` and never
+/// returns. See window/android.rs.
+#[cfg(target_os = "android")]
+pub use window::android::run_app as downdraft_platform_run_android_app;

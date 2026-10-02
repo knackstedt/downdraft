@@ -27,7 +27,7 @@ export interface CommandEntry {
 
 const DESKTOP_TARGETS = ["win", "linux", "mac", "all"] as const;
 const BUILD_TARGETS = ["current", "win", "linux", "mac"] as const;
-const RELEASE_TARGETS = ["win", "linux", "mac", "all"] as const;
+const RELEASE_TARGETS = ["win", "linux", "mac", "android", "all"] as const;
 const RELEASE_STAGES = ["build", "package", "release"] as const;
 const RENDERER_TARGETS = ["gpu", "cpu"] as const;
 const BUILD_MODES = ["dev", "debug", "prod"] as const;
@@ -45,10 +45,11 @@ export const COMMANDS: CommandEntry[] = [
       flags: [
         { name: "game", alias: "g", type: "string", description: "Game to release (games/<game>). For multiple games, use --games. If omitted, infers from the current directory, or defaults to the only game in games/." },
         { name: "games", type: "string", description: "Comma-separated game names (e.g. sandjongg,to-the-ocean)" },
-        { name: "target", alias: "t", type: "string", default: "all", enum: [...RELEASE_TARGETS], description: "Target platform(s): win, linux, mac, or all" },
+        { name: "target", alias: "t", type: "string", default: "all", enum: [...RELEASE_TARGETS], description: "Target platform(s): win, linux, mac, android, or all (android can't mix with desktop targets)" },
         { name: "format", type: "string", description: "Deprecated no-op — native packaging produces a single binary + staged tree" },
         { name: "stage", type: "string", default: "release", enum: [...RELEASE_STAGES], description: "Stage: build, package, or release (all compile the native binary)" },
         { name: "mode", type: "string", default: "prod", enum: [...BUILD_MODES], description: "Build mode" },
+        { name: "abi", type: "string", default: "arm64-v8a", description: "Android ABI(s): arm64-v8a, x86_64, or all (android target only)" },
         { name: "out", type: "string", default: "release", description: "Artifact output directory" },
         { name: "skip-build", type: "boolean", description: "Alias for --stage=package" },
         { name: "build-only", type: "boolean", description: "Alias for --stage=build" },
