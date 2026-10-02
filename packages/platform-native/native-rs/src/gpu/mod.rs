@@ -2268,11 +2268,15 @@ mod android_segv_probe {
     unsafe extern "C" fn handler(sig: c_int, info: *mut libc::siginfo_t, ctx: *mut libc::c_void) {
         let code = unsafe { (*info).si_code };
         let addr = unsafe { (*info).si_addr() } as usize;
-        // ucontext_t → uc_mcontext (mcontext_t: 64-bit regs array + pc on arm64).
+        // ucontext_t → uc_mcontext (arch layout differs: arm64 has
+        // pc/sp/regs[], x86_64 a gregs[] array indexed by REG_*).
         let (pc, sp, x1) = unsafe {
             let uc = ctx as *const libc::ucontext_t;
             let mc = &(*uc).uc_mcontext;
-            (mc.pc, mc.sp, mc.regs[1])
+            #[cfg(target_arch = "aarch64")]
+            { (mc.pc as usize, mc.sp as usize, mc.regs[1] as usize) }
+            #[cfg(target_arch = "x86_64")]
+            { (mc.gregs[libc::REG_RIP as usize] as usize, mc.gregs[libc::REG_RSP as usize] as usize, mc.gregs[libc::REG_RDI as usize] as usize) }
         };
         // Async-signal-unsafe formatting is fine — we re-raise and die anyway.
         let msg = std::ffi::CString::new(format!(
