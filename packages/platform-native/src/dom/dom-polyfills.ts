@@ -1,10 +1,11 @@
 // ============================================================================
 // dom-polyfills.ts — browser-global polyfills for native mode
 //
-// Installs the DOM surface the engine and PixiJS expect: document, window,
-// ResizeObserver/IntersectionObserver, storage, Worker, and the PixiJS
-// DOMAdapter globals (HTMLCanvasElement, DOMParser, FontFace, ...).
-// Extracted from native-host.ts — no GPU/window logic lives here.
+// Installs the DOM surface the engine and browser-shaped npm libraries
+// expect: document, window, ResizeObserver/IntersectionObserver, storage,
+// Worker, and the standard DOM globals (HTMLCanvasElement, DOMParser,
+// FontFace, ...). Extracted from native-host.ts — no GPU/window logic
+// lives here.
 // ============================================================================
 
 import { createLogger } from "@downdraft/engine";
@@ -74,7 +75,7 @@ function createStubElement(tag: string): any {
 export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface, opts: DOMPolyfillOptions = {}): void {
   // document polyfill
   if (typeof (globalThis as any).document === "undefined") {
-    // This document is a *compat facade* for PixiJS and legacy canvas-shaped
+    // This document is a *compat facade* for canvas-shaped and DOM-probing
     // consumers — NOT a DOM compositor. It deliberately has no surface
     // mapping, no overlay stubs, and no elementFromPoint: the live renderer
     // reaches the render surface via getSurface()/ctx.surface, and input is
@@ -98,12 +99,12 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
     const doc = {
       createElement: (tag: string) => {
         if (tag === "canvas") {
-          // PixiJS (and DOMAdapter.createCanvas) call document.createElement
-          // ("canvas") to get a canvas whose getContext("webgpu") returns a
-          // GPUCanvasContext. Return a VirtualCanvas: its webgpu context is
-          // backed by a dedicated GPUTexture (not the swapchain) so PixiJS can
-          // render the UI into a texture the game composites; its 2d context
-          // is FreeType-backed for text rasterization.
+          // Libraries call document.createElement("canvas") to get a canvas
+          // whose getContext("webgpu") returns a GPUCanvasContext. Return a
+          // VirtualCanvas: its webgpu context is backed by a dedicated
+          // GPUTexture (not the swapchain) so a second renderer can draw into
+          // a texture the game composites; its 2d context is FreeType-backed
+          // for text rasterization.
           return new VirtualCanvas(surface.width, surface.height);
         }
         return createStubElement(tag);
@@ -145,9 +146,10 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
       hidden: false,
       pointerLockElement: null as any,
       exitPointerLock: () => surface.exitPointerLock(),
-      // PixiJS DOMAdapter.getBaseUrl() reads document.baseURI ?? window.location.href.
+      // Libraries resolve relative resource URLs against document.baseURI.
       baseURI: `file://${process.cwd()}/`,
-      // PixiJS DOMAdapter.getFontFaceSet() reads document.fonts (FontFaceSet).
+      // document.fonts — FontFaceSet stub for libraries that enumerate or
+      // register fonts.
       fonts: {
         ready: Promise.resolve(),
         onloadingdone: null,
@@ -161,8 +163,8 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
     };
     (globalThis as any).document = doc;
 
-    // ── DOMAdapter / PixiJS surface globals ──
-    // Libraries that probe the DOM adapter surface read these globals.
+    // ── Browser global constructors ──
+    // Libraries feature-probe these globals (instanceof / typeof checks).
     if (typeof (globalThis as any).HTMLCanvasElement === "undefined") {
       // VirtualCanvas should satisfy `instanceof HTMLCanvasElement`.
       // Extend MiniEventTarget so the prototype chain
@@ -181,12 +183,12 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
       (globalThis as any).CanvasRenderingContext2D = NativeCanvas2D;
     }
     if (typeof (globalThis as any).WebGLRenderingContext === "undefined") {
-      // PixiJS DOMAdapter.getWebGLRenderingContext() returns this; the WebGPU
-      // path won't use it, but it must be defined.
+      // Defined so `instanceof WebGLRenderingContext` / feature-detection
+      // probes don't throw; nothing on native actually constructs it.
       (globalThis as any).WebGLRenderingContext = class WebGLRenderingContext {};
     }
     if (typeof (globalThis as any).DOMParser === "undefined") {
-      // Minimal stub — PixiJS uses it for SVG parsing. Returns an object with
+      // Minimal stub for libraries that parse SVG/XML. Returns an object with
       // querySelector/getElementsByTagName returning empty results.
       (globalThis as any).DOMParser = class DOMParser {
         parseFromString() {
@@ -463,8 +465,8 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
     };
   }
 
-  // globalThis.addEventListener — PixiJS EventSystem reads this directly.
-  // Bun has it natively; Node does not.
+  // globalThis.addEventListener — libraries with their own event systems
+  // attach listeners here directly. Bun has it natively; Node does not.
   if (typeof (globalThis as any).addEventListener === "undefined") {
     (globalThis as any).addEventListener = (type: string, listener: any) => {
       window.addEventListener(type, listener);
