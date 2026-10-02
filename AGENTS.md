@@ -22,7 +22,7 @@ Game detection: a directory is a game when it has `downdraft.config.json` or `sr
 
 The engine is a **single npm package**, `@downdraft/engine` (manifest at `packages/engine/package.json`), which exposes everything through subpath exports: `@downdraft/engine` (core index), `@downdraft/engine/core/<path>` (deep core imports), `@downdraft/engine/app/<renderer|shared>`, `@downdraft/engine/libraries/<name>`, `@downdraft/engine/modules/<name>`, plus `ui`, `shader-graph`, `mcp`, `test`, and `asset-bake` subpaths. The only other published packages are `@downdraft/cli` (the `draft` binary) and `@downdraft/platform-native` (native binaries). The exports map is generated — run `node scripts/gen-engine-exports.mjs` after adding/removing a library or module directory.
 
-Architecturally the engine is split into **core + libraries** (standard engine building blocks, used directly by games) vs **modules** (opt-in game features with lifecycle + typed DI + diagnostics). Core also includes animation, particles, and the legacy `imui` subsystem directly (superseded for game UI by `modules/html-ui` — see "UI direction" below).
+Architecturally the engine is split into **core + libraries** (standard engine building blocks, used directly by games) vs **modules** (opt-in game features with lifecycle + typed DI + diagnostics). Core also includes animation and particles subsystems directly.
 
 - **Engine libraries** (imported as `@downdraft/engine/libraries/<name>`, located in `packages/engine/libraries/`): directories that export classes/functions without a module lifecycle. Games can either import and wire these directly, or declare them via `EngineLibrary` descriptors in `GameModule.libraries[]` for auto-wiring (SAB allocation, sim system creation, renderer pass creation, typed DI tokens). Engine libraries: asset-browser, audio-kira, blitz-ui, character, devtools, entities, gamepad, gaussian-splats, html-ui-kit, lighting, marching-cubes, models, navmesh, networking, pathfinding-2d, persistence, physics-native, physics-rapier, postfx, recast, sand, stickman, surface-nets, water, weather, weatherfx.
 - **Engine modules** (imported as `@downdraft/engine/modules/<name>`, located in `packages/engine/modules/`): directories that implement the `Module` or `RendererModule` interface with a `register()` lifecycle + typed DI. Engine modules: camera-controls, controller-ui, devtools, html-ui, mcp, movement-2d, movement-3d, native-osr, sailing, terrain, vitals, xr.
@@ -155,7 +155,7 @@ Before writing per-game infrastructure, check whether the engine already provide
 | Sand simulation | `SandWorld`, `SandStepPool`, `SandLib`, palette/materials | `@downdraft/engine/libraries/sand` |
 | Game UI | `createHtmlUi({ build })` renderer module over `modules/html-ui` (Blitz HTML/CSS docs rasterized in a UI worker, composited as panel quads) — **canonical game-UI system** | `@downdraft/engine/modules/html-ui` |
 
-**UI direction:** the framework bakeoff (`test-beds/ui-bakeoff` — Blitz vs Canvas2D vs imui stacks) settled on **Blitz** for game UI. `modules/html-ui` (worker-backed Blitz HTML/CSS documents with a JSX authoring layer) is the canonical game-UI system; native devtools/OSR panels are already Blitz-backed. All games render their game UI through html-ui. The pixi stack (`libraries/pixi-ui`, `libraries/pixi-ui-native`, `libraries/profiler`, the pixi asset-browser scene, `examples/pixi-ui-demo`) has been **deleted** — `UiBlitPass` (the generic UI-texture compositor) moved to `libraries/blitz-ui`. `core/imui` remains only for engine-internal plumbing (`GameRenderer`'s overlay pass + `UIInputRouter` input gating + `core/telemetry` debug overlay) and is being decommissioned — do not add new UI to it; new games and all new UI work target html-ui.
+**UI direction:** the framework bakeoff (`test-beds/ui-bakeoff` — Blitz vs Canvas2D stacks) settled on **Blitz** for game UI. `modules/html-ui` (worker-backed Blitz HTML/CSS documents with a JSX authoring layer) is the canonical game-UI system; native devtools/OSR panels are already Blitz-backed. All games render their game UI through html-ui. The pixi stack (`libraries/pixi-ui`, `libraries/pixi-ui-native`, `libraries/profiler`, the pixi asset-browser scene, `examples/pixi-ui-demo`) has been **deleted** — `UiBlitPass` (the generic UI-texture compositor) moved to `libraries/blitz-ui`. `core/imui` and the imui-based telemetry overlays have been **deleted**; the generic `UIInputRouter` input-gating contract lives on as `core/input/ui-router.ts`. New games and all new UI work target html-ui.
 
 **Game UI pattern:** a game mounts its UI as a renderer module. Each panel is a Blitz HTML/CSS document rasterized in a dedicated UI worker (layout + vello raster off the main thread); the host owns per-panel WebGPU textures with dirty-rect partial uploads, composited at the end of `GameRenderer`'s frame. Input routes through the input bus — rect/z-ordered panels, `:hover`/`:active`/DOM focus inside the doc, keyboard claimed only while an editable element holds focus. Controller/keyboard spatial navigation (focus zones, on-screen keyboard, virtual cursor) is auto-wired from `html-ui-kit` + `GamepadLib` unless `nav: false`.
 
@@ -190,7 +190,7 @@ html-ui files:
 - `packages/engine/libraries/blitz-ui/` — native Blitz/vello cdylib FFI (`native-osr-ffi`, OSR frame channel).
 - `test-beds/ui-bakeoff/` — the framework comparison bench that produced this decision.
 
-The legacy imui pattern (`createGameUi` over `core/imui`) is no longer used by any game — the remaining `core/imui` usage is engine-internal (GameRenderer overlay pass, `UIInputRouter`, telemetry overlays) pending decommission.
+The legacy imui UI stack (`core/imui`, `createGameUi`, the imui telemetry overlays, `UICompositePass`) has been deleted — in-game profiling/debug views are served by the devtools host (F12) and html-ui panels instead.
 
 ## RenderSurface and overlay layering
 
@@ -914,7 +914,7 @@ The `downdraft doctor` devtools panel displays a plugins table (id, version, for
 
 ## Profiling system (`@downdraft/engine/profiling` + `@downdraft/engine/modules/devtools`)
 
-A comprehensive cross-thread profiling + tracing system (Puffin-style flame graph, memory/CPU/IOPS/event-loop/GC views, warning toasts, trace recording + export). The pixi-based in-game overlay (`libraries/profiler`) has been deleted — profiling surfaces now live in the devtools host + the `core/telemetry` debug overlay.
+A comprehensive cross-thread profiling + tracing system (Puffin-style flame graph, memory/CPU/IOPS/event-loop/GC views, warning toasts, trace recording + export). The pixi-based in-game overlay (`libraries/profiler`) has been deleted — profiling surfaces now live in the devtools host.
 
 ### Architecture
 
@@ -936,7 +936,7 @@ A comprehensive cross-thread profiling + tracing system (Puffin-style flame grap
   - `ProfilingBridge` — renderer-side bridge that creates the ProfilingSAB, runs the WarningEngine + EventLoopMonitor + TraceEventWriter, drains the warning ring each frame, fires auto-trace, and registers the 10 built-in view descriptors.
   - `initDevTools({ profiling: true })` — creates the ProfilingBridge + exposes the ProfilingSAB on `__sceneInspector`.
   - `exposeDevToolsApi()` — now merges `exposeProfilingApi()` so workers get both devtools + profiling RPC methods.
-- **`@downdraft/engine/core/telemetry`** — the `DebugOverlay`/`ProfilerOverlay` (imui-based in-game overlay, rendered via `GameRenderer`'s overlay pass when `enableProfilingOverlay` is set). The former pixi-based profiler overlay library has been deleted.
+- **`@downdraft/engine/core/telemetry`** — the collector/profilers/GC controller that feed the devtools host. The imui-based `DebugOverlay`/`ProfilerOverlay` in-game panels and the pixi-based profiler overlay library have been deleted.
 
 ### Built-in views (10)
 

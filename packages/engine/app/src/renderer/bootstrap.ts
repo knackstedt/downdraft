@@ -57,7 +57,7 @@ export interface BootstrapDevToolsOptions {
   /**
    * Enable the profiling system (ProfilingSAB + ProfilingBridge + built-in views).
    * When true, a ProfilingBridge is created and the ProfilingSAB is shared
-   * with all workers + the pixi-ui overlay. Default: false.
+   * with all workers + devtools views. Default: false.
    */
   profiling?: boolean;
 }
@@ -147,7 +147,7 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
   //    rather than a silent mount into a synthetic element.
   if (opts.mountUI) {
     if (!hasDom) {
-      log.error("bootstrapGame", "mountUI declared but this host has no DOM — the UI mount was skipped. Remove the mountUI declaration (UI on native renders into the surface via imui/pixi-ui).");
+      log.error("bootstrapGame", "mountUI declared but this host has no DOM — the UI mount was skipped. Remove the mountUI declaration (UI on native renders into the surface via html-ui/Blitz).");
     } else {
       await opts.mountUI(getOverlay(overlayLayer));
     }

@@ -53,7 +53,6 @@
     "@downdraft/engine/animation": "./packages/engine/core/src/animation/index.ts",
     "@downdraft/engine/assets": "./packages/engine/core/src/assets/index.ts",
     "@downdraft/engine/ecs": "./packages/engine/core/src/ecs/index.ts",
-    "@downdraft/engine/imui": "./packages/engine/core/src/imui/index.ts",
     "@downdraft/engine/library": "./packages/engine/core/src/library/index.ts",
     "@downdraft/engine/material": "./packages/engine/core/src/material/index.ts",
     "@downdraft/engine/module": "./packages/engine/core/src/module/index.ts",

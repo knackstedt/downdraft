@@ -1,4 +1,4 @@
-import type { UIInputRouter } from "../imui";
+import type { UIInputRouter } from "./ui-router";
 import { InputContext, InputState } from "./state";
 
 export class InputContextRouter {

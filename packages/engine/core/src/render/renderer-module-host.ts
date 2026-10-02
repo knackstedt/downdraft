@@ -13,8 +13,7 @@
 // ============================================================================
 
 import type { ResourceToken } from "../ecs/resource";
-import type { UIRoot } from "../imui/element";
-import type { UIInputRouter } from "../imui/input";
+import type { UIInputRouter } from "../input/ui-router";
 import type { CrossThreadToken, ModuleThreadInfo, ThreadTag } from "../module/cross-thread";
 import { assertNoDuplicate, assertRequired, isStrict, warnLeak } from "../module/diagnostics";
 import type { ModuleDevToolsAPI } from "../module/module";
@@ -56,9 +55,7 @@ export interface RendererModuleHostCallbacks {
   setRenderTargetProvider: (provider: RenderTargetProvider | null) => void;
   setRAFSource: (src: RAFSource | null, cancel: CancelRAF | null) => void;
   setViewportCount: (count: number) => void;
-  getUIRoot: () => UIRoot;
   getUIInputRouter: () => UIInputRouter | null;
-  invalidateUILayout: () => void;
   registerUiCompositor?: (c: import("../module/renderer-module").ScreenUiCompositor) => () => void;
 }
 
@@ -553,9 +550,7 @@ export class RendererModuleHost {
 
       getInputBus: () => this.inputBus,
 
-      getUIRoot: () => this.callbacks.getUIRoot(),
       getUIInputRouter: () => this.callbacks.getUIInputRouter(),
-      invalidateUILayout: () => this.callbacks.invalidateUILayout(),
       registerUiCompositor: this.callbacks.registerUiCompositor
         ? (c) => this.callbacks.registerUiCompositor!(c)
         : undefined,

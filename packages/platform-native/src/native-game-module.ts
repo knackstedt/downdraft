@@ -21,7 +21,6 @@ import type { GameContext, GameModule, GameSimWorker } from "@downdraft/engine/a
 import { createLogger } from "@downdraft/engine/util/logger";
 import { addCrashFeatureLog } from "./host-lifecycle";
 import { startNativeMcpServer, type NativeMcpOptions } from "./mcp/native-mcp";
-import { wireFreeTypeText } from "./native-game";
 import { createNativeHost, type NativeHostConfig } from "./native-host";
 
 const log = createLogger();
@@ -82,7 +81,6 @@ export async function runNativeGameModule<Sim extends GameSimWorker>(
     const wrapped: GameModule<Sim> = {
       ...module,
       onReady: async (ctx: GameContext<Sim>) => {
-        wireFreeTypeText(ctx.renderer);
         // Let the bridge's captureFrame force an on-demand frame when the
         // render loop is stopped (deterministic mode).
         (globalThis as any).__ddRequestFrame = () => {

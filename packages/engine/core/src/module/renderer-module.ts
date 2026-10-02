@@ -12,8 +12,7 @@
 // ============================================================================
 
 import type { ResourceToken } from "../ecs/resource";
-import type { UIRoot } from "../imui/element";
-import type { UIInputRouter } from "../imui/input";
+import type { UIInputRouter } from "../input/ui-router";
 import type { RenderSurface } from "../platform/render-surface";
 import type { CameraState } from "../render/camera";
 import type { FrameGraph, SlotRegistry } from "../render/frame-graph";
@@ -118,13 +117,13 @@ export type ResizeHook = (cssWidth: number, cssHeight: number, dpr: number) => v
 
 /**
  * Draws UI textures into the surface pass during GameRenderer's end-of-frame
- * UI block (after afterFrame callbacks — same slot as imui drawables).
+ * UI block (after afterFrame callbacks).
  * Registered by the html-ui module; kept in core so host and module share it.
  */
 export interface ScreenUiCompositor {
   /** Draw into the open surface render pass. */
   render(pass: GPURenderPassEncoder, surfaceWidth: number, surfaceHeight: number): void;
-  /** When false for all compositors and imui is empty, no UI pass is opened. */
+  /** When false for all compositors, no UI pass is opened. */
   hasContent(): boolean;
 }
 
@@ -152,17 +151,12 @@ export interface RendererModuleContext {
   // ── Input ──
   getInputBus(): RendererInputBus;
 
-  // ── imui ──
+  // ── UI input ──
   /**
-   * The renderer's `UIRoot` — the top-level imui element that `GameRenderer`
-   * lays out and draws each frame. Renderer plugins mount game UI by adding
-   * children to it (see `createGameUi`).
+   * The router that hit-tests and dispatches pointer/key events to the
+   * active UI stack (html-ui installs its Blitz router here).
    */
-  getUIRoot(): UIRoot;
-  /** The router that hit-tests and dispatches pointer/key events to imui elements. */
   getUIInputRouter(): UIInputRouter | null;
-  /** Mark the UI tree dirty so `GameRenderer` re-runs layout next frame. */
-  invalidateUILayout(): void;
 
   /**
    * Register a screen-space UI compositor drawn in GameRenderer's

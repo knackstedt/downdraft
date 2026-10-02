@@ -97,7 +97,6 @@ export { TerrainPass } from "./passes/terrain";
 export type { TerrainUniforms } from "./passes/terrain";
 export { TransparentPass } from "./passes/transparent";
 export type { TransparentRenderItem } from "./passes/transparent";
-export { UICompositePass } from "./passes/ui-composite";
 export { UnderwaterFogPass } from "./passes/underwater-fog";
 export { VideoTextureSource } from "./passes/video-texture";
 export type { VideoTextureConfig } from "./passes/video-texture";

@@ -3,7 +3,7 @@
 // Extracted from WebGPURenderer's input handling logic.
 // ============================================================================
 
-import { UIInputRouter } from "../imui";
+import { UIInputRouter } from "../input/ui-router";
 import type { RenderSurface } from "../platform/render-surface";
 
 export interface RenderInputState {
@@ -110,8 +110,8 @@ export class InputManager {
       this.mouseDelta.dy = 0;
     }) as EventListener);
 
-    // Convert a DOM event to canvas backing-pixel coordinates for imui
-    // hit-testing (UIRoot is laid out in canvas.width/height space).
+    // Convert a DOM event to canvas backing-pixel coordinates for UI
+    // hit-testing (UI panels are laid out in canvas.width/height space).
     const toCanvas = (e: MouseEvent): [number, number] => {
       const rect = this.canvas.getBoundingClientRect();
       const sx = rect.width > 0 ? this.canvas.width / rect.width : 1;
@@ -145,7 +145,7 @@ export class InputManager {
       if (e.button === 2) this.mouseState.right = false;
     }) as EventListener);
 
-    // UI routing listens on window — imui draws on the game canvas, but games
+    // UI routing listens on window — game UI draws on the game canvas, but games
     // may stack additional interactive canvases above it (e.g. sandjongg's
     // tile canvas). Window-level listeners see events regardless of which
     // element is on top; toCanvas() converts to backing-pixel space and
@@ -182,7 +182,7 @@ export class InputManager {
 
     // Use document-level mouseleave: a sibling canvas stacked above (e.g.
     // sandjongg's tile canvas) would otherwise trigger the canvas's own
-    // mouseleave and break imui hover/pressed state.
+    // mouseleave and break UI hover/pressed state.
     add(document, "mouseleave", (() => {
       this.uiInputRouter?.handlePointerLeave();
     }) as EventListener);

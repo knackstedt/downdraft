@@ -5,7 +5,7 @@
 // per stack. Keys 1-5 (or Left/Right arrows) switch stacks; each stack draws
 // its own tab bar with itself highlighted.
 //
-//   Stacks: 1) imui  2) Dioxus/Blitz wasm  3) HTML/CSS (Blitz OSR)
+//   Stacks: 1) Dioxus/Blitz wasm  2) HTML/CSS (Blitz OSR)
 //           4) Canvas2D (NativeCanvas2D)  5) HtmlUI (Blitz html-ui)
 //
 // Run:      bun run test-beds/ui-bakeoff/main.ts
@@ -22,7 +22,6 @@ import { createCanvas2dStack } from "./stacks/canvas2d";
 import { createDioxusStack } from "./stacks/dioxus";
 import { createHtmlStack } from "./stacks/html";
 import { createHtmlUiStack } from "./stacks/htmlui";
-import { createImuiStack } from "./stacks/imui";
 
 const log = createLogger("info");
 
@@ -42,11 +41,11 @@ const CLEAR = { r: 0.063, g: 0.078, b: 0.102, a: 1 };
 // ── Stacks ──
 // Order matches the tab indices shown in each gallery's tab bar.
 
-const factories = [createImuiStack, createDioxusStack, createHtmlStack, createCanvas2dStack, createHtmlUiStack];
+const factories = [createDioxusStack, createHtmlStack, createCanvas2dStack, createHtmlUiStack];
 const stacks: (UiStack | null)[] = new Array(factories.length).fill(null);
 const stackErrors: (string | null)[] = new Array(factories.length).fill(null);
 
-let active = Math.max(0, Math.min(4, Number(process.env.BAKEOFF_TAB ?? 0) || 0));
+let active = Math.max(0, Math.min(3, Number(process.env.BAKEOFF_TAB ?? 0) || 0));
 let switching = false;
 
 function stackCtx(): StackCtx {
@@ -89,7 +88,7 @@ async function setActive(i: number): Promise<void> {
     log.info("bakeoff", `→ ${TABCODES[i]}`);
 }
 
-const TABCODES = ["imui", "dioxus", "html", "canvas2d", "htmlui"];
+const TABCODES = ["dioxus", "html", "canvas2d", "htmlui"];
 const NTABS = TABCODES.length;
 
 // ── Input routing ──

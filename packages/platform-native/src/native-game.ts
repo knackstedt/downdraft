@@ -18,7 +18,6 @@
 // ============================================================================
 
 import { createLogger } from "@downdraft/engine";
-import { getFreeTypeTextRenderer } from "./image/native-image";
 import { createNativeHost, type NativeHostConfig, type NativeHostContext } from "./native-host";
 
 export interface NativeGameContext {
@@ -50,19 +49,6 @@ export interface NativeGameOptions {
 
 const log = createLogger();
 
-/** Wire the FreeType text renderer into the renderer's IMUI text atlas. */
-export function wireFreeTypeText(renderer: any): void {
-  const ftRenderer = getFreeTypeTextRenderer();
-  if (!ftRenderer) return;
-  const textCache = renderer?.getUIRenderer?.()?.getTextCache?.();
-  if (textCache) {
-    textCache.setDirectRenderer(ftRenderer);
-    log.info("native-game", "FreeType text renderer wired into IMUI");
-  } else {
-    log.warn("native-game", "No IMUI TextAtlasCache found — FreeType text not wired");
-  }
-}
-
 export async function startNativeGame(options: NativeGameOptions): Promise<void> {
   const width = options.width ?? 1280;
   const height = options.height ?? 720;
@@ -80,7 +66,6 @@ export async function startNativeGame(options: NativeGameOptions): Promise<void>
     if (ok === false) throw new Error("renderer.init() returned false");
     log.info("native-game", "Renderer initialized");
 
-    wireFreeTypeText(ctx.renderer);
     await options.onReady?.(ctx);
 
     // The native host installed a vsync-driven requestAnimationFrame on

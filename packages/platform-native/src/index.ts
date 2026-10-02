@@ -29,7 +29,7 @@ export { WgpuAdapter, WgpuBindGroup, WgpuBindGroupLayout, WgpuBuffer, WgpuComman
 export { acquireSingleInstanceLock, addCrashFeatureLog, installNativeErrorHandlers, installWindowStatePersistence, releaseSingleInstanceLock } from "./host-lifecycle";
 export { createImageBitmapNative, getFreeTypeTextRenderer, installImagePolyfills, NativeCanvas2D, NativeImageBitmap } from "./image/native-image";
 export { createNativeHostTools, startNativeMcpServer, type NativeMcpOptions, type NativeMcpServer } from "./mcp/native-mcp";
-export { startNativeGame, wireFreeTypeText, type NativeGameContext, type NativeGameOptions } from "./native-game";
+export { startNativeGame, type NativeGameContext, type NativeGameOptions } from "./native-game";
 export { runNativeGameModule, type RunNativeGameModuleOptions } from "./native-game-module";
 export { createNativeHost, type NativeHostConfig, type NativeHostContext } from "./native-host";
 export { installRestartHook, requestGameRestart, type RestartHookOptions } from "./native-restart";

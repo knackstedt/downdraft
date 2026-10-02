@@ -18,7 +18,7 @@
 // UI texture persists.
 // ============================================================================
 
-import { UIInputRouter, type RendererModule, type UIRoot } from "@downdraft/engine";
+import { UIInputRouter, type RendererModule } from "@downdraft/engine";
 import { createLogger } from "@downdraft/engine/util/logger";
 import { captureScreenshot } from "@downdraft/platform-native";
 import { readFileSync } from "node:fs";
@@ -45,7 +45,6 @@ export interface BlitzHostRenderer {
     getUIInputRouter(): UIInputRouter | null;
     getInputManager(): { setUIInputRouter(router: UIInputRouter): void };
     uiInputRouter: UIInputRouter | null;
-    getUIRoot(): UIRoot | null;
 }
 
 export interface BlitzUiNativeOptions<S> {
@@ -207,10 +206,6 @@ export function createBlitzUiNativeModule<S>(options: BlitzUiNativeOptions<S>): 
                 unsubscribe?.();
                 router?.detachKeyboard();
                 const restore = prevRouter ?? new UIInputRouter();
-                if (!prevRouter) {
-                    const root = renderer.getUIRoot();
-                    if (root) restore.setRoot(root);
-                }
                 renderer.getInputManager().setUIInputRouter(restore);
                 renderer.uiInputRouter = restore;
                 uiTexture?.destroy();

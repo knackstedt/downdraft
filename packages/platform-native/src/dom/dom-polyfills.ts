@@ -408,7 +408,7 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
   }
 
   // localStorage polyfill — in-memory by default; file-backed (atomic JSON
-  // writes) when opts.storagePath is provided, so prefs like imui font-scale
+  // writes) when opts.storagePath is provided, so prefs like the UI font-scale
   // survive restarts on the native host.
   if (typeof (globalThis as any).localStorage === "undefined") {
     const store: Record<string, string> = {};

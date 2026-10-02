@@ -90,7 +90,7 @@ class LinearBlitPass {
     dispose(): void {}
 }
 
-export const TABS = ["imui", "Dioxus", "HTML/CSS", "Canvas2D", "HtmlUI"] as const;
+export const TABS = ["Dioxus", "HTML/CSS", "Canvas2D", "HtmlUI"] as const;
 
 export const LIST_ITEMS = [
     "Iron Ore", "Copper Ore", "Coal", "Stone", "Wood Plank", "Rope", "Torch",

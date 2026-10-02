@@ -345,7 +345,7 @@ export interface GameModule<Sim extends GameSimWorker = GameSimWorker> {
   /** Mount the UI framework (React: createRoot().render(), Solid: render(), etc).
    *  DOM hosts only — on the native runtime there is no DOM overlay tree, so
    *  a declared mountUI is skipped with an error logged (UI on native renders
-   *  into the surface via imui/pixi-ui). */
+   *  into the surface via html-ui/Blitz). */
   mountUI?: (overlay: HTMLElement, ctx: GameContext<Sim>) => Promise<void> | void;
   /** CSS imports / side-effect imports to run before UI mount. Optional. */
   imports?: () => void;

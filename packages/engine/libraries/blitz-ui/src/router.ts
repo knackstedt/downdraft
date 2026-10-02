@@ -80,6 +80,10 @@ export class BlitzUiRouter extends UIInputRouter {
         this.wasm.ui_pointer_leave();
     }
 
+    override getPointerPos(): [number, number] {
+        return [this.lastX, this.lastY];
+    }
+
     /** Hit-test the live document at the last pointer position. */
     override isPointerOverUI(): boolean {
         return this.lastX >= 0 && this.wasm.ui_hit_test(this.lastX, this.lastY);

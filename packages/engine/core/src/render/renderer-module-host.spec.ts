@@ -48,9 +48,7 @@ function createMockCallbacks() {
     setRenderTargetProvider: vi.fn(),
     setRAFSource: vi.fn(),
     setViewportCount: vi.fn(),
-    getUIRoot: () => ({} as any),
     getUIInputRouter: () => null,
-    invalidateUILayout: () => {},
   };
 }
 

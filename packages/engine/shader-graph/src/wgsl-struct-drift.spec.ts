@@ -23,25 +23,15 @@ import { wgsl } from "./wgsl-struct";
 import { compareStruct, parseWgslStructs } from "./wgsl-struct-validator";
 
 // ─── .wgsl file imports (resolved via workspace package links) ──────────────
-import IMAGE_WGSL from "@downdraft/engine/imui/shaders/image.wgsl?raw" with { type: "text" };
-import LINE_WGSL from "@downdraft/engine/imui/shaders/line.wgsl?raw" with { type: "text" };
-import QUAD_WGSL from "@downdraft/engine/imui/shaders/quad.wgsl?raw" with { type: "text" };
-import TEXT_WGSL from "@downdraft/engine/imui/shaders/text.wgsl?raw" with { type: "text" };
 import CLOUD_WGSL from "@downdraft/engine/libraries/weatherfx/shaders/cloud.wgsl?raw" with { type: "text" };
 import PARTICLE_COMPUTE_WGSL from "@downdraft/engine/libraries/weatherfx/shaders/particle-compute.wgsl?raw" with { type: "text" };
 import PARTICLE_RENDER_WGSL from "@downdraft/engine/libraries/weatherfx/shaders/particle-render.wgsl?raw" with { type: "text" };
 
 // ─── Struct definitions (must match the library definitions exactly) ────────
 // These mirror the definitions in:
-//   - packages/engine/libraries/imui/src/renderer.ts (ScreenUniformsStruct)
 //   - packages/engine/libraries/weatherfx/src/cloud-system.ts (CloudUniformsStruct, PerLayerUniformsStruct)
 //   - packages/engine/libraries/weatherfx/src/particle-system.ts (SimParamsStruct, RenderUniformsStruct)
 //   - packages/engine/libraries/postfx/src/pixelation.ts (PostProcessUniformsStruct)
-
-const ScreenUniformsStruct = wgsl.struct("ScreenUniforms", {
-  screenSize: wgsl.vec2f,
-  _pad: wgsl.vec2f,
-});
 
 const CloudUniformsStruct = wgsl.struct("CloudUniforms", {
   viewProj: wgsl.mat4x4f,
@@ -121,21 +111,6 @@ function expectNoDrift(wgslSource: string, def: WgslStruct): void {
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
-
-describe("WGSL struct drift: imui", () => {
-  it("ScreenUniforms matches quad.wgsl", () => {
-    expectNoDrift(QUAD_WGSL, ScreenUniformsStruct);
-  });
-  it("ScreenUniforms matches text.wgsl", () => {
-    expectNoDrift(TEXT_WGSL, ScreenUniformsStruct);
-  });
-  it("ScreenUniforms matches image.wgsl", () => {
-    expectNoDrift(IMAGE_WGSL, ScreenUniformsStruct);
-  });
-  it("ScreenUniforms matches line.wgsl", () => {
-    expectNoDrift(LINE_WGSL, ScreenUniformsStruct);
-  });
-});
 
 describe("WGSL struct drift: weatherfx", () => {
   it("CloudUniforms matches cloud.wgsl", () => {

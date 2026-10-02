@@ -6,13 +6,12 @@
 // logic through callback hooks.
 // ============================================================================
 
-import { LayoutEngine, UIInputRouter, UIRenderer, UIRoot } from "../imui";
+import { UIInputRouter } from "../input/ui-router";
 import type { RendererModule } from "../module/renderer-module";
 import type { RenderSurface, RenderSurfaceContext } from "../platform/render-surface";
 import { getHostCapabilities, getNativeHost } from "../platform/runtime";
 import { disableRendererIndexedDb } from "../profiling/iops/renderer-idb-disable";
 import { TelemetryCollector } from "../telemetry/collector";
-import { DebugOverlay as ProfilingOverlay } from "../telemetry/debug-overlay";
 import type { GPUAdapterInfo as GPUAdapterInfoData } from "../telemetry/gpu-profiler";
 import { GPUProfiler, type FrameGraphData, type GPUInfo } from "../telemetry/gpu-profiler";
 import { GPUResourceTracker } from "../telemetry/gpu-resource-tracker";
@@ -24,7 +23,6 @@ import { FrameGraph, SlotRegistry, type TextureHandle } from "./frame-graph";
 import { InputManager } from "./input-manager";
 import { RendererModuleHost } from "./renderer-module-host";
 import { installShaderValidationGuard } from "./shader-validator";
-import { TrackedRenderPass } from "./tracked-render-pass";
 
 const log = createLogger();
 
@@ -54,15 +52,6 @@ export interface GameRendererConfig {
   configureSurface?: boolean;
   depthFormat?: GPUTextureFormat;
   msaaSampleCount?: number;
-  enableProfilingOverlay?: boolean;
-  profilingOverlayConfig?: {
-    position?: "top-left" | "top-right" | "bottom-left" | "bottom-right";
-    updateIntervalMs?: number;
-    fontSize?: number;
-    showGpuTime?: boolean;
-    showPercentiles?: boolean;
-    showMemory?: boolean;
-  };
   /** Max number of cached depth textures (per resolution). Older entries are evicted. Default: 3. */
   depthTextureCacheSize?: number;
   /**
@@ -213,16 +202,11 @@ export class GameRenderer implements CanvasResizeHandler {
   gpuProfiler: GPUProfiler | null = null;
   gpuResourceTracker: GPUResourceTracker | null = null;
   telemetryCollector: TelemetryCollector | null = null;
-  profilingOverlay: ProfilingOverlay | null = null;
 
-  // GPU UI system
-  uiRenderer: UIRenderer | null = null;
-  uiRoot: UIRoot | null = null;
-  uiLayoutEngine: LayoutEngine | null = null;
+  /** Input router for the active UI stack (html-ui via Blitz, or none). */
   uiInputRouter: UIInputRouter | null = null;
   /** Screen-space compositors (html-ui panels etc.) drawn in the UI pass. */
   private uiCompositors = new Set<import("../module/renderer-module").ScreenUiCompositor>();
-  private uiNeedsLayout = false;
 
   // Render loop state
   private running = false;
@@ -393,31 +377,13 @@ export class GameRenderer implements CanvasResizeHandler {
         });
       }
 
-      // Initialize GPU UI system
-      this.uiRenderer = new UIRenderer(this.format);
-      this.uiRenderer.prepare(this.device);
-      this.uiRenderer.setScreenSize(this.canvas.width, this.canvas.height);
-      this.uiRoot = new UIRoot(this.canvas.width, this.canvas.height);
-      this.uiLayoutEngine = new LayoutEngine();
-      this.uiLayoutEngine.setTextCache(this.uiRenderer.getTextCache());
+      // UI input router — the active UI stack (html-ui via Blitz) replaces
+      // this with its own router when its module registers.
       this.uiInputRouter = new UIInputRouter();
-      this.uiInputRouter.setRoot(this.uiRoot);
       this.inputManager.setUIInputRouter(this.uiInputRouter);
 
-      // Telemetry + profiling overlay
+      // Telemetry
       this.telemetryCollector = new TelemetryCollector(this.config.enableTelemetry ?? true);
-      if (this.config.enableProfilingOverlay) {
-        this.dpr = window.devicePixelRatio || 1;
-        this.profilingOverlay = new ProfilingOverlay(this.telemetryCollector, {
-          position: this.config.profilingOverlayConfig?.position ?? "top-left",
-          updateIntervalMs: this.config.profilingOverlayConfig?.updateIntervalMs ?? 100,
-          fontSize: this.config.profilingOverlayConfig?.fontSize ?? Math.round(16 * this.dpr),
-          showGpuTime: this.config.profilingOverlayConfig?.showGpuTime ?? false,
-          showPercentiles: this.config.profilingOverlayConfig?.showPercentiles ?? false,
-          showMemory: this.config.profilingOverlayConfig?.showMemory ?? false,
-        });
-        this.profilingOverlay.setScreenSize(this.canvas.width, this.canvas.height);
-      }
 
       // Canvas resize watcher
       this.resizeWatcher = new CanvasResizeWatcher(this.canvas, this);
@@ -441,12 +407,7 @@ export class GameRenderer implements CanvasResizeHandler {
           else this.clearRAFSource();
         },
         setViewportCount: (count) => this.setViewportCount(count),
-        getUIRoot: () => {
-          if (!this.uiRoot) throw new Error("UIRoot not initialized — call init() first");
-          return this.uiRoot;
-        },
         getUIInputRouter: () => this.uiInputRouter,
-        invalidateUILayout: () => { this.uiNeedsLayout = true; },
         registerUiCompositor: (c) => {
           this.uiCompositors.add(c);
           return () => this.uiCompositors.delete(c);
@@ -579,10 +540,6 @@ export class GameRenderer implements CanvasResizeHandler {
 
       const adapterInfo = adapter.info ?? null;
       this.gpuProfiler?.init(device, adapterInfo, this.format, 32);
-      if (this.uiRenderer) {
-        this.uiRenderer.prepare(device);
-        this.uiRenderer.setScreenSize(this.canvas.width, this.canvas.height);
-      }
 
       // Re-prepare every registered pass — pipelines/bind groups built on the
       // dead device are invalid. Passes that can't recreate resources should
@@ -665,7 +622,6 @@ export class GameRenderer implements CanvasResizeHandler {
     if (this.canvas.width !== w) this.canvas.width = w;
     if (this.canvas.height !== h) this.canvas.height = h;
     this.updateViewports(this.viewportCount);
-    this.updateUIScreenSize();
     this.callbacks.onResize?.(cssWidth, cssHeight, dpr);
     this.rendererModuleHost?.dispatchResize(cssWidth, cssHeight, dpr);
   }
@@ -868,11 +824,6 @@ export class GameRenderer implements CanvasResizeHandler {
       this.fpsTimer = 0;
     }
 
-    // Profiling overlay update
-    if (this.profilingOverlay) {
-      this.profilingOverlay.update(dt);
-    }
-
     // Before frame callback (game-specific: camera updates, input processing)
     this.callbacks.beforeFrame?.(dt, this.elapsedTime);
     this.rendererModuleHost?.dispatchFrame("beforeFrame", dt, this.elapsedTime);
@@ -1006,18 +957,14 @@ export class GameRenderer implements CanvasResizeHandler {
     this.callbacks.afterFrame?.(dt, this.elapsedTime);
     this.rendererModuleHost?.dispatchFrame("afterFrame", dt, this.elapsedTime);
 
-    // Render GPU UI on top of final image (skip on GPU error to avoid cascade).
-    // This must run AFTER afterFrame — 2D games (viewportCount=0) do their
-    // custom rendering in the afterFrame callback, so drawing UI earlier would
-    // put it underneath their clear pass.
-    if (!gpuError && this.uiRenderer && this.uiRoot && this.device && this.context) {
-      if (this.uiNeedsLayout && this.uiLayoutEngine) {
-        this.uiLayoutEngine.layout(this.uiRoot);
-        this.uiNeedsLayout = false;
-      }
-      const drawables = this.uiRoot.getDrawable();
+    // Composite registered screen-space UI (html-ui panels) on top of the
+    // final image (skip on GPU error to avoid cascade). This must run AFTER
+    // afterFrame — 2D games (viewportCount=0) do their custom rendering in
+    // the afterFrame callback, so drawing UI earlier would put it underneath
+    // their clear pass.
+    if (!gpuError && this.device && this.context) {
       const compositors = [...this.uiCompositors].filter((c) => c.hasContent());
-      const uiCanvasView = (drawables.length > 0 || compositors.length > 0)
+      const uiCanvasView = compositors.length > 0
         ? this.getSurfaceTexture()?.createView()
         : undefined;
       if (uiCanvasView) {
@@ -1030,10 +977,7 @@ export class GameRenderer implements CanvasResizeHandler {
             storeOp: "store" as GPUStoreOp,
           }],
         });
-        if (drawables.length > 0 && this.uiRenderer) {
-          this.uiRenderer.render({ device: this.device, pass: new TrackedRenderPass(uiPass) } as unknown as RenderContext, drawables);
-        }
-        compositors.forEach((c) => { c.render(uiPass, this.canvas.width, this.canvas.height);; });
+        compositors.forEach((c) => { c.render(uiPass, this.canvas.width, this.canvas.height); });
         uiPass.end();
         this.device.queue.submit([uiEncoder.finish()]);
       }
@@ -1272,35 +1216,6 @@ export class GameRenderer implements CanvasResizeHandler {
 
   // --- UI ---
 
-  private updateUIScreenSize(): void {
-    if (this.uiRenderer && this.uiRoot) {
-      this.uiRenderer.setScreenSize(this.canvas.width, this.canvas.height);
-      this.uiRoot.width = this.canvas.width;
-      this.uiRoot.height = this.canvas.height;
-      this.uiNeedsLayout = true;
-    }
-    this.profilingOverlay?.setScreenSize(this.canvas.width, this.canvas.height);
-  }
-
-  markUILayoutDirty(): void {
-    this.uiNeedsLayout = true;
-  }
-
-  toggleProfilingOverlay(): void {
-    if (!this.profilingOverlay || !this.uiRoot) return;
-    this.profilingOverlay.toggle();
-    if (this.profilingOverlay.isVisible()) {
-      this.uiRoot.addChild(this.profilingOverlay.getPanel());
-    } else {
-      this.uiRoot.removeChild(this.profilingOverlay.getPanel());
-    }
-    this.uiNeedsLayout = true;
-  }
-
-  isProfilingOverlayVisible(): boolean {
-    return this.profilingOverlay?.isVisible() ?? false;
-  }
-
   // --- Offscreen mode ---
 
   setOffscreenMode(mode: OffscreenMode | null): void {
@@ -1364,9 +1279,8 @@ export class GameRenderer implements CanvasResizeHandler {
    * Renderers with a custom drawFrame()/present path that bypass
    * renderFrame() must call this at end-of-frame — after post-processing
    * lands on the surface, before present — or module-registered UI will
-   * never be drawn. renderFrame() itself uses the equivalent block inline
-   * (which also covers the legacy imui path); this helper only runs the
-   * compositors.
+   * never be drawn. renderFrame() itself uses the equivalent block inline;
+   * this helper only runs the compositors.
    */
   protected renderScreenUiCompositors(): void {
     const compositors = [...this.uiCompositors].filter((c) => c.hasContent());
@@ -1451,18 +1365,6 @@ export class GameRenderer implements CanvasResizeHandler {
     return this.frameGraph.getSlotRegistry();
   }
 
-  getUIRenderer(): UIRenderer | null {
-    return this.uiRenderer;
-  }
-
-  getUIRoot(): UIRoot | null {
-    return this.uiRoot;
-  }
-
-  getUILayoutEngine(): LayoutEngine | null {
-    return this.uiLayoutEngine;
-  }
-
   getUIInputRouter(): UIInputRouter | null {
     return this.uiInputRouter;
   }
@@ -1529,8 +1431,6 @@ export class GameRenderer implements CanvasResizeHandler {
     this.rendererModuleHost?.disposeAll();
     this.rendererModuleHost = null;
     this.inputManager.destroy();
-    this.profilingOverlay?.destroy();
-    this.profilingOverlay = null;
     this.gpuProfiler?.destroy();
     this.gpuProfiler = null;
     this.telemetryCollector = null;

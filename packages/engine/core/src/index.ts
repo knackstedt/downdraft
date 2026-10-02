@@ -158,8 +158,7 @@ export type { VertexAttribute, VertexAttributeFormat, VertexLayout } from "./mes
 // ─────────────────────────────────────────────────────────────────────────────
 export { TelemetryCollector } from "./telemetry/collector";
 export type { DrawStats, FrameTelemetry, PassTiming, ResourceEntry, ResourceStats, SnapshotDiff, SystemTiming, TelemetrySnapshot, ThreadMetrics } from "./telemetry/collector";
-export { DebugOverlay, DEFAULT_DEBUG_OVERLAY_CONFIG } from "./telemetry/debug-overlay";
-export type { DebugOverlayConfig } from "./telemetry/debug-overlay";
+
 export { DEFAULT_GC_CONTROLLER_CONFIG, GCController } from "./telemetry/gc-controller";
 export type { GCControllerConfig, GCControllerStats, GCIntervalStats, GCInvocationRecord, GCOverallStats } from "./telemetry/gc-controller";
 export { startGCProfiler } from "./telemetry/gc-profiler";
@@ -171,8 +170,7 @@ export { GPUResourceTracker } from "./telemetry/gpu-resource-tracker";
 export type { GPUResourceStats, TrackedResource } from "./telemetry/gpu-resource-tracker";
 export { GPUTimer } from "./telemetry/gpu-timer";
 export { GPUTimerPool } from "./telemetry/gpu-timer-pool";
-export { DEFAULT_PROFILER_CONFIG, ProfilerOverlay } from "./telemetry/profiler-overlay";
-export type { ProfilerOverlayConfig } from "./telemetry/profiler-overlay";
+
 export { TelemetryReporter } from "./telemetry/reporter";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -292,9 +290,18 @@ export type { AudioSourceData } from "./audio/source";
 export * from "./particles";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// UI (imui)
+// UI — input router contract + font-scale storage helpers (html-ui renders the
+// actual documents; see modules/html-ui and libraries/blitz-ui)
 // ─────────────────────────────────────────────────────────────────────────────
-export * from "./imui";
+export { UIInputRouter } from "./input/ui-router";
+export {
+    detectSystemFontScale,
+    FONT_SCALE_STORAGE_KEY,
+    getEffectiveFontScale,
+    getSystemFontScale,
+    loadUserFontScale,
+    saveUserFontScale
+} from "./ui-font-scale";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Math
