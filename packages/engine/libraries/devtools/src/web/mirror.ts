@@ -48,7 +48,7 @@ export interface WebMirrorOptions {
   server: DevToolsServer;
   cdp: CdpBridge;
   renderer: unknown;
-  gamePixiUi: unknown;
+  gameScene?: unknown;
   profilingSAB: SharedArrayBuffer | null;
 }
 
@@ -69,7 +69,7 @@ export class WebDevtoolsMirror {
   private lastGpuPush = 0;
   private lastScenePush = 0;
   private firstUpdate = true;
-  private domTreeMode: "pixi" | "ecs" = "pixi";
+  private domTreeMode: "scene" | "ecs" = "scene";
 
   private unsubConsole: (() => void) | null = null;
   private unsubException: (() => void) | null = null;
@@ -81,7 +81,7 @@ export class WebDevtoolsMirror {
     this.cdp = opts.cdp;
     this.ctx = {
       renderer: opts.renderer,
-      gamePixiUi: opts.gamePixiUi,
+      gameScene: opts.gameScene,
       profilingSAB: opts.profilingSAB,
     };
     this.server.setHello(() => ({
@@ -181,7 +181,7 @@ export class WebDevtoolsMirror {
     this.emit("scene", collectSceneTree(this.ctx));
   }
 
-  pushDomTree(mode: "pixi" | "ecs"): void {
+  pushDomTree(mode: "scene" | "ecs"): void {
     this.domTreeMode = mode;
     this.emit("dom", collectDomTree(this.ctx, mode));
   }
@@ -347,7 +347,7 @@ export class WebDevtoolsMirror {
       case "sceneTree":
         return collectSceneTree(this.ctx);
       case "domTree":
-        return collectDomTree(this.ctx, (params.mode as "pixi" | "ecs") ?? this.domTreeMode);
+        return collectDomTree(this.ctx, (params.mode === "ecs" ? "ecs" : "scene"));
       case "gpuInfo":
         return collectGpuInfo(this.ctx);
       case "metrics":
@@ -390,7 +390,7 @@ export class WebDevtoolsMirror {
         this.emit("console.clear", {});
         return true;
       case "domTree.mode":
-        this.domTreeMode = params.mode === "ecs" ? "ecs" : "pixi";
+        this.domTreeMode = params.mode === "ecs" ? "ecs" : "scene";
         this.pushDomTree(this.domTreeMode);
         return this.domTreeMode;
       default:

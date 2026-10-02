@@ -66,7 +66,7 @@ export interface MirrorOptions {
   handle: DevtoolsHandle;
   cdp: CdpBridge;
   renderer: any;
-  gamePixiUi: any;
+  gameScene?: any;
   profilingSAB: SharedArrayBuffer | null;
 }
 
@@ -87,7 +87,7 @@ export class DevtoolsMirror {
   private handle: DevtoolsHandle;
   private cdp: CdpBridge;
   private renderer: any;
-  private gamePixiUi: any;
+  private gameScene: any;
   private profilingSAB: SharedArrayBuffer | null;
   private threadEvals = new Map<string, EvalFn>();
   private disposed = false;
@@ -106,7 +106,7 @@ export class DevtoolsMirror {
   private lastGpuPush = 0;
   private lastScenePush = 0;
   private firstUpdate = true;
-  private domTreeMode: "pixi" | "ecs" = "pixi";
+  private domTreeMode: "scene" | "ecs" = "scene";
 
   private unsubConsole: (() => void) | null = null;
   private unsubException: (() => void) | null = null;
@@ -120,7 +120,7 @@ export class DevtoolsMirror {
     this.handle = opts.handle;
     this.cdp = opts.cdp;
     this.renderer = opts.renderer;
-    this.gamePixiUi = opts.gamePixiUi;
+    this.gameScene = opts.gameScene;
     this.profilingSAB = opts.profilingSAB;
   }
 
@@ -232,9 +232,9 @@ export class DevtoolsMirror {
     devtoolsSetThreads(this.handle, encodeThreads(threads));
   }
 
-  /** Collect + push the PIXI scene tree. */
+  /** Collect + push the scene tree. */
   pushSceneTree(): void {
-    const stage = this.gamePixiUi?.stage;
+    const stage = this.gameScene?.stage;
     if (!stage) return;
     const nodes: any[] = [];
     let idCounter = 1;
@@ -242,9 +242,10 @@ export class DevtoolsMirror {
     const collect = (node: any, parentId: number, depth: number) => {
       const id = idCounter++;
       idMap.set(node, id);
-      // PixiJS v8: use `label` (the replacement for the removed `name`).
-      // Accessing `name` triggers a deprecation warning, so never read it.
-      const nodeLabel = typeof node.label === "string" ? node.label : "";
+      // Prefer `label` (some scene-graph hosts deprecate `name` or warn on
+      // access); fall back to `name` for hosts that only set that.
+      const nodeLabel = typeof node.label === "string" ? node.label
+        : typeof node.name === "string" ? node.name : "";
       const ctorName = node.constructor?.name ?? "Node";
       // If the node has a label, show it as the primary label with the type
       // as detail. Otherwise just show the type.
@@ -262,12 +263,12 @@ export class DevtoolsMirror {
     devtoolsSetSceneTree(this.handle, encodeTree(nodes));
   }
 
-  /** Collect + push the DOM/ECS tree (PIXI or ECS mode). */
-  pushDomTree(mode: "pixi" | "ecs"): void {
-    if (mode === "pixi") {
-      // Collect the PIXI scene tree but push it to the DOM tree slot
+  /** Collect + push the DOM/ECS tree (scene or ECS mode). */
+  pushDomTree(mode: "scene" | "ecs"): void {
+    if (mode === "scene") {
+      // Collect the scene tree but push it to the DOM tree slot
       // (the dom-tree panel reads from dom_tree.nodes, not scene_tree.nodes).
-      const stage = this.gamePixiUi?.stage;
+      const stage = this.gameScene?.stage;
       if (!stage) {
         devtoolsSetDomTree(this.handle, encodeTree([]));
         return;
@@ -276,7 +277,8 @@ export class DevtoolsMirror {
       let idCounter = 1;
       const collect = (node: any, parentId: number, depth: number) => {
         const id = idCounter++;
-        const nodeLabel = typeof node.label === "string" ? node.label : "";
+        const nodeLabel = typeof node.label === "string" ? node.label
+          : typeof node.name === "string" ? node.name : "";
         const ctorName = node.constructor?.name ?? "Node";
         const label = nodeLabel || ctorName;
         const detail = nodeLabel ? ctorName : "";
@@ -685,8 +687,8 @@ export class DevtoolsMirror {
     this.pollProvidersAndCommands();
 
     // 2. Handle refresh requests.
-    // Read the current dom tree mode from Rust (0=pixi, 1=ecs).
-    this.domTreeMode = devtoolsGetDomTreeMode(this.handle) === 1 ? "ecs" : "pixi";
+    // Read the current dom tree mode from Rust (0=scene, 1=ecs).
+    this.domTreeMode = devtoolsGetDomTreeMode(this.handle) === 1 ? "ecs" : "scene";
     const refresh = devtoolsTakeRefreshRequests(this.handle);
     if (refresh & REFRESH_SCENE) this.pushSceneTree();
     if (refresh & REFRESH_DOM) this.pushDomTree(this.domTreeMode);

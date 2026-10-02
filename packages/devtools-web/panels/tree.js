@@ -7,7 +7,7 @@ export function initTreePanel(root, rpcMethod, event, hasModeSwitch = false) {
       <button data-act="refresh">Refresh</button>
       ${hasModeSwitch ? `
         <select class="mode">
-          <option value="pixi">PIXI scene</option>
+          <option value="scene">Scene graph</option>
           <option value="ecs">ECS entities</option>
         </select>` : ""}
       <span class="spacer"></span>

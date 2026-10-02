@@ -3,7 +3,7 @@ import type { AnimationChannel, AnimationData, MaterialData, MeshData, ModelData
 
 /**
  * Parse Collada XML into a Document. Uses a real DOMParser when available;
- * on the native runtime DOMParser is an empty Pixi stub, so fall back to the
+ * on the native runtime DOMParser is an empty stub, so fall back to the
  * built-in mini parser when the result has no COLLADA root.
  */
 function parseColladaDocument(text: string): Document {

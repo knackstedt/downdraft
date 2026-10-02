@@ -34,8 +34,9 @@ export interface WebDevtoolsOptions {
   height: number;
   /** The game renderer (WebGPURenderer) — for GPU/scene data. */
   renderer: unknown;
-  /** The game's NativePixiUiHost — for the PIXI scene graph tree. */
-  gamePixiUi: unknown;
+  /** Optional scene-graph host (an object exposing `.stage` with
+   *  children/label) — feeds the scene tree panel. */
+  gameScene?: unknown;
   /** Optional ProfilingSAB for per-worker performance metrics. */
   profilingSAB?: SharedArrayBuffer | null;
   /** Directory containing the devtools-web frontend (default: sibling package). */
@@ -68,7 +69,7 @@ export class WebDevtoolsHost {
       server: this.server,
       cdp: this.cdp,
       renderer: opts.renderer,
-      gamePixiUi: opts.gamePixiUi,
+      gameScene: opts.gameScene,
       profilingSAB: opts.profilingSAB ?? null,
     });
     this.sceneShim = new WebDebuggerSceneShim(this);

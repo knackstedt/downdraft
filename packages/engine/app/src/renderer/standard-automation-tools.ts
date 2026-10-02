@@ -267,8 +267,8 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
         }
 
         // Surface-only capture. toBlob is a canvas-compat API — it exists on
-        // HTMLCanvasElement and the native surface's PixiJS adapter, but is
-        // not part of the RenderSurface contract.
+        // HTMLCanvasElement and the native surface's canvas-compat layer,
+        // but is not part of the RenderSurface contract.
         const toBlob = (surface as { toBlob?: (cb: (b: Blob | null) => void, type?: string) => void }).toBlob;
         if (typeof toBlob !== "function") {
           return errorResult("Screenshot capture requires canvas.toBlob or a host captureFrame()");

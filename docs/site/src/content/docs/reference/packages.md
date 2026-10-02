@@ -84,7 +84,7 @@ The `@downdraft/engine` package exports the following subsystems:
 - **Mesh** — Mesh, VertexLayout, Builder, Skinning
 - **Animation** — Clip, Player, StateMachine, Skeleton, Retarget, Mixamo
 - **Particles** — Emitter, Simulator, ComputePass, RenderPass, System
-- **UI (imui)** — UIRoot, UIRenderer, LayoutEngine, Widgets, Input
+- **UI (html-ui)** — Blitz HTML/CSS panels, compositor, input routing
 - **Physics** — Interface, Registry, Realm, Body, Collider, Character, Raycast, Lifecycle
 - **Audio** — Interface, Engine, Source, Listener, Mixer
 - **Input** — State, Mapping, Context, SAB Bridge

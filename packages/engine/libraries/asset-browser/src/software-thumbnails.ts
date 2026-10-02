@@ -2,7 +2,7 @@
 // SoftwareThumbnailRenderer — native counterpart to ThumbnailRenderer.
 //
 // The browser path rasterizes turntable thumbnails with a WebGL2
-// OffscreenCanvas inside the pixi-ui worker. Native has no WebGL2, so this
+// OffscreenCanvas in a worker. Native has no WebGL2, so this
 // renderer rasterizes the same models on the CPU: positions + flat normals
 // through a lookAt+perspective transform into a z-buffered Uint8Array, then
 // putImageData into an OffscreenCanvas whose 2D context is the NativeCanvas2D

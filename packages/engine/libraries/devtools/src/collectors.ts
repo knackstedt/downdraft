@@ -10,7 +10,7 @@ import type { CdpProfile } from "./cdp-bridge";
 
 export interface CollectorContext {
   renderer: any;
-  gamePixiUi: any;
+  gameScene?: any;
   profilingSAB: SharedArrayBuffer | null;
 }
 
@@ -91,16 +91,18 @@ export async function collectThreads(
   return threads;
 }
 
-/** PIXI scene-graph tree (label + ctor + child counts). */
+/** Scene-graph tree (label + ctor + child counts). */
 export function collectSceneTree(ctx: CollectorContext): TreeRow[] {
-  const stage = ctx.gamePixiUi?.stage;
+  const stage = ctx.gameScene?.stage;
   if (!stage) return [];
   const nodes: TreeRow[] = [];
   let idCounter = 1;
   const collect = (node: any, parentId: number, depth: number): void => {
     const id = idCounter++;
-    // PixiJS v8: `label` replaced `name` (accessing `name` warns).
-    const nodeLabel = typeof node.label === "string" ? node.label : "";
+    // Prefer `label` (some scene-graph hosts warn on `name` access); fall
+    // back to `name` for hosts that only set that.
+    const nodeLabel = typeof node.label === "string" ? node.label
+      : typeof node.name === "string" ? node.name : "";
     const ctorName = node.constructor?.name ?? "Node";
     nodes.push({
       id, parentId, depth,
@@ -115,9 +117,9 @@ export function collectSceneTree(ctx: CollectorContext): TreeRow[] {
   return nodes;
 }
 
-/** DOM tree: PIXI stage or ECS entities depending on mode. */
-export function collectDomTree(ctx: CollectorContext, mode: "pixi" | "ecs"): TreeRow[] {
-  if (mode === "pixi") return collectSceneTree(ctx);
+/** DOM tree: scene-graph stage or ECS entities depending on mode. */
+export function collectDomTree(ctx: CollectorContext, mode: "scene" | "ecs"): TreeRow[] {
+  if (mode === "scene") return collectSceneTree(ctx);
   const simReader = ctx.renderer?.simReader ?? ctx.renderer?.getSimReader?.();
   if (!simReader?.isValid?.()) return [];
   const nodes: TreeRow[] = [];

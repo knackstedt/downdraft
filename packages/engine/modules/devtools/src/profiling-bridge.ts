@@ -1,10 +1,10 @@
 // ============================================================================
 // ProfilingBridge — renderer-side bridge that wires the profiling system into
-// the devtools + profiler overlay.
+// the devtools host.
 //
 // Responsibilities:
-//   1. Allocate the global ProfilingSAB (shared with all workers + the pixi-ui
-//      overlay worker).
+//   1. Allocate the global ProfilingSAB (shared with all workers + the
+//      devtools host).
 //   2. Create a renderer-side WarningEngine + EventLoopMonitor + TraceEventWriter.
 //   3. Drain the warning ring from the ProfilingSAB each frame + merge with
 //      renderer-side warnings → emit toasts + forward to onWarning callbacks.
@@ -12,7 +12,7 @@
 //      recording with the in-engine TraceEventWriter (auto-stopping after
 //      the rule's configured duration).
 //   5. Wire the TelemetryCollector (pass timings, system timings) into the
-//      ProfilingSAB so the profiler overlay can read them.
+//      ProfilingSAB so the devtools profiling views can read them.
 //   6. Register the 10 built-in view descriptors with the devtools API.
 //
 // Created by initDevTools() when profiling is enabled.
@@ -167,7 +167,7 @@ export class ProfilingBridge {
     this.lastFrameMs = performance.now();
   }
 
-  /** The global ProfilingSAB — share this with all workers + the pixi-ui overlay. */
+  /** The global ProfilingSAB — share this with all workers + the devtools host. */
   getProfilingSAB(): SharedArrayBuffer {
     return this.profilingSAB;
   }

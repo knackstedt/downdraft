@@ -9,7 +9,7 @@
 // structurally).
 //
 // Canvas-era APIs that are NOT part of this contract (2d contexts, toBlob,
-// style, focus/blur, DOM tree traversal) live behind the PixiJS/DOM compat
+// style, focus/blur, DOM tree traversal) live behind the canvas/DOM compat
 // layer — engine code must never require them.
 // ============================================================================
 

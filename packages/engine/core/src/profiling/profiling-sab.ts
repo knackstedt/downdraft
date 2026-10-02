@@ -2,7 +2,7 @@
 // ProfilingSAB — SharedArrayBuffer layout for the in-game profiling system.
 //
 // One global SAB allocated by the renderer, shared to all workers + the
-// pixi-ui overlay worker. Contains:
+// devtools host. Contains:
 //   - Header (magic, version, counts, global tick, warning seq)
 //   - Slot table (per-worker metadata)
 //   - Per-slot regions (ThreadMetrics + EventLoop block + IOPS ring + string table)
@@ -571,7 +571,7 @@ export function releaseSlot(sab: SharedArrayBuffer, layout: ProfilingSABLayout, 
   Atomics.sub(u32, HDR.ACTIVE_SLOTS, 1);
 }
 
-// ─── ProfilingSABReader (renderer / pixi-ui side) ───────────────────────────
+// ─── ProfilingSABReader (renderer / devtools side) ──────────────────────────
 
 export interface SlotSnapshot {
   slotIndex: number;
@@ -645,7 +645,7 @@ export interface ProfilingSnapshot {
 
 /**
  * Reader for the ProfilingSAB. Used by the renderer's ProfilingBridge and
- * the pixi-ui overlay scene to read all slots + drain the warning ring.
+ * the devtools profiling views to read all slots + drain the warning ring.
  */
 export class ProfilingSABReader {
   private u32: Uint32Array;

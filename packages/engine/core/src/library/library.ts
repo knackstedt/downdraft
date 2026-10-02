@@ -90,7 +90,7 @@ export interface LibrarySimTickContext {
  * Unlike `LibraryRendererInitContext`, this does NOT receive a GPU device —
  * it runs before the WebGPU device is acquired. Use it for renderer-only
  * libraries that need to construct a host, spawn a worker, or register a
- * DI token without depending on the GPU (e.g. a PixiJS UI overlay worker
+ * DI token without depending on the GPU (e.g. a UI overlay worker
  * that renders to its own OffscreenCanvas).
  */
 export interface LibraryRendererCreateContext {

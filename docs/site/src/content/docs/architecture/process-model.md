@@ -15,7 +15,7 @@ DownDraft Engine runs as a **single native process** — winit + wgpu, hosted un
     • HostAPI bridge — direct in-process calls
     • Saves, import cache, MCP server, tracing
     ┌───────────────────┐  ┌──────────────────┐
-    │  RenderSurface    │  │  imui / PixiJS   │
+    │  RenderSurface    │  │  html-ui/Blitz   │
     │  (RenderLoop)     │  │  UI + devtools   │
     └────────┬──────────┘  └──────────────────┘
              │ SharedArrayBuffer (zero-copy)

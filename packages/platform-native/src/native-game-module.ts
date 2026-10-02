@@ -75,8 +75,7 @@ export async function runNativeGameModule<Sim extends GameSimWorker>(
     // during startGame's bootstrap — register it so a later crash carries it.
     addCrashFeatureLog(getRendererFeatureLog);
 
-    // Native needs FreeType wired into the renderer's IMUI text atlas after
-    // init — chain it into the module's onReady (runs post-init, before
+    // Wrap the module's onReady to install native hooks post-init (before
     // game wiring) without changing the module's semantics elsewhere.
     const wrapped: GameModule<Sim> = {
       ...module,

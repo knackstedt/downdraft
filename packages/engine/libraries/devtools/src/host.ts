@@ -7,10 +7,7 @@
 // Toggled by F12. When visible, SDL pointer/keyboard/text events route to the
 // egui crate; the renderer blits the UI texture over the frame.
 //
-// Created by native-entry.ts after the game's NativePixiUiHost is ready.
-//
-// This replaces the previous PixiJS-based DebuggerScene implementation. The
-// public surface is preserved so native-entry.ts needs minimal changes.
+// Created by the game's native-entry after the renderer is ready.
 // ============================================================================
 
 import { createLogger } from "@downdraft/engine/util/logger";
@@ -51,8 +48,9 @@ export interface NativeDebuggerOptions {
   height: number;
   /** The game renderer (WebGPURenderer) — for GPU/scene data. */
   renderer: any;
-  /** The game's NativePixiUiHost — for the PIXI scene graph tree. */
-  gamePixiUi: any;
+  /** Optional scene-graph host (an object exposing `.stage` with
+   *  children/label) — feeds the scene tree panel. */
+  gameScene?: any;
   /** Optional ProfilingSAB for per-worker performance metrics. */
   profilingSAB?: SharedArrayBuffer | null;
 }
@@ -148,7 +146,7 @@ export class NativeDebuggerHost {
   /** The DebuggerScene shim (for native-entry.ts compatibility). */
   get debuggerScene(): DebuggerSceneShim { return this.sceneShim; }
 
-  /** The debug overlay's PIXI Application (null — egui has no PIXI app). */
+  /** The debug overlay's application object (null — egui renders directly). */
   get app(): any { return null; }
 
   /** Start the debugger: init the egui crate + renderer + CDP session. */
@@ -173,7 +171,7 @@ export class NativeDebuggerHost {
       handle: this.handle,
       cdp: this.cdp,
       renderer: this.opts.renderer,
-      gamePixiUi: this.opts.gamePixiUi,
+      gameScene: this.opts.gameScene,
       profilingSAB: this.opts.profilingSAB ?? null,
     });
     this.mirror.start();

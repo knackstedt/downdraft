@@ -15,7 +15,7 @@
 export interface SabCanvasOverlayOptions {
   /** DOM id for the visible canvas. Default: "sab-canvas-overlay" */
   id?: string;
-  /** CSS z-index. Default: 55 (above pixi-ui at 50, below DOM overlay at 100) */
+  /** CSS z-index. Default: 55 (above the game surface, below DOM overlays) */
   zIndex?: number;
   /** Offscreen bitmap resolution. If omitted, no bitmap canvas is created. */
   bitmapWidth?: number;

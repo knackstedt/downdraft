@@ -264,9 +264,9 @@ export interface GameContext<Sim extends GameSimWorker = GameSimWorker> {
   /** The plugin host (if `module.plugins` was declared). Games can access
    *  plugin diagnostics via `pluginHost.snapshot()` and trigger reloads. */
   pluginHost?: PluginHost;
-  /** The UI handle created by `module.ui` (e.g. a PixiUiBridge). Set after
-   *  renderer init, before `onReady` runs — hooks can `ctx.ui?.host` (cast to
-   *  the concrete bridge type) to post events or wire subscriptions. */
+  /** The UI handle created by `module.ui`. Set after renderer init, before
+   *  `onReady` runs — hooks can `ctx.ui` to post events or wire
+   *  subscriptions. */
   ui?: GameUiHandle;
 }
 
@@ -353,9 +353,6 @@ export interface GameModule<Sim extends GameSimWorker = GameSimWorker> {
    * Declarative UI lifecycle. Called once with the game context; the returned
    * handle is started after renderer init (before `onReady`) and disposed on
    * hot-reload (before `onDispose`). The handle is exposed as `ctx.ui`.
-   *
-   * For PixiJS-worker UIs:
-   *   `ui: () => createPixiUiBridge({ statsLayout, sceneModuleUrl, getStats, onAction })`
    *
    * This coexists with `mountUI` (DOM overlay) — games can use either or both.
    */
@@ -874,7 +871,7 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
       }
 
       // ── Declarative UI lifecycle ──
-      // Create + start the UI handle (e.g. a PixiUiBridge) before onReady so
+      // Create + start the UI handle before onReady so
       // hooks can wire subscriptions against ctx.ui.
       if (module.ui) {
         try {

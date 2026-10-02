@@ -1,6 +1,6 @@
 # `@downdraft/engine`
 
-Downdraft engine core — ECS, WebGPU renderer, module/DI system, SharedArrayBuffer sim channels, sim worker host, plugin API, animation, particles, and imui.
+Downdraft engine core — ECS, WebGPU renderer, module/DI system, SharedArrayBuffer sim channels, sim worker host, plugin API, animation, and particles.
 
 ## Install
 

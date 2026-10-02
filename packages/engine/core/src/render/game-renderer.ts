@@ -476,7 +476,7 @@ export class GameRenderer implements CanvasResizeHandler {
       // can't help, the app is tearing down or opted out. A borrowed host
       // device can't be recovered in place either: the host's surface
       // configure and readback hook are bound to the dead device, and every
-      // other holder of it (bridge, PixiJS, devtools) would still point at
+      // other holder of it (bridge, devtools hosts) would still point at
       // the old handle. Restart instead.
       this.reloadForDeviceLoss();
       return;

@@ -1,5 +1,5 @@
 // ============================================================================
-// native-canvas2d.ts — Canvas2D with text rendering for IMUI
+// native-canvas2d.ts — software CanvasRenderingContext2D (text + shapes)
 //
 // Implements fillText using FreeType (when available) or a built-in 8x12
 // bitmap glyph atlas as fallback. The TextAtlasCache uses this to rasterize

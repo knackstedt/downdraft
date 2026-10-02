@@ -1,4 +1,4 @@
-import { describe, it, expect } from "bun:test";
+import { describe, expect, it } from "bun:test";
 
 // Re-implement the minimum needed to test linkifyMessage in isolation.
 // We import the real logger internals by reaching into the module's
@@ -11,8 +11,8 @@ import { createLogger } from "./logger.ts";
 describe("linkifyMessage — no nested OSC 8", () => {
     it("does not produce nested OSC 8 sequences for URLs containing file paths", () => {
         // Simulate a Vite dev stack-trace line that triggered the bug:
-        //   at createFallingSandScene (http://localhost:51748/src/pixi-scene.ts:298:13)
-        const msg = "    at createFallingSandScene (http://localhost:51748/src/pixi-scene.ts:298:13)";
+        //   at createFallingSandScene (http://localhost:51748/src/game-scene.ts:298:13)
+        const msg = "    at createFallingSandScene (http://localhost:51748/src/game-scene.ts:298:13)";
 
         // Capture stdout.write
         const origWrite = process.stdout.write.bind(process.stdout);
@@ -42,7 +42,7 @@ describe("linkifyMessage — no nested OSC 8", () => {
             .replace(/\x1b\[[0-9;]*m/g, "")
             .replace(/\x1b\][^\x07]*\x07/g, "");
         expect(visible).not.toContain("8;;");
-        expect(visible).toContain("pixi-scene.ts:298:13");
+        expect(visible).toContain("game-scene.ts:298:13");
     });
 
     it("linkifies a bare file path without nesting", () => {

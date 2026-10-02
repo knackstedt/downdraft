@@ -82,7 +82,6 @@ beforeAll(async () => {
   mirror = new WebDevtoolsMirror({
     server, cdp,
     renderer: null,
-    gamePixiUi: null,
     profilingSAB: null,
   });
   await server.start();

@@ -3,9 +3,9 @@
 //
 // The batteries-included counterpart to startGame() (renderer/browser): spins
 // up a native host (SDL window + wgpu-native device + DOM polyfills), creates
-// and initializes the game renderer, wires the FreeType text renderer into
-// the IMUI text atlas, and drives the render loop via the native window's
-// vsync-aligned requestAnimationFrame until the window closes.
+// and initializes the game renderer, and drives the render loop via the
+// native window's vsync-aligned requestAnimationFrame until the window
+// closes.
 //
 // Game-specific wiring (sim worker spawn, SAB plumbing, store setup, keybinds)
 // lives in the `onReady` hook. Most GameRenderer-based games only need:

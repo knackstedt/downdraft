@@ -1,7 +1,7 @@
 // ============================================================================
 // mini-xml.ts — minimal XML parser for runtimes without a real DOMParser.
 //
-// The native runtime's DOMParser is a Pixi stub that returns empty results.
+// The native runtime's DOMParser is a stub that returns empty results.
 // COLLADA (.dae) parsing needs a small DOM surface: getElementsByTagName,
 // getElementById, getAttribute, textContent, children, tagName. This parser
 // produces exactly that — it is not a general XML implementation (no

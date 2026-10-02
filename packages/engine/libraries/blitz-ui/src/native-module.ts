@@ -4,8 +4,8 @@
 // The native runtime can't attach winit-web + WebGL2 to a DOM canvas, so this
 // module drives the headless wasm build instead: DioxusDocument + vello_cpu
 // rasterize the UI into an RGBA8 buffer on ui_frame(), which is uploaded to
-// a GPUTexture and composited over the swapchain with UiBlitPass (the same
-// premultiplied-alpha blit pixi-ui-native uses).
+// a GPUTexture and composited over the swapchain with UiBlitPass (the
+// premultiplied-alpha blit pass in this library).
 //
 // Input, state, and action bridging are identical to the web build — the
 // window-level event polyfills feed the engine's InputManager → BlitzUiRouter

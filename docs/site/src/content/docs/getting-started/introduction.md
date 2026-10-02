@@ -30,7 +30,7 @@ DownDraft runs on **Linux, macOS, and Windows** via the native runtime (winit fo
 | Physics | Rapier3D (Rust FFI) |
 | Audio | Kira (Rust FFI) |
 | Database | SurrealDB (SurrealKV, embedded) |
-| UI | imui (immediate-mode WebGPU UI) + PixiJS |
+| UI | html-ui (Blitz HTML/CSS, worker-rasterized) |
 | AI | MCP (JSON-RPC) |
 
 ## License

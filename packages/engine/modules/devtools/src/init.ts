@@ -61,7 +61,7 @@ export interface InitDevToolsOptions {
   // --- Profiling ---
   /** Enable the profiling system (ProfilingSAB + ProfilingBridge + built-in views).
    *  When true, a ProfilingBridge is created and the ProfilingSAB is shared
-   *  with all workers + the pixi-ui overlay. Default: false. */
+   *  with all workers + the devtools host. Default: false. */
   profiling?: boolean | ProfilingBridgeOptions;
 }
 
