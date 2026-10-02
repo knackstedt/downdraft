@@ -16,30 +16,30 @@ import { pollLiveDevicesLost } from "../gpu/wgpu-device";
 import { wgpu } from "../gpu/wgpu-ffi";
 import { NativeSurface } from "./native-surface";
 import {
-  KMOD_ALT,
-  KMOD_CTRL,
-  KMOD_GUI,
-  KMOD_SHIFT,
-  sdl,
-  SDL_EVENT_DROP_FILE,
-  SDL_EVENT_FOCUS_GAINED,
-  SDL_EVENT_FOCUS_LOST,
-  SDL_EVENT_KEY_DOWN,
-  SDL_EVENT_KEY_UP,
-  SDL_EVENT_MOUSE_DOWN,
-  SDL_EVENT_MOUSE_MOVE,
-  SDL_EVENT_MOUSE_UP,
-  SDL_EVENT_MOVED,
-  SDL_EVENT_NONE,
-  SDL_EVENT_QUIT,
-  SDL_EVENT_RESIZE,
-  SDL_EVENT_RESUMED,
-  SDL_EVENT_SCALE_CHANGED,
-  SDL_EVENT_SUSPENDED,
-  SDL_EVENT_TEXT_INPUT,
-  SDL_EVENT_TOUCH,
-  SDL_EVENT_WHEEL,
-  sdlButtonsToDom
+    KMOD_ALT,
+    KMOD_CTRL,
+    KMOD_GUI,
+    KMOD_SHIFT,
+    sdl,
+    SDL_EVENT_DROP_FILE,
+    SDL_EVENT_FOCUS_GAINED,
+    SDL_EVENT_FOCUS_LOST,
+    SDL_EVENT_KEY_DOWN,
+    SDL_EVENT_KEY_UP,
+    SDL_EVENT_MOUSE_DOWN,
+    SDL_EVENT_MOUSE_MOVE,
+    SDL_EVENT_MOUSE_UP,
+    SDL_EVENT_MOVED,
+    SDL_EVENT_NONE,
+    SDL_EVENT_QUIT,
+    SDL_EVENT_RESIZE,
+    SDL_EVENT_RESUMED,
+    SDL_EVENT_SCALE_CHANGED,
+    SDL_EVENT_SUSPENDED,
+    SDL_EVENT_TEXT_INPUT,
+    SDL_EVENT_TOUCH,
+    SDL_EVENT_WHEEL,
+    sdlButtonsToDom
 } from "./sdl-ffi";
 
 const log = createLogger("info");
@@ -472,6 +472,12 @@ export class NativeWindow extends MiniEventTarget {
     this.dispatchInputEvent(mouseEvent);
   }
 
+  /** Physical-px → canvas coordinate space (backing-buffer px). Input
+   *  arrives in window physical px; UI hit-testing/compositing run in
+   *  buffer px, which differ when buffer < physical (Android dpr cap). */
+  private mapX(x: number): number { return this.surface ? this.surface.toBufferX(x) : x; }
+  private mapY(y: number): number { return this.surface ? this.surface.toBufferY(y) : y; }
+
   /** Apply the newest coalesced resize (see pendingResize). */
   private flushPendingResize(): void {
     const r = this.pendingResize;
@@ -577,8 +583,8 @@ export class NativeWindow extends MiniEventTarget {
       }
 
       case SDL_EVENT_MOUSE_MOVE: {
-        const x = eventView[0];
-        const y = eventView[1];
+        const x = this.mapX(eventView[0]);
+        const y = this.mapY(eventView[1]);
         const xrel = eventView[2];
         const yrel = eventView[3];
         const buttons = sdlButtonsToDom(eventView[4]);
@@ -611,8 +617,8 @@ export class NativeWindow extends MiniEventTarget {
       }
 
       case SDL_EVENT_MOUSE_DOWN: {
-        const x = eventView[0];
-        const y = eventView[1];
+        const x = this.mapX(eventView[0]);
+        const y = this.mapY(eventView[1]);
         const button = eventView[2];
         const buttons = sdlButtonsToDom(eventView[3]);
         const mod = eventView[4];
@@ -654,8 +660,8 @@ export class NativeWindow extends MiniEventTarget {
       }
 
       case SDL_EVENT_MOUSE_UP: {
-        const x = eventView[0];
-        const y = eventView[1];
+        const x = this.mapX(eventView[0]);
+        const y = this.mapY(eventView[1]);
         const button = eventView[2];
         const buttons = sdlButtonsToDom(eventView[3]);
         const mod = eventView[4];
@@ -725,8 +731,8 @@ export class NativeWindow extends MiniEventTarget {
           deltaX: floatView[0] * WHEEL_PIXELS_PER_DETENT,
           deltaY: -floatView[1] * WHEEL_PIXELS_PER_DETENT,
           deltaMode: 0, // DOM_DELTA_PIXEL
-          clientX: eventView[3], // mouse_x/mouse_y in slots 3/4 (native-rs/src/window/events.rs)
-          clientY: eventView[4],
+          clientX: this.mapX(eventView[3]), // mouse_x/mouse_y in slots 3/4 (native-rs/src/window/events.rs)
+          clientY: this.mapY(eventView[4]),
           ...this.modifiers(mod),
           preventDefault: () => {},
           stopPropagation: () => {},
@@ -749,8 +755,8 @@ export class NativeWindow extends MiniEventTarget {
       case SDL_EVENT_TOUCH: {
         // Wire slots: [phase, x, y, id] — phase 0=down 1=move 2=up 3=cancel.
         const phase = eventView[0];
-        const x = eventView[1];
-        const y = eventView[2];
+        const x = this.mapX(eventView[1]);
+        const y = this.mapY(eventView[2]);
         const id = eventView[3];
         const type = phase === 0 ? "pointerdown"
           : phase === 1 ? "pointermove"

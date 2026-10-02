@@ -323,6 +323,13 @@ export class NativeSurface extends MiniEventTarget {
    *  the swapchain shrinks/grows every frame when scaleFactor ≠ dpr. */
   private _cssWidth: number;
   private _cssHeight: number;
+  /** Physical window px extent — input events (winit Touch/CursorMoved are
+   *  PhysicalPosition) arrive in this space. Engine UI consumers (html-ui
+   *  rects, compositor blits, hit tests) work in backing-buffer px, which
+   *  diverges when the app's dpr cap sits below the display scaleFactor
+   *  (Android: buffer 2635 vs window 2800 — a ~6% pointer offset). */
+  private _physWidth: number;
+  private _physHeight: number;
   private context: NativeCanvasContext | null = null;
   private surfacePtr: ptr;
   private _pointerLocked = false;
@@ -337,6 +344,8 @@ export class NativeSurface extends MiniEventTarget {
     super();
     this._width = width;
     this._height = height;
+    this._physWidth = width;
+    this._physHeight = height;
     this.surfacePtr = surfacePtr;
     this.scaleFactor = scaleFactor;
     this._cssWidth = width / this.cssScale;
@@ -404,6 +413,8 @@ export class NativeSurface extends MiniEventTarget {
 
   resize(width: number, height: number): void {
     // Real window-extent change (physical px) — refresh the logical size.
+    this._physWidth = width;
+    this._physHeight = height;
     this._cssWidth = width / this.cssScale;
     this._cssHeight = height / this.cssScale;
     if (!this.setSize(width, height)) return;
@@ -423,6 +434,11 @@ export class NativeSurface extends MiniEventTarget {
   }
 
   getSurfacePtr(): ptr { return this.surfacePtr; }
+
+  /** Map a physical-window-px pointer coordinate into this canvas's
+   *  coordinate space (backing-buffer px). */
+  toBufferX(x: number): number { return x * (this._width / Math.max(1, this._physWidth)); }
+  toBufferY(y: number): number { return y * (this._height / Math.max(1, this._physHeight)); }
 
   /** Swap the native surface backing this canvas — Android resume recreates
    *  the wgpu surface after suspend destroyed it. The renderer-visible canvas
