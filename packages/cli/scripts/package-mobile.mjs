@@ -51,10 +51,13 @@ const doInstall = argv.includes("--install") || argv.includes("--launch");
 const doLaunch = argv.includes("--launch");
 const retainMcp = argv.includes("--mcp");
 const minSdk = flagValue("min-sdk") ?? "30";
+// --env KEY=VALUE (repeatable) → dd-env.txt in the bundle; the shell
+// setenv()s each before node::Start so process.env sees them.
+const envPairs = argv.filter((a) => a.startsWith("--env=")).map((a) => a.slice(6));
 const positional = argv.filter((a) => !a.startsWith("--"));
 const [entry, outfileArg] = positional;
 if (!entry || !outfileArg) {
-  console.error("usage: bun package-mobile.mjs [--abi=...] [--mode=...] [--app-id=...] [--app-name=...] [--version=...] [--install|--launch] [--mcp] <entry.ts> <out.apk>");
+  console.error("usage: bun package-mobile.mjs [--abi=...] [--mode=...] [--app-id=...] [--app-name=...] [--version=...] [--env KEY=VAL]... [--install|--launch] [--mcp] <entry.ts> <out.apk>");
   process.exit(1);
 }
 
@@ -491,6 +494,29 @@ async function fetchKoffiPrebuild(pkgName, ver) {
   }
 }
 
+// Follow relative imports inside staged script assets — execArgv loader
+// files (wgsl-loader.mjs, worker-bootstrap.mjs) are staged raw, not
+// bundled, so their own module deps never enter the graph otherwise.
+{
+  const ASSET_IMPORT_RE = /(?:from|import|register)\s*\(?\s*(["'`])(\.[^"'`]+)\1/g;
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const f of [...assetFiles]) {
+      if (!/\.(mjs|cjs|js)$/.test(f)) continue;
+      let src;
+      try { src = readFileSync(f, "utf-8"); } catch { continue; }
+      for (const m of src.matchAll(ASSET_IMPORT_RE)) {
+        const p = resolve(dirname(f), m[2]);
+        if (existsSync(p) && statSync(p).isFile() && !assetFiles.has(p)) {
+          assetFiles.add(p);
+          grew = true;
+        }
+      }
+    }
+  }
+}
+
 // ── dd-assets staging ──
 
 const assetRoot = join(bundleDir, "dd-assets");
@@ -500,6 +526,17 @@ for (const f of assetFiles.values()) {
   mkdirSync(dirname(dest), { recursive: true });
   copyFileSync(f, dest);
   stagedAssets++;
+}
+
+// dd-env.txt — optional process env for the JS thread (debug probes like
+// DD_BENCH_TEST; Android has no launch-env channel).
+if (envPairs.length) {
+  for (const p of envPairs) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*=/.test(p)) {
+      throw new Error(`--env "${p}" must be KEY=VALUE (KEY: [A-Za-z_][A-Za-z0-9_]*)`);
+    }
+  }
+  writeFileSync(join(bundleDir, "dd-env.txt"), envPairs.join("\n") + "\n");
 }
 
 // manifest.txt — the shell's extractor follows this verbatim (AAssetDir

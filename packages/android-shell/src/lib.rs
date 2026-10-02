@@ -131,6 +131,17 @@ fn js_thread(app: AndroidApp) {
     set_env(c"DOWNDRAFT_DATA_DIR", &data);
     set_env(c"DOWNDRAFT_BUNDLE_DIR", &root);
 
+    // Packager-injected env (dd-env.txt — "KEY=VALUE" lines, e.g. the
+    // bench's DD_BENCH_TEST/DD_BENCH_SCREENSHOT probes).
+    if let Ok(body) = std::fs::read_to_string(root.join("dd-env.txt")) {
+        for line in body.lines() {
+            let Some((k, v)) = line.split_once('=') else { continue };
+            if let (Ok(k), Ok(v)) = (CString::new(k), CString::new(v)) {
+                unsafe { libc::setenv(k.as_ptr(), v.as_ptr(), 1) };
+            }
+        }
+    }
+
     // Native addons (.node) resolve napi_* symbols from the namespace's
     // reloc-time global group — they carry no DT_NEEDED libnode.so. On
     // bionic that group consists ONLY of libraries whose own DT_FLAGS_1
@@ -210,6 +221,12 @@ fn prepare_bundle(app: &AndroidApp) -> std::io::Result<PathBuf> {
         .internal_data_path()
         .ok_or_else(|| std::io::Error::other("internal_data_path unavailable"))?
         .join(BUNDLE_ASSET_DIR);
+    // Wipe first — extraction mirrors the manifest but never prunes, so
+    // removed files (e.g. a previous build's dd-env.txt) would linger and
+    // leak env vars / stale modules across reinstalls.
+    if dest_root.exists() {
+        std::fs::remove_dir_all(&dest_root)?;
+    }
     extract_dir(&mgr, &dest_root)?;
     Ok(dest_root)
 }
