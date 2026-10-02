@@ -236,14 +236,23 @@ export class FrameGraph {
   private physicalTextures: PhysicalTexture[] = [];
   private aliasing: Map<string, string> = new Map(); // resource name -> physical texture name
   private slotRegistry = new SlotRegistry();
+  /** Imported (external) resources dedupe by name so "color"/"depth" are
+   *  well-known handles shared between the renderer and game passes. */
+  private importedByName: Map<string, TextureHandle> = new Map();
 
   importTexture(name: string, texture?: GPUTexture | null): TextureHandle {
+    const existing = this.importedByName.get(name);
+    if (existing) {
+      if (texture) this.setImportedTexture(existing, texture);
+      return existing;
+    }
     const handle = new TextureHandle(this.nextHandleId++, name);
     this.resources.set(handle.id, {
       name,
       texture: texture ?? null,
       external: true,
     });
+    this.importedByName.set(name, handle);
     return handle;
   }
 
@@ -260,6 +269,11 @@ export class FrameGraph {
 
   /** Import an externally-created view directly (e.g. XR offscreen color view). */
   importTextureView(name: string, view: GPUTextureView | null): TextureHandle {
+    const existing = this.importedByName.get(name);
+    if (existing) {
+      if (view) this.setImportedTextureView(existing, view);
+      return existing;
+    }
     const handle = new TextureHandle(this.nextHandleId++, name);
     this.resources.set(handle.id, {
       name,
@@ -267,6 +281,7 @@ export class FrameGraph {
       externalView: view,
       external: true,
     });
+    this.importedByName.set(name, handle);
     return handle;
   }
 

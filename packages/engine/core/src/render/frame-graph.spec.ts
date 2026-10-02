@@ -63,6 +63,41 @@ describe("FrameGraph", () => {
       expect(h2.id).toBe(1);
       expect(h3.id).toBe(2);
     });
+
+    it("should dedupe imported views by name", () => {
+      const fg = new FrameGraph();
+      const view1 = {} as GPUTextureView;
+      const view2 = {} as GPUTextureView;
+
+      const h1 = fg.importTextureView("color", view1);
+      const h2 = fg.importTextureView("color", null); // late caller, no view yet
+      const h3 = fg.importTextureView("depth", null);
+
+      expect(h2).toBe(h1);
+      expect(h3.id).not.toBe(h1.id);
+      expect(fg.getTextureView(h1)).toBe(view1);
+
+      // A later import with a real view updates the shared handle.
+      const h4 = fg.importTextureView("color", view2);
+      expect(h4).toBe(h1);
+      expect(fg.getTextureView(h1)).toBe(view2);
+    });
+
+    it("should dedupe imported textures by name and update the backing", () => {
+      const fg = new FrameGraph();
+      const view1 = {} as GPUTextureView;
+      const view2 = {} as GPUTextureView;
+      const tex1 = { createView: () => view1 } as unknown as GPUTexture;
+      const tex2 = { createView: () => view2 } as unknown as GPUTexture;
+
+      const h1 = fg.importTexture("surface", tex1);
+      expect(fg.getTextureView(h1)).toBe(view1);
+      const h2 = fg.importTexture("surface", tex2);
+
+      expect(h2).toBe(h1);
+      // New backing texture replaces the old — cached view invalidated.
+      expect(fg.getTextureView(h1)).toBe(view2);
+    });
   });
 
   describe("FrameGraphBuilder", () => {

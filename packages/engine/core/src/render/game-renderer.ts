@@ -754,6 +754,11 @@ export class GameRenderer implements CanvasResizeHandler {
     this.rafPending = false;
   }
 
+  /** True while the render loop is started (frames are being scheduled). */
+  isRunning(): boolean {
+    return this.running;
+  }
+
   /** Render a single frame on demand — deterministic/test mode and native
    *  screenshot capture call this while the loop is stopped. Bypasses the
    *  frame limiter; safe to call with the loop running or stopped. */

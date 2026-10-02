@@ -198,4 +198,20 @@ describe("GameRenderer — one-shot rendering", () => {
       restore();
     }
   });
+
+  it("isRunning reflects start/stop state", () => {
+    const { pending, restore } = stubRaf();
+    try {
+      const renderer = new GameRenderer(createMockCanvas());
+      expect(renderer.isRunning()).toBe(false);
+      renderer.start();
+      expect(renderer.isRunning()).toBe(true);
+      expect(pending.size).toBe(1);
+      renderer.stop();
+      expect(renderer.isRunning()).toBe(false);
+      expect(pending.size).toBe(0);
+    } finally {
+      restore();
+    }
+  });
 });
