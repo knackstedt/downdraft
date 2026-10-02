@@ -63,10 +63,8 @@ export { bindDebugStore } from "./bind-debug-store";
 export type { DebugStoreBindings } from "./bind-debug-store";
 export { ProfilingBridge } from "./profiling-bridge";
 export type { ProfilingBridgeOptions, ProfilingBridgeSnapshot } from "./profiling-bridge";
-export { attachProfilerOverlay, wireProfilingBridge } from "./profiling-hooks";
+export { wireProfilingBridge } from "./profiling-hooks";
 export type {
-    ProfilerOverlayHandle,
-    ProfilerOverlayOptions,
     ProfilingLoopCallbacks,
     ProfilingWireHost,
     ProfilingWireRenderer,

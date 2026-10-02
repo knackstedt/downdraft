@@ -18,8 +18,7 @@
     "gen:deno-import-map": "node scripts/gen-deno-import-map.mjs",
     "gen:engine-exports": "node scripts/gen-engine-exports.mjs",
     "link:games": "node scripts/link-games.mjs",
-    "lint": "oxlint",
-    "postinstall": "node scripts/patch-pixi.mjs"
+    "lint": "oxlint"
   },
   "workspaces": [
     "packages/engine",
@@ -59,8 +58,6 @@
     "fake-indexeddb": "^6.2.5",
     "happy-dom": "^20.11.2",
     "oxlint": "^1.4.0",
-    "patch-package": "^8.0.1",
-    "pixi.js": "8.18.0",
     "playwright-core": "^1.63.0",
     "pngjs": "^7.0.0",
     "tsx": "^4.23.0",

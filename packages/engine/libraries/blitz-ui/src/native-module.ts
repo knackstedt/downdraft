@@ -19,12 +19,12 @@
 // ============================================================================
 
 import { UIInputRouter, type RendererModule, type UIRoot } from "@downdraft/engine";
-import { UiBlitPass } from "@downdraft/engine/libraries/pixi-ui-native";
 import { createLogger } from "@downdraft/engine/util/logger";
 import { captureScreenshot } from "@downdraft/platform-native";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { BlitzUiRouter, type BlitzWasmInput } from "./router";
+import { UiBlitPass } from "./ui-blit-pass";
 
 const log = createLogger("info");
 

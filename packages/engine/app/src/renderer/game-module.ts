@@ -188,8 +188,8 @@ export function serializeRestorePayload(
 /**
  * A framework-managed UI handle. Returned by `GameModule.ui` — startGame()
  * calls `start()` after renderer init (before `onReady`) and `dispose()` on
- * hot-reload. `createPixiUiBridge()` from @downdraft/engine/libraries/pixi-ui returns
- * a compatible handle; DOM-UI games can return any { start, dispose } object.
+ * hot-reload. Any { start, dispose } object is compatible (html-ui hosts,
+ * DOM-UI mounts, custom overlays).
  */
 export interface GameUiHandle {
   /** Start the UI (spawn workers, mount overlays). Called after renderer init. */
@@ -773,8 +773,8 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
     onRendererInit: async (r) => {
       // ── Library renderer setup ──
       // Early renderer-only library setup (hosts, workers — no GPU needed).
-      // Runs before the GPU device is available so libraries like
-      // @downdraft/engine/libraries/pixi-ui can construct their host + provide DI tokens.
+      // Runs before the GPU device is available so libraries can construct
+      // their host + provide DI tokens.
       if (libHost && r) {
         const device = r.getDevice?.();
         const format = r.getFormat?.();

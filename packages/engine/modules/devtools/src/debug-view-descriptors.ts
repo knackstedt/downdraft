@@ -1,10 +1,9 @@
 // ============================================================================
 // Debug View Descriptors — declarative registration of in-game profiler views.
 //
-// The profiler overlay (ProfilerScene in @downdraft/engine/libraries/profiler) reads
-// these descriptors to know which views to render. The devtools module
-// registers the 10 built-in views; games can register custom views via
-// devtools.registerView().
+// Profiling surfaces read these descriptors to know which views to render.
+// The devtools module registers the 10 built-in views; games can register
+// custom views via devtools.registerView().
 //
 // View kinds:
 //   memory, cpu, task-latency, iops-opfs, iops-idb, event-loop,

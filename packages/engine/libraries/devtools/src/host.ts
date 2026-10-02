@@ -67,7 +67,7 @@ function loadUiBlitPass(): Promise<void> {
   if (nativeHostLoading) return nativeHostLoading;
   nativeHostLoading = (async () => {
     try {
-      const modulePath = "@downdraft/engine/libraries/pixi-ui-native";
+      const modulePath = "@downdraft/engine/libraries/blitz-ui";
       const mod: any = await import(/* @vite-ignore */ modulePath);
       UiBlitPassCtor = mod.UiBlitPass;
     } catch {

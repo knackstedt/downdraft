@@ -104,19 +104,10 @@
     "./libraries/physics-rapier": "./libraries/physics-rapier/src/index.ts",
     "./libraries/physics-rapier/*": "./libraries/physics-rapier/src/*.ts",
     "./libraries/physics-rapier/*.ts": "./libraries/physics-rapier/src/*.ts",
-    "./libraries/pixi-ui": "./libraries/pixi-ui/src/index.ts",
-    "./libraries/pixi-ui/*": "./libraries/pixi-ui/src/*.ts",
-    "./libraries/pixi-ui/*.ts": "./libraries/pixi-ui/src/*.ts",
-    "./libraries/pixi-ui-native": "./libraries/pixi-ui-native/src/index.ts",
-    "./libraries/pixi-ui-native/*": "./libraries/pixi-ui-native/src/*.ts",
-    "./libraries/pixi-ui-native/*.ts": "./libraries/pixi-ui-native/src/*.ts",
     "./libraries/postfx": "./libraries/postfx/src/index.ts",
     "./libraries/postfx/*": "./libraries/postfx/src/*.ts",
     "./libraries/postfx/*.ts": "./libraries/postfx/src/*.ts",
     "./libraries/postfx/*.wgsl": "./libraries/postfx/src/*.wgsl",
-    "./libraries/profiler": "./libraries/profiler/src/index.ts",
-    "./libraries/profiler/*": "./libraries/profiler/src/*.ts",
-    "./libraries/profiler/*.ts": "./libraries/profiler/src/*.ts",
     "./libraries/recast": "./libraries/recast/src/index.ts",
     "./libraries/recast/*": "./libraries/recast/src/*.ts",
     "./libraries/recast/*.ts": "./libraries/recast/src/*.ts",
@@ -198,7 +189,6 @@
     "ktx2-encoder": "^0.6.0",
     "lucide-react": "^0.468.0",
     "meshoptimizer": "^1.2.0",
-    "pixi.js": "8.18.0",
     "quickjs-emscripten": "^0.32.0",
     "wgpu-matrix": "^3.4.2",
     "xxh3-ts": "^2.0.1",
@@ -207,15 +197,11 @@
   },
   "peerDependencies": {
     "@downdraft/platform-native": "^0.1.0",
-    "@pixi/react": "^8.0.5",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "peerDependenciesMeta": {
     "@downdraft/platform-native": {
-      "optional": true
-    },
-    "@pixi/react": {
       "optional": true
     },
     "react": {

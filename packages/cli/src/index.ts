@@ -102,14 +102,6 @@ async function main() {
       case "plugin":
         await pluginCommand(process.argv.slice(3));
         break;
-      case "patch-pixi": {
-        // Applies node_modules/pixi.js patches relative to the cwd — games
-        // call this from their `postinstall` script.
-        const { spawnSync } = await import("node:child_process");
-        const script = resolve(import.meta.dir, "../scripts/patch-pixi.mjs");
-        const r = spawnSync(process.execPath, [script], { stdio: "inherit" });
-        process.exit(r.status ?? 1);
-      }
       case "mod":
         // `dd mod` is an alias for `dd plugin` but defaults to mod.json format.
         await pluginCommand(["--mod", ...process.argv.slice(3)]);

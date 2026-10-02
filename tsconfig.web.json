@@ -191,11 +191,6 @@
   "exclude": [
     "dist",
     "games/*/src/native-entry.ts",
-    "games/*/src/pixi/native-data-bridge.ts",
-    "games/*/src/pixi/native-input-router.ts",
-    "games/*/src/pixi/native-scene.tsx",
-    "games/*/src/pixi/native-ui-setup.ts",
-    "packages/engine/libraries/pixi-ui-native/src/**/*",
     "packages/engine/libraries/blitz-ui/src/native-module.ts",
     "packages/platform-native/src/**/*"
   ]

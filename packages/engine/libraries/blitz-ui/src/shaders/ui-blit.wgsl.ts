@@ -1,7 +1,6 @@
-// UI blit shader — fullscreen triangle that samples the PixiJS UI texture
-// and alpha-blends it over the game frame. The UI texture is premultiplied
-// alpha (PixiJS configures alphaMode: "premultiplied"), so the blend is
-// src*1 + dst*(1-srcAlpha).
+// UI blit shader — fullscreen triangle that samples a UI texture and
+// alpha-blends it over the game frame. The UI texture is premultiplied
+// alpha, so the blend is src*1 + dst*(1-srcAlpha).
 
 const FULLSCREEN_VS = `
 struct VertexOutput {
@@ -17,7 +16,7 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VertexOutput {
   );
   var o: VertexOutput;
   o.clipPos = vec4(p[vi], 0.0, 1.0);
-  // Flip Y so the UI texture (rendered top-down by PixiJS) maps upright.
+  // Flip Y so the UI texture (rendered top-down) maps upright.
   o.uv = vec2(p[vi].x * 0.5 + 0.5, 0.5 - p[vi].y * 0.5);
   return o;
 }

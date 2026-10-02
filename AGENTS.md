@@ -24,7 +24,7 @@ The engine is a **single npm package**, `@downdraft/engine` (manifest at `packag
 
 Architecturally the engine is split into **core + libraries** (standard engine building blocks, used directly by games) vs **modules** (opt-in game features with lifecycle + typed DI + diagnostics). Core also includes animation, particles, and the legacy `imui` subsystem directly (superseded for game UI by `modules/html-ui` — see "UI direction" below).
 
-- **Engine libraries** (imported as `@downdraft/engine/libraries/<name>`, located in `packages/engine/libraries/`): directories that export classes/functions without a module lifecycle. Games can either import and wire these directly, or declare them via `EngineLibrary` descriptors in `GameModule.libraries[]` for auto-wiring (SAB allocation, sim system creation, renderer pass creation, typed DI tokens). Engine libraries: asset-browser, audio-kira, blitz-ui, character, devtools, entities, gamepad, gaussian-splats, html-ui-kit, lighting, marching-cubes, models, navmesh, networking, pathfinding-2d, persistence, physics-native, physics-rapier, pixi-ui (legacy), pixi-ui-native (legacy), postfx, profiler, recast, sand, stickman, surface-nets, water, weather, weatherfx.
+- **Engine libraries** (imported as `@downdraft/engine/libraries/<name>`, located in `packages/engine/libraries/`): directories that export classes/functions without a module lifecycle. Games can either import and wire these directly, or declare them via `EngineLibrary` descriptors in `GameModule.libraries[]` for auto-wiring (SAB allocation, sim system creation, renderer pass creation, typed DI tokens). Engine libraries: asset-browser, audio-kira, blitz-ui, character, devtools, entities, gamepad, gaussian-splats, html-ui-kit, lighting, marching-cubes, models, navmesh, networking, pathfinding-2d, persistence, physics-native, physics-rapier, postfx, recast, sand, stickman, surface-nets, water, weather, weatherfx.
 - **Engine modules** (imported as `@downdraft/engine/modules/<name>`, located in `packages/engine/modules/`): directories that implement the `Module` or `RendererModule` interface with a `register()` lifecycle + typed DI. Engine modules: camera-controls, controller-ui, devtools, html-ui, mcp, movement-2d, movement-3d, native-osr, sailing, terrain, vitals, xr.
 - **Game modules** (namespace `@to-the-ocean/module-*`, located in `games/<game>/modules/`): game-specific features with a module lifecycle. Game modules: crafting, inventory, buoyancy, collision, wildlife.
 - **Game libraries** (namespace `@to-the-ocean/library-*`, located in `games/<game>/libraries/`): game-specific pure libraries without a module lifecycle. Game libraries: boats, economy, fishing, items, survival.
@@ -155,22 +155,7 @@ Before writing per-game infrastructure, check whether the engine already provide
 | Sand simulation | `SandWorld`, `SandStepPool`, `SandLib`, palette/materials | `@downdraft/engine/libraries/sand` |
 | Game UI | `createHtmlUi({ build })` renderer module over `modules/html-ui` (Blitz HTML/CSS docs rasterized in a UI worker, composited as panel quads) — **canonical game-UI system** | `@downdraft/engine/modules/html-ui` |
 
-**UI direction:** the framework bakeoff (`test-beds/ui-bakeoff` — imui vs pixi vs Blitz stacks) settled on **Blitz** for game UI. `modules/html-ui` (worker-backed Blitz HTML/CSS documents with a JSX authoring layer) is the forward direction; native devtools/OSR panels are already Blitz-backed. `core/imui` and `libraries/pixi-ui`/`pixi-ui-native` are **legacy** — do not add new UI to either stack; new games and all new UI work target html-ui.
-
-**Ports still owed.** Most games have NOT been ported to html-ui yet:
-
-| Game | Current UI stack | Port status |
-|---|---|---|
-| `falling-sand` | `core/imui` (`createGameUi`) | needs port to html-ui |
-| `sandjongg` | `core/imui` (`createGameUi`) | needs port to html-ui |
-| `overburden` | `pixi-ui-native` (`@pixi/react`, ~11 components) | needs port |
-| `to-the-ocean` | `pixi-ui-native` (`@pixi/react`, ~17 components) | needs port |
-| `mining-rpg` | `pixi-ui-native` (`@pixi/react`, ~24 components) | needs port |
-| `andrews-sandbox` | `pixi-ui-native` | needs port |
-| `downdraft-model-viewer` | `modules/html-ui` | done — reference port |
-| `downdraft-gpu-bench` | `modules/html-ui` (nav bench test) | partial |
-
-> Until those ports land, `core/imui`, `pixi-ui`, and `pixi-ui-native` must NOT be deleted — they are still load-bearing for the games above (and `libraries/profiler` renders its overlay as a pixi-ui scene).
+**UI direction:** the framework bakeoff (`test-beds/ui-bakeoff` — Blitz vs Canvas2D vs imui stacks) settled on **Blitz** for game UI. `modules/html-ui` (worker-backed Blitz HTML/CSS documents with a JSX authoring layer) is the canonical game-UI system; native devtools/OSR panels are already Blitz-backed. All games render their game UI through html-ui. The pixi stack (`libraries/pixi-ui`, `libraries/pixi-ui-native`, `libraries/profiler`, the pixi asset-browser scene, `examples/pixi-ui-demo`) has been **deleted** — `UiBlitPass` (the generic UI-texture compositor) moved to `libraries/blitz-ui`. `core/imui` remains only for engine-internal plumbing (`GameRenderer`'s overlay pass + `UIInputRouter` input gating + `core/telemetry` debug overlay) and is being decommissioned — do not add new UI to it; new games and all new UI work target html-ui.
 
 **Game UI pattern:** a game mounts its UI as a renderer module. Each panel is a Blitz HTML/CSS document rasterized in a dedicated UI worker (layout + vello raster off the main thread); the host owns per-panel WebGPU textures with dirty-rect partial uploads, composited at the end of `GameRenderer`'s frame. Input routes through the input bus — rect/z-ordered panels, `:hover`/`:active`/DOM focus inside the doc, keyboard claimed only while an editable element holds focus. Controller/keyboard spatial navigation (focus zones, on-screen keyboard, virtual cursor) is auto-wired from `html-ui-kit` + `GamepadLib` unless `nav: false`.
 
@@ -205,7 +190,7 @@ html-ui files:
 - `packages/engine/libraries/blitz-ui/` — native Blitz/vello cdylib FFI (`native-osr-ffi`, OSR frame channel).
 - `test-beds/ui-bakeoff/` — the framework comparison bench that produced this decision.
 
-The legacy imui pattern (`createGameUi` over `core/imui`) still applies to `falling-sand`/`sandjongg` until their ports land — see `core/src/imui` widgets (`UIPanel`/`UIText`/`UIButton`/`UIToggle`/`UISlider`/`UITabBar`/`UIModal`/`UIScrollPanel`/`UITextInput`/`UIProgressBar`/`UIToastStack`) and `game-ui.ts`.
+The legacy imui pattern (`createGameUi` over `core/imui`) is no longer used by any game — the remaining `core/imui` usage is engine-internal (GameRenderer overlay pass, `UIInputRouter`, telemetry overlays) pending decommission.
 
 ## RenderSurface and overlay layering
 
@@ -217,136 +202,6 @@ On the native runtime there is no DOM or HTML document. The single render target
 - `ctx.surface` / `GameRenderer.getSurface()` are the canonical accessors. `getCanvas()` / `getOverlay()` / `elementFromPoint` live in `renderer/compat/dom.ts` as deprecated DOM-host compatibility shims — they hard-fail on native (`hasDom()` is `false`).
 - The DOM-overlay `mountUI` hook is skipped on native; game UI uses `modules/html-ui` (Blitz — see the shared-APIs table above).
 - Multiple render areas (minimap, picture-in-picture) are implemented as additional OSR surfaces or viewport regions, not stacked canvases.
-
-## PixiJS UI overlay library (`@downdraft/engine/libraries/pixi-ui`)
-
-> **Legacy — still deployed.** pixi-ui/pixi-ui-native still render the entire UI for `overburden`, `to-the-ocean`, `mining-rpg`, and `andrews-sandbox`, and `libraries/profiler` draws its overlay as a pixi-ui scene. Do not extend this stack for new game UI — target `modules/html-ui` — but do not delete it until those ports land. This section is kept as the reference for the deployed games.
-
-A worker-hosted PixiJS UI overlay: the library spawns a Web Worker that renders a GUI onto an `OffscreenCanvas` (via `transferControlToOffscreen`) stacked above the main game canvas. Games feed per-frame scalars via a `SharedArrayBuffer` (UiStatsSAB) and event-driven data via `postMessage`. The overlay canvas is `pointer-events: none` by default (game keeps all input); when the worker signals interactive/modal UI, the host flips the canvas to `pointer-events: auto` and forwards pointer events to the worker for PixiJS hit-testing.
-
-> **DOM-only library:** this section describes the browser/DOM host path. On the native runtime, `libraries/pixi-ui` resolves its target via `getSurface()` and the DOM queries below are skipped (`hasDom()` is false). The native equivalent is `libraries/pixi-ui-native` (see below); new game UI should target `modules/html-ui` (Blitz) instead.
-
-### Architecture
-
-- **Canvas layering (DOM hosts)**: the overlay canvas is `data-dd-layer="1"` (z-index 50, above the game canvas at z 0, below the DOM overlay at z 100). The host acquires an existing canvas with `data-dd-layer="1"` or creates one if absent. `PixiUiHost.start()` sets inline styles (`position: fixed; z-index: 50`) on the overlay canvas AND `position: fixed; z-index: 0` on the game canvas (layer 0) to ensure correct stacking even if the game doesn't import `downdraft-base.css`. DOM-hosted games must `@import "@downdraft/engine/app/renderer/downdraft-base.css"` in their globals.css for the full stacking rules (pointer-events, image-rendering, DOM overlay z-index 100). The `#root` div MUST have `background: transparent` so it doesn't cover the pixi-ui canvas. On native the game canvas resolves through `getSurface()` instead of the `data-dd-layer` query.
-- **Worker lifecycle**: `PixiUiHost.start()` → `transferControlToOffscreen()` → spawn worker → send init message (OffscreenCanvas + UiStatsSAB + config, all transferable). Worker creates `PIXI.Application` on the OffscreenCanvas, dynamically imports the game's scene module, and runs a ticker loop.
-- **Worker message handler**: The worker uses `self.addEventListener("message", ...)` instead of `self.onmessage = ...` because PixiJS's internal worker code (e.g. `loadImageBitmap` worker) overwrites `self.onmessage` during `Application.init()`. `addEventListener` handlers cannot be overwritten by assignment, so the message handler survives PixiJS init. The worker also removes the Application's auto-render callback from the ticker and handles `app.render()` in its own `tick()` function with try/catch — if `app.render()` throws (e.g. WebGL context issues on OffscreenCanvas), the uncaught error would stop the PixiJS ticker and make the worker unresponsive.
-- **Worker EventSystem + document stub**: PixiJS v8's EventSystem is not loaded by default in the worker because `pixi.js/events` (the side-effect import that registers it as a renderer extension) is not imported. The worker explicitly imports `pixi.js/events` to register the EventSystem so `app.renderer.events` is available for pointer hit-testing. However, the EventSystem's `_addEvents()` method registers DOM event listeners on `globalThis.document` and `globalThis` — neither exists in a Web Worker. The worker stubs `globalThis.document` with no-op `addEventListener`/`removeEventListener`/`dispatchEvent`, `createElement('canvas')` returning an `OffscreenCanvas` (for PixiJS text rasterization), and `body.contains()` returning `true` (for `isRenderingToScreen()`). Pointer events are dispatched manually via `eventSystem._onPointerDown(syntheticEvent)` etc. (underscore-prefixed methods, not `onPointerDown`). The synthetic event must include `type`, `target`, `composedPath`, `cancelable`, `isPrimary`, `width`, `height`, `tiltX`, `tiltY`, `pressure`, `twist`, `tangentialPressure` — `_bootstrapEvent` reads these and `_onPointerUp` checks `target === domElement` to determine if the pointerup is "inside" (enabling click).
-- **Data model**: `UiStatsSAB` (fixed-layout `SharedArrayBuffer` with a 16-byte header + float32 slots) for high-frequency per-frame scalars (health, fps, positions). `postMessage` for event-driven/structured data (inventory, menu toggles, notifications). Games call `host.writeStats({...})` from their game loop and `host.postEvent({...})` for events.
-- **Input model**: worker calls `ctx.setInteractive(true/false)` → host toggles `canvas.style.pointerEvents` + forwards pointer events to worker for PixiJS `eventMode` hit-testing. Modal UI (menus, buttons) flips interactive on; display-only HUDs keep it off.
-- **Renderer backend**: WebGL2 by default. Games override via `backend: "webgl2" | "webgpu" | "auto"`. WebGL2 is most reliable for a 2D UI overlay (avoids dual-WebGPU-device concerns with the main game canvas).
-- **`@pixi/react` adapter**: optional `@downdraft/engine/libraries/pixi-ui/react` module for declarative React components rendering to PixiJS. Games add `@pixi/react` + `react` to their deps and `@vitejs/plugin-react` to `workerPlugins` in their vite config. The core library does NOT depend on React. The adapter calls `extend()` to register PIXI components (Container, Graphics, Text, Sprite, etc.) in the `@pixi/react` catalogue (v8 requires explicit registration). It also patches the React fiber's `containerInfo` to point to the worker's existing PIXI.Application stage (createRoot creates a throwaway Application internally; without patching, React renders into the wrong stage and nothing appears). Components use the lowercase `<pixiContainer>`, `<pixiText>`, `<pixiGraphics>` convention (v8's `parseComponentType` converts `pixiX` → `X`). Event props use React naming: `onPointerDown`, `onPointerUp`, etc. (the adapter maps them to PixiJS event names).
-
-### Declarative usage (via `GameModule.libraries[]`)
-
-```ts
-import { PixiUiLib, PixiUiHostTok } from "@downdraft/engine/libraries/pixi-ui";
-
-startGame({
-  libraries: [[PixiUiLib, {
-    backend: "webgl2",
-    sceneModuleUrl: new URL("./pixi-scene.ts", import.meta.url).href,
-  }]],
-  // ...
-  onReady: async (ctx) => {
-    const host = ctx.libraryHost!.injectResource(PixiUiHostTok);
-    await host.start(); // transfer canvas + spawn worker
-    host.onAction = (action) => { /* handle pause/resume/save */ };
-    // In game loop: host.writeStats({ fps, health, ... });
-  },
-});
-```
-
-### Escape hatch (manual wiring)
-
-```ts
-import { PixiUiHost } from "@downdraft/engine/libraries/pixi-ui";
-const host = new PixiUiHost({ sceneModuleUrl: new URL("./pixi-scene.ts", import.meta.url).href });
-await host.start();
-```
-
-### Scene module
-
-Games implement a `PixiUiScene` factory (default export of the scene module). The worker dynamically imports it and calls it with a `PixiUiSceneContext` (PIXI.Application, width/height, setInteractive, postAction). The scene's `update()` is called each frame with the latest SAB stats + drained events.
-
-### Pass-through mode (interactive UI + game-canvas input)
-
-For games where interactive UI elements (toolbars, buttons, sliders) coexist with game-canvas mouse input (e.g. painting on a canvas), set `passThrough: true` in the `PixiUiLibConfig` / `PixiUiHostOptions`. In this mode:
-
-- The overlay canvas is always `pointer-events: auto` (it captures all pointer events).
-- The scene implements `getInteractiveRegions(): Rect[]` — bounding boxes of clickable/draggable UI elements in canvas pixel coordinates.
-- The host synchronously hit-tests each pointer event against the cached regions:
-  - **Inside a region** → forwarded to the worker for PixiJS `eventMode` hit-testing (normal interactive path).
-  - **Outside all regions** → dispatched as a synthetic `PointerEvent` on the game canvas (`data-dd-layer="0"`), so the game keeps receiving mouse input with zero postMessage latency.
-- The worker calls `scene.getInteractiveRegions()` after each `update()` and posts the regions to the host (only when changed, to avoid flooding the message channel).
-- The scene should return `[]` when no interactive elements are visible (display-only HUD).
-
-This replaces the original modal-UI model (`setInteractive(true/false)` toggling the whole canvas). Games that only have modal UIs (menus that capture all input) can still use the non-pass-through mode + `setInteractive`.
-
-### Data bridge convention (migrating from React/Solid DOM overlays)
-
-The pixi-ui worker **cannot read the main-thread zustand store directly**. State flows through three channels:
-
-1. **`UiStatsSAB`** (per-frame scalars, host→worker, zero-copy): the host calls `host.writeStats({ fps, health, ... })` each frame from a rAF loop or the game's `onFpsUpdate` hook. Each game declares its own `statsLayout` (slot name list) in `PixiUiLibConfig`. Slot names map to float32 offsets in the SAB. Booleans are encoded as 0/1.
-2. **`postMessage` events** (structured data, host→worker): `host.postEvent({ kind: "setInventory", items: [...] })` for non-scalar/event-driven data (inventory, saves, notifications, menu toggles). The host subscribes to zustand store changes and forwards them. Each game defines its own event `kind` strings in a `src/pixi/bridge-protocol.ts`.
-3. **`onAction`** (side-effect requests, worker→host): the scene calls `ctx.postAction({ kind: "pause" })` for main-thread side effects (pause, save, teleport, select material). The host's `onAction` handler dispatches into the zustand store / renderer / sim bridge.
-4. **Renderer snapshots** (optional, ~30fps): for overlays that need camera-transform positioning (signposts, minimap, reticule), the host posts a `PixiUiEvent` with kind `"snapshot"` carrying compact camera + entity arrays.
-
-A per-game **worker-side store mirror** (`src/pixi/store.ts`) holds the worker's copy of state, updated from SAB ticks + events. For `@pixi/react` games, this is a minimal reactive store (e.g. `useSyncExternalStore`) so React re-renders on event arrival. For raw PixiJS scenes, the scene reads directly from the `stats` object passed to `update()` and maintains its own state from events.
-
-### Migrating a React overlay to pixi-ui
-
-1. **Create `src/pixi/bridge-protocol.ts`** — define event kinds (main→worker) and action kinds (worker→main) by auditing every zustand store field the React components read (→ event or SAB slot) and every store mutation they trigger (→ action kind).
-2. **Create the scene module** (`src/pixi-scene.ts` for raw PixiJS, or `src/pixi/scene.tsx` + `src/pixi/components/*` for `@pixi/react`). Port each React component's visual structure to PIXI display objects (`Container`, `Graphics`, `Text`, `Sprite`). Replace `useGameStore` reads with SAB stats / worker store mirror reads. Replace `useGameStore` mutations with `ctx.postAction(...)`.
-3. **Rewire `main.tsx`**: replace `mountUI: (overlay) => createRoot(overlay).render(<App/>)` with the pixi-ui escape hatch (`new PixiUiHost(...)`) or declarative `libraries: [[PixiUiLib, config]]`. In `onReady`: get the host, set `onAction` to dispatch into the store/renderer, start a per-frame `host.writeStats(...)` loop (rAF or `onFpsUpdate`), subscribe to store changes → `host.postEvent(...)`. In `onDispose`: `host.dispose()`.
-4. **Overlay surface**: the pixi scene renders through `libraries/pixi-ui-native` (`NativePixiUiHost`/`NativePixiUiSceneHandle`) onto the native RenderSurface — there is no HTML layer spec on native.
-5. **Dependencies**: add `@downdraft/engine/libraries/pixi-ui` + `pixi.js` to game deps. For `@pixi/react` games, also add `@pixi/react`, `react`, `react-dom`, and `@vitejs/plugin-react` to `workerPlugins` in the vite config.
-6. **Delete** the old `src/app.tsx`, `src/components/*`, and UI-only CSS.
-7. **Interactive UI + game input**: if the game has clickable UI elements that coexist with game-canvas mouse input, set `passThrough: true` and implement `getInteractiveRegions()` in the scene. If the game only has modal menus (full-screen overlays that capture all input), use the default non-pass-through mode + `setInteractive(true)`.
-
-### Migration status (historical — the pixi-ui era)
-
-Historical record: all five games were migrated from React/Solid DOM overlays to the worker-hosted PixiJS overlay. `falling-sand` and `sandjongg` have since moved to `core/imui`, and every stack in this table is slated for replacement by `modules/html-ui` (see "UI direction" above):
-
-| Game | Renderer | Components | E2E tests | Notes |
-|---|---|---|---|---|
-| `falling-sand` | raw PixiJS | 1 scene | passing | Pilot migration; simplest game |
-| `sandjongg` | raw PixiJS | 1 scene | 6/6 pass | Raw PixiJS scene with tile sprites |
-| `overburden` | `@pixi/react` | 11 components | 15/15 pass | `passThrough: true` for hotbar + menus |
-| `to-the-ocean` | `@pixi/react` | 17 components | 6/6 pass | `passThrough: true`; renderer snapshots at ~30fps |
-| `mining-rpg` | `@pixi/react` | 24 components | no e2e test | Reused Solid bridge protocol types; `passThrough: true` |
-
-Dead code removed during migration:
-- `src/app.tsx` — deleted from all 5 games (was the React DOM root).
-- `src/components/` — deleted from all 5 games (old React DOM components).
-- `src/solid/` — deleted from mining-rpg (old Solid-in-worker path; bridge types moved to `src/pixi/bridge-protocol.ts`).
-- `solid-js` + `vite-plugin-solid` deps removed from mining-rpg `package.json`.
-- `@floating-ui/react`, `lucide-react`, `framer-motion` deps removed from to-the-ocean `package.json`.
-
-### MCP automation tools
-
-`createPixiUiMcpTools(host)` returns MCP tool registrations for e2e testing:
-- `pixi_capture_overlay` — capture the overlay canvas alone as PNG base64.
-- `pixi_get_scene_state` — query the PixiJS scene-graph summary (named nodes, visibility, positions, text labels).
-- `pixi_dispatch_pointer` — send a synthetic pointer event to the worker for hit-testing.
-- `pixi_set_interactive` — force-toggle interactive mode.
-
-### `renderer.create` hook
-
-The library uses the `renderer.create` hook on `EngineLibrary` (the early renderer-side hook that runs before the WebGPU device is acquired). This is the clean fit for renderer-only libraries that need to construct a host + provide a DI token without GPU access. Other renderer-only libraries (audio, input routers) can use the same hook.
-
-### Files
-
-- `packages/engine/libraries/pixi-ui/src/library.ts` — `PixiUiLib` descriptor + `PixiUiHostTok` token + config types.
-- `packages/engine/libraries/pixi-ui/src/host.ts` — `PixiUiHost` (main thread): canvas acquire, `transferControlToOffscreen`, SAB alloc, worker spawn, pointer-events toggle, MCP query/capture.
-- `packages/engine/libraries/pixi-ui/src/pixi-ui-worker.ts` — worker entry: PIXI.Application init on OffscreenCanvas, scene mounting, ticker loop, pointer hit-testing, scene-state query, capture.
-- `packages/engine/libraries/pixi-ui/src/ui-stats-sab.ts` — UiStatsSAB layout + read/write helpers.
-- `packages/engine/libraries/pixi-ui/src/bridge-protocol.ts` — typed main↔worker message protocol.
-- `packages/engine/libraries/pixi-ui/src/scene.ts` — `PixiUiScene` interface + `PixiUiSceneContext`.
-- `packages/engine/libraries/pixi-ui/src/react.ts` — optional `@pixi/react` adapter.
-- `packages/engine/libraries/pixi-ui/src/mcp-tools.ts` — MCP automation tool registrations.
-- `examples/pixi-ui-demo/` — standalone example (health bar + FPS + pause button).
-- `tests/e2e/pixi-ui-demo.spec.ts` — e2e smoke test via MCP harness.
 
 ## Per-game storage isolation
 
@@ -1057,9 +912,9 @@ The `downdraft doctor` devtools panel displays a plugins table (id, version, for
 - `games/sandjongg/plugins/speed-mode/` — quickjs script tier (events + state + tick).
 - `games/sandjongg/plugins/custom-scorer/` — wasm native tier (ABI v2, Fibonacci scorer).
 
-## Profiling system (`@downdraft/engine/profiling` + `@downdraft/engine/libraries/profiler`)
+## Profiling system (`@downdraft/engine/profiling` + `@downdraft/engine/modules/devtools`)
 
-A comprehensive cross-thread profiling + tracing system with an in-game overlay (Puffin-style flame graph, memory/CPU/IOPS/event-loop/GC views, warning toasts, trace recording + export).
+A comprehensive cross-thread profiling + tracing system (Puffin-style flame graph, memory/CPU/IOPS/event-loop/GC views, warning toasts, trace recording + export). The pixi-based in-game overlay (`libraries/profiler`) has been deleted — profiling surfaces now live in the devtools host + the `core/telemetry` debug overlay.
 
 ### Architecture
 
@@ -1081,11 +936,7 @@ A comprehensive cross-thread profiling + tracing system with an in-game overlay 
   - `ProfilingBridge` — renderer-side bridge that creates the ProfilingSAB, runs the WarningEngine + EventLoopMonitor + TraceEventWriter, drains the warning ring each frame, fires auto-trace, and registers the 10 built-in view descriptors.
   - `initDevTools({ profiling: true })` — creates the ProfilingBridge + exposes the ProfilingSAB on `__sceneInspector`.
   - `exposeDevToolsApi()` — now merges `exposeProfilingApi()` so workers get both devtools + profiling RPC methods.
-- **`@downdraft/engine/libraries/pixi-ui`** — extended with `extraSharedBuffers` in the scene context (for passing the ProfilingSAB to the pixi-ui overlay worker).
-- **`@downdraft/engine/libraries/profiler`** — the profiler overlay library:
-  - `ProfilerLib` — `EngineLibrary` descriptor for declarative wiring via `GameModule.libraries[]`.
-  - `ProfilerOverlay` — main-thread host that wraps `PixiUiHost` with profiling-specific config.
-  - `ProfilerScene` — pixi-ui scene that renders the 10 built-in views (memory, CPU, task-latency, IOPS-OPFS, IOPS-IDB, event-loop, GC-heap, flame-graph, GPU-passes, warnings) + toast stack + record/export bar.
+- **`@downdraft/engine/core/telemetry`** — the `DebugOverlay`/`ProfilerOverlay` (imui-based in-game overlay, rendered via `GameRenderer`'s overlay pass when `enableProfilingOverlay` is set). The former pixi-based profiler overlay library has been deleted.
 
 ### Built-in views (10)
 
@@ -1128,7 +979,7 @@ The following execution paths are instrumented with `recordTaskLatency()` + `che
 2. **`initDevTools`**: pass `profiling: true` to create the `ProfilingBridge` + `ProfilingSAB`.
 3. **Render loop**: call `profilingBridge.tick()` in `beforeFrame` and `profilingBridge.endFrame()` in `afterFrame`.
 4. **Sim worker**: call `simWorker.attachProfilingSAB(bridge.getProfilingSAB())` to share the SAB with the sim worker.
-5. **Profiler overlay** (optional): declare `ProfilerLib` in `GameModule.libraries[]` for the in-game overlay.
+5. **Profiler overlay** (optional): set `enableProfilingOverlay: true` in the `GameRenderer` config for the in-game telemetry overlay.
 
 ### Key files
 
@@ -1144,8 +995,6 @@ The following execution paths are instrumented with `recordTaskLatency()` + `che
 - `packages/engine/core/src/worker/instrumented-worker-host.ts` — InstrumentedWorkerHost + exposeProfilingApi.
 - `packages/engine/modules/devtools/src/profiling-bridge.ts` — ProfilingBridge.
 - `packages/engine/modules/devtools/src/debug-view-descriptors.ts` — DebugViewDescriptor + 10 built-in views.
-- `packages/engine/libraries/profiler/src/profiler-scene.ts` — ProfilerScene (pixi-ui overlay).
-- `packages/engine/libraries/profiler/src/library.ts` — ProfilerLib descriptor.
 - `packages/engine/core/src/telemetry/gpu-timer-pool.ts` — GPUTimerPool (encoder-level timestamps).
 - `packages/engine/core/src/telemetry/gpu-profiler.ts` — GPUProfiler (compute/blit pass timing).
 
@@ -1392,42 +1241,6 @@ Native runs on three JS runtimes — **Bun** (default, `bun:ffi`), **Node+tsx** 
 
 Cross-runtime gotchas: tsconfig `paths` and `deno.json` alias `xxh3-ts` → a `.d.ts`, and tsx/Deno honor it at runtime — `hash-utils.ts` requires `xxh3-ts/index.js` (deep path) in its fallback to bypass the alias. Shared `game-module.ts` files must not import `.css` (Deno has no loader hooks) — keep CSS in the browser-only `main.tsx`. `node:module` imports must be lazy dynamic imports in shared code (browser bundles).
 
-## Native PixiUI (`@downdraft/engine/libraries/pixi-ui-native`)
-
-> **Legacy — still deployed** by `overburden`, `to-the-ocean`, `mining-rpg`, and `andrews-sandbox`; superseded by `modules/html-ui` for new work. See "UI direction" above.
-
-In-process PixiJS v8 WebGPU UI renderer for native (winit + wgpu) mode. Reuses the browser `@pixi/react` scene (e.g. `OceanApp`) in-process on native. PixiJS runs on the main thread on the **same `GPUDevice`** as the game, rendering into a texture-backed virtual canvas; the game composites that texture over the 3D frame each render pass via a fullscreen blit. No CPU readback in the compositing path.
-
-### Architecture
-
-- **`NativePixiUiHost`** (`packages/engine/libraries/pixi-ui-native/src/host.ts`): creates a `PIXI.Application` against a `VirtualCanvas` (not the swapchain) with `gpu: { adapter, device }` so PixiJS reuses the game's device. `autoStart: false` — the game drives `host.render()` each frame before encoding its blit pass. `backgroundAlpha: 0` so the 3D scene shows through transparent UI areas.
-- **Virtual canvas + WebGPU context** (`packages/platform-native/src/gpu/virtual-canvas-context.ts`): a `VirtualCanvas` backs a `GPUTexture` (not the swapchain). `getUiTextureView()` returns the texture view the game samples in its compositing blit pass.
-- **UI blit pass** (`packages/engine/libraries/pixi-ui-native/src/ui-blit-pass.ts`): a fullscreen triangle shader that samples the UI texture and blends it over the frame's color attachment with `loadOp: "load"` (preserves the 3D frame).
-- **Compositing hook** (`WebGPURenderer.renderOneFrame`): after the 3D scene + postfx, calls `nativePixiUi.render()` (submits PixiJS's encoder to the shared queue), then `blitPass.execute(encoder, frameView, uiView)`. The write is ordered before the read on the shared queue.
-- **Native data bridge** (`games/<game>/src/pixi/native-data-bridge.ts`): reads `SimBufferReader` + `useGameStore` each frame and calls `setWorkerState()` directly (the same reactive store `@pixi/react` components consume via `useWorkerState`). Routes UI actions back to the game store / `simBridge`. Replaces the browser worker/SAB/postMessage path with in-process store updates.
-- **Native scene factory** (`games/<game>/src/pixi/native-scene.tsx`): `createNativeOceanScene(ctx)` calls `createPixiReactRoot(ctx)` (the same adapter the browser worker uses) and renders the real `OceanApp` React tree. `update()` is a no-op — React re-renders automatically via `useWorkerState` when the bridge calls `setWorkerState`. `getOpaqueRegions()` mirrors the browser scene's logic so the 3D renderer can skip work behind opaque panels.
-- **Native input router** (`games/<game>/src/pixi/native-input-router.ts`): intercepts native mouse events on the canvas in **capture phase** (before the game's input handler). When a menu/overlay is open, hit-tests against PixiJS's `rootBoundary.hitTest(x, y)`; if the hit succeeds, dispatches a synthetic pointer event to `EventSystem._onPointerDown/Move/Up` (same approach as the browser pixi-ui worker) and stops propagation. Misses pass through to the game.
-
-### Critical native WebGPU fixes (required for PixiJS)
-
-- **`WgpuBuffer` write-mapped semantics** (`packages/platform-native/src/gpu/wgpu-resources.ts`): `getMappedRange()` returns a persistent JS backing store for `mappedAtCreation` write maps; `unmap()` flushes it to the native buffer via `queue.writeBuffer` (after unmap, since wgpu rejects writes while mapped). Without this, PixiJS's `fastCopy(data, getMappedRange())` + `unmap()` pattern wrote into a throwaway `ArrayBuffer` and all geometry drew nothing.
-- **`copyExternalImageToTexture`** (`packages/platform-native/src/gpu/wgpu-device.ts`): reads canvas RGBA pixels via `getContext("2d").getImageData()` and uploads with `queue.writeTexture` (256-byte row alignment for WebGPU's `bytesPerRow`). Handles `bgra8unorm` textures. Without this, text/image textures never uploaded.
-- **`parseColor`** (`packages/platform-native/src/image/native-canvas2d.ts`): handles named colors (`"white"`, `"black"`, etc.), 8-digit hex (`#rrggbbaa`), and 3-digit hex. Without this, PixiJS's `fillStyle: "white"` fell through to the black fallback and text rendered black.
-
-### Key files
-
-- `packages/engine/libraries/pixi-ui-native/src/host.ts` — `NativePixiUiHost`
-- `packages/engine/libraries/pixi-ui-native/src/ui-blit-pass.ts` — fullscreen blit pass
-- `packages/engine/libraries/pixi-ui-native/src/shaders/ui-blit.wgsl.ts` — blit shader
-- `packages/platform-native/src/gpu/virtual-canvas-context.ts` — texture-backed canvas
-- `packages/platform-native/src/gpu/wgpu-resources.ts` — `WgpuBuffer` mapped-write semantics
-- `packages/platform-native/src/gpu/wgpu-device.ts` — `copyExternalImageToTexture`
-- `packages/platform-native/src/image/native-canvas2d.ts` — `NativeCanvas2D` (FreeType text + `parseColor`)
-- `games/to-the-ocean/src/native-entry.ts` — native wiring (host + scene + bridge + input router)
-- `games/to-the-ocean/src/pixi/native-data-bridge.ts` — `NativeOceanDataBridge`
-- `games/to-the-ocean/src/pixi/native-scene.tsx` — `createNativeOceanScene` (reuses `OceanApp`)
-- `games/to-the-ocean/src/pixi/native-input-router.ts` — `NativeInputRouter`
-
 ## Native DevTools (`@downdraft/engine/libraries/devtools`)
 
 A native in-game debugger overlay that replaces Chrome DevTools for the native build. The UI is a **Rust egui crate** (`packages/engine/libraries/devtools/native/`) driven over FFI by a TypeScript mirror — egui does layout + tessellation on CPU, serializes PaintJobs into a flat buffer, `EguiRenderer` uploads it to a wgpu texture, and `UiBlitPass` composites it over the game frame. Toggled with F12; F11 captures a screenshot.
@@ -1465,7 +1278,7 @@ NODE_OPTIONS="--import ../../packages/platform-native/src/ffi/wgsl-loader.mjs" \
 deno run --config ../../deno.json --allow-all --unstable-sloppy-imports src/native-entry.ts
 ```
 
-`deno.json` at the repo root is a generated import map mirroring `tsconfig.web.json` `paths` (`foo/*` → `dir/*` trailing-slash form, required for `@`-scoped aliases). Regenerate with `bun run gen:deno-import-map` whenever tsconfig paths change (CI checks it stays in sync). Known Deno limitations: `@pixi/react` scene setup fails (npm `react-reconciler/constants` subpath), and basis-universal `?url` wasm imports are resolved lazily with a disk fallback.
+`deno.json` at the repo root is a generated import map mirroring `tsconfig.web.json` `paths` (`foo/*` → `dir/*` trailing-slash form, required for `@`-scoped aliases). Regenerate with `bun run gen:deno-import-map` whenever tsconfig paths change (CI checks it stays in sync). Known Deno limitations: basis-universal `?url` wasm imports are resolved lazily with a disk fallback.
 
 Verified tri-runtime (mining-rpg native, ~20s steady state): all three boot the full stack — GPU via FFI (bun:ffi/koffi/Deno.dlopen), nested workers, MCP, saves, screenshots. Bench: bun boot ~0.5–1.0s RSS ~520MB; node+tsx boot ~1.0s RSS ~1.05GB; deno boot ~1.0s RSS ~690MB; sim runs at its fixed 60t/s on all three (runtime choice doesn't move steady-state perf — work is GPU/native + fixed-dt sim).
 

@@ -5,8 +5,8 @@
 // per stack. Keys 1-5 (or Left/Right arrows) switch stacks; each stack draws
 // its own tab bar with itself highlighted.
 //
-//   Stacks: 1) imui  2) PixiJS (NativePixiUiHost)  3) Dioxus/Blitz wasm
-//           4) HTML/CSS (Blitz OSR)  5) Canvas2D (NativeCanvas2D)
+//   Stacks: 1) imui  2) Dioxus/Blitz wasm  3) HTML/CSS (Blitz OSR)
+//           4) Canvas2D (NativeCanvas2D)  5) HtmlUI (Blitz html-ui)
 //
 // Run:      bun run test-beds/ui-bakeoff/main.ts
 // Tour:     BAKEOFF_TOUR=test-beds/ui-bakeoff/shots bun run ... — renders each
@@ -23,7 +23,6 @@ import { createDioxusStack } from "./stacks/dioxus";
 import { createHtmlStack } from "./stacks/html";
 import { createHtmlUiStack } from "./stacks/htmlui";
 import { createImuiStack } from "./stacks/imui";
-import { createPixiStack } from "./stacks/pixi";
 
 const log = createLogger("info");
 
@@ -43,7 +42,7 @@ const CLEAR = { r: 0.063, g: 0.078, b: 0.102, a: 1 };
 // ── Stacks ──
 // Order matches the tab indices shown in each gallery's tab bar.
 
-const factories = [createImuiStack, createPixiStack, createDioxusStack, createHtmlStack, createCanvas2dStack, createHtmlUiStack];
+const factories = [createImuiStack, createDioxusStack, createHtmlStack, createCanvas2dStack, createHtmlUiStack];
 const stacks: (UiStack | null)[] = new Array(factories.length).fill(null);
 const stackErrors: (string | null)[] = new Array(factories.length).fill(null);
 
@@ -90,7 +89,7 @@ async function setActive(i: number): Promise<void> {
     log.info("bakeoff", `→ ${TABCODES[i]}`);
 }
 
-const TABCODES = ["imui", "pixi", "dioxus", "html", "canvas2d", "htmlui"];
+const TABCODES = ["imui", "dioxus", "html", "canvas2d", "htmlui"];
 const NTABS = TABCODES.length;
 
 // ── Input routing ──

@@ -7,7 +7,7 @@
 // ============================================================================
 
 import { createValidatedShaderModule } from "@downdraft/engine";
-import { UiBlitPass } from "@downdraft/engine/libraries/pixi-ui-native";
+import { UiBlitPass } from "@downdraft/engine/libraries/blitz-ui";
 
 // Linear-resolve variant of UiBlitPass: samples the UI texture through an
 // rgba8unorm-srgb view so filtering/downsample happens in LINEAR space, then
@@ -90,7 +90,7 @@ class LinearBlitPass {
     dispose(): void {}
 }
 
-export const TABS = ["imui", "PixiJS", "Dioxus", "HTML/CSS", "Canvas2D", "HtmlUI"] as const;
+export const TABS = ["imui", "Dioxus", "HTML/CSS", "Canvas2D", "HtmlUI"] as const;
 
 export const LIST_ITEMS = [
     "Iron Ore", "Copper Ore", "Coal", "Stone", "Wood Plank", "Rope", "Torch",
