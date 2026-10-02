@@ -59,6 +59,9 @@ for (const tarball of tarballs) {
     process.exit(1);
   }
   execFileSync("cp", [join(extractDir, abiDir, "libnode.so"), join(libDir, "libnode.so")]);
+  // libc++_shared.so ships beside libnode — same-NDK pairing matters.
+  const cxxShared = join(extractDir, abiDir, "libc++_shared.so");
+  if (existsSync(cxxShared)) execFileSync("cp", [cxxShared, join(libDir, "libc++_shared.so")]);
   const incSrc = join(extractDir, "include");
   if (existsSync(incSrc)) {
     execFileSync("cp", ["-r", incSrc, join(pkgDir, "include")]);

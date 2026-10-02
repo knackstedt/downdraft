@@ -48,6 +48,16 @@ jobs:
 
       - uses: mozilla-actions/sccache-action@v0.0.9
 
+      # A cold V8+Node build produces ~15 GB of objects; ubuntu-latest has
+      # ~25 GB free after dotnet/toolcache bloat. Reclaim the unused SDKs —
+      # keep the JDK (sdkmanager needs it) and the Android SDK.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL /usr/local/lib/node_modules
+          docker image prune -af || true
+          df -h /
+
       # NDK r30 — pinned for reproducibility. V8 14.6 needs clang ≥20 on the
       # target side (consteval immediate-invocation in the regexp engine —
       # r28's clang 19 fails); r30 ships clang 21.
@@ -71,9 +81,11 @@ jobs:
       - name: Assemble artifact bundle
         run: |
           mkdir -p artifacts
+          # Whole ABI dir — includes libc++_shared.so staged beside libnode.so
+          # by build-android.mjs (same-NDK STL pairing matters at runtime).
           tar -czf "artifacts/downdraft-node-mobile-android-${{ matrix.pkgArch }}.tar.gz" \
             -C packages/node-mobile/build/dist/android \
-            "${{ matrix.abi }}/libnode.so" include
+            "${{ matrix.abi }}" include
 
       - name: Upload to GitHub release
         uses: softprops/action-gh-release@v2

@@ -11,7 +11,7 @@
 // build/dist/android/include/node/.
 
 import { execFileSync, execSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { buildDir, nodeVersion } from "./fetch.mjs";
 import { prepare } from "./prepare.mjs";

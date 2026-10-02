@@ -77,7 +77,17 @@ const gameDir = dirname(dirname(resolve(entry)));
 let pkg = {};
 try { pkg = JSON.parse(readFileSync(join(gameDir, "package.json"), "utf-8")); } catch { /* standalone */ }
 const titleize = (s) => String(s).replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-const appId = flagValue("app-id") ?? pkg.build?.appId ?? `com.downdraft.${basename(gameDir).replace(/[^a-zA-Z0-9]/g, "")}`;
+// Android package ids must be dot-separated Java identifiers — hyphens are
+// rejected by aapt2 ("not a valid Android package name").
+const sanitizeAppId = (id) =>
+  id.split(".").map((seg) => {
+    let s = seg.replace(/[^a-zA-Z0-9_]/g, "_");
+    if (!/^[a-zA-Z_]/.test(s)) s = "_" + s;
+    return s;
+  }).join(".");
+const rawAppId = flagValue("app-id") ?? pkg.build?.appId ?? `com.downdraft.${basename(gameDir).replace(/[^a-zA-Z0-9]/g, "")}`;
+const appId = sanitizeAppId(rawAppId);
+if (appId !== rawAppId) console.warn(`[package-mobile] app-id "${rawAppId}" sanitized → "${appId}"`);
 const appName = flagValue("app-name") ?? pkg.productName ?? pkg.build?.productName ?? titleize(pkg.name ?? basename(gameDir));
 const versionName = flagValue("version") ?? pkg.version ?? "0.0.1";
 const verParts = (versionName.match(/\d+/g) ?? ["0"]).map(Number);
