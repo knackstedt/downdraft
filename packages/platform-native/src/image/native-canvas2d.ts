@@ -113,7 +113,7 @@ const GLYPH_PATTERNS: Record<string, string[]> = {
 function parseColor(color: string): [number, number, number, number] {
   if (typeof color !== "string") return [0, 0, 0, 255];
   const c = color.trim().toLowerCase();
-  // Named colors (subset PixiJS commonly uses)
+  // Named colors (common subset)
   const NAMED: Record<string, [number, number, number]> = {
     white: [255, 255, 255], black: [0, 0, 0], red: [255, 0, 0],
     green: [0, 128, 0], blue: [0, 0, 255], yellow: [255, 255, 0],
@@ -148,9 +148,9 @@ function parseColor(color: string): [number, number, number, number] {
 }
 
 // ── Gradients ──
-// PixiJS's FillGradient renders through createLinearGradient/createRadialGradient
-// + fillRect on a small texture-generation canvas — implement real gradients
-// so those fills don't collapse to solid white.
+// Libraries render gradient fills through createLinearGradient/
+// createRadialGradient + fillRect on a small texture-generation canvas —
+// implement real gradients so those fills don't collapse to solid white.
 
 interface GradientStop { offset: number; color: [number, number, number, number]; }
 
@@ -231,9 +231,8 @@ export class NativeCanvas2D {
 
   get fillStyle(): any { return this._fillGradient ?? this._fillStyle; }
   set fillStyle(v: any) {
-    // PixiJS may set fillStyle to a CanvasPattern or CanvasGradient object
-    // (when the fill style's texture !== Texture.WHITE, e.g. due to a
-    // PixiJS version mismatch). parseColor handles non-string values by
+    // Callers may set fillStyle to a CanvasPattern or CanvasGradient object
+    // rather than a color string. parseColor handles non-string values by
     // returning black, which would make text invisible on dark backgrounds.
     // Fall back to white for pattern/gradient objects so text remains visible.
     if (v instanceof NativeCanvasGradient) {
@@ -289,7 +288,7 @@ export class NativeCanvas2D {
     const width = ftWidth >= 0 ? ftWidth : text.length * fontSize * 0.6;
     // FreeType/SDL_ttf renders text taller than the nominal fontSize (it
     // includes ascenders + descenders, typically ~1.2× fontSize). Report
-    // generous ascent/descent so PixiJS allocates a tall enough canvas;
+    // generous ascent/descent so callers allocate a tall enough canvas;
     // otherwise the bottom of glyphs (descenders like 'g', 'p', 'y') gets
     // clipped.
     return {
@@ -309,9 +308,10 @@ export class NativeCanvas2D {
 
   private _renderText(text: string, x: number, y: number, styleColor: string, isStroke: boolean): void {
     const baseFontSize = this.getFontSize();
-    // Apply the current transform's scale to the font size (PixiJS text uses
-    // a uniform scale of `resolution` via context.scale(res, res) so the
-    // raster is resolution× crisper). Use the geometric mean of |a| and |d|.
+    // Apply the current transform's scale to the font size (canvas text
+    // libraries scale the context — e.g. context.scale(res, res) for a
+    // `resolution` factor — so the raster renders crisper). Use the
+    // geometric mean of |a| and |d|.
     const scaleFactor = Math.sqrt(Math.abs(this.a * this.d)) || 1;
     const fontSize = Math.max(1, Math.round(baseFontSize * scaleFactor));
     const [cr, cg, cb, ca] = parseColor(styleColor);
@@ -429,7 +429,7 @@ export class NativeCanvas2D {
     }
   }
 
-  /** Per-pixel gradient fill — used by PixiJS FillGradient texture generation. */
+  /** Per-pixel gradient fill — used when fillStyle is a NativeCanvasGradient. */
   private fillRectGradient(x: number, y: number, w: number, h: number): void {
     const grad = this._fillGradient!;
     const x0 = Math.max(0, Math.floor(x));
@@ -506,7 +506,7 @@ export class NativeCanvas2D {
     }
   }
 
-  // ── Path / gradient no-ops (PixiJS text uses fillText/measureText; these
+  // ── Path / gradient no-ops (text consumers use fillText/measureText; these
   //    are stubbed for completeness so probes/calls don't throw). ──
   beginPath(): void {}
   closePath(): void {}
@@ -529,16 +529,14 @@ export class NativeCanvas2D {
     return new NativeCanvasGradient("radial", x0, y0, x1, y1, r0, r1);
   }
   createPattern(_image: any, _repetition: string): any {
-    // PixiJS getCanvasFillStyle calls createPattern when the fill style's
-    // texture is not Texture.WHITE (e.g. due to a PixiJS version mismatch
-    // where Texture.WHITE from one version !== Texture.WHITE from another).
+    // Some libraries call createPattern for texture-backed fill styles.
     // Return a pattern-shaped object with setTransform so the code path
     // doesn't crash. The fillStyle setter handles non-string values.
     return { setTransform: () => {} };
   }
   drawImage(image: any, dx: number, dy: number, dw?: number, dh?: number): void {
-    // Blit a NativeImageBitmap (RGBA) into the pixel buffer — used by PixiJS
-    // text when compositing canvas snapshots and by getPixels paths.
+    // Blit a NativeImageBitmap (RGBA) into the pixel buffer — used when
+    // compositing canvas snapshots and by getPixels paths.
     // Sources: NativeImageBitmap (getPixelData), NativeImage (getBitmap),
     // canvas-like objects (getPixelData on NativeSurface/VirtualCanvas),
     // and ImageData-shaped {data, width, height}.

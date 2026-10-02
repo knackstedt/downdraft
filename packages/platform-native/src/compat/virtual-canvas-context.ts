@@ -1,28 +1,31 @@
 // ============================================================================
-// compat/virtual-canvas-context.ts — texture-backed GPUCanvasContext for PixiJS
+// compat/virtual-canvas-context.ts — texture-backed GPUCanvasContext for
+// canvas-shaped library consumers
 //
-// COMPAT LAYER: this file exists to serve PixiJS (and other legacy
-// canvas-shaped consumers) — it is NOT the render surface abstraction.
-// The game-facing surface is `RenderSurface`/`NativeSurface`; nothing outside
-// the PixiJS/canvas-compat path should construct a VirtualCanvas.
+// COMPAT LAYER: this file exists to serve canvas-shaped consumers (anything
+// that calls document.createElement("canvas") / new OffscreenCanvas) — it is
+// NOT the render surface abstraction. The game-facing surface is
+// `RenderSurface`/`NativeSurface`; nothing outside this canvas-compat path
+// should construct a VirtualCanvas.
 //
-// PixiJS v8's WebGPU render target calls `canvas.getContext("webgpu")` and
-// expects a GPUCanvasContext with `configure()`, `getCurrentTexture()`, and
+// A WebGPU-based library calls `canvas.getContext("webgpu")` and expects a
+// GPUCanvasContext with `configure()`, `getCurrentTexture()`, and
 // `unconfigure()`. In the browser the context is backed by the swapchain.
 // In native mode the game already owns the one swapchain (NativeSurface), so
-// a second renderer (PixiJS) must render into a *dedicated* GPUTexture that
-// the game then samples in a compositing blit pass.
+// a second renderer must render into a *dedicated* GPUTexture that the game
+// then samples in a compositing blit pass.
 //
 // VirtualCanvasContext owns that dedicated texture on the shared wgpu-native
 // device. `getCurrentTexture()` returns the same persistent texture each
-// frame (recreated only on resize); PixiJS clears it via loadOp:"clear" every
-// frame, so there is no accumulation. Because the texture lives on the same
-// device/queue as the game, the game can sample it directly — zero copy.
+// frame (recreated only on resize); renderers typically clear it via
+// loadOp:"clear" every frame, so there is no accumulation. Because the
+// texture lives on the same device/queue as the game, the game can sample it
+// directly — zero copy.
 //
-// VirtualCanvas is the HTMLCanvasElement-shaped object PixiJS holds: it has
-// width/height/style, getContext("webgpu") → VirtualCanvasContext, and
-// getContext("2d") → a FreeType-backed NativeCanvas2D (for PixiJS text
-// rasterization via DOMAdapter.get().createCanvas()).
+// VirtualCanvas is the HTMLCanvasElement-shaped object the consumer holds:
+// it has width/height/style, getContext("webgpu") → VirtualCanvasContext,
+// and getContext("2d") → a FreeType-backed NativeCanvas2D for text/shape
+// rasterization.
 // ============================================================================
 
 import { createLogger } from "@downdraft/engine/util/logger";
@@ -41,7 +44,7 @@ export interface VirtualCanvasConfig {
 
 /**
  * A GPUCanvasContext backed by a persistent GPUTexture (not a swapchain).
- * Used by PixiJS to render the UI into a texture the game composites.
+ * Lets a second renderer draw into a texture the game composites.
  */
 export class VirtualCanvasContext {
   private device: WgpuDevice | null = null;
@@ -63,7 +66,8 @@ export class VirtualCanvasContext {
     this.device = config.device as unknown as WgpuDevice;
     this.config = {
       format: config.format,
-      // PixiJS requests TEXTURE_BINDING | COPY_DST | RENDER_ATTACHMENT | COPY_SRC.
+      // Default usage covers the compositing blit (TEXTURE_BINDING |
+      // COPY_DST | RENDER_ATTACHMENT | COPY_SRC).
       usage: config.usage ?? (
         0x0004 | // TEXTURE_BINDING
         0x0008 | // COPY_DST  (GPUTextureUsage — matches install.ts constants)
@@ -181,9 +185,10 @@ export class VirtualCanvasContext {
 }
 
 /**
- * HTMLCanvasElement-shaped canvas for PixiJS. `getContext("webgpu")` returns
- * a VirtualCanvasContext (texture-backed); `getContext("2d")` returns a
- * FreeType-backed NativeCanvas2D (for text rasterization).
+ * HTMLCanvasElement-shaped canvas for library consumers.
+ * `getContext("webgpu")` returns a VirtualCanvasContext (texture-backed);
+ * `getContext("2d")` returns a FreeType-backed NativeCanvas2D (for text
+ * rasterization).
  */
 export class VirtualCanvas extends MiniEventTarget {
   private _width: number;
@@ -204,9 +209,10 @@ export class VirtualCanvas extends MiniEventTarget {
 
   /** Setting width/height (like a real canvas — even to the same value)
    *  clears the 2D context bitmap AND resets drawing state (transform,
-   *  globalAlpha, styles). PixiJS's CanvasPool relies on this reset; without
-   *  it, stale globalAlpha/scale transforms leak between text renders.
-   *  Resizes the WebGPU backing texture when the size actually changed. */
+   *  globalAlpha, styles). Canvas pools that reuse scratch canvases rely on
+   *  this reset; without it, stale globalAlpha/scale transforms leak between
+   *  text renders. Resizes the WebGPU backing texture when the size actually
+   *  changed. */
   get width(): number { return this._width; }
   set width(v: number) {
     const changed = this._width !== v;
@@ -240,7 +246,7 @@ export class VirtualCanvas extends MiniEventTarget {
     return null;
   }
 
-  /** Transfer the 2D context's pixels to an ImageBitmap (for PixiJS text textures). */
+  /** Transfer the 2D context's pixels to an ImageBitmap (for text textures). */
   transferToImageBitmap(): NativeImageBitmap | null {
     if (this.ctx2d) {
       const pixels = new Uint8Array(this.ctx2d["pixels"].length);
@@ -250,7 +256,8 @@ export class VirtualCanvas extends MiniEventTarget {
     return null;
   }
 
-  /** PixiJS may call this; we are not offscreen-transferable — return self. */
+  /** OffscreenCanvas-style callers may call this; we are not
+   *  offscreen-transferable — return self. */
   transferControlToOffscreen(): VirtualCanvas {
     return this;
   }

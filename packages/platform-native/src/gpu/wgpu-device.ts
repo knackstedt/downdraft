@@ -917,15 +917,15 @@ export class WgpuQueue {
   }
 
   /**
-   * copyExternalImageToTexture — used by PixiJS to upload text/image
-   * textures. The source is a canvas (VirtualCanvas with a NativeCanvas2D)
-   * or a NativeImageBitmap.
+   * copyExternalImageToTexture — uploads canvas/bitmap pixels (text rasters,
+   * image assets). The source is a canvas (VirtualCanvas with a
+   * NativeCanvas2D) or a NativeImageBitmap.
    *
    * The source pixels are always RGBA. When the destination texture is a
    * BGRA surface format we must swap R and B (the browser performs the
    * source→destination format conversion automatically). When
    * destination.premultipliedAlpha is set we premultiply RGB by alpha —
-   * PixiJS batch shaders expect premultiplied input.
+   * batch-style shaders typically expect premultiplied input.
    */
   copyExternalImageToTexture(source: GPUCopyExternalImageSourceInfo, destination: GPUCopyExternalImageDestInfo, copySize: GPUExtent3D): void {
     const img = (source as any).source ?? source;
@@ -961,7 +961,8 @@ export class WgpuQueue {
 
     // wgpu requires 256-byte-aligned row strides. When the source is already
     // aligned and needs no conversion, hand it to the queue as-is — the hot
-    // path for raw RGBA uploads (html-ui, pixi text) skips a full-frame copy.
+    // path for raw RGBA uploads (html-ui panels, canvas text) skips a
+    // full-frame copy.
     const srcRowBytes = srcW * 4;
     if (!isBGRA && !premultiply && srcRowBytes % 256 === 0) {
       wgpu.wgpu_shim_queue_write_texture(

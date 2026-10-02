@@ -145,7 +145,8 @@ export function installImagePolyfills(): void {
   (globalThis as any).createImageBitmap = createImageBitmapNative;
   (globalThis as any).ImageBitmap = NativeImageBitmap;
 
-  // OffscreenCanvas polyfill — used by PixiJS for text rasterization.
+  // OffscreenCanvas polyfill — used by libraries for offscreen text/shape
+  // rasterization.
   // getContext("2d") returns a FreeType-backed NativeCanvas2D; transferToImageBitmap
   // copies the 2D context's pixel data (not empty) so text textures upload correctly.
   {
@@ -164,8 +165,8 @@ export function installImagePolyfills(): void {
 
       // DOM semantics: assigning width/height (even the same value) clears the
       // bitmap AND resets the drawing state (transform, globalAlpha, styles).
-      // PixiJS's CanvasPool relies on this — without it, stale globalAlpha /
-      // scale(res,res) transforms leak between text renders (ghosted text).
+      // Canvas pools that reuse scratch canvases rely on this — without it,
+      // stale globalAlpha / scale transforms leak between renders (ghosting).
       set width(w: number) { this._width = w; this.resetCtx(); }
       set height(h: number) { this._height = h; this.resetCtx(); }
 
@@ -229,7 +230,7 @@ export function installImagePolyfills(): void {
     };
   }
 
-  // Image polyfill — PixiJS DOMAdapter.createImage() returns `new Image()`.
+  // Image polyfill — image-loading libraries construct `new Image()`.
   // Setting `src` decodes the file via the image crate (createImageBitmapNative) and
   // fires onload/onerror. Supports file paths, data: URLs, and http(s) via fetch.
   if (typeof (globalThis as any).Image === "undefined") {
