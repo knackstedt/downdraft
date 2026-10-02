@@ -162,10 +162,10 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
     (globalThis as any).document = doc;
 
     // ── DOMAdapter / PixiJS surface globals ──
-    // PixiJS's BrowserAdapter reads these via DOMAdapter.get().getXxx().
+    // Libraries that probe the DOM adapter surface read these globals.
     if (typeof (globalThis as any).HTMLCanvasElement === "undefined") {
-      // VirtualCanvas should satisfy `instanceof HTMLCanvasElement` (@pixi/react
-      // createRoot checks this). Extend MiniEventTarget so the prototype chain
+      // VirtualCanvas should satisfy `instanceof HTMLCanvasElement`.
+      // Extend MiniEventTarget so the prototype chain
       // (VirtualCanvas → HTMLCanvasElement → MiniEventTarget) preserves
       // addEventListener/removeEventListener/dispatchEvent.
       class HTMLCanvasElement extends MiniEventTarget {}
