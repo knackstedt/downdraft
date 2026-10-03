@@ -10,6 +10,8 @@ name: Native artifacts
 
 on:
   workflow_dispatch:
+  # reusable: publish.yml calls this on v* tags when the release is incomplete
+  workflow_call:
   push:
     tags: ["native-v*"]
 

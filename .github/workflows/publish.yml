@@ -23,16 +23,64 @@ on:
         default: ""
 
 jobs:
-  publish:
-    name: Publish @downdraft packages
-    # Only runs for pushes/dispatches by the repo owner — github.actor is the
-    # GitHub account that pushed the tag (or dispatched the run).
+  # One tag drives the whole release: check whether the artifact releases
+  # (native-v<version>, node-mobile-v<node>-<rev>) are complete, and if not,
+  # call the build workflows as jobs — the DAG does the waiting, and a failed
+  # leg fails the run instead of publishing partial binary packages.
+  # The native-v<version> release is also fetched by postinstall
+  # (fetch-native.mjs) so it must exist regardless of npm publishing.
+  plan:
+    name: Check artifact releases
+    # github.actor is the GitHub account that pushed the tag (or dispatched).
     if: github.actor == 'knackstedt'
     runs-on: ubuntu-latest
     permissions:
+      contents: read # gh release view
+    outputs:
+      needs_native: ${{ steps.check.outputs.needs_native }}
+      needs_node_mobile: ${{ steps.check.outputs.needs_node_mobile }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          NATIVE_REL="native-v$(node -p "require('./packages/platform-native/package.json').version")"
+          NM_REL="node-mobile-v$(tr -d '[:space:]' < packages/node-mobile/node-version.txt)-$(grep -oP 'NODE_MOBILE_REVISION \K\d+' packages/node-mobile/overlay/src/node_mobile_version.h)"
+          have() { gh release view "$1" --json assets --jq '.assets[].name' 2>/dev/null | grep -c "^$2" || true; }
+          n=$(have "$NATIVE_REL" "downdraft-native-"); m=$(have "$NM_REL" "downdraft-node-mobile-")
+          echo "$NATIVE_REL: $n/5 bundles | $NM_REL: $m/2 bundles"
+          echo "needs_native=$([ "$n" -lt 5 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "needs_node_mobile=$([ "$m" -lt 2 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+  # Called workflows check out the caller's ref (this tag) and upload their
+  # bundles into the native-v*/node-mobile-v* releases.
+  native:
+    name: Build native artifacts
+    needs: plan
+    if: needs.plan.outputs.needs_native == 'true'
+    permissions:
+      contents: write # release upload inside native.yml
+    uses: ./.github/workflows/native.yml
+
+  node-mobile:
+    name: Build node-mobile artifacts
+    needs: plan
+    if: needs.plan.outputs.needs_node_mobile == 'true'
+    permissions:
+      contents: write # release upload inside node-mobile.yml
+    uses: ./.github/workflows/node-mobile.yml
+
+  publish:
+    name: Publish @downdraft packages
+    needs: [plan, native, node-mobile]
+    # !failure(): skipped call-jobs are fine (release already complete);
+    # a failed build must not publish. Actor gate repeats plan's.
+    if: github.actor == 'knackstedt' && !failure() && !cancelled()
+    runs-on: ubuntu-latest
+    permissions:
       id-token: write # required for npm --provenance
-      contents: read
-      actions: write # dispatch native.yml / node-mobile.yml when artifact releases are missing
+      contents: read # gh release download
     steps:
       - uses: actions/checkout@v4
       # Tag must be v<version> matching the published package version, and
@@ -66,74 +114,10 @@ jobs:
       # node 22 bundles npm 10.x.
       - name: Upgrade npm for trusted publishing
         run: npm install -g npm@latest
-      # One tag drives the whole release: if the native-v<version> /
-      # node-mobile-v<ver>-<rev> artifact releases don't exist yet, dispatch
-      # their build workflows on this tag and wait for them. The
-      # native-v<version> release is also fetched by postinstall
-      # (fetch-native.mjs) so it must exist regardless of npm publishing.
-      - name: Ensure artifact releases (dispatch builds if missing)
-        if: github.event_name == 'push'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REF: ${{ github.ref_name }}
-        run: |
-          set -e
-          NATIVE_REL="native-v$(node -p "require('./packages/platform-native/package.json').version")"
-          NM_REL="node-mobile-v$(tr -d '[:space:]' < packages/node-mobile/node-version.txt)-$(grep -oP 'NODE_MOBILE_REVISION \K\d+' packages/node-mobile/overlay/src/node_mobile_version.h)"
-          for pair in "$NATIVE_REL:native.yml:downdraft-native-:5" "$NM_REL:node-mobile.yml:downdraft-node-mobile-:2"; do
-            REL="${pair%%:*}"; rest="${pair#*:}"
-            WF="${rest%%:*}"; rest="${rest#*:}"
-            PF="${rest%%:*}"; NEED="${rest##*:}"
-            assets=$(gh release view "$REL" --json assets --jq '.assets[].name' 2>/dev/null | grep -c "^$PF" || true)
-            if [ "$assets" -ge "$NEED" ]; then
-              echo "$REL already complete ($assets/$NEED bundles) — skipping build"
-              continue
-            fi
-            # missing or partial release (e.g. a previous matrix leg failed
-            # after others uploaded) — re-dispatch; the build uploads missing
-            # bundles into the same release.
-            if gh run list --workflow "$WF" --branch "$REF" --json status \
-                 --jq '.[] | select(.status != "completed")' | grep -q .; then
-              echo "$WF already running on $REF"
-            else
-              echo "dispatching $WF on $REF to produce $REL"
-              gh workflow run "$WF" --ref "$REF"
-              DISPATCHED=1
-            fi
-          done
-          # let dispatched runs appear in `gh run list` before polling, so old
-          # failed runs on this ref aren't mistaken for the build finishing
-          [ "${DISPATCHED:-}" = 1 ] && sleep 20
-          for i in $(seq 1 240); do
-            ok=1
-            for pair in "$NATIVE_REL:native.yml:downdraft-native-:5" "$NM_REL:node-mobile.yml:downdraft-node-mobile-:2"; do
-              REL="${pair%%:*}"; rest="${pair#*:}"
-              WF="${rest%%:*}"; rest="${rest#*:}"
-              PF="${rest%%:*}"; NEED="${rest##*:}"
-              assets=$(gh release view "$REL" --json assets --jq '.assets[].name' 2>/dev/null | grep -c "^$PF" || true)
-              read inflight failed < <(gh run list --workflow "$WF" --branch "$REF" \
-                --json status,conclusion \
-                --jq '"\([.[] | select(.status != "completed")] | length) \([.[] | select(.conclusion == "failure" or .conclusion == "cancelled")] | length)"')
-              if [ "$inflight" = 0 ] && [ "$failed" -gt 0 ] && [ "$assets" -lt "$NEED" ]; then
-                echo "::error::$WF failed on $REF — $REL has $assets/$NEED bundles"
-                exit 1
-              fi
-              if [ "$assets" -lt "$NEED" ] || [ "$inflight" != 0 ]; then
-                ok=0; echo "waiting for $REL ($assets/$NEED bundles, $inflight in flight) ($i/240)"
-              else
-                echo "$REL complete ($assets/$NEED bundles)"
-              fi
-            done
-            [ "$ok" = 1 ] && { echo "all artifact releases complete"; exit 0; }
-            sleep 60
-          done
-          echo "::error::artifact releases did not appear within 4h"
-          exit 1
       # Populate packages/native-*/lib/ from the native-v<version> release
-      # bundles (built by native.yml). Non-fatal: publishing may target
-      # code-only packages before artifacts exist.
+      # bundles — the `native` call-job above guarantees it exists complete
+      # by the time this job runs (or this job was skipped).
       - name: Stage native platform packages
-        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -143,9 +127,8 @@ jobs:
           node scripts/stage-native-packages.mjs /tmp/native-bundles
       # Populate packages/node-mobile-android-*/{lib,include} from the
       # node-mobile-v<node version>-<revision> release (built by
-      # node-mobile.yml). Non-fatal for the same reason as above.
+      # node-mobile.yml).
       - name: Stage node-mobile packages
-        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

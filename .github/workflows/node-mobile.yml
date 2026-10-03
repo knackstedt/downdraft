@@ -11,6 +11,8 @@ name: Node mobile (Android libnode)
 
 on:
   workflow_dispatch:
+  # reusable: publish.yml calls this on v* tags when the release is incomplete
+  workflow_call:
   push:
     tags: ["node-mobile-v*"]
 
