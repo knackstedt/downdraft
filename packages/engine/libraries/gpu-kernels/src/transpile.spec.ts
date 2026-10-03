@@ -292,7 +292,7 @@ describe("transpileKernel", () => {
 
   it("rejects locals shadowing array params but allows scalar shadowing", () => {
     expect(() =>
-      transpileKernel(`function (a) { let a = 5; return a; }`, { ...BASE, argKinds: ["array"] }),
+      transpileKernel(`function (a) { { let a = 5.0; return a; } }`, { ...BASE, argKinds: ["array"] }),
     ).toThrow(/shadows/);
     const r = transpileKernel(
       `function (s) { { let s = 2.0; return s; } }`, { ...BASE, argKinds: ["scalar"] },

@@ -331,4 +331,30 @@ describe("GpuKernel on the shared device", () => {
       }),
     ).toThrow(/limits/);
   });
+
+  it("reports storage-buffer count and binding-size limits with clear errors", async () => {
+    if (!device) return skip();
+    // Cap the live device's reported limits at Adreno-class values — the
+    // checks must fire before submit, not surface as a validation failure.
+    const dev = device as unknown as { _limits: Record<string, number> };
+    const real = dev._limits;
+    try {
+      dev._limits = { ...(device.limits as Record<string, number>), maxStorageBuffersPerShaderStage: 4 };
+      const k = createKernel({
+        device,
+        output: [4],
+        fn: `function (a, b, c, d, e, f) { return a[this.thread.x]; }`,
+      });
+      const args = Array.from({ length: 6 }, () => new Float32Array(4));
+      await expect(k.read(...(args as never[]))).rejects.toThrow(/storage buffers/);
+      k.destroy();
+
+      dev._limits = { ...(device.limits as Record<string, number>), maxStorageBufferBindingSize: 64 };
+      const k2 = createKernel({ device, output: [4], fn: `function (a) { return a[0]; }` });
+      await expect(k2.read(new Float32Array(256))).rejects.toThrow(/maxStorageBufferBindingSize/);
+      k2.destroy();
+    } finally {
+      dev._limits = real;
+    }
+  });
 });

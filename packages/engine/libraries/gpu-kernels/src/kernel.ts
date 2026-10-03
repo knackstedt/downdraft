@@ -481,6 +481,12 @@ export class GpuKernel {
       if (b.kind === "buffer") return; // bound directly
       const data = asF32View(arg as ArrayBufferView);
       const bytes = data.byteLength;
+      const maxBuf = (this.device.limits as { maxBufferSize?: number | bigint } | undefined)
+        ?.maxBufferSize;
+      if (maxBuf !== undefined && bytes > Number(maxBuf)) {
+        throw new Error(
+          `kernel "${this.label}": array arg "${b.param}" is ${bytes}B, device limit is ${maxBuf}B (maxBufferSize)`);
+      }
       let buf = unit.uploadBuffers.get(b.index);
       if (!buf || (unit.uploadSizes.get(b.index) ?? 0) < bytes) {
         buf?.destroy();
@@ -527,6 +533,26 @@ export class GpuKernel {
 
   private bindGroup(unit: CompiledUnit, args: KernelArg[], out: GPUBuffer, force: boolean): GPUBindGroup {
     if (!force && unit.bindGroup && unit.bindGroupOut === out) return unit.bindGroup;
+    // Pre-validate against device limits — Adreno-class GPUs allow as few as
+    // 16 storage buffers/stage and 256MB/binding, and wgpu otherwise reports a
+    // generic "command buffer failed validation" at submit time.
+    const limits = this.device.limits as Record<string, number | undefined> | undefined;
+    const maxStorage = limits?.maxStorageBuffersPerShaderStage ?? Infinity;
+    const maxBinding = limits?.maxStorageBufferBindingSize ?? Infinity;
+    const storageCount = unit.transpiled.bindings.length
+      + (unit.transpiled.scalarsBinding !== null ? 1 : 0) + 1;
+    if (storageCount > maxStorage) {
+      throw new Error(
+        `kernel "${this.label}": needs ${storageCount} storage buffers ` +
+        `(args + scalars + output), device limit is ${maxStorage}`);
+    }
+    const checkBoundSize = (what: string, size: number): void => {
+      if (size > maxBinding) {
+        throw new Error(
+          `kernel "${this.label}": ${what} binds ${size}B, device limit is ${maxBinding}B ` +
+          `(maxStorageBufferBindingSize)`);
+      }
+    };
     const entries: GPUBindGroupEntry[] = [];
     unit.boundBuffers.clear();
     unit.boundSizes.clear();
@@ -534,12 +560,14 @@ export class GpuKernel {
       if (b.kind === "buffer") {
         const buf = args[b.index] as GPUBuffer;
         unit.boundBuffers.set(b.index, buf);
+        checkBoundSize(`buffer arg "${b.param}"`, buf.size);
         entries.push({ binding: b.binding, resource: { buffer: buf } });
       } else {
         // Bind a window of exactly the arg's length so arrayLength() and the
         // kernel's `arg.length` reflect THIS call's array, not buffer capacity.
         const size = Math.max(unit.argBytes.get(b.index) ?? 0, 16);
         unit.boundSizes.set(b.index, size);
+        checkBoundSize(`array arg "${b.param}"`, size);
         entries.push({
           binding: b.binding,
           resource: { buffer: unit.uploadBuffers.get(b.index)!, size },
@@ -547,8 +575,10 @@ export class GpuKernel {
       }
     });
     if (unit.transpiled.scalarsBinding !== null) {
+      checkBoundSize("scalars", unit.scalarsBuffer!.size);
       entries.push({ binding: unit.transpiled.scalarsBinding, resource: { buffer: unit.scalarsBuffer! } });
     }
+    checkBoundSize("output", out.size);
     entries.push({ binding: unit.transpiled.resultBinding, resource: { buffer: out } });
     const bg = this.device.createBindGroup({
       label: `${this.label}:bg`,

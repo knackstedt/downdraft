@@ -90,6 +90,17 @@ atomics.
   serialized internally on one staging buffer. On native, `mapAsync` blocks
   the calling thread until the GPU work completes — `await k.read()` on the
   render thread stalls a frame; prefer `dispatch` + `readResult` a tick later.
+- **Per-dispatch wall time is bounded by the native map pump (~15s).** A
+  `read*` that waits on a single dispatch slower than that fails with
+  `mapAsync failed (map state 1)` and can get the device reaped by the
+  driver. Split long-running work into multiple dispatches — measured on an
+  RTX-class desktop a ~1e8-iteration/thread loop takes ~3s; on an Adreno 650
+  ~1e7. If you must run near the limit, `dispatch()` (no map) and call
+  `readResult()` only once you know the work has retired.
+- Kernels are validated against `device.limits` at bind time (storage-buffer
+  count, `maxStorageBufferBindingSize`, `maxBufferSize`, workgroup counts) —
+  on Adreno-class GPUs expect ~16 storage buffers/stage and 256MB/binding vs
+  effectively-unbounded desktop limits; the errors name the violated limit.
 - Submits run inside a validation error scope: `read*` throws on failure;
   fire-and-forget `dispatch`/`dispatchInto` can't throw retroactively, so the
   error lands on `kernel.lastError`.
