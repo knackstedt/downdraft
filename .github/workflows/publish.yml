@@ -32,6 +32,7 @@ jobs:
     permissions:
       id-token: write # required for npm --provenance
       contents: read
+      actions: write # dispatch native.yml / node-mobile.yml when artifact releases are missing
     steps:
       - uses: actions/checkout@v4
       # Tag must be v<version> matching the published package version, and
@@ -65,6 +66,57 @@ jobs:
       # node 22 bundles npm 10.x.
       - name: Upgrade npm for trusted publishing
         run: npm install -g npm@latest
+      # One tag drives the whole release: if the native-v<version> /
+      # node-mobile-v<ver>-<rev> artifact releases don't exist yet, dispatch
+      # their build workflows on this tag and wait for them. The
+      # native-v<version> release is also fetched by postinstall
+      # (fetch-native.mjs) so it must exist regardless of npm publishing.
+      - name: Ensure artifact releases (dispatch builds if missing)
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REF: ${{ github.ref_name }}
+        run: |
+          set -e
+          NATIVE_REL="native-v$(node -p "require('./packages/platform-native/package.json').version")"
+          NM_REL="node-mobile-v$(tr -d '[:space:]' < packages/node-mobile/node-version.txt)-$(grep -oP 'NODE_MOBILE_REVISION \K\d+' packages/node-mobile/overlay/src/node_mobile_version.h)"
+          for REL in "$NATIVE_REL" "$NM_REL"; do
+            if gh release view "$REL" >/dev/null 2>&1; then
+              echo "$REL already exists — skipping build"
+              continue
+            fi
+            WF="native.yml"; [ "$REL" = "$NM_REL" ] && WF="node-mobile.yml"
+            if gh run list --workflow "$WF" --branch "$REF" --json status \
+                 --jq '.[] | select(.status != "completed")' | grep -q .; then
+              echo "$WF already running on $REF"
+            else
+              echo "dispatching $WF on $REF to produce $REL"
+              gh workflow run "$WF" --ref "$REF"
+            fi
+          done
+          for i in $(seq 1 240); do
+            ok=1
+            for pair in "$NATIVE_REL:native.yml" "$NM_REL:node-mobile.yml"; do
+              REL="${pair%%:*}"; WF="${pair##*:}"
+              read inflight failed < <(gh run list --workflow "$WF" --branch "$REF" \
+                --json status,conclusion \
+                --jq '"\([.[] | select(.status != "completed")] | length) \([.[] | select(.conclusion == "failure" or .conclusion == "cancelled")] | length)"')
+              if ! gh release view "$REL" >/dev/null 2>&1; then
+                if [ "$inflight" = 0 ] && [ "$failed" -gt 0 ]; then
+                  echo "::error::$WF failed on $REF — $REL will never exist"
+                  exit 1
+                fi
+                ok=0; echo "waiting for $REL ($i/240)"
+              elif [ "$inflight" != 0 ]; then
+                # release exists but a matrix leg may still be uploading assets
+                ok=0; echo "$REL exists but $WF still running ($i/240)"
+              fi
+            done
+            [ "$ok" = 1 ] && { echo "all artifact releases present"; exit 0; }
+            sleep 60
+          done
+          echo "::error::artifact releases did not appear within 4h"
+          exit 1
       # Populate packages/native-*/lib/ from the native-v<version> release
       # bundles (built by native.yml). Non-fatal: publishing may target
       # code-only packages before artifacts exist.
