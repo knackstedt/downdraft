@@ -30,6 +30,7 @@ const SDL_SHIM_SPEC: Record<string, CFunction> = {
   sdl_shim_get_window_borders: { args: ["ptr", "ptr", "ptr", "ptr"], returns: "i32" },
   sdl_shim_set_window_size: { args: ["i32", "i32"], returns: "void" },
   sdl_shim_get_display_info: { args: ["ptr", "ptr"], returns: "void" },
+  sdl_shim_set_vsync_wanted: { args: ["i32"], returns: "void" },
   sdl_shim_request_quit: { args: [], returns: "void" },
   sdl_shim_show_message_box: { args: ["cstring", "cstring"], returns: "i32" },
   sdl_shim_set_clipboard: { args: ["cstring"], returns: "void" },
@@ -82,6 +83,7 @@ export interface SdlShimSymbols {
   sdl_shim_get_window_borders: (topOut: ptr, leftOut: ptr, bottomOut: ptr, rightOut: ptr) => number;
   sdl_shim_set_window_size: (width: number, height: number) => void;
   sdl_shim_get_display_info: (refreshOut: ptr, scaleOut: ptr) => void;
+  sdl_shim_set_vsync_wanted: (wanted: number) => void;
   sdl_shim_request_quit: () => void;
   sdl_shim_show_message_box: (title: string, message: string) => number;
   sdl_shim_set_clipboard: (text: string) => void;
@@ -109,6 +111,8 @@ export const SDL_EVENT_SCALE_CHANGED = 14;
 export const SDL_EVENT_TOUCH = 15;
 export const SDL_EVENT_SUSPENDED = 16;
 export const SDL_EVENT_RESUMED = 17;
+// Android Choreographer tick — slot0 is a wrapping u32 of vsync microseconds.
+export const SDL_EVENT_VSYNC = 18;
 
 // SDL_Keymod bitmask (SDL_keymod.h)
 export const KMOD_SHIFT = 0x0001 | 0x0002; // LSHIFT | RSHIFT

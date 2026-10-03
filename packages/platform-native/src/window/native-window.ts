@@ -38,6 +38,7 @@ import {
     SDL_EVENT_SUSPENDED,
     SDL_EVENT_TEXT_INPUT,
     SDL_EVENT_TOUCH,
+    SDL_EVENT_VSYNC,
     SDL_EVENT_WHEEL,
     sdlButtonsToDom
 } from "./sdl-ffi";
@@ -107,6 +108,20 @@ export class NativeWindow extends MiniEventTarget {
   private lastRafDispatch = -1e9;
   private loggedFirstRaf = false;
   private frameIntervalMs = 0;
+  // Vsync pacing (Android): the platform's Choreographer thread emits
+  // SDL_EVENT_VSYNC per display refresh once armed via set_vsync_wanted.
+  // When those ticks arrive, rAF dispatch keys off them — phase-aligned to
+  // the compositor — instead of the software frameInterval() clock, and the
+  // observed tick interval feeds back as the true refresh rate (winit can't
+  // report it on Android). vsyncTick is consumed by runLoop each iteration;
+  // lastVsyncAt (performance.now) detects a stalled tick stream and falls
+  // back to the timer so a dead Choreographer can never freeze the app.
+  private vsyncDriven = false;
+  private vsyncTick = false;
+  private vsyncIntervalMs = 0;
+  private lastVsyncMicros = 0;
+  private lastVsyncAt = -1e9;
+  private vsyncWanted = false;
   private pressedKeys = new Set<number>();
   // SDL event read buffer — hoisted out of the loop so we don't allocate a
   // new ArrayBuffer every frame.
@@ -224,6 +239,7 @@ export class NativeWindow extends MiniEventTarget {
       this.splash.stop();
       this.splash = null;
     }
+    if (this.rafCallbacks.size === 0) this.setVsyncWanted(true);
     const id = this.nextRafId++;
     this.rafCallbacks.set(id, callback);
     return id;
@@ -308,7 +324,10 @@ export class NativeWindow extends MiniEventTarget {
     const refresh = new Int32Array(1);
     const scale = new Float32Array(1);
     sdl.sdl_shim_get_display_info(refresh as any, scale as any);
-    return { refreshRate: refresh[0] ?? 0, scaleFactor: scale[0] ?? 1.0 };
+    const hz = refresh[0]! > 0 ? refresh[0]!
+      : this.vsyncIntervalMs > 0 ? 1000 / this.vsyncIntervalMs
+      : 0;
+    return { refreshRate: hz, scaleFactor: scale[0] ?? 1.0 };
   }
 
   /** Push SDL_QUIT so the event loop exits through the normal close path. */
@@ -321,7 +340,18 @@ export class NativeWindow extends MiniEventTarget {
    * interval. Late-initialized so a failed display-info query falls back to
    * 60Hz; reset on window moves (the window may land on a different monitor).
    */
+  /** Arm/disarm native vsync ticks (Android Choreographer). No-op off
+   *  Android and on platform libs predating the symbol. */
+  private setVsyncWanted(w: boolean): void {
+    if (!IS_ANDROID || w === this.vsyncWanted) return;
+    this.vsyncWanted = w;
+    try { sdl.sdl_shim_set_vsync_wanted(w ? 1 : 0); } catch { /* older lib */ }
+  }
+
   private frameInterval(): number {
+    // The observed vsync cadence wins — on Android it is the only truthful
+    // refresh source (winit's refresh query returns nothing).
+    if (this.vsyncIntervalMs > 0) return this.vsyncIntervalMs;
     if (this.frameIntervalMs <= 0) {
       const hz = this.getDisplayInfo().refreshRate;
       this.frameIntervalMs = 1000 / (hz > 0 ? hz : 60);
@@ -347,6 +377,7 @@ export class NativeWindow extends MiniEventTarget {
 
   private runLoop(): void {
     if (!this.running) return;
+    this.vsyncTick = false;
 
     // Poll SDL events until the queue is drained.
     let eventType: number;
@@ -400,7 +431,14 @@ export class NativeWindow extends MiniEventTarget {
     // but frames can't acquire; hold the callbacks until RESUMED rebinds it
     // rather than letting them fault on a stale swapchain.
     const now = performance.now() - this.startTime;
-    if (!this.surfaceSuspended && this.rafCallbacks.size > 0 && now - this.lastRafDispatch >= this.frameInterval() - RAF_DISPATCH_EPSILON_MS) {
+    // Vsync-driven (Android): dispatch on the tick that arrived this
+    // iteration so produced frames land on the upcoming vsync boundary. If
+    // the tick stream stalls (Choreographer paused, weird driver) fall back
+    // to the software clock — a dead ticker must never freeze the app.
+    const timerDue = now - this.lastRafDispatch >= this.frameInterval() - RAF_DISPATCH_EPSILON_MS;
+    const vsyncStale = now - this.lastVsyncAt > Math.max(50, this.frameInterval() * 3);
+    const due = this.vsyncDriven && !vsyncStale ? this.vsyncTick : timerDue;
+    if (!this.surfaceSuspended && this.rafCallbacks.size > 0 && due) {
       // Advance on a fixed grid so sleep/timer jitter doesn't accumulate
       // drift; if we fell more than a frame behind (startup, a long frame,
       // a stall) reset the phase instead of bursting catch-up dispatches.
@@ -427,6 +465,9 @@ export class NativeWindow extends MiniEventTarget {
       // NativeCanvasContext that owns the acquired surface texture.
       const ctx = this.surface?.getContext("webgpu") as { present?: () => void } | null;
       if (ctx?.present) queueMicrotask(() => ctx.present!());
+      // Callbacks that didn't re-register leave the map empty — disarm the
+      // ticker so an idle app stops paying vsync wakeups.
+      if (this.rafCallbacks.size === 0) this.setVsyncWanted(false);
     }
 
     // Process wgpu events (for async callback delivery), then poll the
@@ -801,6 +842,27 @@ export class NativeWindow extends MiniEventTarget {
         break;
       }
 
+      case SDL_EVENT_VSYNC: {
+        // slot0: wrapping u32 of vsync microseconds. Deltas feed the refresh
+        // estimate (EMA, skipping gaps like suspend/resume boundaries) and
+        // flag the tick for this iteration's rAF dispatch.
+        const micros = eventView[0]! >>> 0;
+        const prev = this.lastVsyncMicros;
+        this.lastVsyncMicros = micros;
+        this.lastVsyncAt = performance.now() - this.startTime;
+        this.vsyncDriven = true;
+        this.vsyncTick = true;
+        if (prev !== 0) {
+          const deltaMs = ((micros - prev + 0x1_0000_0000) % 0x1_0000_0000) / 1000;
+          if (deltaMs > 0 && deltaMs < (this.vsyncIntervalMs > 0 ? this.vsyncIntervalMs * 3 : 100)) {
+            this.vsyncIntervalMs = this.vsyncIntervalMs > 0
+              ? this.vsyncIntervalMs * 0.85 + deltaMs * 0.15
+              : deltaMs;
+          }
+        }
+        break;
+      }
+
       case SDL_EVENT_SUSPENDED: {
         // The OS destroyed the ANativeWindow — the wgpu surface is already
         // dead on the Rust side (CTX.window dropped first). Unconfigure +
@@ -814,6 +876,7 @@ export class NativeWindow extends MiniEventTarget {
         }
         this.surface?.rebindSurface(0);
         this.surfaceSuspended = true;
+        this.setVsyncWanted(false);
         this.dispatchEvent({ type: "suspend" });
         break;
       }
@@ -832,6 +895,7 @@ export class NativeWindow extends MiniEventTarget {
           }
         }
         this.surfaceSuspended = false;
+        this.setVsyncWanted(this.rafCallbacks.size > 0);
         this.dispatchEvent({ type: "resume" });
         break;
       }

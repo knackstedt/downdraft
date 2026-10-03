@@ -312,6 +312,22 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
       })
     : null;
 
+  // 6e. Memory probe — DD_MEM_TRACE=<seconds> logs process.memoryUsage() +
+  //     V8 heap stats to the console (logcat on Android). Dynamic v8 import
+  //     keeps this Node-only; absent API → process stats only.
+  const memTraceSecs = Number(process.env.DD_MEM_TRACE ?? 0);
+  if (memTraceSecs > 0) {
+    void import("node:v8").then((v8) => {
+      const fmt = (n?: number) => Math.round((n ?? 0) / 1048576);
+      const t = setInterval(() => {
+        const m = process.memoryUsage() as ReturnType<typeof process.memoryUsage> & { arrayBuffers?: number };
+        const h = v8.getHeapStatistics();
+        log.info("mem", `rss=${fmt(m.rss)}MB ext=${fmt(m.external)}MB ab=${fmt(m.arrayBuffers)}MB heap=${fmt(m.heapUsed)}/${fmt(m.heapTotal)}MB v8=${fmt(h.used_heap_size)}/${fmt(h.total_heap_size)}MB v8ext=${fmt(h.external_memory)}MB`);
+      }, memTraceSecs * 1000);
+      t.unref?.();
+    }).catch(() => {});
+  }
+
   // 7. Start the event loop
   window.start();
 

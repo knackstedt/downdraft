@@ -27,6 +27,7 @@
         android:label="@APP_NAME@"
         android:hasCode="false"
         android:extractNativeLibs="true"
+        android:debuggable="@DEBUGGABLE@"
         android:usesCleartextTraffic="false"
         android:allowBackup="false">
 

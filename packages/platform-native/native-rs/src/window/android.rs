@@ -13,7 +13,9 @@
 //! window is created by whichever arrives second: resumed() or the request.
 
 use std::ffi::c_int;
+use std::ffi::c_void;
 use std::os::raw::c_char;
+use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 use std::sync::{Arc, Mutex};
 
 use winit::dpi::LogicalSize;
@@ -160,8 +162,99 @@ pub fn run_app(app: AndroidApp) -> ! {
         }
     };
     *PROXY.lock().unwrap() = Some(el.create_proxy());
+    choreo::start();
     if let Err(err) = el.run_app(&mut AndroidPump { resumed: false }) {
         eprintln!("[downdraft_platform] run_app exited: {err}");
     }
     std::process::exit(0);
+}
+
+// ── Vsync (Choreographer) ───────────────────────────────────────────────────
+//
+// A dedicated thread owns an ALooper + AChoreographer: it can't share the app
+// thread's looper (winit owns its poll cadence there) and the JS thread has
+// no looper at all (libuv drives it). Frame callbacks push Ev::Vsync into the
+// shared queue the JS pump drains — rAF dispatch then phase-aligns to the
+// display's real refresh instead of a software 60Hz guess.
+mod choreo {
+    use super::*;
+
+    const ALOOPER_PREPARE_ALLOW_NON_CALLBACKS: c_int = 1;
+
+    type FrameCb = unsafe extern "C" fn(i64, *mut c_void);
+
+    #[link(name = "android")]
+    extern "C" {
+        fn ALooper_prepare(opts: c_int) -> *mut c_void;
+        fn ALooper_pollAll(
+            timeout_ms: c_int,
+            out_fd: *mut c_int,
+            out_events: *mut c_int,
+            out_data: *mut *mut c_void,
+        ) -> c_int;
+        fn ALooper_wake(looper: *mut c_void);
+        fn AChoreographer_getInstance() -> *mut c_void;
+        fn AChoreographer_postFrameCallback(ch: *mut c_void, cb: FrameCb, data: *mut c_void);
+    }
+
+    /// JS wants vsync ticks (has pending rAF callbacks). When false the
+    /// callback chain is allowed to lapse — no wakeups while idle/suspended.
+    static WANTED: AtomicBool = AtomicBool::new(false);
+    /// A frame callback is registered and will fire — prevents double-posting.
+    /// Only mutated on the choreographer thread, but read there after wake.
+    static POSTED: AtomicBool = AtomicBool::new(false);
+    static LOOPER: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
+
+    unsafe extern "C" fn frame_cb(nanos: i64, _data: *mut c_void) {
+        POSTED.store(false, Ordering::Relaxed);
+        events::push(Ev::Vsync { nanos });
+        if WANTED.load(Ordering::Acquire) {
+            AChoreographer_postFrameCallback(CH.load(Ordering::Relaxed), frame_cb, std::ptr::null_mut());
+            POSTED.store(true, Ordering::Relaxed);
+        }
+    }
+
+    static CH: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
+
+    pub fn start() {
+        let _ = std::thread::Builder::new()
+            .name("dd-vsync".into())
+            .spawn(|| unsafe {
+                let looper = ALooper_prepare(ALOOPER_PREPARE_ALLOW_NON_CALLBACKS);
+                let ch = AChoreographer_getInstance();
+                if looper.is_null() || ch.is_null() {
+                    eprintln!("[downdraft_platform] choreographer unavailable — vsync ticks disabled");
+                    return;
+                }
+                LOOPER.store(looper, Ordering::Release);
+                CH.store(ch, Ordering::Release);
+                loop {
+                    // Frame callbacks dispatch inside this poll. The timeout
+                    // self-heals any missed wake; WANTED transitions also wake
+                    // via ALooper_wake below.
+                    ALooper_pollAll(500, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut());
+                    if WANTED.load(Ordering::Acquire) && !POSTED.load(Ordering::Relaxed) {
+                        AChoreographer_postFrameCallback(ch, frame_cb, std::ptr::null_mut());
+                        POSTED.store(true, Ordering::Relaxed);
+                    }
+                }
+            });
+    }
+
+    /// Called from the JS thread via FFI. Wakes the looper so a wanted→true
+    /// edge arms the callback chain without waiting for the poll timeout.
+    pub fn set_wanted(wanted: bool) {
+        WANTED.store(wanted, Ordering::Release);
+        let looper = LOOPER.load(Ordering::Acquire);
+        if !looper.is_null() {
+            unsafe { ALooper_wake(looper) };
+        }
+    }
+}
+
+/// Arm/disarm vsync ticks. No-op off-Android (the symbol exists on every
+/// build so the JS side can call unconditionally).
+#[no_mangle]
+pub extern "C" fn sdl_shim_set_vsync_wanted(wanted: c_int) {
+    choreo::set_wanted(wanted != 0);
 }

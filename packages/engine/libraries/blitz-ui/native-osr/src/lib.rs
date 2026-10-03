@@ -358,8 +358,20 @@ fn raster_if_dirty(d: &mut OsrDoc) -> Option<[u32; 4]> {
     match rect {
         Some(rect) => {
             d.dirty_rect = rect;
-            d.prev_pixels.clear();
-            d.prev_pixels.extend_from_slice(&d.pixels);
+            // Retain only the changed rows — copying the whole buffer each
+            // dirty frame doubles memory traffic for a small HUD update.
+            let wu = w as usize;
+            let [rx, ry, rw, rh] = rect.map(|v| v as usize);
+            if d.prev_pixels.len() != d.pixels.len() {
+                d.prev_pixels.clear();
+                d.prev_pixels.extend_from_slice(&d.pixels);
+            } else {
+                for row in ry..ry + rh {
+                    let s = (row * wu + rx) * 4;
+                    let e = s + rw * 4;
+                    d.prev_pixels[s..e].copy_from_slice(&d.pixels[s..e]);
+                }
+            }
             d.stats[4] += 1.0;
             Some(rect)
         }

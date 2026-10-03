@@ -682,6 +682,13 @@ pub extern "C" fn sdl_shim_get_clipboard(out: *mut c_char, _max_len: c_int) -> c
     })
 }
 
+/// Non-Android: no Choreographer — vsync ticks are a no-op and the JS pump
+/// falls back to its software timer. Kept for ABI parity so JS can call it
+/// unconditionally.
+#[cfg(not(target_os = "android"))]
+#[no_mangle]
+pub extern "C" fn sdl_shim_set_vsync_wanted(_wanted: c_int) {}
+
 /// snprintf semantics: returns the untruncated length, copies max_len-1 + NUL.
 #[cfg(not(target_os = "android"))]
 #[no_mangle]

@@ -30,6 +30,7 @@ const SCALE_CHANGED: i32 = 14;
 const TOUCH: i32 = 15;
 const SUSPENDED: i32 = 16;
 const RESUMED: i32 = 17;
+const VSYNC: i32 = 18;
 
 /// Line-detent approximation for pixel-precise scroll deltas (PixelDelta
 /// arrives from touchpads; SDL always reports line units).
@@ -96,6 +97,12 @@ pub enum Ev {
     /// re-create its wgpu surface.
     #[cfg_attr(not(target_os = "android"), allow(dead_code))]
     Resumed,
+    /// Vsync tick from the Android Choreographer — frameTimeNanos (the frame's
+    /// vsync timestamp in SystemClock nanos) carried as the payload. The JS
+    /// pump dispatches rAF on these when present instead of its software
+    /// timer, so frame production is phase-aligned to the display.
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    Vsync { nanos: i64 },
     Drop(String),
     Text(String),
 }
@@ -235,6 +242,13 @@ pub fn write(ev: Ev, out_data: *mut c_void) -> i32 {
             }
             Ev::Suspended => SUSPENDED,
             Ev::Resumed => RESUMED,
+            Ev::Vsync { nanos } => {
+                // Wrapping u32 microseconds — deltas between ticks are what
+                // matter (refresh derivation); uint32 wrap subtraction keeps
+                // them exact. nanos/1e3 wraps at ~71min, deltas stay <2^31.
+                *iout.add(0) = (nanos / 1_000) as i32;
+                VSYNC
+            }
             Ev::Drop(path) => {
                 write_cstr(out_data as *mut u8, &path, 255);
                 DROP_FILE

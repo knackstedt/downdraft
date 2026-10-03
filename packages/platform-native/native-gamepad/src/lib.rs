@@ -307,13 +307,20 @@ impl Sab {
 }
 
 fn worker_main(cmd_rx: std::sync::mpsc::Receiver<Cmd>, slots_mirror: &'static Mutex<HashMap<u32, gilrs::GamepadId>>, stop: Arc_<AtomicBool>) {
+    let mut supported = true;
     let mut gilrs = match Gilrs::new() {
         Ok(g) => g,
         Err(e) => {
             eprintln!("[downdraft_gamepad] Gilrs::new failed: {e}");
-            // Error::NotImplemented carries a partially-working Gilrs.
+            // Error::NotImplemented carries a partially-working Gilrs whose
+            // event notifier never fires — next_event_blocking returns
+            // immediately and would hot-loop. Park on a slow sleep instead;
+            // no events can ever arrive on such platforms.
             match e {
-                gilrs::Error::NotImplemented(g) => g,
+                gilrs::Error::NotImplemented(g) => {
+                    supported = false;
+                    g
+                }
                 _ => return,
             }
         }
@@ -385,7 +392,12 @@ fn worker_main(cmd_rx: std::sync::mpsc::Receiver<Cmd>, slots_mirror: &'static Mu
 
         // Block up to ~4ms for the next event, then snapshot everything.
         // Blocking on gilrs' notifier (inotify on Linux) means hotplug wakes
-        // us immediately rather than on the next poll tick.
+        // us immediately rather than on the next poll tick. Unsupported
+        // backends have no notifier at all — a slow sleep keeps the command
+        // channel and SAB snapshot live without pegging a core.
+        if !supported {
+            std::thread::sleep(Duration::from_millis(200));
+        } else {
         match gilrs.next_event_blocking(Some(Duration::from_millis(4))) {
             Some(ev) => {
                 gilrs.update(&ev); // keep cached state current
@@ -426,6 +438,7 @@ fn worker_main(cmd_rx: std::sync::mpsc::Receiver<Cmd>, slots_mirror: &'static Mu
                 }
             }
             None => {}
+        }
         }
 
         let Some(sab) = Sab::get() else { continue };

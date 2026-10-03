@@ -193,19 +193,50 @@ export class HtmlUiHost {
   }
 
   private handleFor(p: Panel): UiPanelHandle {
-    const mutate = (op: DocMutation) => this.send({ type: "mutate", id: p.id, ops: [op] });
+    // Mutation dedupe — every op posted marks Blitz dirty and triggers a
+    // full resolve+repaint+diff in the worker, so a per-frame writer that
+    // re-sends unchanged values (fps text, static styles) pays a full doc
+    // repaint for nothing. Cache last-sent values per (op, target, field);
+    // ops that can invalidate tracked state (html rebuilds, attr removal)
+    // flush their entries.
+    const sent = new Map<string, string>();
+    const mkey = (op: DocMutation, field: string) =>
+      `${op.op}|${op.node ?? ""}|${op.sel ?? ""}|${field}`;
+    const filterOps = (ops: DocMutation[]): DocMutation[] =>
+      ops.filter((op) => {
+        switch (op.op) {
+          case "text": case "attr": case "style": {
+            const field = op.op === "text" ? "" : op.op === "attr" ? op.name : op.prop;
+            const value = op.op === "text" ? op.text : op.value;
+            const k = mkey(op, field);
+            if (sent.get(k) === value) return false;
+            sent.set(k, value);
+            return true;
+          }
+          case "rattr": sent.delete(mkey(op, op.name)); return true;
+          case "innerHtml": sent.clear(); return true;
+          default: return true;
+        }
+      });
+    const mutate = (op: DocMutation) => {
+      const ops = filterOps([op]);
+      if (ops.length) this.send({ type: "mutate", id: p.id, ops });
+    };
     const tgt = (t: number | string) =>
       typeof t === "number" ? { node: t } : { sel: t };
     return {
       id: p.id,
       get rect() { return { ...p.rect }; },
-      setHtml: (html) => this.send({ type: "setHtml", id: p.id, html }),
+      setHtml: (html) => { sent.clear(); this.send({ type: "setHtml", id: p.id, html }); },
       setText: (t, text) => mutate({ op: "text", ...tgt(t), text }),
       setAttr: (t, name, value) => mutate({ op: "attr", ...tgt(t), name, value }),
       removeAttr: (t, name) => mutate({ op: "rattr", ...tgt(t), name }),
       setStyle: (t, prop, value) => mutate({ op: "style", ...tgt(t), prop, value }),
       setInnerHtml: (t, html) => mutate({ op: "innerHtml", ...tgt(t), html }),
-      mutate: (ops) => this.send({ type: "mutate", id: p.id, ops }),
+      mutate: (ops) => {
+        const out = filterOps(ops);
+        if (out.length) this.send({ type: "mutate", id: p.id, ops: out });
+      },
       focus: (t) => {
         // Claim key routing host-side too — a panel that asks for DOM focus
         // wants the keys (modal overlays rely on this for Escape etc.).

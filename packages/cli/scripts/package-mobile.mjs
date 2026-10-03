@@ -666,7 +666,8 @@ const manifest = manifestTpl
   .replaceAll("@APP_NAME@", appName.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll('"', "&quot;"))
   .replaceAll("@VERSION_CODE@", String(versionCode))
   .replaceAll("@VERSION_NAME@", versionName.replaceAll("&", "&amp;").replaceAll("<", "&lt;"))
-  .replaceAll("@MIN_SDK@", minSdk);
+  .replaceAll("@MIN_SDK@", minSdk)
+  .replaceAll("@DEBUGGABLE@", modeArg === "dev" ? "true" : "false");
 writeFileSync(join(stageRoot, "AndroidManifest.xml"), manifest);
 
 const unsigned = join(stageRoot, "unsigned.apk");
