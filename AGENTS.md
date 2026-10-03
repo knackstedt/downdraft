@@ -27,7 +27,7 @@ Game detection: a directory is a game when it has `downdraft.config.json` or `sr
 The mobile path is **native** — the same winit+wgpu Rust stack plus embedded libnode, no browser shell.
 
 - **Shell**: `packages/android-shell` — a `cdylib` (`libdowndraft_android.so`) implementing `android.app.NativeActivity` via `android-activity`. It statically links `downdraft-platform` (so the winit loop on the app thread and the JS thread share the same event-queue statics — JS `dlopen`s **this** .so, never a separate platform lib), extracts `assets/bundle/` → `internalDataPath/bundle/` via `manifest.txt` (AAssetDir cannot enumerate subdirs), redirects stdio→logcat (tag `downdraft`), then runs `node::Start` on `bundle/index.js` from a spawned thread.
-- **libnode**: `packages/node-mobile` — an overlay recipe (pinned `node-version.txt` + sha256 + `patches/` series + `overlay/` files) applied to pristine upstream Node **v26.10.0**; `scripts/build-android.mjs` produces `build/dist/android/<abi>/libnode.so` for `arm64-v8a`/`x86_64`. NDK **r30** required — r28's clang 19 can't compile V8 14.6's consteval regexp dispatch (needs clang ≥20); `deps/v8/include/atomic-ref-shim.h` polyfills `std::atomic_ref` for NDKs ≤r28 whose libc++ strips it (no-op on r30), plus `g++` host toolset for V8's C++20 alias-CTAD. `--v8-disable-temporal-support` is set (vendored Temporal Rust has no Android wiring).
+- **libnode**: `packages/node-mobile` — an overlay recipe (pinned `node-version.txt` + sha256 + `patches/` series + `overlay/` files) applied to pristine upstream Node **v26.10.0**; `packages/node-mobile/scripts/build-android.mjs` produces `build/dist/android/<abi>/libnode.so` for `arm64-v8a`/`x86_64`. NDK **r30** required — r28's clang 19 can't compile V8 14.6's consteval regexp dispatch (needs clang ≥20); `deps/v8/include/atomic-ref-shim.h` polyfills `std::atomic_ref` for NDKs ≤r28 whose libc++ strips it (no-op on r30), plus `g++` host toolset for V8's C++20 alias-CTAD. `--v8-disable-temporal-support` is set (vendored Temporal Rust has no Android wiring).
 - **Packaging**: `draft release --target=android` → `packages/cli/scripts/package-mobile.mjs` — Bun-bundles the entry + workers as `.mjs` files under `assets/bundle/` (repo-rel layout, `index.js` shim), stages `dd-assets/` + `node_modules/koffi` + `@koromix/koffi-android-*`, writes `manifest.txt`, then assembles the APK directly with `aapt2`/`zip`/`zipalign`/`apksigner` (`hasCode=false` — no Gradle/dex needed). `packages/android-shell/gradle/` is an equivalent Android-Studio skeleton.
 - **Lifecycle**: on Android `sdl_shim_create_window` only records the request — the winit loop creates the Window on `resumed()` (or via EventLoopProxy wakeup). Wire events 15/16/17 = touch/suspended/resumed; `NativeWindow` blocks for the first RESUMED, drops+rebinds the wgpu surface across suspend/resume, and synthesizes pointer+mouse events from touch.
 - **ABI note**: engine cdylibs ship as separate `lib/<abi>/libdowndraft_*.so` and are resolved by bare soname (`lib-paths.ts` android branch). `libdowndraft_platform.so` is intentionally **not** shipped standalone — it would duplicate the event-queue statics.
@@ -81,7 +81,7 @@ Feature modules (`@downdraft/engine/modules/terrain`, `@downdraft/engine/modules
 ### Migration guide (from old API)
 
 1. **String-based resources → typed tokens**: Replace `world.setResource("name", value)` / `world.getResource("name")` with `resourceToken<T>("name")` + `ctx.provide(token, value)` / `ctx.inject(token)`.
-2. **bootstrapGame() callbacks → startGame() module**: Replace the callback-soup `main.tsx` with a declarative `GameModule`. Move sim event handling into `events: {}`, game-specific wiring into `onReady`, cleanup into `onDispose`.
+2. **bootstrapGame() callbacks → startGame() module**: Replace the callback-soup `main.ts` with a declarative `GameModule`. Move sim event handling into `events: {}`, game-specific wiring into `onReady`, cleanup into `onDispose`.
 3. **Manual library wiring → EngineLibrary descriptors**: Replace manual SAB allocation + system instantiation with `libraries: [WaterLib, ...]` in the GameModule. Use typed tokens to inject library-provided resources.
 4. **registerModuleDeferred + activateAll → useModules**: Replace the two-step batch registration with `moduleHost.useModules([...])`.
 
@@ -327,17 +327,17 @@ The `opts` object encapsulates all config and dependencies. This is the standard
 - `bun test packages/engine/core/src/render/bindless/bindless.spec.ts` — bindless texture registry + material manager specs.
 - `bun test packages/engine/core/src/material/material.spec.ts packages/engine/core/src/material/variants.spec.ts` — material + variant specs.
 - `bun test packages/engine/shader-graph/src/graph.spec.ts` — shader graph compiler specs (includes GBuffer multi-target + variant tests).
-- `bun test packages/engine/modules/models/src/material-adapter.spec.ts` — MaterialData→Material adapter specs.
+- `bun test packages/engine/libraries/models/src/material-adapter.spec.ts` — MaterialData→Material adapter specs.
 - `bun test packages/engine/core/src/assets/model-normalizer.spec.ts` — model normalizer math (up-axis, units, bounds, auto-fit).
-- `bun test packages/engine/modules/models/src/bake-node-transforms.spec.ts` — node hierarchy transform baking specs.
-- `bun test packages/engine/modules/models/src/sidecar/sidecar.spec.ts` — sidecar parsers (.ddmeta.json, Unity .meta, Godot .import, Blender extras).
-- `bun test packages/engine/modules/models/src/normalize.spec.ts` — full normalization pipeline specs.
+- `bun test packages/engine/libraries/models/src/bake-node-transforms.spec.ts` — node hierarchy transform baking specs.
+- `bun test packages/engine/libraries/models/src/sidecar/sidecar.spec.ts` — sidecar parsers (.ddmeta.json, Unity .meta, Godot .import, Blender extras).
+- `bun test packages/engine/libraries/models/src/normalize.spec.ts` — full normalization pipeline specs.
 - `bun test packages/engine/core/src/module/host.spec.ts` — ModuleHost activation order, deferred registration, dispose order (12 tests).
 - `bun test packages/engine/modules/devtools/src/api.spec.ts` — Unified DevTools API: realm detection, SAB data feeds, manifest, panel/command registration (17 tests).
 - `bun test packages/engine/core/src/render/gpu-utils.spec.ts` — GPU resource creation utilities (8 tests, uses mock GPUDevice).
-- `bun test games/to-the-ocean/modules/wildlife/src/wildlife-module.spec.ts` — game module wrappers (wildlife, buoyancy, collision) (9 tests).
-- `bun test packages/engine/modules/persistence/src/file-save-store.spec.ts` — FileSaveStore (filesystem ISaveStore) specs (9 tests).
-- `bun test packages/engine/modules/persistence/src/opfs-save-store.spec.ts` — OpfsSaveStore (OPFS ISaveStore) specs (22 tests). Uses mock OPFS — no browser/worker environment needed.
+- `bun test games/to-the-ocean/modules/wildlife/src/wildlife-plugin.spec.ts` — game module wrappers (wildlife, buoyancy, collision) (9 tests).
+- `bun test packages/engine/libraries/persistence/src/file-save-store.spec.ts` — FileSaveStore (filesystem ISaveStore) specs (9 tests).
+- `bun test packages/engine/libraries/persistence/src/opfs-save-store.spec.ts` — OpfsSaveStore (OPFS ISaveStore) specs (22 tests). Uses mock OPFS — no browser/worker environment needed.
 - `bun run draft:test` — e2e smoke test with hardware GPU (headless, deterministic). Equivalent to `draft test --renderer=gpu`.
 - `bun run draft:test-cpu` — e2e smoke test with SwiftShader software rendering (headless, deterministic). Equivalent to `draft test --renderer=cpu`. Use this for CI.
 - `bun run draft:test -- --headed` — same but shows the native winit window (useful for debugging).
@@ -431,7 +431,7 @@ The material system is unified around the **shader graph as the single source of
 
 ### Material adapter (module-models)
 
-`materialDataToMaterial()` (`packages/engine/modules/models/src/material-adapter.ts`) bridges serialized `MaterialData` (glTF/obj format) to the core `Material` surface. Maps baseColor/metallic/roughness/emissive to uniforms, sets `inlineShaderSource` from the physical fallback .wgsl. `materialDataArrayToMaterials()` batch-converts. The game's `RendererAccessors.uploadModel()` calls this to register materials in a `MaterialLibrary`.
+`materialDataToMaterial()` (`packages/engine/libraries/models/src/material-adapter.ts`) bridges serialized `MaterialData` (glTF/obj format) to the core `Material` surface. Maps baseColor/metallic/roughness/emissive to uniforms, sets `inlineShaderSource` from the physical fallback .wgsl. `materialDataArrayToMaterials()` batch-converts. The game's `RendererAccessors.uploadModel()` calls this to register materials in a `MaterialLibrary`.
 
 ## Model Import Normalization Pipeline
 
@@ -441,9 +441,9 @@ The engine has a unified model import normalization pipeline that corrects commo
 
 - **`ImportSettings`** (`packages/engine/core/src/assets/import-settings.ts`) — per-model normalization config: `upAxis`, `units`, `scale`, `rotation`, `centerToOrigin`, `autoFit`, `nodeTransforms`. Resolved from sidecar files or parser-detected defaults.
 - **`model-normalizer.ts`** (`packages/engine/core/src/assets/model-normalizer.ts`) — pure transform math: `applyUpAxisConversion` (Z-up→Y-up), `applyUnitScale` (source units→meters), `applyRootScale`, `applyRootRotation` (quaternion), `computeBounds`, `centerToOrigin`, `autoFit`, `isExtremeScale`. Operates on interleaved [pos(3)+normal(3)] mesh vertices (6 floats/vertex).
-- **`bake-node-transforms.ts`** (`packages/engine/modules/models/src/bake-node-transforms.ts`) — bakes glTF/FBX node hierarchy transforms (translation, rotation, scale) into mesh vertices. Promoted from downdraft-model-viewer to the engine so all games benefit.
-- **`normalize.ts`** (`packages/engine/modules/models/src/normalize.ts`) — orchestrates the full pipeline: up-axis → unit scale → node-transform baking → root rotation → user scale → bounds → center → auto-fit. `normalizeModel()` applies settings; `normalizeModelWithResolution()` resolves sidecars then normalizes.
-- **`loadModel()`** (`packages/engine/modules/models/src/loader.ts`) — now normalizes by default after parsing. Pass `normalize: false` to skip (e.g. for games that handle their own transforms). Pass `sidecarResolver` for custom sidecar resolution.
+- **`bake-node-transforms.ts`** (`packages/engine/libraries/models/src/bake-node-transforms.ts`) — bakes glTF/FBX node hierarchy transforms (translation, rotation, scale) into mesh vertices. Promoted from downdraft-model-viewer to the engine so all games benefit.
+- **`normalize.ts`** (`packages/engine/libraries/models/src/normalize.ts`) — orchestrates the full pipeline: up-axis → unit scale → node-transform baking → root rotation → user scale → bounds → center → auto-fit. `normalizeModel()` applies settings; `normalizeModelWithResolution()` resolves sidecars then normalizes.
+- **`loadModel()`** (`packages/engine/libraries/models/src/loader.ts`) — now normalizes by default after parsing. Pass `normalize: false` to skip (e.g. for games that handle their own transforms). Pass `sidecarResolver` for custom sidecar resolution.
 
 ### Sidecar System
 
@@ -453,7 +453,7 @@ Per-model import settings are stored in sidecar files, tried in priority order:
 3. Godot `.import` (INI, `scale`/`rotation` params)
 4. Blender extras (glTF `asset.extras.glTF2ExportSettings.YUP`)
 
-Sidecar parsers: `packages/engine/modules/models/src/sidecar/` — `ddmeta.ts`, `unity-meta.ts`, `godot-import.ts`, `blender-extras.ts`, `resolver.ts`.
+Sidecar parsers: `packages/engine/libraries/models/src/sidecar/` — `ddmeta.ts`, `unity-meta.ts`, `godot-import.ts`, `blender-extras.ts`, `resolver.ts`.
 
 ### Parser Detection
 
@@ -465,7 +465,7 @@ FBX parser reads `GlobalSettings` for `UpAxis` (0/1=Y-up, 2=Z-up) and `UnitScale
 
 ## Save system / storage backends
 
-`ISaveStore` (`packages/engine/core/src/save/persist-types.ts`) is the storage interface for versioned game saves. The extended interface supports: `save`/`load` (with `SaveOptions`/`LoadOptions` for blobs, thumbnails, properties, generation control), `listSaves`/`listGenerations`/`deleteSave`/`deleteGeneration`, `setThumbnail`/`getThumbnail`, `setProperties`/`getProperties`, and `onWarning`. Saves are a zstd-compressed JSON body of per-component sections (each with its own schema version) plus a header (engine version, timestamp, entity/player counts, XXH128 hash). The `MigrationRegistry` runs per-component `fromVersion→toVersion` migrations on load; forward-incompatible saves (newer engine than current) are refused. Implementations live in `@downdraft/engine/libraries/persistence` (`packages/engine/modules/persistence/`):
+`ISaveStore` (`packages/engine/core/src/save/persist-types.ts`) is the storage interface for versioned game saves. The extended interface supports: `save`/`load` (with `SaveOptions`/`LoadOptions` for blobs, thumbnails, properties, generation control), `listSaves`/`listGenerations`/`deleteSave`/`deleteGeneration`, `setThumbnail`/`getThumbnail`, `setProperties`/`getProperties`, and `onWarning`. Saves are a zstd-compressed JSON body of per-component sections (each with its own schema version) plus a header (engine version, timestamp, entity/player counts, XXH128 hash). The `MigrationRegistry` runs per-component `fromVersion→toVersion` migrations on load; forward-incompatible saves (newer engine than current) are refused. Implementations live in `@downdraft/engine/libraries/persistence` (`packages/engine/libraries/persistence/`):
 
 - **`OpfsSaveStore`** (`opfs-save-store.ts`) — **default** OPFS-backed store for Web Workers and renderer. Writes directly to OPFS (no IPC, no main process). Supports generation history (N snapshots per slot, previous gen is backup on corruption), binary blobs (stored as separate files per blob key), thumbnails (PNG/WebP bytes), and arbitrary properties (game mode, playtime, etc.). Uses `createSyncAccessHandle()` in workers (sync I/O) or `createWritable()` on main thread. Directory layout: `downdraft/saves/<slot>/meta.json` + `thumbnail.png` + `gen/<NNNN>/body.zst` + `body.hash` + `blobs/<key>`. The `meta.json` file is the commit point — written last after body + blobs. 22 tests in `opfs-save-store.spec.ts` (uses mock OPFS via `mock-opfs.ts`).
 
@@ -571,7 +571,7 @@ The engine uses a bindless material binding model to eliminate per-draw bind-gro
 
 ## Recent performance work
 
-- Simulation tick telemetry now emits `perf_stats` with `process: "sim"` every 30 ticks; `main.tsx` records systems into the `TelemetryCollector` overlay.
+- Simulation tick telemetry now emits `perf_stats` with `process: "sim"` every 30 ticks; the game module records systems into the `TelemetryCollector` overlay.
 - `simulation-tick.ts` caches player center once per tick and builds slow-log/per-event arrays with loops instead of chained filter/map.
 - ECS `World` uses numeric archetype keys, avoids `allArchetypes.includes`, removes duplicate `updateQueryArchetypes` call in `step`, and `Schedule` caches the query list.
 - `WebGPURenderer` builds a single `GPUCommandEncoder` per frame and submits once; the depth texture cache is cleared on resize.
@@ -1128,7 +1128,7 @@ The engine has a runtime modding system built on `PluginHost` (`packages/engine/
 
 ### Game migration (Andrew's Sandbox)
 
-Andrew's Sandbox migrated from direct `PluginScanner → ContentRegistry` wiring to `PluginHost` with bridged extension loaders. See `games/andrews-sandbox/src/plugin-host-bridge.ts` and the plugin discovery section in `games/andrews-sandbox/src/game-module.tsx`.
+Andrew's Sandbox migrated from direct `PluginScanner → ContentRegistry` wiring to `PluginHost` with bridged extension loaders. See `games/andrews-sandbox/src/plugin-host-bridge.ts` and the plugin discovery section in `games/andrews-sandbox/src/game-module.ts`.
 
 The bridge adapts:
 - `ContentRegistry` → `AssetRegistry` (meshes/textures/pbr-materials/texture-pipelines)
@@ -1167,7 +1167,7 @@ dd plugin list [--game <game>]
 - `packages/engine/core/src/plugin/material-registry.ts` — mod-defined material shader registry.
 - `packages/engine/libraries/postfx/src/post-process-stack.ts` — custom effect registration.
 - `games/andrews-sandbox/src/plugin-host-bridge.ts` — sandbox bridge adapters.
-- `games/andrews-sandbox/src/game-module.tsx` — PluginHost wiring in sandbox.
+- `games/andrews-sandbox/src/game-module.ts` — PluginHost wiring in sandbox.
 - `packages/cli/src/scaffold-plugin.ts` — mod/plugin scaffold.
 - `packages/cli/src/plugin-command.ts` — `dd plugin` / `dd mod` CLI commands.
 
@@ -1250,7 +1250,7 @@ Native binaries are **not committed** and consumers never compile them:
 
 Native runs on three JS runtimes — **Bun** (default, `bun:ffi`), **Node+tsx** (`koffi`, `wgsl-loader.mjs`), **Deno** (`Deno.dlopen`, root `deno.json` + `--allow-all --unstable-sloppy-imports`). Steady-state perf is identical across runtimes (GPU + fixed-dt sim don't depend on the JS runtime); differences are boot time (~0.5–1.0s Bun, ~1.0s Node/Deno) and footprint (~520MB Bun / ~1.05GB Node / ~690MB Deno RSS on mining-rpg). Packaging spike: `scripts/package-native.mjs` compiles a game's native entry into a standalone Bun binary (verified end-to-end on mining-rpg — workers, saves, MCP, screenshots all work in the packaged binary).
 
-Cross-runtime gotchas: tsconfig `paths` and `deno.json` alias `xxh3-ts` → a `.d.ts`, and tsx/Deno honor it at runtime — `hash-utils.ts` requires `xxh3-ts/index.js` (deep path) in its fallback to bypass the alias. Shared `game-module.ts` files must not import `.css` (Deno has no loader hooks) — keep CSS in the browser-only `main.tsx`. `node:module` imports must be lazy dynamic imports in shared code (browser bundles).
+Cross-runtime gotchas: tsconfig `paths` and `deno.json` alias `xxh3-ts` → a `.d.ts`, and tsx/Deno honor it at runtime — `hash-utils.ts` requires `xxh3-ts/index.js` (deep path) in its fallback to bypass the alias. Shared `game-module.ts` files must not import `.css` (Deno has no loader hooks) — there is no browser-only entry point where CSS can load. `node:module` imports must be lazy dynamic imports in shared code (a static `node:module` specifier resolves before runtime shims install).
 
 ## Native DevTools (`@downdraft/engine/libraries/devtools`)
 
@@ -1266,7 +1266,7 @@ A native in-game debugger overlay that replaces Chrome DevTools for the native b
 
 ### Panels (16)
 
-Console, Scene (PIXI tree), GPU, Recorder (CDP profile + flame chart), Metrics (per-thread ProfilingSAB), ECS/DOM tree, Sim, Memory (RSS/VRAM + force-GC), Render Graph (frame-graph slots + pass timings, shows "timestamps unsupported" when the GPU timer pool is unavailable), Materials (MaterialLibrary or ModelRenderer bindless occupancy), Doctor (cross-thread module report), Workers (SAB slots + eval targets + cached sim manifest), Input (live egui input mirror), PostFX (28 effect toggles + params via the command channel), Assets (models/textures/buffers + missing-asset warnings), Game (provider-fed KV: vitals, world state, boats, weather).
+Console, Scene (entity/scene tree), GPU, Recorder (CDP profile + flame chart), Metrics (per-thread ProfilingSAB), ECS/DOM tree, Sim, Memory (RSS/VRAM + force-GC), Render Graph (frame-graph slots + pass timings, shows "timestamps unsupported" when the GPU timer pool is unavailable), Materials (MaterialLibrary or ModelRenderer bindless occupancy), Doctor (cross-thread module report), Workers (SAB slots + eval targets + cached sim manifest), Input (live egui input mirror), PostFX (28 effect toggles + params via the command channel), Assets (models/textures/buffers + missing-asset warnings), Game (provider-fed KV: vitals, world state, boats, weather).
 
 ### Generic snapshot + command protocol
 
@@ -1295,7 +1295,7 @@ Verified tri-runtime (mining-rpg native, ~20s steady state): all three boot the 
 
 Cross-runtime landmines to keep in mind:
 - **tsconfig `paths` are type-only, but tsx and Deno honor them at runtime.** The `"xxh3-ts"` alias maps to a `.d.ts` — under tsx/Deno `import "xxh3-ts"` loads the declaration file as an empty module. Runtime workarounds must use a subpath the alias doesn't cover (e.g. `require("xxh3-ts/index.js")`), never a bare specifier.
-- **CSS imports must stay out of shared modules** — `game-module.ts` runs on native where `.css` can't load (Deno has no loader hooks at all). Keep `import "./x.css"` in browser-only `main.tsx` entries.
+- **CSS imports must stay out of shared modules** — `game-module.ts` runs on native where `.css` can't load (Deno has no loader hooks at all). There is no browser-only entry where CSS can load — keep `import "./x.css"` out of game code entirely.
 - **JSON imports need `with { type: "json" }`** for Deno (supported by Node ≥20, Vite, Bun, browsers).
 - **Node has no global `Worker`** — dom-polyfills wraps worker_threads on the main thread and `ffi/worker-bootstrap.mjs` re-installs the same wrapper inside workers for nested spawns.
 - **`__ddRequestFrame` prefers a renderer's own `renderOneFrame()`** over the inherited `GameRenderer.renderOnce()` — renderers that draw outside the GameRenderer frame graph (tto) would otherwise acquire-but-not-write the surface texture and starve the capture hook via the write-tracking present-skip.
