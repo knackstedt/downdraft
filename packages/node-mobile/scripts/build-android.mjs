@@ -6,6 +6,8 @@
 //   ANDROID_NDK_HOME / ANDROID_NDK / NDK_PATH — path to the Android NDK
 //   NODEJS_MOBILE_SCCACHE=1                   — route compiles through sccache
 //   NODEJS_MOBILE_FLAVOR=full|lite            — build flavor (default full)
+//   NODEJS_MOBILE_RESUME=1                    — keep out/ so a bounded CI slice
+//                                               can continue a prior attempt
 //
 // Output: build/dist/android/<abi>/libnode.so plus shared libnode headers in
 // build/dist/android/include/node/.
@@ -61,8 +63,16 @@ for (const arch of arches) {
   const abi = ABIS[arch];
   console.log(`\n[node-mobile] === ${abi} (arch=${arch}, api=${sdk}) ===`);
 
-  // Each arch needs a clean configure — out/ is shared state.
-  execSync("make clean >/dev/null 2>&1 || true", { cwd: treeDir, shell: "/bin/bash" });
+  // Each arch needs a clean configure — out/ is shared state. Resume mode
+  // (CI) keeps out/ so a job killed at the hosted-runner time cap can
+  // continue incrementally on re-run; `make` is incremental and GNU make
+  // deletes the partial target of a killed recipe, so a restored out/ is
+  // safe to continue from.
+  if (process.env.NODEJS_MOBILE_RESUME === "1" && existsSync(join(treeDir, "out"))) {
+    console.log("[node-mobile] resume: keeping existing out/");
+  } else {
+    execSync("make clean >/dev/null 2>&1 || true", { cwd: treeDir, shell: "/bin/bash" });
+  }
   execFileSync("./android-configure", [ndk, sdk, arch], { cwd: treeDir, stdio: "inherit", env: hostEnv });
   execFileSync("make", ["-j", jobs], { cwd: treeDir, stdio: "inherit", env: hostEnv });
 

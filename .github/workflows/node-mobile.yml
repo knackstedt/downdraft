@@ -40,6 +40,11 @@ jobs:
           - { arch: x86_64, abi: x86_64, pkgArch: x64 }
 
     runs-on: ubuntu-latest
+    # GitHub-hosted runners hard-cap jobs at 360 min — a cold V8+Node build
+    # (~6h on 4 vCPUs) can exceed it. The build therefore runs in a bounded
+    # slice and caches the whole source tree+out/ per attempt: on timeout the
+    # job fails cleanly, and "Re-run failed jobs" resumes incrementally.
+    timeout-minutes: 355
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -65,15 +70,53 @@ jobs:
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;30.0.16248370"
 
+      - name: Restore partial build tree (attempt resume)
+        uses: actions/cache/restore@v4
+        with:
+          path: packages/node-mobile/build/node-v26.10.0
+          key: nodemobile-tree-${{ matrix.abi }}-${{ github.run_id }}-a${{ github.run_attempt }}
+          restore-keys: |
+            nodemobile-tree-${{ matrix.abi }}-${{ github.run_id }}-
+
       - name: Materialize Node source tree
-        run: node packages/node-mobile/scripts/prepare.mjs
+        run: |
+          if [ -f "packages/node-mobile/build/node-v26.10.0/.node-mobile-prepared" ]; then
+            echo "Restored prepared tree from cache — skipping prepare"
+          else
+            node packages/node-mobile/scripts/prepare.mjs
+          fi
 
       - name: Build libnode.so (${{ matrix.abi }})
+        id: build
         env:
           NODEJS_MOBILE_SCCACHE: "1"
+          NODEJS_MOBILE_RESUME: "1"
+          SCCACHE_CACHE_SIZE: "10G"
         run: |
+          set +e
           ANDROID_NDK_HOME="$ANDROID_HOME/ndk/30.0.16248370" \
-            node packages/node-mobile/scripts/build-android.mjs --arch=${{ matrix.arch }}
+            timeout 285m node packages/node-mobile/scripts/build-android.mjs --arch=${{ matrix.arch }}
+          code=$?
+          if [ $code -eq 124 ] || [ $code -eq 143 ]; then
+            echo "incomplete=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          exit $code
+
+      # Saved only on timeout — a completed build has no partial state worth
+      # caching. Keyed per-attempt so each re-run restores the latest slice.
+      - name: Save partial build tree
+        if: steps.build.outputs.incomplete == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: packages/node-mobile/build/node-v26.10.0
+          key: nodemobile-tree-${{ matrix.abi }}-${{ github.run_id }}-a${{ github.run_attempt }}
+
+      - name: Resume check
+        if: steps.build.outputs.incomplete == 'true'
+        run: |
+          echo "::error::Build hit the hosted-runner cap — partial tree cached. Use 'Re-run failed jobs' to resume."
+          exit 1
 
       - name: Smoke-check materialized tree + artifact
         run: node packages/node-mobile/scripts/smoke.mjs
