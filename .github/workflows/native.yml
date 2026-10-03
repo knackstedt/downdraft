@@ -39,7 +39,8 @@ jobs:
           # x86_64 linux on the oldest supported glibc (ubuntu-22.04).
           - { os: ubuntu-22.04, triples: "x86_64-unknown-linux-gnu", nodePlats: "linux-x64" }
           - { os: ubuntu-24.04-arm, triples: "aarch64-unknown-linux-gnu", nodePlats: "linux-arm64" }
-          - { os: macos-latest, triples: "aarch64-apple-darwin x86_64-apple-darwin", nodePlats: "darwin-arm64 darwin-x64" }
+          - { os: macos-latest, triples: "aarch64-apple-darwin", nodePlats: "darwin-arm64" }
+          - { os: macos-latest, triples: "x86_64-apple-darwin", nodePlats: "darwin-x64" }
           - { os: windows-latest, triples: "x86_64-pc-windows-msvc", nodePlats: "win32-x64" }
 
     runs-on: ${{ matrix.os }}
