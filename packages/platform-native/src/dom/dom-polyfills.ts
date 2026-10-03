@@ -1,11 +1,11 @@
 // ============================================================================
 // dom-polyfills.ts — browser-global polyfills for native mode
 //
-// Installs the DOM surface the engine and browser-shaped npm libraries
-// expect: document, window, ResizeObserver/IntersectionObserver, storage,
-// Worker, and the standard DOM globals (HTMLCanvasElement, DOMParser,
-// FontFace, ...). Extracted from native-host.ts — no GPU/window logic
-// lives here.
+// Installs the DOM surface the engine and canvas-shaped npm libraries
+// actually use: document, window, ResizeObserver, storage, Worker, UI-event
+// constructors, and the canvas globals (HTMLCanvasElement,
+// CanvasRenderingContext2D). Extracted from native-host.ts — no GPU/window
+// logic lives here.
 // ============================================================================
 
 import { createLogger } from "@downdraft/engine";
@@ -142,24 +142,8 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
         contains: (n: any) => bodyChildren.has(n),
         get children() { return [...bodyChildren]; },
       },
-      documentElement: { style: {} },
-      hidden: false,
       pointerLockElement: null as any,
       exitPointerLock: () => surface.exitPointerLock(),
-      // Libraries resolve relative resource URLs against document.baseURI.
-      baseURI: `file://${process.cwd()}/`,
-      // document.fonts — FontFaceSet stub for libraries that enumerate or
-      // register fonts.
-      fonts: {
-        ready: Promise.resolve(),
-        onloadingdone: null,
-        load: () => Promise.resolve(),
-        check: () => true,
-        add: () => {},
-        delete: () => {},
-        clear: () => {},
-        forEach: () => {},
-      },
     };
     (globalThis as any).document = doc;
 
@@ -176,40 +160,21 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
         Object.setPrototypeOf(VirtualCanvas.prototype, HTMLCanvasElement.prototype);
       } catch { /* ignore */ }
     }
-    if (typeof (globalThis as any).HTMLImageElement === "undefined") {
-      (globalThis as any).HTMLImageElement = class HTMLImageElement {};
-    }
     if (typeof (globalThis as any).CanvasRenderingContext2D === "undefined") {
       (globalThis as any).CanvasRenderingContext2D = NativeCanvas2D;
-    }
-    if (typeof (globalThis as any).WebGLRenderingContext === "undefined") {
-      // Defined so `instanceof WebGLRenderingContext` / feature-detection
-      // probes don't throw; nothing on native actually constructs it.
-      (globalThis as any).WebGLRenderingContext = class WebGLRenderingContext {};
-    }
-    if (typeof (globalThis as any).DOMParser === "undefined") {
-      // Minimal stub for libraries that parse SVG/XML. Returns an object with
-      // querySelector/getElementsByTagName returning empty results.
-      (globalThis as any).DOMParser = class DOMParser {
-        parseFromString() {
-          return {
-            querySelector: () => null,
-            querySelectorAll: () => [],
-            getElementsByTagName: () => [],
-            documentElement: { getAttribute: () => null },
-          };
-        }
-      };
-    }
-    if (typeof (globalThis as any).FontFace === "undefined") {
-      (globalThis as any).FontFace = class FontFace {
-        constructor(_family: string, _source: string) {}
-        load() { return Promise.resolve(this); }
-      };
     }
   }
 
   // window polyfill
+  const reload = () => {
+    // Browser callers use reload() as the everything-is-broken escape
+    // hatch (device loss, HMR). On native it routes through the host's
+    // restart hook — a detached self-respawn — which is the real reload
+    // equivalent. Without the hook (unhosted run) it stays a no-op.
+    const req = (globalThis as any).__ddRequestRestart;
+    if (typeof req === "function" && req("window.location.reload()")) return;
+    log.warn("native", "window.location.reload() called — no restart hook installed");
+  };
   if (typeof (globalThis as any).window === "undefined") {
     const win = {
       // Live getters — reflect SDL window resizes.
@@ -222,24 +187,14 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
       dispatchEvent: (event: any) => window.dispatchEvent(event),
       requestAnimationFrame: (callback: (time: number) => void) => window.requestAnimationFrame(callback),
       cancelAnimationFrame: (id: number) => window.cancelAnimationFrame(id),
-      location: {
-        // Browser callers use reload() as the everything-is-broken escape
-        // hatch (device loss, HMR). On native it routes through the host's
-        // restart hook — a detached self-respawn — which is the real reload
-        // equivalent. Without the hook (unhosted run) it stays a no-op.
-        reload: () => {
-          const req = (globalThis as any).__ddRequestRestart;
-          if (typeof req === "function" && req("window.location.reload()")) return;
-          log.warn("native", "window.location.reload() called — no restart hook installed");
-        },
-      },
+      location: { reload },
     };
     (globalThis as any).window = win;
   } else {
-    // Augment existing window
+    // Augment existing window (Deno defines one — Bun/Node do not)
     (globalThis as any).window.addEventListener = (type: string, listener: any) => window.addEventListener(type, listener);
     (globalThis as any).window.requestAnimationFrame = (callback: (time: number) => void) => window.requestAnimationFrame(callback);
-    (globalThis as any).window.location = { reload: () => {} };
+    (globalThis as any).window.location = { reload };
   }
 
   // DOM event constructors — Bun ships Event/CustomEvent but not the UI
@@ -336,23 +291,6 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
     };
   }
 
-  // DOMRect / DOMRectReadOnly
-  if (typeof (globalThis as any).DOMRect === "undefined") {
-    (globalThis as any).DOMRect = class DOMRect {
-      x: number; y: number; width: number; height: number;
-      constructor(x = 0, y = 0, width = 0, height = 0) {
-        this.x = x; this.y = y; this.width = width; this.height = height;
-      }
-      get top() { return this.y; }
-      get left() { return this.x; }
-      get right() { return this.x + this.width; }
-      get bottom() { return this.y + this.height; }
-      toJSON() { return { x: this.x, y: this.y, width: this.width, height: this.height, top: this.top, left: this.left, right: this.right, bottom: this.bottom }; }
-      static fromRect(r: any = {}) { return new (globalThis as any).DOMRect(r.x ?? 0, r.y ?? 0, r.width ?? 0, r.height ?? 0); }
-    };
-    (globalThis as any).DOMRectReadOnly = (globalThis as any).DOMRect;
-  }
-
   // No document.elementFromPoint — native input dispatch targets the
   // RenderSurface directly; there is no DOM tree to hit-test.
 
@@ -375,22 +313,6 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
       unobserve() {}
       disconnect() {}
     };
-  }
-
-  // IntersectionObserver polyfill (some engine code may use it)
-  if (typeof (globalThis as any).IntersectionObserver === "undefined") {
-    (globalThis as any).IntersectionObserver = class IntersectionObserver {
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-      takeRecords() { return []; }
-    };
-  }
-
-  // performance.now() — Bun has this but ensure it exists
-  if (typeof (globalThis as any).performance === "undefined") {
-    const start = Date.now();
-    (globalThis as any).performance = { now: () => Date.now() - start };
   }
 
   // performance.memory — Chrome-only API the profiling bridge reads for the
@@ -455,13 +377,6 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
       clear: () => { for (const k of Object.keys(store)) delete store[k]; },
       key: (index: number) => Object.keys(store)[index] ?? null,
       get length() { return Object.keys(store).length; },
-    };
-  }
-
-  // indexedDB polyfill — the renderer disables it by default, but provide a stub
-  if (typeof (globalThis as any).indexedDB === "undefined") {
-    (globalThis as any).indexedDB = {
-      open: () => ({ onsuccess: null, onerror: null, onupgradeneeded: null, result: {} }),
     };
   }
 

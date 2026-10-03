@@ -20,9 +20,6 @@ export type { OpfsSaveStoreOptions } from "./opfs-save-store";
 export { BinaryRecordStore, createBinaryRecordStore } from "./binary-record-store";
 export type { BinaryRecordStoreOptions, IBinaryRecordStore } from "./binary-record-store";
 
-export { IndexedDBSaveStore } from "./indexeddb-save-store";
-export type { IndexedDBSaveStoreOptions } from "./indexeddb-save-store";
-
 export { SaveWorkerProxy } from "./save-worker-proxy";
 export type { SaveWorkerProxyOptions } from "./save-worker-proxy";
 

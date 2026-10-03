@@ -650,6 +650,9 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
         },
       },
       handler: (params: Record<string, unknown>) => {
+        if (!getHostCapabilities().hasDom) {
+          return errorResult("inspect_dom requires a real DOM — the native host's document is a canvas-compat facade, not a DOM tree");
+        }
         const action = params.action as string;
         if (action === "stylesheets") {
           const styles = Array.from(document.querySelectorAll("style, link[rel='stylesheet']")).map((el) => {
@@ -703,6 +706,9 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
         },
       },
       handler: (params: Record<string, unknown>) => {
+        if (!getHostCapabilities().hasDom) {
+          return errorResult("get_element_style requires a real DOM — no computed styles on the native host");
+        }
         const selector = params.selector as string;
         const props = (params.properties as string[]) ?? [];
         try {

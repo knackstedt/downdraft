@@ -24,10 +24,9 @@ export interface GamepadSnapshot {
 }
 
 /**
- * Pluggable gamepad producer. Implementations:
- *   - `BrowserGamepadSource` (this file) — navigator.getGamepads()
- *   - `SabGamepadSource` (libraries/gamepad) — the native 'gamepad-devices'
- *     channel written by the downdraft_gamepad cdylib.
+ * Pluggable gamepad producer. On the native runtime the implementation is
+ * `SabGamepadSource` (libraries/gamepad) — the 'gamepad-devices' SAB channel
+ * written by the downdraft_gamepad cdylib.
  */
 export interface GamepadSource {
   /** Indices of currently-connected pads. */
@@ -39,105 +38,14 @@ export interface GamepadSource {
   dispose?(): void;
 }
 
-const AXIS_COUNT = 8;
-
-/** W3C-standard bit index for a Gamepad API button position. */
-const W3C_BUTTON_BITS = [
-  0, 1, 2, 3, // south east west north
-  4, 5, // shoulders
-  6, 7, // trigger buttons
-  8, 9, // select start
-  10, // home ("standard" index 16 is home; see mapping below)
-  11, 12, // stick clicks
-  13, 14, 15, 16, // dpad
-] as const;
-
-/**
- * Browser Gamepad API source. Maps `gp.buttons`/`gp.axes` onto the shared
- * [lo,hi]-bitmask + 8-axis convention: sticks -1..1 on axes 0..3, trigger
- * *button values* on axes 4..5, dpad derived on axes 6..7.
- */
-export class BrowserGamepadSource implements GamepadSource {
-  private connectCbs: ((index: number) => void)[] = [];
-  private disconnectCbs: ((index: number) => void)[] = [];
-  private onConnected = (e: GamepadEvent) => {
-    for (const cb of this.connectCbs) cb(e.gamepad.index);
-  };
-  private onDisconnected = (e: GamepadEvent) => {
-    for (const cb of this.disconnectCbs) cb(e.gamepad.index);
-  };
-  private listening = false;
-
-  private api(): typeof navigator | null {
-    return typeof navigator !== "undefined" && typeof navigator.getGamepads === "function"
-      ? navigator
-      : null;
-  }
-
-  listConnected(): number[] {
-    const nav = this.api();
-    if (!nav) return [];
-    const out: number[] = [];
-    for (const gp of nav.getGamepads()) {
-      if (gp) out.push(gp.index);
-    }
-    return out;
-  }
-
-  read(index: number): GamepadSnapshot | null {
-    const nav = this.api();
-    if (!nav) return null;
-    const gp = nav.getGamepads()[index];
-    if (!gp) return null;
-
-    let lo = 0;
-    for (let i = 0; i < gp.buttons.length && i < 32; i++) {
-      if (gp.buttons[i].pressed || gp.buttons[i].value > 0.5) {
-        // W3C standard order already matches the bitmask order for the
-        // first 17 entries; index 16+ (home/capture) fold into bits 10/19.
-        const bit = i === 16 ? 10 : i === 17 ? 19 : W3C_BUTTON_BITS[i] ?? i;
-        lo |= 1 << bit;
-      }
-    }
-
-    const axes = new Array<number>(AXIS_COUNT).fill(0);
-    for (let i = 0; i < Math.min(4, gp.axes.length); i++) {
-      axes[i] = gp.axes[i];
-    }
-    // Trigger analog values live on buttons 6/7 in the standard mapping.
-    axes[4] = gp.buttons[6]?.value ?? 0;
-    axes[5] = gp.buttons[7]?.value ?? 0;
-    // Dpad axes — browsers usually expose dpad only as buttons 12..15.
-    axes[6] = (gp.buttons[15]?.pressed ? 1 : 0) - (gp.buttons[14]?.pressed ? 1 : 0);
-    axes[7] = (gp.buttons[13]?.pressed ? 1 : 0) - (gp.buttons[12]?.pressed ? 1 : 0);
-
-    return { buttonsLo: lo >>> 0, buttonsHi: 0, axes };
-  }
-
-  onConnect(cb: (index: number) => void): void {
-    this.connectCbs.push(cb);
-    this.ensureListening();
-  }
-
-  onDisconnect(cb: (index: number) => void): void {
-    this.disconnectCbs.push(cb);
-    this.ensureListening();
-  }
-
-  private ensureListening(): void {
-    if (this.listening || typeof window === "undefined") return;
-    this.listening = true;
-    window.addEventListener("gamepadconnected", this.onConnected);
-    window.addEventListener("gamepaddisconnected", this.onDisconnected);
-  }
-
-  dispose(): void {
-    if (typeof window === "undefined" || !this.listening) return;
-    window.removeEventListener("gamepadconnected", this.onConnected);
-    window.removeEventListener("gamepaddisconnected", this.onDisconnected);
-    this.listening = false;
-  }
-}
+/** Inert default — reports no devices until a real source is installed
+ *  via setGamepadSource(). */
+const NULL_GAMEPAD_SOURCE: GamepadSource = {
+  listConnected: () => [],
+  read: () => null,
+  onConnect: () => {},
+  onDisconnect: () => {},
+};
 
 export class LocalPlayerManager {
   private maxPlayers: number;
@@ -165,9 +73,9 @@ export class LocalPlayerManager {
   }
 
   /**
-   * Install a gamepad producer. Defaults to `BrowserGamepadSource` when
-   * `startListening()`/`autoAssign()` run without one. Pass the native
-   * `SabGamepadSource` (libraries/gamepad) on the native runtime.
+   * Install a gamepad producer (e.g. `SabGamepadSource` from
+   * libraries/gamepad). Until one is installed, an inert source reporting
+   * no devices is used.
    */
   setGamepadSource(source: GamepadSource): void {
     this.gamepadSource?.dispose?.();
@@ -180,7 +88,7 @@ export class LocalPlayerManager {
 
   getGamepadSource(): GamepadSource {
     if (!this.gamepadSource) {
-      this.gamepadSource = new BrowserGamepadSource();
+      this.gamepadSource = NULL_GAMEPAD_SOURCE;
     }
     return this.gamepadSource;
   }

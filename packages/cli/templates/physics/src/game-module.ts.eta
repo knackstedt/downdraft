@@ -17,12 +17,6 @@ export const gameModule: GameModule = {
   sim: () => new SimHost(),
   simConfig: { seed: 12345 },
 
-  // ── UI ──
-  mountUI: (overlay) => {
-    overlay.innerHTML =
-      '<h1 style="color:white;font-family:monospace">Physics demo</h1>';
-  },
-
   // ── Post-init wiring ──
   onReady: (ctx) => {
     console.log("[game] ready", { simSAB: ctx.simSAB, inputSAB: ctx.inputSAB });

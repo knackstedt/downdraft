@@ -10,7 +10,7 @@ games/
 .env
 .env.*
 
-# Electron build output
+# Build output
 dist
 release
 

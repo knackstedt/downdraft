@@ -261,27 +261,6 @@ export class VisionTest {
     return canvas.toDataURL("image/png");
   }
 
-  saveScreenshot(
-    data: Uint8Array,
-    width: number,
-    height: number,
-    filename: string,
-  ): void {
-    if (typeof document !== "undefined") {
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext("2d")!;
-      const imageData = ctx.createImageData(width, height);
-      imageData.data.set(data);
-      ctx.putImageData(imageData, 0, 0);
-      const link = document.createElement("a");
-      link.download = filename;
-      link.href = canvas.toDataURL("image/png");
-      link.click();
-    }
-  }
-
   destroy(): void {
     this.readbackBuffer?.destroy();
     this.readbackBuffer = null;

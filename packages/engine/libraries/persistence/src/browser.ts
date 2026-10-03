@@ -18,9 +18,6 @@ export type { BinaryRecordStoreOptions, IBinaryRecordStore } from "./binary-reco
 export { AutosaveManager } from "./autosave-manager";
 export type { AutosaveManagerOptions } from "./autosave-manager";
 
-export { IndexedDBSaveStore } from "./indexeddb-save-store";
-export type { IndexedDBSaveStoreOptions } from "./indexeddb-save-store";
-
 export { SaveWorkerProxy } from "./save-worker-proxy";
 export type { SaveWorkerProxyOptions } from "./save-worker-proxy";
 

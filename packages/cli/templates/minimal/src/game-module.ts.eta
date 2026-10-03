@@ -32,11 +32,6 @@ export const gameModule: GameModule = {
   // Sim config (passed to sim.start())
   simConfig: { seed: 12345 },
 
-  // UI mount — mount your UI framework here (React, Solid, vanilla, etc.)
-  mountUI: (overlay) => {
-    overlay.innerHTML = '<h1 style="color:white;font-family:monospace">Hello Downdraft!</h1>';
-  },
-
   // Post-init wiring — called after renderer init + sim start
   onReady: (ctx) => {
     console.log("[game] ready", { sim: ctx.sim, renderer: ctx.renderer });

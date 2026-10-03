@@ -25,7 +25,10 @@ let cachedSystemScale: number | null = null;
  */
 export function detectSystemFontScale(): number {
   if (cachedSystemScale !== null) return cachedSystemScale;
-  if (typeof document === "undefined" || !document.body) {
+  // On the native host the document is a canvas-compat facade — there is no
+  // CSS engine and no getComputedStyle, so there is no "system font size"
+  // to measure. Always 1.
+  if (typeof document === "undefined" || !document.body || typeof getComputedStyle !== "function") {
     cachedSystemScale = 1;
     return 1;
   }

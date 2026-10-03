@@ -129,7 +129,6 @@ export {
     getHostCapabilities,
     getNativeHost,
     hasHMR,
-    isBrowser,
     isBun,
     isDev,
     isDevMode,

@@ -28,14 +28,6 @@ export const gameModule: GameModule = {
   sim: (seed?: SimWorkerSeed) => new SimHost(seed?.libraryBuffers),
   simConfig: { seed: 12345, gamemode: 0, rules: {} },
 
-  // ── UI ──
-  mountUI: (overlay) => {
-    // Mount your UI framework here
-    // React: createRoot(overlay).render(<App />)
-    // Solid: render(() => <App />, overlay)
-    overlay.innerHTML = '<div id="root"></div>';
-  },
-
   // ── Sim→Renderer event routing (declarative) ──
   events: {
     ready: (_data, _ctx) => {

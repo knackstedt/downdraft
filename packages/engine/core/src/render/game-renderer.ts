@@ -10,7 +10,6 @@ import { UIInputRouter } from "../input/ui-router";
 import type { RendererModule } from "../module/renderer-module";
 import type { RenderSurface, RenderSurfaceContext } from "../platform/render-surface";
 import { getHostCapabilities, getNativeHost } from "../platform/runtime";
-import { disableRendererIndexedDb } from "../profiling/iops/renderer-idb-disable";
 import { TelemetryCollector } from "../telemetry/collector";
 import type { GPUAdapterInfo as GPUAdapterInfoData } from "../telemetry/gpu-profiler";
 import { GPUProfiler, type FrameGraphData, type GPUInfo } from "../telemetry/gpu-profiler";
@@ -83,15 +82,6 @@ export interface GameRendererConfig {
    * If null, the canvas is not cleared (the afterFrame callback must clear it).
    */
   clearColor?: GPUColor | null;
-  /**
-   * Whether to disable IndexedDB in the renderer thread by default.
-   * The renderer should not do I/O — all persistence goes through the save
-   * worker. Setting this to true (the default) patches IDBFactory.open to
-   * throw, catching accidental IDB usage in renderer-side code early.
-   * Set to false to allow renderer-side IDB (not recommended).
-   * Default: true.
-   */
-  disableRendererIndexedDb?: boolean;
   /**
    * Emit console warnings when a renderFrame / getCurrentTexture call exceeds
    * 20ms. Off by default — the warnings themselves cause jank (console I/O in
@@ -311,15 +301,6 @@ export class GameRenderer implements CanvasResizeHandler {
 
   async init(): Promise<boolean> {
     try {
-      // Disable IndexedDB in the renderer thread by default on DOM hosts —
-      // the renderer should not do I/O. Single-process hosts (native) have
-      // no renderer sandbox to protect; all persistence goes through the
-      // save path anyway. Games can opt out via
-      // config.disableRendererIndexedDb = false.
-      if (this.config.disableRendererIndexedDb !== false && getHostCapabilities().hasDom) {
-        disableRendererIndexedDb();
-      }
-
       // Device resolution order: explicit config → native host's device →
       // self-acquire. On native the host owns the only wgpu device and the
       // surface context — borrowing it avoids a second requestDevice() and

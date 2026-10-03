@@ -57,7 +57,6 @@ startGame({
   renderer: (canvas) => new WebGPURenderer(canvas),
   sim: (seed) => new SimWebWorker(seed?.libraryBuffers),
   simConfig: { seed: 12345, gamemode: 0, rules: {} },
-  mountUI: (overlay) => { /* React/Solid mount */ },
   events: { weather_changed: (data, ctx) => store.setWeather(data) },
   save: { mode: "auto", engineVersion: "0.1.0" },
   onReady: (ctx) => { /* game-specific wiring */ },
@@ -217,8 +216,8 @@ On the native runtime there is no DOM or HTML document. The single render target
 ### How it works
 
 - `GameModule.renderer: (surface: RenderSurface) => IRenderer` — the surface is injected by `bootstrapGame()`; never query `document` for a canvas.
-- `ctx.surface` / `GameRenderer.getSurface()` are the canonical accessors. `getCanvas()` / `getOverlay()` / `elementFromPoint` live in `renderer/compat/dom.ts` as deprecated DOM-host compatibility shims — they hard-fail on native (`hasDom()` is `false`).
-- The DOM-overlay `mountUI` hook is skipped on native; game UI uses `modules/html-ui` (Blitz — see the shared-APIs table above).
+- `ctx.surface` / `GameRenderer.getSurface()` are the canonical accessors. There is no DOM compositor on native (`hasDom()` is `false`) — never query `document` for the render target.
+- Game UI uses `modules/html-ui` (Blitz — see the shared-APIs table above); there is no DOM-overlay mount hook.
 - Multiple render areas (minimap, picture-in-picture) are implemented as additional OSR surfaces or viewport regions, not stacked canvases.
 
 ## Per-game storage isolation
@@ -987,10 +986,6 @@ The following execution paths are instrumented with `recordTaskLatency()` + `che
 - **QuickJS bridge** (`quickjs-bridge.ts`) — `eval()`, `callGlobal()`, and tick callbacks are timed.
 - **WASM worker** (`wasm-worker.ts`) — `tick()` and `on_event()` calls are timed.
 
-### Renderer IndexedDB disabling
-
-`GameRenderer.init()` calls `disableRendererIndexedDb()` by default (patches `window.indexedDB.open` to throw for non-allowlisted databases). Games can opt out via `GameRendererConfig.disableRendererIndexedDb = false`.
-
 ### Enabling profiling in a game
 
 1. **Vite config**: set `profiling: true` in `createDowndraftViteConfig()` to inject the worker prelude.
@@ -1009,7 +1004,6 @@ The following execution paths are instrumented with `recordTaskLatency()` + `che
 - `packages/engine/core/src/profiling/worker-prelude.ts` — worker prelude (auto-runs on import).
 - `packages/engine/core/src/profiling/iops/opfs-patch.ts` — OPFS prototype patching.
 - `packages/engine/core/src/profiling/iops/idb-patch.ts` — IndexedDB prototype patching.
-- `packages/engine/core/src/profiling/iops/renderer-idb-disable.ts` — renderer IDB disabling.
 - `packages/engine/core/src/worker/instrumented-worker-host.ts` — InstrumentedWorkerHost + exposeProfilingApi.
 - `packages/engine/modules/devtools/src/profiling-bridge.ts` — ProfilingBridge.
 - `packages/engine/modules/devtools/src/debug-view-descriptors.ts` — DebugViewDescriptor + 10 built-in views.
@@ -1241,9 +1235,9 @@ Native binaries are **not committed** and consumers never compile them:
 
 ### Runtime detection
 
-`packages/engine/core/src/platform/runtime.ts` provides `isBun`, `isBrowser`, `isDevMode`, `getHostCapabilities()`, and `getNativeHost()` for feature-detecting the runtime. Engine code should use these instead of `import.meta.env.DEV` or `typeof navigator !== "undefined"`.
+`packages/engine/core/src/platform/runtime.ts` provides `isBun`, `isDevMode`, `getHostCapabilities()`, and `getNativeHost()` for feature-detecting the runtime. Engine code should use these instead of `import.meta.env.DEV` or `typeof navigator !== "undefined"`.
 
-`packages/engine/core/src/platform/render-surface.ts` defines `RenderSurface` — the host-neutral render target (WebGPU context, dims, event target, pointer-lock). `GameRenderer`/`GameContext`/`startGame` use it; `NativeSurface` and `HTMLCanvasElement` both satisfy it. DOM helpers (`getCanvas`/`getOverlay`/`captureCanvasThumbnail`/`compositeScreenshot`) live in `app/src/renderer/compat/dom.ts` and are deprecated.
+`packages/engine/core/src/platform/render-surface.ts` defines `RenderSurface` — the host-neutral render target (WebGPU context, dims, event target, pointer-lock). `GameRenderer`/`GameContext`/`startGame` use it; `NativeSurface` and `HTMLCanvasElement` both satisfy it.
 
 **Shared GPU device across workers** (`@downdraft/platform-native` `gpu/shared-device.ts`): wgpu handles are process-global — a worker can attach to the host device via `shareDevice(device, cells)` + `attachSharedDevice(handle, cells)` (non-owning view; worker `destroy()` never releases the native device). Liveness propagates through a SAB cell — owner `pollLost`/`destroy()`/`markDeviceLost` all write it dead; workers must check `isValid()` before FFI calls (calling into a freed device is a UAF). Hand resources/command buffers to the owner by ptr (`submitCommandPtrs`, `importCommandBuffer`; `{ptr, invalid}` refs keep validation errors out of submission) — once posted, the worker must not dispose or drop the wrapper (GC would free the shared handle). Use for coarse subsystems (terrain bake, UI raster) — fine-grained per-pass splits lose to submission overhead.
 

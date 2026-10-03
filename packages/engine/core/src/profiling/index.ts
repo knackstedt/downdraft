@@ -61,11 +61,6 @@ export {
 } from "./iops/idb-patch";
 export type { IdbPatchOptions } from "./iops/idb-patch";
 
-// Renderer IDB disable
-export {
-    disableRendererIndexedDb, enableAllRendererIndexedDb, enableRendererIndexedDb, isRendererIndexedDbDisabled
-} from "./iops/renderer-idb-disable";
-
 // Worker prelude
 export {
     addWarningRule, attachProfilingSAB, detachProfilingSAB, flushProfilingTick, getEventLoopMonitor, getProfilingWriter, getSlotIndex, getTaskLatencyHistogram, getWarningEngine, isProfilingAttached, onWarning, recordTaskLatency, setHeapProvider, setWorkerTag

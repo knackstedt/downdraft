@@ -10,13 +10,12 @@
 // accessor returns a stub that no-ops / returns null. Callers that need
 // real values should guard with `downdraft?.isAvailable`.
 
-import { getHostCapabilities, getNativeHost, type RenderSurface } from "@downdraft/engine";
+import { getNativeHost, type RenderSurface } from "@downdraft/engine";
 import { OpfsSaveStore } from "@downdraft/engine/libraries/persistence/browser";
 import type {
     HostAPI,
     HostOsrAPI
 } from "../shared/types";
-import { getCanvas } from "./compat/dom";
 import { createSaveStore as _createSaveStore } from "./save-store-factory";
 
 export type HostOsr = HostOsrAPI;
@@ -191,26 +190,16 @@ export type { CombinedFeatureLog, RendererFeatureLogOptions } from "./feature-lo
  * DOM-host concept).
  */
 export function getSurface(layer: number = 0): RenderSurface {
-  if (!getHostCapabilities().hasDom) {
-    if (layer !== 0) {
-      throw new Error(`No surface for layer ${layer} — the native host exposes exactly one RenderSurface (layer 0).`);
-    }
-    // The boundary cast: NativeSurface's WebGPU context returns the wgpu
-    // wrapper types (WgpuTexture), not @webgpu/types' branded GPUTexture.
-    // The contract is honored at runtime; the cast bridges the two type
-    // universes.
-    const surface = getNativeHost()?.surface;
-    if (!surface) {
-      throw new Error("No native surface — the host has not installed __nativeHost.surface yet");
-    }
-    return surface as RenderSurface;
+  if (layer !== 0) {
+    throw new Error(`No surface for layer ${layer} — the native host exposes exactly one RenderSurface (layer 0).`);
   }
-  // DOM host — the layer canvas is the surface.
-  return getCanvas(layer) as RenderSurface;
+  // The boundary cast: NativeSurface's WebGPU context returns the wgpu
+  // wrapper types (WgpuTexture), not @webgpu/types' branded GPUTexture.
+  // The contract is honored at runtime; the cast bridges the two type
+  // universes.
+  const surface = getNativeHost()?.surface;
+  if (!surface) {
+    throw new Error("No native surface — the host has not installed __nativeHost.surface yet");
+  }
+  return surface as RenderSurface;
 }
-
-// --- DOM compat (deprecated — DOM hosts only) ---
-// Canvas/overlay layer helpers, thumbnail capture, and screenshot compositing
-// all require a real DOM. They live in renderer/compat/dom.ts and are
-// re-exported here for compatibility during the RenderSurface migration.
-export { captureCanvasThumbnail, compositeScreenshot, getAllCanvases, getCanvas, getOverlay } from "./compat/dom";

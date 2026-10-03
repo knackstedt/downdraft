@@ -3,31 +3,26 @@
 //
 // Centralizes the common bootstrap sequence shared by all games (both
 // sim-worker and renderer-only topologies):
-//   1. Mount UI (framework-agnostic: React, Solid, or none)
-//   2. Get canvas
-//   3. Create + init renderer
-//   4. Wire DevTools (if provided)
-//   5. Start the render loop immediately (don't block on autosave)
-//   6. Feature log (renderer process)
-//   7. FPS polling (if onFpsUpdate provided)
-//   8. Display info wiring (if onDisplayInfo provided)
-//   9. Autosave load with 5s timeout + interval (if autosave provided,
+//   1. Get the render surface
+//   2. Create + init renderer
+//   3. Wire DevTools (if provided)
+//   4. Start the render loop immediately (don't block on autosave)
+//   5. Feature log (renderer process)
+//   6. FPS polling (if onFpsUpdate provided)
+//   7. Display info wiring (if onDisplayInfo provided)
+//   8. Autosave load with 5s timeout + interval (if autosave provided,
 //      skip in deterministic mode)
-//  10. MCP setup (if provided)
-//  11. Hot-reload dispose (if provided)
-//  12. Deterministic callbacks (if onDeterministic provided)
-//
-// This is NOT React-specific. Games provide a `mountUI` callback that can
-// use any framework (React createRoot, Solid render, or nothing).
+//   9. MCP setup (if provided)
+//  10. Hot-reload dispose (if provided)
+//  11. Deterministic callbacks (if onDeterministic provided)
 //
 // `startGame()` wraps this and adds sim worker spawn, SAB capture, event
 // routing, engine library auto-wiring, and save store initialization. Games
 // that need full control can call `bootstrapGame()` directly.
 // ============================================================================
 
-import { encodeFeatureLogLine, getHostCapabilities, isDevMode, type RenderSurface } from "@downdraft/engine";
+import { encodeFeatureLogLine, isDevMode, type RenderSurface } from "@downdraft/engine";
 import { createLogger } from "@downdraft/engine/util/logger";
-import { getOverlay } from "./compat/dom";
 import { collectRendererFeatureLog } from "./feature-log";
 import { downdraft, getSurface } from "./index";
 
@@ -63,12 +58,9 @@ export interface BootstrapDevToolsOptions {
 }
 
 export interface BootstrapGameOptions {
-  // --- Canvas/overlay ---
-  /** Surface/canvas layer index. Default: 0. Native hosts have exactly one
-   *  surface (layer 0). */
+  // --- Surface ---
+  /** Surface layer index. Default: 0 — the only layer on native hosts. */
   canvasLayer?: number;
-  /** Overlay layer index. Default: 0. DOM hosts only. */
-  overlayLayer?: number;
 
   // --- Renderer ---
   /** Factory that creates the renderer from the render surface. */
@@ -77,13 +69,6 @@ export interface BootstrapGameOptions {
   initRenderer?: (renderer: any) => Promise<boolean> | boolean;
   /** Called after renderer init to let the game wire the renderer to its store. */
   onRendererInit?: (renderer: any) => Promise<void> | void;
-
-  // --- UI (framework-agnostic) ---
-  /** Mount the UI framework (React: createRoot().render(), Solid: render(), etc).
-   *  DOM hosts only — on the native runtime there is no DOM overlay tree, so
-   *  mountUI is never invoked (an error is logged instead of silently
-   *  mounting into a synthetic element). */
-  mountUI?: (overlay: HTMLElement) => Promise<void> | void;
 
   // --- DevTools ---
   /** If provided, wires DevTools via initDevTools(). */
@@ -136,24 +121,9 @@ export interface BootstrapGameOptions {
  */
 export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
   const canvasLayer = opts.canvasLayer ?? 0;
-  const overlayLayer = opts.overlayLayer ?? 0;
   const deterministic = downdraft?.deterministic === true;
-  const hasDom = getHostCapabilities().hasDom;
 
-  // 1. Mount UI (if provided) — before renderer init so the UI is visible
-  //    while the renderer initializes (WebGPU adapter acquisition can take
-  //    a moment on first launch). DOM hosts only — the native runtime has no
-  //    DOM overlay tree, so a declared mountUI is an explicit config error
-  //    rather than a silent mount into a synthetic element.
-  if (opts.mountUI) {
-    if (!hasDom) {
-      log.error("bootstrapGame", "mountUI declared but this host has no DOM — the UI mount was skipped. Remove the mountUI declaration (UI on native renders into the surface via html-ui/Blitz).");
-    } else {
-      await opts.mountUI(getOverlay(overlayLayer));
-    }
-  }
-
-  // 2. Get the render surface
+  // 1. Get the render surface
   const surface = getSurface(canvasLayer);
 
   // 3. Create + init renderer

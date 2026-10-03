@@ -215,8 +215,8 @@ export interface GameUiHandle {
 export interface GameContext<Sim extends GameSimWorker = GameSimWorker> {
   /** The renderer instance (typed as `any` — games cast to their renderer class). */
   renderer: any;
-  /** The render surface the renderer is attached to (canvas on DOM hosts,
-   *  NativeSurface on the native runtime). */
+  /** The render surface the renderer is attached to (NativeSurface on the
+   *  native runtime). */
   surface: RenderSurface;
   /** The sim worker instance. Undefined for renderer-only games (no `sim` declared). */
   sim?: Sim;
@@ -342,19 +342,10 @@ export interface GameModule<Sim extends GameSimWorker = GameSimWorker> {
   simFromRenderer?: (renderer: any, ctx: GameContext<Sim>) => Sim | undefined | Promise<Sim | undefined>;
 
   // ── UI ──
-  /** Mount the UI framework (React: createRoot().render(), Solid: render(), etc).
-   *  DOM hosts only — on the native runtime there is no DOM overlay tree, so
-   *  a declared mountUI is skipped with an error logged (UI on native renders
-   *  into the surface via html-ui/Blitz). */
-  mountUI?: (overlay: HTMLElement, ctx: GameContext<Sim>) => Promise<void> | void;
-  /** CSS imports / side-effect imports to run before UI mount. Optional. */
-  imports?: () => void;
   /**
    * Declarative UI lifecycle. Called once with the game context; the returned
    * handle is started after renderer init (before `onReady`) and disposed on
    * hot-reload (before `onDispose`). The handle is exposed as `ctx.ui`.
-   *
-   * This coexists with `mountUI` (DOM overlay) — games can use either or both.
    */
   ui?: (ctx: GameContext<Sim>) => GameUiHandle | Promise<GameUiHandle>;
 
@@ -441,11 +432,9 @@ export interface GameModule<Sim extends GameSimWorker = GameSimWorker> {
   /** Called with the display refresh rate when available. */
   onDisplayInfo?: (refreshRate: number, ctx: GameContext<Sim>) => void;
 
-  // ── Surface/overlay ──
-  /** Surface/canvas layer index. Default: 0 — the only layer on native hosts. */
+  // ── Surface ──
+  /** Surface layer index. Default: 0 — the only layer on native hosts. */
   canvasLayer?: number;
-  /** Overlay layer index. Default: 0. DOM hosts only. */
-  overlayLayer?: number;
   /** FPS polling interval in ms. Default: 500. */
   fpsPollIntervalMs?: number;
 
@@ -481,7 +470,7 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
   const isDev = !!(downdraft?.isDev) || isDevMode;
   const hasSim = !!module.sim;
 
-  // 0. Resolve the render surface (canvas on DOM hosts, NativeSurface on native)
+  // 0. Resolve the render surface (NativeSurface on the native runtime)
   const surface = getSurface(module.canvasLayer ?? 0);
 
   // 0b. Allocate library SABs (if any libraries declared) — before sim worker
@@ -753,13 +742,8 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
   // 7. Delegate to bootstrapGame() for the standard sequence
   await bootstrapGame({
     canvasLayer: module.canvasLayer,
-    overlayLayer: module.overlayLayer,
     fpsPollIntervalMs: module.fpsPollIntervalMs,
     getActiveModules: module.getActiveModules,
-
-    mountUI: module.mountUI
-      ? (overlayEl) => module.mountUI!(overlayEl, ctx)
-      : undefined,
 
     createRenderer: () => renderer,
 

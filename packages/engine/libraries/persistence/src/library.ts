@@ -6,7 +6,7 @@
 // it, and exposes it via a typed token.
 //
 // Games that need full control can still import OpfsSaveStore, FileSaveStore,
-// IndexedDBSaveStore, or SaveWorkerProxy directly (escape hatch).
+// or SaveWorkerProxy directly (escape hatch).
 // ============================================================================
 
 import { resourceToken, type EngineLibrary } from "@downdraft/engine";
