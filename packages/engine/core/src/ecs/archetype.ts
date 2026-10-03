@@ -238,6 +238,24 @@ export function getColumnValue<T = unknown>(col: Column | undefined, row: number
   return (col as unknown[])[row] as T;
 }
 
+/**
+ * Write a component value into a column at a given row.
+ * - AoS column: replaces the stored object at `col[row]`
+ * - SoA column: writes each declared field into the TypedArrays
+ */
+export function setColumnValue<T = unknown>(col: Column | undefined, row: number, value: T): void {
+  if (col === undefined || col === null) return;
+  if (isSoAColumn(col)) {
+    const data = (value ?? {}) as Record<string, unknown>;
+    col.fieldNames.forEach((field) => {
+      const val = data[field];
+      col.arrays[field]![row] = typeof val === "number" ? val : SOA_DEFAULT_VALUE[col.schema.types[field]!]!;
+    });
+    return;
+  }
+  (col as unknown[])[row] = value;
+}
+
 // --- Entity add/remove (handle both AoS and SoA columns) ---
 
 export function addEntityToArchetype(arch: Archetype, entity: Entity, components: Map<ComponentId, unknown>): void {

@@ -8,7 +8,8 @@ import {
     getArchetypeForComponents,
     getColumnValue,
     removeArchetypeFromHashMap,
-    removeEntityFromArchetype
+    removeEntityFromArchetype,
+    setColumnValue
 } from "./archetype";
 import type { ComponentDefinition, ComponentId, IComponent } from "./component";
 import type { Entity, EntityMeta } from "./entity";
@@ -161,6 +162,26 @@ export class World {
 
     addEntityToArchetype(newArch, entity, existingComponents);
     meta.archetypeId = newArch.id;
+    this.archetypesDirty = true;
+  }
+
+  /**
+   * In-place data update for a component the entity already has.
+   * Unlike addComponent (which no-ops when the component is present), this
+   * replaces the stored value without an archetype move.
+   */
+  setComponent<T>(entity: Entity, componentId: ComponentId, data: T): void {
+    this.commands.push((w) => w._setComponentImmediate(entity, componentId, data));
+  }
+
+  _setComponentImmediate<T>(entity: Entity, componentId: ComponentId, data: T): void {
+    const meta = this.entities[entity.index];
+    if (!meta || meta.generation !== entity.generation || !meta.alive) return;
+    const arch = this.findArchetypeById(meta.archetypeId);
+    if (!arch || !arch.componentSet.has(componentId)) return;
+    const row = findEntityRow(arch, entity);
+    if (row < 0) return;
+    setColumnValue(arch.columns.get(componentId), row, data);
     this.archetypesDirty = true;
   }
 

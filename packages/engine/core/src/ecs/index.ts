@@ -1,7 +1,7 @@
 // ECS sub-barrel — re-exports all ECS-related items.
-export { archetypeMatches, createArchetype, getArchetypeForComponents, getColumnValue, isSoAColumn, reconstructSoAObject, removeArchetypeFromHashMap } from "./archetype";
+export { archetypeMatches, createArchetype, getArchetypeForComponents, getColumnValue, isSoAColumn, reconstructSoAObject, removeArchetypeFromHashMap, setColumnValue } from "./archetype";
 export type { Archetype, Column, SoAColumn } from "./archetype";
-export { Component, component, getComponentDefinition, getComponentId, getComponentName, isRegisteredComponentId, isSoAComponentDef, SOA_DEFAULT_VALUE, SOA_TYPED_ARRAY_CTOR, soaComponent } from "./component";
+export { Component, component, getComponentDefinition, getComponentId, getComponentName, isRegisteredComponentId, isRegisteredComponentName, isSoAComponentDef, listComponentDefinitions, listComponentNames, SOA_DEFAULT_VALUE, SOA_TYPED_ARRAY_CTOR, soaComponent } from "./component";
 export type { ComponentDefinition, ComponentId, IComponent, SoAComponentData, SoAComponentDefinition, SoAFieldType, SoASchema, SoATypedArray } from "./component";
 export { entityEqual, entityToString, isAlive, ROOT_ENTITY } from "./entity";
 export type { Entity, EntityMeta } from "./entity";

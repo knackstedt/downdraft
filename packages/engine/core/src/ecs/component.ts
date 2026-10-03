@@ -30,6 +30,21 @@ export function isRegisteredComponentId(id: ComponentId): boolean {
   return componentNameRegistry.has(id);
 }
 
+export function isRegisteredComponentName(name: string): boolean {
+  return componentRegistry.has(name);
+}
+
+/** All registered component names — used by editors and tooling. */
+export function listComponentNames(): string[] {
+  return [...componentRegistry.keys()];
+}
+
+/** All registered component definitions (only those created via
+ *  `component()`/`soaComponent()` carry defaults + schemas). */
+export function listComponentDefinitions(): ComponentDefinition[] {
+  return [...componentDefRegistry.values()];
+}
+
 export interface IComponent {
   readonly __componentId?: ComponentId;
 }
