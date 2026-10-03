@@ -68,6 +68,7 @@
         "@gltf-transform/functions": "^4.4.2",
         "@h00w/basis-universal-transcoder": "^2.1.0",
         "@jitl/quickjs-singlefile-browser-release-sync": "^0.32.0",
+        "acorn": "^8.15.0",
         "buffer": "^6.0.3",
         "comment-json": "^5.0.0",
         "dns-packet": "^5.6.1",
@@ -512,6 +513,7 @@
 
     "@webgpu/types": ["@webgpu/types@0.1.71", "", {}, "sha512-mMy8/ODcKhab808co15eW+yN+HgXoQxRQHTiBV9Mrvl1r0ufnid7YOcI+gi4eUWSWl9ezD6TW2KXccrL8HCh2A=="],
 
+    "acorn": ["acorn@8.18.0", "", { "bin": { "acorn": "bin/acorn" } }, "sha512-lGq+9yr1/GuAWaVYIHRjvvySG5/4VfKIvC8EWxStPdcDh/Ka7FG3twP6v4d5BkravUilhIAsG4Qj83t02LWUPQ=="],
 
     "any-base": ["any-base@1.1.0", "", {}, "sha512-uMgjozySS8adZZYePpaWs8cxB9/kdzmpX6SgJZ+wbz1K5eYk5QMYDVJaZKhxyIHUdnnJkfR7SVgStgH7LkGUyg=="],
 
