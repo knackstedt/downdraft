@@ -40,7 +40,9 @@ jobs:
           - { os: ubuntu-22.04, triples: "x86_64-unknown-linux-gnu", nodePlats: "linux-x64" }
           - { os: ubuntu-24.04-arm, triples: "aarch64-unknown-linux-gnu", nodePlats: "linux-arm64" }
           - { os: macos-latest, triples: "aarch64-apple-darwin", nodePlats: "darwin-arm64" }
-          - { os: macos-latest, triples: "x86_64-apple-darwin", nodePlats: "darwin-x64" }
+          # Intel runner: x86_64 cross-compile on arm64 is pathological under
+          # fat-LTO (5h+ vs ~35min native). macos-15-intel is supported to Aug 2027.
+          - { os: macos-15-intel, triples: "x86_64-apple-darwin", nodePlats: "darwin-x64" }
           - { os: windows-latest, triples: "x86_64-pc-windows-msvc", nodePlats: "win32-x64" }
 
     runs-on: ${{ matrix.os }}
