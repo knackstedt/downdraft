@@ -1,5 +1,5 @@
 import type { GCControllerConfig, GCControllerStats, GCStats } from "@downdraft/engine";
-import { create } from "zustand";
+import { createStore } from "zustand/vanilla";
 import { subscribeWithSelector } from "zustand/middleware";
 
 export interface CollisionLogEntry {
@@ -52,7 +52,7 @@ interface DebugState {
   setRendererStats: (stats: DebugState["rendererStats"]) => void;
 }
 
-export const useDebugStore = create<DebugState>()(
+export const useDebugStore = createStore<DebugState>()(
   subscribeWithSelector((set) => ({
   showDebugPage: false,
   toggleDebugPage: () => set((s) => ({ showDebugPage: !s.showDebugPage })),

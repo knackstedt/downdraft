@@ -38,7 +38,7 @@ The mobile path is **native** — the same winit+wgpu Rust stack plus embedded l
 
 > **Terminology note:** The compile-time DI units that were previously called "plugins" are now called **modules** to disambiguate. The term **"plugin" is now reserved for the upcoming user-authored plugin system** (runtime-loadable extensions authored by end users / modders). Throughout this document, "module" refers to the engine's compile-time DI units (`Module`, `RendererModule`, `ModuleHost`, etc.).
 
-The engine is a **single npm package**, `@downdraft/engine` (manifest at `packages/engine/package.json`), which exposes everything through subpath exports: `@downdraft/engine` (core index), `@downdraft/engine/core/<path>` (deep core imports), `@downdraft/engine/app/<renderer|shared>`, `@downdraft/engine/libraries/<name>`, `@downdraft/engine/modules/<name>`, plus `ui`, `shader-graph`, `mcp`, `test`, and `asset-bake` subpaths. The only other published packages are `@downdraft/cli` (the `draft` binary) and `@downdraft/platform-native` (native binaries). The exports map is generated — run `node scripts/gen-engine-exports.mjs` after adding/removing a library or module directory.
+The engine is a **single npm package**, `@downdraft/engine` (manifest at `packages/engine/package.json`), which exposes everything through subpath exports: `@downdraft/engine` (core index), `@downdraft/engine/core/<path>` (deep core imports), `@downdraft/engine/app/<renderer|shared>`, `@downdraft/engine/libraries/<name>`, `@downdraft/engine/modules/<name>`, plus `shader-graph`, `mcp`, `test`, and `asset-bake` subpaths. The only other published packages are `@downdraft/cli` (the `draft` binary) and `@downdraft/platform-native` (native binaries). The exports map is generated — run `node scripts/gen-engine-exports.mjs` after adding/removing a library or module directory.
 
 Architecturally the engine is split into **core + libraries** (standard engine building blocks, used directly by games) vs **modules** (opt-in game features with lifecycle + typed DI + diagnostics). Core also includes animation and particles subsystems directly.
 
@@ -106,7 +106,7 @@ No engine package depends on any game package (verified). The `entities` library
 
 ### Visual Test Bench (`games/downdraft-gpu-bench`)
 
-A graphical test program (modeled on `games/downdraft-model-viewer`) for visually verifying engine effects and functional systems. Provides a React DOM menu of minimal tests, each with its own renderer factory. Extensible via a `TestRegistry` API — game authors add tests by creating `*.test.ts` files in `src/tests/` that call `registerTest()`. Vite glob import auto-discovers them.
+A graphical test program (modeled on `games/downdraft-model-viewer`) for visually verifying engine effects and functional systems. Provides a native html-ui menu (`src/menu-native.ts`) of minimal tests, each with its own renderer factory. Extensible via a `TestRegistry` API — game authors add tests by creating `*.test.ts` files in `src/tests/` that call `registerTest()`. Vite glob import auto-discovers them.
 
 - **Run**: `cd games/downdraft-gpu-bench && draft dev` (native — the only runtime).
 - **Not in root workspaces** (follows downdraft-model-viewer pattern: `@downdraft/*` resolved via vite aliases, not type-checked by root tsconfig).
@@ -159,7 +159,7 @@ Before writing per-game infrastructure, check whether the engine already provide
 | Concern | Engine API | Location |
 |---|---|---|
 | Renderer-owned sim worker | `GameModule.simFromRenderer: (r) => r.getWorkerHost()` — never write a no-op `GameSimWorker` adapter | `@downdraft/engine/app/renderer` |
-| Game store base | `createBaseGameStoreState(set, get)` — spread into the game's zustand store (fps, paused, panels, notifications, title screen) | `@downdraft/engine` |
+| Game store base | `createBaseGameStoreState(set, get)` — spread into the game's zustand store (fps, paused, panels, notifications, title screen). **Import `createStore` from `zustand/vanilla`** — the `"zustand"` entry eagerly imports `react`, which is not installed | `@downdraft/engine` |
 | Sim worker entry | `createSimWorker({ fixedDt, onInit, onTick, ... })` — tick loop, speed, step, stats, SAB-polyfill sync | `@downdraft/engine` |
 | Deterministic RNG in sim | `ctx.rng` in `onTick(dt, ctx)` (mulberry32, seeded via `createSimWorker({ seed })` / `control.setSeed()`). In deterministic mode `Math.random` is trapped to the same seeded stream — sim code should use `ctx.rng`, never `Math.random`/`Date.now` IDs | `@downdraft/engine` |
 | Worker host (main side) | `SimWorkerHost<TApi>` / `BaseWorkerHost<TApi>` — pause/resume/step/setSpeed/getStats + input writing | `@downdraft/engine` |
@@ -484,7 +484,7 @@ FBX parser reads `GlobalSettings` for `UpAxis` (0/1=Y-up, 2=Z-up) and `UnitScale
 
 ### Devtools material editor
 
-`BaseSceneInspector` (`packages/engine/modules/devtools/src/scene-inspector.ts`) exposes a functional material editor API: `compileMaterialGraph`, `createMaterialFromGraph`, `saveMaterialToLibrary`, `listMaterials`, `exportMaterialAsJSON`, `importMaterialFromJSON`, `previewMaterialGraph` (live preview via `setPreviewMeshRenderer`). The editor UI (`packages/engine/ui/src/editor/material-graph/material-graph-editor.tsx`) has a synced node palette (all compiler node types) and a Preview button.
+`BaseSceneInspector` (`packages/engine/modules/devtools/src/scene-inspector.ts`) exposes a functional material editor API: `compileMaterialGraph`, `createMaterialFromGraph`, `saveMaterialToLibrary`, `listMaterials`, `exportMaterialAsJSON`, `importMaterialFromJSON`, `previewMaterialGraph` (live preview via `setPreviewMeshRenderer`).
 
 ### Hot reload
 
@@ -501,7 +501,6 @@ The engine has a node-based compute shader authoring system that parallels the m
 - **`ComputeProfile`** (`packages/engine/shader-graph/src/compute-profiles.ts`) — simpler than `ShaderGraphProfile`: just `name`, `chunks`, `workgroupSize`. Built-in profiles: `SIMPLE_COMPUTE_PROFILE` (64x1x1), `PARTICLE_COMPUTE_PROFILE` (64x1x1), `TEXTURE_COMPUTE_PROFILE` (8x8x1), `VOLUMETRIC_COMPUTE_PROFILE` (4x4x4).
 - **`GraphComputePass`** (`packages/engine/core/src/render/passes/graph-compute.ts`) — `RenderPass` subclass with `PassType.Custom`. Integrates with the frame graph (dispatches on the shared encoder). Supports both auto-allocated buffers (from `StorageBufferDecl`/`UniformBufferDecl`) and externally-provided buffers (`setExternalBuffer()`). `recompile()` supports hot-reload. Uses local `BUFFER_USAGE`/`SHADER_STAGE_COMPUTE` constants instead of WebGPU globals for testability.
 - **`runComputeKernel()`** (`packages/engine/core/src/render/compute-kernel.ts`) — thin imperative helper for quick one-off GPGPU. Takes WGSL + typed inputs, dispatches once, returns a `readBuffer()` function for CPU readback. No graph, no frame graph needed.
-- **`ComputeGraphEditor`** (`packages/engine/ui/src/editor/compute-graph/compute-graph-editor.tsx`) — React component for visual compute graph authoring. Compute-specific node palette + buffer declaration panel (add/edit storage & uniform buffers) + dispatch config (workgroup size, dispatch count).
 
 ### Buffer management
 
@@ -749,7 +748,7 @@ The CLI reads and sets a number of environment variables. This is the complete l
 
 ### E2E test verification — checking for JS errors
 
-**Do NOT rely solely on test pass/fail to verify correctness.** The e2e tests drive the game through MCP tool calls and assert on returned state, but uncaught JS errors in the game process (React DOM errors, uncaught Promise rejections, TypeError from polyfill gaps) will NOT cause test failures unless explicitly checked.
+**Do NOT rely solely on test pass/fail to verify correctness.** The e2e tests drive the game through MCP tool calls and assert on returned state, but uncaught JS errors in the game process (uncaught Promise rejections, TypeError from polyfill gaps) will NOT cause test failures unless explicitly checked.
 
 The harness (`tests/e2e/harness.ts`) captures console output from the game process and exposes it via `game.getConsoleErrors()`. Tests should include a final assertion that no JS errors occurred:
 

@@ -4,7 +4,7 @@
 // ============================================================================
 
 import type { ModelData } from "@downdraft/engine/libraries/models";
-import { create } from "zustand";
+import { createStore } from "zustand/vanilla";
 
 import { type GizmoMode } from "./index";
 
@@ -95,7 +95,7 @@ export interface SceneTreeSnapshot {
 
 let modelIdCounter = 0;
 
-export const useSceneStore = create<SceneStoreState>((set, get) => ({
+export const useSceneStore = createStore<SceneStoreState>((set, get) => ({
   nodes: {},
   rootIds: [],
   selectedId: null,

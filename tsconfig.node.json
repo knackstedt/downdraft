@@ -8,7 +8,6 @@
       "DOM",
       "DOM.Iterable"
     ],
-    "jsx": "react-jsx",
     "types": [
       "node",
       "bun-types",
@@ -36,7 +35,6 @@
     "packages/engine/core/src/**/*.ts",
     "packages/engine/test/src/**/*.ts",
     "packages/engine/mcp/src/**/*.ts",
-    "packages/engine/ui/src/**/*",
     "packages/engine/shader-graph/src/**/*.ts",
     "packages/engine/modules/*/src/**/*.ts",
     "packages/engine/libraries/*/src/**/*.ts",

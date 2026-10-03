@@ -28,9 +28,6 @@
     "./app/*": "./app/src/*.ts",
     "./app/*.ts": "./app/src/*.ts",
     "./app/*.css": "./app/src/*.css",
-    "./ui": "./ui/src/index.ts",
-    "./ui/*": "./ui/src/*.ts",
-    "./ui/*.ts": "./ui/src/*.ts",
     "./shader-graph": "./shader-graph/src/index.ts",
     "./shader-graph/*": "./shader-graph/src/*.ts",
     "./shader-graph/*.ts": "./shader-graph/src/*.ts",
@@ -139,6 +136,10 @@
     "./modules/devtools/*": "./modules/devtools/src/*.ts",
     "./modules/devtools/*.ts": "./modules/devtools/src/*.ts",
     "./modules/devtools/*.wgsl": "./modules/devtools/src/*.wgsl",
+    "./modules/editor": "./modules/editor/src/index.ts",
+    "./modules/editor/commands": "./modules/editor/src/commands/index.ts",
+    "./modules/editor/*": "./modules/editor/src/*.ts",
+    "./modules/editor/*.ts": "./modules/editor/src/*.ts",
     "./modules/html-ui": "./modules/html-ui/src/index.ts",
     "./modules/html-ui/*": "./modules/html-ui/src/*.ts",
     "./modules/html-ui/*.ts": "./modules/html-ui/src/*.ts",
@@ -186,7 +187,6 @@
     "fflate": "^0.8.2",
     "jimp": "^1.6.1",
     "ktx2-encoder": "^0.6.0",
-    "lucide-react": "^0.468.0",
     "meshoptimizer": "^1.2.0",
     "quickjs-emscripten": "^0.32.0",
     "wgpu-matrix": "^3.4.2",
@@ -195,18 +195,10 @@
     "zustand": "^5.0.2"
   },
   "peerDependencies": {
-    "@downdraft/platform-native": "^0.1.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "@downdraft/platform-native": "^0.1.0"
   },
   "peerDependenciesMeta": {
     "@downdraft/platform-native": {
-      "optional": true
-    },
-    "react": {
-      "optional": true
-    },
-    "react-dom": {
       "optional": true
     }
   },
@@ -216,7 +208,6 @@
   "files": [
     "core/src",
     "app/src",
-    "ui/src",
     "shader-graph/src",
     "test/src",
     "mcp/src",

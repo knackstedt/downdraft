@@ -216,7 +216,7 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
       def: {
         name: "capture_screenshot",
         description:
-          "Capture the current frame as a PNG image. By default composites the game canvas with the DOM/React overlay (HUD, menus, etc.). Set fullPage=false to capture only the game canvas. Returns the image inline as base64.",
+          "Capture the current frame as a PNG image. By default composites the game canvas with the UI overlay (HUD, menus, etc.). Set fullPage=false to capture only the game canvas. Returns the image inline as base64.",
         inputSchema: {
           type: "object",
           properties: {

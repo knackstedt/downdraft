@@ -1,4 +1,4 @@
-import { create } from "zustand";
+import { createStore } from "zustand/vanilla";
 
 export interface ReloadEntry {
   file: string;
@@ -21,7 +21,7 @@ interface HotReloadState {
   setLastReload: (r: { file: string; elapsed: number; timestamp: number }) => void;
 }
 
-export const useHotReloadStore = create<HotReloadState>((set) => ({
+export const useHotReloadStore = createStore<HotReloadState>((set) => ({
   enabled: true,
   preserveState: true,
   status: "ready",

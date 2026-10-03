@@ -99,7 +99,7 @@ PASSTHROUGH_EXTS.forEach((ext) => {
 });
 
 // -- other folded top-level dirs --------------------------------------------
-for (let _i = 0, _it = ["ui", "shader-graph", "mcp", "test", "asset-bake"], _n = _it.length; _i < _n; _i++) { const name = _it[_i];
+for (let _i = 0, _it = ["shader-graph", "mcp", "test", "asset-bake"], _n = _it.length; _i < _n; _i++) { const name = _it[_i];
   const srcDir = join(engineDir, name, "src");
   if (!existsSync(srcDir)) continue;
   entries.push([`./${name}`, `./${name}/src/index.ts`]);

@@ -7,7 +7,7 @@
 //   @downdraft/engine/app[/<p>]          → @downdraft/engine/app[/<p>]
 //   @downdraft/engine/libraries/<n>[/<p>]  → @downdraft/engine/libraries/<n>[/<p>]
 //   @downdraft/engine/modules/<n>[/<p>]   → @downdraft/engine/modules/<n>[/<p>]
-//   @downdraft/engine/ui|shader-graph|mcp|test|asset-bake → @downdraft/engine/<same>
+//   @downdraft/engine/shader-graph|mcp|test|asset-bake → @downdraft/engine/<same>
 //   @downdraft/cli, @downdraft/platform-native    → unchanged (still separate)
 //
 // Also rewrites path-pattern strings (e.g. "/@downdraft/engine/" hot-reload
@@ -40,7 +40,6 @@ const RULES = [
   [/@downdraft\/asset-bake(?![\w-])/g, "@downdraft/engine/asset-bake"],
   [/@downdraft\/mcp(?![\w-])/g, "@downdraft/engine/mcp"],
   [/@downdraft\/test(?![\w-])/g, "@downdraft/engine/test"],
-  [/@downdraft\/ui(?![\w-])/g, "@downdraft/engine/ui"],
 ];
 
 const TEXT_EXT = new Set([

@@ -75,7 +75,6 @@ See `AGENTS.md` for the full architecture reference (module system, HostAPI surf
 |---|---|
 | `@downdraft/engine` | Engine core: ECS, render passes, render graph, SAB, input, telemetry, modules, particles, animation, physics, audio, assets, save system |
 | `@downdraft/engine/app` | Runtime-agnostic game bootstrap (`startGame`/`bootstrapGame`) + HostAPI types |
-| `@downdraft/engine/ui` | Devtools/editor UI sources: devtools panel, profiler, material graph editor, animation state machine editor, asset browser |
 | `@downdraft/engine/mcp` | MCP server for AI agent interaction (JSON-RPC) |
 | `@downdraft/engine/shader-graph` | Material/shader graph compiler and validator |
 | `@downdraft/cli` | CLI tool (`draft new/dev/debug/release/assets/test`) |

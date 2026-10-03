@@ -64,7 +64,7 @@ export type HostRuntime = "native" | "browser";
 
 export interface HostCapabilities {
   readonly runtime: HostRuntime;
-  /** A real DOM compositor exists — DOM overlays, React roots, real
+  /** A real DOM compositor exists — DOM overlays, framework roots, real
    *  elementFromPoint. False on native (the DOM there is a polyfill for
    *  canvas-shaped APIs, not a compositor). */
   readonly hasDom: boolean;

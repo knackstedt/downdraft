@@ -9,7 +9,6 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "allowImportingTsExtensions": true,
-    "jsx": "react-jsx",
     "paths": {
       "xxh3-ts": [
         "./packages/engine/libraries/persistence/src/xxh3-ts.d.ts"
