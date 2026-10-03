@@ -18,9 +18,10 @@
 import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { CRATES, libFileName } from "./native-crates.mjs";
 
-const root = resolve(new URL("..", import.meta.url).pathname);
+const root = fileURLToPath(new URL("..", import.meta.url));
 const nodePlats = process.argv.slice(2).length
   ? process.argv.slice(2)
   : [`${process.platform}-${process.arch}`];

@@ -11,8 +11,9 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const root = resolve(new URL("..", import.meta.url).pathname);
+const root = fileURLToPath(new URL("..", import.meta.url));
 const args = process.argv.slice(2);
 const dryRun = args.includes("--dry-run");
 const tag = args.find((a) => a.startsWith("--tag="))?.split("=")[1];

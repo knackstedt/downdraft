@@ -17,8 +17,9 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const root = resolve(new URL("..", import.meta.url).pathname);
+const root = fileURLToPath(new URL("..", import.meta.url));
 const srcDir = process.argv[2];
 if (!srcDir || !existsSync(srcDir)) {
   console.error("usage: node scripts/stage-node-packages.mjs <dir containing downdraft-node-mobile-*.tar.gz>");

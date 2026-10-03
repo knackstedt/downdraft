@@ -17,8 +17,9 @@
 
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const root = resolve(new URL("..", import.meta.url).pathname);
+const root = fileURLToPath(new URL("..", import.meta.url));
 const engineDir = join(root, "packages/engine");
 const pkgPath = join(engineDir, "package.json");
 const checkOnly = process.argv.includes("--check");
