@@ -2,11 +2,11 @@
 // UI Bake-off — native test bed comparing the engine's UI stacks.
 //
 // Renders the SAME interactive component gallery in each renderer, one tab
-// per stack. Keys 1-5 (or Left/Right arrows) switch stacks; each stack draws
+// per stack. Keys 1-4 (or Left/Right arrows) switch stacks; each stack draws
 // its own tab bar with itself highlighted.
 //
 //   Stacks: 1) Dioxus/Blitz wasm  2) HTML/CSS (Blitz OSR)
-//           4) Canvas2D (NativeCanvas2D)  5) HtmlUI (Blitz html-ui)
+//           3) Canvas2D (NativeCanvas2D)  4) HtmlUI (Blitz html-ui)
 //
 // Run:      bun run test-beds/ui-bakeoff/main.ts
 // Tour:     BAKEOFF_TOUR=test-beds/ui-bakeoff/shots bun run ... — renders each

@@ -45,7 +45,6 @@
   "exclude": [
     "dist",
     "packages/engine/libraries/blitz-ui/src/native-module.ts",
-    "tests/test-ibl.ts",
-    "tests/e2e/probe-*.ts"
+    "tests/test-ibl.ts"
   ]
 }

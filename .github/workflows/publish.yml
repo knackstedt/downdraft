@@ -6,6 +6,11 @@ name: Publish
 # `npm publish` of each package first, then link this repo/workflow.
 
 on:
+  # Release trigger: push a tag named v<version> where <version> matches the
+  # @downdraft package version (verified in-job below). All published
+  # packages share one version.
+  push:
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       filter:
@@ -20,16 +25,46 @@ on:
 jobs:
   publish:
     name: Publish @downdraft packages
+    # Only runs for pushes/dispatches by the repo owner — github.actor is the
+    # GitHub account that pushed the tag (or dispatched the run).
+    if: github.actor == 'knackstedt'
     runs-on: ubuntu-latest
     permissions:
       id-token: write # required for npm --provenance
       contents: read
     steps:
       - uses: actions/checkout@v4
+      # Tag must be v<version> matching the published package version, and
+      # every publishable @downdraft/* package must share that version.
+      - name: Verify tag matches package version
+        if: github.event_name == 'push'
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          node -e '
+            const {readdirSync, existsSync, readFileSync} = require("fs");
+            const ver = require("./packages/engine/package.json").version;
+            if ("'$TAG'" !== ver) {
+              console.error(`tag ${"'$TAG'"} does not match @downdraft/engine@${ver}`);
+              process.exit(1);
+            }
+            for (const d of readdirSync("packages")) {
+              const f = `packages/${d}/package.json`;
+              if (!existsSync(f)) continue;
+              const p = JSON.parse(readFileSync(f, "utf8"));
+              if (p.name?.startsWith("@downdraft/") && !p.private && p.version !== ver) {
+                console.error(`${p.name}@${p.version} is out of lockstep with engine@${ver}`);
+                process.exit(1);
+              }
+            }
+          '
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
+      # Trusted publishing (OIDC exchange) requires npm >= 11.5.1;
+      # node 22 bundles npm 10.x.
+      - name: Upgrade npm for trusted publishing
+        run: npm install -g npm@latest
       # Populate packages/native-*/lib/ from the native-v<version> release
       # bundles (built by native.yml). Non-fatal: publishing may target
       # code-only packages before artifacts exist.
