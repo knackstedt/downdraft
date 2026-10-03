@@ -48,6 +48,11 @@ interface ReleaseArgs {
   stage: Stage;
   mode: string;
   abi: string;
+  minSdk: string | null;
+  nodeFlavor: string | null;
+  libs: string | null;
+  excludeLibs: string | null;
+  noStrip: boolean;
   out: string;
   retainMcp: boolean;
   verbose: boolean;
@@ -90,6 +95,11 @@ function parseReleaseArgs(args: string[]): ReleaseArgs {
     stage,
     mode: (parsed.flags.mode as string) || "prod",
     abi: (parsed.flags.abi as string) || "arm64-v8a",
+    minSdk: (parsed.flags["min-sdk"] as string) || null,
+    nodeFlavor: (parsed.flags["node-flavor"] as string) || null,
+    libs: (parsed.flags.libs as string) || null,
+    excludeLibs: (parsed.flags["exclude-libs"] as string) || null,
+    noStrip: parsed.flags["no-strip"] as boolean,
     out: (parsed.flags.out as string) || "release",
     retainMcp: parsed.flags.mcp as boolean,
     verbose: parsed.flags.verbose as boolean,
@@ -266,6 +276,11 @@ function packageAndroid(
     `--app-id=${info.appId}`,
     `--app-name=${info.productName}`,
     `--version=${info.version}`,
+    ...(opts.minSdk ? [`--min-sdk=${opts.minSdk}`] : []),
+    ...(opts.nodeFlavor ? [`--node-flavor=${opts.nodeFlavor}`] : []),
+    ...(opts.libs ? [`--libs=${opts.libs}`] : []),
+    ...(opts.excludeLibs ? [`--exclude-libs=${opts.excludeLibs}`] : []),
+    ...(opts.noStrip ? ["--no-strip"] : []),
     ...(opts.retainMcp ? ["--mcp"] : []),
     entry,
     outfile,

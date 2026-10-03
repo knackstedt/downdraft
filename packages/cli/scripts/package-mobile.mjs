@@ -51,13 +51,26 @@ const doInstall = argv.includes("--install") || argv.includes("--launch");
 const doLaunch = argv.includes("--launch");
 const retainMcp = argv.includes("--mcp");
 const minSdk = flagValue("min-sdk") ?? "30";
+// --node-flavor=lite selects build/dist/android-lite/<abi>/libnode.so
+// (NODEJS_MOBILE_FLAVOR=lite from build-android.mjs: no intl/inspector/
+// sqlite/amaro — ~20MB smaller binary, slightly lower PSS).
+const nodeFlavor = flagValue("node-flavor") ?? "full";
+// Optional engine cdylibs stage only when the bundle references their soname
+// ("downdraft_<lib>" token). --libs= forces inclusion, --exclude-libs=
+// forces exclusion (pair with --env=DOWNDRAFT_NO_GAMEPAD=1 so nothing tries
+// to dlopen a lib that isn't shipped).
+const forceLibs = (flagValue("libs") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+const excludeLibs = (flagValue("exclude-libs") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+// Packaged .so's are stripped by default (debug info never maps — pure APK
+// size). --no-strip keeps symbols for on-device native debugging.
+const doStrip = !argv.includes("--no-strip");
 // --env KEY=VALUE (repeatable) → dd-env.txt in the bundle; the shell
 // setenv()s each before node::Start so process.env sees them.
 const envPairs = argv.filter((a) => a.startsWith("--env=")).map((a) => a.slice(6));
 const positional = argv.filter((a) => !a.startsWith("--"));
 const [entry, outfileArg] = positional;
 if (!entry || !outfileArg) {
-  console.error("usage: bun package-mobile.mjs [--abi=...] [--mode=...] [--app-id=...] [--app-name=...] [--version=...] [--env KEY=VAL]... [--install|--launch] [--mcp] <entry.ts> <out.apk>");
+  console.error("usage: bun package-mobile.mjs [--abi=...] [--mode=...] [--app-id=...] [--app-name=...] [--version=...] [--min-sdk=...] [--node-flavor=full|lite] [--libs=a,b] [--exclude-libs=a,b] [--no-strip] [--env KEY=VAL]... [--install|--launch] [--mcp] <entry.ts> <out.apk>");
   process.exit(1);
 }
 
@@ -594,6 +607,31 @@ function aaptSafePath(rel) {
 // ── Native libs ──
 
 const nativeStage = join(stageRoot, "lib");
+
+// NDK discovery — needed for libc++_shared.so fallback and llvm-strip.
+const ndkRoot = process.env.ANDROID_NDK_HOME ?? process.env.ANDROID_NDK ??
+  readdirSync(join(sdkRoot, "ndk")).map((v) => join(sdkRoot, "ndk", v))
+    .filter((d) => existsSync(join(d, "toolchains"))).sort().pop();
+const stripTool = (() => {
+  if (!ndkRoot) return null;
+  const prebuiltDir = join(ndkRoot, "toolchains/llvm/prebuilt");
+  if (!existsSync(prebuiltDir)) return null;
+  for (const host of readdirSync(prebuiltDir)) {
+    const p = join(prebuiltDir, host, "bin", process.platform === "win32" ? "llvm-strip.exe" : "llvm-strip");
+    if (existsSync(p)) return p;
+  }
+  return null;
+})();
+
+// Which optional engine cdylibs the bundle references — scan staged .mjs
+// for the crate's base token (dlopen paths derive sonames from
+// "downdraft_<lib>"). Unreferenced libs cost only APK size (never dlopened
+// → never mapped), but pruning them keeps packages honest per game.
+const bundleText = walkDir(bundleDir)
+  .filter((f) => f.endsWith(".mjs") || f.endsWith(".js"))
+  .map((f) => readFileSync(f, "utf-8"))
+  .join("\n");
+
 for (const abi of abis) {
   const triple = ABIS[abi];
   const libDir = join(nativeStage, abi);
@@ -601,11 +639,14 @@ for (const abi of abis) {
 
   // libnode.so — node-mobile build tree or npm platform package. Resolved
   // BEFORE build-native: the shell crate links against it (DT_NEEDED) via
-  // DOWNDRAFT_LIBNODE_DIR.
+  // DOWNDRAFT_LIBNODE_DIR. --node-flavor=<f> looks in dist/android-<f>/ first.
   const libnodeCandidates = [
+    nodeFlavor !== "full"
+      ? join(monorepoRoot, `packages/node-mobile/build/dist/android-${nodeFlavor}`, abi, "libnode.so")
+      : null,
     join(monorepoRoot, "packages/node-mobile/build/dist/android", abi, "libnode.so"),
     join(monorepoRoot, `packages/node-mobile-android-${abi.startsWith("arm64") ? "arm64" : "x64"}/lib/libnode.so`),
-  ];
+  ].filter(Boolean);
   let libnode = libnodeCandidates.find(existsSync);
   if (!libnode) {
     try { libnode = join(dirname(gameRequire.resolve(`@downdraft/node-mobile-android-${abi.startsWith("arm64") ? "arm64" : "x64"}/package.json`)), "lib/libnode.so"); } catch { /* absent */ }
@@ -632,9 +673,6 @@ for (const abi of abis) {
   // from the same NDK that built libnode (a mismatched libc++ can lack
   // symbols libnode references). Fall back to the NDK sysroot lib dir.
   const cxxCandidates = [join(dirname(libnode), "libc++_shared.so")];
-  const ndkRoot = process.env.ANDROID_NDK_HOME ?? process.env.ANDROID_NDK ??
-    readdirSync(join(sdkRoot, "ndk")).map((v) => join(sdkRoot, "ndk", v))
-      .filter((d) => existsSync(join(d, "toolchains"))).sort().pop();
   if (ndkRoot) {
     cxxCandidates.push(join(ndkRoot,
       "toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib", triple, "libc++_shared.so"));
@@ -646,15 +684,32 @@ for (const abi of abis) {
     console.warn("[package-mobile] libc++_shared.so not found — libnode will fail to load");
   }
 
-  // Optional engine cdylibs — whatever build-native.mjs staged for this
-  // platform key; JS resolves them by soname via the app lib dir.
+  // Optional engine cdylibs — stage only what the bundle references (or
+  // --libs= forces). JS resolves them by soname via the app lib dir.
   const crates = await import(fileURLToPath(new URL("../../../scripts/native-crates.mjs", import.meta.url)));
   const nodePlat = `android-${abi.startsWith("arm64") ? "arm64" : "x64"}`;
   for (const crate of crates.CRATES) {
     if (crate.androidOnly || crate.noAndroid) continue;
+    const name = crate.lib.replace(/^downdraft_/, "");
+    if (excludeLibs.includes(name) || excludeLibs.includes(crate.lib)) continue;
+    const wanted = forceLibs.includes(name) || forceLibs.includes(crate.lib) ||
+      bundleText.includes(crate.lib);
+    if (!wanted) {
+      console.log(`[package-mobile] skipping ${crate.lib} — not referenced by bundle`);
+      continue;
+    }
     const file = `lib${crate.lib}.so`;
     const src = join(monorepoRoot, crate.dest, nodePlat, file);
     if (existsSync(src)) copyFileSync(src, join(libDir, file));
+  }
+
+  // Strip staged .so's — debug info and the symtab never map at runtime, so
+  // this is pure APK/install size (libnode alone sheds ~25MB). Crash
+  // symbolication still works: .dynsym and unwind info are preserved.
+  if (doStrip && stripTool) {
+    for (const f of readdirSync(libDir).filter((f) => f.endsWith(".so"))) {
+      try { run(stripTool, ["--strip-unneeded", join(libDir, f)]); } catch { /* keep unstripped */ }
+    }
   }
 }
 

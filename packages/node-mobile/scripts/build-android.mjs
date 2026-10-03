@@ -9,8 +9,8 @@
 //   NODEJS_MOBILE_RESUME=1                    — keep out/ so a bounded CI slice
 //                                               can continue a prior attempt
 //
-// Output: build/dist/android/<abi>/libnode.so plus shared libnode headers in
-// build/dist/android/include/node/.
+// Output: build/dist/android[-<flavor>]/<abi>/libnode.so plus shared libnode
+// headers in build/dist/android[-<flavor>]/include/node/.
 
 import { execFileSync, execSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readdirSync } from "node:fs";
@@ -46,7 +46,11 @@ if (!existsSync(join(treeDir, ".node-mobile-prepared"))) {
   await prepare();
 }
 
-const distDir = join(buildDir, "dist", "android");
+// Non-full flavors land in a sibling dist dir so a full build and a lite
+// build can coexist — package-mobile.mjs --node-flavor=<f> resolves
+// dist/android-<f>/<abi>/libnode.so.
+const flavor = (process.env.NODEJS_MOBILE_FLAVOR ?? "full").trim().toLowerCase();
+const distDir = join(buildDir, "dist", flavor === "full" ? "android" : `android-${flavor}`);
 const jobs = process.env.NODEJS_MOBILE_JOBS ?? `${(await import("node:os")).cpus().length}`;
 
 // Host toolset: gyp builds V8's host generators with CC.host/CXX.host.
