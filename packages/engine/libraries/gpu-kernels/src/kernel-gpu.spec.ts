@@ -282,4 +282,53 @@ describe("GpuKernel on the shared device", () => {
     expect(() => k.dispatch()).toThrow(/destroyed/);
     expect(() => k.resultBuffer).toThrow(/destroyed/);
   });
+
+  it("evaluates vec-typed ternaries into strided output", async () => {
+    if (!device) return skip();
+    const k = createKernel({
+      device,
+      output: [4],
+      outputStride: 2,
+      fn: `function (a) { return a[this.thread.x] > 0.5 ? [1.0, 2.0] : [3.0, 4.0]; }`,
+    });
+    const out = await k.read(new Float32Array([0.1, 0.9, 0.4, 0.8]));
+    expect(Array.from(out)).toEqual([3, 4, 1, 2, 3, 4, 1, 2]);
+    k.destroy();
+  });
+
+  it("clears lastError after a clean dispatch", async () => {
+    if (!device) return skip();
+    const k = createKernel({
+      device,
+      output: [4],
+      fn: `function (a) { return a[this.thread.x]; }`,
+    });
+    // A synchronous rejection doesn't touch lastError — force a submit-time
+    // failure instead by dispatching an undersized caller buffer.
+    const tiny = device.createBuffer({ size: 8, usage: 0x80 });
+    expect(() => k.dispatchInto(tiny, new Float32Array(4))).toThrow();
+    tiny.destroy();
+    k.lastError = "stale";
+    k.dispatch(new Float32Array([1, 2, 3, 4]));
+    await k.readResult();
+    // give the error-scope promise a turn, then a successful submit must clear it
+    await k.read(new Float32Array([1, 2, 3, 4]));
+    expect(k.lastError).toBeNull();
+    k.destroy();
+  });
+
+  it("rejects workgroup sizes beyond device limits at construction", () => {
+    if (!device) return skip();
+    const lim = (device.limits as { maxComputeInvocationsPerWorkgroup?: number })
+      .maxComputeInvocationsPerWorkgroup;
+    if (!lim) return;
+    expect(() =>
+      createKernel({
+        device,
+        output: [4],
+        workgroupSize: [lim + 1, 1, 1],
+        fn: `function () { return 0; }`,
+      }),
+    ).toThrow(/limits/);
+  });
 });

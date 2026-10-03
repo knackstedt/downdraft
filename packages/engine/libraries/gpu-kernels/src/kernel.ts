@@ -143,6 +143,9 @@ export class GpuKernel {
     this.isArrow = this.source.includes("=>");
     this.cpuConstants = Object.freeze({ ...opts.constants });
     const o = opts.output;
+    if (o.length > 3) {
+      throw new Error(`kernel output must have 1–3 dims, got ${o.length}`);
+    }
     this.outputSize = [o[0], o[1] ?? 1, o[2] ?? 1];
     this.outputCount = this.outputSize[0] * this.outputSize[1] * this.outputSize[2];
     this.outputStride = opts.outputStride ?? 1;
@@ -159,6 +162,22 @@ export class GpuKernel {
     this.access = opts.access;
     const [, oy, oz] = this.outputSize;
     this.workgroupSize = opts.workgroupSize ?? (oy === 1 && oz === 1 ? [64, 1, 1] : [8, 8, 1]);
+    const [wx, wy, wz] = this.workgroupSize;
+    const lim = this.device?.limits as {
+      maxComputeWorkgroupSizeX?: number;
+      maxComputeWorkgroupSizeY?: number;
+      maxComputeWorkgroupSizeZ?: number;
+      maxComputeInvocationsPerWorkgroup?: number;
+    } | undefined;
+    if (lim) {
+      const perDim = wx > (lim.maxComputeWorkgroupSizeX ?? wx)
+        || wy > (lim.maxComputeWorkgroupSizeY ?? wy)
+        || wz > (lim.maxComputeWorkgroupSizeZ ?? wz);
+      const total = wx * wy * wz > (lim.maxComputeInvocationsPerWorkgroup ?? wx * wy * wz);
+      if (perDim || total) {
+        throw new Error(`kernel "${this.label}": workgroupSize ${wx}×${wy}×${wz} exceeds device limits`);
+      }
+    }
     this.label = opts.label ?? "gpu-kernel";
     this.extraUsage = opts.outputUsage ?? 0;
     this.externalResult = opts.outputBuffer ?? null;
@@ -316,7 +335,10 @@ export class GpuKernel {
     const done = popped.then((err) => {
       const shimInvalid = (cmd as unknown as { invalid?: boolean }).invalid === true;
       const message = err ? err.message : shimInvalid ? "command buffer failed validation" : null;
-      if (!message) return;
+      if (!message) {
+        this.lastError = null;
+        return;
+      }
       this.lastError = `kernel "${this.label}": ${message}`;
       if (raise) throw new Error(this.lastError);
       // fire-and-forget: leave it on lastError rather than unhandled-reject

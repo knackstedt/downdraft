@@ -240,6 +240,72 @@ describe("transpileKernel", () => {
     const r = transpileKernel(`(a) => a[this.thread.x] * 2.0`, { ...BASE, argKinds: ["array"] });
     expect(r.wgsl).toContain("return (a[gid.x] * 2.0)");
   });
+
+  it("rejects duplicate param names", () => {
+    expect(() =>
+      transpileKernel(`function (a, a) { return a[0]; }`, { ...BASE, argKinds: ["array", "array"] }),
+    ).toThrow(/unique/);
+  });
+
+  it("rejects non-number constants", () => {
+    expect(() =>
+      transpileKernel(`function () { return 0; }`,
+        { ...BASE, argKinds: [], constants: { X: "abc" as unknown as number } }),
+    ).toThrow(/constant.*number|isn't a number/);
+    expect(() =>
+      transpileKernel(`function () { return 0; }`,
+        { ...BASE, argKinds: [], constants: { X: true as unknown as number } }),
+    ).toThrow(/isn't a number/);
+    // NaN/Infinity are numbers — they emit valid WGSL forms
+    expect(() =>
+      transpileKernel(`function () { return this.constants.X; }`,
+        { ...BASE, argKinds: [], constants: { X: NaN } }),
+    ).not.toThrow();
+  });
+
+  it("rejects arrays in locals", () => {
+    expect(() =>
+      transpileKernel(`function (a) { let v = [1, 2]; return a[0]; }`, { ...BASE, argKinds: ["array"] }),
+    ).toThrow(/arrays can't live in locals|local/);
+  });
+
+  it("emits vec selects for vec-typed ternaries", () => {
+    const r = transpileKernel(
+      `function (a) { return a[this.thread.x] > 0.5 ? [1, 2] : [3, 4]; }`,
+      { ...BASE, argKinds: ["array"], outputStride: 2 },
+    );
+    expect(r.wgsl).toContain("return select(vec2<f32>(f32(3), f32(4)), vec2<f32>(f32(1), f32(2))");
+    expect(() =>
+      transpileKernel(`function (a) { return a[0] > 0.5 ? [1, 2] : [3, 4, 5]; }`,
+        { ...BASE, argKinds: ["array"], outputStride: 2 }),
+    ).toThrow(/incompatible/);
+  });
+
+  it("rejects non-statement for-init and for-update", () => {
+    expect(() =>
+      transpileKernel(`function () { for (let i = 0; i < 4; i * 2) {} return 0; }`, { ...BASE, argKinds: [] }),
+    ).toThrow(/for-update/);
+    expect(() =>
+      transpileKernel(`function () { let i = 0; for (i + 1; i < 4; i++) {} return 0; }`, { ...BASE, argKinds: [] }),
+    ).toThrow(/for-init/);
+  });
+
+  it("rejects locals shadowing array params but allows scalar shadowing", () => {
+    expect(() =>
+      transpileKernel(`function (a) { let a = 5; return a; }`, { ...BASE, argKinds: ["array"] }),
+    ).toThrow(/shadows/);
+    const r = transpileKernel(
+      `function (s) { { let s = 2.0; return s; } }`, { ...BASE, argKinds: ["scalar"] },
+    );
+    expect(r.wgsl).toContain("var s = scalars[0u];");
+    expect(r.wgsl).toContain("var s = 2.0;");
+  });
+
+  it("rejects output with more than 3 dims", () => {
+    expect(() =>
+      transpileKernel(`function () { return 0; }`, { ...BASE, output: [1, 1, 1, 1], argKinds: [] }),
+    ).toThrow(/1–3 dims/);
+  });
 });
 
 describe("wgslF32", () => {

@@ -61,6 +61,7 @@ k.resultBuffer                                 // GPUBuffer — bind it in your 
 - `return expr` writes one f32 per element (a `bool` return stores 0.0/1.0).
   With `outputStride: 2|3|4`, `return [a, b, ...]` writes a flat
   `result[i*stride+c]` layout — the same bytes a `vecN<f32>` buffer has.
+  Ternaries on same-length arrays work too (`cond ? [a,b] : [c,d]` → `select`).
 - In-place writes: `access: ["read_write"]` (per param index) makes `a[i] = x`
   legal, including compounds (`a[i] += x`, `a[i] &= 3` — the index evaluates
   once). **Caveat:** for TypedArray args the caller's array is re-uploaded
@@ -76,8 +77,11 @@ k.resultBuffer                                 // GPUBuffer — bind it in your 
 
 Not supported (all throw `KernelSyntaxError` at transpile time): closures,
 helper-function calls, objects/structs, strings, switch, try/catch,
-destructuring, for..of, `??`/`??=`/`&&=`/`||=`, `++/--` as expression values,
-multi-declarator `for` inits, async/generator kernels, textures, atomics.
+destructuring, for..of, labels, `??`/`??=`/`&&=`/`||=`, `++/--` as expression
+values, non-statement for-init/update, multi-declarator `for` inits, arrays
+in locals (return them directly), locals shadowing array/buffer params,
+duplicate params, non-number constants, async/generator kernels, textures,
+atomics.
 
 ## Behavior notes
 
