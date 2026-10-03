@@ -47,12 +47,19 @@ jobs:
         with:
           node-version: "22"
 
+      # pkg-config deps for -sys crates (cpal/alsa, gilrs/libudev, winit/wayland,
+      # xkbcommon) — python3 for stylo's mako codegen.
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq python3 libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
+
       - name: Install Rust toolchain (pinned by rust-toolchain.toml)
         run: |
           rustup toolchain install --profile minimal
           rustup target add ${{ matrix.triples }}
 
       - name: Build Rust cdylibs
+        shell: bash # for/do/done is bash syntax — windows-latest defaults to pwsh
         run: |
           for t in ${{ matrix.triples }}; do
             node scripts/build-native.mjs --target="$t" --profile=dist
