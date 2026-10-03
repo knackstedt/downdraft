@@ -13,11 +13,11 @@
 
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { existsSync, statSync } from "node:fs";
-import { launchGame, parseJsonContent, type GameProcess } from "./harness";
+import { gameAvailable, launchGame, parseJsonContent, type GameProcess } from "./harness";
 
 const MCP_PORT = process.env.MCP_PORT ? parseInt(process.env.MCP_PORT, 10) : undefined;
 
-describe("tracing toolkit e2e (main-process MCP tools)", () => {
+describe.skipIf(!gameAvailable("to-the-ocean"))("tracing toolkit e2e (main-process MCP tools)", () => {
   let game: GameProcess | null = null;
 
   beforeAll(async () => {

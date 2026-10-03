@@ -66,7 +66,7 @@ Unified build + package pipeline for desktop targets. Replaces the separate `bui
 
 | Flag | Description |
 |---|---|
-| `--game <name>`, `-g` | Game to release (`games/<game>`). For multiple games, use `--games`. |
+| `--game <name>`, `-g` | Game to release (name or directory; resolves `games/<name>` when run from the engine root). For multiple games, use `--games`. |
 | `--games=<csv>` | Comma-separated game names (e.g. `sandjongg,to-the-ocean`) |
 | `--target <t>`, `-t` | Target: `win` / `linux` / `mac` / `all` (default: `all`) |
 | `--format=<csv>` | Deprecated no-op — native packaging produces a single binary + staged tree |
@@ -153,7 +153,7 @@ Runs e2e tests via `bun:test`. Sets `DOWNDRAFT_DETERMINISTIC=1` (fixed seed, pau
 
 | Flag | Description |
 |---|---|
-| `--game <name>`, `-g` | Game to test (required; `games/<game>`) |
+| `--game <name>`, `-g` | Game to test (required; resolves `games/<name>` from the engine root, or the game dir from cwd) |
 | `--spec <path>`, `-s` | Spec file to run (default: `tests/e2e/<game>-smoke.spec.ts`) |
 | `--port <n>`, `-p` | MCP port (`0` = auto-assign a free port; default: `0`) |
 | `--renderer <r>`, `-r` | WebGPU backend: `cpu` (SwiftShader) / `gpu` (hardware) (default: `cpu`) |
@@ -210,7 +210,7 @@ draft new my-game
 draft new my-game --template=physics --ai-companion
 
 # Run in dev mode (from the game directory)
-cd games/my-game && draft dev
+cd my-game && draft dev
 
 # Build for production
 draft release --game=my-game --target=win

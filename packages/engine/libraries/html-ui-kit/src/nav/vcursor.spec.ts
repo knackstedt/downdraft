@@ -6,13 +6,12 @@
 
 import { loadOsrLib, type OsrDomEvent } from "@downdraft/engine/libraries/blitz-ui/native-osr-ffi";
 import type {
-    DocInputMsg,
     DocMutation,
     HtmlUiHost,
     PanelSpec,
     UiPanelHandle,
     UiToWorker,
-    WorkerToUi,
+    WorkerToUi
 } from "@downdraft/engine/modules/html-ui";
 import { createDocCore } from "@downdraft/engine/modules/html-ui";
 import { describe, expect, test } from "bun:test";
@@ -49,6 +48,8 @@ function navPanel(html: string, w = 400, h = 300): { handle: UiPanelHandle; even
         id: "p",
         rect: { x: 0, y: 0, w, h },
         setInteractive: () => {},
+        setDocHeight: () => {},
+        setSrcRect: () => {},
         setHtml: (h2) => send({ type: "setHtml", id: "p", html: h2 }),
         setText: (t, text) => mutate([{ op: "text", ...tgt(t), text }]),
         setAttr: (t, name, value) => mutate([{ op: "attr", ...tgt(t), name, value }]),

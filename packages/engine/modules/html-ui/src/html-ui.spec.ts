@@ -143,6 +143,29 @@ describe.skipIf(!hasLib)("html-ui doc core", () => {
     core.dispose();
   });
 
+  test("mouse events carry pointer coords (scrollbar drags depend on them)", () => {
+    const { msgs, emit } = collect();
+    const core = createDocCore(emit);
+    core.handle({ type: "create", id: "p1", cssW: 200, cssH: 100, scale: 1, html: `${CSS}<div id="thumb" style="position:absolute;left:180px;top:0;width:20px;height:40px"></div>` });
+    msgs.length = 0;
+    core.handle({ type: "input", id: "p1", msg: { kind: "down", x: 190, y: 10, button: "left" } });
+    core.handle({ type: "input", id: "p1", msg: { kind: "move", x: 190, y: 30 } });
+    core.handle({ type: "input", id: "p1", msg: { kind: "up", x: 190, y: 30, button: "left" } });
+    const events = msgs.filter((m) => m.type === "events").flatMap((m) => (m as Extract<WorkerToUi, { type: "events" }>).events);
+    const down = events.find((e) => e.t === "mousedown");
+    const move = events.find((e) => e.t === "pointermove");
+    const up = events.find((e) => e.t === "mouseup");
+    expect(down).toBeTruthy();
+    expect(down!.id).toBe("thumb");
+    expect(down!.x).toBe(190);
+    expect(down!.y).toBe(10);
+    expect(move).toBeTruthy();
+    expect(move!.y).toBe(30);
+    expect(up!.x).toBe(190);
+    expect(up!.y).toBe(30);
+    core.dispose();
+  });
+
   test("input coords scale into doc space", () => {
     const { msgs, emit } = collect();
     const core = createDocCore(emit);

@@ -8,7 +8,7 @@ description: Dev workflow, build modes, and project structure
 The primary development workflow runs a game on the native runtime:
 
 ```bash
-cd games/<game-name>
+cd <game-directory>
 draft dev
 ```
 
@@ -42,7 +42,7 @@ downdraft-engine/
 │   ├── devtools-web/   # Web devtools UI served by the native OSR shell
 │   └── native-*/       # Prebuilt platform binaries per target
 ├── examples/           # Example projects
-├── games/              # Game projects (git submodules)
+├── games/              # Optional local clones of game repos (gitignored)
 ├── tests/              # Test infrastructure (e2e specs, fixtures)
 └── docs/               # Documentation
 ```

@@ -4,16 +4,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
     captureAndSaveScreenshot,
+    gameAvailable,
     launchGame,
     parseJsonContent,
     sleep,
     type GameProcess,
-    type McpToolResult,
+    type McpToolResult
 } from "./harness";
 
 const MCP_PORT = process.env.MCP_PORT ? parseInt(process.env.MCP_PORT, 10) : undefined;
 
-describe("archery-game MCP automation smoke", () => {
+describe.skipIf(!gameAvailable("archery-game"))("archery-game MCP automation smoke", () => {
   let game: GameProcess | null = null;
 
   beforeAll(async () => {
@@ -24,7 +25,7 @@ describe("archery-game MCP automation smoke", () => {
       deterministic: true,
       // Fresh userData dir per run — a stale autosave (e.g. a dead player)
       // otherwise restores mid-test and flakes get_ui_state assertions.
-      env: { XDG_CONFIG_HOME: mkdtempSync(join(tmpdir(), "archery-smoke-")) },
+      extraEnv: { XDG_CONFIG_HOME: mkdtempSync(join(tmpdir(), "archery-smoke-")) },
       ignoreErrorPatterns: [
         /WebGL.*context.*lost/i,
         /perf.*extension/i,

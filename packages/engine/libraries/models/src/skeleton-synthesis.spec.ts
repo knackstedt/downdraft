@@ -5,9 +5,10 @@
 // Run: bun test packages/engine/libraries/models/src/skeleton-synthesis.spec.ts
 // ============================================================================
 
-import { describe, expect, it } from "bun:test";
-import { resolve } from "path";
 import { composeMat4Into, multiplyMat4Into } from "@downdraft/engine";
+import { describe, expect, it } from "bun:test";
+import { existsSync } from "node:fs";
+import { resolve } from "path";
 import { loadModel } from "./loader";
 import { synthesizeSkeletonSkin } from "./skeleton-synthesis";
 import type { AnimationData, ModelNode } from "./types";
@@ -124,7 +125,9 @@ describe("synthesizeSkeletonSkin", () => {
   });
 });
 
-describe("loadModel skeleton synthesis (real fixture)", () => {
+// The real fixture lives in a separate game repo (games/ is gitignored) —
+// skip when it isn't on disk.
+describe.skipIf(!existsSync(resolve(SPEC_DIR, "..", "..", "..", "..", "..", "games/to-the-ocean/src/assets")))("loadModel skeleton synthesis (real fixture)", () => {
   it("X Bot@Idle.fbx (animation-only FBX) gets a synthesized skin", async () => {
     const data = await loadRealWorld("games/to-the-ocean/src/assets/animations/human/mixamo/X Bot@Idle.fbx");
     const model = await loadModel(data, "X Bot@Idle.fbx", null, null);

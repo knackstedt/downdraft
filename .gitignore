@@ -2,7 +2,13 @@ node_modules
 packages/*/node_modules
 /build
 
-games/to-the-ocean/src/assets
+# Games are separate repos, not part of this repo. Clone them under games/
+# (or anywhere) for local dev — see AGENTS.md "Repository layout".
+games/
+
+# Local environment files — never commit secrets.
+.env
+.env.*
 
 # Electron build output
 dist

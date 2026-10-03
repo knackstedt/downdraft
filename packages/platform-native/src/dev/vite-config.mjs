@@ -10,6 +10,7 @@
 // ============================================================================
 
 import { existsSync, readFileSync } from "node:fs";
+import { createServer as createHttpServer } from "node:http";
 import { builtinModules, createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -284,6 +285,16 @@ export function buildNativeDevConfig(opts) {
     resolve: { alias: aliases },
     server: {
       middlewareMode: true,
+      hmr: {
+        // Without an outer http server (middlewareMode) vite would bind its
+        // own HMR websocket server on port 24678 — nothing ever connects
+        // (the "native" env uses an in-process hot channel and no browser
+        // client exists), and the bind collides with any other vite process.
+        // Hand it a never-listened server so it attaches an upgrade listener
+        // instead of opening a socket. NOT `hmr: false` — that disables the
+        // whole handleHMRUpdate pipeline the classifier hooks depend on.
+        server: createHttpServer(),
+      },
       watch: {
         // Keep the watcher lean — engine + game sources only.
         ignored: ["**/node_modules/**", "**/.git/**", "**/dist/**", "**/.dd-dev/**"],

@@ -22,7 +22,7 @@
 // Usage: node scripts/rewrite-engine-imports.mjs [--dry-run]
 // ============================================================================
 
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 const root = resolve(new URL("..", import.meta.url).pathname);
@@ -57,7 +57,7 @@ const SKIP_DIRS = new Set([
   "node_modules", ".git", "dist", "release", "out", ".downdraft",
   "android", "ios",
 ]);
-const ROOTS = ["packages", "games", "examples", "tests", "docs", "scripts", ".github"];
+const ROOTS = ["packages", "examples", "tests", "docs", "scripts", ".github"];
 const ROOT_FILES = ["AGENTS.md", "README.md"];
 
 function* walk(dir) {

@@ -7,17 +7,18 @@
 
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import {
-  captureAndSaveScreenshot,
-  launchGame,
-  parseJsonContent,
-  sleep,
-  type GameProcess,
-  type McpToolResult,
+    captureAndSaveScreenshot,
+    gameAvailable,
+    launchGame,
+    parseJsonContent,
+    sleep,
+    type GameProcess,
+    type McpToolResult
 } from "./harness";
 
 const MCP_PORT = process.env.MCP_PORT ? parseInt(process.env.MCP_PORT, 10) : undefined;
 
-describe("sandjongg MCP automation smoke", () => {
+describe.skipIf(!gameAvailable("sandjongg"))("sandjongg MCP automation smoke", () => {
   let game: GameProcess | null = null;
 
   beforeAll(async () => {

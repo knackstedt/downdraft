@@ -1,11 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import {
     captureAndSaveScreenshot,
+    gameAvailable,
     launchGame,
     parseJsonContent,
     sleep,
     type GameProcess,
-    type McpToolResult,
+    type McpToolResult
 } from "./harness";
 
 const MCP_PORT = process.env.MCP_PORT ? parseInt(process.env.MCP_PORT, 10) : undefined;
@@ -30,7 +31,7 @@ interface WorldState {
     count: number;
 }
 
-describe("andrews-sandbox gameplay parity", () => {
+describe.skipIf(!gameAvailable("andrews-sandbox"))("andrews-sandbox gameplay parity", () => {
   let game: GameProcess | null = null;
 
   const uiState = async (): Promise<UiState> => {

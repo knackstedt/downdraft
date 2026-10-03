@@ -1,8 +1,10 @@
 # Downdraft Engine — Agent Notes
 
-## Repository layout: games are git submodules
+## Repository layout: games are separate repos
 
-Every directory under `games/` is a **git submodule** pointing at its own repository (`github.com/knackstedt/<game>`). Each game is a standalone-installable repo — it consumes engine packages via `@downdraft/*` semver deps (`^0.1.0`), which resolve to workspace links inside the monorepo and to npm in a standalone checkout. When changing a game's code, commit inside the submodule repo first, then bump the gitlink in this repo. `git submodule update --init --recursive` is required after clone (CI does **not** fetch submodules — engine CI is self-contained and never builds games). After `bun install`, run `bun run link:games` to symlink `@downdraft/*` packages into every game's `node_modules` — workspace-member games are linked automatically, but `downdraft-model-viewer` and `downdraft-gpu-bench` are not workspace members and need the script (it also adds a `node_modules/.bin/draft` shim per game).
+Games are **not part of this repository** — each game is a standalone repo that consumes engine packages via `@downdraft/*` semver deps (`^0.1.0`), resolving to npm in a standalone checkout. For local development, clone game repos anywhere; by convention they live under `games/` inside this repo (the whole `games/` dir is gitignored — it exists only as a local workspace). The `draft` CLI resolves `games/<name>` when present and otherwise walks up from cwd for `downdraft.config.json` / `src/native-entry.ts`. After `bun install`, run `bun run link:games` to symlink `@downdraft/*` packages into each game's `node_modules` (it also adds a `node_modules/.bin/draft` shim per game) — this replaces what workspace membership used to provide. Each game runs its own `bun install` for non-engine deps. CI never touches games — engine CI is self-contained.
+
+References to `games/<name>/...` throughout this document refer to those local clones; nothing under `games/` is tracked here.
 
 `@downdraft/*` packages are published to npm (`node scripts/publish-packages.mjs` / the `publish.yml` workflow).
 
@@ -42,8 +44,8 @@ Architecturally the engine is split into **core + libraries** (standard engine b
 
 - **Engine libraries** (imported as `@downdraft/engine/libraries/<name>`, located in `packages/engine/libraries/`): directories that export classes/functions without a module lifecycle. Games can either import and wire these directly, or declare them via `EngineLibrary` descriptors in `GameModule.libraries[]` for auto-wiring (SAB allocation, sim system creation, renderer pass creation, typed DI tokens). Engine libraries: asset-browser, audio-kira, blitz-ui, character, devtools, entities, gamepad, gaussian-splats, html-ui-kit, lighting, marching-cubes, models, navmesh, networking, pathfinding-2d, persistence, physics-native, physics-rapier, postfx, recast, sand, stickman, surface-nets, water, weather, weatherfx.
 - **Engine modules** (imported as `@downdraft/engine/modules/<name>`, located in `packages/engine/modules/`): directories that implement the `Module` or `RendererModule` interface with a `register()` lifecycle + typed DI. Engine modules: camera-controls, controller-ui, devtools, html-ui, mcp, movement-2d, movement-3d, native-osr, sailing, terrain, vitals, xr.
-- **Game modules** (namespace `@to-the-ocean/module-*`, located in `games/<game>/modules/`): game-specific features with a module lifecycle. Game modules: crafting, inventory, buoyancy, collision, wildlife.
-- **Game libraries** (namespace `@to-the-ocean/library-*`, located in `games/<game>/libraries/`): game-specific pure libraries without a module lifecycle. Game libraries: boats, economy, fishing, items, survival.
+- **Game modules** (e.g. namespace `@to-the-ocean/module-*`, located in a game repo's `modules/` dir): game-specific features with a module lifecycle. Examples: crafting, inventory, buoyancy, collision, wildlife.
+- **Game libraries** (e.g. namespace `@to-the-ocean/library-*`, located in a game repo's `libraries/` dir): game-specific pure libraries without a module lifecycle. Examples: boats, economy, fishing, items, survival.
 
 ### Declarative GameModule + startGame()
 
@@ -101,7 +103,7 @@ The `LibraryHost` auto-wires each library: allocates SAB channels, creates sim-s
 
 Bare class exports remain as an escape hatch — games that need full control can still import and wire `WaterBufferWriter`, `RapierPhysicsBackend`, etc. directly.
 
-No engine package depends on any game package (verified). The `entities` library is an engine library (generic `ModelRenderer` used by multiple games). When adding a new game, create `games/<game>/modules/` for its game-specific modules and `games/<game>/libraries/` for its game-specific pure libraries.
+No engine package depends on any game package (verified). The `entities` library is an engine library (generic `ModelRenderer` used by multiple games). When adding a new game, create `modules/` in the game repo for its game-specific modules and `libraries/` for its game-specific pure libraries.
 
 ### Visual Test Bench (`games/downdraft-gpu-bench`)
 

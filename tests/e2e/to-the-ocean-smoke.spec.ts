@@ -7,6 +7,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import {
     captureAndSaveScreenshot,
+    gameAvailable,
     launchGame,
     parseJsonContent,
     sleep,
@@ -15,7 +16,7 @@ import {
 
 const MCP_PORT = process.env.MCP_PORT ? parseInt(process.env.MCP_PORT, 10) : undefined;
 
-describe("to-the-ocean MCP automation smoke", () => {
+describe.skipIf(!gameAvailable("to-the-ocean"))("to-the-ocean MCP automation smoke", () => {
   let game: GameProcess | null = null;
 
   beforeAll(async () => {

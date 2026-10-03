@@ -44,7 +44,7 @@ DownDraft Engine is organized as a Bun workspace monorepo with the following pac
 
 ## Game Libraries (to-the-ocean)
 
-Game-specific libraries live in `games/to-the-ocean/libraries/` under the `@to-the-ocean/library-*` namespace.
+Game-specific libraries live in a game repo's `libraries/` directory — e.g. to-the-ocean's under the `@to-the-ocean/library-*` namespace.
 
 | Package | Description |
 |---|---|
@@ -56,7 +56,7 @@ Game-specific libraries live in `games/to-the-ocean/libraries/` under the `@to-t
 
 ## Game Modules (to-the-ocean)
 
-Game-specific modules live in `games/to-the-ocean/modules/` under the `@to-the-ocean/module-*` namespace.
+Game-specific modules live in a game repo's `modules/` directory — e.g. to-the-ocean's under the `@to-the-ocean/module-*` namespace.
 
 | Package | Description |
 |---|---|

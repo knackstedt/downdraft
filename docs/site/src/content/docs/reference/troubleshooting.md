@@ -38,7 +38,7 @@ The sim worker supervisor automatically restarts on first crash from a DB checkp
 1. Check the console output for the crash reason
 2. Try running in debug mode for more verbose logging:
    ```bash
-   cd games/<game-name> && draft dev --verbose
+   cd <game-directory> && draft dev --verbose
    ```
 3. If the crash is reproducible, use MCP `checkpoint` tools to save state before the crash point
 
@@ -103,4 +103,4 @@ renderer.setFrameRateLimit(60); // or your monitor's refresh rate
 1. Check the terminal output and the devtools overlay console for errors
 2. Ensure WebGPU is available (see above)
 3. Try running in dev mode to see detailed error messages
-4. Check that the correct game is being loaded — run `draft dev` from inside `games/<name>` (the game is inferred from the current directory)
+4. Check that the correct game is being loaded — run `draft dev` from inside the game directory (the game is inferred from the current directory)

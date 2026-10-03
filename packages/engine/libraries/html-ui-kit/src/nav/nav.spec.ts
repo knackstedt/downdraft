@@ -39,6 +39,8 @@ function navPanel(html: string, w = 400, h = 300): { handle: UiPanelHandle; even
         id: "p",
         rect: { x: 0, y: 0, w, h },
         setInteractive: () => {},
+        setDocHeight: () => {},
+        setSrcRect: () => {},
         setHtml: (h2) => send({ type: "setHtml", id: "p", html: h2 }),
         setText: (t, text) => mutate([{ op: "text", ...tgt(t), text }]),
         setAttr: (t, name, value) => mutate([{ op: "attr", ...tgt(t), name, value }]),

@@ -6,11 +6,8 @@ on:
   pull_request:
     branches: [main, master]
 
-# NOTE: games/* are private git submodules (git@github.com SSH URLs) — CI has
-# no deploy key, so they are not checked out and not typechecked/linted/tested
-# here. To re-enable game coverage, add a repo secret (deploy key or PAT),
-# configure `actions/checkout@v4` with `submodules: recursive` + the key, and
-# extend the test glob to `games/*/src`.
+# NOTE: games live in separate repos and are gitignored here — engine CI is
+# self-contained and never builds or typechecks game code.
 
 jobs:
   typecheck:

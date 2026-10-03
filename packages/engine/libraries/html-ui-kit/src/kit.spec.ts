@@ -51,6 +51,8 @@ function docPanel(html: string, w = 400, h = 300): DocPanel {
         id: "p",
         rect: { x: 0, y: 0, w, h },
         setInteractive: () => {},
+        setDocHeight: () => {},
+        setSrcRect: () => {},
         setHtml: (html2) => send({ type: "setHtml", id: "p", html: html2 }),
         setText: (t, text) => mutate([{ op: "text", ...tgt(t), text }]),
         setAttr: (t, name, value) => mutate([{ op: "attr", ...tgt(t), name, value }]),

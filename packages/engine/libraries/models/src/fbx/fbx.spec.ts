@@ -9,6 +9,7 @@
 //
 
 import { describe, expect, it } from "bun:test";
+import { existsSync } from "node:fs";
 import { resolve } from "path";
 import { parseFBX } from "./index";
 import { extractMaterialProperties } from "./interpreter/materials";
@@ -270,8 +271,12 @@ describe("FBX m01-m16: Babylon test suite", () => {
 });
 
 // ── Real-world fixtures: production FBX files ───────────────────────────────
+// These live in a separate game repo (games/ is gitignored) — skip the block
+// when the assets aren't on disk.
 
-describe("FBX real-world fixtures", () => {
+const REALWORLD_ROOT = resolve(SPEC_DIR, "..", "..", "..", "..", "..", "..", "games/to-the-ocean/src/assets");
+
+describe.skipIf(!existsSync(REALWORLD_ROOT))("FBX real-world fixtures", () => {
   it("character.fbx: Mixamo rigged character (skinning + rest pose)", async () => {
     const data = await loadRealWorld(
       "games/to-the-ocean/src/assets/models/character.fbx",

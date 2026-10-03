@@ -28,33 +28,32 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```bash
 git clone https://github.com/knackstedt/downdraft-engine.git
 cd downdraft-engine
-git submodule update --init --recursive
 ```
 
 ## Install Dependencies
 
 ```bash
 bun install
-bun run link:games
 ```
 
-This installs all workspace dependencies via Bun workspaces, then links `@downdraft/*` packages into every game's `node_modules`.
+This installs all workspace dependencies via Bun workspaces. Games are separate repos — if you develop a game alongside the engine under `games/`, run `bun run link:games` to link `@downdraft/*` packages into each game's `node_modules`.
 
 ## Verify Installation
 
-Run a game to verify everything works:
+Scaffold a game and run it to verify everything works:
 
 ```bash
-cd games/to-the-ocean
+draft new my-game
+cd my-game
 draft dev
 ```
 
 This launches the game on the native runtime via its `src/native-entry.ts` entrypoint. You should see a native window with the WebGPU-rendered scene and devtools overlay.
 
-## Running a Specific Game
+## Running an Existing Game
 
 ```bash
-cd games/<game-name> && draft dev
+cd <game-directory> && draft dev
 ```
 
 ## Next Steps

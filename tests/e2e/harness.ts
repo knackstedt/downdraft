@@ -14,7 +14,8 @@ import {
     GameClient,
     launchGame as launchGameProcess,
 } from "@downdraft/engine/mcp/client";
-import { join } from "node:path";
+import { existsSync } from "node:fs";
+import { join, resolve } from "node:path";
 
 // ---------------------------------------------------------------------------
 // Shared types & utilities (exported for use by spec files)
@@ -125,6 +126,24 @@ export async function captureAndSaveScreenshot(
 
 export async function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/**
+ * Does a runnable game exist for `name`? Looks for `downdraft.config.json` or
+ * `src/native-entry.ts` under `games/<name>` and `examples/<name>` relative to
+ * the repo root. Games live in separate repos — specs should guard with
+ * `describe.skipIf(!gameAvailable("x"))` so the suite passes on checkouts
+ * without them.
+ */
+export function gameAvailable(name: string): boolean {
+  const root = resolve(import.meta.dir, "..", "..");
+  for (const base of ["games", "examples"]) {
+    const dir = join(root, base, name);
+    if (existsSync(join(dir, "downdraft.config.json")) || existsSync(join(dir, "src", "native-entry.ts"))) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export { findFreePort };

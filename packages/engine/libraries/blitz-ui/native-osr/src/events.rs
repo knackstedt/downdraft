@@ -174,6 +174,9 @@ impl EventHandler for QueueingHandler {
             }
             DomEventData::PointerDown(p)
             | DomEventData::PointerUp(p)
+            | DomEventData::MouseMove(p)
+            | DomEventData::MouseDown(p)
+            | DomEventData::MouseUp(p)
             | DomEventData::Click(p)
             | DomEventData::DoubleClick(p)
             | DomEventData::ContextMenu(p) => {

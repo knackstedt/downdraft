@@ -4,6 +4,7 @@
 // Run: bun test packages/engine/asset-bake/src/e2e-roundtrip.spec.ts
 
 import { describe, expect, it } from "bun:test";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { bakeGltf } from "./bake-gltf";
 import { resolveOptions } from "./config";
@@ -15,7 +16,8 @@ const MODEL_DIR = join(
 );
 const MODEL = join(MODEL_DIR, "Eyebrows_Regular.gltf");
 
-describe("e2e: bake glTF round-trip", () => {
+// MODEL lives in a separate game repo (games/ is gitignored) — skip when absent.
+describe.skipIf(!existsSync(MODEL))("e2e: bake glTF round-trip", () => {
   it("bakes a real glTF into a GLB with meshopt + basisu extensions", async () => {
     const opts = resolveOptions();
     const log = (msg: string) => console.log(`  [e2e]${msg}`);

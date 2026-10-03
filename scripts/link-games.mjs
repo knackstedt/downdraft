@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// Symlink @downdraft/* engine packages into each game submodule's
-// node_modules. Workspace-member games already get these links from
-// `bun install`; this script covers the non-workspace games and is a
-// no-op where links already point at the right package.
+// Symlink @downdraft/* engine packages into each game repo's node_modules
+// under games/. Games are separate repos (not part of this repo) — clone
+// them under games/ or run this anywhere a sibling games/ dir exists.
+// No-op where links already point at the right package or games/ is absent.
 import {
     existsSync,
     lstatSync,
@@ -60,7 +60,12 @@ let created = 0;
 let existing = 0;
 const warnings = [];
 
-for (const entry of readdirSync(join(root, "games"), { withFileTypes: true })) {
+const gamesDir = join(root, "games");
+if (!existsSync(gamesDir)) {
+  console.log("link-games: no games/ directory — nothing to link");
+  process.exit(0);
+}
+for (const entry of readdirSync(gamesDir, { withFileTypes: true })) {
   if (!entry.isDirectory()) continue;
   const gameDir = join(root, "games", entry.name);
   if (!existsSync(join(gameDir, "package.json"))) continue;

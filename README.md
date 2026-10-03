@@ -7,10 +7,11 @@ A game engine built on a **native runtime — winit + wgpu, hosted by Bun, Node,
 ```bash
 # Install dependencies
 bun install
-bun run link:games
 
-# Run a game from its own directory (each game owns src/native-entry.ts)
-cd games/<your-game>
+# Scaffold a game (each game owns src/native-entry.ts), or clone an
+# existing game repo and cd into it
+draft new my-game
+cd my-game
 draft dev
 
 # Build + package for distribution (desktop)
@@ -25,7 +26,7 @@ draft release --stage=build
 Games bootstrap through `src/native-entry.ts`, which runs a shared `GameModule` on the native host:
 
 ```ts
-// games/my-game/src/native-entry.ts
+// my-game/src/native-entry.ts
 import { runNativeGameModule } from "@downdraft/platform-native";
 import { gameModule } from "./game-module";
 
@@ -120,7 +121,7 @@ Feature modules use the factory pattern (`createXxxModule(config)`) and provide 
 | `@downdraft/engine/modules/movement-2d` | 2D movement system |
 | `@downdraft/engine/modules/sailing` | Sailing mechanics |
 
-### Game modules / libraries (`games/<game>/modules/` + `games/<game>/libraries/`)
+### Game modules / libraries (`<game>/modules/` + `<game>/libraries/`)
 
 Game-specific features live under each game's `modules/` and `libraries/` directories. No engine package depends on any game package. Games organize their features as `@<game-scope>/module-*` (lifecycle + typed DI) or `@<game-scope>/library-*` (bare classes) packages, following the same engine library/module split described above.
 
