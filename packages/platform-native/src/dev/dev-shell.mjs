@@ -114,7 +114,10 @@ if (typeof vite.createRunnableDevEnvironment !== "function") {
 // ── Supervisor state ───────────────────────────────────────────────────────
 
 const hmrOptions = loadHmrOptions(gameDir);
-const ackTimeoutMs = hmrOptions.ackTimeoutMs ?? 5000;
+// 30s default: a Tier-2 swap includes a cache-busted worker respawn + init +
+// state restore, which legitimately exceeds the old 5s budget in dev and
+// caused every swap to false-positive into a session restart.
+const ackTimeoutMs = hmrOptions.ackTimeoutMs ?? 30_000;
 
 let server = null;
 let runner = null;
@@ -185,7 +188,7 @@ function sendFullReload(triggeredBy) {
         try { await globalThis.__ddSession?.teardown?.({ destroyDevices: false }); } catch {}
         await reimportSession();
       });
-    }, Math.max(ackTimeoutMs * 2, 8000));
+    }, Math.max(ackTimeoutMs, 15_000));
     sessionFallback.unref?.();
   } catch (e) {
     logErr(`full-reload send failed: ${e?.message ?? e}`);
@@ -205,7 +208,7 @@ function sendHostRestart(data) {
         delete globalThis.__nativeHost;
         await reimportHost();
       });
-    }, Math.max(ackTimeoutMs * 2, 10000));
+    }, Math.max(ackTimeoutMs, 20_000));
     hostFallback.unref?.();
   } catch (e) {
     logErr(`host-restart send failed: ${e?.message ?? e}`);

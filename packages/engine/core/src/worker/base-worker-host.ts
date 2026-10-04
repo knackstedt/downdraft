@@ -36,6 +36,7 @@ export abstract class BaseWorkerHost<TApi extends WorkerApi> {
   protected ready = false;
   private unsubEvents: (() => void) | null = null;
   private syncHost: BufferSyncHost | null = null;
+  private lifecycleLock: Promise<void> | null = null;
 
   constructor(sab: SharedArrayBuffer) {
     this.sab = sab;
@@ -57,6 +58,36 @@ export abstract class BaseWorkerHost<TApi extends WorkerApi> {
   }
 
   /**
+   * Serialize start()/stop() — a hot-reload save→stop→start cycle racing a
+   * second caller (overlapping swap events, session teardown) must not
+   * interleave worker/proxy swaps, or workers get orphaned mid-flight.
+   * FIFO mutex; uncontended calls invoke fn synchronously so start() wires
+   * the worker in the caller's own tick (post-await subscribers rely on it).
+   */
+  private serialized<T>(fn: () => Promise<T>): Promise<T> {
+    let release!: () => void;
+    const mine = new Promise<void>((r) => (release = r));
+    const prev = this.lifecycleLock;
+    this.lifecycleLock = mine;
+    const settle = () => {
+      if (this.lifecycleLock === mine) this.lifecycleLock = null;
+      release();
+    };
+    if (!prev) {
+      const result = Promise.resolve(fn());
+      void result.finally(settle);
+      return result;
+    }
+    return prev.then(async () => {
+      try {
+        return await fn();
+      } finally {
+        settle();
+      }
+    });
+  }
+
+  /**
    * Spawn the worker and call its init RPC.
    *
    * Subclasses MUST implement createWorker() with the inline
@@ -68,32 +99,42 @@ export abstract class BaseWorkerHost<TApi extends WorkerApi> {
    * override getSyncConfig() to declare the region layout.
    */
   async start(): Promise<void> {
-    this.worker = this.createWorker();
-    // 120s rather than the 30s default: in dev, vite's cold transform of a
-    // large worker module can exceed 30s, killing init with a spurious
-    // timeout while the worker is still legitimately loading.
-    this.proxy = wrap<TApi>(this.worker, { timeoutMs: 120_000 });
+    return this.serialized(async () => {
+      // Re-entrant start while a worker is live (overlapping hot reloads,
+      // teardown racing a respawn) must not orphan the old worker.
+      if (this.worker || this.proxy) await this.stopInner();
 
-    this.worker.onerror = (e: ErrorEvent) => {
-      this.onError(e);
-    };
+      this.worker = this.createWorker();
+      // 120s rather than the 30s default: in dev, vite's cold transform of a
+      // large worker module can exceed 30s, killing init with a spurious
+      // timeout while the worker is still legitimately loading.
+      this.proxy = wrap<TApi>(this.worker, { timeoutMs: 120_000 });
+      // Tag the Worker with its RPC proxy so external force-terminates (dev
+      // session teardown) reject pending calls instead of leaving them to
+      // hang until their timeout — a hanging caller pins the dying session.
+      (this.worker as any).__ddWorkerProxy = this.proxy;
 
-    this.unsubEvents = this.proxy.onEvents((kind: string, data?: unknown) => {
-      this.onEvent(kind, data);
+      this.worker.onerror = (e: ErrorEvent) => {
+        this.onError(e);
+      };
+
+      this.unsubEvents = this.proxy.onEvents((kind: string, data?: unknown) => {
+        this.onEvent(kind, data);
+      });
+
+      // SAB polyfill: start buffer sync host before onInit so input sync begins
+      // as soon as the worker is ready. The host uses rAF to sync input regions.
+      if (!usingRealSAB && this.getSyncConfig()) {
+        const { BufferSyncHost: BSH } = await import("./buffer-sync");
+        this.syncHost = new BSH(this.worker, this.getSyncConfig()!);
+        this.syncHost.start();
+      }
+
+      // Hook for subclasses to run setup before onInit (e.g. attaching profiling SAB).
+      await this.beforeInit();
+
+      await this.onInit();
     });
-
-    // SAB polyfill: start buffer sync host before onInit so input sync begins
-    // as soon as the worker is ready. The host uses rAF to sync input regions.
-    if (!usingRealSAB && this.getSyncConfig()) {
-      const { BufferSyncHost: BSH } = await import("./buffer-sync");
-      this.syncHost = new BSH(this.worker, this.getSyncConfig()!);
-      this.syncHost.start();
-    }
-
-    // Hook for subclasses to run setup before onInit (e.g. attaching profiling SAB).
-    await this.beforeInit();
-
-    await this.onInit();
   }
 
   /**
@@ -110,11 +151,27 @@ export abstract class BaseWorkerHost<TApi extends WorkerApi> {
    * Safe to call multiple times.
    */
   async stop(): Promise<void> {
+    return this.serialized(() => this.stopInner());
+  }
+
+  private async stopInner(): Promise<void> {
     this.syncHost?.stop();
     this.syncHost = null;
     if (this.proxy) {
       try {
-        await this.proxy.proxy.shutdown();
+        // Bounded graceful shutdown — a wedged worker must not hang stop()
+        // (and through it, hot-reload pipelines and session teardown).
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([
+            this.proxy.proxy.shutdown(),
+            new Promise((_, rej) => {
+              timer = setTimeout(() => rej(new Error("shutdown RPC timed out")), 2_000);
+            }),
+          ]);
+        } finally {
+          clearTimeout(timer);
+        }
       } catch {
         // Worker may already be dead
       }

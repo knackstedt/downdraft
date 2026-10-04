@@ -71,16 +71,18 @@ export function createAssetLoader(registry: AssetRegistry): ExtensionLoader {
       const id = a.id;
       switch (a.kind) {
         case "mesh":
-          await registry.registerMesh(id, a.path, manifestId, a as Record<string, unknown>);
+          // Pathless mesh = procedural primitive prop (shape/physics meta
+          // only). Pass "" so the registry registers an empty URL.
+          await registry.registerMesh(id, a.path ?? "", manifestId, a as Record<string, unknown>);
           return () => { registry.unregisterMesh(id); };
         case "texture":
-          await registry.registerTexture(id, a.path, manifestId, a as Record<string, unknown>);
+          await registry.registerTexture(id, a.path ?? "", manifestId, a as Record<string, unknown>);
           return () => { registry.unregisterTexture(id); };
         case "pbr-material":
-          await registry.registerPBRMaterial(id, a.path, manifestId, a);
+          await registry.registerPBRMaterial(id, a.path ?? "", manifestId, a);
           return () => { registry.unregisterPBRMaterial(id); };
         case "texture-pipeline":
-          await registry.registerTexturePipeline(id, a.path, manifestId, a);
+          await registry.registerTexturePipeline(id, a.path ?? "", manifestId, a);
           return () => { registry.unregisterTexturePipeline(id); };
         default:
           throw new Error(`Unknown asset kind: ${(a as any).kind}`);

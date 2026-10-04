@@ -71,8 +71,10 @@ export interface ModAssetExtension {
   kind: "mesh" | "texture" | "pbr-material" | "texture-pipeline";
   /** Logical asset id (namespaced, e.g. "my-mod:crate"). */
   id: string;
-  /** Path to the file relative to the mod dir. */
-  path: string;
+  /** Path to the file relative to the mod dir. Required for all kinds except
+   *  "mesh" — a pathless mesh registers a procedural primitive prop whose
+   *  shape/physics come entirely from the extension's meta fields. */
+  path?: string;
   /** pbr-material: descriptor fields (baseColor, metallic, roughness, texture refs). */
   /** texture-pipeline: pipeline descriptor. Extra fields are pass-through. */
   [key: string]: unknown;
@@ -561,7 +563,10 @@ function validateAssetExtension(a: unknown, i: number, errors: string[]): void {
   if (typeof ext.id !== "string" || !ext.id) {
     errors.push(`extensions.assets[${i}].id: required string`);
   }
-  if (typeof ext.path !== "string" || !ext.path) {
+  // `path` is optional for mesh assets: a pathless mesh means "procedural
+  // primitive prop" (shape/physics meta only, no file). All other kinds
+  // still require a file path.
+  if (ext.kind !== "mesh" && (typeof ext.path !== "string" || !ext.path)) {
     errors.push(`extensions.assets[${i}].path: required string`);
   }
 }

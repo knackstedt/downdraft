@@ -38,6 +38,10 @@ export interface CharacterPreviewOptions {
   rotationSpeed?: number;
   /** Clear color (default dark slate). */
   clearColor?: { r: number; g: number; b: number; a: number };
+  /** Render-target format — defaults to the host's preferred canvas format.
+   *  Set when the RenderSurface wraps an offscreen GPUTexture whose format
+   *  differs from the swapchain's (e.g. rgba8unorm for UI compositing). */
+  outputFormat?: GPUTextureFormat;
 }
 
 const UP: [number, number, number] = [0, 1, 0];
@@ -94,7 +98,7 @@ export class CharacterPreview {
       log.error("CharacterPreview", `uncaptured GPU error: ${(e as GPUUncapturedErrorEvent).error?.message}`);
     });
     this.context = this.canvas.getContext("webgpu") as unknown as GPUCanvasContext;
-    this.format = navigator.gpu.getPreferredCanvasFormat();
+    this.format = this.opts.outputFormat ?? navigator.gpu.getPreferredCanvasFormat();
     this.context.configure({
       device: this.device,
       format: this.format,

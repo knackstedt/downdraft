@@ -34,6 +34,10 @@ export interface RunNativeGameModuleOptions {
   /** Window size (default 1280x720). */
   width?: number;
   height?: number;
+  /** Request window activation on launch. Default false — the window maps
+   *  inactive so starting the game never steals focus. WMs may still focus
+   *  the window per their own policy. */
+  focused?: boolean;
   /** Engine/game version stamped into saves + the feature log. */
   engineVersion?: string;
   /** MCP server options, or `false` to disable (default: ephemeral port). */
@@ -59,6 +63,7 @@ export async function runNativeGameModule<Sim extends GameSimWorker, R extends G
       title: opts.title,
       width: opts.width ?? 1280,
       height: opts.height ?? 720,
+      focused: opts.focused,
     },
     appId: opts.appId,
     engineVersion: opts.engineVersion,

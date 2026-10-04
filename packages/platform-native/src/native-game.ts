@@ -33,6 +33,9 @@ export interface NativeGameOptions<R extends GameRendererLike = GameRendererLike
   /** Window size (default 1280x720). */
   width?: number;
   height?: number;
+  /** Request window activation on launch. Default false — the window maps
+   *  inactive so starting the game never steals focus. */
+  focused?: boolean;
   /** Renderer factory — receives the native surface (canvas polyfill). */
   renderer: (surface: any, host: NativeHostContext) => R;
   /** Extra NativeHostConfig overrides (screenshotPath, etc.). */
@@ -61,7 +64,7 @@ export async function startNativeGame<R extends GameRendererLike = GameRendererL
   const height = options.height ?? 720;
 
   const host = await createNativeHost({
-    window: { title: options.title, width, height },
+    window: { title: options.title, width, height, focused: options.focused },
     ...options.host,
   });
   const { surface, window } = host;

@@ -41,6 +41,7 @@ const GROUPS: Record<string, string[]> = {
     "sdl_shim_get_window_subsystem",
     "sdl_shim_get_window_size",
     "sdl_shim_set_window_title",
+    "sdl_shim_focus_window",
     "sdl_shim_poll_event",
     "sdl_shim_wait_event",
     "sdl_shim_grab_input",

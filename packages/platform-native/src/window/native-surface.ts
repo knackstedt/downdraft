@@ -383,7 +383,11 @@ export class NativeSurface extends MiniEventTarget {
 
   requestPointerLock(): Promise<void> | void {
     this._pointerLocked = true;
-    // Grab mouse + keyboard via SDL
+    // Grab mouse + keyboard via SDL. The OS grab only applies once the
+    // window is focused AND the player has produced a real input gesture
+    // (click/keypress/touch) — a request made earlier (e.g. at boot) stays
+    // pending and captures on the first click; it can never seize the
+    // cursor on its own. See NativeWindow.grabInput.
     const win = (globalThis as any).__nativeWindow;
     if (win?.grabInput) win.grabInput(true);
     // Update document.pointerLockElement to point to this canvas

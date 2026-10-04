@@ -80,6 +80,7 @@ interface SessionSnapshot {
 
 export class SessionTracker {
   private session: SessionSnapshot | null = null;
+  private host: any = null;
   private sims = new Set<SessionSim>();
   private metaProviders = new Set<SessionMetaProvider>();
   private tearingDown: Promise<void> | null = null;
@@ -327,6 +328,7 @@ export class SessionTracker {
    */
   attachHost(host: any): void {
     if (!host?.window) return;
+    this.host = host;
     if (!this.baselineCaptured) {
       this.baselineCaptured = true;
       const s = this.session;
@@ -422,7 +424,9 @@ export class SessionTracker {
 
     // 5. Tracked workers (belt — sims already stopped via step 2).
     for (const w of s.workers.values()) {
-      try { w.terminate?.(); } catch { /* already dead */ }
+      // Prefer the tagged RPC proxy — its terminate() also rejects pending
+      // calls, so awaiters don't pin the dead session until RPC timeout.
+      try { (w.__ddWorkerProxy ?? w).terminate?.(); } catch { /* already dead */ }
     }
     s.workers.clear();
 
@@ -463,9 +467,21 @@ export class SessionTracker {
       try { (globalThis as any).cancelAnimationFrame?.(id); } catch {}
     }
     for (const w of s.workers.values()) {
-      try { w.terminate?.(); } catch { /* already dead */ }
+      // Prefer the tagged RPC proxy — its terminate() also rejects pending
+      // calls, so awaiters don't pin the dead session until RPC timeout.
+      try { (w.__ddWorkerProxy ?? w).terminate?.(); } catch { /* already dead */ }
     }
     s.workers.clear();
+
+    // A cursor grab is session-owned too — the window/surface outlive the
+    // session, so a lock held at teardown would otherwise carry into the
+    // next session (fresh game boots with a trapped invisible cursor).
+    // exitPointerLock also resets pointerLockElement + inputGrabWanted.
+    try {
+      const host = this.host;
+      if (host?.surface?.pointerLocked) host.surface.exitPointerLock();
+      else host?.window?.grabInput?.(false);
+    } catch { /* best-effort */ }
 
     this.session = null;
   }

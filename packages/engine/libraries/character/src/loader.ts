@@ -8,6 +8,7 @@
 // ============================================================================
 
 import {
+    bindUnskinnedMeshes,
     loadModel,
     resolveImportSettings,
     type AnimationData,
@@ -219,11 +220,20 @@ function excludeMeshIndices(modelData: ModelData, exclude: Set<number>): void {
 }
 
 /**
+ * Strip a Blender mesh-split `_ptN` suffix so split parts resolve to their
+ * variant's canonical node (e.g. `rb_headwear.005_pt2` → `rb_headwear.005`).
+ */
+function variantPartKey(name: string): string {
+    return name.replace(/_pt\d+$/i, "");
+}
+
+/**
  * Strip the trailing `.NNN` / `_NNN` variant suffix from a node name to get
- * its equipment-slot group (e.g. `f_torso.007` → `f_torso`).
+ * its equipment-slot group (e.g. `f_torso.007` → `f_torso`). Mesh-split
+ * `_ptN` parts fold into their base variant first.
  */
 function variantGroupKey(name: string): string {
-    return name.replace(/[._]\d+$/, "");
+    return variantPartKey(name).replace(/[._]\d+$/, "");
 }
 
 /**
@@ -250,9 +260,14 @@ export function selectVariantMeshes(modelData: ModelData): void {
     const kept: string[] = [];
     for (const list of groups.values()) {
         if (list.length < 2) continue;
+        // Keep the first variant — including every `_ptN` split part that
+        // shares its canonical node name (a variant split across several
+        // nodes is one visual item).
+        const keepPart = variantPartKey(list[0].name);
         kept.push(list[0].name);
-        for (let i = 1; i < list.length; i++) {
+        for (let i = 0; i < list.length; i++) {
             const node = list[i];
+            if (variantPartKey(node.name) === keepPart) continue;
             if (node.meshes) node.meshes.forEach((idx) => { exclude.add(idx);; });
             if (node.mesh !== undefined) exclude.add(node.mesh);
         }
@@ -278,6 +293,10 @@ export interface CharacterModelLoaderOptions {
   filterOptionalMeshes?: boolean;
   /** Keep one mesh node per variant group (`slot.NNN` siblings). Default true. */
   selectVariantMeshes?: boolean;
+  /** Rigid-bind meshes that carry no skin weights to the nearest bone
+   *  (Unity-style bone-attached accessories like hair, glasses, hats that
+   *  FBX exports without a skin deformer). Default true. */
+  bindUnskinnedMeshes?: boolean;
 }
 
 export interface CharacterModelLoader {
@@ -355,6 +374,12 @@ export function createCharacterModelLoader(opts: CharacterModelLoaderOptions = {
       }
       if (opts.selectVariantMeshes !== false) {
         selectVariantMeshes(modelData);
+      }
+      if (opts.bindUnskinnedMeshes !== false) {
+        const bound = bindUnskinnedMeshes(modelData);
+        if (bound > 0) {
+          log.info("CharacterModel", `Rigid-bound ${bound} unskinned mesh(es) to nearest bone (${def.id})`);
+        }
       }
 
       // Load shared animations and merge into the model data.

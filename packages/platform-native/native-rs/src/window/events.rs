@@ -11,6 +11,7 @@ use std::ptr;
 use std::sync::{Condvar, Mutex};
 use std::time::Duration;
 use winit::event::{DeviceEvent, ElementState, Ime, MouseButton, MouseScrollDelta, WindowEvent};
+use winit::window::CursorGrabMode;
 
 pub const NONE: i32 = 0;
 const QUIT: i32 = 1;
@@ -296,7 +297,30 @@ pub fn translate_window_event(
             });
         }
 
-        WindowEvent::Focused(gained) => push(Ev::Focused { gained }),
+        WindowEvent::Focused(gained) => {
+            if !gained {
+                // Drop the cursor grab on focus loss — alt-tab is the user's
+                // escape hatch and a captured pointer on an unfocused window
+                // traps the cursor with no recourse (XGrabPointer survives
+                // the focus switch). The JS side mirrors this through
+                // exitPointerLock; releasing here guarantees the OS grab dies
+                // even if the JS pump is stalled.
+                if ctx.grabbed {
+                    if let Some(w) = &ctx.window {
+                        let _ = w.set_cursor_grab(CursorGrabMode::None);
+                        w.set_cursor_visible(true);
+                    }
+                    ctx.grabbed = false;
+                }
+                // Latched input state can't be trusted across a focus
+                // transition (alt-tab mid-press/mid-drag leaves phantom
+                // buttons and the alt modifier stuck) — real state rebuilds
+                // from fresh events on refocus.
+                ctx.buttons = 0;
+                ctx.mods = 0;
+            }
+            push(Ev::Focused { gained });
+        }
 
         WindowEvent::ModifiersChanged(m) => {
             let s = m.state();

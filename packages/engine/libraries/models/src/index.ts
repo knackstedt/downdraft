@@ -54,6 +54,7 @@ export type { ModelLoaderOptions } from "./loader";
 
 // Model normalization — import-time correction (up-axis, units, node transforms, bounds)
 export { bakeNodeTransforms } from "./bake-node-transforms";
+export { bindUnskinnedMeshes } from "./bind-unskinned-meshes";
 export { normalizeModel, normalizeModelWithResolution, resolveImportSettings, resolveImportSettingsSync } from "./normalize";
 export type { ResolveOptions } from "./sidecar/resolver";
 export { synthesizeSkeletonSkin } from "./skeleton-synthesis";

@@ -60,6 +60,11 @@ export interface NativeWindowConfig {
   width: number;
   height: number;
   resizable?: boolean;
+  /** Request window activation on creation. Default false — the window maps
+   *  inactive so launching a game never steals focus (e.g. dev-shell
+   *  restarts while the user is typing elsewhere). WMs may still focus the
+   *  window per their own policy; this only controls whether WE ask. */
+  focused?: boolean;
 }
 
 type RAFCallback = (time: number) => void;
@@ -151,6 +156,25 @@ export class NativeWindow extends MiniEventTarget {
   // and release events themselves still flow through.
   private focusGainedAt = -1e9;
   private static readonly FOCUS_CLICK_SUPPRESS_MS = 250;
+  // Focus + input-grab tracking. Grabbing the cursor while unfocused traps
+  // the pointer on a window the user can't see (the X11 grab survives the
+  // focus switch), so a grab applies only while focused — AND only after a
+  // real input gesture in the current focus period. A requestPointerLock()
+  // at boot (or before focus) goes pending and captures the cursor on the
+  // player's first click/keypress, never before — a game can never seize
+  // the pointer on its own. Focus loss releases the grab entirely and
+  // clears the request (games must re-request, matching pointer-lock
+  // semantics).
+  private focused = false;
+  private inputGrabWanted = false;
+  private gestureSeen = false;
+  // Opt-in activation retry — winit's focus_window() silently no-ops until
+  // the WM reports the window visible (a state that settles some event
+  // iterations after create), so a config.focused request retries in the run
+  // loop until focus lands or the budget runs out (~50ms apart, ~3s total).
+  // WMs may still refuse activation — that's their call.
+  private focusRequestAttempts = 0;
+  private lastFocusAttempt = -1e9;
   // Boot splash (SplashScreen) — covers the window with a procedural spinner
   // from host creation until the game's render loop registers its first rAF
   // callback (detected in requestAnimationFrame below).
@@ -170,6 +194,9 @@ export class NativeWindow extends MiniEventTarget {
     if (result !== 0) {
       throw new Error(`Failed to create SDL2 window (error ${result})`);
     }
+    // Windows map inactive — activation is opt-in (see NativeWindowConfig);
+    // the retry loop in runLoop issues the actual request.
+    if (config.focused) this.focusRequestAttempts = 60;
 
     // Android: create_window only *records* the request — the app thread's
     // winit loop creates the Window when resumed() lands (which may have
@@ -263,7 +290,22 @@ export class NativeWindow extends MiniEventTarget {
   }
 
   grabInput(grab: boolean): void {
-    sdl.sdl_shim_grab_input(grab ? 1 : 0);
+    this.inputGrabWanted = grab;
+    // The OS grab applies only while focused AND after a real input gesture
+    // (pointerdown/keydown/touchstart) in the current focus period — a
+    // requestPointerLock() at boot can't capture the cursor before the
+    // player has clicked the window. Release is unconditional.
+    sdl.sdl_shim_grab_input(grab && this.focused && this.gestureSeen ? 1 : 0);
+  }
+
+  /** Apply a pending grab request once focus + a gesture allow it. Called
+   *  from FOCUS_GAINED and from input-event handlers (after gestureSeen is
+   *  marked, so a requestPointerLock() inside a click listener applies
+   *  immediately). */
+  private applyPendingGrab(): void {
+    if (this.inputGrabWanted && this.focused && this.gestureSeen) {
+      sdl.sdl_shim_grab_input(1);
+    }
   }
 
   /** Enable SDL text input (for the console REPL). */
@@ -378,6 +420,20 @@ export class NativeWindow extends MiniEventTarget {
   private runLoop(): void {
     if (!this.running) return;
     this.vsyncTick = false;
+
+    // Opt-in activation retry (see focusRequestAttempts).
+    if (this.focusRequestAttempts > 0) {
+      if (this.focused) {
+        this.focusRequestAttempts = 0;
+      } else {
+        const nowMs = performance.now();
+        if (nowMs - this.lastFocusAttempt > 50) {
+          this.lastFocusAttempt = nowMs;
+          this.focusRequestAttempts--;
+          try { sdl.sdl_shim_focus_window(); } catch { this.focusRequestAttempts = 0; }
+        }
+      }
+    }
 
     // Poll SDL events until the queue is drained.
     let eventType: number;
@@ -553,6 +609,21 @@ export class NativeWindow extends MiniEventTarget {
         break;
 
       case SDL_EVENT_FOCUS_LOST:
+        this.focused = false;
+        // Engagement lapses with focus — re-locking after refocus requires
+        // a fresh gesture just like the first lock did.
+        this.gestureSeen = false;
+        // Release the cursor grab — focus loss (alt-tab, clicking another
+        // window) is the standard escape hatch, and a grab on an unfocused
+        // window traps the pointer with no recourse. The Rust shim drops
+        // the OS-level grab on its own; going through exitPointerLock here
+        // keeps JS-side state coherent (_pointerLocked,
+        // document.pointerLockElement) and fires pointerlockchange so games
+        // see the unlock. Release is permanent — browsers require
+        // re-engagement after lock loss, so the grab is NOT restored on
+        // refocus (inputGrabWanted is cleared via grabInput(false)).
+        if (this.surface?.pointerLocked) this.surface.exitPointerLock();
+        else this.grabInput(false);
         // Clear pressed-key tracking so keys don't get "stuck" when focus is
         // lost mid-press, and notify listeners (DOM "blur").
         this.pressedKeys.clear();
@@ -560,6 +631,11 @@ export class NativeWindow extends MiniEventTarget {
         break;
 
       case SDL_EVENT_FOCUS_GAINED:
+        this.focused = true;
+        // Apply a grab that was deferred while unfocused (e.g. a game's
+        // boot-time requestPointerLock landing before the WM focused us).
+        // Still gated on a gesture — refocus alone never captures.
+        this.applyPendingGrab();
         this.focusGainedAt = performance.now();
         this.dispatchEvent({ type: "focus" });
         break;
@@ -589,6 +665,11 @@ export class NativeWindow extends MiniEventTarget {
         // drivers that don't report it.
         const repeat = eventView[2] !== 0 || this.pressedKeys.has(keycode);
         this.pressedKeys.add(keycode);
+        // A real keypress is engagement — unlock a pending grab before the
+        // keydown reaches listeners, so requestPointerLock() inside a
+        // keybind handler applies immediately.
+        this.gestureSeen = true;
+        this.applyPendingGrab();
         const domKeyCode = sdlToDomKeyCode(keycode);
         this.dispatchEvent({
           type: "keydown",
@@ -664,6 +745,12 @@ export class NativeWindow extends MiniEventTarget {
         const buttons = sdlButtonsToDom(eventView[3]);
         const mod = eventView[4];
         const domButton = button - 1; // SDL: 1=l,2=m,3=r → DOM: 0=l,1=m,2=r
+        // A real click is engagement — mark it before dispatch so a
+        // requestPointerLock() inside a pointerdown/mousedown listener
+        // applies immediately, and a boot-time pending request captures on
+        // this click (the "player clicks the window" gate).
+        this.gestureSeen = true;
+        this.applyPendingGrab();
         const base = {
           clientX: x,
           clientY: y,
@@ -804,6 +891,8 @@ export class NativeWindow extends MiniEventTarget {
           : phase === 2 ? "pointerup"
           : "pointercancel";
         if (phase === 0 && this.primaryTouchId === null) this.primaryTouchId = id;
+        // Touch contact is engagement too (see MOUSE_DOWN).
+        if (phase === 0) { this.gestureSeen = true; this.applyPendingGrab(); }
         const isPrimary = this.primaryTouchId === id;
         const down = phase === 0 || phase === 1;
         const base = {

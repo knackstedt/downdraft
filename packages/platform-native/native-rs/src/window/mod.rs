@@ -5,6 +5,7 @@
 //!   sdl_shim_get_window_subsystem()              → i32 SDL_SYSWM_* tag
 //!   sdl_shim_get_window_size(w_out, h_out)       → void (physical px)
 //!   sdl_shim_set_window_title(title)             → void
+//!   sdl_shim_focus_window()                      → void (request activation)
 //!   sdl_shim_poll_event(out_data)                → i32 event type
 //!   sdl_shim_wait_event(out_data, timeout_ms)    → i32 event type
 //!   sdl_shim_grab_input(grab)                    → void (cursor lock + hide)
@@ -230,7 +231,14 @@ pub extern "C" fn sdl_shim_create_window(
                 .with_title(title)
                 .with_inner_size(LogicalSize::new(width.max(1) as f64, height.max(1) as f64))
                 .with_resizable(true)
-                .with_visible(true);
+                .with_visible(true)
+                // Never request focus at map time — a freshly spawned game
+                // window must not steal activation (e.g. dev-shell restarts
+                // while the user is typing elsewhere). Games that want
+                // launch focus call sdl_shim_focus_window (focused: true in
+                // NativeWindowConfig); the WM may still focus the window per
+                // its own policy — that's not stealing, it's the WM's call.
+                .with_active(false);
             #[allow(deprecated)]
             match slot.as_ref().unwrap().create_window(attrs) {
                 Ok(w) => Ok(Arc::new(w)),
@@ -333,6 +341,20 @@ pub extern "C" fn sdl_shim_wait_event(out_data: *mut c_void, timeout_ms: u32) ->
             .map(|ev| events::write(ev, out_data))
             .unwrap_or(events::NONE)
     })
+}
+
+/// Opt-in window activation — windows map inactive (see create_window); a
+/// game that wants focus on launch calls this right after creating it.
+/// Best-effort: WMs are free to ignore activation requests.
+#[no_mangle]
+pub extern "C" fn sdl_shim_focus_window() {
+    ffi!((), {
+        with_ctx(|ctx| {
+            if let Some(w) = &ctx.window {
+                w.focus_window();
+            }
+        });
+    });
 }
 
 // ── Input grab ──

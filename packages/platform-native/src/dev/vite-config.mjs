@@ -22,6 +22,11 @@ import {
 
 const DEV_DIR = dirname(fileURLToPath(import.meta.url));
 
+/** Extensions a sim-update may carry — files a worker can actually import. */
+const SIM_UPDATE_EXTS = new Set([
+  ".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs", ".json", ".wgsl",
+]);
+
 // ── tsconfig paths → vite aliases ───────────────────────────────────────────
 
 /** Strip JSONC comments + trailing commas so JSON.parse accepts tsconfig. */
@@ -227,6 +232,13 @@ export function nativeHmrPlugin(options) {
           return [];
         }
         if (matches(file, simPaths)) {
+          // Only script-module changes can reach the worker's module graph —
+          // a .rs/.toml/.md/.png edit under a matched dir isn't a sim change
+          // and must not trigger a save/terminate/respawn cycle.
+          const clean = file.split("?")[0];
+          const dot = clean.lastIndexOf(".");
+          const ext = dot >= 0 ? clean.slice(dot) : "";
+          if (!SIM_UPDATE_EXTS.has(ext)) return undefined;
           onEvent("sim-update", { file, timestamp: opts.timestamp, modules: opts.modules.length });
           // In-graph modules still propagate (shared code feeds renderer too);
           // non-graph worker files get swallowed (vite would no-op anyway).

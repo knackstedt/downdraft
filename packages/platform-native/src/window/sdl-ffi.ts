@@ -15,6 +15,7 @@ const SDL_SHIM_SPEC: Record<string, CFunction> = {
   sdl_shim_get_window_subsystem: { args: [], returns: "i32" },
   sdl_shim_get_window_size: { args: ["ptr", "ptr"], returns: "void" },
   sdl_shim_set_window_title: { args: ["cstring"], returns: "void" },
+  sdl_shim_focus_window: { args: [], returns: "void" },
   sdl_shim_poll_event: { args: ["ptr"], returns: "i32" },
   sdl_shim_wait_event: { args: ["ptr", "u32"], returns: "i32" },
   sdl_shim_grab_input: { args: ["i32"], returns: "void" },
@@ -68,6 +69,7 @@ export interface SdlShimSymbols {
   sdl_shim_get_window_subsystem: () => number;
   sdl_shim_get_window_size: (widthOut: ptr, heightOut: ptr) => void;
   sdl_shim_set_window_title: (title: string) => void;
+  sdl_shim_focus_window: () => void;
   sdl_shim_poll_event: (dataOut: ptr) => number;
   sdl_shim_wait_event: (dataOut: ptr, timeoutMs: number) => number;
   sdl_shim_grab_input: (grab: number) => void;

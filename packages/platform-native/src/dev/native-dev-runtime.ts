@@ -161,8 +161,13 @@ if (hot && !g[LISTENERS_FLAG]) {
   });
 
   // Tier 2: sim-classified file → worker swap on all registered sims.
-  hot.on(EV.simHotReload, async (data: any) => {
-    const updateId = data?.updateId;
+  // Swaps are heavyweight (save → terminate → respawn → restore) and MUST
+  // NOT overlap — two racing pipelines interleave stop/start on the same
+  // host and orphan workers. Events arriving mid-swap are coalesced into a
+  // single trailing swap (the first respawn may have fetched modules before
+  // a later write landed); intermediate updateIds are acked immediately so
+  // the supervisor doesn't escalate them to session restarts.
+  async function performSimSwap(updateId: any): Promise<void> {
     let preserve = true;
     let store: any = null;
     try {
@@ -185,7 +190,25 @@ if (hot && !g[LISTENERS_FLAG]) {
       store?.setStatus?.("error", (e as Error)?.message ?? String(e));
       sup?.requestSessionRestart?.(`sim hot reload failed: ${(e as Error)?.message ?? e}`);
     }
-  });
+  }
+
+  let swapRunning = false;
+  const swapQueue: any[] = [];
+  const onSimHotReload = (data: any) => {
+    if (swapRunning) {
+      swapQueue.push(data?.updateId);
+      return;
+    }
+    swapRunning = true;
+    void performSimSwap(data?.updateId).finally(() => {
+      swapRunning = false;
+      while (swapQueue.length > 1) {
+        hot.send(EV.simHotReloadAck, { updateId: swapQueue.shift(), swapped: 0, coalesced: true });
+      }
+      if (swapQueue.length) onSimHotReload({ updateId: swapQueue.shift() });
+    });
+  };
+  hot.on(EV.simHotReload, onSimHotReload);
 
   // Legacy renderer classification → session restart (save included).
   hot.on(EV.rendererHotReload, async (data: any) => {
