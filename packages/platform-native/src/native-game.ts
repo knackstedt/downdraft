@@ -17,39 +17,46 @@
 //   });
 // ============================================================================
 
-import { createLogger } from "@downdraft/engine";
+import { createLogger, type GameRendererLike } from "@downdraft/engine";
 import { createNativeHost, type NativeHostConfig, type NativeHostContext } from "./native-host";
 
-export interface NativeGameContext {
+export interface NativeGameContext<R extends GameRendererLike = GameRendererLike> {
   host: NativeHostContext;
   surface: NativeHostContext["surface"];
-  renderer: any;
+  /** Typed as `R` — inferred from the `renderer` factory return type. */
+  renderer: R;
 }
 
-export interface NativeGameOptions {
+export interface NativeGameOptions<R extends GameRendererLike = GameRendererLike> {
   /** Window title (also used for the default screenshot filename). */
   title: string;
   /** Window size (default 1280x720). */
   width?: number;
   height?: number;
   /** Renderer factory — receives the native surface (canvas polyfill). */
-  renderer: (surface: any, host: NativeHostContext) => any;
+  renderer: (surface: any, host: NativeHostContext) => R;
   /** Extra NativeHostConfig overrides (screenshotPath, etc.). */
   host?: Partial<Omit<NativeHostConfig, "window">>;
   /**
    * Called after the renderer initializes, before the loop starts.
    * Wire sim workers, buffers, input, and stores here.
    */
-  onReady?: (ctx: NativeGameContext) => void | Promise<void>;
+  onReady?: (ctx: NativeGameContext<R>) => void | Promise<void>;
   /** Called once per rendered frame (after renderer frame dispatch). */
-  onFrame?: (ctx: NativeGameContext) => void;
+  onFrame?: (ctx: NativeGameContext<R>) => void;
   /** Called after the window closes, before host destruction. */
-  onDispose?: (ctx: NativeGameContext) => void;
+  onDispose?: (ctx: NativeGameContext<R>) => void;
 }
 
 const log = createLogger();
 
-export async function startNativeGame(options: NativeGameOptions): Promise<void> {
+/**
+ * @deprecated Use `runNativeGameModule(module, opts)` — it runs the shared
+ * `GameModule`/`startGame()` bootstrap (saves, devtools, MCP, deterministic
+ * mode, hot-reload) instead of a bare onReady callback. This mid-level API
+ * remains only as an escape hatch for harnesses that need a raw loop.
+ */
+export async function startNativeGame<R extends GameRendererLike = GameRendererLike>(options: NativeGameOptions<R>): Promise<void> {
   const width = options.width ?? 1280;
   const height = options.height ?? 720;
 
@@ -58,11 +65,12 @@ export async function startNativeGame(options: NativeGameOptions): Promise<void>
     ...options.host,
   });
   const { surface, window } = host;
-  const ctx: NativeGameContext = { host, surface, renderer: null };
+  let ctx: NativeGameContext<R> | null = null;
 
   try {
-    ctx.renderer = options.renderer(surface, host);
-    const ok = await ctx.renderer.init?.();
+    const renderer = options.renderer(surface, host);
+    ctx = { host, surface, renderer };
+    const ok = await renderer.init();
     if (ok === false) throw new Error("renderer.init() returned false");
     log.info("native-game", "Renderer initialized");
 
@@ -70,14 +78,14 @@ export async function startNativeGame(options: NativeGameOptions): Promise<void>
 
     // The native host installed a vsync-driven requestAnimationFrame on
     // globalThis — the renderer's own RAF loop just works.
-    ctx.renderer.start?.();
+    renderer.start();
 
     // Resize delivery: NativeSurface pushes "resize" events and
     // GameRenderer's CanvasResizeWatcher subscribes at init() (its
     // synchronous initial call covers early WM resizes). Don't call
     // renderer.onResize here — that double-fires every resize.
     const pumpFrame = () => {
-      try { options.onFrame?.(ctx); } catch (e) { log.error("native-game", `onFrame: ${e}`); }
+      try { if (ctx) options.onFrame?.(ctx); } catch (e) { log.error("native-game", `onFrame: ${e}`); }
       requestAnimationFrame(pumpFrame);
     };
     requestAnimationFrame(pumpFrame);
@@ -88,8 +96,8 @@ export async function startNativeGame(options: NativeGameOptions): Promise<void>
     });
     log.info("native-game", "Window closed");
   } finally {
-    try { await options.onDispose?.(ctx); } catch {}
-    try { ctx.renderer?.stop?.(); } catch {}
+    try { if (ctx) await options.onDispose?.(ctx); } catch {}
+    try { ctx?.renderer.stop(); } catch {}
     try { host.destroy(); } catch {}
   }
 }

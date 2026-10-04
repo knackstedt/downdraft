@@ -32,6 +32,34 @@ export interface ViewportRect {
   h: number;
 }
 
+/**
+ * The structural contract engine bootstrap code relies on (`startGame`,
+ * `startNativeGame`, `runNativeGameModule`, MCP automation). `GameRenderer`
+ * satisfies it; games with bespoke renderers should too. Everything is
+ * optional except `init`/`start`/`stop` — the methods that every consumer
+ * must be able to call.
+ *
+ * `renderOnce` is the canonical one-shot-frame name (deterministic capture,
+ * screenshots). Do not define a parallel `renderOneFrame` — override
+ * `renderOnce` instead.
+ */
+export interface GameRendererLike {
+  init(): boolean | Promise<boolean>;
+  start(): void;
+  stop(): void;
+  isRunning?(): boolean;
+  onResize?(cssWidth: number, cssHeight: number, dpr: number): void;
+  /** Render one frame on demand while the loop is stopped (or running). */
+  renderOnce?(): void;
+  getSurface?(): RenderSurface;
+  getCanvas?(): RenderSurface;
+  getDevice?(): GPUDevice | null;
+  getFormat?(): GPUTextureFormat;
+  getFPS?(): number;
+  useRendererModule?(module: RendererModule): void;
+  getWorkerHost?(): unknown;
+}
+
 export interface GameRendererConfig {
   /**
    * Pre-created device/adapter to borrow instead of requesting new ones.

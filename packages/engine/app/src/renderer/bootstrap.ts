@@ -49,12 +49,20 @@ export interface BootstrapDevToolsOptions {
   panels?: any[] | ((renderer: any) => any[]);
   /** Whether to enable scene inspector. Default: false. */
   sceneInspector?: boolean;
+  /** Custom scene-inspector bridge class (extends BaseSceneInspector).
+   *  Forwarded to initDevTools — implies sceneInspector. */
+  bridgeClass?: new () => any;
+  /** Worker hosts to sync devtools manifests from (evaluated after
+   *  renderer init — a factory runs when the game's sim worker is already
+   *  started, e.g. by an overridden onInit). */
+  workerHosts?: any[] | ((renderer: any) => any[]);
   /**
    * Enable the profiling system (ProfilingSAB + ProfilingBridge + built-in views).
    * When true, a ProfilingBridge is created and the ProfilingSAB is shared
-   * with all workers + devtools views. Default: false.
+   * with all workers + devtools views. Pass `{ sharedSAB }` to attach a
+   * pre-allocated buffer. Default: false.
    */
-  profiling?: boolean;
+  profiling?: boolean | { sharedSAB?: { sab: SharedArrayBuffer; layout: unknown } };
 }
 
 export interface BootstrapGameOptions {
@@ -144,10 +152,16 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
     const panels = typeof opts.devtools.panels === "function"
       ? opts.devtools.panels(renderer)
       : opts.devtools.panels ?? [];
+    const workerHosts = typeof opts.devtools.workerHosts === "function"
+      ? opts.devtools.workerHosts(renderer)
+      : opts.devtools.workerHosts;
     await initDevTools(renderer, {
       simStatsProvider,
       panels,
-      profiling: opts.devtools.profiling,
+      sceneInspector: opts.devtools.sceneInspector,
+      bridgeClass: opts.devtools.bridgeClass,
+      workerHosts,
+      profiling: opts.devtools.profiling as any,
     });
   }
 

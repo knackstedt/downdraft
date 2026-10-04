@@ -7,7 +7,7 @@
 
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 // Compiled-binary layout: `bun build --compile` embeds modules under
 // /$bunfs/root/<repo-rel> (Windows: B:\~BUN\root\). Asset files aren't
@@ -80,4 +80,45 @@ export function createGlob(callerDir: string): (pattern: string, options?: any) 
     });
     return result;
   };
+}
+
+// ── globAssets — the canonical asset-glob call ──
+//
+// Games used to hand-roll the same shim at every call site:
+//
+//   const _glob = (import.meta as any).glob ?? ((pattern) => {
+//     const { createGlob } = require("@downdraft/engine/platform/glob-polyfill");
+//     return createGlob(import.meta.dir)(pattern, { query: "?url", eager: true });
+//   });
+//
+// This is that shim, done once. Resolution order matches what the shims
+// converged on:
+//   1. `__nativeGlob` — installed by the native host (platform-native's
+//      installAssetGlob); caller-relative via the baseDir argument.
+//   2. `import.meta.glob` — present only under a Vite transform that injected
+//      it; a plain property read is undefined on native, so this is a safe
+//      second probe.
+//   3. `createGlob(callerDir)` — filesystem glob relative to the caller's
+//      module dir (packaged binaries, bare runtimes without the host global).
+//
+// Usage:
+//   const models = globAssets("../assets/models/*.glb", import.meta);
+//
+// `meta` is the CALLER's import.meta — a module-level helper can't see it.
+export function globAssets(
+  pattern: string,
+  meta: { url?: string; dir?: string; glob?: unknown },
+  options?: { query?: string; import?: string; eager?: boolean },
+): Record<string, string> {
+  const callerDir = meta.dir ?? (meta.url ? dirname(fileURLToPath(meta.url)) : process.cwd());
+  const opts = { eager: true, query: "?url", ...options };
+
+  const native = (globalThis as { __nativeGlob?: unknown }).__nativeGlob;
+  if (typeof native === "function") {
+    return (native as (p: string, o?: unknown, baseDir?: string) => Record<string, string>)(pattern, opts, callerDir);
+  }
+  if (typeof meta.glob === "function") {
+    return (meta.glob as (p: string, o?: unknown) => Record<string, string>)(pattern, opts);
+  }
+  return createGlob(callerDir)(pattern, opts);
 }

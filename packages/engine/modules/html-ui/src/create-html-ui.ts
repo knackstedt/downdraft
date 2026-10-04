@@ -70,6 +70,20 @@ export interface HtmlUiOptions {
 
 export const HtmlUiTok = resourceToken<HtmlUiContext>("htmlUi");
 
+// Mounted contexts — lets input handlers/renderers hit-test panels without
+// each game keeping its own `activeUi` singleton. Multiple coexisting
+// contexts (game UI + devtools overlay) OR together.
+const activeContexts = new Set<HtmlUiContext>();
+
+/** True when the pointer is inside any mounted html-ui panel. */
+export function isPointerOverUI(): boolean {
+  let over = false;
+  activeContexts.forEach((ui) => {
+    if (ui.isPointerOverUI()) over = true;
+  });
+  return over;
+}
+
 export function createHtmlUi(options: HtmlUiOptions): RendererModule {
   const moduleName = options.name ?? "html-ui";
   return {
@@ -156,6 +170,8 @@ export function createHtmlUi(options: HtmlUiOptions): RendererModule {
       };
 
       ctx.provide(HtmlUiTok, ui);
+      activeContexts.add(ui);
+      ctx.onDispose(() => activeContexts.delete(ui));
       ctx.onFrame("afterViewports", (dt: number, e: number) => {
         nav?.update();
         updateSubs.forEach((fn) => { fn(dt, e);; });

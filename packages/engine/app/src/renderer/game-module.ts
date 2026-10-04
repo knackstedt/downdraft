@@ -26,6 +26,7 @@ import {
     PluginHost,
     WorkerPluginLoader,
     isDevMode,
+    type GameRendererLike,
     type ISaveStore,
     type LibraryEntry,
     type LibraryHost,
@@ -100,8 +101,9 @@ export interface SimWorkerSeed {
  *  constructor to avoid double-allocating SABs. */
 export type SimWorkerFactory<T extends GameSimWorker = GameSimWorker> = (seed?: SimWorkerSeed) => T;
 
-/** Factory that creates the renderer from the render surface. */
-export type RendererFactory = (surface: RenderSurface) => any;
+/** Factory that creates the renderer from the render surface. The return
+ *  type narrows `GameContext.renderer` — inferred from the factory. */
+export type RendererFactory<R extends GameRendererLike = GameRendererLike> = (surface: RenderSurface) => R;
 
 /**
  * Renderer-side save source — an alternative to the sim worker for providing
@@ -212,9 +214,11 @@ export interface GameUiHandle {
  * non-null assertions (`ctx.sim!`) in their hooks — `startGame()` guarantees
  * the sim worker is created when `module.sim` is declared.
  */
-export interface GameContext<Sim extends GameSimWorker = GameSimWorker> {
-  /** The renderer instance (typed as `any` — games cast to their renderer class). */
-  renderer: any;
+export interface GameContext<Sim extends GameSimWorker = GameSimWorker, R extends GameRendererLike = GameRendererLike> {
+  /** The renderer instance. Typed as `R` — inferred from the module's
+   *  `renderer` factory, so game-specific members resolve without casts
+   *  when the factory returns the concrete renderer class. */
+  renderer: R;
   /** The render surface the renderer is attached to (NativeSurface on the
    *  native runtime). */
   surface: RenderSurface;
@@ -315,10 +319,10 @@ export interface PluginRuntimeConfig {
  *     renderer thread. Declare `saveSource` if you need autosave. Use
  *     engine libraries (e.g. `WeatherFxLib`, `ModelsLib`) for GPU-side work.
  */
-export interface GameModule<Sim extends GameSimWorker = GameSimWorker> {
+export interface GameModule<Sim extends GameSimWorker = GameSimWorker, R extends GameRendererLike = GameRendererLike> {
   // ── Required: renderer ──
   /** Factory that creates the renderer from a canvas. */
-  renderer: RendererFactory;
+  renderer: RendererFactory<R>;
 
   // ── Optional: sim worker (omit for renderer-only games) ──
   /** Factory that creates the sim worker. Omit for renderer-only games. */
@@ -339,7 +343,7 @@ export interface GameModule<Sim extends GameSimWorker = GameSimWorker> {
    * `SimWorkerHost` subclasses satisfy this directly via `subscribeEvents`:
    *   `simFromRenderer: (r) => r.getWorkerHost() ?? undefined`
    */
-  simFromRenderer?: (renderer: any, ctx: GameContext<Sim>) => Sim | undefined | Promise<Sim | undefined>;
+  simFromRenderer?: (renderer: R, ctx: GameContext<Sim, R>) => Sim | undefined | Promise<Sim | undefined>;
 
   // ── UI ──
   /**
@@ -347,12 +351,12 @@ export interface GameModule<Sim extends GameSimWorker = GameSimWorker> {
    * handle is started after renderer init (before `onReady`) and disposed on
    * hot-reload (before `onDispose`). The handle is exposed as `ctx.ui`.
    */
-  ui?: (ctx: GameContext<Sim>) => GameUiHandle | Promise<GameUiHandle>;
+  ui?: (ctx: GameContext<Sim, R>) => GameUiHandle | Promise<GameUiHandle>;
 
   // ── Event routing (sim-worker games only) ──
   /** Declarative sim→renderer event handler map. Replaces the switch block.
    *  Ignored for renderer-only games (no sim worker to emit events). */
-  events?: SimEventMap<GameContext<Sim>>;
+  events?: SimEventMap<GameContext<Sim, R>>;
 
   // ── Save ──
   /** Save configuration. If omitted, no autosave is wired. */
@@ -391,7 +395,7 @@ export interface GameModule<Sim extends GameSimWorker = GameSimWorker> {
 
   // ── MCP ──
   /** Called to register MCP tools (after renderer is started). Receives ctx. */
-  mcp?: (ctx: GameContext<Sim>) => void | Promise<void>;
+  mcp?: (ctx: GameContext<Sim, R>) => void | Promise<void>;
 
   // ── Hooks ──
   /**
@@ -399,13 +403,13 @@ export interface GameModule<Sim extends GameSimWorker = GameSimWorker> {
    * listeners, capture early state, etc. The renderer exists but is not
    * initialized yet.
    */
-  onBeforeInit?: (ctx: GameContext<Sim>) => Promise<void> | void;
+  onBeforeInit?: (ctx: GameContext<Sim, R>) => Promise<void> | void;
   /**
    * Called to initialize the renderer. Should return false on failure.
    * Default: calls `renderer.init()`. The sim worker is started in parallel
    * (see `onSimStart`). Override to add LUT waits, player spawn, etc.
    */
-  onInit?: (ctx: GameContext<Sim>) => Promise<boolean> | boolean;
+  onInit?: (ctx: GameContext<Sim, R>) => Promise<boolean> | boolean;
   /**
    * Called to start the sim worker (only when `sim` is declared and `onInit`
    * is NOT overridden). Default: calls `sim.start(simConfig)`. Override to
@@ -416,21 +420,21 @@ export interface GameModule<Sim extends GameSimWorker = GameSimWorker> {
    * `renderer.init()` (e.g. to-the-ocean does `Promise.all([renderer.init(),
    * sim.start(config)])` in its `onInit`).
    */
-  onSimStart?: (ctx: GameContext<Sim>) => Promise<void> | void;
+  onSimStart?: (ctx: GameContext<Sim, R>) => Promise<void> | void;
   /**
    * Called after renderer init + sim start succeed, before render loop.
    * This is the main game-specific wiring hook: setBuffers, OSR, sim bridge,
    * DevTools, gizmo handlers, HUD polling, debug toggles, hot-reload.
    */
-  onReady?: (ctx: GameContext<Sim>) => Promise<void> | void;
+  onReady?: (ctx: GameContext<Sim, R>) => Promise<void> | void;
   /** Called on Vite hot-reload dispose to clean up resources. */
-  onDispose?: (ctx: GameContext<Sim>) => Promise<void> | void;
+  onDispose?: (ctx: GameContext<Sim, R>) => Promise<void> | void;
   /** Called in deterministic mode to apply overrides (e.g. pause render loop). */
-  onDeterministic?: (ctx: GameContext<Sim>) => void;
+  onDeterministic?: (ctx: GameContext<Sim, R>) => void;
   /** Called periodically with the current render FPS. */
-  onFpsUpdate?: (fps: number, ctx: GameContext<Sim>) => void;
+  onFpsUpdate?: (fps: number, ctx: GameContext<Sim, R>) => void;
   /** Called with the display refresh rate when available. */
-  onDisplayInfo?: (refreshRate: number, ctx: GameContext<Sim>) => void;
+  onDisplayInfo?: (refreshRate: number, ctx: GameContext<Sim, R>) => void;
 
   // ── Surface ──
   /** Surface layer index. Default: 0 — the only layer on native hosts. */
@@ -465,7 +469,7 @@ export interface GameModule<Sim extends GameSimWorker = GameSimWorker> {
  *
  * Games that need full control can call `bootstrapGame()` directly.
  */
-export async function startGame<Sim extends GameSimWorker>(module: GameModule<Sim>): Promise<void> {
+export async function startGame<Sim extends GameSimWorker, R extends GameRendererLike = GameRendererLike>(module: GameModule<Sim, R>): Promise<void> {
   const deterministic = !!(downdraft as any)?.deterministic;
   const isDev = !!(downdraft?.isDev) || isDevMode;
   const hasSim = !!module.sim;
@@ -520,7 +524,7 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
   const renderer = module.renderer(surface);
 
   // 3. Build the game context. Sim fields are undefined for renderer-only games.
-  const ctx: GameContext<Sim> = {
+  const ctx: GameContext<Sim, R> = {
     renderer,
     surface,
     sim: simWorker as Sim | undefined,

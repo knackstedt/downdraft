@@ -17,7 +17,7 @@
 // through the bridge — no IPC, no second process.
 // ============================================================================
 
-import type { GameContext, GameModule, GameSimWorker } from "@downdraft/engine/app/renderer";
+import type { GameContext, GameModule, GameRendererLike, GameSimWorker } from "@downdraft/engine/app/renderer";
 import { createLogger } from "@downdraft/engine/util/logger";
 import { addCrashFeatureLog } from "./host-lifecycle";
 import { startNativeMcpServer, type NativeMcpOptions } from "./mcp/native-mcp";
@@ -47,8 +47,8 @@ export interface RunNativeGameModuleOptions {
  * closes. Equivalent to `startGame(module)` once the window exists — but
  * with the native bridge installed in-process.
  */
-export async function runNativeGameModule<Sim extends GameSimWorker>(
-  module: GameModule<Sim>,
+export async function runNativeGameModule<Sim extends GameSimWorker, R extends GameRendererLike = GameRendererLike>(
+  module: GameModule<Sim, R>,
   opts: RunNativeGameModuleOptions,
 ): Promise<void> {
   // 1. Native host: window + wgpu device + DOM polyfills + downdraft bridge
@@ -63,7 +63,7 @@ export async function runNativeGameModule<Sim extends GameSimWorker>(
     appId: opts.appId,
     engineVersion: opts.engineVersion,
     mcp: opts.mcp,
-    ...(opts.host ?? {}),
+    ...opts.host,
   });
   const { window } = host;
 
@@ -77,18 +77,16 @@ export async function runNativeGameModule<Sim extends GameSimWorker>(
 
     // Wrap the module's onReady to install native hooks post-init (before
     // game wiring) without changing the module's semantics elsewhere.
-    const wrapped: GameModule<Sim> = {
+    const wrapped: GameModule<Sim, R> = {
       ...module,
-      onReady: async (ctx: GameContext<Sim>) => {
+      onReady: async (ctx: GameContext<Sim, R>) => {
         // Let the bridge's captureFrame force an on-demand frame when the
         // render loop is stopped (deterministic mode).
         (globalThis as any).__ddRequestFrame = () => {
-          // renderOneFrame() is the bespoke one-shot on renderers that draw
-          // outside the GameRenderer frame graph (e.g. to-the-ocean) — it
-          // must take precedence: the inherited renderOnce() would run the
-          // (empty) graph path, acquire the surface texture without writing
-          // it, and the write-tracking present-skip then starves capture.
-          try { (ctx.renderer?.renderOneFrame ?? ctx.renderer?.renderOnce)?.call(ctx.renderer); } catch { /* loop stopped mid-frame */ }
+          // renderOnce() is the canonical one-shot — renderers that draw
+          // outside the GameRenderer frame graph (e.g. to-the-ocean)
+          // override it, so dynamic dispatch reaches the bespoke frame.
+          try { ctx.renderer?.renderOnce?.call(ctx.renderer); } catch { /* loop stopped mid-frame */ }
         };
 
         // Resize delivery: the surface pushes "resize" events and
@@ -98,7 +96,7 @@ export async function runNativeGameModule<Sim extends GameSimWorker>(
         // same event and double-fires every resize.
         await module.onReady?.(ctx);
       },
-      onDispose: (ctx: GameContext<Sim>) => {
+      onDispose: (ctx: GameContext<Sim, R>) => {
         try { delete (globalThis as any).__ddRequestFrame; } catch {}
         module.onDispose?.(ctx);
       },

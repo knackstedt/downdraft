@@ -51,7 +51,7 @@ import type {
 import type {
     GCController
 } from "../telemetry/gc-controller";
-import { createLogger } from "../util/logger";
+import { createLogger, setThreadTag } from "../util/logger";
 import { expose, exposeEvents, type WorkerApi } from "./rpc";
 
 const log = createLogger();
@@ -397,6 +397,11 @@ export interface CreateSimWorkerOptions {
  *   ...extraApi — any additional methods
  */
 export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl {
+  // Thread tag for log prefixes — this file runs in the sim worker realm.
+  // Games that run multiple sims (e.g. falling-sand's per-layer workers)
+  // set their own tag (S0/S1/...) after this default.
+  if (!(globalThis as any).__ddThreadTag) setThreadTag("S0");
+
   const tickMs = opts.fixedDt * 1000;
   const maxStepsPerFrame = opts.maxStepsPerFrame ?? 5;
 

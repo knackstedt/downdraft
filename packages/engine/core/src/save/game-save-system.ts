@@ -52,6 +52,19 @@ export interface GameSaveSystemOptions<Meta, Entry> extends GridSaveSystemOption
   deterministic?: boolean;
   /** Called on autosave errors. Default: logs a warning via the engine logger. */
   onError?: (err: unknown) => void;
+  /**
+   * Post-process entries returned by `loadGame`/`loadAndRestore` with slot
+   * metadata — games whose `parseEntry` produces bare grid/state data use
+   * this to stamp the slot id, display name, savedAt timestamp, and JPEG
+   * thumbnail without re-fetching properties themselves (previously a ~15
+   * line copy-pasted `loadGame` wrapper in every game).
+   * Mutate `entry` in place or return a replacement.
+   */
+  enrichEntry?: (entry: Entry, meta: {
+    id: string;
+    props: Record<string, unknown>;
+    thumbnail: Blob | null;
+  }) => Entry | void | Promise<Entry | void>;
 }
 
 export interface GameSaveSystem<Meta, Entry> extends GridSaveSystem<Meta, Entry> {
@@ -79,6 +92,21 @@ export function createGameSaveSystem<Meta, Entry>(
   const intervalMs = opts.intervalMs ?? 3000;
   const onError = opts.onError ?? ((e) => log.warn("save", `autosave failed: ${e}`));
   let interval: ReturnType<typeof setInterval> | null = null;
+
+  const maybeEnrich = async (id: string, entry: Entry | null): Promise<Entry | null> => {
+    if (entry === null || !opts.enrichEntry) return entry;
+    const store = await system.getStore();
+    const [thumbBuf, props] = await Promise.all([
+      store.getThumbnail(id),
+      store.getProperties(id),
+    ]);
+    const meta = {
+      id,
+      props,
+      thumbnail: thumbBuf ? new Blob([thumbBuf], { type: "image/jpeg" }) : null,
+    };
+    return (await opts.enrichEntry(entry, meta)) ?? entry;
+  };
 
   const tick = async () => {
     try {
@@ -120,8 +148,12 @@ export function createGameSaveSystem<Meta, Entry>(
       return interval !== null;
     },
 
+    async loadGame(id: string): Promise<Entry | null> {
+      return maybeEnrich(id, await system.loadGame(id));
+    },
+
     async loadAndRestore(id: string): Promise<Entry | null> {
-      const entry = await system.loadGame(id);
+      const entry = await maybeEnrich(id, await system.loadGame(id));
       if (entry !== null) await opts.restore?.(entry);
       return entry;
     },

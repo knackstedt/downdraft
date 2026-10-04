@@ -99,6 +99,7 @@ export const downdraft: Host = new Proxy({} as Host, {
 export { createHostImportCache } from "./import-cache";
 
 // Bootstrap orchestrator + composable hooks
+export type { GameRendererLike } from "@downdraft/engine";
 export { bootstrapGame } from "./bootstrap";
 export type { BootstrapAutosaveOptions, BootstrapDevToolsOptions, BootstrapGameOptions } from "./bootstrap";
 export { startGame } from "./game-module";
@@ -107,8 +108,7 @@ export type {
     GameModule,
     GameSaveConfig,
     GameSaveSource,
-    GameSimWorker,
-    GameUiHandle,
+    GameSimWorker, GameUiHandle,
     PluginRuntimeConfig,
     RendererFactory,
     SimEventMap,
@@ -158,8 +158,9 @@ export { AutosaveManager, type AutosaveManagerOptions } from "@downdraft/engine/
 // MCP automation harness factory + shared tool helpers
 export { blobToBase64, createMcpHarness, errorResult, jsonResult } from "./mcp-harness";
 export type { McpHarnessOptions, McpRequest, McpResponse, McpToolDef, McpToolRegistration } from "./mcp-harness";
-export { createStandardAutomationTools } from "./standard-automation-tools";
+export { createGameMcp, createStandardAutomationTools } from "./standard-automation-tools";
 export type {
+    GameMcpOptions,
     InjectedInputFrame,
     StandardAutomationContext,
     StandardInputInjector,

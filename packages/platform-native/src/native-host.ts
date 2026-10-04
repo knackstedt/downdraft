@@ -14,7 +14,7 @@
 // ============================================================================
 
 import { ENGINE_VERSION, installShaderValidationGuard } from "@downdraft/engine";
-import { createLogger } from "@downdraft/engine/util/logger";
+import { createLogger, setThreadTag } from "@downdraft/engine/util/logger";
 import { join } from "node:path";
 import { installAssetGlob } from "./assets/native-assets";
 import { createNativeBridge } from "./bridge/native-bridge";
@@ -94,6 +94,11 @@ export interface NativeHostContext {
 }
 
 export async function createNativeHost(config: NativeHostConfig): Promise<NativeHostContext> {
+  // Thread tag for log prefixes — the host entry IS the renderer thread.
+  // Games used to set R0 at every entry top; a game override (e.g. a
+  // non-R0 shell) still wins by setting it before calling us.
+  if (!(globalThis as any).__ddThreadTag) setThreadTag("R0");
+
   // HMR session reuse — the dev shell keeps one host (window/device/bridge/
   // MCP) alive across session restarts. Entries re-call createNativeHost on
   // every session; reuse the live host instead of opening a second window.

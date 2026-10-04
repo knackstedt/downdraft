@@ -121,6 +121,7 @@ export type { XRControllerState } from "./input/state";
 // ─────────────────────────────────────────────────────────────────────────────
 // Platform
 // ─────────────────────────────────────────────────────────────────────────────
+export { createGlob, globAssets } from "./platform/glob-polyfill";
 export { getDpr, HiDPIManager } from "./platform/hidpi";
 export type { RenderSurface, RenderSurfaceContext, RenderSurfaceListener } from "./platform/render-surface";
 export { RPC } from "./platform/rpc";

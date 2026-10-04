@@ -16,7 +16,7 @@
 //     serverName: "downdraft-mygame-automation",
 //     tools: createStandardAutomationTools({
 //       canvas: () => renderer.getCanvas(),
-//       renderOneFrame: () => renderer.renderOneFrame(),
+//       renderOnce: () => renderer.renderOnce(),
 //       input: () => renderer.getInputHandler(),   // { injectInput, clearInjectedInput }
 //       getPlayerState: (i) => readPlayer(i),
 //       getWorldState: () => readWorld(),
@@ -31,6 +31,7 @@ import { createLogger } from "@downdraft/engine/util/logger";
 import { downdraft } from "./index";
 import {
     blobToBase64,
+    createMcpHarness,
     errorResult,
     jsonResult,
     type McpToolRegistration
@@ -116,7 +117,7 @@ export interface StandardAutomationContext {
    * screenshots reflect current state. Called by capture_screenshot when the
    * game reports not-running. Omit if the canvas is always live.
    */
-  renderOneFrame?: () => void;
+  renderOnce?: () => void;
   /** Whether the render loop is running. Default: true (always live). */
   isRunning?: () => boolean;
   /**
@@ -237,7 +238,7 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
 
         // If the render loop is paused (test/headless mode), render one frame
         // first so the screenshot reflects current simulation state.
-        if (ctx.isRunning && !ctx.isRunning()) ctx.renderOneFrame?.();
+        if (ctx.isRunning && !ctx.isRunning()) ctx.renderOnce?.();
 
         if (fullPage) {
           // Host capture: captureFrame() returns the fully composited
@@ -727,4 +728,44 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
   }
 
   return [...tools, ...(ctx.extraTools ?? [])];
+}
+
+// ── createGameMcp — one-liner harness setup ──
+//
+// Every game ended the same way: wrap createStandardAutomationTools() in
+// createMcpHarness() inside a try/catch, deriving serverName from the host
+// appId. This folds that ceremony into one call:
+//
+//   createGameMcp({
+//     appId: "downdraft-mygame",           // → serverName "<appId>-automation"
+//     surface: () => renderer.getSurface(),
+//     getUiState: () => store.getState(),
+//     tools: [...gameSpecificTools],
+//   });
+//
+// Non-fatal by design — logs a warning and returns when the host bridge or
+// tool construction fails (matches the per-game try/catch it replaces).
+export interface GameMcpOptions extends StandardAutomationContext {
+  /** Host appId (e.g. "downdraft-falling-sand") — serverName becomes `<appId>-automation`. */
+  appId: string;
+  /** Game-specific tools appended after the standard set (alias of extraTools). */
+  tools?: McpToolRegistration[];
+  /** MCP server version. Default "0.1.0". */
+  serverVersion?: string;
+}
+
+export function createGameMcp(opts: GameMcpOptions): void {
+  const { appId, tools, serverVersion, ...ctx } = opts;
+  try {
+    createMcpHarness({
+      serverName: `${appId}-automation`,
+      serverVersion,
+      tools: createStandardAutomationTools({
+        ...ctx,
+        extraTools: [...(ctx.extraTools ?? []), ...(tools ?? [])],
+      }),
+    });
+  } catch (e) {
+    log.warn("MCP", `${appId} automation harness setup failed (non-fatal): ${e}`);
+  }
 }
