@@ -68,7 +68,7 @@ draft release --game=my-game --target=linux --runtime=node --format=deb,appimage
 
 ## DevTools
 
-In dev mode, the native devtools overlay (egui, toggled with F12) is available with:
+In dev mode, the docked Blitz devtools UI (toggled with F12) is available with:
 
 - **Scene / SimWorld** — Entity hierarchy tree and component dump
 - **Console** — Log stream + CDP `Runtime.consoleAPICalled`/`exceptionThrown`
@@ -77,4 +77,4 @@ In dev mode, the native devtools overlay (egui, toggled with F12) is available w
 - **Provider panels** — Materials, Assets, RenderGraph, Workers, Memory, PostFx, Input, and the `downdraft doctor` module-graph panel
 - **Debug draw** — Wireframe, AABBs, gizmos, and scene overlays via `modules/devtools`
 
-The overlay runs as a Rust egui crate (`libdowndraft_devtools`) that serializes PaintJobs into the frame via `UiBlitPass` — in-process, no webviews. An alternative `WebDevtoolsHost` backend can instead serve `packages/devtools-web` over loopback HTTP+WS and open it in a browser.
+Devtools render as a Blitz/html-ui document docked in the game window — the same HTML/CSS rasterization path as game UIs, no webviews. An alternative `WebDevtoolsHost` backend can instead serve `packages/devtools-web` over loopback HTTP+WS and open it in a desktop browser.

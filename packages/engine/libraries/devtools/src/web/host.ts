@@ -1,16 +1,15 @@
 // ============================================================================
 // web/host.ts — WebDevtoolsHost: the web-based devtools backend.
 //
-// Drop-in replacement for NativeDebuggerHost (the egui overlay). Instead of
-// rendering an egui overlay into the frame, it runs a loopback devtools
+// The browser-hosted devtools frontend. It runs a loopback devtools
 // server (Bun.serve: HTTP static + WS JSON-RPC) and opens the browser-based
 // devtools UI when toggled (F12).
 //
-// The host keeps the same public surface as NativeDebuggerHost —
-// `visible`, `toggle/show/hide`, `update()`, `devtoolsMirror`,
-// `debuggerScene`, `registerThreadEval`, `setPerfRecording`, input handlers
-// (all no-ops: a separate browser window receives input, nothing in-game) —
-// so native-entry.ts needs only the constructor swap.
+// Public surface: `visible`, `toggle/show/hide`, `update()`,
+// `devtoolsMirror`, `debuggerScene`, `registerThreadEval`,
+// `setPerfRecording`, input handlers (all no-ops: a separate browser window
+// receives input, nothing in-game). The in-window counterpart is the
+// docked Blitz devtools host.
 // ============================================================================
 
 import { createLogger } from "@downdraft/engine/util/logger";

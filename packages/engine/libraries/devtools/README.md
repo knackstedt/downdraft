@@ -2,24 +2,23 @@
 
 DevTools bridge — mirrors profiling and inspection data to a developer UI.
 
-## Two frontends
+## Frontends
 
-**Web DevTools (current)** — `WebDevtoolsHost` runs a development-only loopback
-server (`DevToolsServer`, `Bun.serve`: HTTP static + WebSocket JSON-RPC) and
-serves the browser frontend in `packages/devtools-web`. Pressing **F12** in a
-native game opens the devtools in a desktop browser (`--app` window on
-Chromium-family browsers, falling back through brave → vivaldi → firefox →
-chrome → edge → `xdg-open`). Discovery files are written to
-`~/.downdraft/devtools/<pid>.json` (port + token), mirroring the MCP
-`~/.downdraft/port` convention.
+**Blitz devtools (docked, in-window)** — an html-ui/Blitz document rendered
+inside the game window with Chrome-DevTools-style tabs. Lives in
+`@downdraft/engine/modules/devtools` (`blitz/`). Toggled with **F12**.
 
-**egui overlay (legacy)** — `NativeDebuggerHost` + `DevtoolsMirror` render the
-Rust egui crate's PaintJobs into a GPU texture composited over the frame.
-Kept in-tree while the web path is verified on real hardware; slated for
-removal.
+**Web DevTools (separate browser window)** — `WebDevtoolsHost` runs a
+development-only loopback server (`DevToolsServer`, `Bun.serve`: HTTP static
++ WebSocket JSON-RPC) and serves the browser frontend in
+`packages/devtools-web`. Pressing **F12** opens the devtools in a desktop
+browser (`--app` window on Chromium-family browsers, falling back through
+brave → vivaldi → firefox → chrome → edge → `xdg-open`). Discovery files are
+written to `~/.downdraft/devtools/<pid>.json` (port + token), mirroring the
+MCP `~/.downdraft/port` convention.
 
 Both frontends consume the same provider/command model:
-`registerEngineProviders(mirror, ctx)` works on either mirror
+`registerEngineProviders(target, ctx)` works on either
 (`DevtoolsProviderTarget`), and `PanelSnapshot` sections (`kv`, `table`,
 `series`, `lines`, `controls`) render in both.
 
@@ -38,9 +37,8 @@ Both frontends consume the same provider/command model:
 ## Key exports
 
 - `WebDevtoolsHost`, `WebDevtoolsMirror`, `DevToolsServer`, `openDevToolsUrl`
-- `NativeDebuggerHost`, `DevtoolsMirror` (legacy egui path)
 - `CdpBridge`, `registerEngineProviders`, `PANEL`, `SNAP_FLAG`, `SNAP_STATUS`,
-  `encodeSnapshot`, `checkpoint`, `notify`, `verifyPixel`
+  `checkpoint`, `notify`, `verifyPixel`
 
 ## Test
 

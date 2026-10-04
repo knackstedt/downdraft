@@ -43,7 +43,6 @@ export const CRATES = [
     flatCopy: false,
   },
   { pkg: "downdraft-physics", lib: "downdraft_physics", dir: "packages/engine/libraries/physics-native/native", dest: "packages/engine/libraries/physics-native/native/dist", flatCopy: true },
-  { pkg: "downdraft-devtools", lib: "downdraft_devtools", dir: "packages/engine/libraries/devtools/native", dest: "packages/engine/libraries/devtools/native/dist", flatCopy: true },
 
   { pkg: "downdraft-blitz-osr", lib: "downdraft_blitz_osr", dir: "packages/engine/libraries/blitz-ui/native-osr", dest: "packages/engine/libraries/blitz-ui/native-osr/dist", flatCopy: true },
 

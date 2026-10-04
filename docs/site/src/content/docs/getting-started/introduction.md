@@ -14,7 +14,7 @@ DownDraft Engine is an AI-driven game engine built on a **native runtime — win
 - **Animate** — Skeletal animation, GLTF skinning, GPU compute skinning, Mixamo retargeting, and blend trees (1D/2D).
 - **Network** — WebSocket transport, state replication, and RPCs via the networking library.
 - **AI Integration** — MCP server (in-process, JSON-RPC) for AI agents to create scenes, spawn entities, manage assets, and debug.
-- **DevTools** — Native egui overlay (toggled with F12): scene tree, entity/component inspector, console, GPU stats, perf metrics + recorder, input, materials, assets, render graph, workers, and the `downdraft doctor` module-graph panel.
+- **DevTools** — Docked Blitz UI (toggled with F12): scene tree, entity/component inspector, console, GPU stats, perf metrics + recorder, input, materials, assets, render graph, workers, and the `downdraft doctor` module-graph panel.
 
 ## Platform Support
 

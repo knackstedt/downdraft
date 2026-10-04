@@ -4,14 +4,14 @@
 // Two frontends consume the same provider/command data model
 // (DevtoolsProviderTarget — registerEngineProviders works on both):
 //
-//   WebDevtoolsHost (current, web/): development-only loopback server
-//     (Bun.serve HTTP + WebSocket JSON-RPC) serving the browser frontend in
-//     packages/devtools-web. F12 in native-entry.ts opens the devtools in a
-//     desktop browser window.
+//   Blitz devtools (in-engine): an html-ui/Blitz document docked in the game
+//     window — Chrome-DevTools-style tabs driven by the collectors and
+//     provider snapshots below. Lives in @downdraft/engine/modules/devtools
+//     (blitz/). Toggled with F12.
 //
-//   NativeDebuggerHost (legacy): Rust egui crate renders PaintJobs into a
-//     GPUTexture composited over the frame by UiBlitPass. Kept while the web
-//     path is verified on real hardware; slated for removal.
+//   WebDevtoolsHost (web/): development-only loopback server (Bun.serve HTTP
+//     + WebSocket JSON-RPC) serving the browser frontend in
+//     packages/devtools-web. Opens in a desktop browser window.
 //
 // Panels: Console (CDP Runtime.consoleAPICalled + exceptionThrown + logger
 // sink), Scene/DOM trees, GPU info, CDP profiler, per-thread ProfilingSAB
@@ -21,14 +21,30 @@
 
 export { CdpBridge } from "./cdp-bridge";
 export type { CdpConsoleEntry, CdpException, CdpProfile } from "./cdp-bridge";
-export { encodeSnapshot, PANEL, SNAP_FLAG, SNAP_STATUS } from "./egui-ffi";
-export type { DevtoolsCommand, PanelName, PanelSnapshot, SnapshotSection } from "./egui-ffi";
-export { NativeDebuggerHost } from "./host";
-export type { NativeDebuggerOptions } from "./host";
-export { DevtoolsMirror } from "./mirror";
-export type { PanelCommandHandler, PanelProvider } from "./mirror";
+export {
+    collectDomTree,
+    collectGpuInfo,
+    collectMetrics,
+    collectProfile,
+    collectSceneTree,
+    collectThreads
+} from "./collectors";
+export type { CollectorContext, GpuInfoJson, MetricsSlot, ProfileJson, ThreadInfo, TreeRow } from "./collectors";
 export { registerEngineProviders } from "./native-providers";
-export type { EngineProviderContext } from "./native-providers";
+export type { DevtoolsProviderTarget, EngineProviderContext } from "./native-providers";
+export { PANEL, SNAP_FLAG, SNAP_STATUS } from "./snapshot";
+export type {
+    DevtoolsCommand,
+    PanelCommandHandler,
+    PanelName,
+    PanelProvider,
+    PanelSnapshot,
+    SnapshotControl,
+    SnapshotKvRow,
+    SnapshotLine,
+    SnapshotSection,
+    SnapshotSeries
+} from "./snapshot";
 export { checkpoint, notify, verifyPixel } from "./verify";
 
 // ── Web devtools (browser UI over WS + JSON-RPC) ──

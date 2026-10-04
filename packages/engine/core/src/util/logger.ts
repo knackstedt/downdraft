@@ -29,7 +29,7 @@ if (proc?.stderr?.on) proc.stderr.on("error", swallowStreamError);
 
 // ── Log sinks (for the native devtools console bridge) ──
 // Sinks receive every log line (ANSI-stripped) so an external consumer like
-// the native egui devtools console can display logs that bypass console.log
+// the devtools console can display logs that bypass console.log
 // (the native logger writes directly to process.stdout, which CDP never sees).
 export interface LogSinkEntry {
     level: string;      // "trace"|"debug"|"info"|"warn"|"error"|"fatal"

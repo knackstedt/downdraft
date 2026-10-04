@@ -1,8 +1,8 @@
 // ============================================================================
 // collectors.ts — transport-agnostic devtools data collection.
 //
-// The egui mirror encodes these results and pushes them over FFI; the web
-// mirror sends them as JSON over the devtools WebSocket. Collection is
+// The web mirror sends these as JSON over the devtools WebSocket; the Blitz
+// devtools host calls the same collectors in-process. Collection is
 // identical either way — this module is the single source of truth.
 // ============================================================================
 

@@ -1,10 +1,9 @@
 // ============================================================================
 // web/mirror.ts — WebDevtoolsMirror: the web transport for devtools data.
 //
-// Same public surface as DevtoolsMirror (registerProvider,
-// registerCommandHandler, registerThreadEval, push*, update) but instead of
-// FFI-encoding into the egui crate it emits JSON events on the DevToolsServer
-// WebSocket. Eval is request/response over WS — no polling queue.
+// Same provider/command surface as the Blitz devtools host (registerProvider,
+// registerCommandHandler, registerThreadEval, push*, update) — it emits JSON
+// events on the DevToolsServer WebSocket. Eval is request/response over WS.
 //
 // WS events emitted: console, threads, scene, dom, gpu, metrics, snapshot,
 // profile, threads.
@@ -24,14 +23,13 @@ import {
     collectThreads,
     type CollectorContext,
 } from "../collectors";
-import { PANEL, type DevtoolsCommand, type PanelName, type PanelSnapshot } from "../egui-ffi";
+import type { PanelCommandHandler, PanelProvider } from "../snapshot";
+import { PANEL, type DevtoolsCommand, type PanelName, type PanelSnapshot } from "../snapshot";
 import type { DevToolsServer } from "./server";
 
 const log = createLogger("info");
 
 type EvalFn = (expr: string) => Promise<{ result?: unknown; error?: string }>;
-export type PanelProvider = () => PanelSnapshot | null | undefined | Promise<PanelSnapshot | null | undefined>;
-export type PanelCommandHandler = (cmd: DevtoolsCommand) => void | Promise<void>;
 
 function panelSlot(panel: PanelName | number): number {
   return typeof panel === "number" ? panel : (PANEL[panel] ?? 0);

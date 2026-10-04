@@ -5,18 +5,17 @@
 // Game-specific data registers separately via mirror.registerProvider("game").
 // ============================================================================
 
-import type { PanelName } from "./egui-ffi";
+import type { PanelCommandHandler, PanelName, PanelProvider } from "./snapshot";
 import {
     type DevtoolsCommand,
     type PanelSnapshot,
     SNAP_FLAG,
     type SnapshotKvRow,
     type SnapshotSection,
-} from "./egui-ffi";
-import type { PanelCommandHandler, PanelProvider } from "./mirror";
+} from "./snapshot";
 
-/** Minimal provider-registration surface — satisfied by both DevtoolsMirror
- *  (egui FFI transport) and WebDevtoolsMirror (WS/JSON transport). */
+/** Minimal provider-registration surface — satisfied by WebDevtoolsMirror
+ *  (WS/JSON transport) and the docked Blitz devtools host. */
 export interface DevtoolsProviderTarget {
     registerProvider(panel: PanelName | number, collect: PanelProvider): void;
     registerCommandHandler(panel: PanelName | number | "*", handler: PanelCommandHandler): void;

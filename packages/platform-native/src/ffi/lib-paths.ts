@@ -2,7 +2,7 @@
 // lib-paths.ts — unified native library resolution
 //
 // All native libraries (the unified downdraft_platform cdylib and engine
-// cdylibs like physics/devtools/blitz-osr) resolve through one code path so
+// cdylibs like physics/blitz-osr) resolve through one code path so
 // lookup order, env-var overrides, and error messages stay consistent:
 //
 //   1. env var override (e.g. WGPU_SHIM_PATH, DOWNDRAFT_PHYSICS_LIB)

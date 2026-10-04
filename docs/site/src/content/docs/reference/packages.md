@@ -83,7 +83,7 @@ Game-specific code lives in each game repo's `libraries/` and `modules/` directo
 || `downdraft-secrets` | `packages/platform-native/native-secrets` | OS keychain secrets cdylib (`libdowndraft_secrets`) |
 || `downdraft-physics` | `packages/engine/libraries/physics-native/native` | Native physics backend cdylib (`libdowndraft_physics`) |
 || `downdraft-audio` | `packages/engine/libraries/audio-kira/native` | Optional Kira audio cdylib (`libdowndraft_audio`) |
-|| `downdraft-devtools` | `packages/engine/libraries/devtools/native` | egui devtools overlay cdylib (`libdowndraft_devtools`) |
+
 || `downdraft-blitz-osr` | `packages/engine/libraries/blitz-ui/native-osr` | Blitz/vello UI rasterization cdylib (`libdowndraft_blitz_osr`; `native/` is the supporting `downdraft-blitz-shell` rlib) |
 || `downdraft-android` | `packages/android-shell` | Android NativeActivity shell (`libdowndraft_android`; statically links `downdraft-platform`, embeds libnode) |
 

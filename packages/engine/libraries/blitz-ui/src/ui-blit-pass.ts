@@ -2,7 +2,7 @@
 // ui-blit-pass.ts — screen-space WebGPU pass that composites a UI texture
 // over the game frame.
 //
-// Each frame, after the UI system (Blitz/html-ui worker, egui devtools) has
+// Each frame, after the UI system (Blitz/html-ui worker, Blitz devtools) has
 // rendered into its GPUTexture (on the shared device/queue), the game calls
 // `execute(commandEncoder, targetView)` with the swapchain texture view. This
 // begins a render pass on `targetView` with loadOp:"load" (preserving the 3D
