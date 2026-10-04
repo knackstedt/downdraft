@@ -103,7 +103,7 @@ async function main() {
         await pluginCommand(process.argv.slice(3));
         break;
       case "mod":
-        // `dd mod` is an alias for `dd plugin` but defaults to mod.json format.
+        // `draft mod` is an alias for `draft plugin` but defaults to mod.json format.
         await pluginCommand(["--mod", ...process.argv.slice(3)]);
         break;
       default:

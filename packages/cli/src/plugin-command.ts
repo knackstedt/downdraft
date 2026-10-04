@@ -1,9 +1,9 @@
 // ============================================================================
-// `dd plugin` — CLI subcommand for plugin management.
+// `draft plugin` — CLI subcommand for plugin management.
 //
 // Usage:
-//   dd plugin new <name> --format <format> --game <game> [options]
-//   dd plugin list [--game <game>]
+//   draft plugin new <name> --format <format> --game <game> [options]
+//   draft plugin list [--game <game>]
 // ============================================================================
 
 import { createLogger } from "@downdraft/engine";
@@ -16,8 +16,8 @@ import { scaffoldPlugin } from "./scaffold-plugin";
 const log = createLogger();
 
 export async function pluginCommand(args: string[]): Promise<void> {
-  // `dd mod new ...` injects --mod flag so scaffoldPlugin generates mod.json.
-  // `dd plugin new ...` defaults to plugin.json (legacy).
+  // `draft mod new ...` injects --mod flag so scaffoldPlugin generates mod.json.
+  // `draft plugin new ...` defaults to plugin.json (legacy).
   let modMode = false;
   if (args[0] === "--mod") {
     modMode = true;
@@ -46,7 +46,7 @@ export async function pluginCommand(args: string[]): Promise<void> {
 }
 
 async function pluginNew(args: string[], modMode: boolean): Promise<void> {
-  // Simple arg parsing: dd plugin new <name> --format <format> --game <game> [--version <ver>] [--author <name>] [--description <desc>] [--target <dir>] [--force] [--mod] [--with <ext>]
+  // Simple arg parsing: draft plugin new <name> --format <format> --game <game> [--version <ver>] [--author <name>] [--description <desc>] [--target <dir>] [--force] [--mod] [--with <ext>]
   const positional: string[] = [];
   const flags: Record<string, string | boolean> = {};
   for (let i = 0; i < args.length; i++) {
@@ -67,7 +67,7 @@ async function pluginNew(args: string[], modMode: boolean): Promise<void> {
 
   const id = positional[0];
   if (!id) {
-    log.error("plugin", `Usage: dd ${modMode ? "mod" : "plugin"} new <name> --format <format> --game <game>`);
+    log.error("plugin", `Usage: draft ${modMode ? "mod" : "plugin"} new <name> --format <format> --game <game>`);
     process.exit(1);
   }
 
@@ -190,11 +190,11 @@ function pluginList(args: string[]): void {
 function printPluginHelp(modMode: boolean): void {
   const cmd = modMode ? "mod" : "plugin";
   print(`
-dd ${cmd} — manage user-authored ${modMode ? "mods" : "plugins"}
+draft ${cmd} — manage user-authored ${modMode ? "mods" : "plugins"}
 
 Usage:
-  dd ${cmd} new <name> --format <format> --game <game> [options]
-  dd ${cmd} list [--game <game>]
+  draft ${cmd} new <name> --format <format> --game <game> [options]
+  draft ${cmd} list [--game <game>]
 
 Commands:
   new     Scaffold a new ${modMode ? "mod" : "plugin"} directory

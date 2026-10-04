@@ -1,8 +1,8 @@
 // ============================================================================
 // Plugin scaffold — generates a new plugin directory from a template.
 //
-// Usage: `dd plugin new <name> --format <format> --game <game> [options]`
-//        `dd mod new <name> --game <game> [options]`
+// Usage: `draft plugin new <name> --format <format> --game <game> [options]`
+//        `draft mod new <name> --game <game> [options]`
 //
 // Generates:
 //   - mod.json (manifest, when --mod is used) or plugin.json (legacy)
