@@ -36,10 +36,18 @@ html, body {
   background: var(--bg2); border-top: 1px solid var(--line);
 }
 #dt-grip:hover, #dt-grip.drag { background: var(--accent); }
-#dt-chrome { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
+/* Blitz's hit_inner doesn't clip scrolled-off content to its scrollport, so
+ * overflow rows in #dt-body remain hit-testable over the fixed chrome. The DOM
+ * order (body first, chrome last) makes paint_children test chrome first — grid
+ * rows keep the visual order independent of DOM order. */
+#dt-chrome {
+  display: grid; flex: 1; overflow: hidden;
+  grid-template-rows: 30px auto 1fr auto auto;
+}
 
 /* ── Tab bar ── */
 #dt-tabs {
+  grid-row: 1;
   display: flex; align-items: center; gap: 2px;
   background: var(--bg2); border-bottom: 1px solid var(--line);
   padding: 0 8px; height: 30px; flex-shrink: 0;
@@ -58,10 +66,11 @@ html, body {
 #dt-close:hover { color: var(--err); }
 
 /* ── Panel regions ── */
-#dt-top { flex-shrink: 0; }
-#dt-body { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 8px; }
-#dt-bottom { flex-shrink: 0; }
+#dt-top { grid-row: 2; flex-shrink: 0; }
+#dt-body { grid-row: 3; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 8px; }
+#dt-bottom { grid-row: 4; flex-shrink: 0; }
 #dt-status {
+  grid-row: 5;
   display: flex; justify-content: space-between;
   background: var(--bg2); border-top: 1px solid var(--line);
   padding: 3px 8px; font-size: 11px; color: var(--fg-dim); flex-shrink: 0;

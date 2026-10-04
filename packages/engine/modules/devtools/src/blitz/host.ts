@@ -228,11 +228,11 @@ export class BlitzDevtoolsHost {
       <div id="dt-root">
         <div id="dt-grip" title="drag to resize"></div>
         <div id="dt-chrome">
-          <div id="dt-tabs"></div>
-          <div id="dt-top"></div>
           <div id="dt-body"></div>
-          <div id="dt-bottom"></div>
           <div id="dt-status"><span id="dt-status-l"></span><span id="dt-status-r"></span></div>
+          <div id="dt-bottom"></div>
+          <div id="dt-top"></div>
+          <div id="dt-tabs"></div>
         </div>
       </div></body></html>`;
   }
