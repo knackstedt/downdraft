@@ -62,16 +62,23 @@ Runs the engine in debug mode with profiling, debug draw, and visualization tool
 
 ## `draft release [options]`
 
-Unified build + package pipeline for desktop targets. Replaces the separate `build`, `dist`, `export`, `mobile`, and `build-games` commands (which remain as deprecated backward-compat aliases). Mobile targets were removed with the Capacitor/WebView path — a future mobile port would be native.
+Unified build + package pipeline. Replaces the separate `build`, `dist`, `export`, `mobile`, and `build-games` commands (which remain as deprecated backward-compat aliases).
 
 | Flag | Description |
 |---|---|
 | `--game <name>`, `-g` | Game to release (name or directory; resolves `games/<name>` when run from the engine root). For multiple games, use `--games`. |
 | `--games=<csv>` | Comma-separated game names (e.g. `sandjongg,to-the-ocean`) |
-| `--target <t>`, `-t` | Target: `win` / `linux` / `mac` / `all` (default: `all`) |
-| `--format=<csv>` | Deprecated no-op — native packaging produces a single binary + staged tree |
+| `--target <t>`, `-t` | Target: `win` / `linux` / `mac` / `android` / `all` (default: `all`). `android` can't mix with desktop targets in one invocation. |
+| `--runtime=<r>` | JS runtime embedded in the package: `bun` (compiled binary) / `node` / `deno` / `all` (default: `build.runtime` in package.json, else `bun`). `node`/`deno` are linux-only today — win/mac targets still embed bun. |
+| `--format=<csv>` | Linux package formats: `dir` / `deb` / `appimage` / `flatpak` (default: `build.linux.target` in package.json, else `dir`). |
 | `--stage=<s>` | Stage: `build` / `package` / `release` (all compile the same native binary; default: `release`) |
 | `--mode=<m>` | Build mode: `dev` / `debug` / `prod` (default: `prod`) |
+| `--abi=<csv>` | Android ABI(s): `arm64-v8a` / `x86_64` / `all` (android target only) |
+| `--min-sdk=<n>` | Android minimum SDK (default: 30; android target only) |
+| `--node-flavor=<f>` | Embedded Node build flavor: `full` (default) / `lite` — lite drops intl/inspector/sqlite/amaro (android target only) |
+| `--libs=<csv>` | Force-include optional engine cdylibs, comma-separated (android target only) |
+| `--exclude-libs=<csv>` | Exclude optional engine cdylibs, comma-separated (android target only) |
+| `--no-strip` | Keep debug info/symtab in packaged `.so`s (android target only) |
 | `--out=<dir>` | Artifact output directory (default: `release`) |
 | `--skip-build` | Alias for `--stage=package` |
 | `--build-only` | Alias for `--stage=build` |
@@ -88,13 +95,27 @@ draft release --game=my-game --stage=build
 # Specific targets
 draft release --game=my-game --target=win,linux
 
+# Linux .deb + AppImage + Flatpak for every supported JS runtime
+draft release --game=my-game --target=linux --runtime=all --format=deb,appimage,flatpak
+
+# Android APK (native winit+wgpu shell with embedded libnode)
+draft release --game=my-game --target=android
+
 # Multiple games at once
 draft release --games=sandjongg,to-the-ocean --target=all
 ```
 
-### Stages
+### What gets produced
 
-All stages compile the same artifact via `packages/cli/scripts/package-native.mjs`: a standalone Bun binary (`<out>/<game>-<target>`) plus a sibling `native/` cdylib and `dd-assets/` staging tree. Windows PE version-info/resource stamping is not yet implemented in the native pipeline.
+- **win / mac** — a standalone Bun binary (`<out>/<game>-<target>`) via `packages/cli/scripts/package-native.mjs`, plus a sibling `native/` cdylib and `dd-assets/` staging tree. Windows binaries get version-info/icon resource stamping via `resedit`.
+- **linux** — `packages/cli/scripts/package-desktop.mjs`, an electron-builder-style packager. The appdir layout is identical across runtimes (`<exe>` + `bundle/` + `native/` + `dd-assets/`, all anchored on `dirname(process.execPath)`); each `--format` then wraps it:
+  - `dir` — the staged appdir verbatim
+  - `deb` — `dpkg-deb` package (`/usr/lib/<exe>` + `/usr/bin` symlink + desktop file + hicolor icons)
+  - `appimage` — AppDir + `appimagetool` (auto-downloaded to `~/.cache/downdraft/tools/`; works without FUSE via `APPIMAGE_EXTRACT_AND_RUN`)
+  - `flatpak` — generated manifest + `flatpak-builder` + `build-bundle`
+- **android** — `packages/cli/scripts/package-mobile.mjs` assembles the APK directly (no Gradle): bundle + workers emitted as `.mjs`, embedded libnode, `lib/<abi>/` engine + game `.so`s, `.node` addons staged under the bundle's `native/` dir.
+
+See the [Packaging & Distribution guide](/guides/packaging/) for the `build` block in `package.json`, the runtime matrix, and native-module staging.
 
 ### Deprecated commands (backward-compat aliases)
 

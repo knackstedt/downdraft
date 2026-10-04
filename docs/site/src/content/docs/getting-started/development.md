@@ -55,9 +55,12 @@ draft release --game=my-game --target=linux --out=release
 
 # Build for all desktop targets
 draft release --game=my-game --target=all --out=release
+
+# Linux .deb + AppImage + Flatpak, node runtime
+draft release --game=my-game --target=linux --runtime=node --format=deb,appimage,flatpak
 ```
 
-`draft release` compiles the game's native entry into a standalone Bun binary via `scripts/package-native.mjs`, staging the platform cdylib and `dd-assets/` beside it.
+`draft release` compiles the game's native entry via `scripts/package-native.mjs` (win/mac: standalone Bun binary) or `scripts/package-desktop.mjs` (linux: `--runtime=bun|node|deno`, `--format=dir|deb|appimage|flatpak`), staging the platform cdylibs, game-native artifacts, and `dd-assets/` beside it. See [Packaging & Distribution](/guides/packaging/).
 
 ## DevTools
 

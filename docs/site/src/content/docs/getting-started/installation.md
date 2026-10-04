@@ -9,7 +9,7 @@ Before installing DownDraft Engine, ensure you have the following tools installe
 
 ### Bun
 
-DownDraft uses [Bun](https://bun.sh) as its package manager and **default** JS runtime — games execute against the native platform library via runtime-adapted FFI (`bun:ffi` under Bun). Node+tsx (`koffi`) and Deno (`Deno.dlopen`) are also supported hosts via `draft dev --runtime=node|deno`, but Bun is required regardless for dependency installation (`bun.lock`), `bun test`, and `draft release` packaging (`bun build --compile`).
+DownDraft uses [Bun](https://bun.sh) as its package manager and **default** JS runtime — games execute against the native platform library via runtime-adapted FFI (`bun:ffi` under Bun). Node+tsx (`koffi`) and Deno (`Deno.dlopen`) are also supported hosts via `draft dev --runtime=node|deno` and as packaged runtimes via `draft release --runtime=node|deno` (linux), but Bun is required regardless for dependency installation (`bun.lock`), `bun test`, and as the packager's own host.
 
 ```bash
 curl -fsSL https://bun.sh/install | bash

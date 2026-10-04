@@ -43,6 +43,7 @@ export default defineConfig({
 						{ label: 'Particles', slug: 'guides/particles' },
 						{ label: 'Plugins', slug: 'guides/plugins' },
 						{ label: 'Native Modules (Rust)', slug: 'guides/native-modules' },
+						{ label: 'Packaging & Distribution', slug: 'guides/packaging' },
 						{ label: 'MCP & AI Agents', slug: 'guides/mcp' },
 						],
 				},
