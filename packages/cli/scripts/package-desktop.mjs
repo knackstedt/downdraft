@@ -171,7 +171,7 @@ const GLOB_RE = new RegExp(IMPORT_META.source + String.raw`\.glob\(\s*(["'\`])([
 const GLOB_EAGER_RE = new RegExp(
   IMPORT_META.source + String.raw`\.glob\(\s*(["'\`])([^"'\`]+)\1\s*,\s*(\{[^)]*\beager\s*:\s*true[^)]*\})\s*\)`, "g");
 const STAGE_GLOB_RE = new RegExp(
-  `(?:${IMPORT_META.source}\\.glob|_glob)\\(\\s*(["'\`])([^"'\`]+)\\1|createGlob\\([^)]*\\)\\(\\s*(["'\`])([^"'\`]+)\\3`, "g");
+  `(?:${IMPORT_META.source}\\.glob|_glob|globAssets)\\(\\s*(["'\`])([^"'\`]+)\\1|createGlob\\([^)]*\\)\\(\\s*(["'\`])([^"'\`]+)\\3`, "g");
 const STAGE_READ_RE = new RegExp(
   String.raw`(?:resolve|join)\(\s*(?:__dirname|${IMPORT_META.source}\.(?:dir|dirname|url))\s*,\s*(["'\`])([^"'\`]+)\1`, "g");
 const META_DIR_RE = new RegExp(IMPORT_META.source + String.raw`\.(?:dir|dirname)\b`, "g");

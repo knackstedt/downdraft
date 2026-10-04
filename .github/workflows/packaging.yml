@@ -1,0 +1,106 @@
+name: Packaging
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+# Builds the tracked packaging fixture (examples/packaging-smoke — real games
+# are separate repos and gitignored, so the fixture stands in for "a game")
+# through the full linux matrix: (dir, deb, appimage, flatpak) x (bun, node,
+# deno). Every artifact is launched headless — the fixture prints DD_SMOKE_OK
+# from its packaged entrypoint and exits, covering worker entrypoints, asset
+# glob staging, new URL(...) asset refs, and each shipped runtime binary.
+
+jobs:
+  packaging-smoke:
+    name: Package smoke — formats × runtimes
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.4.0"
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: "v2.x"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: bun ci
+
+      - name: Install packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y flathub org.freedesktop.Platform//25.08 org.freedesktop.Sdk//25.08
+
+      - name: Build format × runtime matrix
+        run: |
+          set -euo pipefail
+          for rt in bun node deno; do
+            bun packages/cli/scripts/package-desktop.mjs \
+              --runtime=$rt --format=dir,deb,appimage,flatpak --mode=prod \
+              examples/packaging-smoke/src/native-entry.ts "release-smoke/$rt"
+          done
+          find release-smoke -type f \( -name "*.deb" -o -name "*.AppImage" -o -name "*.flatpak" \)
+
+      - name: Launch dir packages (bun, node, deno)
+        env:
+          DD_PACKAGING_SMOKE: "1"
+        run: |
+          set -euo pipefail
+          for rt in bun node deno; do
+            echo "=== dir/$rt"
+            timeout 30 "release-smoke/$rt/packaging-smoke-linux-$rt/packaging-smoke" | tee /tmp/dir-$rt.log
+            grep -q "DD_SMOKE_OK" /tmp/dir-$rt.log
+          done
+
+      - name: Launch .deb packages (extract + run)
+        env:
+          DD_PACKAGING_SMOKE: "1"
+        run: |
+          set -euo pipefail
+          for rt in bun node deno; do
+            echo "=== deb/$rt"
+            dpkg-deb -x "release-smoke/$rt"/packaging-smoke_*.deb "/tmp/deb-$rt"
+            timeout 30 "/tmp/deb-$rt/usr/lib/packaging-smoke/packaging-smoke" | tee /tmp/deb-$rt.log
+            grep -q "DD_SMOKE_OK" /tmp/deb-$rt.log
+          done
+
+      - name: Launch AppImages (extract-and-run, no FUSE)
+        env:
+          DD_PACKAGING_SMOKE: "1"
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: |
+          set -euo pipefail
+          for rt in bun node deno; do
+            echo "=== appimage/$rt"
+            timeout 60 "release-smoke/$rt"/Packaging-Smoke-*-linux-$rt.AppImage | tee /tmp/appimage-$rt.log
+            grep -q "DD_SMOKE_OK" /tmp/appimage-$rt.log
+          done
+
+      - name: Launch Flatpaks (install + run)
+        run: |
+          set -euo pipefail
+          for rt in bun node deno; do
+            echo "=== flatpak/$rt"
+            flatpak install --user -y --noninteractive "release-smoke/$rt"/Packaging-Smoke-*-linux-$rt.flatpak
+            timeout 30 flatpak run --env=DD_PACKAGING_SMOKE=1 com.downdraft.packaging-smoke | tee /tmp/flatpak-$rt.log || true
+            flatpak uninstall --user -y --noninteractive com.downdraft.packaging-smoke
+            grep -q "DD_SMOKE_OK" /tmp/flatpak-$rt.log
+          done
+
+      - name: Upload packaging artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: packaging-smoke-linux
+          path: release-smoke/
+          retention-days: 7
+          if-no-files-found: ignore

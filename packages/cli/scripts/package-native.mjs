@@ -110,7 +110,7 @@ const GLOB_RE = new RegExp(IMPORT_META.source + String.raw`\.glob\(\s*(["'\`])([
 // Staging scan covers all glob call forms: import.meta.glob("pat"), the
 // common _glob("pat") alias, and createGlob(modDir)("pat").
 const STAGE_GLOB_RE = new RegExp(
-  `(?:${IMPORT_META.source}\\.glob|_glob)\\(\\s*(["'\`])([^"'\`]+)\\1|createGlob\\([^)]*\\)\\(\\s*(["'\`])([^"'\`]+)\\3`, "g");
+  `(?:${IMPORT_META.source}\\.glob|_glob|globAssets)\\(\\s*(["'\`])([^"'\`]+)\\1|createGlob\\([^)]*\\)\\(\\s*(["'\`])([^"'\`]+)\\3`, "g");
 // Module-relative file reads: resolve(__dirname, "./zstd.wasm"),
 // join(import.meta.dir, "data.bin") — stage the referenced file.
 const STAGE_READ_RE = new RegExp(

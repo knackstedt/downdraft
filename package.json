@@ -24,7 +24,8 @@
     "packages/engine",
     "packages/cli",
     "packages/platform-native",
-    "examples/plugin-tester"
+    "examples/plugin-tester",
+    "examples/packaging-smoke"
   ],
   "devDependencies": {
     "@downdraft/cli": "workspace:*",

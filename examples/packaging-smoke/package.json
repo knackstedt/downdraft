@@ -1,0 +1,32 @@
+{
+  "name": "packaging-smoke",
+  "version": "0.1.0",
+  "productName": "Packaging Smoke",
+  "type": "module",
+  "build": {
+    "appId": "com.downdraft.packaging-smoke",
+    "productName": "Packaging Smoke",
+    "runtime": "all",
+    "linux": {
+      "target": ["deb", "appimage", "flatpak"],
+      "category": "Development",
+      "maintainer": "DownDraft <dev@downdraft.local>",
+      "synopsis": "Desktop packaging smoke fixture",
+      "description": "Minimal fixture exercising the desktop packager matrix: workers, import.meta.glob, asset URLs, runtime binaries."
+    },
+    "deb": {
+      "section": "utils",
+      "priority": "optional",
+      "depends": ["libc6", "libstdc++6", "libvulkan1"]
+    },
+    "flatpak": {
+      "runtime": "org.freedesktop.Platform",
+      "runtimeVersion": "25.08",
+      "sdk": "org.freedesktop.Sdk"
+    }
+  },
+  "dependencies": {
+    "@downdraft/engine": "workspace:*",
+    "@downdraft/platform-native": "workspace:*"
+  }
+}
