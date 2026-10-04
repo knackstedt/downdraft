@@ -19,6 +19,8 @@
 // materials, doctor, workers, input, postfx, assets, game).
 // ============================================================================
 
+export { DevtoolsBackend, panelSlot, slotName } from "./backend";
+export type { DevtoolsBackendOptions } from "./backend";
 export { CdpBridge } from "./cdp-bridge";
 export type { CdpConsoleEntry, CdpException, CdpProfile } from "./cdp-bridge";
 export {

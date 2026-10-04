@@ -63,6 +63,19 @@ export interface BootstrapDevToolsOptions {
    * pre-allocated buffer. Default: false.
    */
   profiling?: boolean | { sharedSAB?: { sab: SharedArrayBuffer; layout: unknown } };
+  /**
+   * Devtools UI frontend. "blitz" (default) mounts the docked in-window UI
+   * (F12 toggles); "web" starts the loopback browser frontend
+   * (WebDevtoolsHost, requires Bun); "none" wires data only.
+   * Object form: `{ kind: "blitz", dockFraction?, autoShow?, toggleKey? }`.
+   * `DOWNDRAFT_DISABLE_DEVTOOLS=1` forces "none".
+   */
+  ui?: "blitz" | "web" | "none" | {
+    kind?: "blitz" | "web";
+    dockFraction?: number;
+    autoShow?: boolean;
+    toggleKey?: string | null;
+  };
 }
 
 export interface BootstrapGameOptions {
@@ -163,6 +176,58 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
       workerHosts,
       profiling: opts.devtools.profiling as any,
     });
+
+    // 4a. Devtools UI frontend — the Blitz dock is the default surface.
+    const disabled = typeof process !== "undefined" && !!process.env?.DOWNDRAFT_DISABLE_DEVTOOLS;
+    const uiOpt = opts.devtools.ui ?? "blitz";
+    const uiKind = disabled ? "none" : (typeof uiOpt === "string" ? uiOpt : uiOpt.kind ?? "blitz");
+    if (uiKind !== "none" && typeof renderer.useRendererModule === "function") {
+      try {
+        const uiCfg = typeof uiOpt === "object" ? uiOpt : {};
+        const profilingSAB =
+          (globalThis as Record<string, any>).window?.__sceneInspector?.__getProfilingBridge?.()?.getProfilingSAB?.()
+          ?? (globalThis as Record<string, any>).__sceneInspector?.__getProfilingBridge?.()?.getProfilingSAB?.()
+          ?? null;
+        if (uiKind === "blitz") {
+          const { createDevtoolsUiModule } = await import("@downdraft/engine/modules/devtools");
+          renderer.useRendererModule(createDevtoolsUiModule({
+            renderer,
+            profilingSAB,
+            dockFraction: uiCfg.dockFraction,
+            autoShow: uiCfg.autoShow,
+            toggleKey: uiCfg.toggleKey,
+            onHost: (host) => {
+              wireDevtoolsFrontend(host.devtoolsMirror, host, renderer, workerHosts, profilingSAB);
+            },
+          }));
+        } else {
+          // "web" — loopback browser frontend (Bun-only transport).
+          const { WebDevtoolsHost } = await import("@downdraft/engine/libraries/devtools");
+          const webHost = new WebDevtoolsHost({
+            device: renderer.getDevice?.() as GPUDevice,
+            adapter: null as any,
+            targetFormat: renderer.getFormat?.() ?? "bgra8unorm",
+            width: 0, height: 0,
+            renderer,
+            profilingSAB,
+          });
+          await webHost.start();
+          renderer.nativeDebugger = webHost;
+          wireDevtoolsFrontend(webHost.devtoolsMirror, webHost, renderer, workerHosts, profilingSAB);
+          // Per-frame pump + F12 through the renderer's input bus, same as
+          // the Blitz module's wiring.
+          renderer.setCallbacks?.({
+            ...renderer.getCallbacks?.(),
+            beforeFrame: ((prev: any) => (dt: number, t: number) => {
+              try { webHost.update(); } catch { /* ignore */ }
+              prev?.(dt, t);
+            })(renderer.getCallbacks?.().beforeFrame),
+          });
+        }
+      } catch (err) {
+        log.error("bootstrapGame", `Devtools UI init failed: ${err}`);
+      }
+    }
   }
 
   // 4b. onRendererInit — library setup, sim start, game-specific wiring (onReady).
@@ -268,4 +333,34 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
   if (deterministic && opts.onDeterministic) {
     opts.onDeterministic(renderer);
   }
+}
+
+/**
+ * Shared wiring for a live devtools frontend (Blitz dock or web host):
+ * engine-generic providers + thread evals derived from the devtools
+ * workerHosts entries ({prefix, proxy} — proxies exposing __devtoolsEval
+ * get a REPL target under their prefix name).
+ */
+async function wireDevtoolsFrontend(
+  mirror: { registerProvider?: any; registerCommandHandler?: any },
+  host: { registerThreadEval: (n: string, fn: (e: string) => Promise<{ result?: unknown; error?: string }>) => void },
+  renderer: any,
+  workerHosts: any[] | undefined,
+  profilingSAB: SharedArrayBuffer | null,
+): Promise<void> {
+  const { registerEngineProviders } = await import("@downdraft/engine/libraries/devtools");
+  const evalNames: string[] = ["main"];
+  for (const wh of workerHosts ?? []) {
+    const evalFn = wh?.proxy?.__devtoolsEval;
+    if (typeof evalFn === "function" && wh.prefix) {
+      host.registerThreadEval(wh.prefix, (expr) => evalFn.call(wh.proxy, expr));
+      evalNames.push(wh.prefix);
+    }
+  }
+  registerEngineProviders(mirror as any, {
+    renderer,
+    profilingSAB,
+    simProxy: workerHosts?.[0]?.proxy ?? undefined,
+    evalTargetNames: () => evalNames,
+  });
 }

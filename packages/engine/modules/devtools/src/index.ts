@@ -79,3 +79,9 @@ export type { BuiltinViewKind, DebugViewDescriptor } from "./debug-view-descript
 export { createMaterialStatsPanelExtension } from "./material-stats-panel";
 export type { MaterialStatsPanelOptions } from "./material-stats-panel";
 
+// Blitz devtools — docked in-window DevTools UI (F12)
+export { BlitzDevtoolsHost, createSelfHostedDevtoolsUi } from "./blitz/host";
+export type { BlitzDevtoolsOptions, DevtoolsUiSurface } from "./blitz/host";
+export { BlitzDevtoolsTok, createDevtoolsUiModule } from "./blitz/module";
+export type { DevtoolsUiModuleConfig } from "./blitz/module";
+
