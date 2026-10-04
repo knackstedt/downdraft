@@ -30,7 +30,7 @@ import { basename, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs, print, renderHelp } from "./args";
 import { formatGamesList, listGames } from "./list-games";
-import { findGameDirUpward, findMonorepoRoot, resolveGameDir } from "./paths";
+import { findGameDirUpward, findMonorepoRoot, readGameConfig, resolveGameDir } from "./paths";
 import { getCommand } from "./usage";
 
 const log = createLogger();
@@ -228,10 +228,12 @@ function packageNative(
   // when present (engine sources relativize cleanly), else the game dir.
   const cwd = findMonorepoRoot(gameDir) ?? gameDir;
 
-  // Runtime matrix: --runtime flag → build.runtime in package.json → bun.
+  // Runtime matrix: --runtime flag → build.runtime in package.json →
+  // downdraft.config.json "runtime" → bun.
   // "all" expands to the full matrix (one appdir per runtime).
   const RUNTIMES = ["bun", "node", "deno"];
-  const requested = opts.runtime ?? info.build.runtime ?? "bun";
+  const requested = opts.runtime ?? info.build.runtime
+    ?? (readGameConfig(gameDir).runtime as string | undefined) ?? "bun";
   const runtimes = requested === "all" ? RUNTIMES : [requested];
   for (const r of runtimes) {
     if (!RUNTIMES.includes(r)) {
@@ -276,9 +278,11 @@ function packageNative(
         }
         continue;
       }
-      // win/mac: single-binary bun compile via package-native.mjs.
+      // win/mac: single-binary bun compile via package-native.mjs. Each
+      // target gets its own dir so the staged native/ + dd-assets/ trees
+      // don't interleave across platforms.
       if (runtime !== "bun") continue;
-      const outfile = resolve(opts.out, `${game}-${target}`);
+      const outfile = resolve(opts.out, `${game}-${target}`, `${game}-${target}`);
       const argv = [
         scriptNative,
         `--target=${target}`,

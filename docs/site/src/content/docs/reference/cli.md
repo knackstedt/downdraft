@@ -43,7 +43,7 @@ Starts the game on the native runtime — a JS-runtime process hosting a winit w
 |---|---|
 | `--entry <path>` | Game entrypoint file (defaults to `src/native-entry.ts`) |
 | `--port <n>` | MCP HTTP port (default: auto-assign) |
-| `--runtime <r>` | JS runtime hosting the dev shell: `bun` / `node` / `deno` (default: auto-detect) |
+| `--runtime <r>` | JS runtime hosting the dev shell: `bun` / `node` / `deno` (default: `DD_RUNTIME` env → `"runtime"` in `downdraft.config.json` → auto-detect) |
 | `--watch` | Back-compat no-op — the dev shell always watches |
 | `--no-hmr` | Disable HMR — spawn the entry directly (`bun run`), no dev shell |
 | `--verbose`, `-v` | Verbose logging |
@@ -69,7 +69,7 @@ Unified build + package pipeline. Replaces the separate `build`, `dist`, `export
 | `--game <name>`, `-g` | Game to release (name or directory; resolves `games/<name>` when run from the engine root). For multiple games, use `--games`. |
 | `--games=<csv>` | Comma-separated game names (e.g. `sandjongg,to-the-ocean`) |
 | `--target <t>`, `-t` | Target: `win` / `linux` / `mac` / `android` / `all` (default: `all`). `android` can't mix with desktop targets in one invocation. |
-| `--runtime=<r>` | JS runtime embedded in the package: `bun` (compiled binary) / `node` / `deno` / `all` (default: `build.runtime` in package.json, else `bun`). `node`/`deno` are linux-only today — win/mac targets still embed bun. |
+| `--runtime=<r>` | JS runtime embedded in the package: `bun` (compiled binary) / `node` / `deno` / `all` (default: `build.runtime` in package.json → `"runtime"` in `downdraft.config.json` → `bun`). `node`/`deno` are linux-only today — win/mac targets still embed bun. |
 | `--format=<csv>` | Linux package formats: `dir` / `deb` / `appimage` / `flatpak` (default: `build.linux.target` in package.json, else `dir`). |
 | `--stage=<s>` | Stage: `build` / `package` / `release` (all compile the same native binary; default: `release`) |
 | `--mode=<m>` | Build mode: `dev` / `debug` / `prod` (default: `prod`) |

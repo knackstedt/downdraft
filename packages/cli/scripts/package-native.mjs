@@ -46,6 +46,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolvePlatLibDir } from "./native-lib-fetch.mjs";
 
 // CRATES is shared with the repo's scripts/native-crates.mjs when this file
 // runs inside the monorepo. In a published @downdraft/cli install the repo
@@ -560,19 +561,25 @@ function pkgRoot(name) {
 // wgpu — no external deps) stages under native/<platform>-<arch>/. Probe
 // order: monorepo dev staging, the installed platform-native package, the
 // per-target @downdraft/native-<plat>-<arch> package.
+const platPkg = pkgRoot("@downdraft/platform-native");
 const platLibCandidates = [...new Set([
   join(monorepoRoot, "packages/platform-native/native", platKey),
-  pkgRoot("@downdraft/platform-native") && join(pkgRoot("@downdraft/platform-native"), "native", platKey),
+  platPkg && join(platPkg, "native", platKey),
+  platPkg && join(platPkg, platKey),
   pkgRoot(`@downdraft/native-${platKey}`) && join(pkgRoot(`@downdraft/native-${platKey}`), "lib"),
 ].filter(Boolean))];
-const platStageDir = platLibCandidates.find((d) => existsSync(d));
-if (platStageDir) {
-  for (const f of readdirSync(platStageDir)) {
-    if (f.endsWith(libExt)) copyFileSync(join(platStageDir, f), join(nativeDir, f));
-  }
-} else {
+// Foreign-platform optional deps aren't installed on this host — fetch the
+// @downdraft/native-<plat>-<arch> tarball from npm into a cache instead.
+const platPkgVersion = platPkg &&
+  JSON.parse(readFileSync(join(platPkg, "package.json"), "utf8")).version;
+const platStageDir = await resolvePlatLibDir(
+  platKey, platLibCandidates, join(gameDir, "node_modules", ".cache"), platPkgVersion);
+if (!platStageDir) {
   console.error(`no libdowndraft_platform build found for ${platKey} — searched: ${platLibCandidates.join(", ")}`);
   process.exit(1);
+}
+for (const f of readdirSync(platStageDir)) {
+  if (f.endsWith(libExt)) copyFileSync(join(platStageDir, f), join(nativeDir, f));
 }
 
 // Engine cdylibs — staged if a build exists: new dist/<plat>-<arch>/ and

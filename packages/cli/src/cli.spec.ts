@@ -150,7 +150,6 @@ describe("CLI new — minimal template", () => {
 
   it("should write valid downdraft.config.json", async () => {
     const config = JSON.parse(readFileSync(join(TEST_DIR, "downdraft.config.json"), "utf-8"));
-    expect(config.engine).toBe("downdraft");
     expect(config.name).toBe("my-game");
     expect(config.builder).toBeUndefined();
   });

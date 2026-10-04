@@ -29,6 +29,23 @@ function isGameDir(dir: string): boolean {
 }
 
 /**
+ * Read a game's `downdraft.config.json` — engine-level settings that apply
+ * regardless of the game's package.json build section. Missing/invalid files
+ * yield `{}` (the file doubles as a game-dir marker, so it may be absent).
+ *
+ *   { "runtime": "bun" | "node" | "deno" }  — default JS runtime for
+ *   `draft dev`/`draft release` (overridden by --runtime / DD_RUNTIME).
+ */
+export function readGameConfig(gameDir: string): Record<string, unknown> {
+  try {
+    const cfg = JSON.parse(readFileSync(join(gameDir, GAME_CONFIG_FILE), "utf8"));
+    return cfg && typeof cfg === "object" ? cfg : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
  * Find the downdraft monorepo root — a directory whose package.json is named
  * "downdraft-engine" and contains packages/engine. Searches cwd ancestry first,
  * then the CLI's own location (packages/cli/src → ../../.. in the monorepo).

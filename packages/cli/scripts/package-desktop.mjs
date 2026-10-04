@@ -69,6 +69,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolvePlatLibDir } from "./native-lib-fetch.mjs";
 
 // ── Args ──
 
@@ -509,15 +510,20 @@ async function stageEngineLibs(nativeDir) {
   const platLibCandidates = [...new Set([
     join(repoRoot, "packages/platform-native/native", platKey),
     platPkg && join(platPkg, "native", platKey),
+    platPkg && join(platPkg, platKey),
     platNpm && join(platNpm, "lib"),
   ].filter(Boolean))];
-  const platStageDir = platLibCandidates.find((d) => existsSync(d));
-  if (platStageDir) {
-    for (const f of readdirSync(platStageDir)) {
-      if (f.endsWith(libExt)) copyFileSync(join(platStageDir, f), join(nativeDir, f));
-    }
-  } else {
+  // Foreign-platform optional deps aren't installed on this host — fetch
+  // the @downdraft/native-<plat>-<arch> tarball from npm into a cache.
+  const platPkgVersion = platPkg &&
+    JSON.parse(readFileSync(join(platPkg, "package.json"), "utf8")).version;
+  const platStageDir = await resolvePlatLibDir(
+    platKey, platLibCandidates, join(gameDir, "node_modules", ".cache"), platPkgVersion);
+  if (!platStageDir) {
     throw new Error(`no libdowndraft_platform build found for ${platKey} — searched: ${platLibCandidates.join(", ")}`);
+  }
+  for (const f of readdirSync(platStageDir)) {
+    if (f.endsWith(libExt)) copyFileSync(join(platStageDir, f), join(nativeDir, f));
   }
   // Engine cdylibs via the shared crate registry (same candidates as
   // package-native.mjs).

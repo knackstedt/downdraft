@@ -6,7 +6,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs, print, renderHelp } from "./args";
 import { formatGamesList } from "./list-games";
-import { buildCwd, findMonorepoRoot } from "./paths";
+import { buildCwd, findMonorepoRoot, readGameConfig } from "./paths";
 import { killProcessTree } from "./process-utils";
 import { getCommand } from "./usage";
 
@@ -149,7 +149,12 @@ async function devNative(parsed: any): Promise<void> {
   const { detectRuntime, spawnArgsFor, findDenoConfig } =
     await import(resolve(devDir, "runtime-detect.mjs"));
 
-  const requested = (parsed.flags.runtime as string | undefined) ?? process.env.DD_RUNTIME;
+  // --runtime flag → DD_RUNTIME → downdraft.config.json "runtime" → detect.
+  // (absent flags parse as "" here, so || not ??)
+  const requested = (parsed.flags.runtime as string | undefined)
+    || process.env.DD_RUNTIME
+    || (readGameConfig(gameDir).runtime as string | undefined)
+    || undefined;
   const runtime = detectRuntime(requested);
   if (!runtime) {
     if (requested) {

@@ -51,6 +51,28 @@ The sim worker supervisor automatically restarts once from a checkpoint. If a se
 1. The Kira backend (`KiraAudioBackend` / `AudioKiraLib` in `libraries/audio-kira`) loads the `libdowndraft_audio` cdylib over FFI; set `AUDIO_NATIVE_PATH` to point at a specific build.
 2. Build the cdylib with `cargo build -p downdraft-audio` (crate under `packages/engine/libraries/audio-kira/native`).
 
+## Deno Runtime Issues
+
+**Symptom:** `draft release` fails with `no libdowndraft_platform build found for linux-x64` after `deno install`, or `deno run src/native-entry.ts` fails with type-stripping errors.
+
+**Solutions:**
+
+1. `deno install` does not run npm lifecycle scripts, so `@downdraft/platform-native`'s postinstall (`native/fetch-native.mjs`) never downloads the engine cdylibs. Either also run `bun install`/`npm install` in the game directory (a normal `node_modules` layout is what the packager expects), or fetch them manually:
+
+   ```bash
+   node node_modules/@downdraft/platform-native/native/fetch-native.mjs
+   ```
+
+2. Direct `deno run` of the game entry is not supported — Deno refuses to strip TypeScript types from files under `node_modules` (upstream limitation; the published `@downdraft/*` packages ship TypeScript sources). Use the dev shell, which transforms the sources through Vite's ModuleRunner before Deno sees them:
+
+   ```bash
+   draft dev --runtime=deno
+   ```
+
+   No `deno.json` is required for this path. To make the choice persistent, set `"runtime": "deno"` in `downdraft.config.json`.
+
+3. `deno install` enforces a minimum dependency age by default — freshly published `@downdraft/*` versions are rejected for ~24h. Pass `--minimum-dependency-age=0` (or wait) when consuming a just-published release.
+
 ## Build Fails
 
 **Symptom:** `draft release --stage=build` (formerly `draft build`) fails.

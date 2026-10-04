@@ -47,7 +47,7 @@ export const COMMANDS: CommandEntry[] = [
         { name: "games", type: "string", description: "Comma-separated game names (e.g. sandjongg,to-the-ocean)" },
         { name: "target", alias: "t", type: "string", default: "all", enum: [...RELEASE_TARGETS], description: "Target platform(s): win, linux, mac, android, or all (android can't mix with desktop targets)" },
         { name: "format", type: "string", description: "Package format(s), comma-separated: dir, deb, appimage, flatpak (linux only; default: build.linux.target in package.json, else dir)" },
-        { name: "runtime", type: "string", enum: ["bun", "node", "deno", "all"], description: "JS runtime embedded in the package: bun (compiled binary), node, deno, or all (default: build.runtime in package.json, else bun). node/deno are linux-only today" },
+        { name: "runtime", type: "string", enum: ["bun", "node", "deno", "all"], description: "JS runtime embedded in the package: bun (compiled binary), node, deno, or all (default: build.runtime in package.json, \"runtime\" in downdraft.config.json, else bun). node/deno are linux-only today" },
         { name: "stage", type: "string", default: "release", enum: [...RELEASE_STAGES], description: "Stage: build, package, or release (all compile the native binary)" },
         { name: "mode", type: "string", default: "prod", enum: [...BUILD_MODES], description: "Build mode" },
         { name: "abi", type: "string", default: "arm64-v8a", description: "Android ABI(s): arm64-v8a, x86_64, or all (android target only)" },
@@ -90,7 +90,7 @@ export const COMMANDS: CommandEntry[] = [
       flags: [
         { name: "entry", type: "string", description: "Game entrypoint file (defaults to src/native-entry.ts)" },
         { name: "port", type: "number", description: "MCP HTTP port (default: auto-assign)" },
-        { name: "runtime", type: "string", enum: ["bun", "node", "deno"], description: "JS runtime hosting the dev shell (default: bun → node → deno auto-detect)" },
+        { name: "runtime", type: "string", enum: ["bun", "node", "deno"], description: "JS runtime hosting the dev shell (default: DD_RUNTIME env, \"runtime\" in downdraft.config.json, else bun → node → deno auto-detect)" },
         { name: "watch", type: "boolean", description: "Back-compat no-op — the HMR dev shell always watches" },
         { name: "no-hmr", type: "boolean", description: "Disable HMR — spawn the entry directly (bun run), no dev shell" },
         { name: "native", type: "boolean", description: "Back-compat alias — native is the default runtime" },
