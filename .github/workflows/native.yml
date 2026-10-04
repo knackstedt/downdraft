@@ -40,9 +40,10 @@ jobs:
           - { os: ubuntu-22.04, triples: "x86_64-unknown-linux-gnu", nodePlats: "linux-x64" }
           - { os: ubuntu-24.04-arm, triples: "aarch64-unknown-linux-gnu", nodePlats: "linux-arm64" }
           - { os: macos-latest, triples: "aarch64-apple-darwin", nodePlats: "darwin-arm64" }
-          # Intel runner: x86_64 cross-compile on arm64 is pathological under
-          # fat-LTO (5h+ vs ~35min native). macos-15-intel is supported to Aug 2027.
-          - { os: macos-15-intel, triples: "x86_64-apple-darwin", nodePlats: "darwin-x64" }
+          # x86_64-apple-darwin links through legacy ld64 (Apple's fast linker
+          # is arm64-only) — fat LTO makes it pathological (5h+ vs ~8min arm64).
+          # Thin LTO parallelizes and feeds ld64 far less merged bitcode.
+          - { os: macos-15-intel, triples: "x86_64-apple-darwin", nodePlats: "darwin-x64", lto: "thin", codegenUnits: "16" }
           - { os: windows-latest, triples: "x86_64-pc-windows-msvc", nodePlats: "win32-x64" }
 
     runs-on: ${{ matrix.os }}
@@ -65,6 +66,9 @@ jobs:
 
       - name: Build Rust cdylibs
         shell: bash # for/do/done is bash syntax — windows-latest defaults to pwsh
+        env:
+          CARGO_PROFILE_DIST_LTO: ${{ matrix.lto || 'fat' }}
+          CARGO_PROFILE_DIST_CODEGEN_UNITS: ${{ matrix.codegenUnits || '1' }}
         run: |
           for t in ${{ matrix.triples }}; do
             node scripts/build-native.mjs --target="$t" --profile=dist
