@@ -92,8 +92,8 @@ Four reference patches needed rework; the rest applied clean:
 
 CI (`.github/workflows/node-mobile.yml`) builds per ABI and publishes
 `downdraft-node-mobile-android-<arch>.tar.gz`; `stage-node-packages.mjs`
-unpacks them into `@downdraft/node-mobile-android-arm64` /
-`@downdraft/node-mobile-android-x64` npm packages. APK packaging
+unpacks them into `@downdraft/native-mobile-android-arm64` /
+`@downdraft/native-mobile-android-x64` npm packages. APK packaging
 (`packages/cli/scripts/package-mobile.mjs`) probes the local build tree
 first, then the npm packages — fetched explicitly since npm `os` filtering
 doesn't apply (no host runs `platform === 'android'`).

@@ -1,11 +1,11 @@
 // ============================================================================
 // stage-node-packages.mjs — populate the npm node-mobile packages
-// (@downdraft/node-mobile-android-<arch>) from artifact bundles.
+// (@downdraft/native-mobile-android-<arch>) from artifact bundles.
 //
 // Usage: node scripts/stage-node-packages.mjs <dir-of-tarballs>
 //
 // Unpacks each downdraft-node-mobile-android-<arch>.tar.gz into
-// packages/node-mobile-android-<arch>/{lib,include}/. Called by publish.yml
+// packages/native-mobile-android-<arch>/{lib,include}/. Called by publish.yml
 // before scripts/publish-packages.mjs.
 //
 // Bundle layout (produced by packages/node-mobile/scripts/package-android.mjs
@@ -34,9 +34,9 @@ if (!tarballs.length) {
 
 for (const tarball of tarballs) {
   const arch = tarball.slice("downdraft-node-mobile-android-".length, -".tar.gz".length);
-  const pkgDir = join(root, "packages", `node-mobile-android-${arch}`);
+  const pkgDir = join(root, "packages", `native-mobile-android-${arch}`);
   if (!existsSync(join(pkgDir, "package.json"))) {
-    console.error(`[stage] no packages/node-mobile-android-${arch} — unknown bundle arch`);
+    console.error(`[stage] no packages/native-mobile-android-${arch} — unknown bundle arch`);
     process.exit(1);
   }
 
@@ -68,7 +68,7 @@ for (const tarball of tarballs) {
     execFileSync("cp", ["-r", incSrc, join(pkgDir, "include")]);
   }
   rmSync(extractDir, { recursive: true, force: true });
-  console.log(`[stage] @downdraft/node-mobile-android-${arch}: lib/libnode.so + include/`);
+  console.log(`[stage] @downdraft/native-mobile-android-${arch}: lib/libnode.so + include/`);
 }
 
 console.log("[stage] node-mobile packages staged");

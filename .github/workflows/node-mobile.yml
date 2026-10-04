@@ -4,7 +4,7 @@ name: Node mobile (Android libnode)
 # packages/node-mobile (pristine upstream Node + patch series), and uploads
 # downdraft-node-mobile-android-<arch>.tar.gz bundles to a GitHub release
 # tagged node-mobile-v<node-version>-<revision>.
-# stage-node-packages.mjs populates the @downdraft/node-mobile-android-*
+# stage-node-packages.mjs populates the @downdraft/native-mobile-android-*
 # npm packages from the same bundles during publish.yml.
 #
 # Trigger manually (workflow_dispatch) or by pushing a node-mobile-v* tag.
