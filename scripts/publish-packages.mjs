@@ -68,6 +68,7 @@ for (let _i = 0, _it = order, _n = _it.length; _i < _n; _i++) { const name = _it
   const { dir, pkg } = pkgs.get(name);
   if (isPublished(name, pkg.version)) {
     console.log(`skip  ${name}@${pkg.version} (already published)`);
+    console.log(`::notice::skip ${name}@${pkg.version} (already on npm)`);
     continue;
   }
   const cmd = ["publish", "--access", "public", ...(tag ? ["--tag", tag] : [])];
@@ -85,6 +86,7 @@ for (let _i = 0, _it = order, _n = _it.length; _i < _n; _i++) { const name = _it
     console.error(`FAILED ${name} — aborting (dependents would be broken)`);
     process.exit(1);
   }
+  console.log(`::notice::published ${name}@${pkg.version}`);
   published++;
 }
 console.log(`${published} package(s) published.`);
