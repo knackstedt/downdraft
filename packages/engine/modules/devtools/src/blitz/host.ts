@@ -119,7 +119,7 @@ export class BlitzDevtoolsHost {
   get debuggerScene(): { registerThreadEval: (n: string, fn: (e: string) => Promise<{ result?: unknown; error?: string }>) => void; setActivePanel: (p: string) => void; getActivePanel: () => string; setPerfRecording: (s: boolean) => void } {
     return {
       registerThreadEval: (n, fn) => this.registerThreadEval(n, fn),
-      setActivePanel: (p) => { this.activeId = p; },
+      setActivePanel: (p) => this.activate(p),
       getActivePanel: () => this.activeId,
       setPerfRecording: (s) => this.backend.setPerfRecording(s),
     };

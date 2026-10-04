@@ -402,7 +402,7 @@ The host injects the `devtools` singleton via `ModuleHost.setDevToolsAPI()` / `R
 
 ### Deterministic mode
 
-`resolveDevtoolsConfig()` in `packages/platform-native/src/host-lifecycle.ts` is deterministic-aware: when `DOWNDRAFT_DETERMINISTIC=1`, autoOpen defaults to `false` and keybind defaults to `""` (disabled). Games no longer need to plumb `devtools: { autoOpen: !deterministic, keybind: deterministic ? "" : "F12" }` — just use `devtools: true`.
+`DOWNDRAFT_DETERMINISTIC=1` exposes `downdraft.deterministic` on the bridge; bootstrap reads it for autosave/render-loop behavior. Devtools is unaffected by default — `autoShow` is already opt-in (default false) and F12 still toggles. Games that want the dock fully off in tests can set `devtools.ui: "none"` or `toggleKey: null` when `ctx.deterministic` is true.
 
 ### Panel order convention
 
@@ -743,7 +743,7 @@ The CLI reads and sets a number of environment variables. This is the complete l
 |---|---|---|
 | `DOWNDRAFT_STRICT` | `packages/engine/core/src/module/diagnostics.ts` | `0`/`1` force-disable/enable module DI validation (else = Vite dev mode) |
 | `DOWNDRAFT_MCP` | `packages/engine/core/src/util/logger.ts` | `1` routes logs to stderr (keeps stdout clean for MCP JSON-RPC) |
-| `DOWNDRAFT_DISABLE_DEVTOOLS` | `packages/cli/src/debug.ts` | `1` suppresses devtools auto-open (set by `draft debug --no-devtools`) |
+| `DOWNDRAFT_DISABLE_DEVTOOLS` | `packages/cli/src/debug.ts` | `1` disables the devtools UI entirely — forces `devtools.ui` to `"none"` (set by `draft debug --no-devtools`) |
 
 ### E2E test verification — checking for JS errors
 
@@ -1262,27 +1262,33 @@ Native runs on three JS runtimes — **Bun** (default, `bun:ffi`), **Node+tsx** 
 
 Cross-runtime gotchas: tsconfig `paths` and `deno.json` alias `xxh3-ts` → a `.d.ts`, and tsx/Deno honor it at runtime — `hash-utils.ts` requires `xxh3-ts/index.js` (deep path) in its fallback to bypass the alias. Shared `game-module.ts` files must not import `.css` (Deno has no loader hooks) — there is no browser-only entry point where CSS can load. `node:module` imports must be lazy dynamic imports in shared code (a static `node:module` specifier resolves before runtime shims install).
 
-## Native DevTools (`@downdraft/engine/libraries/devtools`)
+## Native DevTools (`@downdraft/engine/libraries/devtools` + `modules/devtools/blitz`)
 
-A native in-game debugger overlay that replaces Chrome DevTools for the native build. The UI is a **Rust egui crate** (`packages/engine/libraries/devtools/native/`) driven over FFI by a TypeScript mirror — egui does layout + tessellation on CPU, serializes PaintJobs into a flat buffer, `EguiRenderer` uploads it to a wgpu texture, and `UiBlitPass` composites it over the game frame. Toggled with F12; F11 captures a screenshot.
+A Chrome-DevTools-style dock that renders **inside the game window** via Blitz/html-ui — a `UiPanelHandle` doc mounted at high z-order over the game UI. The old Rust egui overlay is deleted; do not resurrect it. Toggled with F12 by default (`devtools.ui` object form accepts `toggleKey`, `dockFraction`, `autoShow`).
+
+### Wiring
+
+Games don't construct hosts by hand — `bootstrapGame`/`startGame` handle it. Set `devtools: { ui: "blitz" | "web" | "none" | {...} }` on `GameModule`/`BootstrapDevToolsOptions` (default `"blitz"`). `DOWNDRAFT_DISABLE_DEVTOOLS=1` forces `"none"`.
+
+- **`"blitz"`** (default): `createDevtoolsUiModule()` mounts a `BlitzDevtoolsHost` as a renderer module. It reuses the game's `HtmlUiTok` host when present, else self-hosts an `HtmlUiHost` with a `ScreenUiCompositor` at `order: 1000` (compositors render ascending by `order`, so it draws above game overlays). The host lands in `renderer.nativeDebugger` and is provided via `BlitzDevtoolsTok`.
+- **`"web"`**: `WebDevtoolsHost` serves the `devtools-web` SPA over loopback HTTP+WS (Bun-only transport, `Bun.serve`) and opens it in a system browser.
+- **`"none"`**: data bridge only (`initDevTools` still exposes `window.__sceneInspector`).
 
 ### Architecture
 
-- **`NativeDebuggerHost`** (`src/host.ts`): owns the egui state handle + `EguiRenderer`, routes native pointer/key/text input into egui via FFI, and composites the overlay after the game UI blit.
-- **`DevtoolsMirror`** (`src/mirror.ts`): pushes engine data into Rust (console entries, scene tree, GPU info, metrics, threads, generic snapshots), polls Rust for eval requests / UI commands / refresh flags each frame, and dispatches them to registered handlers.
-- **`egui-ffi.ts`**: FFI symbol declarations + buffer encoders (scene tree, DOM tree, GPU info, metrics, threads, generic `encodeSnapshot`, eval request decode).
-- **Rust side** (`native/src/`): `state.rs` (PanelId, console/metrics/scene state, `GenericSnapshot`), `lib.rs` (FFI surface, input → `egui::RawInput`, dock UI + nav rail + status bar, snapshot/command decoders), `panels/` (one module per panel; `generic.rs` renders provider-fed snapshots; `input.rs` is a bespoke panel mixing the egui input mirror with provider data).
-- **`CdpBridge`** (`src/cdp-bridge.ts`): `node:inspector` Session for console capture, exception events, and CPU profiling (the Recorder panel's flame chart).
+- **`DevtoolsBackend`** (`libraries/devtools/src/backend.ts`): transport-neutral core — provider registry (`registerProvider(panel, collect)`), command dispatch, collectors, eval routing (`registerThreadEval`), event pushes. `WebDevtoolsMirror` (`web/mirror.ts`) is the JSON-RPC transport subclass; the Blitz host embeds a `DevtoolsBackend` directly and routes events to DOM updates.
+- **`BlitzDevtoolsHost`** (`modules/devtools/src/blitz/host.ts`): owns the dock doc (tab strip, per-panel toolbar/body/bottom/status regions), tab switching, dock resize grip, F12 keybind (priority −30 on the input bus), and the `DtPanelCtx` panels render through (`call`, `setValue`, `scrollTo`, `getRect`).
+- **Panels** (`blitz/panels/`): `console.ts` (log sink + severity/thread filters + REPL with history — main-thread eval goes through a direct `registerThreadEval` evaluator since runtimes may lack `Runtime.evaluate` over CDP), `elements.ts` (scene/DOM/ECS tree), `performance.ts` (per-thread metrics + CPU profile record), `gpu.ts` (frame times + adapter info), `snapshot.ts` (generic renderer for provider-fed snapshots: kv rows, tables, f32 series, lines, controls).
+- **`CdpBridge`** (`libraries/devtools/src/cdp-bridge.ts`): `node:inspector` Session for console capture, exception events, and CPU profiling; degrades cleanly when no inspector exists.
+- **Input routing**: `HtmlUiHost.bindInput()` routes pointer/key to the mounted doc; editable `<input>` elements receive text input when focused. Note a Blitz limitation — `hit_inner` does not clip scrolled-off children to the scrollport, so overflowing content can intercept clicks over sibling chrome; the dock works around it by DOM-ordering `#dt-body` before the fixed chrome inside a `display:grid` `#dt-chrome`.
 
-### Panels (16)
+### Panels
 
-Console, Scene (entity/scene tree), GPU, Recorder (CDP profile + flame chart), Metrics (per-thread ProfilingSAB), ECS/DOM tree, Sim, Memory (RSS/VRAM + force-GC), Render Graph (frame-graph slots + pass timings, shows "timestamps unsupported" when the GPU timer pool is unavailable), Materials (MaterialLibrary or ModelRenderer bindless occupancy), Doctor (cross-thread module report), Workers (SAB slots + eval targets + cached sim manifest), Input (live egui input mirror), PostFX (28 effect toggles + params via the command channel), Assets (models/textures/buffers + missing-asset warnings), Game (provider-fed KV: vitals, world state, boats, weather).
+Fixed: Console, Elements, Performance, GPU. Provider-driven (registered via `registerEngineProviders` in `native-providers.ts`): Game, Sim, Memory, Render Graph, Materials, Doctor, Workers, Input, PostFX, Assets. Game-specific data registers on the `game` provider slot.
 
 ### Generic snapshot + command protocol
 
-Provider panels share one binary format: `registerProvider(panel, collect)` returns a `PanelSnapshot` (status byte + sections of key/value rows, tables, f32 series, lines, and controls — buttons/checkboxes/sliders). `encodeSnapshot()` serializes it; `dd_devtools_set_snapshot` pushes it per panel slot. Rust renders controls and queues `{panel, action, payload}` commands; the mirror polls `dd_devtools_take_command` each frame and dispatches to `handleEngineCommand` in `native-entry.ts` (fx.* → `PostProcessStack.setEnabled`, param.* → effect params, gc → force GC, sim.* → sim worker commands). Sync providers push snapshots immediately; async collectors never block the UI frame.
-
-Game-specific data uses the `game` panel slot — register via `registerEngineProviders(ctx)` in `src/native-providers.ts` plus a game provider in `native-entry.ts`.
+`registerProvider(panel, collect)` returns a `PanelSnapshot` (status + sections of key/value rows, tables, f32 series, lines, and controls — buttons/checkboxes/sliders). The backend pushes snapshots to the frontend; control clicks dispatch `{panel, action, payload}` commands back through `backend.dispatch` → `handleEngineCommand` (fx.* → `PostProcessStack.setEnabled`, param.* → effect params, gc → force GC, sim.* → sim worker commands). Sync providers push immediately; async collectors never block the UI frame.
 
 ### Running the native entry (tri-runtime)
 
@@ -1318,16 +1324,18 @@ The Rust shim validates every `WGPUTextureFormat`/`WGPURenderPipelineDescriptor`
 
 - `SCREENSHOT_FRAME=N`: auto-capture a screenshot at frame N (default 600).
 - `AUTO_EXIT=1`: exit after the auto-screenshot.
-- `DEBUGGER_AUTO_SHOW=1`: auto-show the debugger for the verification screenshot.
-- `DEBUGGER_PANEL=<name>`: select a panel for the screenshot (`console scene gpu perf-recorder perf-metrics dom-tree sim memory render-graph materials doctor workers input postfx assets game`).
-- `DEBUGGER_TEST=1`: run the interaction suite (nav-rail clicks on all 16 panels, postfx command round-trip, wheel scroll, REPL eval) at the screenshot frame.
+- `DEBUGGER_AUTO_SHOW=1`: auto-show the devtools dock for the verification screenshot.
+- `DEBUGGER_PANEL=<id>`: select a panel for the screenshot (`console elements performance gpu` + provider ids `game sim memory render-graph materials doctor workers input postfx assets`).
 - `SKIP_OCEAN_SCENE=1`: skip the real OceanApp scene (for isolated blit testing).
 
 ### Key files
 
-- `packages/engine/libraries/devtools/src/host.ts` — `NativeDebuggerHost` + `DebuggerSceneShim`
-- `packages/engine/libraries/devtools/src/mirror.ts` — `DevtoolsMirror` (data push, eval/command dispatch, provider registry)
-- `packages/engine/libraries/devtools/src/egui-ffi.ts` — FFI decls + encoders
-- `packages/engine/libraries/devtools/src/native-providers.ts` — engine-generic panel providers
+- `packages/engine/modules/devtools/src/blitz/module.ts` — `createDevtoolsUiModule` + `BlitzDevtoolsTok`
+- `packages/engine/modules/devtools/src/blitz/host.ts` — `BlitzDevtoolsHost` (dock doc, tabs, keybind, self-hosted UI surface)
+- `packages/engine/modules/devtools/src/blitz/theme.ts` — Chrome-style dark theme CSS
+- `packages/engine/modules/devtools/src/blitz/panels/` — console/elements/performance/gpu/snapshot panel renderers
+- `packages/engine/libraries/devtools/src/backend.ts` — `DevtoolsBackend` (transport-neutral providers/commands/eval/pushes)
+- `packages/engine/libraries/devtools/src/web/` — `WebDevtoolsHost` + `WebDevtoolsMirror` + `DevToolsServer` (loopback browser frontend, Bun-only)
+- `packages/engine/libraries/devtools/src/native-providers.ts` — `registerEngineProviders` (engine-generic panel collectors)
+- `packages/engine/libraries/devtools/src/snapshot.ts` — `PanelSnapshot`/`PanelSection` wire types shared by both frontends
 - `packages/engine/libraries/devtools/src/cdp-bridge.ts` — `CdpBridge`
-- `packages/engine/libraries/devtools/native/src/` — Rust egui crate (`cargo build --release`, output `dist/libdowndraft_devtools.so`)
