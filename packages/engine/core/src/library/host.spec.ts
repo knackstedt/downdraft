@@ -139,8 +139,13 @@ describe("LibraryHostImpl", () => {
       }).toThrow(/already provided/);
     });
 
-    it("throws on missing requires in strict mode", () => {
+    it("warns (not throws) on requires no library provides in strict mode", () => {
       setStrict(true);
+      // Library requires may legitimately be satisfied by external providers
+      // (game modules, the host DI graph) — the open graph means the host can
+      // only warn; a truly missing provider still throws at inject() time.
+      const calls: string[] = [];
+      const unbindSink = addLogSink((e) => { if (e.level === "warn") calls.push(String(e.message)); });
       const lib = makeLibrary("test", {
         requires: [DepTok],
         provides: [TestTok],
@@ -153,7 +158,9 @@ describe("LibraryHostImpl", () => {
           inject: () => { throw new Error("no provider"); },
           injectOptional: () => undefined,
         });
-      }).toThrow(/not provided/);
+      }).not.toThrow();
+      unbindSink();
+      expect(calls.some((m) => m.includes("test:dep"))).toBe(true);
     });
 
     it("does not validate when strict is off", () => {
@@ -270,6 +277,44 @@ describe("LibraryHostImpl", () => {
       });
       host.tickPhase("pre-physics", { dt: 0.016, tick: 1, entities: null, entityCount: 0, players: null, playerCount: 0 });
       expect(ticked).toBe(false);
+    });
+  });
+
+  describe("setRendererBuffers", () => {
+    it("runs setBuffers with a null instance and forwards provides to the DI graph", () => {
+      const ReaderTok = resourceToken<{ sab: SharedArrayBuffer }>("test:reader");
+      let gotInstance: unknown = "unset";
+      const lib = makeLibrary("reader-only", {
+        provides: [ReaderTok],
+        sabChannels: [{ name: "buf", size: 64 }],
+        renderer: {
+          // init returns null (non-GPU participant, e.g. water's reader) —
+          // setBuffers must still run and its ctx.provide must reach the
+          // caller's DI graph.
+          init() { return null; },
+          setBuffers(instance, buffers, ctx) {
+            gotInstance = instance;
+            ctx?.provide(ReaderTok, { sab: buffers.buf });
+          },
+        },
+      });
+      const host = new LibraryHostImpl([lib]);
+      const bufs = host.allocateBuffers();
+
+      host.initRenderer({
+        device: {} as any,
+        format: "bgra8unorm",
+        provide: () => {},
+        inject: () => { throw new Error("no provider"); },
+        injectOptional: () => undefined,
+      });
+      const provided = new Map<string, unknown>();
+      host.setRendererBuffers(bufs, {
+        provide: (token: { key: string }, value: unknown) => provided.set(token.key, value),
+      });
+
+      expect(gotInstance).toBeNull();
+      expect(provided.get("test:reader")).toEqual({ sab: bufs.buf });
     });
   });
 

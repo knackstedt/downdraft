@@ -11,7 +11,7 @@
 // ============================================================================
 
 import type { ResourceToken } from "../ecs/resource";
-import { assertNoDuplicate, assertRequired, isStrict, warnLeak } from "../module/diagnostics";
+import { assertNoDuplicate, isStrict, warnLeak } from "../module/diagnostics";
 import { createLogger } from "../util/logger";
 import type {
     EngineLibrary,
@@ -111,14 +111,21 @@ export class LibraryHostImpl implements LibraryHost {
         allProviders.set(token.key, active.lib.name);
       });
     });
-    for (let _i = 0, _it = this.libraries, _n = _it.length; _i < _n; _i++) { const active = _it[_i];
-      if (!active.lib.requires) continue;
+    // Missing `requires` only warns: the library DI graph is OPEN — tokens can
+    // be satisfied by game modules or other external providers the host can't
+    // enumerate (unlike ModuleHost's closed module graph, which hard-fails).
+    // A truly missing provider still throws at `inject()` call time.
+    this.libraries.forEach((active) => {
+      if (!active.lib.requires) return;
       active.lib.requires.forEach((token) => {
-        if (!allProviders.has(token.key)) {
-          assertRequired(allProviders, token, active.lib.name);
+        if (!allProviders.has(token.key) && !this.providers.has(token.key)) {
+          log.warn(
+            "LibraryHost",
+            `Library "${active.lib.name}" requires "${token.key}" which no library provides — it must be provided by a game module or external provider, or inject() will throw.`,
+          );
         }
       });
-    }
+    });
   }
 
   initSim(ctx: LibrarySimContext): void {
@@ -243,19 +250,26 @@ export class LibraryHostImpl implements LibraryHost {
     }
   }
 
-  setRendererBuffers(buffers: Record<string, SharedArrayBuffer>): void {
-    for (let _i = 0, _it = this.libraries, _n = _it.length; _i < _n; _i++) { const active = _it[_i];
-      if (!active.lib.renderer?.setBuffers || active.rendererInstance === null) continue;
+  setRendererBuffers(
+    buffers: Record<string, SharedArrayBuffer>,
+    ctx?: { provide<T>(token: ResourceToken<T>, value: T): void },
+  ): void {
+    this.libraries.forEach((active) => {
+      if (!active.lib.renderer?.setBuffers) return;
+      // rendererInstance may be null — libraries whose `init` returned null
+      // (non-GPU participants, e.g. water's buffer reader) still get their
+      // SABs and can provide resources into the DI graph.
       active.lib.renderer.setBuffers(active.rendererInstance, buffers, {
-        provide: (token: ResourceToken<unknown>, _value: unknown) => {
+        provide: (token: ResourceToken<unknown>, value: unknown) => {
           if (isStrict()) {
             assertNoDuplicate(this.providers, token, active.lib.name);
           }
           this.providers.set(token.key, active.lib.name);
           active.rendererProvidedKeys.add(token.key);
+          ctx?.provide(token, value);
         },
       });
-    }
+    });
   }
 
   drawRenderer(ctx: LibraryRendererDrawContext): void {

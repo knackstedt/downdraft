@@ -41,9 +41,12 @@
   },
   "files": [
     "src",
-    "native",
+    "native/fetch-native.mjs",
     "README.md",
-    "!**/*.spec.ts"
+    "!**/*.spec.ts",
+    "!**/*.test.ts",
+    "!**/test-*.ts",
+    "!**/spec-fixtures/**"
   ],
   "description": "Native platform bindings — the Rust libdowndraft_platform cdylib (wgpu + winit + cosmic-text + image + naga) and the native device layer DownDraft runs on."
 }

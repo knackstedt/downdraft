@@ -52,11 +52,19 @@ export interface GameRendererLike {
   /** Render one frame on demand while the loop is stopped (or running). */
   renderOnce?(): void;
   getSurface?(): RenderSurface;
+  /** @deprecated Use getSurface — the surface is not necessarily a DOM canvas. */
   getCanvas?(): RenderSurface;
   getDevice?(): GPUDevice | null;
   getFormat?(): GPUTextureFormat;
   getFPS?(): number;
   useRendererModule?(module: RendererModule): void;
+  /**
+   * The renderer's module host, when the renderer supports renderer modules.
+   * `startGame()` uses it to wire EngineLibrary DI provides — renderers
+   * that omit it silently drop library-provided resources (a warning is
+   * logged when libraries are declared but no host exists).
+   */
+  getRendererModuleHost?(): RendererModuleHost | null;
   getWorkerHost?(): unknown;
 }
 

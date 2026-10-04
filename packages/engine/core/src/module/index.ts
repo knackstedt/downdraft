@@ -16,6 +16,7 @@ export type {
     PointerHandler, RendererInputBus,
     RendererModule,
     RendererModuleContext, RenderPassHook, ResizeHook,
+    ScreenUiCompositor,
     WheelHandler
 } from "./renderer-module";
 export { TsModuleLoader } from "./ts-loader";

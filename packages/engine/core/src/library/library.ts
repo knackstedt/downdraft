@@ -126,7 +126,9 @@ export interface LibraryRendererSetup<C = unknown, R = unknown> {
   init?(config: C, ctx: LibraryRendererInitContext): R | null | undefined;
   /**
    * Called when SABs are set on the renderer (`setBuffers()`).
-   * Receives the renderer instance from `init()` + the SABs.
+   * Receives the renderer instance from `init()`/`create()` + the SABs —
+   * the instance may be null when `init()` returned null (libraries that
+   * only need the SABs still run).
    * The optional context provides `provide()` for registering resources
    * into the DI graph (e.g. a buffer reader created during setBuffers).
    */
@@ -253,8 +255,9 @@ export type LibraryEntry<C = unknown> =
 // ── LibraryHost (internal — wires libraries) ──
 
 /**
- * Internal host that manages library lifecycle. Created by `startGame()`
- * and the sim worker. Not exported — games interact with libraries via
+ * Host that manages library lifecycle. Created by `startGame()`
+ * and the sim worker; exposed on `GameContext.libraryHost` for diagnostics
+ * and advanced wiring. Games normally interact with libraries via
  * the DI graph (`ctx.inject(WaterWriterTok)` etc.).
  */
 export interface LibraryHost {
@@ -279,8 +282,13 @@ export interface LibraryHost {
   createRenderer(ctx: LibraryRendererCreateContext): void;
   /** Initialize renderer-side passes. Called during renderer init. */
   initRenderer(ctx: LibraryRendererInitContext): void;
-  /** Set buffers on renderer-side passes. Called during renderer setBuffers. */
-  setRendererBuffers(buffers: Record<string, SharedArrayBuffer>): void;
+  /**
+   * Set buffers on renderer-side passes. Called during renderer setBuffers.
+   * `ctx.provide` (when given) forwards resources into the renderer DI
+   * graph — pass it so `setBuffers` implementations that `ctx.provide(...)`
+   * (e.g. a SAB reader created at buffer-bind time) are actually injectable.
+   */
+  setRendererBuffers(buffers: Record<string, SharedArrayBuffer>, ctx?: { provide<T>(token: ResourceToken<T>, value: T): void }): void;
   /** Draw all renderer-side passes. Called per frame. */
   drawRenderer(ctx: LibraryRendererDrawContext): void;
   /** Dispose all sim-side systems. */

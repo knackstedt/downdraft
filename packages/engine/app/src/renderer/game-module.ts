@@ -515,7 +515,7 @@ export async function startGame<Sim extends GameSimWorker, R extends GameRendere
   //    If libraries declared, pass the library-allocated SABs to the sim
   //    factory via a seed object so the sim can share them zero-copy.
   const simSeed = Object.keys(libBuffers).length > 0 ? { libraryBuffers: libBuffers } : undefined;
-  const simWorker = hasSim ? module.sim!(simSeed as any) : null;
+  const simWorker = hasSim ? module.sim!(simSeed) : null;
   const simSAB = simWorker?.getSimBuffer();
   const inputSAB = simWorker?.getInputBuffer();
   const extraBuffers = simWorker?.getExtraBuffers?.() ?? {};
@@ -542,6 +542,9 @@ export async function startGame<Sim extends GameSimWorker, R extends GameRendere
   // 3b. Merge library SABs into extraBuffers + store host on ctx
   if (libHost) {
     for (const [name, sab] of Object.entries(libBuffers)) {
+      if (name in ctx.extraBuffers) {
+        log.warn("startGame", `library SAB channel "${name}" shadows a same-named sim extra buffer in ctx.extraBuffers`);
+      }
       ctx.extraBuffers[name] = sab;
     }
     ctx.libraryHost = libHost;
@@ -764,6 +767,9 @@ export async function startGame<Sim extends GameSimWorker, R extends GameRendere
         const device = r.getDevice?.();
         const format = r.getFormat?.();
         const moduleHost = r.getRendererModuleHost?.();
+        if (!moduleHost) {
+          log.warn("startGame", "renderer does not expose getRendererModuleHost() — EngineLibrary DI provides will be silently dropped");
+        }
         const libProvide = (token: any, value: unknown) => {
           if (moduleHost) moduleHost.provideExternal("library", token, value);
         };
@@ -779,7 +785,7 @@ export async function startGame<Sim extends GameSimWorker, R extends GameRendere
         // GPU-pass library init (after device is ready).
         if (device && format) {
           libHost.initRenderer({ device, format, provide: libProvide, inject: libInject, injectOptional: libInjectOptional });
-          libHost.setRendererBuffers(libBuffers);
+          libHost.setRendererBuffers(libBuffers, { provide: libProvide });
         }
       }
 

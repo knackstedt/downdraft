@@ -13,6 +13,7 @@
 // ============================================================================
 
 import type { ResourceToken } from "../ecs/resource";
+import { isDev } from "../platform/runtime";
 import { createLogger } from "../util/logger";
 
 const log = createLogger();
@@ -31,13 +32,16 @@ export class DiagnosticError extends Error {
 }
 
 function readEnv(): boolean {
-  // Bun / Node
+  // Explicit override always wins.
   const env = (globalThis as any).process?.env?.DOWNDRAFT_STRICT;
-  if (env !== undefined) return env === "1";
-  // Vite dev mode
-  const meta = (globalThis as any).importMetaEnv;
-  if (meta?.DEV === true) return true;
-  return false;
+  if (env === "1") return true;
+  if (env === "0") return false;
+  // Default: on in dev, off in prod. `isDev` (platform/runtime.ts) probes
+  // Vite's import.meta.env.DEV under the dev shell, then DOWNDRAFT_DEV /
+  // NODE_ENV on native runtimes — the previous globalThis.importMetaEnv
+  // lookup never observed anything (nothing sets that global), so STRICT
+  // was effectively DOWNDRAFT_STRICT=1-only even in dev.
+  return isDev;
 }
 
 let _strict: boolean | null = null;

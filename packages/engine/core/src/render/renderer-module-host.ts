@@ -101,7 +101,11 @@ export class RendererModuleHost {
   private renderPassHooks: OwnedRenderPassHook[] = [];
 
   private cameraController: CameraControllerLike | null = null;
+  /** Name of the module that installed the current camera controller (for unload cleanup). */
+  private cameraControllerOwner: string | null = null;
   private viewportCameraProvider: ((viewportIdx: number, dt: number, elapsedTime: number) => CameraViewportInfo | null) | null = null;
+  /** Name of the module that installed the current viewport camera provider (for unload cleanup). */
+  private viewportCameraProviderOwner: string | null = null;
   private _devtools: ModuleDevToolsAPI | null = null;
 
   constructor(canvas: RenderSurface, callbacks: RendererModuleHostCallbacks) {
@@ -338,11 +342,17 @@ export class RendererModuleHost {
     this.frameHooks.afterFrame = this.frameHooks.afterFrame.filter((h) => h.owner !== name);
     this.resizeHooks = this.resizeHooks.filter((h) => h.owner !== name);
     this.renderPassHooks = this.renderPassHooks.filter((h) => h.owner !== name);
-    // If this plugin owned the camera controller, clear it.
-    // (We can't tell who set it; clear conservatively if the plugin name
-    // matches a convention. For now, leave the controller in place — a
-    // well-behaved plugin should null it in its dispose fn. We also call
-    // onDispose before clearing hooks, so the plugin's dispose fn can do it.)
+    // If this plugin owned the camera controller / viewport camera provider,
+    // clear it so a disposed object isn't invoked on the next frame. (If
+    // another plugin overwrote the slot later, its ownership is preserved.)
+    if (this.cameraControllerOwner === name) {
+      this.cameraController = null;
+      this.cameraControllerOwner = null;
+    }
+    if (this.viewportCameraProviderOwner === name) {
+      this.viewportCameraProvider = null;
+      this.viewportCameraProviderOwner = null;
+    }
     this.active.delete(name);
     this.plugins.delete(name);
     this.pending.delete(name);
@@ -356,6 +366,9 @@ export class RendererModuleHost {
     names.forEach((name) => { this.unloadModule(name);; });
     this.inputBus.destroy();
     this.cameraController = null;
+    this.cameraControllerOwner = null;
+    this.viewportCameraProvider = null;
+    this.viewportCameraProviderOwner = null;
   }
 
   // ── Getters ──
@@ -538,6 +551,7 @@ export class RendererModuleHost {
   // ── Per-plugin context facade ──
 
   private makeContext(name: string, active: ActiveRendererModule): RendererModuleContext {
+    const devtoolsApi = () => this._devtools ?? NoopRendererDevToolsAPI;
     return {
       name,
 
@@ -587,11 +601,13 @@ export class RendererModuleHost {
         // Only one active controller at a time. Last writer wins; a plugin
         // should null this in its dispose fn if it wants to release the slot.
         this.cameraController = controller;
+        this.cameraControllerOwner = controller ? name : null;
       },
       getCameraController: () => this.cameraController,
 
       setViewportCameraProvider: (provider) => {
         this.viewportCameraProvider = provider;
+        this.viewportCameraProviderOwner = provider ? name : null;
       },
 
       setViewportCount: (count) => this.callbacks.setViewportCount(count),
@@ -600,7 +616,8 @@ export class RendererModuleHost {
       setRenderTargetProvider: (provider) => this.callbacks.setRenderTargetProvider(provider),
       setRAFSource: (src, cancel) => this.callbacks.setRAFSource(src, cancel),
 
-      devtools: this._devtools ?? NoopRendererDevToolsAPI,
+      // Lazy — the DevTools API may be injected after register() runs.
+      get devtools() { return devtoolsApi(); },
 
       provide: <T>(token: ResourceToken<T>, value: T) => this.provideResource(name, token, value, active),
       inject: <T>(token: ResourceToken<T>): T => this.injectResource(token),

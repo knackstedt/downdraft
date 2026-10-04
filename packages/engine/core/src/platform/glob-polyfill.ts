@@ -72,10 +72,13 @@ export function createGlob(callerDir: string): (pattern: string, options?: any) 
 
     allFiles.forEach((file) => {
       const relPath = relative(fsCallerDir, file).replace(/\\/g, "/");
-      const prefixedPath = relPath.startsWith("..") ? relPath : "./" + relPath;
-      if (matchRegex.test(relPath) || matchRegex.test(prefixedPath)) {
+      // Vite-style keys: `./x` for same-dir/child paths, `../x` for parent
+      // traversal — NOT `./../x`. Callers match on these keys (startsWith
+      // on the pattern's literal prefix, endsWith on subpaths).
+      const key = relPath.startsWith("..") ? relPath : "./" + relPath;
+      if (matchRegex.test(relPath) || matchRegex.test(key)) {
         // For ?url queries, return the file:// URL
-        result["./" + relPath] = pathToFileURL(file).href;
+        result[key] = pathToFileURL(file).href;
       }
     });
     return result;
@@ -95,11 +98,15 @@ export function createGlob(callerDir: string): (pattern: string, options?: any) 
 // converged on:
 //   1. `__nativeGlob` — installed by the native host (platform-native's
 //      installAssetGlob); caller-relative via the baseDir argument.
-//   2. `import.meta.glob` — present only under a Vite transform that injected
-//      it; a plain property read is undefined on native, so this is a safe
-//      second probe.
+//   2. `import.meta.glob` — a real implementation only ever exists when a
+//      Vite transform rewrote a LITERAL `import.meta.glob(` call at the call
+//      site; a passed-around meta object can't carry it. On Vite's
+//      ModuleRunner the meta object DOES expose a `glob` property — but it
+//      is a stub that throws ("statically replaced during file
+//      transformation"), so the probe must tolerate the throw.
 //   3. `createGlob(callerDir)` — filesystem glob relative to the caller's
-//      module dir (packaged binaries, bare runtimes without the host global).
+//      module dir (packaged binaries, bare runtimes without the host global,
+//      and the dev ModuleRunner where `meta.glob` is the throwing stub).
 //
 // Usage:
 //   const models = globAssets("../assets/models/*.glb", import.meta);
@@ -118,7 +125,9 @@ export function globAssets(
     return (native as (p: string, o?: unknown, baseDir?: string) => Record<string, string>)(pattern, opts, callerDir);
   }
   if (typeof meta.glob === "function") {
-    return (meta.glob as (p: string, o?: unknown) => Record<string, string>)(pattern, opts);
+    try {
+      return (meta.glob as (p: string, o?: unknown) => Record<string, string>)(pattern, opts);
+    } catch { /* ModuleRunner stub — fall through to the filesystem glob */ }
   }
   return createGlob(callerDir)(pattern, opts);
 }

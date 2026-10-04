@@ -66,24 +66,30 @@ export interface ModuleDevToolsAPI {
 }
 
 export interface ModuleContext {
+  /**
+   * Register a component name and return its ComponentId.
+   * NOTE: `schema` is currently unused — the id is interned by name only
+   * (no defaults/definition are registered; use `component()` from the ecs
+   * barrel for a full definition). Reserved for future schema validation.
+   */
   registerComponent<T>(name: string, schema: T): ComponentId;
   registerSystem(stage: Stage, system: SystemFn): void;
   /** Register a pre-built System object (with queries) to the world schedule. */
   registerSystemObject(system: System): void;
   allocateSABChannel(name: string, size: number): SABChannel;
   /**
-   * Provide a typed resource to the plugin graph. Other plugins can
+   * Provide a typed resource to the module graph. Other modules can
    * `inject()` it by the same token. In DOWNDRAFT_STRICT mode, duplicate
    * provides of the same token throw a DiagnosticError.
    */
   provide<T>(token: ResourceToken<T>, value: T): void;
   /**
-   * Read a typed resource provided by another plugin. Throws if the token
+   * Read a typed resource provided by another module. Throws if the token
    * has no provider (use `injectOptional` for safe reads).
    */
   inject<T>(token: ResourceToken<T>): T;
   /**
-   * Read a typed resource, returning `undefined` if no plugin provides it.
+   * Read a typed resource, returning `undefined` if no module provides it.
    */
   injectOptional<T>(token: ResourceToken<T>): T | undefined;
   registerMigration(fromVersion: number, fn: (data: unknown) => unknown): void;
@@ -100,9 +106,9 @@ export interface Module {
   name: string;
   version: string;
   dependencies?: string[];
-  /** Typed tokens this plugin provides to the graph. Validated at activation. */
+  /** Typed tokens this module provides to the graph. Validated at activation. */
   provides?: ResourceToken<unknown>[];
-  /** Typed tokens this plugin requires from the graph. Validated at activation. */
+  /** Typed tokens this module requires from the graph. Validated at activation. */
   requires?: ResourceToken<unknown>[];
   register(ctx: ModuleContext): void;
 }

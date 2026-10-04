@@ -13,7 +13,7 @@
 // ============================================================================
 
 import { execFileSync, execSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -35,6 +35,16 @@ try {
 function download(url, dest) {
   console.log(`  GET ${url}`);
   execSync(`curl -fSL "${url}" -o "${dest}"`, { stdio: "inherit" });
+}
+
+// Stage via temp + rename: a running dev shell has the previous .so mmap'd,
+// and truncating it in place SIGBUSes the process on the next page-in.
+// Rename swaps the directory entry atomically — mapped processes keep the
+// old inode, new loads pick up the new file.
+function stageFile(src, dest) {
+  const tmp = `${dest}.tmp-${process.pid}`;
+  copyFileSync(src, tmp);
+  renameSync(tmp, dest);
 }
 
 // ── downdraft-native artifact bundle (our own CI-built cdylibs) ──
@@ -71,7 +81,7 @@ function fetchArtifacts() {
     const destDir = resolve(repoRoot, crate.dest, nodePlat);
     mkdirSync(destDir, { recursive: true });
     for (const f of readdirSync(crateDir)) {
-      cpSync(join(crateDir, f), join(destDir, f));
+      stageFile(join(crateDir, f), join(destDir, f));
       installed++;
     }
   }

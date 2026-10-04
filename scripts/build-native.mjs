@@ -20,12 +20,22 @@
 // ============================================================================
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CRATES, libFileName, NODE_TO_RUST, RUST_TO_NODE } from "./native-crates.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
+
+// Stage via temp + rename: a running dev shell has the previous .so mmap'd,
+// and truncating it in place (copyFileSync) SIGBUSes the process on the next
+// page-in. Rename swaps the directory entry atomically — mapped processes
+// keep the old inode, new loads pick up the new file.
+function stageFile(src, dest) {
+  const tmp = `${dest}.tmp-${process.pid}`;
+  copyFileSync(src, tmp);
+  renameSync(tmp, dest);
+}
 
 function hostTriple() {
   const out = execFileSync("rustc", ["-vV"], { encoding: "utf8" });
@@ -138,9 +148,9 @@ for (let _i = 0, _it = targets, _n = _it.length; _i < _n; _i++) {
     const destRoot = join(root, crate.dest);
     const platDir = join(destRoot, nodePlat);
     mkdirSync(platDir, { recursive: true });
-    copyFileSync(src, join(platDir, file));
+    stageFile(src, join(platDir, file));
     if (crate.flatCopy && target === host) {
-      copyFileSync(src, join(destRoot, file));
+      stageFile(src, join(destRoot, file));
     }
     console.log(`[build-native] staged ${file} → ${platDir}${crate.flatCopy && target === host ? ` (+ ${destRoot})` : ""}`);
   }

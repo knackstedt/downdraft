@@ -221,11 +221,22 @@
     "test/src",
     "mcp/src",
     "asset-bake/src",
-    "libraries",
-    "modules",
+    "libraries/*/src/**",
+    "libraries/*/native*/src/**",
+    "libraries/*/native*/assets/**",
+    "libraries/*/native*/Cargo.toml",
+    "modules/*/src/**",
+    "modules/*/native*/src/**",
+    "modules/*/native*/assets/**",
+    "modules/*/native*/Cargo.toml",
+    "*/README.md",
+    "libraries/*/README.md",
+    "modules/*/README.md",
     "lint-plugin.mjs",
     "README.md",
-    "!**/*.spec.ts"
+    "!**/*.spec.ts",
+    "!**/*.test.ts",
+    "!**/*-spike*"
   ],
   "devDependencies": {
     "@types/dns-packet": "^5.6.5"

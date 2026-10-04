@@ -32,6 +32,12 @@ export interface CrossThreadToken<T> extends ResourceToken<T> {
  * Create a cross-thread resource token. The token is a standard ResourceToken
  * (compatible with provide/inject) with an added `__thread` tag for
  * cross-thread validation and diagnostics.
+ *
+ * NOTE: experimental — no engine library or module currently creates
+ * cross-thread tokens, so the `threadMismatches`/`incompleteShared` checks in
+ * `buildCrossThreadReport` are inert. Also, `ModuleHost.snapshot()` only
+ * covers Module/RendererModule plugins — EngineLibrary descriptors are not
+ * part of the cross-thread report yet.
  */
 export function crossThreadToken<T>(key: string, thread: ThreadTag): CrossThreadToken<T> {
   const token = resourceToken<T>(key) as CrossThreadToken<T>;

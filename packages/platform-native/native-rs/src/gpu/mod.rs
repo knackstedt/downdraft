@@ -2448,11 +2448,6 @@ pub extern "C" fn wgpu_shim_surface_pick_format(
             return 0;
         }
         let caps = obj::<Surface>(surface).get_capabilities(obj::<Adapter>(adapter));
-        eprintln!(
-            "[wgpu_shim] surface_pick_format: caps={:?} count={count} c0={:?}",
-            caps.formats,
-            if count > 0 { Some(*candidates) } else { None },
-        );
         for i in 0..count {
             let code = *candidates.add(i);
             if let Some(f) = enums::texture_format(code) {

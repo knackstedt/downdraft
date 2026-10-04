@@ -442,7 +442,7 @@ describe("ModuleHost activation", () => {
     expect(host.inject(Res)).toBe("ok");
   });
 
-  it("does not attribute lifecycle calls made outside register()", () => {
+  it("attributes late lifecycle calls to the module that owns the context", () => {
     const world = makeWorld();
     const host = new ModuleHost(world);
     const Res = resourceToken<string>("late:res");
@@ -453,10 +453,39 @@ describe("ModuleHost activation", () => {
       register(ctx) { capturedCtx = ctx; },
     };
     host.registerModule(mod);
-    // A late provide() (async callback, game code) must not be attributed to
-    // "mod" — unloading "mod" must not remove a resource it never registered.
+    // A late provide() through the module's own captured ctx (async
+    // callback) is still owned by "mod" — unloading removes it so the
+    // resource doesn't leak past the module's lifetime.
     capturedCtx!.provide(Res, "late");
     host.unloadModule("mod");
-    expect(host.injectOptional(Res)).toBe("late");
+    expect(host.injectOptional(Res)).toBeUndefined();
+  });
+
+  it("does not cross-attribute ctx calls made during another module's register()", () => {
+    const world = makeWorld();
+    const host = new ModuleHost(world);
+    const Res = resourceToken<string>("cross:res");
+    let capturedA: ModuleContext | null = null;
+    const a: Module = {
+      name: "a",
+      version: "1.0.0",
+      register(ctx) { capturedA = ctx; },
+    };
+    const b: Module = {
+      name: "b",
+      version: "1.0.0",
+      register() {
+        // Module A's deferred wiring fires during B's activation (e.g. a
+        // promise resolving mid-batch). It must attribute to A, not B —
+        // unloading B must not tear down A's resource.
+        capturedA!.provide(Res, "from-a");
+      },
+    };
+    host.registerModule(a);
+    host.registerModule(b);
+    host.unloadModule("b");
+    expect(host.injectOptional(Res)).toBe("from-a");
+    host.unloadModule("a");
+    expect(host.injectOptional(Res)).toBeUndefined();
   });
 });

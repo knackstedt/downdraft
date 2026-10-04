@@ -187,7 +187,7 @@ export class ModuleHost implements ModuleContext {
     this.active.set(plugin.name, active);
     this.currentModuleName = plugin.name;
     try {
-      plugin.register(this);
+      plugin.register(this.makeContext(plugin.name, active));
     } catch (err) {
       // Roll back partial activation: the module must not stay "active"
       // with half-wired resources. Clean up anything it provided or
@@ -323,15 +323,19 @@ export class ModuleHost implements ModuleContext {
     if (!this.currentModuleName) {
       log.warn("ModuleHost", "registerSystem called outside a module register() lifecycle — the system will not be attributed to any module");
     }
+    this.registerSystemFor(this.currentModuleName || "unattributed", stage, system);
+  }
+
+  private registerSystemFor(owner: string, stage: Stage, system: SystemFn): void {
     this.systemCounter++;
-    const name = `module:${this.currentModuleName || "unattributed"}:${this.systemCounter}`;
+    const name = `module:${owner}:${this.systemCounter}`;
     this.world.schedule.add({
       name,
       stage,
       fn: system,
       queries: [],
     });
-    const active = this.active.get(this.currentModuleName);
+    const active = this.active.get(owner);
     if (active) {
       active.systemNames.push(name);
     } else {
@@ -343,8 +347,12 @@ export class ModuleHost implements ModuleContext {
     if (!this.currentModuleName) {
       log.warn("ModuleHost", `registerSystemObject("${system.name}") called outside a module register() lifecycle — the system will not be attributed to any module`);
     }
+    this.registerSystemObjectFor(this.currentModuleName, system);
+  }
+
+  private registerSystemObjectFor(owner: string, system: System): void {
     this.world.schedule.add(system);
-    const active = this.active.get(this.currentModuleName);
+    const active = this.active.get(owner);
     if (active) {
       active.systemNames.push(system.name);
     } else {
@@ -356,8 +364,12 @@ export class ModuleHost implements ModuleContext {
     if (!this.currentModuleName) {
       log.warn("ModuleHost", `allocateSABChannel("${name}") called outside a module register() lifecycle — the channel is untracked and won't be cleaned up on unload`);
     }
+    return this.allocateSABChannelFor(this.currentModuleName, name, size);
+  }
+
+  private allocateSABChannelFor(owner: string, name: string, size: number): SABChannel {
     const buffer = new SharedArrayBuffer(size);
-    const active = this.active.get(this.currentModuleName);
+    const active = this.active.get(owner);
     if (active) {
       active.sabChannels.set(name, buffer);
     }
@@ -368,12 +380,16 @@ export class ModuleHost implements ModuleContext {
     if (!this.currentModuleName) {
       log.warn("ModuleHost", `provide("${token.key}") called outside a module register() lifecycle — the resource won't be cleaned up on unload`);
     }
+    this.provideFor(this.currentModuleName, token, value);
+  }
+
+  private provideFor<T>(owner: string, token: ResourceToken<T>, value: T): void {
     if (isStrict()) {
-      assertNoDuplicate(this.providers, token as ResourceToken<unknown>, this.currentModuleName);
+      assertNoDuplicate(this.providers, token as ResourceToken<unknown>, owner);
     }
     this.resources.set(token.key, { token: token as ResourceToken<unknown>, value });
-    this.providers.set(token.key, this.currentModuleName);
-    const active = this.active.get(this.currentModuleName);
+    this.providers.set(token.key, owner);
+    const active = this.active.get(owner);
     if (active) {
       active.providedKeys.add(token.key);
     }
@@ -393,11 +409,15 @@ export class ModuleHost implements ModuleContext {
   }
 
   inject<T>(token: ResourceToken<T>): T {
+    return this.injectFor(this.currentModuleName, token);
+  }
+
+  private injectFor<T>(owner: string, token: ResourceToken<T>): T {
     const entry = this.resources.get(token.key);
     if (!entry) {
       throw new Error(
-        `Module "${this.currentModuleName}" injects "${token.key}" which is not provided. ` +
-          `Add a plugin that provides it, or use injectOptional() for safe reads.`,
+        `Module "${owner}" injects "${token.key}" which is not provided. ` +
+          `Add a module that provides it, or use injectOptional() for safe reads.`,
       );
     }
     return entry.value as T;
@@ -437,6 +457,33 @@ export class ModuleHost implements ModuleContext {
 
   setCurrentPlugin(name: string): void {
     this.currentModuleName = name;
+  }
+
+  /**
+   * Per-module context facade handed to `register()`. Lifecycle calls are
+   * bound to the owning module at creation time — a module that retains its
+   * ctx and calls it later (async callback, or during another module's
+   * register()) stays correctly attributed instead of leaking onto whatever
+   * module happens to be activating. Mirrors RendererModuleHost.makeContext.
+   */
+  private makeContext(name: string, active: ActiveModule): ModuleContext {
+    const devtoolsApi = () => this.devtools;
+    return {
+      // Lazy — the DevTools API may be injected after register() runs;
+      // resolving per-access keeps late wiring (setDevToolsAPI) working.
+      get devtools() { return devtoolsApi(); },
+      registerComponent: (n, s) => this.registerComponent(n, s),
+      registerSystem: (stage, system) => this.registerSystemFor(name, stage, system),
+      registerSystemObject: (system) => this.registerSystemObjectFor(name, system),
+      allocateSABChannel: (n, size) => this.allocateSABChannelFor(name, n, size),
+      provide: (token, value) => this.provideFor(name, token, value),
+      inject: (token) => this.injectFor(name, token),
+      injectOptional: (token) => this.injectOptional(token),
+      registerMigration: (fromVersion, fn) => this.registerMigration(fromVersion, fn),
+      onDispose: (fn) => {
+        active.disposeFns.push(fn);
+      },
+    };
   }
 }
 
