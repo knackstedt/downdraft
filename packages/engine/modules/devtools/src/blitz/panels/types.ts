@@ -17,6 +17,11 @@ export interface DtPanelCtx {
   setValue(target: number | string, value: string): void;
   /** Scroll a doc element into view (console tail pinning). */
   scrollIntoView(target: number | string): void;
+  /** Scroll a scroll-container to absolute offsets — reaches nested
+   *  scrollports (scrollIntoView only moves the root viewport). */
+  scrollTo(target: number | string, x: number, y: number): void;
+  /** Border-box rect of a doc element in CSS px (scroll math). */
+  getRect(target: number | string): Promise<{ x: number; y: number; w: number; h: number } | null>;
 }
 
 export interface DtPanel {

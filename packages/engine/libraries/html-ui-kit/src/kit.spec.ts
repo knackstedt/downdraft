@@ -86,6 +86,7 @@ function docPanel(html: string, w = 400, h = 300): DocPanel {
             send({ type: "getFocused", reqId: q, id: "p" });
         }),
         scrollIntoView: (t, opts) => mutate([{ op: "scrollIntoView", ...tgt(t), smooth: opts?.smooth, vertical: opts?.vertical, horizontal: opts?.horizontal }]),
+        scrollTo: (t, x, y, smooth) => mutate([{ op: "scrollTo", ...tgt(t), x, y, smooth }]),
         navSnapshot: (sel) => new Promise((r) => {
             const q = ++reqId; reqs.set(q, r as (v: unknown) => void);
             send({ type: "navSnapshot", reqId: q, id: "p", sel });

@@ -89,6 +89,8 @@ export class BlitzDevtoolsHost {
       call: (method, params) => this.backend.dispatch(method, params ?? {}),
       setValue: (t, v) => this.panel?.setAttr(t, "value", v),
       scrollIntoView: (t) => this.panel?.scrollIntoView(t, { vertical: "end" }),
+      scrollTo: (t, x, y) => this.panel?.scrollTo(t, x, y),
+      getRect: (t) => this.panel?.getRect(t) ?? Promise.resolve(null),
     };
     this.panelCtx = ctx;
     this.backend = new DevtoolsBackend({
@@ -144,7 +146,8 @@ export class BlitzDevtoolsHost {
     this.panel = this.opts.ui.mount(this.shellHtml(), {
       id: "devtools",
       rect: this.dockRect(),
-      z: 100,
+      // Above game overlays — menus/loading screens shouldn't bury the dock.
+      z: 1000,
       scale: 1.5,
       interactive: true,
       onEvent: (ev) => this.handleDocEvent(ev),
@@ -371,7 +374,15 @@ export function createSelfHostedDevtoolsUi(ctx: RendererModuleContext): Devtools
   const host = new HtmlUiHost(ctx.getDevice(), ctx.getFormat());
   host.bindInput(ctx.getInputBus());
   ctx.onDispose(() => host.dispose());
-  const unreg = ctx.registerUiCompositor?.(host.compositor);
+  // order=1000 — the dock draws above every game-registered UI compositor
+  // (fullscreen loading/menus would otherwise cover it).
+  const comp = host.compositor;
+  const unreg = ctx.registerUiCompositor?.({
+    order: 1000,
+    hasContent: () => comp.hasContent(),
+    render: (pass, w, h) => comp.render(pass, w, h),
+  });
+  log.info("BlitzDevtoolsHost", `self-hosted ui: device=${!!ctx.getDevice()} fmt=${ctx.getFormat()} compositorRegistered=${!!unreg}`);
   if (unreg) ctx.onDispose(unreg);
   return {
     host,

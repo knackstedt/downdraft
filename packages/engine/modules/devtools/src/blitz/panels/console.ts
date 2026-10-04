@@ -95,6 +95,12 @@ export class ConsolePanel implements DtPanel {
   }
 
   onEvent(ev: OsrDomEvent): void {
+    // User scroll on the log scrollport releases/re-engages tail pinning —
+    // Chrome unpins autoscroll once you scroll away from the bottom.
+    if (ev.t === "scroll" && ev.id === "dt-body") {
+      this.stickToBottom = (ev.st ?? 0) >= this.maxScroll - 8;
+      return;
+    }
     const tag = ev.d?.dt;
     if (tag === "filter" && ev.t === "input") {
       this.filter = ev.v ?? "";
@@ -125,8 +131,19 @@ export class ConsolePanel implements DtPanel {
     }
   }
 
+  private maxScroll = 0;
+
   afterRender(): void {
-    if (this.stickToBottom) this.ctx.scrollIntoView("#console-end");
+    // #dt-body is the scrollport — scrollIntoView can't reach nested
+    // containers in Blitz, so pin by absolute offset instead.
+    if (this.stickToBottom) this.ctx.scrollTo("#dt-body", 0, 1e9);
+    void (async () => {
+      const [logEl, body] = await Promise.all([
+        this.ctx.getRect(".console-log"),
+        this.ctx.getRect("#dt-body"),
+      ]);
+      if (logEl && body) this.maxScroll = Math.max(0, logEl.h - body.h + 16);
+    })();
   }
 
   private addRow(r: ConsoleRow): void {

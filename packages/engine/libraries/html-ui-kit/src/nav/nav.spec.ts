@@ -59,6 +59,7 @@ function navPanel(html: string, w = 400, h = 300): { handle: UiPanelHandle; even
         getRects: (nodes) => req({ type: "getRects", id: "p", nodes }),
         focusedNode: () => req({ type: "getFocused", id: "p" }),
         scrollIntoView: (t, opts) => mutate([{ op: "scrollIntoView", ...tgt(t), smooth: opts?.smooth, vertical: opts?.vertical, horizontal: opts?.horizontal }]),
+        scrollTo: (t, x, y, smooth) => mutate([{ op: "scrollTo", ...tgt(t), x, y, smooth }]),
         navSnapshot: (sel) => req({ type: "navSnapshot", id: "p", sel }),
         click: (t) => mutate([{ op: "click", ...tgt(t) }]),
         sendKey: (down, key, opts) => send({ type: "input", id: "p", msg: { kind: "key", down, key, code: opts?.code, text: opts?.text, mods: opts?.mods } }),

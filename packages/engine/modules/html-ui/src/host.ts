@@ -119,6 +119,9 @@ export interface UiPanelHandle {
   focusedNode(): Promise<number>;
   /** Scroll the doc so `target` is visible. */
   scrollIntoView(target: number | string, opts?: { smooth?: boolean; vertical?: "start" | "center" | "end" | "nearest"; horizontal?: "start" | "center" | "end" | "nearest" }): void;
+  /** Scroll a scroll-container node to absolute offsets — reaches nested
+   *  scrollports (scrollIntoView only moves the root viewport). */
+  scrollTo(target: number | string, x: number, y: number, smooth?: boolean): void;
   /** Snapshot every node matching `sel` with rect/zone/disabled/editable —
    *  the nav engine's focusable enumeration. */
   navSnapshot(selector: string): Promise<NavNodeInfo[]>;
@@ -286,6 +289,8 @@ export class HtmlUiHost {
       }),
       scrollIntoView: (t, opts) =>
         mutate({ op: "scrollIntoView", ...tgt(t), smooth: opts?.smooth, vertical: opts?.vertical, horizontal: opts?.horizontal }),
+      scrollTo: (t, x, y, smooth) =>
+        mutate({ op: "scrollTo", ...tgt(t), x, y, smooth }),
       click: (t) => mutate({ op: "click", ...tgt(t) }),
       sendKey: (down, key, opts) =>
         this.send({ type: "input", id: p.id, msg: { kind: "key", down, key, code: opts?.code, text: opts?.text, mods: opts?.mods } }),

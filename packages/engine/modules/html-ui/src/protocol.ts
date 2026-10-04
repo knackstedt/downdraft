@@ -14,6 +14,9 @@ export type DocMutation =
   | { op: "innerHtml"; node?: number; sel?: string; html: string }
   | { op: "focus"; node?: number; sel?: string }
   | { op: "scrollIntoView"; node?: number; sel?: string; smooth?: boolean; vertical?: "start" | "center" | "end" | "nearest"; horizontal?: "start" | "center" | "end" | "nearest" }
+  /** Absolute scroll offsets on a scroll container — reaches nested
+   *  scrollports (scrollIntoView only moves the root viewport). */
+  | { op: "scrollTo"; node?: number; sel?: string; x: number; y: number; smooth?: boolean }
   /** Synthetic click at the node's rect center — drives the real
    *  pointer/click event pipeline (data-action handlers included). */
   | { op: "click"; node?: number; sel?: string };

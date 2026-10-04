@@ -125,6 +125,9 @@ export interface ScreenUiCompositor {
   render(pass: GPURenderPassEncoder, surfaceWidth: number, surfaceHeight: number): void;
   /** When false for all compositors, no UI pass is opened. */
   hasContent(): boolean;
+  /** Draw order — higher renders later (on top). Default 0; the devtools
+   *  dock uses a large value so it overlays fullscreen game UI panels. */
+  order?: number;
 }
 
 // ── Renderer plugin context ──

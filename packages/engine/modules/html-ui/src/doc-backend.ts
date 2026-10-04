@@ -254,6 +254,7 @@ export function createDocCore(emit: (m: WorkerToUi) => void): {
             else if (op.op === "scrollIntoView") {
               s.doc.scrollIntoView(node, { smooth: op.smooth, vertical: op.vertical, horizontal: op.horizontal });
             }
+            else if (op.op === "scrollTo") s.doc.scrollTo(node, op.x, op.y, op.smooth);
             else if (op.op === "click") {
               const r = s.doc.nodeRect(node);
               if (r) {

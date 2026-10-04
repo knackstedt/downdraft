@@ -4,9 +4,9 @@
 // records setInnerHtml/setText/setAttr calls so we can assert on the HTML
 // the host would ship to Blitz. A FakeServer backend feed exercises the
 // real DevtoolsBackend → panel render path.
+import type { OsrDomEvent, UiPanelHandle } from "@downdraft/engine/modules/html-ui";
 import { describe, expect, test } from "bun:test";
 import { BlitzDevtoolsHost, type DevtoolsUiSurface } from "./host";
-import type { OsrDomEvent, UiPanelHandle } from "@downdraft/engine/modules/html-ui";
 
 // ── Fakes ──
 
@@ -54,6 +54,7 @@ function fakeSurface(): { surface: DevtoolsUiSurface; panel: FakePanel } {
     getRects: async () => [],
     focusedNode: async () => 0,
     scrollIntoView: (t: string | number) => { fp.mutations.push({ kind: "scrollIntoView", target: String(t) }); },
+    scrollTo: (t: string | number, x: number, y: number) => { fp.mutations.push({ kind: "scrollTo", target: String(t), value: `${x},${y}` }); },
     navSnapshot: async () => [],
     click: () => {},
     sendKey: () => {},

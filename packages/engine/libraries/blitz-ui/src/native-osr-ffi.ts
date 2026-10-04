@@ -76,6 +76,7 @@ const OSR_SPEC: Record<string, CFunction> = {
   dd_osr_query_all_len: { args: ["ptr"], returns: "usize" },
   dd_osr_closest: { args: ["ptr", "u64", "ptr", "usize"], returns: "u64" },
   dd_osr_scroll_into_view: { args: ["ptr", "u64", "i32", "i32", "i32"], returns: "i32" },
+  dd_osr_scroll_to: { args: ["ptr", "u64", "f64", "f64", "i32"], returns: "i32" },
   // ── Process-wide ui:// resources (fonts, images, stylesheets) ──
   dd_osr_register_resource: { args: ["ptr", "usize", "ptr", "usize"], returns: "i32" },
 };
@@ -358,6 +359,13 @@ export class OsrDoc {
       this.handle, BigInt(node), opts?.smooth ? 1 : 0,
       A[opts?.vertical ?? "nearest"], A[opts?.horizontal ?? "nearest"],
     ) as number) === 0;
+  }
+
+  /** Scroll a specific node (scroll container) to absolute (x, y) offsets.
+   *  Reaches nested scrollports — scrollIntoView only moves the root viewport.
+   *  Offsets clamp to the node's scroll range; y=1e9 pins to the bottom. */
+  scrollTo(node: number, x: number, y: number, smooth = false): boolean {
+    return (this.lib.dd_osr_scroll_to(this.handle, BigInt(node), x, y, smooth ? 1 : 0) as number) === 0;
   }
 
   // ── Zero-copy frame channel ──

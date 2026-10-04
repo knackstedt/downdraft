@@ -18,13 +18,19 @@ export const DEVTOOLS_CSS = `
   --mono: "SF Mono", "Cascadia Mono", Consolas, monospace;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body {
+/* height:100% must be on html AND body — Blitz resolves body % against
+ * <html>'s content height (0), not the doc viewport. */
+html, body {
+  width: 100%; height: 100%; overflow: hidden;
   background: var(--bg); color: var(--fg);
   font: 12px/1.45 system-ui, sans-serif;
-  overflow: hidden;
-  height: 100%;
 }
-#dt-root { display: flex; flex-direction: column; height: 100%; }
+#dt-root {
+  /* Absolute inset — Blitz doesn't resolve height:100% against the doc
+   *  viewport, but inset:0 anchors to it (same pattern as game UI). */
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+}
 #dt-grip {
   height: 5px; cursor: ns-resize; flex-shrink: 0;
   background: var(--bg2); border-top: 1px solid var(--line);
@@ -53,7 +59,7 @@ body {
 
 /* ── Panel regions ── */
 #dt-top { flex-shrink: 0; }
-#dt-body { flex: 1; overflow: auto; padding: 8px; }
+#dt-body { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 8px; }
 #dt-bottom { flex-shrink: 0; }
 #dt-status {
   display: flex; justify-content: space-between;

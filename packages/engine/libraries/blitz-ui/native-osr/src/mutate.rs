@@ -303,6 +303,41 @@ pub extern "C" fn dd_osr_query_all_len(handle: *mut OsrDoc) -> usize {
     })
 }
 
+/// Scroll a specific node (a scroll container) to absolute (x, y) offsets.
+/// Unlike scroll_into_view — which at this Blitz rev only scrolls the root
+/// viewport — this reaches nested scrollports; offsets clamp to the node's
+/// scroll range, so y=1e9 pins a log view to its bottom.
+///   behavior: 0 = instant, 1 = smooth
+#[no_mangle]
+pub extern "C" fn dd_osr_scroll_to(
+    handle: *mut OsrDoc,
+    node: u64,
+    x: f64,
+    y: f64,
+    behavior: c_int,
+) -> c_int {
+    ffi(-1, || {
+        let Some(d) = (unsafe { handle.as_mut() }) else {
+            return -1;
+        };
+        let id = node_id(node);
+        {
+            let doc = d.doc.inner();
+            if node == 0 || doc.get_node(id).is_none() {
+                return -1;
+            }
+        }
+        d.doc.inner_mut().scroll_to(
+            id,
+            x,
+            y,
+            if behavior == 1 { ScrollBehavior::Smooth } else { ScrollBehavior::Instant },
+        );
+        d.dirty = true;
+        0
+    })
+}
+
 /// Scroll the viewport so that `node` is visible.
 ///   behavior: 0 = instant, 1 = smooth
 ///   v_align/h_align: 0 = start, 1 = center, 2 = end, 3 = nearest

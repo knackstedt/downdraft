@@ -980,7 +980,9 @@ export class GameRenderer implements CanvasResizeHandler {
     // the afterFrame callback, so drawing UI earlier would put it underneath
     // their clear pass.
     if (!gpuError && this.device && this.context) {
-      const compositors = [...this.uiCompositors].filter((c) => c.hasContent());
+      const compositors = [...this.uiCompositors]
+        .filter((c) => c.hasContent())
+        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
       const uiCanvasView = compositors.length > 0
         ? this.getSurfaceTexture()?.createView()
         : undefined;
@@ -1300,7 +1302,9 @@ export class GameRenderer implements CanvasResizeHandler {
    * this helper only runs the compositors.
    */
   protected renderScreenUiCompositors(): void {
-    const compositors = [...this.uiCompositors].filter((c) => c.hasContent());
+    const compositors = [...this.uiCompositors]
+      .filter((c) => c.hasContent())
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     if (compositors.length === 0 || !this.device || !this.context) return;
     const canvasView = this.getSurfaceTexture()?.createView();
     if (!canvasView) return;

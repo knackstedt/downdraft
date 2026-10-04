@@ -353,6 +353,16 @@ async function wireDevtoolsFrontend(
   inputInfo?: () => { key: string; value: string; flags?: number }[],
 ): Promise<void> {
   const { registerEngineProviders } = await import("@downdraft/engine/libraries/devtools");
+  // Main-thread REPL evaluates directly in this context — Bun's inspector
+  // doesn't implement Runtime.evaluate, and a direct eval works on every
+  // runtime. Registered evals take precedence over the CDP fallback.
+  host.registerThreadEval("main", async (expr) => {
+    try {
+      return { result: (0, eval)(expr) };
+    } catch (e) {
+      return { error: e instanceof Error ? `${e.name}: ${e.message}` : String(e) };
+    }
+  });
   const evalNames: string[] = ["main"];
   for (const wh of workerHosts ?? []) {
     const evalFn = wh?.proxy?.__devtoolsEval;

@@ -50,12 +50,20 @@ export async function syncWorkerManifests(
   };
 }
 
+/** A crashed or still-initializing worker may never answer the manifest RPC —
+ *  bound the wait so devtools wiring can't wedge the whole game bootstrap. */
+const MANIFEST_TIMEOUT_MS = 5000;
+
 async function syncOneWorker(entry: WorkerSyncEntry): Promise<void> {
   const { prefix, proxy } = entry;
 
   let manifest: DevToolsManifest;
   try {
-    manifest = await proxy.__devtoolsGetManifest();
+    manifest = await Promise.race([
+      proxy.__devtoolsGetManifest(),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`timeout after ${MANIFEST_TIMEOUT_MS}ms`)), MANIFEST_TIMEOUT_MS)),
+    ]);
   } catch (e) {
     log.warn("devtools", `Failed to fetch manifest from worker "${prefix}": ${e}`);
     return;
