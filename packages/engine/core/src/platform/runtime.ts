@@ -12,6 +12,15 @@
 export const isBun: boolean = typeof (globalThis as any).Bun !== "undefined";
 
 /**
+ * True inside a `bun build --compile` binary. In compiled executables
+ * `Bun.main` is `/$bunfs/root/<entry>` instead of a real filesystem path —
+ * this is a global and stays correct even in bundles where a packager has
+ * rewritten a module's own `import.meta.url` to the staged asset tree.
+ */
+export const isCompiledBinary: boolean =
+  isBun && /^\/\$bunfs\//.test((globalThis as any).Bun?.main ?? "");
+
+/**
  * Dev mode. Resolved from (in priority order):
  *   1. DOWNDRAFT_DEV=1 env var
  *   2. Vite's import.meta.env.DEV (injected at build time by Vite)

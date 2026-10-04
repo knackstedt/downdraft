@@ -20,7 +20,7 @@
 // ============================================================================
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CRATES, libFileName, NODE_TO_RUST, RUST_TO_NODE } from "./native-crates.mjs";
@@ -63,7 +63,19 @@ if (!baseCrates.length) {
 
 // Android min-SDK level for the NDK toolchain wrappers.
 const androidApi = argVal("android-api") ?? "30";
-const ndk = process.env.ANDROID_NDK_HOME ?? process.env.ANDROID_NDK ?? process.env.NDK_PATH;
+// NDK: env vars first, then the newest install under the Android SDK — the
+// same discovery package-mobile.mjs does for its own llvm-strip lookup.
+const sdkRoot = process.env.ANDROID_HOME ?? process.env.ANDROID_SDK_ROOT
+  ?? join(process.env.HOME ?? "", "Android/Sdk");
+const ndk = process.env.ANDROID_NDK_HOME ?? process.env.ANDROID_NDK ?? process.env.NDK_PATH
+  ?? (() => {
+    try {
+      const v = readdirSync(join(sdkRoot, "ndk"))
+        .filter((d) => existsSync(join(sdkRoot, "ndk", d, "toolchains")))
+        .sort().pop();
+      return v ? join(sdkRoot, "ndk", v) : undefined;
+    } catch { return undefined; }
+  })();
 
 /** Extra env needed to cross-link android cdylibs (NDK clang wrappers). */
 function androidEnv(target) {

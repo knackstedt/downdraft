@@ -371,7 +371,11 @@ const makePlugin = (collectWorkers) => ({
           `const __ddModUrl = __ddP2F(__ddModDir + "/" + ${JSON.stringify(modBase)}).href;\n` +
           (needsGlob
             ? `import { createGlob as __ddCreateGlob } from "@downdraft/engine/platform/glob-polyfill";\n` +
-              `const __ddGlob = __ddCreateGlob(__ddModDir);\n`
+              // Lazy — eager construction runs at module-init time and can
+              // hit a TDZ on consts declared later in the same module
+              // (glob-polyfill.ts itself matches REQUIRE_GLOB_RE via a
+              // comment).
+              `const __ddGlob = (p, o) => __ddCreateGlob(__ddModDir)(p, o);\n`
             : "") +
           metaOut;
       }
@@ -440,8 +444,8 @@ result.outputs.forEach((out) => {
 // Metadata precedence: --product-name/--product-version/--icon flags, then
 // the game's package.json (productName / build.productName, version,
 // build.icon or icon.ico|icon.png in the game dir), then the game name.
+const gameDir = dirname(dirname(resolve(entry))); // src/native-entry.ts → game root
 if (target.exe) {
-  const gameDir = dirname(dirname(resolve(entry))); // src/native-entry.ts → game root
   let pkg = {};
   try { pkg = JSON.parse(readFileSync(join(gameDir, "package.json"), "utf-8")); } catch { /* standalone entry */ }
   const titleize = (s) => String(s).replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -602,6 +606,24 @@ engineCrates.forEach((crate) => {
     }
   }
 });
+
+// Game-native libs — convention: <game>/native/dist/<platform>-<arch>/ holds
+// artifacts the game built itself (cdylib .so/.dll/.dylib loaded via the FFI
+// adapter, or .node napi addons loaded via createRequire/process.dlopen).
+// Staged flat into native/ so resolveNativeLibrary's <execDir>/native lookup
+// and execDir-relative .node resolution both hit.
+const gameNativeDir = join(gameDir, "native", "dist", platKey);
+if (existsSync(gameNativeDir)) {
+  let gameLibs = 0;
+  for (const f of readdirSync(gameNativeDir)) {
+    if (f.endsWith(libExt) || f.endsWith(".node")) {
+      copyFileSync(join(gameNativeDir, f), join(nativeDir, f));
+      staged.add(f);
+      gameLibs++;
+    }
+  }
+  if (gameLibs) console.log(`staged ${gameLibs} game-native lib(s) from ${gameNativeDir}`);
+}
 
 // Assets referenced via ?url / new URL / import.meta.glob.
 const assetRoot = join(outdir, "dd-assets");

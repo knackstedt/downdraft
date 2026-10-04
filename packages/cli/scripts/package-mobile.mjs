@@ -414,7 +414,11 @@ const makePlugin = (collectWorkers) => ({
           `const __ddModUrl = __ddP2F(__ddModDir + "/" + ${JSON.stringify(modBase)}).href;\n` +
           (needsGlob
             ? `import { createGlob as __ddCreateGlob } from "@downdraft/engine/platform/glob-polyfill";\n` +
-              `const __ddGlob = __ddCreateGlob(__ddModDir);\n`
+              // Lazy — eager construction runs at module-init time and can
+              // hit a TDZ on consts declared later in the same module
+              // (glob-polyfill.ts itself matches REQUIRE_GLOB_RE via a
+              // comment).
+              `const __ddGlob = (p, o) => __ddCreateGlob(__ddModDir)(p, o);\n`
             : "") +
           metaOut;
       }
@@ -577,6 +581,31 @@ if (envPairs.length) {
   writeFileSync(join(bundleDir, "dd-env.txt"), envPairs.join("\n") + "\n");
 }
 
+// Game-native addons — convention: <game>/native/dist/android-<arch>/*.node
+// are napi modules the game built itself. .node files aren't jniLibs (the OS
+// only installs lib*.so), so they ride inside the extracted bundle instead:
+// the shell unpacks them to a real path under DOWNDRAFT_BUNDLE_DIR/native/
+// and require()/process.dlopen resolves napi_* against the RTLD_GLOBAL
+// libnode (the -Wl,-z,global link flag exists for exactly this).
+// Staged BEFORE manifest.txt so the extractor's file list covers them.
+// (.so siblings are handled per-ABI in the native-libs section below.)
+{
+  let staged = 0;
+  for (const abi of abis) {
+    const platDir = join(gameDir, "native", "dist",
+      `android-${abi.startsWith("arm64") ? "arm64" : "x64"}`);
+    if (!existsSync(platDir)) continue;
+    const dest = join(bundleDir, "native", `android-${abi.startsWith("arm64") ? "arm64" : "x64"}`);
+    for (const f of readdirSync(platDir)) {
+      if (!f.endsWith(".node")) continue;
+      mkdirSync(dest, { recursive: true });
+      copyFileSync(join(platDir, f), join(dest, f));
+      staged++;
+    }
+  }
+  if (staged) console.log(`[package-mobile] staged ${staged} game-native addon(s) into bundle/native/`);
+}
+
 // manifest.txt — the shell's extractor follows this verbatim (AAssetDir
 // can't enumerate subdirectories). aapt2 silently drops asset paths with
 // dot-prefixed segments (.bun, .gitignore), so each line is
@@ -645,11 +674,11 @@ for (const abi of abis) {
       ? join(monorepoRoot, `packages/node-mobile/build/dist/android-${nodeFlavor}`, abi, "libnode.so")
       : null,
     join(monorepoRoot, "packages/node-mobile/build/dist/android", abi, "libnode.so"),
-    join(monorepoRoot, `packages/node-mobile-android-${abi.startsWith("arm64") ? "arm64" : "x64"}/lib/libnode.so`),
+    join(monorepoRoot, `packages/native-mobile-android-${abi.startsWith("arm64") ? "arm64" : "x64"}/lib/libnode.so`),
   ].filter(Boolean);
   let libnode = libnodeCandidates.find(existsSync);
   if (!libnode) {
-    try { libnode = join(dirname(gameRequire.resolve(`@downdraft/node-mobile-android-${abi.startsWith("arm64") ? "arm64" : "x64"}/package.json`)), "lib/libnode.so"); } catch { /* absent */ }
+    try { libnode = join(dirname(gameRequire.resolve(`@downdraft/native-mobile-android-${abi.startsWith("arm64") ? "arm64" : "x64"}/package.json`)), "lib/libnode.so"); } catch { /* absent */ }
   }
   if (!libnode || !existsSync(libnode)) {
     throw new Error(`libnode.so for ${abi} not found — build via packages/node-mobile/scripts/build-android.mjs`);
@@ -701,6 +730,20 @@ for (const abi of abis) {
     const file = `lib${crate.lib}.so`;
     const src = join(monorepoRoot, crate.dest, nodePlat, file);
     if (existsSync(src)) copyFileSync(src, join(libDir, file));
+  }
+
+  // Game-native cdylibs — <game>/native/dist/android-<arch>/lib*.so ride in
+  // jniLibs like the engine crates: the OS installs them to the app's native
+  // lib dir, where koffi/Deno.dlopen resolves them by bare soname (same
+  // mechanism lib-paths.ts's android branch relies on).
+  const gamePlatDir = join(gameDir, "native", "dist", nodePlat);
+  if (existsSync(gamePlatDir)) {
+    for (const f of readdirSync(gamePlatDir)) {
+      if (f.startsWith("lib") && f.endsWith(".so")) {
+        copyFileSync(join(gamePlatDir, f), join(libDir, f));
+        console.log(`[package-mobile] staged game-native ${f} → lib/${abi}/`);
+      }
+    }
   }
 
   // Strip staged .so's — debug info and the symtab never map at runtime, so
