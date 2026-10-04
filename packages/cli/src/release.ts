@@ -56,6 +56,8 @@ interface ReleaseArgs {
   out: string;
   retainMcp: boolean;
   verbose: boolean;
+  runtime: string | null;
+  format: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -84,10 +86,6 @@ function parseReleaseArgs(args: string[]): ReleaseArgs {
   if (buildOnly) stage = "build";
   else if (skipBuild) stage = "package";
 
-  if (parsed.flags.format) {
-    log.warn("release", "--format is gone — native packaging produces a single binary + staged tree.");
-  }
-
   return {
     game,
     games,
@@ -103,6 +101,8 @@ function parseReleaseArgs(args: string[]): ReleaseArgs {
     out: (parsed.flags.out as string) || "release",
     retainMcp: parsed.flags.mcp as boolean,
     verbose: parsed.flags.verbose as boolean,
+    runtime: (parsed.flags.runtime as string) || null,
+    format: (parsed.flags.format as string) || null,
   };
 }
 
@@ -173,20 +173,27 @@ function classifyTargets(target: string): string[] {
 // Game info resolution
 // ---------------------------------------------------------------------------
 
-function getGameInfo(gameDir: string, game: string): { productName: string; appId: string; version: string } {
+interface GameInfo {
+  productName: string;
+  appId: string;
+  version: string;
+  /** The electron-builder-style `build` block from the game's package.json. */
+  build: Record<string, any>;
+}
+
+function getGameInfo(gameDir: string, game: string): GameInfo {
   const pkgPath = resolve(gameDir, "package.json");
-  if (!existsSync(pkgPath)) {
-    return { productName: game, appId: `com.downdraft.${game}`, version: "0.0.0" };
-  }
+  const fallback: GameInfo = { productName: game, appId: `com.downdraft.${game}`, version: "0.0.0", build: {} };
+  if (!existsSync(pkgPath)) return fallback;
   try {
     const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
     const productName = pkg.productName ?? pkg.build?.productName ??
       String(pkg.name ?? game).replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
     const appId = pkg.build?.appId ?? `com.downdraft.${game}`;
     const version = pkg.version ?? "0.0.0";
-    return { productName, appId, version };
+    return { productName, appId, version, build: pkg.build ?? {} };
   } catch {
-    return { productName: game, appId: `com.downdraft.${game}`, version: "0.0.0" };
+    return fallback;
   }
 }
 
@@ -205,42 +212,93 @@ function packageNative(
   gameDir: string,
   targets: string[],
   opts: ReleaseArgs,
-  info: { productName: string; appId: string; version: string },
+  info: GameInfo,
 ): boolean {
   const entry = resolve(gameDir, "src/native-entry.ts");
   if (!existsSync(entry)) {
     log.error("release:package", `No src/native-entry.ts in ${gameDir} — the game has no native entry.`);
     return false;
   }
-  // The packaging script ships inside @downdraft/cli (files: ["scripts"]) so
-  // standalone game repos resolve it through the installed package, not the
-  // engine monorepo.
-  const script = fileURLToPath(new URL("../scripts/package-native.mjs", import.meta.url));
+  // The packaging scripts ship inside @downdraft/cli (files: ["scripts"]) so
+  // standalone game repos resolve them through the installed package, not
+  // the engine monorepo.
+  const scriptNative = fileURLToPath(new URL("../scripts/package-native.mjs", import.meta.url));
+  const scriptDesktop = fileURLToPath(new URL("../scripts/package-desktop.mjs", import.meta.url));
   // cwd is the relativization root for staged assets — the monorepo root
   // when present (engine sources relativize cleanly), else the game dir.
   const cwd = findMonorepoRoot(gameDir) ?? gameDir;
+
+  // Runtime matrix: --runtime flag → build.runtime in package.json → bun.
+  // "all" expands to the full matrix (one appdir per runtime).
+  const RUNTIMES = ["bun", "node", "deno"];
+  const requested = opts.runtime ?? info.build.runtime ?? "bun";
+  const runtimes = requested === "all" ? RUNTIMES : [requested];
+  for (const r of runtimes) {
+    if (!RUNTIMES.includes(r)) {
+      log.error("release:package", `Unknown runtime "${r}" — expected bun, node, deno, or all.`);
+      return false;
+    }
+  }
+  // Non-bun runtimes are linux-only today — the emit-tree packaging hasn't
+  // been wired for win/mac.
+  const nonBun = runtimes.filter((r) => r !== "bun");
+  if (nonBun.length && targets.some((t) => t !== "linux")) {
+    log.warn("release:package", `--runtime=${nonBun.join(",")} is linux-only today — win/mac targets still embed bun.`);
+  }
+
   let ok = true;
   targets.forEach((target) => {
-    const outfile = resolve(opts.out, `${game}-${target}`);
-    const argv = [
-      script,
-      `--target=${target}`,
-      `--mode=${opts.mode}`,
-      `--product-name=${info.productName}`,
-      `--product-version=${info.version}`,
-      ...(opts.retainMcp ? ["--mcp"] : []),
-      entry,
-      outfile,
-    ];
-    log.info("release:package", `bun ${argv.map((a) => basename(a)).join(" ")}`);
-    const result = spawnSync("bun", argv, {
-      cwd,
-      stdio: "inherit",
-      env: process.env,
-    });
-    if (result.status !== 0) {
-      log.error("release:package", `Native packaging failed for ${game} (${target})`);
-      ok = false;
+    for (const runtime of runtimes) {
+      if (target === "linux") {
+        // Linux: package-desktop.mjs owns the format matrix (dir, deb,
+        // appimage, flatpak). Formats come from --format → build.linux.target
+        // → "dir".
+        const format = opts.format
+          ?? (Array.isArray(info.build.linux?.target) ? info.build.linux.target.join(",") : info.build.linux?.target)
+          ?? "dir";
+        const argv = [
+          scriptDesktop,
+          `--runtime=${runtime}`,
+          `--format=${format}`,
+          `--mode=${opts.mode}`,
+          `--product-name=${info.productName}`,
+          `--product-version=${info.version}`,
+          `--app-id=${info.appId}`,
+          ...(opts.retainMcp ? ["--mcp"] : []),
+          entry,
+          resolve(opts.out),
+        ];
+        log.info("release:package", `bun package-desktop.mjs --runtime=${runtime} --format=${format} ${basename(entry)}`);
+        const result = spawnSync("bun", argv, { cwd, stdio: "inherit", env: process.env });
+        if (result.status !== 0) {
+          log.error("release:package", `Packaging failed for ${game} (${target}/${runtime})`);
+          ok = false;
+        }
+        continue;
+      }
+      // win/mac: single-binary bun compile via package-native.mjs.
+      if (runtime !== "bun") continue;
+      const outfile = resolve(opts.out, `${game}-${target}`);
+      const argv = [
+        scriptNative,
+        `--target=${target}`,
+        `--mode=${opts.mode}`,
+        `--product-name=${info.productName}`,
+        `--product-version=${info.version}`,
+        ...(opts.retainMcp ? ["--mcp"] : []),
+        entry,
+        outfile,
+      ];
+      log.info("release:package", `bun ${argv.map((a) => basename(a)).join(" ")}`);
+      const result = spawnSync("bun", argv, {
+        cwd,
+        stdio: "inherit",
+        env: process.env,
+      });
+      if (result.status !== 0) {
+        log.error("release:package", `Native packaging failed for ${game} (${target})`);
+        ok = false;
+      }
     }
   });
   return ok;
@@ -259,7 +317,7 @@ function packageAndroid(
   game: string,
   gameDir: string,
   opts: ReleaseArgs,
-  info: { productName: string; appId: string; version: string },
+  info: GameInfo,
 ): boolean {
   const entry = resolve(gameDir, "src/native-entry.ts");
   if (!existsSync(entry)) {
@@ -340,8 +398,8 @@ export async function release(args: string[]): Promise<void> {
 
   for (let _i = 0, _it = games, _n = _it.length; _i < _n; _i++) { const game = _it[_i];
     const gameDir = resolveGameDir(game) ?? resolve(monorepoRoot ?? process.cwd(), "games", game);
-    const { productName, appId, version } = getGameInfo(gameDir, game);
-    log.info("release", `Game: ${game} | Product: "${productName}" | AppId: ${appId} | v${version}`);
+    const info = getGameInfo(gameDir, game);
+    log.info("release", `Game: ${game} | Product: "${info.productName}" | AppId: ${info.appId} | v${info.version}`);
     log.info("release", "");
 
     // Native packaging is a single compile step — build/package/release
@@ -349,8 +407,8 @@ export async function release(args: string[]): Promise<void> {
     const isAndroid = targets.every((t) => MOBILE_TARGETS.has(t));
     log.info("release", `[package] Compiling ${game} (${targets.join(", ")})...`);
     const ok = isAndroid
-      ? packageAndroid(game, gameDir, opts, { productName, appId, version })
-      : packageNative(game, gameDir, targets, opts, { productName, appId, version });
+      ? packageAndroid(game, gameDir, opts, info)
+      : packageNative(game, gameDir, targets, opts, info);
     if (!ok) {
       log.error("release", `Packaging failed for ${game} — skipping.`);
       fail = 1;

@@ -794,10 +794,19 @@ All UI text rendered by the engine and games MUST use a font size of **at least 
 ```
 draft release [--game=<name>] [--games=<csv>] [--target=<win|linux|mac|all>]
               [--stage=<build|package|release>] [--mode=<dev|debug|prod>]
+              [--runtime=<bun|node|deno|all>] [--format=<csv>]
               [--out=<dir>] [--mcp] [--verbose]
 ```
 
 All stages compile the same artifact via `scripts/package-native.mjs`: a standalone Bun binary (`<out>/<game>-<target>`) plus a sibling `native/` cdylib and `dd-assets/` staging tree. `--mcp` retains the MCP endpoint in the packaged binary (stripped by default via `__DD_MCP_STRIP__`). Mobile targets are removed — a future mobile port would be native, not WebView.
+
+**Linux packaging** goes through `packages/cli/scripts/package-desktop.mjs`, an electron-builder-style system with a runtime matrix:
+
+- `--runtime=bun|node|deno|all` — the JS host inside the package. `bun` delegates to `package-native.mjs` (compiled binary); `node`/`deno` emit an `.mjs` bundle tree next to a shipped runtime binary + launcher script (same appdir layout either way: `<exe>` + `bundle/` + `native/` + `dd-assets/`). Resolution anchor is `dirname(process.execPath)` in all three.
+- `--format=dir,deb,appimage,flatpak` — `dir` is the staged appdir verbatim; `deb` uses `dpkg-deb` (`/usr/lib/<exe>` + `/usr/bin` symlink + desktop file + hicolor icons); `appimage` assembles an AppDir and invokes `appimagetool` (auto-downloaded to `~/.cache/downdraft/tools/`; works without FUSE via `APPIMAGE_EXTRACT_AND_RUN`); `flatpak` generates a manifest and runs `flatpak-builder` + `build-bundle` (icon must be named `<appId>.png` to export; `strip` must stay off — it deletes the `.bun` trailer from compiled binaries).
+- Electron-builder-style config lives in the game `package.json` `build` block: `appId`, `productName`, `icon`, `runtime`, `executableName`, `files`, `linux.target/category/maintainer/synopsis/icon`, `deb.{section,priority,depends}`, `flatpak.{runtime,runtimeVersion,sdk,finishArgs}`.
+- Game-native artifacts in `<game>/native/dist/<platform>-<arch>/` (`.so`/`.dll`/`.dylib` + `.node` napi addons) are staged into `native/` — napi `.node` addons load under all three desktop runtimes.
+- `--runtime=node|deno` is linux-only today; win/mac still compile to bun binaries. The full `(deb, appimage, flatpak) × (bun, node, deno)` matrix is verified launching on-device.
 
 Windows binaries are stamped with version info and icons by `package-native.mjs` via `resedit` (in-place `.rsrc` regeneration — the `.bun` trailer is preserved).
 
