@@ -80,7 +80,7 @@ for (let _i = 0, _it = order, _n = _it.length; _i < _n; _i++) { const name = _it
   if (r.status !== 0) {
     // Surface the npm error as a workflow annotation — job logs need sign-in,
     // annotations don't.
-    const tail = ((r.stderr || "") + (r.stdout || "")).trim().split("\n").slice(-6).join(" | ").slice(0, 400);
+    const tail = ((r.stderr || "") + (r.stdout || "")).trim().split("\n").slice(-16).join(" | ").slice(0, 1800);
     console.error(`::error::npm publish ${name} failed (exit ${r.status}) — ${tail}`);
     console.error(`FAILED ${name} — aborting (dependents would be broken)`);
     process.exit(1);
