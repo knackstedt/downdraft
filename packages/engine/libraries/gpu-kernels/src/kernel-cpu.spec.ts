@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { createKernel } from "./kernel";
 import type { KernelThis } from "./kernel";
+import { createKernel } from "./kernel";
 
 // CPU-path tests — no GPUDevice needed: dispatch/read are exercised only via
 // cpu()/cpuInto(), which run the kernel function per-element in plain JS.
@@ -84,5 +84,18 @@ describe("GpuKernel cpu() fallback", () => {
       },
     });
     expect(Array.from(k.cpu())).toEqual([100, 101]);
+  });
+
+  it("rejects unknown access strings and out-of-range outputStride", () => {
+    const base = { device: fakeDevice, output: [4], fn: `function (a) { return a[0]; }` };
+    expect(() =>
+      createKernel({ ...base, access: ["WRITE" as never] }),
+    ).toThrow(/access/);
+    expect(() =>
+      createKernel({ ...base, outputStride: 5 as never }),
+    ).toThrow(/outputStride/);
+    expect(() =>
+      createKernel({ ...base, outputStride: 0 as never }),
+    ).toThrow(/outputStride/);
   });
 });

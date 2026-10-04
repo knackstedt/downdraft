@@ -357,4 +357,30 @@ describe("GpuKernel on the shared device", () => {
       dev._limits = real;
     }
   });
+
+  it("readResult before any dispatch returns zeroed output", async () => {
+    if (!device) return skip();
+    const k = createKernel({ device, output: [8], fn: `function () { return 9.0; }` });
+    const out = await k.readResult();
+    expect(out[0]).toBe(0);
+    expect(out[7]).toBe(0);
+    k.destroy();
+  });
+
+  it("enforces memoryBudget on kernel-owned buffers", async () => {
+    if (!device) return skip();
+    // result(64*4=256B) + staging(256B) + upload(1KB) — budget 1KB is enough.
+    const k = createKernel({
+      device, output: [64], memoryBudget: 2048,
+      fn: `function (a) { return a[this.thread.x] * 2.0; }`,
+    });
+    const out = await k.read(new Float32Array(64).fill(1));
+    expect(out[5]).toBe(2);
+    expect(k.allocatedBytes).toBeGreaterThan(0);
+    expect(k.allocatedBytes).toBeLessThanOrEqual(2048);
+    // Growing the arg past the budget throws instead of allocating.
+    await expect(k.read(new Float32Array(4096))).rejects.toThrow(/memoryBudget/);
+    k.destroy();
+    expect(k.allocatedBytes).toBe(0);
+  });
 });

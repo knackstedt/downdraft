@@ -59,6 +59,14 @@ export interface KernelOptions {
    * (number). Inferred from the first call's args if omitted.
    */
   argKinds?: KernelArgKind[];
+  /**
+   * Cap on kernel-owned GPU memory in bytes (upload buffers, scalar
+   * buffers, result buffer, staging). On mobile, GPU memory is unified
+   * system RAM and true OOM kills the PROCESS (lmkd), not the allocation —
+   * a budget turns that into a catchable error. `allocatedBytes` reports
+   * the current usage. Unlimited if unset.
+   */
+  memoryBudget?: number;
   label?: string;
 }
 
@@ -127,6 +135,7 @@ export class GpuKernel {
   private ownedResult: GPUBuffer | null = null;
   private externalResult: GPUBuffer | null = null;
   private staging: GPUBuffer | null = null;
+  private memoryBudget?: number;
   private destroyed = false;
   private isArrow: boolean;
   private cpuConstants: Readonly<Record<string, number>>;
@@ -155,10 +164,15 @@ export class GpuKernel {
         throw new Error(`kernel output dims must be positive integers, got ${d}`);
       }
     });
-    if (!Number.isInteger(this.outputStride)) {
+    if (!Number.isInteger(this.outputStride) || this.outputStride < 1 || this.outputStride > 4) {
       throw new Error(`outputStride must be an integer 1–4, got ${this.outputStride}`);
     }
     this.constants = opts.constants ?? {};
+    opts.access?.forEach((a) => {
+      if (a !== "read" && a !== "read_write") {
+        throw new Error(`kernel access entries must be "read" or "read_write", got ${JSON.stringify(a)}`);
+      }
+    });
     this.access = opts.access;
     const [, oy, oz] = this.outputSize;
     this.workgroupSize = opts.workgroupSize ?? (oy === 1 && oz === 1 ? [64, 1, 1] : [8, 8, 1]);
@@ -179,6 +193,7 @@ export class GpuKernel {
       }
     }
     this.label = opts.label ?? "gpu-kernel";
+    this.memoryBudget = opts.memoryBudget;
     this.extraUsage = opts.outputUsage ?? 0;
     this.externalResult = opts.outputBuffer ?? null;
     if (this.externalResult && this.externalResult.size < Math.max(this.resultFloats * 4, 16)) {
@@ -188,12 +203,36 @@ export class GpuKernel {
     if (opts.argKinds) this.unitForKinds(opts.argKinds); // eager compile
   }
 
+  /** Bytes of GPU memory currently held by kernel-owned buffers. */
+  get allocatedBytes(): number {
+    let total = (this.ownedResult?.size ?? 0) + (this.staging?.size ?? 0);
+    this.units.forEach((u) => {
+      u.uploadBuffers.forEach((buf) => { total += buf.size; });
+      total += u.scalarsBuffer?.size ?? 0;
+    });
+    return total;
+  }
+
+  /** Throws if allocating `additional` bytes (net of `freed`) would exceed
+   *  the memoryBudget — turns mobile OOM process-death into a catchable
+   *  error. */
+  private checkBudget(additional: number, freed = 0): void {
+    if (this.memoryBudget === undefined) return;
+    const projected = this.allocatedBytes - freed + additional;
+    if (projected > this.memoryBudget) {
+      throw new Error(
+        `kernel "${this.label}": allocation would use ${projected}B of GPU memory, ` +
+        `memoryBudget is ${this.memoryBudget}B`);
+    }
+  }
+
   /** The buffer the kernel writes — bind it anywhere on this device. */
   get resultBuffer(): GPUBuffer {
     if (this.destroyed) throw new Error(`kernel "${this.label}" is destroyed`);
     if (this.externalResult) return this.externalResult;
     if (!this.ownedResult) {
       const size = Math.max(this.resultFloats * 4, 16);
+      this.checkBudget(size);
       this.ownedResult = this.device.createBuffer({
         label: `${this.label}:result`,
         size,
@@ -291,6 +330,7 @@ export class GpuKernel {
 
   private ensureStaging(bytes: number): void {
     if (!this.staging || this.staging.size < bytes) {
+      this.checkBudget(bytes, this.staging?.size ?? 0);
       this.staging?.destroy();
       this.staging = this.device.createBuffer({
         label: `${this.label}:readback`,
@@ -314,11 +354,17 @@ export class GpuKernel {
   }
 
   private async mapStaging(bytes: number): Promise<ArrayBuffer> {
-    await this.staging!.mapAsync(MAP_MODE_READ);
+    const buf = this.staging!;
+    await buf.mapAsync(MAP_MODE_READ);
+    // destroy() may have dropped the staging ref while the map was in flight.
+    if (this.staging !== buf) {
+      buf.unmap();
+      throw new Error(`kernel "${this.label}" was destroyed during readback`);
+    }
     try {
-      return this.staging!.getMappedRange(0, bytes).slice(0);
+      return buf.getMappedRange(0, bytes).slice(0);
     } finally {
-      this.staging!.unmap();
+      buf.unmap();
     }
   }
 
@@ -489,10 +535,12 @@ export class GpuKernel {
       }
       let buf = unit.uploadBuffers.get(b.index);
       if (!buf || (unit.uploadSizes.get(b.index) ?? 0) < bytes) {
+        const newSize = Math.max(bytes, 16);
+        this.checkBudget(newSize, buf?.size ?? 0);
         buf?.destroy();
         buf = this.device.createBuffer({
           label: `${this.label}:${b.param}`,
-          size: Math.max(bytes, 16),
+          size: newSize,
           usage: BU.STORAGE | BU.COPY_DST | (b.access === "read_write" ? BU.COPY_SRC : 0),
         });
         unit.uploadBuffers.set(b.index, buf);
@@ -509,10 +557,12 @@ export class GpuKernel {
     if (unit.transpiled.scalarsBinding !== null) {
       if (!unit.scalarsBuffer || !unit.scalarsScratch) {
         const n = unit.transpiled.scalarSlots.size;
+        const size = Math.max(n * 4, 16);
+        this.checkBudget(size);
         unit.scalarsScratch = new Float32Array(Math.max(n, 1));
         unit.scalarsBuffer = this.device.createBuffer({
           label: `${this.label}:scalars`,
-          size: Math.max(n * 4, 16),
+          size,
           usage: BU.STORAGE | BU.COPY_DST,
         });
         rebuilt = true;

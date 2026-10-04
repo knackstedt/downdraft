@@ -83,6 +83,27 @@ in locals (return them directly), locals shadowing array/buffer params,
 duplicate params, non-number constants, async/generator kernels, textures,
 atomics.
 
+## Workers / shared device
+
+Kernels run on any device view — including an `attachSharedDevice()` view
+inside a sim worker (`@downdraft/platform-native/gpu/shared-device`):
+
+```ts
+// owner: post { gpu: shareDevice(device, cells), cells: cells.sab }
+// worker:
+const view = attachSharedDevice(msg.gpu, msg.cells);
+const k = createKernel({ device: view.device, output: [N], fn });
+await k.readInto(sabView, sabInput);        // sim-thread dispatch + SAB readback
+k.dispatch(input);                          // fire-and-forget — no map stall
+ownerBuf = exportGpuResource(k.resultBuffer); // hand result to the owner for
+                                              // zero-copy binding elsewhere
+```
+
+Verified end-to-end: compile + dispatch + `mapAsync` readback + SAB write all
+work on an attached view, and a worker-produced `GPUBuffer` binds into owner
+kernels via `exportGpuResource`. Note `read*` blocks the worker thread while
+the map waits — prefer `dispatch` + `readResult` across ticks for hot loops.
+
 ## Behavior notes
 
 - `read()`/`readInto()` **re-dispatch** the kernel; `readResult()`/
@@ -101,6 +122,16 @@ atomics.
   count, `maxStorageBufferBindingSize`, `maxBufferSize`, workgroup counts) —
   on Adreno-class GPUs expect ~16 storage buffers/stage and 256MB/binding vs
   effectively-unbounded desktop limits; the errors name the violated limit.
+- **GPU OOM is not catchable on mobile — budget before you hit it.** Measured
+  behavior: on desktop, allocation past VRAM yields an invalid buffer + an
+  uncaptured error and the device survives; on Android (unified memory), GPU
+  buffers consume *system* RAM without counting toward process RSS, so the
+  low-memory killer reaps background apps — including the launcher — and then
+  your process. Nothing throws. `createKernel({ memoryBudget })` caps the
+  kernel's owned bytes (upload pools, result, staging) and throws a normal
+  error instead; `kernel.allocatedBytes` reports live usage. Note the
+  compiled-signature pool (up to 16 units) keeps a separate upload buffer per
+  signature — pin `argKinds` and use `GPUBuffer` args for big inputs.
 - Submits run inside a validation error scope: `read*` throws on failure;
   fire-and-forget `dispatch`/`dispatchInto` can't throw retroactively, so the
   error lands on `kernel.lastError`.
