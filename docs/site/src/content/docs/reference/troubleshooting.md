@@ -33,7 +33,7 @@ description: Common issues and solutions
 
 **Solutions:**
 
-The sim worker supervisor automatically restarts on first crash from a DB checkpoint. If a second crash occurs in a short window, the render loop halts with a fatal error.
+The sim worker supervisor automatically restarts once from a checkpoint. If a second crash occurs in a short window, the render loop halts with a fatal error.
 
 1. Check the console output for the crash reason
 2. Try running in debug mode for more verbose logging:
@@ -48,8 +48,8 @@ The sim worker supervisor automatically restarts on first crash from a DB checkp
 
 **Solutions:**
 
-1. The JS audio backend is the default path — no native audio library is required for sound. The optional `audio-kira` Rust backend (`libdowndraft_audio`, kira + symphonia) is used when the cdylib is present; set `AUDIO_NATIVE_PATH` to point at a specific build.
-2. If reviving `audio-kira`, build it with `cargo build -p audio-kira` after updating to the current kira API.
+1. The Kira backend (`KiraAudioBackend` / `AudioKiraLib` in `libraries/audio-kira`) loads the `libdowndraft_audio` cdylib over FFI; set `AUDIO_NATIVE_PATH` to point at a specific build.
+2. Build the cdylib with `cargo build -p downdraft-audio` (crate under `packages/engine/libraries/audio-kira/native`).
 
 ## Build Fails
 
@@ -88,7 +88,7 @@ draft release --stage=build --mode=prod --out=dist
 
 **Solutions:**
 
-This is a known X11 issue where `requestAnimationFrame` fires at the fastest monitor's refresh rate. Use the frame rate limiter:
+This is a known X11 issue where the render loop is driven at the fastest monitor's refresh rate. Use the frame rate limiter:
 
 ```typescript
 renderer.setFrameRateLimit(60); // or your monitor's refresh rate

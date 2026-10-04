@@ -7,69 +7,80 @@ DownDraft Engine is organized as a Bun workspace monorepo with the following pac
 
 ## Core Packages
 
-| Package | Description |
+|| Package | Description |
 |---|---|
-| `@downdraft/engine` | Engine core: ECS, render passes, render graph, SAB, input, telemetry, modules, particles, animation, physics, audio, assets, save system |
-| `@downdraft/engine/app` | Runtime-agnostic game bootstrap: `startGame()`/`bootstrapGame()`, HostAPI types |
-| `@downdraft/engine/mcp` | MCP server for AI agent interaction (JSON-RPC over stdio) |
-| `@downdraft/engine/shader-graph` | Material/shader graph compiler and validator |
-| `@downdraft/cli` | CLI tool (`draft new/dev/debug/release/assets/test`) |
-| `@downdraft/platform-native` | Native runtime host: winit windowing, wgpu device, HostAPI bridge, MCP server (Rust cdylib via FFI — `bun:ffi`/`koffi`/`Deno.dlopen`) |
+|| `@downdraft/engine` | Engine core: ECS, render passes, render graph, SAB, input, telemetry, modules, particles, animation, physics, audio, assets, save system |
+|| `@downdraft/engine/app` | Runtime-agnostic game bootstrap: `startGame()`/`bootstrapGame()`, HostAPI types |
+|| `@downdraft/engine/mcp` | MCP server for AI agent interaction (JSON-RPC) |
+|| `@downdraft/engine/shader-graph` | Material/shader graph compiler and validator |
+|| `@downdraft/cli` | CLI tool (`draft new/dev/debug/release/assets/test/mcp/plugin`) |
+|| `@downdraft/platform-native` | Native runtime host: winit windowing, wgpu device, HostAPI bridge, MCP server (Rust cdylib via FFI — `bun:ffi`/`koffi`/`Deno.dlopen`) |
 
 ## Engine Libraries
 
-| Package | Description |
+Engine libraries export `EngineLibrary` descriptors (e.g. `WaterLib`, `PhysicsRapierLib`) for declarative wiring in `GameModule.libraries[]`, plus bare class exports as an escape hatch.
+
+|| Package | Description |
 |---|---|
-| `@downdraft/engine/libraries/water` | Gerstner wave water rendering, buoyancy, shore/wake interactions |
-| `@downdraft/engine/libraries/marching-cubes` | Voxel terrain with LOD and deformation |
-| `@downdraft/engine/libraries/physics-rapier` | Rapier3D physics backend |
-| `@downdraft/engine/libraries/audio-kira` | Kira audio backend (Rust FFI via `packages/audio-native`) |
-| `@downdraft/engine/libraries/networking` | WebSocket transport, state replication, RPCs |
-| `@downdraft/engine/libraries/weather` | Weather system |
+|| `@downdraft/engine/libraries/asset-browser` | In-game asset browser UI |
+|| `@downdraft/engine/libraries/audio-kira` | Kira audio backend (Rust FFI, crate `downdraft-audio` under `native/`) |
+|| `@downdraft/engine/libraries/blitz-ui` | Native Blitz/vello UI rasterization cdylib FFI |
+|| `@downdraft/engine/libraries/character` | Character system |
+|| `@downdraft/engine/libraries/devtools` | DevTools host and panels |
+|| `@downdraft/engine/libraries/entities` | Generic model renderer shared by games |
+|| `@downdraft/engine/libraries/gamepad` | Gamepad input |
+|| `@downdraft/engine/libraries/gaussian-splats` | Gaussian splat rendering |
+|| `@downdraft/engine/libraries/gpu-kernels` | Shared GPU compute kernels |
+|| `@downdraft/engine/libraries/html-ui-kit` | Widget/theme/navigation kit for html-ui |
+|| `@downdraft/engine/libraries/lighting` | Lighting system |
+|| `@downdraft/engine/libraries/marching-cubes` | Voxel terrain with LOD and deformation |
+|| `@downdraft/engine/libraries/models` | Model loading and management |
+|| `@downdraft/engine/libraries/navmesh` | Navigation mesh generation and pathfinding |
+|| `@downdraft/engine/libraries/networking` | WebSocket transport, state replication, RPCs |
+|| `@downdraft/engine/libraries/pathfinding-2d` | 2D pathfinding |
+|| `@downdraft/engine/libraries/persistence` | Save/load (worker-backed binary + filesystem stores) |
+|| `@downdraft/engine/libraries/physics-native` | Native physics backend |
+|| `@downdraft/engine/libraries/physics-rapier` | Rapier3D physics backend |
+|| `@downdraft/engine/libraries/postfx` | Post-processing stack (21 chainable effects) |
+|| `@downdraft/engine/libraries/recast` | Recast navmesh generation bindings |
+|| `@downdraft/engine/libraries/sand` | Falling-sand simulation |
+|| `@downdraft/engine/libraries/stickman` | Stickman character system |
+|| `@downdraft/engine/libraries/surface-nets` | Surface-nets mesh extraction from voxel fields |
+|| `@downdraft/engine/libraries/water` | Gerstner wave water rendering, buoyancy, shore/wake interactions |
+|| `@downdraft/engine/libraries/weather` | Weather system |
+|| `@downdraft/engine/libraries/weatherfx` | Weather visual effects |
 
 ## Engine Modules
 
-| Package | Description |
+Feature modules use the factory pattern (`createXxxModule(config)`) and provide typed DI tokens. Games register them via `moduleHost.useModules([...])`.
+
+|| Package | Description |
 |---|---|
-| `@downdraft/engine/modules/devtools` | DevTools panel, scene inspector, GPU debugging |
-| `@downdraft/engine/modules/camera-controls` | Camera input handling |
-| `@downdraft/engine/modules/terrain` | Terrain composition (marching-cubes + LOD) |
-| `@downdraft/engine/modules/movement-3d` | 3D player movement |
-| `@downdraft/engine/modules/movement-2d` | 2D grid-based movement |
-| `@downdraft/engine/modules/sailing` | Sailing mechanics (wind, buoyancy, steering) |
-| `@downdraft/engine/modules/native-osr` | Offscreen rendering (native WebGPU surfaces) |
-| `@downdraft/engine/modules/mcp` | MCP automation server |
-| `@downdraft/engine/modules/xr` | WebXR support |
+|| `@downdraft/engine/modules/camera-controls` | Camera input and control modes |
+|| `@downdraft/engine/modules/controller-ui` | Controller/ten-foot UI support |
+|| `@downdraft/engine/modules/devtools` | DevTools overlay panel (native OSR) |
+|| `@downdraft/engine/modules/editor` | Editor tooling |
+|| `@downdraft/engine/modules/html-ui` | Blitz HTML/CSS game UI, rasterized in a worker |
+|| `@downdraft/engine/modules/mcp` | In-game MCP automation harness |
+|| `@downdraft/engine/modules/movement-2d` | 2D movement system |
+|| `@downdraft/engine/modules/movement-3d` | 3D movement system |
+|| `@downdraft/engine/modules/native-osr` | Offscreen rendering (native WebGPU surfaces) |
+|| `@downdraft/engine/modules/sailing` | Sailing mechanics |
+|| `@downdraft/engine/modules/terrain` | Terrain system |
+|| `@downdraft/engine/modules/vitals` | Vitals (health/stamina/etc.) system |
+|| `@downdraft/engine/modules/xr` | WebXR / VR support |
 
-## Game Libraries (to-the-ocean)
+## Game Libraries & Modules
 
-Game-specific libraries live in a game repo's `libraries/` directory — e.g. to-the-ocean's under the `@to-the-ocean/library-*` namespace.
+Game-specific code lives in each game repo's `libraries/` and `modules/` directories, conventionally packaged as `@<game-scope>/library-*` (bare classes, no lifecycle) and `@<game-scope>/module-*` (lifecycle + typed DI), following the same split as the engine. No engine package depends on any game package.
 
-| Package | Description |
-|---|---|
-| `@to-the-ocean/library-boats` | Boat design system and boat data buffer |
-| `@to-the-ocean/library-items` | Item definitions and registry |
-| `@to-the-ocean/library-economy` | Market system and price history |
-| `@to-the-ocean/library-fishing` | Fishing mechanics |
-| `@to-the-ocean/library-survival` | Survival mechanics |
+## Native Rust Crates
 
-## Game Modules (to-the-ocean)
-
-Game-specific modules live in a game repo's `modules/` directory — e.g. to-the-ocean's under the `@to-the-ocean/module-*` namespace.
-
-| Package | Description |
-|---|---|
-| `@to-the-ocean/module-inventory` | Inventory management |
-| `@to-the-ocean/module-crafting` | Crafting recipes and system |
-| `@to-the-ocean/module-wildlife` | Wildlife simulation |
-| `@to-the-ocean/module-buoyancy` | Boat buoyancy physics |
-| `@to-the-ocean/module-collision` | Voxel collision system |
-
-## Native Libraries
-
-| Package | Description |
-|---|---|
-| `packages/audio-native` | Rust native audio library (Kira backend) with cross-compile support |
+|| Crate | Location | Description |
+|---|---|---|
+|| `downdraft-platform` | `packages/platform-native/native-rs` | Platform cdylib (`libdowndraft_platform`): winit windowing, wgpu device, HostAPI |
+|| `downdraft-audio` | `packages/engine/libraries/audio-kira/native` | Optional Kira audio cdylib (`libdowndraft_audio`) |
+|| `downdraft-android` | `packages/android-shell` | Android NativeActivity shell (statically links `downdraft-platform`; embeds libnode) |
 
 ## Core Subsystems
 
@@ -88,10 +99,11 @@ The `@downdraft/engine` package exports the following subsystems:
 - **Audio** — Interface, Engine, Source, Listener, Mixer
 - **Input** — State, Mapping, Context, SAB Bridge
 - **SAB** — SeqlockBuffer, Protocol, Writer, Reader, Input
-- **Worker** — SimWorker, Supervisor, DBWorker, Protocol
+- **Worker** — SimWorker host, task pool, RPC, crash recovery
 - **Platform** — Window, RenderSurface, HostAPI bridge, HiDPI, HDR, FS, Time
 - **Change Detection** — Tracker, Atomics
-- **Module** — Module, Registry, TSLoader, WASMLoader, ABI
+- **Module** — Module, ModuleHost, typed DI tokens, cross-thread tokens
+- **Plugin** — PluginHost, manifests, permissions, worker/WASM/QuickJS loaders
 - **Save** — Serializer, Schema, Migrate
 - **Builder** — Builder, DevMode, DebugMode, ProdMode
 - **Telemetry** — Collector, GCTracker, Reporter

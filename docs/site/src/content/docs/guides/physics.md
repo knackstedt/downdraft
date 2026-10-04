@@ -10,20 +10,34 @@ DownDraft provides a pluggable physics abstraction layer with a Rapier3D backend
 A `PhysicsRealm` represents an isolated physics world. Multiple concurrent realms are supported.
 
 ```typescript
-import { PhysicsRealm } from "@downdraft/engine";
+import { PhysicsRealm, RealmTier } from "@downdraft/engine";
+import { createRapierBackend } from "@downdraft/engine/libraries/physics-rapier";
 
-const realm = new PhysicsRealm({ gravity: [0, -9.81, 0] });
+const backend = await createRapierBackend();
+const realm = new PhysicsRealm(backend, {
+  name: "main",
+  tier: RealmTier.Near,
+  gravity: [0, -9.81, 0],
+  tierConfig: {/* per-tier LOD config */},
+});
 ```
 
-## Using the Rapier Module
+## Using the Rapier Library
 
 ```typescript
-import { GameWorld, Scene, World } from "@downdraft/engine";
-import { PhysicsRapierModule } from "@downdraft/engine/libraries/physics-rapier";
+import { startGame } from "@downdraft/engine/app/renderer";
+import { PhysicsRapierLib, PhysicsAPITok } from "@downdraft/engine/libraries/physics-rapier";
 
-const gameWorld = new GameWorld(new Scene(new World()));
-gameWorld.useModule(PhysicsRapierModule);
+startGame({
+  libraries: [PhysicsRapierLib],
+  // inject the typed token in onReady:
+  onReady: (ctx) => {
+    const physics = ctx.inject(PhysicsAPITok);
+  },
+});
 ```
+
+Bare class exports (`RapierPhysicsBackend`, `createRapierBackend`, `UniversalPhysicsAPI`) remain available for games that wire physics manually.
 
 ## Components
 

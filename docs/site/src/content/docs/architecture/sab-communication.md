@@ -12,7 +12,7 @@ DownDraft uses multiple SharedArrayBuffer (SAB) channels with a `SeqlockBuffer` 
 | Sim → Render | Multiple SharedArrayBuffers + Atomics | Transforms, water, terrain, physics, audio positions (60fps, zero-copy) |
 | Game ↔ Host | Direct function calls (HostAPI) | Saves, screenshots, window state, dialogs, restart |
 | Host ↔ Sim | postMessage + multiple SABs | Commands/events (postMessage), state (SABs via SeqlockBuffer) |
-| Host ↔ Service workers | postMessage | Save/load, asset queries, schema migrations |
+| Host ↔ Service workers | postMessage / MessageChannel | Save worker, task pool, UI raster workers, plugin workers |
 | Cross-thread sync | Atomics on SAB headers | Frame synchronization, seqlock read/write coordination |
 
 ## SeqlockBuffer

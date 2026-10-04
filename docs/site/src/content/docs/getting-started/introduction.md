@@ -12,7 +12,7 @@ DownDraft Engine is an AI-driven game engine built on a **native runtime — win
 - **Physics** — Pluggable physics abstraction with Rapier3D backend, multi-realm support, and character controllers.
 - **Audio** — Spatial audio with Kira backend via Rust FFI, mixer, effects, and listener tracking.
 - **Animate** — Skeletal animation, GLTF skinning, GPU compute skinning, Mixamo retargeting, and blend trees (1D/2D).
-- **Network** — WebSocket transport, state replication, and RPCs via the networking plugin.
+- **Network** — WebSocket transport, state replication, and RPCs via the networking library.
 - **AI Integration** — MCP server (in-process, JSON-RPC) for AI agents to create scenes, spawn entities, manage assets, and debug.
 - **Editor** — Native DevTools overlay, material graph editor, animation state machine editor, asset browser, and performance profiler.
 
@@ -29,7 +29,7 @@ DownDraft runs on **Linux, macOS, and Windows** via the native runtime (winit fo
 | Language | TypeScript (engine), Rust (platform + native modules) |
 | Physics | Rapier3D (Rust FFI) |
 | Audio | Kira (Rust FFI) |
-| Database | SurrealDB (SurrealKV, embedded) |
+| Persistence | Worker-backed binary save store (`libraries/persistence`) |
 | UI | html-ui (Blitz HTML/CSS, worker-rasterized) |
 | AI | MCP (JSON-RPC) |
 

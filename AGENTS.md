@@ -36,7 +36,7 @@ The mobile path is **native** — the same winit+wgpu Rust stack plus embedded l
 
 ## Module architecture: engine vs game boundary
 
-> **Terminology note:** The compile-time DI units that were previously called "plugins" are now called **modules** to disambiguate. The term **"plugin" is now reserved for the upcoming user-authored plugin system** (runtime-loadable extensions authored by end users / modders). Throughout this document, "module" refers to the engine's compile-time DI units (`Module`, `RendererModule`, `ModuleHost`, etc.).
+> **Terminology note:** The compile-time DI units that were previously called "plugins" are now called **modules** to disambiguate. The term **"plugin" refers to the user-authored plugin/modding system** (runtime-loadable extensions authored by end users / modders — implemented; see "User-authored plugin (modding) system" and "Modding system (PluginHost + mod.json)" below). Throughout this document, "module" refers to the engine's compile-time DI units (`Module`, `RendererModule`, `ModuleHost`, etc.).
 
 The engine is a **single npm package**, `@downdraft/engine` (manifest at `packages/engine/package.json`), which exposes everything through subpath exports: `@downdraft/engine` (core index), `@downdraft/engine/core/<path>` (deep core imports), `@downdraft/engine/app/<renderer|shared>`, `@downdraft/engine/libraries/<name>`, `@downdraft/engine/modules/<name>`, plus `shader-graph`, `mcp`, `test`, and `asset-bake` subpaths. The only other published packages are `@downdraft/cli` (the `draft` binary) and `@downdraft/platform-native` (native binaries). The exports map is generated — run `node scripts/gen-engine-exports.mjs` after adding/removing a library or module directory.
 
@@ -323,7 +323,7 @@ The `opts` object encapsulates all config and dependencies. This is the standard
 - House rule `downdraft/no-for-of` (error): `for..of` is banned except where it's the required iteration structure — a call result (`Object.entries()`, `map.entries()`, generators, ...) or `for await..of`. Use `.forEach()` or an indexed `for` loop otherwise. The rule lives in `packages/engine/lint-plugin.mjs` (oxlint JS plugin, resolved as `@downdraft/engine/lint-plugin` from every `.oxlintrc.json` — root + each game).
 - `bun test packages/engine/core/src/ecs/world.spec.ts packages/engine/core/src/render/frustum.spec.ts packages/engine/core/src/telemetry/collector.spec.ts`
 - `bun test packages/engine/core/src/physics/*.spec.ts` — all physics specs (121 tests).
-- `bun test packages/engine/modules/physics-rapier/src/*.spec.ts` — rapier module specs (16 tests).
+- `bun test packages/engine/libraries/physics-rapier/src/*.spec.ts` — rapier library specs (bulk-ops, ffi-lib, validated-api).
 - `bun test packages/engine/core/src/render/bindless/bindless.spec.ts` — bindless texture registry + material manager specs.
 - `bun test packages/engine/core/src/material/material.spec.ts packages/engine/core/src/material/variants.spec.ts` — material + variant specs.
 - `bun test packages/engine/shader-graph/src/graph.spec.ts` — shader graph compiler specs (includes GBuffer multi-target + variant tests).
@@ -573,8 +573,8 @@ The engine uses a bindless material binding model to eliminate per-draw bind-gro
 - Simulation tick telemetry now emits `perf_stats` with `process: "sim"` every 30 ticks; the game module records systems into the `TelemetryCollector` overlay.
 - `simulation-tick.ts` caches player center once per tick and builds slow-log/per-event arrays with loops instead of chained filter/map.
 - ECS `World` uses numeric archetype keys, avoids `allArchetypes.includes`, removes duplicate `updateQueryArchetypes` call in `step`, and `Schedule` caches the query list.
-- `WebGPURenderer` builds a single `GPUCommandEncoder` per frame and submits once; the depth texture cache is cleared on resize.
-- Main process `nvidia-smi` queries are async and cached for 1s.
+- `GameRenderer` builds a single `GPUCommandEncoder` per frame and submits once; the depth texture cache is cleared on resize.
+- Host thread `nvidia-smi` queries are async and cached for 1s.
 - `TelemetryCollector.passTimings` is now a bounded `Map` instead of an unbounded array.
 - `GPUProfiler` supports up to 32 passes (was hardcoded to 16).
 
@@ -683,9 +683,9 @@ draft test --renderer=cpu --spec tests/e2e/my-game.spec.ts
 **CLI flags:**
 - `--renderer <gpu|cpu>` — WebGPU backend. `cpu` = SwiftShader software (default), `gpu` = hardware Vulkan.
 - `--headed` — Show the native winit window instead of running headless. Sets `DOWNDRAFT_HEADED=1`.
-- `--game <name>` — Game to test (default: `to-the-ocean`). Resolves spec to `tests/e2e/<game>-smoke.spec.ts`.
+- `--game <name>` — Game to test. Resolves `games/<name>` from the engine root, or the game dir from cwd. Resolves spec to `tests/e2e/<game>-smoke.spec.ts`.
 - `--spec <path>` — Override the spec file path.
-- `--port <n>` — MCP port (default: 9976). If omitted, the harness auto-allocates a free port.
+- `--port <n>` — MCP port (default: `0` = auto-assign a free port).
 - `--no-deterministic` — Disable fixed seed / render loop pause / window hiding.
 - `--build` / `--build-only` — on `draft release` these are aliases for `--stage=build`. Native packaging is `scripts/package-native.mjs`.
 
@@ -792,13 +792,13 @@ All UI text rendered by the engine and games MUST use a font size of **at least 
 `draft release` is the unified build + package pipeline that replaced the separate `build`, `dist`, `export`, `mobile`, and `build-games` commands. The old commands remain as deprecated backward-compat aliases that delegate to `release`.
 
 ```
-draft release [--game=<name>] [--games=<csv>] [--target=<win|linux|mac|all>]
+draft release [--game=<name>] [--games=<csv>] [--target=<win|linux|mac|android|all>]
               [--stage=<build|package|release>] [--mode=<dev|debug|prod>]
               [--runtime=<bun|node|deno|all>] [--format=<csv>]
               [--out=<dir>] [--mcp] [--verbose]
 ```
 
-All stages compile the same artifact via `scripts/package-native.mjs`: a standalone Bun binary (`<out>/<game>-<target>`) plus a sibling `native/` cdylib and `dd-assets/` staging tree. `--mcp` retains the MCP endpoint in the packaged binary (stripped by default via `__DD_MCP_STRIP__`). Mobile targets are removed — a future mobile port would be native, not WebView.
+All stages compile the same artifact via `scripts/package-native.mjs`: a standalone Bun binary (`<out>/<game>-<target>`) plus a sibling `native/` cdylib and `dd-assets/` staging tree. `--mcp` retains the MCP endpoint in the packaged binary (stripped by default via `__DD_MCP_STRIP__`). `--target=android` invokes `packages/cli/scripts/package-mobile.mjs` (native winit+wgpu shell + embedded libnode — see "Android: genuinely native port" above); the old Capacitor path is removed.
 
 **Linux packaging** goes through `packages/cli/scripts/package-desktop.mjs`, an electron-builder-style system with a runtime matrix:
 
@@ -812,9 +812,9 @@ All stages compile the same artifact via `scripts/package-native.mjs`: a standal
 
 Windows binaries are stamped with version info and icons by `package-native.mjs` via `resedit` (in-place `.rsrc` regeneration — the `.bun` trailer is preserved).
 
-## Mobile targets — removed
+## Mobile targets — Capacitor removed, native Android shipped
 
-The Capacitor/WebView mobile path (`draft mobile`, `release --target=android,ios`, `packages/mobile-shell`, per-game `android/`/`ios/` dirs) is **deleted** — it was dormant and unmaintained. The mobile port is the native winit+wgpu+libnode path described in "Android: genuinely native port" above.
+The Capacitor/WebView mobile path (`draft mobile`, `packages/mobile-shell`, per-game `android/`/`ios/` dirs) is **deleted** — it was dormant and unmaintained. The live mobile path is `draft release --target=android`, the native winit+wgpu+libnode port described in "Android: genuinely native port" above. iOS remains unsupported.
 
 ## User-authored plugin (modding) system
 
@@ -831,7 +831,7 @@ The engine supports a **plugin system** (distinct from the compile-time **module
 |--------|------|--------|-------------|
 | `worker-js` | `native` | `sim` or `own-worker` | TypeScript/JavaScript in a Web Worker. Full ECS + typed-DI access (native tier) or limited API (script tier). |
 | `quickjs` | `script` | `renderer` | JavaScript in a QuickJS WASM VM. Hard isolation — only the `ddPlugin` bridged global exists. Instruction-budget limited. |
-| `wasm` | `native` | `own-worker` (always) | WebAssembly module with ABI v2. Host provides `env` imports; plugin exports `register`/`tick`/`dispose`/`on_event`. |
+| `wasm` | `native` | `own-worker` (always) | WebAssembly module with ABI v3. Host provides `env` + host-call imports; plugin exports `register`/`tick`/`dispose`/`on_event`/`on_host_call_result`. |
 | `asset` | `data` | `renderer` | Data-only: textures, audio, meshes, JSON. No code entry. Registered into the `AssetManager`. |
 
 ### Capability tiers
@@ -882,14 +882,14 @@ startGame({
 
 ### Plugin discovery
 
-- **Local**: `games/<game>/plugins/<plugin-id>/plugin.json` — discovered by the CLI (`dd plugin list`) and by the game's vite config.
+- **Local**: `games/<game>/plugins/<plugin-id>/plugin.json` — discovered by the CLI (`draft plugin list`) and by the game's vite config.
 - **Remote workshop**: `WorkshopFetcher` downloads plugin packs from a `BlobStore`, caches them under `<cacheDir>/<id>@<version>/`, and returns validated manifests for the `PluginHost` to discover.
 
 ### CLI
 
 ```bash
-dd plugin new <name> --format <format> --game <game> [options]
-dd plugin list [--game <game>]
+draft plugin new <name> --format <format> --game <game> [options]
+draft plugin list [--game <game>]
 ```
 
 Scaffolds a new plugin directory with `plugin.json`, `package.json`, entry file, and README.
@@ -921,13 +921,13 @@ The `downdraft doctor` devtools panel displays a plugins table (id, version, for
 - `packages/engine/core/src/plugin/loader-quickjs.ts` — `QuickjsPluginLoader`.
 - `packages/engine/core/src/plugin/quickjs-bridge.ts` — QuickJS host↔VM bridge (handle tracking, marshaling, interrupt handler).
 - `packages/engine/core/src/plugin/loader-wasm.ts` — `WasmPluginLoader` + `InlineWasmPluginLoader`.
-- `packages/engine/core/src/plugin/wasm-abi.ts` — WASM ABI v2 types + memory marshaling helpers.
+- `packages/engine/core/src/plugin/wasm-abi.ts` — WASM ABI v3 types + memory marshaling helpers.
 - `packages/engine/core/src/plugin/wasm-worker.ts` — WASM worker entry.
 - `packages/engine/core/src/plugin/workshop.ts` — `WorkshopFetcher` (remote pack fetch + cache).
 - `packages/engine/core/src/plugin/diagnostics.ts` — `PluginInfo` snapshot for the doctor panel.
 - `packages/engine/core/src/plugin/mcp-tools.ts` — MCP automation tools.
 - `packages/cli/src/scaffold-plugin.ts` — CLI plugin scaffold.
-- `packages/cli/src/plugin-command.ts` — `dd plugin` CLI subcommand.
+- `packages/cli/src/plugin-command.ts` — `draft plugin` / `draft mod` CLI subcommands.
 - `packages/engine/modules/devtools/src/doctor-panel.ts` — doctor panel with plugin table.
 - `packages/engine/app/src/renderer/game-module.ts` — `PluginRuntimeConfig` + `GameModule.plugins` wiring.
 
@@ -936,7 +936,7 @@ The `downdraft doctor` devtools panel displays a plugins table (id, version, for
 - `games/overburden/plugins/bronze-blocks/` — worker-js native tier (ECS + typed DI).
 - `games/overburden/plugins/crop-sprites-pack/` — asset data tier (texture + JSON).
 - `games/sandjongg/plugins/speed-mode/` — quickjs script tier (events + state + tick).
-- `games/sandjongg/plugins/custom-scorer/` — wasm native tier (ABI v2, Fibonacci scorer).
+- `games/sandjongg/plugins/custom-scorer/` — wasm native tier (ABI v3, Fibonacci scorer).
 
 ## Profiling system (`@downdraft/engine/profiling` + `@downdraft/engine/modules/devtools`)
 
@@ -1156,13 +1156,13 @@ Legacy `plugin.json` manifests continue to load via auto-normalization. Plugins 
 
 ```bash
 # Scaffold a new mod (generates mod.json + extension buckets)
-dd mod new my-mod --game andrews-sandbox --with shader-postfx --with assets
+draft mod new my-mod --game andrews-sandbox --with shader-postfx --with assets
 
 # Scaffold a legacy plugin (generates plugin.json)
-dd plugin new my-plugin --format worker-js --game andrews-sandbox
+draft plugin new my-plugin --format worker-js --game andrews-sandbox
 
 # List all discovered plugins + mods
-dd plugin list [--game <game>]
+draft plugin list [--game <game>]
 ```
 
 ### Key files
@@ -1179,7 +1179,7 @@ dd plugin list [--game <game>]
 - `games/andrews-sandbox/src/plugin-host-bridge.ts` — sandbox bridge adapters.
 - `games/andrews-sandbox/src/game-module.ts` — PluginHost wiring in sandbox.
 - `packages/cli/src/scaffold-plugin.ts` — mod/plugin scaffold.
-- `packages/cli/src/plugin-command.ts` — `dd plugin` / `dd mod` CLI commands.
+- `packages/cli/src/plugin-command.ts` — `draft plugin` / `draft mod` CLI commands.
 
 ### Testing
 

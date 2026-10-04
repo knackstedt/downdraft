@@ -5,31 +5,25 @@ description: WebGPU render pipeline and render graph
 
 DownDraft uses WebGPU for rendering, with a deferred pipeline and a Bevy-style render graph.
 
-## RenderLoop
+## Renderer
+
+Games wire a renderer through the `GameModule` contract — the host injects the `RenderSurface` (a wgpu-backed native window surface; there is no DOM or canvas):
 
 ```typescript
-import { Camera, MeshBuilder, RenderLoop } from "@downdraft/engine";
+import { GameRenderer, Camera, MeshBuilder } from "@downdraft/engine";
+import { startGame } from "@downdraft/engine/app/renderer";
 
-const camera = new Camera();
-camera.setAspect(16, 9);
-camera.distance = 5;
-
-const mesh = MeshBuilder.cube(1);
-
-const renderLoop = new RenderLoop({
-  surface,       // RenderSurface — native window surface or HTMLCanvasElement
-  mesh,
-  camera,
-  mode: "gbuffer",  // or "simple" for forward rendering
+startGame({
+  renderer: (surface) => new GameRenderer(surface),
+  // ...
 });
-
-await renderLoop.init();
-renderLoop.start();
 ```
+
+`GameRenderer.init()` acquires (or borrows) the GPU device, configures the surface, and compiles the frame graph; `start()` begins the render loop, which is driven by the window's redraw events. The opaque pass supports `mode: "gbuffer"` (deferred) or `mode: "simple"` (forward).
 
 ## Deferred Pipeline
 
-The `RenderLoop` supports a deferred rendering pipeline:
+The renderer supports a deferred rendering pipeline:
 
 1. **Depth prepass** — Early-Z prepass for occlusion culling
 2. **G-Buffer** — Albedo, normal, roughness, metallic, depth, velocity

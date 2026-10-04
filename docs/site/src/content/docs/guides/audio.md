@@ -8,11 +8,16 @@ DownDraft provides a pluggable audio system with a Kira backend via Rust FFI.
 ## AudioEngine
 
 ```typescript
-import { AudioEngine, createAudioSource } from "@downdraft/engine";
-import { AudioKiraModule } from "@downdraft/engine/libraries/audio-kira";
+import { startGame } from "@downdraft/engine/app/renderer";
+import { AudioKiraLib, AudioEngineTok } from "@downdraft/engine/libraries/audio-kira";
 
-gameWorld.useModule(AudioKiraModule);
-const source = createAudioSource({ buffer: "explosion.wav", volume: 0.8 });
+startGame({
+  libraries: [AudioKiraLib],
+  // inject the backend via the typed token in onReady:
+  onReady: (ctx) => {
+    const audio = ctx.inject(AudioEngineTok);
+  },
+});
 ```
 
 ## Spatial Audio
@@ -46,7 +51,7 @@ The audio mixer supports:
 
 ## Backend Interface
 
-The `AudioBackend` interface defines the contract for audio implementations. The default backend is Kira (via Rust FFI in `packages/audio-native`). Alternative backends can be implemented by implementing the interface.
+The `AudioBackend` interface defines the contract for audio implementations; `AudioEngine` takes any backend at construction. The Kira backend (`KiraAudioBackend`, wired declaratively via `AudioKiraLib`) is a Rust cdylib (`libdowndraft_audio`, crate `downdraft-audio` under `libraries/audio-kira/native`) loaded over FFI when present. Alternative backends can be implemented by implementing the interface.
 
 ## Supported Formats
 

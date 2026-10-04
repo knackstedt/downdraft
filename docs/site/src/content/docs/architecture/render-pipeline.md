@@ -56,7 +56,7 @@ The renderer supports split-screen with 1-4 viewports. Each viewport renders ind
 
 ## Frame Rate Limiting
 
-A frame rate limiter is available for X11 multi-monitor vsync issues where `requestAnimationFrame` fires at the fastest monitor's refresh rate. The limiter uses an adaptive accumulator to skip frames when the RAF interval is faster than the target frame time.
+A frame rate limiter is available for X11 multi-monitor vsync issues where the render loop is driven at the fastest monitor's refresh rate. The limiter uses an adaptive accumulator to skip frames when the frame interval is faster than the target frame time.
 
 ## GPU Profiling
 

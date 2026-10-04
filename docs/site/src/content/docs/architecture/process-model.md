@@ -39,15 +39,17 @@ DownDraft Engine runs as a **single native process** — winit + wgpu, hosted un
 
 ### 2. Sim Worker
 
-- Spawned from the host; runs the ECS `World`, game systems, physics, and plugins
+- Spawned from the host; runs the ECS `World`, game systems, and physics
 - Communicates with the host via `SharedArrayBuffer` (zero-copy) and `postMessage` events
-- WASM plugins run in an isolated runtime within the sim worker
+- Sim-targeted plugins are registered by a sim-side `PluginHost`; WASM plugins run in a dedicated worker each (see below)
 - Workers can attach a non-owning view of the shared GPU device to encode command buffers in parallel
 
-### 3. DB / Service Workers
+### 3. Service Workers
 
-- Background workers host services like the SurrealDB (SurrealKV) embedded store
-- Handle save/load and game state queries, schema versioning and migrations
+- **Save worker** — owns the save store off the main thread; the sim worker streams serialized state to it over a `MessageChannel`
+- **Task workers** — a generic pool (`worker/task-pool.ts`) that executes dispatched jobs (meshing, asset decode, etc.)
+- **UI workers** — rasterize Blitz HTML/CSS documents for `modules/html-ui` panels off the main thread
+- **Plugin workers** — WASM plugins each run in a dedicated worker spawned by `WasmPluginLoader`; sandboxed behind tiered permissions
 
 ## Build Modes
 

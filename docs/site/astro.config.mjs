@@ -41,6 +41,7 @@ export default defineConfig({
 						{ label: 'Animation', slug: 'guides/animation' },
 						{ label: 'Audio', slug: 'guides/audio' },
 						{ label: 'Particles', slug: 'guides/particles' },
+						{ label: 'Modules', slug: 'guides/modules' },
 						{ label: 'Plugins', slug: 'guides/plugins' },
 						{ label: 'Native Modules (Rust)', slug: 'guides/native-modules' },
 						{ label: 'Packaging & Distribution', slug: 'guides/packaging' },

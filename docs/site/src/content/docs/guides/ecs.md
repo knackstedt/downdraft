@@ -29,7 +29,7 @@ Systems are functions `(query, resources, commands) => void` that declare their 
 
 ### Schedule
 
-The schedule is **single-threaded by default**. Systems run in dependency order on one thread. Multi-threading is available via plugin/SAB work distribution — the schedule API is designed so multi-threading is a plugin, not a core concern.
+The schedule is **single-threaded**. Systems run in dependency order on one thread — there is no built-in parallel system scheduler. CPU-heavy work is offloaded to dedicated workers instead: the task pool (`worker/task-pool.ts`), library-owned workers (meshing, UI raster, physics realms), and plugin workers.
 
 ### Events
 
