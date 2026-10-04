@@ -1,0 +1,66 @@
+name: Docs
+
+# Builds the Astro/Starlight site in docs/site and deploys it to GitHub
+# Pages. Requires repo Settings -> Pages -> Source = "GitHub Actions".
+# To serve under the default project URL instead of the downdraft.dev
+# custom domain, set DOCS_SITE=https://<owner>.github.io/downdraft-engine
+# and DOCS_BASE=/downdraft-engine/ as workflow env or repository vars.
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "docs/site/**"
+      - ".github/workflows/docs.yml"
+  pull_request:
+    branches: [main, master]
+    paths:
+      - "docs/site/**"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write # required by actions/deploy-pages
+
+# One Pages deployment at a time; let in-flight deploys finish rather than
+# cancelling them mid-upload.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build docs site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+      - name: Install dependencies
+        working-directory: docs/site
+        run: bun install --frozen-lockfile
+      - name: Build
+        working-directory: docs/site
+        env:
+          DOCS_SITE: ${{ vars.DOCS_SITE }}
+          DOCS_BASE: ${{ vars.DOCS_BASE }}
+        run: bun run build
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: docs/site/dist
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
