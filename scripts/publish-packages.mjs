@@ -10,7 +10,7 @@
 
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -74,8 +74,14 @@ for (let _i = 0, _it = order, _n = _it.length; _i < _n; _i++) { const name = _it
   if (!dryRun) cmd.push("--provenance");
   console.log(`${dryRun ? "would publish" : "publish"}  ${name}@${pkg.version}`);
   if (dryRun) continue;
-  const r = spawnSync("npm", cmd, { cwd: dir, stdio: "inherit" });
+  const r = spawnSync("npm", cmd, { cwd: dir, encoding: "utf8" });
+  if (r.stdout) process.stdout.write(r.stdout);
+  if (r.stderr) process.stderr.write(r.stderr);
   if (r.status !== 0) {
+    // Surface the npm error as a workflow annotation — job logs need sign-in,
+    // annotations don't.
+    const tail = ((r.stderr || "") + (r.stdout || "")).trim().split("\n").slice(-6).join(" | ").slice(0, 400);
+    console.error(`::error::npm publish ${name} failed (exit ${r.status}) — ${tail}`);
     console.error(`FAILED ${name} — aborting (dependents would be broken)`);
     process.exit(1);
   }
