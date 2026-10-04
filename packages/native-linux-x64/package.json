@@ -1,10 +1,23 @@
 {
   "name": "@downdraft/native-linux-x64",
   "version": "0.1.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/knackstedt/downdraft.git",
+    "directory": "packages/native-linux-x64"
+  },
   "description": "Prebuilt Downdraft native binaries (linux x64)",
   "license": "MIT",
-  "os": ["linux"],
-  "cpu": ["x64"],
-  "files": ["lib/"],
-  "publishConfig": { "access": "public" }
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "lib/"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
 }

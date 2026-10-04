@@ -1,10 +1,24 @@
 {
   "name": "@downdraft/node-mobile-android-x64",
   "version": "0.1.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/knackstedt/downdraft.git",
+    "directory": "packages/node-mobile-android-x64"
+  },
   "description": "Prebuilt libnode.so for Android x86_64 (embedded Node for Downdraft)",
   "license": "MIT",
-  "os": ["android"],
-  "cpu": ["x64"],
-  "files": ["lib/", "include/"],
-  "publishConfig": { "access": "public" }
+  "os": [
+    "android"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "lib/",
+    "include/"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
 }

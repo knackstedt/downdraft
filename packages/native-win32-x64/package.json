@@ -1,10 +1,23 @@
 {
   "name": "@downdraft/native-win32-x64",
   "version": "0.1.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/knackstedt/downdraft.git",
+    "directory": "packages/native-win32-x64"
+  },
   "description": "Prebuilt Downdraft native binaries (win32 x64)",
   "license": "MIT",
-  "os": ["win32"],
-  "cpu": ["x64"],
-  "files": ["lib/"],
-  "publishConfig": { "access": "public" }
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "lib/"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
 }

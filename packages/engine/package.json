@@ -1,6 +1,11 @@
 {
   "name": "@downdraft/engine",
   "version": "0.1.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/knackstedt/downdraft.git",
+    "directory": "packages/engine"
+  },
   "type": "module",
   "description": "Downdraft engine — core runtime (ECS, WebGPU renderer, module/DI system, SAB sim channels), runtime-agnostic game bootstrap (startGame/bootstrapGame, HostAPI types), and all engine libraries + feature modules, exposed as subpath exports.",
   "exports": {

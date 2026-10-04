@@ -1,13 +1,18 @@
 {
   "name": "@downdraft/platform-native",
   "version": "0.1.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/knackstedt/downdraft.git",
+    "directory": "packages/platform-native"
+  },
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",
   "scripts": {
     "build:native": "node ../../scripts/build-native.mjs --pkg=downdraft-platform",
     "fetch:native": "node native/fetch-native.mjs",
-    "postinstall": "node native/fetch-native.mjs || echo '[platform-native] native fetch skipped (offline?) \u2014 run bun run fetch:native later'",
+    "postinstall": "node native/fetch-native.mjs || echo '[platform-native] native fetch skipped (offline?) — run bun run fetch:native later'",
     "test": "bun test"
   },
   "dependencies": {
@@ -40,5 +45,5 @@
     "README.md",
     "!**/*.spec.ts"
   ],
-  "description": "Native platform bindings \u2014 the Rust libdowndraft_platform cdylib (wgpu + winit + cosmic-text + image + naga) and the native device layer DownDraft runs on."
+  "description": "Native platform bindings — the Rust libdowndraft_platform cdylib (wgpu + winit + cosmic-text + image + naga) and the native device layer DownDraft runs on."
 }
