@@ -42,6 +42,7 @@ export default defineConfig({
 						{ label: 'Audio', slug: 'guides/audio' },
 						{ label: 'Particles', slug: 'guides/particles' },
 						{ label: 'Plugins', slug: 'guides/plugins' },
+						{ label: 'Native Modules (Rust)', slug: 'guides/native-modules' },
 						{ label: 'MCP & AI Agents', slug: 'guides/mcp' },
 						],
 				},
