@@ -8,8 +8,8 @@ import starlightLlmsTxt from 'starlight-llms-txt';
 export default defineConfig({
 	// Overridable so the same build works on the downdraft.dev custom domain
 	// (base '/') or the default <owner>.github.io/downdraft-engine Pages URL.
-	site: process.env.DOCS_SITE ?? 'https://downdraft.dev',
-	base: process.env.DOCS_BASE ?? '/',
+	site: process.env.DOCS_SITE || 'https://downdraft.dev',
+	base: process.env.DOCS_BASE || '/',
 	integrations: [
 		starlight({
 			title: 'DownDraft',
