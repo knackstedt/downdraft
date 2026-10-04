@@ -56,6 +56,8 @@ export interface BootstrapDevToolsOptions {
    *  renderer init — a factory runs when the game's sim worker is already
    *  started, e.g. by an overridden onInit). */
   workerHosts?: any[] | ((renderer: any) => any[]);
+  /** Extra game-level rows for the Input panel. */
+  inputInfo?: () => { key: string; value: string; flags?: number }[];
   /**
    * Enable the profiling system (ProfilingSAB + ProfilingBridge + built-in views).
    * When true, a ProfilingBridge is created and the ProfilingSAB is shared
@@ -197,7 +199,8 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
             autoShow: uiCfg.autoShow,
             toggleKey: uiCfg.toggleKey,
             onHost: (host) => {
-              wireDevtoolsFrontend(host.devtoolsMirror, host, renderer, workerHosts, profilingSAB);
+              renderer.nativeDebugger = host;
+              wireDevtoolsFrontend(host.devtoolsMirror, host, renderer, workerHosts, profilingSAB, opts.devtools?.inputInfo);
             },
           }));
         } else {
@@ -213,7 +216,7 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
           });
           await webHost.start();
           renderer.nativeDebugger = webHost;
-          wireDevtoolsFrontend(webHost.devtoolsMirror, webHost, renderer, workerHosts, profilingSAB);
+          wireDevtoolsFrontend(webHost.devtoolsMirror, webHost, renderer, workerHosts, profilingSAB, opts.devtools?.inputInfo);
           // Per-frame pump + F12 through the renderer's input bus, same as
           // the Blitz module's wiring.
           renderer.setCallbacks?.({
@@ -347,6 +350,7 @@ async function wireDevtoolsFrontend(
   renderer: any,
   workerHosts: any[] | undefined,
   profilingSAB: SharedArrayBuffer | null,
+  inputInfo?: () => { key: string; value: string; flags?: number }[],
 ): Promise<void> {
   const { registerEngineProviders } = await import("@downdraft/engine/libraries/devtools");
   const evalNames: string[] = ["main"];
@@ -362,5 +366,6 @@ async function wireDevtoolsFrontend(
     profilingSAB,
     simProxy: workerHosts?.[0]?.proxy ?? undefined,
     evalTargetNames: () => evalNames,
+    inputInfo,
   });
 }

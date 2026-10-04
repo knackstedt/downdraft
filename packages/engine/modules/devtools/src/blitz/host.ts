@@ -185,6 +185,19 @@ export class BlitzDevtoolsHost {
   setActivePanel(id: string): void { this.activate(id); }
   getActivePanel(): string { return this.activeId; }
 
+  // ── nativeDebugger interface parity (the dock composites through the
+  //    html-ui compositor instead of a debug blit) ──
+  getUiTextureView(): GPUTextureView | null { return null; }
+  blit(_encoder: GPUCommandEncoder, _targetView: GPUTextureView): void { /* composited by the UI pass */ }
+  handlePointerDown(_x: number, _y: number, _button: number, _mods: number): boolean { return false; }
+  handlePointerMove(_x: number, _y: number, _button: number, _mods: number): boolean { return false; }
+  handlePointerUp(_x: number, _y: number, _button: number, _mods: number): boolean { return false; }
+  handleWheel(_x: number, _y: number, _deltaY: number): boolean { return false; }
+  handleTextInput(_text: string): boolean { return false; }
+  handleKeyDown(_key: string, _keyCode: number): boolean { return false; }
+  isTextInputActive(): boolean { return false; }
+  setModifiers(_alt: boolean, _ctrl: boolean, _shift: boolean): void { /* noop */ }
+
   resize(w: number, h: number): void {
     this.surfaceW = w;
     this.surfaceH = h;
