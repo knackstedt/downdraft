@@ -41,7 +41,7 @@ Engine libraries export `EngineLibrary` descriptors (e.g. `WaterLib`, `PhysicsRa
 || `@downdraft/engine/libraries/persistence` | Save/load (worker-backed binary + filesystem stores) |
 || `@downdraft/engine/libraries/physics-native` | Native physics backend |
 || `@downdraft/engine/libraries/physics-rapier` | Rapier3D physics backend |
-|| `@downdraft/engine/libraries/postfx` | Post-processing stack (21 chainable effects) |
+|| `@downdraft/engine/libraries/postfx` | Post-processing stack (31 chainable effects) |
 || `@downdraft/engine/libraries/recast` | Recast navmesh generation bindings |
 || `@downdraft/engine/libraries/sand` | Falling-sand simulation |
 || `@downdraft/engine/libraries/stickman` | Stickman character system |
@@ -79,15 +79,22 @@ Game-specific code lives in each game repo's `libraries/` and `modules/` directo
 || Crate | Location | Description |
 |---|---|---|
 || `downdraft-platform` | `packages/platform-native/native-rs` | Platform cdylib (`libdowndraft_platform`): winit windowing, wgpu device, HostAPI |
+|| `downdraft-gamepad` | `packages/platform-native/native-gamepad` | Gamepad input cdylib (`libdowndraft_gamepad`) |
+|| `downdraft-secrets` | `packages/platform-native/native-secrets` | OS keychain secrets cdylib (`libdowndraft_secrets`) |
+|| `downdraft-physics` | `packages/engine/libraries/physics-native/native` | Native physics backend cdylib (`libdowndraft_physics`) |
 || `downdraft-audio` | `packages/engine/libraries/audio-kira/native` | Optional Kira audio cdylib (`libdowndraft_audio`) |
-|| `downdraft-android` | `packages/android-shell` | Android NativeActivity shell (statically links `downdraft-platform`; embeds libnode) |
+|| `downdraft-devtools` | `packages/engine/libraries/devtools/native` | egui devtools overlay cdylib (`libdowndraft_devtools`) |
+|| `downdraft-blitz-osr` | `packages/engine/libraries/blitz-ui/native-osr` | Blitz/vello UI rasterization cdylib (`libdowndraft_blitz_osr`; `native/` is the supporting `downdraft-blitz-shell` rlib) |
+|| `downdraft-android` | `packages/android-shell` | Android NativeActivity shell (`libdowndraft_android`; statically links `downdraft-platform`, embeds libnode) |
+
+`packages/node-mobile` is not a crate — it's the overlay recipe that builds `libnode.so` for Android from pinned upstream Node.
 
 ## Core Subsystems
 
 The `@downdraft/engine` package exports the following subsystems:
 
 - **ECS** — World, Entity, Component, Archetype, Query, System, Schedule, Events, Hierarchy
-- **Render** — Device, Surface, RenderGraph, RenderPass, Pipeline, BindGroup, Buffer
+- **Render** — Device, Surface, FrameGraph, RenderPass, Pipeline, BindGroup, Buffer
 - **Scene** — Scene, World, Layer, Camera, Checkpoint
 - **Assets** — Manager, Loaders (mesh, texture, shader, audio), Importer, LOD, Cache
 - **Material** — Material, Graph, Compiler, Library
@@ -98,7 +105,7 @@ The `@downdraft/engine` package exports the following subsystems:
 - **Physics** — Interface, Registry, Realm, Body, Collider, Character, Raycast, Lifecycle
 - **Audio** — Interface, Engine, Source, Listener, Mixer
 - **Input** — State, Mapping, Context, SAB Bridge
-- **SAB** — SeqlockBuffer, Protocol, Writer, Reader, Input
+- **SAB** — Record/Slot buffers, sim + input channels, sequence counters, Writer/Reader pairs
 - **Worker** — SimWorker host, task pool, RPC, crash recovery
 - **Platform** — Window, RenderSurface, HostAPI bridge, HiDPI, HDR, FS, Time
 - **Change Detection** — Tracker, Atomics

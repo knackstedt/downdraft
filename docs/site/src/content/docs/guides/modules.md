@@ -25,7 +25,7 @@ startGame({
   libraries: [WaterLib],
 
   // Renderer + Sim
-  renderer: (surface) => new WebGPURenderer(surface),
+  renderer: (surface) => new GameRenderer(surface),
   sim: (seed) => new SimWebWorker(seed?.libraryBuffers),
   simConfig: { seed: 12345, gamemode: 0, rules: {} },
 
@@ -142,6 +142,10 @@ Feature modules are opt-in game features with the `Module` interface:
 | camera-controls | `@downdraft/engine/modules/camera-controls` | Camera modes (free, follow, orbit) |
 | native-osr | `@downdraft/engine/modules/native-osr` | Offscreen rendering for in-game UI surfaces |
 | mcp | `@downdraft/engine/modules/mcp` | MCP automation harness for testing |
+| editor | `@downdraft/engine/modules/editor` | Editor shell, viewport, selection, commands |
+| html-ui | `@downdraft/engine/modules/html-ui` | Blitz HTML/CSS game UI, rasterized in a worker |
+| controller-ui | `@downdraft/engine/modules/controller-ui` | Controller/ten-foot UI support |
+| vitals | `@downdraft/engine/modules/vitals` | Vitals (health/stamina/etc.) system |
 | xr | `@downdraft/engine/modules/xr` | WebXR VR/AR support |
 
 ### Module factory pattern

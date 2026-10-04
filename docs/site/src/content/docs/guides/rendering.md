@@ -26,7 +26,7 @@ startGame({
 The renderer supports a deferred rendering pipeline:
 
 1. **Depth prepass** — Early-Z prepass for occlusion culling
-2. **G-Buffer** — Albedo, normal, roughness, metallic, depth, velocity
+2. **G-Buffer** — Albedo, normal, metallic+emissive, roughness+AO, velocity, depth
 3. **Shadow map** — Shadow map pass
 4. **Deferred lighting** — Compute lighting from G-Buffer
 5. **Skybox** — Sky rendering
@@ -37,7 +37,7 @@ A simple forward path is also available via `mode: "simple"`.
 
 ## Render Graph
 
-The `RenderGraph` is a DAG (Directed Acyclic Graph) of render passes with:
+The `FrameGraph` is a DAG (Directed Acyclic Graph) of render passes with:
 
 - **Automatic resource aliasing** — GPU resources are reused across passes when lifetimes don't overlap
 - **Usage flag sync** — Resource transitions are handled automatically
@@ -49,7 +49,7 @@ Built-in render passes include:
 
 | Pass | Description |
 |---|---|
-| Opaque | G-Buffer geometry pass (albedo, normal, roughness, metallic, depth, velocity) |
+| Opaque | G-Buffer geometry pass (albedo, normal, metallic+emissive, roughness+AO, velocity, depth) |
 | Transparent | Back-to-front transparent geometry |
 | Depth Prepass | Early-Z prepass for occlusion culling |
 | Shadow | Shadow map rendering |

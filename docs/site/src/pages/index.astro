@@ -31,14 +31,14 @@ import logoSvg from '../assets/logo.svg';
 					<img src={logoSvg.src} alt="DownDraft" width={80} height={80} class="hero-logo" />
 				</div>
 				<h1 class="headline">
-					<span class="line">AAA-class engine.</span>
-					<span class="line">WebGPU native.</span>
+					<span class="line">Native engine.</span>
+					<span class="line">WebGPU rendering.</span>
 					<span class="line accent">TypeScript-first.</span>
 				</h1>
 				<p class="subheadline">
-					A loosely AAA-class game engine built on a native runtime — winit + wgpu under
-					Bun, Node, or Deno, no browser in the loop. TypeScript-first workflow, a modular plugin ecosystem,
-					and a built-in MCP server for AI-assisted asset management.
+					DownDraft is a game engine that runs your TypeScript on a native runtime — winit + wgpu
+					under Bun, Node, or Deno. Real desktop windows, not a browser. A typed-DI module system,
+					a sandboxed plugin/mod loader, and a built-in MCP server for AI-assisted development.
 				</p>
 				<div class="cta-row">
 					<a href="/getting-started/introduction/" class="btn btn-primary">
@@ -57,7 +57,7 @@ import logoSvg from '../assets/logo.svg';
 		<section class="install-section">
 			<div class="section-inner">
 				<p class="section-eyebrow">Quick Start</p>
-				<h2 class="section-title">Scaffold a new game in seconds</h2>
+				<h2 class="section-title">Scaffold a new game</h2>
 				<p class="install-subtitle">Bootstrap a project with the DownDraft CLI — templates, configs, and dev server all set up for you.</p>
 				<div class="terminal">
 					<div class="terminal-header">
@@ -69,8 +69,8 @@ import logoSvg from '../assets/logo.svg';
 						<span class="terminal-title">bash</span>
 					</div>
 					<div class="terminal-body">
-						<code class="terminal-code">npx @downdraft/cli new my-game</code>
-						<button class="copy-btn" aria-label="Copy to clipboard" data-command="npx @downdraft/cli new my-game">
+						<code class="terminal-code">bunx @downdraft/cli new my-game</code>
+						<button class="copy-btn" aria-label="Copy to clipboard" data-command="bunx @downdraft/cli new my-game">
 							<svg class="copy-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
 							<svg class="check-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
 						</button>
@@ -90,7 +90,7 @@ import logoSvg from '../assets/logo.svg';
 		<section class="features-section">
 			<div class="section-inner">
 				<p class="section-eyebrow">Capabilities</p>
-				<h2 class="section-title">Everything you need to build games</h2>
+				<h2 class="section-title">The core systems, wired together</h2>
 				<div class="feature-grid">
 					<article class="feature-card">
 						<div class="feature-icon">
@@ -104,21 +104,21 @@ import logoSvg from '../assets/logo.svg';
 							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>
 						</div>
 						<h3 class="feature-title">WebGPU Rendering</h3>
-						<p class="feature-desc">Deferred pipeline with shadows, post-processing, and a render graph with automatic resource aliasing. Ships with an immediate-mode WebGPU UI system for HUDs and tooling, plus an offscreen-rendered surface mode for world-space UI.</p>
+						<p class="feature-desc">Deferred pipeline with shadows, post-processing, and a render graph with automatic resource aliasing. Ships with html-ui — Blitz HTML/CSS rasterized in a worker and composited in-process — plus an offscreen-rendered surface mode for world-space UI.</p>
 					</article>
 					<article class="feature-card">
 						<div class="feature-icon">
 							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7h-9"/><path d="M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></svg>
 						</div>
-						<h3 class="feature-title">Plugin System</h3>
-						<p class="feature-desc">Drop-in TypeScript and WASM plugins for water, terrain, physics, audio, networking, and more. Write your own in TypeScript — no native build tooling required.</p>
+						<h3 class="feature-title">Mods & Plugins</h3>
+						<p class="feature-desc">User-authored plugins and mods load at runtime from <code>plugins/</code> — worker-js, WASM, QuickJS, and asset-pack formats behind tiered permissions. Engine features compose separately through a typed-DI module system.</p>
 					</article>
 					<article class="feature-card">
 						<div class="feature-icon">
 							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
 						</div>
 						<h3 class="feature-title">MCP Server</h3>
-						<p class="feature-desc">Built-in MCP server lets AI assistants design scenes, spawn entities, manage assets, and debug — all through natural language prompts.</p>
+						<p class="feature-desc">Built-in MCP server exposes scene editing, entity spawning, asset management, and debugging over JSON-RPC — usable by AI assistants or any MCP client.</p>
 					</article>
 					<article class="feature-card">
 						<div class="feature-icon">
@@ -142,13 +142,14 @@ import logoSvg from '../assets/logo.svg';
 		<section class="stack-section">
 			<div class="section-inner narrow">
 				<p class="section-eyebrow">Architecture</p>
-				<h2 class="section-title">Built for performance</h2>
+				<h2 class="section-title">Designed for performance</h2>
 				<p class="section-lead">
 					DownDraft pairs a deferred WebGPU render pipeline with a modular plugin
 					ecosystem in a single native process — Bun, Node, or Deno for the JS
 					runtime, winit for windowing, wgpu for the GPU. Zero-copy SharedArrayBuffer keeps data
 					flowing between threads with no serialization overhead.
 				</p>
+				<p><a href="/architecture/process-model/">See the architecture docs →</a></p>
 				<div class="stack-grid">
 					<div class="stack-item">
 						<div class="stack-dot" />
@@ -160,7 +161,7 @@ import logoSvg from '../assets/logo.svg';
 					</div>
 					<div class="stack-item">
 						<div class="stack-dot" />
-						<span>SurrealDB (SurrealKV)</span>
+						<span>Worker-backed binary saves</span>
 					</div>
 					<div class="stack-item">
 						<div class="stack-dot" />
@@ -172,7 +173,7 @@ import logoSvg from '../assets/logo.svg';
 					</div>
 					<div class="stack-item">
 						<div class="stack-dot" />
-						<span>imui + PixiJS UI</span>
+						<span>Blitz html-ui + egui devtools</span>
 					</div>
 					<div class="stack-item">
 						<div class="stack-dot" />
@@ -188,9 +189,9 @@ import logoSvg from '../assets/logo.svg';
 				<p class="section-eyebrow">Runtime</p>
 				<h2 class="section-title">Native all the way down</h2>
 				<p class="section-lead">
-					No browser, no renderer process, no IPC boundary. DownDraft games run as a
-					single JS-runtime process (Bun by default; Node and Deno supported) driving a
-					native window and the GPU directly.
+					DownDraft games run as a single process driving a real OS window and the GPU
+					directly — Bun by default, with Node and Deno supported. The platform is a
+					Rust library your code calls into, not a shell around it.
 				</p>
 				<div class="native-grid">
 					<div class="native-point">
@@ -198,8 +199,8 @@ import logoSvg from '../assets/logo.svg';
 							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
 						</div>
 						<div>
-							<h3>One process, zero IPC</h3>
-							<p>Windowing, rendering, assets, and the MCP server all live in one JS-runtime process. The host API is a direct function call — no IPC channels, no preload bridge, no message serialization between your game and the platform.</p>
+							<h3>One process, direct calls</h3>
+							<p>Windowing, rendering, assets, and the MCP server all live in one process. Talking to the platform is a plain function call — nothing crosses a process boundary, so nothing gets serialized, copied, or awaited on a channel.</p>
 						</div>
 					</div>
 					<div class="native-point">
@@ -208,7 +209,7 @@ import logoSvg from '../assets/logo.svg';
 						</div>
 						<div>
 							<h3>Threads where they matter</h3>
-							<p>The simulation runs in a dedicated worker thread with SharedArrayBuffer — deliberate isolation, not browser constraint. Workers can even share the GPU device and encode command buffers in parallel.</p>
+							<p>The simulation runs in a dedicated worker thread with SharedArrayBuffer, so heavy game logic never blocks rendering. Workers can even share the GPU device and encode command buffers in parallel.</p>
 						</div>
 					</div>
 					<div class="native-point">
@@ -217,7 +218,7 @@ import logoSvg from '../assets/logo.svg';
 						</div>
 						<div>
 							<h3>A fraction of the footprint</h3>
-							<p>Shipping Bun + a Rust cdylib instead of a bundled Chromium means smaller binaries, lower baseline memory, and no compositor in the render path. What your GPU does is what your code asked for.</p>
+							<p>Games ship as one small executable plus a Rust library — tens of megabytes, not hundreds — with low baseline memory. What your GPU draws is exactly what your code asked for.</p>
 						</div>
 					</div>
 				</div>
@@ -232,7 +233,7 @@ import logoSvg from '../assets/logo.svg';
 				<p class="section-lead">
 					Everything — simulation, rendering, and UI — runs inside one native process.
 					The host owns the window and GPU device; workers handle simulation over
-					SharedArrayBuffer. No IPC boundary to cross, no browser compositor in the way.
+					SharedArrayBuffer. Frames go straight to the screen.
 				</p>
 				<div class="pipeline">
 					<div class="pipeline-step">
@@ -253,14 +254,14 @@ import logoSvg from '../assets/logo.svg';
 						<span class="pipeline-tag">03</span>
 						<div>
 							<h3>UI — flat path</h3>
-							<p>An immediate-mode WebGPU UI (imui) rendered directly onto the render surface for HUDs, menus, and devtools panels — no DOM, no compositor.</p>
+							<p>html-ui documents (Blitz HTML/CSS) rasterized in a dedicated worker and drawn straight onto the frame for HUDs, menus, and panels. Devtools render as a native egui overlay.</p>
 						</div>
 					</div>
 					<div class="pipeline-step">
 						<span class="pipeline-tag">04</span>
 						<div>
 							<h3>UI — world-space path</h3>
-							<p>Offscreen UI rendered to a GPU texture, imported into the render graph and drawn as geometry — for panels that need to exist inside the 3D scene.</p>
+							<p>Offscreen UI rendered to a GPU texture via the native-osr module, imported into the render graph and drawn as geometry — for panels that need to exist inside the 3D scene.</p>
 						</div>
 					</div>
 					<div class="pipeline-step">

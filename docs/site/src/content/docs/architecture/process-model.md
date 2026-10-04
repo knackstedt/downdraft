@@ -3,7 +3,7 @@ title: Process Model
 description: Single-process native runtime and its execution contexts
 ---
 
-DownDraft Engine runs as a **single native process** — winit + wgpu, hosted under Bun (default), Node+tsx, or Deno; no browser, no renderer process, no IPC boundary. Isolation is achieved with worker threads and SharedArrayBuffer rather than OS processes.
+DownDraft Engine runs as a **single native process** — winit + wgpu, hosted under Bun (default), Node+tsx, or Deno. There's no embedded browser: the window and the GPU are the real thing, and game code reaches the platform through direct function calls. Isolation is achieved with worker threads and SharedArrayBuffer rather than OS processes.
 
 ## Architecture
 

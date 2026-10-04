@@ -3,7 +3,7 @@ title: SAB Communication
 description: SharedArrayBuffer channels and zero-copy communication
 ---
 
-DownDraft uses multiple SharedArrayBuffer (SAB) channels with a `SeqlockBuffer` primitive for zero-copy, high-frequency communication between the sim worker and renderer.
+DownDraft uses multiple SharedArrayBuffer (SAB) channels — typed `RecordReader`/`RecordWriter`, `SlotBuffer`, and `SimBufferReader`/`SimBufferWriter` pairs (`core/src/sab/`) — for zero-copy, high-frequency communication between the sim worker and renderer.
 
 ## Communication Tiers
 
@@ -11,17 +11,17 @@ DownDraft uses multiple SharedArrayBuffer (SAB) channels with a `SeqlockBuffer` 
 |---|---|---|
 | Sim → Render | Multiple SharedArrayBuffers + Atomics | Transforms, water, terrain, physics, audio positions (60fps, zero-copy) |
 | Game ↔ Host | Direct function calls (HostAPI) | Saves, screenshots, window state, dialogs, restart |
-| Host ↔ Sim | postMessage + multiple SABs | Commands/events (postMessage), state (SABs via SeqlockBuffer) |
+| Host ↔ Sim | postMessage + multiple SABs | Commands/events (postMessage), state (SAB channels via sequence counters) |
 | Host ↔ Service workers | postMessage / MessageChannel | Save worker, task pool, UI raster workers, plugin workers |
 | Cross-thread sync | Atomics on SAB headers | Frame synchronization, seqlock read/write coordination |
 
-## SeqlockBuffer
+## Sequence counters
 
-Each SAB channel uses the `SeqlockBuffer` primitive — a single reusable seqlock with:
+Each SAB channel carries a sequence counter in its header, bumped with `Atomics` when the writer publishes new data:
 
-- **Odd/even counter** — Writer increments before and after write
-- **Reader retries** — If counter is odd (write in progress) or changed during read, reader retries
+- **Change detection** — Readers poll `hasChanged(lastSeen)` and skip the channel entirely when the counter is unchanged
 - **Lock-free** — No mutexes, no blocking, no allocation
+- **Seqlock reads** — Where a reader copies live data (e.g. the html-ui zero-copy pixel path), the counter doubles as a seqlock: an odd value means a write is in flight, and the reader rechecks the counter after copying to detect a torn read
 
 ## SAB Channels
 

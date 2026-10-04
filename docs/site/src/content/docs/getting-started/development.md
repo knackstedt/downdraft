@@ -41,7 +41,9 @@ downdraft-engine/
 │   │   └── modules/    # Engine modules (devtools, mcp, terrain, camera-controls, ...)
 │   ├── cli/            # CLI tool (draft new/dev/debug/release/assets/test)
 │   ├── platform-native/# Native runtime host (FFI → Rust cdylib; Bun/Node/Deno)
-│   ├── devtools-web/   # Web devtools UI served by the native OSR shell
+│   ├── android-shell/  # Android NativeActivity shell (winit loop + embedded libnode)
+│   ├── node-mobile/    # libnode build recipe for mobile (patches + overlay)
+│   ├── devtools-web/   # Web devtools UI (optional browser backend over loopback HTTP+WS)
 │   └── native-*/       # Prebuilt platform binaries per target
 ├── examples/           # Example projects
 ├── games/              # Optional local clones of game repos (gitignored)
@@ -66,13 +68,13 @@ draft release --game=my-game --target=linux --runtime=node --format=deb,appimage
 
 ## DevTools
 
-In dev mode, the native devtools overlay is available with:
+In dev mode, the native devtools overlay (egui, toggled with F12) is available with:
 
-- **Debug toggles** — Wireframe, hitboxes, normals, velocity, shadows, bloom, AABBs, overdraw, LOD visualization, depth buffer, tangents
-- **Entity inspector** — Component dump, hierarchy tree
-- **Asset browser** — Grid/list view with type filtering, search, and import
-- **Telemetry graphs** — GC/memory/CPU per thread, frame time graphs, p50/p95/p99 statistics
-- **Material graph editor** — Node-based shader editor with real-time WGSL compilation
-- **Animation state machine editor** — Visual state machine with drag-and-drop states and transitions
+- **Scene / SimWorld** — Entity hierarchy tree and component dump
+- **Console** — Log stream + CDP `Runtime.consoleAPICalled`/`exceptionThrown`
+- **GPU** — Adapter info, buffer sizes, per-pass draw calls and timings
+- **Perf Metrics / Perf Recorder** — GC/memory/CPU per thread, frame-time graphs, p50/p95/p99 statistics
+- **Provider panels** — Materials, Assets, RenderGraph, Workers, Memory, PostFx, Input, and the `downdraft doctor` module-graph panel
+- **Debug draw** — Wireframe, AABBs, gizmos, and scene overlays via `modules/devtools`
 
-The devtools render through the native OSR path (`modules/native-osr` + `devtools-web`) — in-process WebGPU surfaces, no webviews.
+The overlay runs as a Rust egui crate (`libdowndraft_devtools`) that serializes PaintJobs into the frame via `UiBlitPass` — in-process, no webviews. An alternative `WebDevtoolsHost` backend can instead serve `packages/devtools-web` over loopback HTTP+WS and open it in a browser.

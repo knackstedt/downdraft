@@ -13,14 +13,15 @@ The deferred pipeline executes in this order:
 
 2. **G-Buffer Pass** — Opaque geometry rendered to multiple render targets:
    - Albedo (RGBA8)
-   - Normal (RGBA16F)
-   - Roughness / Metallic (RG8)
-   - Depth (Depth32Float)
+   - Normal (RGBA8, packed)
+   - Metallic + Emissive (RGBA8)
+   - Roughness + AO (RGBA8)
    - Velocity (RG16F) — for TAA
+   - Depth (Depth32Float)
 
 3. **Shadow Map Pass** — Shadow depth maps rendered from light perspectives. Supports cascaded shadow maps for directional lights and point shadow maps for point lights.
 
-4. **Deferred Lighting** — Compute pass reads G-Buffer and shadow maps to calculate lighting. Supports:
+4. **Deferred Lighting** — Fullscreen pass reads G-Buffer and shadow maps to calculate lighting (with clustered light assignment for dynamic lights). Supports:
    - Directional lights (sun)
    - Point lights (dynamic, distance-culled)
    - Spot lights (flashlight, etc.)
@@ -43,7 +44,7 @@ The deferred pipeline executes in this order:
 
 ## Render Graph
 
-The `RenderGraph` is a DAG of render passes with:
+The `FrameGraph` is a DAG of render passes with:
 
 - **Automatic resource aliasing** — GPU resources (textures, buffers) are reused across passes when lifetimes don't overlap
 - **Usage flag synchronization** — Resource transitions between read/write are handled automatically
