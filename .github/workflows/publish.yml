@@ -40,7 +40,7 @@ jobs:
       needs_native: ${{ steps.check.outputs.needs_native }}
       needs_node_mobile: ${{ steps.check.outputs.needs_node_mobile }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - id: check
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -82,7 +82,7 @@ jobs:
       id-token: write # required for npm --provenance
       contents: read # gh release download
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       # Tag must be v<version> matching the published package version, and
       # every publishable @downdraft/* package must share that version.
       - name: Verify tag matches package version
@@ -106,14 +106,14 @@ jobs:
               }
             }
           '
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
       # Trusted publishing (OIDC exchange) requires npm >= 11.5.1;
       # node 22 bundles npm 10.x.
       - name: Upgrade npm for trusted publishing
-        run: npm install -g npm@latest
+        run: npm install -g npm@12.1.0
       # Populate packages/native-*/lib/ from the native-v<version> release
       # bundles — the `native` call-job above guarantees it exists complete
       # by the time this job runs (or this job was skipped).

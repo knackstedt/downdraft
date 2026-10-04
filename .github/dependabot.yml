@@ -1,0 +1,16 @@
+version: 2
+
+# Keeps the SHA-pinned actions in .github/workflows/ current — dependabot
+# updates both the commit SHA and the trailing "# vX.Y.Z" comment, so the
+# pins stay human-readable without going stale.
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      # One PR for all action bumps — a dozen workflows' worth of checkout/
+      # setup-node pins would otherwise each open their own PR.
+      actions:
+        patterns:
+          - "*"

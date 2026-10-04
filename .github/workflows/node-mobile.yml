@@ -25,7 +25,7 @@ jobs:
     outputs:
       tag: ${{ steps.v.outputs.tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - id: v
         run: |
           VER=$(tr -d '[:space:]' < packages/node-mobile/node-version.txt)
@@ -48,12 +48,12 @@ jobs:
     # job fails cleanly, and "Re-run failed jobs" resumes incrementally.
     timeout-minutes: 355
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "24"
 
-      - uses: mozilla-actions/sccache-action@v0.0.9
+      - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
 
       # A cold V8+Node build produces ~15 GB of objects; ubuntu-latest has
       # ~25 GB free after dotnet/toolcache bloat. Reclaim the unused SDKs —
@@ -73,7 +73,7 @@ jobs:
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;30.0.16248370"
 
       - name: Restore partial build tree (attempt resume)
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: packages/node-mobile/build/node-v26.10.0
           key: nodemobile-tree-${{ matrix.abi }}-${{ github.run_id }}-a${{ github.run_attempt }}
@@ -109,7 +109,7 @@ jobs:
       # caching. Keyed per-attempt so each re-run restores the latest slice.
       - name: Save partial build tree
         if: steps.build.outputs.incomplete == 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: packages/node-mobile/build/node-v26.10.0
           key: nodemobile-tree-${{ matrix.abi }}-${{ github.run_id }}-a${{ github.run_attempt }}
@@ -133,7 +133,7 @@ jobs:
             "${{ matrix.abi }}" include
 
       - name: Upload to GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: ${{ needs.version.outputs.tag }}
           files: artifacts/downdraft-node-mobile-*.tar.gz

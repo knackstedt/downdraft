@@ -14,12 +14,12 @@ jobs:
     name: Type Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: "1.4.0"
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun ci
       - name: Type check
         run: bun run tsc
       - name: Check generated deno.json is in sync
@@ -29,12 +29,12 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: "1.4.0"
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun ci
       - name: Lint
         run: bun run lint
 
@@ -42,12 +42,12 @@ jobs:
     name: Unit Tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: "1.4.0"
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun ci
       - name: Run unit tests
         # Run ALL package specs — previously this was a hardcoded subset that
         # silently drifted out of date (~15 of 228 spec files). bun test
@@ -60,11 +60,11 @@ jobs:
     name: Plugin Tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: "1.4.0"
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun ci
       - name: Run plugin-tester specs
         run: bun test examples/plugin-tester/src/*.spec.ts
