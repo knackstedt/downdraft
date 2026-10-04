@@ -54,7 +54,7 @@
     },
     "packages/cli": {
       "name": "@downdraft/cli",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "bin": {
         "draft": "src/index.ts",
       },
@@ -68,7 +68,7 @@
     },
     "packages/engine": {
       "name": "@downdraft/engine",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@bokuweb/zstd-wasm": "^0.0.27",
         "@gltf-transform/core": "^4.4.2",
@@ -103,7 +103,7 @@
     },
     "packages/platform-native": {
       "name": "@downdraft/platform-native",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@downdraft/engine": "^0.1.0",
         "koffi": "^3.2.1",
