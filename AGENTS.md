@@ -480,7 +480,7 @@ FBX parser reads `GlobalSettings` for `UpAxis` (0/1=Y-up, 2=Z-up) and `UnitScale
 
 ### Devtools Auto-Fit
 
-`BaseSceneInspector.importModel()` returns `needsAutoFit` and `warnings` when a model has extreme scale (< 0.01m or > 100m). The DevTools panel UI (`extension/panel.js`) shows an auto-fit prompt with a button that calls `autoFitModel(nodeId, targetMaxDim)`, which re-normalizes and generates a `.ddmeta.json` sidecar for persistence. `generateSidecar(nodeId)` creates a starter sidecar with commented-out fields.
+`BaseSceneInspector.importModel()` returns `needsAutoFit` and `warnings` when a model has extreme scale (< 0.01m or > 100m). `autoFitModel(nodeId, targetMaxDim)` re-normalizes and generates a `.ddmeta.json` sidecar for persistence; `generateSidecar(nodeId)` creates a starter sidecar with commented-out fields. (These are `__sceneInspector` methods — callable from the devtools REPL; no dedicated prompt UI in the Blitz dock yet.)
 
 ### Devtools material editor
 
@@ -1289,6 +1289,12 @@ Fixed: Console, Elements, Performance, GPU. Provider-driven (registered via `reg
 ### Generic snapshot + command protocol
 
 `registerProvider(panel, collect)` returns a `PanelSnapshot` (status + sections of key/value rows, tables, f32 series, lines, and controls — buttons/checkboxes/sliders). The backend pushes snapshots to the frontend; control clicks dispatch `{panel, action, payload}` commands back through `backend.dispatch` → `handleEngineCommand` (fx.* → `PostProcessStack.setEnabled`, param.* → effect params, gc → force GC, sim.* → sim worker commands). Sync providers push immediately; async collectors never block the UI frame.
+
+### Known gaps
+
+- `IDevToolsPanelExtension` HTML/CSS panel extensions (game-registered tabs) are still orphaned — neither frontend renders `getPanelExtensions()` output; engine-generic *data* still lands via snapshot providers.
+- `DebugOverlay`/`LabelOverlay` draw into `document.body` — DOM-host widgets that silently no-op on native. Re-implement as wgpu passes or Blitz panels if needed.
+- `getOverlayToggles()` has no frontend UI — toggles are `__sceneInspector` methods callable from the REPL.
 
 ### Running the native entry (tri-runtime)
 
