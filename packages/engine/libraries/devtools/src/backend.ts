@@ -231,7 +231,9 @@ export class DevtoolsBackend {
 
   /** Collect + emit one provider's snapshot immediately. */
   refreshPanel(panel: PanelName | number): void {
+    const trace: number[] = [performance.now()];
     const slot = panelSlot(panel);
+    trace.push(performance.now());
     const collect = this.providers.get(slot);
     if (!collect) return;
     const push = (snap: PanelSnapshot | null | undefined) => {
@@ -245,8 +247,10 @@ export class DevtoolsBackend {
       });
       this.lastProviderPush.set(slot, performance.now());
     };
+    trace.push(performance.now());
     try {
       const r = collect();
+      trace.push(performance.now());
       if (r && typeof (r as Promise<PanelSnapshot>).then === "function") {
         (r as Promise<PanelSnapshot>).then(push, fail);
       } else {
@@ -255,11 +259,11 @@ export class DevtoolsBackend {
     } catch (err) {
       fail(err);
     }
-  }
-
-  private pushAllProviders(): void {
-    for (const slot of this.providers.keys()) {
-      void this.refreshPanel(slot);
+    trace.push(performance.now());
+    const total = trace[4]! - trace[0]!;
+    if (total > 10) {
+      const seg = `pre=${(trace[2]! - trace[0]!).toFixed(1)} collect=${(trace[3]! - trace[2]!).toFixed(1)} emit=${(trace[4]! - trace[3]!).toFixed(1)}`;
+      log.warn("DevtoolsBackend", `slow provider ${slotName(slot)}: ${total.toFixed(1)}ms [${seg}]`);
     }
   }
 
@@ -310,7 +314,9 @@ export class DevtoolsBackend {
     if (this.disposed) return;
     if (!this.hasClientFn()) return; // nobody listening — save the work
 
+    const t0 = performance.now();
     this.flushLoggerBuffer();
+    const t1 = performance.now();
 
     if (this.firstUpdate) {
       this.firstUpdate = false;
@@ -319,7 +325,8 @@ export class DevtoolsBackend {
       this.pushGpuInfo();
       void this.pushMetrics();
       void this.pushThreads();
-      this.pushAllProviders();
+      // Providers intentionally skipped — the cadence loop below serves
+      // overdue providers one-per-update, spreading the initial burst.
     }
 
     const now = performance.now();
@@ -337,12 +344,32 @@ export class DevtoolsBackend {
       this.pushSceneTree();
       this.pushDomTree(this.domTreeMode);
     }
-    // Provider snapshots on their own cadence.
+    // Provider snapshots on their own cadence — at most one synchronous
+    // collect per update so a batch of overdue panels can't stall a single
+    // frame. Remaining overdue slots are served on subsequent updates.
+    let tPrev = performance.now();
     for (const slot of this.providers.keys()) {
       const last = this.lastProviderPush.get(slot) ?? 0;
+      const tCk = performance.now();
+      if (tCk - tPrev > 20) log.warn("DevtoolsBackend", `pause in provider loop pre-${slotName(slot)}: ${(tCk - tPrev).toFixed(1)}ms`);
+      tPrev = tCk;
       if (now - last > this.providerIntervalMs) {
+        const tP = performance.now();
         void this.refreshPanel(slot);
+        const dtP = performance.now() - tP;
+        if (dtP > 10) log.warn("DevtoolsBackend", `slow provider ${slotName(slot)}: ${dtP.toFixed(1)}ms`);
+        tPrev = performance.now();
+        break;
       }
+    }
+    const t2 = performance.now();
+    if (t2 - t0 > 6) {
+      const rest = [
+        t1 - t0 > 2 ? `logs=${(t1 - t0).toFixed(1)}ms` : "",
+        now - t1 > 2 ? `pushes=${(now - t1).toFixed(1)}ms` : "",
+        t2 - now > 2 ? `providers=${(t2 - now).toFixed(1)}ms` : "",
+      ].filter(Boolean).join(" ");
+      log.warn("DevtoolsBackend", `slow update ${(t2 - t0).toFixed(1)}ms: ${rest}`);
     }
   }
 

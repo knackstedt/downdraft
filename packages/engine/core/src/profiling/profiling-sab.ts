@@ -322,6 +322,25 @@ export function allocateProfilingSAB(
   return { sab, layout };
 }
 
+/**
+ * Derive the SAB layout from a live buffer's header — readers should prefer
+ * this over computeProfilingSABLayout() defaults so they work regardless of
+ * the allocator's maxSlots. Returns null when the buffer isn't a valid
+ * ProfilingSAB. Ring/table caps aren't stored in the header — they must
+ * match the engine defaults (allocateProfilingSAB / ProfilingBridge use them).
+ */
+export function profilingLayoutFromSab(sab: SharedArrayBuffer): ProfilingSABLayout | null {
+  if (sab.byteLength < HEADER_SIZE) return null;
+  const u32 = new Uint32Array(sab);
+  if (u32[HDR.MAGIC] !== PROFILING_MAGIC) return null;
+  const maxSlots = u32[HDR.MAX_SLOTS];
+  if (maxSlots <= 0 || maxSlots > 4096) return null;
+  const layout = computeProfilingSABLayout(maxSlots);
+  // Strict match: a custom ring/table cap shifts every slot offset — reading
+  // with the wrong layout produces garbage rather than a clean miss.
+  return layout.byteLength === sab.byteLength ? layout : null;
+}
+
 // ─── ProfilingSABWriter (worker side) ───────────────────────────────────────
 
 /**

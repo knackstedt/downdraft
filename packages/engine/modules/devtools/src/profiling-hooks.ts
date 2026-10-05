@@ -70,19 +70,28 @@ export function wireProfilingBridge(opts: WireProfilingBridgeOptions): Profiling
   if (!bridge) return null;
 
   const { renderer } = opts;
-  const prevCallbacks: ProfilingLoopCallbacks =
-    renderer.getCallbacks?.() ?? (renderer as any).callbacks ?? {};
-  renderer.setCallbacks({
-    ...prevCallbacks,
-    beforeFrame: (dt: number, elapsedTime: number) => {
-      bridge.tick();
-      prevCallbacks.beforeFrame?.(dt, elapsedTime);
-    },
-    afterFrame: (dt: number, elapsedTime: number) => {
-      prevCallbacks.afterFrame?.(dt, elapsedTime);
-      bridge.endFrame();
-    },
-  });
+  // Guard against double-wiring: bootstrapGame auto-wires the bridge when
+  // `devtools.profiling` is enabled, but older games call this themselves —
+  // a second wrap would tick/endFrame twice per frame. Worker attach below
+  // still runs every call (the worker-side attach is idempotent).
+  const marker = "__ddProfilingWired";
+  const rend = renderer as unknown as Record<string, unknown>;
+  if (!rend[marker]) {
+    rend[marker] = true;
+    const prevCallbacks: ProfilingLoopCallbacks =
+      renderer.getCallbacks?.() ?? (renderer as any).callbacks ?? {};
+    renderer.setCallbacks({
+      ...prevCallbacks,
+      beforeFrame: (dt: number, elapsedTime: number) => {
+        bridge.tick();
+        prevCallbacks.beforeFrame?.(dt, elapsedTime);
+      },
+      afterFrame: (dt: number, elapsedTime: number) => {
+        prevCallbacks.afterFrame?.(dt, elapsedTime);
+        bridge.endFrame();
+      },
+    });
+  }
 
   // Share the ProfilingSAB with each worker host so it can claim a slot.
   const sab = bridge.getProfilingSAB();

@@ -77,9 +77,9 @@ async function readSabSlots(sab: SharedArrayBuffer | null | undefined): Promise<
     try {
         const mod = await loadProfiling();
         if (!mod) return [];
-        const { ProfilingSABReader, computeProfilingSABLayout } = mod;
-        const layout = computeProfilingSABLayout();
-        if (sab.byteLength < layout.byteLength) return [];
+        const { ProfilingSABReader, profilingLayoutFromSab } = mod;
+        const layout = profilingLayoutFromSab(sab);
+        if (!layout) return [];
         const reader = new ProfilingSABReader(sab, layout);
         return reader.readSnapshot().slots ?? [];
     } catch {
@@ -146,6 +146,7 @@ function collectSim(ctx: EngineProviderContext): PanelSnapshot {
 }
 
 async function collectMemory(ctx: EngineProviderContext): Promise<PanelSnapshot> {
+    const tM0 = performance.now();
     const sections: SnapshotSection[] = [];
     const rows: SnapshotKvRow[] = [];
 
@@ -166,9 +167,11 @@ async function collectMemory(ctx: EngineProviderContext): Promise<PanelSnapshot>
             if (mu.arrayBuffers != null) rows.push(kv("ArrayBuffers", fmtBytes(mu.arrayBuffers)));
         }
     } catch { /* */ }
+    const tM1 = performance.now();
 
     // Per-worker heap/GC from ProfilingSAB.
     const slots = await readSabSlots(ctx.profilingSAB);
+    const tM2 = performance.now();
     if (slots.length > 0) {
         const table: string[][] = [];
         slots.forEach((s) => {
@@ -200,6 +203,11 @@ async function collectMemory(ctx: EngineProviderContext): Promise<PanelSnapshot>
             rows.push(kv("Total VRAM", fmtBytes(stats.totalBytes)));
         }
     } catch { /* */ }
+    const tM3 = performance.now();
+    const dtS = (tM1 - tM0).toFixed(1), dtSab = (tM2 - tM1).toFixed(1), dtV = (tM3 - tM2).toFixed(1);
+    if (tM3 - tM0 > 10 || tM1 - tM0 > 2) {
+        console.log(`[memprobe] sync=${dtS}ms sab=${dtSab}ms vram=${dtV}ms total=${(tM3 - tM0).toFixed(1)}ms`);
+    }
 
     sections.unshift({ kind: "kv", name: "Main thread", rows });
     sections.push({

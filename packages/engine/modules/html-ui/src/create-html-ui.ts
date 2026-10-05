@@ -91,7 +91,7 @@ export function createHtmlUi(options: HtmlUiOptions): RendererModule {
     version: "1.0.0",
     provides: [HtmlUiTok],
     register(ctx: RendererModuleContext) {
-      const host = new HtmlUiHost(ctx.getDevice(), ctx.getFormat());
+      const host = new HtmlUiHost(ctx.getDevice(), ctx.getFormat(), undefined, { profilingTag: `ui:${moduleName}` });
       host.bindInput(ctx.getInputBus());
       ctx.onDispose(() => host.dispose());
       const unregCompositor = ctx.registerUiCompositor?.(host.compositor);

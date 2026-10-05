@@ -7,7 +7,7 @@
 //
 // Usage:
 //   node scripts/build-native.mjs                     # all libs, host, release
-//   node scripts/build-native.mjs --debug
+//   node scripts/build-native.mjs --debug             # → <plat>-<arch>-debug/ (DD_NATIVE_PROFILE=debug to load)
 //   node scripts/build-native.mjs --profile=dist      # CI artifact builds
 //   node scripts/build-native.mjs --target=x86_64-pc-windows-msvc
 //   node scripts/build-native.mjs --pkg=downdraft-platform --pkg=downdraft-physics
@@ -15,8 +15,11 @@
 // Output layout (what the TS library finders search):
 //   <crateDir>/dist/<platform>-<arch>/<lib>          (explicit --target builds)
 //   <crateDir>/dist/<lib>                            (host builds, flat copy)
+//   <crateDir>/dist/<platform>-<arch>-debug/<lib>    (--debug builds)
 // platform-native additionally stages into native/<platform>-<arch>/ — the
-// fetch-at-install layout already searched by lib-paths.ts.
+// fetch-at-install layout already searched by lib-paths.ts. Debug builds go
+// to the -debug sibling dir instead: they never overwrite release artifacts
+// and games only resolve them with DD_NATIVE_PROFILE=debug.
 // ============================================================================
 
 import { execFileSync, spawnSync } from "node:child_process";
@@ -146,14 +149,21 @@ for (let _i = 0, _it = targets, _n = _it.length; _i < _n; _i++) {
       process.exit(1);
     }
     const destRoot = join(root, crate.dest);
-    const platDir = join(destRoot, nodePlat);
+    // Debug stages to a <plat>-<arch>-debug sibling — lib-paths only searches
+    // it when DD_NATIVE_PROFILE=debug, so a debug artifact can never shadow
+    // the release build. The flat dist/ copy has no profile dimension and is
+    // skipped for debug (it would silently win over every debug candidate).
+    const platDir = join(destRoot, profile === "debug" ? `${nodePlat}-debug` : nodePlat);
     mkdirSync(platDir, { recursive: true });
     stageFile(src, join(platDir, file));
-    if (crate.flatCopy && target === host) {
+    if (crate.flatCopy && target === host && profile !== "debug") {
       stageFile(src, join(destRoot, file));
     }
-    console.log(`[build-native] staged ${file} → ${platDir}${crate.flatCopy && target === host ? ` (+ ${destRoot})` : ""}`);
+    console.log(`[build-native] staged ${file} → ${platDir}${crate.flatCopy && target === host && profile !== "debug" ? ` (+ ${destRoot})` : ""}`);
   }
 }
 
+if (profile === "debug") {
+  console.log(`[build-native] debug profile staged — games load it only with DD_NATIVE_PROFILE=debug (or \`draft dev --native-debug\`).`);
+}
 console.log("[build-native] done.");

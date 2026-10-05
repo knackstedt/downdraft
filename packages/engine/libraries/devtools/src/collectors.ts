@@ -69,9 +69,9 @@ export async function collectThreads(
     try {
       const mod = await loadProfilingMod();
       if (mod) {
-        const { ProfilingSABReader, computeProfilingSABLayout } = mod;
-        const layout = computeProfilingSABLayout();
-        if (ctx.profilingSAB.byteLength >= layout.byteLength) {
+        const { ProfilingSABReader, profilingLayoutFromSab } = mod;
+        const layout = profilingLayoutFromSab(ctx.profilingSAB);
+        if (layout) {
           const reader = new ProfilingSABReader(ctx.profilingSAB, layout);
           const snapshot = reader.readSnapshot();
           snapshot.slots.forEach((slot: any) => {
@@ -300,9 +300,9 @@ export async function collectMetrics(ctx: CollectorContext): Promise<MetricsSlot
     try {
       const mod = await loadProfilingMod();
       if (mod) {
-        const { ProfilingSABReader, computeProfilingSABLayout } = mod;
-        const layout = computeProfilingSABLayout();
-        if (ctx.profilingSAB.byteLength >= layout.byteLength) {
+        const { ProfilingSABReader, profilingLayoutFromSab } = mod;
+        const layout = profilingLayoutFromSab(ctx.profilingSAB);
+        if (layout) {
           const reader = new ProfilingSABReader(ctx.profilingSAB, layout);
           const snapshot = reader.readSnapshot();
           snapshot.slots.forEach((slot: any) => {

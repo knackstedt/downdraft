@@ -97,6 +97,9 @@ async function devNative(parsed: any): Promise<void> {
   const env = { ...process.env };
   const port = parsed.flags.port as number;
   if (port) env.MCP_PORT = String(port);
+  // --native-debug → the runtime resolves <plat>-<arch>-debug/ lib dirs
+  // (staged by build-native.mjs --debug) instead of release artifacts.
+  if (parsed.flags["native-debug"]) env.DD_NATIVE_PROFILE = "debug";
 
   // Signal handling lives outside the respawn loop — each spawn registers
   // itself as the current child so SIGINT/SIGTERM always hit the live one.

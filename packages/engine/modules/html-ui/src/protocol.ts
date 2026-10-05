@@ -65,7 +65,10 @@ export type UiToWorker =
    *  enclosing data-nav-zone id, disabled and editable state. */
   | { type: "navSnapshot"; reqId: number; id: string; sel: string }
   /** Host detected a torn SAB frame read — re-emit the current pixels. */
-  | { type: "refresh"; id: string };
+  | { type: "refresh"; id: string }
+  /** Attach the engine ProfilingSAB — the worker claims a metrics slot so the
+   *  devtools perf tab can see it. Best-effort; ignored when profiling is off. */
+  | { type: "profilingAttach"; sab: SharedArrayBuffer; workerTag: string; layout?: { maxSlots: number; iopsRingCap: number; warningRingCap: number; stringTableCap: number } };
 
 /** Backend → host */
 export type WorkerToUi =

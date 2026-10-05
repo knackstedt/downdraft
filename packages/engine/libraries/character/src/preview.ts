@@ -94,9 +94,12 @@ export class CharacterPreview {
     this.device.lost.then((info) => {
       log.warn("CharacterPreview", `GPUDevice LOST: ${info.reason} ${info.message}`);
     });
-    this.device.addEventListener("uncapturederror", (e) => {
-      log.error("CharacterPreview", `uncaptured GPU error: ${(e as GPUUncapturedErrorEvent).error?.message}`);
-    });
+    // Native's WgpuDevice is a plain FFI wrapper, not an EventTarget.
+    if (typeof this.device.addEventListener === "function") {
+      this.device.addEventListener("uncapturederror", (e) => {
+        log.error("CharacterPreview", `uncaptured GPU error: ${(e as GPUUncapturedErrorEvent).error?.message}`);
+      });
+    }
     this.context = this.canvas.getContext("webgpu") as unknown as GPUCanvasContext;
     this.format = this.opts.outputFormat ?? navigator.gpu.getPreferredCanvasFormat();
     this.context.configure({

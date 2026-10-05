@@ -150,6 +150,10 @@ export class BlitzDevtoolsHost {
       z: 1000,
       scale: 1.5,
       interactive: true,
+      // Devtools UI doesn't need vsync-rate raster — cap it so mutation
+      // bursts (console streams, snapshot refreshes) coalesce into ~66ms
+      // rasters instead of one raster per message.
+      maxFps: 15,
       onEvent: (ev) => this.handleDocEvent(ev),
     });
     this.syncProviders();
@@ -167,14 +171,20 @@ export class BlitzDevtoolsHost {
   /** Per-frame pump — call from a frame hook. */
   update(): void {
     if (!this._ready || this.disposed) return;
+    const t0 = performance.now();
     try {
       this.backend.update();
     } catch (err) {
       log.error("BlitzDevtoolsHost", `backend update error: ${err}`);
     }
+    const t1 = performance.now();
     if (!this.visible) return;
     this.syncProviders();
     this.flush();
+    const t2 = performance.now();
+    if (t2 - t0 > 6) {
+      log.info("BlitzDevtoolsHost", `slow update: backend=${(t1 - t0).toFixed(1)}ms sync+flush=${(t2 - t1).toFixed(1)}ms`);
+    }
   }
 
   registerThreadEval(name: string, evalFn: (expr: string) => Promise<{ result?: unknown; error?: string }>): void {
@@ -371,7 +381,7 @@ export class BlitzDevtoolsHost {
  * same pattern as the editor module's createSelfHostedUi.
  */
 export function createSelfHostedDevtoolsUi(ctx: RendererModuleContext): DevtoolsUiSurface & { host: HtmlUiHost } {
-  const host = new HtmlUiHost(ctx.getDevice(), ctx.getFormat());
+  const host = new HtmlUiHost(ctx.getDevice(), ctx.getFormat(), undefined, { profilingTag: "devtools-ui" });
   host.bindInput(ctx.getInputBus());
   ctx.onDispose(() => host.dispose());
   // order=1000 — the dock draws above every game-registered UI compositor

@@ -94,6 +94,7 @@ export const COMMANDS: CommandEntry[] = [
         { name: "watch", type: "boolean", description: "Back-compat no-op — the HMR dev shell always watches" },
         { name: "no-hmr", type: "boolean", description: "Disable HMR — spawn the entry directly (bun run), no dev shell" },
         { name: "native", type: "boolean", description: "Back-compat alias — native is the default runtime" },
+        { name: "native-debug", type: "boolean", description: "Load debug native libraries (built via build-native.mjs --debug) — sets DD_NATIVE_PROFILE=debug for the spawned runtime" },
         { name: "verbose", alias: "v", type: "boolean", description: "Verbose logging" },
       ],
     },

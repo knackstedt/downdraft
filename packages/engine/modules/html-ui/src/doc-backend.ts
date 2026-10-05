@@ -11,6 +11,8 @@
 import type { UiToWorker, WorkerToUi } from "./protocol";
 
 export interface DocBackend {
+  /** "worker" = docs + raster off the main thread; "local" = in-process. */
+  readonly kind: "worker" | "local";
   post(msg: UiToWorker, transfer?: Transferable[]): void;
   onMessage(fn: (msg: WorkerToUi) => void): void;
   dispose(): void;
@@ -21,6 +23,7 @@ export function createLocalBackend(): DocBackend {
   let sink: ((m: WorkerToUi) => void) | null = null;
   let core: { handle(m: UiToWorker): void; dispose(): void } | null = null;
   return {
+    kind: "local",
     post(msg) {
       if (!core) core = createDocCore((m) => sink?.(m));
       core.handle(msg);
@@ -33,6 +36,7 @@ export function createLocalBackend(): DocBackend {
 /** Worker backend — the production path. */
 export function createWorkerBackend(worker: Worker): DocBackend {
   return {
+    kind: "worker",
     post(msg, transfer) { worker.postMessage(msg, transfer ?? []); },
     onMessage(fn) {
       worker.addEventListener("message", (e: MessageEvent) => fn(e.data as WorkerToUi));
@@ -218,6 +222,19 @@ export function createDocCore(emit: (m: WorkerToUi) => void): {
           // Host saw a torn seqlock read — re-emit the current pixels.
           const s = docs.get(m.id);
           if (s?.sabU32 && s.doc.refreshInto() === 1) emitSabFrame(m.id, s);
+          break;
+        }
+        case "profilingAttach": {
+          // Engine profiling — claim a slot on the shared ProfilingSAB.
+          // OPFS/IDB patching is skipped: docs do no storage I/O.
+          void import("@downdraft/engine/profiling")
+            .then((p) => p.attachProfilingSAB(m.sab, {
+              workerTag: m.workerTag,
+              opfs: false,
+              idb: false,
+              layout: m.layout,
+            }))
+            .catch(() => { /* profiling unavailable — fine */ });
           break;
         }
         case "destroy": docs.get(m.id)?.doc.destroy(); docs.delete(m.id); break;

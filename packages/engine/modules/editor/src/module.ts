@@ -51,7 +51,7 @@ export interface EditorModuleConfig {
  * Owns an HtmlUiHost + input binding + compositor registration.
  */
 function createSelfHostedUi(ctx: RendererModuleContext): HtmlUiContext {
-  const host = new HtmlUiHost(ctx.getDevice(), ctx.getFormat());
+  const host = new HtmlUiHost(ctx.getDevice(), ctx.getFormat(), undefined, { profilingTag: "editor-ui" });
   host.bindInput(ctx.getInputBus());
   ctx.onDispose(() => host.dispose());
   const unreg = ctx.registerUiCompositor?.(host.compositor);

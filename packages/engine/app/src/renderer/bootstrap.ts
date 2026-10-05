@@ -21,7 +21,7 @@
 // that need full control can call `bootstrapGame()` directly.
 // ============================================================================
 
-import { encodeFeatureLogLine, isDevMode, type RenderSurface } from "@downdraft/engine";
+import { encodeFeatureLogLine, getNativeHost, isDevMode, type RenderSurface } from "@downdraft/engine";
 import { createLogger } from "@downdraft/engine/util/logger";
 import { collectRendererFeatureLog } from "./feature-log";
 import { downdraft, getSurface } from "./index";
@@ -179,7 +179,63 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
       profiling: opts.devtools.profiling as any,
     });
 
-    // 4a. Devtools UI frontend — the Blitz dock is the default surface.
+    // 4a. Profiling wiring — `profiling: true` allocates the SAB + bridge,
+    //     but without this nothing ticks the bridge or shares the SAB with
+    //     workers, so the perf tab would only ever report the main thread.
+    //     wireProfilingBridge guards against games that also call it
+    //     manually; worker-side attach is idempotent.
+    if (opts.devtools.profiling) {
+      try {
+        const { wireProfilingBridge } = await import("@downdraft/engine/modules/devtools");
+        const bridge =
+          (globalThis as Record<string, any>).window?.__sceneInspector?.__getProfilingBridge?.()
+          ?? (globalThis as Record<string, any>).__sceneInspector?.__getProfilingBridge?.()
+          ?? null;
+        if (bridge) {
+          // workerHosts entries are {prefix, proxy} — the devtools proxy
+          // exposes __profilingAttach via exposeDevToolsApi → wrap each into
+          // the ProfilingWireHost surface wireProfilingBridge expects.
+          const hosts: Array<{ host: { attachProfilingSAB(sab: SharedArrayBuffer, o?: any): Promise<void> }; workerTag?: string }> = [];
+          (workerHosts ?? []).forEach((wh: any) => {
+            const proxy = wh?.proxy;
+            if (typeof proxy?.__profilingAttach !== "function") return;
+            const prefix = wh?.prefix;
+            hosts.push({
+              host: {
+                attachProfilingSAB: async (sab, o) => {
+                  await proxy.__profilingAttach(sab, {
+                    workerTag: o?.workerTag ?? prefix ?? "worker",
+                    layout: o?.layout,
+                  });
+                },
+              },
+              workerTag: prefix,
+            });
+          });
+          // The native services worker (save + SQLite) exposes the same
+          // profiling RPC — claim a slot for it too.
+          const services = (getNativeHost() as any)?.services;
+          if (typeof services?.api?.__profilingAttach === "function") {
+            hosts.push({
+              host: {
+                attachProfilingSAB: async (sab, o) => {
+                  await services.api.__profilingAttach(sab, {
+                    workerTag: "services",
+                    layout: o?.layout,
+                  });
+                },
+              },
+              workerTag: "services",
+            });
+          }
+          wireProfilingBridge({ renderer, bridge, workerHosts: hosts });
+        }
+      } catch (err) {
+        log.warn("bootstrapGame", `profiling wiring failed: ${err}`);
+      }
+    }
+
+    // 4b. Devtools UI frontend — the Blitz dock is the default surface.
     const disabled = typeof process !== "undefined" && !!process.env?.DOWNDRAFT_DISABLE_DEVTOOLS;
     const uiOpt = opts.devtools.ui ?? "blitz";
     const uiKind = disabled ? "none" : (typeof uiOpt === "string" ? uiOpt : uiOpt.kind ?? "blitz");
@@ -233,7 +289,7 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
     }
   }
 
-  // 4b. onRendererInit — library setup, sim start, game-specific wiring (onReady).
+  // 4c. onRendererInit — library setup, sim start, game-specific wiring (onReady).
   //     DevTools is already wired, so games can access __sceneInspector +
   //     the ProfilingBridge from their onReady hook.
   if (opts.onRendererInit) {

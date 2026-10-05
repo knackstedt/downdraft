@@ -65,6 +65,11 @@ interface Panel {
   /** Bound SAB frame channel — frames arrive as headers, pixels stay shared. */
   sab: SharedArrayBuffer | null;
   sabI32: Int32Array | null;
+  /** Seq of the buffer state at the last SAB upload + the rect it covered.
+   *  Dedupes poll uploads and stale "frame" messages: a message is a no-op
+   *  when a newer-or-equal upload already covered its rect. */
+  lastSeq: number;
+  lastRect: { x: number; y: number; w: number; h: number } | null;
 }
 
 const UI_TRACE = typeof process !== "undefined" && !!process.env?.DD_UI_TRACE;
@@ -159,10 +164,31 @@ export class HtmlUiHost {
     private device: GPUDevice,
     format: GPUTextureFormat,
     backend?: DocBackend,
+    opts?: { /** ProfilingSAB slot tag for this host's ui worker. */ profilingTag?: string },
   ) {
     this.blit = new PanelBlitPass(device, format);
     this.backend = backend ?? HtmlUiHost.spawnWorker() ?? createLocalBackend();
     this.backend.onMessage((m) => this.handleMessage(m));
+    this.profilingTag = opts?.profilingTag ?? "ui";
+    log.info("html-ui", `doc backend: ${this.backend.kind}`);
+    this.attachProfiling();
+  }
+
+  private profilingTag = "ui";
+  private profilingSent = false;
+
+  /** Hand the engine ProfilingSAB to the ui worker so the devtools perf tab
+   *  can see it. Retried from mount() — the profiling bridge is created by
+   *  initDevTools, which may run after this host exists. */
+  private attachProfiling(): void {
+    if (this.profilingSent || this.backend.kind !== "worker") return;
+    const g = globalThis as Record<string, any>;
+    const bridge = g.window?.__sceneInspector?.__getProfilingBridge?.()
+      ?? g.__sceneInspector?.__getProfilingBridge?.();
+    const sab = bridge?.getProfilingSAB?.();
+    if (!sab) return;
+    this.profilingSent = true;
+    this.send({ type: "profilingAttach", sab, workerTag: this.profilingTag, layout: bridge.getLayoutParams?.() });
   }
 
   private static spawnWorker(): DocBackend | null {
@@ -180,6 +206,7 @@ export class HtmlUiHost {
   // ── Panels ──
 
   mount(spec: PanelSpec): UiPanelHandle {
+    this.attachProfiling(); // retry — the profiling bridge may postdate ctor
     const id = spec.id ?? `panel-${this.nextId++}`;
     const scale = spec.scale ?? 2;
     const panel: Panel = {
@@ -187,7 +214,7 @@ export class HtmlUiHost {
       docH: spec.docH ?? null, src: null,
       texture: null, texW: 0, texH: 0, ubo: null, bindGroup: null,
       handlers: new Set(spec.onEvent ? [spec.onEvent] : []),
-      editing: false, sab: null, sabI32: null,
+      editing: false, sab: null, sabI32: null, lastSeq: 0, lastRect: null,
     };
     this.panels.set(id, panel);
     this.order.push(id);
@@ -339,8 +366,15 @@ export class HtmlUiHost {
   /** Compositor surface for GameRenderer's end-of-frame UI pass. */
   get compositor(): { hasContent(): boolean; render(pass: GPURenderPassEncoder, w: number, h: number): void } {
     return {
-      hasContent: () => [...this.panels.values()].some((p) => p.bindGroup !== null),
+      // Polling here (not only in render) means a freshly-bound panel's
+      // first SAB frame lands the same frame — hasContent is what gates the
+      // compositor into the UI pass.
+      hasContent: () => {
+        this.pollSabFrames();
+        return [...this.panels.values()].some((p) => p.bindGroup !== null);
+      },
       render: (pass, w, h) => {
+        this.pollSabFrames();
         const draw = this.sortedPanels()
           .filter((p) => p.bindGroup && p.ubo)
           .map((p) => ({
@@ -503,6 +537,10 @@ export class HtmlUiHost {
         if (!p) return;
         p.sab = m.buf;
         p.sabI32 = new Int32Array(m.buf);
+        // Fresh buffer — its seqlock restarts at 0, so reset the dedupe
+        // state or the stale lastSeq could suppress real uploads.
+        p.lastSeq = 0;
+        p.lastRect = null;
         break;
       }
       case "frame": {
@@ -513,26 +551,14 @@ export class HtmlUiHost {
         if (!p) return;
         if (m.seq !== undefined && m.stride !== undefined && p.sab && p.sabI32) {
           // Zero-copy path: the backend wrote the dirty rect into the shared
-          // buffer — seqlock-check and upload straight from it. Use the
-          // message's captured rect, NOT the live SAB header: a newer write
-          // may have already overwritten the header, and re-reading it would
-          // silently drop this emit's dirty region (ghost pixels).
-          const i32 = p.sabI32;
-          const seq0 = Atomics.load(i32, 0);
-          if (seq0 === 0 || (seq0 & 1) !== 0) { this.send({ type: "refresh", id: p.id }); break; }
-          const x = m.x, y = m.y, w = m.w, h = m.h;
-          const pw = m.pw, ph = m.ph, stride = m.stride;
-          if (w <= 0 || h <= 0) break;
-          this.ensureTexture(p, pw, ph);
-          if (!p.texture) break;
-          this.device.queue.writeTexture(
-            { texture: p.texture, origin: [x, y, 0] },
-            p.sab as unknown as GPUAllowSharedBufferSource,
-            { offset: 64 + y * stride + x * 4, bytesPerRow: stride, rowsPerImage: h },
-            { width: w, height: h, depthOrArrayLayers: 1 },
-          );
-          // Torn read (a newer write started mid-upload) — ask for a re-emit.
-          if (Atomics.load(i32, 0) !== seq0) this.send({ type: "refresh", id: p.id });
+          // buffer. Skip when a poll already uploaded this emit (or a newer
+          // frame covering its rect) — otherwise upload the message's
+          // captured rect: superseded header entries still carry regions the
+          // newest frame's rect may not cover.
+          const r = p.lastRect;
+          if (p.lastSeq >= m.seq && r &&
+              m.x >= r.x && m.y >= r.y && m.x + m.w <= r.x + r.w && m.y + m.h <= r.y + r.h) break;
+          this.uploadSabFrame(p, m.x, m.y, m.w, m.h, m.pw, m.ph, m.stride);
           break;
         }
         if (!m.pixels) break;
@@ -609,6 +635,48 @@ export class HtmlUiHost {
       }
       case "error": log.error("html-ui", `doc ${m.id} backend error: ${m.message}`); break;
       case "ready": break;
+    }
+  }
+
+  /** Upload one dirty rect straight out of the panel's bound SAB, seqlock
+   *  verified. Records lastSeq/lastRect so the poll path and late "frame"
+   *  messages don't re-upload the same content. */
+  private uploadSabFrame(p: Panel, x: number, y: number, w: number, h: number, pw: number, ph: number, stride: number): void {
+    const i32 = p.sabI32!;
+    const seq0 = Atomics.load(i32, 0);
+    // seq0 === 0 → bound but nothing emitted yet; odd → write in progress.
+    // A frame message implies a write, so ask for a re-emit; the poll path
+    // skips both cases itself and just retries next frame.
+    if (seq0 === 0 || (seq0 & 1) !== 0) { this.send({ type: "refresh", id: p.id }); return; }
+    if (w <= 0 || h <= 0) return;
+    this.ensureTexture(p, pw, ph);
+    if (!p.texture) return;
+    this.device.queue.writeTexture(
+      { texture: p.texture, origin: [x, y, 0] },
+      p.sab as unknown as GPUAllowSharedBufferSource,
+      { offset: 64 + y * stride + x * 4, bytesPerRow: stride, rowsPerImage: h },
+      { width: w, height: h, depthOrArrayLayers: 1 },
+    );
+    // Torn read (a newer write started mid-upload) — ask for a re-emit.
+    if (Atomics.load(i32, 0) !== seq0) { this.send({ type: "refresh", id: p.id }); return; }
+    p.lastSeq = seq0;
+    p.lastRect = { x, y, w, h };
+  }
+
+  /** Poll bound SAB frame channels once per render frame and upload pending
+   *  dirty rects directly — the worker's "frame" postMessage is delivered on
+   *  a macrotask boundary, so waiting for it can cost a whole frame of lag
+   *  when it lands behind a long renderFrame. The header only describes the
+   *  newest emit; superseded dirty rects still arrive via their messages. */
+  private pollSabFrames(): void {
+    for (const p of this.panels.values()) {
+      const i32 = p.sabI32;
+      if (!i32 || !p.sab) continue;
+      const seq0 = Atomics.load(i32, 0);
+      if (seq0 === 0 || (seq0 & 1) !== 0 || seq0 === p.lastSeq) continue;
+      const x = i32[1], y = i32[2], w = i32[3], h = i32[4];
+      const pw = i32[5], ph = i32[6], stride = i32[8];
+      this.uploadSabFrame(p, x, y, w, h, pw, ph, stride);
     }
   }
 

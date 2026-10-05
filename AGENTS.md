@@ -1238,9 +1238,10 @@ Native binaries are **not committed** and consumers never compile them:
 - **npm channel**: `@downdraft/native-<platform>-<arch>` optional dependencies of `@downdraft/platform-native` carry the prebuilt cdylibs under `lib/`.
 - **GitHub-release channel**: `bun run fetch:native` (postinstall fallback) downloads `downdraft-native-<platform>-<arch>.tar.gz` from the `native-v<version>` release and unpacks into each crate's staging dir.
 - **Local dev**: `bun run build:native` (root) builds the Cargo workspace via `scripts/build-native.mjs` — the only native toolchain needed is `cargo` (pinned by `rust-toolchain.toml`).
+- **Debug native builds**: `build-native.mjs --debug` stages to `<dest>/<platform>-<arch>-debug/` — a sibling of the release dir, never an overwrite. Games load debug artifacts only when launched with `DD_NATIVE_PROFILE=debug` (or `draft dev --native-debug`); release resolution never searches debug dirs, so a debug build cannot silently downgrade the runtime (a 318MB debug `libdowndraft_platform.so` once shipped to the release staging dir cost ~3× frame time — debug wgpu validates every call unoptimized). The loader warns when `DD_NATIVE_PROFILE=debug` resolves a release artifact.
 - CI: `.github/workflows/native.yml` builds the per-platform matrix and uploads bundles to the release; `publish.yml` repacks them into the npm platform packages via `scripts/stage-native-packages.mjs`.
 
-`lib-paths.ts` resolves libraries via env override → crate `dist/` → `native/` → `native/<platform>-<arch>/` → workspace `target/` → `@downdraft/native-*` package → `<exe>/native/` → `/usr/local/lib`.
+`lib-paths.ts` resolves libraries via env override → crate `dist/` → `native/` → `native/<platform>-<arch>/` → workspace `target/` → `@downdraft/native-*` package → `<exe>/native/` → `/usr/local/lib`. With `DD_NATIVE_PROFILE=debug`, `<platform>-<arch>-debug/` and `target/debug` dirs are prepended; under release they are excluded.
 
 ### Runtime detection
 

@@ -38,6 +38,17 @@ export const repoRoot: string = join(packageRoot, "..", "..");
 
 export const PLATFORM_DIR = `${process.platform}-${process.arch}`;
 
+/**
+ * Native build profile. "release" (default) resolves only release/dist
+ * artifacts — debug dirs are never searched, so a stray `cargo build` or
+ * `build-native.mjs --debug` can never silently downgrade the runtime.
+ * Debug builds stage to `<plat>-<arch>-debug/` siblings and load only when
+ * the game is started with DD_NATIVE_PROFILE=debug (or `draft dev
+ * --native-debug`, which sets this env for the spawned shell).
+ */
+export const NATIVE_PROFILE: "release" | "debug" =
+  process.env.DD_NATIVE_PROFILE === "debug" ? "debug" : "release";
+
 /** Rust target triple for the current platform (null when unsupported). */
 export const RUST_TRIPLE: string | null = ({
   linux: { x64: "x86_64-unknown-linux-gnu", arm64: "aarch64-unknown-linux-gnu" },
@@ -62,29 +73,46 @@ export function libFileName(baseName: string): string {
  * plus the legacy standalone-crate `target/` layout.
  */
 function crateDirs(crateDir: string): string[] {
+  if (NATIVE_PROFILE === "debug") {
+    return [
+      join(crateDir, "dist", `${PLATFORM_DIR}-debug`),
+      join(crateDir, "target", "debug"),
+      join(crateDir, "dist", PLATFORM_DIR),
+      join(crateDir, "dist"),
+      join(crateDir, "target", "release"),
+      crateDir,
+    ];
+  }
   return [
     join(crateDir, "dist", PLATFORM_DIR),
     join(crateDir, "dist"),
     join(crateDir, "target", "release"),
-    join(crateDir, "target", "debug"),
     crateDir,
   ];
 }
 
 /** Dirs under the workspace target/ that bare `cargo build` writes to. */
 function repoTargetDirs(): string[] {
-  const dirs = [
-    join(repoRoot, "target", "release"),
-    join(repoRoot, "target", "debug"),
-  ];
+  const profiles = NATIVE_PROFILE === "debug" ? ["debug", "release", "dist"] : ["release", "dist"];
+  const dirs = profiles.map((p) => join(repoRoot, "target", p));
   if (RUST_TRIPLE) {
-    dirs.unshift(
-      join(repoRoot, "target", RUST_TRIPLE, "release"),
-      join(repoRoot, "target", RUST_TRIPLE, "debug"),
-      join(repoRoot, "target", RUST_TRIPLE, "dist"),
-    );
+    dirs.unshift(...profiles.map((p) => join(repoRoot, "target", RUST_TRIPLE, p)));
   }
   return dirs;
+}
+
+/** One-time profile reporting — when debug is requested, say so loudly per
+ *  resolved lib (debug dir hit) or warn that the fallback was a release
+ *  artifact, so "I built --debug but it still feels fast" is diagnosable. */
+const reportedLibs = new Set<string>();
+function reportProfileHit(file: string, resolved: string): void {
+  if (NATIVE_PROFILE !== "debug" || reportedLibs.has(file)) return;
+  reportedLibs.add(file);
+  if (resolved.includes("debug")) {
+    console.warn(`[lib-paths] DEBUG build: ${file} ← ${resolved}`);
+  } else {
+    console.warn(`[lib-paths] DD_NATIVE_PROFILE=debug but no debug-staged ${file} — using release build at ${resolved}`);
+  }
 }
 
 /** Platform-package artifact inside node_modules (npm optional dep). */
@@ -149,6 +177,9 @@ export function resolveNativeLibrary(baseName: string, opts: NativeLibraryOption
   const candidates = [
     ...(opts.dirs ?? []).map((d) => join(d, file)),
     ...(opts.crateDir ? crateDirs(opts.crateDir) : []).map((d) => join(d, file)),
+    ...(NATIVE_PROFILE === "debug"
+      ? [join(nativeDir, `${PLATFORM_DIR}-debug`, file)] // build-native --debug staging
+      : []),
     join(nativeDir, file),                       // platform-native dev build
     join(nativeDir, "lib", file),                // fetch-at-install layout
     join(nativeDir, PLATFORM_DIR, file),         // per-platform artifacts
@@ -158,7 +189,7 @@ export function resolveNativeLibrary(baseName: string, opts: NativeLibraryOption
   ];
 
   for (let _i = 0, _it = candidates, _n = _it.length; _i < _n; _i++) { const p = _it[_i];
-    if (existsSync(p)) return p;
+    if (existsSync(p)) { reportProfileHit(file, p); return p; }
   }
 
   const pkgFile = platformPackageFile(file);

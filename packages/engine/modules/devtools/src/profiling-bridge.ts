@@ -25,6 +25,10 @@ import {
     DEFAULT_RENDERER_WARNING_RULES,
     EventLoopMonitor,
     fnv1a32,
+    PROFILING_IOPS_RING_CAP,
+    PROFILING_MAX_SLOTS,
+    PROFILING_STRING_TABLE_CAP,
+    PROFILING_WARNING_RING_CAP,
     ProfilingSABReader,
     ProfilingSABWriter,
     TraceEventWriter,
@@ -34,7 +38,7 @@ import {
     type SeverityLevel,
     type TraceSource,
     type WarningContext,
-    type WarningRecordData,
+    type WarningRecordData
 } from "@downdraft/engine/profiling";
 import { createLogger } from "@downdraft/engine/util/logger";
 import { devtools } from "./api";
@@ -61,13 +65,13 @@ export interface ProfilingBridgeOptions {
   enableEventLoopMonitor?: boolean;
   /** Expected frame time in ms (for rAF jitter). Default: 16.67. */
   expectedFrameMs?: number;
-  /** Max slots in the ProfilingSAB. Default: 16. */
+  /** Max slots in the ProfilingSAB. Default: PROFILING_MAX_SLOTS (32). */
   maxSlots?: number;
-  /** IOPS ring capacity per slot. Default: 256. */
+  /** IOPS ring capacity per slot. Default: PROFILING_IOPS_RING_CAP (256). */
   iopsRingCap?: number;
-  /** Warning ring capacity (global). Default: 128. */
+  /** Warning ring capacity (global). Default: PROFILING_WARNING_RING_CAP (128). */
   warningRingCap?: number;
-  /** String table capacity per slot. Default: 64. */
+  /** String table capacity per slot. Default: PROFILING_STRING_TABLE_CAP (64). */
   stringTableCap?: number;
   /**
    * Reuse an externally-allocated ProfilingSAB instead of allocating a new
@@ -106,10 +110,10 @@ export class ProfilingBridge {
 
   constructor(opts: ProfilingBridgeOptions = {}) {
     this.layout = opts.sharedSAB?.layout ?? computeProfilingSABLayout(
-      opts.maxSlots ?? 16,
-      opts.iopsRingCap ?? 256,
-      opts.warningRingCap ?? 128,
-      opts.stringTableCap ?? 64,
+      opts.maxSlots ?? PROFILING_MAX_SLOTS,
+      opts.iopsRingCap ?? PROFILING_IOPS_RING_CAP,
+      opts.warningRingCap ?? PROFILING_WARNING_RING_CAP,
+      opts.stringTableCap ?? PROFILING_STRING_TABLE_CAP,
     );
     const allocated = opts.sharedSAB ?? allocateProfilingSAB(
       this.layout.maxSlots,
