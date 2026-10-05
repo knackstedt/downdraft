@@ -38,7 +38,7 @@ The mobile path is **native** — the same winit+wgpu Rust stack plus embedded l
 
 > **Terminology note:** The compile-time DI units that were previously called "plugins" are now called **modules** to disambiguate. The term **"plugin" refers to the user-authored plugin/modding system** (runtime-loadable extensions authored by end users / modders — implemented; see "User-authored plugin (modding) system" and "Modding system (PluginHost + mod.json)" below). Throughout this document, "module" refers to the engine's compile-time DI units (`Module`, `RendererModule`, `ModuleHost`, etc.).
 
-The engine is a **single npm package**, `@downdraft/engine` (manifest at `packages/engine/package.json`), which exposes everything through subpath exports: `@downdraft/engine` (core index), `@downdraft/engine/core/<path>` (deep core imports), `@downdraft/engine/app/<renderer|shared>`, `@downdraft/engine/libraries/<name>`, `@downdraft/engine/modules/<name>`, plus `shader-graph`, `mcp`, `test`, and `asset-bake` subpaths. The only other published packages are `@downdraft/cli` (the `draft` binary) and `@downdraft/platform-native` (native binaries). The exports map is generated — run `node scripts/gen-engine-exports.mjs` after adding/removing a library or module directory.
+The engine is a **single npm package**, `@downdraft/engine` (manifest at `packages/engine/package.json`), which exposes everything through subpath exports: `@downdraft/engine` (core index), `@downdraft/engine/<area>` for core subtrees (`/ecs`, `/material`, `/module`, `/plugin`, `/profiling`, `/render`, ...) plus a `./* → ./core/src/*.ts` wildcard for deep core imports (e.g. `@downdraft/engine/worker/instrumented-worker-host` — there is **no** `/core/` subpath prefix), `@downdraft/engine/app/<renderer|shared>`, `@downdraft/engine/libraries/<name>`, `@downdraft/engine/modules/<name>`, plus `shader-graph`, `mcp`, `test`, and `asset-bake` subpaths. The other published packages are `@downdraft/cli` (the `draft` binary), `@downdraft/platform-native` (native binaries + host layer), and the `@downdraft/native-<platform>-<arch>` prebuilt-cdylib packages (optional deps of platform-native). The exports map is generated — run `node scripts/gen-engine-exports.mjs` after adding/removing a library or module directory.
 
 Architecturally the engine is split into **core + libraries** (standard engine building blocks, used directly by games) vs **modules** (opt-in game features with lifecycle + typed DI + diagnostics). Core also includes animation and particles subsystems directly.
 
@@ -111,7 +111,7 @@ A graphical test program (modeled on `games/downdraft-model-viewer`) for visuall
 - **Run**: `cd games/downdraft-gpu-bench && draft dev` (native — the only runtime).
 - **Not in root workspaces** (follows downdraft-model-viewer pattern: `@downdraft/*` resolved via vite aliases, not type-checked by root tsconfig).
 - **Test interface**: `VisualTest { id, name, category, description, createRenderer(canvas): ITestRenderer, getControls?(): TestControl[] }`. Each test owns its own GPU resources; the bench disposes + recreates the renderer when switching tests.
-- **Built-in tests**: navmesh (recast + legacy, with mesh wireframe + path debug viz), postfx (the PostProcessStack with 21 chainable effects — TAA, SSAO, SSR, DOF, Motion Blur, Bloom, Bloom-Soft, Tonemap, FXAA, Sharpen, Grain, Sobel, Edges, Lens Flare, Pixelation, Gaussian Blur, Afterimage, Outline, Highlight, Glow, ASCII — on a 3D scene).
+- **Built-in tests**: navmesh (recast + legacy, with mesh wireframe + path debug viz), postfx (the PostProcessStack with 26 chainable effects — TAA, SSAO, SSR, DOF, Motion Blur, Bloom, Bloom-Soft, Tonemap, FXAA, Sharpen, Grain, Sobel, Edges, Lens Flare, Pixelation, Gaussian Blur, Afterimage, Outline, Highlight, Glow, ASCII, Channel Mixer, Chromatic Aberration, Color Grading, Dithering, Halftone — on a 3D scene).
 - **Adding a test**: create `games/downdraft-gpu-bench/src/tests/<category>/<name>.test.ts`, call `registerTest({ ... })` at module load. The Vite glob in `src/tests/index.ts` picks it up automatically.
 
 ### Typed DI (provide/inject + provides/requires)
@@ -225,7 +225,7 @@ On the native runtime there is no DOM or HTML document. The single render target
 Each game MUST pass a unique `appId` (`downdraft-<game>`) so the native host resolves a per-game `userData` directory (e.g. `~/.config/downdraft-mining-rpg/`). Save files, SQLite import cache, debug artifacts, and the singleton lock all live under it — sharing one between games would corrupt save state and collide on the lock.
 
 When `appId` is set, `createNativeHost()` (via `runNativeGameModule`) also:
-1. Acquires a singleton lock (`<userData>/singleton.lock`, PID-owned) — prevents two instances of the same game from running concurrently (which would corrupt storage). **Skipped in deterministic/test mode** (`DOWNDRAFT_DETERMINISTIC=1`): the test harness controls process lifecycle itself (dynamic MCP ports + process-group kills).
+1. Acquires a singleton lock (`<userData>/singleton.lock`, PID-owned) — prevents two instances of the same game from running concurrently (which would corrupt storage). **Skipped in deterministic/test mode** (`DOWNDRAFT_DETERMINISTIC=1`): the test harness controls process lifecycle itself (dynamic MCP ports + process-group kills). `DOWNDRAFT_MULTI_INSTANCE=1` opts out of the lock in any mode.
 2. Cleans up stale lock artifacts from a previous run that crashed or was killed. In non-deterministic mode this is safe because the single-instance lock guarantees no live process is using the directory; in deterministic mode the test harness guarantees no concurrent instance.
 
 ### Files
@@ -259,7 +259,7 @@ await runNativeGameModule(gameModule, {
     kill -TERM "$pid" 2>/dev/null
   done
   ```
-- **Match the MCP port** if you know which port the game's MCP HTTP transport is bound to (ephemeral by default; 9976 for `draft test`):
+- **Match the MCP port** if you know which port the game's MCP HTTP transport is bound to (ephemeral by default, including under `draft test`):
   ```bash
   # Read the port from the PID file: ~/.downdraft/port/<pid>
   ls ~/.downdraft/port/ && cat ~/.downdraft/port/*  # shows PID(s) → port(s)
@@ -322,7 +322,7 @@ The `opts` object encapsulates all config and dependencies. This is the standard
 - `bun run lint` — runs `oxlint` on the whole repo. Currently reports many pre-existing `no-console`/`no-unused-vars` warnings/errors.
 - House rule `downdraft/no-for-of` (error): `for..of` is banned except where it's the required iteration structure — a call result (`Object.entries()`, `map.entries()`, generators, ...) or `for await..of`. Use `.forEach()` or an indexed `for` loop otherwise. The rule lives in `packages/engine/lint-plugin.mjs` (oxlint JS plugin, resolved as `@downdraft/engine/lint-plugin` from every `.oxlintrc.json` — root + each game).
 - `bun test packages/engine/core/src/ecs/world.spec.ts packages/engine/core/src/render/frustum.spec.ts packages/engine/core/src/telemetry/collector.spec.ts`
-- `bun test packages/engine/core/src/physics/*.spec.ts` — all physics specs (121 tests).
+- `bun test packages/engine/core/src/physics/*.spec.ts` — all physics specs (139 tests).
 - `bun test packages/engine/libraries/physics-rapier/src/*.spec.ts` — rapier library specs (bulk-ops, ffi-lib, validated-api).
 - `bun test packages/engine/core/src/render/bindless/bindless.spec.ts` — bindless texture registry + material manager specs.
 - `bun test packages/engine/core/src/material/material.spec.ts packages/engine/core/src/material/variants.spec.ts` — material + variant specs.
@@ -332,16 +332,16 @@ The `opts` object encapsulates all config and dependencies. This is the standard
 - `bun test packages/engine/libraries/models/src/bake-node-transforms.spec.ts` — node hierarchy transform baking specs.
 - `bun test packages/engine/libraries/models/src/sidecar/sidecar.spec.ts` — sidecar parsers (.ddmeta.json, Unity .meta, Godot .import, Blender extras).
 - `bun test packages/engine/libraries/models/src/normalize.spec.ts` — full normalization pipeline specs.
-- `bun test packages/engine/core/src/module/host.spec.ts` — ModuleHost activation order, deferred registration, dispose order (12 tests).
+- `bun test packages/engine/core/src/module/host.spec.ts` — ModuleHost activation order, deferred registration, dispose order (23 tests).
 - `bun test packages/engine/modules/devtools/src/api.spec.ts` — Unified DevTools API: realm detection, SAB data feeds, manifest, panel/command registration (17 tests).
 - `bun test packages/engine/core/src/render/gpu-utils.spec.ts` — GPU resource creation utilities (8 tests, uses mock GPUDevice).
 - `bun test games/to-the-ocean/modules/wildlife/src/wildlife-plugin.spec.ts` — game module wrappers (wildlife, buoyancy, collision) (9 tests).
-- `bun test packages/engine/libraries/persistence/src/file-save-store.spec.ts` — FileSaveStore (filesystem ISaveStore) specs (9 tests).
-- `bun test packages/engine/libraries/persistence/src/opfs-save-store.spec.ts` — OpfsSaveStore (OPFS ISaveStore) specs (22 tests). Uses mock OPFS — no browser/worker environment needed.
+- `bun test packages/engine/libraries/persistence/src/file-save-store.spec.ts` — FileSaveStore (filesystem ISaveStore) specs (10 tests).
+- `bun test packages/engine/libraries/persistence/src/opfs-save-store.spec.ts` — OpfsSaveStore (OPFS ISaveStore) specs (23 tests). Uses mock OPFS — no browser/worker environment needed.
 - `bun run draft:test` — e2e smoke test with hardware GPU (headless, deterministic). Equivalent to `draft test --renderer=gpu`.
 - `bun run draft:test-cpu` — e2e smoke test with SwiftShader software rendering (headless, deterministic). Equivalent to `draft test --renderer=cpu`. Use this for CI.
 - `bun run draft:test -- --headed` — same but shows the native winit window (useful for debugging).
-- `bun run draft:test -- --game blockheads` — run the blockheads e2e smoke test.
+- `bun run draft:test -- --game overburden` — run the overburden e2e smoke test.
 - `bun run draft:test -- --game sandjongg` — run the sandjongg e2e smoke test.
 - `bun run test:e2e` — legacy: runs the spec directly via `bun test` (bypasses the CLI).
 - `bun run tsc:e2e` — type-checks e2e test files against `tsconfig.e2e.json`.
@@ -355,10 +355,10 @@ The `opts` object encapsulates all config and dependencies. This is the standard
 
 These are set automatically by `draft test`. See the "Running the smoke test" section below for the full CLI flag reference.
 
-- `DOWNDRAFT_GPU=swiftshader|hardware` — selects the wgpu adapter. `swiftshader` = software Vulkan (CI), `hardware` = NVIDIA Vulkan (local).
-- `DOWNDRAFT_DETERMINISTIC=1` — fixed seed (99999), skip autosave loading, disable devtools auto-open and error dialogs, pause the render loop (on-demand rendering only via `set_test_state` or `capture_screenshot`). The flag reaches the game via the `downdraft.deterministic` bridge property (set by the native bridge).
+- `DOWNDRAFT_GPU=swiftshader|hardware` — set by `draft test`/`launchGame` and forwarded to the game process env (the harness also reads it to decide the `gpu:` launch option). NOTE: nothing in the game process currently consumes it — adapter selection is wgpu's own enumeration, so `swiftshader` works because the software Vulkan adapter (SwiftShader/lavapipe) is what wgpu finds on a GPU-less CI box. The old `webGpuSwitches()` mechanism is gone.
+- `DOWNDRAFT_DETERMINISTIC=1` — skip autosave loading, disable devtools auto-open and error dialogs, pause the render loop (on-demand rendering only via `set_test_state` or `capture_screenshot`). The flag reaches the game via the `downdraft.deterministic` bridge property (set by the native bridge). The sim seed is **not** overridden — the game's own `simConfig.seed` is used (`ctx.rng` in the sim worker is seeded from it).
 - `DOWNDRAFT_HEADED=1` — show the native winit window even in deterministic mode.
-- `MCP_PORT=<port>` — MCP HTTP transport port. Unset = ephemeral OS-assigned port (default; advertised via `~/.downdraft/port/<pid>` for auto-discovery). Set explicitly for the e2e test harness (9976).
+- `MCP_PORT=<port>` — MCP HTTP transport port. Unset = ephemeral OS-assigned port (default; advertised via `~/.downdraft/port/<pid>` for auto-discovery). `draft test` also auto-allocates a free port per run (`findFreePort()` binds port 0) unless `--port` is given.
 - `MCP_TIMEOUT_MS=120000` — MCP proxy IPC round-trip timeout in ms (must be longer than the longest `wait_for_condition` call).
 
 ## Unified DevTools API
@@ -467,12 +467,13 @@ FBX parser reads `GlobalSettings` for `UpAxis` (0/1=Y-up, 2=Z-up) and `UnitScale
 
 `ISaveStore` (`packages/engine/core/src/save/persist-types.ts`) is the storage interface for versioned game saves. The extended interface supports: `save`/`load` (with `SaveOptions`/`LoadOptions` for blobs, thumbnails, properties, generation control), `listSaves`/`listGenerations`/`deleteSave`/`deleteGeneration`, `setThumbnail`/`getThumbnail`, `setProperties`/`getProperties`, and `onWarning`. Saves are a zstd-compressed JSON body of per-component sections (each with its own schema version) plus a header (engine version, timestamp, entity/player counts, XXH128 hash). The `MigrationRegistry` runs per-component `fromVersion→toVersion` migrations on load; forward-incompatible saves (newer engine than current) are refused. Implementations live in `@downdraft/engine/libraries/persistence` (`packages/engine/libraries/persistence/`):
 
-- **`OpfsSaveStore`** (`opfs-save-store.ts`) — **default** OPFS-backed store for Web Workers and renderer. Writes directly to OPFS (no IPC, no main process). Supports generation history (N snapshots per slot, previous gen is backup on corruption), binary blobs (stored as separate files per blob key), thumbnails (PNG/WebP bytes), and arbitrary properties (game mode, playtime, etc.). Uses `createSyncAccessHandle()` in workers (sync I/O) or `createWritable()` on main thread. Directory layout: `downdraft/saves/<slot>/meta.json` + `thumbnail.png` + `gen/<NNNN>/body.zst` + `body.hash` + `blobs/<key>`. The `meta.json` file is the commit point — written last after body + blobs. 22 tests in `opfs-save-store.spec.ts` (uses mock OPFS via `mock-opfs.ts`).
+- **`OpfsSaveStore`** (`opfs-save-store.ts`) — **default** OPFS-backed store for Web Workers and renderer. Writes directly to OPFS (no IPC, no main process). Supports generation history (N snapshots per slot, previous gen is backup on corruption), binary blobs (stored as separate files per blob key), thumbnails (PNG/WebP bytes), and arbitrary properties (game mode, playtime, etc.). Uses `createSyncAccessHandle()` in workers (sync I/O) or `createWritable()` on main thread. Directory layout: `downdraft/saves/<slot>/meta.json` + `thumbnail.png` + `gen/<NNNN>/body.zst` + `body.hash` + `blobs/<key>`. The `meta.json` file is the commit point — written last after body + blobs. 23 tests in `opfs-save-store.spec.ts` (uses mock OPFS via `mock-opfs.ts`).
 
-  **Three save modes** (game selects via `DowndraftSavesConfig.mode`):
-  - `"inline"` — `OpfsSaveStore` runs inside the sim worker. Sim loop pauses during save (sync OPFS handles). Zero-copy: no data crosses worker boundaries. The sim worker calls `initSaveStore()` to create the store, then `save()`/`load()` use it directly.
-  - `"worker"` — Renderer spawns a dedicated `save-worker.ts` Web Worker. Sim worker sends serialized state as transferable `ArrayBuffer` via `MessageChannel`. Sim loop continues running during save. The `SaveWorkerProxy` (`save-worker-proxy.ts`) implements `ISaveStore` by delegating to the worker via the RPC layer.
-  - `"auto"` (default) — Picks `"worker"` if OPFS is available (`navigator.storage.getDirectory`), else falls back to the filesystem store.
+  **Four save modes** (game selects via `GameSaveConfig.mode`):
+  - `"inline"` — `OpfsSaveStore` runs inside the sim worker. Sim loop pauses during save (sync OPFS handles). Zero-copy: no data crosses worker boundaries. The sim worker creates the store directly (`createSaveStore` returns `null` here).
+  - `"worker"` — Renderer spawns a dedicated `save-worker.ts` Web Worker. Sim worker sends serialized state as transferable `ArrayBuffer` via `MessageChannel`. Sim loop continues running during save. The `SaveWorkerProxy` (`save-worker-proxy.ts`) implements `ISaveStore` by delegating to the worker via the RPC layer. (Browser builds only — the native host has no OPFS.)
+  - `"host"` — the host's own typed save store (`downdraft.saveStore` on the bridge → `HostSaveStore` → `FileSaveStore` on native). The default on native — stable across sessions, not origin-scoped.
+  - `"auto"` (default) — picks `"host"` when the bridge exposes a typed save store, else `"worker"` if OPFS is available (`navigator.storage.getDirectory`), else a `BridgeJsonSaveStore` over the bridge's JSON save methods as the last resort.
 
   The `createSaveStore()` factory (`packages/engine/app/src/renderer/save-store-factory.ts`) handles mode selection and OPFS detection. The `SimBridgeDeps.saveMode` field tells the sim bridge which path to use.
 
@@ -537,7 +538,7 @@ The engine uses a bindless material binding model to eliminate per-draw bind-gro
 
 ### Device limits
 
-`device.ts` and `game-renderer.ts` request `maxTextureArrayLayers: 256` in `requiredLimits`. `GPUDeviceManager.requestDevice` checks for the limit before requesting.
+`device.ts`, `game-renderer.ts`, and `native-host.ts` request `maxTextureArrayLayers` up to `512` (clamped to what the adapter reports) in `requiredLimits`. `GPUDeviceManager.requestDevice` checks for the limit before requesting.
 
 ### Migration status
 
@@ -692,10 +693,10 @@ draft test --renderer=cpu --spec tests/e2e/my-game.spec.ts
 - `--build` / `--build-only` — on `draft release` these are aliases for `--stage=build`. Native packaging is `scripts/package-native.mjs`.
 
 **Environment variables (set automatically by `draft test`):**
-- `DOWNDRAFT_GPU=swiftshader|hardware` — selects the WebGPU backend via `webGpuSwitches()`.
-- `DOWNDRAFT_DETERMINISTIC=1` — fixed seed (99999), skip autosave, disable devtools auto-open, pause render loop (on-demand rendering only). Exposed via `downdraft.deterministic` on the HostAPI bridge.
+- `DOWNDRAFT_GPU=swiftshader|hardware` — forwarded to the game process env (the harness reads it to select the `gpu:` launch option); nothing in-process consumes it — adapter selection is wgpu enumeration (SwiftShader/lavapipe wins on GPU-less CI).
+- `DOWNDRAFT_DETERMINISTIC=1` — skip autosave, disable devtools auto-open, pause render loop (on-demand rendering only). Exposed via `downdraft.deterministic` on the HostAPI bridge. Seed is game-supplied (`simConfig.seed`), not forced.
 - `DOWNDRAFT_HEADED=1` — show the window even in deterministic mode. Without this, `window.ts` suppresses `win.show()` when `DOWNDRAFT_DETERMINISTIC=1`.
-- `MCP_PORT=9976` — MCP HTTP transport port (explicit; unset = ephemeral for dev).
+- `MCP_PORT=<port>` — MCP HTTP transport port; auto-allocated free port by default (`draft test` calls `findFreePort()`; 9976 was the old pinned default).
 - `MCP_TIMEOUT_MS=120000` — MCP proxy IPC round-trip timeout.
 
 **Headless / CI without a display:** The CLI auto-detects missing `DISPLAY` and wraps in `xvfb-run` if available. Install it with `sudo apt install xvfb`. winit still needs an X server even when the window is hidden — wgpu renders to the window surface via SwiftShader when `DOWNDRAFT_GPU=swiftshader`.
@@ -709,7 +710,7 @@ draft test --renderer=cpu --spec tests/e2e/my-game.spec.ts
 
 **Build mode:** `draft release --stage=build` (or `--build-only`) compiles the native binary without packaging. Production-build e2e uses `draft release`.
 
-**Dynamic ports:** The harness auto-allocates a free MCP port starting from 9976, enabling parallel spec execution. Specs read the port from `process.env.MCP_PORT` (set by `draft test --port`). To run multiple specs simultaneously, omit `--port` and let each spec pick its own.
+**Dynamic ports:** `draft test` and the harness auto-allocate a free MCP port via `findFreePort()` (binds port 0 — OS-assigned), enabling parallel spec execution. Specs read the port from `process.env.MCP_PORT` (set by `draft test --port` or the auto-allocated default). To run multiple specs simultaneously, omit `--port` and let each spec pick its own.
 
 **Process cleanup:** The harness kills the entire process group (the game process and its worker threads) on test completion. It uses `process.kill(-pid, SIGTERM)` with a SIGKILL fallback after 5s.
 
@@ -746,6 +747,8 @@ The CLI reads and sets a number of environment variables. This is the complete l
 | `DOWNDRAFT_STRICT` | `packages/engine/core/src/module/diagnostics.ts` | `0`/`1` force-disable/enable module DI validation (else = Vite dev mode) |
 | `DOWNDRAFT_MCP` | `packages/engine/core/src/util/logger.ts` | `1` routes logs to stderr (keeps stdout clean for MCP JSON-RPC) |
 | `DOWNDRAFT_DISABLE_DEVTOOLS` | `packages/cli/src/debug.ts` | `1` disables the devtools UI entirely — forces `devtools.ui` to `"none"` (set by `draft debug --no-devtools`) |
+| `DOWNDRAFT_MULTI_INSTANCE` | `packages/platform-native/src/host-lifecycle.ts` | `1` opts out of the per-game `singleton.lock` |
+| `DOWNDRAFT_GPU_TIMESTAMPS` | `packages/platform-native/src/native-host.ts` | `1` enables the extended wgpu timestamp features (`timestamp-query-inside-passes`) on non-CPU adapters — off by default due to device-loss on lavapipe-class rasterizers and some discrete Vulkan drivers |
 
 ### E2E test verification — checking for JS errors
 
@@ -957,7 +960,7 @@ A comprehensive cross-thread profiling + tracing system (Puffin-style flame grap
   - IOPS patches: `patchOpfsPrototypes()` + `patchIndexedDbPrototypes()` — wrap OPFS/IDB methods to record IOPS to the ring. `disableRendererIndexedDb()` — patches the renderer's `indexedDB.open` to throw (renderer should not do I/O).
   - `worker-prelude.ts` — imported at the top of every instrumented worker. On load, detects worker realm, and if a ProfilingSAB is attached, claims a slot + initializes all writers + the warning engine + event-loop monitor + patches prototypes.
 - **`@downdraft/engine/worker/instrumented-worker-host`** — `InstrumentedWorkerHost` (extends `BaseWorkerHost`) auto-attaches the ProfilingSAB before `onInit()`. `exposeProfilingApi()` merges `__profilingAttach` / `__profilingAddRule` / `__profilingOnWarning` RPC methods into a worker's `expose()` API.
-- **Vite plugin** — `profilingPreludePlugin` injects the worker prelude import at the top of worker files (configured via `DowndraftViteConfigOptions.profiling`).
+- **Worker prelude wiring** — there is no Vite injection plugin; engine worker entries import `worker-prelude` directly (`sim-worker-base.ts`, `task-worker.ts`, `quickjs-bridge.ts`, `wasm-worker.ts`), so instrumentation is unconditional for engine-owned workers. Game-authored workers that want instrumentation should import `@downdraft/engine/profiling`'s `worker-prelude` at the top of the worker entry.
 - **`@downdraft/engine/modules/devtools`** — extended with:
   - `DebugViewDescriptor` + `registerView()` — declarative registration of profiler overlay views.
   - `attachProfilingSAB()` / `getProfilingSAB()` — SAB management on the devtools API.
@@ -999,11 +1002,11 @@ The following execution paths are instrumented with `recordTaskLatency()` + `che
 
 ### Enabling profiling in a game
 
-1. **Vite config**: set `profiling: true` in `createDowndraftViteConfig()` to inject the worker prelude.
-2. **`initDevTools`**: pass `profiling: true` to create the `ProfilingBridge` + `ProfilingSAB`.
-3. **Render loop**: call `profilingBridge.tick()` in `beforeFrame` and `profilingBridge.endFrame()` in `afterFrame`.
-4. **Sim worker**: call `simWorker.attachProfilingSAB(bridge.getProfilingSAB())` to share the SAB with the sim worker.
-5. **Profiler overlay** (optional): set `enableProfilingOverlay: true` in the `GameRenderer` config for the in-game telemetry overlay.
+1. **`initDevTools`**: pass `profiling: true` to create the `ProfilingBridge` + `ProfilingSAB`.
+2. **Render loop**: call `profilingBridge.tick()` in `beforeFrame` and `profilingBridge.endFrame()` in `afterFrame`.
+3. **Sim worker**: call `simWorker.attachProfilingSAB(bridge.getProfilingSAB())` to share the SAB with the sim worker. Engine-owned worker entries already import `worker-prelude`; game-authored workers should too.
+
+(The old `profilingPreludePlugin` Vite option and the `enableProfilingOverlay` in-game overlay are gone — profiling surfaces live in the devtools host.)
 
 ### Key files
 
@@ -1238,7 +1241,7 @@ A native platform layer providing direct GPU rendering via a single Rust cdylib 
 Native binaries are **not committed** and consumers never compile them:
 
 - **npm channel**: `@downdraft/native-<platform>-<arch>` optional dependencies of `@downdraft/platform-native` carry the prebuilt cdylibs under `lib/`.
-- **GitHub-release channel**: `bun run fetch:native` (postinstall fallback) downloads `downdraft-native-<platform>-<arch>.tar.gz` from the `native-v<version>` release and unpacks into each crate's staging dir.
+- **GitHub-release channel**: `bun run fetch:native` inside `packages/platform-native` (it's a script on that package, also run by its `postinstall` — not a root script) downloads `downdraft-native-<platform>-<arch>.tar.gz` from the `native-v<version>` release and unpacks into each crate's staging dir.
 - **Local dev**: `bun run build:native` (root) builds the Cargo workspace via `scripts/build-native.mjs` — the only native toolchain needed is `cargo` (pinned by `rust-toolchain.toml`).
 - **Debug native builds**: `build-native.mjs --debug` stages to `<dest>/<platform>-<arch>-debug/` — a sibling of the release dir, never an overwrite. Games load debug artifacts only when launched with `DD_NATIVE_PROFILE=debug` (or `draft dev --native-debug`); release resolution never searches debug dirs, so a debug build cannot silently downgrade the runtime (a 318MB debug `libdowndraft_platform.so` once shipped to the release staging dir cost ~3× frame time — debug wgpu validates every call unoptimized). The loader warns when `DD_NATIVE_PROFILE=debug` resolves a release artifact.
 - CI: `.github/workflows/native.yml` builds the per-platform matrix and uploads bundles to the release; `publish.yml` repacks them into the npm platform packages via `scripts/stage-native-packages.mjs`.
