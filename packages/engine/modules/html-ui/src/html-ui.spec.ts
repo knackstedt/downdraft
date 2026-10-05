@@ -9,7 +9,7 @@
 
 import { loadOsrLib } from "@downdraft/engine/libraries/blitz-ui/native-osr-ffi";
 import { describe, expect, test } from "bun:test";
-import { createDocCore, createLocalBackend } from "./doc-backend";
+import { createDocCore, createLocalBackend, type DocGpuView } from "./doc-backend";
 import { Fragment, jsx, jsxs, renderHtml } from "./jsx-runtime";
 import type { UiToWorker, WorkerToUi } from "./protocol";
 
@@ -236,6 +236,145 @@ describe.skipIf(!hasLib)("html-ui doc core", () => {
     expect(afterOne).toBeGreaterThanOrEqual(1);
     core.handle({ type: "mutate", id: "p1", ops: [{ op: "text", sel: "div", text: "b" }] });
     // Within the 200ms window this second raster is throttled (or merged).
+    core.dispose();
+  });
+});
+
+describe.skipIf(!hasLib)("html-ui gpu-direct", () => {
+  const GPU_HANDLE = { devicePtr: 1n, instancePtr: 1n, queuePtr: 1n, generation: 1 };
+
+  function fakeView(writes: unknown[][]): { view: DocGpuView; alive: { v: boolean } } {
+    const alive = { v: true };
+    return {
+      alive,
+      view: {
+        queue: { writeTexture: (...args: unknown[]) => { writes.push(args); } },
+        isValid: () => alive.v,
+        detach: () => { alive.v = false; },
+      },
+    };
+  }
+
+  // gpuAttach resolves through a promise chain — flush it before asserting.
+  const flush = () => Promise.resolve().then(() => Promise.resolve());
+
+  test("gpuAttach + texBind routes frames through the view's writeTexture", async () => {
+    const { msgs, emit } = collect();
+    const writes: unknown[][] = [];
+    const { view } = fakeView(writes);
+    const fakeTex = { tag: "borrowed" };
+    const borrows: { ptr: unknown; meta: unknown }[] = [];
+    const core = createDocCore(emit, {
+      attach: async () => ({
+        view,
+        borrowTexture: (ptr, meta) => { borrows.push({ ptr, meta }); return fakeTex; },
+      }),
+    });
+    core.handle({ type: "gpuAttach", gpu: GPU_HANDLE, cells: new SharedArrayBuffer(32) });
+    await flush();
+    expect(msgs.some((m) => m.type === "gpuReady" && m.ok)).toBe(true);
+
+    msgs.length = 0;
+    core.handle({ type: "create", id: "p1", cssW: 100, cssH: 50, scale: 1, html: `${CSS}<div>x</div>` });
+    // The SAB stays the raster scratch but the host doesn't need it bound —
+    // no bind message while a live view exists.
+    expect(msgs.some((m) => m.type === "bind")).toBe(false);
+
+    core.handle({ type: "texBind", id: "p1", texPtr: 7n, w: 100, h: 50, format: "rgba8unorm" });
+    expect(borrows.length).toBe(1);
+    expect(borrows[0]!.ptr).toBe(7n);
+    // texBind refreshInto() pushes retained pixels into the new texture.
+    expect(writes.length).toBe(1);
+    const [dest, data, layout, size] = writes[0]! as [
+      { texture: unknown; origin: number[] },
+      unknown,
+      { offset: number; bytesPerRow: number },
+      { width: number; height: number },
+    ];
+    expect(dest.texture).toBe(fakeTex);
+    expect(dest.origin).toEqual([0, 0, 0]);
+    expect(data).toBeInstanceOf(SharedArrayBuffer);
+    expect(layout.offset).toBe(64); // 64-byte header, full-frame rect at (0,0)
+    expect(size.width).toBe(100);
+    expect(size.height).toBe(50);
+    expect(msgs.some((m) => m.type === "frame" && m.gpu === true)).toBe(true);
+
+    // A repaint writes through the view again — no pixels/SAB on the message.
+    msgs.length = 0;
+    core.handle({ type: "mutate", id: "p1", ops: [{ op: "text", sel: "div", text: "y" }] });
+    const frame = msgs.find((m): m is FrameMsg => m.type === "frame");
+    expect(frame).toBeTruthy();
+    expect(frame!.gpu).toBe(true);
+    expect(frame!.pixels).toBeUndefined();
+    expect(frame!.seq).toBeUndefined();
+    expect(writes.length).toBe(2);
+    core.dispose();
+  });
+
+  test("gpuAttach failure reports gpuReady:false and keeps SAB delivery", async () => {
+    const { msgs, emit } = collect();
+    const core = createDocCore(emit, { attach: async () => null });
+    core.handle({ type: "gpuAttach", gpu: GPU_HANDLE, cells: new SharedArrayBuffer(32) });
+    await flush();
+    expect(msgs.some((m) => m.type === "gpuReady" && !m.ok)).toBe(true);
+    msgs.length = 0;
+    core.handle({ type: "create", id: "p1", cssW: 50, cssH: 50, scale: 1, html: "<div>x</div>" });
+    expect(msgs.some((m) => m.type === "bind")).toBe(true);
+    expect(msgs.some((m) => m.type === "frame" && m.seq !== undefined)).toBe(true);
+    core.dispose();
+  });
+
+  test("a dead view drops the borrow and re-arms SAB delivery", async () => {
+    const { msgs, emit } = collect();
+    const writes: unknown[][] = [];
+    const { view, alive } = fakeView(writes);
+    const core = createDocCore(emit, {
+      attach: async () => ({ view, borrowTexture: () => ({}) }),
+    });
+    core.handle({ type: "gpuAttach", gpu: GPU_HANDLE, cells: new SharedArrayBuffer(32) });
+    await flush();
+    core.handle({ type: "create", id: "p1", cssW: 100, cssH: 50, scale: 1, html: `${CSS}<div>x</div>` });
+    core.handle({ type: "texBind", id: "p1", texPtr: 9n, w: 100, h: 50, format: "rgba8unorm" });
+
+    alive.v = false; // device lost / view invalidated
+    msgs.length = 0;
+    core.handle({ type: "mutate", id: "p1", ops: [{ op: "text", sel: "div", text: "z" }] });
+    // The dropped borrow is acked, the host's SAB channel re-arms, and the
+    // frame goes out as a seq-stamped SAB header.
+    expect(msgs.some((m) => m.type === "texAck" && m.texPtr === 9n)).toBe(true);
+    expect(msgs.some((m) => m.type === "bind")).toBe(true);
+    expect(msgs.some((m) => m.type === "frame" && m.seq !== undefined && !m.gpu)).toBe(true);
+    core.dispose();
+  });
+
+  test("texBind rebind acks the previous texture", async () => {
+    const { msgs, emit } = collect();
+    const writes: unknown[][] = [];
+    const { view } = fakeView(writes);
+    const core = createDocCore(emit, {
+      attach: async () => ({ view, borrowTexture: () => ({}) }),
+    });
+    core.handle({ type: "gpuAttach", gpu: GPU_HANDLE, cells: new SharedArrayBuffer(32) });
+    await flush();
+    core.handle({ type: "create", id: "p1", cssW: 100, cssH: 50, scale: 1, html: "<div>x</div>" });
+    core.handle({ type: "texBind", id: "p1", texPtr: 1n, w: 100, h: 50, format: "rgba8unorm" });
+    msgs.length = 0;
+    core.handle({ type: "texBind", id: "p1", texPtr: 2n, w: 200, h: 100, format: "rgba8unorm" });
+    expect(msgs.some((m) => m.type === "texAck" && m.texPtr === 1n)).toBe(true);
+    core.dispose();
+  });
+
+  test("gpuDetach drops the view and acks", async () => {
+    const { msgs, emit } = collect();
+    const { view, alive } = fakeView([]);
+    const core = createDocCore(emit, {
+      attach: async () => ({ view, borrowTexture: () => ({}) }),
+    });
+    core.handle({ type: "gpuAttach", gpu: GPU_HANDLE, cells: new SharedArrayBuffer(32) });
+    await flush();
+    core.handle({ type: "gpuDetach" });
+    expect(msgs.some((m) => m.type === "gpuDetached")).toBe(true);
+    expect(alive.v).toBe(false);
     core.dispose();
   });
 });

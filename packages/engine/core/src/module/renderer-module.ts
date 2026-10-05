@@ -167,6 +167,18 @@ export interface RendererModuleContext {
    */
   registerUiCompositor?(c: ScreenUiCompositor): () => void;
 
+  /**
+   * The native host's worker-pass mailbox — workers finish command buffers
+   * on a shared-device view and postPass() them into named slots; the
+   * renderer drains each slot into the matching submit batch every frame
+   * (refs arriving between drains land in the next frame — passes are
+   * stale-tolerant, never rendezvous'd). Null off native / before the host
+   * boots. Well-known slots: "preSubmit" (joins the frame batch submitted
+   * after viewports+postfx), "preUi" (submitted ahead of the UI-composite
+   * pass so worker output is visible to the compositor the same frame).
+   */
+  getGpuPassMailbox(): import("../platform/runtime").GpuPassMailboxLike | null;
+
   // ── Frame / resize hooks ──
   onFrame(phase: FramePhase, fn: FrameHook): () => void;
   onResize(fn: ResizeHook): () => void;

@@ -61,6 +61,11 @@ interface DocState {
   sab: SharedArrayBuffer | null;
   sabU32: Int32Array | null;
   sabDisabled: boolean;
+  /** GPU-direct upload target — a non-owning wrap of the host-owned panel
+   *  texture (see texBind). Present ⇒ emitFrame uploads straight to the GPU;
+   *  absent ⇒ SAB/legacy emit. Dropped on texAck-worthy rebinds and on view
+   *  loss, which re-arms the SAB channel. */
+  gpuTex: { ptr: number | bigint; tex: unknown } | null;
   stats: { frames: number; resolveMs: number; paintMs: number; diffMs: number; bytes: number };
   statsLast: number;
 }
@@ -72,14 +77,48 @@ function freshStats() {
   return { frames: 0, resolveMs: 0, paintMs: 0, diffMs: 0, bytes: 0 };
 }
 
-export function createDocCore(emit: (m: WorkerToUi) => void): {
+/** The non-owning shared-device view the worker uses for GPU-direct
+ *  uploads — a structural subset of platform-native's SharedDeviceView. */
+export interface DocGpuView {
+  queue: {
+    writeTexture(dest: unknown, data: unknown, layout: unknown, size: unknown): void;
+  };
+  isValid(): boolean;
+  detach(): void;
+}
+
+/** Test/injection seam for the GPU-direct path — the real implementation
+ *  dynamic-imports @downdraft/platform-native on the first gpuAttach. */
+export interface DocGpuHooks {
+  attach(
+    gpu: { devicePtr: number | bigint; instancePtr: number | bigint; queuePtr: number | bigint; generation: number },
+    cells: SharedArrayBuffer,
+  ): Promise<{
+    view: DocGpuView;
+    borrowTexture(ptr: number | bigint, meta: { width: number; height: number; format: GPUTextureFormat; usage?: number }): unknown;
+  } | null>;
+}
+
+export function createDocCore(emit: (m: WorkerToUi) => void, gpuHooks?: DocGpuHooks): {
   handle(m: UiToWorker): void;
   dispose(): void;
 } {
   const docs = new Map<string, DocState>();
   let destroyed = false;
 
-  /** Allocate + bind the doc's SAB frame channel; emits a bind message. */
+  // ── GPU-direct upload state ──
+  // The shared-device view lives once per worker (all docs share it); each
+  // doc borrows its own host-owned texture via texBind. platform-native is
+  // an optional peer — attach lazily so non-native hosts never resolve it.
+  let gpuView: DocGpuView | null = null;
+  let borrowGpuTexture:
+    | ((ptr: number | bigint, meta: { width: number; height: number; format: GPUTextureFormat; usage?: number }) => unknown)
+    | null = null;
+
+  /** Allocate + bind the doc's SAB frame channel; emits a bind message.
+   *  The SAB doubles as the worker-local raster scratch in GPU-direct mode,
+   *  so it is always bound — but the host only needs to know about it while
+   *  the SAB is the upload channel (no live GPU view). */
   function bindSab(id: string, s: DocState): void {
     s.sab = null;
     s.sabU32 = null;
@@ -90,7 +129,7 @@ export function createDocCore(emit: (m: WorkerToUi) => void): {
     if (!s.doc.bindFrameBuf(sab)) { s.sabDisabled = true; return; }
     s.sab = sab;
     s.sabU32 = new Int32Array(sab);
-    emit({ type: "bind", id, buf: sab });
+    if (!gpuView) emit({ type: "bind", id, buf: sab });
   }
 
   /** Emit a frame message describing what frame_into()/refresh_into() wrote. */
@@ -102,6 +141,41 @@ export function createDocCore(emit: (m: WorkerToUi) => void): {
       x: u[H_X], y: u[H_Y], w: u[H_W], h: u[H_H],
       pw: u[H_PW], ph: u[H_PH], stride: u[H_STRIDE],
     });
+  }
+
+  /**
+   * Emit one raster — GPU-direct when this doc has a bound texture and the
+   * view is live (the host never touches pixels then), else SAB/legacy.
+   * A dead view drops the borrow and re-arms the SAB channel so the host
+   * resumes its own uploads.
+   */
+  function emitFrame(id: string, s: DocState): void {
+    if (s.gpuTex && gpuView) {
+      if (gpuView.isValid()) {
+        const u = s.sabU32!;
+        const x = u[H_X], y = u[H_Y], w = u[H_W], h = u[H_H];
+        const pw = u[H_PW], ph = u[H_PH], stride = u[H_STRIDE];
+        try {
+          gpuView.queue.writeTexture(
+            { texture: s.gpuTex.tex, origin: [x, y, 0] },
+            s.sab!,
+            { offset: 64 + y * stride + x * 4, bytesPerRow: stride, rowsPerImage: h },
+            { width: w, height: h, depthOrArrayLayers: 1 },
+          );
+          emit({ type: "frame", id, x, y, w, h, pw, ph, gpu: true });
+          return;
+        } catch {
+          // The view died between isValid() and the FFI call — fall through
+          // to the SAB emit; the drop below re-arms the host.
+        }
+      }
+      // View dead or write failed — drop the borrow and re-arm the SAB
+      // channel so the host resumes uploading itself.
+      emit({ type: "texAck", id, texPtr: s.gpuTex.ptr });
+      s.gpuTex = null;
+      if (s.sab) emit({ type: "bind", id, buf: s.sab });
+    }
+    emitSabFrame(id, s);
   }
 
   /** Fold the last raster's timings into the per-doc accumulator. */
@@ -136,7 +210,7 @@ export function createDocCore(emit: (m: WorkerToUi) => void): {
         if (rc === 1) {
           s.lastFrame = now;
           collectStats(s, s.sabU32[H_W] * s.sabU32[H_H] * 4);
-          emitSabFrame(id, s);
+          emitFrame(id, s);
         } else if (rc === -2) {
           // Doc grew past the bound buffer — regrow, then retry the frame
           // (the doc is still dirty, so frameInto rasters the full frame now;
@@ -147,7 +221,7 @@ export function createDocCore(emit: (m: WorkerToUi) => void): {
             if (rc2 === 1) {
               s.lastFrame = now;
               collectStats(s, s.sabU32[H_W] * s.sabU32[H_H] * 4);
-              emitSabFrame(id, s);
+              emitFrame(id, s);
             }
           }
         } else if (rc === -3) {
@@ -187,14 +261,16 @@ export function createDocCore(emit: (m: WorkerToUi) => void): {
     try {
       switch (m.type) {
         case "create": {
-          docs.get(m.id)?.doc.destroy();
+          const old = docs.get(m.id);
+          if (old?.gpuTex) emit({ type: "texAck", id: m.id, texPtr: old.gpuTex.ptr });
+          old?.doc.destroy();
           if (/float\s*:/.test(m.html)) emit({ type: "error", id: m.id, message: "CSS float hangs Blitz layout — use flex instead" });
           const doc = OsrDoc.create(m.cssW * m.scale, m.cssH * m.scale, m.scale, m.html);
           if (!doc) { emit({ type: "error", id: m.id, message: "OsrDoc.create failed" }); return; }
           const s: DocState = {
             doc, scale: m.scale, cssW: m.cssW, cssH: m.cssH,
             maxFps: m.maxFps ?? 0, lastFrame: -1e9,
-            sab: null, sabU32: null, sabDisabled: false,
+            sab: null, sabU32: null, sabDisabled: false, gpuTex: null,
             stats: freshStats(), statsLast: 0,
           };
           docs.set(m.id, s);
@@ -221,7 +297,66 @@ export function createDocCore(emit: (m: WorkerToUi) => void): {
         case "refresh": {
           // Host saw a torn seqlock read — re-emit the current pixels.
           const s = docs.get(m.id);
-          if (s?.sabU32 && s.doc.refreshInto() === 1) emitSabFrame(m.id, s);
+          if (s?.sabU32 && s.doc.refreshInto() === 1) emitFrame(m.id, s);
+          break;
+        }
+        case "gpuAttach": {
+          // Attach a non-owning view of the host's wgpu device so the worker
+          // uploads straight into panel textures — the main thread stops
+          // paying the queue.writeTexture cost per frame. Optional peer:
+          // any failure keeps the SAB path.
+          const attach = gpuHooks
+            ? () => gpuHooks.attach(m.gpu, m.cells)
+            : () => import("@downdraft/platform-native").then((pn) => {
+              const view = pn.attachSharedDevice(m.gpu, m.cells);
+              return view
+                ? { view: view as unknown as DocGpuView, borrowTexture: pn.borrowGpuTexture }
+                : null;
+            });
+          void Promise.resolve()
+            .then(attach)
+            .then((res) => {
+              gpuView = res?.view ?? null;
+              borrowGpuTexture = res?.borrowTexture ?? null;
+              emit({ type: "gpuReady", ok: !!res });
+            })
+            .catch(() => emit({ type: "gpuReady", ok: false }));
+          break;
+        }
+        case "gpuDetach": {
+          for (const s of docs.values()) s.gpuTex = null;
+          gpuView?.detach();
+          gpuView = null;
+          emit({ type: "gpuDetached" });
+          break;
+        }
+        case "texBind": {
+          // Bind this doc's host-owned upload target. The ack tells the host
+          // it may destroy the previous texture — the deferred-destroy
+          // window closes once our last write to it can't be in flight.
+          const s = docs.get(m.id);
+          if (!s) break;
+          // No SAB scratch means frameInto can't raster — the doc only
+          // emits legacy pixels frames, so a borrow would never be used.
+          if (!s.sabU32) break;
+          if (!gpuView || !borrowGpuTexture) break;
+          try {
+            if (s.gpuTex) emit({ type: "texAck", id: m.id, texPtr: s.gpuTex.ptr });
+            s.gpuTex = {
+              ptr: m.texPtr,
+              tex: borrowGpuTexture(m.texPtr, {
+                width: m.w, height: m.h, format: m.format as GPUTextureFormat,
+              }),
+            };
+            // Push the retained pixels into the fresh texture so the panel
+            // doesn't blank while waiting for the next repaint.
+            if (s.sabU32 && s.doc.refreshInto() === 1) emitFrame(m.id, s);
+          } catch {
+            s.gpuTex = null;
+            // Borrow failed — the host believes we're bound, so re-arm the
+            // SAB channel or the panel goes black.
+            if (s.sab) emit({ type: "bind", id: m.id, buf: s.sab });
+          }
           break;
         }
         case "profilingAttach": {
@@ -237,7 +372,13 @@ export function createDocCore(emit: (m: WorkerToUi) => void): {
             .catch(() => { /* profiling unavailable — fine */ });
           break;
         }
-        case "destroy": docs.get(m.id)?.doc.destroy(); docs.delete(m.id); break;
+        case "destroy": {
+          const s = docs.get(m.id);
+          if (s?.gpuTex) emit({ type: "texAck", id: m.id, texPtr: s.gpuTex.ptr });
+          s?.doc.destroy();
+          docs.delete(m.id);
+          break;
+        }
         case "resource": registerOsrResource(m.url, new Uint8Array(m.bytes)); break;
         case "input": {
           const s = docs.get(m.id);
@@ -354,6 +495,8 @@ export function createDocCore(emit: (m: WorkerToUi) => void): {
     dispose() {
       destroyed = true;
       clearInterval(timer);
+      gpuView?.detach();
+      gpuView = null;
       for (const s of docs.values()) s.doc.destroy();
       docs.clear();
     },

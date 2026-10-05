@@ -68,21 +68,52 @@ export type UiToWorker =
   | { type: "refresh"; id: string }
   /** Attach the engine ProfilingSAB — the worker claims a metrics slot so the
    *  devtools perf tab can see it. Best-effort; ignored when profiling is off. */
-  | { type: "profilingAttach"; sab: SharedArrayBuffer; workerTag: string; layout?: { maxSlots: number; iopsRingCap: number; warningRingCap: number; stringTableCap: number } };
+  | { type: "profilingAttach"; sab: SharedArrayBuffer; workerTag: string; layout?: { maxSlots: number; iopsRingCap: number; warningRingCap: number; stringTableCap: number } }
+  /**
+   * Attach to the host's shared wgpu device (native only). `gpu` is the
+   * GpuDeviceHandle from the host's GpuShareBroker — declared structurally
+   * here because platform-native is an optional peer. Once attached, the
+   * worker uploads panel frames straight into bound textures via
+   * queue.writeTexture instead of emitting pixels/SAB headers.
+   */
+  | { type: "gpuAttach"; gpu: { devicePtr: number | bigint; instancePtr: number | bigint; queuePtr: number | bigint; generation: number }; cells: SharedArrayBuffer }
+  /** Detach the shared-device view — sent before the host terminates the
+   *  worker so the broker's retire() doesn't stall on a stuck attach count. */
+  | { type: "gpuDetach" }
+  /**
+   * Bind a doc's upload target. The host owns the texture (created on the
+   * main thread); the worker wraps `texPtr` non-owningly (borrowGpuTexture)
+   * and queue.writeTextures dirty rects into it. Sent at mount, again after
+   * every resize (rebind), and never on the SAB fallback path.
+   */
+  | { type: "texBind"; id: string; texPtr: number | bigint; w: number; h: number; format: string };
 
 /** Backend → host */
 export type WorkerToUi =
   | { type: "ready" }
   /**
-   * A frame is ready. Two shapes:
+   * A frame is ready. Three shapes:
    *  - pixel-carrying (`pixels` present): `w*h*4` tightly-packed RGBA bytes to
    *    upload at (x, y). Used when no SharedArrayBuffer channel is bound.
    *  - SAB (`seq` present): the backend wrote the dirty rect into the bound
    *    buffer at `stride`-aligned rows — the host reads pixels itself.
+   *  - GPU-direct (`gpu: true`): the worker already queue.writeTextured the
+   *    dirty rect into the bound panel texture — stats/bookkeeping only.
    */
-  | { type: "frame"; id: string; x: number; y: number; w: number; h: number; pw: number; ph: number; pixels?: ArrayBuffer; seq?: number; stride?: number }
+  | { type: "frame"; id: string; x: number; y: number; w: number; h: number; pw: number; ph: number; pixels?: ArrayBuffer; seq?: number; stride?: number; gpu?: boolean }
   /** Bind/rebind the per-doc SAB frame staging buffer (sent before first frame). */
   | { type: "bind"; id: string; buf: SharedArrayBuffer }
+  /** Result of a gpuAttach attempt — ok:false keeps the SAB path. */
+  | { type: "gpuReady"; ok: boolean }
+  /** Ack of gpuDetach — the host may now terminate the worker. */
+  | { type: "gpuDetached" }
+  /**
+   * The worker dropped its borrowed wrapper for `texPtr` — sent when a
+   * texBind replaces the previous target or a doc is destroyed. The host
+   * defers destroying a bound texture until this ack (or a fallback timer)
+   * so a writeTexture can't be in flight on the freed handle.
+   */
+  | { type: "texAck"; id: string; texPtr: number | bigint }
   | { type: "events"; id: string; events: OsrDomEvent[] }
   | { type: "attr"; reqId: number; value: string | null }
   | { type: "rect"; reqId: number; rect: { x: number; y: number; w: number; h: number } | null }

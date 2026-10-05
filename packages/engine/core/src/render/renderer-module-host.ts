@@ -28,6 +28,7 @@ import type {
     ResizeHook,
 } from "../module/renderer-module";
 import type { RenderSurface } from "../platform/render-surface";
+import { getNativeHost } from "../platform/runtime";
 import { createLogger } from "../util/logger";
 import type { CameraState } from "./camera";
 import type { FrameGraph, SlotRegistry } from "./frame-graph";
@@ -568,6 +569,8 @@ export class RendererModuleHost {
       registerUiCompositor: this.callbacks.registerUiCompositor
         ? (c) => this.callbacks.registerUiCompositor!(c)
         : undefined,
+      // The mailbox lives on the native host — null on browser/standalone.
+      getGpuPassMailbox: () => getNativeHost()?.passMailbox ?? null,
 
       onFrame: (phase, fn) => {
         const entry: OwnedFrameHook = { owner: name, fn };

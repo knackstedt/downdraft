@@ -7,6 +7,13 @@
 import { describe, expect, it } from "bun:test";
 import { ptr } from "../ffi/ffi-adapter";
 import {
+    borrowGpuBuffer,
+    borrowGpuTexture,
+    importGpuTexture,
+} from "./borrow";
+import { GpuPassMailbox } from "./pass-channel";
+import { GpuShareBroker } from "./share-broker";
+import {
     attachSharedDevice,
     createDeviceStateCells,
     exportCommandBuffer,
@@ -168,6 +175,180 @@ describe("shared GPU device across workers", () => {
     cmd.dispose(); // no-op post-transfer
     const imported = importCommandBuffer(ref);
     device.queue.submit([imported]);
+    device.destroy();
+  });
+});
+
+describe("GpuShareBroker", () => {
+  it("issues one attach payload per device and tracks views globally", async () => {
+    const { device } = makeDevice();
+    const broker = new GpuShareBroker(device);
+    const p1 = broker.payload();
+    const p2 = broker.payload();
+    // Same cells + same generation — every consumer attaches through the
+    // broker so one death signal reaches all of them.
+    expect(p1.cells).toBe(p2.cells);
+    expect(p1.gpu.generation).toBe(p2.gpu.generation);
+    expect(broker.isAlive()).toBe(true);
+
+    const v1 = attachSharedDevice(p1.gpu, p1.cells);
+    const v2 = attachSharedDevice(p2.gpu, p2.cells);
+    expect(broker.attached()).toBe(2);
+
+    const retired = broker.retire(5_000);
+    expect(v1.isValid()).toBe(false);
+    expect(v2.isValid()).toBe(false);
+    v1.detach();
+    v2.detach();
+    expect(await retired).toBe(true);
+    expect(broker.attached()).toBe(0);
+    device.destroy();
+  });
+
+  it("one death signal reaches every consumer — device.destroy kills all views", () => {
+    const { device } = makeDevice();
+    const broker = new GpuShareBroker(device);
+    const v1 = attachSharedDevice(broker.payload().gpu, broker.payload().cells);
+    const v2 = attachSharedDevice(broker.payload().gpu, broker.payload().cells);
+    expect(v1.isValid()).toBe(true);
+    device.destroy();
+    expect(broker.isAlive()).toBe(false);
+    expect(v1.isValid()).toBe(false);
+    expect(v2.isValid()).toBe(false);
+  });
+});
+
+describe("borrow/import GPU resources", () => {
+  it("borrowed wrappers never release the owner's handle", () => {
+    const { device } = makeDevice();
+    const tex = device.createTexture({
+      size: [32, 32, 1], format: "rgba8unorm", usage: 0x02 | 0x04, // COPY_DST | TEXTURE_BINDING
+    });
+    const buf = device.createBuffer({ size: 256, usage: 0x0004 | 0x0008 }); // STORAGE|COPY_DST-ish metadata
+
+    // Worker-side wraps — destroy() is a local no-op, and GC won't release
+    // the native handle either (markTransferred unregistered the finalizer).
+    const bTex = borrowGpuTexture(tex.ptr, { width: 32, height: 32, format: "rgba8unorm" });
+    const bBuf = borrowGpuBuffer(buf.ptr, 256, device.queue);
+    expect(bTex.width).toBe(32);
+    expect(bBuf.size).toBe(256);
+    bTex.destroy();
+    bBuf.destroy();
+
+    // Owner writes still land — the handle was never released.
+    device.queue.writeTexture(
+      { texture: tex as any },
+      new Uint8Array(32 * 32 * 4),
+      { bytesPerRow: 32 * 4, rowsPerImage: 32 },
+      { width: 32, height: 32, depthOrArrayLayers: 1 },
+    );
+    tex.destroy();
+    buf.destroy();
+    device.destroy();
+  });
+
+  it("worker writeTexture through a borrowed target lands in the owner's texture", async () => {
+    const { instance, device } = makeDevice();
+    const broker = new GpuShareBroker(device);
+    // Owner creates the upload target (RGBA8, COPY_SRC|COPY_DST|TEXTURE_BINDING
+    // — the writeTexture destination plus the readback source).
+    const tex = device.createTexture({
+      size: [16, 16, 1], format: "rgba8unorm", usage: 0x01 | 0x02 | 0x04,
+    });
+    const payload = broker.payload();
+
+    const worker = new Worker(new URL("./spec-fixtures/borrow-target-worker.ts", import.meta.url).href);
+    const result = await new Promise<any>((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error("worker timeout")), 60_000);
+      worker.onmessage = (ev) => { clearTimeout(t); resolve(ev.data); };
+      worker.onerror = (e) => { clearTimeout(t); reject(e); };
+      worker.postMessage({
+        gpu: payload.gpu, cells: payload.cells,
+        texPtr: tex.ptr, w: 16, h: 16,
+      });
+    });
+    worker.terminate();
+    expect(result.ok).toBe(true);
+
+    // Read back — the worker's writeTexture should have filled it red.
+    // copyTextureToBuffer enforces COPY_BYTES_PER_ROW_ALIGNMENT (256), so
+    // the readback rows are padded even though the texture is 16 wide.
+    const readback = device.createBuffer({ size: 16 * 256, usage: MAP_READ | COPY_DST });
+    const enc = device.createCommandEncoder();
+    enc.copyTextureToBuffer(
+      { texture: tex as any },
+      { buffer: readback as any, bytesPerRow: 256 },
+      [16, 16, 1],
+    );
+    device.queue.submit([enc.finish()]);
+    const state = wgpu.wgpu_shim_buffer_map_async(readback.ptr as unknown as ptr, 1, 0n, BigInt(16 * 256));
+    expect(state).toBe(3);
+    const out = new Uint8Array(16 * 256);
+    wgpu.wgpu_shim_buffer_read_mapped(readback.ptr as unknown as ptr, 0n, BigInt(out.byteLength), ptr(out) as unknown as ptr, out.byteLength);
+    wgpu.wgpu_shim_buffer_unmap(readback.ptr as unknown as ptr);
+    expect(out[0]).toBe(255);
+    expect(out[1]).toBe(0);
+    expect(out[2]).toBe(0);
+    expect(out[3]).toBe(255);
+
+    readback.destroy();
+    tex.destroy();
+    for (let i = 0; i < 5; i++) wgpu.wgpu_shim_process_events(instance);
+    device.destroy();
+  }, 60_000);
+
+  it("importGpuTexture creates an owning wrapper (finalizer + destroy release)", () => {
+    const { device } = makeDevice();
+    const enc = device.createCommandEncoder();
+    const cmd = enc.finish();
+    // Simulate the worker-created + exported resource path at the same
+    // level a real worker would produce — a texture whose ptr the owner
+    // wraps owning. (Same-thread stand-in for the cross-thread flow.)
+    const src = device.createTexture({
+      size: [8, 8, 1], format: "rgba8unorm", usage: 0x10,
+    });
+    // Pretend the worker exported it — disarm the source wrapper's release.
+    const { markTransferred } = require("./registry") as typeof import("./registry");
+    markTransferred(src);
+    const imported = importGpuTexture(src.ptr, { width: 8, height: 8, format: "rgba8unorm" });
+    imported.destroy(); // releases the handle exactly once
+    device.queue.submit([cmd]);
+    device.destroy();
+  });
+});
+
+describe("GpuPassMailbox", () => {
+  it("drains posted worker command buffers into submit-ready wrappers", () => {
+    const { device } = makeDevice();
+    const mailbox = new GpuPassMailbox();
+    const posted: { slot: string; ref: unknown }[] = [];
+    // Worker-side emit: finish → postPass equivalent (export + post).
+    const enc = device.createCommandEncoder();
+    const ref = exportCommandBuffer(enc.finish());
+    // Simulate the postMessage arriving — feed() is the manual path for
+    // message streams owned by an RPC layer.
+    expect(mailbox.feed({ type: "gpuPass", slot: "preSubmit", ref })).toBe(true);
+    expect(mailbox.feed({ type: "frame" })).toBe(false);
+    const cbs = mailbox.drain("preSubmit");
+    expect(cbs.length).toBe(1);
+    device.queue.submit(cbs);
+    expect(mailbox.drain("preSubmit").length).toBe(0);
+    device.destroy();
+  });
+
+  it("skips invalid worker buffers without submitting them", () => {
+    const { device } = makeDevice();
+    const mailbox = new GpuPassMailbox();
+    // An invalid ref carries {ptr, invalid:true} — submit() releases it
+    // without executing (submitting an errored buffer aborts the process).
+    const enc = device.createCommandEncoder();
+    const cb = enc.finish();
+    cb.invalid = true;
+    mailbox.feed({ type: "gpuPass", slot: "preUi", ref: exportCommandBuffer(cb) });
+    const cbs = mailbox.drain("preUi");
+    expect(cbs.length).toBe(1);
+    // queue.submit() drops + releases invalid buffers — no crash.
+    device.queue.submit(cbs);
     device.destroy();
   });
 });

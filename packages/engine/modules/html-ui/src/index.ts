@@ -4,7 +4,7 @@ export type { CompositePanel } from "./composite";
 export { createHtmlUi, HtmlUiTok, isPointerOverUI } from "./create-html-ui";
 export type { HtmlUiContext, HtmlUiOptions, UISubscribable } from "./create-html-ui";
 export { createDocCore, createLocalBackend, createWorkerBackend } from "./doc-backend";
-export type { DocBackend } from "./doc-backend";
+export type { DocBackend, DocGpuHooks, DocGpuView } from "./doc-backend";
 export { HtmlUiHost } from "./host";
 export type { PanelActionHandler, PanelEventHandler, PanelRect, PanelSpec, UiPanelHandle } from "./host";
 export { Fragment, jsx, jsxDEV, jsxs, renderHtml } from "./jsx-runtime";

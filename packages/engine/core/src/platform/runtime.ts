@@ -113,12 +113,41 @@ export function getHostCapabilities(): HostCapabilities {
   return DOM_HOST_CAPABILITIES;
 }
 
+/** Structural view of the native host's per-device shared-GPU broker —
+ *  typed here because platform-native is an optional peer. payload() yields
+ *  the {gpu, cells} attach payload a worker needs for attachSharedDevice(). */
+export interface GpuShareBrokerLike {
+  payload(): { gpu: unknown; cells: SharedArrayBuffer };
+  attached(): number;
+  isAlive(): boolean;
+  markLost(): void;
+  retire(timeoutMs?: number): Promise<boolean>;
+}
+
+/** Structural view of the native host's worker-pass mailbox — the renderer
+ *  drains named slots into its submit batches; producers postPass() into
+ *  them. See gpu/pass-channel.ts for slot conventions. */
+export interface GpuPassMailboxLike {
+  /** Listen for gpuPass messages on a worker's message stream. */
+  watch(worker: { addEventListener(type: "message", fn: (e: { data: unknown }) => void): void; removeEventListener(type: "message", fn: (e: { data: unknown }) => void): void }): () => void;
+  /** Feed a raw message — for workers whose stream is owned elsewhere. */
+  feed(msg: unknown): boolean;
+  /** Import all pending refs for `slot` into owning command buffers —
+   *  renderer-only; call right before the submit they should join. */
+  drain(slot: string): GPUCommandBuffer[];
+}
+
 /** The subset of the live native host object games legitimately reach for —
  *  primarily its GPU handles until the renderer gets an injected device
  *  (Phase 2 of the native re-architecture). */
 export interface NativeHostHandle {
   device?: GPUDevice;
   adapter?: GPUAdapter;
+  /** Per-device shared-GPU broker (native only) — workers attach through
+   *  payload() so one liveness cells set reaches every consumer. */
+  gpuShare?: GpuShareBrokerLike;
+  /** Mailbox for worker-produced command buffers drained by the renderer. */
+  passMailbox?: GpuPassMailboxLike;
   [key: string]: unknown;
 }
 

@@ -65,6 +65,13 @@ export interface HtmlUiOptions {
    * nav is always wired when enabled.
    */
   nav?: boolean | Omit<UiNavRouterOptions, "screenW" | "screenH">;
+  /**
+   * Upload panel frames via the ui worker's shared-device view (native only,
+   * default true). The worker queue.writeTextures straight into panel
+   * textures instead of posting SAB frames for the host to upload. `false`
+   * forces the SAB path; `DOWNDRAFT_NO_UI_GPU=1` forces it globally.
+   */
+  gpuUpload?: boolean;
   build(ui: HtmlUiContext): void;
 }
 
@@ -91,7 +98,7 @@ export function createHtmlUi(options: HtmlUiOptions): RendererModule {
     version: "1.0.0",
     provides: [HtmlUiTok],
     register(ctx: RendererModuleContext) {
-      const host = new HtmlUiHost(ctx.getDevice(), ctx.getFormat(), undefined, { profilingTag: `ui:${moduleName}` });
+      const host = new HtmlUiHost(ctx.getDevice(), ctx.getFormat(), undefined, { profilingTag: `ui:${moduleName}`, gpuUpload: options.gpuUpload });
       host.bindInput(ctx.getInputBus());
       ctx.onDispose(() => host.dispose());
       const unregCompositor = ctx.registerUiCompositor?.(host.compositor);

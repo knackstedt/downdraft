@@ -7,7 +7,7 @@
 // ============================================================================
 
 import type { InputEventControl, RendererInputBus } from "@downdraft/engine";
-import { createLogger } from "@downdraft/engine";
+import { createLogger, getHostCapabilities, getNativeHost } from "@downdraft/engine";
 import type { OsrDomEvent } from "@downdraft/engine/libraries/blitz-ui/native-osr-ffi";
 import { PanelBlitPass } from "./composite";
 import { createLocalBackend, createWorkerBackend, type DocBackend } from "./doc-backend";
@@ -70,6 +70,13 @@ interface Panel {
    *  when a newer-or-equal upload already covered its rect. */
   lastSeq: number;
   lastRect: { x: number; y: number; w: number; h: number } | null;
+  /** True once a texBind was posted for this panel — the worker uploads via
+   *  queue.writeTexture itself, so host-side SAB uploads/polls are skipped
+   *  (a stale host write could otherwise land after a newer worker write). */
+  gpuBound: boolean;
+  /** The texPtr last posted to the worker — matches a texAck on rebind and
+   *  keeps retired textures alive until the worker drops its borrow. */
+  boundPtr: bigint | null;
 }
 
 const UI_TRACE = typeof process !== "undefined" && !!process.env?.DD_UI_TRACE;
@@ -164,18 +171,55 @@ export class HtmlUiHost {
     private device: GPUDevice,
     format: GPUTextureFormat,
     backend?: DocBackend,
-    opts?: { /** ProfilingSAB slot tag for this host's ui worker. */ profilingTag?: string },
+    opts?: {
+      /** ProfilingSAB slot tag for this host's ui worker. */
+      profilingTag?: string;
+      /** Upload panels via the worker's shared-device view (native only).
+       *  Default true; false forces the SAB upload path. */
+      gpuUpload?: boolean;
+    },
   ) {
     this.blit = new PanelBlitPass(device, format);
     this.backend = backend ?? HtmlUiHost.spawnWorker() ?? createLocalBackend();
     this.backend.onMessage((m) => this.handleMessage(m));
     this.profilingTag = opts?.profilingTag ?? "ui";
+    this.gpuUpload = opts?.gpuUpload !== false
+      && !(typeof process !== "undefined" && process.env?.DOWNDRAFT_NO_UI_GPU === "1");
     log.info("html-ui", `doc backend: ${this.backend.kind}`);
     this.attachProfiling();
+    this.attachGpu();
   }
 
   private profilingTag = "ui";
   private profilingSent = false;
+
+  // ── GPU-direct upload ──
+  // The ui worker attaches to the host's shared wgpu device (one attach per
+  // worker, all docs share it) and borrows each panel's texture by ptr —
+  // uploads become the worker's queue.writeTexture calls instead of ours.
+  private gpuUpload = true;
+  private gpuAttachSent = false;
+  private gpuReady = false;
+  private gpuDetachAcked = false;
+  private terminating = false;
+  /** Textures retired while still possibly borrowed by the worker —
+   *  destroyed on texAck or a fallback timer (whichever lands first). */
+  private retiredTex = new Map<bigint, { tex: GPUTexture; timer: ReturnType<typeof setTimeout> }>();
+
+  /** Hand the worker the shared-device attach payload. Retried from mount()
+   *  — like the profiling bridge, the native host may postdate the ctor. */
+  private attachGpu(): void {
+    if (this.gpuAttachSent || !this.gpuUpload || this.backend.kind !== "worker") return;
+    if (!getHostCapabilities().supportsMultiWorkerGpu) return;
+    const payload = getNativeHost()?.gpuShare?.payload?.();
+    if (!payload) return;
+    this.gpuAttachSent = true;
+    this.send({
+      type: "gpuAttach",
+      gpu: payload.gpu as { devicePtr: number | bigint; instancePtr: number | bigint; queuePtr: number | bigint; generation: number },
+      cells: payload.cells,
+    });
+  }
 
   /** Hand the engine ProfilingSAB to the ui worker so the devtools perf tab
    *  can see it. Retried from mount() — the profiling bridge is created by
@@ -209,6 +253,7 @@ export class HtmlUiHost {
 
   mount(spec: PanelSpec): UiPanelHandle {
     this.attachProfiling(); // retry — the profiling bridge may postdate ctor
+    this.attachGpu(); // retry — the native host may postdate the ctor
     const id = spec.id ?? `panel-${this.nextId++}`;
     const scale = spec.scale ?? 2;
     const panel: Panel = {
@@ -217,10 +262,14 @@ export class HtmlUiHost {
       texture: null, texW: 0, texH: 0, ubo: null, bindGroup: null,
       handlers: new Set(spec.onEvent ? [spec.onEvent] : []),
       editing: false, sab: null, sabI32: null, lastSeq: 0, lastRect: null,
+      gpuBound: false, boundPtr: null,
     };
     this.panels.set(id, panel);
     this.order.push(id);
     this.send({ type: "create", id, cssW: spec.rect.w, cssH: spec.docH ?? spec.rect.h, scale, html: spec.html, maxFps: spec.maxFps });
+    // GPU-direct: create the panel texture eagerly so the worker's texBind
+    // lands before its first upload — the host knows raster dims at mount.
+    if (this.gpuReady) this.bindPanelTex(panel);
     return this.handleFor(panel);
   }
 
@@ -281,11 +330,13 @@ export class HtmlUiHost {
         if (r.x === rect.x && r.y === rect.y && r.w === rect.w && r.h === rect.h) return;
         p.rect = { ...rect };
         this.send({ type: "resize", id: p.id, cssW: rect.w, cssH: p.docH ?? rect.h, scale: p.scale });
+        this.bindPanelTex(p); // rebind the worker to the resized texture
       },
       setDocHeight: (h) => {
         if (p.docH === h) return;
         p.docH = h;
         this.send({ type: "resize", id: p.id, cssW: p.rect.w, cssH: h, scale: p.scale });
+        this.bindPanelTex(p);
       },
       setSrcRect: (src) => { p.src = src ? { ...src } : null; },
       setZ: (z) => { p.z = z; },
@@ -338,7 +389,7 @@ export class HtmlUiHost {
     if (!p) return;
     this.panels.delete(id);
     this.order = this.order.filter((x) => x !== id);
-    p.texture?.destroy();
+    this.retireTexture(p);
     p.ubo?.destroy();
     p.sab = null;
     p.sabI32 = null;
@@ -395,10 +446,30 @@ export class HtmlUiHost {
     this.unsubInput.forEach((u) => u());
     this.unsubInput = [];
     if (this.moveTimer) { clearTimeout(this.moveTimer); this.moveTimer = null; }
-    for (const p of this.panels.values()) { p.texture?.destroy(); p.ubo?.destroy(); p.sab = null; p.sabI32 = null; }
+    for (const p of this.panels.values()) { this.retireTexture(p); p.ubo?.destroy(); p.sab = null; p.sabI32 = null; }
     this.panels.clear();
     this.order = [];
+    if (this.gpuAttachSent && this.backend.kind === "worker" && !this.gpuDetachAcked) {
+      // Graceful detach: let the worker drop its shared-device view before
+      // terminate() kills it — an un-detached view stalls the broker's
+      // retire() until timeout, and retired textures must outlive the
+      // worker's last writeTexture. Both settle on gpuDetached or 150ms.
+      this.terminating = true;
+      this.send({ type: "gpuDetach" });
+      const backend = this.backend;
+      setTimeout(() => {
+        if (!this.gpuDetachAcked) backend.dispose();
+        this.destroyRetired();
+      }, 150);
+      return;
+    }
     this.backend.dispose();
+    this.destroyRetired();
+  }
+
+  private destroyRetired(): void {
+    for (const r of this.retiredTex.values()) { clearTimeout(r.timer); r.tex.destroy(); }
+    this.retiredTex.clear();
   }
 
   // ── Input coalescing ──
@@ -539,19 +610,58 @@ export class HtmlUiHost {
         if (!p) return;
         p.sab = m.buf;
         p.sabI32 = new Int32Array(m.buf);
+        // A bind emitted while the panel was GPU-bound means the worker fell
+        // back to SAB delivery (dead view) — resume host-side uploads.
+        p.gpuBound = false;
+        p.boundPtr = null;
         // Fresh buffer — its seqlock restarts at 0, so reset the dedupe
         // state or the stale lastSeq could suppress real uploads.
         p.lastSeq = 0;
         p.lastRect = null;
         break;
       }
+      case "gpuReady": {
+        this.gpuReady = m.ok;
+        if (m.ok) {
+          log.info("html-ui", `doc backend: ${this.backend.kind} (gpu-direct)`);
+          this.panels.forEach((p) => this.bindPanelTex(p));
+        }
+        break;
+      }
+      case "gpuDetached": {
+        this.gpuDetachAcked = true;
+        if (this.terminating) {
+          this.backend.dispose();
+          this.destroyRetired();
+        }
+        break;
+      }
+      case "texAck": {
+        // The worker dropped its borrow of this ptr — safe to destroy the
+        // retired texture now (no worker FFI call can still be in flight).
+        const r = this.retiredTex.get(BigInt(m.texPtr));
+        if (r) {
+          this.retiredTex.delete(BigInt(m.texPtr));
+          clearTimeout(r.timer);
+          r.tex.destroy();
+        }
+        break;
+      }
       case "frame": {
         const p = this.panels.get(m.id);
         if (process.env.DD_UI_TRACE_FRAMES === "1") {
-          log.info("html-ui", `frame ${m.id} x=${m.x} y=${m.y} w=${m.w} h=${m.h} pw=${m.pw} ph=${m.ph} seq=${m.seq ?? "-"}`);
+          log.info("html-ui", `frame ${m.id} x=${m.x} y=${m.y} w=${m.w} h=${m.h} pw=${m.pw} ph=${m.ph} seq=${m.seq ?? "-"} gpu=${m.gpu === true}`);
         }
         if (!p) return;
+        if (m.gpu === true) {
+          // GPU-direct: the worker already wrote the dirty rect into the
+          // panel texture — nothing to upload. Reconcile dims defensively
+          // (a resize could race the last texBind).
+          if (p.gpuBound && (p.texW !== m.pw || p.texH !== m.ph)) this.bindPanelTex(p);
+          break;
+        }
         if (m.seq !== undefined && m.stride !== undefined && p.sab && p.sabI32) {
+          if (p.gpuBound) break; // stale seq frame — worker owns uploads now
           // Zero-copy path: the backend wrote the dirty rect into the shared
           // buffer. Skip when a poll already uploaded this emit (or a newer
           // frame covering its rect) — otherwise upload the message's
@@ -644,6 +754,7 @@ export class HtmlUiHost {
    *  verified. Records lastSeq/lastRect so the poll path and late "frame"
    *  messages don't re-upload the same content. */
   private uploadSabFrame(p: Panel, x: number, y: number, w: number, h: number, pw: number, ph: number, stride: number): void {
+    if (p.gpuBound) return; // the worker uploads directly — don't race it
     const i32 = p.sabI32!;
     const seq0 = Atomics.load(i32, 0);
     // seq0 === 0 → bound but nothing emitted yet; odd → write in progress.
@@ -673,7 +784,7 @@ export class HtmlUiHost {
   private pollSabFrames(): void {
     for (const p of this.panels.values()) {
       const i32 = p.sabI32;
-      if (!i32 || !p.sab) continue;
+      if (!i32 || !p.sab || p.gpuBound) continue;
       const seq0 = Atomics.load(i32, 0);
       if (seq0 === 0 || (seq0 & 1) !== 0 || seq0 === p.lastSeq) continue;
       const x = i32[1], y = i32[2], w = i32[3], h = i32[4];
@@ -682,9 +793,52 @@ export class HtmlUiHost {
     }
   }
 
+  /**
+   * Create (or recreate) the panel texture and post it to the worker as a
+   * borrowed upload target. No-op when the worker's attach hasn't resolved
+   * or the current texture is already bound. Raster dims are always
+   * rect*scale — the doc's layout height may exceed the display rect for
+   * scrollable views (docH).
+   */
+  private bindPanelTex(p: Panel): void {
+    if (!this.gpuReady || this.backend.kind !== "worker") return;
+    const pw = Math.max(1, Math.round(p.rect.w * p.scale));
+    const ph = Math.max(1, Math.round((p.docH ?? p.rect.h) * p.scale));
+    this.ensureTexture(p, pw, ph);
+    if (!p.texture) return;
+    const ptr = (p.texture as unknown as { ptr: number | bigint }).ptr;
+    if (p.gpuBound && p.boundPtr === BigInt(ptr)) return;
+    this.send({ type: "texBind", id: p.id, texPtr: ptr, w: pw, h: ph, format: "rgba8unorm" });
+    p.gpuBound = true;
+    p.boundPtr = BigInt(ptr);
+  }
+
+  /**
+   * Release a panel's texture — deferred when the worker may still be
+   * writing through it. A bound texture's ptr could be mid-writeTexture on
+   * the worker right now; destroying the handle while an FFI call derefs it
+   * is a use-after-free inside the shim. Bound textures go to retiredTex
+   * and die on texAck (worker swapped) or a 1s fallback timer (worker gone).
+   */
+  private retireTexture(p: Panel): void {
+    const t = p.texture;
+    p.texture = null;
+    if (!t) return;
+    const ptr = (t as unknown as { ptr?: number | bigint }).ptr;
+    if (p.gpuBound && p.boundPtr !== null && ptr !== undefined && BigInt(ptr) === p.boundPtr) {
+      const key = BigInt(ptr);
+      const timer = setTimeout(() => {
+        if (this.retiredTex.delete(key)) t.destroy();
+      }, 1000);
+      this.retiredTex.set(key, { tex: t, timer });
+      return;
+    }
+    t.destroy();
+  }
+
   private ensureTexture(p: Panel, w: number, h: number): void {
     if (p.texture && p.texW === w && p.texH === h) return;
-    p.texture?.destroy();
+    this.retireTexture(p);
     const tw = Math.max(1, w), th = Math.max(1, h);
     p.texture = this.device.createTexture({
       size: { width: tw, height: th },

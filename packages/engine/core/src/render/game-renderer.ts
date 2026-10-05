@@ -912,6 +912,16 @@ export class GameRenderer implements CanvasResizeHandler {
     this.callbacks.afterViewports?.(dt, this.elapsedTime);
     this.rendererModuleHost?.dispatchFrame("afterViewports", dt, this.elapsedTime);
 
+    // Worker-produced passes (postPass → "preSubmit" slot on the native
+    // host's GpuPassMailbox) join this frame's submit batch — refs that
+    // arrived since the last drain execute after the owner's buffers.
+    // Stale-tolerant by design: a worker that misses the drain lands next
+    // frame instead of rendezvousing the render thread.
+    const passMailbox = getNativeHost()?.passMailbox;
+    if (passMailbox) {
+      frameCommandBuffers.push(...passMailbox.drain("preSubmit"));
+    }
+
     // Submit all command buffers for this frame in a single queue.submit() call
     if (frameCommandBuffers.length > 0) {
       this.device!.queue.submit(frameCommandBuffers);
@@ -998,7 +1008,9 @@ export class GameRenderer implements CanvasResizeHandler {
         });
         compositors.forEach((c) => { c.render(uiPass, this.canvas.width, this.canvas.height); });
         uiPass.end();
-        this.device.queue.submit([uiEncoder.finish()]);
+        // "preUi" slot — worker passes ordered ahead of the UI-composite
+        // submit so their output is visible to the compositor this frame.
+        this.device.queue.submit([...(passMailbox?.drain("preUi") ?? []), uiEncoder.finish()]);
       }
     }
 

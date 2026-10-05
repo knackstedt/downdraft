@@ -135,7 +135,7 @@ export {
     isDevMode,
     NATIVE_HOST_CAPABILITIES
 } from "./platform/runtime";
-export type { HostCapabilities, HostRuntime, NativeHostHandle } from "./platform/runtime";
+export type { GpuPassMailboxLike, GpuShareBrokerLike, HostCapabilities, HostRuntime, NativeHostHandle } from "./platform/runtime";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mesh

@@ -4,9 +4,11 @@
 //
 //   renderer.useRendererModule(createDevtoolsUiModule({ renderer, profilingSAB }));
 //
-// Mounts a Chrome-DevTools-style dock inside the game window — reusing the
-// game's HtmlUiTok when present (shared z-order + input routing), else
-// self-hosting an HtmlUiHost. F12 toggles the dock.
+// Mounts a Chrome-DevTools-style dock inside the game window on its own
+// dedicated HtmlUiHost — the dock doc lives in its own ui worker, so a
+// runaway game doc can never starve devtools raster (or vice versa).
+// `shareGameUi: true` opts back into mounting on the game's HtmlUiTok.
+// F12 toggles the dock.
 // ============================================================================
 
 import { resourceToken, type RendererModule, type RendererModuleContext } from "@downdraft/engine";
@@ -29,6 +31,15 @@ export interface DevtoolsUiModuleConfig {
   autoShow?: boolean;
   /** Toggle key (default "F12"). Set to null to disable the hotkey. */
   toggleKey?: string | null;
+  /**
+   * Mount the dock on the game's HtmlUiTok when one is provided — the dock
+   * doc then shares the game UI's single ui worker (one HtmlUiHost = one
+   * worker for all its docs). Default false: devtools always self-hosts so
+   * it gets its own worker — a long game-doc raster can never starve the
+   * dock, and the dock's 15fps repaints never queue behind game UI work.
+   * Sharing remains useful only where the extra worker's memory matters.
+   */
+  shareGameUi?: boolean;
   /** Called with the live host inside register() — use it to wire
    *  registerEngineProviders / registerThreadEval / game providers. */
   onHost?: (host: BlitzDevtoolsHost) => void;
@@ -41,7 +52,9 @@ export function createDevtoolsUiModule(config: DevtoolsUiModuleConfig = {}): Ren
     provides: [BlitzDevtoolsTok],
 
     register(ctx: RendererModuleContext) {
-      const shared = ctx.injectOptional(HtmlUiTok);
+      // Default: dedicated self-hosted host → guaranteed own ui worker.
+      // Sharing the game's host is opt-in — see shareGameUi above.
+      const shared = config.shareGameUi ? ctx.injectOptional(HtmlUiTok) : null;
       const ui = shared ?? createSelfHostedDevtoolsUi(ctx);
 
       const host = new BlitzDevtoolsHost({

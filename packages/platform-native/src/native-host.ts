@@ -22,6 +22,8 @@ import { resolveNativeUserDataDir } from "./bridge/user-data-dir";
 import { installDOMPolyfills } from "./dom/dom-polyfills";
 import { initNativeGamepad, startGamepadEnrichment } from "./gamepad/index";
 import { installGPU } from "./gpu/install";
+import { GpuPassMailbox } from "./gpu/pass-channel";
+import { GpuShareBroker } from "./gpu/share-broker";
 import { markAllSharedDevicesDead, retireAllSharedDevices } from "./gpu/shared-device";
 import { wgpu } from "./gpu/wgpu-ffi";
 import {
@@ -80,6 +82,13 @@ export interface NativeHostContext {
   gpu: any;
   adapter: any;
   device: any;
+  /** Shared-GPU broker — one DeviceStateCells set for the host device.
+   *  Workers attach via payload() (attachSharedDevice); retire() drains
+   *  every attached view before destroy(). */
+  gpuShare: GpuShareBroker;
+  /** Mailbox for worker-produced command buffers — the renderer drains
+   *  named slots into its submit batches (see gpu/pass-channel.ts). */
+  passMailbox: GpuPassMailbox;
   /** The installed `downdraft` bridge, when `appId` was provided. */
   bridge: (ReturnType<typeof createNativeBridge>) | null;
   /** Host services handle (worker-backed save store + import cache). */
@@ -202,6 +211,14 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   // shaders at startup/bake time before they reach the render pipeline.
   const gpuDevice = device as unknown as GPUDevice;
   installShaderValidationGuard(gpuDevice);
+
+  // 3b. Shared-device broker — THE DeviceStateCells set for this device.
+  //     shareDevice() overwrites device.sharedState on each call, so every
+  //     consumer (ui workers, grid builders, pass producers) must attach
+  //     through this single broker or earlier consumers lose the death
+  //     signal. retire() is invoked in destroy() before the device frees.
+  const gpuShare = new GpuShareBroker(device);
+  const passMailbox = new GpuPassMailbox();
 
   // 4. Configure the surface context
   const ctx = surface.getContext("webgpu")!;
@@ -361,6 +378,8 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
     gpu,
     adapter,
     device,
+    gpuShare,
+    passMailbox,
     bridge,
     services,
     mcp,
@@ -376,8 +395,11 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
       host.destroyed = true;
       // Sync kill-switch for attached worker views: mark every shared-device
       // cell set dead so workers stop *starting* FFI calls on handles we're
-      // about to free. (retireAllSharedDevices handles the detach wait —
-      // callers run it before destroy().)
+      // about to free. The broker's retire() writes the same cells (it also
+      // drains attached views asynchronously — the event loop is still live
+      // here so workers can observe the request before the process exits;
+      // the dev supervisor additionally runs retireAllSharedDevices first).
+      void gpuShare.retire();
       markAllSharedDevicesDead();
       void mcp?.stop();
       gamepadDestroyFn?.();

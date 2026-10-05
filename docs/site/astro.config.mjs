@@ -54,6 +54,7 @@ export default defineConfig({
 						{ label: 'Process Model', slug: 'architecture/process-model' },
 						{ label: 'SAB Communication', slug: 'architecture/sab-communication' },
 						{ label: 'Render Pipeline', slug: 'architecture/render-pipeline' },
+						{ label: 'GPU Worker Reattach', slug: 'architecture/gpu-worker-reattach' },
 					],
 				},
 				{
