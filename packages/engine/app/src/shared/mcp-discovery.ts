@@ -28,10 +28,15 @@ export function mcpPortDir(): string {
  * `Authorization: Bearer <token>` or `X-Downdraft-Token` header. The port
  * file format stays a bare number for backward compatibility with existing
  * bridges. Returns a cleanup function that removes both files (best-effort).
+ *
+ * `suffix` distinguishes a second endpoint in the same process:
+ * `writeMcpPidFile(port, token, ".editor")` writes `<pid>.editor` +
+ * `<pid>.editor.token` (the createMcpModule editor toolset endpoint), leaving
+ * the automation endpoint's `<pid>` file untouched.
  */
-export function writeMcpPidFile(port: number, token: string): () => void {
+export function writeMcpPidFile(port: number, token: string, suffix: string = ""): () => void {
   const dir = mcpPortDir();
-  const pidFile = join(dir, String(process.pid));
+  const pidFile = join(dir, `${process.pid}${suffix}`);
   const tokenFile = `${pidFile}.token`;
   try {
     mkdirSync(dir, { recursive: true });

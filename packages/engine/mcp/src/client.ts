@@ -48,9 +48,17 @@ export function mcpPortDir(): string {
 
 export interface GameInstance {
     pid: number;
-    port: number;
+    /** Automation endpoint port (host tools + game harness), from the
+     *  `<pid>` file. Absent when the instance only advertises an editor
+     *  endpoint. */
+    port?: number;
     /** Bearer token from `<pid>.token`, when the instance wrote one. */
     token?: string;
+    /** Editor toolset endpoint port (`createMcpModule({ transport: "http" })`),
+     *  from the `<pid>.editor` sibling file. */
+    editorPort?: number;
+    /** Bearer token from `<pid>.editor.token`, when present. */
+    editorToken?: string;
     /** PID-file mtime — newest instance wins when no selector is given. */
     mtimeMs: number;
     /** The instance's appId when it can be recovered (Linux /proc only). */
@@ -98,11 +106,40 @@ export function listGameInstances(sel: InstanceSelector = {}): GameInstance[] {
         return [];
     }
     const out: GameInstance[] = [];
+    // Group files by PID: "<pid>" is the automation endpoint, "<pid>.editor"
+    // the editor toolset endpoint (createMcpModule http transport). Token
+    // siblings "<pid>.token" / "<pid>.editor.token" don't match the regex.
+    const byPid = new Map<number, { automation?: string; editor?: string }>();
     for (let _i = 0, _it = entries, _n = _it.length; _i < _n; _i++) { const name = _it[_i];
-        if (!/^\d+$/.test(name)) continue;
-        const pid = Number(name);
+        const m = /^(\d+)(\.editor)?$/.exec(name);
+        if (!m) continue;
+        const rec = byPid.get(Number(m[1])) ?? {};
+        if (m[2]) rec.editor = name; else rec.automation = name;
+        byPid.set(Number(m[1]), rec);
+    }
+    const readPort = (file?: string): number | undefined => {
+        if (!file) return undefined;
+        try {
+            const raw = readFileSync(join(mcpPortDir(), file), "utf8").trim();
+            return /^\d+$/.test(raw) ? Number(raw) : undefined;
+        } catch {
+            return undefined;
+        }
+    };
+    const readToken = (file?: string): string | undefined => {
+        if (!file) return undefined;
+        try {
+            return readFileSync(join(mcpPortDir(), `${file}.token`), "utf8").trim() || undefined;
+        } catch { /* no token file — auth not required */ }
+        return undefined;
+    };
+    for (const [pid, files] of byPid.entries()) {
         if (!isAlive(pid)) {
-            try { unlinkSync(join(mcpPortDir(), name)); } catch { /* gone */ }
+            [files.automation, files.editor].forEach((f) => {
+                if (!f) return;
+                try { unlinkSync(join(mcpPortDir(), f)); } catch { /* gone */ }
+                try { unlinkSync(join(mcpPortDir(), `${f}.token`)); } catch { /* gone */ }
+            });
             continue;
         }
         if (sel.pid !== undefined && pid !== sel.pid) continue;
@@ -110,23 +147,23 @@ export function listGameInstances(sel: InstanceSelector = {}): GameInstance[] {
         if (sel.appId !== undefined && appId !== undefined && appId !== sel.appId) continue;
         if (sel.appId !== undefined && appId === undefined && process.platform === "linux") continue;
 
-        let port: number;
-        try {
-            const raw = readFileSync(join(mcpPortDir(), name), "utf8").trim();
-            if (!/^\d+$/.test(raw)) continue;
-            port = Number(raw);
-        } catch {
-            continue;
-        }
-        let token: string | undefined;
-        try {
-            token = readFileSync(join(mcpPortDir(), `${name}.token`), "utf8").trim() || undefined;
-        } catch { /* no token file — auth not required */ }
+        const port = readPort(files.automation);
+        const editorPort = readPort(files.editor);
+        if (port === undefined && editorPort === undefined) continue;
         let mtimeMs = 0;
-        try {
-            mtimeMs = statSync(join(mcpPortDir(), name)).mtimeMs;
-        } catch { /* treat as oldest */ }
-        out.push({ pid, port, token, mtimeMs, appId });
+        [files.automation, files.editor].forEach((f) => {
+            if (!f) return;
+            try { mtimeMs = Math.max(mtimeMs, statSync(join(mcpPortDir(), f)).mtimeMs); } catch { /* treat as oldest */ }
+        });
+        out.push({
+            pid,
+            port,
+            editorPort,
+            token: readToken(files.automation),
+            editorToken: readToken(files.editor),
+            mtimeMs,
+            appId,
+        });
     }
     out.sort((a, b) => b.mtimeMs - a.mtimeMs);
     return out;
@@ -151,6 +188,12 @@ export interface GameClientOptions {
     url?: string;
     /** Bearer token; auto-read from <pid>.token on discovery. */
     token?: string;
+    /** Which of the instance's endpoints to connect to: "automation"
+     *  (default — `<pid>` file: host tools + game harness) or "editor"
+     *  (`<pid>.editor` file: createMcpModule http transport's full editor
+     *  toolset). DOWNDRAFT_MCP_ENDPOINT=editor works too. Ignored when
+     *  `url` is given. */
+    endpoint?: "automation" | "editor";
     /** Per-request timeout in ms (default 120s). */
     timeoutMs?: number;
 }
@@ -206,6 +249,7 @@ export class GameClient {
         let pid = opts.pid ?? (Number.isFinite(envPid) && envPid > 0 ? envPid : undefined);
         let url = opts.url ?? process.env.DOWNDRAFT_MCP_URL ?? process.env.MCP_HTTP_URL;
         let token = opts.token ?? process.env.DOWNDRAFT_MCP_TOKEN ?? process.env.MCP_TOKEN;
+        const endpoint = opts.endpoint ?? (process.env.DOWNDRAFT_MCP_ENDPOINT === "editor" ? "editor" : "automation");
         if (!url) {
             const inst = discoverGameInstance({ appId, pid });
             if (!inst) {
@@ -219,8 +263,17 @@ export class GameClient {
                     `Start a game first (e.g. \`draft dev\`), or pass url / set DOWNDRAFT_MCP_URL.`,
                 );
             }
-            url = `http://localhost:${inst.port}/mcp`;
-            token ??= inst.token;
+            const instPort = endpoint === "editor" ? inst.editorPort : inst.port;
+            if (instPort === undefined) {
+                throw new McpClientError(
+                    `Instance ${inst.pid} has no ${endpoint} MCP endpoint in ${mcpPortDir()}` +
+                    (endpoint === "editor"
+                        ? ` — register createMcpModule({ transport: "http" }) in the game, or drop the editor endpoint selection.`
+                        : "."),
+                );
+            }
+            url = `http://localhost:${instPort}/mcp`;
+            token ??= endpoint === "editor" ? (inst.editorToken ?? inst.token) : inst.token;
             pid = inst.pid;
         }
         const client = new GameClient(url, token, pid, opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);

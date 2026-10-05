@@ -36,6 +36,7 @@ interface McpFlags {
     pid: number;
     url: string;
     token: string;
+    editor: boolean;
     json: boolean;
     out: string;
     maxBytes: number;
@@ -55,6 +56,7 @@ function selectorFrom(f: McpFlags): GameClientOptions {
         pid: f.pid || undefined,
         url: f.url || undefined,
         token: f.token || undefined,
+        endpoint: f.editor ? "editor" : undefined,
         timeoutMs: f.timeout || undefined,
     };
 }
@@ -218,6 +220,7 @@ export async function mcp(argv: string[]): Promise<void> {
         pid: parsed.flags.pid as number,
         url: parsed.flags.url as string,
         token: parsed.flags.token as string,
+        editor: parsed.flags.editor as boolean,
         json: parsed.flags.json as boolean,
         out: parsed.flags.out as string,
         maxBytes: (parsed.flags["max-bytes"] as number) || DEFAULT_MAX_BYTES,
@@ -236,13 +239,14 @@ export async function mcp(argv: string[]): Promise<void> {
 
     switch (action) {
         case "instances": {
-            const insts = listGameInstances({ appId: f.app || undefined });
+            let insts = listGameInstances({ appId: f.app || undefined });
+            if (f.editor) insts = insts.filter((i) => i.editorPort !== undefined);
             if (insts.length === 0) {
                 process.stderr.write("draft-mcp: no running instances\n");
                 return;
             }
             insts.forEach((i) => {
-                print(`${i.pid}\t${i.port}\t${i.appId ?? "-"}`);
+                print(`${i.pid}\t${i.port ?? "-"}\t${i.appId ?? "-"}\t${i.editorPort ?? "-"}`);
             });
             return;
         }

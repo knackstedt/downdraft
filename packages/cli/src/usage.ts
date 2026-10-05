@@ -197,6 +197,7 @@ export const COMMANDS: CommandEntry[] = [
         { name: "pid", type: "number", description: "Select instance by PID" },
         { name: "url", type: "string", description: "Explicit MCP HTTP URL (skips PID-file discovery)" },
         { name: "token", type: "string", description: "Bearer token (auto-read from <pid>.token otherwise)" },
+        { name: "editor", type: "boolean", description: "Target the instance's editor endpoint (<pid>.editor — createMcpModule transport:\"http\") instead of the automation endpoint" },
         { name: "json", type: "boolean", description: "Print the raw result envelope (image data elided to {bytes} unless --out)" },
         { name: "out", type: "string", description: "Write image/binary result blocks to file(s)" },
         { name: "max-bytes", type: "number", description: "Cap printed output in bytes (default 262144)" },

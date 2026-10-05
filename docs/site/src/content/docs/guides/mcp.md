@@ -7,7 +7,7 @@ DownDraft includes a built-in MCP (Model Context Protocol) server that enables A
 
 ## Overview
 
-The MCP server runs as a JSON-RPC server over stdio, providing AI agents with tools, resources, and prompt templates for interacting with the engine.
+The MCP server speaks JSON-RPC over two transports: newline-delimited **stdio** (`MCPServer.start()` — the classic spawn-as-an-MCP-process mode) and **HTTP** on 127.0.0.1 (`McpHttpTransport`, used by the in-game endpoints below). Both expose the same tools, resources, and prompt templates for interacting with the engine.
 
 ## Tools
 
@@ -89,3 +89,20 @@ await game.kill();
 ```
 
 `draft mcp` prints tool text output to stdout (capped at `--max-bytes`, default 256 KiB); image/binary blocks are never inlined — pass `--out <file>` or `--json`.
+
+## Editor endpoint (createMcpModule)
+
+`@downdraft/engine/modules/mcp`'s `createMcpModule` hosts the full editor toolset above (tools + resources + prompts) inside a running game, backed by the live world via `EngineContext.fromGame`. With `transport: "http"` it serves JSON-RPC on a second loopback port through `McpHttpTransport` direct mode — alongside, and independent of, the automation endpoint. It advertises `~/.downdraft/port/<pid>.editor` (+ `<pid>.editor.token`), so the same clients reach it with one selector:
+
+```bash
+draft mcp --editor tools                          # editor toolset
+draft mcp --editor call get_scene_info            # live-world scene info
+draft mcp --editor stdio                          # stdio→HTTP bridge to the editor endpoint
+draft mcp --editor instances                      # only instances advertising an editor endpoint
+```
+
+```ts
+const client = await GameClient.connect({ endpoint: "editor" }); // or DOWNDRAFT_MCP_ENDPOINT=editor
+```
+
+`MCP_EDITOR_PORT` pins the port (default: ephemeral OS-assigned). With the default `transport: "stdio"`, the module instead speaks newline-delimited JSON-RPC on the process's own stdin/stdout.

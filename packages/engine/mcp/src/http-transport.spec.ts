@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { McpHttpTransport } from "./http-transport";
+import { MCPServer } from "./server";
 
 function makeTransport(opts: ConstructorParameters<typeof McpHttpTransport>[0] = {}) {
   return new McpHttpTransport({
@@ -129,5 +130,71 @@ describe("McpHttpTransport local-client gate", () => {
       body: initBody(),
     });
     expect(header.status).toBe(200);
+  });
+});
+
+describe("McpHttpTransport direct mode (MCPServer)", () => {
+  let transport: McpHttpTransport | null = null;
+  let base = "";
+
+  const post = (method: string, params: Record<string, unknown> = {}, id = 1) =>
+    fetch(`${base}/mcp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
+    }).then((r) => r.json() as Promise<{ result?: Record<string, unknown>; error?: { message: string } }>);
+
+  async function start() {
+    transport = new McpHttpTransport({
+      port: 0,
+      mcpServer: new MCPServer({ sceneName: "http-direct-test" }),
+    });
+    await transport.start();
+    base = `http://127.0.0.1:${transport.getPort()}`;
+    await post("initialize");
+  }
+
+  afterEach(async () => {
+    await transport?.stop();
+    transport = null;
+  });
+
+  it("serves the full editor MCP surface over HTTP", async () => {
+    await start();
+
+    const tools = await post("tools/list");
+    const toolNames = (tools.result!.tools as { name: string }[]).map((t) => t.name);
+    expect(toolNames).toContain("create_scene");
+    expect(toolNames).toContain("spawn_entity");
+
+    const call = await post("tools/call", { name: "get_scene_info", arguments: {} });
+    expect(call.error).toBeUndefined();
+    const content = call.result!.content as { type: string; text: string }[];
+    expect(JSON.parse(content[0].text).name).toBe("http-direct-test");
+
+    const resources = await post("resources/list");
+    const uris = (resources.result!.resources as { uri: string }[]).map((r) => r.uri);
+    expect(uris).toContain("downdraft://scene-tree");
+
+    const read = await post("resources/read", { uri: "downdraft://scene-tree" });
+    expect(read.error).toBeUndefined();
+
+    const prompts = await post("prompts/list");
+    const promptNames = (prompts.result!.prompts as { name: string }[]).map((p) => p.name);
+    expect(promptNames).toContain("create-scene");
+  });
+
+  it("requires initialize before dispatch", async () => {
+    transport = new McpHttpTransport({ port: 0, mcpServer: new MCPServer() });
+    await transport.start();
+    base = `http://127.0.0.1:${transport.getPort()}`;
+    const res = await post("tools/list");
+    expect(res.error?.message).toContain("not initialized");
+  });
+
+  it("returns a JSON-RPC error for unknown methods", async () => {
+    await start();
+    const res = await post("bogus/method");
+    expect(res.error?.message).toContain("Method not found");
   });
 });
