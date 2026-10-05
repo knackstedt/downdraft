@@ -36,6 +36,14 @@ export interface CharacterPreviewOptions {
   targetHeight?: number;
   /** Radians/sec rotation speed (default 0.5). */
   rotationSpeed?: number;
+  /** Per-frame animator drive — returns the flat skin matrices. Defaults to
+   *  `animator.advance(dt)` + computeSkinMatrices(), which only runs the
+   *  procedural idle: bones driven exclusively by animation clips stay at
+   *  bind pose (props/accessories can render at the wrong spot). Games with
+   *  a locomotion state machine should pass their in-game update fn (e.g.
+   *  `(a, dt) => a.update(dt, true, 0, pose, false)`) so the preview plays
+   *  the real Idle clip. */
+  advanceAnimator?: (animator: CharacterAnimator, dt: number) => Float32Array;
   /** Clear color (default dark slate). */
   clearColor?: { r: number; g: number; b: number; a: number };
   /** Render-target format — defaults to the host's preferred canvas format.
@@ -200,15 +208,16 @@ export class CharacterPreview {
     const dt = Math.min(0.1, (now - this.lastTime) / 1000);
     this.lastTime = now;
 
-    // Auto-rotate
+    // Turntable: the MODEL spins, the camera stays put. Orbiting the camera
+    // by the same angle cancels the rotation exactly (the same face always
+    // faces the viewer) — a bug carried over from the original code.
     this.rotationAngle += dt * (this.opts.rotationSpeed ?? 0.5);
 
-    // Camera: orbit around the model center at eye height.
     const dist = this.opts.orbitDistance ?? 3.5;
     const pos: [number, number, number] = [
-      Math.sin(this.rotationAngle) * dist,
+      0,
       this.opts.cameraHeight ?? 1.2,
-      Math.cos(this.rotationAngle) * dist,
+      dist,
     ];
     const target: [number, number, number] = [0, this.opts.targetHeight ?? 0.9, 0];
     const proj = mat4.perspective(Math.PI / 4, W / H, 0.1, 100);
@@ -227,8 +236,9 @@ export class CharacterPreview {
 
     // Advance the animation (idle by default) + upload skin matrices.
     if (this.animator && this.modelRenderer.hasModel("preview")) {
-      this.animator.animator.advance(dt);
-      const skinMats = this.animator.computeSkinMatrices();
+      const skinMats = this.opts.advanceAnimator
+        ? this.opts.advanceAnimator(this.animator, dt)
+        : (this.animator.animator.advance(dt), this.animator.computeSkinMatrices());
       this.modelRenderer.updateSkinMatrices(skinMats);
     }
 
