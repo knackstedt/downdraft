@@ -54,6 +54,8 @@ packages/native-*/lib/
 packages/node-mobile-android-*/lib/
 packages/node-mobile-android-*/include/
 artifacts/
+# ...except the checked-in doc screenshots for the visual-debugging guide.
+!docs/site/src/assets/artifacts/
 
 # Root Cargo workspace target dir (crates are members — artifacts land here).
 /target/
