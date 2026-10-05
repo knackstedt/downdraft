@@ -17,16 +17,28 @@ import {
     type RenderSurface,
 } from "@downdraft/engine";
 import { ModelRenderer } from "@downdraft/engine/libraries/entities";
-import type { ModelData } from "@downdraft/engine/libraries/models";
+import type { MaterialData, ModelData } from "@downdraft/engine/libraries/models";
 import { createLogger } from "@downdraft/engine/util/logger";
 import { mat4 } from "wgpu-matrix";
 import type { CharacterAnimator } from "./character-animator";
 
 const log = createLogger("info");
 
+export interface CharacterPreviewModel {
+  modelData: ModelData;
+  meshBaseUrl: string;
+  /** Mesh subset to upload (defaults to modelData.meshes) — character
+   *  customizers pass the selected variant meshes here. */
+  meshes?: ModelData["meshes"];
+  /** Materials override (defaults to modelData.materials). */
+  materials?: ModelData["materials"];
+  /** Bounds used to fit the preview scale (defaults to modelData.bounds). */
+  bounds?: { min: [number, number, number]; max: [number, number, number] } | null;
+}
+
 export interface CharacterPreviewOptions {
   /** Resolve a model id to its ModelData (e.g. createCharacterModelLoader). */
-  loadModel(modelId: string): Promise<{ modelData: ModelData; meshBaseUrl: string } | null>;
+  loadModel(modelId: string): Promise<CharacterPreviewModel | null>;
   /** Build the animator for a loaded model. */
   createAnimator(modelData: ModelData): CharacterAnimator;
   /** Orbit distance (default 3.5). */
@@ -70,6 +82,7 @@ export class CharacterPreview {
   private depthH = 0;
   private rafHandle = 0;
   private rotationAngle = 0;
+  private orbiting = false;
   private lastTime = performance.now();
   private currentModelId: string | null = null;
   private running = false;
@@ -133,6 +146,15 @@ export class CharacterPreview {
     await this.modelRenderer.init();
   }
 
+  /** The currently-displayed model id (or null before the first setModel). */
+  getModelId(): string | null { return this.currentModelId; }
+
+  /** Pause/resume the auto-turntable — set while the user drag-orbits the
+   *  preview so pointer input and the idle spin don't fight. */
+  setOrbiting(orbiting: boolean): void { this.orbiting = orbiting; }
+  /** Rotate the model yaw by `deltaRad` (drag-to-orbit input). */
+  orbitBy(deltaRad: number): void { this.rotationAngle += deltaRad; }
+
   /** Load (or swap) the model shown in the preview. */
   async setModel(modelId: string): Promise<void> {
     if (!this.device || !this.modelRenderer) return;
@@ -145,21 +167,52 @@ export class CharacterPreview {
       if (this.modelRenderer.hasModel("preview")) {
         this.modelRenderer.removeModel("preview");
       }
-      this.modelRenderer.uploadModel("preview", loaded.modelData.meshes, loaded.modelData.materials, loaded.meshBaseUrl);
-      const bounds = loaded.modelData.bounds;
-      if (bounds && bounds.max[1] - bounds.min[1] > 0) {
-        this.modelScale = 1.8 / (bounds.max[1] - bounds.min[1]);
-        this.modelYOffset = -bounds.min[1] * this.modelScale;
-      } else {
-        this.modelScale = 1;
-        this.modelYOffset = 0;
-      }
+      this.modelRenderer.uploadModel(
+        "preview",
+        loaded.meshes ?? loaded.modelData.meshes,
+        loaded.materials ?? loaded.modelData.materials,
+        loaded.meshBaseUrl,
+      );
+      this.applyBounds(loaded.bounds !== undefined ? loaded.bounds : loaded.modelData.bounds);
       this.animator?.dispose();
       this.animator = this.opts.createAnimator(loaded.modelData);
       this.currentModelId = modelId;
     } catch (err) {
       log.error("CharacterPreview", `Failed to load model ${modelId}: ${err}`);
     }
+  }
+
+  private applyBounds(bounds: { min: [number, number, number]; max: [number, number, number] } | null | undefined): void {
+    if (bounds && bounds.max[1] - bounds.min[1] > 0) {
+      this.modelScale = 1.8 / (bounds.max[1] - bounds.min[1]);
+      this.modelYOffset = -bounds.min[1] * this.modelScale;
+    } else {
+      this.modelScale = 1;
+      this.modelYOffset = 0;
+    }
+  }
+
+  /**
+   * Re-upload the displayed model's mesh subset + materials in place —
+   * used by character customizers to apply variant/texture/tint changes
+   * without reloading the model or rebuilding the animator.
+   */
+  refreshModel(
+    meshes: ModelData["meshes"],
+    materials?: ModelData["materials"],
+    bounds?: { min: [number, number, number]; max: [number, number, number] } | null,
+  ): void {
+    if (!this.modelRenderer || !this.currentModelId) return;
+    this.modelRenderer.reuploadModel("preview", meshes, materials);
+    if (bounds !== undefined) this.applyBounds(bounds);
+  }
+
+  /**
+   * Update a registered material's texture/tint in place (forwards to the
+   * underlying ModelRenderer — see updateMeshMaterial).
+   */
+  updateMaterial(materialIndex: number, mat: MaterialData): void {
+    this.modelRenderer?.updateMeshMaterial("preview", materialIndex, mat);
   }
 
   /** Start the rAF render loop. */
@@ -211,7 +264,7 @@ export class CharacterPreview {
     // Turntable: the MODEL spins, the camera stays put. Orbiting the camera
     // by the same angle cancels the rotation exactly (the same face always
     // faces the viewer) — a bug carried over from the original code.
-    this.rotationAngle += dt * (this.opts.rotationSpeed ?? 0.5);
+    if (!this.orbiting) this.rotationAngle += dt * (this.opts.rotationSpeed ?? 0.5);
 
     const dist = this.opts.orbitDistance ?? 3.5;
     const pos: [number, number, number] = [

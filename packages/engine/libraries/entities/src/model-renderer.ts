@@ -121,6 +121,9 @@ export class ModelRenderer {
   private meshNormalTextureSourceId = new Map<string, string>();
   /** Track the current albedo handle per materialKey (for normal texture updates). */
   private meshAlbedoHandle = new Map<string, number>();
+  /** The desired baseColor per materialKey — async texture-load updates re-apply
+   *  it instead of stomping to white, so runtime tints survive texture swaps. */
+  private meshBaseColor = new Map<string, [number, number, number, number]>();
   /** When true, newly registered mesh textures get a full mip chain.
    *  Toggle takes effect on the next uploadModel/reuploadModel (textures are
    *  re-registered into a mipmapped bucket). */
@@ -487,8 +490,9 @@ export class ModelRenderer {
           bindlessMatIndex = existing;
         } else {
           const mat = materials?.[matIdx];
+          const baseColor: [number, number, number, number] = mat?.baseColor ?? [1, 1, 1, 1];
           bindlessMatIndex = this.bindless.materialManager.registerMaterial({
-            baseColor: mat?.baseColor ?? [1, 1, 1, 1],
+            baseColor,
             roughness: mat?.roughness ?? 1,
             metallic: mat?.metallic ?? 0,
             emissiveIntensity: 0,
@@ -499,6 +503,7 @@ export class ModelRenderer {
             emissiveTexHandle: this.bindless.registry.defaultWhiteHandle,
           });
           this.meshMaterialIndex.set(materialKey, bindlessMatIndex);
+          this.meshBaseColor.set(materialKey, baseColor);
 
           // Async load this material's texture (embedded data or external URI)
           if (mat?.textureData && mat.textureData.byteLength > 0) {
@@ -669,7 +674,7 @@ export class ModelRenderer {
       const materialIndex = this.meshMaterialIndex.get(materialKey);
       if (materialIndex !== undefined) {
         const matParams: MaterialParams = {
-          baseColor: [1, 1, 1, 1],
+          baseColor: this.meshBaseColor.get(materialKey) ?? [1, 1, 1, 1],
           roughness: 1,
           metallic: 0,
           emissiveIntensity: 0,
@@ -723,7 +728,7 @@ export class ModelRenderer {
       const materialIndex = this.meshMaterialIndex.get(materialKey);
       if (materialIndex !== undefined) {
         const matParams: MaterialParams = {
-          baseColor: [1, 1, 1, 1],
+          baseColor: this.meshBaseColor.get(materialKey) ?? [1, 1, 1, 1],
           roughness: 1,
           metallic: 0,
           emissiveIntensity: 0,
@@ -784,7 +789,7 @@ export class ModelRenderer {
       if (materialIndex !== undefined) {
         const albedoHandle = this.meshAlbedoHandle.get(materialKey) ?? this.bindless.registry.defaultWhiteHandle;
         const matParams: MaterialParams = {
-          baseColor: [1, 1, 1, 1],
+          baseColor: this.meshBaseColor.get(materialKey) ?? [1, 1, 1, 1],
           roughness: 1,
           metallic: 0,
           emissiveIntensity: 0,
@@ -829,9 +834,51 @@ export class ModelRenderer {
           this.bindless.materialManager.unregisterMaterial(matIdx);
         }
         this.meshMaterialIndex.delete(materialKey);
+        this.meshBaseColor.delete(materialKey);
+        this.meshAlbedoHandle.delete(materialKey);
+        this.meshNormalTextureSourceId.delete(materialKey);
         this.textureLoadVersion.delete(materialKey);
       }
     }
+  }
+
+  /**
+   * Update an already-registered material at runtime: reload its albedo
+   * texture when `mat.textureData` is present (in-place registry update — no
+   * mesh re-upload or texture flicker) and apply its baseColor. Used by the
+   * character customizer for texture options + tints; a no-op for materials
+   * the node never registered.
+   */
+  updateMeshMaterial(nodeId: string, materialIndex: number, mat: MaterialData): void {
+    if (!this.bindless) return;
+    const materialKey = `${nodeId}:${materialIndex}`;
+    const bindlessMatIndex = this.meshMaterialIndex.get(materialKey);
+    if (bindlessMatIndex === undefined) return;
+
+    this.meshBaseColor.set(materialKey, mat.baseColor ?? [1, 1, 1, 1]);
+
+    if (mat.textureData && mat.textureData.byteLength > 0) {
+      const version = (this.textureLoadVersion.get(materialKey) ?? 0) + 1;
+      this.textureLoadVersion.set(materialKey, version);
+      void this.loadMeshTexture(materialKey, mat.textureData, version);
+      // The async load completes the updateMaterial call with the real
+      // texture handle; the immediate write below just applies the tint early.
+    }
+    const normalSourceId = this.meshNormalTextureSourceId.get(materialKey);
+    const normalHandle = normalSourceId
+      ? (this.bindless.registry.getRegistration(normalSourceId)?.handle ?? this.bindless.registry.defaultNormalHandle)
+      : this.bindless.registry.defaultNormalHandle;
+    this.bindless.materialManager.updateMaterial(bindlessMatIndex, {
+      baseColor: this.meshBaseColor.get(materialKey)!,
+      roughness: mat.roughness ?? 1,
+      metallic: mat.metallic ?? 0,
+      emissiveIntensity: 0,
+      albedoTexHandle: this.meshAlbedoHandle.get(materialKey) ?? this.bindless.registry.defaultWhiteHandle,
+      normalTexHandle: normalHandle,
+      metallicRoughnessTexHandle: this.bindless.registry.defaultWhiteHandle,
+      aoTexHandle: this.bindless.registry.defaultWhiteHandle,
+      emissiveTexHandle: this.bindless.registry.defaultWhiteHandle,
+    });
   }
 
   reuploadModel(nodeId: string, meshes: MeshData[], materials?: MaterialData[], modelBaseUrl?: string): number {
@@ -905,8 +952,9 @@ export class ModelRenderer {
           bindlessMatIndex = existing;
         } else {
           const mat = materials?.[matIdx];
+          const baseColor: [number, number, number, number] = mat?.baseColor ?? [1, 1, 1, 1];
           bindlessMatIndex = this.bindless.materialManager.registerMaterial({
-            baseColor: mat?.baseColor ?? [1, 1, 1, 1],
+            baseColor,
             roughness: mat?.roughness ?? 1,
             metallic: mat?.metallic ?? 0,
             emissiveIntensity: 0,
@@ -917,6 +965,7 @@ export class ModelRenderer {
             emissiveTexHandle: this.bindless.registry.defaultWhiteHandle,
           });
           this.meshMaterialIndex.set(materialKey, bindlessMatIndex);
+          this.meshBaseColor.set(materialKey, baseColor);
 
           // Start async texture load if this material has texture data and no
           // existing registration (first time seeing this material).
