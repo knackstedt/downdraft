@@ -70,13 +70,18 @@ interface Panel {
    *  when a newer-or-equal upload already covered its rect. */
   lastSeq: number;
   lastRect: { x: number; y: number; w: number; h: number } | null;
-  /** True once a texBind was posted for this panel — the worker uploads via
-   *  queue.writeTexture itself, so host-side SAB uploads/polls are skipped
-   *  (a stale host write could otherwise land after a newer worker write). */
+  /** True once the worker has demonstrably written the CURRENT texture —
+   *  set when a gpu:true frame's texPtr matches the displayed texture, and
+   *  cleared on SAB fallback (gpuFallback bind) or a stale-target frame.
+   *  While false the host uploads SAB frames itself — the doc's raster
+   *  scratch SAB is always current, so fallback needs no negotiation. */
   gpuBound: boolean;
-  /** The texPtr last posted to the worker — matches a texAck on rebind and
-   *  keeps retired textures alive until the worker drops its borrow. */
+  /** The texPtr the worker is confirmed to be writing — keeps retired
+   *  textures alive until the worker drops its borrow (texAck). */
   boundPtr: bigint | null;
+  /** The texPtr of the last texBind posted — suppresses duplicate posts
+   *  and keeps the target alive while the bind may still be in flight. */
+  postedBindPtr: bigint | null;
 }
 
 const UI_TRACE = typeof process !== "undefined" && !!process.env?.DD_UI_TRACE;
@@ -262,7 +267,7 @@ export class HtmlUiHost {
       texture: null, texW: 0, texH: 0, ubo: null, bindGroup: null,
       handlers: new Set(spec.onEvent ? [spec.onEvent] : []),
       editing: false, sab: null, sabI32: null, lastSeq: 0, lastRect: null,
-      gpuBound: false, boundPtr: null,
+      gpuBound: false, boundPtr: null, postedBindPtr: null,
     };
     this.panels.set(id, panel);
     this.order.push(id);
@@ -610,14 +615,17 @@ export class HtmlUiHost {
         if (!p) return;
         p.sab = m.buf;
         p.sabI32 = new Int32Array(m.buf);
-        // A bind emitted while the panel was GPU-bound means the worker fell
-        // back to SAB delivery (dead view) — resume host-side uploads.
-        p.gpuBound = false;
-        p.boundPtr = null;
         // Fresh buffer — its seqlock restarts at 0, so reset the dedupe
         // state or the stale lastSeq could suppress real uploads.
         p.lastSeq = 0;
         p.lastRect = null;
+        // gpuFallback binds mean the worker dropped GPU-direct delivery —
+        // resume host-side uploads. Plain binds just keep p.sab current so
+        // fallback is instant when needed.
+        if (m.gpuFallback === true) {
+          p.gpuBound = false;
+          p.boundPtr = null;
+        }
         break;
       }
       case "gpuReady": {
@@ -639,25 +647,45 @@ export class HtmlUiHost {
       case "texAck": {
         // The worker dropped its borrow of this ptr — safe to destroy the
         // retired texture now (no worker FFI call can still be in flight).
-        const r = this.retiredTex.get(BigInt(m.texPtr));
+        const ptr = BigInt(m.texPtr);
+        const r = this.retiredTex.get(ptr);
         if (r) {
-          this.retiredTex.delete(BigInt(m.texPtr));
+          this.retiredTex.delete(ptr);
           clearTimeout(r.timer);
           r.tex.destroy();
+        }
+        // Release bookkeeping — a bind for the same ptr may be reposted.
+        const p = this.panels.get(m.id);
+        if (p) {
+          if (p.postedBindPtr === ptr) p.postedBindPtr = null;
+          if (p.boundPtr === ptr) { p.boundPtr = null; p.gpuBound = false; }
         }
         break;
       }
       case "frame": {
         const p = this.panels.get(m.id);
         if (process.env.DD_UI_TRACE_FRAMES === "1") {
-          log.info("html-ui", `frame ${m.id} x=${m.x} y=${m.y} w=${m.w} h=${m.h} pw=${m.pw} ph=${m.ph} seq=${m.seq ?? "-"} gpu=${m.gpu === true}`);
+          log.info("html-ui", `frame ${m.id} x=${m.x} y=${m.y} w=${m.w} h=${m.h} pw=${m.pw} ph=${m.ph} seq=${m.seq ?? "-"} gpu=${m.gpu === true}${m.texPtr !== undefined ? ` tex=${m.texPtr}` : ""}`);
         }
         if (!p) return;
         if (m.gpu === true) {
-          // GPU-direct: the worker already wrote the dirty rect into the
-          // panel texture — nothing to upload. Reconcile dims defensively
-          // (a resize could race the last texBind).
-          if (p.gpuBound && (p.texW !== m.pw || p.texH !== m.ph)) this.bindPanelTex(p);
+          // GPU-direct: the worker already wrote the dirty rect into a
+          // texture — nothing to upload when it's the displayed one. A
+          // mismatched texPtr means the worker is writing a stale target
+          // (a bind it ignored, or a texture retired underneath it): fall
+          // back to SAB and repost the live texture's bind to reconverge.
+          const cur = p.texture ? BigInt((p.texture as unknown as { ptr: number | bigint }).ptr) : null;
+          const fp = m.texPtr !== undefined ? BigInt(m.texPtr) : null;
+          if (fp === null || fp !== cur) {
+            if (p.gpuBound) { p.gpuBound = false; p.boundPtr = null; }
+            if (cur !== null && p.postedBindPtr !== cur) this.bindPanelTex(p);
+            break;
+          }
+          // Confirmed: the worker uploads the displayed texture itself —
+          // host-side SAB uploads stay skipped until the next fallback.
+          p.gpuBound = true;
+          p.boundPtr = fp;
+          if (p.texW !== m.pw || p.texH !== m.ph) this.bindPanelTex(p);
           break;
         }
         if (m.seq !== undefined && m.stride !== undefined && p.sab && p.sabI32) {
@@ -796,9 +824,11 @@ export class HtmlUiHost {
   /**
    * Create (or recreate) the panel texture and post it to the worker as a
    * borrowed upload target. No-op when the worker's attach hasn't resolved
-   * or the current texture is already bound. Raster dims are always
-   * rect*scale — the doc's layout height may exceed the display rect for
-   * scrollable views (docH).
+   * or a bind for the same texture is already in flight/confirmed. Host
+   * uploads keep flowing until a gpu:true frame proves the worker is
+   * writing the displayed texture — an ignored bind is a no-op, never a
+   * deadlock. Raster dims are always rect*scale — the doc's layout height
+   * may exceed the display rect for scrollable views (docH).
    */
   private bindPanelTex(p: Panel): void {
     if (!this.gpuReady || this.backend.kind !== "worker") return;
@@ -806,11 +836,10 @@ export class HtmlUiHost {
     const ph = Math.max(1, Math.round((p.docH ?? p.rect.h) * p.scale));
     this.ensureTexture(p, pw, ph);
     if (!p.texture) return;
-    const ptr = (p.texture as unknown as { ptr: number | bigint }).ptr;
-    if (p.gpuBound && p.boundPtr === BigInt(ptr)) return;
+    const ptr = BigInt((p.texture as unknown as { ptr: number | bigint }).ptr);
+    if (p.postedBindPtr === ptr || (p.gpuBound && p.boundPtr === ptr)) return;
     this.send({ type: "texBind", id: p.id, texPtr: ptr, w: pw, h: ph, format: "rgba8unorm" });
-    p.gpuBound = true;
-    p.boundPtr = BigInt(ptr);
+    p.postedBindPtr = ptr;
   }
 
   /**
@@ -825,7 +854,10 @@ export class HtmlUiHost {
     p.texture = null;
     if (!t) return;
     const ptr = (t as unknown as { ptr?: number | bigint }).ptr;
-    if (p.gpuBound && p.boundPtr !== null && ptr !== undefined && BigInt(ptr) === p.boundPtr) {
+    const borrowed = ptr !== undefined
+      && ((p.boundPtr !== null && BigInt(ptr) === p.boundPtr)
+        || (p.postedBindPtr !== null && BigInt(ptr) === p.postedBindPtr));
+    if (borrowed) {
       const key = BigInt(ptr);
       const timer = setTimeout(() => {
         if (this.retiredTex.delete(key)) t.destroy();

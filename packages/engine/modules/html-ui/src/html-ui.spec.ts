@@ -276,9 +276,9 @@ describe.skipIf(!hasLib)("html-ui gpu-direct", () => {
 
     msgs.length = 0;
     core.handle({ type: "create", id: "p1", cssW: 100, cssH: 50, scale: 1, html: `${CSS}<div>x</div>` });
-    // The SAB stays the raster scratch but the host doesn't need it bound —
-    // no bind message while a live view exists.
-    expect(msgs.some((m) => m.type === "bind")).toBe(false);
+    // The SAB is the raster scratch AND the host's instant fallback — the
+    // bind always goes out (informational: no gpuFallback flag).
+    expect(msgs.some((m) => m.type === "bind" && m.gpuFallback !== true)).toBe(true);
 
     core.handle({ type: "texBind", id: "p1", texPtr: 7n, w: 100, h: 50, format: "rgba8unorm" });
     expect(borrows.length).toBe(1);
@@ -297,7 +297,7 @@ describe.skipIf(!hasLib)("html-ui gpu-direct", () => {
     expect(layout.offset).toBe(64); // 64-byte header, full-frame rect at (0,0)
     expect(size.width).toBe(100);
     expect(size.height).toBe(50);
-    expect(msgs.some((m) => m.type === "frame" && m.gpu === true)).toBe(true);
+    expect(msgs.some((m) => m.type === "frame" && m.gpu === true && m.texPtr === 7n)).toBe(true);
 
     // A repaint writes through the view again — no pixels/SAB on the message.
     msgs.length = 0;
@@ -305,9 +305,42 @@ describe.skipIf(!hasLib)("html-ui gpu-direct", () => {
     const frame = msgs.find((m): m is FrameMsg => m.type === "frame");
     expect(frame).toBeTruthy();
     expect(frame!.gpu).toBe(true);
+    expect(frame!.texPtr).toBe(7n);
     expect(frame!.pixels).toBeUndefined();
     expect(frame!.seq).toBeUndefined();
     expect(writes.length).toBe(2);
+    core.dispose();
+  });
+
+  test("raster-dims mismatch drops the borrow and re-arms SAB (resize race)", async () => {
+    const { msgs, emit } = collect();
+    const writes: unknown[][] = [];
+    const { view } = fakeView(writes);
+    const core = createDocCore(emit, {
+      attach: async () => ({ view, borrowTexture: () => ({}) }),
+    });
+    core.handle({ type: "gpuAttach", gpu: GPU_HANDLE, cells: new SharedArrayBuffer(32) });
+    await flush();
+    core.handle({ type: "create", id: "p1", cssW: 100, cssH: 50, scale: 1, html: `${CSS}<div>x</div>` });
+    core.handle({ type: "texBind", id: "p1", texPtr: 5n, w: 100, h: 50, format: "rgba8unorm" });
+    expect(writes.length).toBe(1);
+
+    // The doc resizes before the new texBind lands — writing the bigger
+    // raster into the 100×50 bound texture would overrun (wgpu drops it
+    // silently), so emitFrame must fall back instead.
+    msgs.length = 0;
+    core.handle({ type: "resize", id: "p1", cssW: 200, cssH: 100, scale: 1 });
+    expect(msgs.some((m) => m.type === "texAck" && m.texPtr === 5n)).toBe(true);
+    expect(msgs.some((m) => m.type === "bind" && m.gpuFallback === true)).toBe(true);
+    expect(msgs.some((m) => m.type === "frame" && m.seq !== undefined && !m.gpu)).toBe(true);
+    expect(writes.length).toBe(1); // no write into the mismatched texture
+
+    // The new-dims texBind reconverges: the borrow was already dropped (no
+    // texAck this time), and frames go GPU-direct again.
+    msgs.length = 0;
+    core.handle({ type: "texBind", id: "p1", texPtr: 6n, w: 200, h: 100, format: "rgba8unorm" });
+    expect(msgs.some((m) => m.type === "texAck")).toBe(false);
+    expect(msgs.some((m) => m.type === "frame" && m.gpu === true && m.texPtr === 6n)).toBe(true);
     core.dispose();
   });
 
@@ -342,7 +375,7 @@ describe.skipIf(!hasLib)("html-ui gpu-direct", () => {
     // The dropped borrow is acked, the host's SAB channel re-arms, and the
     // frame goes out as a seq-stamped SAB header.
     expect(msgs.some((m) => m.type === "texAck" && m.texPtr === 9n)).toBe(true);
-    expect(msgs.some((m) => m.type === "bind")).toBe(true);
+    expect(msgs.some((m) => m.type === "bind" && m.gpuFallback === true)).toBe(true);
     expect(msgs.some((m) => m.type === "frame" && m.seq !== undefined && !m.gpu)).toBe(true);
     core.dispose();
   });

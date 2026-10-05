@@ -100,9 +100,12 @@ export type WorkerToUi =
    *  - GPU-direct (`gpu: true`): the worker already queue.writeTextured the
    *    dirty rect into the bound panel texture — stats/bookkeeping only.
    */
-  | { type: "frame"; id: string; x: number; y: number; w: number; h: number; pw: number; ph: number; pixels?: ArrayBuffer; seq?: number; stride?: number; gpu?: boolean }
-  /** Bind/rebind the per-doc SAB frame staging buffer (sent before first frame). */
-  | { type: "bind"; id: string; buf: SharedArrayBuffer }
+  | { type: "frame"; id: string; x: number; y: number; w: number; h: number; pw: number; ph: number; pixels?: ArrayBuffer; seq?: number; stride?: number; gpu?: boolean; texPtr?: number | bigint }
+  /** Bind/rebind the per-doc SAB frame staging buffer. Always emitted on
+   *  (re)bind so the host's copy stays current — `gpuFallback: true` marks
+   *  the "worker dropped GPU-direct" emits where the host must also resume
+   *  its own uploads; plain binds are informational (GPU mode unaffected). */
+  | { type: "bind"; id: string; buf: SharedArrayBuffer; gpuFallback?: boolean }
   /** Result of a gpuAttach attempt — ok:false keeps the SAB path. */
   | { type: "gpuReady"; ok: boolean }
   /** Ack of gpuDetach — the host may now terminate the worker. */

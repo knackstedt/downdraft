@@ -62,10 +62,12 @@ interface DocState {
   sabU32: Int32Array | null;
   sabDisabled: boolean;
   /** GPU-direct upload target — a non-owning wrap of the host-owned panel
-   *  texture (see texBind). Present ⇒ emitFrame uploads straight to the GPU;
-   *  absent ⇒ SAB/legacy emit. Dropped on texAck-worthy rebinds and on view
-   *  loss, which re-arms the SAB channel. */
-  gpuTex: { ptr: number | bigint; tex: unknown } | null;
+   *  texture (see texBind), with the dims the host bound it at. Present ⇒
+   *  emitFrame uploads straight to the GPU; absent ⇒ SAB/legacy emit.
+   *  Dropped on view loss, write failure, or raster-dims mismatch (resize
+   *  in flight) — each drop re-arms the SAB channel so the host resumes
+   *  its own uploads until the next texBind lands. */
+  gpuTex: { ptr: number | bigint; tex: unknown; w: number; h: number } | null;
   stats: { frames: number; resolveMs: number; paintMs: number; diffMs: number; bytes: number };
   statsLast: number;
 }
@@ -117,8 +119,9 @@ export function createDocCore(emit: (m: WorkerToUi) => void, gpuHooks?: DocGpuHo
 
   /** Allocate + bind the doc's SAB frame channel; emits a bind message.
    *  The SAB doubles as the worker-local raster scratch in GPU-direct mode,
-   *  so it is always bound — but the host only needs to know about it while
-   *  the SAB is the upload channel (no live GPU view). */
+   *  so it is always bound — and the host must ALWAYS know the current
+   *  buffer: it is the instant fallback whenever a GPU-direct write can't
+   *  complete (dead view, dropped borrow, stale texture). */
   function bindSab(id: string, s: DocState): void {
     s.sab = null;
     s.sabU32 = null;
@@ -129,7 +132,7 @@ export function createDocCore(emit: (m: WorkerToUi) => void, gpuHooks?: DocGpuHo
     if (!s.doc.bindFrameBuf(sab)) { s.sabDisabled = true; return; }
     s.sab = sab;
     s.sabU32 = new Int32Array(sab);
-    if (!gpuView) emit({ type: "bind", id, buf: sab });
+    emit({ type: "bind", id, buf: sab });
   }
 
   /** Emit a frame message describing what frame_into()/refresh_into() wrote. */
@@ -144,36 +147,40 @@ export function createDocCore(emit: (m: WorkerToUi) => void, gpuHooks?: DocGpuHo
   }
 
   /**
-   * Emit one raster — GPU-direct when this doc has a bound texture and the
-   * view is live (the host never touches pixels then), else SAB/legacy.
-   * A dead view drops the borrow and re-arms the SAB channel so the host
-   * resumes its own uploads.
+   * Emit one raster — GPU-direct when this doc has a bound texture, the view
+   * is live, and the raster dims still match the bound texture (a resize
+   * resizes the doc before its texBind lands — writing would overrun and
+   * wgpu drops the call silently). Anything else drops the borrow and
+   * re-arms the SAB channel so the host resumes its own uploads; the next
+   * texBind restores GPU-direct.
    */
   function emitFrame(id: string, s: DocState): void {
-    if (s.gpuTex && gpuView) {
-      if (gpuView.isValid()) {
-        const u = s.sabU32!;
-        const x = u[H_X], y = u[H_Y], w = u[H_W], h = u[H_H];
-        const pw = u[H_PW], ph = u[H_PH], stride = u[H_STRIDE];
+    if (!s.sabU32) return;
+    const g = s.gpuTex;
+    if (g && gpuView) {
+      const u = s.sabU32;
+      const x = u[H_X], y = u[H_Y], w = u[H_W], h = u[H_H];
+      const pw = u[H_PW], ph = u[H_PH], stride = u[H_STRIDE];
+      if (gpuView.isValid() && pw === g.w && ph === g.h) {
         try {
           gpuView.queue.writeTexture(
-            { texture: s.gpuTex.tex, origin: [x, y, 0] },
+            { texture: g.tex, origin: [x, y, 0] },
             s.sab!,
             { offset: 64 + y * stride + x * 4, bytesPerRow: stride, rowsPerImage: h },
             { width: w, height: h, depthOrArrayLayers: 1 },
           );
-          emit({ type: "frame", id, x, y, w, h, pw, ph, gpu: true });
+          emit({ type: "frame", id, x, y, w, h, pw, ph, gpu: true, texPtr: g.ptr });
           return;
         } catch {
-          // The view died between isValid() and the FFI call — fall through
-          // to the SAB emit; the drop below re-arms the host.
+          // The view died between the check and the FFI call — fall through
+          // to the drop below; it re-arms the host.
         }
       }
-      // View dead or write failed — drop the borrow and re-arm the SAB
-      // channel so the host resumes uploading itself.
-      emit({ type: "texAck", id, texPtr: s.gpuTex.ptr });
+      // Dead view, failed write, or the raster no longer matches the bound
+      // texture — drop the borrow and re-arm SAB delivery.
+      emit({ type: "texAck", id, texPtr: g.ptr });
       s.gpuTex = null;
-      if (s.sab) emit({ type: "bind", id, buf: s.sab });
+      if (s.sab) emit({ type: "bind", id, buf: s.sab, gpuFallback: true });
     }
     emitSabFrame(id, s);
   }
@@ -343,7 +350,7 @@ export function createDocCore(emit: (m: WorkerToUi) => void, gpuHooks?: DocGpuHo
           try {
             if (s.gpuTex) emit({ type: "texAck", id: m.id, texPtr: s.gpuTex.ptr });
             s.gpuTex = {
-              ptr: m.texPtr,
+              ptr: m.texPtr, w: m.w, h: m.h,
               tex: borrowGpuTexture(m.texPtr, {
                 width: m.w, height: m.h, format: m.format as GPUTextureFormat,
               }),
@@ -355,7 +362,7 @@ export function createDocCore(emit: (m: WorkerToUi) => void, gpuHooks?: DocGpuHo
             s.gpuTex = null;
             // Borrow failed — the host believes we're bound, so re-arm the
             // SAB channel or the panel goes black.
-            if (s.sab) emit({ type: "bind", id: m.id, buf: s.sab });
+            if (s.sab) emit({ type: "bind", id: m.id, buf: s.sab, gpuFallback: true });
           }
           break;
         }
