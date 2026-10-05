@@ -14,7 +14,7 @@
 
 export { buildLocomotionClips, CharacterAnimator, findBoneIndex, positionTrack, resolveHumanoidBones, rotationTrack, type HumanoidBoneIndices } from "./character-animator";
 export {
-    buildVariantCatalog, computeMeshBounds, customizableGroups, defaultCustomization, requiredMeshIndices, resolveCustomizationMeshes, slotLabel, variantLabel, withMaterialOverrides, type BuildCatalogOptions, type CharacterCustomization, type VariantCatalog, type VariantGroup, type VariantGroupKind, type VariantRef
+    buildVariantCatalog, computeMeshBounds, customizableGroups, defaultCustomization, requiredMeshIndices, resolveCustomizationMeshes, slotLabel, variantLabel, withMaterialOverrides, type BuildCatalogOptions, type CharacterCustomization, type ResolveMeshesOptions, type VariantCatalog, type VariantGroup, type VariantGroupKind, type VariantRef
 } from "./customization";
 export {
     createCharacterModelLoader, DEFAULT_OPTIONAL_MESH_PATTERNS, filterOptionalMeshes, isDecodableImage, loadExternalTextures, selectVariantMeshes, type CharacterAnimationDef, type CharacterModelDef,

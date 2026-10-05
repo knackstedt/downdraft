@@ -440,14 +440,16 @@ export class ModelRenderer {
       const vertexCount = mesh.vertexCount;
       const stride = 11; // pos3 + normal3 + uv2 + color3
       const interleaved = new Float32Array(vertexCount * stride);
+      const sOff = mesh.surfaceOffset ?? 0;
 
       for (let v = 0; v < vertexCount; v++) {
-        interleaved[v * stride] = mesh.vertices[v * 6];
-        interleaved[v * stride + 1] = mesh.vertices[v * 6 + 1];
-        interleaved[v * stride + 2] = mesh.vertices[v * 6 + 2];
-        interleaved[v * stride + 3] = mesh.vertices[v * 6 + 3];
-        interleaved[v * stride + 4] = mesh.vertices[v * 6 + 4];
-        interleaved[v * stride + 5] = mesh.vertices[v * 6 + 5];
+        const nx = mesh.vertices[v * 6 + 3], ny = mesh.vertices[v * 6 + 4], nz = mesh.vertices[v * 6 + 5];
+        interleaved[v * stride] = mesh.vertices[v * 6] - nx * sOff;
+        interleaved[v * stride + 1] = mesh.vertices[v * 6 + 1] - ny * sOff;
+        interleaved[v * stride + 2] = mesh.vertices[v * 6 + 2] - nz * sOff;
+        interleaved[v * stride + 3] = nx;
+        interleaved[v * stride + 4] = ny;
+        interleaved[v * stride + 5] = nz;
         interleaved[v * stride + 6] = mesh.uvs ? mesh.uvs[v * 2] : 0;
         interleaved[v * stride + 7] = mesh.uvs ? mesh.uvs[v * 2 + 1] : 0;
         interleaved[v * stride + 8] = mesh.colors ? mesh.colors[v * 3] : 1;
@@ -904,14 +906,16 @@ export class ModelRenderer {
       const vertexCount = mesh.vertexCount;
       const stride = 11;
       const interleaved = new Float32Array(vertexCount * stride);
+      const sOff = mesh.surfaceOffset ?? 0;
 
       for (let v = 0; v < vertexCount; v++) {
-        interleaved[v * stride] = mesh.vertices[v * 6];
-        interleaved[v * stride + 1] = mesh.vertices[v * 6 + 1];
-        interleaved[v * stride + 2] = mesh.vertices[v * 6 + 2];
-        interleaved[v * stride + 3] = mesh.vertices[v * 6 + 3];
-        interleaved[v * stride + 4] = mesh.vertices[v * 6 + 4];
-        interleaved[v * stride + 5] = mesh.vertices[v * 6 + 5];
+        const nx = mesh.vertices[v * 6 + 3], ny = mesh.vertices[v * 6 + 4], nz = mesh.vertices[v * 6 + 5];
+        interleaved[v * stride] = mesh.vertices[v * 6] - nx * sOff;
+        interleaved[v * stride + 1] = mesh.vertices[v * 6 + 1] - ny * sOff;
+        interleaved[v * stride + 2] = mesh.vertices[v * 6 + 2] - nz * sOff;
+        interleaved[v * stride + 3] = nx;
+        interleaved[v * stride + 4] = ny;
+        interleaved[v * stride + 5] = nz;
         interleaved[v * stride + 6] = mesh.uvs ? mesh.uvs[v * 2] : 0;
         interleaved[v * stride + 7] = mesh.uvs ? mesh.uvs[v * 2 + 1] : 0;
         interleaved[v * stride + 8] = mesh.colors ? mesh.colors[v * 3] : 1;

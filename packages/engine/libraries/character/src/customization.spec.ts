@@ -6,6 +6,7 @@
 // Run: bun test packages/engine/libraries/character/src/customization.spec.ts
 // ============================================================================
 
+import type { MeshData, ModelData, ModelNode } from "@downdraft/engine/libraries/models";
 import { describe, expect, it } from "bun:test";
 import {
     buildVariantCatalog, computeMeshBounds, customizableGroups, defaultCustomization,
@@ -13,7 +14,6 @@ import {
     type CharacterCustomization
 } from "./customization";
 import { filterOptionalMeshes, selectVariantMeshes } from "./loader";
-import type { MeshData, ModelData, ModelNode } from "@downdraft/engine/libraries/models";
 
 function mesh(verts = 3): MeshData {
     return {
@@ -125,6 +125,46 @@ describe("resolveCustomizationMeshes", () => {
         expect(meshIndices.has(3)).toBe(true);
         expect(meshIndices.has(1)).toBe(false);
         expect(meshIndices.has(2)).toBe(false);
+    });
+
+    it("marks skin-material meshes in inner groups with a surfaceOffset clone", () => {
+        const model = modelWithNodes(["ash_head", "ash_torso.001", "ash_leg.001", "ash_hand.001"]);
+        model.materials = [
+            { name: "M_skin", baseColor: [1, 1, 1, 1], metallic: 0, roughness: 1 },
+            { name: "M_pallete", baseColor: [1, 1, 1, 1], metallic: 0, roughness: 1 },
+        ];
+        // head+torso+hand = skin; legs = garment (palette)
+        model.meshes[0].materialIndex = 0; model.meshes[1].materialIndex = 0;
+        model.meshes[2].materialIndex = 1; model.meshes[3].materialIndex = 0;
+        const cat = buildVariantCatalog(model);
+        const { meshes, meshIndices } = resolveCustomizationMeshes(model, cat, defaultCustomization(cat));
+        expect([...meshIndices].sort((a, b) => a - b)).toEqual([0, 1, 2, 3]);
+        // skin meshes in inner groups (torso, hand) get the offset clone;
+        // head skin is excluded (face group), leg garment isn't skin.
+        expect(meshes[0]).toBe(model.meshes[0]);
+        expect(meshes[1]).not.toBe(model.meshes[1]);
+        expect(meshes[1].surfaceOffset).toBeGreaterThan(0);
+        expect(meshes[1].vertices).toBe(model.meshes[1].vertices); // shared buffer
+        expect(meshes[2]).toBe(model.meshes[2]);
+        expect(meshes[3].surfaceOffset).toBeGreaterThan(0);
+    });
+
+    it("inner-layer offset is opt-out via innerLayerOffset=0 and tunable suffixes", () => {
+        const model = modelWithNodes(["ash_torso.001", "ash_leg.001"]);
+        model.materials = [
+            { name: "skin", baseColor: [1, 1, 1, 1], metallic: 0, roughness: 1 },
+        ];
+        model.meshes[0].materialIndex = 0; model.meshes[1].materialIndex = 0;
+        const cat = buildVariantCatalog(model);
+        const cust = defaultCustomization(cat);
+        const off = resolveCustomizationMeshes(model, cat, cust, { innerLayerOffset: 0 });
+        expect(off.meshes[1]).toBe(model.meshes[1]);
+        // Exclude torso from inner groups → only the leg skin offsets.
+        const custom = resolveCustomizationMeshes(model, cat, cust, {
+            innerLayerSuffixes: ["leg"], innerLayerOffset: 0.01,
+        });
+        expect(custom.meshes[0].surfaceOffset).toBeUndefined();
+        expect(custom.meshes[1].surfaceOffset).toBe(0.01);
     });
 
     it("keeps required groups visible when saved pick is null or stale", () => {

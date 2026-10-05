@@ -205,29 +205,69 @@ function effectiveVariantKey(group: VariantGroup, cust: CharacterCustomization):
   return group.kind === "defaultOff" ? null : (group.variants[0]?.key ?? null);
 }
 
+export interface ResolveMeshesOptions {
+  /** Group suffixes whose skin-material meshes are treated as "under layers"
+   *  (bare skin tucked beneath garments — legs/hands under hems and sleeves).
+   *  Defaults cover the body-clothing region; the head/eyes are excluded so
+   *  the face can't sink behind eyeball meshes. */
+  innerLayerSuffixes?: readonly string[];
+  /** Material names (string or RegExp) treated as skin — the universal
+   *  under-layer that garments render over. */
+  innerMaterials?: readonly (string | RegExp)[];
+  /** Inward normal offset for skin meshes in inner groups, in model units
+   *  (default 0.005 ≈ ~5mm at the 1.8m fit). */
+  innerLayerOffset?: number;
+}
+
+const DEFAULT_INNER_SUFFIXES: readonly string[] = [
+  "leg", "legs", "hand", "hands", "torso", "uppertorso", "foot", "feet",
+];
+const DEFAULT_INNER_MATERIALS: readonly RegExp[] = [/skin/i];
+const DEFAULT_INNER_OFFSET = 0.01;
+
 /**
  * Resolve a customization into the mesh subset to upload. Internal groups
  * never contribute meshes; `null` selections contribute none. Required groups
  * fall back to their first variant when the saved pick is stale.
+ *
+ * Skin-material meshes in "inner" groups are shallow-cloned with a
+ * `surfaceOffset` — modular kits author bare-skin shells that sit fractions
+ * of a millimeter under garments; without the offset the skin z-fights or
+ * pokes through where a garment variant doesn't fully cover it.
  */
 export function resolveCustomizationMeshes(
   model: ModelData,
   catalog: VariantCatalog,
   cust: CharacterCustomization,
+  opts: ResolveMeshesOptions = {},
 ): { meshes: MeshData[]; meshIndices: Set<number> } {
+  const innerSuffixes = opts.innerLayerSuffixes ?? DEFAULT_INNER_SUFFIXES;
+  const innerMats = opts.innerMaterials ?? DEFAULT_INNER_MATERIALS;
+  const innerOffset = opts.innerLayerOffset ?? DEFAULT_INNER_OFFSET;
+  const isSkin = (meshIdx: number) => {
+    const name = model.materials?.[model.meshes[meshIdx].materialIndex ?? -1]?.name;
+    return name !== undefined && innerMats.some((p) => (typeof p === "string" ? p === name : p.test(name)));
+  };
   const meshIndices = new Set<number>();
+  const innerIndices = new Set<number>();
   for (let _i = 0, _it = catalog.groups, _n = _it.length; _i < _n; _i++) { const g = _it[_i];
     if (g.kind === "internal") continue;
     const pick = effectiveVariantKey(g, cust);
     if (pick === null) continue;
+    const inner = innerOffset !== 0 && innerSuffixes.includes(groupSuffix(g.key));
     for (let _j = 0, _jt = g.variants, _m = _jt.length; _j < _m; _j++) { const v = _jt[_j];
       if (v.key !== pick) continue;
-      for (let _k = 0, _kt = v.meshIndices, _l = _kt.length; _k < _l; _k++) meshIndices.add(_kt[_k]);
+      for (let _k = 0, _kt = v.meshIndices, _l = _kt.length; _k < _l; _k++) {
+        meshIndices.add(_kt[_k]);
+        if (inner && isSkin(_kt[_k])) innerIndices.add(_kt[_k]);
+      }
     }
   }
   const meshes: MeshData[] = [];
   for (let i = 0; i < model.meshes.length; i++) {
-    if (meshIndices.has(i)) meshes.push(model.meshes[i]);
+    if (!meshIndices.has(i)) continue;
+    const m = model.meshes[i];
+    meshes.push(innerIndices.has(i) ? { ...m, surfaceOffset: innerOffset } : m);
   }
   return { meshes, meshIndices };
 }

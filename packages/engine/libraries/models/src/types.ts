@@ -18,6 +18,12 @@ export interface MeshData {
   morphTargetNames?: string[];
   /** KHR_materials_variants: per-primitive variant → material mappings. */
   variantMappings?: { variant: number; material: number }[];
+  /** Inward vertex offset along the bind-space normal, in model units,
+   *  applied at upload (equivalent to a post-skinning normal push — the
+   *  skin matrix is linear). Used by modular-character kits to tuck
+   *  "under-layer" meshes (legs/hands) beneath outer layers so overlapping
+   *  garments don't clip or z-fight at seams. */
+  surfaceOffset?: number;
 }
 
 export interface TextureTransform {
