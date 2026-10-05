@@ -24,6 +24,22 @@ export interface MeshData {
    *  "under-layer" meshes (legs/hands) beneath outer layers so overlapping
    *  garments don't clip or z-fight at seams. */
   surfaceOffset?: number;
+  /** Per-vertex horizontal girth deformation applied at upload: each
+   *  vertex's position on `axes` scales about `centers` by
+   *  `1 + factor * weights[v]`. Weights are a body-region field derived
+   *  from skin weights (≈1 at pelvis/spine, ≈0 at head/hands/feet), so
+   *  skin and garment meshes deform identically — garments keep fitting
+   *  the widened body and seams stay watertight. */
+  surfaceGirth?: {
+    /** Scale delta at weight=1 (0.25 = +25% on the girth axes). */
+    factor: number;
+    /** Per-vertex region weight (0..1). */
+    weights: Float32Array;
+    /** The two scaled (horizontal) axes, as xyz indices. */
+    axes: readonly [number, number];
+    /** Pivot coordinate on each scaled axis (body-center line). */
+    centers: readonly [number, number];
+  };
 }
 
 export interface TextureTransform {

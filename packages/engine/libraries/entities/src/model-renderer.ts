@@ -441,12 +441,22 @@ export class ModelRenderer {
       const stride = 11; // pos3 + normal3 + uv2 + color3
       const interleaved = new Float32Array(vertexCount * stride);
       const sOff = mesh.surfaceOffset ?? 0;
+      const sg = mesh.surfaceGirth;
+      const gA = sg ? sg.axes[0] : -1, gB = sg ? sg.axes[1] : -1;
+      const gCA = sg ? sg.centers[0] : 0, gCB = sg ? sg.centers[1] : 0;
+      const p = [0, 0, 0];
 
       for (let v = 0; v < vertexCount; v++) {
         const nx = mesh.vertices[v * 6 + 3], ny = mesh.vertices[v * 6 + 4], nz = mesh.vertices[v * 6 + 5];
-        interleaved[v * stride] = mesh.vertices[v * 6] - nx * sOff;
-        interleaved[v * stride + 1] = mesh.vertices[v * 6 + 1] - ny * sOff;
-        interleaved[v * stride + 2] = mesh.vertices[v * 6 + 2] - nz * sOff;
+        p[0] = mesh.vertices[v * 6]; p[1] = mesh.vertices[v * 6 + 1]; p[2] = mesh.vertices[v * 6 + 2];
+        if (sg) {
+          const s = 1 + sg.factor * sg.weights[v];
+          p[gA] = gCA + (p[gA] - gCA) * s;
+          p[gB] = gCB + (p[gB] - gCB) * s;
+        }
+        interleaved[v * stride] = p[0] - nx * sOff;
+        interleaved[v * stride + 1] = p[1] - ny * sOff;
+        interleaved[v * stride + 2] = p[2] - nz * sOff;
         interleaved[v * stride + 3] = nx;
         interleaved[v * stride + 4] = ny;
         interleaved[v * stride + 5] = nz;
@@ -907,12 +917,22 @@ export class ModelRenderer {
       const stride = 11;
       const interleaved = new Float32Array(vertexCount * stride);
       const sOff = mesh.surfaceOffset ?? 0;
+      const sg = mesh.surfaceGirth;
+      const gA = sg ? sg.axes[0] : -1, gB = sg ? sg.axes[1] : -1;
+      const gCA = sg ? sg.centers[0] : 0, gCB = sg ? sg.centers[1] : 0;
+      const p = [0, 0, 0];
 
       for (let v = 0; v < vertexCount; v++) {
         const nx = mesh.vertices[v * 6 + 3], ny = mesh.vertices[v * 6 + 4], nz = mesh.vertices[v * 6 + 5];
-        interleaved[v * stride] = mesh.vertices[v * 6] - nx * sOff;
-        interleaved[v * stride + 1] = mesh.vertices[v * 6 + 1] - ny * sOff;
-        interleaved[v * stride + 2] = mesh.vertices[v * 6 + 2] - nz * sOff;
+        p[0] = mesh.vertices[v * 6]; p[1] = mesh.vertices[v * 6 + 1]; p[2] = mesh.vertices[v * 6 + 2];
+        if (sg) {
+          const s = 1 + sg.factor * sg.weights[v];
+          p[gA] = gCA + (p[gA] - gCA) * s;
+          p[gB] = gCB + (p[gB] - gCB) * s;
+        }
+        interleaved[v * stride] = p[0] - nx * sOff;
+        interleaved[v * stride + 1] = p[1] - ny * sOff;
+        interleaved[v * stride + 2] = p[2] - nz * sOff;
         interleaved[v * stride + 3] = nx;
         interleaved[v * stride + 4] = ny;
         interleaved[v * stride + 5] = nz;

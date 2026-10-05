@@ -167,6 +167,45 @@ describe("resolveCustomizationMeshes", () => {
         expect(custom.meshes[1].surfaceOffset).toBe(0.01);
     });
 
+    it("attaches a skin-derived girth field to all selected meshes when girth is set", () => {
+        const model = modelWithNodes(["ash_torso.001", "ash_leg.001", "ash_hair.001"]);
+        model.sourceUpAxis = "z";
+        // Bone table: spine (full), head (zero) — mesh0 verts split between them.
+        model.skin = {
+            bones: [
+                { name: "spine_01", nodeIndex: 0, parentIndex: -1, inverseBindMatrix: new Float32Array(16), restTranslation: [0, 0, 0], restRotation: [0, 0, 0, 1], restScale: [1, 1, 1] },
+                { name: "head", nodeIndex: 1, parentIndex: 0, inverseBindMatrix: new Float32Array(16), restTranslation: [0, 0, 0], restRotation: [0, 0, 0, 1], restScale: [1, 1, 1] },
+            ],
+            boneNameToIndex: new Map([["spine_01", 0], ["head", 1]]),
+        };
+        // mesh0: v0 100% spine, v1 50/50, v2 100% head.
+        model.meshes[0].joints = new Uint8Array([0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0]);
+        model.meshes[0].weights = new Float32Array([1, 0, 0, 0, 0.5, 0.5, 0, 0, 1, 0, 0, 0]);
+        const cat = buildVariantCatalog(model);
+        const cust = defaultCustomization(cat);
+        cust.variants["ash_hair"] = "ash_hair.001";
+        cust.girth = 0.3;
+        const { meshes } = resolveCustomizationMeshes(model, cat, cust);
+        // All selected meshes carry the deformation, not just skin ones —
+        // garments must widen with the body underneath.
+        expect(meshes.every((m) => m.surfaceGirth !== undefined)).toBe(true);
+        const g = meshes[0].surfaceGirth!;
+        expect(g.factor).toBe(0.3);
+        // Region weights from skin data: spine=1, head=0, 50/50 blend=0.5.
+        expect(g.weights[0]).toBeCloseTo(1);
+        expect(g.weights[1]).toBeCloseTo(0.5);
+        expect(g.weights[2]).toBeCloseTo(0);
+        // Stored verts are always engine y-up regardless of the source
+        // file's axis — the two horizontal axes are x/z.
+        expect(g.axes).toEqual([0, 2]);
+        // Unskinned meshes (hair fixture has no joints) get the flat fallback.
+        expect(meshes[2].surfaceGirth!.weights[0]).toBeCloseTo(0.7);
+        // girth=0 → no deformation attached, meshes pass through uncloned.
+        cust.girth = 0;
+        const off = resolveCustomizationMeshes(model, cat, cust);
+        expect(off.meshes.every((m) => m.surfaceGirth === undefined)).toBe(true);
+    });
+
     it("keeps required groups visible when saved pick is null or stale", () => {
         const model = modelWithNodes(KIT);
         const cat = buildVariantCatalog(model);

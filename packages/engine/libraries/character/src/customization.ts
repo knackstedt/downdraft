@@ -33,6 +33,10 @@ export interface CharacterCustomization {
   textures: Record<string, string>;
   /** material name → RGB tint (linear 0-1), absent = material default. */
   tints: Record<string, [number, number, number]>;
+  /** Body girth scale delta (-1..1 fraction; 0/absent = authored shape).
+   *  Applied at upload as a horizontal scale weighted by a skin-derived
+   *  body-region field, so skin and garments widen together. */
+  girth?: number;
 }
 
 /** One selectable variant inside a group. */
@@ -217,6 +221,20 @@ export interface ResolveMeshesOptions {
   /** Inward normal offset for skin meshes in inner groups, in model units
    *  (default 0.005 ≈ ~5mm at the 1.8m fit). */
   innerLayerOffset?: number;
+  /** Bone-name → girth weight pairs (first match wins, fallback 0.5).
+   *  Drives the body-region field for `customization.girth` — verts skinned
+   *  to core bones deform fully, extremities stay put. Defaults cover the
+   *  UE-style naming shared by all bundled kits. */
+  girthBoneFactors?: readonly [RegExp, number][];
+  /** Girth weight for verts with no skin data (rigid pieces still track
+   *  body width so they don't sink into a widened torso). Default 0.7. */
+  girthUnskinned?: number;
+  /** Height window for the girth falloff, as fractions of model height
+   *  measured up from the floor: [fullBelow, capAbove, topMul]. Below
+   *  `fullBelow` the bone weight applies at full strength; it eases to
+   *  `topMul` by `capAbove` so collars/hoods near the head don't balloon
+   *  wider than the head itself. Default [0.72, 0.88, 0.3]. */
+  girthUpWindow?: readonly [number, number, number];
 }
 
 const DEFAULT_INNER_SUFFIXES: readonly string[] = [
@@ -224,6 +242,70 @@ const DEFAULT_INNER_SUFFIXES: readonly string[] = [
 ];
 const DEFAULT_INNER_MATERIALS: readonly RegExp[] = [/skin/i];
 const DEFAULT_INNER_OFFSET = 0.01;
+
+/** UE-style bone names → girth region weight. Ordered — first match wins. */
+const DEFAULT_GIRTH_BONES: readonly [RegExp, number][] = [
+  [/pelvis|spine/i, 1.0],
+  [/thigh/i, 0.8],
+  [/clavicle/i, 0.7],
+  [/upperarm/i, 0.5],
+  [/calf/i, 0.4],
+  [/lowerarm/i, 0.3],
+  [/neck|head/i, 0],
+  [/foot|ball|toe/i, 0.15],
+  [/hand|thumb|index|middle|ring|pinky|metacarpal/i, 0.15],
+];
+const DEFAULT_GIRTH_UNSKINNED = 0.7;
+const GIRTH_FALLBACK = 0.5;
+const DEFAULT_GIRTH_WINDOW: readonly [number, number, number] = [0.72, 0.88, 0.3];
+
+function boneGirthFactor(name: string, table: readonly [RegExp, number][]): number {
+  for (let i = 0; i < table.length; i++) if (table[i][0].test(name)) return table[i][1];
+  return GIRTH_FALLBACK;
+}
+
+/** Per-mesh girth weights — cached so repeat resolves don't rescan skin
+ *  weights. Keyed on the factors table + height window the field derives
+ *  from (the window shifts if the selected mesh set's bounds change). */
+const girthWeightCache = new WeakMap<MeshData, {
+  src: readonly [RegExp, number][]; uF: number; uC: number; tm: number; weights: Float32Array;
+}>();
+
+function girthWeightsFor(
+  model: ModelData, mesh: MeshData, table: readonly [RegExp, number][], unskinned: number,
+  up: number, uFull: number, uCap: number, topMul: number,
+): Float32Array {
+  const hit = girthWeightCache.get(mesh);
+  if (hit && hit.src === table && hit.uF === uFull && hit.uC === uCap && hit.tm === topMul) return hit.weights;
+  const out = new Float32Array(mesh.vertexCount);
+  if (mesh.joints && mesh.weights && mesh.joints.length >= mesh.vertexCount * 4 && model.skin) {
+    const bones = model.skin.bones;
+    const jf = new Float32Array(bones.length);
+    for (let i = 0; i < bones.length; i++) jf[i] = boneGirthFactor(bones[i].name, table);
+    for (let v = 0; v < mesh.vertexCount; v++) {
+      const b = v * 4;
+      out[v] =
+        jf[mesh.joints[b]] * mesh.weights[b] +
+        jf[mesh.joints[b + 1]] * mesh.weights[b + 1] +
+        jf[mesh.joints[b + 2]] * mesh.weights[b + 2] +
+        jf[mesh.joints[b + 3]] * mesh.weights[b + 3];
+    }
+  } else {
+    out.fill(unskinned);
+  }
+  // Height taper — weight gain lives in the torso/legs; ease toward
+  // topMul approaching the head so collars don't out-widen the face.
+  const span = uCap - uFull;
+  for (let v = 0; v < mesh.vertexCount; v++) {
+    const u = mesh.vertices[v * 6 + up];
+    if (u <= uFull || span <= 0) continue;
+    if (u >= uCap) { out[v] *= topMul; continue; }
+    const t = (u - uFull) / span;
+    out[v] *= 1 + (topMul - 1) * t * t * (3 - 2 * t);
+  }
+  girthWeightCache.set(mesh, { src: table, uF: uFull, uC: uCap, tm: topMul, weights: out });
+  return out;
+}
 
 /**
  * Resolve a customization into the mesh subset to upload. Internal groups
@@ -263,11 +345,44 @@ export function resolveCustomizationMeshes(
       }
     }
   }
+  // Girth: scale the two horizontal axes about the body-center line.
+  // Loaded vertex data is always engine y-up (normalizeModel bakes the
+  // source up-axis conversion into the verts — do NOT use sourceUpAxis
+  // here, it describes the file, not the stored data). Pivot on each
+  // scaled axis is its bounds midpoint.
+  const girth = cust.girth ?? 0;
+  let gAxes: readonly [number, number] | null = null;
+  let gCenters: readonly [number, number] | null = null;
+  let gUp = 1, gUFull = 0, gUCap = 0, gUTop = 0;
+  const gTable = opts.girthBoneFactors ?? DEFAULT_GIRTH_BONES;
+  const gUnskinned = opts.girthUnskinned ?? DEFAULT_GIRTH_UNSKINNED;
+  const gWindow = opts.girthUpWindow ?? DEFAULT_GIRTH_WINDOW;
+  if (girth !== 0) {
+    const b = computeMeshBounds(model.meshes, meshIndices);
+    if (b) {
+      const ext = [b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]];
+      const up = 1;
+      const h = [0, 1, 2].filter((a) => a !== up) as [number, number];
+      gAxes = h;
+      gCenters = [(b.min[h[0]] + b.max[h[0]]) / 2, (b.min[h[1]] + b.max[h[1]]) / 2];
+      gUp = up;
+      const uSpan = Math.max(1e-6, ext[up]);
+      gUFull = b.min[up] + uSpan * Math.min(gWindow[0], gWindow[1]);
+      gUCap = b.min[up] + uSpan * Math.max(gWindow[0], gWindow[1]);
+      gUTop = gWindow[2];
+    }
+  }
   const meshes: MeshData[] = [];
   for (let i = 0; i < model.meshes.length; i++) {
     if (!meshIndices.has(i)) continue;
     const m = model.meshes[i];
-    meshes.push(innerIndices.has(i) ? { ...m, surfaceOffset: innerOffset } : m);
+    const inner = innerIndices.has(i);
+    if (!inner && !gAxes) { meshes.push(m); continue; }
+    meshes.push({
+      ...m,
+      ...(inner ? { surfaceOffset: innerOffset } : {}),
+      ...(gAxes ? { surfaceGirth: { factor: girth, weights: girthWeightsFor(model, m, gTable, gUnskinned, gUp, gUFull, gUCap, gUTop), axes: gAxes, centers: gCenters! } } : {}),
+    });
   }
   return { meshes, meshIndices };
 }
