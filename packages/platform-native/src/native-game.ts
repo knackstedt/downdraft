@@ -18,6 +18,7 @@
 // ============================================================================
 
 import { createLogger, type GameRendererLike } from "@downdraft/engine";
+import { retireAllSharedDevices } from "./gpu/shared-device";
 import { createNativeHost, type NativeHostConfig, type NativeHostContext } from "./native-host";
 
 export interface NativeGameContext<R extends GameRendererLike = GameRendererLike> {
@@ -101,6 +102,20 @@ export async function startNativeGame<R extends GameRendererLike = GameRendererL
   } finally {
     try { if (ctx) await options.onDispose?.(ctx); } catch {}
     try { ctx?.renderer.stop(); } catch {}
+    // Workers die before GPU handles: raise the shared-device detach flag
+    // now, then join any in-flight dev-session teardown (game-owned workers
+    // are this path's onDispose responsibility).
+    const retire = retireAllSharedDevices(1_500);
+    try { await (globalThis as any).__ddSession?.teardown?.({ destroyDevices: false }); } catch {}
+    // Packaged mode has no session tracker — drain hooks.dispose()
+    // callbacks (ui workers, plugin hosts) queued on __ddDisposeQueue.
+    const g = globalThis as any;
+    const queue: Array<() => Promise<void> | void> = g.__ddDisposeQueue ?? [];
+    g.__ddDisposeQueue = [];
+    for (let i = queue.length - 1; i >= 0; i--) {
+      try { await queue[i](); } catch { /* best-effort */ }
+    }
+    try { await retire; } catch {}
     try { host.destroy(); } catch {}
   }
 }

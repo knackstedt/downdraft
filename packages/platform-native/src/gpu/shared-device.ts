@@ -82,6 +82,11 @@ const CELL_ALIVE = 1;
 const CELL_DETACH_REQ = 2;
 const CELL_ATTACHED = 3;
 
+/** Every cell set created this session — lets host teardown retire/mark all
+ *  shared devices without knowing which subsystem shared them. Cells leave
+ *  the set when retireSharedDevice() settles (detached or timed out). */
+const LIVE_CELLS = new Set<SharedArrayBuffer>();
+
 export function createDeviceStateCells(generation = 1): DeviceStateCells {
   const sab = new SharedArrayBuffer(32);
   const i64 = new BigInt64Array(sab);
@@ -89,6 +94,7 @@ export function createDeviceStateCells(generation = 1): DeviceStateCells {
   Atomics.store(i64, CELL_ALIVE, 1n);
   Atomics.store(i64, CELL_DETACH_REQ, 0n);
   Atomics.store(i64, CELL_ATTACHED, 0n);
+  LIVE_CELLS.add(sab);
   return { sab, i64 };
 }
 
@@ -140,19 +146,55 @@ export async function retireSharedDevice(
   cells: DeviceStateCells | SharedArrayBuffer,
   timeoutMs = 5000,
 ): Promise<boolean> {
+  const sab = cells instanceof SharedArrayBuffer ? cells : cells.sab;
   const i64 = cells instanceof SharedArrayBuffer ? new BigInt64Array(cells) : cells.i64;
   Atomics.store(i64, CELL_DETACH_REQ, 1n);
   Atomics.store(i64, CELL_ALIVE, 0n);
   const deadline = performance.now() + timeoutMs;
-  while (Atomics.load(i64, CELL_ATTACHED) > 0n) {
-    if (performance.now() >= deadline) {
-      const stuck = Atomics.load(i64, CELL_ATTACHED);
-      log.warn("shared-device", `retireSharedDevice: ${stuck} worker view(s) still attached after ${timeoutMs}ms`);
-      return false;
+  try {
+    while (Atomics.load(i64, CELL_ATTACHED) > 0n) {
+      if (performance.now() >= deadline) {
+        const stuck = Atomics.load(i64, CELL_ATTACHED);
+        log.warn("shared-device", `retireSharedDevice: ${stuck} worker view(s) still attached after ${timeoutMs}ms`);
+        return false;
+      }
+      await new Promise((r) => setTimeout(r, 1));
     }
-    await new Promise((r) => setTimeout(r, 1));
+    return true;
+  } finally {
+    // Retired (detached or gave up) — a second retire pass shouldn't wait on
+    // this set again (a force-killed worker's attach count never reaches 0).
+    LIVE_CELLS.delete(sab);
   }
-  return true;
+}
+
+/**
+ * Synchronous kill-switch for every registered cell set: raises the detach
+ * request and marks the device dead on all of them at once. Called by host
+ * teardown before freeing device/instance handles so workers that never
+ * detached can't *start* a new FFI call on released handles (in-flight calls
+ * are still governed by retireSharedDevice's bounded wait).
+ */
+export function markAllSharedDevicesDead(): void {
+  LIVE_CELLS.forEach((sab) => {
+    const i64 = new BigInt64Array(sab);
+    Atomics.store(i64, CELL_DETACH_REQ, 1n);
+    Atomics.store(i64, CELL_ALIVE, 0n);
+  });
+}
+
+/**
+ * Retire every registered cell set — bounded wait for attached workers to
+ * detach before the owner frees device/instance handles. Best-effort: a
+ * worker wedged inside a blocking FFI call (or already force-terminated, so
+ * its attach count is frozen) can't ack — the timeout keeps teardown moving.
+ */
+export async function retireAllSharedDevices(timeoutMs = 2000): Promise<void> {
+  const pending: Promise<unknown>[] = [];
+  [...LIVE_CELLS].forEach((sab) => {
+    pending.push(retireSharedDevice(sab, timeoutMs));
+  });
+  await Promise.allSettled(pending);
 }
 
 /** Current number of live attached views (diagnostics / teardown checks). */

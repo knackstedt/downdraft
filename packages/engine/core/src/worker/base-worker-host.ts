@@ -105,6 +105,11 @@ export abstract class BaseWorkerHost<TApi extends WorkerApi> {
       if (this.worker || this.proxy) await this.stopInner();
 
       this.worker = this.createWorker();
+      // A live worker must never be the only handle pinning the process —
+      // window-close teardown stops it explicitly (sim.stop()), but a worker
+      // that slips through (error path, missing stop impl) shouldn't hold
+      // the runtime open forever. No-op where unref doesn't exist (Deno).
+      (this.worker as any).unref?.();
       // 120s rather than the 30s default: in dev, vite's cold transform of a
       // large worker module can exceed 30s, killing init with a spurious
       // timeout while the worker is still legitimately loading.

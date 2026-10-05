@@ -154,6 +154,7 @@ type AnyWorker = {
   on?: (type: string, handler: (e: any) => void) => void;
   off?: (type: string, handler: (e: any) => void) => void;
   terminate?: () => void;
+  unref?: () => void;
 };
 
 export interface WorkerProxy<T extends WorkerApi> {
@@ -171,6 +172,9 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 
 export function wrap<T extends WorkerApi>(worker: AnyWorker, options?: WrapOptions): WorkerProxy<T> {
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  // A worker nobody terminates must not pin the runtime after the host's
+  // window closes — in-flight RPCs still hold the loop via their timeout.
+  worker.unref?.();
   let reqId = 0;
   const pending = new Map<number, {
     resolve: (v: unknown) => void;

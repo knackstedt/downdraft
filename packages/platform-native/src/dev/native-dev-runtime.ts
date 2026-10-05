@@ -86,7 +86,7 @@ async function saveAndTeardown(): Promise<void> {
 const HOST_GLOBALS = [
   "__nativeHost", "__nativeWindow", "__nativeGpu", "__wgpuInstancePtr",
   "__nativeGlob", "downdraft", "__ddMcpHandler", "__ddRequestRestart",
-  "__ddRequestFrame",
+  "__ddRequestFrame", "__ddRetireSharedDevices",
   "window", "document", "localStorage", "sessionStorage",
   "requestAnimationFrame", "cancelAnimationFrame",
   "addEventListener", "removeEventListener", "dispatchEvent",
@@ -219,6 +219,9 @@ if (hot && !g[LISTENERS_FLAG]) {
   hot.on(EV.hostRestart, async () => {
     logInfo("host restart (platform-native change)");
     await saveAndTeardown();
+    // Workers are stopped — wait (bounded) for shared-device views to detach
+    // before host.destroy() frees the handles they call into.
+    try { await g.__ddRetireSharedDevices?.(1_500); } catch {}
     destroyHostLayer();
     sup?.hostRestartReady?.();
   });

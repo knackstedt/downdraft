@@ -22,6 +22,7 @@ import { resolveNativeUserDataDir } from "./bridge/user-data-dir";
 import { installDOMPolyfills } from "./dom/dom-polyfills";
 import { initNativeGamepad, startGamepadEnrichment } from "./gamepad/index";
 import { installGPU } from "./gpu/install";
+import { markAllSharedDevicesDead, retireAllSharedDevices } from "./gpu/shared-device";
 import { wgpu } from "./gpu/wgpu-ffi";
 import {
     acquireSingleInstanceLock,
@@ -368,7 +369,16 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
     captureScreenshot: screenshotFn,
     destroyed: false,
     destroy: () => {
+      // Re-entrant: the game entry's finally and the dev supervisor both call
+      // this on window close — a second pass would double-release the boxed
+      // instance/device handles (use-after-free in the shim).
+      if (host.destroyed) return;
       host.destroyed = true;
+      // Sync kill-switch for attached worker views: mark every shared-device
+      // cell set dead so workers stop *starting* FFI calls on handles we're
+      // about to free. (retireAllSharedDevices handles the detach wait —
+      // callers run it before destroy().)
+      markAllSharedDevicesDead();
       void mcp?.stop();
       gamepadDestroyFn?.();
       delete (globalThis as any).__ddGamepad;
@@ -389,6 +399,9 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   // need the shared device — expose the host so they can reuse it instead of
   // opening a second wgpu device on the same surface.
   (globalThis as any).__nativeHost = host;
+  // The dev-shell supervisor (.mjs — can't import this module's TS) uses this
+  // to retire shared-device views before calling host.destroy().
+  (globalThis as any).__ddRetireSharedDevices = retireAllSharedDevices;
   // HMR session tracking — wraps this host's window/surface listeners,
   // RAF + Worker globals, and snapshots the device baseline. No-op without
   // the dev shell.

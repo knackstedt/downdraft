@@ -88,6 +88,12 @@ export interface GameSimWorker {
   restoreFromState?(stateJson: string): Promise<void>;
   hotReload?(config: unknown, preserveState: boolean): Promise<void>;
   getDevToolsProxy?(): unknown;
+  /** Stop and terminate the worker. Entry points call this on window close —
+   *  an unstopped worker's loop pins the runtime and the process never exits.
+   *  Optional: bespoke workers without it leak-stop via `worker.unref()`. */
+  stop?(): Promise<void> | void;
+  /** Alias for stop() on some host implementations (BaseWorkerHost). */
+  shutdown?(): Promise<void> | void;
 }
 
 /** Optional seed passed to the sim worker factory. */

@@ -76,7 +76,15 @@ export function useHotReloadDispose(
 export function dispose(disposeFn: () => Promise<void> | void): void {
   const hot = (import.meta as any).hot;
   const session = (globalThis as any).__ddSession;
-  if (!hot?.dispose && !session?.onDispose) return;
+  if (!hot?.dispose && !session?.onDispose) {
+    // Packaged/direct-run mode: no vite hot and no dev-shell session, so the
+    // callback would otherwise never fire — html-ui workers, plugin hosts,
+    // and module.onDispose would leak and pin the runtime after the window
+    // closes. Native entries drain this queue in their shutdown finally.
+    const g = globalThis as any;
+    (g.__ddDisposeQueue ??= []).push(disposeFn);
+    return;
+  }
   let offSession: (() => void) | null = null;
   const wrapped = () => {
     offSession?.();

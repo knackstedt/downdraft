@@ -204,6 +204,7 @@ function sendHostRestart(data) {
       log("host restart fell back to supervisor-driven reimport");
       enqueue(async () => {
         try { await globalThis.__ddSession?.teardown?.({ destroyDevices: false }); } catch {}
+        try { await globalThis.__ddRetireSharedDevices?.(1_500); } catch {}
         try { globalThis.__nativeHost?.destroy?.(); } catch {}
         delete globalThis.__nativeHost;
         await reimportHost();
@@ -345,8 +346,10 @@ async function shutdown(code, reason = "") {
   force.unref?.();
 
   // Device teardown is host.destroy()'s job — a manual device destroy while
-  // the wgpu poll loop runs aborts inside wgpu-core.
+  // the wgpu poll loop runs aborts inside wgpu-core. Shared-device views are
+  // retired after workers stop so no FFI call is in flight when handles free.
   try { await globalThis.__ddSession?.teardown?.({ destroyDevices: false }); } catch {}
+  try { await globalThis.__ddRetireSharedDevices?.(1_500); } catch {}
   try { globalThis.__nativeHost?.destroy?.(); } catch {}
   try { await server?.close(); } catch {}
   process.exit(code);

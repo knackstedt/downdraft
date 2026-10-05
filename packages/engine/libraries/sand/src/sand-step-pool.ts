@@ -216,6 +216,11 @@ export class SandStepPool {
       const worker = this.workerUrl
         ? new Worker(this.workerUrl, { type: "module" })
         : new Worker(new URL("./sand-step-worker.ts", import.meta.url), { type: "module" });
+      // Nested workers are process-scoped, not parent-scoped — a sim worker
+      // force-terminated before pool.shutdown() would orphan these and pin
+      // process exit. unref keeps a leaked pool worker from holding the
+      // runtime open.
+      (worker as any).unref?.();
       this.workers.push(worker);
       const strip = this.strips[i];
       initPromises.push(new Promise<void>((resolve, reject) => {

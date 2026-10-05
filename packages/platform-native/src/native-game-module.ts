@@ -17,8 +17,9 @@
 // through the bridge — no IPC, no second process.
 // ============================================================================
 
-import type { GameContext, GameModule, GameRendererLike, GameSimWorker } from "@downdraft/engine/app/renderer";
+import type { GameContext, GameModule, GameRendererLike, GameSimWorker, SimWorkerSeed } from "@downdraft/engine/app/renderer";
 import { createLogger } from "@downdraft/engine/util/logger";
+import { retireAllSharedDevices } from "./gpu/shared-device";
 import { addCrashFeatureLog } from "./host-lifecycle";
 import { startNativeMcpServer, type NativeMcpOptions } from "./mcp/native-mcp";
 import { createNativeHost, type NativeHostConfig } from "./native-host";
@@ -72,6 +73,13 @@ export async function runNativeGameModule<Sim extends GameSimWorker, R extends G
   });
   const { window } = host;
 
+  // Capture ctx + the factory-built sim so the shutdown path can stop the
+  // worker even when a game's hooks never hand it back (startGame threw
+  // mid-boot, onInit overrode sim start, etc.). ctx.sim also covers the
+  // simFromRenderer topology once onReady runs.
+  let gameCtx: GameContext<Sim, R> | undefined;
+  let createdSim: Sim | undefined;
+
   try {
     // 2. Run the shared bootstrap. Dynamic import keeps the renderer bundle
     //    out of the module graph for tools that only need the host.
@@ -84,7 +92,18 @@ export async function runNativeGameModule<Sim extends GameSimWorker, R extends G
     // game wiring) without changing the module's semantics elsewhere.
     const wrapped: GameModule<Sim, R> = {
       ...module,
+      sim: module.sim
+        ? ((seed?: SimWorkerSeed): Sim => (createdSim = module.sim!(seed)))
+        : undefined,
+      simFromRenderer: module.simFromRenderer
+        ? async (renderer: R, ctx: GameContext<Sim, R>) => {
+            const owned = await module.simFromRenderer!(renderer, ctx);
+            if (owned) createdSim = owned;
+            return owned;
+          }
+        : undefined,
       onReady: async (ctx: GameContext<Sim, R>) => {
+        gameCtx = ctx;
         // Let the bridge's captureFrame force an on-demand frame when the
         // render loop is stopped (deterministic mode).
         (globalThis as any).__ddRequestFrame = () => {
@@ -116,6 +135,37 @@ export async function runNativeGameModule<Sim extends GameSimWorker, R extends G
     });
     log.info("native-game-module", "Window closed");
   } finally {
+    // Shutdown order matters — free GPU handles only after workers are dead:
+    // a worker inside a wgpu FFI call when release_device runs can wedge
+    // teardown (and with it, the dev shell's force-exit timer).
+    //
+    // Raise the shared-device detach flag FIRST so workers stop issuing new
+    // FFI calls immediately; the bounded detach wait overlaps the graceful
+    // stops below.
+    const retire = retireAllSharedDevices(1_500);
+    try {
+      // Dev shell: joins the supervisor's in-flight session teardown
+      // (reentrant) — registered sims + tracked workers stop first.
+      await (globalThis as any).__ddSession?.teardown?.({ destroyDevices: false });
+    } catch { /* dev shell absent or already down */ }
+    // Packaged/direct-run mode has no session tracker — hooks.dispose()
+    // callbacks (ui.dispose → html-ui worker, pluginHost, module.onDispose)
+    // land on __ddDisposeQueue instead. Drain LIFO like the session tracker.
+    const g = globalThis as any;
+    const queue: Array<() => Promise<void> | void> = g.__ddDisposeQueue ?? [];
+    g.__ddDisposeQueue = [];
+    for (let i = queue.length - 1; i >= 0; i--) {
+      try { await queue[i](); } catch { /* best-effort */ }
+    }
+    // Outside the dev shell nothing stops the sim — an unstopped worker's
+    // tick loop pins the runtime after the window closes and the process
+    // never exits. No-op when the session teardown already stopped it.
+    const sim: any = gameCtx?.sim ?? createdSim;
+    try {
+      if (sim?.stop) await sim.stop();
+      else await sim?.shutdown?.();
+    } catch { /* worker already gone */ }
+    try { await retire; } catch { /* bounded best-effort */ }
     try { host.destroy(); } catch { /* already torn down */ }
   }
 }

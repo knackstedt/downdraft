@@ -317,14 +317,17 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
   });
   log.info("bootstrapGame", encodeFeatureLogLine(renderFeatureLog));
 
-  // 7. FPS polling (if onFpsUpdate provided)
+  // 7. FPS polling (if onFpsUpdate provided). unref so the interval can't
+  //    pin the runtime after the window closes (packaged mode has no session
+  //    tracker to clear it).
   if (opts.onFpsUpdate) {
     const fpsInterval = opts.fpsPollIntervalMs ?? 500;
-    setInterval(() => {
+    const id = setInterval(() => {
       if (typeof renderer.getFPS === "function") {
         opts.onFpsUpdate!(renderer.getFPS());
       }
     }, fpsInterval);
+    (id as any)?.unref?.();
   }
 
   // 8. Display info wiring (if onDisplayInfo provided)
@@ -364,7 +367,7 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
     }
 
     let saveInProgress = false;
-    setInterval(async () => {
+    const id = setInterval(async () => {
       if (saveInProgress) return;
       saveInProgress = true;
       try {
@@ -375,6 +378,7 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
         saveInProgress = false;
       }
     }, intervalMs);
+    (id as any)?.unref?.();
   }
 
   // 10. MCP setup (if provided)

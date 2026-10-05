@@ -194,6 +194,8 @@ export class HtmlUiHost {
   private static spawnWorker(): DocBackend | null {
     try {
       const w = new Worker(new URL("./ui-worker.ts", import.meta.url));
+      // Don't let a leaked doc worker pin the runtime after the window closes.
+      (w as any).unref?.();
       w.addEventListener("error", (e) => log.error("html-ui", `ui-worker error: ${(e as ErrorEvent).message ?? e}`));
       w.addEventListener("messageerror", (e) => log.error("html-ui", `ui-worker messageerror: ${e.data}`));
       return createWorkerBackend(w);
