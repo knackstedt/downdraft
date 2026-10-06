@@ -54,6 +54,8 @@
     "@downdraft/engine/libraries/gpu-kernels/": "./packages/engine/libraries/gpu-kernels/src/",
     "@downdraft/engine/libraries/html-ui-kit": "./packages/engine/libraries/html-ui-kit/src/index.ts",
     "@downdraft/engine/libraries/html-ui-kit/": "./packages/engine/libraries/html-ui-kit/src/",
+    "@downdraft/engine/libraries/inspectable": "./packages/engine/libraries/inspectable/src/index.ts",
+    "@downdraft/engine/libraries/inspectable/": "./packages/engine/libraries/inspectable/src/",
     "@downdraft/engine/libraries/lighting": "./packages/engine/libraries/lighting/src/index.ts",
     "@downdraft/engine/libraries/lighting/": "./packages/engine/libraries/lighting/src/",
     "@downdraft/engine/libraries/marching-cubes": "./packages/engine/libraries/marching-cubes/src/index.ts",

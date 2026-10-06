@@ -27,6 +27,7 @@
 // ============================================================================
 
 import { getHostCapabilities, KEY, type RenderSurface } from "@downdraft/engine";
+import type { InspectableRegistry } from "@downdraft/engine/libraries/inspectable";
 import { createLogger } from "@downdraft/engine/util/logger";
 import { downdraft } from "./index";
 import {
@@ -71,7 +72,10 @@ export type StandardToolName =
   | "get_ui_state"
   | "get_element_bounds"
   | "inspect_dom"
-  | "get_element_style";
+  | "get_element_style"
+  | "inspectable_list"
+  | "inspectable_get"
+  | "inspectable_set";
 
 // dispatch_click: real pointer input produces a pointer* event before its
 // compat mouse* event (pointerdown→mousedown, pointermove→mousemove,
@@ -147,6 +151,14 @@ export interface StandardAutomationContext {
   getPlayerState?: (playerIndex: number | undefined) => unknown;
   getWorldState?: () => unknown | Promise<unknown>;
   getUiState?: () => unknown;
+
+  /**
+   * InspectableRegistry for the inspectable_list/get/set tools — schema'd
+   * read/write nodes over game state (player customization, settings, …) so
+   * agents mutate semantics directly instead of synthesizing input. Nodes'
+   * set() callbacks route through the game's normal apply pipeline.
+   */
+  inspectables?: InspectableRegistry;
 
   /**
    * Extra variables exposed to wait_for_condition expressions, keyed by name.
@@ -722,6 +734,95 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
           return jsonResult(result);
         } catch (e) {
           return errorResult(`Failed to query style for "${selector}": ${(e as Error).message}`);
+        }
+      },
+    });
+  }
+
+  // ── inspectable_list / inspectable_get / inspectable_set ──
+  const inspectables = ctx.inspectables;
+  if (want("inspectable_list") && inspectables) {
+    tools.push({
+      def: {
+        name: "inspectable_list",
+        description:
+          "List the game's inspectable state nodes — schema'd read/write points over game state " +
+          "(player customization, settings, etc.). Returns each node's path, type, valid " +
+          "range/options, readOnly flag, and current value. Mutate them with inspectable_set " +
+          "instead of synthesizing input — writes run through the game's normal apply pipeline.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            prefix: { type: "string", description: "Limit to nodes under this path prefix (e.g. 'player.customization')" },
+            tree: { type: "boolean", default: false, description: "Also return a nested tree keyed by path segments" },
+          },
+        },
+      },
+      handler: (params: Record<string, unknown>) => {
+        const prefix = params.prefix as string | undefined;
+        const nodes = inspectables.list(prefix).map((info) => {
+          let value: unknown, error: string | undefined;
+          try {
+            value = inspectables.get(info.path).value;
+          } catch (e) {
+            error = (e as Error).message;
+          }
+          return { ...info, value, error };
+        });
+        return jsonResult({
+          nodes,
+          ...(params.tree ? { tree: inspectables.tree(prefix) } : {}),
+        });
+      },
+    });
+  }
+  if (want("inspectable_get") && inspectables) {
+    tools.push({
+      def: {
+        name: "inspectable_get",
+        description: "Read the current value and schema of a single inspectable node. Discover paths with inspectable_list.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            path: { type: "string", description: "Node path (e.g. 'player.customization.girth')" },
+          },
+          required: ["path"],
+        },
+      },
+      handler: (params: Record<string, unknown>) => {
+        const path = params.path as string;
+        try {
+          return jsonResult({ ...inspectables.describe(path), ...inspectables.get(path) });
+        } catch (e) {
+          return errorResult((e as Error).message);
+        }
+      },
+    });
+  }
+  if (want("inspectable_set") && inspectables) {
+    tools.push({
+      def: {
+        name: "inspectable_set",
+        description:
+          "Write a value to an inspectable node (see inspectable_list for paths, types, and valid " +
+          "options/ranges). The write is validated then routed through the game's apply function — " +
+          "engine side-effects (mesh re-resolution, sim dispatch, saves) happen as if the game's " +
+          "own UI had made the change. Returns the post-write value.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            path: { type: "string", description: "Node path (e.g. 'player.customization.girth')" },
+            value: { description: "JSON value matching the node's declared type" },
+          },
+          required: ["path", "value"],
+        },
+      },
+      handler: async (params: Record<string, unknown>) => {
+        try {
+          const res = await inspectables.set(params.path as string, params.value);
+          return jsonResult({ applied: true, ...res });
+        } catch (e) {
+          return errorResult((e as Error).message);
         }
       },
     });

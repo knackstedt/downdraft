@@ -198,7 +198,7 @@ export function customizableGroups(catalog: VariantCatalog): VariantGroup[] {
 
 /** Validate a saved variant pick: returns the variant key, or the group's
  *  default when the saved value is missing/stale. */
-function effectiveVariantKey(group: VariantGroup, cust: CharacterCustomization): string | null {
+export function effectiveVariantKey(group: VariantGroup, cust: CharacterCustomization): string | null {
   const saved = cust.variants[group.key];
   if (saved !== undefined) {
     if (saved === null) return group.kind === "required" ? (group.variants[0]?.key ?? null) : null;
