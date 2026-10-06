@@ -1142,16 +1142,34 @@ export class SkeletonAnimator {
     }
   }
 
+  /**
+   * Minimum time between state changes. Callers re-request their desired
+   * state every frame, so a blocked request lands as soon as the interval
+   * passes — this only debounces frame-to-frame churn (e.g. a flag toggling
+   * at a boundary), which would otherwise restart the crossfade each frame
+   * and freeze the pose mid-blend. (Was a 0.5s gate, which deferred every
+   * legitimate transition — entering water, landing — by up to half a
+   * second.)
+   */
+  private static readonly MIN_STATE_INTERVAL = 0.1;
+
   protected setAnimationState(state: AnimState): void {
     if (state === this.currentState && this.player.isPlaying(state)) return;
-    if (this.timeSinceLastStateChange < 0.5 && this.player.isPlaying()) return;
     const clip = this.clips.get(state);
     if (!clip) return;
+    if (this.timeSinceLastStateChange < SkeletonAnimator.MIN_STATE_INTERVAL && this.player.isPlaying()) return;
 
     // Use AnimationPlayer's fade for crossfade blending
     this.player.play(state, clip, { fadeDuration: this.blendDuration });
     this.currentState = state;
     this.timeSinceLastStateChange = 0;
+  }
+
+  /** Scale the playback speed of a currently-playing state's layer (e.g.
+   *  faster swim strokes at higher swim velocity). No-op if the state's
+   *  clip isn't active. */
+  setStateSpeed(state: AnimState, speed: number): void {
+    this.player.setSpeed(state, speed);
   }
 
   setFootTargets(left: Float32Array | null, right: Float32Array | null): void {
