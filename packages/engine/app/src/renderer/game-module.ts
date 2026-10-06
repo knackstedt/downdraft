@@ -752,6 +752,21 @@ export async function startGame<Sim extends GameSimWorker, R extends GameRendere
     };
   }
 
+  // 6c. Kick the default sim start early — `simWorker.start()` spawns the
+  //     worker + sends init config and doesn't touch renderer state, so it
+  //     can overlap renderer.init() instead of serializing behind it inside
+  //     onRendererInit. `onInit` overrides own sim start entirely (e.g.
+  //     to-the-ocean's Promise.all); `onSimStart` overrides stay deferred
+  //     since they may depend on post-init ctx state; renderer-owned workers
+  //     (simFromRenderer) are untouched.
+  let simStartPromise: Promise<void> | null = null;
+  if (simWorker && !module.onInit && !module.onSimStart) {
+    simStartPromise = Promise.resolve(simWorker.start(module.simConfig ?? {}));
+    // Mark handled now — the real await (which re-throws on failure) happens
+    // at the original join point inside onRendererInit.
+    simStartPromise.catch(() => {});
+  }
+
   // 7. Delegate to bootstrapGame() for the standard sequence
   await bootstrapGame({
     canvasLayer: module.canvasLayer,
@@ -829,6 +844,8 @@ export async function startGame<Sim extends GameSimWorker, R extends GameRendere
       if (simWorker && !module.onInit) {
         if (module.onSimStart) {
           await module.onSimStart(ctx);
+        } else if (simStartPromise) {
+          await simStartPromise;
         } else {
           await simWorker.start(module.simConfig ?? {});
         }

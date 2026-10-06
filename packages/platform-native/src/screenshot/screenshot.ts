@@ -6,7 +6,7 @@
 // ============================================================================
 
 import { writeFileSync } from "node:fs";
-import { WgpuDevice, WgpuTexture } from "../gpu/wgpu-wrapper";
+import type { WgpuDevice, WgpuTexture } from "../gpu/wgpu-wrapper";
 
 // ── Minimal PNG encoder (uncompressed, using zlib for deflate) ──
 import { createLogger } from "@downdraft/engine/util/logger";

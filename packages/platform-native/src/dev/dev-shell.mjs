@@ -31,7 +31,7 @@ import {
     SUPERVISOR_KEY,
 } from "./dev-constants.mjs";
 import { installConsoleBridge, writeLine } from "./dev-log.mjs";
-import { buildNativeDevConfig, loadHmrOptions, resolveWgslRegistryPath } from "./vite-config.mjs";
+import { buildNativeDevConfig, loadGameConfig, loadHmrOptions, resolveWgslRegistryPath } from "./vite-config.mjs";
 
 const TAG = "dd-dev";
 
@@ -39,6 +39,14 @@ const TAG = "dd-dev";
 // the ModuleRunner shares this globalThis, so console.debug("[vite] ...")
 // and any console.* inside evaluated modules land here.
 installConsoleBridge();
+
+// Capture raw timers BEFORE RUNTIME_MODULE evaluates — installSessionTracker
+// wraps globalThis.setTimeout/clearTimeout for session bookkeeping, and
+// teardown cancels every tracked timer. Supervisor bookkeeping (force-exit,
+// restart fallbacks, ack deadlines) must survive teardown to remain the
+// bound it exists to enforce.
+const rawSetTimeout = globalThis.setTimeout.bind(globalThis);
+const rawClearTimeout = globalThis.clearTimeout.bind(globalThis);
 
 // Two-arg form is used by native-dev-runtime (sup.log("hmr", msg)) — the
 // first arg is a submodule tag, rendered as [dd-dev/hmr].
@@ -86,6 +94,10 @@ function findRepoRoot(dir) {
 const repoRoot = process.env.DD_REPO_ROOT ?? findRepoRoot(gameDir);
 const devDir = dirname(fileURLToPath(import.meta.url));
 const RUNTIME_MODULE = join(devDir, "native-dev-runtime.ts");
+// Slim slice imported before RUNTIME_MODULE — its tiny graph transforms in
+// a fraction of the runtime's, so the window + GPU device land seconds
+// before the entry graph finishes.
+const EARLY_HOST_MODULE = join(devDir, "early-host.ts");
 
 // ── Resolve vite from the game's dependency tree ───────────────────────────
 
@@ -146,7 +158,7 @@ function finishSessionBoot() {
 /** Tier 3: vite cleared the module cache already — re-evaluate fresh. */
 async function reimportSession() {
   // Let vite's evaluatedModules.clear() (same macrotask) finish first.
-  await new Promise((r) => setTimeout(r, 0));
+  await new Promise((r) => rawSetTimeout(r, 0));
   // import.meta.hot.on listeners are owned by the registering module — a
   // full-reload invalidates them along with the module graph. The runtime
   // must re-register on every re-eval, so the install flag goes back down.
@@ -158,7 +170,7 @@ async function reimportSession() {
 
 /** Tier 4: destroy host happened runner-side; purge the whole runner cache. */
 async function reimportHost() {
-  await new Promise((r) => setTimeout(r, 0));
+  await new Promise((r) => rawSetTimeout(r, 0));
   try { await runner.clearCache(); } catch { /* mid-close */ }
   // Same as reimportSession — clearCache invalidated the runtime module's
   // hot.on listeners; drop the flag so the re-eval re-registers them.
@@ -178,8 +190,8 @@ let hostFallback = null;
 function sendFullReload(triggeredBy) {
   try {
     env().hot.send({ type: "full-reload", triggeredBy });
-    clearTimeout(sessionFallback);
-    sessionFallback = setTimeout(() => {
+    rawClearTimeout(sessionFallback);
+    sessionFallback = rawSetTimeout(() => {
       sessionFallback = null;
       log("session restart fell back to supervisor-driven reimport");
       enqueue(async () => {
@@ -198,8 +210,8 @@ function sendFullReload(triggeredBy) {
 function sendHostRestart(data) {
   try {
     env().hot.send({ type: "custom", event: "dd:host-restart", data });
-    clearTimeout(hostFallback);
-    hostFallback = setTimeout(() => {
+    rawClearTimeout(hostFallback);
+    hostFallback = rawSetTimeout(() => {
       hostFallback = null;
       log("host restart fell back to supervisor-driven reimport");
       enqueue(async () => {
@@ -229,14 +241,14 @@ const supervisor = {
 
   /** Runtime finished session save+teardown after a full-reload payload. */
   sessionRestartReady() {
-    clearTimeout(sessionFallback);
+    rawClearTimeout(sessionFallback);
     sessionFallback = null;
     enqueue(reimportSession);
   },
 
   /** Runtime finished host teardown (host.destroy + global reset). */
   hostRestartReady() {
-    clearTimeout(hostFallback);
+    rawClearTimeout(hostFallback);
     hostFallback = null;
     enqueue(reimportHost);
   },
@@ -266,7 +278,7 @@ const supervisor = {
     const pending = pendingSimSwaps.get(updateId);
     if (!pending) return;
     pendingSimSwaps.delete(updateId);
-    clearTimeout(pending.timer);
+    rawClearTimeout(pending.timer);
     pending.resolve(result);
   },
 
@@ -278,12 +290,14 @@ const supervisor = {
 
 globalThis[SUPERVISOR_KEY] = supervisor;
 globalThis.__ddMarker = "shell";
+const gameConfig = loadGameConfig(gameDir);
 globalThis[CONFIG_KEY] = {
   entry,
   gameDir,
   repoRoot,
   runtime,
   verbose,
+  gameConfig,
 };
 
 // ── Classifier events (from nativeHmrPlugin) ───────────────────────────────
@@ -311,7 +325,7 @@ function onClassifierEvent(type, data) {
       if (verbose) log(`sim update: ${data.file}`);
       // Timeout: if the runner never acks (no session, crashed handler), the
       // safest fallback is a session restart.
-      const timer = setTimeout(() => {
+      const timer = rawSetTimeout(() => {
         if (pendingSimSwaps.delete(updateId)) {
           log(`sim swap timed out (${data.file}) — session restart`);
           sendFullReload(data.file);
@@ -325,7 +339,7 @@ function onClassifierEvent(type, data) {
           data: { file: data.file, timestamp: data.timestamp, updateId },
         });
       } catch (e) {
-        clearTimeout(timer);
+        rawClearTimeout(timer);
         pendingSimSwaps.delete(updateId);
         sendFullReload(data.file);
       }
@@ -341,15 +355,19 @@ async function shutdown(code, reason = "") {
   shuttingDown = true;
   if (reason) log(`shutdown: ${reason}`);
 
-  // Give teardown a bounded window; the process must not linger.
-  const force = setTimeout(() => process.exit(code), 3000);
+  // Give teardown a bounded window; the process must not linger. Raw timer
+  // — a session-tracked setTimeout would be cancelled by the teardown below,
+  // silently removing the bound it exists to enforce.
+  const force = rawSetTimeout(() => process.exit(code), 3000);
   force.unref?.();
 
   // Device teardown is host.destroy()'s job — a manual device destroy while
-  // the wgpu poll loop runs aborts inside wgpu-core. Shared-device views are
-  // retired after workers stop so no FFI call is in flight when handles free.
+  // the wgpu poll loop runs aborts inside wgpu-core. Kick shared-device
+  // retirement FIRST so its SAB death-signal + detach wait overlap worker
+  // teardown instead of serializing after it.
+  const retire = globalThis.__ddRetireSharedDevices?.(1_500)?.catch(() => {});
   try { await globalThis.__ddSession?.teardown?.({ destroyDevices: false }); } catch {}
-  try { await globalThis.__ddRetireSharedDevices?.(1_500); } catch {}
+  try { await retire; } catch {}
   try { globalThis.__nativeHost?.destroy?.(); } catch {}
   try { await server?.close(); } catch {}
   process.exit(code);
@@ -381,6 +399,7 @@ async function main() {
     wgslRegistryPath,
     watchPaths,
     onEvent: onClassifierEvent,
+    entry,
   });
 
   server = await vite.createServer(config);
@@ -417,7 +436,38 @@ async function main() {
   log(`runtime=${runtime} game=${gameDir}`);
   log(`entry=${entry}`);
 
-  // Boot: runtime installs the session tracker + hot listeners, then the
+  // Boot: kick the slim early host FIRST — its graph transforms in a
+  // fraction of RUNTIME_MODULE's, so the window + GPU device land while the
+  // runtime + entry graphs are still transforming. Not awaited — it races
+  // the runtime import below. The runtime's own kick stays as the fallback
+  // (covers host restarts, where a dev-shell-level kick can't help).
+  const gameCfg = globalThis[CONFIG_KEY]?.gameConfig;
+  if (!globalThis.__ddEarlyHostPromise && gameCfg?.native) {
+    const n = gameCfg.native;
+    try {
+      // Await the module import — the early graph is tiny, and giving it
+      // the transform pipeline first is the whole point. bootEarlyHost
+      // itself is NOT awaited: window/device land while the heavy graphs
+      // transform below.
+      const earlyMod = await runner.import(EARLY_HOST_MODULE);
+      globalThis.__ddEarlyHostPromise = Promise.resolve(earlyMod.bootEarlyHost({
+        window: {
+          title: n.title ?? gameCfg.name ?? "Downdraft",
+          width: n.width ?? 1280,
+          height: n.height ?? 720,
+          focused: n.focused,
+        },
+        appId: n.appId,
+        splash: n.splash,
+      })).catch((e) => {
+        logErr(`early host boot failed (entry will create its own): ${e?.message ?? e}`);
+        return null;
+      });
+    } catch (e) {
+      logErr(`early host import failed (entry will create its own): ${e?.message ?? e}`);
+    }
+  }
+  // The runtime installs the session tracker + hot listeners, then the
   // game entry evaluates inside the shared process.
   await runner.import(RUNTIME_MODULE);
   await runner.import(entry);
@@ -446,7 +496,7 @@ async function main() {
       await shutdown(0, "entry completed without creating a host");
       return;
     }
-    await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => rawSetTimeout(r, 100));
   }
 }
 

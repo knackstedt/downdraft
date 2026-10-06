@@ -24,7 +24,8 @@ use std::collections::{HashMap, HashSet};
 use std::ffi::{c_char, c_void, CStr};
 use std::future::Future;
 use std::ptr;
-use std::sync::{LazyLock, Mutex};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{mpsc, LazyLock, Mutex};
 use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 use wgpu::*;
 
@@ -291,7 +292,112 @@ pub extern "C" fn wgpu_shim_request_adapter(instance: Handle, power_preference: 
 
 /// limits: flat (fieldIndex, lo32, hi32) triples using the wgpu-wrapper.ts
 /// LIMIT_FIELD_INDEX numbering (0..30; the two u64 fields are single indices
-/// 13/14 and 18). features: u32 WGPUFeatureName values.
+/// 13/14 and 18). features: u32 WGPUFeatureName values. Shared by the sync
+/// and async request_device entry points.
+unsafe fn parse_device_desc(
+    adapter: &Adapter,
+    limits_ptr: *const u32,
+    limit_count: u32,
+    features_ptr: *const u32,
+    feature_count: u32,
+) -> DeviceDescriptor<'static> {
+    let mut limits = adapter.limits();
+    if !limits_ptr.is_null() {
+        let flat = std::slice::from_raw_parts(limits_ptr, limit_count as usize * 3);
+        for i in 0..limit_count as usize {
+            let field = flat[i * 3];
+            let value = flat[i * 3 + 1] as u64 | (flat[i * 3 + 2] as u64) << 32;
+            let v32 = value as u32;
+            match field {
+                0 => limits.max_texture_dimension_1d = v32,
+                1 => limits.max_texture_dimension_2d = v32,
+                2 => limits.max_texture_dimension_3d = v32,
+                3 => limits.max_texture_array_layers = v32,
+                4 => limits.max_bind_groups = v32,
+                // 5 = maxBindGroupsPlusVertexBuffers — removed from wgpu
+                // Limits in v25; the field is accepted on the wire but has
+                // no wgpu counterpart to set.
+                6 => limits.max_bindings_per_bind_group = v32,
+                7 => limits.max_dynamic_uniform_buffers_per_pipeline_layout = v32,
+                8 => limits.max_dynamic_storage_buffers_per_pipeline_layout = v32,
+                9 => limits.max_sampled_textures_per_shader_stage = v32,
+                10 => limits.max_samplers_per_shader_stage = v32,
+                11 => limits.max_storage_buffers_per_shader_stage = v32,
+                12 => limits.max_storage_textures_per_shader_stage = v32,
+                13 => limits.max_uniform_buffers_per_shader_stage = v32,
+                14 => limits.max_uniform_buffer_binding_size = value,
+                15 => limits.max_storage_buffer_binding_size = value,
+                16 => limits.min_uniform_buffer_offset_alignment = v32,
+                17 => limits.min_storage_buffer_offset_alignment = v32,
+                18 => limits.max_vertex_buffers = v32,
+                19 => limits.max_buffer_size = value,
+                20 => limits.max_vertex_attributes = v32,
+                21 => limits.max_vertex_buffer_array_stride = v32,
+                22 => limits.max_inter_stage_shader_variables = v32,
+                23 => limits.max_color_attachments = v32,
+                24 => limits.max_color_attachment_bytes_per_sample = v32,
+                25 => limits.max_compute_workgroup_storage_size = v32,
+                26 => limits.max_compute_invocations_per_workgroup = v32,
+                27 => limits.max_compute_workgroup_size_x = v32,
+                28 => limits.max_compute_workgroup_size_y = v32,
+                29 => limits.max_compute_workgroup_size_z = v32,
+                30 => limits.max_compute_workgroups_per_dimension = v32,
+                31 => limits.max_immediate_size = v32,
+                _ => {}
+            }
+        }
+    }
+
+    let mut features = Features::empty();
+    if !features_ptr.is_null() {
+        let flat = std::slice::from_raw_parts(features_ptr, feature_count as usize);
+        for i in 0..feature_count as usize {
+            features |= enums::feature(flat[i]);
+        }
+    }
+
+    DeviceDescriptor {
+        label: None,
+        required_features: features,
+        required_limits: limits,
+        experimental_features: ExperimentalFeatures::disabled(),
+        memory_hints: MemoryHints::default(),
+        trace: Trace::Off,
+    }
+}
+
+/// Wrap a completed request_device result into the ShimDevice box (lost
+/// callback, uncaptured-error hook, G_DEVICE registration). Shared by the
+/// sync and async request paths — runs on whichever thread completed the
+/// request; all touched state is Mutex-guarded.
+fn finish_device_request(res: Option<Result<(Device, Queue), RequestDeviceError>>) -> Handle {
+    match res {
+        Some(Ok((device, queue))) => {
+            let lost = std::sync::Arc::new(Mutex::new(None));
+            let lost_cb = lost.clone();
+            device.set_device_lost_callback(move |reason, msg| {
+                eprintln!("[wgpu_shim] device lost (reason={reason:?}): {msg}");
+                *lost_cb.lock().unwrap() = Some((enums::device_lost_reason(reason), msg));
+            });
+            device.on_uncaptured_error(std::sync::Arc::new(log_uncaptured));
+            *G_DEVICE.lock().unwrap() = Some(device.clone());
+            boxed(ShimDevice {
+                device,
+                queue,
+                lost,
+            })
+        }
+        Some(Err(e)) => {
+            eprintln!("[wgpu_shim] device request failed: {e}");
+            ptr::null_mut()
+        }
+        None => {
+            eprintln!("[wgpu_shim] device request timed out");
+            ptr::null_mut()
+        }
+    }
+}
+
 #[no_mangle]
 pub extern "C" fn wgpu_shim_request_device(
     adapter: Handle,
@@ -302,96 +408,149 @@ pub extern "C" fn wgpu_shim_request_device(
 ) -> Handle {
     ffi!(ptr::null_mut(), unsafe {
         let adapter = obj::<Adapter>(adapter);
+        let desc = parse_device_desc(
+            adapter,
+            limits_ptr,
+            limit_count,
+            features_ptr,
+            feature_count,
+        );
+        finish_device_request(block_on_gpu(adapter.request_device(&desc)))
+    })
+}
 
-        let mut limits = adapter.limits();
-        if !limits_ptr.is_null() {
-            let flat = std::slice::from_raw_parts(limits_ptr, limit_count as usize * 3);
-            for i in 0..limit_count as usize {
-                let field = flat[i * 3];
-                let value = flat[i * 3 + 1] as u64 | (flat[i * 3 + 2] as u64) << 32;
-                let v32 = value as u32;
-                match field {
-                    0 => limits.max_texture_dimension_1d = v32,
-                    1 => limits.max_texture_dimension_2d = v32,
-                    2 => limits.max_texture_dimension_3d = v32,
-                    3 => limits.max_texture_array_layers = v32,
-                    4 => limits.max_bind_groups = v32,
-                    // 5 = maxBindGroupsPlusVertexBuffers — removed from wgpu
-                    // Limits in v25; the field is accepted on the wire but has
-                    // no wgpu counterpart to set.
-                    6 => limits.max_bindings_per_bind_group = v32,
-                    7 => limits.max_dynamic_uniform_buffers_per_pipeline_layout = v32,
-                    8 => limits.max_dynamic_storage_buffers_per_pipeline_layout = v32,
-                    9 => limits.max_sampled_textures_per_shader_stage = v32,
-                    10 => limits.max_samplers_per_shader_stage = v32,
-                    11 => limits.max_storage_buffers_per_shader_stage = v32,
-                    12 => limits.max_storage_textures_per_shader_stage = v32,
-                    13 => limits.max_uniform_buffers_per_shader_stage = v32,
-                    14 => limits.max_uniform_buffer_binding_size = value,
-                    15 => limits.max_storage_buffer_binding_size = value,
-                    16 => limits.min_uniform_buffer_offset_alignment = v32,
-                    17 => limits.min_storage_buffer_offset_alignment = v32,
-                    18 => limits.max_vertex_buffers = v32,
-                    19 => limits.max_buffer_size = value,
-                    20 => limits.max_vertex_attributes = v32,
-                    21 => limits.max_vertex_buffer_array_stride = v32,
-                    22 => limits.max_inter_stage_shader_variables = v32,
-                    23 => limits.max_color_attachments = v32,
-                    24 => limits.max_color_attachment_bytes_per_sample = v32,
-                    25 => limits.max_compute_workgroup_storage_size = v32,
-                    26 => limits.max_compute_invocations_per_workgroup = v32,
-                    27 => limits.max_compute_workgroup_size_x = v32,
-                    28 => limits.max_compute_workgroup_size_y = v32,
-                    29 => limits.max_compute_workgroup_size_z = v32,
-                    30 => limits.max_compute_workgroups_per_dimension = v32,
-                    31 => limits.max_immediate_size = v32,
-                    _ => {}
+// ── Async request ops (JS-visible polling) ──
+// request_adapter/request_device spend up to hundreds of ms inside
+// block_on_gpu's spin — the synchronous exports above pin the calling JS
+// thread for that entire stretch, which stalls module load, the event pump,
+// and the boot splash. The _async variants run the same bounded wait on a
+// detached thread and hand back a token; the JS side polls
+// wgpu_shim_async_poll between event-loop yields and collects the result
+// with wgpu_shim_async_take. Failed/cancelled ops complete with a null
+// handle (poll=1, take=null) — identical outcome to the sync path.
+
+static NEXT_OP_TOKEN: AtomicU64 = AtomicU64::new(1);
+/// In-flight async requests: token → receiver the worker thread sends its
+/// boxed handle result (usize-cast; 0 on failure) through. Raw pointers are
+/// !Send — the channel carries the address, not the pointer.
+static PENDING_OPS: LazyLock<Mutex<HashMap<u64, mpsc::Receiver<usize>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+/// Completed results awaiting wgpu_shim_async_take (usize-cast handles).
+static COMPLETED_OPS: LazyLock<Mutex<HashMap<u64, usize>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn spawn_op<F>(work: F) -> u64
+where
+    F: FnOnce() -> Handle + Send + 'static,
+{
+    let (tx, rx) = mpsc::channel::<usize>();
+    std::thread::spawn(move || {
+        let _ = tx.send(work() as usize);
+    });
+    let token = NEXT_OP_TOKEN.fetch_add(1, Ordering::Relaxed);
+    PENDING_OPS.lock().unwrap().insert(token, rx);
+    token
+}
+
+#[no_mangle]
+pub extern "C" fn wgpu_shim_request_adapter_async(
+    instance: Handle,
+    power_preference: i32,
+) -> u64 {
+    ffi!(0, unsafe {
+        // Clone the Arc-backed instance — the JS side may release its box
+        // while the request is still in flight.
+        let instance = obj::<Instance>(instance).clone();
+        let pp = enums::power_preference(power_preference as u32);
+        spawn_op(move || {
+            let options = RequestAdapterOptions {
+                power_preference: pp,
+                force_fallback_adapter: false,
+                compatible_surface: None,
+            };
+            match block_on_gpu(instance.request_adapter(&options)) {
+                Some(Ok(adapter)) => boxed(adapter),
+                Some(Err(e)) => {
+                    eprintln!("[wgpu_shim] adapter request failed: {e}");
+                    ptr::null_mut()
+                }
+                None => {
+                    eprintln!("[wgpu_shim] adapter request timed out");
+                    ptr::null_mut()
                 }
             }
-        }
+        })
+    })
+}
 
-        let mut features = Features::empty();
-        if !features_ptr.is_null() {
-            let flat = std::slice::from_raw_parts(features_ptr, feature_count as usize);
-            for i in 0..feature_count as usize {
-                features |= enums::feature(flat[i]);
-            }
-        }
+#[no_mangle]
+pub extern "C" fn wgpu_shim_request_device_async(
+    adapter: Handle,
+    limits_ptr: *const u32,
+    limit_count: u32,
+    features_ptr: *const u32,
+    feature_count: u32,
+) -> u64 {
+    ffi!(0, unsafe {
+        let adapter = obj::<Adapter>(adapter);
+        // Parse on the calling thread — the flat arrays point into JS memory
+        // that is only valid for the duration of this FFI call.
+        let desc = parse_device_desc(
+            adapter,
+            limits_ptr,
+            limit_count,
+            features_ptr,
+            feature_count,
+        );
+        let adapter = adapter.clone();
+        spawn_op(move || {
+            finish_device_request(block_on_gpu(adapter.request_device(&desc)))
+        })
+    })
+}
 
-        let desc = DeviceDescriptor {
-            label: None,
-            required_features: features,
-            required_limits: limits,
-            experimental_features: ExperimentalFeatures::disabled(),
-            memory_hints: MemoryHints::default(),
-            trace: Trace::Off,
-        };
-
-        match block_on_gpu(adapter.request_device(&desc)) {
-            Some(Ok((device, queue))) => {
-                let lost = std::sync::Arc::new(Mutex::new(None));
-                let lost_cb = lost.clone();
-                device.set_device_lost_callback(move |reason, msg| {
-                    eprintln!("[wgpu_shim] device lost (reason={reason:?}): {msg}");
-                    *lost_cb.lock().unwrap() = Some((enums::device_lost_reason(reason), msg));
-                });
-                device.on_uncaptured_error(std::sync::Arc::new(log_uncaptured));
-                *G_DEVICE.lock().unwrap() = Some(device.clone());
-                boxed(ShimDevice {
-                    device,
-                    queue,
-                    lost,
-                })
-            }
-            Some(Err(e)) => {
-                eprintln!("[wgpu_shim] device request failed: {e}");
-                ptr::null_mut()
-            }
+/// 0 = still pending, 1 = complete (collect via wgpu_shim_async_take),
+/// -1 = unknown token (already taken / never existed).
+#[no_mangle]
+pub extern "C" fn wgpu_shim_async_poll(token: u64) -> i32 {
+    ffi!(-1, {
+        let mut pending = PENDING_OPS.lock().unwrap();
+        match pending.get(&token) {
             None => {
-                eprintln!("[wgpu_shim] device request timed out");
-                ptr::null_mut()
+                if COMPLETED_OPS.lock().unwrap().contains_key(&token) {
+                    1
+                } else {
+                    -1
+                }
             }
+            Some(rx) => match rx.try_recv() {
+                Ok(handle) => {
+                    pending.remove(&token);
+                    COMPLETED_OPS.lock().unwrap().insert(token, handle);
+                    1
+                }
+                Err(mpsc::TryRecvError::Empty) => 0,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    pending.remove(&token);
+                    COMPLETED_OPS.lock().unwrap().insert(token, 0);
+                    1
+                }
+            },
         }
+    })
+}
+
+/// Collect a completed op's handle (null on failure). Consumes the token.
+#[no_mangle]
+pub extern "C" fn wgpu_shim_async_take(token: u64) -> Handle {
+    ffi!(ptr::null_mut(), {
+        PENDING_OPS.lock().unwrap().remove(&token);
+        COMPLETED_OPS
+            .lock()
+            .unwrap()
+            .remove(&token)
+            .map(|h| h as Handle)
+            .unwrap_or(ptr::null_mut())
     })
 }
 

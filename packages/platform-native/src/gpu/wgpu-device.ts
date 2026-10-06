@@ -33,7 +33,7 @@ import {
 } from "./limits";
 import { trackForRelease, untrack } from "./registry";
 import { WgpuCommandEncoder } from "./wgpu-encoder";
-import { wgpu } from "./wgpu-ffi";
+import { loadWgpuAsync, wgpu } from "./wgpu-ffi";
 import {
     WgpuBindGroup,
     WgpuBindGroupLayout,
@@ -50,6 +50,43 @@ import {
 } from "./wgpu-resources";
 
 const log = createLogger("info");
+
+/**
+ * One macrotask yield for the async GPU-request poll loop. Routes through
+ * the session tracker's untracked channel when the dev shell is installed —
+ * a tracked setTimeout/setImmediate can be cancelled mid-request by a
+ * session teardown, which would freeze the request promise forever.
+ */
+function nextGpuTick(): Promise<void> {
+  return new Promise((resolve) => {
+    const tracker = (globalThis as any).__ddSession;
+    if (typeof tracker?.untrackedImmediate === "function") {
+      tracker.untrackedImmediate(resolve);
+      return;
+    }
+    if (typeof setImmediate === "function") setImmediate(resolve);
+    else setTimeout(resolve, 0);
+  });
+}
+
+/**
+ * Poll an async GPU request token to completion, pumping wgpu events and
+ * yielding the JS thread between polls. Returns the finished handle (null
+ * on request failure) or null when the token vanished (shouldn't happen).
+ */
+async function awaitGpuOp(token: number | bigint, instancePtr: ptr): Promise<ptr | null> {
+  const asyncShim = loadWgpuAsync()!;
+  for (;;) {
+    const status = asyncShim.wgpu_shim_async_poll(token);
+    if (status === 1) return asyncShim.wgpu_shim_async_take(token);
+    if (status === -1) return null;
+    // The Rust-side request resolves through wgpu callbacks — pump the
+    // instance so it can progress even when the window loop isn't running
+    // yet (adapter request before start(), worker-side requests).
+    wgpu.wgpu_shim_process_events(instancePtr);
+    await nextGpuTick();
+  }
+}
 
 // ── Live-device registry ──
 // Every WgpuDevice registers itself so the window event loop can poll the
@@ -115,7 +152,17 @@ export class WgpuGPU {
 
   async requestAdapter(options?: GPURequestAdapterOptions): Promise<WgpuAdapter | null> {
     const powerPref = options?.powerPreference === "low-power" ? 1 : 2;
-    const adapterPtr = wgpu.wgpu_shim_request_adapter(this.instancePtr, powerPref);
+    let adapterPtr: ptr = 0;
+    const asyncShim = loadWgpuAsync();
+    if (asyncShim) {
+      // Async path: the GPU wait runs on a detached Rust thread — this
+      // promise genuinely yields so module load and the event pump keep
+      // running instead of blocking inside a synchronous FFI spin.
+      const token = asyncShim.wgpu_shim_request_adapter_async(this.instancePtr, powerPref);
+      adapterPtr = (await awaitGpuOp(token, this.instancePtr)) ?? 0;
+    } else {
+      adapterPtr = wgpu.wgpu_shim_request_adapter(this.instancePtr, powerPref);
+    }
     if (!adapterPtr) return null;
     return new WgpuAdapter(adapterPtr, this.instancePtr);
   }
@@ -211,13 +258,26 @@ export class WgpuAdapter {
       descriptor?.requiredFeatures as Iterable<string> | undefined,
     );
 
-    const devicePtr = wgpu.wgpu_shim_request_device(
-      this.ptr,
-      limits as unknown as ptr,
-      limits.length / 3,
-      features as unknown as ptr,
-      features.length,
-    ) as unknown as number;
+    let devicePtr: ptr = 0;
+    const asyncShim = loadWgpuAsync();
+    if (asyncShim) {
+      const token = asyncShim.wgpu_shim_request_device_async(
+        this.ptr,
+        limits as unknown as ptr,
+        limits.length / 3,
+        features as unknown as ptr,
+        features.length,
+      );
+      devicePtr = (await awaitGpuOp(token, this.instancePtr)) ?? 0;
+    } else {
+      devicePtr = wgpu.wgpu_shim_request_device(
+        this.ptr,
+        limits as unknown as ptr,
+        limits.length / 3,
+        features as unknown as ptr,
+        features.length,
+      );
+    }
 
     if (!devicePtr) throw new Error("Failed to create GPU device");
 

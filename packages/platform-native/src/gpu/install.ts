@@ -237,7 +237,7 @@ function installGPUConstants(): void {
   };
 }
 
-export function installGPU(): WgpuGPU {
+export function installGPU(adopted?: WgpuGPU): WgpuGPU {
   if (!IS_MAIN_THREAD) {
     throw new Error(
       "installGPU() must run on the thread that owns the native GPU device. " +
@@ -256,7 +256,9 @@ export function installGPU(): WgpuGPU {
 
   // Install gpu on navigator. Deno's Navigator has a getter-only `gpu`
   // (native WebGPU), so plain assignment throws — defineProperty overrides it.
-  const gpu = new WgpuGPU();
+  // `adopted` reuses an already-live WgpuGPU (the dev shell's early-boot
+  // path creates the instance before the full host graph finishes loading).
+  const gpu = adopted ?? new WgpuGPU();
   try {
     (globalThis as any).navigator.gpu = gpu;
   } catch {

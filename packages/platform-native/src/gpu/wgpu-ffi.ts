@@ -315,20 +315,74 @@ const WGPU_SHIM_SPEC: Record<string, CFunction> = {
   wgpu_shim_release_queue: { args: ["ptr"], returns: "void" },
 };
 
+// ── Async request symbols ──
+// Optional additions: adapter/device request entry points that run the
+// bounded GPU wait on a detached Rust thread and expose token-based
+// poll/take, so requestAdapter()/requestDevice() can yield the JS thread
+// instead of spinning inside FFI (which blocks module load, the event pump,
+// and the boot splash for the full GPU-wait stretch).
+//
+// These live in a SEPARATE spec + dlopen so a platform lib that predates
+// them fails only this load — the sync path still works via WGPU_SHIM_SPEC.
+
+const WGPU_ASYNC_SPEC: Record<string, CFunction> = {
+  wgpu_shim_request_adapter_async: { args: ["ptr", "i32"], returns: "u64" },
+  wgpu_shim_request_device_async: {
+    args: ["ptr", "ptr", "u32", "ptr", "u32"],
+    returns: "u64",
+  },
+  // 0 = pending, 1 = complete (take), -1 = unknown token.
+  wgpu_shim_async_poll: { args: ["u64"], returns: "i32" },
+  // Consumes the token; returns the handle or null on failure.
+  wgpu_shim_async_take: { args: ["u64"], returns: "ptr" },
+};
+
+export interface WgpuAsyncSymbols {
+  wgpu_shim_request_adapter_async: (instance: ptr, powerPreference: number) => number | bigint;
+  wgpu_shim_request_device_async: (
+    adapter: ptr,
+    limits: ptr,
+    limitCount: number,
+    features: ptr,
+    featureCount: number,
+  ) => number | bigint;
+  wgpu_shim_async_poll: (token: number | bigint) => number;
+  wgpu_shim_async_take: (token: number | bigint) => ptr;
+}
+
 // ── Lazy library handle ──
 
 let _wgpu: WgpuShimSymbols | null = null;
+let _wgpuAsync: WgpuAsyncSymbols | null | undefined;
+
+function wgpuShimPath(): string {
+  return process.env.WGPU_SHIM_PATH
+    ? resolveShimLibrary("wgpu_shim", "WGPU_SHIM_PATH")
+    : resolvePlatformLibrary();
+}
 
 function loadWgpu(): WgpuShimSymbols {
   if (_wgpu) return _wgpu;
   // Resolution order: explicit WGPU_SHIM_PATH override → unified Rust
   // platform lib (downdraft_platform, wgpu crate).
-  const shimPath = process.env.WGPU_SHIM_PATH
-    ? resolveShimLibrary("wgpu_shim", "WGPU_SHIM_PATH")
-    : resolvePlatformLibrary();
-  const { symbols } = dlopen(shimPath, WGPU_SHIM_SPEC);
+  const { symbols } = dlopen(wgpuShimPath(), WGPU_SHIM_SPEC);
   _wgpu = symbols as unknown as WgpuShimSymbols;
   return _wgpu;
+}
+
+/**
+ * The optional async request symbols, or null when the resolved platform
+ * library predates them (second dlopen of the same .so — cheap, refcounts).
+ */
+export function loadWgpuAsync(): WgpuAsyncSymbols | null {
+  if (_wgpuAsync !== undefined) return _wgpuAsync;
+  try {
+    const { symbols } = dlopen(wgpuShimPath(), WGPU_ASYNC_SPEC);
+    _wgpuAsync = symbols as unknown as WgpuAsyncSymbols;
+  } catch {
+    _wgpuAsync = null;
+  }
+  return _wgpuAsync;
 }
 
 /**

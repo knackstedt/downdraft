@@ -48,6 +48,24 @@ import { WgpuCommandBuffer } from "./wgpu-resources";
 
 const log = createLogger();
 
+/**
+ * Poll-tick for retireSharedDevice's wait loop. MUST route through the
+ * session tracker's untracked channel under the dev shell: a plain
+ * setTimeout registers into the live session and teardown cancels it —
+* which wedges the retire promise forever and takes host.destroy() (and
+ * with it the whole close path) down with it. That's a real hang, not
+ * theoretical.
+ */
+function retireTick(fn: () => void): void {
+  const tracker = (globalThis as any).__ddSession;
+  if (typeof tracker?.untrackedImmediate === "function") {
+    tracker.untrackedImmediate(fn);
+    return;
+  }
+  if (typeof setImmediate === "function") setImmediate(fn);
+  else setTimeout(fn, 1);
+}
+
 /** Serializes GPU-device liveness between owner thread and attached workers. */
 export interface GpuDeviceHandle {
   /** Raw wgpu device handle (process-global boxed pointer). */
@@ -158,7 +176,7 @@ export async function retireSharedDevice(
         log.warn("shared-device", `retireSharedDevice: ${stuck} worker view(s) still attached after ${timeoutMs}ms`);
         return false;
       }
-      await new Promise((r) => setTimeout(r, 1));
+      await new Promise<void>((r) => retireTick(r));
     }
     return true;
   } finally {

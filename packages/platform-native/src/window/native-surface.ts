@@ -18,8 +18,12 @@ import { createLogger } from "@downdraft/engine/util/logger";
 import { MiniEventTarget } from "../dom/mini-event-target";
 import type { ptr } from "../ffi/ffi-adapter";
 import { formatName, parseFormat } from "../gpu/enums";
+import type { WgpuDevice } from "../gpu/wgpu-device";
 import { wgpu } from "../gpu/wgpu-ffi";
-import { WgpuDevice, WgpuTexture } from "../gpu/wgpu-wrapper";
+// Direct import, not the wgpu-wrapper barrel — that barrel drags the whole
+// wgpu-device/encoder graph (seconds of dev transform) into the early-host
+// window path for one runtime class.
+import { WgpuTexture } from "../gpu/wgpu-resources";
 import { encodePNG } from "../screenshot/screenshot";
 
 const log = createLogger("info");

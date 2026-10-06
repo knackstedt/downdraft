@@ -39,6 +39,43 @@ const hot = (import.meta as any).hot;
 const session: SessionTracker = installSessionTracker();
 session.beginSession();
 
+// ── Early host boot ─────────────────────────────────────────────────────────
+// The dev shell's biggest perceived-boot win: downdraft.config.json's
+// "native" block declares the window/appId the entry will ask for, so we
+// kick the slim early boot NOW — window + GPU device land while the
+// (multi-second) entry-graph transform/eval is still running. The promise
+// resolves with EarlyHostParts; the entry's own createNativeHost() call
+// awaits + adopts them (see native-host.ts) — there is exactly ONE
+// createNativeHost call, so no adoption race exists. Games without a
+// "native" block — bespoke entries like gpu-bench — keep the old boot shape.
+if (!g.__ddEarlyHostPromise && !g.__nativeHost && cfg.gameConfig?.native) {
+  g.__ddEarlyHostPromise = startEarlyHost(cfg.gameConfig).catch((e: any) => {
+    logError(`early host boot failed (entry will create its own): ${e?.message ?? e}`);
+    return null;
+  });
+}
+
+async function startEarlyHost(gameConfig: any): Promise<any> {
+  const n = gameConfig.native ?? {};
+  try {
+    const { bootEarlyHost } = await import("./early-host");
+    const parts = await bootEarlyHost({
+      window: {
+        title: n.title ?? gameConfig.name ?? "Downdraft",
+        width: n.width ?? 1280,
+        height: n.height ?? 720,
+        focused: n.focused,
+      },
+      appId: n.appId,
+      splash: n.splash,
+    });
+    return parts;
+  } catch (e) {
+    logError(`early slim boot failed: ${(e as any)?.message ?? e}`);
+    return null;
+  }
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 function logInfo(msg: string): void {
@@ -55,7 +92,14 @@ async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise
     return await Promise.race([
       p,
       new Promise<undefined>((_, rej) => {
-        timer = (setTimeout as any)(() => rej(new Error(`${label} timed out`)), ms);
+        // Untracked scheduling — saveAndTeardown's bounds wrap the session
+        // teardown itself; a tracked setTimeout would be cancelled BY that
+        // teardown, silently removing the bound it exists to enforce.
+        if (typeof session.untrackedTimeout === "function") {
+          timer = session.untrackedTimeout(() => rej(new Error(`${label} timed out`)), ms);
+        } else {
+          timer = (setTimeout as any)(() => rej(new Error(`${label} timed out`)), ms);
+        }
       }),
     ]);
   } finally {
@@ -84,7 +128,7 @@ async function saveAndTeardown(): Promise<void> {
 /** Globals installed by createNativeHost + friends — cleared on host restart
  *  so the next createNativeHost call rebuilds a clean persistent layer. */
 const HOST_GLOBALS = [
-  "__nativeHost", "__nativeWindow", "__nativeGpu", "__wgpuInstancePtr",
+  "__nativeHost", "__ddEarlyHostPromise", "__ddEarlyHost", "__nativeWindow", "__nativeGpu", "__wgpuInstancePtr",
   "__nativeGlob", "downdraft", "__ddMcpHandler", "__ddRequestRestart",
   "__ddRequestFrame", "__ddRetireSharedDevices",
   "window", "document", "localStorage", "sessionStorage",
@@ -221,7 +265,7 @@ if (hot && !g[LISTENERS_FLAG]) {
     await saveAndTeardown();
     // Workers are stopped — wait (bounded) for shared-device views to detach
     // before host.destroy() frees the handles they call into.
-    try { await g.__ddRetireSharedDevices?.(1_500); } catch {}
+    try { await g.__ddRetireSharedDevices?.(1_500); } catch { /* bounded + best-effort */ }
     destroyHostLayer();
     sup?.hostRestartReady?.();
   });

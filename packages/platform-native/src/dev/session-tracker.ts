@@ -497,6 +497,25 @@ export class SessionTracker {
     this.orig.setTimeout?.(fn, 0);
   }
 
+  /**
+   * Host/supervisor-internal delayed scheduling that must survive session
+   * teardown — e.g. bound timers on shutdown-critical awaits. A plain
+   * setTimeout registers into the live session and teardown cancels it,
+   * which silently disables whatever bound it was meant to enforce.
+   * Returns the raw platform timer id; pair with untrackedClear().
+   */
+  untrackedTimeout(fn: () => void, ms: number): any {
+    const schedule = this.orig.setTimeout ?? (globalThis as any).setTimeout;
+    return schedule?.(fn, ms);
+  }
+
+  /** Clear an untrackedTimeout handle — the wrapped clearTimeout works here
+   *  too (it removes the id from the session set, where it never was, then
+   *  delegates to the platform clear). */
+  untrackedClear(id: any): void {
+    (globalThis as any).clearTimeout?.(id);
+  }
+
   /** Diagnostics counters (strict-mode leak checks). */
   stats(): { listeners: number; timers: number; workers: number; disposes: number; sims: number } {
     const s = this.session;

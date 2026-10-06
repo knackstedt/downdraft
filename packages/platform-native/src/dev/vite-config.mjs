@@ -12,7 +12,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { createServer as createHttpServer } from "node:http";
 import { builtinModules, createRequire } from "node:module";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
     DEFAULT_HOST_RESTART_PATTERNS,
@@ -252,13 +252,16 @@ export function nativeHmrPlugin(options) {
 
 // ── downdraft.config.json hmr options ────────────────────────────────────────
 
-export function loadHmrOptions(gameDir) {
+export function loadGameConfig(gameDir) {
   try {
-    const cfg = parseJsonc(readFileSync(join(gameDir, "downdraft.config.json"), "utf-8"));
-    return cfg?.hmr ?? {};
+    return parseJsonc(readFileSync(join(gameDir, "downdraft.config.json"), "utf-8")) ?? {};
   } catch {
     return {};
   }
+}
+
+export function loadHmrOptions(gameDir) {
+  return loadGameConfig(gameDir)?.hmr ?? {};
 }
 
 // ── Full dev config ─────────────────────────────────────────────────────────
@@ -277,7 +280,7 @@ export function loadHmrOptions(gameDir) {
  * @param {string[]} opts.watchPaths extra watcher paths (worker/sim dirs, repo)
  */
 export function buildNativeDevConfig(opts) {
-  const { vite, gameDir, repoRoot, runtime, verbose, wgslRegistryPath, onEvent } = opts;
+  const { vite, gameDir, repoRoot, runtime, verbose, wgslRegistryPath, onEvent, entry } = opts;
   const hmr = loadHmrOptions(gameDir);
 
   const simPaths = [...DEFAULT_SIM_PATTERNS, ...(hmr.simPaths ?? [])];
@@ -330,6 +333,28 @@ export function buildNativeDevConfig(opts) {
         dev: {
           createEnvironment: (name, config, context) =>
             vite.createRunnableDevEnvironment(name, config, { ...context, hot: true }),
+          // Pre-transform the entry + its whole static-import graph in the
+          // background at server start (warmup crawls imports when
+          // preTransformRequests is on — off by default for non-client
+          // envs). The native host + splash boot in parallel with the
+          // transform instead of behind it; runner.import() then hits a
+          // warm module graph.
+          // Order matters: the slim early-host graph first (it's what maps
+          // the window), then the dev-runtime graph, then the entry — the
+          // pipeline is FIFO-ish, so the small graphs don't queue behind
+          // the entry's thousand-file crawl.
+          // Order matters: the slim early-host graph first (it's what maps
+          // the window), then the dev-runtime graph, then the entry. The
+          // first transforms pay ~2-4s of cold-pipeline warmup — putting
+          // the early graph first means the window maps at the earliest
+          // possible point while the entry's thousand-file crawl continues
+          // in the background.
+          warmup: [
+            join(DEV_DIR, "early-host.ts"),
+            join(DEV_DIR, "native-dev-runtime.ts"),
+            ...(entry ? [relative(gameDir, entry)] : []),
+          ],
+          preTransformRequests: true,
         },
       },
     },

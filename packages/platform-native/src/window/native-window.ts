@@ -12,7 +12,6 @@
 import { createLogger } from "@downdraft/engine/util/logger";
 import { MiniEventTarget } from "../dom/mini-event-target";
 import type { ptr } from "../ffi/ffi-adapter";
-import { pollLiveDevicesLost } from "../gpu/wgpu-device";
 import { wgpu } from "../gpu/wgpu-ffi";
 import { NativeSurface } from "./native-surface";
 import {
@@ -42,6 +41,21 @@ import {
     SDL_EVENT_WHEEL,
     sdlButtonsToDom
 } from "./sdl-ffi";
+
+// Lazily bound — wgpu-device.ts pulls the whole JS shim graph (encoder,
+// resources, limits…), which under the dev shell's ModuleRunner is seconds
+// of transform. The window must not import it statically: the slim early
+// host maps the window while that graph is still transforming. The first
+// loop iterations just skip the poll until the binding resolves.
+let pollLiveDevicesLost: (() => void) | null = null;
+let pollLiveDevicesLostLoading = false;
+function ensureDeviceLostPoll(): void {
+  if (pollLiveDevicesLost || pollLiveDevicesLostLoading) return;
+  pollLiveDevicesLostLoading = true;
+  void import("../gpu/wgpu-device")
+    .then((m) => { pollLiveDevicesLost = m.pollLiveDevicesLost; })
+    .catch(() => { /* poll is best-effort */ });
+}
 
 const log = createLogger("info");
 
@@ -179,6 +193,12 @@ export class NativeWindow extends MiniEventTarget {
   // from host creation until the game's render loop registers its first rAF
   // callback (detected in requestAnimationFrame below).
   private splash: { tick: RAFCallback; stop(): void } | null = null;
+  // Terminal state: QUIT dispatched "close" (closeDispatched) and the OS
+  // window was dropped (destroyed). Read via the `closed` getter — a close
+  // that lands before the entry registers its "close" listener must still
+  // resolve the entry's close-await instead of hanging it.
+  private closeDispatched = false;
+  private destroyed = false;
 
   // Touch: id of the pointer currently treated as primary (first active
   // contact) — DOM compat mouse events are synthesized only for it.
@@ -261,6 +281,31 @@ export class NativeWindow extends MiniEventTarget {
     splash.start();
   }
 
+  /** Stop a running boot splash (e.g. an adopted early host whose caller
+   *  disabled it). */
+  stopSplash(): void {
+    this.splash?.stop();
+    this.splash = null;
+  }
+
+  /** True once the window has dispatched "close" or been destroyed — used
+   *  by entries whose close-await may install after the event fired. */
+  get closed(): boolean {
+    return this.closeDispatched || this.destroyed;
+  }
+
+  /** Retitle the OS window (adopted-host config reconciliation). */
+  setTitle(title: string): void {
+    try { sdl.sdl_shim_set_window_title(title); } catch { /* older lib */ }
+  }
+
+  /** Arm the activation-retry loop as if config.focused had been passed —
+   *  used when an adopted host was created before the caller's window
+   *  config was known. */
+  requestFocus(): void {
+    if (!this.focused) this.focusRequestAttempts = 60;
+  }
+
   requestAnimationFrame(callback: RAFCallback): number {
     if (this.splash && callback !== this.splash.tick) {
       this.splash.stop();
@@ -281,6 +326,7 @@ export class NativeWindow extends MiniEventTarget {
   // ── Event loop ──
 
   start(): void {
+    if (this.running || this.destroyed) return;
     this.running = true;
     this.runLoop();
   }
@@ -494,7 +540,10 @@ export class NativeWindow extends MiniEventTarget {
     const timerDue = now - this.lastRafDispatch >= this.frameInterval() - RAF_DISPATCH_EPSILON_MS;
     const vsyncStale = now - this.lastVsyncAt > Math.max(50, this.frameInterval() * 3);
     const due = this.vsyncDriven && !vsyncStale ? this.vsyncTick : timerDue;
-    if (!this.surfaceSuspended && this.rafCallbacks.size > 0 && due) {
+    // `this.running` may have flipped mid-event-drain (QUIT → destroy) —
+    // dispatching rAF on a released surface would fire game frame callbacks
+    // against a dead swapchain.
+    if (this.running && !this.surfaceSuspended && this.rafCallbacks.size > 0 && due) {
       // Advance on a fixed grid so sleep/timer jitter doesn't accumulate
       // drift; if we fell more than a frame behind (startup, a long frame,
       // a stall) reset the phase instead of bursting catch-up dispatches.
@@ -529,11 +578,16 @@ export class NativeWindow extends MiniEventTarget {
     // Process wgpu events (for async callback delivery), then poll the
     // device-lost flag on every live device — this is what resolves
     // GPUDevice.lost on native (GameRenderer recovery hooks off that).
-    const instancePtr = (globalThis as any).__wgpuInstancePtr ?? 0;
-    if (instancePtr) {
-      wgpu.wgpu_shim_process_events(instancePtr);
+    // Skipped once running stops: QUIT already tore the surface down and
+    // device handles may be mid-destroy.
+    if (this.running) {
+      const instancePtr = (globalThis as any).__wgpuInstancePtr ?? 0;
+      if (instancePtr) {
+        wgpu.wgpu_shim_process_events(instancePtr);
+      }
+      ensureDeviceLostPoll();
+      try { pollLiveDevicesLost?.(); } catch { /* poll is best-effort */ }
     }
-    try { pollLiveDevicesLost(); } catch { /* poll is best-effort */ }
 
     // Schedule next frame
     scheduleImmediate(() => this.runLoop());
@@ -605,7 +659,14 @@ export class NativeWindow extends MiniEventTarget {
 
       case SDL_EVENT_QUIT:
         this.running = false;
+        this.closeDispatched = true;
         this.dispatchEvent({ type: "close" });
+        // Destroy the OS window NOW — the close listeners only kick off
+        // async teardown (session, workers, device handles). A window left
+        // mapped-but-unpumped for that whole stretch is what the WM reports
+        // as "not responding"; dropping it reads as an instant close.
+        // destroy() is idempotent — host.destroy()'s later call is a no-op.
+        this.destroy();
         break;
 
       case SDL_EVENT_FOCUS_LOST:
@@ -992,6 +1053,11 @@ export class NativeWindow extends MiniEventTarget {
   }
 
   destroy(): void {
+    // Re-entrant: the QUIT handler destroys the window immediately, then
+    // host.destroy() calls this again during GPU teardown — a second pass
+    // would double-release the surface/window.
+    if (this.destroyed) return;
+    this.destroyed = true;
     this.running = false;
     try { this.splash?.stop(); } catch { /* best-effort */ }
     this.splash = null;

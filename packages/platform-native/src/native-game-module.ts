@@ -130,9 +130,13 @@ export async function runNativeGameModule<Sim extends GameSimWorker, R extends G
     log.info("native-game-module", `GameModule started (${opts.title})`);
 
     // 3. Block until the window closes (SDL quit event or bridge.quit()).
-    await new Promise<void>((resolve) => {
-      window.addEventListener("close", () => resolve());
-    });
+    //    window.closed covers a close that already fired during boot —
+    //    registering a listener for it now would hang the entry forever.
+    if (!(window as { closed?: boolean }).closed) {
+      await new Promise<void>((resolve) => {
+        window.addEventListener("close", () => resolve());
+      });
+    }
     log.info("native-game-module", "Window closed");
   } finally {
     // Shutdown order matters — free GPU handles only after workers are dead:
@@ -160,10 +164,29 @@ export async function runNativeGameModule<Sim extends GameSimWorker, R extends G
     // Outside the dev shell nothing stops the sim — an unstopped worker's
     // tick loop pins the runtime after the window closes and the process
     // never exits. No-op when the session teardown already stopped it.
+    // Bounded: a worker wedged inside a synchronous call must not stall the
+    // close path — force it down after 2s via terminate if available.
     const sim: any = gameCtx?.sim ?? createdSim;
     try {
-      if (sim?.stop) await sim.stop();
-      else await sim?.shutdown?.();
+      const graceful: Promise<void> | undefined =
+        sim?.stop ? sim.stop() : sim?.shutdown?.();
+      if (graceful) {
+        let timedOut = false;
+        // Untracked where possible — under the dev shell a session-tracked
+        // setTimeout could be cancelled by a concurrent teardown, removing
+        // the bound and letting a wedged worker stall the close path.
+        const untracked = (globalThis as any).__ddSession?.untrackedTimeout;
+        const bound = new Promise<void>((resolve) => {
+          const fire = () => { timedOut = true; resolve(); };
+          if (typeof untracked === "function") untracked(fire, 2_000);
+          else setTimeout(fire, 2_000);
+        });
+        await Promise.race([graceful, bound]);
+        if (timedOut) {
+          log.warn("native-game-module", "sim stop timed out (2s) — terminating");
+          try { sim?.terminate?.(); } catch { /* already dead */ }
+        }
+      }
     } catch { /* worker already gone */ }
     try { await retire; } catch { /* bounded best-effort */ }
     try { host.destroy(); } catch { /* already torn down */ }
