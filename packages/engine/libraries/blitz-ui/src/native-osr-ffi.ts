@@ -258,7 +258,10 @@ export class OsrDoc {
   }
 
   wheel(x: number, y: number, deltaX: number, deltaY: number, mods?: string[]): void {
-    this.lib.dd_osr_wheel(this.handle, x, y, deltaX, deltaY, osrModifierBits(mods));
+    // Callers pass DOM WheelEvent deltas (+y = scroll down). Blitz wheel
+    // deltas follow winit semantics (+y = scroll up / decreases the scroll
+    // offset — see scroll_node_by_has_changed), so negate both axes.
+    this.lib.dd_osr_wheel(this.handle, x, y, -deltaX, -deltaY, osrModifierBits(mods));
   }
 
   /** `key`/`code` are W3C UI-Events strings ("Enter"/"a", "KeyF"/"Escape"). */

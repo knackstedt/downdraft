@@ -643,7 +643,9 @@ pub extern "C" fn dd_osr_pointer(
     })
 }
 
-/// Wheel event at the last pointer position. Deltas are in pixels.
+/// Wheel event at the last pointer position. Deltas are in pixels using
+/// Blitz/winit semantics (+y = scroll up); the JS wrapper negates DOM
+/// WheelEvent deltas before crossing the FFI.
 #[no_mangle]
 pub extern "C" fn dd_osr_wheel(
     handle: *mut OsrDoc,

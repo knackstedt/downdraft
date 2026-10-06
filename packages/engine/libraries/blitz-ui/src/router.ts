@@ -68,7 +68,9 @@ export class BlitzUiRouter extends UIInputRouter {
     }
 
     override handleWheel(dx: number, dy: number): boolean {
-        this.wasm.ui_wheel(dx, dy, this.lastX, this.lastY, this.mods);
+        // DOM WheelEvent deltas (+y = scroll down) → Blitz wheel-delta
+        // semantics (+y = scroll up / decreases the scroll offset).
+        this.wasm.ui_wheel(-dx, -dy, this.lastX, this.lastY, this.mods);
         // Consume the event when over an interactive element so the page
         // doesn't scroll behind a scrollable panel.
         return this.isPointerOverUI();
