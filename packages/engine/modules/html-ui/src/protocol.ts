@@ -12,6 +12,13 @@ export type DocMutation =
   | { op: "rattr"; node?: number; sel?: string; name: string }
   | { op: "style"; node?: number; sel?: string; prop: string; value: string }
   | { op: "innerHtml"; node?: number; sel?: string; html: string }
+  /** Append parsed HTML as the node's last children — `innerHTML +=`
+   *  semantics; existing children survive. Requires a cdylib with
+   *  dd_osr_append_html — check the `ready` message's caps first. */
+  | { op: "appendHtml"; node?: number; sel?: string; html: string }
+  /** Drop all but the last `keep` children — bounds streaming lists
+   *  (console logs) without an innerHTML rebuild. Same caps caveat. */
+  | { op: "trimChildren"; node?: number; sel?: string; keep: number }
   | { op: "focus"; node?: number; sel?: string }
   | { op: "scrollIntoView"; node?: number; sel?: string; smooth?: boolean; vertical?: "start" | "center" | "end" | "nearest"; horizontal?: "start" | "center" | "end" | "nearest" }
   /** Absolute scroll offsets on a scroll container — reaches nested
@@ -90,7 +97,7 @@ export type UiToWorker =
 
 /** Backend → host */
 export type WorkerToUi =
-  | { type: "ready" }
+  | { type: "ready"; caps?: { incrementalDom?: boolean } }
   /**
    * A frame is ready. Three shapes:
    *  - pixel-carrying (`pixels` present): `w*h*4` tightly-packed RGBA bytes to

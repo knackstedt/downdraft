@@ -12,6 +12,9 @@ import { esc, multiChartHtml, type DtPanel, type DtPanelCtx } from "./types";
 export class SnapshotPanel implements DtPanel {
   readonly id: string;
   readonly title: string;
+  /** Backend provider slot this panel displays — the host watches it for
+   *  auto-refresh while this tab is active. */
+  readonly providerSlot: number;
   dirty = true;
   shellDirty = false;
 
@@ -23,6 +26,7 @@ export class SnapshotPanel implements DtPanel {
   constructor(ctx: DtPanelCtx, slot: number, name: string) {
     this.ctx = ctx;
     this.slot = slot;
+    this.providerSlot = slot;
     this.id = `snap-${name}`;
     this.title = titleize(name);
   }

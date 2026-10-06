@@ -167,6 +167,52 @@ pub extern "C" fn dd_osr_set_inner_html(
     })
 }
 
+/// Parse an HTML fragment and append it as the node's last children —
+/// `innerHTML +=` semantics. Unlike set_inner_html the existing children
+/// survive, so streaming views (the devtools console) can append rows
+/// without reparsing the whole list. Requires the HtmlProvider set in
+/// build_doc — same parser path as set_inner_html.
+#[no_mangle]
+pub extern "C" fn dd_osr_append_html(
+    handle: *mut OsrDoc,
+    node: u64,
+    html_ptr: *const u8,
+    html_len: usize,
+) -> c_int {
+    with_node_mutator(handle, node, |m, id| {
+        let Some(html) = (unsafe { read_str(html_ptr, html_len) }) else {
+            return -1;
+        };
+        let provider = m.doc.html_parser_provider.clone();
+        provider.parse_inner_html(m, id, html);
+        0
+    })
+}
+
+/// Drop all but the last `keep` children of `node` — lets a streaming view
+/// bound the DOM size without an innerHTML rebuild.
+#[no_mangle]
+pub extern "C" fn dd_osr_trim_children(
+    handle: *mut OsrDoc,
+    node: u64,
+    keep: u64,
+) -> c_int {
+    with_node_mutator(handle, node, |m, id| {
+        let kids: Vec<NodeId> = {
+            let Some(n) = m.doc.get_node(id) else {
+                return -1;
+            };
+            n.children.iter().copied().collect()
+        };
+        let keep = keep as usize;
+        let drop_n = kids.len().saturating_sub(keep);
+        for cid in kids.into_iter().take(drop_n) {
+            m.remove_and_drop_node(cid);
+        }
+        0
+    })
+}
+
 /// Get an attribute's value (or input's current text for <input>/<textarea>)
 /// into the doc's out-buffer. Read `dd_osr_out_len` for the byte length.
 /// NULL when the node/attr is absent.

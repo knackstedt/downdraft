@@ -38,6 +38,9 @@ export interface DevtoolsUiSurface {
     interactive?: boolean;
     onEvent?: (ev: OsrDomEvent) => void;
   }): UiPanelHandle;
+  /** Doc-backend capabilities — panels use incremental DOM ops only when
+   *  the underlying cdylib provides them. */
+  docCaps?(): { incrementalDom?: boolean };
 }
 
 export interface BlitzDevtoolsOptions {
@@ -78,6 +81,8 @@ export class BlitzDevtoolsHost {
   private dragStartY = 0;
   private dragStartH = 0;
   private panelCtx: DtPanelCtx;
+  private lastPanelRender = -1e9;
+  private lastSlowLog = 0;
 
   constructor(opts: BlitzDevtoolsOptions) {
     this.opts = opts;
@@ -91,6 +96,12 @@ export class BlitzDevtoolsHost {
       scrollIntoView: (t) => this.panel?.scrollIntoView(t, { vertical: "end" }),
       scrollTo: (t, x, y) => this.panel?.scrollTo(t, x, y),
       getRect: (t) => this.panel?.getRect(t) ?? Promise.resolve(null),
+      mutate: (ops) => this.panel?.mutate(ops),
+      // Lazy — the caps handshake lands after ctor on the worker backend.
+      get incrementalDom() {
+        return opts.ui.docCaps?.()?.incrementalDom === true
+          || (opts.ui as { host?: HtmlUiHost }).host?.docCaps.incrementalDom === true;
+      },
     };
     this.panelCtx = ctx;
     this.backend = new DevtoolsBackend({
@@ -182,7 +193,11 @@ export class BlitzDevtoolsHost {
     this.syncProviders();
     this.flush();
     const t2 = performance.now();
-    if (t2 - t0 > 6) {
+    // ≤1/sec — these diagnostics used to feed the console panel's logger
+    // sink, and each row forced another dock re-render: a self-feeding
+    // lag loop while the dock is open.
+    if (t2 - t0 > 6 && t2 - this.lastSlowLog > 1000) {
+      this.lastSlowLog = t2;
       log.info("BlitzDevtoolsHost", `slow update: backend=${(t1 - t0).toFixed(1)}ms sync+flush=${(t2 - t1).toFixed(1)}ms`);
     }
   }
@@ -272,6 +287,9 @@ export class BlitzDevtoolsHost {
     this.panel.setInnerHtml("#dt-body", p.renderBody());
     p.afterRender?.();
     p.activate?.();
+    // Only the snapshot tab being viewed gets periodic provider refreshes;
+    // fixed panels suspend auto-refresh entirely (manual Refresh still works).
+    this.backend.providerWatch = p.providerSlot ?? -1;
     this.setStatus(`${p.title}`);
   }
 
@@ -312,7 +330,15 @@ export class BlitzDevtoolsHost {
     if (!this.panel) return;
     if (this.tabsDirty) this.renderTabs();
     const p = this.panels.get(this.activeId);
-    if (!p) return;
+    if (!p || (!p.dirty && !p.shellDirty)) return;
+    // A dirty panel re-render ships a whole rebuilt #dt-body to the doc
+    // worker for reparse — cap the rate (~15Hz, the doc's own raster cap)
+    // so a chatty panel (console streams, metric pushes) can't rebuild
+    // every frame. Panels with a flushDom path do cheap incremental
+    // mutations within the same budget.
+    const now = performance.now();
+    if (now - this.lastPanelRender < 60) return;
+    this.lastPanelRender = now;
     if (p.shellDirty) {
       p.shellDirty = false;
       this.panel.setInnerHtml("#dt-top", p.renderTop?.() ?? "");
@@ -320,7 +346,9 @@ export class BlitzDevtoolsHost {
     }
     if (p.dirty) {
       p.dirty = false;
-      this.panel.setInnerHtml("#dt-body", p.renderBody());
+      if (p.flushDom?.() !== true) {
+        this.panel.setInnerHtml("#dt-body", p.renderBody());
+      }
       p.afterRender?.();
     }
   }
@@ -397,5 +425,6 @@ export function createSelfHostedDevtoolsUi(ctx: RendererModuleContext): Devtools
   return {
     host,
     mount: (markup, spec) => host.mount({ ...spec, html: markup }),
+    docCaps: () => host.docCaps,
   };
 }

@@ -8,7 +8,7 @@
 // across body re-renders.
 // ============================================================================
 
-import type { OsrDomEvent } from "@downdraft/engine/modules/html-ui";
+import type { DocMutation, OsrDomEvent } from "@downdraft/engine/modules/html-ui";
 
 export interface DtPanelCtx {
   /** Backend RPC — same methods as the web frontend's call(). */
@@ -22,6 +22,13 @@ export interface DtPanelCtx {
   scrollTo(target: number | string, x: number, y: number): void;
   /** Border-box rect of a doc element in CSS px (scroll math). */
   getRect(target: number | string): Promise<{ x: number; y: number; w: number; h: number } | null>;
+  /** Batched DOM mutations on the dock doc — panels with an incremental
+   *  update path (the console's append/trim) use this instead of returning
+   *  a whole new body from renderBody. */
+  mutate(ops: DocMutation[]): void;
+  /** True when the doc backend supports appendHtml/trimChildren — panels
+   *  fall back to full innerHTML renders when false (older cdylib). */
+  readonly incrementalDom: boolean;
 }
 
 export interface DtPanel {
@@ -31,9 +38,19 @@ export interface DtPanel {
   dirty: boolean;
   /** Set when the persistent chrome (top/bottom) needs re-rendering. */
   shellDirty?: boolean;
+  /** Provider slot this panel views (snapshot tabs only) — the host gates
+   *  backend auto-refresh to the active slot so unviewed providers skip
+   *  their periodic collect entirely. */
+  readonly providerSlot?: number;
   renderTop?(): string;
   renderBody(): string;
   renderBottom?(): string;
+  /**
+   * Optional incremental DOM flush — called instead of renderBody() when
+   * `dirty`; return true after applying mutations via ctx.mutate, or false
+   * to request a full body re-render (the host then calls renderBody).
+   */
+  flushDom?(): boolean;
   /** `data-action` activations routed by the host. */
   onAction?(data: Record<string, string>, ev: OsrDomEvent): void;
   /** Raw DOM events (input, keydown, mousedown, scroll…). */

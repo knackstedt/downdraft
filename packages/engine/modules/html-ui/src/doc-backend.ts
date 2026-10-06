@@ -415,6 +415,8 @@ export function createDocCore(emit: (m: WorkerToUi) => void, gpuHooks?: DocGpuHo
             else if (op.op === "rattr") s.doc.removeAttr(node, op.name);
             else if (op.op === "style") s.doc.setStyle(node, op.prop, op.value);
             else if (op.op === "innerHtml") s.doc.setInnerHtml(node, op.html);
+            else if (op.op === "appendHtml") s.doc.appendHtml(node, op.html);
+            else if (op.op === "trimChildren") s.doc.trimChildren(node, op.keep);
             else if (op.op === "focus") s.doc.focus(node);
             else if (op.op === "scrollIntoView") {
               s.doc.scrollIntoView(node, { smooth: op.smooth, vertical: op.vertical, horizontal: op.horizontal });
@@ -495,7 +497,7 @@ export function createDocCore(emit: (m: WorkerToUi) => void, gpuHooks?: DocGpuHo
   // pending() true). ~60Hz tick; pending() keeps it free when idle.
   const timer = setInterval(pump, 16);
 
-  emit({ type: "ready" });
+  emit({ type: "ready", caps: { incrementalDom: OsrDoc.caps.incrementalDom } });
 
   return {
     handle,

@@ -83,6 +83,27 @@ const OSR_SPEC: Record<string, CFunction> = {
 
 export type OsrSymbols = Record<keyof typeof OSR_SPEC, (...args: any[]) => any>;
 
+/**
+ * Optional append-only DOM ops — resolved on a second dlopen so a cdylib
+ * built before they existed can still satisfy OSR_SPEC (the failure mode
+ * is `incrementalDom === false`, not a dlopen crash). Callers must check
+ * `OsrDoc.incrementalDom` (or the `ready` message's caps) and fall back to
+ * innerHTML-style mutations when absent.
+ */
+const OSR_APPEND_SPEC = {
+  dd_osr_append_html: { args: ["ptr", "u64", "ptr", "usize"], returns: "i32" },
+  dd_osr_trim_children: { args: ["ptr", "u64", "u64"], returns: "i32" },
+} satisfies Record<string, CFunction>;
+
+export type OsrAppendSymbols = Record<keyof typeof OSR_APPEND_SPEC, (...args: any[]) => any>;
+
+/** What the loaded cdylib can do — surfaced to hosts via the doc core's
+ *  `ready` message so panels can pick incremental vs full-render paths. */
+export interface OsrCaps {
+  /** dd_osr_append_html + dd_osr_trim_children are bound. */
+  incrementalDom: boolean;
+}
+
 /** One DOM event emitted by a document — see events.rs for the field schema. */
 export interface OsrDomEvent {
   /** Event type: "click" | "mousedown" | "input" | "keydown" | "scroll" | ... */
@@ -114,16 +135,21 @@ export function registerOsrResource(url: string, bytes: Uint8Array | ArrayBuffer
   ) as number) === 0;
 }
 
-let cached: { symbols: OsrSymbols; path: string } | null = null;
+let cached: { symbols: OsrSymbols; append: OsrAppendSymbols | null; path: string } | null = null;
 
 /** dlopen the Blitz OSR cdylib. Returns null when the artifact is absent
  *  (not built / not staged) so hosts can disable OSR instead of crashing. */
-export function loadOsrLib(): { symbols: OsrSymbols; path: string } | null {
+export function loadOsrLib(): { symbols: OsrSymbols; append: OsrAppendSymbols | null; path: string } | null {
   if (cached) return cached;
   const path = findOsrLibrary();
   if (!path) return null;
   try {
-    cached = { symbols: dlopen(path, OSR_SPEC).symbols as OsrSymbols, path };
+    const symbols = dlopen(path, OSR_SPEC).symbols as OsrSymbols;
+    let append: OsrAppendSymbols | null = null;
+    try {
+      append = dlopen(path, OSR_APPEND_SPEC).symbols as OsrAppendSymbols;
+    } catch { /* older cdylib — incrementalDom stays off */ }
+    cached = { symbols, append, path };
     return cached;
   } catch {
     return null;
@@ -170,15 +196,23 @@ export const OSR_FRAME_HEADER = 64;
 export class OsrDoc {
   private handle: number;
   private lib: OsrSymbols;
+  private appendLib: OsrAppendSymbols | null;
   /** Physical px dimensions tracked host-side (updated on resize). */
   width: number;
   height: number;
 
-  private constructor(lib: OsrSymbols, handle: number, width: number, height: number) {
+  private constructor(lib: OsrSymbols, appendLib: OsrAppendSymbols | null, handle: number, width: number, height: number) {
     this.lib = lib;
+    this.appendLib = appendLib;
     this.handle = handle;
     this.width = width;
     this.height = height;
+  }
+
+  /** Capabilities of the loaded cdylib — read once and cache; the lib is
+   *  resolved lazily so this stays false before the first create(). */
+  static get caps(): OsrCaps {
+    return { incrementalDom: !!loadOsrLib()?.append };
   }
 
   static create(width: number, height: number, scale: number, html: string): OsrDoc | null {
@@ -187,7 +221,7 @@ export class OsrDoc {
     const bytes = enc.encode(html);
     const h = entry.symbols.dd_osr_init(width, height, scale, ptr(bytes), bytes.length) as number;
     if (!h) return null;
-    return new OsrDoc(entry.symbols, h, width, height);
+    return new OsrDoc(entry.symbols, entry.append, h, width, height);
   }
 
   /** Replace the whole document (Blitz has no in-place reparse). */
@@ -308,6 +342,22 @@ export class OsrDoc {
   setInnerHtml(node: number, html: string): boolean {
     const h = enc.encode(html);
     return (this.lib.dd_osr_set_inner_html(this.handle, BigInt(node), ptr(h.length ? h : EMPTY_STR), h.length) as number) === 0;
+  }
+
+  /** Parse an HTML fragment and append it as the node's last children —
+   *  `innerHTML +=` semantics; existing children (and their NodeIds)
+   *  survive. False when the loaded cdylib lacks dd_osr_append_html. */
+  appendHtml(node: number, html: string): boolean {
+    if (!this.appendLib) return false;
+    const h = enc.encode(html);
+    return (this.appendLib.dd_osr_append_html(this.handle, BigInt(node), ptr(h.length ? h : EMPTY_STR), h.length) as number) === 0;
+  }
+
+  /** Drop all but the last `keep` children of `node`. False when the loaded
+   *  cdylib lacks dd_osr_trim_children. */
+  trimChildren(node: number, keep: number): boolean {
+    if (!this.appendLib) return false;
+    return (this.appendLib.dd_osr_trim_children(this.handle, BigInt(node), BigInt(keep)) as number) === 0;
   }
 
   /** Attribute value — for "value" on <input>/<textarea> returns live text. */

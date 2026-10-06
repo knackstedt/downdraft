@@ -66,6 +66,20 @@ async function loadProfiling(): Promise<any> {
     return profilingMod;
 }
 
+// Cache the reader per SAB — a fresh ProfilingSABReader every call would
+// re-parse the layout header and re-drain the whole warning ring each
+// provider refresh.
+let sabReader: { sab: SharedArrayBuffer; reader: any } | null = null;
+async function sabReaderFor(sab: SharedArrayBuffer): Promise<any | null> {
+    if (sabReader?.sab === sab) return sabReader.reader;
+    const mod = await loadProfiling();
+    if (!mod) return null;
+    const layout = mod.profilingLayoutFromSab(sab);
+    if (!layout) return null;
+    sabReader = { sab, reader: new mod.ProfilingSABReader(sab, layout) };
+    return sabReader.reader;
+}
+
 // Cached sim-worker devtools manifest — refreshed in the background so the
 // Workers provider never blocks on a slow/hung worker RPC.
 const manifestFetch: { pending: boolean; at: number; value: any; error: string | null } = {
@@ -75,12 +89,8 @@ const manifestFetch: { pending: boolean; at: number; value: any; error: string |
 async function readSabSlots(sab: SharedArrayBuffer | null | undefined): Promise<any[]> {
     if (!sab) return [];
     try {
-        const mod = await loadProfiling();
-        if (!mod) return [];
-        const { ProfilingSABReader, profilingLayoutFromSab } = mod;
-        const layout = profilingLayoutFromSab(sab);
-        if (!layout) return [];
-        const reader = new ProfilingSABReader(sab, layout);
+        const reader = await sabReaderFor(sab);
+        if (!reader) return [];
         return reader.readSnapshot().slots ?? [];
     } catch {
         return [];
@@ -146,7 +156,6 @@ function collectSim(ctx: EngineProviderContext): PanelSnapshot {
 }
 
 async function collectMemory(ctx: EngineProviderContext): Promise<PanelSnapshot> {
-    const tM0 = performance.now();
     const sections: SnapshotSection[] = [];
     const rows: SnapshotKvRow[] = [];
 
@@ -167,11 +176,8 @@ async function collectMemory(ctx: EngineProviderContext): Promise<PanelSnapshot>
             if (mu.arrayBuffers != null) rows.push(kv("ArrayBuffers", fmtBytes(mu.arrayBuffers)));
         }
     } catch { /* */ }
-    const tM1 = performance.now();
-
     // Per-worker heap/GC from ProfilingSAB.
     const slots = await readSabSlots(ctx.profilingSAB);
-    const tM2 = performance.now();
     if (slots.length > 0) {
         const table: string[][] = [];
         slots.forEach((s) => {
@@ -203,11 +209,6 @@ async function collectMemory(ctx: EngineProviderContext): Promise<PanelSnapshot>
             rows.push(kv("Total VRAM", fmtBytes(stats.totalBytes)));
         }
     } catch { /* */ }
-    const tM3 = performance.now();
-    const dtS = (tM1 - tM0).toFixed(1), dtSab = (tM2 - tM1).toFixed(1), dtV = (tM3 - tM2).toFixed(1);
-    if (tM3 - tM0 > 10 || tM1 - tM0 > 2) {
-        console.log(`[memprobe] sync=${dtS}ms sab=${dtSab}ms vram=${dtV}ms total=${(tM3 - tM0).toFixed(1)}ms`);
-    }
 
     sections.unshift({ kind: "kv", name: "Main thread", rows });
     sections.push({

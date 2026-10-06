@@ -31,6 +31,13 @@ import { PANEL, type DevtoolsCommand, type PanelName, type PanelSnapshot } from 
 
 const log = createLogger("info");
 
+// Devtools' own diagnostics must not round-trip through the logger sink
+// into the console panel: a "slow update" row would dirty the console,
+// forcing a re-render that makes the next update slower — a self-feeding
+// lag spiral. These still write to stdout; only the devtools console view
+// skips them.
+const SELF_LOG_MODULES = new Set(["DevtoolsBackend", "BlitzDevtoolsHost"]);
+
 type EvalFn = (expr: string) => Promise<{ result?: unknown; error?: string }>;
 
 export function panelSlot(panel: PanelName | number): number {
@@ -72,6 +79,13 @@ export class DevtoolsBackend {
   private globalCommandHandler: PanelCommandHandler | null = null;
   private lastProviderPush = new Map<number, number>();
   providerIntervalMs = 1500;
+  /** When non-null, the cadence loop only auto-refreshes this provider
+   *  slot — the docked Blitz host sets it to the active snapshot tab (or
+   *  -1 when a fixed panel is active) so providers for unviewed tabs
+   *  don't collect at all. null = refresh all providers (web mirror). */
+  providerWatch: number | null = null;
+  private lastProviderTick = 0;
+  private lastDiagWarn = 0;
 
   private lastMetricsPush = 0;
   private lastGpuPush = 0;
@@ -146,6 +160,16 @@ export class DevtoolsBackend {
     this.emitFn(event, data);
   }
 
+  /** Diagnostic warnings, ≤1/sec — they still reach stdout, but a flood of
+   *  them would go through the sink machinery per frame for nothing (and
+   *  pre-filter they'd also dirty the console panel each time). */
+  private diagWarn(msg: string): void {
+    const now = performance.now();
+    if (now - this.lastDiagWarn < 1000) return;
+    this.lastDiagWarn = now;
+    log.warn("DevtoolsBackend", msg);
+  }
+
   private emitConsole(text: string, severity: number, thread: string, ts: number, hasStack: boolean): void {
     this.emit("console", { text, severity, thread, ts, hasStack });
   }
@@ -159,6 +183,7 @@ export class DevtoolsBackend {
 
   private pushLogEntry(entry: LogSinkEntry): void {
     if (this.disposed) return;
+    if (SELF_LOG_MODULES.has(entry.module)) return;
     this.emitConsole(
       `[${entry.module}] ${entry.message}`,
       logLevelToSeverity(entry.level),
@@ -263,7 +288,7 @@ export class DevtoolsBackend {
     const total = trace[4]! - trace[0]!;
     if (total > 10) {
       const seg = `pre=${(trace[2]! - trace[0]!).toFixed(1)} collect=${(trace[3]! - trace[2]!).toFixed(1)} emit=${(trace[4]! - trace[3]!).toFixed(1)}`;
-      log.warn("DevtoolsBackend", `slow provider ${slotName(slot)}: ${total.toFixed(1)}ms [${seg}]`);
+      this.diagWarn(`slow provider ${slotName(slot)}: ${total.toFixed(1)}ms [${seg}]`);
     }
   }
 
@@ -330,46 +355,56 @@ export class DevtoolsBackend {
     }
 
     const now = performance.now();
+    const seg: Record<string, number> = {};
+    let tSeg = now;
+    const mark = (name: string) => { const t = performance.now(); seg[name] = (seg[name] ?? 0) + t - tSeg; tSeg = t; };
     if (now - this.lastMetricsPush > 500) {
       this.lastMetricsPush = now;
       void this.pushMetrics();
       void this.pushThreads();
+      mark("metrics");
     }
     if (now - this.lastGpuPush > 1000) {
       this.lastGpuPush = now;
       this.pushGpuInfo();
+      mark("gpu");
     }
     if (now - this.lastScenePush > 2000) {
       this.lastScenePush = now;
       this.pushSceneTree();
       this.pushDomTree(this.domTreeMode);
+      mark("scene");
     }
     // Provider snapshots on their own cadence — at most one synchronous
-    // collect per update so a batch of overdue panels can't stall a single
-    // frame. Remaining overdue slots are served on subsequent updates.
-    let tPrev = performance.now();
-    for (const slot of this.providers.keys()) {
-      const last = this.lastProviderPush.get(slot) ?? 0;
-      const tCk = performance.now();
-      if (tCk - tPrev > 20) log.warn("DevtoolsBackend", `pause in provider loop pre-${slotName(slot)}: ${(tCk - tPrev).toFixed(1)}ms`);
-      tPrev = tCk;
-      if (now - last > this.providerIntervalMs) {
-        const tP = performance.now();
-        void this.refreshPanel(slot);
-        const dtP = performance.now() - tP;
-        if (dtP > 10) log.warn("DevtoolsBackend", `slow provider ${slotName(slot)}: ${dtP.toFixed(1)}ms`);
-        tPrev = performance.now();
-        break;
+    // collect per tick so a batch of overdue panels can't stall a single
+    // frame. The tick gap spreads N providers evenly across the interval
+    // instead of refreshing them in one burst; providerWatch (set by the
+    // docked host to the active snapshot tab, or -1 for fixed panels)
+    // skips collection for tabs nobody is looking at.
+    const count = this.providers.size;
+    if (count > 0) {
+      const gap = Math.max(100, this.providerIntervalMs / count);
+      if (now - this.lastProviderTick >= gap) {
+        for (const slot of this.providers.keys()) {
+          if (this.providerWatch !== null && slot !== this.providerWatch) continue;
+          const last = this.lastProviderPush.get(slot) ?? 0;
+          if (now - last > this.providerIntervalMs) {
+            this.lastProviderTick = now;
+            void this.refreshPanel(slot);
+            break;
+          }
+        }
       }
     }
+    mark("providers");
     const t2 = performance.now();
     if (t2 - t0 > 6) {
       const rest = [
         t1 - t0 > 2 ? `logs=${(t1 - t0).toFixed(1)}ms` : "",
-        now - t1 > 2 ? `pushes=${(now - t1).toFixed(1)}ms` : "",
-        t2 - now > 2 ? `providers=${(t2 - now).toFixed(1)}ms` : "",
+        now - t1 > 2 ? `init=${(now - t1).toFixed(1)}ms` : "",
+        ...Object.entries(seg).filter(([, v]) => v > 2).map(([k, v]) => `${k}=${v.toFixed(1)}ms`),
       ].filter(Boolean).join(" ");
-      log.warn("DevtoolsBackend", `slow update ${(t2 - t0).toFixed(1)}ms: ${rest}`);
+      this.diagWarn(`slow update ${(t2 - t0).toFixed(1)}ms: ${rest}`);
     }
   }
 

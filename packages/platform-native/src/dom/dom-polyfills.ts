@@ -316,19 +316,22 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
   }
 
   // performance.memory — Chrome-only API the profiling bridge reads for the
-  // renderer heap metrics. Back it with bun:jsc heapStats so the ProfilingSAB
-  // renderer slot reports real numbers on the native host. jsHeapSizeLimit
-  // has no JSC equivalent — report the current heap capacity as the ceiling.
+  // renderer heap metrics. Back it with process.memoryUsage(), which reports
+  // the same JSC counters bun:jsc heapStats() does — but heapStats() walks the
+  // whole heap (~200ms+ on a 1GB heap) PER CALL, and devtools/profiling poll
+  // these getters ~2-3× per refresh, stalling the main thread. memoryUsage()
+  // reads cached counters in <1ms. jsHeapSizeLimit has no cheap equivalent —
+  // report RSS as the honest upper bound (worker-prelude maps it to rss).
   if ((globalThis as any).Bun && !(globalThis as any).performance.memory) {
     try {
-      const hs = nodeCreateRequire(import.meta.url)("bun:jsc").heapStats as
-        () => { heapSize: number; heapCapacity: number };
       (globalThis as any).performance.memory = {
-        get usedJSHeapSize() { return hs().heapSize; },
-        get totalJSHeapSize() { return hs().heapCapacity; },
-        get jsHeapSizeLimit() { return hs().heapCapacity; },
+        get usedJSHeapSize() { return process.memoryUsage().heapUsed; },
+        // Bun's heapTotal can lag heapUsed — keep the Chrome invariant
+        // totalJSHeapSize >= usedJSHeapSize.
+        get totalJSHeapSize() { const m = process.memoryUsage(); return Math.max(m.heapTotal, m.heapUsed); },
+        get jsHeapSizeLimit() { return process.memoryUsage().rss; },
       };
-    } catch { /* bun:jsc unavailable — leave memory unset */ }
+    } catch { /* process.memoryUsage unavailable — leave memory unset */ }
   }
 
   // localStorage polyfill — in-memory by default; file-backed (atomic JSON

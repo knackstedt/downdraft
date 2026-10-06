@@ -50,6 +50,20 @@ async function loadProfilingMod(): Promise<any> {
   return profilingMod;
 }
 
+// Cache the ProfilingSABReader per SAB — building one per collect would
+// re-parse the layout header and re-drain the full warning/string rings
+// every 500ms instead of incrementally.
+let sabReader: { sab: SharedArrayBuffer; reader: any } | null = null;
+async function sabReaderFor(sab: SharedArrayBuffer): Promise<any | null> {
+  if (sabReader?.sab === sab) return sabReader.reader;
+  const mod = await loadProfilingMod();
+  if (!mod) return null;
+  const layout = mod.profilingLayoutFromSab(sab);
+  if (!layout) return null;
+  sabReader = { sab, reader: new mod.ProfilingSABReader(sab, layout) };
+  return sabReader.reader;
+}
+
 function formatBytes(bytes: any): string {
   const b = typeof bytes === "bigint" ? Number(bytes) : bytes;
   if (!b || b < 0 || !Number.isFinite(b)) return String(bytes);
@@ -67,21 +81,16 @@ export async function collectThreads(
   const threads: ThreadInfo[] = [{ id: "main", name: "main", kind: 0 }];
   if (ctx.profilingSAB) {
     try {
-      const mod = await loadProfilingMod();
-      if (mod) {
-        const { ProfilingSABReader, profilingLayoutFromSab } = mod;
-        const layout = profilingLayoutFromSab(ctx.profilingSAB);
-        if (layout) {
-          const reader = new ProfilingSABReader(ctx.profilingSAB, layout);
-          const snapshot = reader.readSnapshot();
-          snapshot.slots.forEach((slot: any) => {
-            threads.push({
-              id: `slot-${slot.slotIndex}`,
-              name: slot.name || `worker-${slot.slotIndex}`,
-              kind: 1,
-            });
+      const reader = await sabReaderFor(ctx.profilingSAB);
+      if (reader) {
+        const snapshot = reader.readSnapshot();
+        snapshot.slots.forEach((slot: any) => {
+          threads.push({
+            id: `slot-${slot.slotIndex}`,
+            name: slot.name || `worker-${slot.slotIndex}`,
+            kind: 1,
           });
-        }
+        });
       }
     } catch { /* profiling unavailable */ }
   }
@@ -298,28 +307,23 @@ export async function collectMetrics(ctx: CollectorContext): Promise<MetricsSlot
 
   if (ctx.profilingSAB) {
     try {
-      const mod = await loadProfilingMod();
-      if (mod) {
-        const { ProfilingSABReader, profilingLayoutFromSab } = mod;
-        const layout = profilingLayoutFromSab(ctx.profilingSAB);
-        if (layout) {
-          const reader = new ProfilingSABReader(ctx.profilingSAB, layout);
-          const snapshot = reader.readSnapshot();
-          snapshot.slots.forEach((slot: any) => {
-            slots.push({
-              slotIndex: slot.slotIndex,
-              name: slot.name || `worker-${slot.slotIndex}`,
-              runtime: slot.runtime ?? 0,
-              history: [{
-                cpuPercent: slot.metrics?.cpuPercent ?? 0,
-                heapUsed: slot.metrics?.heapUsed ?? 0,
-                heapTotal: slot.metrics?.heapTotal ?? 0,
-                gcPauseMaxUs: slot.metrics?.gcPauseMaxUs ?? 0,
-                taskLatencyP95Us: slot.metrics?.taskLatencyP95Us ?? 0,
-              }],
-            });
+      const reader = await sabReaderFor(ctx.profilingSAB);
+      if (reader) {
+        const snapshot = reader.readSnapshot();
+        snapshot.slots.forEach((slot: any) => {
+          slots.push({
+            slotIndex: slot.slotIndex,
+            name: slot.name || `worker-${slot.slotIndex}`,
+            runtime: slot.runtime ?? 0,
+            history: [{
+              cpuPercent: slot.metrics?.cpuPercent ?? 0,
+              heapUsed: slot.metrics?.heapUsed ?? 0,
+              heapTotal: slot.metrics?.heapTotal ?? 0,
+              gcPauseMaxUs: slot.metrics?.gcPauseMaxUs ?? 0,
+              taskLatencyP95Us: slot.metrics?.taskLatencyP95Us ?? 0,
+            }],
           });
-        }
+        });
       }
     } catch { /* profiling unavailable */ }
   }

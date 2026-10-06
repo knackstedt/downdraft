@@ -11,7 +11,7 @@ const MAX_ROWS = 2000;
 const RENDER_ROWS = 600;
 const SEV_NAMES = ["All", "Info+", "Warn+", "Errors"];
 
-interface ConsoleRow { text: string; severity: number; thread: string }
+interface ConsoleRow { text: string; severity: number; thread: string; seq: number }
 
 export class ConsolePanel implements DtPanel {
   readonly id = "console";
@@ -30,6 +30,17 @@ export class ConsolePanel implements DtPanel {
   private replValue = "";
   /** True while the log tail should stay pinned to the bottom. */
   private stickToBottom = true;
+  /** Monotonic row id — the incremental path appends only rows newer
+   *  than `appendedSeq`. */
+  private seq = 0;
+  /** seq watermark: rows ≤ this are already in the DOM (or trimmed). */
+  private appendedSeq = -1;
+  /** The DOM currently shows the empty-state note — the first append must
+   *  go through a full render to drop it. */
+  private domEmpty = true;
+  /** Next dirty flush must rebuild #dt-body wholesale (filter/severity
+   *  change, clear, remount, or a backend without appendHtml). */
+  private needsFullRender = true;
 
   constructor(ctx: DtPanelCtx) { this.ctx = ctx; }
 
@@ -44,14 +55,42 @@ export class ConsolePanel implements DtPanel {
   }
 
   renderBody(): string {
-    const f = this.filter.toLowerCase();
-    const shown = this.rows
-      .filter((r) => r.severity >= this.minSev && (!f || r.text.toLowerCase().includes(f)))
-      .slice(-RENDER_ROWS);
-    const html = shown.map((r, i) =>
-      `<div class="crow sev-${r.severity}" data-sev="${r.severity}"><span class="th">[${esc(r.thread)}]</span>${esc(r.text)}</div>`
-    ).join("");
-    return `<div class="console-log">${html || `<div class="empty-note">console is empty</div>`}<div id="console-end"></div></div>`;
+    const shown = this.shownRows().slice(-RENDER_ROWS);
+    // The DOM now reflects this render — the append watermark resumes at
+    // the last shown row, and whether the empty-note is mounted.
+    this.appendedSeq = shown.length ? shown[shown.length - 1]!.seq : this.seq - 1;
+    this.domEmpty = shown.length === 0;
+    this.needsFullRender = false;
+    const html = shown.map((r) => this.rowHtml(r)).join("");
+    return `<div class="console-log">${html || `<div class="empty-note">console is empty</div>`}</div>`;
+  }
+
+  /**
+   * Incremental flush — append only the new rows and trim the DOM back to
+   * RENDER_ROWS, instead of shipping a whole rebuilt log for reparse.
+   * Returns false when a full renderBody() render is required.
+   */
+  flushDom(): boolean {
+    if (!this.ctx.incrementalDom || this.needsFullRender) return false;
+    const shown = this.shownRows();
+    const fresh: ConsoleRow[] = [];
+    for (let i = shown.length - 1; i >= 0; i--) {
+      if (shown[i]!.seq <= this.appendedSeq) break;
+      fresh.push(shown[i]!);
+    }
+    // An append into the empty-note state would leave the note behind —
+    // full-render instead.
+    if (fresh.length && this.domEmpty) return false;
+    if (fresh.length) {
+      const html = fresh.reverse().map((r) => this.rowHtml(r)).join("");
+      this.appendedSeq = fresh[fresh.length - 1]!.seq;
+      this.domEmpty = false;
+      this.ctx.mutate([
+        { op: "appendHtml", sel: ".console-log", html },
+        { op: "trimChildren", sel: ".console-log", keep: RENDER_ROWS },
+      ]);
+    }
+    return true;
   }
 
   renderBottom(): string {
@@ -64,14 +103,25 @@ export class ConsolePanel implements DtPanel {
     </div>`;
   }
 
+  private shownRows(): ConsoleRow[] {
+    const f = this.filter.toLowerCase();
+    return this.rows
+      .filter((r) => r.severity >= this.minSev && (!f || r.text.toLowerCase().includes(f)));
+  }
+
+  private rowHtml(r: ConsoleRow): string {
+    return `<div class="crow sev-${r.severity}" data-sev="${r.severity}"><span class="th">[${esc(r.thread)}]</span>${esc(r.text)}</div>`;
+  }
+
   onBackendEvent(event: string, data: unknown): void {
     if (event === "console") {
       const e = data as { text?: string; severity?: number; thread?: string };
-      this.rows.push({ text: e.text ?? "", severity: e.severity ?? 0, thread: e.thread ?? "main" });
+      this.rows.push({ text: e.text ?? "", severity: e.severity ?? 0, thread: e.thread ?? "main", seq: this.seq++ });
       if (this.rows.length > MAX_ROWS) this.rows.splice(0, this.rows.length - MAX_ROWS);
       this.dirty = true;
     } else if (event === "console.clear") {
       this.rows = [];
+      this.needsFullRender = true;
       this.dirty = true;
     } else if (event === "threads") {
       const list = (data as ThreadInfo[]) ?? [];
@@ -86,6 +136,7 @@ export class ConsolePanel implements DtPanel {
       void this.ctx.call("console.clear");
     } else if (act === "console.sev") {
       this.minSev = (this.minSev + 1) % SEV_NAMES.length;
+      this.needsFullRender = true;
       this.dirty = true;
       this.shellDirty = true;
     } else if (act === "console.thread") {
@@ -104,6 +155,7 @@ export class ConsolePanel implements DtPanel {
     const tag = ev.d?.dt;
     if (tag === "filter" && ev.t === "input") {
       this.filter = ev.v ?? "";
+      this.needsFullRender = true;
       this.dirty = true;
       return;
     }
@@ -146,8 +198,8 @@ export class ConsolePanel implements DtPanel {
     })();
   }
 
-  private addRow(r: ConsoleRow): void {
-    this.rows.push(r);
+  private addRow(r: Omit<ConsoleRow, "seq">): void {
+    this.rows.push({ ...r, seq: this.seq++ });
     this.dirty = true;
   }
 

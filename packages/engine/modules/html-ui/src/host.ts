@@ -106,6 +106,12 @@ export interface UiPanelHandle {
   removeAttr(target: number | string, name: string): void;
   setStyle(target: number | string, prop: string, value: string): void;
   setInnerHtml(target: number | string, html: string): void;
+  /** Append parsed HTML as the node's last children (`innerHTML +=`) —
+   *  existing children survive. No-op when the cdylib predates
+   *  dd_osr_append_html — check `HtmlUiHost.docCaps.incrementalDom`. */
+  appendHtml(target: number | string, html: string): void;
+  /** Drop all but the last `keep` children of `target`. */
+  trimChildren(target: number | string, keep: number): void;
   /** Apply multiple DOM mutations in one backend pass — a single relayout. */
   mutate(ops: DocMutation[]): void;
   focus(target?: number | string): void;
@@ -169,6 +175,9 @@ export class HtmlUiHost {
   private unsubInput: Array<() => void> = [];
   private focusedPanel: string | null = null;
   private pointerPos = { x: -1, y: -1 };
+  /** Doc-backend capabilities from the `ready` handshake — e.g. whether the
+   *  loaded cdylib supports appendHtml/trimChildren. */
+  private caps = { incrementalDom: false };
 
   readonly blit: PanelBlitPass;
 
@@ -319,6 +328,8 @@ export class HtmlUiHost {
       removeAttr: (t, name) => mutate({ op: "rattr", ...tgt(t), name }),
       setStyle: (t, prop, value) => mutate({ op: "style", ...tgt(t), prop, value }),
       setInnerHtml: (t, html) => mutate({ op: "innerHtml", ...tgt(t), html }),
+      appendHtml: (t, html) => mutate({ op: "appendHtml", ...tgt(t), html }),
+      trimChildren: (t, keep) => mutate({ op: "trimChildren", ...tgt(t), keep }),
       mutate: (ops) => {
         const out = filterOps(ops);
         if (out.length) this.send({ type: "mutate", id: p.id, ops: out });
@@ -420,6 +431,10 @@ export class HtmlUiHost {
   isPointerOverUI(): boolean {
     return this.panelAt(this.pointerPos.x, this.pointerPos.y) !== null;
   }
+
+  /** Doc-backend capabilities (populated by the `ready` handshake —
+   *  `incrementalDom` is false until then, and forever on old cdylibs). */
+  get docCaps(): { incrementalDom: boolean } { return this.caps; }
 
   /** Compositor surface for GameRenderer's end-of-frame UI pass. */
   get compositor(): { hasContent(): boolean; render(pass: GPURenderPassEncoder, w: number, h: number): void } {
@@ -774,7 +789,10 @@ export class HtmlUiHost {
         break;
       }
       case "error": log.error("html-ui", `doc ${m.id} backend error: ${m.message}`); break;
-      case "ready": break;
+      case "ready": {
+        this.caps.incrementalDom = m.caps?.incrementalDom === true;
+        break;
+      }
     }
   }
 

@@ -28,7 +28,7 @@ class FakePanel {
   last(sel: string): string { return this.inner(sel); }
 }
 
-function fakeSurface(): { surface: DevtoolsUiSurface; panel: FakePanel } {
+function fakeSurface(opts?: { incrementalDom?: boolean }): { surface: DevtoolsUiSurface; panel: FakePanel } {
   const fp = new FakePanel();
   const handle = {
     id: "devtools",
@@ -39,6 +39,8 @@ function fakeSurface(): { surface: DevtoolsUiSurface; panel: FakePanel } {
     removeAttr: (t: string | number, name: string) => { fp.mutations.push({ kind: "rattr", target: String(t), name }); },
     setStyle: (t: string | number, prop: string, value: string) => { fp.mutations.push({ kind: "style", target: String(t), name: prop, value }); },
     setInnerHtml: (t: string | number, html: string) => { fp.mutations.push({ kind: "innerHtml", target: String(t), html }); },
+    appendHtml: (t: string | number, html: string) => { fp.mutations.push({ kind: "appendHtml", target: String(t), html }); },
+    trimChildren: (t: string | number, keep: number) => { fp.mutations.push({ kind: "trimChildren", target: String(t), value: String(keep) }); },
     mutate: (ops: unknown[]) => { fp.mutations.push({ kind: "mutate", value: JSON.stringify(ops) }); },
     focus: () => {},
     setMaxFps: () => {},
@@ -69,13 +71,14 @@ function fakeSurface(): { surface: DevtoolsUiSurface; panel: FakePanel } {
         if (spec.onEvent) fp.events.push(spec.onEvent);
         return handle;
       },
+      docCaps: () => ({ incrementalDom: opts?.incrementalDom === true }),
     },
     panel: fp,
   };
 }
 
-function makeHost(): { host: BlitzDevtoolsHost; fake: FakePanel } {
-  const { surface, panel } = fakeSurface();
+function makeHost(opts?: { incrementalDom?: boolean }): { host: BlitzDevtoolsHost; fake: FakePanel } {
+  const { surface, panel } = fakeSurface(opts);
   const host = new BlitzDevtoolsHost({
     ui: surface,
     renderer: {},
@@ -124,6 +127,25 @@ describe("BlitzDevtoolsHost", () => {
     expect(fake.inner("#dt-body")).toContain("hello world");
   });
 
+  test("console appends new rows incrementally when the backend supports it", () => {
+    const { host, fake } = makeHost({ incrementalDom: true });
+    host.show();
+    (host as any).backend.emit("console", { text: "first", severity: 1, thread: "main", ts: 0 });
+    host.update();
+    // "first" reaches the DOM either way — a full render (when the console
+    // was empty) or an appendHtml batch on top of the activate() render.
+    const sawFirst = fake.inner("#dt-body").includes("first")
+      || fake.mutations.some((m) => m.value?.includes("first"));
+    expect(sawFirst).toBe(true);
+    (host as any).backend.emit("console", { text: "second", severity: 1, thread: "main", ts: 0 });
+    (host as any).lastPanelRender = -1e9; // bypass the ~15Hz render throttle
+    host.update();
+    const appends = fake.mutations.filter((m) => m.kind === "mutate" && m.value?.includes("appendHtml"));
+    expect(appends.length).toBeGreaterThanOrEqual(1);
+    expect(appends.at(-1)!.value).toContain("second");
+    expect(appends.at(-1)!.value).toContain("trimChildren");
+  });
+
   test("tab click switches panels", () => {
     const { host, fake } = makeHost();
     host.show();
@@ -153,6 +175,7 @@ describe("BlitzDevtoolsHost", () => {
     host.update();
     fake.fire({ t: "click", d: { action: "dt.tab", tab: "snap-game" } });
     await new Promise((r) => setTimeout(r, 10)); // refresh() is async
+    (host as any).lastPanelRender = -1e9; // bypass the ~15Hz render throttle
     host.update();
     expect(fake.inner("#dt-body")).toContain("HP");
     expect(fake.inner("#dt-body")).toContain("100");
@@ -166,6 +189,7 @@ describe("BlitzDevtoolsHost", () => {
     fake.fire({ t: "input", d: { dt: "repl" }, v: "1+1" });
     fake.fire({ t: "keydown", d: { dt: "repl" }, k: "Enter" });
     await new Promise((r) => setTimeout(r, 10));
+    (host as any).lastPanelRender = -1e9; // bypass the ~15Hz render throttle
     host.update();
     const body = fake.inner("#dt-body");
     expect(body).toContain("&gt; 1+1");

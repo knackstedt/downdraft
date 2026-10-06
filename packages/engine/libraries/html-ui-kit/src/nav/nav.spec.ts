@@ -47,6 +47,8 @@ function navPanel(html: string, w = 400, h = 300): { handle: UiPanelHandle; even
         removeAttr: (t, name) => mutate([{ op: "rattr", ...tgt(t), name }]),
         setStyle: (t, prop, value) => mutate([{ op: "style", ...tgt(t), prop, value }]),
         setInnerHtml: (t, h2) => mutate([{ op: "innerHtml", ...tgt(t), html: h2 }]),
+        appendHtml: (t, h2) => mutate([{ op: "appendHtml", ...tgt(t), html: h2 }]),
+        trimChildren: (t, keep) => mutate([{ op: "trimChildren", ...tgt(t), keep }]),
         mutate,
         focus: (t) => mutate([{ op: "focus", ...(t === undefined ? {} : tgt(t)) }]),
         setMaxFps: (mf) => send({ type: "fps", id: "p", maxFps: mf }),
