@@ -60,6 +60,8 @@ await runNativeGameModule(gameModule, {
 });
 ```
 
+For local development against a game repo cloned under `games/` (e.g. sandjongg), see [`development.md`](./development.md).
+
 ## Documentation
 
 | Topic | Link |
