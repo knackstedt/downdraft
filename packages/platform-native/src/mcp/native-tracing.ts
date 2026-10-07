@@ -466,5 +466,28 @@ export function createNativeTracingTools(opts: NativeTracingOptions): ToolRegist
         });
       },
     },
+    {
+      def: {
+        name: "debug_eval",
+        description:
+          "Evaluate a JS expression in the main thread (dev shell only). Returns the JSON-serialized result.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            expr: { type: "string", description: "JS expression evaluated against globalThis scope." },
+          },
+          required: ["expr"],
+        },
+      },
+      handler: async (params) => {
+        try {
+          const fn = new Function("g", `return (${params.expr});`);
+          const out = fn(globalThis);
+          return jsonResult({ value: out === undefined ? null : out });
+        } catch (e) {
+          return errorResult((e as Error).message);
+        }
+      },
+    },
   ];
 }

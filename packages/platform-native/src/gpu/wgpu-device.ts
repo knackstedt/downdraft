@@ -330,8 +330,34 @@ export class WgpuDevice {
    *  generation's cells. */
   sharedStateGen = 0n;
   private destroyed = false;
-  private lostResolve: ((info: GPUDeviceLostInfo) => void) | null = null;
-  readonly lost: Promise<GPUDeviceLostInfo>;
+  // `.lost` watchers: the spec promise never resolves on a healthy device,
+  // so every `device.lost.then(cb)` appends a reaction that lives forever.
+  // On the persistent host device that retains EVERY session generation's
+  // renderer/module graph across an HMR restart — a per-restart ratchet.
+  // Instead of one stored promise, each access mints a fresh promise whose
+  // resolve sits in a clearable set; session teardown drops dead watchers
+  // via __ddClearLostWatchers(), releasing the reaction chains.
+  private lostWatchers = new Set<(info: GPUDeviceLostInfo) => void>();
+  private lostInfo: GPUDeviceLostInfo | null = null;
+
+  get lost(): Promise<GPUDeviceLostInfo> {
+    if (this.lostInfo) return Promise.resolve(this.lostInfo);
+    return new Promise((resolve) => { this.lostWatchers.add(resolve); });
+  }
+
+  /** Dev-session teardown: drop pending `.lost` subscriptions whose
+   *  reaction closures would otherwise pin the dead session's graph
+   *  against this (persistent) device. The dead session's handlers are
+   *  precisely the ones we never want to fire anyway. */
+  __ddClearLostWatchers(): void {
+    this.lostWatchers.clear();
+  }
+
+  private resolveLost(info: GPUDeviceLostInfo): void {
+    this.lostInfo = info;
+    for (const r of this.lostWatchers) { try { r(info); } catch { /* reporter only */ } }
+    this.lostWatchers.clear();
+  }
   private _limits: GPUSupportedLimits | null = null;
   private _features: GPUSupportedFeatures | null = null;
   private _lostReported = false;
@@ -342,7 +368,6 @@ export class WgpuDevice {
     this.ownsHandle = options?.ownsHandle !== false;
     const queuePtr = wgpu.wgpu_shim_device_get_queue(ptr) as unknown as number;
     this.queue = new WgpuQueue(queuePtr);
-    this.lost = new Promise((resolve) => { this.lostResolve = resolve; });
     liveDevices.add(this);
   }
 
@@ -384,7 +409,7 @@ export class WgpuDevice {
     const message = new TextDecoder().decode(msgBuf).replace(/\0.*$/, "") || "wgpu device lost";
     // WGPUDeviceLostReason: Unknown=1, Destroyed=2, CallbackCancelled=3,
     // FailedCreation=4. GPUDeviceLostInfo only knows "unknown"/"destroyed".
-    this.lostResolve?.({
+    this.resolveLost({
       reason: reason === 2 ? "destroyed" : "unknown",
       message,
     } as GPUDeviceLostInfo);
@@ -908,7 +933,7 @@ export class WgpuDevice {
     liveDevices.delete(this);
     if (!this._lostReported) {
       this._lostReported = true;
-      this.lostResolve?.({ reason: "destroyed", message: "Device destroyed" } as GPUDeviceLostInfo);
+      this.resolveLost({ reason: "destroyed", message: "Device destroyed" } as GPUDeviceLostInfo);
     }
     untrack(this);
     // Signal attached workers before freeing handles — an alive=1 cell on a

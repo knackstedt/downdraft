@@ -68,6 +68,12 @@ interface TrackedListener {
 }
 
 interface SessionSnapshot {
+  /** Set the moment teardown starts: subsequent registrations are dropped
+   *  (or zombie-tracked for timers) instead of being swept by the teardown
+   *  already in flight. Without this, a reimported session racing a slow
+   *  teardown registers into the dying snapshot and its listeners/timers are
+   *  killed by the final sweep — a born-dead session. */
+  dead?: boolean;
   disposeCallbacks: Array<() => void | Promise<void>>;
   listeners: TrackedListener[];
   timeouts: Set<any>;
@@ -76,6 +82,13 @@ interface SessionSnapshot {
   rafIds: Set<number>;
   workers: Set<any>;
   deviceBaseline: Set<any>;
+  /** Sims registered while this snapshot was live — teardown must only
+   *  stop/clear its own generation's sims, not a newer session's (the
+   *  tracker-level `sims` set spans generations). */
+  sims: Set<SessionSim>;
+  /** Meta providers registered while this snapshot was live — same
+   *  generation-scoping as `sims`. */
+  metaProviders: Set<SessionMetaProvider>;
 }
 
 export class SessionTracker {
@@ -106,13 +119,32 @@ export class SessionTracker {
   private trackedTargets = new Set<any>();
   private __rafWrap: any = null;
   private __workerWrap: any = null;
+  private __warnOrphan: ((kind: string) => void) | null = null;
+  /** Registrations that arrived while no session was live at all (between
+   *  teardown completion and the next beginSession) — swept at the start
+   *  of every teardown so they can't outlive their generation. */
+  private zombies = { timeouts: new Set<any>(), intervals: new Set<any>(), immediates: new Set<any>() };
 
   // ── Registration API ──────────────────────────────────────────────────
 
-  /** Register a dispose callback for session teardown. Returns unregister fn. */
+  /** Register a dispose callback for session teardown. Returns unregister fn.
+   *  Registrations landing in a dead/null-session gap belong to a stale
+   *  generation's async continuation — creating a session for them would
+   *  orphan a snapshot no supervisor ever begins/tears down, so they're
+   *  dropped (their cleanup is moot: teardown already ran). */
   onDispose(fn: () => void | Promise<void>): () => void {
-    this.ensureSession();
-    const list = this.session!.disposeCallbacks;
+    const s = this.session;
+    if (!s || s.dead) {
+      this.__warnOrphan?.("onDispose(dead/null-session)");
+      return () => {};
+    }
+    const list = s.disposeCallbacks;
+    // Tag each callback with its registration site so the
+    // teardown timeout warnings name the culprit instead of "wrapped".
+    try {
+      (fn as any).__ddSite = (new Error().stack ?? "")
+        .split("\n").slice(2, 5).map((l) => l.trim()).join(" | ");
+    } catch {}
     list.push(fn);
     return () => {
       const i = list.indexOf(fn);
@@ -123,7 +155,19 @@ export class SessionTracker {
   /** Register a sim worker host (auto-called by EntitySimWorkerHost). */
   registerSim(sim: SessionSim): void {
     if (sim.host && this.hasSimFor(sim.host)) return;
+    const s = this.session;
+    // Gap registration = stale continuation spawning a worker after its
+    // generation died — stop it now; nothing else will ever sweep it.
+    if (!s || s.dead) {
+      this.__warnOrphan?.("registerSim(dead/null-session)");
+      try { void (sim.stop?.() as Promise<void> | undefined)?.catch?.(() => {}); } catch {}
+      return;
+    }
     this.sims.add(sim);
+    // Track the owning snapshot so teardown only stops/clears sims from its
+    // own generation — a racing reimport's sim must survive this teardown.
+    (sim as any).__ddSessionSnap = s;
+    s.sims.add(sim);
   }
 
   /** True when a registered sim wraps this underlying host object. */
@@ -135,6 +179,8 @@ export class SessionTracker {
   /** Remove a sim host (permanent shutdown, not session teardown). */
   unregisterSim(sim: SessionSim): void {
     this.sims.delete(sim);
+    ((sim as any).__ddSessionSnap as SessionSnapshot | null)?.sims.delete(sim);
+    (sim as any).__ddSessionSnap = null;
   }
 
   /**
@@ -143,7 +189,14 @@ export class SessionTracker {
    * post-init, which is exactly when renderer meta should be applied).
    */
   registerMetaProvider(provider: SessionMetaProvider): () => void {
+    const s = this.session;
+    if (!s || s.dead) {
+      this.__warnOrphan?.("registerMetaProvider(dead/null-session)");
+      return () => {};
+    }
     this.metaProviders.add(provider);
+    (provider as any).__ddSessionSnap = s;
+    s.metaProviders.add(provider);
     const pending = this.pendingStateJson;
     if (pending && provider.restore) {
       try {
@@ -151,7 +204,10 @@ export class SessionTracker {
         if (meta !== undefined) provider.restore(meta);
       } catch { /* ignore malformed */ }
     }
-    return () => this.metaProviders.delete(provider);
+    return () => {
+      this.metaProviders.delete(provider);
+      ((provider as any).__ddSessionSnap as SessionSnapshot | null)?.metaProviders?.delete(provider);
+    };
   }
 
   /** Called by EntitySimWorkerHost.start() — restores pending state onto a
@@ -289,7 +345,12 @@ export class SessionTracker {
 
   /** Begin accumulating tracked registrations (called before entry eval). */
   beginSession(): void {
-    if (this.session) return; // already active
+    if (this.session && !this.session.dead) return; // already active
+    // Sweep zombie timers armed in the dead/null-session gap — they belong
+    // to the previous generation's async continuations and pin its module
+    // graph (renderer → sim → workers) while armed. Host/supervisor code
+    // uses untracked helpers or rawSetTimeout, so nothing here is legit.
+    this.sweepZombies();
     this.session = {
       disposeCallbacks: [],
       listeners: [],
@@ -299,23 +360,89 @@ export class SessionTracker {
       rafIds: new Set(),
       workers: new Set(),
       deviceBaseline: new Set(),
+      sims: new Set(),
+      metaProviders: new Set(),
     };
   }
 
   /** Mark the device baseline — devices created after this are session-owned. */
   snapshotDevices(devices: Iterable<any>): void {
-    this.ensureSession();
-    this.session!.deviceBaseline = new Set(devices);
+    const s = this.session;
+    if (!s || s.dead) return; // no live session to own a baseline
+    s.deviceBaseline = new Set(devices);
   }
 
-  private ensureSession(): void {
-    if (!this.session) this.beginSession();
+  private sweepZombies(): void {
+    for (const id of this.zombies.timeouts.values()) { try { clearTimeout(id); } catch {} }
+    for (const id of this.zombies.intervals.values()) { try { clearInterval(id); } catch {} }
+    for (const id of this.zombies.immediates.values()) { try { (globalThis as any).clearImmediate?.(id); } catch {} }
+    this.zombies.timeouts.clear();
+    this.zombies.intervals.clear();
+    this.zombies.immediates.clear();
   }
 
-  /** Register a worker instance for teardown (used by the Worker wrapper). */
+  /** Register a worker instance for teardown (used by the Worker wrapper).
+   *  Workers spawned in a dead/null-session gap stay UNTRACKED: host-internal
+   *  workers (services, MCP) legitimately spawn there during host restart and
+   *  must never be killed by session teardown. A stale-generation worker that
+   *  slips through untracked is the lesser evil — warn so it's visible. */
   trackWorker(w: any): void {
-    this.ensureSession();
-    this.session!.workers.add(w);
+    const s = this.session;
+    if (!s || s.dead) {
+      this.__warnOrphan?.("Worker(dead/null-session)");
+      return;
+    }
+    s.workers.add(w);
+  }
+
+  /** Remove a worker from session tracking — for host-internal workers that
+   *  spawn while a session is live (createNativeHost runs after beginSession,
+   *  so the services worker would otherwise be killed by the NEXT session
+   *  teardown, stranding every in-flight RPC deferred forever). */
+  untrackWorker(w: any): void {
+    this.session?.workers.delete(w);
+  }
+
+  /**
+   * Terminate a session-tracked worker AND settle JS-side waiters that only
+   * resolve via worker events. A terminated worker never posts again and any
+   * "ready"-style arming timeout was already swept, so without a synthetic
+   * terminal event an `await ready`/`await firstMessage` frame (e.g.
+   * WorkerPluginLoader.load) suspends forever — the suspended frame pins the
+   * entire dead module graph (renderer, registries, every module env).
+   * `error` covers DOM-style waiters (addEventListener/onerror), `exit`
+   * covers EventEmitter-style (node worker_threads interop).
+   */
+  private terminateTrackedWorker(w: any): void {
+    // Settle event-based waiters BEFORE terminating: terminate() can tear
+    // down the worker's JS-side listener surface, making a post-terminate
+    // dispatchEvent a no-op — the "ready"-style promise then never settles
+    // and its suspended frame pins the whole dead module graph.
+    try {
+      if (typeof w.dispatchEvent === "function" && typeof Event === "function") {
+        w.dispatchEvent(new Event("error"));
+        // Belt: dispatchEvent may not route to the onerror property handler
+        // on non-DOM worker shims — a second invoke is harmless (the waiter's
+        // reject is already settled or idempotent).
+        try { (w as any).onerror?.({ type: "error", message: "worker terminated by session teardown" }); } catch { /* handler threw */ }
+      } else {
+        w.emit?.("error", new Error("worker terminated by session teardown"));
+        w.emit?.("exit", 1);
+        try { (w as any).onerror?.({ type: "error" }); } catch { /* handler threw */ }
+      }
+      try { (w as any).onerror = null; } catch { /* read-only */ }
+    } catch { /* event surface absent or a listener threw — nothing to settle */ }
+    // Prefer the tagged RPC proxy — its terminate() also rejects pending
+    // calls, so awaiters don't pin the dead session until RPC timeout.
+    try { (w.__ddWorkerProxy ?? w).terminate?.(); } catch { /* already dead */ }
+    // Bun natively retains terminated Worker wrappers — any JS surface left
+    // on the wrapper (property handlers, the tagged proxy, EventEmitter-style
+    // listener maps) keeps its dead-generation closures reachable forever.
+    // Scrub them so the retained wrapper pins only itself.
+    try { (w as any).onmessage = null; } catch { /* read-only */ }
+    try { (w as any).onmessageerror = null; } catch { /* read-only */ }
+    try { delete (w as any).__ddWorkerProxy; } catch { /* non-configurable */ }
+    try { (w as any).removeAllListeners?.(); } catch { /* not an emitter */ }
   }
 
   /**
@@ -357,6 +484,7 @@ export class SessionTracker {
       this.trackEventTarget(globalThis);
     }
     this.attachRuntimeGlobals();
+    this.trackBridgeSubscriptions();
     this.snapshotDevices(getLiveDevices());
   }
 
@@ -367,48 +495,50 @@ export class SessionTracker {
    * callers join the same teardown).
    */
   async teardown(opts: { destroyDevices?: boolean } = {}): Promise<void> {
-    if (this.tearingDown) return this.tearingDown;
-    this.tearingDown = this.teardownInner(opts).finally(() => {
-      this.tearingDown = null;
-    });
-    return this.tearingDown;
+    // Snapshot the session this call is responsible for. If a teardown is
+    // already in flight for an OLDER snapshot, wait for it and re-check —
+    // a newer session may have begun in the meantime (reimport racing a
+    // slow teardown), and it must not be killed by this call.
+    while (true) {
+      const s = this.session;
+      if (!s || s.dead) {
+        try { await this.tearingDown; } catch {}
+        return;
+      }
+      if (this.tearingDown) {
+        try { await this.tearingDown; } catch {}
+        continue;
+      }
+      // Mark dead synchronously so every registration path (onDispose,
+      // the wrapped timers/listeners below) stops routing into this
+      // snapshot — a racing reimport's beginSession() then builds a fresh
+      // session instead of feeding the final sweep.
+      s.dead = true;
+      this.tearingDown = this.teardownInner(s, opts).finally(() => {
+        this.tearingDown = null;
+      });
+      return this.tearingDown;
+    }
   }
 
-  private async teardownInner(opts: { destroyDevices?: boolean }): Promise<void> {
-    const s = this.session;
-    if (!s) return;
-    // NOTE: `this.session` stays live through the whole teardown so callbacks
-    // that fire during the awaited steps — a render loop rescheduling its
-    // setImmediate, a listener added by a dispose hook — still register into
-    // `s` and get killed by the final sweep. Nulling it up here lets those
-    // stragglers escape tracking and become zombie loops forever.
+  private async teardownInner(s: SessionSnapshot, opts: { destroyDevices?: boolean }): Promise<void> {
+    // NOTE: `this.session` still points at `s` (marked dead) through the
+    // whole teardown — callbacks that fire during the awaited steps get
+    // dropped by the dead-checks, and a new session may already be live on
+    // `this.session` by the time we finish; only null it if it's still ours.
 
-    // 1. Dispose chain (LIFO) — engine dispose()/onHotReloadDispose hooks land here.
-    for (let i = s.disposeCallbacks.length - 1; i >= 0; i--) {
-      try { await s.disposeCallbacks[i](); } catch (e) {
-        log.warn("hmr-session", `dispose callback threw: ${(e as Error).message}`);
-      }
-    }
+    // 0. Zombie sweep — registrations that arrived while no session was
+    //    live (late async continuations of a previous teardown, host code
+    //    between sessions) belong to a dead graph. Clear them with this
+    //    teardown so nothing armed survives a restart.
+    this.sweepZombies();
 
-    // 2. Registered sims — stop workers via their shutdown protocol before
-    //    the blunt tracked-worker terminate pass (clean exit > SIGKILL),
-    //    then drop the registrations: they reference the dying module graph.
-    for (const sim of this.sims.values()) {
-      try { await sim.stop?.(); } catch { /* already stopped */ }
-    }
-    this.sims.clear();
-    // Meta providers likewise belong to the old graph — the pending save
-    // (pendingStateJson) keeps their data until the next session registers
-    // fresh providers and restores via registerMetaProvider.
-    this.metaProviders.clear();
-
-    // 3. Tracked listeners.
-    s.listeners.forEach((l) => {
-      try { l.remove(); } catch { /* target gone */ }
-    });
-    s.listeners.length = 0;
-
-    // 4. Timers + immediates + RAF (session-owned only — host baseline survives).
+    // 1. Quiesce first: cancel session timers/RAF and terminate workers
+    //    BEFORE running the dispose chain. Dispose callbacks routinely await
+    //    sim-worker RPCs and event replies — if workers are still "alive but
+    //    detached" those awaits hang until the per-callback bound, and the
+    //    still-pending promise pins the whole module env. Terminating first
+    //    rejects pending RPCs so disposers settle immediately.
     for (const id of s.timeouts.values()) {
       if (!this.baseline.timeouts.has(id)) { try { clearTimeout(id); } catch {} }
     }
@@ -421,14 +551,113 @@ export class SessionTracker {
     for (const id of s.rafIds.values()) {
       try { (globalThis as any).cancelAnimationFrame?.(id); } catch {}
     }
+    // Drop the id sets as we go — anything that retains the dead snapshot
+    // (an armed native handle whose wrapped callback still holds a WeakRef
+    // target, a pending RPC env) shouldn't drag the registration arrays too.
+    s.timeouts.clear();
+    s.intervals.clear();
+    s.immediates.clear();
+    s.rafIds.clear();
 
-    // 5. Tracked workers (belt — sims already stopped via step 2).
-    for (const w of s.workers.values()) {
-      // Prefer the tagged RPC proxy — its terminate() also rejects pending
-      // calls, so awaiters don't pin the dead session until RPC timeout.
-      try { (w.__ddWorkerProxy ?? w).terminate?.(); } catch { /* already dead */ }
+    // 2. This snapshot's sims — stop workers via their shutdown protocol
+    //    before the blunt tracked-worker terminate pass (clean exit >
+    //    SIGKILL), then drop the registrations: they reference the dying
+    //    module graph. Match by __ddSessionSnap (not s.sims membership) so a
+    //    sim whose snapshot was swapped mid-registration is still detached —
+    //    a stale backref would pin the dead snapshot's whole listener set.
+    //    Bounded per-sim: a wedged/terminated worker must not hang teardown.
+    for (const sim of [...this.sims]) {
+      if ((sim as any).__ddSessionSnap !== s) continue;
+      try {
+        const stop = sim.stop?.();
+        if (stop) {
+          let boundTimer: any;
+          await Promise.race([
+            Promise.resolve(stop).catch(() => {}),
+            new Promise<void>((resolve) => {
+              boundTimer = this.orig.setTimeout
+                ? this.orig.setTimeout(resolve, 3_000)
+                : (globalThis as any).setTimeout?.(() => resolve(), 3_000);
+            }),
+          ]);
+          try { clearTimeout(boundTimer); } catch {}
+        }
+      } catch { /* already stopped */ }
+      this.sims.delete(sim);
+      (sim as any).__ddSessionSnap = null;
     }
+    s.sims.clear();
+
+    // 3. Tracked workers (belt — sims already stopped via step 2).
+    for (const w of s.workers.values()) this.terminateTrackedWorker(w);
     s.workers.clear();
+
+    // 4. Tracked listeners — cut event sources before dispose so pending
+    //    "await next event" promises can't be re-armed mid-teardown.
+    // Drain before iterating: listeners added through a doubly-wrapped
+    // facade (e.g. globalThis.window forwarding to host.window) produce one
+    // record per wrap level, and removing the outer record routes through
+    // wrappedRemove, which splices s.listeners mid-iteration — forEach then
+    // skips records, leaving `attached` wrappers in the persistent target's
+    // listener set (pinning the dead generation's module graph).
+    for (const l of s.listeners.splice(0)) {
+      try { l.remove(); } catch { /* target gone */ }
+    }
+
+    // 5. Dispose chain (LIFO) — engine dispose()/onHotReloadDispose hooks
+    //    land here. Bounded per-callback: a wedged dispose (dead worker RPC,
+    //    stuck promise) must not hang the entire session teardown. The bound
+    //    timer is CLEARED when the callback wins the race — otherwise it
+    //    still fires 5s later and logs a false "timed out" warning.
+    for (let i = s.disposeCallbacks.length - 1; i >= 0; i--) {
+      const cb = s.disposeCallbacks[i];
+      const cbName = (cb as any).name || `#${i}`;
+      const cbSite = (cb as any).__ddSite ? ` — ${(cb as any).__ddSite}` : "";
+      let boundTimer: any;
+      const bound = new Promise<void>((resolve) => {
+        boundTimer = this.orig.setTimeout
+          ? this.orig.setTimeout(() => {
+              log.warn("hmr-session", `dispose callback ${cbName} timed out (5s) — continuing teardown${cbSite}`);
+              resolve();
+            }, 5_000)
+          : (globalThis as any).setTimeout?.(() => resolve(), 5_000);
+      });
+      try {
+        const outcome = cb();
+        if (outcome && typeof (outcome as Promise<void>).then === "function") {
+          await Promise.race([Promise.resolve(outcome).catch((e) => {
+            log.warn("hmr-session", `dispose callback threw: ${(e as Error).message}`);
+          }), bound]);
+        }
+      } catch (e) {
+        log.warn("hmr-session", `dispose callback threw: ${(e as Error).message}`);
+      } finally {
+        // Disarm the bound — the callback settled (or threw) before 5s.
+        try { this.orig.setTimeout && clearTimeout(boundTimer); } catch {}
+      }
+    }
+    // Release the callback refs — a snapshot pinned by an escaped retainer
+    // must not drag every dispose closure's env (module graph) with it.
+    s.disposeCallbacks.length = 0;
+    // Meta providers likewise belong to the old graph — the pending save
+    // (pendingStateJson) keeps their data until the next session registers
+    // fresh providers and restores via registerMetaProvider. Only drop the
+    // snapshot's own — a racing reimport's providers must survive.
+    for (const provider of s.metaProviders.values()) {
+      this.metaProviders.delete(provider);
+      (provider as any).__ddSessionSnap = null;
+    }
+    s.metaProviders.clear();
+
+    // 5b. `.lost` watchers on ALL live devices — a shared/persistent host
+    //     device accumulates every generation's `device.lost.then()` reaction
+    //     (the promise never resolves while the device is healthy), and each
+    //     reaction pins its session's renderer + module graph. Clearing is
+    //     safe: dead-session handlers are exactly what must never fire; the
+    //     next session's renderer re-subscribes on init.
+    for (const d of getLiveDevices()) {
+      try { (d as any).__ddClearLostWatchers?.(); } catch { /* older device */ }
+    }
 
     // 6. Session-created GPU devices (delta vs the baseline snapshot).
     if (opts.destroyDevices) {
@@ -450,10 +679,15 @@ export class SessionTracker {
     //    steps above ran is still in `s` and dies here. After this point no
     //    user callback can interleave (synchronous tail), so the session is
     //    airtight when nulled.
-    s.listeners.forEach((l) => {
+    // Drain before iterating: listeners added through a doubly-wrapped
+    // facade (e.g. globalThis.window forwarding to host.window) produce one
+    // record per wrap level, and removing the outer record routes through
+    // wrappedRemove, which splices s.listeners mid-iteration — forEach then
+    // skips records, leaving `attached` wrappers in the persistent target's
+    // listener set (pinning the dead generation's module graph).
+    for (const l of s.listeners.splice(0)) {
       try { l.remove(); } catch { /* target gone */ }
-    });
-    s.listeners.length = 0;
+    }
     for (const id of s.timeouts.values()) {
       if (!this.baseline.timeouts.has(id)) { try { clearTimeout(id); } catch {} }
     }
@@ -466,11 +700,7 @@ export class SessionTracker {
     for (const id of s.rafIds.values()) {
       try { (globalThis as any).cancelAnimationFrame?.(id); } catch {}
     }
-    for (const w of s.workers.values()) {
-      // Prefer the tagged RPC proxy — its terminate() also rejects pending
-      // calls, so awaiters don't pin the dead session until RPC timeout.
-      try { (w.__ddWorkerProxy ?? w).terminate?.(); } catch { /* already dead */ }
-    }
+    for (const w of s.workers.values()) this.terminateTrackedWorker(w);
     s.workers.clear();
 
     // A cursor grab is session-owned too — the window/surface outlive the
@@ -483,7 +713,20 @@ export class SessionTracker {
       else host?.window?.grabInput?.(false);
     } catch { /* best-effort */ }
 
-    this.session = null;
+    // A newer session may already be live (reimport raced a slow teardown)
+    // — only clear if the pointer still names this snapshot.
+    if (this.session === s) this.session = null;
+
+    // Dump persistent collection state — anything still holding
+    // dead-generation objects (sims, providers, restored hosts) leaks the
+    // whole module graph via unmodeled Set/Map storage.
+    try {
+      const simInfo = [...this.sims].map((sim) =>
+        `${sim.label ?? "?"}(snap=${(sim as any).__ddSessionSnap ? "live" : "dead/none"})`).join(",");
+      log.info("session-tracker",
+        `teardown done — sims=${this.sims.size} [${simInfo}] metaProviders=${this.metaProviders.size}` +
+        ` restoredHosts=${this.restoredHosts.size} zombies=t${this.zombies.timeouts.size}/i${this.zombies.intervals.size}/im${this.zombies.immediates.size}`);
+    } catch { /* diag only */ }
   }
 
   /**
@@ -537,15 +780,48 @@ export class SessionTracker {
     const g = globalThis as any;
     const self = this;
 
+    // A registration into a dead/absent session escapes teardown
+    // entirely — intervals stay armed, listeners stay attached, pinning the
+    // dead module graph. Log the callsite (rate-limited) to find the leak.
+    const orphanLog: Record<string, number> = (g.__ddOrphanLog ??= {});
+    const warnOrphan = (kind: string) => {
+      try {
+        const n = (orphanLog[kind] = (orphanLog[kind] ?? 0) + 1);
+        if (n <= 5) {
+          const site = (new Error().stack ?? "").split("\n").slice(2, 6).map((l) => l.trim()).join(" | ");
+          log.warn("session-tracker", `${kind} registered with no live session — escapes teardown (x${n}) — ${site}`);
+        }
+      } catch {}
+    };
     if (typeof g.setTimeout === "function") {
       this.orig.setTimeout = g.setTimeout;
       const origClear = g.clearTimeout?.bind(g);
       g.setTimeout = function (fn: any, ms?: number, ...rest: any[]) {
-        const id = self.orig.setTimeout(fn, ms, ...rest);
-        if (self.session) self.session.timeouts.add(id);
+        const s = self.session;
+        // Wrap the callback with a self-disarm: if the owning snapshot dies
+        // before the timer fires, the callback clears itself instead of
+        // running dead-gen code. This is the belt under the set bookkeeping —
+        // a timer that escaped s.timeouts/zombies still can't outlive its
+        // generation by more than one fire. WeakRef: a strong capture of `s`
+        // would let any armed/retained handle (e.g. Vite's crawl-end finder
+        // keeps timeoutHandle forever) pin the whole dead snapshot.
+        let id: any;
+        const sref = s ? new WeakRef(s) : null;
+        const wrappedFn = typeof fn === "function" && sref
+          ? (...a: any[]) => {
+              const ss = sref.deref();
+              if (!ss || ss.dead) { try { origClear?.(id); } catch {} return; }
+              return fn(...a);
+            }
+          : fn;
+        id = self.orig.setTimeout(wrappedFn, ms, ...rest);
+        if (s && !s.dead) s.timeouts.add(id);
+        else if (s?.dead) { self.zombies.timeouts.add(id); warnOrphan("setTimeout(dead-session)"); }
+        else self.zombies.timeouts.add(id);
         return id;
       };
       g.clearTimeout = function (id: any) {
+        self.zombies.timeouts.delete(id);
         if (self.session) self.session.timeouts.delete(id);
         return origClear?.(id);
       };
@@ -554,11 +830,26 @@ export class SessionTracker {
       this.orig.setInterval = g.setInterval;
       const origClear = g.clearInterval?.bind(g);
       g.setInterval = function (fn: any, ms?: number, ...rest: any[]) {
-        const id = self.orig.setInterval(fn, ms, ...rest);
-        if (self.session) self.session.intervals.add(id);
+        const s = self.session;
+        let id: any;
+        const sref = s ? new WeakRef(s) : null;
+        const wrappedFn = typeof fn === "function" && sref
+          ? (...a: any[]) => {
+              const ss = sref.deref();
+              if (!ss || ss.dead) { try { origClear?.(id); } catch {} return; }
+              return fn(...a);
+            }
+          : fn;
+        id = self.orig.setInterval(wrappedFn, ms, ...rest);
+        if (s && !s.dead) s.intervals.add(id);
+        // Intervals are immortal until cleared — dead-session and
+        // no-session registrations alike must never survive teardown.
+        else if (s?.dead) { self.zombies.intervals.add(id); warnOrphan("setInterval(dead-session)"); }
+        else self.zombies.intervals.add(id);
         return id;
       };
       g.clearInterval = function (id: any) {
+        self.zombies.intervals.delete(id);
         if (self.session) self.session.intervals.delete(id);
         return origClear?.(id);
       };
@@ -568,12 +859,76 @@ export class SessionTracker {
       const origClear = g.clearImmediate?.bind(g);
       g.setImmediate = function (fn: any, ...rest: any[]) {
         const id = self.orig.setImmediate(fn, ...rest);
-        if (self.session) self.session.immediates.add(id);
+        const s = self.session;
+        if (s && !s.dead) s.immediates.add(id);
+        else if (s?.dead) { self.zombies.immediates.add(id); warnOrphan("setImmediate(dead-session)"); }
+        else self.zombies.immediates.add(id);
         return id;
       };
       g.clearImmediate = function (id: any) {
+        self.zombies.immediates.delete(id);
         if (self.session) self.session.immediates.delete(id);
         return origClear?.(id);
+      };
+    }
+    this.__warnOrphan = warnOrphan;
+  }
+
+  /**
+   * Wrap `downdraft.onXxx(cb)` subscription methods on the persistent host
+   * bridge so every returned unsubscribe lands in the live session's listener
+   * list. Without this, each session's bootstrap/module code registers
+   * callbacks into the bridge's emitter registry — host-level and therefore
+   * immortal — and every one pins its session's closure env (renderer, ctx,
+   * the whole module graph) forever. Idempotent per bridge object (a host
+   * restart installs a fresh bridge that gets wrapped on its own attach).
+   */
+  trackBridgeSubscriptions(): void {
+    const bridge = (globalThis as any).downdraft;
+    if (!bridge || bridge.__ddOnWrapped) return;
+    try { bridge.__ddOnWrapped = true; } catch { return; }
+    const self = this;
+    for (const key of Object.keys(bridge)) {
+      if (!key.startsWith("on") || key.length < 3 || key[2] !== key[2].toUpperCase()) continue;
+      const fn = bridge[key];
+      if (typeof fn !== "function") continue;
+      bridge[key] = function (this: any, ...args: any[]) {
+        const s = self.session;
+        // Dead or null session: don't register onto the persistent bridge at
+        // all — the subscription would be untracked and pin the dead module
+        // graph forever (stale continuations legitimately reach here when a
+        // teardown races an in-flight boot; all real subscribers run inside
+        // a live session).
+        if (!s || s.dead) {
+          self.__warnOrphan?.(`bridge:${key}(${s ? "dead" : "null"}-session)`);
+          return undefined;
+        }
+        // Self-disarm: if the owning snapshot dies before the unsubscribe is
+        // collected, the first event calls it instead of the dead-gen
+        // callback. WeakRef — a strong `s` capture would pin the dead
+        // snapshot through the persistent bridge's emitter registry.
+        let off: any;
+        if (s && typeof args[0] === "function") {
+          const cb = args[0];
+          const sref = new WeakRef(s);
+          args = [...args];
+          args[0] = function (this: any, ...a: any[]) {
+            const ss = sref.deref();
+            if (!ss || ss.dead) { try { off?.(); } catch {} return; }
+            return cb.apply(this, a);
+          };
+        }
+        off = fn.apply(this, args);
+        // Only track functions — subscription APIs return an unsubscribe,
+        // anything else (promise, void) isn't a listener registration.
+        if (typeof off === "function" && s) {
+          s.listeners.push({
+            type: `bridge:${key}`,
+            listener: args[0],
+            remove: () => { try { off(); } catch { /* already gone */ } },
+          });
+        }
+        return off;
       };
     }
   }
@@ -591,8 +946,16 @@ export class SessionTracker {
       const origRaf = g.requestAnimationFrame;
       const origCancel = g.cancelAnimationFrame?.bind(g);
       g.requestAnimationFrame = function (cb: any) {
+        const s = self.session;
+        // No live session: drop the frame. Session rAF users are re-arming
+        // loops (render loop, frameSync) — scheduling with a dead session or
+        // in the null-session gap produces an immortal ghost loop whose
+        // callback env pins the entire dead module graph (renderer → sim →
+        // workers) forever. Host-internal rAF goes through window.rAF, not
+        // this global, so nothing legit is dropped here.
+        if (!s || s.dead) { self.__warnOrphan?.("requestAnimationFrame(dead/null-session)"); return -1; }
         const id = origRaf(cb);
-        if (self.session) self.session.rafIds.add(id);
+        s.rafIds.add(id);
         return id;
       };
       g.cancelAnimationFrame = function (id: number) {
@@ -632,29 +995,53 @@ export class SessionTracker {
     const origAdd = target.addEventListener.bind(target);
     const origRemove = target.removeEventListener?.bind(target);
     const wrappedAdd = function (type: string, listener: any, opts?: any) {
-      origAdd(type, listener, opts);
-      if (self.session) {
-        self.session.listeners.push({
+      const s = self.session;
+      // Dead session: do NOT attach. Targets here are persistent (window,
+      // surface, document) — a dead-session listener would stay natively
+      // attached forever, firing into a dead module graph and pinning it.
+      if (s?.dead) {
+        self.__warnOrphan?.(`listener:${type}(dead-session)`);
+        return;
+      }
+      // Self-disarm: if the owning snapshot dies and this listener somehow
+      // escaped the tracked sweep, the first delivered event detaches it and
+      // drops the call instead of running dead-gen code. WeakRef on `s` so an
+      // unattached-in-time straggler doesn't pin the dead snapshot itself.
+      let attached = listener;
+      if (typeof listener === "function" && s) {
+        const sref = new WeakRef(s);
+        attached = function (this: any, ...a: any[]) {
+          const ss = sref.deref();
+          if (!ss || ss.dead) { try { origRemove?.(type, attached, opts); } catch {} return; }
+          return listener.apply(this, a);
+        };
+      }
+      origAdd(type, attached, opts);
+      if (s) {
+        s.listeners.push({
           type,
           listener,
-          remove: () => { try { origRemove?.(type, listener, opts); } catch {} },
+          remove: () => { try { origRemove?.(type, attached, opts); } catch {} },
         });
       }
+      // No session (pre-first-session host boot): attach untracked — those
+      // registrations are host-internal and must persist.
     };
     (wrappedAdd as any).__ddTracked = true;
     try {
       target.addEventListener = wrappedAdd;
       if (origRemove) {
         target.removeEventListener = function (type: string, listener: any, opts?: any) {
-          origRemove(type, listener, opts);
           const s = self.session;
+          // The target holds the wrapped callback — resolve through the
+          // tracking record so the correct function gets detached.
           if (s) {
-            // Drop the matching tracking entry (last-registered wins).
             for (let j = s.listeners.length - 1; j >= 0; j--) {
               const l = s.listeners[j];
-              if (l.type === type && l.listener === listener) { s.listeners.splice(j, 1); break; }
+              if (l.type === type && l.listener === listener) { l.remove(); s.listeners.splice(j, 1); return; }
             }
           }
+          origRemove(type, listener, opts);
         };
       }
     } catch { /* non-writable — skip tracking for this target */ }
@@ -671,12 +1058,22 @@ export class SessionTracker {
 }
 
 const SESSION_KEY = "__ddSession";
+/** Brand marker — this module re-evaluates on every dev session restart,
+ *  so `instanceof SessionTracker` fails against a tracker created by the
+ *  previous eval's class object. Without the brand check each restart
+ *  installs a new tracker whose global wraps chain over the old ones while
+ *  the ALREADY-wrapped event targets keep routing to the dead tracker
+ *  (`__ddTracked` skip) — every listener registered from session 2 onward
+ *  is then silently untracked and never removed at teardown. */
+const TRACKER_BRAND = "__ddSessionTrackerBrand";
 
 /** Install (or fetch) the global session tracker. Idempotent across re-evals. */
 export function installSessionTracker(): SessionTracker {
   const g = globalThis as any;
-  if (g[SESSION_KEY] instanceof SessionTracker) return g[SESSION_KEY];
+  const existing = g[SESSION_KEY];
+  if (existing && existing[TRACKER_BRAND] === true) return existing;
   const tracker = new SessionTracker();
+  (tracker as any)[TRACKER_BRAND] = true;
   tracker.installGlobalWraps();
   g[SESSION_KEY] = tracker;
   return tracker;

@@ -28,6 +28,14 @@ export const EV = {
   simHotReload: "sim:hot-reload",
   /** runner → server: worker swap finished (data: {updateId, swapped, error?}). */
   simHotReloadAck: "sim:hot-reload:ack",
+  /** server → runner: session restart request. Sent instead of vite's
+   *  "full-reload" payload type — vite's runner-side full-reload handler
+   *  awaits runner.import(entrypoint), which stays pending for the whole
+   *  session (blocking entries top-level-await the run loop), and the
+   *  handler serializes the entire hot channel — one full-reload would
+   *  dead-letter every later HMR message. We remap to this custom event at
+   *  the channel seam (see dev-shell installHotChannelRemap). */
+  sessionRestart: "dd:session-restart",
   /** server → runner: legacy renderer-path change (maps to session restart). */
   rendererHotReload: "renderer:hot-reload",
   /** server → runner: destroy host + globals, re-import (Tier 4). */

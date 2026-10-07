@@ -205,10 +205,28 @@ export function wrap<T extends WorkerApi>(worker: AnyWorker, options?: WrapOptio
     }
   };
 
+  // A worker that dies without terminate() (crash, or a teardown path that
+  // kills the raw Worker handle) must still settle in-flight calls — a
+  // stranded {resolve,reject} keeps its awaiting frame alive forever.
+  let terminated = false;
+  const failAll = (why: string) => {
+    if (terminated) return;
+    terminated = true;
+    for (const p of pending.values()) {
+      if (p.timer) clearTimeout(p.timer);
+      p.reject(new Error(why));
+    }
+    pending.clear();
+  };
+  const onDead = () => failAll("Worker exited");
+  const onErr = (e: any) => failAll(`Worker error: ${e?.message ?? e}`);
   if (worker.addEventListener) {
     worker.addEventListener("message", onMsg);
+    worker.addEventListener("error", onErr);
   } else if (worker.on) {
     worker.on("message", onMsg);
+    worker.on("error", onErr);
+    worker.on("exit", onDead);
   }
 
   const proxy = new Proxy({} as T, {
@@ -218,8 +236,15 @@ export function wrap<T extends WorkerApi>(worker: AnyWorker, options?: WrapOptio
       // Promise.resolve(proxy)) reads `proxy.then`, and a callable `then`
       // would fire a bogus "then" RPC instead of resolving cleanly.
       if (method === "then" || method === "catch" || method === "finally") return undefined;
-      return (...args: any[]) =>
-        new Promise((resolve, reject) => {
+      return (...args: any[]) => {
+        // A call made after the worker died must reject immediately — a
+        // deferred registered past failAll() has nothing left to settle it
+        // (the dead session's timeouts are swept, the worker's error/exit
+        // already fired), so it would strand its awaiting frame forever.
+        if (terminated) {
+          return Promise.reject(new Error(`RPC '${method}' on terminated worker`));
+        }
+        return new Promise((resolve, reject) => {
           const id = ++reqId;
           const entry: { resolve: (v: unknown) => void; reject: (e: Error) => void; timer?: ReturnType<typeof setTimeout> } = { resolve, reject };
           if (timeoutMs > 0) {
@@ -231,8 +256,17 @@ export function wrap<T extends WorkerApi>(worker: AnyWorker, options?: WrapOptio
           }
           pending.set(id, entry);
           const req: RpcRequest = { __rpc: true, id, method, args };
-          worker.postMessage(req);
+          try {
+            worker.postMessage(req);
+          } catch (err) {
+            // postMessage on a terminated worker can throw — settle the entry
+            // rather than stranding it.
+            pending.delete(id);
+            if (entry.timer) clearTimeout(entry.timer);
+            reject(err instanceof Error ? err : new Error(String(err)));
+          }
         });
+      };
     },
   });
 
@@ -243,15 +277,28 @@ export function wrap<T extends WorkerApi>(worker: AnyWorker, options?: WrapOptio
       return () => { eventListeners.delete(cb); };
     },
     terminate: () => {
-      for (const p of pending.values()) {
-        if (p.timer) clearTimeout(p.timer);
-        p.reject(new Error("Worker terminated"));
-      }
-      pending.clear();
+      failAll("Worker terminated");
       eventListeners.clear();
-      if (worker.removeEventListener) worker.removeEventListener("message", onMsg);
-      else if (worker.off) worker.off("message", onMsg);
+      if (worker.removeEventListener) {
+        worker.removeEventListener("message", onMsg);
+        worker.removeEventListener("error", onErr);
+      }
+      if (worker.off) {
+        worker.off("message", onMsg);
+        worker.off("error", onErr);
+        worker.off("exit", onDead);
+      }
       worker.terminate?.();
+      // Bun natively retains terminated Worker wrappers — any JS surface left
+      // on the wrapper (property handlers, the __ddWorkerProxy tag, stray
+      // listener maps) keeps its dead-generation closures reachable forever.
+      // Scrub so the retained wrapper pins only itself, not the module graph.
+      const w = worker as any;
+      try { w.onmessage = null; } catch { /* read-only */ }
+      try { w.onerror = null; } catch { /* read-only */ }
+      try { w.onmessageerror = null; } catch { /* read-only */ }
+      try { delete w.__ddWorkerProxy; } catch { /* non-configurable */ }
+      try { w.removeAllListeners?.(); } catch { /* not an emitter */ }
     },
   };
 }

@@ -9,6 +9,7 @@ export const LISTENERS_FLAG: string;
 export const EV: {
   simHotReload: string;
   simHotReloadAck: string;
+  sessionRestart: string;
   rendererHotReload: string;
   hostRestart: string;
 };

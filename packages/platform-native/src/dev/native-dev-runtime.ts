@@ -119,7 +119,12 @@ async function saveAndTeardown(): Promise<void> {
     logError(`saveState failed (continuing without state): ${e}`);
   }
   try {
-    await withTimeout(session.teardown({ destroyDevices: false }), 5000, "session teardown");
+    // Generous outer bound — teardownInner already bounds each dispose
+    // callback and sim stop, so this only guards a truly wedged teardown.
+    // It must not be SHORT: reimporting while teardown still runs makes
+    // the new session register into the dying snapshot (now guarded by
+    // session.dead, but overlapping render loops are still wasteful).
+    await withTimeout(session.teardown({ destroyDevices: false }), 45_000, "session teardown");
   } catch (e) {
     logError(`teardown failed (continuing): ${e}`);
   }
@@ -198,10 +203,50 @@ if (hot && !g[LISTENERS_FLAG]) {
   // Tier 3 entry point: vite decided the change graph dead-ends (no accept
   // boundary) → save state, tear the session down, let the supervisor
   // re-import after the module cache clears.
-  hot.on("vite:beforeFullReload", async () => {
-    logInfo("session restart (unhandled module change)");
-    await saveAndTeardown();
-    sup?.sessionRestartReady?.();
+  //
+  // This listens on a custom event — NOT vite's "full-reload" payload. The
+  // dev shell remaps full-reload → EV.sessionRestart at the env.hot.send
+  // seam because vite's runner-side full-reload handler awaits
+  // runner.import(entrypoint), which stays pending for the session's whole
+  // lifetime (blocking entries top-level-await the run loop) — and the
+  // runner serializes ALL hot-channel messages behind it, dead-lettering
+  // every later sim-swap/full-reload.
+  //
+  // Reentrancy guard: the listener returns immediately (the custom-event
+  // notify is awaited inside vite's message queue — a pending teardown
+  // would re-block the channel) and overlaps are coalesced.
+  let restartInFlight: Promise<void> | null = null;
+  const beginSessionRestart = (label: string) => {
+    if (restartInFlight) return;
+    logInfo(label);
+    // Arm the supervisor's fallback watchdog — vite-internal full-reloads
+    // never pass through its sendFullReload, so the runtime must announce
+    // the restart itself.
+    sup?.sessionRestartStarted?.();
+    restartInFlight = (async () => {
+      try {
+        // A sim swap already in flight must settle before teardown walks
+        // the sims — otherwise both paths interleave stop/respawn on the
+        // same host. Bounded: a wedged worker can't stall teardown.
+        if (swapInFlight) {
+          await Promise.race([
+            swapInFlight,
+            new Promise<void>((r) => setTimeout(r, 10_000)),
+          ]);
+        }
+        await saveAndTeardown();
+      } finally {
+        sup?.sessionRestartReady?.();
+      }
+    })().finally(() => { restartInFlight = null; });
+  };
+  hot.on(EV.sessionRestart, (data: any) => {
+    beginSessionRestart(`session restart (unhandled module change${data?.triggeredBy ? `: ${data.triggeredBy}` : ""})`);
+  });
+  // Compatibility: if a full-reload payload ever bypasses the channel
+  // remap (alternate transport), handle it the same way.
+  hot.on("vite:beforeFullReload", () => {
+    beginSessionRestart("session restart (vite:beforeFullReload)");
   });
 
   // Tier 2: sim-classified file → worker swap on all registered sims.
@@ -237,14 +282,23 @@ if (hot && !g[LISTENERS_FLAG]) {
   }
 
   let swapRunning = false;
+  let swapInFlight: Promise<void> | null = null;
   const swapQueue: any[] = [];
   const onSimHotReload = (data: any) => {
+    // A session teardown owns the sims — a swap racing it would interleave
+    // stop/respawn on dying workers ("sim restore failed: Worker
+    // terminated"). Ack and drop; the session restart re-imports fresh.
+    if (restartInFlight) {
+      hot.send(EV.simHotReloadAck, { updateId: data?.updateId, swapped: 0, superseded: true });
+      return;
+    }
     if (swapRunning) {
       swapQueue.push(data?.updateId);
       return;
     }
     swapRunning = true;
-    void performSimSwap(data?.updateId).finally(() => {
+    swapInFlight = performSimSwap(data?.updateId).finally(() => {
+      swapInFlight = null;
       swapRunning = false;
       while (swapQueue.length > 1) {
         hot.send(EV.simHotReloadAck, { updateId: swapQueue.shift(), swapped: 0, coalesced: true });

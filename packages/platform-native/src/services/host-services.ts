@@ -208,6 +208,13 @@ export async function createHostServices(opts: HostServicesOptions): Promise<Hos
 async function createWorkerServices(initOpts: { saveDir: string; cacheDbPath: string; engineVersion: string }): Promise<HostServices> {
   const { wrap } = await import("@downdraft/engine/worker/rpc");
   const worker = new Worker(new URL("./services-worker.ts", import.meta.url).href);
+  // Host-internal worker: exempt from session tracking. In the dev shell the
+  // tracker wraps globalThis.Worker, and createNativeHost runs after
+  // beginSession — without this, the services worker lands in the live
+  // session's worker set and the next session teardown terminates it,
+  // stranding its pending-RPC deferreds (which pin the calling session's
+  // module graph forever — the dead-generation leak).
+  (globalThis as any).__ddSession?.untrackWorker?.(worker);
   // HostServicesApi lacks WorkerApi's index signature — the proxy is typed
   // by construction, so assert through unknown.
   const wp = wrap(worker, { timeoutMs: 0 }) as unknown as {
@@ -215,6 +222,10 @@ async function createWorkerServices(initOpts: { saveDir: string; cacheDbPath: st
     onEvents: (cb: (kind: string, data: any) => void) => () => void;
     terminate: () => void;
   };
+  // Tag like base-worker-host does — any teardown that ever touches this
+  // worker directly goes through the proxy's terminate(), which settles the
+  // pending-RPC map instead of stranding caller deferreds.
+  (worker as any).__ddWorkerProxy = wp;
 
   // init() must succeed before we hand the proxy out — a dead worker
   // surfaces here, not mid-save.

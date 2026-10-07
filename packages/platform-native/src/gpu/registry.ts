@@ -8,22 +8,50 @@
 // registry callback and silently leaked every resource.
 // ============================================================================
 
-const registry = new FinalizationRegistry<() => void>((release) => {
+// ── Leak diagnostics: count outstanding registrations per wrapper class ──
+const liveByType = new Map<string, number>();
+const releasedByType = new Map<string, number>();
+let lastReport = 0;
+function bump(map: Map<string, number>, key: string, d: number): void {
+  map.set(key, (map.get(key) ?? 0) + d);
+}
+function reportIfDue(): void {
+  const now = Date.now();
+  if (now - lastReport < 10_000) return;
+  lastReport = now;
+  // Dev-shell only — the session tracker only exists under `draft dev`.
+  if (!(globalThis as any).__ddSession) return;
+  const parts: string[] = [];
+  for (const [k, v] of liveByType) {
+    if (v > 100) parts.push(`${k}=${v}(${releasedByType.get(k) ?? 0} rel)`);
+  }
+  if (parts.length) console.log(`[gpu-live] ${parts.join(" ")}`);
+}
+
+const registry = new FinalizationRegistry<{ release: () => void; type: string }>((h) => {
   try {
-    release();
+    h.release();
   } catch {
     // Finalizers run during GC — never let them propagate.
   }
+  bump(liveByType, h.type, -1);
+  bump(releasedByType, h.type, 1);
 });
 
 /** Register `obj` so `release()` runs if the wrapper is GC'd without destroy(). */
 export function trackForRelease(obj: object, release: () => void): void {
-  registry.register(obj, release, obj);
+  const type = obj.constructor?.name ?? "?";
+  registry.register(obj, { release, type }, obj);
+  bump(liveByType, type, 1);
+  reportIfDue();
 }
 
 /** Remove the GC fallback — call after an explicit destroy()/release(). */
 export function untrack(obj: object): void {
   registry.unregister(obj);
+  const type = obj.constructor?.name ?? "?";
+  bump(liveByType, type, -1);
+  bump(releasedByType, type, 1);
 }
 
 // ── Cross-thread ownership transfer ──

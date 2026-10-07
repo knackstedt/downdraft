@@ -480,6 +480,18 @@ export async function startGame<Sim extends GameSimWorker, R extends GameRendere
   const isDev = !!(downdraft?.isDev) || isDevMode;
   const hasSim = !!module.sim;
 
+  // Dev-session guard: capture the session snapshot this boot belongs to.
+  // If an HMR restart lands while a boot-stage await below is suspended, the
+  // continuation belongs to a dead generation — and the tracker by then may
+  // already host the NEXT session, which would happily track this dead gen's
+  // listeners/timers (pinning its whole module graph for a generation). Bail
+  // instead. No tracker → production mode → never aborts.
+  const ddTracker = (globalThis as any).__ddSession;
+  const bootSession = ddTracker?.session ?? null;
+  const sessionAborted = () =>
+    (!!ddTracker && (ddTracker.session !== bootSession || !bootSession || bootSession.dead))
+    || typeof (globalThis as any).window === "undefined";
+
   // 0. Resolve the render surface (NativeSurface on the native runtime)
   const surface = getSurface(module.canvasLayer ?? 0);
 
@@ -599,6 +611,7 @@ export async function startGame<Sim extends GameSimWorker, R extends GameRendere
   // 5. Run onBeforeInit hook
   if (module.onBeforeInit) {
     await module.onBeforeInit(ctx);
+    if (sessionAborted()) return;
   }
 
   // 6. Initialize save store (if configured) — for non-inline modes this
@@ -635,6 +648,7 @@ export async function startGame<Sim extends GameSimWorker, R extends GameRendere
       log.warn("startGame", `Save store init failed, falling back to host bridge: ${e}`);
       ctx.saveMode = "host";
     }
+    if (sessionAborted()) return;
   }
 
   // 6b. Mode-aware save/load helpers — exposed on ctx so games can trigger manual
@@ -833,6 +847,7 @@ export async function startGame<Sim extends GameSimWorker, R extends GameRendere
         } catch (e) {
           log.warn("startGame", `simFromRenderer resolution failed: ${e}`);
         }
+        if (sessionAborted()) return;
       }
 
       // ── Sim worker start ──
@@ -849,6 +864,7 @@ export async function startGame<Sim extends GameSimWorker, R extends GameRendere
         } else {
           await simWorker.start(module.simConfig ?? {});
         }
+        if (sessionAborted()) return;
       }
 
       // ── Inline save store init (sim-worker + OPFS) ──
@@ -865,6 +881,7 @@ export async function startGame<Sim extends GameSimWorker, R extends GameRendere
           log.warn("startGame", `Inline save store init failed, falling back to host save store: ${e}`);
           ctx.saveMode = "host";
         }
+        if (sessionAborted()) return;
       }
 
       // ── Plugin loading ──
@@ -885,6 +902,7 @@ export async function startGame<Sim extends GameSimWorker, R extends GameRendere
         } catch (e) {
           log.warn("startGame", `Plugin loading error: ${e}`);
         }
+        if (sessionAborted()) return;
       }
 
       // ── Declarative UI lifecycle ──
@@ -899,6 +917,7 @@ export async function startGame<Sim extends GameSimWorker, R extends GameRendere
           log.error("startGame", `UI start failed: ${e}`);
           ctx.ui = undefined;
         }
+        if (sessionAborted()) return;
       }
 
       // ── Game-specific wiring ──

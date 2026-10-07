@@ -155,10 +155,24 @@ function finishSessionBoot() {
   try { globalThis.__ddSession?.finishSessionBoot?.(); } catch { /* optional */ }
 }
 
-/** Tier 3: vite cleared the module cache already — re-evaluate fresh. */
+/** Tier 3: full-reload payloads are remapped to a custom event (see
+ *  installHotChannelRemap), so vite never clears the runner's module cache
+ *  itself — do it here before re-evaluating fresh. */
 async function reimportSession() {
-  // Let vite's evaluatedModules.clear() (same macrotask) finish first.
   await new Promise((r) => rawSetTimeout(r, 0));
+  // Rebuild the ModuleRunner instead of clearCache() — the runner's
+  // transport/HMRClient/evaluator bookkeeping (crawl-end deferreds, pending
+  // request maps, serialized message queue) retains pieces of the dead
+  // generation through edges the heap snapshot doesn't model, and every
+  // retained module env pins that generation's renderer + GPU wrappers
+  // (~250MB + ~4100 bind groups per restart, verified 2026-10). A fresh
+  // runner drops the whole container graph; env.hot (the remapped channel)
+  // and the vite module graph survive untouched. Host restarts already
+  // prove this releases the generation — this makes Tier 3 do the same.
+  try { await runner.close(); } catch { /* mid-teardown */ }
+  envRef.current._runner = undefined; // force the lazy getter to rebuild
+  runner = envRef.current.runner;
+  globalThis.__ddRunner = runner;
   // import.meta.hot.on listeners are owned by the registering module — a
   // full-reload invalidates them along with the module graph. The runtime
   // must re-register on every re-eval, so the install flag goes back down.
@@ -168,11 +182,16 @@ async function reimportSession() {
   finishSessionBoot();
 }
 
-/** Tier 4: destroy host happened runner-side; purge the whole runner cache. */
+/** Tier 4: destroy host happened runner-side; fresh runner (same reasoning
+ *  as reimportSession — the old runner's unmodeled bookkeeping can pin the
+ *  dead generation's module graph). */
 async function reimportHost() {
   await new Promise((r) => rawSetTimeout(r, 0));
-  try { await runner.clearCache(); } catch { /* mid-close */ }
-  // Same as reimportSession — clearCache invalidated the runtime module's
+  try { await runner.close(); } catch { /* mid-close */ }
+  envRef.current._runner = undefined;
+  runner = envRef.current.runner;
+  globalThis.__ddRunner = runner;
+  // Same as reimportSession — a fresh runner dropped the runtime module's
   // hot.on listeners; drop the flag so the re-eval re-registers them.
   delete globalThis[LISTENERS_FLAG];
   await runner.import(RUNTIME_MODULE);
@@ -185,26 +204,78 @@ async function reimportHost() {
  *  re-import itself rather than stalling on a cleared module cache. */
 let sessionFallback = null;
 let hostFallback = null;
+/** Dedupe between the runtime's sessionRestartReady and the fallback —
+ *  whichever fires first wins; the loser must not enqueue a second
+ *  reimport (it would sit behind the pending entry import and fire an
+ *  extra, spurious restart at the next session boundary). */
+/** True while a restart's reimport is still owed — armed by ANY trigger
+ *  path (our sendFullReload AND the runtime's sessionRestartStarted hook,
+ *  which covers vite-internal full-reloads remapped at the channel), then
+ *  claimed-and-cleared by whichever of sessionRestartReady / the fallback
+ *  timer fires first. Prevents double-enqueueing a reimport — the loser
+ *  would sit behind the pending entry import and fire a spurious extra
+ *  restart at the next session boundary. */
+let restartPending = false;
 
-/** Send a full-reload into the env (the sanctioned Tier-3 trigger). */
+/** Send a session-restart into the env (the Tier-3 trigger).
+ *
+ *  This deliberately does NOT send vite's {type:"full-reload"} payload:
+ *  vite's runner-side handler for it awaits runner.import(entrypoint),
+ *  which stays pending for the session's whole lifetime when the entry
+ *  top-level-awaits its run loop — and the runner serializes every
+ *  hot-channel message behind that await, dead-lettering all later HMR
+ *  traffic (sim swaps, further restarts). The custom event just notifies
+ *  listeners and frees the queue; we clear evaluatedModules + re-import
+ *  ourselves in reimportSession. */
 function sendFullReload(triggeredBy) {
   try {
-    env().hot.send({ type: "full-reload", triggeredBy });
-    rawClearTimeout(sessionFallback);
-    sessionFallback = rawSetTimeout(() => {
-      sessionFallback = null;
-      log("session restart fell back to supervisor-driven reimport");
-      enqueue(async () => {
-        // Never destroy devices — the host's device is lazily created and
-        // killing it under the native poll loop aborts inside wgpu-core.
-        try { await globalThis.__ddSession?.teardown?.({ destroyDevices: false }); } catch {}
-        await reimportSession();
-      });
-    }, Math.max(ackTimeoutMs, 15_000));
-    sessionFallback.unref?.();
+    env().hot.send({ type: "custom", event: EV.sessionRestart, data: { triggeredBy } });
+    armSessionFallback();
   } catch (e) {
     logErr(`full-reload send failed: ${e?.message ?? e}`);
   }
+}
+
+/** Arm the fallback watchdog for a session restart — called by
+ *  sendFullReload (our escalation) AND by the runtime's
+ *  sessionRestartStarted hook (covers remapped vite-internal
+ *  full-reloads, which never pass through sendFullReload). */
+function armSessionFallback() {
+  restartPending = true;
+  rawClearTimeout(sessionFallback);
+  sessionFallback = rawSetTimeout(() => {
+    sessionFallback = null;
+    if (!restartPending) return; // the runtime's ready already claimed it
+    restartPending = false;
+    log("session restart fell back to supervisor-driven reimport");
+    // The teardown CANNOT live inside the reimport queue: the queue tail
+    // is the current session's still-pending runner.import(entry) — it
+    // only resolves when the session ends, i.e. AFTER teardown — so an
+    // enqueued teardown deadlocks the restart permanently. Run it first,
+    // then enqueue the reimport.
+    void (async () => {
+      // teardownInner bounds each step (dispose callbacks, sim stops) —
+      // if it still exceeds 60s the session is unkillable in-process and
+      // the only sound recovery is a process respawn.
+      let wedged = false;
+      await Promise.race([
+        (async () => {
+          try { await globalThis.__ddSession?.teardown?.({ destroyDevices: false }); } catch {}
+        })(),
+        new Promise((r) => {
+          const t = rawSetTimeout(() => { wedged = true; r(); }, 60_000);
+          t.unref?.();
+        }),
+      ]);
+      if (wedged) {
+        logErr("session teardown wedged >60s — escalating to process restart");
+        void shutdown(DD_RESTART_EXIT, "session teardown wedged");
+        return;
+      }
+      enqueue(reimportSession);
+    })();
+  }, Math.max(ackTimeoutMs, 15_000));
+  sessionFallback.unref?.();
 }
 
 function sendHostRestart(data) {
@@ -214,13 +285,30 @@ function sendHostRestart(data) {
     hostFallback = rawSetTimeout(() => {
       hostFallback = null;
       log("host restart fell back to supervisor-driven reimport");
-      enqueue(async () => {
-        try { await globalThis.__ddSession?.teardown?.({ destroyDevices: false }); } catch {}
+      // Same queue deadlock as the session fallback: teardown/host-destroy
+      // must run outside the reimport queue — the queue tail is the dying
+      // session's pending entry import, which only resolves post-teardown.
+      void (async () => {
+        let wedged = false;
+        await Promise.race([
+          (async () => {
+            try { await globalThis.__ddSession?.teardown?.({ destroyDevices: false }); } catch {}
+          })(),
+          new Promise((r) => {
+            const t = rawSetTimeout(() => { wedged = true; r(); }, 60_000);
+            t.unref?.();
+          }),
+        ]);
+        if (wedged) {
+          logErr("session teardown wedged >60s — escalating to process restart");
+          void shutdown(DD_RESTART_EXIT, "session teardown wedged");
+          return;
+        }
         try { await globalThis.__ddRetireSharedDevices?.(1_500); } catch {}
         try { globalThis.__nativeHost?.destroy?.(); } catch {}
         delete globalThis.__nativeHost;
-        await reimportHost();
-      });
+        enqueue(reimportHost);
+      })();
     }, Math.max(ackTimeoutMs, 20_000));
     hostFallback.unref?.();
   } catch (e) {
@@ -234,15 +322,50 @@ function env() {
   return envRef.current;
 }
 
+/** Vite emits {type:"full-reload"} over env.hot.send for dead-end updates
+ *  (tsconfig changes, unaccepted module graphs, optimizer reruns). The
+ *  runner-side handler for that payload awaits runner.import(entrypoint)
+ *  inside the serialized hot-channel queue — with a blocking entry (top-
+ *  level await on the run loop) that await spans the whole session, so a
+ *  single full-reload dead-letters every later HMR message. Remap to our
+ *  custom session-restart event: the runtime listener does save+teardown,
+ *  then the supervisor clears evaluatedModules + re-imports itself. */
+function installHotChannelRemap() {
+  const hotChannel = envRef.current?.hot;
+  if (!hotChannel || typeof hotChannel.send !== "function" || hotChannel.__ddRemapped) return;
+  const origSend = hotChannel.send.bind(hotChannel);
+  hotChannel.send = (payload, ...rest) => {
+    if (payload && typeof payload === "object" && payload.type === "full-reload") {
+      payload = {
+        type: "custom",
+        event: EV.sessionRestart,
+        data: { triggeredBy: payload.triggeredBy, path: payload.path },
+      };
+    }
+    return origSend(payload, ...rest);
+  };
+  hotChannel.__ddRemapped = true;
+}
+
 // ── Supervisor API — the runtime calls these directly (shared globalThis) ──
 
 const supervisor = {
   log,
 
+  /** The runtime received a session-restart event and is beginning
+   *  save+teardown — arm the fallback watchdog. This covers full-reloads
+   *  that came from vite's own handleHMRUpdate (remapped at the channel),
+   *  which never pass through sendFullReload. */
+  sessionRestartStarted() {
+    armSessionFallback();
+  },
+
   /** Runtime finished session save+teardown after a full-reload payload. */
   sessionRestartReady() {
     rawClearTimeout(sessionFallback);
     sessionFallback = null;
+    if (!restartPending) return; // stale ready — a restart was already handled
+    restartPending = false;
     enqueue(reimportSession);
   },
 
@@ -374,9 +497,22 @@ async function shutdown(code, reason = "") {
 }
 
 /** Rebind env/runner after a vite server restart (config/.env changes). */
+/** Runner → supervisor acks ride the env hot channel (import.meta.hot.send).
+ *  Re-registered on every (re)bind — a vite server restart swaps the env +
+ *  channel, and without this every sim swap would ack into the void and
+ *  escalate to a session restart. */
+function installSimAckListener() {
+  env().hot.on(EV.simHotReloadAck, (data) => {
+    supervisor.simSwapDone(data?.updateId, data);
+  });
+}
+
 async function rebindRunner() {
   envRef.current = server.environments.native;
+  installHotChannelRemap();
+  installSimAckListener();
   runner = envRef.current.runner;
+  globalThis.__ddRunner = runner;
   // The new env's module cache is empty but the process + host survive.
   // The new env also has a fresh hot channel — the old listeners died with
   // it, so allow the runtime module to re-register on re-eval.
@@ -419,6 +555,7 @@ async function main() {
   // middlewareMode: no HTTP listener — plugin configureServer hooks and the
   // file watcher are initialized by createServer() itself.
   envRef.current = server.environments.native;
+  installHotChannelRemap();
   if (!envRef.current) {
     logErr(`environment "native" not registered — environments: ${Object.keys(server.environments)}`);
     process.exit(1);
@@ -428,10 +565,9 @@ async function main() {
     logErr(`environment "native" has no ModuleRunner — is it runnable?`);
     process.exit(1);
   }
-  // Runner → supervisor acks ride the env hot channel (import.meta.hot.send).
-  env().hot.on(EV.simHotReloadAck, (data) => {
-    supervisor.simSwapDone(data?.updateId, data);
-  });
+  // Debug: expose the runner for heap/session diagnostics (dev shell only).
+  globalThis.__ddRunner = runner;
+  installSimAckListener();
 
   log(`runtime=${runtime} game=${gameDir}`);
   log(`entry=${entry}`);

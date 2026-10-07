@@ -28,6 +28,72 @@ import { downdraft, getSurface } from "./index";
 
 const log = createLogger("info");
 
+// Pre-warm the devtools chunks in dev mode. The dynamic imports below are
+// awaited deep inside async bootstrap frames — if the fetch is still in
+// flight when a dev-session restart clears the runner's module cache, the
+// pending fetch can be dropped unresolved, leaving the async frame suspended
+// forever and pinning the dead generation's renderer/devtools graph. Firing
+// the import at module eval collapses the awaits to a settled-cache lookup.
+const devtoolsModuleP = isDevMode
+  ? import("@downdraft/engine/modules/devtools")
+  : null;
+const devtoolsLibP = isDevMode
+  ? import("@downdraft/engine/libraries/devtools")
+  : null;
+// ./hooks is tiny and same-graph, but pre-warming it too keeps the await at
+// the bottom of bootstrapGame() off the in-flight-fetch path as well.
+const hooksP = import("./hooks");
+// Attach benign handlers so a rejection before the first await isn't flagged
+// as unhandled — awaiting the original promise still propagates the error.
+devtoolsModuleP?.catch(() => {});
+devtoolsLibP?.catch(() => {});
+hooksP.catch(() => {});
+
+/**
+ * Race an awaited import against session teardown: under the dev shell a
+ * fetch can be orphaned mid-flight (module-cache clear drops the pending
+ * entry unresolved), which would suspend the awaiting async frame forever —
+ * JSC retains suspended frames via their rooted executables, so the frame's
+ * captured environment (renderer, module host, devtools host) leaks per
+ * restart. Resolving to null lets the caller abandon the work cleanly.
+ */
+function importOrDead<T>(p: Promise<T>, expectedSession?: any): Promise<T | null> {
+  const tracker = (globalThis as any).__ddSession;
+  if (!tracker || typeof tracker.onDispose !== "function") return p;
+  const s = tracker.session;
+  // No live session — or a DIFFERENT session than the caller's generation —
+  // at await time means this frame belongs to a generation that is already
+  // dead. Resolve null now so it unwinds rather than parking on a
+  // possibly-orphaned fetch or registering into the wrong session.
+  if (!s || s.dead || (expectedSession !== undefined && s !== expectedSession)) {
+    return Promise.resolve(null);
+  }
+  return Promise.race([
+    p,
+    new Promise<null>((resolve) => {
+      tracker.onDispose(() => resolve(null));
+      // The registration is dropped when the session is already dying —
+      // re-check so the race can't park on a resolve that will never fire.
+      if (s.dead || tracker.session !== s) resolve(null);
+    }),
+  ]);
+}
+
+/** Bail predicate for bootstrapGame's mid-boot awaits. The session snapshot
+ *  captured at ENTRY is this generation's identity: after any await a restart
+ *  may have torn it down AND begun a fresh session — checking the tracker's
+ *  current session alone would let dead-generation continuations register
+ *  timers/listeners into the new session (which tracks them faithfully,
+ *  pinning the dead module graph for a whole generation). Also bails when a
+ *  host restart stripped the DOM polyfill globals. */
+function makeBootGuard(mySession: any): () => boolean {
+  const tracker = (globalThis as any).__ddSession;
+  return () => {
+    if (tracker && (tracker.session !== mySession || !mySession || mySession.dead)) return true;
+    return typeof (globalThis as any).window === "undefined";
+  };
+}
+
 export interface BootstrapAutosaveOptions {
   /** Load saved state. Returns null if no save exists. */
   load: () => Promise<any | null>;
@@ -143,6 +209,8 @@ export interface BootstrapGameOptions {
  * partial composition can use the individual hooks from `./hooks.ts` instead.
  */
 export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
+  const bootSession = (globalThis as any).__ddSession?.session ?? null;
+  const bootAborted = makeBootGuard(bootSession);
   const canvasLayer = opts.canvasLayer ?? 0;
   const deterministic = downdraft?.deterministic === true;
 
@@ -152,17 +220,21 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
   // 3. Create + init renderer
   const renderer = opts.createRenderer(surface);
   if (opts.initRenderer) {
-    const ok = await opts.initRenderer(renderer);
+    const ok = await importOrDead(Promise.resolve(opts.initRenderer(renderer)), bootSession);
+    if (ok === null) return;
     if (!ok) {
       log.error("bootstrapGame", "Renderer init failed");
       return;
     }
   }
+  if (bootAborted()) return;
 
   // 4. Wire DevTools (if provided) — runs BEFORE onRendererInit so that
   //    games can access the ProfilingBridge + __sceneInspector API in onReady.
   if (opts.devtools) {
-    const { initDevTools } = await import("@downdraft/engine/modules/devtools");
+    const devtoolsMod = await importOrDead(devtoolsModuleP ?? import("@downdraft/engine/modules/devtools"), bootSession);
+    if (!devtoolsMod) return;
+    const { initDevTools } = devtoolsMod;
     const simStatsProvider = opts.devtools.createSimStatsProvider?.(renderer);
     const panels = typeof opts.devtools.panels === "function"
       ? opts.devtools.panels(renderer)
@@ -170,14 +242,26 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
     const workerHosts = typeof opts.devtools.workerHosts === "function"
       ? opts.devtools.workerHosts(renderer)
       : opts.devtools.workerHosts;
-    await initDevTools(renderer, {
+    const devtoolsBridge = await importOrDead(initDevTools(renderer, {
       simStatsProvider,
       panels,
       sceneInspector: opts.devtools.sceneInspector,
       bridgeClass: opts.devtools.bridgeClass,
       workerHosts,
       profiling: opts.devtools.profiling as any,
-    });
+    }), bootSession);
+    if (!devtoolsBridge) return;
+    if (bootAborted()) {
+      try { devtoolsBridge.destroy(); } catch {}
+      return;
+    }
+    // The bridge exposes `window.__sceneInspector` on the PERSISTENT window —
+    // its methods close over `renderer`, so without a destroy on session
+    // teardown the old session's renderer (and through it the whole module
+    // graph) stays rooted across hot-reload restarts.
+    const hooksMod = await importOrDead(hooksP, bootSession);
+    if (!hooksMod) return;
+    hooksMod.dispose(() => { try { devtoolsBridge.destroy(); } catch {} });
 
     // 4a. Profiling wiring — `profiling: true` allocates the SAB + bridge,
     //     but without this nothing ticks the bridge or shares the SAB with
@@ -186,7 +270,9 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
     //     manually; worker-side attach is idempotent.
     if (opts.devtools.profiling) {
       try {
-        const { wireProfilingBridge } = await import("@downdraft/engine/modules/devtools");
+        const mod = await importOrDead(devtoolsModuleP ?? import("@downdraft/engine/modules/devtools"), bootSession);
+        if (!mod) return;
+        const { wireProfilingBridge } = mod;
         const bridge =
           (globalThis as Record<string, any>).window?.__sceneInspector?.__getProfilingBridge?.()
           ?? (globalThis as Record<string, any>).__sceneInspector?.__getProfilingBridge?.()
@@ -247,7 +333,9 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
           ?? (globalThis as Record<string, any>).__sceneInspector?.__getProfilingBridge?.()?.getProfilingSAB?.()
           ?? null;
         if (uiKind === "blitz") {
-          const { createDevtoolsUiModule } = await import("@downdraft/engine/modules/devtools");
+          const mod = await importOrDead(devtoolsModuleP ?? import("@downdraft/engine/modules/devtools"), bootSession);
+          if (!mod) return;
+          const { createDevtoolsUiModule } = mod;
           renderer.useRendererModule(createDevtoolsUiModule({
             renderer,
             profilingSAB,
@@ -256,12 +344,14 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
             toggleKey: uiCfg.toggleKey,
             onHost: (host) => {
               renderer.nativeDebugger = host;
-              wireDevtoolsFrontend(host.devtoolsMirror, host, renderer, workerHosts, profilingSAB, opts.devtools?.inputInfo);
+              wireDevtoolsFrontend(host.devtoolsMirror, host, renderer, workerHosts, profilingSAB, opts.devtools?.inputInfo, bootSession);
             },
           }));
         } else {
           // "web" — loopback browser frontend (Bun-only transport).
-          const { WebDevtoolsHost } = await import("@downdraft/engine/libraries/devtools");
+          const libMod = await importOrDead(devtoolsLibP ?? import("@downdraft/engine/libraries/devtools"), bootSession);
+          if (!libMod) return;
+          const { WebDevtoolsHost } = libMod;
           const webHost = new WebDevtoolsHost({
             device: renderer.getDevice?.() as GPUDevice,
             adapter: null as any,
@@ -272,7 +362,7 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
           });
           await webHost.start();
           renderer.nativeDebugger = webHost;
-          wireDevtoolsFrontend(webHost.devtoolsMirror, webHost, renderer, workerHosts, profilingSAB, opts.devtools?.inputInfo);
+          wireDevtoolsFrontend(webHost.devtoolsMirror, webHost, renderer, workerHosts, profilingSAB, opts.devtools?.inputInfo, bootSession);
           // Per-frame pump + F12 through the renderer's input bus, same as
           // the Blitz module's wiring.
           renderer.setCallbacks?.({
@@ -293,7 +383,8 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
   //     DevTools is already wired, so games can access __sceneInspector +
   //     the ProfilingBridge from their onReady hook.
   if (opts.onRendererInit) {
-    await opts.onRendererInit(renderer);
+    await importOrDead(Promise.resolve(opts.onRendererInit(renderer)), bootSession);
+    if (bootAborted()) return;
   }
 
   // 5. Start the render loop immediately — don't let a hung autosave load
@@ -355,16 +446,22 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
     const intervalMs = autosaveOpts.intervalMs ?? 3000;
 
     try {
-      const saved = await Promise.race([
+      // The inner race's timeout leg is session-tracked — teardown sweeps it
+      // unresolved — so the whole race is additionally raced against session
+      // teardown via importOrDead (returns null → bootAborted bails below).
+      const saved = await importOrDead(Promise.race([
         autosaveOpts.load(),
         new Promise<null>((r) => setTimeout(() => r(null), 5000)),
-      ]);
+      ]), bootSession);
       if (saved && autosaveOpts.onLoad) {
         await autosaveOpts.onLoad(saved);
       }
     } catch (e) {
       log.warn("bootstrapGame", `Autosave load failed: ${e}`);
     }
+    // A restart landing during the load await must not leave this dead
+    // generation's save interval registered into the NEXT live session.
+    if (bootAborted()) return;
 
     let saveInProgress = false;
     const id = setInterval(async () => {
@@ -380,16 +477,18 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
     }, intervalMs);
     (id as any)?.unref?.();
   }
+  if (bootAborted()) return;
 
   // 10. MCP setup (if provided)
   if (opts.mcp) {
-    await opts.mcp();
+    await importOrDead(Promise.resolve(opts.mcp()), bootSession);
   }
 
   // 11. Hot-reload dispose (if provided)
   if (opts.onHotReloadDispose) {
-    const { dispose } = await import("./hooks");
-    dispose(opts.onHotReloadDispose);
+    const hooksMod = await importOrDead(hooksP, bootSession);
+    if (!hooksMod) return;
+    hooksMod.dispose(opts.onHotReloadDispose);
   }
 
   // 12. Deterministic callbacks (if onDeterministic provided)
@@ -411,8 +510,14 @@ async function wireDevtoolsFrontend(
   workerHosts: any[] | undefined,
   profilingSAB: SharedArrayBuffer | null,
   inputInfo?: () => { key: string; value: string; flags?: number }[],
+  bootSession?: any,
 ): Promise<void> {
-  const { registerEngineProviders } = await import("@downdraft/engine/libraries/devtools");
+  const mod = await importOrDead(devtoolsLibP ?? import("@downdraft/engine/libraries/devtools"), bootSession);
+  // If the dev session died while the import was in flight, abandon the
+  // wiring — registering providers now would root the dead generation's
+  // context through persistent host closures.
+  if (!mod) return;
+  const { registerEngineProviders } = mod;
   // Main-thread REPL evaluates directly in this context — Bun's inspector
   // doesn't implement Runtime.evaluate, and a direct eval works on every
   // runtime. Registered evals take precedence over the CDP fallback.
@@ -439,3 +544,4 @@ async function wireDevtoolsFrontend(
     inputInfo,
   });
 }
+

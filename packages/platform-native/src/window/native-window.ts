@@ -127,6 +127,12 @@ export class NativeWindow extends MiniEventTarget {
   private lastRafDispatch = -1e9;
   private loggedFirstRaf = false;
   private frameIntervalMs = 0;
+  // The cached interval is re-validated on this cadence: a MOVED-driven
+  // re-query can latch mid-drag while winit still reports the window on its
+  // previous monitor, and a periodic check bounds that staleness (and any
+  // missed move event) to ~one poll instead of persisting for the session.
+  private frameIntervalCheckedAt = -1e9;
+  private static readonly FRAME_INTERVAL_RECHECK_MS = 2000;
   // Vsync pacing (Android): the platform's Choreographer thread emits
   // SDL_EVENT_VSYNC per display refresh once armed via set_vsync_wanted.
   // When those ticks arrive, rAF dispatch keys off them — phase-aligned to
@@ -440,9 +446,19 @@ export class NativeWindow extends MiniEventTarget {
     // The observed vsync cadence wins — on Android it is the only truthful
     // refresh source (winit's refresh query returns nothing).
     if (this.vsyncIntervalMs > 0) return this.vsyncIntervalMs;
-    if (this.frameIntervalMs <= 0) {
+    const now = performance.now();
+    if (this.frameIntervalMs <= 0 || now - this.frameIntervalCheckedAt > NativeWindow.FRAME_INTERVAL_RECHECK_MS) {
+      this.frameIntervalCheckedAt = now;
       const hz = this.getDisplayInfo().refreshRate;
-      this.frameIntervalMs = 1000 / (hz > 0 ? hz : 60);
+      if (hz > 0) {
+        const interval = 1000 / hz;
+        if (interval !== this.frameIntervalMs) {
+          log.info("NativeWindow", `rAF pacing: ${hz}Hz (${interval.toFixed(2)}ms)`);
+          this.frameIntervalMs = interval;
+        }
+      } else if (this.frameIntervalMs <= 0) {
+        return 1000 / 60;
+      }
     }
     return this.frameIntervalMs;
   }

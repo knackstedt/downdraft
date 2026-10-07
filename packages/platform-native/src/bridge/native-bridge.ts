@@ -293,6 +293,13 @@ export function createNativeBridge(opts: NativeBridgeOptions): HostAPI & { dispo
     // native MCP transport (mcp/native-mcp.ts) calls directly. ──
     onMcpRequest: (cb: (request: McpRequest) => Promise<McpResponse>) => {
       (globalThis as Record<string, unknown>).__ddMcpHandler = cb;
+      return () => {
+        // Session teardown unsubscribes dead-generation handlers — clear the
+        // slot only if it's still ours (a newer session may have replaced it).
+        if ((globalThis as Record<string, unknown>).__ddMcpHandler === cb) {
+          delete (globalThis as Record<string, unknown>).__ddMcpHandler;
+        }
+      };
     },
 
     dispose(): void {
