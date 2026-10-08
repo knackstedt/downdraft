@@ -12,6 +12,7 @@ import { createLogger } from "@downdraft/engine";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { createRequire as nodeCreateRequire } from "node:module";
 import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { VirtualCanvas } from "../compat/virtual-canvas-context";
 import { NativeCanvas2D } from "../image/native-image";
 import type { NativeSurface } from "../window/native-surface";
@@ -473,8 +474,12 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
   // fetch() file:// + blob: support — `?url` asset imports resolve to file://
   // URLs under Bun, whose fetch rejects them. Wrap fetch so those reads fall
   // back to the filesystem/blob registry. Also accepts bare absolute paths.
-  const origFetch = globalThis.fetch?.bind(globalThis);
-  if (origFetch && !(globalThis as any).__ddFileFetchPatched) {
+  // Re-install on every call: the wrapper's module bindings die with the
+  // Vite module runner on dev-session restarts, while the global (and the
+  // old wrapper) persists. Pin the underlying fetch once so re-wrapping
+  // never chains through a stale wrapper.
+  const realFetch = ((globalThis as any).__ddRealFetch ??= globalThis.fetch)?.bind(globalThis);
+  if (realFetch) {
     (globalThis as any).__ddFileFetchPatched = true;
     (globalThis as any).fetch = async (input: any, init?: any): Promise<Response> => {
       const urlStr = typeof input === "string" ? input : input?.url ?? "";
@@ -487,8 +492,6 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
       const isBarePath = !isFileUrl && urlStr.startsWith("/") && !urlStr.startsWith("//");
       if (isFileUrl || isBarePath) {
         try {
-          const { readFileSync } = await import("node:fs");
-          const { fileURLToPath } = await import("node:url");
           // Vite's dev server serves out-of-root files as /@fs/<abs-path>;
           // strip the prefix so the same URL works against the filesystem.
           const path = isFileUrl ? fileURLToPath(urlStr)
@@ -500,7 +503,7 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
           return new Response(String(err), { status: 404, statusText: "Not Found" });
         }
       }
-      return origFetch(input, init);
+      return realFetch(input, init);
     };
   }
 
