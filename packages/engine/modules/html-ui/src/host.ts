@@ -31,6 +31,13 @@ export interface PanelSpec {
   z?: number;
   /** Supersample factor (raster size = rect * scale). Default 2 — crisper text. */
   scale?: number;
+  /** UI zoom — the doc is laid out at `rect/zoom` CSS px so everything renders
+   *  `zoom`× larger on screen. `scale` stays relative to display px: pair
+   *  `zoom` with `scale:1` for a native-res raster (hardest edges) or the
+   *  default `scale:2` for supersampled text. Doc-space coords (events,
+   *  getRect, navSnapshot) stay in layout CSS px — multiply by `zoom` for
+   *  display px. Pointer input is converted automatically. Default 1. */
+  zoom?: number;
   /** Raster-rate cap for animating docs (0 = uncapped). Static docs repaint on demand regardless. */
   maxFps?: number;
   /** Initial markup (or `vdom` rendered beforehand by the caller). */
@@ -50,7 +57,10 @@ interface Panel {
   spec: PanelSpec;
   rect: PanelRect;
   z: number;
+  /** Raster px per display px (PanelSpec.scale). */
   scale: number;
+  /** Display px per CSS px (PanelSpec.zoom). */
+  zoom: number;
   /** Doc layout height when it differs from rect.h (scrollable texture). */
   docH: number | null;
   /** Texture sub-region in texel px — displayed at `rect` (GPU scroll). */
@@ -271,8 +281,9 @@ export class HtmlUiHost {
     this.attachGpu(); // retry — the native host may postdate the ctor
     const id = spec.id ?? `panel-${this.nextId++}`;
     const scale = spec.scale ?? 2;
+    const zoom = spec.zoom && spec.zoom > 0 ? spec.zoom : 1;
     const panel: Panel = {
-      id, spec, rect: { ...spec.rect }, z: spec.z ?? 0, scale,
+      id, spec, rect: { ...spec.rect }, z: spec.z ?? 0, scale, zoom,
       docH: spec.docH ?? null, src: null,
       texture: null, texW: 0, texH: 0, ubo: null, bindGroup: null,
       handlers: new Set(spec.onEvent ? [spec.onEvent] : []),
@@ -281,7 +292,9 @@ export class HtmlUiHost {
     };
     this.panels.set(id, panel);
     this.order.push(id);
-    this.send({ type: "create", id, cssW: spec.rect.w, cssH: spec.docH ?? spec.rect.h, scale, html: spec.html, maxFps: spec.maxFps });
+    // Doc viewport scale = raster px per CSS px = scale * zoom; layout size
+    // is rect/zoom CSS px so the raster still covers rect*scale texture px.
+    this.send({ type: "create", id, cssW: spec.rect.w / zoom, cssH: spec.docH ?? spec.rect.h / zoom, scale: scale * zoom, html: spec.html, maxFps: spec.maxFps });
     // GPU-direct: create the panel texture eagerly so the worker's texBind
     // lands before its first upload — the host knows raster dims at mount.
     if (this.gpuReady) this.bindPanelTex(panel);
@@ -346,13 +359,13 @@ export class HtmlUiHost {
         const r = p.rect;
         if (r.x === rect.x && r.y === rect.y && r.w === rect.w && r.h === rect.h) return;
         p.rect = { ...rect };
-        this.send({ type: "resize", id: p.id, cssW: rect.w, cssH: p.docH ?? rect.h, scale: p.scale });
+        this.send({ type: "resize", id: p.id, cssW: rect.w / p.zoom, cssH: p.docH ?? rect.h / p.zoom, scale: p.scale * p.zoom });
         this.bindPanelTex(p); // rebind the worker to the resized texture
       },
       setDocHeight: (h) => {
         if (p.docH === h) return;
         p.docH = h;
-        this.send({ type: "resize", id: p.id, cssW: p.rect.w, cssH: h, scale: p.scale });
+        this.send({ type: "resize", id: p.id, cssW: p.rect.w / p.zoom, cssH: h, scale: p.scale * p.zoom });
         this.bindPanelTex(p);
       },
       setSrcRect: (src) => { p.src = src ? { ...src } : null; },
@@ -391,7 +404,12 @@ export class HtmlUiHost {
       click: (t) => mutate({ op: "click", ...tgt(t) }),
       sendKey: (down, key, opts) =>
         this.send({ type: "input", id: p.id, msg: { kind: "key", down, key, code: opts?.code, text: opts?.text, mods: opts?.mods } }),
-      sendPointer: (msg) => this.input(p.id, msg),
+      // Callers pass panel-local display px (like real pointer events) —
+      // convert to doc CSS px here the same way local() does.
+      sendPointer: (msg) => this.input(p.id,
+        msg.kind === "wheel"
+          ? { ...msg, x: msg.x / p.zoom, y: msg.y / p.zoom, deltaX: msg.deltaX / p.zoom, deltaY: msg.deltaY / p.zoom }
+          : { ...msg, x: msg.x / p.zoom, y: msg.y / p.zoom }),
       navSnapshot: (sel) => new Promise((resolve) => {
         const reqId = this.nextReqId++;
         this.navReqs.set(reqId, resolve);
@@ -535,7 +553,7 @@ export class HtmlUiHost {
     };
     const input = (id: string, msg: DocInputMsg) => this.input(id, msg);
     const local = (p: Panel, e: { clientX: number; clientY: number }) => ({
-      x: e.clientX - p.rect.x, y: e.clientY - p.rect.y,
+      x: (e.clientX - p.rect.x) / p.zoom, y: (e.clientY - p.rect.y) / p.zoom,
     });
 
     this.unsubInput.push(
@@ -573,7 +591,7 @@ export class HtmlUiHost {
         const p = this.panelAt(e.clientX, e.clientY);
         if (!p) return;
         ctrl.stopPropagation();
-        input(p.id, { kind: "wheel", ...local(p, e), deltaX: e.deltaX, deltaY: e.deltaY, mods: modsOf(e) });
+        input(p.id, { kind: "wheel", ...local(p, e), deltaX: e.deltaX / p.zoom, deltaY: e.deltaY / p.zoom, mods: modsOf(e) });
       }, -10),
       bus.onKeyDown((e: KeyboardEvent, ctrl: InputEventControl) => {
         const p = this.focusedPanel ? this.panels.get(this.focusedPanel) : null;
@@ -852,7 +870,8 @@ export class HtmlUiHost {
   private bindPanelTex(p: Panel): void {
     if (!this.gpuReady || this.backend.kind !== "worker") return;
     const pw = Math.max(1, Math.round(p.rect.w * p.scale));
-    const ph = Math.max(1, Math.round((p.docH ?? p.rect.h) * p.scale));
+    // docH is a layout-px override: it scales by zoom like the doc does.
+    const ph = Math.max(1, Math.round((p.docH !== null ? p.docH * p.zoom : p.rect.h) * p.scale));
     this.ensureTexture(p, pw, ph);
     if (!p.texture) return;
     const ptr = BigInt((p.texture as unknown as { ptr: number | bigint }).ptr);
