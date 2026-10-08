@@ -13,7 +13,7 @@
 // event queue, dispatched by data-action / selector handlers.
 // ============================================================================
 
-import { createLogger } from "@downdraft/engine";
+import { createLogger } from "@downdraft/engine/util/logger";
 
 const log = createLogger();
 

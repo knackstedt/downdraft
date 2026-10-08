@@ -8,7 +8,7 @@
 // logic lives here.
 // ============================================================================
 
-import { createLogger } from "@downdraft/engine";
+import { createLogger } from "@downdraft/engine/util/logger";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { createRequire as nodeCreateRequire } from "node:module";
 import { dirname } from "node:path";

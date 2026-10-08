@@ -12,7 +12,7 @@
 // stored panel HTML followed by a re-parse, rather than DOM mutation.
 // ============================================================================
 
-import { createLogger } from "@downdraft/engine";
+import { createLogger } from "@downdraft/engine/util/logger";
 import type { HostOsrAPI } from "@downdraft/engine/app/shared/types";
 import { OsrDoc } from "@downdraft/engine/libraries/blitz-ui/native-osr-ffi";
 import type {

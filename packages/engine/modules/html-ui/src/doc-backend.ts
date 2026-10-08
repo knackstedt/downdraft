@@ -314,10 +314,13 @@ export function createDocCore(emit: (m: WorkerToUi) => void, gpuHooks?: DocGpuHo
           // any failure keeps the SAB path.
           const attach = gpuHooks
             ? () => gpuHooks.attach(m.gpu, m.cells)
-            : () => import("@downdraft/platform-native").then((pn) => {
-              const view = pn.attachSharedDevice(m.gpu, m.cells);
+            : () => Promise.all([
+              import("@downdraft/platform-native/gpu/shared-device"),
+              import("@downdraft/platform-native/gpu/borrow"),
+            ]).then(([sd, br]) => {
+              const view = sd.attachSharedDevice(m.gpu, m.cells);
               return view
-                ? { view: view as unknown as DocGpuView, borrowTexture: pn.borrowGpuTexture }
+                ? { view: view as unknown as DocGpuView, borrowTexture: br.borrowGpuTexture }
                 : null;
             });
           void Promise.resolve()

@@ -9,8 +9,9 @@
 // selector-scoped mutator ops so HUD ticks don't reparse the document.
 // ============================================================================
 
-import type { RendererModule, RendererModuleContext } from "@downdraft/engine";
-import { createLogger, resourceToken } from "@downdraft/engine";
+import type { RendererModule, RendererModuleContext } from "@downdraft/engine/module/renderer-module";
+import { resourceToken } from "@downdraft/engine/ecs/resource";
+import { createLogger } from "@downdraft/engine/util/logger";
 import type { OsrDomEvent } from "@downdraft/engine/libraries/blitz-ui/native-osr-ffi";
 import { GamepadSourceTok } from "@downdraft/engine/libraries/gamepad/library";
 import { UiNavRouter, type UiNavRouterOptions } from "@downdraft/engine/libraries/html-ui-kit/nav/router";

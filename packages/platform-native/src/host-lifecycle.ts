@@ -10,7 +10,7 @@
 // dev workflows can still run concurrent instances.
 // ============================================================================
 
-import { condenseText, encodeFeatureLogLines, formatBytesShort, type FeatureLogData } from "@downdraft/engine";
+import { condenseText, encodeFeatureLogLines, formatBytesShort, type FeatureLogData } from "@downdraft/engine/util/feature-log";
 import { collectHostFeatureLog } from "@downdraft/engine/app/shared/feature-log";
 import { createLogger } from "@downdraft/engine/util/logger";
 import { spawn, spawnSync } from "node:child_process";

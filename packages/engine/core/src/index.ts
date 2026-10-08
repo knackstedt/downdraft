@@ -7,8 +7,6 @@
 
 /// <reference path="./webgpu-destroy-augmentation.d.ts" />
 
-import pkg from "../../package.json" with { type: "json" };
-
 // Sub-barrel re-exports — these aggregate all items from their respective domains.
 export * from "./assets";
 export * from "./ecs";
@@ -26,8 +24,9 @@ export * from "./util";
 // Used by the feature log, save headers (via features.saves.engineVersion
 // default), and any code that needs to report the running engine version.
 // Sourced from package.json so it can never drift from the published version.
+// Defined in ./version.ts so leaf-import consumers skip this barrel.
 // ─────────────────────────────────────────────────────────────────────────────
-export const ENGINE_VERSION: string = pkg.version;
+export { ENGINE_VERSION } from "./version";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Worker (task-worker lives outside ecs/)

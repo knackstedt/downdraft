@@ -17,7 +17,8 @@
 //   });
 // ============================================================================
 
-import { createLogger, type GameRendererLike } from "@downdraft/engine";
+import { createLogger } from "@downdraft/engine/util/logger";
+import type { GameRendererLike } from "@downdraft/engine/render/game-renderer";
 import { retireAllSharedDevices } from "./gpu/shared-device";
 import { createNativeHost, type NativeHostConfig, type NativeHostContext } from "./native-host";
 

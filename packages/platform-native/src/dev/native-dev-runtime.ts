@@ -246,7 +246,7 @@ if (hot && !g[LISTENERS_FLAG]) {
     let store: any = null;
     try {
       // Read the shared hot-reload store when the engine is in the graph.
-      const eng = await import("@downdraft/engine");
+      const eng = await import("@downdraft/engine/stores/hot-reload-store");
       store = (eng as any).useHotReloadStore?.getState?.() ?? null;
       preserve = store?.preserveState ?? true;
     } catch { /* engine not loaded — default preserve */ }

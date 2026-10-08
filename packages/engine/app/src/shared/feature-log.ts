@@ -8,7 +8,8 @@
 // line carries GPU identity.
 // ============================================================================
 
-import { ENGINE_VERSION, condenseText, formatBytesShort, type FeatureLogData } from "@downdraft/engine";
+import { condenseText, formatBytesShort, type FeatureLogData } from "@downdraft/engine/util/feature-log";
+import { ENGINE_VERSION } from "@downdraft/engine/version";
 import os from "node:os";
 
 export interface CollectHostFeatureLogOptions {

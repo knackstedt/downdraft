@@ -6,7 +6,7 @@
 // unchanged on the native runtime.
 // ============================================================================
 
-import { createLogger } from "@downdraft/engine";
+import { createLogger } from "@downdraft/engine/util/logger";
 import { WgpuGPU } from "./wgpu-wrapper";
 
 const log = createLogger();

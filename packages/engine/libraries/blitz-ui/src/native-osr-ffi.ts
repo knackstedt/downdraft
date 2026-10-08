@@ -10,7 +10,8 @@
 // GPU textures.
 // ============================================================================
 
-import { dlopen, ptr, readMappedRange, resolveNativeLibrary, type CFunction } from "@downdraft/platform-native";
+import { dlopen, ptr, readMappedRange, type CFunction } from "@downdraft/platform-native/ffi/ffi-adapter";
+import { resolveNativeLibrary } from "@downdraft/platform-native/ffi/lib-paths";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 

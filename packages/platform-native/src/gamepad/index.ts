@@ -130,7 +130,7 @@ export async function startGamepadEnrichment(sab: SharedArrayBuffer): Promise<()
   if (enrichTimer) return () => {};
   if (process.platform !== "linux") return () => {};
 
-  const { SysfsGamepadEnricher } = await import("@downdraft/engine/libraries/gamepad");
+  const { SysfsGamepadEnricher } = await import("@downdraft/engine/libraries/gamepad/sysfs-enrich");
   const enricher = new SysfsGamepadEnricher(sab);
   const reader = new GamepadDevicesReader(sab);
 

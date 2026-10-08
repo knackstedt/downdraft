@@ -5,7 +5,7 @@
 // swapchain is gamma-space *8unorm). Premultiplied-alpha blend.
 // ============================================================================
 
-import { createValidatedShaderModule } from "@downdraft/engine";
+import { createValidatedShaderModule } from "@downdraft/engine/render/shader-validator";
 
 const BLIT_WGSL = `
 struct Uniforms {

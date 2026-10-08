@@ -10,7 +10,7 @@
 // backwards-compatible imports.
 // ============================================================================
 
-import { createLogger } from "@downdraft/engine";
+import { createLogger } from "@downdraft/engine/util/logger";
 import { resolveBlobUrl } from "../dom/blob-urls";
 import { dlopen, type CFunction } from "../ffi/ffi-adapter";
 import { resolvePlatformLibrary, resolveShimLibrary } from "../ffi/lib-paths";

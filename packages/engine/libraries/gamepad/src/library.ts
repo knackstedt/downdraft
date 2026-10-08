@@ -14,7 +14,8 @@
 //      still valid for wiring against future sources)
 // ============================================================================
 
-import { resourceToken, type EngineLibrary } from "@downdraft/engine";
+import { resourceToken } from "@downdraft/engine/ecs/resource";
+import type { EngineLibrary } from "@downdraft/engine/library/library";
 import type { GamepadSource } from "@downdraft/engine/input/local-player-manager";
 import { GamepadDevicesChannel } from "@downdraft/engine/sab/gamepad-devices";
 import { GamepadHub, type GamepadHubOptions } from "./hub";

@@ -11,7 +11,7 @@
 // runtime-detection seam.
 // ============================================================================
 
-import { createLogger } from "@downdraft/engine";
+import { createLogger } from "@downdraft/engine/util/logger";
 import { createGlob } from "@downdraft/engine/platform/glob-polyfill";
 
 const log = createLogger();

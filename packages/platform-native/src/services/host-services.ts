@@ -21,7 +21,7 @@ import type {
     SaveOptions,
     SaveSlotInfo,
 } from "@downdraft/engine/app/shared/types";
-import { FileSaveStore } from "@downdraft/engine/libraries/persistence";
+import { FileSaveStore } from "@downdraft/engine/libraries/persistence/file-save-store";
 import { createLogger } from "@downdraft/engine/util/logger";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";

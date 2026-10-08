@@ -10,7 +10,8 @@
 // lazy Proxy, so install order only needs to precede first use).
 // ============================================================================
 
-import { NATIVE_HOST_CAPABILITIES, type FeatureLogData } from "@downdraft/engine";
+import { NATIVE_HOST_CAPABILITIES } from "@downdraft/engine/platform/runtime";
+import type { FeatureLogData } from "@downdraft/engine/util/feature-log";
 import { collectHostFeatureLog } from "@downdraft/engine/app/shared/feature-log";
 import { queryNvidiaSmi } from "@downdraft/engine/app/shared/gpu-info";
 import type {

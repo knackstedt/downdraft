@@ -12,7 +12,7 @@
 // Forward incompatibility: saves from a newer engine version are refused.
 // Consumers should implement version backups for unstable releases.
 
-import { safeJsonParse } from "@downdraft/engine";
+import { safeJsonParse } from "@downdraft/engine/safety/json";
 import {
     encodeHeader,
     engineVersionString,

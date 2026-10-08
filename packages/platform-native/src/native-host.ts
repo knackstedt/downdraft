@@ -13,8 +13,9 @@
 // live in dom/dom-polyfills.ts.
 // ============================================================================
 
-import { ENGINE_VERSION, installShaderValidationGuard } from "@downdraft/engine";
+import { installShaderValidationGuard } from "@downdraft/engine/render/shader-validator";
 import { createLogger, setThreadTag } from "@downdraft/engine/util/logger";
+import { ENGINE_VERSION } from "@downdraft/engine/version";
 import { join } from "node:path";
 import { installAssetGlob } from "./assets/native-assets";
 import { createNativeBridge } from "./bridge/native-bridge";
@@ -123,6 +124,20 @@ export interface NativeHostContext {
 }
 
 export async function createNativeHost(config: NativeHostConfig): Promise<NativeHostContext> {
+  // Startup profiling — DD_STARTUP_PROFILE=1 logs per-stage marks. The first
+  // mark's absolute t doubles as "ms from process start to host entry"
+  // (runtime boot + entry module-graph eval).
+  const bootProf = process.env.DD_STARTUP_PROFILE === "1";
+  const bootT0 = performance.now();
+  let bootLast = bootT0;
+  const mark = (label: string) => {
+    if (!bootProf) return;
+    const now = performance.now();
+    log.info("startup", `${label}: +${(now - bootLast).toFixed(1)}ms t=${now.toFixed(1)}ms`);
+    bootLast = now;
+  };
+  mark("createNativeHost");
+
   // Thread tag for log prefixes — the host entry IS the renderer thread.
   // Games used to set R0 at every entry top; a game override (e.g. a
   // non-R0 shell) still wins by setting it before calling us.
@@ -161,6 +176,7 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   const gpu = installGPU(earlyWindowOk ? early?.gpu : undefined);
   installImagePolyfills();
   installAssetGlob();
+  mark("polyfills");
 
   // Single-instance lock — second instances quit. Deterministic/test
   // mode and DOWNDRAFT_MULTI_INSTANCE=1 opt out so e2e/dev can overlap.
@@ -196,6 +212,7 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   } else {
     window = new NativeWindow(config.window);
   }
+  mark("window");
   if (config.appId && !deterministic) {
     installWindowStatePersistence(config.appId, window);
     installNativeErrorHandlers(window, config.appId);
@@ -224,6 +241,7 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   //     (and lets the splash present the moment the surface is configured)
   //     instead of reading as hung to the WM for the whole boot stretch.
   window.start();
+  mark("event-loop");
 
   // 2c. Kick the adapter request — genuinely asynchronous on platform libs
   //     that export wgpu_shim_request_adapter_async (the GPU wait runs on a
@@ -246,6 +264,7 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
       ? join(resolveNativeUserDataDir(config.appId), "localstorage.json")
       : undefined,
   });
+  mark("dom-polyfills");
 
   // 2e. Host services — the worker spawn + init RPC overlaps with the
   //     adapter/device wait instead of serializing after it.
@@ -263,6 +282,7 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   //    features below are the UNION of what the host and GameRenderer
   //    request (clamped to what the adapter supports).
   const adapter = await adapterPromise;
+  mark("adapter");
   if (!adapter) throw new Error("No GPU adapter found");
 
   // Limits/features are the union of host + GameRenderer needs, clamped to
@@ -271,6 +291,7 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   const device = earlyDeviceOk
     ? early!.device!
     : await adapter.requestDevice(computeDeviceDescriptor(adapter));
+  mark("device");
 
   // Install the shader validation guard so all createShaderModule calls
   // route through getCompilationInfo() validation. This catches malformed
@@ -293,6 +314,7 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   if (!(earlyDeviceOk && early?.surfaceConfigured)) {
     ctx.configure({ device: gpuDevice, format, usage: 0x0010 | 0x0002 | 0x0001 }); // RENDER_ATTACHMENT | COPY_DST | COPY_SRC
   }
+  mark("surface-configure");
 
   // 4b. Surface pixel readback — invoked from the context's pre-present hook
   // (see NativeSurface.captureNextFrame), the only point where the swapchain
@@ -316,6 +338,7 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
     try { window.attachSplash(new SplashScreen(window, surface)); }
     catch (e) { log.warn("platform-native", `splash unavailable: ${e}`); }
   }
+  mark("splash");
 
   // 6b. Click synthesis lives in NativeWindow.dispatchInputEvent (SDL_EVENT_
   // MOUSEBUTTONUP → click/dblclick with proper click counting). Do NOT
@@ -331,6 +354,7 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   // process shape the plugin sandbox will use. Spawned in step 2e — its
   // init overlapped the adapter/device wait.
   const services = await servicesPromise;
+  mark("services");
   // 6c-2. Gamepad backend — optional downdraft_gamepad cdylib (gilrs).
   //   Owns the 'gamepad-devices' SAB channel; GamepadLib picks the buffer
   //   up via globalThis.__ddGamepad. Absent library / gilrs failure → null,
@@ -349,6 +373,7 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   //   importing platform-native; null when no credential backend exists.
   const secrets = process.env.DOWNDRAFT_NO_SECRETS !== "1" ? initNativeSecrets() : null;
   if (secrets) (globalThis as any).__ddSecrets = secrets;
+  mark("gamepad+secrets");
 
   const bridge = config.appId && services
     ? createNativeBridge({
@@ -368,6 +393,7 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
     const win = (globalThis as any).window;
     if (win) win.downdraft = bridge;
   }
+  mark("bridge");
 
   // 6d. Start the in-process MCP server (tools/list, tools/call, artifacts,
   // PID discovery). artifactDir enables the tracing/heap-snapshot tools +
@@ -390,6 +416,7 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
         artifactDir: mcpOpts.artifactDir ?? join(resolveNativeUserDataDir(config.appId!), "debug-artifacts"),
       })
     : null;
+  mark("mcp");
 
   // 6e. Memory probe — DD_MEM_TRACE=<seconds> logs process.memoryUsage() +
   //     V8 heap stats to the console (logcat on Android). Dynamic v8 import
@@ -480,5 +507,6 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   // RAF + Worker globals, and snapshots the device baseline. No-op without
   // the dev shell.
   (globalThis as any).__ddSession?.attachHost?.(host);
+  mark("host-ready");
   return host;
 }

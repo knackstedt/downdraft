@@ -6,8 +6,9 @@
 // done by PanelBlitPass via the compositor object exposed by `compositor`.
 // ============================================================================
 
-import type { InputEventControl, RendererInputBus } from "@downdraft/engine";
-import { createLogger, getHostCapabilities, getNativeHost } from "@downdraft/engine";
+import type { InputEventControl, RendererInputBus } from "@downdraft/engine/module/renderer-module";
+import { getHostCapabilities, getNativeHost } from "@downdraft/engine/platform/runtime";
+import { createLogger } from "@downdraft/engine/util/logger";
 import type { OsrDomEvent } from "@downdraft/engine/libraries/blitz-ui/native-osr-ffi";
 import { PanelBlitPass } from "./composite";
 import { createLocalBackend, createWorkerBackend, type DocBackend } from "./doc-backend";
