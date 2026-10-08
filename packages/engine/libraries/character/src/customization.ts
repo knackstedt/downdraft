@@ -315,7 +315,12 @@ function girthWeightsFor(
  * Skin-material meshes in "inner" groups are shallow-cloned with a
  * `surfaceOffset` — modular kits author bare-skin shells that sit fractions
  * of a millimeter under garments; without the offset the skin z-fights or
- * pokes through where a garment variant doesn't fully cover it.
+ * pokes through where a garment variant doesn't fully cover it. The offset
+ * only applies to skin meshes substantially enclosed by a non-skin mesh in
+ * the same variant: a bare-skin pick (or one whose only non-skin meshes are
+ * small accessories like nails or partially-overlapping cuffs) must keep its
+ * authored surface, since a uniform inward offset on a limb-radius mesh
+ * collapses it to the bone.
  */
 export function resolveCustomizationMeshes(
   model: ModelData,
@@ -332,6 +337,7 @@ export function resolveCustomizationMeshes(
   };
   const meshIndices = new Set<number>();
   const innerIndices = new Set<number>();
+  const boundsCache = new Map<number, MeshBounds | null>();
   for (let _i = 0, _it = catalog.groups, _n = _it.length; _i < _n; _i++) { const g = _it[_i];
     if (g.kind === "internal") continue;
     const pick = effectiveVariantKey(g, cust);
@@ -341,7 +347,21 @@ export function resolveCustomizationMeshes(
       if (v.key !== pick) continue;
       for (let _k = 0, _kt = v.meshIndices, _l = _kt.length; _k < _l; _k++) {
         meshIndices.add(_kt[_k]);
-        if (inner && isSkin(_kt[_k])) innerIndices.add(_kt[_k]);
+      }
+      if (!inner) continue;
+      for (let _k = 0, _kt = v.meshIndices, _l = _kt.length; _k < _l; _k++) {
+        const mi = _kt[_k];
+        if (!isSkin(mi)) continue;
+        const covered = v.meshIndices.some((j) => {
+          if (j === mi || isSkin(j)) return false;
+          const sb = meshBoundsCached(model.meshes, mi, boundsCache);
+          const gb = meshBoundsCached(model.meshes, j, boundsCache);
+          // ≥90% enclosed: the shell sits under the garment. Lower overlaps
+          // are exposed surfaces (bare picks, crease slivers) that must keep
+          // their authored shape — recessing them opens a gap at the seam.
+          return sb !== null && gb !== null && boxOverlapFraction(sb, gb) >= 0.9;
+        });
+        if (covered) innerIndices.add(mi);
       }
     }
   }
@@ -401,6 +421,44 @@ export function requiredMeshIndices(catalog: VariantCatalog, cust: CharacterCust
     }
   }
   return out;
+}
+
+type MeshBounds = { min: [number, number, number]; max: [number, number, number] };
+
+/** Per-mesh axis-aligned bounds (pos stride: xyz + normal xyz), or null for
+ *  a mesh with no usable position data. */
+function singleMeshBounds(mesh: MeshData): MeshBounds | null {
+  const verts = mesh.vertices;
+  const stride = mesh.vertexCount > 0 ? Math.floor(verts.length / mesh.vertexCount) : 0;
+  if (stride < 3) return null;
+  const min: [number, number, number] = [Infinity, Infinity, Infinity];
+  const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+  for (let v = 0; v < mesh.vertexCount; v++) {
+    const x = verts[v * stride], y = verts[v * stride + 1], z = verts[v * stride + 2];
+    if (x < min[0]) min[0] = x; if (x > max[0]) max[0] = x;
+    if (y < min[1]) min[1] = y; if (y > max[1]) max[1] = y;
+    if (z < min[2]) min[2] = z; if (z > max[2]) max[2] = z;
+  }
+  return { min, max };
+}
+
+function meshBoundsCached(meshes: MeshData[], i: number, cache: Map<number, MeshBounds | null>): MeshBounds | null {
+  let b = cache.get(i);
+  if (b === undefined) {
+    b = singleMeshBounds(meshes[i]);
+    cache.set(i, b);
+  }
+  return b;
+}
+
+/** Fraction of box `a`'s volume overlapped by box `b` (0–1). */
+function boxOverlapFraction(a: MeshBounds, b: MeshBounds): number {
+  let f = 1;
+  for (let i = 0; i < 3; i++) {
+    const ext = Math.max(1e-9, a.max[i] - a.min[i]);
+    f *= Math.max(0, Math.min(a.max[i], b.max[i]) - Math.max(a.min[i], b.min[i])) / ext;
+  }
+  return f;
 }
 
 /** Axis-aligned bounds over vertex positions (pos stride: xyz + normal xyz). */

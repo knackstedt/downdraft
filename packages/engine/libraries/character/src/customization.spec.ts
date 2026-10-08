@@ -26,6 +26,24 @@ function mesh(verts = 3): MeshData {
     };
 }
 
+/** Mesh spanning the axis-aligned box [min,max] (8 corner verts). */
+function boxMesh(min: [number, number, number], max: [number, number, number]): MeshData {
+    const verts = new Float32Array(8 * 6);
+    for (let i = 0; i < 8; i++) {
+        verts[i * 6] = i & 1 ? max[0] : min[0];
+        verts[i * 6 + 1] = i & 2 ? max[1] : min[1];
+        verts[i * 6 + 2] = i & 4 ? max[2] : min[2];
+    }
+    return {
+        vertices: verts,
+        indices: new Uint16Array([0, 1, 2]),
+        vertexCount: 8,
+        indexCount: 3,
+        uvs: null,
+        colors: null,
+    };
+}
+
 /** Model whose node list is the given mesh-node names, one mesh per node. */
 function modelWithNodes(names: string[]): ModelData {
     const nodes: ModelNode[] = names.map((name, i) => ({ name, mesh: i, meshes: [i] }));
@@ -127,44 +145,86 @@ describe("resolveCustomizationMeshes", () => {
         expect(meshIndices.has(2)).toBe(false);
     });
 
-    it("marks skin-material meshes in inner groups with a surfaceOffset clone", () => {
-        const model = modelWithNodes(["ash_head", "ash_torso.001", "ash_leg.001", "ash_hand.001"]);
+    it("marks covered skin-material meshes in inner groups with a surfaceOffset clone", () => {
+        // pt splits fold into one variant: skin shell + garment shell co-mesh.
+        const model = modelWithNodes([
+            "ash_head",
+            "ash_torso.001_pt1", "ash_torso.001_pt2",
+            "ash_leg.001",
+            "ash_hand.001_pt1", "ash_hand.001_pt2",
+        ]);
         model.materials = [
             { name: "M_skin", baseColor: [1, 1, 1, 1], metallic: 0, roughness: 1 },
             { name: "M_pallete", baseColor: [1, 1, 1, 1], metallic: 0, roughness: 1 },
         ];
-        // head+torso+hand = skin; legs = garment (palette)
+        // head(0) skin; torso pt1(1) skin + pt2(2) garment; leg(3) skin — bare
+        // variant (no covering co-mesh); hand pt1(4) skin + pt2(5) garment.
         model.meshes[0].materialIndex = 0; model.meshes[1].materialIndex = 0;
         model.meshes[2].materialIndex = 1; model.meshes[3].materialIndex = 0;
+        model.meshes[4].materialIndex = 0; model.meshes[5].materialIndex = 1;
         const cat = buildVariantCatalog(model);
         const { meshes, meshIndices } = resolveCustomizationMeshes(model, cat, defaultCustomization(cat));
-        expect([...meshIndices].sort((a, b) => a - b)).toEqual([0, 1, 2, 3]);
-        // skin meshes in inner groups (torso, hand) get the offset clone;
-        // head skin is excluded (face group), leg garment isn't skin.
+        expect([...meshIndices].sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4, 5]);
+        // Skin shells wrapped by a co-meshed garment (torso pt1, hand pt1) get
+        // the offset clone; head skin isn't an inner group, bare leg skin is
+        // the authored surface (no covering garment), garments aren't skin.
         expect(meshes[0]).toBe(model.meshes[0]);
         expect(meshes[1]).not.toBe(model.meshes[1]);
         expect(meshes[1].surfaceOffset).toBeGreaterThan(0);
         expect(meshes[1].vertices).toBe(model.meshes[1].vertices); // shared buffer
         expect(meshes[2]).toBe(model.meshes[2]);
-        expect(meshes[3].surfaceOffset).toBeGreaterThan(0);
+        expect(meshes[3]).toBe(model.meshes[3]);
+        expect(meshes[4]).not.toBe(model.meshes[4]);
+        expect(meshes[4].surfaceOffset).toBeGreaterThan(0);
+        expect(meshes[5]).toBe(model.meshes[5]);
+    });
+
+    it("does not offset bare-skin meshes next to small accessory meshes", () => {
+        // A skin mesh alongside a tiny non-skin accessory (e.g. nails) is the
+        // authored surface — the accessory doesn't wrap it.
+        const skin = boxMesh([0, 0, 0], [0.2, 1, 0.2]);
+        const nail = boxMesh([0.05, 0.01, 0.05], [0.1, 0.06, 0.1]);
+        const model: ModelData = {
+            name: "t", format: "fbx",
+            meshes: [skin, nail],
+            nodes: [
+                { name: "ash_leg.001_pt1", mesh: 0, meshes: [0] },
+                { name: "ash_leg.001_pt2", mesh: 1, meshes: [1] },
+            ],
+            materials: [
+                { name: "M_skin", baseColor: [1, 1, 1, 1], metallic: 0, roughness: 1 },
+                { name: "M_CustomColor", baseColor: [1, 1, 1, 1], metallic: 0, roughness: 1 },
+            ],
+        };
+        model.meshes[0].materialIndex = 0; model.meshes[1].materialIndex = 1;
+        const cat = buildVariantCatalog(model);
+        const { meshes } = resolveCustomizationMeshes(model, cat, defaultCustomization(cat));
+        expect(meshes[0]).toBe(model.meshes[0]);
+        expect(meshes[0].surfaceOffset).toBeUndefined();
     });
 
     it("inner-layer offset is opt-out via innerLayerOffset=0 and tunable suffixes", () => {
-        const model = modelWithNodes(["ash_torso.001", "ash_leg.001"]);
+        const model = modelWithNodes([
+            "ash_torso.001_pt1", "ash_torso.001_pt2",
+            "ash_leg.001_pt1", "ash_leg.001_pt2",
+        ]);
         model.materials = [
             { name: "skin", baseColor: [1, 1, 1, 1], metallic: 0, roughness: 1 },
+            { name: "garment", baseColor: [1, 1, 1, 1], metallic: 0, roughness: 1 },
         ];
-        model.meshes[0].materialIndex = 0; model.meshes[1].materialIndex = 0;
+        // pt1 = skin, pt2 = garment — identical fixture bounds, so covered.
+        model.meshes[0].materialIndex = 0; model.meshes[1].materialIndex = 1;
+        model.meshes[2].materialIndex = 0; model.meshes[3].materialIndex = 1;
         const cat = buildVariantCatalog(model);
         const cust = defaultCustomization(cat);
         const off = resolveCustomizationMeshes(model, cat, cust, { innerLayerOffset: 0 });
-        expect(off.meshes[1]).toBe(model.meshes[1]);
+        expect(off.meshes[0]).toBe(model.meshes[0]);
         // Exclude torso from inner groups → only the leg skin offsets.
         const custom = resolveCustomizationMeshes(model, cat, cust, {
             innerLayerSuffixes: ["leg"], innerLayerOffset: 0.01,
         });
         expect(custom.meshes[0].surfaceOffset).toBeUndefined();
-        expect(custom.meshes[1].surfaceOffset).toBe(0.01);
+        expect(custom.meshes[2].surfaceOffset).toBe(0.01);
     });
 
     it("attaches a skin-derived girth field to all selected meshes when girth is set", () => {
