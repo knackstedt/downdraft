@@ -57,6 +57,16 @@ export interface CharacterMotor3DConfig {
     maxVertSpeed: number;
     /** Stop floating up this far below the water surface. Default: 0.3. */
     surfaceOffset?: number;
+    /** Launch speed for vaulting out of the liquid over the rim: while holding
+     *  jump in the shallow band near the surface and pressing a move key with
+     *  env.swimNearEdge set, the swimmer pops out instead of clamping at the
+     *  surface. Scaled per-tick by env.swimVaultMul (0 = this liquid can't be
+     *  climbed out of). Default 0 = vaulting disabled. */
+    vaultForce?: number;
+    /** How far below waterHeight the feet can be for a vault to trigger.
+     *  Must exceed the game's wet-probe depth or the env's inWater flag drops
+     *  before the vault window opens. Default: 0.55. */
+    vaultDepth?: number;
   };
 }
 
@@ -96,6 +106,19 @@ export interface Motor3DEnv {
   /** Gate for ground-jump launches (e.g. disabled while piloting).
    *  Default: true. Does not affect swim-float. */
   jumpAllowed?: boolean;
+  /** Per-tick liquid modifiers — scale the swim config for thick/hazardous
+   *  liquids. All default to 1; a ~0 swimForceMul is a liquid the character
+   *  effectively can't swim in (quicksand). */
+  swimForceMul?: number;
+  /** Scales swim.sinkRate — quicksand-like liquids pull down fast. Default: 1. */
+  swimSinkMul?: number;
+  /** Scales swim.maxVertSpeed. Default: 1. */
+  swimVertMul?: number;
+  /** Scales swim.vaultForce; 0 = can't vault out of this liquid. Default: 1. */
+  swimVaultMul?: number;
+  /** Game-computed: close enough to the liquid body's edge to climb over the
+   *  rim. Suppresses mid-pool vaults. Default: true. */
+  swimNearEdge?: boolean;
 }
 
 export interface Motor3DDelta {
@@ -180,17 +203,33 @@ export function createCharacterMotor3D(cfg: CharacterMotor3DConfig): CharacterMo
     let dy = 0;
     if (inWater) {
       const swim = cfg.swim!;
-      if (isFloating) state.vy += swim.floatForce * dt;
-      else if (isDiving) state.vy -= swim.diveForce * dt;
-      else state.vy -= swim.sinkRate * dt;
+      const forceMul = env.swimForceMul ?? 1;
+      if (isFloating) state.vy += swim.floatForce * forceMul * dt;
+      else if (isDiving) state.vy -= swim.diveForce * forceMul * dt;
+      else state.vy -= swim.sinkRate * (env.swimSinkMul ?? 1) * dt;
       state.vy *= swim.drag;
-      state.vy = Math.max(-swim.maxVertSpeed, Math.min(swim.maxVertSpeed, state.vy));
+      const maxVert = swim.maxVertSpeed * (env.swimVertMul ?? 1);
+      state.vy = Math.max(-maxVert, Math.min(maxVert, state.vy));
       dy = state.vy * dt;
-      // Stop at the water surface when floating up (don't launch out).
-      if (isFloating && env.waterHeight !== undefined && env.posY !== undefined
-          && env.posY + dy > env.waterHeight - surfaceOffset) {
-        dy = env.waterHeight - surfaceOffset - env.posY;
-        state.vy = 0;
+      if (env.waterHeight !== undefined && env.posY !== undefined) {
+        const vault = (swim.vaultForce ?? 0) * (env.swimVaultMul ?? 1);
+        // Vault out over the rim: holding jump in the shallow band while
+        // pressing a move key near the edge launches past the surface instead
+        // of clamping. The vy>=0 guard stops a descending swimmer from
+        // re-triggering it; the env's inWater flag drops as the feet clear
+        // the surface, handing the launch to the ballistic branch.
+        if (isFloating && vault > 0 && (env.swimNearEdge ?? true)
+            && state.vy >= 0
+            && env.posY > env.waterHeight - (swim.vaultDepth ?? 0.55)
+            && (input.fwd !== 0 || input.strafe !== 0)) {
+          state.vy = vault;
+          state.grounded = false;
+          dy = state.vy * dt;
+        } else if (isFloating && env.posY + dy > env.waterHeight - surfaceOffset) {
+          // Stop at the water surface when floating up (don't launch out).
+          dy = env.waterHeight - surfaceOffset - env.posY;
+          state.vy = 0;
+        }
       }
     } else {
       if (cfg.resetVyWhenGrounded && state.grounded) state.vy = 0;
