@@ -132,6 +132,8 @@ export class NativeWindow extends MiniEventTarget {
   // previous monitor, and a periodic check bounds that staleness (and any
   // missed move event) to ~one poll instead of persisting for the session.
   private frameIntervalCheckedAt = -1e9;
+  /** Candidate interval awaiting confirmation (see frameInterval flap guard). */
+  private pendingFrameInterval = 0;
   private static readonly FRAME_INTERVAL_RECHECK_MS = 2000;
   // Vsync pacing (Android): the platform's Choreographer thread emits
   // SDL_EVENT_VSYNC per display refresh once armed via set_vsync_wanted.
@@ -452,9 +454,23 @@ export class NativeWindow extends MiniEventTarget {
       const hz = this.getDisplayInfo().refreshRate;
       if (hz > 0) {
         const interval = 1000 / hz;
-        if (interval !== this.frameIntervalMs) {
+        // current_monitor() flaps when the window straddles displays with
+        // different refresh rates (e.g. 360Hz + 100Hz) — each flap used to
+        // re-pace the loop every recheck. Require two consecutive agreeing
+        // readings before switching; a moved window still converges in ~4s.
+        if (this.frameIntervalMs <= 0) {
           log.info("NativeWindow", `rAF pacing: ${hz}Hz (${interval.toFixed(2)}ms)`);
           this.frameIntervalMs = interval;
+        } else if (interval !== this.frameIntervalMs) {
+          if (interval === this.pendingFrameInterval) {
+            log.info("NativeWindow", `rAF pacing: ${hz}Hz (${interval.toFixed(2)}ms)`);
+            this.frameIntervalMs = interval;
+            this.pendingFrameInterval = 0;
+          } else {
+            this.pendingFrameInterval = interval;
+          }
+        } else {
+          this.pendingFrameInterval = 0;
         }
       } else if (this.frameIntervalMs <= 0) {
         return 1000 / 60;

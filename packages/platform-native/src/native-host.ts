@@ -440,7 +440,10 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   const screenshotFn = (path: string, texture?: any) => {
     if (texture) {
       // Pass the surface format so captureScreenshot can swap BGRA→RGBA.
-      captureScreenshot(device, texture, config.window.width, config.window.height, path, format);
+      // Use the surface's real size, not the requested window size — the WM
+      // may have resized before/when the swapchain was configured, and a
+      // copy wider than the texture is a wgpu validation error.
+      captureScreenshot(device, texture, surface.width, surface.height, path, format);
     }
   };
 
