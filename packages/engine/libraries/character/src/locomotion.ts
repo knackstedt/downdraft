@@ -40,6 +40,13 @@ export interface LocomotionConfig {
    * Prevents mid-air state churn when speed changes mid-jump.
    */
   holdAirState?: boolean;
+  /**
+   * Per-transition crossfade overrides (seconds), keyed `"from->to"` with
+   * `"*"` wildcards (e.g. `"Swim->Jump"`, `"Swim->*"`, `"*->Swim"`). More
+   * specific keys win; absent = the animator's default blend duration.
+   * Useful for softening jarring swaps like Swim→Jump on a pool vault.
+   */
+  transitionFades?: Record<string, number>;
 }
 
 export interface LocomotionInput {
@@ -61,6 +68,7 @@ export class LocomotionAnimator extends SkeletonAnimator {
     run: AnimState;
     air?: AnimState | ((speed: number) => AnimState);
     holdAirState: boolean;
+    transitionFades?: Record<string, number>;
   };
 
   constructor(skin: SkinData, config: LocomotionConfig = {}) {
@@ -76,6 +84,7 @@ export class LocomotionAnimator extends SkeletonAnimator {
       runExit: t.runExit ?? 2.5,
       air: config.air,
       holdAirState: config.holdAirState ?? true,
+      transitionFades: config.transitionFades,
     };
   }
 
@@ -118,7 +127,10 @@ export class LocomotionAnimator extends SkeletonAnimator {
       desired = c.idle;
     }
 
-    this.setAnimationState(desired);
+    const fade = c.transitionFades?.[`${this.getCurrentState()}->${desired}`]
+      ?? c.transitionFades?.[`*->${desired}`]
+      ?? c.transitionFades?.[`${this.getCurrentState()}->*`];
+    this.setAnimationState(desired, fade);
     this.tick(dt);
   }
 }

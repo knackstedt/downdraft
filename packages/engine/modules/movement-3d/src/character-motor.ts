@@ -67,6 +67,10 @@ export interface CharacterMotor3DConfig {
      *  Must exceed the game's wet-probe depth or the env's inWater flag drops
      *  before the vault window opens. Default: 0.55. */
     vaultDepth?: number;
+    /** Min seconds between vaults — stops held keys from re-launching the
+     *  moment the swimmer falls back in (the "bouncing off the surface"
+     *  effect). Default: 0.5. */
+    vaultCooldown?: number;
   };
 }
 
@@ -94,6 +98,9 @@ export interface Motor3DState {
   grounded: boolean;
   /** Model yaw — eased toward the movement direction. */
   facing: number;
+  /** Internal: remaining seconds before another vault can launch. Managed by
+   *  the motor; callers should leave it alone. */
+  vaultCooldown?: number;
 }
 
 export interface Motor3DEnv {
@@ -119,6 +126,11 @@ export interface Motor3DEnv {
   /** Game-computed: close enough to the liquid body's edge to climb over the
    *  rim. Suppresses mid-pool vaults. Default: true. */
   swimNearEdge?: boolean;
+  /** Game-computed: unit XZ direction toward the nearest climbable edge. When
+   *  set, a vault only fires if the player's move input points at the edge
+   *  (dot > 0.35) — pressing away from the rim just bobs. When unset, any
+   *  horizontal input satisfies the check. */
+  swimEdgeDir?: [number, number];
 }
 
 export interface Motor3DDelta {
@@ -204,31 +216,53 @@ export function createCharacterMotor3D(cfg: CharacterMotor3DConfig): CharacterMo
     if (inWater) {
       const swim = cfg.swim!;
       const forceMul = env.swimForceMul ?? 1;
-      if (isFloating) state.vy += swim.floatForce * forceMul * dt;
-      else if (isDiving) state.vy -= swim.diveForce * forceMul * dt;
-      else state.vy -= swim.sinkRate * (env.swimSinkMul ?? 1) * dt;
-      state.vy *= swim.drag;
       const maxVert = swim.maxVertSpeed * (env.swimVertMul ?? 1);
-      state.vy = Math.max(-maxVert, Math.min(maxVert, state.vy));
+      state.vaultCooldown = Math.max(0, (state.vaultCooldown ?? 0) - dt);
+      if (Math.abs(state.vy) > maxVert) {
+        // Overspeed — a vault launch or a plunge from height. Decay
+        // ballistically back toward swim speeds; liquid forces re-engage once
+        // inside the cap, so a vault keeps its arc while still submerged
+        // instead of being crushed by drag on the next tick.
+        state.vy -= Math.sign(state.vy) * Math.min(Math.abs(state.vy) - maxVert, gravity * dt);
+      } else {
+        if (isFloating) state.vy += swim.floatForce * forceMul * dt;
+        else if (isDiving) state.vy -= swim.diveForce * forceMul * dt;
+        else state.vy -= swim.sinkRate * (env.swimSinkMul ?? 1) * dt;
+        state.vy *= swim.drag;
+        state.vy = Math.max(-maxVert, Math.min(maxVert, state.vy));
+      }
       dy = state.vy * dt;
       if (env.waterHeight !== undefined && env.posY !== undefined) {
         const vault = (swim.vaultForce ?? 0) * (env.swimVaultMul ?? 1);
+        const edgeDir = env.swimEdgeDir;
+        let towardEdge = input.fwd !== 0 || input.strafe !== 0;
+        if (edgeDir && towardEdge) {
+          const b = headingBasis(yaw);
+          const mvx = input.fwd * b.fwd[0] + input.strafe * b.right[0];
+          const mvz = input.fwd * b.fwd[1] + input.strafe * b.right[1];
+          towardEdge = mvx * edgeDir[0] + mvz * edgeDir[1] > 0.35;
+        }
         // Vault out over the rim: holding jump in the shallow band while
-        // pressing a move key near the edge launches past the surface instead
-        // of clamping. The vy>=0 guard stops a descending swimmer from
+        // pressing toward the edge launches past the surface instead of
+        // clamping. vy>=0 + the cooldown stop a descending swimmer from
         // re-triggering it; the env's inWater flag drops as the feet clear
         // the surface, handing the launch to the ballistic branch.
-        if (isFloating && vault > 0 && (env.swimNearEdge ?? true)
-            && state.vy >= 0
-            && env.posY > env.waterHeight - (swim.vaultDepth ?? 0.55)
-            && (input.fwd !== 0 || input.strafe !== 0)) {
+        if (isFloating && vault > 0 && (env.swimNearEdge ?? true) && towardEdge
+            && state.vy >= 0 && (state.vaultCooldown ?? 0) <= 0
+            && env.posY > env.waterHeight - (swim.vaultDepth ?? 0.55)) {
           state.vy = vault;
+          state.vaultCooldown = swim.vaultCooldown ?? 0.5;
           state.grounded = false;
           dy = state.vy * dt;
-        } else if (isFloating && env.posY + dy > env.waterHeight - surfaceOffset) {
-          // Stop at the water surface when floating up (don't launch out).
-          dy = env.waterHeight - surfaceOffset - env.posY;
-          state.vy = 0;
+        } else if (isFloating) {
+          // Ease to a stop at the surface line — an asymptotic approach
+          // instead of overshooting into the dry branch every other tick
+          // (the old hard clamp made the swimmer bob visibly at the line).
+          const cap = Math.max(0, env.waterHeight - surfaceOffset - env.posY) * 6;
+          if (state.vy > cap) {
+            state.vy = cap;
+            dy = state.vy * dt;
+          }
         }
       }
     } else {

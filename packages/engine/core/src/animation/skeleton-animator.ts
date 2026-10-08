@@ -1153,14 +1153,14 @@ export class SkeletonAnimator {
    */
   private static readonly MIN_STATE_INTERVAL = 0.1;
 
-  protected setAnimationState(state: AnimState): void {
+  protected setAnimationState(state: AnimState, fadeDuration?: number): void {
     if (state === this.currentState && this.player.isPlaying(state)) return;
     const clip = this.clips.get(state);
     if (!clip) return;
     if (this.timeSinceLastStateChange < SkeletonAnimator.MIN_STATE_INTERVAL && this.player.isPlaying()) return;
 
     // Use AnimationPlayer's fade for crossfade blending
-    this.player.play(state, clip, { fadeDuration: this.blendDuration });
+    this.player.play(state, clip, { fadeDuration: fadeDuration ?? this.blendDuration });
     this.currentState = state;
     this.timeSinceLastStateChange = 0;
   }
