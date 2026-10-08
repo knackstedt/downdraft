@@ -43,6 +43,17 @@ license = "MIT"
 [patch.crates-io]
 arboard = { path = "vendor/arboard" }
 
+# Vendored glifo 0.2.0 — text-quality patch for the html-ui stack:
+# - requests SmoothMode::Normal hinting (pixel grid) rather than Lcd
+#   (subpixel grid that vello_cpu's grayscale rasterizer never decimates to)
+# - applies a light synthetic embolden to hinted runs (stem darkening —
+#   blitz-paint's own embolden feature disables hinting entirely, so we
+#   do it here where hint + expand_path compose cleanly)
+# NOTE: snapping glyph x-offsets to integers was tried and reverted —
+# crisper stems but visibly inconsistent letter spacing; fractional
+# positions with per-phase atlas buckets (like Chrome grayscale) win.
+glifo = { path = "vendor/glifo" }
+
 # `cargo build --release` stays fast for local dev. CI artifact builds use
 # `cargo build --profile dist` — fat LTO + single codegen unit, matching what
 # the old per-crate release profiles did for the blitz natives.
