@@ -19,6 +19,8 @@
 mod enums;
 mod validate;
 
+use wgpu::wgc;
+
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::ffi::{c_char, c_void, CStr};
@@ -145,9 +147,10 @@ fn pump(wait: bool) {
         // lives on another. All callers currently pass false; degrade wait
         // to a non-blocking sweep when several instances are registered.
         let blocking = wait && insts.len() == 1;
-        for (_, i) in insts {
+        for (_, i) in &insts {
             i.poll_all(blocking);
         }
+        report_tick(&insts);
         return;
     }
     let dev = G_DEVICE.lock().unwrap().clone();
@@ -157,6 +160,32 @@ fn pump(wait: bool) {
         } else {
             PollType::Poll
         });
+    }
+}
+
+/// DD_WGPU_REPORT=<n>: every n pump() calls, dump wgpu registry occupancy —
+/// num_allocated (id high-water), kept (live), vacant — so runaway index
+/// spaces are visible without a debugger.
+static PUMP_TICKS: AtomicU64 = AtomicU64::new(0);
+fn report_tick(insts: &[(usize, Instance)]) {
+    let every: u64 = match std::env::var("DD_WGPU_REPORT") {
+        Ok(v) => v.parse().unwrap_or(0),
+        Err(_) => return,
+    };
+    if every == 0 || PUMP_TICKS.fetch_add(1, Ordering::Relaxed) % every != 0 {
+        return;
+    }
+    for (_, i) in insts {
+        let Some(rep) = i.generate_report() else { continue };
+        let h = rep.hub_report();
+        let f = |r: &wgc::registry::RegistryReport| {
+            format!("{}/{}/{}", r.num_allocated, r.num_kept_from_user, r.num_released_from_user)
+        };
+        eprintln!(
+            "[wgpu-report] surfaces={} textures={} views={} bindgroups={} cmdbuf={} buffers={} devices={} queues={}",
+            f(&rep.surfaces), f(&h.textures), f(&h.texture_views), f(&h.bind_groups),
+            f(&h.command_buffers), f(&h.buffers), f(&h.devices), f(&h.queues),
+        );
     }
 }
 
@@ -568,6 +597,7 @@ pub extern "C" fn wgpu_shim_process_events(instance: Handle) {
             pump(false);
         } else {
             obj::<Instance>(instance).poll_all(false);
+            report_tick(&[(instance as usize, obj::<Instance>(instance).clone())]);
         }
     });
 }

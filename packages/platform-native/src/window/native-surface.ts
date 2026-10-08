@@ -294,6 +294,12 @@ export class NativeCanvasContext {
     if (this.surfacePtr) {
       wgpu.wgpu_shim_surface_present(this.surfacePtr);
     }
+    // Release the acquired texture's native handle — present() consumes the
+    // swapchain SurfaceTexture on the Rust side, but the boxed Texture clone
+    // handed to JS stays alive until released. Without this every frame's
+    // surface texture keeps its wgpu registry id forever, the id space
+    // ratchets up, and wgpu's index-keyed tracker Vecs grow without bound.
+    try { this.currentTexture?.destroy?.(); } catch { /* best-effort */ }
     // Clear the cached texture — the next getCurrentTexture() will acquire a new one
     this.currentTexture = null;
   }
