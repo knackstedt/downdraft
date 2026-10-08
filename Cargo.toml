@@ -35,6 +35,14 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 
+# Vendored arboard 3.6.1 — upstream's X11 serve path advertises UTF-8 MIME
+# aliases in TARGETS but only replies to the exact stored atom, so requesters
+# that ask for text/plain;charset=utf-8 (Qt/Klipper) get an empty response and
+# the clipboard keeps stale contents. vendor/arboard adds the alias fallback in
+# handle_selection_request.
+[patch.crates-io]
+arboard = { path = "vendor/arboard" }
+
 # `cargo build --release` stays fast for local dev. CI artifact builds use
 # `cargo build --profile dist` — fat LTO + single codegen unit, matching what
 # the old per-crate release profiles did for the blitz natives.

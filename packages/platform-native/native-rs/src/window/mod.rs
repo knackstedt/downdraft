@@ -672,6 +672,19 @@ pub extern "C" fn sdl_shim_show_message_box(title: *const c_char, message: *cons
 // ── Clipboard ──
 
 #[cfg(not(target_os = "android"))]
+/// Long-lived process clipboard. A fresh `arboard::Clipboard` per call is wrong
+/// on X11: its `Drop` hands contents to the clipboard manager and destroys the
+/// server window, racing requesters and leaving stale/empty contents. Keeping
+/// one context alive for the process is the normal-app pattern — we stay the
+/// selection owner and keep serving requests while running.
+#[cfg(not(target_os = "android"))]
+fn shared_clipboard() -> Option<std::sync::MutexGuard<'static, arboard::Clipboard>> {
+    static CB: std::sync::OnceLock<Option<Mutex<arboard::Clipboard>>> = std::sync::OnceLock::new();
+    CB.get_or_init(|| arboard::Clipboard::new().ok().map(Mutex::new))
+        .as_ref()
+        .and_then(|m| m.lock().ok())
+}
+
 #[no_mangle]
 pub extern "C" fn sdl_shim_set_clipboard(text: *const c_char) {
     ffi!((), {
@@ -681,7 +694,7 @@ pub extern "C" fn sdl_shim_set_clipboard(text: *const c_char) {
         let text = unsafe { CStr::from_ptr(text) }
             .to_string_lossy()
             .into_owned();
-        if let Ok(mut cb) = arboard::Clipboard::new() {
+        if let Some(mut cb) = shared_clipboard() {
             let _ = cb.set_text(text);
         }
     });
@@ -720,7 +733,7 @@ pub extern "C" fn sdl_shim_get_clipboard(out: *mut c_char, max_len: c_int) -> c_
             return 0;
         }
         unsafe { *out = 0 };
-        let Ok(mut cb) = arboard::Clipboard::new() else {
+        let Some(mut cb) = shared_clipboard() else {
             return 0;
         };
         let Ok(text) = cb.get_text() else { return 0 };

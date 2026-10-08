@@ -92,6 +92,35 @@ impl ShellProvider for FlagShell {
     fn request_redraw(&self) {
         self.flag.store(true, Ordering::Relaxed);
     }
+
+    #[cfg(not(target_os = "android"))]
+    fn get_clipboard_text(&self) -> Result<String, blitz_traits::shell::ClipboardError> {
+        clipboard()
+            .and_then(|mut cb| cb.get_text().ok())
+            .ok_or(blitz_traits::shell::ClipboardError)
+    }
+
+    #[cfg(not(target_os = "android"))]
+    fn set_clipboard_text(&self, text: String) -> Result<(), blitz_traits::shell::ClipboardError> {
+        clipboard()
+            .and_then(|mut cb| cb.set_text(text).ok())
+            .ok_or(blitz_traits::shell::ClipboardError)
+    }
+}
+
+/// Long-lived process clipboard. On X11 the clipboard owner must keep serving
+/// selection requests while it owns the selection, so a fresh `Clipboard` per
+/// call is wrong: its `Drop` hands contents to the clipboard manager and
+/// destroys the server window, which races requesters and can leave stale or
+/// empty contents. Klipper already snapshots content on ownership changes, so
+/// keeping the context alive for the process is the normal-app pattern.
+#[cfg(not(target_os = "android"))]
+fn clipboard() -> Option<std::sync::MutexGuard<'static, arboard::Clipboard>> {
+    static CB: std::sync::OnceLock<Option<std::sync::Mutex<arboard::Clipboard>>> =
+        std::sync::OnceLock::new();
+    CB.get_or_init(|| arboard::Clipboard::new().ok().map(std::sync::Mutex::new))
+        .as_ref()
+        .and_then(|m| m.lock().ok())
 }
 
 fn build_doc(
@@ -269,6 +298,13 @@ pub extern "C" fn dd_osr_init(
     html_len: usize,
 ) -> *mut OsrDoc {
     ffi(std::ptr::null_mut(), || {
+        static LOG_INIT: std::sync::Once = std::sync::Once::new();
+        LOG_INIT.call_once(|| {
+            let _ = env_logger::Builder::from_env(
+                env_logger::Env::default().default_filter_or("off"),
+            )
+            .try_init();
+        });
         let Some(html) = (unsafe { read_str(html_ptr, html_len) }) else {
             return std::ptr::null_mut();
         };
