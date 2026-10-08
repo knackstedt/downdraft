@@ -954,8 +954,28 @@ export class SessionTracker {
         // workers) forever. Host-internal rAF goes through window.rAF, not
         // this global, so nothing legit is dropped here.
         if (!s || s.dead) { self.__warnOrphan?.("requestAnimationFrame(dead/null-session)"); return -1; }
-        const id = origRaf(cb);
-        s.rafIds.add(id);
+        // Wrap the callback so a fired one-shot retires its tracked id —
+        // only cancelAnimationFrame removes ids, and every re-arming rAF
+        // loop registers a fresh one each frame (~640/s in practice), so a
+        // plain add() grows the set unboundedly for the session's lifetime.
+        // WeakRef mirrors the timer wraps: an armed handle must not pin the
+        // owning snapshot after teardown.
+        const sref = new WeakRef(s);
+        let id = -1;
+        let fired = false;
+        const wrapped = typeof cb === "function"
+          ? (ts: any) => {
+              fired = true;
+              const ss = sref.deref();
+              ss?.rafIds.delete(id);
+              if (!ss || ss.dead) return;
+              return cb(ts);
+            }
+          : cb;
+        id = origRaf(wrapped);
+        // A host that dispatches the callback synchronously already retired
+        // the id — tracking it would leak it into the set forever.
+        if (!fired) s.rafIds.add(id);
         return id;
       };
       g.cancelAnimationFrame = function (id: number) {
