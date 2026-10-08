@@ -26,6 +26,7 @@ import {
     CONFIG_KEY,
     EV,
     HMR_KEY,
+    HOST_GLOBALS,
     LISTENERS_FLAG,
     SUPERVISOR_KEY,
 } from "./dev-constants.mjs";
@@ -129,22 +130,6 @@ async function saveAndTeardown(): Promise<void> {
     logError(`teardown failed (continuing): ${e}`);
   }
 }
-
-/** Globals installed by createNativeHost + friends — cleared on host restart
- *  so the next createNativeHost call rebuilds a clean persistent layer. */
-const HOST_GLOBALS = [
-  "__nativeHost", "__ddEarlyHostPromise", "__ddEarlyHost", "__nativeWindow", "__nativeGpu", "__wgpuInstancePtr",
-  "__nativeGlob", "downdraft", "__ddMcpHandler", "__ddRequestRestart",
-  "__ddRequestFrame", "__ddRetireSharedDevices",
-  "window", "document", "localStorage", "sessionStorage",
-  "requestAnimationFrame", "cancelAnimationFrame",
-  "addEventListener", "removeEventListener", "dispatchEvent",
-  "HTMLCanvasElement", "CanvasRenderingContext2D", "FileReader",
-  "ResizeObserver",
-  "KeyboardEvent", "MouseEvent", "PointerEvent", "WheelEvent",
-  "InputEvent", "FocusEvent",
-  "createImageBitmap", "ImageBitmap", "OffscreenCanvas", "ImageData", "Image",
-];
 
 function destroyHostLayer(): void {
   try { g.__nativeHost?.destroy?.(); } catch { /* already down */ }

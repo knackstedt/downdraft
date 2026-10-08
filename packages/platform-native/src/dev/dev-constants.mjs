@@ -22,6 +22,27 @@ export const HMR_KEY = "__ddHmr";
  *  evaluatedModules.clear() that full-reload performs). */
 export const LISTENERS_FLAG = "__ddHmrListenersInstalled";
 
+/** Globals installed by createNativeHost + friends — cleared on host
+ *  restart so the next createNativeHost call rebuilds a clean persistent
+ *  layer. Shared between the runtime's destroyHostLayer() (the happy path)
+ *  and the dev shell's supervisor-driven fallback, which must clear the
+ *  same set: a stale entry holding a freed native handle
+ *  (__wgpuInstancePtr above all — the next generation's NativeWindow feeds
+ *  it to create_surface) is a use-after-free in the shim. */
+export const HOST_GLOBALS = [
+  "__nativeHost", "__ddEarlyHostPromise", "__ddEarlyHost", "__nativeWindow", "__nativeGpu", "__wgpuInstancePtr",
+  "__nativeGlob", "downdraft", "__ddMcpHandler", "__ddRequestRestart",
+  "__ddRequestFrame", "__ddRetireSharedDevices",
+  "window", "document", "localStorage", "sessionStorage",
+  "requestAnimationFrame", "cancelAnimationFrame",
+  "addEventListener", "removeEventListener", "dispatchEvent",
+  "HTMLCanvasElement", "CanvasRenderingContext2D", "FileReader",
+  "ResizeObserver",
+  "KeyboardEvent", "MouseEvent", "PointerEvent", "WheelEvent",
+  "InputEvent", "FocusEvent",
+  "createImageBitmap", "ImageBitmap", "OffscreenCanvas", "ImageData", "Image",
+];
+
 /** Custom hot-channel events used by the native HMR protocol. */
 export const EV = {
   /** server → runner: a sim/worker-classified file changed; swap workers. */

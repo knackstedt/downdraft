@@ -460,6 +460,12 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
       // a live pump target until the very end.
       try { device.destroy(); } catch { /* best-effort */ }
       try { wgpu.wgpu_shim_release_instance(gpu.getInstancePtr()); } catch { /* best-effort */ }
+      // The instance box is freed — clear the global NOW, not in the
+      // destroyHostLayer sweep the dev runtime runs after us: the
+      // supervisor's Tier-4 fallback path never reaches destroyHostLayer,
+      // and a stale ptr is a use-after-free the next generation's
+      // NativeWindow hands straight to create_surface (SIGSEGV).
+      (globalThis as any).__wgpuInstancePtr = 0;
       releaseSingleInstanceLock();
     },
   };

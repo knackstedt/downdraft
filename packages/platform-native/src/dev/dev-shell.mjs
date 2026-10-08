@@ -27,6 +27,7 @@ import {
     CONFIG_KEY,
     DD_RESTART_EXIT,
     EV,
+    HOST_GLOBALS,
     LISTENERS_FLAG,
     SUPERVISOR_KEY,
 } from "./dev-constants.mjs";
@@ -47,6 +48,8 @@ installConsoleBridge();
 // bound it exists to enforce.
 const rawSetTimeout = globalThis.setTimeout.bind(globalThis);
 const rawClearTimeout = globalThis.clearTimeout.bind(globalThis);
+const rawSetInterval = globalThis.setInterval.bind(globalThis);
+const rawClearInterval = globalThis.clearInterval.bind(globalThis);
 
 // Two-arg form is used by native-dev-runtime (sup.log("hmr", msg)) — the
 // first arg is a submodule tag, rendered as [dd-dev/hmr].
@@ -216,6 +219,39 @@ let hostFallback = null;
  *  would sit behind the pending entry import and fire a spurious extra
  *  restart at the next session boundary. */
 let restartPending = false;
+/** Same claim-token as restartPending, for Tier 4: armed by sendHostRestart
+ *  (every Tier-4 trigger passes through it), claimed-and-cleared by
+ *  whichever of hostRestartReady / driveHostFallback fires first. Without
+ *  it a fallback firing while the runtime's listener is mid-teardown
+ *  enqueues a second reimport behind the first. */
+let hostRestartPending = false;
+
+/** Deliver a custom hot event to the runtime. Vite's runner-side HMR client
+ *  drops custom events when no listener is registered — exactly the state
+ *  during early boot (RUNTIME_MODULE's hot.on calls haven't evaluated yet)
+ *  and in the gap after LISTENERS_FLAG is cleared for a reimport. Retry
+ *  delivery until the flag lands; stillNeeded() lets the caller stop once
+ *  the restart was claimed by another path. The caller's fallback timer
+ *  bounds a runtime that never installs listeners. */
+function sendWhenReady(payload, stillNeeded) {
+  const attempt = () => {
+    if (!stillNeeded()) return true;
+    if (!globalThis[LISTENERS_FLAG]) return false;
+    try {
+      env().hot.send(payload);
+    } catch (e) {
+      logErr(`hot send failed (${payload?.event}): ${e?.message ?? e}`);
+    }
+    return true;
+  };
+  if (attempt()) return;
+  log(`${payload?.event} deferred — runtime listeners not installed yet`);
+  const poll = rawSetInterval(() => {
+    try { if (attempt()) rawClearInterval(poll); }
+    catch { rawClearInterval(poll); }
+  }, 250);
+  poll.unref?.();
+}
 
 /** Send a session-restart into the env (the Tier-3 trigger).
  *
@@ -229,11 +265,49 @@ let restartPending = false;
  *  ourselves in reimportSession. */
 function sendFullReload(triggeredBy) {
   try {
-    env().hot.send({ type: "custom", event: EV.sessionRestart, data: { triggeredBy } });
     armSessionFallback();
+    sendWhenReady(
+      { type: "custom", event: EV.sessionRestart, data: { triggeredBy } },
+      () => restartPending,
+    );
   } catch (e) {
     logErr(`full-reload send failed: ${e?.message ?? e}`);
   }
+}
+
+/** The supervisor-driven session teardown — runs when the runtime's
+ *  sessionRestartReady never arrives (dropped event, dead session). */
+function driveSessionFallback() {
+  sessionFallback = null;
+  if (!restartPending) return; // the runtime's ready already claimed it
+  restartPending = false;
+  log("session restart fell back to supervisor-driven reimport");
+  // The teardown CANNOT live inside the reimport queue: the queue tail
+  // is the current session's still-pending runner.import(entry) — it
+  // only resolves when the session ends, i.e. AFTER teardown — so an
+  // enqueued teardown deadlocks the restart permanently. Run it first,
+  // then enqueue the reimport.
+  void (async () => {
+    // teardownInner bounds each step (dispose callbacks, sim stops) —
+    // if it still exceeds 60s the session is unkillable in-process and
+    // the only sound recovery is a process respawn.
+    let wedged = false;
+    await Promise.race([
+      (async () => {
+        try { await globalThis.__ddSession?.teardown?.({ destroyDevices: false }); } catch { /* best-effort */ }
+      })(),
+      new Promise((r) => {
+        const t = rawSetTimeout(() => { wedged = true; r(); }, 60_000);
+        t.unref?.();
+      }),
+    ]);
+    if (wedged) {
+      logErr("session teardown wedged >60s — escalating to process restart");
+      void shutdown(DD_RESTART_EXIT, "session teardown wedged");
+      return;
+    }
+    enqueue(reimportSession);
+  })();
 }
 
 /** Arm the fallback watchdog for a session restart — called by
@@ -243,78 +317,70 @@ function sendFullReload(triggeredBy) {
 function armSessionFallback() {
   restartPending = true;
   rawClearTimeout(sessionFallback);
-  sessionFallback = rawSetTimeout(() => {
-    sessionFallback = null;
-    if (!restartPending) return; // the runtime's ready already claimed it
-    restartPending = false;
-    log("session restart fell back to supervisor-driven reimport");
-    // The teardown CANNOT live inside the reimport queue: the queue tail
-    // is the current session's still-pending runner.import(entry) — it
-    // only resolves when the session ends, i.e. AFTER teardown — so an
-    // enqueued teardown deadlocks the restart permanently. Run it first,
-    // then enqueue the reimport.
-    void (async () => {
-      // teardownInner bounds each step (dispose callbacks, sim stops) —
-      // if it still exceeds 60s the session is unkillable in-process and
-      // the only sound recovery is a process respawn.
-      let wedged = false;
-      await Promise.race([
-        (async () => {
-          try { await globalThis.__ddSession?.teardown?.({ destroyDevices: false }); } catch {}
-        })(),
-        new Promise((r) => {
-          const t = rawSetTimeout(() => { wedged = true; r(); }, 60_000);
-          t.unref?.();
-        }),
-      ]);
-      if (wedged) {
-        logErr("session teardown wedged >60s — escalating to process restart");
-        void shutdown(DD_RESTART_EXIT, "session teardown wedged");
-        return;
-      }
-      enqueue(reimportSession);
-    })();
-  }, Math.max(ackTimeoutMs, 15_000));
+  sessionFallback = rawSetTimeout(driveSessionFallback, Math.max(ackTimeoutMs, 15_000));
   sessionFallback.unref?.();
+}
+
+/** destroyHostLayer() equivalent for the supervisor-driven path — the
+ *  runtime's Tier-4 listener never ran, so nothing else clears the host
+ *  globals. A stale entry holding a freed native handle
+ *  (__wgpuInstancePtr above all — the next generation's NativeWindow
+ *  feeds it to create_surface) is a use-after-free in the shim. */
+function resetHostGlobals() {
+  try { globalThis.__nativeHost?.destroy?.(); } catch { /* already down */ }
+  HOST_GLOBALS.forEach((key) => {
+    try { delete globalThis[key]; } catch { globalThis[key] = undefined; }
+  });
+  try { if (globalThis.navigator) globalThis.navigator.gpu = undefined; } catch { /* getter-only */ }
+  try { globalThis.__ddSession?.resetTrackedTargets?.(); } catch { /* optional */ }
 }
 
 function sendHostRestart(data) {
   try {
-    env().hot.send({ type: "custom", event: "dd:host-restart", data });
+    hostRestartPending = true;
+    sendWhenReady(
+      { type: "custom", event: "dd:host-restart", data },
+      () => hostRestartPending,
+    );
     rawClearTimeout(hostFallback);
-    hostFallback = rawSetTimeout(() => {
-      hostFallback = null;
-      log("host restart fell back to supervisor-driven reimport");
-      // Same queue deadlock as the session fallback: teardown/host-destroy
-      // must run outside the reimport queue — the queue tail is the dying
-      // session's pending entry import, which only resolves post-teardown.
-      void (async () => {
-        let wedged = false;
-        await Promise.race([
-          (async () => {
-            try { await globalThis.__ddSession?.teardown?.({ destroyDevices: false }); } catch {}
-          })(),
-          new Promise((r) => {
-            const t = rawSetTimeout(() => { wedged = true; r(); }, 60_000);
-            t.unref?.();
-          }),
-        ]);
-        if (wedged) {
-          logErr("session teardown wedged >60s — escalating to process restart");
-          void shutdown(DD_RESTART_EXIT, "session teardown wedged");
-          return;
-        }
-        try { await globalThis.__ddRetireSharedDevices?.(1_500); } catch {}
-        try { globalThis.__nativeHost?.destroy?.(); } catch {}
-        delete globalThis.__nativeHost;
-        enqueue(reimportHost);
-      })();
-    }, Math.max(ackTimeoutMs, 20_000));
+    hostFallback = rawSetTimeout(driveHostFallback, Math.max(ackTimeoutMs, 20_000));
     hostFallback.unref?.();
   } catch (e) {
     logErr(`host-restart send failed: ${e?.message ?? e}`);
     void shutdown(DD_RESTART_EXIT, "host-restart send failure");
   }
+}
+
+/** The supervisor-driven host teardown — runs when the runtime's
+ *  hostRestartReady never arrives (dropped event, dead session). */
+function driveHostFallback() {
+  hostFallback = null;
+  if (!hostRestartPending) return; // the runtime's ready already claimed it
+  hostRestartPending = false;
+  log("host restart fell back to supervisor-driven reimport");
+  // Same queue deadlock as the session fallback: teardown/host-destroy
+  // must run outside the reimport queue — the queue tail is the dying
+  // session's pending entry import, which only resolves post-teardown.
+  void (async () => {
+    let wedged = false;
+    await Promise.race([
+      (async () => {
+        try { await globalThis.__ddSession?.teardown?.({ destroyDevices: false }); } catch { /* best-effort */ }
+      })(),
+      new Promise((r) => {
+        const t = rawSetTimeout(() => { wedged = true; r(); }, 60_000);
+        t.unref?.();
+      }),
+    ]);
+    if (wedged) {
+      logErr("session teardown wedged >60s — escalating to process restart");
+      void shutdown(DD_RESTART_EXIT, "session teardown wedged");
+      return;
+    }
+    try { await globalThis.__ddRetireSharedDevices?.(1_500); } catch { /* bounded + best-effort */ }
+    resetHostGlobals();
+    enqueue(reimportHost);
+  })();
 }
 
 const envRef = { current: null };
@@ -373,6 +439,8 @@ const supervisor = {
   hostRestartReady() {
     rawClearTimeout(hostFallback);
     hostFallback = null;
+    if (!hostRestartPending) return; // stale ready — the fallback already drove it
+    hostRestartPending = false;
     enqueue(reimportHost);
   },
 

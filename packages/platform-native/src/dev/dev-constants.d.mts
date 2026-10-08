@@ -6,6 +6,7 @@ export const CONFIG_KEY: string;
 export const SUPERVISOR_KEY: string;
 export const HMR_KEY: string;
 export const LISTENERS_FLAG: string;
+export const HOST_GLOBALS: string[];
 export const EV: {
   simHotReload: string;
   simHotReloadAck: string;
