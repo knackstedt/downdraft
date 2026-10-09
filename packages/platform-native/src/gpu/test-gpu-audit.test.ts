@@ -4,18 +4,34 @@
  */
 import { beforeAll, describe, expect, test } from "bun:test";
 import { installGPU } from "./install";
+import { wgpu } from "./wgpu-ffi";
 import type { WgpuDevice, WgpuQuerySet } from "./wgpu-wrapper";
 
 let device: WgpuDevice;
 
+// Needs libdowndraft_platform + a real adapter — absent on fresh checkouts
+// (no built/native-* lib yet) and GPU-less CI runners. Probe once and skip
+// like the other native-gated specs (shared-device, ffi-spike, osr-spike).
+const GPU_OK = (() => {
+  try {
+    const instance = wgpu.wgpu_shim_create_instance() as unknown as number;
+    const adapter = wgpu.wgpu_shim_request_adapter(instance, 0) as unknown as number;
+    const dev = adapter ? wgpu.wgpu_shim_request_device(adapter, 0, 0, 0, 0) as unknown as number : 0;
+    return !!dev;
+  } catch {
+    return false;
+  }
+})();
+
 beforeAll(async () => {
+  if (!GPU_OK) return;
   installGPU();
   const adapter = await navigator.gpu!.requestAdapter();
   if (!adapter) throw new Error("No GPU adapter");
   device = (await adapter.requestDevice()) as unknown as WgpuDevice;
 });
 
-describe("AUDIT FIX: query sets", () => {
+describe.skipIf(!GPU_OK)("AUDIT FIX: query sets", () => {
   test("createQuerySet creates a real query set (not a fake object)", () => {
     const qs = device.createQuerySet({ type: "occlusion", count: 4 }) as WgpuQuerySet;
     expect(qs).toBeDefined();
@@ -39,7 +55,7 @@ describe("AUDIT FIX: query sets", () => {
   });
 });
 
-describe("AUDIT FIX: clearBuffer", () => {
+describe.skipIf(!GPU_OK)("AUDIT FIX: clearBuffer", () => {
   test("clearBuffer does not throw", () => {
     const buf = device.createBuffer({ size: 256, usage: 0x0008 | 0x0040 /* COPY_DST | UNIFORM */ });
     const encoder = device.createCommandEncoder();
@@ -50,7 +66,7 @@ describe("AUDIT FIX: clearBuffer", () => {
   });
 });
 
-describe("AUDIT FIX: comparison sampler (shadow mapping)", () => {
+describe.skipIf(!GPU_OK)("AUDIT FIX: comparison sampler (shadow mapping)", () => {
   test("createSampler with compare: 'less' does not throw", () => {
     expect(() => {
       device.createSampler({ compare: "less", magFilter: "linear", minFilter: "linear" });
@@ -58,7 +74,7 @@ describe("AUDIT FIX: comparison sampler (shadow mapping)", () => {
   });
 });
 
-describe("AUDIT FIX: error scopes", () => {
+describe.skipIf(!GPU_OK)("AUDIT FIX: error scopes", () => {
   test("popErrorScope returns null when no error", async () => {
     device.pushErrorScope("validation");
     const err = await device.popErrorScope();
@@ -66,7 +82,7 @@ describe("AUDIT FIX: error scopes", () => {
   });
 });
 
-describe("AUDIT FIX: executeBundles throws", () => {
+describe.skipIf(!GPU_OK)("AUDIT FIX: executeBundles throws", () => {
   test("executeBundles throws (not silently no-op)", () => {
     const tex = device.createTexture({
       size: [64, 64, 1],
@@ -84,7 +100,7 @@ describe("AUDIT FIX: executeBundles throws", () => {
   });
 });
 
-describe("AUDIT FIX: copyTextureToTexture", () => {
+describe.skipIf(!GPU_OK)("AUDIT FIX: copyTextureToTexture", () => {
   test("copyTextureToTexture does not throw", () => {
     const usage = 0x01 | 0x02 /* COPY_SRC | COPY_DST */;
     const src = device.createTexture({ size: [64, 64, 1], format: "bgra8unorm", usage });
@@ -104,7 +120,7 @@ describe("AUDIT FIX: copyTextureToTexture", () => {
   });
 });
 
-describe("AUDIT FIX: real limits/features query", () => {
+describe.skipIf(!GPU_OK)("AUDIT FIX: real limits/features query", () => {
   test("device.limits has real values (not all-zero)", () => {
     const limits = device.limits as any;
     expect(limits.maxTextureDimension2D).toBeGreaterThan(0);
@@ -117,7 +133,7 @@ describe("AUDIT FIX: real limits/features query", () => {
   });
 });
 
-describe("AUDIT FIX: default texture-view caching", () => {
+describe.skipIf(!GPU_OK)("AUDIT FIX: default texture-view caching", () => {
   // The render loop called texture.createView() several times per frame on the
   // same surface/depth texture; each call minted a native view handle that was
   // only reclaimed by GC, so live handles grew without bound. Descriptor-less
@@ -158,7 +174,7 @@ describe("AUDIT FIX: default texture-view caching", () => {
   });
 });
 
-describe("AUDIT FIX: setBlendConstant + setStencilReference", () => {
+describe.skipIf(!GPU_OK)("AUDIT FIX: setBlendConstant + setStencilReference", () => {
   test("setBlendConstant does not throw", () => {
     const tex = device.createTexture({
       size: [64, 64, 1],

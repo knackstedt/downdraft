@@ -39,6 +39,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { engineConditions } from "./engine-source.mjs";
 
 // ── args ──
 
@@ -82,6 +83,7 @@ for (const a of abis.values()) {
 }
 
 const repoRoot = process.cwd();
+const engineConds = engineConditions(argv, resolve(entry));
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const monorepoRoot = resolve(scriptDir, "../../..");
 const gameDir = dirname(dirname(resolve(entry)));
@@ -443,6 +445,7 @@ while (workerEntries.size !== prevCount) {
   const scan = await Bun.build({
     entrypoints: [resolve(entry), ...workerEntries],
     target: "node",
+    conditions: engineConds,
     plugins: [makePlugin(true)],
     splitting: false,
     sourcemap: "none",
@@ -466,6 +469,7 @@ const build = await Bun.build({
   // No `compile` — libnode executes the extracted ESM files.
   target: "node",
   root: repoRoot,
+  conditions: engineConds,
   naming: { entry: "[dir]/[name].mjs" },
   plugins: [makePlugin(false)],
   splitting: false,

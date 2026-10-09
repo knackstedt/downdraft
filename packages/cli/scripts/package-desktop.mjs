@@ -69,6 +69,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { engineConditions } from "./engine-source.mjs";
 import { resolvePlatLibDir } from "./native-lib-fetch.mjs";
 
 // ── Args ──
@@ -462,6 +463,7 @@ const makeEmitPlugin = (collectWorkers) => ({
 
 // ── Scan pass: discover Worker entrypoints to a fixpoint ──
 
+const engineConds = engineConditions(argv, resolve(entry));
 const scanOutdir = mkdtempSync(join(tmpdir(), "dd-scan-"));
 let prevCount = -1;
 while (workerEntries.size !== prevCount) {
@@ -469,6 +471,7 @@ while (workerEntries.size !== prevCount) {
   const scan = await Bun.build({
     entrypoints: [resolve(entry), ...workerEntries],
     target: "node",
+    conditions: engineConds,
     plugins: [makeEmitPlugin(true)],
     splitting: false,
     sourcemap: "none",
@@ -592,6 +595,7 @@ if (runtime === "bun") {
     entrypoints,
     target: "node",
     root: repoRoot,
+    conditions: engineConds,
     naming: { entry: "[dir]/[name].mjs" },
     plugins: [makeEmitPlugin(false)],
     splitting: false,

@@ -38,7 +38,21 @@ function makeDevice() {
   return { instance, device: new WgpuDevice(devicePtr, instance) };
 }
 
-describe("shared GPU device across workers", () => {
+// These specs need libdowndraft_platform + a real adapter. Neither exists on
+// a fresh checkout before the native-* optional dep lands on npm (or on
+// GPU-less CI runners), so probe once and skip like the other native-gated
+// specs (ffi-spike, osr-spike).
+const GPU_OK = (() => {
+  try {
+    const { device } = makeDevice();
+    device.destroy();
+    return true;
+  } catch {
+    return false;
+  }
+})();
+
+describe.skipIf(!GPU_OK)("shared GPU device across workers", () => {
   it("attachSharedDevice rejects a dead handle", () => {
     const cells = createDeviceStateCells();
     markDeviceLost(cells);
@@ -179,7 +193,7 @@ describe("shared GPU device across workers", () => {
   });
 });
 
-describe("GpuShareBroker", () => {
+describe.skipIf(!GPU_OK)("GpuShareBroker", () => {
   it("issues one attach payload per device and tracks views globally", async () => {
     const { device } = makeDevice();
     const broker = new GpuShareBroker(device);
@@ -218,7 +232,7 @@ describe("GpuShareBroker", () => {
   });
 });
 
-describe("borrow/import GPU resources", () => {
+describe.skipIf(!GPU_OK)("borrow/import GPU resources", () => {
   it("borrowed wrappers never release the owner's handle", () => {
     const { device } = makeDevice();
     const tex = device.createTexture({
@@ -317,7 +331,7 @@ describe("borrow/import GPU resources", () => {
   });
 });
 
-describe("GpuPassMailbox", () => {
+describe.skipIf(!GPU_OK)("GpuPassMailbox", () => {
   it("drains posted worker command buffers into submit-ready wrappers", () => {
     const { device } = makeDevice();
     const mailbox = new GpuPassMailbox();

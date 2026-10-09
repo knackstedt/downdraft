@@ -46,6 +46,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { engineConditions } from "./engine-source.mjs";
 import { resolvePlatLibDir } from "./native-lib-fetch.mjs";
 
 // CRATES is shared with the repo's scripts/native-crates.mjs when this file
@@ -101,6 +102,7 @@ let outfile = outfileArg;
 if (target.exe && !outfile.endsWith(".exe")) outfile += ".exe";
 
 const repoRoot = process.cwd();
+const engineConds = engineConditions(argv, resolve(entry));
 const QUERY_RE = /\?(raw|url|json)$/;
 const WORKER_RE = /new\s+Worker\(\s*new\s+URL\(\s*["'`]([^"'`]+)["'`]\s*,\s*import\.meta\.url\s*\)/g;
 const ASSET_URL_RE = /new\s+URL\(\s*["'`]([^"'`]+)["'`]\s*,\s*import\.meta\.url\s*\)/g;
@@ -398,6 +400,7 @@ while (workerEntries.size !== prevCount) {
   const scan = await Bun.build({
     entrypoints: [resolve(entry), ...workerEntries],
     target: "bun",
+    conditions: engineConds,
     plugins: [makePlugin(true)],
     splitting: false,
     sourcemap: "none",
@@ -420,6 +423,7 @@ const result = await Bun.build({
   entrypoints,
   compile: { outfile: resolve(outfile), ...(target.bun ? { target: target.bun } : {}) },
   target: "bun",
+  conditions: engineConds,
   plugins: [makePlugin(false)],
   splitting: false,
   sourcemap: "none",
