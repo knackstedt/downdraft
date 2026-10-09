@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dist": "draft dist",
-    "test": "echo 'run bun test <path>.spec.ts for unit tests, or bun run draft:test / draft:test-cpu for e2e' && exit 0",
+    "test": "bun test --isolate --conditions=downdraft-source --path-ignore-patterns \"**/node-mobile/build/**\" packages/ examples/plugin-tester/src/*.spec.ts",
     "draft:test": "draft test --game=to-the-ocean --renderer=gpu",
     "draft:test-cpu": "draft test --game=to-the-ocean --renderer=cpu",
     "test:e2e": "bun test tests/e2e/to-the-ocean-smoke.spec.ts",
@@ -19,8 +19,7 @@
     "gen:deno-import-map": "node scripts/gen-deno-import-map.mjs",
     "gen:engine-exports": "node scripts/gen-engine-exports.mjs",
     "link:games": "node scripts/link-games.mjs",
-    "lint": "oxlint",
-    "test": "bun test --isolate --conditions=downdraft-source --path-ignore-patterns \"**/node-mobile/build/**\" packages/ examples/plugin-tester/src/*.spec.ts"
+    "lint": "oxlint"
   },
   "workspaces": [
     "packages/engine",
