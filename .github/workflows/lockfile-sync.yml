@@ -1,0 +1,37 @@
+name: Lockfile sync
+
+# After a successful publish, the native-* optional deps become resolvable on
+# npm — bun then wants lockfile entries for them, which makes `bun ci` fail on
+# main until bun.lock is regenerated. This job does that regeneration
+# automatically so the next push's CI doesn't hit a stale lockfile.
+
+on:
+  workflow_run:
+    workflows: [Publish]
+    types: [completed]
+
+permissions:
+  contents: write # commit bun.lock back to main
+
+jobs:
+  sync:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: main
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      - name: Regenerate lockfile
+        run: bun install
+      - name: Commit if changed
+        run: |
+          if git diff --quiet bun.lock; then
+            echo "bun.lock already in sync"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bun.lock
+          git commit -m "chore: sync bun.lock after publish (workflow_run ${GITHUB_RUN_ID})"
+          git push origin main
