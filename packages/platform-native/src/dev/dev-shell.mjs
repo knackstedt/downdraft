@@ -160,6 +160,26 @@ function finishSessionBoot() {
   try { globalThis.__ddSession?.finishSessionBoot?.(); } catch { /* optional */ }
 }
 
+/** Kick the entry import on the current runner WITHOUT awaiting the module
+ *  body. Blocking entries (runNativeGameModule, bespoke close-awaits)
+ *  top-level-await their run loop, so the import only settles at session
+ *  end (window close or the entry's teardown release). Awaiting it in a
+ *  reimport path parks the reimport queue for the session's whole
+ *  lifetime: the NEXT restart tears the session down but its reimport sits
+ *  behind the pending import forever — a live window with dead rendering.
+ *  Settlement is still observed: boot bookkeeping runs on resolve, and
+ *  eval failures escalate (a process with no live session is unrecoverable
+ *  in place). */
+function importEntry() {
+  runner.import(entry).then(
+    () => finishSessionBoot(),
+    (e) => {
+      logErr(`entry import failed: ${e?.stack ?? e}`);
+      void shutdown(DD_RESTART_EXIT, "entry reimport failure");
+    },
+  );
+}
+
 /** Tier 3: full-reload payloads are remapped to a custom event (see
  *  installHotChannelRemap), so vite never clears the runner's module cache
  *  itself — do it here before re-evaluating fresh. */
@@ -183,8 +203,7 @@ async function reimportSession() {
   // must re-register on every re-eval, so the install flag goes back down.
   delete globalThis[LISTENERS_FLAG];
   await runner.import(RUNTIME_MODULE);
-  await runner.import(entry);
-  finishSessionBoot();
+  importEntry();
 }
 
 /** Tier 4: destroy host happened runner-side; fresh runner (same reasoning
@@ -200,8 +219,7 @@ async function reimportHost() {
   // hot.on listeners; drop the flag so the re-eval re-registers them.
   delete globalThis[LISTENERS_FLAG];
   await runner.import(RUNTIME_MODULE);
-  await runner.import(entry);
-  finishSessionBoot();
+  importEntry();
 }
 
 /** Fallback timers — if the runtime's ready callbacks never arrive (boot
@@ -588,8 +606,7 @@ async function rebindRunner() {
   // it, so allow the runtime module to re-register on re-eval.
   delete globalThis[LISTENERS_FLAG];
   await runner.import(RUNTIME_MODULE);
-  await runner.import(entry);
-  finishSessionBoot();
+  importEntry();
 }
 
 async function main() {
