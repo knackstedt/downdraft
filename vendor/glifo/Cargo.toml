@@ -77,6 +77,11 @@ optional = true
 [dependencies.freetype-sys]
 version = "0.23.0"
 optional = true
+# Bundled: the non-bundled build.rs hard-requires a pkg-config freetype2
+# probe, which fails on CI runners without libfreetype-dev and would make
+# the shipped .so depend on a system freetype at dlopen time. Compiling the
+# vendored FreeType keeps the artifact self-contained on every platform.
+features = ["bundled"]
 
 [dependencies.foldhash]
 version = "0.2.0"
