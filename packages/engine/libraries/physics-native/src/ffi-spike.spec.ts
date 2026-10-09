@@ -7,12 +7,11 @@ const LIB_DEBUG = join(import.meta.dir, "../native/target/debug/libdowndraft_phy
 const LIB = existsSync(LIB_RELEASE) ? LIB_RELEASE : LIB_DEBUG;
 
 // Phase 0 spike: dlopen() inside a Bun Worker + SAB-backed pointer passing.
-// Requires `cd native && cargo build --release` first.
-describe("FFI spike (dlopen in worker + SAB pointers)", () => {
+// Requires `cd native && cargo build --release` first — skipped when the
+// cdylib hasn't been built (CI doesn't compile Rust for unit tests).
+const libAvailable = existsSync(LIB);
+describe.skipIf(!libAvailable)("FFI spike (dlopen in worker + SAB pointers)", () => {
     it("worker can dlopen the cdylib and round-trip physics over SAB", async () => {
-        if (!existsSync(LIB)) {
-            throw new Error(`native lib missing: ${LIB} — run cargo build --release in native/`);
-        }
 
         // SABs allocated on the main thread, shared with the worker — the same
         // topology LibraryHost uses for sim channels.

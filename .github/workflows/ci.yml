@@ -55,7 +55,9 @@ jobs:
         # --isolate gives each file a fresh global object: without it, shared
         # module/GC state across files corrupts the rapier WASM instance
         # (validated-api.spec.ts traps with "Unreachable code" mid-step).
-        run: bun test --isolate --path-ignore-patterns "**/node-mobile/build/**" packages/
+        # --conditions=downdraft-source resolves @downdraft/* self-imports to
+        # src/ — dist/ doesn't exist in a fresh checkout (built at publish).
+        run: bun test --isolate --conditions=downdraft-source --path-ignore-patterns "**/node-mobile/build/**" packages/
       - name: Check engine exports map is in sync
         run: node scripts/gen-engine-exports.mjs --check
 
@@ -70,4 +72,6 @@ jobs:
       - name: Install dependencies
         run: bun ci
       - name: Run plugin-tester specs
-        run: bun test examples/plugin-tester/src/*.spec.ts
+        # downdraft-source: @downdraft/* resolves to src/ — dist/ is absent
+        # in a fresh checkout (it only exists after a publish-time build).
+        run: bun test --conditions=downdraft-source examples/plugin-tester/src/*.spec.ts

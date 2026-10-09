@@ -55,7 +55,7 @@
     },
     "packages/cli": {
       "name": "@downdraft/cli",
-      "version": "0.1.2-alpha.5",
+      "version": "0.2.0",
       "bin": {
         "draft": "src/index.ts",
       },
@@ -69,7 +69,7 @@
     },
     "packages/engine": {
       "name": "@downdraft/engine",
-      "version": "0.1.2-alpha.5",
+      "version": "0.2.0",
       "dependencies": {
         "@bokuweb/zstd-wasm": "^0.0.27",
         "@gltf-transform/core": "^4.4.2",
@@ -96,7 +96,7 @@
         "@types/dns-packet": "^5.6.5",
       },
       "peerDependencies": {
-        "@downdraft/platform-native": "^0.1.2-alpha.5",
+        "@downdraft/platform-native": "^0.2.0",
       },
       "optionalPeers": [
         "@downdraft/platform-native",
@@ -104,20 +104,20 @@
     },
     "packages/platform-native": {
       "name": "@downdraft/platform-native",
-      "version": "0.1.2-alpha.5",
+      "version": "0.2.0",
       "dependencies": {
-        "@downdraft/engine": "^0.1.2-alpha.5",
+        "@downdraft/engine": "^0.2.0",
         "koffi": "^3.2.1",
       },
       "devDependencies": {
         "typescript": "^5",
       },
       "optionalDependencies": {
-        "@downdraft/native-darwin-arm64": "^0.1.2-alpha.5",
-        "@downdraft/native-darwin-x64": "^0.1.2-alpha.5",
-        "@downdraft/native-linux-arm64": "^0.1.2-alpha.5",
-        "@downdraft/native-linux-x64": "^0.1.2-alpha.5",
-        "@downdraft/native-win32-x64": "^0.1.2-alpha.5",
+        "@downdraft/native-darwin-arm64": "^0.2.0",
+        "@downdraft/native-darwin-x64": "^0.2.0",
+        "@downdraft/native-linux-arm64": "^0.2.0",
+        "@downdraft/native-linux-x64": "^0.2.0",
+        "@downdraft/native-win32-x64": "^0.2.0",
       },
     },
   },
@@ -167,16 +167,6 @@
     "@downdraft/cli": ["@downdraft/cli@workspace:packages/cli"],
 
     "@downdraft/engine": ["@downdraft/engine@workspace:packages/engine"],
-
-    "@downdraft/native-darwin-arm64": ["@downdraft/native-darwin-arm64@0.1.2-alpha.5", "", { "os": "darwin", "cpu": "arm64" }, "sha512-+25yqGVZWiGDsGecAn0XkSu4pSMDNDLyLW3/exNhGbgfJCoBxRNZ6mDMoaDt2qlehsLZPXJZb5GkQ7jIjfVPzQ=="],
-
-    "@downdraft/native-darwin-x64": ["@downdraft/native-darwin-x64@0.1.2-alpha.5", "", { "os": "darwin", "cpu": "x64" }, "sha512-F2CynWQ5a1LdG5dWo1Sx7Xl187G55nlOSWTIjgMw9Co5r74p9Y4i/o2o2ARociN9Hca7wNm/O4wZ3lCO1ga1ag=="],
-
-    "@downdraft/native-linux-arm64": ["@downdraft/native-linux-arm64@0.1.2-alpha.5", "", { "os": "linux", "cpu": "arm64" }, "sha512-QloewWJPkg541kNGzNKUF0CoAr5LQrmjEr1usZKjSVtHsFvDNDZfqDj4Ze4JHRM/hRk+MbABzZ/gZ8umR1HNow=="],
-
-    "@downdraft/native-linux-x64": ["@downdraft/native-linux-x64@0.1.2-alpha.5", "", { "os": "linux", "cpu": "x64" }, "sha512-ZlmuVc07fUt/JQPlhXK57lmsjPoghaBYQ8w+hPlVXj6lyEzadwZg1cw/mvgwkxvMKo4ncteB6aJtNQz2UE+tgg=="],
-
-    "@downdraft/native-win32-x64": ["@downdraft/native-win32-x64@0.1.2-alpha.5", "", { "os": "win32", "cpu": "x64" }, "sha512-JgWobv/UU2NIwTX/GDzKSWUMdMNgrAVr+B1OjOayUeEewmhD0xQpcLhgjLlHRmJHKt9cbv54KcmQpwzDjM5lVw=="],
 
     "@downdraft/platform-native": ["@downdraft/platform-native@workspace:packages/platform-native"],
 

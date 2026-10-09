@@ -19,7 +19,8 @@
     "gen:deno-import-map": "node scripts/gen-deno-import-map.mjs",
     "gen:engine-exports": "node scripts/gen-engine-exports.mjs",
     "link:games": "node scripts/link-games.mjs",
-    "lint": "oxlint"
+    "lint": "oxlint",
+    "test": "bun test --isolate --conditions=downdraft-source --path-ignore-patterns \"**/node-mobile/build/**\" packages/ examples/plugin-tester/src/*.spec.ts"
   },
   "workspaces": [
     "packages/engine",

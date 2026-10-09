@@ -341,7 +341,8 @@ The `opts` object encapsulates all config and dependencies. This is the standard
 ## Verification commands
 
 - `bun run tsc` — now runs `tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.node.json --noEmit`.
-- `bun run lint` — runs `oxlint` on the whole repo. Currently reports many pre-existing `no-console`/`no-unused-vars` warnings/errors.
+- `bun run lint` — runs `oxlint` on the whole repo. Currently reports many pre-existing `no-console`/`no-unused-vars` warnings.
+- **Full suite**: `bun test --isolate --conditions=downdraft-source --path-ignore-patterns "**/node-mobile/build/**" packages/` — this is what CI runs. The flags matter: `--isolate` gives each spec a fresh global (shared module/GC state across files corrupts the rapier WASM instance — validated-api.spec.ts traps mid-step); `--conditions=downdraft-source` resolves `@downdraft/*` self-imports to `src/` since `dist/` doesn't exist until `build:dist` runs (fresh clones have no dist). Plain `bun test <file>` works for single specs that don't self-import the package.
 - House rule `downdraft/no-for-of` (error): `for..of` is banned except where it's the required iteration structure — a call result (`Object.entries()`, `map.entries()`, generators, ...) or `for await..of`. Use `.forEach()` or an indexed `for` loop otherwise. The rule lives in `packages/engine/lint-plugin.mjs` (oxlint JS plugin, resolved as `@downdraft/engine/lint-plugin` from every `.oxlintrc.json` — root + each game).
 - `bun test packages/engine/core/src/ecs/world.spec.ts packages/engine/core/src/render/frustum.spec.ts packages/engine/core/src/telemetry/collector.spec.ts`
 - `bun test packages/engine/core/src/physics/*.spec.ts` — all physics specs (139 tests).

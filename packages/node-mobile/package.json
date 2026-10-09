@@ -1,7 +1,7 @@
 {
   "name": "node-mobile-recipe",
   "private": true,
-  "version": "0.1.2-alpha.5",
+  "version": "0.2.0",
   "type": "module",
   "description": "Overlay recipe producing libnode.so for Android from pristine upstream Node sources",
   "scripts": {
