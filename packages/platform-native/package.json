@@ -1,6 +1,6 @@
 {
   "name": "@downdraft/platform-native",
-  "version": "0.1.2-alpha.2",
+  "version": "0.1.2-alpha.3",
   "repository": {
     "type": "git",
     "url": "https://github.com/knackstedt/downdraft.git",
@@ -18,7 +18,7 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@downdraft/engine": "^0.1.2-alpha.2",
+    "@downdraft/engine": "^0.1.2-alpha.3",
     "koffi": "^3.2.1"
   },
   "optionalDependencies": {
