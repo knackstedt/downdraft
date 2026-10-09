@@ -1,6 +1,6 @@
 {
   "name": "@downdraft/native-darwin-arm64",
-  "version": "0.1.2-alpha.3",
+  "version": "0.1.2-alpha.4",
   "repository": {
     "type": "git",
     "url": "https://github.com/knackstedt/downdraft.git",
