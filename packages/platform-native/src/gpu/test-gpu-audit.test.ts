@@ -117,6 +117,47 @@ describe("AUDIT FIX: real limits/features query", () => {
   });
 });
 
+describe("AUDIT FIX: default texture-view caching", () => {
+  // The render loop called texture.createView() several times per frame on the
+  // same surface/depth texture; each call minted a native view handle that was
+  // only reclaimed by GC, so live handles grew without bound. Descriptor-less
+  // createView() now returns a per-texture cached default view.
+  test("descriptor-less createView returns the cached default view", () => {
+    const tex = device.createTexture({
+      size: [64, 64, 1],
+      format: "bgra8unorm",
+      usage: 0x0010 /* RENDER_ATTACHMENT */,
+    });
+    const v1 = tex.createView();
+    const v2 = tex.createView();
+    expect(v2).toBe(v1);
+    tex.destroy();
+  });
+
+  test("descriptor'd createView always mints a fresh view", () => {
+    const tex = device.createTexture({
+      size: [64, 64, 1],
+      format: "bgra8unorm",
+      usage: 0x0010 /* RENDER_ATTACHMENT */,
+    });
+    const v1 = tex.createView({ format: "bgra8unorm" });
+    const v2 = tex.createView({ format: "bgra8unorm" });
+    expect(v2).not.toBe(v1);
+    tex.destroy();
+  });
+
+  test("destroy() releases the cached view", () => {
+    const tex = device.createTexture({
+      size: [64, 64, 1],
+      format: "bgra8unorm",
+      usage: 0x0010 /* RENDER_ATTACHMENT */,
+    });
+    const v1 = tex.createView() as import("./wgpu-resources").WgpuTextureView;
+    tex.destroy();
+    expect(v1.isReleased).toBe(true);
+  });
+});
+
 describe("AUDIT FIX: setBlendConstant + setStencilReference", () => {
   test("setBlendConstant does not throw", () => {
     const tex = device.createTexture({

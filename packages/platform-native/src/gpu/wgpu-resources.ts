@@ -154,6 +154,13 @@ export class WgpuTexture {
    *  one, which breaks games with dirty-tracking. */
   __ddWritten = false;
   private destroyed = false;
+  /** Memoized default view. The render loop calls createView() several
+   *  times per frame on the same surface/depth texture; each call minted a
+   *  new native handle that was only reclaimed via FinalizationRegistry, so
+   *  live view handles grew without bound between GC cycles. Views are
+   *  immutable aliases over the same subresource — one default view per
+   *  texture, released with the texture, is sufficient. */
+  private defaultView: WgpuTextureView | null = null;
 
   constructor(ptr: ptr, desc: GPUTextureDescriptor) {
     this.ptr = ptr;
@@ -170,6 +177,18 @@ export class WgpuTexture {
   }
 
   createView(descriptor?: GPUTextureViewDescriptor): WgpuTextureView {
+    // Descriptor-less calls produce the full-resource default view — serve
+    // them from the per-texture cache instead of minting a new handle.
+    if (!descriptor) {
+      if (this.defaultView && !this.defaultView.isReleased) return this.defaultView;
+      const view = this.makeView();
+      this.defaultView = view;
+      return view;
+    }
+    return this.makeView(descriptor);
+  }
+
+  private makeView(descriptor?: GPUTextureViewDescriptor): WgpuTextureView {
     const format = descriptor?.format ? parseFormat(descriptor.format) : 0;
     const dimension = parseViewDimension(descriptor?.dimension);
     const aspect = parseAspect(descriptor?.aspect);
@@ -195,6 +214,11 @@ export class WgpuTexture {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    // Free the memoized default view with the texture — its native handle is
+    // ours even when the texture itself was transferred (view.release()
+    // re-checks transferred state on the view wrapper).
+    try { this.defaultView?.release(); } catch { /* best-effort */ }
+    this.defaultView = null;
     if (isTransferred(this)) return; // ownership lives on another thread
     untrack(this);
     wgpu.wgpu_shim_release_texture(this.ptr);
@@ -212,6 +236,10 @@ export class WgpuTextureView {
    *  writes back to the texture (see WgpuTexture.__ddWritten). */
   readonly sourceTexture: WgpuTexture | null;
   private released = false;
+
+  get isReleased(): boolean {
+    return this.released;
+  }
 
   constructor(ptr: ptr, sourceTexture: WgpuTexture | null = null) {
     this.ptr = ptr;
