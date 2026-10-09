@@ -72,7 +72,7 @@ export class BinaryRecordStore implements IBinaryRecordStore {
   private tag: string;
 
   constructor(private opts: BinaryRecordStoreOptions) {
-    this.tag = (opts.logTag ?? "BinaryRecordStore").replace(/^\[|\]$/g, "");
+    this.tag = (opts.logTag ?? "binary-record-store").replace(/^\[|\]$/g, "");
   }
 
   private nodeRoot: Promise<FileSystemDirectoryHandle | null> | null = null;

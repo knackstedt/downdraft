@@ -51,7 +51,7 @@ const log = createLogger("info");
  *  configs) degrade gracefully. */
 function normalizeTraceSource(source: TraceSource): TraceSource {
   if (source !== "in-engine") {
-    log.warn("ProfilingBridge", `traceSource "${source}" is unsupported — using the in-engine trace writer`);
+    log.warn("profiling-bridge", `traceSource "${source}" is unsupported — using the in-engine trace writer`);
     return "in-engine";
   }
   return source;
@@ -328,7 +328,7 @@ export class ProfilingBridge {
       // Fire callbacks
       for (const cb of this.warningCallbacks.values()) {
         try { cb(record, ctx); } catch (err) {
-          log.error("ProfilingBridge", `Warning callback error: ${err}`);
+          log.error("profiling-bridge", `Warning callback error: ${err}`);
         }
       }
 
@@ -340,7 +340,7 @@ export class ProfilingBridge {
         this.autoTraceActive = true;
         this.autoTraceWarningId = warningId;
         this.startRecording();
-        log.warn("ProfilingBridge", `Auto-trace started due to warning ${w.ruleIdHash}`);
+        log.warn("profiling-bridge", `Auto-trace started due to warning ${w.ruleIdHash}`);
         const rule = this.warningEngine.getRules().find((r) => fnv1a32(r.id) === w.ruleIdHash);
         const durationMs = rule?.autoTrace?.durationMs ?? 3000;
         const timer = setTimeout(() => {
@@ -348,7 +348,7 @@ export class ProfilingBridge {
           this.autoTraceWarningId = null;
           void this.stopRecording().then((result) => {
             this.lastAutoTrace = result;
-            log.info("ProfilingBridge", `Auto-trace captured ${result.bytes} bytes`);
+            log.info("profiling-bridge", `Auto-trace captured ${result.bytes} bytes`);
           }).catch(() => {});
         }, durationMs);
         timer.unref?.();

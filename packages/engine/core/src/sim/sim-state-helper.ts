@@ -34,7 +34,7 @@ export class SimStateHelper {
       this.registry.stripTransientFlags(state);
       return JSON.stringify(state);
     } catch (err) {
-      log.error("SimStateHelper", `Failed to strip transient flags: ${err}`);
+      log.error("sim-state-helper", `Failed to strip transient flags: ${err}`);
       return stateJson;
     }
   }

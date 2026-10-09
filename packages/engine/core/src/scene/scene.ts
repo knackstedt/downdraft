@@ -95,7 +95,7 @@ export class Scene {
 
   async load(): Promise<void> {
     if (this.state !== "unloaded") {
-      log.warn("Scene", `Cannot load "${this.name}" — current state: ${this.state}`);
+      log.warn("scene", `Cannot load "${this.name}" — current state: ${this.state}`);
       return;
     }
     this.state = "loading";
@@ -105,7 +105,7 @@ export class Scene {
     }
 
     this.state = "loaded";
-    log.info("Scene", `Loaded "${this.name}" (${this._entities.length} entities)`);
+    log.info("scene", `Loaded "${this.name}" (${this._entities.length} entities)`);
   }
 
   unload(): void {
@@ -122,12 +122,12 @@ export class Scene {
     this._entities = [];
     this._entitySet.clear();
     this.state = "unloaded";
-    log.info("Scene", `Unloaded "${this.name}"`);
+    log.info("scene", `Unloaded "${this.name}"`);
   }
 
   activate(): void {
     if (this.state === "unloaded" || this.state === "loading") {
-      log.warn("Scene", `Cannot activate "${this.name}" — not loaded`);
+      log.warn("scene", `Cannot activate "${this.name}" — not loaded`);
       return;
     }
     this.state = "active";

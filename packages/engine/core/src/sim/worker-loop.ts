@@ -187,7 +187,7 @@ export class SimWorkerLoop {
               const nowMs = performance.now();
               if (nowMs - this.lastClampWarn > 5000) {
                 this.lastClampWarn = nowMs;
-                log.warn("SimWorkerLoop", `Clamped to ${this.maxStepsPerFrame} ticks this frame (sim falling behind, accumulator=${this.tickAccumulator.toFixed(1)})`);
+                log.warn("sim-worker-loop", `Clamped to ${this.maxStepsPerFrame} ticks this frame (sim falling behind, accumulator=${this.tickAccumulator.toFixed(1)})`);
               }
               this.tickAccumulator = 0;
             }
@@ -195,7 +195,7 @@ export class SimWorkerLoop {
           }
         } catch (err) {
           const error = err as Error;
-          log.error("SimWorkerLoop", `Tick crashed at tick ${this.tickCount}: ${error.message}\n${error.stack}`);
+          log.error("sim-worker-loop", `Tick crashed at tick ${this.tickCount}: ${error.message}\n${error.stack}`);
           this.onErrorCb?.(error);
           this.running = false;
           return;

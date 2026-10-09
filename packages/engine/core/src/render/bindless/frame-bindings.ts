@@ -143,7 +143,7 @@ export class BindlessFrameBindings {
     this.bindGroup = this.device.createBindGroup({ layout, entries });
     this.cachedLayoutVersion = layoutVersion;
     this.cachedBufferVersion = bufferVersion;
-    log.debug("Bindless", `material bind group rebuilt (layout v${layoutVersion}, buffer v${bufferVersion})`);
+    log.debug("bindless", `material bind group rebuilt (layout v${layoutVersion}, buffer v${bufferVersion})`);
     return this.bindGroup;
   }
 

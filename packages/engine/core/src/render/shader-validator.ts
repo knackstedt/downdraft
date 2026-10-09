@@ -76,17 +76,17 @@ function processCompilationInfo(
         const fullMsg = `[${label}] ${msg.message}${location}`;
 
         if (msg.type === "error") {
-          log.fatal("Shader", fullMsg);
+          log.fatal("shader", fullMsg);
           errors.push(fullMsg);
         } else if (msg.type === "warning") {
-          log.warn("Shader", fullMsg);
+          log.warn("shader", fullMsg);
         } else {
-          log.debug("Shader", fullMsg);
+          log.debug("shader", fullMsg);
         }
       }
 
       if (suppressedCount > 0 && suppressedCount % SUPPRESS_THRESHOLD === 0) {
-        log.warn("Shader", `[${label}] ${suppressedCount} duplicate shader messages suppressed`);
+        log.warn("shader", `[${label}] ${suppressedCount} duplicate shader messages suppressed`);
       }
     })
     .catch(() => {
@@ -145,12 +145,12 @@ export async function createValidatedShaderModuleAsync(
       const fullMsg = `[${label}] ${msg.message}${location}`;
 
       if (msg.type === "error") {
-        log.fatal("Shader", fullMsg);
+        log.fatal("shader", fullMsg);
         errors.push(fullMsg);
       } else if (msg.type === "warning") {
-        log.warn("Shader", fullMsg);
+        log.warn("shader", fullMsg);
       } else {
-        log.debug("Shader", fullMsg);
+        log.debug("shader", fullMsg);
       }
     }
 

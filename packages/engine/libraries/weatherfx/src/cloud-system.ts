@@ -167,7 +167,7 @@ export class CloudSystem {
       });
     });
 
-    log.info("CloudSystem", `Initialized with ${this.layers.length} layers`);
+    log.info("cloud-system", `Initialized with ${this.layers.length} layers`);
   }
 
   update(
@@ -242,11 +242,11 @@ export class CloudSystem {
         if (v > maxD) maxD = v;
         if (v < field.isoLevel) solidCount++;
       }
-      log.warn("CloudSystem", `Empty mesh for layer=${layer.layerType} iso=${field.isoLevel} densityRange=[${minD.toFixed(3)}, ${maxD.toFixed(3)}] solidVoxels=${solidCount}/${field.data.length} (${(solidCount/field.data.length*100).toFixed(1)}%)`);
+      log.warn("cloud-system", `Empty mesh for layer=${layer.layerType} iso=${field.isoLevel} densityRange=[${minD.toFixed(3)}, ${maxD.toFixed(3)}] solidVoxels=${solidCount}/${field.data.length} (${(solidCount/field.data.length*100).toFixed(1)}%)`);
       return;
     }
 
-    log.info("CloudSystem", `Generated layer ${layer.layerType}: ${extracted.verts.length / 9} verts, ${extracted.indices.length} indices`);
+    log.info("cloud-system", `Generated layer ${layer.layerType}: ${extracted.verts.length / 9} verts, ${extracted.indices.length} indices`);
 
     // Vertices are in world space relative to field origin (centered at 0,0,0)
     const verts = extracted.verts;

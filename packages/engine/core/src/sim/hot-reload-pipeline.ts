@@ -51,7 +51,7 @@ export class HotReloadPipeline {
         const result = await withTimeout(this.workerManager.save("hot-reload"), SAVE_TIMEOUT_MS, "save");
         if (result?.stateJson) stateJson = result.stateJson;
       } catch (err) {
-        log.warn("HotReloadPipeline", `State save failed, reloading without preservation: ${err}`);
+        log.warn("hot-reload-pipeline", `State save failed, reloading without preservation: ${err}`);
       }
     }
 
@@ -66,7 +66,7 @@ export class HotReloadPipeline {
       try {
         await withTimeout(this.workerManager.restoreFromState(stateJson), RESTORE_TIMEOUT_MS, "state restore");
       } catch (err) {
-        log.error("HotReloadPipeline", `State restore failed: ${err}. Starting fresh.`);
+        log.error("hot-reload-pipeline", `State restore failed: ${err}. Starting fresh.`);
       }
     }
   }

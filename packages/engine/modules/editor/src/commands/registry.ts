@@ -196,7 +196,7 @@ export class EditorCommandRegistry {
       outcome = await cmd.apply(this.ctx, validated);
     } catch (e) {
       const msg = `${commandId} failed: ${e instanceof Error ? e.message : String(e)}`;
-      log.error("EditorCommands", msg);
+      log.error("editor-commands", msg);
       throw new EditorCommandError(msg);
     }
 
@@ -325,7 +325,7 @@ export class EditorCommandRegistry {
 
   private emit(entry: JournalEntry): void {
     this.listeners.forEach((fn) => {
-      try { fn(entry); } catch (e) { log.error("EditorCommands", `listener error: ${e}`); }
+      try { fn(entry); } catch (e) { log.error("editor-commands", `listener error: ${e}`); }
     });
   }
 }

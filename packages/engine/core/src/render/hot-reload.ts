@@ -200,7 +200,7 @@ export class MaterialHotReloader {
         this.pipelineCache.invalidate(material.pipelineKey);
       }
     } catch (e) {
-      log.warn("HotReloader", `Failed to reload shader: ${path} ${e}`);
+      log.warn("hot-reloader", `Failed to reload shader: ${path} ${e}`);
     }
   }
 
@@ -214,7 +214,7 @@ export class MaterialHotReloader {
         onReload(result.meshes[0]);
       }
     } catch (e) {
-      log.warn("HotReloader", `Failed to reload mesh: ${path} ${e}`);
+      log.warn("hot-reloader", `Failed to reload mesh: ${path} ${e}`);
     }
   }
 
@@ -243,7 +243,7 @@ export class MaterialHotReloader {
       );
       watched.onReload(gpuTexture);
     } catch (e) {
-      log.warn("HotReloader", `Failed to reload texture: ${path} ${e}`);
+      log.warn("hot-reloader", `Failed to reload texture: ${path} ${e}`);
     }
   }
 

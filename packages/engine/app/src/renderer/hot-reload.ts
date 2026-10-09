@@ -92,19 +92,19 @@ export function installSimHotReload(deps: SimHotReloadDeps): void {
     const store = useHotReloadStore.getState();
     if (!store.enabled) return;
     hot.send("sim:hot-reload:ack", {});
-    log.info("HMR", `Sim file changed: ${data.file}`);
+    log.info("hmr", `Sim file changed: ${data.file}`);
     store.setStatus("reloading");
     const t0 = performance.now();
     try {
       await deps.sim.hotReload?.(getConfig(), store.preserveState);
       const elapsed = (performance.now() - t0).toFixed(0);
-      log.info("HMR", `Sim worker swap complete (${elapsed}ms)`);
+      log.info("hmr", `Sim worker swap complete (${elapsed}ms)`);
       store.setStatus("ready");
       store.setLastReload({ file: data.file, elapsed: Number(elapsed), timestamp: data.timestamp });
     } catch (err) {
-      log.error("HMR", `Sim hot-reload failed: ${(err as Error).message}`);
+      log.error("hmr", `Sim hot-reload failed: ${(err as Error).message}`);
       store.setStatus("error", (err as Error).message);
-      log.warn("HMR", "Falling back to full reload");
+      log.warn("hmr", "Falling back to full reload");
       if (!bridge().requestRestart?.("sim hot-reload failed")) {
         window.location.reload();
       }
@@ -115,7 +115,7 @@ export function installSimHotReload(deps: SimHotReloadDeps): void {
     const store = useHotReloadStore.getState();
     if (!store.enabled) return;
     hot.send("renderer:hot-reload:ack", {});
-    log.info("HMR", `Renderer file changed: ${data.file}`);
+    log.info("hmr", `Renderer file changed: ${data.file}`);
     store.setStatus("reloading");
     if (store.preserveState) {
       try {
@@ -128,10 +128,10 @@ export function installSimHotReload(deps: SimHotReloadDeps): void {
           }
           dd.saveGameState(SLOT, JSON.stringify(components));
           sessionStorage.setItem(PENDING_KEY, "1");
-          log.info("HMR", "State saved, reloading page...");
+          log.info("hmr", "State saved, reloading page...");
         }
       } catch (err) {
-        log.warn("HMR", `State save failed, reloading without preservation: ${err}`);
+        log.warn("hmr", `State save failed, reloading without preservation: ${err}`);
       }
     }
     if (!bridge().requestRestart?.("renderer hot-reload")) {
@@ -168,11 +168,11 @@ export async function restoreHotReloadState(
         deps.renderer?.restoreRendererMeta?.(components.renderer.data);
       }
     } catch { /* ignore */ }
-    log.info("HMR", "Restored state after page reload");
+    log.info("hmr", "Restored state after page reload");
     if (dd.deleteGameState) dd.deleteGameState(SLOT);
     return true;
   } catch (err) {
-    log.error("HMR", `Failed to restore hot-reload state: ${err}. Starting fresh.`);
+    log.error("hmr", `Failed to restore hot-reload state: ${err}. Starting fresh.`);
     return false;
   }
 }

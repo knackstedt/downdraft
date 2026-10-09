@@ -107,12 +107,12 @@ export function createMcpHarness(opts: McpHarnessOptions): void {
   };
 
   if (!downdraft?.isAvailable || typeof downdraft.onMcpRequest !== "function") {
-    log.warn("MCP", "Host bridge or onMcpRequest not available; automation harness disabled");
+    log.warn("mcp", "Host bridge or onMcpRequest not available; automation harness disabled");
     return;
   }
 
   downdraft.onMcpRequest(async (request) => handleRequest(request as McpRequest));
-  log.info("MCP", `${serverName} registered; tools: ${tools.map((t) => t.def.name).join(", ")}`);
+  log.info("mcp", `${serverName} registered; tools: ${tools.map((t) => t.def.name).join(", ")}`);
 }
 
 // ── Shared MCP tool helpers ──────────────────────────────────────────────────

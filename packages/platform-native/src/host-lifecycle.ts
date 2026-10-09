@@ -279,7 +279,7 @@ export function installNativeErrorHandlers(window: NativeWindow, appId?: string)
 
     // stderr first — `draft dev` pipes it to the terminal, so the error is
     // never trapped inside the unselectable SDL box.
-    log.fatal("NativeErrorHandlers", `\n${title}:\n${report}\n`);
+    log.fatal("native-error-handlers", `\n${title}:\n${report}\n`);
 
     let logPath: string | null = null;
     try {

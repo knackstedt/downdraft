@@ -177,7 +177,7 @@ export class VirtualCanvasContext {
       this.textureWidth = w;
       this.textureHeight = h;
     } catch (err) {
-      log.error("VirtualCanvasContext", `Failed to create UI texture: ${err}`);
+      log.error("virtual-canvas-context", `Failed to create UI texture: ${err}`);
       this.texture = null;
     }
     return this.texture;

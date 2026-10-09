@@ -49,7 +49,7 @@ export class MigrationRegistryImpl implements IMigrationRegistry {
     const entry = this.components.get(component);
     if (!entry) {
       if (fromVersion === 1) return { data, version: 1 };
-      log.warn("MigrationRegistry", `Unknown component "${component}" with version ${fromVersion}`);
+      log.warn("migration-registry", `Unknown component "${component}" with version ${fromVersion}`);
       return null;
     }
 
@@ -59,7 +59,7 @@ export class MigrationRegistryImpl implements IMigrationRegistry {
 
     if (fromVersion > entry.currentVersion) {
       log.warn(
-        "MigrationRegistry",
+        "migration-registry",
         `Component "${component}" save version ${fromVersion} > current ${entry.currentVersion} — forward incompatible`,
       );
       return null;
@@ -72,7 +72,7 @@ export class MigrationRegistryImpl implements IMigrationRegistry {
       const step = entry.migrations.get(version);
       if (!step) {
         log.warn(
-          "MigrationRegistry",
+          "migration-registry",
           `Missing migration for "${component}" v${version}→v${version + 1} — marking as abandoned`,
         );
         return null;
@@ -82,7 +82,7 @@ export class MigrationRegistryImpl implements IMigrationRegistry {
         version = step.toVersion;
       } catch (e) {
         log.warn(
-          "MigrationRegistry",
+          "migration-registry",
           `Migration failed for "${component}" v${version}→v${step.toVersion}: ${e}`,
         );
         return null;

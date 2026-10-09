@@ -622,7 +622,7 @@ export abstract class BaseSceneInspector extends DevToolsDataBridge {
       this.thumbnailCache.set(path, dataUrl);
       return dataUrl;
     } catch (e) {
-      log.error("BaseSceneInspector", `Thumbnail error for path ${path}: ${e}`);
+      log.error("base-scene-inspector", `Thumbnail error for path ${path}: ${e}`);
       this.evictThumbnailCache();
       this.thumbnailCache.set(path, null);
       return null;

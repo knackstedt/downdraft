@@ -85,7 +85,7 @@ export abstract class InstrumentedWorkerHost<TApi extends WorkerApi> extends Bas
         },
       );
     } catch (err) {
-      log.warn("InstrumentedWorkerHost", `__profilingAttach failed for "${opts.workerTag}": ${err}`);
+      log.warn("instrumented-worker-host", `__profilingAttach failed for "${opts.workerTag}": ${err}`);
     }
   }
 
@@ -98,7 +98,7 @@ export abstract class InstrumentedWorkerHost<TApi extends WorkerApi> extends Bas
     try {
       await (proxy.proxy as any).__profilingAddRule(rule);
     } catch (err) {
-      log.warn("InstrumentedWorkerHost", `__profilingAddRule failed: ${err}`);
+      log.warn("instrumented-worker-host", `__profilingAddRule failed: ${err}`);
     }
   }
 
@@ -118,7 +118,7 @@ export abstract class InstrumentedWorkerHost<TApi extends WorkerApi> extends Bas
       await (proxy.proxy as any).__profilingOnWarning();
       return unsub;
     } catch (err) {
-      log.warn("InstrumentedWorkerHost", `__profilingOnWarning failed: ${err}`);
+      log.warn("instrumented-worker-host", `__profilingOnWarning failed: ${err}`);
       return () => {};
     }
   }

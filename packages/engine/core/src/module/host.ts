@@ -200,7 +200,7 @@ export class ModuleHost implements ModuleContext {
         try {
           active.disposeFns[i]();
         } catch (disposeErr) {
-          log.error("ModuleHost", `Dispose error rolling back plugin "${plugin.name}": ${disposeErr}`);
+          log.error("module-host", `Dispose error rolling back plugin "${plugin.name}": ${disposeErr}`);
         }
       }
       // Remove systems the module registered before throwing.
@@ -238,7 +238,7 @@ export class ModuleHost implements ModuleContext {
       try {
         active.disposeFns[i]();
       } catch (err) {
-        log.error("ModuleHost", `Dispose error in plugin "${name}": ${err}`);
+        log.error("module-host", `Dispose error in plugin "${name}": ${err}`);
       }
     }
     // Remove the module's systems from the world schedule — otherwise they
@@ -309,7 +309,7 @@ export class ModuleHost implements ModuleContext {
       try {
         this.unattributedDisposeFns[i]();
       } catch (err) {
-        log.error("ModuleHost", `Unattributed dispose error: ${err}`);
+        log.error("module-host", `Unattributed dispose error: ${err}`);
       }
     }
     this.unattributedDisposeFns.length = 0;
@@ -321,7 +321,7 @@ export class ModuleHost implements ModuleContext {
 
   registerSystem(stage: Stage, system: SystemFn): void {
     if (!this.currentModuleName) {
-      log.warn("ModuleHost", "registerSystem called outside a module register() lifecycle — the system will not be attributed to any module");
+      log.warn("module-host", "registerSystem called outside a module register() lifecycle — the system will not be attributed to any module");
     }
     this.registerSystemFor(this.currentModuleName || "unattributed", stage, system);
   }
@@ -345,7 +345,7 @@ export class ModuleHost implements ModuleContext {
 
   registerSystemObject(system: System): void {
     if (!this.currentModuleName) {
-      log.warn("ModuleHost", `registerSystemObject("${system.name}") called outside a module register() lifecycle — the system will not be attributed to any module`);
+      log.warn("module-host", `registerSystemObject("${system.name}") called outside a module register() lifecycle — the system will not be attributed to any module`);
     }
     this.registerSystemObjectFor(this.currentModuleName, system);
   }
@@ -362,7 +362,7 @@ export class ModuleHost implements ModuleContext {
 
   allocateSABChannel(name: string, size: number): SABChannel {
     if (!this.currentModuleName) {
-      log.warn("ModuleHost", `allocateSABChannel("${name}") called outside a module register() lifecycle — the channel is untracked and won't be cleaned up on unload`);
+      log.warn("module-host", `allocateSABChannel("${name}") called outside a module register() lifecycle — the channel is untracked and won't be cleaned up on unload`);
     }
     return this.allocateSABChannelFor(this.currentModuleName, name, size);
   }
@@ -378,7 +378,7 @@ export class ModuleHost implements ModuleContext {
 
   provide<T>(token: ResourceToken<T>, value: T): void {
     if (!this.currentModuleName) {
-      log.warn("ModuleHost", `provide("${token.key}") called outside a module register() lifecycle — the resource won't be cleaned up on unload`);
+      log.warn("module-host", `provide("${token.key}") called outside a module register() lifecycle — the resource won't be cleaned up on unload`);
     }
     this.provideFor(this.currentModuleName, token, value);
   }
@@ -443,7 +443,7 @@ export class ModuleHost implements ModuleContext {
     } else {
       // Don't drop the callback silently — run it at disposeAll() so
       // resources registered outside a lifecycle still get cleaned up.
-      log.warn("ModuleHost", "onDispose called outside a module register() lifecycle — the callback will run at disposeAll() instead of being attributed to a module");
+      log.warn("module-host", "onDispose called outside a module register() lifecycle — the callback will run at disposeAll() instead of being attributed to a module");
       this.unattributedDisposeFns.push(fn);
     }
   }

@@ -518,7 +518,7 @@ export class WgpuDevice {
     const seen = new Set<number>();
     entries.forEach((e) => {
       if (seen.has(e.binding)) {
-        log.warn("createBindGroupLayout", `Duplicate binding ${e.binding} — entries: ${
+        log.warn("create-bind-group-layout", `Duplicate binding ${e.binding} — entries: ${
           entries.map((e) => `b${e.binding}:${e.buffer ? "buf" : e.texture ? "tex" : e.sampler ? "smp" : e.storageTexture ? "stex" : "?"}`).join(", ")}`);
       }
       seen.add(e.binding);

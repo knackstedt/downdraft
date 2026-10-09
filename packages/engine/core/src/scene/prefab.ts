@@ -30,7 +30,7 @@ export class PrefabRegistry {
 
   register(prefab: Prefab): void {
     if (this.prefabs.has(prefab.name)) {
-      log.warn("PrefabRegistry", `Overwriting prefab "${prefab.name}"`);
+      log.warn("prefab-registry", `Overwriting prefab "${prefab.name}"`);
     }
     this.prefabs.set(prefab.name, prefab);
   }

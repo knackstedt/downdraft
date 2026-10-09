@@ -36,7 +36,7 @@ const log = createLogger("info");
 // forcing a re-render that makes the next update slower — a self-feeding
 // lag spiral. These still write to stdout; only the devtools console view
 // skips them.
-const SELF_LOG_MODULES = new Set(["DevtoolsBackend", "BlitzDevtoolsHost"]);
+const SELF_LOG_MODULES = new Set(["devtools-backend", "blitz-devtools-host"]);
 
 type EvalFn = (expr: string) => Promise<{ result?: unknown; error?: string }>;
 
@@ -167,7 +167,7 @@ export class DevtoolsBackend {
     const now = performance.now();
     if (now - this.lastDiagWarn < 1000) return;
     this.lastDiagWarn = now;
-    log.warn("DevtoolsBackend", msg);
+    log.warn("devtools-backend", msg);
   }
 
   private emitConsole(text: string, severity: number, thread: string, ts: number, hasStack: boolean): void {
@@ -299,14 +299,14 @@ export class DevtoolsBackend {
     }
     const handler = this.commandHandlers.get(cmd.panel) ?? this.globalCommandHandler;
     if (!handler) {
-      log.warn("DevtoolsBackend", `unhandled command panel=${cmd.panel} action=${cmd.action}`);
+      log.warn("devtools-backend", `unhandled command panel=${cmd.panel} action=${cmd.action}`);
       return;
     }
     try {
       const r = handler(cmd);
-      if (r instanceof Promise) r.catch((err) => log.warn("DevtoolsBackend", `command error: ${err}`));
+      if (r instanceof Promise) r.catch((err) => log.warn("devtools-backend", `command error: ${err}`));
     } catch (err) {
-      log.warn("DevtoolsBackend", `command error: ${err}`);
+      log.warn("devtools-backend", `command error: ${err}`);
     }
   }
 
@@ -318,9 +318,9 @@ export class DevtoolsBackend {
   private startProfiling(): void {
     try {
       this.cdp.startProfile();
-      log.info("DevtoolsBackend", "Profiling started");
+      log.info("devtools-backend", "Profiling started");
     } catch (err) {
-      log.warn("DevtoolsBackend", `Failed to start profiling: ${err}`);
+      log.warn("devtools-backend", `Failed to start profiling: ${err}`);
     }
   }
 
@@ -329,7 +329,7 @@ export class DevtoolsBackend {
       const profile = await this.cdp.stopProfile();
       if (profile) this.pushProfile(profile);
     } catch (err) {
-      log.warn("DevtoolsBackend", `Failed to stop profiling: ${err}`);
+      log.warn("devtools-backend", `Failed to stop profiling: ${err}`);
     }
   }
 

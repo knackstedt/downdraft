@@ -105,9 +105,9 @@ bun run src/native-entry.ts   # direct boot, no dev shell / no HMR
 ```
 
 Other runtimes for the dev shell: `draft dev --runtime=node` (tsx + koffi) or
-`--runtime=deno`. Success looks like: `GPU binding installed (wgpu)` →
-`first swapchain acquire ok` → `Renderer initialized` → MCP automation harness
-registered.
+`--runtime=deno`. Success looks like: `bindings installed (gpu, image, assets,
+dom)` → `first swapchain acquire ok` → `game-renderer initialized` → MCP
+automation harness registered.
 
 ## 5. Verify / test
 

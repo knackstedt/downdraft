@@ -274,7 +274,7 @@ export class AssetManager {
             this.pendingRejectors.delete(uri);
             this.pendingResolvers.delete(uri);
           }
-          log.warn("AssetManager", budgetError.message);
+          log.warn("asset-manager", budgetError.message);
           return;
         }
 
@@ -307,7 +307,7 @@ export class AssetManager {
           this.pendingRejectors.delete(uri);
           this.pendingResolvers.delete(uri);
         }
-        log.error("AssetManager", `Failed to load ${uri}: ${error.message}`);
+        log.error("asset-manager", `Failed to load ${uri}: ${error.message}`);
       } finally {
         this.loading.delete(uri);
       }
@@ -365,11 +365,11 @@ export class AssetManager {
         const result = destructor(ref.data);
         if (result instanceof Promise) {
           result.catch((e) =>
-            log.error("AssetManager", `Destructor error for ${key}: ${e}`),
+            log.error("asset-manager", `Destructor error for ${key}: ${e}`),
           );
         }
       } catch (e) {
-        log.error("AssetManager", `Destructor error for ${key}: ${e}`);
+        log.error("asset-manager", `Destructor error for ${key}: ${e}`);
       }
     }
     this.assets.delete(key);

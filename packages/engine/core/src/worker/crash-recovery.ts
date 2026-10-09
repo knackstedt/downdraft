@@ -103,7 +103,7 @@ export class CrashRecoveryManager {
         key: name,
         data: saveData,
       }).catch((err) => {
-        log.error("CrashRecovery", `Failed to persist checkpoint: ${err}`);
+        log.error("crash-recovery", `Failed to persist checkpoint: ${err}`);
       });
     }
 
@@ -152,7 +152,7 @@ export class CrashRecoveryManager {
       this.state.isRecovering = false;
       return true;
     } catch (err) {
-      log.error("CrashRecovery", `Recovery failed: ${err}`);
+      log.error("crash-recovery", `Recovery failed: ${err}`);
       this.state.isRecovering = false;
       return false;
     }

@@ -8,6 +8,10 @@
 // registry callback and silently leaked every resource.
 // ============================================================================
 
+import { createLogger } from "@downdraft/engine/util/logger";
+
+const log = createLogger();
+
 // ── Leak diagnostics: count outstanding registrations per wrapper class ──
 const liveByType = new Map<string, number>();
 const releasedByType = new Map<string, number>();
@@ -25,7 +29,7 @@ function reportIfDue(): void {
   for (const [k, v] of liveByType) {
     if (v > 100) parts.push(`${k}=${v}(${releasedByType.get(k) ?? 0} rel)`);
   }
-  if (parts.length) console.log(`[gpu-live] ${parts.join(" ")}`);
+  if (parts.length) log.debug("gpu-registry", parts.join(" "));
 }
 
 const registry = new FinalizationRegistry<{ release: () => void; type: string }>((h) => {

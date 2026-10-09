@@ -54,12 +54,12 @@ export function createMcpProxyHandler(
         const rendererResult = await forwardToRenderer({ method, params });
         const r = rendererResult as { tools?: unknown[]; error?: unknown };
         if ("error" in r && r.error) {
-          log.warn("MCP", `tools/list renderer error: ${JSON.stringify(r.error)} (returning host tools only)`);
+          log.warn("mcp", `tools/list renderer error: ${JSON.stringify(r.error)} (returning host tools only)`);
         } else {
           rendererTools = (r as { tools?: unknown[] }).tools ?? [];
         }
       } catch (e) {
-        log.warn("MCP", `tools/list renderer unavailable: ${(e as Error).message} (returning host tools only)`);
+        log.warn("mcp", `tools/list renderer unavailable: ${(e as Error).message} (returning host tools only)`);
       }
       const hostDefs = hostTools.map((t) => ({
         name: t.def.name,

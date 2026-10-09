@@ -82,7 +82,7 @@ export class AutosaveManager {
     try {
       await this.runSave();
     } catch (e) {
-      log.error("AutosaveManager", `Save failed: ${e}`);
+      log.error("autosave-manager", `Save failed: ${e}`);
     }
   }
 

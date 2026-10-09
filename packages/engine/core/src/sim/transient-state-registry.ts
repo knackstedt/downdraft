@@ -57,7 +57,7 @@ export class TransientStateRegistry {
       try {
         this.resetCallbacks[i]();
       } catch (err) {
-        log.error("TransientStateRegistry", `Reset callback ${i} failed: ${err}`);
+        log.error("transient-state-registry", `Reset callback ${i} failed: ${err}`);
       }
     }
   }

@@ -419,7 +419,7 @@ export class OpfsSaveStore implements ISaveStore {
       const totalBytes = compressed.length + hashBytes.length + (opts?.blobs ? Object.values(opts.blobs).reduce((s, b) => s + b.byteLength, 0) : 0);
       return { success: true, bytes: totalBytes, gen: currentGen };
     } catch (err) {
-      log.error("OpfsSaveStore", `Save failed for slot '${slot}': ${err}`);
+      log.error("opfs-save-store", `Save failed for slot '${slot}': ${err}`);
       return { success: false, bytes: 0 };
     }
   }
@@ -451,7 +451,7 @@ export class OpfsSaveStore implements ISaveStore {
         this.warn({ kind: "no_saves_found", slot, message: `No save slot '${slot}' found` });
         return { state: null };
       }
-      log.error("OpfsSaveStore", `Failed to access slot '${slot}': ${err}`);
+      log.error("opfs-save-store", `Failed to access slot '${slot}': ${err}`);
       return { state: null };
     }
     try {
@@ -487,7 +487,7 @@ export class OpfsSaveStore implements ISaveStore {
       this.warn({ kind: "no_saves_found", slot, message: `No valid save found for slot '${slot}'` });
       return { state: null };
     } catch (err) {
-      log.error("OpfsSaveStore", `Load failed for slot '${slot}': ${err}`);
+      log.error("opfs-save-store", `Load failed for slot '${slot}': ${err}`);
       return { state: null };
     }
   }
@@ -576,7 +576,7 @@ export class OpfsSaveStore implements ISaveStore {
 
       return { state, blobs };
     } catch (err) {
-      log.warn("OpfsSaveStore", `loadFromGen ${genMeta.gen} failed: ${err}`);
+      log.warn("opfs-save-store", `loadFromGen ${genMeta.gen} failed: ${err}`);
       return { state: null };
     }
   }
@@ -644,7 +644,7 @@ export class OpfsSaveStore implements ISaveStore {
       const saves = this.ensureInit();
       const safeSlot = this.sanitizeSlot(slot);
       await this.removeRecursive(saves, safeSlot);
-      log.info("OpfsSaveStore", `Deleted slot '${slot}'`);
+      log.info("opfs-save-store", `Deleted slot '${slot}'`);
       return true;
     } catch {
       return false;

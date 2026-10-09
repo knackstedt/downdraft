@@ -190,7 +190,7 @@ class SyncProfiler {
       const avgKB = (e.totalBytes / e.count / 1024).toFixed(1);
       lines.push(`  ${label}: ${e.count}x avg=${avgMs}ms max=${maxMs}ms avgSize=${avgKB}KB total=${totalKB}KB`);
     }
-    log.warn("BufferSync", `Profiling: ${this.samples.length} samples over last ${this.logInterval}ms:\n${lines.join("\n")}`);
+    log.warn("buffer-sync", `Profiling: ${this.samples.length} samples over last ${this.logInterval}ms:\n${lines.join("\n")}`);
     this.samples = [];
   }
 }

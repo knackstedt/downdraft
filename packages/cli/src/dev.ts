@@ -76,8 +76,8 @@ export async function dev(args: string[]): Promise<void> {
 async function devNative(parsed: any): Promise<void> {
   const resolved = resolveGameDir();
   if (!resolved) {
-    log.error("DownDraft", `No game directory found (looking for downdraft.config.json or src/native-entry.ts from "${process.cwd()}").`);
-    log.error("DownDraft", `Run "draft dev" from a game directory.`);
+    log.error("draft", `No game directory found (looking for downdraft.config.json or src/native-entry.ts from "${process.cwd()}").`);
+    log.error("draft", `Run "draft dev" from a game directory.`);
     print(formatGamesList(findMonorepoRoot() ?? process.cwd()));
     process.exit(1);
   }
@@ -86,8 +86,8 @@ async function devNative(parsed: any): Promise<void> {
   const nativeEntry = resolve(gameDir, NATIVE_ENTRY);
 
   if (!existsSync(nativeEntry)) {
-    log.error("DownDraft", `No native entry point found at "${nativeEntry}".`);
-    log.error("DownDraft", `The game "${game}" needs a src/native-entry.ts to run on the native runtime.`);
+    log.error("draft", `No native entry point found at "${nativeEntry}".`);
+    log.error("draft", `The game "${game}" needs a src/native-entry.ts to run on the native runtime.`);
     process.exit(1);
   }
 
@@ -108,7 +108,7 @@ async function devNative(parsed: any): Promise<void> {
   const onSignal = () => {
     if (shuttingDown) return;
     shuttingDown = true;
-    log.info("DownDraft", "Shutting down...");
+    log.info("draft", "Shutting down...");
     const child = currentChild;
     try { child?.kill("SIGINT"); } catch {}
     if (child?.pid) {
@@ -129,9 +129,7 @@ async function devNative(parsed: any): Promise<void> {
   // ── Legacy path: --no-hmr spawns the entry directly under Bun (no watcher,
   //    no ModuleRunner — the pre-HMR behavior, kept as an escape hatch). ──
   if (noHmr) {
-    log.info("DownDraft", "Starting in native mode — direct spawn, no HMR (--no-hmr)...");
-    log.info("DownDraft", `  Game: ${game}`);
-    log.info("DownDraft", `  Entry: ${nativeEntry}`);
+    log.info("draft", `dev ${game} — ${nativeEntry} (bun, no hmr)`);
     const code = await spawnAndForward("bun", ["run", nativeEntry], buildCwd(gameDir), env, {
       onChild: (c) => { currentChild = c; },
     });
@@ -143,8 +141,8 @@ async function devNative(parsed: any): Promise<void> {
   const devDir = resolveDevShellDir();
   const devShell = join(devDir, "dev-shell.mjs");
   if (!existsSync(devShell)) {
-    log.error("DownDraft", `Dev shell not found at "${devShell}".`);
-    log.error("DownDraft", "Is @downdraft/platform-native installed? Try `draft dev --no-hmr` for the legacy path.");
+    log.error("draft", `Dev shell not found at "${devShell}".`);
+    log.error("draft", "Is @downdraft/platform-native installed? Try `draft dev --no-hmr` for the legacy path.");
     process.exit(1);
   }
 
@@ -161,9 +159,9 @@ async function devNative(parsed: any): Promise<void> {
   const runtime = detectRuntime(requested);
   if (!runtime) {
     if (requested) {
-      log.error("DownDraft", `Requested runtime "${requested}" is not available on PATH.`);
+      log.error("draft", `Requested runtime "${requested}" is not available on PATH.`);
     } else {
-      log.error("DownDraft", "No JS runtime found — need one of: bun, node, deno.");
+      log.error("draft", "No JS runtime found — need one of: bun, node, deno.");
     }
     process.exit(1);
   }
@@ -173,7 +171,12 @@ async function devNative(parsed: any): Promise<void> {
   env.DD_RUNTIME = runtime;
   env.DD_HMR = "1";
   env.DOWNDRAFT_DEV = "1";
-  if (verbose) env.DD_VERBOSE = "1";
+  if (verbose) {
+    env.DD_VERBOSE = "1";
+    // Diagnostics demoted below info (vite internals, pacing, gpu-registry)
+    // become visible under --verbose unless an explicit level is set.
+    env.EMBER_LOG_LEVEL = env.EMBER_LOG_LEVEL ?? "debug";
+  }
   const repoRoot = findMonorepoRoot();
   if (repoRoot) env.DD_REPO_ROOT = repoRoot;
 
@@ -181,11 +184,8 @@ async function devNative(parsed: any): Promise<void> {
     configPath: runtime === "deno" ? findDenoConfig(gameDir, repoRoot) : undefined,
   });
 
-  log.info("DownDraft", `Starting in native mode (${runtime} + SDL + wgpu-native, HMR on)...`);
-  log.info("DownDraft", `  Game: ${game}`);
-  log.info("DownDraft", `  Entry: ${nativeEntry}`);
-  log.info("DownDraft", `  Runtime: ${cmd} ${args.join(" ")}`);
-  if (verbose) log.info("DownDraft", "  Verbose: on");
+  log.info("draft", `dev ${game} — ${nativeEntry} (runtime=${runtime}, hmr)`);
+  if (verbose) log.info("draft", `dev shell: ${cmd} ${args.join(" ")}`);
 
   // Respawn loop: the dev shell exits with DD_RESTART_EXIT when a changed
   // file affects the loader/config layer (Tier-5) — respawn in place.
@@ -195,7 +195,7 @@ async function devNative(parsed: any): Promise<void> {
     });
     if (shuttingDown) return; // signal handler already owns exit
     if (code === DD_RESTART_EXIT) {
-      log.info("DownDraft", "Restarting dev shell (infrastructure change)...");
+      log.info("draft", "Restarting dev shell (infrastructure change)...");
       continue;
     }
     process.exit(code);
@@ -224,7 +224,7 @@ function spawnAndForward(
 
   return new Promise<number>((resolvePromise, reject) => {
     child.on("error", (err) => {
-      log.error("DownDraft", `Failed to spawn ${cmd}: ${err.message}`);
+      log.error("draft", `Failed to spawn ${cmd}: ${err.message}`);
       reject(err);
     });
 

@@ -2,7 +2,7 @@
 // Worker prelude — imported at the top of every instrumented worker.
 //
 // On load (worker realm only):
-//   1. Detects worker tag (from __ddThreadTag if set, else assigns auto-<n>).
+//   1. Takes the worker tag passed by the host's attachProfilingSAB RPC.
 //   2. If a ProfilingSAB has been attached (via attachProfilingSAB called from
 //      the host's init RPC), claims a slot, initializes ThreadMetricsWriter +
 //      IopsRingWriter + worker-side WarningEngine + EventLoopMonitor.

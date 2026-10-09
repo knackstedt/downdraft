@@ -272,7 +272,7 @@ export function installGPU(adopted?: WgpuGPU): WgpuGPU {
   (globalThis as any).__wgpuInstancePtr = gpu.getInstancePtr();
 
   installed = true;
-  log.info("platform-native", "GPU binding installed (wgpu)");
+  log.debug("platform-native", "GPU binding installed (wgpu)");
   return gpu;
 }
 

@@ -250,10 +250,10 @@ export class FileSaveStore implements ISaveStore {
         await fs.writeFile(this.propsPath(slot), JSON.stringify(opts.properties, null, 2));
       }
 
-      log.debug("FileSaveStore", `Saved slot '${slot}' (${fileBuf.length + blobBytes} bytes)`);
+      log.debug("file-save-store", `Saved slot '${slot}' (${fileBuf.length + blobBytes} bytes)`);
       return { success: true, bytes: fileBuf.length + blobBytes, gen: 1 };
     } catch (err) {
-      log.error("FileSaveStore", `Save failed for slot '${slot}': ${err}`);
+      log.error("file-save-store", `Save failed for slot '${slot}': ${err}`);
       return { success: false, bytes: 0 };
     }
   }
@@ -358,7 +358,7 @@ export class FileSaveStore implements ISaveStore {
         },
       };
 
-      log.info("FileSaveStore", `Loaded slot '${slot}'`);
+      log.info("file-save-store", `Loaded slot '${slot}'`);
       // Load blobs if requested
       let blobs: Record<string, ArrayBuffer> | undefined;
       if (includeBlobs) {

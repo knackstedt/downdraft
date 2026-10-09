@@ -175,7 +175,7 @@ export class PluginHost {
    */
   publishEvent(event: string, data: unknown): void {
     if (this.opts.eventCatalog && !(event in this.opts.eventCatalog)) {
-      log.warn("PluginHost", `publishEvent("${event}") — not in the game's event catalog; delivering anyway`);
+      log.warn("plugin-host", `publishEvent("${event}") — not in the game's event catalog; delivering anyway`);
     }
     this.eventBus.publish(event, data);
   }
@@ -190,7 +190,7 @@ export class PluginHost {
       try {
         drain(dt, elapsedTime);
       } catch (e) {
-        log.error("PluginHost", `Plugin tick error: ${(e as Error).message}`);
+        log.error("plugin-host", `Plugin tick error: ${(e as Error).message}`);
       }
     }
     for (const loader of this.loaders.values()) {
@@ -252,7 +252,7 @@ export class PluginHost {
     try {
       order = this.registry.resolveOrder();
     } catch (e) {
-      log.error("PluginHost", `Dependency resolution failed: ${(e as Error).message}`);
+      log.error("plugin-host", `Dependency resolution failed: ${(e as Error).message}`);
       // Mark all discovered as errored.
       for (const [id, d] of this.discovered.entries()) {
         this.active.set(id, {
@@ -286,7 +286,7 @@ export class PluginHost {
           error: "a dependency failed to load",
           source: d.source,
         });
-        log.warn("PluginHost", `Skipping "${id}" — dependency failed`);
+        log.warn("plugin-host", `Skipping "${id}" — dependency failed`);
         continue;
       }
       await this.loadOne(id);
@@ -313,7 +313,7 @@ export class PluginHost {
         error: `no loader registered for format "${logicFormat}"`,
         source: d.source,
       });
-      log.error("PluginHost", `No loader for "${id}" (format ${logicFormat})`);
+      log.error("plugin-host", `No loader for "${id}" (format ${logicFormat})`);
       return;
     }
     const granted = resolvePermissions(
@@ -346,7 +346,7 @@ export class PluginHost {
       for (let _i = 0, _it = exts, _n = _it.length; _i < _n; _i++) { const ext = _it[_i];
         const extLoader = this.extensionLoaders.get(ext.bucket);
         if (!extLoader) {
-          log.warn("PluginHost", `No extension loader for bucket "${ext.bucket}" (mod "${id}") — skipping`);
+          log.warn("plugin-host", `No extension loader for bucket "${ext.bucket}" (mod "${id}") — skipping`);
           continue;
         }
         try {
@@ -356,17 +356,17 @@ export class PluginHost {
             a.disposeFns.push(dispose);
           }
         } catch (e) {
-          log.error("PluginHost", `Extension load error in "${id}" (${ext.bucket}): ${(e as Error).message}`);
+          log.error("plugin-host", `Extension load error in "${id}" (${ext.bucket}): ${(e as Error).message}`);
         }
       }
       const a = this.active.get(id)!;
       a.status = "active";
-      log.info("PluginHost", `Loaded mod "${id}" (${logicFormat ?? "data"}/${m.tier})`);
+      log.info("plugin-host", `Loaded mod "${id}" (${logicFormat ?? "data"}/${m.tier})`);
     } catch (e) {
       const a = this.active.get(id)!;
       a.status = "error";
       a.error = (e as Error).message;
-      log.error("PluginHost", `Failed to load mod "${id}": ${(e as Error).message}`);
+      log.error("plugin-host", `Failed to load mod "${id}": ${(e as Error).message}`);
     }
   }
 
@@ -442,7 +442,7 @@ export class PluginHost {
     const catalog = this.opts.eventCatalog;
     const check = (event: string, op: string) => {
       if (catalog && !(event in catalog)) {
-        log.warn("PluginHost", `plugin "${pluginId}" ${op} unknown event "${event}" (not in catalog)`);
+        log.warn("plugin-host", `plugin "${pluginId}" ${op} unknown event "${event}" (not in catalog)`);
       }
     };
     return {
@@ -466,7 +466,7 @@ export class PluginHost {
       try {
         a.disposeFns[i]();
       } catch (e) {
-        log.error("PluginHost", `Dispose error in plugin "${id}": ${(e as Error).message}`);
+        log.error("plugin-host", `Dispose error in plugin "${id}": ${(e as Error).message}`);
       }
     }
     this.active.delete(id);
@@ -488,7 +488,7 @@ export class PluginHost {
   async reload(id: string): Promise<void> {
     const d = this.discovered.get(id);
     if (!d) {
-      log.warn("PluginHost", `reload: "${id}" not discovered`);
+      log.warn("plugin-host", `reload: "${id}" not discovered`);
       return;
     }
     this.unload(id);
@@ -649,7 +649,7 @@ function fmt(msg: string, args: unknown[]): string {
 }
 
 function makeLogger(_pluginId: string): PluginLogger {
-  const prefix = `[plugin:${_pluginId}]`;
+  const prefix = `plugin:${_pluginId}`;
   return {
     info: (msg, ...args) => log.info(prefix, fmt(msg, args)),
     warn: (msg, ...args) => log.warn(prefix, fmt(msg, args)),

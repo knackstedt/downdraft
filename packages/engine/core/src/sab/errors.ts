@@ -17,7 +17,7 @@ export function isDebug(): boolean {
 export function warnOnce(key: string, msg: string): void {
   if (warned.has(key)) return;
   warned.add(key);
-  log.warn("SAB", msg);
+  log.warn("sab", msg);
 }
 
 export function resetWarnings(): void {

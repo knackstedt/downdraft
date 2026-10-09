@@ -333,7 +333,7 @@ export class RendererModuleHost {
       try {
         active.disposeFns[i]();
       } catch (err) {
-        log.error("RendererModuleHost", `Dispose error in plugin "${name}": ${err}`);
+        log.error("renderer-module-host", `Dispose error in plugin "${name}": ${err}`);
       }
     }
     // Remove this plugin's hooks.
@@ -433,7 +433,7 @@ export class RendererModuleHost {
       try {
         hooks[i].fn(dt, elapsedTime);
       } catch (err) {
-        log.error("RendererModuleHost", `Frame hook error (${phase}) in "${hooks[i].owner}": ${err}`);
+        log.error("renderer-module-host", `Frame hook error (${phase}) in "${hooks[i].owner}": ${err}`);
       }
     }
   }
@@ -443,7 +443,7 @@ export class RendererModuleHost {
       try {
         this.resizeHooks[i].fn(cssWidth, cssHeight, dpr);
       } catch (err) {
-        log.error("RendererModuleHost", `Resize hook error in "${this.resizeHooks[i].owner}": ${err}`);
+        log.error("renderer-module-host", `Resize hook error in "${this.resizeHooks[i].owner}": ${err}`);
       }
     }
     this.cameraController?.setAspect(
@@ -461,7 +461,7 @@ export class RendererModuleHost {
       try {
         this.renderPassHooks[i].fn(passEncoder, camera, viewportIdx);
       } catch (err) {
-        log.error("RendererModuleHost", `Render-pass hook error in "${this.renderPassHooks[i].owner}": ${err}`);
+        log.error("renderer-module-host", `Render-pass hook error in "${this.renderPassHooks[i].owner}": ${err}`);
       }
     }
   }
@@ -476,7 +476,7 @@ export class RendererModuleHost {
     try {
       return this.cameraController.getCameraState(viewportIdx);
     } catch (err) {
-      log.error("RendererModuleHost", `Camera controller error: ${err}`);
+      log.error("renderer-module-host", `Camera controller error: ${err}`);
       return null;
     }
   }
@@ -492,7 +492,7 @@ export class RendererModuleHost {
     try {
       return this.viewportCameraProvider(viewportIdx, dt, elapsedTime);
     } catch (err) {
-      log.error("RendererModuleHost", `Viewport camera provider error: ${err}`);
+      log.error("renderer-module-host", `Viewport camera provider error: ${err}`);
       return null;
     }
   }

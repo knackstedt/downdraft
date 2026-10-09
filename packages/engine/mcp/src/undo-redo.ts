@@ -35,7 +35,7 @@ export class UndoRedoManager {
       this.redoStack.push(action);
       return true;
     } catch (e) {
-      log.error("UndoRedo", `Undo failed: ${e}`);
+      log.error("undo-redo", `Undo failed: ${e}`);
       this.undoStack.push(action);
       return false;
     }
@@ -49,7 +49,7 @@ export class UndoRedoManager {
       this.undoStack.push(action);
       return true;
     } catch (e) {
-      log.error("UndoRedo", `Redo failed: ${e}`);
+      log.error("undo-redo", `Redo failed: ${e}`);
       this.redoStack.push(action);
       return false;
     }

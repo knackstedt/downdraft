@@ -125,7 +125,6 @@ export class NativeWindow extends MiniEventTarget {
   // a core. lastRafDispatch timestamps the previous dispatch; frameIntervalMs
   // is derived from the display's refresh rate (re-queried on window moves).
   private lastRafDispatch = -1e9;
-  private loggedFirstRaf = false;
   private frameIntervalMs = 0;
   // The cached interval is re-validated on this cadence: a MOVED-driven
   // re-query can latch mid-drag while winit still reports the window on its
@@ -459,11 +458,11 @@ export class NativeWindow extends MiniEventTarget {
         // re-pace the loop every recheck. Require two consecutive agreeing
         // readings before switching; a moved window still converges in ~4s.
         if (this.frameIntervalMs <= 0) {
-          log.info("NativeWindow", `rAF pacing: ${hz}Hz (${interval.toFixed(2)}ms)`);
+          log.debug("native-window", `rAF pacing: ${hz}Hz (${interval.toFixed(2)}ms)`);
           this.frameIntervalMs = interval;
         } else if (interval !== this.frameIntervalMs) {
           if (interval === this.pendingFrameInterval) {
-            log.info("NativeWindow", `rAF pacing: ${hz}Hz (${interval.toFixed(2)}ms)`);
+            log.debug("native-window", `rAF pacing: ${hz}Hz (${interval.toFixed(2)}ms)`);
             this.frameIntervalMs = interval;
             this.pendingFrameInterval = 0;
           } else {
@@ -583,12 +582,8 @@ export class NativeWindow extends MiniEventTarget {
       if (now - this.lastRafDispatch >= this.frameInterval()) this.lastRafDispatch = now;
       const callbacks = Array.from(this.rafCallbacks.values());
       this.rafCallbacks.clear();
-      if (!this.loggedFirstRaf) {
-        this.loggedFirstRaf = true;
-        log.info("NativeWindow", `first rAF dispatch — ${callbacks.length} callback(s)`);
-      }
       callbacks.forEach((cb) => {
-        try { cb(now); } catch (e) { log.error("NativeWindow", `rAF callback error: ${e}`); }
+        try { cb(now); } catch (e) { log.error("native-window", `rAF callback error: ${e}`); }
       });
       // Browser semantics: the canvas auto-presents at end of frame, after
       // the rAF callbacks AND the microtask checkpoint. Renderers driving the
@@ -670,7 +665,7 @@ export class NativeWindow extends MiniEventTarget {
       this.surface?.resize(r.width, r.height);
       this.dispatchEvent({ type: "resize", width: r.width, height: r.height });
     } catch (e) {
-      log.error("NativeWindow", `resize failed (${r.width}x${r.height}): ${e}`);
+      log.error("native-window", `resize failed (${r.width}x${r.height}): ${e}`);
     }
   }
 
@@ -680,7 +675,7 @@ export class NativeWindow extends MiniEventTarget {
     try {
       this.handleEvent(eventType, eventView, floatView);
     } catch (e) {
-      log.error("NativeWindow", `event ${eventType} handler error: ${e}`);
+      log.error("native-window", `event ${eventType} handler error: ${e}`);
     }
   }
 

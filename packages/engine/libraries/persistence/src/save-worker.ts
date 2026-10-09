@@ -8,21 +8,19 @@
 //
 // Uses the engine's RPC layer (expose/exposeEvents) for typed communication.
 
+import type {
+    ISaveStore,
+    LoadOptions,
+    LoadResult,
+    SaveGenerationInfo,
+    SaveOptions,
+    SaveResult,
+    SaveSlotInfo,
+    SaveState,
+    SaveWarning,
+} from "@downdraft/engine";
 import { expose } from "@downdraft/engine/worker/rpc";
 import { OpfsSaveStore, type OpfsSaveStoreOptions } from "./opfs-save-store";
-import type {
-  ISaveStore,
-  LoadOptions,
-  LoadResult,
-  SaveGenerationInfo,
-  SaveOptions,
-  SaveResult,
-  SaveSlotInfo,
-  SaveState,
-  SaveWarning,
-} from "@downdraft/engine";
-
-(globalThis as any).__ddThreadTag = "S1";
 
 let store: OpfsSaveStore | null = null;
 
@@ -96,4 +94,5 @@ expose(api);
 
 // Also export the type for the proxy side
 export type SaveWorkerApi = typeof api;
-export type { ISaveStore, SaveState, SaveOptions, LoadOptions, SaveResult, LoadResult, SaveSlotInfo, SaveGenerationInfo, SaveWarning };
+export type { ISaveStore, LoadOptions, LoadResult, SaveGenerationInfo, SaveOptions, SaveResult, SaveSlotInfo, SaveState, SaveWarning };
+

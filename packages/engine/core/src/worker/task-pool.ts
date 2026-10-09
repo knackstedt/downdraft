@@ -122,7 +122,7 @@ export class TaskPool {
         const worker = this.createWorker();
         worker.onerror = (e: ErrorEvent) => {
           if (this.onWorkerError) this.onWorkerError(i, e);
-          else log.error("TaskPool", `Worker ${i} error: ${e.message}`);
+          else log.error("task-pool", `Worker ${i} error: ${e.message}`);
         };
         worker.addEventListener("message", (e: MessageEvent) => {
           const msg = e.data as JobResultMessage;
@@ -139,7 +139,7 @@ export class TaskPool {
         this.workers.push(worker);
       }
     } catch (err) {
-      log.warn("TaskPool", `Failed to spawn workers, falling back to synchronous: ${err}`);
+      log.warn("task-pool", `Failed to spawn workers, falling back to synchronous: ${err}`);
       this.fallback = true;
     }
   }

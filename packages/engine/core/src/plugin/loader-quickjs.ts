@@ -69,7 +69,7 @@ export class QuickjsPluginLoader implements PluginLoader {
     bridge.eval(`register(ddPlugin);`, `${entryUrl}#register`);
 
     bridge.drainJobs();
-    log.info("QuickjsPluginLoader", `Loaded QuickJS plugin "${manifest.id}"`);
+    log.info("quickjs-plugin-loader", `Loaded QuickJS plugin "${manifest.id}"`);
 
     return () => {
       bridge.dispose();

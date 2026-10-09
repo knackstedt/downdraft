@@ -17,7 +17,7 @@ export class SceneManager {
 
   register(scene: Scene): void {
     if (this.scenes.has(scene.name)) {
-      log.warn("SceneManager", `Overwriting scene "${scene.name}"`);
+      log.warn("scene-manager", `Overwriting scene "${scene.name}"`);
     }
     this.scenes.set(scene.name, scene);
   }
@@ -108,7 +108,7 @@ export class SceneManager {
     next.activate();
     this.activeScenes.add(name);
     this._currentScene = next;
-    log.info("SceneManager", `Transitioned to "${name}"`);
+    log.info("scene-manager", `Transitioned to "${name}"`);
   }
 
   // ── Additive Loading ───────────────────────────────────────────

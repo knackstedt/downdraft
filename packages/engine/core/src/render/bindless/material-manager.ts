@@ -146,7 +146,7 @@ export class BindlessMaterialManager {
   /** Update an existing material's params in place (no reallocation). */
   updateMaterial(index: number, params: MaterialParams): void {
     if (index < 0 || index >= this.nextSlot) {
-      log.warn("Bindless", `updateMaterial: index ${index} out of range (nextSlot=${this.nextSlot})`);
+      log.warn("bindless", `updateMaterial: index ${index} out of range (nextSlot=${this.nextSlot})`);
       return;
     }
     this.writeMaterial(index, params);
@@ -243,7 +243,7 @@ export class BindlessMaterialManager {
     this.backingU32 = new Uint32Array(newBacking.buffer);
     this.capacity = newCapacity;
     this.bufferVersion++;
-    log.debug("Bindless", `material SSBO grew to capacity ${newCapacity}`);
+    log.debug("bindless", `material SSBO grew to capacity ${newCapacity}`);
   }
 }
 

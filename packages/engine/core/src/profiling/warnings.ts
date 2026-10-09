@@ -284,7 +284,7 @@ export class WarningEngine {
         cb(record, ctx);
       } catch (err) {
         // Don't let a callback error stop other callbacks
-        log.error("WarningEngine", `callback error for rule "${rule.id}": ${err}`);
+        log.error("warning-engine", `callback error for rule "${rule.id}": ${err}`);
       }
     });
   }

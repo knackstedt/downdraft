@@ -67,7 +67,7 @@ export class AssetPluginLoader implements PluginLoader {
         await am.load(path);
         loaded.push(path);
       } catch (e) {
-        log.error("AssetPluginLoader", `Failed to load texture "${path}" for plugin "${manifest.id}": ${(e as Error).message}`);
+        log.error("asset-plugin-loader", `Failed to load texture "${path}" for plugin "${manifest.id}": ${(e as Error).message}`);
       }
     }
     for (let _i = 0, _it = assets.audio ?? [], _n = _it.length; _i < _n; _i++) { const path = _it[_i];
@@ -75,7 +75,7 @@ export class AssetPluginLoader implements PluginLoader {
         await am.load(path);
         loaded.push(path);
       } catch (e) {
-        log.error("AssetPluginLoader", `Failed to load audio "${path}" for plugin "${manifest.id}": ${(e as Error).message}`);
+        log.error("asset-plugin-loader", `Failed to load audio "${path}" for plugin "${manifest.id}": ${(e as Error).message}`);
       }
     }
     for (let _i = 0, _it = assets.meshes ?? [], _n = _it.length; _i < _n; _i++) { const path = _it[_i];
@@ -83,7 +83,7 @@ export class AssetPluginLoader implements PluginLoader {
         await am.load(path);
         loaded.push(path);
       } catch (e) {
-        log.error("AssetPluginLoader", `Failed to load mesh "${path}" for plugin "${manifest.id}": ${(e as Error).message}`);
+        log.error("asset-plugin-loader", `Failed to load mesh "${path}" for plugin "${manifest.id}": ${(e as Error).message}`);
       }
     }
     // Data files (JSON etc.) — loaded as raw text via the generic loader.
@@ -92,12 +92,12 @@ export class AssetPluginLoader implements PluginLoader {
         await am.load(path);
         loaded.push(path);
       } catch (e) {
-        log.error("AssetPluginLoader", `Failed to load data "${path}" for plugin "${manifest.id}": ${(e as Error).message}`);
+        log.error("asset-plugin-loader", `Failed to load data "${path}" for plugin "${manifest.id}": ${(e as Error).message}`);
       }
     }
 
     this.loadedUris.set(manifest.id, loaded);
-    log.info("AssetPluginLoader", `Loaded ${loaded.length} asset(s) for plugin "${manifest.id}" from ${base}`);
+    log.info("asset-plugin-loader", `Loaded ${loaded.length} asset(s) for plugin "${manifest.id}" from ${base}`);
 
     return () => this.dispose(manifest.id);
   }

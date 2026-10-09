@@ -306,5 +306,5 @@ export function installImagePolyfills(): void {
     };
   }
 
-  log.info("platform-native", "Image polyfills installed (image crate + OffscreenCanvas + Image)");
+  log.debug("platform-native", "Image polyfills installed (image crate + OffscreenCanvas + Image)");
 }

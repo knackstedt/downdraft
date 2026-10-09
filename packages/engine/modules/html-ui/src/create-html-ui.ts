@@ -9,12 +9,12 @@
 // selector-scoped mutator ops so HUD ticks don't reparse the document.
 // ============================================================================
 
-import type { RendererModule, RendererModuleContext } from "@downdraft/engine/module/renderer-module";
 import { resourceToken } from "@downdraft/engine/ecs/resource";
-import { createLogger } from "@downdraft/engine/util/logger";
 import type { OsrDomEvent } from "@downdraft/engine/libraries/blitz-ui/native-osr-ffi";
 import { GamepadSourceTok } from "@downdraft/engine/libraries/gamepad/library";
 import { UiNavRouter, type UiNavRouterOptions } from "@downdraft/engine/libraries/html-ui-kit/nav/router";
+import type { RendererModule, RendererModuleContext } from "@downdraft/engine/module/renderer-module";
+import { createLogger } from "@downdraft/engine/util/logger";
 import { HtmlUiHost, type PanelSpec, type UiPanelHandle } from "./host";
 import { renderHtml, type Child } from "./jsx-runtime";
 
@@ -41,8 +41,10 @@ export interface HtmlUiContext {
   loadResource(uiUrl: string, src: string | Uint8Array | ArrayBuffer): Promise<void>;
   /** Convenience: register a font and get the @font-face CSS rule to inject. */
   fontFaceCss(family: string, uiUrl: string): string;
-  /** True when the pointer is inside any panel rect. */
-  isPointerOverUI(): boolean;
+  /** True when the pointer is inside any panel rect. Pass coords to hit-test
+   *  a specific point (e.g. the event's clientX/Y) rather than the last seen
+   *  pointer position. */
+  isPointerOverUI(x?: number, y?: number): boolean;
   /** Per-frame hook (see createGameUi.onUpdate semantics). */
   onUpdate(fn: (dt: number, elapsed: number) => void): void;
   onResize(fn: (w: number, h: number, dpr: number) => void): void;
@@ -83,11 +85,13 @@ export const HtmlUiTok = resourceToken<HtmlUiContext>("htmlUi");
 // contexts (game UI + devtools overlay) OR together.
 const activeContexts = new Set<HtmlUiContext>();
 
-/** True when the pointer is inside any mounted html-ui panel. */
-export function isPointerOverUI(): boolean {
+/** True when the pointer is inside any mounted html-ui panel. Optional
+ *  coords hit-test a specific point instead of the last pointer position —
+ *  use the event's clientX/Y inside pointer handlers. */
+export function isPointerOverUI(x?: number, y?: number): boolean {
   let over = false;
   activeContexts.forEach((ui) => {
-    if (ui.isPointerOverUI()) over = true;
+    if (ui.isPointerOverUI(x, y)) over = true;
   });
   return over;
 }
@@ -171,7 +175,7 @@ export function createHtmlUi(options: HtmlUiOptions): RendererModule {
         },
         fontFaceCss: (family, uiUrl) =>
           `@font-face { font-family: '${family}'; src: url('${uiUrl}'); }`,
-        isPointerOverUI: () => host.isPointerOverUI(),
+        isPointerOverUI: (x, y) => host.isPointerOverUI(x, y),
         onUpdate(fn) { updateSubs.push(fn); },
         onResize(fn) { ctx.onResize(fn); },
         onDispose(fn) { disposeFns.push(fn); },

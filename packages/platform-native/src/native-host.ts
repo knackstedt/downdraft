@@ -14,7 +14,7 @@
 // ============================================================================
 
 import { installShaderValidationGuard } from "@downdraft/engine/render/shader-validator";
-import { createLogger, setThreadTag } from "@downdraft/engine/util/logger";
+import { createLogger } from "@downdraft/engine/util/logger";
 import { ENGINE_VERSION } from "@downdraft/engine/version";
 import { join } from "node:path";
 import { installAssetGlob } from "./assets/native-assets";
@@ -138,11 +138,6 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   };
   mark("createNativeHost");
 
-  // Thread tag for log prefixes — the host entry IS the renderer thread.
-  // Games used to set R0 at every entry top; a game override (e.g. a
-  // non-R0 shell) still wins by setting it before calling us.
-  if (!(globalThis as any).__ddThreadTag) setThreadTag("R0");
-
   // HMR session reuse — the dev shell keeps one host (window/device/bridge/
   // MCP) alive across session restarts. Entries re-call createNativeHost on
   // every session; reuse the live host instead of opening a second window.
@@ -265,6 +260,7 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
       : undefined,
   });
   mark("dom-polyfills");
+  log.info("platform-native", "bindings installed (gpu, image, assets, dom)");
 
   // 2e. Host services — the worker spawn + init RPC overlaps with the
   //     adapter/device wait instead of serializing after it.

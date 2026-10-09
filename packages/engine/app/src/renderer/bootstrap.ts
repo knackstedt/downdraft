@@ -223,7 +223,7 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
     const ok = await importOrDead(Promise.resolve(opts.initRenderer(renderer)), bootSession);
     if (ok === null) return;
     if (!ok) {
-      log.error("bootstrapGame", "Renderer init failed");
+      log.error("bootstrap-game", "Renderer init failed");
       return;
     }
   }
@@ -317,7 +317,7 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
           wireProfilingBridge({ renderer, bridge, workerHosts: hosts });
         }
       } catch (err) {
-        log.warn("bootstrapGame", `profiling wiring failed: ${err}`);
+        log.warn("bootstrap-game", `profiling wiring failed: ${err}`);
       }
     }
 
@@ -374,7 +374,7 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
           });
         }
       } catch (err) {
-        log.error("bootstrapGame", `Devtools UI init failed: ${err}`);
+        log.error("bootstrap-game", `Devtools UI init failed: ${err}`);
       }
     }
   }
@@ -406,7 +406,7 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
     deterministic,
     getActiveModules: opts.getActiveModules,
   });
-  log.info("bootstrapGame", encodeFeatureLogLine(renderFeatureLog));
+  log.info("bootstrap-game", encodeFeatureLogLine(renderFeatureLog));
 
   // 7. FPS polling (if onFpsUpdate provided). unref so the interval can't
   //    pin the runtime after the window closes (packaged mode has no session
@@ -457,7 +457,7 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
         await autosaveOpts.onLoad(saved);
       }
     } catch (e) {
-      log.warn("bootstrapGame", `Autosave load failed: ${e}`);
+      log.warn("bootstrap-game", `Autosave load failed: ${e}`);
     }
     // A restart landing during the load await must not leave this dead
     // generation's save interval registered into the NEXT live session.
@@ -470,7 +470,7 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
       try {
         await autosaveOpts.save();
       } catch (e) {
-        log.warn("bootstrapGame", `Autosave save failed: ${e}`);
+        log.warn("bootstrap-game", `Autosave save failed: ${e}`);
       } finally {
         saveInProgress = false;
       }

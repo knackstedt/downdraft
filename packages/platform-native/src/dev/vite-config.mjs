@@ -328,7 +328,9 @@ export function buildNativeDevConfig(opts) {
           // node+bun+npm but we replace the array, so re-add them here.
           builtins: [...builtinModules, /^node:/, /^npm:/, /^bun:/, /^deno:/],
           // FFI + binary deps always resolve natively (never runner-evaluated).
-          external: ["koffi"],
+          // Games declare extra native deps (NAPI addons, FFI modules, …)
+          // via downdraft.config.json "native": { "external": [...] }.
+          external: ["koffi", ...(loadGameConfig(gameDir)?.native?.external ?? [])],
         },
         dev: {
           createEnvironment: (name, config, context) =>

@@ -82,7 +82,7 @@ export class LibraryHostImpl implements LibraryHost {
         if (this.buffers[ch.name]) {
           const msg = `SAB channel "${ch.name}" declared by library "${active.lib.name}" is already allocated — duplicate channel names across libraries are not allowed`;
           if (isStrict()) throw new Error(msg);
-          log.warn("LibraryHost", msg);
+          log.warn("library-host", msg);
           continue;
         }
         this.buffers[ch.name] = new SharedArrayBuffer(ch.size);
@@ -120,7 +120,7 @@ export class LibraryHostImpl implements LibraryHost {
       active.lib.requires.forEach((token) => {
         if (!allProviders.has(token.key) && !this.providers.has(token.key)) {
           log.warn(
-            "LibraryHost",
+            "library-host",
             `Library "${active.lib.name}" requires "${token.key}" which no library provides — it must be provided by a game module or external provider, or inject() will throw.`,
           );
         }
@@ -154,7 +154,7 @@ export class LibraryHostImpl implements LibraryHost {
         active.simSystem = null;
         (created as Promise<unknown>).then(
           (resolved) => { active.simSystem = resolved; },
-          (err) => { log.error("LibraryHost", `async sim.create for "${active.lib.name}" failed: ${err}`); },
+          (err) => { log.error("library-host", `async sim.create for "${active.lib.name}" failed: ${err}`); },
         );
       } else {
         active.simSystem = created;

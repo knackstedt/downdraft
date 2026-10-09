@@ -53,8 +53,8 @@ async function main() {
     }
     const entry = getCommand(target);
     if (!entry) {
-      log.error("CLI", `Unknown command: ${target}`);
-      log.info("CLI", `Run 'draft --help' for the list of commands.`);
+      log.error("draft", `Unknown command: ${target}`);
+      log.info("draft", `Run 'draft --help' for the list of commands.`);
       process.exit(1);
     }
     print(renderHelp(entry.usage, entry.schema));
@@ -88,7 +88,7 @@ async function main() {
         await exportGame(process.argv.slice(3));
         break;
       case "mobile":
-        log.error("CLI", "`draft mobile` is removed — the Capacitor WebView shell was dormant and has been deleted. Mobile support returns with a native (winit+wgpu) port.");
+        log.error("draft", "`draft mobile` is removed — the Capacitor WebView shell was dormant and has been deleted. Mobile support returns with a native (winit+wgpu) port.");
         process.exit(1);
       case "assets":
         await assets(process.argv.slice(3));
@@ -112,7 +112,7 @@ async function main() {
     }
   } catch (err) {
     if (err instanceof ArgError) {
-      log.error("CLI", err.message);
+      log.error("draft", err.message);
       const entry = getCommand(command);
       if (entry) {
         print("");

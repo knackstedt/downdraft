@@ -69,7 +69,7 @@ export class DevToolsDataBridge {
 
     const api = this.buildApi();
     (window as any).__sceneInspector = api;
-    log.info("DevToolsDataBridge", "API exposed on window.__sceneInspector");
+    log.info("dev-tools-data-bridge", "API exposed on window.__sceneInspector");
   }
 
   protected buildApi(): Record<string, any> {

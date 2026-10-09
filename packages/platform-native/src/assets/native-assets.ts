@@ -11,8 +11,8 @@
 // runtime-detection seam.
 // ============================================================================
 
-import { createLogger } from "@downdraft/engine/util/logger";
 import { createGlob } from "@downdraft/engine/platform/glob-polyfill";
+import { createLogger } from "@downdraft/engine/util/logger";
 
 const log = createLogger();
 
@@ -43,5 +43,5 @@ export function nativeGlob(
 // of import.meta.glob(). This is done via the runtime detection utility.
 export function installAssetGlob(): void {
   (globalThis as any).__nativeGlob = nativeGlob;
-  log.info("platform-native", "Asset glob installed (filesystem-based)");
+  log.debug("platform-native", "Asset glob installed (filesystem-based)");
 }

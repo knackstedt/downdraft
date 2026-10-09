@@ -379,7 +379,7 @@ export class SkeletonAnimator {
     this.targetZUp = skin.skeletonUpAxis !== "y";
     this.isMixamoSkeleton = this.boneNameToIndex.has("mixamorig:Hips");
     if (this.isMixamoSkeleton) {
-      log.info("Anim", "Mixamo skeleton detected — direct animation mapping (no retargeting)");
+      log.info("anim", "Mixamo skeleton detected — direct animation mapping (no retargeting)");
     }
   }
 
@@ -1138,7 +1138,7 @@ export class SkeletonAnimator {
     const clip = this.animationDataToClip(mergedAnim, stateName);
     if (clip) {
       this.clips.set(stateName, clip);
-      log.info("Anim", `Registered: ${stateName} (${allChannels.length} channels, ${this.isMixamoSkeleton ? "direct Mixamo" : "retargeted-v2"})`);
+      log.info("anim", `Registered: ${stateName} (${allChannels.length} channels, ${this.isMixamoSkeleton ? "direct Mixamo" : "retargeted-v2"})`);
     }
   }
 

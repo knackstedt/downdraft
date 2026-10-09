@@ -179,15 +179,15 @@ export class TerrainStreamingManager {
   ): void {
     if (radius <= 0) return;
     if (!Number.isFinite(worldX) || !Number.isFinite(worldY) || !Number.isFinite(worldZ)) {
-      log.warn("Streaming", `registerIsland(${id}) rejected: non-finite world coords (${worldX}, ${worldY}, ${worldZ})`);
+      log.warn("streaming", `registerIsland(${id}) rejected: non-finite world coords (${worldX}, ${worldY}, ${worldZ})`);
       return;
     }
     if (!Number.isFinite(biome) || biome < 0) {
-      log.warn("Streaming", `registerIsland(${id}) rejected: invalid biome ${biome}`);
+      log.warn("streaming", `registerIsland(${id}) rejected: invalid biome ${biome}`);
       return;
     }
     if (!Number.isFinite(islandSize) || islandSize < 0) {
-      log.warn("Streaming", `registerIsland(${id}) rejected: invalid islandSize ${islandSize}`);
+      log.warn("streaming", `registerIsland(${id}) rejected: invalid islandSize ${islandSize}`);
       return;
     }
 
@@ -405,7 +405,7 @@ export class TerrainStreamingManager {
         terrain.dirty = true;
         terrain.deformCount++;
       } catch (err) {
-        log.error("Streaming", `Deformation ${i} (id=${def.id}) failed: ${err}`);
+        log.error("streaming", `Deformation ${i} (id=${def.id}) failed: ${err}`);
       }
     }
 

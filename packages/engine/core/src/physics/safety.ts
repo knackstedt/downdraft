@@ -241,7 +241,7 @@ export class SafetyLayer {
       throw new Error(`[Physics Safety] ${msg}`);
     } else {
       // Shipped: log and continue (never crash)
-      log.warn("Physics Safety", msg);
+      log.warn("physics-safety", msg);
     }
   }
 }

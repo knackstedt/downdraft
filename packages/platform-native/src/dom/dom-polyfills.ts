@@ -507,5 +507,5 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
     };
   }
 
-  log.info("platform-native", "DOM polyfills installed (document, window, ResizeObserver, localStorage, etc.)");
+  log.debug("platform-native", "DOM polyfills installed (document, window, ResizeObserver, localStorage, etc.)");
 }

@@ -141,6 +141,18 @@ function getTheme() {
 const LEVEL_INT = { trace: 1, debug: 2, info: 3, warn: 4, error: 5, fatal: 6 };
 const GATE = LEVEL_INT[proc.env.EMBER_LOG_LEVEL] ?? LEVEL_INT[proc.env.NODE_ENV === "test" ? "warn" : "info"];
 
+/** Same normalization as logger.ts — word-style module tags render
+ *  lowercase-kebab; anything with heavier separators (paths, "plugin:x",
+ *  "dev/hmr") passes through. */
+function normalizeModuleTag(module) {
+  if (!/^[A-Za-z0-9][A-Za-z0-9 _]*$/.test(module)) return module;
+  return module
+    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1-$2")
+    .replace(/[\s_]+/g, "-")
+    .toLowerCase();
+}
+
 /**
  * Write one formatted line — same layout as ConsoleLogger.write, minus the
  * syntax-highlight/linkify passes (supervisor messages are plain text).
@@ -152,7 +164,7 @@ export function writeLine(level, module, msg) {
   const palette = THEMES[getTheme()];
   const clean = String(msg).replace(/\n+$/, "");
   const ts = new Date().toTimeString().slice(0, 8);
-  const line = `${palette.time}${ts} ${palette[level] ?? palette.info}${bold}${level.toUpperCase()}${reset} ${palette.gray}[${palette.module}${module}${palette.gray}] ${reset}${clean}\n`;
+  const line = `${palette.time}${ts} ${palette[level] ?? palette.info}${bold}${level.toUpperCase()}${reset} ${palette.gray}[${palette.module}${normalizeModuleTag(module)}${palette.gray}] ${reset}${clean}\n`;
   const stream = proc.env.DOWNDRAFT_MCP === "1" ? proc.stderr : proc.stdout;
   try {
     stream.write(line);
@@ -197,7 +209,12 @@ export function installConsoleBridge() {
       const msg = args.map(stringifyArg).join(" ");
       if (FORMATTED_LINE.test(msg)) { originals[method](msg); return; }
       const m = msg.match(TAG_PREFIX);
-      writeLine(level, m ? m[1] : "console", m ? msg.slice(m[0].length) : msg);
+      const tag = m ? m[1] : "console";
+      // Vite's runner-side HMR client logs routine chatter ("connected.")
+      // through console.log — demote to debug. Real failures still surface
+      // via the "vite:error" hot event → [dev/hmr] ERROR.
+      const effLevel = tag === "vite" && level === "info" ? "debug" : level;
+      writeLine(effLevel, tag, m ? msg.slice(m[0].length) : msg);
     };
   }
   return () => {

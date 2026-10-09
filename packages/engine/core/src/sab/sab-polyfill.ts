@@ -48,7 +48,7 @@ if (!usingRealSAB) {
   // Debug identifier — detectable from console/devtools.
   (globalThis as any).__DOWNDRAFT_SAB_POLYFILL = true;
   log.warn(
-    "SAB Polyfill",
+    "sab-polyfill",
     "SharedArrayBuffer is not available — using copy-based buffer sync protocol.\n" +
     "If you see this on a runtime that should have real SABs, COOP/COEP\n" +
     "headers may be missing.",

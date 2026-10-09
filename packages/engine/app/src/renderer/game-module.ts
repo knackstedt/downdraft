@@ -180,7 +180,7 @@ export function serializeRestorePayload(
   if (explicit) {
     const comp = components[explicit];
     if (!comp) {
-      log.warn("startGame", `Save component "${explicit}" not found; available: ${Object.keys(components).join(", ")}`);
+      log.warn("start-game", `Save component "${explicit}" not found; available: ${Object.keys(components).join(", ")}`);
       return undefined;
     }
     return JSON.stringify(comp.data);
@@ -561,7 +561,7 @@ export async function startGame<Sim extends GameSimWorker, R extends GameRendere
   if (libHost) {
     for (const [name, sab] of Object.entries(libBuffers)) {
       if (name in ctx.extraBuffers) {
-        log.warn("startGame", `library SAB channel "${name}" shadows a same-named sim extra buffer in ctx.extraBuffers`);
+        log.warn("start-game", `library SAB channel "${name}" shadows a same-named sim extra buffer in ctx.extraBuffers`);
       }
       ctx.extraBuffers[name] = sab;
     }
@@ -599,10 +599,10 @@ export async function startGame<Sim extends GameSimWorker, R extends GameRendere
         try {
           handler(msg.data, ctx);
         } catch (err) {
-          log.error("startGame", `Event handler error for "${msg.kind}": ${err}`);
+          log.error("start-game", `Event handler error for "${msg.kind}": ${err}`);
         }
       } else if (isDev && !ENGINE_EMITTED_EVENT_KINDS.has(msg.kind)) {
-        log.warn("startGame", `Unhandled sim event kind: "${msg.kind}"`);
+        log.warn("start-game", `Unhandled sim event kind: "${msg.kind}"`);
       }
     });
   };
@@ -645,7 +645,7 @@ export async function startGame<Sim extends GameSimWorker, R extends GameRendere
           : resolvedMode === "worker" ? "worker" : "host";
       }
     } catch (e) {
-      log.warn("startGame", `Save store init failed, falling back to host bridge: ${e}`);
+      log.warn("start-game", `Save store init failed, falling back to host bridge: ${e}`);
       ctx.saveMode = "host";
     }
     if (sessionAborted()) return;
@@ -690,7 +690,7 @@ export async function startGame<Sim extends GameSimWorker, R extends GameRendere
         }
         return result?.success ?? false;
       } catch (e) {
-        log.error("startGame", `Manual save failed: ${e}`);
+        log.error("start-game", `Manual save failed: ${e}`);
         return false;
       }
     };
@@ -760,7 +760,7 @@ export async function startGame<Sim extends GameSimWorker, R extends GameRendere
         }
         return null;
       } catch (e) {
-        log.error("startGame", `Manual load failed: ${e}`);
+        log.error("start-game", `Manual load failed: ${e}`);
         return null;
       }
     };
@@ -803,7 +803,7 @@ export async function startGame<Sim extends GameSimWorker, R extends GameRendere
         const format = r.getFormat?.();
         const moduleHost = r.getRendererModuleHost?.();
         if (!moduleHost) {
-          log.warn("startGame", "renderer does not expose getRendererModuleHost() — EngineLibrary DI provides will be silently dropped");
+          log.warn("start-game", "renderer does not expose getRendererModuleHost() — EngineLibrary DI provides will be silently dropped");
         }
         const libProvide = (token: any, value: unknown) => {
           if (moduleHost) moduleHost.provideExternal("library", token, value);
@@ -845,7 +845,7 @@ export async function startGame<Sim extends GameSimWorker, R extends GameRendere
             wireSimEvents(owned);
           }
         } catch (e) {
-          log.warn("startGame", `simFromRenderer resolution failed: ${e}`);
+          log.warn("start-game", `simFromRenderer resolution failed: ${e}`);
         }
         if (sessionAborted()) return;
       }
@@ -878,7 +878,7 @@ export async function startGame<Sim extends GameSimWorker, R extends GameRendere
             maxGenerations: module.save.maxGenerations ?? 3,
           });
         } catch (e) {
-          log.warn("startGame", `Inline save store init failed, falling back to host save store: ${e}`);
+          log.warn("start-game", `Inline save store init failed, falling back to host save store: ${e}`);
           ctx.saveMode = "host";
         }
         if (sessionAborted()) return;
@@ -900,7 +900,7 @@ export async function startGame<Sim extends GameSimWorker, R extends GameRendere
           if (mh) pluginHost.setModuleHost(mh);
           await pluginHost.loadAll();
         } catch (e) {
-          log.warn("startGame", `Plugin loading error: ${e}`);
+          log.warn("start-game", `Plugin loading error: ${e}`);
         }
         if (sessionAborted()) return;
       }
@@ -914,7 +914,7 @@ export async function startGame<Sim extends GameSimWorker, R extends GameRendere
           await ctx.ui.start();
         } catch (e) {
           // UI failure is non-fatal — the game canvas still runs.
-          log.error("startGame", `UI start failed: ${e}`);
+          log.error("start-game", `UI start failed: ${e}`);
           ctx.ui = undefined;
         }
         if (sessionAborted()) return;

@@ -73,7 +73,7 @@ export class WorkerPluginLoader implements PluginLoader {
       // sim-thread worker-js plugins are loaded by the sim worker's own host
       // via direct dynamic import (not this loader). Renderer-side host skips.
       log.info(
-        "WorkerPluginLoader",
+        "worker-plugin-loader",
         `plugin "${manifest.id}" thread=${manifest.thread} — skipping on this host (sim-side host loads it)`,
       );
       return;

@@ -144,7 +144,7 @@ export class BlitzDevtoolsHost {
     this.cdp.start();
     this._ready = true;
     if (this.opts.autoShow) this.show();
-    log.info("BlitzDevtoolsHost", "Blitz devtools ready (F12 toggles the dock)");
+    log.info("blitz-devtools-host", "Blitz devtools ready (F12 toggles the dock)");
   }
 
   toggle(): void {
@@ -186,7 +186,7 @@ export class BlitzDevtoolsHost {
     try {
       this.backend.update();
     } catch (err) {
-      log.error("BlitzDevtoolsHost", `backend update error: ${err}`);
+      log.error("blitz-devtools-host", `backend update error: ${err}`);
     }
     const t1 = performance.now();
     if (!this.visible) return;
@@ -198,7 +198,7 @@ export class BlitzDevtoolsHost {
     // lag loop while the dock is open.
     if (t2 - t0 > 6 && t2 - this.lastSlowLog > 1000) {
       this.lastSlowLog = t2;
-      log.info("BlitzDevtoolsHost", `slow update: backend=${(t1 - t0).toFixed(1)}ms sync+flush=${(t2 - t1).toFixed(1)}ms`);
+      log.info("blitz-devtools-host", `slow update: backend=${(t1 - t0).toFixed(1)}ms sync+flush=${(t2 - t1).toFixed(1)}ms`);
     }
   }
 
@@ -321,7 +321,7 @@ export class BlitzDevtoolsHost {
   private routeEvent(event: string, data: unknown): void {
     for (const p of this.panels.values()) {
       try { p.onBackendEvent?.(event, data); } catch (err) {
-        log.warn("BlitzDevtoolsHost", `panel ${p.id} event error: ${err}`);
+        log.warn("blitz-devtools-host", `panel ${p.id} event error: ${err}`);
       }
     }
   }
@@ -420,7 +420,7 @@ export function createSelfHostedDevtoolsUi(ctx: RendererModuleContext): Devtools
     hasContent: () => comp.hasContent(),
     render: (pass, w, h) => comp.render(pass, w, h),
   });
-  log.info("BlitzDevtoolsHost", `self-hosted ui: device=${!!ctx.getDevice()} fmt=${ctx.getFormat()} compositorRegistered=${!!unreg}`);
+  log.info("blitz-devtools-host", `self-hosted ui: device=${!!ctx.getDevice()} fmt=${ctx.getFormat()} compositorRegistered=${!!unreg}`);
   if (unreg) ctx.onDispose(unreg);
   return {
     host,

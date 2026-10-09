@@ -198,12 +198,12 @@ export class WorldStreamer {
       } catch (err) {
         const retries = this.retryCounts.get(key) ?? 0;
         if (retries >= MAX_CHUNK_RETRIES) {
-          log.error("WorldStreamer", `Chunk ${key} failed after ${MAX_CHUNK_RETRIES} retries: ${err}`);
+          log.error("world-streamer", `Chunk ${key} failed after ${MAX_CHUNK_RETRIES} retries: ${err}`);
           this.retryCounts.delete(key);
         } else {
           const delay = INITIAL_RETRY_DELAY_MS * (1 << retries);
           this.retryCounts.set(key, retries + 1);
-          log.warn("WorldStreamer", `Chunk ${key} load failed (retry ${retries + 1}/${MAX_CHUNK_RETRIES}), retrying in ${delay}ms: ${err}`);
+          log.warn("world-streamer", `Chunk ${key} load failed (retry ${retries + 1}/${MAX_CHUNK_RETRIES}), retrying in ${delay}ms: ${err}`);
           setTimeout(() => {
             this.loadQueue.push({
               coord,

@@ -558,7 +558,7 @@ export class ModelRenderer {
 
     if (resources.length < meshes.length) {
       log.warn(
-        "ModelRenderer",
+        "model-renderer",
         `Uniform buffer full: uploaded ${resources.length}/${meshes.length} meshes for "${nodeId}" ` +
         `(${uniformOffset}/${ModelRenderer.MAX_MODELS} slots used). ` +
         `Increase MAX_MODELS to avoid invisible models.`,
@@ -699,10 +699,10 @@ export class ModelRenderer {
         this.bindless.materialManager.updateMaterial(materialIndex, matParams);
       }
 
-      log.info("ModelRenderer", `Texture ready for ${materialKey}: ${imageBitmap.width}x${imageBitmap.height} (bindless)`);
+      log.info("model-renderer", `Texture ready for ${materialKey}: ${imageBitmap.width}x${imageBitmap.height} (bindless)`);
       imageBitmap.close();
     } catch (e) {
-      log.error("ModelRenderer", `Failed to load texture for ${materialKey}: ${e}`);
+      log.error("model-renderer", `Failed to load texture for ${materialKey}: ${e}`);
     }
   }
 
@@ -755,7 +755,7 @@ export class ModelRenderer {
 
       imageBitmap.close();
     } catch (e) {
-      log.error("ModelRenderer", `Failed to load texture from URI for ${materialKey} (${textureUri}): ${e}`);
+      log.error("model-renderer", `Failed to load texture from URI for ${materialKey} (${textureUri}): ${e}`);
     }
   }
 
@@ -814,10 +814,10 @@ export class ModelRenderer {
         this.bindless.materialManager.updateMaterial(materialIndex, matParams);
       }
 
-      log.info("ModelRenderer", `Normal texture ready for ${materialKey}: ${imageBitmap.width}x${imageBitmap.height}`);
+      log.info("model-renderer", `Normal texture ready for ${materialKey}: ${imageBitmap.width}x${imageBitmap.height}`);
       imageBitmap.close();
     } catch (e) {
-      log.error("ModelRenderer", `Failed to load normal texture for ${materialKey}: ${e}`);
+      log.error("model-renderer", `Failed to load normal texture for ${materialKey}: ${e}`);
     }
   }
 

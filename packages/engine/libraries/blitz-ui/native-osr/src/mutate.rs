@@ -10,7 +10,7 @@ use blitz_dom::{
     ns,
 };
 
-use crate::{OsrDoc, ffi, read_str};
+use crate::{OsrDoc, doc_enter, ffi, read_str};
 
 fn attr_qname(name: &str) -> QualName {
     QualName::new(None, ns!(), LocalName::from(name))
@@ -33,9 +33,10 @@ fn with_node_mutator(
     }
     let id = node_id(node);
     ffi(-1, || {
-        let Some(d) = (unsafe { handle.as_mut() }) else {
+        let Some(mut g) = doc_enter(handle) else {
             return -1;
         };
+        let d = g.get();
         if d.doc.inner().get_node(id).is_none() {
             return -1; // stale/missing node — no-op
         }
@@ -53,9 +54,10 @@ fn with_node_mutator(
 #[no_mangle]
 pub extern "C" fn dd_osr_query(handle: *mut OsrDoc, sel_ptr: *const u8, sel_len: usize) -> u64 {
     ffi(0, || {
-        let Some(d) = (unsafe { handle.as_mut() }) else {
+        let Some(mut g) = doc_enter(handle) else {
             return 0;
         };
+        let d = g.get();
         let Some(sel) = (unsafe { read_str(sel_ptr, sel_len) }) else {
             return 0;
         };
@@ -224,9 +226,10 @@ pub extern "C" fn dd_osr_get_attr(
     name_len: usize,
 ) -> *const u8 {
     ffi(std::ptr::null(), || {
-        let Some(d) = (unsafe { handle.as_mut() }) else {
+        let Some(mut g) = doc_enter(handle) else {
             return std::ptr::null();
         };
+        let d = g.get();
         let Some(name) = (unsafe { read_str(name_ptr, name_len) }) else {
             return std::ptr::null();
         };
@@ -259,9 +262,10 @@ pub extern "C" fn dd_osr_get_attr(
 #[no_mangle]
 pub extern "C" fn dd_osr_node_rect(handle: *mut OsrDoc, node: u64) -> *const f64 {
     ffi(std::ptr::null(), || {
-        let Some(d) = (unsafe { handle.as_mut() }) else {
+        let Some(mut g) = doc_enter(handle) else {
             return std::ptr::null();
         };
+        let d = g.get();
         if node == 0 {
             return std::ptr::null();
         }
@@ -283,9 +287,10 @@ pub extern "C" fn dd_osr_node_rect(handle: *mut OsrDoc, node: u64) -> *const f64
 #[no_mangle]
 pub extern "C" fn dd_osr_out_len(handle: *mut OsrDoc) -> usize {
     ffi(0, || {
-        let Some(d) = (unsafe { handle.as_ref() }) else {
+        let Some(mut g) = doc_enter(handle) else {
             return 0;
         };
+        let d = g.get();
         d.out_buf.len()
     })
 }
@@ -294,9 +299,10 @@ pub extern "C" fn dd_osr_out_len(handle: *mut OsrDoc) -> usize {
 #[no_mangle]
 pub extern "C" fn dd_osr_focus(handle: *mut OsrDoc, node: u64) -> c_int {
     ffi(-1, || {
-        let Some(d) = (unsafe { handle.as_mut() }) else {
+        let Some(mut g) = doc_enter(handle) else {
             return -1;
         };
+        let d = g.get();
         let mut doc = d.doc.inner_mut();
         if node == 0 {
             doc.clear_focus();
@@ -323,9 +329,10 @@ pub extern "C" fn dd_osr_query_all(
     sel_len: usize,
 ) -> *const u64 {
     ffi(std::ptr::null(), || {
-        let Some(d) = (unsafe { handle.as_mut() }) else {
+        let Some(mut g) = doc_enter(handle) else {
             return std::ptr::null();
         };
+        let d = g.get();
         let Some(sel) = (unsafe { read_str(sel_ptr, sel_len) }) else {
             return std::ptr::null();
         };
@@ -342,9 +349,10 @@ pub extern "C" fn dd_osr_query_all(
 #[no_mangle]
 pub extern "C" fn dd_osr_query_all_len(handle: *mut OsrDoc) -> usize {
     ffi(0, || {
-        let Some(d) = (unsafe { handle.as_ref() }) else {
+        let Some(mut g) = doc_enter(handle) else {
             return 0;
         };
+        let d = g.get();
         d.query_buf.len()
     })
 }
@@ -363,9 +371,10 @@ pub extern "C" fn dd_osr_scroll_to(
     behavior: c_int,
 ) -> c_int {
     ffi(-1, || {
-        let Some(d) = (unsafe { handle.as_mut() }) else {
+        let Some(mut g) = doc_enter(handle) else {
             return -1;
         };
+        let d = g.get();
         let id = node_id(node);
         {
             let doc = d.doc.inner();
@@ -404,9 +413,10 @@ pub extern "C" fn dd_osr_scroll_into_view(
         }
     }
     ffi(-1, || {
-        let Some(d) = (unsafe { handle.as_mut() }) else {
+        let Some(mut g) = doc_enter(handle) else {
             return -1;
         };
+        let d = g.get();
         let id = node_id(node);
         {
             let doc = d.doc.inner();
@@ -435,9 +445,10 @@ pub extern "C" fn dd_osr_closest(
     sel_len: usize,
 ) -> u64 {
     ffi(0, || {
-        let Some(d) = (unsafe { handle.as_mut() }) else {
+        let Some(mut g) = doc_enter(handle) else {
             return 0;
         };
+        let d = g.get();
         let Some(sel) = (unsafe { read_str(sel_ptr, sel_len) }) else {
             return 0;
         };
@@ -454,13 +465,16 @@ pub extern "C" fn dd_osr_closest(
 #[no_mangle]
 pub extern "C" fn dd_osr_focused_node(handle: *mut OsrDoc) -> u64 {
     ffi(0, || {
-        let Some(d) = (unsafe { handle.as_ref() }) else {
+        let Some(mut g) = doc_enter(handle) else {
             return 0;
         };
-        d.doc
+        let d = g.get();
+        let focused = d
+            .doc
             .inner()
             .get_focussed_node_id()
             .map(|id| id.as_u64())
-            .unwrap_or(0)
+            .unwrap_or(0);
+        focused
     })
 }

@@ -414,6 +414,10 @@ export class SessionTracker {
    * covers EventEmitter-style (node worker_threads interop).
    */
   private terminateTrackedWorker(w: any): void {
+    // Marker for error listeners that distinguish expected teardown from
+    // real faults (e.g. HtmlUiHost's ui-worker listener) — the synthetic
+    // events below must not read as a crash.
+    try { (w as any).__ddExpectTerminate = true; } catch { /* read-only */ }
     // Settle event-based waiters BEFORE terminating: terminate() can tear
     // down the worker's JS-side listener surface, making a post-terminate
     // dispatchEvent a no-op — the "ready"-style promise then never settles

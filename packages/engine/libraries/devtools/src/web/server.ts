@@ -144,7 +144,7 @@ export class DevToolsServer {
     this.server = srv;
     this.port = srv.port;
     this.writeDiscoveryFile();
-    log.info("DevToolsServer", `devtools at ${this.url}`);
+    log.info("dev-tools-server", `devtools at ${this.url}`);
   }
 
   private helloData(): Record<string, unknown> {
@@ -183,7 +183,7 @@ export class DevToolsServer {
       }), { mode: 0o600 });
       this.cleanupPid = () => { try { unlinkSync(file); } catch { /* gone */ } };
     } catch (err) {
-      log.warn("DevToolsServer", `discovery file failed: ${err}`);
+      log.warn("dev-tools-server", `discovery file failed: ${err}`);
     }
   }
 

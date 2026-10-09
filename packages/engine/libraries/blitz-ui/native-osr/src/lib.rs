@@ -11,11 +11,12 @@
 //! buffer) or `dd_osr_frame_into` (copy into a host-bound SharedArrayBuffer —
 //! the zero-copy path used by the html-ui worker channel).
 
+use std::collections::HashSet;
 use std::os::raw::c_int;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
 use anyrender::ImageRenderer;
@@ -196,6 +197,67 @@ pub struct OsrDoc {
     pub(crate) rect_buf: [f64; 4],
     /// Owned node-id list written by dd_osr_query_all.
     pub(crate) query_buf: Vec<u64>,
+    /// Serialization flag — set for the duration of each FFI call. The ABI
+    /// exposes a raw `*mut OsrDoc`, so nothing prevents a host from calling
+    /// the same doc from two threads at once (which would alias `&mut` and
+    /// corrupt the DOM instantly). Callers that arrive while busy get -1.
+    busy: AtomicBool,
+}
+
+// ── Handle registry + per-doc call serialization ──
+//
+// Every handle handed out by dd_osr_init is registered here and removed by
+// dd_osr_destroy *before* the Box is freed, so FFI entry points can tell a
+// live handle from a stale/garbage pointer without dereferencing it. The
+// `busy` flag is then swapped under the registry lock so the
+// contains-check → claim sequence is atomic against destroy: after a doc
+// leaves the registry no thread can newly enter it, and destroy only frees
+// the Box once it owns `busy` (no in-flight call).
+static DOCS: OnceLock<Mutex<HashSet<usize>>> = OnceLock::new();
+
+fn docs() -> Option<&'static Mutex<HashSet<usize>>> {
+    // Mutex poisoning turns into a permanent OSR outage if a call ever panics
+    // while holding it — treat a poisoned/lock failure as "unknown handle".
+    DOCS.get_or_init(|| Mutex::new(HashSet::new())).into()
+}
+
+/// RAII claim on a live doc — releases `busy` on drop (including unwind).
+pub(crate) struct DocGuard {
+    doc: *mut OsrDoc,
+}
+
+impl DocGuard {
+    /// Safety: registry membership keeps the Box alive (destroy removes the
+    /// handle before freeing) and `busy` guarantees exclusive access.
+    pub(crate) fn get(&mut self) -> &mut OsrDoc {
+        unsafe { &mut *self.doc }
+    }
+}
+
+impl Drop for DocGuard {
+    fn drop(&mut self) {
+        unsafe { (*self.doc).busy.store(false, Ordering::Release) };
+    }
+}
+
+/// Validate `handle` against the live-doc registry and claim exclusive
+/// access to it. Returns None for null/stale handles or a doc already
+/// inside an FFI call.
+pub(crate) fn doc_enter(handle: *mut OsrDoc) -> Option<DocGuard> {
+    if handle.is_null() {
+        return None;
+    }
+    let key = handle as usize;
+    let reg = docs()?.lock().ok()?;
+    if !reg.contains(&key) {
+        return None;
+    }
+    // SAFETY: still under the registry lock — the doc cannot be freed here.
+    let d = unsafe { &*handle };
+    if d.busy.swap(true, Ordering::Acquire) {
+        return None;
+    }
+    Some(DocGuard { doc: handle })
 }
 
 /// O(1) "did anything change" check: Blitz propagates a damaged_descendants
@@ -330,8 +392,20 @@ pub extern "C" fn dd_osr_init(
             out_buf: Vec::new(),
             rect_buf: [0.0; 4],
             query_buf: Vec::new(),
+            busy: AtomicBool::new(false),
         };
-        Box::into_raw(Box::new(doc))
+        let handle = Box::into_raw(Box::new(doc));
+        match docs().and_then(|m| m.lock().ok()) {
+            Some(mut reg) => {
+                reg.insert(handle as usize);
+                handle
+            }
+            // Registry unavailable — don't hand out an untracked handle.
+            None => {
+                drop(unsafe { Box::from_raw(handle) });
+                std::ptr::null_mut()
+            }
+        }
     })
 }
 
@@ -341,9 +415,10 @@ pub extern "C" fn dd_osr_init(
 #[no_mangle]
 pub extern "C" fn dd_osr_set_html(handle: *mut OsrDoc, html_ptr: *const u8, html_len: usize) -> c_int {
     ffi(-1, || {
-        let Some(d) = (unsafe { handle.as_mut() }) else {
+        let Some(mut g) = doc_enter(handle) else {
             return -1;
         };
+        let d = g.get();
         let Some(html) = (unsafe { read_str(html_ptr, html_len) }) else {
             return -2;
         };
@@ -425,9 +500,10 @@ fn raster_if_dirty(d: &mut OsrDoc) -> Option<[u32; 4]> {
 #[no_mangle]
 pub extern "C" fn dd_osr_frame(handle: *mut OsrDoc) -> *const u8 {
     ffi(std::ptr::null(), || {
-        let Some(d) = (unsafe { handle.as_mut() }) else {
+        let Some(mut g) = doc_enter(handle) else {
             return std::ptr::null();
         };
+        let d = g.get();
         if raster_if_dirty(d).is_none() {
             return std::ptr::null();
         }
@@ -445,9 +521,10 @@ fn needed_buf_len(d: &OsrDoc) -> usize {
 #[no_mangle]
 pub extern "C" fn dd_osr_buf_needed(handle: *mut OsrDoc) -> usize {
     ffi(0, || {
-        let Some(d) = (unsafe { handle.as_ref() }) else {
+        let Some(mut g) = doc_enter(handle) else {
             return 0;
         };
+        let d = g.get();
         needed_buf_len(d)
     })
 }
@@ -458,9 +535,10 @@ pub extern "C" fn dd_osr_buf_needed(handle: *mut OsrDoc) -> usize {
 #[no_mangle]
 pub extern "C" fn dd_osr_bind_frame_buf(handle: *mut OsrDoc, ptr: *mut u8, len: usize) -> c_int {
     ffi(-1, || {
-        let Some(d) = (unsafe { handle.as_mut() }) else {
+        let Some(mut g) = doc_enter(handle) else {
             return -1;
         };
+        let d = g.get();
         if ptr.is_null() || len < needed_buf_len(d) {
             return -2;
         }
@@ -511,9 +589,10 @@ fn write_bound_frame(d: &mut OsrDoc, rect: [u32; 4]) -> c_int {
 #[no_mangle]
 pub extern "C" fn dd_osr_frame_into(handle: *mut OsrDoc) -> c_int {
     ffi(-1, || {
-        let Some(d) = (unsafe { handle.as_mut() }) else {
+        let Some(mut g) = doc_enter(handle) else {
             return -1;
         };
+        let d = g.get();
         let Some(buf) = d.frame_buf.as_ref() else {
             return -3;
         };
@@ -535,9 +614,10 @@ pub extern "C" fn dd_osr_frame_into(handle: *mut OsrDoc) -> c_int {
 #[no_mangle]
 pub extern "C" fn dd_osr_refresh_into(handle: *mut OsrDoc) -> c_int {
     ffi(-1, || {
-        let Some(d) = (unsafe { handle.as_mut() }) else {
+        let Some(mut g) = doc_enter(handle) else {
             return -1;
         };
+        let d = g.get();
         let Some(buf) = d.frame_buf.as_ref() else {
             return -3;
         };
@@ -559,9 +639,10 @@ pub extern "C" fn dd_osr_refresh_into(handle: *mut OsrDoc) -> c_int {
 #[no_mangle]
 pub extern "C" fn dd_osr_last_stats(handle: *mut OsrDoc) -> *const f64 {
     ffi(std::ptr::null(), || {
-        let Some(d) = (unsafe { handle.as_ref() }) else {
+        let Some(mut g) = doc_enter(handle) else {
             return std::ptr::null();
         };
+        let d = g.get();
         d.stats.as_ptr()
     })
 }
@@ -571,9 +652,10 @@ pub extern "C" fn dd_osr_last_stats(handle: *mut OsrDoc) -> *const f64 {
 #[no_mangle]
 pub extern "C" fn dd_osr_pixels_len(handle: *mut OsrDoc) -> usize {
     ffi(0, || {
-        let Some(d) = (unsafe { handle.as_ref() }) else {
+        let Some(mut g) = doc_enter(handle) else {
             return 0;
         };
+        let d = g.get();
         d.pixels.len()
     })
 }
@@ -582,9 +664,10 @@ pub extern "C" fn dd_osr_pixels_len(handle: *mut OsrDoc) -> usize {
 #[no_mangle]
 pub extern "C" fn dd_osr_resize(handle: *mut OsrDoc, width: f64, height: f64, scale: f64) -> c_int {
     ffi(-1, || {
-        let Some(d) = (unsafe { handle.as_mut() }) else {
+        let Some(mut g) = doc_enter(handle) else {
             return -1;
         };
+        let d = g.get();
         let w = width.max(1.0) as u32;
         let h = height.max(1.0) as u32;
         {
@@ -654,9 +737,10 @@ pub extern "C" fn dd_osr_pointer(
     mods: u32,
 ) -> c_int {
     ffi(-1, || {
-        let Some(d) = (unsafe { handle.as_mut() }) else {
+        let Some(mut g) = doc_enter(handle) else {
             return -1;
         };
+        let d = g.get();
         d.pointer_pos = (x, y);
         let mut event = make_pointer_event(d, x, y, dom_button(button));
         event.mods = kbt_modifiers(mods);
@@ -667,7 +751,10 @@ pub extern "C" fn dd_osr_pointer(
                 UiEvent::PointerDown(event)
             }
             2 => {
-                d.buttons ^= event.button.into();
+                // Release clears the bit — XOR would toggle it back on for a
+                // button-up that never had a matching down (double-up races,
+                // focus-loss sequences), leaving a phantom pressed state.
+                d.buttons &= !MouseEventButtons::from(event.button);
                 event.buttons = d.buttons;
                 UiEvent::PointerUp(event)
             }
@@ -692,9 +779,10 @@ pub extern "C" fn dd_osr_wheel(
     mods: u32,
 ) -> c_int {
     ffi(-1, || {
-        let Some(d) = (unsafe { handle.as_mut() }) else {
+        let Some(mut g) = doc_enter(handle) else {
             return -1;
         };
+        let d = g.get();
         let event = BlitzWheelEvent {
             delta: BlitzWheelDelta::Pixels(delta_x, delta_y),
             coords: pointer_coords(d, x, y),
@@ -724,9 +812,10 @@ pub extern "C" fn dd_osr_key(
     mods: u32,
 ) -> c_int {
     ffi(-1, || {
-        let Some(d) = (unsafe { handle.as_mut() }) else {
+        let Some(mut g) = doc_enter(handle) else {
             return -1;
         };
+        let d = g.get();
         let key_s = unsafe { read_str(key_ptr, key_len) }.unwrap_or("Unidentified");
         let code_s = unsafe { read_str(code_ptr, code_len) }.unwrap_or("");
         let key = Key::from_str(key_s).unwrap_or(Key::Unidentified);
@@ -762,9 +851,10 @@ pub extern "C" fn dd_osr_key(
 #[no_mangle]
 pub extern "C" fn dd_osr_hit_test(handle: *mut OsrDoc, x: f64, y: f64) -> c_int {
     ffi(0, || {
-        let Some(d) = (unsafe { handle.as_mut() }) else {
+        let Some(mut g) = doc_enter(handle) else {
             return 0;
         };
+        let d = g.get();
         let doc = d.doc.inner();
         let scale = doc.viewport().scale_f64();
         let lx = (x / scale) as f32;
@@ -785,9 +875,10 @@ pub extern "C" fn dd_osr_hit_test(handle: *mut OsrDoc, x: f64, y: f64) -> c_int 
 #[no_mangle]
 pub extern "C" fn dd_osr_frame_rect(handle: *mut OsrDoc) -> u64 {
     ffi(0, || {
-        let Some(d) = (unsafe { handle.as_ref() }) else {
+        let Some(mut g) = doc_enter(handle) else {
             return 0;
         };
+        let d = g.get();
         let [x, y, w, h] = d.dirty_rect;
         ((x as u64) << 48) | ((y as u64) << 32) | ((w as u64) << 16) | h as u64
     })
@@ -799,9 +890,10 @@ pub extern "C" fn dd_osr_frame_rect(handle: *mut OsrDoc) -> u64 {
 #[no_mangle]
 pub extern "C" fn dd_osr_pending(handle: *mut OsrDoc) -> c_int {
     ffi(0, || {
-        let Some(d) = (unsafe { handle.as_mut() }) else {
+        let Some(mut g) = doc_enter(handle) else {
             return 0;
         };
+        let d = g.get();
         fold_redraw(d);
         if d.dirty || d.doc.inner().is_animating() {
             1
@@ -816,9 +908,10 @@ pub extern "C" fn dd_osr_pending(handle: *mut OsrDoc) -> c_int {
 #[no_mangle]
 pub extern "C" fn dd_osr_poll_events(handle: *mut OsrDoc) -> *const u8 {
     ffi(std::ptr::null(), || {
-        let Some(d) = (unsafe { handle.as_mut() }) else {
+        let Some(mut g) = doc_enter(handle) else {
             return std::ptr::null();
         };
+        let d = g.get();
         let mut q = d.events.borrow_mut();
         if q.is_empty() {
             return std::ptr::null();
@@ -842,9 +935,10 @@ pub extern "C" fn dd_osr_poll_events(handle: *mut OsrDoc) -> *const u8 {
 #[no_mangle]
 pub extern "C" fn dd_osr_events_len(handle: *mut OsrDoc) -> usize {
     ffi(0, || {
-        let Some(d) = (unsafe { handle.as_ref() }) else {
+        let Some(mut g) = doc_enter(handle) else {
             return 0;
         };
+        let d = g.get();
         d.events_buf.len()
     })
 }
@@ -878,6 +972,31 @@ pub extern "C" fn dd_osr_destroy(handle: *mut OsrDoc) -> c_int {
         if handle.is_null() {
             return -1;
         }
+        let key = handle as usize;
+        let Some(reg_mutex) = docs() else { return -1 };
+        let mut reg = match reg_mutex.lock() {
+            Ok(r) => r,
+            Err(_) => return -1,
+        };
+        if !reg.contains(&key) {
+            return -1; // stale or double destroy — never touch the memory
+        }
+        // Claim the doc while still holding the registry lock: a thread that
+        // passed doc_enter earlier is either holding busy (we spin for it —
+        // FFI calls are µs-scale) or can no longer get in.
+        let d = unsafe { &*handle };
+        let mut spins = 0u32;
+        while d.busy.swap(true, Ordering::Acquire) {
+            spins += 1;
+            if spins > 100_000 {
+                // A caller is stuck inside the doc — refuse to free live
+                // memory. -2 = "busy"; the host may retry.
+                return -2;
+            }
+            std::hint::spin_loop();
+        }
+        reg.remove(&key);
+        drop(reg);
         drop(unsafe { Box::from_raw(handle) });
         0
     })

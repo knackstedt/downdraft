@@ -78,18 +78,18 @@ export class WorkshopFetcher {
       try {
         rawManifest = await source.store.get(source.manifestKey);
       } catch (e) {
-        log.error("WorkshopFetcher", `Failed to fetch workshop manifest: ${(e as Error).message}`);
+        log.error("workshop-fetcher", `Failed to fetch workshop manifest: ${(e as Error).message}`);
         continue;
       }
       let parsed: unknown;
       try {
         parsed = JSON.parse(new TextDecoder().decode(rawManifest));
       } catch (e) {
-        log.error("WorkshopFetcher", `Workshop manifest is not valid JSON: ${(e as Error).message}`);
+        log.error("workshop-fetcher", `Workshop manifest is not valid JSON: ${(e as Error).message}`);
         continue;
       }
       if (!validateManifest(parsed)) {
-        log.error("WorkshopFetcher", `Workshop manifest failed schema validation`);
+        log.error("workshop-fetcher", `Workshop manifest failed schema validation`);
         continue;
       }
       const assetManifest = parsed as AssetManifest;

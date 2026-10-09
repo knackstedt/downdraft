@@ -6,10 +6,10 @@
 // done by PanelBlitPass via the compositor object exposed by `compositor`.
 // ============================================================================
 
+import type { OsrDomEvent } from "@downdraft/engine/libraries/blitz-ui/native-osr-ffi";
 import type { InputEventControl, RendererInputBus } from "@downdraft/engine/module/renderer-module";
 import { getHostCapabilities, getNativeHost } from "@downdraft/engine/platform/runtime";
 import { createLogger } from "@downdraft/engine/util/logger";
-import type { OsrDomEvent } from "@downdraft/engine/libraries/blitz-ui/native-osr-ffi";
 import { PanelBlitPass } from "./composite";
 import { createLocalBackend, createWorkerBackend, type DocBackend } from "./doc-backend";
 import type { DocInputMsg, DocMutation, NavNodeInfo, UiPointerMsg, WorkerToUi } from "./protocol";
@@ -210,7 +210,12 @@ export class HtmlUiHost {
     this.profilingTag = opts?.profilingTag ?? "ui";
     this.gpuUpload = opts?.gpuUpload !== false
       && !(typeof process !== "undefined" && process.env?.DOWNDRAFT_NO_UI_GPU === "1");
-    log.info("html-ui", `doc backend: ${this.backend.kind}`);
+    // The doc-backend story isn't settled while a gpu-direct upgrade is
+    // still possible — the gpuReady ack logs the final form at info.
+    const gpuDirectPossible = this.gpuUpload
+      && this.backend.kind === "worker"
+      && getHostCapabilities().supportsMultiWorkerGpu;
+    log[gpuDirectPossible ? "debug" : "info"]("html-ui", `doc backend: ${this.backend.kind}`);
     this.attachProfiling();
     this.attachGpu();
   }
@@ -265,7 +270,14 @@ export class HtmlUiHost {
       const w = new Worker(new URL("./ui-worker.ts", import.meta.url));
       // Don't let a leaked doc worker pin the runtime after the window closes.
       (w as any).unref?.();
-      w.addEventListener("error", (e) => log.error("html-ui", `ui-worker error: ${(e as ErrorEvent).message ?? e}`));
+      w.addEventListener("error", (e) => {
+        // Expected terminate() during teardown fires a contentless error
+        // event — not a fault (see doc-backend.ts dispose).
+        if ((w as any).__ddExpectTerminate && !(e as ErrorEvent).message) return;
+        const ee = e as ErrorEvent;
+        const detail = ee.message ?? (ee.filename ? `${ee.filename}:${ee.lineno ?? "?"}` : `type=${e.type}`);
+        log.error("html-ui", `ui-worker error: ${detail}`);
+      });
       w.addEventListener("messageerror", (e) => log.error("html-ui", `ui-worker messageerror: ${e.data}`));
       return createWorkerBackend(w);
     } catch (err) {
@@ -446,9 +458,12 @@ export class HtmlUiHost {
     return () => { set.delete(fn); };
   }
 
-  /** True when the pointer is inside any panel rect (UI owns the cursor). */
-  isPointerOverUI(): boolean {
-    return this.panelAt(this.pointerPos.x, this.pointerPos.y) !== null;
+  /** True when the pointer is inside any panel rect (UI owns the cursor).
+   *  Optional coords hit-test a specific point instead of the last seen
+   *  pointer position — the right check inside pointer-event handlers, where
+   *  pointerPos may lag the event. */
+  isPointerOverUI(x?: number, y?: number): boolean {
+    return this.panelAt(x ?? this.pointerPos.x, y ?? this.pointerPos.y) !== null;
   }
 
   /** Doc-backend capabilities (populated by the `ready` handshake —
@@ -664,8 +679,8 @@ export class HtmlUiHost {
       }
       case "gpuReady": {
         this.gpuReady = m.ok;
+        log.info("html-ui", `doc backend: ${this.backend.kind}${m.ok ? " (gpu-direct)" : ""}`);
         if (m.ok) {
-          log.info("html-ui", `doc backend: ${this.backend.kind} (gpu-direct)`);
           this.panels.forEach((p) => this.bindPanelTex(p));
         }
         break;

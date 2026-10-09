@@ -41,7 +41,13 @@ export function createWorkerBackend(worker: Worker): DocBackend {
     onMessage(fn) {
       worker.addEventListener("message", (e: MessageEvent) => fn(e.data as WorkerToUi));
     },
-    dispose() { worker.terminate(); },
+    dispose() {
+      // terminate() fires a contentless "error" event on some runtimes —
+      // flag it so the host's error listener can tell expected teardown
+      // from a real worker fault.
+      (worker as any).__ddExpectTerminate = true;
+      worker.terminate();
+    },
   };
 }
 

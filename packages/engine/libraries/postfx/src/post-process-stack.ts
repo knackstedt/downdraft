@@ -659,7 +659,7 @@ export class PostProcessStack {
     try {
       pipeline = this.makePipeline(effect.wgsl, this.ccLayout, HDR_FORMAT);
     } catch (e) {
-      log.error("PostProcessStack", `Failed to compile custom effect "${effect.id}": ${e}`);
+      log.error("post-process-stack", `Failed to compile custom effect "${effect.id}": ${e}`);
       throw e;
     }
     this.customEffects.set(effect.id, { effect, pipeline, uniform, uniformValues: null, enabled: false });

@@ -118,7 +118,7 @@ export async function loadExternalTextures(
             if (data.byteLength > 4 && isDecodableImage(new Uint8Array(data, 0, 4))) {
               mat.textureData = data;
               foundExternal = true;
-              log.info("CharacterModel", `Material[${mi}] "${mat.name}": loaded ${candidate} from ${dir}`);
+              log.info("character-model", `Material[${mi}] "${mat.name}": loaded ${candidate} from ${dir}`);
               break;
             }
           } catch {
@@ -187,10 +187,10 @@ export function filterOptionalMeshes(
     modelData.nodes.forEach((node) => {
         if (isOptional(node.name)) excludedNames.push(node.name);
     });
-    log.info("CharacterModel", `Filtered ${exclude.size} optional item mesh(es): [${excludedNames.join(", ")}]`);
+    log.info("character-model", `Filtered ${exclude.size} optional item mesh(es): [${excludedNames.join(", ")}]`);
 
     excludeMeshIndices(modelData, exclude);
-    log.info("CharacterModel", `Filtered optional meshes, keeping ${modelData.meshes.length}`);
+    log.info("character-model", `Filtered optional meshes, keeping ${modelData.meshes.length}`);
 }
 
 /**
@@ -274,7 +274,7 @@ export function selectVariantMeshes(modelData: ModelData): void {
     }
 
     if (exclude.size === 0) return;
-    log.info("CharacterModel", `Variant selection kept [${kept.join(", ")}], dropping ${exclude.size} meshes`);
+    log.info("character-model", `Variant selection kept [${kept.join(", ")}], dropping ${exclude.size} meshes`);
     excludeMeshIndices(modelData, exclude);
 }
 
@@ -322,13 +322,13 @@ export function createCharacterModelLoader(opts: CharacterModelLoaderOptions = {
     for (let _i = 0, _it = opts.animations ?? [], _n = _it.length; _i < _n; _i++) { const animDef = _it[_i];
       const url = opts.resolveAnimationUrl?.(animDef.filename) ?? null;
       if (!url) {
-        log.warn("CharacterModel", `Animation not found: ${animDef.filename}`);
+        log.warn("character-model", `Animation not found: ${animDef.filename}`);
         continue;
       }
       try {
         const resp = await fetch(url);
         if (!resp.ok) {
-          log.warn("CharacterModel", `Failed to fetch animation ${animDef.filename}: ${resp.status}`);
+          log.warn("character-model", `Failed to fetch animation ${animDef.filename}: ${resp.status}`);
           continue;
         }
         const buffer = await resp.arrayBuffer();
@@ -338,12 +338,12 @@ export function createCharacterModelLoader(opts: CharacterModelLoaderOptions = {
           const anim = animModel.animations[0];
           anim.name = animDef.state; // Override name with the state name.
           anims.set(animDef.state, anim);
-          log.info("CharacterModel", `Loaded animation: ${animDef.state} from ${animDef.filename} (${anim.duration.toFixed(2)}s, ${anim.channels.length} channels)`);
+          log.info("character-model", `Loaded animation: ${animDef.state} from ${animDef.filename} (${anim.duration.toFixed(2)}s, ${anim.channels.length} channels)`);
         } else {
-          log.warn("CharacterModel", `No animations in ${animDef.filename}`);
+          log.warn("character-model", `No animations in ${animDef.filename}`);
         }
       } catch (err) {
-        log.warn("CharacterModel", `Failed to load animation ${animDef.filename}: ${err}`);
+        log.warn("character-model", `Failed to load animation ${animDef.filename}: ${err}`);
       }
     }
     animCache = anims;
@@ -378,7 +378,7 @@ export function createCharacterModelLoader(opts: CharacterModelLoaderOptions = {
       if (opts.bindUnskinnedMeshes !== false) {
         const bound = bindUnskinnedMeshes(modelData);
         if (bound > 0) {
-          log.info("CharacterModel", `Rigid-bound ${bound} unskinned mesh(es) to nearest bone (${def.id})`);
+          log.info("character-model", `Rigid-bound ${bound} unskinned mesh(es) to nearest bone (${def.id})`);
         }
       }
 
@@ -386,7 +386,7 @@ export function createCharacterModelLoader(opts: CharacterModelLoaderOptions = {
       const anims = await loadAnimations();
       if (anims.size > 0) {
         modelData.animations = Array.from(anims.values());
-        log.info("CharacterModel", `Attached ${anims.size} animations to ${def.id}`);
+        log.info("character-model", `Attached ${anims.size} animations to ${def.id}`);
       }
 
       cache.set(def.id, modelData);

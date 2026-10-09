@@ -34,11 +34,13 @@ import {
 import { installConsoleBridge, writeLine } from "./dev-log.mjs";
 import { buildNativeDevConfig, loadGameConfig, loadHmrOptions, resolveWgslRegistryPath } from "./vite-config.mjs";
 
-const TAG = "dd-dev";
+const TAG = "dev";
 
 // Route vite-client/stray console output through the same line format —
 // the ModuleRunner shares this globalThis, so console.debug("[vite] ...")
-// and any console.* inside evaluated modules land here.
+// and any console.* inside evaluated modules land here. Routine [vite]
+// chatter (its runner-side HMR client logs "connected." via console.log)
+// is demoted to debug inside the bridge.
 installConsoleBridge();
 
 // Capture raw timers BEFORE RUNTIME_MODULE evaluates — installSessionTracker
@@ -52,7 +54,7 @@ const rawSetInterval = globalThis.setInterval.bind(globalThis);
 const rawClearInterval = globalThis.clearInterval.bind(globalThis);
 
 // Two-arg form is used by native-dev-runtime (sup.log("hmr", msg)) — the
-// first arg is a submodule tag, rendered as [dd-dev/hmr].
+// first arg is a submodule tag, rendered as [dev/hmr].
 function log(msg, detail) {
   if (detail !== undefined) writeLine("info", `${TAG}/${msg}`, detail);
   else writeLine("info", TAG, msg);
@@ -637,8 +639,7 @@ async function main() {
   globalThis.__ddRunner = runner;
   installSimAckListener();
 
-  log(`runtime=${runtime} game=${gameDir}`);
-  log(`entry=${entry}`);
+  if (verbose) log(`runtime=${runtime} game=${gameDir} entry=${entry}`);
 
   // Boot: kick the slim early host FIRST — its graph transforms in a
   // fraction of RUNTIME_MODULE's, so the window + GPU device land while the

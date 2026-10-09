@@ -113,12 +113,12 @@ export class CharacterPreview {
       this.ownsDevice = true;
     }
     this.device.lost.then((info) => {
-      log.warn("CharacterPreview", `GPUDevice LOST: ${info.reason} ${info.message}`);
+      log.warn("character-preview", `GPUDevice LOST: ${info.reason} ${info.message}`);
     });
     // Native's WgpuDevice is a plain FFI wrapper, not an EventTarget.
     if (typeof this.device.addEventListener === "function") {
       this.device.addEventListener("uncapturederror", (e) => {
-        log.error("CharacterPreview", `uncaptured GPU error: ${(e as GPUUncapturedErrorEvent).error?.message}`);
+        log.error("character-preview", `uncaptured GPU error: ${(e as GPUUncapturedErrorEvent).error?.message}`);
       });
     }
     this.context = this.canvas.getContext("webgpu") as unknown as GPUCanvasContext;
@@ -178,7 +178,7 @@ export class CharacterPreview {
       this.animator = this.opts.createAnimator(loaded.modelData);
       this.currentModelId = modelId;
     } catch (err) {
-      log.error("CharacterPreview", `Failed to load model ${modelId}: ${err}`);
+      log.error("character-preview", `Failed to load model ${modelId}: ${err}`);
     }
   }
 

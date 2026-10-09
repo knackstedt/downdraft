@@ -267,7 +267,7 @@ export class InlineWasmPluginLoader implements PluginLoader {
       (subscriptions as any).__tickUnsub = unsub;
     }
 
-    log.info("InlineWasmPluginLoader", `Loaded WASM plugin "${manifest.id}"`);
+    log.info("inline-wasm-plugin-loader", `Loaded WASM plugin "${manifest.id}"`);
 
     return () => {
       const unsubTick = (subscriptions as any).__tickUnsub;
@@ -319,7 +319,7 @@ export class WasmPluginLoader implements PluginLoader {
     });
 
     worker.onerror = (e) => {
-      log.error("WasmPluginLoader", `worker error for "${manifest.id}": ${e.message}`);
+      log.error("wasm-plugin-loader", `worker error for "${manifest.id}": ${e.message}`);
     };
 
     // Send init message with the WASM URL.
@@ -395,7 +395,7 @@ export class WasmPluginLoader implements PluginLoader {
     });
 
     await ready;
-    log.info("WasmPluginLoader", `Loaded WASM plugin "${manifest.id}" in dedicated worker`);
+    log.info("wasm-plugin-loader", `Loaded WASM plugin "${manifest.id}" in dedicated worker`);
 
     return () => {
       worker.postMessage({ __wasmDispose: true });

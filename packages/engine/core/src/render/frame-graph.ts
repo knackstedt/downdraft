@@ -722,7 +722,7 @@ export class FrameGraph {
     }
 
     if (result.length !== n) {
-      log.error("FrameGraph", "Cycle detected in render graph, falling back to registration order");
+      log.error("frame-graph", "Cycle detected in render graph, falling back to registration order");
       return this.passes;
     }
 
@@ -745,7 +745,7 @@ export class FrameGraph {
     });
 
     if (errors.length > 0) {
-      log.warn("FrameGraph", `Validation errors:\n${errors.join("\n")}`);
+      log.warn("frame-graph", `Validation errors:\n${errors.join("\n")}`);
     }
   }
 

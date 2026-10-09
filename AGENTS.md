@@ -150,6 +150,10 @@ When `DOWNDRAFT_STRICT=1` (or in Vite dev mode), the module hosts validate the d
 
 Set `DOWNDRAFT_STRICT=0` to force-disable in dev, `DOWNDRAFT_STRICT=1` to force-enable in prod.
 
+### Logging conventions
+
+All logs go through `createLogger()` (`@downdraft/engine/util/logger`) as `log.<level>(module, msg)` — format `HH:MM:SS LEVEL [module] message`. Module tags are **lowercase-kebab** (`game-renderer`, `platform-native`, `import-cache`); single-identifier tags are normalized to kebab at render time, so stay consistent at the call site anyway. Separators carry meaning: `plugin:<id>` for user plugins, `dev/<sub>` for dev-shell submodules. Process-level tags: `draft` = the CLI, `dev` = the HMR dev shell (`dev/hmr` for runtime-side HMR events). There are **no thread prefixes** (R0/S0/SVC were an Electron-era renderer-vs-main distinction — removed); `setThreadTag()` remains for plugin workers that need origin labels. Routine diagnostics belong at `log.debug` — visible via `--verbose` or `EMBER_LOG_LEVEL=debug`; INFO should read as a boot/status narrative, not a stream of internals.
+
 Config when adding/removing an engine library or module: create/remove the directory under `packages/engine/libraries/` or `packages/engine/modules/` with a `src/index.ts`, then run `node scripts/gen-engine-exports.mjs` (regenerates the `exports` map in `packages/engine/package.json`) and `node scripts/gen-deno-import-map.mjs` (regenerates `deno.json`). No tsconfig paths, Vite aliases, or workspace entries are needed — subpath resolution flows through the single `@downdraft/engine` package.
 
 ## Shared engine APIs — use these, don't hand-roll

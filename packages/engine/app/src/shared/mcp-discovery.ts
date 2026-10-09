@@ -43,7 +43,7 @@ export function writeMcpPidFile(port: number, token: string, suffix: string = ""
     writeFileSync(pidFile, String(port));
     writeFileSync(tokenFile, token, { mode: 0o600 });
   } catch (e) {
-    log.warn("MCP", `Failed to write PID file ${pidFile}: ${(e as Error).message}`);
+    log.warn("mcp", `Failed to write PID file ${pidFile}: ${(e as Error).message}`);
   }
   return () => {
     try { unlinkSync(pidFile); } catch { /* already gone */ }

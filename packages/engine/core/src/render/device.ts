@@ -42,7 +42,7 @@ export class GPUDeviceManager {
 
   async requestDevice(): Promise<GPUDevice | null> {
     if (!navigator.gpu) {
-      log.error("DownDraft", "WebGPU not available");
+      log.error("gpu", "WebGPU not available");
       return null;
     }
 
@@ -51,7 +51,7 @@ export class GPUDeviceManager {
     });
 
     if (!this.adapter) {
-      log.error("DownDraft", "No suitable GPU adapter found");
+      log.error("gpu", "No suitable GPU adapter found");
       return null;
     }
 
@@ -67,12 +67,12 @@ export class GPUDeviceManager {
 
       this.device.lost.then((info: GPUDeviceLostInfo) => {
         this.deviceLost = true;
-        log.error("DownDraft", `GPU device lost: ${info?.message ?? "unknown reason"}. Application should attempt recovery or notify the user.`);
+        log.error("gpu", `GPU device lost: ${info?.message ?? "unknown reason"}. Application should attempt recovery or notify the user.`);
         for (let i = 0; i < this.lostHandlers.length; i++) {
           try {
             this.lostHandlers[i](info);
           } catch (err) {
-            log.error("DownDraft", `Device lost handler threw: ${err}`);
+            log.error("gpu", `Device lost handler threw: ${err}`);
           }
         }
       });
@@ -98,7 +98,7 @@ export class GPUDeviceManager {
   }
 
   async reinit(): Promise<GPUDevice | null> {
-    log.warn("DownDraft", "Device lost — reinitializing GPU device. Pass-specific resources (pipelines, bind groups, textures) are NOT recreated and must be rebuilt by the application.");
+    log.warn("gpu", "Device lost — reinitializing GPU device. Pass-specific resources (pipelines, bind groups, textures) are NOT recreated and must be rebuilt by the application.");
     this.deviceLost = false;
     this.device = null;
     this.adapter = null;

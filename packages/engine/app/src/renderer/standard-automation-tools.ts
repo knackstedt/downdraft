@@ -274,7 +274,7 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
                 };
               }
             } catch (e) {
-              log.warn("MCP", `Host frame capture failed, falling back to canvas-only: ${(e as Error).message}`);
+              log.warn("mcp", `Host frame capture failed, falling back to canvas-only: ${(e as Error).message}`);
             }
           }
         }
@@ -867,6 +867,6 @@ export function createGameMcp(opts: GameMcpOptions): void {
       }),
     });
   } catch (e) {
-    log.warn("MCP", `${appId} automation harness setup failed (non-fatal): ${e}`);
+    log.warn("mcp", `${appId} automation harness setup failed (non-fatal): ${e}`);
   }
 }

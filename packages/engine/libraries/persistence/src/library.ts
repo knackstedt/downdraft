@@ -52,7 +52,7 @@ export const PersistenceLib: EngineLibrary<PersistenceLibConfig> = {
       // it in onReady if needed. The store is safe to provide immediately;
       // save/load calls will throw until init() resolves.
       store.init().catch((err) => {
-        log.error("PersistenceLib", `OpfsSaveStore init failed: ${err}`);
+        log.error("persistence-lib", `OpfsSaveStore init failed: ${err}`);
       });
       ctx.provide(PersistenceTok, store);
       return store;

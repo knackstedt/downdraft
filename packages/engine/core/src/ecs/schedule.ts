@@ -145,7 +145,7 @@ export class Schedule {
     const visit = (name: string, path: Set<string>) => {
       if (visited.has(name)) return;
       if (path.has(name)) {
-        log.warn("Schedule", `System dependency cycle detected involving "${name}" — skipping`);
+        log.warn("schedule", `System dependency cycle detected involving "${name}" — skipping`);
         return;
       }
       const entry = nameToSys.get(name);

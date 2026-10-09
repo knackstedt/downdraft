@@ -190,7 +190,7 @@ export class BindlessTextureRegistry {
       const reg = b.sources.get(sourceId);
       if (!reg) continue;
       if (b.key.width !== bitmap.width || b.key.height !== bitmap.height) {
-        log.warn("Bindless", `updateFromImageBitmap dimension mismatch for ${String(sourceId)}: bucket ${b.key.width}x${b.key.height} vs bitmap ${bitmap.width}x${bitmap.height}`);
+        log.warn("bindless", `updateFromImageBitmap dimension mismatch for ${String(sourceId)}: bucket ${b.key.width}x${b.key.height} vs bitmap ${bitmap.width}x${bitmap.height}`);
         return false;
       }
       this.copyImageBitmapIntoLayer(bitmap, b, reg.pageIndex, reg.layerIndex, b.key);
@@ -510,7 +510,7 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
 
   private appendPage(b: Bucket): void {
     if (b.pages.length >= this.maxPagesPerBucket) {
-      log.error("Bindless", `bucket ${b.keyStr} exhausted maxPages=${this.maxPagesPerBucket}; texture registration failed`);
+      log.error("bindless", `bucket ${b.keyStr} exhausted maxPages=${this.maxPagesPerBucket}; texture registration failed`);
       throw new Error(`BindlessTextureRegistry: bucket ${b.keyStr} full (maxPages=${this.maxPagesPerBucket})`);
     }
     const tex = this.device.createTexture({

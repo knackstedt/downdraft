@@ -66,7 +66,7 @@ export async function discoverPlugins(
     const r = host.discover(manifest, baseUrl);
     if (!r.ok) {
       rejected.push({ id: manifest.id, errors: r.errors });
-      log.warn("PluginHost", `Rejected manifest "${manifest.id}": ${r.errors.join("; ")}`);
+      log.warn("plugin-host", `Rejected manifest "${manifest.id}": ${r.errors.join("; ")}`);
     }
   });
   await host.loadAll();

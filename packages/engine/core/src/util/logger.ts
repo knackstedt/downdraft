@@ -207,6 +207,21 @@ function linkifyModule(module: string): string {
     return makeFileLink(module);
 }
 
+/** Normalize a module tag to the lowercase-kebab convention
+ *  ("GameRenderer" → "game-renderer", "SIM WORKER" → "sim-worker").
+ *  Only word-style names are rewritten — anything with heavier
+ *  separators (paths, "plugin:x", "dev/hmr", bundle names like
+ *  "chunk-5H6VXLYO.js:2419") already carries its own format and
+ *  passes through untouched. */
+function normalizeModuleTag(module: string): string {
+    if (!/^[A-Za-z0-9][A-Za-z0-9 _]*$/.test(module)) return module;
+    return module
+        .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+        .replace(/([A-Z]+)([A-Z][a-z])/g, "$1-$2")
+        .replace(/[\s_]+/g, "-")
+        .toLowerCase();
+}
+
 function getJsonColors(theme: "light" | "dark") {
     const t = THEMES[theme];
     return {
@@ -522,12 +537,13 @@ export class ConsoleLogger implements Logger {
         const cleanMsg = msg.replace(/\n+$/, "");
         const color = (this.palette as any)[level];
         const timestamp = new Date().toTimeString().slice(0, 8);
-        const linkedModule = linkifyModule(module);
+        const moduleName = normalizeModuleTag(module);
+        const linkedModule = linkifyModule(moduleName);
         let moduleStr: string;
-        if (isPathLike(module)) {
+        if (isPathLike(moduleName)) {
             moduleStr = linkedModule;
         } else {
-            moduleStr = `${this.palette.module}${module}`;
+            moduleStr = `${this.palette.module}${moduleName}`;
         }
         const tag = getThreadTag();
         const tagColor = (this.palette.thread as Record<string, string>)[tag] ?? this.palette.module;
@@ -539,7 +555,7 @@ export class ConsoleLogger implements Logger {
         // Notify log sinks (native devtools console bridge) with clean text.
         emitToSinks({
             level,
-            module,
+            module: moduleName,
             message: stripAnsi(cleanMsg),
             thread: tag,
             timestamp: (typeof performance !== "undefined" ? performance.now() : Date.now()),

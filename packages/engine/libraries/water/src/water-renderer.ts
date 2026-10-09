@@ -660,7 +660,7 @@ export class WaterRenderer {
     });
 
     this.initialized = true;
-    log.info("WaterRenderer", "Initialized flat-shaded low-poly water");
+    log.info("water-renderer", "Initialized flat-shaded low-poly water");
   }
 
   setLightBindGroup(bg: GPUBindGroup): void {

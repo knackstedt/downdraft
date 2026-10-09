@@ -31,7 +31,7 @@ export class SchemaRegistry {
       try {
         current = fn(current);
       } catch (e) {
-        log.warn("SchemaRegistry", `Migration v${version}→v${version + 1} failed: ${e} — returning data at v${version}`);
+        log.warn("schema-registry", `Migration v${version}→v${version + 1} failed: ${e} — returning data at v${version}`);
         return current;
       }
       version++;

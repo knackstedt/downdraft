@@ -25,7 +25,7 @@ export class SurfaceManager {
     this.canvas = canvas;
     this.context = canvas.getContext("webgpu") as GPUCanvasContext;
     if (!this.context) {
-      log.error("DownDraft", "Failed to get WebGPU context from canvas");
+      log.error("gpu", "Failed to get WebGPU context from canvas");
       return;
     }
 

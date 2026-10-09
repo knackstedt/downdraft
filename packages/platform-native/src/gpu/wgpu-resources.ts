@@ -111,7 +111,7 @@ export class WgpuBuffer {
           BigInt(range.buffer.byteLength),
         );
         if (status !== 0) {
-          log.error("WgpuBuffer", `write_mapped failed (status ${status})`);
+          log.error("wgpu-buffer", `write_mapped failed (status ${status})`);
         }
       });
     }

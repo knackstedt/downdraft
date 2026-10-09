@@ -159,7 +159,7 @@ export class GPUProfiler {
       if (!state) {
         // First occurrence — log immediately and start a throttle window.
         self.errorThrottle.set(key, { count: 1, firstSeen: now, lastLogged: now, suppressed: 0 });
-        log.error("GPU", `${label ? label + " " : ""}WebGPU uncaptured error: ${message}`);
+        log.error("gpu", `${label ? label + " " : ""}WebGPU uncaptured error: ${message}`);
         return;
       }
       state.count++;
@@ -172,7 +172,7 @@ export class GPUProfiler {
       // Window elapsed — emit a summary of suppressed duplicates and reset.
       const suppressed = state.suppressed + 1; // +1 for this occurrence
       log.error(
-        "GPU",
+        "gpu",
         `${label ? label + " " : ""}WebGPU uncaptured error: ${message} ` +
           `(repeated ${suppressed}× in ${Math.round(elapsed)}ms)`,
       );
@@ -182,7 +182,7 @@ export class GPUProfiler {
 
     device.lost.then((info: GPUDeviceLostInfo) => {
       self.deviceLost = true;
-      log.error("GPU", `WebGPU device lost: ${info?.reason ?? "unknown"} — ${info?.message ?? ""}`);
+      log.error("gpu", `WebGPU device lost: ${info?.reason ?? "unknown"} — ${info?.message ?? ""}`);
     });
   }
 

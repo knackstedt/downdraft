@@ -224,7 +224,7 @@ export class SoftwareThumbnailRenderer {
       // already has its materials (the worker snapshots PNGs immediately).
       await this.cache.get(contentId)?.texReady;
     } catch (err) {
-      log.warn("SoftwareThumbnailRenderer", `Failed to load ${contentId} (${modelUri}): ${err}`);
+      log.warn("software-thumbnail-renderer", `Failed to load ${contentId} (${modelUri}): ${err}`);
       this.loadBuiltinCube(contentId);
     } finally {
       this.loading.delete(contentId);
@@ -497,7 +497,7 @@ export class SoftwareThumbnailRenderer {
         skelIndices: null, bonePos: null,
       };
     } catch (err) {
-      log.warn("SoftwareThumbnailRenderer", `Pose sampler failed for ${contentId}: ${err}`);
+      log.warn("software-thumbnail-renderer", `Pose sampler failed for ${contentId}: ${err}`);
       return null;
     }
   }

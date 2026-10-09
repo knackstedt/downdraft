@@ -25,7 +25,7 @@ export function createEventChannel<T>(): EventChannel<T> {
         droppedCount++;
         if (droppedCount === 1 || droppedCount % 1000 === 0) {
           log.warn(
-            "EventChannel",
+            "event-channel",
             `queue full (${MAX_QUEUE_SIZE}), dropped ${droppedCount} oldest event(s) total`,
           );
         }

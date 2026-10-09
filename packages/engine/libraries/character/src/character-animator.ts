@@ -251,7 +251,7 @@ export class CharacterAnimator {
       modelData.animations.forEach((anim) => {
         this.animator.registerRetargetedAnimations([anim], anim.name);
       });
-      log.info("CharacterAnimator", `Registered ${modelData.animations.length} retargeted animations: ${modelData.animations.map((a) => a.name).join(", ")}`);
+      log.info("character-animator", `Registered ${modelData.animations.length} retargeted animations: ${modelData.animations.map((a) => a.name).join(", ")}`);
     }
 
     // Skeleton for computing final skin matrices.

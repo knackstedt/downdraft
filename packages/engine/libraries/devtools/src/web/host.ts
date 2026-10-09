@@ -91,7 +91,7 @@ export class WebDevtoolsHost {
     try {
       await this.server.start();
     } catch (err) {
-      log.warn("WebDevtoolsHost", `devtools server failed to start: ${err}`);
+      log.warn("web-devtools-host", `devtools server failed to start: ${err}`);
       // Still bring up mirror/cdp so the RPC surface exists for embedded
       // callers (e.g. tests); the browser UI just won't be reachable.
     }
@@ -99,7 +99,7 @@ export class WebDevtoolsHost {
     this.mirror.attachLoggerBridge();
     this.cdp.start();
     this._ready = true;
-    log.info("WebDevtoolsHost", `Web devtools ready (F12 opens ${this.server.url})`);
+    log.info("web-devtools-host", `Web devtools ready (F12 opens ${this.server.url})`);
   }
 
   /** F12: open (or refocus) the devtools browser window. */
@@ -110,7 +110,7 @@ export class WebDevtoolsHost {
       // succeed if the window was script-opened, which --app mode satisfies
       // on some browsers; worst case the user closes it normally).
       this.server.emit("devtools.close", {});
-      log.info("WebDevtoolsHost", "Devtools close requested");
+      log.info("web-devtools-host", "Devtools close requested");
       return;
     }
     this.open();
@@ -129,7 +129,7 @@ export class WebDevtoolsHost {
         this.browserOpened = true;
         this.mirror.resetFirstUpdate();
       } else {
-        log.warn("WebDevtoolsHost", `No browser found — open manually: ${url}`);
+        log.warn("web-devtools-host", `No browser found — open manually: ${url}`);
       }
     }
   }
@@ -143,7 +143,7 @@ export class WebDevtoolsHost {
     try {
       this.mirror.update();
     } catch (err) {
-      log.error("WebDevtoolsHost", `mirror update error: ${err}`);
+      log.error("web-devtools-host", `mirror update error: ${err}`);
     }
   }
 

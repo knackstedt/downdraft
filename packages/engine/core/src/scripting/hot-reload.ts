@@ -70,7 +70,7 @@ export class HotReloader {
       try {
         entry.cleanups[i]();
       } catch (err) {
-        log.error("HotReloader", `Cleanup error for "${name}": ${err}`);
+        log.error("hot-reloader", `Cleanup error for "${name}": ${err}`);
       }
     }
     entry.cleanups = [];
@@ -79,7 +79,7 @@ export class HotReloader {
       await this.scripting.hotReload(name, path);
       if (entry.onReload) entry.onReload(path);
     } catch (err) {
-      log.error("HotReloader", `Reload error for "${name}": ${err}`);
+      log.error("hot-reloader", `Reload error for "${name}": ${err}`);
     }
   }
 

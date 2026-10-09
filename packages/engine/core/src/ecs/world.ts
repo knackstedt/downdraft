@@ -220,7 +220,7 @@ export class World {
       try {
         this.commands[i](this);
       } catch (err) {
-        log.error("World", `Command at index ${i} threw: ${err}`);
+        log.error("world", `Command at index ${i} threw: ${err}`);
         // In debug mode, re-throw to surface command errors immediately.
         // In production, log and continue for game-loop resilience.
         if (isDebug()) throw err;
