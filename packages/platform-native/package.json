@@ -1,6 +1,6 @@
 {
   "name": "@downdraft/platform-native",
-  "version": "0.1.2-alpha.4",
+  "version": "0.1.2-alpha.5",
   "repository": {
     "type": "git",
     "url": "https://github.com/knackstedt/downdraft.git",
@@ -18,15 +18,15 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@downdraft/engine": "^0.1.2-alpha.4",
+    "@downdraft/engine": "^0.1.2-alpha.5",
     "koffi": "^3.2.1"
   },
   "optionalDependencies": {
-    "@downdraft/native-darwin-arm64": "^0.1.2-alpha.4",
-    "@downdraft/native-darwin-x64": "^0.1.2-alpha.4",
-    "@downdraft/native-linux-arm64": "^0.1.2-alpha.4",
-    "@downdraft/native-linux-x64": "^0.1.2-alpha.4",
-    "@downdraft/native-win32-x64": "^0.1.2-alpha.4"
+    "@downdraft/native-darwin-arm64": "^0.1.2-alpha.5",
+    "@downdraft/native-darwin-x64": "^0.1.2-alpha.5",
+    "@downdraft/native-linux-arm64": "^0.1.2-alpha.5",
+    "@downdraft/native-linux-x64": "^0.1.2-alpha.5",
+    "@downdraft/native-win32-x64": "^0.1.2-alpha.5"
   },
   "devDependencies": {
     "typescript": "^5"
