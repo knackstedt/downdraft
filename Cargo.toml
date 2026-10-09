@@ -28,7 +28,8 @@ members = [
 
 # Materialized Node source trees (packages/node-mobile/build/node-v*) contain
 # a vendored deps/crates/Cargo.toml that must not join this workspace.
-exclude = ["packages/node-mobile/build"]
+# vendor/* are [patch] crates — excluded so their own cargo test/fmt work.
+exclude = ["packages/node-mobile/build", "vendor"]
 
 [workspace.package]
 version = "0.1.0"

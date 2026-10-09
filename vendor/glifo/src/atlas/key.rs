@@ -306,6 +306,7 @@ mod tests {
             embolden_miter_limit_bits: 4.0_f32.to_bits(),
             embolden_tolerance_bits: 0.1_f32.to_bits(),
             var_coords: SmallVec::new(),
+            variant: 0,
         };
         let bitmap_key = GlyphCacheKey {
             font_id: 1,
@@ -322,6 +323,7 @@ mod tests {
             embolden_miter_limit_bits: 4.0_f32.to_bits(),
             embolden_tolerance_bits: 0.1_f32.to_bits(),
             var_coords: SmallVec::new(),
+            variant: 0,
         };
         assert_ne!(outline_key, colr_key);
         assert_ne!(outline_key, bitmap_key);

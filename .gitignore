@@ -73,5 +73,7 @@ packages/engine/libraries/audio-kira/native/target/
 packages/engine/libraries/blitz-ui/native-osr/target/
 # Test-bed Rust crates (e.g. ui-bakeoff's blitz-app wasm) — same rule.
 test-beds/**/target/
+# Vendored crates get their own target dir when cargo test runs inside them.
+vendor/**/target/
 
 test-results/

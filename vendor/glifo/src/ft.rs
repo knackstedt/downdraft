@@ -75,8 +75,8 @@ struct FtFaceEntry {
     face: ft::FT_Face,
     /// Keep the blob alive — `FT_New_Memory_Face` borrows the bytes.
     _font: FontData,
-    /// Pixel size the face is currently configured for.
-    ppem: u32,
+    /// Pixel size the face is currently configured for, in 26.6 fixed point.
+    size64: u32,
 }
 
 impl Drop for FtFaceEntry {
@@ -138,20 +138,22 @@ pub(crate) fn enabled() -> bool {
 
 /// Whether LCD subpixel masks should be produced (implies [`enabled`]).
 pub(crate) fn lcd_enabled() -> bool {
-    enabled() && *LCD_ENABLED.get_or_init(|| match std::env::var("DD_LCD_TEXT") {
-        Ok(v) => !matches!(v.as_str(), "0" | "false" | "off"),
-        Err(_) => true,
-    })
+    enabled()
+        && *LCD_ENABLED.get_or_init(|| match std::env::var("DD_LCD_TEXT") {
+            Ok(v) => !matches!(v.as_str(), "0" | "false" | "off"),
+            Err(_) => true,
+        })
 }
 
-/// A rendered FreeType bitmap borrowed from the glyph slot, normalized to
+/// A rendered FreeType bitmap copied out of the glyph slot, normalized to
 /// plain row-major top-to-bottom bytes.
 struct FtBitmap {
     /// 8-bit samples; `width` is the byte count per row (subpixels for LCD).
     width: usize,
     rows: usize,
-    pitch: i32,
-    buffer: *const u8,
+    /// Row-major bytes, `width * rows` — owned so it outlives the `FACES`
+    /// lock (a concurrent `FT_Load_Glyph` would invalidate the slot buffer).
+    data: Vec<u8>,
     /// `FT_PIXEL_MODE_*` of the rendered bitmap.
     pixel_mode: u8,
     /// Left bearing in whole pixels.
@@ -208,19 +210,21 @@ fn render_bitmap(
             FtFaceEntry {
                 face,
                 _font: font.clone(),
-                ppem: 0,
+                size64: 0,
             },
         );
     }
 
     let entry = map.get_mut(&key)?;
     let face = entry.face;
-    let ppem_i = ppem.round().max(1.0) as u32;
-    if entry.ppem != ppem_i {
-        if unsafe { ft::FT_Set_Pixel_Sizes(face, 0, ppem_i) } != 0 {
+    // FT_Set_Char_Size takes 26.6 fixed point — unlike FT_Set_Pixel_Sizes it
+    // preserves fractional sizes (e.g. a 15px font at 1.25 zoom is 18.75px).
+    let size64 = (ppem * 64.0).round().max(64.0) as u32;
+    if entry.size64 != size64 {
+        if unsafe { ft::FT_Set_Char_Size(face, 0, size64 as ft::FT_F26Dot6, 72, 72) } != 0 {
             return None;
         }
-        entry.ppem = ppem_i;
+        entry.size64 = size64;
     }
 
     // Subpixel x placement: shift the outline by the quantized phase before
@@ -260,8 +264,7 @@ fn render_bitmap(
         return Some(FtBitmap {
             width: 0,
             rows: 0,
-            pitch: 0,
-            buffer: core::ptr::null(),
+            data: Vec::new(),
             pixel_mode: 0,
             left,
             top,
@@ -271,11 +274,22 @@ fn render_bitmap(
         return None;
     }
 
+    // Copy out of the glyph slot while the lock is still held — the buffer is
+    // invalidated by the next FT_Load_Glyph on this face.
+    let mut data = Vec::with_capacity(width * rows);
+    for y in 0..rows {
+        // FT pitch is signed — `buffer` always points at the top row and
+        // advancing by `pitch` (possibly negative) reaches the next row.
+        let row = unsafe { buffer.offset(y as isize * pitch as isize) };
+        unsafe {
+            data.extend_from_slice(core::slice::from_raw_parts(row, width));
+        }
+    }
+
     Some(FtBitmap {
         width,
         rows,
-        pitch,
-        buffer: buffer as *const u8,
+        data,
         pixel_mode: pixel_mode as u8,
         left,
         top,
@@ -283,19 +297,15 @@ fn render_bitmap(
 }
 
 /// Rasterize a grayscale coverage mask.
-pub(crate) fn rasterize(
-    font: &FontData,
-    glyph_id: u32,
-    ppem: f32,
-    x_phase: f32,
-) -> Option<FtMask> {
-    // FT_LOAD_DEFAULT applies the font's bytecode at TARGET_NORMAL (grayscale).
+pub(crate) fn rasterize(font: &FontData, glyph_id: u32, ppem: f32, x_phase: f32) -> Option<FtMask> {
+    // FT_LOAD_DEFAULT applies the font's bytecode at TARGET_NORMAL (grayscale);
+    // NO_BITMAP keeps embedded strikes out so coverage stays hint-driven.
     let bmp = render_bitmap(
         font,
         glyph_id,
         ppem,
         x_phase,
-        ft::FT_LOAD_DEFAULT,
+        ft::FT_LOAD_DEFAULT | ft::FT_LOAD_NO_BITMAP,
         ft::FT_RENDER_MODE_NORMAL,
     )?;
     if bmp.width == 0 || bmp.rows == 0 {
@@ -307,19 +317,13 @@ pub(crate) fn rasterize(
     }
 
     let mut px: Vec<PremulRgba8> = Vec::with_capacity(bmp.width * bmp.rows);
-    for y in 0..bmp.rows {
-        // FT pitch is signed — `buffer` always points at the top row and
-        // advancing by `pitch` (possibly negative) reaches the next row.
-        let row = unsafe { bmp.buffer.offset(y as isize * bmp.pitch as isize) };
-        for x in 0..bmp.width {
-            let v = unsafe { *row.add(x) };
-            px.push(PremulRgba8 {
-                r: v,
-                g: v,
-                b: v,
-                a: v,
-            });
-        }
+    for &v in &bmp.data {
+        px.push(PremulRgba8 {
+            r: v,
+            g: v,
+            b: v,
+            a: v,
+        });
     }
     let pixmap = Arc::new(Pixmap::from_parts(px, bmp.width as u16, bmp.rows as u16));
 
@@ -353,7 +357,7 @@ pub(crate) fn rasterize_lcd(
         glyph_id,
         ppem,
         x_phase,
-        ft::FT_LOAD_TARGET_LCD,
+        ft::FT_LOAD_TARGET_LCD | ft::FT_LOAD_NO_BITMAP,
         ft::FT_RENDER_MODE_LCD,
     )?;
     if bmp.width == 0 || bmp.rows == 0 {
@@ -366,16 +370,9 @@ pub(crate) fn rasterize_lcd(
 
     let mut mask_px: Vec<PremulRgba8> = Vec::with_capacity(cols * bmp.rows);
     let mut inv_px: Vec<PremulRgba8> = Vec::with_capacity(cols * bmp.rows);
-    for y in 0..bmp.rows {
-        let row = unsafe { bmp.buffer.offset(y as isize * bmp.pitch as isize) };
-        for c in 0..cols {
-            let (r, g, b) = unsafe {
-                (
-                    *row.add(3 * c),
-                    *row.add(3 * c + 1),
-                    *row.add(3 * c + 2),
-                )
-            };
+    for row in bmp.data.chunks_exact(bmp.width) {
+        for triple in row.chunks_exact(3) {
+            let (r, g, b) = (triple[0], triple[1], triple[2]);
             let a = r.max(g).max(b);
             mask_px.push(PremulRgba8 { r, g, b, a });
             inv_px.push(PremulRgba8 {
