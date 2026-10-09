@@ -22,7 +22,7 @@ use std::time::Instant;
 use anyrender::ImageRenderer;
 use anyrender_vello_cpu::VelloCpuImageRenderer;
 use atomic_refcell::AtomicRefCell;
-use blitz_dom::{Document, DocumentConfig, EventDriver, FontContext};
+use blitz_dom::{BaseDocument, Document, DocumentConfig, EventDriver, FontContext};
 use blitz_html::HtmlDocument;
 use blitz_paint::paint_scene;
 use blitz_traits::events::{
@@ -434,6 +434,39 @@ pub extern "C" fn dd_osr_set_html(handle: *mut OsrDoc, html_ptr: *const u8, html
     })
 }
 
+/// taffy's `round_layout` snaps each border side to whole layout units via
+/// `round(c + w) - round(c)`, so a sub-unit border side (a 1px border at
+/// zoom 1.25 computes as 0.8px) can round to 0 depending on the node's
+/// cumulative position. A zero side makes blitz-paint's corner-split math
+/// divide by zero and emit NaN border paths — the adjacent edges (e.g. the
+/// left border) then paint nothing. Restore any side taffy collapsed that
+/// layout says is nonzero.
+fn restore_collapsed_borders(doc: &mut BaseDocument) {
+    let root = doc.root_element().id;
+    doc.iter_subtree_mut(root, |id, doc| {
+        let Some(node) = doc.get_node_mut(id) else {
+            return;
+        };
+        let Some(ld) = node.try_layout_data_mut() else {
+            return;
+        };
+        let ub = ld.unrounded_layout.border;
+        let fb = &mut ld.final_layout.border;
+        if fb.left == 0.0 && ub.left > 0.0 {
+            fb.left = ub.left;
+        }
+        if fb.right == 0.0 && ub.right > 0.0 {
+            fb.right = ub.right;
+        }
+        if fb.top == 0.0 && ub.top > 0.0 {
+            fb.top = ub.top;
+        }
+        if fb.bottom == 0.0 && ub.bottom > 0.0 {
+            fb.bottom = ub.bottom;
+        }
+    });
+}
+
 /// Resolve + rasterize + diff when dirty. Returns Some(rect) when the pixel
 /// buffer changed (rect = pixel-space dirty region), None when clean or
 /// identical. Writes per-call timings into d.stats.
@@ -445,6 +478,7 @@ fn raster_if_dirty(d: &mut OsrDoc) -> Option<[u32; 4]> {
     let t0 = Instant::now();
     let mut inner = d.doc.inner_mut();
     inner.resolve(0.0);
+    restore_collapsed_borders(&mut inner);
     let (w, h) = inner.viewport().window_size;
     let scale = inner.viewport().scale_f64();
     if inner.has_pending_critical_resources() {

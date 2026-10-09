@@ -15,7 +15,7 @@ use std::sync::Arc;
 use anyrender::ImageRenderer;
 use anyrender_vello_cpu::VelloCpuImageRenderer;
 use atomic_refcell::AtomicRefCell;
-use blitz_dom::Document;
+use blitz_dom::{BaseDocument, Document};
 use blitz_paint::paint_scene;
 use blitz_traits::events::{
     BlitzPointerEvent, BlitzPointerId, BlitzWheelDelta, BlitzWheelEvent, MouseEventButton,
@@ -234,6 +234,7 @@ impl HeadlessShell {
         };
         let mut inner = self.doc.inner_mut();
         inner.resolve(t);
+        restore_collapsed_borders(&mut inner);
         let (w, h) = inner.viewport().window_size;
         let scale = inner.viewport().scale_f64();
         let is_animating = inner.is_animating();
@@ -252,6 +253,39 @@ impl HeadlessShell {
 }
 
 // ---- public API (game crates expose these via #[wasm_bindgen] shims) ----
+
+/// taffy's `round_layout` snaps each border side to whole layout units via
+/// `round(c + w) - round(c)`, so a sub-unit border side (a 1px border at
+/// zoom 1.25 computes as 0.8px) can round to 0 depending on the node's
+/// cumulative position. A zero side makes blitz-paint's corner-split math
+/// divide by zero and emit NaN border paths — the adjacent edges (e.g. the
+/// left border) then paint nothing. Restore any side taffy collapsed that
+/// layout says is nonzero.
+fn restore_collapsed_borders(doc: &mut BaseDocument) {
+    let root = doc.root_element().id;
+    doc.iter_subtree_mut(root, |id, doc| {
+        let Some(node) = doc.get_node_mut(id) else {
+            return;
+        };
+        let Some(ld) = node.try_layout_data_mut() else {
+            return;
+        };
+        let ub = ld.unrounded_layout.border;
+        let fb = &mut ld.final_layout.border;
+        if fb.left == 0.0 && ub.left > 0.0 {
+            fb.left = ub.left;
+        }
+        if fb.right == 0.0 && ub.right > 0.0 {
+            fb.right = ub.right;
+        }
+        if fb.top == 0.0 && ub.top > 0.0 {
+            fb.top = ub.top;
+        }
+        if fb.bottom == 0.0 && ub.bottom > 0.0 {
+            fb.bottom = ub.bottom;
+        }
+    });
+}
 
 pub fn init(config: ShellConfig, width: f64, height: f64, scale: f64) {
     console_error_panic_hook::set_once();
