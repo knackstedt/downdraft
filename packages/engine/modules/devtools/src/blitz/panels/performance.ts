@@ -47,7 +47,7 @@ export class PerformancePanel implements DtPanel {
     let tbl = `<table class="dt"><tr>
       <th>slot</th><th>name</th><th>cpu%</th><th>heap</th>
       <th>gc max µs</th><th>task p95 µs</th></tr>`;
-    for (const s of this.slots) {
+    for (const s of this.slots.values()) {
       const h = s.history?.[0] ?? {} as MetricsSlot["history"][0];
       tbl += `<tr><td>${s.slotIndex}</td><td>${esc(s.name)}</td>
         <td>${(h.cpuPercent ?? 0).toFixed(1)}</td>
@@ -77,7 +77,7 @@ export class PerformancePanel implements DtPanel {
   onBackendEvent(event: string, data: unknown): void {
     if (event === "metrics") {
       this.slots = (data as MetricsSlot[]) ?? [];
-      for (const s of this.slots) {
+      for (const s of this.slots.values()) {
         const h = s.history?.[0];
         if (!h) continue;
         let rec = this.history.get(s.slotIndex);

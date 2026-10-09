@@ -43,7 +43,14 @@ for (const [key, targets] of Object.entries(paths)) {
 const enginePkgPath = join(root, "packages/engine/package.json");
 if (existsSync(enginePkgPath)) {
   const engineExports = JSON.parse(readFileSync(enginePkgPath, "utf8")).exports ?? {};
-  for (const [key, target] of Object.entries(engineExports)) {
+  // Export values may be conditional objects ({downdraft-source, default,
+  // types}) — the import map mirrors the dev/source tree, so prefer the
+  // downdraft-source slot and fall back to default.
+  for (const [key, rawTarget] of Object.entries(engineExports)) {
+    const target = typeof rawTarget === "string"
+      ? rawTarget
+      : (rawTarget["downdraft-source"] ?? rawTarget.default ?? Object.values(rawTarget)[0]);
+    if (typeof target !== "string") continue;
     if (!key.includes("*")) {
       imports[`@downdraft/engine${key.slice(1)}`] = `./packages/engine${target.slice(1)}`;
     } else {

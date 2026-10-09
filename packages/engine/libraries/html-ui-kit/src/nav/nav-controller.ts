@@ -209,7 +209,7 @@ export class NavController {
 
     let best: NavNodeInfo | null = null;
     let bestScore = Infinity;
-    for (const n of cands) {
+    for (const n of cands.values()) {
       if (n === cur || !n.rect) continue;
       const r = n.rect;
       const nx = r.x + r.w / 2, ny = r.y + r.h / 2;

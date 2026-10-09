@@ -171,10 +171,10 @@ export class GamepadHub {
           ffSupported: (s.flags & PAD_FLAG.FF_SUPPORTED) !== 0,
         });
         this.devices.set(slot, dev);
-        for (const cb of this.listeners.connect) cb(dev);
+        for (const cb of this.listeners.connect.values()) cb(dev);
       } else if (!connected && existing) {
         this.devices.delete(slot);
-        for (const cb of this.listeners.disconnect) cb(existing);
+        for (const cb of this.listeners.disconnect.values()) cb(existing);
       }
     }
     this.lastSeq = this.reader.getSequence();

@@ -32,7 +32,7 @@ if (!tarballs.length) {
   process.exit(1);
 }
 
-for (const tarball of tarballs) {
+for (const tarball of tarballs.values()) {
   const arch = tarball.slice("downdraft-node-mobile-android-".length, -".tar.gz".length);
   const pkgDir = join(root, "packages", `native-mobile-android-${arch}`);
   if (!existsSync(join(pkgDir, "package.json"))) {

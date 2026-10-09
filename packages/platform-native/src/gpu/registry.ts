@@ -26,7 +26,7 @@ function reportIfDue(): void {
   // Dev-shell only — the session tracker only exists under `draft dev`.
   if (!(globalThis as any).__ddSession) return;
   const parts: string[] = [];
-  for (const [k, v] of liveByType) {
+  for (const [k, v] of liveByType.entries()) {
     if (v > 100) parts.push(`${k}=${v}(${releasedByType.get(k) ?? 0} rel)`);
   }
   if (parts.length) log.debug("gpu-registry", parts.join(" "));

@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "bun:test";
 import {
-  assertNoDuplicateBindings,
-  findDuplicateBindings,
-  parseWgslBindings,
-  type ParsedBinding,
+    assertNoDuplicateBindings,
+    findDuplicateBindings,
+    parseWgslBindings,
+    type ParsedBinding,
 } from "./wgsl-binding-validator";
 
 describe("parseWgslBindings", () => {
@@ -191,7 +191,9 @@ describe("findDuplicateBindings", () => {
 
 describe("assertNoDuplicateBindings", () => {
   it("does not throw or warn when there are no duplicates", () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // The validator logs through the engine logger, which writes to
+    // process.stdout directly (console.warn is never touched).
+    const warnSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     const src = `
 @group(0) @binding(0) var<uniform> a: U;
 @group(1) @binding(0) var<storage, read> b: L;
@@ -202,7 +204,7 @@ describe("assertNoDuplicateBindings", () => {
   });
 
   it("warns (not throws) in non-strict mode when duplicates exist", () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     // Force non-strict: DOWNDRAFT_STRICT unset and import.meta.env.DEV falsy.
     const origStrict = process.env.DOWNDRAFT_STRICT;
     delete process.env.DOWNDRAFT_STRICT;
@@ -212,8 +214,10 @@ describe("assertNoDuplicateBindings", () => {
 `;
     expect(() => assertNoDuplicateBindings(src)).not.toThrow();
     expect(warnSpy).toHaveBeenCalled();
-    expect(warnSpy.mock.calls[0][0]).toContain("duplicate");
-    expect(warnSpy.mock.calls[0][0]).toContain("@group(1) @binding(0)");
+    const warnLine = warnSpy.mock.calls
+      .map((c) => String(c[0]).replace(/\x1b\[[0-9;]*m/g, ""))
+      .find((s) => s.includes("duplicate"));
+    expect(warnLine).toContain("@group(1) @binding(0)");
     warnSpy.mockRestore();
     if (origStrict !== undefined) process.env.DOWNDRAFT_STRICT = origStrict;
   });

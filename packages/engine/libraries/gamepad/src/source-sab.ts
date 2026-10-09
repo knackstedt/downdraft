@@ -53,9 +53,9 @@ export class SabGamepadSource implements GamepadSource {
     for (let i = 0; i < GAMEPAD_MAX_SLOTS; i++) {
       if (!(changed & (1 << i))) continue;
       if (mask & (1 << i)) {
-        for (const cb of this.connectCbs) cb(i);
+        for (const cb of this.connectCbs.values()) cb(i);
       } else {
-        for (const cb of this.disconnectCbs) cb(i);
+        for (const cb of this.disconnectCbs.values()) cb(i);
       }
     }
     this.knownMask = mask;

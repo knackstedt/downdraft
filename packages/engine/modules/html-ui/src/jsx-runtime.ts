@@ -93,7 +93,7 @@ function renderNode(v: VNode): string {
     return out.join("");
   }
   if (typeof t === "function") {
-    const r = t({ ...(p ?? {}) });
+    const r = t({ ...p });
     const out: string[] = [];
     renderInner(r as Child, out);
     return out.join("");

@@ -50,7 +50,7 @@ export class PadNavDriver {
       repeatDelayMs: opts.repeatDelayMs ?? 400,
       repeatIntervalMs: opts.repeatIntervalMs ?? 130,
     };
-    for (const d of ["up", "down", "left", "right"] as const) {
+    for (const d of (["up", "down", "left", "right"] as const).values()) {
       this.dirs.set(d, { held: false, since: 0, lastFire: 0 });
     }
   }
@@ -82,7 +82,7 @@ export class PadNavDriver {
     this.prevDirAxis = stickDir;
     if (stickDir) pressed.add(stickDir);
 
-    for (const [dir, st] of this.dirs) {
+    for (const [dir, st] of this.dirs.entries()) {
       const isDown = pressed.has(dir);
       if (isDown && !st.held) {
         st.held = true; st.since = now; st.lastFire = now;

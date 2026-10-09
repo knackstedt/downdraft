@@ -70,6 +70,8 @@ if (SMOKE) {
 
 // Manual path: open a real window so the package can be clicked through.
 const { createNativeHost } = await import("@downdraft/platform-native");
-const host = await createNativeHost({ width: 640, height: 480, title: "packaging-smoke" });
+const host = await createNativeHost({ window: { width: 640, height: 480, title: "packaging-smoke" } });
 console.log(`DD_SMOKE_OK window worker=${JSON.stringify(pong.data)} asset=${hello}`);
-host.run();
+// Keep the vsync loop alive so the window can be clicked through manually.
+const pump = () => host.requestAnimationFrame(pump);
+host.requestAnimationFrame(pump);

@@ -262,7 +262,7 @@ export class OpfsSaveStore implements ISaveStore {
   // ── Path helpers ────────────────────────────────────────────────────────
 
   private sanitizeSlot(slot: string): string {
-    return slot.replace(/[^a-zA-Z0-9_\-]/g, "_");
+    return slot.replace(/[^a-zA-Z0-9_-]/g, "_");
   }
 
   private genDirName(gen: number): string {
@@ -371,7 +371,7 @@ export class OpfsSaveStore implements ISaveStore {
       if (opts?.blobs && Object.keys(opts.blobs).length > 0) {
         const blobsDir = await this.getBlobsDir(genDir, true);
         for (const [key, buf] of Object.entries(opts.blobs)) {
-          const safeKey = key.replace(/[^a-zA-Z0-9_\-]/g, "_");
+          const safeKey = key.replace(/[^a-zA-Z0-9_-]/g, "_");
           await this.writeBinaryFile(blobsDir, safeKey, new Uint8Array(buf));
           blobCount++;
         }

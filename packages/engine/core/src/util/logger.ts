@@ -272,12 +272,12 @@ function highlightJson(json: string): string {
                 out += jsonColors().string + str + reset;
             }
             i = end + 1;
-        } else if (/[\{\}\[\]]/.test(ch)) {
+        } else if (/[{\}[\]]/.test(ch)) {
             out += jsonColors().brace + ch + reset;
             i++;
         } else if (/\d/.test(ch) || (ch === '-' && /\d/.test(json[i + 1]))) {
             let end = i + 1;
-            while (end < json.length && /[\d.eE+\-]/.test(json[end])) end++;
+            while (end < json.length && /[\d.eE+-]/.test(json[end])) end++;
             out += jsonColors().number + json.slice(i, end) + reset;
             i = end;
         } else if (json.slice(i, i + 4) === 'true') {

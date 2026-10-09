@@ -898,7 +898,7 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
       : {}),
   };
 
-  const api: WorkerApi = { ...standardApi, ...(opts.extraApi ?? {}) };
+  const api: WorkerApi = { ...standardApi, ...opts.extraApi };
 
   // Optionally wrap the API before exposing (e.g. with exposeDevToolsApi
   // to add devtools + profiling RPC methods).

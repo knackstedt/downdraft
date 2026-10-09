@@ -19,7 +19,7 @@ interface TestApi extends SimWorkerControlApi {
 }
 
 class MockWorker {
-  private listeners: ((e: MessageEvent) => void)[] = [];
+  private listeners: { type: string; cb: (e: MessageEvent) => void }[] = [];
   calls: { method: string; args: any[] }[] = [];
   terminated = false;
   stats = { fps: 60, tick: 42, tickMs: 16.7, frame: 10 };
@@ -42,12 +42,15 @@ class MockWorker {
     }
   }
 
-  addEventListener(_type: string, cb: (e: MessageEvent) => void): void {
-    this.listeners.push(cb);
+  // Listeners are typed — dispatch only reaches "message" handlers. The RPC
+  // proxy also registers an "error" listener (failAll on worker death); an
+  // untyped dispatch would fire it on every reply and mark the proxy dead.
+  addEventListener(type: string, cb: (e: MessageEvent) => void): void {
+    this.listeners.push({ type, cb });
   }
 
-  removeEventListener(_type: string, cb: (e: MessageEvent) => void): void {
-    this.listeners = this.listeners.filter((l) => l !== cb);
+  removeEventListener(type: string, cb: (e: MessageEvent) => void): void {
+    this.listeners = this.listeners.filter((l) => !(l.type === type && l.cb === cb));
   }
 
   terminate(): void {
@@ -55,7 +58,9 @@ class MockWorker {
   }
 
   receive(msg: any): void {
-    this.listeners.forEach((cb) => { cb({ data: msg } as MessageEvent);; });
+    this.listeners.forEach((l) => {
+      if (l.type === "message") l.cb({ data: msg } as MessageEvent);
+    });
   }
 
   emit(kind: string, data?: unknown): void {

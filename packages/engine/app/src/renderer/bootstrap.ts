@@ -529,7 +529,7 @@ async function wireDevtoolsFrontend(
     }
   });
   const evalNames: string[] = ["main"];
-  for (const wh of workerHosts ?? []) {
+  for (const wh of (workerHosts ?? []).values()) {
     const evalFn = wh?.proxy?.__devtoolsEval;
     if (typeof evalFn === "function" && wh.prefix) {
       host.registerThreadEval(wh.prefix, (expr) => evalFn.call(wh.proxy, expr));

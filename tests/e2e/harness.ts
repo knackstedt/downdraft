@@ -137,7 +137,7 @@ export async function sleep(ms: number): Promise<void> {
  */
 export function gameAvailable(name: string): boolean {
   const root = resolve(import.meta.dir, "..", "..");
-  for (const base of ["games", "examples"]) {
+  for (const base of ["games", "examples"].values()) {
     const dir = join(root, base, name);
     if (existsSync(join(dir, "downdraft.config.json")) || existsSync(join(dir, "src", "native-entry.ts"))) {
       return true;

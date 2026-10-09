@@ -151,7 +151,7 @@ export async function getCombinedFeatureLog(): Promise<CombinedFeatureLog> {
     // Single process — merge render fields (wgpu/disp/sab/wk/plug) into the
     // host line. Host fields win on overlap (v, mode, cpuCores).
     const host: FeatureLogData | null = hostLog || render
-      ? { ...(render ?? {}), ...(hostLog ?? {}), scope: "host" } as FeatureLogData
+      ? { ...render, ...hostLog, scope: "host" } as FeatureLogData
       : null;
     return {
       host,

@@ -57,7 +57,7 @@ export function writePadToInput(
     writer.setGamepadButton(playerIdx, b, (d.buttonsLo & (1 << b)) !== 0);
   }
   if (bindings) {
-    for (const bind of bindings) {
+    for (const bind of bindings.values()) {
       let active = false;
       if (bind.button !== undefined) {
         active = (d.buttonsLo & (1 << bind.button)) !== 0;

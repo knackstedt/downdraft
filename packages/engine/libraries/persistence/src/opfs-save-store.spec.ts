@@ -302,7 +302,7 @@ describe("OpfsSaveStore", () => {
     const saves = await store.listSaves();
     // Should not have escaped the saves directory
     expect(saves.length).toBe(1);
-    expect(saves[0].slot).toMatch(/^[a-zA-Z0-9_\-]+$/);
+    expect(saves[0].slot).toMatch(/^[a-zA-Z0-9_-]+$/);
   });
 
   it("handles empty blobs gracefully", async () => {

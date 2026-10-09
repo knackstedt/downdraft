@@ -87,7 +87,7 @@ describe("GpuKernel cpu() fallback", () => {
   });
 
   it("rejects unknown access strings and out-of-range outputStride", () => {
-    const base = { device: fakeDevice, output: [4], fn: `function (a) { return a[0]; }` };
+    const base = { device: fakeDevice, output: [4] as [number], fn: `function (a) { return a[0]; }` };
     expect(() =>
       createKernel({ ...base, access: ["WRITE" as never] }),
     ).toThrow(/access/);

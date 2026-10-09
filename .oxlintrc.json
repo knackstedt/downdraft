@@ -41,6 +41,7 @@
         "**/*.mjs",
         "scripts/**",
         "packages/*/scripts/**",
+        "examples/**",
         "docs/**",
         "packages/engine/core/src/util/logger.ts"
       ],

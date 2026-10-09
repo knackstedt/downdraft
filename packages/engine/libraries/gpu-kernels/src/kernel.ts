@@ -177,6 +177,7 @@ export class GpuKernel {
     const [, oy, oz] = this.outputSize;
     this.workgroupSize = opts.workgroupSize ?? (oy === 1 && oz === 1 ? [64, 1, 1] : [8, 8, 1]);
     const [wx, wy, wz] = this.workgroupSize;
+    this.label = opts.label ?? "gpu-kernel";
     const lim = this.device?.limits as {
       maxComputeWorkgroupSizeX?: number;
       maxComputeWorkgroupSizeY?: number;
@@ -192,7 +193,6 @@ export class GpuKernel {
         throw new Error(`kernel "${this.label}": workgroupSize ${wx}×${wy}×${wz} exceeds device limits`);
       }
     }
-    this.label = opts.label ?? "gpu-kernel";
     this.memoryBudget = opts.memoryBudget;
     this.extraUsage = opts.outputUsage ?? 0;
     this.externalResult = opts.outputBuffer ?? null;
@@ -586,7 +586,7 @@ export class GpuKernel {
     // Pre-validate against device limits — Adreno-class GPUs allow as few as
     // 16 storage buffers/stage and 256MB/binding, and wgpu otherwise reports a
     // generic "command buffer failed validation" at submit time.
-    const limits = this.device.limits as Record<string, number | undefined> | undefined;
+    const limits = this.device.limits as unknown as Record<string, number | undefined> | undefined;
     const maxStorage = limits?.maxStorageBuffersPerShaderStage ?? Infinity;
     const maxBinding = limits?.maxStorageBufferBindingSize ?? Infinity;
     const storageCount = unit.transpiled.bindings.length

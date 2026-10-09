@@ -30,7 +30,7 @@ export class GpuPanel implements DtPanel {
     const chart = `<div class="snap-section"><h3>Frame times (ms)</h3>${chartHtml(times, { max: Math.max(16.7, ...times), label: "" })}</div>`;
 
     const sections: { header: string | null; rows: { k: string; v: string }[] }[] = [];
-    for (const e of this.info.entries ?? []) {
+    for (const e of (this.info.entries ?? []).values()) {
       if (e.isHeader || !sections.length) {
         sections.push({ header: e.isHeader ? e.key : null, rows: [] });
         if (e.isHeader) continue;

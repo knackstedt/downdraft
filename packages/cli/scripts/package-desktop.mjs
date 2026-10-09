@@ -101,7 +101,7 @@ if (!["bun", "node", "deno"].includes(runtime)) {
 const formats = (flagValue("format") ?? (Array.isArray(linuxCfg.target) ? linuxCfg.target.join(",") : linuxCfg.target) ?? "dir")
   .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
 const KNOWN_FORMATS = new Set(["dir", "deb", "appimage", "flatpak"]);
-for (const f of formats) {
+for (const f of formats.values()) {
   if (!KNOWN_FORMATS.has(f)) {
     console.error(`unknown --format "${f}" — expected dir, deb, appimage, or flatpak`);
     process.exit(1);
@@ -209,7 +209,7 @@ function assetRel(absPath) {
 function walkDir(dir, results = []) {
   let entries;
   try { entries = readdirSync(dir); } catch { return results; }
-  for (const e of entries) {
+  for (const e of entries.values()) {
     const full = `${dir}/${e}`;
     let st;
     try { st = statSync(full); } catch { continue; }
@@ -546,7 +546,7 @@ async function stageEngineLibs(nativeDir) {
         join(engineRoot, pkgRel, "dist", file),
       ] : []),
     ];
-    for (const p of candidates) {
+    for (const p of candidates.values()) {
       if (existsSync(p)) { copyFileSync(p, join(nativeDir, file)); break; }
     }
   }
@@ -669,7 +669,7 @@ stageGameNative(nativeDir);
   let grew = true;
   while (grew) {
     grew = false;
-    for (const f of [...assetFiles]) {
+    for (const f of [...assetFiles].values()) {
       if (!/\.(mjs|cjs|js)$/.test(f)) continue;
       let src;
       try { src = readFileSync(f, "utf-8"); } catch { continue; }
@@ -700,7 +700,7 @@ if (runtime !== "bun") {
 }
 
 // build.files — electron-builder-style extra files into the appdir root.
-for (const f of Array.isArray(build.files) ? build.files : []) {
+for (const f of (Array.isArray(build.files) ? build.files : []).values()) {
   const src = resolve(gameDir, typeof f === "string" ? f : f.from);
   const dest = join(appdir, typeof f === "string" ? basename(f) : (f.to ?? basename(f.from)));
   if (!existsSync(src)) { console.warn(`[package-desktop] files entry missing: ${src}`); continue; }
@@ -742,7 +742,7 @@ async function iconSet(destDir) {
     const { Jimp } = await import("jimp");
     img = await Jimp.read(iconPath);
   } catch { /* unreadable — verbatim fallback below */ }
-  for (const s of sizes) {
+  for (const s of sizes.values()) {
     const dir = join(destDir, `${s}x${s}`, "apps");
     mkdirSync(dir, { recursive: true });
     const dest = join(dir, `${exeName}.png`);
@@ -934,4 +934,4 @@ async function fetchKoffiPrebuild(pkgName, ver) {
 }
 
 console.log(`[package-desktop] done (${runtime}):`);
-for (const a of artifacts) console.log(`  ${a}`);
+for (const a of artifacts.values()) console.log(`  ${a}`);

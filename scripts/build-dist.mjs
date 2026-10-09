@@ -97,7 +97,7 @@ const CODE_EXT_MAP = new Map([
   [".mts", ".mjs"],
   [".cts", ".cjs"],
 ]);
-const TRANSPILABLE = new Set([...CODE_EXT_MAP.keys()]);
+const TRANSPILABLE = new Set(CODE_EXT_MAP.keys());
 const PASSTHROUGH_CODE = new Set([".js", ".jsx", ".mjs", ".cjs"]);
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -115,13 +115,13 @@ const extOf = (p) => {
 function resolveSpecifier(srcDir, spec) {
   const abs = resolve(srcDir, spec);
   const tries = [abs];
-  for (const ext of [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".d.ts", ".json", ".wgsl", ".glsl", ".wasm", ".css", ".md"]) {
+  for (const ext of [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".d.ts", ".json", ".wgsl", ".glsl", ".wasm", ".css", ".md"].values()) {
     tries.push(abs + ext);
   }
-  for (const ext of [".ts", ".tsx", ".mts", ".cts", ".js", ".mjs", ".cjs", ".d.ts", ".json"]) {
+  for (const ext of [".ts", ".tsx", ".mts", ".cts", ".js", ".mjs", ".cjs", ".d.ts", ".json"].values()) {
     tries.push(join(abs, "index" + ext));
   }
-  for (const t of tries) {
+  for (const t of tries.values()) {
     try {
       if (existsSync(t) && statSync(t).isFile()) return t;
     } catch { /* keep probing */ }
@@ -137,7 +137,7 @@ function resolveSpecifier(srcDir, spec) {
  * positions outside comments, string literals, and template literals.
  * Specifier/import.meta rewrites skip masked positions so comments and
  * generated-code strings keep their original text.
- * (Regex literals like /\/​/ are intentionally not handled — a `//` inside a
+ * (Regex literals like /\/ are intentionally not handled — a `//` inside a
  * regex body is treated as a line comment; that edge is accepted.)
  */
 function codeMask(src) {
@@ -393,7 +393,7 @@ function rewriteModule(js, ctx) {
   // -- 6. dynamic import(<ident>) bound to a const string ----------------------
   const dynIdents = new Set();
   forEachCodeMatch(/\bimport\s*\(\s*([A-Za-z_$][\w$]*)\s*\)/g, (m) => dynIdents.add(m[1]));
-  for (const ident of dynIdents) {
+  for (const ident of dynIdents.values()) {
     const declRe = new RegExp(
       `(\\b(?:const|let|var)\\s+${ident}\\s*=\\s*)(["'])([^"']+)\\2`,
     );
@@ -475,11 +475,11 @@ function buildPackage(pkg) {
 
   // Expand literal + glob roots to absolute dirs.
   const rootAbs = [];
-  for (const r of pkg.roots) {
+  for (const r of pkg.roots.values()) {
     const abs = join(pkgDir, r);
     if (existsSync(abs)) rootAbs.push(abs);
   }
-  for (const g of pkg.globRoots) {
+  for (const g of pkg.globRoots.values()) {
     const [pre, post] = g.split("*");
     const baseDir = join(pkgDir, pre.replace(/\/$/, ""));
     if (!existsSync(baseDir)) continue;
@@ -507,7 +507,7 @@ function buildPackage(pkg) {
   let emitted = 0;
   let skipped = 0;
 
-  for (const rootDir of rootAbs) {
+  for (const rootDir of rootAbs.values()) {
     for (const srcAbs of walk(rootDir)) {
       const pkgRel = toPosix(relative(pkgDir, srcAbs));
       if (SKIP_FILE_RE.test(pkgRel)) continue;
@@ -609,7 +609,7 @@ if (!targets.length) {
 }
 
 let allWarnings = [];
-for (const pkg of targets) allWarnings = allWarnings.concat(buildPackage(pkg));
+for (const pkg of targets.values()) allWarnings = allWarnings.concat(buildPackage(pkg));
 
 if (allWarnings.length) {
   console.warn(`\nbuild-dist: ${allWarnings.length} warning(s):`);

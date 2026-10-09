@@ -720,7 +720,7 @@ class Emitter {
         if (e.ty === "vec") {
           throw new KernelSyntaxError(`arrays can't live in locals — return them directly`, d.init);
         }
-        const widen = this.widened.has(name) && e.ty !== "f32" && e.ty !== "bool" && e.ty !== "vec";
+        const widen = this.widened.has(name) && e.ty !== "f32" && e.ty !== "bool";
         this.declare(name, widen ? "f32" : e.ty);
         if (node.kind === "const") this.consts.add(name);
         const kw = node.kind === "const" ? "let" : "var";

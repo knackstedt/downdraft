@@ -205,7 +205,7 @@ export class FileSaveStore implements ISaveStore {
       if (opts?.blobs && Object.keys(opts.blobs).length > 0) {
         await fs.mkdir(tmpBlobsDir, { recursive: true });
         for (let _i = 0, _it = Object.entries(opts.blobs) as Array<[string, ArrayBuffer]>, _n = _it.length; _i < _n; _i++) { const [key, buf] = _it[_i];
-          const safeKey = key.replace(/[^a-zA-Z0-9_\-]/g, "_");
+          const safeKey = key.replace(/[^a-zA-Z0-9_-]/g, "_");
           await fs.writeFile(join(tmpBlobsDir, safeKey), new Uint8Array(buf));
           blobBytes += buf.byteLength;
         }
@@ -524,22 +524,22 @@ export class FileSaveStore implements ISaveStore {
 
   private slotPath(slot: string): string {
     // Sanitize slot name to prevent path traversal
-    const safe = slot.replace(/[^a-zA-Z0-9_\-]/g, "_");
+    const safe = slot.replace(/[^a-zA-Z0-9_-]/g, "_");
     return join(this.saveDir, safe + SAVE_EXT);
   }
 
   private blobsDirPath(slot: string): string {
-    const safe = slot.replace(/[^a-zA-Z0-9_\-]/g, "_");
+    const safe = slot.replace(/[^a-zA-Z0-9_-]/g, "_");
     return join(this.saveDir, safe + BLOBS_DIR_SUFFIX);
   }
 
   private thumbPath(slot: string): string {
-    const safe = slot.replace(/[^a-zA-Z0-9_\-]/g, "_");
+    const safe = slot.replace(/[^a-zA-Z0-9_-]/g, "_");
     return join(this.saveDir, safe + THUMB_EXT);
   }
 
   private propsPath(slot: string): string {
-    const safe = slot.replace(/[^a-zA-Z0-9_\-]/g, "_");
+    const safe = slot.replace(/[^a-zA-Z0-9_-]/g, "_");
     return join(this.saveDir, safe + PROPS_EXT);
   }
 

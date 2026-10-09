@@ -138,7 +138,7 @@ export function createControllerUi(): RendererModule {
         const dev = selected();
         if (!p || !dev) return;
         const ops = [];
-        for (const [bit] of BTN_LABELS) {
+        for (const [bit] of BTN_LABELS.values()) {
           ops.push({ op: "attr", sel: `#ctl-btn-${bit}`, name: "data-on",
             value: dev.pressed(bit) ? "true" : "false" } as const);
         }

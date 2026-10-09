@@ -77,7 +77,7 @@ if (!entry || !outfileArg) {
 const ABIS = { "arm64-v8a": "aarch64-linux-android", "x86_64": "x86_64-linux-android" };
 const KOFFI_PKGS = { "arm64-v8a": "@koromix/koffi-android-arm64", "x86_64": "@koromix/koffi-android-x64" };
 const abis = abiArg === "all" ? Object.keys(ABIS) : abiArg.split(",").map((s) => s.trim());
-for (const a of abis) {
+for (const a of abis.values()) {
   if (!ABIS[a]) throw new Error(`unknown --abi "${a}" — expected: ${Object.keys(ABIS).join(", ")}, all`);
 }
 
@@ -117,7 +117,7 @@ const btVer = readdirSync(btRoot).sort().pop();
 const bt = join(btRoot, btVer);
 const platformDir = readdirSync(join(sdkRoot, "platforms")).sort().pop();
 const androidJar = join(sdkRoot, "platforms", platformDir, "android.jar");
-for (const tool of ["aapt2", "zipalign", "apksigner"]) {
+for (const tool of ["aapt2", "zipalign", "apksigner"].values()) {
   if (!existsSync(join(bt, tool))) throw new Error(`missing build-tool ${tool} in ${bt}`);
 }
 const adb = join(sdkRoot, "platform-tools", "adb");
@@ -185,7 +185,7 @@ function assetRel(absPath) {
 function walkDir(dir, results = []) {
   let entries;
   try { entries = readdirSync(dir); } catch { return results; }
-  for (const e of entries) {
+  for (const e of entries.values()) {
     const full = `${dir}/${e}`;
     let st;
     try { st = statSync(full); } catch { continue; }
@@ -500,7 +500,7 @@ if (!koffiRoot) {
   const nm = join(bundleDir, "node_modules");
   cpSync(koffiRoot, join(nm, "koffi"), { recursive: true });
   const koffiVer = JSON.parse(readFileSync(join(koffiRoot, "package.json"), "utf-8")).version;
-  for (const abi of abis) {
+  for (const abi of abis.values()) {
     const pkgName = KOFFI_PKGS[abi];
     // The @koromix prebuild pkgs carry no importable entry — probe the dir
     // beside koffi (same layout koffi's loader expects), else fetch npm.
@@ -544,7 +544,7 @@ async function fetchKoffiPrebuild(pkgName, ver) {
   let grew = true;
   while (grew) {
     grew = false;
-    for (const f of [...assetFiles]) {
+    for (const f of [...assetFiles].values()) {
       if (!/\.(mjs|cjs|js)$/.test(f)) continue;
       let src;
       try { src = readFileSync(f, "utf-8"); } catch { continue; }
@@ -573,7 +573,7 @@ for (const f of assetFiles.values()) {
 // dd-env.txt — optional process env for the JS thread (debug probes like
 // DD_BENCH_TEST; Android has no launch-env channel).
 if (envPairs.length) {
-  for (const p of envPairs) {
+  for (const p of envPairs.values()) {
     if (!/^[A-Za-z_][A-Za-z0-9_]*=/.test(p)) {
       throw new Error(`--env "${p}" must be KEY=VALUE (KEY: [A-Za-z_][A-Za-z0-9_]*)`);
     }
@@ -591,7 +591,7 @@ if (envPairs.length) {
 // (.so siblings are handled per-ABI in the native-libs section below.)
 {
   let staged = 0;
-  for (const abi of abis) {
+  for (const abi of abis.values()) {
     const platDir = join(gameDir, "native", "dist",
       `android-${abi.startsWith("arm64") ? "arm64" : "x64"}`);
     if (!existsSync(platDir)) continue;
@@ -661,7 +661,7 @@ const bundleText = walkDir(bundleDir)
   .map((f) => readFileSync(f, "utf-8"))
   .join("\n");
 
-for (const abi of abis) {
+for (const abi of abis.values()) {
   const triple = ABIS[abi];
   const libDir = join(nativeStage, abi);
   mkdirSync(libDir, { recursive: true });
@@ -717,7 +717,7 @@ for (const abi of abis) {
   // --libs= forces). JS resolves them by soname via the app lib dir.
   const crates = await import(fileURLToPath(new URL("../../../scripts/native-crates.mjs", import.meta.url)));
   const nodePlat = `android-${abi.startsWith("arm64") ? "arm64" : "x64"}`;
-  for (const crate of crates.CRATES) {
+  for (const crate of crates.CRATES.values()) {
     if (crate.androidOnly || crate.noAndroid) continue;
     const name = crate.lib.replace(/^downdraft_/, "");
     if (excludeLibs.includes(name) || excludeLibs.includes(crate.lib)) continue;

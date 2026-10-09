@@ -126,8 +126,10 @@ function reportProfileHit(file: string, resolved: string): void {
   if (NATIVE_PROFILE !== "debug" || reportedLibs.has(file)) return;
   reportedLibs.add(file);
   if (resolved.includes("debug")) {
+    // oxlint-disable-next-line no-console -- pre-logger FFI bootstrap path
     console.warn(`[lib-paths] DEBUG build: ${file} ← ${resolved}`);
   } else {
+    // oxlint-disable-next-line no-console -- pre-logger FFI bootstrap path
     console.warn(`[lib-paths] DD_NATIVE_PROFILE=debug but no debug-staged ${file} — using release build at ${resolved}`);
   }
 }

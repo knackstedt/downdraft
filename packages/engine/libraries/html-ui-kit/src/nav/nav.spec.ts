@@ -124,7 +124,7 @@ describe.skipIf(!hasLib)("nav engine", () => {
         expect(await p.handle.focusedNode()).not.toBe(0);
 
         // confirm → synthetic click → click event with data-action.
-        events: {
+        {
             p.events.length = 0;
             // Re-focus a known node first
             const snap = await p.handle.navSnapshot(".dd-btn");

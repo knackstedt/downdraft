@@ -52,7 +52,10 @@ jobs:
         # Run ALL package specs — previously this was a hardcoded subset that
         # silently drifted out of date (~15 of 228 spec files). bun test
         # discovers every *.spec.ts under the given directory.
-        run: bun test packages/
+        # --isolate gives each file a fresh global object: without it, shared
+        # module/GC state across files corrupts the rapier WASM instance
+        # (validated-api.spec.ts traps with "Unreachable code" mid-step).
+        run: bun test --isolate --path-ignore-patterns "**/node-mobile/build/**" packages/
       - name: Check engine exports map is in sync
         run: node scripts/gen-engine-exports.mjs --check
 

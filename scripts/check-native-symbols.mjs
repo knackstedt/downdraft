@@ -40,7 +40,7 @@ function* walk(dir) {
     if (e.isDirectory()) {
       if (e.name === "node_modules" || e.name === "dist" || e.name === "target") continue;
       yield* walk(p);
-    } else if (/\.ts$/.test(e.name) && !/\.d\.(ts|mts|cts)$|\.spec\.ts$/.test(e.name)) {
+    } else if (e.name.endsWith('.ts') && !/\.d\.(ts|mts|cts)$|\.spec\.ts$/.test(e.name)) {
       yield p;
     }
   }
@@ -48,7 +48,7 @@ function* walk(dir) {
 
 // file -> { lib: "downdraft_x", symbols: Set<string> }
 const specs = new Map();
-for (const scanDir of SCAN_DIRS) {
+for (const scanDir of SCAN_DIRS.values()) {
   for (const file of walk(join(root, scanDir))) {
     const src = readFileSync(file, "utf8");
     if (!src.includes("dlopen") && !src.includes("_SPEC")) continue;
@@ -68,7 +68,7 @@ for (const scanDir of SCAN_DIRS) {
     if (!syms.size) continue;
 
     const rec = specs.get(file) ?? { lib, symbols: new Set() };
-    for (const s of syms) rec.symbols.add(s);
+    for (const s of syms.values()) rec.symbols.add(s);
     specs.set(file, rec);
   }
 }
@@ -80,7 +80,7 @@ if (!specs.size) {
 
 // lib name -> [files that declare its spec]
 const byLib = new Map();
-for (const [file, rec] of specs) {
+for (const [file, rec] of specs.entries()) {
   const arr = byLib.get(rec.lib) ?? [];
   arr.push({ file, symbols: rec.symbols });
   byLib.set(rec.lib, arr);
@@ -114,7 +114,7 @@ function exportedSymbols(libPath) {
       // "Ordinal/Name Pointer" table rows ("<ord> <rva> <name>").
       ? [["objdump", ["-p", libPath]], ["llvm-nm", ["--defined-only", libPath]], ["nm", ["-D", "--defined-only", libPath]]]
       : [["nm", ["-D", "--defined-only", libPath]], ["readelf", ["-Ws", libPath]], ["objdump", ["-T", libPath]]];
-  for (const [tool, args] of tries) {
+  for (const [tool, args] of tries.values()) {
     try {
       const out = execFileSync(tool, args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
       const syms = new Set();
@@ -137,7 +137,7 @@ const LIB_FILE_RE = /^(lib)?(downdraft_[\w-]+)\.(so|dylib|dll)$/;
 
 let failures = 0;
 let checked = 0;
-for (const { name: pkgName, libDir } of staged) {
+for (const { name: pkgName, libDir } of staged.values()) {
   // Map every staged lib file to its downdraft_<lib> name.
   const libFiles = new Map();
   for (const f of readdirSync(libDir)) {
@@ -145,7 +145,7 @@ for (const { name: pkgName, libDir } of staged) {
     if (m) libFiles.set(m[2], join(libDir, f));
   }
 
-  for (const [lib, fileSpecs] of byLib) {
+  for (const [lib, fileSpecs] of byLib.entries()) {
     const libPath = libFiles.get(lib);
     if (!libPath) {
       if (!quiet) console.log(`[check-native-symbols] ${pkgName}: ${lib} not staged (optional lib — skipped)`);
@@ -160,7 +160,7 @@ for (const { name: pkgName, libDir } of staged) {
       continue;
     }
     const wanted = new Set();
-    for (const { symbols } of fileSpecs) for (const s of symbols) wanted.add(s);
+    for (const { symbols } of fileSpecs.values()) for (const s of symbols.values()) wanted.add(s);
     const missing = [...wanted].filter((s) => !exported.has(s));
     checked++;
     if (missing.length) {

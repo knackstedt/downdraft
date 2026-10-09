@@ -1,5 +1,5 @@
-import { RealmTier } from "@downdraft/engine";
 import type { BodyDesc, ColliderDesc, Entity, PhysicsRealmConfig, RealmTierConfig } from "@downdraft/engine";
+import { RealmTier } from "@downdraft/engine";
 import { RapierPhysicsBackend } from "@downdraft/engine/libraries/physics-rapier";
 import { beforeEach, describe, expect, it } from "bun:test";
 
@@ -13,14 +13,15 @@ const TIER_CONFIG: RealmTierConfig = {
 };
 
 function realmConfig(overrides: Partial<PhysicsRealmConfig> = {}): PhysicsRealmConfig {
+  // No `id` default — the backend auto-assigns (starting at 1) when the
+  // field is absent. Callers wanting a specific realm pass `id` explicitly.
   return {
-    id: 0,
     name: "test",
     tier: RealmTier.Near,
     gravity: [0, -9.81, 0],
     tierConfig: TIER_CONFIG,
     ...overrides,
-  };
+  } as PhysicsRealmConfig;
 }
 
 // ============================================================================

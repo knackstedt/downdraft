@@ -318,13 +318,13 @@ describe("GpuKernel on the shared device", () => {
   });
 
   it("rejects workgroup sizes beyond device limits at construction", () => {
-    if (!device) return skip();
+    if (!device) { skip(); return; }
     const lim = (device.limits as { maxComputeInvocationsPerWorkgroup?: number })
       .maxComputeInvocationsPerWorkgroup;
     if (!lim) return;
     expect(() =>
       createKernel({
-        device,
+        device: device!,
         output: [4],
         workgroupSize: [lim + 1, 1, 1],
         fn: `function () { return 0; }`,
@@ -333,13 +333,13 @@ describe("GpuKernel on the shared device", () => {
   });
 
   it("reports storage-buffer count and binding-size limits with clear errors", async () => {
-    if (!device) return skip();
+    if (!device) { skip(); return; }
     // Cap the live device's reported limits at Adreno-class values — the
     // checks must fire before submit, not surface as a validation failure.
     const dev = device as unknown as { _limits: Record<string, number> };
     const real = dev._limits;
     try {
-      dev._limits = { ...(device.limits as Record<string, number>), maxStorageBuffersPerShaderStage: 4 };
+      dev._limits = { ...(device.limits as unknown as Record<string, number>), maxStorageBuffersPerShaderStage: 4 };
       const k = createKernel({
         device,
         output: [4],
@@ -349,7 +349,7 @@ describe("GpuKernel on the shared device", () => {
       await expect(k.read(...(args as never[]))).rejects.toThrow(/storage buffers/);
       k.destroy();
 
-      dev._limits = { ...(device.limits as Record<string, number>), maxStorageBufferBindingSize: 64 };
+      dev._limits = { ...(device.limits as unknown as Record<string, number>), maxStorageBufferBindingSize: 64 };
       const k2 = createKernel({ device, output: [4], fn: `function (a) { return a[0]; }` });
       await expect(k2.read(new Float32Array(256))).rejects.toThrow(/maxStorageBufferBindingSize/);
       k2.destroy();

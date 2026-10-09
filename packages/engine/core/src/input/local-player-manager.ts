@@ -140,11 +140,11 @@ export class LocalPlayerManager {
   }
 
   private emitConnect(device: InputDevice): void {
-    for (const cb of this.connectCallbacks) cb(device);
+    for (const cb of this.connectCallbacks.values()) cb(device);
   }
 
   private emitDisconnect(device: InputDevice): void {
-    for (const cb of this.disconnectCallbacks) cb(device);
+    for (const cb of this.disconnectCallbacks.values()) cb(device);
   }
 
   startListening(): void {

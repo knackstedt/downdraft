@@ -58,7 +58,7 @@ async function findBatteryLevel(macHint: string | null): Promise<number | undefi
   try {
     const psDir = "/sys/class/power_supply";
     if (!existsSync(psDir)) return undefined;
-    for (const entry of await fs.readdir(psDir)) {
+    for (const entry of (await fs.readdir(psDir)).values()) {
       const macPath = join(psDir, entry, "mac");
       if (existsSync(macPath)) {
         const mac = (await fs.readFile(macPath, "utf-8")).trim().toLowerCase();
@@ -98,7 +98,7 @@ export class SysfsGamepadEnricher {
   async enrich(slots: GamepadDeviceSlot[]): Promise<EnrichResult[]> {
     if (process.platform !== "linux") return [];
     const out: EnrichResult[] = [];
-    for (const s of slots) {
+    for (const s of slots.values()) {
       if (s.eventNode < 0) continue;
       const r = await this.enrichSlot(s);
       out.push(r);

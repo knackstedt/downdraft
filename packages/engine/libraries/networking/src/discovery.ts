@@ -206,19 +206,19 @@ export class LanDiscovery {
     const existing = this.peers.get(pkt.id);
     const peer: LanPeer = { ...pkt, host: rinfo.address, lastSeenMs: this.opts.now() };
     this.peers.set(pkt.id, peer);
-    if (!existing) for (const f of this.listeners.join) f(peer);
+    if (!existing) for (const f of this.listeners.join.values()) f(peer);
     else if (existing.name !== peer.name || existing.port !== peer.port
         || JSON.stringify(existing.meta) !== JSON.stringify(peer.meta)) {
-      for (const f of this.listeners.update) f(peer);
+      for (const f of this.listeners.update.values()) f(peer);
     }
   }
 
   private expire() {
     const cutoff = this.opts.now() - this.opts.ttlMs;
-    for (const [id, p] of this.peers) {
+    for (const [id, p] of this.peers.entries()) {
       if (p.lastSeenMs < cutoff) {
         this.peers.delete(id);
-        for (const f of this.listeners.leave) f(p);
+        for (const f of this.listeners.leave.values()) f(p);
       }
     }
   }
@@ -292,7 +292,7 @@ export class MdnsBrowser {
   }
 
   private requery() {
-    for (const t of this.watched) this.sendQuery(t);
+    for (const t of this.watched.values()) this.sendQuery(t);
     this.expire();
   }
 
@@ -320,7 +320,7 @@ export class MdnsBrowser {
 
   private expire() {
     const now = this.opts.now();
-    for (const [k, s] of this.table) {
+    for (const [k, s] of this.table.entries()) {
       if (s.lastSeenMs + s.ttlMs < now) this.table.delete(k);
     }
   }
@@ -334,7 +334,7 @@ export class MdnsBrowser {
       .filter((r): r is Extract<typeof r, { data: unknown }> => "data" in r);
     const now = this.opts.now();
     // PTR gives instance names; SRV/TXT/A for the same instance fill detail.
-    for (const r of recs) {
+    for (const r of recs.values()) {
       if (r.type !== "PTR" || !this.watched.has(r.name)) continue;
       const instance = r.data as string;
       const key = `${instance}@${r.name}`;
@@ -350,7 +350,7 @@ export class MdnsBrowser {
       );
       const txtMap: Record<string, string> = {};
       if (txt) {
-        for (const item of (txt.data as Buffer[])) {
+        for (const item of (txt.data as Buffer[]).values()) {
           const s = item.toString("utf8");
           const eq = s.indexOf("=");
           txtMap[eq < 0 ? s : s.slice(0, eq)] = eq < 0 ? "" : s.slice(eq + 1);

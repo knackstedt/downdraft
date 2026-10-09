@@ -58,26 +58,28 @@ function spawnAgent(
   pos: Vec3,
   overrides: Partial<NavAgentData> = {},
 ): { entity: import("@downdraft/engine/ecs/entity").Entity; agent: NavAgentData; transform: PhysicsTransformData } {
-  const agentData: NavAgentData = {
-    ...{
-      radius: 0.4,
-      height: 1.8,
-      maxSpeed: 3.5,
-      acceleration: 10,
-      path: [],
-      pathIndex: 0,
-      velocity: [0, 0, 0],
-      target: null,
-      state: "idle",
-      avoidanceRadius: 2.0,
-      separationWeight: 1.0,
-      alignmentWeight: 0.5,
-      cohesionWeight: 0.3,
-      polyId: -1,
-      repathTimer: 0,
-    },
-    ...overrides,
-  };
+  const agentData: NavAgentData = ({
+	radius: .4,
+	height: 1.8,
+	maxSpeed: 3.5,
+	acceleration: 10,
+	path: [],
+	pathIndex: 0,
+	velocity: [
+		0,
+		0,
+		0
+	],
+	target: null,
+	state: 'idle',
+	avoidanceRadius: 2,
+	separationWeight: 1,
+	alignmentWeight: .5,
+	cohesionWeight: .3,
+	polyId: -1,
+	repathTimer: 0,
+	...overrides
+});
 
   const transformData: PhysicsTransformData = {
     position: [pos[0], pos[1], pos[2]],

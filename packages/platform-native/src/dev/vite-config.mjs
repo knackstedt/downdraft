@@ -429,7 +429,7 @@ export function resolveWgslRegistryPath(gameDir, sourceMode) {
     // Layout fallback: resolve the render barrel (which re-exports it) and
     // step to the sibling file.
     const barrel = req.resolve("@downdraft/engine/render");
-    for (const l of ["wgsl-hmr.ts", "wgsl-hmr.js"]) {
+    for (const l of ["wgsl-hmr.ts", "wgsl-hmr.js"].values()) {
       const p = join(dirname(barrel), l);
       if (existsSync(p)) return p;
     }

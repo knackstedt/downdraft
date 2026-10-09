@@ -70,7 +70,7 @@ if (treePrepared) {
 // ── built artifacts (if present) ──
 const distDir = join(buildDir, "dist", "android");
 if (existsSync(distDir)) {
-  for (const abi of ["arm64-v8a", "x86_64"]) {
+  for (const abi of ["arm64-v8a", "x86_64"].values()) {
     const so = join(distDir, abi, "libnode.so");
     if (!existsSync(so)) continue;
     const size = statSync(so).size;

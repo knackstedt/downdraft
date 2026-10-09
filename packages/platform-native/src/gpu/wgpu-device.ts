@@ -355,7 +355,7 @@ export class WgpuDevice {
 
   private resolveLost(info: GPUDeviceLostInfo): void {
     this.lostInfo = info;
-    for (const r of this.lostWatchers) { try { r(info); } catch { /* reporter only */ } }
+    for (const r of this.lostWatchers.values()) { try { r(info); } catch { /* reporter only */ } }
     this.lostWatchers.clear();
   }
   private _limits: GPUSupportedLimits | null = null;

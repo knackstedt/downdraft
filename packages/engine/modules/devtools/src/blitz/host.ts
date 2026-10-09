@@ -119,7 +119,7 @@ export class BlitzDevtoolsHost {
       new ElementsPanel(ctx),
       new PerformancePanel(ctx),
       new GpuPanel(ctx),
-    ]) this.panels.set(p.id, p);
+    ].values()) this.panels.set(p.id, p);
   }
 
   get visible(): boolean { return this.panel !== null; }
@@ -298,7 +298,7 @@ export class BlitzDevtoolsHost {
     const slots = this.backend.providerSlots();
     let changed = false;
     const seen = new Set<number>();
-    for (const { slot, name } of slots) {
+    for (const { slot, name } of slots.values()) {
       seen.add(slot);
       if (!this.snapshotPanels.has(slot)) {
         const p = new SnapshotPanel(this.panelCtx, slot, name);
@@ -307,7 +307,7 @@ export class BlitzDevtoolsHost {
         changed = true;
       }
     }
-    for (const [slot, p] of this.snapshotPanels) {
+    for (const [slot, p] of this.snapshotPanels.entries()) {
       if (!seen.has(slot)) {
         this.snapshotPanels.delete(slot);
         this.panels.delete(p.id);

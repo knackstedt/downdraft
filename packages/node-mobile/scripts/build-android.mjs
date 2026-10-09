@@ -28,7 +28,7 @@ const archArg = args.find((a) => a.startsWith("--arch="))?.split("=")[1] ?? "all
 const sdk = args.find((a) => a.startsWith("--sdk="))?.split("=")[1] ?? "30";
 const arches = archArg === "all" ? Object.keys(ABIS) : [archArg];
 
-for (const a of arches) {
+for (const a of arches.values()) {
   if (!ABIS[a]) throw new Error(`unknown arch "${a}" — expected one of: ${Object.keys(ABIS).join(", ")}, all`);
 }
 
@@ -63,7 +63,7 @@ const hostEnv = {
   LINK_host: process.env.LINK_host ?? "g++",
 };
 
-for (const arch of arches) {
+for (const arch of arches.values()) {
   const abi = ABIS[arch];
   console.log(`\n[node-mobile] === ${abi} (arch=${arch}, api=${sdk}) ===`);
 

@@ -235,7 +235,7 @@ function packageNative(
   const requested = opts.runtime ?? info.build.runtime
     ?? (readGameConfig(gameDir).runtime as string | undefined) ?? "bun";
   const runtimes = requested === "all" ? RUNTIMES : [requested];
-  for (const r of runtimes) {
+  for (const r of runtimes.values()) {
     if (!RUNTIMES.includes(r)) {
       log.error("release:package", `Unknown runtime "${r}" — expected bun, node, deno, or all.`);
       return false;
@@ -250,7 +250,7 @@ function packageNative(
 
   let ok = true;
   targets.forEach((target) => {
-    for (const runtime of runtimes) {
+    for (const runtime of runtimes.values()) {
       if (target === "linux") {
         // Linux: package-desktop.mjs owns the format matrix (dir, deb,
         // appimage, flatpak). Formats come from --format → build.linux.target

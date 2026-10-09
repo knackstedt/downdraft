@@ -570,7 +570,7 @@ export class SessionTracker {
     //    sim whose snapshot was swapped mid-registration is still detached —
     //    a stale backref would pin the dead snapshot's whole listener set.
     //    Bounded per-sim: a wedged/terminated worker must not hang teardown.
-    for (const sim of [...this.sims]) {
+    for (const sim of [...this.sims].values()) {
       if ((sim as any).__ddSessionSnap !== s) continue;
       try {
         const stop = sim.stop?.();
