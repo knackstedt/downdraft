@@ -45,16 +45,21 @@ export function detectRuntime(preferred) {
  * Spawn argv for a runtime.
  * @param {"bun"|"node"|"deno"} runtime
  * @param {string} shellPath absolute path to dev-shell.mjs
- * @param {{configPath?: string}} opts deno: --config path when a deno.json exists
+ * @param {{configPath?: string, conditions?: string[]}} opts
+ *   configPath: deno --config path when a deno.json exists.
+ *   conditions: package.json export conditions (e.g. "downdraft-source") —
+ *   passed as --conditions so native resolution (externalized imports,
+ *   worker_threads execArgv) sees the same universe as the vite runner.
  */
 export function spawnArgsFor(runtime, shellPath, opts = {}) {
+  const condArgs = (opts.conditions ?? []).map((c) => `--conditions=${c}`);
   switch (runtime) {
     case "bun":
-      return { cmd: "bun", args: [shellPath] };
+      return { cmd: "bun", args: [...condArgs, shellPath] };
     case "node":
-      return { cmd: "node", args: [shellPath] };
+      return { cmd: "node", args: [...condArgs, shellPath] };
     case "deno": {
-      const args = ["run", "-A"];
+      const args = ["run", "-A", ...condArgs];
       if (opts.configPath) args.push("--config", opts.configPath);
       args.push(shellPath);
       return { cmd: "deno", args };

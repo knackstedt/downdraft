@@ -7,180 +7,838 @@
     "directory": "packages/engine"
   },
   "type": "module",
+  "main": "./dist/core/src/index.js",
+  "types": "./core/src/index.ts",
   "description": "Downdraft engine — core runtime (ECS, WebGPU renderer, module/DI system, SAB sim channels), runtime-agnostic game bootstrap (startGame/bootstrapGame, HostAPI types), and all engine libraries + feature modules, exposed as subpath exports.",
+  "scripts": {
+    "build:dist": "node ../../scripts/build-dist.mjs --pkg=engine",
+    "prepublishOnly": "node ../../scripts/build-dist.mjs"
+  },
   "exports": {
-    ".": "./core/src/index.ts",
+    ".": {
+      "types": "./core/src/index.ts",
+      "downdraft-source": "./core/src/index.ts",
+      "default": "./dist/core/src/index.js"
+    },
     "./package.json": "./package.json",
-    "./animation": "./core/src/animation/index.ts",
-    "./assets": "./core/src/assets/index.ts",
-    "./ecs": "./core/src/ecs/index.ts",
-    "./library": "./core/src/library/index.ts",
-    "./material": "./core/src/material/index.ts",
-    "./module": "./core/src/module/index.ts",
-    "./particles": "./core/src/particles/index.ts",
-    "./physics": "./core/src/physics/index.ts",
-    "./plugin": "./core/src/plugin/index.ts",
-    "./profiling": "./core/src/profiling/index.ts",
-    "./render": "./core/src/render/index.ts",
-    "./render/bindless": "./core/src/render/bindless/index.ts",
-    "./render/gpu-driven": "./core/src/render/gpu-driven/index.ts",
-    "./scene": "./core/src/scene/index.ts",
-    "./util": "./core/src/util/index.ts",
-    "./app": "./app/src/index.ts",
-    "./app/renderer": "./app/src/renderer/index.ts",
-    "./app/shared": "./app/src/shared/index.ts",
+    "./animation": {
+      "types": "./core/src/animation/index.ts",
+      "downdraft-source": "./core/src/animation/index.ts",
+      "default": "./dist/core/src/animation/index.js"
+    },
+    "./assets": {
+      "types": "./core/src/assets/index.ts",
+      "downdraft-source": "./core/src/assets/index.ts",
+      "default": "./dist/core/src/assets/index.js"
+    },
+    "./ecs": {
+      "types": "./core/src/ecs/index.ts",
+      "downdraft-source": "./core/src/ecs/index.ts",
+      "default": "./dist/core/src/ecs/index.js"
+    },
+    "./library": {
+      "types": "./core/src/library/index.ts",
+      "downdraft-source": "./core/src/library/index.ts",
+      "default": "./dist/core/src/library/index.js"
+    },
+    "./material": {
+      "types": "./core/src/material/index.ts",
+      "downdraft-source": "./core/src/material/index.ts",
+      "default": "./dist/core/src/material/index.js"
+    },
+    "./module": {
+      "types": "./core/src/module/index.ts",
+      "downdraft-source": "./core/src/module/index.ts",
+      "default": "./dist/core/src/module/index.js"
+    },
+    "./particles": {
+      "types": "./core/src/particles/index.ts",
+      "downdraft-source": "./core/src/particles/index.ts",
+      "default": "./dist/core/src/particles/index.js"
+    },
+    "./physics": {
+      "types": "./core/src/physics/index.ts",
+      "downdraft-source": "./core/src/physics/index.ts",
+      "default": "./dist/core/src/physics/index.js"
+    },
+    "./plugin": {
+      "types": "./core/src/plugin/index.ts",
+      "downdraft-source": "./core/src/plugin/index.ts",
+      "default": "./dist/core/src/plugin/index.js"
+    },
+    "./profiling": {
+      "types": "./core/src/profiling/index.ts",
+      "downdraft-source": "./core/src/profiling/index.ts",
+      "default": "./dist/core/src/profiling/index.js"
+    },
+    "./render": {
+      "types": "./core/src/render/index.ts",
+      "downdraft-source": "./core/src/render/index.ts",
+      "default": "./dist/core/src/render/index.js"
+    },
+    "./render/bindless": {
+      "types": "./core/src/render/bindless/index.ts",
+      "downdraft-source": "./core/src/render/bindless/index.ts",
+      "default": "./dist/core/src/render/bindless/index.js"
+    },
+    "./render/gpu-driven": {
+      "types": "./core/src/render/gpu-driven/index.ts",
+      "downdraft-source": "./core/src/render/gpu-driven/index.ts",
+      "default": "./dist/core/src/render/gpu-driven/index.js"
+    },
+    "./scene": {
+      "types": "./core/src/scene/index.ts",
+      "downdraft-source": "./core/src/scene/index.ts",
+      "default": "./dist/core/src/scene/index.js"
+    },
+    "./util": {
+      "types": "./core/src/util/index.ts",
+      "downdraft-source": "./core/src/util/index.ts",
+      "default": "./dist/core/src/util/index.js"
+    },
+    "./app": {
+      "types": "./app/src/index.ts",
+      "downdraft-source": "./app/src/index.ts",
+      "default": "./dist/app/src/index.js"
+    },
+    "./app/renderer": {
+      "types": "./app/src/renderer/index.ts",
+      "downdraft-source": "./app/src/renderer/index.ts",
+      "default": "./dist/app/src/renderer/index.js"
+    },
+    "./app/shared": {
+      "types": "./app/src/shared/index.ts",
+      "downdraft-source": "./app/src/shared/index.ts",
+      "default": "./dist/app/src/shared/index.js"
+    },
     "./app/renderer/downdraft-base.css": "./app/src/renderer/downdraft-base.css",
-    "./app/*": "./app/src/*.ts",
-    "./app/*.ts": "./app/src/*.ts",
+    "./app/*": {
+      "types": "./app/src/*.ts",
+      "downdraft-source": "./app/src/*.ts",
+      "default": "./dist/app/src/*.js"
+    },
+    "./app/*.ts": {
+      "types": "./app/src/*.ts",
+      "downdraft-source": "./app/src/*.ts",
+      "default": "./dist/app/src/*.js"
+    },
     "./app/*.css": "./app/src/*.css",
-    "./shader-graph": "./shader-graph/src/index.ts",
-    "./shader-graph/*": "./shader-graph/src/*.ts",
-    "./shader-graph/*.ts": "./shader-graph/src/*.ts",
-    "./mcp": "./mcp/src/index.ts",
-    "./mcp/prompts": "./mcp/src/prompts/index.ts",
-    "./mcp/resources": "./mcp/src/resources/index.ts",
-    "./mcp/*": "./mcp/src/*.ts",
-    "./mcp/*.ts": "./mcp/src/*.ts",
-    "./test": "./test/src/index.ts",
-    "./test/*": "./test/src/*.ts",
-    "./test/*.ts": "./test/src/*.ts",
-    "./asset-bake": "./asset-bake/src/index.ts",
-    "./asset-bake/*": "./asset-bake/src/*.ts",
-    "./asset-bake/*.ts": "./asset-bake/src/*.ts",
-    "./libraries/asset-browser": "./libraries/asset-browser/src/index.ts",
-    "./libraries/asset-browser/*": "./libraries/asset-browser/src/*.ts",
-    "./libraries/asset-browser/*.ts": "./libraries/asset-browser/src/*.ts",
-    "./libraries/audio-kira": "./libraries/audio-kira/src/index.ts",
-    "./libraries/audio-kira/*": "./libraries/audio-kira/src/*.ts",
-    "./libraries/audio-kira/*.ts": "./libraries/audio-kira/src/*.ts",
-    "./libraries/blitz-ui": "./libraries/blitz-ui/src/index.ts",
-    "./libraries/blitz-ui/*": "./libraries/blitz-ui/src/*.ts",
-    "./libraries/blitz-ui/*.ts": "./libraries/blitz-ui/src/*.ts",
-    "./libraries/character": "./libraries/character/src/index.ts",
-    "./libraries/character/*": "./libraries/character/src/*.ts",
-    "./libraries/character/*.ts": "./libraries/character/src/*.ts",
-    "./libraries/devtools": "./libraries/devtools/src/index.ts",
-    "./libraries/devtools/*": "./libraries/devtools/src/*.ts",
-    "./libraries/devtools/*.ts": "./libraries/devtools/src/*.ts",
-    "./libraries/entities": "./libraries/entities/src/index.ts",
-    "./libraries/entities/*": "./libraries/entities/src/*.ts",
-    "./libraries/entities/*.ts": "./libraries/entities/src/*.ts",
+    "./shader-graph": {
+      "types": "./shader-graph/src/index.ts",
+      "downdraft-source": "./shader-graph/src/index.ts",
+      "default": "./dist/shader-graph/src/index.js"
+    },
+    "./shader-graph/*": {
+      "types": "./shader-graph/src/*.ts",
+      "downdraft-source": "./shader-graph/src/*.ts",
+      "default": "./dist/shader-graph/src/*.js"
+    },
+    "./shader-graph/*.ts": {
+      "types": "./shader-graph/src/*.ts",
+      "downdraft-source": "./shader-graph/src/*.ts",
+      "default": "./dist/shader-graph/src/*.js"
+    },
+    "./mcp": {
+      "types": "./mcp/src/index.ts",
+      "downdraft-source": "./mcp/src/index.ts",
+      "default": "./dist/mcp/src/index.js"
+    },
+    "./mcp/prompts": {
+      "types": "./mcp/src/prompts/index.ts",
+      "downdraft-source": "./mcp/src/prompts/index.ts",
+      "default": "./dist/mcp/src/prompts/index.js"
+    },
+    "./mcp/resources": {
+      "types": "./mcp/src/resources/index.ts",
+      "downdraft-source": "./mcp/src/resources/index.ts",
+      "default": "./dist/mcp/src/resources/index.js"
+    },
+    "./mcp/*": {
+      "types": "./mcp/src/*.ts",
+      "downdraft-source": "./mcp/src/*.ts",
+      "default": "./dist/mcp/src/*.js"
+    },
+    "./mcp/*.ts": {
+      "types": "./mcp/src/*.ts",
+      "downdraft-source": "./mcp/src/*.ts",
+      "default": "./dist/mcp/src/*.js"
+    },
+    "./test": {
+      "types": "./test/src/index.ts",
+      "downdraft-source": "./test/src/index.ts",
+      "default": "./dist/test/src/index.js"
+    },
+    "./test/*": {
+      "types": "./test/src/*.ts",
+      "downdraft-source": "./test/src/*.ts",
+      "default": "./dist/test/src/*.js"
+    },
+    "./test/*.ts": {
+      "types": "./test/src/*.ts",
+      "downdraft-source": "./test/src/*.ts",
+      "default": "./dist/test/src/*.js"
+    },
+    "./asset-bake": {
+      "types": "./asset-bake/src/index.ts",
+      "downdraft-source": "./asset-bake/src/index.ts",
+      "default": "./dist/asset-bake/src/index.js"
+    },
+    "./asset-bake/*": {
+      "types": "./asset-bake/src/*.ts",
+      "downdraft-source": "./asset-bake/src/*.ts",
+      "default": "./dist/asset-bake/src/*.js"
+    },
+    "./asset-bake/*.ts": {
+      "types": "./asset-bake/src/*.ts",
+      "downdraft-source": "./asset-bake/src/*.ts",
+      "default": "./dist/asset-bake/src/*.js"
+    },
+    "./libraries/asset-browser": {
+      "types": "./libraries/asset-browser/src/index.ts",
+      "downdraft-source": "./libraries/asset-browser/src/index.ts",
+      "default": "./dist/libraries/asset-browser/src/index.js"
+    },
+    "./libraries/asset-browser/*": {
+      "types": "./libraries/asset-browser/src/*.ts",
+      "downdraft-source": "./libraries/asset-browser/src/*.ts",
+      "default": "./dist/libraries/asset-browser/src/*.js"
+    },
+    "./libraries/asset-browser/*.ts": {
+      "types": "./libraries/asset-browser/src/*.ts",
+      "downdraft-source": "./libraries/asset-browser/src/*.ts",
+      "default": "./dist/libraries/asset-browser/src/*.js"
+    },
+    "./libraries/audio-kira": {
+      "types": "./libraries/audio-kira/src/index.ts",
+      "downdraft-source": "./libraries/audio-kira/src/index.ts",
+      "default": "./dist/libraries/audio-kira/src/index.js"
+    },
+    "./libraries/audio-kira/*": {
+      "types": "./libraries/audio-kira/src/*.ts",
+      "downdraft-source": "./libraries/audio-kira/src/*.ts",
+      "default": "./dist/libraries/audio-kira/src/*.js"
+    },
+    "./libraries/audio-kira/*.ts": {
+      "types": "./libraries/audio-kira/src/*.ts",
+      "downdraft-source": "./libraries/audio-kira/src/*.ts",
+      "default": "./dist/libraries/audio-kira/src/*.js"
+    },
+    "./libraries/blitz-ui": {
+      "types": "./libraries/blitz-ui/src/index.ts",
+      "downdraft-source": "./libraries/blitz-ui/src/index.ts",
+      "default": "./dist/libraries/blitz-ui/src/index.js"
+    },
+    "./libraries/blitz-ui/*": {
+      "types": "./libraries/blitz-ui/src/*.ts",
+      "downdraft-source": "./libraries/blitz-ui/src/*.ts",
+      "default": "./dist/libraries/blitz-ui/src/*.js"
+    },
+    "./libraries/blitz-ui/*.ts": {
+      "types": "./libraries/blitz-ui/src/*.ts",
+      "downdraft-source": "./libraries/blitz-ui/src/*.ts",
+      "default": "./dist/libraries/blitz-ui/src/*.js"
+    },
+    "./libraries/character": {
+      "types": "./libraries/character/src/index.ts",
+      "downdraft-source": "./libraries/character/src/index.ts",
+      "default": "./dist/libraries/character/src/index.js"
+    },
+    "./libraries/character/*": {
+      "types": "./libraries/character/src/*.ts",
+      "downdraft-source": "./libraries/character/src/*.ts",
+      "default": "./dist/libraries/character/src/*.js"
+    },
+    "./libraries/character/*.ts": {
+      "types": "./libraries/character/src/*.ts",
+      "downdraft-source": "./libraries/character/src/*.ts",
+      "default": "./dist/libraries/character/src/*.js"
+    },
+    "./libraries/devtools": {
+      "types": "./libraries/devtools/src/index.ts",
+      "downdraft-source": "./libraries/devtools/src/index.ts",
+      "default": "./dist/libraries/devtools/src/index.js"
+    },
+    "./libraries/devtools/*": {
+      "types": "./libraries/devtools/src/*.ts",
+      "downdraft-source": "./libraries/devtools/src/*.ts",
+      "default": "./dist/libraries/devtools/src/*.js"
+    },
+    "./libraries/devtools/*.ts": {
+      "types": "./libraries/devtools/src/*.ts",
+      "downdraft-source": "./libraries/devtools/src/*.ts",
+      "default": "./dist/libraries/devtools/src/*.js"
+    },
+    "./libraries/entities": {
+      "types": "./libraries/entities/src/index.ts",
+      "downdraft-source": "./libraries/entities/src/index.ts",
+      "default": "./dist/libraries/entities/src/index.js"
+    },
+    "./libraries/entities/*": {
+      "types": "./libraries/entities/src/*.ts",
+      "downdraft-source": "./libraries/entities/src/*.ts",
+      "default": "./dist/libraries/entities/src/*.js"
+    },
+    "./libraries/entities/*.ts": {
+      "types": "./libraries/entities/src/*.ts",
+      "downdraft-source": "./libraries/entities/src/*.ts",
+      "default": "./dist/libraries/entities/src/*.js"
+    },
     "./libraries/entities/*.wgsl": "./libraries/entities/src/*.wgsl",
-    "./libraries/gamepad": "./libraries/gamepad/src/index.ts",
-    "./libraries/gamepad/*": "./libraries/gamepad/src/*.ts",
-    "./libraries/gamepad/*.ts": "./libraries/gamepad/src/*.ts",
-    "./libraries/gaussian-splats": "./libraries/gaussian-splats/src/index.ts",
-    "./libraries/gaussian-splats/*": "./libraries/gaussian-splats/src/*.ts",
-    "./libraries/gaussian-splats/*.ts": "./libraries/gaussian-splats/src/*.ts",
-    "./libraries/gpu-kernels": "./libraries/gpu-kernels/src/index.ts",
-    "./libraries/gpu-kernels/*": "./libraries/gpu-kernels/src/*.ts",
-    "./libraries/gpu-kernels/*.ts": "./libraries/gpu-kernels/src/*.ts",
-    "./libraries/html-ui-kit": "./libraries/html-ui-kit/src/index.ts",
-    "./libraries/html-ui-kit/*": "./libraries/html-ui-kit/src/*.ts",
-    "./libraries/html-ui-kit/*.ts": "./libraries/html-ui-kit/src/*.ts",
-    "./libraries/inspectable": "./libraries/inspectable/src/index.ts",
-    "./libraries/inspectable/*": "./libraries/inspectable/src/*.ts",
-    "./libraries/inspectable/*.ts": "./libraries/inspectable/src/*.ts",
-    "./libraries/lighting": "./libraries/lighting/src/index.ts",
-    "./libraries/lighting/*": "./libraries/lighting/src/*.ts",
-    "./libraries/lighting/*.ts": "./libraries/lighting/src/*.ts",
+    "./libraries/gamepad": {
+      "types": "./libraries/gamepad/src/index.ts",
+      "downdraft-source": "./libraries/gamepad/src/index.ts",
+      "default": "./dist/libraries/gamepad/src/index.js"
+    },
+    "./libraries/gamepad/*": {
+      "types": "./libraries/gamepad/src/*.ts",
+      "downdraft-source": "./libraries/gamepad/src/*.ts",
+      "default": "./dist/libraries/gamepad/src/*.js"
+    },
+    "./libraries/gamepad/*.ts": {
+      "types": "./libraries/gamepad/src/*.ts",
+      "downdraft-source": "./libraries/gamepad/src/*.ts",
+      "default": "./dist/libraries/gamepad/src/*.js"
+    },
+    "./libraries/gaussian-splats": {
+      "types": "./libraries/gaussian-splats/src/index.ts",
+      "downdraft-source": "./libraries/gaussian-splats/src/index.ts",
+      "default": "./dist/libraries/gaussian-splats/src/index.js"
+    },
+    "./libraries/gaussian-splats/*": {
+      "types": "./libraries/gaussian-splats/src/*.ts",
+      "downdraft-source": "./libraries/gaussian-splats/src/*.ts",
+      "default": "./dist/libraries/gaussian-splats/src/*.js"
+    },
+    "./libraries/gaussian-splats/*.ts": {
+      "types": "./libraries/gaussian-splats/src/*.ts",
+      "downdraft-source": "./libraries/gaussian-splats/src/*.ts",
+      "default": "./dist/libraries/gaussian-splats/src/*.js"
+    },
+    "./libraries/gpu-kernels": {
+      "types": "./libraries/gpu-kernels/src/index.ts",
+      "downdraft-source": "./libraries/gpu-kernels/src/index.ts",
+      "default": "./dist/libraries/gpu-kernels/src/index.js"
+    },
+    "./libraries/gpu-kernels/*": {
+      "types": "./libraries/gpu-kernels/src/*.ts",
+      "downdraft-source": "./libraries/gpu-kernels/src/*.ts",
+      "default": "./dist/libraries/gpu-kernels/src/*.js"
+    },
+    "./libraries/gpu-kernels/*.ts": {
+      "types": "./libraries/gpu-kernels/src/*.ts",
+      "downdraft-source": "./libraries/gpu-kernels/src/*.ts",
+      "default": "./dist/libraries/gpu-kernels/src/*.js"
+    },
+    "./libraries/html-ui-kit": {
+      "types": "./libraries/html-ui-kit/src/index.ts",
+      "downdraft-source": "./libraries/html-ui-kit/src/index.ts",
+      "default": "./dist/libraries/html-ui-kit/src/index.js"
+    },
+    "./libraries/html-ui-kit/*": {
+      "types": "./libraries/html-ui-kit/src/*.ts",
+      "downdraft-source": "./libraries/html-ui-kit/src/*.ts",
+      "default": "./dist/libraries/html-ui-kit/src/*.js"
+    },
+    "./libraries/html-ui-kit/*.ts": {
+      "types": "./libraries/html-ui-kit/src/*.ts",
+      "downdraft-source": "./libraries/html-ui-kit/src/*.ts",
+      "default": "./dist/libraries/html-ui-kit/src/*.js"
+    },
+    "./libraries/inspectable": {
+      "types": "./libraries/inspectable/src/index.ts",
+      "downdraft-source": "./libraries/inspectable/src/index.ts",
+      "default": "./dist/libraries/inspectable/src/index.js"
+    },
+    "./libraries/inspectable/*": {
+      "types": "./libraries/inspectable/src/*.ts",
+      "downdraft-source": "./libraries/inspectable/src/*.ts",
+      "default": "./dist/libraries/inspectable/src/*.js"
+    },
+    "./libraries/inspectable/*.ts": {
+      "types": "./libraries/inspectable/src/*.ts",
+      "downdraft-source": "./libraries/inspectable/src/*.ts",
+      "default": "./dist/libraries/inspectable/src/*.js"
+    },
+    "./libraries/lighting": {
+      "types": "./libraries/lighting/src/index.ts",
+      "downdraft-source": "./libraries/lighting/src/index.ts",
+      "default": "./dist/libraries/lighting/src/index.js"
+    },
+    "./libraries/lighting/*": {
+      "types": "./libraries/lighting/src/*.ts",
+      "downdraft-source": "./libraries/lighting/src/*.ts",
+      "default": "./dist/libraries/lighting/src/*.js"
+    },
+    "./libraries/lighting/*.ts": {
+      "types": "./libraries/lighting/src/*.ts",
+      "downdraft-source": "./libraries/lighting/src/*.ts",
+      "default": "./dist/libraries/lighting/src/*.js"
+    },
     "./libraries/lighting/*.wgsl": "./libraries/lighting/src/*.wgsl",
-    "./libraries/marching-cubes": "./libraries/marching-cubes/src/index.ts",
-    "./libraries/marching-cubes/*": "./libraries/marching-cubes/src/*.ts",
-    "./libraries/marching-cubes/*.ts": "./libraries/marching-cubes/src/*.ts",
-    "./libraries/models": "./libraries/models/src/index.ts",
-    "./libraries/models/codecs": "./libraries/models/src/codecs/index.ts",
-    "./libraries/models/fbx": "./libraries/models/src/fbx/index.ts",
-    "./libraries/models/*": "./libraries/models/src/*.ts",
-    "./libraries/models/*.ts": "./libraries/models/src/*.ts",
-    "./libraries/navmesh": "./libraries/navmesh/src/index.ts",
-    "./libraries/navmesh/*": "./libraries/navmesh/src/*.ts",
-    "./libraries/navmesh/*.ts": "./libraries/navmesh/src/*.ts",
-    "./libraries/networking": "./libraries/networking/src/index.ts",
-    "./libraries/networking/*": "./libraries/networking/src/*.ts",
-    "./libraries/networking/*.ts": "./libraries/networking/src/*.ts",
-    "./libraries/pathfinding-2d": "./libraries/pathfinding-2d/src/index.ts",
-    "./libraries/pathfinding-2d/*": "./libraries/pathfinding-2d/src/*.ts",
-    "./libraries/pathfinding-2d/*.ts": "./libraries/pathfinding-2d/src/*.ts",
-    "./libraries/persistence": "./libraries/persistence/src/index.ts",
-    "./libraries/persistence/*": "./libraries/persistence/src/*.ts",
-    "./libraries/persistence/*.ts": "./libraries/persistence/src/*.ts",
-    "./libraries/physics-native": "./libraries/physics-native/src/index.ts",
-    "./libraries/physics-native/*": "./libraries/physics-native/src/*.ts",
-    "./libraries/physics-native/*.ts": "./libraries/physics-native/src/*.ts",
-    "./libraries/physics-rapier": "./libraries/physics-rapier/src/index.ts",
-    "./libraries/physics-rapier/*": "./libraries/physics-rapier/src/*.ts",
-    "./libraries/physics-rapier/*.ts": "./libraries/physics-rapier/src/*.ts",
-    "./libraries/postfx": "./libraries/postfx/src/index.ts",
-    "./libraries/postfx/*": "./libraries/postfx/src/*.ts",
-    "./libraries/postfx/*.ts": "./libraries/postfx/src/*.ts",
+    "./libraries/marching-cubes": {
+      "types": "./libraries/marching-cubes/src/index.ts",
+      "downdraft-source": "./libraries/marching-cubes/src/index.ts",
+      "default": "./dist/libraries/marching-cubes/src/index.js"
+    },
+    "./libraries/marching-cubes/*": {
+      "types": "./libraries/marching-cubes/src/*.ts",
+      "downdraft-source": "./libraries/marching-cubes/src/*.ts",
+      "default": "./dist/libraries/marching-cubes/src/*.js"
+    },
+    "./libraries/marching-cubes/*.ts": {
+      "types": "./libraries/marching-cubes/src/*.ts",
+      "downdraft-source": "./libraries/marching-cubes/src/*.ts",
+      "default": "./dist/libraries/marching-cubes/src/*.js"
+    },
+    "./libraries/models": {
+      "types": "./libraries/models/src/index.ts",
+      "downdraft-source": "./libraries/models/src/index.ts",
+      "default": "./dist/libraries/models/src/index.js"
+    },
+    "./libraries/models/codecs": {
+      "types": "./libraries/models/src/codecs/index.ts",
+      "downdraft-source": "./libraries/models/src/codecs/index.ts",
+      "default": "./dist/libraries/models/src/codecs/index.js"
+    },
+    "./libraries/models/fbx": {
+      "types": "./libraries/models/src/fbx/index.ts",
+      "downdraft-source": "./libraries/models/src/fbx/index.ts",
+      "default": "./dist/libraries/models/src/fbx/index.js"
+    },
+    "./libraries/models/*": {
+      "types": "./libraries/models/src/*.ts",
+      "downdraft-source": "./libraries/models/src/*.ts",
+      "default": "./dist/libraries/models/src/*.js"
+    },
+    "./libraries/models/*.ts": {
+      "types": "./libraries/models/src/*.ts",
+      "downdraft-source": "./libraries/models/src/*.ts",
+      "default": "./dist/libraries/models/src/*.js"
+    },
+    "./libraries/navmesh": {
+      "types": "./libraries/navmesh/src/index.ts",
+      "downdraft-source": "./libraries/navmesh/src/index.ts",
+      "default": "./dist/libraries/navmesh/src/index.js"
+    },
+    "./libraries/navmesh/*": {
+      "types": "./libraries/navmesh/src/*.ts",
+      "downdraft-source": "./libraries/navmesh/src/*.ts",
+      "default": "./dist/libraries/navmesh/src/*.js"
+    },
+    "./libraries/navmesh/*.ts": {
+      "types": "./libraries/navmesh/src/*.ts",
+      "downdraft-source": "./libraries/navmesh/src/*.ts",
+      "default": "./dist/libraries/navmesh/src/*.js"
+    },
+    "./libraries/networking": {
+      "types": "./libraries/networking/src/index.ts",
+      "downdraft-source": "./libraries/networking/src/index.ts",
+      "default": "./dist/libraries/networking/src/index.js"
+    },
+    "./libraries/networking/*": {
+      "types": "./libraries/networking/src/*.ts",
+      "downdraft-source": "./libraries/networking/src/*.ts",
+      "default": "./dist/libraries/networking/src/*.js"
+    },
+    "./libraries/networking/*.ts": {
+      "types": "./libraries/networking/src/*.ts",
+      "downdraft-source": "./libraries/networking/src/*.ts",
+      "default": "./dist/libraries/networking/src/*.js"
+    },
+    "./libraries/pathfinding-2d": {
+      "types": "./libraries/pathfinding-2d/src/index.ts",
+      "downdraft-source": "./libraries/pathfinding-2d/src/index.ts",
+      "default": "./dist/libraries/pathfinding-2d/src/index.js"
+    },
+    "./libraries/pathfinding-2d/*": {
+      "types": "./libraries/pathfinding-2d/src/*.ts",
+      "downdraft-source": "./libraries/pathfinding-2d/src/*.ts",
+      "default": "./dist/libraries/pathfinding-2d/src/*.js"
+    },
+    "./libraries/pathfinding-2d/*.ts": {
+      "types": "./libraries/pathfinding-2d/src/*.ts",
+      "downdraft-source": "./libraries/pathfinding-2d/src/*.ts",
+      "default": "./dist/libraries/pathfinding-2d/src/*.js"
+    },
+    "./libraries/persistence": {
+      "types": "./libraries/persistence/src/index.ts",
+      "downdraft-source": "./libraries/persistence/src/index.ts",
+      "default": "./dist/libraries/persistence/src/index.js"
+    },
+    "./libraries/persistence/*": {
+      "types": "./libraries/persistence/src/*.ts",
+      "downdraft-source": "./libraries/persistence/src/*.ts",
+      "default": "./dist/libraries/persistence/src/*.js"
+    },
+    "./libraries/persistence/*.ts": {
+      "types": "./libraries/persistence/src/*.ts",
+      "downdraft-source": "./libraries/persistence/src/*.ts",
+      "default": "./dist/libraries/persistence/src/*.js"
+    },
+    "./libraries/physics-native": {
+      "types": "./libraries/physics-native/src/index.ts",
+      "downdraft-source": "./libraries/physics-native/src/index.ts",
+      "default": "./dist/libraries/physics-native/src/index.js"
+    },
+    "./libraries/physics-native/*": {
+      "types": "./libraries/physics-native/src/*.ts",
+      "downdraft-source": "./libraries/physics-native/src/*.ts",
+      "default": "./dist/libraries/physics-native/src/*.js"
+    },
+    "./libraries/physics-native/*.ts": {
+      "types": "./libraries/physics-native/src/*.ts",
+      "downdraft-source": "./libraries/physics-native/src/*.ts",
+      "default": "./dist/libraries/physics-native/src/*.js"
+    },
+    "./libraries/physics-rapier": {
+      "types": "./libraries/physics-rapier/src/index.ts",
+      "downdraft-source": "./libraries/physics-rapier/src/index.ts",
+      "default": "./dist/libraries/physics-rapier/src/index.js"
+    },
+    "./libraries/physics-rapier/*": {
+      "types": "./libraries/physics-rapier/src/*.ts",
+      "downdraft-source": "./libraries/physics-rapier/src/*.ts",
+      "default": "./dist/libraries/physics-rapier/src/*.js"
+    },
+    "./libraries/physics-rapier/*.ts": {
+      "types": "./libraries/physics-rapier/src/*.ts",
+      "downdraft-source": "./libraries/physics-rapier/src/*.ts",
+      "default": "./dist/libraries/physics-rapier/src/*.js"
+    },
+    "./libraries/postfx": {
+      "types": "./libraries/postfx/src/index.ts",
+      "downdraft-source": "./libraries/postfx/src/index.ts",
+      "default": "./dist/libraries/postfx/src/index.js"
+    },
+    "./libraries/postfx/*": {
+      "types": "./libraries/postfx/src/*.ts",
+      "downdraft-source": "./libraries/postfx/src/*.ts",
+      "default": "./dist/libraries/postfx/src/*.js"
+    },
+    "./libraries/postfx/*.ts": {
+      "types": "./libraries/postfx/src/*.ts",
+      "downdraft-source": "./libraries/postfx/src/*.ts",
+      "default": "./dist/libraries/postfx/src/*.js"
+    },
     "./libraries/postfx/*.wgsl": "./libraries/postfx/src/*.wgsl",
-    "./libraries/recast": "./libraries/recast/src/index.ts",
-    "./libraries/recast/*": "./libraries/recast/src/*.ts",
-    "./libraries/recast/*.ts": "./libraries/recast/src/*.ts",
-    "./libraries/sand": "./libraries/sand/src/index.ts",
-    "./libraries/sand/*": "./libraries/sand/src/*.ts",
-    "./libraries/sand/*.ts": "./libraries/sand/src/*.ts",
-    "./libraries/stickman": "./libraries/stickman/src/index.ts",
-    "./libraries/stickman/*": "./libraries/stickman/src/*.ts",
-    "./libraries/stickman/*.ts": "./libraries/stickman/src/*.ts",
-    "./libraries/surface-nets": "./libraries/surface-nets/src/index.ts",
-    "./libraries/surface-nets/*": "./libraries/surface-nets/src/*.ts",
-    "./libraries/surface-nets/*.ts": "./libraries/surface-nets/src/*.ts",
-    "./libraries/water": "./libraries/water/src/index.ts",
-    "./libraries/water/*": "./libraries/water/src/*.ts",
-    "./libraries/water/*.ts": "./libraries/water/src/*.ts",
-    "./libraries/weather": "./libraries/weather/src/index.ts",
-    "./libraries/weather/*": "./libraries/weather/src/*.ts",
-    "./libraries/weather/*.ts": "./libraries/weather/src/*.ts",
-    "./libraries/weatherfx": "./libraries/weatherfx/src/index.ts",
-    "./libraries/weatherfx/*": "./libraries/weatherfx/src/*.ts",
-    "./libraries/weatherfx/*.ts": "./libraries/weatherfx/src/*.ts",
+    "./libraries/recast": {
+      "types": "./libraries/recast/src/index.ts",
+      "downdraft-source": "./libraries/recast/src/index.ts",
+      "default": "./dist/libraries/recast/src/index.js"
+    },
+    "./libraries/recast/*": {
+      "types": "./libraries/recast/src/*.ts",
+      "downdraft-source": "./libraries/recast/src/*.ts",
+      "default": "./dist/libraries/recast/src/*.js"
+    },
+    "./libraries/recast/*.ts": {
+      "types": "./libraries/recast/src/*.ts",
+      "downdraft-source": "./libraries/recast/src/*.ts",
+      "default": "./dist/libraries/recast/src/*.js"
+    },
+    "./libraries/sand": {
+      "types": "./libraries/sand/src/index.ts",
+      "downdraft-source": "./libraries/sand/src/index.ts",
+      "default": "./dist/libraries/sand/src/index.js"
+    },
+    "./libraries/sand/*": {
+      "types": "./libraries/sand/src/*.ts",
+      "downdraft-source": "./libraries/sand/src/*.ts",
+      "default": "./dist/libraries/sand/src/*.js"
+    },
+    "./libraries/sand/*.ts": {
+      "types": "./libraries/sand/src/*.ts",
+      "downdraft-source": "./libraries/sand/src/*.ts",
+      "default": "./dist/libraries/sand/src/*.js"
+    },
+    "./libraries/stickman": {
+      "types": "./libraries/stickman/src/index.ts",
+      "downdraft-source": "./libraries/stickman/src/index.ts",
+      "default": "./dist/libraries/stickman/src/index.js"
+    },
+    "./libraries/stickman/*": {
+      "types": "./libraries/stickman/src/*.ts",
+      "downdraft-source": "./libraries/stickman/src/*.ts",
+      "default": "./dist/libraries/stickman/src/*.js"
+    },
+    "./libraries/stickman/*.ts": {
+      "types": "./libraries/stickman/src/*.ts",
+      "downdraft-source": "./libraries/stickman/src/*.ts",
+      "default": "./dist/libraries/stickman/src/*.js"
+    },
+    "./libraries/surface-nets": {
+      "types": "./libraries/surface-nets/src/index.ts",
+      "downdraft-source": "./libraries/surface-nets/src/index.ts",
+      "default": "./dist/libraries/surface-nets/src/index.js"
+    },
+    "./libraries/surface-nets/*": {
+      "types": "./libraries/surface-nets/src/*.ts",
+      "downdraft-source": "./libraries/surface-nets/src/*.ts",
+      "default": "./dist/libraries/surface-nets/src/*.js"
+    },
+    "./libraries/surface-nets/*.ts": {
+      "types": "./libraries/surface-nets/src/*.ts",
+      "downdraft-source": "./libraries/surface-nets/src/*.ts",
+      "default": "./dist/libraries/surface-nets/src/*.js"
+    },
+    "./libraries/water": {
+      "types": "./libraries/water/src/index.ts",
+      "downdraft-source": "./libraries/water/src/index.ts",
+      "default": "./dist/libraries/water/src/index.js"
+    },
+    "./libraries/water/*": {
+      "types": "./libraries/water/src/*.ts",
+      "downdraft-source": "./libraries/water/src/*.ts",
+      "default": "./dist/libraries/water/src/*.js"
+    },
+    "./libraries/water/*.ts": {
+      "types": "./libraries/water/src/*.ts",
+      "downdraft-source": "./libraries/water/src/*.ts",
+      "default": "./dist/libraries/water/src/*.js"
+    },
+    "./libraries/weather": {
+      "types": "./libraries/weather/src/index.ts",
+      "downdraft-source": "./libraries/weather/src/index.ts",
+      "default": "./dist/libraries/weather/src/index.js"
+    },
+    "./libraries/weather/*": {
+      "types": "./libraries/weather/src/*.ts",
+      "downdraft-source": "./libraries/weather/src/*.ts",
+      "default": "./dist/libraries/weather/src/*.js"
+    },
+    "./libraries/weather/*.ts": {
+      "types": "./libraries/weather/src/*.ts",
+      "downdraft-source": "./libraries/weather/src/*.ts",
+      "default": "./dist/libraries/weather/src/*.js"
+    },
+    "./libraries/weatherfx": {
+      "types": "./libraries/weatherfx/src/index.ts",
+      "downdraft-source": "./libraries/weatherfx/src/index.ts",
+      "default": "./dist/libraries/weatherfx/src/index.js"
+    },
+    "./libraries/weatherfx/*": {
+      "types": "./libraries/weatherfx/src/*.ts",
+      "downdraft-source": "./libraries/weatherfx/src/*.ts",
+      "default": "./dist/libraries/weatherfx/src/*.js"
+    },
+    "./libraries/weatherfx/*.ts": {
+      "types": "./libraries/weatherfx/src/*.ts",
+      "downdraft-source": "./libraries/weatherfx/src/*.ts",
+      "default": "./dist/libraries/weatherfx/src/*.js"
+    },
     "./libraries/weatherfx/*.wgsl": "./libraries/weatherfx/src/*.wgsl",
-    "./modules/camera-controls": "./modules/camera-controls/src/index.ts",
-    "./modules/camera-controls/*": "./modules/camera-controls/src/*.ts",
-    "./modules/camera-controls/*.ts": "./modules/camera-controls/src/*.ts",
-    "./modules/controller-ui": "./modules/controller-ui/src/index.ts",
-    "./modules/controller-ui/*": "./modules/controller-ui/src/*.ts",
-    "./modules/controller-ui/*.ts": "./modules/controller-ui/src/*.ts",
-    "./modules/devtools": "./modules/devtools/src/index.ts",
-    "./modules/devtools/*": "./modules/devtools/src/*.ts",
-    "./modules/devtools/*.ts": "./modules/devtools/src/*.ts",
+    "./modules/camera-controls": {
+      "types": "./modules/camera-controls/src/index.ts",
+      "downdraft-source": "./modules/camera-controls/src/index.ts",
+      "default": "./dist/modules/camera-controls/src/index.js"
+    },
+    "./modules/camera-controls/*": {
+      "types": "./modules/camera-controls/src/*.ts",
+      "downdraft-source": "./modules/camera-controls/src/*.ts",
+      "default": "./dist/modules/camera-controls/src/*.js"
+    },
+    "./modules/camera-controls/*.ts": {
+      "types": "./modules/camera-controls/src/*.ts",
+      "downdraft-source": "./modules/camera-controls/src/*.ts",
+      "default": "./dist/modules/camera-controls/src/*.js"
+    },
+    "./modules/controller-ui": {
+      "types": "./modules/controller-ui/src/index.ts",
+      "downdraft-source": "./modules/controller-ui/src/index.ts",
+      "default": "./dist/modules/controller-ui/src/index.js"
+    },
+    "./modules/controller-ui/*": {
+      "types": "./modules/controller-ui/src/*.ts",
+      "downdraft-source": "./modules/controller-ui/src/*.ts",
+      "default": "./dist/modules/controller-ui/src/*.js"
+    },
+    "./modules/controller-ui/*.ts": {
+      "types": "./modules/controller-ui/src/*.ts",
+      "downdraft-source": "./modules/controller-ui/src/*.ts",
+      "default": "./dist/modules/controller-ui/src/*.js"
+    },
+    "./modules/devtools": {
+      "types": "./modules/devtools/src/index.ts",
+      "downdraft-source": "./modules/devtools/src/index.ts",
+      "default": "./dist/modules/devtools/src/index.js"
+    },
+    "./modules/devtools/*": {
+      "types": "./modules/devtools/src/*.ts",
+      "downdraft-source": "./modules/devtools/src/*.ts",
+      "default": "./dist/modules/devtools/src/*.js"
+    },
+    "./modules/devtools/*.ts": {
+      "types": "./modules/devtools/src/*.ts",
+      "downdraft-source": "./modules/devtools/src/*.ts",
+      "default": "./dist/modules/devtools/src/*.js"
+    },
     "./modules/devtools/*.wgsl": "./modules/devtools/src/*.wgsl",
-    "./modules/editor": "./modules/editor/src/index.ts",
-    "./modules/editor/commands": "./modules/editor/src/commands/index.ts",
-    "./modules/editor/*": "./modules/editor/src/*.ts",
-    "./modules/editor/*.ts": "./modules/editor/src/*.ts",
-    "./modules/html-ui": "./modules/html-ui/src/index.ts",
-    "./modules/html-ui/*": "./modules/html-ui/src/*.ts",
-    "./modules/html-ui/*.ts": "./modules/html-ui/src/*.ts",
-    "./modules/mcp": "./modules/mcp/src/index.ts",
-    "./modules/mcp/*": "./modules/mcp/src/*.ts",
-    "./modules/mcp/*.ts": "./modules/mcp/src/*.ts",
-    "./modules/movement-2d": "./modules/movement-2d/src/index.ts",
-    "./modules/movement-2d/*": "./modules/movement-2d/src/*.ts",
-    "./modules/movement-2d/*.ts": "./modules/movement-2d/src/*.ts",
-    "./modules/movement-3d": "./modules/movement-3d/src/index.ts",
-    "./modules/movement-3d/*": "./modules/movement-3d/src/*.ts",
-    "./modules/movement-3d/*.ts": "./modules/movement-3d/src/*.ts",
-    "./modules/native-osr": "./modules/native-osr/src/index.ts",
-    "./modules/native-osr/*": "./modules/native-osr/src/*.ts",
-    "./modules/native-osr/*.ts": "./modules/native-osr/src/*.ts",
-    "./modules/sailing": "./modules/sailing/src/index.ts",
-    "./modules/sailing/*": "./modules/sailing/src/*.ts",
-    "./modules/sailing/*.ts": "./modules/sailing/src/*.ts",
-    "./modules/terrain": "./modules/terrain/src/index.ts",
-    "./modules/terrain/*": "./modules/terrain/src/*.ts",
-    "./modules/terrain/*.ts": "./modules/terrain/src/*.ts",
-    "./modules/vitals": "./modules/vitals/src/index.ts",
-    "./modules/vitals/*": "./modules/vitals/src/*.ts",
-    "./modules/vitals/*.ts": "./modules/vitals/src/*.ts",
-    "./modules/xr": "./modules/xr/src/index.ts",
-    "./modules/xr/*": "./modules/xr/src/*.ts",
-    "./modules/xr/*.ts": "./modules/xr/src/*.ts",
+    "./modules/editor": {
+      "types": "./modules/editor/src/index.ts",
+      "downdraft-source": "./modules/editor/src/index.ts",
+      "default": "./dist/modules/editor/src/index.js"
+    },
+    "./modules/editor/commands": {
+      "types": "./modules/editor/src/commands/index.ts",
+      "downdraft-source": "./modules/editor/src/commands/index.ts",
+      "default": "./dist/modules/editor/src/commands/index.js"
+    },
+    "./modules/editor/*": {
+      "types": "./modules/editor/src/*.ts",
+      "downdraft-source": "./modules/editor/src/*.ts",
+      "default": "./dist/modules/editor/src/*.js"
+    },
+    "./modules/editor/*.ts": {
+      "types": "./modules/editor/src/*.ts",
+      "downdraft-source": "./modules/editor/src/*.ts",
+      "default": "./dist/modules/editor/src/*.js"
+    },
+    "./modules/html-ui": {
+      "types": "./modules/html-ui/src/index.ts",
+      "downdraft-source": "./modules/html-ui/src/index.ts",
+      "default": "./dist/modules/html-ui/src/index.js"
+    },
+    "./modules/html-ui/*": {
+      "types": "./modules/html-ui/src/*.ts",
+      "downdraft-source": "./modules/html-ui/src/*.ts",
+      "default": "./dist/modules/html-ui/src/*.js"
+    },
+    "./modules/html-ui/*.ts": {
+      "types": "./modules/html-ui/src/*.ts",
+      "downdraft-source": "./modules/html-ui/src/*.ts",
+      "default": "./dist/modules/html-ui/src/*.js"
+    },
+    "./modules/mcp": {
+      "types": "./modules/mcp/src/index.ts",
+      "downdraft-source": "./modules/mcp/src/index.ts",
+      "default": "./dist/modules/mcp/src/index.js"
+    },
+    "./modules/mcp/*": {
+      "types": "./modules/mcp/src/*.ts",
+      "downdraft-source": "./modules/mcp/src/*.ts",
+      "default": "./dist/modules/mcp/src/*.js"
+    },
+    "./modules/mcp/*.ts": {
+      "types": "./modules/mcp/src/*.ts",
+      "downdraft-source": "./modules/mcp/src/*.ts",
+      "default": "./dist/modules/mcp/src/*.js"
+    },
+    "./modules/movement-2d": {
+      "types": "./modules/movement-2d/src/index.ts",
+      "downdraft-source": "./modules/movement-2d/src/index.ts",
+      "default": "./dist/modules/movement-2d/src/index.js"
+    },
+    "./modules/movement-2d/*": {
+      "types": "./modules/movement-2d/src/*.ts",
+      "downdraft-source": "./modules/movement-2d/src/*.ts",
+      "default": "./dist/modules/movement-2d/src/*.js"
+    },
+    "./modules/movement-2d/*.ts": {
+      "types": "./modules/movement-2d/src/*.ts",
+      "downdraft-source": "./modules/movement-2d/src/*.ts",
+      "default": "./dist/modules/movement-2d/src/*.js"
+    },
+    "./modules/movement-3d": {
+      "types": "./modules/movement-3d/src/index.ts",
+      "downdraft-source": "./modules/movement-3d/src/index.ts",
+      "default": "./dist/modules/movement-3d/src/index.js"
+    },
+    "./modules/movement-3d/*": {
+      "types": "./modules/movement-3d/src/*.ts",
+      "downdraft-source": "./modules/movement-3d/src/*.ts",
+      "default": "./dist/modules/movement-3d/src/*.js"
+    },
+    "./modules/movement-3d/*.ts": {
+      "types": "./modules/movement-3d/src/*.ts",
+      "downdraft-source": "./modules/movement-3d/src/*.ts",
+      "default": "./dist/modules/movement-3d/src/*.js"
+    },
+    "./modules/native-osr": {
+      "types": "./modules/native-osr/src/index.ts",
+      "downdraft-source": "./modules/native-osr/src/index.ts",
+      "default": "./dist/modules/native-osr/src/index.js"
+    },
+    "./modules/native-osr/*": {
+      "types": "./modules/native-osr/src/*.ts",
+      "downdraft-source": "./modules/native-osr/src/*.ts",
+      "default": "./dist/modules/native-osr/src/*.js"
+    },
+    "./modules/native-osr/*.ts": {
+      "types": "./modules/native-osr/src/*.ts",
+      "downdraft-source": "./modules/native-osr/src/*.ts",
+      "default": "./dist/modules/native-osr/src/*.js"
+    },
+    "./modules/sailing": {
+      "types": "./modules/sailing/src/index.ts",
+      "downdraft-source": "./modules/sailing/src/index.ts",
+      "default": "./dist/modules/sailing/src/index.js"
+    },
+    "./modules/sailing/*": {
+      "types": "./modules/sailing/src/*.ts",
+      "downdraft-source": "./modules/sailing/src/*.ts",
+      "default": "./dist/modules/sailing/src/*.js"
+    },
+    "./modules/sailing/*.ts": {
+      "types": "./modules/sailing/src/*.ts",
+      "downdraft-source": "./modules/sailing/src/*.ts",
+      "default": "./dist/modules/sailing/src/*.js"
+    },
+    "./modules/terrain": {
+      "types": "./modules/terrain/src/index.ts",
+      "downdraft-source": "./modules/terrain/src/index.ts",
+      "default": "./dist/modules/terrain/src/index.js"
+    },
+    "./modules/terrain/*": {
+      "types": "./modules/terrain/src/*.ts",
+      "downdraft-source": "./modules/terrain/src/*.ts",
+      "default": "./dist/modules/terrain/src/*.js"
+    },
+    "./modules/terrain/*.ts": {
+      "types": "./modules/terrain/src/*.ts",
+      "downdraft-source": "./modules/terrain/src/*.ts",
+      "default": "./dist/modules/terrain/src/*.js"
+    },
+    "./modules/vitals": {
+      "types": "./modules/vitals/src/index.ts",
+      "downdraft-source": "./modules/vitals/src/index.ts",
+      "default": "./dist/modules/vitals/src/index.js"
+    },
+    "./modules/vitals/*": {
+      "types": "./modules/vitals/src/*.ts",
+      "downdraft-source": "./modules/vitals/src/*.ts",
+      "default": "./dist/modules/vitals/src/*.js"
+    },
+    "./modules/vitals/*.ts": {
+      "types": "./modules/vitals/src/*.ts",
+      "downdraft-source": "./modules/vitals/src/*.ts",
+      "default": "./dist/modules/vitals/src/*.js"
+    },
+    "./modules/xr": {
+      "types": "./modules/xr/src/index.ts",
+      "downdraft-source": "./modules/xr/src/index.ts",
+      "default": "./dist/modules/xr/src/index.js"
+    },
+    "./modules/xr/*": {
+      "types": "./modules/xr/src/*.ts",
+      "downdraft-source": "./modules/xr/src/*.ts",
+      "default": "./dist/modules/xr/src/*.js"
+    },
+    "./modules/xr/*.ts": {
+      "types": "./modules/xr/src/*.ts",
+      "downdraft-source": "./modules/xr/src/*.ts",
+      "default": "./dist/modules/xr/src/*.js"
+    },
     "./lint-plugin": "./lint-plugin.mjs",
-    "./*": "./core/src/*.ts",
-    "./*.ts": "./core/src/*.ts",
+    "./*": {
+      "types": "./core/src/*.ts",
+      "downdraft-source": "./core/src/*.ts",
+      "default": "./dist/core/src/*.js"
+    },
+    "./*.ts": {
+      "types": "./core/src/*.ts",
+      "downdraft-source": "./core/src/*.ts",
+      "default": "./dist/core/src/*.js"
+    },
     "./*.wgsl": "./core/src/*.wgsl",
     "./*.md": "./core/src/*.md"
   },
@@ -218,6 +876,7 @@
     "access": "public"
   },
   "files": [
+    "dist",
     "core/src",
     "app/src",
     "shader-graph/src",

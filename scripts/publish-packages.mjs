@@ -40,6 +40,24 @@ for (let _i = 0, _it = dirs, _n = _it.length; _i < _n; _i++) { const dir = _it[_
   pkgs.set(pkg.name, { dir, pkg });
 }
 
+// The published packages' "default" export condition resolves dist/*.js —
+// build the dist trees once up front so a broken build fails before any
+// package publishes (per-package prepublishOnly hooks rebuild too, but late).
+if (!dryRun) {
+  const r = spawnSync("node", [join(root, "scripts/build-dist.mjs")], { stdio: "inherit" });
+  if (r.status !== 0) {
+    console.error("FAILED build-dist — aborting before any publish");
+    process.exit(r.status ?? 1);
+  }
+  // Verify staged native-* libs export every symbol the JS FFI spec tables
+  // declare — a stale artifact otherwise dlopen-fails on consumer machines.
+  const sym = spawnSync("node", [join(root, "scripts/check-native-symbols.mjs")], { stdio: "inherit" });
+  if (sym.status !== 0) {
+    console.error("FAILED check-native-symbols — aborting before any publish");
+    process.exit(sym.status ?? 1);
+  }
+}
+
 // Topo-sort by @downdraft/* dependencies so dependents publish after deps.
 const order = [];
 const seen = new Set();

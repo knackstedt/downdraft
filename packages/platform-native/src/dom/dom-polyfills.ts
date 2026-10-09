@@ -414,6 +414,13 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
     } catch {
       log.warn("platform-native", "tsx not resolvable — Node workers can't load .ts files");
     }
+    // Source-mode dev shells resolve @downdraft/* to .ts via the
+    // "downdraft-source" export condition — workers get their own resolver
+    // (execArgv does not inherit the parent's), so propagate explicitly or
+    // they'd land on the dist/ tree while the renderer runs source.
+    if (process.env.DD_ENGINE_SOURCE === "1") {
+      workerExecArgv.push("--conditions=downdraft-source");
+    }
     workerExecArgv.push("--import", wgslLoaderPath, "--import", workerBootstrapPath);
     class BrowserWorker extends NodeWorker {
       constructor(specifier: string | URL, options?: any) {

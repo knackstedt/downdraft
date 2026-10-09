@@ -156,6 +156,24 @@ All logs go through `createLogger()` (`@downdraft/engine/util/logger`) as `log.<
 
 Config when adding/removing an engine library or module: create/remove the directory under `packages/engine/libraries/` or `packages/engine/modules/` with a `src/index.ts`, then run `node scripts/gen-engine-exports.mjs` (regenerates the `exports` map in `packages/engine/package.json`) and `node scripts/gen-deno-import-map.mjs` (regenerates `deno.json`). No tsconfig paths, Vite aliases, or workspace entries are needed — subpath resolution flows through the single `@downdraft/engine` package.
 
+## Engine dist packaging (npm) — source vs dist resolution
+
+Published `@downdraft/*` packages ship a **per-file transpiled ESM `dist/`** alongside source. `node scripts/build-dist.mjs` (plain Node, `ts.transpileModule`) mirrors every source file into `dist/`, baking out Vite-isms: `?raw`/`.wgsl` → inlined strings, `?url` → `import.meta.resolve`, `?json` → inline, relative `.ts` specifiers → `.js`, `new URL("./x.ts", import.meta.url)` worker refs → `.js`, `import.meta.dir`/`.dirname`/`.filename` → `import.meta.url`-derived locals. Output is incremental (`.dd-manifest.json` hashes) and stays native-importable — deep imports preserve 1:1 module identity, so Vite's server-consumer env externalizes it entirely (near-zero runner transform cost).
+
+Every export entry carries three conditions:
+
+```json
+".": { "types": "./core/src/index.ts", "downdraft-source": "./core/src/index.ts", "default": "./dist/core/src/index.js" }
+```
+
+- **`downdraft dev` (monorepo) defaults to engine=source**: the CLI spawns the dev shell with `--conditions=downdraft-source` (Bun/Node flag; `DENO_CONDITIONS` env for Deno) and `DD_ENGINE_SOURCE=1`; worker threads propagate the same condition via `execArgv` (see `dom-polyfills.ts`/`worker-bootstrap.mjs`). Full engine module graph → granular tiered HMR.
+- **`draft dev --engine-dist`** omits the condition → all `@downdraft/*` imports resolve `dist/` — faster cold start, but engine source edits require re-running `node scripts/build-dist.mjs` and engine HMR is coarse.
+- **`vite-config.mjs`** sets `resolve.conditions` for the `native` env from `DD_ENGINE_SOURCE` and resolves `wgslRegistryPath` against whichever universe is active — keep the two in sync when touching it.
+
+**Rules for engine/platform-native code that resolves filesystem paths relative to itself** (crate dirs, staged assets, package metadata): never hardcode `".."` segment counts off `import.meta.url`/`import.meta.dir` — dist nests modules one level deeper than src and the math escapes into `dist/`. Anchor at the package root instead: `findPackageRoot(dir)` walks up to the nearest `package.json` (`@downdraft/engine/platform/pkg-root` for engine code; `packageRoot`/`findPackageRoot` exported from `platform-native/src/ffi/lib-paths.ts`), then append the package-relative path explicitly.
+
+Publishing (`scripts/publish-packages.mjs`, `publish.yml`) runs the dist build before `npm publish`; `files` includes `dist`. `link:games` links dist targets when present.
+
 ## Shared engine APIs — use these, don't hand-roll
 
 Before writing per-game infrastructure, check whether the engine already provides it. The canonical APIs:

@@ -25,8 +25,25 @@ const _dirname = typeof (globalThis as any).__dirname !== "undefined"
   ? (globalThis as any).__dirname
   : dirname(fileURLToPath(import.meta.url));
 
+/**
+ * Nearest ancestor directory containing a package.json, walking up from
+ * `fromDir`. Layout-agnostic — a module under src/ and its transpiled copy
+ * under dist/src/ resolve to the same package root, so callers must anchor
+ * package-relative paths here rather than hardcoding ".." segment counts.
+ * Falls back to `fromDir` when no package.json ancestor exists.
+ */
+export function findPackageRoot(fromDir: string): string {
+  let dir = fromDir;
+  for (;;) {
+    if (existsSync(join(dir, "package.json"))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) return fromDir;
+    dir = parent;
+  }
+}
+
 /** Absolute path of the platform-native package root. */
-export const packageRoot: string = join(_dirname, "..", "..");
+export const packageRoot: string = findPackageRoot(_dirname);
 
 /** Absolute path of the platform-native native artifacts directory. */
 export const nativeDir: string = join(packageRoot, "native");

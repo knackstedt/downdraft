@@ -16,16 +16,10 @@ import {
 } from "@downdraft/engine/sab/gamepad-devices";
 import { createLogger } from "@downdraft/engine/util/logger";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { dlopen, ptr } from "../ffi/ffi-adapter";
-import { resolveNativeLibrary } from "../ffi/lib-paths";
+import { packageRoot, resolveNativeLibrary } from "../ffi/lib-paths";
 
 const log = createLogger("info");
-
-const _dirname =
-  typeof (globalThis as { __dirname?: string }).__dirname !== "undefined"
-    ? (globalThis as { __dirname: string }).__dirname
-    : join(fileURLToPath(import.meta.url), "..");
 
 export interface NativeGamepadHandle {
   /** The 'gamepad-devices' channel buffer — shared with the native worker. */
@@ -60,7 +54,7 @@ export function initNativeGamepad(): NativeGamepadHandle | null {
 
   const path = resolveNativeLibrary("downdraft_gamepad", {
     optional: true,
-    crateDir: join(_dirname, "..", "..", "native-gamepad"),
+    crateDir: join(packageRoot, "native-gamepad"),
     envVars: ["DD_GAMEPAD_LIB"],
     buildHint: 'run "cargo build -p downdraft-gamepad" from the repo root',
   });

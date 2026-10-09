@@ -180,11 +180,33 @@ async function devNative(parsed: any): Promise<void> {
   const repoRoot = findMonorepoRoot();
   if (repoRoot) env.DD_REPO_ROOT = repoRoot;
 
+  // Engine resolution mode: "downdraft-source" resolves @downdraft/* to
+  // linked TypeScript source (per-module transforms + full engine HMR) —
+  // the default in the monorepo. Everything else resolves the pre-built
+  // dist/ tree (externalized native ESM — near-zero transform cost, no
+  // engine-file HMR). --engine-source/--engine-dist override.
+  let engineSource: boolean;
+  if (parsed.flags["engine-source"]) engineSource = true;
+  else if (parsed.flags["engine-dist"]) engineSource = false;
+  else engineSource = !!repoRoot;
+  if (!engineSource && !engineDistExists(gameDir)) {
+    log.warn("draft",
+      "engine dist/ not found — run `bun run build:dist` in the engine repo " +
+      "(or reinstall @downdraft/engine); resolving engine from source.");
+    engineSource = true;
+  }
+  env.DD_ENGINE_SOURCE = engineSource ? "1" : "";
+  env.DD_ENGINE_DIST = engineSource ? "" : "1";
+  // Deno reads export conditions from the env (flag equivalent passed to
+  // spawnArgsFor below); the var also propagates to Deno workers.
+  if (engineSource) env.DENO_CONDITIONS = "downdraft-source";
+
   const { cmd, args } = spawnArgsFor(runtime, devShell, {
     configPath: runtime === "deno" ? findDenoConfig(gameDir, repoRoot) : undefined,
+    conditions: engineSource ? ["downdraft-source"] : [],
   });
 
-  log.info("draft", `dev ${game} — ${nativeEntry} (runtime=${runtime}, hmr)`);
+  log.info("draft", `dev ${game} — ${nativeEntry} (runtime=${runtime}, hmr, engine=${engineSource ? "source" : "dist"})`);
   if (verbose) log.info("draft", `dev shell: ${cmd} ${args.join(" ")}`);
 
   // Respawn loop: the dev shell exits with DD_RESTART_EXIT when a changed
@@ -199,6 +221,17 @@ async function devNative(parsed: any): Promise<void> {
       continue;
     }
     process.exit(code);
+  }
+}
+
+/** True when the resolved @downdraft/engine package has a pre-built dist/. */
+function engineDistExists(gameDir: string): boolean {
+  try {
+    const req = createRequire(join(gameDir, "package.json"));
+    const pkgRoot = dirname(req.resolve("@downdraft/engine/package.json"));
+    return existsSync(join(pkgRoot, "dist"));
+  } catch {
+    return false;
   }
 }
 

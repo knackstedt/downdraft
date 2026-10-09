@@ -12,6 +12,7 @@
 
 import { dlopen, ptr, readMappedRange, type CFunction } from "@downdraft/platform-native/ffi/ffi-adapter";
 import { resolveNativeLibrary } from "@downdraft/platform-native/ffi/lib-paths";
+import { findPackageRoot } from "@downdraft/engine/platform/pkg-root";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -23,7 +24,7 @@ const _dirname =
 function findOsrLibrary(): string | null {
   return resolveNativeLibrary("downdraft_blitz_osr", {
     envVars: ["DOWNDRAFT_OSR_LIB"],
-    crateDir: join(_dirname, "..", "native-osr"),
+    crateDir: join(findPackageRoot(_dirname), "libraries", "blitz-ui", "native-osr"),
     optional: true,
   });
 }

@@ -111,9 +111,14 @@ if (typeof (globalThis as any).Bun !== "undefined" && typeof (globalThis as any)
       // namespace gets cached as a package-looking specifier: re-resolution
       // wraps it in another "dd-css:<dir>" layer per ancestor walked, looping
       // forever at "/" until ENAMETOOLONG.
-      const stub = resolve(import.meta.dir, "css-stub.ts");
-      // NOTE: the stub is a .ts file specifically so the baked specifier never
+      // Prefer the .ts sibling in source layouts; the transpiled npm dist
+      // ships css-stub.js. Both are safe baked specifiers — neither
       // re-matches this /\.css$/ filter.
+      const { existsSync } = require("node:fs");
+      const tsStub = resolve(import.meta.dir, "css-stub.ts");
+      const stub = existsSync(tsStub)
+        ? tsStub
+        : resolve(import.meta.dir, "css-stub.js");
       build.onResolve({ filter: /\.css$/ }, () => ({ path: stub }));
       // Transpile-cache entries written by older versions still carry
       // "dd-css:<...>" specifiers — Bun routes those straight to the namespace

@@ -12,16 +12,10 @@
 
 import { createLogger } from "@downdraft/engine/util/logger";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { dlopen, ptr } from "../ffi/ffi-adapter";
-import { resolveNativeLibrary } from "../ffi/lib-paths";
+import { packageRoot, resolveNativeLibrary } from "../ffi/lib-paths";
 
 const log = createLogger("info");
-
-const _dirname =
-  typeof (globalThis as { __dirname?: string }).__dirname !== "undefined"
-    ? (globalThis as { __dirname: string }).__dirname
-    : join(fileURLToPath(import.meta.url), "..");
 
 export interface SecretsStore {
   /** Fetch a credential — null when absent or unavailable. */
@@ -49,7 +43,7 @@ export function initNativeSecrets(): SecretsStore | null {
 
   const path = resolveNativeLibrary("downdraft_secrets", {
     optional: true,
-    crateDir: join(_dirname, "..", "..", "native-secrets"),
+    crateDir: join(packageRoot, "native-secrets"),
     envVars: ["DD_SECRETS_LIB"],
     buildHint: 'run "cargo build -p downdraft-secrets" from the repo root',
   });

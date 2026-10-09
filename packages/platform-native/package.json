@@ -7,12 +7,14 @@
     "directory": "packages/platform-native"
   },
   "type": "module",
-  "main": "src/index.ts",
+  "main": "dist/src/index.js",
   "types": "src/index.ts",
   "scripts": {
     "build:native": "node ../../scripts/build-native.mjs --pkg=downdraft-platform",
+    "build:dist": "node ../../scripts/build-dist.mjs --pkg=platform-native",
     "fetch:native": "node native/fetch-native.mjs",
     "postinstall": "node native/fetch-native.mjs || echo '[platform-native] native fetch skipped (offline?) — run bun run fetch:native later'",
+    "prepublishOnly": "node ../../scripts/build-dist.mjs",
     "test": "bun test"
   },
   "dependencies": {
@@ -30,9 +32,17 @@
     "typescript": "^5"
   },
   "exports": {
-    ".": "./src/index.ts",
+    ".": {
+      "types": "./src/index.ts",
+      "downdraft-source": "./src/index.ts",
+      "default": "./dist/src/index.js"
+    },
     "./package.json": "./package.json",
-    "./*": "./src/*.ts",
+    "./*": {
+      "types": "./src/*.ts",
+      "downdraft-source": "./src/*.ts",
+      "default": "./dist/src/*.js"
+    },
     "./*.mjs": "./src/*.mjs",
     "./*.ts": "./src/*.ts"
   },
@@ -41,6 +51,7 @@
   },
   "files": [
     "src",
+    "dist",
     "native/fetch-native.mjs",
     "README.md",
     "!**/*.spec.ts",

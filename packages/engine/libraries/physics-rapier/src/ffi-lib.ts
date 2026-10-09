@@ -25,6 +25,7 @@ import type {
     IslandInfo
 } from "@downdraft/engine";
 import { dlopen, ptr, resolveNativeLibrary, type CFunction } from "@downdraft/platform-native";
+import { findPackageRoot } from "@downdraft/engine/platform/pkg-root";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { PhysicsLib } from "./rapier-backend";
@@ -37,7 +38,7 @@ const _dirname =
 function findPhysicsLibrary(): string {
   return resolveNativeLibrary("downdraft_physics", {
     envVars: ["DOWNDRAFT_PHYSICS_LIB", "PHYSICS_NATIVE_PATH"],
-    crateDir: join(_dirname, "..", "..", "physics-native", "native"),
+    crateDir: join(findPackageRoot(_dirname), "libraries", "physics-native", "native"),
     buildHint: 'run "bun run build:native" from the repo root',
   });
 }

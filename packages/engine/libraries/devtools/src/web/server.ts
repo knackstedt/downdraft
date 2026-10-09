@@ -14,6 +14,7 @@
 // ============================================================================
 
 import { createLogger } from "@downdraft/engine/util/logger";
+import { findPackageRoot } from "@downdraft/engine/platform/pkg-root";
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -77,7 +78,7 @@ export class DevToolsServer {
       throw new Error("DevToolsServer requires Bun.serve (Bun runtime)");
     }
     const webRoot = this.opts.webRoot ?? join(
-      dirname(fileURLToPath(import.meta.url)), "../../../../../devtools-web",
+      findPackageRoot(dirname(fileURLToPath(import.meta.url))), "..", "devtools-web",
     );
     const srv = (BunG as {
       serve(o: Record<string, unknown>): { port: number; stop(): void; upgrade(r: Request, o?: unknown): boolean };

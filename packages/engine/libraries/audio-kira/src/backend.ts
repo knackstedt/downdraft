@@ -9,6 +9,7 @@ import type {
     AudioSourceHandle,
 } from "@downdraft/engine";
 import { createLogger } from "@downdraft/engine";
+import { findPackageRoot } from "@downdraft/engine/platform/pkg-root";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -44,7 +45,7 @@ async function loadAudioLib(): Promise<AudioLib | null> {
     const { dlopen, ptr, resolveNativeLibrary } = await import("@downdraft/platform-native");
     const libPath = resolveNativeLibrary("downdraft_audio", {
       envVars: ["AUDIO_NATIVE_PATH"],
-      crateDir: join(dirname(fileURLToPath(import.meta.url)), "..", "native"),
+      crateDir: join(findPackageRoot(dirname(fileURLToPath(import.meta.url))), "libraries", "audio-kira", "native"),
       buildHint: 'run "bun run build:native" from the repo root',
       optional: true,
     });

@@ -92,6 +92,11 @@ if (typeof globalThis.Worker === "undefined") {
   try {
     execArgv.push("--import", createRequire(import.meta.url).resolve("tsx"));
   } catch { /* tsx absent — .ts children won't load */ }
+  // Mirror the parent shell's export-condition choice so nested workers
+  // resolve @downdraft/* to the same source/dist universe.
+  if (process.env.DD_ENGINE_SOURCE === "1") {
+    execArgv.push("--conditions=downdraft-source");
+  }
   execArgv.push("--import", wgslLoaderPath, "--import", import.meta.url);
   globalThis.Worker = class BrowserWorker extends NodeWorker {
     constructor(specifier, options) {

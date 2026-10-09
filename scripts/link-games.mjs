@@ -3,6 +3,7 @@
 // under games/. Games are separate repos (not part of this repo) — clone
 // them under games/ or run this anywhere a sibling games/ dir exists.
 // No-op where links already point at the right package or games/ is absent.
+import { spawnSync } from "node:child_process";
 import {
     existsSync,
     lstatSync,
@@ -89,3 +90,11 @@ for (const entry of readdirSync(gamesDir, { withFileTypes: true })) {
 
 warnings.forEach((w) => { console.warn(`link-games: ${w}`);; });
 console.log(`link-games: ${created} link(s) created, ${existing} already correct`);
+
+// The dist/ trees power `draft dev --engine-dist` and the published packages'
+// default export condition — build them once per link so they exist locally
+// (incremental: no-ops when sources are unchanged).
+if (!existsSync(join(root, "packages/engine/dist")) || !existsSync(join(root, "packages/platform-native/dist"))) {
+  const r = spawnSync("node", [join(root, "scripts/build-dist.mjs")], { stdio: "inherit" });
+  if (r.status !== 0) console.warn("link-games: build-dist failed — `draft dev --engine-dist` will fall back to source");
+}

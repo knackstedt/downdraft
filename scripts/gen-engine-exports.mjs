@@ -16,7 +16,7 @@
 // ============================================================================
 
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -31,6 +31,21 @@ const OVERRIDES = {
 
 // Non-source extensions that must map to themselves (not "*.ts").
 const PASSTHROUGH_EXTS = [".wgsl", ".css"];
+
+// ---------------------------------------------------------------------------
+// Dual-mode entries: every "*.ts" target becomes a condition object so that
+//   default          → dist/*.js   (npm installs, `draft dev --engine-dist`)
+//   downdraft-source → src/*.ts    (monorepo dev, `draft dev --engine-source`)
+//   types            → src/*.ts    (editor/TS resolution jumps to source)
+// Non-TS passthrough targets (wgsl, css, md, package.json, .mjs) stay plain
+// strings — identical content under both modes.
+// ---------------------------------------------------------------------------
+const SOURCE_CONDITION = "downdraft-source";
+const distTarget = (t) => `./dist/${t.slice(2)}`.replace(/\.ts$/, ".js");
+const asExports = (t) =>
+  t.endsWith(".ts")
+    ? { types: t, [SOURCE_CONDITION]: t, default: distTarget(t) }
+    : t;
 
 const hasExt = (dir, ext) => {
   for (const e of readdirSync(dir, { withFileTypes: true })) {
@@ -137,11 +152,15 @@ entries.push(["./*", "./core/src/*.ts"], ["./*.ts", "./core/src/*.ts"]);
 // ---------------------------------------------------------------------------
 const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
 const oldExports = pkg.exports ?? {};
-const newExports = Object.fromEntries(entries);
+const newExports = Object.fromEntries(
+  entries.map(([k, v]) => [k, asExports(v)]),
+);
 
 const added = Object.keys(newExports).filter((k) => !(k in oldExports));
 const removed = Object.keys(oldExports).filter((k) => !(k in newExports));
-const changed = Object.keys(newExports).filter((k) => oldExports[k] !== newExports[k]);
+const changed = Object.keys(newExports).filter(
+  (k) => JSON.stringify(oldExports[k]) !== JSON.stringify(newExports[k]),
+);
 
 if (checkOnly) {
   if (!added.length && !removed.length && !changed.length) {

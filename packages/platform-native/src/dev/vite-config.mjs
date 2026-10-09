@@ -266,6 +266,30 @@ export function loadHmrOptions(gameDir) {
 
 // ── Full dev config ─────────────────────────────────────────────────────────
 
+/** Export-map condition that resolves @downdraft/* packages to TypeScript
+ *  source instead of the pre-transpiled dist/ tree. Propagated to the child
+ *  process via `--conditions` (bun/node) / DENO_CONDITIONS (deno) so native
+ *  resolution (workers, externalized imports) sees the same universe. */
+export const SOURCE_CONDITION = "downdraft-source";
+
+/** Should the dev runner resolve engine packages from linked source
+ *  (per-module transforms + full HMR) or the pre-built dist (externalized,
+ *  near-zero transform cost, no engine-file HMR)?
+ *
+ *  Default: source inside the monorepo (repoRoot set), dist otherwise.
+ *  `draft dev --engine-source` / `--engine-dist` (DD_ENGINE_SOURCE /
+ *  DD_ENGINE_DIST env) override. */
+export function engineSourceMode(repoRoot) {
+  if (process.env.DD_ENGINE_DIST === "1") return false;
+  if (process.env.DD_ENGINE_SOURCE === "1") return true;
+  return !!repoRoot;
+}
+
+// Engine packages externalized when running in dist mode — their imports then
+// resolve through package.json exports (default → dist/*.js) as native ESM,
+// skipping the runner transform entirely.
+const ENGINE_PACKAGES = ["@downdraft/engine", "@downdraft/platform-native"];
+
 /**
  * Build the vite InlineConfig for the native dev shell.
  *
@@ -282,6 +306,7 @@ export function loadHmrOptions(gameDir) {
 export function buildNativeDevConfig(opts) {
   const { vite, gameDir, repoRoot, runtime, verbose, wgslRegistryPath, onEvent, entry } = opts;
   const hmr = loadHmrOptions(gameDir);
+  const engineSource = engineSourceMode(repoRoot);
 
   const simPaths = [...DEFAULT_SIM_PATTERNS, ...(hmr.simPaths ?? [])];
   const excludePaths = hmr.excludePaths ?? [];
@@ -321,8 +346,10 @@ export function buildNativeDevConfig(opts) {
         resolve: {
           // Runtime-specific exports first (e.g. a package's "bun" condition),
           // then browser — packages without a runtime export get their
-          // browser build, which is what the native surface expects.
-          conditions: [runtime, "browser", "module", "import", "default"],
+          // browser build, which is what the native surface expects. In
+          // source mode "downdraft-source" resolves @downdraft/* to .ts
+          // source; without it they resolve to dist/*.js.
+          conditions: [runtime, ...(engineSource ? [SOURCE_CONDITION] : []), "browser", "module", "import", "default"],
           // All node builtins (bare + node: prefixed), plus bun:/deno:/
           // npm: namespaces — vite's default server-consumer builtins cover
           // node+bun+npm but we replace the array, so re-add them here.
@@ -330,7 +357,11 @@ export function buildNativeDevConfig(opts) {
           // FFI + binary deps always resolve natively (never runner-evaluated).
           // Games declare extra native deps (NAPI addons, FFI modules, …)
           // via downdraft.config.json "native": { "external": [...] }.
-          external: ["koffi", ...(loadGameConfig(gameDir)?.native?.external ?? [])],
+          // In dist mode the engine packages externalize too — the runner
+          // then transforms only game source; engine imports land as native
+          // ESM on the pre-built dist/ tree (~0 transform cost).
+          external: ["koffi", ...(loadGameConfig(gameDir)?.native?.external ?? []),
+            ...(engineSource ? [] : ENGINE_PACKAGES)],
         },
         dev: {
           createEnvironment: (name, config, context) =>
@@ -380,18 +411,30 @@ export function buildNativeDevConfig(opts) {
 
 /** Resolve the engine's wgsl-hmr registry module file (for the ?raw
  *  boundary plugin). Pointing at the leaf module — not the render barrel —
- *  keeps module identity identical while avoiding a barrel re-eval. */
-export function resolveWgslRegistryPath(gameDir) {
+ *  keeps module identity identical while avoiding a barrel re-eval. The
+ *  registry module must live in the same universe as the code subscribing to
+ *  it: source (.ts) in source mode, dist (.js) in dist mode. */
+export function resolveWgslRegistryPath(gameDir, sourceMode) {
+  const source = sourceMode ?? engineSourceMode(process.env.DD_REPO_ROOT || null);
   try {
     const req = createRequire(join(gameDir, "package.json"));
-    // wgsl-hmr has no dedicated subpath export — resolve the render barrel
-    // (which re-exports it) then step to the sibling file.
-    const barrel = req.resolve("@downdraft/engine/render");
-    const leaf = join(dirname(barrel), "wgsl-hmr.ts");
+    // Locate the package root, then the leaf directly — wgsl-hmr has no
+    // dedicated subpath export, and the package layout is stable. Works for
+    // linked monorepo packages and npm installs alike (both ship src/).
+    const pkgRoot = dirname(req.resolve("@downdraft/engine/package.json"));
+    const leaf = source
+      ? join(pkgRoot, "core/src/render/wgsl-hmr.ts")
+      : join(pkgRoot, "dist/core/src/render/wgsl-hmr.js");
     if (existsSync(leaf)) return leaf;
+    // Layout fallback: resolve the render barrel (which re-exports it) and
+    // step to the sibling file.
+    const barrel = req.resolve("@downdraft/engine/render");
+    for (const l of ["wgsl-hmr.ts", "wgsl-hmr.js"]) {
+      const p = join(dirname(barrel), l);
+      if (existsSync(p)) return p;
+    }
     return barrel;
   } catch {
-    // Fallback: monorepo layout — engine source on disk.
     const guess = resolve(DEV_DIR, "../../engine/core/src/render/wgsl-hmr.ts");
     return existsSync(guess) ? guess : null;
   }
