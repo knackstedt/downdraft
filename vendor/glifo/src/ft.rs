@@ -107,7 +107,16 @@ fn library() -> Option<ft::FT_Library> {
     FT_LIB
         .get_or_init(|| unsafe {
             let mut lib = core::ptr::null_mut();
-            (ft::FT_Init_FreeType(&mut lib) == 0).then_some(FtLib(lib))
+            if ft::FT_Init_FreeType(&mut lib) != 0 {
+                return None;
+            }
+            // FT's LCD filter is off unless explicitly requested — without it
+            // FT_RENDER_MODE_LCD emits raw per-subpixel coverage, which shows
+            // as saturated red/blue fringes. FT_LCD_FILTER_DEFAULT is the
+            // 5-tap FIR Chrome uses (it lands coverage equally on neighbouring
+            // subpixels, muting the colour error at the cost of slight blur).
+            ft::FT_Library_SetLcdFilter(lib, ft::FT_LCD_FILTER_DEFAULT);
+            Some(FtLib(lib))
         })
         .map(|l| l.0)
 }
