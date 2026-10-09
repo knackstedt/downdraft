@@ -22,6 +22,8 @@ use kurbo::{Affine, BezPath, Rect, Shape};
 use peniko::color::palette::css::BLACK;
 use peniko::color::{AlphaColor, Srgb};
 use peniko::{Extend, ImageQuality, ImageSampler};
+#[cfg(feature = "freetype")]
+use peniko::{BlendMode, Compose, Mix};
 use vello_common::paint::{Image, ImageSource, Tint, TintMode};
 
 /// Outcome of a cache-first render attempt.
@@ -568,6 +570,107 @@ pub(crate) fn insert_and_render_ft_mask(
     };
     glyph_atlas.push_pending_upload(atlas_slot.image_id, mask, atlas_slot);
     render_outline_glyph_from_atlas(renderer, atlas_slot, outline_transform, tint_color);
+    true
+}
+
+/// Render an LCD subpixel glyph pair from the atlas (DownDraft patch).
+///
+/// Two-pass per-channel compositing of FreeType LCD masks:
+///   pass A draws `1 - mask` with Multiply  → dst *= (1 - mask.c)
+///   pass B draws `mask` tinted by the text color with additive Plus
+///          → dst += color.c * mask.c
+/// Net effect: `dst.c = dst.c*(1-mask.c) + color.c*mask.c` — the standard
+/// LCD blend. Both masks carry `a = max(subpixel coverage)` so semi-covered
+/// edge columns attenuate rather than punching opaque holes.
+#[cfg(feature = "freetype")]
+pub(crate) fn render_lcd_from_atlas(
+    renderer: &mut impl GlyphRenderer,
+    mask_slot: AtlasSlot,
+    inv_slot: AtlasSlot,
+    outline_transform: Affine,
+    tint_color: AlphaColor<Srgb>,
+) {
+    let [_, _, _, _, tx, ty] = outline_transform.as_coeffs();
+    let rect_transform = Affine::translate((
+        tx.floor() + mask_slot.bearing_x as f64,
+        ty.floor() + mask_slot.bearing_y as f64,
+    ));
+    let area = Rect::new(
+        0.0,
+        0.0,
+        mask_slot.width as f64,
+        mask_slot.height as f64,
+    );
+    let mk_image = |image| Image {
+        image,
+        sampler: ImageSampler {
+            x_extend: Extend::Pad,
+            y_extend: Extend::Pad,
+            quality: ImageQuality::Low,
+            alpha: 1.0,
+        },
+    };
+    let inv_image = mk_image(renderer.atlas_image_source(&inv_slot));
+    let inv_paint = renderer.atlas_paint_transform(&inv_slot);
+    let mask_image = mk_image(renderer.atlas_image_source(&mask_slot));
+    let mask_paint = renderer.atlas_paint_transform(&mask_slot);
+
+    let state = renderer.save_state();
+    renderer.set_transform(rect_transform);
+    // Bound the blend layers to the glyph rect.
+    renderer.push_clip_path(&area.to_path(0.1));
+
+    renderer.push_blend_layer(BlendMode::new(Mix::Multiply, Compose::SrcOver));
+    renderer.set_paint_transform(inv_paint);
+    renderer.set_paint_image(inv_image);
+    renderer.fill_rect(&area);
+    renderer.pop_layer();
+
+    renderer.push_blend_layer(BlendMode::new(Mix::Normal, Compose::Plus));
+    renderer.set_tint(Some(Tint {
+        color: tint_color,
+        mode: TintMode::Multiply,
+    }));
+    renderer.set_paint_transform(mask_paint);
+    renderer.set_paint_image(mask_image);
+    renderer.fill_rect(&area);
+    renderer.set_tint(None);
+    renderer.pop_layer();
+
+    renderer.pop_clip_path();
+    renderer.restore_state(state);
+}
+
+/// Insert an LCD mask pair into the atlas (two slots under variant keys) and
+/// render via [`render_lcd_from_atlas`]. DownDraft patch.
+#[cfg(feature = "freetype")]
+#[expect(clippy::too_many_arguments, reason = "mirrors insert_and_render_*")]
+pub(crate) fn insert_and_render_lcd(
+    renderer: &mut impl GlyphRenderer,
+    mask: Arc<Pixmap>,
+    inv: Arc<Pixmap>,
+    raster_metrics: RasterMetrics,
+    outline_transform: Affine,
+    mut mask_key: GlyphCacheKey,
+    mut inv_key: GlyphCacheKey,
+    glyph_atlas: &mut GlyphAtlas,
+    image_cache: &mut ImageCache,
+    tint_color: AlphaColor<Srgb>,
+) -> bool {
+    if !supports_atlas_caching(&outline_transform, CachedGlyphType::Outline) {
+        return false;
+    }
+    mask_key.variant = 1;
+    inv_key.variant = 2;
+    let Some((mask_slot, _)) = glyph_atlas.insert(image_cache, mask_key, raster_metrics) else {
+        return false;
+    };
+    let Some((inv_slot, _)) = glyph_atlas.insert(image_cache, inv_key, raster_metrics) else {
+        return false;
+    };
+    glyph_atlas.push_pending_upload(mask_slot.image_id, mask, mask_slot);
+    glyph_atlas.push_pending_upload(inv_slot.image_id, inv, inv_slot);
+    render_lcd_from_atlas(renderer, mask_slot, inv_slot, outline_transform, tint_color);
     true
 }
 

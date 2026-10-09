@@ -481,6 +481,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                     embolden_miter_limit_bits: 4.0_f32.to_bits(),
                     embolden_tolerance_bits: 0.1_f32.to_bits(),
                     var_coords: SmallVec::from_slice(normalized_coords),
+                    variant: 0,
                 });
 
                 if let Some(ref key) = cache_key
@@ -581,6 +582,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                     embolden_miter_limit_bits: 4.0_f32.to_bits(),
                     embolden_tolerance_bits: 0.1_f32.to_bits(),
                     var_coords: SmallVec::new(),
+                    variant: 0,
                 });
 
                 if let Some(ref key) = cache_key
@@ -624,8 +626,8 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
             // ── FreeType mask path (DownDraft patch) ────────────────────
             // For hinted fill runs, rasterize coverage masks with the real
             // FreeType engine (full TrueType X+Y hinting) instead of
-            // skrifa outlines. Masks land in the same atlas/cache path, so
-            // a hit on `outline_cache_key` above already serves FT masks.
+            // skrifa outlines. Masks land in the same atlas/cache path —
+            // the LCD variant occupies two slots under `variant` keys.
             #[cfg(feature = "freetype")]
             if hinted
                 && normalized_coords.is_empty()
@@ -633,28 +635,74 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                 && let AtlasCacher::Enabled(glyph_atlas, image_cache) = &mut self.atlas_cacher
                 && crate::ft::enabled()
             {
-                match crate::ft::rasterize(
-                    &self.prepared_run.font,
-                    glyph.id,
-                    draw_props.font_size,
-                    subpixel_offset(key.subpixel_x),
-                ) {
-                    Some(crate::ft::FtMask::Empty) => continue,
-                    Some(crate::ft::FtMask::Mask { pixmap, metrics }) => {
-                        if crate::renderer::insert_and_render_ft_mask(
+                let phase = subpixel_offset(key.subpixel_x);
+                if crate::ft::lcd_enabled() {
+                    // Cache-hit fast path for the two LCD slots.
+                    let mut key_mask = key.clone();
+                    key_mask.variant = 1;
+                    let mut key_inv = key.clone();
+                    key_inv.variant = 2;
+                    if let (Some(mask_slot), Some(inv_slot)) =
+                        (glyph_atlas.get(&key_mask), glyph_atlas.get(&key_inv))
+                    {
+                        crate::renderer::render_lcd_from_atlas(
                             renderer,
-                            pixmap,
-                            metrics,
+                            mask_slot,
+                            inv_slot,
                             outline_transform,
-                            key.clone(),
-                            glyph_atlas,
-                            image_cache,
                             context_color,
-                        ) {
-                            continue;
-                        }
+                        );
+                        continue;
                     }
-                    None => {}
+                    match crate::ft::rasterize_lcd(
+                        &self.prepared_run.font,
+                        glyph.id,
+                        draw_props.font_size,
+                        phase,
+                    ) {
+                        Some(crate::ft::FtMask::Empty) => continue,
+                        Some(crate::ft::FtMask::Lcd { mask, inv, metrics }) => {
+                            if crate::renderer::insert_and_render_lcd(
+                                renderer,
+                                mask,
+                                inv,
+                                metrics,
+                                outline_transform,
+                                key_mask,
+                                key_inv,
+                                glyph_atlas,
+                                image_cache,
+                                context_color,
+                            ) {
+                                continue;
+                            }
+                        }
+                        _ => {}
+                    }
+                } else {
+                    match crate::ft::rasterize(
+                        &self.prepared_run.font,
+                        glyph.id,
+                        draw_props.font_size,
+                        phase,
+                    ) {
+                        Some(crate::ft::FtMask::Empty) => continue,
+                        Some(crate::ft::FtMask::Mask { pixmap, metrics }) => {
+                            if crate::renderer::insert_and_render_ft_mask(
+                                renderer,
+                                pixmap,
+                                metrics,
+                                outline_transform,
+                                key.clone(),
+                                glyph_atlas,
+                                image_cache,
+                                context_color,
+                            ) {
+                                continue;
+                            }
+                        }
+                        _ => {}
+                    }
                 }
             }
 

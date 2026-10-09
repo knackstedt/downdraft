@@ -77,6 +77,10 @@ pub struct GlyphCacheKey {
     pub embolden_tolerance_bits: u32,
     /// Variation coordinates for variable fonts.
     pub var_coords: SmallVec<[NormalizedCoord; 4]>,
+    /// DownDraft patch: mask variant discriminator for LCD text rendering.
+    /// 0 = normal coverage mask, 1 = LCD RGB mask, 2 = LCD inverse mask.
+    /// LCD glyphs occupy two atlas slots under the same base key parameters.
+    pub variant: u8,
 }
 
 impl GlyphCacheKey {
@@ -112,6 +116,7 @@ impl GlyphCacheKey {
             embolden_miter_limit_bits: f32_bits(embolden.miter_limit),
             embolden_tolerance_bits: f32_bits(embolden.tolerance),
             var_coords: SmallVec::from_slice(var_coords),
+            variant: 0,
         }
     }
 }
@@ -135,6 +140,7 @@ impl Hash for GlyphCacheKey {
         self.embolden_join_bits.hash(state);
         self.embolden_miter_limit_bits.hash(state);
         self.embolden_tolerance_bits.hash(state);
+        self.variant.hash(state);
     }
 }
 
@@ -153,6 +159,7 @@ impl PartialEq for GlyphCacheKey {
             && self.embolden_join_bits == other.embolden_join_bits
             && self.embolden_miter_limit_bits == other.embolden_miter_limit_bits
             && self.embolden_tolerance_bits == other.embolden_tolerance_bits
+            && self.variant == other.variant
     }
 }
 

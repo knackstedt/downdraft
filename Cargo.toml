@@ -54,6 +54,12 @@ arboard = { path = "vendor/arboard" }
 # positions with per-phase atlas buckets (like Chrome grayscale) win.
 glifo = { path = "vendor/glifo" }
 
+# Vendored anyrender_vello_cpu 0.17.0 — upstream calls glyph_run() without
+# .atlas_cache(true), so glifo's atlas is disabled entirely and the FreeType
+# mask path (which uploads masks as pending atlas entries) can never engage.
+# vendor/anyrender_vello_cpu enables the atlas for fill glyph runs.
+anyrender_vello_cpu = { path = "vendor/anyrender_vello_cpu" }
+
 # `cargo build --release` stays fast for local dev. CI artifact builds use
 # `cargo build --profile dist` — fat LTO + single codegen unit, matching what
 # the old per-crate release profiles did for the blitz natives.

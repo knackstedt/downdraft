@@ -10,8 +10,12 @@
 //! same atlas slots the outline path uses, so compositing (AlphaMask tinting,
 //! subpixel-phase cache buckets) is shared.
 //!
-//! Enabled at runtime by default when the `freetype` cargo feature is on;
-//! set `DD_FREETYPE_TEXT=0` to disable.
+//! With `DD_LCD_TEXT` enabled (default), glyphs render as LCD subpixel masks
+//! (`FT_RENDER_MODE_LCD`, 3x horizontal coverage) and composite through a
+//! two-pass multiply+add blend for true per-channel subpixel AA.
+//!
+//! Runtime toggles: `DD_FREETYPE_TEXT=0` disables this module entirely,
+//! `DD_LCD_TEXT=0` disables the LCD variant (grayscale masks remain).
 
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -37,6 +41,17 @@ pub(crate) enum FtMask {
         /// `bearing_y` is the (negative) top edge in glyph space.
         metrics: RasterMetrics,
     },
+    /// Pair of RGB subpixel masks for LCD compositing:
+    /// `mask` has (r,g,b) = subpixel coverage, `inv` has (r,g,b) = 255-coverage.
+    /// Both use `a = max(r,g,b)` so blended fills respect coverage.
+    Lcd {
+        /// `mask.rgb` = per-subpixel coverage.
+        mask: Arc<Pixmap>,
+        /// `inv.rgb` = 1 - coverage (for the Multiply pass).
+        inv: Arc<Pixmap>,
+        /// Metrics in whole pixels (the LCD bitmap is 3x wider internally).
+        metrics: RasterMetrics,
+    },
 }
 
 impl core::fmt::Debug for FtMask {
@@ -45,6 +60,10 @@ impl core::fmt::Debug for FtMask {
             Self::Empty => f.write_str("FtMask::Empty"),
             Self::Mask { metrics, .. } => f
                 .debug_struct("FtMask::Mask")
+                .field("metrics", metrics)
+                .finish_non_exhaustive(),
+            Self::Lcd { metrics, .. } => f
+                .debug_struct("FtMask::Lcd")
                 .field("metrics", metrics)
                 .finish_non_exhaustive(),
         }
@@ -82,6 +101,7 @@ unsafe impl Sync for FtLib {}
 static FT_LIB: OnceLock<Option<FtLib>> = OnceLock::new();
 static FACES: Mutex<Option<HashMap<u64, FtFaceEntry>>> = Mutex::new(None);
 static ENABLED: OnceLock<bool> = OnceLock::new();
+static LCD_ENABLED: OnceLock<bool> = OnceLock::new();
 
 fn library() -> Option<ft::FT_Library> {
     FT_LIB
@@ -107,17 +127,42 @@ pub(crate) fn enabled() -> bool {
     })
 }
 
-/// Rasterize `glyph_id` from `font` at `ppem` pixels-per-em with a horizontal
-/// subpixel phase of `x_phase` (0..1, same quantization the atlas uses).
-///
-/// Returns `None` when FreeType cannot produce a grayscale mask for this
-/// glyph — the caller falls back to the normal outline path.
-pub(crate) fn rasterize(
+/// Whether LCD subpixel masks should be produced (implies [`enabled`]).
+pub(crate) fn lcd_enabled() -> bool {
+    enabled() && *LCD_ENABLED.get_or_init(|| match std::env::var("DD_LCD_TEXT") {
+        Ok(v) => !matches!(v.as_str(), "0" | "false" | "off"),
+        Err(_) => true,
+    })
+}
+
+/// A rendered FreeType bitmap borrowed from the glyph slot, normalized to
+/// plain row-major top-to-bottom bytes.
+struct FtBitmap {
+    /// 8-bit samples; `width` is the byte count per row (subpixels for LCD).
+    width: usize,
+    rows: usize,
+    pitch: i32,
+    buffer: *const u8,
+    /// `FT_PIXEL_MODE_*` of the rendered bitmap.
+    pixel_mode: u8,
+    /// Left bearing in whole pixels.
+    left: i32,
+    /// Top bearing in whole pixels (distance from baseline to top edge).
+    top: i32,
+}
+
+/// Load and render `glyph_id` in `font` at `ppem` with horizontal subpixel
+/// `x_phase`, returning the rendered bitmap view. `load_flags` selects the
+/// hinting target (e.g. `FT_LOAD_TARGET_LCD`) and `render_mode` the output
+/// format. Returns `None` on any FreeType failure.
+fn render_bitmap(
     font: &FontData,
     glyph_id: u32,
     ppem: f32,
     x_phase: f32,
-) -> Option<FtMask> {
+    load_flags: i32,
+    render_mode: ft::FT_Render_Mode,
+) -> Option<FtBitmap> {
     if !(0.5..=4096.0).contains(&ppem) {
         return None;
     }
@@ -177,11 +222,9 @@ pub(crate) fn rasterize(
     };
     unsafe { ft::FT_Set_Transform(face, core::ptr::null_mut(), &mut delta) };
 
-    // FT_LOAD_DEFAULT applies the font's bytecode at TARGET_NORMAL (grayscale).
-    let ok = unsafe { ft::FT_Load_Glyph(face, glyph_id, ft::FT_LOAD_DEFAULT) == 0 } && {
+    let ok = unsafe { ft::FT_Load_Glyph(face, glyph_id, load_flags) == 0 } && {
         let slot = unsafe { (*face).glyph };
-        !slot.is_null()
-            && unsafe { ft::FT_Render_Glyph(slot, ft::FT_RENDER_MODE_NORMAL) } == 0
+        !slot.is_null() && unsafe { ft::FT_Render_Glyph(slot, render_mode) } == 0
     };
     // Reset the translation so the face can be reused at other phases.
     let mut zero = ft::FT_Vector { x: 0, y: 0 };
@@ -189,8 +232,8 @@ pub(crate) fn rasterize(
     if !ok {
         return None;
     }
-    let slot = unsafe { (*face).glyph };
 
+    let slot = unsafe { (*face).glyph };
     let (width, rows, pitch, buffer, pixel_mode, left, top) = unsafe {
         let b = &(*slot).bitmap;
         (
@@ -205,22 +248,61 @@ pub(crate) fn rasterize(
     };
 
     if width == 0 || rows == 0 {
-        return Some(FtMask::Empty);
+        return Some(FtBitmap {
+            width: 0,
+            rows: 0,
+            pitch: 0,
+            buffer: core::ptr::null(),
+            pixel_mode: 0,
+            left,
+            top,
+        });
     }
-    if width > u16::MAX as usize || rows > u16::MAX as usize {
-        return None;
-    }
-    // Only the 8-bit grayscale mode maps onto our coverage-mask convention.
-    if pixel_mode != ft::FT_PIXEL_MODE_GRAY as i8 || buffer.is_null() {
+    if width > u16::MAX as usize || rows > u16::MAX as usize || buffer.is_null() {
         return None;
     }
 
-    let mut px: Vec<PremulRgba8> = Vec::with_capacity(width * rows);
-    for y in 0..rows {
+    Some(FtBitmap {
+        width,
+        rows,
+        pitch,
+        buffer: buffer as *const u8,
+        pixel_mode: pixel_mode as u8,
+        left,
+        top,
+    })
+}
+
+/// Rasterize a grayscale coverage mask.
+pub(crate) fn rasterize(
+    font: &FontData,
+    glyph_id: u32,
+    ppem: f32,
+    x_phase: f32,
+) -> Option<FtMask> {
+    // FT_LOAD_DEFAULT applies the font's bytecode at TARGET_NORMAL (grayscale).
+    let bmp = render_bitmap(
+        font,
+        glyph_id,
+        ppem,
+        x_phase,
+        ft::FT_LOAD_DEFAULT,
+        ft::FT_RENDER_MODE_NORMAL,
+    )?;
+    if bmp.width == 0 || bmp.rows == 0 {
+        return Some(FtMask::Empty);
+    }
+    // Only the 8-bit grayscale mode maps onto our coverage-mask convention.
+    if bmp.pixel_mode != ft::FT_PIXEL_MODE_GRAY as u8 {
+        return None;
+    }
+
+    let mut px: Vec<PremulRgba8> = Vec::with_capacity(bmp.width * bmp.rows);
+    for y in 0..bmp.rows {
         // FT pitch is signed — `buffer` always points at the top row and
         // advancing by `pitch` (possibly negative) reaches the next row.
-        let row = unsafe { buffer.offset(y as isize * pitch as isize) };
-        for x in 0..width {
+        let row = unsafe { bmp.buffer.offset(y as isize * bmp.pitch as isize) };
+        for x in 0..bmp.width {
             let v = unsafe { *row.add(x) };
             px.push(PremulRgba8 {
                 r: v,
@@ -230,15 +312,82 @@ pub(crate) fn rasterize(
             });
         }
     }
-    let pixmap = Arc::new(Pixmap::from_parts(px, width as u16, rows as u16));
+    let pixmap = Arc::new(Pixmap::from_parts(px, bmp.width as u16, bmp.rows as u16));
 
     Some(FtMask::Mask {
         pixmap,
         metrics: RasterMetrics {
-            width: width as u16,
-            height: rows as u16,
-            bearing_x: left as i16,
-            bearing_y: (-top) as i16,
+            width: bmp.width as u16,
+            height: bmp.rows as u16,
+            bearing_x: bmp.left as i16,
+            bearing_y: (-bmp.top) as i16,
+        },
+    })
+}
+
+/// Rasterize an LCD subpixel mask pair (mask + inverse) for two-pass
+/// per-channel compositing.
+///
+/// FreeType renders `width = 3 * cols` gray bytes per row (each byte one
+/// subpixel); we repack every triplet into one RGBA pixel so downstream
+/// sampling sees one whole pixel per display column. The default LCD filter
+/// may add one padding column on each side — `bitmap_left` already accounts
+/// for it, so metrics/bearings stay in whole pixels.
+pub(crate) fn rasterize_lcd(
+    font: &FontData,
+    glyph_id: u32,
+    ppem: f32,
+    x_phase: f32,
+) -> Option<FtMask> {
+    let bmp = render_bitmap(
+        font,
+        glyph_id,
+        ppem,
+        x_phase,
+        ft::FT_LOAD_TARGET_LCD,
+        ft::FT_RENDER_MODE_LCD,
+    )?;
+    if bmp.width == 0 || bmp.rows == 0 {
+        return Some(FtMask::Empty);
+    }
+    if bmp.pixel_mode != ft::FT_PIXEL_MODE_LCD as u8 || bmp.width % 3 != 0 {
+        return None;
+    }
+    let cols = bmp.width / 3;
+
+    let mut mask_px: Vec<PremulRgba8> = Vec::with_capacity(cols * bmp.rows);
+    let mut inv_px: Vec<PremulRgba8> = Vec::with_capacity(cols * bmp.rows);
+    for y in 0..bmp.rows {
+        let row = unsafe { bmp.buffer.offset(y as isize * bmp.pitch as isize) };
+        for c in 0..cols {
+            let (r, g, b) = unsafe {
+                (
+                    *row.add(3 * c),
+                    *row.add(3 * c + 1),
+                    *row.add(3 * c + 2),
+                )
+            };
+            let a = r.max(g).max(b);
+            mask_px.push(PremulRgba8 { r, g, b, a });
+            inv_px.push(PremulRgba8 {
+                r: 255 - r,
+                g: 255 - g,
+                b: 255 - b,
+                a,
+            });
+        }
+    }
+    let mask = Arc::new(Pixmap::from_parts(mask_px, cols as u16, bmp.rows as u16));
+    let inv = Arc::new(Pixmap::from_parts(inv_px, cols as u16, bmp.rows as u16));
+
+    Some(FtMask::Lcd {
+        mask,
+        inv,
+        metrics: RasterMetrics {
+            width: cols as u16,
+            height: bmp.rows as u16,
+            bearing_x: bmp.left as i16,
+            bearing_y: (-bmp.top) as i16,
         },
     })
 }
