@@ -11,6 +11,7 @@ only break in edge cases, and some of them are also only related to conversions 
 
 use crate::Pixmap;
 use crate::atlas::AtlasSlot;
+use crate::atlas::key::subpixel_offset;
 use crate::atlas::GlyphCacheKey;
 use crate::atlas::key::{SUBPIXEL_BITMAP, SUBPIXEL_COLR, pack_color};
 use crate::atlas::{GlyphAtlas, ImageCache};
@@ -618,6 +619,43 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                     ),
                 }
                 continue;
+            }
+
+            // ── FreeType mask path (DownDraft patch) ────────────────────
+            // For hinted fill runs, rasterize coverage masks with the real
+            // FreeType engine (full TrueType X+Y hinting) instead of
+            // skrifa outlines. Masks land in the same atlas/cache path, so
+            // a hit on `outline_cache_key` above already serves FT masks.
+            #[cfg(feature = "freetype")]
+            if hinted
+                && normalized_coords.is_empty()
+                && let Some(ref key) = outline_cache_key
+                && let AtlasCacher::Enabled(glyph_atlas, image_cache) = &mut self.atlas_cacher
+                && crate::ft::enabled()
+            {
+                match crate::ft::rasterize(
+                    &self.prepared_run.font,
+                    glyph.id,
+                    draw_props.font_size,
+                    subpixel_offset(key.subpixel_x),
+                ) {
+                    Some(crate::ft::FtMask::Empty) => continue,
+                    Some(crate::ft::FtMask::Mask { pixmap, metrics }) => {
+                        if crate::renderer::insert_and_render_ft_mask(
+                            renderer,
+                            pixmap,
+                            metrics,
+                            outline_transform,
+                            key.clone(),
+                            glyph_atlas,
+                            image_cache,
+                            context_color,
+                        ) {
+                            continue;
+                        }
+                    }
+                    None => {}
+                }
             }
 
             // ── Outline Glyphs ──────────────────────────────────────────
@@ -1645,8 +1683,20 @@ fn prepare_glyph_run<'a>(run: GlyphRun<'a>, hint_cache: &'a mut HintCache) -> Pr
     // embolden behind a cargo feature that also disables hinting; applying a
     // modest expansion here keeps hinting active (expand_path runs after the
     // hinted outline is produced) while compensating for the thin/wispy look
-    // of coverage-AA stems at ~1x density.
-    let font_embolden = if hinting_instance.is_some()
+    // of coverage-AA stems at ~1x density. Skipped when the FreeType mask
+    // path is active — real hinting produces correct stem density already.
+    let ft_on = {
+        #[cfg(feature = "freetype")]
+        {
+            crate::ft::enabled()
+        }
+        #[cfg(not(feature = "freetype"))]
+        {
+            false
+        }
+    };
+    let font_embolden = if !ft_on
+        && hinting_instance.is_some()
         && run.font_embolden.amount == Diagonal2::new(0.0, 0.0)
     {
         let amt = (0.012 * draw_font_size as f64).min(0.25);

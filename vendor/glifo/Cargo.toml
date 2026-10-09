@@ -54,6 +54,13 @@ std = [
     "vello_common/std",
     "skrifa/std",
 ]
+# DownDraft patch: rasterize text glyph masks with the real FreeType
+# rasterizer (full TrueType hinting) instead of skrifa outlines. Optional so
+# the crate stays no_std-capable and freetype-free for other consumers.
+freetype = [
+    "std",
+    "dep:freetype-sys",
+]
 
 [lib]
 name = "glifo"
@@ -65,6 +72,10 @@ features = ["derive"]
 
 [dependencies.core_maths]
 version = "0.1.1"
+optional = true
+
+[dependencies.freetype-sys]
+version = "0.23.0"
 optional = true
 
 [dependencies.foldhash]

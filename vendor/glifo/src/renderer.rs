@@ -13,7 +13,7 @@ use crate::glyph::{
 };
 use crate::interface::{DrawSink, GlyphRenderer};
 use crate::util::AffineExt;
-use crate::{kurbo, peniko};
+use crate::{Pixmap, kurbo, peniko};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 #[cfg(not(feature = "std"))]
@@ -541,6 +541,34 @@ fn render_outline_glyph_from_atlas(
             mode: TintMode::AlphaMask,
         }),
     );
+}
+
+/// Insert a FreeType-rendered coverage mask into the outline atlas and
+/// render it back with the same AlphaMask tint path as outline glyphs.
+///
+/// DownDraft patch: used instead of `insert_and_render_outline` when the
+/// `freetype` feature is enabled and FreeType produced a mask.
+#[cfg(feature = "freetype")]
+pub(crate) fn insert_and_render_ft_mask(
+    renderer: &mut impl GlyphRenderer,
+    mask: Arc<Pixmap>,
+    raster_metrics: RasterMetrics,
+    outline_transform: Affine,
+    cache_key: GlyphCacheKey,
+    glyph_atlas: &mut GlyphAtlas,
+    image_cache: &mut ImageCache,
+    tint_color: AlphaColor<Srgb>,
+) -> bool {
+    if !supports_atlas_caching(&outline_transform, CachedGlyphType::Outline) {
+        return false;
+    }
+    let Some((atlas_slot, _recorder)) = glyph_atlas.insert(image_cache, cache_key, raster_metrics)
+    else {
+        return false;
+    };
+    glyph_atlas.push_pending_upload(atlas_slot.image_id, mask, atlas_slot);
+    render_outline_glyph_from_atlas(renderer, atlas_slot, outline_transform, tint_color);
+    true
 }
 
 /// Render a bitmap glyph from the atlas cache.

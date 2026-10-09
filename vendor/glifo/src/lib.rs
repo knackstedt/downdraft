@@ -49,6 +49,8 @@ use vello_common::pixmap::Pixmap;
 
 pub mod atlas;
 mod colr;
+#[cfg(feature = "freetype")]
+mod ft;
 mod glyph;
 mod interface;
 pub mod renderer;

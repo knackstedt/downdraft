@@ -14,6 +14,9 @@ blitz-html = { git = "https://github.com/DioxusLabs/blitz", rev = "efef6519fe652
 blitz-dom = { git = "https://github.com/DioxusLabs/blitz", rev = "efef6519fe6520caf66dc82df557580eecbf652b", default-features = false, features = ["woff"] }
 blitz-traits = { git = "https://github.com/DioxusLabs/blitz", rev = "efef6519fe6520caf66dc82df557580eecbf652b" }
 blitz-paint = { git = "https://github.com/DioxusLabs/blitz", rev = "efef6519fe6520caf66dc82df557580eecbf652b", features = ["custom-widget"] }
+# Enable the vendored glifo's FreeType mask path (see [patch.crates-io] in the
+# workspace root). Feature unification turns it on inside vello_cpu's copy.
+glifo = { version = "0.2", features = ["freetype"] }
 anyrender_vello_cpu = "0.17.0"
 anyrender = "0.13.0"
 atomic_refcell = "0.1"
