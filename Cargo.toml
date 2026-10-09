@@ -44,6 +44,12 @@ license = "MIT"
 [patch.crates-io]
 arboard = { path = "vendor/arboard" }
 
+# Vendored freetype-sys 0.23.0 — its bundled build compiles libpng with
+# `-I libz-sys/src/zlib`, a stale path relative to the wrong crate dir.
+# Unix runners survive via system zlib.h; Windows (no system zlib) fails.
+# vendor/freetype-sys consumes libz-sys's cargo:include metadata instead.
+freetype-sys = { path = "vendor/freetype-sys" }
+
 # Vendored glifo 0.2.0 — text-quality patch for the html-ui stack:
 # - requests SmoothMode::Normal hinting (pixel grid) rather than Lcd
 #   (subpixel grid that vello_cpu's grayscale rasterizer never decimates to)
