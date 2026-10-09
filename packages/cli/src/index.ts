@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { createLogger } from "@downdraft/engine";
+import { createLogger, getLogTheme } from "@downdraft/engine";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { ArgError, print, renderHelp } from "./args";
@@ -18,6 +18,12 @@ import { runTest } from "./test";
 import { getCommand, renderTopLevelHelp } from "./usage";
 
 const log = createLogger();
+
+// Detect the log theme once against the real TTY and hand it to every
+// spawned child (dev shell, games, test runner) — their piped stdout can't
+// answer the OSC-11 probe, so without this they re-run blocking
+// gsettings/dbus probes per process. An explicit DD_LOG_THEME wins.
+process.env.DD_LOG_THEME ??= getLogTheme();
 
 // Read the CLI package version for --version output.
 function getCliVersion(): string {

@@ -445,6 +445,14 @@ let _theme: "light" | "dark" | undefined;
 function getTheme(): "light" | "dark" {
     if (_theme) return _theme;
 
+    // DD_LOG_THEME — `draft` detects the theme once (its stdout is the real
+    // TTY, so the OSC-11 probe works) and stamps it into the env of every
+    // spawned child. Piped-stdout processes (dev shell, games, workers)
+    // skip the subprocess probes — which would guess via gsettings/dbus and
+    // can disagree with the actual terminal background.
+    const forced = proc.env.DD_LOG_THEME;
+    if (forced === "dark" || forced === "light") return (_theme = forced);
+
     const colorfgbg = proc.env.COLORFGBG;
     if (colorfgbg) {
         const parts = colorfgbg.split(";");
@@ -524,6 +532,13 @@ function getTheme(): "light" | "dark" {
     }
 
     return (_theme = "dark");
+}
+
+/** The resolved log theme (env override → terminal/desktop probes → "dark").
+ *  Resolved once and cached — CLIs stamp it into DD_LOG_THEME so spawned
+ *  children inherit it without re-running the probes. */
+export function getLogTheme(): "light" | "dark" {
+    return getTheme();
 }
 
 export class ConsoleLogger implements Logger {

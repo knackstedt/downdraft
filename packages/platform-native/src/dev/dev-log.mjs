@@ -68,6 +68,11 @@ let _theme;
 function getTheme() {
   if (_theme) return _theme;
 
+  // DD_LOG_THEME — stamped by `draft` for spawned children; skip the
+  // subprocess probes (stdout here is a pipe, so OSC-11 can't work anyway).
+  const forced = proc.env.DD_LOG_THEME;
+  if (forced === "dark" || forced === "light") return (_theme = forced);
+
   const colorfgbg = proc.env.COLORFGBG;
   if (colorfgbg) {
     const parts = colorfgbg.split(";");
