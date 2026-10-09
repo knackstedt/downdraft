@@ -141,6 +141,14 @@ jobs:
         run: |
           FILTER="${{ inputs.filter }}"
           TAG="${{ inputs.tag }}"
+          # A pushed prerelease tag must not claim `latest`: when no explicit
+          # dispatch tag is given and the version carries a prerelease
+          # suffix, publish under `next` instead.
+          if [ -z "$TAG" ]; then
+            case "$(node -p "require('./packages/engine/package.json').version")" in
+              *-*) TAG=next ;;
+            esac
+          fi
           ARGS=""
           [ -n "$FILTER" ] && ARGS="--filter=$FILTER"
           [ -n "$TAG" ] && ARGS="$ARGS --tag=$TAG"

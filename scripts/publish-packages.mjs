@@ -90,7 +90,8 @@ for (let _i = 0, _it = order, _n = _it.length; _i < _n; _i++) { const name = _it
     continue;
   }
   const cmd = ["publish", "--access", "public", ...(tag ? ["--tag", tag] : [])];
-  if (!dryRun) cmd.push("--provenance");
+  // --provenance needs GitHub Actions OIDC (id-token: write) — skip locally.
+  if (!dryRun && process.env.GITHUB_ACTIONS === "true") cmd.push("--provenance");
   console.log(`${dryRun ? "would publish" : "publish"}  ${name}@${pkg.version}`);
   if (dryRun) continue;
   const r = spawnSync("npm", cmd, { cwd: dir, encoding: "utf8" });
