@@ -22,11 +22,11 @@
     "koffi": "^3.2.1"
   },
   "optionalDependencies": {
-    "@downdraft/native-darwin-arm64": "^0.1.2-alpha.1",
-    "@downdraft/native-darwin-x64": "^0.1.2-alpha.1",
-    "@downdraft/native-linux-arm64": "^0.1.2-alpha.1",
-    "@downdraft/native-linux-x64": "^0.1.2-alpha.1",
-    "@downdraft/native-win32-x64": "^0.1.2-alpha.1"
+    "@downdraft/native-darwin-arm64": "^0.1.2-alpha.3",
+    "@downdraft/native-darwin-x64": "^0.1.2-alpha.3",
+    "@downdraft/native-linux-arm64": "^0.1.2-alpha.3",
+    "@downdraft/native-linux-x64": "^0.1.2-alpha.3",
+    "@downdraft/native-win32-x64": "^0.1.2-alpha.3"
   },
   "devDependencies": {
     "typescript": "^5"

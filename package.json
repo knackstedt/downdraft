@@ -31,7 +31,7 @@
   "devDependencies": {
     "@downdraft/cli": "workspace:*",
     "@downdraft/engine": "workspace:*",
-    "@downdraft/platform-native": "^0.1.0",
+    "@downdraft/platform-native": "workspace:*",
     "@napi-rs/cli": "^2.18.0",
     "@types/bun": "^1.4.2",
     "@types/node": "^22.10.0",
