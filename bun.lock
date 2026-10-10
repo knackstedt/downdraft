@@ -61,7 +61,7 @@
       },
       "dependencies": {
         "@aws-sdk/client-s3": "^3.700.0",
-        "@downdraft/engine": "^0.1.2-alpha.3",
+        "@downdraft/engine": "^0.2.0",
         "eta": "^3.5.0",
         "jimp": "^1.6.1",
         "resedit": "3.1.0",
@@ -167,6 +167,16 @@
     "@downdraft/cli": ["@downdraft/cli@workspace:packages/cli"],
 
     "@downdraft/engine": ["@downdraft/engine@workspace:packages/engine"],
+
+    "@downdraft/native-darwin-arm64": ["@downdraft/native-darwin-arm64@0.2.0", "", { "os": "darwin", "cpu": "arm64" }, "sha512-FpcMjARLJRF4zJjXY0KcI+D1REHs92gS17xNrShvQYfIg2Z+ps15wQNA3usn9dSLRjT0Mby0s/pxJUIoI9+Y7g=="],
+
+    "@downdraft/native-darwin-x64": ["@downdraft/native-darwin-x64@0.2.0", "", { "os": "darwin", "cpu": "x64" }, "sha512-wAUbdL3OcFMd2JHogZ5gfXnteIsUweFLu0cEln0h4TkPTOv8Tj8wzDsVsmG8gXP0ANiRgWavRZgcgAUDMZ8Azw=="],
+
+    "@downdraft/native-linux-arm64": ["@downdraft/native-linux-arm64@0.2.0", "", { "os": "linux", "cpu": "arm64" }, "sha512-RUY69ICKGFSZrLqtiGprg92ONBqh3Isdi/pW03mxAoPLbg2CKoJCH7+opILPEtW1Oo1auspXcBYVWgdf5PdvHg=="],
+
+    "@downdraft/native-linux-x64": ["@downdraft/native-linux-x64@0.2.0", "", { "os": "linux", "cpu": "x64" }, "sha512-q+yNcnu/M58T2ELzHskK4T/XptJIS7oGPhp3pmOorkyt9CzME3d5loKcaFzW+5e0GmBtW/rUHRJDQ1nEEtDkQA=="],
+
+    "@downdraft/native-win32-x64": ["@downdraft/native-win32-x64@0.2.0", "", { "os": "win32", "cpu": "x64" }, "sha512-YvJG4cc9QTCW/L9QCXK05GulADYALjl21aDoxSPHjDLgtLAMAxrpY73qm1R1SCh3NI/WvM5pbQCYIQbnyVP8PQ=="],
 
     "@downdraft/platform-native": ["@downdraft/platform-native@workspace:packages/platform-native"],
 

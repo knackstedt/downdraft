@@ -91,9 +91,11 @@ jobs:
           TAG="${GITHUB_REF_NAME#v}"
           node -e '
             const {readdirSync, existsSync, readFileSync} = require("fs");
-            const ver = require("./packages/engine/package.json").version;
+            // The root package.json version is the source of truth —
+            // scripts/bump-version.mjs syncs every package to it.
+            const ver = require("./package.json").version;
             if ("'$TAG'" !== ver) {
-              console.error(`tag ${"'$TAG'"} does not match @downdraft/engine@${ver}`);
+              console.error(`tag ${"'$TAG'"} does not match root version ${ver}`);
               process.exit(1);
             }
             for (const d of readdirSync("packages")) {
@@ -101,7 +103,7 @@ jobs:
               if (!existsSync(f)) continue;
               const p = JSON.parse(readFileSync(f, "utf8"));
               if (p.name?.startsWith("@downdraft/") && !p.private && p.version !== ver) {
-                console.error(`${p.name}@${p.version} is out of lockstep with engine@${ver}`);
+                console.error(`${p.name}@${p.version} is out of lockstep with root@${ver}`);
                 process.exit(1);
               }
             }
@@ -150,7 +152,7 @@ jobs:
           # dispatch tag is given and the version carries a prerelease
           # suffix, publish under `next` instead.
           if [ -z "$TAG" ]; then
-            case "$(node -p "require('./packages/engine/package.json').version")" in
+            case "$(node -p "require('./package.json').version")" in
               *-*) TAG=next ;;
             esac
           fi

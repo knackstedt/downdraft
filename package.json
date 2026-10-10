@@ -1,6 +1,6 @@
 {
   "name": "downdraft-engine",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "AI-Driven Game Engine — native winit + wgpu runtime (Bun, Node, or Deno host)",
   "license": "MIT",
   "type": "module",
@@ -15,6 +15,7 @@
     "tsc": "tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.node.json --noEmit",
     "tsc:e2e": "tsc -p tsconfig.e2e.json --noEmit",
     "build:native": "node scripts/build-native.mjs",
+    "bump:version": "node scripts/bump-version.mjs",
     "build:dist": "node scripts/build-dist.mjs",
     "gen:deno-import-map": "node scripts/gen-deno-import-map.mjs",
     "gen:engine-exports": "node scripts/gen-engine-exports.mjs",
