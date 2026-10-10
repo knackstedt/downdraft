@@ -275,7 +275,18 @@ pub fn translate_window_event(
     _el: &winit::event_loop::ActiveEventLoop,
 ) {
     match ev {
-        WindowEvent::CloseRequested => push(Ev::Quit),
+        WindowEvent::CloseRequested => {
+            // Unmap NOW — after the quit event reaches it, JS runs seconds
+            // of teardown (close listeners, surface/device release, worker
+            // stops) before sdl_shim_destroy_window drops the window. The
+            // wgpu surface holds its own Arc<Window>, so ctx.window can't
+            // be dropped here — hiding reads as an instant close while the
+            // process finishes terminating behind it.
+            if let Some(w) = &ctx.window {
+                w.set_visible(false);
+            }
+            push(Ev::Quit);
+        }
 
         WindowEvent::Resized(size) => {
             push(Ev::Resize {

@@ -643,6 +643,13 @@ pub extern "C" fn sdl_shim_get_display_info(refresh_out: *mut c_int, scale_out: 
 #[no_mangle]
 pub extern "C" fn sdl_shim_request_quit() {
     ffi!((), {
+        // Same contract as CloseRequested: hide immediately so the window
+        // doesn't sit mapped through JS teardown (see events.rs).
+        with_ctx(|ctx| {
+            if let Some(w) = &ctx.window {
+                w.set_visible(false);
+            }
+        });
         events::push(Ev::Quit);
     });
 }
@@ -763,6 +770,13 @@ pub extern "C" fn sdl_shim_destroy_window() {
     ffi!((), {
         events::clear();
         if let Some(ctx) = CTX.lock().unwrap().as_mut() {
+            // A live wgpu surface holds its own Arc<Window> — if it wasn't
+            // released first, the drop below leaves the window mapped.
+            // Hiding guarantees the window is gone from the screen either
+            // way; the OS window itself dies with the last Arc.
+            if let Some(w) = &ctx.window {
+                w.set_visible(false);
+            }
             ctx.window = None;
         }
         // Keep EVENT_LOOP alive — winit allows exactly one EventLoop per
