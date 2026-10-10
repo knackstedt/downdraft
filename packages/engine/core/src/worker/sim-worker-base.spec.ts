@@ -8,6 +8,8 @@ import { beforeEach, describe, expect, it } from "bun:test";
 interface PostedMessage {
   __rpc?: true;
   __event?: true;
+  __eventBatch?: true;
+  events?: { kind: string; data: any }[];
   id?: number;
   result?: unknown;
   error?: string;
@@ -40,8 +42,19 @@ async function rpc(method: string, ...args: any[]): Promise<unknown> {
   return res.result;
 }
 
-function eventsOf(kind: string): PostedMessage[] {
-  return posted.filter((m) => m.__event === true && m.kind === kind);
+async function eventsOf(kind: string): Promise<PostedMessage[]> {
+  // Batched events flush on a macrotask — yield once so pending queue posts.
+  await new Promise((r) => setTimeout(r, 0));
+  const out: PostedMessage[] = [];
+  for (const m of posted) {
+    if (m.__event === true && m.kind === kind) out.push(m);
+    if (m.__eventBatch === true) {
+      for (const ev of m.events ?? []) {
+        if (ev.kind === kind) out.push({ __event: true, kind: ev.kind, data: ev.data });
+      }
+    }
+  }
+  return out;
 }
 
 function fakeStore() {
@@ -138,15 +151,15 @@ describe("createSimWorker save/command plumbing", () => {
     await rpc("sendCommand", { type: "spawn", id: 7 });
     expect(lastCmd).toEqual({ type: "spawn", id: 7 });
 
-    expect(eventsOf("saved").length).toBe(1);
-    const savedEvt = eventsOf("saved")[0].data as {
+    expect((await eventsOf("saved")).length).toBe(1);
+    const savedEvt = (await eventsOf("saved"))[0].data as {
       slotName: string; meta?: { entityCount?: number }; origin?: string;
     };
     expect(savedEvt.meta?.entityCount).toBe(3);
     // Renderer-initiated saves are tagged so game "saved" handlers don't
     // double-write them (the caller already persists the payload).
     expect(savedEvt.origin).toBe("renderer");
-    expect(eventsOf("loaded").length).toBe(1);
+    expect((await eventsOf("loaded")).length).toBe(1);
     await rpc("shutdown");
   });
 

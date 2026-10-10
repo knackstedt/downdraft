@@ -52,7 +52,7 @@ import type {
     GCController
 } from "../telemetry/gc-controller";
 import { createLogger } from "../util/logger";
-import { expose, exposeEvents, type WorkerApi } from "./rpc";
+import { expose, exposeBatchedEvents, type WorkerApi } from "./rpc";
 
 const log = createLogger();
 
@@ -465,7 +465,7 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
   // Serializes withLoopStopped critical sections.
   let stopChain: Promise<unknown> = Promise.resolve();
 
-  const events = exposeEvents();
+  const events = exposeBatchedEvents();
 
   // Deterministic RNG — reseedable via control.setSeed(); the stable `rng`
   // closure is what ctx.rng and the Math.random shim draw from.
@@ -750,6 +750,9 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
       syncWorker = null; // release sync worker reference
       saveStore = null;
       await opts.onShutdown?.();
+      // Drain any events queued during onShutdown so they aren't lost to
+      // a flush timer the terminating worker never runs.
+      events.flush();
     },
 
     async setSpeed(speed: number): Promise<void> {

@@ -90,7 +90,7 @@ export { EntitySimWorkerHost } from "./worker/entity-sim-worker-host";
 export type { EntitySimApi, EntitySimHostOptions } from "./worker/entity-sim-worker-host";
 export { exposeProfilingApi, InstrumentedWorkerHost } from "./worker/instrumented-worker-host";
 export type { InstrumentedWorkerHostOptions } from "./worker/instrumented-worker-host";
-export { expose, exposeEvents, getWorkerHost, wrap } from "./worker/rpc";
+export { expose, exposeBatchedEvents, exposeEvents, getWorkerHost, wrap } from "./worker/rpc";
 export type { ExposeOptions, HostMessageHandler, WorkerApi, WorkerEventEmitter, WorkerHost, WorkerProxy } from "./worker/rpc";
 export { createSimWorker } from "./worker/sim-worker-base";
 export type { CreateSimWorkerOptions, SimAfterTicksContext, SimTickContext, SimWorkerControl, SimWorkerStats } from "./worker/sim-worker-base";

@@ -92,6 +92,11 @@ interface EventMessage {
   data: any;
 }
 
+interface EventBatchMessage {
+  __eventBatch: true;
+  events: { kind: string; data: any }[];
+}
+
 function isRpcRequest(msg: any): msg is RpcRequest {
   return msg && msg.__rpc === true && typeof msg.method === "string";
 }
@@ -102,6 +107,10 @@ function isRpcResponse(msg: any): msg is RpcResponse {
 
 function isEventMessage(msg: any): msg is EventMessage {
   return msg && msg.__event === true;
+}
+
+function isEventBatchMessage(msg: any): msg is EventBatchMessage {
+  return msg && msg.__eventBatch === true;
 }
 
 // --- Worker side: expose an API object ---
@@ -143,6 +152,42 @@ export function exposeEvents(host?: WorkerHost): WorkerEventEmitter {
     emit: (kind: string, data: any) => {
       h.postToHost({ __event: true, kind, data } as EventMessage);
     },
+  };
+}
+
+export interface BatchedWorkerEventEmitter extends WorkerEventEmitter {
+  /** Post any queued events immediately. */
+  flush: () => void;
+}
+
+/**
+ * Event emitter that coalesces emit() calls into a single `__eventBatch`
+ * postMessage per macrotask. A sim emitting per-tick or per-entity events
+ * otherwise produces one structured clone + one main-thread task per event,
+ * and the task burst competes with rAF. Events emitted during a tick batch
+ * (the worker never yields to timers mid-tick) all land in one message;
+ * events emitted between ticks flush on the next macrotask, so latency for
+ * isolated events is unchanged.
+ */
+export function exposeBatchedEvents(host?: WorkerHost): BatchedWorkerEventEmitter {
+  const h = host ?? getWorkerHost();
+  let queue: { kind: string; data: any }[] = [];
+  let flushScheduled = false;
+  const flush = () => {
+    flushScheduled = false;
+    if (queue.length === 0) return;
+    h.postToHost({ __eventBatch: true, events: queue } as EventBatchMessage);
+    queue = [];
+  };
+  return {
+    emit: (kind: string, data: any) => {
+      queue.push({ kind, data });
+      if (!flushScheduled) {
+        flushScheduled = true;
+        setTimeout(flush, 0);
+      }
+    },
+    flush,
   };
 }
 
@@ -197,10 +242,13 @@ export function wrap<T extends WorkerApi>(worker: AnyWorker, options?: WrapOptio
       return;
     }
 
-    if (isEventMessage(msg)) {
-      for (const cb of eventListeners.values()) {
-        try { cb(msg.kind, msg.data); } catch (err) {
-          log.error("worker-proxy", `Event listener error: ${err}`);
+    if (isEventMessage(msg) || isEventBatchMessage(msg)) {
+      const events = isEventBatchMessage(msg) ? msg.events : [msg];
+      for (const ev of events) {
+        for (const cb of eventListeners.values()) {
+          try { cb(ev.kind, ev.data); } catch (err) {
+            log.error("worker-proxy", `Event listener error: ${err}`);
+          }
         }
       }
     }
