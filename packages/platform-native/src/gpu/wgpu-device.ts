@@ -95,6 +95,10 @@ async function awaitGpuOp(token: number | bigint, instancePtr: ptr): Promise<ptr
 // pump, device.lost never resolves on native and the entire loss-recovery
 // path (GameRenderer.recoverDevice, game .lost handlers) is dead code.
 const liveDevices = new Set<WgpuDevice>();
+/** Shared scratch for pollLost's native message read — the FFI call needs a
+ *  buffer even when the device is live, and pollLost runs once per runLoop
+ *  iteration per device; allocating per call was pure GC churn. */
+const lostMsgScratch = new Uint8Array(512);
 
 /** Poll the native device-lost flag on every live device. Called once per
  *  frame by the NativeWindow event loop. */
@@ -401,12 +405,11 @@ export class WgpuDevice {
    */
   pollLost(): void {
     if (this._lostReported || this.destroyed) return;
-    const msgBuf = new Uint8Array(512);
-    const reason = wgpu.wgpu_shim_device_poll_lost(this.ptr, msgBuf as unknown as ptr, msgBuf.length);
+    const reason = wgpu.wgpu_shim_device_poll_lost(this.ptr, lostMsgScratch as unknown as ptr, lostMsgScratch.length);
     if (reason === 0) return;
     this._lostReported = true;
     this.writeDead();
-    const message = new TextDecoder().decode(msgBuf).replace(/\0.*$/, "") || "wgpu device lost";
+    const message = new TextDecoder().decode(lostMsgScratch).replace(/\0.*$/, "") || "wgpu device lost";
     // WGPUDeviceLostReason: Unknown=1, Destroyed=2, CallbackCancelled=3,
     // FailedCreation=4. GPUDeviceLostInfo only knows "unknown"/"destroyed".
     this.resolveLost({

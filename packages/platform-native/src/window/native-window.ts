@@ -512,44 +512,34 @@ export class NativeWindow extends MiniEventTarget {
       }
     }
 
-    // Poll SDL events until the queue is drained.
-    let eventType: number;
-    let sawEvent = false;
-    do {
-      eventType = sdl.sdl_shim_poll_event(this.eventData as any);
-      if (eventType !== SDL_EVENT_NONE) {
-        sawEvent = true;
-        this.safeHandleEvent(eventType, this.eventView, this.eventFloatView);
-      }
-    } while (eventType !== SDL_EVENT_NONE);
-
-    // Wait on the SDL event queue instead of busy-spinning through
-    // setImmediate whenever this iteration has no due work:
+    // Wait on the SDL event queue up front — wait_event pops a queued event
+    // without blocking (the Rust side takes before pumping), so a backlog
+    // costs no sleep; it only blocks when the queue is empty. This replaces
+    // the old drain-then-wait pair, which paid a second winit pump on every
+    // idle iteration:
     //   - no rAF pending → the original 4ms idle poll;
     //   - rAF pending but the frame interval hasn't elapsed → sleep the
     //     remainder of the interval, capped at 4ms so JS timers and the MCP
     //     server stay responsive between frames.
-    if (!sawEvent) {
-      let waitMs = 4;
-      if (this.rafCallbacks.size > 0) {
-        const remain = this.lastRafDispatch + this.frameInterval() - (performance.now() - this.startTime);
-        // floor() — never overshoot the deadline. The remaining sub-ms tail
-        // is absorbed by the setImmediate loop re-checking the dispatch gate.
-        waitMs = remain > RAF_DISPATCH_EPSILON_MS ? Math.min(4, Math.floor(remain)) : 0;
+    let waitMs = 4;
+    if (this.rafCallbacks.size > 0) {
+      const remain = this.lastRafDispatch + this.frameInterval() - (performance.now() - this.startTime);
+      // floor() — never overshoot the deadline. The remaining sub-ms tail
+      // is absorbed by the setImmediate loop re-checking the dispatch gate.
+      waitMs = remain > RAF_DISPATCH_EPSILON_MS ? Math.min(4, Math.floor(remain)) : 0;
+    }
+    // waitMs === 0 means a frame is due — drain without blocking. Otherwise
+    // block for waitMs; an event return drains the rest of its burst. A
+    // timeout means the wait's pump already drained the OS queue — a
+    // follow-up poll would just pay a second pump for nothing.
+    if (waitMs > 0) {
+      const wt = sdl.sdl_shim_wait_event(this.eventData as any, waitMs);
+      if (wt !== SDL_EVENT_NONE) {
+        this.safeHandleEvent(wt, this.eventView, this.eventFloatView);
+        this.drainEvents();
       }
-      if (waitMs > 0) {
-        const wt = sdl.sdl_shim_wait_event(this.eventData as any, waitMs);
-        if (wt !== SDL_EVENT_NONE) {
-          this.safeHandleEvent(wt, this.eventView, this.eventFloatView);
-          // Drain anything that arrived behind it.
-          do {
-            eventType = sdl.sdl_shim_poll_event(this.eventData as any);
-            if (eventType !== SDL_EVENT_NONE) {
-              this.safeHandleEvent(eventType, this.eventView, this.eventFloatView);
-            }
-          } while (eventType !== SDL_EVENT_NONE);
-        }
-      }
+    } else {
+      this.drainEvents();
     }
 
     // Apply the newest pending resize once — never mid-event-drain, so the
@@ -618,6 +608,19 @@ export class NativeWindow extends MiniEventTarget {
 
     // Schedule next frame
     scheduleImmediate(() => this.runLoop());
+  }
+
+  /** Pop queued SDL events until the queue is empty. With take-before-pump
+   *  in the shim, a backlog costs zero winit pumps — only the final empty
+   *  take pumps (and returns whatever that pump enqueued). */
+  private drainEvents(): void {
+    let eventType: number;
+    do {
+      eventType = sdl.sdl_shim_poll_event(this.eventData as any);
+      if (eventType !== SDL_EVENT_NONE) {
+        this.safeHandleEvent(eventType, this.eventView, this.eventFloatView);
+      }
+    } while (eventType !== SDL_EVENT_NONE);
   }
 
   private modifiers(mod: number) {

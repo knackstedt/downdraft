@@ -291,10 +291,19 @@ fn no_window() -> bool {
 /// `timeout` bounds the pump's wait: `Some(ZERO)` = SDL_PollEvent (never
 /// blocks); a real duration = SDL_WaitEventTimeout. winit's `pump_app_events`
 /// treats `None` as "wait indefinitely", so `None` must never be passed.
+///
+/// Take before pumping: the JS side drains the queue in a loop, and pumping
+/// per pop cost one `pump_app_events` (OS poll syscall + dispatch) per queued
+/// event — hundreds of extra syscalls per frame under an input flood. A
+/// queued event returns without touching winit; only an empty queue pays the
+/// pump, which then enqueues the whole OS burst for subsequent takes.
 #[cfg(not(target_os = "android"))]
 fn emit(out_data: *mut c_void, timeout: Option<Duration>) -> c_int {
     if no_window() {
         return events::NONE;
+    }
+    if let Some(ev) = take() {
+        return events::write(ev, out_data);
     }
     pump(timeout);
     take()

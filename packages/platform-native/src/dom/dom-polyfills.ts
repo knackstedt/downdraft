@@ -438,29 +438,65 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
         }
         super(filename, { ...options, execArgv: workerExecArgv });
       }
-      set onmessage(handler: (ev: any) => void) {
-        this.on("message", (data: any) => handler({ data }));
+      // Event-argument adapters wrap listeners for "message"/"error"/
+      // "messageerror" — the wrapper is what Node registers, so removal must
+      // go through a lookup of the wrapped fn (previously removeEventListener
+      // passed the raw listener to off() and silently removed nothing,
+      // leaking a listener per wrap()/expose() call and firing dead closures
+      // on every message for the worker's lifetime).
+      private __wrappers: Map<any, Map<string, (...args: any[]) => void>> | null = null;
+      private __onWrap: Record<string, ((...args: any[]) => void) | null> | null = null;
+      private __wrap(type: string, listener: any): (...args: any[]) => void {
+        if (type === "error") {
+          return (err: any) => listener({ error: err, message: err?.message ?? String(err) });
+        }
+        if (type === "message" || type === "messageerror") {
+          return (data: any) => listener({ data });
+        }
+        return listener;
       }
-      set onerror(handler: (ev: any) => void) {
-        this.on("error", (err: any) => handler({ error: err, message: err?.message ?? String(err) }));
+      private __setHandler(type: string, handler: any): void {
+        // Field initializers run after super() — if a base-class constructor
+        // ever assigns `onmessage`, this setter fires before __onWrap exists.
+        const onWrap = (this.__onWrap ??= { message: null, error: null, messageerror: null });
+        const prev = onWrap[type];
+        if (prev) this.off(type, prev);
+        // Browser semantics: assignment replaces (and null clears) — the old
+        // implementation stacked a listener per assignment.
+        onWrap[type] = handler ? this.__wrap(type, handler) : null;
+        if (onWrap[type]) this.on(type, onWrap[type]!);
       }
-      set onmessageerror(handler: (ev: any) => void) {
-        this.on("messageerror", (data: any) => handler({ data }));
+      set onmessage(handler: ((ev: any) => void) | null) {
+        this.__setHandler("message", handler);
+      }
+      set onerror(handler: ((ev: any) => void) | null) {
+        this.__setHandler("error", handler);
+      }
+      set onmessageerror(handler: ((ev: any) => void) | null) {
+        this.__setHandler("messageerror", handler);
       }
       // Browser Worker API: addEventListener / removeEventListener
       addEventListener(type: string, listener: any) {
-        if (type === "message") {
-          this.on("message", (data: any) => listener({ data }));
-        } else if (type === "error") {
-          this.on("error", (err: any) => listener({ error: err, message: err?.message ?? String(err) }));
-        } else if (type === "messageerror") {
-          this.on("messageerror", (data: any) => listener({ data }));
-        } else {
-          this.on(type, listener);
+        const wrappers = (this.__wrappers ??= new Map());
+        let byType = wrappers.get(listener);
+        if (!byType) {
+          byType = new Map();
+          wrappers.set(listener, byType);
         }
+        // DOM semantics: adding the same (type, listener) pair twice is a
+        // no-op — overwriting here would strand the first registration.
+        if (byType.has(type)) return;
+        const wrapped = this.__wrap(type, listener);
+        byType.set(type, wrapped);
+        this.on(type, wrapped);
       }
       removeEventListener(type: string, listener: any) {
-        this.off(type, listener);
+        const byType = this.__wrappers?.get(listener);
+        const wrapped = byType?.get(type);
+        if (!byType || !wrapped) return;
+        this.off(type, wrapped);
+        byType.delete(type);
+        if (byType.size === 0) this.__wrappers?.delete(listener);
       }
       // Browser Worker API: .postMessage with transfer list
       postMessage(message: any, transfer?: any[]) {
