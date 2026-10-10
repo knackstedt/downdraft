@@ -67,6 +67,32 @@ export class RecordReader {
     return this.getSequence() !== lastSeen;
   }
 
+  /**
+   * True while the writer holds an open write window (sequence is odd).
+   * Readers can use this to cheaply defer sync work past a publish.
+   */
+  isWriteInProgress(): boolean {
+    return (Atomics.load(this.seqArr, 0) & 1) !== 0;
+  }
+
+  /**
+   * Run `fn` against a consistent snapshot of the channel. The sequence
+   * word is a seqlock: odd while the writer is publishing, even when the
+   * data is stable. The read is retried while the word is odd or changes
+   * mid-read; after maxRetries it returns whatever the last attempt read
+   * rather than starving the reader (writers publish every tick).
+   */
+  readConsistent<T>(fn: () => T, maxRetries = 64): T {
+    for (let i = 0; i < maxRetries; i++) {
+      const s1 = Atomics.load(this.seqArr, 0);
+      if ((s1 & 1) === 0) {
+        const out = fn();
+        if (Atomics.load(this.seqArr, 0) === s1) return out;
+      }
+    }
+    return fn();
+  }
+
   snapshot(): Record<string, unknown> {
     const data: Record<string, unknown> = {};
     if (this.layout.fields) {
@@ -93,6 +119,8 @@ export class RecordWriter {
   fields: Record<string, Float32Array | Int32Array | Uint32Array | Float64Array>;
   private seqArr: Int32Array;
   private layout: ChannelLayout;
+  /** True while a beginWrite() window is open (sequence is odd). */
+  private writeOpen = false;
 
   constructor(sab: SharedArrayBuffer, layout: ChannelLayout) {
     this.layout = layout;
@@ -112,18 +140,33 @@ export class RecordWriter {
     this.header.u32[this.layout.header.versionIndex] = this.layout.version;
   }
 
+  /**
+   * Open a write window — marks the sequence word odd so readers know a
+   * publish is in progress. Idempotent so mutating paths can call it
+   * unconditionally.
+   */
   beginWrite(): void {
-    const seq = Atomics.load(this.seqArr, 0);
-    Atomics.store(this.seqArr, 0, seq + 1);
-  }
-
-  endWrite(): void {
-    // Sequence is incremented in beginWrite() — endWrite() is a no-op
-    // to avoid double incrementing.
-  }
-
-  bumpSequence(): void {
+    if (this.writeOpen) return;
+    this.writeOpen = true;
     Atomics.add(this.seqArr, 0, 1);
+  }
+
+  /** Close the write window opened by beginWrite() — sequence back to even. */
+  endWrite(): void {
+    if (!this.writeOpen) return;
+    this.writeOpen = false;
+    Atomics.add(this.seqArr, 0, 1);
+  }
+
+  /**
+   * Publish a commit. Without an open write window it steps +2 (even→even)
+   * so the sequence always lands on a stable value while still advancing
+   * once per publish; inside a window it closes it (+1, odd→even).
+   */
+  bumpSequence(): void {
+    const step = this.writeOpen ? 1 : 2;
+    this.writeOpen = false;
+    Atomics.add(this.seqArr, 0, step);
   }
 
   getSequence(): number {

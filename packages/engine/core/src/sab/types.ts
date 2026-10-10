@@ -126,6 +126,13 @@ export interface ChannelReader {
   validationError(): string | null;
   getSequence(): number;
   hasChanged(lastSeen: number): boolean;
+  /** True while the writer holds an open write window (sequence odd). */
+  isWriteInProgress(): boolean;
+  /**
+   * Run `fn` against a consistent snapshot — retries while the writer is
+   * mid-publish or publishes during the read (seqlock). Bounded retries.
+   */
+  readConsistent<T>(fn: () => T, maxRetries?: number): T;
   header: HeaderViews;
   sections?: Record<string, SlotAccessor>;
   layers?: Record<string, Float32Array | Int32Array | Uint32Array | Float64Array>;
@@ -135,6 +142,10 @@ export interface ChannelReader {
 
 export interface ChannelWriter {
   init(): void;
+  /** Open a write window (sequence → odd). Idempotent. */
+  beginWrite(): void;
+  /** Close the current write window (sequence → even). */
+  endWrite(): void;
   bumpSequence(): void;
   getSequence(): number;
   header: HeaderViews;

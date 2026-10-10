@@ -258,6 +258,17 @@ export class SimBufferReader {
 
   getTick(): number { return this.reader.header.u32[SimChannel.offsets.header.tick]; }
   getSequence(): number { return this.reader.getSequence(); }
+  /** True while the sim worker is mid-publish (sequence word is odd). */
+  isWriteInProgress(): boolean { return this.reader.isWriteInProgress(); }
+  /**
+   * Run `fn` against a consistent snapshot of the sim state — retries
+   * while the sim worker is mid-publish or publishes during the read
+   * (seqlock). Wrap per-frame read loops (entity iteration, player slot
+   * reads) in this to avoid torn reads across a sim commit.
+   */
+  readConsistent<T>(fn: () => T, maxRetries?: number): T {
+    return this.reader.readConsistent(fn, maxRetries);
+  }
   getEntityCount(): number { return this.reader.header.u32[SimChannel.offsets.header.entityCount]; }
   getPlayerCount(): number { return this.reader.header.u32[SimChannel.offsets.header.playerCount]; }
   getTimeOfDay(): number { return this.reader.header.f32[SimChannel.offsets.header.timeOfDay]; }
@@ -352,36 +363,41 @@ export class SimBufferWriter {
   init() {
     const w = this.writer;
     const h = SimChannel.offsets.header;
+    w.beginWrite();
     w.header.u32[h.maxEntities] = MAX_ENTITIES;
     w.header.u32[h.maxPlayers] = MAX_PLAYERS;
     w.header.u32[h.entityCount] = 0;
     w.header.u32[h.playerCount] = 0;
     w.header.u32[h.activePlayers] = 0;
+    w.endWrite();
   }
 
-  setEntityCount(n: number) { this.writer.header.u32[SimChannel.offsets.header.entityCount] = n; }
-  setPlayerCount(n: number) { this.writer.header.u32[SimChannel.offsets.header.playerCount] = n; }
-  setTimeOfDay(t: number) { this.writer.header.f32[SimChannel.offsets.header.timeOfDay] = t; }
+  setEntityCount(n: number) { this.writer.beginWrite(); this.writer.header.u32[SimChannel.offsets.header.entityCount] = n; }
+  setPlayerCount(n: number) { this.writer.beginWrite(); this.writer.header.u32[SimChannel.offsets.header.playerCount] = n; }
+  setTimeOfDay(t: number) { this.writer.beginWrite(); this.writer.header.f32[SimChannel.offsets.header.timeOfDay] = t; }
   setWeather(type: number, intensity: number) {
+    this.writer.beginWrite();
     this.writer.header.u32[SimChannel.offsets.header.weatherType] = type;
     this.writer.header.f32[SimChannel.offsets.header.weatherIntensity] = intensity;
   }
   setWind(speed: number, dirX: number, dirZ: number) {
+    this.writer.beginWrite();
     this.writer.header.f32[SimChannel.offsets.header.windSpeed] = speed;
     this.writer.header.f32[SimChannel.offsets.header.windDirX] = dirX;
     this.writer.header.f32[SimChannel.offsets.header.windDirZ] = dirZ;
   }
-  setVisibility(v: number) { this.writer.header.f32[SimChannel.offsets.header.visibility] = v; }
-  setAmbientTemp(t: number) { this.writer.header.f32[SimChannel.offsets.header.ambientTemp] = t; }
-  setActivePlayers(mask: number) { this.writer.header.u32[SimChannel.offsets.header.activePlayers] = mask; }
-  setGamemode(mode: number) { this.writer.header.u32[SimChannel.offsets.header.gamemode] = mode; }
-  setPhysicsInitialized(v: number) { this.writer.header.u32[SimChannel.offsets.header.physicsInitialized] = v; }
-  setPhysicsFailed(v: number) { this.writer.header.u32[SimChannel.offsets.header.physicsFailed] = v; }
-  setPhysicsBodyCount(v: number) { this.writer.header.u32[SimChannel.offsets.header.physicsBodyCount] = v; }
-  setPhysicsTickCount(v: number) { this.writer.header.u32[SimChannel.offsets.header.physicsTickCount] = v; }
-  setChunkCount(v: number) { this.writer.header.u32[SimChannel.offsets.header.chunkCount] = v; }
-  setPhysicsProfilerEnabled(v: number) { this.writer.header.u32[SimChannel.offsets.header.physicsProfilerEnabled] = v; }
+  setVisibility(v: number) { this.writer.beginWrite(); this.writer.header.f32[SimChannel.offsets.header.visibility] = v; }
+  setAmbientTemp(t: number) { this.writer.beginWrite(); this.writer.header.f32[SimChannel.offsets.header.ambientTemp] = t; }
+  setActivePlayers(mask: number) { this.writer.beginWrite(); this.writer.header.u32[SimChannel.offsets.header.activePlayers] = mask; }
+  setGamemode(mode: number) { this.writer.beginWrite(); this.writer.header.u32[SimChannel.offsets.header.gamemode] = mode; }
+  setPhysicsInitialized(v: number) { this.writer.beginWrite(); this.writer.header.u32[SimChannel.offsets.header.physicsInitialized] = v; }
+  setPhysicsFailed(v: number) { this.writer.beginWrite(); this.writer.header.u32[SimChannel.offsets.header.physicsFailed] = v; }
+  setPhysicsBodyCount(v: number) { this.writer.beginWrite(); this.writer.header.u32[SimChannel.offsets.header.physicsBodyCount] = v; }
+  setPhysicsTickCount(v: number) { this.writer.beginWrite(); this.writer.header.u32[SimChannel.offsets.header.physicsTickCount] = v; }
+  setChunkCount(v: number) { this.writer.beginWrite(); this.writer.header.u32[SimChannel.offsets.header.chunkCount] = v; }
+  setPhysicsProfilerEnabled(v: number) { this.writer.beginWrite(); this.writer.header.u32[SimChannel.offsets.header.physicsProfilerEnabled] = v; }
   setPhysicsTiming(data: PhysicsTimingData) {
+    this.writer.beginWrite();
     const h = this.writer.header.f32;
     const o = SimChannel.offsets.header;
     h[o.physTimingStep] = data.step;
@@ -405,6 +421,9 @@ export class SimBufferWriter {
   incrementTick() {
     const h = SimChannel.offsets.header;
     Atomics.add(this.writer.header.u32, h.tick, 1);
+    // Closes the beginWrite() window opened by the first mutation of this
+    // publish (odd→even) — or steps +2 when nothing wrote this tick, so
+    // the sequence still advances once per publish for change detection.
     this.writer.bumpSequence();
   }
 
@@ -436,18 +455,22 @@ export class SimBufferWriter {
   }
 
   getEntityF32(idx: number): Float32Array {
+    this.writer.beginWrite();
     return this.entitySlots.slot(idx).f32;
   }
 
   getEntityU32(idx: number): Uint32Array {
+    this.writer.beginWrite();
     return this.entitySlots.slot(idx).u32;
   }
 
   getPlayerF32(idx: number): Float32Array {
+    this.writer.beginWrite();
     return this.playerSlots.slot(idx).f32;
   }
 
   getPlayerU32(idx: number): Uint32Array {
+    this.writer.beginWrite();
     return this.playerSlots.slot(idx).u32;
   }
 }

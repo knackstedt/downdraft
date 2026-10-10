@@ -50,7 +50,10 @@ describe("RecordBuffer", () => {
     writer.bumpSequence();
 
     expect(reader.hasChanged(seq1)).toBe(true);
-    expect(reader.getSequence()).toBe(seq1 + 1);
+    // +2 per commit: the sequence word is a seqlock (odd = write in
+    // progress, even = stable), so a commit outside a write window
+    // steps past the odd value to land on the next stable one.
+    expect(reader.getSequence()).toBe(seq1 + 2);
   });
 
   it("should snapshot data as a copy", () => {
@@ -96,7 +99,7 @@ describe("RecordBuffer", () => {
     expect(reader.fields.flags[0]).toBe(5);
   });
 
-  it("should increment sequence by exactly 1 per write() call", () => {
+  it("should land on an even (stable) sequence after write()", () => {
     const sab = TestChannel.allocate();
     const writer = TestChannel.writer(sab) as any;
     const reader = TestChannel.reader(sab);
@@ -105,7 +108,10 @@ describe("RecordBuffer", () => {
     writer.write({ x: 1 });
     const seqAfter = reader.getSequence();
 
-    expect(seqAfter).toBe(seqBefore + 1);
+    // beginWrite() marks the window odd; endWrite() commits back to
+    // even — net +2 per write, always landing on a stable value.
+    expect(seqAfter).toBe(seqBefore + 2);
+    expect(seqAfter % 2).toBe(0);
   });
 
   it("should expose typed offsets", () => {
