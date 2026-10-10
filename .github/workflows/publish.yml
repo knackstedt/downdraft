@@ -103,7 +103,7 @@ jobs:
               if (!existsSync(f)) continue;
               const p = JSON.parse(readFileSync(f, "utf8"));
               if (p.name?.startsWith("@downdraft/") && !p.private && p.version !== ver) {
-                console.error(`${p.name}@${p.version} is out of lockstep with root@${ver}`);
+                console.error(`${p.name}@${p.version} is out of lockstep with root@${ver} — run "bun run bump:version && bun install", commit, and move the tag`);
                 process.exit(1);
               }
             }

@@ -1,0 +1,5 @@
+{
+  "scripts": {
+    "postcommit": "node scripts/bump-version.mjs && bun install && git add bun.lock packages/*/package.json && git commit --amend --no-edit"
+  }
+}
