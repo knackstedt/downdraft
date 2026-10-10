@@ -34,7 +34,7 @@ export const SIM_PLAYER_SLOT_SIZE = 256;
 export const SimChannel = defineChannel({
   name: "game-sim",
   magic: 0x53494d42,
-  version: 1,
+  version: 2,
   mode: "slots",
   header: {
     size: 256,
@@ -76,6 +76,12 @@ export const SimChannel = defineChannel({
       physTimingCcdSolver: { type: "f32" },
       physTimingIslandConstruction: { type: "f32" },
       physTimingUserChanges: { type: "f32" },
+      // Presentation-interpolation timing, stamped by incrementTick().
+      // publishTimeMs is wall-clock epoch ms (timeOrigin + now) so it
+      // compares correctly across the worker/renderer thread boundary —
+      // performance.now() epochs differ per thread.
+      publishTimeMs: { type: "f64" },
+      publishDeltaMs: { type: "f32" },
     },
   },
   sections: [
@@ -131,11 +137,33 @@ export const SimChannel = defineChannel({
         // modifying the core SAB schema.
       },
     },
+    // Previous-publish transforms for renderer-side interpolation. The
+    // writer snapshots pos+rot here before overwriting a slot, and fills
+    // the rest from cur at commit — so prev always equals state(t-1)
+    // and cur equals state(t). Same field layout as ENT/PLR transforms.
+    {
+      name: "entitiesPrev",
+      maxSlots: MAX_ENTITIES,
+      slotSize: 32,
+      fields: {
+        pos: { type: "f32", count: 4 },
+        rot: { type: "f32", count: 4 },
+      },
+    },
+    {
+      name: "playersPrev",
+      maxSlots: MAX_PLAYERS,
+      slotSize: 32,
+      fields: {
+        pos: { type: "f32", count: 4 },
+        rot: { type: "f32", count: 4 },
+      },
+    },
   ],
 });
 
 export const SIM_MAGIC = 0x53494d42;
-export const SIM_VERSION = 1;
+export const SIM_VERSION = 2;
 
 export const SIM_HDR = {
   MAGIC: 0,
@@ -178,6 +206,8 @@ export const SIM_HDR = {
   PHYS_TIMING_CCD_SOLVER: 37,
   PHYS_TIMING_ISLAND_CONSTRUCTION: 38,
   PHYS_TIMING_USER_CHANGES: 39,
+  PUBLISH_TIME_MS: 40,   // f64 — occupies u32 words 40–41
+  PUBLISH_DELTA_MS: 42,
 } as const;
 
 export const ENT = {
@@ -227,6 +257,14 @@ export const PLR_FLAG = {
   GROUNDED: 1 << 9,
 } as const;
 
+// Field offsets inside the entitiesPrev/playersPrev sections. pos holds
+// [x, y, z, w] where w is entity scale / player heading; rot is the
+// quaternion. Matches ENT.POS_*/ENT.ROT_* and PLR.POS_*/PLR.ROT_* layout.
+export const PREV = {
+  POS_X: 0, POS_Y: 1, POS_Z: 2, POS_W: 3,
+  ROT_X: 4, ROT_Y: 5, ROT_Z: 6, ROT_W: 7,
+} as const;
+
 export function allocateSimBuffer(): SharedArrayBuffer {
   return SimChannel.allocate();
 }
@@ -241,11 +279,15 @@ export class SimBufferReader {
   private reader: ReturnType<typeof SimChannel.reader>;
   private entitySlots: ReturnType<typeof SimChannel.reader>["sections"]["entities"];
   private playerSlots: ReturnType<typeof SimChannel.reader>["sections"]["players"];
+  private entityPrevSlots: ReturnType<typeof SimChannel.reader>["sections"]["entitiesPrev"];
+  private playerPrevSlots: ReturnType<typeof SimChannel.reader>["sections"]["playersPrev"];
 
   constructor(sab: SharedArrayBuffer) {
     this.reader = SimChannel.reader(sab);
     this.entitySlots = this.reader.sections.entities;
     this.playerSlots = this.reader.sections.players;
+    this.entityPrevSlots = this.reader.sections.entitiesPrev;
+    this.playerPrevSlots = this.reader.sections.playersPrev;
   }
 
   isValid(): boolean {
@@ -339,6 +381,46 @@ export class SimBufferReader {
       yield { idx: i, f32: sv.f32, u32: sv.u32 };
     }
   }
+
+  // ── Presentation interpolation ──
+  // prev = state(t-1) transform, cur = state(t); the renderer lerps by
+  // getInterpolationAlpha(). Wall-clock epoch ms (timeOrigin + now) —
+  // comparable across the worker/renderer thread boundary.
+
+  getPublishTimeMs(): number {
+    const o = SimChannel.offsets.header;
+    return this.reader.header.f64[o.publishTimeMs >> 1];
+  }
+
+  getPublishDeltaMs(): number {
+    const o = SimChannel.offsets.header;
+    return this.reader.header.f32[o.publishDeltaMs];
+  }
+
+  /**
+   * Interpolation alpha in [0,1] for the current frame. 0 = exactly at
+   * the last publish, 1 = a full publish interval past it (use cur).
+   * Clamped — no extrapolation.
+   */
+  getInterpolationAlpha(nowMs?: number): number {
+    const delta = this.getPublishDeltaMs();
+    if (delta <= 0) return 1;
+    const now = nowMs ?? (performance.timeOrigin ?? 0) + performance.now();
+    const a = (now - this.getPublishTimeMs()) / delta;
+    return a <= 0 ? 0 : a >= 1 ? 1 : a;
+  }
+
+  /** Previous-publish transform for an entity slot (prev pos+rot, PREV.*). */
+  getEntityPrevSlot(idx: number): { f32: Float32Array; u32: Uint32Array } {
+    const sv = this.entityPrevSlots.slot(idx);
+    return { f32: sv.f32, u32: sv.u32 };
+  }
+
+  /** Previous-publish transform for a player slot (prev pos+rot, PREV.*). */
+  getPlayerPrevSlot(idx: number): { f32: Float32Array; u32: Uint32Array } {
+    const sv = this.playerPrevSlots.slot(idx);
+    return { f32: sv.f32, u32: sv.u32 };
+  }
 }
 
 // --- Sim Buffer Writer (sim worker side) ---
@@ -347,17 +429,27 @@ export class SimBufferWriter {
   private writer: ReturnType<typeof SimChannel.writer>;
   private entitySlots: ReturnType<typeof SimChannel.writer>["sections"]["entities"];
   private playerSlots: ReturnType<typeof SimChannel.writer>["sections"]["players"];
+  private entityPrevSlots: ReturnType<typeof SimChannel.writer>["sections"]["entitiesPrev"];
+  private playerPrevSlots: ReturnType<typeof SimChannel.writer>["sections"]["playersPrev"];
   // Dirty flags: 1 = entity/player slot has changed since last writeToBuffer.
   // writeToBuffer skips slots where the flag is 0. Cleared after each writeToBuffer.
   private dirtyEntities: Uint8Array;
   private dirtyPlayers: Uint8Array;
+  // Snapshot flags: 1 = the slot's prev-transform was already captured this
+  // publish (on first write access). Cleared at each incrementTick commit.
+  private snapEntities: Uint8Array;
+  private snapPlayers: Uint8Array;
 
   constructor(sab: SharedArrayBuffer) {
     this.writer = SimChannel.writer(sab);
     this.entitySlots = this.writer.sections.entities;
     this.playerSlots = this.writer.sections.players;
+    this.entityPrevSlots = this.writer.sections.entitiesPrev;
+    this.playerPrevSlots = this.writer.sections.playersPrev;
     this.dirtyEntities = new Uint8Array(MAX_ENTITIES);
     this.dirtyPlayers = new Uint8Array(MAX_PLAYERS);
+    this.snapEntities = new Uint8Array(MAX_ENTITIES);
+    this.snapPlayers = new Uint8Array(MAX_PLAYERS);
   }
 
   init() {
@@ -418,13 +510,58 @@ export class SimBufferWriter {
     h[o.physTimingUserChanges] = data.userChanges;
   }
 
+  /**
+   * Copy the slot's current transform (pos+rot, first 8 f32s) into its
+   * prev slot — once per publish, on first write access, so prev always
+   * holds the last committed transform for interpolation.
+   */
+  private snapshotEntityPrev(idx: number): void {
+    if (this.snapEntities[idx]) return;
+    this.snapEntities[idx] = 1;
+    this.entityPrevSlots.slot(idx).f32.set(this.entitySlots.slot(idx).f32.subarray(0, 8));
+  }
+
+  private snapshotPlayerPrev(idx: number): void {
+    if (this.snapPlayers[idx]) return;
+    this.snapPlayers[idx] = 1;
+    this.playerPrevSlots.slot(idx).f32.set(this.playerSlots.slot(idx).f32.subarray(0, 8));
+  }
+
   incrementTick() {
     const h = SimChannel.offsets.header;
-    Atomics.add(this.writer.header.u32, h.tick, 1);
+    const w = this.writer;
+    // Prev-sync: slots not written this publish keep their old cur, so
+    // prev must equal cur (identity lerp). Slots that were written were
+    // already snapshotted on first access. Runs inside the open write
+    // window, before the commit — readers never see a mixed prev/cur.
+    const entCount = Math.min(w.header.u32[h.entityCount], MAX_ENTITIES);
+    for (let i = 0; i < entCount; i++) {
+      if (!this.snapEntities[i]) {
+        this.entityPrevSlots.slot(i).f32.set(this.entitySlots.slot(i).f32.subarray(0, 8));
+      }
+    }
+    this.snapEntities.fill(0);
+    const plrCount = Math.min(w.header.u32[h.playerCount], MAX_PLAYERS);
+    for (let i = 0; i < plrCount; i++) {
+      if (!this.snapPlayers[i]) {
+        this.playerPrevSlots.slot(i).f32.set(this.playerSlots.slot(i).f32.subarray(0, 8));
+      }
+    }
+    this.snapPlayers.fill(0);
+
+    // Wall-clock epoch ms — performance.timeOrigin is defined per thread
+    // and makes the stamp comparable on the renderer side.
+    const now = (performance.timeOrigin ?? 0) + performance.now();
+    const tIdx = h.publishTimeMs >> 1; // u32 index 40 → f64 index 20
+    const last = w.header.f64[tIdx];
+    w.header.f64[tIdx] = now;
+    w.header.f32[h.publishDeltaMs] = last > 0 ? now - last : 0;
+
+    Atomics.add(w.header.u32, h.tick, 1);
     // Closes the beginWrite() window opened by the first mutation of this
     // publish (odd→even) — or steps +2 when nothing wrote this tick, so
     // the sequence still advances once per publish for change detection.
-    this.writer.bumpSequence();
+    w.bumpSequence();
   }
 
   markEntityDirty(slot: number): void {
@@ -456,21 +593,25 @@ export class SimBufferWriter {
 
   getEntityF32(idx: number): Float32Array {
     this.writer.beginWrite();
+    this.snapshotEntityPrev(idx);
     return this.entitySlots.slot(idx).f32;
   }
 
   getEntityU32(idx: number): Uint32Array {
     this.writer.beginWrite();
+    this.snapshotEntityPrev(idx);
     return this.entitySlots.slot(idx).u32;
   }
 
   getPlayerF32(idx: number): Float32Array {
     this.writer.beginWrite();
+    this.snapshotPlayerPrev(idx);
     return this.playerSlots.slot(idx).f32;
   }
 
   getPlayerU32(idx: number): Uint32Array {
     this.writer.beginWrite();
+    this.snapshotPlayerPrev(idx);
     return this.playerSlots.slot(idx).u32;
   }
 }
