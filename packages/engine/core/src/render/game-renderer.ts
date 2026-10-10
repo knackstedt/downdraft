@@ -279,6 +279,16 @@ export class GameRenderer implements CanvasResizeHandler {
   private frameDrawCalls = 0;
   private frameTriangles = 0;
 
+  // Per-frame submit interception: while non-null, queue.submit() calls
+  // (game callbacks, render-target providers, helpers) append their buffers
+  // here in call order instead of crossing into wgpu — the whole frame then
+  // lands in ONE queue.submit at end-of-frame. Games legitimately submit
+  // inside afterFrame callbacks (2D renderers, overlays), so folding the UI
+  // composite into the main batch requires capturing those submits rather
+  // than submitting early or reordering.
+  private frameSubmitSink: GPUCommandBuffer[] | null = null;
+  private submitInterceptorDevice: GPUDevice | null = null;
+
   // Callbacks
   private callbacks: FrameCallbacks = {};
 
@@ -354,6 +364,7 @@ export class GameRenderer implements CanvasResizeHandler {
         return false;
       }
       this.device = borrowedDevice ?? await this.requestDeviceFromAdapter(adapter!);
+      this.installQueueSubmitInterceptor(this.device);
       this.adapter = adapter;
       // The host configured the surface with its own usage set at creation —
       // reconfiguring here would tear down the swapchain and race the host's
@@ -543,6 +554,7 @@ export class GameRenderer implements CanvasResizeHandler {
       const device = await this.requestDeviceFromAdapter(adapter);
       device.lost.then((info) => this.handleDeviceLost(info));
       this.device = device;
+      this.installQueueSubmitInterceptor(device);
       this.adapter = adapter;
 
       installShaderValidationGuard(device);
@@ -807,6 +819,31 @@ export class GameRenderer implements CanvasResizeHandler {
     this.scheduleRender();
   };
 
+  /**
+   * Redirect queue.submit() into frameSubmitSink while a frame is in
+   * flight. Submission order is preserved — buffers land in the sink in
+   * the order submit() was called — so mid-frame submits (uploads in
+   * beforeFrame, a game's afterFrame pass, endFrame hooks) still execute
+   * ahead of work recorded later, just inside the single end-of-frame
+   * queue.submit rather than as extra queue-lock + driver calls.
+   */
+  private installQueueSubmitInterceptor(device: GPUDevice): void {
+    if (this.submitInterceptorDevice === device) return;
+    this.submitInterceptorDevice = device;
+    const queue = device.queue as any;
+    if (queue.__ddSubmitIntercepted) return;
+    queue.__ddSubmitIntercepted = true;
+    const origSubmit: GPUQueue["submit"] = queue.submit.bind(queue);
+    queue.submit = (commandBuffers: Iterable<GPUCommandBuffer>) => {
+      const sink = this.frameSubmitSink;
+      if (!sink) {
+        origSubmit(commandBuffers);
+        return;
+      }
+      for (const cb of commandBuffers) sink.push(cb);
+    };
+  }
+
   private renderFrame(): void {
     const now = performance.now();
 
@@ -856,6 +893,15 @@ export class GameRenderer implements CanvasResizeHandler {
     // recreates the invalid resources.
     const gpuError = this.gpuProfiler?.hasUncapturedError() ?? false;
 
+    // Collect command buffers from all phases and submit once at the end
+    // of the frame — one queue.submit per frame instead of 2-4. The sink
+    // is armed BEFORE beginFrame so submit() calls from hooks and game
+    // callbacks (beforeFrame uploads, afterFrame render passes, the XR
+    // endFrame encoder) are captured in call order into the same batch
+    // rather than crossing into wgpu individually.
+    const frameCommandBuffers: GPUCommandBuffer[] = [];
+    this.frameSubmitSink = frameCommandBuffers;
+
     // XR render target provider beginFrame hook
     if (this.renderTargetProvider && !gpuError) {
       this.renderTargetProvider.beginFrame();
@@ -869,9 +915,6 @@ export class GameRenderer implements CanvasResizeHandler {
       offscreen.ensureTargets(this.canvas.width, this.canvas.height);
     }
 
-    // Collect command buffers from all phases and submit once at the end
-    // (reduces CPU→GPU sync points from 3+ per frame to 1).
-    const frameCommandBuffers: GPUCommandBuffer[] = [];
     if (!gpuError) {
       // 2D mode with viewportCount=0: clear the canvas if a clearColor is
       // configured, then let the afterFrame callback do custom rendering.
@@ -922,21 +965,6 @@ export class GameRenderer implements CanvasResizeHandler {
       frameCommandBuffers.push(...passMailbox.drain("preSubmit"));
     }
 
-    // Submit all command buffers for this frame in a single queue.submit() call
-    if (frameCommandBuffers.length > 0) {
-      this.device!.queue.submit(frameCommandBuffers);
-    }
-
-    // Read GPU timer results asynchronously (1-frame latency).
-    // Must be called AFTER queue.submit() — readGpuTimers() calls mapAsync on
-    // the read buffer, and a mapped/mapping-pending buffer cannot be used in a
-    // submitted command buffer (the copy-to-readBuffer was encoded above).
-    if (this.gpuProfiler) {
-      this.gpuProfiler.readGpuTimers().then(() => {
-        // Results available for next frame
-      }).catch(() => {});
-    }
-
     // Record telemetry
     if (this.telemetryCollector) {
       this.telemetryCollector.recordFrame(dt * 1000);
@@ -975,43 +1003,70 @@ export class GameRenderer implements CanvasResizeHandler {
       this.frameTriangles = 0;
     }
 
-    // XR render target provider endFrame hook (skip on GPU error)
-    if (!gpuError && this.renderTargetProvider && this.device) {
-      this.renderTargetProvider.endFrame(this.device.createCommandEncoder());
+    try {
+      // XR render target provider endFrame hook (skip on GPU error). Its
+      // submits are captured by frameSubmitSink and join the batch.
+      if (!gpuError && this.renderTargetProvider && this.device) {
+        this.renderTargetProvider.endFrame(this.device.createCommandEncoder());
+      }
+
+      // After frame callback — game submits here append to the batch in
+      // order, still ahead of the UI composite below.
+      this.callbacks.afterFrame?.(dt, this.elapsedTime);
+      this.rendererModuleHost?.dispatchFrame("afterFrame", dt, this.elapsedTime);
+
+      // Composite registered screen-space UI (html-ui panels) on top of the
+      // final image (skip on GPU error to avoid cascade). This must run AFTER
+      // afterFrame — 2D games (viewportCount=0) do their custom rendering in
+      // the afterFrame callback, so drawing UI earlier would put it underneath
+      // their clear pass.
+      if (!gpuError && this.device && this.context) {
+        const compositors = [...this.uiCompositors]
+          .filter((c) => c.hasContent())
+          .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        const uiCanvasView = compositors.length > 0
+          ? this.getSurfaceTexture()?.createView()
+          : undefined;
+        if (uiCanvasView) {
+          const uiEncoder = this.device.createCommandEncoder();
+          const uiPass = uiEncoder.beginRenderPass({
+            colorAttachments: [{
+              view: uiCanvasView,
+              clearValue: { r: 0, g: 0, b: 0, a: 0 },
+              loadOp: "load" as GPULoadOp,
+              storeOp: "store" as GPUStoreOp,
+            }],
+          });
+          compositors.forEach((c) => { c.render(uiPass, this.canvas.width, this.canvas.height); });
+          uiPass.end();
+          // "preUi" slot — worker passes ordered ahead of the UI-composite
+          // buffer inside the end-of-frame submit.
+          frameCommandBuffers.push(...(passMailbox?.drain("preUi") ?? []), uiEncoder.finish());
+        }
+      }
+    } finally {
+      // End of frame: disarm the submit sink and flush everything recorded
+      // this frame — engine passes, captured callback submits, mailbox
+      // passes, the UI composite — in a single queue.submit(). Runs even on
+      // a callback throw so already-recorded work still lands.
+      this.frameSubmitSink = null;
+      if (frameCommandBuffers.length > 0 && this.device) {
+        try {
+          this.device.queue.submit(frameCommandBuffers);
+        } catch (err) {
+          log.error("game-renderer", `queue.submit failed: ${(err as Error).message ?? err}`);
+        }
+      }
     }
 
-    // After frame callback
-    this.callbacks.afterFrame?.(dt, this.elapsedTime);
-    this.rendererModuleHost?.dispatchFrame("afterFrame", dt, this.elapsedTime);
-
-    // Composite registered screen-space UI (html-ui panels) on top of the
-    // final image (skip on GPU error to avoid cascade). This must run AFTER
-    // afterFrame — 2D games (viewportCount=0) do their custom rendering in
-    // the afterFrame callback, so drawing UI earlier would put it underneath
-    // their clear pass.
-    if (!gpuError && this.device && this.context) {
-      const compositors = [...this.uiCompositors]
-        .filter((c) => c.hasContent())
-        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-      const uiCanvasView = compositors.length > 0
-        ? this.getSurfaceTexture()?.createView()
-        : undefined;
-      if (uiCanvasView) {
-        const uiEncoder = this.device.createCommandEncoder();
-        const uiPass = uiEncoder.beginRenderPass({
-          colorAttachments: [{
-            view: uiCanvasView,
-            clearValue: { r: 0, g: 0, b: 0, a: 0 },
-            loadOp: "load" as GPULoadOp,
-            storeOp: "store" as GPUStoreOp,
-          }],
-        });
-        compositors.forEach((c) => { c.render(uiPass, this.canvas.width, this.canvas.height); });
-        uiPass.end();
-        // "preUi" slot — worker passes ordered ahead of the UI-composite
-        // submit so their output is visible to the compositor this frame.
-        this.device.queue.submit([...(passMailbox?.drain("preUi") ?? []), uiEncoder.finish()]);
-      }
+    // Read GPU timer results asynchronously (1-frame latency).
+    // Must be called AFTER queue.submit() — readGpuTimers() calls mapAsync on
+    // the read buffer, and a mapped/mapping-pending buffer cannot be used in a
+    // submitted command buffer (the copy-to-readBuffer was encoded above).
+    if (this.gpuProfiler) {
+      this.gpuProfiler.readGpuTimers().then(() => {
+        // Results available for next frame
+      }).catch(() => {});
     }
 
     // Present the surface (native wgpu requires explicit presentation;
