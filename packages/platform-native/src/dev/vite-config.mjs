@@ -337,7 +337,21 @@ export function buildNativeDevConfig(opts) {
       },
       watch: {
         // Keep the watcher lean — engine + game sources only.
-        ignored: ["**/node_modules/**", "**/.git/**", "**/dist/**", "**/.dd-dev/**"],
+        // followSymlinks:false stops the crawl descending into linked source
+        // trees (e.g. cruiser's src-tarballs → ~/devvm/src QEMU/edk2 — ~120k
+        // dirs); repoRoot + gameDir are watched as real paths, so engine and
+        // game HMR are unaffected. The ignored list drops generated trees
+        // that are never HMR inputs: cargo target/, node-mobile's extracted
+        // node source, .fingerprint. Games can append via hmr.watchIgnored.
+        // (A quarter-million fs.watch handles + Stats objects was ~500MB of
+        // retained heap plus seconds of init CPU per boot.)
+        followSymlinks: false,
+        ignored: [
+          "**/node_modules/**", "**/.git/**", "**/dist/**", "**/.dd-dev/**",
+          "**/src-tarballs/**", "**/target/**", "**/.fingerprint/**",
+          "**/node-mobile/build/**",
+          ...(hmr.watchIgnored ?? []),
+        ],
       },
     },
     environments: {
