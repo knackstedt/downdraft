@@ -113,10 +113,10 @@ export interface BufferSyncMessage {
   regions: Record<string, RegionCopy[]>;
   /**
    * Multi-message transfer metadata. Large transfers are split into one
-   * region-copy per message with a 16ms gap so the main thread can render
-   * between chunks; the receiver buffers the parts and applies them
-   * ATOMICALLY once all arrive — otherwise the buffer visibly tears for
-   * `total × 16ms` while partially-updated regions are rendered.
+   * region-copy per message (each its own macrotask, so the main thread
+   * can render between deliveries); the receiver buffers the parts and
+   * applies them ATOMICALLY once all arrive — otherwise the buffer would
+   * visibly tear while partially-updated regions are rendered.
    */
   batch?: { id: number; index: number; total: number };
 }
@@ -457,10 +457,11 @@ export class BufferSyncWorker {
           len = Math.min(r.length, count * r.lengthMultiplier);
         }
         // Chunked transfer: if the region is large, split into chunks
-        // and send with setTimeout between them so the main thread
-        // can process rAF/render between chunks. This prevents 100-900ms
-        // main-thread blocks where SAB is unavailable
-        // and postMessage structured clone is ~10MB/s).
+        // sent as separate postMessages so the main thread interleaves
+        // receive+apply tasks with rAF/render instead of blocking on one
+        // giant structured clone. This prevents 100-900ms main-thread
+        // blocks where SAB is unavailable (and postMessage structured
+        // clone is ~10MB/s).
         const CHUNK_SIZE = 64 * 1024; // 64KB per chunk — small enough to avoid >50ms blocks
         if (len > CHUNK_SIZE) {
           const numChunks = Math.ceil(len / CHUNK_SIZE);
@@ -497,10 +498,16 @@ export class BufferSyncWorker {
       // main thread to render between them.
       const allCopies = Object.values(regions).flat();
       if (allCopies.length > 1 && totalBytes > 256 * 1024) {
-        // Large transfer: send chunks with setTimeout between them so the
-        // main thread can render between chunks. Each message carries batch
-        // metadata — the receiver buffers parts and applies them atomically
-        // once all arrive, so the buffer never renders partially-updated.
+        // Large transfer: send chunks as separate postMessages so the main
+        // thread interleaves receive+apply tasks with rAF/render. Each
+        // message carries batch metadata — the receiver buffers parts and
+        // applies them atomically once all arrive, so the buffer never
+        // renders partially-updated. A setTimeout(0) between posts yields
+        // the worker's macrotask queue once per chunk — letting urgent
+        // worker-side messages (RPC responses, other sync traffic) insert
+        // between chunks rather than queueing behind the whole batch — but
+        // adds no fixed delay: measured delivery was ~16ms/chunk with a
+        // 16ms gap (~1s for a 4MB region) vs sub-ms/chunk now.
         // Precompute chunk→buffer ownership once (was O(chunks×regions) before).
         const chunkOwner: string[] = [];
         for (const [name, regionList] of Object.entries(regions)) {
@@ -520,7 +527,7 @@ export class BufferSyncWorker {
             [copy.data],
           );
           if (chunkIdx < total) {
-            setTimeout(sendNextChunk, 16); // 16ms delay lets main thread render between chunks
+            setTimeout(sendNextChunk, 0); // yield the macrotask queue between chunk posts
           }
         };
         sendNextChunk();

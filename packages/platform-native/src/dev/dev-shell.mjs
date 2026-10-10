@@ -141,6 +141,13 @@ let runner = null;
 let shuttingDown = false;
 let reimportQueue = Promise.resolve();
 let updateSeq = 0;
+/** Runner generation — bumped every time the ModuleRunner is replaced
+ *  (Tier-3/4 reimports, vite-server rebind). Boot code captures it before
+ *  awaiting runner.import(): a mid-import restart closes the old runner,
+ *  which rejects the pending fetch ("transport was disconnected") — an
+ *  expected-teardown rejection the superseded boot must swallow, not
+ *  escalate as a fatal boot failure. */
+let runnerGen = 0;
 
 const pendingSimSwaps = new Map(); // updateId → {timer, resolve}
 
@@ -171,9 +178,14 @@ function finishSessionBoot() {
  *  eval failures escalate (a process with no live session is unrecoverable
  *  in place). */
 function importEntry() {
+  const gen = runnerGen;
   runner.import(entry).then(
-    () => finishSessionBoot(),
+    () => { if (runnerGen === gen) finishSessionBoot(); },
     (e) => {
+      // A later Tier-3/4 restart closed this runner mid-import — the new
+      // generation owns the boot; the stale rejection is expected teardown,
+      // not an entry failure worth a process respawn.
+      if (runnerGen !== gen || shuttingDown) return;
       logErr(`entry import failed: ${e?.stack ?? e}`);
       void shutdown(DD_RESTART_EXIT, "entry reimport failure");
     },
@@ -185,6 +197,10 @@ function importEntry() {
  *  itself — do it here before re-evaluating fresh. */
 async function reimportSession() {
   await new Promise((r) => rawSetTimeout(r, 0));
+  // Retire the generation BEFORE runner.close() rejects its pending imports —
+  // a stale-boot await racing this teardown must read superseded state the
+  // moment the old runner is doomed, not only after the new one exists.
+  runnerGen++;
   // Rebuild the ModuleRunner instead of clearCache() — the runner's
   // transport/HMRClient/evaluator bookkeeping (crawl-end deferreds, pending
   // request maps, serialized message queue) retains pieces of the dead
@@ -211,6 +227,8 @@ async function reimportSession() {
  *  dead generation's module graph). */
 async function reimportHost() {
   await new Promise((r) => rawSetTimeout(r, 0));
+  // Same generation retirement as reimportSession — before close().
+  runnerGen++;
   try { await runner.close(); } catch { /* mid-close */ }
   envRef.current._runner = undefined;
   runner = envRef.current.runner;
@@ -600,6 +618,7 @@ async function rebindRunner() {
   installHotChannelRemap();
   installSimAckListener();
   runner = envRef.current.runner;
+  runnerGen++;
   globalThis.__ddRunner = runner;
   // The new env's module cache is empty but the process + host survive.
   // The new env also has a fresh hot channel — the old listeners died with
@@ -663,6 +682,14 @@ async function main() {
   // runtime + entry graphs are still transforming. Not awaited — it races
   // the runtime import below. The runtime's own kick stays as the fallback
   // (covers host restarts, where a dev-shell-level kick can't help).
+  //
+  // bootGen guards every awaited import below: a Tier-3/4 restart landing
+  // mid-boot closes this runner, which rejects the pending fetch
+  // ("transport was disconnected, cannot call fetchModule"). That is
+  // expected teardown — the restart's reimport path owns the next boot —
+  // not a fatal boot failure.
+  const bootGen = runnerGen;
+  const superseded = () => runnerGen !== bootGen || hostRestartPending || restartPending || shuttingDown;
   const gameCfg = globalThis[CONFIG_KEY]?.gameConfig;
   if (!globalThis.__ddEarlyHostPromise && gameCfg?.native) {
     const n = gameCfg.native;
@@ -686,13 +713,20 @@ async function main() {
         return null;
       });
     } catch (e) {
+      if (superseded()) return;
       logErr(`early host import failed (entry will create its own): ${e?.message ?? e}`);
     }
   }
   // The runtime installs the session tracker + hot listeners, then the
   // game entry evaluates inside the shared process.
-  await runner.import(RUNTIME_MODULE);
-  await runner.import(entry);
+  try {
+    await runner.import(RUNTIME_MODULE);
+    await runner.import(entry);
+  } catch (e) {
+    if (superseded()) return;
+    throw e;
+  }
+  if (superseded()) return;
   finishSessionBoot();
 
   // Entry module resolved. Two shapes exist:
@@ -712,6 +746,7 @@ async function main() {
   const deadline = Date.now() + 30_000;
   while (
     !shuttingDown
+    && runnerGen === bootGen
     && !(globalThis.__nativeHost && typeof globalThis.__nativeHost === "object" && globalThis.__nativeHost.window)
   ) {
     if (Date.now() > deadline) {
