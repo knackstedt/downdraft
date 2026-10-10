@@ -168,6 +168,26 @@ export class GPUResourceTracker {
    * inform. Enable via constructor for leak-hunting sessions.
    */
   private captureCallsites: boolean;
+  /**
+   * Resources dropped without destroy() are released through the native
+   * FinalizationRegistry (platform-native/gpu/registry.ts) — the wrapped
+   * destroy() never runs, so without this second registry their tracked
+   * entries (and reported VRAM) would grow forever. The held value is the
+   * tracked id; the resource object itself is the unregister token.
+   */
+  private gcRegistry = new FinalizationRegistry<number>((id) => {
+    const r = this.resources.get(id);
+    if (!r) return;
+    this.resources.delete(id);
+    if (r.type === "texture") {
+      this.textureBytes -= r.size;
+      this.textureCount--;
+    } else {
+      this.bufferBytes -= r.size;
+      this.bufferCount--;
+    }
+    this.dirty = true;
+  });
 
   constructor(opts: { captureCallsites?: boolean } = {}) {
     this.captureCallsites = opts.captureCallsites ?? false;
@@ -201,6 +221,7 @@ export class GPUResourceTracker {
       tracker.textureBytes += bytes;
       tracker.textureCount++;
       tracker.dirty = true;
+      tracker.gcRegistry.register(tex, id, tex);
 
       // Wrap destroy to remove from tracking
       const origDestroy = tex.destroy.bind(tex);
@@ -212,6 +233,7 @@ export class GPUResourceTracker {
           tracker.textureCount--;
           tracker.dirty = true;
         }
+        tracker.gcRegistry.unregister(tex);
         origDestroy();
       };
 
@@ -234,6 +256,7 @@ export class GPUResourceTracker {
       tracker.bufferBytes += bytes;
       tracker.bufferCount++;
       tracker.dirty = true;
+      tracker.gcRegistry.register(buf, id, buf);
 
       // Wrap destroy to remove from tracking
       const origDestroy = buf.destroy.bind(buf);
@@ -245,6 +268,7 @@ export class GPUResourceTracker {
           tracker.bufferCount--;
           tracker.dirty = true;
         }
+        tracker.gcRegistry.unregister(buf);
         origDestroy();
       };
 
