@@ -10,12 +10,16 @@
 //! same atlas slots the outline path uses, so compositing (AlphaMask tinting,
 //! subpixel-phase cache buckets) is shared.
 //!
-//! With `DD_LCD_TEXT` enabled (default), glyphs render as LCD subpixel masks
-//! (`FT_RENDER_MODE_LCD`, 3x horizontal coverage) and composite through a
-//! two-pass multiply+add blend for true per-channel subpixel AA.
+//! With `DD_LCD_TEXT=1` (or fontconfig `rgba=rgb` auto-detection), glyphs
+//! render as LCD subpixel masks (`FT_RENDER_MODE_LCD`, 3x horizontal
+//! coverage) and composite through a two-pass multiply+add blend for true
+//! per-channel subpixel AA. LCD output is only correct when the raster lands
+//! unscaled on an RGB-subpixel-ordered panel — any resample, BGR panel, or
+//! semi-transparent destination smears it into color fringes, so grayscale
+//! masks are the default unless the desktop reports an RGB stripe.
 //!
-//! Runtime toggles: `DD_FREETYPE_TEXT=0` disables this module entirely,
-//! `DD_LCD_TEXT=0` disables the LCD variant (grayscale masks remain).
+//! Runtime toggles: `DD_FREETYPE_TEXT=0` disables this module entirely;
+//! `DD_LCD_TEXT=1|0` forces the LCD variant on/off, overriding detection.
 
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -140,9 +144,32 @@ pub(crate) fn enabled() -> bool {
 pub(crate) fn lcd_enabled() -> bool {
     enabled()
         && *LCD_ENABLED.get_or_init(|| match std::env::var("DD_LCD_TEXT") {
-            Ok(v) => !matches!(v.as_str(), "0" | "false" | "off"),
-            Err(_) => true,
+            // An explicit env setting wins either way.
+            Ok(v) => matches!(v.as_str(), "1" | "true" | "on"),
+            Err(_) => detect_lcd_panel(),
         })
+}
+
+/// Honor the desktop's subpixel-AA preference, the same signal Chrome and
+/// native apps follow: `fc-match %{rgba}` resolves fontconfig's effective
+/// FcRgba (0=unknown 1=rgb 2=bgr 3=vrgb 4=vbgr 5=none). Only `rgb` maps onto
+/// our mask repack (r,g,b coverage per column) — bgr would need a channel
+/// swap, vertical layouts can't use horizontal masks at all, and none/unknown
+/// means the user asked for grayscale anyway. Missing fontconfig (or a
+/// non-Linux host) resolves to grayscale.
+#[cfg(unix)]
+fn detect_lcd_panel() -> bool {
+    std::process::Command::new("fc-match")
+        .args(["-f", "%{rgba}"])
+        .output()
+        .ok()
+        .map(|o| o.stdout.trim_ascii() == b"1")
+        .unwrap_or(false)
+}
+
+#[cfg(not(unix))]
+fn detect_lcd_panel() -> bool {
+    false
 }
 
 /// A rendered FreeType bitmap copied out of the glyph slot, normalized to

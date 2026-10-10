@@ -2157,6 +2157,7 @@ dependencies = [
  "dioxus-native",
  "dioxus-native-dom",
  "dioxus-signals",
+ "glifo",
  "idna_adapter",
  "js-sys",
  "keyboard-types 0.7.0",

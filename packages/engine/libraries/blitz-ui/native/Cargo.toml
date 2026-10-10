@@ -31,3 +31,9 @@ web-time = "1"
 # Workaround copied from blitz examples: disable unicode URL support
 # (see https://github.com/hsivonen/idna_adapter)
 idna_adapter = "=1.0.0"
+
+# Enable the vendored glifo's FreeType mask path (see [patch.crates-io] in the
+# workspace root). Feature unification turns it on inside vello_cpu's copy.
+# Target-gated: freetype-sys compiles bundled C, which wasm32 can't build.
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+glifo = { version = "0.2", features = ["freetype"] }
