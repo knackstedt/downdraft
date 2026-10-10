@@ -920,6 +920,86 @@ pub extern "C" fn wgpu_shim_queue_write_texture(
     });
 }
 
+/// RGBA8 source → upload-layout conversion for copyExternalImageToTexture:
+/// copies `copy_row_bytes` per row into the 256-aligned `dst_row_bytes`
+/// stride, optionally swapping R<->B (BGRA destinations) and/or
+/// premultiplying RGB by alpha. Doing this in JS was an O(w*h) scalar loop
+/// on the render thread; here the swizzle compiles to word-level ops.
+///
+/// `flags`: bit0 = BGRA swap, bit1 = premultiply alpha. Bytes of each
+/// destination row past `copy_row_bytes` are left untouched (the JS side
+/// allocates the buffer zeroed).
+///
+/// Returns 0 on success, -1 on a layout/size mismatch (JS falls back).
+#[allow(clippy::too_many_arguments)]
+#[no_mangle]
+pub extern "C" fn wgpu_shim_swizzle_image(
+    src: *const u8,
+    src_len: usize,
+    src_row_bytes: u32,
+    dst: *mut u8,
+    dst_len: usize,
+    dst_row_bytes: u32,
+    copy_row_bytes: u32,
+    height: u32,
+    flags: u32,
+) -> i32 {
+    ffi!(-1, unsafe {
+        if src.is_null() || dst.is_null() {
+            return -1;
+        }
+        let src_row = src_row_bytes as usize;
+        let dst_row = dst_row_bytes as usize;
+        let copy_row = copy_row_bytes as usize;
+        let h = height as usize;
+        if copy_row % 4 != 0 || copy_row > src_row || copy_row > dst_row {
+            return -1;
+        }
+        if (src_len as usize) < src_row * h || dst_len < dst_row * h {
+            return -1;
+        }
+        let src = std::slice::from_raw_parts(src, src_row * h);
+        let dst = std::slice::from_raw_parts_mut(dst, dst_row * h);
+        let swap_rb = flags & 1 != 0;
+        let premultiply = flags & 2 != 0;
+        for y in 0..h {
+            let s = &src[y * src_row..y * src_row + copy_row];
+            let d = &mut dst[y * dst_row..y * dst_row + copy_row];
+            if !swap_rb && !premultiply {
+                d.copy_from_slice(s);
+            } else if swap_rb && !premultiply {
+                // Word-level R<->B swap: for LE u32 R|G<<8|B<<16|A<<24 the
+                // BGRA pixel is (v & 0xFF00FF00) | (v << 16 & 0xFF0000) | (v >> 16 & 0xFF).
+                for (sp, dp) in s.chunks_exact(4).zip(d.chunks_exact_mut(4)) {
+                    let v = u32::from_ne_bytes([sp[0], sp[1], sp[2], sp[3]]);
+                    let w = (v & 0xFF00FF00) | ((v & 0xFF) << 16) | ((v >> 16) & 0xFF);
+                    dp.copy_from_slice(&w.to_ne_bytes());
+                }
+            } else {
+                for (sp, dp) in s.chunks_exact(4).zip(d.chunks_exact_mut(4)) {
+                    let a = sp[3] as u32;
+                    // (c*a + 127)/255 == round(c*a/255) for all c,a in 0..=255.
+                    let (r, g, b) = if premultiply && a != 255 {
+                        (
+                            ((sp[0] as u32 * a + 127) / 255) as u8,
+                            ((sp[1] as u32 * a + 127) / 255) as u8,
+                            ((sp[2] as u32 * a + 127) / 255) as u8,
+                        )
+                    } else {
+                        (sp[0], sp[1], sp[2])
+                    };
+                    if swap_rb {
+                        dp.copy_from_slice(&[b, g, r, sp[3]]);
+                    } else {
+                        dp.copy_from_slice(&[r, g, b, sp[3]]);
+                    }
+                }
+            }
+        }
+        0
+    })
+}
+
 // ── Sampler ──
 
 #[allow(clippy::too_many_arguments)]

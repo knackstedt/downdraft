@@ -1103,28 +1103,46 @@ export class WgpuQueue {
     const copyRowBytes = width * 4;
     const padded = new Uint8Array(dstRowBytes * height);
 
-    if (!isBGRA && !premultiply) {
-      // Fast path: row-wise copy, no per-pixel work.
-      for (let y = 0; y < height; y++) {
-        padded.set(rgba.subarray(y * srcRowBytes, y * srcRowBytes + copyRowBytes), y * dstRowBytes);
-      }
-    } else {
-      for (let y = 0; y < height; y++) {
-        const srcOff = y * srcRowBytes;
-        const dstOff = y * dstRowBytes;
-        for (let x = 0; x < width; x++) {
-          const s = srcOff + x * 4;
-          const d = dstOff + x * 4;
-          const a = rgba[s + 3];
-          const af = a / 255;
-          const r = rgba[s], g = rgba[s + 1], b = rgba[s + 2];
-          const pr = premultiply && a < 255 ? Math.round(r * af) : r;
-          const pg = premultiply && a < 255 ? Math.round(g * af) : g;
-          const pb = premultiply && a < 255 ? Math.round(b * af) : b;
-          if (isBGRA) {
-            padded[d] = pb; padded[d + 1] = pg; padded[d + 2] = pr; padded[d + 3] = a;
-          } else {
-            padded[d] = pr; padded[d + 1] = pg; padded[d + 2] = pb; padded[d + 3] = a;
+    // Row padding + BGRA swizzle + premultiply run in the Rust shim — one
+    // FFI call instead of an O(w*h) scalar JS loop. Fall back to the JS
+    // loops if the loaded lib predates the symbol or rejects the layout.
+    const swizzle = (wgpu as any).wgpu_shim_swizzle_image;
+    const swizzled = typeof swizzle === "function" &&
+      swizzle(
+        rgba as unknown as ptr,
+        BigInt(rgba.byteLength),
+        srcRowBytes,
+        padded as unknown as ptr,
+        BigInt(padded.byteLength),
+        dstRowBytes,
+        copyRowBytes,
+        height,
+        (isBGRA ? 1 : 0) | (premultiply ? 2 : 0),
+      ) === 0;
+    if (!swizzled) {
+      if (!isBGRA && !premultiply) {
+        // Fast path: row-wise copy, no per-pixel work.
+        for (let y = 0; y < height; y++) {
+          padded.set(rgba.subarray(y * srcRowBytes, y * srcRowBytes + copyRowBytes), y * dstRowBytes);
+        }
+      } else {
+        for (let y = 0; y < height; y++) {
+          const srcOff = y * srcRowBytes;
+          const dstOff = y * dstRowBytes;
+          for (let x = 0; x < width; x++) {
+            const s = srcOff + x * 4;
+            const d = dstOff + x * 4;
+            const a = rgba[s + 3];
+            const af = a / 255;
+            const r = rgba[s], g = rgba[s + 1], b = rgba[s + 2];
+            const pr = premultiply && a < 255 ? Math.round(r * af) : r;
+            const pg = premultiply && a < 255 ? Math.round(g * af) : g;
+            const pb = premultiply && a < 255 ? Math.round(b * af) : b;
+            if (isBGRA) {
+              padded[d] = pb; padded[d + 1] = pg; padded[d + 2] = pr; padded[d + 3] = a;
+            } else {
+              padded[d] = pr; padded[d + 1] = pg; padded[d + 2] = pb; padded[d + 3] = a;
+            }
           }
         }
       }

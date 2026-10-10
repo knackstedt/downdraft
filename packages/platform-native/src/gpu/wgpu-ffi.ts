@@ -87,6 +87,12 @@ const WGPU_SHIM_SPEC: Record<string, CFunction> = {
     args: ["ptr", "ptr", "ptr", "usize", "u32", "u32", "u32", "u32", "u32", "u64", "u32", "u32", "u32", "u32", "u32"],
     returns: "void",
   },
+  // (src, srcLen, srcRowBytes, dst, dstLen, dstRowBytes, copyRowBytes, height, flags) → i32
+  // flags: bit0 = BGRA swap, bit1 = premultiply alpha. 0 = success.
+  wgpu_shim_swizzle_image: {
+    args: ["ptr", "usize", "u32", "ptr", "usize", "u32", "u32", "u32", "u32"],
+    returns: "i32",
+  },
 
   // ── Sampler ──
   wgpu_shim_create_sampler: {
@@ -494,6 +500,17 @@ export interface WgpuShimSymbols {
     height: number,
     depth: number,
   ) => void;
+  wgpu_shim_swizzle_image: (
+    src: ptr,
+    srcLen: bigint,
+    srcRowBytes: number,
+    dst: ptr,
+    dstLen: bigint,
+    dstRowBytes: number,
+    copyRowBytes: number,
+    height: number,
+    flags: number,
+  ) => number;
 
   wgpu_shim_create_sampler: (
     device: ptr,
