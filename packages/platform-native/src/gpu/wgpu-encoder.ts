@@ -27,6 +27,202 @@ const encoderFinishErr = new Uint32Array(1);
 const encoderFinishMsg = new Uint8Array(4096);
 const encoderFinishDecoder = new TextDecoder();
 
+// ============================================================================
+// Pass-op recording — every void pass op is serialized into a flat u32
+// stream and replayed with ONE FFI call at end() instead of a crossing per
+// op (the dominant FFI cost on Node/Deno). Wire layout must match
+// pass_op::* in native-rs/src/gpu/mod.rs: handles are lo/hi u32 pairs, f32
+// args are bit patterns, cstrings are [byteLen, bytes… padded to u32].
+// ============================================================================
+
+const PO = {
+  SET_PIPELINE: 1, SET_BIND_GROUP: 2, SET_VERTEX_BUFFER: 3, SET_INDEX_BUFFER: 4,
+  DRAW: 5, DRAW_INDEXED: 6, DRAW_INDIRECT: 7, DRAW_INDEXED_INDIRECT: 8,
+  SET_VIEWPORT: 9, SET_SCISSOR: 10, WRITE_TIMESTAMP: 11,
+  PUSH_DEBUG_GROUP: 12, POP_DEBUG_GROUP: 13, INSERT_DEBUG_MARKER: 14,
+  SET_BLEND_CONSTANT: 15, SET_STENCIL_REFERENCE: 16,
+  BEGIN_OCCLUSION_QUERY: 17, END_OCCLUSION_QUERY: 18,
+  DISPATCH: 19, DISPATCH_INDIRECT: 20,
+} as const;
+
+const passLabelEncoder = new TextEncoder();
+
+class PassStream {
+  buf = new Uint32Array(4096);
+  private f32v = new Float32Array(this.buf.buffer);
+  private u8v = new Uint8Array(this.buf.buffer);
+  w = 0;
+
+  reset(): void { this.w = 0; }
+
+  private grow(n: number): void {
+    if (this.w + n <= this.buf.length) return;
+    let cap = this.buf.length * 2;
+    while (this.w + n > cap) cap *= 2;
+    const nb = new Uint32Array(cap);
+    nb.set(this.buf);
+    this.buf = nb;
+    this.f32v = new Float32Array(nb.buffer);
+    this.u8v = new Uint8Array(nb.buffer);
+  }
+
+  op(code: number): void { this.grow(1); this.buf[this.w++] = code; }
+  u(v: number): void { this.grow(1); this.buf[this.w++] = v >>> 0; }
+  u64(v: ptr | number | bigint): void {
+    this.grow(2);
+    const b = BigInt(v);
+    this.buf[this.w++] = Number(b & 0xFFFFFFFFn);
+    this.buf[this.w++] = Number(b >> 32n);
+  }
+  f(v: number): void { this.grow(1); this.f32v[this.w++] = v; }
+  u32s(vals: Uint32Array): void { this.grow(vals.length); this.buf.set(vals, this.w); this.w += vals.length; }
+  str(s: string): void {
+    const bytes = passLabelEncoder.encode(s);
+    const words = (bytes.length + 3) >> 2;
+    this.grow(1 + words);
+    this.buf[this.w++] = bytes.length;
+    const byteOff = this.w * 4;
+    this.u8v.fill(0, byteOff, byteOff + words * 4);
+    this.u8v.set(bytes, byteOff);
+    this.w += words;
+  }
+}
+
+// Passes are strictly non-overlapping per encoder, and pools keep the
+// 16KB scratch buffers alive across frames instead of reallocating per
+// pass.
+const passStreamPool: PassStream[] = [];
+function acquirePassStream(): PassStream {
+  return passStreamPool.pop() ?? new PassStream();
+}
+function releasePassStream(s: PassStream): void {
+  s.reset();
+  if (passStreamPool.length < 8) passStreamPool.push(s);
+}
+
+// Lazily resolved replay symbols — null when the loaded platform lib
+// predates them (recorded ops then replay through the JS decoder below).
+let renderPassReplay: ((pass: ptr, stream: ptr, wordCount: number) => number) | null | undefined;
+function getRenderPassReplay() {
+  if (renderPassReplay === undefined) {
+    try { renderPassReplay = wgpu.wgpu_shim_render_pass_replay ?? null; } catch { renderPassReplay = null; }
+  }
+  return renderPassReplay;
+}
+let computePassReplay: ((pass: ptr, stream: ptr, wordCount: number) => number) | null | undefined;
+function getComputePassReplay() {
+  if (computePassReplay === undefined) {
+    try { computePassReplay = wgpu.wgpu_shim_compute_pass_replay ?? null; } catch { computePassReplay = null; }
+  }
+  return computePassReplay;
+}
+
+function streamHandle(s: PassStream, i: number): ptr {
+  return (BigInt(s.buf[i + 1]) << 32n) | BigInt(s.buf[i]);
+}
+
+const labelDecoder = new TextDecoder();
+
+/** Decode a recorded op stream against the per-op FFI fns — compat path
+ *  for platform libs that predate wgpu_shim_*_pass_replay. */
+function replayRenderPassJS(passPtr: ptr, s: PassStream): void {
+  let i = 0;
+  const w = s.w;
+  const rdStr = (): string => {
+    const len = s.buf[i++];
+    const bytes = new Uint8Array(s.buf.buffer, i * 4, len);
+    i += (len + 3) >> 2;
+    return labelDecoder.decode(bytes);
+  };
+  while (i < w) {
+    switch (s.buf[i++]) {
+      case PO.SET_PIPELINE:
+        wgpu.wgpu_shim_render_pass_set_pipeline(passPtr, streamHandle(s, i)); i += 2; break;
+      case PO.SET_BIND_GROUP: {
+        const idx = s.buf[i]; const h = streamHandle(s, i + 1); const n = s.buf[i + 3];
+        const offs = n > 0 ? s.buf.subarray(i + 4, i + 4 + n) : (0 as unknown as ptr);
+        wgpu.wgpu_shim_render_pass_set_bind_group(passPtr, idx, h, offs as ptr, n);
+        i += 4 + n; break;
+      }
+      case PO.SET_VERTEX_BUFFER:
+        wgpu.wgpu_shim_render_pass_set_vertex_buffer(passPtr, s.buf[i], streamHandle(s, i + 1), BigInt(streamHandle(s, i + 3)), BigInt(streamHandle(s, i + 5)));
+        i += 7; break;
+      case PO.SET_INDEX_BUFFER:
+        wgpu.wgpu_shim_render_pass_set_index_buffer(passPtr, streamHandle(s, i), s.buf[i + 2], BigInt(streamHandle(s, i + 3)), BigInt(streamHandle(s, i + 5)));
+        i += 7; break;
+      case PO.DRAW:
+        wgpu.wgpu_shim_render_pass_draw(passPtr, s.buf[i], s.buf[i + 1], s.buf[i + 2], s.buf[i + 3]); i += 4; break;
+      case PO.DRAW_INDEXED:
+        wgpu.wgpu_shim_render_pass_draw_indexed(passPtr, s.buf[i], s.buf[i + 1], s.buf[i + 2], s.buf[i + 3] | 0, s.buf[i + 4]); i += 5; break;
+      case PO.DRAW_INDIRECT:
+        wgpu.wgpu_shim_render_pass_draw_indirect(passPtr, streamHandle(s, i), BigInt(streamHandle(s, i + 2))); i += 4; break;
+      case PO.DRAW_INDEXED_INDIRECT:
+        wgpu.wgpu_shim_render_pass_draw_indexed_indirect(passPtr, streamHandle(s, i), BigInt(streamHandle(s, i + 2))); i += 4; break;
+      case PO.SET_VIEWPORT: {
+        const f = new Float32Array(s.buf.buffer);
+        wgpu.wgpu_shim_render_pass_set_viewport(passPtr, f[i], f[i + 1], f[i + 2], f[i + 3], f[i + 4], f[i + 5]);
+        i += 6; break;
+      }
+      case PO.SET_SCISSOR:
+        wgpu.wgpu_shim_render_pass_set_scissor_rect(passPtr, s.buf[i], s.buf[i + 1], s.buf[i + 2], s.buf[i + 3]); i += 4; break;
+      case PO.WRITE_TIMESTAMP:
+        wgpu.wgpu_shim_render_pass_write_timestamp(passPtr, streamHandle(s, i), s.buf[i + 2]); i += 3; break;
+      case PO.PUSH_DEBUG_GROUP: wgpu.wgpu_shim_render_pass_push_debug_group(passPtr, rdStr()); break;
+      case PO.POP_DEBUG_GROUP: wgpu.wgpu_shim_render_pass_pop_debug_group(passPtr); break;
+      case PO.INSERT_DEBUG_MARKER: wgpu.wgpu_shim_render_pass_insert_debug_marker(passPtr, rdStr()); break;
+      case PO.SET_BLEND_CONSTANT: {
+        const f = new Float32Array(s.buf.buffer);
+        wgpu.wgpu_shim_render_pass_set_blend_constant(passPtr, f[i], f[i + 1], f[i + 2], f[i + 3]);
+        i += 4; break;
+      }
+      case PO.SET_STENCIL_REFERENCE:
+        wgpu.wgpu_shim_render_pass_set_stencil_reference(passPtr, s.buf[i]); i += 1; break;
+      case PO.BEGIN_OCCLUSION_QUERY:
+        wgpu.wgpu_shim_render_pass_begin_occlusion_query(passPtr, s.buf[i]); i += 1; break;
+      case PO.END_OCCLUSION_QUERY:
+        wgpu.wgpu_shim_render_pass_end_occlusion_query(passPtr); break;
+      default:
+        log.error("wgpu", `render pass replay: unknown opcode ${s.buf[i - 1]} — dropping remaining ops`);
+        return;
+    }
+  }
+}
+
+function replayComputePassJS(passPtr: ptr, s: PassStream): void {
+  let i = 0;
+  const w = s.w;
+  const rdStr = (): string => {
+    const len = s.buf[i++];
+    const bytes = new Uint8Array(s.buf.buffer, i * 4, len);
+    i += (len + 3) >> 2;
+    return labelDecoder.decode(bytes);
+  };
+  while (i < w) {
+    switch (s.buf[i++]) {
+      case PO.SET_PIPELINE:
+        wgpu.wgpu_shim_compute_pass_set_pipeline(passPtr, streamHandle(s, i)); i += 2; break;
+      case PO.SET_BIND_GROUP: {
+        const idx = s.buf[i]; const h = streamHandle(s, i + 1); const n = s.buf[i + 3];
+        const offs = n > 0 ? s.buf.subarray(i + 4, i + 4 + n) : (0 as unknown as ptr);
+        wgpu.wgpu_shim_compute_pass_set_bind_group(passPtr, idx, h, offs as ptr, n);
+        i += 4 + n; break;
+      }
+      case PO.DISPATCH:
+        wgpu.wgpu_shim_compute_pass_dispatch(passPtr, s.buf[i], s.buf[i + 1], s.buf[i + 2]); i += 3; break;
+      case PO.DISPATCH_INDIRECT:
+        wgpu.wgpu_shim_compute_pass_dispatch_indirect(passPtr, streamHandle(s, i), BigInt(streamHandle(s, i + 2))); i += 4; break;
+      case PO.WRITE_TIMESTAMP:
+        wgpu.wgpu_shim_compute_pass_write_timestamp(passPtr, streamHandle(s, i), s.buf[i + 2]); i += 3; break;
+      case PO.PUSH_DEBUG_GROUP: wgpu.wgpu_shim_compute_pass_push_debug_group(passPtr, rdStr()); break;
+      case PO.POP_DEBUG_GROUP: wgpu.wgpu_shim_compute_pass_pop_debug_group(passPtr); break;
+      case PO.INSERT_DEBUG_MARKER: wgpu.wgpu_shim_compute_pass_insert_debug_marker(passPtr, rdStr()); break;
+      default:
+        log.error("wgpu", `compute pass replay: unknown opcode ${s.buf[i - 1]} — dropping remaining ops`);
+        return;
+    }
+  }
+}
+
 function parseIndexFormat(format: string): number {
   return format === "uint16" ? 1 : format === "uint32" ? 2 : 0;
 }
@@ -140,7 +336,7 @@ export class WgpuCommandEncoder {
       (tsFlat ?? 0) as unknown as ptr,
     ) as unknown as number;
     if (!passPtr) throw new Error("Failed to begin render pass");
-    return new WgpuRenderPassEncoder(passPtr);
+    return new WgpuRenderPassEncoder(passPtr, acquirePassStream());
   }
 
   beginComputePass(descriptor?: GPUComputePassDescriptor): WgpuComputePassEncoder {
@@ -159,7 +355,7 @@ export class WgpuCommandEncoder {
     }
     const passPtr = wgpu.wgpu_shim_begin_compute_pass(this.ptr, (tsFlat ?? 0) as unknown as ptr) as unknown as number;
     if (!passPtr) throw new Error("Failed to begin compute pass");
-    return new WgpuComputePassEncoder(passPtr);
+    return new WgpuComputePassEncoder(passPtr, acquirePassStream());
   }
 
   copyBufferToBuffer(source: WgpuBuffer, sourceOffset: number, destination: WgpuBuffer, destinationOffset: number, size: number): void {
@@ -304,104 +500,129 @@ export class WgpuRenderPassEncoder {
   readonly ptr: ptr;
   label = "";
   private ended = false;
+  /** Recorded op stream — replayed in one FFI call at end(). Ops called
+   *  after end() are dropped (they'd be a validation error anyway). */
+  private rec: PassStream | null;
 
-  constructor(ptr: ptr) {
+  constructor(ptr: ptr, stream?: PassStream) {
     this.ptr = ptr;
+    this.rec = stream ?? acquirePassStream();
     trackForRelease(this, () => wgpu.wgpu_shim_release_render_pass(ptr));
   }
 
   setPipeline(pipeline: WgpuRenderPipeline): void {
-    wgpu.wgpu_shim_render_pass_set_pipeline(this.ptr, pipeline.ptr);
+    const r = this.rec; if (!r) return;
+    r.op(PO.SET_PIPELINE); r.u64(pipeline.ptr);
   }
 
   setBindGroup(index: number, bindGroup: WgpuBindGroup | null, dynamicOffsets?: Iterable<number>): void {
-    if (bindGroup) {
-      const offs = dynamicOffsetsArray(dynamicOffsets);
-      wgpu.wgpu_shim_render_pass_set_bind_group(
-        this.ptr, index, bindGroup.ptr,
-        (offs ?? 0) as unknown as ptr,
-        offs?.length ?? 0,
-      );
-    }
+    const r = this.rec; if (!r || !bindGroup) return;
+    const offs = dynamicOffsetsArray(dynamicOffsets);
+    r.op(PO.SET_BIND_GROUP); r.u(index); r.u64(bindGroup.ptr); r.u(offs?.length ?? 0);
+    if (offs) r.u32s(offs);
   }
 
   setVertexBuffer(slot: number, buffer: WgpuBuffer | null, offset?: number, size?: number): void {
-    if (buffer) {
-      const off = offset ?? 0;
-      wgpu.wgpu_shim_render_pass_set_vertex_buffer(this.ptr, slot, buffer.ptr, BigInt(off), BigInt(size ?? (buffer.size - off)));
-    }
+    const r = this.rec; if (!r || !buffer) return;
+    const off = offset ?? 0;
+    r.op(PO.SET_VERTEX_BUFFER); r.u(slot); r.u64(buffer.ptr); r.u64(off); r.u64(size ?? (buffer.size - off));
   }
 
   setIndexBuffer(buffer: WgpuBuffer | null, format: GPUIndexFormat, offset?: number, size?: number): void {
-    if (buffer) {
-      const off = offset ?? 0;
-      const sz = size ?? (buffer.size - off);
-      // Binding an empty index range is meaningless — and wgpu-native panics
-      // on it ("invalid size"), which aborts the process since the panic
-      // crosses the FFI boundary. Skip instead.
-      if (sz <= 0) return;
-      wgpu.wgpu_shim_render_pass_set_index_buffer(this.ptr, buffer.ptr, parseIndexFormat(format), BigInt(off), BigInt(sz));
-    }
+    const r = this.rec; if (!r || !buffer) return;
+    const off = offset ?? 0;
+    const sz = size ?? (buffer.size - off);
+    // Binding an empty index range is meaningless — and wgpu-native panics
+    // on it ("invalid size"), which aborts the process since the panic
+    // crosses the FFI boundary. Skip instead.
+    if (sz <= 0) return;
+    r.op(PO.SET_INDEX_BUFFER); r.u64(buffer.ptr); r.u(parseIndexFormat(format)); r.u64(off); r.u64(sz);
   }
 
   draw(vertexCount: number, instanceCount?: number, firstVertex?: number, firstInstance?: number): void {
-    wgpu.wgpu_shim_render_pass_draw(this.ptr, vertexCount, instanceCount ?? 1, firstVertex ?? 0, firstInstance ?? 0);
+    const r = this.rec; if (!r) return;
+    r.op(PO.DRAW); r.u(vertexCount); r.u(instanceCount ?? 1); r.u(firstVertex ?? 0); r.u(firstInstance ?? 0);
   }
 
   drawIndexed(indexCount: number, instanceCount?: number, firstIndex?: number, baseVertex?: number, firstInstance?: number): void {
-    wgpu.wgpu_shim_render_pass_draw_indexed(this.ptr, indexCount, instanceCount ?? 1, firstIndex ?? 0, baseVertex ?? 0, firstInstance ?? 0);
+    const r = this.rec; if (!r) return;
+    r.op(PO.DRAW_INDEXED); r.u(indexCount); r.u(instanceCount ?? 1); r.u(firstIndex ?? 0); r.u(baseVertex ?? 0); r.u(firstInstance ?? 0);
   }
 
   drawIndirect(indirectBuffer: WgpuBuffer, indirectOffset: number): void {
-    wgpu.wgpu_shim_render_pass_draw_indirect(this.ptr, indirectBuffer.ptr, BigInt(indirectOffset));
+    const r = this.rec; if (!r) return;
+    r.op(PO.DRAW_INDIRECT); r.u64(indirectBuffer.ptr); r.u64(indirectOffset);
   }
 
   drawIndexedIndirect(indirectBuffer: WgpuBuffer, indirectOffset: number): void {
-    wgpu.wgpu_shim_render_pass_draw_indexed_indirect(this.ptr, indirectBuffer.ptr, BigInt(indirectOffset));
+    const r = this.rec; if (!r) return;
+    r.op(PO.DRAW_INDEXED_INDIRECT); r.u64(indirectBuffer.ptr); r.u64(indirectOffset);
   }
 
   setViewport(x: number, y: number, width: number, height: number, minDepth: number, maxDepth: number): void {
-    wgpu.wgpu_shim_render_pass_set_viewport(this.ptr, x, y, width, height, minDepth, maxDepth);
+    const r = this.rec; if (!r) return;
+    r.op(PO.SET_VIEWPORT); r.f(x); r.f(y); r.f(width); r.f(height); r.f(minDepth); r.f(maxDepth);
   }
 
   setScissorRect(x: number, y: number, width: number, height: number): void {
-    wgpu.wgpu_shim_render_pass_set_scissor_rect(this.ptr, x, y, width, height);
+    const r = this.rec; if (!r) return;
+    r.op(PO.SET_SCISSOR); r.u(x); r.u(y); r.u(width); r.u(height);
   }
 
   /** Inside-pass timestamp write — requires the "timestamp-query-inside-passes" feature. */
   writeTimestamp(querySet: WgpuQuerySet, queryIndex: number): void {
-    wgpu.wgpu_shim_render_pass_write_timestamp(this.ptr, querySet.ptr, queryIndex);
+    const r = this.rec; if (!r) return;
+    r.op(PO.WRITE_TIMESTAMP); r.u64(querySet.ptr); r.u(queryIndex);
   }
 
   end(): void {
     if (this.ended) return;
     this.ended = true;
+    const rec = this.rec;
+    this.rec = null;
+    if (rec && rec.w > 0) {
+      const replay = getRenderPassReplay();
+      if (replay) {
+        const st = replay(this.ptr, rec.buf as unknown as ptr, rec.w);
+        if (st !== 0) log.error("wgpu", `render pass replay failed (${st}) — ops dropped`);
+      } else {
+        replayRenderPassJS(this.ptr, rec);
+      }
+      releasePassStream(rec);
+    }
     wgpu.wgpu_shim_render_pass_end(this.ptr);
     untrack(this);
     wgpu.wgpu_shim_release_render_pass(this.ptr);
   }
 
   setBlendConstant(color: GPUColor): void {
+    const r = this.rec; if (!r) return;
     const c = color as any;
-    wgpu.wgpu_shim_render_pass_set_blend_constant(this.ptr, c.r ?? 0, c.g ?? 0, c.b ?? 0, c.a ?? 0);
+    r.op(PO.SET_BLEND_CONSTANT); r.f(c.r ?? 0); r.f(c.g ?? 0); r.f(c.b ?? 0); r.f(c.a ?? 0);
   }
   setStencilReference(reference: number): void {
-    wgpu.wgpu_shim_render_pass_set_stencil_reference(this.ptr, reference);
+    const r = this.rec; if (!r) return;
+    r.op(PO.SET_STENCIL_REFERENCE); r.u(reference);
   }
   pushDebugGroup(groupLabel: string): void {
-    wgpu.wgpu_shim_render_pass_push_debug_group(this.ptr, groupLabel);
+    const r = this.rec; if (!r) return;
+    r.op(PO.PUSH_DEBUG_GROUP); r.str(groupLabel);
   }
   popDebugGroup(): void {
-    wgpu.wgpu_shim_render_pass_pop_debug_group(this.ptr);
+    const r = this.rec; if (!r) return;
+    r.op(PO.POP_DEBUG_GROUP);
   }
   insertDebugMarker(markerLabel: string): void {
-    wgpu.wgpu_shim_render_pass_insert_debug_marker(this.ptr, markerLabel);
+    const r = this.rec; if (!r) return;
+    r.op(PO.INSERT_DEBUG_MARKER); r.str(markerLabel);
   }
   beginOcclusionQuery(queryIndex: number): void {
-    wgpu.wgpu_shim_render_pass_begin_occlusion_query(this.ptr, queryIndex);
+    const r = this.rec; if (!r) return;
+    r.op(PO.BEGIN_OCCLUSION_QUERY); r.u(queryIndex);
   }
   endOcclusionQuery(): void {
-    wgpu.wgpu_shim_render_pass_end_occlusion_query(this.ptr);
+    const r = this.rec; if (!r) return;
+    r.op(PO.END_OCCLUSION_QUERY);
   }
   executeBundles(_bundles: Iterable<unknown>): void {
     throw new Error("executeBundles is not implemented on the native wgpu wrapper");
@@ -416,55 +637,72 @@ export class WgpuComputePassEncoder {
   readonly ptr: ptr;
   label = "";
   private ended = false;
+  private rec: PassStream | null;
 
-  constructor(ptr: ptr) {
+  constructor(ptr: ptr, stream?: PassStream) {
     this.ptr = ptr;
+    this.rec = stream ?? acquirePassStream();
     trackForRelease(this, () => wgpu.wgpu_shim_release_compute_pass(ptr));
   }
 
   setPipeline(pipeline: WgpuComputePipeline): void {
-    wgpu.wgpu_shim_compute_pass_set_pipeline(this.ptr, pipeline.ptr);
+    const r = this.rec; if (!r) return;
+    r.op(PO.SET_PIPELINE); r.u64(pipeline.ptr);
   }
 
   setBindGroup(index: number, bindGroup: WgpuBindGroup | null, dynamicOffsets?: Iterable<number>): void {
-    if (bindGroup) {
-      const offs = dynamicOffsetsArray(dynamicOffsets);
-      wgpu.wgpu_shim_compute_pass_set_bind_group(
-        this.ptr, index, bindGroup.ptr,
-        (offs ?? 0) as unknown as ptr,
-        offs?.length ?? 0,
-      );
-    }
+    const r = this.rec; if (!r || !bindGroup) return;
+    const offs = dynamicOffsetsArray(dynamicOffsets);
+    r.op(PO.SET_BIND_GROUP); r.u(index); r.u64(bindGroup.ptr); r.u(offs?.length ?? 0);
+    if (offs) r.u32s(offs);
   }
 
   dispatchWorkgroups(x: number, y?: number, z?: number): void {
-    wgpu.wgpu_shim_compute_pass_dispatch(this.ptr, x, y ?? 1, z ?? 1);
+    const r = this.rec; if (!r) return;
+    r.op(PO.DISPATCH); r.u(x); r.u(y ?? 1); r.u(z ?? 1);
   }
 
   dispatchWorkgroupsIndirect(indirectBuffer: WgpuBuffer, indirectOffset: number): void {
-    wgpu.wgpu_shim_compute_pass_dispatch_indirect(this.ptr, indirectBuffer.ptr, BigInt(indirectOffset));
+    const r = this.rec; if (!r) return;
+    r.op(PO.DISPATCH_INDIRECT); r.u64(indirectBuffer.ptr); r.u64(indirectOffset);
   }
 
   /** Inside-pass timestamp write — requires the "timestamp-query-inside-passes" feature. */
   writeTimestamp(querySet: WgpuQuerySet, queryIndex: number): void {
-    wgpu.wgpu_shim_compute_pass_write_timestamp(this.ptr, querySet.ptr, queryIndex);
+    const r = this.rec; if (!r) return;
+    r.op(PO.WRITE_TIMESTAMP); r.u64(querySet.ptr); r.u(queryIndex);
   }
 
   end(): void {
     if (this.ended) return;
     this.ended = true;
+    const rec = this.rec;
+    this.rec = null;
+    if (rec && rec.w > 0) {
+      const replay = getComputePassReplay();
+      if (replay) {
+        const st = replay(this.ptr, rec.buf as unknown as ptr, rec.w);
+        if (st !== 0) log.error("wgpu", `compute pass replay failed (${st}) — ops dropped`);
+      } else {
+        replayComputePassJS(this.ptr, rec);
+      }
+      releasePassStream(rec);
+    }
     wgpu.wgpu_shim_compute_pass_end(this.ptr);
     untrack(this);
     wgpu.wgpu_shim_release_compute_pass(this.ptr);
   }
 
   pushDebugGroup(groupLabel: string): void {
-    wgpu.wgpu_shim_compute_pass_push_debug_group(this.ptr, groupLabel);
+    const r = this.rec; if (!r) return;
+    r.op(PO.PUSH_DEBUG_GROUP); r.str(groupLabel);
   }
   popDebugGroup(): void {
-    wgpu.wgpu_shim_compute_pass_pop_debug_group(this.ptr);
+    const r = this.rec; if (!r) return;
+    r.op(PO.POP_DEBUG_GROUP);
   }
   insertDebugMarker(markerLabel: string): void {
-    wgpu.wgpu_shim_compute_pass_insert_debug_marker(this.ptr, markerLabel);
+    const r = this.rec; if (!r) return;
+    r.op(PO.INSERT_DEBUG_MARKER); r.str(markerLabel);
   }
 }

@@ -2372,6 +2372,298 @@ pub extern "C" fn wgpu_shim_command_encoder_insert_debug_marker(
     });
 }
 
+// ── Pass-op replay ──
+// JS records every void pass op into a flat u32 stream — [opcode, args…] —
+// and crosses FFI once per pass instead of once per op (the dominant FFI
+// cost on Node/Deno, where a single call costs microseconds and a
+// draw-heavy frame issues thousands of them). Wire layout: handles are
+// lo/hi u32 pairs, f32 args are bit patterns, cstrings are
+// [byteLen, bytes… padded up to u32].
+
+mod pass_op {
+    pub const SET_PIPELINE: u32 = 1;
+    pub const SET_BIND_GROUP: u32 = 2;
+    pub const SET_VERTEX_BUFFER: u32 = 3;
+    pub const SET_INDEX_BUFFER: u32 = 4;
+    pub const DRAW: u32 = 5;
+    pub const DRAW_INDEXED: u32 = 6;
+    pub const DRAW_INDIRECT: u32 = 7;
+    pub const DRAW_INDEXED_INDIRECT: u32 = 8;
+    pub const SET_VIEWPORT: u32 = 9;
+    pub const SET_SCISSOR: u32 = 10;
+    pub const WRITE_TIMESTAMP: u32 = 11;
+    pub const PUSH_DEBUG_GROUP: u32 = 12;
+    pub const POP_DEBUG_GROUP: u32 = 13;
+    pub const INSERT_DEBUG_MARKER: u32 = 14;
+    pub const SET_BLEND_CONSTANT: u32 = 15;
+    pub const SET_STENCIL_REFERENCE: u32 = 16;
+    pub const BEGIN_OCCLUSION_QUERY: u32 = 17;
+    pub const END_OCCLUSION_QUERY: u32 = 18;
+    pub const DISPATCH: u32 = 19;
+    pub const DISPATCH_INDIRECT: u32 = 20;
+}
+
+/// Cursor over a recorded op stream — every read is bounds-checked so a
+/// truncated/malformed stream stops the replay instead of reading out of
+/// bounds (returns -1 to the caller).
+struct OpReader<'a> {
+    s: &'a [u32],
+    i: usize,
+}
+
+impl<'a> OpReader<'a> {
+    fn u(&mut self) -> Option<u32> {
+        let v = *self.s.get(self.i)?;
+        self.i += 1;
+        Some(v)
+    }
+    fn i32(&mut self) -> Option<i32> {
+        self.u().map(|v| v as i32)
+    }
+    fn u64(&mut self) -> Option<u64> {
+        let lo = self.u()? as u64;
+        let hi = self.u()? as u64;
+        Some(lo | (hi << 32))
+    }
+    fn handle(&mut self) -> Option<Handle> {
+        self.u64().map(|v| v as Handle)
+    }
+    fn f32(&mut self) -> Option<f32> {
+        self.u().map(f32::from_bits)
+    }
+    /// cstring record: [byteLen, bytes… ceil(len/4) words]. Returns the raw
+    /// bytes (no NUL on the wire — the label fns take &str anyway).
+    fn str_bytes(&mut self) -> Option<&'a [u8]> {
+        let len = self.u()? as usize;
+        let words = len.div_ceil(4);
+        let start = self.i;
+        if start + words > self.s.len() {
+            return None;
+        }
+        self.i += words;
+        let word_start = start * 4;
+        let bytes =
+            unsafe { std::slice::from_raw_parts(self.s.as_ptr() as *const u8, self.s.len() * 4) };
+        Some(&bytes[word_start..word_start + len])
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn wgpu_shim_render_pass_replay(
+    pass: Handle,
+    stream: *const u32,
+    word_count: u32,
+) -> i32 {
+    ffi!(-1, unsafe {
+        let Some(mut p) = obj_mut::<ShimRenderPass>(pass).0.take() else {
+            return -1;
+        };
+        // Put the pass back regardless of outcome — a replay error drops
+        // the stream, not the pass.
+        let status = {
+            let words = flat(stream, word_count as usize);
+            let mut r = OpReader { s: words, i: 0 };
+            let mut status = 0;
+            while r.i < r.s.len() {
+                let Some(op) = r.u() else { status = -1; break };
+                let ok = (|| -> bool {
+                    use pass_op::*;
+                    match op {
+                        SET_PIPELINE => {
+                            let Some(h) = r.handle() else { return false };
+                            p.set_pipeline(obj::<RenderPipeline>(h));
+                        }
+                        SET_BIND_GROUP => {
+                            let (Some(i), Some(h), Some(n)) = (r.u(), r.handle(), r.u()) else { return false };
+                            let start = r.i;
+                            if start + n as usize > r.s.len() { return false }
+                            r.i += n as usize;
+                            p.set_bind_group(i, obj::<BindGroup>(h), &r.s[start..start + n as usize]);
+                        }
+                        SET_VERTEX_BUFFER => {
+                            let (Some(s), Some(h), Some(o), Some(sz)) =
+                                (r.u(), r.handle(), r.u64(), r.u64()) else { return false };
+                            let buf = obj::<Buffer>(h);
+                            p.set_vertex_buffer(s, if sz == WHOLE_SIZE { buf.slice(o..) } else { buf.slice(o..o + sz) });
+                        }
+                        SET_INDEX_BUFFER => {
+                            let (Some(h), Some(f), Some(o), Some(sz)) =
+                                (r.handle(), r.u(), r.u64(), r.u64()) else { return false };
+                            let buf = obj::<Buffer>(h);
+                            p.set_index_buffer(if sz == WHOLE_SIZE { buf.slice(o..) } else { buf.slice(o..o + sz) }, enums::index_format(f));
+                        }
+                        DRAW => {
+                            let (Some(vc), Some(ic), Some(fv), Some(fi)) = (r.u(), r.u(), r.u(), r.u()) else { return false };
+                            p.draw(fv..fv + vc, fi..fi + ic);
+                        }
+                        DRAW_INDEXED => {
+                            let (Some(ic), Some(iic), Some(fi), Some(bv), Some(fin)) =
+                                (r.u(), r.u(), r.u(), r.i32(), r.u()) else { return false };
+                            p.draw_indexed(fi..fi + ic, bv, fin..fin + iic);
+                        }
+                        DRAW_INDIRECT => {
+                            let (Some(h), Some(o)) = (r.handle(), r.u64()) else { return false };
+                            p.draw_indirect(obj::<Buffer>(h), o);
+                        }
+                        DRAW_INDEXED_INDIRECT => {
+                            let (Some(h), Some(o)) = (r.handle(), r.u64()) else { return false };
+                            p.draw_indexed_indirect(obj::<Buffer>(h), o);
+                        }
+                        SET_VIEWPORT => {
+                            let (Some(x), Some(y), Some(w), Some(h), Some(mn), Some(mx)) =
+                                (r.f32(), r.f32(), r.f32(), r.f32(), r.f32(), r.f32()) else { return false };
+                            p.set_viewport(x, y, w, h, mn, mx);
+                        }
+                        SET_SCISSOR => {
+                            let (Some(x), Some(y), Some(w), Some(h)) = (r.u(), r.u(), r.u(), r.u()) else { return false };
+                            p.set_scissor_rect(x, y, w, h);
+                        }
+                        WRITE_TIMESTAMP => {
+                            let (Some(qs), Some(qi)) = (r.handle(), r.u()) else { return false };
+                            if let Some(q) = obj::<ShimQuerySet>(qs).0.as_ref() {
+                                p.write_timestamp(q, qi);
+                            }
+                        }
+                        PUSH_DEBUG_GROUP => {
+                            let Some(b) = r.str_bytes() else { return false };
+                            p.push_debug_group(std::str::from_utf8(b).unwrap_or(""));
+                        }
+                        POP_DEBUG_GROUP => p.pop_debug_group(),
+                        INSERT_DEBUG_MARKER => {
+                            let Some(b) = r.str_bytes() else { return false };
+                            p.insert_debug_marker(std::str::from_utf8(b).unwrap_or(""));
+                        }
+                        SET_BLEND_CONSTANT => {
+                            let (Some(rr), Some(g), Some(b), Some(a)) = (r.f32(), r.f32(), r.f32(), r.f32()) else { return false };
+                            p.set_blend_constant(Color { r: rr as f64, g: g as f64, b: b as f64, a: a as f64 });
+                        }
+                        SET_STENCIL_REFERENCE => {
+                            let Some(v) = r.u() else { return false };
+                            p.set_stencil_reference(v);
+                        }
+                        BEGIN_OCCLUSION_QUERY => {
+                            let Some(qi) = r.u() else { return false };
+                            p.begin_occlusion_query(qi);
+                        }
+                        END_OCCLUSION_QUERY => p.end_occlusion_query(),
+                        _ => return false,
+                    }
+                    true
+                })();
+                if !ok {
+                    status = -1;
+                    break;
+                }
+            }
+            status
+        };
+        obj_mut::<ShimRenderPass>(pass).0 = Some(p);
+        status
+    })
+}
+
+#[cfg(test)]
+mod op_reader_tests {
+    use super::*;
+
+    #[test]
+    fn op_reader_decodes_wire_primitives() {
+        // [handle lo/hi] [u64 lo/hi] [f32 bits] [cstr: len=3 "abc" + pad]
+        let abc: &[u8; 4] = b"abc\0";
+        let abc_word = u32::from_le_bytes(*abc);
+        let s: Vec<u32> = vec![
+            0xAAAA_AAAA, 0x0000_0001, // handle 0x1_AAAA_AAAA
+            0xFFFF_FFFF, 0xFFFF_FFFF, // u64::MAX (WHOLE_SIZE)
+            0x3F80_0000, // f32 1.0
+            3, abc_word, // cstr "abc" (len 3, one padded word)
+        ];
+        let mut r = OpReader { s: &s, i: 0 };
+        assert_eq!(r.handle(), Some(0x1_AAAA_AAAAusize as Handle));
+        assert_eq!(r.u64(), Some(u64::MAX));
+        assert_eq!(r.f32(), Some(1.0));
+        assert_eq!(r.str_bytes(), Some(&b"abc"[..]));
+        assert_eq!(r.i, s.len());
+        // Reads past the end fail cleanly rather than over-reading.
+        assert_eq!(r.u(), None);
+    }
+
+    #[test]
+    fn op_reader_rejects_truncated_cstr() {
+        let s: Vec<u32> = vec![10, 0x4141_4141]; // len=10 but only one word follows
+        let mut r = OpReader { s: &s, i: 0 };
+        assert_eq!(r.str_bytes(), None);
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn wgpu_shim_compute_pass_replay(
+    pass: Handle,
+    stream: *const u32,
+    word_count: u32,
+) -> i32 {
+    ffi!(-1, unsafe {
+        let Some(mut p) = obj_mut::<ShimComputePass>(pass).0.take() else {
+            return -1;
+        };
+        let status = {
+            let words = flat(stream, word_count as usize);
+            let mut r = OpReader { s: words, i: 0 };
+            let mut status = 0;
+            while r.i < r.s.len() {
+                let Some(op) = r.u() else { status = -1; break };
+                let ok = (|| -> bool {
+                    use pass_op::*;
+                    match op {
+                        SET_PIPELINE => {
+                            let Some(h) = r.handle() else { return false };
+                            p.set_pipeline(obj::<ComputePipeline>(h));
+                        }
+                        SET_BIND_GROUP => {
+                            let (Some(i), Some(h), Some(n)) = (r.u(), r.handle(), r.u()) else { return false };
+                            let start = r.i;
+                            if start + n as usize > r.s.len() { return false }
+                            r.i += n as usize;
+                            p.set_bind_group(i, obj::<BindGroup>(h), &r.s[start..start + n as usize]);
+                        }
+                        DISPATCH => {
+                            let (Some(x), Some(y), Some(z)) = (r.u(), r.u(), r.u()) else { return false };
+                            p.dispatch_workgroups(x, y, z);
+                        }
+                        DISPATCH_INDIRECT => {
+                            let (Some(h), Some(o)) = (r.handle(), r.u64()) else { return false };
+                            p.dispatch_workgroups_indirect(obj::<Buffer>(h), o);
+                        }
+                        WRITE_TIMESTAMP => {
+                            let (Some(qs), Some(qi)) = (r.handle(), r.u()) else { return false };
+                            if let Some(q) = obj::<ShimQuerySet>(qs).0.as_ref() {
+                                p.write_timestamp(q, qi);
+                            }
+                        }
+                        PUSH_DEBUG_GROUP => {
+                            let Some(b) = r.str_bytes() else { return false };
+                            p.push_debug_group(std::str::from_utf8(b).unwrap_or(""));
+                        }
+                        POP_DEBUG_GROUP => p.pop_debug_group(),
+                        INSERT_DEBUG_MARKER => {
+                            let Some(b) = r.str_bytes() else { return false };
+                            p.insert_debug_marker(std::str::from_utf8(b).unwrap_or(""));
+                        }
+                        _ => return false,
+                    }
+                    true
+                })();
+                if !ok {
+                    status = -1;
+                    break;
+                }
+            }
+            status
+        };
+        obj_mut::<ShimComputePass>(pass).0 = Some(p);
+        status
+    })
+}
+
 // ── Error scopes ──
 
 #[no_mangle]

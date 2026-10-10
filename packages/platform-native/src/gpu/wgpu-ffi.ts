@@ -159,6 +159,9 @@ const WGPU_SHIM_SPEC: Record<string, CFunction> = {
     returns: "void",
   },
   wgpu_shim_render_pass_end: { args: ["ptr"], returns: "void" },
+  // (pass, stream u32*, wordCount) → i32 — replays a recorded op stream
+  wgpu_shim_render_pass_replay: { args: ["ptr", "ptr", "u32"], returns: "i32" },
+  wgpu_shim_compute_pass_replay: { args: ["ptr", "ptr", "u32"], returns: "i32" },
   wgpu_shim_render_pass_write_timestamp: { args: ["ptr", "ptr", "u32"], returns: "void" },
   wgpu_shim_compute_pass_write_timestamp: { args: ["ptr", "ptr", "u32"], returns: "void" },
   wgpu_shim_render_pass_set_scissor_rect: {
@@ -422,7 +425,7 @@ export const wgpu: WgpuShimSymbols = (() => {
       },
     });
   }
-  return target as WgpuShimSymbols;
+  return target as unknown as WgpuShimSymbols;
 })();
 
 // ── Typed interface for the FFI symbols ──
@@ -618,6 +621,8 @@ export interface WgpuShimSymbols {
     firstInstance: number,
   ) => void;
   wgpu_shim_render_pass_end: (pass: ptr) => void;
+  wgpu_shim_render_pass_replay: (pass: ptr, stream: ptr, wordCount: number) => number;
+  wgpu_shim_compute_pass_replay: (pass: ptr, stream: ptr, wordCount: number) => number;
   wgpu_shim_render_pass_write_timestamp: (pass: ptr, querySet: ptr, queryIndex: number) => void;
   wgpu_shim_compute_pass_write_timestamp: (pass: ptr, querySet: ptr, queryIndex: number) => void;
   wgpu_shim_render_pass_set_scissor_rect: (
