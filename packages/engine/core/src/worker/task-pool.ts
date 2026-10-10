@@ -121,6 +121,10 @@ export class TaskPool {
       for (let i = 0; i < this.workerCount; i++) {
         const worker = this.createWorker();
         worker.onerror = (e: ErrorEvent) => {
+          // Session teardown tags tracked workers __ddExpectTerminate and
+          // fires synthetic error events to settle waiters — not faults
+          // (see session-tracker.ts terminateTrackedWorker).
+          if ((worker as any).__ddExpectTerminate || this.destroyed) return;
           if (this.onWorkerError) this.onWorkerError(i, e);
           else log.error("task-pool", `Worker ${i} error: ${e.message}`);
         };
