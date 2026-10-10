@@ -14,4 +14,5 @@ export {
 export type { FeatureLogData } from "./feature-log";
 export { addLogSink, ConsoleLogger, createLogger, getLogTheme, getRecentLogs, setThreadTag } from "./logger";
 export type { Logger, LogSink, LogSinkEntry } from "./logger";
+export { untrackedTimeout } from "./session-timer";
 

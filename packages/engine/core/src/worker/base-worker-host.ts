@@ -24,6 +24,7 @@
 
 import { usingRealSAB } from "../sab/sab-polyfill";
 import { createLogger } from "../util/logger";
+import { untrackedTimeout } from "../util/session-timer";
 import type { BufferSyncConfig, BufferSyncHost } from "./buffer-sync";
 import { wrap, type WorkerApi, type WorkerProxy } from "./rpc";
 
@@ -171,7 +172,7 @@ export abstract class BaseWorkerHost<TApi extends WorkerApi> {
           await Promise.race([
             this.proxy.proxy.shutdown(),
             new Promise((_, rej) => {
-              timer = setTimeout(() => rej(new Error("shutdown RPC timed out")), 2_000);
+              timer = untrackedTimeout(() => rej(new Error("shutdown RPC timed out")), 2_000);
             }),
           ]);
         } finally {

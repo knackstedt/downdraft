@@ -1,3 +1,6 @@
+
+import { untrackedTimeout } from "../util/session-timer";
+
 export type RPCMessageType = "request" | "response" | "event";
 
 export interface RPCMessage {
@@ -34,7 +37,7 @@ export class RPC {
     }
     const id = this.messageIdCounter = (this.messageIdCounter + 1) % 0xFFFFFFFF;
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
+      const timer = untrackedTimeout(() => {
         if (this.pending.has(id)) {
           this.pending.delete(id);
           reject(new Error(`[RPC] Call to "${channel}" timed out after ${timeoutMs}ms`));

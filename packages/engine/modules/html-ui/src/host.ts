@@ -10,6 +10,7 @@ import type { OsrDomEvent } from "@downdraft/engine/libraries/blitz-ui/native-os
 import type { InputEventControl, RendererInputBus } from "@downdraft/engine/module/renderer-module";
 import { getHostCapabilities, getNativeHost } from "@downdraft/engine/platform/runtime";
 import { createLogger } from "@downdraft/engine/util/logger";
+import { untrackedTimeout } from "@downdraft/engine/util/session-timer";
 import { PanelBlitPass } from "./composite";
 import { createLocalBackend, createWorkerBackend, type DocBackend } from "./doc-backend";
 import type { DocInputMsg, DocMutation, NavNodeInfo, UiPointerMsg, WorkerToUi } from "./protocol";
@@ -518,7 +519,7 @@ export class HtmlUiHost {
       this.terminating = true;
       this.send({ type: "gpuDetach" });
       const backend = this.backend;
-      setTimeout(() => {
+      untrackedTimeout(() => {
         if (!this.gpuDetachAcked) backend.dispose();
         this.destroyRetired();
       }, 150);
@@ -919,7 +920,7 @@ export class HtmlUiHost {
         || (p.postedBindPtr !== null && BigInt(ptr) === p.postedBindPtr));
     if (borrowed) {
       const key = BigInt(ptr);
-      const timer = setTimeout(() => {
+      const timer = untrackedTimeout(() => {
         if (this.retiredTex.delete(key)) t.destroy();
       }, 1000);
       this.retiredTex.set(key, { tex: t, timer });

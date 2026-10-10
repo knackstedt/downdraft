@@ -5,6 +5,7 @@
 // ============================================================================
 
 import { createLogger } from "../util/logger";
+import { untrackedTimeout } from "../util/session-timer";
 
 const log = createLogger();
 
@@ -248,7 +249,7 @@ export function wrap<T extends WorkerApi>(worker: AnyWorker, options?: WrapOptio
           const id = ++reqId;
           const entry: { resolve: (v: unknown) => void; reject: (e: Error) => void; timer?: ReturnType<typeof setTimeout> } = { resolve, reject };
           if (timeoutMs > 0) {
-            entry.timer = setTimeout(() => {
+            entry.timer = untrackedTimeout(() => {
               if (pending.delete(id)) {
                 reject(new Error(`RPC '${method}' timed out after ${timeoutMs}ms`));
               }
