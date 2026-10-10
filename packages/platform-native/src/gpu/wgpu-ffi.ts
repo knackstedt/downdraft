@@ -118,6 +118,11 @@ const WGPU_SHIM_SPEC: Record<string, CFunction> = {
   // ── Command encoder ──
   wgpu_shim_create_command_encoder: { args: ["ptr"], returns: "ptr" },
   wgpu_shim_command_encoder_finish: { args: ["ptr"], returns: "ptr" },
+  // (encoder, device, errTypeOut u32*, outMsg, outMsgSize) → cmd handle
+  wgpu_shim_command_encoder_finish_checked: {
+    args: ["ptr", "ptr", "ptr", "ptr", "i32"],
+    returns: "ptr",
+  },
   wgpu_shim_queue_submit: {
     args: ["ptr", "ptr", "u32"],
     returns: "void",
@@ -395,17 +400,30 @@ export function loadWgpuAsync(): WgpuAsyncSymbols | null {
  * The wgpu shim symbols. Accessing any property lazily dlopen()s the shared
  * library on first use. This module is safe to import in environments where
  * the library is absent — the error surfaces only when a symbol is called.
+ *
+ * Each symbol is a self-replacing getter: the first access resolves the
+ * function and redefines the property as a plain value, so the hot path
+ * (every encoder op crosses FFI) pays a direct property read instead of a
+ * Proxy trap + loadWgpu() check per call.
  */
-export const wgpu: WgpuShimSymbols = new Proxy({} as WgpuShimSymbols, {
-  get(_target, prop: string) {
-    const lib = loadWgpu();
-    const fn = (lib as any)[prop];
-    if (fn === undefined) {
-      throw new Error(`wgpu shim has no symbol "${prop}"`);
-    }
-    return fn;
-  },
-});
+export const wgpu: WgpuShimSymbols = (() => {
+  const target: Record<string, unknown> = {};
+  for (const name of Object.keys(WGPU_SHIM_SPEC)) {
+    Object.defineProperty(target, name, {
+      configurable: true,
+      enumerable: true,
+      get() {
+        const fn = (loadWgpu() as any)[name];
+        if (fn === undefined) {
+          throw new Error(`wgpu shim has no symbol "${name}"`);
+        }
+        Object.defineProperty(target, name, { value: fn, enumerable: true });
+        return fn;
+      },
+    });
+  }
+  return target as WgpuShimSymbols;
+})();
 
 // ── Typed interface for the FFI symbols ──
 
@@ -545,6 +563,13 @@ export interface WgpuShimSymbols {
 
   wgpu_shim_create_command_encoder: (device: ptr) => ptr;
   wgpu_shim_command_encoder_finish: (encoder: ptr) => ptr;
+  wgpu_shim_command_encoder_finish_checked: (
+    encoder: ptr,
+    device: ptr,
+    errTypeOut: ptr,
+    outMsg: ptr,
+    outMsgSize: number,
+  ) => ptr;
   wgpu_shim_queue_submit: (queue: ptr, commandBuffers: ptr, count: number) => void;
 
   wgpu_shim_begin_render_pass: (

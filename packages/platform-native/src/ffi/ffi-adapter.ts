@@ -182,34 +182,33 @@ function wrapKoffiFn(
   fn: (...args: any[]) => any,
   spec: CFunction,
 ): (...args: any[]) => any {
-  const argTypes = spec.args;
-  const retType = spec.returns;
+  // Precompute one converter per arg at bind time — the per-call path then
+  // runs only the conversions a signature actually needs, instead of a
+  // type-string switch over every arg on every FFI crossing.
+  //
+  // - ptr args: number → bigint (koffi requires bigint for void *)
+  // - cstring args: Buffer → string (koffi "str" expects JS string)
+  // - ptr returns: keep koffi's bigint — converting to Number would drop
+  //   low bits on any address > 2^53 (always true for Android heap).
+  const cvts: { i: number; f: (v: any) => any }[] = [];
+  spec.args.forEach((t, i) => {
+    if (t === "ptr") {
+      // null/undefined → koffi passes null pointer;
+      // TypedArray/Buffer → koffi auto-converts to pointer
+      cvts.push({ i, f: (v) => (typeof v === "number" ? BigInt(v) : v) });
+    } else if (t === "cstring") {
+      cvts.push({ i, f: (v) => (Buffer.isBuffer(v) ? v.toString("utf8").replace(/\0+$/, "") : v) });
+    }
+  });
+  const retPtr = spec.returns === "ptr";
 
   return (...args: any[]) => {
-    // Convert args
-    for (let i = 0; i < args.length && i < argTypes.length; i++) {
-      const t = argTypes[i];
-
-      if (t === "ptr") {
-        // koffi requires bigint for void * when passing a pointer address
-        if (typeof args[i] === "number") {
-          args[i] = BigInt(args[i]);
-        }
-        // null/undefined → koffi passes null pointer
-        // TypedArray/Buffer → koffi auto-converts to pointer
-      } else if (t === "cstring") {
-        // koffi "str" expects a JS string; convert Buffer if needed
-        if (Buffer.isBuffer(args[i])) {
-          args[i] = args[i].toString("utf8").replace(/\0+$/, "");
-        }
-      }
+    for (let k = 0; k < cvts.length; k++) {
+      const c = cvts[k];
+      if (c.i < args.length) args[c.i] = c.f(args[c.i]);
     }
-
     const result = fn(...args);
-
-    // Pointer returns stay bigint — lossless for 64-bit addresses.
-    if (retType === "ptr" && result == null) return 0n;
-
+    if (retPtr && result == null) return 0n;
     return result;
   };
 }
@@ -257,44 +256,59 @@ function wrapDenoFn(
   fn: (...args: any[]) => any,
   spec: CFunction,
 ): (...args: any[]) => any {
-  const argTypes = spec.args;
-  const retType = spec.returns;
+  // Same specialization as wrapKoffiFn: converters are built once per
+  // signature so each call touches only the args that need conversion.
   const Deno = (globalThis as any).Deno;
+  const cvts: { i: number; f: (v: any) => any }[] = [];
+  spec.args.forEach((t, i) => {
+    if (t === "ptr") {
+      cvts.push({
+        i,
+        f: (v) => {
+          if (typeof v === "number" || typeof v === "bigint") {
+            return denoPointerFromAddress(BigInt(v));
+          }
+          if (v != null && (ArrayBuffer.isView(v) || v instanceof ArrayBuffer)) {
+            // Deno 2.x "pointer" params reject bare TypedArrays — wrap them.
+            return Deno.UnsafePointer.of(v);
+          }
+          return v; // null/undefined → NULL
+        },
+      });
+    } else if (t === "u64" || t === "i64" || t === "usize") {
+      // Deno requires bigint for 64-bit/usize params; callers using the
+      // bun:ffi convention may pass a JS number.
+      cvts.push({ i, f: (v) => (typeof v === "number" ? BigInt(v) : v) });
+    } else if (t === "cstring") {
+      // Deno has no cstring type — pass a pointer to a null-terminated
+      // buffer. Deno 2.x "pointer" params reject bare TypedArrays, so
+      // wrap explicitly with UnsafePointer.of.
+      cvts.push({
+        i,
+        f: (v) => {
+          if (typeof v === "string") {
+            return Deno.UnsafePointer.of(denoStringEncoder.encode(v + "\0"));
+          }
+          if (v instanceof Uint8Array || v instanceof ArrayBuffer) {
+            return Deno.UnsafePointer.of(v);
+          }
+          return v;
+        },
+      });
+    }
+  });
+  const retPtr = spec.returns === "ptr";
+  const retCstr = spec.returns === "cstring";
 
   return (...args: any[]) => {
-    // Convert args
-    for (let i = 0; i < args.length && i < argTypes.length; i++) {
-      const t = argTypes[i];
-
-      if (t === "ptr") {
-        if (typeof args[i] === "number" || typeof args[i] === "bigint") {
-          args[i] = denoPointerFromAddress(BigInt(args[i]));
-        } else if (args[i] != null && (ArrayBuffer.isView(args[i]) || args[i] instanceof ArrayBuffer)) {
-          // Deno 2.x "pointer" params reject bare TypedArrays — wrap them.
-          args[i] = Deno.UnsafePointer.of(args[i]);
-        }
-        // null/undefined → NULL.
-      } else if (t === "u64" || t === "i64" || t === "usize") {
-        // Deno requires bigint for 64-bit/usize params; callers using the
-        // bun:ffi convention may pass a JS number.
-        if (typeof args[i] === "number") args[i] = BigInt(args[i]);
-      } else if (t === "cstring") {
-        // Deno has no cstring type — pass a pointer to a null-terminated
-        // buffer. Deno 2.x "pointer" params reject bare TypedArrays, so
-        // wrap explicitly with UnsafePointer.of.
-        if (typeof args[i] === "string") {
-          const buf = denoStringEncoder.encode(args[i] + "\0");
-          args[i] = Deno.UnsafePointer.of(buf);
-        } else if (args[i] instanceof Uint8Array || args[i] instanceof ArrayBuffer) {
-          args[i] = Deno.UnsafePointer.of(args[i]);
-        }
-      }
+    for (let k = 0; k < cvts.length; k++) {
+      const c = cvts[k];
+      if (c.i < args.length) args[c.i] = c.f(args[c.i]);
     }
-
     const result = fn(...args);
 
     // Pointer returns normalize to bigint (lossless for 64-bit addresses).
-    if (retType === "ptr") {
+    if (retPtr) {
       if (result == null) return 0n;
       if (typeof result === "bigint") return result;
       if (typeof result === "object") {
@@ -306,7 +320,7 @@ function wrapDenoFn(
       return result;
     }
 
-    if (retType === "cstring") {
+    if (retCstr) {
       // Read null-terminated string from the returned pointer object.
       if (result == null) return "";
       return new Deno.UnsafePointerView(result).getCString();

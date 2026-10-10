@@ -52,6 +52,8 @@ export class NativeCanvasContext {
   private configuredHeight: number = 0;
   private configured: boolean = false;
   private currentTexture: WgpuTexture | null = null;
+  /** Reused acquire out-param — was a fresh BigUint64Array per acquire. */
+  private readonly acquireOut = new BigUint64Array(1);
   // Consecutive acquire failures — throttled logging, and lets callers
   // distinguish a transient failure from a wedged swapchain.
   private acquireFailures = 0;
@@ -198,9 +200,8 @@ export class NativeCanvasContext {
     // transient (minimized window, compositor busy): bail and let the next
     // frame retry rather than blocking the loop on a wedged swapchain.
     for (let attempt = 0; attempt < 2; attempt++) {
-      const outPtr = new BigUint64Array(1);
-      const status = wgpu.wgpu_shim_surface_get_current_texture(this.surfacePtr, outPtr as any);
-      const texPtr = outPtr[0];
+      const status = wgpu.wgpu_shim_surface_get_current_texture(this.surfacePtr, this.acquireOut as any);
+      const texPtr = this.acquireOut[0];
 
       if (texPtr !== 0n) {
         if (!NativeCanvasContext.loggedFirstAcquire) {

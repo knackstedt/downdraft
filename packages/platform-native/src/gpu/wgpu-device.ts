@@ -957,6 +957,10 @@ export class WgpuDevice {
 export class WgpuQueue {
   readonly ptr: ptr;
   label = "";
+  /** Reused submit scratch — was Array.from + 2 filter arrays + a fresh
+   *  BigUint64Array per submit. */
+  private submitPtrs = new BigUint64Array(8);
+  private submitList: WgpuCommandBuffer[] = [];
 
   constructor(ptr: ptr) {
     this.ptr = ptr;
@@ -1011,21 +1015,26 @@ export class WgpuQueue {
   }
 
   submit(commandBuffers: Iterable<WgpuCommandBuffer>): void {
-    const all = Array.from(commandBuffers) as WgpuCommandBuffer[];
     // Skip buffers whose finish() captured a validation error — submitting
     // an errored buffer makes wgpu-native panic (process abort), not report
     // an uncaptured error.
-    const skipped = all.filter((cb) => cb.invalid);
-    const list = all.filter((cb) => !cb.invalid);
-    skipped.forEach((cb) => { cb.dispose();; });
+    const list = this.submitList;
+    list.length = 0;
+    for (const cb of commandBuffers) {
+      if (cb.invalid) { cb.dispose(); continue; }
+      list.push(cb);
+    }
     if (list.length === 0) return;
-    const ptrs = new BigUint64Array(list.length);
+    let ptrs = this.submitPtrs;
+    if (ptrs.length < list.length) {
+      ptrs = this.submitPtrs = new BigUint64Array(list.length);
+    }
     for (let i = 0; i < list.length; i++) {
       ptrs[i] = BigInt(list[i].ptr);
     }
     wgpu.wgpu_shim_queue_submit(this.ptr, ptrs as unknown as ptr, list.length);
     // Command buffers are single-use — release the native handles now.
-    list.forEach((cb) => { cb.dispose();; });
+    for (const cb of list) cb.dispose();
   }
 
   onSubmittedWorkDone(): Promise<undefined> {
@@ -1106,7 +1115,12 @@ export class WgpuQueue {
     // Row padding + BGRA swizzle + premultiply run in the Rust shim — one
     // FFI call instead of an O(w*h) scalar JS loop. Fall back to the JS
     // loops if the loaded lib predates the symbol or rejects the layout.
-    const swizzle = (wgpu as any).wgpu_shim_swizzle_image;
+    let swizzle: ((...a: any[]) => number) | undefined;
+    try {
+      swizzle = (wgpu as any).wgpu_shim_swizzle_image;
+    } catch {
+      swizzle = undefined; // loaded lib predates the symbol — JS path below
+    }
     const swizzled = typeof swizzle === "function" &&
       swizzle(
         rgba as unknown as ptr,

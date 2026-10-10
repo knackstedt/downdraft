@@ -233,6 +233,9 @@ export class GameRenderer implements CanvasResizeHandler {
   uiInputRouter: UIInputRouter | null = null;
   /** Screen-space compositors (html-ui panels etc.) drawn in the UI pass. */
   private uiCompositors = new Set<import("../module/renderer-module").ScreenUiCompositor>();
+  /** uiCompositors as a pre-sorted array — rebuilt on add/remove so the
+   *  frame loop doesn't spread+sort the set every frame. */
+  private uiCompositorOrder: import("../module/renderer-module").ScreenUiCompositor[] = [];
 
   // Render loop state
   private running = false;
@@ -272,7 +275,9 @@ export class GameRenderer implements CanvasResizeHandler {
 
   // Depth texture cache (used when the graph does not own depth)
   // LRU: Map insertion order = access order (delete + re-set on access).
-  private depthTextures = new Map<string, GPUTexture>();
+  // Numeric key packs (w,h) — a `${w}x${h}` string key allocated a fresh
+  // string per lookup per viewport per frame.
+  private depthTextures = new Map<number, GPUTexture>();
   private depthTextureCacheSize: number;
 
   // Frame stats
@@ -437,8 +442,16 @@ export class GameRenderer implements CanvasResizeHandler {
         setViewportCount: (count) => this.setViewportCount(count),
         getUIInputRouter: () => this.uiInputRouter,
         registerUiCompositor: (c) => {
+          const isNew = !this.uiCompositors.has(c);
           this.uiCompositors.add(c);
-          return () => this.uiCompositors.delete(c);
+          if (isNew) {
+            this.uiCompositorOrder = [...this.uiCompositors].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+          }
+          return () => {
+            if (this.uiCompositors.delete(c)) {
+              this.uiCompositorOrder = [...this.uiCompositors].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+            }
+          };
         },
       });
 
@@ -810,11 +823,10 @@ export class GameRenderer implements CanvasResizeHandler {
       this.renderFrame();
     } catch (err) {
       log.error("game-renderer", `Render loop error: ${(err as Error).message}\n${(err as Error).stack}`);
-      if (this.device?.lost) {
-        this.device.lost.then((info: GPUDeviceLostInfo) => {
-          this.handleDeviceLost(info);
-        });
-      }
+      // No per-error device.lost.then here: the device already has exactly
+      // one lost subscription (init + reinit paths), and on native each
+      // .lost access mints a fresh promise — per-error attaches accumulated
+      // duplicate watchers during an error storm.
     }
     this.scheduleRender();
   };
@@ -1021,9 +1033,7 @@ export class GameRenderer implements CanvasResizeHandler {
       // the afterFrame callback, so drawing UI earlier would put it underneath
       // their clear pass.
       if (!gpuError && this.device && this.context) {
-        const compositors = [...this.uiCompositors]
-          .filter((c) => c.hasContent())
-          .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        const compositors = this.uiCompositorOrder.filter((c) => c.hasContent());
         const uiCanvasView = compositors.length > 0
           ? this.getSurfaceTexture()?.createView()
           : undefined;
@@ -1275,7 +1285,7 @@ export class GameRenderer implements CanvasResizeHandler {
 
   private createDepthTexture(w: number, h: number): GPUTextureView {
     if (!this.device) throw new Error("No device");
-    const key = `${w}x${h}`;
+    const key = w * 65536 + h;
     let tex = this.depthTextures.get(key);
     if (tex) {
       // LRU: move to most-recently-used by re-inserting.
@@ -1369,9 +1379,7 @@ export class GameRenderer implements CanvasResizeHandler {
    * this helper only runs the compositors.
    */
   protected renderScreenUiCompositors(): void {
-    const compositors = [...this.uiCompositors]
-      .filter((c) => c.hasContent())
-      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    const compositors = this.uiCompositorOrder.filter((c) => c.hasContent());
     if (compositors.length === 0 || !this.device || !this.context) return;
     const canvasView = this.getSurfaceTexture()?.createView();
     if (!canvasView) return;

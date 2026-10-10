@@ -21,6 +21,12 @@ import {
 
 const log = createLogger("info");
 
+// Shared scratch for finish_checked — reused across all encoders instead
+// of a fresh 4KB buffer (+ TextDecoder) per command buffer.
+const encoderFinishErr = new Uint32Array(1);
+const encoderFinishMsg = new Uint8Array(4096);
+const encoderFinishDecoder = new TextDecoder();
+
 function parseIndexFormat(format: string): number {
   return format === "uint16" ? 1 : format === "uint32" ? 2 : 0;
 }
@@ -219,18 +225,44 @@ export class WgpuCommandEncoder {
     this.finished = true;
     // Catch validation errors generated while finishing (e.g. a bad
     // set_pipeline in a recorded pass): wgpu-native still returns a buffer
-    // handle, but it is invalid, and submitting it aborts the process. Scope
-    // the finish and flag the buffer so queue.submit() can skip it.
-    if (this.devicePtr) wgpu.wgpu_shim_device_push_error_scope(this.devicePtr, 1);
-    const cmdPtr = wgpu.wgpu_shim_command_encoder_finish(this.ptr) as unknown as number;
+    // handle, but it is invalid, and submitting it aborts the process. The
+    // checked finish does the scope push/pop inside the shim — one FFI
+    // crossing and shared scratch buffers instead of three calls + a 4KB
+    // alloc per command buffer.
+    let cmdPtr: ptr | undefined;
     let invalid = false;
-    if (this.devicePtr) {
-      const msgBuf = new Uint8Array(4096);
-      const errType = wgpu.wgpu_shim_device_pop_error_scope(this.devicePtr, msgBuf as any, msgBuf.length);
+    let finishChecked: ((...a: any[]) => ptr) | undefined;
+    try {
+      finishChecked = (wgpu as any).wgpu_shim_command_encoder_finish_checked;
+    } catch {
+      finishChecked = undefined; // loaded lib predates the symbol
+    }
+    if (this.devicePtr && typeof finishChecked === "function") {
+      encoderFinishErr[0] = 0;
+      cmdPtr = finishChecked(
+        this.ptr,
+        this.devicePtr,
+        encoderFinishErr as any,
+        encoderFinishMsg as any,
+        encoderFinishMsg.length,
+      );
+      const errType = encoderFinishErr[0];
       if (errType !== 0 && errType !== 1) {
         invalid = true;
-        const msg = new TextDecoder().decode(msgBuf).replace(/\0+$/, "");
+        const msg = encoderFinishDecoder.decode(encoderFinishMsg).replace(/\0+$/, "");
         log.error("wgpu", `validation error during command encoder finish: ${msg}`);
+      }
+    } else {
+      if (this.devicePtr) wgpu.wgpu_shim_device_push_error_scope(this.devicePtr, 1);
+      cmdPtr = wgpu.wgpu_shim_command_encoder_finish(this.ptr) as unknown as number;
+      if (this.devicePtr) {
+        const msgBuf = new Uint8Array(4096);
+        const errType = wgpu.wgpu_shim_device_pop_error_scope(this.devicePtr, msgBuf as any, msgBuf.length);
+        if (errType !== 0 && errType !== 1) {
+          invalid = true;
+          const msg = new TextDecoder().decode(msgBuf).replace(/\0+$/, "");
+          log.error("wgpu", `validation error during command encoder finish: ${msg}`);
+        }
       }
     }
     if (!cmdPtr) throw new Error("Failed to finish command encoder");

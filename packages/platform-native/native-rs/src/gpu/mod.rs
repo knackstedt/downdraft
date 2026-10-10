@@ -1208,6 +1208,61 @@ pub extern "C" fn wgpu_shim_command_encoder_finish(encoder: Handle) -> Handle {
     })
 }
 
+/// finish() + validation error scope in ONE call — the JS side used to pay
+/// two extra FFI crossings (push_error_scope + pop_error_scope) and a 4KB
+/// out-buffer per command buffer to detect invalid results. Here the scope
+/// wraps the finish internally; err_type_out receives the WGPUErrorType
+/// (0/1 = clean, >1 = validation error → the returned buffer is invalid and
+/// must not be submitted) and the message goes into out_msg.
+#[no_mangle]
+pub extern "C" fn wgpu_shim_command_encoder_finish_checked(
+    encoder: Handle,
+    device: Handle,
+    err_type_out: *mut u32,
+    out_msg: *mut c_char,
+    out_msg_size: i32,
+) -> Handle {
+    ffi!(ptr::null_mut(), unsafe {
+        if !err_type_out.is_null() {
+            *err_type_out = 0;
+        }
+        let guard = obj::<ShimDevice>(device)
+            .device
+            .push_error_scope(ErrorFilter::Validation);
+        let enc = obj_mut::<ShimEncoder>(encoder).0.take();
+        let Some(enc) = enc else {
+            drop(guard);
+            return ptr::null_mut();
+        };
+        let cb = enc.finish();
+        match block_on_gpu(guard.pop()) {
+            Some(None) => {
+                if !err_type_out.is_null() {
+                    *err_type_out = 1; // NoError
+                }
+            }
+            Some(Some(e)) => {
+                if !out_msg.is_null() && out_msg_size > 0 {
+                    let msg = e.to_string();
+                    let bytes = msg.as_bytes();
+                    let n = bytes.len().min(out_msg_size as usize - 1);
+                    ptr::copy_nonoverlapping(bytes.as_ptr(), out_msg as *mut u8, n);
+                    *out_msg.add(n) = 0;
+                }
+                if !err_type_out.is_null() {
+                    *err_type_out = enums::error_type(&e);
+                }
+            }
+            None => {
+                if !err_type_out.is_null() {
+                    *err_type_out = 4; // Internal — pop timed out
+                }
+            }
+        }
+        boxed(ShimCommandBuffer(Some(cb)))
+    })
+}
+
 #[no_mangle]
 pub extern "C" fn wgpu_shim_queue_submit(
     queue: Handle,
