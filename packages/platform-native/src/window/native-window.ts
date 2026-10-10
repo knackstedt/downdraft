@@ -126,6 +126,10 @@ export class NativeWindow extends MiniEventTarget {
   // is derived from the display's refresh rate (re-queried on window moves).
   private lastRafDispatch = -1e9;
   private frameIntervalMs = 0;
+  // Quiet-iteration streak for idle backoff — consecutive runLoop passes
+  // with no events, no rAF dispatch, and no armed callbacks deepen the
+  // wait_event timeout (4 → 8 → 16ms). Any work resets it to 0.
+  private idleLoopStreak = 0;
   // The cached interval is re-validated on this cadence: a MOVED-driven
   // re-query can latch mid-drag while winit still reports the window on its
   // previous monitor, and a periodic check bounds that staleness (and any
@@ -527,19 +531,30 @@ export class NativeWindow extends MiniEventTarget {
       // floor() — never overshoot the deadline. The remaining sub-ms tail
       // is absorbed by the setImmediate loop re-checking the dispatch gate.
       waitMs = remain > RAF_DISPATCH_EPSILON_MS ? Math.min(4, Math.floor(remain)) : 0;
+    } else {
+      // Idle backoff: with no frame work armed the 4ms cap buys nothing but
+      // ~250 empty wakeups/sec (the cap exists for JS-side task sources —
+      // timers, worker messages, MCP — that can't run while parked in FFI).
+      // Ramp the wait on successive quiet iterations so a quiescent app
+      // sleeps properly; any event or a re-armed rAF snaps the cadence back
+      // via idleLoopStreak=0. Capped at 16ms so JS-side stalls stay within
+      // one display frame even while idle.
+      waitMs = 4 << Math.min(this.idleLoopStreak, 2);
     }
     // waitMs === 0 means a frame is due — drain without blocking. Otherwise
     // block for waitMs; an event return drains the rest of its burst. A
     // timeout means the wait's pump already drained the OS queue — a
     // follow-up poll would just pay a second pump for nothing.
+    let eventHandled = false;
     if (waitMs > 0) {
       const wt = sdl.sdl_shim_wait_event(this.eventData as any, waitMs);
       if (wt !== SDL_EVENT_NONE) {
+        eventHandled = true;
         this.safeHandleEvent(wt, this.eventView, this.eventFloatView);
         this.drainEvents();
       }
     } else {
-      this.drainEvents();
+      eventHandled = this.drainEvents() > 0;
     }
 
     // Apply the newest pending resize once — never mid-event-drain, so the
@@ -564,7 +579,8 @@ export class NativeWindow extends MiniEventTarget {
     // `this.running` may have flipped mid-event-drain (QUIT → destroy) —
     // dispatching rAF on a released surface would fire game frame callbacks
     // against a dead swapchain.
-    if (this.running && !this.surfaceSuspended && this.rafCallbacks.size > 0 && due) {
+    const dispatched = this.running && !this.surfaceSuspended && this.rafCallbacks.size > 0 && due;
+    if (dispatched) {
       // Advance on a fixed grid so sleep/timer jitter doesn't accumulate
       // drift; if we fell more than a frame behind (startup, a long frame,
       // a stall) reset the phase instead of bursting catch-up dispatches.
@@ -592,6 +608,16 @@ export class NativeWindow extends MiniEventTarget {
       if (this.rafCallbacks.size === 0) this.setVsyncWanted(false);
     }
 
+    // Idle backoff accounting: work this iteration (an event, a dispatch,
+    // or callbacks still armed for next frame) resets the streak, so the
+    // 4ms cadence resumes the moment the app wakes. Only a truly quiet
+    // iteration deepens the sleep.
+    if (eventHandled || dispatched || this.rafCallbacks.size > 0) {
+      this.idleLoopStreak = 0;
+    } else {
+      this.idleLoopStreak++;
+    }
+
     // Process wgpu events (for async callback delivery), then poll the
     // device-lost flag on every live device — this is what resolves
     // GPUDevice.lost on native (GameRenderer recovery hooks off that).
@@ -612,15 +638,19 @@ export class NativeWindow extends MiniEventTarget {
 
   /** Pop queued SDL events until the queue is empty. With take-before-pump
    *  in the shim, a backlog costs zero winit pumps — only the final empty
-   *  take pumps (and returns whatever that pump enqueued). */
-  private drainEvents(): void {
+   *  take pumps (and returns whatever that pump enqueued). Returns the
+   *  number of events handled (for idle-backoff accounting). */
+  private drainEvents(): number {
     let eventType: number;
+    let handled = 0;
     do {
       eventType = sdl.sdl_shim_poll_event(this.eventData as any);
       if (eventType !== SDL_EVENT_NONE) {
+        handled++;
         this.safeHandleEvent(eventType, this.eventView, this.eventFloatView);
       }
     } while (eventType !== SDL_EVENT_NONE);
+    return handled;
   }
 
   private modifiers(mod: number) {
