@@ -225,14 +225,17 @@ export function createDocCore(emit: (m: WorkerToUi) => void, gpuHooks?: DocGpuHo
   }
 
   // Smooth-wheel ease: fraction of the remainder applied per elapsed ms.
-  // τ≈55ms → ~25% per 16ms tick, ~95% drained in ~165ms — snappy but
-  // animated. Dispatching real wheel events keeps Blitz's hit-testing,
-  // scroll chaining, scrollbar reveal, and scroll DOM events intact.
-  const WHEEL_TAU_MS = 55;
+  // τ≈45ms → ~30% per 16ms tick, ~95% drained in ~135ms — snappy but
+  // animated. A 1/MAX_TICKS floor bounds any backlog at ~320ms of drain —
+  // a fast wheel can't make scroll trail input indefinitely. Dispatching
+  // real wheel events keeps Blitz's hit-testing, scroll chaining, scrollbar
+  // reveal, and scroll DOM events intact.
+  const WHEEL_TAU_MS = 45;
+  const WHEEL_MAX_TICKS = 20;
   function stepWheel(s: DocState, now: number): void {
     const dt = Math.min(50, Math.max(1, now - s.wheelT));
     s.wheelT = now;
-    const f = 1 - Math.exp(-dt / WHEEL_TAU_MS);
+    const f = Math.max(1 - Math.exp(-dt / WHEEL_TAU_MS), 1 / WHEEL_MAX_TICKS);
     // Snap the tail: a step below ~¾px/axis applies the whole residue instead
     // of asymptoting through invisible sub-pixel repaints.
     const dx = Math.abs(s.wheelRx) * f < 0.75 ? s.wheelRx : s.wheelRx * f;
@@ -330,9 +333,16 @@ export function createDocCore(emit: (m: WorkerToUi) => void, gpuHooks?: DocGpuHo
           if (s) s.maxFps = m.maxFps;
           break;
         }
-        case "setHtml":
+        case "setHtml": {
           if (/float\s*:/.test(m.html)) emit({ type: "error", id: m.id, message: "CSS float hangs Blitz layout — use flex instead" });
-          docs.get(m.id)?.doc.setHtml(m.html); break;
+          const s = docs.get(m.id);
+          if (!s) break;
+          // Drop any in-flight smooth-wheel drain — its remainder belongs to
+          // the document being replaced.
+          s.wheelRx = s.wheelRy = 0;
+          s.doc.setHtml(m.html);
+          break;
+        }
         case "resize": {
           const s = docs.get(m.id);
           if (s) {
