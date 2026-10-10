@@ -52,7 +52,7 @@ export interface NavNodeInfo {
 
 /** Host → backend */
 export type UiToWorker =
-  | { type: "create"; id: string; cssW: number; cssH: number; scale: number; html: string; maxFps?: number }
+  | { type: "create"; id: string; cssW: number; cssH: number; scale: number; html: string; maxFps?: number; smoothWheel?: boolean }
   | { type: "fps"; id: string; maxFps: number }
   | { type: "setHtml"; id: string; html: string }
   | { type: "resize"; id: string; cssW: number; cssH: number; scale: number }

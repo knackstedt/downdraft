@@ -224,6 +224,46 @@ describe.skipIf(!hasLib)("html-ui doc core", () => {
     core.dispose();
   });
 
+  const TALL = `<div class="s" style="width:200px;height:200px;overflow-y:scroll">${'<div style="height:40px"></div>'.repeat(50)}</div>`;
+  const scrollTops = (msgs: WorkerToUi[]) =>
+    msgs.filter((m) => m.type === "events")
+      .flatMap((m) => (m as Extract<WorkerToUi, { type: "events" }>).events)
+      .filter((e) => e.t === "scroll")
+      .map((e) => e.st ?? 0);
+
+  test("wheel scrolls the hovered scrollport and emits scroll events", () => {
+    const { msgs, emit } = collect();
+    const core = createDocCore(emit);
+    core.handle({ type: "create", id: "p1", cssW: 200, cssH: 200, scale: 1, html: `${CSS}${TALL}` });
+    core.handle({ type: "input", id: "p1", msg: { kind: "move", x: 100, y: 100 } });
+    msgs.length = 0;
+    core.handle({ type: "input", id: "p1", msg: { kind: "wheel", x: 100, y: 100, deltaX: 0, deltaY: 100 } });
+    const sts = scrollTops(msgs);
+    // Instant path: the full detent lands in one step.
+    expect(sts).toEqual([100]);
+    core.dispose();
+  });
+
+  test("smoothWheel eases wheel deltas out across pump ticks", async () => {
+    const { msgs, emit } = collect();
+    const core = createDocCore(emit);
+    core.handle({ type: "create", id: "p1", cssW: 200, cssH: 200, scale: 1, html: `${CSS}${TALL}`, smoothWheel: true });
+    core.handle({ type: "input", id: "p1", msg: { kind: "move", x: 100, y: 100 } });
+    msgs.length = 0;
+    core.handle({ type: "input", id: "p1", msg: { kind: "wheel", x: 100, y: 100, deltaX: 0, deltaY: 100 } });
+    // The first tick applies an eased fraction, not the full 100px jump.
+    const first = scrollTops(msgs);
+    expect(first.length).toBeGreaterThanOrEqual(1);
+    expect(first[0]!).toBeGreaterThan(0);
+    expect(first[0]!).toBeLessThan(50);
+    // The remainder drains on the pump timer and converges on the full delta.
+    await new Promise((r) => setTimeout(r, 400));
+    const all = scrollTops(msgs);
+    expect(all.length).toBeGreaterThan(3);
+    expect(Math.abs(all.at(-1)! - 100)).toBeLessThan(1);
+    core.dispose();
+  });
+
   test("maxFps throttles raster but not events", async () => {
     const { msgs, emit } = collect();
     const core = createDocCore(emit);

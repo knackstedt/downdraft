@@ -76,6 +76,19 @@ interface DocState {
   gpuTex: { ptr: number | bigint; tex: unknown; w: number; h: number } | null;
   stats: { frames: number; resolveMs: number; paintMs: number; diffMs: number; bytes: number };
   statsLast: number;
+  /** smoothWheel (PanelSpec): wheel deltas accumulate here and drain as
+   *  eased per-tick steps in pump() instead of each event repainting an
+   *  instant jump. Deltas/positions stay in doc CSS px (scale applied at
+   *  dispatch); DOM sign convention (+y = scroll down). */
+  smoothWheel: boolean;
+  wheelRx: number;
+  wheelRy: number;
+  wheelX: number;
+  wheelY: number;
+  wheelMods?: string[];
+  /** performance.now() of the last step — the ease is dt-based so the curve
+   *  holds regardless of pump cadence. */
+  wheelT: number;
 }
 
 // Bound-buffer header (u32 indices) — mirrors BoundBuf layout in lib.rs.
@@ -211,9 +224,29 @@ export function createDocCore(emit: (m: WorkerToUi) => void, gpuHooks?: DocGpuHo
     }
   }
 
+  // Smooth-wheel ease: fraction of the remainder applied per elapsed ms.
+  // τ≈55ms → ~25% per 16ms tick, ~95% drained in ~165ms — snappy but
+  // animated. Dispatching real wheel events keeps Blitz's hit-testing,
+  // scroll chaining, scrollbar reveal, and scroll DOM events intact.
+  const WHEEL_TAU_MS = 55;
+  function stepWheel(s: DocState, now: number): void {
+    const dt = Math.min(50, Math.max(1, now - s.wheelT));
+    s.wheelT = now;
+    const f = 1 - Math.exp(-dt / WHEEL_TAU_MS);
+    // Snap the tail: a step below ~¾px/axis applies the whole residue instead
+    // of asymptoting through invisible sub-pixel repaints.
+    const dx = Math.abs(s.wheelRx) * f < 0.75 ? s.wheelRx : s.wheelRx * f;
+    const dy = Math.abs(s.wheelRy) * f < 0.75 ? s.wheelRy : s.wheelRy * f;
+    s.wheelRx -= dx;
+    s.wheelRy -= dy;
+    const k = s.scale;
+    s.doc.wheel(s.wheelX * k, s.wheelY * k, dx * k, dy * k, s.wheelMods);
+  }
+
   function pump() {
     const now = performance.now();
     for (const [id, s] of docs.entries()) {
+      if (s.smoothWheel && (s.wheelRx !== 0 || s.wheelRy !== 0)) stepWheel(s, now);
       const events = s.doc.pollEvents();
       if (events.length) emit({ type: "events", id, events });
       if (!s.doc.pending()) continue;
@@ -284,6 +317,8 @@ export function createDocCore(emit: (m: WorkerToUi) => void, gpuHooks?: DocGpuHo
             doc, scale: m.scale, cssW: m.cssW, cssH: m.cssH,
             maxFps: m.maxFps ?? 0, lastFrame: -1e9,
             sab: null, sabU32: null, sabDisabled: false, gpuTex: null,
+            smoothWheel: m.smoothWheel === true,
+            wheelRx: 0, wheelRy: 0, wheelX: 0, wheelY: 0, wheelT: 0,
             stats: freshStats(), statsLast: 0,
           };
           docs.set(m.id, s);
@@ -403,9 +438,27 @@ export function createDocCore(emit: (m: WorkerToUi) => void, gpuHooks?: DocGpuHo
           const k = s.scale;
           switch (msg.kind) {
             case "move": s.doc.pointerMove(msg.x * k, msg.y * k, msg.mods); break;
-            case "down": s.doc.pointerDown(msg.x * k, msg.y * k, msg.button, msg.mods); break;
+            case "down":
+              // A press interrupts any in-flight wheel scroll (mirrors
+              // Blitz's interrupt_animation semantics for user input).
+              s.wheelRx = 0; s.wheelRy = 0;
+              s.doc.pointerDown(msg.x * k, msg.y * k, msg.button, msg.mods);
+              break;
             case "up": s.doc.pointerUp(msg.x * k, msg.y * k, msg.button, msg.mods); break;
-            case "wheel": s.doc.wheel(msg.x * k, msg.y * k, msg.deltaX * k, msg.deltaY * k, msg.mods); break;
+            case "wheel":
+              if (s.smoothWheel) {
+                // A fresh gesture back-dates wheelT so the first pump tick
+                // applies a full ~16ms step immediately — no dead frame.
+                if (s.wheelRx === 0 && s.wheelRy === 0) s.wheelT = performance.now() - 16;
+                s.wheelRx += msg.deltaX;
+                s.wheelRy += msg.deltaY;
+                s.wheelX = msg.x;
+                s.wheelY = msg.y;
+                s.wheelMods = msg.mods;
+              } else {
+                s.doc.wheel(msg.x * k, msg.y * k, msg.deltaX * k, msg.deltaY * k, msg.mods);
+              }
+              break;
             case "key": s.doc.key(msg.down, msg.key, msg.code, msg.text, msg.mods); break;
           }
           break;

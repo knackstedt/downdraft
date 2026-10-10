@@ -40,6 +40,10 @@ export interface PanelSpec {
   zoom?: number;
   /** Raster-rate cap for animating docs (0 = uncapped). Static docs repaint on demand regardless. */
   maxFps?: number;
+  /** Ease wheel deltas out at frame cadence instead of applying each detent
+   *  as an instant jump — scrolling animates smoothly and repaints stay at
+   *  one per pump tick regardless of input rate. Default false. */
+  smoothWheel?: boolean;
   /** Initial markup (or `vdom` rendered beforehand by the caller). */
   html: string;
   /** When false the panel never receives pointer input and `panelAt` skips
@@ -306,7 +310,7 @@ export class HtmlUiHost {
     this.order.push(id);
     // Doc viewport scale = raster px per CSS px = scale * zoom; layout size
     // is rect/zoom CSS px so the raster still covers rect*scale texture px.
-    this.send({ type: "create", id, cssW: spec.rect.w / zoom, cssH: spec.docH ?? spec.rect.h / zoom, scale: scale * zoom, html: spec.html, maxFps: spec.maxFps });
+    this.send({ type: "create", id, cssW: spec.rect.w / zoom, cssH: spec.docH ?? spec.rect.h / zoom, scale: scale * zoom, html: spec.html, maxFps: spec.maxFps, smoothWheel: spec.smoothWheel });
     // GPU-direct: create the panel texture eagerly so the worker's texBind
     // lands before its first upload — the host knows raster dims at mount.
     if (this.gpuReady) this.bindPanelTex(panel);
@@ -469,6 +473,9 @@ export class HtmlUiHost {
   /** Doc-backend capabilities (populated by the `ready` handshake —
    *  `incrementalDom` is false until then, and forever on old cdylibs). */
   get docCaps(): { incrementalDom: boolean } { return this.caps; }
+
+  /** Which doc backend is live — "worker" (raster off-thread) or "local". */
+  get backendKind(): "worker" | "local" { return this.backend.kind; }
 
   /** Compositor surface for GameRenderer's end-of-frame UI pass. */
   get compositor(): { hasContent(): boolean; render(pass: GPURenderPassEncoder, w: number, h: number): void } {
