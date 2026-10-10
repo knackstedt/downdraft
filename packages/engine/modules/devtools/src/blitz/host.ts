@@ -16,12 +16,13 @@ import { createLogger } from "@downdraft/engine";
 import { CdpBridge, DevtoolsBackend } from "@downdraft/engine/libraries/devtools";
 import { HtmlUiHost, type OsrDomEvent, type UiPanelHandle } from "@downdraft/engine/modules/html-ui";
 
+import { registerDevtoolsFonts } from "./fonts";
 import { ConsolePanel } from "./panels/console";
 import { ElementsPanel } from "./panels/elements";
 import { GpuPanel } from "./panels/gpu";
 import { PerformancePanel } from "./panels/performance";
 import { SnapshotPanel } from "./panels/snapshot";
-import type { DtPanel, DtPanelCtx } from "./panels/types";
+import { esc, type DtPanel, type DtPanelCtx } from "./panels/types";
 import { DEVTOOLS_CSS } from "./theme";
 
 const log = createLogger("info");
@@ -35,12 +36,17 @@ export interface DevtoolsUiSurface {
     z?: number;
     scale?: number;
     maxFps?: number;
+    /** Ease wheel deltas at pump cadence (html-ui PanelSpec.smoothWheel). */
+    smoothWheel?: boolean;
     interactive?: boolean;
     onEvent?: (ev: OsrDomEvent) => void;
   }): UiPanelHandle;
   /** Doc-backend capabilities — panels use incremental DOM ops only when
    *  the underlying cdylib provides them. */
   docCaps?(): { incrementalDom?: boolean };
+  /** Register a `ui://` resource (fonts) served to the dock doc — must run
+   *  before mount. Absent on surfaces that don't own a resource table. */
+  registerResource?(url: string, bytes: Uint8Array | ArrayBuffer): void;
 }
 
 export interface BlitzDevtoolsOptions {
@@ -83,6 +89,9 @@ export class BlitzDevtoolsHost {
   private panelCtx: DtPanelCtx;
   private lastPanelRender = -1e9;
   private lastSlowLog = 0;
+  /** @font-face css from registerDevtoolsFonts — "" means "embedded font
+   *  fallback", null means "not yet attempted". */
+  private fontCss: string | null = null;
 
   constructor(opts: BlitzDevtoolsOptions) {
     this.opts = opts;
@@ -154,19 +163,41 @@ export class BlitzDevtoolsHost {
 
   show(): void {
     if (!this._ready || this.visible || this.disposed) return;
-    this.panel = this.opts.ui.mount(this.shellHtml(), {
-      id: "devtools",
-      rect: this.dockRect(),
-      // Above game overlays — menus/loading screens shouldn't bury the dock.
-      z: 1000,
-      scale: 1.5,
-      interactive: true,
-      // Devtools UI doesn't need vsync-rate raster — cap it so mutation
-      // bursts (console streams, snapshot refreshes) coalesce into ~66ms
-      // rasters instead of one raster per message.
-      maxFps: 15,
-      onEvent: (ev) => this.handleDocEvent(ev),
-    });
+    // Register real system fonts once per host — ui:// resources persist on
+    // the surface across dock remounts, and must land before the doc mounts
+    // so the first resolve sees them (embedded DejaVu fallback otherwise).
+    if (this.fontCss === null) {
+      const ui = this.opts.ui as DevtoolsUiSurface & { host?: HtmlUiHost };
+      const rr = ui.registerResource?.bind(ui)
+        ?? (ui.host ? ui.host.registerResource.bind(ui.host) : undefined);
+      this.fontCss = rr ? registerDevtoolsFonts({ registerResource: rr }) : "";
+    }
+    try {
+      this.panel = this.opts.ui.mount(this.shellHtml(), {
+        id: "devtools",
+        rect: this.dockRect(),
+        // Above game overlays — menus/loading screens shouldn't bury the dock.
+        z: 1000,
+        // Native-res raster: the vendored glifo/FreeType path grid-fits hinted
+        // glyph stems to whole pixels — supersample factors >1 just blur that
+        // back out on downscale (and cost 2.25x the texture memory).
+        scale: 1,
+        // Ease wheel detents at pump cadence instead of jumping per event.
+        smoothWheel: true,
+        interactive: true,
+        // Devtools UI doesn't need vsync-rate raster — cap it so mutation
+        // bursts (console streams, snapshot refreshes) coalesce into ~66ms
+        // rasters instead of one raster per message.
+        maxFps: 15,
+        onEvent: (ev) => this.handleDocEvent(ev),
+      });
+    } catch (err) {
+      // Mount fails when the ui worker is dead — stay hidden so the next F12
+      // retries cleanly instead of wedging on a half-mounted doc.
+      this.panel = null;
+      log.error("blitz-devtools-host", `dock mount failed: ${err}`);
+      return;
+    }
     this.syncProviders();
     this.renderTabs();
     this.activate(this.activeId);
@@ -190,8 +221,18 @@ export class BlitzDevtoolsHost {
     }
     const t1 = performance.now();
     if (!this.visible) return;
-    this.syncProviders();
-    this.flush();
+    // Guarded like backend.update() above — a throwing panel render can't be
+    // allowed to kill the game frame hook that drives this pump.
+    try {
+      this.syncProviders();
+      this.flush();
+    } catch (err) {
+      const tn = performance.now();
+      if (tn - this.lastSlowLog > 1000) {
+        this.lastSlowLog = tn;
+        log.warn("blitz-devtools-host", `panel render error: ${err}`);
+      }
+    }
     const t2 = performance.now();
     // ≤1/sec — these diagnostics used to feed the console panel's logger
     // sink, and each row forced another dock re-render: a self-feeding
@@ -244,12 +285,14 @@ export class BlitzDevtoolsHost {
   // ── Dock layout ──
 
   private dockRect() {
-    const h = Math.min(this.dockH, this.surfaceH - 60);
-    return { x: 0, y: this.surfaceH - h, w: this.surfaceW, h };
+    // A tiny surface (or a pathological resize event) must not produce a
+    // negative height — keep at least enough room for the tab strip.
+    const h = Math.max(48, Math.min(this.dockH, this.surfaceH - 60));
+    return { x: 0, y: Math.max(0, this.surfaceH - h), w: this.surfaceW, h };
   }
 
   private shellHtml(): string {
-    return `<html><head><style>${DEVTOOLS_CSS}</style></head><body>
+    return `<html><head><style>${this.fontCss ?? ""}${DEVTOOLS_CSS}</style></head><body>
       <div id="dt-root">
         <div id="dt-grip" title="drag to resize"></div>
         <div id="dt-chrome">
@@ -266,8 +309,11 @@ export class BlitzDevtoolsHost {
 
   private renderTabs(): void {
     if (!this.panel) return;
+    // esc() both interpolations — provider names feed panel ids/titles and
+    // arrive as raw strings (a game registering "x\"><img" would otherwise
+    // inject markup into the tab strip).
     const tabs = [...this.panels.values()].map((p) =>
-      `<span class="tab${p.id === this.activeId ? " active" : ""}" data-action="dt.tab" data-tab="${p.id}">${p.title}</span>`
+      `<span class="tab${p.id === this.activeId ? " active" : ""}" data-action="dt.tab" data-tab="${esc(p.id)}">${esc(p.title)}</span>`
     ).join("");
     this.panel.setInnerHtml("#dt-tabs",
       `<span class="brand">downdraft</span>${tabs}<span class="spacer"></span>
@@ -280,13 +326,21 @@ export class BlitzDevtoolsHost {
     this.activeId = id;
     const p = this.panels.get(id)!;
     this.renderTabs();
-    this.panel.setInnerHtml("#dt-top", p.renderTop?.() ?? "");
-    this.panel.setInnerHtml("#dt-bottom", p.renderBottom?.() ?? "");
+    try {
+      this.panel.setInnerHtml("#dt-top", p.renderTop?.() ?? "");
+      this.panel.setInnerHtml("#dt-bottom", p.renderBottom?.() ?? "");
+    } catch (err) {
+      log.warn("blitz-devtools-host", `panel ${id} chrome render error: ${err}`);
+    }
     p.dirty = true;
     p.shellDirty = false;
-    this.panel.setInnerHtml("#dt-body", p.renderBody());
-    p.afterRender?.();
-    p.activate?.();
+    this.panel.setInnerHtml("#dt-body", this.safeBody(p));
+    try { p.afterRender?.(); } catch (err) {
+      log.warn("blitz-devtools-host", `panel ${id} afterRender error: ${err}`);
+    }
+    try { p.activate?.(); } catch (err) {
+      log.warn("blitz-devtools-host", `panel ${id} activate error: ${err}`);
+    }
     // Only the snapshot tab being viewed gets periodic provider refreshes;
     // fixed panels suspend auto-refresh entirely (manual Refresh still works).
     this.backend.providerWatch = p.providerSlot ?? -1;
@@ -346,10 +400,25 @@ export class BlitzDevtoolsHost {
     }
     if (p.dirty) {
       p.dirty = false;
-      if (p.flushDom?.() !== true) {
-        this.panel.setInnerHtml("#dt-body", p.renderBody());
+      let handled = false;
+      try { handled = p.flushDom?.() === true; } catch (err) {
+        log.warn("blitz-devtools-host", `panel ${p.id} flushDom error: ${err}`);
       }
-      p.afterRender?.();
+      if (!handled) this.panel.setInnerHtml("#dt-body", this.safeBody(p));
+      try { p.afterRender?.(); } catch (err) {
+        log.warn("blitz-devtools-host", `panel ${p.id} afterRender error: ${err}`);
+      }
+    }
+  }
+
+  /** renderBody that can't take the dock down — the error surfaces in-panel
+   *  (and the next push retries since dirty just flips back on). */
+  private safeBody(p: DtPanel): string {
+    try {
+      return p.renderBody();
+    } catch (err) {
+      log.warn("blitz-devtools-host", `panel ${p.id} renderBody error: ${err}`);
+      return `<div class="status-banner error">panel render error: ${esc(String(err))}</div>`;
     }
   }
 
@@ -387,20 +456,26 @@ export class BlitzDevtoolsHost {
       }
     }
 
+    // Left-click only — routing actions on contextmenu meant a right-click
+    // on a tab/button fired it instead of just focusing.
     const action = ev.d?.action;
-    if ((ev.t === "click" || ev.t === "contextmenu") && action) {
+    if (ev.t === "click" && action) {
       if (action === "dt.tab") {
         const id = ev.d!.tab;
         if (id) this.activate(id);
         return;
       }
       if (action === "dt.close") { this.hide(); return; }
-      this.panels.get(this.activeId)?.onAction?.(ev.d!, ev);
+      try { this.panels.get(this.activeId)?.onAction?.(ev.d!, ev); } catch (err) {
+        log.warn("blitz-devtools-host", `panel action error: ${err}`);
+      }
       return;
     }
 
     // Everything else (input, keydown/up, scroll, focus…) → active panel.
-    this.panels.get(this.activeId)?.onEvent?.(ev);
+    try { this.panels.get(this.activeId)?.onEvent?.(ev); } catch (err) {
+      log.warn("blitz-devtools-host", `panel event error: ${err}`);
+    }
   }
 }
 
@@ -426,5 +501,6 @@ export function createSelfHostedDevtoolsUi(ctx: RendererModuleContext): Devtools
     host,
     mount: (markup, spec) => host.mount({ ...spec, html: markup }),
     docCaps: () => host.docCaps,
+    registerResource: (url, bytes) => host.registerResource(url, bytes),
   };
 }

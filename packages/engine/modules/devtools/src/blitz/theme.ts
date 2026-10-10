@@ -15,7 +15,7 @@ export const DEVTOOLS_CSS = `
   --warn: #e0b341;
   --err: #e5534b;
   --ok: #57ab5a;
-  --mono: "SF Mono", "Cascadia Mono", Consolas, monospace;
+  --mono: "DevTools Mono", "SF Mono", "Cascadia Mono", Consolas, monospace;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 /* height:100% must be on html AND body — Blitz resolves body % against
@@ -23,7 +23,7 @@ export const DEVTOOLS_CSS = `
 html, body {
   width: 100%; height: 100%; overflow: hidden;
   background: var(--bg); color: var(--fg);
-  font: 12px/1.45 system-ui, sans-serif;
+  font: 12px/1.45 "DevTools Sans", system-ui, sans-serif;
 }
 #dt-root {
   /* Absolute inset — Blitz doesn't resolve height:100% against the doc
@@ -51,7 +51,11 @@ html, body {
   display: flex; align-items: center; gap: 2px;
   background: var(--bg2); border-bottom: 1px solid var(--line);
   padding: 0 8px; height: 30px; flex-shrink: 0;
+  /* Provider tabs can overflow the strip — wheel-scroll it instead of
+   *  clipping tabs unreachable. */
+  overflow-x: auto; overflow-y: hidden;
 }
+#dt-tabs .tab, #dt-tabs .brand, #dt-tabs .hint { flex-shrink: 0; }
 #dt-tabs .brand { color: var(--accent); font-weight: 600; margin-right: 12px; }
 #dt-tabs .spacer { flex: 1; }
 #dt-tabs .hint { font-size: 11px; color: var(--fg-dim); }
@@ -125,13 +129,31 @@ html, body {
 .console-repl input:focus { border-color: var(--accent); }
 .console-repl .prompt { color: var(--accent); font-family: var(--mono); }
 
-/* ── Tree (scene/dom/ecs) ── */
+/* ── Tree (scene/ecs) ── */
 .tree { font-family: var(--mono); font-size: 11.5px; }
-.trow { padding: 1px 4px; white-space: nowrap; }
+.trow { padding: 1px 4px; white-space: nowrap; cursor: default; }
 .trow:hover { background: var(--bg3); }
 .trow.sel { background: #2d4a72; }
+.trow .caret {
+  display: inline-block; width: 12px; color: var(--fg-dim);
+  cursor: pointer; user-select: none;
+}
+.trow .caret:hover { color: var(--fg); }
 .trow .detail { color: var(--fg-dim); margin-left: 8px; }
 .trow .kids { color: var(--fg-dim); }
+
+/* ── Elements details strip (bottom chrome) ── */
+.el-details { border-top: 1px solid var(--line); background: var(--bg); }
+.el-details-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 3px 8px; border-bottom: 1px solid var(--line);
+}
+.el-details-head .dt-title { color: var(--accent); font-weight: 600; }
+.el-details-head .spacer { flex: 1; }
+.el-details-body {
+  max-height: 140px; overflow-y: auto; padding: 6px 8px;
+  font-family: var(--mono); font-size: 11.5px; white-space: pre-wrap;
+}
 
 /* ── KV / tables / snapshot panels ── */
 .snap-section { margin-bottom: 14px; }

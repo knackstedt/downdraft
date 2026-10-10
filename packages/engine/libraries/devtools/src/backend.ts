@@ -77,6 +77,12 @@ export class DevtoolsBackend {
   private providers = new Map<number, PanelProvider>();
   private commandHandlers = new Map<number, PanelCommandHandler>();
   private globalCommandHandler: PanelCommandHandler | null = null;
+  /** Dynamically-allocated slots for provider names outside the fixed PANEL
+   *  table — panelSlot() alone collapsed every unknown name onto slot 0
+   *  ("console"), so a second game provider silently replaced the first. */
+  private dynSlots = new Map<string, number>();
+  private dynSlotNames = new Map<number, string>();
+  private nextDynSlot = 100;
   private lastProviderPush = new Map<number, number>();
   providerIntervalMs = 1500;
   /** When non-null, the cadence loop only auto-refreshes this provider
@@ -237,37 +243,57 @@ export class DevtoolsBackend {
 
   // ── Providers / commands ──
 
-  registerProvider(panel: PanelName | number, collect: PanelProvider): void {
-    this.providers.set(panelSlot(panel), collect);
+  /** Resolve a panel id to its slot. Names outside the fixed PANEL table
+   *  get a stable dynamically-allocated slot so bespoke game providers can
+   *  coexist instead of colliding on slot 0. */
+  private slotFor(panel: PanelName | number | string): number {
+    if (typeof panel === "number") return panel;
+    const fixed = PANEL[panel as PanelName];
+    if (fixed !== undefined) return fixed;
+    let s = this.dynSlots.get(panel);
+    if (s === undefined) {
+      s = this.nextDynSlot++;
+      this.dynSlots.set(panel, s);
+      this.dynSlotNames.set(s, panel);
+    }
+    return s;
   }
 
-  registerCommandHandler(panel: PanelName | number | "*", handler: PanelCommandHandler): void {
+  private nameFor(slot: number): string {
+    return this.dynSlotNames.get(slot) ?? slotName(slot);
+  }
+
+  registerProvider(panel: PanelName | number | string, collect: PanelProvider): void {
+    this.providers.set(this.slotFor(panel), collect);
+  }
+
+  registerCommandHandler(panel: PanelName | number | string, handler: PanelCommandHandler): void {
     if (panel === "*") {
       this.globalCommandHandler = handler;
     } else {
-      this.commandHandlers.set(panelSlot(panel), handler);
+      this.commandHandlers.set(this.slotFor(panel), handler);
     }
   }
 
   /** Registered provider slots — the dynamic tab list for frontends. */
   providerSlots(): { slot: number; name: string }[] {
-    return [...this.providers.keys()].map((slot) => ({ slot, name: slotName(slot) }));
+    return [...this.providers.keys()].map((slot) => ({ slot, name: this.nameFor(slot) }));
   }
 
   /** Collect + emit one provider's snapshot immediately. */
-  refreshPanel(panel: PanelName | number): void {
+  refreshPanel(panel: PanelName | number | string): void {
     const trace: number[] = [performance.now()];
-    const slot = panelSlot(panel);
+    const slot = this.slotFor(panel);
     trace.push(performance.now());
     const collect = this.providers.get(slot);
     if (!collect) return;
     const push = (snap: PanelSnapshot | null | undefined) => {
-      if (snap) this.emit("snapshot", { panel: slotName(slot), slot, snap });
+      if (snap) this.emit("snapshot", { panel: this.nameFor(slot), slot, snap });
       this.lastProviderPush.set(slot, performance.now());
     };
     const fail = (err: unknown) => {
       this.emit("snapshot", {
-        panel: slotName(slot), slot,
+        panel: this.nameFor(slot), slot,
         snap: { status: "error", statusMsg: String(err), sections: [] },
       });
       this.lastProviderPush.set(slot, performance.now());
@@ -288,7 +314,7 @@ export class DevtoolsBackend {
     const total = trace[4]! - trace[0]!;
     if (total > 10) {
       const seg = `pre=${(trace[2]! - trace[0]!).toFixed(1)} collect=${(trace[3]! - trace[2]!).toFixed(1)} emit=${(trace[4]! - trace[3]!).toFixed(1)}`;
-      this.diagWarn(`slow provider ${slotName(slot)}: ${total.toFixed(1)}ms [${seg}]`);
+      this.diagWarn(`slow provider ${this.nameFor(slot)}: ${total.toFixed(1)}ms [${seg}]`);
     }
   }
 
@@ -431,7 +457,7 @@ export class DevtoolsBackend {
         return collectThreads(this.ctx, [...this.threadEvals.keys()]);
       case "snapshot": {
         const panel = params.panel;
-        const slot = typeof panel === "number" ? panel : panelSlot(panel as PanelName);
+        const slot = typeof panel === "number" ? panel : this.slotFor(String(panel));
         const collect = this.providers.get(slot);
         if (!collect) return { status: "unsupported", statusMsg: `no provider for ${String(panel)}`, sections: [] };
         try {
@@ -443,7 +469,7 @@ export class DevtoolsBackend {
       }
       case "command": {
         const panel = params.panel;
-        const slot = typeof panel === "number" ? panel : panelSlot((panel as PanelName) ?? "console");
+        const slot = typeof panel === "number" ? panel : this.slotFor(String(panel ?? "console"));
         this.dispatchCommand({ panel: slot, action: String(params.action ?? ""), payload: String(params.payload ?? "") });
         return true;
       }

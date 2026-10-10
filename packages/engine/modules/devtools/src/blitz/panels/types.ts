@@ -102,7 +102,8 @@ export function chartHtml(values: ArrayLike<number>, opts: {
   const step = Math.max(1, Math.floor(vals.length / cols));
   const cells: string[] = [];
   for (let i = 0; i < vals.length; i += step) {
-    const h = Math.max(0, Math.min(100, (vals[i]! / max) * 100));
+    const v = Number.isFinite(vals[i]) ? vals[i]! : 0;
+    const h = Math.max(0, Math.min(100, (v / max) * 100));
     cells.push(`<div class="col" style="height:${h.toFixed(1)}%;background:${color}"></div>`);
   }
   if (!cells.length) cells.push(`<div class="col" style="height:0%"></div>`);

@@ -26,11 +26,13 @@ export class GpuPanel implements DtPanel {
 
   renderBody(): string {
     if (!this.info) return `<div class="empty-note">no GPU info</div>`;
-    const times = (this.info.frameTimes ?? []).map((t) => t[0]);
+    const times = (Array.isArray(this.info.frameTimes) ? this.info.frameTimes : [])
+      .map((t) => (Array.isArray(t) ? t[0] : 0));
     const chart = `<div class="snap-section"><h3>Frame times (ms)</h3>${chartHtml(times, { max: Math.max(16.7, ...times), label: "" })}</div>`;
 
     const sections: { header: string | null; rows: { k: string; v: string }[] }[] = [];
-    for (const e of (this.info.entries ?? []).values()) {
+    for (const e of (Array.isArray(this.info.entries) ? this.info.entries : []).values()) {
+      if (!e || typeof e !== "object") continue;
       if (e.isHeader || !sections.length) {
         sections.push({ header: e.isHeader ? e.key : null, rows: [] });
         if (e.isHeader) continue;

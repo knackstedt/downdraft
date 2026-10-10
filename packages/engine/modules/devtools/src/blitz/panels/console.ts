@@ -115,8 +115,8 @@ export class ConsolePanel implements DtPanel {
 
   onBackendEvent(event: string, data: unknown): void {
     if (event === "console") {
-      const e = data as { text?: string; severity?: number; thread?: string };
-      this.rows.push({ text: e.text ?? "", severity: e.severity ?? 0, thread: e.thread ?? "main", seq: this.seq++ });
+      const e = data as { text?: unknown; severity?: number; thread?: string };
+      this.rows.push({ text: String(e?.text ?? ""), severity: e?.severity ?? 0, thread: e?.thread ?? "main", seq: this.seq++ });
       if (this.rows.length > MAX_ROWS) this.rows.splice(0, this.rows.length - MAX_ROWS);
       this.dirty = true;
     } else if (event === "console.clear") {
@@ -125,15 +125,24 @@ export class ConsolePanel implements DtPanel {
       this.dirty = true;
     } else if (event === "threads") {
       const list = (data as ThreadInfo[]) ?? [];
-      this.threads = [{ id: "main", name: "main", kind: 0 }, ...list.filter((t) => t.id !== "main")];
-      if (!this.threads.some((t) => t.id === this.replThread)) this.replThread = "main";
+      const next = [{ id: "main", name: "main", kind: 0 }, ...list.filter((t) => t.id !== "main")];
+      // Thread chips live in the bottom chrome — flag it so the row
+      // actually re-renders when a worker appears or disappears.
+      const changed = next.length !== this.threads.length
+        || next.some((t, i) => t.id !== this.threads[i]!.id || t.name !== this.threads[i]!.name);
+      this.threads = next;
+      if (!this.threads.some((t) => t.id === this.replThread)) {
+        this.replThread = "main";
+        this.shellDirty = true;
+      }
+      if (changed) this.shellDirty = true;
     }
   }
 
   onAction(data: Record<string, string>, _ev: OsrDomEvent): void {
     const act = data.action;
     if (act === "console.clear") {
-      void this.ctx.call("console.clear");
+      void this.ctx.call("console.clear").catch(() => {});
     } else if (act === "console.sev") {
       this.minSev = (this.minSev + 1) % SEV_NAMES.length;
       this.needsFullRender = true;
@@ -176,8 +185,11 @@ export class ConsolePanel implements DtPanel {
       } else if (ev.k === "ArrowUp" && this.histIdx > 0) {
         this.replValue = this.history[--this.histIdx]!;
         this.ctx.setValue("[data-dt=repl]", this.replValue);
-      } else if (ev.k === "ArrowDown" && this.histIdx < this.history.length - 1) {
-        this.replValue = this.history[++this.histIdx]!;
+      } else if (ev.k === "ArrowDown" && this.histIdx >= 0 && this.histIdx < this.history.length) {
+        // Stepping past the newest entry restores the empty input —
+        // previously the last history item was unreachable-to-leave.
+        this.histIdx++;
+        this.replValue = this.histIdx < this.history.length ? this.history[this.histIdx]! : "";
         this.ctx.setValue("[data-dt=repl]", this.replValue);
       }
     }
@@ -212,7 +224,7 @@ export class ConsolePanel implements DtPanel {
       } else {
         const r = res?.result;
         this.addRow({
-          text: typeof r === "string" ? r : JSON.stringify(r, null, 2),
+          text: typeof r === "string" ? r : (r === undefined ? "undefined" : JSON.stringify(r, null, 2)),
           severity: 0, thread: this.replThread,
         });
       }

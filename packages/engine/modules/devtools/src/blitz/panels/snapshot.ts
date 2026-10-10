@@ -22,6 +22,7 @@ export class SnapshotPanel implements DtPanel {
   private slot: number;
   private snap: PanelSnapshot | null = null;
   private updatedAt = "";
+  private lastError = "";
 
   constructor(ctx: DtPanelCtx, slot: number, name: string) {
     this.ctx = ctx;
@@ -39,12 +40,14 @@ export class SnapshotPanel implements DtPanel {
   }
 
   renderBody(): string {
+    const err = this.lastError
+      ? `<div class="status-banner error">${esc(this.lastError)}</div>` : "";
     const snap = this.snap;
-    if (!snap) return `<div class="empty-note">no data</div>`;
+    if (!snap) return err + `<div class="empty-note">no data</div>`;
     const banner = snap.status && snap.status !== "ok"
       ? `<div class="status-banner${snap.status === "error" ? " error" : ""}">${esc(snap.statusMsg ?? snap.status)}</div>`
       : "";
-    return banner + (snap.sections ?? []).map((s) => this.renderSection(s)).join("");
+    return err + banner + (snap.sections ?? []).map((s) => this.renderSection(s)).join("");
   }
 
   onBackendEvent(event: string, data: unknown): void {
@@ -52,6 +55,7 @@ export class SnapshotPanel implements DtPanel {
       const d = data as { slot: number; snap: PanelSnapshot };
       if (d?.slot === this.slot) {
         this.snap = d.snap;
+        this.lastError = "";
         this.updatedAt = `updated ${new Date().toLocaleTimeString()}`;
         this.dirty = true;
         this.shellDirty = true;
@@ -67,7 +71,7 @@ export class SnapshotPanel implements DtPanel {
       if (!cmd) return;
       void this.ctx.call("command", {
         panel: this.slot, action: cmd, payload: data.payload ?? "",
-      }).then(() => this.refresh());
+      }).then(() => this.refresh()).catch(() => {});
     }
   }
 
@@ -75,11 +79,24 @@ export class SnapshotPanel implements DtPanel {
     void this.refresh();
   }
 
+  private refreshSeq = 0;
+
   private async refresh(): Promise<void> {
+    // Overlapping refreshes (activate + provider push + manual Refresh) are
+    // last-call-wins — a slow stale response must not clobber a newer one.
+    const req = ++this.refreshSeq;
     try {
-      this.snap = (await this.ctx.call("snapshot", { panel: this.slot })) as PanelSnapshot;
+      const snap = (await this.ctx.call("snapshot", { panel: this.slot })) as PanelSnapshot;
+      if (req !== this.refreshSeq) return;
+      this.snap = snap;
+      this.lastError = "";
       this.updatedAt = `updated ${new Date().toLocaleTimeString()}`;
-    } catch { /* keep last */ }
+    } catch (err) {
+      if (req !== this.refreshSeq) return;
+      // Keep the last good snapshot; surface the failure instead of
+      // pretending the data is current.
+      this.lastError = `refresh failed: ${String(err)}`;
+    }
     this.dirty = true;
     this.shellDirty = true;
   }
@@ -129,12 +146,17 @@ export class SnapshotPanel implements DtPanel {
       return `<label><span class="dbtn${c.checked ? " on" : ""}" ${cmdAttr} data-payload="${c.checked ? "0" : "1"}">${c.checked ? "☑" : "☐"}</span> ${esc(c.label)}</label>`;
     }
     if (c.type === "slider") {
-      const span = c.max - c.min || 1;
+      // Providers can emit a slider without min/max/value — coerce so the
+      // stepper never ships "NaN" payloads back through snap.cmd.
+      const min = Number.isFinite(c.min) ? c.min : 0;
+      const max = Number.isFinite(c.max) ? c.max : min + 1;
+      const value = Number.isFinite(c.value) ? c.value : min;
+      const span = max - min || 1;
       const step = span / 20;
-      const dec = (d: number) => Math.min(c.max, Math.max(c.min, c.value + d * step)).toFixed(2);
+      const dec = (d: number) => Math.min(max, Math.max(min, value + d * step)).toFixed(2);
       return `<label>${esc(c.label)}
         <span class="dbtn" ${cmdAttr} data-payload="${dec(-1)}">−</span>
-        <span class="val">${c.value.toFixed(2)}</span>
+        <span class="val">${value.toFixed(2)}</span>
         <span class="dbtn" ${cmdAttr} data-payload="${dec(1)}">+</span></label>`;
     }
     return esc((c as { label?: string }).label ?? "");

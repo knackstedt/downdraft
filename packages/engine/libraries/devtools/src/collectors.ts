@@ -18,6 +18,11 @@ export interface ThreadInfo { id: string; name: string; kind: number }
 export interface TreeRow {
   id: number; parentId: number; depth: number; childCount: number;
   kind: number; label: string; detail: string;
+  /** Stable node identity for pick/inspect — scene-store id, stage node id,
+   *  or ECS entity index ("ent-N") when the collector can provide one. The
+   *  numeric `id` is ephemeral (re-assigned per collect); `nodeId` survives
+   *  refreshes and is what `inspector.call` methods take. */
+  nodeId?: string;
 }
 export interface GpuInfoJson {
   entries: { key: string; value: string; isHeader: boolean }[];
@@ -100,30 +105,77 @@ export async function collectThreads(
   return threads;
 }
 
-/** Scene-graph tree (label + ctor + child counts). */
+function sceneInspectorApi(): Record<string, any> | null {
+  const g = globalThis as Record<string, any>;
+  return (g.window?.__sceneInspector ?? g.__sceneInspector ?? null) as Record<string, any> | null;
+}
+
+/** Scene-graph tree (label + ctor + child counts). Prefers a live
+ *  `gameScene.stage` walk; falls back to the SceneInspector's scene store
+ *  (`__sceneInspector.getSceneTree`) so games without a DOM-like stage still
+ *  get a populated tree — with stable nodeIds for pick/details. */
 export function collectSceneTree(ctx: CollectorContext): TreeRow[] {
   const stage = ctx.gameScene?.stage;
-  if (!stage) return [];
-  const nodes: TreeRow[] = [];
-  let idCounter = 1;
-  const collect = (node: any, parentId: number, depth: number): void => {
-    const id = idCounter++;
-    // Prefer `label` (some scene-graph hosts warn on `name` access); fall
-    // back to `name` for hosts that only set that.
-    const nodeLabel = typeof node.label === "string" ? node.label
-      : typeof node.name === "string" ? node.name : "";
-    const ctorName = node.constructor?.name ?? "Node";
-    nodes.push({
-      id, parentId, depth,
-      childCount: node.children?.length ?? 0,
-      kind: 0,
-      label: nodeLabel || ctorName,
-      detail: nodeLabel ? ctorName : "",
-    });
-    node.children?.forEach((child: any) => collect(child, id, depth + 1));
-  };
-  collect(stage, -1, 0);
-  return nodes;
+  if (stage) {
+    const nodes: TreeRow[] = [];
+    let idCounter = 1;
+    const collect = (node: any, parentId: number, depth: number): void => {
+      const id = idCounter++;
+      // Prefer `label` (some scene-graph hosts warn on `name` access); fall
+      // back to `name` for hosts that only set that.
+      const nodeLabel = typeof node.label === "string" ? node.label
+        : typeof node.name === "string" ? node.name : "";
+      const ctorName = node.constructor?.name ?? "Node";
+      nodes.push({
+        id, parentId, depth,
+        childCount: node.children?.length ?? 0,
+        kind: 0,
+        label: nodeLabel || ctorName,
+        detail: nodeLabel ? ctorName : "",
+        nodeId: typeof node.id === "string" ? node.id : undefined,
+      });
+      node.children?.forEach((child: any) => collect(child, id, depth + 1));
+    };
+    collect(stage, -1, 0);
+    return nodes;
+  }
+
+  // Scene-store fallback — the same snapshot the inspector's getSceneTree
+  // exposes. Nodes are flat with id/parentId links; walk roots → children.
+  try {
+    const snap = sceneInspectorApi()?.getSceneTree?.();
+    const storeNodes = snap?.nodes;
+    if (!Array.isArray(storeNodes) || !storeNodes.length) return [];
+    const byId = new Map<string, any>(storeNodes.map((n: any) => [n.id, n]));
+    const roots = storeNodes.filter((n: any) => n.parentId === null || !byId.has(n.parentId));
+    const rows: TreeRow[] = [];
+    const visited = new Set<string>();
+    let idCounter = 1;
+    const walk = (n: any, parentId: number, depth: number): void => {
+      if (visited.has(n.id)) return; // corrupted parent/child links — don't loop
+      visited.add(n.id);
+      const id = idCounter++;
+      const p = n.position;
+      rows.push({
+        id, parentId, depth,
+        childCount: n.children?.length ?? 0,
+        kind: 0,
+        label: String(n.name ?? n.id),
+        detail: `${n.type ?? "node"}${Array.isArray(p) ? ` (${p.map((v: number) => (+v).toFixed(1)).join(", ")})` : ""}`,
+        nodeId: String(n.id),
+      });
+      for (const cid of n.children ?? []) {
+        const c = byId.get(cid);
+        if (c) walk(c, id, depth + 1);
+      }
+    };
+    roots.forEach((n: any) => walk(n, -1, 0));
+    // Orphans (every node has a parent but no root resolves) — still show them.
+    for (const n of storeNodes) if (!visited.has(n.id)) walk(n, -1, 0);
+    return rows;
+  } catch {
+    return [];
+  }
 }
 
 /** DOM tree: scene-graph stage or ECS entities depending on mode. */
@@ -148,6 +200,7 @@ export function collectDomTree(ctx: CollectorContext, mode: "scene" | "ecs"): Tr
         id, parentId: -1, depth: 0, childCount: 0, kind: 1,
         label: `Entity ${ent.idx}`,
         detail: `type=${entityType} pos=(${x.toFixed(1)},${y.toFixed(1)},${z.toFixed(1)})`,
+        nodeId: `ent-${ent.idx}`,
       });
     });
   } catch { /* sim reader hiccup */ }
