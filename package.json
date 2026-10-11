@@ -33,33 +33,15 @@
     "@downdraft/cli": "workspace:*",
     "@downdraft/engine": "workspace:*",
     "@downdraft/platform-native": "workspace:*",
-    "@napi-rs/cli": "^2.18.0",
-    "@types/bun": "^1.4.2",
     "@types/node": "^22.10.0",
-    "@types/pngjs": "^6.0.5",
     "@webgpu/types": "^0.1.71",
     "bun-types": "1.4.2",
-    "fake-indexeddb": "^6.2.5",
-    "happy-dom": "^20.11.2",
     "oxlint": "^1.4.0",
-    "playwright-core": "^1.63.0",
-    "pngjs": "^7.0.0",
     "tsx": "^4.23.0",
     "typescript": "^5.9.3",
     "vite": "^6.0.0",
     "wabt": "^1.0.39",
-    "wgpu-matrix": "^3.4.2"
-  },
-  "dependencies": {
-    "@bokuweb/zstd-wasm": "^0.0.27",
-    "@dimforge/rapier3d-compat": "^0.19.3",
-    "buffer": "^6.0.3",
-    "comment-json": "^5.0.0",
-    "fflate": "^0.8.2",
-    "koffi": "^3.2.1",
-    "recast-navigation": "^0.43.1",
-    "xxh3-ts": "^2.0.1",
-    "xxhash-wasm": "^0.4.2",
-    "zustand": "^5.0.2"
+    "wgpu-matrix": "^3.4.2",
+    "xxhash-wasm": "^0.4.2"
   }
 }
