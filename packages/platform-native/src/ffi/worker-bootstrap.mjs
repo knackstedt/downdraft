@@ -37,18 +37,28 @@ if (typeof globalThis.postMessage === "undefined") {
 // Use Object.defineProperty to intercept the assignment and wire it to
 // parentPort.on("message", ...).
 let _onmessageHandler = null;
+// The port drains its backlog the moment this listener attaches — which is
+// at --import time, before the worker script's eval assigns self.onmessage.
+// A host postMessage sent in that window (e.g. html-ui's doc "create") would
+// dispatch to a null handler and drop silently, so buffer until assignment.
+const _pending = [];
 parentPort.on("message", (data) => {
   if (_onmessageHandler) {
     // Browser workers deliver MessageEvent with .data; Node delivers raw data.
     // rpc.ts's onHostMessage does `ctx.onmessage = (e) => handler(e.data)`,
     // so we need to wrap the raw data in a { data } object.
     _onmessageHandler({ data });
+  } else {
+    _pending.push(data);
   }
 });
 try {
   Object.defineProperty(globalThis, "onmessage", {
     get: () => _onmessageHandler,
-    set: (handler) => { _onmessageHandler = handler; },
+    set: (handler) => {
+      _onmessageHandler = handler;
+      if (handler) for (const data of _pending.splice(0)) handler({ data });
+    },
     configurable: true,
   });
 } catch {
