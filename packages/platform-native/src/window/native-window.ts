@@ -542,7 +542,7 @@ export class NativeWindow extends MiniEventTarget {
     //     remainder of the interval, capped at 4ms so JS timers and the MCP
     //     server stay responsive between frames.
     let waitMs = 4;
-    if (this.rafCallbacks.size > 0) {
+    if (!this.surfaceSuspended && this.rafCallbacks.size > 0) {
       const remain = this.lastRafDispatch + this.frameInterval() - (performance.now() - this.startTime);
       // floor() — never overshoot the deadline. The remaining sub-ms tail
       // is absorbed by the setImmediate loop re-checking the dispatch gate.
@@ -637,8 +637,9 @@ export class NativeWindow extends MiniEventTarget {
     // Idle backoff accounting: work this iteration (an event, a dispatch,
     // or callbacks still armed for next frame) resets the streak, so the
     // 4ms cadence resumes the moment the app wakes. Only a truly quiet
-    // iteration deepens the sleep.
-    if (eventHandled || dispatched || this.rafCallbacks.size > 0) {
+    // iteration deepens the sleep. While surfaceSuspended the armed rAF
+    // can't dispatch — don't let it pin the cadence or the loop hot-spins.
+    if (eventHandled || dispatched || (!this.surfaceSuspended && this.rafCallbacks.size > 0)) {
       this.idleLoopStreak = 0;
     } else {
       this.idleLoopStreak++;
