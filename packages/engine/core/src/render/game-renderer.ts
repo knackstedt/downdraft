@@ -1047,7 +1047,10 @@ export class GameRenderer implements CanvasResizeHandler {
               storeOp: "store" as GPUStoreOp,
             }],
           });
-          compositors.forEach((c) => { c.render(uiPass, this.canvas.width, this.canvas.height); });
+          // Panel rects are CSS px — pass the CSS surface size so
+          // rect/surface maps correctly on HiDPI displays (canvas.width is
+          // physical px; identical where scaleFactor=1).
+          compositors.forEach((c) => { c.render(uiPass, this.canvas.clientWidth, this.canvas.clientHeight); });
           uiPass.end();
           // "preUi" slot — worker passes ordered ahead of the UI-composite
           // buffer inside the end-of-frame submit.
@@ -1392,7 +1395,8 @@ export class GameRenderer implements CanvasResizeHandler {
         storeOp: "store" as GPUStoreOp,
       }],
     });
-    compositors.forEach((c) => { c.render(uiPass, this.canvas.width, this.canvas.height); });
+    // Panel rects are CSS px — see the main UI composite block above.
+    compositors.forEach((c) => { c.render(uiPass, this.canvas.clientWidth, this.canvas.clientHeight); });
     uiPass.end();
     this.device.queue.submit([uiEncoder.finish()]);
   }
