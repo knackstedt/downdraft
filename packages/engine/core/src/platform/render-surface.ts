@@ -29,6 +29,15 @@ export interface RenderSurfaceContext {
    *  the swapchain can't produce a frame (resize in flight, occluded
    *  window) — callers must treat null as "skip this frame". */
   getCurrentTexture(): GPUTexture | null;
+  /** The texture already acquired for the in-flight frame, if any —
+   *  WITHOUT acquiring one. Null when nothing has acquired this frame.
+   *  End-of-frame overlay passes (UI composites) should join a frame via
+   *  peek rather than acquire: on hosts with frame retention (native),
+   *  acquiring here fabricates a frame the game deliberately skipped and
+   *  presents the overlay over a blank swapchain image. Optional — DOM
+   *  GPUCanvasContext has no equivalent; callers fall back to
+   *  getCurrentTexture() where acquire is idempotent within a frame. */
+  peekCurrentTexture?(): GPUTexture | null;
 }
 
 /** Listener signature — the native event target dispatches plain event

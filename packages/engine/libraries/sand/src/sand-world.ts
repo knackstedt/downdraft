@@ -2130,10 +2130,6 @@ export class SandWorld {
         }
       }
 
-      // --- PhoenixFeather near fire/lava: glows brighter, resists burning ---
-      // (flammable but long burnTime already set; here we just let it shimmer)
-      // --- DragonScale: very dense, sinks through liquids (handled by density) ---
-
       // --- LiquidShadow + light source (fire/plasma) → dissipates to smoke ---
       if (mat === Material.LiquidShadow) {
         let lightNi = -1;

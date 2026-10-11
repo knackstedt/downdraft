@@ -6,7 +6,7 @@ Games are **not part of this repository** — each game is a standalone repo tha
 
 References to `games/<name>/...` throughout this document refer to those local clones; nothing under `games/` is tracked here.
 
-`@downdraft/*` packages are published to npm (`node scripts/publish-packages.mjs` / the `publish.yml` workflow).
+`@downdraft/*` packages are published to npm (`node scripts/publish-packages.mjs` / the `publish.yml` workflow). First-time setup (clone → `bun install` → prebuilt native fetch → `link:games`) is documented for humans in `development.md`.
 
 ## Releasing: root package.json is the version source of truth
 
@@ -16,7 +16,7 @@ All publishable `@downdraft/*` packages share one version, driven by the **root 
 
 DownDraft runs on a **native runtime** — winit + wgpu via `@downdraft/platform-native` (a single Rust cdylib, `libdowndraft_platform`). **The JS runtime is interchangeable: Bun (default), Node+tsx, and Deno are all supported hosts** (`draft dev --runtime bun|node|deno`, default auto-detect; FFI adapts via `bun:ffi`/`koffi`/`Deno.dlopen` — see "Running the native entry (tri-runtime)" near the bottom). This is **not** a Bun-only project — Bun is merely the repo's package manager (`bun.lock`), unit-test runner (`bun test`), and packaging compiler (`bun build --compile`); the game runtime itself is runtime-agnostic, so never assume Bun-only APIs (`Bun.*`, `bun:ffi`, `bun:test`) are available in game/engine runtime code — use the `ffi-adapter.ts` and `platform/runtime.ts` abstractions instead. A game boots from `src/native-entry.ts`, which calls `runNativeGameModule(...)`; there is no Electron, no Chromium, no browser-facing Vite dev server (the dev shell embeds Vite only as a transform/HMR engine), and no renderer/preload process split. The simulation still runs in a dedicated worker thread with SharedArrayBuffer protocols — that isolation is deliberate and is preserved on native.
 
-**Electron is removed.** `draft dev`/`draft test`/`draft release` run native only — there are no Electron flags or compatibility paths. The Electron/Capacitor trees (main/preload/vite/mobile shells, `core/ipc.ts`, `electron-osr`, `raw-input`, devtools extension, per-game `electron.vite.config.ts`/`index.html`/`src/main.ts`/`src/preload.ts`, `mobile-shell`, electron-builder config) have been deleted — do not resurrect them; the mobile port is native (winit+wgpu + embedded libnode), documented under "Android: genuinely native port" below. `app/src/renderer` is runtime-agnostic and remains live — `startGame()`/`bootstrapGame()` run on the native main thread.
+**Electron and Capacitor are removed — do not resurrect them.** `draft dev`/`draft test`/`draft release` run native only; the Electron shells (main/preload/vite, `core/ipc.ts`, `electron-osr`, `raw-input`, electron-builder config) and the Capacitor `mobile-shell`/`draft mobile` path are deleted. Mobile is the native winit+wgpu+libnode port below. `app/src/renderer` is runtime-agnostic and remains live — `startGame()`/`bootstrapGame()` run on the native main thread.
 
 Native dev has tiered HMR: `dev-shell.mjs` + `native-dev-runtime.ts` run an embedded Vite `RunnableDevEnvironment` (module-level invalidation through full session/host restart tiers) — it is not restart-only. Game-facing `import.meta.hot` semantics work through the dev runtime, not `vite dev`. Native packaging is `scripts/package-native.mjs` (a game `bun build --compile` plus asset staging); `draft release --target=win|linux|mac` invokes it.
 
@@ -40,7 +40,7 @@ The mobile path is **native** — the same winit+wgpu Rust stack plus embedded l
 
 ## Module architecture: engine vs game boundary
 
-> **Terminology note:** The compile-time DI units that were previously called "plugins" are now called **modules** to disambiguate. The term **"plugin" refers to the user-authored plugin/modding system** (runtime-loadable extensions authored by end users / modders — implemented; see "User-authored plugin (modding) system" and "Modding system (PluginHost + mod.json)" below). Throughout this document, "module" refers to the engine's compile-time DI units (`Module`, `RendererModule`, `ModuleHost`, etc.).
+> **Terminology note:** **Modules** are the engine's compile-time DI units (`Module`, `RendererModule`, `ModuleHost`). **Plugins/mods** are the runtime-loadable user-authored extensions (`PluginHost`, `mod.json`) — see "Modding / user-authored plugin system" below. (The DI units were once called "plugins"; don't confuse the two.)
 
 The engine is a **single npm package**, `@downdraft/engine` (manifest at `packages/engine/package.json`), which exposes everything through subpath exports: `@downdraft/engine` (core index), `@downdraft/engine/<area>` for core subtrees (`/ecs`, `/material`, `/module`, `/plugin`, `/profiling`, `/render`, ...) plus a `./* → ./core/src/*.ts` wildcard for deep core imports (e.g. `@downdraft/engine/worker/instrumented-worker-host` — there is **no** `/core/` subpath prefix), `@downdraft/engine/app/<renderer|shared>`, `@downdraft/engine/libraries/<name>`, `@downdraft/engine/modules/<name>`, plus `shader-graph`, `mcp`, `test`, and `asset-bake` subpaths. The other published packages are `@downdraft/cli` (the `draft` binary), `@downdraft/platform-native` (native binaries + host layer), and the `@downdraft/native-<platform>-<arch>` prebuilt-cdylib packages (optional deps of platform-native). The exports map is generated — run `node scripts/gen-engine-exports.mjs` after adding/removing a library or module directory.
 
@@ -70,26 +70,15 @@ startGame({
 
 `startGame()` handles: library SAB allocation, sim worker spawn, event routing, save store init, renderer create+init, render loop, FPS polling, display info, hot-reload dispose, deterministic mode. `bootstrapGame()` remains available for games that need full control.
 
-### Engine library descriptors
-
-Engine libraries expose `EngineLibrary` descriptors (e.g. `WaterLib`, `PhysicsRapierLib`, `MarchingCubesLib`) for declarative wiring in `GameModule.libraries[]`. The `LibraryHost` auto-wires SAB allocation, sim systems, renderer passes, and typed DI tokens. Bare class exports remain as an escape hatch.
-
 ### Feature modules
 
 Feature modules (`@downdraft/engine/modules/terrain`, `@downdraft/engine/modules/movement-3d`, `@downdraft/engine/modules/movement-2d`, `@downdraft/engine/modules/sailing`) use the factory pattern (`createXxxModule(config)`) and provide typed DI tokens. Games register them via `moduleHost.useModules([...])` for batch activation in dependency-resolved order.
 
 ### Cross-thread module contract
 
-`CrossThreadToken<T>` tags resources with a thread ("sim" | "renderer" | "shared"). `buildCrossThreadReport()` detects unresolved requires, shared resources, and version conflicts across sim + renderer module hosts. The `downdraft doctor` devtools panel displays this report.
+`CrossThreadToken<T>` tags resources with a thread ("sim" | "renderer" | "shared"). `buildCrossThreadReport()` detects unresolved requires, shared resources, and version conflicts across sim + renderer module hosts. The devtools **Doctor** panel (`doctor` provider in `native-providers.ts`) displays this report.
 
-### Migration guide (from old API)
-
-1. **String-based resources → typed tokens**: Replace `world.setResource("name", value)` / `world.getResource("name")` with `resourceToken<T>("name")` + `ctx.provide(token, value)` / `ctx.inject(token)`.
-2. **bootstrapGame() callbacks → startGame() module**: Replace the callback-soup `main.ts` with a declarative `GameModule`. Move sim event handling into `events: {}`, game-specific wiring into `onReady`, cleanup into `onDispose`.
-3. **Manual library wiring → EngineLibrary descriptors**: Replace manual SAB allocation + system instantiation with `libraries: [WaterLib, ...]` in the GameModule. Use typed tokens to inject library-provided resources.
-4. **registerModuleDeferred + activateAll → useModules**: Replace the two-step batch registration with `moduleHost.useModules([...])`.
-
-### Engine library descriptors (Phase 3)
+### Engine library descriptors
 
 Engine libraries can expose an `EngineLibrary` descriptor (e.g. `WaterLib`, `PhysicsRapierLib`, `MarchingCubesLib`) that lets games declare them declaratively in `GameModule.libraries[]`:
 
@@ -110,13 +99,9 @@ No engine package depends on any game package (verified). The `entities` library
 
 ### Visual Test Bench (`games/downdraft-gpu-bench`)
 
-A graphical test program (modeled on `games/downdraft-model-viewer`) for visually verifying engine effects and functional systems. Provides a native html-ui menu (`src/menu-native.ts`) of minimal tests, each with its own renderer factory. Extensible via a `TestRegistry` API — game authors add tests by creating `*.test.ts` files in `src/tests/` that call `registerTest()`. Vite glob import auto-discovers them.
+A graphical test program for visually verifying engine effects and systems: a native html-ui menu of minimal tests, each owning its renderer (disposed + recreated on switch). Add tests as `src/tests/<category>/<name>.test.ts` calling `registerTest()` — Vite glob auto-discovers them (`VisualTest { id, name, category, createRenderer(canvas), getControls?() }`). Run: `cd games/downdraft-gpu-bench && draft dev`. Built-ins cover navmesh debug viz and the full PostProcessStack effect chain.
 
-- **Run**: `cd games/downdraft-gpu-bench && draft dev` (native — the only runtime).
-- **Not in root workspaces** (follows downdraft-model-viewer pattern: `@downdraft/*` resolved via vite aliases, not type-checked by root tsconfig).
-- **Test interface**: `VisualTest { id, name, category, description, createRenderer(canvas): ITestRenderer, getControls?(): TestControl[] }`. Each test owns its own GPU resources; the bench disposes + recreates the renderer when switching tests.
-- **Built-in tests**: navmesh (recast + legacy, with mesh wireframe + path debug viz), postfx (the PostProcessStack with 26 chainable effects — TAA, SSAO, SSR, DOF, Motion Blur, Bloom, Bloom-Soft, Tonemap, FXAA, Sharpen, Grain, Sobel, Edges, Lens Flare, Pixelation, Gaussian Blur, Afterimage, Outline, Highlight, Glow, ASCII, Channel Mixer, Chromatic Aberration, Color Grading, Dithering, Halftone — on a 3D scene).
-- **Adding a test**: create `games/downdraft-gpu-bench/src/tests/<category>/<name>.test.ts`, call `registerTest({ ... })` at module load. The Vite glob in `src/tests/index.ts` picks it up automatically.
+Related manual test rigs under `test-beds/`: `ui-bakeoff` (the framework comparison that picked Blitz) and `component-kit` (live html-ui-kit widget gallery — `bun run test-beds/component-kit/main.ts`, `KIT_SELFTEST=1` for scripted assertions).
 
 ### Typed DI (provide/inject + provides/requires)
 
@@ -170,7 +155,7 @@ Every export entry carries three conditions:
 ".": { "types": "./core/src/index.ts", "downdraft-source": "./core/src/index.ts", "default": "./dist/core/src/index.js" }
 ```
 
-- **`downdraft dev` (monorepo) defaults to engine=source**: the CLI spawns the dev shell with `--conditions=downdraft-source` (Bun/Node flag; `DENO_CONDITIONS` env for Deno) and `DD_ENGINE_SOURCE=1`; worker threads propagate the same condition via `execArgv` (see `dom-polyfills.ts`/`worker-bootstrap.mjs`). Full engine module graph → granular tiered HMR.
+- **`draft dev` (monorepo) defaults to engine=source**: the CLI spawns the dev shell with `--conditions=downdraft-source` (Bun/Node flag; `DENO_CONDITIONS` env for Deno) and `DD_ENGINE_SOURCE=1`; worker threads propagate the same condition via `execArgv` (see `dom-polyfills.ts`/`worker-bootstrap.mjs`). Full engine module graph → granular tiered HMR.
 - **`draft dev --engine-dist`** omits the condition → all `@downdraft/*` imports resolve `dist/` — faster cold start, but engine source edits require re-running `node scripts/build-dist.mjs` and engine HMR is coarse.
 - **`vite-config.mjs`** sets `resolve.conditions` for the `native` env from `DD_ENGINE_SOURCE` and resolves `wgslRegistryPath` against whichever universe is active — keep the two in sync when touching it.
 
@@ -193,7 +178,7 @@ Before writing per-game infrastructure, check whether the engine already provide
 | DOM input | `createDomInputHandler({ canvas, preset, ... })` — keyMap, mouse buttons, canvas coords, MCP `injectInput` | `@downdraft/engine` |
 | Save system | `createGameSaveSystem` / `createGridSaveSystem` + `createDefaultSaveStore` | `@downdraft/engine`, `@downdraft/engine/app/renderer` |
 | Autosave interval | `AutosaveManager({ save, shouldSave, intervalMs, deterministic })` | `@downdraft/engine/libraries/persistence/browser` |
-| MCP automation tools | `createStandardAutomationTools(ctx)` + `createMcpHarness` — the ~16 standard tools; game tools via `extraTools`; semantic state read/write via `inspectables: InspectableRegistry` (enables `inspectable_list/get/set` — nodes' `set()` must route through the game's apply pipeline, never raw field writes). `characterCustomizationNodes()` emits `player.customization.*` nodes | `@downdraft/engine/app/renderer`, `@downdraft/engine/libraries/inspectable` |
+| MCP automation tools | `createStandardAutomationTools(ctx)` + `createMcpHarness` — the standard tool set (see "MCP automation harness" below); game tools via `extraTools`; semantic state read/write via `inspectables: InspectableRegistry` (enables `inspectable_list/get/set` — nodes' `set()` must route through the game's apply pipeline, never raw field writes). `characterCustomizationNodes()` emits `player.customization.*` nodes | `@downdraft/engine/app/renderer`, `@downdraft/engine/libraries/inspectable` |
 | DevTools | `initDevTools(renderer, {...})` + `createSimStatsProvider`/`createSimStatsPanelExtension` | `@downdraft/engine/modules/devtools` |
 | Sand simulation | `SandWorld`, `SandStepPool`, `SandLib`, palette/materials | `@downdraft/engine/libraries/sand` |
 | Game UI | `createHtmlUi({ build })` renderer module over `modules/html-ui` (Blitz HTML/CSS docs rasterized in a UI worker, composited as panel quads) — **canonical game-UI system**. On native the ui worker uploads frames GPU-direct through the shared device (SAB path is the automatic fallback); `gpuUpload: false`/`DOWNDRAFT_NO_UI_GPU=1` forces SAB | `@downdraft/engine/modules/html-ui` |
@@ -224,14 +209,7 @@ renderer.useRendererModule(createHtmlUi({
 
 `UiPanelHandle` mutations are selector-scoped (`setText`/`setAttr`/`setStyle`/`setInnerHtml`/`setHtml`/`setRect`/`focus`/`click`/`scrollIntoView`/`mutate(ops)`) so HUD ticks don't reparse the document. `ui.isPointerOverUI()` gates canvas input for paint-style games; `ui.loadResource`/`fontFaceCss` register fonts/images for `ui://` URLs. Widget/theme/nav helpers live in `@downdraft/engine/libraries/html-ui-kit` (components like `button`/`slider`/`dropdown`/`tabs`/`toast`, `kitStyleTag()`/`KIT_CSS`, `UiNavRouter`/`NavController`/`openOsk`/`VirtualCursor`, ten-foot widgets); the low-level FFI surface is `@downdraft/engine/libraries/blitz-ui` (`native-osr-ffi`).
 
-html-ui files:
-- `packages/engine/modules/html-ui/src/create-html-ui.ts` — `createHtmlUi` + `HtmlUiContext` + `HtmlUiTok`.
-- `packages/engine/modules/html-ui/src/host.ts` — `HtmlUiHost`, `PanelSpec`, `UiPanelHandle`, panel input routing.
-- `packages/engine/modules/html-ui/src/ui-worker.ts` + `doc-backend.ts` + `protocol.ts` — worker-side document host + main↔worker protocol.
-- `packages/engine/modules/html-ui/src/jsx-runtime.ts` — JSX → markup (`jsxImportSource` for per-game tsconfigs).
-- `packages/engine/libraries/html-ui-kit/` — widget kit, theme, nav, ten-foot UI.
-- `packages/engine/libraries/blitz-ui/` — native Blitz/vello cdylib FFI (`native-osr-ffi`, OSR frame channel).
-- `test-beds/ui-bakeoff/` — the framework comparison bench that produced this decision.
+html-ui code: `packages/engine/modules/html-ui/src/` (`create-html-ui.ts` = `createHtmlUi`/`HtmlUiTok`; `host.ts` = `HtmlUiHost`/`UiPanelHandle`/input routing; `ui-worker.ts`+`doc-backend.ts`+`protocol.ts` = worker doc host; `jsx-runtime.ts` = `jsxImportSource`), `packages/engine/libraries/html-ui-kit/` (widgets/theme/nav), `packages/engine/libraries/blitz-ui/` (Blitz/vello cdylib FFI, `native-osr-ffi`).
 
 The legacy imui UI stack (`core/imui`, `createGameUi`, the imui telemetry overlays, `UICompositePass`) has been deleted — in-game profiling/debug views are served by the devtools host (F12) and html-ui panels instead.
 
@@ -261,7 +239,7 @@ When `appId` is set, `createNativeHost()` (via `runNativeGameModule`) also:
 
 ### Adding a new game
 
-Always set `appId` in the game's `src/native-entry.ts`:
+`draft new <dir> --template <minimal|physics|full> --name <name>` scaffolds a game project (a separate repo, per the layout above). Always set `appId` in the game's `src/native-entry.ts`:
 ```ts
 await runNativeGameModule(gameModule, {
   appId: "downdraft-my-game",  // → ~/.config/downdraft-my-game/
@@ -271,11 +249,11 @@ await runNativeGameModule(gameModule, {
 
 ## Process management & debugging games
 
-### Killing game processes — never use generic `pkill bun`/`pkill electron`
+### Killing game processes — never use generic `pkill bun`/`pkill node`/`pkill deno`
 
-**NEVER run `pkill -9 bun`, `pkill -f bun`, `killall bun`, `pkill -f tsx`, `pkill deno`, or any other generic runtime-killing command.** The user's machine may run other Bun/Node/Deno processes (and other Electron apps: VS Code, Slack, the Devin desktop app itself). A generic pkill will terminate all of them, destroying the user's work and your own session.
+**NEVER run `pkill -9 bun`, `pkill -f bun`, `killall bun`, `pkill -f tsx`, `pkill deno`, or any other generic runtime-killing command.** The user's machine runs other Bun/Node/Deno processes; a generic pkill terminates all of them, destroying the user's work and possibly your own session.
 
-**`draft dev` runs only the native runtime** (winit + wgpu via `src/native-entry.ts`) — the Electron path is removed entirely. The native runtime uses a single-instance lock (`singleton.lock` in the game's userData dir); re-running `draft dev` handles stale instances. Each game runs as a **single JS-runtime process** (Bun by default, or Node+tsx/Deno via `--runtime`; plus worker threads). To kill a specific game instance, target **that game only**:
+Each game runs as a **single JS-runtime process** (Bun by default, or Node+tsx/Deno via `--runtime`; plus worker threads) and holds a single-instance lock (`singleton.lock` in the game's userData dir) — re-running `draft dev` handles stale instances. To kill a specific game instance, target **that game only**:
 
 - **Let `draft dev` handle it** — re-running `draft dev` from the game directory tears down the previous instance automatically. This is the preferred path.
 - **Match the per-game `--user-data-dir`** (each game sets a unique `downdraft-<game>` userData dir, visible in the process args) only if you need to kill a process you did not launch via `draft dev`:
@@ -307,14 +285,7 @@ A plain browser cannot reproduce any of this, and Playwright driving a browser w
 **Instead, use the in-game MCP automation harness and `draft test`:**
 
 1. **`bun run draft:test-cpu`** (or `bun run draft:test`) — the canonical way to launch and exercise a game headlessly. `draft test` sets `DOWNDRAFT_DETERMINISTIC=1` and spawns `bun test <spec>`; the default smoke specs use the in-game MCP RPC harness to boot the real game and drive it. The only runtime is **native**. See "Running the smoke test" below for the full CLI flag reference.
-2. **The `game` MCP server** (configured in `.devin/mcp_config.json` as `bun packages/cli/src/index.ts mcp stdio` — a stdio→HTTP bridge inside `draft mcp`) — once a game is running, this exposes the game's automation tools directly to your MCP client. The bridge auto-discovers the running instance via PID files in `~/.downdraft/port/<pid>` (content = the bound port). **List the tools first with `mcp_list_tools` before calling any of them** — never guess tool names or argument schemas. The currently registered tools (see `games/to-the-ocean/src/mcp/automation-tools.ts`) include:
-   - `inject_input` / `clear_injected_input` — hold keys/mouse/wheel for N frames.
-   - `dispatch_key` / `dispatch_click` — fire real DOM events on the main thread (full input pipeline).
-   - `get_player_state` / `get_world_state` / `get_ui_state` — read simulation/UI state.
-   - `wait_for_condition` — poll a JS predicate against player/world state with timeout.
-   - `capture_screenshot` — return the WebGPU canvas (+ DOM overlay) as base64 PNG.
-   - `set_test_state` — set weather, time of day, sim speed, respawn, render-loop control.
-   - `get_element_bounds` / `get_element_style` / `inspect_dom` — inspect main-thread DOM for CSS/layout debugging.
+2. **The `game` MCP server** (configured in `.devin/mcp_config.json` as `bun packages/cli/src/index.ts mcp stdio` — a stdio→HTTP bridge inside `draft mcp`) — once a game is running, this exposes the game's automation tools directly to your MCP client. The bridge auto-discovers the running instance via PID files in `~/.downdraft/port/<pid>` (content = the bound port). **List the tools first with `mcp_list_tools` before calling any of them** — never guess tool names or argument schemas. Games build their tool surface on `createStandardAutomationTools()` (`packages/engine/app/src/renderer/standard-automation-tools.ts`) plus game-specific extras; the standard set is `capture_screenshot`, `inject_input`, `clear_injected_input`, `dispatch_key`, `dispatch_click`, `wait_for_condition`, `set_test_state`, `get_player_state`, `get_world_state`, `get_ui_state`, `inspectable_list`, `inspectable_get`, `inspectable_set`.
 3. **Console error capture** — the e2e harness (`tests/e2e/harness.ts`) captures the game process's stdout/stderr and exposes `game.getConsoleErrors()`. When debugging, grep the captured log for `Uncaught|TypeError|ReferenceError|WrongDocumentError|is not a function|is not defined` (see "E2E test verification — checking for JS errors" below).
 
 The typical debug loop is:
@@ -328,65 +299,16 @@ cd games/to-the-ocean && DOWNDRAFT_GPU=swiftshader DOWNDRAFT_DETERMINISTIC=1 dra
 
 ## Module registration patterns
 
-The engine supports two registration patterns:
-
-1. **Direct registration** (`moduleHost.registerModule(module)`) — registers and immediately activates a single module. Use for standalone modules with no interdependencies.
-
-2. **Batch registration** (`moduleHost.registerModuleDeferred(module)` + `moduleHost.activateAll()`) — registers multiple modules, then activates them in dependency-resolved topological order. Use when multiple modules have `dependencies` arrays. `GameWorld.useModules(modules[])` wraps this pattern.
-
-Libraries that export factory functions (e.g., `createWildlifeSystem`) can be wrapped as modules using a factory pattern:
-```ts
-export function createWildlifeModule(opts: WildlifeModuleOptions): Module {
-  return { name: "wildlife", version: "1.0.0", register(ctx) { ... } };
-}
-```
-The `opts` object encapsulates all config and dependencies. This is the standard pattern for migrating library packages to the module system.
+`moduleHost.registerModule(m)` registers + activates one module; `moduleHost.useModules([...])` (preferred — wraps `registerModuleDeferred` + `activateAll`) batch-activates in topological order over each module's `dependencies: string[]` (and validates `requires`/`provides`). To wrap a library factory as a module, use `createXxxModule(opts): Module` — `opts` encapsulates all config and dependencies.
 
 ## Verification commands
 
-- `bun run tsc` — now runs `tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.node.json --noEmit`.
-- `bun run lint` — runs `oxlint` on the whole repo. Currently reports many pre-existing `no-console`/`no-unused-vars` warnings.
-- **Full suite**: `bun test --isolate --conditions=downdraft-source --path-ignore-patterns "**/node-mobile/build/**" packages/` — this is what CI runs. The flags matter: `--isolate` gives each spec a fresh global (shared module/GC state across files corrupts the rapier WASM instance — validated-api.spec.ts traps mid-step); `--conditions=downdraft-source` resolves `@downdraft/*` self-imports to `src/` since `dist/` doesn't exist until `build:dist` runs (fresh clones have no dist). Plain `bun test <file>` works for single specs that don't self-import the package.
+- `bun run tsc` — `tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.node.json --noEmit`. `bun run tsc:e2e` type-checks e2e specs.
+- `bun run lint` — `oxlint` on the whole repo; many pre-existing `no-console`/`no-unused-vars` warnings.
+- **Full suite** (what CI runs): `bun test --isolate --conditions=downdraft-source --path-ignore-patterns "**/node-mobile/build/**" packages/`. The flags matter: `--isolate` gives each spec a fresh global (shared module/GC state corrupts the rapier WASM instance — validated-api.spec.ts traps mid-step); `--conditions=downdraft-source` resolves `@downdraft/*` self-imports to `src/` since `dist/` doesn't exist until `build:dist` runs.
+- **Unit specs** are colocated `*.spec.ts` next to source (`packages/engine/**`, `examples/plugin-tester/src/`, some `games/*/modules/`). Plain `bun test <file-or-dir>` works for specs that don't self-import the package; add the two flags above when they do.
+- **E2E smoke**: `bun run draft:test` (hardware GPU) / `bun run draft:test-cpu` (SwiftShader — CI default), `bun run draft:test -- --headed` (visible window), `bun run draft:test -- --game <name>` (per-game spec under `tests/e2e/`). `bun run test:e2e` bypasses the CLI.
 - House rule `downdraft/no-for-of` (error): `for..of` is banned except where it's the required iteration structure — a call result (`Object.entries()`, `map.entries()`, generators, ...) or `for await..of`. Use `.forEach()` or an indexed `for` loop otherwise. The rule lives in `packages/engine/lint-plugin.mjs` (oxlint JS plugin, resolved as `@downdraft/engine/lint-plugin` from every `.oxlintrc.json` — root + each game).
-- `bun test packages/engine/core/src/ecs/world.spec.ts packages/engine/core/src/render/frustum.spec.ts packages/engine/core/src/telemetry/collector.spec.ts`
-- `bun test packages/engine/core/src/physics/*.spec.ts` — all physics specs (139 tests).
-- `bun test packages/engine/libraries/physics-rapier/src/*.spec.ts` — rapier library specs (bulk-ops, ffi-lib, validated-api).
-- `bun test packages/engine/core/src/render/bindless/bindless.spec.ts` — bindless texture registry + material manager specs.
-- `bun test packages/engine/core/src/material/material.spec.ts packages/engine/core/src/material/variants.spec.ts` — material + variant specs.
-- `bun test packages/engine/shader-graph/src/graph.spec.ts` — shader graph compiler specs (includes GBuffer multi-target + variant tests).
-- `bun test packages/engine/libraries/models/src/material-adapter.spec.ts` — MaterialData→Material adapter specs.
-- `bun test packages/engine/core/src/assets/model-normalizer.spec.ts` — model normalizer math (up-axis, units, bounds, auto-fit).
-- `bun test packages/engine/libraries/models/src/bake-node-transforms.spec.ts` — node hierarchy transform baking specs.
-- `bun test packages/engine/libraries/models/src/sidecar/sidecar.spec.ts` — sidecar parsers (.ddmeta.json, Unity .meta, Godot .import, Blender extras).
-- `bun test packages/engine/libraries/models/src/normalize.spec.ts` — full normalization pipeline specs.
-- `bun test packages/engine/core/src/module/host.spec.ts` — ModuleHost activation order, deferred registration, dispose order (23 tests).
-- `bun test packages/engine/modules/devtools/src/api.spec.ts` — Unified DevTools API: realm detection, SAB data feeds, manifest, panel/command registration (17 tests).
-- `bun test packages/engine/core/src/render/gpu-utils.spec.ts` — GPU resource creation utilities (8 tests, uses mock GPUDevice).
-- `bun test games/to-the-ocean/modules/wildlife/src/wildlife-plugin.spec.ts` — game module wrappers (wildlife, buoyancy, collision) (9 tests).
-- `bun test packages/engine/libraries/persistence/src/file-save-store.spec.ts` — FileSaveStore (filesystem ISaveStore) specs (10 tests).
-- `bun test packages/engine/libraries/persistence/src/opfs-save-store.spec.ts` — OpfsSaveStore (OPFS ISaveStore) specs (23 tests). Uses mock OPFS — no browser/worker environment needed.
-- `bun run draft:test` — e2e smoke test with hardware GPU (headless, deterministic). Equivalent to `draft test --renderer=gpu`.
-- `bun run draft:test-cpu` — e2e smoke test with SwiftShader software rendering (headless, deterministic). Equivalent to `draft test --renderer=cpu`. Use this for CI.
-- `bun run draft:test -- --headed` — same but shows the native winit window (useful for debugging).
-- `bun run draft:test -- --game overburden` — run the overburden e2e smoke test.
-- `bun run draft:test -- --game sandjongg` — run the sandjongg e2e smoke test.
-- `bun run test:e2e` — legacy: runs the spec directly via `bun test` (bypasses the CLI).
-- `bun run tsc:e2e` — type-checks e2e test files against `tsconfig.e2e.json`.
-- `bun test examples/plugin-tester/src/*.spec.ts` — run all plugin-tester specs (500 tests across 13 files: audio-kira, engine, lighting, marching-cubes, mcp, navmesh, networking, physics-rapier, recast-test, recast-obstacle-stuck, test-scene, water, weather).
-- `bun test examples/plugin-tester/src/audio-kira-test.spec.ts` — KiraAudioBackend specs (47 tests).
-- `bun test examples/plugin-tester/src/lighting-test.spec.ts` — LightingSystem + LightSystem specs (73 tests, uses mock GPUDevice).
-- `bun test examples/plugin-tester/src/marching-cubes-test.spec.ts` — Marching cubes mesh extraction specs (51 tests).
-- `bun test examples/plugin-tester/src/physics-rapier-test.spec.ts` — RapierPhysicsBackend specs (JS fallback mode).
-
-### E2E test environment variables
-
-These are set automatically by `draft test`. See the "Running the smoke test" section below for the full CLI flag reference.
-
-- `DOWNDRAFT_GPU=swiftshader|hardware` — set by `draft test`/`launchGame` and forwarded to the game process env (the harness also reads it to decide the `gpu:` launch option). NOTE: nothing in the game process currently consumes it — adapter selection is wgpu's own enumeration, so `swiftshader` works because the software Vulkan adapter (SwiftShader/lavapipe) is what wgpu finds on a GPU-less CI box. The old `webGpuSwitches()` mechanism is gone.
-- `DOWNDRAFT_DETERMINISTIC=1` — skip autosave loading, disable devtools auto-open and error dialogs, pause the render loop (on-demand rendering only via `set_test_state` or `capture_screenshot`). The flag reaches the game via the `downdraft.deterministic` bridge property (set by the native bridge). The sim seed is **not** overridden — the game's own `simConfig.seed` is used (`ctx.rng` in the sim worker is seeded from it).
-- `DOWNDRAFT_HEADED=1` — show the native winit window even in deterministic mode.
-- `MCP_PORT=<port>` — MCP HTTP transport port. Unset = ephemeral OS-assigned port (default; advertised via `~/.downdraft/port/<pid>` for auto-discovery). `draft test` also auto-allocates a free port per run (`findFreePort()` binds port 0) unless `--port` is given.
-- `MCP_TIMEOUT_MS=120000` — MCP proxy IPC round-trip timeout in ms (must be longer than the longest `wait_for_condition` call).
 
 ## Unified DevTools API
 
@@ -446,7 +368,7 @@ The material system is unified around the **shader graph as the single source of
 - `SIMPLE_PROFILE`, `PBR_PROFILE`, `PBR_TEXTURED_PROFILE`, `PBR_SKINNED_PROFILE`, `PBR_INSTANCED_PROFILE`, `PBR_COLOR_VERTEX_PROFILE` — single-target.
 - `GBUFFER_PROFILE` — multi-render-target deferred surface shader. 4 targets: albedo+AO, normal+roughness, metallic+emissive, velocity. Graph output nodes use names: `"albedo"`, `"normal"`, `"metallicEmissive"`, `"velocity"`.
 
-### Material adapter (module-models)
+### Material adapter (`libraries/models`)
 
 `materialDataToMaterial()` (`packages/engine/libraries/models/src/material-adapter.ts`) bridges serialized `MaterialData` (glTF/obj format) to the core `Material` surface. Maps baseColor/metallic/roughness/emissive to uniforms, sets `inlineShaderSource` from the physical fallback .wgsl. `materialDataArrayToMaterials()` batch-converts. The game's `RendererAccessors.uploadModel()` calls this to register materials in a `MaterialLibrary`.
 
@@ -482,19 +404,13 @@ FBX parser reads `GlobalSettings` for `UpAxis` (0/1=Y-up, 2=Z-up) and `UnitScale
 
 ## Save system / storage backends
 
-`ISaveStore` (`packages/engine/core/src/save/persist-types.ts`) is the storage interface for versioned game saves. The extended interface supports: `save`/`load` (with `SaveOptions`/`LoadOptions` for blobs, thumbnails, properties, generation control), `listSaves`/`listGenerations`/`deleteSave`/`deleteGeneration`, `setThumbnail`/`getThumbnail`, `setProperties`/`getProperties`, and `onWarning`. Saves are a zstd-compressed JSON body of per-component sections (each with its own schema version) plus a header (engine version, timestamp, entity/player counts, XXH128 hash). The `MigrationRegistry` runs per-component `fromVersion→toVersion` migrations on load; forward-incompatible saves (newer engine than current) are refused. Implementations live in `@downdraft/engine/libraries/persistence` (`packages/engine/libraries/persistence/`):
+`ISaveStore` (`packages/engine/core/src/save/persist-types.ts`) is the storage interface for versioned game saves: `save`/`load` (blobs, thumbnails, properties, generation control via `SaveOptions`/`LoadOptions`), `listSaves`/`listGenerations`/`deleteSave`/`deleteGeneration`, `setThumbnail`/`getThumbnail`, `setProperties`/`getProperties`, `onWarning`. Saves are a zstd-compressed JSON body of per-component sections (each with its own schema version) plus a header (engine version, timestamp, entity/player counts, XXH128 hash). `MigrationRegistry` runs per-component `fromVersion→toVersion` migrations on load; forward-incompatible saves are refused. Implementations live in `packages/engine/libraries/persistence/`:
 
-- **`OpfsSaveStore`** (`opfs-save-store.ts`) — **default** OPFS-backed store for Web Workers and renderer. Writes directly to OPFS (no IPC, no main process). Supports generation history (N snapshots per slot, previous gen is backup on corruption), binary blobs (stored as separate files per blob key), thumbnails (PNG/WebP bytes), and arbitrary properties (game mode, playtime, etc.). Uses `createSyncAccessHandle()` in workers (sync I/O) or `createWritable()` on main thread. Directory layout: `downdraft/saves/<slot>/meta.json` + `thumbnail.png` + `gen/<NNNN>/body.zst` + `body.hash` + `blobs/<key>`. The `meta.json` file is the commit point — written last after body + blobs. 23 tests in `opfs-save-store.spec.ts` (uses mock OPFS via `mock-opfs.ts`).
+- **`FileSaveStore`** (`file-save-store.ts`) — filesystem backend, **the store that actually runs on native** (host mode). One `.ddsave` file per slot (header + zstd body), rotated to `.bak` each save (load fallback on corruption); blobs in `<slot>.blobs/`, thumbnail in `<slot>.thumb`, properties in `<slot>.props.json`. Node-only (`node:fs`).
+- **`OpfsSaveStore`** (`opfs-save-store.ts`) — OPFS-backed store for browser/web-worker contexts (not reachable on native — no OPFS). Kept for tests + any future browser surface. Generation history, blobs, thumbnails, properties; `meta.json` written last as the commit point.
+- **`SaveWorkerProxy`/`HostSaveStore`/`BridgeJsonSaveStore`** — plumbing for the `"worker"`/`"host"`/`"auto"` modes.
 
-  **Four save modes** (game selects via `GameSaveConfig.mode`):
-  - `"inline"` — `OpfsSaveStore` runs inside the sim worker. Sim loop pauses during save (sync OPFS handles). Zero-copy: no data crosses worker boundaries. The sim worker creates the store directly (`createSaveStore` returns `null` here).
-  - `"worker"` — Renderer spawns a dedicated `save-worker.ts` Web Worker. Sim worker sends serialized state as transferable `ArrayBuffer` via `MessageChannel`. Sim loop continues running during save. The `SaveWorkerProxy` (`save-worker-proxy.ts`) implements `ISaveStore` by delegating to the worker via the RPC layer. (Browser builds only — the native host has no OPFS.)
-  - `"host"` — the host's own typed save store (`downdraft.saveStore` on the bridge → `HostSaveStore` → `FileSaveStore` on native). The default on native — stable across sessions, not origin-scoped.
-  - `"auto"` (default) — picks `"host"` when the bridge exposes a typed save store, else `"worker"` if OPFS is available (`navigator.storage.getDirectory`), else a `BridgeJsonSaveStore` over the bridge's JSON save methods as the last resort.
-
-  The `createSaveStore()` factory (`packages/engine/app/src/renderer/save-store-factory.ts`) handles mode selection and OPFS detection. The `SimBridgeDeps.saveMode` field tells the sim bridge which path to use.
-
-- **`FileSaveStore`** (`file-save-store.ts`) — filesystem backend, used on native where OPFS does not exist. One `.ddsave` file per slot (header + zstd body), rotated to `.bak` on each save; `.bak` is the load fallback on corruption/hash-mismatch. Node-only (`node:fs`). Now supports the extended `ISaveStore` interface: blobs stored in `<slot>.blobs/` directory, thumbnails in `<slot>.thumb`, properties in `<slot>.props.json` sidecar. `listGenerations()` returns a single synthetic generation; `deleteGeneration()` delegates to `deleteSave()`.
+**Save modes** (game selects via `GameSaveConfig.mode`): `"inline"` (store inside the sim worker — pauses the loop, zero-copy), `"worker"` (dedicated save worker, sim keeps running — browser-only), `"host"` (host's typed save store → `FileSaveStore` — the native default), `"auto"` (default: host if available, else worker if OPFS exists, else `BridgeJsonSaveStore`). `createSaveStore()` (`app/src/renderer/save-store-factory.ts`) picks; `SimBridgeDeps.saveMode` tells the sim bridge which path is active.
 
 ### Devtools Auto-Fit
 
@@ -528,12 +444,6 @@ The engine has a node-based compute shader authoring system that parallels the m
 
 Data is written via `writeUniform(name, data)` (queued, flushed before dispatch) and `writeStorage(name, data)` (immediate `queue.writeBuffer`).
 
-### Verification commands
-
-- `bun test packages/engine/shader-graph/src/compute-compiler.spec.ts` — compute graph + compiler specs (17 tests).
-- `bun test packages/engine/core/src/render/passes/graph-compute.spec.ts` — compute pass specs (7 tests).
-- `bun test packages/engine/core/src/render/compute-kernel.spec.ts` — kernel helper specs (5 tests).
-
 ## Bindless rendering model
 
 The engine uses a bindless material binding model to eliminate per-draw bind-group churn. Material parameters (baseColor, roughness, texture indices) live in a single SSBO; textures are registered into global `texture_2d_array` buckets keyed by format/dimensions/mips. A single bind group (`@group(3)`) is set once per frame and shared by all draw calls.
@@ -557,23 +467,16 @@ The engine uses a bindless material binding model to eliminate per-draw bind-gro
 
 `device.ts`, `game-renderer.ts`, and `native-host.ts` request `maxTextureArrayLayers` up to `512` (clamped to what the adapter reports) in `requiredLimits`. `GPUDeviceManager.requestDevice` checks for the limit before requesting.
 
-### Migration status
+### Bindless consumers
 
-- `ModelRenderer` (module-entities) — fully bindless. `setBindlessDeps()` + `setBindlessBindGroup()` wire the registry/material manager. The model shader samples albedo from `albedoArrays[arr]` using the material's `albedoTex` handle.
-- `PlayerMeshRenderer` (to-the-ocean) — fully bindless. Player texture registered via `BindlessTextureRegistry.registerFromImageBitmap`. `materialIndex` written into the entity uniform at float slot 44.
-- `OpaquePass` PBR path — fully bindless. `PBRMaterialResources` uses `*TextureSourceId` fields. `setBindlessDeps()` wires the registry. `materialIndex` uniform at `@group(0) binding(3)`.
-- `DecalPass` — fully bindless. Per-item bind group creation eliminated; bind group created once per pass. `materialIndex` in the decal uniform.
-- `shader-graph` profiles — `PBR_TEXTURED_PROFILE` and `PBR_SKINNED_PROFILE` updated to use `@group(3)` for bindless materials instead of per-material sampler/texture in group 0.
-- `material-bridge.ts` — `bridgeMaterial()` accepts an optional `BindlessTextureRegistry` and registers textures into it when provided.
+`ModelRenderer` (`libraries/entities`, via `setBindlessDeps()`/`setBindlessBindGroup()`), `OpaquePass` PBR path (`materialIndex` uniform at `@group(0) binding(3)`), `DecalPass`, `PBR_TEXTURED_PROFILE`/`PBR_SKINNED_PROFILE` shader-graph profiles, and `bridgeMaterial()` (registers textures when given a registry). Games' own renderers (e.g. to-the-ocean's `PlayerMeshRenderer`) wire it the same way.
 
-### WebGPU type gotchas
+### WebGPU + Rapier gotchas
 
 - `GPUTexelCopyTextureInfo` and `GPUCopyExternalImageDestInfo` use `origin: [x, y, layer]` (z component = array layer), not a separate `arrayLayer` property.
 - `GPUSupportedLimits` → `Record<string, number>` conversion requires `any` cast.
-
-- `tsconfig.web.json` and `tsconfig.node.json` are composite projects with `outDir: "dist"`.
-- `@dimforge/rapier3d-compat` is at `0.19.3`. The internal `RawRigidBodySet`/`RawColliderSet` types are not exported in that version, so `rapier-physics-system.ts` uses `any` for the raw body/collider references.
-- **WASM borrow aliasing:** Rapier 0.19.x returns `RawVector`/`RawRotation`/`RawColliderShape` objects from methods like `body.translation()`, `controller.computedMovement()`, and `ColliderDesc.trimesh()`. These hold WASM borrows that must be explicitly `.free()`d before `world.step()`. The `rapier-backend.ts` `addCollider` frees `cd.shape` after `world.createCollider()` (the collider set clones the `SharedShape` Arc). Same for `getColliderPosition`, `getBodyTransform`, `characterMove`, and the raw fast-path fallbacks. Failure to free causes "recursive use of an object detected which would lead to unsafe aliasing in rust" panics during `world.step()`.
+- `@dimforge/rapier3d-compat` does not export `RawRigidBodySet`/`RawColliderSet` — `rapier-physics-system.ts` uses `any` for raw body/collider refs.
+- **WASM borrow aliasing:** Rapier returns `RawVector`/`RawRotation`/`RawColliderShape` objects from methods like `body.translation()`, `controller.computedMovement()`, and `ColliderDesc.trimesh()`. These hold WASM borrows that must be explicitly `.free()`d before `world.step()`. The `rapier-backend.ts` `addCollider` frees `cd.shape` after `world.createCollider()` (the collider set clones the `SharedShape` Arc). Same for `getColliderPosition`, `getBodyTransform`, `characterMove`, and the raw fast-path fallbacks. Failure to free causes "recursive use of an object detected which would lead to unsafe aliasing in rust" panics during `world.step()`.
 - **Raw fast-path handle mapping:** The `*Raw` methods in `rapier-backend.ts` receive `bodyId` (the game's `PhysicsBody.id`, sequential: 1, 2, 3...) but must pass the **Rapier rigid-body handle** (`body.handle`, starts at 0) to WASM functions like `rbSetTranslation`. The raw fast paths look up the `RigidBody` from `bodyMaps` to get `body.handle`. Passing `bodyId` directly causes out-of-bounds WASM access that corrupts internal state and triggers the aliasing panic.
 - **`swapColliderShapeRaw` shape type:** `ColliderDesc.trimesh()` returns a `SharedShape` (Eg) which stores vertices/indices but does NOT hold a `RawColliderShape`. `coSetShape` expects a `RawShape` (OA). Call `shape.intoRaw()` to get the `RawColliderShape`, pass it to `coSetShape`, then `.free()` it.
 
@@ -585,16 +488,6 @@ The engine uses a bindless material binding model to eliminate per-draw bind-gro
 - Subsystems: `PhysicsAccumulator` (fixed timestep), `InterpolationBuffer` (double-buffered), `LoadShedder` (island-aware freeze), `SafetyLayer` (NaN/Inf + hard-lock), `CCDHeuristic` (per-body), `SnapshotManager` (multiplayer), `RealmWorkerPool` (nested-worker parallelism, `workerCount:0` = single-threaded).
 - `PhysicsSystem` (ECS, `Stage.Physics`) wires all subsystems together; created via `createPhysicsSystem(resources)`.
 - **Raw fast paths** (`*Raw` methods on `UniversalPhysicsAPI`/`PhysicsBackend`): scalar transform sync/readback, `isSleepingRaw`, `swapColliderShapeRaw` (in-place trimesh shape swap, avoids broadphase re-insertion), `reserveMemory`, `setIntegrationDt`. These bypass safety validation and avoid JS object allocation — callers must validate inputs. Use in hot loops (e.g. `to-the-ocean`'s per-entity sync runs every tick).
-
-## Recent performance work
-
-- Simulation tick telemetry now emits `perf_stats` with `process: "sim"` every 30 ticks; the game module records systems into the `TelemetryCollector` overlay.
-- `simulation-tick.ts` caches player center once per tick and builds slow-log/per-event arrays with loops instead of chained filter/map.
-- ECS `World` uses numeric archetype keys, avoids `allArchetypes.includes`, removes duplicate `updateQueryArchetypes` call in `step`, and `Schedule` caches the query list.
-- `GameRenderer` builds a single `GPUCommandEncoder` per frame and submits once; the depth texture cache is cleared on resize.
-- Host thread `nvidia-smi` queries are async and cached for 1s.
-- `TelemetryCollector.passTimings` is now a bounded `Map` instead of an unbounded array.
-- `GPUProfiler` supports up to 32 passes (was hardcoded to 16).
 
 ## Host SDK (`@downdraft/engine/app` — runtime-agnostic host layer)
 
@@ -611,23 +504,9 @@ Single process: the game module, renderer, host services, sim-worker host, and M
 
 ## Game automation & headless testing
 
-### GPU mode environment variable
+### MCP automation harness
 
-Set `DOWNDRAFT_GPU=swiftshader` to force the SwiftShader software Vulkan backend for headless CI / testing without a GPU. Without this env var, the engine uses the hardware GPU (NVIDIA Vulkan on Linux, D3D12 on Windows).
-
-### MCP automation harness (`to-the-ocean`)
-
-`to-the-ocean` registers a renderer-side MCP automation harness (`games/to-the-ocean/src/mcp/setup.ts`) wired to the existing main-process MCP HTTP proxy. It exposes game-specific tools without importing the Node-only `@downdraft/engine/mcp` server bundle into the renderer:
-
-- `inject_input` — hold keys/mouse/wheel for a number of frames via `RendererInputHandler.injectInput()`.
-- `clear_injected_input` — cancel pending injected input.
-- `get_player_state` — read player slot from the simulation SharedArrayBuffer.
-- `get_world_state` — read global simulation state (tick, entity count, weather, etc.).
-- `wait_for_condition` — poll a JS predicate against player/world state with timeout.
-- `capture_screenshot` — return the WebGPU canvas as a base64 PNG.
-- `set_test_state` — set weather, time of day, sim speed, or respawn the player.
-
-Input injection is merged with real DOM input in `processInput()` so the game loop does not need to know whether the input came from a human or a test.
+Games register a renderer-side MCP automation harness wired to the in-process MCP HTTP endpoint (to-the-ocean: `games/to-the-ocean/src/mcp/setup.ts`) built on `createStandardAutomationTools()` — exposing the standard tool set plus game-specific tools without importing the Node-only `@downdraft/engine/mcp` server bundle into the renderer. Injected input is merged with real input in `processInput()` so the game loop can't tell human from test.
 
 ### Connecting Devin's MCP client to the game
 
@@ -707,21 +586,12 @@ draft test --renderer=cpu --spec tests/e2e/my-game.spec.ts
 - `--spec <path>` — Override the spec file path.
 - `--port <n>` — MCP port (default: `0` = auto-assign a free port).
 - `--no-deterministic` — Disable fixed seed / render loop pause / window hiding.
-- `--build` / `--build-only` — on `draft release` these are aliases for `--stage=build`. Native packaging is `scripts/package-native.mjs`.
 
-**Environment variables (set automatically by `draft test`):**
-- `DOWNDRAFT_GPU=swiftshader|hardware` — forwarded to the game process env (the harness reads it to select the `gpu:` launch option); nothing in-process consumes it — adapter selection is wgpu enumeration (SwiftShader/lavapipe wins on GPU-less CI).
-- `DOWNDRAFT_DETERMINISTIC=1` — skip autosave, disable devtools auto-open, pause render loop (on-demand rendering only). Exposed via `downdraft.deterministic` on the HostAPI bridge. Seed is game-supplied (`simConfig.seed`), not forced.
-- `DOWNDRAFT_HEADED=1` — show the window even in deterministic mode. Without this, `window.ts` suppresses `win.show()` when `DOWNDRAFT_DETERMINISTIC=1`.
-- `MCP_PORT=<port>` — MCP HTTP transport port; auto-allocated free port by default (`draft test` calls `findFreePort()`; 9976 was the old pinned default).
-- `MCP_TIMEOUT_MS=120000` — MCP proxy IPC round-trip timeout.
+`draft test` sets the env vars in the consolidated table below (`DOWNDRAFT_DETERMINISTIC`, `DOWNDRAFT_GPU`, `DOWNDRAFT_HEADED`, `MCP_PORT`, `MCP_TIMEOUT_MS`).
 
 **Headless / CI without a display:** The CLI auto-detects missing `DISPLAY` and wraps in `xvfb-run` if available. Install it with `sudo apt install xvfb`. winit still needs an X server even when the window is hidden — wgpu renders to the window surface via SwiftShader when `DOWNDRAFT_GPU=swiftshader`.
 
-**Legacy scripts** (still available, bypass the CLI):
-- `bun run test:e2e` — runs the spec directly via `bun test` (uses whatever env vars are set).
-- `bun run test:e2e:headless` — same, but forces `DOWNDRAFT_GPU=swiftshader`.
-- `bun run test:e2e:local` — same, no env override (uses hardware GPU by default).
+**Legacy scripts** (still available, bypass the CLI): `bun run test:e2e` (raw `bun test`, inherits env), `test:e2e:headless` (forces `DOWNDRAFT_GPU=swiftshader`), `test:e2e:local` (hardware GPU).
 
 `tests/e2e/harness.ts` launches `bun games/<game>/src/native-entry.ts`, waits for the native MCP HTTP health endpoint, and drives the game through MCP tool calls. The smoke test (`tests/e2e/to-the-ocean-smoke.spec.ts`) verifies that the tool surface exists, the simulation ticks, injected input advances the world, and a screenshot can be captured.
 
@@ -741,11 +611,11 @@ The CLI reads and sets a number of environment variables. This is the complete l
 
 | Variable | Value | Purpose |
 |---|---|---|
-| `MCP_PORT` | `<port>` | MCP HTTP transport port (unset = ephemeral, auto-discovered via `~/.downdraft/port/<pid>`) |
-| `MCP_TIMEOUT_MS` | `120000` | MCP proxy IPC round-trip timeout (ms) |
-| `DOWNDRAFT_GPU` | `swiftshader` \| `hardware` | WebGPU backend selection |
-| `DOWNDRAFT_DETERMINISTIC` | `1` | Fixed seed, paused render loop, no autosave |
-| `DOWNDRAFT_HEADED` | `1` | Show the window in deterministic mode |
+| `MCP_PORT` | `<port>` | MCP HTTP transport port (unset = ephemeral, auto-discovered via `~/.downdraft/port/<pid>`; `draft test` auto-allocates a free port via `findFreePort()`) |
+| `MCP_TIMEOUT_MS` | `120000` | MCP proxy IPC round-trip timeout (ms) — must exceed the longest `wait_for_condition` call |
+| `DOWNDRAFT_GPU` | `swiftshader` \| `hardware` | Forwarded to the game env (the harness reads it for the `gpu:` launch option); nothing in-process consumes it — adapter selection is wgpu enumeration, so `swiftshader` works because SwiftShader/lavapipe is what wgpu finds on a GPU-less box |
+| `DOWNDRAFT_DETERMINISTIC` | `1` | Skip autosave, no devtools auto-open/error dialogs, paused render loop (on-demand via `set_test_state`/`capture_screenshot`). Reaches the game as `downdraft.deterministic` on the bridge; sim seed stays game-supplied (`simConfig.seed`) |
+| `DOWNDRAFT_HEADED` | `1` | Show the winit window in deterministic mode (without it `window.ts` suppresses `win.show()`) |
 | `DOWNDRAFT_TEST_BUILT` | `1` | Launch the built app instead of the dev server |
 
 **Read by the CLI:**
@@ -792,17 +662,17 @@ Common false positives to filter out: GTK module warnings, WebSocket connection 
 
 ### E2E test gotchas
 
-- **MCP port conflicts**: If a previous test run didn't clean up, port 9977 may still be in use. Free it with `fuser -k 9977/tcp`, then kill **only the specific game instance** as described in "Killing game processes" above — do NOT use a generic `pkill -9 bun` (it will kill unrelated Bun processes).
+- **MCP port conflicts**: Ports are ephemeral by default, so this only bites if you pinned `--port`. Find the stuck instance via `draft mcp instances` / `~/.downdraft/port/`, free it with `fuser -k <port>/tcp`, or kill **only that game instance** as described in "Killing game processes" above — do NOT use a generic `pkill -9 bun` (it will kill unrelated Bun processes).
 - **Save store hangs in test environments**: `createSaveStore()` can hang when OPFS is not available (SwiftShader/headless). The MCP harness must be registered BEFORE the save store init so e2e tests can connect.
-- **`requestPointerLock()` returns a Promise in newer Chrome**: The Promise can reject with `WrongDocumentError` if the canvas was detached or during ESC cooldown. Always `.catch()` the return value to avoid uncaught rejections.
+- **`requestPointerLock()` may return a Promise**: `RenderSurface.requestPointerLock?()` is typed `Promise<void> | void` — when it returns a promise it can reject (detached surface, ESC cooldown). Always `.catch()` the return value to avoid uncaught rejections.
 
 ### Why not a WebGL2 fallback?
 
-The engine relies on WebGPU-specific features (bindless `texture_2d_array`, storage buffers, compute passes, GBuffer MRT). A WebGL2 renderer would be a second, incompatible implementation. For testing, we instead use SwiftShader's Vulkan backend to run the unmodified WebGPU pipeline in software, and we inject input through the renderer so Playwright does not need to manipulate pointer lock or raw GPU output.
+The engine relies on WebGPU-specific features (bindless `texture_2d_array`, storage buffers, compute passes, GBuffer MRT). A WebGL2 renderer would be a second, incompatible implementation. For testing, we instead use SwiftShader's Vulkan backend to run the unmodified WebGPU pipeline in software, and inject input through the renderer so the MCP harness never has to manipulate pointer lock or raw GPU output.
 
 ## UI typography: minimum font size
 
-All UI text rendered by the engine and games MUST use a font size of **at least 12px**. This applies to in-game HUDs, menus, tooltips, DevTools panels, and any DOM overlay content generated by the framework.
+All UI text rendered by the engine and games MUST use a font size of **at least 12px**. This applies to in-game HUDs, menus, tooltips, DevTools panels, and any UI document content generated by the framework.
 
 - Do not set `font-size` below `12px` (e.g. no `10px`, `11px`, or `0.7rem`-style values that resolve below 12px) in CSS, inline styles, or stylesheet theme overrides.
 - When adapting third-party component styles or copying reference markup, bump any sub-12px font sizes up to 12px.
@@ -834,59 +704,59 @@ All stages compile the same artifact via `scripts/package-native.mjs`: a standal
 
 Windows binaries are stamped with version info and icons by `package-native.mjs` via `resedit` (in-place `.rsrc` regeneration — the `.bun` trailer is preserved).
 
-## Mobile targets — Capacitor removed, native Android shipped
+## Modding / user-authored plugin system (`PluginHost` + `mod.json`)
 
-The Capacitor/WebView mobile path (`draft mobile`, `packages/mobile-shell`, per-game `android/`/`ios/` dirs) is **deleted** — it was dormant and unmaintained. The live mobile path is `draft release --target=android`, the native winit+wgpu+libnode port described in "Android: genuinely native port" above. iOS remains unsupported.
+The engine's **plugin system** — distinct from the compile-time **module** system — loads runtime extensions authored by end users / modders. `PluginHost` (`packages/engine/core/src/plugin/host.ts`) discovers, validates, normalizes, and loads manifests from local directories + remote workshop stores, then dispatches logic extensions (worker-js/wasm) and declarative extension buckets (assets/maps/physics/shaders) into a sandboxed environment.
 
-## User-authored plugin (modding) system
+**Terminology:** **modules** = compile-time DI units (`Module`, `ModuleHost`, typed tokens) — engine/game internals. **Plugins/mods** = runtime-loadable user extensions (`PluginHost`, `mod.json`) — the modding surface.
 
-The engine supports a **plugin system** (distinct from the compile-time **module** system). Plugins are runtime-loadable extensions authored by end users / modders. They are discovered from local directories + remote workshop stores, validated against a permission manifest, and loaded into a sandboxed execution environment.
+### Manifest: `mod.json` (canonical — `plugin.json` is auto-normalized legacy)
 
-### Terminology
+A mod is "one manifest, many extensions": one id/version/game/permission set, optional logic, multiple declarative buckets.
 
-- **Modules** = compile-time DI units (`Module`, `ModuleHost`, typed tokens). Engine/game internals.
-- **Plugins** = runtime-loadable user-authored extensions (`PluginHost`, `PluginManifest`). Modding surface.
+```json
+{
+  "id": "my-mod",
+  "name": "My Mod",
+  "version": "1.0.0",
+  "engineVersion": "^0.1.0",
+  "game": "andrews-sandbox",
+  "format": "asset",
+  "tier": "data",
+  "thread": "renderer",
+  "logic": {
+    "format": "worker-js",
+    "thread": "own-worker",
+    "entry": "./src/index.ts",
+    "permissions": ["ecs", "events", "physics"]
+  },
+  "extensions": {
+    "assets": [{ "kind": "mesh", "id": "my-mod:crate", "path": "./assets/crate.glb" }],
+    "maps": [{ "kind": "map", "id": "my-mod:arena", "path": "./maps/arena.json" }],
+    "physics": [{ "kind": "physics", "id": "my-mod:bouncy", "path": "./physics/bouncy.json" }],
+    "shaders": {
+      "postfx": [{ "id": "my-mod:acid", "name": "Acid", "wgsl": "./shaders/acid.wgsl", "layout": "cc", "order": "stylized", "uniforms": 16 }],
+      "materials": [{ "id": "my-mod:iridescent", "wgsl": "./shaders/iridescent.wgsl", "uniforms": 32 }]
+    }
+  }
+}
+```
 
-### Plugin formats
+### Plugin formats & capability tiers
 
 | Format | Tier | Thread | Description |
 |--------|------|--------|-------------|
-| `worker-js` | `native` | `sim` or `own-worker` | TypeScript/JavaScript in a Web Worker. Full ECS + typed-DI access (native tier) or limited API (script tier). |
+| `worker-js` | `native` | `sim` or `own-worker` | TypeScript/JavaScript in a Web Worker. Full ECS + typed-DI (native tier) or limited API (script tier). |
 | `quickjs` | `script` | `renderer` | JavaScript in a QuickJS WASM VM. Hard isolation — only the `ddPlugin` bridged global exists. Instruction-budget limited. |
 | `wasm` | `native` | `own-worker` (always) | WebAssembly module with ABI v3. Host provides `env` + host-call imports; plugin exports `register`/`tick`/`dispose`/`on_event`/`on_host_call_result`. |
 | `asset` | `data` | `renderer` | Data-only: textures, audio, meshes, JSON. No code entry. Registered into the `AssetManager`. |
 
-### Capability tiers
-
-- **`data`** — no permissions, no runtime API. Asset plugins only.
-- **`script`** — limited API: events, state (KV), tick, log. QuickJS plugins.
-- **`native`** — full ECS + typed-DI access via `NativePluginContext`. Worker-js + WASM plugins.
-
-The modder declares the tier in `plugin.json`; the host enforces it via `resolvePermissions()` which checks the tier's allowed permission set.
-
-### Plugin manifest (`plugin.json`)
-
-```json
-{
-  "id": "my-cool-plugin",
-  "name": "My Cool Plugin",
-  "version": "1.0.0",
-  "engineVersion": "^0.1.0",
-  "game": "downdraft-overburden",
-  "format": "worker-js",
-  "tier": "native",
-  "thread": "sim",
-  "entry": "./src/index.ts",
-  "permissions": ["ecs", "events", "state", "tick", "log"],
-  "provides": ["mygame:resource/cool"],
-  "requires": [],
-  "dependencies": []
-}
-```
+- **`data`** — no permissions, no runtime API. **`script`** — limited API: events, state (KV), tick, log. **`native`** — full ECS + typed-DI via `NativePluginContext`.
+- Permissions resolve as `requested ∩ tier-allowed ∩ game-allowlist` (`plugin/permissions.ts`). Logic plugins must NOT receive raw GPU APIs; the native tier grants nothing implicitly.
+- Logic plugins mutate game state through mediated **host calls** (`spawn_prop`, `set_physics`, `apply_torque`, `get_asset_ref`, `publish_event`): WASM ABI v3 host-call imports + `on_host_call_result`; worker-js gets `ctx.hostCalls`.
+- **Extension loaders** (`plugin/extension-loaders.ts`) are registered per bucket — `createAssetLoader`/`createMapLoader`/`createPhysicsLoader`/`createPostfxShaderLoader`/`createMaterialShaderLoader` (`registerAllExtensionLoaders` wires all five). `MaterialRegistry` tracks mod material shaders; `PostProcessStack.registerCustomEffect`/`setCustomEffectEnabled` slots mod postfx in at order-group boundaries (hdr/color-grading/camera/stylized).
 
 ### Game integration (`GameModule.plugins`)
-
-Games opt into the plugin system by declaring a `plugins` field on their `GameModule`:
 
 ```ts
 startGame({
@@ -900,65 +770,18 @@ startGame({
 });
 ```
 
-`startGame()` constructs a renderer-side `PluginHost`, registers the `WorkerPluginLoader`, discovers plugins, and loads them after renderer init. The host is exposed on `GameContext.pluginHost` for diagnostics + reloads.
+`startGame()` builds a renderer-side `PluginHost`, registers the `WorkerPluginLoader`, discovers plugins, and loads them after renderer init. The host is exposed on `GameContext.pluginHost` for diagnostics + reloads (`PluginInfo` snapshot from `plugin/diagnostics.ts`; the devtools Doctor panel shows the cross-thread module report, not plugins).
 
-### Plugin discovery
+### Discovery, scaffolding, MCP tools
 
-- **Local**: `games/<game>/plugins/<plugin-id>/plugin.json` — discovered by the CLI (`draft plugin list`) and by the game's vite config.
-- **Remote workshop**: `WorkshopFetcher` downloads plugin packs from a `BlobStore`, caches them under `<cacheDir>/<id>@<version>/`, and returns validated manifests for the `PluginHost` to discover.
+- **Local**: `games/<game>/plugins/<id>/` (`mod.json` or `plugin.json`) — discovered by `draft plugin list` and the game's vite config. **Remote workshop**: `WorkshopFetcher` pulls packs from a `BlobStore` into `<cacheDir>/<id>@<version>/`.
+- **CLI**: `draft mod new <name> --game <g> --with shader-postfx --with assets` (mod.json + buckets); `draft plugin new <name> --format worker-js --game <g>` (legacy plugin.json); `draft plugin list`. (`draft mod` = `draft plugin --mod`; both live in `packages/cli/src/plugin-command.ts` + `scaffold-plugin.ts`.)
+- **MCP**: `createPluginMcpTools(pluginHost)` → `plugin_list`, `plugin_get_info`, `plugin_reload`, `plugin_unload`, `plugin_get_state`.
+- **Game-side example**: `games/andrews-sandbox` wires `PluginHost` via `src/plugin-host-bridge.ts` (adapts `ContentRegistry`→`AssetRegistry`, `PostProcessStack`+`MaterialRegistry`→`ShaderRegistry`, noop maps/physics). Sample mods live under `games/*/plugins/` (e.g. overburden's `bronze-blocks` worker-js / `crop-sprites-pack` asset; sandjongg's `speed-mode` quickjs / `custom-scorer` wasm).
 
-### CLI
+### Key files & tests
 
-```bash
-draft plugin new <name> --format <format> --game <game> [options]
-draft plugin list [--game <game>]
-```
-
-Scaffolds a new plugin directory with `plugin.json`, `package.json`, entry file, and README.
-
-### MCP automation tools
-
-`createPluginMcpTools(pluginHost)` returns MCP tool registrations for e2e testing:
-- `plugin_list` — list all plugins with status.
-- `plugin_get_info` — get detailed info for a single plugin.
-- `plugin_reload` — reload a plugin by id.
-- `plugin_unload` — unload a plugin by id.
-- `plugin_get_state` — get a plugin's KV state keys.
-
-### Doctor panel
-
-The `downdraft doctor` devtools panel displays a plugins table (id, version, format, tier, thread, permissions, status) when `getPlugins` is wired in the `DoctorPanelOptions`.
-
-### Key files
-
-- `packages/engine/core/src/plugin/manifest.ts` — `PluginManifest` type + `validatePluginManifest`.
-- `packages/engine/core/src/plugin/permissions.ts` — permission resolution + tier allowed sets + global allowlist.
-- `packages/engine/core/src/plugin/context.ts` — `ScriptPluginContext` + `NativePluginContext` tiered facades.
-- `packages/engine/core/src/plugin/registry.ts` — `PluginRegistry` (topological sort by dependencies).
-- `packages/engine/core/src/plugin/host.ts` — `PluginHost` (discover/validate/load/unload/dispose/snapshot).
-- `packages/engine/core/src/plugin/sandbox-shim.ts` — worker-side global restriction.
-- `packages/engine/core/src/plugin/sandbox-worker.ts` — sandbox worker entry for worker-js plugins.
-- `packages/engine/core/src/plugin/loader-worker.ts` — `WorkerPluginLoader` + `InlinePluginLoader`.
-- `packages/engine/core/src/plugin/loader-asset.ts` — `AssetPluginLoader`.
-- `packages/engine/core/src/plugin/loader-quickjs.ts` — `QuickjsPluginLoader`.
-- `packages/engine/core/src/plugin/quickjs-bridge.ts` — QuickJS host↔VM bridge (handle tracking, marshaling, interrupt handler).
-- `packages/engine/core/src/plugin/loader-wasm.ts` — `WasmPluginLoader` + `InlineWasmPluginLoader`.
-- `packages/engine/core/src/plugin/wasm-abi.ts` — WASM ABI v3 types + memory marshaling helpers.
-- `packages/engine/core/src/plugin/wasm-worker.ts` — WASM worker entry.
-- `packages/engine/core/src/plugin/workshop.ts` — `WorkshopFetcher` (remote pack fetch + cache).
-- `packages/engine/core/src/plugin/diagnostics.ts` — `PluginInfo` snapshot for the doctor panel.
-- `packages/engine/core/src/plugin/mcp-tools.ts` — MCP automation tools.
-- `packages/cli/src/scaffold-plugin.ts` — CLI plugin scaffold.
-- `packages/cli/src/plugin-command.ts` — `draft plugin` / `draft mod` CLI subcommands.
-- `packages/engine/modules/devtools/src/doctor-panel.ts` — doctor panel with plugin table.
-- `packages/engine/app/src/renderer/game-module.ts` — `PluginRuntimeConfig` + `GameModule.plugins` wiring.
-
-### Sample plugins
-
-- `games/overburden/plugins/bronze-blocks/` — worker-js native tier (ECS + typed DI).
-- `games/overburden/plugins/crop-sprites-pack/` — asset data tier (texture + JSON).
-- `games/sandjongg/plugins/speed-mode/` — quickjs script tier (events + state + tick).
-- `games/sandjongg/plugins/custom-scorer/` — wasm native tier (ABI v3, Fibonacci scorer).
+All under `packages/engine/core/src/plugin/`: `host.ts` (PluginHost), `manifest.ts` (mod.json types/validation/normalization), `permissions.ts`, `context.ts` (tiered facades + host calls), `registry.ts` (dep sort), `loader-{worker,asset,quickjs,wasm}.ts` (+ inline variants), `wasm-abi.ts` (ABI v3), `sandbox-*.ts`, `extension-loaders.ts`, `material-registry.ts`, `workshop.ts`, `diagnostics.ts`, `mcp-tools.ts`. Game wiring: `app/src/renderer/game-module.ts` (`PluginRuntimeConfig`/`GameModule.plugins`). Tests: `bun test packages/engine/core/src/plugin` and `bun test packages/engine/libraries/postfx`.
 
 ## Profiling system (`@downdraft/engine/profiling` + `@downdraft/engine/modules/devtools`)
 
@@ -1025,21 +848,7 @@ The following execution paths are instrumented with `recordTaskLatency()` + `che
 
 (The old `profilingPreludePlugin` Vite option and the `enableProfilingOverlay` in-game overlay are gone — profiling surfaces live in the devtools host.)
 
-### Key files
-
-- `packages/engine/core/src/profiling/profiling-sab.ts` — SAB layout + writer + reader.
-- `packages/engine/core/src/profiling/warnings.ts` — WarningEngine + rules + auto-trace.
-- `packages/engine/core/src/profiling/task-latency.ts` — TaskLatencyHistogram.
-- `packages/engine/core/src/profiling/event-loop.ts` — EventLoopMonitor.
-- `packages/engine/core/src/profiling/trace-event-writer.ts` — Chrome Trace Event export.
-- `packages/engine/core/src/profiling/worker-prelude.ts` — worker prelude (auto-runs on import).
-- `packages/engine/core/src/profiling/iops/opfs-patch.ts` — OPFS prototype patching.
-- `packages/engine/core/src/profiling/iops/idb-patch.ts` — IndexedDB prototype patching.
-- `packages/engine/core/src/worker/instrumented-worker-host.ts` — InstrumentedWorkerHost + exposeProfilingApi.
-- `packages/engine/modules/devtools/src/profiling-bridge.ts` — ProfilingBridge.
-- `packages/engine/modules/devtools/src/debug-view-descriptors.ts` — DebugViewDescriptor + 10 built-in views.
-- `packages/engine/core/src/telemetry/gpu-timer-pool.ts` — GPUTimerPool (encoder-level timestamps).
-- `packages/engine/core/src/telemetry/gpu-profiler.ts` — GPUProfiler (compute/blit pass timing).
+Code lives under `packages/engine/core/src/profiling/` (one file per primitive above, plus `iops/` patches), `core/src/worker/instrumented-worker-host.ts`, `modules/devtools/src/profiling-bridge.ts` + `debug-view-descriptors.ts`, and `core/src/telemetry/gpu-{timer-pool,profiler}.ts`.
 
 ## Gaussian Splatting library (`@downdraft/engine/libraries/gaussian-splats`)
 
@@ -1092,126 +901,8 @@ startGame({
 });
 ```
 
-### Key files
+All in `packages/engine/libraries/gaussian-splats/src/` — the four pipeline files above plus `renderer.ts` (orchestrator), `library.ts` (descriptor), `sorter.ts` (CPU fallback).
 
-- `packages/engine/libraries/gaussian-splats/src/parser.ts` — PLY/SPLAT parser, SoA layout.
-- `packages/engine/libraries/gaussian-splats/src/gpu-sort.ts` — GpuSplatSorter (radix sort + compact).
-- `packages/engine/libraries/gaussian-splats/src/sh-eval.ts` — SH packing + WGSL eval chunk.
-- `packages/engine/libraries/gaussian-splats/src/tile-raster.ts` — TileRasterPipeline (bin + raster).
-- `packages/engine/libraries/gaussian-splats/src/renderer.ts` — GaussianSplatRenderer (orchestrator).
-- `packages/engine/libraries/gaussian-splats/src/library.ts` — GaussianSplatsLib descriptor.
-- `packages/engine/libraries/gaussian-splats/src/sorter.ts` — CPU sort fallback (sortSplats, filterByDistance).
-
-
-## Modding system (PluginHost + mod.json)
-
-The engine has a runtime modding system built on `PluginHost` (`packages/engine/core/src/plugin/`). This is the first real production use of the engine plugin system. Andrew's Sandbox is the first game migrated to it.
-
-### Architecture
-
-- **PluginHost** (`packages/engine/core/src/plugin/host.ts`) — the canonical runtime mod loader. Discovers, validates, normalizes, and loads mod manifests. Dispatches logic extensions (worker-js/wasm) and declarative extensions (assets/maps/physics/shaders).
-- **Manifest** (`packages/engine/core/src/plugin/manifest.ts`) — `mod.json` is the canonical format. Legacy `plugin.json` is auto-normalized. A mod uses "one manifest, many extensions": one id, one version, one target game, one permission set, optional logic, and multiple declarative extension buckets.
-- **Permissions** (`packages/engine/core/src/plugin/permissions.ts`) — resolved as `requested ∩ tier-allowed ∩ game-allowlist`. New permissions: `assets`, `physics`. Logic plugins must NOT receive raw GPU APIs. Native tier does not implicitly grant permissions.
-- **Host-call bridge** (`packages/engine/core/src/plugin/context.ts`, `wasm-abi.ts`, `loader-wasm.ts`) — logic plugins mutate game state through mediated host calls (spawn_prop, set_physics, apply_torque, get_asset_ref, publish_event). WASM ABI v3 adds host-call imports + `on_host_call_result` export. Worker-js contexts expose host calls via `ctx.hostCalls`.
-- **Extension loaders** (`packages/engine/core/src/plugin/extension-loaders.ts`) — registry of `ExtensionLoader` instances keyed by extension bucket. Factory functions: `createAssetLoader`, `createMapLoader`, `createPhysicsLoader`, `createPostfxShaderLoader`, `createMaterialShaderLoader`. `registerAllExtensionLoaders` wires all five.
-- **MaterialRegistry** (`packages/engine/core/src/plugin/material-registry.ts`) — tracks mod-defined material shaders for spawned props.
-- **PostProcessStack custom effects** (`packages/engine/libraries/postfx/src/post-process-stack.ts`) — `registerCustomEffect`/`unregisterCustomEffect`/`setCustomEffectEnabled` for mod-defined postfx shaders. Custom effects interleave with built-in effects at order-group boundaries (hdr/color-grading/camera/stylized).
-
-### Mod manifest format (mod.json)
-
-```json
-{
-  "id": "my-mod",
-  "name": "My Mod",
-  "version": "1.0.0",
-  "engineVersion": "^0.1.0",
-  "game": "andrews-sandbox",
-  "format": "asset",
-  "tier": "data",
-  "thread": "renderer",
-  "logic": {
-    "format": "worker-js",
-    "thread": "own-worker",
-    "entry": "./src/index.ts",
-    "permissions": ["ecs", "events", "physics"]
-  },
-  "extensions": {
-    "assets": [
-      { "kind": "mesh", "id": "my-mod:crate", "path": "./assets/crate.glb" },
-      { "kind": "texture", "id": "my-mod:paint", "path": "./assets/paint.png" }
-    ],
-    "maps": [
-      { "kind": "map", "id": "my-mod:arena", "path": "./maps/arena.json" }
-    ],
-    "physics": [
-      { "kind": "physics", "id": "my-mod:bouncy", "path": "./physics/bouncy.json" }
-    ],
-    "shaders": {
-      "postfx": [
-        { "id": "my-mod:acid", "name": "Acid", "wgsl": "./shaders/acid.wgsl", "layout": "cc", "order": "stylized", "uniforms": 16 }
-      ],
-      "materials": [
-        { "id": "my-mod:iridescent", "wgsl": "./shaders/iridescent.wgsl", "uniforms": 32 }
-      ]
-    }
-  }
-}
-```
-
-### Game migration (Andrew's Sandbox)
-
-Andrew's Sandbox migrated from direct `PluginScanner → ContentRegistry` wiring to `PluginHost` with bridged extension loaders. See `games/andrews-sandbox/src/plugin-host-bridge.ts` and the plugin discovery section in `games/andrews-sandbox/src/game-module.ts`.
-
-The bridge adapts:
-- `ContentRegistry` → `AssetRegistry` (meshes/textures/pbr-materials/texture-pipelines)
-- `PostProcessStack` + `MaterialRegistry` → `ShaderRegistry` (postfx + material shaders)
-- Noop registries for maps + physics (not yet wired in the sandbox)
-
-Legacy `plugin.json` manifests continue to load via auto-normalization. Plugins with custom `props` sections (e.g. bouncy-ball) also get scanned by `PluginScanner` for backward compat.
-
-### Sample mods
-
-- `games/andrews-sandbox/plugins/acid-postfx/` — stylized postfx shader (wavy chromatic distortion + hue cycling).
-- `games/andrews-sandbox/plugins/iridescent-material/` — material shader (Fresnel + hue cycling).
-
-### CLI scaffolding
-
-```bash
-# Scaffold a new mod (generates mod.json + extension buckets)
-draft mod new my-mod --game andrews-sandbox --with shader-postfx --with assets
-
-# Scaffold a legacy plugin (generates plugin.json)
-draft plugin new my-plugin --format worker-js --game andrews-sandbox
-
-# List all discovered plugins + mods
-draft plugin list [--game <game>]
-```
-
-### Key files
-
-- `packages/engine/core/src/plugin/host.ts` — PluginHost (canonical mod loader).
-- `packages/engine/core/src/plugin/manifest.ts` — mod.json types, validation, normalization.
-- `packages/engine/core/src/plugin/permissions.ts` — permission resolution.
-- `packages/engine/core/src/plugin/context.ts` — plugin context + host-call API.
-- `packages/engine/core/src/plugin/wasm-abi.ts` — WASM ABI v3 (host-call imports).
-- `packages/engine/core/src/plugin/loader-wasm.ts` — WASM loader (buildImports exported for testing).
-- `packages/engine/core/src/plugin/extension-loaders.ts` — extension loader registry + factories.
-- `packages/engine/core/src/plugin/material-registry.ts` — mod-defined material shader registry.
-- `packages/engine/libraries/postfx/src/post-process-stack.ts` — custom effect registration.
-- `games/andrews-sandbox/src/plugin-host-bridge.ts` — sandbox bridge adapters.
-- `games/andrews-sandbox/src/game-module.ts` — PluginHost wiring in sandbox.
-- `packages/cli/src/scaffold-plugin.ts` — mod/plugin scaffold.
-- `packages/cli/src/plugin-command.ts` — `draft plugin` / `draft mod` CLI commands.
-
-### Testing
-
-```bash
-# Plugin suite (manifest, permissions, host, host-calls, wasm-abi, extension-loaders, material-registry)
-bun test packages/engine/core/src/plugin
-
-# Postfx suite (including custom effect tests)
-bun test packages/engine/libraries/postfx
-```
 ## Native platform (`@downdraft/platform-native`)
 
 A native platform layer providing direct GPU rendering via a single Rust cdylib (`libdowndraft_platform`, crate at `native-rs/`), accessed over runtime-adapted FFI (`bun:ffi` under Bun, `koffi` under Node, `Deno.dlopen` under Deno — see `ffi/ffi-adapter.ts`). Located in `packages/platform-native/`.
@@ -1219,39 +910,14 @@ A native platform layer providing direct GPU rendering via a single Rust cdylib 
 ### Architecture
 
 - **GPU**: the `wgpu` crate accessed through `wgpu_shim_*` exports (`native-rs/src/gpu/`) that flatten complex WebGPU descriptors into FFI-friendly functions — same ABI the old C shim exposed. The TypeScript wrapper (`src/gpu/wgpu-wrapper.ts`) implements the standard WebGPU JS API (`GPU`, `GPUAdapter`, `GPUDevice`, `GPUQueue`, etc.) on top of the FFI calls. `installGPU()` sets `globalThis.navigator.gpu` so the engine's `GPUDeviceManager` works unchanged.
-- **Window**: `winit` for window creation, input polling, and surface handles (`native-rs/src/window/`, exported as `sdl_shim_*` for ABI compat). The `NativeWindow` class runs the event loop, translates events to DOM-compatible events, and provides `requestAnimationFrame`. `NativeSurface` implements the `RenderSurface` contract (`core/platform/render-surface.ts`) plus a `GPUCanvasContext`-shaped `getContext("webgpu")`. After each rAF dispatch the window auto-presents via `queueMicrotask` (DOM end-of-frame semantics), so bespoke render loops that never call `context.present()` still present — `present()` itself skips frames that acquired nothing or acquired-but-never-wrote (`__ddWritten`).
+- **Window**: `winit` for window creation, input polling, and surface handles (`native-rs/src/window/`, exported as `sdl_shim_*` for ABI compat). The `NativeWindow` class runs the event loop, translates events to DOM-compatible events, and provides `requestAnimationFrame`. `NativeSurface` implements the `RenderSurface` contract (`core/platform/render-surface.ts`) plus a `GPUCanvasContext`-shaped `getContext("webgpu")`. After each rAF dispatch the window auto-presents via `queueMicrotask` (DOM end-of-frame semantics), so bespoke render loops that never call `context.present()` still present — `present()` itself skips frames that acquired nothing or acquired-but-never-wrote (`__ddWritten` — flipped at `queue.submit()`, not at encode time, via `WgpuCommandBuffer.writeTargets`, so a dropped/invalid/abandoned buffer can't mark a texture written). **Frame retention trap**: dirty-skip renderers (mining-rpg) rely on skipped frames never acquiring the swapchain. Any engine/module code that calls `context.getCurrentTexture()` unconditionally per-frame (an auto-clear, a UI composite/blit) fabricates a frame and presents it over black — use `context.peekCurrentTexture()` instead to join a frame that already exists; viewportCount=0 + dirty-skip games must pass `clearColor: null` so GameRenderer's auto-clear doesn't acquire either.
 - **Image decoding**: the `image` crate (`native-rs/src/image.rs`, `image_shim_*` exports) replaces `createImageBitmap`. `installImagePolyfills()` sets `globalThis.createImageBitmap`, `ImageBitmap`, `OffscreenCanvas`, and `ImageData`.
 - **WGSL validation**: `dd_wgsl_validate` runs naga (wgpu's own frontend + validator) in-process for build-time shader checks — used by `wgslValidatePlugin` and `bun-preload.ts`. No external tint binary.
 - **Asset discovery**: `nativeGlob()` replaces `import.meta.glob` with filesystem-based globbing.
 - **Screenshot**: `captureScreenshot()` copies a render target to a buffer, reads back pixels, and encodes a PNG (acceptance mechanism for native rendering).
 - **Native host**: `createNativeHost()` ties everything together — installs all polyfills, creates the window, gets the GPU device, configures the surface, starts the event loop, and installs the browser-global shims (`window`, storage, `Worker`, UI-event constructors, blob/fetch). There is **no** `document` global — `RenderSurface` is the surface abstraction.
 
-### Key files
-
-- `packages/platform-native/native-rs/` — the unified `downdraft_platform` cdylib: `src/gpu/` (wgpu), `src/window/` (winit), `src/image.rs` (image), `src/text.rs` (cosmic-text), `src/gpu/validate.rs` (naga WGSL validation)
-- `packages/platform-native/src/ffi/ffi-adapter.ts` — cross-runtime FFI (Bun `bun:ffi`, Node `koffi`, Deno `Deno.dlopen`)
-- `packages/platform-native/src/ffi/lib-paths.ts` — unified native library resolution (env override → native/ → native/lib/ → native/<platform>-<arch>/ → /usr/local/lib)
-- `packages/platform-native/src/gpu/wgpu-ffi.ts` — FFI bindings to the wgpu_shim_* exports (lazy dlopen)
-- `packages/platform-native/src/gpu/native-wgsl.ts` — `validateWgslNative()` — in-process naga WGSL validation
-- `packages/platform-native/src/gpu/wgpu-wrapper.ts` — re-export barrel for the wrapper modules
-- `packages/platform-native/src/gpu/enums.ts` — WebGPU enum/string mappings (single source of truth)
-- `packages/platform-native/src/gpu/limits.ts` — WGPULimits/features query + serialization
-- `packages/platform-native/src/gpu/registry.ts` — FinalizationRegistry-based native handle cleanup
-- `packages/platform-native/src/gpu/wgpu-device.ts` — WgpuGPU / WgpuAdapter / WgpuDevice / WgpuQueue
-- `packages/platform-native/src/gpu/wgpu-resources.ts` — buffers, textures, views, samplers, shaders, layouts, bind groups, pipelines, query sets
-- `packages/platform-native/src/gpu/wgpu-encoder.ts` — command encoder + render/compute pass encoders
-- `packages/platform-native/src/gpu/install.ts` — installs navigator.gpu
-- `packages/platform-native/src/dom/mini-event-target.ts` — shared EventTarget-compatible listener store
-- `packages/platform-native/src/dom/dom-polyfills.ts` — window/Worker/storage/event polyfills (no `document` — removed; `RenderSurface` is the surface contract)
-- `packages/platform-native/src/window/sdl-ffi.ts` — FFI bindings to the sdl_shim_* exports (lazy dlopen)
-- `packages/platform-native/src/window/native-window.ts` — NativeWindow + event loop + rAF
-- `packages/platform-native/src/window/native-surface.ts` — NativeSurface (RenderSurface impl)
-- `packages/platform-native/src/image/native-image.ts` — createImageBitmap polyfill + Image polyfill
-- `packages/platform-native/src/image/native-canvas2d.ts` — NativeCanvas2D (glyph atlas + parseColor)
-- `packages/platform-native/src/image/native-freetype.ts` — text rasterizer bindings (cosmic-text in the Rust lib)
-- `packages/platform-native/src/assets/native-assets.ts` — import.meta.glob replacement
-- `packages/platform-native/src/screenshot/screenshot.ts` — PNG screenshot capture + `paddedReadbackToRGBA`
-- `packages/platform-native/src/native-host.ts` — createNativeHost (main entry point)
+Layout: Rust cdylib at `packages/platform-native/native-rs/` (`src/gpu/` wgpu, `src/window/` winit, `src/image.rs`, `src/text.rs` cosmic-text, `src/gpu/validate.rs` naga). TS side at `packages/platform-native/src/` — `ffi/` (ffi-adapter.ts, lib-paths.ts, worker-bootstrap.mjs, wgsl-loader.mjs), `gpu/` (wgpu-ffi/wrapper/device/resources/encoder/install, shared-device.ts, pass-channel.ts, native-wgsl.ts), `dom/` (dom-polyfills.ts, mini-event-target.ts), `window/` (sdl-ffi.ts, native-window.ts, native-surface.ts), `image/` (createImageBitmap/canvas2d/freetype), `assets/` (nativeGlob), `screenshot/`, `native-host.ts` (createNativeHost), `dev/` (dev-shell.mjs, native-dev-runtime.ts, vite-config.mjs), `bridge/` (user-data-dir.ts).
 
 ### Native binaries (prebuilt, no consumer-side toolchain)
 
@@ -1281,13 +947,44 @@ Native binaries are **not committed** and consumers never compile them:
 
 `packages/engine/core/src/platform/bun-preload.ts` registers Bun plugin loaders for `?raw` and `?url` import suffixes, plus CSS imports — configured in root `bunfig.toml`, Bun-only. The Node+tsx path gets the same handling from `packages/platform-native/src/ffi/wgsl-loader.mjs` (passed via `NODE_OPTIONS=--import`); Deno has no loader hooks, so shared code must never depend on loader transforms.
 
-### Current status — native is the only shell (Electron is deleted); JS runtime is tri-runtime
+### Tri-runtime notes
 
-`draft dev`/`draft test`/`draft release` run native only — all Electron-era flags and entrypoints are removed. Games boot from `src/native-entry.ts` (`runNativeGameModule`/`startNativeGame`/`createNativeHost`); the Electron main/preload/vite/mobile trees, `electron-osr`, `raw-input`, `core/ipc.ts`, and the electron-builder pipeline are deleted. OSR (devtools/web overlays) is `modules/native-osr` — in-process WebGPU, no webviews.
+Native runs on three JS runtimes — **Bun** (default, `bun:ffi`), **Node+tsx** (`koffi`, `wgsl-loader.mjs`), **Deno** (`Deno.dlopen`, root `deno.json` + `--allow-all --unstable-sloppy-imports`). Steady-state perf is identical across runtimes (GPU + fixed-dt sim don't depend on the JS runtime); differences are boot time (~0.5–1.0s Bun, ~1.0s Node/Deno) and footprint (~520MB Bun / ~1.05GB Node / ~690MB Deno RSS on mining-rpg). OSR (devtools/web overlays) is `modules/native-osr` — in-process WebGPU, no webviews.
 
-Native runs on three JS runtimes — **Bun** (default, `bun:ffi`), **Node+tsx** (`koffi`, `wgsl-loader.mjs`), **Deno** (`Deno.dlopen`, root `deno.json` + `--allow-all --unstable-sloppy-imports`). Steady-state perf is identical across runtimes (GPU + fixed-dt sim don't depend on the JS runtime); differences are boot time (~0.5–1.0s Bun, ~1.0s Node/Deno) and footprint (~520MB Bun / ~1.05GB Node / ~690MB Deno RSS on mining-rpg). Packaging spike: `scripts/package-native.mjs` compiles a game's native entry into a standalone Bun binary (verified end-to-end on mining-rpg — workers, saves, MCP, screenshots all work in the packaged binary).
+### Running the native entry (tri-runtime)
 
-Cross-runtime gotchas: tsconfig `paths` and `deno.json` alias `xxh3-ts` → a `.d.ts`, and tsx/Deno honor it at runtime — `hash-utils.ts` requires `xxh3-ts/index.js` (deep path) in its fallback to bypass the alias. Shared `game-module.ts` files must not import `.css` (Deno has no loader hooks) — there is no browser-only entry point where CSS can load. `node:module` imports must be lazy dynamic imports in shared code (a static `node:module` specifier resolves before runtime shims install).
+```bash
+# Bun (primary)
+bun run src/native-entry.ts
+
+# Node (tsx + wgsl/?raw loader)
+NODE_OPTIONS="--import ../../packages/platform-native/src/ffi/wgsl-loader.mjs" \
+  ../../node_modules/.bin/tsx src/native-entry.ts
+
+# Deno (root deno.json import map mirrors tsconfig paths; sloppy imports for
+# extensionless/dir imports; requires --allow-all for FFI+workers+fs)
+deno run --config ../../deno.json --allow-all --unstable-sloppy-imports src/native-entry.ts
+```
+
+`deno.json` at the repo root is a generated import map mirroring `tsconfig.web.json` `paths` (`foo/*` → `dir/*` trailing-slash form, required for `@`-scoped aliases). Regenerate with `bun run gen:deno-import-map` whenever tsconfig paths change (CI checks it stays in sync). Known Deno limitation: basis-universal `?url` wasm imports resolve lazily with a disk fallback.
+
+Verified on mining-rpg (~20s steady state): all three runtimes boot the full stack — GPU via FFI, nested workers, MCP, saves, screenshots — and the sim holds its fixed 60t/s on each.
+
+Cross-runtime landmines:
+- **tsconfig `paths` are type-only, but tsx and Deno honor them at runtime.** The `"xxh3-ts"` alias maps to a `.d.ts` — under tsx/Deno `import "xxh3-ts"` loads the declaration file as an empty module. Runtime workarounds must use a subpath the alias doesn't cover (e.g. `require("xxh3-ts/index.js")`), never a bare specifier.
+- **CSS imports must stay out of shared modules** — `game-module.ts` runs on native where `.css` can't load (Deno has no loader hooks at all). There is no browser-only entry where CSS can load — keep `import "./x.css"` out of game code entirely.
+- **JSON imports need `with { type: "json" }`** for Deno (supported by Node ≥20, Vite, Bun, browsers).
+- **`node:module` imports must be lazy dynamic imports** in shared code (a static specifier resolves before runtime shims install).
+- **Node has no global `Worker`** — dom-polyfills wraps worker_threads on the main thread and `ffi/worker-bootstrap.mjs` re-installs the same wrapper inside workers for nested spawns.
+- **`__ddRequestFrame` prefers a renderer's own `renderOneFrame()`** over the inherited `GameRenderer.renderOnce()` — renderers that draw outside the GameRenderer frame graph (tto) would otherwise acquire-but-not-write the surface texture and starve the capture hook via the write-tracking present-skip.
+
+### wgpu validation notes
+
+The Rust shim validates every `WGPUTextureFormat`/`WGPURenderPipelineDescriptor` enum value before calling into wgpu and returns NULL with an error log instead of aborting. Hardened call-sites: `wgpu-device.ts` counts only non-null vertex-buffer slots (sparse `buffers` arrays desynced the flat-descriptor walk); bind groups created with `hasDynamicOffset` layouts must be bound with a dynamic-offsets array (`setBindGroup(i, bg, [0])` — the shim plumbs them); `PostProcessStack` takes a `sceneFormat` option — games whose scene pipelines target the surface format pass it (the default `rgba16float` requires HDR scene pipelines).
+
+### Game-side verification env vars
+
+Per-game conventions (to-the-ocean, gpu-bench — not engine-wide): `SCREENSHOT_FRAME=N` (auto-capture at frame N, default 600), `AUTO_EXIT=1` (exit after the shot), `DEBUGGER_AUTO_SHOW=1`, `DEBUGGER_PANEL=<id>` (panel ids: `console elements performance gpu` + provider ids `game sim memory render-graph materials doctor workers input postfx assets`), `SKIP_OCEAN_SCENE=1` (isolated blit testing).
 
 ## Native DevTools (`@downdraft/engine/libraries/devtools` + `modules/devtools/blitz`)
 
@@ -1317,55 +1014,7 @@ Fixed: Console, Elements, Performance, GPU. Provider-driven (registered via `reg
 
 `registerProvider(panel, collect)` returns a `PanelSnapshot` (status + sections of key/value rows, tables, f32 series, lines, and controls — buttons/checkboxes/sliders). The backend pushes snapshots to the frontend; control clicks dispatch `{panel, action, payload}` commands back through `backend.dispatch` → `handleEngineCommand` (fx.* → `PostProcessStack.setEnabled`, param.* → effect params, gc → force GC, sim.* → sim worker commands). Sync providers push immediately; async collectors never block the UI frame.
 
-### Running the native entry (tri-runtime)
-
-```bash
-# Bun (primary)
-bun run src/native-entry.ts
-
-# Node (tsx + wgsl/?raw loader)
-NODE_OPTIONS="--import ../../packages/platform-native/src/ffi/wgsl-loader.mjs" \
-  ../../node_modules/.bin/tsx src/native-entry.ts
-
-# Deno (root deno.json import map mirrors tsconfig paths; sloppy imports for
-# extensionless/dir imports; requires --allow-all for FFI+workers+fs)
-deno run --config ../../deno.json --allow-all --unstable-sloppy-imports src/native-entry.ts
-```
-
-`deno.json` at the repo root is a generated import map mirroring `tsconfig.web.json` `paths` (`foo/*` → `dir/*` trailing-slash form, required for `@`-scoped aliases). Regenerate with `bun run gen:deno-import-map` whenever tsconfig paths change (CI checks it stays in sync). Known Deno limitations: basis-universal `?url` wasm imports are resolved lazily with a disk fallback.
-
-Verified tri-runtime (mining-rpg native, ~20s steady state): all three boot the full stack — GPU via FFI (bun:ffi/koffi/Deno.dlopen), nested workers, MCP, saves, screenshots. Bench: bun boot ~0.5–1.0s RSS ~520MB; node+tsx boot ~1.0s RSS ~1.05GB; deno boot ~1.0s RSS ~690MB; sim runs at its fixed 60t/s on all three (runtime choice doesn't move steady-state perf — work is GPU/native + fixed-dt sim).
-
-Cross-runtime landmines to keep in mind:
-- **tsconfig `paths` are type-only, but tsx and Deno honor them at runtime.** The `"xxh3-ts"` alias maps to a `.d.ts` — under tsx/Deno `import "xxh3-ts"` loads the declaration file as an empty module. Runtime workarounds must use a subpath the alias doesn't cover (e.g. `require("xxh3-ts/index.js")`), never a bare specifier.
-- **CSS imports must stay out of shared modules** — `game-module.ts` runs on native where `.css` can't load (Deno has no loader hooks at all). There is no browser-only entry where CSS can load — keep `import "./x.css"` out of game code entirely.
-- **JSON imports need `with { type: "json" }`** for Deno (supported by Node ≥20, Vite, Bun, browsers).
-- **Node has no global `Worker`** — dom-polyfills wraps worker_threads on the main thread and `ffi/worker-bootstrap.mjs` re-installs the same wrapper inside workers for nested spawns.
-- **`__ddRequestFrame` prefers a renderer's own `renderOneFrame()`** over the inherited `GameRenderer.renderOnce()` — renderers that draw outside the GameRenderer frame graph (tto) would otherwise acquire-but-not-write the surface texture and starve the capture hook via the write-tracking present-skip.
-
-### wgpu validation notes
-
-The Rust shim validates every `WGPUTextureFormat`/`WGPURenderPipelineDescriptor` enum value before calling into wgpu and returns NULL with an error log instead of aborting; remaining hardening: (2) `wgpu-device.ts` counts only non-null vertex-buffer slots (sparse `buffers` arrays desynced the flat-descriptor walk); (3) bind groups created with `hasDynamicOffset` layouts must be bound with a dynamic-offsets array (`setBindGroup(i, bg, [0])` — the shim plumbs them; the old "no dynamic offsets" comment was stale); (4) `PostProcessStack` takes a `sceneFormat` option — games whose scene pipelines target the surface format pass it (the default `rgba16float` requires HDR scene pipelines).
-
-### Environment variables for verification
-
-- `SCREENSHOT_FRAME=N`: auto-capture a screenshot at frame N (default 600).
-- `AUTO_EXIT=1`: exit after the auto-screenshot.
-- `DEBUGGER_AUTO_SHOW=1`: auto-show the devtools dock for the verification screenshot.
-- `DEBUGGER_PANEL=<id>`: select a panel for the screenshot (`console elements performance gpu` + provider ids `game sim memory render-graph materials doctor workers input postfx assets`).
-- `SKIP_OCEAN_SCENE=1`: skip the real OceanApp scene (for isolated blit testing).
-
-### Key files
-
-- `packages/engine/modules/devtools/src/blitz/module.ts` — `createDevtoolsUiModule` + `BlitzDevtoolsTok`
-- `packages/engine/modules/devtools/src/blitz/host.ts` — `BlitzDevtoolsHost` (dock doc, tabs, keybind, self-hosted UI surface)
-- `packages/engine/modules/devtools/src/blitz/theme.ts` — Chrome-style dark theme CSS
-- `packages/engine/modules/devtools/src/blitz/panels/` — console/elements/performance/gpu/snapshot panel renderers
-- `packages/engine/libraries/devtools/src/backend.ts` — `DevtoolsBackend` (transport-neutral providers/commands/eval/pushes)
-- `packages/engine/libraries/devtools/src/web/` — `WebDevtoolsHost` + `WebDevtoolsMirror` + `DevToolsServer` (loopback browser frontend, Bun-only)
-- `packages/engine/libraries/devtools/src/native-providers.ts` — `registerEngineProviders` (engine-generic panel collectors)
-- `packages/engine/libraries/devtools/src/snapshot.ts` — `PanelSnapshot`/`PanelSection` wire types shared by both frontends
-- `packages/engine/libraries/devtools/src/cdp-bridge.ts` — `CdpBridge`
+Key paths: `modules/devtools/src/blitz/` (`module.ts` = `createDevtoolsUiModule`/`BlitzDevtoolsTok`, `host.ts` = `BlitzDevtoolsHost`, `theme.ts`, `panels/` = console/elements/performance/gpu/snapshot renderers) and `libraries/devtools/src/` (`backend.ts` = `DevtoolsBackend`, `web/` = `WebDevtoolsHost`/`WebDevtoolsMirror`/`DevToolsServer` Bun-only browser frontend, `native-providers.ts` = `registerEngineProviders`, `snapshot.ts` = wire types, `cdp-bridge.ts`).
 
 ## Docs site (`docs/site`)
 

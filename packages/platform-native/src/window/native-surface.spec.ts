@@ -64,4 +64,24 @@ describe("NativeCanvasContext surface texture lifecycle", () => {
     expect(presents).toEqual([]);
     expect(releasedTextures).toEqual([]);
   });
+
+  it("peekCurrentTexture reflects the in-flight frame without acquiring", () => {
+    const ctx = makeConfiguredContext();
+    presents.length = 0;
+
+    // Nothing acquired → null (overlay passes must not start a frame).
+    expect(ctx.peekCurrentTexture()).toBeNull();
+
+    // Acquired → returns the same texture; a present-less frame that
+    // acquired-but-never-wrote retains it for the next frame's peek.
+    const tex = ctx.getCurrentTexture()!;
+    expect(ctx.peekCurrentTexture()).toBe(tex);
+    ctx.present(); // unwritten → retained, still outstanding
+    expect(ctx.peekCurrentTexture()).toBe(tex);
+
+    // Written + presented → consumed; peek is back to null.
+    (tex as any).__ddWritten = true;
+    ctx.present();
+    expect(ctx.peekCurrentTexture()).toBeNull();
+  });
 });

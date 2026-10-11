@@ -71,32 +71,18 @@ export enum Material {
   // --- Ingredients ---
   // Ice (frozen water — produced by cooling)
   Ice = 64,
+  // (IDs 67–68, 71–73, 76–77, 79–81, 83–88 were inert alchemy materials —
+  // retired; keep the gaps so old saves don't remap onto new materials.)
   // Liquids
   Ether = 65,            // ethereal solvent — light, volatile, glowing
   Blood = 66,            // viscous, necrotic-tinted
-  Syrup = 67,            // thick, dense, sweet (binding agent)
-  NightshadeExtract = 68,// toxic liquid
   TrollBlood = 69,       // viscous, healing + necrotic
   LiquidShadow = 70,     // dense, light-absorbing
-  LoveEssence = 71,      // psychic liquid
-  HateEssence = 72,      // psychic liquid, corrosive
-  DreamMist = 73,        // ethereal + psychic, gas-like liquid
   VoidEssence = 74,      // dense, necrotic, reality-bending
   // Powders (solid, fall)
   Sulfur = 75,           // yellow powder, flammable, corrosive
-  GroundEyeOfNewt = 76,  // psychic powder
-  GroundBatWing = 77,    // ethereal powder
   BoneDust = 78,         // necrotic powder
-  IronFilings = 79,      // kinetic + dense powder, magnetic
-  MoonstoneDust = 80,    // luminous + ethereal powder
-  CrystalDust = 81,      // luminous + kinetic powder
   MushroomSpores = 82,   // toxic + psychic powder, grows
-  DragonScale = 83,      // thermal + kinetic, very dense
-  PhoenixFeather = 84,   // thermal + healing, light
-  UnicornHorn = 85,      // healing + luminous, rare
-  MandrakeRoot = 86,     // toxic + psychic, solid root
-  SpiderSilk = 87,       // kinetic + ethereal, very light
-  GraveDust = 88,        // necrotic + dense
   StarShard = 89,        // luminous + ethereal + kinetic, glowing crystal
   TimeSand = 90,         // kinetic + ethereal, reality-bending
   // Gases
@@ -283,30 +269,14 @@ export const MATERIALS: Record<number, MaterialDef> = {
   // --- Liquids ---
   [Material.Ether]: def(65, "Ether", [0.55, 0.45, 0.85, 0.8], { gravity: 1.5, gravityDir: 1, density: 0.7, liquid: true, flammable: true, burnTime: 40, albedo: 0.2, reflectivity: 0.4, brightness: 1.1 }),
   [Material.Blood]: def(66, "Blood", [0.7, 0.05, 0.05, 0.95], { gravity: 2, gravityDir: 1, density: 1.06, liquid: true, albedo: 0.3, reflectivity: 0.2, brightness: 0.8 }),
-  [Material.Syrup]: def(67, "Syrup", [0.6, 0.4, 0.15, 0.95], { gravity: 1, gravityDir: 1, density: 1.4, liquid: true, albedo: 0.3, reflectivity: 0.3, brightness: 0.9 }),
-  [Material.NightshadeExtract]: def(68, "Nightshade Extract", [0.3, 0.05, 0.35, 0.95], { gravity: 2, gravityDir: 1, density: 1.1, liquid: true, albedo: 0.2, reflectivity: 0.1, brightness: 0.7 }),
   [Material.TrollBlood]: def(69, "Troll Blood", [0.4, 0.2, 0.15, 0.95], { gravity: 2, gravityDir: 1, density: 1.2, liquid: true, albedo: 0.25, reflectivity: 0.15, brightness: 0.8 }),
   [Material.LiquidShadow]: def(70, "Liquid Shadow", [0.05, 0.05, 0.12, 0.98], { gravity: 3, gravityDir: 1, density: 2.0, liquid: true, albedo: 0.0, reflectivity: 0.0, brightness: 0.3 }),
-  [Material.LoveEssence]: def(71, "Love Essence", [0.95, 0.4, 0.6, 0.9], { gravity: 1.5, gravityDir: 1, density: 0.9, liquid: true, albedo: 0.3, reflectivity: 0.4, brightness: 1.0 }),
-  [Material.HateEssence]: def(72, "Hate Essence", [0.2, 0.1, 0.15, 0.9], { gravity: 2, gravityDir: 1, density: 1.3, liquid: true, albedo: 0.2, reflectivity: 0.2, brightness: 0.7 }),
-  [Material.DreamMist]: def(73, "Dream Mist", [0.6, 0.7, 0.95, 0.6], { gravity: 1, gravityDir: -1, density: 0.3, liquid: true, albedo: 0.2, reflectivity: 0.5, brightness: 1.2 }),
   [Material.VoidEssence]: def(74, "Void Essence", [0.1, 0.0, 0.2, 0.95], { gravity: 4, gravityDir: 1, density: 3.0, liquid: true, albedo: 0.0, reflectivity: 0.1, brightness: 0.5 }),
 
   // --- Alchemy game: powders (solid, fall) ---
   [Material.Sulfur]: def(75, "Sulfur", [0.9, 0.85, 0.2, 1.0], { gravity: 1, gravityDir: 1, density: 2.0, solid: true, flammable: true, burnTime: 60, albedo: 0.5, reflectivity: 0.1, brightness: 0.9 }),
-  [Material.GroundEyeOfNewt]: def(76, "Ground Eye of Newt", [0.5, 0.35, 0.2, 1.0], { gravity: 1, gravityDir: 1, density: 1.2, solid: true, albedo: 0.4, brightness: 0.8 }),
-  [Material.GroundBatWing]: def(77, "Ground Bat Wing", [0.3, 0.25, 0.35, 1.0], { gravity: 0.8, gravityDir: 1, density: 0.6, solid: true, albedo: 0.3, brightness: 0.7 }),
   [Material.BoneDust]: def(78, "Bone Dust", [0.85, 0.82, 0.75, 1.0], { gravity: 1, gravityDir: 1, density: 1.5, solid: true, albedo: 0.5, brightness: 0.8 }),
-  [Material.IronFilings]: def(79, "Iron Filings", [0.55, 0.55, 0.6, 1.0], { gravity: 1.5, gravityDir: 1, density: 7.8, solid: true, magnetic: true, albedo: 0.5, reflectivity: 0.3 }),
-  [Material.MoonstoneDust]: def(80, "Moonstone Dust", [0.8, 0.85, 0.95, 1.0], { gravity: 1, gravityDir: 1, density: 1.0, solid: true, albedo: 0.4, reflectivity: 0.5, brightness: 1.3 }),
-  [Material.CrystalDust]: def(81, "Crystal Dust", [0.6, 0.9, 0.95, 1.0], { gravity: 1, gravityDir: 1, density: 2.5, solid: true, albedo: 0.3, reflectivity: 0.6, brightness: 1.2 }),
   [Material.MushroomSpores]: def(82, "Mushroom Spores", [0.6, 0.5, 0.4, 0.9], { gravity: 0.5, gravityDir: 1, density: 0.4, solid: true, albedo: 0.3, brightness: 0.8 }),
-  [Material.DragonScale]: def(83, "Dragon Scale", [0.5, 0.15, 0.1, 1.0], { gravity: 1.5, gravityDir: 1, density: 5.0, solid: true, albedo: 0.4, reflectivity: 0.3, brightness: 1.0 }),
-  [Material.PhoenixFeather]: def(84, "Phoenix Feather", [0.95, 0.5, 0.15, 0.9], { gravity: 0.3, gravityDir: 1, density: 0.3, solid: true, flammable: true, burnTime: 200, albedo: 0.4, brightness: 1.4 }),
-  [Material.UnicornHorn]: def(85, "Unicorn Horn", [0.95, 0.9, 1.0, 1.0], { gravity: 1, gravityDir: 1, density: 1.8, solid: true, albedo: 0.5, reflectivity: 0.5, brightness: 1.5 }),
-  [Material.MandrakeRoot]: def(86, "Mandrake Root", [0.5, 0.4, 0.25, 1.0], { gravity: 1, gravityDir: 1, density: 1.3, solid: true, albedo: 0.4, brightness: 0.7 }),
-  [Material.SpiderSilk]: def(87, "Spider Silk", [0.9, 0.9, 0.85, 0.8], { gravity: 0.2, gravityDir: 1, density: 0.2, solid: true, albedo: 0.4, reflectivity: 0.2, brightness: 0.9 }),
-  [Material.GraveDust]: def(88, "Grave Dust", [0.3, 0.28, 0.25, 1.0], { gravity: 1, gravityDir: 1, density: 1.8, solid: true, albedo: 0.3, brightness: 0.6 }),
   [Material.StarShard]: def(89, "Star Shard", [0.7, 0.8, 1.0, 1.0], { gravity: 1, gravityDir: 1, density: 2.0, solid: true, albedo: 0.3, reflectivity: 0.7, brightness: 1.6 }),
   [Material.TimeSand]: def(90, "Time Sand", [0.4, 0.3, 0.6, 0.9], { gravity: 1, gravityDir: 1, density: 1.5, solid: true, albedo: 0.3, reflectivity: 0.4, brightness: 1.2 }),
 

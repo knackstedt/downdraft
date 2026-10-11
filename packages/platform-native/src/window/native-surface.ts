@@ -251,6 +251,13 @@ export class NativeCanvasContext {
     return null;
   }
 
+  /** The frame's already-acquired surface texture, without triggering an
+   *  acquire — lets overlay passes (UI composites) join an in-flight frame
+   *  instead of starting one. See RenderSurfaceContext.peekCurrentTexture. */
+  peekCurrentTexture(): WgpuTexture | null {
+    return this.currentTexture;
+  }
+
   // ── Pre-present hooks ──
   // One-shot callbacks fired inside present(), while the surface texture is
   // still acquired-and-unpresented — the ONLY point where reading the

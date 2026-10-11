@@ -39,7 +39,8 @@ import {
     SDL_EVENT_TOUCH,
     SDL_EVENT_VSYNC,
     SDL_EVENT_WHEEL,
-    sdlButtonsToDom
+    sdlButtonsToDom,
+    sdlExt
 } from "./sdl-ffi";
 
 // Lazily bound — wgpu-device.ts pulls the whole JS shim graph (encoder,
@@ -79,6 +80,14 @@ export interface NativeWindowConfig {
    *  restarts while the user is typing elsewhere). WMs may still focus the
    *  window per their own policy; this only controls whether WE ask. */
   focused?: boolean;
+  /** Desktop-entry identity (Linux): applied as the Wayland app_id and both
+   *  X11 WM_CLASS parts so the WM matches the window to <appId>.desktop's
+   *  icon. Pass the packaged app's desktop id, e.g. "com.example.game".
+   *  No-op on other platforms and on libs predating the symbol. */
+  appId?: string;
+  /** Path to an image decoded as the window icon (_NET_WM_ICON on X11,
+   *  taskbar icon on Windows; Wayland resolves icons via appId instead). */
+  iconPath?: string;
 }
 
 type RAFCallback = (time: number) => void;
@@ -240,7 +249,16 @@ export class NativeWindow extends MiniEventTarget {
 
   constructor(config: NativeWindowConfig) {
     super();
-    // 1. Create SDL2 window
+    // 1. Create SDL2 window — identity/icon must land before create (the
+    // winit attrs bake them in); env-based DD_APP_ID/DD_APP_ICON covers
+    // launcher-exported env, these cover runtimes whose process.env writes
+    // never reach the dlopen'd lib's environ (Bun).
+    if (config.appId || config.iconPath) {
+      try {
+        if (config.appId) sdlExt.sdl_shim_set_app_name?.(config.appId, config.appId);
+        if (config.iconPath) sdlExt.sdl_shim_set_window_icon_file?.(config.iconPath);
+      } catch { /* older lib without the symbols — identity just doesn't apply */ }
+    }
     const result = sdl.sdl_shim_create_window(config.title, config.width, config.height);
     if (result !== 0) {
       throw new Error(`Failed to create SDL2 window (error ${result})`);

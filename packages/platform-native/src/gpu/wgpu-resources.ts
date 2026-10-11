@@ -147,11 +147,12 @@ export class WgpuTexture {
   readonly dimension: GPUTextureDimension;
   readonly usage: number;
   label = "";
-  /** Set by encoder ops that write to this texture (render attachment with
-   *  storeOp=store, copy destination). Surface contexts use it to skip
-   *  presenting acquired-but-untouched swapchain textures — presenting an
-   *  unwritten texture shows a blank frame instead of retaining the last
-   *  one, which breaks games with dirty-tracking. */
+  /** Set when work writing this texture is actually submitted to the queue
+   *  (queue.writeTexture/copyExternalImageToTexture mark directly; encoder
+   *  ops mark via WgpuCommandBuffer.writeTargets at submit). Surface
+   *  contexts use it to skip presenting acquired-but-untouched swapchain
+   *  textures — presenting an unwritten texture shows a blank frame instead
+   *  of retaining the last one, which breaks games with dirty-tracking. */
   __ddWritten = false;
   private destroyed = false;
   /** Memoized default view. The render loop calls createView() several
@@ -431,6 +432,16 @@ export class WgpuCommandBuffer {
    * invalid buffers.
    */
   invalid = false;
+  /**
+   * Textures this buffer writes (render attachments with storeOp=store,
+   * copy destinations) — collected by the encoder during recording and
+   * transferred here at finish(). WgpuQueue.submit() flips their
+   * __ddWritten flags only once the buffer is actually submitted: marking
+   * at encode time would present an unsubmitted swapchain image (black
+   * frame) when a buffer is dropped as invalid, abandoned by a callback
+   * exception, or recorded but never submitted.
+   */
+  writeTargets?: Set<WgpuTexture>;
 
   constructor(ptr: ptr) {
     this.ptr = ptr;

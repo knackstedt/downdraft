@@ -39,6 +39,42 @@ const SDL_SHIM_SPEC: Record<string, CFunction> = {
   sdl_shim_get_clipboard: { args: ["ptr", "i32"], returns: "i32" },
 };
 
+// Symbols added after the frozen core spec. Probed via a separate dlopen of
+// the same lib (refcounted, cheap) so adapters that bind eagerly (koffi,
+// Deno.dlopen) don't fail the whole sdl load when the .so predates them.
+const SDL_EXT_SPEC: Record<string, CFunction> = {
+  sdl_shim_set_app_name: { args: ["cstring", "cstring"], returns: "void" },
+  sdl_shim_set_window_icon_file: { args: ["cstring"], returns: "i32" },
+};
+
+let _ext: Partial<SdlExtSymbols> | null = null;
+
+function loadSdlExt(): Partial<SdlExtSymbols> {
+  if (_ext) return _ext;
+  try {
+    const libPath = process.env.SDL_SHIM_PATH
+      ? resolveShimLibrary("sdl_shim", "SDL_SHIM_PATH")
+      : resolvePlatformLibrary();
+    const { symbols } = dlopen(libPath, SDL_EXT_SPEC);
+    _ext = symbols as unknown as Partial<SdlExtSymbols>;
+  } catch {
+    _ext = {};
+  }
+  return _ext;
+}
+
+/** Optional window-identity symbols — absent on libs predating them. */
+export const sdlExt: Partial<SdlExtSymbols> = new Proxy({} as Partial<SdlExtSymbols>, {
+  get(_target, prop: string) {
+    return (loadSdlExt() as any)[prop];
+  },
+});
+
+export interface SdlExtSymbols {
+  sdl_shim_set_app_name: (general: string, instance: string) => void;
+  sdl_shim_set_window_icon_file: (path: string) => number;
+}
+
 let _sdl: SdlShimSymbols | null = null;
 
 function loadSdl(): SdlShimSymbols {

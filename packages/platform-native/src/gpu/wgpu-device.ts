@@ -1034,7 +1034,18 @@ export class WgpuQueue {
     }
     wgpu.wgpu_shim_queue_submit(this.ptr, ptrs as unknown as ptr, list.length);
     // Command buffers are single-use — release the native handles now.
-    for (const cb of list) cb.dispose();
+    // Flip __ddWritten on the buffers' write targets here, at submit time:
+    // recording the command only expressed intent — a buffer dropped above
+    // (invalid) or never submitted must not mark a texture as written, or
+    // the surface presents an unsubmitted swapchain image (black frame).
+    for (const cb of list) {
+      const targets = cb.writeTargets;
+      if (targets) {
+        for (const t of targets) t.__ddWritten = true;
+        cb.writeTargets = undefined;
+      }
+      cb.dispose();
+    }
   }
 
   onSubmittedWorkDone(): Promise<undefined> {

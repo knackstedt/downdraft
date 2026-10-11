@@ -1029,11 +1029,12 @@ export class GameRenderer implements CanvasResizeHandler {
       // final image (skip on GPU error to avoid cascade). This must run AFTER
       // afterFrame — 2D games (viewportCount=0) do their custom rendering in
       // the afterFrame callback, so drawing UI earlier would put it underneath
-      // their clear pass.
+      // their clear pass. The texture comes from peek: a frame the game
+      // skipped must not be started just to draw UI on a blank swapchain.
       if (!gpuError && this.device && this.context) {
         const compositors = this.uiCompositorOrder.filter((c) => c.hasContent());
         const uiCanvasView = compositors.length > 0
-          ? this.getSurfaceTexture()?.createView()
+          ? this.getFrameSurfaceTexture()?.createView()
           : undefined;
         if (uiCanvasView) {
           const uiEncoder = this.device.createCommandEncoder();
@@ -1107,6 +1108,25 @@ export class GameRenderer implements CanvasResizeHandler {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * The surface texture already acquired for the in-flight frame, or null
+   * when nothing has acquired one yet. End-of-frame overlays (the UI
+   * composite) use this so they join a frame rather than start one: on
+   * hosts with frame retention (native), acquiring here would fabricate a
+   * frame the game deliberately skipped (dirty-tracking) and present the
+   * overlay over a blank swapchain image — a full-screen flash. Falls
+   * back to acquiring on contexts without peek (DOM semantics:
+   * getCurrentTexture is idempotent within a frame and present is
+   * implicit, so there is nothing to defeat).
+   */
+  private getFrameSurfaceTexture(): GPUTexture | null {
+    const peek = (this.context as { peekCurrentTexture?: () => GPUTexture | null } | null)?.peekCurrentTexture;
+    if (typeof peek === "function") {
+      try { return peek.call(this.context) ?? null; } catch { return null; }
+    }
+    return this.getSurfaceTexture();
   }
 
   private renderViewport(viewportIdx: number, dt: number, offscreen: OffscreenMode | null): GPUCommandBuffer | null {
@@ -1382,7 +1402,7 @@ export class GameRenderer implements CanvasResizeHandler {
   protected renderScreenUiCompositors(): void {
     const compositors = this.uiCompositorOrder.filter((c) => c.hasContent());
     if (compositors.length === 0 || !this.device || !this.context) return;
-    const canvasView = this.getSurfaceTexture()?.createView();
+    const canvasView = this.getFrameSurfaceTexture()?.createView();
     if (!canvasView) return;
     const uiEncoder = this.device.createCommandEncoder();
     const uiPass = uiEncoder.beginRenderPass({

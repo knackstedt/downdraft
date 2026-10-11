@@ -655,8 +655,13 @@ if (runtime === "bun") {
     `# ${productName} — ${runtime} runtime launcher (package-desktop.mjs)\n` +
     `SELF="$(readlink -f "$0" 2>/dev/null || realpath "$0" 2>/dev/null || echo "$0")"\n` +
     `DIR="$(dirname "$SELF")"\n` +
+    `export DD_APP_ID="${appId}"\n` +
+    (iconPath ? `export DD_APP_ICON="$DIR/icon.png"\n` : "") +
     `exec "$DIR/${runtime}" ${rtArgs} "$DIR/bundle/index.js" "$@"\n`);
   chmodSync(join(appdir, exeName), 0o755);
+  // Staged at appdir root so the launcher's DD_APP_ICON resolves for all
+  // formats (deb installs appdir to /usr/lib, AppImage cpSync's it wholesale).
+  if (iconPath) copyFileSync(iconPath, join(appdir, "icon.png"));
 
   // Engine cdylibs (bun's path stages these inside package-native).
   await stageEngineLibs(nativeDir);
@@ -721,6 +726,7 @@ function desktopFile(iconName = exeName) {
     `Comment=${synopsis}\n` +
     `Exec=${exeName}\n` +
     `Icon=${iconName}\n` +
+    `StartupWMClass=${appId}\n` +
     `Terminal=false\n` +
     `Categories=${category}\n`);
 }

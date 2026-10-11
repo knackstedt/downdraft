@@ -169,7 +169,14 @@ export function createBlitzUiNativeModule<S>(options: BlitzUiNativeOptions<S>): 
                 const device = ctx.getDevice();
                 const view = ensureTexture(device);
                 const context = ctx.getSurface().getContext("webgpu");
-                const targetTex = context?.getCurrentTexture();
+                // Join the in-flight frame, never start one: on a frame the
+                // game skipped (dirty-tracking), acquiring the surface here
+                // would present the UI blit over a blank swapchain image.
+                const peek = (context as { peekCurrentTexture?: () => GPUTexture | null } | null)
+                    ?.peekCurrentTexture;
+                const targetTex = typeof peek === "function"
+                    ? peek.call(context)
+                    : context?.getCurrentTexture() ?? null;
                 const target = targetTex?.createView();
                 if (!view || !target || !targetTex) return;
 

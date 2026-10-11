@@ -211,6 +211,14 @@ struct CreateReq {
 
 #[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
 static CREATE_REQ: Mutex<Option<CreateReq>> = Mutex::new(None);
+
+/// Pending desktop identity applied to the next created window — set via
+/// sdl_shim_set_app_name / sdl_shim_set_window_icon_file because JS-side
+/// process.env writes don't reach the environ a dlopen'd lib reads (Bun
+/// materializes env only for spawned children). The pump-side
+/// DD_APP_ID / DD_APP_ICON env reads remain for launcher-exported env.
+static PENDING_APP_NAME: Mutex<Option<(String, String)>> = Mutex::new(None);
+static PENDING_ICON: Mutex<Option<winit::window::Icon>> = Mutex::new(None);
 #[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
 static LOOP_PROXY: Mutex<Option<EventLoopProxy<LoopCmd>>> = Mutex::new(None);
 
@@ -304,7 +312,7 @@ fn pump_create_window(el: &winit::event_loop::ActiveEventLoop) {
     {
         return reply(0);
     }
-    let attrs = Window::default_attributes()
+    let mut attrs = Window::default_attributes()
         .with_title(req.title)
         .with_inner_size(LogicalSize::new(req.w.max(1) as f64, req.h.max(1) as f64))
         .with_resizable(true)
@@ -313,6 +321,46 @@ fn pump_create_window(el: &winit::event_loop::ActiveEventLoop) {
         // must not steal activation. Games that want launch focus call
         // sdl_shim_focus_window; the WM may still focus per its own policy.
         .with_active(false);
+    // Desktop-entry identity. DD_APP_ID is the packaged app's desktop id
+    // (e.g. "dev.cruiser.app") — it becomes the Wayland app_id and the X11
+    // WM_CLASS general+instance so the WM can match the running window to
+    // <app-id>.desktop and show its icon. DD_APP_ICON is a path to an image
+    // decoded for the window icon (_NET_WM_ICON on X11; Wayland ignores it —
+    // icon resolution there is app_id → desktop file only).
+    #[cfg(target_os = "linux")]
+    if let Ok(id) = std::env::var("DD_APP_ID") {
+        if !id.is_empty() {
+            use winit::platform::wayland::WindowAttributesExtWayland;
+            use winit::platform::x11::WindowAttributesExtX11;
+            attrs = WindowAttributesExtX11::with_name(attrs, id.clone(), id.clone());
+            attrs = WindowAttributesExtWayland::with_name(attrs, id.clone(), id);
+        }
+    }
+    if let Ok(path) = std::env::var("DD_APP_ICON") {
+        let icon = std::fs::read(&path)
+            .ok()
+            .and_then(|b| image::load_from_memory(&b).ok())
+            .and_then(|i| {
+                let rgba = i.to_rgba8();
+                let (w, h) = rgba.dimensions();
+                winit::window::Icon::from_rgba(rgba.into_raw(), w, h).ok()
+            });
+        if let Some(icon) = icon {
+            attrs = attrs.with_window_icon(Some(icon));
+        }
+    }
+    // Explicit FFI-set identity wins over env — the JS side can only reach
+    // us this way under runtimes whose process.env writes aren't setenv.
+    #[cfg(target_os = "linux")]
+    if let Some((g, i)) = PENDING_APP_NAME.lock().unwrap().clone() {
+        use winit::platform::wayland::WindowAttributesExtWayland;
+        use winit::platform::x11::WindowAttributesExtX11;
+        attrs = WindowAttributesExtX11::with_name(attrs, g.clone(), i.clone());
+        attrs = WindowAttributesExtWayland::with_name(attrs, g, i);
+    }
+    if let Some(icon) = PENDING_ICON.lock().unwrap().clone() {
+        attrs = attrs.with_window_icon(Some(icon));
+    }
     match el.create_window(attrs) {
         Ok(w) => {
             let window = Arc::new(w);
@@ -407,6 +455,53 @@ fn cstr_title(title: *const c_char) -> String {
         unsafe { CStr::from_ptr(title) }
             .to_string_lossy()
             .into_owned()
+    }
+}
+
+/// sdl_shim_set_app_name(general, instance) — desktop-entry identity for
+/// the next created window: Wayland app_id = `general`, X11 WM_CLASS =
+/// "instance", "general". Pass the packaged app's desktop id (e.g.
+/// "dev.cruiser.app") for both so the WM matches the window to
+/// <app-id>.desktop's icon. Must be called before sdl_shim_create_window.
+#[no_mangle]
+pub extern "C" fn sdl_shim_set_app_name(general: *const c_char, instance: *const c_char) {
+    if general.is_null() || instance.is_null() {
+        return;
+    }
+    let g = unsafe { CStr::from_ptr(general) }.to_string_lossy().into_owned();
+    let i = unsafe { CStr::from_ptr(instance) }.to_string_lossy().into_owned();
+    if g.is_empty() {
+        return;
+    }
+    *PENDING_APP_NAME.lock().unwrap() = Some((g, i));
+}
+
+/// sdl_shim_set_window_icon_file(path) → 0 ok, 1 read/decode failure.
+/// Decodes an image file, applies it to the live window if one exists,
+/// and remembers it for the next create.
+#[no_mangle]
+pub extern "C" fn sdl_shim_set_window_icon_file(path: *const c_char) -> c_int {
+    if path.is_null() {
+        return 1;
+    }
+    let p = unsafe { CStr::from_ptr(path) }.to_string_lossy().into_owned();
+    let icon = std::fs::read(&p)
+        .ok()
+        .and_then(|b| image::load_from_memory(&b).ok())
+        .and_then(|i| {
+            let rgba = i.to_rgba8();
+            let (w, h) = rgba.dimensions();
+            winit::window::Icon::from_rgba(rgba.into_raw(), w, h).ok()
+        });
+    match icon {
+        Some(icon) => {
+            *PENDING_ICON.lock().unwrap() = Some(icon.clone());
+            if let Some(w) = win() {
+                w.set_window_icon(Some(icon));
+            }
+            0
+        }
+        None => 1,
     }
 }
 
