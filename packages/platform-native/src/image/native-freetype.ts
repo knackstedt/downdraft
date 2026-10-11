@@ -22,6 +22,10 @@ function findSystemFont(): string {
     // macOS / Windows fallbacks
     "/System/Library/Fonts/Helvetica.ttc",
     "C:\\Windows\\Fonts\\arial.ttf",
+    // Android
+    "/system/fonts/Roboto-Regular.ttf",
+    "/system/fonts/NotoSans-Regular.ttf",
+    "/product/fonts/Roboto-Regular.ttf",
   ];
   for (let _i = 0, _it = candidates, _n = _it.length; _i < _n; _i++) { const p = _it[_i];
     if (existsSync(p)) return p;
