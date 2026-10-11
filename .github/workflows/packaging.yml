@@ -8,8 +8,8 @@ on:
 
 # Builds the tracked packaging fixture (examples/packaging-smoke — real games
 # are separate repos and gitignored, so the fixture stands in for "a game")
-# through the full linux matrix: (dir, deb, appimage, flatpak) x (bun, node,
-# deno). Every artifact is launched headless — the fixture prints DD_SMOKE_OK
+# through the full linux matrix: (dir, deb, appimage, flatpak, rpm) x (bun,
+# node, deno). Every artifact is launched headless — the fixture prints DD_SMOKE_OK
 # from its packaged entrypoint and exits, covering worker entrypoints, asset
 # glob staging, new URL(...) asset refs, and each shipped runtime binary.
 
@@ -36,7 +36,7 @@ jobs:
       - name: Install packaging tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y flatpak flatpak-builder
+          sudo apt-get install -y flatpak flatpak-builder rpm cpio
           flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
           flatpak install --user -y flathub org.freedesktop.Platform//25.08 org.freedesktop.Sdk//25.08
 
@@ -45,10 +45,10 @@ jobs:
           set -euo pipefail
           for rt in bun node deno; do
             bun packages/cli/scripts/package-desktop.mjs \
-              --runtime=$rt --format=dir,deb,appimage,flatpak --mode=prod \
+              --runtime=$rt --format=dir,deb,appimage,flatpak,rpm --mode=prod \
               examples/packaging-smoke/src/native-entry.ts "release-smoke/$rt"
           done
-          find release-smoke -type f \( -name "*.deb" -o -name "*.AppImage" -o -name "*.flatpak" \)
+          find release-smoke -type f \( -name "*.deb" -o -name "*.AppImage" -o -name "*.flatpak" -o -name "*.rpm" \)
 
       - name: Launch dir packages (bun, node, deno)
         env:
@@ -83,6 +83,19 @@ jobs:
             echo "=== appimage/$rt"
             timeout 60 "release-smoke/$rt"/Packaging-Smoke-*-linux-$rt.AppImage | tee /tmp/appimage-$rt.log
             grep -q "DD_SMOKE_OK" /tmp/appimage-$rt.log
+          done
+
+      - name: Launch .rpm packages (extract + run)
+        env:
+          DD_PACKAGING_SMOKE: "1"
+        run: |
+          set -euo pipefail
+          for rt in bun node deno; do
+            echo "=== rpm/$rt"
+            mkdir -p "/tmp/rpm-$rt"
+            rpm2cpio "release-smoke/$rt"/packaging-smoke-*.rpm | cpio -idm --quiet -D "/tmp/rpm-$rt"
+            timeout 30 "/tmp/rpm-$rt/usr/lib/packaging-smoke/packaging-smoke" | tee "/tmp/rpm-$rt.log"
+            grep -q "DD_SMOKE_OK" "/tmp/rpm-$rt.log"
           done
 
       - name: Launch Flatpaks (install + run)
