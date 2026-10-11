@@ -37,6 +37,28 @@ static REQ: Mutex<Option<(String, u32, u32)>> = Mutex::new(None);
 /// while already resumed (the common case — Node boots after first resume).
 static PROXY: Mutex<Option<EventLoopProxy<()>>> = Mutex::new(None);
 
+/// wgpu surfaces released by the JS thread (wgpu_shim_release_surface). The
+/// real drop is marshaled onto the app thread: vkDestroySurfaceKHR destroys
+/// the ANativeWindow's BLASTBufferQueue, whose TransactionHangCallback deleter
+/// attaches the calling thread to the JVM — AttachCurrentThread aborts in
+/// art::Thread::InitStackHwm on Rust-spawned threads, but this thread is
+/// already attached.
+static PENDING_RELEASES: Mutex<Vec<usize>> = Mutex::new(Vec::new());
+
+pub(crate) fn defer_surface_release(p: usize) {
+    PENDING_RELEASES.lock().unwrap().push(p);
+    if let Some(proxy) = PROXY.lock().unwrap().as_ref() {
+        let _ = proxy.send_event(());
+    }
+}
+
+fn drain_surface_releases() {
+    let mut pending = PENDING_RELEASES.lock().unwrap();
+    for p in pending.drain(..) {
+        crate::gpu::release_surface_sync(p as *mut c_void);
+    }
+}
+
 struct AndroidPump {
     /// True between resumed() and suspended(). Window creation is only legal
     /// while resumed — a pending request waits otherwise.
@@ -94,9 +116,14 @@ impl winit::application::ApplicationHandler for AndroidPump {
 
     /// Wakeup sent by sdl_shim_create_window — if the loop is already resumed
     /// this is what actually creates the window (the request may arrive long
-    /// after the first resumed).
+    /// after the first resumed). Deferred surface releases drain here too.
     fn user_event(&mut self, el: &ActiveEventLoop, _ev: ()) {
+        drain_surface_releases();
         self.try_create_window(el);
+    }
+
+    fn about_to_wait(&mut self, _el: &ActiveEventLoop) {
+        drain_surface_releases();
     }
 
     fn window_event(

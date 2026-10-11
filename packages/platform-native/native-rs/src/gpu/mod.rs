@@ -3131,9 +3131,23 @@ pub extern "C" fn wgpu_shim_release_instance(p: Handle) {
 
 #[no_mangle]
 pub extern "C" fn wgpu_shim_release_surface(p: Handle) {
-    ffi!((), unsafe {
+    ffi!((), {
         G_SURFACE_TEXTURES.lock().unwrap().remove(&(p as usize));
         G_CONFIGURED_SURFACES.lock().unwrap().remove(&(p as usize));
-        release::<Surface>(p);
+        #[cfg(target_os = "android")]
+        crate::window::android::defer_surface_release(p as usize);
+        #[cfg(not(target_os = "android"))]
+        unsafe { release::<Surface>(p) };
     });
+}
+
+/// The real wgpu::Surface drop, invoked on the app thread by
+/// window::android::drain_surface_releases. vkDestroySurfaceKHR tears down
+/// the ANativeWindow's BLASTBufferQueue, whose TransactionHangCallback deleter
+/// calls AttachCurrentThread — ART's InitStackHwm can't locate Rust-spawned
+/// thread stacks and aborts, so the drop must run on the JVM-attached app
+/// thread rather than the node thread that issued release_surface.
+#[cfg(target_os = "android")]
+pub(crate) fn release_surface_sync(p: Handle) {
+    unsafe { release::<Surface>(p) }
 }
