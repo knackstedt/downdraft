@@ -218,14 +218,17 @@ export class VirtualCanvas extends MiniEventTarget {
   set width(v: number) {
     const changed = this._width !== v;
     this._width = v;
-    this.ctx2d = null;
+    // Reset the 2D context's bitmap+state in place — the context object
+    // identity must survive canvas resizes (DOM semantics; callers keep
+    // live references).
+    this.ctx2d?.reset(this._width, this._height);
     if (changed) this.webgpuContext.resize(this._width, this._height);
   }
   get height(): number { return this._height; }
   set height(v: number) {
     const changed = this._height !== v;
     this._height = v;
-    this.ctx2d = null;
+    this.ctx2d?.reset(this._width, this._height);
     if (changed) this.webgpuContext.resize(this._width, this._height);
   }
 
@@ -300,7 +303,7 @@ export class VirtualCanvas extends MiniEventTarget {
   resize(width: number, height: number): void {
     this._width = width;
     this._height = height;
-    this.ctx2d = null;
+    this.ctx2d?.reset(width, height);
     this.webgpuContext.resize(width, height);
     this.dispatchEvent({ type: "resize", width, height });
   }

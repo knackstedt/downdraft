@@ -164,14 +164,16 @@ export function installImagePolyfills(): void {
       get height(): number { return this._height; }
 
       // DOM semantics: assigning width/height (even the same value) clears the
-      // bitmap AND resets the drawing state (transform, globalAlpha, styles).
-      // Canvas pools that reuse scratch canvases rely on this — without it,
-      // stale globalAlpha / scale transforms leak between renders (ghosting).
+      // bitmap AND resets the drawing state (transform, globalAlpha, styles) —
+      // but the context object identity is preserved. Callers hold live
+      // references to the context, so reset() in place rather than swapping in
+      // a new NativeCanvas2D (the old approach orphaned held contexts, which
+      // kept drawing into a detached zero-size buffer).
       set width(w: number) { this._width = w; this.resetCtx(); }
       set height(h: number) { this._height = h; this.resetCtx(); }
 
       private resetCtx(): void {
-        if (this.ctx2d) this.ctx2d = new NativeCanvas2D(this._width, this._height);
+        this.ctx2d?.reset(this._width, this._height);
       }
 
       getContext(contextType: string): any {
