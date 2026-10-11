@@ -16,9 +16,7 @@ export { useSceneStore } from "./scene-store";
 export type { SceneNode, SceneTreeSnapshot, SimEntitySnapshot } from "./scene-store";
 
 // Debug overlays (generic rendering, game provides data via interfaces)
-export { DebugOverlay } from "./debug-overlay";
 export { DebugRaycast } from "./debug-raycast";
-export { LabelOverlay } from "./label-overlay";
 export { SceneSync } from "./scene-sync";
 
 // Asset utilities
@@ -26,13 +24,9 @@ export { asyncFetchArrayBuffer, bufferCache, evictThumbnailCache, findBinForGLTF
 
 // Data bridge (non-abstract, data-feeds only) & base inspector & interfaces
 export { DevToolsDataBridge } from "./data-bridge";
-export { createDoctorPanelExtension } from "./doctor-panel";
-export type { DoctorPanelOptions } from "./doctor-panel";
 export { BaseSceneInspector } from "./scene-inspector";
-export { createSimStatsPanelExtension } from "./sim-stats-panel";
-export type { SimStatsPanelOptions } from "./sim-stats-panel";
 export type {
-    GameDevToolsTab, IAssetResolver, IAssetUrlMaps, IDebugModeProvider, IDebugOverlayData, IDebugOverlayProvider, IDevToolsDataRenderer, IDevToolsOverlayToggle, IDevToolsPanelExtension, IDevToolsRenderer, IGameDevToolsExtension, IGameDevToolsProvider, ILabelEntry, ILabelProvider, IPerformanceMetricsProvider, IRaycastProvider, IRaycastResult, ISceneEntitySnapshot, ISceneSyncProvider, ISimStats, ISimStatsProvider
+    IAssetResolver, IAssetUrlMaps, IDebugModeProvider, IDebugOverlayProvider, IDevToolsDataRenderer, IDevToolsRenderer, IGameDevToolsExtension, IPerformanceMetricsProvider, IRaycastProvider, IRaycastResult, ISceneEntitySnapshot, ISceneSyncProvider, ISimStats, ISimStatsProvider
 } from "./types";
 
 // Unified DevTools API — single registration surface for plugins, games, and
@@ -74,10 +68,6 @@ export type {
 // Debug view descriptors — declarative registration of profiler overlay views
 export { BUILTIN_VIEW_DESCRIPTORS } from "./debug-view-descriptors";
 export type { BuiltinViewKind, DebugViewDescriptor } from "./debug-view-descriptors";
-
-// Material stats panel — reusable DevTools tab for the material system
-export { createMaterialStatsPanelExtension } from "./material-stats-panel";
-export type { MaterialStatsPanelOptions } from "./material-stats-panel";
 
 // Blitz devtools — docked in-window DevTools UI (F12)
 export { BlitzDevtoolsHost, createSelfHostedDevtoolsUi } from "./blitz/host";

@@ -74,4 +74,8 @@ export interface RenderSurface {
    *  concept doesn't exist; presence is the feature check. */
   requestPointerLock?(): Promise<void> | void;
   exitPointerLock?(): void;
+  /** Current pointer-lock state. Optional — read instead of the DOM's
+   *  `document.pointerLockElement` (there is no DOM on native). The surface
+   *  also dispatches a `"pointerlockchange"` event on transitions. */
+  readonly pointerLocked?: boolean;
 }

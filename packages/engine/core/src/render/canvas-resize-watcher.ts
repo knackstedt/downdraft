@@ -5,7 +5,6 @@ export interface CanvasResizeHandler {
 }
 
 export class CanvasResizeWatcher {
-  private observer: ResizeObserver | null = null;
   private dpr = 1;
   private onSurfaceResize = () => this.resize();
 
@@ -14,13 +13,7 @@ export class CanvasResizeWatcher {
     private handler: CanvasResizeHandler,
   ) {
     this.dpr = (typeof window !== "undefined" ? window.devicePixelRatio : 0) || 1;
-    // DOM hosts: element box changes fire ResizeObserver. Native surfaces
-    // aren't Elements — they push a "resize" event instead. Both paths feed
-    // the same resize() so either host drives layout updates.
-    if (typeof ResizeObserver !== "undefined") {
-      this.observer = new ResizeObserver(() => this.resize());
-      this.observer.observe(canvas as unknown as Element);
-    }
+    // Native surfaces push a "resize" event when the backing store changes.
     canvas.addEventListener("resize", this.onSurfaceResize);
     this.resize();
   }
@@ -39,8 +32,6 @@ export class CanvasResizeWatcher {
   }
 
   destroy(): void {
-    this.observer?.disconnect();
-    this.observer = null;
     this.canvas.removeEventListener("resize", this.onSurfaceResize);
   }
 }

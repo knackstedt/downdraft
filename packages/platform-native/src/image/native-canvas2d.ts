@@ -462,6 +462,13 @@ export class NativeCanvas2D {
     }
   }
 
+  createImageData(w: number, h: number): any {
+    const data = new Uint8ClampedArray(w * h * 4);
+    const ImageDataCtor = (globalThis as any).ImageData;
+    if (ImageDataCtor) return new ImageDataCtor(w, h, data);
+    return { data, width: w, height: h, colorSpace: "srgb" };
+  }
+
   getImageData(x: number, y: number, w: number, h: number): any {
     const data = new Uint8ClampedArray(w * h * 4);
     const fx = Math.floor(x);

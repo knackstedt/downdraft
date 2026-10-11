@@ -392,19 +392,18 @@ These are set automatically by `draft test`. See the "Running the smoke test" se
 
 The DevTools system has a single registration surface (`devtools` singleton from `@downdraft/engine/modules/devtools`) that auto-detects whether it's running in the main realm or a worker realm and chooses the appropriate transport:
 
-- **Main realm**: panels/feeds/commands registered directly on `window.__sceneInspector` via `DevToolsDataBridge`.
-- **Worker realm**: data feeds written to a devtools SharedArrayBuffer (zero-copy, synchronous reads); commands forwarded via IPC RPC; panel declarations synced to renderer via one-time manifest RPC.
+- **Main realm**: feeds/commands registered directly on `window.__sceneInspector` via `DevToolsDataBridge`.
+- **Worker realm**: data feeds written to a devtools SharedArrayBuffer (zero-copy, synchronous reads); commands forwarded via IPC RPC.
 
 ### Architecture
 
-- **`devtools` singleton** (`packages/engine/modules/devtools/src/api.ts`) — the unified API. Auto-detects realm. Modules import `devtools` and call `registerPanel()`, `registerDataFeed()`, `registerCommand()`, `registerSABStat()`. Same code works in both realms.
+- **`devtools` singleton** (`packages/engine/modules/devtools/src/api.ts`) — the unified API. Auto-detects realm. Modules import `devtools` and call `registerDataFeed()`, `registerCommand()`, `registerSABStat()`. Same code works in both realms.
 - **`DevToolsSABLayout`** — dedicated SAB region for JSON-serialized data feed results + direct numeric stats. Worker writes via `flushDataFeeds()` (called from sim loop); renderer reads synchronously. No IPC polling.
 - **`exposeDevToolsApi()`** (`packages/engine/modules/devtools/src/worker-expose.ts`) — wraps a worker's `expose()` API with `__devtoolsGetManifest`, `__devtoolsCallCommand`, `__devtoolsGetSAB` RPC methods.
-- **`syncWorkerManifests()`** (`packages/engine/modules/devtools/src/worker-sync.ts`) — renderer-side: fetches manifest from workers, merges panels, wires SAB data feed readers, wires command forwarders.
+- **`syncWorkerManifests()`** (`packages/engine/modules/devtools/src/worker-sync.ts`) — renderer-side: fetches manifest from workers, wires SAB data feed readers, wires command forwarders.
 - **`createDevToolsRendererAdapter()`** (`packages/engine/modules/devtools/src/renderer-adapter.ts`) — feature-detects renderer capabilities (gpuProfiler, telemetryCollector, gpuResourceTracker, gcController) and builds an `IDevToolsDataRenderer`.
 - **`createSimStatsProvider()`** (`packages/engine/modules/devtools/src/sim-stats-provider.ts`) — reusable `ISimStatsProvider` factory with 10Hz polling + pause/resume/step/speed/clear delegation. Eliminates duplicated boilerplate across sim games.
-- **`initDevTools()`** (`packages/engine/modules/devtools/src/init.ts`) — one-line wiring per game. Creates bridge, wires providers, merges global registry panels, syncs worker manifests, exposes on `window.__sceneInspector`.
-- **`createMaterialStatsPanelExtension()`** (`packages/engine/modules/devtools/src/material-stats-panel.ts`) — reusable "Materials" tab for any game using the unified material system.
+- **`initDevTools()`** (`packages/engine/modules/devtools/src/init.ts`) — one-line wiring per game. Creates bridge, wires providers, merges global feed/command registrations, syncs worker manifests, exposes on `window.__sceneInspector`.
 
 ### Module integration
 
@@ -413,30 +412,21 @@ Both `ModuleContext` (sim) and `RendererModuleContext` (renderer) have a `devtoo
 ```ts
 // In a renderer module
 register(ctx: RendererModuleContext) {
-  ctx.devtools.registerPanel({ id: "physics", tabLabel: "Physics", ... });
   ctx.devtools.registerDataFeed("getPhysicsStats", () => ({ bodyCount: ... }));
 }
 
 // In a sim module (worker realm)
 register(ctx: ModuleContext) {
-  ctx.devtools.registerPanel({ id: "wildlife", tabLabel: "Wildlife", ... });
   ctx.devtools.registerDataFeed("getWildlifeStats", () => ({ count: ... }));
   ctx.devtools.registerCommand("cullWildlife", (max: number) => { ... });
 }
 ```
 
-The host injects the `devtools` singleton via `ModuleHost.setDevToolsAPI()` / `RendererModuleHost.setDevToolsAPI()`. If not set, a no-op stub is used (modules that call `ctx.devtools.registerPanel()` silently no-op).
+The host injects the `devtools` singleton via `ModuleHost.setDevToolsAPI()` / `RendererModuleHost.setDevToolsAPI()`. If not set, a no-op stub is used (modules that call `ctx.devtools.register*()` silently no-op).
 
 ### Deterministic mode
 
 `DOWNDRAFT_DETERMINISTIC=1` exposes `downdraft.deterministic` on the bridge; bootstrap reads it for autosave/render-loop behavior. Devtools is unaffected by default — `autoShow` is already opt-in (default false) and F12 still toggles. Games that want the dock fully off in tests can set `devtools.ui: "none"` or `toggleKey: null` when `ctx.deterministic` is true.
-
-### Panel order convention
-
-- `0–19`: core devtools tabs (Scene, Import, Perf, GC, Material, Render Graph)
-- `20–50`: renderer-module tabs (Physics, Water, Audio, Particles)
-- `50–80`: sim-module/worker tabs (Wildlife, Buoyancy, Collision, Sim Stats)
-- `100+`: game-declared tabs (Debug Info, Boat Layout, World)
 
 ## Unified Material System
 
@@ -1229,12 +1219,12 @@ A native platform layer providing direct GPU rendering via a single Rust cdylib 
 ### Architecture
 
 - **GPU**: the `wgpu` crate accessed through `wgpu_shim_*` exports (`native-rs/src/gpu/`) that flatten complex WebGPU descriptors into FFI-friendly functions — same ABI the old C shim exposed. The TypeScript wrapper (`src/gpu/wgpu-wrapper.ts`) implements the standard WebGPU JS API (`GPU`, `GPUAdapter`, `GPUDevice`, `GPUQueue`, etc.) on top of the FFI calls. `installGPU()` sets `globalThis.navigator.gpu` so the engine's `GPUDeviceManager` works unchanged.
-- **Window**: `winit` for window creation, input polling, and surface handles (`native-rs/src/window/`, exported as `sdl_shim_*` for ABI compat). The `NativeWindow` class runs the event loop, translates events to DOM-compatible events, and provides `requestAnimationFrame`. `NativeSurface` implements the `HTMLCanvasElement` / `GPUCanvasContext` interface. After each rAF dispatch the window auto-presents via `queueMicrotask` (DOM end-of-frame semantics), so bespoke render loops that never call `context.present()` still present — `present()` itself skips frames that acquired nothing or acquired-but-never-wrote (`__ddWritten`).
+- **Window**: `winit` for window creation, input polling, and surface handles (`native-rs/src/window/`, exported as `sdl_shim_*` for ABI compat). The `NativeWindow` class runs the event loop, translates events to DOM-compatible events, and provides `requestAnimationFrame`. `NativeSurface` implements the `RenderSurface` contract (`core/platform/render-surface.ts`) plus a `GPUCanvasContext`-shaped `getContext("webgpu")`. After each rAF dispatch the window auto-presents via `queueMicrotask` (DOM end-of-frame semantics), so bespoke render loops that never call `context.present()` still present — `present()` itself skips frames that acquired nothing or acquired-but-never-wrote (`__ddWritten`).
 - **Image decoding**: the `image` crate (`native-rs/src/image.rs`, `image_shim_*` exports) replaces `createImageBitmap`. `installImagePolyfills()` sets `globalThis.createImageBitmap`, `ImageBitmap`, `OffscreenCanvas`, and `ImageData`.
 - **WGSL validation**: `dd_wgsl_validate` runs naga (wgpu's own frontend + validator) in-process for build-time shader checks — used by `wgslValidatePlugin` and `bun-preload.ts`. No external tint binary.
 - **Asset discovery**: `nativeGlob()` replaces `import.meta.glob` with filesystem-based globbing.
 - **Screenshot**: `captureScreenshot()` copies a render target to a buffer, reads back pixels, and encodes a PNG (acceptance mechanism for native rendering).
-- **Native host**: `createNativeHost()` ties everything together — installs all polyfills, creates the window, gets the GPU device, configures the surface, starts the event loop, and provides DOM polyfills (`document`, `window`).
+- **Native host**: `createNativeHost()` ties everything together — installs all polyfills, creates the window, gets the GPU device, configures the surface, starts the event loop, and installs the browser-global shims (`window`, storage, `Worker`, UI-event constructors, blob/fetch). There is **no** `document` global — `RenderSurface` is the surface abstraction.
 
 ### Key files
 
@@ -1252,10 +1242,10 @@ A native platform layer providing direct GPU rendering via a single Rust cdylib 
 - `packages/platform-native/src/gpu/wgpu-encoder.ts` — command encoder + render/compute pass encoders
 - `packages/platform-native/src/gpu/install.ts` — installs navigator.gpu
 - `packages/platform-native/src/dom/mini-event-target.ts` — shared EventTarget-compatible listener store
-- `packages/platform-native/src/dom/dom-polyfills.ts` — document/window/Worker/storage polyfills
+- `packages/platform-native/src/dom/dom-polyfills.ts` — window/Worker/storage/event polyfills (no `document` — removed; `RenderSurface` is the surface contract)
 - `packages/platform-native/src/window/sdl-ffi.ts` — FFI bindings to the sdl_shim_* exports (lazy dlopen)
 - `packages/platform-native/src/window/native-window.ts` — NativeWindow + event loop + rAF
-- `packages/platform-native/src/window/native-surface.ts` — NativeSurface (HTMLCanvasElement)
+- `packages/platform-native/src/window/native-surface.ts` — NativeSurface (RenderSurface impl)
 - `packages/platform-native/src/image/native-image.ts` — createImageBitmap polyfill + Image polyfill
 - `packages/platform-native/src/image/native-canvas2d.ts` — NativeCanvas2D (glyph atlas + parseColor)
 - `packages/platform-native/src/image/native-freetype.ts` — text rasterizer bindings (cosmic-text in the Rust lib)
@@ -1281,7 +1271,7 @@ Native binaries are **not committed** and consumers never compile them:
 
 `packages/engine/core/src/platform/runtime.ts` provides `isBun`, `isDevMode`, `getHostCapabilities()`, and `getNativeHost()` for feature-detecting the runtime. Engine code should use these instead of `import.meta.env.DEV` or `typeof navigator !== "undefined"`.
 
-`packages/engine/core/src/platform/render-surface.ts` defines `RenderSurface` — the host-neutral render target (WebGPU context, dims, event target, pointer-lock). `GameRenderer`/`GameContext`/`startGame` use it; `NativeSurface` and `HTMLCanvasElement` both satisfy it.
+`packages/engine/core/src/platform/render-surface.ts` defines `RenderSurface` — the host-neutral render target (WebGPU context, dims, event target, pointer-lock). `GameRenderer`/`GameContext`/`startGame` use it; `NativeSurface` satisfies it.
 
 **Shared GPU device across workers** (`@downdraft/platform-native` `gpu/`): wgpu handles are process-global — a worker can attach to the host device via `attachSharedDevice(handle, cells)` (non-owning view; worker `destroy()` never releases the native device). **Consumers must attach through `nativeHost.gpuShare.payload()`** — the `GpuShareBroker` owns THE cells set per device; calling `shareDevice()` per consumer clobbers `device.sharedState` so only the last consumer's cells get `writeDead()` on loss. Liveness propagates through the shared SAB cells — owner `pollLost`/`destroy()`/`markDeviceLost` all write them dead; workers must check `isValid()` before FFI calls (calling into a freed device is a UAF). Resource direction: worker→owner `exportGpuResource`/`exportCommandBuffer` (owner `importGpu*`/`importCommandBuffer`s into OWNING wrappers); owner→worker `borrowGpuTexture`/`borrowGpuBuffer` (worker wraps non-owningly — deferred-destroy applies, see html-ui's texBind/texAck). Ordered worker passes: `postPass` → `nativeHost.passMailbox` (`GpuPassMailbox`) → `GameRenderer` drains `"preSubmit"` into the frame batch and `"preUi"` ahead of the UI-composite submit — stale-tolerant, next-frame semantics, never rendezvous'd. `createGpuWorkerContext` is the conventional worker-side attach/detach prelude. Use for coarse subsystems (UI raster uploads, terrain bake, worker pass producers) — fine-grained per-pass splits lose to submission overhead, and one queue still serializes GPU work. `createDeviceStateCells` registers every cell set in a process-wide `LIVE_CELLS` set — teardown calls `retireAllSharedDevices()` (bounded detach wait) / `markAllSharedDevicesDead()` (sync kill-switch) against all of them without knowing who shared. Device loss currently means restart (`__ddRequestRestart`) — in-place worker reattachment is documented future work in `docs/site/src/content/docs/architecture/gpu-worker-reattach.md`.
 
@@ -1326,12 +1316,6 @@ Fixed: Console, Elements, Performance, GPU. Provider-driven (registered via `reg
 ### Generic snapshot + command protocol
 
 `registerProvider(panel, collect)` returns a `PanelSnapshot` (status + sections of key/value rows, tables, f32 series, lines, and controls — buttons/checkboxes/sliders). The backend pushes snapshots to the frontend; control clicks dispatch `{panel, action, payload}` commands back through `backend.dispatch` → `handleEngineCommand` (fx.* → `PostProcessStack.setEnabled`, param.* → effect params, gc → force GC, sim.* → sim worker commands). Sync providers push immediately; async collectors never block the UI frame.
-
-### Known gaps
-
-- `IDevToolsPanelExtension` HTML/CSS panel extensions (game-registered tabs) are still orphaned — neither frontend renders `getPanelExtensions()` output; engine-generic *data* still lands via snapshot providers.
-- `DebugOverlay`/`LabelOverlay` draw into `document.body` — DOM-host widgets that silently no-op on native. Re-implement as wgpu passes or Blitz panels if needed.
-- `getOverlayToggles()` has no frontend UI — toggles are `__sceneInspector` methods callable from the REPL.
 
 ### Running the native entry (tri-runtime)
 

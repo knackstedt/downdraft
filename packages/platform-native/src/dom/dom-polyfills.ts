@@ -1,11 +1,12 @@
 // ============================================================================
 // dom-polyfills.ts — browser-global polyfills for native mode
 //
-// Installs the DOM surface the engine and canvas-shaped npm libraries
-// actually use: document, window, ResizeObserver, storage, Worker, UI-event
-// constructors, and the canvas globals (HTMLCanvasElement,
-// CanvasRenderingContext2D). Extracted from native-host.ts — no GPU/window
-// logic lives here.
+// Installs the browser-shaped globals the engine and canvas-shaped npm
+// libraries actually use: window, storage, Worker, UI-event constructors,
+// blob/fetch plumbing, and performance.memory. There is deliberately NO
+// `document` — `RenderSurface` is the surface abstraction; a fake DOM tree
+// only produced silent divergence (dead overlays, no-op element stubs).
+// Extracted from native-host.ts — no GPU/window logic lives here.
 // ============================================================================
 
 import { createLogger } from "@downdraft/engine/util/logger";
@@ -13,12 +14,9 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { createRequire as nodeCreateRequire } from "node:module";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { VirtualCanvas } from "../compat/virtual-canvas-context";
-import { NativeCanvas2D } from "../image/native-image";
 import type { NativeSurface } from "../window/native-surface";
 import type { NativeWindow } from "../window/native-window";
 import { installBlobUrls, resolveBlobUrl } from "./blob-urls";
-import { MiniEventTarget } from "./mini-event-target";
 
 const log = createLogger();
 
@@ -27,145 +25,7 @@ export interface DOMPolyfillOptions {
   storagePath?: string;
 }
 
-/** Minimal HTMLElement stub — enough shape for element APIs that
- *  startGame()/devtools touch without a real DOM (classList, dataset,
- *  event listeners, child management). */
-function createStubElement(tag: string): any {
-  const children: any[] = [];
-  const classes = new Set<string>();
-  const el: any = {
-    tagName: tag.toUpperCase(),
-    nodeName: tag.toUpperCase(),
-    nodeType: 1,
-    style: {},
-    dataset: {},
-    children,
-    childNodes: children,
-    classList: {
-      add: (...c: string[]) => c.forEach((x) => classes.add(x)),
-      remove: (...c: string[]) => c.forEach((x) => classes.delete(x)),
-      contains: (c: string) => classes.has(c),
-      toggle: (c: string) => (classes.has(c) ? (classes.delete(c), false) : (classes.add(c), true)),
-    },
-    setAttribute: (k: string, v: string) => { if (k === "id") el.id = v; },
-    getAttribute: () => null,
-    appendChild: (n: any) => { children.push(n); return n; },
-    removeChild: (n: any) => { const i = children.indexOf(n); if (i >= 0) children.splice(i, 1); return n; },
-    replaceChildren: (...nodes: any[]) => { children.length = 0; children.push(...nodes); },
-    insertBefore: (n: any) => { children.push(n); return n; },
-    remove: () => {},
-    contains: () => false,
-    querySelector: () => null,
-    querySelectorAll: () => [],
-    addEventListener: () => {},
-    removeEventListener: () => {},
-    dispatchEvent: () => true,
-    focus: () => {},
-    blur: () => {},
-    click: () => {},
-    getBoundingClientRect: () => ({ left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0, x: 0, y: 0 }),
-    clientWidth: 0,
-    clientHeight: 0,
-    innerHTML: "",
-    textContent: "",
-    id: "",
-  };
-  return el;
-}
-
 export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface, opts: DOMPolyfillOptions = {}): void {
-  // document polyfill
-  if (typeof (globalThis as any).document === "undefined") {
-    // This document is a *compat facade* for canvas-shaped and DOM-probing
-    // consumers — NOT a DOM compositor. It deliberately has no surface
-    // mapping, no overlay stubs, and no elementFromPoint: the live renderer
-    // reaches the render surface via getSurface()/ctx.surface, and input is
-    // dispatched on the surface directly. Code that still queries for
-    // "canvas" / "#game-canvas" / overlay divs gets null — that's the signal
-    // to migrate, not a thing to polyfill.
-    //
-    // Elements appended to document.body — lets `#id` / `tag#id` selectors
-    // find game-created elements (e.g. a game's offscreen helper canvas).
-    const bodyChildren = new Set<any>();
-    const matchIdSelector = (sel: string): any => {
-      const m = sel.match(/^(?:([a-zA-Z][\w-]*)?)#([\w-]+)$/);
-      if (!m) return undefined;
-      const [, tag, id] = m;
-      for (const el of bodyChildren.values()) {
-        if (el?.id === id && (!tag || el.tagName?.toLowerCase() === tag.toLowerCase())) return el;
-      }
-      return undefined;
-    };
-
-    const doc = {
-      createElement: (tag: string) => {
-        if (tag === "canvas") {
-          // Libraries call document.createElement("canvas") to get a canvas
-          // whose getContext("webgpu") returns a GPUCanvasContext. Return a
-          // VirtualCanvas: its webgpu context is backed by a dedicated
-          // GPUTexture (not the swapchain) so a second renderer can draw into
-          // a texture the game composites; its 2d context is FreeType-backed
-          // for text rasterization.
-          return new VirtualCanvas(surface.width, surface.height);
-        }
-        return createStubElement(tag);
-      },
-      getElementById: (id: string) => {
-        const found = matchIdSelector(`#${id}`);
-        return found === undefined ? null : found;
-      },
-      querySelector: (selector: string) => {
-        const byId = matchIdSelector(selector);
-        if (byId !== undefined) return byId;
-        return null;
-      },
-      querySelectorAll: (selector: string) => {
-        const byId = matchIdSelector(selector);
-        if (byId !== undefined && byId !== null) return [byId];
-        // Stylesheets and everything else: no real DOM → empty.
-        return [];
-      },
-      // Document-level events (pointerlockchange, etc.) live on a shared
-      // MiniEventTarget that NativeSurface can dispatch to directly.
-      __events: new MiniEventTarget(),
-      addEventListener: (type: string, listener: any) => {
-        (doc as any).__events.addEventListener(type, listener);
-        // Also forward to the window for events that the window handles (keydown, etc.)
-        window.addEventListener(type, listener);
-      },
-      removeEventListener: (type: string, listener: any) => {
-        (doc as any).__events.removeEventListener(type, listener);
-        window.removeEventListener(type, listener);
-      },
-      body: {
-        appendChild: (n: any) => { bodyChildren.add(n); return n; },
-        removeChild: (n: any) => { bodyChildren.delete(n); return n; },
-        contains: (n: any) => bodyChildren.has(n),
-        get children() { return [...bodyChildren]; },
-      },
-      pointerLockElement: null as any,
-      exitPointerLock: () => surface.exitPointerLock(),
-    };
-    (globalThis as any).document = doc;
-
-    // ── Browser global constructors ──
-    // Libraries feature-probe these globals (instanceof / typeof checks).
-    if (typeof (globalThis as any).HTMLCanvasElement === "undefined") {
-      // VirtualCanvas should satisfy `instanceof HTMLCanvasElement`.
-      // Extend MiniEventTarget so the prototype chain
-      // (VirtualCanvas → HTMLCanvasElement → MiniEventTarget) preserves
-      // addEventListener/removeEventListener/dispatchEvent.
-      class HTMLCanvasElement extends MiniEventTarget {}
-      (globalThis as any).HTMLCanvasElement = HTMLCanvasElement;
-      try {
-        Object.setPrototypeOf(VirtualCanvas.prototype, HTMLCanvasElement.prototype);
-      } catch { /* ignore */ }
-    }
-    if (typeof (globalThis as any).CanvasRenderingContext2D === "undefined") {
-      (globalThis as any).CanvasRenderingContext2D = NativeCanvas2D;
-    }
-  }
-
   // window polyfill
   const reload = () => {
     // Browser callers use reload() as the everything-is-broken escape
@@ -245,75 +105,6 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
     ]);
     defineEvent("InputEvent", ["data", "inputType", "isComposing"]);
     defineEvent("FocusEvent", ["relatedTarget"]);
-  }
-
-  // FileReader — async Blob reader with onload/onerror/onloadend callbacks.
-  if (typeof (globalThis as any).FileReader === "undefined") {
-    (globalThis as any).FileReader = class FileReader {
-      result: string | ArrayBuffer | null = null;
-      error: Error | null = null;
-      readyState = 0; // EMPTY
-      onload: ((ev: any) => void) | null = null;
-      onerror: ((ev: any) => void) | null = null;
-      onloadend: ((ev: any) => void) | null = null;
-      private listeners = new Map<string, Set<(ev: any) => void>>();
-      addEventListener(type: string, fn: (ev: any) => void) {
-        if (!this.listeners.has(type)) this.listeners.set(type, new Set());
-        this.listeners.get(type)!.add(fn);
-      }
-      removeEventListener(type: string, fn: (ev: any) => void) {
-        this.listeners.get(type)?.delete(fn);
-      }
-      private emit(type: string) {
-        const ev = { type, target: this };
-        (this.listeners.get(type) ?? []).forEach((fn) => { fn(ev);; });
-      }
-      private read(p: Promise<string | ArrayBuffer>) {
-        this.readyState = 1; // LOADING
-        p.then((r) => {
-          this.result = r;
-          this.readyState = 2; // DONE
-          this.onload?.({ target: this }); this.emit("load");
-          this.onloadend?.({ target: this }); this.emit("loadend");
-        }).catch((e) => {
-          this.error = e;
-          this.readyState = 2;
-          this.onerror?.({ target: this }); this.emit("error");
-          this.onloadend?.({ target: this }); this.emit("loadend");
-        });
-      }
-      readAsText(blob: Blob) { this.read(blob.text()); }
-      readAsArrayBuffer(blob: Blob) { this.read(blob.arrayBuffer()); }
-      readAsDataURL(blob: Blob) {
-        this.read(blob.arrayBuffer().then((buf) =>
-          `data:${blob.type || "application/octet-stream"};base64,${Buffer.from(buf).toString("base64")}`));
-      }
-      abort() { /* no-op — reads are already async/atomic */ }
-    };
-  }
-
-  // No document.elementFromPoint — native input dispatch targets the
-  // RenderSurface directly; there is no DOM tree to hit-test.
-
-  // ResizeObserver polyfill — calls the callback once on observe()
-  if (typeof (globalThis as any).ResizeObserver === "undefined") {
-    (globalThis as any).ResizeObserver = class ResizeObserver {
-      private callback: (entries: any[]) => void;
-      constructor(callback: (entries: any[]) => void) {
-        this.callback = callback;
-      }
-      observe(_target: any) {
-        // Fire once immediately with the current size
-        setTimeout(() => {
-          this.callback([{
-            contentRect: { width: surface.width, height: surface.height, x: 0, y: 0, top: 0, left: 0, right: 0, bottom: 0 },
-            target: _target,
-          }]);
-        }, 0);
-      }
-      unobserve() {}
-      disconnect() {}
-    };
   }
 
   // performance.memory — Chrome-only API the profiling bridge reads for the
@@ -550,5 +341,5 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
     };
   }
 
-  log.debug("platform-native", "DOM polyfills installed (document, window, ResizeObserver, localStorage, etc.)");
+  log.debug("platform-native", "DOM polyfills installed (window, storage, Worker, blob/fetch, UI events)");
 }

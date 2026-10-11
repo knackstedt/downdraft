@@ -14,12 +14,10 @@ bun add @downdraft/engine/modules/devtools
 - `BaseSceneInspector`
 - `DEVTOOLS_REALM`
 - `DEVTOOLS_SAB_MAX_FEEDS`
-- `DebugOverlay`
 - `DebugRaycast`
 - `DevToolsDataBridge`
 - `GridRenderer`
 - `HeightRulerRenderer`
-- `LabelOverlay`
-- …and 29 more
+- …and 24 more
 
 See the [Downdraft engine repository](https://github.com/knackstedt/downdraft) for architecture docs and examples.

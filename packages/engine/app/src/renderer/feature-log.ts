@@ -86,19 +86,11 @@ export function collectRendererFeatureLog(opts: RendererFeatureLogOptions): Feat
     if (nav?.deviceMemory) data.mem = `${nav.deviceMemory}G`;
   } catch { /* navigator unavailable */ }
 
-  // --- SharedArrayBuffer + crossOriginIsolated (browser isolation only —
-  // there is no origin model on the native host) ---
+  // --- SharedArrayBuffer ---
   try {
     data.sab = typeof SharedArrayBuffer !== "undefined" ? 1 : 0;
   } catch {
     data.sab = 0;
-  }
-  if (getHostCapabilities().hasDom) {
-    try {
-      data.coi = (self as any).crossOriginIsolated ? 1 : 0;
-    } catch {
-      data.coi = 0;
-    }
   }
 
   // --- Worker load status (best-effort; na = not checked) ---

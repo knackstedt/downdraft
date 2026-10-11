@@ -79,9 +79,9 @@ export class InputManager {
         }
       }) as EventListener);
 
-      add(document, "pointerlockchange", (() => {
+      add(this.canvas, "pointerlockchange", (() => {
         const wasLocked = this.pointerLocked;
-        this.pointerLocked = (document.pointerLockElement as unknown) === this.canvas;
+        this.pointerLocked = this.canvas.pointerLocked === true;
         if (this.pointerLocked) {
           this.pointerLockRetryCount = 0;
           if (this.pointerLockRetryTimer) {
@@ -97,7 +97,7 @@ export class InputManager {
         }
       }) as EventListener);
 
-      add(document, "pointerlockerror", (() => {
+      add(this.canvas, "pointerlockerror", (() => {
         // No action needed — tryLockPointer's fallback timer will retry.
       }) as EventListener);
     }
@@ -180,10 +180,10 @@ export class InputManager {
       }
     }) as EventListener, { passive: false });
 
-    // Use document-level mouseleave: a sibling canvas stacked above (e.g.
-    // sandjongg's tile canvas) would otherwise trigger the canvas's own
-    // mouseleave and break UI hover/pressed state.
-    add(document, "mouseleave", (() => {
+    // Window-level mouseleave: a second interactive canvas stacked above
+    // (e.g. sandjongg's tile canvas) would otherwise trigger the canvas's
+    // own mouseleave and break UI hover/pressed state.
+    add(window, "mouseleave", (() => {
       this.uiInputRouter?.handlePointerLeave();
     }) as EventListener);
 

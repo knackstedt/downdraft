@@ -1,7 +1,7 @@
 // ============================================================================
 // mini-event-target.ts — minimal EventTarget-compatible listener store
 //
-// Shared by NativeSurface, VirtualCanvas, NativeWindow, and the document
+// Shared by NativeSurface, VirtualCanvas, and NativeWindow.
 // polyfill — all of which previously carried their own copy of the
 // Map<string, Set<listener>> + add/remove/dispatch pattern.
 // ============================================================================
@@ -71,7 +71,7 @@ export class MiniEventTarget {
     return true;
   }
 
-  /** Direct access to a type's listener set (document polyfill pointerlockchange). */
+  /** Direct access to a type's listener set. */
   getListeners(type: string): Set<EventListener> | undefined {
     return this.listeners.get(type);
   }

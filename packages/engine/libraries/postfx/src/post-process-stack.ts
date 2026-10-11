@@ -546,8 +546,7 @@ export class PostProcessStack {
   private createGlyphAtlas(): void {
     const chars = " .:-=+*#%@";
     const gw = 16, gh = 16, cols = chars.length;
-    const canvas = document.createElement("canvas");
-    canvas.width = cols * gw; canvas.height = gh;
+    const canvas = new OffscreenCanvas(cols * gw, gh);
     const ctx = canvas.getContext("2d")!;
     ctx.fillStyle = "black"; ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = "white"; ctx.font = `bold ${gh - 2}px monospace`;

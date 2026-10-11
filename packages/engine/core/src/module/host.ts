@@ -47,8 +47,8 @@ export class ModuleHost implements ModuleContext {
 
   /**
    * Inject the DevTools API. Called by the game bootstrap after
-   * `initDevTools()` so plugins can self-register debug panels via
-   * `ctx.devtools.registerPanel(...)` during their `register()` lifecycle.
+   * `initDevTools()` so plugins can self-register data feeds via
+   * `ctx.devtools.registerDataFeed(...)` during their `register()` lifecycle.
    */
   setDevToolsAPI(api: ModuleDevToolsAPI): void {
     this._devtools = api;
@@ -56,7 +56,7 @@ export class ModuleHost implements ModuleContext {
 
   get devtools(): ModuleDevToolsAPI {
     // Return the injected API, or a no-op stub if not set (so plugins that
-    // call ctx.devtools.registerPanel() don't crash if devtools isn't wired).
+    // call ctx.devtools.register*() don't crash if devtools isn't wired).
     return this._devtools ?? NoopDevToolsAPI;
   }
 
@@ -488,10 +488,7 @@ export class ModuleHost implements ModuleContext {
 }
 
 // No-op DevTools API stub — used when setDevToolsAPI() hasn't been called.
-// Plugins that call ctx.devtools.registerPanel() will silently no-op.
 const NoopDevToolsAPI: ModuleDevToolsAPI = {
-  registerPanel: () => {},
-  registerOverlayToggle: () => {},
   registerDataFeed: () => {},
   registerCommand: () => {},
   registerSABStat: () => {},

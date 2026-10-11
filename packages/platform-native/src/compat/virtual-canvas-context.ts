@@ -2,11 +2,12 @@
 // compat/virtual-canvas-context.ts — texture-backed GPUCanvasContext for
 // canvas-shaped library consumers
 //
-// COMPAT LAYER: this file exists to serve canvas-shaped consumers (anything
-// that calls document.createElement("canvas") / new OffscreenCanvas) — it is
-// NOT the render surface abstraction. The game-facing surface is
-// `RenderSurface`/`NativeSurface`; nothing outside this canvas-compat path
-// should construct a VirtualCanvas.
+// COMPAT LAYER: this file exists to serve canvas-shaped consumers that need
+// a *second* texture-backed webgpu context (e.g. test-bed renderers that
+// composite a dedicated GPUTexture into the main frame). It is NOT the
+// render surface abstraction — the game-facing surface is
+// `RenderSurface`/`NativeSurface`; 2d-only consumers should use
+// `new OffscreenCanvas(...)` instead.
 //
 // A WebGPU-based library calls `canvas.getContext("webgpu")` and expects a
 // GPUCanvasContext with `configure()`, `getCurrentTexture()`, and

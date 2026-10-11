@@ -401,11 +401,6 @@ export class NativeSurface extends MiniEventTarget {
     // cursor on its own. See NativeWindow.grabInput.
     const win = (globalThis as any).__nativeWindow;
     if (win?.grabInput) win.grabInput(true);
-    // Update document.pointerLockElement to point to this canvas
-    const doc = (globalThis as any).document;
-    if (doc) doc.pointerLockElement = this;
-    // Dispatch pointerlockchange on document
-    (doc as any)?.__events?.dispatchEvent({ type: "pointerlockchange" });
     this.dispatchEvent({ type: "pointerlockchange" });
   }
 
@@ -414,9 +409,6 @@ export class NativeSurface extends MiniEventTarget {
     // Release grab
     const win = (globalThis as any).__nativeWindow;
     if (win?.grabInput) win.grabInput(false);
-    const doc = (globalThis as any).document;
-    if (doc) doc.pointerLockElement = null;
-    (doc as any)?.__events?.dispatchEvent({ type: "pointerlockchange" });
     this.dispatchEvent({ type: "pointerlockchange" });
   }
 

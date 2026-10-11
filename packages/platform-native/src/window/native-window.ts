@@ -792,9 +792,8 @@ export class NativeWindow extends MiniEventTarget {
         // window) is the standard escape hatch, and a grab on an unfocused
         // window traps the pointer with no recourse. The Rust shim drops
         // the OS-level grab on its own; going through exitPointerLock here
-        // keeps JS-side state coherent (_pointerLocked,
-        // document.pointerLockElement) and fires pointerlockchange so games
-        // see the unlock. Release is permanent — browsers require
+        // keeps JS-side state coherent (_pointerLocked) and fires
+        // pointerlockchange so games see the unlock. Release is permanent — browsers require
         // re-engagement after lock loss, so the grab is NOT restored on
         // refocus (inputGrabWanted is cleared via grabInput(false)).
         if (this.surface?.pointerLocked) this.surface.exitPointerLock();

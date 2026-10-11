@@ -44,8 +44,6 @@ export abstract class BaseSceneInspector extends DevToolsDataBridge {
     return null;
   }
 
-  // getPanelExtensions() and getOverlayToggles() inherited from DevToolsDataBridge.
-
   // --- Init ---
 
   init(renderer: IDevToolsRenderer): void {
@@ -568,9 +566,7 @@ export abstract class BaseSceneInspector extends DevToolsDataBridge {
       const cosX = Math.cos(angleX), sinX = Math.sin(angleX);
 
       const THUMB_SIZE = 192;
-      const canvas = document.createElement("canvas");
-      canvas.width = THUMB_SIZE;
-      canvas.height = THUMB_SIZE;
+      const canvas = new OffscreenCanvas(THUMB_SIZE, THUMB_SIZE);
       const ctx = canvas.getContext("2d");
       if (!ctx) return null;
 
@@ -617,7 +613,7 @@ export abstract class BaseSceneInspector extends DevToolsDataBridge {
         }
       }
 
-      const dataUrl = canvas.toDataURL("image/png");
+      const dataUrl = (canvas as unknown as { toDataURL(type?: string): string }).toDataURL("image/png");
       this.evictThumbnailCache();
       this.thumbnailCache.set(path, dataUrl);
       return dataUrl;

@@ -1,6 +1,6 @@
 // ============================================================================
 // Specs for the unified DevTools API — realm detection, SAB data feeds,
-// manifest, panel/command registration.
+// manifest, command registration.
 // ============================================================================
 
 import { beforeEach, describe, expect, test } from "bun:test";
@@ -12,7 +12,6 @@ import {
     DEVTOOLS_REALM,
     DEVTOOLS_SAB_MAX_FEEDS,
 } from "./api";
-import type { IDevToolsPanelExtension } from "./types";
 
 describe("DevTools API", () => {
   beforeEach(() => {
@@ -23,26 +22,6 @@ describe("DevTools API", () => {
     expect(DEVTOOLS_REALM === "main" || DEVTOOLS_REALM === "worker").toBe(true);
     // Under bun test (no window), it should detect as worker or main depending on env
     // Just verify it doesn't crash
-  });
-
-  test("registerPanel adds to manifest", () => {
-    const panel: IDevToolsPanelExtension = {
-      id: "test-panel",
-      tabLabel: "Test",
-      html: "<div>test</div>",
-    };
-    devtools.registerPanel(panel);
-    const manifest = devtools.getManifest();
-    expect(manifest.panels.length).toBe(1);
-    expect(manifest.panels[0].id).toBe("test-panel");
-  });
-
-  test("registerPanel with same id replaces existing", () => {
-    devtools.registerPanel({ id: "p1", tabLabel: "V1", html: "" });
-    devtools.registerPanel({ id: "p1", tabLabel: "V2", html: "" });
-    const manifest = devtools.getManifest();
-    expect(manifest.panels.length).toBe(1);
-    expect(manifest.panels[0].tabLabel).toBe("V2");
   });
 
   test("registerDataFeed assigns feedIndex sequentially", () => {
@@ -90,19 +69,17 @@ describe("DevTools API", () => {
 
   test("manifest version increments on registration", () => {
     const v0 = devtools.getManifest().manifestVersion;
-    devtools.registerPanel({ id: "p", tabLabel: "P", html: "" });
+    devtools.registerCommand("bump", () => {});
     const v1 = devtools.getManifest().manifestVersion;
     expect(v1).toBeGreaterThan(v0);
   });
 
   test("clear resets all registrations", () => {
-    devtools.registerPanel({ id: "p", tabLabel: "P", html: "" });
     devtools.registerDataFeed("f", () => 1);
     devtools.registerCommand("c", () => {});
     devtools.registerSABStat("s", 0, "u32");
     devtools.clear();
     const manifest = devtools.getManifest();
-    expect(manifest.panels.length).toBe(0);
     expect(manifest.dataFeeds.length).toBe(0);
     expect(manifest.commands.length).toBe(0);
     expect(manifest.sabStats.length).toBe(0);

@@ -5,10 +5,10 @@
 //   1. Creating an IDevToolsDataRenderer adapter
 //   2. Instantiating DevToolsDataBridge (or BaseSceneInspector)
 //   3. Calling init()
-//   4. Wiring sim stats provider, panel extensions, overlay toggles, etc.
+//   4. Wiring sim stats provider, debug overlay provider, etc.
 //
-// Also merges globally-registered panels/feeds/commands from the `devtools`
-// singleton (registered by plugins via ctx.devtools.registerPanel() etc.)
+// Also merges globally-registered feeds/commands from the `devtools`
+// singleton (registered by plugins via ctx.devtools.registerDataFeed() etc.)
 // and from worker manifests (via syncWorkerManifests).
 //
 // Returns the bridge instance for games that need post-init calls
@@ -24,8 +24,6 @@ import type {
     IAssetResolver,
     IDebugModeProvider,
     IDebugOverlayProvider,
-    IDevToolsOverlayToggle,
-    IDevToolsPanelExtension,
     IDevToolsRenderer,
     IPerformanceMetricsProvider,
     ISimStatsProvider,
@@ -33,10 +31,6 @@ import type {
 import { syncWorkerManifests, type WorkerSyncEntry } from "./worker-sync";
 
 export interface InitDevToolsOptions {
-  // --- Panel extensions & toggles (game-declared) ---
-  panels?: IDevToolsPanelExtension[];
-  overlayToggles?: IDevToolsOverlayToggle[];
-
   // --- Providers (game-specific) ---
   simStatsProvider?: ISimStatsProvider & { start?: () => void; stop?: () => void };
   debugOverlayProvider?: IDebugOverlayProvider;
@@ -67,7 +61,7 @@ export interface InitDevToolsOptions {
 
 /**
  * Initialize DevTools with one call. Creates the bridge, wires all providers,
-  merges globally-registered panels/feeds/commands, syncs worker manifests,
+ * merges globally-registered feeds/commands, syncs worker manifests,
  * and exposes the API on window.__sceneInspector.
  *
  * Returns the bridge instance.
@@ -81,20 +75,7 @@ export async function initDevTools(renderer: any, options: InitDevToolsOptions =
     || !!options.bridgeClass
     || isSceneRenderer(renderer);
 
-  // 3. Register game-declared panels/toggles into the global registry
-  //    (these merge with plugin-registered ones)
-  if (options.panels) {
-    options.panels.forEach((panel) => {
-      devtools.registerPanel(panel);
-    });
-  }
-  if (options.overlayToggles) {
-    options.overlayToggles.forEach((toggle) => {
-      devtools.registerOverlayToggle(toggle);
-    });
-  }
-
-  // 4. Sync worker manifests (fetches panels/feeds/commands from sim workers)
+  // 4. Sync worker manifests (fetches feeds/commands from sim workers)
   if (options.workerHosts && options.workerHosts.length > 0) {
     await syncWorkerManifests(options.workerHosts);
   }
@@ -136,10 +117,8 @@ export async function initDevTools(renderer: any, options: InitDevToolsOptions =
     wirePerformanceMetricsProvider(bridge, options.performanceMetricsProvider);
   }
 
-  // 7. Merge globally-registered panels/toggles/feeds/commands into the bridge
-  //    The bridge's getPanelExtensions()/getOverlayToggles() already returns
-  //    game-declared ones; we augment the __sceneInspector API with
-  //    plugin-registered data feeds and commands.
+  // 7. Merge globally-registered feeds/commands/SAB stats into the bridge —
+  //    augments the __sceneInspector API with plugin-registered methods.
   mergeGlobalRegistrations(bridge);
 
   // 8. Initialize the profiling system (if enabled)
@@ -193,37 +172,15 @@ function wirePerformanceMetricsProvider(bridge: DevToolsDataBridge, provider: an
 }
 
 /**
- * Merge globally-registered panels, data feeds, and commands from the `devtools`
+ * Merge globally-registered data feeds and commands from the `devtools`
  * singleton into the bridge's __sceneInspector API.
  *
- * - Panels: merged into getPanelExtensions() (game panels + plugin panels)
  * - Data feeds: added as methods on __sceneInspector (called synchronously)
  * - Commands: added as methods on __sceneInspector (forwarded to worker or called directly)
  * - SAB stats: added as methods on __sceneInspector (read from SAB)
  */
 function mergeGlobalRegistrations(bridge: DevToolsDataBridge): void {
   const manifest = devtools.getManifest();
-
-  // Augment getPanelExtensions to merge global registry panels
-  const originalGetPanels = (bridge as any).getPanelExtensions?.bind(bridge);
-  (bridge as any).getPanelExtensions = (): IDevToolsPanelExtension[] => {
-    const gamePanels = originalGetPanels?.() ?? [];
-    // Merge: game panels take precedence on id collisions
-    const merged = new Map<string, IDevToolsPanelExtension>();
-    manifest.panels.forEach((p) => { merged.set(p.id, p);; });
-    gamePanels.forEach((p: any) => { merged.set(p.id, p);; });
-    return Array.from(merged.values()).sort((a, b) => (a.order ?? 100) - (b.order ?? 100));
-  };
-
-  // Augment getOverlayToggles to merge global registry toggles
-  const originalGetToggles = (bridge as any).getOverlayToggles?.bind(bridge);
-  (bridge as any).getOverlayToggles = (): IDevToolsOverlayToggle[] => {
-    const gameToggles = originalGetToggles?.() ?? [];
-    const merged = new Map<string, IDevToolsOverlayToggle>();
-    manifest.toggles.forEach((t) => { merged.set(t.id, t);; });
-    gameToggles.forEach((t: any) => { merged.set(t.id, t);; });
-    return Array.from(merged.values());
-  };
 
   // Add data feed methods to the __sceneInspector API
   // These are called synchronously by the panel via callInspector()

@@ -15,46 +15,13 @@
 let cachedSystemScale: number | null = null;
 
 /**
- * Detect the system/browser default font size and return a scale factor
- * relative to 16px (the browser default). Always returns >= 1.0.
- *
- * Example: if the user set their browser default font to 20px, this returns
- * 1.25. If the browser default is 16px (normal), this returns 1.0.
- *
- * Must be called on the main thread (requires `document`).
+ * Detect the system default font size and return a scale factor relative to
+ * 16px. On the native host there is no CSS engine and no system font-size
+ * preference to measure — always 1.
  */
 export function detectSystemFontScale(): number {
-  if (cachedSystemScale !== null) return cachedSystemScale;
-  // On the native host the document is a canvas-compat facade — there is no
-  // CSS engine and no getComputedStyle, so there is no "system font size"
-  // to measure. Always 1.
-  if (typeof document === "undefined" || !document.body || typeof getComputedStyle !== "function") {
-    cachedSystemScale = 1;
-    return 1;
-  }
-
-  const el = document.createElement("div");
-  el.style.fontSize = "1rem";
-  el.style.position = "absolute";
-  el.style.visibility = "hidden";
-  el.style.lineHeight = "0";
-  el.style.margin = "0";
-  el.style.padding = "0";
-  document.body.appendChild(el);
-
-  let scale = 1;
-  try {
-    const size = parseFloat(getComputedStyle(el).fontSize);
-    // 16px is the browser default. Only scale up (never down).
-    scale = size > 0 ? Math.max(1, size / 16) : 1;
-  } catch {
-    scale = 1;
-  } finally {
-    document.body.removeChild(el);
-  }
-
-  cachedSystemScale = scale;
-  return scale;
+  cachedSystemScale = 1;
+  return 1;
 }
 
 /**

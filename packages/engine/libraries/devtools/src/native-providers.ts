@@ -525,8 +525,6 @@ async function collectWorkers(ctx: EngineProviderContext): Promise<PanelSnapshot
                     kind: "kv",
                     name: `Worker manifest (v${m.manifestVersion ?? "?"})`,
                     rows: [
-                        kv("Panels", (m.panels ?? []).map((p: any) => p.id ?? p.name ?? "?").join(", ") || "(none)"),
-                        kv("Toggles", (m.toggles ?? []).map((t: any) => t.id ?? "?").join(", ") || "(none)"),
                         kv("Data feeds", (m.dataFeeds ?? []).map((f: any) => `${f.name}@${f.writeRateHz}hz`).join(", ") || "(none)"),
                         kv("Commands", (m.commands ?? []).join(", ") || "(none)"),
                     ],

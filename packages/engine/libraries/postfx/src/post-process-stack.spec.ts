@@ -5,19 +5,18 @@ const mockUsage = { UNIFORM: 0x40, COPY_DST: 0x08, VERTEX: 0x20, INDEX: 0x10, TE
 (globalThis as unknown as { GPUTextureUsage: unknown }).GPUTextureUsage = mockUsage;
 (globalThis as unknown as { GPUShaderStage: unknown }).GPUShaderStage = { FRAGMENT: 0x10, VERTEX: 0x20, COMPUTE: 0x40 };
 
-// Stub document.createElement("canvas") for the glyph atlas (runs in browser only)
-if (typeof globalThis.document === "undefined") {
-  const mockCanvas = {
-    width: 0, height: 0,
-    getContext: () => ({
-      fillStyle: "", font: "",
-      fillRect: () => {},
-      fillText: () => {},
-      getImageData: () => ({ data: new Uint8ClampedArray(4) }),
-    }),
-  };
-  (globalThis as unknown as { document: unknown }).document = {
-    createElement: () => mockCanvas,
+// Stub OffscreenCanvas for the glyph atlas (native host polyfills it)
+if (typeof globalThis.OffscreenCanvas === "undefined") {
+  (globalThis as unknown as { OffscreenCanvas: unknown }).OffscreenCanvas = class MockOffscreenCanvas {
+    width = 0; height = 0;
+    getContext() {
+      return {
+        fillStyle: "", font: "",
+        fillRect: () => {},
+        fillText: () => {},
+        getImageData: () => ({ data: new Uint8ClampedArray(4) }),
+      };
+    }
   };
 }
 

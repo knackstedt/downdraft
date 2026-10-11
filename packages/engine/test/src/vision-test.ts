@@ -251,14 +251,12 @@ export class VisionTest {
     height: number,
   ): Promise<string> {
     const data = await this.captureTexture(texture, width, height);
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
+    const canvas = new OffscreenCanvas(width, height);
     const ctx = canvas.getContext("2d")!;
     const imageData = ctx.createImageData(width, height);
     imageData.data.set(data);
     ctx.putImageData(imageData, 0, 0);
-    return canvas.toDataURL("image/png");
+    return (canvas as unknown as { toDataURL(type?: string): string }).toDataURL("image/png");
   }
 
   destroy(): void {

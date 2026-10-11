@@ -69,7 +69,9 @@ export interface IAssetResolver {
   getTextureUrl(uri: string): string | null;
 }
 
-/** Optional debug overlay toggles — games that support chunk grid / velocity arrows implement this. */
+/** Optional debug draw toggles — games with GPU-side debug overlays
+ *  (chunk grid, velocity arrows) implement this. Drives the game's own
+ *  debug rendering, not a DOM overlay. */
 export interface IDebugOverlayProvider {
   setShowChunkGrid(show: boolean): void;
   getShowChunkGrid(): boolean;
@@ -91,73 +93,7 @@ export interface IPerformanceMetricsProvider {
   getPerformanceMetrics(): any;
 }
 
-/** Game-specific tab provider — games register custom DevTools tabs via this interface. */
-export interface IGameDevToolsProvider {
-  getTabs(): GameDevToolsTab[];
-}
-
-export interface GameDevToolsTab {
-  id: string;
-  label: string;
-  onActivate(container: HTMLElement): void;
-  onDeactivate(): void;
-}
-
-/**
- * Game-specific DevTools panel extension.
- * Games declare tabs with HTML content, CSS, and a JS script that runs
- * in the DevTools panel context. The script receives DevToolsPanel helpers
- * and returns lifecycle callbacks.
- */
-export interface IDevToolsPanelExtension {
-  /** Unique id for this extension (e.g. "debug-info", "game-panel"). */
-  id: string;
-  /** Tab label shown in the tab bar. */
-  tabLabel: string;
-  /** Tab tooltip. */
-  tabTooltip?: string;
-  /** Order/priority for tab placement. Core tabs: 0-100, game tabs: 100+. Default: 100. */
-  order?: number;
-  /** __sceneInspector methods that must exist for this tab to be shown. */
-  requiredMethods?: string[];
-  /** HTML content for the panel body (inserted into a container div). */
-  html: string;
-  /** CSS to inject into the panel document. */
-  css?: string;
-  /**
-   * JS to eval in the panel context. Receives a DevToolsPanelHelpers object
-   * and returns { onActivate?, onDeactivate?, onRefresh?, onDestroy? }.
-   */
-  script?: string;
-}
-
-/**
- * Game-specific overlay toggle for the overlays dropdown menu.
- */
-export interface IDevToolsOverlayToggle {
-  /** Unique id (e.g. "chunk-grid", "vel-arrows"). */
-  id: string;
-  /** Label shown next to the checkbox. */
-  label: string;
-  /** __sceneInspector methods that must exist for this toggle to be shown. */
-  requiredMethods?: string[];
-  /**
-   * JS to eval in the panel context. Receives DevToolsPanelHelpers.
-   * Should set up a checkbox listener on #chk-{id} that calls callInspector.
-   */
-  script?: string;
-}
-
-// --- Debug Overlay Data Providers ---
-
-/** Provides entity data for the 2D debug overlay (chunk grid + velocity arrows). */
-export interface IDebugOverlayData {
-  getEntityCount(): number;
-  getEntityPosition(i: number): { x: number; y: number; z: number } | null;
-  getEntityVelocity(i: number): { x: number; y: number; z: number } | null;
-  getPlayerPosition(): { x: number; z: number } | null;
-  getChunkGridConfig(): { chunkSize: number; chunksVisible: number };
-}
+// --- Debug Raycast Providers ---
 
 /** Provides camera state for debug overlays. */
 export interface IDebugCamera {
@@ -169,8 +105,6 @@ export interface IDebugCamera {
   near: number;
   far: number;
 }
-
-// --- Debug Raycast Providers ---
 
 /** Result of a raycast against entities. */
 export interface IRaycastResult {
@@ -194,23 +128,6 @@ export interface IRaycastProvider {
     dx: number, dy: number, dz: number,
     maxDist: number,
   ): IRaycastResult | null;
-}
-
-// --- Label Overlay Providers ---
-
-/** A single label entry for the HTML label overlay. */
-export interface ILabelEntry {
-  key: string;
-  text: string;
-  color: string;
-  x: number;
-  y: number;
-  z: number;
-}
-
-/** Provides label data for the HTML label overlay. */
-export interface ILabelProvider {
-  getLabels(): ILabelEntry[];
 }
 
 // --- Scene Sync Providers ---
@@ -251,7 +168,6 @@ export interface IGameDevToolsExtension {
   debugOverlayProvider?: IDebugOverlayProvider;
   debugModeProvider?: IDebugModeProvider;
   performanceMetricsProvider?: IPerformanceMetricsProvider;
-  tabProvider?: IGameDevToolsProvider;
 }
 
 // --- Sim Stats & Controls ---
@@ -274,8 +190,7 @@ export interface ISimStats {
 
 /**
  * Provides sim stats and control methods for the DevTools "Sim" tab.
- * Any sim-driven game (2D or 3D) can implement this; the reusable
- * `createSimStatsPanelExtension()` factory renders the tab.
+ * Any sim-driven game (2D or 3D) can implement this.
  */
 export interface ISimStatsProvider {
   getSimStats(): ISimStats;

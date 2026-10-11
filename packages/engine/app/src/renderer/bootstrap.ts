@@ -111,8 +111,6 @@ export interface BootstrapDevToolsOptions {
    * Called after the renderer is initialized.
    */
   createSimStatsProvider?: (renderer: any) => any;
-  /** DevTools panels (game-specific). Can be a factory or static array. */
-  panels?: any[] | ((renderer: any) => any[]);
   /** Whether to enable scene inspector. Default: false. */
   sceneInspector?: boolean;
   /** Custom scene-inspector bridge class (extends BaseSceneInspector).
@@ -236,15 +234,11 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
     if (!devtoolsMod) return;
     const { initDevTools } = devtoolsMod;
     const simStatsProvider = opts.devtools.createSimStatsProvider?.(renderer);
-    const panels = typeof opts.devtools.panels === "function"
-      ? opts.devtools.panels(renderer)
-      : opts.devtools.panels ?? [];
     const workerHosts = typeof opts.devtools.workerHosts === "function"
       ? opts.devtools.workerHosts(renderer)
       : opts.devtools.workerHosts;
     const devtoolsBridge = await importOrDead(initDevTools(renderer, {
       simStatsProvider,
-      panels,
       sceneInspector: opts.devtools.sceneInspector,
       bridgeClass: opts.devtools.bridgeClass,
       workerHosts,

@@ -116,8 +116,8 @@ export class RendererModuleHost {
   }
 
   /**
-   * Inject the DevTools API so renderer plugins can self-register debug
-   * panels via `ctx.devtools.registerPanel(...)` during their `register()`.
+   * Inject the DevTools API so renderer plugins can self-register data
+   * feeds via `ctx.devtools.registerDataFeed(...)` during their `register()`.
    */
   setDevToolsAPI(api: ModuleDevToolsAPI): void {
     this._devtools = api;
@@ -635,8 +635,6 @@ export class RendererModuleHost {
 
 // No-op DevTools API stub — used when setDevToolsAPI() hasn't been called.
 const NoopRendererDevToolsAPI: ModuleDevToolsAPI = {
-  registerPanel: () => {},
-  registerOverlayToggle: () => {},
   registerDataFeed: () => {},
   registerCommand: () => {},
   registerSABStat: () => {},

@@ -26,7 +26,7 @@
 //   });
 // ============================================================================
 
-import { getHostCapabilities, KEY, type RenderSurface } from "@downdraft/engine";
+import { KEY, type RenderSurface } from "@downdraft/engine";
 import type { InspectableRegistry } from "@downdraft/engine/libraries/inspectable";
 import { createLogger } from "@downdraft/engine/util/logger";
 import { downdraft } from "./index";
@@ -107,14 +107,6 @@ function domKeyCodeFor(key: string): number {
 export interface StandardAutomationContext {
   /** The game render surface (layer 0). Used by capture_screenshot + dispatch_click. */
   surface: RenderSurface | (() => RenderSurface | null);
-
-  /**
-   * Extra canvases to composite between the game canvas and the DOM overlay
-   * in full-page screenshots (e.g. a 2D tile canvas). DOM hosts only —
-   * native capture returns the composited swapchain via captureFrame().
-   * Default: none.
-   */
-  extraLayers?: () => HTMLCanvasElement[];
 
   /**
    * Render one frame when the render loop is paused (deterministic mode), so
@@ -422,20 +414,13 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
         const rect = surface.getBoundingClientRect();
         const clientX = rect.left + x;
         const clientY = rect.top + y;
-        const hasDom = getHostCapabilities().hasDom;
-        // DOM hosts hit-test the topmost element (mimics a real user click
-        // through UI overlays). On native there is no DOM tree — the surface
-        // itself is the input target.
-        const target = hasDom
-          ? (document.elementFromPoint(clientX, clientY) ?? (surface as unknown as HTMLElement))
-          : (surface as unknown as EventTarget);
-        // MiniEventTarget (native event polyfill) has no capture/bubble —
-        // mirror real propagation by also dispatching on window. In a real
-        // DOM this would double-fire, so only do it under the polyfill.
-        const isNativeDom = !hasDom;
+        // There is no DOM tree — the surface itself is the input target.
+        const target = surface as unknown as EventTarget;
+        // MiniEventTarget (native event target) has no capture/bubble —
+        // mirror DOM propagation by also dispatching on window.
         const fire = (ev: Event) => {
           target.dispatchEvent(ev);
-          if (isNativeDom) (window as any).dispatchEvent?.(ev);
+          (window as any).dispatchEvent?.(ev);
         };
         if (type === "wheel") {
           const deltaX = (params.deltaX as number) ?? 0;
@@ -474,10 +459,10 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
           if (pointerType) fireOne(pointerType, true, buttons);
           fireOne(type, false, buttons);
         }
-        const targetEl = target as Partial<HTMLElement>;
+        const targetEl = target as { tagName?: string; id?: string; className?: unknown };
         return jsonResult({
           dispatched: true, x, y, type,
-          targetTag: targetEl.tagName ?? (targetEl as { id?: string }).id ?? "surface",
+          targetTag: targetEl.tagName ?? targetEl.id ?? "surface",
           targetClass: targetEl.className?.toString().slice(0, 80),
         });
       },
@@ -614,128 +599,6 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
         inputSchema: { type: "object", properties: {} },
       },
       handler: () => jsonResult(ctx.getUiState!()),
-    });
-  }
-
-  // ── get_element_bounds ──
-  if (want("get_element_bounds")) {
-    tools.push({
-      def: {
-        name: "get_element_bounds",
-        description: "Get the bounding box of a DOM element matching a CSS selector. Returns {x, y, width, height, top, left, bottom, right} or found:false.",
-        inputSchema: {
-          type: "object",
-          properties: { selector: { type: "string", description: "CSS selector" } },
-          required: ["selector"],
-        },
-      },
-      handler: (params: Record<string, unknown>) => {
-        const selector = params.selector as string;
-        try {
-          const el = document.querySelector(selector);
-          if (!el) return jsonResult({ found: false, selector });
-          const rect = el.getBoundingClientRect();
-          return jsonResult({
-            found: true, selector,
-            x: rect.x, y: rect.y, width: rect.width, height: rect.height,
-            top: rect.top, left: rect.left, bottom: rect.bottom, right: rect.right,
-          });
-        } catch (e) {
-          return errorResult(`Failed to query selector "${selector}": ${(e as Error).message}`);
-        }
-      },
-    });
-  }
-
-  // ── inspect_dom ──
-  if (want("inspect_dom")) {
-    tools.push({
-      def: {
-        name: "inspect_dom",
-        description: "Inspect the main thread's DOM for debugging CSS/layout issues. 'stylesheets' lists all <style>/<link> tags; 'element' gets details for a selector.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            action: { type: "string", enum: ["stylesheets", "element"] },
-            selector: { type: "string", description: "CSS selector (for action='element')" },
-          },
-          required: ["action"],
-        },
-      },
-      handler: (params: Record<string, unknown>) => {
-        if (!getHostCapabilities().hasDom) {
-          return errorResult("inspect_dom requires a real DOM — the native host's document is a canvas-compat facade, not a DOM tree");
-        }
-        const action = params.action as string;
-        if (action === "stylesheets") {
-          const styles = Array.from(document.querySelectorAll("style, link[rel='stylesheet']")).map((el) => {
-            const tag = el.tagName.toLowerCase();
-            if (tag === "style") {
-              const text = el.textContent ?? "";
-              return { tag, length: text.length, preview: text.slice(0, 200) };
-            }
-            return { tag, href: (el as HTMLLinkElement).href };
-          });
-          return jsonResult({ stylesheets: styles, count: styles.length });
-        }
-        if (action === "element" && params.selector) {
-          const el = document.querySelector(params.selector as string);
-          if (!el) return jsonResult({ found: false, selector: params.selector });
-          const cs = getComputedStyle(el);
-          return jsonResult({
-            found: true,
-            selector: params.selector,
-            tagName: el.tagName,
-            className: el.className,
-            id: el.id,
-            style: {
-              width: cs.width, height: cs.height,
-              maxWidth: cs.maxWidth, maxHeight: cs.maxHeight,
-              display: cs.display, position: cs.position,
-              top: cs.top, left: cs.left, overflow: cs.overflow,
-            },
-            bounds: el.getBoundingClientRect().toJSON(),
-            childCount: el.children.length,
-          });
-        }
-        return errorResult("Invalid action or missing selector");
-      },
-    });
-  }
-
-  // ── get_element_style ──
-  if (want("get_element_style")) {
-    tools.push({
-      def: {
-        name: "get_element_style",
-        description: "Get computed style of a DOM element matching a CSS selector. Pass properties[] to read specific CSS properties.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            selector: { type: "string", description: "CSS selector" },
-            properties: { type: "array", items: { type: "string" }, description: "CSS properties to read" },
-          },
-          required: ["selector"],
-        },
-      },
-      handler: (params: Record<string, unknown>) => {
-        if (!getHostCapabilities().hasDom) {
-          return errorResult("get_element_style requires a real DOM — no computed styles on the native host");
-        }
-        const selector = params.selector as string;
-        const props = (params.properties as string[]) ?? [];
-        try {
-          const el = document.querySelector(selector);
-          if (!el) return jsonResult({ found: false, selector });
-          const cs = getComputedStyle(el);
-          const result: Record<string, unknown> = { found: true, selector };
-          props.forEach((p) => { result[p] = cs.getPropertyValue(p);; });
-          result._className = el.className;
-          return jsonResult(result);
-        } catch (e) {
-          return errorResult(`Failed to query style for "${selector}": ${(e as Error).message}`);
-        }
-      },
     });
   }
 

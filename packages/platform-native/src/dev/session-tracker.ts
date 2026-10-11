@@ -483,7 +483,6 @@ export class SessionTracker {
     this.trackEventTarget(host.window);
     this.trackEventTarget(host.surface);
     this.trackEventTarget((globalThis as any).window);
-    this.trackEventTarget((globalThis as any).document);
     if (typeof (globalThis as any).addEventListener === "function") {
       this.trackEventTarget(globalThis);
     }

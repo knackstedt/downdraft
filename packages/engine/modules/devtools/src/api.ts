@@ -3,23 +3,21 @@
 // engine systems, regardless of which thread they run on.
 //
 // Realm detection determines transport:
-//   - Main realm: panels/feeds/commands registered directly on
+//   - Main realm: feeds/commands registered directly on
 //     window.__sceneInspector via DevToolsDataBridge.
-//   - Worker realm: panels/feeds/commands registered in a worker-side
-//     registry. Data feeds are written to a devtools SAB region (zero-copy,
-//     synchronous reads). Commands are forwarded via worker RPC. Panel
-//     declarations are synced to the renderer via a one-time manifest RPC.
+//   - Worker realm: feeds/commands registered in a worker-side registry.
+//     Data feeds are written to a devtools SAB region (zero-copy,
+//     synchronous reads). Commands are forwarded via worker RPC.
 //
 // Plugins import `devtools` from @downdraft/engine/modules/devtools and call
-// registerPanel/registerDataFeed/registerCommand/registerSABStat — the same
-// API works in both realms.
+// registerDataFeed/registerCommand/registerSABStat — the same API works in
+// both realms.
 // ============================================================================
 
 import { resourceToken } from "@downdraft/engine/ecs/resource";
 import { createLogger } from "@downdraft/engine/util/logger";
 import type { DebugViewDescriptor } from "./debug-view-descriptors";
 import { BUILTIN_VIEW_DESCRIPTORS } from "./debug-view-descriptors";
-import type { IDevToolsOverlayToggle, IDevToolsPanelExtension } from "./types";
 
 const log = createLogger("info");
 
@@ -56,7 +54,7 @@ export const DEVTOOLS_REALM = detectRealm();
 // synchronously. No RPC polling needed.
 //
 // Layout:
-//   [0..3]   manifestVersion: Uint32  (bumped when panels/feeds change)
+//   [0..3]   manifestVersion: Uint32  (bumped when feeds/commands change)
 //   [4..7]   feedCount: Uint32
 //   [8..]    feed entries: each is [lengthBytes: Uint32][JSON bytes...]
 //            (lengthBytes = 0 means "not yet written" / "unavailable")
@@ -124,11 +122,7 @@ export interface DevToolsAPI {
   /** Current realm ("main" or "worker"). */
   readonly realm: "main" | "worker";
 
-  // --- Panels & toggles (declarative, realm-transparent) ---
-  registerPanel(ext: IDevToolsPanelExtension): void;
-  registerOverlayToggle(toggle: IDevToolsOverlayToggle): void;
-
-  // --- Data feeds (read by panel, realm chooses transport) ---
+  // --- Data feeds (read by devtools frontends, realm chooses transport) ---
   // In main realm: fn is called directly when the panel queries __sceneInspector.
   // In worker realm: fn is called each tick (or at writeRate), result JSON-serialized
   //   to the devtools SAB. Renderer reads synchronously from SAB.
@@ -165,7 +159,7 @@ export interface DevToolsAPI {
   getViews(): DebugViewDescriptor[];
 
   // --- Manifest (renderer fetches from worker via RPC) ---
-  /** Get the full manifest: panels, toggles, data feed names, commands, SAB stats. */
+  /** Get the full manifest: data feed names, commands, SAB stats. */
   getManifest(): DevToolsManifest;
 
   // --- Worker tick hook ---
@@ -178,8 +172,6 @@ export interface DevToolsAPI {
 }
 
 export interface DevToolsManifest {
-  panels: IDevToolsPanelExtension[];
-  toggles: IDevToolsOverlayToggle[];
   dataFeeds: { name: string; feedIndex: number; writeRateHz: number }[];
   commands: string[];
   sabStats: DevToolsSABStat[];
@@ -200,8 +192,6 @@ interface RegisteredDataFeed {
 class DevToolsAPIImpl implements DevToolsAPI {
   readonly realm: "main" | "worker";
 
-  private panels = new Map<string, IDevToolsPanelExtension>();
-  private toggles = new Map<string, IDevToolsOverlayToggle>();
   private dataFeeds = new Map<string, RegisteredDataFeed>();
   private dataFeedNames: string[] = []; // ordered list for feedIndex assignment
   private commands = new Map<string, (...args: any[]) => any>();
@@ -221,16 +211,6 @@ class DevToolsAPIImpl implements DevToolsAPI {
 
   constructor(realm: "main" | "worker") {
     this.realm = realm;
-  }
-
-  registerPanel(ext: IDevToolsPanelExtension): void {
-    this.panels.set(ext.id, ext);
-    this.bumpManifest();
-  }
-
-  registerOverlayToggle(toggle: IDevToolsOverlayToggle): void {
-    this.toggles.set(toggle.id, toggle);
-    this.bumpManifest();
   }
 
   registerDataFeed(name: string, fn: () => any, writeRateHz: number = 10): void {
@@ -318,8 +298,6 @@ class DevToolsAPIImpl implements DevToolsAPI {
 
   getManifest(): DevToolsManifest {
     return {
-      panels: Array.from(this.panels.values()),
-      toggles: Array.from(this.toggles.values()),
       dataFeeds: this.dataFeedNames.map((name, i) => ({
         name,
         feedIndex: i,
@@ -414,8 +392,6 @@ class DevToolsAPIImpl implements DevToolsAPI {
   }
 
   clear(): void {
-    this.panels.clear();
-    this.toggles.clear();
     this.dataFeeds.clear();
     this.dataFeedNames = [];
     this.commands.clear();
@@ -443,7 +419,7 @@ const _devtools = new DevToolsAPIImpl(DEVTOOLS_REALM);
  * the appropriate transport for data feeds (direct call vs SAB) and
  * commands (direct call vs RPC forwarding).
  *
- * Plugins import this and call registerPanel/registerDataFeed/registerCommand.
+ * Plugins import this and call registerDataFeed/registerCommand.
  * The same code works in both realms.
  */
 export const devtools: DevToolsAPI = _devtools;

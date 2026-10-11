@@ -15,8 +15,6 @@ import { useDebugStore } from "./debug-store";
 import type {
     IDebugModeProvider,
     IDevToolsDataRenderer,
-    IDevToolsOverlayToggle,
-    IDevToolsPanelExtension,
     IPerformanceMetricsProvider,
     ISimStatsProvider,
 } from "./types";
@@ -41,16 +39,6 @@ export class DevToolsDataBridge {
 
   protected getPerformanceMetricsProvider(): IPerformanceMetricsProvider | null {
     return null;
-  }
-
-  /** Games override this to declare custom DevTools panel tabs. */
-  protected getPanelExtensions(): IDevToolsPanelExtension[] {
-    return [];
-  }
-
-  /** Games override this to declare custom overlay toggles. */
-  protected getOverlayToggles(): IDevToolsOverlayToggle[] {
-    return [];
   }
 
   /** Games override this to expose sim stats + controls (pause/step/speed/clear). */
@@ -242,10 +230,6 @@ export class DevToolsDataBridge {
       getGPUAdapterInfo: (): any => {
         return this.cachedGpuAdapterInfo;
       },
-
-      // --- Panel extensions (game-specific tabs and overlay toggles) ---
-      getPanelExtensions: (): IDevToolsPanelExtension[] => this.getPanelExtensions(),
-      getOverlayToggles: (): IDevToolsOverlayToggle[] => this.getOverlayToggles(),
 
       // --- Sim stats & controls (optional — games implement ISimStatsProvider) ---
       getSimStats: (): any => this.getSimStatsProvider()?.getSimStats() ?? null,

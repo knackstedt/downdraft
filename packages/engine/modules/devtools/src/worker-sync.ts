@@ -1,16 +1,14 @@
 // ============================================================================
 // Renderer-side worker manifest sync — fetches the devtools manifest from
-// one or more sim workers via worker RPC, then wires the worker-registered panels,
-// data feeds, and commands into the renderer-side __sceneInspector API.
+// one or more sim workers via worker RPC, then wires the worker-registered
+// data feeds and commands into the renderer-side __sceneInspector API.
 //
 // Data feeds from workers are read from the devtools SAB (zero-copy).
 // Commands are forwarded via worker RPC.
-// Panel declarations are merged into the global registry.
 // ============================================================================
 
 import { createLogger } from "@downdraft/engine/util/logger";
-import { _devtoolsImpl, devtools, type DevToolsManifest } from "./api";
-import type { IDevToolsPanelExtension } from "./types";
+import { _devtoolsImpl, type DevToolsManifest } from "./api";
 
 const log = createLogger("info");
 
@@ -78,14 +76,6 @@ async function syncOneWorker(entry: WorkerSyncEntry): Promise<void> {
       // Worker may not have a devtools SAB (older workers)
     }
   }
-
-  // Register panels (namespaced by prefix to avoid collisions)
-  manifest.panels.forEach((panel) => {
-    const namespaced: IDevToolsPanelExtension = prefix
-      ? { ...panel, id: `${prefix}:${panel.id}` }
-      : panel;
-    devtools.registerPanel(namespaced);
-  });
 
   // Register data feed readers — these read from the SAB synchronously
   // We register them as main-realm data feeds that read from the worker SAB

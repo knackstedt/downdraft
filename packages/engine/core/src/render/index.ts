@@ -111,8 +111,6 @@ export type { FrameGraphBuilder } from "./render-pass";
 export { RendererInputBusImpl } from "./renderer-input-bus";
 export { RendererModuleHost } from "./renderer-module-host";
 export type { RendererModuleHostCallbacks } from "./renderer-module-host";
-export { SabCanvasOverlay } from "./sab-canvas-overlay";
-export type { SabCanvasOverlayOptions } from "./sab-canvas-overlay";
 export { clearShaderValidationDedup, createValidatedShaderModule, createValidatedShaderModuleAsync, installShaderValidationGuard } from "./shader-validator";
 export { CSM_SHADER_CHUNK, POINT_SHADOW_SHADER_CHUNK, SPOT_SHADOW_SHADER_CHUNK } from "./shaders/shadow-chunks";
 export { SkyboxRenderer } from "./skybox";
