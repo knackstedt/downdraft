@@ -22,6 +22,14 @@ struct Uniforms {
   // Inverted-hull outline parameters (used by vs_outline / fs_outline only).
   outlineWidth: f32,
   outlineColor: vec3<f32>,
+  // Base index of this draw's bone region inside the shared skinMatrices
+  // storage buffer (group(1)). Written by ModelRenderer from the node's
+  // reserved region — lets multiple skinned models animate independently.
+  // Only read by vs_skinned.
+  boneBase: u32,
+  _padSkin0: u32,
+  _padSkin1: u32,
+  _padSkin2: u32,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -165,10 +173,11 @@ fn qrotate(q: vec4<f32>, v: vec3<f32>) -> vec3<f32> {
 // If all weights are zero (vertex has no bone assignment), return identity so
 // the vertex renders at its baked position instead of collapsing to the origin.
 fn skinMatrix(j: vec4<u32>, w: vec4<f32>) -> mat4x4<f32> {
-  let m = skinMatrices[j.x] * w.x
-        + skinMatrices[j.y] * w.y
-        + skinMatrices[j.z] * w.z
-        + skinMatrices[j.w] * w.w;
+  let base = uniforms.boneBase;
+  let m = skinMatrices[base + j.x] * w.x
+        + skinMatrices[base + j.y] * w.y
+        + skinMatrices[base + j.z] * w.z
+        + skinMatrices[base + j.w] * w.w;
   let wsum = w.x + w.y + w.z + w.w;
   if (wsum < 0.001) {
     return mat4x4<f32>(

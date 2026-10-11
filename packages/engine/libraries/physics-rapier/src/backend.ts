@@ -472,6 +472,21 @@ export class RapierPhysicsBackend implements PhysicsBackend {
     }
   }
 
+  /**
+   * Change a live realm's gravity. Updates the stored realm config (the
+   * no-lib JS fallback stepper reads it) and forwards to the lib when it
+   * supports runtime gravity (the WASM Rapier world.gravity is mutable; the
+   * native FFI lib may not implement it — callers should treat this as
+   * best-effort).
+   */
+  setRealmGravity(realmId: number, gravity: [number, number, number]): void {
+    const realm = this.realms.get(realmId);
+    if (realm) realm.config.gravity = gravity;
+    if (this.lib && this.lib.setRealmGravity) {
+      this.lib.setRealmGravity(realmId, gravity);
+    }
+  }
+
   setSleepThresholds(realmId: number, linearThreshold: number, angularThreshold: number): void {
     if (this.lib) {
       this.lib.setSleepThresholds(realmId, linearThreshold, angularThreshold);

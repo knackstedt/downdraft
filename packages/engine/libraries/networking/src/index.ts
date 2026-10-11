@@ -43,3 +43,7 @@ export type { NetworkingLibConfig } from "./library";
 
 export { LanDiscovery, MdnsBrowser } from "./discovery";
 export type { LanBeacon, LanDiscoveryOptions, LanPeer, MdnsBrowseOptions, MdnsService } from "./discovery";
+
+export { createWebSocketServer } from "./ws-server";
+export type { WebSocketServerHandlers, WebSocketServerOptions, WsServer, WsServerConnection } from "./ws-server";
+

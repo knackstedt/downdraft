@@ -399,6 +399,11 @@ export interface PhysicsBackend {
   /** Set integration timestep on a realm. */
   setIntegrationDt(realmId: number, dt: number): void;
 
+  /** Change a live realm's gravity vector. Optional — backends that can't
+   *  mutate realm gravity simply omit it (callers fall back to per-body
+   *  gravityScale). */
+  setRealmGravity?(realmId: number, gravity: [number, number, number]): void;
+
   /** Per-realm sleep thresholds for graceful degradation (load shedding first line). */
   setSleepThresholds(realmId: number, linearThreshold: number, angularThreshold: number): void;
   /** Per-realm solver iteration count (Rapier `IntegrationParameters.numSolverIterations`). */

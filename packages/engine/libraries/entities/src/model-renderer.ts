@@ -86,9 +86,11 @@ export class ModelRenderer {
   private reusableUniformsU32 = new Uint32Array(this.reusableUniforms.buffer);
   private textureLoadVersion = new Map<string, number>();
 
-  // Skinning: a shared storage buffer of bone matrices (MAX_BONES * mat4),
-  // updated per-frame via updateSkinMatrices. Bound at @group(1) for skinned
-  // draws only.
+  // Skinning: a shared storage buffer of bone matrices (mat4 each), updated
+  // per-frame via updateSkinMatrices/updateSkinMatricesFor. Bound at @group(1)
+  // for skinned draws only. Each skinned nodeId owns a region of the buffer —
+  // the draw's `boneBase` uniform selects it so multiple skinned models can be
+  // animated independently in one frame.
   private skinMatrixBuffer: GPUBuffer | null = null;
   private skinBindGroupLayout: GPUBindGroupLayout | null = null;
   private skinBindGroup: GPUBindGroup | null = null;
@@ -96,6 +98,16 @@ export class ModelRenderer {
   private skinBindGroupSetThisFrame = false;
   /** Current bone capacity (number of mat4s the skin buffer can hold). Grows on demand. */
   private boneCapacity = ModelRenderer.INITIAL_BONE_CAPACITY;
+  /** nodeId → reserved bone region (offset+count in bones). */
+  private skinRegions = new Map<string, { offset: number; count: number }>();
+  /** nodeId → bone base index used by the skinning shader for that draw. */
+  private skinBaseByNode = new Map<string, number>();
+  /** Freed bone regions available for reuse (first-fit). */
+  private skinFreeList: Array<{ offset: number; count: number }> = [];
+  /** Next never-allocated bone index (high-water mark). */
+  private nextBoneOffset = 0;
+  /** Legacy caller region — updateSkinMatrices(m) without a nodeId. */
+  private static readonly DEFAULT_SKIN_NODE = "__skin_default";
 
   // Bindless deps
   private bindless: ModelRendererBindlessDeps | null = null;
@@ -822,6 +834,7 @@ export class ModelRenderer {
   }
 
   removeModel(nodeId: string): void {
+    this.releaseSkinRegion(nodeId);
     const resources = this.modelResources.get(nodeId);
     if (resources) {
       for (let i = 0; i < resources.length; i++) {
@@ -1082,41 +1095,83 @@ export class ModelRenderer {
   }
 
   /**
-   * Upload bone skin matrices for the current frame. The `matrices` buffer is
-   * a flat Float32Array of boneCount * 16 floats (column-major mat4s). It is
-   * copied into the shared skin matrix storage buffer. If the buffer is too
-   * small for the current skeleton, it is recreated (grown) automatically.
-   * Call once per frame before render() for skinned models.
+   * Upload bone skin matrices for the current frame into the shared default
+   * region. Kept for single-avatar callers — equivalent to
+   * updateSkinMatricesFor("__skin_default", matrices).
    */
   updateSkinMatrices(matrices: Float32Array): void {
+    this.updateSkinMatricesFor(ModelRenderer.DEFAULT_SKIN_NODE, matrices);
+  }
+
+  /**
+   * Upload bone skin matrices for one nodeId's reserved region. The region is
+   * (re)allocated automatically — freed regions from removeModel() are reused
+   * first-fit. Render() looks up the node's region offset and passes it to the
+   * skinning shader via the `boneBase` uniform, so multiple skinned models
+   * animate independently.
+   */
+  updateSkinMatricesFor(nodeId: string, matrices: Float32Array): void {
     if (!this.skinMatrixBuffer) return;
 
     const requiredBones = matrices.length / 16;
-    if (requiredBones > this.boneCapacity) {
-      // Grow the skin matrix buffer to fit the larger skeleton.
-      // Round up to the next power of 2 to reduce reallocations.
-      const newCapacity = Math.max(requiredBones, this.boneCapacity * 2);
-      this.skinMatrixBuffer.destroy();
-      this.skinMatrixBuffer = this.device.createBuffer({
-        size: newCapacity * 64,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-      });
-      this.boneCapacity = newCapacity;
-      // Recreate the bind group with the new buffer
-      if (this.skinBindGroupLayout) {
-        this.skinBindGroup = this.device.createBindGroup({
-          layout: this.skinBindGroupLayout,
-          entries: [{ binding: 0, resource: { buffer: this.skinMatrixBuffer } }],
-        });
-      }
-      this.skinBindGroupSetThisFrame = false; // force re-bind
+    let region = this.skinRegions.get(nodeId);
+    if (!region || region.count < requiredBones) {
+      if (region) this.skinFreeList.push(region);
+      region = this.allocSkinRegion(requiredBones);
+      this.skinRegions.set(nodeId, region);
     }
+    this.skinBaseByNode.set(nodeId, region.offset);
 
     this.device.queue.writeBuffer(
       this.skinMatrixBuffer,
-      0,
+      region.offset * 64,
       matrices as Float32Array<ArrayBuffer>,
     );
+  }
+
+  /** Allocate a bone region for `count` bones — free-list first, then bump
+   *  allocation; grows the shared buffer when the capacity is exceeded. */
+  private allocSkinRegion(count: number): { offset: number; count: number } {
+    for (let i = 0; i < this.skinFreeList.length; i++) {
+      const f = this.skinFreeList[i];
+      if (f.count >= count) {
+        this.skinFreeList.splice(i, 1);
+        return { offset: f.offset, count: f.count };
+      }
+    }
+    const needed = this.nextBoneOffset + count;
+    if (needed > this.boneCapacity) this.growSkinBuffer(needed);
+    const region = { offset: this.nextBoneOffset, count };
+    this.nextBoneOffset += count;
+    return region;
+  }
+
+  /** Recreate the skin matrix buffer at a larger capacity and rebind group(1).
+   *  Region offsets stay valid — callers rewrite their matrices next frame. */
+  private growSkinBuffer(minBones: number): void {
+    const newCapacity = Math.max(minBones, this.boneCapacity * 2);
+    this.skinMatrixBuffer?.destroy();
+    this.skinMatrixBuffer = this.device.createBuffer({
+      size: newCapacity * 64,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    this.boneCapacity = newCapacity;
+    if (this.skinBindGroupLayout) {
+      this.skinBindGroup = this.device.createBindGroup({
+        layout: this.skinBindGroupLayout,
+        entries: [{ binding: 0, resource: { buffer: this.skinMatrixBuffer } }],
+      });
+    }
+    this.skinBindGroupSetThisFrame = false; // force re-bind
+  }
+
+  /** Release a node's bone region back to the free list. */
+  releaseSkinRegion(nodeId: string): void {
+    const region = this.skinRegions.get(nodeId);
+    if (!region) return;
+    this.skinRegions.delete(nodeId);
+    this.skinBaseByNode.delete(nodeId);
+    this.skinFreeList.push(region);
   }
 
   render(
@@ -1221,6 +1276,12 @@ export class ModelRenderer {
       // fs_outline). Defaults: 0 width, black color.
       uniforms[39] = 0.0;
       uniforms[40] = 0.0; uniforms[41] = 0.0; uniforms[42] = 0.0;
+      // boneBase (u32, slot 44) — index of this node's bone region inside the
+      // shared skinMatrices storage buffer. Only read by vs_skinned.
+      this.reusableUniformsU32[44] =
+        this.skinBaseByNode.get(nodeId)
+        ?? this.skinBaseByNode.get(ModelRenderer.DEFAULT_SKIN_NODE)
+        ?? 0;
 
       this.device.queue.writeBuffer(
         this.uniformBuffer,

@@ -7,6 +7,8 @@ const log = createLogger();
 export interface PhysicsLib {
   createRealm(id: number, gravity: [number, number, number]): void;
   destroyRealm(id: number): void;
+  /** Change a live realm's gravity (Rapier `world.gravity` is mutable). */
+  setRealmGravity?(realmId: number, gravity: [number, number, number]): void;
   createBody(realmId: number, bodyId: number, desc: BodyDesc, entity: Entity): void;
   destroyBody(realmId: number, bodyId: number): void;
   setBodyType(realmId: number, bodyId: number, type: BodyType): void;
@@ -250,6 +252,10 @@ async function doLoadPhysicsLib(): Promise<PhysicsLib> {
         jointMaps.delete(id);
         entityByBodyHandle.delete(id);
         bodyIdByHandle.delete(id);
+      },
+      setRealmGravity(id, gravity) {
+        const world = realms.get(id);
+        if (world) world.gravity = { x: gravity[0], y: gravity[1], z: gravity[2] };
       },
       createBody(realmId, bodyId, desc, entity) {
         const world = realms.get(realmId);

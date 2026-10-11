@@ -93,7 +93,10 @@
         "instanceLimit": 2
       },
       "options": {
-        "cwd": "${workspaceFolder}/games/andrews-sandbox"
+        "cwd": "${workspaceFolder}/games/andrews-sandbox",
+        "env": {
+          "DOWNDRAFT_MULTI_INSTANCE": "1"
+        }
       },
       "isBackground": true,
       "problemMatcher": [],

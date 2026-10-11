@@ -298,6 +298,21 @@ export class UniversalPhysicsAPI {
     this.backend.setIntegrationDt(realmId, dt);
   }
 
+  /**
+   * Change gravity across all realms (applies to near/mid/far). Best-effort:
+   * backends that can't mutate realm gravity omit `setRealmGravity`, in which
+   * case callers should fall back to per-body `gravityScale` in BodyDesc.
+   */
+  setGravity(gravity: [number, number, number]): void {
+    [RealmTier.Near, RealmTier.Mid, RealmTier.Far].forEach((tier) => {
+      try {
+        const realm = this.realmManager.getRealm(tier);
+        this.backend.setRealmGravity?.(realm.id, gravity);
+      } catch { /* realm tier not initialized */ }
+    });
+    this.config.gravity = gravity;
+  }
+
   // --- Realm ---
 
   getRealmTier(body: PhysicsBody): RealmTier {

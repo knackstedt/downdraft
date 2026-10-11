@@ -178,7 +178,7 @@ export interface HostServicesOptions {
 }
 
 export async function createHostServices(opts: HostServicesOptions): Promise<HostServices> {
-  const userData = resolveNativeUserDataDir(opts.appId);
+  const userData = process.env.DOWNDRAFT_USER_DATA ?? resolveNativeUserDataDir(opts.appId);
   const initOpts = {
     saveDir: join(userData, "saves"),
     cacheDbPath: join(userData, "downdraft-import-cache.db"),
