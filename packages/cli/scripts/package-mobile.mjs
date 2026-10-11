@@ -51,6 +51,14 @@ const modeArg = flagValue("mode") ?? "prod";
 const doInstall = argv.includes("--install") || argv.includes("--launch");
 const doLaunch = argv.includes("--launch");
 const retainMcp = argv.includes("--mcp");
+// Games bundled for the shell run under libnode, where `import.meta.env` is
+// undefined — replace the Vite-ism statically so game code can use it.
+const modeDefines = {
+  "import.meta.env.DEV": modeArg === "dev" ? "true" : "false",
+  "import.meta.env.PROD": modeArg === "dev" ? "false" : "true",
+  "import.meta.env.MODE": JSON.stringify(modeArg),
+  ...(retainMcp ? {} : { __DD_MCP_STRIP__: "true" }),
+};
 const minSdk = flagValue("min-sdk") ?? "30";
 // --node-flavor=lite selects build/dist/android-lite/<abi>/libnode.so
 // (NODEJS_MOBILE_FLAVOR=lite from build-android.mjs: no intl/inspector/
@@ -450,7 +458,7 @@ while (workerEntries.size !== prevCount) {
     splitting: false,
     sourcemap: "none",
     minify: false,
-    define: retainMcp ? {} : { __DD_MCP_STRIP__: "true" },
+    define: modeDefines,
     outdir: scanOutdir,
   });
   if (!scan.success) {
@@ -475,7 +483,7 @@ const build = await Bun.build({
   splitting: false,
   sourcemap: "none",
   minify: modeArg === "prod",
-  define: retainMcp ? {} : { __DD_MCP_STRIP__: "true" },
+  define: modeDefines,
   external: ["koffi", "bun:ffi", "bun:test", "bun"],
   outdir: bundleDir,
 });
