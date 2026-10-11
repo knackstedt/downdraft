@@ -33,12 +33,18 @@
 //!   Resize/Moved: [0],[1]
 //!   Text input / drop file: char buffer (31 / 255 bytes + NUL)
 //!
-//! Threading: on desktop everything runs on the JS main thread exactly like
-//! the SDL version. On Android winit's event loop must run on the app thread
-//! (created by android_main) while sdl_shim_* calls arrive on the JS thread —
-//! so shared state is a Mutex<Ctx> + a cross-thread event queue, and winit's
-//! Android Window is Send/Sync by design (operations are queued to the main
-//! thread internally).
+//! Threading: on Android winit's event loop runs on the app thread (created
+//! by android_main); on Linux/Windows it runs on a dedicated pump thread
+//! spawned at first sdl_shim_create_window; macOS alone keeps winit on the
+//! JS thread (EventLoop must live on the process main thread there) via the
+//! pump_events extension. Everywhere except macOS the JS side never touches
+//! winit — poll/wait_event are pure queue ops on the shared QUEUE + condvar,
+//! woken instantly when the pump thread's ApplicationHandler translates an
+//! OS event, and events keep flowing into the queue while JS is mid-frame.
+//! Shared state is a Mutex<Ctx>; winit's Window is Send+Sync on the desktop
+//! backends, and JS-facing calls take the Arc out of the lock so a window
+//! op that marshals to the loop thread can never deadlock against a
+//! translate handler holding CTX.
 //! Keycodes: SDL3 values — ASCII for printables, scancode|0x40000000 for
 //! named keys — so the existing TS SDL_* tables keep working unchanged.
 //! Wheel deltas are line detents; winit PixelDelta is converted (~16px/line).
@@ -53,11 +59,15 @@ mod keys;
 
 use events::{take, Ev};
 use raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
-#[cfg(not(target_os = "android"))]
+#[cfg(target_os = "macos")]
 use std::cell::RefCell;
 use std::ffi::{c_char, c_int, c_void, CStr};
 use std::ptr;
+#[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
+#[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
+use std::sync::Condvar;
 use std::time::Duration;
 #[cfg(not(target_os = "android"))]
 use winit::application::ApplicationHandler;
@@ -68,7 +78,9 @@ use winit::dpi::{PhysicalPosition, PhysicalSize, Position, Size};
 use winit::event::{DeviceEvent, WindowEvent};
 #[cfg(not(target_os = "android"))]
 use winit::event_loop::EventLoop;
-#[cfg(not(target_os = "android"))]
+#[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
+use winit::event_loop::EventLoopProxy;
+#[cfg(target_os = "macos")]
 use winit::platform::pump_events::EventLoopExtPumpEvents;
 use winit::window::{CursorGrabMode, Fullscreen, Window};
 
@@ -100,19 +112,31 @@ struct Ctx {
     text_input: bool,
 }
 
-/// Shared window/app state. On Android the winit loop runs on the app thread
-/// (downdraft_platform_android_main) while all sdl_shim_* calls come from the
-/// JS thread, so this is a Mutex; on desktop the same fns run on one thread
-/// and the lock is never contended.
+/// Shared window/app state. The winit loop runs on a non-JS thread
+/// everywhere except macOS (app thread on Android, pump thread on
+/// Linux/Windows) while all sdl_shim_* calls come from the JS thread —
+/// so this is a Mutex.
 static CTX: Mutex<Option<Ctx>> = Mutex::new(None);
 
-#[cfg(not(target_os = "android"))]
+/// Take the window Arc out of CTX without holding the lock across the
+/// call. JS-facing window ops use this instead of `with_ctx`: on Windows a
+/// cross-thread window call can marshal to the loop thread, and the loop
+/// thread's translate handlers lock CTX — holding CTX across a marshaling
+/// call deadlocks.
+fn win() -> Option<Arc<Window>> {
+    CTX.lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|c| c.window.clone())
+}
+
+#[cfg(target_os = "macos")]
 thread_local! {
     /// Separate from CTX: pump_app_events dispatches into the handler, which
     /// borrows CTX — holding the loop's borrow across the call would panic.
     /// ManuallyDrop: the event loop outlives all windows (winit allows one
-    /// per process) and must not run its X11 teardown during thread-local
-    /// destruction at process exit — that can race the display connection.
+    /// per process) and must not run its AppKit teardown during thread-local
+    /// destruction at process exit.
     static EVENT_LOOP: RefCell<Option<std::mem::ManuallyDrop<EventLoop<()>>>> =
         const { RefCell::new(None) };
 }
@@ -122,7 +146,7 @@ thread_local! {
 #[cfg(not(target_os = "android"))]
 struct Pump;
 
-#[cfg(not(target_os = "android"))]
+#[cfg(target_os = "macos")]
 impl ApplicationHandler for Pump {
     fn resumed(&mut self, _el: &winit::event_loop::ActiveEventLoop) {}
 
@@ -149,20 +173,210 @@ impl ApplicationHandler for Pump {
     }
 }
 
-fn with_ctx<R>(f: impl FnOnce(&mut Ctx) -> R) -> Option<R> {
-    CTX.lock().unwrap().as_mut().map(f)
-}
-
-/// Pump the winit event queue (pump_events extension — desktop targets only;
-/// Android's loop is owned by the app thread in android.rs).
-/// Queued events are then drained one per poll call, mirroring SDL_PollEvent.
-#[cfg(not(target_os = "android"))]
+/// Pump the winit event queue (pump_events extension — macOS only; the
+/// event loop must live on the process main thread there, which is the JS
+/// thread). Queued events are then drained one per poll call.
+#[cfg(target_os = "macos")]
 fn pump(timeout: Option<Duration>) {
     EVENT_LOOP.with(|e| {
         if let Some(l) = e.borrow_mut().as_mut() {
             l.pump_app_events(timeout, &mut Pump);
         }
     });
+}
+
+// ── Pump thread (Linux/Windows) ──────────────────────────────────────────
+// A dedicated thread builds the EventLoop and runs run_app for the process
+// lifetime. winit's OS poll wakes on events, the handler translates + pushes
+// to the shared queue, and NOTIFY wakes any parked JS wait_event — no
+// pump calls or epoll trips ever happen on the JS thread.
+
+/// User event sent to the pump thread. The create request's payload lives
+/// in CREATE_REQ, so the same wakeup works whether it lands before or after
+/// the loop's first resumed().
+#[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
+enum LoopCmd {
+    CreateWindow,
+}
+
+#[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
+struct CreateReq {
+    title: String,
+    w: u32,
+    h: u32,
+    /// One-shot reply: 0 created, 2 create failed. sdl_shim_create_window
+    /// blocks on it, keeping the call synchronous on the JS side.
+    reply: mpsc::Sender<c_int>,
+}
+
+#[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
+static CREATE_REQ: Mutex<Option<CreateReq>> = Mutex::new(None);
+#[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
+static LOOP_PROXY: Mutex<Option<EventLoopProxy<LoopCmd>>> = Mutex::new(None);
+
+#[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
+#[derive(PartialEq)]
+enum PumpState {
+    /// Not spawned yet.
+    Cold,
+    /// EventLoop built, run_app entered (or about to be).
+    Ready,
+    /// EventLoop::build failed or run_app returned — unrecoverable.
+    Dead,
+}
+
+#[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
+static PUMP_STATE: (Mutex<PumpState>, Condvar) = (Mutex::new(PumpState::Cold), Condvar::new());
+
+#[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
+fn pump_thread_main() {
+    let (lock, cond) = &PUMP_STATE;
+    let mut builder = EventLoop::<LoopCmd>::with_user_event();
+    // The loop deliberately lives on this spawned thread, not the process
+    // main thread — winit requires opting into that on Linux (the hazard it
+    // guards against is backend-specific main-thread assumptions; our JS
+    // thread never touches winit at all).
+    #[cfg(target_os = "linux")]
+    {
+        use winit::platform::wayland::EventLoopBuilderExtWayland;
+        use winit::platform::x11::EventLoopBuilderExtX11;
+        EventLoopBuilderExtX11::with_any_thread(&mut builder, true);
+        EventLoopBuilderExtWayland::with_any_thread(&mut builder, true);
+    }
+    let el = match builder.build() {
+        Ok(el) => el,
+        Err(err) => {
+            eprintln!("[downdraft_platform] EventLoop::build failed: {err}");
+            *lock.lock().unwrap() = PumpState::Dead;
+            cond.notify_all();
+            return;
+        }
+    };
+    *LOOP_PROXY.lock().unwrap() = Some(el.create_proxy());
+    // Wait blocks the pump thread on the OS poll until events arrive —
+    // zero wakeups while idle. Default Poll would spin a core.
+    el.set_control_flow(winit::event_loop::ControlFlow::Wait);
+    *lock.lock().unwrap() = PumpState::Ready;
+    cond.notify_all();
+    if let Err(err) = el.run_app(&mut Pump) {
+        eprintln!("[downdraft_platform] run_app exited: {err}");
+        *lock.lock().unwrap() = PumpState::Dead;
+        cond.notify_all();
+    }
+}
+
+/// Spawn the pump thread once and wait for its EventLoop. false = the
+/// loop can never come up — callers treat it like EventLoop::new failing.
+#[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
+fn ensure_pump() -> bool {
+    let (lock, cond) = &PUMP_STATE;
+    let mut state = lock.lock().unwrap();
+    if *state == PumpState::Cold {
+        if std::thread::Builder::new()
+            .name("dd-winit".into())
+            .spawn(pump_thread_main)
+            .is_err()
+        {
+            *state = PumpState::Dead;
+        }
+    }
+    while *state == PumpState::Cold {
+        state = cond.wait(state).unwrap();
+    }
+    *state == PumpState::Ready
+}
+
+/// Consume a pending create request on the pump thread — called from
+/// resumed() (request preceded loop startup) and user_event() (request
+/// landed while running).
+#[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
+fn pump_create_window(el: &winit::event_loop::ActiveEventLoop) {
+    let req = CREATE_REQ.lock().unwrap().take();
+    let Some(req) = req else { return };
+    let reply = |code: c_int| {
+        let _ = req.reply.send(code);
+    };
+    if CTX
+        .lock()
+        .unwrap()
+        .as_ref()
+        .is_some_and(|x| x.window.is_some())
+    {
+        return reply(0);
+    }
+    let attrs = Window::default_attributes()
+        .with_title(req.title)
+        .with_inner_size(LogicalSize::new(req.w.max(1) as f64, req.h.max(1) as f64))
+        .with_resizable(true)
+        .with_visible(true)
+        // Never request focus at map time — a freshly spawned game window
+        // must not steal activation. Games that want launch focus call
+        // sdl_shim_focus_window; the WM may still focus per its own policy.
+        .with_active(false);
+    match el.create_window(attrs) {
+        Ok(w) => {
+            let window = Arc::new(w);
+            // SDL centers new windows; winit leaves placement to the WM.
+            // Center on the primary monitor for parity.
+            if let Some(monitor) = window
+                .primary_monitor()
+                .or_else(|| window.current_monitor())
+            {
+                let msize = monitor.size();
+                let mpos = monitor.position();
+                let wsize = window.outer_size();
+                window.set_outer_position(PhysicalPosition::new(
+                    mpos.x + (msize.width as i32 - wsize.width as i32) / 2,
+                    mpos.y + (msize.height as i32 - wsize.height as i32) / 2,
+                ));
+            }
+            install_window(window);
+            reply(0);
+        }
+        Err(err) => {
+            eprintln!("[downdraft_platform] create_window failed: {err}");
+            reply(2);
+        }
+    }
+}
+
+#[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
+impl ApplicationHandler<LoopCmd> for Pump {
+    fn resumed(&mut self, el: &winit::event_loop::ActiveEventLoop) {
+        pump_create_window(el);
+    }
+
+    fn user_event(&mut self, el: &winit::event_loop::ActiveEventLoop, ev: LoopCmd) {
+        match ev {
+            LoopCmd::CreateWindow => pump_create_window(el),
+        }
+    }
+
+    fn window_event(
+        &mut self,
+        el: &winit::event_loop::ActiveEventLoop,
+        _id: winit::window::WindowId,
+        ev: WindowEvent,
+    ) {
+        if let Some(ctx) = CTX.lock().unwrap().as_mut() {
+            events::translate_window_event(ctx, ev, el);
+        }
+    }
+
+    fn device_event(
+        &mut self,
+        _el: &winit::event_loop::ActiveEventLoop,
+        _id: winit::event::DeviceId,
+        ev: DeviceEvent,
+    ) {
+        if let Some(ctx) = CTX.lock().unwrap().as_mut() {
+            events::translate_device_event(ctx, ev);
+        }
+    }
+}
+
+fn with_ctx<R>(f: impl FnOnce(&mut Ctx) -> R) -> Option<R> {
+    CTX.lock().unwrap().as_mut().map(f)
 }
 
 // ── Window creation ──
@@ -196,7 +410,57 @@ fn cstr_title(title: *const c_char) -> String {
     }
 }
 
-#[cfg(not(target_os = "android"))]
+/// Linux/Windows: the window can only be created on the pump thread —
+/// record the request, wake the loop via the proxy, and block on the
+/// one-shot reply so the call keeps its synchronous contract.
+#[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
+#[no_mangle]
+pub extern "C" fn sdl_shim_create_window(
+    title: *const c_char,
+    width: c_int,
+    height: c_int,
+) -> c_int {
+    ffi!(2, {
+        if CTX
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|x| x.window.is_some())
+        {
+            return 0;
+        }
+        if !ensure_pump() {
+            return 1;
+        }
+        let (tx, rx) = mpsc::channel();
+        *CREATE_REQ.lock().unwrap() = Some(CreateReq {
+            title: cstr_title(title),
+            w: width.max(1) as u32,
+            h: height.max(1) as u32,
+            reply: tx,
+        });
+        let sent = LOOP_PROXY
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|p| p.send_event(LoopCmd::CreateWindow).is_ok());
+        if !sent {
+            CREATE_REQ.lock().unwrap().take();
+            return 2;
+        }
+        // Bounded wait — a wedged pump thread must surface as a create
+        // failure, not a startup hang.
+        match rx.recv_timeout(Duration::from_secs(10)) {
+            Ok(code) => code,
+            Err(_) => {
+                CREATE_REQ.lock().unwrap().take();
+                2
+            }
+        }
+    })
+}
+
+#[cfg(target_os = "macos")]
 #[no_mangle]
 pub extern "C" fn sdl_shim_create_window(
     title: *const c_char,
@@ -278,7 +542,9 @@ pub extern "C" fn sdl_shim_create_window(
 
 /// No live window → NONE, same as the C shim's g_window null check. (The
 /// EventLoop outlives the window — winit allows only one per process.)
-/// Desktop-only — Android's emit must NOT gate on this (see below).
+/// Desktop contract: a quit pushed after destroy_window is dead — poll and
+/// wait report no events at all. Android deliberately does NOT gate:
+/// RESUMED itself is the event JS waits on before any window exists.
 #[cfg(not(target_os = "android"))]
 fn no_window() -> bool {
     CTX.lock()
@@ -287,17 +553,14 @@ fn no_window() -> bool {
         .is_none_or(|ctx| ctx.window.is_none())
 }
 
-/// Write one queued event into out_data. Returns the SDL_SHIM_EVENT_* type.
-/// `timeout` bounds the pump's wait: `Some(ZERO)` = SDL_PollEvent (never
-/// blocks); a real duration = SDL_WaitEventTimeout. winit's `pump_app_events`
-/// treats `None` as "wait indefinitely", so `None` must never be passed.
-///
-/// Take before pumping: the JS side drains the queue in a loop, and pumping
-/// per pop cost one `pump_app_events` (OS poll syscall + dispatch) per queued
-/// event — hundreds of extra syscalls per frame under an input flood. A
-/// queued event returns without touching winit; only an empty queue pays the
-/// pump, which then enqueues the whole OS burst for subsequent takes.
-#[cfg(not(target_os = "android"))]
+/// macOS: take before pumping — the JS side drains the queue in a loop, and
+/// pumping per pop cost one `pump_app_events` (OS poll + dispatch) per
+/// queued event — hundreds of extra calls per frame under an input flood.
+/// A queued event returns without touching winit; only an empty queue pays
+/// the pump, which then enqueues the whole OS burst for subsequent takes.
+/// `pump_app_events` treats `None` as "wait indefinitely", so `None` must
+/// never be passed.
+#[cfg(target_os = "macos")]
 fn emit(out_data: *mut c_void, timeout: Option<Duration>) -> c_int {
     if no_window() {
         return events::NONE;
@@ -311,9 +574,22 @@ fn emit(out_data: *mut c_void, timeout: Option<Duration>) -> c_int {
         .unwrap_or(events::NONE)
 }
 
+/// Linux/Windows pump thread: the loop thread pushes continuously, so a
+/// poll is a pure queue pop — no winit calls on the JS thread at all.
+/// Still gated on no_window for the desktop destroy contract.
+#[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
+fn emit(out_data: *mut c_void, _timeout: Option<Duration>) -> c_int {
+    if no_window() {
+        return events::NONE;
+    }
+    take()
+        .map(|ev| events::write(ev, out_data))
+        .unwrap_or(events::NONE)
+}
+
 /// Android: the app thread's run_app handler fills the shared queue — poll
-/// just drains it. We deliberately do NOT gate on no_window: before the first
-/// resumed() there is no window, and RESUMED itself is the event JS waits on.
+/// just drains it. Deliberately ungated: before the first resumed() there
+/// is no window, and RESUMED itself is the event JS waits on.
 #[cfg(target_os = "android")]
 fn emit(out_data: *mut c_void, _timeout: Option<Duration>) -> c_int {
     take()
@@ -323,12 +599,14 @@ fn emit(out_data: *mut c_void, _timeout: Option<Duration>) -> c_int {
 
 #[no_mangle]
 pub extern "C" fn sdl_shim_poll_event(out_data: *mut c_void) -> c_int {
-    // SDL_PollEvent semantics: non-blocking. pump_app_events(None) would wait
-    // indefinitely for an event — starving the rAF loop between input bursts.
+    // SDL_PollEvent semantics: non-blocking.
     ffi!(events::NONE, { emit(out_data, Some(Duration::ZERO)) })
 }
 
-#[cfg(not(target_os = "android"))]
+/// Linux/Windows pump thread: block on the shared queue's condvar — the
+/// loop thread pushes and notifies. no_window keeps the old sleep
+/// contract: a dead window's waits still expire on time and report NONE.
+#[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
 #[no_mangle]
 pub extern "C" fn sdl_shim_wait_event(out_data: *mut c_void, timeout_ms: u32) -> c_int {
     ffi!(events::NONE, {
@@ -336,7 +614,9 @@ pub extern "C" fn sdl_shim_wait_event(out_data: *mut c_void, timeout_ms: u32) ->
             std::thread::sleep(Duration::from_millis(timeout_ms as u64));
             return events::NONE;
         }
-        emit(out_data, Some(Duration::from_millis(timeout_ms as u64)))
+        events::take_timeout(Duration::from_millis(timeout_ms as u64))
+            .map(|ev| events::write(ev, out_data))
+            .unwrap_or(events::NONE)
     })
 }
 
@@ -352,17 +632,30 @@ pub extern "C" fn sdl_shim_wait_event(out_data: *mut c_void, timeout_ms: u32) ->
     })
 }
 
+/// macOS: the JS thread IS the event-loop thread — wait_event pumps winit
+/// for up to timeout_ms, so OS events wake it instantly and JS task sources
+/// are only starved by the capped duration.
+#[cfg(target_os = "macos")]
+#[no_mangle]
+pub extern "C" fn sdl_shim_wait_event(out_data: *mut c_void, timeout_ms: u32) -> c_int {
+    ffi!(events::NONE, {
+        if no_window() {
+            std::thread::sleep(Duration::from_millis(timeout_ms as u64));
+            return events::NONE;
+        }
+        emit(out_data, Some(Duration::from_millis(timeout_ms as u64)))
+    })
+}
+
 /// Opt-in window activation — windows map inactive (see create_window); a
 /// game that wants focus on launch calls this right after creating it.
 /// Best-effort: WMs are free to ignore activation requests.
 #[no_mangle]
 pub extern "C" fn sdl_shim_focus_window() {
     ffi!((), {
-        with_ctx(|ctx| {
-            if let Some(w) = &ctx.window {
-                w.focus_window();
-            }
-        });
+        if let Some(w) = win() {
+            w.focus_window();
+        }
     });
 }
 
@@ -371,22 +664,20 @@ pub extern "C" fn sdl_shim_focus_window() {
 #[no_mangle]
 pub extern "C" fn sdl_shim_grab_input(grab: c_int) {
     ffi!((), {
-        with_ctx(|ctx| {
-            let Some(w) = &ctx.window else { return };
-            let grab = grab != 0;
-            if grab {
-                // Locked = raw relative motion; Confined is the fallback for
-                // compositors that don't support locking.
-                if w.set_cursor_grab(CursorGrabMode::Locked).is_err() {
-                    let _ = w.set_cursor_grab(CursorGrabMode::Confined);
-                }
-                w.set_cursor_visible(false);
-            } else {
-                let _ = w.set_cursor_grab(CursorGrabMode::None);
-                w.set_cursor_visible(true);
+        let Some(w) = win() else { return };
+        let grab = grab != 0;
+        if grab {
+            // Locked = raw relative motion; Confined is the fallback for
+            // compositors that don't support locking.
+            if w.set_cursor_grab(CursorGrabMode::Locked).is_err() {
+                let _ = w.set_cursor_grab(CursorGrabMode::Confined);
             }
-            ctx.grabbed = grab;
-        });
+            w.set_cursor_visible(false);
+        } else {
+            let _ = w.set_cursor_grab(CursorGrabMode::None);
+            w.set_cursor_visible(true);
+        }
+        with_ctx(|ctx| ctx.grabbed = grab);
     });
 }
 
@@ -395,38 +686,32 @@ pub extern "C" fn sdl_shim_grab_input(grab: c_int) {
 #[no_mangle]
 pub extern "C" fn sdl_shim_start_text_input() {
     ffi!((), {
-        with_ctx(|ctx| {
-            if let Some(w) = &ctx.window {
-                w.set_ime_allowed(true);
-                ctx.text_input = true;
-            }
-        });
+        if let Some(w) = win() {
+            w.set_ime_allowed(true);
+            with_ctx(|ctx| ctx.text_input = true);
+        }
     });
 }
 
 #[no_mangle]
 pub extern "C" fn sdl_shim_stop_text_input() {
     ffi!((), {
-        with_ctx(|ctx| {
-            if let Some(w) = &ctx.window {
-                w.set_ime_allowed(false);
-                ctx.text_input = false;
-            }
-        });
+        if let Some(w) = win() {
+            w.set_ime_allowed(false);
+            with_ctx(|ctx| ctx.text_input = false);
+        }
     });
 }
 
 #[no_mangle]
 pub extern "C" fn sdl_shim_set_text_input_rect(x: c_int, y: c_int, w: c_int, h: c_int) {
     ffi!((), {
-        with_ctx(|ctx| {
-            if let Some(win) = &ctx.window {
-                win.set_ime_cursor_area(
-                    Position::Physical(PhysicalPosition::new(x, y)),
-                    Size::Physical(PhysicalSize::new(w.max(0) as u32, h.max(0) as u32)),
-                );
-            }
-        });
+        if let Some(win) = win() {
+            win.set_ime_cursor_area(
+                Position::Physical(PhysicalPosition::new(x, y)),
+                Size::Physical(PhysicalSize::new(w.max(0) as u32, h.max(0) as u32)),
+            );
+        }
     });
 }
 
@@ -435,20 +720,17 @@ pub extern "C" fn sdl_shim_set_text_input_rect(x: c_int, y: c_int, w: c_int, h: 
 #[no_mangle]
 pub extern "C" fn sdl_shim_get_window_subsystem() -> c_int {
     ffi!(-1, {
-        with_ctx(|ctx| {
-            let Some(w) = &ctx.window else {
-                return syswm::UNKNOWN;
-            };
-            match w.display_handle().map(|h| h.as_raw()) {
-                Ok(RawDisplayHandle::Xlib(_)) | Ok(RawDisplayHandle::Xcb(_)) => syswm::X11,
-                Ok(RawDisplayHandle::Wayland(_)) => syswm::WAYLAND,
-                Ok(RawDisplayHandle::Windows(_)) => syswm::WINDOWS,
-                Ok(RawDisplayHandle::AppKit(_)) => syswm::COCOA,
-                Ok(RawDisplayHandle::Android(_)) => syswm::ANDROID,
-                _ => syswm::UNKNOWN,
-            }
-        })
-        .unwrap_or(-1)
+        let Some(w) = win() else {
+            return syswm::UNKNOWN;
+        };
+        match w.display_handle().map(|h| h.as_raw()) {
+            Ok(RawDisplayHandle::Xlib(_)) | Ok(RawDisplayHandle::Xcb(_)) => syswm::X11,
+            Ok(RawDisplayHandle::Wayland(_)) => syswm::WAYLAND,
+            Ok(RawDisplayHandle::Windows(_)) => syswm::WINDOWS,
+            Ok(RawDisplayHandle::AppKit(_)) => syswm::COCOA,
+            Ok(RawDisplayHandle::Android(_)) => syswm::ANDROID,
+            _ => syswm::UNKNOWN,
+        }
     })
 }
 
@@ -456,13 +738,11 @@ pub extern "C" fn sdl_shim_get_window_subsystem() -> c_int {
 pub extern "C" fn sdl_shim_get_window_size(w_out: *mut c_int, h_out: *mut c_int) {
     ffi!((), {
         let (mut w, mut h) = (0, 0);
-        with_ctx(|ctx| {
-            if let Some(win) = &ctx.window {
-                let s = win.inner_size();
-                w = s.width as c_int;
-                h = s.height as c_int;
-            }
-        });
+        if let Some(win) = win() {
+            let s = win.inner_size();
+            w = s.width as c_int;
+            h = s.height as c_int;
+        }
         unsafe {
             if !w_out.is_null() {
                 *w_out = w;
@@ -483,26 +763,22 @@ pub extern "C" fn sdl_shim_set_window_title(title: *const c_char) {
         let title = unsafe { CStr::from_ptr(title) }
             .to_string_lossy()
             .into_owned();
-        with_ctx(|ctx| {
-            if let Some(w) = &ctx.window {
-                w.set_title(&title);
-            }
-        });
+        if let Some(w) = win() {
+            w.set_title(&title);
+        }
     });
 }
 
 #[no_mangle]
 pub extern "C" fn sdl_shim_set_fullscreen(enabled: c_int) {
     ffi!((), {
-        with_ctx(|ctx| {
-            if let Some(w) = &ctx.window {
-                w.set_fullscreen(if enabled != 0 {
-                    Some(Fullscreen::Borderless(None))
-                } else {
-                    None
-                });
-            }
-        });
+        if let Some(w) = win() {
+            w.set_fullscreen(if enabled != 0 {
+                Some(Fullscreen::Borderless(None))
+            } else {
+                None
+            });
+        }
     });
 }
 
@@ -510,14 +786,12 @@ pub extern "C" fn sdl_shim_set_fullscreen(enabled: c_int) {
 pub extern "C" fn sdl_shim_get_window_pos(x_out: *mut c_int, y_out: *mut c_int) {
     ffi!((), {
         let (mut x, mut y) = (0, 0);
-        with_ctx(|ctx| {
-            if let Some(w) = &ctx.window {
-                if let Ok(p) = w.outer_position() {
-                    x = p.x;
-                    y = p.y;
-                }
+        if let Some(w) = win() {
+            if let Ok(p) = w.outer_position() {
+                x = p.x;
+                y = p.y;
             }
-        });
+        }
         unsafe {
             if !x_out.is_null() {
                 *x_out = x;
@@ -532,11 +806,9 @@ pub extern "C" fn sdl_shim_get_window_pos(x_out: *mut c_int, y_out: *mut c_int) 
 #[no_mangle]
 pub extern "C" fn sdl_shim_set_window_pos(x: c_int, y: c_int) {
     ffi!((), {
-        with_ctx(|ctx| {
-            if let Some(w) = &ctx.window {
-                w.set_outer_position(PhysicalPosition::new(x, y));
-            }
-        });
+        if let Some(w) = win() {
+            w.set_outer_position(PhysicalPosition::new(x, y));
+        }
     });
 }
 
@@ -552,8 +824,8 @@ pub extern "C" fn sdl_shim_get_window_borders(
     right_out: *mut c_int,
 ) -> c_int {
     ffi!(-1, {
-        let rc = with_ctx(|ctx| {
-            let Some(w) = &ctx.window else { return -1 };
+        let rc = (|| {
+            let Some(w) = win() else { return -1 };
             let inner = w.inner_size();
             let outer = w.outer_size();
             let dw = outer.width.saturating_sub(inner.width) as c_int;
@@ -578,8 +850,7 @@ pub extern "C" fn sdl_shim_get_window_borders(
                 }
             }
             0
-        })
-        .unwrap_or(-1);
+        })();
         if rc != 0 {
             unsafe {
                 if !top_out.is_null() {
@@ -603,14 +874,12 @@ pub extern "C" fn sdl_shim_get_window_borders(
 #[no_mangle]
 pub extern "C" fn sdl_shim_set_window_size(width: c_int, height: c_int) {
     ffi!((), {
-        with_ctx(|ctx| {
-            if let Some(w) = &ctx.window {
-                let _ = w.request_inner_size(PhysicalSize::new(
-                    width.max(1) as u32,
-                    height.max(1) as u32,
-                ));
-            }
-        });
+        if let Some(w) = win() {
+            let _ = w.request_inner_size(PhysicalSize::new(
+                width.max(1) as u32,
+                height.max(1) as u32,
+            ));
+        }
     });
 }
 
@@ -619,16 +888,14 @@ pub extern "C" fn sdl_shim_get_display_info(refresh_out: *mut c_int, scale_out: 
     ffi!((), {
         let mut refresh = 0;
         let mut scale = 1.0f32;
-        with_ctx(|ctx| {
-            if let Some(w) = &ctx.window {
-                if let Some(m) = w.current_monitor() {
-                    if let Some(mhz) = m.refresh_rate_millihertz() {
-                        refresh = (mhz / 1000) as c_int;
-                    }
-                    scale = m.scale_factor() as f32;
+        if let Some(w) = win() {
+            if let Some(m) = w.current_monitor() {
+                if let Some(mhz) = m.refresh_rate_millihertz() {
+                    refresh = (mhz / 1000) as c_int;
                 }
+                scale = m.scale_factor() as f32;
             }
-        });
+        }
         unsafe {
             if !refresh_out.is_null() {
                 *refresh_out = refresh;
@@ -645,11 +912,9 @@ pub extern "C" fn sdl_shim_request_quit() {
     ffi!((), {
         // Same contract as CloseRequested: hide immediately so the window
         // doesn't sit mapped through JS teardown (see events.rs).
-        with_ctx(|ctx| {
-            if let Some(w) = &ctx.window {
-                w.set_visible(false);
-            }
-        });
+        if let Some(w) = win() {
+            w.set_visible(false);
+        }
         events::push(Ev::Quit);
     });
 }
@@ -769,18 +1034,24 @@ pub extern "C" fn sdl_shim_get_clipboard(out: *mut c_char, max_len: c_int) -> c_
 pub extern "C" fn sdl_shim_destroy_window() {
     ffi!((), {
         events::clear();
-        if let Some(ctx) = CTX.lock().unwrap().as_mut() {
-            // A live wgpu surface holds its own Arc<Window> — if it wasn't
-            // released first, the drop below leaves the window mapped.
-            // Hiding guarantees the window is gone from the screen either
-            // way; the OS window itself dies with the last Arc.
-            if let Some(w) = &ctx.window {
-                w.set_visible(false);
-            }
-            ctx.window = None;
+        // Take the window out under the lock, then hide without it — a
+        // set_visible that marshals to the loop thread can't run while the
+        // loop's handler waits on CTX.
+        let w = CTX
+            .lock()
+            .unwrap()
+            .as_mut()
+            .and_then(|ctx| ctx.window.take());
+        // A live wgpu surface holds its own Arc<Window> — if it wasn't
+        // released first, the drop below leaves the window mapped.
+        // Hiding guarantees the window is gone from the screen either
+        // way; the OS window itself dies with the last Arc.
+        if let Some(w) = w {
+            w.set_visible(false);
         }
-        // Keep EVENT_LOOP alive — winit allows exactly one EventLoop per
-        // process, and SDL semantics let games destroy + recreate the window.
+        // Keep the event loop alive — winit allows exactly one EventLoop
+        // per process, and SDL semantics let games destroy + recreate the
+        // window.
     });
 }
 

@@ -108,9 +108,10 @@ pub enum Ev {
     Text(String),
 }
 
-// Shared across threads: on Android the winit loop runs on the app thread
-// while sdl_shim_poll_event/wait_event are called from the JS thread. On
-// desktop everything is the JS thread, so the Mutex is never contended.
+// Shared across threads: the winit loop runs on a non-JS thread everywhere
+// except macOS (app thread on Android, pump thread on Linux/Windows) while
+// sdl_shim_poll_event/wait_event are called from the JS thread — pushers
+// and takers genuinely contend.
 static QUEUE: Mutex<VecDeque<Ev>> = Mutex::new(VecDeque::new());
 static NOTIFY: Condvar = Condvar::new();
 
@@ -123,8 +124,9 @@ pub fn take() -> Option<Ev> {
     QUEUE.lock().unwrap().pop_front()
 }
 
-/// Block up to `timeout` for an event to arrive (Android's wait_event path).
-#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+/// Block up to `timeout` for an event to arrive (wait_event on every
+/// queue-driven platform — Android and the desktop pump thread).
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 pub fn take_timeout(timeout: Duration) -> Option<Ev> {
     let mut guard = QUEUE.lock().unwrap();
     if guard.is_empty() {
