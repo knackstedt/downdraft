@@ -130,6 +130,22 @@ export class NativeWindow extends MiniEventTarget {
   // with no events, no rAF dispatch, and no armed callbacks deepen the
   // wait_event timeout (4 → 8 → 16ms). Any work resets it to 0.
   private idleLoopStreak = 0;
+  // Pump-loop observability — always-on counters (a few int bumps per
+  // iteration, noise next to the FFI call); the 5s stats line is gated on
+  // DOWNDRAFT_PUMP_STATS and lands on stdout (logcat on Android). The
+  // native side reports its own queue-residency counters via pumpStatsBuf.
+  private pumpStats = { iters: 0, waits: 0, emptyWaits: 0, events: 0, dispatches: 0 };
+  private pumpStatsBuf = new BigInt64Array(4);
+  private pumpStatsPrev = new BigInt64Array(4);
+  private pumpStatsAt = 0;
+  private static readonly PUMP_STATS = (() => {
+    try {
+      return (globalThis as { process?: { env?: Record<string, string> } }).process?.env
+        ?.DOWNDRAFT_PUMP_STATS === "1";
+    } catch {
+      return false;
+    }
+  })();
   // The cached interval is re-validated on this cadence: a MOVED-driven
   // re-query can latch mid-drag while winit still reports the window on its
   // previous monitor, and a periodic check bounds that staleness (and any
@@ -545,16 +561,24 @@ export class NativeWindow extends MiniEventTarget {
     // block for waitMs; an event return drains the rest of its burst. A
     // timeout means the wait's pump already drained the OS queue — a
     // follow-up poll would just pay a second pump for nothing.
+    const stats = this.pumpStats;
+    stats.iters++;
     let eventHandled = false;
     if (waitMs > 0) {
+      stats.waits++;
       const wt = sdl.sdl_shim_wait_event(this.eventData as any, waitMs);
       if (wt !== SDL_EVENT_NONE) {
         eventHandled = true;
+        stats.events++;
         this.safeHandleEvent(wt, this.eventView, this.eventFloatView);
-        this.drainEvents();
+        stats.events += this.drainEvents();
+      } else {
+        stats.emptyWaits++;
       }
     } else {
-      eventHandled = this.drainEvents() > 0;
+      const n = this.drainEvents();
+      stats.events += n;
+      eventHandled = n > 0;
     }
 
     // Apply the newest pending resize once — never mid-event-drain, so the
@@ -608,6 +632,8 @@ export class NativeWindow extends MiniEventTarget {
       if (this.rafCallbacks.size === 0) this.setVsyncWanted(false);
     }
 
+    if (dispatched) stats.dispatches++;
+
     // Idle backoff accounting: work this iteration (an event, a dispatch,
     // or callbacks still armed for next frame) resets the streak, so the
     // 4ms cadence resumes the moment the app wakes. Only a truly quiet
@@ -616,6 +642,29 @@ export class NativeWindow extends MiniEventTarget {
       this.idleLoopStreak = 0;
     } else {
       this.idleLoopStreak++;
+    }
+
+    // Periodic pump stats — diff the native queue counters and report
+    // per-interval loop activity. Residency avg/max is the cross-thread
+    // wake latency the condvar design exists to minimize.
+    if (NativeWindow.PUMP_STATS && now - this.pumpStatsAt >= 5000) {
+      this.pumpStatsAt = now;
+      const s = stats;
+      const line = `pump 5s Δ iters=${s.iters} waits=${s.waits} empty=${s.emptyWaits} events=${s.events} raf=${s.dispatches} idleStreak=${this.idleLoopStreak}`;
+      s.iters = 0; s.waits = 0; s.emptyWaits = 0; s.events = 0; s.dispatches = 0;
+      let native = "";
+      try {
+        sdl.sdl_shim_pump_stats(this.pumpStatsBuf as any);
+        const prev = this.pumpStatsPrev;
+        const buf = this.pumpStatsBuf;
+        const dDel = Number(buf[0] - prev[0]);
+        const dEmt = Number(buf[1] - prev[1]);
+        const dSum = Number(buf[2] - prev[2]);
+        prev.set(buf);
+        const avg = dDel > 0 ? (dSum / dDel).toFixed(1) : "0";
+        native = ` | native delivered=${dDel} empty=${dEmt} avgResidency=${avg}us maxResidency=${buf[3]}us`;
+      } catch { /* older shims lack the symbol */ }
+      log.info("native-window", line + native);
     }
 
     // Process wgpu events (for async callback delivery), then poll the

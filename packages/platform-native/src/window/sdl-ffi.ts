@@ -33,6 +33,7 @@ const SDL_SHIM_SPEC: Record<string, CFunction> = {
   sdl_shim_get_display_info: { args: ["ptr", "ptr"], returns: "void" },
   sdl_shim_set_vsync_wanted: { args: ["i32"], returns: "void" },
   sdl_shim_request_quit: { args: [], returns: "void" },
+  sdl_shim_pump_stats: { args: ["ptr"], returns: "void" },
   sdl_shim_show_message_box: { args: ["cstring", "cstring"], returns: "i32" },
   sdl_shim_set_clipboard: { args: ["cstring"], returns: "void" },
   sdl_shim_get_clipboard: { args: ["ptr", "i32"], returns: "i32" },
@@ -87,6 +88,7 @@ export interface SdlShimSymbols {
   sdl_shim_get_display_info: (refreshOut: ptr, scaleOut: ptr) => void;
   sdl_shim_set_vsync_wanted: (wanted: number) => void;
   sdl_shim_request_quit: () => void;
+  sdl_shim_pump_stats: (out: ptr) => void;
   sdl_shim_show_message_box: (title: string, message: string) => number;
   sdl_shim_set_clipboard: (text: string) => void;
   sdl_shim_get_clipboard: (out: ptr, maxLen: number) => number;

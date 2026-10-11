@@ -966,6 +966,7 @@ fn shared_clipboard() -> Option<std::sync::MutexGuard<'static, arboard::Clipboar
         .and_then(|m| m.lock().ok())
 }
 
+#[cfg(not(target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn sdl_shim_set_clipboard(text: *const c_char) {
     ffi!((), {

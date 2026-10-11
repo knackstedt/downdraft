@@ -8,8 +8,9 @@ use super::{Ctx, KMOD_ALT, KMOD_CTRL, KMOD_GUI, KMOD_SHIFT};
 use std::collections::VecDeque;
 use std::ffi::c_void;
 use std::ptr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Condvar, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use winit::event::{DeviceEvent, ElementState, Ime, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::window::CursorGrabMode;
 
@@ -112,16 +113,69 @@ pub enum Ev {
 // except macOS (app thread on Android, pump thread on Linux/Windows) while
 // sdl_shim_poll_event/wait_event are called from the JS thread — pushers
 // and takers genuinely contend.
-static QUEUE: Mutex<VecDeque<Ev>> = Mutex::new(VecDeque::new());
+static QUEUE: Mutex<VecDeque<Queued>> = Mutex::new(VecDeque::new());
 static NOTIFY: Condvar = Condvar::new();
 
+struct Queued {
+    ev: Ev,
+    /// Queue-entry stamp — queue residency (at → take) IS the cross-thread
+    /// wake latency the pump/condvar design exists to minimize, and it's
+    /// the number the pump stats report.
+    at: Instant,
+}
+
+// ── Pump stats ────────────────────────────────────────────────────────────
+// Cumulative counters exported via sdl_shim_pump_stats — the JS runLoop
+// diffs them per stats interval. All relaxed atomic ops; a few nanoseconds
+// per event is noise next to a winit dispatch.
+
+static STAT_DELIVERED: AtomicU64 = AtomicU64::new(0);
+static STAT_TIMEOUTS: AtomicU64 = AtomicU64::new(0);
+static STAT_RESIDENCY_US: AtomicU64 = AtomicU64::new(0);
+static STAT_MAX_RESIDENCY_US: AtomicU64 = AtomicU64::new(0);
+
+fn record_take(ev: Option<Queued>) -> Option<Ev> {
+    match ev {
+        Some(q) => {
+            let us = q.at.elapsed().as_micros() as u64;
+            STAT_DELIVERED.fetch_add(1, Ordering::Relaxed);
+            STAT_RESIDENCY_US.fetch_add(us, Ordering::Relaxed);
+            STAT_MAX_RESIDENCY_US.fetch_max(us, Ordering::Relaxed);
+            Some(q.ev)
+        }
+        None => {
+            STAT_TIMEOUTS.fetch_add(1, Ordering::Relaxed);
+            None
+        }
+    }
+}
+
+/// Snapshot [delivered, timeouts, residency_us_total, residency_us_max].
+/// Non-resetting — callers diff snapshots; a racing push may land between
+/// reads but the counters only ever grow. Writes 0s on null.
+#[no_mangle]
+pub extern "C" fn sdl_shim_pump_stats(out: *mut i64) {
+    if out.is_null() {
+        return;
+    }
+    unsafe {
+        *out.add(0) = STAT_DELIVERED.load(Ordering::Relaxed) as i64;
+        *out.add(1) = STAT_TIMEOUTS.load(Ordering::Relaxed) as i64;
+        *out.add(2) = STAT_RESIDENCY_US.load(Ordering::Relaxed) as i64;
+        *out.add(3) = STAT_MAX_RESIDENCY_US.load(Ordering::Relaxed) as i64;
+    }
+}
+
 pub fn push(ev: Ev) {
-    QUEUE.lock().unwrap().push_back(ev);
+    QUEUE.lock().unwrap().push_back(Queued {
+        ev,
+        at: Instant::now(),
+    });
     NOTIFY.notify_one();
 }
 
 pub fn take() -> Option<Ev> {
-    QUEUE.lock().unwrap().pop_front()
+    record_take(QUEUE.lock().unwrap().pop_front())
 }
 
 /// Block up to `timeout` for an event to arrive (wait_event on every
@@ -133,7 +187,7 @@ pub fn take_timeout(timeout: Duration) -> Option<Ev> {
         let (g, _) = NOTIFY.wait_timeout(guard, timeout).unwrap();
         guard = g;
     }
-    guard.pop_front()
+    record_take(guard.pop_front())
 }
 
 pub fn clear() {

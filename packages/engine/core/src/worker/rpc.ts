@@ -97,6 +97,61 @@ interface EventBatchMessage {
   events: { kind: string; data: any }[];
 }
 
+// --- Event channel stats ---
+// Cheap counters the DOWNDRAFT_EVENT_STATS logger (and QA tooling) read to
+// verify batching is actually engaging: emitted events vs postMessage posts
+// on the worker side, messages vs delivered events on the host side.
+const eventChannelStats = {
+  /** Worker side: emit() calls. */
+  emitted: 0,
+  /** Worker side: postMessage calls carrying events (batch or single). */
+  posts: 0,
+  /** Host side: messages received carrying events. */
+  messages: 0,
+  /** Host side: events delivered to listeners. */
+  events: 0,
+  /** Host side: largest observed __eventBatch. */
+  maxBatch: 0,
+};
+
+export function getEventChannelStats(): Readonly<typeof eventChannelStats> {
+  return eventChannelStats;
+}
+
+function envFlag(name: string): boolean {
+  try {
+    return (
+      (globalThis as { process?: { env?: Record<string, string> } }).process?.env?.[name] === "1"
+    );
+  } catch {
+    return false;
+  }
+}
+
+let statsLoggerStarted = false;
+function startEventStatsLogger(): void {
+  if (statsLoggerStarted || !envFlag("DOWNDRAFT_EVENT_STATS")) return;
+  statsLoggerStarted = true;
+  let prev = { emitted: 0, posts: 0, messages: 0, events: 0 };
+  const t = setInterval(() => {
+    const s = eventChannelStats;
+    const d = {
+      emitted: s.emitted - prev.emitted,
+      posts: s.posts - prev.posts,
+      messages: s.messages - prev.messages,
+      events: s.events - prev.events,
+    };
+    prev = { emitted: s.emitted, posts: s.posts, messages: s.messages, events: s.events };
+    if (d.emitted || d.posts || d.messages || d.events) {
+      log.info(
+        "rpc-events",
+        `5s Δ emitted=${d.emitted} posts=${d.posts} msgs=${d.messages} events=${d.events} maxBatch=${s.maxBatch}`
+      );
+    }
+  }, 5000);
+  (t as { unref?: () => void }).unref?.();
+}
+
 function isRpcRequest(msg: any): msg is RpcRequest {
   return msg && msg.__rpc === true && typeof msg.method === "string";
 }
@@ -148,8 +203,11 @@ export interface WorkerEventEmitter {
 
 export function exposeEvents(host?: WorkerHost): WorkerEventEmitter {
   const h = host ?? getWorkerHost();
+  startEventStatsLogger();
   return {
     emit: (kind: string, data: any) => {
+      eventChannelStats.emitted++;
+      eventChannelStats.posts++;
       h.postToHost({ __event: true, kind, data } as EventMessage);
     },
   };
@@ -171,16 +229,19 @@ export interface BatchedWorkerEventEmitter extends WorkerEventEmitter {
  */
 export function exposeBatchedEvents(host?: WorkerHost): BatchedWorkerEventEmitter {
   const h = host ?? getWorkerHost();
+  startEventStatsLogger();
   let queue: { kind: string; data: any }[] = [];
   let flushScheduled = false;
   const flush = () => {
     flushScheduled = false;
     if (queue.length === 0) return;
+    eventChannelStats.posts++;
     h.postToHost({ __eventBatch: true, events: queue } as EventBatchMessage);
     queue = [];
   };
   return {
     emit: (kind: string, data: any) => {
+      eventChannelStats.emitted++;
       queue.push({ kind, data });
       if (!flushScheduled) {
         flushScheduled = true;
@@ -217,6 +278,7 @@ export interface WrapOptions {
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 export function wrap<T extends WorkerApi>(worker: AnyWorker, options?: WrapOptions): WorkerProxy<T> {
+  startEventStatsLogger();
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   // A worker nobody terminates must not pin the runtime after the host's
   // window closes — in-flight RPCs still hold the loop via their timeout.
@@ -244,6 +306,9 @@ export function wrap<T extends WorkerApi>(worker: AnyWorker, options?: WrapOptio
 
     if (isEventMessage(msg) || isEventBatchMessage(msg)) {
       const events = isEventBatchMessage(msg) ? msg.events : [msg];
+      eventChannelStats.messages++;
+      eventChannelStats.events += events.length;
+      if (events.length > eventChannelStats.maxBatch) eventChannelStats.maxBatch = events.length;
       for (const ev of events) {
         for (const cb of eventListeners.values()) {
           try { cb(ev.kind, ev.data); } catch (err) {
