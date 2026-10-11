@@ -230,6 +230,10 @@ export class NativeWindow extends MiniEventTarget {
   // Touch: id of the pointer currently treated as primary (first active
   // contact) — DOM compat mouse events are synthesized only for it.
   private primaryTouchId: number | null = null;
+  // Last raw position per active touch id — movementX/Y on synthesized
+  // pointer/mouse events (deltas feed pointer-locked camera look; absent
+  // values are read as undefined → NaN by game handlers).
+  private lastTouchPos = new Map<number, [number, number]>();
   // Set on SDL_EVENT_SUSPENDED, cleared on RESUMED — gates the resume path's
   // surface recreation.
   private surfaceSuspended = false;
@@ -1054,13 +1058,21 @@ export class NativeWindow extends MiniEventTarget {
       case SDL_EVENT_TOUCH: {
         // Wire slots: [phase, x, y, id] — phase 0=down 1=move 2=up 3=cancel.
         const phase = eventView[0];
-        const x = this.mapX(eventView[1]);
-        const y = this.mapY(eventView[2]);
+        const rawX = eventView[1];
+        const rawY = eventView[2];
+        const x = this.mapX(rawX);
+        const y = this.mapY(rawY);
         const id = eventView[3];
         const type = phase === 0 ? "pointerdown"
           : phase === 1 ? "pointermove"
           : phase === 2 ? "pointerup"
           : "pointercancel";
+        // Deltas in raw physical px (same space as the mouse path's xrel).
+        const lastTouch = this.lastTouchPos.get(id);
+        const movementX = lastTouch ? rawX - lastTouch[0] : 0;
+        const movementY = lastTouch ? rawY - lastTouch[1] : 0;
+        if (phase === 2 || phase === 3) this.lastTouchPos.delete(id);
+        else this.lastTouchPos.set(id, [rawX, rawY]);
         if (phase === 0 && this.primaryTouchId === null) this.primaryTouchId = id;
         // Touch contact is engagement too (see MOUSE_DOWN).
         if (phase === 0) { this.gestureSeen = true; this.applyPendingGrab(); }
@@ -1069,6 +1081,8 @@ export class NativeWindow extends MiniEventTarget {
         const base = {
           clientX: x,
           clientY: y,
+          movementX,
+          movementY,
           button: 0,
           buttons: down ? 1 : 0,
           ...this.modifiers(0),
