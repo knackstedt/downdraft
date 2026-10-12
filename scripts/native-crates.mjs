@@ -63,7 +63,12 @@ export const CRATES = [
     dest: "packages/engine/libraries/webui/native-cef/dist",
     flatCopy: true,
     noAndroid: true,
-    targets: ["linux", "win32", "darwin"],
+    // Only linux has a vendored CEF runtime and has been validated — the
+    // backend landed linux-first. darwin/win32 need a staged cef_<os>_<arch>
+    // tree (and a verified cef-dll-sys cmake wrapper build on the runner)
+    // before they can join this list; without the vendor dir the sys crate
+    // falls back to downloading + building CEF in CI, which fails.
+    targets: ["linux"],
     bins: ["downdraft_cef_helper"],
     // cef-dll-sys resolves the vendored runtime through CEF_PATH when the
     // dir exists (else it downloads the pinned archive to OUT_DIR itself).
