@@ -1,0 +1,18 @@
+[package]
+name = "downdraft-webui-wpe"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Heavyweight browser-backed UI — WPE (embedded WebKit) backend behind the dd_webui_* ABI"
+build = "build.rs"
+
+[lib]
+name = "downdraft_webui_wpe"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+downdraft-webui-common = { path = "../native-common" }
+
+# glib/gobject/wpe link setup happens in build.rs against the vendored WPE
+# SDK prefix (../vendor/wpe-<plat>) — see Phase 2.

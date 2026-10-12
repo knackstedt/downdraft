@@ -1,0 +1,12 @@
+[package]
+name = "downdraft-webui-common"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Shared machinery for the webui cdylibs (CEF/WPE) — frame buffers, dirty rects, JSON event queues, SAB frame channel, handle registry"
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]

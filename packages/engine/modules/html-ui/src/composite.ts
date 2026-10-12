@@ -104,13 +104,16 @@ export class PanelBlitPass {
     });
   }
 
-  /** Bind group for a panel texture — call when the texture is (re)created. */
-  createBindGroup(texture: GPUTexture, ubo: GPUBuffer): GPUBindGroup {
+  /** Bind group for a panel texture — call when the texture is (re)created.
+   *  `format` is the view format; defaults to rgba8unorm-srgb (Blitz docs).
+   *  Browser-backed panels pass bgra8unorm-srgb for BGRA sources — srgb
+   *  reinterprets of rgba8unorm/bgra8unorm are both legal. */
+  createBindGroup(texture: GPUTexture, ubo: GPUBuffer, format: GPUTextureFormat = "rgba8unorm-srgb"): GPUBindGroup {
     return this.device.createBindGroup({
       layout: this.bindGroupLayout,
       entries: [
         { binding: 0, resource: { buffer: ubo } },
-        { binding: 1, resource: texture.createView({ format: "rgba8unorm-srgb" }) },
+        { binding: 1, resource: texture.createView({ format }) },
         { binding: 2, resource: this.sampler },
       ],
     });

@@ -48,6 +48,46 @@ export const CRATES = [
 
   { pkg: "downdraft-audio", lib: "downdraft_audio", dir: "packages/engine/libraries/audio-kira/native", dest: "packages/engine/libraries/audio-kira/native/dist", flatCopy: true },
 
+  // WebUI backends — the heavyweight browser UI tier. Both implement the
+  // same dd_webui_* ABI; the runtime picks a cdylib by backend resolution.
+  // cef: desktop Chromium (needs the staged CEF runtime next to it — see
+  //   libraries/webui/scripts/fetch-cef.mjs). Also emits a helper
+  //   render-process binary staged via `bins`.
+  // wpe: embedded WebKit — linux dev/testing + the android backend.
+  // `targets` restricts which nodePlat families a crate builds for — a wpe
+  // cross-build for win32 would fail on missing glib, so it never tries.
+  {
+    pkg: "downdraft-webui-cef",
+    lib: "downdraft_webui_cef",
+    dir: "packages/engine/libraries/webui/native-cef",
+    dest: "packages/engine/libraries/webui/native-cef/dist",
+    flatCopy: true,
+    noAndroid: true,
+    targets: ["linux", "win32", "darwin"],
+    bins: ["downdraft_cef_helper"],
+    // cef-dll-sys resolves the vendored runtime through CEF_PATH when the
+    // dir exists (else it downloads the pinned archive to OUT_DIR itself).
+    // Values are relative to the crate dir — the vendor tree is shared by
+    // both webui backends under libraries/webui/vendor.
+    runtimeEnv: { CEF_PATH: "../vendor/cef" },
+    // Stage the merged Release+Resources tree next to the cdylib — the
+    // $ORIGIN rpath resolves libcef.so there at dlopen. `glob` finds the
+    // single versioned cef_<os>_<arch> dir under the vendor root; `exclude`
+    // drops build-only entries (headers, cmake, wrapper sources).
+    runtimeStage: {
+      glob: "../vendor/cef/*/cef_*",
+      exclude: ["include", "cmake", "libcef_dll", "CMakeLists.txt", "CREDITS.html", "archive.json", "Debug", "obj"],
+    },
+  },
+  {
+    pkg: "downdraft-webui-wpe",
+    lib: "downdraft_webui_wpe",
+    dir: "packages/engine/libraries/webui/native-wpe",
+    dest: "packages/engine/libraries/webui/native-wpe/dist",
+    flatCopy: true,
+    targets: ["linux", "android"],
+  },
+
   // Android only — the NativeActivity shell statically links downdraft-platform
   // and spawns embedded libnode; JS dlopens this .so so platform statics are
   // shared with the winit loop. Never a host target.

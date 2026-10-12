@@ -627,6 +627,21 @@
       "default": "./dist/libraries/weatherfx/src/*.js"
     },
     "./libraries/weatherfx/*.wgsl": "./libraries/weatherfx/src/*.wgsl",
+    "./libraries/webui": {
+      "types": "./libraries/webui/src/index.ts",
+      "downdraft-source": "./libraries/webui/src/index.ts",
+      "default": "./dist/libraries/webui/src/index.js"
+    },
+    "./libraries/webui/*": {
+      "types": "./libraries/webui/src/*.ts",
+      "downdraft-source": "./libraries/webui/src/*.ts",
+      "default": "./dist/libraries/webui/src/*.js"
+    },
+    "./libraries/webui/*.ts": {
+      "types": "./libraries/webui/src/*.ts",
+      "downdraft-source": "./libraries/webui/src/*.ts",
+      "default": "./dist/libraries/webui/src/*.js"
+    },
     "./modules/camera-controls": {
       "types": "./modules/camera-controls/src/index.ts",
       "downdraft-source": "./modules/camera-controls/src/index.ts",
@@ -812,6 +827,21 @@
       "types": "./modules/vitals/src/*.ts",
       "downdraft-source": "./modules/vitals/src/*.ts",
       "default": "./dist/modules/vitals/src/*.js"
+    },
+    "./modules/webui": {
+      "types": "./modules/webui/src/index.ts",
+      "downdraft-source": "./modules/webui/src/index.ts",
+      "default": "./dist/modules/webui/src/index.js"
+    },
+    "./modules/webui/*": {
+      "types": "./modules/webui/src/*.ts",
+      "downdraft-source": "./modules/webui/src/*.ts",
+      "default": "./dist/modules/webui/src/*.js"
+    },
+    "./modules/webui/*.ts": {
+      "types": "./modules/webui/src/*.ts",
+      "downdraft-source": "./modules/webui/src/*.ts",
+      "default": "./dist/modules/webui/src/*.js"
     },
     "./modules/xr": {
       "types": "./modules/xr/src/index.ts",

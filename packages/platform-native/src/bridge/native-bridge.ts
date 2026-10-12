@@ -10,8 +10,6 @@
 // lazy Proxy, so install order only needs to precede first use).
 // ============================================================================
 
-import { NATIVE_HOST_CAPABILITIES } from "@downdraft/engine/platform/runtime";
-import type { FeatureLogData } from "@downdraft/engine/util/feature-log";
 import { collectHostFeatureLog } from "@downdraft/engine/app/shared/feature-log";
 import { queryNvidiaSmi } from "@downdraft/engine/app/shared/gpu-info";
 import type {
@@ -27,6 +25,8 @@ import type {
     ProcessStatsData,
     SimReadyData
 } from "@downdraft/engine/app/shared/types";
+import { NATIVE_HOST_CAPABILITIES } from "@downdraft/engine/platform/runtime";
+import type { FeatureLogData } from "@downdraft/engine/util/feature-log";
 import { createLogger } from "@downdraft/engine/util/logger";
 import { spawn } from "node:child_process";
 import { WgpuDevice } from "../gpu/wgpu-wrapper";
@@ -37,6 +37,7 @@ import { isPackaged } from "../packaged";
 import { encodePNG } from "../screenshot/screenshot";
 import { HostSaveStore } from "../services/host-save-store";
 import type { HostServices } from "../services/host-services";
+import { createWebUiHost } from "../webui/webui-host";
 import type { NativeSurface } from "../window/native-surface";
 import type { NativeWindow } from "../window/native-window";
 
@@ -156,6 +157,14 @@ export function createNativeBridge(opts: NativeBridgeOptions): HostAPI & { dispo
   const osrApi: HostOsrAPI = osrHost.api;
   if (osrHost.available) {
     (globalThis as Record<string, unknown>).__ddOsrAvailable = true;
+  }
+
+  // ── WebUI: heavyweight real-browser tier (CEF desktop / WPE android).
+  //  Backend resolves createWebUi opts > DD_WEBUI_BACKEND > config > CLI >
+  //  platform default; "none" or a missing cdylib leaves webui undefined. ──
+  const webuiHost = createWebUiHost();
+  if (webuiHost?.available) {
+    (globalThis as Record<string, unknown>).__ddWebUiBackend = webuiHost.backend;
   }
 
   let fullscreen = false;
@@ -286,6 +295,9 @@ export function createNativeBridge(opts: NativeBridgeOptions): HostAPI & { dispo
     onDevtoolsToggle: (cb: () => void) => on("devtools-toggle", cb),
 
     osr: osrApi,
+    // Heavyweight browser-backed UI — undefined when no backend cdylib is
+    // staged or DD_WEBUI_BACKEND=none (games gate on its presence).
+    ...(webuiHost?.available ? { webui: webuiHost.api } : {}),
     // rawInput is intentionally absent: SDL relative-mouse grab covers
     // pointer-lock semantics without a native addon.
     deterministic,
@@ -306,6 +318,7 @@ export function createNativeBridge(opts: NativeBridgeOptions): HostAPI & { dispo
     dispose(): void {
       if (perfTimer) { clearInterval(perfTimer); perfTimer = null; }
       osrHost.dispose();
+      webuiHost?.dispose();
       void services.dispose();
       emitters.clear();
       delete (globalThis as Record<string, unknown>).__ddMcpHandler;

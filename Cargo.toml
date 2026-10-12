@@ -20,6 +20,13 @@ members = [
     "packages/engine/libraries/blitz-ui/native",
     "packages/engine/libraries/blitz-ui/native-osr",
     "packages/engine/libraries/audio-kira/native",
+    # Heavyweight browser-backed UI tier (real web engines behind the
+    # dd_webui_* ABI). native-common is a shared rlib; cef/wpe are the
+    # optional backend cdylibs. The CEF crate also builds the
+    # downdraft_cef_helper render-process binary.
+    "packages/engine/libraries/webui/native-common",
+    "packages/engine/libraries/webui/native-cef",
+    "packages/engine/libraries/webui/native-wpe",
     "test-beds/ui-bakeoff/blitz-app",
     # Android NativeActivity shell — cdylib that embeds libnode and statically
     # links downdraft-platform (JS dlopens the shell .so for FFI on Android).

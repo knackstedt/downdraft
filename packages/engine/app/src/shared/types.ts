@@ -13,6 +13,13 @@
 
 import type { FeatureLogData, HostCapabilities, ISaveStore } from "@downdraft/engine";
 import type {
+    WebUiEvent,
+    WebUiHostBridge,
+    WebUiInputEvent,
+    WebUiViewConfig,
+    WebUiViewStatus,
+} from "@downdraft/engine/libraries/webui/types";
+import type {
     AtlasLayout,
     AtlasPanelRect,
     OSRInputEvent,
@@ -232,6 +239,25 @@ export interface HostOsrAPI {
 }
 
 // ---------------------------------------------------------------------------
+// WebUI host API (sub-object of HostAPI)
+// ---------------------------------------------------------------------------
+
+export type {
+    WebUiEvent,
+    WebUiInputEvent,
+    WebUiViewConfig,
+    WebUiViewStatus
+};
+
+/** Host-side heavyweight-browser surface — one `dd_webui_*` backend bound
+ *  per HostAPI (resolved via createWebUi opts > DD_WEBUI_BACKEND > config >
+ *  CLI flag > platform default). CEF on desktop, WPE on android; linux can
+ *  host either. Absent the cdylib, `downdraft.webui` is simply undefined —
+ *  games gate on its presence. Shape lives in
+ *  libraries/webui/src/types.ts (WebUiHostBridge). */
+export type HostWebUIAPI = WebUiHostBridge;
+
+// ---------------------------------------------------------------------------
 // HostAPI — the object installed on `globalThis.downdraft`
 // ---------------------------------------------------------------------------
 
@@ -293,6 +319,9 @@ export interface HostAPI {
   onDevtoolsToggle(cb: () => void): () => void;
 
   osr: HostOsrAPI;
+  /** Heavyweight real-browser UI (CEF/WPE). Undefined when no backend
+   *  cdylib is staged or DD_WEBUI_BACKEND=none — gate on presence. */
+  webui?: HostWebUIAPI;
   /** Native raw mouse capture (pointer lock polyfill). Undefined when the feature is disabled. */
   rawInput?: HostRawInputAPI;
   deterministic: boolean;

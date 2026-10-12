@@ -23,7 +23,7 @@
 // ============================================================================
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readdirSync, renameSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CRATES, libFileName, NODE_TO_RUST, RUST_TO_NODE } from "./native-crates.mjs";
@@ -122,8 +122,14 @@ for (let _i = 0, _it = targets, _n = _it.length; _i < _n; _i++) {
     console.warn(`[build-native] no node-triple mapping for ${target} — skipping staging`);
   }
   // Per-target crate set: androidOnly crates only build for android targets,
-  // noAndroid crates are excluded there (e.g. the platform is inside the shell).
-  const crates = baseCrates.filter((c) => isAndroid ? !c.noAndroid : !c.androidOnly);
+  // noAndroid crates are excluded there (e.g. the platform is inside the
+  // shell). `targets` restricts the nodePlat families a crate builds for
+  // ("linux", "android", ...) — backend crates whose system deps only exist
+  // on some platforms (e.g. WPE) use it instead of failing the cross-build.
+  const platFamily = nodePlat?.split("-")[0];
+  const crates = baseCrates.filter((c) =>
+    (isAndroid ? !c.noAndroid : !c.androidOnly)
+    && (!c.targets || (platFamily && c.targets.includes(platFamily))));
   if (!crates.length) {
     console.log(`[build-native] no crates apply to ${target} — skipping`);
     continue;
@@ -135,7 +141,17 @@ for (let _i = 0, _it = targets, _n = _it.length; _i < _n; _i++) {
     ...crates.flatMap((c) => ["-p", c.pkg]),
   ];
   console.log(`[build-native] cargo ${cargoArgs.join(" ")}`);
-  const r = spawnSync("cargo", cargoArgs, { cwd: root, stdio: "inherit", env: androidEnv(target) });
+  // Per-crate build env (e.g. CEF_PATH pointing at the vendored runtime so
+  // cef-dll-sys skips its own download). Values resolve against the crate dir.
+  const env = { ...androidEnv(target) };
+  for (const c of crates) {
+    if (!c.runtimeEnv) continue;
+    for (const [k, v] of Object.entries(c.runtimeEnv)) {
+      const p = join(root, c.dir, v);
+      if (existsSync(p)) env[k] = p;
+    }
+  }
+  const r = spawnSync("cargo", cargoArgs, { cwd: root, stdio: "inherit", env });
   if (r.status !== 0) process.exit(r.status ?? 1);
 
   if (!nodePlat) continue;
@@ -160,6 +176,62 @@ for (let _i = 0, _it = targets, _n = _it.length; _i < _n; _i++) {
       stageFile(src, join(destRoot, file));
     }
     console.log(`[build-native] staged ${file} → ${platDir}${crate.flatCopy && target === host && profile !== "debug" ? ` (+ ${destRoot})` : ""}`);
+
+    // Companion binaries (e.g. the CEF render-process helper). Stage next to
+    // the lib in the same <plat>-<arch> dir; skipped for android (APK glue
+    // handles subprocess launching differently).
+    if (crate.bins && !isAndroid) {
+      for (const bin of crate.bins) {
+        const binFile = nodePlat.startsWith("win32") ? `${bin}.exe` : bin;
+        const binSrc = join(root, "target", target, profileDir, binFile);
+        if (!existsSync(binSrc)) {
+          console.error(`[build-native] expected bin artifact missing: ${binSrc}`);
+          process.exit(1);
+        }
+        stageFile(binSrc, join(platDir, binFile));
+        if (crate.flatCopy && target === host && profile !== "debug") {
+          stageFile(binSrc, join(destRoot, binFile));
+        }
+        console.log(`[build-native] staged ${binFile} → ${platDir}`);
+      }
+    }
+
+    // Companion runtime trees (e.g. the CEF merged Release+Resources dist).
+    // `glob` resolves "<crateDir>/<glob>" against one directory level of
+    // wildcard (`*` per segment); `exclude` drops build-only entries. Each
+    // entry lands beside the lib — libcef.so resolves via $ORIGIN rpath.
+    if (crate.runtimeStage && !isAndroid) {
+      const segs = crate.runtimeStage.glob.split("/");
+      const excluded = new Set(crate.runtimeStage.exclude ?? []);
+      let dirs = [join(root, crate.dir)];
+      for (const seg of segs) {
+        dirs = dirs.flatMap((d) => {
+          if (!existsSync(d)) return [];
+          if (seg.includes("*")) {
+            const re = new RegExp(`^${seg.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")}$`);
+            return readdirSync(d, { withFileTypes: true }).filter((e) => e.isDirectory() && re.test(e.name)).map((e) => join(d, e.name));
+          }
+          const p = join(d, seg);
+          return existsSync(p) ? [p] : [];
+        });
+      }
+      for (const runtimeDir of dirs) {
+        const staged = readdirSync(runtimeDir, { withFileTypes: true })
+          .filter((e) => !excluded.has(e.name));
+        for (const entry of staged) {
+          const dest = join(platDir, entry.name);
+          rmSync(dest, { recursive: true, force: true });
+          cpSync(join(runtimeDir, entry.name), dest, { recursive: true });
+          if (crate.flatCopy && target === host && profile !== "debug") {
+            const flat = join(destRoot, entry.name);
+            rmSync(flat, { recursive: true, force: true });
+            cpSync(join(runtimeDir, entry.name), flat, { recursive: true });
+          }
+        }
+        console.log(`[build-native] staged CEF-style runtime (${staged.length} entries) → ${platDir}`);
+        break; // one versioned dir only
+      }
+    }
   }
 }
 

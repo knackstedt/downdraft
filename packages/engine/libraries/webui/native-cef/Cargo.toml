@@ -1,0 +1,32 @@
+[package]
+name = "downdraft-webui-cef"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Heavyweight browser-backed UI — CEF/Chromium OSR backend behind the dd_webui_* ABI"
+build = "build.rs"
+
+[lib]
+name = "downdraft_webui_cef"
+crate-type = ["cdylib", "rlib"]
+
+# Render/GPU-process helper — CEF subprocesses re-exec a dedicated binary
+# (CefExecuteProcess with the renderer command line). Staged next to the
+# cdylib by build-native.mjs (`bins` in scripts/native-crates.mjs).
+[[bin]]
+name = "downdraft_cef_helper"
+path = "src/bin/helper.rs"
+
+[dependencies]
+downdraft-webui-common = { path = "../native-common" }
+
+# cef-rs (tauri-apps) — generated bindings over the CEF C API plus the
+# wrap_*! handler machinery. cef-dll-sys downloads the matching CEF binary
+# distribution at build time via its `download-cef` build dep; point
+# build.rs's CEF_PATH at vendor/cef-<plat> to reuse the fetch-cef.mjs copy
+# instead of a second download.
+# Keep in sync with scripts/fetch-cef.mjs CEF_PIN.
+cef = { version = "154.5", default-features = false }
+
+[target.'cfg(target_os = "linux")'.dependencies]

@@ -74,6 +74,10 @@ packages/engine/libraries/devtools/native/*.so
 packages/engine/libraries/physics-native/native/target/
 packages/engine/libraries/audio-kira/native/target/
 packages/engine/libraries/blitz-ui/native-osr/target/
+# WebUI backend runtimes — CEF distributions (~300MB+/platform) and WPE SDK
+# prefixes staged by libraries/webui/scripts/{fetch-cef,build-wpe}.* — fetched,
+# never committed.
+packages/engine/libraries/webui/vendor/
 # Test-bed Rust crates (e.g. ui-bakeoff's blitz-app wasm) — same rule.
 test-beds/**/target/
 # Vendored crates get their own target dir when cargo test runs inside them.

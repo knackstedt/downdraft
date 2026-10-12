@@ -58,6 +58,7 @@ interface ReleaseArgs {
   verbose: boolean;
   runtime: string | null;
   format: string | null;
+  webui: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -103,6 +104,7 @@ function parseReleaseArgs(args: string[]): ReleaseArgs {
     verbose: parsed.flags.verbose as boolean,
     runtime: (parsed.flags.runtime as string) || null,
     format: (parsed.flags.format as string) || null,
+    webui: (parsed.flags.webui as string) || null,
   };
 }
 
@@ -271,6 +273,7 @@ function packageNative(
           `--product-name=${info.productName}`,
           `--product-version=${info.version}`,
           `--app-id=${info.appId}`,
+          ...(opts.webui ? [`--webui=${opts.webui}`] : []),
           ...(opts.retainMcp ? ["--mcp"] : []),
           entry,
           resolve(opts.out),
@@ -294,6 +297,7 @@ function packageNative(
         `--mode=${opts.mode}`,
         `--product-name=${info.productName}`,
         `--product-version=${info.version}`,
+        ...(opts.webui ? [`--webui=${opts.webui}`] : []),
         ...(opts.retainMcp ? ["--mcp"] : []),
         entry,
         outfile,
@@ -348,6 +352,7 @@ function packageAndroid(
     ...(opts.libs ? [`--libs=${opts.libs}`] : []),
     ...(opts.excludeLibs ? [`--exclude-libs=${opts.excludeLibs}`] : []),
     ...(opts.noStrip ? ["--no-strip"] : []),
+    ...(opts.webui ? [`--webui=${opts.webui}`] : []),
     ...(opts.retainMcp ? ["--mcp"] : []),
     entry,
     outfile,

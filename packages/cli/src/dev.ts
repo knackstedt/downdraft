@@ -166,6 +166,14 @@ async function devNative(parsed: any): Promise<void> {
     process.exit(1);
   }
 
+  // WebUI backend: --webui flag → DD_WEBUI_BACKEND → config webui.backend.
+  // Forwarded into the shell env; the host resolves final precedence
+  // (createWebUi opts still outrank it) inside libraries/webui.
+  const webuiBackend = (parsed.flags.webui as string | undefined)
+    || process.env.DD_WEBUI_BACKEND
+    || ((readGameConfig(gameDir).webui as { backend?: string } | undefined)?.backend);
+  if (webuiBackend) env.DD_WEBUI_BACKEND = webuiBackend;
+
   env.DD_GAME_DIR = gameDir;
   env.DD_ENTRY = nativeEntry;
   env.DD_RUNTIME = runtime;
