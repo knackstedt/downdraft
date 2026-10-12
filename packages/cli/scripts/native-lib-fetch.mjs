@@ -10,7 +10,7 @@
 // ============================================================================
 
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -31,7 +31,14 @@ export async function resolvePlatLibDir(platKey, candidates, cacheRoot, version)
 
   const pkgName = `@downdraft/native-${platKey}`;
   const cacheDir = join(cacheRoot, "downdraft-native", platKey, "lib");
-  if (existsSync(cacheDir) && readdirSync(cacheDir).length > 0) return cacheDir;
+  const marker = join(cacheRoot, "downdraft-native", platKey, ".version");
+  // Cache hit is only valid if it holds the lockstep version — a versionless
+  // cache would silently ship stale cdylibs after an engine bump. No marker
+  // (pre-versioning cache) → refetch.
+  if (existsSync(cacheDir) && readdirSync(cacheDir).length > 0) {
+    const cached = existsSync(marker) ? readFileSync(marker, "utf8").trim() : null;
+    if (!version || cached === version) return cacheDir;
+  }
 
   try {
     const meta = await (await fetch(
@@ -51,6 +58,7 @@ export async function resolvePlatLibDir(platKey, candidates, cacheRoot, version)
       mkdirSync(dirname(cacheDir), { recursive: true });
       // cpSync not renameSync: TMPDIR may be a different filesystem.
       cpSync(libDir, cacheDir, { recursive: true });
+      writeFileSync(marker, ver);
       console.log(`[package] fetched ${pkgName}@${ver} from npm → ${cacheDir}`);
       return cacheDir;
     } finally {

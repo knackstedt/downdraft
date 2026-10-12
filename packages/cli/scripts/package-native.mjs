@@ -107,6 +107,13 @@ let outfile = outfileArg;
 if (target.exe && !outfile.endsWith(".exe")) outfile += ".exe";
 
 const repoRoot = process.cwd();
+// Bun embeds compile-mode modules keyed relative to the common ancestor of
+// all ENTRYPOINT paths — which is NOT necessarily cwd (a game inside games/
+// whose deps resolve under its own dir gets game-dir keys even when this
+// script runs from the monorepo root). Baked $bunfs specifiers must be
+// relative to that same root or workers/dynamic imports miss the embedded FS.
+// Set after the worker-discovery fixpoint, before the compile pass.
+let embedRoot = repoRoot;
 const engineConds = engineConditions(argv, resolve(entry));
 const QUERY_RE = /\?(raw|url|json)$/;
 const WORKER_RE = /new\s+Worker\(\s*new\s+URL\(\s*["'`]([^"'`]+)["'`]\s*,\s*import\.meta\.url\s*\)/g;
@@ -146,7 +153,7 @@ function resolveSpec(spec, importer) {
 
 /** repo-rel path of a module file as embedded in the binary (.js suffix). */
 function bunfsPath(absPath) {
-  const rel = relative(repoRoot, absPath).replace(/\\/g, "/").replace(/\.[jt]sx?$/, ".js");
+  const rel = relative(embedRoot, absPath).replace(/\\/g, "/").replace(/\.[jt]sx?$/, ".js");
   // Emitted inside a quoted literal for dynamic import() — Windows needs the
   // B:\~BUN drive path (with escaped separators); /$bunfs doesn't resolve.
   return isWin
@@ -338,7 +345,7 @@ const makePlugin = (collectWorkers) => ({
       let out = src;
       // 1. Worker URLs first — before import.meta.url is rewritten.
       out = out.replace(WORKER_RE, (m, spec) => {
-        const rel = relative(repoRoot, resolve(modDir, spec))
+        const rel = relative(embedRoot, resolve(modDir, spec))
           .replace(/\\/g, "/").replace(/\.[jt]sx?$/, ".js");
         // Lands inside new URL(...) — Windows wants a file: URL into the
         // B:\~BUN embedded root; the /$bunfs POSIX form misses it.
@@ -428,6 +435,17 @@ while (workerEntries.size !== prevCount) {
 }
 
 const entrypoints = [resolve(entry), ...workerEntries];
+// Bun's embedded-FS root is the common ancestor of the input paths —
+// reproduce it so baked module paths land under the same keys.
+embedRoot = entrypoints
+  .map((p) => dirname(p))
+  .reduce((lca, dir) => {
+    if (!lca) return dir;
+    const a = lca.split("/"), b = dir.split("/");
+    let i = 0;
+    while (i < a.length && a[i] === b[i]) i++;
+    return a.slice(0, i).join("/") || "/";
+  }, null);
 if (workerEntries.size) {
   console.log(`workers: ${[...workerEntries].map((p) => p.split("/").pop()).join(", ")}`);
 }
