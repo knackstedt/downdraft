@@ -33,6 +33,45 @@ use super::{cstr_title, install_window, CTX};
 /// re-issues the request.
 static REQ: Mutex<Option<(String, u32, u32)>> = Mutex::new(None);
 
+/// The AndroidApp handle — stashed so resumed() can publish the activity's
+/// ANativeWindow to sibling cdylibs (the WPE webui backend parents its
+/// SurfaceControl layer from it) through DD_ANDROID_WINDOW_PTR, the same env
+/// channel android-shell uses for DD_ANDROID_JVM_PTR.
+static APP: Mutex<Option<AndroidApp>> = Mutex::new(None);
+
+extern "C" {
+    fn ANativeWindow_acquire(window: *mut c_void);
+}
+
+/// Return the activity's ANativeWindow with a caller-owned reference —
+/// resolved via dlsym(RTLD_DEFAULT) by sibling cdylibs (the WPE webui
+/// backend parents its SurfaceControl layer from it). The acquire happens
+/// while android-activity's NativeWindow clone guard is alive, so the
+/// returned pointer can never dangle the way an env-published raw pointer
+/// could across surface recreate. Null before the first resumed() and after
+/// the surface dies — callers fall back to a headless path.
+#[no_mangle]
+pub extern "C" fn dd_android_activity_window() -> *mut c_void {
+    let g = APP.lock().unwrap();
+    let win = g.as_ref().and_then(|a| a.native_window());
+    static LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if !LOGGED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        eprintln!(
+            "[downdraft_platform] activity_window app={} win={}",
+            g.is_some() as i32,
+            win.is_some() as i32
+        );
+    }
+    match win {
+        Some(w) => {
+            let p = w.ptr().as_ptr() as *mut c_void;
+            unsafe { ANativeWindow_acquire(p) };
+            p
+        }
+        None => std::ptr::null_mut(),
+    }
+}
+
 /// Proxy to wake the loop from the JS thread when a create request arrives
 /// while already resumed (the common case — Node boots after first resume).
 static PROXY: Mutex<Option<EventLoopProxy<()>>> = Mutex::new(None);
@@ -91,7 +130,7 @@ impl AndroidPump {
                 // RESUMED means "a live window exists" — JS may have been
                 // blocked on it since boot, or rebinds its surface here on
                 // resume-after-suspend. Never emit it without a window.
-                events::push(Ev::Resumed);
+                events::push(0, Ev::Resumed);
             }
             Err(err) => eprintln!("[downdraft_platform] android create_window failed: {err}"),
         }
@@ -101,6 +140,7 @@ impl AndroidPump {
 impl winit::application::ApplicationHandler for AndroidPump {
     fn resumed(&mut self, el: &ActiveEventLoop) {
         self.resumed = true;
+        eprintln!("[downdraft_platform] resumed");
         self.try_create_window(el);
     }
 
@@ -111,7 +151,7 @@ impl winit::application::ApplicationHandler for AndroidPump {
         if let Some(ctx) = CTX.lock().unwrap().as_mut() {
             ctx.window = None;
         }
-        events::push(Ev::Suspended);
+        events::push(0, Ev::Suspended);
     }
 
     /// Wakeup sent by sdl_shim_create_window — if the loop is already resumed
@@ -123,17 +163,16 @@ impl winit::application::ApplicationHandler for AndroidPump {
     }
 
     fn about_to_wait(&mut self, _el: &ActiveEventLoop) {
+        static BEAT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        if BEAT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) == 0 {
+            eprintln!("[downdraft_platform] pump alive");
+        }
         drain_surface_releases();
     }
 
-    fn window_event(
-        &mut self,
-        el: &ActiveEventLoop,
-        _id: winit::window::WindowId,
-        ev: WindowEvent,
-    ) {
+    fn window_event(&mut self, el: &ActiveEventLoop, id: winit::window::WindowId, ev: WindowEvent) {
         if let Some(ctx) = CTX.lock().unwrap().as_mut() {
-            events::translate_window_event(ctx, ev, el);
+            events::translate_window_event(ctx, id, ev, el);
         }
     }
 
@@ -178,6 +217,7 @@ pub extern "C" fn sdl_shim_create_window(
 /// Builds the Android-bound EventLoop and runs it — owns this thread for the
 /// process lifetime (Android apps never return from the activity loop).
 pub fn run_app(app: AndroidApp) -> ! {
+    *APP.lock().unwrap() = Some(app.clone());
     let el = match EventLoop::<()>::with_user_event()
         .with_android_app(app)
         .build()
@@ -234,9 +274,13 @@ mod choreo {
 
     unsafe extern "C" fn frame_cb(nanos: i64, _data: *mut c_void) {
         POSTED.store(false, Ordering::Relaxed);
-        events::push(Ev::Vsync { nanos });
+        events::push(0, Ev::Vsync { nanos });
         if WANTED.load(Ordering::Acquire) {
-            AChoreographer_postFrameCallback(CH.load(Ordering::Relaxed), frame_cb, std::ptr::null_mut());
+            AChoreographer_postFrameCallback(
+                CH.load(Ordering::Relaxed),
+                frame_cb,
+                std::ptr::null_mut(),
+            );
             POSTED.store(true, Ordering::Relaxed);
         }
     }
@@ -250,7 +294,9 @@ mod choreo {
                 let looper = ALooper_prepare(ALOOPER_PREPARE_ALLOW_NON_CALLBACKS);
                 let ch = AChoreographer_getInstance();
                 if looper.is_null() || ch.is_null() {
-                    eprintln!("[downdraft_platform] choreographer unavailable — vsync ticks disabled");
+                    eprintln!(
+                        "[downdraft_platform] choreographer unavailable — vsync ticks disabled"
+                    );
                     return;
                 }
                 LOOPER.store(looper, Ordering::Release);
@@ -259,7 +305,12 @@ mod choreo {
                     // Frame callbacks dispatch inside this poll. The timeout
                     // self-heals any missed wake; WANTED transitions also wake
                     // via ALooper_wake below.
-                    ALooper_pollAll(500, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut());
+                    ALooper_pollAll(
+                        500,
+                        std::ptr::null_mut(),
+                        std::ptr::null_mut(),
+                        std::ptr::null_mut(),
+                    );
                     if WANTED.load(Ordering::Acquire) && !POSTED.load(Ordering::Relaxed) {
                         AChoreographer_postFrameCallback(ch, frame_cb, std::ptr::null_mut());
                         POSTED.store(true, Ordering::Relaxed);

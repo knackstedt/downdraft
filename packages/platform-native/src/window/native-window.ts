@@ -40,7 +40,16 @@ import {
     SDL_EVENT_VSYNC,
     SDL_EVENT_WHEEL,
     sdlButtonsToDom,
-    sdlExt
+    sdlExt,
+    sdlWindow,
+    SDL_EVENT_WINDOW_CLOSE,
+    SDL_WIN_ALWAYS_ON_TOP,
+    SDL_WIN_CLICK_THROUGH,
+    SDL_WIN_DECORATIONS,
+    SDL_WIN_HIDDEN,
+    SDL_WIN_RESIZABLE,
+    SDL_WIN_SKIP_TASKBAR,
+    SDL_WIN_TRANSPARENT
 } from "./sdl-ffi";
 
 // Lazily bound — wgpu-device.ts pulls the whole JS shim graph (encoder,
@@ -88,6 +97,22 @@ export interface NativeWindowConfig {
   /** Path to an image decoded as the window icon (_NET_WM_ICON on X11,
    *  taskbar icon on Windows; Wayland resolves icons via appId instead). */
   iconPath?: string;
+  /** Secondary window (overlay/splitscreen) — created through
+   *  sdl_shim_window_create against a live primary window instead of the
+   *  singleton create path. The options below only apply when set. */
+  secondary?: boolean;
+  /** WM placement when x/y are omitted. */
+  x?: number;
+  y?: number;
+  decorations?: boolean;
+  transparent?: boolean;
+  alwaysOnTop?: boolean;
+  /** X11: _NET_WM_WINDOW_TYPE_UTILITY; Windows: WS_EX_TOOLWINDOW. */
+  skipTaskbar?: boolean;
+  /** Map with cursor hit-testing off (overlay default). */
+  clickThrough?: boolean;
+  /** Create invisible — caller shows after the first frame is presented. */
+  hidden?: boolean;
 }
 
 type RAFCallback = (time: number) => void;
@@ -116,7 +141,23 @@ const WHEEL_PIXELS_PER_DETENT = 100;
 // pacing check.
 const RAF_DISPATCH_EPSILON_MS = 0.5;
 
+// SDL event read buffer — shared across NativeWindow instances: events are
+// consumed synchronously on this thread, and an event popped by one
+// window's loop is forwarded to the owning window's handler with these
+// views still hot (a routed Drop/Text payload lives in the buffer, not in
+// the per-event int slots). i32 slot 15 carries the owning window handle.
+const sharedEventData = new ArrayBuffer(64);
+const sharedEventView = new Int32Array(sharedEventData);
+const sharedEventFloatView = new Float32Array(sharedEventData);
+
 export class NativeWindow extends MiniEventTarget {
+  /** Shim window handle — 0 for the primary (the whole legacy surface is
+   *  the h=0 case), 1+ for secondary windows from sdl_shim_window_create.
+   *  Every queued event carries its owning handle in i32 slot 15. */
+  readonly windowHandle: number = 0;
+  /** Live windows by shim handle — routes shared-queue events to the right
+   *  instance (any window's loop pops any event, then forwards). */
+  private static byHandle = new Map<number, NativeWindow>();
   private surface: NativeSurface | null = null;
   // rAF handles: unique IDs → callbacks. The previous implementation used a
   // Set and returned Set.size as the "id", so ids collided and
@@ -178,11 +219,9 @@ export class NativeWindow extends MiniEventTarget {
   private lastVsyncAt = -1e9;
   private vsyncWanted = false;
   private pressedKeys = new Set<number>();
-  // SDL event read buffer — hoisted out of the loop so we don't allocate a
-  // new ArrayBuffer every frame.
-  private eventData = new ArrayBuffer(64);
-  private eventView = new Int32Array(this.eventData);
-  private eventFloatView = new Float32Array(this.eventData);
+  // SDL event reads go through the module-shared buffer above — per-window
+  // buffers would strand forwarded events (the payload stays in the
+  // popping window's buffer).
   // Latest window resize, coalesced — SDL emits one event per pixel during a
   // drag (and a burst on maximize); only the newest dims are applied, once
   // per loop iteration, so listeners + the surface see a single resize.
@@ -259,9 +298,38 @@ export class NativeWindow extends MiniEventTarget {
         if (config.iconPath) sdlExt.sdl_shim_set_window_icon_file?.(config.iconPath);
       } catch { /* older lib without the symbols — identity just doesn't apply */ }
     }
-    const result = sdl.sdl_shim_create_window(config.title, config.width, config.height);
-    if (result !== 0) {
-      throw new Error(`Failed to create SDL2 window (error ${result})`);
+    if (config.secondary) {
+      const create = sdlWindow.sdl_shim_window_create;
+      if (!create) {
+        throw new Error("Secondary windows require a platform lib with sdl_shim_window_create");
+      }
+      const flags =
+        (config.resizable !== false ? SDL_WIN_RESIZABLE : 0)
+        | (config.decorations !== false ? SDL_WIN_DECORATIONS : 0)
+        | (config.transparent ? SDL_WIN_TRANSPARENT : 0)
+        | (config.alwaysOnTop ? SDL_WIN_ALWAYS_ON_TOP : 0)
+        | (config.skipTaskbar ? SDL_WIN_SKIP_TASKBAR : 0)
+        | (config.clickThrough ? SDL_WIN_CLICK_THROUGH : 0)
+        | (config.hidden ? SDL_WIN_HIDDEN : 0);
+      const handle = create(
+        config.title,
+        config.x ?? -2147483648,
+        config.y ?? -2147483648,
+        config.width,
+        config.height,
+        flags,
+      );
+      if (handle <= 0) {
+        throw new Error(`Failed to create secondary window (error ${handle})`);
+      }
+      (this as { windowHandle: number }).windowHandle = handle;
+      NativeWindow.byHandle.set(handle, this);
+    } else {
+      const result = sdl.sdl_shim_create_window(config.title, config.width, config.height);
+      if (result !== 0) {
+        throw new Error(`Failed to create SDL2 window (error ${result})`);
+      }
+      NativeWindow.byHandle.set(0, this);
     }
     // Windows map inactive — activation is opt-in (see NativeWindowConfig);
     // the retry loop in runLoop issues the actual request.
@@ -284,7 +352,7 @@ export class NativeWindow extends MiniEventTarget {
     // 2. Create wgpu surface from the window.
     // The instance ptr is published by installGPU() on the global object.
     const instance = (globalThis as any).__wgpuInstancePtr ?? 0;
-    this.surfacePtr = sdl.sdl_shim_create_wgpu_surface(instance) as unknown as number;
+    this.surfacePtr = sdl.sdl_shim_create_wgpu_surface(instance, this.windowHandle) as unknown as number;
     if (!this.surfacePtr) {
       throw new Error("Failed to create wgpu surface from SDL2 window");
     }
@@ -306,7 +374,7 @@ export class NativeWindow extends MiniEventTarget {
   private waitForAndroidResume(): void {
     const deadline = performance.now() + 30_000;
     while (performance.now() < deadline) {
-      const t = sdl.sdl_shim_wait_event(this.eventData as any, 500);
+      const t = sdl.sdl_shim_wait_event(sharedEventData as any, 500);
       if (t === SDL_EVENT_RESUMED) {
         this.surfaceSuspended = false;
         return;
@@ -345,7 +413,11 @@ export class NativeWindow extends MiniEventTarget {
 
   /** Retitle the OS window (adopted-host config reconciliation). */
   setTitle(title: string): void {
-    try { sdl.sdl_shim_set_window_title(title); } catch { /* older lib */ }
+    const f = sdlWindow.sdl_shim_window_set_title;
+    if (f) { try { f(this.windowHandle, title); return; } catch { /* fall through */ } }
+    if (this.windowHandle === 0) {
+      try { sdl.sdl_shim_set_window_title(title); } catch { /* older lib */ }
+    }
   }
 
   /** Arm the activation-retry loop as if config.focused had been passed —
@@ -390,7 +462,10 @@ export class NativeWindow extends MiniEventTarget {
     // (pointerdown/keydown/touchstart) in the current focus period — a
     // requestPointerLock() at boot can't capture the cursor before the
     // player has clicked the window. Release is unconditional.
-    sdl.sdl_shim_grab_input(grab && this.focused && this.gestureSeen ? 1 : 0);
+    const want = grab && this.focused && this.gestureSeen ? 1 : 0;
+    const f = sdlWindow.sdl_shim_window_grab;
+    if (f) { f(this.windowHandle, want); return; }
+    if (this.windowHandle === 0) sdl.sdl_shim_grab_input(want);
   }
 
   /** Apply a pending grab request once focus + a gesture allow it. Called
@@ -399,7 +474,9 @@ export class NativeWindow extends MiniEventTarget {
    *  immediately). */
   private applyPendingGrab(): void {
     if (this.inputGrabWanted && this.focused && this.gestureSeen) {
-      sdl.sdl_shim_grab_input(1);
+      const f = sdlWindow.sdl_shim_window_grab;
+      if (f) f(this.windowHandle, 1);
+      else if (this.windowHandle === 0) sdl.sdl_shim_grab_input(1);
     }
   }
 
@@ -420,18 +497,25 @@ export class NativeWindow extends MiniEventTarget {
 
   /** Toggle borderless-desktop fullscreen. */
   setFullscreen(enabled: boolean): void {
-    sdl.sdl_shim_set_fullscreen(enabled ? 1 : 0);
+    const f = sdlWindow.sdl_shim_window_set_fullscreen;
+    if (f) { f(this.windowHandle, enabled ? 1 : 0); return; }
+    if (this.windowHandle === 0) sdl.sdl_shim_set_fullscreen(enabled ? 1 : 0);
   }
 
   /** Window position in screen coordinates. */
   getWindowPos(): { x: number; y: number } {
     const out = new Int32Array(2);
-    sdl.sdl_shim_get_window_pos(out.subarray(0, 1) as any, out.subarray(1, 2) as any);
+    const f = sdlWindow.sdl_shim_window_get_pos;
+    if (f) f(this.windowHandle, out.subarray(0, 1) as any, out.subarray(1, 2) as any);
+    else if (this.windowHandle === 0)
+      sdl.sdl_shim_get_window_pos(out.subarray(0, 1) as any, out.subarray(1, 2) as any);
     return { x: out[0]!, y: out[1]! };
   }
 
   setWindowPos(x: number, y: number): void {
-    sdl.sdl_shim_set_window_pos(x, y);
+    const f = sdlWindow.sdl_shim_window_set_pos;
+    if (f) { f(this.windowHandle, x, y); return; }
+    if (this.windowHandle === 0) sdl.sdl_shim_set_window_pos(x, y);
   }
 
   /** Frame border sizes ({top,left,bottom,right}); null when the WM hasn't
@@ -448,12 +532,17 @@ export class NativeWindow extends MiniEventTarget {
   /** Window size in pixels. */
   getWindowSize(): { width: number; height: number } {
     const out = new Int32Array(2);
-    sdl.sdl_shim_get_window_size(out.subarray(0, 1) as any, out.subarray(1, 2) as any);
+    const f = sdlWindow.sdl_shim_window_get_size;
+    if (f) f(this.windowHandle, out.subarray(0, 1) as any, out.subarray(1, 2) as any);
+    else if (this.windowHandle === 0)
+      sdl.sdl_shim_get_window_size(out.subarray(0, 1) as any, out.subarray(1, 2) as any);
     return { width: out[0]!, height: out[1]! };
   }
 
   setWindowSize(width: number, height: number): void {
-    sdl.sdl_shim_set_window_size(width, height);
+    const f = sdlWindow.sdl_shim_window_set_size;
+    if (f) { f(this.windowHandle, width, height); return; }
+    if (this.windowHandle === 0) sdl.sdl_shim_set_window_size(width, height);
   }
 
   /** Refresh rate (Hz) and content scale factor of the display the window is on. */
@@ -549,7 +638,10 @@ export class NativeWindow extends MiniEventTarget {
         if (nowMs - this.lastFocusAttempt > 50) {
           this.lastFocusAttempt = nowMs;
           this.focusRequestAttempts--;
-          try { sdl.sdl_shim_focus_window(); } catch { this.focusRequestAttempts = 0; }
+          try {
+            const f = sdlWindow.sdl_shim_window_focus;
+            if (f) f(this.windowHandle); else sdl.sdl_shim_focus_window();
+          } catch { this.focusRequestAttempts = 0; }
         }
       }
     }
@@ -588,11 +680,11 @@ export class NativeWindow extends MiniEventTarget {
     let eventHandled = false;
     if (waitMs > 0) {
       stats.waits++;
-      const wt = sdl.sdl_shim_wait_event(this.eventData as any, waitMs);
+      const wt = sdl.sdl_shim_wait_event(sharedEventData as any, waitMs);
       if (wt !== SDL_EVENT_NONE) {
         eventHandled = true;
         stats.events++;
-        this.safeHandleEvent(wt, this.eventView, this.eventFloatView);
+        this.routeEvent(wt);
         stats.events += this.drainEvents();
       } else {
         stats.emptyWaits++;
@@ -716,10 +808,10 @@ export class NativeWindow extends MiniEventTarget {
     let eventType: number;
     let handled = 0;
     do {
-      eventType = sdl.sdl_shim_poll_event(this.eventData as any);
+      eventType = sdl.sdl_shim_poll_event(sharedEventData as any);
       if (eventType !== SDL_EVENT_NONE) {
         handled++;
-        this.safeHandleEvent(eventType, this.eventView, this.eventFloatView);
+        this.routeEvent(eventType);
       }
     } while (eventType !== SDL_EVENT_NONE);
     return handled;
@@ -774,6 +866,19 @@ export class NativeWindow extends MiniEventTarget {
     }
   }
 
+  /** Route a popped event to its owning window by the handle in slot 15 —
+   *  one shared queue feeds every window's loop, and whichever instance pops
+   *  an event forwards it. Handles are 0/1/2… so a garbage wid (Drop paths
+   *  ≥60 bytes overwrite slot 15) can never alias a live window — it falls
+   *  back to the primary, then to the popper. */
+  private routeEvent(eventType: number): void {
+    const wid = sharedEventView[15] ?? 0;
+    const target = NativeWindow.byHandle.get(wid)
+      ?? NativeWindow.byHandle.get(0)
+      ?? this;
+    target.safeHandleEvent(eventType, sharedEventView, sharedEventFloatView);
+  }
+
   /** Dispatch one SDL event; a throwing handler must not kill the loop —
    *  without this, a single bad event strands the whole window frozen. */
   private safeHandleEvent(eventType: number, eventView: Int32Array, floatView: Float32Array): void {
@@ -798,6 +903,15 @@ export class NativeWindow extends MiniEventTarget {
         // mapped-but-unpumped for that whole stretch is what the WM reports
         // as "not responding"; dropping it reads as an instant close.
         // destroy() is idempotent — host.destroy()'s later call is a no-op.
+        this.destroy();
+        break;
+
+      case SDL_EVENT_WINDOW_CLOSE:
+        // Secondary-window close — same unmap/close-event/drop choreography
+        // as QUIT, but scoped to this window: no process teardown.
+        this.running = false;
+        this.closeDispatched = true;
+        this.dispatchEvent({ type: "close" });
         this.destroy();
         break;
 
@@ -852,7 +966,7 @@ export class NativeWindow extends MiniEventTarget {
       }
 
       case SDL_EVENT_DROP_FILE: {
-        const path = new TextDecoder().decode(new Uint8Array(this.eventData)).replace(/\0.*$/, "");
+        const path = new TextDecoder().decode(new Uint8Array(sharedEventData)).replace(/\0.*$/, "");
         if (path) this.dispatchEvent({ type: "dropfile", path });
         break;
       }
@@ -1074,7 +1188,7 @@ export class NativeWindow extends MiniEventTarget {
         break;
 
       case SDL_EVENT_TEXT_INPUT: {
-        const text = new TextDecoder().decode(new Uint8Array(this.eventData, 0, 32)).replace(/\0.*$/, "");
+        const text = new TextDecoder().decode(new Uint8Array(sharedEventData, 0, 32)).replace(/\0.*$/, "");
         this.dispatchEvent({ type: "textinput", text });
         break;
       }
@@ -1185,7 +1299,7 @@ export class NativeWindow extends MiniEventTarget {
           // and rebind the canvas context; the next acquire lazily
           // reconfigures the swapchain (rebindSurface zeroes configured dims).
           const instance = (globalThis as any).__wgpuInstancePtr ?? 0;
-          this.surfacePtr = sdl.sdl_shim_create_wgpu_surface(instance) as unknown as number;
+          this.surfacePtr = sdl.sdl_shim_create_wgpu_surface(instance, this.windowHandle) as unknown as number;
           this.surface?.rebindSurface(this.surfacePtr);
           const sz = this.getWindowSize();
           if (sz.width > 0 && sz.height > 0) {
@@ -1217,7 +1331,41 @@ export class NativeWindow extends MiniEventTarget {
       this.surfacePtr = 0;
     }
     this.surface = null;
-    sdl.sdl_shim_destroy_window();
+    NativeWindow.byHandle.delete(this.windowHandle);
+    const wd = sdlWindow.sdl_shim_window_destroy;
+    if (wd && this.windowHandle !== 0) {
+      wd(this.windowHandle);
+    } else {
+      // Primary teardown (or a lib predating the window family) — the full
+      // destroy path also clears every secondary.
+      sdl.sdl_shim_destroy_window();
+    }
+  }
+
+  /** Click-through toggle (overlay interactivity switch). false = cursor
+   *  events fall through to windows below. Returns false when the lib or
+   *  compositor doesn't support it. */
+  setClickThrough(on: boolean): boolean {
+    const f = sdlWindow.sdl_shim_window_set_hittest;
+    if (!f) return false;
+    return f(this.windowHandle, on ? 0 : 1) === 0;
+  }
+
+  /** Show/hide without destroying (overlay visibility toggle). */
+  setWindowVisible(visible: boolean): void {
+    const f = sdlWindow.sdl_shim_window_set_visible;
+    if (f) f(this.windowHandle, visible ? 1 : 0);
+  }
+
+  /** Z-order band — overlay pins itself above normal windows. */
+  setAlwaysOnTop(on: boolean): void {
+    const f = sdlWindow.sdl_shim_window_set_level;
+    if (f) f(this.windowHandle, on ? 1 : 0);
+  }
+
+  setDecorations(on: boolean): void {
+    const f = sdlWindow.sdl_shim_window_set_decorations;
+    if (f) { f(this.windowHandle, on ? 1 : 0); return; }
   }
 }
 

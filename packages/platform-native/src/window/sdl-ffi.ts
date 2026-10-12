@@ -24,7 +24,9 @@ const SDL_SHIM_SPEC: Record<string, CFunction> = {
   sdl_shim_set_text_input_rect: { args: ["i32", "i32", "i32", "i32"], returns: "void" },
   sdl_shim_destroy_window: { args: [], returns: "void" },
   sdl_shim_delay: { args: ["u32"], returns: "void" },
-  sdl_shim_create_wgpu_surface: { args: ["ptr"], returns: "ptr" },
+  // Second arg is the shim window handle (0 = primary). Old libs export the
+  // same symbol with a 1-arg signature — a trailing arg is ABI-harmless.
+  sdl_shim_create_wgpu_surface: { args: ["ptr", "i32"], returns: "ptr" },
   sdl_shim_set_fullscreen: { args: ["i32"], returns: "void" },
   sdl_shim_get_window_pos: { args: ["ptr", "ptr"], returns: "void" },
   sdl_shim_set_window_pos: { args: ["i32", "i32"], returns: "void" },
@@ -75,6 +77,87 @@ export interface SdlExtSymbols {
   sdl_shim_set_window_icon_file: (path: string) => number;
 }
 
+// Multi-window symbols (0.4.5+): secondary windows for overlays/splitscreen.
+// Separate probe group so a lib predating them still satisfies the core spec.
+const SDL_WINDOW_SPEC: Record<string, CFunction> = {
+  sdl_shim_window_create: {
+    args: ["cstring", "i32", "i32", "i32", "i32", "i32"],
+    returns: "i32",
+  },
+  sdl_shim_window_destroy: { args: ["i32"], returns: "void" },
+  sdl_shim_window_set_visible: { args: ["i32", "i32"], returns: "void" },
+  sdl_shim_window_set_hittest: { args: ["i32", "i32"], returns: "i32" },
+  sdl_shim_window_set_level: { args: ["i32", "i32"], returns: "void" },
+  sdl_shim_window_set_title: { args: ["i32", "cstring"], returns: "void" },
+  sdl_shim_window_focus: { args: ["i32"], returns: "void" },
+  sdl_shim_window_set_decorations: { args: ["i32", "i32"], returns: "void" },
+  sdl_shim_window_set_fullscreen: { args: ["i32", "i32"], returns: "void" },
+  sdl_shim_window_get_size: { args: ["i32", "ptr", "ptr"], returns: "void" },
+  sdl_shim_window_set_size: { args: ["i32", "i32", "i32"], returns: "void" },
+  sdl_shim_window_get_pos: { args: ["i32", "ptr", "ptr"], returns: "void" },
+  sdl_shim_window_set_pos: { args: ["i32", "i32", "i32"], returns: "void" },
+  sdl_shim_window_grab: { args: ["i32", "i32"], returns: "void" },
+};
+
+let _win: Partial<SdlWindowSymbols> | null = null;
+
+function loadSdlWindow(): Partial<SdlWindowSymbols> {
+  if (_win) return _win;
+  try {
+    const libPath = process.env.SDL_SHIM_PATH
+      ? resolveShimLibrary("sdl_shim", "SDL_SHIM_PATH")
+      : resolvePlatformLibrary();
+    const { symbols } = dlopen(libPath, SDL_WINDOW_SPEC);
+    _win = symbols as unknown as Partial<SdlWindowSymbols>;
+  } catch {
+    _win = {};
+  }
+  return _win;
+}
+
+/** Optional multi-window symbols — absent on libs predating them. */
+export const sdlWindow: Partial<SdlWindowSymbols> = new Proxy(
+  {} as Partial<SdlWindowSymbols>,
+  {
+    get(_target, prop: string) {
+      return (loadSdlWindow() as any)[prop];
+    },
+  },
+);
+
+export interface SdlWindowSymbols {
+  sdl_shim_window_create: (
+    title: string,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    flags: number,
+  ) => number;
+  sdl_shim_window_destroy: (handle: number) => void;
+  sdl_shim_window_set_visible: (handle: number, visible: number) => void;
+  sdl_shim_window_set_hittest: (handle: number, hittest: number) => number;
+  sdl_shim_window_set_level: (handle: number, level: number) => void;
+  sdl_shim_window_set_title: (handle: number, title: string) => void;
+  sdl_shim_window_focus: (handle: number) => void;
+  sdl_shim_window_set_decorations: (handle: number, on: number) => void;
+  sdl_shim_window_set_fullscreen: (handle: number, enabled: number) => void;
+  sdl_shim_window_get_size: (handle: number, wOut: ptr, hOut: ptr) => void;
+  sdl_shim_window_set_size: (handle: number, width: number, height: number) => void;
+  sdl_shim_window_get_pos: (handle: number, xOut: ptr, yOut: ptr) => void;
+  sdl_shim_window_set_pos: (handle: number, x: number, y: number) => void;
+  sdl_shim_window_grab: (handle: number, grab: number) => void;
+}
+
+// sdl_shim_window_create flag bits (native-rs WF_*)
+export const SDL_WIN_RESIZABLE = 1;
+export const SDL_WIN_DECORATIONS = 2;
+export const SDL_WIN_TRANSPARENT = 4;
+export const SDL_WIN_ALWAYS_ON_TOP = 8;
+export const SDL_WIN_SKIP_TASKBAR = 16;
+export const SDL_WIN_CLICK_THROUGH = 32;
+export const SDL_WIN_HIDDEN = 64;
+
 let _sdl: SdlShimSymbols | null = null;
 
 function loadSdl(): SdlShimSymbols {
@@ -115,7 +198,7 @@ export interface SdlShimSymbols {
   sdl_shim_set_text_input_rect: (x: number, y: number, w: number, h: number) => void;
   sdl_shim_destroy_window: () => void;
   sdl_shim_delay: (ms: number) => void;
-  sdl_shim_create_wgpu_surface: (instance: ptr) => ptr;
+  sdl_shim_create_wgpu_surface: (instance: ptr, window: number) => ptr;
   sdl_shim_set_fullscreen: (enabled: number) => void;
   sdl_shim_get_window_pos: (xOut: ptr, yOut: ptr) => void;
   sdl_shim_set_window_pos: (x: number, y: number) => void;
@@ -153,6 +236,9 @@ export const SDL_EVENT_SUSPENDED = 16;
 export const SDL_EVENT_RESUMED = 17;
 // Android Choreographer tick — slot0 is a wrapping u32 of vsync microseconds.
 export const SDL_EVENT_VSYNC = 18;
+// Secondary-window close request — the owning window's "close" fires but no
+// process quit. Every event's i32 slot 15 carries the owning window handle.
+export const SDL_EVENT_WINDOW_CLOSE = 19;
 
 // SDL_Keymod bitmask (SDL_keymod.h)
 export const KMOD_SHIFT = 0x0001 | 0x0002; // LSHIFT | RSHIFT

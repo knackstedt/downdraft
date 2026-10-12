@@ -61,13 +61,14 @@ use events::{take, Ev};
 use raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
 #[cfg(target_os = "macos")]
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::ffi::{c_char, c_int, c_void, CStr};
 use std::ptr;
 #[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
 #[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
 use std::sync::Condvar;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 #[cfg(not(target_os = "android"))]
 use winit::application::ApplicationHandler;
@@ -82,7 +83,9 @@ use winit::event_loop::EventLoop;
 use winit::event_loop::EventLoopProxy;
 #[cfg(target_os = "macos")]
 use winit::platform::pump_events::EventLoopExtPumpEvents;
-use winit::window::{CursorGrabMode, Fullscreen, Window};
+#[cfg(not(target_os = "android"))]
+use winit::window::WindowAttributes;
+use winit::window::{CursorGrabMode, Fullscreen, Window, WindowId, WindowLevel};
 
 /// SDL_SYSWM_* tags (SDL_syswm.h) — sdl_shim_get_window_subsystem wire value.
 mod syswm {
@@ -101,15 +104,51 @@ const KMOD_CTRL: i32 = 0x0040 | 0x0080;
 const KMOD_ALT: i32 = 0x0100 | 0x0200;
 const KMOD_GUI: i32 = 0x0400 | 0x0800;
 
-struct Ctx {
-    /// Arc so Phase 5's create_surface can own a 'static reference.
-    window: Option<Arc<Window>>,
-    mods: i32,
+/// Per-window mutable input bookkeeping — keyed by winit WindowId so each
+/// window tracks its own cursor, button latch, grab, and text-input mode
+/// (secondary windows must not bleed pointer state into the primary).
+#[derive(Default)]
+pub(crate) struct WinInput {
+    cursor: (f64, f64),
     /// SDL button-state bitmask (bit n-1 = button n).
     buttons: u32,
-    cursor: (f64, f64),
     grabbed: bool,
     text_input: bool,
+}
+
+pub(crate) struct Ctx {
+    /// Primary window (handle 0). Arc so Phase 5's create_surface can own a
+    /// 'static reference.
+    window: Option<Arc<Window>>,
+    /// Secondary windows by handle (1+), created via sdl_shim_window_create.
+    extras: HashMap<u32, Arc<Window>>,
+    /// winit WindowId → shim handle (primary registers as 0).
+    ids: HashMap<WindowId, u32>,
+    /// Per-window input state keyed by winit WindowId.
+    input: HashMap<WindowId, WinInput>,
+    next_handle: u32,
+    mods: i32,
+}
+
+/// Resolve a winit WindowId to its Arc — primary and secondaries alike.
+/// Returns None for ids that were never installed (e.g. events arriving
+/// after a window's Arc dropped).
+pub(crate) fn window_by_id(ctx: &Ctx, id: WindowId) -> Option<Arc<Window>> {
+    match ctx.ids.get(&id) {
+        Some(0) => ctx.window.clone(),
+        Some(&h) => ctx.extras.get(&h).cloned(),
+        None => None,
+    }
+}
+
+/// Resolve a shim handle (0 = primary) to its Arc.
+fn window_by_handle(h: u32) -> Option<Arc<Window>> {
+    let guard = CTX.lock().unwrap();
+    let ctx = guard.as_ref()?;
+    if h == 0 {
+        return ctx.window.clone();
+    }
+    ctx.extras.get(&h).cloned()
 }
 
 /// Shared window/app state. The winit loop runs on a non-JS thread
@@ -124,10 +163,7 @@ static CTX: Mutex<Option<Ctx>> = Mutex::new(None);
 /// thread's translate handlers lock CTX — holding CTX across a marshaling
 /// call deadlocks.
 fn win() -> Option<Arc<Window>> {
-    CTX.lock()
-        .unwrap()
-        .as_ref()
-        .and_then(|c| c.window.clone())
+    CTX.lock().unwrap().as_ref().and_then(|c| c.window.clone())
 }
 
 #[cfg(target_os = "macos")]
@@ -153,11 +189,11 @@ impl ApplicationHandler for Pump {
     fn window_event(
         &mut self,
         el: &winit::event_loop::ActiveEventLoop,
-        _id: winit::window::WindowId,
+        id: winit::window::WindowId,
         ev: WindowEvent,
     ) {
         if let Some(ctx) = CTX.lock().unwrap().as_mut() {
-            events::translate_window_event(ctx, ev, el);
+            events::translate_window_event(ctx, id, ev, el);
         }
     }
 
@@ -191,12 +227,27 @@ fn pump(timeout: Option<Duration>) {
 // to the shared queue, and NOTIFY wakes any parked JS wait_event — no
 // pump calls or epoll trips ever happen on the JS thread.
 
+/// sdl_shim_window_create flag bits — WindowAttributes can't cross the FFI
+/// boundary, so secondary-window creation packs its options into one u32.
+const WF_RESIZABLE: u32 = 1;
+const WF_DECORATIONS: u32 = 2;
+const WF_TRANSPARENT: u32 = 4;
+const WF_ALWAYS_ON_TOP: u32 = 8;
+const WF_SKIP_TASKBAR: u32 = 16;
+const WF_CLICK_THROUGH: u32 = 32;
+/// Create mapped-invisible (overlays show once they've drawn a frame).
+const WF_HIDDEN: u32 = 64;
+
 /// User event sent to the pump thread. The create request's payload lives
 /// in CREATE_REQ, so the same wakeup works whether it lands before or after
 /// the loop's first resumed().
 #[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
 enum LoopCmd {
     CreateWindow,
+    CreateExtraWindow,
+    /// Destroy a secondary window — the Arc drops pump-side because Window
+    /// teardown is loop-thread-affine on Windows.
+    DropWindow(u32),
     CreateSurface,
 }
 
@@ -213,6 +264,23 @@ struct CreateReq {
 #[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
 static CREATE_REQ: Mutex<Option<CreateReq>> = Mutex::new(None);
 
+/// Payload for LoopCmd::CreateExtraWindow — mirrors CreateReq but carries
+/// the WF_* option flags and a position (i32::MIN = unset → WM placement),
+/// and replies with the new window's handle (>=1) or a negative error.
+#[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
+struct ExtraReq {
+    title: String,
+    x: i32,
+    y: i32,
+    w: u32,
+    h: u32,
+    flags: u32,
+    reply: mpsc::Sender<c_int>,
+}
+
+#[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
+static EXTRA_REQ: Mutex<Option<ExtraReq>> = Mutex::new(None);
+
 /// Payload for LoopCmd::CreateSurface — mirrors CreateReq. winit refuses to
 /// hand out the raw window handle off the event-loop thread on Windows
 /// (HandleError::Unavailable), so the wgpu surface must be created pump-side.
@@ -220,6 +288,8 @@ static CREATE_REQ: Mutex<Option<CreateReq>> = Mutex::new(None);
 #[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
 struct SurfaceReq {
     instance: usize,
+    /// Shim window handle the surface binds to (0 = primary).
+    window: u32,
     reply: mpsc::Sender<usize>,
 }
 
@@ -407,6 +477,42 @@ fn pump_create_window(el: &winit::event_loop::ActiveEventLoop) {
     }
 }
 
+/// Consume a pending secondary-window request on the pump thread. Replies
+/// with the new handle (>=1) or a negative error.
+#[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
+fn pump_create_extra_window(el: &winit::event_loop::ActiveEventLoop) {
+    let req = EXTRA_REQ.lock().unwrap().take();
+    let Some(req) = req else { return };
+    let reply = |code: c_int| {
+        let _ = req.reply.send(code);
+    };
+    if CTX
+        .lock()
+        .unwrap()
+        .as_ref()
+        .is_none_or(|x| x.window.is_none())
+    {
+        return reply(-1); // secondaries require a live primary
+    }
+    let attrs = extra_window_attrs(req.title, req.x, req.y, req.w, req.h, req.flags);
+    match el.create_window(attrs) {
+        Ok(w) => {
+            let window = Arc::new(w);
+            if req.flags & WF_CLICK_THROUGH != 0 {
+                let _ = window.set_cursor_hittest(false);
+            }
+            match install_extra(window) {
+                Some(h) => reply(h as c_int),
+                None => reply(-2),
+            }
+        }
+        Err(err) => {
+            eprintln!("[downdraft_platform] create extra window failed: {err}");
+            reply(-3);
+        }
+    }
+}
+
 #[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
 impl ApplicationHandler<LoopCmd> for Pump {
     fn resumed(&mut self, el: &winit::event_loop::ActiveEventLoop) {
@@ -416,14 +522,30 @@ impl ApplicationHandler<LoopCmd> for Pump {
     fn user_event(&mut self, el: &winit::event_loop::ActiveEventLoop, ev: LoopCmd) {
         match ev {
             LoopCmd::CreateWindow => pump_create_window(el),
+            LoopCmd::CreateExtraWindow => pump_create_extra_window(el),
+            LoopCmd::DropWindow(h) => {
+                // Arc drops here on the loop thread — Window teardown is
+                // loop-thread-affine on Windows.
+                let w = CTX
+                    .lock()
+                    .unwrap()
+                    .as_mut()
+                    .and_then(|ctx| remove_extra(ctx, h));
+                drop(w);
+            }
             LoopCmd::CreateSurface => {
                 let req = SURFACE_REQ.lock().unwrap().take();
                 if let Some(req) = req {
-                    let window = CTX
-                        .lock()
-                        .unwrap()
-                        .as_ref()
-                        .and_then(|ctx| ctx.window.clone());
+                    let window = {
+                        let guard = CTX.lock().unwrap();
+                        guard.as_ref().and_then(|ctx| {
+                            if req.window == 0 {
+                                ctx.window.clone()
+                            } else {
+                                ctx.extras.get(&req.window).cloned()
+                            }
+                        })
+                    };
                     let h = match window {
                         Some(w) => {
                             crate::gpu::create_surface_for_window(req.instance as *mut c_void, w)
@@ -439,11 +561,11 @@ impl ApplicationHandler<LoopCmd> for Pump {
     fn window_event(
         &mut self,
         el: &winit::event_loop::ActiveEventLoop,
-        _id: winit::window::WindowId,
+        id: winit::window::WindowId,
         ev: WindowEvent,
     ) {
         if let Some(ctx) = CTX.lock().unwrap().as_mut() {
-            events::translate_window_event(ctx, ev, el);
+            events::translate_window_event(ctx, id, ev, el);
         }
     }
 
@@ -463,25 +585,102 @@ fn with_ctx<R>(f: impl FnOnce(&mut Ctx) -> R) -> Option<R> {
     CTX.lock().unwrap().as_mut().map(f)
 }
 
+/// The primary window's input state — the window-less grab/text-input shim
+/// calls (sdl_shim_grab_input etc.) are primary-scoped by contract; per-
+/// window control goes through sdl_shim_window_* (handle-addressed).
+fn primary_input(ctx: &mut Ctx) -> Option<&mut WinInput> {
+    let id = ctx.window.as_ref()?.id();
+    Some(ctx.input.entry(id).or_default())
+}
+
 // ── Window creation ──
 
 /// Install `window` into shared state, creating Ctx on first use. Shared by
 /// the desktop create_window path and Android's deferred resumed() creation.
+/// The first installed window is the primary (handle 0).
 pub(crate) fn install_window(window: Arc<Window>) {
+    let id = window.id();
     let mut guard = CTX.lock().unwrap();
-    match guard.as_mut() {
-        Some(ctx) => ctx.window = Some(window),
-        None => {
-            *guard = Some(Ctx {
-                window: Some(window),
-                mods: 0,
-                buttons: 0,
-                cursor: (0.0, 0.0),
-                grabbed: false,
-                text_input: false,
-            });
-        }
+    let ctx = guard.get_or_insert_with(|| Ctx {
+        window: None,
+        extras: HashMap::new(),
+        ids: HashMap::new(),
+        input: HashMap::new(),
+        next_handle: 1,
+        mods: 0,
+    });
+    ctx.ids.insert(id, 0);
+    ctx.input.entry(id).or_default();
+    ctx.window = Some(window);
+}
+
+/// Install a secondary window; returns its handle (1+). None when no Ctx
+/// exists (secondary before primary — callers treat as create failure).
+#[cfg_attr(target_os = "android", allow(dead_code))]
+fn install_extra(window: Arc<Window>) -> Option<u32> {
+    let id = window.id();
+    let mut guard = CTX.lock().unwrap();
+    let ctx = guard.as_mut()?;
+    let h = ctx.next_handle.max(1);
+    ctx.next_handle = h.saturating_add(1);
+    ctx.ids.insert(id, h);
+    ctx.input.entry(id).or_default();
+    ctx.extras.insert(h, window);
+    Some(h)
+}
+
+/// Detach a secondary window from the registry; the caller drops the Arc
+/// (pump-side on Linux/Windows — Window teardown is loop-thread-affine).
+fn remove_extra(ctx: &mut Ctx, h: u32) -> Option<Arc<Window>> {
+    let w = ctx.extras.remove(&h)?;
+    if let Some(id) = ctx.ids.iter().find_map(|(id, &v)| (v == h).then_some(*id)) {
+        ctx.ids.remove(&id);
+        ctx.input.remove(&id);
     }
+    Some(w)
+}
+
+/// WindowAttributes for a secondary window from the packed WF_* bits. The
+/// primary keeps its own creation path (desktop identity, icon, centering) —
+/// secondaries are utility windows: never active-at-map, WM-placed unless a
+/// position was passed.
+#[cfg(not(target_os = "android"))]
+fn extra_window_attrs(
+    title: String,
+    x: i32,
+    y: i32,
+    w: u32,
+    h: u32,
+    flags: u32,
+) -> WindowAttributes {
+    let mut attrs = Window::default_attributes()
+        .with_title(title)
+        .with_inner_size(LogicalSize::new(w.max(1) as f64, h.max(1) as f64))
+        .with_resizable(flags & WF_RESIZABLE != 0)
+        .with_decorations(flags & WF_DECORATIONS != 0)
+        .with_transparent(flags & WF_TRANSPARENT != 0)
+        .with_visible(flags & WF_HIDDEN == 0)
+        .with_active(false);
+    if x != i32::MIN && y != i32::MIN {
+        attrs = attrs.with_position(PhysicalPosition::new(x, y));
+    }
+    if flags & WF_ALWAYS_ON_TOP != 0 {
+        attrs = attrs.with_window_level(WindowLevel::AlwaysOnTop);
+    }
+    // Taskbar exclusion is a platform extension — X11 has no direct
+    // skip-taskbar attr, but _NET_WM_WINDOW_TYPE_UTILITY gets it from every
+    // common WM; Windows has a real attr. Wayland has no taskbar concept.
+    #[cfg(target_os = "linux")]
+    if flags & WF_SKIP_TASKBAR != 0 {
+        use winit::platform::x11::{WindowAttributesExtX11, WindowType};
+        attrs = WindowAttributesExtX11::with_x11_window_type(attrs, vec![WindowType::Utility]);
+    }
+    #[cfg(target_os = "windows")]
+    if flags & WF_SKIP_TASKBAR != 0 {
+        use winit::platform::windows::WindowAttributesExtWindows;
+        attrs = WindowAttributesExtWindows::with_skip_taskbar(attrs, true);
+    }
+    attrs
 }
 
 fn cstr_title(title: *const c_char) -> String {
@@ -504,8 +703,12 @@ pub extern "C" fn sdl_shim_set_app_name(general: *const c_char, instance: *const
     if general.is_null() || instance.is_null() {
         return;
     }
-    let g = unsafe { CStr::from_ptr(general) }.to_string_lossy().into_owned();
-    let i = unsafe { CStr::from_ptr(instance) }.to_string_lossy().into_owned();
+    let g = unsafe { CStr::from_ptr(general) }
+        .to_string_lossy()
+        .into_owned();
+    let i = unsafe { CStr::from_ptr(instance) }
+        .to_string_lossy()
+        .into_owned();
     if g.is_empty() {
         return;
     }
@@ -520,7 +723,9 @@ pub extern "C" fn sdl_shim_set_window_icon_file(path: *const c_char) -> c_int {
     if path.is_null() {
         return 1;
     }
-    let p = unsafe { CStr::from_ptr(path) }.to_string_lossy().into_owned();
+    let p = unsafe { CStr::from_ptr(path) }
+        .to_string_lossy()
+        .into_owned();
     let icon = std::fs::read(&p)
         .ok()
         .and_then(|b| image::load_from_memory(&b).ok())
@@ -669,6 +874,341 @@ pub extern "C" fn sdl_shim_create_window(
     })
 }
 
+// ── Secondary windows ──
+// The sdl_shim_window_* family drives overlay/splitscreen-style utility
+// windows. Handles are 1+; 0 always names the primary window, so the
+// window-less legacy calls are just the h=0 case.
+
+/// Linux/Windows: same request/wakeup/reply choreography as
+/// sdl_shim_create_window — the window can only be born on the pump thread.
+#[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
+#[no_mangle]
+pub extern "C" fn sdl_shim_window_create(
+    title: *const c_char,
+    x: c_int,
+    y: c_int,
+    width: c_int,
+    height: c_int,
+    flags: c_int,
+) -> c_int {
+    ffi!(-4, {
+        if CTX
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_none_or(|c| c.window.is_none())
+        {
+            return -1;
+        }
+        if !ensure_pump() {
+            return -2;
+        }
+        let (tx, rx) = mpsc::channel();
+        *EXTRA_REQ.lock().unwrap() = Some(ExtraReq {
+            title: cstr_title(title),
+            x,
+            y,
+            w: width.max(1) as u32,
+            h: height.max(1) as u32,
+            flags: flags.max(0) as u32,
+            reply: tx,
+        });
+        let sent = LOOP_PROXY
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|p| p.send_event(LoopCmd::CreateExtraWindow).is_ok());
+        if !sent {
+            EXTRA_REQ.lock().unwrap().take();
+            return -3;
+        }
+        match rx.recv_timeout(Duration::from_secs(10)) {
+            Ok(h) => h,
+            Err(_) => {
+                EXTRA_REQ.lock().unwrap().take();
+                -3
+            }
+        }
+    })
+}
+
+/// macOS: the JS thread IS the loop thread, so the window is created inline
+/// (same pattern as the primary's sdl_shim_create_window).
+#[cfg(target_os = "macos")]
+#[no_mangle]
+pub extern "C" fn sdl_shim_window_create(
+    title: *const c_char,
+    x: c_int,
+    y: c_int,
+    width: c_int,
+    height: c_int,
+    flags: c_int,
+) -> c_int {
+    ffi!(-4, {
+        if CTX
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_none_or(|c| c.window.is_none())
+        {
+            return -1;
+        }
+        let attrs = extra_window_attrs(
+            cstr_title(title),
+            x,
+            y,
+            width.max(1) as u32,
+            height.max(1) as u32,
+            flags.max(0) as u32,
+        );
+        let created = EVENT_LOOP.with(|e| -> Result<Arc<Window>, c_int> {
+            let slot = e.borrow();
+            let Some(el) = slot.as_ref() else {
+                return Err(-2);
+            };
+            #[allow(deprecated)]
+            match el.create_window(attrs) {
+                Ok(w) => Ok(Arc::new(w)),
+                Err(err) => {
+                    eprintln!("[downdraft_platform] create extra window failed: {err}");
+                    Err(-3)
+                }
+            }
+        });
+        let window = match created {
+            Ok(w) => w,
+            Err(code) => return code,
+        };
+        if flags & WF_CLICK_THROUGH as i32 != 0 {
+            let _ = window.set_cursor_hittest(false);
+        }
+        match install_extra(window) {
+            Some(h) => {
+                pump(Some(Duration::ZERO));
+                h as c_int
+            }
+            None => -2,
+        }
+    })
+}
+
+/// Android: single-window platform — no secondary windows.
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "C" fn sdl_shim_window_create(
+    _title: *const c_char,
+    _x: c_int,
+    _y: c_int,
+    _width: c_int,
+    _height: c_int,
+    _flags: c_int,
+) -> c_int {
+    -1
+}
+
+/// Destroy one window. handle 0 forwards to the primary destroy path (full
+/// app teardown semantics); secondaries unmap + drop immediately.
+#[no_mangle]
+pub extern "C" fn sdl_shim_window_destroy(handle: c_int) {
+    ffi!((), {
+        if handle <= 0 {
+            sdl_shim_destroy_window();
+            return;
+        }
+        let h = handle as u32;
+        #[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
+        {
+            let _ = LOOP_PROXY
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(|p| p.send_event(LoopCmd::DropWindow(h)));
+        }
+        #[cfg(any(target_os = "macos", target_os = "android"))]
+        {
+            let w = CTX
+                .lock()
+                .unwrap()
+                .as_mut()
+                .and_then(|ctx| remove_extra(ctx, h));
+            drop(w);
+        }
+    });
+}
+
+/// Show/hide without destroying — overlay toggle visibility.
+#[no_mangle]
+pub extern "C" fn sdl_shim_window_set_visible(handle: c_int, visible: c_int) {
+    ffi!((), {
+        if let Some(w) = window_by_handle(handle.max(0) as u32) {
+            w.set_visible(visible != 0);
+        }
+    });
+}
+
+/// Cursor hit-testing — false = click-through (events fall to windows
+/// below). Wayland returns Unsupported; callers treat failure as sticky.
+#[no_mangle]
+pub extern "C" fn sdl_shim_window_set_hittest(handle: c_int, hittest: c_int) -> c_int {
+    ffi!(-1, {
+        let Some(w) = window_by_handle(handle.max(0) as u32) else {
+            return -1;
+        };
+        match w.set_cursor_hittest(hittest != 0) {
+            Ok(()) => 0,
+            Err(_) => -1,
+        }
+    })
+}
+
+/// Z-order band: 1 always-on-top, 0 normal, -1 always-on-bottom.
+#[no_mangle]
+pub extern "C" fn sdl_shim_window_set_level(handle: c_int, level: c_int) {
+    ffi!((), {
+        let Some(w) = window_by_handle(handle.max(0) as u32) else {
+            return;
+        };
+        let lvl = match level.cmp(&0) {
+            std::cmp::Ordering::Greater => WindowLevel::AlwaysOnTop,
+            std::cmp::Ordering::Less => WindowLevel::AlwaysOnBottom,
+            std::cmp::Ordering::Equal => WindowLevel::Normal,
+        };
+        w.set_window_level(lvl);
+    });
+}
+
+#[no_mangle]
+pub extern "C" fn sdl_shim_window_set_title(handle: c_int, title: *const c_char) {
+    ffi!((), {
+        if title.is_null() {
+            return;
+        }
+        let title = unsafe { CStr::from_ptr(title) }
+            .to_string_lossy()
+            .into_owned();
+        if let Some(w) = window_by_handle(handle.max(0) as u32) {
+            w.set_title(&title);
+        }
+    });
+}
+
+#[no_mangle]
+pub extern "C" fn sdl_shim_window_focus(handle: c_int) {
+    ffi!((), {
+        if let Some(w) = window_by_handle(handle.max(0) as u32) {
+            w.focus_window();
+        }
+    });
+}
+
+#[no_mangle]
+pub extern "C" fn sdl_shim_window_set_decorations(handle: c_int, on: c_int) {
+    ffi!((), {
+        if let Some(w) = window_by_handle(handle.max(0) as u32) {
+            w.set_decorations(on != 0);
+        }
+    });
+}
+
+#[no_mangle]
+pub extern "C" fn sdl_shim_window_set_fullscreen(handle: c_int, enabled: c_int) {
+    ffi!((), {
+        if let Some(w) = window_by_handle(handle.max(0) as u32) {
+            w.set_fullscreen(if enabled != 0 {
+                Some(Fullscreen::Borderless(None))
+            } else {
+                None
+            });
+        }
+    });
+}
+
+/// Physical inner size — same contract as sdl_shim_get_window_size.
+#[no_mangle]
+pub extern "C" fn sdl_shim_window_get_size(handle: c_int, w_out: *mut c_int, h_out: *mut c_int) {
+    ffi!((), {
+        let (mut w, mut h) = (0, 0);
+        if let Some(win) = window_by_handle(handle.max(0) as u32) {
+            let s = win.inner_size();
+            w = s.width as c_int;
+            h = s.height as c_int;
+        }
+        unsafe {
+            if !w_out.is_null() {
+                *w_out = w;
+            }
+            if !h_out.is_null() {
+                *h_out = h;
+            }
+        }
+    });
+}
+
+#[no_mangle]
+pub extern "C" fn sdl_shim_window_set_size(handle: c_int, width: c_int, height: c_int) {
+    ffi!((), {
+        if let Some(w) = window_by_handle(handle.max(0) as u32) {
+            let _ =
+                w.request_inner_size(PhysicalSize::new(width.max(1) as u32, height.max(1) as u32));
+        }
+    });
+}
+
+#[no_mangle]
+pub extern "C" fn sdl_shim_window_get_pos(handle: c_int, x_out: *mut c_int, y_out: *mut c_int) {
+    ffi!((), {
+        let (mut x, mut y) = (0, 0);
+        if let Some(w) = window_by_handle(handle.max(0) as u32) {
+            if let Ok(p) = w.outer_position() {
+                x = p.x;
+                y = p.y;
+            }
+        }
+        unsafe {
+            if !x_out.is_null() {
+                *x_out = x;
+            }
+            if !y_out.is_null() {
+                *y_out = y;
+            }
+        }
+    });
+}
+
+#[no_mangle]
+pub extern "C" fn sdl_shim_window_set_pos(handle: c_int, x: c_int, y: c_int) {
+    ffi!((), {
+        if let Some(w) = window_by_handle(handle.max(0) as u32) {
+            w.set_outer_position(PhysicalPosition::new(x, y));
+        }
+    });
+}
+
+/// Per-window cursor grab — same Locked→Confined→None semantics as
+/// sdl_shim_grab_input, keyed to `handle`'s input slot.
+#[no_mangle]
+pub extern "C" fn sdl_shim_window_grab(handle: c_int, grab: c_int) {
+    ffi!((), {
+        let Some(w) = window_by_handle(handle.max(0) as u32) else {
+            return;
+        };
+        let grab = grab != 0;
+        if grab {
+            if w.set_cursor_grab(CursorGrabMode::Locked).is_err() {
+                let _ = w.set_cursor_grab(CursorGrabMode::Confined);
+            }
+            w.set_cursor_visible(false);
+        } else {
+            let _ = w.set_cursor_grab(CursorGrabMode::None);
+            w.set_cursor_visible(true);
+        }
+        let id = w.id();
+        with_ctx(|ctx| {
+            ctx.input.entry(id).or_default().grabbed = grab;
+        });
+    });
+}
+
 // ── Event polling ──
 
 /// No live window → NONE, same as the C shim's g_window null check. (The
@@ -696,12 +1236,12 @@ fn emit(out_data: *mut c_void, timeout: Option<Duration>) -> c_int {
     if no_window() {
         return events::NONE;
     }
-    if let Some(ev) = take() {
-        return events::write(ev, out_data);
+    if let Some((wid, ev)) = take() {
+        return events::write(wid, ev, out_data);
     }
     pump(timeout);
     take()
-        .map(|ev| events::write(ev, out_data))
+        .map(|(wid, ev)| events::write(wid, ev, out_data))
         .unwrap_or(events::NONE)
 }
 
@@ -714,7 +1254,7 @@ fn emit(out_data: *mut c_void, _timeout: Option<Duration>) -> c_int {
         return events::NONE;
     }
     take()
-        .map(|ev| events::write(ev, out_data))
+        .map(|(wid, ev)| events::write(wid, ev, out_data))
         .unwrap_or(events::NONE)
 }
 
@@ -724,7 +1264,7 @@ fn emit(out_data: *mut c_void, _timeout: Option<Duration>) -> c_int {
 #[cfg(target_os = "android")]
 fn emit(out_data: *mut c_void, _timeout: Option<Duration>) -> c_int {
     take()
-        .map(|ev| events::write(ev, out_data))
+        .map(|(wid, ev)| events::write(wid, ev, out_data))
         .unwrap_or(events::NONE)
 }
 
@@ -746,7 +1286,7 @@ pub extern "C" fn sdl_shim_wait_event(out_data: *mut c_void, timeout_ms: u32) ->
             return events::NONE;
         }
         events::take_timeout(Duration::from_millis(timeout_ms as u64))
-            .map(|ev| events::write(ev, out_data))
+            .map(|(wid, ev)| events::write(wid, ev, out_data))
             .unwrap_or(events::NONE)
     })
 }
@@ -758,7 +1298,7 @@ pub extern "C" fn sdl_shim_wait_event(out_data: *mut c_void, timeout_ms: u32) ->
 pub extern "C" fn sdl_shim_wait_event(out_data: *mut c_void, timeout_ms: u32) -> c_int {
     ffi!(events::NONE, {
         events::take_timeout(Duration::from_millis(timeout_ms as u64))
-            .map(|ev| events::write(ev, out_data))
+            .map(|(wid, ev)| events::write(wid, ev, out_data))
             .unwrap_or(events::NONE)
     })
 }
@@ -808,7 +1348,11 @@ pub extern "C" fn sdl_shim_grab_input(grab: c_int) {
             let _ = w.set_cursor_grab(CursorGrabMode::None);
             w.set_cursor_visible(true);
         }
-        with_ctx(|ctx| ctx.grabbed = grab);
+        with_ctx(|ctx| {
+            if let Some(st) = primary_input(ctx) {
+                st.grabbed = grab;
+            }
+        });
     });
 }
 
@@ -819,7 +1363,11 @@ pub extern "C" fn sdl_shim_start_text_input() {
     ffi!((), {
         if let Some(w) = win() {
             w.set_ime_allowed(true);
-            with_ctx(|ctx| ctx.text_input = true);
+            with_ctx(|ctx| {
+                if let Some(st) = primary_input(ctx) {
+                    st.text_input = true;
+                }
+            });
         }
     });
 }
@@ -829,7 +1377,11 @@ pub extern "C" fn sdl_shim_stop_text_input() {
     ffi!((), {
         if let Some(w) = win() {
             w.set_ime_allowed(false);
-            with_ctx(|ctx| ctx.text_input = false);
+            with_ctx(|ctx| {
+                if let Some(st) = primary_input(ctx) {
+                    st.text_input = false;
+                }
+            });
         }
     });
 }
@@ -1006,10 +1558,8 @@ pub extern "C" fn sdl_shim_get_window_borders(
 pub extern "C" fn sdl_shim_set_window_size(width: c_int, height: c_int) {
     ffi!((), {
         if let Some(w) = win() {
-            let _ = w.request_inner_size(PhysicalSize::new(
-                width.max(1) as u32,
-                height.max(1) as u32,
-            ));
+            let _ =
+                w.request_inner_size(PhysicalSize::new(width.max(1) as u32, height.max(1) as u32));
         }
     });
 }
@@ -1046,7 +1596,7 @@ pub extern "C" fn sdl_shim_request_quit() {
         if let Some(w) = win() {
             w.set_visible(false);
         }
-        events::push(Ev::Quit);
+        events::push(0, Ev::Quit);
     });
 }
 
@@ -1166,14 +1716,23 @@ pub extern "C" fn sdl_shim_get_clipboard(out: *mut c_char, max_len: c_int) -> c_
 pub extern "C" fn sdl_shim_destroy_window() {
     ffi!((), {
         events::clear();
-        // Take the window out under the lock, then hide without it — a
+        // Take the windows out under the lock, then hide without it — a
         // set_visible that marshals to the loop thread can't run while the
         // loop's handler waits on CTX.
-        let w = CTX
-            .lock()
-            .unwrap()
-            .as_mut()
-            .and_then(|ctx| ctx.window.take());
+        let (w, extras) = {
+            let mut guard = CTX.lock().unwrap();
+            match guard.as_mut() {
+                Some(ctx) => {
+                    ctx.ids.clear();
+                    ctx.input.clear();
+                    (ctx.window.take(), std::mem::take(&mut ctx.extras))
+                }
+                None => (None, HashMap::new()),
+            }
+        };
+        for (_, w) in extras {
+            w.set_visible(false);
+        }
         // A live wgpu surface holds its own Arc<Window> — if it wasn't
         // released first, the drop below leaves the window mapped.
         // Hiding guarantees the window is gone from the screen either
@@ -1204,13 +1763,22 @@ pub extern "C" fn sdl_shim_delay(ms: u32) {
 /// LoopCmd like window creation — request, wakeup, bounded wait on reply.
 #[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
 #[no_mangle]
-pub extern "C" fn sdl_shim_create_wgpu_surface(instance: *mut c_void) -> *mut c_void {
+pub extern "C" fn sdl_shim_create_wgpu_surface(
+    instance: *mut c_void,
+    window: c_int,
+) -> *mut c_void {
     ffi!(ptr::null_mut(), {
-        let has_window = CTX
-            .lock()
-            .unwrap()
-            .as_ref()
-            .is_some_and(|ctx| ctx.window.is_some());
+        let h = window.max(0) as u32;
+        let has_window = {
+            let guard = CTX.lock().unwrap();
+            guard.as_ref().is_some_and(|ctx| {
+                if h == 0 {
+                    ctx.window.is_some()
+                } else {
+                    ctx.extras.contains_key(&h)
+                }
+            })
+        };
         if !has_window {
             return ptr::null_mut();
         }
@@ -1220,6 +1788,7 @@ pub extern "C" fn sdl_shim_create_wgpu_surface(instance: *mut c_void) -> *mut c_
         let (tx, rx) = mpsc::channel();
         *SURFACE_REQ.lock().unwrap() = Some(SurfaceReq {
             instance: instance as usize,
+            window: h,
             reply: tx,
         });
         let sent = LOOP_PROXY
@@ -1243,14 +1812,23 @@ pub extern "C" fn sdl_shim_create_wgpu_surface(instance: *mut c_void) -> *mut c_
 
 #[cfg(any(target_os = "android", target_os = "macos"))]
 #[no_mangle]
-pub extern "C" fn sdl_shim_create_wgpu_surface(instance: *mut c_void) -> *mut c_void {
+pub extern "C" fn sdl_shim_create_wgpu_surface(
+    instance: *mut c_void,
+    window: c_int,
+) -> *mut c_void {
     ffi!(ptr::null_mut(), {
-        let window = CTX
-            .lock()
-            .unwrap()
-            .as_ref()
-            .and_then(|ctx| ctx.window.clone());
-        match window {
+        let h = window.max(0) as u32;
+        let target = {
+            let guard = CTX.lock().unwrap();
+            guard.as_ref().and_then(|ctx| {
+                if h == 0 {
+                    ctx.window.clone()
+                } else {
+                    ctx.extras.get(&h).cloned()
+                }
+            })
+        };
+        match target {
             Some(w) => crate::gpu::create_surface_for_window(instance, w),
             None => ptr::null_mut(),
         }

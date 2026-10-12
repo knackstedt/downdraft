@@ -4,7 +4,7 @@
 //! events which we enqueue translated; each sdl_shim_poll_event call pops
 //! one and writes its int/float/char slots.
 
-use super::{Ctx, KMOD_ALT, KMOD_CTRL, KMOD_GUI, KMOD_SHIFT};
+use super::{window_by_id, Ctx, KMOD_ALT, KMOD_CTRL, KMOD_GUI, KMOD_SHIFT};
 use std::collections::VecDeque;
 use std::ffi::c_void;
 use std::ptr;
@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
 use winit::event::{DeviceEvent, ElementState, Ime, MouseButton, MouseScrollDelta, WindowEvent};
-use winit::window::CursorGrabMode;
+use winit::window::{CursorGrabMode, WindowId};
 
 pub const NONE: i32 = 0;
 const QUIT: i32 = 1;
@@ -33,6 +33,10 @@ const TOUCH: i32 = 15;
 const SUSPENDED: i32 = 16;
 const RESUMED: i32 = 17;
 const VSYNC: i32 = 18;
+/// Secondary-window close request — the OS chrome/X on a non-primary
+/// window. JS routes it to that window's handler (primary's close is QUIT).
+/// The wid travels in slot 15 like every other event.
+const WINDOW_CLOSE: i32 = 19;
 
 /// Line-detent approximation for pixel-precise scroll deltas (PixelDelta
 /// arrives from touchpads; SDL always reports line units).
@@ -99,12 +103,16 @@ pub enum Ev {
     /// re-create its wgpu surface.
     #[cfg_attr(not(target_os = "android"), allow(dead_code))]
     Resumed,
+    /// Close requested on a secondary window — routed by wid, never a Quit.
+    WindowClose,
     /// Vsync tick from the Android Choreographer — frameTimeNanos (the frame's
     /// vsync timestamp in SystemClock nanos) carried as the payload. The JS
     /// pump dispatches rAF on these when present instead of its software
     /// timer, so frame production is phase-aligned to the display.
     #[cfg_attr(not(target_os = "android"), allow(dead_code))]
-    Vsync { nanos: i64 },
+    Vsync {
+        nanos: i64,
+    },
     Drop(String),
     Text(String),
 }
@@ -117,6 +125,10 @@ static QUEUE: Mutex<VecDeque<Queued>> = Mutex::new(VecDeque::new());
 static NOTIFY: Condvar = Condvar::new();
 
 struct Queued {
+    /// Window handle the event belongs to — 0 for the primary window, else
+    /// the handle sdl_shim_window_create returned. Stamped into event slot
+    /// 15 so JS routes multi-window traffic without a second queue.
+    wid: u32,
     ev: Ev,
     /// Queue-entry stamp — queue residency (at → take) IS the cross-thread
     /// wake latency the pump/condvar design exists to minimize, and it's
@@ -134,14 +146,14 @@ static STAT_TIMEOUTS: AtomicU64 = AtomicU64::new(0);
 static STAT_RESIDENCY_US: AtomicU64 = AtomicU64::new(0);
 static STAT_MAX_RESIDENCY_US: AtomicU64 = AtomicU64::new(0);
 
-fn record_take(ev: Option<Queued>) -> Option<Ev> {
+fn record_take(ev: Option<Queued>) -> Option<(u32, Ev)> {
     match ev {
         Some(q) => {
             let us = q.at.elapsed().as_micros() as u64;
             STAT_DELIVERED.fetch_add(1, Ordering::Relaxed);
             STAT_RESIDENCY_US.fetch_add(us, Ordering::Relaxed);
             STAT_MAX_RESIDENCY_US.fetch_max(us, Ordering::Relaxed);
-            Some(q.ev)
+            Some((q.wid, q.ev))
         }
         None => {
             STAT_TIMEOUTS.fetch_add(1, Ordering::Relaxed);
@@ -166,22 +178,23 @@ pub extern "C" fn sdl_shim_pump_stats(out: *mut i64) {
     }
 }
 
-pub fn push(ev: Ev) {
+pub fn push(wid: u32, ev: Ev) {
     QUEUE.lock().unwrap().push_back(Queued {
+        wid,
         ev,
         at: Instant::now(),
     });
     NOTIFY.notify_one();
 }
 
-pub fn take() -> Option<Ev> {
+pub fn take() -> Option<(u32, Ev)> {
     record_take(QUEUE.lock().unwrap().pop_front())
 }
 
 /// Block up to `timeout` for an event to arrive (wait_event on every
 /// queue-driven platform — Android and the desktop pump thread).
 #[cfg_attr(target_os = "macos", allow(dead_code))]
-pub fn take_timeout(timeout: Duration) -> Option<Ev> {
+pub fn take_timeout(timeout: Duration) -> Option<(u32, Ev)> {
     let mut guard = QUEUE.lock().unwrap();
     if guard.is_empty() {
         let (g, _) = NOTIFY.wait_timeout(guard, timeout).unwrap();
@@ -195,14 +208,17 @@ pub fn clear() {
 }
 
 /// Write one queued event into the caller's out_data buffer. Returns the
-/// SDL_SHIM_EVENT_* type code (NONE for no event).
-pub fn write(ev: Ev, out_data: *mut c_void) -> i32 {
+/// SDL_SHIM_EVENT_* type code (NONE for no event). `wid` (the owning window
+/// handle — 0 = primary) is stamped into int slot 15 for every event type;
+/// the 64-byte JS buffer leaves it untouched/unread on old shims.
+pub fn write(wid: u32, ev: Ev, out_data: *mut c_void) -> i32 {
     if out_data.is_null() {
         return NONE;
     }
     let iout = out_data as *mut i32;
     let fout = out_data as *mut f32;
     unsafe {
+        *iout.add(15) = wid as i32;
         match ev {
             Ev::Quit => QUIT,
             Ev::Key {
@@ -299,6 +315,7 @@ pub fn write(ev: Ev, out_data: *mut c_void) -> i32 {
             }
             Ev::Suspended => SUSPENDED,
             Ev::Resumed => RESUMED,
+            Ev::WindowClose => WINDOW_CLOSE,
             Ev::Vsync { nanos } => {
                 // Wrapping u32 microseconds — deltas between ticks are what
                 // matter (refresh derivation); uint32 wrap subtraction keeps
@@ -327,41 +344,54 @@ unsafe fn write_cstr(out: *mut u8, s: &str, max: usize) {
 
 pub fn translate_window_event(
     ctx: &mut Ctx,
+    id: WindowId,
     ev: WindowEvent,
     _el: &winit::event_loop::ActiveEventLoop,
 ) {
+    let wid = ctx.ids.get(&id).copied().unwrap_or(0);
     match ev {
         WindowEvent::CloseRequested => {
             // Unmap NOW — after the quit event reaches it, JS runs seconds
             // of teardown (close listeners, surface/device release, worker
             // stops) before sdl_shim_destroy_window drops the window. The
-            // wgpu surface holds its own Arc<Window>, so ctx.window can't
-            // be dropped here — hiding reads as an instant close while the
-            // process finishes terminating behind it.
-            if let Some(w) = &ctx.window {
+            // wgpu surface holds its own Arc<Window>, so the Arc can't be
+            // dropped here — hiding reads as an instant close while the
+            // process finishes terminating behind it. Secondary windows
+            // surface a routed WindowClose instead of a process Quit.
+            if let Some(w) = window_by_id(ctx, id) {
                 w.set_visible(false);
             }
-            push(Ev::Quit);
+            if wid == 0 {
+                push(0, Ev::Quit);
+            } else {
+                push(wid, Ev::WindowClose);
+            }
         }
 
         WindowEvent::Resized(size) => {
-            push(Ev::Resize {
-                w: size.width as i32,
-                h: size.height as i32,
-            });
+            push(
+                wid,
+                Ev::Resize {
+                    w: size.width as i32,
+                    h: size.height as i32,
+                },
+            );
         }
 
         WindowEvent::Moved(pos) => {
-            push(Ev::Moved { x: pos.x, y: pos.y });
+            push(wid, Ev::Moved { x: pos.x, y: pos.y });
         }
 
         // DPI scale change — OS scaling change or drag to a differently-
         // scaled monitor. Resized usually follows; emit both so the host
         // can re-render at the new density.
         WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-            push(Ev::ScaleChanged {
-                scale: scale_factor,
-            });
+            push(
+                wid,
+                Ev::ScaleChanged {
+                    scale: scale_factor,
+                },
+            );
         }
 
         WindowEvent::Focused(gained) => {
@@ -372,21 +402,21 @@ pub fn translate_window_event(
                 // the focus switch). The JS side mirrors this through
                 // exitPointerLock; releasing here guarantees the OS grab dies
                 // even if the JS pump is stalled.
-                if ctx.grabbed {
-                    if let Some(w) = &ctx.window {
+                if ctx.input.get(&id).is_some_and(|st| st.grabbed) {
+                    if let Some(w) = window_by_id(ctx, id) {
                         let _ = w.set_cursor_grab(CursorGrabMode::None);
                         w.set_cursor_visible(true);
                     }
-                    ctx.grabbed = false;
+                    ctx.input.entry(id).or_default().grabbed = false;
                 }
                 // Latched input state can't be trusted across a focus
                 // transition (alt-tab mid-press/mid-drag leaves phantom
                 // buttons and the alt modifier stuck) — real state rebuilds
                 // from fresh events on refocus.
-                ctx.buttons = 0;
+                ctx.input.entry(id).or_default().buttons = 0;
                 ctx.mods = 0;
             }
-            push(Ev::Focused { gained });
+            push(wid, Ev::Focused { gained });
         }
 
         WindowEvent::ModifiersChanged(m) => {
@@ -400,68 +430,79 @@ pub fn translate_window_event(
         WindowEvent::KeyboardInput { event, .. } => {
             let down = event.state == ElementState::Pressed;
             let keycode = super::keys::sdl_keycode(&event);
-            push(Ev::Key {
-                down,
-                keycode,
-                mods: ctx.mods,
-                repeat: if event.repeat { 1 } else { 0 },
-            });
+            push(
+                wid,
+                Ev::Key {
+                    down,
+                    keycode,
+                    mods: ctx.mods,
+                    repeat: if event.repeat { 1 } else { 0 },
+                },
+            );
             // SDL delivers TEXTINPUT after KEYDOWN for printable keys when
             // text input is active. When IME is allowed winit routes text
             // through Ime::Commit instead and event.text is None — no dupes.
-            if down && ctx.text_input {
+            if down && ctx.input.get(&id).is_some_and(|st| st.text_input) {
                 if let Some(text) = event.text.as_ref() {
                     if !text.is_empty() {
-                        push(Ev::Text(text.to_string()));
+                        push(wid, Ev::Text(text.to_string()));
                     }
                 }
             }
         }
 
         WindowEvent::Ime(Ime::Commit(s)) => {
-            if ctx.text_input {
-                push(Ev::Text(s));
+            if ctx.input.get(&id).is_some_and(|st| st.text_input) {
+                push(wid, Ev::Text(s));
             }
         }
 
         WindowEvent::CursorMoved { position, .. } => {
-            if ctx.grabbed {
+            let st = ctx.input.entry(id).or_default();
+            if st.grabbed {
                 return; // grabbed motion arrives via DeviceEvent::MouseMotion
             }
-            let (lx, ly) = ctx.cursor;
+            let (lx, ly) = st.cursor;
             let x = position.x.round() as i32;
             let y = position.y.round() as i32;
             let xrel = (position.x - lx).round() as i32;
             let yrel = (position.y - ly).round() as i32;
-            ctx.cursor = (position.x, position.y);
-            push(Ev::MouseMove {
-                x,
-                y,
-                xrel,
-                yrel,
-                buttons: ctx.buttons as i32,
-                mods: ctx.mods,
-            });
+            st.cursor = (position.x, position.y);
+            push(
+                wid,
+                Ev::MouseMove {
+                    x,
+                    y,
+                    xrel,
+                    yrel,
+                    buttons: st.buttons as i32,
+                    mods: ctx.mods,
+                },
+            );
         }
 
         WindowEvent::MouseInput { state, button, .. } => {
+            let st = ctx.input.entry(id).or_default();
             let idx = sdl_button(button);
             if idx > 0 && idx <= 31 {
                 let bit = 1u32 << (idx - 1);
                 match state {
-                    ElementState::Pressed => ctx.buttons |= bit,
-                    ElementState::Released => ctx.buttons &= !bit,
+                    ElementState::Pressed => st.buttons |= bit,
+                    ElementState::Released => st.buttons &= !bit,
                 }
             }
-            let (cx, cy) = ctx.cursor;
-            push(Ev::MouseBtn {
-                down: state == ElementState::Pressed,
-                x: cx.round() as i32,
-                y: cy.round() as i32,
-                button: idx,
-                buttons: ctx.buttons as i32,
-                mods: ctx.mods,
-            });
+            let (cx, cy) = st.cursor;
+            push(
+                wid,
+                Ev::MouseBtn {
+                    down: state == ElementState::Pressed,
+                    x: cx.round() as i32,
+                    y: cy.round() as i32,
+                    button: idx,
+                    buttons: st.buttons as i32,
+                    mods: ctx.mods,
+                },
+            );
         }
 
         WindowEvent::MouseWheel { delta, .. } => {
@@ -471,18 +512,21 @@ pub fn translate_window_event(
                     (p.x as f32 / PIXELS_PER_LINE, p.y as f32 / PIXELS_PER_LINE)
                 }
             };
-            let (cx, cy) = ctx.cursor;
-            push(Ev::Wheel {
-                dx,
-                dy,
-                mods: ctx.mods,
-                mx: cx.round() as i32,
-                my: cy.round() as i32,
-            });
+            let (cx, cy) = ctx.input.entry(id).or_default().cursor;
+            push(
+                wid,
+                Ev::Wheel {
+                    dx,
+                    dy,
+                    mods: ctx.mods,
+                    mx: cx.round() as i32,
+                    my: cy.round() as i32,
+                },
+            );
         }
 
         WindowEvent::DroppedFile(path) => {
-            push(Ev::Drop(path.to_string_lossy().into_owned()));
+            push(wid, Ev::Drop(path.to_string_lossy().into_owned()));
         }
 
         // Primary input on Android; also reachable on desktop touchscreens.
@@ -494,12 +538,15 @@ pub fn translate_window_event(
                 winit::event::TouchPhase::Ended => 2,
                 winit::event::TouchPhase::Cancelled => 3,
             };
-            push(Ev::Touch {
-                phase,
-                id: touch.id as i32,
-                x: touch.location.x.round() as i32,
-                y: touch.location.y.round() as i32,
-            });
+            push(
+                wid,
+                Ev::Touch {
+                    phase,
+                    id: touch.id as i32,
+                    x: touch.location.x.round() as i32,
+                    y: touch.location.y.round() as i32,
+                },
+            );
         }
 
         _ => {}
@@ -510,18 +557,28 @@ pub fn translate_window_event(
 /// SDL's relative-mouse-mode semantics (xrel/yrel only; x/y stay put).
 pub fn translate_device_event(ctx: &mut Ctx, ev: DeviceEvent) {
     if let DeviceEvent::MouseMotion { delta } = ev {
-        if !ctx.grabbed {
+        // Relative motion belongs to whichever window owns the pointer grab
+        // (only the primary grabs today, but the lookup is handle-agnostic).
+        let Some((wid, st)) = ctx
+            .input
+            .iter_mut()
+            .find(|(_, s)| s.grabbed)
+            .map(|(id, st)| (ctx.ids.get(id).copied().unwrap_or(0), st))
+        else {
             return;
-        }
-        let (cx, cy) = ctx.cursor;
-        push(Ev::MouseMove {
-            x: cx.round() as i32,
-            y: cy.round() as i32,
-            xrel: delta.0.round() as i32,
-            yrel: delta.1.round() as i32,
-            buttons: ctx.buttons as i32,
-            mods: ctx.mods,
-        });
+        };
+        let (cx, cy) = st.cursor;
+        push(
+            wid,
+            Ev::MouseMove {
+                x: cx.round() as i32,
+                y: cy.round() as i32,
+                xrel: delta.0.round() as i32,
+                yrel: delta.1.round() as i32,
+                buttons: st.buttons as i32,
+                mods: ctx.mods,
+            },
+        );
     }
 }
 
