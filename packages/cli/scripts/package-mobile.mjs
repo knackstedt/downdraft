@@ -59,7 +59,7 @@ const modeDefines = {
   "import.meta.env.MODE": JSON.stringify(modeArg),
   ...(retainMcp ? {} : { __DD_MCP_STRIP__: "true" }),
 };
-const minSdk = flagValue("min-sdk") ?? "30";
+const minSdkFlag = flagValue("min-sdk") ?? "30";
 // --node-flavor=lite selects build/dist/android-lite/<abi>/libnode.so
 // (NODEJS_MOBILE_FLAVOR=lite from build-android.mjs: no intl/inspector/
 // sqlite/amaro — ~20MB smaller binary, slightly lower PSS).
@@ -73,6 +73,23 @@ const excludeLibs = (flagValue("exclude-libs") ?? "").split(",").map((s) => s.tr
 // Packaged .so's are stripped by default (debug info never maps — pure APK
 // size). --no-strip keeps symbols for on-device native debugging.
 const doStrip = !argv.includes("--no-strip");
+// --webui=wpe stages the heavyweight web-UI backend: libdowndraft_webui_wpe
+// (via the crate loop below) PLUS the vendored wpe-android AAR runtime —
+// its jniLibs, dex'd WKRuntime bootstrap classes, WPE process service
+// declarations, and AssetManager payload (gio modules, injected bundles).
+const webuiBackend = flagValue("webui") ?? "none";
+if (!["none", "wpe", "auto"].includes(webuiBackend)) {
+  console.error(`[package-mobile] --webui=${webuiBackend} unsupported on android (wpe|none|auto)`);
+  process.exit(1);
+}
+const wpeAndroid = webuiBackend !== "none";
+// Debug/bisect override: replace the Application class the manifest names
+// (e.g. --wpe-app-class=com.downdraft.stub.App to keep WPE packaged but
+// inert until native code loads it). Anything other than the default
+// compiles a generated no-op Application into the dex.
+const wpeAppClass = flagValue("wpe-app-class") ?? "org.wpewebkit.WPEApplication";
+// The wpe-android AAR declares minSdk 31 — clamp up when it's staged.
+const minSdk = wpeAndroid && Number(minSdkFlag) < 31 ? "31" : minSdkFlag;
 // --env KEY=VALUE (repeatable) → dd-env.txt in the bundle; the shell
 // setenv()s each before node::Start so process.env sees them.
 const envPairs = argv.filter((a) => a.startsWith("--env=")).map((a) => a.slice(6));
@@ -709,6 +726,22 @@ for (const abi of abis.values()) {
     throw new Error(`libnode.so for ${abi} not found — build via packages/node-mobile/scripts/build-android.mjs`);
   }
 
+  // WPE runtime — the whole AAR jni/<abi>/ tree (libWPEWebKit-2.0, libwpe,
+  // libWPEBackend-android, glib/soup/gstreamer, libc++_shared, …) rides in
+  // jniLibs so every soname resolves from the app's native lib dir.
+  if (wpeAndroid) {
+    const wpeJni = join(monorepoRoot,
+      "packages/engine/libraries/webui/vendor/wpe-android/jni", abi);
+    if (!existsSync(wpeJni)) {
+      throw new Error(`wpe-android runtime missing at ${wpeJni} — run ` +
+        `packages/engine/libraries/webui/scripts/fetch-wpe-android.mjs`);
+    }
+    for (const f of readdirSync(wpeJni).filter((f) => f.endsWith(".so"))) {
+      copyFileSync(join(wpeJni, f), join(libDir, f));
+    }
+    console.log(`[package-mobile] staged wpe-android runtime → lib/${abi}/`);
+  }
+
   // Ensure the engine crates are built for this target.
   run("node", [join(monorepoRoot, "scripts/build-native.mjs"), `--target=${triple}`, "--profile=release"], {
     cwd: monorepoRoot,
@@ -783,6 +816,86 @@ for (const abi of abis.values()) {
 
 // ── APK assembly ──
 
+// WPE Java runtime — dex the AAR's classes.jar (WKRuntime bootstrap,
+// WPEServices, the WPEApplication class the manifest names) and stage its
+// AssetManager payload (gio modules, fontconfig, injected-bundles —
+// WKRuntime.initialize copies them to filesDir at first run).
+let wpeServicesXml = "";
+const wpeResZip = join(stageRoot, "wpe-res.zip");
+if (wpeAndroid) {
+  const vendor = join(monorepoRoot, "packages/engine/libraries/webui/vendor/wpe-android");
+  if (!existsSync(join(vendor, "classes.jar"))) {
+    throw new Error(`wpe-android classes.jar missing at ${vendor} — run ` +
+      `packages/engine/libraries/webui/scripts/fetch-wpe-android.mjs`);
+  }
+  const d8 = join(bt, "d8");
+  if (!existsSync(d8)) throw new Error(`missing build-tool d8 in ${bt}`);
+  const dexInputs = [join(vendor, "classes.jar")];
+  // Java support classes compiled alongside the AAR dex:
+  //   - WpeAppComponentFactory: libWPEAndroidCommon.so embeds a full static
+  //     libc++ and exports all 915 of its symbols. WPEApplication's static
+  //     init System.loadLibrary("WPEAndroidRuntime") pulls it into the
+  //     classloader namespace's global group BEFORE libc++_shared.so ever
+  //     loads, so libnode's undefined libc++ symbols (operator new/delete,
+  //     exception machinery, std::*) bind to the wrong copy and node::Start
+  //     dies on a C++ exception ~ms in. An AppComponentFactory is the one
+  //     hook that runs before the Application class initializes — its
+  //     instantiateApplication preloads libc++_shared so it wins the
+  //     global-group lookup in every app process.
+  //   - optional stub Application (--wpe-app-class): keeps WPE packaged
+  //     but inert for bisecting (DD_LIB_PRELOAD in the shell then drives
+  //     the load order manually).
+  const javaSrcRoot = join(stageRoot, "dd-java-src");
+  const javaSrcFiles = [];
+  const writeJava = (fqcn, body) => {
+    const pkg = fqcn.slice(0, fqcn.lastIndexOf("."));
+    const cls = fqcn.slice(fqcn.lastIndexOf(".") + 1);
+    const dir = join(javaSrcRoot, ...pkg.split("."));
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, `${cls}.java`), body);
+    javaSrcFiles.push(join(dir, `${cls}.java`));
+  };
+  writeJava("org.downdraft.webui.WpeAppComponentFactory",
+`package org.downdraft.webui;
+public class WpeAppComponentFactory extends android.app.AppComponentFactory {
+    @Override
+    public android.app.Application instantiateApplication(
+            ClassLoader cl, String className)
+            throws InstantiationException, IllegalAccessException,
+                   ClassNotFoundException {
+        System.loadLibrary("c++_shared");
+        return super.instantiateApplication(cl, className);
+    }
+}
+`);
+  if (wpeAppClass !== "org.wpewebkit.WPEApplication") {
+    writeJava(wpeAppClass,
+      `package ${wpeAppClass.slice(0, wpeAppClass.lastIndexOf("."))};\n` +
+      `public class ${wpeAppClass.slice(wpeAppClass.lastIndexOf(".") + 1)} ` +
+      `extends android.app.Application {}\n`);
+    console.log(`[package-mobile] wpe-android: stub application class ${wpeAppClass}`);
+  }
+  const javaOut = join(stageRoot, "dd-java-classes");
+  run("javac", ["-cp", androidJar, "-d", javaOut, ...javaSrcFiles]);
+  run("jar", ["cf", join(stageRoot, "dd-java.jar"), "-C", javaOut, "."]);
+  dexInputs.push(join(stageRoot, "dd-java.jar"));
+  run(d8, ["--release", "--min-api", minSdk, "--lib", androidJar,
+    "--output", stageRoot, ...dexInputs]);
+  cpSync(join(vendor, "assets"), join(stageRoot, "assets"), { recursive: true });
+  // WPEServices WebProcess/NetworkProcess slot declarations, verbatim from
+  // the AAR manifest — the service subprocesses are how WPEWebKit isolates
+  // its render/network work on Android.
+  const aarManifest = readFileSync(join(vendor, "AndroidManifest.xml"), "utf-8");
+  wpeServicesXml = aarManifest.match(/<service\b[\s\S]*?\/>/g)?.join("\n") ?? "";
+  // AAR res/ — R references in classes.jar resolve through resources.arsc.
+  const resDir = join(vendor, "res");
+  if (existsSync(resDir) && readdirSync(resDir).length) {
+    run(join(bt, "aapt2"), ["compile", "--dir", resDir, "-o", wpeResZip]);
+  }
+  console.log(`[package-mobile] wpe-android: dex'd classes.jar, staged ` +
+    `runtime assets + ${wpeServicesXml.split("<service").length - 1} service slots`);
+}
+
 const manifestTpl = readFileSync(join(monorepoRoot, "packages/android-shell/AndroidManifest.xml"), "utf-8");
 const manifest = manifestTpl
   .replaceAll("@APP_ID@", appId)
@@ -790,7 +903,17 @@ const manifest = manifestTpl
   .replaceAll("@VERSION_CODE@", String(versionCode))
   .replaceAll("@VERSION_NAME@", versionName.replaceAll("&", "&amp;").replaceAll("<", "&lt;"))
   .replaceAll("@MIN_SDK@", minSdk)
-  .replaceAll("@DEBUGGABLE@", modeArg === "dev" ? "true" : "false");
+  .replaceAll("@DEBUGGABLE@", modeArg === "dev" ? "true" : "false")
+  .replaceAll("@HAS_CODE@", wpeAndroid ? "true" : "false")
+  // WPEApplication's static init detects process kind (main/web/network)
+  // and loads the right per-process libs — required for service spawning.
+  .replaceAll("@APPLICATION_NAME_ATTR@",
+    wpeAndroid ? `android:name="${wpeAppClass}"` : "")
+  // Loads libc++_shared before WPEApplication's static init can pull in
+  // libWPEAndroidCommon's embedded-libc++ exports (see dd-java comment).
+  .replaceAll("@APP_COMPONENT_FACTORY_ATTR@",
+    wpeAndroid ? 'android:appComponentFactory="org.downdraft.webui.WpeAppComponentFactory"' : "")
+  .replaceAll("@EXTRA_APPLICATION_XML@", wpeServicesXml);
 writeFileSync(join(stageRoot, "AndroidManifest.xml"), manifest);
 
 const unsigned = join(stageRoot, "unsigned.apk");
@@ -802,12 +925,15 @@ run(join(bt, "aapt2"), [
   "-I", androidJar,
   "--manifest", join(stageRoot, "AndroidManifest.xml"),
   "-A", join(stageRoot, "assets"),
+  ...(existsSync(wpeResZip) ? ["-R", wpeResZip] : []),
   "--auto-add-overlay",
 ]);
 
 // jniLibs → lib/<abi>/*.so inside the APK (extractNativeLibs=true allows
-// compressed storage — plain zip is correct here).
-run("zip", ["-qr", unsigned, "lib"], { cwd: stageRoot });
+// compressed storage — plain zip is correct here). classes.dex goes in as
+// a raw root entry when the WPE backend ships its Java bootstrap.
+const zipEntries = ["lib", ...(wpeAndroid ? ["classes.dex"] : [])];
+run("zip", ["-qr", unsigned, ...zipEntries], { cwd: stageRoot });
 run(join(bt, "zipalign"), ["-f", "-p", "4", unsigned, aligned]);
 
 // Sign with the standard Android debug key unless a keystore is provided.

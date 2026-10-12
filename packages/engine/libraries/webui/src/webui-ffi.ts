@@ -202,7 +202,8 @@ const dec = new TextDecoder();
 
 /** DOM-button name → DOM button number (matches `MouseEvent.button`). */
 function domButton(b?: "left" | "middle" | "right"): number {
-  return b === "right" ? 2 : b === "middle" ? 1 : 0;
+  // ABI numbering (not DOM): 0=none 1=left 2=middle 3=right
+  return b === "right" ? 3 : b === "middle" ? 2 : 1;
 }
 
 /** Modifier names → the i32 bitmask the ABI expects (1=shift 2=ctrl 4=alt 8=meta). */

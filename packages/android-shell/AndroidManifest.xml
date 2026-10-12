@@ -7,7 +7,10 @@
      hasCode="false" — there is no Java bytecode; android.app.NativeActivity
      dlopens libdowndraft_android.so (android.app.lib_name) and hands us the
      process. The engine, winit event loop, wgpu stack, and embedded libnode
-     are all native.
+     are all native. (@HAS_CODE@, @APPLICATION_NAME_ATTR@ and
+     @EXTRA_APPLICATION_XML@ flip this for the WPE webui backend, which
+     ships dex'd WKRuntime bootstrap classes, a custom Application class,
+     and its WebProcess/NetworkProcess service declarations.)
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="@APP_ID@"
@@ -25,11 +28,14 @@
 
     <application
         android:label="@APP_NAME@"
-        android:hasCode="false"
+        @APPLICATION_NAME_ATTR@
+        @APP_COMPONENT_FACTORY_ATTR@
+        android:hasCode="@HAS_CODE@"
         android:extractNativeLibs="true"
         android:debuggable="@DEBUGGABLE@"
         android:usesCleartextTraffic="false"
         android:allowBackup="false">
+        @EXTRA_APPLICATION_XML@
 
         <activity
             android:name="android.app.NativeActivity"

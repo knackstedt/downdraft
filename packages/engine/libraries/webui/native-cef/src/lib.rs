@@ -527,10 +527,17 @@ macro_rules! with_view {
         if !Registry::claim(h, busy_of) {
             return $fail;
         }
-        let $v = unsafe { &mut *h };
-        let r = $body;
-        Registry::release(h, busy_of);
-        r
+        // Release must survive both `return` inside a body (closure call)
+        // and a panic unwind (RAII guard) — a leaked busy flag wedges
+        // every later claim.
+        struct BusyRelease(*mut View);
+        impl Drop for BusyRelease {
+            fn drop(&mut self) {
+                Registry::release(self.0, busy_of);
+            }
+        }
+        let _guard = BusyRelease(h);
+        (|$v: &mut View| $body)(unsafe { &mut *h })
     }};
 }
 

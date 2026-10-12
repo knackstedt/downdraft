@@ -170,6 +170,7 @@ struct WebKitColor {
 
 /// Must match `struct wpe_view_backend_exportable_fdo_client` exactly —
 /// three callbacks then two reserved slots (usize keeps the static Sync).
+#[cfg(not(target_os = "android"))]
 #[repr(C)]
 struct ExportableClient {
     export_buffer_resource: Option<extern "C" fn(gpointer, gpointer)>,
@@ -187,29 +188,130 @@ struct GError {
 }
 
 extern "C" {
-    // -- libwpebackend-fdo (wpe-fdo-1.0)
+    // -- libwpebackend-fdo (wpe-fdo-1.0) — desktop/linux only
+    #[cfg(not(target_os = "android"))]
     fn wpe_fdo_initialize_shm() -> c_int;
+    #[cfg(not(target_os = "android"))]
     fn wpe_view_backend_exportable_fdo_create(
         client: *const ExportableClient,
         data: gpointer,
         width: u32,
         height: u32,
     ) -> gpointer;
+    #[cfg(not(target_os = "android"))]
     fn wpe_view_backend_exportable_fdo_destroy(exportable: gpointer);
+    #[cfg(not(target_os = "android"))]
     fn wpe_view_backend_exportable_fdo_get_view_backend(exportable: gpointer) -> gpointer;
+    #[cfg(not(target_os = "android"))]
     fn wpe_view_backend_exportable_fdo_dispatch_frame_complete(exportable: gpointer);
+    #[cfg(not(target_os = "android"))]
     fn wpe_view_backend_exportable_fdo_dispatch_release_buffer(
         exportable: gpointer,
         buffer_resource: gpointer,
     );
+    #[cfg(not(target_os = "android"))]
     fn wpe_view_backend_exportable_fdo_dispatch_release_shm_exported_buffer(
         exportable: gpointer,
         exported_buffer: gpointer,
     );
+    #[cfg(not(target_os = "android"))]
     fn wpe_fdo_shm_exported_buffer_get_shm_buffer(exported_buffer: gpointer) -> gpointer;
+
+    // -- libWPEBackend-android (Igalia WPEBackend-android) — android only.
+    // Same exportable pattern over AHardwareBuffer; see
+    // vendor/wpe-android/include/wpe-android/view-backend.h.
+    #[cfg(target_os = "android")]
+    fn WPEAndroidViewBackend_create(width: u32, height: u32) -> gpointer;
+    #[cfg(target_os = "android")]
+    fn WPEAndroidViewBackend_destroy(backend: gpointer);
+    #[cfg(target_os = "android")]
+    fn WPEAndroidViewBackend_getWPEViewBackend(backend: gpointer) -> gpointer;
+    #[cfg(target_os = "android")]
+    fn WPEAndroidViewBackend_setCommitBufferHandler(
+        backend: gpointer,
+        context: gpointer,
+        func: extern "C" fn(gpointer, gpointer, c_int),
+    );
+    #[cfg(target_os = "android")]
+    fn WPEAndroidViewBackend_dispatchReleaseBuffer(backend: gpointer, buffer: gpointer);
+    #[cfg(target_os = "android")]
+    fn WPEAndroidViewBackend_dispatchFrameComplete(backend: gpointer);
+    #[cfg(target_os = "android")]
+    fn WPEAndroidBuffer_getAHardwareBuffer(buffer: gpointer) -> gpointer;
+
+    // -- libnativewindow (AHardwareBuffer CPU readback) — android only
+    #[cfg(target_os = "android")]
+    fn AHardwareBuffer_describe(buffer: gpointer, out_desc: *mut AHardwareBufferDesc);
+    #[cfg(target_os = "android")]
+    fn AHardwareBuffer_lock(
+        buffer: gpointer,
+        usage: u64,
+        fence: i32,
+        rect: *const c_void,
+        out_vaddr: *mut *mut c_void,
+    ) -> c_int;
+    #[cfg(target_os = "android")]
+    fn AHardwareBuffer_unlock(buffer: gpointer, fence: *mut i32) -> c_int;
+
+    // -- ANativeWindow release (the activity window arrives acquired from
+    //    dd_android_activity_window in libdowndraft_android — the
+    //    ASurfaceControl parent)
+    #[cfg(target_os = "android")]
+    fn ANativeWindow_release(window: gpointer);
+    #[cfg(target_os = "android")]
+    fn dlopen(name: *const c_char, flags: c_int) -> gpointer;
+    #[cfg(target_os = "android")]
+    fn dlsym(handle: gpointer, name: *const c_char) -> gpointer;
+
+    // -- libandroid (SurfaceControl transactions — the WKWebView
+    //    RendererSurfaceControl presentation path, API 29+)
+    #[cfg(target_os = "android")]
+    fn ASurfaceControl_createFromWindow(parent: gpointer, debug_name: *const c_char) -> gpointer;
+    #[cfg(target_os = "android")]
+    fn ASurfaceControl_release(sc: gpointer);
+    #[cfg(target_os = "android")]
+    fn ASurfaceTransaction_create() -> gpointer;
+    #[cfg(target_os = "android")]
+    fn ASurfaceTransaction_delete(txn: gpointer);
+    #[cfg(target_os = "android")]
+    fn ASurfaceTransaction_setVisibility(txn: gpointer, sc: gpointer, visibility: i32);
+    #[cfg(target_os = "android")]
+    fn ASurfaceTransaction_setZOrder(txn: gpointer, sc: gpointer, z_order: i32);
+    #[cfg(target_os = "android")]
+    fn ASurfaceTransaction_setBuffer(
+        txn: gpointer,
+        sc: gpointer,
+        buffer: gpointer,
+        fence_fd: c_int,
+    );
+    #[cfg(target_os = "android")]
+    fn ASurfaceTransaction_setOnComplete(
+        txn: gpointer,
+        context: gpointer,
+        func: extern "C" fn(gpointer, gpointer),
+    );
+    #[cfg(target_os = "android")]
+    fn ASurfaceTransaction_apply(txn: gpointer);
+    #[cfg(target_os = "android")]
+    fn ASurfaceTransactionStats_getASurfaceControls(
+        stats: gpointer,
+        out_controls: *mut *mut gpointer,
+        out_count: *mut usize,
+    );
+    #[cfg(target_os = "android")]
+    fn ASurfaceTransactionStats_getPreviousReleaseFenceFd(
+        stats: gpointer,
+        control: gpointer,
+    ) -> c_int;
+    #[cfg(target_os = "android")]
+    fn ASurfaceTransactionStats_releaseASurfaceControls(controls: *mut gpointer);
+    #[cfg(target_os = "android")]
+    fn poll(fds: *mut ScPollFd, nfds: u64, timeout_ms: c_int) -> c_int;
 
     // -- libwpe (wpe-1.0)
     fn wpe_view_backend_dispatch_set_size(backend: gpointer, width: u32, height: u32);
+    fn wpe_view_backend_add_activity_state(backend: gpointer, state: u32);
+    fn wpe_view_backend_dispatch_frame_displayed(backend: gpointer);
     fn wpe_view_backend_dispatch_set_device_scale_factor(backend: gpointer, scale: f32);
     fn wpe_view_backend_dispatch_pointer_event(backend: gpointer, event: *const WpePointerEvent);
     fn wpe_view_backend_dispatch_keyboard_event(backend: gpointer, event: *const WpeKeyboardEvent);
@@ -217,10 +319,15 @@ extern "C" {
     fn wpe_view_backend_dispatch_touch_event(backend: gpointer, event: *const WpeTouchEvent);
 
     // -- libwayland-client (wl_shm_buffer introspection for shm readback)
+    #[cfg(not(target_os = "android"))]
     fn wl_shm_buffer_get_data(buffer: gpointer) -> *const c_void;
+    #[cfg(not(target_os = "android"))]
     fn wl_shm_buffer_get_stride(buffer: gpointer) -> c_int;
+    #[cfg(not(target_os = "android"))]
     fn wl_shm_buffer_get_format(buffer: gpointer) -> u32;
+    #[cfg(not(target_os = "android"))]
     fn wl_shm_buffer_get_width(buffer: gpointer) -> c_int;
+    #[cfg(not(target_os = "android"))]
     fn wl_shm_buffer_get_height(buffer: gpointer) -> c_int;
 
     // -- libWPEWebKit-2.0
@@ -288,6 +395,12 @@ extern "C" {
     fn g_error_free(err: *mut GError);
     fn g_main_context_default() -> gpointer;
     fn g_main_context_iteration(ctx: gpointer, may_block: c_int) -> c_int;
+    fn g_timeout_add(
+        interval: u32,
+        function: extern "C" fn(gpointer) -> c_int,
+        data: gpointer,
+    ) -> u32;
+    fn g_source_remove(tag: u32) -> c_int;
     fn g_signal_connect_data(
         instance: gpointer,
         detailed_signal: *const c_char,
@@ -361,12 +474,161 @@ fn pump() {
     }
 }
 
+/// Synthetic vsync — the WebProcess's display-refresh monitor blocks
+/// repaints until the embedder reports the frame as presented, and a
+/// refresh request that arrives after the last commit would wait
+/// forever (no commit → no frameComplete → no displayed → stall). A
+/// real embedder drives this from the presentation vsync; we tick it
+/// at ~60 Hz per live view so refresh requests can never deadlock.
+extern "C" fn frame_displayed_tick(data: gpointer) -> c_int {
+    let shared = unsafe { &*(data as *const ViewShared) };
+    let wb = shared.backend.load(Ordering::Acquire);
+    if wb.is_null() {
+        return 0; // G_SOURCE_REMOVE
+    }
+    unsafe { wpe_view_backend_dispatch_frame_displayed(wb) };
+    #[cfg(target_os = "android")]
+    {
+        sc_try_init(shared);
+        sc_drain(shared);
+    }
+    1 // G_SOURCE_CONTINUE
+}
+
+// ---------------------------------------------------------------------------
+// Android — dedicated WebKit thread
+// ---------------------------------------------------------------------------
+//
+// WebKit's Android glue attaches the calling thread to ART for its Java
+// bridge, and ART's Thread::Attach stack sanity check
+// (FindStackTop > tlsPtr_.stack_end) misreads the shell's 32 MiB JS
+// thread and aborts the process. So on Android every export that touches
+// WebKit, GLib, or the JNI bridge is dispatched to this worker — a plain
+// pthread, which attaches cleanly. It also exclusively owns
+// g_main_context_iteration (sources fired while iterating could
+// themselves JNI-attach the iterating thread).
+#[cfg(target_os = "android")]
+fn alog(msg: &std::ffi::CStr) {
+    unsafe extern "C" {
+        fn __android_log_write(prio: c_int, tag: *const c_char, text: *const c_char)
+            -> c_int;
+    }
+    unsafe {
+        __android_log_write(4, c"WPE-DD".as_ptr(), msg.as_ptr());
+    }
+}
+
+#[cfg(target_os = "android")]
+macro_rules! alogf {
+    ($($t:tt)*) => {
+        $crate::alog(&std::ffi::CString::new(format!($($t)*))
+            .unwrap_or_else(|_| c"wpe-dd fmt err".into()))
+    };
+}
+#[cfg(target_os = "android")]
+pub(crate) use alogf;
+
+#[cfg(target_os = "android")]
+mod wpe_thread {
+    use std::sync::mpsc;
+    use std::sync::Mutex;
+    use std::time::Duration;
+
+    type Task = Box<dyn FnOnce() + Send>;
+    static TX: Mutex<Option<mpsc::SyncSender<Task>>> = Mutex::new(None);
+
+    pub fn ensure_started() {
+        let mut g = TX.lock().unwrap_or_else(|e| e.into_inner());
+        if g.is_some() {
+            return;
+        }
+        let (tx, rx) = mpsc::sync_channel::<Task>(64);
+        std::thread::Builder::new()
+            .name("dd-wpe".into())
+            .spawn(move || {
+                // WPEServiceConnection builds `new Handler(Looper.myLooper())`
+                // when WebKit spawns its aux services, and wpeLaunchProcess
+                // fires on THIS thread (the view-creating thread), not on
+                // WKRuntime's LooperHelperThread. The worker needs a prepared
+                // Looper — the queue is only drained for the disconnect
+                // re-dispatch path, so prepare alone suffices.
+                match std::env::var("DD_ANDROID_JVM_PTR")
+                    .ok()
+                    .and_then(|v| usize::from_str_radix(v.trim_start_matches("0x"), 16).ok())
+                {
+                    Some(vm_ptr) => match unsafe {
+                        jni::JavaVM::from_raw(vm_ptr as *mut jni::sys::JavaVM)
+                    } {
+                        Ok(vm) => match vm.attach_current_thread() {
+                            Ok(mut env) => {
+                                match env.call_static_method(
+                                    "android/os/Looper",
+                                    "prepare",
+                                    "()V",
+                                    &[],
+                                ) {
+                                    Ok(_) => crate::alog(c"wpe-dd: looper prepared"),
+                                    Err(e) => crate::alogf!(
+                                        "wpe-dd: Looper.prepare failed: {e:?}"
+                                    ),
+                                }
+                                // Stay attached — the worker IS this looper's
+                                // thread for its whole lifetime.
+                                std::mem::forget(env);
+                            }
+                            Err(e) => crate::alogf!("wpe-dd: attach failed: {e:?}"),
+                        },
+                        Err(e) => crate::alogf!("wpe-dd: JavaVM::from_raw failed: {e:?}"),
+                    },
+                    None => crate::alog(c"wpe-dd: DD_ANDROID_JVM_PTR unset"),
+                }
+                loop {
+                    match rx.recv_timeout(Duration::from_millis(4)) {
+                        Ok(t) => t(),
+                        Err(mpsc::RecvTimeoutError::Timeout) => {}
+                        Err(_) => break,
+                    }
+                    super::pump();
+                }
+            })
+            .expect("spawn dd-wpe thread");
+        *g = Some(tx);
+    }
+
+    /// Run `f` on the worker, blocking the caller for its result.
+    /// `None` if the worker isn't running.
+    pub fn call<R: Send + 'static, F: FnOnce() -> R + Send + 'static>(f: F) -> Option<R> {
+        let (tx, rx) = mpsc::sync_channel(1);
+        let sender = TX.lock().ok()?.clone()?;
+        sender
+            .send(Box::new(move || {
+                let _ = tx.send(f());
+            }))
+            .ok()?;
+        rx.recv().ok()
+    }
+}
+
+/// Dispatch an FFI body. Android routes it to `wpe_thread` (the worker
+/// must exist — global_init starts it); other platforms run inline.
+#[cfg(target_os = "android")]
+fn ui_run<R: Send + 'static>(f: impl FnOnce() -> R + Send + 'static) -> Option<R> {
+    wpe_thread::call(f)
+}
+
+#[cfg(not(target_os = "android"))]
+fn ui_run<R>(f: impl FnOnce() -> R) -> Option<R> {
+    Some(f())
+}
+
 // ---------------------------------------------------------------------------
 // View — FFI-owned object + callback-shared state
 // ---------------------------------------------------------------------------
 
 struct ViewShared {
     core: Mutex<ViewCore>,
+    #[cfg(target_os = "android")]
+    sc: Mutex<ScState>,
     /// exportable + backend pointers the shm callback needs to release
     /// buffers against. Written at create, cleared at destroy.
     exportable: AtomicPtr<c_void>,
@@ -374,6 +636,8 @@ struct ViewShared {
     /// DIP→physical scale (f32 bits) — input coords arrive in DIP, WPE
     /// dispatches in physical pixels.
     scale_bits: AtomicU32,
+    /// g_timeout_add tag for the synthetic-vsync source (0 = none).
+    tick_tag: AtomicU32,
 }
 
 impl ViewShared {
@@ -403,17 +667,26 @@ macro_rules! with_view {
         if !Registry::claim(h, busy_of) {
             return $fail;
         }
-        let $v = unsafe { &mut *h };
-        let r = $body;
-        Registry::release(h, busy_of);
-        r
+        // Release must survive both `return` inside a body (closure call)
+        // and a panic unwind (RAII guard) — a leaked busy flag wedges
+        // every later claim.
+        struct BusyRelease(*mut View);
+        impl Drop for BusyRelease {
+            fn drop(&mut self) {
+                Registry::release(self.0, busy_of);
+            }
+        }
+        let _guard = BusyRelease(h);
+        (|$v: &mut View| $body)(unsafe { &mut *h })
     }};
 }
 
 // ---------------------------------------------------------------------------
-// Exportable-FDO client — shm buffer import
+// Frame delivery — desktop: exportable-fdo shm client; android:
+// WPEAndroidViewBackend commit handler over AHardwareBuffer.
 // ---------------------------------------------------------------------------
 
+#[cfg(not(target_os = "android"))]
 extern "C" fn export_buffer_resource(data: gpointer, resource: gpointer) {
     // GPU-backed wl_resource — we only consume shm, but must release every
     // exported resource or the WebProcess stalls waiting on pool space.
@@ -427,6 +700,7 @@ extern "C" fn export_buffer_resource(data: gpointer, resource: gpointer) {
 /// wpe_view_backend_exportable_fdo_dmabuf_resource — fds are owned by the
 /// client once exported; we consume nothing but must close them + release
 /// the wrapped buffer_resource back.
+#[cfg(not(target_os = "android"))]
 #[repr(C)]
 struct DmabufResource {
     buffer_resource: gpointer,
@@ -449,6 +723,7 @@ extern "C" {
     fn libc_close(fd: c_int) -> c_int;
 }
 
+#[cfg(not(target_os = "android"))]
 extern "C" fn export_dmabuf_resource(data: gpointer, resource: gpointer) {
     let shared = unsafe { &*(data as *const ViewShared) };
     let exp = shared.exportable.load(Ordering::Acquire);
@@ -472,6 +747,7 @@ extern "C" fn export_dmabuf_resource(data: gpointer, resource: gpointer) {
     }
 }
 
+#[cfg(not(target_os = "android"))]
 extern "C" fn export_shm_buffer(data: gpointer, exported: gpointer) {
     let shared = unsafe { &*(data as *const ViewShared) };
     let exp = shared.exportable.load(Ordering::Acquire);
@@ -505,10 +781,394 @@ extern "C" fn export_shm_buffer(data: gpointer, exported: gpointer) {
     }
 }
 
+#[cfg(not(target_os = "android"))]
 extern "C" fn exportable_destroy_notify(exportable: gpointer) {
     if !exportable.is_null() {
         unsafe { wpe_view_backend_exportable_fdo_destroy(exportable) };
     }
+}
+
+// ---------------------------------------------------------------------------
+// Android — WPEAndroidViewBackend commit handler (AHardwareBuffer readback)
+// ---------------------------------------------------------------------------
+
+#[cfg(target_os = "android")]
+#[repr(C)]
+struct AHardwareBufferDesc {
+    width: u32,
+    height: u32,
+    layers: u32,
+    format: u32,
+    usage: u64,
+    stride: u32,
+    rfu0: u32,
+    rfu1: u64,
+}
+
+/// AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN
+#[cfg(target_os = "android")]
+const AHB_CPU_READ: u64 = 0x3;
+/// AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM / _RGBX_ / B8G8R8A8
+#[cfg(target_os = "android")]
+const AHB_FMT_RGBA: u32 = 1;
+#[cfg(target_os = "android")]
+const AHB_FMT_RGBX: u32 = 2;
+#[cfg(target_os = "android")]
+const AHB_FMT_BGRA: u32 = 5;
+
+/// struct pollfd — sync_file fds are readable (POLLIN) once signaled.
+#[cfg(target_os = "android")]
+#[repr(C)]
+struct ScPollFd {
+    fd: c_int,
+    events: i16,
+    revents: i16,
+}
+
+/// Offscreen presentation surface — ports the vendor WKWebView's
+/// RendererSurfaceControl: committed AHBs are posted to an ASurfaceControl
+/// layer via transactions; SurfaceFlinger acks carry real release fences
+/// that gate dispatchReleaseBuffer, and the transaction-complete callback
+/// drives dispatchFrameComplete at presentation cadence (rather than
+/// instant acks). `layer == null` means setup failed → headless fallback.
+#[cfg(target_os = "android")]
+struct ScState {
+    /// Acquired ANativeWindow* — the activity window that parents `layer`.
+    parent: gpointer,
+    /// ASurfaceControl* receiving buffers (child of the activity window).
+    layer: gpointer,
+    /// WPEAndroidBuffer* currently latched by SurfaceFlinger — held until
+    /// its replacement is acked (the official "front buffer").
+    front: gpointer,
+    /// (WPEAndroidBuffer*, release_fence) awaiting fence signal → release.
+    pending: std::collections::VecDeque<(gpointer, c_int)>,
+    /// OnComplete count not yet turned into dispatchFrameComplete.
+    completes: u32,
+    /// Lazy-init attempts — the activity window may not exist yet at view
+    /// create (first resumed lands after JS boots), so sc_try_init retries
+    /// from the frame_displayed tick until the layer materializes.
+    tries: u32,
+}
+
+#[cfg(target_os = "android")]
+impl Default for ScState {
+    fn default() -> Self {
+        Self {
+            parent: ptr::null_mut(),
+            layer: ptr::null_mut(),
+            front: ptr::null_mut(),
+            pending: std::collections::VecDeque::new(),
+            completes: 0,
+            tries: 0,
+        }
+    }
+}
+
+#[cfg(target_os = "android")]
+struct ScAckCtx {
+    shared: Arc<ViewShared>,
+    /// The buffer replaced by this transaction (previous front).
+    prev: gpointer,
+}
+
+/// Lazily acquire the activity window + create the ASurfaceControl layer.
+/// Retried from frame_displayed_tick: the window can lag view create, and
+/// a stalled WebProcess stops committing — so retries can't ride commits.
+#[cfg(target_os = "android")]
+fn sc_try_init(shared: &ViewShared) {
+    let mut sc = shared.sc.lock().unwrap_or_else(|e| e.into_inner());
+    if !sc.layer.is_null() || sc.tries >= 600 {
+        return;
+    }
+    sc.tries += 1;
+    let parent = unsafe {
+        type GetWin = unsafe extern "C" fn() -> gpointer;
+        // The shell lib is loaded RTLD_LOCAL by NativeActivity — its
+        // symbols aren't in the RTLD_DEFAULT group, so dlopen the soname
+        // (already mapped → cheap handle bump) and dlsym the handle.
+        let h = dlopen(c"libdowndraft_android.so".as_ptr(), 2 /*RTLD_NOW*/);
+        if h.is_null() && sc.tries == 1 {
+            crate::alog(c"wpe-dd: dlopen libdowndraft_android.so failed");
+        }
+        let sym = if h.is_null() {
+            ptr::null_mut()
+        } else {
+            dlsym(h, c"dd_android_activity_window".as_ptr())
+        };
+        if sym.is_null() {
+            ptr::null_mut()
+        } else {
+            std::mem::transmute::<gpointer, GetWin>(sym)()
+        }
+    };
+    if parent.is_null() {
+        if sc.tries == 1 || sc.tries % 120 == 0 {
+            crate::alog(c"wpe-dd: SC init — no activity window yet");
+        }
+        return;
+    }
+    let layer = unsafe { ASurfaceControl_createFromWindow(parent, c"dd-wpe".as_ptr()) };
+    if layer.is_null() {
+        unsafe { ANativeWindow_release(parent) };
+        if sc.tries == 1 || sc.tries == 600 {
+            crate::alog(c"wpe-dd: SC layer failed — headless frame path");
+        }
+        return;
+    }
+    sc.parent = parent;
+    sc.layer = layer;
+    crate::alog(c"wpe-dd: SC layer live — surfaced frame path");
+}
+
+/// ASurfaceTransaction_OnComplete — may fire on any thread, so it only
+/// extracts the previous-release fence and records the ack; the drain to
+/// IPC happens on the worker inside frame_displayed_tick.
+#[cfg(target_os = "android")]
+extern "C" fn sc_on_complete(ctx: gpointer, stats: gpointer) {
+    let ctx = unsafe { Box::from_raw(ctx as *mut ScAckCtx) };
+    let mut fence: c_int = -1;
+    unsafe {
+        let mut ctrls: *mut gpointer = ptr::null_mut();
+        let mut n: usize = 0;
+        ASurfaceTransactionStats_getASurfaceControls(stats, &mut ctrls, &mut n);
+        if !ctrls.is_null() {
+            for i in 0..n {
+                let fd = ASurfaceTransactionStats_getPreviousReleaseFenceFd(
+                    stats,
+                    *ctrls.add(i),
+                );
+                if fence == -1 {
+                    fence = fd;
+                } else if fd != -1 {
+                    close(fd);
+                }
+            }
+            ASurfaceTransactionStats_releaseASurfaceControls(ctrls);
+        }
+    }
+    let mut sc = ctx
+        .shared
+        .sc
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if !ctx.prev.is_null() {
+        sc.pending.push_back((ctx.prev, fence));
+    } else if fence >= 0 {
+        unsafe { close(fence) };
+    }
+    sc.completes += 1;
+}
+
+/// sync_file fd signaled? poll() returns POLLIN once it fires.
+#[cfg(target_os = "android")]
+fn sc_fence_signaled(fd: c_int) -> bool {
+    let mut pfd = ScPollFd { fd, events: 0x1, revents: 0 }; // POLLIN
+    unsafe { poll(&mut pfd, 1, 0) > 0 && pfd.revents != 0 }
+}
+
+/// Drain surface-ack state → IPC — called from frame_displayed_tick on the
+/// worker (GLib context thread) where the dispatch calls belong.
+#[cfg(target_os = "android")]
+fn sc_drain(shared: &ViewShared) {
+    let exp = shared.exportable.load(Ordering::Acquire);
+    if exp.is_null() {
+        return;
+    }
+    let mut sc = shared.sc.lock().unwrap_or_else(|e| e.into_inner());
+    while sc.completes > 0 {
+        unsafe { WPEAndroidViewBackend_dispatchFrameComplete(exp) };
+        sc.completes -= 1;
+    }
+    loop {
+        let signaled = match sc.pending.front() {
+            Some((_, fd)) => *fd < 0 || sc_fence_signaled(*fd),
+            None => break,
+        };
+        if !signaled {
+            break;
+        }
+        let (buf, fd) = sc.pending.pop_front().unwrap();
+        if fd >= 0 {
+            unsafe { close(fd) };
+        }
+        unsafe { WPEAndroidViewBackend_dispatchReleaseBuffer(exp, buf) };
+    }
+}
+
+/// The WebProcess/Skia side committed a new frame — lock the
+/// AHardwareBuffer, copy rows into the shared FrameBuf (BGRA, matching
+/// the linux backend — RGBA sources get a byte swap), unlock, release
+/// the buffer back, frame-complete.
+#[cfg(target_os = "android")]
+extern "C" fn on_commit_buffer(data: gpointer, buffer: gpointer, fence: c_int) {
+    let shared = unsafe { &*(data as *const ViewShared) };
+    let exp = shared.exportable.load(Ordering::Acquire);
+    if exp.is_null() || buffer.is_null() {
+        return;
+    }
+    unsafe {
+        let ahb = WPEAndroidBuffer_getAHardwareBuffer(buffer);
+        if ahb.is_null() {
+            crate::alogf!("wpe-dd: commit buffer is not AHardwareBuffer");
+        }
+        if !ahb.is_null() {
+            let mut desc: AHardwareBufferDesc = std::mem::zeroed();
+            AHardwareBuffer_describe(ahb, &mut desc);
+            let mut vaddr: *mut c_void = ptr::null_mut();
+            let lockrc = AHardwareBuffer_lock(ahb, AHB_CPU_READ, fence, ptr::null(), &mut vaddr);
+            if lockrc == 0 && !vaddr.is_null()
+            {
+                let mut core = shared.lock();
+                let (w, h) = (core.frame.w.min(desc.width), core.frame.h.min(desc.height));
+                let bpp = match desc.format {
+                    AHB_FMT_RGBA | AHB_FMT_RGBX | AHB_FMT_BGRA => 4usize,
+                    _ => 0,
+                };
+                if bpp > 0 && w > 0 && h > 0 {
+                    let row_bytes = desc.stride as usize * bpp;
+                    let src =
+                        std::slice::from_raw_parts(vaddr as *const u8, row_bytes * desc.height as usize);
+                    if desc.format == AHB_FMT_BGRA {
+                        core.frame
+                            .write_rows(Rect::new(0, 0, w, h), src, row_bytes);
+                    } else {
+                        // RGBA/RGBX → BGRA: per-pixel byte swap into a
+                        // scratch row buffer, then write_rows.
+                        let mut row = vec![0u8; w as usize * 4];
+                        for y in 0..h as usize {
+                            let srow = &src[y * row_bytes..y * row_bytes + w as usize * 4];
+                            for i in 0..w as usize {
+                                let (s, d) = (i * 4, i * 4);
+                                row[d] = srow[s + 2];
+                                row[d + 1] = srow[s + 1];
+                                row[d + 2] = srow[s];
+                                row[d + 3] = srow[s + 3];
+                            }
+                            core.frame
+                                .write_rows(Rect::new(0, y as u32, w, 1), &row, row.len());
+                        }
+                    }
+                }
+                AHardwareBuffer_unlock(ahb, ptr::null_mut());
+            }
+        }
+        // Presentation path (RendererSurfaceControl equivalent): post the
+        // AHB to the offscreen SurfaceControl layer — the transaction ack
+        // releases the previous front buffer once its SF release fence
+        // signals, and drives frameComplete at presentation cadence.
+        let mut sc = shared.sc.lock().unwrap_or_else(|e| e.into_inner());
+        if !sc.layer.is_null() {
+            let txn = ASurfaceTransaction_create();
+            if !txn.is_null() {
+                ASurfaceTransaction_setVisibility(txn, sc.layer, 0 /*SHOW*/);
+                ASurfaceTransaction_setZOrder(txn, sc.layer, 0);
+                // setBuffer takes ownership of the acquire-fence fd.
+                ASurfaceTransaction_setBuffer(txn, sc.layer, ahb, fence);
+                let prev = std::mem::replace(&mut sc.front, buffer);
+                let data = shared as *const ViewShared;
+                Arc::increment_strong_count(data);
+                let ctx = Box::into_raw(Box::new(ScAckCtx {
+                    shared: Arc::from_raw(data),
+                    prev,
+                }));
+                ASurfaceTransaction_setOnComplete(txn, ctx as gpointer, sc_on_complete);
+                ASurfaceTransaction_apply(txn);
+                ASurfaceTransaction_delete(txn);
+                return;
+            }
+        }
+        drop(sc);
+        // Headless fallback — no surface; ack immediately (the official
+        // headless WKWebView behavior).
+        if fence >= 0 {
+            close(fence);
+        }
+        WPEAndroidViewBackend_dispatchReleaseBuffer(exp, buffer);
+        WPEAndroidViewBackend_dispatchFrameComplete(exp);
+    }
+}
+
+#[cfg(target_os = "android")]
+extern "C" fn android_backend_destroy_notify(backend: gpointer) {
+    if !backend.is_null() {
+        unsafe { WPEAndroidViewBackend_destroy(backend) };
+    }
+}
+
+/// WKRuntime bootstrap — the Java side does asset extraction (gio modules,
+/// fontconfig, injected-bundles → filesDir), env setup (GIO_EXTRA_MODULES,
+/// WEBKIT_INJECTED_BUNDLE_PATH, XDG_DATA_DIRS), nativeInit (process-manager
+/// registration), and spawns the GLib looper thread. One call:
+/// `WKRuntime.getInstance().initialize(appContext)` — loaded through the
+/// app classloader since JNI FindClass on a native thread can't see app
+/// dex classes.
+#[cfg(target_os = "android")]
+fn init_android_runtime() -> bool {
+    // The JavaVM/Context pointers arrive via env from the android shell —
+    // ndk_context's ANDROID_CONTEXT is a per-cdylib static, so the shell's
+    // registration is invisible inside this .so. Fall back to our own
+    // ndk_context for single-binary embedders.
+    let env_ptr = |name: &str| -> *mut c_void {
+        std::env::var(name)
+            .ok()
+            .and_then(|v| usize::from_str_radix(v.trim_start_matches("0x"), 16).ok())
+            .map(|p| p as *mut c_void)
+            .unwrap_or(std::ptr::null_mut())
+    };
+    let (vm_ptr, ctx_ptr) = {
+        let (v, c) = (
+            env_ptr("DD_ANDROID_JVM_PTR"),
+            env_ptr("DD_ANDROID_CONTEXT_PTR"),
+        );
+        if !v.is_null() && !c.is_null() {
+            (v, c)
+        } else {
+            let Ok(ctx) = std::panic::catch_unwind(ndk_context::android_context) else {
+                return false;
+            };
+            (ctx.vm(), ctx.context())
+        }
+    };
+    if vm_ptr.is_null() || ctx_ptr.is_null() {
+        return false;
+    }
+    let (vm_addr, ctx_addr) = (vm_ptr as usize, ctx_ptr as usize);
+    // The attach + WKRuntime call runs on the dedicated WPE worker —
+    // a plain pthread ART can attach (the 32 MiB JS thread fails
+    // Thread::Attach's stack sanity check and aborts).
+    let res = wpe_thread::call(move || -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        use jni::objects::{JClass, JObject, JValue};
+        let vm = unsafe { jni::JavaVM::from_raw(vm_addr as *mut jni::sys::JavaVM) }?;
+        let mut env = vm.attach_current_thread()?;
+        let ctx_obj = std::mem::ManuallyDrop::new(unsafe {
+            JObject::from_raw(ctx_addr as jni::sys::jobject)
+        });
+        // context.getClassLoader().loadClass("org.wpewebkit.wpe.WKRuntime")
+        let loader = env
+            .call_method(&*ctx_obj, "getClassLoader", "()Ljava/lang/ClassLoader;", &[])?
+            .l()?;
+        let name = env.new_string("org.wpewebkit.wpe.WKRuntime")?;
+        let cls: JClass = env
+            .call_method(
+                loader,
+                "loadClass",
+                "(Ljava/lang/String;)Ljava/lang/Class;",
+                &[JValue::Object(&name)],
+            )?
+            .l()?
+            .into();
+        let rt = env
+            .call_static_method(cls, "getInstance", "()Lorg/wpewebkit/wpe/WKRuntime;", &[])?
+            .l()?;
+        env.call_method(
+            rt,
+            "initialize",
+            "(Landroid/content/Context;)V",
+            &[JValue::Object(&*ctx_obj)],
+        )?;
+        Ok(())
+    });
+    res.map(|r| r.is_ok()).unwrap_or(false)
 }
 
 // ---------------------------------------------------------------------------
@@ -576,6 +1236,8 @@ extern "C" fn on_script_message(_mgr: gpointer, value: gpointer, data: gpointer)
 
 /// web-process-terminated: reason 0=crashed 1=memory-limit 2=by-api.
 extern "C" fn on_web_process_terminated(_view: gpointer, _reason: c_int, data: gpointer) {
+    #[cfg(target_os = "android")]
+    crate::alogf!("wpe-dd: web-process-terminated reason={_reason}");
     let shared = unsafe { &*(data as *const ViewShared) };
     shared.lock().record_crash();
 }
@@ -740,39 +1402,58 @@ pub extern "C" fn dd_webui_global_init(opts_json: *const c_char) -> c_int {
             return 0; // already up
         }
         let opts = unsafe { cstr(opts_json) }.unwrap_or("{}");
-
-        // The Debian build hardcodes its libexec dir
-        // (/usr/lib/x86_64-linux-gnu/wpe-webkit-2.0) — dev runs present the
-        // vendored one there via a user-ns bind mount (see README), so no
-        // runtime patching is needed here.
-        if let Some(p) = opt_str(opts, "wpePrefix") {
-            if !p.is_empty() {
-                // Point the subprocess chain at the vendored lib set via
-                // env — child processes inherit these. WPE_BACKEND_LIBRARY
-                // names the fdo impl the wpe loader dlopens (it defaults to
-                // libWPEBackend-default.so, which doesn't exist).
-                std::env::set_var(
-                    "LD_LIBRARY_PATH",
-                    format!("{p}/lib:{}", std::env::var("LD_LIBRARY_PATH").unwrap_or_default()),
-                );
-                std::env::set_var(
-                    "WPE_BACKEND_LIBRARY",
-                    format!("{p}/lib/libWPEBackend-fdo-1.0.so"),
-                );
-            }
-        }
-        if std::env::var_os("WPE_BACKEND_LIBRARY").is_none() {
-            std::env::set_var("WPE_BACKEND_LIBRARY", "libWPEBackend-fdo-1.0.so");
-        }
-        if opt_bool(opts, "noSandbox").unwrap_or(true) {
-            // The vendored tree ships no setuid sandbox helper.
-            std::env::set_var("WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS", "1");
-        }
-
         *T0.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
 
-        unsafe {
-            if wpe_fdo_initialize_shm() == 0 {
+        #[cfg(not(target_os = "android"))]
+        {
+            // The Debian build hardcodes its libexec dir
+            // (/usr/lib/x86_64-linux-gnu/wpe-webkit-2.0) — dev runs present
+            // the vendored one there via a user-ns bind mount (see README),
+            // so no runtime patching is needed here.
+            if let Some(p) = opt_str(opts, "wpePrefix") {
+                if !p.is_empty() {
+                    // Point the subprocess chain at the vendored lib set via
+                    // env — child processes inherit these. WPE_BACKEND_LIBRARY
+                    // names the fdo impl the wpe loader dlopens (it defaults
+                    // to libWPEBackend-default.so, which doesn't exist).
+                    std::env::set_var(
+                        "LD_LIBRARY_PATH",
+                        format!("{p}/lib:{}", std::env::var("LD_LIBRARY_PATH").unwrap_or_default()),
+                    );
+                    std::env::set_var(
+                        "WPE_BACKEND_LIBRARY",
+                        format!("{p}/lib/libWPEBackend-fdo-1.0.so"),
+                    );
+                }
+            }
+            if std::env::var_os("WPE_BACKEND_LIBRARY").is_none() {
+                std::env::set_var("WPE_BACKEND_LIBRARY", "libWPEBackend-fdo-1.0.so");
+            }
+            if opt_bool(opts, "noSandbox").unwrap_or(true) {
+                // The vendored tree ships no setuid sandbox helper.
+                std::env::set_var("WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS", "1");
+            }
+            unsafe {
+                if wpe_fdo_initialize_shm() == 0 {
+                    INITIALIZED.store(false, Ordering::Release);
+                    return -1;
+                }
+            }
+        }
+
+        #[cfg(target_os = "android")]
+        {
+            let _ = opts;
+            // The wpe loader resolves the backend impl by soname — the AAR's
+            // jni libs land on the app's library path automatically.
+            std::env::set_var("WPE_BACKEND_LIBRARY", "libWPEBackend-android.so");
+            std::env::set_var("WEBKIT_DEBUG", "Compositing");
+            // All WebKit/GLib work runs on the dedicated worker — it must
+            // exist before the JNI bootstrap below.
+            wpe_thread::ensure_started();
+            // WKRuntime bootstrap: asset extraction + env + nativeInit +
+            // the GLib looper thread — all Java-side in the AAR.
+            if !init_android_runtime() {
                 INITIALIZED.store(false, Ordering::Release);
                 return -1;
             }
@@ -783,6 +1464,10 @@ pub extern "C" fn dd_webui_global_init(opts_json: *const c_char) -> c_int {
 
 #[no_mangle]
 pub extern "C" fn dd_webui_global_shutdown() {
+    let _ = ui_run(move || global_shutdown_impl());
+}
+
+fn global_shutdown_impl() {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         if INITIALIZED.swap(false, Ordering::AcqRel) {
             // Views must already be destroyed (host contract). Drain any
@@ -809,7 +1494,21 @@ pub extern "C" fn dd_webui_create(
     width: c_int,
     height: c_int,
     scale: f32,
-) -> *mut c_void {
+) -> *mut c_void  {
+    let opts_jsonp = opts_json as usize;
+    ui_run(move || {
+        create_impl(opts_jsonp as *const c_char, width, height, scale) as usize
+    })
+    .map(|p| p as *mut c_void)
+    .unwrap_or(std::ptr::null_mut())
+}
+
+fn create_impl(
+    opts_json: *const c_char,
+    width: c_int,
+    height: c_int,
+    scale: f32,
+) -> *mut c_void  {
     ftry!(ptr::null_mut(), {
         if !INITIALIZED.load(Ordering::Acquire) {
             return ptr::null_mut();
@@ -826,39 +1525,75 @@ pub extern "C" fn dd_webui_create(
 
         let shared = Arc::new(ViewShared {
             core: Mutex::new(ViewCore::new(pw, ph, 1)), // BGRA
+            #[cfg(target_os = "android")]
+            sc: Mutex::new(ScState::default()),
             exportable: AtomicPtr::new(ptr::null_mut()),
             backend: AtomicPtr::new(ptr::null_mut()),
             scale_bits: AtomicU32::new(scale.max(0.01).to_bits()),
+            tick_tag: AtomicU32::new(0),
         });
 
         unsafe {
-            // wpe exportable → wl_shm frame delivery
-            static CLIENT: ExportableClient = ExportableClient {
-                export_buffer_resource: Some(export_buffer_resource),
-                export_dmabuf_resource: Some(export_dmabuf_resource),
-                export_shm_buffer: Some(export_shm_buffer),
-                _rsvd0: 0,
-                _rsvd1: 0,
-            };
             // The Arc clone below is the client/signal data pointer —
             // reclaimed in dd_webui_destroy after the objects die.
             let data = Arc::into_raw(shared.clone()) as gpointer;
-            let exportable =
-                wpe_view_backend_exportable_fdo_create(&CLIENT, data, pw, ph);
-            if exportable.is_null() {
+
+            // Frame-delivery backend — desktop: exportable-fdo over wl_shm;
+            // android: WPEAndroidViewBackend over AHardwareBuffer.
+            #[cfg(not(target_os = "android"))]
+            let (exportable, wpe_backend, destroy_fn) = {
+                static CLIENT: ExportableClient = ExportableClient {
+                    export_buffer_resource: Some(export_buffer_resource),
+                    export_dmabuf_resource: Some(export_dmabuf_resource),
+                    export_shm_buffer: Some(export_shm_buffer),
+                    _rsvd0: 0,
+                    _rsvd1: 0,
+                };
+                let exp = wpe_view_backend_exportable_fdo_create(&CLIENT, data, pw, ph);
+                let wb = if exp.is_null() {
+                    ptr::null_mut()
+                } else {
+                    wpe_view_backend_exportable_fdo_get_view_backend(exp)
+                };
+                (exp, wb, exportable_destroy_notify as extern "C" fn(gpointer))
+            };
+            #[cfg(target_os = "android")]
+            let (exportable, wpe_backend, destroy_fn) = {
+                let exp = WPEAndroidViewBackend_create(pw, ph);
+                let wb = if exp.is_null() {
+                    ptr::null_mut()
+                } else {
+                    WPEAndroidViewBackend_setCommitBufferHandler(
+                        exp,
+                        data,
+                        on_commit_buffer,
+                    );
+                    WPEAndroidViewBackend_getWPEViewBackend(exp)
+                };
+                // Displayed presentation path: an ASurfaceControl child
+                // layer on the activity's ANativeWindow (acquired via
+                // dd_android_activity_window in the shell lib) whose
+                // transactions SurfaceFlinger paces — the
+                // WKWebView/RendererSurfaceControl model. If the window
+                // isn't up yet the tick retries; until then commits take
+                // the headless path (instant release + frameComplete).
+                sc_try_init(&shared);
+                (exp, wb, android_backend_destroy_notify as extern "C" fn(gpointer))
+            };
+
+            if exportable.is_null() || wpe_backend.is_null() {
+                if !exportable.is_null() {
+                    destroy_fn(exportable);
+                }
                 drop(Arc::from_raw(data as *const ViewShared));
                 return ptr::null_mut();
             }
-            let wpe_backend = wpe_view_backend_exportable_fdo_get_view_backend(exportable);
             // WebKitWebViewBackend takes ownership of the wpe backend; its
             // destroy notify tears down the exportable when the view dies.
-            let webkit_backend = webkit_web_view_backend_new(
-                wpe_backend,
-                Some(exportable_destroy_notify),
-                exportable,
-            );
+            let webkit_backend =
+                webkit_web_view_backend_new(wpe_backend, Some(destroy_fn), exportable);
             if webkit_backend.is_null() {
-                wpe_view_backend_exportable_fdo_destroy(exportable);
+                destroy_fn(exportable);
                 drop(Arc::from_raw(data as *const ViewShared));
                 return ptr::null_mut();
             }
@@ -871,6 +1606,16 @@ pub extern "C" fn dd_webui_create(
 
             shared.exportable.store(exportable, Ordering::Release);
             shared.backend.store(wpe_backend, Ordering::Release);
+            // Start the synthetic-vsync source (see frame_displayed_tick).
+            // The source holds an Arc clone reclaimed at destroy.
+            let tick = unsafe {
+                g_timeout_add(
+                    16,
+                    frame_displayed_tick,
+                    Arc::into_raw(shared.clone()) as gpointer,
+                )
+            };
+            shared.tick_tag.store(tick, Ordering::Release);
 
             // View defaults: opaque bg unless transparent; default settings.
             if transparent {
@@ -919,9 +1664,14 @@ pub extern "C" fn dd_webui_create(
             connect(view, "load-changed", on_load_changed as gpointer, data);
             connect(view, "web-process-terminated", on_web_process_terminated as gpointer, data);
 
-            // Size + scale.
+            // Size + scale + activity state — without "visible" the
+            // WebProcess may throttle repaints entirely (android WPE
+            // especially), leaving the exportable with only the initial
+            // blank commit. 0x7 = visible|focused|in_window; the host
+            // presents the frames itself, so the view is always "shown".
             wpe_view_backend_dispatch_set_size(wpe_backend, pw, ph);
             wpe_view_backend_dispatch_set_device_scale_factor(wpe_backend, scale.max(0.01));
+            wpe_view_backend_add_activity_state(wpe_backend, 0x7);
 
             let v = Box::new(View {
                 busy: AtomicBool::new(false),
@@ -955,6 +1705,11 @@ pub extern "C" fn dd_webui_create(
 
 #[no_mangle]
 pub extern "C" fn dd_webui_destroy(h: *mut c_void) {
+    let (hp) = (h as usize);
+    let _ = ui_run(move || destroy_impl((hp as *mut c_void)));
+}
+
+fn destroy_impl(h: *mut c_void) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         let v = h as *mut View;
         if v.is_null() {
@@ -966,6 +1721,30 @@ pub extern "C" fn dd_webui_destroy(h: *mut c_void) {
         let webview = view.webview.swap(ptr::null_mut(), Ordering::AcqRel);
         view.shared.exportable.store(ptr::null_mut(), Ordering::Release);
         view.shared.backend.store(ptr::null_mut(), Ordering::Release);
+        #[cfg(target_os = "android")]
+        {
+            let mut sc = view.shared.sc.lock().unwrap_or_else(|e| e.into_inner());
+            if !sc.layer.is_null() {
+                unsafe { ASurfaceControl_release(sc.layer) };
+            }
+            if !sc.parent.is_null() {
+                unsafe { ANativeWindow_release(sc.parent) };
+            }
+            for (_, fd) in sc.pending.drain(..) {
+                if fd >= 0 {
+                    unsafe { close(fd) };
+                }
+            }
+            sc.front = ptr::null_mut();
+        }
+        let tag = view.shared.tick_tag.swap(0, Ordering::AcqRel);
+        if tag != 0 {
+            unsafe {
+                g_source_remove(tag);
+                // Reclaim the Arc the timeout held.
+                let _ = Arc::from_raw(Arc::as_ptr(&view.shared));
+            }
+        }
         if !webview.is_null() {
             unsafe { g_object_unref(webview) }; // → backend notify → exportable destroy
         }
@@ -987,6 +1766,11 @@ pub extern "C" fn dd_webui_destroy(h: *mut c_void) {
 
 #[no_mangle]
 pub extern "C" fn dd_webui_load_url(h: *mut c_void, url: *const c_char) {
+    let (hp, urlp) = (h as usize, url as usize);
+    let _ = ui_run(move || load_url_impl((hp as *mut c_void), (urlp as *const c_char)));
+}
+
+fn load_url_impl(h: *mut c_void, url: *const c_char) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         with_view!(h, (), |v| {
             if let Some(u) = unsafe { cstr(url) } {
@@ -1004,6 +1788,11 @@ pub extern "C" fn dd_webui_load_url(h: *mut c_void, url: *const c_char) {
 
 #[no_mangle]
 pub extern "C" fn dd_webui_set_content(h: *mut c_void, html: *const c_char) {
+    let (hp, htmlp) = (h as usize, html as usize);
+    let _ = ui_run(move || set_content_impl((hp as *mut c_void), (htmlp as *const c_char)));
+}
+
+fn set_content_impl(h: *mut c_void, html: *const c_char) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         with_view!(h, (), |v| {
             if let Some(s) = unsafe { cstr(html) } {
@@ -1021,6 +1810,11 @@ pub extern "C" fn dd_webui_set_content(h: *mut c_void, html: *const c_char) {
 
 #[no_mangle]
 pub extern "C" fn dd_webui_resize(h: *mut c_void, w: c_int, hgt: c_int, scale: f32) {
+    let (hp) = (h as usize);
+    let _ = ui_run(move || resize_impl((hp as *mut c_void), w, hgt, scale));
+}
+
+fn resize_impl(h: *mut c_void, w: c_int, hgt: c_int, scale: f32) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         with_view!(h, (), |v| {
             let (pw, ph) = (
@@ -1046,6 +1840,11 @@ pub extern "C" fn dd_webui_resize(h: *mut c_void, w: c_int, hgt: c_int, scale: f
 /// op: 0=back 1=forward 2=reload 3=stop
 #[no_mangle]
 pub extern "C" fn dd_webui_navigate(h: *mut c_void, op: c_int) {
+    let (hp) = (h as usize);
+    let _ = ui_run(move || navigate_impl((hp as *mut c_void), op));
+}
+
+fn navigate_impl(h: *mut c_void, op: c_int) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         with_view!(h, (), |v| {
             let view = v.webview.load(Ordering::Acquire);
@@ -1067,6 +1866,11 @@ pub extern "C" fn dd_webui_navigate(h: *mut c_void, op: c_int) {
 
 #[no_mangle]
 pub extern "C" fn dd_webui_set_zoom(h: *mut c_void, factor: f64) {
+    let (hp) = (h as usize);
+    let _ = ui_run(move || set_zoom_impl((hp as *mut c_void), factor));
+}
+
+fn set_zoom_impl(h: *mut c_void, factor: f64) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         with_view!(h, (), |v| {
             let view = v.webview.load(Ordering::Acquire);
@@ -1080,6 +1884,11 @@ pub extern "C" fn dd_webui_set_zoom(h: *mut c_void, factor: f64) {
 
 #[no_mangle]
 pub extern "C" fn dd_webui_set_focus(h: *mut c_void, _focused: c_int) {
+    let hp = h as usize;
+    let _ = ui_run(move || set_focus_impl(hp as *mut c_void, _focused));
+}
+
+fn set_focus_impl(h: *mut c_void, _focused: c_int) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         with_view!(h, (), |_v| {
             // WPE has no focus event dispatch — focus follows `interactive`
@@ -1090,6 +1899,11 @@ pub extern "C" fn dd_webui_set_focus(h: *mut c_void, _focused: c_int) {
 
 #[no_mangle]
 pub extern "C" fn dd_webui_set_interactive(h: *mut c_void, on: c_int) {
+    let hp = h as usize;
+    let _ = ui_run(move || set_interactive_impl(hp as *mut c_void, on));
+}
+
+fn set_interactive_impl(h: *mut c_void, on: c_int) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         with_view!(h, (), |v| {
             v.shared.lock().interactive = on != 0;
@@ -1104,6 +1918,11 @@ pub extern "C" fn dd_webui_set_interactive(h: *mut c_void, on: c_int) {
 /// Fire-and-forget eval; the result arrives as {"t":"eval","id":req,"ok","v"}.
 #[no_mangle]
 pub extern "C" fn dd_webui_eval(h: *mut c_void, req: u64, js: *const c_char) {
+    let (hp, jsp) = (h as usize, js as usize);
+    let _ = ui_run(move || eval_impl((hp as *mut c_void), req, (jsp as *const c_char)));
+}
+
+fn eval_impl(h: *mut c_void, req: u64, js: *const c_char) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         with_view!(h, (), |v| {
             let view = v.webview.load(Ordering::Acquire);
@@ -1138,6 +1957,11 @@ pub extern "C" fn dd_webui_eval(h: *mut c_void, req: u64, js: *const c_char) {
 /// eval'd as `__ddDispatch(<json literal>)` in the default world.
 #[no_mangle]
 pub extern "C" fn dd_webui_post_message(h: *mut c_void, json: *const c_char) {
+    let (hp, jsonp) = (h as usize, json as usize);
+    let _ = ui_run(move || post_message_impl((hp as *mut c_void), (jsonp as *const c_char)));
+}
+
+fn post_message_impl(h: *mut c_void, json: *const c_char) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         with_view!(h, (), |v| {
             let view = v.webview.load(Ordering::Acquire);
@@ -1180,7 +2004,16 @@ pub extern "C" fn dd_webui_poll_events(
     h: *mut c_void,
     out_ptr: *mut *const u8,
     out_len: *mut usize,
-) -> c_int {
+) -> c_int  {
+    let (hp, out_ptrp, out_lenp) = (h as usize, out_ptr as usize, out_len as usize);
+    ui_run(move || poll_events_impl((hp as *mut c_void), (out_ptrp as *mut *const u8), (out_lenp as *mut usize))).unwrap_or(0)
+}
+
+fn poll_events_impl(
+    h: *mut c_void,
+    out_ptr: *mut *const u8,
+    out_len: *mut usize,
+) -> c_int  {
     ftry!(0, {
         unsafe {
             if !out_ptr.is_null() {
@@ -1213,6 +2046,11 @@ pub extern "C" fn dd_webui_poll_events(
 /// t: 0=move 1=down 2=up 3=leave. btn: 0=none 1=left 2=middle 3=right.
 #[no_mangle]
 pub extern "C" fn dd_webui_input_pointer(h: *mut c_void, t: c_int, x: f32, y: f32, btn: c_int) {
+    let (hp) = (h as usize);
+    let _ = ui_run(move || input_pointer_impl((hp as *mut c_void), t, x, y, btn));
+}
+
+fn input_pointer_impl(h: *mut c_void, t: c_int, x: f32, y: f32, btn: c_int) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         with_view!(h, (), |v| {
             let backend = v.shared.backend.load(Ordering::Acquire);
@@ -1254,6 +2092,11 @@ pub extern "C" fn dd_webui_input_pointer(h: *mut c_void, t: c_int, x: f32, y: f3
 
 #[no_mangle]
 pub extern "C" fn dd_webui_input_wheel(h: *mut c_void, x: f32, y: f32, dx: f32, dy: f32) {
+    let (hp) = (h as usize);
+    let _ = ui_run(move || input_wheel_impl((hp as *mut c_void), x, y, dx, dy));
+}
+
+fn input_wheel_impl(h: *mut c_void, x: f32, y: f32, dx: f32, dy: f32) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         with_view!(h, (), |v| {
             let backend = v.shared.backend.load(Ordering::Acquire);
@@ -1304,6 +2147,19 @@ pub extern "C" fn dd_webui_input_key(
     mods: c_int,
     _repeat: c_int,
 ) {
+    let (hp, keyp, codep, textp) = (h as usize, key as usize, code as usize, text as usize);
+    let _ = ui_run(move || input_key_impl((hp as *mut c_void), t, (keyp as *const c_char), (codep as *const c_char), (textp as *const c_char), mods, _repeat));
+}
+
+fn input_key_impl(
+    h: *mut c_void,
+    t: c_int,
+    key: *const c_char,
+    code: *const c_char,
+    text: *const c_char,
+    mods: c_int,
+    _repeat: c_int,
+) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         with_view!(h, (), |v| {
             let backend = v.shared.backend.load(Ordering::Acquire);
@@ -1335,6 +2191,11 @@ pub extern "C" fn dd_webui_input_key(
 /// t: 0=down 1=move 2=up 3=cancel.
 #[no_mangle]
 pub extern "C" fn dd_webui_input_touch(h: *mut c_void, t: c_int, id: c_int, x: f32, y: f32) {
+    let (hp) = (h as usize);
+    let _ = ui_run(move || input_touch_impl((hp as *mut c_void), t, id, x, y));
+}
+
+fn input_touch_impl(h: *mut c_void, t: c_int, id: c_int, x: f32, y: f32) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         with_view!(h, (), |v| {
             let backend = v.shared.backend.load(Ordering::Acquire);
@@ -1373,6 +2234,11 @@ pub extern "C" fn dd_webui_input_touch(h: *mut c_void, t: c_int, id: c_int, x: f
 /// IME plumbing lands in Phase 6.
 #[no_mangle]
 pub extern "C" fn dd_webui_input_ime(h: *mut c_void, t: c_int, s: *const c_char) {
+    let (hp, sp) = (h as usize, s as usize);
+    let _ = ui_run(move || input_ime_impl((hp as *mut c_void), t, (sp as *const c_char)));
+}
+
+fn input_ime_impl(h: *mut c_void, t: c_int, s: *const c_char) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         with_view!(h, (), |v| {
             if t == 1 {
@@ -1404,7 +2270,12 @@ pub extern "C" fn dd_webui_input_ime(h: *mut c_void, t: c_int, s: *const c_char)
 /// Dirty union as packed u64 (x<<48|y<<32|w<<16|h) — clears the pending
 /// flag. 0 = no new frame.
 #[no_mangle]
-pub extern "C" fn dd_webui_take_frame(h: *mut c_void) -> u64 {
+pub extern "C" fn dd_webui_take_frame(h: *mut c_void) -> u64  {
+    let (hp) = (h as usize);
+    ui_run(move || take_frame_impl((hp as *mut c_void))).unwrap_or(0)
+}
+
+fn take_frame_impl(h: *mut c_void) -> u64  {
     ftry!(0, {
         pump();
         with_view!(h, 0, |v| {
@@ -1422,6 +2293,11 @@ pub extern "C" fn dd_webui_take_frame(h: *mut c_void) -> u64 {
 /// HostOsrAPI frameRect contract.
 #[no_mangle]
 pub extern "C" fn dd_webui_frame_rect(h: *mut c_void) -> u64 {
+    let hp = h as usize;
+    ui_run(move || frame_rect_impl(hp as *mut c_void)).unwrap_or(0)
+}
+
+fn frame_rect_impl(h: *mut c_void) -> u64 {
     ftry!(0, {
         with_view!(h, 0, |v| {
             v.shared
@@ -1435,7 +2311,12 @@ pub extern "C" fn dd_webui_frame_rect(h: *mut c_void) -> u64 {
 }
 
 #[no_mangle]
-pub extern "C" fn dd_webui_frame_pending(h: *mut c_void) -> c_int {
+pub extern "C" fn dd_webui_frame_pending(h: *mut c_void) -> c_int  {
+    let (hp) = (h as usize);
+    ui_run(move || frame_pending_impl((hp as *mut c_void))).unwrap_or(0)
+}
+
+fn frame_pending_impl(h: *mut c_void) -> c_int  {
     ftry!(0, {
         pump();
         with_view!(h, 0, |v| v.shared.lock().frame.pending() as c_int)
@@ -1444,6 +2325,12 @@ pub extern "C" fn dd_webui_frame_pending(h: *mut c_void) -> c_int {
 
 #[no_mangle]
 pub extern "C" fn dd_webui_pixels(h: *mut c_void) -> *const u8 {
+    let hp = h as usize;
+    ui_run(move || pixels_impl(hp as *mut c_void) as usize)
+        .unwrap_or(0) as *const u8
+}
+
+fn pixels_impl(h: *mut c_void) -> *const u8 {
     ftry!(ptr::null(), {
         with_view!(h, ptr::null(), |v| {
             v.shared.lock().frame.pixels().as_ptr()
@@ -1453,6 +2340,11 @@ pub extern "C" fn dd_webui_pixels(h: *mut c_void) -> *const u8 {
 
 #[no_mangle]
 pub extern "C" fn dd_webui_pixels_len(h: *mut c_void) -> usize {
+    let hp = h as usize;
+    ui_run(move || pixels_len_impl(hp as *mut c_void)).unwrap_or(0)
+}
+
+fn pixels_len_impl(h: *mut c_void) -> usize {
     ftry!(0, {
         with_view!(h, 0, |v| v.shared.lock().frame.pixels().len())
     })
@@ -1460,6 +2352,12 @@ pub extern "C" fn dd_webui_pixels_len(h: *mut c_void) -> usize {
 
 #[no_mangle]
 pub extern "C" fn dd_webui_dimensions(h: *mut c_void, w: *mut u32, hgt: *mut u32) -> c_int {
+    let (hp, wp, hp2) = (h as usize, w as usize, hgt as usize);
+    ui_run(move || dimensions_impl(hp as *mut c_void, wp as *mut u32, hp2 as *mut u32))
+        .unwrap_or(0)
+}
+
+fn dimensions_impl(h: *mut c_void, w: *mut u32, hgt: *mut u32) -> c_int {
     ftry!(0, {
         with_view!(h, 0, |v| {
             let core = v.shared.lock();
@@ -1479,6 +2377,11 @@ pub extern "C" fn dd_webui_dimensions(h: *mut c_void, w: *mut u32, hgt: *mut u32
 /// Pixel-format tag — 0=RGBA8, 1=BGRA8 (wl_shm argb/xrgb → BGRA memory).
 #[no_mangle]
 pub extern "C" fn dd_webui_pixel_format(h: *mut c_void) -> u8 {
+    let hp = h as usize;
+    ui_run(move || pixel_format_impl(hp as *mut c_void)).unwrap_or(1)
+}
+
+fn pixel_format_impl(h: *mut c_void) -> u8 {
     ftry!(1, {
         with_view!(h, 1, |v| v.shared.lock().frame.pixel_format)
     })
@@ -1491,6 +2394,11 @@ pub extern "C" fn dd_webui_pixel_format(h: *mut c_void) -> u8 {
 /// Buffer size needed for dd_webui_bind_frame_buf at the current size.
 #[no_mangle]
 pub extern "C" fn dd_webui_buf_needed(h: *mut c_void) -> usize {
+    let hp = h as usize;
+    ui_run(move || buf_needed_impl(hp as *mut c_void)).unwrap_or(0)
+}
+
+fn buf_needed_impl(h: *mut c_void) -> usize {
     ftry!(0, {
         with_view!(h, 0, |v| v.shared.lock().frame.buf_needed())
     })
@@ -1498,6 +2406,12 @@ pub extern "C" fn dd_webui_buf_needed(h: *mut c_void) -> usize {
 
 #[no_mangle]
 pub extern "C" fn dd_webui_bind_frame_buf(h: *mut c_void, ptr: *mut u8, len: usize) -> c_int {
+    let (hp, pp) = (h as usize, ptr as usize);
+    ui_run(move || bind_frame_buf_impl(hp as *mut c_void, pp as *mut u8, len))
+        .unwrap_or(-1)
+}
+
+fn bind_frame_buf_impl(h: *mut c_void, ptr: *mut u8, len: usize) -> c_int {
     ftry!(-1, {
         if ptr.is_null() {
             return 0;
@@ -1507,7 +2421,12 @@ pub extern "C" fn dd_webui_bind_frame_buf(h: *mut c_void, ptr: *mut u8, len: usi
 }
 
 #[no_mangle]
-pub extern "C" fn dd_webui_frame_into(h: *mut c_void) -> c_int {
+pub extern "C" fn dd_webui_frame_into(h: *mut c_void) -> c_int  {
+    let (hp) = (h as usize);
+    ui_run(move || frame_into_impl((hp as *mut c_void))).unwrap_or(-1)
+}
+
+fn frame_into_impl(h: *mut c_void) -> c_int  {
     ftry!(-1, {
         pump();
         with_view!(h, -1, |v| v.shared.lock().frame.frame_into(false))
@@ -1515,7 +2434,12 @@ pub extern "C" fn dd_webui_frame_into(h: *mut c_void) -> c_int {
 }
 
 #[no_mangle]
-pub extern "C" fn dd_webui_refresh_into(h: *mut c_void) -> c_int {
+pub extern "C" fn dd_webui_refresh_into(h: *mut c_void) -> c_int  {
+    let (hp) = (h as usize);
+    ui_run(move || refresh_into_impl((hp as *mut c_void))).unwrap_or(-1)
+}
+
+fn refresh_into_impl(h: *mut c_void) -> c_int  {
     ftry!(-1, {
         pump();
         with_view!(h, -1, |v| v.shared.lock().frame.frame_into(true))
@@ -1531,6 +2455,11 @@ pub extern "C" fn dd_webui_refresh_into(h: *mut c_void) -> c_int {
 /// views use pixel alpha.
 #[no_mangle]
 pub extern "C" fn dd_webui_hit_test(h: *mut c_void, x: f32, y: f32) -> c_int {
+    let hp = h as usize;
+    ui_run(move || hit_test_impl(hp as *mut c_void, x, y)).unwrap_or(0)
+}
+
+fn hit_test_impl(h: *mut c_void, x: f32, y: f32) -> c_int {
     ftry!(0, {
         with_view!(h, 0, |v| {
             let core = v.shared.lock();
@@ -1553,6 +2482,11 @@ pub extern "C" fn dd_webui_hit_test(h: *mut c_void, x: f32, y: f32) -> c_int {
 
 #[no_mangle]
 pub extern "C" fn dd_webui_status(h: *mut c_void) -> c_int {
+    let hp = h as usize;
+    ui_run(move || status_impl(hp as *mut c_void)).unwrap_or(-1)
+}
+
+fn status_impl(h: *mut c_void) -> c_int {
     ftry!(-1, {
         with_view!(h, -1, |v| v.shared.lock().status)
     })
@@ -1560,6 +2494,11 @@ pub extern "C" fn dd_webui_status(h: *mut c_void) -> c_int {
 
 #[no_mangle]
 pub extern "C" fn dd_webui_crash_count(h: *mut c_void) -> usize {
+    let hp = h as usize;
+    ui_run(move || crash_count_impl(hp as *mut c_void)).unwrap_or(0)
+}
+
+fn crash_count_impl(h: *mut c_void) -> usize {
     ftry!(0, {
         with_view!(h, 0, |v| v.shared.lock().crash_count)
     })
@@ -1568,7 +2507,12 @@ pub extern "C" fn dd_webui_crash_count(h: *mut c_void) -> usize {
 /// Ask the backend to respawn a crashed/failed view — reloads the last
 /// URL (or the blank page) on the surviving WebKitWebView.
 #[no_mangle]
-pub extern "C" fn dd_webui_recover(h: *mut c_void) -> c_int {
+pub extern "C" fn dd_webui_recover(h: *mut c_void) -> c_int  {
+    let (hp) = (h as usize);
+    ui_run(move || recover_impl((hp as *mut c_void))).unwrap_or(-1)
+}
+
+fn recover_impl(h: *mut c_void) -> c_int  {
     ftry!(-1, {
         with_view!(h, -1, |v| {
             let view = v.webview.load(Ordering::Acquire);
@@ -1598,6 +2542,11 @@ pub extern "C" fn dd_webui_recover(h: *mut c_void) -> c_int {
 /// -1 = retry forever; N = fail after N crashes.
 #[no_mangle]
 pub extern "C" fn dd_webui_set_crash_policy(h: *mut c_void, max_retries: c_int) {
+    let hp = h as usize;
+    let _ = ui_run(move || set_crash_policy_impl(hp as *mut c_void, max_retries));
+}
+
+fn set_crash_policy_impl(h: *mut c_void, max_retries: c_int) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         with_view!(h, (), |v| {
             v.shared.lock().max_crash_retries = max_retries;
@@ -1609,5 +2558,9 @@ pub extern "C" fn dd_webui_set_crash_policy(h: *mut c_void, max_retries: c_int) 
 /// without touching a view (all mutating calls also pump internally).
 #[no_mangle]
 pub extern "C" fn dd_webui_pump_ms(_t_ms: u64) {
+    let _ = ui_run(move || pump_ms_impl(_t_ms));
+}
+
+fn pump_ms_impl(_t_ms: u64) {
     pump();
 }

@@ -51,6 +51,31 @@ fn android_main(app: AndroidApp) {
     redirect_stdio_to_logcat();
     log(LOG_INFO, "android_main: booting");
 
+    // Publish the JavaVM + activity Context so native code can reach Java —
+    // the WPE WebUI backend calls WKRuntime.initialize(Context) through it.
+    // vm_as_ptr: *mut JavaVM; activity_as_ptr: Activity jobject (global ref).
+    // Guarded: winit may already have registered the context for the event
+    // loop — initialize_android_context asserts on re-init.
+    if ndk_context::android_context().vm().is_null() {
+        unsafe {
+            ndk_context::initialize_android_context(
+                app.vm_as_ptr().cast(),
+                app.activity_as_ptr().cast(),
+            );
+        }
+    }
+    // ndk-context's ANDROID_CONTEXT is a per-cdylib static — engine
+    // cdylibs loaded later (libdowndraft_webui_wpe) hold their own copy
+    // and can't see the registration above. Publish the raw JavaVM +
+    // Context pointers through env so any cdylib can reach Java.
+    let actx = ndk_context::android_context();
+    let vm_hex = CString::new(format!("{:x}", actx.vm() as usize)).unwrap();
+    let obj_hex = CString::new(format!("{:x}", actx.context() as usize)).unwrap();
+    unsafe {
+        libc::setenv(c"DD_ANDROID_JVM_PTR".as_ptr(), vm_hex.as_ptr(), 1);
+        libc::setenv(c"DD_ANDROID_CONTEXT_PTR".as_ptr(), obj_hex.as_ptr(), 1);
+    }
+
     let js_app = app.clone();
     // JS + V8 interpreter frames + FFI call chains need a real stack —
     // Rust's 2 MiB thread default (bionic's own is 1 MiB) is far too thin;
@@ -132,12 +157,41 @@ fn js_thread(app: AndroidApp) {
     set_env(c"DOWNDRAFT_BUNDLE_DIR", &root);
 
     // Packager-injected env (dd-env.txt — "KEY=VALUE" lines, e.g. the
-    // bench's DD_BENCH_TEST/DD_BENCH_SCREENSHOT probes).
-    if let Ok(body) = std::fs::read_to_string(root.join("dd-env.txt")) {
-        for line in body.lines() {
-            let Some((k, v)) = line.split_once('=') else { continue };
-            if let (Ok(k), Ok(v)) = (CString::new(k), CString::new(v)) {
-                unsafe { libc::setenv(k.as_ptr(), v.as_ptr(), 1) };
+    // bench's DD_BENCH_TEST/DD_BENCH_SCREENSHOT probes). The external
+    // files dir is also consulted (adb-pushable without repackaging);
+    // entries there win over the bundle copy.
+    for env_file in [
+        root.join("dd-env.txt"),
+        app.external_data_path().map(|p| p.join("dd-env.txt")).unwrap_or_default(),
+    ] {
+        if let Ok(body) = std::fs::read_to_string(&env_file) {
+            for line in body.lines() {
+                let Some((k, v)) = line.split_once('=') else { continue };
+                if let (Ok(k), Ok(v)) = (CString::new(k), CString::new(v)) {
+                    unsafe { libc::setenv(k.as_ptr(), v.as_ptr(), 1) };
+                }
+            }
+        }
+    }
+
+    // DD_LIB_PRELOAD=<soname>[:<soname>…] — dlopen each lib
+    // RTLD_NOW|RTLD_GLOBAL before libnode loads. Debug hook for
+    // controlling native symbol load order (e.g. the WPE runtime set vs.
+    // libc++_shared interposition experiments).
+    if let Ok(list) = std::env::var("DD_LIB_PRELOAD") {
+        for name in list.split(':').filter(|s| !s.is_empty()) {
+            let Ok(c) = CString::new(name) else { continue };
+            let h = unsafe { libc::dlopen(c.as_ptr(), libc::RTLD_NOW | libc::RTLD_GLOBAL) };
+            if h.is_null() {
+                let e = unsafe { libc::dlerror() };
+                let msg = if e.is_null() {
+                    "unknown".to_string()
+                } else {
+                    unsafe { CStr::from_ptr(e) }.to_string_lossy().into_owned()
+                };
+                log(LOG_ERROR, &format!("preload {name}: {msg}"));
+            } else {
+                log(LOG_INFO, &format!("preload {name}: ok"));
             }
         }
     }

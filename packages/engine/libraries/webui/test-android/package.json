@@ -1,0 +1,6 @@
+{
+  "name": "webui-android-test",
+  "private": true,
+  "version": "0.0.1",
+  "description": "On-device WPE WebUI validation harness — logs check results to logcat"
+}

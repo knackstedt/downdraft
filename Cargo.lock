@@ -2244,6 +2244,7 @@ dependencies = [
  "downdraft-platform",
  "libc",
  "ndk 0.9.0",
+ "ndk-context",
 ]
 
 [[package]]
@@ -2353,6 +2354,8 @@ name = "downdraft-webui-wpe"
 version = "0.1.0"
 dependencies = [
  "downdraft-webui-common",
+ "jni 0.21.1",
+ "ndk-context",
 ]
 
 [[package]]

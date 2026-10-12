@@ -54,14 +54,6 @@ extern "C" {
 pub extern "C" fn dd_android_activity_window() -> *mut c_void {
     let g = APP.lock().unwrap();
     let win = g.as_ref().and_then(|a| a.native_window());
-    static LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-    if !LOGGED.swap(true, std::sync::atomic::Ordering::Relaxed) {
-        eprintln!(
-            "[downdraft_platform] activity_window app={} win={}",
-            g.is_some() as i32,
-            win.is_some() as i32
-        );
-    }
     match win {
         Some(w) => {
             let p = w.ptr().as_ptr() as *mut c_void;
@@ -140,7 +132,6 @@ impl AndroidPump {
 impl winit::application::ApplicationHandler for AndroidPump {
     fn resumed(&mut self, el: &ActiveEventLoop) {
         self.resumed = true;
-        eprintln!("[downdraft_platform] resumed");
         self.try_create_window(el);
     }
 
@@ -163,10 +154,6 @@ impl winit::application::ApplicationHandler for AndroidPump {
     }
 
     fn about_to_wait(&mut self, _el: &ActiveEventLoop) {
-        static BEAT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-        if BEAT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) == 0 {
-            eprintln!("[downdraft_platform] pump alive");
-        }
         drain_surface_releases();
     }
 

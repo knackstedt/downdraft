@@ -19,6 +19,7 @@ downdraft-platform = { path = "../platform-native/native-rs" }
 [target.'cfg(target_os = "android")'.dependencies]
 android-activity = { version = "0.6", features = ["native-activity"] }
 ndk = "0.9"
+ndk-context = "0.1"
 libc = "0.2"
 
 [build-dependencies]

@@ -182,4 +182,19 @@ bun packages/engine/libraries/webui/webui-spike.ts wpe    # wpe
 ```
 
 The Android path is validated on-device via `draft release
---target=android --webui=wpe` + adb.
+--target=android --webui=wpe` + adb. `test-android/` packages a
+NativeActivity harness running the same 18-check battery
+(`WEBUI-TEST ALL PASS — 18/18` in logcat).
+
+Android frame delivery has two paths, selected automatically: when the
+host app's winit window is up, each committed `AHardwareBuffer` is posted
+into an `ASurfaceControl` layer via `ASurfaceTransaction` with real
+SurfaceFlinger acquire/release fences (the same pacing contract the
+vendor's `WKWebView` uses — `frameComplete` on transaction completion,
+`releaseBuffer` on release-fence signal); the activity's `ANativeWindow`
+is reached through `dd_android_activity_window` in
+`libdowndraft_android.so`. Without a window (headless harness), frames
+fall back to a direct `AHardwareBuffer_lock` + `pullFrame` copy, which is
+fully reliable for offscreen use. A per-view ~60 Hz GLib tick also
+dispatches `frame_displayed` so the WebProcess's display-refresh monitor
+keeps scheduling repaints in unfocused/offscreen views.
