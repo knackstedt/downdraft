@@ -13,12 +13,13 @@ export const isBun: boolean = typeof (globalThis as any).Bun !== "undefined";
 
 /**
  * True inside a `bun build --compile` binary. In compiled executables
- * `Bun.main` is `/$bunfs/root/<entry>` instead of a real filesystem path —
+ * `Bun.main` is `/$bunfs/root/<entry>` (`B:\~BUN\root\<entry>` on Windows)
+ * instead of a real filesystem path —
  * this is a global and stays correct even in bundles where a packager has
  * rewritten a module's own `import.meta.url` to the staged asset tree.
  */
 export const isCompiledBinary: boolean =
-  isBun && /^\/\$bunfs\//.test((globalThis as any).Bun?.main ?? "");
+  isBun && /^\/\$bunfs\/|^B:[/\\]~BUN[/\\]/i.test((globalThis as any).Bun?.main ?? "");
 
 /**
  * Dev mode. Resolved from (in priority order):

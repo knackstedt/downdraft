@@ -197,6 +197,7 @@ fn pump(timeout: Option<Duration>) {
 #[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
 enum LoopCmd {
     CreateWindow,
+    CreateSurface,
 }
 
 #[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
@@ -211,6 +212,19 @@ struct CreateReq {
 
 #[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
 static CREATE_REQ: Mutex<Option<CreateReq>> = Mutex::new(None);
+
+/// Payload for LoopCmd::CreateSurface — mirrors CreateReq. winit refuses to
+/// hand out the raw window handle off the event-loop thread on Windows
+/// (HandleError::Unavailable), so the wgpu surface must be created pump-side.
+/// Handles travel as usize: *mut c_void isn't Send.
+#[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
+struct SurfaceReq {
+    instance: usize,
+    reply: mpsc::Sender<usize>,
+}
+
+#[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
+static SURFACE_REQ: Mutex<Option<SurfaceReq>> = Mutex::new(None);
 
 /// Pending desktop identity applied to the next created window — set via
 /// sdl_shim_set_app_name / sdl_shim_set_window_icon_file because JS-side
@@ -250,6 +264,11 @@ fn pump_thread_main() {
         use winit::platform::x11::EventLoopBuilderExtX11;
         EventLoopBuilderExtX11::with_any_thread(&mut builder, true);
         EventLoopBuilderExtWayland::with_any_thread(&mut builder, true);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use winit::platform::windows::EventLoopBuilderExtWindows;
+        EventLoopBuilderExtWindows::with_any_thread(&mut builder, true);
     }
     let el = match builder.build() {
         Ok(el) => el,
@@ -397,6 +416,23 @@ impl ApplicationHandler<LoopCmd> for Pump {
     fn user_event(&mut self, el: &winit::event_loop::ActiveEventLoop, ev: LoopCmd) {
         match ev {
             LoopCmd::CreateWindow => pump_create_window(el),
+            LoopCmd::CreateSurface => {
+                let req = SURFACE_REQ.lock().unwrap().take();
+                if let Some(req) = req {
+                    let window = CTX
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .and_then(|ctx| ctx.window.clone());
+                    let h = match window {
+                        Some(w) => {
+                            crate::gpu::create_surface_for_window(req.instance as *mut c_void, w)
+                        }
+                        None => ptr::null_mut(),
+                    };
+                    let _ = req.reply.send(h as usize);
+                }
+            }
         }
     }
 
@@ -1163,6 +1199,49 @@ pub extern "C" fn sdl_shim_delay(ms: u32) {
 // created directly — the per-platform X11/Wayland/HWND plumbing the C shim
 // needed is inside wgpu.
 
+/// Windows/Linux: the window handle is only vended on the pump thread
+/// (winit thread-affinity check), so surface creation is proxied through
+/// LoopCmd like window creation — request, wakeup, bounded wait on reply.
+#[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
+#[no_mangle]
+pub extern "C" fn sdl_shim_create_wgpu_surface(instance: *mut c_void) -> *mut c_void {
+    ffi!(ptr::null_mut(), {
+        let has_window = CTX
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|ctx| ctx.window.is_some());
+        if !has_window {
+            return ptr::null_mut();
+        }
+        if !ensure_pump() {
+            return ptr::null_mut();
+        }
+        let (tx, rx) = mpsc::channel();
+        *SURFACE_REQ.lock().unwrap() = Some(SurfaceReq {
+            instance: instance as usize,
+            reply: tx,
+        });
+        let sent = LOOP_PROXY
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|p| p.send_event(LoopCmd::CreateSurface).is_ok());
+        if !sent {
+            SURFACE_REQ.lock().unwrap().take();
+            return ptr::null_mut();
+        }
+        match rx.recv_timeout(Duration::from_secs(10)) {
+            Ok(h) => h as *mut c_void,
+            Err(_) => {
+                SURFACE_REQ.lock().unwrap().take();
+                ptr::null_mut()
+            }
+        }
+    })
+}
+
+#[cfg(any(target_os = "android", target_os = "macos"))]
 #[no_mangle]
 pub extern "C" fn sdl_shim_create_wgpu_surface(instance: *mut c_void) -> *mut c_void {
     ffi!(ptr::null_mut(), {

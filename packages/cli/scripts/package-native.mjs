@@ -98,6 +98,11 @@ if (targetArg && !TARGETS[targetArg]) {
   process.exit(1);
 }
 const target = targetArg ? TARGETS[targetArg] : { plat: hostKey, bun: undefined, exe: process.platform === "win32" };
+// Compiled-binary module FS mount differs by platform: POSIX targets report
+// /$bunfs/root, Windows reports B:\~BUN\root — POSIX /$bunfs specifiers get
+// drive-letter-normalized (Z:\$bunfs under wine, C:\$bunfs on real Windows)
+// and miss the embedded FS entirely.
+const isWin = target.plat.startsWith("win32");
 let outfile = outfileArg;
 if (target.exe && !outfile.endsWith(".exe")) outfile += ".exe";
 
@@ -141,7 +146,12 @@ function resolveSpec(spec, importer) {
 
 /** repo-rel path of a module file as embedded in the binary (.js suffix). */
 function bunfsPath(absPath) {
-  return `/$bunfs/root/${relative(repoRoot, absPath).replace(/\\/g, "/").replace(/\.[jt]sx?$/, ".js")}`;
+  const rel = relative(repoRoot, absPath).replace(/\\/g, "/").replace(/\.[jt]sx?$/, ".js");
+  // Emitted inside a quoted literal for dynamic import() — Windows needs the
+  // B:\~BUN drive path (with escaped separators); /$bunfs doesn't resolve.
+  return isWin
+    ? `B:\\\\~BUN\\\\root\\\\${rel.replace(/\//g, "\\\\")}`
+    : `/$bunfs/root/${rel}`;
 }
 
 // Worker files referenced via `new Worker(new URL("...", import.meta.url))`
@@ -330,9 +340,12 @@ const makePlugin = (collectWorkers) => ({
       out = out.replace(WORKER_RE, (m, spec) => {
         const rel = relative(repoRoot, resolve(modDir, spec))
           .replace(/\\/g, "/").replace(/\.[jt]sx?$/, ".js");
-        return m.replace(`"${spec}"`, `"/$bunfs/root/${rel}"`)
-          .replace(`'${spec}'`, `"/$bunfs/root/${rel}"`)
-          .replace(`\`${spec}\``, `"/$bunfs/root/${rel}"`);
+        // Lands inside new URL(...) — Windows wants a file: URL into the
+        // B:\~BUN embedded root; the /$bunfs POSIX form misses it.
+        const baked = isWin ? `file:///B:/~BUN/root/${rel}` : `/$bunfs/root/${rel}`;
+        return m.replace(`"${spec}"`, `"${baked}"`)
+          .replace(`'${spec}'`, `"${baked}"`)
+          .replace(`\`${spec}\``, `\`${baked}\``);
       });
       // 2. Asset URL refs need no rewrite — import.meta.url already points
       // at the staged dd-assets dir, so new URL("./x.png", import.meta.url)
