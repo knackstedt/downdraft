@@ -1,6 +1,6 @@
 {
   "name": "downdraft-engine",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "description": "AI-Driven Game Engine — native winit + wgpu runtime (Bun, Node, or Deno host)",
   "license": "MIT",
   "type": "module",
