@@ -231,6 +231,7 @@ Each game MUST pass a unique `appId` (`downdraft-<game>`) so the native host res
 When `appId` is set, `createNativeHost()` (via `runNativeGameModule`) also:
 1. Acquires a singleton lock (`<userData>/singleton.lock`, PID-owned) — prevents two instances of the same game from running concurrently (which would corrupt storage). **Skipped in deterministic/test mode** (`DOWNDRAFT_DETERMINISTIC=1`): the test harness controls process lifecycle itself (dynamic MCP ports + process-group kills). `DOWNDRAFT_MULTI_INSTANCE=1` opts out of the lock in any mode.
 2. Cleans up stale lock artifacts from a previous run that crashed or was killed. In non-deterministic mode this is safe because the single-instance lock guarantees no live process is using the directory; in deterministic mode the test harness guarantees no concurrent instance.
+3. Sets the window's desktop identity — `appId` is forwarded into `NativeWindowConfig.appId`, which becomes the Wayland `app_id` and both X11 `WM_CLASS` parts (via `sdl_shim_set_app_name` before window create). Without it every dev-run window maps with no identity and the WM groups all games under one taskbar entry. The dev shell's early boot (`early-host.ts`) applies `native.appId` from `downdraft.config.json` the same way — keep the config's `appId` in sync with the entry's, since the identity is baked at window create and an adopted early window can't be re-identified.
 
 ### Files
 

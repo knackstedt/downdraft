@@ -101,6 +101,9 @@ export async function runNativeGameModule<Sim extends GameSimWorker, R extends G
       width: opts.width ?? 1280,
       height: opts.height ?? 720,
       focused: opts.focused,
+      // Desktop identity — without it every dev-run window maps with no
+      // app_id/WM_CLASS and the WM groups all games under one taskbar entry.
+      appId: opts.appId,
     },
     appId: opts.appId,
     engineVersion: opts.engineVersion,
