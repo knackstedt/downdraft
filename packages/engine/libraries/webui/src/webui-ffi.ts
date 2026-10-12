@@ -18,10 +18,19 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { WebUiBackend, WebUiEvent, WebUiViewStatus } from "./types";
 
-const _dirname =
-  typeof (globalThis as any).__dirname !== "undefined"
+// import.meta.url is per-module (correct in every context); the __dirname
+// global is the ENTRY file's dir under bun/node — wrong for library code —
+// and a bunfs virtual path under `bun build --compile` bundles, where the
+// crateDir probe is irrelevant anyway (packaged candidates still hit).
+const _dirname = (() => {
+  try {
+    const p = fileURLToPath(import.meta.url);
+    if (p && !p.includes("~BUN")) return dirname(p);
+  } catch { /* non-file URL — bundled */ }
+  return typeof (globalThis as any).__dirname !== "undefined"
     ? (globalThis as any).__dirname
-    : dirname(fileURLToPath(import.meta.url));
+    : "";
+})();
 
 const LIB_NAME: Record<WebUiBackend, string> = {
   cef: "downdraft_webui_cef",
@@ -127,6 +136,9 @@ export type WebUiSymbols = Record<keyof typeof WEBUI_SPEC, (...args: any[]) => a
 interface LoadedLib { symbols: WebUiSymbols; path: string }
 
 const cache = new Map<WebUiBackend, LoadedLib | null>();
+/** dlopen failure detail for diagnostics — a missing artifact returns null
+ *  silently, but a found artifact that fails to load should say why. */
+const loadErrors = new Map<WebUiBackend, string>();
 
 /** dlopen the backend's cdylib. Returns null when the artifact is absent
  *  (not built / not staged / backend not packaged) so hosts degrade
@@ -140,10 +152,16 @@ export function loadWebUiLib(backend: WebUiBackend): LoadedLib | null {
     const entry = { symbols, path };
     cache.set(backend, entry);
     return entry;
-  } catch {
+  } catch (e) {
+    loadErrors.set(backend, `${path}: ${(e as Error).message ?? e}`);
     cache.set(backend, null);
     return null;
   }
+}
+
+/** Why the last loadWebUiLib() returned null for a found artifact. */
+export function webUiLoadError(backend: WebUiBackend): string | null {
+  return loadErrors.get(backend) ?? null;
 }
 
 /** Global init options handed to dd_webui_global_init as JSON. */

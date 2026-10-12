@@ -14,22 +14,17 @@
 // ============================================================================
 
 export type {
-  WebUiBackend,
-  WebUiViewConfig,
-  WebUiViewStatus,
-  WebUiEvent,
-  WebUiInputEvent,
-  WebUiNavOp,
-  WebUiPixelFormat,
-  WebUiHostBridge,
+    WebUiBackend, WebUiEvent, WebUiHostBridge, WebUiInputEvent,
+    WebUiNavOp,
+    WebUiPixelFormat, WebUiViewConfig,
+    WebUiViewStatus
 } from "./types";
 
 export {
-  WebUIView,
-  loadWebUiLib,
-  resolveWebUiBackend,
-  webUiGlobalInit,
-  webUiGlobalShutdown,
-  WEBUI_FRAME_HEADER,
+    loadWebUiLib,
+    resolveWebUiBackend, WEBUI_FRAME_HEADER, webUiGlobalInit,
+    webUiGlobalShutdown,
+    webUiLoadError, WebUIView
 } from "./webui-ffi";
-export type { WebUiSymbols, WebUiGlobalInitOpts } from "./webui-ffi";
+export type { WebUiGlobalInitOpts, WebUiSymbols } from "./webui-ffi";
+

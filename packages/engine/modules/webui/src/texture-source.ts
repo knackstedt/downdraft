@@ -29,6 +29,9 @@ export class WebUiTextureSource {
   private format: WebUiPixelFormat;
   /** Reusable staging buffer for unaligned-strided partial uploads. */
   private scratch = new Uint8Array(0);
+  /** True once the backend has delivered at least one frame — until then
+   *  alpha-based hit testing can't discriminate and must be bypassed. */
+  hasFrame = false;
 
   constructor(device: GPUDevice, viewId: string, width: number, height: number, pixelFormat: WebUiPixelFormat = "bgra") {
     this.device = device;
@@ -44,6 +47,9 @@ export class WebUiTextureSource {
     return this.device.createTexture({
       size: { width: this.width, height: this.height },
       format: FORMAT[this.format],
+      // srgb reinterpret must be declared — an undeclared view format makes
+      // createView() (and every bind group built on it) invalid.
+      viewFormats: [this.srgbFormat],
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
     });
   }
@@ -83,6 +89,7 @@ export class WebUiTextureSource {
   update(bridge: WebUiHostBridge): 0 | 1 | 2 {
     const pixels = bridge.pullFrame(this.viewId);
     if (!pixels || pixels.length === 0) return 0;
+    this.hasFrame = true;
     let recreated = false;
     // A resize can land between pulls — the frame dims are authoritative.
     if (pixels.length !== this.width * this.height * 4) {

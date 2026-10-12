@@ -1,0 +1,12 @@
+import { createNativeHost } from "@downdraft/platform-native";
+const host = await createNativeHost({ appId: `wtest-${process.pid}`, window: { title: "w", width: 800, height: 600 }, services: "inline" });
+const b = (globalThis as any).downdraft.webui;
+await b.createView({ id: "v", width: 400, height: 300, scale: 1, html: `<body><div id=s style="height:200px;overflow-y:scroll"><div style="height:900px">x</div></div><script>document.getElementById('s').scrollTop=100</script></body>`, interactive: true });
+await new Promise(r => setTimeout(r, 1500));
+const s = async (tag: string) => console.log(tag, "scrollTop:", await b.eval("v", "document.getElementById('s').scrollTop"));
+await s("start      ");
+b.sendInputEvent("v", { type: "mouseWheel", x: 50, y: 50, deltaX: 0, deltaY: 240 });
+await new Promise(r => setTimeout(r, 800)); await s("after +240 ");
+b.sendInputEvent("v", { type: "mouseWheel", x: 50, y: 50, deltaX: 0, deltaY: -240 });
+await new Promise(r => setTimeout(r, 800)); await s("after -240 ");
+process.exit(0);

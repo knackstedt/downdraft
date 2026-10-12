@@ -1036,7 +1036,9 @@ pub extern "C" fn dd_webui_input_wheel(
                 y: y as i32,
                 modifiers: 0,
             };
-            host.send_mouse_wheel_event(Some(&me), dx as i32, dy as i32);
+            // The ABI carries DOM WheelEvent deltas (positive deltaY =
+            // scroll down); CEF's wheel ticks use positive = scroll up.
+            host.send_mouse_wheel_event(Some(&me), (-dx) as i32, (-dy) as i32);
             pump();
         });
     }));

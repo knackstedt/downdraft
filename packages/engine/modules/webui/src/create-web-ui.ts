@@ -31,7 +31,8 @@ const log = createLogger("info");
 export interface WebUiPanelSpec {
   /** View id — auto-generated when omitted. */
   id?: string;
-  /** Screen-space rect in CSS px. */
+  /** Screen-space rect in buffer px — the same input space
+   *  NativeWindow.mapX/Y emits (divide by surface zoom for logical size). */
   rect: { x: number; y: number; w: number; h: number };
   url?: string;
   html?: string;
@@ -57,7 +58,8 @@ export interface WebUiViewHandle {
   setContent(html: string): Promise<void>;
   navigate(op: "back" | "forward" | "reload" | "stop"): void;
   setZoom(factor: number): void;
-  /** Move/resize the screen-space rect; the view rasters at rect × scale. */
+  /** Move/resize the screen-space rect (buffer px); the view rasters at
+   *  the rect size (CSS size × scale internally). */
   setRect(rect: { x: number; y: number; w: number; h: number }): void;
   setInteractive(on: boolean): void;
   destroy(): Promise<void>;
@@ -86,6 +88,8 @@ export interface WebUiOptions {
 interface PanelState {
   spec: Required<Pick<WebUiPanelSpec, "interactive">> & WebUiPanelSpec;
   id: string;
+  /** Raster scale (physical px per CSS px) captured at mount. */
+  scale: number;
   src: WebUiTextureSource;
   comp: CompositePanel;
   unsubs: Array<() => void>;
@@ -110,7 +114,13 @@ export function createWebUi(options: WebUiOptions): RendererModule {
       const device = ctx.getDevice();
       const format = ctx.getFormat();
       const surface = ctx.getSurface();
-      const dpr = () => (surface as { scaleFactor?: number }).scaleFactor ?? 1;
+      // surface.scaleFactor is a () => number accessor, not a field — and a
+      // non-finite/garbage scale crashes backends that assert its range.
+      const dpr = () => {
+        const sf = (surface as { scaleFactor?: number | (() => number) }).scaleFactor;
+        const v = typeof sf === "function" ? sf() : sf;
+        return typeof v === "number" && isFinite(v) && v > 0.05 && v <= 5 ? v : 1;
+      };
 
       // ── Bridge: explicit backend → forBackend sibling; else host default ──
       const hostBridge = (downdraft as { webui?: WebUiHostBridge }).webui;
@@ -125,8 +135,11 @@ export function createWebUi(options: WebUiOptions): RendererModule {
       }
 
       // ── Input routing at UI priority (-10, same as html-ui) ──
+      // Panel rects and bus coordinates are buffer px (the input space
+      // NativeWindow.mapX/Y emits); the ABI wants CSS px and multiplies by
+      // scale itself, so local() divides — at scaleFactor ≠ 1 they diverge.
       const local = (p: PanelState, e: { clientX: number; clientY: number }) => ({
-        x: e.clientX - p.comp.rect.x, y: e.clientY - p.comp.rect.y,
+        x: (e.clientX - p.comp.rect.x) / p.scale, y: (e.clientY - p.comp.rect.y) / p.scale,
       });
       const panelAt = (x: number, y: number): PanelState | null => {
         // Topmost first — later panels paint over earlier ones.
@@ -136,7 +149,9 @@ export function createWebUi(options: WebUiOptions): RendererModule {
           const r = p.comp.rect;
           if (x < r.x || y < r.y || x >= r.x + r.w || y >= r.y + r.h) continue;
           // Inside the rect — ask the backend whether the pixel is opaque.
-          if (bridge!.hitTest(p.id, x - r.x, y - r.y)) return p;
+          // Until the first frame lands there is nothing to test — fall back
+          // to rect-hit so input still works during initial load.
+          if (!p.src.hasFrame || bridge!.hitTest(p.id, x - r.x, y - r.y)) return p;
         }
         return null;
       };
@@ -246,8 +261,9 @@ export function createWebUi(options: WebUiOptions): RendererModule {
         const scale = spec.scale ?? dpr();
         const ok = await bridge.createView({
           id,
-          width: Math.round(spec.rect.w),
-          height: Math.round(spec.rect.h),
+          // CSS px — the backend rasters at dims × scale = rect size.
+          width: Math.round(spec.rect.w / scale),
+          height: Math.round(spec.rect.h / scale),
           scale,
           url: spec.url,
           html: spec.html,
@@ -257,9 +273,9 @@ export function createWebUi(options: WebUiOptions): RendererModule {
         });
         if (!ok) return null;
 
-        // Physical dims come from the backend (rect × scale).
+        // Physical dims come from the backend (CSS size × scale = rect size).
         const dims = bridge.getDimensions(id)
-          ?? { w: Math.max(1, Math.round(spec.rect.w * scale)), h: Math.max(1, Math.round(spec.rect.h * scale)) };
+          ?? { w: Math.max(1, Math.round(spec.rect.w)), h: Math.max(1, Math.round(spec.rect.h)) };
         const src = new WebUiTextureSource(device, id, dims.w, dims.h, bridge.pixelFormat(id));
         const ubo = blit.createUbo();
         const comp: CompositePanel = {
@@ -275,6 +291,7 @@ export function createWebUi(options: WebUiOptions): RendererModule {
         const state: PanelState = {
           spec: { interactive: true, ...spec },
           id,
+          scale,
           src,
           comp,
           unsubs,
@@ -291,7 +308,7 @@ export function createWebUi(options: WebUiOptions): RendererModule {
           setZoom: (f) => bridge?.setZoom(id, f),
           setRect: (rect) => {
             comp.rect = { ...rect };
-            bridge?.resize(id, Math.round(rect.w), Math.round(rect.h), scale);
+            bridge?.resize(id, Math.round(rect.w / scale), Math.round(rect.h / scale), scale);
           },
           setInteractive: (on) => {
             state.spec.interactive = on;
