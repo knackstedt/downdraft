@@ -1517,6 +1517,8 @@ fn create_impl(
         let url = opt_str(opts, "url").unwrap_or_default();
         let html = opt_str(opts, "html").unwrap_or_default();
         let transparent = opt_bool(opts, "transparent").unwrap_or(false);
+        // NaN/garbage scale aborts inside libwpe's range assert — sanitize.
+        let scale = if scale.is_finite() { scale } else { 1.0 };
         let (w, h) = (width.max(1) as u32, height.max(1) as u32);
         let (pw, ph) = (
             (w as f32 * scale.max(0.01)).round().max(1.0) as u32,
@@ -1670,7 +1672,7 @@ fn create_impl(
             // blank commit. 0x7 = visible|focused|in_window; the host
             // presents the frames itself, so the view is always "shown".
             wpe_view_backend_dispatch_set_size(wpe_backend, pw, ph);
-            wpe_view_backend_dispatch_set_device_scale_factor(wpe_backend, scale.max(0.01));
+            wpe_view_backend_dispatch_set_device_scale_factor(wpe_backend, scale.clamp(0.05, 5.0));
             wpe_view_backend_add_activity_state(wpe_backend, 0x7);
 
             let v = Box::new(View {
@@ -1817,6 +1819,7 @@ pub extern "C" fn dd_webui_resize(h: *mut c_void, w: c_int, hgt: c_int, scale: f
 fn resize_impl(h: *mut c_void, w: c_int, hgt: c_int, scale: f32) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         with_view!(h, (), |v| {
+            let scale = if scale.is_finite() { scale } else { 1.0 };
             let (pw, ph) = (
                 (w.max(1) as f32 * scale.max(0.01)).round().max(1.0) as u32,
                 (hgt.max(1) as f32 * scale.max(0.01)).round().max(1.0) as u32,
@@ -1825,7 +1828,7 @@ fn resize_impl(h: *mut c_void, w: c_int, hgt: c_int, scale: f32) {
             if !backend.is_null() {
                 unsafe {
                     wpe_view_backend_dispatch_set_size(backend, pw, ph);
-                    wpe_view_backend_dispatch_set_device_scale_factor(backend, scale.max(0.01));
+                    wpe_view_backend_dispatch_set_device_scale_factor(backend, scale.clamp(0.05, 5.0));
                 }
             }
             v.shared
@@ -2073,6 +2076,19 @@ fn input_pointer_impl(h: *mut c_void, t: c_int, x: f32, y: f32, btn: c_int) {
                     };
                     wpe_view_backend_dispatch_pointer_event(backend, &ev);
                 } else if t == 1 || t == 2 {
+                    // WebKit hit-tests button events at the last motion
+                    // position — dispatch a synthetic motion first so a
+                    // bare down/up sequence still lands on the element.
+                    let mv = WpePointerEvent {
+                        type_: 1, // motion
+                        time: now_ms(),
+                        x: px,
+                        y: py,
+                        button: 0,
+                        state: 0,
+                        modifiers: 0,
+                    };
+                    wpe_view_backend_dispatch_pointer_event(backend, &mv);
                     let ev = WpePointerEvent {
                         type_: 2, // button
                         time: now_ms(),

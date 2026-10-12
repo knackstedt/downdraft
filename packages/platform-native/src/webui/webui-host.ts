@@ -17,7 +17,8 @@ import {
     loadWebUiLib,
     resolveWebUiBackend,
     webUiGlobalInit,
-    WebUIView,
+    webUiLoadError,
+    WebUIView
 } from "@downdraft/engine/libraries/webui";
 import type {
     WebUiBackend,
@@ -34,10 +35,17 @@ import { fileURLToPath } from "node:url";
 
 const log = createLogger("info");
 
-const _dirname =
-  typeof (globalThis as any).__dirname !== "undefined"
+// import.meta.url is per-module — the __dirname global is the entry file's
+// dir, which poisons findPackageRoot when the entry lives outside the repo.
+const _dirname = (() => {
+  try {
+    const p = fileURLToPath(import.meta.url);
+    if (p) return dirname(p);
+  } catch { /* non-file URL — bundled */ }
+  return typeof (globalThis as any).__dirname !== "undefined"
     ? (globalThis as any).__dirname
-    : dirname(fileURLToPath(import.meta.url));
+    : "";
+})();
 
 export interface WebUiHost {
   api: WebUiHostBridge;
@@ -93,7 +101,10 @@ export function createWebUiHost(opts: {
 function buildHost(backend: WebUiBackend, initOpts: WebUiGlobalInitOpts = {}): WebUiHost | null {
   const entry = loadWebUiLib(backend);
   if (!entry) {
-    log.warn("webui", `libdowndraft_webui_${backend} not found — webui tier disabled (run "bun run build:native")`);
+    const why = webUiLoadError(backend);
+    log.warn("webui", why
+      ? `libdowndraft_webui_${backend} failed to load — webui tier disabled (${why})`
+      : `libdowndraft_webui_${backend} not found — webui tier disabled (run "bun run build:native")`);
     return null;
   }
 
