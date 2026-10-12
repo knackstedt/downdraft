@@ -176,10 +176,15 @@ fn report_tick(insts: &[(usize, Instance)]) {
         return;
     }
     for (_, i) in insts {
-        let Some(rep) = i.generate_report() else { continue };
+        let Some(rep) = i.generate_report() else {
+            continue;
+        };
         let h = rep.hub_report();
         let f = |r: &wgc::registry::RegistryReport| {
-            format!("{}/{}/{}", r.num_allocated, r.num_kept_from_user, r.num_released_from_user)
+            format!(
+                "{}/{}/{}",
+                r.num_allocated, r.num_kept_from_user, r.num_released_from_user
+            )
         };
         eprintln!(
             "[wgpu-report] surfaces={} textures={} views={} bindgroups={} cmdbuf={} buffers={} devices={} queues={}",
@@ -482,10 +487,7 @@ where
 }
 
 #[no_mangle]
-pub extern "C" fn wgpu_shim_request_adapter_async(
-    instance: Handle,
-    power_preference: i32,
-) -> u64 {
+pub extern "C" fn wgpu_shim_request_adapter_async(instance: Handle, power_preference: i32) -> u64 {
     ffi!(0, unsafe {
         // Clone the Arc-backed instance — the JS side may release its box
         // while the request is still in flight.
@@ -532,9 +534,7 @@ pub extern "C" fn wgpu_shim_request_device_async(
             feature_count,
         );
         let adapter = adapter.clone();
-        spawn_op(move || {
-            finish_device_request(block_on_gpu(adapter.request_device(&desc)))
-        })
+        spawn_op(move || finish_device_request(block_on_gpu(adapter.request_device(&desc))))
     })
 }
 
@@ -2465,7 +2465,10 @@ pub extern "C" fn wgpu_shim_render_pass_replay(
             let mut r = OpReader { s: words, i: 0 };
             let mut status = 0;
             while r.i < r.s.len() {
-                let Some(op) = r.u() else { status = -1; break };
+                let Some(op) = r.u() else {
+                    status = -1;
+                    break;
+                };
                 let ok = (|| -> bool {
                     use pass_op::*;
                     match op {
@@ -2474,52 +2477,99 @@ pub extern "C" fn wgpu_shim_render_pass_replay(
                             p.set_pipeline(obj::<RenderPipeline>(h));
                         }
                         SET_BIND_GROUP => {
-                            let (Some(i), Some(h), Some(n)) = (r.u(), r.handle(), r.u()) else { return false };
+                            let (Some(i), Some(h), Some(n)) = (r.u(), r.handle(), r.u()) else {
+                                return false;
+                            };
                             let start = r.i;
-                            if start + n as usize > r.s.len() { return false }
+                            if start + n as usize > r.s.len() {
+                                return false;
+                            }
                             r.i += n as usize;
-                            p.set_bind_group(i, obj::<BindGroup>(h), &r.s[start..start + n as usize]);
+                            p.set_bind_group(
+                                i,
+                                obj::<BindGroup>(h),
+                                &r.s[start..start + n as usize],
+                            );
                         }
                         SET_VERTEX_BUFFER => {
                             let (Some(s), Some(h), Some(o), Some(sz)) =
-                                (r.u(), r.handle(), r.u64(), r.u64()) else { return false };
+                                (r.u(), r.handle(), r.u64(), r.u64())
+                            else {
+                                return false;
+                            };
                             let buf = obj::<Buffer>(h);
-                            p.set_vertex_buffer(s, if sz == WHOLE_SIZE { buf.slice(o..) } else { buf.slice(o..o + sz) });
+                            p.set_vertex_buffer(
+                                s,
+                                if sz == WHOLE_SIZE {
+                                    buf.slice(o..)
+                                } else {
+                                    buf.slice(o..o + sz)
+                                },
+                            );
                         }
                         SET_INDEX_BUFFER => {
                             let (Some(h), Some(f), Some(o), Some(sz)) =
-                                (r.handle(), r.u(), r.u64(), r.u64()) else { return false };
+                                (r.handle(), r.u(), r.u64(), r.u64())
+                            else {
+                                return false;
+                            };
                             let buf = obj::<Buffer>(h);
-                            p.set_index_buffer(if sz == WHOLE_SIZE { buf.slice(o..) } else { buf.slice(o..o + sz) }, enums::index_format(f));
+                            p.set_index_buffer(
+                                if sz == WHOLE_SIZE {
+                                    buf.slice(o..)
+                                } else {
+                                    buf.slice(o..o + sz)
+                                },
+                                enums::index_format(f),
+                            );
                         }
                         DRAW => {
-                            let (Some(vc), Some(ic), Some(fv), Some(fi)) = (r.u(), r.u(), r.u(), r.u()) else { return false };
+                            let (Some(vc), Some(ic), Some(fv), Some(fi)) =
+                                (r.u(), r.u(), r.u(), r.u())
+                            else {
+                                return false;
+                            };
                             p.draw(fv..fv + vc, fi..fi + ic);
                         }
                         DRAW_INDEXED => {
                             let (Some(ic), Some(iic), Some(fi), Some(bv), Some(fin)) =
-                                (r.u(), r.u(), r.u(), r.i32(), r.u()) else { return false };
+                                (r.u(), r.u(), r.u(), r.i32(), r.u())
+                            else {
+                                return false;
+                            };
                             p.draw_indexed(fi..fi + ic, bv, fin..fin + iic);
                         }
                         DRAW_INDIRECT => {
-                            let (Some(h), Some(o)) = (r.handle(), r.u64()) else { return false };
+                            let (Some(h), Some(o)) = (r.handle(), r.u64()) else {
+                                return false;
+                            };
                             p.draw_indirect(obj::<Buffer>(h), o);
                         }
                         DRAW_INDEXED_INDIRECT => {
-                            let (Some(h), Some(o)) = (r.handle(), r.u64()) else { return false };
+                            let (Some(h), Some(o)) = (r.handle(), r.u64()) else {
+                                return false;
+                            };
                             p.draw_indexed_indirect(obj::<Buffer>(h), o);
                         }
                         SET_VIEWPORT => {
                             let (Some(x), Some(y), Some(w), Some(h), Some(mn), Some(mx)) =
-                                (r.f32(), r.f32(), r.f32(), r.f32(), r.f32(), r.f32()) else { return false };
+                                (r.f32(), r.f32(), r.f32(), r.f32(), r.f32(), r.f32())
+                            else {
+                                return false;
+                            };
                             p.set_viewport(x, y, w, h, mn, mx);
                         }
                         SET_SCISSOR => {
-                            let (Some(x), Some(y), Some(w), Some(h)) = (r.u(), r.u(), r.u(), r.u()) else { return false };
+                            let (Some(x), Some(y), Some(w), Some(h)) = (r.u(), r.u(), r.u(), r.u())
+                            else {
+                                return false;
+                            };
                             p.set_scissor_rect(x, y, w, h);
                         }
                         WRITE_TIMESTAMP => {
-                            let (Some(qs), Some(qi)) = (r.handle(), r.u()) else { return false };
+                            let (Some(qs), Some(qi)) = (r.handle(), r.u()) else {
+                                return false;
+                            };
                             if let Some(q) = obj::<ShimQuerySet>(qs).0.as_ref() {
                                 p.write_timestamp(q, qi);
                             }
@@ -2534,8 +2584,17 @@ pub extern "C" fn wgpu_shim_render_pass_replay(
                             p.insert_debug_marker(std::str::from_utf8(b).unwrap_or(""));
                         }
                         SET_BLEND_CONSTANT => {
-                            let (Some(rr), Some(g), Some(b), Some(a)) = (r.f32(), r.f32(), r.f32(), r.f32()) else { return false };
-                            p.set_blend_constant(Color { r: rr as f64, g: g as f64, b: b as f64, a: a as f64 });
+                            let (Some(rr), Some(g), Some(b), Some(a)) =
+                                (r.f32(), r.f32(), r.f32(), r.f32())
+                            else {
+                                return false;
+                            };
+                            p.set_blend_constant(Color {
+                                r: rr as f64,
+                                g: g as f64,
+                                b: b as f64,
+                                a: a as f64,
+                            });
                         }
                         SET_STENCIL_REFERENCE => {
                             let Some(v) = r.u() else { return false };
@@ -2572,10 +2631,13 @@ mod op_reader_tests {
         let abc: &[u8; 4] = b"abc\0";
         let abc_word = u32::from_le_bytes(*abc);
         let s: Vec<u32> = vec![
-            0xAAAA_AAAA, 0x0000_0001, // handle 0x1_AAAA_AAAA
-            0xFFFF_FFFF, 0xFFFF_FFFF, // u64::MAX (WHOLE_SIZE)
+            0xAAAA_AAAA,
+            0x0000_0001, // handle 0x1_AAAA_AAAA
+            0xFFFF_FFFF,
+            0xFFFF_FFFF, // u64::MAX (WHOLE_SIZE)
             0x3F80_0000, // f32 1.0
-            3, abc_word, // cstr "abc" (len 3, one padded word)
+            3,
+            abc_word, // cstr "abc" (len 3, one padded word)
         ];
         let mut r = OpReader { s: &s, i: 0 };
         assert_eq!(r.handle(), Some(0x1_AAAA_AAAAusize as Handle));
@@ -2610,7 +2672,10 @@ pub extern "C" fn wgpu_shim_compute_pass_replay(
             let mut r = OpReader { s: words, i: 0 };
             let mut status = 0;
             while r.i < r.s.len() {
-                let Some(op) = r.u() else { status = -1; break };
+                let Some(op) = r.u() else {
+                    status = -1;
+                    break;
+                };
                 let ok = (|| -> bool {
                     use pass_op::*;
                     match op {
@@ -2619,22 +2684,36 @@ pub extern "C" fn wgpu_shim_compute_pass_replay(
                             p.set_pipeline(obj::<ComputePipeline>(h));
                         }
                         SET_BIND_GROUP => {
-                            let (Some(i), Some(h), Some(n)) = (r.u(), r.handle(), r.u()) else { return false };
+                            let (Some(i), Some(h), Some(n)) = (r.u(), r.handle(), r.u()) else {
+                                return false;
+                            };
                             let start = r.i;
-                            if start + n as usize > r.s.len() { return false }
+                            if start + n as usize > r.s.len() {
+                                return false;
+                            }
                             r.i += n as usize;
-                            p.set_bind_group(i, obj::<BindGroup>(h), &r.s[start..start + n as usize]);
+                            p.set_bind_group(
+                                i,
+                                obj::<BindGroup>(h),
+                                &r.s[start..start + n as usize],
+                            );
                         }
                         DISPATCH => {
-                            let (Some(x), Some(y), Some(z)) = (r.u(), r.u(), r.u()) else { return false };
+                            let (Some(x), Some(y), Some(z)) = (r.u(), r.u(), r.u()) else {
+                                return false;
+                            };
                             p.dispatch_workgroups(x, y, z);
                         }
                         DISPATCH_INDIRECT => {
-                            let (Some(h), Some(o)) = (r.handle(), r.u64()) else { return false };
+                            let (Some(h), Some(o)) = (r.handle(), r.u64()) else {
+                                return false;
+                            };
                             p.dispatch_workgroups_indirect(obj::<Buffer>(h), o);
                         }
                         WRITE_TIMESTAMP => {
-                            let (Some(qs), Some(qi)) = (r.handle(), r.u()) else { return false };
+                            let (Some(qs), Some(qi)) = (r.handle(), r.u()) else {
+                                return false;
+                            };
                             if let Some(q) = obj::<ShimQuerySet>(qs).0.as_ref() {
                                 p.write_timestamp(q, qi);
                             }
@@ -2890,9 +2969,17 @@ mod android_segv_probe {
             let uc = ctx as *const libc::ucontext_t;
             let mc = &(*uc).uc_mcontext;
             #[cfg(target_arch = "aarch64")]
-            { (mc.pc as usize, mc.sp as usize, mc.regs[1] as usize) }
+            {
+                (mc.pc as usize, mc.sp as usize, mc.regs[1] as usize)
+            }
             #[cfg(target_arch = "x86_64")]
-            { (mc.gregs[libc::REG_RIP as usize] as usize, mc.gregs[libc::REG_RSP as usize] as usize, mc.gregs[libc::REG_RDI as usize] as usize) }
+            {
+                (
+                    mc.gregs[libc::REG_RIP as usize] as usize,
+                    mc.gregs[libc::REG_RSP as usize] as usize,
+                    mc.gregs[libc::REG_RDI as usize] as usize,
+                )
+            }
         };
         // Async-signal-unsafe formatting is fine — we re-raise and die anyway.
         let msg = std::ffi::CString::new(format!(
@@ -3137,7 +3224,9 @@ pub extern "C" fn wgpu_shim_release_surface(p: Handle) {
         #[cfg(target_os = "android")]
         crate::window::android::defer_surface_release(p as usize);
         #[cfg(not(target_os = "android"))]
-        unsafe { release::<Surface>(p) };
+        unsafe {
+            release::<Surface>(p)
+        };
     });
 }
 

@@ -37,6 +37,8 @@ const VSYNC: i32 = 18;
 /// window. JS routes it to that window's handler (primary's close is QUIT).
 /// The wid travels in slot 15 like every other event.
 const WINDOW_CLOSE: i32 = 19;
+/// Global hotkey fired — id in slot 0, wid meaningless (always 0).
+const HOTKEY: i32 = 20;
 
 /// Line-detent approximation for pixel-precise scroll deltas (PixelDelta
 /// arrives from touchpads; SDL always reports line units).
@@ -105,6 +107,11 @@ pub enum Ev {
     Resumed,
     /// Close requested on a secondary window — routed by wid, never a Quit.
     WindowClose,
+    /// Global hotkey pressed — carries the grab id from
+    /// sdl_shim_hotkey_grab. Not window-scoped.
+    Hotkey {
+        id: i32,
+    },
     /// Vsync tick from the Android Choreographer — frameTimeNanos (the frame's
     /// vsync timestamp in SystemClock nanos) carried as the payload. The JS
     /// pump dispatches rAF on these when present instead of its software
@@ -316,6 +323,10 @@ pub fn write(wid: u32, ev: Ev, out_data: *mut c_void) -> i32 {
             Ev::Suspended => SUSPENDED,
             Ev::Resumed => RESUMED,
             Ev::WindowClose => WINDOW_CLOSE,
+            Ev::Hotkey { id } => {
+                *iout.add(0) = id;
+                HOTKEY
+            }
             Ev::Vsync { nanos } => {
                 // Wrapping u32 microseconds — deltas between ticks are what
                 // matter (refresh derivation); uint32 wrap subtraction keeps

@@ -55,6 +55,7 @@
 #[cfg(target_os = "android")]
 pub mod android;
 mod events;
+mod hotkey;
 mod keys;
 
 use events::{take, Ev};

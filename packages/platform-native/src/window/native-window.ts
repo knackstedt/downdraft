@@ -27,6 +27,7 @@ import {
     SDL_EVENT_KEY_UP,
     SDL_EVENT_MOUSE_DOWN,
     SDL_EVENT_MOUSE_MOVE,
+    SDL_EVENT_HOTKEY,
     SDL_EVENT_MOUSE_UP,
     SDL_EVENT_MOVED,
     SDL_EVENT_NONE,
@@ -51,6 +52,7 @@ import {
     SDL_WIN_SKIP_TASKBAR,
     SDL_WIN_TRANSPARENT
 } from "./sdl-ffi";
+import { fireGlobalHotkey } from "./global-hotkeys";
 
 // Lazily bound — wgpu-device.ts pulls the whole JS shim graph (encoder,
 // resources, limits…), which under the dev shell's ModuleRunner is seconds
@@ -913,6 +915,12 @@ export class NativeWindow extends MiniEventTarget {
         this.closeDispatched = true;
         this.dispatchEvent({ type: "close" });
         this.destroy();
+        break;
+
+      case SDL_EVENT_HOTKEY:
+        // Global key grab (XGrabKey) — not window-scoped; invoke the
+        // registered callback via the global-hotkeys registry.
+        fireGlobalHotkey(eventView[0]);
         break;
 
       case SDL_EVENT_FOCUS_LOST:

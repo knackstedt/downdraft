@@ -125,6 +125,44 @@ export const sdlWindow: Partial<SdlWindowSymbols> = new Proxy(
   },
 );
 
+// Global-hotkey symbols (0.4.7+): X11 XGrabKey on the root window over a
+// dedicated connection. Linux-only today — absent or -1 elsewhere.
+const SDL_HOTKEY_SPEC: Record<string, CFunction> = {
+  sdl_shim_hotkey_grab: { args: ["u32", "u32"], returns: "i32" },
+  sdl_shim_hotkey_ungrab: { args: ["i32"], returns: "i32" },
+};
+
+let _hotkey: Partial<SdlHotkeySymbols> | null = null;
+
+function loadSdlHotkey(): Partial<SdlHotkeySymbols> {
+  if (_hotkey) return _hotkey;
+  try {
+    const libPath = process.env.SDL_SHIM_PATH
+      ? resolveShimLibrary("sdl_shim", "SDL_SHIM_PATH")
+      : resolvePlatformLibrary();
+    const { symbols } = dlopen(libPath, SDL_HOTKEY_SPEC);
+    _hotkey = symbols as unknown as Partial<SdlHotkeySymbols>;
+  } catch {
+    _hotkey = {};
+  }
+  return _hotkey;
+}
+
+/** Optional global-hotkey symbols — absent on libs predating them. */
+export const sdlHotkey: Partial<SdlHotkeySymbols> = new Proxy(
+  {} as Partial<SdlHotkeySymbols>,
+  {
+    get(_target, prop: string) {
+      return (loadSdlHotkey() as any)[prop];
+    },
+  },
+);
+
+export interface SdlHotkeySymbols {
+  sdl_shim_hotkey_grab: (mods: number, keysym: number) => number;
+  sdl_shim_hotkey_ungrab: (id: number) => number;
+}
+
 export interface SdlWindowSymbols {
   sdl_shim_window_create: (
     title: string,
@@ -239,6 +277,8 @@ export const SDL_EVENT_VSYNC = 18;
 // Secondary-window close request — the owning window's "close" fires but no
 // process quit. Every event's i32 slot 15 carries the owning window handle.
 export const SDL_EVENT_WINDOW_CLOSE = 19;
+// Global hotkey fired — slot 0 carries the sdl_shim_hotkey_grab id.
+export const SDL_EVENT_HOTKEY = 20;
 
 // SDL_Keymod bitmask (SDL_keymod.h)
 export const KMOD_SHIFT = 0x0001 | 0x0002; // LSHIFT | RSHIFT

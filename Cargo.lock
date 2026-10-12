@@ -2328,6 +2328,7 @@ dependencies = [
  "rfd",
  "wgpu",
  "winit 0.30.13",
+ "x11rb",
 ]
 
 [[package]]

@@ -42,4 +42,5 @@ export { initNativeSecrets, type SecretsStore } from "./secrets/index";
 export { createHostServices, scopeServicesForPlugin, type HostServices, type HostServicesApi, type HostServicesOptions } from "./services/host-services";
 export { NativeCanvasContext, NativeSurface } from "./window/native-surface";
 export { NativeWindow } from "./window/native-window";
+export { globalHotkeySupported, keysymFor, parseAccelerator, registerGlobalHotkey } from "./window/global-hotkeys";
 
