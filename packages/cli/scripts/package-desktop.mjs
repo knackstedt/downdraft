@@ -937,9 +937,9 @@ if (formats.includes("rpm")) {
   }
   const stage = mkdtempSync(join(tmpdir(), "dd-rpm-"));
   const topdir = join(stage, "rpmbuild");
-  for (const d of ["BUILD", "RPMS", "SOURCES", "SPECS"]) {
+  ["BUILD", "RPMS", "SOURCES", "SPECS"].forEach((d) => {
     mkdirSync(join(topdir, d), { recursive: true });
-  }
+  });
 
   // rpm versions can't contain "-" — "~" is rpm's "sorts before" marker,
   // so 1.2.3-beta.1 → 1.2.3~beta.1 still orders below the final release.
