@@ -60,6 +60,15 @@ export class NativeCanvasContext {
   private lastAcquireLog = 0;
   private static loggedFirstAcquire = false;
 
+  /** Host truth source: the window's real extent (winit inner_size). Used to
+   *  self-heal a swapchain wedged on a stale requested size — see the
+   *  Outdated/Lost streak path in getCurrentTexture. */
+  extentSource?: () => { width: number; height: number } | null;
+  /** Fired when a sustained acquire-failure streak forces the requested size
+   *  to the real window extent — the surface uses it to re-sync its JS-side
+   *  dims and re-fire "resize" so the renderer's watcher converges too. */
+  onExtentAdopted?: (width: number, height: number) => void;
+
   constructor(surfacePtr: ptr) {
     this.surfacePtr = surfacePtr;
   }
@@ -233,6 +242,20 @@ export class NativeCanvasContext {
       }
 
       this.acquireFailures++;
+      // Self-heal: a persistent Outdated/Lost streak means the configured
+      // swapchain extent ≠ the window's real extent — reconfiguring the same
+      // wrong size retries forever (stale requested dims, a missed resize,
+      // a DPI-scale divergence). After a few failed frames adopt the host's
+      // real window extent; the deferred path reconfigures it next acquire.
+      if ((status === SURFACE_TEX_OUTDATED || status === SURFACE_TEX_LOST) && this.acquireFailures === 4) {
+        const ext = this.extentSource?.();
+        if (ext && ext.width > 0 && ext.height > 0 &&
+            (ext.width !== this.width || ext.height !== this.height)) {
+          log.warn("surface", `adopting real window extent ${ext.width}x${ext.height} after repeated acquire failures (requested ${this.width}x${this.height})`);
+          this.resize(ext.width, ext.height);
+          this.onExtentAdopted?.(ext.width, ext.height);
+        }
+      }
       // Throttle the log — a minimized/occluded window otherwise spams this
       // every frame for the entire occlusion.
       const now = performance.now();
@@ -369,6 +392,24 @@ export class NativeSurface extends MiniEventTarget {
     this._cssWidth = width / this.cssScale;
     this._cssHeight = height / this.cssScale;
     this.context = new NativeCanvasContext(surfacePtr);
+    this.context.extentSource = () => {
+      const win = (globalThis as { __nativeWindow?: { getWindowSize?: () => { width: number; height: number } } })
+        .__nativeWindow;
+      return win?.getWindowSize?.() ?? null;
+    };
+    this.context.onExtentAdopted = (w, h) => {
+      // The swapchain was wedged on a stale requested size and self-healed
+      // to the real window extent — adopt it into the JS-side dims too so
+      // canvas.width/viewports agree, and re-fire "resize" so the renderer's
+      // watcher converges (its live DPR read maps canvas.width back to the
+      // physical extent).
+      this._physWidth = w;
+      this._physHeight = h;
+      this._cssWidth = w / this.cssScale;
+      this._cssHeight = h / this.cssScale;
+      this.setSize(w, h);
+      this.dispatchEvent({ type: "resize", width: w, height: h });
+    };
     this.context["resize"](width, height);
   }
 
@@ -429,9 +470,16 @@ export class NativeSurface extends MiniEventTarget {
     // Real window-extent change (physical px) — refresh the logical size.
     this._physWidth = width;
     this._physHeight = height;
+    const oldCssW = this._cssWidth;
+    const oldCssH = this._cssHeight;
     this._cssWidth = width / this.cssScale;
     this._cssHeight = height / this.cssScale;
-    if (!this.setSize(width, height)) return;
+    const cssChanged = this._cssWidth !== oldCssW || this._cssHeight !== oldCssH;
+    const sizeChanged = this.setSize(width, height);
+    // Fire "resize" on a CSS-px change too — a scale-factor change at a
+    // fixed physical extent is still a resize in browser semantics (and it
+    // re-fires CanvasResizeWatcher, which re-reads the live DPR).
+    if (!sizeChanged && !cssChanged) return;
     this.dispatchEvent({ type: "resize", width, height });
   }
 

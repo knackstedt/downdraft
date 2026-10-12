@@ -122,8 +122,10 @@ export function createHtmlUi(options: HtmlUiOptions): RendererModule {
             source: (typeof navCfg === "object" ? navCfg.source : undefined)
               ?? ctx.injectOptional(GamepadSourceTok)
               ?? null,
-            screenW: ctx.getSurface().clientWidth,
-            screenH: ctx.getSurface().clientHeight,
+            // Input space is backing-buffer px (NativeWindow.mapX/Y) — not
+            // CSS px (clientWidth diverges at scaleFactor ≠ 1).
+            screenW: ctx.getSurface().width,
+            screenH: ctx.getSurface().height,
           })
         : null;
       if (nav) {

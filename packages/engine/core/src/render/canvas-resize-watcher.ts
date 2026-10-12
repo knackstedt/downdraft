@@ -6,6 +6,8 @@ export interface CanvasResizeHandler {
 
 export class CanvasResizeWatcher {
   private dpr = 1;
+  /** Explicit override via setDpr — 0 means "track the host's live ratio". */
+  private dprOverride = 0;
   private onSurfaceResize = () => this.resize();
 
   constructor(
@@ -19,11 +21,21 @@ export class CanvasResizeWatcher {
   }
 
   private resize(): void {
+    // Re-read devicePixelRatio on every resize — on the native host it's a
+    // live query (the current monitor's scale factor), so this self-heals
+    // when the window crosses between differently-scaled monitors. A cached
+    // ratio silently diverges from the surface's clientWidth (which divides
+    // the physical extent by the live factor), sizing the swapchain to the
+    // wrong extent — wgpu then reports Outdated on every acquire forever.
+    const live = (typeof window !== "undefined" ? window.devicePixelRatio : 0) || 0;
+    this.dpr = this.dprOverride > 0 ? this.dprOverride : (live > 0 ? live : this.dpr);
     this.handler.onResize(this.canvas.clientWidth, this.canvas.clientHeight, this.dpr);
   }
 
+  /** Pin the ratio explicitly (tests, forced-DPR harnesses). 0 resumes
+   *  live tracking. */
   setDpr(dpr: number): void {
-    this.dpr = dpr;
+    this.dprOverride = dpr;
     this.resize();
   }
 

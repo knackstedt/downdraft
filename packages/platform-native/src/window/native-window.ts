@@ -839,10 +839,17 @@ export class NativeWindow extends MiniEventTarget {
         this.dispatchEvent({ type: "moved", x: eventView[0], y: eventView[1] });
         break;
 
-      case SDL_EVENT_SCALE_CHANGED:
-        // DPI scale changed (OS scale setting or monitor crossing).
+      case SDL_EVENT_SCALE_CHANGED: {
+        // DPI scale changed (OS scale setting or monitor crossing). Resized
+        // usually follows with the new physical extent, but the CSS-px
+        // clientWidth changes immediately — nudge the surface now so it
+        // recomputes and re-fires "resize" even when no Resized arrives.
+        // (Also re-fires CanvasResizeWatcher, which re-reads the live DPR.)
+        const sz = this.getWindowSize();
+        if (sz.width > 0 && sz.height > 0) this.pendingResize = { width: sz.width, height: sz.height };
         this.dispatchEvent({ type: "scale-changed", scaleFactor: floatView[0] });
         break;
+      }
 
       case SDL_EVENT_DROP_FILE: {
         const path = new TextDecoder().decode(new Uint8Array(this.eventData)).replace(/\0.*$/, "");
