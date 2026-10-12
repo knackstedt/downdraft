@@ -1,7 +1,7 @@
-// Probe the vendored WPE SDK/runtime prefix. The WebKit SDK container build
-// drops an installable prefix under ../vendor/wpe-<plat>/ (libglib, libgobject,
-// libwpe-2.0, libWPEWebKit-2.0, the GIO platform modules, helper binaries).
-// Absent the prefix the crate builds as a stub (dd_webui_create → null).
+// Link against the vendored WPE prefix — see scripts/fetch-wpe.mjs, which
+// stages the Debian trixie package closure under ../vendor/wpe-<plat>/
+// (lib/, libexec/, share/, include/). Absent the prefix the crate still
+// builds — dd_webui_global_init just fails and views report unavailable.
 
 use std::env;
 use std::path::PathBuf;
@@ -19,17 +19,35 @@ fn main() {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../vendor")
         .join(format!("wpe-{plat}"));
+    let lib = dir.join("lib");
     println!("cargo:rerun-if-changed={}", dir.display());
     println!("cargo:rustc-env=DD_WPE_PREFIX={}", dir.display());
-    if !dir.exists() {
+    if !lib.join("libWPEWebKit-2.0.so").exists() {
         println!(
-            "cargo:warning=WPE prefix not staged at {} — stub build; see \
-             packages/engine/libraries/webui/scripts/build-wpe.sh (WebKit SDK \
-             container) for a real build",
-            dir.display()
+            "cargo:warning=WPE prefix not staged at {} — unlinked build; run \
+             packages/engine/libraries/webui/scripts/fetch-wpe.mjs first",
+            lib.display()
         );
         return;
     }
-    // Phase 2 wires the real link line against the prefix's pkg-config set
-    // plus a $ORIGIN rpath so the staged runtime resolves.
+
+    println!("cargo:rustc-link-search=native={}", lib.display());
+    // Direct refs only — the rest of the closure resolves transitively via
+    // the vendored libs' own NEEDED entries + our $ORIGIN/lib rpath.
+    for l in [
+        "wpe-1.0",
+        "WPEBackend-fdo-1.0",
+        "WPEWebKit-2.0",
+        "wayland-server",
+        "glib-2.0",
+        "gobject-2.0",
+    ] {
+        println!("cargo:rustc-link-lib=dylib={l}");
+    }
+    // Vendored libs stage under <dist>/lib next to the cdylib. RPATH (not
+    // RUNPATH) is deliberate: old-style DT_RPATH applies transitively to
+    // the whole dependency tree, so the vendored Debian libs — which carry
+    // no rpath of their own — also resolve their own NEEDED deps from
+    // $ORIGIN/lib without patchelf or LD_LIBRARY_PATH.
+    println!("cargo:rustc-link-arg=-Wl,--disable-new-dtags,-rpath,$ORIGIN/lib");
 }

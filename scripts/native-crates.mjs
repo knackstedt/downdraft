@@ -86,6 +86,15 @@ export const CRATES = [
     dest: "packages/engine/libraries/webui/native-wpe/dist",
     flatCopy: true,
     targets: ["linux", "android"],
+    // The vendored Debian-trixie WPE prefix — lib/ lands at <dist>/lib/
+    // (our rpath is $ORIGIN/lib), libexec/ + share/ travel alongside so a
+    // dev launch can bind-mount them onto the hardcoded system paths
+    // (/usr/lib/x86_64-linux-gnu/wpe-webkit-2.0, /usr/share/wpe-webkit-2.0)
+    // inside a user namespace — see libraries/webui/README.md.
+    runtimeStage: {
+      glob: "../vendor/wpe-linux-x64",
+      exclude: ["include", "manifest"],
+    },
   },
 
   // Android only — the NativeActivity shell statically links downdraft-platform

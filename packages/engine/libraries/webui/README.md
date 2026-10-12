@@ -11,7 +11,7 @@ native dependencies so games that don't use it pay nothing.
 | Backend | Engine | Targets | Notes |
 |---|---|---|---|
 | `cef` | Chromium (CEF) | linux, win32, darwin | Multiprocess; ships a `downdraft_cef_helper` subprocess binary + a ~300MB runtime tree |
-| `wpe` | WebKit (embedded) | linux, android | WPEPlatform `buffer-rendered` path; the only real-browser option on Android |
+| `wpe` | WebKit (embedded) | linux, android | `wpe-fdo` SHM exportable backend; the only real-browser option on Android |
 | — | WKWebView | iOS | **Future target.** Overlay/airspace compositing only (no texture path), jitless-class JS performance — iOS forbids both subprocess renderers and JIT for third-party code |
 
 One ABI, two cdylibs:
@@ -85,13 +85,47 @@ page reaches `onConsole` subscribers on the host.
   `cef_binary_*_minimal` distribution into `vendor/cef-<plat>/`
   (`Release/` + `Resources/` + `include/`). The pin must match the
   `cef` crate's expected version — see `native-cef/Cargo.toml`.
-- **WPE (linux)**: `scripts/build-wpe.sh` builds WPEWebKit inside the
-  WebKit SDK container (`ghcr.io/webkit/wkdev-sdk`) and stages a
-  relocatable prefix into `vendor/wpe-<plat>/` — WPE is not packaged
-  on Ubuntu.
+- **WPE (linux)**: `scripts/fetch-wpe.mjs` downloads the Debian trixie
+  package closure (`libwpewebkit-2.0`, `libwpe`, `wpebackend-fdo`,
+  GLib/soup/GStreamer + transitive deps, the WPEWebProcess/WPENetworkProcess
+  libexec set, headers) into `vendor/wpe-linux-x64/` — minutes, not a
+  WebKit source build. The trixie libs need only GLIBC ≤ 2.38 (noble has
+  2.39), so they run natively on the dev host.
 - **WPE (android)**: wpe-android Maven artifacts — Phase 5
   (`scripts/fetch-wpe-android.mjs`) plus dex/service manifest glue in
   `package-mobile.mjs`.
+
+### Running WPE locally — `scripts/run-wpe.sh`
+
+Debian's `libWPEWebKit` spawns `WPEWebProcess` / `WPENetworkProcess` /
+`WPEGPUProcess` from a path baked in at build time
+(`/usr/lib/x86_64-linux-gnu/wpe-webkit-2.0`), and no
+`WEBKIT_EXEC_PATH`-style override exists. `scripts/run-wpe.sh` wraps any
+command in a user+mount namespace (`unshare -rm --propagation private`)
+with read-only **overlay** mounts merging the staged `libexec/` and
+`share/` trees over the system dirs — nothing is created on the host:
+
+```sh
+scripts/run-wpe.sh <wpe-dist-dir> <command...>
+# e.g.
+packages/engine/libraries/webui/scripts/run-wpe.sh \
+  packages/engine/libraries/webui/native-wpe/dist/linux-x64 \
+  bun packages/engine/libraries/webui/webui-spike.ts wpe
+```
+
+Two env knobs matter (both set by the launcher / `global_init`):
+`WPE_BACKEND_LIBRARY` names the wpe-loader impl lib
+(`libWPEBackend-fdo-1.0.so` — the default `libWPEBackend-default.so`
+doesn't exist), and `LD_LIBRARY_PATH` must cover the vendored `lib/` for
+the spawned subprocesses (our cdylib itself resolves via an
+old-style `DT_RPATH` `$ORIGIN/lib`, which the loader applies
+transitively — that's why no patchelf pass is needed).
+
+Rendering is `wpe_view_backend_exportable_fdo` in SHM mode
+(`wpe_fdo_initialize_shm`): the WebProcess hands out `wl_shm_buffer`s
+which we copy into the shared frame buffer, release, and frame-complete.
+Frames arrive whole-surface (WPE does no partial damage at this layer),
+so `frameRect()` reports full-view rects.
 
 `vendor/` is gitignored — runtimes are fetched per machine/CI.
 
@@ -105,7 +139,7 @@ libraries/webui/
   native-wpe/      cdylib (WPE) — linux + android targets
   src/             webui-ffi.ts (WebUIView, loadWebUiLib,
                    resolveWebUiBackend) + types.ts (WebUiHostBridge…)
-  scripts/         fetch-cef.mjs, build-wpe.sh
+  scripts/         fetch-cef.mjs, fetch-wpe.mjs, run-wpe.sh
   vendor/          fetched runtimes (gitignored)
   webui-spike.ts   identical assertion battery run against any backend
 ```

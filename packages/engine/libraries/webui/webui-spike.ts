@@ -22,7 +22,9 @@
 // lands (Phase 1 CEF / Phase 2 WPE).
 // ============================================================================
 
-import { loadWebUiLib, resolveWebUiBackend, webUiGlobalInit, WebUIView } from "./src/webui-ffi";
+import {
+    loadWebUiLib, resolveWebUiBackend, webUiGlobalInit, WebUIView
+} from "./src/webui-ffi";
 
 const arg = process.argv[2]?.toLowerCase();
 const backend = resolveWebUiBackend(
@@ -72,7 +74,13 @@ async function main() {
     console.log(`  version: ${ver}`);
   } catch { check("backend token", false, "symbol missing"); }
 
-  const initialized = webUiGlobalInit(backend, { headless: true });
+  // WPE: point global_init at the staged prefix so it exports
+  // LD_LIBRARY_PATH for the WPEWebProcess/WPENetworkProcess children
+  // (the parent lib resolves itself via RPATH — the children can't).
+  const distDir = entry.path.replace(/\/libdowndraft_webui_wpe\.so$/, "");
+  const initOpts: WebUiGlobalInitOpts = { headless: true };
+  if (backend === "wpe") initOpts.wpePrefix = distDir;
+  const initialized = webUiGlobalInit(backend, initOpts);
   check("global_init", initialized);
   if (!initialized) return process.exit(1);
 
