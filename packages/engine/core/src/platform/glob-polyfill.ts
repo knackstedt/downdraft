@@ -14,7 +14,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 // embedded — package-native.mjs stages them at <execDir>/dd-assets/
 // <repo-rel>, so a $bunfs callerDir maps onto the staged tree. The keys
 // stay identical because both trees share the same relative structure.
-const BUNFS_ROOT_RE = /^\/\$bunfs\/root\/|^B:\\~BUN\\root\\/i;
+const BUNFS_ROOT_RE = /^\/\$bunfs\/root\/?|^B:\\~BUN\\root\\?/i;
 
 function mapCallerDir(callerDir: string): string {
   if (!BUNFS_ROOT_RE.test(callerDir)) return callerDir;

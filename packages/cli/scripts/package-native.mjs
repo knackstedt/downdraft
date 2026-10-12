@@ -137,6 +137,14 @@ const META_URL_RE = new RegExp(IMPORT_META.source + String.raw`\.url\b`, "g");
 // injected __ddCreateGlob binding.
 const REQUIRE_GLOB_RE = /require\(\s*["'`]@downdraft\/engine\/platform\/glob-polyfill["'`]\s*\)/g;
 const GLOB_CALLEE_RE = new RegExp(IMPORT_META.source + String.raw`\.glob`);
+// globAssets(pattern, import.meta, opts?) — the meta OBJECT escapes the
+// META_DIR_RE/META_URL_RE token rewrites (its .dir/.url are read inside
+// the engine helper), and in compiled binaries import.meta.dir flattens
+// to /$bunfs/root for every module — the helper would glob a nonexistent
+// root and return {} for every asset query. The meta argument is swapped
+// for a synthetic object bound to the module's staged dir.
+const GLOB_ASSETS_META_RE = new RegExp(
+  `\\bglobAssets\\(\\s*(["'\`][^"'\`]*["'\`])\\s*,\\s*${IMPORT_META.source}(\\s*,)?`, "g");
 const SCRIPT_EXT_RE = /\.(ts|tsx|js|jsx|mts|mjs|cts|cjs)$/i;
 const DYN_IMPORT_RE = /import\(\s*([a-zA-Z_$][\w$]*)\s*\)/g;
 
@@ -375,6 +383,12 @@ const makePlugin = (collectWorkers) => ({
         needsGlob = true;
         out = out.replace(REQUIRE_GLOB_RE, "({ createGlob: __ddCreateGlob })");
       }
+      // 3c. globAssets(pattern, import.meta, ...) — bind the meta object to
+      // the staged dir so caller-relative globs resolve under dd-assets.
+      out = out.replace(GLOB_ASSETS_META_RE, (m, p1, comma) => {
+        needsGlob = true;
+        return `globAssets(${p1}, { dir: __ddModDir, url: __ddModUrl, glob: __ddGlob }${comma ?? ""}`;
+      });
       // 4. import.meta.dir / .url / bare __dirname → the module's location
       // inside the staged dd-assets tree (real FS — sibling asset reads,
       // glob enumeration, and wasm/binary loads all resolve there).

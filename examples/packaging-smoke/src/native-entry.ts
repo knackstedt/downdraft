@@ -8,7 +8,7 @@
 // opens a minimal native window (manual smoke).
 // ============================================================================
 
-import { createGlob } from "@downdraft/engine/platform/glob-polyfill";
+import { createGlob, globAssets } from "@downdraft/engine/platform/glob-polyfill";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -58,12 +58,17 @@ worker.terminate();
 const urls = createGlob(import.meta.dir)("./assets/*.txt") as Record<string, string>;
 const bodies = Object.values(urls).map((u) => readFileSync(fileURLToPath(u), "utf-8").trim());
 
+// globAssets(pattern, import.meta) — the meta OBJECT path. Compiled binaries
+// flatten import.meta.dir to /$bunfs/root so the packagers rewrite the meta
+// argument to a synthetic object bound to the staged module dir.
+const assetGlob = globAssets("./assets/*.txt", import.meta);
+
 // new URL asset ref — rewritten to an absolute dd-assets URL at package time.
 const hello = readFileSync(fileURLToPath(new URL("./assets/hello.txt", import.meta.url)), "utf-8").trim();
 
 if (SMOKE) {
   console.log(
-    `DD_SMOKE_OK worker=${JSON.stringify(pong.data)} globs=${Object.keys(urls).length} asset=${hello}`,
+    `DD_SMOKE_OK worker=${JSON.stringify(pong.data)} globs=${Object.keys(urls).length} globAssets=${Object.keys(assetGlob).length} asset=${hello}`,
   );
   process.exit(0);
 }

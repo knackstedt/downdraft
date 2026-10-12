@@ -184,6 +184,14 @@ const META_DIR_RE = new RegExp(IMPORT_META.source + String.raw`\.(?:dir|dirname)
 const META_URL_RE = new RegExp(IMPORT_META.source + String.raw`\.url\b`, "g");
 const REQUIRE_GLOB_RE = /require\(\s*["'`]@downdraft\/engine\/platform\/glob-polyfill["'`]\s*\)/g;
 const GLOB_CALLEE_RE = new RegExp(IMPORT_META.source + String.raw`\.glob`);
+// globAssets(pattern, import.meta, opts?) — the meta OBJECT escapes the
+// META_DIR_RE/META_URL_RE token rewrites (its .dir/.url are read inside
+// the engine helper). For emit runtimes the real import.meta points into
+// the bundle tree, not dd-assets; for bun-compiled binaries it flattens
+// to /$bunfs/root — either way every asset glob misses. The meta argument
+// is swapped for a synthetic object bound to the module's staged dir.
+const GLOB_ASSETS_META_RE = new RegExp(
+  `\\bglobAssets\\(\\s*(["'\`][^"'\`]*["'\`])\\s*,\\s*${IMPORT_META.source}(\\s*,)?`, "g");
 const SCRIPT_EXT_RE = /\.(ts|tsx|js|jsx|mts|cts|cjs)$/i; // .mjs staged as an asset (execArgv loaders)
 const DYN_IMPORT_RE = /import\(\s*([a-zA-Z_$][\w$]*)\s*\)/g;
 
@@ -433,6 +441,12 @@ const makeEmitPlugin = (collectWorkers) => ({
         needsGlob = true;
         out = out.replace(REQUIRE_GLOB_RE, "({ createGlob: __ddCreateGlob })");
       }
+      // 3c. globAssets(pattern, import.meta, ...) — bind the meta object to
+      // the staged dir so caller-relative globs resolve under dd-assets.
+      out = out.replace(GLOB_ASSETS_META_RE, (m, p1, comma) => {
+        needsGlob = true;
+        return `globAssets(${p1}, { dir: __ddModDir, url: __ddModUrl, glob: __ddGlob }${comma ?? ""}`;
+      });
       // 4. import.meta.dir/.url/__dirname → module's staged dir under
       //    dd-assets (real FS).
       const metaOut = out
