@@ -10,7 +10,7 @@ use blitz_dom::{
     ns,
 };
 
-use crate::{OsrDoc, doc_enter, ffi, read_str};
+use crate::{OsrDoc, doc_enter, emit_focus_change, ffi, read_str};
 
 fn attr_qname(name: &str) -> QualName {
     QualName::new(None, ns!(), LocalName::from(name))
@@ -40,10 +40,19 @@ fn with_node_mutator(
         if d.doc.inner().get_node(id).is_none() {
             return -1; // stale/missing node — no-op
         }
-        let mut doc = d.doc.inner_mut();
-        let mut mutator = DocumentMutator::new(&mut doc);
-        let r = f(&mut mutator, id);
-        drop(mutator); // flush mutations
+        // Mutations can drop the focused node (innerHTML rebuilds, child
+        // trims) — blitz clears focus_node_id silently, which would leave
+        // the host's editing state latched on a dead element. Diff and emit
+        // the blur.
+        let prev_focus = d.doc.inner().get_focussed_node_id();
+        let r = {
+            let mut doc = d.doc.inner_mut();
+            let mut mutator = DocumentMutator::new(&mut doc);
+            let r = f(&mut mutator, id);
+            drop(mutator); // flush mutations
+            r
+        };
+        emit_focus_change(d, prev_focus);
         d.dirty = true;
         r
     })
@@ -296,6 +305,8 @@ pub extern "C" fn dd_osr_out_len(handle: *mut OsrDoc) -> usize {
 }
 
 /// Focus a node programmatically (mirrors click-focus). Pass 0 to blur.
+/// Emits the DOM blur/focus events a click would, so host-side editing
+/// state tracks programmatic focus too.
 #[no_mangle]
 pub extern "C" fn dd_osr_focus(handle: *mut OsrDoc, node: u64) -> c_int {
     ffi(-1, || {
@@ -303,16 +314,20 @@ pub extern "C" fn dd_osr_focus(handle: *mut OsrDoc, node: u64) -> c_int {
             return -1;
         };
         let d = g.get();
-        let mut doc = d.doc.inner_mut();
-        if node == 0 {
-            doc.clear_focus();
-        } else {
-            let id = node_id(node);
-            if doc.get_node(id).is_none() {
-                return -1;
+        let prev = d.doc.inner().get_focussed_node_id();
+        {
+            let mut doc = d.doc.inner_mut();
+            if node == 0 {
+                doc.clear_focus();
+            } else {
+                let id = node_id(node);
+                if doc.get_node(id).is_none() {
+                    return -1;
+                }
+                doc.set_focus_to(id);
             }
-            doc.set_focus_to(id);
         }
+        emit_focus_change(d, prev);
         d.dirty = true;
         0
     })

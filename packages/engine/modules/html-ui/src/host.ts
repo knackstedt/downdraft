@@ -446,6 +446,7 @@ export class HtmlUiHost {
     p.sab = null;
     p.sabI32 = null;
     if (this.focusedPanel === id) this.focusedPanel = null;
+    if (this.pointerDownOn === id) { this.pointerDownOn = null; this.onPressChange?.(null); }
     this.send({ type: "destroy", id });
   }
 
@@ -462,6 +463,11 @@ export class HtmlUiHost {
     set.add(fn);
     return () => { set.delete(fn); };
   }
+
+  /** Fires when a pointer press on a panel starts (panelId) and ends (null)
+   *  — lets consumers hold DOM mutations stable across a click so a rebuild
+   *  can't destroy the pressed element (or a just-focused input) mid-gesture. */
+  onPressChange: ((panelId: string | null) => void) | null = null;
 
   /** True when the pointer is inside any panel rect (UI owns the cursor).
    *  Optional coords hit-test a specific point instead of the last seen
@@ -597,14 +603,20 @@ export class HtmlUiHost {
           return;
         }
         ctrl.stopPropagation();
+        // A missed release (window blur mid-press) leaves pointerDownOn
+        // set — the new press supersedes it, so release the stale latch.
+        if (this.pointerDownOn) this.onPressChange?.(null);
         this.pointerDownOn = p.id;
+        this.onPressChange?.(p.id);
         this.focusedPanel = p.id;
         const c = local(p, e);
         input(p.id, { kind: "down", ...c, button: btn(e.button), mods: modsOf(e) });
       }, -10),
       bus.onPointerUp((e: PointerEvent, ctrl: InputEventControl) => {
         const downOn = this.pointerDownOn ? this.panels.get(this.pointerDownOn) : null;
+        const hadDown = this.pointerDownOn !== null;
         this.pointerDownOn = null;
+        if (hadDown) this.onPressChange?.(null);
         const p = downOn ?? this.panelAt(e.clientX, e.clientY);
         if (!p) return;
         ctrl.stopPropagation();
@@ -787,7 +799,7 @@ export class HtmlUiHost {
           if (ev.t === "focus") p.editing = ev.g === "input" || ev.g === "textarea";
           else if (ev.t === "blur") p.editing = false;
           p.handlers.forEach((fn) => fn(ev));
-          if ((ev.t === "click" || ev.t === "dblclick" || ev.t === "contextmenu") && ev.d?.action) {
+          if (ev.t === "click" && ev.d?.action) {
             const d = ev.d;
             (this.actionHandlers.get(d.action) ?? []).forEach((fn) => fn(d, ev));
           }

@@ -22,13 +22,13 @@ use std::time::Instant;
 use anyrender::ImageRenderer;
 use anyrender_vello_cpu::VelloCpuImageRenderer;
 use atomic_refcell::AtomicRefCell;
-use blitz_dom::{BaseDocument, Document, DocumentConfig, EventDriver, FontContext};
+use blitz_dom::{BaseDocument, Document, DocumentConfig, EventDriver, FontContext, NodeId};
 use blitz_html::HtmlDocument;
 use blitz_paint::paint_scene;
 use blitz_traits::events::{
-    BlitzKeyEvent, BlitzPointerEvent, BlitzPointerId, BlitzWheelDelta, BlitzWheelEvent,
-    KeyState, MouseEventButton, MouseEventButtons, PointerCoords, PointerDetails,
-    UiEvent,
+    BlitzFocusEvent, BlitzKeyEvent, BlitzPointerEvent, BlitzPointerId, BlitzWheelDelta,
+    BlitzWheelEvent, DomEvent, DomEventData, KeyState, MouseEventButton, MouseEventButtons,
+    PointerCoords, PointerDetails, UiEvent,
 };
 use blitz_traits::shell::{ColorScheme, ShellProvider, Viewport};
 use keyboard_types::{Code, Key, Location, Modifiers};
@@ -183,12 +183,17 @@ pub struct OsrDoc {
     frame_buf: Option<BoundBuf>,
     /// Currently-pressed mouse buttons (mirrors winit shell bookkeeping).
     buttons: MouseEventButtons,
+    /// Node under the last main-button press, via element_from_point. Blitz's
+    /// own mousedown_node_id stays None over background (hit() misses the
+    /// root), which click reconciliation needs to distinguish "press on page
+    /// chrome" from "no press at all".
+    press_node: Option<NodeId>,
     /// Last pointer position in physical px — wheel events reuse it.
     pointer_pos: (f64, f64),
     /// Active-pointer list shared into every dispatched event (multi-touch).
     active_pointers: Arc<AtomicRefCell<Vec<BlitzPointerEvent>>>,
     /// DOM events captured during dispatch — drained by dd_osr_poll_events.
-    events: EventQueue,
+    pub(crate) events: EventQueue,
     /// Owned buffer returned by dd_osr_poll_events (JSON array).
     events_buf: Vec<u8>,
     /// Owned buffer for string-returning FFI calls (dd_osr_get_attr).
@@ -266,7 +271,14 @@ pub(crate) fn doc_enter(handle: *mut OsrDoc) -> Option<DocGuard> {
 fn doc_has_damage(d: &OsrDoc) -> bool {
     let doc = d.doc.inner();
     let root = doc.root_node();
-    root.has_damaged_descendants() || root.damage().is_some_and(|dmg| !dmg.is_empty())
+    // has_damaged_descendants covers post-restyle layout/paint damage;
+    // has_dirty_descendants covers queued restyle work — pseudo-state flips
+    // (focus/active from clicks, :hover from moves) mark ancestors dirty but
+    // set no damage until resolve() restyles, and without this check a
+    // focus-ring change waits invisibly for the next event to flag damage.
+    root.has_damaged_descendants()
+        || root.has_dirty_descendants()
+        || root.damage().is_some_and(|dmg| !dmg.is_empty())
 }
 
 /// Fold pending repaint signals into `d.dirty`. Called after input dispatch
@@ -385,6 +397,7 @@ pub extern "C" fn dd_osr_init(
             stats: [0.0; 8],
             frame_buf: None,
             buttons: MouseEventButtons::None,
+            press_node: None,
             pointer_pos: (0.0, 0.0),
             active_pointers: Arc::new(AtomicRefCell::new(Vec::new())),
             events: new_event_queue(),
@@ -424,10 +437,17 @@ pub extern "C" fn dd_osr_set_html(handle: *mut OsrDoc, html_ptr: *const u8, html
         };
         let (w, h) = d.doc.inner().viewport().window_size;
         let scale = d.doc.inner().viewport().scale_f64() as f32;
+        // Focus dies with the doc — emit the blur so the host's editing
+        // state clears (the event queue is wiped with the rebuild, so this
+        // has to go back in after the clear).
+        let prev_focus = d.doc.inner().get_focussed_node_id();
         d.doc = build_doc(w, h, scale, html, Arc::clone(&d.redraw));
         d.buttons = MouseEventButtons::None;
         d.active_pointers.borrow_mut().clear();
         d.events.borrow_mut().clear();
+        if let Some(f) = prev_focus {
+            push_blur_event(d, f);
+        }
         d.prev_pixels.clear();
         d.dirty = true;
         0
@@ -778,6 +798,23 @@ pub extern "C" fn dd_osr_pointer(
         d.pointer_pos = (x, y);
         let mut event = make_pointer_event(d, x, y, dom_button(button));
         event.mods = kbt_modifiers(mods);
+        // Click reconciliation applies only to main-button releases that
+        // weren't scrollbar drags — checked before dispatch, which consumes
+        // the drag state. `had_down` records whether a main press is still
+        // outstanding (before arm 2 clears it) — a stray release must not
+        // synthesize a click.
+        let reconcile = kind == 2
+            && event.button == MouseEventButton::Main
+            && d.doc.inner().scrollbar_drag_target().is_none();
+        let main_down = kind == 1 && event.button == MouseEventButton::Main;
+        let events_before = if reconcile { d.events.borrow().len() } else { 0 };
+        let had_down = reconcile && d.buttons.contains(MouseEventButtons::Primary);
+        // Snapshot focus: a popped cross-subtree click may still have run
+        // blitz's clear-focus default action — it gets restored after.
+        let focus_before =
+            reconcile.then(|| d.doc.inner().get_focussed_node_id()).flatten();
+        // Cloned for reconcile_click — the event itself moves into ui_event.
+        let up_event = reconcile.then(|| event.clone());
         let ui_event = match kind {
             1 => {
                 d.buttons |= event.button.into();
@@ -795,9 +832,255 @@ pub extern "C" fn dd_osr_pointer(
             _ => UiEvent::PointerMove(event),
         };
         dispatch(d, ui_event);
+        if main_down {
+            // Record the press target post-dispatch (layout is current now).
+            // mousedown_node_id misses root-element hits; element_from_point
+            // returns the root over background, so the release side can tell
+            // a real press from a stray up.
+            let doc = d.doc.inner();
+            let scale = doc.viewport().scale_f64();
+            d.press_node = doc
+                .get_mousedown_node_id()
+                .or_else(|| doc.element_from_point((x / scale) as f32, (y / scale) as f32));
+        }
+        if let Some(ev) = up_event {
+            let up_node = {
+                let doc = d.doc.inner();
+                let scale = doc.viewport().scale_f64();
+                doc.element_from_point((x / scale) as f32, (y / scale) as f32)
+                    .or_else(|| doc.get_hover_node_id())
+            };
+            let down_node = d.press_node.or_else(|| d.doc.inner().get_mousedown_node_id());
+            d.press_node = None;
+            reconcile_click(d, &ev, events_before, had_down, focus_before, down_node, up_node);
+        }
         fold_redraw(d);
         0
     })
+}
+
+/// Is `anc` an ancestor-or-self of `id`?
+fn subtree_contains(doc: &BaseDocument, anc: NodeId, mut id: NodeId) -> bool {
+    loop {
+        if id == anc {
+            return true;
+        }
+        match doc.get_node(id).and_then(|n| n.parent) {
+            Some(p) => id = p,
+            None => return false,
+        }
+    }
+}
+
+/// Press and release landing inside the same element subtree — either
+/// direction — counts as one click. Descendant-down → ancestor-up covers
+/// release on a small control's own padding/children; ancestor-down →
+/// descendant-up covers press on a container's bare area.
+fn same_subtree(doc: &BaseDocument, a: NodeId, b: NodeId) -> bool {
+    subtree_contains(doc, a, b) || subtree_contains(doc, b, a)
+}
+
+/// A click whose release landed outside the pressed node's own subtree must
+/// not move DOM focus — real DOMs drive focus from pointerdown, not the
+/// release — but blitz's handle_click may already have run its clear-focus
+/// default action. Restore the pre-release focus, re-emitting blur/focus so
+/// host-side editing state stays consistent.
+fn restore_focus(d: &mut OsrDoc, focus_before: Option<NodeId>) {
+    let Some(prev) = focus_before else { return };
+    let moved = d.doc.inner().get_focussed_node_id();
+    if moved == focus_before || d.doc.inner().get_node(prev).is_none() {
+        return;
+    }
+    d.doc.inner_mut().set_focus_to(prev);
+    emit_focus_change(d, moved);
+}
+
+/// Dispatch one DomEvent through an EventDriver so both the DOM-event queue
+/// and blitz's default actions (focus changes, checkbox toggles, labels,
+/// dblclick synthesis) run as they would for a natively emitted event.
+fn dispatch_dom_event(d: &mut OsrDoc, event: DomEvent) {
+    let mut driver = EventDriver::new(
+        &mut d.doc,
+        QueueingHandler {
+            queue: std::rc::Rc::clone(&d.events),
+        },
+    );
+    driver.handle_dom_event(event);
+}
+
+/// Push a serialized blur for a node that no longer exists. DomEvent
+/// dispatch on a removed id would panic, but the host still needs the blur
+/// to clear its editing state when a mutation drops the focused element.
+pub(crate) fn push_blur_event(d: &mut OsrDoc, node: NodeId) {
+    let mut q = d.events.borrow_mut();
+    if q.len() >= 4096 {
+        q.pop_front();
+    }
+    q.push_back(format!("{{\"t\":\"blur\",\"n\":{}}}", node.as_u64()));
+}
+
+/// Emit DOM blur/focus events for a focus transition that happened outside
+/// the click path (programmatic dd_osr_focus, node removal). `prev` is the
+/// pre-change focused node; the new focus is read from the doc. Nodes that
+/// were removed get a raw JSON blur instead of a real DomEvent.
+pub(crate) fn emit_focus_change(d: &mut OsrDoc, prev: Option<NodeId>) {
+    let cur = d.doc.inner().get_focussed_node_id();
+    if prev == cur {
+        return;
+    }
+    if let Some(old) = prev {
+        if d.doc.inner().get_node(old).is_some() {
+            dispatch_dom_event(d, DomEvent::new(old, DomEventData::Blur(BlitzFocusEvent)));
+            dispatch_dom_event(d, DomEvent::new(old, DomEventData::FocusOut(BlitzFocusEvent)));
+        } else {
+            push_blur_event(d, old);
+        }
+    }
+    if let Some(new) = cur {
+        if d.doc.inner().get_node(new).is_some() {
+            dispatch_dom_event(d, DomEvent::new(new, DomEventData::Focus(BlitzFocusEvent)));
+            dispatch_dom_event(d, DomEvent::new(new, DomEventData::FocusIn(BlitzFocusEvent)));
+        }
+    }
+}
+
+/// Releases that drift off the pressed element onto an ancestor by less than
+/// this many logical px are treated as click jitter and retargeted to the
+/// pressed node. Bigger outward drifts keep the browser-like outcome — the
+/// click lands on the ancestor container itself.
+const RELEASE_JITTER_PX: f32 = 8.0;
+
+/// Node border-box rect in document space: [x, y, w, h], matching
+/// PointerCoords.page_x/page_y.
+fn node_page_rect(doc: &BaseDocument, id: NodeId) -> Option<[f32; 4]> {
+    let node = doc.get_node(id)?;
+    let pos = node.unrounded_absolute_position(0.0, 0.0);
+    let size = node.final_layout().size;
+    Some([
+        pos.x as f32,
+        pos.y as f32,
+        size.width as f32,
+        size.height as f32,
+    ])
+}
+
+/// Drop `click`/`dblclick` events this dispatch pushed onto the queue — used
+/// when the native click's target (or existence) is being overridden.
+fn pop_queued_clicks(d: &mut OsrDoc, events_before: usize) {
+    let mut q = d.events.borrow_mut();
+    let mut i = events_before;
+    while i < q.len() {
+        let s = &q[i];
+        if s.starts_with("{\"t\":\"click\"") || s.starts_with("{\"t\":\"dblclick\"") {
+            q.remove(i);
+        } else {
+            i += 1;
+        }
+    }
+}
+
+/// Post-dispatch click reconciliation for main-button releases.
+///
+/// Blitz gates `click` on `drag_mode == None`: >2px of pointer travel during
+/// a press enters `Selecting` and eats the click entirely — real-world
+/// mouse jitter — including the focus-clearing default action. And when no
+/// drag mode starts (e.g. the pressed node has user-select:none) it emits
+/// the click on the release node even when the press began on a different
+/// element, so a press-drag-release onto another control activates it.
+///
+/// Policy here follows nearest-common-ancestor click semantics: a click is
+/// synthesized iff a main-button press was outstanding and press and release
+/// hit the same element subtree. When the press node contains the release
+/// (press on chrome, release on a child control), the click targets the
+/// PRESS node — controls don't activate for gestures that started outside
+/// them. When the release lands on an ancestor of the press (a jittered
+/// release just outside a small control's border), it retargets to the press
+/// node within RELEASE_JITTER_PX; further out it's a genuine container
+/// click. Releases on unrelated subtrees — or with no press at all — drop
+/// the click entirely.
+fn reconcile_click(
+    d: &mut OsrDoc,
+    event: &BlitzPointerEvent,
+    events_before: usize,
+    had_down: bool,
+    focus_before: Option<NodeId>,
+    down: Option<NodeId>,
+    up: Option<NodeId>,
+) {
+    let emitted = {
+        let q = d.events.borrow();
+        (events_before..q.len()).any(|i| q[i].starts_with("{\"t\":\"click\""))
+    };
+    let related = had_down
+        && match (down, up) {
+            (Some(a), Some(b)) => same_subtree(&d.doc.inner(), a, b),
+            _ => false,
+        };
+    // The release-side focus move blitz may have applied is only undone when
+    // the press began inside the element that held focus (dragging out of a
+    // focused input keeps it focused in a real DOM) — or when there was no
+    // press at all (stray release). A press that started outside the focused
+    // node legitimately steals focus, like mousedown does in a real DOM.
+    let press_in_focused = match (down, focus_before) {
+        (Some(dn), Some(f)) => subtree_contains(&d.doc.inner(), dn, f),
+        _ => false,
+    };
+    let undo_focus = down.is_none() || press_in_focused;
+
+    if related {
+        let (down, up) = (down.unwrap(), up.unwrap());
+        // Release strictly on an ancestor of the press: jitter forgiveness
+        // retargets to the press node when the release point is near its
+        // rect; a far release clicks the ancestor itself.
+        let released_onto_ancestor = !subtree_contains(&d.doc.inner(), down, up);
+        let near_press = released_onto_ancestor
+            && node_page_rect(&d.doc.inner(), down).is_some_and(|r| {
+                let px = event.coords.page_x;
+                let py = event.coords.page_y;
+                px >= r[0] - RELEASE_JITTER_PX
+                    && px <= r[0] + r[2] + RELEASE_JITTER_PX
+                    && py >= r[1] - RELEASE_JITTER_PX
+                    && py <= r[1] + r[3] + RELEASE_JITTER_PX
+            });
+        let target = if released_onto_ancestor && !near_press {
+            up
+        } else {
+            down
+        };
+        if target == up {
+            // Suppressed-by-drag clicks on the right target get re-fired;
+            // emitted ones stand.
+            if !emitted {
+                dispatch_dom_event(
+                    d,
+                    DomEvent::new(up, DomEventData::Click(event.clone())),
+                );
+            }
+        } else {
+            // Retarget: drop the emitted ancestor/release-node click, then
+            // dispatch the click on the press node — its default action also
+            // settles focus the way mousedown semantics dictate.
+            if emitted {
+                pop_queued_clicks(d, events_before);
+            }
+            dispatch_dom_event(d, DomEvent::new(down, DomEventData::Click(event.clone())));
+        }
+        // A far release onto an ancestor still cleared focus through the
+        // kept ancestor click — restore it for drag-outs that began inside
+        // the focused element.
+        if released_onto_ancestor && !near_press && undo_focus {
+            restore_focus(d, focus_before);
+        }
+    } else {
+        // Unrelated subtrees or a release with no press at all: the emitted
+        // click (and the dblclick it may have spawned) is void.
+        if emitted {
+            pop_queued_clicks(d, events_before);
+        }
+        if undo_focus {
+            restore_focus(d, focus_before);
+        }
+    }
 }
 
 /// Wheel event at the last pointer position. Deltas are in pixels using
