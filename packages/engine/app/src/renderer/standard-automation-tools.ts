@@ -410,7 +410,7 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
           },
         },
       },
-      handler: (params: Record<string, unknown>) => {
+      handler: async (params: Record<string, unknown>) => {
         const surface = resolveSurface(ctx.surface);
         if (!surface) return errorResult("Surface not available");
         const x = (params.x as number) ?? surface.clientWidth / 2;
@@ -453,12 +453,24 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
         };
         if (type === "click") {
           // A real click is a full press/release cycle — UI hit-testing needs
-          // the pointerdown→pointerup pair to register press and click.
+          // the pointerdown→pointerup pair to register press and click. The
+          // native blitz doc hit-tests on pointer position, so a pointermove
+          // must precede the pair to place the cursor on the target first.
+          fireOne("pointermove", true, 0);
+          fireOne("mousemove", false, 0);
           fireOne("pointerdown", true, downMask);
           fireOne("mousedown", false, downMask);
+          // Blitz registers the press on its frame tick — down and up in the
+          // same JS turn never cross a frame boundary, so no click fires.
+          // Hold the press across ~2 frames like a real click.
+          await new Promise((r) => setTimeout(r, 80));
           fireOne("pointerup", true, 0);
           fireOne("mouseup", false, 0);
           fireOne("click", false, 0);
+          // Blitz resolves the press→click on the next pointer event, so a
+          // trailing move flushes the click through.
+          fireOne("pointermove", true, 0);
+          fireOne("mousemove", false, 0);
         } else {
           const buttons = type === "mouseup" || type === "mousemove" ? 0 : downMask;
           const pointerType = POINTER_COMPANION[type];
