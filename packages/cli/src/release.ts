@@ -256,7 +256,12 @@ function packageNative(
         // appimage, flatpak). Formats come from --format → build.linux.target
         // → "dir".
         const format = opts.format
-          ?? (Array.isArray(info.build.linux?.target) ? info.build.linux.target.join(",") : info.build.linux?.target)
+          ?? (Array.isArray(info.build.linux?.target)
+            ? info.build.linux.target
+                .map((t: unknown) => (typeof t === "string" ? t : (t as { target?: string }).target ?? ""))
+                .filter(Boolean)
+                .join(",")
+            : info.build.linux?.target)
           ?? "dir";
         const argv = [
           scriptDesktop,

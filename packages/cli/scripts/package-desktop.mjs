@@ -660,6 +660,8 @@ if (runtime === "bun") {
     `SELF="$(readlink -f "$0" 2>/dev/null || realpath "$0" 2>/dev/null || echo "$0")"\n` +
     `DIR="$(dirname "$SELF")"\n` +
     `export DD_APP_ID="${appId}"\n` +
+    `export DOWNDRAFT_PACKAGED=1\n` +
+    `export DOWNDRAFT_BUNDLE_DIR="$DIR"\n` +
     (iconPath ? `export DD_APP_ICON="$DIR/icon.png"\n` : "") +
     `exec "$DIR/${runtime}" ${rtArgs} "$DIR/bundle/index.js" "$@"\n`);
   chmodSync(join(appdir, exeName), 0o755);
@@ -713,9 +715,13 @@ if (runtime !== "bun") {
 }
 
 // build.files — electron-builder-style extra files into the appdir root.
+// `dir/**/*` entries resolve to the dir itself (matched files keep their
+// repo-relative structure under <appdir>/dir/).
 for (const f of (Array.isArray(build.files) ? build.files : []).values()) {
-  const src = resolve(gameDir, typeof f === "string" ? f : f.from);
-  const dest = join(appdir, typeof f === "string" ? basename(f) : (f.to ?? basename(f.from)));
+  const from = typeof f === "string" ? f : f.from;
+  const rel = from.replace(/\/\*\*?\/\*?$/, "").replace(/\/+$/, "");
+  const src = resolve(gameDir, rel);
+  const dest = join(appdir, typeof f === "string" ? rel : (f.to ?? rel));
   if (!existsSync(src)) { console.warn(`[package-desktop] files entry missing: ${src}`); continue; }
   cpSync(src, dest, { recursive: true });
 }
