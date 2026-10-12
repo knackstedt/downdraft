@@ -366,6 +366,10 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
             code: { type: "string", description: "Key code (e.g. 'KeyI', 'Tab', 'Escape')" },
             type: { type: "string", enum: ["keydown", "keyup"], default: "keydown" },
             repeat: { type: "boolean", default: false },
+            ctrlKey: { type: "boolean", default: false },
+            shiftKey: { type: "boolean", default: false },
+            altKey: { type: "boolean", default: false },
+            metaKey: { type: "boolean", default: false },
           },
           required: ["key"],
         },
@@ -377,6 +381,8 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
         const ev = new KeyboardEvent(type, {
           key, code, keyCode: domKeyCodeFor(key),
           bubbles: true, cancelable: true, repeat: !!params.repeat,
+          ctrlKey: !!params.ctrlKey, shiftKey: !!params.shiftKey,
+          altKey: !!params.altKey, metaKey: !!params.metaKey,
         } as KeyboardEventInit);
         // Real KeyboardEvent ignores keyCode in the init dict — force it.
         try { Object.defineProperty(ev, "keyCode", { value: domKeyCodeFor(key) }); } catch { /* polyfill already set it */ }

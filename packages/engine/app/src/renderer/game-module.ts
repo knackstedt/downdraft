@@ -363,6 +363,10 @@ export interface GameModule<Sim extends GameSimWorker = GameSimWorker, R extends
   /** Declarative sim→renderer event handler map. Replaces the switch block.
    *  Ignored for renderer-only games (no sim worker to emit events). */
   events?: SimEventMap<GameContext<Sim, R>>;
+  /** Sim event kinds consumed outside the declarative `events` map (e.g. a
+   *  session layer subscribing via worker.onSimEvent directly). Listed kinds
+   *  skip the dev "Unhandled sim event kind" warning. */
+  silentEvents?: readonly string[];
 
   // ── Save ──
   /** Save configuration. If omitted, no autosave is wired. */
@@ -576,7 +580,7 @@ export async function startGame<Sim extends GameSimWorker, R extends GameRendere
   // Event kinds emitted by the engine itself (sim-worker-base lifecycle)
   // that games are not required to handle — suppress the dev warning for
   // these so autosave doesn't spam the console when no handler is wired.
-  const ENGINE_EMITTED_EVENT_KINDS = new Set(["ready", "saved", "loaded", "error"]);
+  const ENGINE_EMITTED_EVENT_KINDS = new Set(["ready", "saved", "loaded", "error", ...(module.silentEvents ?? [])]);
 
   // 4. Wire event routing from the declarative events map (sim-worker only).
   //    Supports both GameSimWorker.onEvent(cb) and SimWorkerHost's
