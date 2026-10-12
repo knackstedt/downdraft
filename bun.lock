@@ -37,7 +37,7 @@
     },
     "packages/cli": {
       "name": "@downdraft/cli",
-      "version": "0.4.3",
+      "version": "0.4.4",
       "bin": {
         "draft": "src/index.ts",
       },
@@ -51,7 +51,7 @@
     },
     "packages/engine": {
       "name": "@downdraft/engine",
-      "version": "0.4.3",
+      "version": "0.4.4",
       "dependencies": {
         "@bokuweb/zstd-wasm": "^0.0.27",
         "@dimforge/rapier3d-compat": "^0.19.3",
@@ -77,7 +77,7 @@
         "@types/dns-packet": "^5.6.5",
       },
       "peerDependencies": {
-        "@downdraft/platform-native": "^0.4.3",
+        "@downdraft/platform-native": "^0.4.4",
       },
       "optionalPeers": [
         "@downdraft/platform-native",
@@ -85,20 +85,20 @@
     },
     "packages/platform-native": {
       "name": "@downdraft/platform-native",
-      "version": "0.4.3",
+      "version": "0.4.4",
       "dependencies": {
-        "@downdraft/engine": "^0.4.3",
+        "@downdraft/engine": "^0.4.4",
         "koffi": "^3.2.1",
       },
       "devDependencies": {
         "typescript": "^5",
       },
       "optionalDependencies": {
-        "@downdraft/native-darwin-arm64": "^0.4.3",
-        "@downdraft/native-darwin-x64": "^0.4.3",
-        "@downdraft/native-linux-arm64": "^0.4.3",
-        "@downdraft/native-linux-x64": "^0.4.3",
-        "@downdraft/native-win32-x64": "^0.4.3",
+        "@downdraft/native-darwin-arm64": "^0.4.4",
+        "@downdraft/native-darwin-x64": "^0.4.4",
+        "@downdraft/native-linux-arm64": "^0.4.4",
+        "@downdraft/native-linux-x64": "^0.4.4",
+        "@downdraft/native-win32-x64": "^0.4.4",
       },
     },
   },
