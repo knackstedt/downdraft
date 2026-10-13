@@ -98,6 +98,20 @@ export function createWebUiHost(opts: {
   return host;
 }
 
+// Browser-style URL normalization — `webkit_web_view_load_uri` (and the CEF
+// equivalent) silently fails on bare input like "google.com": the nav call
+// "succeeds" yet the view lands on about:blank. Anything carrying an
+// explicit scheme passes through untouched; bare hosts get https://, or
+// http:// for loopback/RFC1918/.local targets where TLS is rare.
+const NAV_EXPLICIT_RE = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//;
+const NAV_NONAUTH_RE = /^(about|data|javascript|blob|file|mailto|view-source|chrome|ws|wss):/i;
+const NAV_LOCAL_RE = /^(localhost|0\.0\.0\.0|127\.|::1|\[::1\]|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|[^/:?#]+\.local)([/:?#]|$)/i;
+function normalizeNavUrl(url: string): string {
+  const u = url.trim();
+  if (!u || NAV_EXPLICIT_RE.test(u) || NAV_NONAUTH_RE.test(u)) return u;
+  return (NAV_LOCAL_RE.test(u) ? "http://" : "https://") + u;
+}
+
 function buildHost(backend: WebUiBackend, initOpts: WebUiGlobalInitOpts = {}): WebUiHost | null {
   const entry = loadWebUiLib(backend);
   if (!entry) {
@@ -117,6 +131,12 @@ function buildHost(backend: WebUiBackend, initOpts: WebUiGlobalInitOpts = {}): W
     init.cefDir = init.cefDir ?? runtimeDir;
     // The helper binary stages next to the cdylib (build-native `bins`).
     init.helperPath = init.helperPath ?? join(dirname(entry.path), "downdraft_cef_helper");
+    // Per-app CEF profile — the native fallback is a single shared
+    // tmp/downdraft-webui-cef dir whose SingletonLock makes the second
+    // app's global_init fail ("Opening in existing browser session").
+    const userData = process.env.DOWNDRAFT_USER_DATA;
+    init.cachePath = init.cachePath
+      ?? (userData ? join(userData, "webui-cef") : undefined);
   } else {
     init.wpePrefix = init.wpePrefix ?? runtimeDir;
   }
@@ -177,6 +197,9 @@ function buildHost(backend: WebUiBackend, initOpts: WebUiGlobalInitOpts = {}): W
             // Forwarded as a message — nav watchers subscribe via onMessage.
             cbs.message.get(id)?.forEach((cb) => cb({ __nav: { url: ev.url, canBack: ev.canBack, canFwd: ev.canFwd } }));
             break;
+          case "load":
+            cbs.message.get(id)?.forEach((cb) => cb({ __load: { url: ev.url } }));
+            break;
         }
       } catch (e) {
         log.warn("webui", `event dispatch error (${ev.t}): ${(e as Error).message}`);
@@ -223,7 +246,7 @@ function buildHost(backend: WebUiBackend, initOpts: WebUiGlobalInitOpts = {}): W
     },
 
     loadURL: async (id: string, url: string): Promise<void> => {
-      views.get(id)?.loadUrl(url);
+      views.get(id)?.loadUrl(normalizeNavUrl(url));
     },
 
     setContent: async (id: string, html: string): Promise<void> => {

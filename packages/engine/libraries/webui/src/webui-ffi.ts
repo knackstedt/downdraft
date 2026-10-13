@@ -184,6 +184,9 @@ export interface WebUiGlobalInitOpts {
   headless?: boolean;
   /** DevTools/inspector remote-debugging port (0 = off). */
   remoteDebugPort?: number;
+  /** Backend log verbosity — 0=verbose, 1=info, 3=error, 4=fatal (default
+   *  warning). CEF writes to <cachePath>/chrome_debug.log. */
+  logLevel?: number;
 }
 
 /** One global init per backend — views can't be created before it runs. */

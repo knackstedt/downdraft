@@ -162,7 +162,9 @@ export function createNativeBridge(opts: NativeBridgeOptions): HostAPI & { dispo
   // ── WebUI: heavyweight real-browser tier (CEF desktop / WPE android).
   //  Backend resolves createWebUi opts > DD_WEBUI_BACKEND > config > CLI >
   //  platform default; "none" or a missing cdylib leaves webui undefined. ──
-  const webuiHost = createWebUiHost();
+  const webuiHost = createWebUiHost({
+    init: { logLevel: process.env.DD_WEBUI_LOG ? 0 : undefined },
+  });
   if (webuiHost?.available) {
     (globalThis as Record<string, unknown>).__ddWebUiBackend = webuiHost.backend;
   }
