@@ -12,7 +12,7 @@
 
 import { execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -52,7 +52,9 @@ for (let _i = 0, _it = tarballs, _n = _it.length; _i < _n; _i++) {
     for (const e of readdirSync(dir, { withFileTypes: true })) {
       const p = join(dir, e.name);
       if (e.isDirectory()) walk(p);
-      else if (/\.(so|dylib|dll)$/.test(e.name)) {
+      // libs (.so/.dylib/.dll) + companion executables (downdraft_*_helper,
+      // *_helper.exe — extensionless on unix, so match the name prefix).
+      else if (/\.(so|dylib|dll)$/.test(e.name) || /^downdraft_.*(\.exe)?$/.test(e.name)) {
         cpSync(p, join(libDir, e.name));
         count++;
       }

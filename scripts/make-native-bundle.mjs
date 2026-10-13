@@ -17,7 +17,7 @@
 
 import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, rmSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CRATES, libFileName } from "./native-crates.mjs";
 
@@ -48,6 +48,17 @@ for (let _i = 0, _it = nodePlats, _n = _it.length; _i < _n; _i++) {
     mkdirSync(destDir, { recursive: true });
     copyFileSync(src, join(destDir, file));
     count++;
+    // Companion binaries (e.g. the CEF render-process helper) — build-native
+    // stages them next to the lib; the bundle must carry them too.
+    for (const bin of crate.bins ?? []) {
+      const binFile = nodePlat.startsWith("win32") ? `${bin}.exe` : bin;
+      const binSrc = join(root, crate.dest, nodePlat, binFile);
+      if (!existsSync(binSrc)) {
+        console.warn(`[bundle] skipping missing bin artifact: ${binSrc}`);
+        continue;
+      }
+      copyFileSync(binSrc, join(destDir, binFile));
+    }
   }
 
 
