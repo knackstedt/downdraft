@@ -52,7 +52,9 @@ export type WebUiEvent =
   /** Renderer-process status transition. */
   | { t: "status"; v: WebUiViewStatus }
   /** Navigation state changed. */
-  | { t: "nav"; url: string; canBack: boolean; canFwd: boolean };
+  | { t: "nav"; url: string; canBack: boolean; canFwd: boolean }
+  /** A load finished (is_loading transitioned to false with a live URL). */
+  | { t: "load"; url: string };
 
 /**
  * Pointer/keyboard input — same semantic contract as OSRInputEvent but

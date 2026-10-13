@@ -80,6 +80,9 @@ export interface WebUiOptions {
   /** Backend override — the first precedence slot before env/config/flag/
    *  platform default. "none" disables the tier explicitly. */
   backend?: WebUiBackend | "auto" | "none";
+  /** Compositor draw order for all webui panels — html-ui composites at 0,
+   *  so embeds that must paint above Blitz chrome should pass > 0. */
+  compositorOrder?: number;
   build(ui: WebUiContext): void;
 }
 
@@ -225,11 +228,21 @@ export function createWebUi(options: WebUiOptions): RendererModule {
 
       // ── Compositor: one ScreenUiCompositor for all webui panels ──
       const compositor: ScreenUiCompositor = {
-        order: 0,
+        order: options.compositorOrder ?? 0,
         hasContent: () => panels.length > 0,
         render: (pass, surfaceW, surfaceH) => {
           if (!blit || panels.length === 0) return;
-          blit.render(pass, panels.map((p) => p.comp), surfaceW, surfaceH);
+          // comp rects live in the input space (backing-buffer px — what
+          // NativeWindow.mapX/Y emits). The compositor contract passes the
+          // surface size in that same space, so sx/sy are 1 — the mapping
+          // is kept so a caller that hands CSS-px dims (clientWidth) still
+          // draws correctly instead of bleeding zoom× off the right/bottom.
+          const sx = surface.width > 0 ? surfaceW / surface.width : 1;
+          const sy = surface.height > 0 ? surfaceH / surface.height : 1;
+          blit.render(pass, panels.map((p) => ({
+            ...p.comp,
+            rect: { x: p.comp.rect.x * sx, y: p.comp.rect.y * sy, w: p.comp.rect.w * sx, h: p.comp.rect.h * sy },
+          })), surfaceW, surfaceH);
         },
       };
       unregCompositor = ctx.registerUiCompositor?.(compositor) ?? null;
