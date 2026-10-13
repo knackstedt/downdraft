@@ -1463,7 +1463,15 @@ fn global_init_desktop(opts_json: *const c_char) -> c_int {
     // The Debian build hardcodes its libexec dir
     // (/usr/lib/x86_64-linux-gnu/wpe-webkit-2.0) — dev runs present
     // the vendored one there via a user-ns bind mount (see README),
-    // so no runtime patching is needed here.
+    // so no runtime patching is needed here. Preflight it: when the
+    // namespace isn't active and the host has no system WPE install,
+    // webkit_web_view_new g_error()s on the missing WPENetworkProcess
+    // helper and aborts the whole process — fail init instead so the
+    // host can pick another backend / fall back.
+    const LIBEXEC_DIR: &str = "/usr/lib/x86_64-linux-gnu/wpe-webkit-2.0";
+    if !std::path::Path::new(LIBEXEC_DIR).join("WPEWebProcess").exists() {
+        return -2;
+    }
     if let Some(p) = opt_str(opts, "wpePrefix") {
         if !p.is_empty() {
             // Point the subprocess chain at the vendored lib set via
