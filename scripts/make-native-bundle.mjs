@@ -50,15 +50,15 @@ for (let _i = 0, _it = nodePlats, _n = _it.length; _i < _n; _i++) {
     count++;
     // Companion binaries (e.g. the CEF render-process helper) — build-native
     // stages them next to the lib; the bundle must carry them too.
-    for (const bin of crate.bins ?? []) {
+    (crate.bins ?? []).forEach((bin) => {
       const binFile = nodePlat.startsWith("win32") ? `${bin}.exe` : bin;
       const binSrc = join(root, crate.dest, nodePlat, binFile);
       if (!existsSync(binSrc)) {
         console.warn(`[bundle] skipping missing bin artifact: ${binSrc}`);
-        continue;
+        return;
       }
       copyFileSync(binSrc, join(destDir, binFile));
-    }
+    });
   }
 
 
