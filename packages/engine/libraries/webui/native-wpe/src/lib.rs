@@ -9,10 +9,11 @@
 //! buffer is released + frame-completed back to WebKit. BGRA8, matching the
 //! CEF backend's `pixel_format = 1`.
 //!
-//! Threading model mirrors CEF: no dedicated GMainLoop thread — every
-//! mutating FFI call ends with `pump()` (bounded `g_main_context_iteration`
-//! drain) and the host-side pull cadence keeps the context live. All WPE /
-//! WebKit / GObject calls therefore happen on the FFI caller thread only.
+//! Threading model: all WPE / WebKit / GObject calls run on a dedicated
+//! `dd-wpe` worker thread (see "Dedicated WebKit thread" below) — FFI
+//! entry points marshal onto it via `ui_run`. Every mutating call ends
+//! with `pump()` (bounded `g_main_context_iteration` drain) and the
+//! worker also pumps between queued tasks so the context stays live.
 //!
 //! Bridge: `window.downdraft.postMessage` → `webkit.messageHandlers.downdraft`
 //! → `script-message-received::downdraft` (JSCValue → JSON). Host→page rides
@@ -496,17 +497,29 @@ extern "C" fn frame_displayed_tick(data: gpointer) -> c_int {
 }
 
 // ---------------------------------------------------------------------------
-// Android — dedicated WebKit thread
+// Dedicated WebKit thread
 // ---------------------------------------------------------------------------
 //
-// WebKit's Android glue attaches the calling thread to ART for its Java
-// bridge, and ART's Thread::Attach stack sanity check
-// (FindStackTop > tlsPtr_.stack_end) misreads the shell's 32 MiB JS
-// thread and aborts the process. So on Android every export that touches
-// WebKit, GLib, or the JNI bridge is dispatched to this worker — a plain
-// pthread, which attaches cleanly. It also exclusively owns
-// g_main_context_iteration (sources fired while iterating could
-// themselves JNI-attach the iterating thread).
+// Every export that touches WebKit, GLib, or the JNI bridge is dispatched
+// to this worker — a plain pthread — for two platform reasons:
+//
+//   Android: WebKit's glue attaches the calling thread to ART for its Java
+//   bridge, and ART's Thread::Attach stack sanity check
+//   (FindStackTop > tlsPtr_.stack_end) misreads the shell's 32 MiB JS
+//   thread and aborts the process.
+//
+//   Desktop + node host: koffi (the ffi-adapter's node backend) executes
+//   every FFI call on its own private ~2 MiB trampoline stack, so
+//   WebKit/JSC calls would observe a stack pointer outside the calling
+//   thread's recorded bounds — JSC's sanitizeStackForVM
+//   (RELEASE_ASSERT(stack.contains(vm.lastStackTop()))) aborts the
+//   process on the first VM entry. bun:ffi doesn't switch stacks, which
+//   is why this only bites under node. A real pthread stack is also deep
+//   enough for WebKit/GObject chains that could silently overflow a
+//   2 MiB trampoline.
+//
+// The worker exclusively owns g_main_context_iteration (sources fired
+// while iterating could themselves JNI-attach the iterating thread).
 #[cfg(target_os = "android")]
 fn alog(msg: &std::ffi::CStr) {
     unsafe extern "C" {
@@ -528,7 +541,6 @@ macro_rules! alogf {
 #[cfg(target_os = "android")]
 pub(crate) use alogf;
 
-#[cfg(target_os = "android")]
 mod wpe_thread {
     use std::sync::mpsc;
     use std::sync::Mutex;
@@ -545,42 +557,48 @@ mod wpe_thread {
         let (tx, rx) = mpsc::sync_channel::<Task>(64);
         std::thread::Builder::new()
             .name("dd-wpe".into())
+            // Deep stack — WebKit/GObject/JSC chains exceed small worker
+            // defaults; matches the "real thread" guarantee callers need.
+            .stack_size(16 * 1024 * 1024)
             .spawn(move || {
-                // WPEServiceConnection builds `new Handler(Looper.myLooper())`
-                // when WebKit spawns its aux services, and wpeLaunchProcess
-                // fires on THIS thread (the view-creating thread), not on
-                // WKRuntime's LooperHelperThread. The worker needs a prepared
-                // Looper — the queue is only drained for the disconnect
-                // re-dispatch path, so prepare alone suffices.
-                match std::env::var("DD_ANDROID_JVM_PTR")
-                    .ok()
-                    .and_then(|v| usize::from_str_radix(v.trim_start_matches("0x"), 16).ok())
+                #[cfg(target_os = "android")]
                 {
-                    Some(vm_ptr) => match unsafe {
-                        jni::JavaVM::from_raw(vm_ptr as *mut jni::sys::JavaVM)
-                    } {
-                        Ok(vm) => match vm.attach_current_thread() {
-                            Ok(mut env) => {
-                                match env.call_static_method(
-                                    "android/os/Looper",
-                                    "prepare",
-                                    "()V",
-                                    &[],
-                                ) {
-                                    Ok(_) => crate::alog(c"wpe-dd: looper prepared"),
-                                    Err(e) => crate::alogf!(
-                                        "wpe-dd: Looper.prepare failed: {e:?}"
-                                    ),
+                    // WPEServiceConnection builds `new Handler(Looper.myLooper())`
+                    // when WebKit spawns its aux services, and wpeLaunchProcess
+                    // fires on THIS thread (the view-creating thread), not on
+                    // WKRuntime's LooperHelperThread. The worker needs a prepared
+                    // Looper — the queue is only drained for the disconnect
+                    // re-dispatch path, so prepare alone suffices.
+                    match std::env::var("DD_ANDROID_JVM_PTR")
+                        .ok()
+                        .and_then(|v| usize::from_str_radix(v.trim_start_matches("0x"), 16).ok())
+                    {
+                        Some(vm_ptr) => match unsafe {
+                            jni::JavaVM::from_raw(vm_ptr as *mut jni::sys::JavaVM)
+                        } {
+                            Ok(vm) => match vm.attach_current_thread() {
+                                Ok(mut env) => {
+                                    match env.call_static_method(
+                                        "android/os/Looper",
+                                        "prepare",
+                                        "()V",
+                                        &[],
+                                    ) {
+                                        Ok(_) => crate::alog(c"wpe-dd: looper prepared"),
+                                        Err(e) => crate::alogf!(
+                                            "wpe-dd: Looper.prepare failed: {e:?}"
+                                        ),
+                                    }
+                                    // Stay attached — the worker IS this looper's
+                                    // thread for its whole lifetime.
+                                    std::mem::forget(env);
                                 }
-                                // Stay attached — the worker IS this looper's
-                                // thread for its whole lifetime.
-                                std::mem::forget(env);
-                            }
-                            Err(e) => crate::alogf!("wpe-dd: attach failed: {e:?}"),
+                                Err(e) => crate::alogf!("wpe-dd: attach failed: {e:?}"),
+                            },
+                            Err(e) => crate::alogf!("wpe-dd: JavaVM::from_raw failed: {e:?}"),
                         },
-                        Err(e) => crate::alogf!("wpe-dd: JavaVM::from_raw failed: {e:?}"),
-                    },
-                    None => crate::alog(c"wpe-dd: DD_ANDROID_JVM_PTR unset"),
+                        None => crate::alog(c"wpe-dd: DD_ANDROID_JVM_PTR unset"),
+                    }
                 }
                 loop {
                     match rx.recv_timeout(Duration::from_millis(4)) {
@@ -595,9 +613,11 @@ mod wpe_thread {
         *g = Some(tx);
     }
 
-    /// Run `f` on the worker, blocking the caller for its result.
-    /// `None` if the worker isn't running.
+    /// Run `f` on the worker, blocking the caller for its result. Starts
+    /// the worker on first use so callers don't need a ceremony order.
+    /// `None` only if the worker is dead / unreachable.
     pub fn call<R: Send + 'static, F: FnOnce() -> R + Send + 'static>(f: F) -> Option<R> {
+        ensure_started();
         let (tx, rx) = mpsc::sync_channel(1);
         let sender = TX.lock().ok()?.clone()?;
         sender
@@ -609,16 +629,10 @@ mod wpe_thread {
     }
 }
 
-/// Dispatch an FFI body. Android routes it to `wpe_thread` (the worker
-/// must exist — global_init starts it); other platforms run inline.
-#[cfg(target_os = "android")]
+/// Dispatch an FFI body to the dedicated `dd-wpe` worker (all platforms —
+/// see the "Dedicated WebKit thread" note above).
 fn ui_run<R: Send + 'static>(f: impl FnOnce() -> R + Send + 'static) -> Option<R> {
     wpe_thread::call(f)
-}
-
-#[cfg(not(target_os = "android"))]
-fn ui_run<R>(f: impl FnOnce() -> R) -> Option<R> {
-    Some(f())
 }
 
 // ---------------------------------------------------------------------------
@@ -1352,9 +1366,12 @@ fn keysym_of(key: &str, code: &str, text: Option<&str>) -> u32 {
     }
 }
 
-/// evdev key codes for the common layout keys (Linux input-event-codes).
+/// XKB key codes for the common layout keys — WPE's hardware_key_code feeds
+/// WebKit's xkb mapping, which expects the evdev code + 8 (the classic X11
+/// offset). Verified empirically: sending raw evdev shifts DOM `code` eight
+/// entries early (KeyH→BracketRight).
 fn hwcode_of(code: &str) -> u32 {
-    match code {
+    let evdev = match code {
         "Backspace" => 14,
         "Tab" => 15,
         "Enter" => 28,
@@ -1387,7 +1404,8 @@ fn hwcode_of(code: &str) -> u32 {
             ];
             KEY.iter().find(|(c, _)| *c == code).map(|(_, n)| *n).unwrap_or(0)
         }
-    }
+    };
+    if evdev == 0 { 0 } else { evdev + 8 }
 }
 
 // ---------------------------------------------------------------------------
@@ -1401,48 +1419,25 @@ pub extern "C" fn dd_webui_global_init(opts_json: *const c_char) -> c_int {
         if INITIALIZED.swap(true, Ordering::AcqRel) {
             return 0; // already up
         }
-        let opts = unsafe { cstr(opts_json) }.unwrap_or("{}");
         *T0.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
 
         #[cfg(not(target_os = "android"))]
         {
-            // The Debian build hardcodes its libexec dir
-            // (/usr/lib/x86_64-linux-gnu/wpe-webkit-2.0) — dev runs present
-            // the vendored one there via a user-ns bind mount (see README),
-            // so no runtime patching is needed here.
-            if let Some(p) = opt_str(opts, "wpePrefix") {
-                if !p.is_empty() {
-                    // Point the subprocess chain at the vendored lib set via
-                    // env — child processes inherit these. WPE_BACKEND_LIBRARY
-                    // names the fdo impl the wpe loader dlopens (it defaults
-                    // to libWPEBackend-default.so, which doesn't exist).
-                    std::env::set_var(
-                        "LD_LIBRARY_PATH",
-                        format!("{p}/lib:{}", std::env::var("LD_LIBRARY_PATH").unwrap_or_default()),
-                    );
-                    std::env::set_var(
-                        "WPE_BACKEND_LIBRARY",
-                        format!("{p}/lib/libWPEBackend-fdo-1.0.so"),
-                    );
-                }
-            }
-            if std::env::var_os("WPE_BACKEND_LIBRARY").is_none() {
-                std::env::set_var("WPE_BACKEND_LIBRARY", "libWPEBackend-fdo-1.0.so");
-            }
-            if opt_bool(opts, "noSandbox").unwrap_or(true) {
-                // The vendored tree ships no setuid sandbox helper.
-                std::env::set_var("WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS", "1");
-            }
-            unsafe {
-                if wpe_fdo_initialize_shm() == 0 {
-                    INITIALIZED.store(false, Ordering::Release);
-                    return -1;
-                }
+            // Init also runs on the dd-wpe worker so the first GLib/WebKit
+            // touch never happens on an FFI caller's foreign stack (node's
+            // koffi trampoline — see "Dedicated WebKit thread" above).
+            let opts_jsonp = opts_json as usize;
+            let rc = ui_run(move || global_init_desktop(opts_jsonp as *const c_char))
+                .unwrap_or(-1);
+            if rc != 0 {
+                INITIALIZED.store(false, Ordering::Release);
+                return -1;
             }
         }
 
         #[cfg(target_os = "android")]
         {
+            let opts = unsafe { cstr(opts_json) }.unwrap_or("{}");
             let _ = opts;
             // The wpe loader resolves the backend impl by soname — the AAR's
             // jni libs land on the app's library path automatically.
@@ -1460,6 +1455,44 @@ pub extern "C" fn dd_webui_global_init(opts_json: *const c_char) -> c_int {
         }
         0
     })
+}
+
+#[cfg(not(target_os = "android"))]
+fn global_init_desktop(opts_json: *const c_char) -> c_int {
+    let opts = unsafe { cstr(opts_json) }.unwrap_or("{}");
+    // The Debian build hardcodes its libexec dir
+    // (/usr/lib/x86_64-linux-gnu/wpe-webkit-2.0) — dev runs present
+    // the vendored one there via a user-ns bind mount (see README),
+    // so no runtime patching is needed here.
+    if let Some(p) = opt_str(opts, "wpePrefix") {
+        if !p.is_empty() {
+            // Point the subprocess chain at the vendored lib set via
+            // env — child processes inherit these. WPE_BACKEND_LIBRARY
+            // names the fdo impl the wpe loader dlopens (it defaults
+            // to libWPEBackend-default.so, which doesn't exist).
+            std::env::set_var(
+                "LD_LIBRARY_PATH",
+                format!("{p}/lib:{}", std::env::var("LD_LIBRARY_PATH").unwrap_or_default()),
+            );
+            std::env::set_var(
+                "WPE_BACKEND_LIBRARY",
+                format!("{p}/lib/libWPEBackend-fdo-1.0.so"),
+            );
+        }
+    }
+    if std::env::var_os("WPE_BACKEND_LIBRARY").is_none() {
+        std::env::set_var("WPE_BACKEND_LIBRARY", "libWPEBackend-fdo-1.0.so");
+    }
+    if opt_bool(opts, "noSandbox").unwrap_or(true) {
+        // The vendored tree ships no setuid sandbox helper.
+        std::env::set_var("WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS", "1");
+    }
+    unsafe {
+        if wpe_fdo_initialize_shm() == 0 {
+            return -1;
+        }
+    }
+    0
 }
 
 #[no_mangle]
@@ -1671,7 +1704,10 @@ fn create_impl(
             // especially), leaving the exportable with only the initial
             // blank commit. 0x7 = visible|focused|in_window; the host
             // presents the frames itself, so the view is always "shown".
-            wpe_view_backend_dispatch_set_size(wpe_backend, pw, ph);
+            // set_size takes LOGICAL (CSS) px — libwpe multiplies by the
+            // device scale factor to size the exported buffer. Passing the
+            // physical pw/ph would raster w·scale² and clip right/bottom.
+            wpe_view_backend_dispatch_set_size(wpe_backend, w, h);
             wpe_view_backend_dispatch_set_device_scale_factor(wpe_backend, scale.clamp(0.05, 5.0));
             wpe_view_backend_add_activity_state(wpe_backend, 0x7);
 
@@ -1827,7 +1863,9 @@ fn resize_impl(h: *mut c_void, w: c_int, hgt: c_int, scale: f32) {
             let backend = v.shared.backend.load(Ordering::Acquire);
             if !backend.is_null() {
                 unsafe {
-                    wpe_view_backend_dispatch_set_size(backend, pw, ph);
+                    // Logical px — see create_impl; the buffer side still
+                    // tracks physical pw/ph.
+                    wpe_view_backend_dispatch_set_size(backend, w.max(1) as u32, hgt.max(1) as u32);
                     wpe_view_backend_dispatch_set_device_scale_factor(backend, scale.clamp(0.05, 5.0));
                 }
             }

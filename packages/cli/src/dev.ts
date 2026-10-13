@@ -126,11 +126,74 @@ async function devNative(parsed: any): Promise<void> {
   process.on("SIGTERM", onSignal);
   process.on("SIGHUP", onSignal);
 
-  // ── Legacy path: --no-hmr spawns the entry directly under Bun (no watcher,
+  // WebUI backend: --webui flag → DD_WEBUI_BACKEND → config webui.backend.
+  // Forwarded into the shell env; the host resolves final precedence
+  // (createWebUi opts still outrank it) inside libraries/webui. Resolved
+  // before either spawn path — wpe also decides the namespace wrap below.
+  const webuiBackend = (parsed.flags.webui as string | undefined)
+    || process.env.DD_WEBUI_BACKEND
+    || ((readGameConfig(gameDir).webui as { backend?: string } | undefined)?.backend);
+  if (webuiBackend) env.DD_WEBUI_BACKEND = webuiBackend;
+
+  // ── WPE dev runtime namespace ──
+// The vendored Debian WPE build spawns WPEWebProcess/WPENetworkProcess
+// from hardcoded /usr/lib/… paths — scripts/run-wpe.sh presents the
+// vendored libexec tree there inside a user+mount namespace. When the
+// resolved backend is wpe and no system WPE/WebKit exists, wrap the game
+// shell spawn in it so `draft dev --webui=wpe` works transparently.
+// DD_WEBUI_NO_NSWRAP=1 opts out (e.g. already inside a namespace).
+function resolveWpeDistDir(gameDir: string): string | null {
+  const plat = `${process.platform}-${process.arch}`;
+  const env = process.env.DD_WEBUI_WPE_PREFIX;
+  const pkgRoot = (() => {
+    try {
+      const req = createRequire(join(gameDir, "package.json"));
+      return dirname(req.resolve("@downdraft/engine/package.json"));
+    } catch { return null; }
+  })();
+  const mono = findMonorepoRoot();
+  const candidates = [
+    env,
+    pkgRoot && join(pkgRoot, "libraries", "webui", "vendor", `wpe-${plat}`),
+    mono && join(mono, "packages/engine/libraries/webui/vendor", `wpe-${plat}`),
+    // Native-build staging tree (same libexec/lib/share shape).
+    pkgRoot && join(pkgRoot, "libraries", "webui", "native-wpe", "dist", plat),
+    mono && join(mono, "packages/engine/libraries/webui/native-wpe/dist", plat),
+  ];
+  for (const c of candidates) {
+    if (c && existsSync(join(c, "libexec", "wpe-webkit-2.0"))) return c;
+  }
+  return null;
+}
+
+function wpeNamespaceWrap(cmd: string, args: string[], gameDir: string, env: NodeJS.ProcessEnv): { cmd: string; args: string[] } | null {
+  if (process.platform !== "linux") return null;
+  if (env.DD_WEBUI_NO_NSWRAP) return null;
+  // Only when wpe is the picked backend — "auto" resolves to cef on linux
+  // desktop and needs no namespace.
+  if (env.DD_WEBUI_BACKEND !== "wpe") return null;
+  // A real system WPE/WebKit resolves its own libexec — no wrap needed.
+  if (existsSync("/usr/lib/x86_64-linux-gnu/wpe-webkit-2.0")) return null;
+  const dist = resolveWpeDistDir(gameDir);
+  if (!dist) return null;
+  const script = (() => {
+    try {
+      const req = createRequire(join(gameDir, "package.json"));
+      const pkg = dirname(req.resolve("@downdraft/engine/package.json"));
+      return join(pkg, "libraries", "webui", "scripts", "run-wpe.sh");
+    } catch { return null; }
+  })();
+  if (!script || !existsSync(script)) return null;
+  return { cmd: "bash", args: [script, dist, cmd, ...args] };
+}
+
+// ── Legacy path: --no-hmr spawns the entry directly under Bun (no watcher,
   //    no ModuleRunner — the pre-HMR behavior, kept as an escape hatch). ──
   if (noHmr) {
     log.info("draft", `dev ${game} — ${nativeEntry} (bun, no hmr)`);
-    const code = await spawnAndForward("bun", ["run", nativeEntry], buildCwd(gameDir), env, {
+    const w = wpeNamespaceWrap("bun", ["run", nativeEntry], gameDir, env)
+      ?? { cmd: "bun", args: ["run", nativeEntry] };
+    const code = await spawnAndForward(w.cmd, w.args, buildCwd(gameDir), env, {
       onChild: (c) => { currentChild = c; },
     });
     if (!shuttingDown) process.exit(code);
@@ -165,14 +228,6 @@ async function devNative(parsed: any): Promise<void> {
     }
     process.exit(1);
   }
-
-  // WebUI backend: --webui flag → DD_WEBUI_BACKEND → config webui.backend.
-  // Forwarded into the shell env; the host resolves final precedence
-  // (createWebUi opts still outrank it) inside libraries/webui.
-  const webuiBackend = (parsed.flags.webui as string | undefined)
-    || process.env.DD_WEBUI_BACKEND
-    || ((readGameConfig(gameDir).webui as { backend?: string } | undefined)?.backend);
-  if (webuiBackend) env.DD_WEBUI_BACKEND = webuiBackend;
 
   env.DD_GAME_DIR = gameDir;
   env.DD_ENTRY = nativeEntry;
@@ -217,10 +272,15 @@ async function devNative(parsed: any): Promise<void> {
   log.info("draft", `dev ${game} — ${nativeEntry} (runtime=${runtime}, hmr, engine=${engineSource ? "source" : "dist"})`);
   if (verbose) log.info("draft", `dev shell: ${cmd} ${args.join(" ")}`);
 
+  // WPE namespace wrap — applies to every respawn (run-wpe.sh execs the
+  // shell inside the namespace; restarts re-enter it).
+  const wrapped = wpeNamespaceWrap(cmd, args, gameDir, env) ?? { cmd, args };
+  if (wrapped.cmd !== cmd) log.info("draft", `wpe runtime: namespaced via ${wrapped.args[0]}`);
+
   // Respawn loop: the dev shell exits with DD_RESTART_EXIT when a changed
   // file affects the loader/config layer (Tier-5) — respawn in place.
   for (;;) {
-    const code = await spawnAndForward(cmd, args, buildCwd(gameDir), env, {
+    const code = await spawnAndForward(wrapped.cmd, wrapped.args, buildCwd(gameDir), env, {
       onChild: (c) => { currentChild = c; },
     });
     if (shuttingDown) return; // signal handler already owns exit
