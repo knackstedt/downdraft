@@ -37,7 +37,7 @@
     },
     "packages/cli": {
       "name": "@downdraft/cli",
-      "version": "0.4.8",
+      "version": "0.4.9",
       "bin": {
         "draft": "src/index.ts",
       },
@@ -51,7 +51,7 @@
     },
     "packages/engine": {
       "name": "@downdraft/engine",
-      "version": "0.4.8",
+      "version": "0.4.9",
       "dependencies": {
         "@bokuweb/zstd-wasm": "^0.0.27",
         "@dimforge/rapier3d-compat": "^0.19.3",
@@ -77,7 +77,7 @@
         "@types/dns-packet": "^5.6.5",
       },
       "peerDependencies": {
-        "@downdraft/platform-native": "^0.4.8",
+        "@downdraft/platform-native": "^0.4.9",
       },
       "optionalPeers": [
         "@downdraft/platform-native",
@@ -85,20 +85,20 @@
     },
     "packages/platform-native": {
       "name": "@downdraft/platform-native",
-      "version": "0.4.8",
+      "version": "0.4.9",
       "dependencies": {
-        "@downdraft/engine": "^0.4.8",
+        "@downdraft/engine": "^0.4.9",
         "koffi": "^3.2.1",
       },
       "devDependencies": {
         "typescript": "^5",
       },
       "optionalDependencies": {
-        "@downdraft/native-darwin-arm64": "^0.4.8",
-        "@downdraft/native-darwin-x64": "^0.4.8",
-        "@downdraft/native-linux-arm64": "^0.4.8",
-        "@downdraft/native-linux-x64": "^0.4.8",
-        "@downdraft/native-win32-x64": "^0.4.8",
+        "@downdraft/native-darwin-arm64": "^0.4.9",
+        "@downdraft/native-darwin-x64": "^0.4.9",
+        "@downdraft/native-linux-arm64": "^0.4.9",
+        "@downdraft/native-linux-x64": "^0.4.9",
+        "@downdraft/native-win32-x64": "^0.4.9",
       },
     },
   },
@@ -148,16 +148,6 @@
     "@downdraft/cli": ["@downdraft/cli@workspace:packages/cli"],
 
     "@downdraft/engine": ["@downdraft/engine@workspace:packages/engine"],
-
-    "@downdraft/native-darwin-arm64": ["@downdraft/native-darwin-arm64@0.4.7", "", { "os": "darwin", "cpu": "arm64" }, "sha512-5dyCFYva+UgEzBFWiPveIbVhlux8KVHG8aUhq7+oH6dA9orLH5Z3s31njeRsn6AzBRfqcqkZrRV2GH3fQwtXPA=="],
-
-    "@downdraft/native-darwin-x64": ["@downdraft/native-darwin-x64@0.4.7", "", { "os": "darwin", "cpu": "x64" }, "sha512-eoOnQfu7HMBQvxkBvJadFKEkJj0G0676oGNTfLL7yXPYPoI5fUrMVOXlzShoGpZaAaIJa4MBK68VltpZ+Gu0qw=="],
-
-    "@downdraft/native-linux-arm64": ["@downdraft/native-linux-arm64@0.4.7", "", { "os": "linux", "cpu": "arm64" }, "sha512-BDvBj48uO+5uuKP/XF5el2sDiCRE+g7GjP1N0PmFwceAINFdI2nCpKeiKyB3eopYYwV1WHxiFvsLuBP5DYF2Lw=="],
-
-    "@downdraft/native-linux-x64": ["@downdraft/native-linux-x64@0.4.7", "", { "os": "linux", "cpu": "x64" }, "sha512-YB7BNMH90J8Fe93ZAsYXMSwCiwAVdEZMEylnJie/8u2p70xtkDA8dHxcI/Ru0qeqPtGd7MjDZosjb9yawEJTzg=="],
-
-    "@downdraft/native-win32-x64": ["@downdraft/native-win32-x64@0.4.7", "", { "os": "win32", "cpu": "x64" }, "sha512-vte0t909xnJk7gMf24614cBBttK8JtbwNpl/dIUmh1S3rZ4+pYK3J2JrTJ1TjjEfPdXPsL3t2AHq0i6xABhibg=="],
 
     "@downdraft/platform-native": ["@downdraft/platform-native@workspace:packages/platform-native"],
 
