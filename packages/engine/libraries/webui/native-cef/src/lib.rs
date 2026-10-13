@@ -10,10 +10,14 @@
 //! round-trips and postMessage both ride CefProcessMessage; the
 //! page-facing `window.downdraft` shim is injected on context creation.
 //!
-//! Threading contract: all dd_webui_* calls must come from the thread
-//! that ran global_init (the JS host's main thread in practice — the
-//! host drives CefDoMessageLoopWork through pump_ms / the frame pulls).
-//! CEF callbacks arrive on that same thread under external_message_pump.
+//! Threading contract: all dd_webui_* calls are marshaled onto a
+//! dedicated `dd-cef` worker thread — CEF requires its API surface +
+//! external_message_pump callbacks to live on one real thread, and
+//! FFI callers (node/koffi) invoke exports on private trampoline
+//! stacks where Chromium's stack walkers (TraceStackFramePointers)
+//! run past the mapped stack and SIGSEGV. The worker also ticks
+//! CefDoMessageLoopWork between tasks so frames keep flowing while
+//! the JS host is idle.
 
 #![allow(non_snake_case)]
 
@@ -23,7 +27,7 @@ pub mod bridge;
 use cef::args::Args;
 use cef::rc::Rc as _;
 use cef::{
-    api_hash, browser_host_create_browser_sync, do_message_loop_work, execute_process,
+    api_hash, browser_host_create_browser, execute_process,
     initialize, process_message_create, shutdown, sys, wrap_app, wrap_client,
     wrap_display_handler, wrap_life_span_handler, wrap_load_handler, wrap_render_handler,
     wrap_request_handler, App, Browser, BrowserSettings, CefString, CefStringUserfree,
@@ -47,7 +51,8 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::ptr;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::Duration;
 
 const BACKEND: &[u8] = b"cef\0";
 
@@ -190,6 +195,11 @@ struct ViewShared {
     w: AtomicU32,
     h: AtomicU32,
     scale_bits: AtomicU32,
+    /// Deposited by LifeSpanHandler::on_after_created — CreateBrowser is
+    /// async, and under multi_threaded_message_loop CreateBrowserSync is
+    /// unusable from a non-UI thread.
+    browser: Mutex<Option<Browser>>,
+    created: Condvar,
 }
 
 impl ViewShared {
@@ -354,6 +364,17 @@ wrap_life_span_handler! {
     }
 
     impl LifeSpanHandler {
+        fn on_after_created(&self, browser: Option<&mut Browser>) {
+            if let Some(b) = browser {
+                *self
+                    .shared
+                    .browser
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner()) = Some(b.clone());
+            }
+            self.shared.created.notify_all();
+        }
+
         fn on_before_close(&self, _browser: Option<&mut Browser>) {
             // Browser teardown → mark the view crashed so the host sees a
             // terminal state rather than a silent hang.
@@ -493,6 +514,9 @@ wrap_app! {
             for sw in [
                 "disable-gpu",
                 "disable-gpu-compositing",
+                // No GPU process at all — shutdown otherwise tries to
+                // relaunch it after the zygote is gone and CHECKs.
+                "in-process-gpu",
                 "mute-audio",
                 "disable-features=AudioServiceOutOfProcess",
             ] {
@@ -510,7 +534,6 @@ struct View {
     /// Registry busy flag (FFI claims).
     busy: AtomicBool,
     shared: Arc<ViewShared>,
-    browser: Mutex<Option<Browser>>,
     /// Recreate params for recover().
     url: Mutex<String>,
     frame_rate: c_int,
@@ -569,21 +592,39 @@ fn spawn_browser(v: &View, url: &str) -> bool {
         ..Default::default()
     };
     let url = cef_str(url);
-    let browser = browser_host_create_browser_sync(
+    let submitted = browser_host_create_browser(
         Some(&window_info),
         Some(&mut client),
         Some(&url),
         Some(&browser_settings),
         None,
         None,
-    );
-    let ok = browser.is_some();
-    *v.browser.lock().unwrap_or_else(|e| e.into_inner()) = browser;
-    ok
+    ) != 0;
+    if !submitted {
+        return false;
+    }
+    // Async create — on_after_created delivers the Browser on the CEF UI
+    // thread. Bound the wait so a wedged renderer/zygote can't hang the
+    // caller forever.
+    let slot = v
+        .shared
+        .browser
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let (guard, _) = v
+        .shared
+        .created
+        .wait_timeout(slot, Duration::from_secs(15))
+        .unwrap_or_else(|e| e.into_inner());
+    guard.is_some()
 }
 
 fn browser_of(v: &View) -> Option<Browser> {
-    v.browser.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    v.shared
+        .browser
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
 }
 
 /// Send a process message to the view's renderer.
@@ -604,9 +645,81 @@ fn send_to_render(v: &View, name: &str, args: &[String]) {
 }
 
 fn pump() {
-    if INITIALIZED.load(Ordering::Acquire) {
-        do_message_loop_work();
+    // No-op: multi_threaded_message_loop gives CEF its own UI thread —
+    // CefDoMessageLoopWork is only legal when that flag is false.
+}
+
+// ---------------------------------------------------------------------------
+// Dedicated CEF thread — Chromium walks the native stack (crash reporting,
+// V8 stack guards); FFI callers under node/koffi run on a private
+// trampoline stack where those walks fault. Marshal everything onto a
+// real pthread like native-wpe does; with multi_threaded_message_loop
+// CEF owns its UI thread and marshals UI-thread work internally, so the
+// worker only needs to be a real (non-trampoline) stack.
+// ---------------------------------------------------------------------------
+mod cef_thread {
+    use std::sync::mpsc;
+    use std::sync::Mutex;
+    use std::time::Duration;
+
+    type Task = Box<dyn FnOnce() + Send>;
+    static TX: Mutex<Option<mpsc::SyncSender<Task>>> = Mutex::new(None);
+
+    pub fn ensure_started() {
+        let mut g = TX.lock().unwrap_or_else(|e| e.into_inner());
+        if g.is_some() {
+            return;
+        }
+        let (tx, rx) = mpsc::sync_channel::<Task>(64);
+        std::thread::Builder::new()
+            .name("dd-cef".into())
+            .stack_size(16 * 1024 * 1024)
+            .spawn(move || loop {
+                match rx.recv_timeout(Duration::from_millis(4)) {
+                    Ok(t) => t(),
+                    Err(mpsc::RecvTimeoutError::Timeout) => {}
+                    Err(_) => break,
+                }
+                super::pump();
+            })
+            .expect("spawn dd-cef thread");
+        *g = Some(tx);
     }
+
+    /// Run `f` on the worker, blocking the caller for its result. Starts
+    /// the worker on first use so callers don't need a ceremony order.
+    /// `None` only if the worker is dead / unreachable.
+    pub fn call<R: Send + 'static, F: FnOnce() -> R + Send + 'static>(f: F) -> Option<R> {
+        ensure_started();
+        let (tx, rx) = mpsc::sync_channel(1);
+        let sender = TX.lock().ok()?.clone()?;
+        sender
+            .send(Box::new(move || {
+                let _ = tx.send(f());
+            }))
+            .ok()?;
+        // try_recv + yield, NOT rx.recv(): parking touches std's TLS
+        // context registry, which is already destroyed when a call
+        // arrives on a dying thread (worker teardown raced an FFI call —
+        // segfault inside mpmc Context/Waker drop).
+        let deadline = std::time::Instant::now() + Duration::from_secs(60);
+        loop {
+            match rx.try_recv() {
+                Ok(r) => return Some(r),
+                Err(mpsc::TryRecvError::Disconnected) => return None,
+                Err(mpsc::TryRecvError::Empty) => {}
+            }
+            if std::time::Instant::now() > deadline {
+                return None;
+            }
+            std::thread::yield_now();
+        }
+    }
+}
+
+/// Dispatch an FFI body to the dedicated `dd-cef` worker (see above).
+fn ui_run<R: Send + 'static>(f: impl FnOnce() -> R + Send + 'static) -> Option<R> {
+    cef_thread::call(f)
 }
 
 // ---------------------------------------------------------------------------
@@ -616,6 +729,11 @@ fn pump() {
 /// opts_json: {"cefDir","cachePath","helperPath","userAgent","externalMessagePump","remoteDebugPort","logLevel"}
 #[no_mangle]
 pub extern "C" fn dd_webui_global_init(opts_json: *const c_char) -> c_int {
+    let opts_jsonp = opts_json as usize;
+    ui_run(move || { let opts_json = opts_jsonp as *const c_char; dd_webui_global_init_impl(opts_json) }).unwrap_or(0)
+}
+
+fn dd_webui_global_init_impl(opts_json: *const c_char) -> c_int {
     ftry!(-1, {
         if INITIALIZED.swap(true, Ordering::AcqRel) {
             return 0; // already up
@@ -651,7 +769,13 @@ pub extern "C" fn dd_webui_global_init(opts_json: *const c_char) -> c_int {
 
         let settings = Settings {
             windowless_rendering_enabled: 1,
-            external_message_pump: 1,
+            // CEF owns its browser UI thread — every FFI call already
+            // marshals onto the dd-cef worker, and CEF's internal
+            // marshaling lands UI-thread work on its own pump. This
+            // avoids the external_message_pump deadlock where
+            // CefInitialize posts FinishInitializeOnUIThread and blocks
+            // the only thread allowed to run it.
+            multi_threaded_message_loop: 1,
             no_sandbox: 1,
             browser_subprocess_path: cef_str(&helper.to_string_lossy()),
             resources_dir_path: cef_str(&cef_dir.to_string_lossy()),
@@ -670,13 +794,28 @@ pub extern "C" fn dd_webui_global_init(opts_json: *const c_char) -> c_int {
         };
 
         let mut app = BrowserApp::new();
-        if initialize(
+        // Chromium installs its own SIGCHLD handler inside CefInitialize,
+        // which clobbers libuv's reaper — every child_process the host
+        // spawns afterwards exits into an uncollected zombie. Snapshot the
+        // embedder's disposition and restore it after init; CEF reaps its
+        // own helpers via explicit waitpid so it doesn't need the handler.
+        #[cfg(unix)]
+        let prev_sigchld = unsafe {
+            let mut old: libc::sigaction = std::mem::zeroed();
+            libc::sigaction(libc::SIGCHLD, std::ptr::null(), &mut old);
+            old
+        };
+        let init_ret = initialize(
             Some(args.as_main_args()),
             Some(&settings),
             Some(&mut app),
             ptr::null_mut(),
-        ) != 1
-        {
+        );
+        #[cfg(unix)]
+        unsafe {
+            libc::sigaction(libc::SIGCHLD, &prev_sigchld, std::ptr::null_mut());
+        }
+        if init_ret != 1 {
             INITIALIZED.store(false, Ordering::Release);
             return -3;
         }
@@ -686,6 +825,11 @@ pub extern "C" fn dd_webui_global_init(opts_json: *const c_char) -> c_int {
 
 #[no_mangle]
 pub extern "C" fn dd_webui_global_shutdown() {
+    
+    let _ = ui_run(move || dd_webui_global_shutdown_impl());
+}
+
+fn dd_webui_global_shutdown_impl() {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         if INITIALIZED.swap(false, Ordering::AcqRel) {
             shutdown();
@@ -709,7 +853,12 @@ pub extern "C" fn dd_webui_version() -> *const c_char {
 /// "userAgent","maxCrashRetries"}. width/height are logical (CSS) px —
 /// the raster is w*scale × h*scale physical px.
 #[no_mangle]
-pub extern "C" fn dd_webui_create(
+pub extern "C" fn dd_webui_create(opts_json: *const c_char, width: c_int, height: c_int, scale: f32) -> *mut c_void {
+    let opts_jsonp = opts_json as usize;
+    ui_run(move || ({ let opts_json = opts_jsonp as *const c_char; dd_webui_create_impl(opts_json, width, height, scale) }) as usize).map(|p| p as *mut c_void).unwrap_or(std::ptr::null_mut())
+}
+
+fn dd_webui_create_impl(
     opts_json: *const c_char,
     width: c_int,
     height: c_int,
@@ -737,6 +886,8 @@ pub extern "C" fn dd_webui_create(
             w: AtomicU32::new(lw),
             h: AtomicU32::new(lh),
             scale_bits: AtomicU32::new(scale.to_bits()),
+            browser: Mutex::new(None),
+            created: Condvar::new(),
         });
         if let Some(b) = opt_bool(opts, "interactive") {
             shared.lock().interactive = b;
@@ -748,7 +899,6 @@ pub extern "C" fn dd_webui_create(
         let view = Box::new(View {
             busy: AtomicBool::new(false),
             shared,
-            browser: Mutex::new(None),
             url: Mutex::new(url.clone()),
             frame_rate,
             transparent,
@@ -758,13 +908,18 @@ pub extern "C" fn dd_webui_create(
         }
         let h = Box::into_raw(view);
         Registry::register(h as usize);
-        do_message_loop_work();
+        pump();
         h.cast()
     })
 }
 
 #[no_mangle]
 pub extern "C" fn dd_webui_destroy(h: *mut c_void) {
+    let hp = h as usize;
+    let _ = ui_run(move || { let h = hp as *mut c_void; dd_webui_destroy_impl(h) });
+}
+
+fn dd_webui_destroy_impl(h: *mut c_void) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         let v = h as *mut View;
         if v.is_null() {
@@ -788,6 +943,11 @@ pub extern "C" fn dd_webui_destroy(h: *mut c_void) {
 
 #[no_mangle]
 pub extern "C" fn dd_webui_load_url(h: *mut c_void, url: *const c_char) {
+    let hp = h as usize; let urlp = url as usize;
+    let _ = ui_run(move || { let h = hp as *mut c_void; let url = urlp as *const c_char; dd_webui_load_url_impl(h, url) });
+}
+
+fn dd_webui_load_url_impl(h: *mut c_void, url: *const c_char) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         with_view!(h, (), |v| {
             let Some(url) = (unsafe { cstr(url) }) else { return };
@@ -802,6 +962,11 @@ pub extern "C" fn dd_webui_load_url(h: *mut c_void, url: *const c_char) {
 
 #[no_mangle]
 pub extern "C" fn dd_webui_set_content(h: *mut c_void, html: *const c_char) {
+    let hp = h as usize; let htmlp = html as usize;
+    let _ = ui_run(move || { let h = hp as *mut c_void; let html = htmlp as *const c_char; dd_webui_set_content_impl(h, html) });
+}
+
+fn dd_webui_set_content_impl(h: *mut c_void, html: *const c_char) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         with_view!(h, (), |v| {
             let Some(html) = (unsafe { cstr(html) }) else { return };
@@ -817,6 +982,11 @@ pub extern "C" fn dd_webui_set_content(h: *mut c_void, html: *const c_char) {
 
 #[no_mangle]
 pub extern "C" fn dd_webui_resize(h: *mut c_void, w: c_int, hgt: c_int, scale: f32) {
+    let hp = h as usize;
+    let _ = ui_run(move || { let h = hp as *mut c_void; dd_webui_resize_impl(h, w, hgt, scale) });
+}
+
+fn dd_webui_resize_impl(h: *mut c_void, w: c_int, hgt: c_int, scale: f32) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         with_view!(h, (), |v| {
             let (lw, lh) = (w.max(1) as u32, hgt.max(1) as u32);
@@ -842,6 +1012,11 @@ pub extern "C" fn dd_webui_resize(h: *mut c_void, w: c_int, hgt: c_int, scale: f
 /// op: 0=back 1=forward 2=reload 3=stop
 #[no_mangle]
 pub extern "C" fn dd_webui_navigate(h: *mut c_void, op: c_int) {
+    let hp = h as usize;
+    let _ = ui_run(move || { let h = hp as *mut c_void; dd_webui_navigate_impl(h, op) });
+}
+
+fn dd_webui_navigate_impl(h: *mut c_void, op: c_int) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         with_view!(h, (), |v| {
             let Some(b) = browser_of(v) else { return };
@@ -858,6 +1033,11 @@ pub extern "C" fn dd_webui_navigate(h: *mut c_void, op: c_int) {
 
 #[no_mangle]
 pub extern "C" fn dd_webui_set_zoom(h: *mut c_void, factor: f64) {
+    let hp = h as usize;
+    let _ = ui_run(move || { let h = hp as *mut c_void; dd_webui_set_zoom_impl(h, factor) });
+}
+
+fn dd_webui_set_zoom_impl(h: *mut c_void, factor: f64) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         with_view!(h, (), |v| {
             if factor <= 0.0 {
@@ -873,6 +1053,11 @@ pub extern "C" fn dd_webui_set_zoom(h: *mut c_void, factor: f64) {
 
 #[no_mangle]
 pub extern "C" fn dd_webui_set_focus(h: *mut c_void, focused: c_int) {
+    let hp = h as usize;
+    let _ = ui_run(move || { let h = hp as *mut c_void; dd_webui_set_focus_impl(h, focused) });
+}
+
+fn dd_webui_set_focus_impl(h: *mut c_void, focused: c_int) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         with_view!(h, (), |v| {
             if let Some(host) = browser_of(v).and_then(|b| b.host()) {
@@ -884,6 +1069,11 @@ pub extern "C" fn dd_webui_set_focus(h: *mut c_void, focused: c_int) {
 
 #[no_mangle]
 pub extern "C" fn dd_webui_set_interactive(h: *mut c_void, on: c_int) {
+    let hp = h as usize;
+    let _ = ui_run(move || { let h = hp as *mut c_void; dd_webui_set_interactive_impl(h, on) });
+}
+
+fn dd_webui_set_interactive_impl(h: *mut c_void, on: c_int) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         with_view!(h, (), |v| {
             v.shared.lock().interactive = on != 0;
@@ -899,6 +1089,11 @@ pub extern "C" fn dd_webui_set_interactive(h: *mut c_void, on: c_int) {
 /// req rides to the renderer as a string arg (CefListValue has no u64).
 #[no_mangle]
 pub extern "C" fn dd_webui_eval(h: *mut c_void, req: u64, js: *const c_char) {
+    let hp = h as usize; let jsp = js as usize;
+    let _ = ui_run(move || { let h = hp as *mut c_void; let js = jsp as *const c_char; dd_webui_eval_impl(h, req, js) });
+}
+
+fn dd_webui_eval_impl(h: *mut c_void, req: u64, js: *const c_char) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         with_view!(h, (), |v| {
             let Some(code) = (unsafe { cstr(js) }) else { return };
@@ -911,6 +1106,11 @@ pub extern "C" fn dd_webui_eval(h: *mut c_void, req: u64, js: *const c_char) {
 /// Deliver a JSON payload to the page's window.downdraft dispatch.
 #[no_mangle]
 pub extern "C" fn dd_webui_post_message(h: *mut c_void, json: *const c_char) {
+    let hp = h as usize; let jsonp = json as usize;
+    let _ = ui_run(move || { let h = hp as *mut c_void; let json = jsonp as *const c_char; dd_webui_post_message_impl(h, json) });
+}
+
+fn dd_webui_post_message_impl(h: *mut c_void, json: *const c_char) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         with_view!(h, (), |v| {
             let Some(json) = (unsafe { cstr(json) }) else { return };
@@ -923,11 +1123,12 @@ pub extern "C" fn dd_webui_post_message(h: *mut c_void, json: *const c_char) {
 /// Drain queued events as one JSON array. (ptr,len) stay valid until the
 /// next call on this view. Returns event-batch presence (0 = empty).
 #[no_mangle]
-pub extern "C" fn dd_webui_poll_events(
-    h: *mut c_void,
-    out_ptr: *mut *const u8,
-    out_len: *mut usize,
-) -> c_int {
+pub extern "C" fn dd_webui_poll_events(h: *mut c_void, out_ptr: *mut *const u8, out_len: *mut usize) -> c_int {
+    let hp = h as usize; let out_ptrp = out_ptr as usize; let out_lenp = out_len as usize;
+    ui_run(move || { let h = hp as *mut c_void; let out_ptr = out_ptrp as *mut *const u8; let out_len = out_lenp as *mut usize; dd_webui_poll_events_impl(h, out_ptr, out_len) }).unwrap_or(0)
+}
+
+fn dd_webui_poll_events_impl(h: *mut c_void, out_ptr: *mut *const u8, out_len: *mut usize) -> c_int {
     ftry!(0, {
         unsafe {
             if !out_ptr.is_null() {
@@ -984,13 +1185,12 @@ fn mouse_button(btn: c_int) -> MouseButtonType {
 
 /// t: 0=move 1=down 2=up 3=leave. btn: 0=none 1=left 2=middle 3=right.
 #[no_mangle]
-pub extern "C" fn dd_webui_input_pointer(
-    h: *mut c_void,
-    t: c_int,
-    x: f32,
-    y: f32,
-    btn: c_int,
-) {
+pub extern "C" fn dd_webui_input_pointer(h: *mut c_void, t: c_int, x: f32, y: f32, btn: c_int) {
+    let hp = h as usize;
+    let _ = ui_run(move || { let h = hp as *mut c_void; dd_webui_input_pointer_impl(h, t, x, y, btn) });
+}
+
+fn dd_webui_input_pointer_impl(h: *mut c_void, t: c_int, x: f32, y: f32, btn: c_int) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         with_view!(h, (), |v| {
             let Some(host) = browser_of(v).and_then(|b| b.host()) else {
@@ -1019,13 +1219,12 @@ pub extern "C" fn dd_webui_input_pointer(
 }
 
 #[no_mangle]
-pub extern "C" fn dd_webui_input_wheel(
-    h: *mut c_void,
-    x: f32,
-    y: f32,
-    dx: f32,
-    dy: f32,
-) {
+pub extern "C" fn dd_webui_input_wheel(h: *mut c_void, x: f32, y: f32, dx: f32, dy: f32) {
+    let hp = h as usize;
+    let _ = ui_run(move || { let h = hp as *mut c_void; dd_webui_input_wheel_impl(h, x, y, dx, dy) });
+}
+
+fn dd_webui_input_wheel_impl(h: *mut c_void, x: f32, y: f32, dx: f32, dy: f32) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         with_view!(h, (), |v| {
             let Some(host) = browser_of(v).and_then(|b| b.host()) else {
@@ -1093,15 +1292,12 @@ fn vkey_of(key: &str, code: &str) -> i32 {
 
 /// t: 0=down 1=up. mods bitmask: 1=shift 2=ctrl 4=alt 8=meta.
 #[no_mangle]
-pub extern "C" fn dd_webui_input_key(
-    h: *mut c_void,
-    t: c_int,
-    key: *const c_char,
-    code: *const c_char,
-    text: *const c_char,
-    mods: c_int,
-    _repeat: c_int,
-) {
+pub extern "C" fn dd_webui_input_key(h: *mut c_void, t: c_int, key: *const c_char, code: *const c_char, text: *const c_char, mods: c_int, repeat: c_int) {
+    let hp = h as usize; let keyp = key as usize; let codep = code as usize; let textp = text as usize;
+    let _ = ui_run(move || { let h = hp as *mut c_void; let key = keyp as *const c_char; let code = codep as *const c_char; let text = textp as *const c_char; dd_webui_input_key_impl(h, t, key, code, text, mods, repeat) });
+}
+
+fn dd_webui_input_key_impl(h: *mut c_void, t: c_int, key: *const c_char, code: *const c_char, text: *const c_char, mods: c_int, _repeat: c_int) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         with_view!(h, (), |v| {
             let Some(host) = browser_of(v).and_then(|b| b.host()) else {
@@ -1158,13 +1354,12 @@ pub extern "C" fn dd_webui_input_key(
 
 /// t: 0=down 1=move 2=up 3=cancel.
 #[no_mangle]
-pub extern "C" fn dd_webui_input_touch(
-    h: *mut c_void,
-    t: c_int,
-    id: c_int,
-    x: f32,
-    y: f32,
-) {
+pub extern "C" fn dd_webui_input_touch(h: *mut c_void, t: c_int, id: c_int, x: f32, y: f32) {
+    let hp = h as usize;
+    let _ = ui_run(move || { let h = hp as *mut c_void; dd_webui_input_touch_impl(h, t, id, x, y) });
+}
+
+fn dd_webui_input_touch_impl(h: *mut c_void, t: c_int, id: c_int, x: f32, y: f32) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         with_view!(h, (), |v| {
             let Some(host) = browser_of(v).and_then(|b| b.host()) else {
@@ -1196,6 +1391,11 @@ pub extern "C" fn dd_webui_input_touch(
 /// commits route as CHAR events so basic text entry works.
 #[no_mangle]
 pub extern "C" fn dd_webui_input_ime(h: *mut c_void, t: c_int, s: *const c_char) {
+    let hp = h as usize; let sp = s as usize;
+    let _ = ui_run(move || { let h = hp as *mut c_void; let s = sp as *const c_char; dd_webui_input_ime_impl(h, t, s) });
+}
+
+fn dd_webui_input_ime_impl(h: *mut c_void, t: c_int, s: *const c_char) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         with_view!(h, (), |v| {
             if t != 1 {
@@ -1232,6 +1432,11 @@ pub extern "C" fn dd_webui_input_ime(h: *mut c_void, t: c_int, s: *const c_char)
 /// flag. 0 = no new frame.
 #[no_mangle]
 pub extern "C" fn dd_webui_take_frame(h: *mut c_void) -> u64 {
+    let hp = h as usize;
+    ui_run(move || { let h = hp as *mut c_void; dd_webui_take_frame_impl(h) }).unwrap_or(0)
+}
+
+fn dd_webui_take_frame_impl(h: *mut c_void) -> u64 {
     ftry!(0, {
         pump(); // OnPaint lands on this thread — tick before reading
         with_view!(h, 0, |v| {
@@ -1249,6 +1454,11 @@ pub extern "C" fn dd_webui_take_frame(h: *mut c_void) -> u64 {
 /// consumed by the pull, so this reports the remembered last rect).
 #[no_mangle]
 pub extern "C" fn dd_webui_frame_rect(h: *mut c_void) -> u64 {
+    let hp = h as usize;
+    ui_run(move || { let h = hp as *mut c_void; dd_webui_frame_rect_impl(h) }).unwrap_or(0)
+}
+
+fn dd_webui_frame_rect_impl(h: *mut c_void) -> u64 {
     ftry!(0, {
         with_view!(h, 0, |v| {
             v.shared
@@ -1263,6 +1473,11 @@ pub extern "C" fn dd_webui_frame_rect(h: *mut c_void) -> u64 {
 
 #[no_mangle]
 pub extern "C" fn dd_webui_frame_pending(h: *mut c_void) -> c_int {
+    let hp = h as usize;
+    ui_run(move || { let h = hp as *mut c_void; dd_webui_frame_pending_impl(h) }).unwrap_or(0)
+}
+
+fn dd_webui_frame_pending_impl(h: *mut c_void) -> c_int {
     ftry!(0, {
         with_view!(h, 0, |v| v.shared.lock().frame.pending() as c_int)
     })
@@ -1270,6 +1485,11 @@ pub extern "C" fn dd_webui_frame_pending(h: *mut c_void) -> c_int {
 
 #[no_mangle]
 pub extern "C" fn dd_webui_pixels(h: *mut c_void) -> *const u8 {
+    let hp = h as usize;
+    ui_run(move || ({ let h = hp as *mut c_void; dd_webui_pixels_impl(h) }) as usize).map(|p| p as *const u8).unwrap_or(std::ptr::null())
+}
+
+fn dd_webui_pixels_impl(h: *mut c_void) -> *const u8 {
     ftry!(ptr::null(), {
         with_view!(h, ptr::null(), |v| {
             let core = v.shared.lock();
@@ -1287,6 +1507,11 @@ pub extern "C" fn dd_webui_pixels(h: *mut c_void) -> *const u8 {
 
 #[no_mangle]
 pub extern "C" fn dd_webui_pixels_len(h: *mut c_void) -> usize {
+    let hp = h as usize;
+    ui_run(move || { let h = hp as *mut c_void; dd_webui_pixels_len_impl(h) }).unwrap_or(0)
+}
+
+fn dd_webui_pixels_len_impl(h: *mut c_void) -> usize {
     ftry!(0, {
         with_view!(h, 0, |v| v.shared.lock().frame.pixels().len())
     })
@@ -1294,6 +1519,11 @@ pub extern "C" fn dd_webui_pixels_len(h: *mut c_void) -> usize {
 
 #[no_mangle]
 pub extern "C" fn dd_webui_dimensions(h: *mut c_void, w: *mut u32, hgt: *mut u32) -> c_int {
+    let hp = h as usize; let wp = w as usize; let hgtp = hgt as usize;
+    ui_run(move || { let h = hp as *mut c_void; let w = wp as *mut u32; let hgt = hgtp as *mut u32; dd_webui_dimensions_impl(h, w, hgt) }).unwrap_or(0)
+}
+
+fn dd_webui_dimensions_impl(h: *mut c_void, w: *mut u32, hgt: *mut u32) -> c_int {
     ftry!(0, {
         with_view!(h, 0, |v| {
             let core = v.shared.lock();
@@ -1313,6 +1543,11 @@ pub extern "C" fn dd_webui_dimensions(h: *mut c_void, w: *mut u32, hgt: *mut u32
 /// Pixel-format tag — 0=RGBA8, 1=BGRA8 (CEF paints BGRA natively).
 #[no_mangle]
 pub extern "C" fn dd_webui_pixel_format(h: *mut c_void) -> u8 {
+    let hp = h as usize;
+    ui_run(move || { let h = hp as *mut c_void; dd_webui_pixel_format_impl(h) }).unwrap_or(0)
+}
+
+fn dd_webui_pixel_format_impl(h: *mut c_void) -> u8 {
     ftry!(1, {
         with_view!(h, 1, |v| v.shared.lock().frame.pixel_format)
     })
@@ -1324,6 +1559,11 @@ pub extern "C" fn dd_webui_pixel_format(h: *mut c_void) -> u8 {
 
 #[no_mangle]
 pub extern "C" fn dd_webui_buf_needed(h: *mut c_void) -> usize {
+    let hp = h as usize;
+    ui_run(move || { let h = hp as *mut c_void; dd_webui_buf_needed_impl(h) }).unwrap_or(0)
+}
+
+fn dd_webui_buf_needed_impl(h: *mut c_void) -> usize {
     ftry!(0, {
         with_view!(h, 0, |v| v.shared.lock().frame.buf_needed())
     })
@@ -1331,6 +1571,11 @@ pub extern "C" fn dd_webui_buf_needed(h: *mut c_void) -> usize {
 
 #[no_mangle]
 pub extern "C" fn dd_webui_bind_frame_buf(h: *mut c_void, ptr: *mut u8, len: usize) -> c_int {
+    let hp = h as usize; let ptrp = ptr as usize;
+    ui_run(move || { let h = hp as *mut c_void; let ptr = ptrp as *mut u8; dd_webui_bind_frame_buf_impl(h, ptr, len) }).unwrap_or(0)
+}
+
+fn dd_webui_bind_frame_buf_impl(h: *mut c_void, ptr: *mut u8, len: usize) -> c_int {
     ftry!(-1, {
         if ptr.is_null() {
             return 0;
@@ -1341,6 +1586,11 @@ pub extern "C" fn dd_webui_bind_frame_buf(h: *mut c_void, ptr: *mut u8, len: usi
 
 #[no_mangle]
 pub extern "C" fn dd_webui_frame_into(h: *mut c_void) -> c_int {
+    let hp = h as usize;
+    ui_run(move || { let h = hp as *mut c_void; dd_webui_frame_into_impl(h) }).unwrap_or(0)
+}
+
+fn dd_webui_frame_into_impl(h: *mut c_void) -> c_int {
     ftry!(-1, {
         with_view!(h, -1, |v| v.shared.lock().frame.frame_into(false))
     })
@@ -1348,6 +1598,11 @@ pub extern "C" fn dd_webui_frame_into(h: *mut c_void) -> c_int {
 
 #[no_mangle]
 pub extern "C" fn dd_webui_refresh_into(h: *mut c_void) -> c_int {
+    let hp = h as usize;
+    ui_run(move || { let h = hp as *mut c_void; dd_webui_refresh_into_impl(h) }).unwrap_or(0)
+}
+
+fn dd_webui_refresh_into_impl(h: *mut c_void) -> c_int {
     ftry!(-1, {
         with_view!(h, -1, |v| v.shared.lock().frame.frame_into(true))
     })
@@ -1360,6 +1615,11 @@ pub extern "C" fn dd_webui_refresh_into(h: *mut c_void) -> c_int {
 /// 1 when (x,y) hits an opaque pixel inside the view rect.
 #[no_mangle]
 pub extern "C" fn dd_webui_hit_test(h: *mut c_void, x: f32, y: f32) -> c_int {
+    let hp = h as usize;
+    ui_run(move || { let h = hp as *mut c_void; dd_webui_hit_test_impl(h, x, y) }).unwrap_or(0)
+}
+
+fn dd_webui_hit_test_impl(h: *mut c_void, x: f32, y: f32) -> c_int {
     ftry!(0, {
         with_view!(h, 0, |v| {
             let core = v.shared.lock();
@@ -1388,6 +1648,11 @@ pub extern "C" fn dd_webui_hit_test(h: *mut c_void, x: f32, y: f32) -> c_int {
 
 #[no_mangle]
 pub extern "C" fn dd_webui_status(h: *mut c_void) -> c_int {
+    let hp = h as usize;
+    ui_run(move || { let h = hp as *mut c_void; dd_webui_status_impl(h) }).unwrap_or(0)
+}
+
+fn dd_webui_status_impl(h: *mut c_void) -> c_int {
     ftry!(-1, {
         with_view!(h, -1, |v| v.shared.lock().status)
     })
@@ -1395,6 +1660,11 @@ pub extern "C" fn dd_webui_status(h: *mut c_void) -> c_int {
 
 #[no_mangle]
 pub extern "C" fn dd_webui_crash_count(h: *mut c_void) -> usize {
+    let hp = h as usize;
+    ui_run(move || { let h = hp as *mut c_void; dd_webui_crash_count_impl(h) }).unwrap_or(0)
+}
+
+fn dd_webui_crash_count_impl(h: *mut c_void) -> usize {
     ftry!(0, {
         with_view!(h, 0, |v| v.shared.lock().crash_count)
     })
@@ -1403,6 +1673,11 @@ pub extern "C" fn dd_webui_crash_count(h: *mut c_void) -> usize {
 /// Respawn a crashed/failed browser under the same view. -1 = refused.
 #[no_mangle]
 pub extern "C" fn dd_webui_recover(h: *mut c_void) -> c_int {
+    let hp = h as usize;
+    ui_run(move || { let h = hp as *mut c_void; dd_webui_recover_impl(h) }).unwrap_or(0)
+}
+
+fn dd_webui_recover_impl(h: *mut c_void) -> c_int {
     ftry!(-1, {
         with_view!(h, -1, |v| {
             let status = v.shared.lock().status;
@@ -1414,7 +1689,7 @@ pub extern "C" fn dd_webui_recover(h: *mut c_void) -> c_int {
                     host.close_browser(1);
                 }
             }
-            *v.browser.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            *v.shared.browser.lock().unwrap_or_else(|e| e.into_inner()) = None;
             let url = v.url.lock().unwrap_or_else(|e| e.into_inner()).clone();
             if !spawn_browser(v, &url) {
                 return -1;
@@ -1430,6 +1705,11 @@ pub extern "C" fn dd_webui_recover(h: *mut c_void) -> c_int {
 /// -1 = retry forever; N = fail after N crashes.
 #[no_mangle]
 pub extern "C" fn dd_webui_set_crash_policy(h: *mut c_void, max_retries: c_int) {
+    let hp = h as usize;
+    let _ = ui_run(move || { let h = hp as *mut c_void; dd_webui_set_crash_policy_impl(h, max_retries) });
+}
+
+fn dd_webui_set_crash_policy_impl(h: *mut c_void, max_retries: c_int) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         with_view!(h, (), |v| {
             v.shared.lock().max_crash_retries = max_retries;
@@ -1440,6 +1720,11 @@ pub extern "C" fn dd_webui_set_crash_policy(h: *mut c_void, max_retries: c_int) 
 /// External-pump tick — CefDoMessageLoopWork. The host calls this from
 /// its drain timer; frame pulls also pump implicitly.
 #[no_mangle]
-pub extern "C" fn dd_webui_pump_ms(_t_ms: u64) {
+pub extern "C" fn dd_webui_pump_ms(t_ms: u64) {
+    
+    let _ = ui_run(move || dd_webui_pump_ms_impl(t_ms));
+}
+
+fn dd_webui_pump_ms_impl(_t_ms: u64) {
     let _ = catch_unwind(AssertUnwindSafe(|| pump()));
 }
