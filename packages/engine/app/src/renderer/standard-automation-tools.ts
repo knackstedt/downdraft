@@ -413,8 +413,10 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
       handler: async (params: Record<string, unknown>) => {
         const surface = resolveSurface(ctx.surface);
         if (!surface) return errorResult("Surface not available");
-        const x = (params.x as number) ?? surface.clientWidth / 2;
-        const y = (params.y as number) ?? surface.clientHeight / 2;
+        // Coordinates are input-space (backing-buffer px) — the default
+        // must center in that space, not CSS px, at scaleFactor ≠ 1.
+        const x = (params.x as number) ?? surface.width / 2;
+        const y = (params.y as number) ?? surface.height / 2;
         const type = (params.type as string) ?? "click";
         const button = (params.button as number) ?? 0;
         const rect = surface.getBoundingClientRect();
@@ -442,13 +444,17 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
         const PtrEvent = (globalThis as any).PointerEvent;
         const downMask = MOUSE_BUTTON_MASK[button] ?? 1;
         const fireOne = (name: string, isPointer: boolean, buttons: number) => {
+          // movementX/Y: real MouseEvents default them to 0 — leaving them
+          // undefined makes unguarded consumers (`yaw += e.movementX`) go
+          // NaN, which poisons the camera transform and blanks the scene.
           if (isPointer && PtrEvent) {
             fire(new PtrEvent(name, {
               bubbles: true, cancelable: true, clientX, clientY, button, buttons,
               pointerId: 1, pointerType: "mouse", isPrimary: true,
+              movementX: 0, movementY: 0,
             }));
           } else if (!isPointer) {
-            fire(new MouseEvent(name, { bubbles: true, cancelable: true, clientX, clientY, button, buttons }));
+            fire(new MouseEvent(name, { bubbles: true, cancelable: true, clientX, clientY, button, buttons, movementX: 0, movementY: 0 }));
           }
         };
         if (type === "click") {

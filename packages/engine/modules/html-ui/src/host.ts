@@ -22,7 +22,9 @@ export interface PanelRect { x: number; y: number; w: number; h: number }
 export interface PanelSpec {
   /** Stable id — defaults to `panel-N`. */
   id?: string;
-  /** Screen-space rect in CSS px. */
+  /** Screen-space rect in input space (backing-buffer px — the space
+   *  NativeWindow.mapX/Y emits and hit-testing/compositing share; divide by
+   *  the surface zoom for logical size). */
   rect: PanelRect;
   /** Doc layout height when it differs from `rect.h` — the panel then
    *  displays a `src` sub-region of a taller texture (scrollable views that
@@ -114,7 +116,7 @@ export interface UiDocStats {
 
 export interface UiPanelHandle {
   readonly id: string;
-  /** Current screen-space rect (CSS px) — a snapshot copy. */
+  /** Current screen-space rect (input/backing-buffer px) — a snapshot copy. */
   readonly rect: PanelRect;
   setHtml(html: string): void;
   setText(target: number | string, text: string): void;
@@ -132,7 +134,12 @@ export interface UiPanelHandle {
   mutate(ops: DocMutation[]): void;
   focus(target?: number | string): void;
   setMaxFps(maxFps: number): void;
-  setRect(rect: PanelRect): void;
+  /** Move/resize the screen rect; `zoom` updates the doc layout scale at
+   *  the same time — pass the live surface zoom so panels mounted before
+   *  the display's real scaleFactor arrives (the start-up scale reads 1 on
+   *  fractional-scaling desktops until the compositor's first report)
+   *  converge instead of keeping the stale mount-time doc size. */
+  setRect(rect: PanelRect, zoom?: number): void;
   /** Resize the doc's layout height without moving the display rect —
    *  pair with `setSrcRect` for scroll views rasterized at full content
    *  height. */
@@ -372,10 +379,12 @@ export class HtmlUiHost {
         mutate({ op: "focus", ...(t === undefined ? {} : tgt(t)) });
       },
       setMaxFps: (maxFps) => this.send({ type: "fps", id: p.id, maxFps }),
-      setRect: (rect) => {
+      setRect: (rect, zoom) => {
         const r = p.rect;
-        if (r.x === rect.x && r.y === rect.y && r.w === rect.w && r.h === rect.h) return;
+        const z = zoom && zoom > 0 ? zoom : p.zoom;
+        if (r.x === rect.x && r.y === rect.y && r.w === rect.w && r.h === rect.h && z === p.zoom) return;
         p.rect = { ...rect };
+        p.zoom = z;
         this.send({ type: "resize", id: p.id, cssW: rect.w / p.zoom, cssH: p.docH ?? rect.h / p.zoom, scale: p.scale * p.zoom });
         this.bindPanelTex(p); // rebind the worker to the resized texture
       },

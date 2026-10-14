@@ -72,11 +72,11 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
       stopPropagation() {}
       stopImmediatePropagation() {}
     };
-    const defineEvent = (name: string, fields: string[]) => {
+    const defineEvent = (name: string, fields: string[], defaults?: Record<string, unknown>) => {
       const cls = class extends NativeEvent {
         constructor(type: string, init: any = {}) {
           super(type, init);
-          fields.forEach((f) => { (this as any)[f] = init[f] ?? (this as any)[f];; });
+          fields.forEach((f) => { (this as any)[f] = init[f] ?? defaults?.[f] ?? (this as any)[f];; });
         }
       };
       Object.defineProperty(cls, "name", { value: name });
@@ -87,17 +87,20 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
       "ctrlKey", "shiftKey", "altKey", "metaKey",
       "charCode", "keyCode", "which",
     ]);
+    // movementX/Y default to 0 on real DOM events — undefined would NaN any
+    // `+= e.movementX` consumer (e.g. pointer-lock look controls).
+    const XY_ZERO = { movementX: 0, movementY: 0 };
     defineEvent("MouseEvent", [
       "screenX", "screenY", "clientX", "clientY", "button", "buttons",
       "relatedTarget", "ctrlKey", "shiftKey", "altKey", "metaKey",
       "movementX", "movementY",
-    ]);
+    ], XY_ZERO);
     defineEvent("PointerEvent", [
       "screenX", "screenY", "clientX", "clientY", "button", "buttons",
       "relatedTarget", "ctrlKey", "shiftKey", "altKey", "metaKey",
       "movementX", "movementY", "pointerId", "pointerType", "pressure",
       "width", "height", "isPrimary",
-    ]);
+    ], XY_ZERO);
     defineEvent("WheelEvent", [
       "screenX", "screenY", "clientX", "clientY", "button", "buttons",
       "ctrlKey", "shiftKey", "altKey", "metaKey",

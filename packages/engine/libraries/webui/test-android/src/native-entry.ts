@@ -183,6 +183,40 @@ async function main() {
   check("hitTest in-bounds", view.hitTest(10, 10));
   check("hitTest out-of-bounds", !view.hitTest(9999, 9999));
 
+  // 12b. scale≠1 — logical view size vs physical raster. The view is
+  // created with logical 400×240 @ scale 2: the page must lay out at
+  // 400 CSS px (innerWidth) while the raster buffer reports 800×480.
+  // Passing physical dims to set_size (the scale² bug) would show
+  // innerWidth=800 here.
+  {
+    const sv = WebUIView.create("wpe", { html: HTML, transparent: false, interactive: true }, 400, 240, 2);
+    check("scaled view create", !!sv);
+    if (sv) {
+      const sLoaded = await waitEvent(sv, (e) => e.t === "load");
+      check("scaled load event", !!sLoaded);
+      sv.eval(11, "({ iw: innerWidth, ih: innerHeight, dpr: devicePixelRatio })");
+      const sEv = await waitEvent(sv, (e) => e.t === "eval" && (e as { id?: number }).id === 11);
+      const sV = (() => {
+        try {
+          return JSON.parse((sEv as { v?: string } | null)?.v ?? "null") as { iw?: number; ih?: number; dpr?: number };
+        } catch {
+          return null;
+        }
+      })();
+      check("scaled logical viewport", sV?.iw === 400 && sV?.ih === 240, JSON.stringify(sV));
+      check("scaled dpr", sV?.dpr === 2, `dpr=${sV?.dpr}`);
+      const sd = sv.dimensions();
+      check("scaled raster dims", !!sd && sd.w === 800 && sd.h === 480, JSON.stringify(sd));
+      const sframe = await pullNextFrame(sv, 15000);
+      check(
+        "scaled frame size",
+        !!sframe && sframe.byteLength === 800 * 480 * 4,
+        sframe ? `${sframe.byteLength}B` : "none",
+      );
+      sv.destroy();
+    }
+  }
+
   // 13. status healthy, no crashes
   check("status running", view.status() === "running", view.status());
 

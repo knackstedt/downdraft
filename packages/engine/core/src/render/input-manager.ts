@@ -29,6 +29,14 @@ export class InputManager {
   private enablePointerLock: boolean;
 
   private uiInputRouter: UIInputRouter | null = null;
+  /** Reports whether the most recent pointerdown was consumed by UI
+   *  (input-bus subscriber or a UI element under the pointer). When true,
+   *  the canvas click handler must not re-acquire pointer lock. */
+  private uiConsumedCheck: (() => boolean) | null = null;
+  /** Set at mousedown: the gesture began on a UI element. Click-time
+   *  hit-testing alone is unreliable — a row action may close the menu
+   *  before the click event fires, leaving nothing under the pointer. */
+  private pointerDownOnUI = false;
   private listeners: Array<{ target: EventTarget; event: string; handler: EventListener }> = [];
 
   constructor(canvas: RenderSurface, enablePointerLock = false) {
@@ -43,6 +51,10 @@ export class InputManager {
 
   setUIInputRouter(router: UIInputRouter | null): void {
     this.uiInputRouter = router;
+  }
+
+  setUiConsumedCheck(fn: (() => boolean) | null): void {
+    this.uiConsumedCheck = fn;
   }
 
   getUIInputRouter(): UIInputRouter | null {
@@ -73,7 +85,9 @@ export class InputManager {
     // free-moving cursor so click-to-dig / click-to-place works.
     if (this.enablePointerLock) {
       add(this.canvas, "click", (() => {
-        if (!this.pointerLocked) {
+        // UI-consumed clicks (bus subscribers like webui panels, or UI
+        // elements under the router's pointer) must not grab the pointer.
+        if (!this.pointerLocked && !(this.pointerDownOnUI || this.uiInputRouter?.isPointerOverUI() || (this.uiConsumedCheck?.() ?? false))) {
           this.pointerLockRetryCount = 0;
           this.tryLockPointer();
         }
@@ -124,8 +138,8 @@ export class InputManager {
       this.mouseState.x = e.clientX - rect.left;
       this.mouseState.y = e.clientY - rect.top;
       if (this.pointerLocked) {
-        this.mouseDelta.dx += e.movementX;
-        this.mouseDelta.dy += e.movementY;
+        this.mouseDelta.dx += e.movementX ?? 0;
+        this.mouseDelta.dy += e.movementY ?? 0;
       }
     }) as EventListener);
 
@@ -158,6 +172,11 @@ export class InputManager {
     add(window, "mousedown", ((e: MouseEvent) => {
       if (e.button === 0) {
         const [cx, cy] = toCanvas(e);
+        // Capture BEFORE routing the press into the UI doc — a menu row can
+        // close its menu on this very gesture, so hit-testing afterwards
+        // (or at click time) would find nothing and wrongly allow pointer
+        // lock.
+        this.pointerDownOnUI = this.uiInputRouter?.isPointOverUI(cx, cy) ?? false;
         this.uiInputRouter?.handleMouseDown(cx, cy);
       }
     }) as EventListener);

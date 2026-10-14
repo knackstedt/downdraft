@@ -228,6 +228,10 @@ function buildHost(backend: WebUiBackend, initOpts: WebUiGlobalInitOpts = {}): W
         frameRate: config.frameRate,
         userAgent: config.userAgent,
         maxCrashRetries: config.maxCrashRetries,
+        // Host-bridge views are always engine-composited via pullFrame —
+        // suppress the Android ASurfaceControl overlay (a surfaced layer
+        // would present unpositioned over the game, on top of the panel).
+        pullOnly: true,
       }, config.width, config.height, config.scale ?? 1);
       if (!view) return false;
       views.set(config.id, view);

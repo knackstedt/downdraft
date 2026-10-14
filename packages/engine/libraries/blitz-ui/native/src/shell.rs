@@ -180,9 +180,16 @@ impl HeadlessShell {
             }
             PendingInput::Wheel { dx, dy, x, y, mods } => {
                 self.pointer_pos = (*x, *y);
+                let coords = self.pointer_coords(*x, *y);
+                // The driver resolves a wheel's scroll target from
+                // hover_node_id, which only moves with pointer events —
+                // a parked mouse leaves the target stale and the wheel
+                // strands on the root viewport. Re-hit-test at the event's
+                // own coords first, matching browsers.
+                self.doc.inner_mut().set_hover_to(coords.page_x, coords.page_y);
                 let event = BlitzWheelEvent {
                     delta: BlitzWheelDelta::Pixels(*dx, *dy),
-                    coords: self.pointer_coords(*x, *y),
+                    coords,
                     buttons: self.buttons,
                     mods: mods_from_bits(*mods),
                     element: Default::default(),

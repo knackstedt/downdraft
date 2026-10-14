@@ -3,8 +3,8 @@ name: Docs
 # Builds the Astro/Starlight site in docs/site and deploys it to GitHub
 # Pages. Requires repo Settings -> Pages -> Source = "GitHub Actions".
 # To serve under the default project URL instead of the downdraft.dev
-# custom domain, set DOCS_SITE=https://<owner>.github.io/downdraft-engine
-# and DOCS_BASE=/downdraft-engine/ as workflow env or repository vars.
+# custom domain, set DOCS_SITE=https://<owner>.github.io/downdraft
+# and DOCS_BASE=/downdraft/ as workflow env or repository vars.
 
 on:
   push:

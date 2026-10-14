@@ -54,6 +54,7 @@ export class RendererInputBusImpl implements RendererInputBus {
   private dragButtons = 0;
   private dragShift = false;
   private dragSeq = 0; // increments per subscription for stable ordering
+  private pointerDownConsumed = false;
 
   constructor(canvas: RenderSurface) {
     this.canvas = canvas;
@@ -131,7 +132,7 @@ export class RendererInputBusImpl implements RendererInputBus {
       this.dragLastY = e.clientY;
       this.dragButtons = e.buttons;
       this.dragShift = e.shiftKey;
-      this.dispatchPointer(this.pointerDownSubs, e);
+      this.pointerDownConsumed = this.dispatchPointer(this.pointerDownSubs, e);
     }) as EventListener);
 
     add(this.canvas, "pointermove", ((e: PointerEvent) => {
@@ -186,12 +187,20 @@ export class RendererInputBusImpl implements RendererInputBus {
     };
   }
 
-  private dispatchPointer(subs: Subscription<PointerHandler>[], e: PointerEvent): void {
+  /** True when the most recent pointerdown was consumed by a subscriber
+   *  (stopPropagation). The InputManager reads this to keep UI clicks —
+   *  e.g. taps on a webui panel — from re-acquiring pointer lock. */
+  wasPointerDownConsumed(): boolean {
+    return this.pointerDownConsumed;
+  }
+
+  private dispatchPointer(subs: Subscription<PointerHandler>[], e: PointerEvent): boolean {
     const ctrl = this.makeControl();
     for (let i = 0; i < subs.length; i++) {
       subs[i].handler(e, ctrl);
-      if (ctrl.propagationStopped) break;
+      if (ctrl.propagationStopped) return true;
     }
+    return false;
   }
 
   private dispatchWheel(subs: Subscription<WheelHandler>[], e: WheelEvent): void {

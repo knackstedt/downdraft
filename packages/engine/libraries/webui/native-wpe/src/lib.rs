@@ -643,6 +643,11 @@ struct ViewShared {
     core: Mutex<ViewCore>,
     #[cfg(target_os = "android")]
     sc: Mutex<ScState>,
+    /// Skip the ASurfaceControl display path entirely — host-bridge views
+    /// are composited by the engine via pullFrame, and a surfaced layer
+    /// would present a rogue unpositioned overlay on top of the game.
+    #[cfg(target_os = "android")]
+    pull_only: bool,
     /// exportable + backend pointers the shm callback needs to release
     /// buffers against. Written at create, cleared at destroy.
     exportable: AtomicPtr<c_void>,
@@ -678,7 +683,7 @@ fn busy_of(v: &View) -> &AtomicBool {
 macro_rules! with_view {
     ($h:expr, $fail:expr, |$v:ident| $body:expr) => {{
         let h = $h as *mut View;
-        if !Registry::claim(h, busy_of) {
+        if !unsafe { Registry::claim(h, busy_of) } {
             return $fail;
         }
         // Release must survive both `return` inside a body (closure call)
@@ -687,7 +692,7 @@ macro_rules! with_view {
         struct BusyRelease(*mut View);
         impl Drop for BusyRelease {
             fn drop(&mut self) {
-                Registry::release(self.0, busy_of);
+                unsafe { Registry::release(self.0, busy_of) };
             }
         }
         let _guard = BusyRelease(h);
@@ -735,7 +740,19 @@ extern "C" fn close(fd: c_int) -> c_int {
 extern "C" {
     #[link_name = "close"]
     fn libc_close(fd: c_int) -> c_int;
+    #[cfg(target_os = "android")]
+    #[link_name = "dup"]
+    fn libc_dup(fd: c_int) -> c_int;
 }
+
+/// The commit acquire-fence is borrowed — the vendor IPC layer retains
+/// ownership via unique_fd and closes it after the callback returns.
+/// Closing it ourselves is unsafe in both directions: a tag check races
+/// the vendor's unique_fd destructor, and a recycled fd number means
+/// close() can kill an unrelated live fd (observed: libuv's
+/// /proc/self/stat fd inside uv__slurp → EBADF → abort). Never close.
+#[cfg(target_os = "android")]
+unsafe fn fence_release(_fence: c_int) {}
 
 #[cfg(not(target_os = "android"))]
 extern "C" fn export_dmabuf_resource(data: gpointer, resource: gpointer) {
@@ -890,6 +907,9 @@ struct ScAckCtx {
 /// a stalled WebProcess stops committing — so retries can't ride commits.
 #[cfg(target_os = "android")]
 fn sc_try_init(shared: &ViewShared) {
+    if shared.pull_only {
+        return;
+    }
     let mut sc = shared.sc.lock().unwrap_or_else(|e| e.into_inner());
     if !sc.layer.is_null() || sc.tries >= 600 {
         return;
@@ -1076,8 +1096,16 @@ extern "C" fn on_commit_buffer(data: gpointer, buffer: gpointer, fence: c_int) {
             if !txn.is_null() {
                 ASurfaceTransaction_setVisibility(txn, sc.layer, 0 /*SHOW*/);
                 ASurfaceTransaction_setZOrder(txn, sc.layer, 0);
-                // setBuffer takes ownership of the acquire-fence fd.
-                ASurfaceTransaction_setBuffer(txn, sc.layer, ahb, fence);
+                // setBuffer takes ownership of the fd it is handed — but
+                // the vendor IPC layer keeps its own unique_fd on the
+                // acquire fence, so hand the transaction a dup; both
+                // sides can then close cleanly under fdsan.
+                ASurfaceTransaction_setBuffer(
+                    txn,
+                    sc.layer,
+                    ahb,
+                    if fence >= 0 { libc_dup(fence) } else { fence },
+                );
                 let prev = std::mem::replace(&mut sc.front, buffer);
                 let data = shared as *const ViewShared;
                 Arc::increment_strong_count(data);
@@ -1088,15 +1116,14 @@ extern "C" fn on_commit_buffer(data: gpointer, buffer: gpointer, fence: c_int) {
                 ASurfaceTransaction_setOnComplete(txn, ctx as gpointer, sc_on_complete);
                 ASurfaceTransaction_apply(txn);
                 ASurfaceTransaction_delete(txn);
+                fence_release(fence);
                 return;
             }
         }
         drop(sc);
         // Headless fallback — no surface; ack immediately (the official
         // headless WKWebView behavior).
-        if fence >= 0 {
-            close(fence);
-        }
+        fence_release(fence);
         WPEAndroidViewBackend_dispatchReleaseBuffer(exp, buffer);
         WPEAndroidViewBackend_dispatchFrameComplete(exp);
     }
@@ -1570,6 +1597,8 @@ fn create_impl(
             core: Mutex::new(ViewCore::new(pw, ph, 1)), // BGRA
             #[cfg(target_os = "android")]
             sc: Mutex::new(ScState::default()),
+            #[cfg(target_os = "android")]
+            pull_only: opt_bool(opts, "pullOnly").unwrap_or(false),
             exportable: AtomicPtr::new(ptr::null_mut()),
             backend: AtomicPtr::new(ptr::null_mut()),
             scale_bits: AtomicU32::new(scale.max(0.01).to_bits()),
@@ -1761,7 +1790,7 @@ fn destroy_impl(h: *mut c_void) {
         if v.is_null() {
             return;
         }
-        Registry::wait_free(v, busy_of);
+        unsafe { Registry::wait_free(v, busy_of) };
         Registry::unregister(h as usize);
         let view = unsafe { Box::from_raw(v) };
         let webview = view.webview.swap(ptr::null_mut(), Ordering::AcqRel);

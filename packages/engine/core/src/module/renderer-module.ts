@@ -72,6 +72,10 @@ export interface RendererInputBus {
   onKeyUp(handler: KeyHandler, priority?: number): () => void;
   /** Drag helper: emits `{dx,dy,buttons,shift}` deltas while a button is held. */
   onDrag(handler: DragHandler, priority?: number): () => void;
+  /** True when the most recent pointerdown was consumed (stopPropagation)
+   *  by a subscriber — lets the pointer-lock layer tell UI clicks from
+   *  game-canvas clicks. */
+  wasPointerDownConsumed(): boolean;
   /** Destroy the bus and remove all DOM listeners. */
   destroy(): void;
 }

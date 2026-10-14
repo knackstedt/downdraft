@@ -26,8 +26,8 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ## Get the Source
 
 ```bash
-git clone https://github.com/knackstedt/downdraft-engine.git
-cd downdraft-engine
+git clone https://github.com/knackstedt/downdraft.git
+cd downdraft
 ```
 
 ## Install Dependencies

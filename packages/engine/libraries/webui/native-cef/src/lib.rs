@@ -11,13 +11,24 @@
 //! page-facing `window.downdraft` shim is injected on context creation.
 //!
 //! Threading contract: all dd_webui_* calls are marshaled onto a
-//! dedicated `dd-cef` worker thread — CEF requires its API surface +
-//! external_message_pump callbacks to live on one real thread, and
-//! FFI callers (node/koffi) invoke exports on private trampoline
-//! stacks where Chromium's stack walkers (TraceStackFramePointers)
-//! run past the mapped stack and SIGSEGV. The worker also ticks
-//! CefDoMessageLoopWork between tasks so frames keep flowing while
-//! the JS host is idle.
+//! dedicated `dd-cef` worker thread — FFI callers (node/koffi) invoke
+//! exports on private trampoline stacks where Chromium's stack walkers
+//! (TraceStackFramePointers) run past the mapped stack and SIGSEGV.
+//! The runtime runs `multi_threaded_message_loop` (CEF owns an
+//! internal UI thread): the external-pump alternative deadlocks —
+//! CefInitialize's UI-thread waits can't be serviced by a worker that
+//! is busy inside the initialize call itself. CreateBrowser is
+//! therefore async (CreateBrowserSync is UI-thread-only): the
+//! LifeSpanHandler's on_after_created deposits the browser into
+//! ViewShared and the create call waits on it.
+//!
+//! Known flake: rarely, ~seconds into the first browser's startup, a
+//! Chromium thread-pool worker SEGV inside vendored fontconfig's
+//! FcInit (gfx::GlobalFontConfig lazy init) — libc getenv walking a
+//! torn `environ` while another Chromium thread setenv/unsetenv's
+//! (libcef imports both). All fontconfig/GPC symbols are local to
+//! libcef so there's no external warm path; it has only ever been
+//! observed in dev (node) runs and recovers on retry.
 
 #![allow(non_snake_case)]
 
@@ -547,7 +558,7 @@ fn busy_of(v: &View) -> &AtomicBool {
 macro_rules! with_view {
     ($h:expr, $fail:expr, |$v:ident| $body:expr) => {{
         let h = $h as *mut View;
-        if !Registry::claim(h, busy_of) {
+        if !unsafe { Registry::claim(h, busy_of) } {
             return $fail;
         }
         // Release must survive both `return` inside a body (closure call)
@@ -556,7 +567,7 @@ macro_rules! with_view {
         struct BusyRelease(*mut View);
         impl Drop for BusyRelease {
             fn drop(&mut self) {
-                Registry::release(self.0, busy_of);
+                unsafe { Registry::release(self.0, busy_of) };
             }
         }
         let _guard = BusyRelease(h);
@@ -925,7 +936,7 @@ fn dd_webui_destroy_impl(h: *mut c_void) {
         if v.is_null() {
             return;
         }
-        Registry::wait_free(v, busy_of);
+        unsafe { Registry::wait_free(v, busy_of) };
         let view = unsafe { Box::from_raw(v) };
         if let Some(b) = browser_of(&view) {
             if let Some(host) = b.host() {

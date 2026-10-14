@@ -455,6 +455,12 @@ export class GameRenderer implements CanvasResizeHandler {
         },
       });
 
+      // Clicks consumed by the module input bus (webui panels, gizmos) must
+      // not re-acquire pointer lock — the bus records them for InputManager.
+      this.inputManager.setUiConsumedCheck(
+        () => this.rendererModuleHost?.getInputBus().wasPointerDownConsumed() ?? false,
+      );
+
       // Initial viewport layout
       this.updateViewports(1);
 
@@ -1046,10 +1052,12 @@ export class GameRenderer implements CanvasResizeHandler {
               storeOp: "store" as GPUStoreOp,
             }],
           });
-          // Panel rects are CSS px — pass the CSS surface size so
-          // rect/surface maps correctly on HiDPI displays (canvas.width is
-          // physical px; identical where scaleFactor=1).
-          compositors.forEach((c) => { c.render(uiPass, this.canvas.clientWidth, this.canvas.clientHeight); });
+          // Panel rects are input-space (backing-buffer px — the same space
+          // NativeWindow.mapX/Y emits and hit-testing uses), so the surface
+          // size goes in buffer px too — a CSS-px denominator draws every
+          // buffer rect zoom× oversized and bleeds it off the right edge at
+          // scaleFactor ≠ 1.
+          compositors.forEach((c) => { c.render(uiPass, this.canvas.width, this.canvas.height); });
           uiPass.end();
           // "preUi" slot — worker passes ordered ahead of the UI-composite
           // buffer inside the end-of-frame submit.
@@ -1413,8 +1421,9 @@ export class GameRenderer implements CanvasResizeHandler {
         storeOp: "store" as GPUStoreOp,
       }],
     });
-    // Panel rects are CSS px — see the main UI composite block above.
-    compositors.forEach((c) => { c.render(uiPass, this.canvas.clientWidth, this.canvas.clientHeight); });
+    // Panel rects are input-space (backing-buffer px) — see the main UI
+    // composite block above.
+    compositors.forEach((c) => { c.render(uiPass, this.canvas.width, this.canvas.height); });
     uiPass.end();
     this.device.queue.submit([uiEncoder.finish()]);
   }

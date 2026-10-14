@@ -131,8 +131,10 @@ export function createEditorModule(config: EditorModuleConfig = {}): RendererMod
         const ui = ctx.injectOptional(HtmlUiTok) ?? createSelfHostedUi(ctx);
         const shell = new EditorShell(editor, ui);
         const surface = ctx.getSurface();
-        shell.mount(surface.clientWidth, surface.clientHeight);
-        ctx.onResize((w, h) => shell.resize(w, h));
+        // css→buffer zoom: clientWidth is layout px, width is backing px.
+        const zoom = surface.clientWidth > 0 ? surface.width / surface.clientWidth : 1;
+        shell.mount(surface.clientWidth, surface.clientHeight, zoom);
+        ctx.onResize((w, h, dpr) => shell.resize(w, h, dpr));
         ctx.onDispose(() => shell.dispose());
 
         const viewport = new EditorViewport(ctx, editor);

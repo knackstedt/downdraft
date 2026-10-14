@@ -7,7 +7,7 @@ import starlightLlmsTxt from 'starlight-llms-txt';
 // https://astro.build/config
 export default defineConfig({
 	// Overridable so the same build works on the downdraft.dev custom domain
-	// (base '/') or the default <owner>.github.io/downdraft-engine Pages URL.
+	// (base '/') or the default <owner>.github.io/downdraft Pages URL.
 	site: process.env.DOCS_SITE || 'https://downdraft.dev',
 	base: process.env.DOCS_BASE || '/',
 	integrations: [
@@ -18,7 +18,7 @@ export default defineConfig({
 				replacesTitle: true,
 			},
 			social: [
-				{ icon: 'github', label: 'GitHub', href: 'https://github.com/knackstedt/downdraft-engine' },
+				{ icon: 'github', label: 'GitHub', href: 'https://github.com/knackstedt/downdraft' },
 			],
 			customCss: [
 				'./src/styles/custom.css',
@@ -68,7 +68,7 @@ export default defineConfig({
 				},
 			],
 			editLink: {
-				baseUrl: 'https://github.com/knackstedt/downdraft-engine/edit/main/docs/site/',
+				baseUrl: 'https://github.com/knackstedt/downdraft/edit/main/docs/site/',
 			},
 			lastUpdated: true,
 			plugins: [

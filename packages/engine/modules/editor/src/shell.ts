@@ -114,6 +114,9 @@ export class EditorShell {
   private pendingAddComponent = "";
   private screenW = 1280;
   private screenH = 720;
+  /** Display scale factor (buffer px per CSS px) — rects mount in the
+   *  compositor's input space, so css dims get ×zoom at the boundary. */
+  private zoom = 1;
   private disposers: Array<() => void> = [];
 
   /** Fired when the user picks a gizmo mode button / hotkey equivalent. */
@@ -125,29 +128,35 @@ export class EditorShell {
     this.layout = { ...DEFAULT_LAYOUT, ...layout };
   }
 
-  mount(screenW: number, screenH: number): void {
+  mount(screenW: number, screenH: number, zoom = 1): void {
     this.screenW = screenW;
     this.screenH = screenH;
+    this.zoom = zoom;
     const L = this.layout;
+    const z = zoom;
 
     this.toolbar = this.ui.mount(this.renderToolbar(), {
       id: "ed-toolbar",
-      rect: { x: 0, y: 0, w: screenW, h: L.toolbarH },
+      rect: { x: 0, y: 0, w: screenW * z, h: L.toolbarH * z },
+      zoom: z,
       z: 10,
     });
     this.hierarchy = this.ui.mount(this.renderHierarchy(), {
       id: "ed-hierarchy",
-      rect: { x: 0, y: L.toolbarH + 4, w: L.hierarchyW, h: screenH - L.toolbarH - L.journalH - 8 },
+      rect: { x: 0, y: (L.toolbarH + 4) * z, w: L.hierarchyW * z, h: (screenH - L.toolbarH - L.journalH - 8) * z },
+      zoom: z,
       z: 10,
     });
     this.inspector = this.ui.mount(this.renderInspector(), {
       id: "ed-inspector",
-      rect: { x: screenW - L.inspectorW, y: L.toolbarH + 4, w: L.inspectorW, h: screenH - L.toolbarH - L.journalH - 8 },
+      rect: { x: (screenW - L.inspectorW) * z, y: (L.toolbarH + 4) * z, w: L.inspectorW * z, h: (screenH - L.toolbarH - L.journalH - 8) * z },
+      zoom: z,
       z: 10,
     });
     this.journal = this.ui.mount(this.renderJournal(), {
       id: "ed-journal",
-      rect: { x: 0, y: screenH - L.journalH, w: screenW, h: L.journalH },
+      rect: { x: 0, y: (screenH - L.journalH) * z, w: screenW * z, h: L.journalH * z },
+      zoom: z,
       z: 10,
     });
 
@@ -169,14 +178,16 @@ export class EditorShell {
     }));
   }
 
-  resize(w: number, h: number): void {
+  resize(w: number, h: number, zoom?: number): void {
     this.screenW = w;
     this.screenH = h;
+    if (zoom && zoom > 0) this.zoom = zoom;
+    const z = this.zoom;
     const L = this.layout;
-    this.toolbar.setRect({ x: 0, y: 0, w, h: L.toolbarH });
-    this.hierarchy.setRect({ x: 0, y: L.toolbarH + 4, w: L.hierarchyW, h: h - L.toolbarH - L.journalH - 8 });
-    this.inspector.setRect({ x: w - L.inspectorW, y: L.toolbarH + 4, w: L.inspectorW, h: h - L.toolbarH - L.journalH - 8 });
-    this.journal.setRect({ x: 0, y: h - L.journalH, w, h: L.journalH });
+    this.toolbar.setRect({ x: 0, y: 0, w: w * z, h: L.toolbarH * z }, z);
+    this.hierarchy.setRect({ x: 0, y: (L.toolbarH + 4) * z, w: L.hierarchyW * z, h: (h - L.toolbarH - L.journalH - 8) * z }, z);
+    this.inspector.setRect({ x: (w - L.inspectorW) * z, y: (L.toolbarH + 4) * z, w: L.inspectorW * z, h: (h - L.toolbarH - L.journalH - 8) * z }, z);
+    this.journal.setRect({ x: 0, y: (h - L.journalH) * z, w: w * z, h: L.journalH * z }, z);
   }
 
   setGizmoMode(mode: GizmoModeName): void {

@@ -35,6 +35,7 @@ export interface DevtoolsUiSurface {
     rect: { x: number; y: number; w: number; h: number };
     z?: number;
     scale?: number;
+    zoom?: number;
     maxFps?: number;
     /** Ease wheel deltas at pump cadence (html-ui PanelSpec.smoothWheel). */
     smoothWheel?: boolean;
@@ -58,8 +59,11 @@ export interface BlitzDevtoolsOptions {
   gameScene?: unknown;
   /** Optional ProfilingSAB for per-worker performance metrics. */
   profilingSAB?: SharedArrayBuffer | null;
-  /** Viewport size provider — used for dock layout. */
-  surface: { clientWidth: number; clientHeight: number };
+  /** Viewport size provider — used for dock layout. clientWidth/Height are
+   *  the CSS-px extent (dock math stays in layout px); width/height are the
+   *  backing buffer — panel rects must be mounted in that space, so the
+   *  zoom between them is applied at the rect boundary. */
+  surface: { clientWidth: number; clientHeight: number; width?: number; height?: number };
   /** Dock height as a fraction of the surface (default 0.42). */
   dockFraction?: number;
   /** Open the dock on start. Default false. */
@@ -185,6 +189,8 @@ export class BlitzDevtoolsHost {
         // Ease wheel detents at pump cadence instead of jumping per event.
         smoothWheel: true,
         interactive: true,
+        // Doc layout stays CSS px — zoom is the live surface factor.
+        zoom: this.z(),
         // Devtools UI doesn't need vsync-rate raster — cap it so mutation
         // bursts (console streams, snapshot refreshes) coalesce into ~66ms
         // rasters instead of one raster per message.
@@ -270,7 +276,7 @@ export class BlitzDevtoolsHost {
   resize(w: number, h: number): void {
     this.surfaceW = w;
     this.surfaceH = h;
-    if (this.visible) this.panel?.setRect(this.dockRect());
+    if (this.visible) this.panel?.setRect(this.dockRect(), this.z());
   }
 
   dispose(): void {
@@ -284,11 +290,21 @@ export class BlitzDevtoolsHost {
 
   // ── Dock layout ──
 
+  /** Display scale factor — buffer px per CSS px. Live-read so a late-
+   *  arriving compositor scale report converges on the next resize/drag. */
+  private z(): number {
+    const s = this.opts.surface;
+    return s.width && s.clientWidth ? s.width / s.clientWidth : 1;
+  }
+
   private dockRect() {
     // A tiny surface (or a pathological resize event) must not produce a
     // negative height — keep at least enough room for the tab strip.
+    // Layout math is CSS px; the rect is returned in buffer px — the
+    // compositor's canonical space.
+    const z = this.z();
     const h = Math.max(48, Math.min(this.dockH, this.surfaceH - 60));
-    return { x: 0, y: Math.max(0, this.surfaceH - h), w: this.surfaceW, h };
+    return { x: 0, y: Math.max(0, this.surfaceH - h) * z, w: this.surfaceW * z, h: h * z };
   }
 
   private shellHtml(): string {
@@ -445,7 +461,7 @@ export class BlitzDevtoolsHost {
         const clamped = Math.max(MIN_DOCK, Math.min(this.surfaceH - 60, Math.round(nh)));
         if (clamped !== this.dockH) {
           this.dockH = clamped;
-          this.panel?.setRect(this.dockRect());
+          this.panel?.setRect(this.dockRect(), this.z());
         }
         return;
       }

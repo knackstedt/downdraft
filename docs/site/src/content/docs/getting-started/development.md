@@ -29,7 +29,7 @@ DownDraft supports three build modes:
 ## Project Structure
 
 ```
-downdraft-engine/
+downdraft/
 ├── packages/
 │   ├── engine/         # The @downdraft/engine package
 │   │   ├── core/       # ECS, render, SAB, input, modules, particles, animation, physics, audio

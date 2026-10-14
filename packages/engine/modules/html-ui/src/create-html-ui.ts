@@ -130,7 +130,9 @@ export function createHtmlUi(options: HtmlUiOptions): RendererModule {
         : null;
       if (nav) {
         ctx.onDispose(() => nav.dispose());
-        ctx.onResize((w, h) => nav.setScreen(w, h));
+        // onResize arrives in CSS px — nav/overlay dims are input space
+        // (buffer px), so scale by the reported dpr.
+        ctx.onResize((w, h, dpr) => nav.setScreen(w * dpr, h * dpr));
         // Before the host's key routing (-10): consume nav keys unless the
         // focused node is editable (then the doc owns the keys).
         const offKey = ctx.getInputBus().onKeyDown((e) => {

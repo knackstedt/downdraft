@@ -33,6 +33,11 @@ export class UIInputRouter {
     return this.lastMouseX >= 0 && this.hitTest(this.lastMouseX, this.lastMouseY);
   }
 
+  /** Hit-test explicit coordinates (same space as getPointerPos). */
+  isPointOverUI(x: number, y: number): boolean {
+    return this.hitTest(x, y);
+  }
+
   /** Hit-test hook — override to consult the live UI document. */
   protected hitTest(_x: number, _y: number): boolean {
     return false;

@@ -88,11 +88,16 @@ export function createControllerUi(): RendererModule {
         get isOpen() { return panel !== null; },
         open() {
           if (panel) return;
-          const w = ctx.getSurface().clientWidth, h = ctx.getSurface().clientHeight;
-          const pw = Math.min(720, w - 80), ph = Math.min(760, h - 80);
+          // Layout in CSS px, mount in the compositor's input space —
+          // buffer px = css × zoom (diverges at scaleFactor ≠ 1).
+          const s = ctx.getSurface();
+          const z = s.clientWidth > 0 ? s.width / s.clientWidth : 1;
+          const w = s.clientWidth, h = s.clientHeight;
+          const pw = Math.min(720, w - 80) * z, ph = Math.min(760, h - 80) * z;
           panel = ui.mount(`${kitStyleTag()}<style>${tvCss()}${CSS}</style>${screenMarkup()}`, {
             id: "controller-ui",
-            rect: { x: (w - pw) / 2, y: (h - ph) / 2, w: pw, h: ph },
+            rect: { x: (w * z - pw) / 2, y: (h * z - ph) / 2, w: pw, h: ph },
+            zoom: z,
             z: 50,
           });
           refreshDevices();

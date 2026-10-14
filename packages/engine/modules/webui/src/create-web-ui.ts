@@ -184,14 +184,16 @@ export function createWebUi(options: WebUiOptions): RendererModule {
         bus.onPointerDown((e, ctrl) => {
           const p = panelAt(e.clientX, e.clientY);
           if (!p) {
+            console.warn(`[webui] pointerdown miss @(${e.clientX},${e.clientY}) panels=${panels.map((q) => `${q.id}@${JSON.stringify(q.comp.rect)}`).join("|")}`);
             if (focusedPanel) { bridge?.setFocus(focusedPanel, false); focusedPanel = null; }
             return;
           }
+          const c = local(p, e);
+          console.warn(`[webui] pointerdown hit ${p.id} @(${e.clientX},${e.clientY}) → local(${c.x.toFixed(1)},${c.y.toFixed(1)})`);
           ctrl.stopPropagation();
           pointerDownOn = p.id;
           focusedPanel = p.id;
           bridge?.setFocus(p.id, true);
-          const c = local(p, e);
           send(p.id, { type: "mouseDown", x: c.x, y: c.y, button: btn(e.button), modifiers: modsOf(e) });
         }, -10),
         bus.onPointerUp((e, ctrl) => {

@@ -194,8 +194,15 @@ impl FrameBuf {
     }
 
     /// Pull the frame: returns (pixels, dirty-union) once and clears the
-    /// flag. `None` when nothing changed.
+    /// flag. `None` when nothing changed — and also while `painted` is
+    /// false: resize() marks the fresh buffer all-dirty, but those pixels
+    /// are zeros, so handing them out flashes black between the resize and
+    /// the browser's first real repaint. Hosts keep the last real frame
+    /// (stretched into the new rect) until a write lands instead.
     pub fn take(&mut self) -> Option<(&[u8], Rect)> {
+        if !self.painted {
+            return None;
+        }
         let dirty = self.dirty.take()?;
         self.last = Some(dirty);
         Some((&self.pixels, dirty))
@@ -499,7 +506,12 @@ impl Registry {
 
     /// Contains-check + busy-claim, atomic under the registry lock.
     /// Returns the view's Registration when live-and-free.
-    pub fn claim<T>(handle: *mut T, busy_of: impl Fn(&T) -> &AtomicBool) -> bool {
+    ///
+    /// # Safety
+    /// `handle` must be null or a live, registered view pointer. A live
+    /// handle's view can't be freed while the registry lock is held, so
+    /// the deref is sound once the contains-check passes.
+    pub unsafe fn claim<T>(handle: *mut T, busy_of: impl Fn(&T) -> &AtomicBool) -> bool {
         if handle.is_null() {
             return false;
         }
@@ -511,23 +523,29 @@ impl Registry {
         }
         // Safe under the lock: a live handle's view can't be freed here —
         // destroy unregisters first, then waits for busy to clear.
-        let busy = unsafe { busy_of(&*handle) };
+        let busy = busy_of(&*handle);
         !busy.swap(true, Ordering::Acquire)
     }
 
-    pub fn release<T>(handle: *mut T, busy_of: impl Fn(&T) -> &AtomicBool) {
+    /// # Safety
+    /// `handle` must be null or a live, registered view pointer.
+    pub unsafe fn release<T>(handle: *mut T, busy_of: impl Fn(&T) -> &AtomicBool) {
         if handle.is_null() {
             return;
         }
-        unsafe { busy_of(&*handle) }.store(false, Ordering::Release);
+        busy_of(&*handle).store(false, Ordering::Release);
     }
 
     /// Destroy-side wait: after unregister, spin until in-flight calls exit.
-    pub fn wait_free<T>(handle: *mut T, busy_of: impl Fn(&T) -> &AtomicBool) {
+    ///
+    /// # Safety
+    /// `handle` must be a view pointer whose memory stays live for the
+    /// duration of the spin — call it before freeing the view.
+    pub unsafe fn wait_free<T>(handle: *mut T, busy_of: impl Fn(&T) -> &AtomicBool) {
         Self::unregister(handle as usize);
         // Bounded spin — a wedged FFI call shouldn't hang shutdown forever.
         for _ in 0..10_000 {
-            if !unsafe { busy_of(&*handle) }.load(Ordering::Acquire) {
+            if !busy_of(&*handle).load(Ordering::Acquire) {
                 return;
             }
             std::hint::spin_loop();

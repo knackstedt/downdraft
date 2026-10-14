@@ -1100,9 +1100,17 @@ pub extern "C" fn dd_osr_wheel(
             return -1;
         };
         let d = g.get();
+        let coords = pointer_coords(d, x, y);
+        // The driver resolves a wheel's scroll target from hover_node_id,
+        // which only moves with pointer events — a parked mouse (or a hover
+        // node that was retargeted after DOM edits) leaves the target stale,
+        // and a fresh session has no hover at all; either way the wheel
+        // strands on the root viewport and nothing visibly scrolls.
+        // Re-hit-test at the event's own coords first, matching browsers.
+        d.doc.inner_mut().set_hover_to(coords.page_x, coords.page_y);
         let event = BlitzWheelEvent {
             delta: BlitzWheelDelta::Pixels(delta_x, delta_y),
-            coords: pointer_coords(d, x, y),
+            coords,
             buttons: d.buttons,
             mods: kbt_modifiers(mods),
             element: Default::default(),

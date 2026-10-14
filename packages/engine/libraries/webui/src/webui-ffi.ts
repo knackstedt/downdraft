@@ -275,7 +275,7 @@ export class WebUIView {
 
   static create(
     backend: WebUiBackend,
-    opts: { url?: string; html?: string; transparent?: boolean; interactive?: boolean; frameRate?: number; userAgent?: string; maxCrashRetries?: number },
+    opts: { url?: string; html?: string; transparent?: boolean; interactive?: boolean; frameRate?: number; userAgent?: string; maxCrashRetries?: number; pullOnly?: boolean },
     width: number,
     height: number,
     scale = 1,

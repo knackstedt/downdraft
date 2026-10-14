@@ -29,4 +29,4 @@ downdraft.config.json   Engine configuration
 
 ## Engine
 
-Built with [DownDraft Engine](https://github.com/downdraft-engine) — a TypeScript-first game engine on WebGPU — native runtime (Bun + SDL + wgpu).
+Built with [DownDraft Engine](https://github.com/knackstedt/downdraft) — a TypeScript-first game engine on WebGPU — native runtime (Bun + SDL + wgpu).

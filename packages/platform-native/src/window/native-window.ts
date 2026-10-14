@@ -13,6 +13,7 @@ import { createLogger } from "@downdraft/engine/util/logger";
 import { MiniEventTarget } from "../dom/mini-event-target";
 import type { ptr } from "../ffi/ffi-adapter";
 import { wgpu } from "../gpu/wgpu-ffi";
+import { fireGlobalHotkey } from "./global-hotkeys";
 import { NativeSurface } from "./native-surface";
 import {
     KMOD_ALT,
@@ -23,11 +24,11 @@ import {
     SDL_EVENT_DROP_FILE,
     SDL_EVENT_FOCUS_GAINED,
     SDL_EVENT_FOCUS_LOST,
+    SDL_EVENT_HOTKEY,
     SDL_EVENT_KEY_DOWN,
     SDL_EVENT_KEY_UP,
     SDL_EVENT_MOUSE_DOWN,
     SDL_EVENT_MOUSE_MOVE,
-    SDL_EVENT_HOTKEY,
     SDL_EVENT_MOUSE_UP,
     SDL_EVENT_MOVED,
     SDL_EVENT_NONE,
@@ -40,9 +41,6 @@ import {
     SDL_EVENT_TOUCH,
     SDL_EVENT_VSYNC,
     SDL_EVENT_WHEEL,
-    sdlButtonsToDom,
-    sdlExt,
-    sdlWindow,
     SDL_EVENT_WINDOW_CLOSE,
     SDL_WIN_ALWAYS_ON_TOP,
     SDL_WIN_CLICK_THROUGH,
@@ -50,9 +48,11 @@ import {
     SDL_WIN_HIDDEN,
     SDL_WIN_RESIZABLE,
     SDL_WIN_SKIP_TASKBAR,
-    SDL_WIN_TRANSPARENT
+    SDL_WIN_TRANSPARENT,
+    sdlButtonsToDom,
+    sdlExt,
+    sdlWindow
 } from "./sdl-ffi";
-import { fireGlobalHotkey } from "./global-hotkeys";
 
 // Lazily bound — wgpu-device.ts pulls the whole JS shim graph (encoder,
 // resources, limits…), which under the dev shell's ModuleRunner is seconds
@@ -370,19 +370,31 @@ export class NativeWindow extends MiniEventTarget {
 
   /**
    * Block until the Android winit loop reports RESUMED (window created).
-   * Non-RESUMED events can only be pre-window noise — dropped. Bounded so a
-   * wedged surface handshake throws instead of hanging startup forever.
+   * Non-RESUMED events can only be pre-window noise — dropped. Unbounded:
+   * a launch behind the keyguard produces a ~ms-long resume→suspend cycle
+   * and the activity only gains a real window on the NEXT resume (unlock),
+   * which can take arbitrarily long — the recorded create request is
+   * persistent, so winit fulfils it whenever that resume lands. Dying here
+   * (as a hard timeout did) leaves the process unrecoverable behind the
+   * lockscreen. A true wedge (dead loop thread) is still diagnosable via
+   * the periodic log.
    */
   private waitForAndroidResume(): void {
-    const deadline = performance.now() + 30_000;
-    while (performance.now() < deadline) {
+    let waited = 0;
+    for (;;) {
       const t = sdl.sdl_shim_wait_event(sharedEventData as any, 500);
       if (t === SDL_EVENT_RESUMED) {
         this.surfaceSuspended = false;
         return;
       }
+      waited += 500;
+      if (waited % 30_000 === 0) {
+        log.info(
+          "NativeWindow",
+          `still waiting for Android resume after ${waited / 1000}s — activity not resumed (device locked or app backgrounded?)`,
+        );
+      }
     }
-    throw new Error("Timed out waiting for Android window resume (30s)");
   }
 
   getSurface(): NativeSurface {

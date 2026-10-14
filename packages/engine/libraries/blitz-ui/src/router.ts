@@ -91,6 +91,12 @@ export class BlitzUiRouter extends UIInputRouter {
         return this.lastX >= 0 && this.wasm.ui_hit_test(this.lastX, this.lastY);
     }
 
+    /** Hit-test explicit coordinates — used by InputManager to capture
+     *  "press started on UI" before the doc can mutate the layout. */
+    protected override hitTest(x: number, y: number): boolean {
+        return this.wasm.ui_hit_test(x, y);
+    }
+
     // Key routing happens through our own listeners (InputManager only passes
     // keyCode, which can't reconstruct `key`). Base no-ops are fine.
     override handleKeyDown(_code: number): void {}

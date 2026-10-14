@@ -265,6 +265,22 @@ struct CreateReq {
 #[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
 static CREATE_REQ: Mutex<Option<CreateReq>> = Mutex::new(None);
 
+/// Deferred sdl_shim_create_window ack — held briefly after install_window
+/// so the reply lands after the compositor's first configure burst (real
+/// size, Wayland fractional scale) instead of letting JS snapshot the
+/// pre-settle scale=1 defaults into NativeSurface. Bounded: about_to_wait
+/// flushes it at the deadline even on silent WMs, and JS additionally
+/// bounds the whole create via recv_timeout.
+#[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
+static CREATE_ACK: Mutex<Option<(mpsc::Sender<c_int>, std::time::Instant)>> =
+    Mutex::new(None);
+
+/// How long to hold the create ack waiting for the initial window-event
+/// burst. Wayland's first configure lands in single-digit ms; the bound
+/// only bites on unusually slow compositors / VM displays.
+#[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
+const CREATE_SETTLE: Duration = Duration::from_millis(200);
+
 /// Payload for LoopCmd::CreateExtraWindow — mirrors CreateReq but carries
 /// the WF_* option flags and a position (i32::MIN = unset → WM placement),
 /// and replies with the new window's handle (>=1) or a negative error.
@@ -469,12 +485,39 @@ fn pump_create_window(el: &winit::event_loop::ActiveEventLoop) {
                 ));
             }
             install_window(window);
-            reply(0);
+            // Hold the ack until the first window event (initial size /
+            // scale-factor report) or CREATE_SETTLE, whichever comes first.
+            *CREATE_ACK.lock().unwrap() =
+                Some((req.reply.clone(), std::time::Instant::now() + CREATE_SETTLE));
+            el.set_control_flow(winit::event_loop::ControlFlow::WaitUntil(
+                std::time::Instant::now() + CREATE_SETTLE,
+            ));
         }
         Err(err) => {
             eprintln!("[downdraft_platform] create_window failed: {err}");
             reply(2);
         }
+    }
+}
+
+/// Flush the deferred create ack. `settle` = a window event just arrived —
+/// the initial state report has landed and the reply can go immediately;
+/// without it, only the deadline releases the ack. Restores Wait control
+/// flow once the ack is consumed.
+#[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
+fn flush_create_ack(el: &winit::event_loop::ActiveEventLoop, settle: bool) {
+    let ack = {
+        let mut slot = CREATE_ACK.lock().unwrap();
+        match slot.as_ref() {
+            Some((_, deadline)) if settle || std::time::Instant::now() >= *deadline => {
+                slot.take()
+            }
+            _ => None,
+        }
+    };
+    if let Some((tx, _)) = ack {
+        let _ = tx.send(0);
+        el.set_control_flow(winit::event_loop::ControlFlow::Wait);
     }
 }
 
@@ -568,6 +611,15 @@ impl ApplicationHandler<LoopCmd> for Pump {
         if let Some(ctx) = CTX.lock().unwrap().as_mut() {
             events::translate_window_event(ctx, id, ev, el);
         }
+        // First window event = the compositor's initial state report —
+        // release the deferred create ack.
+        flush_create_ack(el, true);
+    }
+
+    fn about_to_wait(&mut self, el: &winit::event_loop::ActiveEventLoop) {
+        // Deadline path — a WM that sends no initial events must not hold
+        // sdl_shim_create_window hostage.
+        flush_create_ack(el, false);
     }
 
     fn device_event(
