@@ -2,12 +2,12 @@
 // StickmanPass — shared render pass that draws a stickman player avatar as
 // thick lines, lit by the game's light/volumetric textures.
 //
-// Generalized from the falling-sand + mining-rpg copies. Viewport is set
+// Generalized from the per-game copies. Viewport is set
 // separately from the per-frame pose:
 //   - setGridViewport(gridW, gridH): cell coords -> NDC across the whole
-//     canvas (falling-sand — grid fills the screen).
+//     canvas (grid fills the screen).
 //   - setCameraViewport(camX, camY, zoom, canvasW, canvasH): pan/zoom camera
-//     (mining-rpg).
+//     (tile-based game variant).
 //
 // Bindings: 0 = uniforms, 1 = light accumulation texture, 2 = volumetric
 // texture. Unset light bindings default to a 1×1 white dummy (identity

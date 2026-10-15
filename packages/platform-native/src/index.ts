@@ -3,9 +3,9 @@
 //
 // Provides:
 //   - GPU binding (wgpu-native via cross-runtime FFI) → installs as navigator.gpu
-//   - Native window (SDL2) → implements HTMLCanvasElement interface
+//   - Native window (winit) → implements HTMLCanvasElement interface
 //   - Native rAF (vsync-driven) → installs as requestAnimationFrame
-//   - Native input (SDL2 events → DOM-compatible events)
+//   - Native input (native window events → DOM-compatible events)
 //   - Native image/font decoders (replaces createImageBitmap, OffscreenCanvas)
 //   - Screenshot capture (swapchain → buffer → PNG)
 //

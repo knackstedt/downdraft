@@ -1,4 +1,4 @@
-import type { GameModule } from "@downdraft/engine/app/renderer";
+import type { GameModule } from "@downdraft/engine/app/main";
 
 // ============================================================================
 // Minimal game template — declarative GameModule

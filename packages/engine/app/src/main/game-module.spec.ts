@@ -3,7 +3,7 @@
 // components must forward the WHOLE components map to the sim worker (the
 // worker's extractRestoreData/game restore selects its sections). Picking the
 // first component (e.g. "world") silently dropped players, boats, inventory,
-// and plants in to-the-ocean saves.
+// and plants in real game saves.
 
 import { describe, expect, it } from "bun:test";
 import { serializeRestorePayload } from "./game-module";

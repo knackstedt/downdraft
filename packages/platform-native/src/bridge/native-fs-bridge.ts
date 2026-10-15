@@ -2,7 +2,7 @@
 // native-fs-bridge.ts — native implementation of the model-viewer `mv` bridge
 //
 // `downdraft.mv` is implemented directly over node:fs — file dialogs go
-// through zenity/kdialog when available (SDL has no file dialog).
+// through zenity/kdialog when available (winit has no file dialog).
 //
 // Attach from a game's native entry:
 //   (globalThis as any).downdraft.mv = createNativeMvBridge(host.window, { ... });

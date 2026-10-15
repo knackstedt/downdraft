@@ -300,7 +300,7 @@ export function createNativeBridge(opts: NativeBridgeOptions): HostAPI & { dispo
     // Heavyweight browser-backed UI — undefined when no backend cdylib is
     // staged or DD_WEBUI_BACKEND=none (games gate on its presence).
     ...(webuiHost?.available ? { webui: webuiHost.api } : {}),
-    // rawInput is intentionally absent: SDL relative-mouse grab covers
+    // rawInput is intentionally absent: native relative-mouse grab covers
     // pointer-lock semantics without a native addon.
     deterministic,
 

@@ -1,5 +1,5 @@
 // ============================================================================
-// createBlitzUiNativeModule — native (winit/SDL) Blitz UI renderer module.
+// createBlitzUiNativeModule — native (winit/wgpu) Blitz UI renderer module.
 //
 // The native runtime can't attach winit-web + WebGL2 to a DOM canvas, so this
 // module drives the headless wasm build instead: DioxusDocument + vello_cpu

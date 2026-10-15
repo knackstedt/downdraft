@@ -13,7 +13,7 @@
 //
 // Optimizations:
 //   - Region-aware: only the declared write regions are copied, not the full
-//     buffer. For sandjongg's embedded input (64 bytes), main→worker copies
+//     buffer. For a small embedded input (64 bytes), main→worker copies
 //     64 bytes, not the full 1.3MB.
 //   - Sequence-number gating: if a buffer has a sequence field, the sync is
 //     skipped when the sequence hasn't changed since the last sync. Eliminates

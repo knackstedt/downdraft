@@ -36,10 +36,10 @@ const PAGE = `<!doctype html><html><body style="margin:0;background:#223344;">
 <script>
 // Engine-injected shim (CEF V8 hook / WPE UserContentManager): host→page
 // messages arrive via downdraft.onMessage, page→host via postMessage.
-window.downdraft?.onMessage?.((p) => {
+globalThis.downdraft?.onMessage?.((p) => {
   if (p && p.__echo !== undefined) {
     console.log("echo received");
-    window.downdraft.postMessage({ echo: p.__echo });
+    globalThis.downdraft.postMessage({ echo: p.__echo });
   }
 });
 document.addEventListener("mousedown", (e) => console.log("clicked:" + e.clientX + "," + e.clientY));

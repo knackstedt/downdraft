@@ -74,7 +74,7 @@ async function pluginNew(args: string[], modMode: boolean): Promise<void> {
   const format = (flags.format as string) ?? (modMode ? "asset" : "worker-js");
   const game = (flags.game as string) ?? "";
   if (!game) {
-    log.error("plugin", "--game is required (e.g. --game downdraft-overburden)");
+    log.error("plugin", "--game is required (e.g. --game my-game)");
     process.exit(1);
   }
 
@@ -202,7 +202,7 @@ Commands:
 
 Options for 'new':
   --format <format>     Plugin format: worker-js, quickjs, wasm, asset${modMode ? " (default: asset)" : " (default: worker-js)"}
-  --game <game>         Target game appId (required, e.g. downdraft-overburden)
+  --game <game>         Target game appId (required, e.g. my-game)
   --name <name>         Display name (default: derived from id)
   --version <ver>       Plugin version (default: 1.0.0)
   --author <name>       Author name

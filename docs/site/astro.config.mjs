@@ -12,7 +12,7 @@ export default defineConfig({
 	base: process.env.DOCS_BASE || '/',
 	integrations: [
 		starlight({
-			title: 'DownDraft',
+			title: 'DownDraft — TypeScript Game Engine',
 			logo: {
 				src: './src/assets/logo.svg',
 				replacesTitle: true,
@@ -56,6 +56,14 @@ export default defineConfig({
 						{ label: 'SAB Communication', slug: 'architecture/sab-communication' },
 						{ label: 'Render Pipeline', slug: 'architecture/render-pipeline' },
 						{ label: 'GPU Worker Reattach', slug: 'architecture/gpu-worker-reattach' },
+						{ label: 'Module System', slug: 'architecture/module-system' },
+						{ label: 'Native Platform', slug: 'architecture/native-platform' },
+						{ label: 'Android (Native Port)', slug: 'architecture/android' },
+						{ label: 'Engine Internals', slug: 'architecture/engine-internals' },
+						{ label: 'Plugin Internals', slug: 'architecture/plugin-internals' },
+						{ label: 'Profiling', slug: 'architecture/profiling' },
+						{ label: 'Native DevTools', slug: 'architecture/devtools' },
+						{ label: 'Gaussian Splats', slug: 'architecture/gaussian-splats' },
 					],
 				},
 				{
@@ -63,6 +71,8 @@ export default defineConfig({
 					items: [
 						{ label: 'CLI Commands', slug: 'reference/cli' },
 						{ label: 'Packages', slug: 'reference/packages' },
+						{ label: 'Testing & Automation', slug: 'reference/testing' },
+						{ label: 'Known Limitations', slug: 'reference/limitations' },
 						{ label: 'Troubleshooting', slug: 'reference/troubleshooting' },
 					],
 				},
@@ -75,7 +85,7 @@ export default defineConfig({
 				starlightImageZoom({ showCaptions: true }),
 				starlightLlmsTxt({
 					projectName: 'DownDraft Engine',
-					description: 'An AI-Driven Game Engine built on a native runtime (winit + wgpu under Bun, Node, or Deno) with TypeScript-first design and a built-in MCP server for AI agent interaction',
+					description: 'A TypeScript game engine built on a native runtime (winit + wgpu under Bun, Node, or Deno) with a built-in MCP server for AI agent interaction',
 					promote: ['index*']
 				}),
 			]

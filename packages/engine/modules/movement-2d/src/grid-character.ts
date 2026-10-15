@@ -1,8 +1,7 @@
 // ============================================================================
 // GridCharacterController — shared 2D platformer physics for grid-based games
 //
-// Generalized from the falling-sand `player.ts` / mining-rpg `mining-player.ts`
-// / overburden `blockhead.ts` copies. An AABB character moves through a grid
+// Generalized from early games' player-movement modules
 // world where cells may be solid, liquid, climbable, or damaging.
 //
 // The game supplies a `GridCharacterWorld` of cell predicates, so this works

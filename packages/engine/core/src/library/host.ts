@@ -5,7 +5,7 @@
 // Manages SAB allocation, sim system lifecycle, renderer pass lifecycle,
 // and DI token registration.
 //
-// In DOWNDRAFT_STRICT mode, validates the library dependency graph
+// In DOWNDRAFT_STRICT_DIAGNOSTICS mode, validates the library dependency graph
 // (provides/requires) and warns about potential leaks (library provides
 // resources or allocates SAB channels but has no dispose hook).
 // ============================================================================

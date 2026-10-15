@@ -31,7 +31,7 @@ Both frontends consume the same provider/command model:
 - RPC methods: `ping`, `eval {thread,expr}`, `sceneTree`, `domTree {mode}`,
   `gpuInfo`, `metrics`, `threads`, `snapshot {panel}`, `command
   {panel,action,payload}`, `inspector.call {method,args}` (invokes
-  `window.__sceneInspector.*`), `profile.start|stop`, `console.clear`,
+  `window.__downdraftDevtools.*`), `profile.start|stop`, `console.clear`,
   `domTree.mode`
 
 ## Key exports

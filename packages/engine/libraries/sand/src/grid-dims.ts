@@ -2,7 +2,7 @@
 // computeGridDims — shared grid dimension calculator for sand/grid games
 // ============================================================================
 //
-// Both falling-sand and sandjongg (and any future grid-based sand game) need
+// Grid-based sand games need
 // to compute sand grid dimensions from canvas buffer pixels. The math is
 // identical except for the base cell size, max grid bounds, and optional
 // alignment. This shared utility eliminates the duplication.

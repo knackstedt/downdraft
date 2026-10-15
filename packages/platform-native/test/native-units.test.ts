@@ -3,7 +3,7 @@
 //
 // These tests exercise the refactored package's non-native surface: enum
 // mappings, event targets, screenshot readback conversion, PNG encoding, and
-// library-path resolution. They require no GPU, no SDL, and no .so files.
+// library-path resolution. They require no GPU, no native window, and no .so files.
 //
 // Run: bun test
 // ============================================================================

@@ -38,7 +38,7 @@ export type PluginPermission =
   | "events" // subscribe/publish on the game event bus
   | "state" // per-plugin KV state store
   | "tick" // register per-frame tick callbacks
-  | "storage" // persist plugin state to OPFS
+  | "storage" // persist plugin state to the host save backend
   | "network" // fetch / WebSocket / XMLHttpRequest
   | "log" // structured logging (rate-limited)
   | "physics" // mutate physics bodies via host-call bridge (native tier)
@@ -49,7 +49,9 @@ export type PluginPermission =
 // A `mod.json` declares a pack of extensions in addition to (or instead of)
 // the legacy single-format fields. Each extension is declarative data
 // registered by the host; the optional `logic` extension is code (worker-js
-// or wasm) that runs sandboxed and may mutate the game via host calls.
+// or wasm) that runs under permission gating and may mutate the game via
+// host calls. Only quickjs/wasm runtimes are hard-isolated — worker-js
+// isolation is best-effort global stripping (see loader-worker.ts).
 
 /** Logic extension — the code entry of a mod. Either worker-js (TS) or wasm.
  *  Not required: a mod can be pure data (assets/shaders/maps/physics). */
@@ -187,7 +189,7 @@ export interface AssetPluginManifest {
 
 /** The full `plugin.json` manifest. */
 export interface PluginManifest {
-  /** Unique plugin id, kebab-case (e.g. "overburden-bronze-blocks"). */
+  /** Unique plugin id, kebab-case (e.g. "my-game-bronze-blocks"). */
   id: string;
   /** Human-readable display name. */
   name: string;
@@ -199,7 +201,7 @@ export interface PluginManifest {
   description?: string;
   /** Semver range against the engine version (e.g. "^0.1.0"). Required. */
   engineVersion: string;
-  /** Target game appId (e.g. "overburden"). Required so a plugin can't load into the wrong game. */
+  /** Target game appId (e.g. "my-game"). Required so a plugin can't load into the wrong game. */
   game: string;
   /** Plugin format. */
   format: PluginFormat;

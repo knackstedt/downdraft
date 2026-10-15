@@ -43,11 +43,11 @@ export interface SaveSlotInfo {
   entityCount: number;
   playerCount: number;
   engineVersion: string;
-  /** File size in bytes (total across all generations for OPFS, single file for FileSaveStore) */
+  /** File size in bytes (total across all generations for DirectorySaveStore, single file for FileSaveStore) */
   fileSize: number;
-  /** Current generation number (OPFS stores; 1 for FileSaveStore) */
+  /** Current generation number (DirectorySaveStore; 1 for FileSaveStore) */
   currentGen: number;
-  /** Number of available generations (OPFS stores; 1 for FileSaveStore) */
+  /** Number of available generations (DirectorySaveStore; 1 for FileSaveStore) */
   generationCount: number;
   /** Whether a thumbnail is stored for this slot */
   hasThumbnail: boolean;
@@ -162,7 +162,7 @@ export interface IMigrationRegistry {
 }
 
 // --- Save Store Interface ---
-// The unified interface for all save backends (OPFS, File, host bridge).
+// The unified interface for all save backends (Directory, File, host bridge).
 // save() and load() accept optional options for generation control, blobs,
 // thumbnails, and properties. Backends that don't support a feature degrade
 // gracefully (e.g. FileSaveStore returns generationCount: 1).

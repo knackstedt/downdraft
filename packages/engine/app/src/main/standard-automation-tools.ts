@@ -2,7 +2,7 @@
 // createStandardAutomationTools — the standard MCP automation tool set.
 //
 // Games previously hand-rolled ~10 identical tools in their mcp/setup.ts
-// (to-the-ocean, overburden, sandjongg): capture_screenshot, inject_input,
+// (shared across games): capture_screenshot, inject_input,
 // clear_injected_input, dispatch_key, dispatch_click, wait_for_condition,
 // set_test_state, get_player_state, get_world_state, get_ui_state, plus the
 // DOM-inspection trio (get_element_bounds, inspect_dom, get_element_style).
@@ -734,7 +734,7 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
 // Non-fatal by design — logs a warning and returns when the host bridge or
 // tool construction fails (matches the per-game try/catch it replaces).
 export interface GameMcpOptions extends StandardAutomationContext {
-  /** Host appId (e.g. "downdraft-falling-sand") — serverName becomes `<appId>-automation`. */
+  /** Host appId (e.g. "downdraft-my-game") — serverName becomes `<appId>-automation`. */
   appId: string;
   /** Game-specific tools appended after the standard set (alias of extraTools). */
   tools?: McpToolRegistration[];

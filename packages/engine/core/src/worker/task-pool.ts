@@ -1,7 +1,7 @@
 // ============================================================================
 // TaskPool + createTaskWorker — pooled task-worker infrastructure.
 //
-// Generalized from to-the-ocean's terrain-mesh-pool.ts / terrain-mesh-worker.ts.
+// Generalized from per-game terrain-mesh worker pools.
 //
 // Unlike the wrap()/expose() RPC layer, the __job protocol supports
 // TRANSFERABLES — task results may include an explicit transfer list
@@ -208,7 +208,7 @@ export class TaskPool {
 // ============================================================================
 // PortChannel — RPC channel over a transferred MessagePort.
 //
-// Generalized from overburden's pathfinding-broker.ts: the renderer spawns a
+// Generalized from a game's pathfinding broker: the renderer spawns a
 // task worker (so Vite can bundle it), creates a MessageChannel, and transfers
 // one port to each side. The sim-side broker wraps its port with this class —
 // attachPort() replaces any existing channel, dispose() shuts it down.

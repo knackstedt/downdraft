@@ -1,12 +1,12 @@
 // ============================================================================
-// native-window.ts — SDL2 window + wgpu surface + event loop + rAF + input
+// native-window.ts — native window + wgpu surface + event loop + rAF + input
 //
 // This is the main native window manager. It:
-//   1. Creates an SDL2 window
+//   1. Creates a native window
 //   2. Creates a wgpu surface from the window's native handle
 //   3. Creates a NativeSurface (HTMLCanvasElement-compatible)
-//   4. Runs the event loop (poll SDL events, dispatch rAF callbacks)
-//   5. Translates SDL events to DOM-compatible events
+//   4. Runs the event loop (poll native events, dispatch rAF callbacks)
+//   5. Translates native events to DOM-compatible events
 // ============================================================================
 
 import { createLogger } from "@downdraft/engine/util/logger";
@@ -20,39 +20,39 @@ import {
     KMOD_CTRL,
     KMOD_GUI,
     KMOD_SHIFT,
-    sdl,
-    SDL_EVENT_DROP_FILE,
-    SDL_EVENT_FOCUS_GAINED,
-    SDL_EVENT_FOCUS_LOST,
-    SDL_EVENT_HOTKEY,
-    SDL_EVENT_KEY_DOWN,
-    SDL_EVENT_KEY_UP,
-    SDL_EVENT_MOUSE_DOWN,
-    SDL_EVENT_MOUSE_MOVE,
-    SDL_EVENT_MOUSE_UP,
-    SDL_EVENT_MOVED,
-    SDL_EVENT_NONE,
-    SDL_EVENT_QUIT,
-    SDL_EVENT_RESIZE,
-    SDL_EVENT_RESUMED,
-    SDL_EVENT_SCALE_CHANGED,
-    SDL_EVENT_SUSPENDED,
-    SDL_EVENT_TEXT_INPUT,
-    SDL_EVENT_TOUCH,
-    SDL_EVENT_VSYNC,
-    SDL_EVENT_WHEEL,
-    SDL_EVENT_WINDOW_CLOSE,
-    SDL_WIN_ALWAYS_ON_TOP,
-    SDL_WIN_CLICK_THROUGH,
-    SDL_WIN_DECORATIONS,
-    SDL_WIN_HIDDEN,
-    SDL_WIN_RESIZABLE,
-    SDL_WIN_SKIP_TASKBAR,
-    SDL_WIN_TRANSPARENT,
-    sdlButtonsToDom,
-    sdlExt,
-    sdlWindow
-} from "./sdl-ffi";
+    win,
+    DD_EVENT_DROP_FILE,
+    DD_EVENT_FOCUS_GAINED,
+    DD_EVENT_FOCUS_LOST,
+    DD_EVENT_HOTKEY,
+    DD_EVENT_KEY_DOWN,
+    DD_EVENT_KEY_UP,
+    DD_EVENT_MOUSE_DOWN,
+    DD_EVENT_MOUSE_MOVE,
+    DD_EVENT_MOUSE_UP,
+    DD_EVENT_MOVED,
+    DD_EVENT_NONE,
+    DD_EVENT_QUIT,
+    DD_EVENT_RESIZE,
+    DD_EVENT_RESUMED,
+    DD_EVENT_SCALE_CHANGED,
+    DD_EVENT_SUSPENDED,
+    DD_EVENT_TEXT_INPUT,
+    DD_EVENT_TOUCH,
+    DD_EVENT_VSYNC,
+    DD_EVENT_WHEEL,
+    DD_EVENT_WINDOW_CLOSE,
+    DD_WIN_ALWAYS_ON_TOP,
+    DD_WIN_CLICK_THROUGH,
+    DD_WIN_DECORATIONS,
+    DD_WIN_HIDDEN,
+    DD_WIN_RESIZABLE,
+    DD_WIN_SKIP_TASKBAR,
+    DD_WIN_TRANSPARENT,
+    wireButtonsToDom,
+    winExt,
+    winMulti
+} from "./window-ffi";
 
 // Lazily bound — wgpu-device.ts pulls the whole JS shim graph (encoder,
 // resources, limits…), which under the dev shell's ModuleRunner is seconds
@@ -100,7 +100,7 @@ export interface NativeWindowConfig {
    *  taskbar icon on Windows; Wayland resolves icons via appId instead). */
   iconPath?: string;
   /** Secondary window (overlay/splitscreen) — created through
-   *  sdl_shim_window_create against a live primary window instead of the
+   *  dd_window_secondary_create against a live primary window instead of the
    *  singleton create path. The options below only apply when set. */
   secondary?: boolean;
   /** WM placement when x/y are omitted. */
@@ -135,7 +135,7 @@ const scheduleImmediate: (fn: () => void) => void = (fn) => {
 };
 
 // DOM wheel events report ±100px of deltaY per detent in pixel mode;
-// SDL reports raw detents, so scale to match what DOM consumers expect.
+// The wire format reports raw detents, so scale to match what DOM consumers expect.
 const WHEEL_PIXELS_PER_DETENT = 100;
 
 // rAF dispatches may fire up to this much early — absorbs sub-ms timing noise
@@ -143,7 +143,7 @@ const WHEEL_PIXELS_PER_DETENT = 100;
 // pacing check.
 const RAF_DISPATCH_EPSILON_MS = 0.5;
 
-// SDL event read buffer — shared across NativeWindow instances: events are
+// Window-event read buffer — shared across NativeWindow instances: events are
 // consumed synchronously on this thread, and an event popped by one
 // window's loop is forwarded to the owning window's handler with these
 // views still hot (a routed Drop/Text payload lives in the buffer, not in
@@ -154,7 +154,7 @@ const sharedEventFloatView = new Float32Array(sharedEventData);
 
 export class NativeWindow extends MiniEventTarget {
   /** Shim window handle — 0 for the primary (the whole legacy surface is
-   *  the h=0 case), 1+ for secondary windows from sdl_shim_window_create.
+   *  the h=0 case), 1+ for secondary windows from dd_window_secondary_create.
    *  Every queued event carries its owning handle in i32 slot 15. */
   readonly windowHandle: number = 0;
   /** Live windows by shim handle — routes shared-queue events to the right
@@ -207,7 +207,7 @@ export class NativeWindow extends MiniEventTarget {
   private pendingFrameInterval = 0;
   private static readonly FRAME_INTERVAL_RECHECK_MS = 2000;
   // Vsync pacing (Android): the platform's Choreographer thread emits
-  // SDL_EVENT_VSYNC per display refresh once armed via set_vsync_wanted.
+  // DD_EVENT_VSYNC per display refresh once armed via set_vsync_wanted.
   // When those ticks arrive, rAF dispatch keys off them — phase-aligned to
   // the compositor — instead of the software frameInterval() clock, and the
   // observed tick interval feeds back as the true refresh rate (winit can't
@@ -221,14 +221,14 @@ export class NativeWindow extends MiniEventTarget {
   private lastVsyncAt = -1e9;
   private vsyncWanted = false;
   private pressedKeys = new Set<number>();
-  // SDL event reads go through the module-shared buffer above — per-window
+  // Window-event reads go through the module-shared buffer above — per-window
   // buffers would strand forwarded events (the payload stays in the
   // popping window's buffer).
-  // Latest window resize, coalesced — SDL emits one event per pixel during a
+  // Latest window resize, coalesced — the native pump emits one event per pixel during a
   // drag (and a burst on maximize); only the newest dims are applied, once
   // per loop iteration, so listeners + the surface see a single resize.
   private pendingResize: { width: number; height: number } | null = null;
-  // Click synthesis — SDL reports raw button transitions only; DOM click /
+  // Click synthesis — The wire format reports raw button transitions only; DOM click /
   // dblclick (which games gate pointer lock and UI activation on) are
   // derived here: a mouseup matching the last mousedown's button fires click.
   private lastMouseDown: { button: number } | null = null;
@@ -284,35 +284,35 @@ export class NativeWindow extends MiniEventTarget {
   // pointer/mouse events (deltas feed pointer-locked camera look; absent
   // values are read as undefined → NaN by game handlers).
   private lastTouchPos = new Map<number, [number, number]>();
-  // Set on SDL_EVENT_SUSPENDED, cleared on RESUMED — gates the resume path's
+  // Set on DD_EVENT_SUSPENDED, cleared on RESUMED — gates the resume path's
   // surface recreation.
   private surfaceSuspended = false;
 
   constructor(config: NativeWindowConfig) {
     super();
-    // 1. Create SDL2 window — identity/icon must land before create (the
+    // 1. Create the native window — identity/icon must land before create (the
     // winit attrs bake them in); env-based DD_APP_ID/DD_APP_ICON covers
     // launcher-exported env, these cover runtimes whose process.env writes
     // never reach the dlopen'd lib's environ (Bun).
     if (config.appId || config.iconPath) {
       try {
-        if (config.appId) sdlExt.sdl_shim_set_app_name?.(config.appId, config.appId);
-        if (config.iconPath) sdlExt.sdl_shim_set_window_icon_file?.(config.iconPath);
+        if (config.appId) winExt.dd_window_set_app_name?.(config.appId, config.appId);
+        if (config.iconPath) winExt.dd_window_set_icon_file?.(config.iconPath);
       } catch { /* older lib without the symbols — identity just doesn't apply */ }
     }
     if (config.secondary) {
-      const create = sdlWindow.sdl_shim_window_create;
+      const create = winMulti.dd_window_secondary_create;
       if (!create) {
-        throw new Error("Secondary windows require a platform lib with sdl_shim_window_create");
+        throw new Error("Secondary windows require a platform lib with dd_window_secondary_create");
       }
       const flags =
-        (config.resizable !== false ? SDL_WIN_RESIZABLE : 0)
-        | (config.decorations !== false ? SDL_WIN_DECORATIONS : 0)
-        | (config.transparent ? SDL_WIN_TRANSPARENT : 0)
-        | (config.alwaysOnTop ? SDL_WIN_ALWAYS_ON_TOP : 0)
-        | (config.skipTaskbar ? SDL_WIN_SKIP_TASKBAR : 0)
-        | (config.clickThrough ? SDL_WIN_CLICK_THROUGH : 0)
-        | (config.hidden ? SDL_WIN_HIDDEN : 0);
+        (config.resizable !== false ? DD_WIN_RESIZABLE : 0)
+        | (config.decorations !== false ? DD_WIN_DECORATIONS : 0)
+        | (config.transparent ? DD_WIN_TRANSPARENT : 0)
+        | (config.alwaysOnTop ? DD_WIN_ALWAYS_ON_TOP : 0)
+        | (config.skipTaskbar ? DD_WIN_SKIP_TASKBAR : 0)
+        | (config.clickThrough ? DD_WIN_CLICK_THROUGH : 0)
+        | (config.hidden ? DD_WIN_HIDDEN : 0);
       const handle = create(
         config.title,
         config.x ?? -2147483648,
@@ -327,9 +327,9 @@ export class NativeWindow extends MiniEventTarget {
       (this as { windowHandle: number }).windowHandle = handle;
       NativeWindow.byHandle.set(handle, this);
     } else {
-      const result = sdl.sdl_shim_create_window(config.title, config.width, config.height);
+      const result = win.dd_window_create(config.title, config.width, config.height);
       if (result !== 0) {
-        throw new Error(`Failed to create SDL2 window (error ${result})`);
+        throw new Error(`Failed to create native window (error ${result})`);
       }
       NativeWindow.byHandle.set(0, this);
     }
@@ -354,9 +354,9 @@ export class NativeWindow extends MiniEventTarget {
     // 2. Create wgpu surface from the window.
     // The instance ptr is published by installGPU() on the global object.
     const instance = (globalThis as any).__wgpuInstancePtr ?? 0;
-    this.surfacePtr = sdl.sdl_shim_create_wgpu_surface(instance, this.windowHandle) as unknown as number;
+    this.surfacePtr = win.dd_window_create_wgpu_surface(instance, this.windowHandle) as unknown as number;
     if (!this.surfacePtr) {
-      throw new Error("Failed to create wgpu surface from SDL2 window");
+      throw new Error("Failed to create wgpu surface from the native window");
     }
 
     // 3. Create NativeSurface — the scale-factor getter feeds its CSS-px
@@ -382,8 +382,8 @@ export class NativeWindow extends MiniEventTarget {
   private waitForAndroidResume(): void {
     let waited = 0;
     for (;;) {
-      const t = sdl.sdl_shim_wait_event(sharedEventData as any, 500);
-      if (t === SDL_EVENT_RESUMED) {
+      const t = win.dd_window_wait_event(sharedEventData as any, 500);
+      if (t === DD_EVENT_RESUMED) {
         this.surfaceSuspended = false;
         return;
       }
@@ -427,10 +427,10 @@ export class NativeWindow extends MiniEventTarget {
 
   /** Retitle the OS window (adopted-host config reconciliation). */
   setTitle(title: string): void {
-    const f = sdlWindow.sdl_shim_window_set_title;
+    const f = winMulti.dd_window_secondary_set_title;
     if (f) { try { f(this.windowHandle, title); return; } catch { /* fall through */ } }
     if (this.windowHandle === 0) {
-      try { sdl.sdl_shim_set_window_title(title); } catch { /* older lib */ }
+      try { win.dd_window_set_title(title); } catch { /* older lib */ }
     }
   }
 
@@ -477,9 +477,9 @@ export class NativeWindow extends MiniEventTarget {
     // requestPointerLock() at boot can't capture the cursor before the
     // player has clicked the window. Release is unconditional.
     const want = grab && this.focused && this.gestureSeen ? 1 : 0;
-    const f = sdlWindow.sdl_shim_window_grab;
+    const f = winMulti.dd_window_secondary_grab;
     if (f) { f(this.windowHandle, want); return; }
-    if (this.windowHandle === 0) sdl.sdl_shim_grab_input(want);
+    if (this.windowHandle === 0) win.dd_window_grab_input(want);
   }
 
   /** Apply a pending grab request once focus + a gesture allow it. Called
@@ -488,55 +488,55 @@ export class NativeWindow extends MiniEventTarget {
    *  immediately). */
   private applyPendingGrab(): void {
     if (this.inputGrabWanted && this.focused && this.gestureSeen) {
-      const f = sdlWindow.sdl_shim_window_grab;
+      const f = winMulti.dd_window_secondary_grab;
       if (f) f(this.windowHandle, 1);
-      else if (this.windowHandle === 0) sdl.sdl_shim_grab_input(1);
+      else if (this.windowHandle === 0) win.dd_window_grab_input(1);
     }
   }
 
-  /** Enable SDL text input (for the console REPL). */
+  /** Enable native text input (for the console REPL). */
   startTextInput(): void {
-    sdl.sdl_shim_start_text_input();
+    win.dd_window_start_text_input();
   }
 
-  /** Disable SDL text input. */
+  /** Disable native text input. */
   stopTextInput(): void {
-    sdl.sdl_shim_stop_text_input();
+    win.dd_window_stop_text_input();
   }
 
   /** Set the text input rect (for IME candidate window positioning). */
   setTextInputRect(x: number, y: number, w: number, h: number): void {
-    sdl.sdl_shim_set_text_input_rect(x, y, w, h);
+    win.dd_window_set_text_input_rect(x, y, w, h);
   }
 
   /** Toggle borderless-desktop fullscreen. */
   setFullscreen(enabled: boolean): void {
-    const f = sdlWindow.sdl_shim_window_set_fullscreen;
+    const f = winMulti.dd_window_secondary_set_fullscreen;
     if (f) { f(this.windowHandle, enabled ? 1 : 0); return; }
-    if (this.windowHandle === 0) sdl.sdl_shim_set_fullscreen(enabled ? 1 : 0);
+    if (this.windowHandle === 0) win.dd_window_set_fullscreen(enabled ? 1 : 0);
   }
 
   /** Window position in screen coordinates. */
   getWindowPos(): { x: number; y: number } {
     const out = new Int32Array(2);
-    const f = sdlWindow.sdl_shim_window_get_pos;
+    const f = winMulti.dd_window_secondary_get_pos;
     if (f) f(this.windowHandle, out.subarray(0, 1) as any, out.subarray(1, 2) as any);
     else if (this.windowHandle === 0)
-      sdl.sdl_shim_get_window_pos(out.subarray(0, 1) as any, out.subarray(1, 2) as any);
+      win.dd_window_get_pos(out.subarray(0, 1) as any, out.subarray(1, 2) as any);
     return { x: out[0]!, y: out[1]! };
   }
 
   setWindowPos(x: number, y: number): void {
-    const f = sdlWindow.sdl_shim_window_set_pos;
+    const f = winMulti.dd_window_secondary_set_pos;
     if (f) { f(this.windowHandle, x, y); return; }
-    if (this.windowHandle === 0) sdl.sdl_shim_set_window_pos(x, y);
+    if (this.windowHandle === 0) win.dd_window_set_pos(x, y);
   }
 
   /** Frame border sizes ({top,left,bottom,right}); null when the WM hasn't
    *  framed the window yet or doesn't report extents (Wayland). */
   getWindowBorders(): { top: number; left: number; bottom: number; right: number } | null {
     const out = new Int32Array(4);
-    const rc = sdl.sdl_shim_get_window_borders(
+    const rc = win.dd_window_get_borders(
       out.subarray(0, 1) as any, out.subarray(1, 2) as any,
       out.subarray(2, 3) as any, out.subarray(3, 4) as any);
     if (rc !== 0) return null;
@@ -546,33 +546,33 @@ export class NativeWindow extends MiniEventTarget {
   /** Window size in pixels. */
   getWindowSize(): { width: number; height: number } {
     const out = new Int32Array(2);
-    const f = sdlWindow.sdl_shim_window_get_size;
+    const f = winMulti.dd_window_secondary_get_size;
     if (f) f(this.windowHandle, out.subarray(0, 1) as any, out.subarray(1, 2) as any);
     else if (this.windowHandle === 0)
-      sdl.sdl_shim_get_window_size(out.subarray(0, 1) as any, out.subarray(1, 2) as any);
+      win.dd_window_get_size(out.subarray(0, 1) as any, out.subarray(1, 2) as any);
     return { width: out[0]!, height: out[1]! };
   }
 
   setWindowSize(width: number, height: number): void {
-    const f = sdlWindow.sdl_shim_window_set_size;
+    const f = winMulti.dd_window_secondary_set_size;
     if (f) { f(this.windowHandle, width, height); return; }
-    if (this.windowHandle === 0) sdl.sdl_shim_set_window_size(width, height);
+    if (this.windowHandle === 0) win.dd_window_set_size(width, height);
   }
 
   /** Refresh rate (Hz) and content scale factor of the display the window is on. */
   getDisplayInfo(): { refreshRate: number; scaleFactor: number } {
     const refresh = new Int32Array(1);
     const scale = new Float32Array(1);
-    sdl.sdl_shim_get_display_info(refresh as any, scale as any);
+    win.dd_window_get_display_info(refresh as any, scale as any);
     const hz = refresh[0]! > 0 ? refresh[0]!
       : this.vsyncIntervalMs > 0 ? 1000 / this.vsyncIntervalMs
       : 0;
     return { refreshRate: hz, scaleFactor: scale[0] ?? 1.0 };
   }
 
-  /** Push SDL_QUIT so the event loop exits through the normal close path. */
+  /** Push DD_EVENT_QUIT so the event loop exits through the normal close path. */
   requestQuit(): void {
-    sdl.sdl_shim_request_quit();
+    win.dd_window_request_quit();
   }
 
   /**
@@ -585,7 +585,7 @@ export class NativeWindow extends MiniEventTarget {
   private setVsyncWanted(w: boolean): void {
     if (!IS_ANDROID || w === this.vsyncWanted) return;
     this.vsyncWanted = w;
-    try { sdl.sdl_shim_set_vsync_wanted(w ? 1 : 0); } catch { /* older lib */ }
+    try { win.dd_window_set_vsync_wanted(w ? 1 : 0); } catch { /* older lib */ }
   }
 
   private frameInterval(): number {
@@ -625,16 +625,16 @@ export class NativeWindow extends MiniEventTarget {
 
   /** Modal error dialog. */
   showMessageBox(title: string, message: string): void {
-    sdl.sdl_shim_show_message_box(title, message);
+    win.dd_window_show_message_box(title, message);
   }
 
   setClipboardText(text: string): void {
-    sdl.sdl_shim_set_clipboard(text);
+    win.dd_window_set_clipboard(text);
   }
 
   getClipboardText(): string {
     const buf = new Uint8Array(4096);
-    const len = sdl.sdl_shim_get_clipboard(buf as any, buf.length);
+    const len = win.dd_window_get_clipboard(buf as any, buf.length);
     if (len <= 0) return "";
     return new TextDecoder().decode(buf.subarray(0, Math.min(len, buf.length - 1)));
   }
@@ -653,14 +653,14 @@ export class NativeWindow extends MiniEventTarget {
           this.lastFocusAttempt = nowMs;
           this.focusRequestAttempts--;
           try {
-            const f = sdlWindow.sdl_shim_window_focus;
-            if (f) f(this.windowHandle); else sdl.sdl_shim_focus_window();
+            const f = winMulti.dd_window_secondary_focus;
+            if (f) f(this.windowHandle); else win.dd_window_focus();
           } catch { this.focusRequestAttempts = 0; }
         }
       }
     }
 
-    // Wait on the SDL event queue up front — wait_event pops a queued event
+    // Wait on the window event queue up front — wait_event pops a queued event
     // without blocking (the Rust side takes before pumping), so a backlog
     // costs no sleep; it only blocks when the queue is empty. This replaces
     // the old drain-then-wait pair, which paid a second winit pump on every
@@ -694,8 +694,8 @@ export class NativeWindow extends MiniEventTarget {
     let eventHandled = false;
     if (waitMs > 0) {
       stats.waits++;
-      const wt = sdl.sdl_shim_wait_event(sharedEventData as any, waitMs);
-      if (wt !== SDL_EVENT_NONE) {
+      const wt = win.dd_window_wait_event(sharedEventData as any, waitMs);
+      if (wt !== DD_EVENT_NONE) {
         eventHandled = true;
         stats.events++;
         this.routeEvent(wt);
@@ -711,7 +711,7 @@ export class NativeWindow extends MiniEventTarget {
 
     // Apply the newest pending resize once — never mid-event-drain, so the
     // surface and window listeners observe a single coherent resize per
-    // iteration instead of the raw SDL event storm.
+    // iteration instead of the raw window-event storm.
     this.flushPendingResize();
 
     // Dispatch rAF callbacks — at most once per refresh interval (see
@@ -783,7 +783,7 @@ export class NativeWindow extends MiniEventTarget {
       s.iters = 0; s.waits = 0; s.emptyWaits = 0; s.events = 0; s.dispatches = 0;
       let native = "";
       try {
-        sdl.sdl_shim_pump_stats(this.pumpStatsBuf as any);
+        win.dd_window_pump_stats(this.pumpStatsBuf as any);
         const prev = this.pumpStatsPrev;
         const buf = this.pumpStatsBuf;
         const dDel = Number(buf[0] - prev[0]);
@@ -814,7 +814,7 @@ export class NativeWindow extends MiniEventTarget {
     scheduleImmediate(() => this.runLoop());
   }
 
-  /** Pop queued SDL events until the queue is empty. With take-before-pump
+  /** Pop queued window events until the queue is empty. With take-before-pump
    *  in the shim, a backlog costs zero winit pumps — only the final empty
    *  take pumps (and returns whatever that pump enqueued). Returns the
    *  number of events handled (for idle-backoff accounting). */
@@ -822,12 +822,12 @@ export class NativeWindow extends MiniEventTarget {
     let eventType: number;
     let handled = 0;
     do {
-      eventType = sdl.sdl_shim_poll_event(sharedEventData as any);
-      if (eventType !== SDL_EVENT_NONE) {
+      eventType = win.dd_window_poll_event(sharedEventData as any);
+      if (eventType !== DD_EVENT_NONE) {
         handled++;
         this.routeEvent(eventType);
       }
-    } while (eventType !== SDL_EVENT_NONE);
+    } while (eventType !== DD_EVENT_NONE);
     return handled;
   }
 
@@ -893,7 +893,7 @@ export class NativeWindow extends MiniEventTarget {
     target.safeHandleEvent(eventType, sharedEventView, sharedEventFloatView);
   }
 
-  /** Dispatch one SDL event; a throwing handler must not kill the loop —
+  /** Dispatch one window event; a throwing handler must not kill the loop —
    *  without this, a single bad event strands the whole window frozen. */
   private safeHandleEvent(eventType: number, eventView: Int32Array, floatView: Float32Array): void {
     try {
@@ -905,10 +905,10 @@ export class NativeWindow extends MiniEventTarget {
 
   private handleEvent(eventType: number, eventView: Int32Array, floatView: Float32Array): void {
     switch (eventType) {
-      case SDL_EVENT_NONE:
+      case DD_EVENT_NONE:
         break;
 
-      case SDL_EVENT_QUIT:
+      case DD_EVENT_QUIT:
         this.running = false;
         this.closeDispatched = true;
         this.dispatchEvent({ type: "close" });
@@ -920,7 +920,7 @@ export class NativeWindow extends MiniEventTarget {
         this.destroy();
         break;
 
-      case SDL_EVENT_WINDOW_CLOSE:
+      case DD_EVENT_WINDOW_CLOSE:
         // Secondary-window close — same unmap/close-event/drop choreography
         // as QUIT, but scoped to this window: no process teardown.
         this.running = false;
@@ -929,13 +929,13 @@ export class NativeWindow extends MiniEventTarget {
         this.destroy();
         break;
 
-      case SDL_EVENT_HOTKEY:
+      case DD_EVENT_HOTKEY:
         // Global key grab (XGrabKey) — not window-scoped; invoke the
         // registered callback via the global-hotkeys registry.
         fireGlobalHotkey(eventView[0]);
         break;
 
-      case SDL_EVENT_FOCUS_LOST:
+      case DD_EVENT_FOCUS_LOST:
         this.focused = false;
         // Engagement lapses with focus — re-locking after refocus requires
         // a fresh gesture just like the first lock did.
@@ -956,7 +956,7 @@ export class NativeWindow extends MiniEventTarget {
         this.dispatchEvent({ type: "blur" });
         break;
 
-      case SDL_EVENT_FOCUS_GAINED:
+      case DD_EVENT_FOCUS_GAINED:
         this.focused = true;
         // Apply a grab that was deferred while unfocused (e.g. a game's
         // boot-time requestPointerLock landing before the WM focused us).
@@ -966,14 +966,14 @@ export class NativeWindow extends MiniEventTarget {
         this.dispatchEvent({ type: "focus" });
         break;
 
-      case SDL_EVENT_MOVED:
+      case DD_EVENT_MOVED:
         // The window may have landed on a different monitor — re-query the
         // refresh rate the rAF pacing interval is derived from.
         this.frameIntervalMs = 0;
         this.dispatchEvent({ type: "moved", x: eventView[0], y: eventView[1] });
         break;
 
-      case SDL_EVENT_SCALE_CHANGED: {
+      case DD_EVENT_SCALE_CHANGED: {
         // DPI scale changed (OS scale setting or monitor crossing). Resized
         // usually follows with the new physical extent, but the CSS-px
         // clientWidth changes immediately — nudge the surface now so it
@@ -985,13 +985,13 @@ export class NativeWindow extends MiniEventTarget {
         break;
       }
 
-      case SDL_EVENT_DROP_FILE: {
+      case DD_EVENT_DROP_FILE: {
         const path = new TextDecoder().decode(new Uint8Array(sharedEventData)).replace(/\0.*$/, "");
         if (path) this.dispatchEvent({ type: "dropfile", path });
         break;
       }
 
-      case SDL_EVENT_KEY_DOWN: {
+      case DD_EVENT_KEY_DOWN: {
         const keycode = eventView[0];
         const mod = eventView[1];
         // Prefer the shim's repeat flag; fall back to our pressed-key set for
@@ -1003,12 +1003,12 @@ export class NativeWindow extends MiniEventTarget {
         // keybind handler applies immediately.
         this.gestureSeen = true;
         this.applyPendingGrab();
-        const domKeyCode = sdlToDomKeyCode(keycode);
+        const domKeyCode = keycodeToDomCode(keycode);
         this.dispatchEvent({
           type: "keydown",
           keyCode: domKeyCode,
-          key: sdlKeyToKey(keycode),
-          code: sdlKeyToCode(keycode),
+          key: keycodeToKey(keycode),
+          code: keycodeToCode(keycode),
           repeat,
           ...this.modifiers(mod),
           preventDefault: () => {},
@@ -1018,16 +1018,16 @@ export class NativeWindow extends MiniEventTarget {
         break;
       }
 
-      case SDL_EVENT_KEY_UP: {
+      case DD_EVENT_KEY_UP: {
         const keycode = eventView[0];
         const mod = eventView[1];
         this.pressedKeys.delete(keycode);
-        const domKeyCode = sdlToDomKeyCode(keycode);
+        const domKeyCode = keycodeToDomCode(keycode);
         this.dispatchEvent({
           type: "keyup",
           keyCode: domKeyCode,
-          key: sdlKeyToKey(keycode),
-          code: sdlKeyToCode(keycode),
+          key: keycodeToKey(keycode),
+          code: keycodeToCode(keycode),
           repeat: false,
           ...this.modifiers(mod),
           preventDefault: () => {},
@@ -1037,12 +1037,12 @@ export class NativeWindow extends MiniEventTarget {
         break;
       }
 
-      case SDL_EVENT_MOUSE_MOVE: {
+      case DD_EVENT_MOUSE_MOVE: {
         const x = this.mapX(eventView[0]);
         const y = this.mapY(eventView[1]);
         const xrel = eventView[2];
         const yrel = eventView[3];
-        const buttons = sdlButtonsToDom(eventView[4]);
+        const buttons = wireButtonsToDom(eventView[4]);
         const mod = eventView[5];
         const base = {
           clientX: x,
@@ -1071,13 +1071,13 @@ export class NativeWindow extends MiniEventTarget {
         break;
       }
 
-      case SDL_EVENT_MOUSE_DOWN: {
+      case DD_EVENT_MOUSE_DOWN: {
         const x = this.mapX(eventView[0]);
         const y = this.mapY(eventView[1]);
         const button = eventView[2];
-        const buttons = sdlButtonsToDom(eventView[3]);
+        const buttons = wireButtonsToDom(eventView[3]);
         const mod = eventView[4];
-        const domButton = button - 1; // SDL: 1=l,2=m,3=r → DOM: 0=l,1=m,2=r
+        const domButton = button - 1; // wire: 1=l,2=m,3=r → DOM: 0=l,1=m,2=r
         // A real click is engagement — mark it before dispatch so a
         // requestPointerLock() inside a pointerdown/mousedown listener
         // applies immediately, and a boot-time pending request captures on
@@ -1120,11 +1120,11 @@ export class NativeWindow extends MiniEventTarget {
         break;
       }
 
-      case SDL_EVENT_MOUSE_UP: {
+      case DD_EVENT_MOUSE_UP: {
         const x = this.mapX(eventView[0]);
         const y = this.mapY(eventView[1]);
         const button = eventView[2];
-        const buttons = sdlButtonsToDom(eventView[3]);
+        const buttons = wireButtonsToDom(eventView[3]);
         const mod = eventView[4];
         const base = {
           clientX: x,
@@ -1179,8 +1179,8 @@ export class NativeWindow extends MiniEventTarget {
         break;
       }
 
-      case SDL_EVENT_WHEEL: {
-        // SDL reports wheel movement in detents (+y = scrolled up/away);
+      case DD_EVENT_WHEEL: {
+        // The wire format reports wheel movement in detents (+y = scrolled up/away);
         // DOM WheelEvent reports pixels (+deltaY = scrolled down) at ~100px
         // per detent. Flip Y and scale both axes so
         // pixel-based consumers (scroll panels, camera zoom) behave the same
@@ -1202,18 +1202,18 @@ export class NativeWindow extends MiniEventTarget {
         break;
       }
 
-      case SDL_EVENT_RESIZE:
+      case DD_EVENT_RESIZE:
         // Coalesced — applied once per loop iteration by flushPendingResize().
         this.pendingResize = { width: eventView[0], height: eventView[1] };
         break;
 
-      case SDL_EVENT_TEXT_INPUT: {
+      case DD_EVENT_TEXT_INPUT: {
         const text = new TextDecoder().decode(new Uint8Array(sharedEventData, 0, 32)).replace(/\0.*$/, "");
         this.dispatchEvent({ type: "textinput", text });
         break;
       }
 
-      case SDL_EVENT_TOUCH: {
+      case DD_EVENT_TOUCH: {
         // Wire slots: [phase, x, y, id] — phase 0=down 1=move 2=up 3=cancel.
         const phase = eventView[0];
         const rawX = eventView[1];
@@ -1274,7 +1274,7 @@ export class NativeWindow extends MiniEventTarget {
         break;
       }
 
-      case SDL_EVENT_VSYNC: {
+      case DD_EVENT_VSYNC: {
         // slot0: wrapping u32 of vsync microseconds. Deltas feed the refresh
         // estimate (EMA, skipping gaps like suspend/resume boundaries) and
         // flag the tick for this iteration's rAF dispatch.
@@ -1295,7 +1295,7 @@ export class NativeWindow extends MiniEventTarget {
         break;
       }
 
-      case SDL_EVENT_SUSPENDED: {
+      case DD_EVENT_SUSPENDED: {
         // The OS destroyed the ANativeWindow — the wgpu surface is already
         // dead on the Rust side (CTX.window dropped first). Unconfigure +
         // release at the FFI level only: the context keeps its cached
@@ -1313,13 +1313,13 @@ export class NativeWindow extends MiniEventTarget {
         break;
       }
 
-      case SDL_EVENT_RESUMED: {
+      case DD_EVENT_RESUMED: {
         if (this.surfaceSuspended) {
           // The Rust side re-created the Window — make a fresh wgpu surface
           // and rebind the canvas context; the next acquire lazily
           // reconfigures the swapchain (rebindSurface zeroes configured dims).
           const instance = (globalThis as any).__wgpuInstancePtr ?? 0;
-          this.surfacePtr = sdl.sdl_shim_create_wgpu_surface(instance, this.windowHandle) as unknown as number;
+          this.surfacePtr = win.dd_window_create_wgpu_surface(instance, this.windowHandle) as unknown as number;
           this.surface?.rebindSurface(this.surfacePtr);
           const sz = this.getWindowSize();
           if (sz.width > 0 && sz.height > 0) {
@@ -1352,13 +1352,13 @@ export class NativeWindow extends MiniEventTarget {
     }
     this.surface = null;
     NativeWindow.byHandle.delete(this.windowHandle);
-    const wd = sdlWindow.sdl_shim_window_destroy;
+    const wd = winMulti.dd_window_secondary_destroy;
     if (wd && this.windowHandle !== 0) {
       wd(this.windowHandle);
     } else {
       // Primary teardown (or a lib predating the window family) — the full
       // destroy path also clears every secondary.
-      sdl.sdl_shim_destroy_window();
+      win.dd_window_destroy();
     }
   }
 
@@ -1366,40 +1366,40 @@ export class NativeWindow extends MiniEventTarget {
    *  events fall through to windows below. Returns false when the lib or
    *  compositor doesn't support it. */
   setClickThrough(on: boolean): boolean {
-    const f = sdlWindow.sdl_shim_window_set_hittest;
+    const f = winMulti.dd_window_secondary_set_hittest;
     if (!f) return false;
     return f(this.windowHandle, on ? 0 : 1) === 0;
   }
 
   /** Show/hide without destroying (overlay visibility toggle). */
   setWindowVisible(visible: boolean): void {
-    const f = sdlWindow.sdl_shim_window_set_visible;
+    const f = winMulti.dd_window_secondary_set_visible;
     if (f) f(this.windowHandle, visible ? 1 : 0);
   }
 
   /** Z-order band — overlay pins itself above normal windows. */
   setAlwaysOnTop(on: boolean): void {
-    const f = sdlWindow.sdl_shim_window_set_level;
+    const f = winMulti.dd_window_secondary_set_level;
     if (f) f(this.windowHandle, on ? 1 : 0);
   }
 
   setDecorations(on: boolean): void {
-    const f = sdlWindow.sdl_shim_window_set_decorations;
+    const f = winMulti.dd_window_secondary_set_decorations;
     if (f) { f(this.windowHandle, on ? 1 : 0); return; }
   }
 }
 
-// ── SDL3 keycode → DOM KeyboardEvent mapping ──
-// SDL3 keycodes: printable chars are ASCII (a-z, 0-9, punctuation, space),
+// ── Wire keycode → DOM KeyboardEvent mapping ──
+// Wire keycodes (SDL3-derived): printable chars are ASCII (a-z, 0-9, punctuation, space),
 // special keys are scancode | (1<<30) = 0x40000000+.
 // NOTE: DOM `key`/`code`/`keyCode` are three different fields:
 //   key  = "w", "Shift", "Escape"   (typed value, layout-dependent)
 //   code = "KeyW", "ShiftLeft"      (physical position — what games bind on)
 //   keyCode = 87, 16, 27            (deprecated numeric)
-const SDL3 = 0x40000000; // SDL_SCANCODE_TO_KEYCODE base
+const KC_SC = 0x40000000; // scancode-to-keycode base bit
 
 // keycode → [domKey, domCode, domKeyCode]
-const SDL_SPECIAL_KEYS: Record<number, [string, string, number]> = {
+const SPECIAL_KEYS: Record<number, [string, string, number]> = {
   // ASCII-range specials (keycodes 8-127 share their ASCII value)
   8:   ["Backspace", "Backspace", 8],
   9:   ["Tab", "Tab", 9],
@@ -1419,79 +1419,79 @@ const SDL_SPECIAL_KEYS: Record<number, [string, string, number]> = {
   47:  ["/", "Slash", 191],
   127: ["Delete", "Delete", 46],
   // Scancode-based specials
-  [SDL3 + 57]:  ["CapsLock", "CapsLock", 20],          // CAPSLOCK
-  [SDL3 + 58]:  ["F1", "F1", 112],
-  [SDL3 + 59]:  ["F2", "F2", 113],
-  [SDL3 + 60]:  ["F3", "F3", 114],
-  [SDL3 + 61]:  ["F4", "F4", 115],
-  [SDL3 + 62]:  ["F5", "F5", 116],
-  [SDL3 + 63]:  ["F6", "F6", 117],
-  [SDL3 + 64]:  ["F7", "F7", 118],
-  [SDL3 + 65]:  ["F8", "F8", 119],
-  [SDL3 + 66]:  ["F9", "F9", 120],
-  [SDL3 + 67]:  ["F10", "F10", 121],
-  [SDL3 + 68]:  ["F11", "F11", 122],
-  [SDL3 + 69]:  ["F12", "F12", 123],
-  [SDL3 + 70]:  ["PrintScreen", "PrintScreen", 44],
-  [SDL3 + 71]:  ["ScrollLock", "ScrollLock", 145],
-  [SDL3 + 72]:  ["Pause", "Pause", 19],
-  [SDL3 + 73]:  ["Insert", "Insert", 45],
-  [SDL3 + 74]:  ["Home", "Home", 36],
-  [SDL3 + 75]:  ["PageUp", "PageUp", 33],
-  [SDL3 + 77]:  ["End", "End", 35],
-  [SDL3 + 78]:  ["PageDown", "PageDown", 34],
-  [SDL3 + 79]:  ["ArrowRight", "ArrowRight", 39],
-  [SDL3 + 80]:  ["ArrowLeft", "ArrowLeft", 37],
-  [SDL3 + 81]:  ["ArrowDown", "ArrowDown", 40],
-  [SDL3 + 82]:  ["ArrowUp", "ArrowUp", 38],
+  [KC_SC + 57]:  ["CapsLock", "CapsLock", 20],          // CAPSLOCK
+  [KC_SC + 58]:  ["F1", "F1", 112],
+  [KC_SC + 59]:  ["F2", "F2", 113],
+  [KC_SC + 60]:  ["F3", "F3", 114],
+  [KC_SC + 61]:  ["F4", "F4", 115],
+  [KC_SC + 62]:  ["F5", "F5", 116],
+  [KC_SC + 63]:  ["F6", "F6", 117],
+  [KC_SC + 64]:  ["F7", "F7", 118],
+  [KC_SC + 65]:  ["F8", "F8", 119],
+  [KC_SC + 66]:  ["F9", "F9", 120],
+  [KC_SC + 67]:  ["F10", "F10", 121],
+  [KC_SC + 68]:  ["F11", "F11", 122],
+  [KC_SC + 69]:  ["F12", "F12", 123],
+  [KC_SC + 70]:  ["PrintScreen", "PrintScreen", 44],
+  [KC_SC + 71]:  ["ScrollLock", "ScrollLock", 145],
+  [KC_SC + 72]:  ["Pause", "Pause", 19],
+  [KC_SC + 73]:  ["Insert", "Insert", 45],
+  [KC_SC + 74]:  ["Home", "Home", 36],
+  [KC_SC + 75]:  ["PageUp", "PageUp", 33],
+  [KC_SC + 77]:  ["End", "End", 35],
+  [KC_SC + 78]:  ["PageDown", "PageDown", 34],
+  [KC_SC + 79]:  ["ArrowRight", "ArrowRight", 39],
+  [KC_SC + 80]:  ["ArrowLeft", "ArrowLeft", 37],
+  [KC_SC + 81]:  ["ArrowDown", "ArrowDown", 40],
+  [KC_SC + 82]:  ["ArrowUp", "ArrowUp", 38],
   // Numpad
-  [SDL3 + 83]:  ["NumLock", "NumLock", 144],
-  [SDL3 + 84]:  ["/", "NumpadDivide", 111],
-  [SDL3 + 85]:  ["*", "NumpadMultiply", 106],
-  [SDL3 + 86]:  ["-", "NumpadSubtract", 109],
-  [SDL3 + 87]:  ["+", "NumpadAdd", 107],
-  [SDL3 + 88]:  ["Enter", "NumpadEnter", 13],
-  [SDL3 + 89]:  ["1", "Numpad1", 97],
-  [SDL3 + 90]:  ["2", "Numpad2", 98],
-  [SDL3 + 91]:  ["3", "Numpad3", 99],
-  [SDL3 + 92]:  ["4", "Numpad4", 100],
-  [SDL3 + 93]:  ["5", "Numpad5", 101],
-  [SDL3 + 94]:  ["6", "Numpad6", 102],
-  [SDL3 + 95]:  ["7", "Numpad7", 103],
-  [SDL3 + 96]:  ["8", "Numpad8", 104],
-  [SDL3 + 97]:  ["9", "Numpad9", 105],
-  [SDL3 + 98]:  ["0", "Numpad0", 96],
-  [SDL3 + 99]:  [".", "NumpadDecimal", 110],
-  // Modifiers — SDL3 modifier keycodes live at 0x400000E0+, NOT 0x40000049+
+  [KC_SC + 83]:  ["NumLock", "NumLock", 144],
+  [KC_SC + 84]:  ["/", "NumpadDivide", 111],
+  [KC_SC + 85]:  ["*", "NumpadMultiply", 106],
+  [KC_SC + 86]:  ["-", "NumpadSubtract", 109],
+  [KC_SC + 87]:  ["+", "NumpadAdd", 107],
+  [KC_SC + 88]:  ["Enter", "NumpadEnter", 13],
+  [KC_SC + 89]:  ["1", "Numpad1", 97],
+  [KC_SC + 90]:  ["2", "Numpad2", 98],
+  [KC_SC + 91]:  ["3", "Numpad3", 99],
+  [KC_SC + 92]:  ["4", "Numpad4", 100],
+  [KC_SC + 93]:  ["5", "Numpad5", 101],
+  [KC_SC + 94]:  ["6", "Numpad6", 102],
+  [KC_SC + 95]:  ["7", "Numpad7", 103],
+  [KC_SC + 96]:  ["8", "Numpad8", 104],
+  [KC_SC + 97]:  ["9", "Numpad9", 105],
+  [KC_SC + 98]:  ["0", "Numpad0", 96],
+  [KC_SC + 99]:  [".", "NumpadDecimal", 110],
+  // Modifiers — wire modifier keycodes live at 0x400000E0+, NOT 0x40000049+
   // (0x40000049-0x4000004E are Insert/Home/PageUp/End/PageDown).
-  [SDL3 + 224]: ["Control", "ControlLeft", 17],
-  [SDL3 + 225]: ["Shift", "ShiftLeft", 16],
-  [SDL3 + 226]: ["Alt", "AltLeft", 18],
-  [SDL3 + 227]: ["Meta", "MetaLeft", 91],
-  [SDL3 + 228]: ["Control", "ControlRight", 17],
-  [SDL3 + 229]: ["Shift", "ShiftRight", 16],
-  [SDL3 + 230]: ["Alt", "AltRight", 18],
-  [SDL3 + 231]: ["Meta", "MetaRight", 91],
+  [KC_SC + 224]: ["Control", "ControlLeft", 17],
+  [KC_SC + 225]: ["Shift", "ShiftLeft", 16],
+  [KC_SC + 226]: ["Alt", "AltLeft", 18],
+  [KC_SC + 227]: ["Meta", "MetaLeft", 91],
+  [KC_SC + 228]: ["Control", "ControlRight", 17],
+  [KC_SC + 229]: ["Shift", "ShiftRight", 16],
+  [KC_SC + 230]: ["Alt", "AltRight", 18],
+  [KC_SC + 231]: ["Meta", "MetaRight", 91],
 };
 
-function sdlKeyToKey(keycode: number): string {
-  if (keycode >= 32 && keycode <= 126 && !SDL_SPECIAL_KEYS[keycode]) {
+function keycodeToKey(keycode: number): string {
+  if (keycode >= 32 && keycode <= 126 && !SPECIAL_KEYS[keycode]) {
     return String.fromCharCode(keycode);
   }
-  return SDL_SPECIAL_KEYS[keycode]?.[0] ?? `Unknown(${keycode})`;
+  return SPECIAL_KEYS[keycode]?.[0] ?? `Unknown(${keycode})`;
 }
 
-function sdlKeyToCode(keycode: number): string {
-  // Letters: SDL is lowercase ASCII, DOM code is uppercase KeyX
+function keycodeToCode(keycode: number): string {
+  // Letters: wire codes are lowercase ASCII, DOM code is uppercase KeyX
   if (keycode >= 65 && keycode <= 90) return `Key${String.fromCharCode(keycode)}`;
   if (keycode >= 97 && keycode <= 122) return `Key${String.fromCharCode(keycode - 32)}`;
   if (keycode >= 48 && keycode <= 57) return `Digit${String.fromCharCode(keycode)}`;
-  return SDL_SPECIAL_KEYS[keycode]?.[1] ?? sdlKeyToKey(keycode);
+  return SPECIAL_KEYS[keycode]?.[1] ?? keycodeToKey(keycode);
 }
 
-// Map SDL keycodes to DOM keyCode values so the engine's KEY constants work.
-function sdlToDomKeyCode(keycode: number): number {
+// Map wire keycodes to DOM keyCode values so the engine's KEY constants work.
+function keycodeToDomCode(keycode: number): number {
   if (keycode >= 97 && keycode <= 122) return keycode - 32; // lowercase → uppercase
-  if (keycode >= 32 && keycode <= 126 && !SDL_SPECIAL_KEYS[keycode]) return keycode;
-  return SDL_SPECIAL_KEYS[keycode]?.[2] ?? keycode;
+  if (keycode >= 32 && keycode <= 126 && !SPECIAL_KEYS[keycode]) return keycode;
+  return SPECIAL_KEYS[keycode]?.[2] ?? keycode;
 }

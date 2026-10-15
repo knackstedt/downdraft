@@ -144,7 +144,7 @@ function getTheme() {
 // ── Level gate — same defaults as createLogger() ────────────────────────────
 
 const LEVEL_INT = { trace: 1, debug: 2, info: 3, warn: 4, error: 5, fatal: 6 };
-const GATE = LEVEL_INT[proc.env.EMBER_LOG_LEVEL] ?? LEVEL_INT[proc.env.NODE_ENV === "test" ? "warn" : "info"];
+const GATE = LEVEL_INT[proc.env.DOWNDRAFT_LOG_LEVEL] ?? LEVEL_INT[proc.env.NODE_ENV === "test" ? "warn" : "info"];
 
 /** Same normalization as logger.ts — word-style module tags render
  *  lowercase-kebab; anything with heavier separators (paths, "plugin:x",

@@ -422,12 +422,10 @@ export function createDocCore(emit: (m: WorkerToUi) => void, gpuHooks?: DocGpuHo
         }
         case "profilingAttach": {
           // Engine profiling — claim a slot on the shared ProfilingSAB.
-          // OPFS/IDB patching is skipped: docs do no storage I/O.
+          // Docs do no storage I/O, so no storage instrumentation is needed.
           void import("@downdraft/engine/profiling")
             .then((p) => p.attachProfilingSAB(m.sab, {
               workerTag: m.workerTag,
-              opfs: false,
-              idb: false,
               layout: m.layout,
             }))
             .catch(() => { /* profiling unavailable — fine */ });

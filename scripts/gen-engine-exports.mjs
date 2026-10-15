@@ -100,12 +100,12 @@ for (const rel of indexDirs(coreSrc)) {
 const appSrc = join(engineDir, "app/src");
 entries.push(
   ["./app", "./app/src/index.ts"],
-  ["./app/renderer", "./app/src/renderer/index.ts"],
+  ["./app/main", "./app/src/main/index.ts"],
   ["./app/shared", "./app/src/shared/index.ts"],
-  ["./app/renderer/downdraft-base.css", "./app/src/renderer/downdraft-base.css"],
+  ["./app/main/downdraft-base.css", "./app/src/main/downdraft-base.css"],
 );
 for (const rel of indexDirs(appSrc)) {
-  if (rel && !["renderer", "shared"].includes(rel)) {
+  if (rel && !["main", "shared"].includes(rel)) {
     entries.push([`./app/${rel}`, `./app/src/${rel}/index.ts`]);
   }
 }

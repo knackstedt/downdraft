@@ -238,7 +238,7 @@ describe("SimWorkerHost", () => {
     const call = host.mock.calls.find((c) => c.method === "__profilingAttach");
     expect(call).toBeTruthy();
     expect(call!.args[0]).toBe(sab);
-    expect(call!.args[1]).toMatchObject({ workerTag: "sim", runtime: 0, opfs: true, idb: true, defaultWarningRules: true });
+    expect(call!.args[1]).toMatchObject({ workerTag: "sim", runtime: 0, defaultWarningRules: true });
     await host.stop();
   });
 });

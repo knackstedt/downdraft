@@ -1,7 +1,7 @@
 // ============================================================================
 // DevToolsDataBridge — non-abstract data-feed API exposed on
-// window.__sceneInspector. Games that don't need the full 3D scene inspector
-// (e.g. falling-sand, model-viewer) can instantiate this directly with a
+// window.__downdraftDevtools. Games that don't need the full 3D scene inspector
+// (any game) can instantiate this directly with a
 // minimal IDevToolsDataRenderer to get perf metrics, GC stats, GPU info, and
 // telemetry in the DevTools panel.
 //
@@ -56,8 +56,8 @@ export class DevToolsDataBridge {
     this.hostFetchInterval = setInterval(() => this.fetchHostData(), 2000);
 
     const api = this.buildApi();
-    (window as any).__sceneInspector = api;
-    log.info("dev-tools-data-bridge", "API exposed on window.__sceneInspector");
+    (window as any).__downdraftDevtools = api;
+    log.info("dev-tools-data-bridge", "API exposed on window.__downdraftDevtools");
   }
 
   protected buildApi(): Record<string, any> {
@@ -252,8 +252,8 @@ export class DevToolsDataBridge {
       w.downdraft.getGpuInfo().then((info: any) => { this.cachedGpuAdapterInfo = info; }).catch(() => {});
     }
     // Feature log — host (direct call) merged with renderer cache. Dynamic import
-    // avoids pulling @downdraft/engine/app/renderer at data-bridge construction time.
-    import("@downdraft/engine/app/renderer").then(({ getCombinedFeatureLog }) => {
+    // avoids pulling @downdraft/engine/app/main at data-bridge construction time.
+    import("@downdraft/engine/app/main").then(({ getCombinedFeatureLog }) => {
       getCombinedFeatureLog().then((data: any) => { this.cachedFeatureLog = data; }).catch(() => {});
     }).catch(() => {});
   }
@@ -265,6 +265,6 @@ export class DevToolsDataBridge {
       clearInterval(this.hostFetchInterval);
       this.hostFetchInterval = null;
     }
-    delete (window as any).__sceneInspector;
+    delete (window as any).__downdraftDevtools;
   }
 }

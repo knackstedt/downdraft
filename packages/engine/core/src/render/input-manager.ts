@@ -160,7 +160,7 @@ export class InputManager {
     }) as EventListener);
 
     // UI routing listens on window — game UI draws on the game canvas, but games
-    // may stack additional interactive canvases above it (e.g. sandjongg's
+    // may stack additional interactive canvases above it (e.g. a game's
     // tile canvas). Window-level listeners see events regardless of which
     // element is on top; toCanvas() converts to backing-pixel space and
     // hit-testing bounds-checks, so off-canvas events are no-ops.
@@ -200,7 +200,7 @@ export class InputManager {
     }) as EventListener, { passive: false });
 
     // Window-level mouseleave: a second interactive canvas stacked above
-    // (e.g. sandjongg's tile canvas) would otherwise trigger the canvas's
+    // (e.g. a tile canvas) would otherwise trigger the canvas's
     // own mouseleave and break UI hover/pressed state.
     add(window, "mouseleave", (() => {
       this.uiInputRouter?.handlePointerLeave();

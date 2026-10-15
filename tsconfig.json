@@ -10,9 +10,6 @@
     "isolatedModules": true,
     "allowImportingTsExtensions": true,
     "paths": {
-      "xxh3-ts": [
-        "./packages/engine/libraries/persistence/src/xxh3-ts.d.ts"
-      ],
       "@shared/*": [
         "./packages/engine/app/src/shared/*"
       ]

@@ -11,7 +11,7 @@ Games wire a renderer through the `GameModule` contract — the host injects the
 
 ```typescript
 import { GameRenderer, Camera, MeshBuilder } from "@downdraft/engine";
-import { startGame } from "@downdraft/engine/app/renderer";
+import { startGame } from "@downdraft/engine/app/main";
 
 startGame({
   renderer: (surface) => new GameRenderer(surface),

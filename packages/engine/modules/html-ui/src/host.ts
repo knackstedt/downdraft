@@ -269,8 +269,8 @@ export class HtmlUiHost {
   private attachProfiling(): void {
     if (this.profilingSent || this.backend.kind !== "worker") return;
     const g = globalThis as Record<string, any>;
-    const bridge = g.window?.__sceneInspector?.__getProfilingBridge?.()
-      ?? g.__sceneInspector?.__getProfilingBridge?.();
+    const bridge = g.window?.__downdraftDevtools?.__getProfilingBridge?.()
+      ?? g.__downdraftDevtools?.__getProfilingBridge?.();
     const sab = bridge?.getProfilingSAB?.();
     if (!sab) return;
     this.profilingSent = true;

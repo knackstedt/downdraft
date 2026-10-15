@@ -41,7 +41,7 @@ import {
 import { createLogger } from "@downdraft/engine/util/logger";
 import { bootstrapGame, type BootstrapDevToolsOptions } from "./bootstrap";
 import { downdraft, getSurface } from "./index";
-import { createSaveStore, isOpfsAvailable, type SaveStoreMode } from "./save-store-factory";
+import { createSaveStore, type SaveStoreMode } from "./save-store-factory";
 
 const log = createLogger("info");
 
@@ -73,7 +73,7 @@ export interface GameSimWorker {
    * `onEvent(kind, data)` dispatcher, and a class with a protected member
    * can't satisfy an interface that declares the same name. Event wiring
    * probes `subscribeEvents` first, then a public `onEvent` at runtime, so
-   * plain GameSimWorker implementations (e.g. falling-sand's worker host)
+   * plain GameSimWorker implementations (a simpler game's worker host)
    * still work.
    */
   subscribeEvents?(cb: (msg: { kind: string; data: unknown }) => void): () => void;
@@ -126,7 +126,7 @@ export interface GameSaveSource {
    *  real SaveMeta for the renderer-side store write when available. */
   save(slotName: string): Promise<{ stateJson: string; success: boolean; meta?: Partial<SaveMeta> } | null>;
   /** Optional: load a previously saved state. If omitted, the save store's
-   *  own load path is used (OPFS / host bridge). */
+   *  own load path is used (directory store / host bridge). */
   load?(slotName: string): Promise<string | null>;
 }
 
@@ -142,8 +142,8 @@ export type SimEventMap<C extends GameContext = GameContext> = Record<string, (d
 /** Save configuration. If omitted, no autosave is wired. */
 export interface GameSaveConfig {
   /** Save mode. Default: "host" when a native host save store is installed
-   *  (disk, stable), "auto" in browser. Games should pin an explicit mode
-   *  rather than relying on "auto" — see createSaveStore for resolution. */
+   *  (disk, stable). "auto" resolves to the host store or the JSON bridge
+   *  fallback — see createSaveStore for resolution. */
   mode?: SaveStoreMode;
   /** Engine version string for save slots. */
   engineVersion: string;
@@ -241,13 +241,13 @@ export interface GameContext<Sim extends GameSimWorker = GameSimWorker, R extend
   extraBuffers: Record<string, SharedArrayBuffer>;
   /** The save store, if save config was provided and init succeeded. May be null. */
   saveStore: ISaveStore | null;
-  /** The save mode that was actually selected (may differ from config in fallback). */
-  saveMode: "inline" | "worker" | "host";
+  /** The save mode that was actually selected (host store, or worker-owned). */
+  saveMode: "host" | "worker";
   /**
-   * Mode-aware save: persists the current state to the selected backend
-   * (inline OPFS / worker OPFS / host store disk). Games should call this for
-   * manual saves instead of `sim.save()` directly — `sim.save()` only writes
-   * in inline mode and silently drops the save in host mode.
+   * Persists the current state via the resolved save backend (host store disk
+   * on native, or the sim worker's own store in "worker" mode). Games should
+   * call this for manual saves instead of `sim.save()` directly — `sim.save()`
+   * only serializes stateJson; nothing forwards it to disk in host mode.
    * Returns true if the save succeeded. Undefined when no save config was declared.
    */
   save?: (slotName: string) => Promise<boolean>;
@@ -262,7 +262,7 @@ export interface GameContext<Sim extends GameSimWorker = GameSimWorker, R extend
    *  Used by the autosave wiring for renderer-only games. Undefined for
    *  sim-worker games (which use `sim.save()` instead). */
   saveSource?: GameSaveSource;
-  /** The typed downdraft bridge (window.downdraft). */
+  /** The typed downdraft bridge (globalThis.downdraft). */
   bridge: typeof downdraft;
   /** True if running in deterministic/test mode (DOWNDRAFT_DETERMINISTIC=1). */
   deterministic: boolean;
@@ -337,8 +337,8 @@ export interface GameModule<Sim extends GameSimWorker = GameSimWorker, R extends
   simConfig?: Record<string, unknown>;
   /**
    * Renderer-owned sim worker. For games where the renderer spawns and starts
-   * its own worker internally during `renderer.init()` (e.g. falling-sand's
-   * renderer creates its SandWorkerHost). Declare this INSTEAD of `sim` — it
+   * its own worker internally during `renderer.init()` (a game may spawn
+   * the renderer creates its own worker host). Declare this INSTEAD of `sim` — it
    * is called after renderer init to retrieve the worker, which is then
    * exposed as `ctx.sim` and wired into `module.events` routing like a
    * factory-created worker. This removes the need for no-op GameSimWorker
@@ -427,7 +427,7 @@ export interface GameModule<Sim extends GameSimWorker = GameSimWorker, R extends
    *
    * When `onInit` IS overridden, the game's `onInit` owns sim start — this
    * hook is not called. This lets games start the sim in parallel with
-   * `renderer.init()` (e.g. to-the-ocean does `Promise.all([renderer.init(),
+   * `renderer.init()` (a game may do `Promise.all([renderer.init(),
    * sim.start(config)])` in its `onInit`).
    */
   onSimStart?: (ctx: GameContext<Sim, R>) => Promise<void> | void;
@@ -618,36 +618,21 @@ export async function startGame<Sim extends GameSimWorker, R extends GameRendere
     if (sessionAborted()) return;
   }
 
-  // 6. Initialize save store (if configured) — for non-inline modes this
-  //    runs before bootstrapGame so onReady can use it. For inline mode
-  //    (sim-worker + OPFS), the store is initialized inside onRendererInit
-  //    after the sim worker has started.
+  // 6. Initialize save store (if configured) — runs before bootstrapGame so
+  //    onReady can use it.
   if (module.save && !deterministic) {
     try {
-      // Default to "host" (disk via the host's typed save store) when the
-      // bridge exposes one — on native this is HostSaveStore over
-      // HostServices. Fall back to "auto" (OPFS) only in a pure browser
-      // where there is no host bridge.
+      // Default to "host" (disk via the host's typed save store) — on native
+      // this is HostSaveStore over HostServices → FileSaveStore. A sim worker
+      // that wants worker-owned persistence constructs a DirectorySaveStore
+      // itself; the main-thread store is always the host store.
       const saveMode = module.save.mode ?? (downdraft.saveStore ? "host" : "auto");
-      if (saveMode === "auto" && simWorker?.initSaveStore && isOpfsAvailable() && !downdraft.saveStore) {
-        // Inline mode — defer init to onRendererInit (after sim worker starts).
-        ctx.saveMode = "inline";
-        ctx.saveStore = null;
-      } else {
-        const { store, mode: resolvedMode } = await createSaveStore({
-          mode: saveMode,
-          opfsOptions: {
-            engineVersion: module.save.engineVersion,
-            maxGenerations: module.save.maxGenerations ?? 3,
-          },
-          bridge: downdraft,
-        });
-        ctx.saveStore = store;
-        // resolvedMode is "worker" | "host" | "inline" (inline returns a
-        // null store); narrow to the ctx.saveMode union accordingly.
-        ctx.saveMode = resolvedMode === "inline" ? "inline"
-          : resolvedMode === "worker" ? "worker" : "host";
-      }
+      const { store, mode: resolvedMode } = await createSaveStore({
+        mode: saveMode,
+        bridge: downdraft,
+      });
+      ctx.saveStore = store;
+      ctx.saveMode = resolvedMode;
     } catch (e) {
       log.warn("start-game", `Save store init failed, falling back to host bridge: ${e}`);
       ctx.saveMode = "host";
@@ -655,12 +640,12 @@ export async function startGame<Sim extends GameSimWorker, R extends GameRendere
     if (sessionAborted()) return;
   }
 
-  // 6b. Mode-aware save/load helpers — exposed on ctx so games can trigger manual
-  //     saves/loads that work regardless of the selected backend. This is the
-  //     same logic the autosave interval uses below. Games MUST use ctx.save /
-  //     ctx.load instead of sim.save / sim.load directly: sim.save only writes
-  //     in inline mode (it has its own OPFS store) and silently drops the save
-  //     in host mode (it returns stateJson but nothing forwards it to disk).
+  // 6b. Save/load helpers — exposed on ctx so games can trigger manual
+  //     saves/loads through the resolved backend. This is the same logic the
+  //     autosave interval uses below. Games MUST use ctx.save / ctx.load
+  //     instead of sim.save / sim.load directly: sim.save only serializes
+  //     stateJson and silently drops the save unless the sim worker owns its
+  //     own store (DirectorySaveStore via initSaveStore).
   if (module.save && !deterministic) {
     ctx.save = async (slotName: string): Promise<boolean> => {
       try {
@@ -673,10 +658,10 @@ export async function startGame<Sim extends GameSimWorker, R extends GameRendere
           : sim?.save
             ? await sim.save(slotName)
             : null;
-        // In inline mode, the sim worker's save() already persisted to its own
-        // OPFS store — nothing more to do. In host/worker mode the sim worker
-        // only serialized — the renderer owns the store write.
-        if (result?.stateJson && ctx.saveMode !== "inline" && ctx.saveStore) {
+        // The sim worker's save() only serialized — the main thread owns
+        // the store write. (A worker-owned DirectorySaveStore persists inside
+        // save() itself and returns stateJson: null.)
+        if (result?.stateJson && ctx.saveStore) {
           const components = JSON.parse(result.stateJson);
           const state: SaveState = {
             components,
@@ -708,10 +693,9 @@ export async function startGame<Sim extends GameSimWorker, R extends GameRendere
         }
         // ctx.sim covers simFromRenderer games (resolved post renderer-init).
         const sim = ctx.sim ?? simWorker;
-        // Inline mode: sim worker loads directly from its own OPFS store.
-        // The sim worker's load() restores state internally; we just need a
-        // truthy return value so any onLoad hook fires.
-        if (ctx.saveMode === "inline" && sim?.load) {
+        // Worker-owned store: the sim worker's load() restores state
+        // internally; a truthy return is enough for onLoad hooks to fire.
+        if (ctx.saveMode === "worker" && sim?.load) {
           const success = await sim.load(slotName);
           return success ? { restored: true } : null;
         }
@@ -774,7 +758,7 @@ export async function startGame<Sim extends GameSimWorker, R extends GameRendere
   //     worker + sends init config and doesn't touch renderer state, so it
   //     can overlap renderer.init() instead of serializing behind it inside
   //     onRendererInit. `onInit` overrides own sim start entirely (e.g.
-  //     to-the-ocean's Promise.all); `onSimStart` overrides stay deferred
+  //     a game's Promise.all); `onSimStart` overrides stay deferred
   //     since they may depend on post-init ctx state; renderer-owned workers
   //     (simFromRenderer) are untouched.
   let simStartPromise: Promise<void> | null = null;
@@ -857,7 +841,7 @@ export async function startGame<Sim extends GameSimWorker, R extends GameRendere
       // ── Sim worker start ──
       // When `onInit` is NOT overridden, startGame owns sim start — it runs
       // here, after renderer.init() has succeeded. When `onInit` IS overridden,
-      // the game's onInit owns sim start (e.g. to-the-ocean starts the sim in
+      // the game's onInit owns sim start (a game may start the sim in
       // parallel with renderer.init() inside its onInit). Renderer-only games
       // have no sim worker to start.
       if (simWorker && !module.onInit) {
@@ -867,23 +851,6 @@ export async function startGame<Sim extends GameSimWorker, R extends GameRendere
           await simStartPromise;
         } else {
           await simWorker.start(module.simConfig ?? {});
-        }
-        if (sessionAborted()) return;
-      }
-
-      // ── Inline save store init (sim-worker + OPFS) ──
-      // Now that the sim worker is started, initialize its inline OPFS store.
-      // This must happen before the autosave load (which runs in bootstrapGame
-      // after onRendererInit returns) so that the sim worker can load from OPFS.
-      if (ctx.saveMode === "inline" && (ctx.sim ?? simWorker)?.initSaveStore && module.save) {
-        try {
-          await (ctx.sim ?? simWorker)!.initSaveStore!({
-            engineVersion: module.save.engineVersion,
-            maxGenerations: module.save.maxGenerations ?? 3,
-          });
-        } catch (e) {
-          log.warn("start-game", `Inline save store init failed, falling back to host save store: ${e}`);
-          ctx.saveMode = "host";
         }
         if (sessionAborted()) return;
       }

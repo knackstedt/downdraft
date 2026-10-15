@@ -11,8 +11,26 @@ DownDraft has a runtime plugin system for user-authored extensions and mods, dis
 |---|---|
 || `worker-js` | JavaScript plugin running in a dedicated Web Worker |
 || `wasm` | WASM module — always runs in its own worker for crash isolation |
-|| `quickjs` | Script evaluated in a sandboxed QuickJS VM (legacy `plugin.json` compat, instruction-budgeted) |
+|| `quickjs` | Script evaluated in a QuickJS VM (legacy `plugin.json` compat, instruction-budgeted) |
 || `asset` | Declarative content pack — no code; assets/maps/physics/shader extensions only |
+
+## Isolation and security model
+
+Only install plugins you trust — the isolation tiers differ substantially:
+
+- **`wasm` and `quickjs`** run inside their respective VM/interpreter with no
+  ambient host capabilities beyond the granted permissions — these are hard
+  isolation boundaries.
+- **`worker-js` is not a security sandbox.** The plugin runs as a worker
+  thread in the host JS runtime (Bun/Node/Deno). The engine strips or traps
+  dangerous globals on a best-effort basis and gates engine APIs behind the
+  manifest permissions, but plugin code can still `import` runtime builtins
+  (`node:fs`, FFI, network) unless the host runtime itself is launched with
+  restrictions (e.g. Deno `--deny-*` flags). Treat `worker-js` plugins like
+  any other dependency: they run with the privileges of the game process.
+- **Remote workshop packs** fetched via `BlobStore` are content pulled over
+  the network — pin trusted stores and treat untrusted remote packs as a
+  supply-chain risk, especially when they carry `worker-js` logic.
 
 ## Capability tiers and threads
 

@@ -1,5 +1,5 @@
 // ============================================================================
-// BaseSceneInspector — generic DevTools API exposed on window.__sceneInspector.
+// BaseSceneInspector — generic DevTools API exposed on window.__downdraftDevtools.
 // Games extend this class and provide game-specific features via
 // IGameDevToolsExtension.
 //

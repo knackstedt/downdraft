@@ -25,7 +25,7 @@ const realm = new PhysicsRealm(backend, {
 ## Using the Rapier Library
 
 ```typescript
-import { startGame } from "@downdraft/engine/app/renderer";
+import { startGame } from "@downdraft/engine/app/main";
 import { PhysicsRapierLib, PhysicsAPITok } from "@downdraft/engine/libraries/physics-rapier";
 
 startGame({

@@ -12,7 +12,7 @@
 // ============================================================================
 
 import { createLogger } from "@downdraft/engine/util/logger";
-import { sdlHotkey } from "./sdl-ffi";
+import { winHotkey } from "./window-ffi";
 
 const log = createLogger("info");
 
@@ -91,7 +91,7 @@ export function parseAccelerator(accel: string): { mods: number; keysym: number 
 // id → callback; native-window.ts dispatches HOTKEY events here.
 const handlers = new Map<number, () => void>();
 
-/** Called by the event pump when SDL_EVENT_HOTKEY arrives (slot 0 = id). */
+/** Called by the event pump when DD_EVENT_HOTKEY arrives (slot 0 = id). */
 export function fireGlobalHotkey(id: number): void {
   try {
     handlers.get(id)?.();
@@ -102,8 +102,8 @@ export function fireGlobalHotkey(id: number): void {
 
 /** Returns true when the native hotkey grabber is present (Linux/X11). */
 export function globalHotkeySupported(): boolean {
-  return typeof sdlHotkey.sdl_shim_hotkey_grab === "function"
-    && typeof sdlHotkey.sdl_shim_hotkey_ungrab === "function";
+  return typeof winHotkey.dd_hotkey_grab === "function"
+    && typeof winHotkey.dd_hotkey_ungrab === "function";
 }
 
 /**
@@ -120,8 +120,8 @@ export function registerGlobalHotkey(
     log.warn("hotkey", `unmappable accelerator "${accelerator}"`);
     return null;
   }
-  const grab = sdlHotkey.sdl_shim_hotkey_grab;
-  const ungrab = sdlHotkey.sdl_shim_hotkey_ungrab;
+  const grab = winHotkey.dd_hotkey_grab;
+  const ungrab = winHotkey.dd_hotkey_ungrab;
   if (!grab || !ungrab) return null; // lib predates hotkey support
   const id = grab(parsed.mods, parsed.keysym);
   if (id <= 0) {

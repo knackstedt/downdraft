@@ -25,7 +25,7 @@ export interface PluginScaffoldOptions {
   name: string;
   /** Plugin format. */
   format: PluginFormat;
-  /** Target game appId (e.g. "downdraft-overburden"). */
+  /** Target game appId (e.g. "downdraft-my-game"). */
   game: string;
   /** Plugin version. */
   version: string;

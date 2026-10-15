@@ -238,7 +238,7 @@ function wpeNamespaceWrap(cmd: string, args: string[], gameDir: string, env: Nod
     env.DD_VERBOSE = "1";
     // Diagnostics demoted below info (vite internals, pacing, gpu-registry)
     // become visible under --verbose unless an explicit level is set.
-    env.EMBER_LOG_LEVEL = env.EMBER_LOG_LEVEL ?? "debug";
+    env.DOWNDRAFT_LOG_LEVEL = env.DOWNDRAFT_LOG_LEVEL ?? "debug";
   }
   const repoRoot = findMonorepoRoot();
   if (repoRoot) env.DD_REPO_ROOT = repoRoot;

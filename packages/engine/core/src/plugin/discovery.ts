@@ -1,5 +1,5 @@
 // ============================================================================
-// Plugin discovery helpers — generalized from andrews-sandbox's main.tsx +
+// Plugin discovery helpers — generalized from a game's entrypoint +
 // plugin-host-bridge.ts.
 //
 // Games collect manifests via import.meta.glob (the glob call MUST stay in

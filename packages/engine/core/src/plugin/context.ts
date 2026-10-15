@@ -48,7 +48,7 @@ export interface PluginStateStore {
   set<T>(key: string, value: T): void;
   delete(key: string): void;
   keys(): string[];
-  /** Persist current state to OPFS (only if `storage` permission granted). */
+  /** Persist current state (only if `storage` permission granted). */
   save(): Promise<void>;
   /** Reload persisted state. */
   load(): Promise<void>;

@@ -161,7 +161,7 @@ if (typeof (globalThis as any).Bun !== "undefined" && typeof (globalThis as any)
   // polyfill it from a preload script (assigning to this module's import.meta
   // has no effect on callers). Callers that need globbing in native mode must
   // use createGlob(import.meta.dir) from "./glob-polyfill" — see
-  // games/to-the-ocean/src/engine/webgpu-renderer.ts for the pattern.
+  // a game's renderer module for the pattern.
 }
 
 // ── Native-host marker ──

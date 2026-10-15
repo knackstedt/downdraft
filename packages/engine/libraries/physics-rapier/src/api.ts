@@ -363,7 +363,7 @@ export class UniversalPhysicsAPI {
 
   /**
    * Step the near realm directly. Games that manage their own tick loop
-   * (e.g. to-the-ocean) can call this instead of using the accumulator +
+   * (a game with a fixed-step driver) can call this instead of using the accumulator +
    * realm manager step. This bypasses LOD/realm membership updates.
    */
   stepNearRealm(dt: number): void {

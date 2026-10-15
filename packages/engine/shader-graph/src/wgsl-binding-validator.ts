@@ -10,7 +10,7 @@
 // (duplicate `var` declaration) that the graph.spec.ts string-only tests miss
 // because they never call `device.createShaderModule`.
 //
-// In DOWNDRAFT_STRICT mode (or Vite dev mode) a duplicate throws; otherwise it
+// In DOWNDRAFT_STRICT_DIAGNOSTICS mode (or Vite dev mode) a duplicate throws; otherwise it
 // logs a warning. Comments (line `//...` and block `/* ... */`) are stripped
 // before parsing, same as wgsl-struct-validator.ts.
 // ============================================================================
@@ -113,7 +113,7 @@ export function findDuplicateBindings(parsed: ParsedBinding[]): DuplicateBinding
 
 /**
  * Assert that a WGSL source string has no duplicate `@group/@binding var`
- * declarations. In DOWNDRAFT_STRICT mode (env var = "1") or Vite dev mode,
+ * declarations. In DOWNDRAFT_STRICT_DIAGNOSTICS mode (env var = "1") or Vite dev mode,
  * throws on duplicate. Otherwise logs a warning.
  */
 export function assertNoDuplicateBindings(wgslSource: string): void {
@@ -137,7 +137,7 @@ export function assertNoDuplicateBindings(wgslSource: string): void {
 
 function isStrict(): boolean {
   return (
-    process?.env?.DOWNDRAFT_STRICT === "1" ||
+    process?.env?.DOWNDRAFT_STRICT_DIAGNOSTICS === "1" ||
     (typeof import.meta !== "undefined" && (import.meta as any).env?.DEV)
   );
 }

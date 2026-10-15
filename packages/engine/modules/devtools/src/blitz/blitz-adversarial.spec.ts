@@ -96,7 +96,7 @@ function bypassThrottle(host: BlitzDevtoolsHost): void {
 const tick = () => new Promise((r) => setTimeout(r, 10));
 
 afterEach(() => {
-  delete (globalThis as any).__sceneInspector;
+  delete (globalThis as any).__downdraftDevtools;
 });
 
 // ── Adversarial rounds ──
@@ -239,7 +239,7 @@ describe("devtools adversarial — elements", () => {
   });
 
   test("el.pick enriches details via inspector.getNodeJSON", async () => {
-    (globalThis as any).__sceneInspector = {
+    (globalThis as any).__downdraftDevtools = {
       getNodeJSON: (id: string) => JSON.stringify({ id, hp: 100 }),
       selectNode: () => {},
     };
@@ -607,7 +607,7 @@ describe("devtools adversarial — round 2", () => {
   });
 
   test("a second pick while details are in flight wins the strip", async () => {
-    (globalThis as any).__sceneInspector = {
+    (globalThis as any).__downdraftDevtools = {
       getNodeJSON: (id: string) => new Promise((r) => setTimeout(() => r(JSON.stringify({ id })), id === "model-1" ? 30 : 0)),
       selectNode: () => {},
     };

@@ -1,32 +1,32 @@
-//! window/ — sdl_shim_* exports backed by winit instead of SDL2.
+//! window/ — dd_window_* exports backed by winit instead of SDL2.
 //!
-//! Wire contract (must match src/window/sdl-ffi.ts + native-window.ts):
-//!   sdl_shim_create_window(title, w, h)          → i32 (0 ok, 1/2 fail)
-//!   sdl_shim_get_window_subsystem()              → i32 SDL_SYSWM_* tag
-//!   sdl_shim_get_window_size(w_out, h_out)       → void (physical px)
-//!   sdl_shim_set_window_title(title)             → void
-//!   sdl_shim_focus_window()                      → void (request activation)
-//!   sdl_shim_poll_event(out_data)                → i32 event type
-//!   sdl_shim_wait_event(out_data, timeout_ms)    → i32 event type
-//!   sdl_shim_grab_input(grab)                    → void (cursor lock + hide)
-//!   sdl_shim_start_text_input / stop_text_input  → void (IME on/off)
-//!   sdl_shim_set_text_input_rect(x,y,w,h)        → void (IME cursor area)
-//!   sdl_shim_destroy_window()                    → void
-//!   sdl_shim_delay(ms)                           → void
-//!   sdl_shim_create_wgpu_surface(instance)       → ptr (Phase 5 — stub)
-//!   sdl_shim_set_fullscreen(enabled)             → void (borderless)
-//!   sdl_shim_get_window_pos(x_out, y_out)        → void (outer pos)
-//!   sdl_shim_set_window_pos(x, y)                → void
-//!   sdl_shim_get_window_borders(t,l,b,r out)     → i32 (best-effort)
-//!   sdl_shim_set_window_size(w, h)               → void
-//!   sdl_shim_get_display_info(refresh, scale)    → void
-//!   sdl_shim_request_quit()                      → void (pushes QUIT event)
-//!   sdl_shim_show_message_box(title, msg)        → i32 (0 ok)
-//!   sdl_shim_set_clipboard(text)                 → void
-//!   sdl_shim_get_clipboard(out, max_len)         → i32 (snprintf semantics)
+//! Wire contract (must match src/window/window-ffi.ts + native-window.ts):
+//!   dd_window_create(title, w, h)          → i32 (0 ok, 1/2 fail)
+//!   dd_window_get_subsystem()              → i32 subsystem tag
+//!   dd_window_get_size(w_out, h_out)       → void (physical px)
+//!   dd_window_set_title(title)             → void
+//!   dd_window_focus()                      → void (request activation)
+//!   dd_window_poll_event(out_data)                → i32 event type
+//!   dd_window_wait_event(out_data, timeout_ms)    → i32 event type
+//!   dd_window_grab_input(grab)                    → void (cursor lock + hide)
+//!   dd_window_start_text_input / stop_text_input  → void (IME on/off)
+//!   dd_window_set_text_input_rect(x,y,w,h)        → void (IME cursor area)
+//!   dd_window_destroy()                    → void
+//!   dd_window_delay(ms)                           → void
+//!   dd_window_create_wgpu_surface(instance)       → ptr (Phase 5 — stub)
+//!   dd_window_set_fullscreen(enabled)             → void (borderless)
+//!   dd_window_get_pos(x_out, y_out)        → void (outer pos)
+//!   dd_window_set_pos(x, y)                → void
+//!   dd_window_get_borders(t,l,b,r out)     → i32 (best-effort)
+//!   dd_window_set_size(w, h)               → void
+//!   dd_window_get_display_info(refresh, scale)    → void
+//!   dd_window_request_quit()                      → void (pushes QUIT event)
+//!   dd_window_show_message_box(title, msg)        → i32 (0 ok)
+//!   dd_window_set_clipboard(text)                 → void
+//!   dd_window_get_clipboard(out, max_len)         → i32 (snprintf semantics)
 //!
 //! Event out_data slot layout (all i32 unless noted) — identical to the C shim:
-//!   Key:        [0]=SDL3 keycode, [1]=KMOD bitmask, [2]=repeat
+//!   Key:        [0]=wire keycode, [1]=KMOD bitmask, [2]=repeat
 //!   Mouse move: [0]=x, [1]=y, [2]=xrel, [3]=yrel, [4]=button bitmask, [5]=mod
 //!   Mouse btn:  [0]=x, [1]=y, [2]=button(1=l,2=m,3=r), [3]=button mask, [4]=mod
 //!   Wheel:      f32[0]=dx, f32[1]=dy (line detents), [2]=mod, [3]=mx, [4]=my
@@ -35,7 +35,7 @@
 //!
 //! Threading: on Android winit's event loop runs on the app thread (created
 //! by android_main); on Linux/Windows it runs on a dedicated pump thread
-//! spawned at first sdl_shim_create_window; macOS alone keeps winit on the
+//! spawned at first dd_window_create; macOS alone keeps winit on the
 //! JS thread (EventLoop must live on the process main thread there) via the
 //! pump_events extension. Everywhere except macOS the JS side never touches
 //! winit — poll/wait_event are pure queue ops on the shared QUEUE + condvar,
@@ -45,12 +45,12 @@
 //! backends, and JS-facing calls take the Arc out of the lock so a window
 //! op that marshals to the loop thread can never deadlock against a
 //! translate handler holding CTX.
-//! Keycodes: SDL3 values — ASCII for printables, scancode|0x40000000 for
-//! named keys — so the existing TS SDL_* tables keep working unchanged.
+//! Keycodes: SDL3-derived values — ASCII for printables, scancode|0x40000000
+//! for named keys — so the TS SPECIAL_KEYS table keeps working unchanged.
 //! Wheel deltas are line detents; winit PixelDelta is converted (~16px/line).
-//! Resize reports *physical* pixels (what the surface needs); SDL reported
-//! logical — identical at scale factor 1.0, which is the common case on the
-//! native Linux path.
+//! Resize reports *physical* pixels (what the surface needs); the old SDL2
+//! shim reported logical — identical at scale factor 1.0, which is the common
+//! case on the native Linux path.
 
 #[cfg(target_os = "android")]
 pub mod android;
@@ -88,18 +88,18 @@ use winit::platform::pump_events::EventLoopExtPumpEvents;
 use winit::window::WindowAttributes;
 use winit::window::{CursorGrabMode, Fullscreen, Window, WindowId, WindowLevel};
 
-/// SDL_SYSWM_* tags (SDL_syswm.h) — sdl_shim_get_window_subsystem wire value.
+/// Subsystem tags — dd_window_get_subsystem wire value.
 mod syswm {
     pub const UNKNOWN: i32 = 0;
     pub const WINDOWS: i32 = 1;
     pub const X11: i32 = 2;
     pub const WAYLAND: i32 = 3;
     pub const COCOA: i32 = 4;
-    /// SDL_SYSWM_ANDROID (SDL_syswm.h)
+    /// Android subsystem tag
     pub const ANDROID: i32 = 13;
 }
 
-/// SDL_Keymod bits — combined L|R (TS masks with KMOD_SHIFT etc.).
+/// Key-modifier bits — combined L|R (TS masks with KMOD_SHIFT etc.).
 const KMOD_SHIFT: i32 = 0x0001 | 0x0002;
 const KMOD_CTRL: i32 = 0x0040 | 0x0080;
 const KMOD_ALT: i32 = 0x0100 | 0x0200;
@@ -111,7 +111,7 @@ const KMOD_GUI: i32 = 0x0400 | 0x0800;
 #[derive(Default)]
 pub(crate) struct WinInput {
     cursor: (f64, f64),
-    /// SDL button-state bitmask (bit n-1 = button n).
+    /// Wire button-state bitmask (bit n-1 = button n).
     buttons: u32,
     grabbed: bool,
     text_input: bool,
@@ -121,7 +121,7 @@ pub(crate) struct Ctx {
     /// Primary window (handle 0). Arc so Phase 5's create_surface can own a
     /// 'static reference.
     window: Option<Arc<Window>>,
-    /// Secondary windows by handle (1+), created via sdl_shim_window_create.
+    /// Secondary windows by handle (1+), created via dd_window_secondary_create.
     extras: HashMap<u32, Arc<Window>>,
     /// winit WindowId → shim handle (primary registers as 0).
     ids: HashMap<WindowId, u32>,
@@ -154,7 +154,7 @@ fn window_by_handle(h: u32) -> Option<Arc<Window>> {
 
 /// Shared window/app state. The winit loop runs on a non-JS thread
 /// everywhere except macOS (app thread on Android, pump thread on
-/// Linux/Windows) while all sdl_shim_* calls come from the JS thread —
+/// Linux/Windows) while all dd_window_* calls come from the JS thread —
 /// so this is a Mutex.
 static CTX: Mutex<Option<Ctx>> = Mutex::new(None);
 
@@ -228,7 +228,7 @@ fn pump(timeout: Option<Duration>) {
 // to the shared queue, and NOTIFY wakes any parked JS wait_event — no
 // pump calls or epoll trips ever happen on the JS thread.
 
-/// sdl_shim_window_create flag bits — WindowAttributes can't cross the FFI
+/// dd_window_secondary_create flag bits — WindowAttributes can't cross the FFI
 /// boundary, so secondary-window creation packs its options into one u32.
 const WF_RESIZABLE: u32 = 1;
 const WF_DECORATIONS: u32 = 2;
@@ -257,7 +257,7 @@ struct CreateReq {
     title: String,
     w: u32,
     h: u32,
-    /// One-shot reply: 0 created, 2 create failed. sdl_shim_create_window
+    /// One-shot reply: 0 created, 2 create failed. dd_window_create
     /// blocks on it, keeping the call synchronous on the JS side.
     reply: mpsc::Sender<c_int>,
 }
@@ -265,7 +265,7 @@ struct CreateReq {
 #[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
 static CREATE_REQ: Mutex<Option<CreateReq>> = Mutex::new(None);
 
-/// Deferred sdl_shim_create_window ack — held briefly after install_window
+/// Deferred dd_window_create ack — held briefly after install_window
 /// so the reply lands after the compositor's first configure burst (real
 /// size, Wayland fractional scale) instead of letting JS snapshot the
 /// pre-settle scale=1 defaults into NativeSurface. Bounded: about_to_wait
@@ -314,7 +314,7 @@ struct SurfaceReq {
 static SURFACE_REQ: Mutex<Option<SurfaceReq>> = Mutex::new(None);
 
 /// Pending desktop identity applied to the next created window — set via
-/// sdl_shim_set_app_name / sdl_shim_set_window_icon_file because JS-side
+/// dd_window_set_app_name / dd_window_set_icon_file because JS-side
 /// process.env writes don't reach the environ a dlopen'd lib reads (Bun
 /// materializes env only for spawned children). The pump-side
 /// DD_APP_ID / DD_APP_ICON env reads remain for launcher-exported env.
@@ -425,7 +425,7 @@ fn pump_create_window(el: &winit::event_loop::ActiveEventLoop) {
         .with_visible(true)
         // Never request focus at map time — a freshly spawned game window
         // must not steal activation. Games that want launch focus call
-        // sdl_shim_focus_window; the WM may still focus per its own policy.
+        // dd_window_focus; the WM may still focus per its own policy.
         .with_active(false);
     // Desktop-entry identity. DD_APP_ID is the packaged app's desktop id
     // (e.g. "dev.cruiser.app") — it becomes the Wayland app_id and the X11
@@ -470,7 +470,7 @@ fn pump_create_window(el: &winit::event_loop::ActiveEventLoop) {
     match el.create_window(attrs) {
         Ok(w) => {
             let window = Arc::new(w);
-            // SDL centers new windows; winit leaves placement to the WM.
+            // We center new windows (winit leaves placement to the WM otherwise).
             // Center on the primary monitor for parity.
             if let Some(monitor) = window
                 .primary_monitor()
@@ -618,7 +618,7 @@ impl ApplicationHandler<LoopCmd> for Pump {
 
     fn about_to_wait(&mut self, el: &winit::event_loop::ActiveEventLoop) {
         // Deadline path — a WM that sends no initial events must not hold
-        // sdl_shim_create_window hostage.
+        // dd_window_create hostage.
         flush_create_ack(el, false);
     }
 
@@ -639,8 +639,8 @@ fn with_ctx<R>(f: impl FnOnce(&mut Ctx) -> R) -> Option<R> {
 }
 
 /// The primary window's input state — the window-less grab/text-input shim
-/// calls (sdl_shim_grab_input etc.) are primary-scoped by contract; per-
-/// window control goes through sdl_shim_window_* (handle-addressed).
+/// calls (dd_window_grab_input etc.) are primary-scoped by contract; per-
+/// window control goes through dd_window_secondary_* (handle-addressed).
 fn primary_input(ctx: &mut Ctx) -> Option<&mut WinInput> {
     let id = ctx.window.as_ref()?.id();
     Some(ctx.input.entry(id).or_default())
@@ -746,13 +746,13 @@ fn cstr_title(title: *const c_char) -> String {
     }
 }
 
-/// sdl_shim_set_app_name(general, instance) — desktop-entry identity for
+/// dd_window_set_app_name(general, instance) — desktop-entry identity for
 /// the next created window: Wayland app_id = `general`, X11 WM_CLASS =
 /// "instance", "general". Pass the packaged app's desktop id (e.g.
 /// "dev.cruiser.app") for both so the WM matches the window to
-/// <app-id>.desktop's icon. Must be called before sdl_shim_create_window.
+/// <app-id>.desktop's icon. Must be called before dd_window_create.
 #[no_mangle]
-pub extern "C" fn sdl_shim_set_app_name(general: *const c_char, instance: *const c_char) {
+pub extern "C" fn dd_window_set_app_name(general: *const c_char, instance: *const c_char) {
     if general.is_null() || instance.is_null() {
         return;
     }
@@ -768,11 +768,11 @@ pub extern "C" fn sdl_shim_set_app_name(general: *const c_char, instance: *const
     *PENDING_APP_NAME.lock().unwrap() = Some((g, i));
 }
 
-/// sdl_shim_set_window_icon_file(path) → 0 ok, 1 read/decode failure.
+/// dd_window_set_icon_file(path) → 0 ok, 1 read/decode failure.
 /// Decodes an image file, applies it to the live window if one exists,
 /// and remembers it for the next create.
 #[no_mangle]
-pub extern "C" fn sdl_shim_set_window_icon_file(path: *const c_char) -> c_int {
+pub extern "C" fn dd_window_set_icon_file(path: *const c_char) -> c_int {
     if path.is_null() {
         return 1;
     }
@@ -804,7 +804,7 @@ pub extern "C" fn sdl_shim_set_window_icon_file(path: *const c_char) -> c_int {
 /// one-shot reply so the call keeps its synchronous contract.
 #[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
 #[no_mangle]
-pub extern "C" fn sdl_shim_create_window(
+pub extern "C" fn dd_window_create(
     title: *const c_char,
     width: c_int,
     height: c_int,
@@ -851,7 +851,7 @@ pub extern "C" fn sdl_shim_create_window(
 
 #[cfg(target_os = "macos")]
 #[no_mangle]
-pub extern "C" fn sdl_shim_create_window(
+pub extern "C" fn dd_window_create(
     title: *const c_char,
     width: c_int,
     height: c_int,
@@ -888,7 +888,7 @@ pub extern "C" fn sdl_shim_create_window(
                 // Never request focus at map time — a freshly spawned game
                 // window must not steal activation (e.g. dev-shell restarts
                 // while the user is typing elsewhere). Games that want
-                // launch focus call sdl_shim_focus_window (focused: true in
+                // launch focus call dd_window_focus (focused: true in
                 // NativeWindowConfig); the WM may still focus the window per
                 // its own policy — that's not stealing, it's the WM's call.
                 .with_active(false);
@@ -905,7 +905,7 @@ pub extern "C" fn sdl_shim_create_window(
             Ok(w) => w,
             Err(code) => return code,
         };
-        // SDL centers new windows; winit leaves placement to the WM. Center on
+        // We center new windows (winit leaves placement to the WM otherwise). Center on
         // the primary monitor for parity.
         if let Some(monitor) = window
             .primary_monitor()
@@ -928,15 +928,15 @@ pub extern "C" fn sdl_shim_create_window(
 }
 
 // ── Secondary windows ──
-// The sdl_shim_window_* family drives overlay/splitscreen-style utility
+// The dd_window_secondary_* family drives overlay/splitscreen-style utility
 // windows. Handles are 1+; 0 always names the primary window, so the
 // window-less legacy calls are just the h=0 case.
 
 /// Linux/Windows: same request/wakeup/reply choreography as
-/// sdl_shim_create_window — the window can only be born on the pump thread.
+/// dd_window_create — the window can only be born on the pump thread.
 #[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
 #[no_mangle]
-pub extern "C" fn sdl_shim_window_create(
+pub extern "C" fn dd_window_secondary_create(
     title: *const c_char,
     x: c_int,
     y: c_int,
@@ -986,10 +986,10 @@ pub extern "C" fn sdl_shim_window_create(
 }
 
 /// macOS: the JS thread IS the loop thread, so the window is created inline
-/// (same pattern as the primary's sdl_shim_create_window).
+/// (same pattern as the primary's dd_window_create).
 #[cfg(target_os = "macos")]
 #[no_mangle]
-pub extern "C" fn sdl_shim_window_create(
+pub extern "C" fn dd_window_secondary_create(
     title: *const c_char,
     x: c_int,
     y: c_int,
@@ -1048,7 +1048,7 @@ pub extern "C" fn sdl_shim_window_create(
 /// Android: single-window platform — no secondary windows.
 #[cfg(target_os = "android")]
 #[no_mangle]
-pub extern "C" fn sdl_shim_window_create(
+pub extern "C" fn dd_window_secondary_create(
     _title: *const c_char,
     _x: c_int,
     _y: c_int,
@@ -1062,10 +1062,10 @@ pub extern "C" fn sdl_shim_window_create(
 /// Destroy one window. handle 0 forwards to the primary destroy path (full
 /// app teardown semantics); secondaries unmap + drop immediately.
 #[no_mangle]
-pub extern "C" fn sdl_shim_window_destroy(handle: c_int) {
+pub extern "C" fn dd_window_secondary_destroy(handle: c_int) {
     ffi!((), {
         if handle <= 0 {
-            sdl_shim_destroy_window();
+            dd_window_destroy();
             return;
         }
         let h = handle as u32;
@@ -1091,7 +1091,7 @@ pub extern "C" fn sdl_shim_window_destroy(handle: c_int) {
 
 /// Show/hide without destroying — overlay toggle visibility.
 #[no_mangle]
-pub extern "C" fn sdl_shim_window_set_visible(handle: c_int, visible: c_int) {
+pub extern "C" fn dd_window_secondary_set_visible(handle: c_int, visible: c_int) {
     ffi!((), {
         if let Some(w) = window_by_handle(handle.max(0) as u32) {
             w.set_visible(visible != 0);
@@ -1102,7 +1102,7 @@ pub extern "C" fn sdl_shim_window_set_visible(handle: c_int, visible: c_int) {
 /// Cursor hit-testing — false = click-through (events fall to windows
 /// below). Wayland returns Unsupported; callers treat failure as sticky.
 #[no_mangle]
-pub extern "C" fn sdl_shim_window_set_hittest(handle: c_int, hittest: c_int) -> c_int {
+pub extern "C" fn dd_window_secondary_set_hittest(handle: c_int, hittest: c_int) -> c_int {
     ffi!(-1, {
         let Some(w) = window_by_handle(handle.max(0) as u32) else {
             return -1;
@@ -1116,7 +1116,7 @@ pub extern "C" fn sdl_shim_window_set_hittest(handle: c_int, hittest: c_int) -> 
 
 /// Z-order band: 1 always-on-top, 0 normal, -1 always-on-bottom.
 #[no_mangle]
-pub extern "C" fn sdl_shim_window_set_level(handle: c_int, level: c_int) {
+pub extern "C" fn dd_window_secondary_set_level(handle: c_int, level: c_int) {
     ffi!((), {
         let Some(w) = window_by_handle(handle.max(0) as u32) else {
             return;
@@ -1131,7 +1131,7 @@ pub extern "C" fn sdl_shim_window_set_level(handle: c_int, level: c_int) {
 }
 
 #[no_mangle]
-pub extern "C" fn sdl_shim_window_set_title(handle: c_int, title: *const c_char) {
+pub extern "C" fn dd_window_secondary_set_title(handle: c_int, title: *const c_char) {
     ffi!((), {
         if title.is_null() {
             return;
@@ -1146,7 +1146,7 @@ pub extern "C" fn sdl_shim_window_set_title(handle: c_int, title: *const c_char)
 }
 
 #[no_mangle]
-pub extern "C" fn sdl_shim_window_focus(handle: c_int) {
+pub extern "C" fn dd_window_secondary_focus(handle: c_int) {
     ffi!((), {
         if let Some(w) = window_by_handle(handle.max(0) as u32) {
             w.focus_window();
@@ -1155,7 +1155,7 @@ pub extern "C" fn sdl_shim_window_focus(handle: c_int) {
 }
 
 #[no_mangle]
-pub extern "C" fn sdl_shim_window_set_decorations(handle: c_int, on: c_int) {
+pub extern "C" fn dd_window_secondary_set_decorations(handle: c_int, on: c_int) {
     ffi!((), {
         if let Some(w) = window_by_handle(handle.max(0) as u32) {
             w.set_decorations(on != 0);
@@ -1164,7 +1164,7 @@ pub extern "C" fn sdl_shim_window_set_decorations(handle: c_int, on: c_int) {
 }
 
 #[no_mangle]
-pub extern "C" fn sdl_shim_window_set_fullscreen(handle: c_int, enabled: c_int) {
+pub extern "C" fn dd_window_secondary_set_fullscreen(handle: c_int, enabled: c_int) {
     ffi!((), {
         if let Some(w) = window_by_handle(handle.max(0) as u32) {
             w.set_fullscreen(if enabled != 0 {
@@ -1176,9 +1176,9 @@ pub extern "C" fn sdl_shim_window_set_fullscreen(handle: c_int, enabled: c_int) 
     });
 }
 
-/// Physical inner size — same contract as sdl_shim_get_window_size.
+/// Physical inner size — same contract as dd_window_get_size.
 #[no_mangle]
-pub extern "C" fn sdl_shim_window_get_size(handle: c_int, w_out: *mut c_int, h_out: *mut c_int) {
+pub extern "C" fn dd_window_secondary_get_size(handle: c_int, w_out: *mut c_int, h_out: *mut c_int) {
     ffi!((), {
         let (mut w, mut h) = (0, 0);
         if let Some(win) = window_by_handle(handle.max(0) as u32) {
@@ -1198,7 +1198,7 @@ pub extern "C" fn sdl_shim_window_get_size(handle: c_int, w_out: *mut c_int, h_o
 }
 
 #[no_mangle]
-pub extern "C" fn sdl_shim_window_set_size(handle: c_int, width: c_int, height: c_int) {
+pub extern "C" fn dd_window_secondary_set_size(handle: c_int, width: c_int, height: c_int) {
     ffi!((), {
         if let Some(w) = window_by_handle(handle.max(0) as u32) {
             let _ =
@@ -1208,7 +1208,7 @@ pub extern "C" fn sdl_shim_window_set_size(handle: c_int, width: c_int, height: 
 }
 
 #[no_mangle]
-pub extern "C" fn sdl_shim_window_get_pos(handle: c_int, x_out: *mut c_int, y_out: *mut c_int) {
+pub extern "C" fn dd_window_secondary_get_pos(handle: c_int, x_out: *mut c_int, y_out: *mut c_int) {
     ffi!((), {
         let (mut x, mut y) = (0, 0);
         if let Some(w) = window_by_handle(handle.max(0) as u32) {
@@ -1229,7 +1229,7 @@ pub extern "C" fn sdl_shim_window_get_pos(handle: c_int, x_out: *mut c_int, y_ou
 }
 
 #[no_mangle]
-pub extern "C" fn sdl_shim_window_set_pos(handle: c_int, x: c_int, y: c_int) {
+pub extern "C" fn dd_window_secondary_set_pos(handle: c_int, x: c_int, y: c_int) {
     ffi!((), {
         if let Some(w) = window_by_handle(handle.max(0) as u32) {
             w.set_outer_position(PhysicalPosition::new(x, y));
@@ -1238,9 +1238,9 @@ pub extern "C" fn sdl_shim_window_set_pos(handle: c_int, x: c_int, y: c_int) {
 }
 
 /// Per-window cursor grab — same Locked→Confined→None semantics as
-/// sdl_shim_grab_input, keyed to `handle`'s input slot.
+/// dd_window_grab_input, keyed to `handle`'s input slot.
 #[no_mangle]
-pub extern "C" fn sdl_shim_window_grab(handle: c_int, grab: c_int) {
+pub extern "C" fn dd_window_secondary_grab(handle: c_int, grab: c_int) {
     ffi!((), {
         let Some(w) = window_by_handle(handle.max(0) as u32) else {
             return;
@@ -1322,8 +1322,8 @@ fn emit(out_data: *mut c_void, _timeout: Option<Duration>) -> c_int {
 }
 
 #[no_mangle]
-pub extern "C" fn sdl_shim_poll_event(out_data: *mut c_void) -> c_int {
-    // SDL_PollEvent semantics: non-blocking.
+pub extern "C" fn dd_window_poll_event(out_data: *mut c_void) -> c_int {
+    // Non-blocking poll semantics.
     ffi!(events::NONE, { emit(out_data, Some(Duration::ZERO)) })
 }
 
@@ -1332,7 +1332,7 @@ pub extern "C" fn sdl_shim_poll_event(out_data: *mut c_void) -> c_int {
 /// contract: a dead window's waits still expire on time and report NONE.
 #[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
 #[no_mangle]
-pub extern "C" fn sdl_shim_wait_event(out_data: *mut c_void, timeout_ms: u32) -> c_int {
+pub extern "C" fn dd_window_wait_event(out_data: *mut c_void, timeout_ms: u32) -> c_int {
     ffi!(events::NONE, {
         if no_window() {
             std::thread::sleep(Duration::from_millis(timeout_ms as u64));
@@ -1348,7 +1348,7 @@ pub extern "C" fn sdl_shim_wait_event(out_data: *mut c_void, timeout_ms: u32) ->
 /// notifies. Not gated on no_window (see emit above).
 #[cfg(target_os = "android")]
 #[no_mangle]
-pub extern "C" fn sdl_shim_wait_event(out_data: *mut c_void, timeout_ms: u32) -> c_int {
+pub extern "C" fn dd_window_wait_event(out_data: *mut c_void, timeout_ms: u32) -> c_int {
     ffi!(events::NONE, {
         events::take_timeout(Duration::from_millis(timeout_ms as u64))
             .map(|(wid, ev)| events::write(wid, ev, out_data))
@@ -1361,7 +1361,7 @@ pub extern "C" fn sdl_shim_wait_event(out_data: *mut c_void, timeout_ms: u32) ->
 /// are only starved by the capped duration.
 #[cfg(target_os = "macos")]
 #[no_mangle]
-pub extern "C" fn sdl_shim_wait_event(out_data: *mut c_void, timeout_ms: u32) -> c_int {
+pub extern "C" fn dd_window_wait_event(out_data: *mut c_void, timeout_ms: u32) -> c_int {
     ffi!(events::NONE, {
         if no_window() {
             std::thread::sleep(Duration::from_millis(timeout_ms as u64));
@@ -1375,7 +1375,7 @@ pub extern "C" fn sdl_shim_wait_event(out_data: *mut c_void, timeout_ms: u32) ->
 /// game that wants focus on launch calls this right after creating it.
 /// Best-effort: WMs are free to ignore activation requests.
 #[no_mangle]
-pub extern "C" fn sdl_shim_focus_window() {
+pub extern "C" fn dd_window_focus() {
     ffi!((), {
         if let Some(w) = win() {
             w.focus_window();
@@ -1386,7 +1386,7 @@ pub extern "C" fn sdl_shim_focus_window() {
 // ── Input grab ──
 
 #[no_mangle]
-pub extern "C" fn sdl_shim_grab_input(grab: c_int) {
+pub extern "C" fn dd_window_grab_input(grab: c_int) {
     ffi!((), {
         let Some(w) = win() else { return };
         let grab = grab != 0;
@@ -1412,7 +1412,7 @@ pub extern "C" fn sdl_shim_grab_input(grab: c_int) {
 // ── Text input (IME) ──
 
 #[no_mangle]
-pub extern "C" fn sdl_shim_start_text_input() {
+pub extern "C" fn dd_window_start_text_input() {
     ffi!((), {
         if let Some(w) = win() {
             w.set_ime_allowed(true);
@@ -1426,7 +1426,7 @@ pub extern "C" fn sdl_shim_start_text_input() {
 }
 
 #[no_mangle]
-pub extern "C" fn sdl_shim_stop_text_input() {
+pub extern "C" fn dd_window_stop_text_input() {
     ffi!((), {
         if let Some(w) = win() {
             w.set_ime_allowed(false);
@@ -1440,7 +1440,7 @@ pub extern "C" fn sdl_shim_stop_text_input() {
 }
 
 #[no_mangle]
-pub extern "C" fn sdl_shim_set_text_input_rect(x: c_int, y: c_int, w: c_int, h: c_int) {
+pub extern "C" fn dd_window_set_text_input_rect(x: c_int, y: c_int, w: c_int, h: c_int) {
     ffi!((), {
         if let Some(win) = win() {
             win.set_ime_cursor_area(
@@ -1454,7 +1454,7 @@ pub extern "C" fn sdl_shim_set_text_input_rect(x: c_int, y: c_int, w: c_int, h: 
 // ── Window queries / mutation ──
 
 #[no_mangle]
-pub extern "C" fn sdl_shim_get_window_subsystem() -> c_int {
+pub extern "C" fn dd_window_get_subsystem() -> c_int {
     ffi!(-1, {
         let Some(w) = win() else {
             return syswm::UNKNOWN;
@@ -1471,7 +1471,7 @@ pub extern "C" fn sdl_shim_get_window_subsystem() -> c_int {
 }
 
 #[no_mangle]
-pub extern "C" fn sdl_shim_get_window_size(w_out: *mut c_int, h_out: *mut c_int) {
+pub extern "C" fn dd_window_get_size(w_out: *mut c_int, h_out: *mut c_int) {
     ffi!((), {
         let (mut w, mut h) = (0, 0);
         if let Some(win) = win() {
@@ -1491,7 +1491,7 @@ pub extern "C" fn sdl_shim_get_window_size(w_out: *mut c_int, h_out: *mut c_int)
 }
 
 #[no_mangle]
-pub extern "C" fn sdl_shim_set_window_title(title: *const c_char) {
+pub extern "C" fn dd_window_set_title(title: *const c_char) {
     ffi!((), {
         if title.is_null() {
             return;
@@ -1506,7 +1506,7 @@ pub extern "C" fn sdl_shim_set_window_title(title: *const c_char) {
 }
 
 #[no_mangle]
-pub extern "C" fn sdl_shim_set_fullscreen(enabled: c_int) {
+pub extern "C" fn dd_window_set_fullscreen(enabled: c_int) {
     ffi!((), {
         if let Some(w) = win() {
             w.set_fullscreen(if enabled != 0 {
@@ -1519,7 +1519,7 @@ pub extern "C" fn sdl_shim_set_fullscreen(enabled: c_int) {
 }
 
 #[no_mangle]
-pub extern "C" fn sdl_shim_get_window_pos(x_out: *mut c_int, y_out: *mut c_int) {
+pub extern "C" fn dd_window_get_pos(x_out: *mut c_int, y_out: *mut c_int) {
     ffi!((), {
         let (mut x, mut y) = (0, 0);
         if let Some(w) = win() {
@@ -1540,7 +1540,7 @@ pub extern "C" fn sdl_shim_get_window_pos(x_out: *mut c_int, y_out: *mut c_int) 
 }
 
 #[no_mangle]
-pub extern "C" fn sdl_shim_set_window_pos(x: c_int, y: c_int) {
+pub extern "C" fn dd_window_set_pos(x: c_int, y: c_int) {
     ffi!((), {
         if let Some(w) = win() {
             w.set_outer_position(PhysicalPosition::new(x, y));
@@ -1551,9 +1551,9 @@ pub extern "C" fn sdl_shim_set_window_pos(x: c_int, y: c_int) {
 /// Frame extents — winit has no direct API. Approximate from outer−inner:
 /// symmetric side/bottom frames (dw/2 each), titlebar takes the height
 /// remainder. Returns -1 when the window isn't up or can't report, matching
-/// SDL's pre-framing rc — the only consumer is window-state persistence.
+/// The wire format's pre-framing rc — the only consumer is window-state persistence.
 #[no_mangle]
-pub extern "C" fn sdl_shim_get_window_borders(
+pub extern "C" fn dd_window_get_borders(
     top_out: *mut c_int,
     left_out: *mut c_int,
     bottom_out: *mut c_int,
@@ -1608,7 +1608,7 @@ pub extern "C" fn sdl_shim_get_window_borders(
 }
 
 #[no_mangle]
-pub extern "C" fn sdl_shim_set_window_size(width: c_int, height: c_int) {
+pub extern "C" fn dd_window_set_size(width: c_int, height: c_int) {
     ffi!((), {
         if let Some(w) = win() {
             let _ =
@@ -1618,7 +1618,7 @@ pub extern "C" fn sdl_shim_set_window_size(width: c_int, height: c_int) {
 }
 
 #[no_mangle]
-pub extern "C" fn sdl_shim_get_display_info(refresh_out: *mut c_int, scale_out: *mut f32) {
+pub extern "C" fn dd_window_get_display_info(refresh_out: *mut c_int, scale_out: *mut f32) {
     ffi!((), {
         let mut refresh = 0;
         let mut scale = 1.0f32;
@@ -1642,7 +1642,7 @@ pub extern "C" fn sdl_shim_get_display_info(refresh_out: *mut c_int, scale_out: 
 }
 
 #[no_mangle]
-pub extern "C" fn sdl_shim_request_quit() {
+pub extern "C" fn dd_window_request_quit() {
     ffi!((), {
         // Same contract as CloseRequested: hide immediately so the window
         // doesn't sit mapped through JS teardown (see events.rs).
@@ -1654,7 +1654,7 @@ pub extern "C" fn sdl_shim_request_quit() {
 }
 
 #[no_mangle]
-pub extern "C" fn sdl_shim_show_message_box(title: *const c_char, message: *const c_char) -> c_int {
+pub extern "C" fn dd_window_show_message_box(title: *const c_char, message: *const c_char) -> c_int {
     ffi!(-1, {
         let title = if title.is_null() {
             "Error".to_string()
@@ -1702,7 +1702,7 @@ fn shared_clipboard() -> Option<std::sync::MutexGuard<'static, arboard::Clipboar
 
 #[cfg(not(target_os = "android"))]
 #[no_mangle]
-pub extern "C" fn sdl_shim_set_clipboard(text: *const c_char) {
+pub extern "C" fn dd_window_set_clipboard(text: *const c_char) {
     ffi!((), {
         if text.is_null() {
             return;
@@ -1719,12 +1719,12 @@ pub extern "C" fn sdl_shim_set_clipboard(text: *const c_char) {
 /// Android: arboard has no Android backend; stub until JNI clipboard lands.
 #[cfg(target_os = "android")]
 #[no_mangle]
-pub extern "C" fn sdl_shim_set_clipboard(_text: *const c_char) {}
+pub extern "C" fn dd_window_set_clipboard(_text: *const c_char) {}
 
 /// Android: no arboard backend — report empty clipboard.
 #[cfg(target_os = "android")]
 #[no_mangle]
-pub extern "C" fn sdl_shim_get_clipboard(out: *mut c_char, _max_len: c_int) -> c_int {
+pub extern "C" fn dd_window_get_clipboard(out: *mut c_char, _max_len: c_int) -> c_int {
     ffi!(0, {
         if !out.is_null() {
             unsafe { *out = 0 };
@@ -1738,12 +1738,12 @@ pub extern "C" fn sdl_shim_get_clipboard(out: *mut c_char, _max_len: c_int) -> c
 /// unconditionally.
 #[cfg(not(target_os = "android"))]
 #[no_mangle]
-pub extern "C" fn sdl_shim_set_vsync_wanted(_wanted: c_int) {}
+pub extern "C" fn dd_window_set_vsync_wanted(_wanted: c_int) {}
 
 /// snprintf semantics: returns the untruncated length, copies max_len-1 + NUL.
 #[cfg(not(target_os = "android"))]
 #[no_mangle]
-pub extern "C" fn sdl_shim_get_clipboard(out: *mut c_char, max_len: c_int) -> c_int {
+pub extern "C" fn dd_window_get_clipboard(out: *mut c_char, max_len: c_int) -> c_int {
     ffi!(0, {
         if out.is_null() || max_len <= 0 {
             return 0;
@@ -1766,7 +1766,7 @@ pub extern "C" fn sdl_shim_get_clipboard(out: *mut c_char, max_len: c_int) -> c_
 // ── Lifecycle ──
 
 #[no_mangle]
-pub extern "C" fn sdl_shim_destroy_window() {
+pub extern "C" fn dd_window_destroy() {
     ffi!((), {
         events::clear();
         // Take the windows out under the lock, then hide without it — a
@@ -1794,13 +1794,13 @@ pub extern "C" fn sdl_shim_destroy_window() {
             w.set_visible(false);
         }
         // Keep the event loop alive — winit allows exactly one EventLoop
-        // per process, and SDL semantics let games destroy + recreate the
+        // per process, and the wire semantics let games destroy + recreate the
         // window.
     });
 }
 
 #[no_mangle]
-pub extern "C" fn sdl_shim_delay(ms: u32) {
+pub extern "C" fn dd_window_delay(ms: u32) {
     ffi!((), {
         std::thread::sleep(Duration::from_millis(ms as u64));
     });
@@ -1816,7 +1816,7 @@ pub extern "C" fn sdl_shim_delay(ms: u32) {
 /// LoopCmd like window creation — request, wakeup, bounded wait on reply.
 #[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
 #[no_mangle]
-pub extern "C" fn sdl_shim_create_wgpu_surface(
+pub extern "C" fn dd_window_create_wgpu_surface(
     instance: *mut c_void,
     window: c_int,
 ) -> *mut c_void {
@@ -1865,7 +1865,7 @@ pub extern "C" fn sdl_shim_create_wgpu_surface(
 
 #[cfg(any(target_os = "android", target_os = "macos"))]
 #[no_mangle]
-pub extern "C" fn sdl_shim_create_wgpu_surface(
+pub extern "C" fn dd_window_create_wgpu_surface(
     instance: *mut c_void,
     window: c_int,
 ) -> *mut c_void {

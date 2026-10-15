@@ -71,7 +71,7 @@ export const DEFAULT_PROCESS_RESTART_PATTERNS = [
   "vite-options.ts",
 ];
 
-/** Files under these paths force a host restart (Tier 4): SDL window, wgpu
+/** Files under these paths force a host restart (Tier 4): native window, wgpu
  *  binding, DOM polyfills, bridge, services, MCP — the persistent layer. */
 export const DEFAULT_HOST_RESTART_PATTERNS = [
   "packages/platform-native/src/",

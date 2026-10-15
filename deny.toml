@@ -1,0 +1,38 @@
+# cargo-deny configuration — license + advisory checks for the Rust workspace.
+# Run: cargo deny check   (CI: .github/workflows/ci.yml)
+
+[licenses]
+# The workspace ships cdylibs linked into distributable binaries — only
+# permissive + copyleft-compatible-with-dynamic-linking licenses allowed.
+allow = [
+  "MIT",
+  "MIT-0",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "Unicode-3.0",
+  "Unicode-DFS-2016",
+  "BSL-1.0",
+  "CC0-1.0",
+  "0BSD",
+  "Unlicense",
+]
+confidence-threshold = 0.8
+# CEF/WPE backend crates link LGPL-2.1 web engines dynamically — LGPL is not
+# in the allow list; those crates are opted in below if needed.
+exceptions = []
+
+[advisories]
+# Fail on known security advisories in the dependency tree.
+yanked = "deny"
+
+[bans]
+multiple-versions = "warn"
+wildcards = "warn"
+
+[sources]
+# Only crates.io + explicitly allowed git sources.
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

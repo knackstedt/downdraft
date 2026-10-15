@@ -217,7 +217,7 @@ export class RendererModuleHost {
    * whichever pending/active plugin provides it).
    * Plugins with no dependencies are activated first.
    *
-   * In DOWNDRAFT_STRICT mode, validates the full dependency graph
+   * In DOWNDRAFT_STRICT_DIAGNOSTICS mode, validates the full dependency graph
    * (provides/requires) before activating any plugin.
    */
   activateAll(): void {

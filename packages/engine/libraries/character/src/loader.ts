@@ -2,7 +2,7 @@
 // Character model loader — skinned-model loading with external texture
 // resolution, optional-accessory mesh filtering, and an animation registry.
 //
-// Extracted from andrews-sandbox's player-model-loader (which was itself
+// Extracted from a game's player-model loader (which was itself
 // ported from model-viewer's model-loader) so new games get the proven
 // texture-resolution + accessory-filtering pipeline without copying it.
 // ============================================================================

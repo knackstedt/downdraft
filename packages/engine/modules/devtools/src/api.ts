@@ -4,7 +4,7 @@
 //
 // Realm detection determines transport:
 //   - Main realm: feeds/commands registered directly on
-//     window.__sceneInspector via DevToolsDataBridge.
+//     window.__downdraftDevtools via DevToolsDataBridge.
 //   - Worker realm: feeds/commands registered in a worker-side registry.
 //     Data feeds are written to a devtools SAB region (zero-copy,
 //     synchronous reads). Commands are forwarded via worker RPC.
@@ -123,7 +123,7 @@ export interface DevToolsAPI {
   readonly realm: "main" | "worker";
 
   // --- Data feeds (read by devtools frontends, realm chooses transport) ---
-  // In main realm: fn is called directly when the panel queries __sceneInspector.
+  // In main realm: fn is called directly when the panel queries __downdraftDevtools.
   // In worker realm: fn is called each tick (or at writeRate), result JSON-serialized
   //   to the devtools SAB. Renderer reads synchronously from SAB.
   registerDataFeed(name: string, fn: () => any, writeRateHz?: number): void;

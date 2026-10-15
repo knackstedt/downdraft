@@ -57,7 +57,7 @@ The plumbing is designed for this — nothing here changes:
 4. **In-flight frame semantics.** A device loss mid-frame invalidates the
    whole frame's queue work. Consumers that publish "data is ready" markers
    (atomics, sequence numbers) must *re-publish* after reattach — the
-   overburden-style "publish after FFI calls" convention already covers
+   another-game-style "publish after FFI calls" convention already covers
    correctness, but the first post-reattach build must be a full upload, not
    an incremental one, since the new textures are empty. html-ui handles
    this today via `refreshInto` on `texBind`.

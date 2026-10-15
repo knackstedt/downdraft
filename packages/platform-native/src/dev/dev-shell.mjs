@@ -14,7 +14,7 @@
 //     Tier 4  host restart             (dd:host-restart → destroy + re-create)
 //     Tier 5  process restart          (exit DD_RESTART_EXIT → CLI respawns)
 //
-// The process boundary: the SDL window, wgpu host device, downdraft bridge,
+// The process boundary: the winit window, wgpu host device, downdraft bridge,
 // host services, and MCP server are created once by createNativeHost() and
 // survive Tier 3. Only a Tier-4/5 restart rebuilds them.
 // ============================================================================

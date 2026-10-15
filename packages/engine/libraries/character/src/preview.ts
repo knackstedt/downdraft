@@ -3,7 +3,7 @@
 // slowly-rotating preview of a character model on a dedicated canvas, using
 // its own GPUDevice + ModelRenderer. Used for character-select screens.
 //
-// Generalized from andrews-sandbox's CharacterPreview: the game injects a
+// Generalized from a game's character preview: the game injects a
 // model loader + def lookup + animator factory; the preview owns the WebGPU
 // device, orbit camera, depth buffer, and rAF loop.
 // ============================================================================

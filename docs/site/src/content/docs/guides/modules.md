@@ -9,14 +9,14 @@ DownDraft has a tiered extension system with three layers:
 2. **Engine modules** (`@downdraft/engine/modules/*`) — opt-in features with lifecycle + typed DI (devtools, camera-controls, terrain, movement, sailing, OSR, MCP, XR).
 3. **Game modules** (`@<game>/module-*`) — game-specific systems (fishing, inventory, crafting, wildlife, etc.) using the same `Module` interface.
 
-> **Note on terminology:** "module" refers to the engine's compile-time DI units (documented on this page). "plugin" refers to the user-authored runtime plugin/modding system — sandboxed extensions discovered under `<game>/plugins/` (`plugin.json`/`mod.json`), loaded by a per-thread `PluginHost` (`core/src/plugin`) in `worker-js`, `wasm`, `quickjs`, or `asset` formats behind tiered permissions. Scaffold them with `draft plugin new` / `draft mod new` (see [CLI reference](/reference/cli/)).
+> **Note on terminology:** "module" refers to the engine's compile-time DI units (documented on this page). "plugin" refers to the user-authored runtime plugin/modding system — capability-restricted extensions discovered under `<game>/plugins/` (`plugin.json`/`mod.json`), loaded by a per-thread `PluginHost` (`core/src/plugin`) in `worker-js`, `wasm`, `quickjs`, or `asset` formats behind tiered permissions (only wasm/quickjs are hard-isolated — see [Plugins](/guides/plugins/)). Scaffold them with `draft plugin new` / `draft mod new` (see [CLI reference](/reference/cli/)).
 
 ## Declarative GameModule
 
 Games declare their renderer-side bootstrap as a `GameModule` and call `startGame()`:
 
 ```typescript
-import { startGame } from "@downdraft/engine/app/renderer";
+import { startGame } from "@downdraft/engine/app/main";
 import { WaterLib } from "@downdraft/engine/libraries/water";
 import { createTerrainModule } from "@downdraft/engine/modules/terrain";
 
@@ -71,7 +71,7 @@ export const SailingModule: Module = {
 };
 ```
 
-- `ctx.provide(token, value)` — typed write; in `DOWNDRAFT_STRICT` mode throws on duplicate.
+- `ctx.provide(token, value)` — typed write; in `DOWNDRAFT_STRICT_DIAGNOSTICS` mode throws on duplicate.
 - `ctx.inject(token)` — typed read; throws if the token has no provider.
 - `ctx.injectOptional(token)` — safe read; returns `undefined` if not provided.
 - `provides`/`requires` arrays — the host validates the dependency graph at activation.
@@ -199,9 +199,9 @@ devtools.registerPanel(createDoctorPanelExtension({
 }));
 ```
 
-## DOWNDRAFT_STRICT Diagnostics
+## DOWNDRAFT_STRICT_DIAGNOSTICS Diagnostics
 
-When `DOWNDRAFT_STRICT=1` (or in Vite dev mode), the module hosts validate:
+When `DOWNDRAFT_STRICT_DIAGNOSTICS=1` (or in Vite dev mode), the module hosts validate:
 - Duplicate `provide` → hard error
 - Missing `requires` provider at activation → hard error
 - Leak detection: module provides resources / allocates SAB channels but registers no `onDispose()` → warning

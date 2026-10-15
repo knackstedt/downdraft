@@ -229,7 +229,7 @@ export interface RendererModuleContext {
   // ── Typed DI ──
   /**
    * Provide a typed resource to the renderer plugin graph. Other renderer
-   * plugins can `inject()` it by the same token. In DOWNDRAFT_STRICT mode,
+   * plugins can `inject()` it by the same token. In DOWNDRAFT_STRICT_DIAGNOSTICS mode,
    * duplicate provides of the same token throw a DiagnosticError.
    */
   provide<T>(token: ResourceToken<T>, value: T): void;

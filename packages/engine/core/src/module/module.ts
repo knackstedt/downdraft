@@ -36,7 +36,7 @@ export interface ModuleContext {
   allocateSABChannel(name: string, size: number): SABChannel;
   /**
    * Provide a typed resource to the module graph. Other modules can
-   * `inject()` it by the same token. In DOWNDRAFT_STRICT mode, duplicate
+   * `inject()` it by the same token. In DOWNDRAFT_STRICT_DIAGNOSTICS mode, duplicate
    * provides of the same token throw a DiagnosticError.
    */
   provide<T>(token: ResourceToken<T>, value: T): void;

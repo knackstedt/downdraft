@@ -1,7 +1,7 @@
-//! Event translation: winit events → flat SDL_SHIM_EVENT_* wire format.
+//! Event translation: winit events → flat DD_WINDOW_EVENT_* wire format.
 //!
-//! Queue model mirrors SDL_PollEvent: winit's pump delivers a burst of
-//! events which we enqueue translated; each sdl_shim_poll_event call pops
+//! Queue model: winit's pump delivers a burst of
+//! events which we enqueue translated; each dd_window_poll_event call pops
 //! one and writes its int/float/char slots.
 
 use super::{window_by_id, Ctx, KMOD_ALT, KMOD_CTRL, KMOD_GUI, KMOD_SHIFT};
@@ -41,7 +41,7 @@ const WINDOW_CLOSE: i32 = 19;
 const HOTKEY: i32 = 20;
 
 /// Line-detent approximation for pixel-precise scroll deltas (PixelDelta
-/// arrives from touchpads; SDL always reports line units).
+/// arrives from touchpads; the wire format always reports line units).
 const PIXELS_PER_LINE: f32 = 16.0;
 
 pub enum Ev {
@@ -108,7 +108,7 @@ pub enum Ev {
     /// Close requested on a secondary window — routed by wid, never a Quit.
     WindowClose,
     /// Global hotkey pressed — carries the grab id from
-    /// sdl_shim_hotkey_grab. Not window-scoped.
+    /// dd_hotkey_grab. Not window-scoped.
     Hotkey {
         id: i32,
     },
@@ -126,14 +126,14 @@ pub enum Ev {
 
 // Shared across threads: the winit loop runs on a non-JS thread everywhere
 // except macOS (app thread on Android, pump thread on Linux/Windows) while
-// sdl_shim_poll_event/wait_event are called from the JS thread — pushers
+// dd_window_poll_event/wait_event are called from the JS thread — pushers
 // and takers genuinely contend.
 static QUEUE: Mutex<VecDeque<Queued>> = Mutex::new(VecDeque::new());
 static NOTIFY: Condvar = Condvar::new();
 
 struct Queued {
     /// Window handle the event belongs to — 0 for the primary window, else
-    /// the handle sdl_shim_window_create returned. Stamped into event slot
+    /// the handle dd_window_secondary_create returned. Stamped into event slot
     /// 15 so JS routes multi-window traffic without a second queue.
     wid: u32,
     ev: Ev,
@@ -144,7 +144,7 @@ struct Queued {
 }
 
 // ── Pump stats ────────────────────────────────────────────────────────────
-// Cumulative counters exported via sdl_shim_pump_stats — the JS runLoop
+// Cumulative counters exported via dd_window_pump_stats — the JS runLoop
 // diffs them per stats interval. All relaxed atomic ops; a few nanoseconds
 // per event is noise next to a winit dispatch.
 
@@ -173,7 +173,7 @@ fn record_take(ev: Option<Queued>) -> Option<(u32, Ev)> {
 /// Non-resetting — callers diff snapshots; a racing push may land between
 /// reads but the counters only ever grow. Writes 0s on null.
 #[no_mangle]
-pub extern "C" fn sdl_shim_pump_stats(out: *mut i64) {
+pub extern "C" fn dd_window_pump_stats(out: *mut i64) {
     if out.is_null() {
         return;
     }
@@ -215,7 +215,7 @@ pub fn clear() {
 }
 
 /// Write one queued event into the caller's out_data buffer. Returns the
-/// SDL_SHIM_EVENT_* type code (NONE for no event). `wid` (the owning window
+/// DD_WINDOW_EVENT_* type code (NONE for no event). `wid` (the owning window
 /// handle — 0 = primary) is stamped into int slot 15 for every event type;
 /// the 64-byte JS buffer leaves it untouched/unread on old shims.
 pub fn write(wid: u32, ev: Ev, out_data: *mut c_void) -> i32 {
@@ -364,7 +364,7 @@ pub fn translate_window_event(
         WindowEvent::CloseRequested => {
             // Unmap NOW — after the quit event reaches it, JS runs seconds
             // of teardown (close listeners, surface/device release, worker
-            // stops) before sdl_shim_destroy_window drops the window. The
+            // stops) before dd_window_destroy drops the window. The
             // wgpu surface holds its own Arc<Window>, so the Arc can't be
             // dropped here — hiding reads as an instant close while the
             // process finishes terminating behind it. Secondary windows
@@ -440,7 +440,7 @@ pub fn translate_window_event(
 
         WindowEvent::KeyboardInput { event, .. } => {
             let down = event.state == ElementState::Pressed;
-            let keycode = super::keys::sdl_keycode(&event);
+            let keycode = super::keys::wire_keycode(&event);
             push(
                 wid,
                 Ev::Key {
@@ -450,7 +450,7 @@ pub fn translate_window_event(
                     repeat: if event.repeat { 1 } else { 0 },
                 },
             );
-            // SDL delivers TEXTINPUT after KEYDOWN for printable keys when
+            // wire semantics deliver TEXTINPUT after KEYDOWN for printable keys when
             // text input is active. When IME is allowed winit routes text
             // through Ime::Commit instead and event.text is None — no dupes.
             if down && ctx.input.get(&id).is_some_and(|st| st.text_input) {
@@ -494,7 +494,7 @@ pub fn translate_window_event(
 
         WindowEvent::MouseInput { state, button, .. } => {
             let st = ctx.input.entry(id).or_default();
-            let idx = sdl_button(button);
+            let idx = wire_button(button);
             if idx > 0 && idx <= 31 {
                 let bit = 1u32 << (idx - 1);
                 match state {
@@ -565,7 +565,7 @@ pub fn translate_window_event(
 }
 
 /// Raw device motion — only surfaced while the cursor is grabbed, matching
-/// SDL's relative-mouse-mode semantics (xrel/yrel only; x/y stay put).
+/// Wire relative-mouse-mode semantics (xrel/yrel only; x/y stay put).
 pub fn translate_device_event(ctx: &mut Ctx, ev: DeviceEvent) {
     if let DeviceEvent::MouseMotion { delta } = ev {
         // Relative motion belongs to whichever window owns the pointer grab
@@ -593,9 +593,9 @@ pub fn translate_device_event(ctx: &mut Ctx, ev: DeviceEvent) {
     }
 }
 
-/// winit MouseButton → SDL button number (1=left, 2=middle, 3=right,
+/// winit MouseButton → wire button number (1=left, 2=middle, 3=right,
 /// 4=X1/back, 5=X2/forward).
-fn sdl_button(b: MouseButton) -> i32 {
+fn wire_button(b: MouseButton) -> i32 {
     match b {
         MouseButton::Left => 1,
         MouseButton::Middle => 2,

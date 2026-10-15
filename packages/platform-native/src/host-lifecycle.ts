@@ -3,7 +3,7 @@
 //
 //   - single-instance lock (per-appId singleton.lock in userData)
 //   - window-state persistence (size/position restored across runs)
-//   - error dialogs (SDL_ShowSimpleMessageBox + stderr/clipboard mirror)
+//   - error dialogs (native message box + stderr/clipboard mirror)
 //
 // Wired into createNativeHost when appId is set; deterministic/test mode and
 // DOWNDRAFT_MULTI_INSTANCE=1 opt out of the single-instance lock so e2e and
@@ -66,18 +66,18 @@ function saveWindowState(appId: string, window: NativeWindow): void {
 export function installWindowStatePersistence(appId: string, window: NativeWindow): void {
   const saved = loadWindowState(appId);
   if (saved) {
-    // Stale local shim builds may predate sdl_shim_set_window_size.
+    // Stale local shim builds may predate dd_window_set_size.
     try {
       window.setWindowSize(saved.width, saved.height);
     } catch { /* best-effort */ }
 
     // Position restore must wait until the WM has framed the window: an
-    // SDL_SetWindowPosition issued earlier is taken as the *frame* origin
-    // on X11 (an initial-geometry hint), while SDL_GetWindowPosition always
+    // Set-window-pos issued earlier is taken as the *frame* origin
+    // on X11 (an initial-geometry hint), while the reported window pos always
     // reports the *client-area* origin — restoring immediately shifts the
     // window down by the titlebar height on every launch. Once the frame
     // exists, set/get share client-area coordinates and the restore lands
-    // exactly. SDL_GetWindowBordersSize reads _NET_FRAME_EXTENTS and only
+    // exactly. The border query reads _NET_FRAME_EXTENTS and only
     // reports nonzero borders post-framing, so poll it as the "framed"
     // signal; the fallback timer covers WMs that never report extents
     // (Wayland, borderless setups — where the restore is a no-op or the
@@ -111,7 +111,7 @@ export function installWindowStatePersistence(appId: string, window: NativeWindo
 }
 
 // ── Error dialogs ────────────────────────────────────────────────────────────
-// SDL_ShowSimpleMessageBox is modal + blocking, but its X11 fallback renders
+// The native message box is modal + blocking, but its X11 fallback renders
 // unselectable text in a barebones window. So the full error is mirrored to
 // stderr, the clipboard, and <userData>/crash.log before the dialog opens,
 // and on Linux a zenity/kdialog text view (selectable, scrollable) is
@@ -173,7 +173,7 @@ function systemSection(logs: CrashFeatureLogs, window: NativeWindow): string | n
     const { width, height } = window.getWindowSize();
     const disp = window.getDisplayInfo();
     rows.push(["display", `${width}x${height} @${disp.refreshRate}Hz · ×${disp.scaleFactor}`]);
-  } catch { /* SDL already torn down */ }
+  } catch { /* native window already torn down */ }
   if (r?.sab !== undefined) rows.push(["sab", r.sab === 1 ? "yes" : "no"]);
   if (r?.plug) rows.push(["plugins", r.plug]);
 
@@ -214,10 +214,10 @@ function isEpipeError(err: unknown): boolean {
 
 /** Modal fatal-error dialog. On Linux, prefer zenity/kdialog showing the crash
  *  log in a selectable text view (both are Linux-only but always preinstalled
- *  on GTK/KDE desktops — nothing is bundled). Elsewhere SDL's message box is
+ *  on GTK/KDE desktops — nothing is bundled). Elsewhere the native message box is
  *  already the native TaskDialog (Windows) / NSAlert (macOS); those just lack
  *  selectable text, so the crash log is also opened in the OS's built-in text
- *  viewer (notepad / TextEdit). SDL's barebones X11 box is the last resort. */
+ *  viewer (notepad / TextEdit). the barebones native X11 box is the last resort. */
 function showFatalDialog(window: NativeWindow, title: string, message: string, logPath: string | null): void {
   if (process.platform === "linux" && logPath) {
     const attempts: [string, string[]][] = [
@@ -245,12 +245,12 @@ function showFatalDialog(window: NativeWindow, title: string, message: string, l
     if (viewer) {
       try {
         const child = spawn(viewer[0], viewer[1], { detached: true, stdio: "ignore" });
-        child.on("error", () => { /* viewer missing — the SDL box still shows */ });
+        child.on("error", () => { /* viewer missing — the native box still shows */ });
         child.unref();
       } catch { /* best-effort */ }
     }
   }
-  try { window.showMessageBox(title, message); } catch { /* SDL gone */ }
+  try { window.showMessageBox(title, message); } catch { /* native window gone */ }
 }
 
 /** uncaughtException/unhandledRejection → fatal report + modal dialog, then exit.
@@ -278,7 +278,7 @@ export function installNativeErrorHandlers(window: NativeWindow, appId?: string)
     const report = sections.length > 0 ? `${detail}\n\n${sections.join("\n\n")}` : detail;
 
     // stderr first — `draft dev` pipes it to the terminal, so the error is
-    // never trapped inside the unselectable SDL box.
+    // never trapped inside the unselectable native box.
     log.fatal("native-error-handlers", `\n${title}:\n${report}\n`);
 
     let logPath: string | null = null;
@@ -296,7 +296,7 @@ export function installNativeErrorHandlers(window: NativeWindow, appId?: string)
     if (copied) notes.push("copied to the clipboard");
     if (logPath) notes.push(`written to ${logPath}`);
     // Cap the raw error so the feature-log/environment tail still fits in the
-    // SDL fallback; zenity/kdialog show the untruncated crash.log instead.
+    // native fallback; zenity/kdialog show the untruncated crash.log instead.
     const cappedDetail = detail.length > 3000 ? `${detail.slice(0, 3000)}\n…(truncated)` : detail;
     const message = `${cappedDetail}\n\n${sections.join("\n\n")}`.slice(0, 4000)
       + `\n\n(Full error ${notes.join(", ")}.)`;

@@ -54,7 +54,7 @@ declare const __DD_MCP_STRIP__: boolean | undefined;
 
 export interface NativeHostConfig {
   window: NativeWindowConfig;
-  /** Per-game application identifier (e.g. "to-the-ocean"). When set, the
+  /** Per-game application identifier (e.g. "my-game"). When set, the
    *  host installs `globalThis.downdraft` — the HostAPI impl that
    *  makes `startGame()`, saves, MCP, and the standard automation tools work
    *  with zero per-game wiring. Omit only for bespoke debug harnesses. */
@@ -193,7 +193,7 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
 
   // Export the userData dir so worker threads (env is inherited under Bun)
   // can reach persistence fallbacks — e.g. BinaryRecordStore's node:fs
-  // OPFS replacement. An inherited override (test isolation) wins.
+  // Save/userData root override. An inherited override (test isolation) wins.
   if (config.appId && !process.env.DOWNDRAFT_USER_DATA) {
     process.env.DOWNDRAFT_USER_DATA = resolveNativeUserDataDir(config.appId);
   }
@@ -336,14 +336,14 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   }
   mark("splash");
 
-  // 6b. Click synthesis lives in NativeWindow.dispatchInputEvent (SDL_EVENT_
+  // 6b. Click synthesis lives in NativeWindow.dispatchInputEvent (DD_EVENT_
   // MOUSEBUTTONUP → click/dblclick with proper click counting). Do NOT
   // synthesize or forward pointer events here — dispatchInputEvent already
   // delivers them to the surface, and a second synthesis double-fires
   // `click` on surface listeners.
 
   // 6c. Install the `downdraft` bridge — the single-process HostAPI
-  // implementation. The lazy accessor in app/renderer picks it up whenever
+  // implementation. The lazy accessor in app/main picks it up whenever
   // `startGame()` (or game code) first touches `downdraft.*`.
   // Services worker owns FileSaveStore + the SQLite import cache so save
   // serialization and sync sqlite calls stay off the frame thread. Same
@@ -384,8 +384,8 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
     : null;
   if (bridge) {
     (globalThis as any).downdraft = bridge;
-    // Game code reads `window.downdraft` too (e.g. renderer factories that
-    // check `window.downdraft?.deterministic`) — mirror it on the polyfill.
+    // Game code reads `globalThis.downdraft` too (e.g. renderer factories that
+    // check `globalThis.downdraft?.deterministic`) — mirror it on the polyfill.
     const win = (globalThis as any).window;
     if (win) win.downdraft = bridge;
   }

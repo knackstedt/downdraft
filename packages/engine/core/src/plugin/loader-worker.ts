@@ -1,5 +1,11 @@
 // ============================================================================
-// WorkerPluginLoader — loads `worker-js` format plugins in a sandboxed Web Worker.
+// WorkerPluginLoader — loads `worker-js` format plugins in a dedicated worker.
+//
+// NOTE: this is not a hard sandbox. The worker strips non-allowlisted
+// globals (sandbox-shim), but plugin code runs with the full JS runtime —
+// a determined plugin can still reach fs/FFI/network via module imports.
+// Trust boundary: treat worker-js plugins as trusted-or-inert; only
+// quickjs/wasm plugins are isolated by a separate runtime.
 //
 // For `thread: "own-worker"` plugins, this loader spawns a dedicated
 // `sandbox-worker.ts` per plugin, sends the init message (entry URL + granted

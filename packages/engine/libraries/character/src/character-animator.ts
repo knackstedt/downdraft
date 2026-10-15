@@ -1,7 +1,7 @@
 // ============================================================================
 // CharacterAnimator — model skin data → final skin matrices for ModelRenderer
 //
-// Generalized from andrews-sandbox's PlayerAnimator (which mirrored
+// Generalized from a game's PlayerAnimator (which mirrored
 // model-viewer's ModelAnimator): runs a SkeletonAnimator (state machine +
 // procedural idle + foot IK), feeds its local bone transforms into
 // Skeleton.computeSkinMatrices, and conjugates by the model's normalization

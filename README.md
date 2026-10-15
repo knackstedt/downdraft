@@ -60,7 +60,7 @@ await runNativeGameModule(gameModule, {
 });
 ```
 
-For local development against a game repo cloned under `games/` (e.g. sandjongg), see [`development.md`](./development.md).
+For local development against a game repo cloned under `games/` (e.g. my-game), see [`development.md`](./development.md).
 
 ## Documentation
 
@@ -79,6 +79,10 @@ For local development against a game repo cloned under `games/` (e.g. sandjongg)
 
 For the deep engine-internals reference (module contracts, SAB protocols, dev/test harness details), see [`AGENTS.md`](./AGENTS.md).
 
+## Contributing
+
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for setup, testing, and conventions; [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md) for community expectations; [`SECURITY.md`](./SECURITY.md) to report vulnerabilities privately.
+
 ## License
 
-MIT
+MIT — see [`LICENSE`](./LICENSE). Third-party license notices ship in [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md).

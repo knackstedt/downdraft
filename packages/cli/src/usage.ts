@@ -26,7 +26,6 @@ export interface CommandEntry {
 // ---------------------------------------------------------------------------
 
 const DESKTOP_TARGETS = ["win", "linux", "mac", "all"] as const;
-const BUILD_TARGETS = ["current", "win", "linux", "mac"] as const;
 const RELEASE_TARGETS = ["win", "linux", "mac", "android", "all"] as const;
 const RELEASE_STAGES = ["build", "package", "release"] as const;
 const RENDERER_TARGETS = ["gpu", "cpu"] as const;
@@ -44,7 +43,7 @@ export const COMMANDS: CommandEntry[] = [
     schema: {
       flags: [
         { name: "game", alias: "g", type: "string", description: "Game to release (games/<game>). For multiple games, use --games. If omitted, infers from the current directory, or defaults to the only game in games/." },
-        { name: "games", type: "string", description: "Comma-separated game names (e.g. sandjongg,to-the-ocean)" },
+        { name: "games", type: "string", description: "Comma-separated game names (e.g. game-a,game-b)" },
         { name: "target", alias: "t", type: "string", default: "all", enum: [...RELEASE_TARGETS], description: "Target platform(s): win, linux, mac, android, or all (android can't mix with desktop targets)" },
         { name: "format", type: "string", description: "Package format(s), comma-separated: dir, deb, appimage, flatpak, rpm (linux only; default: build.linux.target in package.json, else dir)" },
         { name: "runtime", type: "string", enum: ["bun", "node", "deno", "all"], description: "JS runtime embedded in the package: bun (compiled binary), node, deno, or all (default: build.runtime in package.json, \"runtime\" in downdraft.config.json, else bun). node/deno are linux-only today" },
@@ -113,63 +112,6 @@ export const COMMANDS: CommandEntry[] = [
         { name: "verbose", alias: "v", type: "boolean", description: "Verbose logging" },
         { name: "no-devtools", type: "boolean", description: "Disable the devtools overlay (sets DOWNDRAFT_DISABLE_DEVTOOLS=1)" },
         { name: "inspector", type: "boolean", description: "Enable the Node inspector (chrome://inspect)" },
-      ],
-    },
-  },
-  {
-    name: "build",
-    usage: "draft build [path] [options]",
-    summary: "Build a game for a target platform",
-    schema: {
-      positionals: [{ name: "path", description: "Project path (default: current dir)" }],
-      flags: [
-        { name: "game", alias: "g", type: "string", description: "Game to build (resolves games/<game>; overrides path)" },
-        { name: "target", type: "string", default: "current", enum: [...BUILD_TARGETS], description: "Target platform" },
-        { name: "mode", type: "string", default: "prod", enum: [...BUILD_MODES], description: "Build mode" },
-        { name: "out", type: "string", default: "dist", description: "Output directory" },
-        { name: "no-minify", type: "boolean", description: "Disable minification" },
-        { name: "sourcemap", type: "boolean", description: "Generate source maps (on by default in non-prod modes)" },
-        { name: "verbose", alias: "v", type: "boolean", description: "Verbose logging" },
-      ],
-    },
-  },
-  {
-    name: "build-games",
-    usage: "draft build-games --games=<csv> --platforms=<csv>",
-    summary: "Deprecated alias for `draft release --games=<csv>` (VSCode task)",
-    schema: {
-      flags: [
-        { name: "games", type: "string", required: true, description: "Comma-separated game directory names (e.g. sandjongg)" },
-        { name: "platforms", type: "string", required: true, description: "Comma-separated desktop targets (win | linux | mac; legacy :format suffixes are ignored)" },
-        { name: "verbose", alias: "v", type: "boolean", description: "Verbose logging" },
-      ],
-    },
-  },
-  {
-    name: "dist",
-    usage: "draft dist [options]",
-    summary: "Package a game for distribution (deprecated alias for `draft release`)",
-    schema: {
-      flags: [
-        { name: "game", alias: "g", type: "string", required: true, description: "Game to package (games/<game>)" },
-        { name: "target", alias: "t", type: "string", default: "all", enum: [...DESKTOP_TARGETS], description: "Target platform" },
-        { name: "config", alias: "c", type: "string", description: "Explicit path to a build.config.ts / config file" },
-        { name: "project-dir", type: "string", description: "Override the project directory (default: repo root)" },
-        { name: "verbose", alias: "v", type: "boolean", description: "Verbose logging" },
-      ],
-    },
-  },
-  {
-    name: "export",
-    usage: "draft export [path] [options]",
-    summary: "Package a built game for distribution (per-platform launchers)",
-    schema: {
-      positionals: [{ name: "path", description: "Project path (default: current dir)" }],
-      flags: [
-        { name: "target", type: "string", default: "all", enum: [...DESKTOP_TARGETS], description: "Target platform" },
-        { name: "out", type: "string", default: "export", description: "Output directory" },
-        { name: "no-compress", type: "boolean", description: "Disable compression" },
-        { name: "verbose", alias: "v", type: "boolean", description: "Verbose logging" },
       ],
     },
   },

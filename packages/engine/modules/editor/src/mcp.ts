@@ -12,7 +12,7 @@
 // or standalone: the tools are plain McpToolRegistration objects.
 // ============================================================================
 
-import { errorResult, jsonResult, type McpToolRegistration } from "@downdraft/engine/app/renderer";
+import { errorResult, jsonResult, type McpToolRegistration } from "@downdraft/engine/app/main";
 
 import type { EditorContext } from "./editor-context";
 
@@ -90,7 +90,7 @@ export function createEditorMcpTools(editor: EditorContext): McpToolRegistration
 
 /** Reach the live editor context from a game's `mcp:` hook — the module
  *  stashes itself on `globalThis.__downdraftEditor` (parity with the
- *  devtools `window.__sceneInspector` convention). */
+ *  devtools `window.__downdraftDevtools` convention). */
 export function getEditorContext(): EditorContext | null {
   return (globalThis as Record<string, unknown>).__downdraftEditor as EditorContext | null ?? null;
 }

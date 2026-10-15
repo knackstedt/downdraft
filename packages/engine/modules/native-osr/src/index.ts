@@ -1,7 +1,7 @@
 // ============================================================================
 // Native OSR Module — Blitz-backed offscreen HTML/CSS panels
 // ============================================================================
-// Renderer-side machinery for the native (Bun/SDL/wgpu) runtime. The host
+// Renderer-side machinery for the native (Bun/winit/wgpu) runtime. The host
 // side lives in `@downdraft/platform-native` (NativeOsrHost owns one Blitz
 // document per renderer/panel behind the `downdraft.osr` bridge); this module
 // owns the GPU texture sink, world-space compositing pass, and input router.

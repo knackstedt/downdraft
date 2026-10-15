@@ -22,7 +22,7 @@ export interface McpModuleOptions extends EngineContextFromGameOptions {
   /** HTTP port for transport:"http" (0 = ephemeral, the default).
    *  MCP_EDITOR_PORT env overrides when `port` is unset. */
   port?: number;
-  /** Require the bearer token on HTTP requests (default: MCP_AUTH=1 env). */
+  /** Require the bearer token on HTTP requests (default on; MCP_AUTH=0 opts out). */
   requireAuth?: boolean;
   /** Root dir for GET /mcp/artifact/<path> downloads (transport:"http"). */
   artifactDir?: string;

@@ -7,7 +7,7 @@
 //! the V8 bridge:
 //!
 //!   on_context_created → install `window.__ddSend` (a CefV8Handler) and
-//!     eval the window.downdraft shim (bridge::SHIM_JS).
+//!     eval the globalThis.downdraft shim (bridge::SHIM_JS).
 //!   on_process_message_received:
 //!     "dd:eval" [req, code] → V8Context::eval → JSON.stringify the result
 //!       → "dd:eval:res" [req, ok, json] back to the browser process.
@@ -150,7 +150,7 @@ wrap_render_process_handler! {
     struct DdRenderProcess {}
 
     impl RenderProcessHandler {
-        // Per-context: install __ddSend + the window.downdraft shim.
+        // Per-context: install __ddSend + the globalThis.downdraft shim.
         fn on_context_created(
             &self,
             _browser: Option<&mut Browser>,

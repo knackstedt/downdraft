@@ -1,7 +1,7 @@
 // ============================================================================
-// Mock OPFS — in-memory implementation of the OPFS FileSystemDirectoryHandle
-// / FileSystemFileHandle interfaces for testing OpfsSaveStore without a real
-// browser/worker environment.
+// Mock FS handles — in-memory implementation of the FileSystemDirectoryHandle
+// / FileSystemFileHandle interfaces for testing DirectorySaveStore without a
+// real filesystem environment.
 // ============================================================================
 
 interface MockFile {
@@ -133,8 +133,8 @@ class MockDirHandle {
   }
 }
 
-/** Create a fresh mock OPFS root directory for testing. */
-export function createMockOpfsRoot(): MockDirHandle {
+/** Create a fresh mock root directory for testing. */
+export function createMockDirRoot(): MockDirHandle {
   return new MockDirHandle("root");
 }
 

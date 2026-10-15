@@ -75,3 +75,55 @@ jobs:
         # downdraft-source: @downdraft/* resolves to src/ — dist/ is absent
         # in a fresh checkout (it only exists after a publish-time build).
         run: bun test --conditions=downdraft-source examples/plugin-tester/src/*.spec.ts
+
+  cross-platform-smoke:
+    name: Cross-Platform Smoke (win/mac)
+    # Native cdylib builds for win/mac/linux run in native.yml on tags; this
+    # job covers the pure-TypeScript surface (arg parsing, MCP transport,
+    # filesystem-backed persistence) on the other OSes on every PR.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.4.0"
+      - name: Install dependencies
+        run: bun ci
+      - name: Run smoke specs
+        run: >
+          bun test --isolate --conditions=downdraft-source
+          packages/cli/src/args.spec.ts
+          packages/engine/mcp/src/http-transport.spec.ts
+          packages/engine/libraries/persistence/src/file-save-store.spec.ts
+          packages/engine/libraries/persistence/src/binary-record-store.spec.ts
+          packages/engine/libraries/persistence/src/directory-save-store.spec.ts
+
+  cargo-deny:
+    name: cargo-deny (licenses + advisories)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: EmbarkStudios/cargo-deny-action@3b552544a7649e6cc787d988da1b830c0f63f56d # v2
+        with:
+          command: check licenses advisories
+
+  npm-licenses:
+    name: npm license check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.4.0"
+      - name: Install dependencies
+        run: bun ci
+      - name: Audit licenses
+        # Hard-fail on copyleft licenses — compiled binaries embed these
+        # packages. Runs without --production because the root manifest is a
+        # workspace: per-package production deps are devDeps of the root and
+        # would otherwise go unaudited.
+        run: bunx license-checker --failOn "GPL;LGPL;AGPL;SSPL;CPAL;OSL"

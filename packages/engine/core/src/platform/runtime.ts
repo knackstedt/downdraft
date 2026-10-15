@@ -78,8 +78,6 @@ export interface HostCapabilities {
    *  elementFromPoint. False on native (the DOM there is a polyfill for
    *  canvas-shaped APIs, not a compositor). */
   readonly hasDom: boolean;
-  /** OPFS persistence is reachable (navigator.storage.getDirectory). */
-  readonly hasOpfs: boolean;
   /** The host can expose its wgpu device to multiple worker threads.
    *  True on native: wgpu handles are process-global and workers attach a
    *  non-owning view via shareDevice/attachSharedDevice. Intended for
@@ -90,14 +88,12 @@ export interface HostCapabilities {
 export const NATIVE_HOST_CAPABILITIES: HostCapabilities = {
   runtime: "native",
   hasDom: false,
-  hasOpfs: false,
   supportsMultiWorkerGpu: true,
 };
 
 const DOM_HOST_CAPABILITIES: HostCapabilities = {
   runtime: "browser",
   hasDom: true,
-  hasOpfs: true,
   supportsMultiWorkerGpu: false,
 };
 

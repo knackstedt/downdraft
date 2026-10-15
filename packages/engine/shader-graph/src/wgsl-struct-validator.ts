@@ -5,7 +5,7 @@
 // For external .wgsl files (imported via ?raw) where we don't want to split the
 // struct out of the shader file, this parser extracts `struct Foo { ... }`
 // blocks from a WGSL source string, computes the layout, and compares it
-// against a WgslStruct definition. In DOWNDRAFT_STRICT mode a mismatch throws;
+// against a WgslStruct definition. In DOWNDRAFT_STRICT_DIAGNOSTICS mode a mismatch throws;
 // otherwise it logs a warning.
 //
 // Comments (line `//...` and block `slash-star ... star-slash`) are stripped.
@@ -212,7 +212,7 @@ export function compareStruct(
 
 /**
  * Assert that a WgslStruct definition matches the corresponding struct in a
- * WGSL source string. In DOWNDRAFT_STRICT mode (env var = "1"), throws on
+ * WGSL source string. In DOWNDRAFT_STRICT_DIAGNOSTICS mode (env var = "1"), throws on
  * mismatch. Otherwise logs a warning.
  *
  * @param wgslSource Raw WGSL source (e.g. imported via `?raw`).
@@ -239,7 +239,7 @@ export function assertWgslStructMatches(wgslSource: string, def: WgslStruct): vo
 
 function isStrict(): boolean {
   return (
-    process?.env?.DOWNDRAFT_STRICT === "1" ||
+    process?.env?.DOWNDRAFT_STRICT_DIAGNOSTICS === "1" ||
     (typeof import.meta !== "undefined" && (import.meta as any).env?.DEV)
   );
 }

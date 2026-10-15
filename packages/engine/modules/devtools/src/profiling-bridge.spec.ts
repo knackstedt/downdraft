@@ -3,14 +3,12 @@ import { BUILTIN_VIEW_DESCRIPTORS, type DebugViewDescriptor } from "./debug-view
 import { ProfilingBridge } from "./profiling-bridge";
 
 describe("Debug view descriptors", () => {
-  it("has 10 built-in views", () => {
-    expect(BUILTIN_VIEW_DESCRIPTORS.length).toBe(10);
+  it("has 8 built-in views", () => {
+    expect(BUILTIN_VIEW_DESCRIPTORS.length).toBe(8);
     const kinds = BUILTIN_VIEW_DESCRIPTORS.map((v) => v.kind);
     expect(kinds).toContain("memory");
     expect(kinds).toContain("cpu");
     expect(kinds).toContain("task-latency");
-    expect(kinds).toContain("iops-opfs");
-    expect(kinds).toContain("iops-idb");
     expect(kinds).toContain("event-loop");
     expect(kinds).toContain("gc-heap");
     expect(kinds).toContain("flame-graph");
@@ -24,9 +22,9 @@ describe("DevToolsAPI view registration", () => {
     _devtoolsImpl.clear();
   });
 
-  it("getViews returns the 10 built-in views by default", () => {
+  it("getViews returns the 8 built-in views by default", () => {
     const views = devtools.getViews();
-    expect(views.length).toBe(10);
+    expect(views.length).toBe(8);
   });
 
   it("registerView adds a custom view", () => {
@@ -38,7 +36,7 @@ describe("DevToolsAPI view registration", () => {
     };
     devtools.registerView(customView);
     const views = devtools.getViews();
-    expect(views.length).toBe(11);
+    expect(views.length).toBe(9);
     expect(views.find((v) => v.id === "custom:foo")).toBeDefined();
   });
 
@@ -48,8 +46,8 @@ describe("DevToolsAPI view registration", () => {
     const memView = views.find((v) => v.id === "memory");
     expect(memView).toBeDefined();
     expect(memView!.label).toBe("Custom Memory");
-    // Still 10 views (overrode, not added)
-    expect(views.length).toBe(10);
+    // Still 8 views (overrode, not added)
+    expect(views.length).toBe(8);
   });
 
   it("views are sorted by order", () => {
@@ -88,11 +86,11 @@ describe("ProfilingBridge", () => {
     bridge.dispose();
   });
 
-  it("registers the 10 built-in view descriptors", () => {
+  it("registers the 8 built-in view descriptors", () => {
     _devtoolsImpl.clear();
     const bridge = new ProfilingBridge();
     const views = devtools.getViews();
-    expect(views.length).toBe(10);
+    expect(views.length).toBe(8);
     bridge.dispose();
   });
 

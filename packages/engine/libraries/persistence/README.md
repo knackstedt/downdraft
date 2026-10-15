@@ -1,6 +1,6 @@
 # `@downdraft/engine/libraries/persistence`
 
-Save system — save stores (file, IndexedDB, OPFS), autosave manager, and serialization for game state.
+Save system — save stores (file, directory-handle), autosave manager, and serialization for game state.
 
 ## Install
 
@@ -12,10 +12,9 @@ bun add @downdraft/engine/libraries/persistence
 
 - `AutosaveManager`
 - `FileSaveStore`
+- `DirectorySaveStore`
 - `HEADER_SIZE`
-- `IndexedDBSaveStore`
 - `MigrationRegistryImpl`
-- `OpfsSaveStore`
 - `PersistenceLib`
 - `PersistenceTok`
 - `SAVE_FORMAT_VERSION`

@@ -194,7 +194,7 @@ export interface CreateSimWorkerOptions {
   /**
    * If true, the worker starts in paused mode. The renderer must call
    * resume() to begin simulation. Useful when save data must be loaded
-   * before the sim starts (e.g. mining-rpg). Default: false.
+   * before the sim starts (an entity game may want its own onInit to own sim start). Default: false.
    */
   startPaused?: boolean;
 
@@ -346,10 +346,11 @@ export interface CreateSimWorkerOptions {
     /** Schema version stamped on the component section. Default: 1. */
     version?: number;
     /**
-     * Factory for an inline save store (e.g. `(o) => new OpfsSaveStore(o)`).
-     * Injectable because OpfsSaveStore lives in libraries/persistence —
-     * core must not import it. When omitted, save() still returns the
-     * stateJson for the caller's own store path.
+     * Factory for a worker-owned save store (e.g.
+     * `(o) => new DirectorySaveStore(o)`). Injectable because
+     * DirectorySaveStore lives in libraries/persistence — core must not
+     * import it. When omitted, save() still returns the stateJson for the
+     * caller's own store path.
      */
     createStore?: (opts: unknown) => ISaveStore & { init?: () => Promise<void> };
     /**
@@ -421,7 +422,7 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
   let syncSlowCounter = 0;
   const syncSlowInterval = opts.onSyncSlowInterval ?? 10;
 
-  // Inline save store (created by initSaveStore() via opts.save.createStore).
+  // Worker-owned save store (created by initSaveStore() via opts.save.createStore).
   let saveStore: (ISaveStore & { init?: () => Promise<void> }) | null = null;
 
   // Optional GC controller — offered post-tick headroom each frame.

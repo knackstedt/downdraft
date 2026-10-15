@@ -1,7 +1,7 @@
 // ============================================================================
 // installSimHotReload / restoreHotReloadState — shared dev-mode HMR wiring.
 //
-// Generalized from to-the-ocean's main.tsx. The vite plugin emits
+// Generalized from a game's renderer entrypoint. The vite plugin emits
 // "sim:hot-reload" / "renderer:hot-reload" custom events when watched sim or
 // renderer files change. These helpers own the standard response:
 //
@@ -35,7 +35,7 @@ export interface SimHotReloadDeps {
   renderer?: IRendererStateProvider | null;
   /** Config passed to sim.hotReload(). May be a getter evaluated per reload. */
   simConfig: unknown | (() => unknown);
-  /** App bridge — defaults to the window.downdraft singleton (or its stub). */
+  /** App bridge — defaults to the globalThis.downdraft singleton (or its stub). */
   downdraft?: Host | null;
 }
 

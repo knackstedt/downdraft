@@ -134,7 +134,7 @@
       "label": "Build: Game(s)",
       "detail": "Pick game(s) + target platform(s), then build + package each (native compile via draft release)",
       "type": "shell",
-      "command": "bun run packages/cli/src/index.ts build-games --games=\"${input:game}\" --platforms=\"${input:platforms}\"",
+      "command": "bun run packages/cli/src/index.ts release --games=\"${input:game}\" --target=\"${input:platforms}\"",
       "options": {
         "cwd": "${workspaceFolder}"
       },

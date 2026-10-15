@@ -1,10 +1,12 @@
 // ============================================================================
-// BinaryRecordStore — versioned keyed binary records over OPFS.
+// BinaryRecordStore — versioned keyed binary records over a directory handle.
 //
 // For incremental persistence that doesn't fit whole-state ISaveStore
 // snapshots (e.g. voxel chunk worlds where only dirty regions are written).
 // Callers work with `Map<string, Uint8Array>` — the store owns the file
-// layout, the OPFS handle, and version validation.
+// layout, the directory handle, and version validation. The handle is OPFS
+// in browsers and a node-fs-backed handle (see node-fs-directory-handle)
+// on native.
 //
 // File layout (all integers little-endian):
 //   [u32 magic] [u32 version] [u32 recordCount]
@@ -25,11 +27,11 @@ export interface BinaryRecordStoreOptions {
   magic: number;
   /** Current format version. */
   version: number;
-  /** Directory path segments under the OPFS root. Default: root. */
+  /** Directory path segments under the root handle. Default: root. */
   directory?: string[];
   /**
-   * Root directory handle — defaults to `navigator.storage.getDirectory()`.
-   * Injectable for tests and non-OPFS backends.
+   * Root directory handle — defaults to `navigator.storage.getDirectory()`,
+   * or $DOWNDRAFT_USER_DATA via a node-fs handle on native.
    */
   root?: FileSystemDirectoryHandle;
   /**
@@ -48,7 +50,7 @@ export interface BinaryRecordStoreOptions {
 export interface IBinaryRecordStore {
   /**
    * Read all records. Empty map when the file is absent, the magic doesn't
-   * match, the version is rejected, or OPFS is unavailable.
+   * match, the version is rejected, or no directory backend is available.
    */
   readAll(): Promise<Map<string, Uint8Array>>;
   /**
@@ -82,8 +84,9 @@ export class BinaryRecordStore implements IBinaryRecordStore {
     if (typeof navigator !== "undefined" && navigator.storage?.getDirectory) {
       return navigator.storage.getDirectory();
     }
-    // Native (Bun, incl. sim workers): no OPFS — fall back to a node:fs
-    // handle rooted at the game's userData dir when the host exports it.
+    // Native (Bun/Node/Deno, incl. sim workers): no OPFS — fall back to a
+    // node:fs handle rooted at the game's userData dir when the host
+    // exports it.
     const base = typeof process !== "undefined" ? process.env.DOWNDRAFT_USER_DATA : undefined;
     if (!base) return null;
     return (this.nodeRoot ??= import("./node-fs-directory-handle").then((m) =>

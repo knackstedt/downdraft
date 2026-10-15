@@ -8,6 +8,7 @@
 
 import { createLogger } from "@downdraft/engine/util/logger";
 import { existsSync } from "node:fs";
+import { assertPlatformAbi } from "../ffi/abi";
 import { dlopen, ptr, type CFunction } from "../ffi/ffi-adapter";
 import { findShimLibrary, resolvePlatformLibrary } from "../ffi/lib-paths";
 
@@ -48,7 +49,7 @@ function ensureFreeTypeInit(): void {
     // Explicit FONT_SHIM_PATH override → unified Rust platform lib.
     const libPath = process.env.FONT_SHIM_PATH
       ? findShimLibrary("font_shim", "FONT_SHIM_PATH")
-      : resolvePlatformLibrary(true);
+      : (() => { const p = resolvePlatformLibrary(true); if (p) assertPlatformAbi(p); return p; })();
     if (!libPath) { log.warn("platform-native", "platform library not found — using bitmap font fallback"); return; }
     ftSymbols = dlopen(libPath, {
       ft_shim_init: { args: ["cstring"], returns: "i64" } as CFunction,

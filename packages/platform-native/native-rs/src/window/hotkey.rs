@@ -208,7 +208,7 @@ static LIVE: Mutex<Vec<i32>> = Mutex::new(Vec::new());
 /// (no X connection, keycode unresolvable, grab conflict). The id arrives
 /// in Ev::Hotkey events on the shared queue.
 #[no_mangle]
-pub extern "C" fn sdl_shim_hotkey_grab(mods: u32, keysym: u32) -> i32 {
+pub extern "C" fn dd_hotkey_grab(mods: u32, keysym: u32) -> i32 {
     #[cfg(target_os = "linux")]
     {
         let Some(mgr) = manager() else { return -1 };
@@ -228,7 +228,7 @@ pub extern "C" fn sdl_shim_hotkey_grab(mods: u32, keysym: u32) -> i32 {
 
 /// Release a grabbed hotkey id. No-op for unknown ids.
 #[no_mangle]
-pub extern "C" fn sdl_shim_hotkey_ungrab(id: i32) -> i32 {
+pub extern "C" fn dd_hotkey_ungrab(id: i32) -> i32 {
     #[cfg(target_os = "linux")]
     {
         let mut live = LIVE.lock().unwrap();

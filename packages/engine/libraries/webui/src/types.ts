@@ -39,7 +39,7 @@ export type WebUiViewStatus = "running" | "crashed" | "recovering" | "failed";
 
 /** Events drained from a view's native event queue (dd_webui_poll_events). */
 export type WebUiEvent =
-  /** Page → host message (window.downdraft.postMessage → CefProcessMessage
+  /** Page → host message (globalThis.downdraft.postMessage → CefProcessMessage
    *  or WebKit script-message). `v` is the JSON-decoded payload. */
   | { t: "message"; v: unknown }
   /** Result of an eval() request — id matches the request token. `ok`=1 and
@@ -104,7 +104,7 @@ export interface WebUiHostBridge {
   /** Evaluate JS in the page's main world; resolves with the JSON-decoded
    *  result (rejects with the engine's error message). */
   eval(id: string, js: string): Promise<unknown>;
-  /** Deliver a JSON-serializable payload to the page's window.downdraft
+  /** Deliver a JSON-serializable payload to the page's globalThis.downdraft
    *  message handler. */
   postMessage(id: string, payload: unknown): void;
   onMessage(id: string, cb: (payload: unknown) => void): () => void;

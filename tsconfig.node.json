@@ -17,9 +17,6 @@
     "emitDeclarationOnly": true,
     "outDir": "dist",
     "paths": {
-      "xxh3-ts": [
-        "./packages/engine/libraries/persistence/src/xxh3-ts.d.ts"
-      ],
       "@shared/*": [
         "./packages/engine/app/src/shared/*"
       ]
@@ -28,7 +25,7 @@
   "include": [
     "packages/engine/package.json",
     "packages/engine/app/src/shared/**/*",
-    "packages/engine/app/src/renderer/**/*",
+    "packages/engine/app/src/main/**/*",
     "packages/engine/app/src/index.ts",
     "packages/cli/src/**/*.ts",
     "packages/engine/asset-bake/src/**/*.ts",

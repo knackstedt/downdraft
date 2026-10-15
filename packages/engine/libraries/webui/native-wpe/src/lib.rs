@@ -15,7 +15,7 @@
 //! with `pump()` (bounded `g_main_context_iteration` drain) and the
 //! worker also pumps between queued tasks so the context stays live.
 //!
-//! Bridge: `window.downdraft.postMessage` → `webkit.messageHandlers.downdraft`
+//! Bridge: `globalThis.downdraft.postMessage` → `webkit.messageHandlers.downdraft`
 //! → `script-message-received::downdraft` (JSCValue → JSON). Host→page rides
 //! `evaluate_javascript("__ddDispatch(<json>)")`; the `__dd*` shims are
 //! injected as a `WebKitUserScript` at document start.
@@ -430,7 +430,7 @@ const SHIM_JS: &str = r#"
   window.__ddDispatch = function (v) {
     listeners.slice().forEach(function (fn) { try { fn(v); } catch (e) {} });
   };
-  window.downdraft = {
+  globalThis.downdraft = {
     postMessage: function (v) { window.__ddSend(v); },
     onMessage: function (fn) { if (typeof fn === "function") listeners.push(fn); },
   };
@@ -2031,7 +2031,7 @@ fn eval_impl(h: *mut c_void, req: u64, js: *const c_char) {
     }));
 }
 
-/// Deliver a JSON message to the page's `window.downdraft` bridge —
+/// Deliver a JSON message to the page's `globalThis.downdraft` bridge —
 /// eval'd as `__ddDispatch(<json literal>)` in the default world.
 #[no_mangle]
 pub extern "C" fn dd_webui_post_message(h: *mut c_void, json: *const c_char) {

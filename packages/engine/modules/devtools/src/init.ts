@@ -12,7 +12,7 @@
 // and from worker manifests (via syncWorkerManifests).
 //
 // Returns the bridge instance for games that need post-init calls
-// (e.g. to-the-ocean's sceneInspector.setSimBridge()).
+// (a game's devtools bridge setter).
 // ============================================================================
 
 import { _devtoolsImpl, devtools, DevToolsAPITok } from "./api";
@@ -62,7 +62,7 @@ export interface InitDevToolsOptions {
 /**
  * Initialize DevTools with one call. Creates the bridge, wires all providers,
  * merges globally-registered feeds/commands, syncs worker manifests,
- * and exposes the API on window.__sceneInspector.
+ * and exposes the API on window.__downdraftDevtools.
  *
  * Returns the bridge instance.
  */
@@ -118,7 +118,7 @@ export async function initDevTools(renderer: any, options: InitDevToolsOptions =
   }
 
   // 7. Merge globally-registered feeds/commands/SAB stats into the bridge —
-  //    augments the __sceneInspector API with plugin-registered methods.
+  //    augments the __downdraftDevtools API with plugin-registered methods.
   mergeGlobalRegistrations(bridge);
 
   // 8. Initialize the profiling system (if enabled)
@@ -126,8 +126,8 @@ export async function initDevTools(renderer: any, options: InitDevToolsOptions =
     const profilingOpts = typeof options.profiling === "object" ? options.profiling : {};
     const profilingBridge = new ProfilingBridge(profilingOpts);
     (bridge as any)._profilingBridge = profilingBridge;
-    // Expose the ProfilingSAB + views on __sceneInspector for the profiler overlay
-    const api = (window as any).__sceneInspector;
+    // Expose the ProfilingSAB + views on __downdraftDevtools for the profiler overlay
+    const api = (window as any).__downdraftDevtools;
     if (api) {
       api.__getProfilingSAB = () => profilingBridge.getProfilingSAB();
       api.__getProfilingBridge = () => profilingBridge;
@@ -173,18 +173,18 @@ function wirePerformanceMetricsProvider(bridge: DevToolsDataBridge, provider: an
 
 /**
  * Merge globally-registered data feeds and commands from the `devtools`
- * singleton into the bridge's __sceneInspector API.
+ * singleton into the bridge's __downdraftDevtools API.
  *
- * - Data feeds: added as methods on __sceneInspector (called synchronously)
- * - Commands: added as methods on __sceneInspector (forwarded to worker or called directly)
- * - SAB stats: added as methods on __sceneInspector (read from SAB)
+ * - Data feeds: added as methods on __downdraftDevtools (called synchronously)
+ * - Commands: added as methods on __downdraftDevtools (forwarded to worker or called directly)
+ * - SAB stats: added as methods on __downdraftDevtools (read from SAB)
  */
 function mergeGlobalRegistrations(bridge: DevToolsDataBridge): void {
   const manifest = devtools.getManifest();
 
-  // Add data feed methods to the __sceneInspector API
+  // Add data feed methods to the __downdraftDevtools API
   // These are called synchronously by the panel via callInspector()
-  const api = (window as any).__sceneInspector;
+  const api = (window as any).__downdraftDevtools;
   if (api) {
     for (let _i = 0, _it = manifest.dataFeeds, _n = _it.length; _i < _n; _i++) { const feed = _it[_i];
       if (typeof api[feed.name] === "function") continue; // don't override game-provided

@@ -493,7 +493,7 @@ export class SandWorld {
     this.applySpecialReactions();
 
     // Pass 4: Movement — must iterate in spatial order (bottom-to-top,
-    // alternating L/R) for correct falling-sand physics. We skip empty rows
+    // alternating L/R) for correct falling-sand-genre physics. We skip empty rows
     // outside [minActiveY, maxActiveY] and empty chunks within those bounds.
     // In interlace mode, we process every Nth row (offset by frame % N) to
     // halve movement cost on low-end devices.

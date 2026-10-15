@@ -210,7 +210,7 @@ export abstract class SimWorkerHost<TApi extends WorkerApi = SimWorkerControlApi
     return this.apiCall((api) => api.captureState());
   }
 
-  /** Initialize the worker's own save store (e.g. OPFS). Throws when not started. */
+  /** Initialize the worker's own save store (e.g. a DirectorySaveStore). Throws when not started. */
   async initSaveStore(opts: unknown): Promise<void> {
     const proxy = this.getProxy();
     if (!proxy) throw new Error("Worker not started");
@@ -319,8 +319,8 @@ export abstract class SimWorkerHost<TApi extends WorkerApi = SimWorkerControlApi
   /**
    * Attach the global ProfilingSAB to the sim worker. Called by the renderer
    * after initDevTools({ profiling: true }) creates the ProfilingBridge.
-   * The worker's profiling prelude claims a slot + patches prototypes +
-   * initializes the warning engine + event-loop monitor.
+   * The worker's profiling prelude claims a slot + initializes the warning
+   * engine + event-loop monitor.
    *
    * The worker must expose __profilingAttach (via exposeProfilingApi()).
    */
@@ -329,8 +329,6 @@ export abstract class SimWorkerHost<TApi extends WorkerApi = SimWorkerControlApi
     opts?: {
       workerTag?: string;
       runtime?: number;
-      opfs?: boolean;
-      idb?: boolean;
       defaultWarningRules?: boolean;
       layout?: {
         maxSlots: number;
@@ -346,8 +344,6 @@ export abstract class SimWorkerHost<TApi extends WorkerApi = SimWorkerControlApi
       await (proxy.proxy as any).__profilingAttach?.(sab, {
         workerTag: opts?.workerTag ?? "sim",
         runtime: opts?.runtime ?? 0,
-        opfs: opts?.opfs ?? true,
-        idb: opts?.idb ?? true,
         defaultWarningRules: opts?.defaultWarningRules ?? true,
         layout: opts?.layout,
       });

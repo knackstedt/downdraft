@@ -48,7 +48,7 @@ Implemented identically by both cdylibs; bound once in
 - **Content**: `load_url` / `set_content` / `resize` / `navigate`
   (back/forward/reload/stop) / `set_zoom` / `set_focus` / `set_interactive`
 - **JS bridge**: `eval(req_id, js)` → `{t:"eval"}` events;
-  `post_message(json)` → `window.downdraft`; `poll_events` drains
+  `post_message(json)` → `globalThis.downdraft`; `poll_events` drains
   message/eval/console/cursor/status/nav events as a JSON array
 - **Input**: `input_pointer` / `input_wheel` / `input_key` / `input_touch`
   / `input_ime` — view-local logical px, DOM button numbering
@@ -67,11 +67,11 @@ Packed frame rect `u64`: `x<<48 | y<<32 | w<<16 | h` (same encoding as
 
 ## Page-side bridge contract
 
-Each backend injects a small `window.downdraft` object into every view:
+Each backend injects a small `globalThis.downdraft` object into every view:
 
 ```ts
-window.downdraft.postMessage(payload)     // → {t:"message"} host event
-window.downdraft.onMessage((payload))     // ← host postMessage delivery
+globalThis.downdraft.postMessage(payload)     // → {t:"message"} host event
+globalThis.downdraft.onMessage((payload))     // ← host postMessage delivery
 ```
 
 CEF implements it over `CefProcessMessage` (render-process helper +

@@ -301,13 +301,27 @@ pub extern "C" fn wgpu_shim_create_instance() -> Handle {
     })
 }
 
+/// DOWNDRAFT_GPU adapter override — read at every adapter request so test
+/// harnesses (cli `draft test`, MCP launch) can force it per process:
+///   "swiftshader" → force_fallback_adapter (wgpu's software adapter, e.g.
+///                   lavapipe/llvmpipe under Vulkan) regardless of the power
+///                   preference the caller passed.
+///   "hardware"    → real adapter path (the caller's power preference wins).
+///   unset/other   → default behavior.
+fn force_fallback_adapter() -> bool {
+    matches!(
+        std::env::var("DOWNDRAFT_GPU").as_deref(),
+        Ok("swiftshader")
+    )
+}
+
 #[no_mangle]
 pub extern "C" fn wgpu_shim_request_adapter(instance: Handle, power_preference: i32) -> Handle {
     ffi!(ptr::null_mut(), unsafe {
         let instance = obj::<Instance>(instance);
         let options = RequestAdapterOptions {
             power_preference: enums::power_preference(power_preference as u32),
-            force_fallback_adapter: false,
+            force_fallback_adapter: force_fallback_adapter(),
             compatible_surface: None,
         };
         match block_on_gpu(instance.request_adapter(&options)) {
@@ -493,10 +507,11 @@ pub extern "C" fn wgpu_shim_request_adapter_async(instance: Handle, power_prefer
         // while the request is still in flight.
         let instance = obj::<Instance>(instance).clone();
         let pp = enums::power_preference(power_preference as u32);
+        let force_fallback = force_fallback_adapter();
         spawn_op(move || {
             let options = RequestAdapterOptions {
                 power_preference: pp,
-                force_fallback_adapter: false,
+                force_fallback_adapter: force_fallback,
                 compatible_surface: None,
             };
             match block_on_gpu(instance.request_adapter(&options)) {
@@ -2923,7 +2938,7 @@ pub extern "C" fn wgpu_shim_queue_on_submitted_work_done(queue: Handle) {
 
 // ── Surface ──
 
-/// Created by sdl_shim_create_wgpu_surface (window/mod.rs) via
+/// Created by dd_window_create_wgpu_surface (window/mod.rs) via
 /// [`create_surface_for_window`].
 pub(crate) fn create_surface_for_window(
     instance: Handle,

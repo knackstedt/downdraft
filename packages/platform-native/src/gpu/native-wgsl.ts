@@ -7,6 +7,7 @@
 // files. Loading is lazy: dlopen happens on the first validateWgsl() call.
 // ============================================================================
 
+import { assertPlatformAbi } from "../ffi/abi";
 import { dlopen } from "../ffi/ffi-adapter";
 import { resolvePlatformLibrary } from "../ffi/lib-paths";
 
@@ -24,6 +25,7 @@ function getValidator(): WgslValidateFn | null {
   _validate = null;
   try {
     const libPath = resolvePlatformLibrary();
+    assertPlatformAbi(libPath);
     const lib = dlopen(libPath, {
       dd_wgsl_validate: { args: ["ptr", "u32", "ptr", "u32"], returns: "u32" },
     });

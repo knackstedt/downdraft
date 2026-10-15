@@ -4,7 +4,7 @@
 
 import { beforeEach, describe, expect, it } from "bun:test";
 import { BinaryRecordStore } from "./binary-record-store";
-import { createMockOpfsRoot, type MockDirHandle } from "./mock-opfs";
+import { createMockDirRoot, type MockDirHandle } from "./mock-fs-handles";
 
 const MAGIC = 0x4f424353; // "OBCS"
 
@@ -22,7 +22,7 @@ describe("BinaryRecordStore", () => {
   let root: MockDirHandle;
 
   beforeEach(() => {
-    root = createMockOpfsRoot();
+    root = createMockDirRoot();
   });
 
   it("returns an empty map when no file exists", async () => {

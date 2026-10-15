@@ -4,7 +4,7 @@
 //
 // Tracks a position in world coordinates with zoom. Provides screen↔world
 // coordinate conversion, smooth lerp follow, and a GPU-ready transform matrix.
-// Used by mining-rpg (player follow + zoom) and falling-sand (GPU matrix).
+// Used by top-down games (player follow + zoom) and GPU-matrix games.
 
 export interface Camera2D {
   /** World coordinate at the center of the view */
@@ -66,7 +66,7 @@ export function worldToScreen(cam: Camera2D, wx: number, wy: number): { x: numbe
 // PanZoomCamera2D — class-based 2D camera with pan + focal-point zoom gestures
 // ============================================================================
 //
-// Generalized from overburden's `Camera`. Use this when the camera supports
+// Generalized from a game's grid camera. Use this when the camera supports
 // mouse-drag panning and zoom-to-cursor; use the free-function Camera2D above
 // for simple follow cams.
 

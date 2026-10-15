@@ -6,7 +6,8 @@
 //   2. If a ProfilingSAB has been attached (via attachProfilingSAB called from
 //      the host's init RPC), claims a slot, initializes ThreadMetricsWriter +
 //      IopsRingWriter + worker-side WarningEngine + EventLoopMonitor.
-//   3. Calls patchOpfsPrototypes() + patchIndexedDbPrototypes().
+//   3. (Storage IOPS instrumentation was removed — OPFS/IndexedDB don't exist
+//      on the native runtime.)
 //   4. Installs a tick/interval hook to flush ThreadMetrics + EventLoop block.
 //   5. Registers default warning rules.
 //
@@ -25,8 +26,6 @@
 import { GCTracker } from "../telemetry/gc-tracker";
 import { createLogger } from "../util/logger";
 import { EventLoopMonitor } from "./event-loop";
-import { patchIndexedDbPrototypes, unpatchIndexedDbPrototypes } from "./iops/idb-patch";
-import { patchOpfsPrototypes, unpatchOpfsPrototypes } from "./iops/opfs-patch";
 import {
     claimSlot,
     computeProfilingSABLayout,
@@ -52,8 +51,6 @@ const log = createLogger();
 export interface ProfilingAttachConfig {
   workerTag: string;
   runtime?: RuntimeKind;
-  opfs?: boolean;
-  idb?: boolean;
   defaultWarningRules?: boolean;
   getHeap?: () => { heapUsed: number; heapTotal: number; rss: number };
   /** ProfilingSAB layout params. MUST match the params used to allocate the
@@ -225,14 +222,6 @@ export function attachProfilingSAB(
   });
   s.eventLoopMonitor.startLoop(250);
 
-  // Patch prototypes
-  if (config.opfs !== false) {
-    patchOpfsPrototypes({ writer: s.writer, warningEngine: s.warningEngine, workerTag: s.workerTagHash });
-  }
-  if (config.idb !== false) {
-    patchIndexedDbPrototypes({ writer: s.writer, warningEngine: s.warningEngine, workerTag: s.workerTagHash });
-  }
-
   // Start a flush interval (fallback for non-sim workers; sim workers
   // call flushProfilingTick() from their tick loop)
   s.flushInterval = setInterval(() => {
@@ -336,8 +325,6 @@ export function detachProfilingSAB(): void {
     clearInterval(s.flushInterval);
     s.flushInterval = null;
   }
-  unpatchOpfsPrototypes();
-  unpatchIndexedDbPrototypes();
   s.eventLoopMonitor?.dispose();
   s.eventLoopMonitor = null;
   s.warningEngine?.clearCallbacks();

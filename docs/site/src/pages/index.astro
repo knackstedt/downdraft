@@ -3,7 +3,7 @@ import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro';
 import logoSvg from '../assets/logo.svg';
 ---
 
-<StarlightPage frontmatter={{ title: 'DownDraft', template: 'splash' }} hasSidebar={false}>
+<StarlightPage frontmatter={{ title: 'DownDraft — TypeScript game engine for native WebGPU', description: 'A TypeScript-first game engine on a native winit + wgpu runtime (Bun, Node, or Deno). ECS, deferred WebGPU rendering, mods, and a built-in MCP server.', template: 'splash' }} hasSidebar={false}>
 	<div class="landing-root">
 		<!-- Background grid -->
 		<div class="grid-bg" aria-hidden="true"></div>
@@ -36,9 +36,10 @@ import logoSvg from '../assets/logo.svg';
 					<span class="line accent">TypeScript-first.</span>
 				</h1>
 				<p class="subheadline">
-					DownDraft is a game engine that runs your TypeScript on a native runtime — winit + wgpu
-					under Bun, Node, or Deno. Real desktop windows, not a browser. A typed-DI module system,
-					a sandboxed plugin/mod loader, and a built-in MCP server for AI-assisted development.
+					DownDraft is a TypeScript game engine that runs your code on a native runtime — winit +
+					wgpu under Bun, Node, or Deno. Real desktop windows, not a browser. A typed-DI module
+					system, a permission-tiered plugin/mod loader, and a built-in MCP server for
+					AI-assisted development.
 				</p>
 				<div class="cta-row">
 					<a href="/getting-started/introduction/" class="btn btn-primary">
@@ -125,7 +126,7 @@ import logoSvg from '../assets/logo.svg';
 							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
 						</div>
 						<h3 class="feature-title">Physics</h3>
-						<p class="feature-desc">Rapier3D-powered physics with character controllers, collision detection, and multi-realm support. Swap backends without touching gameplay code.</p>
+						<p class="feature-desc">Rapier3D-powered physics with character controllers, collision detection, and multi-realm support behind a backend-agnostic API surface.</p>
 					</article>
 					<article class="feature-card">
 						<div class="feature-icon">
@@ -218,7 +219,7 @@ import logoSvg from '../assets/logo.svg';
 						</div>
 						<div>
 							<h3>A fraction of the footprint</h3>
-							<p>Games ship as one small executable plus a Rust library — tens of megabytes, not hundreds — with low baseline memory. What your GPU draws is exactly what your code asked for.</p>
+							<p>Games ship as one executable plus a Rust library — tens of megabytes for Bun-compiled builds (Node-embedded builds are roughly double), with low baseline memory. What your GPU draws is exactly what your code asked for.</p>
 						</div>
 					</div>
 				</div>

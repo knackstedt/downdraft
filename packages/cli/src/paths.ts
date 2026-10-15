@@ -100,8 +100,12 @@ export function resolveGameDir(name?: string): string | null {
   if (upward && basename(upward) === name) return upward;
   const root = findMonorepoRoot();
   if (root) {
-    const dir = join(root, "games", name);
-    if (existsSync(dir)) return dir;
+    // games/ holds local clones (gitignored); examples/ holds tracked
+    // fixtures (e.g. packaging-smoke) that always resolve in-repo.
+    for (const base of ["games", "examples"].values()) {
+      const dir = join(root, base, name);
+      if (existsSync(dir)) return dir;
+    }
   }
   return null;
 }

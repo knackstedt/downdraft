@@ -13,7 +13,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   process.stderr.write = origWrite;
-  delete process.env.DOWNDRAFT_STRICT;
+  delete process.env.DOWNDRAFT_CLI_STRICT;
 });
 
 describe("parseArgs — boolean flags", () => {
@@ -198,7 +198,7 @@ describe("parseArgs — positionals", () => {
   });
 
   it("hard-errors on extra positionals in strict mode", () => {
-    process.env.DOWNDRAFT_STRICT = "1";
+    process.env.DOWNDRAFT_CLI_STRICT = "1";
     const schema: CommandSchema = {
       positionals: [{ name: "path" }],
     };
@@ -232,7 +232,7 @@ describe("parseArgs — unknown flags", () => {
   });
 
   it("hard-errors on unknown flags in strict mode", () => {
-    process.env.DOWNDRAFT_STRICT = "1";
+    process.env.DOWNDRAFT_CLI_STRICT = "1";
     const schema: CommandSchema = { flags: [] };
     expect(() => parseArgs(["--nope"], schema)).toThrow(ArgError);
   });

@@ -1,17 +1,17 @@
 // ============================================================================
 // SandGridPass — shared render pass for sand-grid games.
 //
-// Generalized from the three per-game copies (falling-sand, mining-rpg,
-// sandjongg). Renders one or more r32uint grid textures to the canvas using
+// Generalized from the per-game copies across early games
+// other grid games). Renders one or more r32uint grid textures to the canvas using
 // the material palette + props textures.
 //
 // Configurable features:
 //   - numLayers > 1: per-layer grid textures + offscreen reflection targets
-//     (layer i's offscreen target is sampled by layer i+1 — falling-sand)
+//     (layer i's offscreen target sampled by layer i+1)
 //   - camera: adds a camera uniform (offset/zoom/canvas/depth) at binding 5
-//     (mining-rpg)
+//     (tile-based games)
 //   - extraTextures: extra float textures bound after the camera binding
-//     (light accumulation / volumetric — mining-rpg)
+//     (light accumulation / volumetric variants)
 //
 // The fragment shader is game-provided — each game's sand-render.wgsl
 // declares the bindings it uses.

@@ -1,5 +1,5 @@
 // ============================================================================
-// @downdraft/engine/app/renderer — typed accessor for globalThis.downdraft
+// @downdraft/engine/app/main — typed accessor for globalThis.downdraft
 // ============================================================================
 //
 // Import `downdraft` from this module in game/bootstrap code instead of
@@ -11,7 +11,7 @@
 // real values should guard with `downdraft?.isAvailable`.
 
 import { getNativeHost, type RenderSurface } from "@downdraft/engine";
-import { OpfsSaveStore } from "@downdraft/engine/libraries/persistence/browser";
+import { DirectorySaveStore } from "@downdraft/engine/libraries/persistence";
 import type {
     HostAPI,
     HostOsrAPI
@@ -122,17 +122,15 @@ export { createSimBridge } from "./sim-bridge";
 export type { SimBridge, SimBridgeDeps, SimBridgeWorker } from "./sim-bridge";
 
 // Save store factory + host save-store bridge type
-export { createInlineSaveStore, createSaveStore, type CreateSaveStoreOptions, type CreateSaveStoreResult, type SaveBridge, type SaveStoreMode } from "./save-store-factory";
+export { createSaveStore, type CreateSaveStoreOptions, type CreateSaveStoreResult, type SaveBridge, type SaveStoreMode } from "./save-store-factory";
 
 /**
  * Create the default ISaveStore for a game.
  *
  * When the host exposes a typed save store (`downdraft.saveStore` — the
  * native host's HostSaveStore over FileSaveStore), defaults to "host" mode —
- * disk persistence, stable across sessions, not origin-scoped.
- *
- * In a pure browser (no bridge), falls back to "auto" (OPFS worker → inline
- * OPFS), since there is no host save path available.
+ * disk persistence, stable across sessions, not origin-scoped. Otherwise
+ * falls back to a DirectorySaveStore (node-fs-backed on native).
  *
  * Games that want a specific backend should call `createSaveStore` directly
  * with an explicit `mode` rather than relying on this default.
@@ -141,11 +139,10 @@ export async function createDefaultSaveStore(engineVersion: string): Promise<imp
   const mode = downdraft.saveStore ? "host" : "auto";
   const { store } = await _createSaveStore({
     mode,
-    opfsOptions: { engineVersion },
     bridge: downdraft,
   });
   if (!store) {
-    const fallback = new OpfsSaveStore({ engineVersion });
+    const fallback = new DirectorySaveStore({ engineVersion });
     await fallback.init();
     return fallback;
   }
@@ -153,7 +150,7 @@ export async function createDefaultSaveStore(engineVersion: string): Promise<imp
 }
 
 // AutosaveManager (re-exported from @downdraft/engine/libraries/persistence)
-export { AutosaveManager, type AutosaveManagerOptions } from "@downdraft/engine/libraries/persistence/browser";
+export { AutosaveManager, type AutosaveManagerOptions } from "@downdraft/engine/libraries/persistence";
 
 // MCP automation harness factory + shared tool helpers
 export { blobToBase64, createMcpHarness, errorResult, jsonResult } from "./mcp-harness";
@@ -182,7 +179,7 @@ export type { CombinedFeatureLog, RendererFeatureLogOptions } from "./feature-lo
  * Get the renderer-facing surface for a given layer index.
  *
  * This is the canonical accessor — it returns the host-owned `RenderSurface`
- * on the native runtime (the SDL-windowed wgpu surface installed by
+ * on the native runtime (the native-windowed wgpu surface installed by
  * `createNativeHost`) and the DOM `<canvas>` element on browser hosts (which
  * satisfies `RenderSurface` structurally).
  *

@@ -1,7 +1,7 @@
 //! libdowndraft_android — Android NativeActivity entry point.
 //!
 //! On Android this cdylib IS the process: it statically links
-//! downdraft-platform (rlib), so every sdl_shim_*/wgpu_shim_* export lives in
+//! downdraft-platform (rlib), so every dd_window_*/wgpu_shim_* export lives in
 //! this one .so. The JS side dlopens *this* library for FFI — that keeps a
 //! single copy of the platform statics (the winit event state in particular
 //! MUST be the same instance the JS thread drains).

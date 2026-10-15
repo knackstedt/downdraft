@@ -4,7 +4,7 @@
 // A RenderSurface is the thing a game renderer draws into: a WebGPU
 // presentation target with a size, a resize event, and an input event
 // target. It is intentionally NOT a DOM type — on the native host it is
-// backed by an SDL window + wgpu surface (`NativeSurface`), on a DOM host
+// backed by an winit window + wgpu surface (`NativeSurface`), on a DOM host
 // it is the HTMLCanvasElement itself (which satisfies this interface
 // structurally).
 //

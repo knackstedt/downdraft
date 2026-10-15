@@ -2,7 +2,7 @@
 // native-game-module.ts — run a shared GameModule on the native host
 //
 // The convergence entry point: the SAME GameModule a game passes to
-// `startGame()` runs unchanged on the native host — SDL window + wgpu
+// `startGame()` runs unchanged on the native host — winit window + wgpu
 // device + the in-process `downdraft` bridge.
 //
 //   // native-entry.ts:
@@ -17,7 +17,7 @@
 // through the bridge — no IPC, no second process.
 // ============================================================================
 
-import type { GameContext, GameModule, GameRendererLike, GameSimWorker, SimWorkerSeed } from "@downdraft/engine/app/renderer";
+import type { GameContext, GameModule, GameRendererLike, GameSimWorker, SimWorkerSeed } from "@downdraft/engine/app/main";
 import { createLogger } from "@downdraft/engine/util/logger";
 import { retireAllSharedDevices } from "./gpu/shared-device";
 import { addCrashFeatureLog } from "./host-lifecycle";
@@ -86,7 +86,7 @@ export async function runNativeGameModule<Sim extends GameSimWorker, R extends G
   // the host, but awaiting it cold would suspend this frame on an in-flight
   // fetch (an orphaned fetch — dropped by a mid-eval module-cache clear —
   // never settles, and the suspended frame pins the session's module graph).
-  const appRendererP = import("@downdraft/engine/app/renderer");
+  const appRendererP = import("@downdraft/engine/app/main");
   appRendererP.catch(() => {});
   // The session snapshot this boot belongs to — a restart mid-boot swaps it,
   // and dead-generation continuations must not run under the new session.
@@ -94,7 +94,7 @@ export async function runNativeGameModule<Sim extends GameSimWorker, R extends G
 
   // 1. Native host: window + wgpu device + DOM polyfills + downdraft bridge
   //    + in-process MCP server. Everything startGame() reads from
-  //    `window.downdraft` resolves through the bridge from here on.
+  //    `globalThis.downdraft` resolves through the bridge from here on.
   const host = await createNativeHost({
     window: {
       title: opts.title,
@@ -154,7 +154,7 @@ export async function runNativeGameModule<Sim extends GameSimWorker, R extends G
         // render loop is stopped (deterministic mode).
         (globalThis as any).__ddRequestFrame = () => {
           // renderOnce() is the canonical one-shot — renderers that draw
-          // outside the GameRenderer frame graph (e.g. to-the-ocean)
+          // outside the GameRenderer frame graph 
           // override it, so dynamic dispatch reaches the bespoke frame.
           try { ctx.renderer?.renderOnce?.call(ctx.renderer); } catch { /* loop stopped mid-frame */ }
         };
@@ -181,7 +181,7 @@ export async function runNativeGameModule<Sim extends GameSimWorker, R extends G
     // session END — leaving stale restore data armed all session.
     try { (globalThis as any).__ddSession?.finishSessionBoot?.(); } catch { /* no dev shell */ }
 
-    // 3. Block until the window closes (SDL quit event or bridge.quit()).
+    // 3. Block until the window closes (window close event or bridge.quit()).
     //    window.closed covers a close that already fired during boot —
     //    registering a listener for it now would hang the entry forever.
     //    Under the dev shell, a Tier-3 session restart tears the session down

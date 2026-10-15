@@ -17,7 +17,7 @@ const log = createLogger("info");
 export function notify(title: string, body: string): void {
   try {
     const { execSync } = require("node:child_process");
-    execSync(`notify-send -a "Devin" -i dialog-information "${title.replace(/"/g, "'")}" "${body.replace(/"/g, "'")}"`, {
+    execSync(`notify-send -a "DownDraft" -i dialog-information "${title.replace(/"/g, "'")}" "${body.replace(/"/g, "'")}"`, {
       stdio: "ignore",
       timeout: 5000,
     });
@@ -162,6 +162,6 @@ export function verifyPixels(pngPath: string, checks: PixelCheck[]): number {
  */
 export function checkpoint(name: string, screenshotPath?: string): void {
   const body = screenshotPath ? `${name} — screenshot: ${screenshotPath}` : name;
-  notify("Devin Checkpoint", body);
+  notify("DownDraft Checkpoint", body);
   log.info("checkpoint", body);
 }

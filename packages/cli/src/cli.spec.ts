@@ -311,7 +311,7 @@ describe("CLI new — template listing", () => {
 
 
 describe("CLI --help and --version", () => {
-  it("export --target rejects old 'windows' value", async () => {
+  it("release --target rejects old 'windows' value", async () => {
     // The normalized vocabulary is win/linux/mac/all.
     // 'windows' should be rejected by enum validation.
     const { ArgError, parseArgs } = await import("./args");
@@ -322,7 +322,7 @@ describe("CLI --help and --version", () => {
     ).toThrow(ArgError);
   });
 
-  it("export --target accepts 'win' value", async () => {
+  it("release --target accepts 'win' value", async () => {
     const { parseArgs } = await import("./args");
     const r = parseArgs(["--target=win"], {
       flags: [{ name: "target", type: "string", enum: ["win", "linux", "mac", "all"] }],

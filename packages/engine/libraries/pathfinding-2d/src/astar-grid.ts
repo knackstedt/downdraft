@@ -1,7 +1,7 @@
 // ============================================================================
 // A* grid pathfinder — weighted multi-goal search over a 2D cell grid
 //
-// Extracted from overburden's grid-movement pathfinder: the generic machinery
+// Extracted from a game's grid-movement pathfinder: the generic machinery
 // (binary min-heap, visited/gScore/cameFrom arrays, multi-goal A* loop, path
 // reconstruction, adjacent-goal enumeration, cylinder wrap on X) lives here;
 // the game supplies movement grading via `gradeMove` and optional extra

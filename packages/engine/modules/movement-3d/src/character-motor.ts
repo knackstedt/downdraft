@@ -1,7 +1,7 @@
 // ============================================================================
 // CharacterMotor3D — shared 3D character movement kernel
 //
-// Generalized from the andrews-sandbox moveLoop and to-the-ocean
+// Generalized from early games' moveLoop and character
 // player-manager. Computes desired per-tick movement deltas; collision
 // resolution is left to the game's physics backend (e.g. a Rapier character
 // controller) or a grid/terrain query.

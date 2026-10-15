@@ -12,7 +12,7 @@
 // games can gate on ui.available / ui.backend at build time.
 // ============================================================================
 
-import { downdraft } from "@downdraft/engine/app/renderer";
+import { downdraft } from "@downdraft/engine/app/main";
 import { resolveWebUiBackend } from "@downdraft/engine/libraries/webui";
 import type {
     WebUiBackend,

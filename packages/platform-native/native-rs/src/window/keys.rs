@@ -1,25 +1,23 @@
-//! winit key → SDL3 keycode translation.
+//! winit key → wire keycode translation.
 //!
-//! The TS side (native-window.ts SDL_SPECIAL_KEYS) expects SDL3 keycodes:
-//! printables are their ASCII value (lowercase for letters), named keys are
-//! scancode | 0x40000000. We prefer `logical_key` — it is layout-aware, which
-//! matches SDL's keysym.sym semantics (AZERTY 'a' reports 'a', not the US
+//! The wire keycode scheme is SDL3-derived: printables are their ASCII value
+//! (lowercase for letters), named keys are scancode | 0x40000000. We prefer
+//! `logical_key` — it is layout-aware (AZERTY 'a' reports 'a', not the US
 //! physical position). Non-character keys fall back to the physical-key map.
 
 use winit::event::KeyEvent;
 use winit::keyboard::{Key, KeyCode, NamedKey, PhysicalKey};
 
-/// SDL_SCANCODE_TO_KEYCODE base.
+/// Scancode-to-keycode base bit.
 const fn sc(n: u32) -> i32 {
     0x4000_0000 | n as i32
 }
 
-pub fn sdl_keycode(event: &KeyEvent) -> i32 {
-    // Layout-aware character first — this is what SDL's keysym.sym carries.
+pub fn wire_keycode(event: &KeyEvent) -> i32 {
+    // Layout-aware character first — printables are the ASCII codepoint.
     if let Key::Character(s) = &event.logical_key {
         if let Some(ch) = s.chars().next() {
             let ch = ch.to_ascii_lowercase();
-            // SDL keycodes for printables are the ASCII codepoint.
             return ch as i32;
         }
     }
@@ -35,12 +33,12 @@ pub fn sdl_keycode(event: &KeyEvent) -> i32 {
     }
 }
 
-/// PhysicalKey::Code → SDL keycode (US-layout positional — the fallback for
+/// PhysicalKey::Code → wire keycode (US-layout positional — the fallback for
 /// non-character keys and for keys whose logical value is unidentified).
 fn code_keycode(code: KeyCode) -> i32 {
     use KeyCode::*;
     match code {
-        // Letters → lowercase ASCII (SDLK_a..'z').
+        // Letters → lowercase ASCII (wire keycode a..'z').
         KeyA => 'a' as i32,
         KeyB => 'b' as i32,
         KeyC => 'c' as i32,
@@ -67,7 +65,7 @@ fn code_keycode(code: KeyCode) -> i32 {
         KeyX => 'x' as i32,
         KeyY => 'y' as i32,
         KeyZ => 'z' as i32,
-        // Digit row → ASCII digits (physical — SDL's unshifted sym).
+        // Digit row → ASCII digits (physical — the unshifted sym).
         Digit0 => '0' as i32,
         Digit1 => '1' as i32,
         Digit2 => '2' as i32,
@@ -97,8 +95,8 @@ fn code_keycode(code: KeyCode) -> i32 {
         Backspace => 8,
         Tab => 9,
         Delete => 127,
-        NumpadEnter => sc(88), // SDLK_KP_ENTER — not ASCII CR
-        // Scancode-based keys (SDL_keymod region values).
+        NumpadEnter => sc(88), // wire keycode KP_ENTER — not ASCII CR
+        // Scancode-based keys (keymod-region values).
         CapsLock => sc(57),
         F1 => sc(58),
         F2 => sc(59),
@@ -221,14 +219,14 @@ fn code_keycode(code: KeyCode) -> i32 {
         LaunchApp1 => sc(283),
         LaunchApp2 => sc(284),
         LaunchMail => sc(265),
-        // SDL has no keycodes for these.
+        // the wire map has no keycodes for these.
         Fn | FnLock | Hyper | Turbo | Abort | Resume | Suspend | WakeUp | F25 | F26 | F27 | F28
         | F29 | F30 | F31 | F32 | F33 | F34 | F35 => 0,
         _ => 0, // KeyCode is non_exhaustive
     }
 }
 
-/// Key::Named → SDL keycode for named (non-character) logical keys.
+/// Key::Named → wire keycode for named (non-character) logical keys.
 fn named_keycode(named: NamedKey) -> i32 {
     use NamedKey::*;
     match named {

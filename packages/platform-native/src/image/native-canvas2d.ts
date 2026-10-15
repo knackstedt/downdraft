@@ -410,7 +410,7 @@ export class NativeCanvas2D {
     // Use FreeType for accurate measurement when available
     const ftWidth = ftMeasureText(text, fontSize);
     const width = ftWidth >= 0 ? ftWidth : text.length * fontSize * 0.6;
-    // FreeType/SDL_ttf renders text taller than the nominal fontSize (it
+    // cosmic-text renders text taller than the nominal fontSize (it
     // includes ascenders + descenders, typically ~1.2× fontSize). Report
     // generous ascent/descent so callers allocate a tall enough canvas;
     // otherwise the bottom of glyphs (descenders like 'g', 'p', 'y') gets

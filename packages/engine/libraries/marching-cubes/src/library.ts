@@ -3,7 +3,7 @@
 //
 // Games declare `libraries: [MarchingCubesLib]` (or with config override)
 // in their GameModule. The host allocates the terrain SAB (if used —
-// to-the-ocean currently uses RPC events instead), and provides the
+// a game may use RPC events instead), and provides the
 // TerrainLODManager + streaming config via typed tokens.
 //
 // Games that need full control can still import the mesh extraction

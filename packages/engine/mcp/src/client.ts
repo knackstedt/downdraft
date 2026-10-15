@@ -15,7 +15,7 @@
 //   await client.screenshot("shot.png");
 //
 //   // Or launch + connect + kill in one:
-//   const game = await launchGame({ game: "to-the-ocean" });
+//   const game = await launchGame({ game: "packaging-smoke" });
 //   await game.client.callText("get_player_state");
 //   await game.kill();
 //
@@ -634,7 +634,7 @@ function collectDescendants(rootPid: number): number[] {
  */
 export async function launchGame(opts: LaunchGameOptions = {}): Promise<LaunchedGame> {
     const cwd = opts.cwd ?? process.cwd();
-    const game = opts.game ?? "to-the-ocean";
+    const game = opts.game ?? "packaging-smoke";
     const entry = opts.entry
         ? resolve(cwd, opts.entry)
         : [

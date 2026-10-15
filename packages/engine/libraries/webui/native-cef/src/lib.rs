@@ -8,7 +8,7 @@
 //! subprocesses re-exec `downdraft_cef_helper` (settings.
 //! browser_subprocess_path) which carries the V8 bridge: eval
 //! round-trips and postMessage both ride CefProcessMessage; the
-//! page-facing `window.downdraft` shim is injected on context creation.
+//! page-facing `globalThis.downdraft` shim is injected on context creation.
 //!
 //! Threading contract: all dd_webui_* calls are marshaled onto a
 //! dedicated `dd-cef` worker thread — FFI callers (node/koffi) invoke
@@ -1114,7 +1114,7 @@ fn dd_webui_eval_impl(h: *mut c_void, req: u64, js: *const c_char) {
     }));
 }
 
-/// Deliver a JSON payload to the page's window.downdraft dispatch.
+/// Deliver a JSON payload to the page's globalThis.downdraft dispatch.
 #[no_mangle]
 pub extern "C" fn dd_webui_post_message(h: *mut c_void, json: *const c_char) {
     let hp = h as usize; let jsonp = json as usize;

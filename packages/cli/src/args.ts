@@ -9,7 +9,7 @@
 //   - Supports `--flag`, `--flag=value`, `--flag value`, `-x`, `-x value`.
 //   - Boolean flags, string flags, number flags, repeatable flags.
 //   - Enum validation, required-flag validation.
-//   - Unknown flags warn (hard-error when DOWNDRAFT_STRICT=1).
+//   - Unknown flags warn (hard-error when DOWNDRAFT_CLI_STRICT=1).
 //   - Built-in `--help` / `-h` (caller prints usage + exits 0).
 //
 // Each subcommand declares a `CommandSchema` and calls `parseArgs()`. The
@@ -74,7 +74,7 @@ export function print(text: string): void {
 
 /** Whether STRICT diagnostics are active (unknown flags → hard error). */
 function isStrict(): boolean {
-  const v = process.env.DOWNDRAFT_STRICT;
+  const v = process.env.DOWNDRAFT_CLI_STRICT;
   if (v !== undefined) return v === "1";
   return false; // parser default; dev-mode strictness is opt-in here
 }

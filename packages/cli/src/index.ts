@@ -4,12 +4,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { ArgError, print, renderHelp } from "./args";
 import { assets } from "./assets";
-import { build } from "./build";
-import { buildGames } from "./build-games";
 import { debug } from "./debug";
 import { dev } from "./dev";
-import { dist } from "./dist";
-import { exportGame } from "./export";
 import { mcp } from "./mcp";
 import { newProject } from "./new";
 import { pluginCommand } from "./plugin-command";
@@ -82,19 +78,11 @@ async function main() {
         await debug(process.argv.slice(3));
         break;
       case "build":
-        await build(process.argv.slice(3));
-        break;
       case "build-games":
-        await buildGames(process.argv.slice(3));
-        break;
       case "dist":
-        await dist(process.argv.slice(3));
-        break;
       case "export":
-        await exportGame(process.argv.slice(3));
-        break;
       case "mobile":
-        log.error("draft", "`draft mobile` is removed — the Capacitor WebView shell was dormant and has been deleted. Mobile support returns with a native (winit+wgpu) port.");
+        log.error("draft", `\`draft ${command}\` was removed — use \`draft release\` (see \`draft help release\`).`);
         process.exit(1);
       case "assets":
         await assets(process.argv.slice(3));

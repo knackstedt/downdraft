@@ -1,5 +1,5 @@
 // ============================================================================
-// DOWNDRAFT_STRICT — dev-mode diagnostics for the plugin system
+// DOWNDRAFT_STRICT_DIAGNOSTICS — dev-mode diagnostics for the plugin system
 //
 // When STRICT is active (default in dev, off in prod), the plugin hosts
 // validate the dependency graph at activation time and catch common footguns:
@@ -9,7 +9,7 @@
 //   - leak detection (plugin provided resources / allocated SAB channels but
 //     registered no dispose fns)
 //
-// Set `DOWNDRAFT_STRICT=0` to force-disable, `DOWNDRAFT_STRICT=1` to force-enable.
+// Set `DOWNDRAFT_STRICT_DIAGNOSTICS=0` to force-disable, `DOWNDRAFT_STRICT_DIAGNOSTICS=1` to force-enable.
 // ============================================================================
 
 import type { ResourceToken } from "../ecs/resource";
@@ -33,14 +33,14 @@ export class DiagnosticError extends Error {
 
 function readEnv(): boolean {
   // Explicit override always wins.
-  const env = (globalThis as any).process?.env?.DOWNDRAFT_STRICT;
+  const env = (globalThis as any).process?.env?.DOWNDRAFT_STRICT_DIAGNOSTICS;
   if (env === "1") return true;
   if (env === "0") return false;
   // Default: on in dev, off in prod. `isDev` (platform/runtime.ts) probes
   // Vite's import.meta.env.DEV under the dev shell, then DOWNDRAFT_DEV /
   // NODE_ENV on native runtimes — the previous globalThis.importMetaEnv
   // lookup never observed anything (nothing sets that global), so STRICT
-  // was effectively DOWNDRAFT_STRICT=1-only even in dev.
+  // was effectively DOWNDRAFT_STRICT_DIAGNOSTICS=1-only even in dev.
   return isDev;
 }
 
@@ -48,7 +48,7 @@ let _strict: boolean | null = null;
 
 /**
  * Whether STRICT diagnostics are active. Resolved lazily on first call
- * from the DOWNDRAFT_STRICT env var or Vite's import.meta.env.DEV.
+ * from the DOWNDRAFT_STRICT_DIAGNOSTICS env var or Vite's import.meta.env.DEV.
  * Override for tests via `setStrict()`.
  */
 export function isStrict(): boolean {

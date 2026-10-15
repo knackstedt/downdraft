@@ -2,17 +2,19 @@
 // PersistenceLib — declarative engine library descriptor for @downdraft/engine/libraries/persistence
 //
 // Games declare `libraries: [PersistenceLib]` (or with config override) in
-// their GameModule. The host creates an OpfsSaveStore (sim-side), initializes
-// it, and exposes it via a typed token.
+// their GameModule. The host creates a DirectorySaveStore (sim-side),
+// initializes it, and exposes it via a typed token.
 //
-// Games that need full control can still import OpfsSaveStore, FileSaveStore,
-// or SaveWorkerProxy directly (escape hatch).
+// Games that need full control can still import DirectorySaveStore or
+// FileSaveStore directly (escape hatch). On native, the host-mode save path
+// (downdraft.saveStore → HostServices → FileSaveStore) is the default —
+// PersistenceLib is for sim workers that want their own store.
 // ============================================================================
 
 import { resourceToken, type EngineLibrary } from "@downdraft/engine";
 import type { ISaveStore } from "@downdraft/engine/save/persist-types";
 import { createLogger } from "@downdraft/engine/util/logger";
-import { OpfsSaveStore } from "./opfs-save-store";
+import { DirectorySaveStore } from "./directory-save-store";
 
 const log = createLogger("info");
 
@@ -21,7 +23,7 @@ const log = createLogger("info");
 export interface PersistenceLibConfig {
   /** Engine/game version string for save headers (e.g. "0.1.0"). Required. */
   engineVersion: string;
-  /** Subdirectory name under OPFS root for saves. Default: "saves". */
+  /** Subdirectory name under the store root for saves. Default: "saves". */
   savesDirName?: string;
   /** Default max generations per slot. Default: 3. */
   maxGenerations?: number;
@@ -42,24 +44,24 @@ export const PersistenceLib: EngineLibrary<PersistenceLibConfig> = {
 
   sim: {
     create(config, ctx) {
-      const store = new OpfsSaveStore({
+      const store = new DirectorySaveStore({
         engineVersion: config.engineVersion,
         savesDirName: config.savesDirName,
         maxGenerations: config.maxGenerations,
       });
-      // init() is async (resolves the OPFS root directory). The host calls
+      // init() is async (resolves the root directory). The host calls
       // create() synchronously, so we kick off init() and let the game await
       // it in onReady if needed. The store is safe to provide immediately;
       // save/load calls will throw until init() resolves.
       store.init().catch((err) => {
-        log.error("persistence-lib", `OpfsSaveStore init failed: ${err}`);
+        log.error("persistence-lib", `DirectorySaveStore init failed: ${err}`);
       });
       ctx.provide(PersistenceTok, store);
       return store;
     },
     dispose(_store) {
-      // OpfsSaveStore holds OPFS directory handles — no explicit destroy/cleanup
-      // method. The handles are GC'd when the store is dropped.
+      // DirectorySaveStore holds directory handles — no explicit
+      // destroy/cleanup method. The handles are GC'd when the store is dropped.
     },
   },
 

@@ -107,12 +107,12 @@ export async function collectThreads(
 
 function sceneInspectorApi(): Record<string, any> | null {
   const g = globalThis as Record<string, any>;
-  return (g.window?.__sceneInspector ?? g.__sceneInspector ?? null) as Record<string, any> | null;
+  return (g.window?.__downdraftDevtools ?? g.__downdraftDevtools ?? null) as Record<string, any> | null;
 }
 
 /** Scene-graph tree (label + ctor + child counts). Prefers a live
  *  `gameScene.stage` walk; falls back to the SceneInspector's scene store
- *  (`__sceneInspector.getSceneTree`) so games without a DOM-like stage still
+ *  (`__downdraftDevtools.getSceneTree`) so games without a DOM-like stage still
  *  get a populated tree — with stable nodeIds for pick/details. */
 export function collectSceneTree(ctx: CollectorContext): TreeRow[] {
   const stage = ctx.gameScene?.stage;

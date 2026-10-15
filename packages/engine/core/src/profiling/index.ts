@@ -47,20 +47,6 @@ export type {
 export { TraceEventWriter } from "./trace-event-writer";
 export type { TraceEventWriterOptions } from "./trace-event-writer";
 
-// IOPS patches
-export {
-    OPFS_OP_CREATE_SYNC_ACCESS_HANDLE,
-    OPFS_OP_CREATE_WRITABLE, OPFS_OP_GET_DIR_HANDLE, OPFS_OP_GET_FILE, OPFS_OP_GET_FILE_HANDLE, OPFS_OP_STREAM_CLOSE, OPFS_OP_STREAM_WRITE, OPFS_OP_SYNC_CLOSE, OPFS_OP_SYNC_FLUSH, OPFS_OP_SYNC_READ, OPFS_OP_SYNC_WRITE, patchOpfsPrototypes, unpatchOpfsPrototypes
-} from "./iops/opfs-patch";
-export type { IopsPatchOptions } from "./iops/opfs-patch";
-
-export {
-    IDB_OP_ADD, IDB_OP_CLEAR, IDB_OP_CLOSE, IDB_OP_COUNT, IDB_OP_DATABASES, IDB_OP_DELETE, IDB_OP_GET, IDB_OP_GET_ALL,
-    IDB_OP_GET_ALL_KEYS, IDB_OP_OBJECT_STORE, IDB_OP_OPEN, IDB_OP_OPEN_CURSOR,
-    IDB_OP_OPEN_KEY_CURSOR, IDB_OP_PUT, IDB_OP_TRANSACTION, patchIndexedDbPrototypes, unpatchIndexedDbPrototypes
-} from "./iops/idb-patch";
-export type { IdbPatchOptions } from "./iops/idb-patch";
-
 // Worker prelude
 export {
     addWarningRule, attachProfilingSAB, detachProfilingSAB, flushProfilingTick, getEventLoopMonitor, getProfilingWriter, getSlotIndex, getTaskLatencyHistogram, getWarningEngine, isProfilingAttached, onWarning, recordTaskLatency, setHeapProvider, setWorkerTag

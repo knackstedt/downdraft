@@ -101,17 +101,17 @@
       "downdraft-source": "./app/src/index.ts",
       "default": "./dist/app/src/index.js"
     },
-    "./app/renderer": {
-      "types": "./app/src/renderer/index.ts",
-      "downdraft-source": "./app/src/renderer/index.ts",
-      "default": "./dist/app/src/renderer/index.js"
+    "./app/main": {
+      "types": "./app/src/main/index.ts",
+      "downdraft-source": "./app/src/main/index.ts",
+      "default": "./dist/app/src/main/index.js"
     },
     "./app/shared": {
       "types": "./app/src/shared/index.ts",
       "downdraft-source": "./app/src/shared/index.ts",
       "default": "./dist/app/src/shared/index.js"
     },
-    "./app/renderer/downdraft-base.css": "./app/src/renderer/downdraft-base.css",
+    "./app/main/downdraft-base.css": "./app/src/main/downdraft-base.css",
     "./app/*": {
       "types": "./app/src/*.ts",
       "downdraft-source": "./app/src/*.ts",

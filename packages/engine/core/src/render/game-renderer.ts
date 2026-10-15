@@ -97,7 +97,7 @@ export interface GameRendererConfig {
    * leave this off so the cursor stays visible and free-moving for
    * click-to-dig / click-to-place interactions. 3D games that want pointer
    * lock can either enable this or manage pointer lock themselves (e.g.
-   * to-the-ocean uses its own RendererInputHandler and leaves this off).
+   * a game using its own input handler leaves this off).
    */
   enablePointerLock?: boolean;
   /**
@@ -866,7 +866,7 @@ export class GameRenderer implements CanvasResizeHandler {
     // Frame rate limiter: phase accumulator (skip during XR — XR drives its own cadence)
     // Accumulate real elapsed time in frame units — NOT rafInterval ratios.
     // The ratio variant starved on hosts with a faster-than-vsync rAF pump
-    // (native SDL loop ticks at ~µs cadence): updateLimiterState() resets
+    // (native pump loop ticks at ~µs cadence): updateLimiterState() resets
     // frameAccum every 60 rAF samples, and 60 × rafInterval/targetFrameTime
     // never reached 1, so present() was never called.
     if (!this.renderTargetProvider && this.limiterActive && this.targetFrameTime > 0) {

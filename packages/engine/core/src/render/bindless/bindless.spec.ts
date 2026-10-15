@@ -3,7 +3,7 @@ import { MATERIAL_STRUCT_SIZE, packHandle16 } from "./material-manager";
 
 // These tests run under Bun without a real GPUDevice; we exercise the pure
 // logic (handle packing, struct size constant). Full GPU integration is
-// verified by the to-the-ocean runtime + render specs.
+// verified by game runtime + render specs in the games that consume it.
 
 describe("BindlessMaterialManager constants", () => {
   it("MATERIAL_STRUCT_SIZE is 80 bytes (5 vec4)", () => {

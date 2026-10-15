@@ -49,7 +49,7 @@ DownDraft Engine runs as a **single native process** — winit + wgpu, hosted un
 - **Save worker** — owns the save store off the main thread; the sim worker streams serialized state to it over a `MessageChannel`
 - **Task workers** — a generic pool (`worker/task-pool.ts`) that executes dispatched jobs (meshing, asset decode, etc.)
 - **UI workers** — rasterize Blitz HTML/CSS documents for `modules/html-ui` panels off the main thread
-- **Plugin workers** — WASM plugins each run in a dedicated worker spawned by `WasmPluginLoader`; sandboxed behind tiered permissions
+- **Plugin workers** — WASM plugins each run in a dedicated worker spawned by `WasmPluginLoader`; only wasm/quickjs formats are hard-isolated — `worker-js` plugins share the host runtime's privileges (see [Plugins](/guides/plugins/))
 
 ## Build Modes
 

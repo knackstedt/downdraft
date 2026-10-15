@@ -14,6 +14,7 @@
 // touch the GPU.
 // ============================================================================
 
+import { assertPlatformAbi } from "../ffi/abi";
 import { dlopen, type CFunction, type ptr } from "../ffi/ffi-adapter";
 import { resolvePlatformLibrary, resolveShimLibrary } from "../ffi/lib-paths";
 
@@ -370,9 +371,12 @@ let _wgpu: WgpuShimSymbols | null = null;
 let _wgpuAsync: WgpuAsyncSymbols | null | undefined;
 
 function wgpuShimPath(): string {
-  return process.env.WGPU_SHIM_PATH
-    ? resolveShimLibrary("wgpu_shim", "WGPU_SHIM_PATH")
-    : resolvePlatformLibrary();
+  if (process.env.WGPU_SHIM_PATH) {
+    return resolveShimLibrary("wgpu_shim", "WGPU_SHIM_PATH");
+  }
+  const libPath = resolvePlatformLibrary();
+  assertPlatformAbi(libPath);
+  return libPath;
 }
 
 function loadWgpu(): WgpuShimSymbols {

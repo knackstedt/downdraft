@@ -1,7 +1,7 @@
 // ============================================================================
 // bindDebugStore — bind debug-store fields to renderer setters.
 //
-// Generalized from to-the-ocean's main.tsx debug-visualization block:
+// Generalized from a game's renderer-entry debug-visualization block:
 //   useDebugStore.subscribe((s) => s.showHitboxes, (v) => renderer.setShowHitboxes(v));
 //   ...
 //

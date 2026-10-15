@@ -1,5 +1,5 @@
 // ============================================================================
-// native-surface.ts — HTMLCanvasElement-compatible surface backed by SDL2 + wgpu
+// native-surface.ts — HTMLCanvasElement-compatible surface backed by winit + wgpu
 //
 // Implements the subset of HTMLCanvasElement that the engine's SurfaceManager
 // and CanvasResizeWatcher need:
@@ -192,7 +192,7 @@ export class NativeCanvasContext {
     if (this.currentTexture) return this.currentTexture;
 
     // Deferred resize — the swapchain is rebuilt here, at acquire time, so a
-    // storm of SDL resize events costs at most one reconfigure per frame and
+    // storm of native resize events costs at most one reconfigure per frame and
     // a reconfigure can never land while a surface texture is outstanding.
     if (this.width !== this.configuredWidth || this.height !== this.configuredHeight) {
       this.applyConfigure();
@@ -301,7 +301,7 @@ export class NativeCanvasContext {
 
   present(): void {
     // Nothing acquired this frame → nothing to present. Games with
-    // dirty-tracking (e.g. mining-rpg) skip all render work on idle frames
+    // dirty-tracking skip all render work on idle frames
     // and rely on the canvas retaining the last presented frame. Calling
     // wgpuSurfacePresent without an outstanding surface texture presents
     // an empty swapchain image (black), so skip it — and keep pre-present
@@ -345,7 +345,7 @@ export class NativeCanvasContext {
     // destroy it so getCurrentTexture() re-acquires at the new size.
     this.dropCurrentTexture();
     // NOTE: no wgpuSurfaceConfigure here. The swapchain rebuild is deferred
-    // to the next getCurrentTexture() — SDL delivers a resize event per
+    // to the next getCurrentTexture() — the native loop delivers a resize event per
     // pixel during drags (and a burst on maximize), and each eager
     // reconfigure tore down + recreated the whole swapchain mid-storm,
     // which is what wedged the GPU in practice.
@@ -375,7 +375,7 @@ export class NativeSurface extends MiniEventTarget {
   private surfacePtr: ptr;
   private _pointerLocked = false;
   /** CSSStyleDeclaration stand-in — renderers set style props (opacity,
-   *  cursor, imageRendering); all writes are no-ops under SDL. */
+   *  cursor, imageRendering); all writes are no-ops on the native surface. */
   readonly style: Record<string, any> = {};
   /** Canvas id (renderers query element ids for multi-canvas setups). */
   id = "game-canvas";
@@ -442,7 +442,7 @@ export class NativeSurface extends MiniEventTarget {
 
   requestPointerLock(): Promise<void> | void {
     this._pointerLocked = true;
-    // Grab mouse + keyboard via SDL. The OS grab only applies once the
+    // Grab mouse + keyboard via the native window. The OS grab only applies once the
     // window is focused AND the player has produced a real input gesture
     // (click/keypress/touch) — a request made earlier (e.g. at boot) stays
     // pending and captures on the first click; it can never seize the

@@ -431,7 +431,7 @@ describe("buffer-sync", () => {
     });
   });
 
-  describe("embedded input pattern (sandjongg)", () => {
+  describe("embedded input pattern", () => {
     it("main sends only 64-byte input region, worker sends everything else", () => {
       const TOTAL = 1024;
       const INPUT_OFFSET = 512;

@@ -619,10 +619,10 @@ function makeStateStore(_pluginId: string): PluginStateStore {
     },
     keys: (): string[] => [...store.keys()],
     save: async (): Promise<void> => {
-      /* OPFS persistence wired in Phase 2 (storage permission) */
+      /* Plugin KV persistence wired in Phase 2 (storage permission) */
     },
     load: async (): Promise<void> => {
-      /* OPFS load wired in Phase 2 */
+      /* Plugin KV load wired in Phase 2 */
     },
   };
 }

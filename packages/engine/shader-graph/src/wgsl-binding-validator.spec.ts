@@ -205,9 +205,9 @@ describe("assertNoDuplicateBindings", () => {
 
   it("warns (not throws) in non-strict mode when duplicates exist", () => {
     const warnSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
-    // Force non-strict: DOWNDRAFT_STRICT unset and import.meta.env.DEV falsy.
-    const origStrict = process.env.DOWNDRAFT_STRICT;
-    delete process.env.DOWNDRAFT_STRICT;
+    // Force non-strict: DOWNDRAFT_STRICT_DIAGNOSTICS unset and import.meta.env.DEV falsy.
+    const origStrict = process.env.DOWNDRAFT_STRICT_DIAGNOSTICS;
+    delete process.env.DOWNDRAFT_STRICT_DIAGNOSTICS;
     const src = `
 @group(1) @binding(0) var<storage, read> lightData: LightStorage;
 @group(1) @binding(0) var<storage, read> lightData: array<vec4<f32>>;
@@ -219,12 +219,12 @@ describe("assertNoDuplicateBindings", () => {
       .find((s) => s.includes("duplicate"));
     expect(warnLine).toContain("@group(1) @binding(0)");
     warnSpy.mockRestore();
-    if (origStrict !== undefined) process.env.DOWNDRAFT_STRICT = origStrict;
+    if (origStrict !== undefined) process.env.DOWNDRAFT_STRICT_DIAGNOSTICS = origStrict;
   });
 
-  it("throws in DOWNDRAFT_STRICT mode when duplicates exist", () => {
-    const origStrict = process.env.DOWNDRAFT_STRICT;
-    process.env.DOWNDRAFT_STRICT = "1";
+  it("throws in DOWNDRAFT_STRICT_DIAGNOSTICS mode when duplicates exist", () => {
+    const origStrict = process.env.DOWNDRAFT_STRICT_DIAGNOSTICS;
+    process.env.DOWNDRAFT_STRICT_DIAGNOSTICS = "1";
     const src = `
 @group(2) @binding(0) var brdfLUT: texture_2d<f32>;
 @group(2) @binding(0) var brdfLUT: texture_2d<f32>;
@@ -232,7 +232,7 @@ describe("assertNoDuplicateBindings", () => {
     expect(() => assertNoDuplicateBindings(src)).toThrow(
       /duplicate @group\/@binding var declarations/i,
     );
-    if (origStrict === undefined) delete process.env.DOWNDRAFT_STRICT;
-    else process.env.DOWNDRAFT_STRICT = origStrict;
+    if (origStrict === undefined) delete process.env.DOWNDRAFT_STRICT_DIAGNOSTICS;
+    else process.env.DOWNDRAFT_STRICT_DIAGNOSTICS = origStrict;
   });
 });

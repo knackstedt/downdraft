@@ -1,7 +1,7 @@
 import type { SaveOptions, SaveState } from "@downdraft/engine";
 import { beforeEach, describe, expect, it } from "bun:test";
-import { createMockOpfsRoot, type MockDirHandle } from "./mock-opfs";
-import { OpfsSaveStore } from "./opfs-save-store";
+import { createMockDirRoot, type MockDirHandle } from "./mock-fs-handles";
+import { DirectorySaveStore } from "./directory-save-store";
 
 // ============================================================================
 // Test compression: prefix byte + copy (same as file-save-store.spec.ts)
@@ -45,8 +45,8 @@ function makeState(entityCount: number = 42, playerCount: number = 1): SaveState
   };
 }
 
-function createStore(root: MockDirHandle): OpfsSaveStore {
-  const store = new OpfsSaveStore({
+function createStore(root: MockDirHandle): DirectorySaveStore {
+  const store = new DirectorySaveStore({
     rootDir: root,
     engineVersion: "0.1.0",
     compress: testCompress,
@@ -61,12 +61,12 @@ function createStore(root: MockDirHandle): OpfsSaveStore {
 // Tests
 // ============================================================================
 
-describe("OpfsSaveStore", () => {
+describe("DirectorySaveStore", () => {
   let root: MockDirHandle;
-  let store: OpfsSaveStore;
+  let store: DirectorySaveStore;
 
   beforeEach(async () => {
-    root = createMockOpfsRoot();
+    root = createMockDirRoot();
     store = createStore(root);
     await store.init();
   });

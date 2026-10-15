@@ -228,7 +228,7 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
   if (bootAborted()) return;
 
   // 4. Wire DevTools (if provided) — runs BEFORE onRendererInit so that
-  //    games can access the ProfilingBridge + __sceneInspector API in onReady.
+  //    games can access the ProfilingBridge + __downdraftDevtools API in onReady.
   if (opts.devtools) {
     const devtoolsMod = await importOrDead(devtoolsModuleP ?? import("@downdraft/engine/modules/devtools"), bootSession);
     if (!devtoolsMod) return;
@@ -249,7 +249,7 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
       try { devtoolsBridge.destroy(); } catch {}
       return;
     }
-    // The bridge exposes `window.__sceneInspector` on the PERSISTENT window —
+    // The bridge exposes `window.__downdraftDevtools` on the PERSISTENT window —
     // its methods close over `renderer`, so without a destroy on session
     // teardown the old session's renderer (and through it the whole module
     // graph) stays rooted across hot-reload restarts.
@@ -268,8 +268,8 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
         if (!mod) return;
         const { wireProfilingBridge } = mod;
         const bridge =
-          (globalThis as Record<string, any>).window?.__sceneInspector?.__getProfilingBridge?.()
-          ?? (globalThis as Record<string, any>).__sceneInspector?.__getProfilingBridge?.()
+          (globalThis as Record<string, any>).window?.__downdraftDevtools?.__getProfilingBridge?.()
+          ?? (globalThis as Record<string, any>).__downdraftDevtools?.__getProfilingBridge?.()
           ?? null;
         if (bridge) {
           // workerHosts entries are {prefix, proxy} — the devtools proxy
@@ -323,8 +323,8 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
       try {
         const uiCfg = typeof uiOpt === "object" ? uiOpt : {};
         const profilingSAB =
-          (globalThis as Record<string, any>).window?.__sceneInspector?.__getProfilingBridge?.()?.getProfilingSAB?.()
-          ?? (globalThis as Record<string, any>).__sceneInspector?.__getProfilingBridge?.()?.getProfilingSAB?.()
+          (globalThis as Record<string, any>).window?.__downdraftDevtools?.__getProfilingBridge?.()?.getProfilingSAB?.()
+          ?? (globalThis as Record<string, any>).__downdraftDevtools?.__getProfilingBridge?.()?.getProfilingSAB?.()
           ?? null;
         if (uiKind === "blitz") {
           const mod = await importOrDead(devtoolsModuleP ?? import("@downdraft/engine/modules/devtools"), bootSession);
@@ -374,7 +374,7 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
   }
 
   // 4c. onRendererInit — library setup, sim start, game-specific wiring (onReady).
-  //     DevTools is already wired, so games can access __sceneInspector +
+  //     DevTools is already wired, so games can access __downdraftDevtools +
   //     the ProfilingBridge from their onReady hook.
   if (opts.onRendererInit) {
     await importOrDead(Promise.resolve(opts.onRendererInit(renderer)), bootSession);
@@ -430,11 +430,11 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
   }
 
   // 9. Autosave load + interval (skip in deterministic mode).
-  //    The load has a 5s timeout so a locked IndexedDB doesn't block the
+  //    The load has a 5s timeout so a slow store doesn't block the
   //    autosave interval setup. The interval guards against overlapping
   //    saves — if a save takes longer than the interval (e.g. the worker is
-  //    busy or OPFS is slow), the tick is skipped instead of piling up
-  //    concurrent saves that can corrupt OPFS data or hang on file locks.
+  //    busy or the disk is slow), the tick is skipped instead of piling up
+  //    concurrent saves that can corrupt data or hang on file locks.
   if (opts.autosave && !deterministic) {
     const autosaveOpts = opts.autosave;
     const intervalMs = autosaveOpts.intervalMs ?? 3000;

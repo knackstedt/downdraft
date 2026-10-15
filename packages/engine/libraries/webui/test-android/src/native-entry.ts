@@ -33,8 +33,8 @@ const HTML = `<!doctype html><html><body style="margin:0;background:#123">
     console.log("clicked:" + e.clientX + "," + e.clientY);
   });
   document.addEventListener("keydown", (e) => console.log("key:" + e.key));
-  window.downdraft.onMessage((msg) => {
-    window.downdraft.postMessage({ echo: msg });
+  globalThis.downdraft.onMessage((msg) => {
+    globalThis.downdraft.postMessage({ echo: msg });
   });
 <\/script>
 </body></html>`;

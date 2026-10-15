@@ -3,12 +3,12 @@
 //!
 //! Lifecycle: `run_app` → `EventLoop::run_app(AndroidPump)` on this thread
 //! (it never returns). `resumed` creates the deferred window once
-//! `sdl_shim_create_window` has recorded a request; `suspended` drops it so
+//! `dd_window_create` has recorded a request; `suspended` drops it so
 //! wgpu surfaces invalidate; touch/keyboard events translate through the same
 //! code desktop uses.
 //!
 //! Ordering: Android fires `resumed` as soon as the surface exists — usually
-//! long before Node/JS has booted and called sdl_shim_create_window. So the
+//! long before Node/JS has booted and called dd_window_create. So the
 //! JS-side request wakes the loop via an EventLoopProxy (user_event) — the
 //! window is created by whichever arrives second: resumed() or the request.
 
@@ -28,7 +28,7 @@ use winit::window::Window;
 use super::events::{self, Ev};
 use super::{cstr_title, install_window, CTX};
 
-/// Last window request recorded by sdl_shim_create_window (JS thread). Kept
+/// Last window request recorded by dd_window_create (JS thread). Kept
 /// (not consumed) so resume-after-suspend can recreate the window — JS never
 /// re-issues the request.
 static REQ: Mutex<Option<(String, u32, u32)>> = Mutex::new(None);
@@ -145,7 +145,7 @@ impl winit::application::ApplicationHandler for AndroidPump {
         events::push(0, Ev::Suspended);
     }
 
-    /// Wakeup sent by sdl_shim_create_window — if the loop is already resumed
+    /// Wakeup sent by dd_window_create — if the loop is already resumed
     /// this is what actually creates the window (the request may arrive long
     /// after the first resumed). Deferred surface releases drain here too.
     fn user_event(&mut self, el: &ActiveEventLoop, _ev: ()) {
@@ -180,7 +180,7 @@ impl winit::application::ApplicationHandler for AndroidPump {
 /// RESUMED on the wire tells JS the surface is ready.
 /// Returns 0 = accepted, 2 = already live.
 #[no_mangle]
-pub extern "C" fn sdl_shim_create_window(
+pub extern "C" fn dd_window_create(
     title: *const c_char,
     width: c_int,
     height: c_int,
@@ -320,6 +320,6 @@ mod choreo {
 /// Arm/disarm vsync ticks. No-op off-Android (the symbol exists on every
 /// build so the JS side can call unconditionally).
 #[no_mangle]
-pub extern "C" fn sdl_shim_set_vsync_wanted(wanted: c_int) {
+pub extern "C" fn dd_window_set_vsync_wanted(wanted: c_int) {
     choreo::set_wanted(wanted != 0);
 }

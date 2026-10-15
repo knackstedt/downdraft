@@ -101,7 +101,7 @@ interface ProfilingBridgeLike {
 
 /** Resolve the game's ProfilingBridge (created by initDevTools in onReady). */
 function getProfilingBridge(): ProfilingBridgeLike | null {
-  const api = ((globalThis as any).window?.__sceneInspector ?? (globalThis as any).__sceneInspector) as
+  const api = ((globalThis as any).window?.__downdraftDevtools ?? (globalThis as any).__downdraftDevtools) as
     | { __getProfilingBridge?: () => ProfilingBridgeLike }
     | undefined;
   return api?.__getProfilingBridge?.() ?? null;

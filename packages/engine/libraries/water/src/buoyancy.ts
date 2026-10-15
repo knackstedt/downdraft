@@ -1,6 +1,6 @@
 // ============================================================================
 // Buoyancy System — applies water height-based forces to ships/entities
-// Originally based on to-the-ocean's buoyancy implementation
+// Originally based on a game's buoyancy implementation
 // ============================================================================
 
 import type { WaterPhysics } from "./water-physics";

@@ -1,11 +1,11 @@
 // ============================================================================
 // wireProfilingBridge — shared profiling wiring.
 //
-// Generalized from to-the-ocean's main.tsx + sandjongg's game-module.tsx.
+// Generalized from early games' renderer-entry profiling hooks.
 //
 // wireProfilingBridge() connects the ProfilingBridge (created by
 // initDevTools({ profiling: true }) and exposed via
-// window.__sceneInspector.__getProfilingBridge()) into the render loop:
+// window.__downdraftDevtools.__getProfilingBridge()) into the render loop:
 //   - wraps the renderer's beforeFrame/afterFrame callbacks with
 //     bridge.tick() / bridge.endFrame()
 //   - shares the ProfilingSAB with the given worker hosts so each can claim
@@ -51,13 +51,13 @@ export interface WireProfilingBridgeOptions {
    * or `{ host, workerTag }` to override the "sim" slot tag.
    */
   workerHosts?: Array<ProfilingWireHost | { host: ProfilingWireHost | null | undefined; workerTag?: string } | null | undefined>;
-  /** Explicit bridge — defaults to window.__sceneInspector.__getProfilingBridge(). */
+  /** Explicit bridge — defaults to window.__downdraftDevtools.__getProfilingBridge(). */
   bridge?: ProfilingBridge | null;
 }
 
 function getProfilingBridge(explicit?: ProfilingBridge | null): ProfilingBridge | null {
   if (explicit) return explicit;
-  return (window as any).__sceneInspector?.__getProfilingBridge?.() ?? null;
+  return (window as any).__downdraftDevtools?.__getProfilingBridge?.() ?? null;
 }
 
 /**

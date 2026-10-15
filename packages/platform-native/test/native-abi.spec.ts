@@ -24,6 +24,8 @@ const FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
 // eagerly — a missing export throws at open time, which is exactly the
 // contract we want to enforce.
 const GROUPS: Record<string, string[]> = {
+  // ABI handshake — the one symbol whose name must never change.
+  meta: ["dd_abi_version"],
   image: [
     "image_shim_decode",
     "image_shim_decode_file",
@@ -36,31 +38,31 @@ const GROUPS: Record<string, string[]> = {
     "ft_shim_measure",
     "ft_shim_done",
   ],
-  sdl: [
-    "sdl_shim_create_window",
-    "sdl_shim_get_window_subsystem",
-    "sdl_shim_get_window_size",
-    "sdl_shim_set_window_title",
-    "sdl_shim_focus_window",
-    "sdl_shim_poll_event",
-    "sdl_shim_wait_event",
-    "sdl_shim_grab_input",
-    "sdl_shim_start_text_input",
-    "sdl_shim_stop_text_input",
-    "sdl_shim_set_text_input_rect",
-    "sdl_shim_destroy_window",
-    "sdl_shim_delay",
-    "sdl_shim_create_wgpu_surface",
-    "sdl_shim_set_fullscreen",
-    "sdl_shim_get_window_pos",
-    "sdl_shim_set_window_pos",
-    "sdl_shim_get_window_borders",
-    "sdl_shim_set_window_size",
-    "sdl_shim_get_display_info",
-    "sdl_shim_request_quit",
-    "sdl_shim_show_message_box",
-    "sdl_shim_set_clipboard",
-    "sdl_shim_get_clipboard",
+  win: [
+    "dd_window_create",
+    "dd_window_get_subsystem",
+    "dd_window_get_size",
+    "dd_window_set_title",
+    "dd_window_focus",
+    "dd_window_poll_event",
+    "dd_window_wait_event",
+    "dd_window_grab_input",
+    "dd_window_start_text_input",
+    "dd_window_stop_text_input",
+    "dd_window_set_text_input_rect",
+    "dd_window_destroy",
+    "dd_window_delay",
+    "dd_window_create_wgpu_surface",
+    "dd_window_set_fullscreen",
+    "dd_window_get_pos",
+    "dd_window_set_pos",
+    "dd_window_get_borders",
+    "dd_window_set_size",
+    "dd_window_get_display_info",
+    "dd_window_request_quit",
+    "dd_window_show_message_box",
+    "dd_window_set_clipboard",
+    "dd_window_get_clipboard",
   ],
   // Phase 5: full wgpu_shim_* surface (wgpu crate port of wgpu_shim.c).
   wgpu: [
@@ -174,6 +176,14 @@ const itIf = (cond: boolean) =>
   cond ? test : (test as unknown as { skip: typeof test }).skip;
 
 describe("downdraft_platform ABI", () => {
+  itIf(!!libPath)("dd_abi_version returns the expected ABI version", async () => {
+    const { symbols } = dlopen(libPath!, {
+      dd_abi_version: { args: [], returns: "u32" },
+    });
+    const { EXPECTED_PLATFORM_ABI } = await import("../src/ffi/abi");
+    expect(symbols.dd_abi_version()).toBe(EXPECTED_PLATFORM_ABI);
+  });
+
   for (let _i = 0, _it = Object.entries(GROUPS), _n = _it.length; _i < _n; _i++) {
     const [group, symbols] = _it[_i];
     itIf(!!libPath)(`exports all ${group} symbols`, () => {
@@ -258,60 +268,60 @@ describe("downdraft_platform ABI", () => {
   });
 
   const hasDisplay = !!process.env.DISPLAY || !!process.env.WAYLAND_DISPLAY;
-  itIf(!!libPath && hasDisplay)("sdl_shim window lifecycle + quit injection", () => {
+  itIf(!!libPath && hasDisplay)("dd_window window lifecycle + quit injection", () => {
     const { symbols } = dlopen(libPath!, {
-      sdl_shim_create_window: { args: ["cstring", "i32", "i32"], returns: "i32" },
-      sdl_shim_get_window_subsystem: { args: [], returns: "i32" },
-      sdl_shim_get_window_size: { args: ["ptr", "ptr"], returns: "void" },
-      sdl_shim_set_window_title: { args: ["cstring"], returns: "void" },
-      sdl_shim_poll_event: { args: ["ptr"], returns: "i32" },
-      sdl_shim_wait_event: { args: ["ptr", "u32"], returns: "i32" },
-      sdl_shim_request_quit: { args: [], returns: "void" },
-      sdl_shim_get_display_info: { args: ["ptr", "ptr"], returns: "void" },
-      sdl_shim_destroy_window: { args: [], returns: "void" },
-      sdl_shim_delay: { args: ["u32"], returns: "void" },
+      dd_window_create: { args: ["cstring", "i32", "i32"], returns: "i32" },
+      dd_window_get_subsystem: { args: [], returns: "i32" },
+      dd_window_get_size: { args: ["ptr", "ptr"], returns: "void" },
+      dd_window_set_title: { args: ["cstring"], returns: "void" },
+      dd_window_poll_event: { args: ["ptr"], returns: "i32" },
+      dd_window_wait_event: { args: ["ptr", "u32"], returns: "i32" },
+      dd_window_request_quit: { args: [], returns: "void" },
+      dd_window_get_display_info: { args: ["ptr", "ptr"], returns: "void" },
+      dd_window_destroy: { args: [], returns: "void" },
+      dd_window_delay: { args: ["u32"], returns: "void" },
     });
 
     try {
-      expect(symbols.sdl_shim_create_window("abi-test", 320, 240)).toBe(0);
-      // X11/Wayland/Windows/Cocoa → SDL_SYSWM tags 2/3/1/4.
-      expect(symbols.sdl_shim_get_window_subsystem()).toBeGreaterThan(0);
+      expect(symbols.dd_window_create("abi-test", 320, 240)).toBe(0);
+      // X11/Wayland/Windows/Cocoa → subsystem tags 2/3/1/4.
+      expect(symbols.dd_window_get_subsystem()).toBeGreaterThan(0);
 
       const w = new Int32Array(1);
       const h = new Int32Array(1);
-      symbols.sdl_shim_get_window_size(ptr(w), ptr(h));
+      symbols.dd_window_get_size(ptr(w), ptr(h));
       expect(w[0]).toBeGreaterThan(0);
       expect(h[0]).toBeGreaterThan(0);
-      symbols.sdl_shim_set_window_title("abi-test-2");
+      symbols.dd_window_set_title("abi-test-2");
 
       const refresh = new Int32Array(1);
       const scale = new Float32Array(1);
-      symbols.sdl_shim_get_display_info(ptr(refresh), ptr(scale));
+      symbols.dd_window_get_display_info(ptr(refresh), ptr(scale));
       expect(scale[0]).toBeGreaterThan(0);
 
-      // request_quit → next poll returns SDL_SHIM_EVENT_QUIT (1).
+      // request_quit → next poll returns DD_WINDOW_EVENT_QUIT (1).
       const ev = new Int32Array(8);
-      symbols.sdl_shim_request_quit();
-      expect(symbols.sdl_shim_poll_event(ptr(ev))).toBe(1);
+      symbols.dd_window_request_quit();
+      expect(symbols.dd_window_poll_event(ptr(ev))).toBe(1);
       // Queue now drains empty → NONE (0), no crash on repeats.
-      for (let i = 0; i < 4; i++) symbols.sdl_shim_poll_event(ptr(ev));
-      symbols.sdl_shim_delay(1);
+      for (let i = 0; i < 4; i++) symbols.dd_window_poll_event(ptr(ev));
+      symbols.dd_window_delay(1);
     } finally {
-      symbols.sdl_shim_destroy_window();
+      symbols.dd_window_destroy();
     }
     // After destroy, poll → NONE even if a quit was pending.
     const ev = new Int32Array(8);
-    symbols.sdl_shim_request_quit();
-    expect(symbols.sdl_shim_poll_event(ptr(ev))).toBe(0);
+    symbols.dd_window_request_quit();
+    expect(symbols.dd_window_poll_event(ptr(ev))).toBe(0);
   });
 
   // Full swapchain path: real X11 window → wgpu surface → configure →
   // acquire → present. The path that broke most often in the C shims.
   itIf(!!libPath && hasDisplay)("window → wgpu surface acquire/present", () => {
     const { symbols: s } = dlopen(libPath!, {
-      sdl_shim_create_window: { args: ["cstring", "i32", "i32"], returns: "i32" },
-      sdl_shim_create_wgpu_surface: { args: ["ptr"], returns: "ptr" },
-      sdl_shim_destroy_window: { args: [], returns: "void" },
+      dd_window_create: { args: ["cstring", "i32", "i32"], returns: "i32" },
+      dd_window_create_wgpu_surface: { args: ["ptr"], returns: "ptr" },
+      dd_window_destroy: { args: [], returns: "void" },
     });
     const { symbols: w } = dlopen(libPath!, {
       wgpu_shim_create_instance: { args: [], returns: "ptr" },
@@ -337,8 +347,8 @@ describe("downdraft_platform ABI", () => {
     const device = w.wgpu_shim_request_device(adapter, null, 0, null, 0);
     let surface: unknown = 0n;
     try {
-      expect(s.sdl_shim_create_window("abi-surface", 160, 120)).toBe(0);
-      surface = s.sdl_shim_create_wgpu_surface(instance);
+      expect(s.dd_window_create("abi-surface", 160, 120)).toBe(0);
+      surface = s.dd_window_create_wgpu_surface(instance);
       expect(surface).not.toBe(0n);
 
       const fmt = w.wgpu_shim_get_preferred_format();
@@ -354,7 +364,7 @@ describe("downdraft_platform ABI", () => {
       w.wgpu_shim_release_texture(Number(texOut[0]));
     } finally {
       w.wgpu_shim_release_surface(surface);
-      s.sdl_shim_destroy_window();
+      s.dd_window_destroy();
       w.wgpu_shim_release_device(device);
       w.wgpu_shim_release_adapter(adapter);
       w.wgpu_shim_release_instance(instance);

@@ -1,10 +1,16 @@
 // ============================================================================
-// OpfsSaveStore — OPFS-backed ISaveStore with generation history, blobs,
-// thumbnails, and properties. Runs in Web Workers (sync access handles) or
-// on the main thread (async writable streams).
+// DirectorySaveStore — directory-handle ISaveStore with generation history,
+// blobs, thumbnails, and properties.
+//
+// The store operates on a minimal FileSystemDirectoryHandle surface. Pass
+// `rootDir` explicitly, or let init() resolve one:
+//   - environments with `navigator.storage.getDirectory()` (browsers) use OPFS
+//   - Bun/Node/Deno workers fall back to `createNodeFsDirectoryHandle()` rooted
+//     at $DOWNDRAFT_USER_DATA (set by the native host), $DOWNDRAFT_DATA_DIR
+//     (Android), or `<cwd>/downdraft-saves`.
 // ============================================================================
 //
-// Directory layout in OPFS:
+// Directory layout under the root:
 //   <root>/saves/
 //     <slot>/
 //       meta.json              — slot metadata (currentGen, generations[], properties)
@@ -53,8 +59,9 @@ const HASH_FILE = "body.hash";
 const BLOBS_DIR = "blobs";
 const META_FORMAT_VERSION = 1;
 
-// ── OPFS type helpers ──────────────────────────────────────────────────────
-// Minimal OPFS types to avoid depending on lib.dom.d.ts worker-augmented defs.
+// ── FS handle type helpers ─────────────────────────────────────────────────
+// Minimal File System Access types to avoid depending on lib.dom.d.ts
+// worker-augmented defs.
 
 interface FsDirHandle {
   kind: "directory";
@@ -117,10 +124,11 @@ interface SlotMeta {
 
 // ── Options ────────────────────────────────────────────────────────────────
 
-export interface OpfsSaveStoreOptions {
+export interface DirectorySaveStoreOptions {
   /**
-   * Root OPFS directory handle. If not provided, `navigator.storage.getDirectory()`
-   * is called and a `downdraft/` subdirectory is created.
+   * Root directory handle. If not provided, init() uses
+   * `navigator.storage.getDirectory()` when available, else a node-fs-backed
+   * handle rooted at $DOWNDRAFT_DATA_DIR or `<cwd>/downdraft-saves`.
    */
   rootDir?: FsDirHandle;
   /** Subdirectory name under root for saves. Default: "saves". */
@@ -141,9 +149,9 @@ export interface OpfsSaveStoreOptions {
   skipMigrations?: boolean;
 }
 
-// ── OpfsSaveStore ──────────────────────────────────────────────────────────
+// ── DirectorySaveStore ──────────────────────────────────────────────────────────
 
-export class OpfsSaveStore implements ISaveStore {
+export class DirectorySaveStore implements ISaveStore {
   private savesDir: FsDirHandle | null = null;
   private engineVersionPacked: number;
   private defaultMaxGenerations: number;
@@ -157,7 +165,7 @@ export class OpfsSaveStore implements ISaveStore {
   private _rootDir: FsDirHandle | null;
   private _savesDirName: string;
 
-  constructor(opts: OpfsSaveStoreOptions) {
+  constructor(opts: DirectorySaveStoreOptions) {
     this._rootDir = opts.rootDir ?? null;
     this._savesDirName = opts.savesDirName ?? SAVES_DIR_NAME;
     const parts = opts.engineVersion.split(".").map(Number);
@@ -178,18 +186,27 @@ export class OpfsSaveStore implements ISaveStore {
 
   /**
    * Initialize the saves directory. Must be called before any save/load.
-   * If `rootDir` was provided in options, uses it; otherwise calls
-   * `navigator.storage.getDirectory()`.
+   * If `rootDir` was provided in options, uses it; otherwise resolves a root:
+   * `navigator.storage.getDirectory()` when available, else a node-fs handle
+   * rooted at $DOWNDRAFT_DATA_DIR or `<cwd>/downdraft-saves`.
    */
   async init(): Promise<void> {
     if (this.savesDir) return;
     let root = this._rootDir;
     if (!root) {
       const nav = globalThis as unknown as { navigator?: { storage?: { getDirectory(): Promise<FsDirHandle> } } };
-      if (!nav.navigator?.storage?.getDirectory) {
-        throw new Error("OPFS is not available in this environment");
+      if (nav.navigator?.storage?.getDirectory) {
+        root = await nav.navigator.storage.getDirectory();
+      } else if (typeof process !== "undefined" && process.versions?.node) {
+        const { createNodeFsDirectoryHandle } = await import("./node-fs-directory-handle");
+        const { join } = await import("node:path");
+        const base = process.env.DOWNDRAFT_USER_DATA
+          ?? process.env.DOWNDRAFT_DATA_DIR
+          ?? join(process.cwd(), "downdraft-saves");
+        root = createNodeFsDirectoryHandle(base) as unknown as FsDirHandle;
+      } else {
+        throw new Error("No directory backend available — pass rootDir explicitly");
       }
-      root = await nav.navigator.storage.getDirectory();
     }
     // Create downdraft/ subdirectory, then saves/ under it
     const ddDir = await root.getDirectoryHandle("downdraft", { create: true });
@@ -206,7 +223,7 @@ export class OpfsSaveStore implements ISaveStore {
 
   private ensureInit(): FsDirHandle {
     if (!this.savesDir) {
-      throw new Error("OpfsSaveStore not initialized — call init() first");
+      throw new Error("DirectorySaveStore not initialized — call init() first");
     }
     return this.savesDir;
   }
@@ -334,7 +351,7 @@ export class OpfsSaveStore implements ISaveStore {
   // ── ISaveStore: save ────────────────────────────────────────────────────
 
   /** Serializes concurrent save() calls so they don't overlap.
-   *  Concurrent OPFS writes to the same files (body.zst, meta.json, blobs)
+   *  Concurrent writes to the same files (body.zst, meta.json, blobs)
    *  can corrupt save data or hang on file locks. The chain resolves even
    *  when a save rejects so subsequent saves aren't permanently blocked. */
   private saveChain: Promise<unknown> = Promise.resolve();
@@ -419,7 +436,7 @@ export class OpfsSaveStore implements ISaveStore {
       const totalBytes = compressed.length + hashBytes.length + (opts?.blobs ? Object.values(opts.blobs).reduce((s, b) => s + b.byteLength, 0) : 0);
       return { success: true, bytes: totalBytes, gen: currentGen };
     } catch (err) {
-      log.error("opfs-save-store", `Save failed for slot '${slot}': ${err}`);
+      log.error("directory-save-store", `Save failed for slot '${slot}': ${err}`);
       return { success: false, bytes: 0 };
     }
   }
@@ -441,8 +458,9 @@ export class OpfsSaveStore implements ISaveStore {
       slotDir = await this.getSlotDir(slot, false);
     } catch (err) {
       // Slot directory doesn't exist (first run / no save yet) — expected,
-      // not an error. Real OPFS throws a DOMException with name "NotFoundError";
-      // the mock OPFS throws a plain Error with "not found" in the message.
+      // not an error. Real FS Access handles throw a DOMException with name
+      // "NotFoundError"; the mock handles throw a plain Error with "not
+      // found" in the message.
       const name = (err as DOMException)?.name;
       const msg = (err as Error)?.message ?? "";
       const isNotFound = name === "NotFoundError" || name === "TypeMismatchError" ||
@@ -451,7 +469,7 @@ export class OpfsSaveStore implements ISaveStore {
         this.warn({ kind: "no_saves_found", slot, message: `No save slot '${slot}' found` });
         return { state: null };
       }
-      log.error("opfs-save-store", `Failed to access slot '${slot}': ${err}`);
+      log.error("directory-save-store", `Failed to access slot '${slot}': ${err}`);
       return { state: null };
     }
     try {
@@ -487,7 +505,7 @@ export class OpfsSaveStore implements ISaveStore {
       this.warn({ kind: "no_saves_found", slot, message: `No valid save found for slot '${slot}'` });
       return { state: null };
     } catch (err) {
-      log.error("opfs-save-store", `Load failed for slot '${slot}': ${err}`);
+      log.error("directory-save-store", `Load failed for slot '${slot}': ${err}`);
       return { state: null };
     }
   }
@@ -576,7 +594,7 @@ export class OpfsSaveStore implements ISaveStore {
 
       return { state, blobs };
     } catch (err) {
-      log.warn("opfs-save-store", `loadFromGen ${genMeta.gen} failed: ${err}`);
+      log.warn("directory-save-store", `loadFromGen ${genMeta.gen} failed: ${err}`);
       return { state: null };
     }
   }
@@ -644,7 +662,7 @@ export class OpfsSaveStore implements ISaveStore {
       const saves = this.ensureInit();
       const safeSlot = this.sanitizeSlot(slot);
       await this.removeRecursive(saves, safeSlot);
-      log.info("opfs-save-store", `Deleted slot '${slot}'`);
+      log.info("directory-save-store", `Deleted slot '${slot}'`);
       return true;
     } catch {
       return false;

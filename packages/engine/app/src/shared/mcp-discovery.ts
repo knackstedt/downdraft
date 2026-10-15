@@ -23,8 +23,9 @@ export function mcpPortDir(): string {
 /**
  * Write `~/.downdraft/port/<pid>` containing the bound port, so the stdio
  * bridge (and other local clients) can discover this instance. Also writes
- * `<pid>.token` holding the transport's bearer token — clients that opt into
- * auth (`mcp.requireAuth` / `MCP_AUTH=1`) read it and send the token via the
+ * `<pid>.token` holding the transport's bearer token — auth is on by default
+ * (`mcp.requireAuth` / `MCP_AUTH=0` to disable), so clients read it and send
+ * the token via the
  * `Authorization: Bearer <token>` or `X-Downdraft-Token` header. The port
  * file format stays a bare number for backward compatibility with existing
  * bridges. Returns a cleanup function that removes both files (best-effort).

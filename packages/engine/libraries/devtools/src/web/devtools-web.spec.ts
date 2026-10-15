@@ -212,10 +212,10 @@ describe("WebDevtoolsMirror over WS", () => {
     expect(threads.some((t) => t.id === "sim")).toBe(true);
   });
 
-  it("inspector.call invokes window.__sceneInspector methods", async () => {
+  it("inspector.call invokes window.__downdraftDevtools methods", async () => {
     const g = globalThis as Record<string, unknown>;
     const win = (g.window ??= {}) as Record<string, unknown>;
-    win.__sceneInspector = { getVersion: () => "1.2.3", add: (a: number, b: number) => a + b };
+    win.__downdraftDevtools = { getVersion: () => "1.2.3", add: (a: number, b: number) => a + b };
     expect(await client.call("inspector.call", { method: "getVersion" })).toBe("1.2.3");
     expect(await client.call("inspector.call", { method: "add", args: [2, 3] })).toBe(5);
   });

@@ -13,7 +13,7 @@
 // ============================================================================
 
 import { execFileSync, execSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -35,6 +35,31 @@ try {
 function download(url, dest) {
   console.log(`  GET ${url}`);
   execSync(`curl -fSL "${url}" -o "${dest}"`, { stdio: "inherit" });
+}
+
+// The cdylibs in the bundle run in-process with full access — verify the
+// tarball against the .sha256 published alongside it by the native.yml
+// workflow. Mismatch = hard fail; missing checksum file = loud warning
+// (older releases predate checksum publication).
+function verifySha256(tarball, shaUrl) {
+  const shaFile = `${tarball}.sha256`;
+  try {
+    download(shaUrl, shaFile);
+  } catch {
+    console.warn(`  warning: no checksum published at ${shaUrl} — bundle integrity unverified`);
+    return;
+  }
+  const expected = readFileSync(shaFile, "utf8").trim().split(/\s+/)[0];
+  const actual = createHash("sha256").update(readFileSync(tarball)).digest("hex");
+  rmSync(shaFile, { force: true });
+  if (actual !== expected) {
+    rmSync(tarball, { force: true });
+    throw new Error(
+      `sha256 mismatch for ${tarball}\n  expected: ${expected}\n  actual:   ${actual}\n` +
+      `  The bundle may be corrupt or tampered with — refusing to install.`,
+    );
+  }
+  console.log(`  sha256 verified: ${actual}`);
 }
 
 // Stage via temp + rename: a running dev shell has the previous .so mmap'd,
@@ -68,6 +93,10 @@ function fetchArtifacts() {
     return;
   }
 
+  // Integrity failure is fatal — never fall back to installing an
+  // unverifiable or mismatched bundle.
+  verifySha256(tarball, `${url}.sha256`);
+
   rmSync(bundleDir, { recursive: true, force: true });
   mkdirSync(bundleDir, { recursive: true });
   execFileSync("tar", ["-xzf", tarball, "-C", bundleDir], { stdio: "inherit" });
@@ -97,6 +126,9 @@ console.log("Fetching native dependencies...");
 try {
   fetchArtifacts();
 } catch (e) {
-  console.warn(`artifact bundle fetch failed: ${e.message ?? e} — build locally with "bun run build:native"`);
+  // Non-zero exit: a checksum mismatch or corrupt bundle must not silently
+  // degrade to "skipped" — the cdylibs run in-process with full access.
+  console.error(`artifact bundle fetch failed: ${e.message ?? e}`);
+  process.exitCode = 1;
 }
 console.log("Done. To build the Rust natives locally: bun run build:native");

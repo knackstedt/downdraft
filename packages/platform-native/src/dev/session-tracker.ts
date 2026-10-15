@@ -1,7 +1,7 @@
 // ============================================================================
 // session-tracker.ts — per-HMR-session bookkeeping for the native dev shell
 //
-// The native HMR system keeps the process, SDL window, wgpu host device,
+// The native HMR system keeps the process, winit window, wgpu host device,
 // bridge, and MCP server alive across source edits. What changes is the
 // *session*: the game module graph, its workers, timers, listeners, and
 // renderer-created GPU devices.
@@ -9,7 +9,7 @@
 // SessionTracker is the registry that makes session teardown deterministic:
 // it wraps the global registration surfaces (timers, RAF, event listeners,
 // Worker construction) while a session runs, and tears everything down on
-// session end — including for bespoke entries (to-the-ocean) that never
+// session end — including for bespoke entries that never
 // learned the GameModule lifecycle.
 //
 // Lifecycle:
@@ -736,7 +736,7 @@ export class SessionTracker {
    * Host-internal scheduling that must survive session teardown. The
    * NativeWindow run loop reschedules itself every iteration — routing it
    * through the wrapped setImmediate would let teardown cancel the event
-   * pump entirely (dead window: no RAF dispatch, no SDL input, stale frame).
+   * pump entirely (dead window: no RAF dispatch, no window input, stale frame).
    */
   untrackedImmediate(fn: () => void): void {
     if (this.orig.setImmediate) { this.orig.setImmediate(fn); return; }

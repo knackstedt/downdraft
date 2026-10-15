@@ -61,7 +61,7 @@ describe("McpHttpTransport local-client gate", () => {
   });
 
   it("allows requests with no Origin (Node fetch / curl)", async () => {
-    await start();
+    await start({ requireAuth: false });
     const res = await fetch(`${base}/mcp`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -73,7 +73,7 @@ describe("McpHttpTransport local-client gate", () => {
   });
 
   it("allows loopback Origins", async () => {
-    await start();
+    await start({ requireAuth: false });
     const res = await fetch(`${base}/mcp`, {
       method: "POST",
       headers: { Origin: "http://localhost:5173", "Content-Type": "application/json" },
@@ -100,6 +100,26 @@ describe("McpHttpTransport local-client gate", () => {
     await start({ requireAuth: true });
     const res = await fetch(`${base}/mcp/health`);
     expect(res.status).toBe(200);
+  });
+
+  it("requires the bearer token by default (MCP_AUTH=0 opts out)", async () => {
+    const t = await start();
+    const noAuth = await fetch(`${base}/mcp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: initBody(),
+    });
+    expect(noAuth.status).toBe(401);
+
+    const bearer = await fetch(`${base}/mcp`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${t.getAuthToken()}`,
+      },
+      body: initBody(),
+    });
+    expect(bearer.status).toBe(200);
   });
 
   it("requireAuth: rejects tokenless requests, accepts the token", async () => {
@@ -140,7 +160,10 @@ describe("McpHttpTransport direct mode (MCPServer)", () => {
   const post = (method: string, params: Record<string, unknown> = {}, id = 1) =>
     fetch(`${base}/mcp`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(transport ? { "X-Downdraft-Token": transport.getAuthToken() } : {}),
+      },
       body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
     }).then((r) => r.json() as Promise<{ result?: Record<string, unknown>; error?: { message: string } }>);
 

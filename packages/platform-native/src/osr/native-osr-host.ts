@@ -224,7 +224,7 @@ export function createNativeOsrHost(): NativeOsrHost {
     },
 
     setSoftwareCursor: (_rendererId, _enabled) => {
-      // SDL owns the OS cursor natively — nothing to emulate.
+      // The OS owns the cursor natively — nothing to emulate.
     },
 
     onPanelLayout: (cb) => { layoutCbs.add(cb); },

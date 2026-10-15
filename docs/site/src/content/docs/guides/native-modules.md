@@ -112,7 +112,7 @@ env: {
 
 ## Loading at runtime
 
-Search order used by the gpu-bench example (`src/tests/native/native-bridge-lib.ts`):
+Search order used by a typical native-module bridge (`src/native/bridge-lib.ts` in the game repo):
 
 1. Env override (`BENCH_FFI_LIB` / `BENCH_NAPI_LIB`)
 2. Dev tree: `<game>/native/dist/<platform>-<arch>/`
@@ -139,13 +139,13 @@ These cost real debugging time — check them first if an addon misbehaves.
 - **Eager `createGlob` calls at module-init** can run before the glob-polyfill's own consts initialize when a module is bundled into the same chunk — the packagers emit a lazy binding for exactly this reason.
 - **Idempotent native init.** `.node` addon statics survive JS-side session restarts; `start_*` should drain a prior stream instead of failing "already running".
 
-## Reference implementation
+## Reference layout
 
-`games/downdraft-gpu-bench` contains a working end-to-end example:
+A working native-module game repo typically contains:
 
-- `native/bench-ffi/` + `native/bench-napi/` — matching plasma kernels, so FFI and napi outputs can be checksummed against each other
+- `native/bench-ffi/` + `native/bench-napi/` — matching kernel implementations, so FFI and napi outputs can be checksummed against each other
 - `native/build.mjs` — host + Android cross-build with NDK discovery
-- `src/tests/native/native-bridge-lib.ts` — resolution/loading for both artifacts across dev/packaged/Android
-- `src/tests/native/native-bridge.test.ts` — split-screen visual test: FFI fills the left half, napi fills the right, green/red status cells, live TSFN + pull-delta counters
+- `src/native/bridge-lib.ts` — resolution/loading for both artifacts across dev/packaged/Android
+- `src/tests/native/bridge.test.ts` — split-screen visual test: FFI fills the left half, napi fills the right, green/red status cells, live TSFN + pull-delta counters
 
 Run it with `DD_BENCH_TEST=native-bridge draft dev --runtime bun|node|deno`, or package it via `draft release --target=android` — verified `ffi=ok`/`napi=ok`/`match=true` on all four.

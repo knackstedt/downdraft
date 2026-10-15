@@ -12,6 +12,7 @@
 
 import { createLogger } from "@downdraft/engine/util/logger";
 import { resolveBlobUrl } from "../dom/blob-urls";
+import { assertPlatformAbi } from "../ffi/abi";
 import { dlopen, type CFunction } from "../ffi/ffi-adapter";
 import { resolvePlatformLibrary, resolveShimLibrary } from "../ffi/lib-paths";
 import { encodePNG } from "../screenshot/screenshot";
@@ -43,7 +44,7 @@ function imageShim(): ImageShimSymbols {
     // platform lib (downdraft_platform).
     const libPath = process.env.IMAGE_SHIM_PATH
       ? resolveShimLibrary("image_shim", "IMAGE_SHIM_PATH")
-      : resolvePlatformLibrary();
+      : (() => { const p = resolvePlatformLibrary(); assertPlatformAbi(p); return p; })();
     _imageShim = dlopen(libPath, IMAGE_SHIM_SPEC).symbols as unknown as ImageShimSymbols;
   }
   return _imageShim;

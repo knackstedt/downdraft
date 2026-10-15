@@ -38,7 +38,7 @@ export function installDOMPolyfills(window: NativeWindow, surface: NativeSurface
   };
   if (typeof (globalThis as any).window === "undefined") {
     const win = {
-      // Live getters — reflect SDL window resizes.
+      // Live getters — reflect native window resizes.
       get innerWidth() { return surface.width; },
       get innerHeight() { return surface.height; },
       // Live getter — reflects the window's monitor scale factor (HiDPI).

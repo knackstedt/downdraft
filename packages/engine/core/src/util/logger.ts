@@ -630,6 +630,6 @@ export function createLogger(
     level: "trace" | "debug" | "info" | "warn" | "error" | "fatal" =
         proc.env.NODE_ENV === "test" ? "warn" : "info"
 ): Logger {
-    const effectiveLevel = proc.env.EMBER_LOG_LEVEL || level;
+    const effectiveLevel = proc.env.DOWNDRAFT_LOG_LEVEL || level;
     return new ConsoleLogger(levelIntMap[effectiveLevel] ?? 3);
 }

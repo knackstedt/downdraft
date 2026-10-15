@@ -477,7 +477,7 @@ export class DevtoolsBackend {
         const api = this.sceneInspector();
         const name = String(params.method ?? "");
         const fn = api?.[name];
-        if (typeof fn !== "function") throw new Error(`__sceneInspector.${name} is not a function`);
+        if (typeof fn !== "function") throw new Error(`__downdraftDevtools.${name} is not a function`);
         return fn(...((params.args as unknown[]) ?? []));
       }
       case "profile.start":
@@ -502,7 +502,7 @@ export class DevtoolsBackend {
   sceneInspector(): Record<string, unknown> | null {
     const g = globalThis as Record<string, unknown>;
     const win = g.window as Record<string, unknown> | undefined;
-    return (win?.__sceneInspector ?? g.__sceneInspector ?? null) as Record<string, unknown> | null;
+    return (win?.__downdraftDevtools ?? g.__downdraftDevtools ?? null) as Record<string, unknown> | null;
   }
 
   inspectorMethodNames(): string[] {

@@ -62,12 +62,12 @@ Runs the engine in debug mode with profiling, debug draw, and visualization tool
 
 ## `draft release [options]`
 
-Unified build + package pipeline. Replaces the separate `build`, `dist`, `export`, `mobile`, and `build-games` commands (which remain as deprecated backward-compat aliases).
+Unified build + package pipeline. The legacy `build`, `dist`, `export`, `mobile`, and `build-games` commands were removed.
 
 | Flag | Description |
 |---|---|
 | `--game <name>`, `-g` | Game to release (name or directory; resolves `games/<name>` when run from the engine root). For multiple games, use `--games`. |
-| `--games=<csv>` | Comma-separated game names (e.g. `sandjongg,to-the-ocean`) |
+| `--games=<csv>` | Comma-separated game names (e.g. `my-game,my-game`) |
 | `--target <t>`, `-t` | Target: `win` / `linux` / `mac` / `android` / `all` (default: `all`). `android` can't mix with desktop targets in one invocation. |
 | `--runtime=<r>` | JS runtime embedded in the package: `bun` (compiled binary) / `node` / `deno` / `all` (default: `build.runtime` in package.json → `"runtime"` in `downdraft.config.json` → `bun`). `node`/`deno` are linux-only today — win/mac targets still embed bun. |
 | `--format=<csv>` | Linux package formats: `dir` / `deb` / `appimage` / `flatpak` (default: `build.linux.target` in package.json, else `dir`). |
@@ -102,7 +102,7 @@ draft release --game=my-game --target=linux --runtime=all --format=deb,appimage,
 draft release --game=my-game --target=android
 
 # Multiple games at once
-draft release --games=sandjongg,to-the-ocean --target=all
+draft release --games=my-game,my-game --target=all
 ```
 
 ### What gets produced
@@ -117,9 +117,9 @@ draft release --games=sandjongg,to-the-ocean --target=all
 
 See the [Packaging & Distribution guide](/guides/packaging/) for the `build` block in `package.json`, the runtime matrix, and native-module staging.
 
-### Deprecated commands (backward-compat aliases)
+### Removed commands
 
-The old commands still work but emit a deprecation warning and delegate to `release`:
+The legacy commands were removed; use the equivalent `release` invocation:
 
 | Old command | Equivalent |
 |---|---|
@@ -127,6 +127,7 @@ The old commands still work but emit a deprecation warning and delegate to `rele
 | `draft dist` | `draft release --stage=package` |
 | `draft export` | `draft release --stage=package` |
 | `draft build-games` | `draft release --games=<csv> --target=<csv>` |
+| `draft mobile` | `draft release --target=android` |
 
 ## `draft assets <command> [project] [options]`
 
@@ -213,13 +214,13 @@ draft test --game=my-game --headed
 | `AWS_ACCESS_KEY_ID` | `assets` | S3 credentials fallback (manifest config wins) |
 | `AWS_SECRET_ACCESS_KEY` | `assets` | S3 credentials fallback |
 | `DISPLAY` | `test` | When absent, wraps in `xvfb-run` |
-| `DOWNDRAFT_STRICT` | all commands | `1` → hard-error on unknown flags (warns otherwise) |
+| `DOWNDRAFT_STRICT_DIAGNOSTICS` | all commands | `1` → hard-error on unknown flags (warns otherwise) |
 
 ### Read by the runtime (set by CLI or user)
 
 | Variable | Used by | Purpose |
 |---|---|---|
-| `DOWNDRAFT_STRICT` | `packages/engine/core/src/module/diagnostics.ts` | `0`/`1` force-disable/enable module DI validation (else = Vite dev mode) |
+| `DOWNDRAFT_STRICT_DIAGNOSTICS` | `packages/engine/core/src/module/diagnostics.ts` | `0`/`1` force-disable/enable module DI validation (else = Vite dev mode) |
 | `DOWNDRAFT_MCP` | `packages/engine/core/src/util/logger.ts` | `1` routes logs to stderr (keeps stdout clean for MCP JSON-RPC) |
 | `DOWNDRAFT_DISABLE_DEVTOOLS` | `packages/cli/src/debug.ts` | `1` disables the devtools UI entirely — forces `devtools.ui` to `"none"` (set by `draft debug --no-devtools`) |
 

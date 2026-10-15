@@ -1,6 +1,6 @@
 # Development Setup
 
-How to get the engine repo and a game (e.g. **sandjongg**) running locally.
+How to get the engine repo and a game (e.g. **my-game**) running locally.
 
 ## Prerequisites
 
@@ -74,7 +74,7 @@ they're cloned under `games/` in this repo (the whole directory is gitignored).
 
 ```bash
 mkdir -p games
-git clone git@github.com:knackstedt/sandjongg.git games/sandjongg
+git clone git@github.com:knackstedt/my-game.git games/my-game
 ```
 
 A directory counts as a game when it has `downdraft.config.json` or
@@ -86,7 +86,7 @@ Order matters — `bun install` in the game resolves `@downdraft/*` from npm,
 and `link:games` then replaces those with symlinks into this repo:
 
 ```bash
-cd games/sandjongg && bun install && cd ../..
+cd games/my-game && bun install && cd ../..
 bun run link:games
 ```
 
@@ -94,10 +94,10 @@ bun run link:games
 `node_modules` and adds a `node_modules/.bin/draft` shim. Re-run it after any
 `bun install` inside a game (bun will have reverted the links to npm copies).
 
-## 4. Run sandjongg
+## 4. Run my-game
 
 ```bash
-cd games/sandjongg
+cd games/my-game
 draft dev          # native window + tiered HMR (default)
 # or:
 bun run dev        # same thing
@@ -112,8 +112,8 @@ automation harness registered.
 ## 5. Verify / test
 
 ```bash
-bun run draft:test -- --game sandjongg          # e2e smoke via MCP harness
-DOWNDRAFT_GPU=swiftshader bun test tests/e2e/sandjongg-smoke.spec.ts  # headless
+bun run draft:test -- --game my-game          # e2e smoke via MCP harness
+DOWNDRAFT_GPU=swiftshader bun test tests/e2e/my-game-smoke.spec.ts  # headless
 bun run tsc        # engine typecheck
 bun run lint       # oxlint
 ```

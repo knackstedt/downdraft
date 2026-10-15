@@ -1,9 +1,9 @@
 // ============================================================================
 // createSimBridge — shared renderer-side facade over the sim worker + app bridge.
 //
-// Generalized from to-the-ocean's sim-bridge.ts. The reusable kernel is the
+// Generalized from a game's sim-bridge. The reusable kernel is the
 // three-mode save/load orchestration:
-//   - "inline": the sim worker owns its save store (e.g. OPFS) — just RPC.
+//   - "worker": the sim worker owns its save store — just RPC.
 //   - "worker": worker serializes to stateJson, renderer writes it to a
 //     dedicated ISaveStore, grafting in renderer metadata.
 //   - "host": worker serializes to stateJson, renderer writes it to the
@@ -34,12 +34,15 @@ export interface SimBridgeDeps {
   worker: SimBridgeWorker;
   /** Optional renderer meta provider — grafted into saves as components.renderer. */
   renderer?: IRendererStateProvider | null;
-  /** App bridge — defaults to the window.downdraft singleton (or its stub). */
+  /** App bridge — defaults to the globalThis.downdraft singleton (or its stub). */
   downdraft?: Host | null;
-  /** Optional save store (OPFS worker proxy or the host's typed store). When provided, saves bypass the JSON bridge methods. */
+  /** Optional save store (the host's typed store). When provided, saves bypass the JSON bridge methods. */
   saveStore?: ISaveStore | null;
-  /** Save mode: "inline" (worker has OPFS store), "worker" (dedicated save store), "host" (host save store / bridge). Default: "host". */
-  saveMode?: "inline" | "worker" | "host";
+  /** Save mode: "host" (caller owns the store — typed saveStore when present,
+   *  else the bridge's JSON methods), "worker" (the sim worker owns
+   *  persistence itself — e.g. a DirectorySaveStore inside the worker; its
+   *  save()/load() persist directly). Default: "host". */
+  saveMode?: "host" | "worker";
 }
 
 /** Generic sim bridge — save/load + pause/resume + app window controls. */
@@ -58,16 +61,16 @@ export interface SimBridge {
 export function createSimBridge(deps: SimBridgeDeps): SimBridge {
   const { worker, renderer, saveStore, saveMode = "host" } = deps;
   // Resolve the app bridge lazily — callers may omit it (defaults to the
-  // window.downdraft singleton / stub from this package's index).
+  // globalThis.downdraft singleton / stub from this package's index).
   const bridge = () => deps.downdraft ?? downdraft;
 
   return {
     async saveGame(slotName: string, opts?: SaveOptions): Promise<boolean> {
       const mergedOpts: SaveOptions = { ...opts };
 
-      // Typed save store path (dedicated OPFS worker proxy or the host's
-      // HostSaveStore): serialize in the sim worker, then write to the store.
-      if ((saveMode === "worker" || saveMode === "host") && saveStore) {
+      // Typed save store path (the host's HostSaveStore): serialize in the
+      // sim worker, then write to the store.
+      if (saveMode === "host" && saveStore) {
         const result = await worker.save(slotName, mergedOpts);
         if (!result?.stateJson) return false;
         const components = JSON.parse(result.stateJson);
@@ -89,8 +92,9 @@ export function createSimBridge(deps: SimBridgeDeps): SimBridge {
         return saveResult.success;
       }
 
-      // Inline mode: worker has its own OpfsSaveStore, just pass opts.
-      if (saveMode === "inline") {
+      // Worker-owned store: the sim worker's save() persists via its own
+      // DirectorySaveStore — nothing crosses the bridge.
+      if (saveMode === "worker") {
         const result = await worker.save(slotName, mergedOpts);
         return result?.success ?? false;
       }
@@ -113,7 +117,7 @@ export function createSimBridge(deps: SimBridgeDeps): SimBridge {
 
     async loadGame(slotName: string): Promise<boolean> {
       // Typed save store: load from it directly.
-      if ((saveMode === "worker" || saveMode === "host") && saveStore) {
+      if (saveMode === "host" && saveStore) {
         const loadResult = await saveStore.load(slotName);
         if (!loadResult.state) return false;
         const stateJson = JSON.stringify(loadResult.state.components);
@@ -129,8 +133,8 @@ export function createSimBridge(deps: SimBridgeDeps): SimBridge {
         return ok;
       }
 
-      // Inline mode: worker loads from its own OPFS store.
-      if (saveMode === "inline") {
+      // Worker-owned store: the sim worker loads from its own store.
+      if (saveMode === "worker") {
         return worker.load(slotName);
       }
 

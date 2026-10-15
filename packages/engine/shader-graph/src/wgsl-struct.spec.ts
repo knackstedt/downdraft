@@ -89,7 +89,7 @@ describe("wgsl.struct layout", () => {
     expect(s.fieldMap.get("prevModelMatrix")!.offset).toBe(192);
   });
 
-  it("BoxUniforms (mat4x4 + vec4) = 80 bytes (matches overburden stickman-pass)", () => {
+  it("BoxUniforms (mat4x4 + vec4) = 80 bytes (matches a stickman-pass consumer)", () => {
     const s = wgsl.struct("BoxUniforms", {
       viewProj: mat4x4f,
       color: vec4f,
@@ -428,14 +428,14 @@ describe("assertWgslStructMatches", () => {
   });
 
   it("throws in strict mode on drift", () => {
-    const origStrict = process.env.DOWNDRAFT_STRICT;
-    process.env.DOWNDRAFT_STRICT = "1";
+    const origStrict = process.env.DOWNDRAFT_STRICT_DIAGNOSTICS;
+    process.env.DOWNDRAFT_STRICT_DIAGNOSTICS = "1";
     try {
       const def = wgsl.struct("S", { a: f32, b: f32 });
       const src = "struct S { a: f32, }";
       expect(() => assertWgslStructMatches(src, def)).toThrow(/drift/);
     } finally {
-      process.env.DOWNDRAFT_STRICT = origStrict;
+      process.env.DOWNDRAFT_STRICT_DIAGNOSTICS = origStrict;
     }
   });
 });

@@ -1,7 +1,7 @@
 // ============================================================================
 // Renderer-side worker manifest sync — fetches the devtools manifest from
 // one or more sim workers via worker RPC, then wires the worker-registered
-// data feeds and commands into the renderer-side __sceneInspector API.
+// data feeds and commands into the renderer-side __downdraftDevtools API.
 //
 // Data feeds from workers are read from the devtools SAB (zero-copy).
 // Commands are forwarded via worker RPC.

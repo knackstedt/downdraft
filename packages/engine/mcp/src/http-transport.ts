@@ -33,13 +33,14 @@ export class McpHttpTransport {
   private sseResponse: ServerResponse | null = null;
   /** Optional root directory for the GET /mcp/artifact/<path> download endpoint. */
   private artifactDir: string | null = null;
-  /** Bearer token for optional authentication. Always generated so it can be
-   *  advertised to trusted local clients (e.g. via the PID `.token` file). */
+  /** Bearer token for authentication. Always generated and advertised to
+   *  trusted local clients via the PID `.token` file. */
   private authToken: string;
   /** When true, every request (except /mcp/health) must carry the token.
-   *  Default false — Origin+Host checks already block browser clients, and
-   *  external stdio bridges that only read the PID port file don't yet send
-   *  a token. Enable via config `mcp.requireAuth` or `MCP_AUTH=1`. */
+   *  Default true — the endpoint exposes input injection, state writes, and
+   *  a REPL, so a token is required even on loopback. Trusted clients
+   *  discover it via the mode-0600 `<pid>.token` file. Explicit opt-out:
+   *  config `mcp.requireAuth: false` or `MCP_AUTH=0`. */
   private requireAuth: boolean;
 
   constructor(opts: {
@@ -50,7 +51,7 @@ export class McpHttpTransport {
     /** Root directory for artifact downloads (GET /mcp/artifact/<path>). */
     artifactDir?: string;
     /** Require `Authorization: Bearer <token>` / `X-Downdraft-Token` on all
-     *  requests. Default off (opt-in hardening for hostile local processes). */
+     *  requests. Default on; pass `false` (or `MCP_AUTH=0`) to opt out. */
     requireAuth?: boolean;
     /** Fixed auth token (defaults to a random per-process token). */
     authToken?: string;
@@ -71,7 +72,7 @@ export class McpHttpTransport {
     this.authToken = opts.authToken ?? randomBytes(24).toString("hex");
     this.requireAuth =
       opts.requireAuth ??
-      (typeof process !== "undefined" && process.env?.MCP_AUTH === "1");
+      (typeof process === "undefined" || process.env?.MCP_AUTH !== "0");
   }
 
   start(): Promise<void> {
@@ -82,7 +83,7 @@ export class McpHttpTransport {
         reject(err);
       });
       // Bind to loopback only — the MCP transport is for local clients
-      // (Devin's stdio bridge, the e2e harness). Binding 0.0.0.0 would
+      // (stdio bridges, the e2e harness). Binding 0.0.0.0 would
       // expose the JSON-RPC endpoint to the local network.
       this.server.listen(this.port, "127.0.0.1", () => {
         const addr = this.server!.address();

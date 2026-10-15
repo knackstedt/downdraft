@@ -1,7 +1,7 @@
 // ============================================================================
 // standard-automation-tools tests — inspectable_list/get/set tool wiring.
 //
-// Run: bun test packages/engine/app/src/renderer/standard-automation-tools.spec.ts
+// Run: bun test packages/engine/app/src/main/standard-automation-tools.spec.ts
 // ============================================================================
 
 import { describe, expect, it } from "bun:test";

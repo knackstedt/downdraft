@@ -3,13 +3,13 @@
 //! Single cdylib replacing the C shims (wgpu_shim / sdl_shim / image_shim /
 //! font_shim). Every export keeps the exact symbol name + ABI consumed by the
 //! TypeScript FFI specs under `packages/platform-native/src/` — the flat
-//! argument lists, int-slot event buffer layout, SDL3 keycode values, and
+//! argument lists, int-slot event buffer layout, SDL3-derived keycode values, and
 //! webgpu.h (v29) enum numbering on the wire are all part of the contract.
 //!
 //! Porting order (each phase adds a module):
 //!   image.rs    — image_shim_*  (image crate, replaces stb_image)
 //!   text.rs     — ft_shim_*     (cosmic-text, replaces SDL2_ttf)
-//!   window/     — sdl_shim_*    (winit, replaces SDL2)
+//!   window/     — dd_window_*    (winit, replaces SDL2)
 //!   gpu/        — wgpu_shim_*   (wgpu crate, replaces wgpu-native)
 //!   validate.rs — dd_wgsl_validate (naga, replaces the tint binary)
 //!
@@ -19,6 +19,19 @@
 //!     only be released through the matching `*_release_*` export;
 //!   - a null handle parameter is a no-op returning the error/zero value, same
 //!     as the C shims.
+
+/// ABI version — bump whenever the exported symbol surface changes in a
+/// breaking way (symbol renames, signature changes, event wire-format
+/// changes). The JS side asserts this at dlopen time
+/// (packages/platform-native/src/ffi/abi.ts) so a stale .so fails loudly at
+/// load instead of producing blank windows or corrupt calls.
+pub const DD_ABI_VERSION: u32 = 1;
+
+/// ABI handshake export — the only symbol whose name must never change.
+#[no_mangle]
+pub extern "C" fn dd_abi_version() -> u32 {
+    DD_ABI_VERSION
+}
 
 #[macro_use]
 mod ffi;

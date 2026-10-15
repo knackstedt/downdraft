@@ -95,7 +95,7 @@ world.registerModule(myModule);
 - `@downdraft/engine/libraries/weather` — Weather simulation
 - `@downdraft/engine/libraries/weatherfx` — Cloud particle effects
 - `@downdraft/engine/libraries/navmesh` — Navigation meshes
-- `@downdraft/engine/libraries/persistence` — Save system (OPFS, File, IndexedDB)
+- `@downdraft/engine/libraries/persistence` — Save system (directory-handle + file stores)
 - `@downdraft/engine/libraries/networking` — Multiplayer networking
 - `@downdraft/engine/libraries/gaussian-splats` — Gaussian splat rendering
 - `@downdraft/engine/libraries/sand` — Falling-sand simulation

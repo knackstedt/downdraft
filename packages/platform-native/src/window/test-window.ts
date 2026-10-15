@@ -1,4 +1,4 @@
-// Test: create SDL2 window + wgpu surface, render a frame, present
+// Test: create a native window + wgpu surface, render a frame, present
 import { installGPU } from "../gpu/install";
 import { NativeWindow } from "./native-window";
 

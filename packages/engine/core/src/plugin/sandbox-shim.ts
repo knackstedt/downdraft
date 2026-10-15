@@ -6,8 +6,10 @@
 // `self` that is NOT in the granted allowlist, then dynamically imports the
 // plugin entry.
 //
-// This is best-effort same-origin isolation. For strong security, remote
-// workshop plugins run from a blob:/data: origin with CSP (Phase 2).
+// This is best-effort global stripping, NOT a security boundary. It removes
+// ambient globals but cannot stop `import("node:fs")`/FFI/network access in
+// a Bun/Node/Deno worker — runtimes with real isolation are quickjs/wasm.
+// Only run worker-js plugins from sources you trust.
 // ============================================================================
 
 import type { PluginPermission } from "./manifest";

@@ -2,8 +2,8 @@
 // Locomotion animator — Idle/Walk/Run/airborne state machine with hysteresis
 //
 // Two games hand-rolled this on top of SkeletonAnimator:
-//  - andrews-sandbox: walk/run thresholds + a held in-air state ("Jump")
-//  - to-the-ocean:    same thresholds + flag-driven swim override and a
+//  - action games: walk/run thresholds + a held in-air state ("Jump")
+//  - swim-capable games: same thresholds + flag-driven swim override and a
 //                     per-speed air-state split (JumpStart/JumpLoop/JumpEnd)
 //
 // Hysteresis matters: once in Run the state holds until speed drops below

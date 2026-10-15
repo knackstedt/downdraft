@@ -28,10 +28,6 @@ export interface InstrumentedWorkerHostOptions {
   workerTag: string;
   /** Runtime kind: 0=JS, 1=QuickJS, 2=WASM. Default: 0 (JS). */
   runtime?: RuntimeKind;
-  /** Patch OPFS prototypes. Default: true. */
-  opfs?: boolean;
-  /** Patch IndexedDB prototypes. Default: true. */
-  idb?: boolean;
   /** Register default warning rules. Default: true. */
   defaultWarningRules?: boolean;
 }
@@ -60,8 +56,8 @@ export abstract class InstrumentedWorkerHost<TApi extends WorkerApi> extends Bas
   }
 
   /**
-   * Call the worker's __profilingAttach RPC to attach the SAB + patch
-   * prototypes + initialize the warning engine + event-loop monitor.
+   * Call the worker's __profilingAttach RPC to attach the SAB + initialize
+   * the warning engine + event-loop monitor.
    */
   protected async attachProfiling(): Promise<void> {
     const proxy = this.getProxy();
@@ -73,8 +69,6 @@ export abstract class InstrumentedWorkerHost<TApi extends WorkerApi> extends Bas
         {
           workerTag: opts.workerTag,
           runtime: opts.runtime ?? 0,
-          opfs: opts.opfs ?? true,
-          idb: opts.idb ?? true,
           defaultWarningRules: opts.defaultWarningRules ?? true,
           layout: {
             maxSlots: opts.profilingLayout.maxSlots,

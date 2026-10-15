@@ -1,7 +1,7 @@
 // ============================================================================
 // EntitySimWorkerHost — shared skeleton for entity-sim worker hosts.
 //
-// Entity games (to-the-ocean, andrews-sandbox) manage a long-lived sim worker
+// Entity games (entity-driven games) manage a long-lived sim worker
 // that owns a full entity simulation. Their host classes re-implemented the
 // same skeleton on top of the raw RPC layer:
 //   - sim + input SAB allocation (allocateSimBuffer / allocateInputBuffer)

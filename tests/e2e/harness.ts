@@ -157,7 +157,7 @@ export async function launchGame(opts: LaunchOptions = {}): Promise<GameProcess>
   // `games/<name>/...` path whose first segment names the game.
   const game = opts.game
     ?? opts.configPath?.match(/(?:^|\/)(?:games|examples)\/([^/]+)\//)?.[1]
-    ?? "to-the-ocean";
+    ?? "packaging-smoke";
 
   const launched = await launchGameProcess({
     game,
