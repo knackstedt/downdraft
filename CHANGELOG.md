@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
-## Unreleased
+## [0.5.0](https://github.com/knackstedt/downdraft/compare/v0.4.9...v0.5.0) (2026-10-15)
 
 ### Breaking
 
