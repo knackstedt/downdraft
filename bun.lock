@@ -149,6 +149,8 @@
 
     "@downdraft/engine": ["@downdraft/engine@workspace:packages/engine"],
 
+    "@downdraft/native-darwin-arm64": ["@downdraft/native-darwin-arm64@0.5.1", "", { "os": "darwin", "cpu": "arm64" }, "sha512-q951LtCaTbIhJOHYxzK8/F5d8N6Mgnrmp5OcxUJlIZHzpXSY0NHYnwB1U1R3gXpua+QM3+aCwmt2cu72Lk1WNA=="],
+
     "@downdraft/platform-native": ["@downdraft/platform-native@workspace:packages/platform-native"],
 
     "@emnapi/runtime": ["@emnapi/runtime@1.11.3", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-Xz4Tpyki7XyrpbUK1jR1AhdAdaXyhhY4lZ3neLodmhpuWfy2PAQN5B46sAiU4liOXGLkHypn/qU+jvfWSCYYLA=="],
