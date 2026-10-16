@@ -46,14 +46,14 @@ async function eventsOf(kind: string): Promise<PostedMessage[]> {
   // Batched events flush on a macrotask — yield once so pending queue posts.
   await new Promise((r) => setTimeout(r, 0));
   const out: PostedMessage[] = [];
-  for (const m of posted) {
+  posted.forEach((m) => {
     if (m.__event === true && m.kind === kind) out.push(m);
     if (m.__eventBatch === true) {
-      for (const ev of m.events ?? []) {
+      (m.events ?? []).forEach((ev) => {
         if (ev.kind === kind) out.push({ __event: true, kind: ev.kind, data: ev.data });
-      }
+      });
     }
-  }
+  });
   return out;
 }
 

@@ -70,6 +70,10 @@ for (let _i = 0, _it = nodePlats, _n = _it.length; _i < _n; _i++) {
   const tarball = join(artifactsDir, `downdraft-native-${nodePlat}.tar.gz`);
   rmSync(tarball, { force: true });
   execFileSync("tar", ["-czf", tarball, "-C", staging, "."], { stdio: "inherit" });
+  // Publish a sha256sum-compatible checksum beside the tarball — fetch-native.mjs
+  // and publish.yml verify downloads against it.
+  const sha = createHash("sha256").update(readFileSync(tarball)).digest("hex");
+  writeFileSync(`${tarball}.sha256`, `${sha}  ${basename(tarball)}\n`);
   rmSync(staging, { recursive: true, force: true });
-  console.log(`[bundle] ${tarball} (${count} libs)`);
+  console.log(`[bundle] ${tarball} (${count} libs) sha256=${sha}`);
 }

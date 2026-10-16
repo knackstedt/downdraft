@@ -95,6 +95,16 @@ function bypassThrottle(host: BlitzDevtoolsHost): void {
 
 const tick = () => new Promise((r) => setTimeout(r, 10));
 
+/** Poll a condition until it holds or the deadline passes — a fixed tick()
+ *  is not enough time for the async dispatch→banner chain on loaded CI
+ *  runners. */
+async function waitFor(cond: () => boolean, timeoutMs = 2000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!cond() && Date.now() < deadline) {
+    await tick();
+  }
+}
+
 afterEach(() => {
   delete (globalThis as any).__downdraftDevtools;
 });
@@ -422,9 +432,11 @@ describe("devtools adversarial — snapshot & perf", () => {
       return orig(m, {});
     };
     fake.fire({ t: "click", d: { action: "dt.tab", tab: "snap-game" } });
-    await tick();
-    bypassThrottle(host);
-    host.update();
+    await waitFor(() => {
+      bypassThrottle(host);
+      host.update();
+      return fake.inner("#dt-body").includes("refresh failed");
+    });
     expect(fake.inner("#dt-body")).toContain("refresh failed");
   });
 
@@ -594,9 +606,9 @@ describe("devtools adversarial — round 2", () => {
     host.devtoolsMirror.registerProvider("game", () => ({ sections: [] }));
     host.show();
     host.update();
-    for (const tab of ["elements", "gpu", "performance", "snap-game", "console", "elements", "gpu"]) {
+    ["elements", "gpu", "performance", "snap-game", "console", "elements", "gpu"].forEach((tab) => {
       fake.fire({ t: "click", d: { action: "dt.tab", tab } });
-    }
+    });
     await tick();
     bypassThrottle(host);
     expect(() => host.update()).not.toThrow();

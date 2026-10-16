@@ -120,7 +120,7 @@ describe("WASM ABI v3 host-call bridge", () => {
           let exportsRef: any = { alloc: () => 0, register: () => {} };
           const imports = (buildImports as any)(ctx, () => exportsRef, subs, pending);
           const result = await WebAssembly.instantiate(bytes, imports as any);
-          exportsRef = (result as WebAssembly.WebAssemblyInstantiatedSource).instance.exports;
+          exportsRef = (result as unknown as WebAssembly.WebAssemblyInstantiatedSource).instance.exports;
           exportsRef.register();
           // Wait a tick for the async host call to resolve + on_host_call_result.
           await new Promise((r) => setTimeout(r, 10));
@@ -186,7 +186,7 @@ describe("WASM ABI v3 host-call bridge", () => {
           let exportsRef: any = { alloc: () => 0, register: () => {} };
           const imports = (buildImports as any)(ctx, () => exportsRef, subs, pending);
           const result = await WebAssembly.instantiate(bytes, imports as any);
-          exportsRef = (result as WebAssembly.WebAssemblyInstantiatedSource).instance.exports;
+          exportsRef = (result as unknown as WebAssembly.WebAssemblyInstantiatedSource).instance.exports;
           exportsRef.register();
           await new Promise((r) => setTimeout(r, 10));
           errPtr = exportsRef.get_err_ptr();

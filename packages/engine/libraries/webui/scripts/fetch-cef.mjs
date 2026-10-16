@@ -162,16 +162,16 @@ rmSync(destDir, { recursive: true, force: true });
 mkdirSync(dirname(destDir), { recursive: true });
 mkdirSync(destDir, { recursive: true });
 const move = (src, dst) => renameSync(src, dst);
-for (const merged of ["Release", "Resources"]) {
+["Release", "Resources"].forEach((merged) => {
   const from = join(innerDir, merged);
   if (existsSync(from)) {
     for (const entry of readdirSync(from)) move(join(from, entry), join(destDir, entry));
   }
-}
-for (const extra of ["CMakeLists.txt", "cmake", "include", "libcef_dll", "CREDITS.html"]) {
+});
+["CMakeLists.txt", "cmake", "include", "libcef_dll", "CREDITS.html"].forEach((extra) => {
   const from = join(innerDir, extra);
   if (existsSync(from)) move(from, join(destDir, extra));
-}
+});
 rmSync(tmpExtract, { recursive: true, force: true });
 
 // archive.json — the marker cef-dll-sys's check_archive_json reads
@@ -181,10 +181,10 @@ writeFileSync(
   JSON.stringify({ type: "minimal", name: file.name, sha1: file.sha1 }, null, 2) + "\n",
 );
 
-for (const want of ["include", "locales"]) {
+["include", "locales"].forEach((want) => {
   if (!existsSync(join(destDir, want))) {
     console.warn(`[fetch-cef] WARNING: ${want}/ missing in ${destDir}`);
   }
-}
+});
 console.log(`[fetch-cef] staged → ${destDir}`);
 console.log(`[fetch-cef] build with CEF_PATH=${join(vendorDir, "cef")} — bun run build:native --pkg=downdraft-webui-cef`);

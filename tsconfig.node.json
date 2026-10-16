@@ -42,6 +42,11 @@
   "exclude": [
     "dist",
     "packages/engine/libraries/blitz-ui/src/native-module.ts",
-    "tests/test-ibl.ts"
+    "tests/test-ibl.ts",
+    // This stub declares a minimal `bun:test` for the platform-native
+    // standalone typecheck (packages/platform-native/tsconfig.json, which
+    // runs without bun-types). Including it here would shadow the real
+    // bun:test declarations for tests/e2e etc.
+    "packages/platform-native/test/bun-test-globals.d.ts"
   ]
 }

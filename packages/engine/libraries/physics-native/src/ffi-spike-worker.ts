@@ -2,20 +2,23 @@
 // inside a Bun Worker and that pointers to SharedArrayBuffer-backed typed
 // arrays can be passed to native Rust code in both directions.
 
-import { dlopen, FFIType, ptr } from "bun:ffi";
+import { dlopen, ptr } from "bun:ffi";
 
 declare const self: Worker;
 
 self.onmessage = (e: MessageEvent) => {
     const { libPath, sab, velSab } = e.data;
     try {
+        // String FFI type names keep this file typechecking under both the
+        // bun-types declaration (node config) and the minimal bun:ffi stub in
+        // runtime-globals.d.ts (web config, no bun-types).
         const lib = dlopen(libPath, {
-            dd_create_realm: { args: [FFIType.i32, FFIType.f32, FFIType.f32, FFIType.f32], returns: FFIType.i32 },
-            dd_destroy_realm: { args: [FFIType.i32], returns: FFIType.i32 },
-            dd_create_body: { args: [FFIType.i32, FFIType.i32, FFIType.ptr, FFIType.ptr], returns: FFIType.i32 },
-            dd_step: { args: [FFIType.i32, FFIType.f32], returns: FFIType.i32 },
-            dd_step_and_read_awake: { args: [FFIType.i32, FFIType.f32, FFIType.ptr, FFIType.ptr, FFIType.u64], returns: FFIType.i32 },
-            dd_destroy: { args: [], returns: FFIType.i32 },
+            dd_create_realm: { args: ["i32", "f32", "f32", "f32"], returns: "i32" },
+            dd_destroy_realm: { args: ["i32"], returns: "i32" },
+            dd_create_body: { args: ["i32", "i32", "ptr", "ptr"], returns: "i32" },
+            dd_step: { args: ["i32", "f32"], returns: "i32" },
+            dd_step_and_read_awake: { args: ["i32", "f32", "ptr", "ptr", "u64"], returns: "i32" },
+            dd_destroy: { args: [], returns: "i32" },
         });
 
         // Views over the SABs shared by the main thread.

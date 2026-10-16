@@ -160,7 +160,8 @@ function resolveWpeDistDir(gameDir: string): string | null {
     pkgRoot && join(pkgRoot, "libraries", "webui", "native-wpe", "dist", plat),
     mono && join(mono, "packages/engine/libraries/webui/native-wpe/dist", plat),
   ];
-  for (const c of candidates) {
+  for (let i = 0; i < candidates.length; i++) {
+    const c = candidates[i];
     if (c && existsSync(join(c, "libexec", "wpe-webkit-2.0"))) return c;
   }
   return null;

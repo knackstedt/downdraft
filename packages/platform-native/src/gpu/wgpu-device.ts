@@ -1020,6 +1020,7 @@ export class WgpuQueue {
     // an uncaptured error.
     const list = this.submitList;
     list.length = 0;
+    // oxlint-disable-next-line downdraft/no-for-of -- iterates Iterable<WgpuCommandBuffer>; for..of required
     for (const cb of commandBuffers) {
       if (cb.invalid) { cb.dispose(); continue; }
       list.push(cb);
@@ -1038,14 +1039,14 @@ export class WgpuQueue {
     // recording the command only expressed intent — a buffer dropped above
     // (invalid) or never submitted must not mark a texture as written, or
     // the surface presents an unsubmitted swapchain image (black frame).
-    for (const cb of list) {
+    list.forEach((cb) => {
       const targets = cb.writeTargets;
       if (targets) {
-        for (const t of targets) t.__ddWritten = true;
+        targets.forEach((t) => { t.__ddWritten = true; });
         cb.writeTargets = undefined;
       }
       cb.dispose();
-    }
+    });
   }
 
   onSubmittedWorkDone(): Promise<undefined> {

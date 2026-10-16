@@ -597,8 +597,8 @@ export class NativeCanvas2D {
     this.rect(x, y, w, h);
     const subs = this.path;
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const sub of subs) {
-      const pts = sub.pts;
+    for (let si = 0; si < subs.length; si++) {
+      const pts = subs[si]!.pts;
       for (let i = 0; i < pts.length; i += 2) {
         if (pts[i]! < minX) minX = pts[i]!;
         if (pts[i]! > maxX) maxX = pts[i]!;
@@ -885,8 +885,8 @@ export class NativeCanvas2D {
     if (baseA <= 0) return;
 
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const sub of subs) {
-      const pts = sub.pts;
+    for (let si = 0; si < subs.length; si++) {
+      const pts = subs[si]!.pts;
       for (let i = 0; i < pts.length; i += 2) {
         if (pts[i]! < minX) minX = pts[i]!;
         if (pts[i]! > maxX) maxX = pts[i]!;
@@ -1012,7 +1012,8 @@ export class NativeCanvas2D {
     for (let s = 0; s < 4; s++) {
       const sy = y + 0.125 + s * 0.25;
       xs.length = 0; ds.length = 0;
-      for (const sub of subs) {
+      for (let si = 0; si < subs.length; si++) {
+        const sub = subs[si]!;
         const pts = sub.pts;
         const n = pts.length / 2;
         for (let i = 0; i < n; i++) {
@@ -1098,7 +1099,8 @@ export class NativeCanvas2D {
       }
     };
 
-    for (const sub of this.path) {
+    for (let si = 0; si < this.path.length; si++) {
+      const sub = this.path[si]!;
       const pts = sub.pts;
       const n = pts.length / 2;
       if (n < 2) continue;
@@ -1120,7 +1122,8 @@ export class NativeCanvas2D {
         pos = ((pos % period) + period) % period;
         while (pos > remain) { pos -= remain; dashIdx = (dashIdx + 1) % dash.length; remain = dash[dashIdx]!; on = !on; }
         remain -= pos;
-        for (const seg of total) {
+        for (let ti = 0; ti < total.length; ti++) {
+          const seg = total[ti]!;
           let sx = seg.x1, sy = seg.y1;
           const sdx = seg.x2 - seg.x1, sdy = seg.y2 - seg.y1;
           const sLen = Math.hypot(sdx, sdy);
@@ -1187,8 +1190,8 @@ export class NativeCanvas2D {
     // Rasterize the path coverage into a full-canvas mask.
     const mask = new Uint8ClampedArray(this.width * this.height);
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const sub of this.path) {
-      const pts = sub.pts;
+    for (let si = 0; si < this.path.length; si++) {
+      const pts = this.path[si]!.pts;
       for (let i = 0; i < pts.length; i += 2) {
         if (pts[i]! < minX) minX = pts[i]!;
         if (pts[i]! > maxX) maxX = pts[i]!;
@@ -1226,8 +1229,8 @@ export class NativeCanvas2D {
 
     // Shape bbox.
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const sub of this.path) {
-      const pts = sub.pts;
+    for (let si = 0; si < this.path.length; si++) {
+      const pts = this.path[si]!.pts;
       for (let i = 0; i < pts.length; i += 2) {
         if (pts[i]! < minX) minX = pts[i]!;
         if (pts[i]! > maxX) maxX = pts[i]!;
@@ -1446,7 +1449,8 @@ export class NativeCanvas2D {
       this.devPt(dx + dw, dy + dh), this.devPt(dx, dy + dh),
     ];
     let mnx = Infinity, mny = Infinity, mxx = -Infinity, mxy = -Infinity;
-    for (const [px, py] of corners) {
+    for (let i = 0; i < corners.length; i++) {
+      const px = corners[i]![0]!, py = corners[i]![1]!;
       if (px < mnx) mnx = px; if (px > mxx) mxx = px;
       if (py < mny) mny = py; if (py > mxy) mxy = py;
     }

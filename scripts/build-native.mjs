@@ -144,7 +144,8 @@ for (let _i = 0, _it = targets, _n = _it.length; _i < _n; _i++) {
   // Per-crate build env (e.g. CEF_PATH pointing at the vendored runtime so
   // cef-dll-sys skips its own download). Values resolve against the crate dir.
   const env = { ...androidEnv(target) };
-  for (const c of crates) {
+  for (let _c = 0, _ct = crates, _cn = _ct.length; _c < _cn; _c++) {
+    const c = _ct[_c];
     if (!c.runtimeEnv) continue;
     for (const [k, v] of Object.entries(c.runtimeEnv)) {
       const p = join(root, c.dir, v);
@@ -181,7 +182,7 @@ for (let _i = 0, _it = targets, _n = _it.length; _i < _n; _i++) {
     // the lib in the same <plat>-<arch> dir; skipped for android (APK glue
     // handles subprocess launching differently).
     if (crate.bins && !isAndroid) {
-      for (const bin of crate.bins) {
+      crate.bins.forEach((bin) => {
         const binFile = nodePlat.startsWith("win32") ? `${bin}.exe` : bin;
         const binSrc = join(root, "target", target, profileDir, binFile);
         if (!existsSync(binSrc)) {
@@ -193,7 +194,7 @@ for (let _i = 0, _it = targets, _n = _it.length; _i < _n; _i++) {
           stageFile(binSrc, join(destRoot, binFile));
         }
         console.log(`[build-native] staged ${binFile} → ${platDir}`);
-      }
+      });
     }
 
     // Companion runtime trees (e.g. the CEF merged Release+Resources dist).
@@ -204,7 +205,7 @@ for (let _i = 0, _it = targets, _n = _it.length; _i < _n; _i++) {
       const segs = crate.runtimeStage.glob.split("/");
       const excluded = new Set(crate.runtimeStage.exclude ?? []);
       let dirs = [join(root, crate.dir)];
-      for (const seg of segs) {
+      segs.forEach((seg) => {
         dirs = dirs.flatMap((d) => {
           if (!existsSync(d)) return [];
           if (seg.includes("*")) {
@@ -214,11 +215,12 @@ for (let _i = 0, _it = targets, _n = _it.length; _i < _n; _i++) {
           const p = join(d, seg);
           return existsSync(p) ? [p] : [];
         });
-      }
-      for (const runtimeDir of dirs) {
+      });
+      for (let _r = 0, _rn = dirs.length; _r < _rn; _r++) {
+        const runtimeDir = dirs[_r];
         const staged = readdirSync(runtimeDir, { withFileTypes: true })
           .filter((e) => !excluded.has(e.name));
-        for (const entry of staged) {
+        staged.forEach((entry) => {
           const dest = join(platDir, entry.name);
           rmSync(dest, { recursive: true, force: true });
           cpSync(join(runtimeDir, entry.name), dest, { recursive: true });
@@ -227,7 +229,7 @@ for (let _i = 0, _it = targets, _n = _it.length; _i < _n; _i++) {
             rmSync(flat, { recursive: true, force: true });
             cpSync(join(runtimeDir, entry.name), flat, { recursive: true });
           }
-        }
+        });
         console.log(`[build-native] staged CEF-style runtime (${staged.length} entries) → ${platDir}`);
         break; // one versioned dir only
       }

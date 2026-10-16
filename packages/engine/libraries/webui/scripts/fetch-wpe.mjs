@@ -132,17 +132,17 @@ const run = spawnSync(
 if (run.status !== 0) process.exit(run.status ?? 1);
 
 // The tar/closure landed in DEST — check the essentials.
-for (const need of [
+[
   "lib/libWPEWebKit-2.0.so.1",
   "lib/libwpe-1.0.so.1",
   "lib/libWPEBackend-fdo-1.0.so.1",
   "libexec/wpe-webkit-2.0/WPEWebProcess",
   "libexec/wpe-webkit-2.0/WPENetworkProcess",
-]) {
+].forEach((need) => {
   if (!existsSync(join(DEST, need))) {
     console.error(`[fetch-wpe] missing expected payload: ${need}`);
     process.exit(1);
   }
-}
+});
 console.log(`[fetch-wpe] staged → ${DEST}`);
 console.log(`[fetch-wpe] next: bun run build:native --pkg=downdraft-webui-wpe`);

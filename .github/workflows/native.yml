@@ -74,19 +74,10 @@ jobs:
             node scripts/build-native.mjs --target="$t" --profile=dist
           done
 
+      # Bundles land in artifacts/ with a sha256sum-compatible .sha256 each
+      # (written by make-native-bundle.mjs — portable across all runners).
       - name: Assemble artifact bundles
         run: node scripts/make-native-bundle.mjs ${{ matrix.nodePlats }}
-
-      - name: Generate SHA-256 checksums
-        # shasum(1) is portable across ubuntu/macos/git-bash runners; `sha256sum`
-        # does not exist on macOS. Output format matches `sha256sum -c`.
-        shell: bash
-        run: |
-          cd artifacts
-          for f in downdraft-native-*.tar.gz; do
-            shasum -a 256 "$f" > "$f.sha256"
-          done
-          cat *.sha256
 
       - name: Upload to GitHub release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3

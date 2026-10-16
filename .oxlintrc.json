@@ -43,6 +43,9 @@
         "packages/*/scripts/**",
         "examples/**",
         "docs/**",
+        "test-beds/**",
+        "**/test-android/**",
+        "**/*-spike.ts",
         "packages/engine/core/src/util/logger.ts"
       ],
       "rules": {

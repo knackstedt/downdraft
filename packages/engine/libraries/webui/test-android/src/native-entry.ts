@@ -233,7 +233,7 @@ function done() {
   const passed = checks.filter((c) => c.ok).length;
   const failed = checks.filter((c) => !c.ok);
   console.log(`WEBUI-TEST ${failed.length === 0 ? "ALL PASS" : "FAILED"} — ${passed}/${checks.length}`);
-  for (const f of failed) console.log(`WEBUI-TEST   failed: ${f.name}${f.detail ? ` — ${f.detail}` : ""}`);
+  failed.forEach((f) => console.log(`WEBUI-TEST   failed: ${f.name}${f.detail ? ` — ${f.detail}` : ""}`));
   // Keep node alive a beat so logcat drains, then drain the GLib context
   // and exit via _exit — libWPEWebKit registers atexit/__cxa_finalize
   // destructors that g_object_unref a live object graph and abort under a

@@ -58,18 +58,18 @@ export function registerDevtoolsFonts(sink: ResourceSink): string {
     // Both weights of a family are required: a 700 rule pointing at the
     // regular file keeps bold text in-family instead of falling back.
     const files = new Map<string, string>();
-    for (const f of FACES) files.set(f.urlName, fcFontFile(f.pattern) ?? "");
+    FACES.forEach((f) => files.set(f.urlName, fcFontFile(f.pattern) ?? ""));
     if (!files.get("sans")) return "";
     if (!files.get("mono")) files.set("mono", files.get("sans")!);
     if (!files.get("sans-bold")) files.set("sans-bold", files.get("sans")!);
     if (!files.get("mono-bold")) files.set("mono-bold", files.get("mono")!);
     let css = "";
-    for (const f of FACES) {
+    FACES.forEach((f) => {
       const file = files.get(f.urlName)!;
       const url = `ui://devtools-fonts/${f.urlName}${fontExt(file)}`;
       sink.registerResource(url, readFileSync(file));
       css += `@font-face { font-family:'${f.family}'; font-weight:${f.weight}; src:url('${url}'); }\n`;
-    }
+    });
     return css;
   } catch {
     // fc-match absent / unreadable font file — the embedded fallback applies.

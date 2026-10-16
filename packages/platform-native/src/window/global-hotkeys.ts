@@ -79,11 +79,11 @@ export function parseAccelerator(accel: string): { mods: number; keysym: number 
   if (!parts.length) return null;
   let mods = 0;
   let key = "";
-  for (const p of parts) {
+  parts.forEach((p) => {
     const tok = p.toLowerCase();
     if (MOD_TOKENS[tok] !== undefined) mods |= MOD_TOKENS[tok];
     else key = p; // last non-modifier token wins
-  }
+  });
   const keysym = keysymFor(key);
   return keysym ? { mods, keysym } : null;
 }

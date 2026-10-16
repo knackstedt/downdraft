@@ -309,13 +309,13 @@ export function wrap<T extends WorkerApi>(worker: AnyWorker, options?: WrapOptio
       eventChannelStats.messages++;
       eventChannelStats.events += events.length;
       if (events.length > eventChannelStats.maxBatch) eventChannelStats.maxBatch = events.length;
-      for (const ev of events) {
+      events.forEach((ev) => {
         for (const cb of eventListeners.values()) {
           try { cb(ev.kind, ev.data); } catch (err) {
             log.error("worker-proxy", `Event listener error: ${err}`);
           }
         }
-      }
+      });
     }
   };
 

@@ -184,12 +184,12 @@ export function createWebUi(options: WebUiOptions): RendererModule {
         bus.onPointerDown((e, ctrl) => {
           const p = panelAt(e.clientX, e.clientY);
           if (!p) {
-            console.warn(`[webui] pointerdown miss @(${e.clientX},${e.clientY}) panels=${panels.map((q) => `${q.id}@${JSON.stringify(q.comp.rect)}`).join("|")}`);
+            log.warn("webui", `pointerdown miss @(${e.clientX},${e.clientY}) panels=${panels.map((q) => `${q.id}@${JSON.stringify(q.comp.rect)}`).join("|")}`);
             if (focusedPanel) { bridge?.setFocus(focusedPanel, false); focusedPanel = null; }
             return;
           }
           const c = local(p, e);
-          console.warn(`[webui] pointerdown hit ${p.id} @(${e.clientX},${e.clientY}) → local(${c.x.toFixed(1)},${c.y.toFixed(1)})`);
+          log.warn("webui", `pointerdown hit ${p.id} @(${e.clientX},${e.clientY}) → local(${c.x.toFixed(1)},${c.y.toFixed(1)})`);
           ctrl.stopPropagation();
           pointerDownOn = p.id;
           focusedPanel = p.id;
@@ -252,15 +252,16 @@ export function createWebUi(options: WebUiOptions): RendererModule {
       // ── Frame pull: upload dirty frames every frame ──
       unsubs.push(ctx.onFrame("beforeFrame", () => {
         if (!bridge) return;
-        for (const p of panels) {
+        const b = bridge;
+        panels.forEach((p) => {
           try {
             // 2 = texture recreated on resize — the bind group holds the
             // old texture and must be rebuilt.
-            if (p.src.update(bridge) === 2) rebuildBindGroup(p);
+            if (p.src.update(b) === 2) rebuildBindGroup(p);
           } catch (err) {
             log.warn("webui", `frame pull failed for "${p.id}": ${(err as Error).message}`);
           }
-        }
+        });
       }));
 
       const rebuildBindGroup = (p: PanelState) => {

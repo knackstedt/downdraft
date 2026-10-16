@@ -164,14 +164,14 @@ export function collectSceneTree(ctx: CollectorContext): TreeRow[] {
         detail: `${n.type ?? "node"}${Array.isArray(p) ? ` (${p.map((v: number) => (+v).toFixed(1)).join(", ")})` : ""}`,
         nodeId: String(n.id),
       });
-      for (const cid of n.children ?? []) {
+      (n.children ?? []).forEach((cid: any) => {
         const c = byId.get(cid);
         if (c) walk(c, id, depth + 1);
-      }
+      });
     };
     roots.forEach((n: any) => walk(n, -1, 0));
     // Orphans (every node has a parent but no root resolves) — still show them.
-    for (const n of storeNodes) if (!visited.has(n.id)) walk(n, -1, 0);
+    storeNodes.forEach((n) => { if (!visited.has(n.id)) walk(n, -1, 0); });
     return rows;
   } catch {
     return [];

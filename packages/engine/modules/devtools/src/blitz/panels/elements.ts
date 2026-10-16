@@ -113,7 +113,7 @@ export class ElementsPanel implements DtPanel {
       return k;
     });
     const present = new Set(this.keys);
-    for (const k of [...this.collapsed]) if (!present.has(k)) this.collapsed.delete(k);
+    [...this.collapsed].forEach((k) => { if (!present.has(k)) this.collapsed.delete(k); });
     if (this.selKey && !present.has(this.selKey)) {
       this.selKey = null;
       this.selRowId = null;

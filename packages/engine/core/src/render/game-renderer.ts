@@ -856,6 +856,7 @@ export class GameRenderer implements CanvasResizeHandler {
         origSubmit(commandBuffers);
         return;
       }
+      // oxlint-disable-next-line downdraft/no-for-of -- iterates Iterable<GPUCommandBuffer>; for..of required
       for (const cb of commandBuffers) sink.push(cb);
     };
   }

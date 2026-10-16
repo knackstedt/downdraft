@@ -58,7 +58,7 @@ for (const entry of readdirSync(join(root, "packages"))) {
     changes.push(`version ${pkg.version} → ${version}`);
     pkg.version = version;
   }
-  for (const field of DEP_FIELDS) {
+  DEP_FIELDS.forEach((field) => {
     for (const [dep, range] of Object.entries(pkg[field] ?? {})) {
       if (!dep.startsWith("@downdraft/") || range.startsWith("workspace:")) continue;
       const next = `^${version}`;
@@ -67,7 +67,7 @@ for (const entry of readdirSync(join(root, "packages"))) {
         pkg[field][dep] = next;
       }
     }
-  }
+  });
 
   if (changes.length === 0) {
     console.log(`ok    ${pkg.name}@${version}`);
