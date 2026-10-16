@@ -40,17 +40,27 @@ use cef::rc::Rc as _;
 use cef::{
     api_hash, browser_host_create_browser, execute_process,
     initialize, process_message_create, shutdown, sys, wrap_app, wrap_client,
-    wrap_display_handler, wrap_life_span_handler, wrap_load_handler, wrap_render_handler,
-    wrap_request_handler, App, Browser, BrowserSettings, CefString, CefStringUserfree,
-    Client, CommandLine, CursorInfo, CursorType, DisplayHandler, ImplApp, ImplBrowser,
-    ImplBrowserHost, ImplClient, ImplCommandLine, ImplDisplayHandler, ImplFrame,
-    ImplLifeSpanHandler, ImplListValue, ImplLoadHandler, ImplProcessMessage,
-    ImplRenderHandler, ImplRequestHandler, KeyEvent, KeyEventType, LifeSpanHandler,
-    LoadHandler, LogSeverity, MouseButtonType, MouseEvent, PaintElementType,
-    PointerType, ProcessId, ProcessMessage, Rect as CefRect, RenderHandler,
-    RequestHandler, ScreenInfo, Settings, TerminationStatus, TouchEvent, TouchEventType,
-    WindowInfo, WrapApp, WrapClient, WrapDisplayHandler, WrapLifeSpanHandler,
-    WrapLoadHandler, WrapRenderHandler, WrapRequestHandler,
+    wrap_context_menu_handler, wrap_dialog_handler, wrap_display_handler,
+    wrap_jsdialog_handler, wrap_life_span_handler, wrap_load_handler,
+    wrap_permission_handler, wrap_render_handler, wrap_request_handler,
+    App, Browser, BrowserSettings, CefString, CefStringList, CefStringUserfree,
+    Client, CommandLine, ContextMenuHandler, ContextMenuParams, CursorInfo, CursorType,
+    DialogHandler, DisplayHandler, FileDialogCallback, FileDialogMode, ImplApp,
+    ImplBrowser, ImplBrowserHost, ImplClient, ImplCommandLine, ImplContextMenuHandler,
+    ImplDialogHandler, ImplDisplayHandler, ImplFileDialogCallback, ImplFrame,
+    ImplJsdialogHandler, ImplLifeSpanHandler, ImplListValue, ImplLoadHandler,
+    ImplMediaAccessCallback, ImplMenuModel, ImplPermissionHandler,
+    ImplPermissionPromptCallback, ImplProcessMessage, ImplRenderHandler,
+    ImplRequestHandler, JsdialogCallback,
+    JsdialogHandler, JsdialogType, KeyEvent, KeyEventType, LifeSpanHandler,
+    LoadHandler, LogSeverity, MediaAccessCallback, MenuModel, MouseButtonType,
+    MouseEvent, PaintElementType, PermissionHandler, PermissionPromptCallback,
+    PermissionRequestResult, PointerType, ProcessId, ProcessMessage, Rect as CefRect,
+    RenderHandler, RequestHandler, ScreenInfo, Settings, TerminationStatus,
+    TouchEvent, TouchEventType, WindowInfo, WrapApp, WrapClient,
+    WrapContextMenuHandler, WrapDialogHandler, WrapDisplayHandler,
+    WrapJsdialogHandler, WrapLifeSpanHandler, WrapLoadHandler,
+    WrapPermissionHandler, WrapRenderHandler, WrapRequestHandler,
 };
 use downdraft_webui_common as common;
 use common::{
@@ -451,6 +461,119 @@ wrap_request_handler! {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Native-UI suppression — OSR embeds must never surface real GTK/X11 widgets.
+// Native context menus, JS dialogs, file pickers, and permission prompts all
+// take an X11 seat grab when shown; if a CEF helper wedges mid-grab the grab
+// outlives the process's usefulness and deadlocks all desktop input (pointer
+// AND keyboard) until the zombie is killed from a VT. Suppress every path.
+// ---------------------------------------------------------------------------
+
+wrap_context_menu_handler! {
+    struct SuppressContextMenu {}
+
+    impl ContextMenuHandler {
+        fn on_before_context_menu(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut cef::Frame>,
+            _params: Option<&mut ContextMenuParams>,
+            model: Option<&mut MenuModel>,
+        ) {
+            // An empty model means no menu is ever created.
+            if let Some(m) = model {
+                m.clear();
+            }
+        }
+    }
+}
+
+wrap_jsdialog_handler! {
+    struct SuppressJsDialogs {}
+
+    impl JsdialogHandler {
+        fn on_jsdialog(
+            &self,
+            _browser: Option<&mut Browser>,
+            _origin_url: Option<&CefString>,
+            _dialog_type: JsdialogType,
+            _message_text: Option<&CefString>,
+            _default_prompt_text: Option<&CefString>,
+            _callback: Option<&mut JsdialogCallback>,
+            _suppress_message: Option<&mut c_int>,
+        ) -> c_int {
+            1
+        }
+
+        fn on_before_unload_dialog(
+            &self,
+            _browser: Option<&mut Browser>,
+            _message_text: Option<&CefString>,
+            _is_reload: c_int,
+            _callback: Option<&mut JsdialogCallback>,
+        ) -> c_int {
+            1
+        }
+    }
+}
+
+wrap_dialog_handler! {
+    struct CancelFileDialogs {}
+
+    impl DialogHandler {
+        fn on_file_dialog(
+            &self,
+            _browser: Option<&mut Browser>,
+            _mode: FileDialogMode,
+            _title: Option<&CefString>,
+            _default_file_path: Option<&CefString>,
+            _accept_filters: Option<&mut CefStringList>,
+            _accept_extensions: Option<&mut CefStringList>,
+            _accept_descriptions: Option<&mut CefStringList>,
+            callback: Option<&mut FileDialogCallback>,
+        ) -> c_int {
+            if let Some(cb) = callback {
+                cb.cancel();
+            }
+            1
+        }
+    }
+}
+
+wrap_permission_handler! {
+    struct DenyPermissions {}
+
+    impl PermissionHandler {
+        fn on_request_media_access_permission(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut cef::Frame>,
+            _requesting_origin: Option<&CefString>,
+            _requested_permissions: u32,
+            callback: Option<&mut MediaAccessCallback>,
+        ) -> c_int {
+            if let Some(cb) = callback {
+                cb.cancel();
+            }
+            1
+        }
+
+        fn on_show_permission_prompt(
+            &self,
+            _browser: Option<&mut Browser>,
+            _prompt_id: u64,
+            _requesting_origin: Option<&CefString>,
+            _requested_permissions: u32,
+            callback: Option<&mut PermissionPromptCallback>,
+        ) -> c_int {
+            if let Some(cb) = callback {
+                cb.cont(PermissionRequestResult::DENY);
+            }
+            1
+        }
+    }
+}
+
 wrap_client! {
     struct ViewClient {
         render: RenderHandler,
@@ -472,6 +595,18 @@ wrap_client! {
         }
         fn request_handler(&self) -> Option<RequestHandler> {
             Some(ViewRequest::new(self.shared.clone()))
+        }
+        fn context_menu_handler(&self) -> Option<ContextMenuHandler> {
+            Some(SuppressContextMenu::new())
+        }
+        fn jsdialog_handler(&self) -> Option<JsdialogHandler> {
+            Some(SuppressJsDialogs::new())
+        }
+        fn dialog_handler(&self) -> Option<DialogHandler> {
+            Some(CancelFileDialogs::new())
+        }
+        fn permission_handler(&self) -> Option<PermissionHandler> {
+            Some(DenyPermissions::new())
         }
 
         // Renderer → browser messages: eval results and page postMessage.
