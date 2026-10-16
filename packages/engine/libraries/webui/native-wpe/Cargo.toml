@@ -17,7 +17,7 @@ downdraft-webui-common = { path = "../native-common" }
 [target.'cfg(target_os = "android")'.dependencies]
 # WKRuntime.getInstance().initialize(Context) bootstrap + the app's JNI
 # context (registered by android-shell at boot).
-jni = "0.21"
+jni = "0.22"
 ndk-context = "0.1"
 
 # glib/gobject/wpe link setup happens in build.rs against the vendored WPE

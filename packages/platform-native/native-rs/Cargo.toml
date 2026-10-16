@@ -14,7 +14,7 @@ crate-type = ["cdylib", "rlib"]
 #   image    — image_shim_*  (replaces stb_image)
 #   cosmic-text — ft_shim_*  (replaces SDL2_ttf)
 #   winit + arboard + rfd — dd_window_* (replaces SDL2)
-#   wgpu 29 + pollster    — wgpu_shim_* (replaces wgpu-native + webgpu.h)
+#   wgpu 29             — wgpu_shim_* (replaces wgpu-native + webgpu.h)
 #   naga                  — dd_wgsl_validate (replaces the tint binary)
 [dependencies]
 image = "0.25"
@@ -22,18 +22,17 @@ cosmic-text = "0.14"
 winit = "0.30"
 raw-window-handle = "0.6"
 wgpu = "29"
-pollster = "0.4"
 
 # No Android backend for either — dd_window_* clipboard/dialog paths are
 # stubbed under cfg(android) in src/window/mod.rs.
 # Global-hotkey grabs go through a dedicated X11 connection (XGrabKey on
 # root); Wayland/macOS/Windows have no equivalent here and return -1.
 [target.'cfg(target_os = "linux")'.dependencies]
-x11rb = "0.13"
+x11rb = "0.14"
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
 arboard = "3"
-rfd = "0.15"
+rfd = "0.17"
 
 # android-activity requires the leaf crate to pick a backend; native-activity
 # matches our NativeActivity-based shell (no Java GameActivity needed).
