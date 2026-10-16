@@ -100,6 +100,11 @@ static G_SURFACE_TEXTURES: LazyLock<Mutex<HashMap<usize, SurfaceTexture>>> =
 /// already handles as a skipped frame.
 static G_CONFIGURED_SURFACES: LazyLock<Mutex<HashSet<usize>>> =
     LazyLock::new(|| Mutex::new(HashSet::new()));
+/// Queue each configured surface presents on, keyed by surface handle.
+/// wgpu 30 moved present() off SurfaceTexture onto Queue, but the FFI's
+/// surface_present only receives the surface — recorded at configure time.
+static G_SURFACE_QUEUES: LazyLock<Mutex<HashMap<usize, Queue>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 /// Live surface handles, inserted by [`create_surface_for_window`] and
 /// removed by wgpu_shim_release_surface. The JS side duplicates a surface
 /// handle across the window, canvas, and canvas-context objects, so
@@ -337,6 +342,7 @@ pub extern "C" fn wgpu_shim_request_adapter(instance: Handle, power_preference: 
             power_preference: enums::power_preference(power_preference as u32),
             force_fallback_adapter: force_fallback_adapter(),
             compatible_surface: None,
+            apply_limit_buckets: false,
         };
         match block_on_gpu(instance.request_adapter(&options)) {
             Some(Ok(adapter)) => boxed(adapter),
@@ -527,6 +533,7 @@ pub extern "C" fn wgpu_shim_request_adapter_async(instance: Handle, power_prefer
                 power_preference: pp,
                 force_fallback_adapter: force_fallback,
                 compatible_surface: None,
+                apply_limit_buckets: false,
             };
             match block_on_gpu(instance.request_adapter(&options)) {
                 Some(Ok(adapter)) => boxed(adapter),
@@ -727,7 +734,10 @@ pub extern "C" fn wgpu_shim_buffer_write_mapped(
 ) -> i32 {
     ffi!(1, unsafe {
         let src = flat(data, size as usize);
-        let mut view = obj::<Buffer>(buffer).get_mapped_range_mut(offset..offset + size);
+        let Ok(mut view) = obj::<Buffer>(buffer).get_mapped_range_mut(offset..offset + size)
+        else {
+            return 1;
+        };
         view.copy_from_slice(src);
         0
     })
@@ -745,7 +755,10 @@ pub extern "C" fn wgpu_shim_buffer_read_mapped(
         if out_size < size as i32 {
             return 2;
         }
-        let view = obj::<Buffer>(buffer).get_mapped_range(offset..offset + size);
+        let Ok(view) = obj::<Buffer>(buffer).get_mapped_range(offset..offset + size)
+        else {
+            return 1;
+        };
         ptr::copy_nonoverlapping(view.as_ptr(), out_data, size as usize);
         0
     })
@@ -762,6 +775,29 @@ pub extern "C" fn wgpu_shim_buffer_unmap(buffer: Handle) {
 pub extern "C" fn wgpu_shim_create_shader_module(device: Handle, wgsl: *const c_char) -> Handle {
     ffi!(ptr::null_mut(), unsafe {
         let code = cstr(wgsl);
+        // Eager naga check: shader compile errors otherwise surface lazily
+        // (and cryptically) at first pipeline use — report them here where
+        // the failing source is still in hand.
+        match wgpu::naga::front::wgsl::parse_str(&code) {
+            Err(e) => eprintln!(
+                "[wgpu_shim] shader parse error: {}\n--- source head ---\n{}\n---",
+                e.emit_to_string_with_path(&code, "shader.wgsl"),
+                &code[..code.len().min(300)]
+            ),
+            Ok(m) => {
+                let mut v = wgpu::naga::valid::Validator::new(
+                    wgpu::naga::valid::ValidationFlags::all(),
+                    wgpu::naga::valid::Capabilities::all(),
+                );
+                if let Err(e) = v.validate(&m) {
+                    eprintln!(
+                        "[wgpu_shim] shader validation error: {}\n--- source head ---\n{}\n---",
+                        e.emit_to_string_with_path(&code, "shader.wgsl"),
+                        &code[..code.len().min(300)]
+                    );
+                }
+            }
+        }
         boxed(
             obj::<ShimDevice>(device)
                 .device
@@ -1368,14 +1404,27 @@ pub extern "C" fn wgpu_shim_begin_render_pass(
             } else {
                 Some(RenderPassDepthStencilAttachment {
                     view: obj::<TextureView>(view),
-                    depth_ops: Some(Operations {
-                        load: enums::depth_load_op(d[2], f32::from_bits(d[4])),
-                        store: enums::store_op(d[3]),
-                    }),
-                    stencil_ops: Some(Operations {
-                        load: enums::stencil_load_op(d[6], d[8]),
-                        store: enums::store_op(d[7]),
-                    }),
+                    // wgpu 30 validates that depth/stencil ops are None when
+                    // the attachment format lacks that aspect. The wire
+                    // protocol uses 0 for "unspecified" — map it to None
+                    // (spec: absent ops are only valid without the aspect;
+                    // a stencil aspect + no ops errors, as it should).
+                    depth_ops: if d[2] == 0 && d[3] == 0 {
+                        None
+                    } else {
+                        Some(Operations {
+                            load: enums::depth_load_op(d[2], f32::from_bits(d[4])),
+                            store: enums::store_op(d[3]),
+                        })
+                    },
+                    stencil_ops: if d[6] == 0 && d[7] == 0 {
+                        None
+                    } else {
+                        Some(Operations {
+                            load: enums::stencil_load_op(d[6], d[8]),
+                            store: enums::store_op(d[7]),
+                        })
+                    },
                 })
             }
         } else {
@@ -1603,7 +1652,7 @@ pub extern "C" fn wgpu_shim_create_render_pipeline(
 ) -> Handle {
     ffi!(ptr::null_mut(), unsafe {
         // Vertex buffers — walked linearly, same as the C cursor loop.
-        let mut vb_layouts: Vec<VertexBufferLayout> = Vec::new();
+        let mut vb_layouts: Vec<Option<VertexBufferLayout>> = Vec::new();
         let mut vb_attrs: Vec<Vec<VertexAttribute>> = Vec::new();
         let mut cursor = vertex_buffer_data;
         for _ in 0..vertex_buffer_count.min(8) {
@@ -1627,7 +1676,7 @@ pub extern "C" fn wgpu_shim_create_render_pipeline(
             let step_mode = *cursor.add(1);
             let attr_count = *cursor.add(2);
             cursor = cursor.add(3 + attr_count as usize * 3);
-            vb_layouts.push(VertexBufferLayout {
+            vb_layouts.push(Some(VertexBufferLayout {
                 array_stride: array_stride as u64,
                 step_mode: if step_mode == 1 {
                     VertexStepMode::Instance
@@ -1635,7 +1684,7 @@ pub extern "C" fn wgpu_shim_create_render_pipeline(
                     VertexStepMode::Vertex
                 },
                 attributes: &vb_attrs[b],
-            });
+            }));
         }
 
         let ventry = cstr(vertex_entry);
@@ -3062,8 +3111,9 @@ pub extern "C" fn wgpu_shim_surface_configure(
             .lock()
             .unwrap()
             .remove(&(surface as usize));
+        let dev = obj::<ShimDevice>(device);
         obj::<Surface>(surface).configure(
-            &obj::<ShimDevice>(device).device,
+            &dev.device,
             &SurfaceConfiguration {
                 usage: TextureUsages::from_bits_retain(usage),
                 format,
@@ -3075,6 +3125,7 @@ pub extern "C" fn wgpu_shim_surface_configure(
                 desired_maximum_frame_latency: 2,
                 alpha_mode: CompositeAlphaMode::Auto,
                 view_formats: vec![],
+                color_space: SurfaceColorSpace::Auto,
             },
         );
         // Only reachable when configure() didn't panic — a panicked
@@ -3084,6 +3135,10 @@ pub extern "C" fn wgpu_shim_surface_configure(
             .lock()
             .unwrap()
             .insert(surface as usize);
+        G_SURFACE_QUEUES
+            .lock()
+            .unwrap()
+            .insert(surface as usize, dev.queue.clone());
     });
 }
 
@@ -3140,7 +3195,13 @@ pub extern "C" fn wgpu_shim_surface_present(surface: Handle) {
             .unwrap()
             .remove(&(surface as usize))
         {
-            st.present();
+            let queue = G_SURFACE_QUEUES.lock().unwrap().get(&(surface as usize)).cloned();
+            match queue {
+                Some(q) => q.present(st),
+                None => eprintln!(
+                    "[wgpu_shim] surface_present: no queue for surface {surface:p}"
+                ),
+            }
         }
     });
 }
@@ -3160,6 +3221,7 @@ pub extern "C" fn wgpu_shim_surface_unconfigure(surface: Handle) {
             .lock()
             .unwrap()
             .remove(&(surface as usize));
+        G_SURFACE_QUEUES.lock().unwrap().remove(&(surface as usize));
     });
 }
 
@@ -3262,6 +3324,7 @@ pub extern "C" fn wgpu_shim_release_surface(p: Handle) {
     ffi!((), {
         G_SURFACE_TEXTURES.lock().unwrap().remove(&(p as usize));
         G_CONFIGURED_SURFACES.lock().unwrap().remove(&(p as usize));
+        G_SURFACE_QUEUES.lock().unwrap().remove(&(p as usize));
         if !G_LIVE_SURFACES.lock().unwrap().remove(&(p as usize)) {
             if !p.is_null() {
                 eprintln!("[wgpu_shim] release_surface: stale or double release {p:p}");

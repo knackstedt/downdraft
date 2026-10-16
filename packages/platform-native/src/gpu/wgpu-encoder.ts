@@ -309,8 +309,15 @@ export class WgpuCommandEncoder {
         const dcv = new Float32Array(1); dcv[0] = da.depthClearValue ?? 1;
         depthFlat[4] = new Uint32Array(dcv.buffer)[0];
         depthFlat[5] = da.depthReadOnly ? 1 : 0;
-        depthFlat[6] = da.stencilLoadOp === "load" ? 1 : da.stencilLoadOp === "clear" ? 2 : 0;
-        depthFlat[7] = da.stencilStoreOp === "discard" ? 2 : da.stencilStoreOp === "store" ? 1 : 0;
+        // wgpu 30 requires stencil ops to be absent when the attachment
+        // format has no stencil aspect — emit 0,0 (None) in that case even
+        // if the caller passed stencil fields.
+        const fmt = (dv.sourceTexture?.format ?? "") as string;
+        const hasStencil = fmt.includes("stencil");
+        depthFlat[6] = hasStencil && da.stencilLoadOp === "load" ? 1
+          : hasStencil && da.stencilLoadOp === "clear" ? 2 : 0;
+        depthFlat[7] = hasStencil && da.stencilStoreOp === "discard" ? 2
+          : hasStencil && da.stencilStoreOp === "store" ? 1 : 0;
         depthFlat[8] = da.stencilClearValue ?? 0;
         depthFlat[9] = da.stencilReadOnly ? 1 : 0;
       }

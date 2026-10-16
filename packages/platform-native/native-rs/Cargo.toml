@@ -21,7 +21,7 @@ image = "0.25"
 cosmic-text = "0.14"
 winit = "0.30"
 raw-window-handle = "0.6"
-wgpu = "29"
+wgpu = "30"
 
 # No Android backend for either — dd_window_* clipboard/dialog paths are
 # stubbed under cfg(android) in src/window/mod.rs.

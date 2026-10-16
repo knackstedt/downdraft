@@ -264,6 +264,11 @@ function rewriteModule(js, ctx) {
       warnings.push(`${fileRel}: unresolved ?raw/loader specifier "${spec}"`);
       return _m;
     }
+    // `x.wgsl` resolving to `x.wgsl.ts` is a real TS module (named shader
+    // exports), not a raw text asset — leave the import intact.
+    if (!spec.includes("?raw") && /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/.test(abs)) {
+      return _m;
+    }
     const lit = JSON.stringify(readFileSync(abs, "utf8"));
     const c = (clause ?? "").trim();
     if (!c) return nl; // side-effect raw import — dropped (no side effects)
