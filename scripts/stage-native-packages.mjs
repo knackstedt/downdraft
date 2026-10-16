@@ -28,6 +28,18 @@ if (!tarballs.length) {
   process.exit(1);
 }
 
+// Every packages/native-*/ dir must get a bundle — a partial release must
+// fail here rather than silently ship a platform package with no lib/.
+// (native-mobile-android-* are populated by node-mobile bundles instead.)
+const expected = readdirSync(join(root, "packages"))
+  .filter((d) => /^native-/.test(d) && !/^native-mobile-/.test(d) && existsSync(join(root, "packages", d, "package.json")));
+const staged = new Set(tarballs.map((t) => t.slice("downdraft-native-".length, -".tar.gz".length)));
+const missing = expected.map((d) => d.slice("native-".length)).filter((p) => !staged.has(p));
+if (missing.length) {
+  console.error(`[stage] missing bundles for: ${missing.join(", ")} (expected ${expected.length}, found ${tarballs.length})`);
+  process.exit(1);
+}
+
 for (let _i = 0, _it = tarballs, _n = _it.length; _i < _n; _i++) {
   const tarball = _it[_i];
   const nodePlat = tarball.slice("downdraft-native-".length, -".tar.gz".length);

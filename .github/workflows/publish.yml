@@ -48,7 +48,7 @@ jobs:
           NATIVE_REL="native-v$(node -p "require('./packages/platform-native/package.json').version")"
           NM_REL="node-mobile-v$(tr -d '[:space:]' < packages/node-mobile/node-version.txt)-$(grep -oP 'NODE_MOBILE_REVISION \K\d+' packages/node-mobile/overlay/src/node_mobile_version.h)"
           have() { gh release view "$1" --json assets --jq '.assets[].name' 2>/dev/null | grep -c "^$2" || true; }
-          n=$(have "$NATIVE_REL" "downdraft-native-"); m=$(have "$NM_REL" "downdraft-node-mobile-")
+          n=$(have "$NATIVE_REL" "downdraft-native-.*\.tar\.gz$"); m=$(have "$NM_REL" "downdraft-node-mobile-.*\.tar\.gz$")
           echo "$NATIVE_REL: $n/5 bundles | $NM_REL: $m/2 bundles"
           echo "needs_native=$([ "$n" -lt 5 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
           echo "needs_node_mobile=$([ "$m" -lt 2 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
