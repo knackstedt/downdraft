@@ -40,9 +40,11 @@ fn shape(r: &mut TextRenderer, text: &str, size: f32) -> Buffer {
     let metrics = Metrics::new(size, size * LINE_HEIGHT_SCALE);
     let mut buf = Buffer::new(&mut r.fs, metrics);
     let attrs = Attrs::new().family(Family::Name(&r.family));
-    buf.set_wrap(&mut r.fs, Wrap::None);
-    buf.set_size(&mut r.fs, Some(f32::MAX), Some(size * LINE_HEIGHT_SCALE));
-    buf.set_text(&mut r.fs, text, &attrs, Shaping::Advanced);
+    buf.set_wrap(Wrap::None);
+    buf.set_size(Some(f32::MAX), Some(size * LINE_HEIGHT_SCALE));
+    buf.set_text(text, &attrs, Shaping::Advanced, None);
+    // cosmic-text ≥0.15 defers shaping — populate layout runs explicitly.
+    buf.shape_until_scroll(&mut r.fs, false);
     buf
 }
 
@@ -114,7 +116,7 @@ pub unsafe extern "C" fn ft_shim_render_text(
             return 0;
         }
         let size = font_size.max(1) as f32;
-        let buf = shape(r, &text, size);
+        let mut buf = shape(r, &text, size);
 
         // Emit h = line height (≈ TTF_FontHeight), w = advance width — same
         // contract as TTF_RenderUTF8_Blended + the C clamp to max dims.

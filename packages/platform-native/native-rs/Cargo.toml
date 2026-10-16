@@ -18,7 +18,7 @@ crate-type = ["cdylib", "rlib"]
 #   naga                  — dd_wgsl_validate (replaces the tint binary)
 [dependencies]
 image = "0.25"
-cosmic-text = "0.14"
+cosmic-text = "0.19"
 winit = "0.30"
 raw-window-handle = "0.6"
 wgpu = "30"

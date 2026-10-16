@@ -40,7 +40,6 @@ ignore = [
   # advisories, not vulnerabilities; no patched versions exist to upgrade
   # to. Tracked as upstream migrations (harfrust/skrifa alternatives).
   "RUSTSEC-2024-0436", # paste
-  "RUSTSEC-2026-0206", # rustybuzz
   "RUSTSEC-2026-0192", # ttf-parser
 ]
 
