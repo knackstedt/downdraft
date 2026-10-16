@@ -2,6 +2,7 @@
 name = "bakeoff-blitz-ui"
 version = "0.1.0"
 edition = "2021"
+license.workspace = true
 publish = false
 description = "Dioxus component gallery for the ui-bakeoff test bed (compiles to wasm)"
 

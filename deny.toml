@@ -14,11 +14,18 @@ allow = [
   "ISC",
   "Zlib",
   "Unicode-3.0",
-  "Unicode-DFS-2016",
   "BSL-1.0",
   "CC0-1.0",
   "0BSD",
   "Unlicense",
+  # Servo CSS stack pulled in by Blitz (stylo/cssparser/selectors/...) —
+  # file-level weak copyleft; we ship unmodified deps so only per-file
+  # source-offer obligations apply.
+  "MPL-2.0",
+  # BSD-style permissive licenses seen in the tree.
+  "NCSA",
+  "bzip2-1.0.6",
+  "CDLA-Permissive-2.0",
 ]
 confidence-threshold = 0.8
 # CEF/WPE backend crates link LGPL-2.1 web engines dynamically — LGPL is not
@@ -28,6 +35,19 @@ exceptions = []
 [advisories]
 # Fail on known security advisories in the dependency tree.
 yanked = "deny"
+ignore = [
+  # ringbuf 0.3.3 is pinned by kira 0.9. The vuln fires when an element's
+  # Drop panics inside Consumer::skip/clear — kira's ring buffers carry
+  # plain audio frame types with no Drop impls, so it's unreachable here.
+  # Proper fix is migrating the audio backend to kira 0.12 (drops ringbuf).
+  "RUSTSEC-2026-0293",
+  # Unmaintained transitive deps in the Blitz/parley text stack — INFO
+  # advisories, not vulnerabilities; no patched versions exist to upgrade
+  # to. Tracked as upstream migrations (harfrust/skrifa alternatives).
+  "RUSTSEC-2024-0436", # paste
+  "RUSTSEC-2026-0206", # rustybuzz
+  "RUSTSEC-2026-0192", # ttf-parser
+]
 
 [bans]
 multiple-versions = "warn"
