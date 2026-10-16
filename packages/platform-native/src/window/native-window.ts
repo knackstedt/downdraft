@@ -1350,6 +1350,10 @@ export class NativeWindow extends MiniEventTarget {
       try { wgpu.wgpu_shim_release_surface(this.surfacePtr); } catch { /* best-effort */ }
       this.surfacePtr = 0;
     }
+    // Invalidate the pointer copies held by the canvas + canvas context —
+    // anything still referencing them (renderer, resize watcher, pending
+    // capture) would otherwise pass the freed handle back into the FFI.
+    this.surface?.rebindSurface(0);
     this.surface = null;
     NativeWindow.byHandle.delete(this.windowHandle);
     const wd = winMulti.dd_window_secondary_destroy;

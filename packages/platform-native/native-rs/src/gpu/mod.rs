@@ -100,6 +100,20 @@ static G_SURFACE_TEXTURES: LazyLock<Mutex<HashMap<usize, SurfaceTexture>>> =
 /// already handles as a skipped frame.
 static G_CONFIGURED_SURFACES: LazyLock<Mutex<HashSet<usize>>> =
     LazyLock::new(|| Mutex::new(HashSet::new()));
+/// Live surface handles, inserted by [`create_surface_for_window`] and
+/// removed by wgpu_shim_release_surface. The JS side duplicates a surface
+/// handle across the window, canvas, and canvas-context objects, so
+/// teardown can free the Box while a stale copy still issues FFI calls —
+/// dereferencing one of those used to SEGV inside wgpu
+/// (Surface::configure's first field load). Every entry point that
+/// dereferences a surface handle checks membership first, and release
+/// refuses a second free.
+static G_LIVE_SURFACES: LazyLock<Mutex<HashSet<usize>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
+
+fn surface_is_live(h: Handle) -> bool {
+    !h.is_null() && G_LIVE_SURFACES.lock().unwrap().contains(&(h as usize))
+}
 
 thread_local! {
     /// ErrorScopeGuard is !Send (per-thread by design in wgpu) — scopes are
@@ -2957,7 +2971,11 @@ pub(crate) fn create_surface_for_window(
     }
     let instance = unsafe { obj::<Instance>(instance) };
     match instance.create_surface(window) {
-        Ok(s) => boxed(s),
+        Ok(s) => {
+            let h = boxed(s);
+            G_LIVE_SURFACES.lock().unwrap().insert(h as usize);
+            h
+        }
         Err(e) => {
             eprintln!("[wgpu_shim] surface creation failed: {e}");
             ptr::null_mut()
@@ -3034,6 +3052,10 @@ pub extern "C" fn wgpu_shim_surface_configure(
             eprintln!("[wgpu_shim] surface_configure: invalid texture format 0x{format:x}");
             return;
         };
+        if !surface_is_live(surface) {
+            eprintln!("[wgpu_shim] surface_configure: stale surface handle {surface:p}");
+            return;
+        }
         // Drop any stashed frame first — configure() panics while a
         // SurfaceTexture is alive.
         G_SURFACE_TEXTURES
@@ -3165,6 +3187,10 @@ pub extern "C" fn wgpu_shim_surface_pick_format(
             eprintln!("[wgpu_shim] surface_pick_format: null adapter");
             return 0;
         }
+        if !surface_is_live(surface) {
+            eprintln!("[wgpu_shim] surface_pick_format: stale surface handle {surface:p}");
+            return 0;
+        }
         let caps = obj::<Surface>(surface).get_capabilities(obj::<Adapter>(adapter));
         for i in 0..count {
             let code = *candidates.add(i);
@@ -3236,6 +3262,12 @@ pub extern "C" fn wgpu_shim_release_surface(p: Handle) {
     ffi!((), {
         G_SURFACE_TEXTURES.lock().unwrap().remove(&(p as usize));
         G_CONFIGURED_SURFACES.lock().unwrap().remove(&(p as usize));
+        if !G_LIVE_SURFACES.lock().unwrap().remove(&(p as usize)) {
+            if !p.is_null() {
+                eprintln!("[wgpu_shim] release_surface: stale or double release {p:p}");
+            }
+            return;
+        }
         #[cfg(target_os = "android")]
         crate::window::android::defer_surface_release(p as usize);
         #[cfg(not(target_os = "android"))]
