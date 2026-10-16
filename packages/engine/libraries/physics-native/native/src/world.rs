@@ -20,8 +20,10 @@ pub struct PhysicsWorld {
     pub impulse_joints: ImpulseJointSet,
     pub multibody_joints: MultibodyJointSet,
     pub island_manager: IslandManager,
-    pub query_pipeline: QueryPipeline,
-    pub gravity: Vector<f32>,
+    pub soft_bodies: SoftBodySet,
+    /// rapier 0.30+ has no persistent QueryPipeline — queries are built as
+    /// borrowed views over the broad-phase (see `queries()`).
+    pub gravity: Vector,
     /// Game body id → Rapier handle.
     pub body_map: HashMap<i32, RigidBodyHandle>,
     /// Rapier handle → game body id (awake-state readback, contact reporting).
@@ -53,7 +55,7 @@ impl PhysicsWorld {
             impulse_joints: ImpulseJointSet::new(),
             multibody_joints: MultibodyJointSet::new(),
             island_manager: IslandManager::new(),
-            query_pipeline: QueryPipeline::new(),
+            soft_bodies: SoftBodySet::new(),
             gravity: Vector::new(gravity[0], gravity[1], gravity[2]),
             body_map: HashMap::new(),
             body_id_by_handle: HashMap::new(),
@@ -74,7 +76,7 @@ impl PhysicsWorld {
             self.integration_params.dt = dt;
         }
         self.physics.step(
-            &self.gravity,
+            self.gravity,
             &self.integration_params,
             &mut self.island_manager,
             &mut self.broadphase,
@@ -83,11 +85,24 @@ impl PhysicsWorld {
             &mut self.colliders,
             &mut self.impulse_joints,
             &mut self.multibody_joints,
+            &mut self.soft_bodies,
             &mut self.ccd_solver,
-            Some(&mut self.query_pipeline),
             &(),
             &(),
         );
+    }
+
+    /// Fresh scene-query view over the broad-phase — the rapier 0.30+
+    /// replacement for the persistent `QueryPipeline` + `update()` pattern.
+    /// Queries work without a preceding step because the BVH is kept current
+    /// on collider insertion/removal.
+    pub fn queries<'a>(&'a self, filter: QueryFilter<'a>) -> QueryPipeline<'a> {
+        self.broadphase.as_query_pipeline(
+            self.narrowphase.query_dispatcher(),
+            &self.bodies,
+            &self.colliders,
+            filter,
+        )
     }
 
     /// Enumerate awake dynamic bodies via the island manager's active set —
@@ -111,12 +126,8 @@ impl PhysicsWorld {
         // Active set = awake dynamic + kinematic bodies (matching the WASM
         // backend's forEachActiveRigidBodyHandle). Sleeping bodies are
         // excluded — they cannot move, so callers keep last-synced values.
-        let active = self
-            .island_manager
-            .active_dynamic_bodies()
-            .iter()
-            .chain(self.island_manager.active_kinematic_bodies().iter());
-        for &handle in active {
+        let active = self.island_manager.active_bodies();
+        for handle in active {
             if written >= max_count {
                 break;
             }
@@ -127,15 +138,15 @@ impl PhysicsWorld {
                 continue;
             };
             let t = body.translation();
-            let r = body.rotation().quaternion();
+            let r = body.rotation();
             let v = body.linvel();
             let o = written * 10;
             states[o] = t.x;
             states[o + 1] = t.y;
             states[o + 2] = t.z;
-            states[o + 3] = r.i;
-            states[o + 4] = r.j;
-            states[o + 5] = r.k;
+            states[o + 3] = r.x;
+            states[o + 4] = r.y;
+            states[o + 5] = r.z;
             states[o + 6] = r.w;
             states[o + 7] = v.x;
             states[o + 8] = v.y;

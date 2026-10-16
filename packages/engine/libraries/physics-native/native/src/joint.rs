@@ -1,4 +1,3 @@
-use rapier3d::na::{Quaternion, Unit, UnitQuaternion};
 use rapier3d::prelude::*;
 use crate::world::PhysicsWorld;
 
@@ -27,17 +26,24 @@ pub unsafe fn create_joint(
         return -1;
     };
 
-    let anchor_a = Point::new(f[0], f[1], f[2]);
-    let anchor_b = Point::new(f[3], f[4], f[5]);
-    let axis_v = vector![f[6], f[7], f[8]];
-    let frame_a = UnitQuaternion::from_quaternion(Quaternion::new(f[14], f[11], f[12], f[13]));
-    let frame_b = UnitQuaternion::from_quaternion(Quaternion::new(f[18], f[15], f[16], f[17]));
+    let anchor_a = Vector::new(f[0], f[1], f[2]);
+    let anchor_b = Vector::new(f[3], f[4], f[5]);
+    let axis_v = Vector::new(f[6], f[7], f[8]);
+    let frame_a = Rotation::from_xyzw(f[11], f[12], f[13], f[14]).normalize();
+    let frame_b = Rotation::from_xyzw(f[15], f[16], f[17], f[18]).normalize();
+
+    // Joint axes are plain normalized vectors in rapier 0.30+ (no Unit wrapper).
+    let axis = if axis_v.length_squared() > 1.0e-12 {
+        axis_v.normalize()
+    } else {
+        Vector::Y
+    };
 
     let data: GenericJoint = match jtype {
         0 => {
             let mut j = FixedJoint::new();
-            j.set_local_frame1(Isometry::from_parts(Translation::from(anchor_a.coords), frame_a));
-            j.set_local_frame2(Isometry::from_parts(Translation::from(anchor_b.coords), frame_b));
+            j.set_local_frame1(Pose::from_parts(anchor_a, frame_a));
+            j.set_local_frame2(Pose::from_parts(anchor_b, frame_b));
             j.into()
         }
         1 => {
@@ -47,8 +53,6 @@ pub unsafe fn create_joint(
             j.into()
         }
         2 => {
-            let axis = Unit::try_new(axis_v, 1.0e-6)
-                .unwrap_or_else(|| Unit::new_unchecked(vector![0.0, 1.0, 0.0]));
             let mut j = RevoluteJoint::new(axis);
             j.set_local_anchor1(anchor_a);
             j.set_local_anchor2(anchor_b);
@@ -58,8 +62,6 @@ pub unsafe fn create_joint(
             j.into()
         }
         _ => {
-            let axis = Unit::try_new(axis_v, 1.0e-6)
-                .unwrap_or_else(|| Unit::new_unchecked(vector![0.0, 1.0, 0.0]));
             let mut j = PrismaticJoint::new(axis);
             j.set_local_anchor1(anchor_a);
             j.set_local_anchor2(anchor_b);

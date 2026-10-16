@@ -9,4 +9,4 @@ name = "downdraft_physics"
 crate-type = ["cdylib"]
 
 [dependencies]
-rapier3d = "0.19"
+rapier3d = "0.36"

@@ -1,5 +1,4 @@
 use crate::world::PhysicsWorld;
-use std::num::NonZeroUsize;
 
 pub fn step_realm(realm: &mut PhysicsWorld, dt: f32) -> i32 {
     realm.step(dt);
@@ -14,14 +13,14 @@ pub fn set_integration_dt(realm: &mut PhysicsWorld, dt: f32) -> i32 {
 }
 
 pub fn set_solver_iterations(realm: &mut PhysicsWorld, iterations: i32) -> i32 {
-    if let Some(n) = NonZeroUsize::new(iterations.max(1) as usize) {
-        realm.integration_params.num_solver_iterations = n;
-    }
+    realm.integration_params.num_solver_iterations = iterations.max(1) as usize;
     0
 }
 
-pub fn set_min_island_size(realm: &mut PhysicsWorld, size: i32) -> i32 {
-    realm.integration_params.min_island_size = size.max(0) as usize;
+pub fn set_min_island_size(_realm: &mut PhysicsWorld, _size: i32) -> i32 {
+    // rapier 0.22+ removed IntegrationParameters::min_island_size (islands
+    // are single-rooted now); the FFI stays for ABI parity with the WASM
+    // backend, where the setter still exists but is equally inert.
     0
 }
 

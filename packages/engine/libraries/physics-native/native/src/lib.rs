@@ -807,23 +807,23 @@ mod raw_tests {
         let mut colliders = ColliderSet::new();
         let mut joints = ImpulseJointSet::new();
         let mut mb = MultibodyJointSet::new();
+        let mut soft = SoftBodySet::new();
         let mut ccd = CCDSolver::new();
-        let mut qp = QueryPipeline::new();
-        let gravity = vector![0.0, -9.81, 0.0];
+        let gravity = Vector::new(0.0, -9.81, 0.0);
         let params = IntegrationParameters::default();
 
         let rb = RigidBodyBuilder::dynamic()
-            .translation(vector![0.0, 10.0, 0.0])
+            .translation(Vector::new(0.0, 10.0, 0.0))
             .additional_mass(1.0)
             .build();
         let h = bodies.insert(rb);
 
-        pipeline.step(&gravity, &params, &mut islands, &mut broad, &mut narrow,
-            &mut bodies, &mut colliders, &mut joints, &mut mb, &mut ccd,
-            Some(&mut qp), &(), &());
-        pipeline.step(&gravity, &params, &mut islands, &mut broad, &mut narrow,
-            &mut bodies, &mut colliders, &mut joints, &mut mb, &mut ccd,
-            Some(&mut qp), &(), &());
+        pipeline.step(gravity, &params, &mut islands, &mut broad, &mut narrow,
+            &mut bodies, &mut colliders, &mut joints, &mut mb, &mut soft, &mut ccd,
+            &(), &());
+        pipeline.step(gravity, &params, &mut islands, &mut broad, &mut narrow,
+            &mut bodies, &mut colliders, &mut joints, &mut mb, &mut soft, &mut ccd,
+            &(), &());
         println!("linvel {:?}", bodies.get(h).unwrap().linvel());
         assert!(bodies.get(h).unwrap().linvel().y < -0.3);
     }

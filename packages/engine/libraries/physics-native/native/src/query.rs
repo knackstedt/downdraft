@@ -1,4 +1,3 @@
-use rapier3d::na::{Quaternion, UnitQuaternion};
 use rapier3d::parry::query::ShapeCastOptions;
 use rapier3d::prelude::*;
 use std::collections::HashSet;
@@ -10,6 +9,7 @@ fn ray_filter(realm: &PhysicsWorld, groups: u32, exclude_body: i32) -> QueryFilt
         filter.groups = Some(InteractionGroups::new(
             Group::from_bits_truncate(groups >> 16),
             Group::from_bits_truncate(groups & 0xffff),
+            InteractionTestMode::And,
         ));
     }
     if exclude_body >= 0 {
@@ -41,22 +41,16 @@ pub unsafe fn raycast(
     exclude_body: i32,
     out: *mut f32,
 ) -> i32 {
-    // The WASM World refreshes the query pipeline on collider insertion;
-    // here queries must work without a preceding step, so update lazily.
-    realm.query_pipeline.update(&realm.bodies, &realm.colliders);
+    // Queries work without a preceding step — the broad-phase BVH is kept
+    // current on collider insertion/removal.
     let ray = Ray::new(
-        Point::new(origin[0], origin[1], origin[2]),
+        Vector::new(origin[0], origin[1], origin[2]),
         Vector::new(direction[0], direction[1], direction[2]),
     );
     let filter = ray_filter(realm, groups, exclude_body);
-    let Some((handle, hit)) = realm.query_pipeline.cast_ray_and_get_normal(
-        &realm.bodies,
-        &realm.colliders,
-        &ray,
-        max_distance,
-        true,
-        filter,
-    ) else {
+    let qp = realm.queries(filter);
+    let Some((handle, hit)) = qp.cast_ray_and_get_normal(&ray, max_distance, true)
+    else {
         return 0;
     };
     let o = std::slice::from_raw_parts_mut(out, 8);
@@ -93,28 +87,20 @@ pub unsafe fn shape_cast(
         2 => SharedShape::capsule_y(f[0], f[1]),
         _ => SharedShape::ball(0.5),
     };
-    let pos = Isometry::from_parts(
-        Translation::new(f[3], f[4], f[5]),
-        UnitQuaternion::from_quaternion(Quaternion::new(f[9], f[6], f[7], f[8])),
+    let pos = Pose::from_parts(
+        Vector::new(f[3], f[4], f[5]),
+        Rotation::from_xyzw(f[6], f[7], f[8], f[9]).normalize(),
     );
     let vel = Vector::new(f[10], f[11], f[12]);
     let filter = ray_filter(realm, groups, exclude_body);
-    realm.query_pipeline.update(&realm.bodies, &realm.colliders);
+    let qp = realm.queries(filter);
     let options = ShapeCastOptions {
         target_distance: max_distance,
         max_time_of_impact: max_distance,
         stop_at_penetration: true,
         compute_impact_geometry_on_penetration: false,
     };
-    let Some((handle, hit)) = realm.query_pipeline.cast_shape(
-        &realm.bodies,
-        &realm.colliders,
-        &pos,
-        &vel,
-        &*shape,
-        options,
-        filter,
-    ) else {
+    let Some((handle, hit)) = qp.cast_shape(&pos, vel, &*shape, options) else {
         return 0;
     };
     let o = std::slice::from_raw_parts_mut(out, 8);
@@ -151,7 +137,7 @@ pub unsafe fn get_contacts(
     let mut seen: HashSet<(u32, u32)> = HashSet::new();
     let mut written = 0usize;
 
-    for &body_handle in realm.island_manager.active_dynamic_bodies() {
+    for body_handle in realm.island_manager.active_bodies() {
         let Some(body) = realm.bodies.get(body_handle) else {
             continue;
         };
@@ -163,7 +149,7 @@ pub unsafe fn get_contacts(
                 continue;
             }
             for pair in realm.narrowphase.contact_pairs_with(c1) {
-                if !pair.has_any_active_contact {
+                if !pair.has_any_active_contact() {
                     continue;
                 }
                 let (a, b) = pair.collider1.into_raw_parts();
@@ -186,7 +172,7 @@ pub unsafe fn get_contacts(
                 if body_a < 0 || body_b < 0 {
                     continue;
                 }
-                let manifold = pair.manifolds.first();
+                let manifold = pair.manifolds().first();
                 let (nx, ny, nz) = manifold
                     .map(|m| (m.data.normal.x, m.data.normal.y, m.data.normal.z))
                     .unwrap_or((0.0, 1.0, 0.0));
@@ -194,10 +180,15 @@ pub unsafe fn get_contacts(
                 let mut penetration = 0.0f32;
                 if let Some(m) = manifold {
                     for sc in m.data.solver_contacts.iter().take(4) {
+                        // Solver anchors are body-local — resolve through the
+                        // bodies' poses and report the midpoint (the effective
+                        // contact point).
+                        let (w1, w2) = m.data.solver_contact_world_points(sc, &realm.bodies);
+                        let wp = (w1 + w2) * 0.5;
                         let base = written * 12 + n_pts as usize * 3;
-                        pp[base] = sc.point.x;
-                        pp[base + 1] = sc.point.y;
-                        pp[base + 2] = sc.point.z;
+                        pp[base] = wp.x;
+                        pp[base + 1] = wp.y;
+                        pp[base + 2] = wp.z;
                         penetration = penetration.max(-sc.dist);
                         n_pts += 1;
                     }
@@ -228,7 +219,7 @@ pub unsafe fn get_intersections(
     let ii = std::slice::from_raw_parts_mut(out_i, max_pairs * 2);
     let mut seen: HashSet<(u32, u32)> = HashSet::new();
     let mut written = 0usize;
-    for &body_handle in realm.island_manager.active_dynamic_bodies() {
+    for body_handle in realm.island_manager.active_bodies() {
         let Some(body) = realm.bodies.get(body_handle) else {
             continue;
         };

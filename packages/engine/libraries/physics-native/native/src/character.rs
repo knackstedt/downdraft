@@ -1,7 +1,6 @@
 use rapier3d::control::{
     CharacterAutostep, CharacterCollision, CharacterLength, KinematicCharacterController,
 };
-use rapier3d::na::{Quaternion, UnitQuaternion};
 use rapier3d::prelude::*;
 use crate::world::{CharController, PhysicsWorld};
 
@@ -56,12 +55,13 @@ pub unsafe fn create(
             builder = builder.collision_groups(InteractionGroups::new(
                 Group::from_bits_truncate((i[4] as u32) >> 16),
                 Group::from_bits_truncate((i[4] as u32) & 0xffff),
+                InteractionTestMode::And,
             ));
         }
         let mut collider = builder.build();
-        collider.set_position(Isometry::from_parts(
-            Translation::new(f[8], f[9], f[10]),
-            UnitQuaternion::from_quaternion(Quaternion::identity()),
+        collider.set_position(Pose::from_parts(
+            Vector::new(f[8], f[9], f[10]),
+            Rotation::IDENTITY,
         ));
         let handle = realm.colliders.insert(collider);
         CharController {
@@ -94,6 +94,7 @@ pub fn destroy(realm: &mut PhysicsWorld, ctrl_id: i32) -> i32 {
                 ch,
                 &mut realm.island_manager,
                 &mut realm.bodies,
+                &mut realm.soft_bodies,
                 true,
             );
         }
@@ -158,25 +159,26 @@ pub unsafe fn char_move(
     let Some(collider) = realm.colliders.get(collider_handle) else {
         return -1;
     };
-    let shape = collider.shape();
+    // Clone the SharedShape (Arc) — the impulse-solve below needs a mutable
+    // borrow of the collider set, which a borrowed `&dyn Shape` would conflict with.
+    let shape = collider.shared_shape().clone();
     let pos = *collider.position();
 
-    // Queries must work without a preceding step — refresh the pipeline.
-    realm.query_pipeline.update(&realm.bodies, &realm.colliders);
     let mut collisions: Vec<CharacterCollision> = Vec::new();
     let controller = &entry.controller;
-    // WASM parity: computeColliderMovement uses the world's integration dt.
-    let effective = controller.move_shape(
-        realm.integration_params.dt,
-        &realm.bodies,
-        &realm.colliders,
-        &realm.query_pipeline,
-        &*shape,
-        &pos,
-        Vector::new(dx, dy, dz),
-        QueryFilter::default().exclude_collider(collider_handle),
-        |c| collisions.push(c),
-    );
+    let effective = {
+        let filter = QueryFilter::default().exclude_collider(collider_handle);
+        let qp = realm.queries(filter);
+        // WASM parity: computeColliderMovement uses the world's integration dt.
+        controller.move_shape(
+            realm.integration_params.dt,
+            &qp,
+            &*shape,
+            &pos,
+            Vector::new(dx, dy, dz),
+            |c| collisions.push(c),
+        )
+    };
 
     ff[0] = effective.grounded as i32 as f32;
     ff[1] = effective.translation.x;
@@ -208,18 +210,20 @@ pub unsafe fn char_move(
             .and_then(|bh| realm.bodies.get(bh))
             .map(|b| b.mass())
             .unwrap_or(1.0);
-        for collision in &collisions {
-            controller.solve_character_collision_impulses(
-                realm.integration_params.dt,
-                &mut realm.bodies,
-                &realm.colliders,
-                &realm.query_pipeline,
-                &*shape,
-                mass,
-                collision,
-                QueryFilter::default().exclude_collider(collider_handle),
-            );
-        }
+        let filter = QueryFilter::default().exclude_collider(collider_handle);
+        let mut qpm = realm.broadphase.as_query_pipeline_mut(
+            realm.narrowphase.query_dispatcher(),
+            &mut realm.bodies,
+            &mut realm.colliders,
+            filter,
+        );
+        controller.solve_character_collision_impulses(
+            realm.integration_params.dt,
+            &mut qpm,
+            &*shape,
+            mass,
+            &collisions,
+        );
     }
 
     n as i32

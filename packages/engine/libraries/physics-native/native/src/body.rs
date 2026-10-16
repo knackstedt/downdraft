@@ -1,6 +1,12 @@
-use rapier3d::na::{Quaternion, UnitQuaternion};
 use rapier3d::prelude::*;
 use crate::world::PhysicsWorld;
+
+/// FFI quat (x,y,z,w) → rapier Rotation (glam Quat is also xyzw — the
+/// nalgebra UnitQuaternion was w-first). Normalized because rapier
+/// asserts unit-length rotations in debug builds.
+fn quat(x: f32, y: f32, z: f32, w: f32) -> Rotation {
+    Rotation::from_xyzw(x, y, z, w).normalize()
+}
 
 // ── dd_create_body descriptor layout ─────────────────────────────────────
 // f[0..3]  position xyz        f[3..7]  rotation quat (x,y,z,w)
@@ -25,9 +31,9 @@ pub fn create_body(
     f: &[f32],
     i: &[i32],
 ) -> i32 {
-    let transform = Isometry::from_parts(
-        Translation::new(f[0], f[1], f[2]),
-        UnitQuaternion::from_quaternion(Quaternion::new(f[6], f[3], f[4], f[5])),
+    let transform = Pose::from_parts(
+        Vector::new(f[0], f[1], f[2]),
+        quat(f[3], f[4], f[5], f[6]),
     );
 
     let body_type = i[0];
@@ -39,7 +45,7 @@ pub fn create_body(
     };
 
     let mut builder = RigidBodyBuilder::new(rb_type)
-        .position(transform)
+        .pose(transform)
         .linvel(Vector::new(f[7], f[8], f[9]))
         .angvel(Vector::new(f[10], f[11], f[12]));
 
@@ -102,6 +108,7 @@ pub fn destroy_body(realm: &mut PhysicsWorld, body_id: i32) -> i32 {
             &mut realm.colliders,
             &mut realm.impulse_joints,
             &mut realm.multibody_joints,
+            &mut realm.soft_bodies,
             true,
         );
     }
@@ -141,7 +148,7 @@ pub fn set_translation(realm: &mut PhysicsWorld, body_id: i32, x: f32, y: f32, z
 
 pub fn set_rotation(realm: &mut PhysicsWorld, body_id: i32, x: f32, y: f32, z: f32, w: f32, wake: bool) -> i32 {
     if let Some(b) = body(realm, body_id) {
-        b.set_rotation(UnitQuaternion::from_quaternion(Quaternion::new(w, x, y, z)), wake);
+        b.set_rotation(quat(x, y, z, w), wake);
     }
     0
 }
@@ -172,10 +179,10 @@ pub unsafe fn get_rotation(realm: &PhysicsWorld, body_id: i32, out: *mut f32) ->
     let o = std::slice::from_raw_parts_mut(out, 4);
     match body_ref(realm, body_id) {
         Some(b) => {
-            let r = b.rotation().quaternion();
-            o[0] = r.i;
-            o[1] = r.j;
-            o[2] = r.k;
+            let r = b.rotation();
+            o[0] = r.x;
+            o[1] = r.y;
+            o[2] = r.z;
             o[3] = r.w;
         }
         None => {
@@ -249,13 +256,13 @@ pub unsafe fn get_body_transform(realm: &PhysicsWorld, body_id: i32, out: *mut f
     match body_ref(realm, body_id) {
         Some(b) => {
             let t = b.translation();
-            let r = b.rotation().quaternion();
+            let r = b.rotation();
             o[0] = t.x;
             o[1] = t.y;
             o[2] = t.z;
-            o[3] = r.i;
-            o[4] = r.j;
-            o[5] = r.k;
+            o[3] = r.x;
+            o[4] = r.y;
+            o[5] = r.z;
             o[6] = r.w;
             1
         }
@@ -323,7 +330,7 @@ pub fn apply_impulse_at_point(
     if let Some(b) = body(realm, body_id) {
         b.apply_impulse_at_point(
             Vector::new(impulse[0], impulse[1], impulse[2]),
-            Point::new(point[0], point[1], point[2]),
+            Vector::new(point[0], point[1], point[2]),
             true,
         );
     }
@@ -352,12 +359,12 @@ pub unsafe fn apply_body_writes(
                 wake,
             );
             b.set_rotation(
-                UnitQuaternion::from_quaternion(Quaternion::new(
-                    state_slice[o + 6],
+                quat(
                     state_slice[o + 3],
                     state_slice[o + 4],
                     state_slice[o + 5],
-                )),
+                    state_slice[o + 6],
+                ),
                 wake,
             );
             b.set_linvel(
@@ -391,10 +398,10 @@ pub unsafe fn apply_impulses(
         if let Some(b) = body(realm, body_id) {
             let lin = Vector::new(imp_slice[o], imp_slice[o + 1], imp_slice[o + 2]);
             let ang = Vector::new(imp_slice[o + 3], imp_slice[o + 4], imp_slice[o + 5]);
-            if lin.norm_squared() > 0.0 {
+            if lin.length_squared() > 0.0 {
                 b.apply_impulse(lin, true);
             }
-            if ang.norm_squared() > 0.0 {
+            if ang.length_squared() > 0.0 {
                 b.apply_torque_impulse(ang, true);
             }
         }

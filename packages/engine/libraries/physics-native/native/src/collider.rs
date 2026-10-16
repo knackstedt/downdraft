@@ -1,4 +1,4 @@
-use rapier3d::na::{DMatrix, Quaternion, UnitQuaternion, Vector3};
+use rapier3d::parry::utils::Array2;
 use rapier3d::prelude::*;
 use crate::world::PhysicsWorld;
 
@@ -27,6 +27,7 @@ fn interaction_groups(packed: u32) -> InteractionGroups {
     InteractionGroups::new(
         Group::from_bits_truncate(packed >> 16),
         Group::from_bits_truncate(packed & 0xffff),
+        InteractionTestMode::And,
     )
 }
 
@@ -46,8 +47,8 @@ fn build_collider(
             if n == 0 || verts.len() < n * 3 {
                 return None;
             }
-            let points: Vec<Point<f32>> = (0..n)
-                .map(|i| Point::new(verts[i * 3], verts[i * 3 + 1], verts[i * 3 + 2]))
+            let points: Vec<Vector> = (0..n)
+                .map(|i| Vector::new(verts[i * 3], verts[i * 3 + 1], verts[i * 3 + 2]))
                 .collect();
             match ColliderBuilder::convex_hull(&points) {
                 Some(b) => b,
@@ -60,13 +61,16 @@ fn build_collider(
             if nv == 0 || ni == 0 || verts.len() < nv * 3 || indices.len() < ni {
                 return None;
             }
-            let points: Vec<Point<f32>> = (0..nv)
-                .map(|i| Point::new(verts[i * 3], verts[i * 3 + 1], verts[i * 3 + 2]))
+            let points: Vec<Vector> = (0..nv)
+                .map(|i| Vector::new(verts[i * 3], verts[i * 3 + 1], verts[i * 3 + 2]))
                 .collect();
             let tris: Vec<[u32; 3]> = (0..ni / 3)
                 .map(|i| [indices[i * 3], indices[i * 3 + 1], indices[i * 3 + 2]])
                 .collect();
-            ColliderBuilder::trimesh(points, tris)
+            match ColliderBuilder::trimesh(points, tris) {
+                Ok(b) => b,
+                Err(_) => return None,
+            }
         }
         5 => {
             let nrows = meta[7].max(0) as usize;
@@ -74,8 +78,18 @@ fn build_collider(
             if nrows == 0 || ncols == 0 || verts.len() < nrows * ncols {
                 return None;
             }
-            let heights = DMatrix::from_row_slice(nrows, ncols, &verts[..nrows * ncols]);
-            ColliderBuilder::heightfield(heights, Vector3::new(f[0], f[1], f[2]))
+            // parry's Array2 is column-major (index = i + j*nrows); the FFI
+            // layout is row-major like the old DMatrix::from_row_slice.
+            let mut heights = vec![0.0f32; nrows * ncols];
+            for r in 0..nrows {
+                for c in 0..ncols {
+                    heights[r + c * nrows] = verts[r * ncols + c];
+                }
+            }
+            ColliderBuilder::heightfield(
+                Array2::new(nrows, ncols, heights),
+                Vector::new(f[0], f[1], f[2]),
+            )
         }
         _ => return None,
     };
@@ -103,16 +117,16 @@ fn build_collider(
     let mut collider = builder.build();
     if flags & ((1 << 3) | (1 << 4)) != 0 {
         let t = if flags & (1 << 3) != 0 {
-            Translation::new(f[7], f[8], f[9])
+            Vector::new(f[7], f[8], f[9])
         } else {
-            Translation::identity()
+            Vector::ZERO
         };
         let r = if flags & (1 << 4) != 0 {
-            UnitQuaternion::from_quaternion(Quaternion::new(f[13], f[10], f[11], f[12]))
+            Rotation::from_xyzw(f[10], f[11], f[12], f[13]).normalize()
         } else {
-            UnitQuaternion::identity()
+            Rotation::IDENTITY
         };
-        collider.set_position_wrt_parent(Isometry::from_parts(t, r));
+        collider.set_position_wrt_parent(Pose::from_parts(t, r));
     }
     Some(collider)
 }
@@ -180,14 +194,19 @@ pub unsafe fn swap_collider_shape(
     };
     let vs = std::slice::from_raw_parts(verts, n_verts * 3);
     let is = std::slice::from_raw_parts(indices, n_indices);
-    let points: Vec<Point<f32>> = (0..n_verts)
-        .map(|i| Point::new(vs[i * 3], vs[i * 3 + 1], vs[i * 3 + 2]))
+    let points: Vec<Vector> = (0..n_verts)
+        .map(|i| Vector::new(vs[i * 3], vs[i * 3 + 1], vs[i * 3 + 2]))
         .collect();
     let tris: Vec<[u32; 3]> = (0..n_indices / 3)
         .map(|i| [is[i * 3], is[i * 3 + 1], is[i * 3 + 2]])
         .collect();
-    collider.set_shape(SharedShape::trimesh(points, tris));
-    1
+    match SharedShape::trimesh(points, tris) {
+        Ok(shape) => {
+            collider.set_shape(shape);
+            1
+        }
+        Err(_) => 0,
+    }
 }
 
 pub fn remove_collider(realm: &mut PhysicsWorld, collider_id: i32) -> i32 {
@@ -196,6 +215,7 @@ pub fn remove_collider(realm: &mut PhysicsWorld, collider_id: i32) -> i32 {
             handle,
             &mut realm.island_manager,
             &mut realm.bodies,
+            &mut realm.soft_bodies,
             true,
         );
     }
@@ -240,10 +260,9 @@ pub unsafe fn get_collider_position(realm: &PhysicsWorld, collider_id: i32, out:
 ///
 /// The value is translated to the @dimforge/rapier3d-compat JS enum so
 /// callers see identical numbers across WASM and native backends. The two
-/// differ: native parry3d orders Segment, Triangle, TriMesh, Polyline,
-/// HalfSpace mid-enum (HalfSpace=7, ConvexPolyhedron=10), while the WASM
-/// bindings move HalfSpace to 17 and order the mid-enum Segment, Polyline,
-/// Triangle, TriMesh (ConvexPolyhedron=9).
+/// enums order the mid-range differently: the JS bindings use Segment=3,
+/// Polyline=4, Triangle=5, TriMesh=6, HeightField=7, Compound=8,
+/// ConvexPolyhedron=9, HalfSpace=17, Voxels=18 — so we map by name.
 pub fn collider_shape_type(realm: &PhysicsWorld, collider_id: i32) -> i32 {
     use rapier3d::parry::shape::ShapeType as T;
     realm
@@ -266,6 +285,7 @@ pub fn collider_shape_type(realm: &PhysicsWorld, collider_id: i32) -> i32 {
             T::RoundCone => 15,
             T::RoundConvexPolyhedron => 16,
             T::HalfSpace => 17,
+            T::Voxels => 18,
             // Ball=0, Cuboid=1, Capsule=2 line up; Custom has no JS analog.
             T::Ball | T::Cuboid | T::Capsule => c.shape().shape_type() as i32,
             _ => -1,
@@ -292,8 +312,8 @@ pub unsafe fn test_convex_hull(verts: *const f32, n_verts: usize) -> i32 {
         return 0;
     }
     let vs = std::slice::from_raw_parts(verts, n_verts * 3);
-    let points: Vec<Point<f32>> = (0..n_verts)
-        .map(|i| Point::new(vs[i * 3], vs[i * 3 + 1], vs[i * 3 + 2]))
+    let points: Vec<Vector> = (0..n_verts)
+        .map(|i| Vector::new(vs[i * 3], vs[i * 3 + 1], vs[i * 3 + 2]))
         .collect();
     SharedShape::convex_hull(&points).is_some() as i32
 }
