@@ -665,6 +665,9 @@ wrap_app! {
                 "in-process-gpu",
                 "mute-audio",
                 "disable-features=AudioServiceOutOfProcess",
+                // Software WebGL — OSR has no GPU process, but pages still
+                // want canvas3d (maps, players). SwiftShader covers it.
+                "enable-unsafe-swiftshader",
             ] {
                 cmd.append_switch(Some(&cef_str(sw)));
             }
