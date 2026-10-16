@@ -9,7 +9,7 @@ name = "downdraft_audio"
 crate-type = ["cdylib"]
 
 [dependencies]
-# kira's default features pull symphonia with mp3/ogg/flac/wav decode —
+# kira's default features pull symphonia with mp3/ogg/flac/wav/pcm decode —
 # StaticSoundData::from_cursor covers every format the FFI accepts, so no
 # direct symphonia dependency is needed.
-kira = "0.9"
+kira = "0.12"

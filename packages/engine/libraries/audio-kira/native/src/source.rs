@@ -1,9 +1,7 @@
 use std::io::Cursor;
 use kira::sound::static_sound::{StaticSoundData, StaticSoundSettings};
-use kira::sound::PlaybackState;
-use kira::tween::Tween;
-use kira::Volume;
-use crate::engine::AudioEngine;
+use kira::Tween;
+use crate::engine::{amp_to_db, AudioEngine};
 
 // `format` is retained for FFI stability — kira's symphonia probe
 // auto-detects the container (wav/ogg/mp3/flac) from the bytes.
@@ -26,7 +24,7 @@ pub fn play(engine: &mut AudioEngine, buffer_id: i32, loop_sound: i32, volume: f
     };
 
     let mut settings = StaticSoundSettings::new()
-        .volume(Volume::Amplitude(volume as f64));
+        .volume(amp_to_db(volume));
     if loop_sound != 0 {
         // `..` = the whole sound, looped indefinitely.
         settings = settings.loop_region(..);
@@ -47,34 +45,31 @@ pub fn play(engine: &mut AudioEngine, buffer_id: i32, loop_sound: i32, volume: f
 
 pub fn stop(engine: &mut AudioEngine, sound_id: i32) {
     if let Some(mut handle) = engine.sounds.remove(&(sound_id as u32)) {
-        let _ = handle.stop(Tween::default());
+        handle.stop(Tween::default());
     }
 }
 
 pub fn pause(engine: &mut AudioEngine, sound_id: i32) {
     if let Some(handle) = engine.sounds.get_mut(&(sound_id as u32)) {
-        let _ = handle.pause(Tween::default());
+        handle.pause(Tween::default());
     }
 }
 
 pub fn resume(engine: &mut AudioEngine, sound_id: i32) {
     if let Some(handle) = engine.sounds.get_mut(&(sound_id as u32)) {
-        let _ = handle.resume(Tween::default());
+        handle.resume(Tween::default());
     }
 }
 
 pub fn set_volume(engine: &mut AudioEngine, sound_id: i32, volume: f32) {
     if let Some(handle) = engine.sounds.get_mut(&(sound_id as u32)) {
-        let _ = handle.set_volume(Volume::Amplitude(volume as f64), Tween::default());
+        handle.set_volume(amp_to_db(volume), Tween::default());
     }
 }
 
 pub fn is_playing(engine: &AudioEngine, sound_id: i32) -> bool {
     if let Some(handle) = engine.sounds.get(&(sound_id as u32)) {
-        return matches!(
-            handle.state(),
-            PlaybackState::Playing | PlaybackState::Pausing | PlaybackState::Stopping,
-        );
+        return handle.state().is_advancing();
     }
     false
 }

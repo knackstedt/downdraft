@@ -36,11 +36,6 @@ exceptions = []
 # Fail on known security advisories in the dependency tree.
 yanked = "deny"
 ignore = [
-  # ringbuf 0.3.3 is pinned by kira 0.9. The vuln fires when an element's
-  # Drop panics inside Consumer::skip/clear — kira's ring buffers carry
-  # plain audio frame types with no Drop impls, so it's unreachable here.
-  # Proper fix is migrating the audio backend to kira 0.12 (drops ringbuf).
-  "RUSTSEC-2026-0293",
   # Unmaintained transitive deps in the Blitz/parley text stack — INFO
   # advisories, not vulnerabilities; no patched versions exist to upgrade
   # to. Tracked as upstream migrations (harfrust/skrifa alternatives).

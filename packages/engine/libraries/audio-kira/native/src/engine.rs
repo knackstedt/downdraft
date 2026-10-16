@@ -1,7 +1,16 @@
 use std::collections::HashMap;
-use kira::manager::{AudioManager, AudioManagerSettings};
-use kira::manager::backend::DefaultBackend;
+use kira::{AudioManager, AudioManagerSettings, DefaultBackend, Decibels};
 use kira::sound::static_sound::{StaticSoundData, StaticSoundHandle};
+
+/// The FFI volume contract is a linear amplitude multiplier (1.0 = unity).
+/// kira 0.10+ measures volume in decibels — convert here so callers keep
+/// the amplitude semantics.
+pub fn amp_to_db(amp: f32) -> Decibels {
+    if amp <= 0.0 {
+        return Decibels::SILENCE;
+    }
+    Decibels(20.0 * amp.log10())
+}
 
 pub struct AudioEngine {
     pub manager: AudioManager<DefaultBackend>,
