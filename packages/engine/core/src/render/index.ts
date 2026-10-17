@@ -37,8 +37,6 @@ export { G_BUFFER_FORMATS, GBuffer } from "./g-buffer";
 export type { GBufferTextures, GBufferViews } from "./g-buffer";
 export { GameRenderer } from "./game-renderer";
 export type { CameraViewportInfo, CancelRAF, FrameCallbacks, GameRendererConfig, GameRendererLike, OffscreenMode, RAFSource, RenderTargetProvider } from "./game-renderer";
-export { computeHzbSize, GpuCullPass, GpuMeshTable, HzbBuilder, HzbBuildPass, IndirectDrawPass, INSTANCE_RECORD_BYTES, INSTANCE_RECORD_FLOATS, InstanceBuffer, nextPowerOf2 } from "./gpu-driven";
-export type { CullBatchRecord, HzbSize, InstanceRecord, MeshBatch, MeshTableGroup } from "./gpu-driven";
 export {
     createBlackTextureView, createDefaultTextureView, createDepthTexture, createStorageBuffer, createUniformBuffer
 } from "./gpu-utils";

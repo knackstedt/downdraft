@@ -1,7 +1,7 @@
 // ============================================================================
 // GraphComputePass — frame-graph-integrated compute dispatch from a ComputeGraph
 // Extends RenderPass with PassType.Custom (manages its own beginComputePass/end
-// on the shared encoder, like GpuCullPass). Supports both auto-allocated buffers
+// on the shared encoder). Supports both auto-allocated buffers
 // (from StorageBufferDecl/UniformBufferDecl) and externally-provided buffers
 // for interop with existing systems.
 // ============================================================================
@@ -101,7 +101,7 @@ export class GraphComputePass extends RenderPass {
     void builder;
     // Compute passes operate on buffers, not textures. The frame graph's
     // resource tracking is texture-only, so we don't declare reads/writes here.
-    // Ordering is handled via slot registration (same approach as GpuCullPass).
+    // Ordering is handled via slot registration.
   }
 
   execute(ctx: RenderContext): void {
