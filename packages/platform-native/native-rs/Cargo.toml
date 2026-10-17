@@ -33,6 +33,7 @@ x11rb = "0.14"
 [target.'cfg(not(target_os = "android"))'.dependencies]
 arboard = "3"
 rfd = "0.17"
+portable-pty = "0.9"
 
 # android-activity requires the leaf crate to pick a backend; native-activity
 # matches our NativeActivity-based shell (no Java GameActivity needed).
