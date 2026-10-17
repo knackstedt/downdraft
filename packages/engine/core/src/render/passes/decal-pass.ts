@@ -147,6 +147,7 @@ export class DecalPass extends RenderPass {
   /** Per-slot bind groups with the item's decalBuffer offset baked in —
    *  same pattern as ModelRenderer.perSlotBindGroups. */
   private decalBindGroups: GPUBindGroup[] = [];
+  private group0Layout: GPUBindGroupLayout | null = null;
   private decalCapacity = 0;
   private decalStaging = new Float32Array(0);
   private depthTextureView: GPUTextureView | null = null;
@@ -259,8 +260,9 @@ export class DecalPass extends RenderPass {
     if (!this.depthSampler) return;
     const itemCount = this.items.length;
     this.ensureDecalCapacity(itemCount);
-    const group0Layout = this.pipeline.getBindGroupLayout(0);
+    // Slots grow lazily — the layout fetch stays out of the steady-state path.
     for (let slot = this.decalBindGroups.length; slot < itemCount; slot++) {
+      const group0Layout = this.group0Layout ??= this.pipeline.getBindGroupLayout(0);
       this.decalBindGroups.push(this.device.createBindGroup({
         layout: group0Layout,
         entries: [
@@ -404,6 +406,8 @@ export class DecalPass extends RenderPass {
     this.cameraBuffer?.destroy();
     this.decalBuffer?.destroy();
     this.pipeline = null; // pooled — owned by the device's pipeline cache
+    this.group0Layout = null;
+    this.decalBindGroups = [];
     this.shaderModule?.destroy();
     this._camView = null;
     this._camBuf = null;
