@@ -127,3 +127,52 @@ jobs:
         # workspace: per-package production deps are devDeps of the root and
         # would otherwise go unaudited.
         run: bunx license-checker --failOn "GPL;LGPL;AGPL;SSPL;CPAL;OSL"
+
+  rust:
+    name: Rust (fmt / clippy / test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Same pkg-config dep set as native.yml (cpal/alsa, gilrs/udev,
+      # winit/wayland-xkb, keyring/dbus; python3 for stylo mako codegen).
+      - name: Install Linux system dependencies
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq python3 libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev libdbus-1-dev
+      - name: Install Rust toolchain (pinned by rust-toolchain.toml)
+        run: |
+          rustup toolchain install --profile minimal
+          rustup component add rustfmt clippy
+      - name: cargo fmt
+        run: cargo fmt --all -- --check
+      - name: cargo clippy
+        # webui-cef excluded: cef-dll-sys downloads the pinned CEF binary
+        # distribution at build-script time and the vendor tree is absent in
+        # CI checkouts. webui-wpe checks fine without its vendor prefix.
+        run: cargo clippy --workspace --exclude downdraft-webui-cef
+      - name: cargo test
+        run: cargo test -p downdraft-platform
+
+  gpu-smoke:
+    name: GPU Smoke (lavapipe)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.4.0"
+      # postinstall (fetch-native.mjs) pulls the published native bundle —
+      # the cdylib these specs dlopen.
+      - name: Install dependencies
+        run: bun ci
+      - name: Install software Vulkan driver
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq mesa-vulkan-drivers
+      - name: Run GPU smoke specs
+        # DOWNDRAFT_GPU=swiftshader forces wgpu's fallback adapter (lavapipe).
+        # DD_REQUIRE_GPU turns the adapter-absent skip in these specs into a
+        # hard failure — this job exists to prove the render path works.
+        env:
+          DOWNDRAFT_GPU: swiftshader
+          DD_REQUIRE_GPU: "1"
+        run: >
+          bun test --isolate --conditions=downdraft-source
+          packages/platform-native/src/gpu/render-smoke.spec.ts
+          packages/engine/core/src/assets/loader-texture-e2e.spec.ts

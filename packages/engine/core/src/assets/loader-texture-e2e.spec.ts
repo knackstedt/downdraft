@@ -63,12 +63,15 @@ async function encodeTestKtx2(): Promise<ArrayBuffer> {
 describe("BC7 real-device e2e", () => {
   it("transcodes to BC7 and uploads through real wgpu + bindless registry", async () => {
     const ctx = await tryCreateDevice().catch(() => null);
+    const requireGpu = process.env.DD_REQUIRE_GPU === "1";
     if (!ctx) {
+      if (requireGpu) throw new Error("DD_REQUIRE_GPU=1 but no wgpu adapter was available");
       console.log("  (skip) no native wgpu adapter available");
       return;
     }
     const { device, requiredFeatures } = ctx;
     if (!(requiredFeatures as unknown as string[]).includes("texture-compression-bc")) {
+      if (requireGpu) throw new Error("DD_REQUIRE_GPU=1 but adapter lacks texture-compression-bc");
       console.log("  (skip) adapter lacks texture-compression-bc");
       return;
     }
