@@ -207,6 +207,9 @@ pub struct OsrDoc {
     /// the same doc from two threads at once (which would alias `&mut` and
     /// corrupt the DOM instantly). Callers that arrive while busy get -1.
     busy: AtomicBool,
+    /// Animation clock epoch — `resolve(now)` wants elapsed seconds, and a
+    /// hardcoded 0.0 froze every CSS transition/animation at its first frame.
+    t0: Instant,
 }
 
 // ── Handle registry + per-doc call serialization ──
@@ -406,6 +409,7 @@ pub extern "C" fn dd_osr_init(
             rect_buf: [0.0; 4],
             query_buf: Vec::new(),
             busy: AtomicBool::new(false),
+            t0: Instant::now(),
         };
         let handle = Box::into_raw(Box::new(doc));
         match docs().and_then(|m| m.lock().ok()) {
@@ -496,8 +500,9 @@ fn raster_if_dirty(d: &mut OsrDoc) -> Option<[u32; 4]> {
         return None;
     }
     let t0 = Instant::now();
+    let anim_now = d.t0.elapsed().as_secs_f64();
     let mut inner = d.doc.inner_mut();
-    inner.resolve(0.0);
+    inner.resolve(anim_now);
     restore_collapsed_borders(&mut inner);
     let (w, h) = inner.viewport().window_size;
     let scale = inner.viewport().scale_f64();
