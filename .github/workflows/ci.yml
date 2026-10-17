@@ -219,3 +219,25 @@ jobs:
           bun test --isolate --conditions=downdraft-source
           packages/platform-native/src/gpu/render-smoke.spec.ts
           packages/engine/core/src/assets/loader-texture-e2e.spec.ts
+          packages/engine/core/src/render/shader-sweep.spec.ts
+          packages/engine/core/src/render/perf-gates.spec.ts
+
+      - name: Run render benchmarks
+        # Informational, not gating — wall-clock numbers on shared runners
+        # under lavapipe are too noisy for thresholds. Deterministic
+        # work-count invariants live in perf-gates.spec.ts (run above);
+        # these tables give regression visibility via artifacts.
+        env:
+          DOWNDRAFT_GPU: swiftshader
+        run: |
+          mkdir -p bench-results
+          for f in packages/engine/bench/*.ts; do
+            echo "=== $f ===" | tee -a bench-results/output.txt
+            bun --conditions=downdraft-source "$f" | tee -a bench-results/output.txt
+          done
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@bbbca2ddaa9d1aa8f1865c352f0a8119bd6a06e9 # v5.0.0
+        with:
+          name: bench-results
+          path: bench-results/output.txt
+          if-no-files-found: ignore
