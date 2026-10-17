@@ -59,6 +59,8 @@ export { clusterIndex3D, computeClusterCount, computeClusterGridBufferSize, comp
 export type { ClusterGridConfig, ClusterUniforms, GPULightData, LightShapeType } from "./lighting/cluster-types";
 export { createIESGpuTexture, iesProfileToTextureData, parseIES } from "./lighting/ies-parser";
 export type { IESLoadOptions, IESProfile } from "./lighting/ies-parser";
+export { ResolutionScaleOffscreen } from "./offscreen-scale";
+export type { ResolutionScaleOffscreenOptions } from "./offscreen-scale";
 export { ClusterLightingPass } from "./passes/cluster-lighting-pass";
 export { CSMPass, DEFAULT_CSM_SETTINGS } from "./passes/csm";
 export type { CSMSettings } from "./passes/csm";

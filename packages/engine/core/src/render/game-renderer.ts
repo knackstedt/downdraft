@@ -299,6 +299,9 @@ export class GameRenderer implements CanvasResizeHandler {
 
   // Offscreen mode (set by game for postprocessing)
   private offscreenMode: OffscreenMode | null = null;
+  /** Internal pixelation-style offscreen mode driven by resolutionScale.
+   *  An externally-installed offscreenMode takes precedence while set. */
+  private scaleOffscreen: ResolutionScaleOffscreen | null = null;
 
   // XR render target provider (overrides canvas surface when set)
   private renderTargetProvider: RenderTargetProvider | null = null;
@@ -391,6 +394,9 @@ export class GameRenderer implements CanvasResizeHandler {
       this.format = navigator.gpu.getPreferredCanvasFormat();
       this.gpuProfiler = new GPUProfiler();
       this.gpuProfiler.init(this.device, adapterInfo, this.format, 32);
+      // A resolutionScale set before init becomes active now that the
+      // device + surface format exist.
+      this.applyScaleOffscreen();
       log.debug("game-renderer", `GPU timer pool supported: ${this.gpuProfiler.isGpuTimerSupported()} features: ${Array.from(this.device.features).join(", ")}`);
 
       // Device lost handler
@@ -609,6 +615,10 @@ export class GameRenderer implements CanvasResizeHandler {
       this.frameGraph.invalidatePhysicalResources();
       this.graphCompiled = false;
 
+      // Rebuild the resolution-scale targets on the new device (the old
+      // textures died with the previous device).
+      this.applyScaleOffscreen();
+
       await this.onDeviceRecovered(device);
       await this.callbacks.onDeviceRecovered?.(device);
 
@@ -647,13 +657,33 @@ export class GameRenderer implements CanvasResizeHandler {
     // real size — wgpu compares the configured size against the surface's
     // currentExtent at acquire time and returns Outdated forever when
     // they differ. Shrinking canvas.width/height would also corrupt
-    // clientWidth (UI layout + input coords). Resolution scaling needs
-    // an offscreen-render + upscale path to work here; for now it is a
-    // no-op rather than a brick.
-    if (this.resolutionScale < 1) {
-      log.warn("game-renderer", "resolutionScale is not supported on the native surface (swapchain must match the window size) — ignoring");
-    }
+    // clientWidth (UI layout + input coords). Resolution scaling therefore
+    // runs through an offscreen "pixelation" mode: the scene renders into
+    // a scale×canvas target and a blit upscales it onto the swapchain.
+    this.applyScaleOffscreen();
     if (this.lastCssW > 0) this.onResize(this.lastCssW, this.lastCssH, this.lastRawDpr);
+  }
+
+  /**
+   * Create/refresh/teardown the internal resolution-scale offscreen mode.
+   * Safe to call before init — it no-ops until a device exists, so a scale
+   * set pre-init takes effect once the device is ready. Also called on
+   * device recovery to rebuild targets against the new device.
+   */
+  private applyScaleOffscreen(): void {
+    if (this.scaleOffscreen && (this.resolutionScale >= 1 || this.scaleOffscreen.boundDevice !== this.device)) {
+      this.scaleOffscreen.destroy();
+      this.scaleOffscreen = null;
+    }
+    if (this.resolutionScale < 1 && this.device && !this.scaleOffscreen) {
+      this.scaleOffscreen = new ResolutionScaleOffscreen({
+        device: this.device,
+        surfaceFormat: this.format,
+        depthFormat: this.depthFormat,
+        scale: this.resolutionScale,
+      });
+    }
+    this.scaleOffscreen?.setScale(this.resolutionScale);
   }
 
   getResolutionScale(): number {
@@ -931,8 +961,9 @@ export class GameRenderer implements CanvasResizeHandler {
       this.renderTargetProvider.beginFrame();
     }
 
-    // Render each viewport
-    const offscreen = this.offscreenMode;
+    // Render each viewport — an externally-installed offscreen mode takes
+    // precedence over the internal resolution-scale mode.
+    const offscreen = this.offscreenMode ?? this.scaleOffscreen;
     const useOffscreen = offscreen && offscreen.type !== "none";
 
     if (offscreen && useOffscreen && offscreen.ensureTargets && !gpuError) {
@@ -1355,8 +1386,10 @@ export class GameRenderer implements CanvasResizeHandler {
     this.offscreenMode = mode;
   }
 
+  /** The offscreen mode actually in effect — an externally-installed mode if
+   *  set, otherwise the internal resolution-scale mode when scale < 1. */
   getOffscreenMode(): OffscreenMode | null {
-    return this.offscreenMode;
+    return this.offscreenMode ?? this.scaleOffscreen;
   }
 
   // --- XR render target provider ---
@@ -1569,6 +1602,8 @@ export class GameRenderer implements CanvasResizeHandler {
     this.gpuProfiler?.destroy();
     this.gpuProfiler = null;
     this.telemetryCollector = null;
+    this.scaleOffscreen?.destroy();
+    this.scaleOffscreen = null;
     this.device = null;
     for (const tex of this.depthTextures.values()) {
       tex.destroy();
