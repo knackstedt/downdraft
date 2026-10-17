@@ -65,6 +65,10 @@ jobs:
           rustup toolchain install --profile minimal
           rustup target add ${{ matrix.triples }}
 
+      # Saves ~/.cargo + target/ keyed on Cargo.lock — the darwin-x64 leg
+      # alone rebuilds thin-LTO deps for minutes on every cold run.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
       - name: Build Rust cdylibs
         shell: bash # for/do/done is bash syntax — windows-latest defaults to pwsh
         env:
