@@ -513,23 +513,33 @@ export class SimBufferWriter {
   /**
    * Copy the slot's current transform (pos+rot, first 8 f32s) into its
    * prev slot — once per publish, on first write access, so prev always
-   * holds the last committed transform for interpolation.
+   * holds the last committed transform for interpolation. Scalar copies on
+   * the cached slot views — a subarray() view allocation per slot per tick
+   * was measurable GC churn at entity scale.
    */
   private snapshotEntityPrev(idx: number): void {
     if (this.snapEntities[idx]) return;
     this.snapEntities[idx] = 1;
-    this.entityPrevSlots.slot(idx).f32.set(this.entitySlots.slot(idx).f32.subarray(0, 8));
+    const cur = this.entitySlots.slot(idx).f32;
+    const prev = this.entityPrevSlots.slot(idx).f32;
+    for (let k = 0; k < 8; k++) prev[k] = cur[k];
   }
 
   private snapshotPlayerPrev(idx: number): void {
     if (this.snapPlayers[idx]) return;
     this.snapPlayers[idx] = 1;
-    this.playerPrevSlots.slot(idx).f32.set(this.playerSlots.slot(idx).f32.subarray(0, 8));
+    const cur = this.playerSlots.slot(idx).f32;
+    const prev = this.playerPrevSlots.slot(idx).f32;
+    for (let k = 0; k < 8; k++) prev[k] = cur[k];
   }
 
   incrementTick() {
     const h = SimChannel.offsets.header;
     const w = this.writer;
+    // Open the publish window unconditionally — on a tick where nothing else
+    // mutated state, the prev-sync below would otherwise run with the sequence
+    // word even, letting renderer-side readConsistent() tear mid-copy.
+    w.beginWrite();
     // Prev-sync: slots not written this publish keep their old cur, so
     // prev must equal cur (identity lerp). Slots that were written were
     // already snapshotted on first access. Runs inside the open write
@@ -537,14 +547,18 @@ export class SimBufferWriter {
     const entCount = Math.min(w.header.u32[h.entityCount], MAX_ENTITIES);
     for (let i = 0; i < entCount; i++) {
       if (!this.snapEntities[i]) {
-        this.entityPrevSlots.slot(i).f32.set(this.entitySlots.slot(i).f32.subarray(0, 8));
+        const cur = this.entitySlots.slot(i).f32;
+        const prev = this.entityPrevSlots.slot(i).f32;
+        for (let k = 0; k < 8; k++) prev[k] = cur[k];
       }
     }
     this.snapEntities.fill(0);
     const plrCount = Math.min(w.header.u32[h.playerCount], MAX_PLAYERS);
     for (let i = 0; i < plrCount; i++) {
       if (!this.snapPlayers[i]) {
-        this.playerPrevSlots.slot(i).f32.set(this.playerSlots.slot(i).f32.subarray(0, 8));
+        const cur = this.playerSlots.slot(i).f32;
+        const prev = this.playerPrevSlots.slot(i).f32;
+        for (let k = 0; k < 8; k++) prev[k] = cur[k];
       }
     }
     this.snapPlayers.fill(0);
