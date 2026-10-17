@@ -299,10 +299,18 @@ describe("downdraft_platform ABI", () => {
       symbols.dd_window_get_display_info(ptr(refresh), ptr(scale));
       expect(scale[0]).toBeGreaterThan(0);
 
-      // request_quit → next poll returns DD_WINDOW_EVENT_QUIT (1).
+      // request_quit → a poll returns DD_WINDOW_EVENT_QUIT (1). Other window
+      // events (e.g. SCALE_CHANGED on HiDPI/headless displays) may be queued
+      // ahead of it, so drain until QUIT appears.
       const ev = new Int32Array(8);
       symbols.dd_window_request_quit();
-      expect(symbols.dd_window_poll_event(ptr(ev))).toBe(1);
+      let quitSeen = false;
+      for (let i = 0; i < 16 && !quitSeen; i++) {
+        const kind = symbols.dd_window_poll_event(ptr(ev));
+        if (kind === 1) quitSeen = true;
+        if (kind === 0) break;
+      }
+      expect(quitSeen).toBe(true);
       // Queue now drains empty → NONE (0), no crash on repeats.
       for (let i = 0; i < 4; i++) symbols.dd_window_poll_event(ptr(ev));
       symbols.dd_window_delay(1);

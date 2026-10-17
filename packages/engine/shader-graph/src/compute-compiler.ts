@@ -203,6 +203,17 @@ export class ComputeGraphCompiler {
     const statements: string[] = [];
     const ctx: NodeContext = { profile: profile ?? { name: "default", chunks: [], workgroupSize: [64, 1, 1] } };
 
+    // Multi-use nodes (a node's output feeding >1 input port) are hoisted to a
+    // `let var_<id> = <expr>;` declaration — re-visits reference that binding.
+    // Without the decl the shared reference was emitted as a bare `var_<id>`
+    // identifier that was never declared — invalid WGSL.
+    const refCount = new Map<string, number>();
+    inputConnections.forEach((conns) => {
+      conns.forEach((conn) => {
+        refCount.set(conn.from, (refCount.get(conn.from) ?? 0) + 1);
+      });
+    });
+
     const compileNode = (nodeId: string): string => {
       if (visited.has(nodeId)) return `var_${nodeId}`;
       if (visiting.has(nodeId)) {
@@ -259,6 +270,11 @@ export class ComputeGraphCompiler {
       ];
       if (sideEffectTypes.includes(node.type)) {
         statements.push(`${expr};`);
+      }
+
+      if ((refCount.get(nodeId) ?? 0) > 1) {
+        statements.push(`let var_${nodeId} = ${expr};`);
+        return `var_${nodeId}`;
       }
 
       return expr;

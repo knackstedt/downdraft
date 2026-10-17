@@ -109,7 +109,9 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // Interpolate color and size
     let t = 1.0 - particles[idx].lifetime / particles[idx].maxLifetime;
     particles[idx].color = mix(params.startColor, params.endColor, t);
-    particles[idx].size = mix(params.startSize, params.endSize, t) + randRange(&params.seed, -params.sizeVariance, params.sizeVariance);
+    // randRange wants ptr<function> — copy the uniform seed into a local var.
+    var seed = params.seed;
+    particles[idx].size = mix(params.startSize, params.endSize, t) + randRange(&seed, -params.sizeVariance, params.sizeVariance);
   }
 }
 `;
@@ -130,7 +132,7 @@ struct Particle {
 ${EmitParamsStruct.wgsl}
 
 struct Counter {
-  cursor: u32,
+  cursor: atomic<u32>,
   activeCount: u32,
 };
 

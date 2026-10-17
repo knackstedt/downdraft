@@ -41,7 +41,7 @@ fn vs_main(input: VertexInput) -> VertexOutput {
   let clipPos = camera.viewProj * vec4<f32>(input.position, 1.0);
   let normal = vec2<f32>(-clipPos.w, 0.0);
   let aspect = camera.resolution.x / max(camera.resolution.y, 1.0);
-  let offset = input.sideOffset * input.width / vec2<f32>(camera.resolution.x, camera.resolution.y) * clipPos.w * 0.5;
+  var offset = input.sideOffset * input.width / vec2<f32>(camera.resolution.x, camera.resolution.y) * clipPos.w * 0.5;
   offset.x = offset.x / aspect;
   output.clipPosition = vec4<f32>(
     clipPos.x + offset.x,

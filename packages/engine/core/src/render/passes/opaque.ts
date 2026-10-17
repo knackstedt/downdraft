@@ -73,11 +73,15 @@ fn vs_main(input: VertexInput) -> VertexOutput {
   return output;
 }
 
+struct GBufferOutput {
+  @location(0) albedoAO: vec4<f32>,
+  @location(1) normalRoughness: vec4<f32>,
+  @location(2) metallicEmissive: vec4<f32>,
+  @location(3) velocity: vec2<f32>,
+};
+
 @fragment
-fn fs_main(input: VertexOutput) -> @location(0) vec4<f32>,
-                                    @location(1) vec4<f32>,
-                                    @location(2) vec4<f32>,
-                                    @location(3) vec2<f32> {
+fn fs_main(input: VertexOutput) -> GBufferOutput {
   // GBuffer0: albedo (RGB) + AO (A)
   let albedo = input.color.rgb;
   let ao = 1.0;
@@ -92,10 +96,12 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32>,
   let prevNDC = input.prevClipPosition.xy / input.prevClipPosition.w;
   let velocity = (currNDC - prevNDC) * 0.5;
 
-  return vec4<f32>(albedo, ao),
-         vec4<f32>(encodedNormal, roughness),
-         vec4<f32>(metallic, emissive),
-         velocity;
+  var output: GBufferOutput;
+  output.albedoAO = vec4<f32>(albedo, ao);
+  output.normalRoughness = vec4<f32>(encodedNormal, roughness);
+  output.metallicEmissive = vec4<f32>(metallic, emissive);
+  output.velocity = velocity;
+  return output;
 }
 `;
 
@@ -103,8 +109,8 @@ const PBR_GBUFFER_SHADER = `
 ${CameraUniformsPBR.wgsl}
 
 @group(0) @binding(0) var<uniform> camera: CameraUniforms;
-@group(0) @binding(1) var modelUniform: mat4x4<f32>;
-@group(0) @binding(2) var prevModelUniform: mat4x4<f32>;
+@group(0) @binding(1) var<uniform> modelUniform: mat4x4<f32>;
+@group(0) @binding(2) var<uniform> prevModelUniform: mat4x4<f32>;
 @group(0) @binding(3) var<uniform> materialIndex: u32;
 
 // Bindless material binding model (@group(3)) — struct emitted from
@@ -193,13 +199,15 @@ fn vs_main(input: VertexInput) -> VertexOutput {
   return output;
 }
 
+struct GBufferOutput {
+  @location(0) albedoAO: vec4<f32>,
+  @location(1) normalRoughness: vec4<f32>,
+  @location(2) metallicEmissive: vec4<f32>,
+  @location(3) velocity: vec2<f32>,
+};
+
 @fragment
-fn fs_main(input: VertexOutput) -> (
-  @location(0) vec4<f32>,
-  @location(1) vec4<f32>,
-  @location(2) vec4<f32>,
-  @location(3) vec2<f32>,
-) {
+fn fs_main(input: VertexOutput) -> GBufferOutput {
   let m = bindlessMaterials[materialIndex];
   let albArr = unpackArrayIndex(m.albedoTex);
   let albLayer = unpackLayerIndex(m.albedoTex);
@@ -236,12 +244,12 @@ fn fs_main(input: VertexOutput) -> (
   let prevNDC = input.prevClipPosition.xy / input.prevClipPosition.w;
   let velocity = (currNDC - prevNDC) * 0.5;
 
-  return (
-    vec4<f32>(albedo.rgb, ao),
-    vec4<f32>(encodedNormal, roughness),
-    vec4<f32>(metallic, emissive.r, emissive.g, emissive.b),
-    velocity,
-  );
+  var output: GBufferOutput;
+  output.albedoAO = vec4<f32>(albedo.rgb, ao);
+  output.normalRoughness = vec4<f32>(encodedNormal, roughness);
+  output.metallicEmissive = vec4<f32>(metallic, emissive.r, emissive.g, emissive.b);
+  output.velocity = velocity;
+  return output;
 }
 `;
 

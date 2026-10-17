@@ -95,7 +95,7 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let near = uniforms.nearPlane;
   let far = uniforms.farPlane;
   let zNear = logDepth(near, far, f32(gid.z), f32(clusterDims.z));
-  let zFar = logDepth(near, far, f32(gid.z + 1.0), f32(clusterDims.z));
+  let zFar = logDepth(near, far, f32(gid.z + 1u), f32(clusterDims.z));
 
   // View-space AABB (approximate using NDC at near plane)
   let minPoint = vec3<f32>(minNDC.x * zNear, -maxNDC.y * zNear, zNear);

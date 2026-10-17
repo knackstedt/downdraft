@@ -57,7 +57,7 @@ struct CSMUniforms {
 };
 
 @group(0) @binding(0) var<uniform> csm: CSMUniforms;
-@group(0) @binding(1) var modelUniform: mat4x4<f32>;
+@group(0) @binding(1) var<uniform> modelUniform: mat4x4<f32>;
 
 struct VertexInput {
   @location(0) position: vec3<f32>,

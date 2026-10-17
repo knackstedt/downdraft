@@ -1,5 +1,5 @@
-import { ComputeGraph } from "./compute-graph";
 import { ComputeGraphCompiler } from "./compute-compiler";
+import { ComputeGraph } from "./compute-graph";
 import { SIMPLE_COMPUTE_PROFILE } from "./compute-profiles";
 
 describe("ComputeGraph", () => {
@@ -270,6 +270,9 @@ describe("ComputeGraphCompiler", () => {
     expect(wgsl).toContain("struct Particle");
     expect(wgsl).toContain("struct SimParams");
     expect(wgsl).toContain("@compute @workgroup_size(64, 1, 1)");
-    expect(wgsl).toContain("particles[gid.x].velocity =");
+    // gid feeds both the load and store indices — shared nodes hoist to a
+    // let-binding so the reference is declared.
+    expect(wgsl).toContain("let var_gid = gid.x;");
+    expect(wgsl).toContain("particles[var_gid].velocity =");
   });
 });
