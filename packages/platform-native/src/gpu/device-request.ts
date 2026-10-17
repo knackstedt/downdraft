@@ -48,8 +48,14 @@ export function computeDeviceDescriptor(adapter: WgpuAdapter): GPUDeviceDescript
     "texture-compression-astc",
     "texture-compression-etc2",
   ].filter((f) => adapter.features.has(f as GPUFeatureName));
+  // wgpu-native persistent pipeline cache — cuts shader-compile cost on
+  // every cold boot. Invalid/stale blobs are rejected by wgpu's
+  // fallback=true, so a driver upgrade can't brick boot.
+  const pipelineFeatures = process.env.DOWNDRAFT_NO_PIPELINE_CACHE === "1"
+    ? []
+    : ["pipeline-cache"].filter((f) => adapter.features.has(f as GPUFeatureName));
   return {
-    requiredFeatures: [...timestampFeatures, ...compressionFeatures] as GPUFeatureName[],
+    requiredFeatures: [...timestampFeatures, ...compressionFeatures, ...pipelineFeatures] as GPUFeatureName[],
     requiredLimits,
   };
 }

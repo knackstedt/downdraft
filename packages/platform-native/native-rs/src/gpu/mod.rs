@@ -133,6 +133,10 @@ struct ShimDevice {
     device: Device,
     queue: Queue,
     lost: std::sync::Arc<Mutex<Option<(u32, String)>>>,
+    /// wgpu persistent pipeline cache, attached by
+    /// wgpu_shim_pipeline_cache_init — consulted by every pipeline create
+    /// (sync and async) via `RenderPipelineDescriptor::cache`.
+    pipeline_cache: Mutex<Option<PipelineCache>>,
 }
 
 /// CommandEncoder boxed as Option so `finish(self)` can take it; a finished
@@ -328,10 +332,7 @@ pub extern "C" fn wgpu_shim_create_instance() -> Handle {
 ///   "hardware"    → real adapter path (the caller's power preference wins).
 ///   unset/other   → default behavior.
 fn force_fallback_adapter() -> bool {
-    matches!(
-        std::env::var("DOWNDRAFT_GPU").as_deref(),
-        Ok("swiftshader")
-    )
+    matches!(std::env::var("DOWNDRAFT_GPU").as_deref(), Ok("swiftshader"))
 }
 
 #[no_mangle]
@@ -453,6 +454,7 @@ fn finish_device_request(res: Option<Result<(Device, Queue), RequestDeviceError>
                 device,
                 queue,
                 lost,
+                pipeline_cache: Mutex::new(None),
             })
         }
         Some(Err(e)) => {
@@ -734,8 +736,7 @@ pub extern "C" fn wgpu_shim_buffer_write_mapped(
 ) -> i32 {
     ffi!(1, unsafe {
         let src = flat(data, size as usize);
-        let Ok(mut view) = obj::<Buffer>(buffer).get_mapped_range_mut(offset..offset + size)
-        else {
+        let Ok(mut view) = obj::<Buffer>(buffer).get_mapped_range_mut(offset..offset + size) else {
             return 1;
         };
         view.copy_from_slice(src);
@@ -755,8 +756,7 @@ pub extern "C" fn wgpu_shim_buffer_read_mapped(
         if out_size < size as i32 {
             return 2;
         }
-        let Ok(view) = obj::<Buffer>(buffer).get_mapped_range(offset..offset + size)
-        else {
+        let Ok(view) = obj::<Buffer>(buffer).get_mapped_range(offset..offset + size) else {
             return 1;
         };
         ptr::copy_nonoverlapping(view.as_ptr(), out_data, size as usize);
@@ -1631,8 +1631,35 @@ pub extern "C" fn wgpu_shim_render_pass_set_viewport(
 // [format, offset, shaderLocation].
 
 #[allow(clippy::too_many_arguments)]
-#[no_mangle]
-pub extern "C" fn wgpu_shim_create_render_pipeline(
+/// Owned form of the flat render-pipeline descriptor. Pointers into JS
+/// memory are only valid for the duration of an FFI call, so the async
+/// variant collects everything (cloning the Arc-backed wgpu handles, copying
+/// the flat u32 blocks, owning the entry strings) on the calling thread and
+/// hands this to a detached worker — wgpu has no Device::create_*_pipeline_async,
+/// so "async" here means the naga validation + driver compile runs off the
+/// JS thread via spawn_op.
+struct OwnedRenderPipelineDesc {
+    device: Device,
+    pipeline_cache: Option<PipelineCache>,
+    vertex_shader: ShaderModule,
+    vertex_entry: String,
+    fragment_shader: Option<ShaderModule>,
+    fragment_entry: String,
+    color_target_count: u32,
+    color_targets: Vec<u32>,         // 9 u32 per target
+    depth_stencil: Option<Vec<u32>>, // 16 u32
+    topology: u32,
+    strip_index_format: u32,
+    sample_count: u32,
+    layout: Option<PipelineLayout>,
+    cull_mode: u32,
+    front_face: u32,
+    vertex_buffer_count: u32,
+    vertex_buffers: Vec<u32>, // flat [stride, step, attrCount, attrs*3]*
+}
+
+#[allow(clippy::too_many_arguments)]
+unsafe fn collect_render_pipeline_desc(
     device: Handle,
     vertex_shader: Handle,
     vertex_entry: *const c_char,
@@ -1649,13 +1676,64 @@ pub extern "C" fn wgpu_shim_create_render_pipeline(
     front_face: u32,
     vertex_buffer_count: u32,
     vertex_buffer_data: *const u32,
-) -> Handle {
-    ffi!(ptr::null_mut(), unsafe {
-        // Vertex buffers — walked linearly, same as the C cursor loop.
-        let mut vb_layouts: Vec<Option<VertexBufferLayout>> = Vec::new();
-        let mut vb_attrs: Vec<Vec<VertexAttribute>> = Vec::new();
-        let mut cursor = vertex_buffer_data;
-        for _ in 0..vertex_buffer_count.min(8) {
+) -> OwnedRenderPipelineDesc {
+    let shim = obj::<ShimDevice>(device);
+    let pipeline_cache = shim.pipeline_cache.lock().unwrap().clone();
+
+    // Vertex-buffer flat block — total length by walking the same
+    // [stride, step, attrCount, attrs*3] layout the build pass consumes.
+    let vb_n = vertex_buffer_count.min(8) as usize;
+    let mut vb_len = 0usize;
+    let mut cursor = vertex_buffer_data;
+    if vb_n > 0 && !cursor.is_null() {
+        for _ in 0..vb_n {
+            let attr_count = *cursor.add(2) as usize;
+            vb_len += 3 + attr_count * 3;
+            cursor = cursor.add(3 + attr_count * 3);
+        }
+    }
+    let vertex_buffers = flat(vertex_buffer_data, vb_len).to_vec();
+
+    OwnedRenderPipelineDesc {
+        device: shim.device.clone(),
+        pipeline_cache,
+        vertex_shader: obj::<ShaderModule>(vertex_shader).clone(),
+        vertex_entry: cstr(vertex_entry),
+        fragment_shader: if fragment_shader.is_null() {
+            None
+        } else {
+            Some(obj::<ShaderModule>(fragment_shader).clone())
+        },
+        fragment_entry: cstr(fragment_entry),
+        color_target_count,
+        color_targets: flat(color_targets, color_target_count.min(8) as usize * 9).to_vec(),
+        depth_stencil: if depth_stencil.is_null() {
+            None
+        } else {
+            Some(std::slice::from_raw_parts(depth_stencil, 16).to_vec())
+        },
+        topology,
+        strip_index_format,
+        sample_count,
+        layout: if layout.is_null() {
+            None
+        } else {
+            Some(obj::<PipelineLayout>(layout).clone())
+        },
+        cull_mode,
+        front_face,
+        vertex_buffer_count,
+        vertex_buffers,
+    }
+}
+
+fn build_render_pipeline(d: &OwnedRenderPipelineDesc) -> Handle {
+    // Vertex buffers — walked linearly, same as the C cursor loop.
+    let mut vb_layouts: Vec<Option<VertexBufferLayout>> = Vec::new();
+    let mut vb_attrs: Vec<Vec<VertexAttribute>> = Vec::new();
+    let mut cursor = d.vertex_buffers.as_ptr();
+    unsafe {
+        for _ in 0..(d.vertex_buffer_count.min(8) as usize).min(d.vertex_buffers.len() / 3) {
             let attr_count = *cursor.add(2);
             cursor = cursor.add(3);
             let mut attrs = Vec::with_capacity(attr_count as usize);
@@ -1670,8 +1748,8 @@ pub extern "C" fn wgpu_shim_create_render_pipeline(
             vb_attrs.push(attrs);
         }
         // Second pass to build layouts borrowing the attr vecs.
-        cursor = vertex_buffer_data;
-        for b in 0..vb_attrs.len() {
+        cursor = d.vertex_buffers.as_ptr();
+        for attrs in &vb_attrs {
             let array_stride = *cursor;
             let step_mode = *cursor.add(1);
             let attr_count = *cursor.add(2);
@@ -1683,27 +1761,26 @@ pub extern "C" fn wgpu_shim_create_render_pipeline(
                 } else {
                     VertexStepMode::Vertex
                 },
-                attributes: &vb_attrs[b],
+                attributes: attrs,
             }));
         }
+    }
 
-        let ventry = cstr(vertex_entry);
-        let fentry = cstr(fragment_entry);
-        let vertex_state = VertexState {
-            module: obj::<ShaderModule>(vertex_shader),
-            entry_point: Some(&ventry),
-            compilation_options: PipelineCompilationOptions::default(),
-            buffers: &vb_layouts,
-        };
+    let vertex_state = VertexState {
+        module: &d.vertex_shader,
+        entry_point: Some(&d.vertex_entry),
+        compilation_options: PipelineCompilationOptions::default(),
+        buffers: &vb_layouts,
+    };
 
-        // Color targets (max 8 MRT), blend states kept alongside.
-        let nt = color_target_count.min(8) as usize;
-        let mut targets: Vec<Option<ColorTargetState>> = Vec::with_capacity(nt);
-        let mut fragment_state = None;
-        if !fragment_shader.is_null() && nt > 0 {
-            let flat = std::slice::from_raw_parts(color_targets, nt * 9);
+    // Color targets (max 8 MRT), blend states kept alongside.
+    let nt = d.color_target_count.min(8) as usize;
+    let mut targets: Vec<Option<ColorTargetState>> = Vec::with_capacity(nt);
+    let mut fragment_state = None;
+    if let Some(fragment_shader) = &d.fragment_shader {
+        if nt > 0 {
             for i in 0..nt {
-                let t = &flat[i * 9..];
+                let t = &d.color_targets[i * 9..];
                 let Some(format) = enums::texture_format(t[0]) else {
                     eprintln!(
                         "[wgpu_shim] create_render_pipeline: invalid color target format 0x{:x} at index {i}",
@@ -1738,15 +1815,16 @@ pub extern "C" fn wgpu_shim_create_render_pipeline(
                 }));
             }
             fragment_state = Some(FragmentState {
-                module: obj::<ShaderModule>(fragment_shader),
-                entry_point: Some(&fentry),
+                module: fragment_shader,
+                entry_point: Some(&d.fragment_entry),
                 compilation_options: PipelineCompilationOptions::default(),
                 targets: &targets,
             });
         }
+    }
 
-        let depth_stencil_state = if !depth_stencil.is_null() && *depth_stencil != 0 {
-            let ds = std::slice::from_raw_parts(depth_stencil, 16);
+    let depth_stencil_state = match &d.depth_stencil {
+        Some(ds) if ds[0] != 0 => {
             let Some(format) = enums::texture_format(ds[0]) else {
                 eprintln!(
                     "[wgpu_shim] create_render_pipeline: invalid depth format 0x{:x}",
@@ -1798,50 +1876,128 @@ pub extern "C" fn wgpu_shim_create_render_pipeline(
                     clamp: f32::from_bits(ds[15]),
                 },
             })
-        } else {
-            None
-        };
+        }
+        _ => None,
+    };
 
-        let desc = RenderPipelineDescriptor {
-            label: None,
-            layout: if layout.is_null() {
+    let desc = RenderPipelineDescriptor {
+        label: None,
+        layout: d.layout.as_ref(),
+        vertex: vertex_state,
+        fragment: fragment_state,
+        primitive: PrimitiveState {
+            topology: enums::primitive_topology(d.topology),
+            strip_index_format: enums::strip_index_format(d.strip_index_format),
+            front_face: if d.front_face == 0 {
+                FrontFace::Ccw
+            } else {
+                enums::front_face(d.front_face)
+            },
+            cull_mode: if d.cull_mode == 0 {
                 None
             } else {
-                Some(obj::<PipelineLayout>(layout))
+                enums::cull_mode(d.cull_mode)
             },
-            vertex: vertex_state,
-            fragment: fragment_state,
-            primitive: PrimitiveState {
-                topology: enums::primitive_topology(topology),
-                strip_index_format: enums::strip_index_format(strip_index_format),
-                front_face: if front_face == 0 {
-                    FrontFace::Ccw
-                } else {
-                    enums::front_face(front_face)
-                },
-                cull_mode: if cull_mode == 0 {
-                    None
-                } else {
-                    enums::cull_mode(cull_mode)
-                },
-                unclipped_depth: false,
-                polygon_mode: PolygonMode::Fill,
-                conservative: false,
-            },
-            depth_stencil: depth_stencil_state,
-            multisample: MultisampleState {
-                count: sample_count,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview_mask: None,
-            cache: None,
-        };
-        boxed(
-            obj::<ShimDevice>(device)
-                .device
-                .create_render_pipeline(&desc),
-        )
+            unclipped_depth: false,
+            polygon_mode: PolygonMode::Fill,
+            conservative: false,
+        },
+        depth_stencil: depth_stencil_state,
+        multisample: MultisampleState {
+            count: d.sample_count,
+            mask: !0,
+            alpha_to_coverage_enabled: false,
+        },
+        multiview_mask: None,
+        cache: d.pipeline_cache.as_ref(),
+    };
+    boxed(d.device.create_render_pipeline(&desc))
+}
+
+#[no_mangle]
+pub extern "C" fn wgpu_shim_create_render_pipeline(
+    device: Handle,
+    vertex_shader: Handle,
+    vertex_entry: *const c_char,
+    fragment_shader: Handle,
+    fragment_entry: *const c_char,
+    color_target_count: u32,
+    color_targets: *const u32,
+    depth_stencil: *const u32,
+    topology: u32,
+    strip_index_format: u32,
+    sample_count: u32,
+    layout: Handle,
+    cull_mode: u32,
+    front_face: u32,
+    vertex_buffer_count: u32,
+    vertex_buffer_data: *const u32,
+) -> Handle {
+    ffi!(ptr::null_mut(), unsafe {
+        let owned = collect_render_pipeline_desc(
+            device,
+            vertex_shader,
+            vertex_entry,
+            fragment_shader,
+            fragment_entry,
+            color_target_count,
+            color_targets,
+            depth_stencil,
+            topology,
+            strip_index_format,
+            sample_count,
+            layout,
+            cull_mode,
+            front_face,
+            vertex_buffer_count,
+            vertex_buffer_data,
+        );
+        build_render_pipeline(&owned)
+    })
+}
+
+/// Async variant — identical parameters, returns an op token for
+/// wgpu_shim_async_poll/wgpu_shim_async_take. All JS-memory pointers are
+/// consumed on the calling thread; the compile runs on a detached worker.
+#[no_mangle]
+pub extern "C" fn wgpu_shim_create_render_pipeline_async(
+    device: Handle,
+    vertex_shader: Handle,
+    vertex_entry: *const c_char,
+    fragment_shader: Handle,
+    fragment_entry: *const c_char,
+    color_target_count: u32,
+    color_targets: *const u32,
+    depth_stencil: *const u32,
+    topology: u32,
+    strip_index_format: u32,
+    sample_count: u32,
+    layout: Handle,
+    cull_mode: u32,
+    front_face: u32,
+    vertex_buffer_count: u32,
+    vertex_buffer_data: *const u32,
+) -> u64 {
+    ffi!(0, unsafe {
+        let owned = collect_render_pipeline_desc(
+            device,
+            vertex_shader,
+            vertex_entry,
+            fragment_shader,
+            fragment_entry,
+            color_target_count,
+            color_targets,
+            depth_stencil,
+            topology,
+            strip_index_format,
+            sample_count,
+            layout,
+            cull_mode,
+            front_face,
+            vertex_buffer_count,
+            vertex_buffer_data,
+        );
+        spawn_op(move || build_render_pipeline(&owned))
     })
 }
 
@@ -1855,21 +2011,130 @@ pub extern "C" fn wgpu_shim_create_compute_pipeline(
     layout: Handle,
 ) -> Handle {
     ffi!(ptr::null_mut(), unsafe {
-        let entry = cstr(entry_point);
-        boxed(obj::<ShimDevice>(device).device.create_compute_pipeline(
-            &ComputePipelineDescriptor {
+        let owned = collect_compute_pipeline_desc(device, shader, entry_point, layout);
+        build_compute_pipeline(&owned)
+    })
+}
+
+struct OwnedComputePipelineDesc {
+    device: Device,
+    pipeline_cache: Option<PipelineCache>,
+    shader: ShaderModule,
+    entry_point: String,
+    layout: Option<PipelineLayout>,
+}
+
+unsafe fn collect_compute_pipeline_desc(
+    device: Handle,
+    shader: Handle,
+    entry_point: *const c_char,
+    layout: Handle,
+) -> OwnedComputePipelineDesc {
+    let shim = obj::<ShimDevice>(device);
+    OwnedComputePipelineDesc {
+        device: shim.device.clone(),
+        pipeline_cache: shim.pipeline_cache.lock().unwrap().clone(),
+        shader: obj::<ShaderModule>(shader).clone(),
+        entry_point: cstr(entry_point),
+        layout: if layout.is_null() {
+            None
+        } else {
+            Some(obj::<PipelineLayout>(layout).clone())
+        },
+    }
+}
+
+fn build_compute_pipeline(d: &OwnedComputePipelineDesc) -> Handle {
+    boxed(
+        d.device
+            .create_compute_pipeline(&ComputePipelineDescriptor {
                 label: None,
-                layout: if layout.is_null() {
-                    None
-                } else {
-                    Some(obj::<PipelineLayout>(layout))
-                },
-                module: obj::<ShaderModule>(shader),
-                entry_point: Some(&entry),
+                layout: d.layout.as_ref(),
+                module: &d.shader,
+                entry_point: Some(&d.entry_point),
                 compilation_options: PipelineCompilationOptions::default(),
-                cache: None,
-            },
-        ))
+                cache: d.pipeline_cache.as_ref(),
+            }),
+    )
+}
+
+/// Async variant — returns an op token for wgpu_shim_async_poll/take.
+#[no_mangle]
+pub extern "C" fn wgpu_shim_create_compute_pipeline_async(
+    device: Handle,
+    shader: Handle,
+    entry_point: *const c_char,
+    layout: Handle,
+) -> u64 {
+    ffi!(0, unsafe {
+        let owned = collect_compute_pipeline_desc(device, shader, entry_point, layout);
+        spawn_op(move || build_compute_pipeline(&owned))
+    })
+}
+
+// ── Persistent pipeline cache (wgpu-native) ──
+// One cache per device, attached by init and consulted by every pipeline
+// create above. The JS side owns persistence: it feeds previously-saved
+// bytes in at boot and reads them back out periodically/on shutdown.
+
+/// Attach a PipelineCache to the device. `data` must be bytes from a prior
+/// get_data call on this same driver (fallback=true tolerates a stale or
+/// foreign blob — the cache starts empty instead of erroring). Requires the
+/// PIPELINE_CACHE feature; returns 1 on success, 0 otherwise.
+#[no_mangle]
+pub extern "C" fn wgpu_shim_pipeline_cache_init(
+    device: Handle,
+    data_ptr: *const u8,
+    data_len: u64,
+) -> i32 {
+    ffi!(0, unsafe {
+        let shim = obj::<ShimDevice>(device);
+        let data = flat(data_ptr, data_len as usize);
+        let desc = PipelineCacheDescriptor {
+            label: Some("downdraft-pipeline-cache"),
+            data: if data.is_empty() { None } else { Some(data) },
+            fallback: true,
+        };
+        let cache = shim.device.create_pipeline_cache(&desc);
+        *shim.pipeline_cache.lock().unwrap() = Some(cache);
+        1
+    })
+}
+
+/// Byte length of the device's pipeline-cache blob, or 0 when no cache is
+/// attached or the backend produced none.
+#[no_mangle]
+pub extern "C" fn wgpu_shim_pipeline_cache_data_size(device: Handle) -> u64 {
+    ffi!(0, unsafe {
+        obj::<ShimDevice>(device)
+            .pipeline_cache
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|c| c.get_data())
+            .map(|d| d.len() as u64)
+            .unwrap_or(0)
+    })
+}
+
+/// Copy the pipeline-cache blob into `out` (capacity `cap`). Returns the
+/// byte count written, or 0 when the buffer is too small — size the buffer
+/// with wgpu_shim_pipeline_cache_data_size first.
+#[no_mangle]
+pub extern "C" fn wgpu_shim_pipeline_cache_data(device: Handle, out: *mut u8, cap: u64) -> u64 {
+    ffi!(0, unsafe {
+        let cache_guard = obj::<ShimDevice>(device).pipeline_cache.lock().unwrap();
+        let Some(cache) = cache_guard.as_ref() else {
+            return 0;
+        };
+        let Some(data) = cache.get_data() else {
+            return 0;
+        };
+        if (cap as usize) < data.len() || out.is_null() {
+            return 0;
+        }
+        ptr::copy_nonoverlapping(data.as_ptr(), out, data.len());
+        data.len() as u64
     })
 }
 
@@ -3195,12 +3460,14 @@ pub extern "C" fn wgpu_shim_surface_present(surface: Handle) {
             .unwrap()
             .remove(&(surface as usize))
         {
-            let queue = G_SURFACE_QUEUES.lock().unwrap().get(&(surface as usize)).cloned();
+            let queue = G_SURFACE_QUEUES
+                .lock()
+                .unwrap()
+                .get(&(surface as usize))
+                .cloned();
             match queue {
                 Some(q) => q.present(st),
-                None => eprintln!(
-                    "[wgpu_shim] surface_present: no queue for surface {surface:p}"
-                ),
+                None => eprintln!("[wgpu_shim] surface_present: no queue for surface {surface:p}"),
             }
         }
     });

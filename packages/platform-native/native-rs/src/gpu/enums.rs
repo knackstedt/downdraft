@@ -47,6 +47,9 @@ pub fn feature(v: u32) -> Features {
         // values can't collide. These map to FeaturesWGPU bits.
         0x80000001 => Features::TIMESTAMP_QUERY_INSIDE_ENCODERS,
         0x80000002 => Features::TIMESTAMP_QUERY_INSIDE_PASSES,
+        // wgpu-native persistent pipeline cache — required before
+        // create_pipeline_cache is usable.
+        0x80000003 => Features::PIPELINE_CACHE,
         _ => Features::empty(),
     }
 }
@@ -76,6 +79,7 @@ pub fn features_to_wire(f: Features) -> Vec<u32> {
         (Features::PRIMITIVE_INDEX, 21),
         (Features::TIMESTAMP_QUERY_INSIDE_ENCODERS, 0x80000001),
         (Features::TIMESTAMP_QUERY_INSIDE_PASSES, 0x80000002),
+        (Features::PIPELINE_CACHE, 0x80000003),
     ];
     for (bit, wire) in map {
         if f.contains(*bit) {

@@ -350,6 +350,27 @@ const WGPU_ASYNC_SPEC: Record<string, CFunction> = {
   wgpu_shim_async_poll: { args: ["u64"], returns: "i32" },
   // Consumes the token; returns the handle or null on failure.
   wgpu_shim_async_take: { args: ["u64"], returns: "ptr" },
+  // Pipeline creation off the JS thread — same flat args as the sync
+  // variants (all consumed on the calling thread), token back.
+  wgpu_shim_create_render_pipeline_async: {
+    args: [
+      "ptr", "ptr", "cstring", "ptr", "cstring",
+      "u32", "ptr", "ptr",
+      "u32", "u32", "u32", "ptr", "u32", "u32",
+      "u32", "ptr",
+    ],
+    returns: "u64",
+  },
+  wgpu_shim_create_compute_pipeline_async: {
+    args: ["ptr", "ptr", "cstring", "ptr"],
+    returns: "u64",
+  },
+  // Persistent pipeline cache (wgpu-native; requires the "pipeline-cache"
+  // device feature). init attaches it to the device; the cache is consulted
+  // by every pipeline create from then on, sync and async.
+  wgpu_shim_pipeline_cache_init: { args: ["ptr", "ptr", "u64"], returns: "i32" },
+  wgpu_shim_pipeline_cache_data_size: { args: ["ptr"], returns: "u64" },
+  wgpu_shim_pipeline_cache_data: { args: ["ptr", "ptr", "u64"], returns: "u64" },
 };
 
 export interface WgpuAsyncSymbols {
@@ -363,6 +384,33 @@ export interface WgpuAsyncSymbols {
   ) => number | bigint;
   wgpu_shim_async_poll: (token: number | bigint) => number;
   wgpu_shim_async_take: (token: number | bigint) => ptr;
+  wgpu_shim_create_render_pipeline_async: (
+    device: ptr,
+    vertexShader: ptr,
+    vertexEntry: string,
+    fragmentShader: ptr,
+    fragmentEntry: string,
+    colorTargetCount: number,
+    colorTargets: ptr,
+    depthStencil: ptr,
+    topology: number,
+    stripIndexFormat: number,
+    sampleCount: number,
+    layout: ptr,
+    cullMode: number,
+    frontFace: number,
+    vertexBufferCount: number,
+    vertexBufferData: ptr,
+  ) => number | bigint;
+  wgpu_shim_create_compute_pipeline_async: (
+    device: ptr,
+    shader: ptr,
+    entryPoint: string,
+    layout: ptr,
+  ) => number | bigint;
+  wgpu_shim_pipeline_cache_init: (device: ptr, data: ptr, dataLen: number | bigint) => number;
+  wgpu_shim_pipeline_cache_data_size: (device: ptr) => number | bigint;
+  wgpu_shim_pipeline_cache_data: (device: ptr, out: ptr, cap: number | bigint) => number | bigint;
 }
 
 // ── Lazy library handle ──

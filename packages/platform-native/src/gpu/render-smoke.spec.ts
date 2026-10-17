@@ -15,7 +15,10 @@ async function tryBootGpu() {
   const gpu = (globalThis as Record<string, any>).navigator.gpu as GPU;
   const adapter = await gpu.requestAdapter({ powerPreference: "high-performance" });
   if (!adapter) return null;
-  const device = await adapter.requestDevice();
+  // Request the same descriptor the host uses so feature-gated paths
+  // (pipeline-cache, texture compression, timestamp queries) get exercised.
+  const { computeDeviceDescriptor } = await import("./device-request");
+  const device = await adapter.requestDevice(computeDeviceDescriptor(adapter));
   return { adapter, device };
 }
 
@@ -119,5 +122,81 @@ describe("render smoke (native wgpu)", () => {
     expect(px[i + 1]).toBeLessThan(50); // G
     expect(px[i + 2]).toBeLessThan(50); // B
     expect(px[i + 3]).toBe(255); // A
+  });
+
+  it("creates pipelines through the async FFI path", async () => {
+    const ctx = await tryBootGpu().catch(() => null);
+    if (!ctx) {
+      if (process.env.DD_REQUIRE_GPU === "1") {
+        throw new Error("DD_REQUIRE_GPU=1 but no wgpu adapter was available");
+      }
+      console.log("  (skip) no wgpu adapter — native lib or GPU driver unavailable");
+      return;
+    }
+    const { device } = ctx;
+    if (!device.createRenderPipelineAsync) {
+      console.log("  (skip) platform lib predates createRenderPipelineAsync");
+      return;
+    }
+
+    const shader = device.createShaderModule({
+      code: `
+        @vertex fn vs_main() -> @builtin(position) vec4f { return vec4f(); }
+        @fragment fn fs_main() -> @location(0) vec4f { return vec4f(1); }
+      `,
+    });
+    const pipeline = await device.createRenderPipelineAsync({
+      layout: "auto",
+      vertex: { module: shader, entryPoint: "vs_main" },
+      fragment: { module: shader, entryPoint: "fs_main", targets: [{ format: "rgba8unorm" }] },
+      primitive: { topology: "triangle-list" },
+    });
+    expect(pipeline).toBeTruthy();
+
+    const cshader = device.createShaderModule({
+      code: `@compute @workgroup_size(1) fn cs_main() {}`,
+    });
+    const cpipeline = await device.createComputePipelineAsync({
+      layout: "auto",
+      compute: { module: cshader, entryPoint: "cs_main" },
+    });
+    expect(cpipeline).toBeTruthy();
+  });
+
+  it("round-trips the persistent pipeline cache when the feature is present", async () => {
+    const ctx = await tryBootGpu().catch(() => null);
+    if (!ctx) {
+      if (process.env.DD_REQUIRE_GPU === "1") {
+        throw new Error("DD_REQUIRE_GPU=1 but no wgpu adapter was available");
+      }
+      console.log("  (skip) no wgpu adapter — native lib or GPU driver unavailable");
+      return;
+    }
+    const { device } = ctx;
+    if (!device.features.has("pipeline-cache")) {
+      console.log("  (skip) device lacks pipeline-cache feature");
+      return;
+    }
+    const { flushPipelineCache } = await import("./pipeline-cache");
+    const shim = (await import("./wgpu-ffi")).loadWgpuAsync();
+    expect(shim).not.toBeNull();
+    const sizeBefore = Number(shim!.wgpu_shim_pipeline_cache_data_size(device.ptr));
+    // Create a pipeline so the cache has content, then read the blob back.
+    const shader = device.createShaderModule({
+      code: `
+        @vertex fn vs_main() -> @builtin(position) vec4f { return vec4f(); }
+        @fragment fn fs_main() -> @location(0) vec4f { return vec4f(1); }
+      `,
+    });
+    device.createRenderPipeline({
+      layout: "auto",
+      vertex: { module: shader, entryPoint: "vs_main" },
+      fragment: { module: shader, entryPoint: "fs_main", targets: [{ format: "rgba8unorm" }] },
+      primitive: { topology: "triangle-list" },
+    });
+    const sizeAfter = Number(shim!.wgpu_shim_pipeline_cache_data_size(device.ptr));
+    expect(sizeAfter).toBeGreaterThanOrEqual(sizeBefore);
+    // Flush path must not throw (writes under DOWNDRAFT_USER_DATA when set).
+    expect(() => flushPipelineCache(device)).not.toThrow();
   });
 });

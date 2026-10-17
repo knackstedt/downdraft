@@ -123,6 +123,7 @@ export const FEATURE_NAME_MAP: Record<number, string> = {
   // collide with future WGPUFeatureName values.
   0x80000001: "timestamp-query-inside-encoders",
   0x80000002: "timestamp-query-inside-passes",
+  0x80000003: "pipeline-cache",
 };
 
 export const FEATURE_VALUE_MAP: Record<string, number> = Object.fromEntries(

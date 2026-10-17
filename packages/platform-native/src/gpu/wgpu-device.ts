@@ -31,6 +31,7 @@ import {
     serializeRequiredFeatures,
     serializeRequiredLimits,
 } from "./limits";
+import { initPipelineCache } from "./pipeline-cache";
 import { trackForRelease, untrack } from "./registry";
 import { WgpuCommandEncoder } from "./wgpu-encoder";
 import { loadWgpuAsync, wgpu } from "./wgpu-ffi";
@@ -289,6 +290,11 @@ export class WgpuAdapter {
     device.adapterInfo = this.nativeInfo;
     device.adapterPtr = this.ptr;
     trackForRelease(device, () => wgpu.wgpu_shim_release_device(devicePtr));
+    // Attach the persistent pipeline cache when the feature was granted —
+    // every pipeline create (sync and async) consults it from now on.
+    if ((device.features as { has(n: string): boolean }).has("pipeline-cache")) {
+      initPipelineCache(device);
+    }
     return device;
   }
 }
@@ -740,7 +746,14 @@ export class WgpuDevice {
     return bg;
   }
 
-  createRenderPipeline(descriptor: GPURenderPipelineDescriptor): WgpuRenderPipeline {
+  /**
+   * Serialize a render-pipeline descriptor into the flat FFI arguments.
+   * Shared by the sync and async entry points — the "auto" layout expansion
+   * (bind-group layout parse + pipeline-layout create) is cheap and stays on
+   * the calling thread; only the naga validation + driver compile is
+   * async-worthy.
+   */
+  private serializeRenderPipeline(descriptor: GPURenderPipelineDescriptor) {
     const vertex = descriptor.vertex;
     const vertexShader = vertex.module as unknown as WgpuShaderModule;
     const vertexEntry = vertex.entryPoint ?? "main";
@@ -858,34 +871,96 @@ export class WgpuDevice {
       vertexBufferCount = buffers.length;
     }
 
-    const pipelinePtr = wgpu.wgpu_shim_create_render_pipeline(
-      this.ptr,
-      vertexShader.ptr,
+    return {
+      vertexShader,
       vertexEntry,
-      (fragmentShader?.ptr ?? 0) as unknown as ptr,
+      fragmentShader,
       fragmentEntry,
       colorTargetCount,
-      (colorTargetsFlat ?? 0) as unknown as ptr,
-      (depthStencilFlat ?? 0) as unknown as ptr,
+      colorTargetsFlat,
+      depthStencilFlat,
       topology,
       stripIndexFormat,
       sampleCount,
-      layoutPtr as ptr,
+      layoutPtr,
+      layout,
+      autoBindGroupLayouts,
       cullMode,
       frontFace,
       vertexBufferCount,
-      (vertexBufferFlat ?? 0) as unknown as ptr,
+      vertexBufferFlat,
+    };
+  }
+
+  createRenderPipeline(descriptor: GPURenderPipelineDescriptor): WgpuRenderPipeline {
+    const s = this.serializeRenderPipeline(descriptor);
+    const pipelinePtr = wgpu.wgpu_shim_create_render_pipeline(
+      this.ptr,
+      s.vertexShader.ptr,
+      s.vertexEntry,
+      (s.fragmentShader?.ptr ?? 0) as unknown as ptr,
+      s.fragmentEntry,
+      s.colorTargetCount,
+      (s.colorTargetsFlat ?? 0) as unknown as ptr,
+      (s.depthStencilFlat ?? 0) as unknown as ptr,
+      s.topology,
+      s.stripIndexFormat,
+      s.sampleCount,
+      s.layoutPtr as ptr,
+      s.cullMode,
+      s.frontFace,
+      s.vertexBufferCount,
+      (s.vertexBufferFlat ?? 0) as unknown as ptr,
     ) as unknown as number;
     if (!pipelinePtr) throw new Error("Failed to create render pipeline");
     const pipeline = new WgpuRenderPipeline(
       pipelinePtr,
-      (layout instanceof WgpuPipelineLayout ? layout.bindGroupLayouts : autoBindGroupLayouts),
+      (s.layout instanceof WgpuPipelineLayout ? s.layout.bindGroupLayouts : s.autoBindGroupLayouts),
     );
     trackForRelease(pipeline, () => wgpu.wgpu_shim_release_render_pipeline(pipelinePtr));
     return pipeline;
   }
 
-  createComputePipeline(descriptor: GPUComputePipelineDescriptor): WgpuComputePipeline {
+  /**
+   * WebGPU-style async pipeline creation — the compile runs on a detached
+   * native thread and resolves through the async-token pump. Falls back to
+   * the synchronous path when the loaded platform lib predates the symbol.
+   */
+  async createRenderPipelineAsync(descriptor: GPURenderPipelineDescriptor): Promise<WgpuRenderPipeline> {
+    const asyncShim = loadWgpuAsync();
+    if (!asyncShim?.wgpu_shim_create_render_pipeline_async) {
+      return this.createRenderPipeline(descriptor);
+    }
+    const s = this.serializeRenderPipeline(descriptor);
+    const token = asyncShim.wgpu_shim_create_render_pipeline_async(
+      this.ptr,
+      s.vertexShader.ptr,
+      s.vertexEntry,
+      (s.fragmentShader?.ptr ?? 0) as unknown as ptr,
+      s.fragmentEntry,
+      s.colorTargetCount,
+      (s.colorTargetsFlat ?? 0) as unknown as ptr,
+      (s.depthStencilFlat ?? 0) as unknown as ptr,
+      s.topology,
+      s.stripIndexFormat,
+      s.sampleCount,
+      s.layoutPtr as ptr,
+      s.cullMode,
+      s.frontFace,
+      s.vertexBufferCount,
+      (s.vertexBufferFlat ?? 0) as unknown as ptr,
+    );
+    const pipelinePtr = (await awaitGpuOp(token, this.instancePtr)) as unknown as number;
+    if (!pipelinePtr) throw new Error("Failed to create render pipeline");
+    const pipeline = new WgpuRenderPipeline(
+      pipelinePtr,
+      (s.layout instanceof WgpuPipelineLayout ? s.layout.bindGroupLayouts : s.autoBindGroupLayouts),
+    );
+    trackForRelease(pipeline, () => wgpu.wgpu_shim_release_render_pipeline(pipelinePtr));
+    return pipeline;
+  }
+
+  private serializeComputePipeline(descriptor: GPUComputePipelineDescriptor) {
     const compute = descriptor.compute;
     const shader = compute.module as unknown as WgpuShaderModule;
     const entry = compute.entryPoint ?? "main";
@@ -903,12 +978,33 @@ export class WgpuDevice {
     } else if (layout) {
       layoutPtr = (layout as WgpuPipelineLayout).ptr;
     }
+    return { shader, entry, layout, layoutPtr, autoBindGroupLayouts };
+  }
 
-    const pipelinePtr = wgpu.wgpu_shim_create_compute_pipeline(this.ptr, shader.ptr, entry, layoutPtr as ptr) as unknown as number;
+  createComputePipeline(descriptor: GPUComputePipelineDescriptor): WgpuComputePipeline {
+    const s = this.serializeComputePipeline(descriptor);
+    const pipelinePtr = wgpu.wgpu_shim_create_compute_pipeline(this.ptr, s.shader.ptr, s.entry, s.layoutPtr as ptr) as unknown as number;
     if (!pipelinePtr) throw new Error("Failed to create compute pipeline");
     const pipeline = new WgpuComputePipeline(
       pipelinePtr,
-      (layout instanceof WgpuPipelineLayout ? layout.bindGroupLayouts : autoBindGroupLayouts),
+      (s.layout instanceof WgpuPipelineLayout ? s.layout.bindGroupLayouts : s.autoBindGroupLayouts),
+    );
+    trackForRelease(pipeline, () => wgpu.wgpu_shim_release_compute_pipeline(pipelinePtr));
+    return pipeline;
+  }
+
+  async createComputePipelineAsync(descriptor: GPUComputePipelineDescriptor): Promise<WgpuComputePipeline> {
+    const asyncShim = loadWgpuAsync();
+    if (!asyncShim?.wgpu_shim_create_compute_pipeline_async) {
+      return this.createComputePipeline(descriptor);
+    }
+    const s = this.serializeComputePipeline(descriptor);
+    const token = asyncShim.wgpu_shim_create_compute_pipeline_async(this.ptr, s.shader.ptr, s.entry, s.layoutPtr as ptr);
+    const pipelinePtr = (await awaitGpuOp(token, this.instancePtr)) as unknown as number;
+    if (!pipelinePtr) throw new Error("Failed to create compute pipeline");
+    const pipeline = new WgpuComputePipeline(
+      pipelinePtr,
+      (s.layout instanceof WgpuPipelineLayout ? s.layout.bindGroupLayouts : s.autoBindGroupLayouts),
     );
     trackForRelease(pipeline, () => wgpu.wgpu_shim_release_compute_pipeline(pipelinePtr));
     return pipeline;
