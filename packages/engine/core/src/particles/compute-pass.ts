@@ -1,8 +1,9 @@
-import { createValidatedShaderModule } from "../render/shader-validator";
 import type { StructView, WgslStruct } from "@downdraft/engine/shader-graph";
 import { f32, u32, vec3f, vec4f, wgsl } from "@downdraft/engine/shader-graph";
 import type { GraphRenderContext } from "../index";
 import { RenderPass } from "../index";
+import { pipelinePool } from "../render/pipeline-pool";
+import { createValidatedShaderModule } from "../render/shader-validator";
 
 // ─── Uniform structs (single source of truth for layout) ───────────────────
 const SimParamsStruct: WgslStruct = wgsl.struct("SimParams", {
@@ -220,15 +221,9 @@ export class ParticleComputePass extends RenderPass {
     this.updateShader = createValidatedShaderModule(device, { code: PARTICLE_COMPUTE_SHADER, label: "ParticleComputePass.update" });
     this.emitShader = createValidatedShaderModule(device, { code: PARTICLE_COMPUTE_EMIT_SHADER, label: "ParticleComputePass.emit" });
 
-    this.updatePipeline = device.createComputePipeline({
-      layout: "auto",
-      compute: { module: this.updateShader, entryPoint: "cs_main" },
-    });
-
-    this.emitPipeline = device.createComputePipeline({
-      layout: "auto",
-      compute: { module: this.emitShader, entryPoint: "cs_emit" },
-    });
+    // Kick both compiles on the async pool — emit()/update() retry
+    // acquisition and skip while pending.
+    this.ensurePipelines();
 
     const particleSize = 48; // bytes per particle
     this.particleBuffer = device.createBuffer({
@@ -255,23 +250,54 @@ export class ParticleComputePass extends RenderPass {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
-    this.bindGroup = device.createBindGroup({
-      layout: this.updatePipeline.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: this.particleBuffer } },
-        { binding: 1, resource: { buffer: this.paramBuffer } },
-        { binding: 2, resource: { buffer: this.counterBuffer } },
-      ],
-    });
+    this.ensurePipelines();
+  }
 
-    this.emitBindGroup = device.createBindGroup({
-      layout: this.emitPipeline.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: this.particleBuffer } },
-        { binding: 1, resource: { buffer: this.emitParamBuffer } },
-        { binding: 2, resource: { buffer: this.counterBuffer } },
-      ],
-    });
+  /** Acquires both compute pipelines from the async pool and builds their
+   *  bind groups once resolved. Safe to call every frame. */
+  private ensurePipelines(): void {
+    if (!this.device || !this.updateShader || !this.emitShader) return;
+    const device = this.device;
+    const pool = pipelinePool(device);
+
+    if (!this.updatePipeline) {
+      const updateShader = this.updateShader;
+      this.updatePipeline = pool.acquireCompute("particle-compute:update", () => ({
+        layout: "auto",
+        compute: { module: updateShader, entryPoint: "cs_main" },
+      }));
+    }
+
+    if (!this.emitPipeline) {
+      const emitShader = this.emitShader;
+      this.emitPipeline = pool.acquireCompute("particle-compute:emit", () => ({
+        layout: "auto",
+        compute: { module: emitShader, entryPoint: "cs_emit" },
+      }));
+    }
+
+    // Bind groups need the resolved pipelines' layouts — build them late.
+    if (this.updatePipeline && !this.bindGroup && this.particleBuffer && this.paramBuffer && this.counterBuffer) {
+      this.bindGroup = device.createBindGroup({
+        layout: this.updatePipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: this.particleBuffer } },
+          { binding: 1, resource: { buffer: this.paramBuffer } },
+          { binding: 2, resource: { buffer: this.counterBuffer } },
+        ],
+      });
+    }
+
+    if (this.emitPipeline && !this.emitBindGroup && this.particleBuffer && this.emitParamBuffer && this.counterBuffer) {
+      this.emitBindGroup = device.createBindGroup({
+        layout: this.emitPipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: this.particleBuffer } },
+          { binding: 1, resource: { buffer: this.emitParamBuffer } },
+          { binding: 2, resource: { buffer: this.counterBuffer } },
+        ],
+      });
+    }
   }
 
   getParticleBuffer(): GPUBuffer | null {
@@ -283,6 +309,7 @@ export class ParticleComputePass extends RenderPass {
   }
 
   emit(params: Partial<ParticleComputeParams>): void {
+    this.ensurePipelines();
     if (!this.device || !this.emitPipeline || !this.emitBindGroup) return;
 
     const dt = params.deltaTime ?? 0.016;
@@ -320,6 +347,7 @@ export class ParticleComputePass extends RenderPass {
   }
 
   update(params: ParticleComputeParams): void {
+    this.ensurePipelines();
     if (!this.device || !this.updatePipeline || !this.bindGroup) return;
     if (!(params.deltaTime > 0) || !Number.isFinite(params.deltaTime)) return;
 

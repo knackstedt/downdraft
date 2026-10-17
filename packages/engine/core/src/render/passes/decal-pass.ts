@@ -1,4 +1,3 @@
-import { createValidatedShaderModule } from "../shader-validator";
 import type { StructView, WgslStruct } from "@downdraft/engine/shader-graph";
 import { mat4x4f, u32, vec3f, vec4f, wgsl } from "@downdraft/engine/shader-graph";
 import { type Mat4 } from "wgpu-matrix";
@@ -6,7 +5,9 @@ import type { MeshData } from "../../mesh/builder";
 import type { BindlessMaterialManager, BindlessTextureRegistry, MaterialParams } from "../bindless";
 import { BindlessMaterialStruct } from "../bindless";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
+import { pipelinePool } from "../pipeline-pool";
 import { RenderPass } from "../render-pass";
+import { createValidatedShaderModule } from "../shader-validator";
 
 // ─── Uniform structs (single source of truth for layout) ───────────────────
 const DecalCameraUniforms: WgslStruct = wgsl.struct("CameraUniforms", {
@@ -298,10 +299,10 @@ export class DecalPass extends RenderPass {
 
   private ensurePipeline(): void {
     if (this.pipeline || !this.device || !this.shaderModule || !this.cameraBuffer || !this.decalBuffer) return;
-    this.pipeline = this.device.createRenderPipeline({
+    this.pipeline = pipelinePool(this.device).acquireRender(`decal:${this.surfaceFormat}`, () => ({
       layout: "auto",
       vertex: {
-        module: this.shaderModule,
+        module: this.shaderModule!,
         entryPoint: "vs_main",
         buffers: [{
           arrayStride: 32,
@@ -313,7 +314,7 @@ export class DecalPass extends RenderPass {
         }],
       },
       fragment: {
-        module: this.shaderModule,
+        module: this.shaderModule!,
         entryPoint: "fs_main",
         targets: [{
           format: this.surfaceFormat,
@@ -329,7 +330,7 @@ export class DecalPass extends RenderPass {
         depthWriteEnabled: false,
         depthCompare: "less-equal",
       },
-    });
+    }));
   }
 
   private getVertexBuffer(mesh: MeshData): GPUBuffer {
@@ -361,7 +362,7 @@ export class DecalPass extends RenderPass {
   destroy(): void {
     this.cameraBuffer?.destroy();
     this.decalBuffer?.destroy();
-    this.pipeline?.destroy();
+    this.pipeline = null; // pooled — owned by the device's pipeline cache
     this.shaderModule?.destroy();
     this._camView = null;
     this._camBuf = null;

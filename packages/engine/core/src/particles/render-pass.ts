@@ -1,9 +1,9 @@
-import { createValidatedShaderModule } from "../render/shader-validator";
 import type { StructView, WgslStruct } from "@downdraft/engine/shader-graph";
 import { f32, mat4x4f, vec3f, wgsl } from "@downdraft/engine/shader-graph";
 import { type Mat4 } from "wgpu-matrix";
 import type { GraphRenderContext } from "../index";
 import { RenderPass } from "../index";
+import { createValidatedShaderModule } from "../render/shader-validator";
 import type { ParticleGPUData } from "./particle-data";
 import { packParticleBuffer } from "./particle-data";
 
@@ -194,83 +194,106 @@ export class ParticleRenderPass extends RenderPass {
       minFilter: "linear",
     });
 
-    // Pipeline with texture
-    this.pipeline = device.createRenderPipeline({
-      layout: "auto",
-      vertex: {
-        module: this.shaderModule,
-        entryPoint: "vs_main",
-        buffers: [{
-          arrayStride: INSTANCE_STRIDE,
-          stepMode: "instance",
-          attributes: [
-            { shaderLocation: 0, offset: 0, format: "float32x3" },   // position
-            { shaderLocation: 1, offset: 12, format: "float32x4" },  // color
-            { shaderLocation: 2, offset: 28, format: "float32" },     // size
-            { shaderLocation: 3, offset: 32, format: "float32" },     // rotation
-          ],
-        }],
-      },
-      fragment: {
-        module: this.shaderModule,
-        entryPoint: "fs_main",
-        targets: [{
-          format: this.surfaceFormat,
-          blend: {
-            color: { srcFactor: "src-alpha", dstFactor: "one", operation: "add" },
-            alpha: { srcFactor: "one", dstFactor: "one", operation: "add" },
-          },
-        }],
-      },
-      primitive: { topology: "triangle-list" },
-    });
+    // Kick both pipeline compiles on the device-wide async pool — they run
+    // off the render thread; renderInstances() retries acquisition until
+    // ready and skips drawing while pending.
+    this.ensurePipelines();
+  }
 
-    this.bindGroup = device.createBindGroup({
-      layout: this.pipeline.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: this.cameraBuffer } },
-        { binding: 1, resource: this.textureView },
-        { binding: 2, resource: this.sampler },
-      ],
-    });
+  private ensurePipelines(): void {
+    if (!this.device || !this.shaderModule || !this.shaderModuleNoTex || !this.cameraBuffer) return;
+    const device = this.device;
+    const pool = pipelinePool(device);
+    const surfaceFormat = this.surfaceFormat;
+
+    // Pipeline with texture
+    if (!this.pipeline) {
+      const shaderModule = this.shaderModule;
+      this.pipeline = pool.acquireRender(`particles:${surfaceFormat}`, () => ({
+        layout: "auto",
+        vertex: {
+          module: shaderModule,
+          entryPoint: "vs_main",
+          buffers: [{
+            arrayStride: INSTANCE_STRIDE,
+            stepMode: "instance",
+            attributes: [
+              { shaderLocation: 0, offset: 0, format: "float32x3" },   // position
+              { shaderLocation: 1, offset: 12, format: "float32x4" },  // color
+              { shaderLocation: 2, offset: 28, format: "float32" },     // size
+              { shaderLocation: 3, offset: 32, format: "float32" },     // rotation
+            ],
+          }],
+        },
+        fragment: {
+          module: shaderModule,
+          entryPoint: "fs_main",
+          targets: [{
+            format: surfaceFormat,
+            blend: {
+              color: { srcFactor: "src-alpha", dstFactor: "one", operation: "add" },
+              alpha: { srcFactor: "one", dstFactor: "one", operation: "add" },
+            },
+          }],
+        },
+        primitive: { topology: "triangle-list" },
+      }));
+    }
+
+    // Bind group needs the resolved pipeline's layout — build it late.
+    if (this.pipeline && !this.bindGroup && this.textureView && this.sampler) {
+      this.bindGroup = device.createBindGroup({
+        layout: this.pipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: this.cameraBuffer } },
+          { binding: 1, resource: this.textureView },
+          { binding: 2, resource: this.sampler },
+        ],
+      });
+    }
 
     // Pipeline without texture (procedural soft particle)
-    this.pipelineNoTex = device.createRenderPipeline({
-      layout: "auto",
-      vertex: {
-        module: this.shaderModuleNoTex,
-        entryPoint: "vs_main",
-        buffers: [{
-          arrayStride: INSTANCE_STRIDE,
-          stepMode: "instance",
-          attributes: [
-            { shaderLocation: 0, offset: 0, format: "float32x3" },
-            { shaderLocation: 1, offset: 12, format: "float32x4" },
-            { shaderLocation: 2, offset: 28, format: "float32" },
-            { shaderLocation: 3, offset: 32, format: "float32" },
-          ],
-        }],
-      },
-      fragment: {
-        module: this.shaderModuleNoTex,
-        entryPoint: "fs_main",
-        targets: [{
-          format: this.surfaceFormat,
-          blend: {
-            color: { srcFactor: "src-alpha", dstFactor: "one", operation: "add" },
-            alpha: { srcFactor: "one", dstFactor: "one", operation: "add" },
-          },
-        }],
-      },
-      primitive: { topology: "triangle-list" },
-    });
+    if (!this.pipelineNoTex) {
+      const shaderModuleNoTex = this.shaderModuleNoTex;
+      this.pipelineNoTex = pool.acquireRender(`particles-notex:${surfaceFormat}`, () => ({
+        layout: "auto",
+        vertex: {
+          module: shaderModuleNoTex,
+          entryPoint: "vs_main",
+          buffers: [{
+            arrayStride: INSTANCE_STRIDE,
+            stepMode: "instance",
+            attributes: [
+              { shaderLocation: 0, offset: 0, format: "float32x3" },
+              { shaderLocation: 1, offset: 12, format: "float32x4" },
+              { shaderLocation: 2, offset: 28, format: "float32" },
+              { shaderLocation: 3, offset: 32, format: "float32" },
+            ],
+          }],
+        },
+        fragment: {
+          module: shaderModuleNoTex,
+          entryPoint: "fs_main",
+          targets: [{
+            format: surfaceFormat,
+            blend: {
+              color: { srcFactor: "src-alpha", dstFactor: "one", operation: "add" },
+              alpha: { srcFactor: "one", dstFactor: "one", operation: "add" },
+            },
+          }],
+        },
+        primitive: { topology: "triangle-list" },
+      }));
+    }
 
-    this.bindGroupNoTex = device.createBindGroup({
-      layout: this.pipelineNoTex.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: this.cameraBuffer } },
-      ],
-    });
+    if (this.pipelineNoTex && !this.bindGroupNoTex) {
+      this.bindGroupNoTex = device.createBindGroup({
+        layout: this.pipelineNoTex.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: this.cameraBuffer } },
+        ],
+      });
+    }
   }
 
   setCamera(viewProj: Mat4, cameraPos: [number, number, number]): void {
@@ -282,21 +305,20 @@ export class ParticleRenderPass extends RenderPass {
   }
 
   setTexture(texture: GPUTexture): void {
-    if (!this.device || !this.pipeline) return;
+    if (!this.device) return;
     this.textureView = texture.createView();
-    this.bindGroup = this.device.createBindGroup({
-      layout: this.pipeline.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: this.cameraBuffer! } },
-        { binding: 1, resource: this.textureView },
-        { binding: 2, resource: this.sampler! },
-      ],
-    });
+    // Rebuild the bind group once the pipeline resolves (it may still be
+    // compiling asynchronously when setTexture is called).
+    this.bindGroup = null;
     this.useTexture = true;
+    this.ensurePipelines();
   }
 
   renderInstances(ctx: GraphRenderContext, data: ParticleGPUData, maxParticles: number): void {
-    if (!this.device || !this.pipeline || !ctx.pass) return;
+    if (!this.device || !ctx.pass) return;
+    this.ensurePipelines();
+    const textured = this.useTexture && this.pipeline !== null && this.bindGroup !== null;
+    if (!textured && !(this.pipelineNoTex && this.bindGroupNoTex)) return;
 
     const packed = packParticleBuffer(data, maxParticles);
     const activeCount = this._countActive(data, maxParticles);
@@ -325,9 +347,9 @@ export class ParticleRenderPass extends RenderPass {
 
     const tracked = ctx.pass;
 
-    if (this.useTexture && this.bindGroup) {
-      tracked.setPipeline(this.pipeline);
-      tracked.setBindGroup(0, this.bindGroup);
+    if (textured) {
+      tracked.setPipeline(this.pipeline!);
+      tracked.setBindGroup(0, this.bindGroup!);
     } else {
       tracked.setPipeline(this.pipelineNoTex!);
       tracked.setBindGroup(0, this.bindGroupNoTex!);

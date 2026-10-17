@@ -1,10 +1,11 @@
-import { createValidatedShaderModule } from "../shader-validator";
 import { type Mat4 } from "wgpu-matrix";
 import type { MeshData } from "../../mesh/builder";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
 import { MAX_POINT_LIGHTS, MAX_SPOT_LIGHTS, packLightUniform, packPointLights, packSpotLightsExtended, type LightUniformData } from "../lighting";
+import { pipelinePool } from "../pipeline-pool";
 import { RenderPass } from "../render-pass";
 import { destroyMapValues } from "../resource-tracker";
+import { createValidatedShaderModule } from "../shader-validator";
 
 const TRANSPARENT_SHADER = `
 struct CameraUniforms {
@@ -198,10 +199,10 @@ export class TransparentPass extends RenderPass {
     });
   }
 
-  private getPipeline(stride: number): GPURenderPipeline {
+  private getPipeline(stride: number): GPURenderPipeline | null {
     let pipeline = this.pipelines.get(stride);
     if (!pipeline) {
-      pipeline = this.device.createRenderPipeline({
+      pipeline = pipelinePool(this.device).acquireRender(`transparent:${stride}:${this.surfaceFormat}`, () => ({
         layout: "auto",
         vertex: {
           module: this.shaderModule!,
@@ -233,7 +234,8 @@ export class TransparentPass extends RenderPass {
           depthWriteEnabled: false,
           depthCompare: "less",
         },
-      });
+      }));
+      if (!pipeline) return null; // still compiling on the async pool
       this.pipelines.set(stride, pipeline);
       this.bindGroups.set(stride, this.device.createBindGroup({
         layout: pipeline.getBindGroupLayout(0),
@@ -296,6 +298,7 @@ export class TransparentPass extends RenderPass {
 
     const firstStride = this.renderItems[0].mesh.layout.stride;
     const pipeline = this.getPipeline(firstStride);
+    if (!pipeline) return; // pipeline still compiling — skip this frame
     const bindGroup = this.bindGroups.get(firstStride)!;
 
     const tracked = ctx.pass;
@@ -347,7 +350,7 @@ export class TransparentPass extends RenderPass {
     for (const buf of this.indexBuffers.values()) buf.destroy();
     this.vertexBuffers.clear();
     this.indexBuffers.clear();
-    destroyMapValues(this.pipelines);
+    this.pipelines.clear(); // pooled — owned by the device's pipeline cache
     destroyMapValues(this.bindGroups);
   }
 }

@@ -233,8 +233,17 @@ describe("ResolutionScaleOffscreen — real device", () => {
       format: "rgba8unorm",
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
     });
+    const canvasView = canvasTex.createView();
+    // First call kicks the async blit-pipeline compile — it may no-op while
+    // pending. Settle the pool, then blit for real.
+    const kickEnc = device.createCommandEncoder();
+    mode.applyPostprocess!(kickEnc, canvasView, CANVAS, CANVAS);
+    device.queue.submit([kickEnc.finish()]);
+    const { pipelinePool } = await import("./pipeline-pool");
+    await pipelinePool(device).whenSettled();
+
     const blitEnc = device.createCommandEncoder();
-    mode.applyPostprocess!(blitEnc, canvasTex.createView(), CANVAS, CANVAS);
+    mode.applyPostprocess!(blitEnc, canvasView, CANVAS, CANVAS);
     device.queue.submit([blitEnc.finish()]);
 
     // Readback — every canvas pixel must be red.

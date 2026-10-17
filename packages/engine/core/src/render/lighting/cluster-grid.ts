@@ -1,3 +1,4 @@
+import { createValidatedShaderModule } from "../shader-validator";
 import {
     CLUSTER_GRID_ENTRY_SIZE,
     computeClusterCount,
@@ -6,7 +7,6 @@ import {
     packClusterUniforms,
     type ClusterGridConfig
 } from "./cluster-types";
-import { createValidatedShaderModule } from "../shader-validator";
 
 const CLUSTER_BUILD_SHADER = /* wgsl */ `
 struct ClusterUniforms {
@@ -152,6 +152,7 @@ export class ClusterGrid {
 
   private computePipeline: GPUComputePipeline | null = null;
   private computeBindGroup: GPUBindGroup | null = null;
+  private shaderModule: GPUShaderModule | null = null;
 
   private screenWidth = 1920;
   private screenHeight = 1080;
@@ -196,16 +197,26 @@ export class ClusterGrid {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
-    const shader = createValidatedShaderModule(device, {
+    this.shaderModule = createValidatedShaderModule(device, {
       code: CLUSTER_BUILD_SHADER.replace(/\$\{128\}u/g, `${maxLightsPerCluster}u`),
       label: "ClusterGrid.build",
     });
 
-    this.computePipeline = device.createComputePipeline({
-      label: "cluster-build",
-      layout: "auto",
-      compute: { module: shader, entryPoint: "cs_main" },
-    });
+    // Kick the async compile; dispatch() retries acquisition until ready.
+    this.ensureComputePipeline();
+  }
+
+  private ensureComputePipeline(): void {
+    if (this.computePipeline || !this.device || !this.shaderModule) return;
+    const shaderModule = this.shaderModule;
+    this.computePipeline = pipelinePool(this.device).acquireCompute(
+      `cluster-grid:${this.config.maxLightsPerCluster}`,
+      () => ({
+        label: "cluster-build",
+        layout: "auto",
+        compute: { module: shaderModule, entryPoint: "cs_main" },
+      }),
+    );
   }
 
   updateUniforms(screenWidth: number, screenHeight: number, numLights: number): void {
@@ -226,6 +237,7 @@ export class ClusterGrid {
   }
 
   dispatch(encoder: GPUCommandEncoder | null): void {
+    if (!this.computePipeline) this.ensureComputePipeline();
     if (this.device && this.computePipeline) {
       if (!this.computeBindGroup) {
         this.computeBindGroup = this.device.createBindGroup({

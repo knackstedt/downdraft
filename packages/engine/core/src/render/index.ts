@@ -106,6 +106,7 @@ export { WaterPass } from "./passes/water";
 export type { WaterUniforms } from "./passes/water";
 export { PBRSystem } from "./pbr";
 export { PipelineCache } from "./pipeline";
+export { AsyncPipelinePool, pipelinePool } from "./pipeline-pool";
 export { RenderPass } from "./render-pass";
 export type { FrameGraphBuilder } from "./render-pass";
 export { RendererInputBusImpl } from "./renderer-input-bus";

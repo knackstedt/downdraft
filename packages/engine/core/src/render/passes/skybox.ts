@@ -1,7 +1,8 @@
-import { createValidatedShaderModule } from "../shader-validator";
 import { type Mat4 } from "wgpu-matrix";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
+import { pipelinePool } from "../pipeline-pool";
 import { RenderPass } from "../render-pass";
+import { createValidatedShaderModule } from "../shader-validator";
 
 const SKYBOX_SHADER = `
 struct CameraUniforms {
@@ -85,14 +86,21 @@ export class SkyboxPass extends RenderPass {
       addressModeW: "clamp-to-edge",
     });
 
-    this.pipeline = this.device.createRenderPipeline({
+    this.ensurePipeline();
+  }
+
+  /** Kicks the async compile in prepare(); retries in execute() until the
+   *  pool resolves it. Pass skips drawing while the pipeline is pending. */
+  private ensurePipeline(): void {
+    if (this.pipeline || !this.shaderModule) return;
+    this.pipeline = pipelinePool(this.device).acquireRender(`skybox:${this.surfaceFormat}`, () => ({
       layout: "auto",
       vertex: {
-        module: this.shaderModule,
+        module: this.shaderModule!,
         entryPoint: "vs_main",
       },
       fragment: {
-        module: this.shaderModule,
+        module: this.shaderModule!,
         entryPoint: "fs_main",
         targets: [{ format: this.surfaceFormat }],
       },
@@ -102,7 +110,7 @@ export class SkyboxPass extends RenderPass {
         depthWriteEnabled: false,
         depthCompare: "less-equal",
       },
-    });
+    }));
   }
 
   setCamera(
@@ -143,6 +151,7 @@ export class SkyboxPass extends RenderPass {
   }
 
   execute(ctx: GraphRenderContext): void {
+    if (!this.pipeline) this.ensurePipeline();
     if (!this.pipeline || !ctx.pass) return;
     this.ensureBindGroup();
     if (!this.bindGroup) return;

@@ -3,6 +3,7 @@ import { mat4x4f, vec2f, wgsl } from "@downdraft/engine/shader-graph";
 import { type Mat4 } from "wgpu-matrix";
 import type { GreasedLineData } from "../../mesh/greased-line";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
+import { pipelinePool } from "../pipeline-pool";
 import { RenderPass } from "../render-pass";
 import { createValidatedShaderModule } from "../shader-validator";
 
@@ -103,11 +104,12 @@ export class GreasedLinePass extends RenderPass {
   }
 
   private ensurePipeline(): void {
-    if (this.pipeline || !this.device || !this.shaderModule || !this.cameraBuffer) return;
-    this.pipeline = this.device.createRenderPipeline({
+    if ((this.pipeline && this.bindGroup) || !this.device || !this.shaderModule || !this.cameraBuffer) return;
+    if (!this.pipeline) {
+      this.pipeline = pipelinePool(this.device).acquireRender(`greased-line:${this.surfaceFormat}`, () => ({
       layout: "auto",
       vertex: {
-        module: this.shaderModule,
+        module: this.shaderModule!,
         entryPoint: "vs_main",
         buffers: [{
           arrayStride: 48,
@@ -123,7 +125,7 @@ export class GreasedLinePass extends RenderPass {
         }],
       },
       fragment: {
-        module: this.shaderModule,
+        module: this.shaderModule!,
         entryPoint: "fs_main",
         targets: [{
           format: this.surfaceFormat,
@@ -139,13 +141,16 @@ export class GreasedLinePass extends RenderPass {
         depthWriteEnabled: false,
         depthCompare: "less-equal",
       },
-    });
-    this.bindGroup = this.device.createBindGroup({
-      layout: this.pipeline.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: this.cameraBuffer } },
-      ],
-    });
+    }));
+    }
+    if (this.pipeline && !this.bindGroup) {
+      this.bindGroup = this.device.createBindGroup({
+        layout: this.pipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: this.cameraBuffer } },
+        ],
+      });
+    }
   }
 
   addLine(data: GreasedLineData, modelMatrix: Mat4): void {

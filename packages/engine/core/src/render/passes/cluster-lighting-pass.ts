@@ -7,6 +7,7 @@ import { createIBLShaderChunk } from "../ibl-bind-group";
 import type { LightUniformData } from "../lighting";
 import { packLightUniform } from "../lighting";
 import type { ClusterGrid } from "../lighting/cluster-grid";
+import { pipelinePool } from "../pipeline-pool";
 import { RenderPass } from "../render-pass";
 import { createValidatedShaderModule } from "../shader-validator";
 
@@ -317,14 +318,22 @@ export class ClusterLightingPass extends RenderPass {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
-    this.pipeline = this.device.createRenderPipeline({
-      layout: "auto",
-      vertex: { module: this.shaderModule, entryPoint: "vs_main" },
-      fragment: { module: this.shaderModule, entryPoint: "fs_main", targets: [{ format: this.surfaceFormat }] },
-      primitive: { topology: "triangle-list" },
-    });
+    this.ensurePipeline();
+  }
 
-    this.iblBindGroupLayout = this.pipeline.getBindGroupLayout(1);
+  /** Kicks the async compile in prepare(); retries in execute() until the
+   *  pool resolves it. Pass skips drawing while the pipeline is pending. */
+  private ensurePipeline(): void {
+    if (this.pipeline || !this.shaderModule) return;
+    this.pipeline = pipelinePool(this.device).acquireRender(`cluster-lighting:${this.surfaceFormat}`, () => ({
+      layout: "auto",
+      vertex: { module: this.shaderModule!, entryPoint: "vs_main" },
+      fragment: { module: this.shaderModule!, entryPoint: "fs_main", targets: [{ format: this.surfaceFormat }] },
+      primitive: { topology: "triangle-list" },
+    }));
+    if (this.pipeline) {
+      this.iblBindGroupLayout = this.pipeline.getBindGroupLayout(1);
+    }
   }
 
   updateCamera(
@@ -431,6 +440,7 @@ export class ClusterLightingPass extends RenderPass {
   }
 
   execute(ctx: GraphRenderContext): void {
+    if (!this.pipeline) this.ensurePipeline();
     if (!this.pipeline || !ctx.pass) return;
 
     const gbufferViews: GBufferViews = {

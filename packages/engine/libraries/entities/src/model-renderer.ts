@@ -13,6 +13,7 @@ import {
     calculateViewProj,
     createLogger, createValidatedShaderModule, DEPTH_FORMAT,
     MSAA_SAMPLE_COUNT,
+    pipelinePool,
     type BindlessMaterialManager,
     type BindlessTextureRegistry,
     type CameraState,
@@ -48,6 +49,12 @@ export class ModelRenderer {
   private device: GPUDevice;
   private format: GPUTextureFormat;
   private pipeline: GPURenderPipeline | null = null;
+  /** Shader module + pipeline layouts are built in init() and retained so
+   *  ensurePipelines() can retry async pool acquisition until ready. */
+  private shaderModule: GPUShaderModule | null = null;
+  private pipelineLayout: GPUPipelineLayout | null = null;
+  private skinnedPipelineLayout: GPUPipelineLayout | null = null;
+  private depthPipelineLayout: GPUPipelineLayout | null = null;
   /** Inverted-hull outline pipeline (front-face culled, vertex-extruded). */
   private maskPipeline: GPURenderPipeline | null = null;
   /** Depth-only pipeline for shadow map rendering (no color targets). */
@@ -282,43 +289,13 @@ export class ModelRenderer {
       entries: [{ binding: 0, resource: { buffer: this.defaultFrameLightingBuffer } }],
     });
 
-    const shaderModule = createValidatedShaderModule(this.device, { code: MODEL_WGSL, label: "ModelRenderer" });
+    this.shaderModule = createValidatedShaderModule(this.device, { code: MODEL_WGSL, label: "ModelRenderer" });
     // Explicit pipeline layout: group(0) = per-draw uniform (dynamic offset),
     // group(2) = frame-lighting UBO, group(3) = bindless materials SSBO +
     // texture arrays. Group 1 is unused by the non-skinned pipeline (empty layout).
     const emptyLayout = this.device.createBindGroupLayout({ entries: [] });
-    const pipelineLayout = this.device.createPipelineLayout({
+    this.pipelineLayout = this.device.createPipelineLayout({
       bindGroupLayouts: [this.bindGroupLayout, emptyLayout, this.frameLightingLayout, this.bindlessLayout],
-    });
-    this.pipeline = this.device.createRenderPipeline({
-      layout: pipelineLayout,
-      vertex: {
-        module: shaderModule,
-        entryPoint: "vs_main",
-        buffers: [
-          {
-            arrayStride: 44, // pos3 + normal3 + uv2 + color3 = 11 floats
-            attributes: [
-              { shaderLocation: 0, offset: 0, format: "float32x3" },
-              { shaderLocation: 1, offset: 12, format: "float32x3" },
-              { shaderLocation: 2, offset: 24, format: "float32x2" },
-              { shaderLocation: 3, offset: 32, format: "float32x3" },
-            ],
-          },
-        ],
-      },
-      fragment: {
-        module: shaderModule,
-        entryPoint: "fs_main",
-        targets: [{ format: this.format }],
-      },
-      primitive: { topology: "triangle-list" },
-      multisample: { count: MSAA_SAMPLE_COUNT },
-      depthStencil: {
-        format: DEPTH_FORMAT,
-        depthWriteEnabled: true,
-        depthCompare: "less",
-      },
     });
 
     // ── Skinning resources ──
@@ -345,118 +322,177 @@ export class ModelRenderer {
       entries: [{ binding: 0, resource: { buffer: this.skinMatrixBuffer } }],
     });
 
-    // Skinned pipeline: same pipeline layout (group 1 is now the skin layout
-    // instead of an empty layout, group 2 is the frame-lighting layout), with
-    // a second vertex buffer for joints + weights and the vs_skinned entry point.
-    const skinnedPipelineLayout = this.device.createPipelineLayout({
+    // Skinned pipeline layout: same layout as the base pipeline but group 1
+    // is the skin layout instead of an empty layout.
+    this.skinnedPipelineLayout = this.device.createPipelineLayout({
       bindGroupLayouts: [this.bindGroupLayout, this.skinBindGroupLayout, this.frameLightingLayout, this.bindlessLayout],
     });
-    this.skinnedPipeline = this.device.createRenderPipeline({
-      layout: skinnedPipelineLayout,
-      vertex: {
-        module: shaderModule,
-        entryPoint: "vs_skinned",
-        buffers: [
-          {
-            arrayStride: 44, // pos3 + normal3 + uv2 + color3 = 11 floats
-            attributes: [
-              { shaderLocation: 0, offset: 0, format: "float32x3" },
-              { shaderLocation: 1, offset: 12, format: "float32x3" },
-              { shaderLocation: 2, offset: 24, format: "float32x2" },
-              { shaderLocation: 3, offset: 32, format: "float32x3" },
-            ],
-          },
-          {
-            // joints (4 x uint8 packed as uint32x4 = 16 bytes) + weights (4 x float32 = 16 bytes) = 32 bytes
-            arrayStride: 32,
-            attributes: [
-              { shaderLocation: 4, offset: 0, format: "uint32x4" },
-              { shaderLocation: 5, offset: 16, format: "float32x4" },
-            ],
-          },
-        ],
-      },
-      fragment: {
-        module: shaderModule,
-        entryPoint: "fs_main",
-        targets: [{ format: this.format }],
-      },
-      primitive: { topology: "triangle-list" },
-      multisample: { count: MSAA_SAMPLE_COUNT },
-      depthStencil: {
-        format: DEPTH_FORMAT,
-        depthWriteEnabled: true,
-        depthCompare: "less",
-      },
+
+    // Depth-only pipeline layout: just group(0) (the per-draw uniform with
+    // dynamic offset) so the shadow caller doesn't need lighting/bindless.
+    this.depthPipelineLayout = this.device.createPipelineLayout({
+      bindGroupLayouts: [this.bindGroupLayout],
     });
+
+    // Kick all four pipeline compiles on the device-wide async pool — they
+    // run in parallel on native worker threads; render paths retry
+    // acquisition until the fields resolve.
+    this.ensurePipelines();
+  }
+
+  /** Acquires each pipeline from the async pool — null until compiled. */
+  private ensurePipelines(): void {
+    if (!this.shaderModule || !this.pipelineLayout || !this.skinnedPipelineLayout || !this.depthPipelineLayout) return;
+    const shaderModule = this.shaderModule;
+    const pipelineLayout = this.pipelineLayout;
+    const skinnedPipelineLayout = this.skinnedPipelineLayout;
+    const depthPipelineLayout = this.depthPipelineLayout;
+    const pool = pipelinePool(this.device);
+    const format = this.format;
+
+    if (!this.pipeline) {
+      this.pipeline = pool.acquireRender(`model-renderer:${format}`, () => ({
+        layout: pipelineLayout,
+        vertex: {
+          module: shaderModule,
+          entryPoint: "vs_main",
+          buffers: [
+            {
+              arrayStride: 44, // pos3 + normal3 + uv2 + color3 = 11 floats
+              attributes: [
+                { shaderLocation: 0, offset: 0, format: "float32x3" },
+                { shaderLocation: 1, offset: 12, format: "float32x3" },
+                { shaderLocation: 2, offset: 24, format: "float32x2" },
+                { shaderLocation: 3, offset: 32, format: "float32x3" },
+              ],
+            },
+          ],
+        },
+        fragment: {
+          module: shaderModule,
+          entryPoint: "fs_main",
+          targets: [{ format }],
+        },
+        primitive: { topology: "triangle-list" },
+        multisample: { count: MSAA_SAMPLE_COUNT },
+        depthStencil: {
+          format: DEPTH_FORMAT,
+          depthWriteEnabled: true,
+          depthCompare: "less",
+        },
+      }));
+    }
+
+    // Skinned pipeline: same layout (group 1 is now the skin layout instead of
+    // an empty layout), a second vertex buffer for joints + weights, and the
+    // vs_skinned entry point.
+    if (!this.skinnedPipeline) {
+      this.skinnedPipeline = pool.acquireRender(`model-renderer:skinned:${format}`, () => ({
+        layout: skinnedPipelineLayout,
+        vertex: {
+          module: shaderModule,
+          entryPoint: "vs_skinned",
+          buffers: [
+            {
+              arrayStride: 44,
+              attributes: [
+                { shaderLocation: 0, offset: 0, format: "float32x3" },
+                { shaderLocation: 1, offset: 12, format: "float32x3" },
+                { shaderLocation: 2, offset: 24, format: "float32x2" },
+                { shaderLocation: 3, offset: 32, format: "float32x3" },
+              ],
+            },
+            {
+              // joints (4 x uint8 packed as uint32x4 = 16 bytes) + weights (4 x float32 = 16 bytes) = 32 bytes
+              arrayStride: 32,
+              attributes: [
+                { shaderLocation: 4, offset: 0, format: "uint32x4" },
+                { shaderLocation: 5, offset: 16, format: "float32x4" },
+              ],
+            },
+          ],
+        },
+        fragment: {
+          module: shaderModule,
+          entryPoint: "fs_main",
+          targets: [{ format }],
+        },
+        primitive: { topology: "triangle-list" },
+        multisample: { count: MSAA_SAMPLE_COUNT },
+        depthStencil: {
+          format: DEPTH_FORMAT,
+          depthWriteEnabled: true,
+          depthCompare: "less",
+        },
+      }));
+    }
 
     // ── Mask pipeline for post-process outline ──
     // Renders the model as solid white to a mask texture.  Uses the same
     // vertex shader as the normal render (vs_main) with back-face culling
     // and depth testing (read-only) so the mask respects occlusion.
-    this.maskPipeline = this.device.createRenderPipeline({
-      layout: pipelineLayout,
-      vertex: {
-        module: shaderModule,
-        entryPoint: "vs_main",
-        buffers: [
-          {
-            arrayStride: 44,
-            attributes: [
-              { shaderLocation: 0, offset: 0, format: "float32x3" },
-              { shaderLocation: 1, offset: 12, format: "float32x3" },
-              { shaderLocation: 2, offset: 24, format: "float32x2" },
-              { shaderLocation: 3, offset: 32, format: "float32x3" },
-            ],
-          },
-        ],
-      },
-      fragment: {
-        module: shaderModule,
-        entryPoint: "fs_mask",
-        targets: [{ format: "rgba8unorm" }],
-      },
-      primitive: { topology: "triangle-list", cullMode: "back" },
-      depthStencil: {
-        format: DEPTH_FORMAT,
-        depthWriteEnabled: false,
-        depthCompare: "less-equal",
-      },
-    });
+    if (!this.maskPipeline) {
+      this.maskPipeline = pool.acquireRender("model-renderer:mask", () => ({
+        layout: pipelineLayout,
+        vertex: {
+          module: shaderModule,
+          entryPoint: "vs_main",
+          buffers: [
+            {
+              arrayStride: 44,
+              attributes: [
+                { shaderLocation: 0, offset: 0, format: "float32x3" },
+                { shaderLocation: 1, offset: 12, format: "float32x3" },
+                { shaderLocation: 2, offset: 24, format: "float32x2" },
+                { shaderLocation: 3, offset: 32, format: "float32x3" },
+              ],
+            },
+          ],
+        },
+        fragment: {
+          module: shaderModule,
+          entryPoint: "fs_mask",
+          targets: [{ format: "rgba8unorm" }],
+        },
+        primitive: { topology: "triangle-list", cullMode: "back" },
+        depthStencil: {
+          format: DEPTH_FORMAT,
+          depthWriteEnabled: false,
+          depthCompare: "less-equal",
+        },
+      }));
+    }
 
     // ── Depth-only pipeline for shadow map rendering ──
     // Reuses vs_main (same vertex transform) but has no fragment shader /
-    // color targets — only writes depth. Uses a minimal pipeline layout with
-    // just group(0) (the per-draw uniform with dynamic offset) so the caller
-    // doesn't need to bind lighting/bindless groups for the shadow pass.
-    const depthPipelineLayout = this.device.createPipelineLayout({
-      bindGroupLayouts: [this.bindGroupLayout],
-    });
-    this.depthPipeline = this.device.createRenderPipeline({
-      label: "model-depth-only",
-      layout: depthPipelineLayout,
-      vertex: {
-        module: shaderModule,
-        entryPoint: "vs_main",
-        buffers: [
-          {
-            arrayStride: 44,
-            attributes: [
-              { shaderLocation: 0, offset: 0, format: "float32x3" },
-              { shaderLocation: 1, offset: 12, format: "float32x3" },
-              { shaderLocation: 2, offset: 24, format: "float32x2" },
-              { shaderLocation: 3, offset: 32, format: "float32x3" },
-            ],
-          },
-        ],
-      },
-      primitive: { topology: "triangle-list", cullMode: "back" },
-      depthStencil: {
-        format: DEPTH_FORMAT,
-        depthWriteEnabled: true,
-        depthCompare: "less",
-      },
-    });
+    // color targets — only writes depth.
+    if (!this.depthPipeline) {
+      this.depthPipeline = pool.acquireRender("model-renderer:depth", () => ({
+        label: "model-depth-only",
+        layout: depthPipelineLayout,
+        vertex: {
+          module: shaderModule,
+          entryPoint: "vs_main",
+          buffers: [
+            {
+              arrayStride: 44,
+              attributes: [
+                { shaderLocation: 0, offset: 0, format: "float32x3" },
+                { shaderLocation: 1, offset: 12, format: "float32x3" },
+                { shaderLocation: 2, offset: 24, format: "float32x2" },
+                { shaderLocation: 3, offset: 32, format: "float32x3" },
+              ],
+            },
+          ],
+        },
+        primitive: { topology: "triangle-list", cullMode: "back" },
+        depthStencil: {
+          format: DEPTH_FORMAT,
+          depthWriteEnabled: true,
+          depthCompare: "less",
+        },
+      }));
+    }
   }
 
   /**
@@ -1390,6 +1426,7 @@ export class ModelRenderer {
      *  0=Default 1=Wireframe 2=Checker. Defaults to 0 (normal). */
     highlight: number = 0,
   ): void {
+    this.ensurePipelines();
     if (!this.pipeline || !this.bindGroup || !this.uniformBuffer || !this.viewProjCache) return;
 
     const resources = this.modelResources.get(nodeId);
@@ -1553,6 +1590,7 @@ export class ModelRenderer {
     rotation: [number, number, number, number],
     scale: [number, number, number],
   ): void {
+    this.ensurePipelines();
     if (!this.maskPipeline || !this.bindGroup || !this.uniformBuffer || !this.viewProjCache) return;
 
     const resources = this.modelResources.get(nodeId);
@@ -1639,6 +1677,7 @@ export class ModelRenderer {
     rotation: [number, number, number, number],
     scale: [number, number, number],
   ): void {
+    this.ensurePipelines();
     if (!this.depthPipeline || !this.bindGroup || !this.uniformBuffer) return;
 
     const resources = this.modelResources.get(nodeId);

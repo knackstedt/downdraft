@@ -1,9 +1,10 @@
-import { createValidatedShaderModule } from "../shader-validator";
 import type { StructView, WgslStruct } from "@downdraft/engine/shader-graph";
 import { f32, mat4x4f, vec3f, wgsl } from "@downdraft/engine/shader-graph";
 import { type Mat4 } from "wgpu-matrix";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
+import { pipelinePool } from "../pipeline-pool";
 import { RenderPass } from "../render-pass";
+import { createValidatedShaderModule } from "../shader-validator";
 
 // ─── Uniform structs (single source of truth for layout) ───────────────────
 const Uniforms: WgslStruct = wgsl.struct("Uniforms", {
@@ -258,21 +259,32 @@ export class TerrainPass extends RenderPass {
     dev.queue.writeBuffer(this.vertexBuffer, 0, new Float32Array(vertices));
     this.indexBuffer = dev.createBuffer({ size: indices.length * 2, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
     dev.queue.writeBuffer(this.indexBuffer, 0, new Uint16Array(indices));
-    this.pipeline = dev.createRenderPipeline({
-      layout: "auto",
-      vertex: {
-        module: this.shaderModule, entryPoint: "vs_main",
-        buffers: [{ arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }] }],
-      },
-      fragment: { module: this.shaderModule, entryPoint: "fs_main", targets: [{ format: this.surfaceFormat }] },
-      primitive: { topology: "triangle-list" },
-      multisample: { count: this.msaaSampleCount },
-      depthStencil: { format: "depth32float", depthWriteEnabled: true, depthCompare: "less" },
-    });
-    this.bindGroup = dev.createBindGroup({
-      layout: this.pipeline.getBindGroupLayout(0),
-      entries: [{ binding: 0, resource: { buffer: this.uniformBuffer } }],
-    });
+    this.ensurePipeline();
+  }
+
+  /** Kicks the async compile in prepare(); retries in execute() until the
+   *  pool resolves it. Pass skips drawing while the pipeline is pending. */
+  private ensurePipeline(): void {
+    if (this.pipeline && this.bindGroup) return;
+    if (!this.pipeline) {
+      this.pipeline = pipelinePool(this.device).acquireRender(`terrain:${this.surfaceFormat}:${this.msaaSampleCount}`, () => ({
+        layout: "auto",
+        vertex: {
+          module: this.shaderModule!, entryPoint: "vs_main",
+          buffers: [{ arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }] }],
+        },
+        fragment: { module: this.shaderModule!, entryPoint: "fs_main", targets: [{ format: this.surfaceFormat }] },
+        primitive: { topology: "triangle-list" },
+        multisample: { count: this.msaaSampleCount },
+        depthStencil: { format: "depth32float", depthWriteEnabled: true, depthCompare: "less" },
+      }));
+    }
+    if (this.pipeline && !this.bindGroup) {
+      this.bindGroup = this.device.createBindGroup({
+        layout: this.pipeline.getBindGroupLayout(0),
+        entries: [{ binding: 0, resource: { buffer: this.uniformBuffer! } }],
+      });
+    }
   }
 
   setUniforms(u: TerrainUniforms): void {
@@ -300,6 +312,7 @@ export class TerrainPass extends RenderPass {
   }
 
   execute(ctx: GraphRenderContext): void {
+    if (!this.pipeline || !this.bindGroup) this.ensurePipeline();
     if (!this.pipeline || !this.bindGroup || !this.vertexBuffer || !this.indexBuffer || !ctx.pass) return;
 
     const tracked = ctx.pass;

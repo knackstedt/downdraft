@@ -52,6 +52,7 @@ export interface SkyboxOptions {
 export class SkyboxRenderer {
   private device: GPUDevice;
   private pipeline: GPURenderPipeline | null = null;
+  private shaderModule: GPUShaderModule | null = null;
   private bindGroupLayout: GPUBindGroupLayout | null = null;
   private cameraBuffer: GPUBuffer | null = null;
   private sampler: GPUSampler;
@@ -74,18 +75,31 @@ export class SkyboxRenderer {
   private ensurePipeline(): void {
     if (this.pipeline) return;
 
-    this.bindGroupLayout = this.device.createBindGroupLayout({
-      entries: [
-        { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
-        { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "cube" } },
-        { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
-      ],
-    });
+    if (!this.bindGroupLayout) {
+      this.bindGroupLayout = this.device.createBindGroupLayout({
+        entries: [
+          { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
+          { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "cube" } },
+          { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+        ],
+      });
+    }
 
-    const shaderModule = createValidatedShaderModule(this.device, { code: SKYBOX_SHADER, label: "SkyboxPass" });
+    if (!this.cameraBuffer) {
+      this.cameraBuffer = this.device.createBuffer({
+        size: 144, // mat4x4 (64) + mat4x4 (64) + vec4 (16)
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
+    }
 
-    this.pipeline = this.device.createRenderPipeline({
-      layout: this.device.createPipelineLayout({ bindGroupLayouts: [this.bindGroupLayout] }),
+    if (!this.shaderModule) {
+      this.shaderModule = createValidatedShaderModule(this.device, { code: SKYBOX_SHADER, label: "SkyboxPass" });
+    }
+    const shaderModule = this.shaderModule;
+    const bindGroupLayout = this.bindGroupLayout;
+
+    this.pipeline = pipelinePool(this.device).acquireRender(`skybox-renderer:${this.format}:${this.depthFormat}`, () => ({
+      layout: this.device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] }),
       vertex: { module: shaderModule, entryPoint: "vs_main" },
       fragment: {
         module: shaderModule,
@@ -98,12 +112,7 @@ export class SkyboxRenderer {
         depthWriteEnabled: false,
         depthCompare: "less-equal",
       },
-    });
-
-    this.cameraBuffer = this.device.createBuffer({
-      size: 144, // mat4x4 (64) + mat4x4 (64) + vec4 (16)
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
+    }));
   }
 
   render(
@@ -113,6 +122,7 @@ export class SkyboxRenderer {
     cameraPos: [number, number, number],
   ): void {
     this.ensurePipeline();
+    if (!this.pipeline || !this.cameraBuffer || !this.bindGroupLayout) return;
 
     // Update camera buffer
     const camData = new Float32Array(36);

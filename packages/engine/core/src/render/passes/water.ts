@@ -1,9 +1,10 @@
-import { createValidatedShaderModule } from "../shader-validator";
 import type { StructView, WgslStruct } from "@downdraft/engine/shader-graph";
 import { f32, mat4x4f, u32, vec3f, wgsl } from "@downdraft/engine/shader-graph";
 import { type Mat4 } from "wgpu-matrix";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
+import { pipelinePool } from "../pipeline-pool";
 import { RenderPass } from "../render-pass";
+import { createValidatedShaderModule } from "../shader-validator";
 
 // ─── Uniform structs (single source of truth for layout) ───────────────────
 const Uniforms: WgslStruct = wgsl.struct("Uniforms", {
@@ -483,6 +484,7 @@ export class WaterPass extends RenderPass {
   private bindGroup: GPUBindGroup | null = null;
   private bindGroupLayout: GPUBindGroupLayout | null = null;
   private lightBindGroupLayout: GPUBindGroupLayout | null = null;
+  private pipelineLayout: GPUPipelineLayout | null = null;
   private lightBindGroup: GPUBindGroup | null = null;
   private vertexBuffer: GPUBuffer | null = null;
   private indexBuffer: GPUBuffer | null = null;
@@ -600,18 +602,26 @@ export class WaterPass extends RenderPass {
       ],
     });
 
-    const pipelineLayout = dev.createPipelineLayout({
+    this.pipelineLayout = dev.createPipelineLayout({
       bindGroupLayouts: [this.bindGroupLayout, this.lightBindGroupLayout],
     });
 
-    this.pipeline = dev.createRenderPipeline({
+    this.ensurePipeline();
+  }
+
+  /** Kicks the async compile in prepare(); retries in execute() until the
+   *  pool resolves it. Pass skips drawing while the pipeline is pending. */
+  private ensurePipeline(): void {
+    if (this.pipeline || !this.pipelineLayout) return;
+    const pipelineLayout = this.pipelineLayout;
+    this.pipeline = pipelinePool(this.device).acquireRender(`water:${this.surfaceFormat}:${this.msaaSampleCount}:${this.depthFormat}`, () => ({
       layout: pipelineLayout,
       vertex: {
-        module: this.shaderModule, entryPoint: "vs_main",
+        module: this.shaderModule!, entryPoint: "vs_main",
         buffers: [{ arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }] }],
       },
       fragment: {
-        module: this.shaderModule, entryPoint: "fs_main",
+        module: this.shaderModule!, entryPoint: "fs_main",
         targets: [{
           format: this.surfaceFormat,
           blend: {
@@ -623,7 +633,7 @@ export class WaterPass extends RenderPass {
       primitive: { topology: "triangle-list" },
       multisample: { count: this.msaaSampleCount },
       depthStencil: { format: this.depthFormat, depthWriteEnabled: true, depthCompare: "less" },
-    });
+    }));
   }
 
   getLightBindGroupLayout(): GPUBindGroupLayout | null {
@@ -693,6 +703,7 @@ export class WaterPass extends RenderPass {
   }
 
   execute(ctx: GraphRenderContext): void {
+    if (!this.pipeline) this.ensurePipeline();
     if (!this.pipeline || !this.bindGroup || !this.vertexBuffer || !this.indexBuffer || !ctx.pass) return;
 
     // Write default normal data once
@@ -747,6 +758,7 @@ export class WaterPass extends RenderPass {
     this.bindGroupLayout = null;
     this.lightBindGroup = null;
     this.lightBindGroupLayout = null;
+    this.pipelineLayout = null;
     this._uniformView = null;
     this._uniformBuf = null;
   }

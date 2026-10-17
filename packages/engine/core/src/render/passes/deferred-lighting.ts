@@ -1,11 +1,12 @@
-import { createValidatedShaderModule } from "../shader-validator";
 import { type Mat4 } from "wgpu-matrix";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
 import type { GBufferViews } from "../g-buffer";
 import { createIBLShaderChunk } from "../ibl-bind-group";
 import type { LightUniformData } from "../lighting";
 import { MAX_POINT_LIGHTS, MAX_SPOT_LIGHTS, packLightUniform, packPointLights, packSpotLightsExtended } from "../lighting";
+import { pipelinePool } from "../pipeline-pool";
 import { RenderPass } from "../render-pass";
+import { createValidatedShaderModule } from "../shader-validator";
 
 const IBL_CHUNK = createIBLShaderChunk(1, true);
 
@@ -279,21 +280,29 @@ export class DeferredLightingPass extends RenderPass {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
-    this.pipeline = this.device.createRenderPipeline({
+    this.ensurePipeline();
+  }
+
+  /** Kicks the async compile in prepare(); retries in execute() until the
+   *  pool resolves it. Pass skips drawing while the pipeline is pending. */
+  private ensurePipeline(): void {
+    if (this.pipeline || !this.shaderModule) return;
+    this.pipeline = pipelinePool(this.device).acquireRender(`deferred-lighting:${this.surfaceFormat}`, () => ({
       layout: "auto",
       vertex: {
-        module: this.shaderModule,
+        module: this.shaderModule!,
         entryPoint: "vs_main",
       },
       fragment: {
-        module: this.shaderModule,
+        module: this.shaderModule!,
         entryPoint: "fs_main",
         targets: [{ format: this.surfaceFormat }],
       },
       primitive: { topology: "triangle-list" },
-    });
-
-    this.iblBindGroupLayout = this.pipeline.getBindGroupLayout(1);
+    }));
+    if (this.pipeline) {
+      this.iblBindGroupLayout = this.pipeline.getBindGroupLayout(1);
+    }
   }
 
   updateCamera(
@@ -393,6 +402,7 @@ export class DeferredLightingPass extends RenderPass {
   }
 
   execute(ctx: GraphRenderContext): void {
+    if (!this.pipeline) this.ensurePipeline();
     if (!this.pipeline || !ctx.pass) return;
 
     // Build bind group from resolved views

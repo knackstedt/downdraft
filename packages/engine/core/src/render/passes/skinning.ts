@@ -88,6 +88,8 @@ export class SkinningComputePass {
   readonly name = "skinning-compute";
   private device: GPUDevice;
   private pipeline: GPUComputePipeline | null = null;
+  private shaderModule: GPUShaderModule | null = null;
+  private pipelineLayout: GPUPipelineLayout | null = null;
   private bindGroupLayout: GPUBindGroupLayout | null = null;
   private boneCountBuffer: GPUBuffer | null = null;
   private boneTransformBuffer: GPUBuffer | null = null;
@@ -102,7 +104,7 @@ export class SkinningComputePass {
   }
 
   prepare(boneCount: number): void {
-    const shaderModule = createValidatedShaderModule(this.device, {
+    this.shaderModule = createValidatedShaderModule(this.device, {
       label: "skinning-compute",
       code: SKINNING_COMPUTE_SHADER,
     });
@@ -116,15 +118,12 @@ export class SkinningComputePass {
       ],
     });
 
-    const pipelineLayout = this.device.createPipelineLayout({
+    this.pipelineLayout = this.device.createPipelineLayout({
       bindGroupLayouts: [this.bindGroupLayout],
     });
 
-    this.pipeline = this.device.createComputePipeline({
-      label: "skinning-compute",
-      layout: pipelineLayout,
-      compute: { module: shaderModule, entryPoint: "cs_main" },
-    });
+    // Kick the async compile; execute() retries acquisition until ready.
+    this.ensurePipeline();
 
     const boneTransformSize = this.maxBones * 12 * 4;
     const inverseBindSize = this.maxBones * 16 * 4;
@@ -164,6 +163,18 @@ export class SkinningComputePass {
     });
   }
 
+  /** Retries async pool acquisition — execute() skips while pending. */
+  private ensurePipeline(): void {
+    if (this.pipeline || !this.shaderModule || !this.pipelineLayout) return;
+    const shaderModule = this.shaderModule;
+    const pipelineLayout = this.pipelineLayout;
+    this.pipeline = pipelinePool(this.device).acquireCompute("skinning-compute", () => ({
+      label: "skinning-compute",
+      layout: pipelineLayout,
+      compute: { module: shaderModule, entryPoint: "cs_main" },
+    }));
+  }
+
   updateBoneTransforms(transforms: Float32Array): void {
     if (!this.boneTransformBuffer) return;
     this.device.queue.writeBuffer(this.boneTransformBuffer, 0, transforms.buffer as ArrayBuffer, 0, transforms.byteLength);
@@ -185,6 +196,7 @@ export class SkinningComputePass {
   }
 
   execute(encoder: GPUCommandEncoder, boneCount: number): void {
+    if (!this.pipeline) this.ensurePipeline();
     if (!this.pipeline || !this.bindGroup) return;
 
     const workgroupCount = Math.ceil(boneCount / 64);

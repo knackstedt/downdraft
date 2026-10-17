@@ -14,6 +14,7 @@ import {
 import { createLogger } from "../../util/logger";
 import type { RenderContext } from "../frame-graph";
 import { PassType } from "../frame-graph";
+import { pipelinePool } from "../pipeline-pool";
 import type { FrameGraphBuilder } from "../render-pass";
 import { RenderPass } from "../render-pass";
 import { createValidatedShaderModule } from "../shader-validator";
@@ -50,6 +51,10 @@ export class GraphComputePass extends RenderPass {
   private shaderModule: GPUShaderModule | null = null;
   private bindGroup: GPUBindGroup | null = null;
   private bindGroupLayout: GPUBindGroupLayout | null = null;
+  private pipelineLayout: GPUPipelineLayout | null = null;
+  // Bumped per recompile() so hot-reload produces a fresh pool key instead of
+  // resolving to the previous generation's memoized pipeline.
+  private compileGeneration = 0;
 
   // Buffer management — both modes
   private ownedBuffers: Map<string, GPUBuffer> = new Map();
@@ -86,15 +91,29 @@ export class GraphComputePass extends RenderPass {
     });
 
     this.bindGroupLayout = this.buildBindGroupLayout();
-    const pipelineLayout = this.device.createPipelineLayout({
+    this.pipelineLayout = this.device.createPipelineLayout({
       bindGroupLayouts: [this.bindGroupLayout],
     });
+    this.compileGeneration++;
+    this.pipeline = null;
 
-    this.pipeline = this.device.createComputePipeline({
-      label: this.name,
-      layout: pipelineLayout,
-      compute: { module: this.shaderModule, entryPoint: this.graph.getEntryPoint() },
-    });
+    // Kick the async compile; execute() retries acquisition until ready.
+    this.ensurePipeline();
+  }
+
+  private ensurePipeline(): void {
+    if (this.pipeline || !this.device || !this.shaderModule || !this.pipelineLayout) return;
+    const shaderModule = this.shaderModule;
+    const pipelineLayout = this.pipelineLayout;
+    const entryPoint = this.graph.getEntryPoint();
+    this.pipeline = pipelinePool(this.device).acquireCompute(
+      `graph-compute:${this.name}:${this.compileGeneration}`,
+      () => ({
+        label: this.name,
+        layout: pipelineLayout,
+        compute: { module: shaderModule, entryPoint },
+      }),
+    );
   }
 
   setup(builder: FrameGraphBuilder): void {
@@ -105,6 +124,7 @@ export class GraphComputePass extends RenderPass {
   }
 
   execute(ctx: RenderContext): void {
+    if (!this.pipeline) this.ensurePipeline();
     if (!this.pipeline || !this.bindGroup || !this.device) return;
 
     // Flush pending uniform data

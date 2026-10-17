@@ -3,6 +3,7 @@ import { f32, mat4x4f, vec4f, wgsl } from "@downdraft/engine/shader-graph";
 import { mat4, vec3, type Mat4 } from "wgpu-matrix";
 import type { MeshData } from "../../mesh/builder";
 import { PassType, type FrameGraphBuilder, type GraphRenderContext, type TextureHandle } from "../frame-graph";
+import { pipelinePool } from "../pipeline-pool";
 import { RenderPass } from "../render-pass";
 import { destroyMapValues } from "../resource-tracker";
 import { createValidatedShaderModule } from "../shader-validator";
@@ -97,10 +98,10 @@ export class PointLightShadowPass extends RenderPass {
     });
   }
 
-  private getPipeline(stride: number): GPURenderPipeline {
+  private getPipeline(stride: number): GPURenderPipeline | null {
     let pipeline = this.pipelines.get(stride);
     if (!pipeline) {
-      pipeline = this.device.createRenderPipeline({
+      pipeline = pipelinePool(this.device).acquireRender(`point-light-shadow:${stride}`, () => ({
         layout: "auto",
         vertex: {
           module: this.shaderModule!,
@@ -116,7 +117,8 @@ export class PointLightShadowPass extends RenderPass {
           depthWriteEnabled: true,
           depthCompare: "less",
         },
-      });
+      }));
+      if (!pipeline) return null; // still compiling on the async pool
       this.pipelines.set(stride, pipeline);
       this.bindGroups.set(stride, this.device.createBindGroup({
         layout: pipeline.getBindGroupLayout(0),
@@ -194,6 +196,7 @@ export class PointLightShadowPass extends RenderPass {
       meshes.forEach(({ mesh, model }) => {
         this.device.queue.writeBuffer(this.modelBuffer!, 0, model as unknown as BufferSource);
         const pipeline = this.getPipeline(mesh.layout.stride);
+        if (!pipeline) return; // pipeline still compiling — skip this mesh
         const bindGroup = this.bindGroups.get(mesh.layout.stride)!;
         tracked.setPipeline(pipeline);
         tracked.setBindGroup(0, bindGroup);
@@ -260,7 +263,7 @@ export class PointLightShadowPass extends RenderPass {
     for (const buf of this.indexBuffers.values()) buf.destroy();
     this.vertexBuffers.clear();
     this.indexBuffers.clear();
-    destroyMapValues(this.pipelines);
+    this.pipelines.clear(); // pooled — owned by the device's pipeline cache
     destroyMapValues(this.bindGroups);
   }
 }

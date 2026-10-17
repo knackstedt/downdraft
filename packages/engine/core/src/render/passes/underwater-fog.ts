@@ -1,6 +1,7 @@
 import type { StructView, WgslStruct } from "@downdraft/engine/shader-graph";
 import { f32, wgsl } from "@downdraft/engine/shader-graph";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
+import { pipelinePool } from "../pipeline-pool";
 import { RenderPass } from "../render-pass";
 import { createValidatedShaderModule } from "../shader-validator";
 
@@ -118,36 +119,46 @@ export class UnderwaterFogPass extends RenderPass {
     this._uniformBuf = new Float32Array(Uniforms.floatCount);
     this._uniformView = Uniforms.view(this._uniformBuf);
 
-    this.pipeline = this.device.createRenderPipeline({
-      layout: "auto",
-      vertex: {
-        module: this.shaderModule,
-        entryPoint: "vs_main",
-      },
-      fragment: {
-        module: this.shaderModule,
-        entryPoint: "fs_main",
-        targets: [{
-          format: this.surfaceFormat,
-          blend: {
-            color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
-            alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
-          },
-        }],
-      },
-      primitive: { topology: "triangle-list" },
-      multisample: { count: this.msaaSampleCount },
-      depthStencil: {
-        format: "depth32float",
-        depthWriteEnabled: false,
-        depthCompare: "always",
-      },
-    });
+    this.ensurePipeline();
+  }
 
-    this.bindGroup = this.device.createBindGroup({
-      layout: this.pipeline.getBindGroupLayout(0),
-      entries: [{ binding: 0, resource: { buffer: this.uniformBuffer } }],
-    });
+  /** Kicks the async compile in prepare(); retries in execute() until the
+   *  pool resolves it. Pass skips drawing while the pipeline is pending. */
+  private ensurePipeline(): void {
+    if (this.pipeline && this.bindGroup) return;
+    if (!this.pipeline) {
+      this.pipeline = pipelinePool(this.device).acquireRender(`underwater-fog:${this.surfaceFormat}:${this.msaaSampleCount}`, () => ({
+        layout: "auto",
+        vertex: {
+          module: this.shaderModule!,
+          entryPoint: "vs_main",
+        },
+        fragment: {
+          module: this.shaderModule!,
+          entryPoint: "fs_main",
+          targets: [{
+            format: this.surfaceFormat,
+            blend: {
+              color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
+              alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
+            },
+          }],
+        },
+        primitive: { topology: "triangle-list" },
+        multisample: { count: this.msaaSampleCount },
+        depthStencil: {
+          format: "depth32float",
+          depthWriteEnabled: false,
+          depthCompare: "always",
+        },
+      }));
+    }
+    if (this.pipeline && !this.bindGroup) {
+      this.bindGroup = this.device.createBindGroup({
+        layout: this.pipeline.getBindGroupLayout(0),
+        entries: [{ binding: 0, resource: { buffer: this.uniformBuffer! } }],
+      });
+    }
   }
 
   setDepth(depth: number, time: number): void {
@@ -165,6 +176,7 @@ export class UnderwaterFogPass extends RenderPass {
   }
 
   execute(ctx: GraphRenderContext): void {
+    if (!this.pipeline || !this.bindGroup) this.ensurePipeline();
     if (!this.pipeline || !this.bindGroup || !ctx.pass) return;
 
     const tracked = ctx.pass;

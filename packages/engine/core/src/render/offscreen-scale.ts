@@ -13,6 +13,7 @@
 
 import { FULLSCREEN_VS } from "./fullscreen-vs";
 import type { OffscreenMode, ViewportRect } from "./game-renderer";
+import { pipelinePool } from "./pipeline-pool";
 import { createValidatedShaderModule } from "./shader-validator";
 
 export interface ResolutionScaleOffscreenOptions {
@@ -44,6 +45,7 @@ export class ResolutionScaleOffscreen implements OffscreenMode {
   private targetH = 0;
 
   private blitPipeline: GPURenderPipeline | null = null;
+  private blitShaderModule: GPUShaderModule | null = null;
   private blitBindGroupLayout: GPUBindGroupLayout | null = null;
   private blitSampler: GPUSampler | null = null;
   private blitBindGroup: GPUBindGroup | null = null;
@@ -141,6 +143,7 @@ export class ResolutionScaleOffscreen implements OffscreenMode {
   applyPostprocess(encoder: GPUCommandEncoder, canvasView: GPUTextureView, _w: number, _h: number): void {
     if (!this.colorView) return;
     if (!this.blitPipeline) this.buildBlitPipeline();
+    if (!this.blitPipeline) return; // still compiling on the async pool
     if (!this.blitBindGroup) {
       this.blitBindGroup = this.device.createBindGroup({
         layout: this.blitBindGroupLayout!,
@@ -167,25 +170,33 @@ export class ResolutionScaleOffscreen implements OffscreenMode {
   }
 
   private buildBlitPipeline(): void {
-    this.blitBindGroupLayout = this.device.createBindGroupLayout({
-      entries: [
-        { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
-        { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
-      ],
-    });
-    this.blitSampler = this.device.createSampler({
-      magFilter: this.filter,
-      minFilter: this.filter,
-      addressModeU: "clamp-to-edge",
-      addressModeV: "clamp-to-edge",
-    });
-    const module = createValidatedShaderModule(this.device, {
-      code: SCALE_BLIT_WGSL,
-      label: "ResolutionScaleOffscreen.blit",
-    });
-    this.blitPipeline = this.device.createRenderPipeline({
+    if (!this.blitBindGroupLayout) {
+      this.blitBindGroupLayout = this.device.createBindGroupLayout({
+        entries: [
+          { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+          { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+        ],
+      });
+    }
+    if (!this.blitSampler) {
+      this.blitSampler = this.device.createSampler({
+        magFilter: this.filter,
+        minFilter: this.filter,
+        addressModeU: "clamp-to-edge",
+        addressModeV: "clamp-to-edge",
+      });
+    }
+    if (!this.blitShaderModule) {
+      this.blitShaderModule = createValidatedShaderModule(this.device, {
+        code: SCALE_BLIT_WGSL,
+        label: "ResolutionScaleOffscreen.blit",
+      });
+    }
+    const module = this.blitShaderModule;
+    const bindGroupLayout = this.blitBindGroupLayout;
+    this.blitPipeline = pipelinePool(this.device).acquireRender(`resolution-scale-blit:${this.surfaceFormat}`, () => ({
       label: "resolution-scale-blit",
-      layout: this.device.createPipelineLayout({ bindGroupLayouts: [this.blitBindGroupLayout] }),
+      layout: this.device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] }),
       vertex: { module, entryPoint: "vs_main" },
       fragment: {
         module,
@@ -193,7 +204,7 @@ export class ResolutionScaleOffscreen implements OffscreenMode {
         targets: [{ format: this.surfaceFormat }],
       },
       primitive: { topology: "triangle-list" },
-    });
+    }));
   }
 
   destroy(): void {
@@ -207,6 +218,7 @@ export class ResolutionScaleOffscreen implements OffscreenMode {
     this.targetH = 0;
     this.blitBindGroup = null;
     this.blitPipeline = null;
+    this.blitShaderModule = null;
     this.blitBindGroupLayout = null;
     this.blitSampler = null;
   }
