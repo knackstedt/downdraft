@@ -340,7 +340,12 @@ fn diff_rect(prev: &[u8], cur: &[u8], w: usize) -> Option<[u32; 4]> {
     if min_y > max_y {
         return None;
     }
-    Some([min_x as u32, min_y as u32, (max_x + 1 - min_x) as u32, (max_y + 1 - min_y) as u32])
+    Some([
+        min_x as u32,
+        min_y as u32,
+        (max_x + 1 - min_x) as u32,
+        (max_y + 1 - min_y) as u32,
+    ])
 }
 
 /// Run an FFI body with panic isolation — a Rust panic must never unwind
@@ -374,10 +379,9 @@ pub extern "C" fn dd_osr_init(
     ffi(std::ptr::null_mut(), || {
         static LOG_INIT: std::sync::Once = std::sync::Once::new();
         LOG_INIT.call_once(|| {
-            let _ = env_logger::Builder::from_env(
-                env_logger::Env::default().default_filter_or("off"),
-            )
-            .try_init();
+            let _ =
+                env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("off"))
+                    .try_init();
         });
         let Some(html) = (unsafe { read_str(html_ptr, html_len) }) else {
             return std::ptr::null_mut();
@@ -426,7 +430,11 @@ pub extern "C" fn dd_osr_init(
 /// preserved; the DOM is rebuilt from scratch (Blitz has no in-place HTML
 /// reparse). Marks the document dirty. Returns 0 on success.
 #[no_mangle]
-pub extern "C" fn dd_osr_set_html(handle: *mut OsrDoc, html_ptr: *const u8, html_len: usize) -> c_int {
+pub extern "C" fn dd_osr_set_html(
+    handle: *mut OsrDoc,
+    html_ptr: *const u8,
+    html_len: usize,
+) -> c_int {
     ffi(-1, || {
         let Some(mut g) = doc_enter(handle) else {
             return -1;
@@ -756,12 +764,7 @@ fn pointer_coords(d: &OsrDoc, x: f64, y: f64) -> PointerCoords {
     }
 }
 
-fn make_pointer_event(
-    d: &OsrDoc,
-    x: f64,
-    y: f64,
-    button: MouseEventButton,
-) -> BlitzPointerEvent {
+fn make_pointer_event(d: &OsrDoc, x: f64, y: f64, button: MouseEventButton) -> BlitzPointerEvent {
     BlitzPointerEvent {
         id: BlitzPointerId::Mouse,
         is_primary: true,
@@ -807,12 +810,17 @@ pub extern "C" fn dd_osr_pointer(
             && event.button == MouseEventButton::Main
             && d.doc.inner().scrollbar_drag_target().is_none();
         let main_down = kind == 1 && event.button == MouseEventButton::Main;
-        let events_before = if reconcile { d.events.borrow().len() } else { 0 };
+        let events_before = if reconcile {
+            d.events.borrow().len()
+        } else {
+            0
+        };
         let had_down = reconcile && d.buttons.contains(MouseEventButtons::Primary);
         // Snapshot focus: a popped cross-subtree click may still have run
         // blitz's clear-focus default action — it gets restored after.
-        let focus_before =
-            reconcile.then(|| d.doc.inner().get_focussed_node_id()).flatten();
+        let focus_before = reconcile
+            .then(|| d.doc.inner().get_focussed_node_id())
+            .flatten();
         // Cloned for reconcile_click — the event itself moves into ui_event.
         let up_event = reconcile.then(|| event.clone());
         let ui_event = match kind {
@@ -850,9 +858,19 @@ pub extern "C" fn dd_osr_pointer(
                 doc.element_from_point((x / scale) as f32, (y / scale) as f32)
                     .or_else(|| doc.get_hover_node_id())
             };
-            let down_node = d.press_node.or_else(|| d.doc.inner().get_mousedown_node_id());
+            let down_node = d
+                .press_node
+                .or_else(|| d.doc.inner().get_mousedown_node_id());
             d.press_node = None;
-            reconcile_click(d, &ev, events_before, had_down, focus_before, down_node, up_node);
+            reconcile_click(
+                d,
+                &ev,
+                events_before,
+                had_down,
+                focus_before,
+                down_node,
+                up_node,
+            );
         }
         fold_redraw(d);
         0
@@ -931,7 +949,10 @@ pub(crate) fn emit_focus_change(d: &mut OsrDoc, prev: Option<NodeId>) {
     if let Some(old) = prev {
         if d.doc.inner().get_node(old).is_some() {
             dispatch_dom_event(d, DomEvent::new(old, DomEventData::Blur(BlitzFocusEvent)));
-            dispatch_dom_event(d, DomEvent::new(old, DomEventData::FocusOut(BlitzFocusEvent)));
+            dispatch_dom_event(
+                d,
+                DomEvent::new(old, DomEventData::FocusOut(BlitzFocusEvent)),
+            );
         } else {
             push_blur_event(d, old);
         }
@@ -939,7 +960,10 @@ pub(crate) fn emit_focus_change(d: &mut OsrDoc, prev: Option<NodeId>) {
     if let Some(new) = cur {
         if d.doc.inner().get_node(new).is_some() {
             dispatch_dom_event(d, DomEvent::new(new, DomEventData::Focus(BlitzFocusEvent)));
-            dispatch_dom_event(d, DomEvent::new(new, DomEventData::FocusIn(BlitzFocusEvent)));
+            dispatch_dom_event(
+                d,
+                DomEvent::new(new, DomEventData::FocusIn(BlitzFocusEvent)),
+            );
         }
     }
 }
@@ -1051,10 +1075,7 @@ fn reconcile_click(
             // Suppressed-by-drag clicks on the right target get re-fired;
             // emitted ones stand.
             if !emitted {
-                dispatch_dom_event(
-                    d,
-                    DomEvent::new(up, DomEventData::Click(event.clone())),
-                );
+                dispatch_dom_event(d, DomEvent::new(up, DomEventData::Click(event.clone())));
             }
         } else {
             // Retarget: drop the emitted ancestor/release-node click, then
@@ -1186,7 +1207,9 @@ pub extern "C" fn dd_osr_hit_test(handle: *mut OsrDoc, x: f64, y: f64) -> c_int 
         let ly = (y / scale) as f32;
         let mut id = doc.element_from_point(lx, ly);
         while let Some(node_id) = id {
-            let Some(node) = doc.get_node(node_id) else { break };
+            let Some(node) = doc.get_node(node_id) else {
+                break;
+            };
             if node.attr(blitz_dom::LocalName::from("data-ui")).is_some() {
                 return 1;
             }

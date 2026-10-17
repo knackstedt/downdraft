@@ -31,9 +31,12 @@ pub mod console {
     }
 }
 
-pub use bridge::{BRIDGE, GameBridge, dispatch_action, hit_test as doc_hit_test, push_input, push_snapshot, set_action_cb};
+pub use bridge::{
+    dispatch_action, hit_test as doc_hit_test, push_input, push_snapshot, set_action_cb,
+    GameBridge, BRIDGE,
+};
 pub use input::PendingInput;
-pub use shell::{ShellConfig, frame, init, resize, shutdown, tick};
+pub use shell::{frame, init, resize, shutdown, tick, ShellConfig};
 
 /// Is (x, y) — physical px — over an interactive UI element? Used by the
 /// engine router so clicks on transparent areas fall through to the game.
@@ -54,12 +57,7 @@ pub fn hit_test(x: f64, y: f64) -> bool {
 
 /// Debug: dump the DOM tree (interactive nodes marked with `*`).
 pub fn dump_dom() -> String {
-    fn walk(
-        doc: &blitz_dom::BaseDocument,
-        id: blitz_dom::NodeId,
-        depth: usize,
-        out: &mut String,
-    ) {
+    fn walk(doc: &blitz_dom::BaseDocument, id: blitz_dom::NodeId, depth: usize, out: &mut String) {
         let Some(node) = doc.get_node(id) else { return };
         let marker = if node.attr(blitz_dom::LocalName::from("data-ui")).is_some() {
             "*"

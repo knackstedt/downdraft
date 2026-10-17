@@ -1,6 +1,6 @@
-use std::collections::HashMap;
-use kira::{AudioManager, AudioManagerSettings, DefaultBackend, Decibels};
 use kira::sound::static_sound::{StaticSoundData, StaticSoundHandle};
+use kira::{AudioManager, AudioManagerSettings, Decibels, DefaultBackend};
+use std::collections::HashMap;
 
 /// The FFI volume contract is a linear amplitude multiplier (1.0 = unity).
 /// kira 0.10+ measures volume in decibels — convert here so callers keep

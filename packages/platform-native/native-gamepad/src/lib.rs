@@ -170,7 +170,10 @@ fn classify_conn(uuid: &[u8; 16], vendor: Option<u16>, product: Option<u16>) -> 
     // Wireless dongles that enumerate over USB (ported from ember evdev.ts).
     if v == 0x045e {
         // Xbox One/Series + 360 wireless receivers.
-        if matches!(p, 0x02fe | 0x02fd | 0x0916 | 0x0b4f | 0x0816 | 0x0719 | 0x0291) {
+        if matches!(
+            p,
+            0x02fe | 0x02fd | 0x0916 | 0x0b4f | 0x0816 | 0x0719 | 0x0291
+        ) {
             return conn_type::DONGLE;
         }
     }
@@ -246,8 +249,15 @@ fn trigger(v: f32) -> f32 {
 // ── Worker thread ───────────────────────────────────────────────────────────
 
 enum Cmd {
-    Rumble { slot: u32, weak: u16, strong: u16, ms: u32 },
-    SetDeadzone { radius: f32 },
+    Rumble {
+        slot: u32,
+        weak: u16,
+        strong: u16,
+        ms: u32,
+    },
+    SetDeadzone {
+        radius: f32,
+    },
     Rescan,
     Shutdown,
 }
@@ -265,7 +275,6 @@ static BACKEND: Mutex<Option<Backend>> = Mutex::new(None);
 static SAB_PTR: AtomicUsize = AtomicUsize::new(0);
 static SAB_LEN: AtomicUsize = AtomicUsize::new(0);
 
-
 struct Sab {
     base: *mut u8,
     #[allow(dead_code)] // kept for future bounds-checked variants
@@ -279,7 +288,10 @@ impl Sab {
         if p == 0 {
             return None;
         }
-        Some(Sab { base: p as *mut u8, len: SAB_LEN.load(Ordering::Acquire) })
+        Some(Sab {
+            base: p as *mut u8,
+            len: SAB_LEN.load(Ordering::Acquire),
+        })
     }
 
     fn slot(&self, i: usize) -> *mut u8 {
@@ -306,7 +318,11 @@ impl Sab {
     }
 }
 
-fn worker_main(cmd_rx: std::sync::mpsc::Receiver<Cmd>, slots_mirror: &'static Mutex<HashMap<u32, gilrs::GamepadId>>, stop: Arc_<AtomicBool>) {
+fn worker_main(
+    cmd_rx: std::sync::mpsc::Receiver<Cmd>,
+    slots_mirror: &'static Mutex<HashMap<u32, gilrs::GamepadId>>,
+    stop: Arc_<AtomicBool>,
+) {
     let mut supported = true;
     let mut gilrs = match Gilrs::new() {
         Ok(g) => g,
@@ -347,7 +363,12 @@ fn worker_main(cmd_rx: std::sync::mpsc::Receiver<Cmd>, slots_mirror: &'static Mu
         // Drain commands first so rumble/remap respond immediately.
         while let Ok(cmd) = cmd_rx.try_recv() {
             match cmd {
-                Cmd::Rumble { slot, weak, strong, ms } => {
+                Cmd::Rumble {
+                    slot,
+                    weak,
+                    strong,
+                    ms,
+                } => {
                     if let Some(&id) = slots_mirror.lock().unwrap().get(&slot) {
                         let _ = EffectBuilder::new()
                             .add_effect(BaseEffect {
@@ -398,47 +419,47 @@ fn worker_main(cmd_rx: std::sync::mpsc::Receiver<Cmd>, slots_mirror: &'static Mu
         if !supported {
             std::thread::sleep(Duration::from_millis(200));
         } else {
-        match gilrs.next_event_blocking(Some(Duration::from_millis(4))) {
-            Some(ev) => {
-                gilrs.update(&ev); // keep cached state current
-                match ev.event {
-                    EventType::Connected => {
-                        if !slot_of.contains_key(&ev.id) {
-                            if let Some(s) = free_slots.pop() {
-                                slot_of.insert(ev.id, s);
-                                slots_mirror.lock().unwrap().insert(s, ev.id);
-                            }
-                        }
-                    }
-                    EventType::Disconnected => {
-                        if let Some(s) = slot_of.remove(&ev.id) {
-                            slots_mirror.lock().unwrap().remove(&s);
-                            free_slots.push(s);
-                            battery_cache[s as usize] = 255;
-                            charging_cache[s as usize] = false;
-                            if let Some(sab) = Sab::get() {
-                                let sp = sab.slot(s as usize);
-                                sab.slot_u32(sp, SLOT_META0, 0);
-                                // Zero mutable fields so stale state doesn't linger.
-                                for i in 0..8 {
-                                    sab.slot_f32(sp, SLOT_AXES + i * 4, 0.0);
+            match gilrs.next_event_blocking(Some(Duration::from_millis(4))) {
+                Some(ev) => {
+                    gilrs.update(&ev); // keep cached state current
+                    match ev.event {
+                        EventType::Connected => {
+                            if !slot_of.contains_key(&ev.id) {
+                                if let Some(s) = free_slots.pop() {
+                                    slot_of.insert(ev.id, s);
+                                    slots_mirror.lock().unwrap().insert(s, ev.id);
                                 }
-                                sab.slot_u32(sp, SLOT_BUTTONS_LO, 0);
-                                sab.slot_u32(sp, SLOT_BUTTONS_HI, 0);
-                                seqs[s as usize] = seqs[s as usize].wrapping_add(1);
-                                sab.slot_u32(sp, SLOT_SLOT_SEQ, seqs[s as usize]);
                             }
                         }
+                        EventType::Disconnected => {
+                            if let Some(s) = slot_of.remove(&ev.id) {
+                                slots_mirror.lock().unwrap().remove(&s);
+                                free_slots.push(s);
+                                battery_cache[s as usize] = 255;
+                                charging_cache[s as usize] = false;
+                                if let Some(sab) = Sab::get() {
+                                    let sp = sab.slot(s as usize);
+                                    sab.slot_u32(sp, SLOT_META0, 0);
+                                    // Zero mutable fields so stale state doesn't linger.
+                                    for i in 0..8 {
+                                        sab.slot_f32(sp, SLOT_AXES + i * 4, 0.0);
+                                    }
+                                    sab.slot_u32(sp, SLOT_BUTTONS_LO, 0);
+                                    sab.slot_u32(sp, SLOT_BUTTONS_HI, 0);
+                                    seqs[s as usize] = seqs[s as usize].wrapping_add(1);
+                                    sab.slot_u32(sp, SLOT_SLOT_SEQ, seqs[s as usize]);
+                                }
+                            }
+                        }
+                        _ => {}
                     }
-                    _ => {}
+                    // Drain any coalesced events in the same wake.
+                    while let Some(ev) = gilrs.next_event() {
+                        gilrs.update(&ev);
+                    }
                 }
-                // Drain any coalesced events in the same wake.
-                while let Some(ev) = gilrs.next_event() {
-                    gilrs.update(&ev);
-                }
+                None => {}
             }
-            None => {}
-        }
         }
 
         let Some(sab) = Sab::get() else { continue };
@@ -450,7 +471,9 @@ fn worker_main(cmd_rx: std::sync::mpsc::Receiver<Cmd>, slots_mirror: &'static Mu
 
         let mut connected_mask = 0u32;
         for (id, gp) in gilrs.gamepads() {
-            let Some(&slot) = slot_of.get(&id) else { continue };
+            let Some(&slot) = slot_of.get(&id) else {
+                continue;
+            };
             let s = sab.slot(slot as usize);
             connected_mask |= 1 << slot;
 
@@ -462,13 +485,25 @@ fn worker_main(cmd_rx: std::sync::mpsc::Receiver<Cmd>, slots_mirror: &'static Mu
             // Buttons → standard bitmask.
             let mut lo = 0u32;
             for b in [
-                Button::South, Button::East, Button::West, Button::North,
-                Button::LeftTrigger, Button::RightTrigger,
-                Button::LeftTrigger2, Button::RightTrigger2,
-                Button::Select, Button::Start, Button::Mode,
-                Button::LeftThumb, Button::RightThumb,
-                Button::DPadUp, Button::DPadDown, Button::DPadLeft, Button::DPadRight,
-                Button::C, Button::Z,
+                Button::South,
+                Button::East,
+                Button::West,
+                Button::North,
+                Button::LeftTrigger,
+                Button::RightTrigger,
+                Button::LeftTrigger2,
+                Button::RightTrigger2,
+                Button::Select,
+                Button::Start,
+                Button::Mode,
+                Button::LeftThumb,
+                Button::RightThumb,
+                Button::DPadUp,
+                Button::DPadDown,
+                Button::DPadLeft,
+                Button::DPadRight,
+                Button::C,
+                Button::Z,
             ] {
                 if gp.is_pressed(b) {
                     if let Some(bit) = map_button(b) {
@@ -487,7 +522,10 @@ fn worker_main(cmd_rx: std::sync::mpsc::Receiver<Cmd>, slots_mirror: &'static Mu
             axes[5] = trigger(axes[5]);
             let (lx, ly) = deadzone_pair(axes[0], axes[1], deadzone_radius);
             let (rx, ry) = deadzone_pair(axes[2], axes[3], deadzone_radius);
-            axes[0] = lx; axes[1] = ly; axes[2] = rx; axes[3] = ry;
+            axes[0] = lx;
+            axes[1] = ly;
+            axes[2] = rx;
+            axes[3] = ry;
             if axes[6] == 0.0 && axes[7] == 0.0 {
                 axes[6] = ((lo >> 16 & 1) as i32 - (lo >> 15 & 1) as i32) as f32;
                 axes[7] = ((lo >> 14 & 1) as i32 - (lo >> 13 & 1) as i32) as f32;
@@ -634,7 +672,12 @@ pub extern "C" fn dd_pad_rumble(slot: u32, weak: u16, strong: u16, ms: u32) -> c
         Err(_) => return 1,
     };
     match guard.as_ref() {
-        Some(b) => match b.cmd_tx.send(Cmd::Rumble { slot, weak, strong, ms }) {
+        Some(b) => match b.cmd_tx.send(Cmd::Rumble {
+            slot,
+            weak,
+            strong,
+            ms,
+        }) {
             Ok(()) => 0,
             Err(_) => 2,
         },

@@ -157,8 +157,8 @@ impl FrameBuf {
             return;
         };
         let dst_stride = self.w as usize * 4;
-        let need = src_stride.saturating_mul((rect.h as usize).saturating_sub(1))
-            + rect.w as usize * 4;
+        let need =
+            src_stride.saturating_mul((rect.h as usize).saturating_sub(1)) + rect.w as usize * 4;
         if src.len() < need {
             return;
         }
@@ -342,7 +342,8 @@ impl EventQueue {
         if self.events.is_empty() {
             return None;
         }
-        let mut s = String::with_capacity(2 + self.events.iter().map(|e| e.len() + 1).sum::<usize>());
+        let mut s =
+            String::with_capacity(2 + self.events.iter().map(|e| e.len() + 1).sum::<usize>());
         s.push('[');
         for (i, e) in self.events.drain(..).enumerate() {
             if i > 0 {
@@ -391,7 +392,10 @@ pub fn ev_eval(id: u64, ok: bool, v: &str) -> String {
 
 /// Convenience: `{"t":"console","lvl":N,"v":"..."}`.
 pub fn ev_console(level: i32, v: &str) -> String {
-    format!("{{\"t\":\"console\",\"lvl\":{level},\"v\":\"{}\"}}", json_escape(v))
+    format!(
+        "{{\"t\":\"console\",\"lvl\":{level},\"v\":\"{}\"}}",
+        json_escape(v)
+    )
 }
 
 /// Convenience: `{"t":"cursor","v":"..."}` (CSS cursor name).
@@ -452,13 +456,12 @@ impl ViewCore {
     /// reached → FAILED; otherwise RECOVERING (backends then respawn).
     pub fn record_crash(&mut self) -> i32 {
         self.crash_count += 1;
-        self.status = if self.max_crash_retries >= 0
-            && self.crash_count > self.max_crash_retries as usize
-        {
-            STATUS_FAILED
-        } else {
-            STATUS_RECOVERING
-        };
+        self.status =
+            if self.max_crash_retries >= 0 && self.crash_count > self.max_crash_retries as usize {
+                STATUS_FAILED
+            } else {
+                STATUS_RECOVERING
+            };
         self.events.push(ev_status(match self.status {
             STATUS_FAILED => "failed",
             _ => "recovering",

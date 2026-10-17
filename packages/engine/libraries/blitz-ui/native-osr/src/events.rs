@@ -104,7 +104,9 @@ fn collect_target_data(doc: &dyn Document, target: NodeId) -> (String, Vec<(Stri
     let inner = doc.inner();
     let mut cur = Some(target);
     while let Some(node_id) = cur {
-        let Some(node) = inner.get_node(node_id) else { break };
+        let Some(node) = inner.get_node(node_id) else {
+            break;
+        };
         if let Some(attrs) = node.attrs() {
             for a in attrs {
                 let local: &str = &a.name.local;
@@ -140,7 +142,8 @@ impl EventHandler for QueueingHandler {
         }
         // pointermove is drag-only: bare hover moves stay inside the doc.
         if name == "pointermove" {
-            let dragging = matches!(&event.data, DomEventData::PointerMove(p) if !p.buttons.is_empty());
+            let dragging =
+                matches!(&event.data, DomEventData::PointerMove(p) if !p.buttons.is_empty());
             if !dragging {
                 return;
             }

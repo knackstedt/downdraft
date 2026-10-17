@@ -180,11 +180,7 @@ impl winit::application::ApplicationHandler for AndroidPump {
 /// RESUMED on the wire tells JS the surface is ready.
 /// Returns 0 = accepted, 2 = already live.
 #[no_mangle]
-pub extern "C" fn dd_window_create(
-    title: *const c_char,
-    width: c_int,
-    height: c_int,
-) -> c_int {
+pub extern "C" fn dd_window_create(title: *const c_char, width: c_int, height: c_int) -> c_int {
     if CTX
         .lock()
         .unwrap()

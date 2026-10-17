@@ -162,11 +162,15 @@ fn js_thread(app: AndroidApp) {
     // entries there win over the bundle copy.
     for env_file in [
         root.join("dd-env.txt"),
-        app.external_data_path().map(|p| p.join("dd-env.txt")).unwrap_or_default(),
+        app.external_data_path()
+            .map(|p| p.join("dd-env.txt"))
+            .unwrap_or_default(),
     ] {
         if let Ok(body) = std::fs::read_to_string(&env_file) {
             for line in body.lines() {
-                let Some((k, v)) = line.split_once('=') else { continue };
+                let Some((k, v)) = line.split_once('=') else {
+                    continue;
+                };
                 if let (Ok(k), Ok(v)) = (CString::new(k), CString::new(v)) {
                     unsafe { libc::setenv(k.as_ptr(), v.as_ptr(), 1) };
                 }
@@ -242,7 +246,11 @@ fn load_node(app: &AndroidApp) -> Option<NodeStart> {
         }
         if h.is_null() {
             let e = libc::dlerror();
-            let msg = if e.is_null() { "unknown".into() } else { CStr::from_ptr(e).to_string_lossy().into_owned() };
+            let msg = if e.is_null() {
+                "unknown".into()
+            } else {
+                CStr::from_ptr(e).to_string_lossy().into_owned()
+            };
             log(LOG_ERROR, &format!("dlopen libnode.so: {msg}"));
             return None;
         }
@@ -254,7 +262,13 @@ fn load_node(app: &AndroidApp) -> Option<NodeStart> {
         // Probe: RTLD_DEFAULT searches the global group — the same scope
         // .node addons resolve their undefined napi_* symbols against.
         let probe = libc::dlsym(libc::RTLD_DEFAULT, c"napi_delete_reference".as_ptr());
-        log(LOG_INFO, &format!("napi probe via RTLD_DEFAULT: {}", if probe.is_null() { "MISSING" } else { "ok" }));
+        log(
+            LOG_INFO,
+            &format!(
+                "napi probe via RTLD_DEFAULT: {}",
+                if probe.is_null() { "MISSING" } else { "ok" }
+            ),
+        );
         Some(std::mem::transmute::<*mut c_void, NodeStart>(sym))
     }
 }

@@ -66,7 +66,9 @@ fn main() {
         )),
         _ => None,
     };
-    let Some((plat, librel, libs)) = spec else { return };
+    let Some((plat, librel, libs)) = spec else {
+        return;
+    };
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../vendor")
         .join(plat);

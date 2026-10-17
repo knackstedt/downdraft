@@ -34,8 +34,19 @@ static SNAP: GlobalSignal<UiSnap> = Signal::global(UiSnap::default);
 
 const TABS: [&str; 5] = ["imui", "PixiJS", "Dioxus", "HTML/CSS", "Canvas2D"];
 const LIST_ITEMS: [&str; 14] = [
-    "Iron Ore", "Copper Ore", "Coal", "Stone", "Wood Plank", "Rope", "Torch",
-    "Fuse", "C4 Charge", "Gold Ore", "Silver Ore", "Mushroom", "Star Shard",
+    "Iron Ore",
+    "Copper Ore",
+    "Coal",
+    "Stone",
+    "Wood Plank",
+    "Rope",
+    "Torch",
+    "Fuse",
+    "C4 Charge",
+    "Gold Ore",
+    "Silver Ore",
+    "Mushroom",
+    "Star Shard",
     "Void Essence",
 ];
 
@@ -74,7 +85,10 @@ fn app() -> Element {
         }
     };
 
-    let action_btn = |label: &'static str, style: &'static str, act: &'static str, enabled: bool| {
+    let action_btn = |label: &'static str,
+                      style: &'static str,
+                      act: &'static str,
+                      enabled: bool| {
         rsx! {
             button {
                 "data-ui": "",
@@ -315,7 +329,13 @@ pub fn ui_dump() -> String {
 
 #[wasm_bindgen]
 pub fn ui_pointer(kind: u8, x: f64, y: f64, button: u8, mods: u8) {
-    push_input(PendingInput::Pointer { kind, x, y, button, mods });
+    push_input(PendingInput::Pointer {
+        kind,
+        x,
+        y,
+        button,
+        mods,
+    });
 }
 
 #[wasm_bindgen]

@@ -6,11 +6,11 @@
 use std::os::raw::c_int;
 
 use blitz_dom::{
-    Document, DocumentMutator, LocalName, NodeId, QualName, ScrollBehavior, ScrollLogicalPosition,
-    ns,
+    ns, Document, DocumentMutator, LocalName, NodeId, QualName, ScrollBehavior,
+    ScrollLogicalPosition,
 };
 
-use crate::{OsrDoc, doc_enter, emit_focus_change, ffi, read_str};
+use crate::{doc_enter, emit_focus_change, ffi, read_str, OsrDoc};
 
 fn attr_qname(name: &str) -> QualName {
     QualName::new(None, ns!(), LocalName::from(name))
@@ -203,11 +203,7 @@ pub extern "C" fn dd_osr_append_html(
 /// Drop all but the last `keep` children of `node` — lets a streaming view
 /// bound the DOM size without an innerHTML rebuild.
 #[no_mangle]
-pub extern "C" fn dd_osr_trim_children(
-    handle: *mut OsrDoc,
-    node: u64,
-    keep: u64,
-) -> c_int {
+pub extern "C" fn dd_osr_trim_children(handle: *mut OsrDoc, node: u64, keep: u64) -> c_int {
     with_node_mutator(handle, node, |m, id| {
         let kids: Vec<NodeId> = {
             let Some(n) = m.doc.get_node(id) else {
@@ -285,7 +281,12 @@ pub extern "C" fn dd_osr_node_rect(handle: *mut OsrDoc, node: u64) -> *const f64
             };
             let pos = node_ref.unrounded_absolute_position(0.0, 0.0);
             let size = node_ref.final_layout().size;
-            [pos.x as f64, pos.y as f64, size.width as f64, size.height as f64]
+            [
+                pos.x as f64,
+                pos.y as f64,
+                size.width as f64,
+                size.height as f64,
+            ]
         };
         d.rect_buf = rect;
         d.rect_buf.as_ptr()
@@ -401,7 +402,11 @@ pub extern "C" fn dd_osr_scroll_to(
             id,
             x,
             y,
-            if behavior == 1 { ScrollBehavior::Smooth } else { ScrollBehavior::Instant },
+            if behavior == 1 {
+                ScrollBehavior::Smooth
+            } else {
+                ScrollBehavior::Instant
+            },
         );
         d.dirty = true;
         0
@@ -441,7 +446,11 @@ pub extern "C" fn dd_osr_scroll_into_view(
         }
         d.doc.inner_mut().scroll_into_view(
             id,
-            if behavior == 1 { ScrollBehavior::Smooth } else { ScrollBehavior::Instant },
+            if behavior == 1 {
+                ScrollBehavior::Smooth
+            } else {
+                ScrollBehavior::Instant
+            },
             align(v_align),
             align(h_align),
         );

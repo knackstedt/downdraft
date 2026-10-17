@@ -62,7 +62,9 @@ pub fn hit_test(doc: &BaseDocument, x: f64, y: f64) -> bool {
     let ly = (y / scale) as f32;
     let mut id = doc.element_from_point(lx, ly);
     while let Some(node_id) = id {
-        let Some(node) = doc.get_node(node_id) else { break };
+        let Some(node) = doc.get_node(node_id) else {
+            break;
+        };
         if node.attr(blitz_dom::LocalName::from("data-ui")).is_some() {
             return true;
         }

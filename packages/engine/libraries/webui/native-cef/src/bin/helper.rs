@@ -24,12 +24,11 @@ use cef::rc::Rc as _;
 use cef::{
     api_hash, execute_process, process_message_create, sys, v8_context_get_current_context,
     v8_value_create_function, v8_value_create_string, wrap_app, wrap_render_process_handler,
-    wrap_v8_handler, App, Browser, CefString, CefStringUserfree, CommandLine, Frame,
-    ImplApp, ImplCommandLine, ImplFrame, ImplListValue, ImplProcessMessage,
-    ImplRenderProcessHandler, ImplV8Context, ImplV8Exception, ImplV8Handler,
-    ImplV8Value, ProcessId,
-    ProcessMessage, RenderProcessHandler, V8Context, V8Handler, V8Value,
-    V8Propertyattribute, WrapApp, WrapRenderProcessHandler, WrapV8Handler,
+    wrap_v8_handler, App, Browser, CefString, CefStringUserfree, CommandLine, Frame, ImplApp,
+    ImplCommandLine, ImplFrame, ImplListValue, ImplProcessMessage, ImplRenderProcessHandler,
+    ImplV8Context, ImplV8Exception, ImplV8Handler, ImplV8Value, ProcessId, ProcessMessage,
+    RenderProcessHandler, V8Context, V8Handler, V8Propertyattribute, V8Value, WrapApp,
+    WrapRenderProcessHandler, WrapV8Handler,
 };
 use std::ptr;
 
@@ -262,11 +261,7 @@ fn main() -> std::process::ExitCode {
     let _ = api_hash(sys::CEF_API_VERSION_LAST, 0);
     let args = Args::new();
     let mut app = HelperApp::new();
-    let ret = execute_process(
-        Some(args.as_main_args()),
-        Some(&mut app),
-        ptr::null_mut(),
-    );
+    let ret = execute_process(Some(args.as_main_args()), Some(&mut app), ptr::null_mut());
     // execute_process returns the subprocess exit code (≥0), or −1 when
     // invoked without a --type switch (i.e. run standalone — misuse).
     std::process::ExitCode::from(if ret >= 0 { ret as u8 } else { 1 })

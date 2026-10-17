@@ -26,8 +26,8 @@ use dioxus_core::{Element, VirtualDom};
 use dioxus_native::DioxusDocument;
 use web_time::Instant;
 
-use crate::bridge::{BRIDGE, GameBridge};
-use crate::input::{PendingInput, mods_from_bits};
+use crate::bridge::{GameBridge, BRIDGE};
+use crate::input::{mods_from_bits, PendingInput};
 
 /// Game-provided hooks. `apply_snapshot` runs inside `tick` whenever the
 /// host pushed raw snapshot JSON — the game deserializes into its own
@@ -111,7 +111,13 @@ impl HeadlessShell {
 
     fn dispatch(&mut self, input: &PendingInput) {
         match input {
-            PendingInput::Pointer { kind, x, y, button, mods } => {
+            PendingInput::Pointer {
+                kind,
+                x,
+                y,
+                button,
+                mods,
+            } => {
                 self.pointer_pos = (*x, *y);
                 let btn = match button {
                     1 => MouseEventButton::Auxiliary,
@@ -186,7 +192,9 @@ impl HeadlessShell {
                 // a parked mouse leaves the target stale and the wheel
                 // strands on the root viewport. Re-hit-test at the event's
                 // own coords first, matching browsers.
-                self.doc.inner_mut().set_hover_to(coords.page_x, coords.page_y);
+                self.doc
+                    .inner_mut()
+                    .set_hover_to(coords.page_x, coords.page_y);
                 let event = BlitzWheelEvent {
                     delta: BlitzWheelDelta::Pixels(*dx, *dy),
                     coords,
@@ -197,7 +205,13 @@ impl HeadlessShell {
                 self.doc.handle_ui_event(UiEvent::Wheel(event));
                 self.dirty = true;
             }
-            PendingInput::Key { pressed, key, code, mods, text } => {
+            PendingInput::Key {
+                pressed,
+                key,
+                code,
+                mods,
+                text,
+            } => {
                 let kev = PendingInput::key_event(*pressed, key, code, *mods, text.clone());
                 self.doc.handle_ui_event(if *pressed {
                     UiEvent::KeyDown(kev)

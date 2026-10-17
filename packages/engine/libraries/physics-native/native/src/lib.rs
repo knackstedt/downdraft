@@ -145,11 +145,7 @@ pub unsafe extern "C" fn dd_get_translation(
 /// # Safety
 /// `out` must point to ≥4 f32s.
 #[no_mangle]
-pub unsafe extern "C" fn dd_get_rotation(
-    realm_id: c_int,
-    body_id: c_int,
-    out: *mut f32,
-) -> c_int {
+pub unsafe extern "C" fn dd_get_rotation(realm_id: c_int, body_id: c_int, out: *mut f32) -> c_int {
     ffi(-1, || {
         with_manager(|m| match m.get_realm(realm_id) {
             Some(realm) => body::get_rotation(realm, body_id, out),
@@ -195,11 +191,7 @@ pub extern "C" fn dd_set_angvel(
 /// # Safety
 /// `out` must point to ≥3 f32s.
 #[no_mangle]
-pub unsafe extern "C" fn dd_get_linvel(
-    realm_id: c_int,
-    body_id: c_int,
-    out: *mut f32,
-) -> c_int {
+pub unsafe extern "C" fn dd_get_linvel(realm_id: c_int, body_id: c_int, out: *mut f32) -> c_int {
     ffi(-1, || {
         with_manager(|m| match m.get_realm(realm_id) {
             Some(realm) => body::get_linvel(realm, body_id, out),
@@ -211,11 +203,7 @@ pub unsafe extern "C" fn dd_get_linvel(
 /// # Safety
 /// `out` must point to ≥3 f32s.
 #[no_mangle]
-pub unsafe extern "C" fn dd_get_angvel(
-    realm_id: c_int,
-    body_id: c_int,
-    out: *mut f32,
-) -> c_int {
+pub unsafe extern "C" fn dd_get_angvel(realm_id: c_int, body_id: c_int, out: *mut f32) -> c_int {
     ffi(-1, || {
         with_manager(|m| match m.get_realm(realm_id) {
             Some(realm) => body::get_angvel(realm, body_id, out),
@@ -283,7 +271,13 @@ pub extern "C" fn dd_apply_force(realm_id: c_int, body_id: c_int, x: f32, y: f32
 }
 
 #[no_mangle]
-pub extern "C" fn dd_apply_torque(realm_id: c_int, body_id: c_int, x: f32, y: f32, z: f32) -> c_int {
+pub extern "C" fn dd_apply_torque(
+    realm_id: c_int,
+    body_id: c_int,
+    x: f32,
+    y: f32,
+    z: f32,
+) -> c_int {
     ffi(-1, || {
         with_manager(|m| match m.get_realm(realm_id) {
             Some(realm) => body::apply_torque(realm, body_id, [x, y, z]),
@@ -293,7 +287,13 @@ pub extern "C" fn dd_apply_torque(realm_id: c_int, body_id: c_int, x: f32, y: f3
 }
 
 #[no_mangle]
-pub extern "C" fn dd_apply_impulse(realm_id: c_int, body_id: c_int, x: f32, y: f32, z: f32) -> c_int {
+pub extern "C" fn dd_apply_impulse(
+    realm_id: c_int,
+    body_id: c_int,
+    x: f32,
+    y: f32,
+    z: f32,
+) -> c_int {
     ffi(-1, || {
         with_manager(|m| match m.get_realm(realm_id) {
             Some(realm) => body::apply_impulse(realm, body_id, [x, y, z]),
@@ -394,7 +394,9 @@ pub unsafe extern "C" fn dd_add_collider(
 ) -> c_int {
     ffi(-1, || {
         with_manager(|m| match m.get_realm(realm_id) {
-            Some(realm) => collider::add_collider(realm, body_id, collider_id, meta, f, verts, indices),
+            Some(realm) => {
+                collider::add_collider(realm, body_id, collider_id, meta, f, verts, indices)
+            }
             None => -1,
         })
     })
@@ -423,7 +425,14 @@ pub unsafe extern "C" fn dd_swap_collider_shape(
 ) -> c_int {
     ffi(-1, || {
         with_manager(|m| match m.get_realm(realm_id) {
-            Some(realm) => collider::swap_collider_shape(realm, collider_id, verts, n_verts, indices, n_indices),
+            Some(realm) => collider::swap_collider_shape(
+                realm,
+                collider_id,
+                verts,
+                n_verts,
+                indices,
+                n_indices,
+            ),
             None => -1,
         })
     })
@@ -595,7 +604,15 @@ pub unsafe extern "C" fn dd_raycast(
 ) -> c_int {
     ffi(-1, || {
         with_manager(|m| match m.get_realm(realm_id) {
-            Some(realm) => query::raycast(realm, [ox, oy, oz], [dx, dy, dz], max_dist, groups, exclude_body, out),
+            Some(realm) => query::raycast(
+                realm,
+                [ox, oy, oz],
+                [dx, dy, dz],
+                max_dist,
+                groups,
+                exclude_body,
+                out,
+            ),
             None => -1,
         })
     })
@@ -615,7 +632,15 @@ pub unsafe extern "C" fn dd_shape_cast(
 ) -> c_int {
     ffi(-1, || {
         with_manager(|m| match m.get_realm(realm_id) {
-            Some(realm) => query::shape_cast(realm, shape_type, shape_f, max_dist, groups, exclude_body, out),
+            Some(realm) => query::shape_cast(
+                realm,
+                shape_type,
+                shape_f,
+                max_dist,
+                groups,
+                exclude_body,
+                out,
+            ),
             None => -1,
         })
     })
@@ -721,7 +746,9 @@ pub unsafe extern "C" fn dd_char_move(
 ) -> c_int {
     ffi(-1, || {
         with_manager(|m| match m.get_realm(realm_id) {
-            Some(realm) => character::char_move(realm, ctrl_id, dx, dy, dz, dt, out_f, out_i, max_coll),
+            Some(realm) => {
+                character::char_move(realm, ctrl_id, dx, dy, dz, dt, out_f, out_i, max_coll)
+            }
             None => -1,
         })
     })
@@ -742,7 +769,9 @@ pub unsafe extern "C" fn dd_create_joint(
 ) -> c_int {
     ffi(-1, || {
         with_manager(|m| match m.get_realm(realm_id) {
-            Some(realm) => joint::create_joint(realm, joint_id, parent_body_id, child_body_id, jtype, f),
+            Some(realm) => {
+                joint::create_joint(realm, joint_id, parent_body_id, child_body_id, jtype, f)
+            }
             None => -1,
         })
     })
@@ -777,7 +806,9 @@ mod tests {
     #[test]
     fn gravity_integrates() {
         let mut w = world::PhysicsWorld::new([0.0, -9.81, 0.0]);
-        let f = [0f32, 10.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0];
+        let f = [
+            0f32, 10.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0,
+        ];
         let i = [2i32, (1 << 1) | (1 << 9)];
         assert_eq!(body::create_body(&mut w, 7, &f, &i), 0);
         w.step(1.0 / 60.0);
@@ -818,12 +849,36 @@ mod raw_tests {
             .build();
         let h = bodies.insert(rb);
 
-        pipeline.step(gravity, &params, &mut islands, &mut broad, &mut narrow,
-            &mut bodies, &mut colliders, &mut joints, &mut mb, &mut soft, &mut ccd,
-            &(), &());
-        pipeline.step(gravity, &params, &mut islands, &mut broad, &mut narrow,
-            &mut bodies, &mut colliders, &mut joints, &mut mb, &mut soft, &mut ccd,
-            &(), &());
+        pipeline.step(
+            gravity,
+            &params,
+            &mut islands,
+            &mut broad,
+            &mut narrow,
+            &mut bodies,
+            &mut colliders,
+            &mut joints,
+            &mut mb,
+            &mut soft,
+            &mut ccd,
+            &(),
+            &(),
+        );
+        pipeline.step(
+            gravity,
+            &params,
+            &mut islands,
+            &mut broad,
+            &mut narrow,
+            &mut bodies,
+            &mut colliders,
+            &mut joints,
+            &mut mb,
+            &mut soft,
+            &mut ccd,
+            &(),
+            &(),
+        );
         println!("linvel {:?}", bodies.get(h).unwrap().linvel());
         assert!(bodies.get(h).unwrap().linvel().y < -0.3);
     }

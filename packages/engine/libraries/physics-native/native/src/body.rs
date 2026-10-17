@@ -1,5 +1,5 @@
-use rapier3d::prelude::*;
 use crate::world::PhysicsWorld;
+use rapier3d::prelude::*;
 
 /// FFI quat (x,y,z,w) → rapier Rotation (glam Quat is also xyzw — the
 /// nalgebra UnitQuaternion was w-first). Normalized because rapier
@@ -25,16 +25,8 @@ fn quat(x: f32, y: f32, z: f32, w: f32) -> Rotation {
 pub const BODY_F32_LEN: usize = 17;
 pub const BODY_I32_LEN: usize = 2;
 
-pub fn create_body(
-    realm: &mut PhysicsWorld,
-    body_id: i32,
-    f: &[f32],
-    i: &[i32],
-) -> i32 {
-    let transform = Pose::from_parts(
-        Vector::new(f[0], f[1], f[2]),
-        quat(f[3], f[4], f[5], f[6]),
-    );
+pub fn create_body(realm: &mut PhysicsWorld, body_id: i32, f: &[f32], i: &[i32]) -> i32 {
+    let transform = Pose::from_parts(Vector::new(f[0], f[1], f[2]), quat(f[3], f[4], f[5], f[6]));
 
     let body_type = i[0];
     let flags = i[1];
@@ -99,9 +91,7 @@ pub fn destroy_body(realm: &mut PhysicsWorld, body_id: i32) -> i32 {
     if let Some(handle) = realm.body_map.remove(&body_id) {
         realm.body_id_by_handle.remove(&handle);
         // Drop controllers bound to this body so they can't dangle.
-        realm
-            .controller_map
-            .retain(|_, c| c.body != Some(handle));
+        realm.controller_map.retain(|_, c| c.body != Some(handle));
         realm.bodies.remove(
             handle,
             &mut realm.island_manager,
@@ -139,14 +129,29 @@ fn body_ref<'a>(realm: &'a PhysicsWorld, body_id: i32) -> Option<&'a RigidBody> 
     realm.bodies.get(handle)
 }
 
-pub fn set_translation(realm: &mut PhysicsWorld, body_id: i32, x: f32, y: f32, z: f32, wake: bool) -> i32 {
+pub fn set_translation(
+    realm: &mut PhysicsWorld,
+    body_id: i32,
+    x: f32,
+    y: f32,
+    z: f32,
+    wake: bool,
+) -> i32 {
     if let Some(b) = body(realm, body_id) {
         b.set_translation(Vector::new(x, y, z), wake);
     }
     0
 }
 
-pub fn set_rotation(realm: &mut PhysicsWorld, body_id: i32, x: f32, y: f32, z: f32, w: f32, wake: bool) -> i32 {
+pub fn set_rotation(
+    realm: &mut PhysicsWorld,
+    body_id: i32,
+    x: f32,
+    y: f32,
+    z: f32,
+    w: f32,
+    wake: bool,
+) -> i32 {
     if let Some(b) = body(realm, body_id) {
         b.set_rotation(quat(x, y, z, w), wake);
     }
@@ -195,14 +200,28 @@ pub unsafe fn get_rotation(realm: &PhysicsWorld, body_id: i32, out: *mut f32) ->
     0
 }
 
-pub fn set_linvel(realm: &mut PhysicsWorld, body_id: i32, x: f32, y: f32, z: f32, wake: bool) -> i32 {
+pub fn set_linvel(
+    realm: &mut PhysicsWorld,
+    body_id: i32,
+    x: f32,
+    y: f32,
+    z: f32,
+    wake: bool,
+) -> i32 {
     if let Some(b) = body(realm, body_id) {
         b.set_linvel(Vector::new(x, y, z), wake);
     }
     0
 }
 
-pub fn set_angvel(realm: &mut PhysicsWorld, body_id: i32, x: f32, y: f32, z: f32, wake: bool) -> i32 {
+pub fn set_angvel(
+    realm: &mut PhysicsWorld,
+    body_id: i32,
+    x: f32,
+    y: f32,
+    z: f32,
+    wake: bool,
+) -> i32 {
     if let Some(b) = body(realm, body_id) {
         b.set_angvel(Vector::new(x, y, z), wake);
     }
@@ -279,7 +298,9 @@ pub fn is_sleeping(realm: &PhysicsWorld, body_id: i32) -> i32 {
 
 pub fn wake_up(realm: &mut PhysicsWorld, body_id: i32) -> i32 {
     if let Some(&handle) = realm.body_map.get(&body_id) {
-        realm.island_manager.wake_up(&mut realm.bodies, handle, true);
+        realm
+            .island_manager
+            .wake_up(&mut realm.bodies, handle, true);
     }
     0
 }
@@ -372,7 +393,11 @@ pub unsafe fn apply_body_writes(
                 wake,
             );
             b.set_angvel(
-                Vector::new(state_slice[o + 10], state_slice[o + 11], state_slice[o + 12]),
+                Vector::new(
+                    state_slice[o + 10],
+                    state_slice[o + 11],
+                    state_slice[o + 12],
+                ),
                 wake,
             );
         }

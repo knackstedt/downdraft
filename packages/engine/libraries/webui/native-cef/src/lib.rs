@@ -38,35 +38,31 @@ pub mod bridge;
 use cef::args::Args;
 use cef::rc::Rc as _;
 use cef::{
-    api_hash, browser_host_create_browser, execute_process,
-    initialize, process_message_create, shutdown, sys, wrap_app, wrap_client,
-    wrap_context_menu_handler, wrap_dialog_handler, wrap_display_handler,
-    wrap_jsdialog_handler, wrap_life_span_handler, wrap_load_handler,
-    wrap_permission_handler, wrap_render_handler, wrap_request_handler,
-    App, Browser, BrowserSettings, CefString, CefStringList, CefStringUserfree,
-    Client, CommandLine, ContextMenuHandler, ContextMenuParams, CursorInfo, CursorType,
-    DialogHandler, DisplayHandler, FileDialogCallback, FileDialogMode, ImplApp,
-    ImplBrowser, ImplBrowserHost, ImplClient, ImplCommandLine, ImplContextMenuHandler,
-    ImplDialogHandler, ImplDisplayHandler, ImplFileDialogCallback, ImplFrame,
-    ImplJsdialogHandler, ImplLifeSpanHandler, ImplListValue, ImplLoadHandler,
-    ImplMediaAccessCallback, ImplMenuModel, ImplPermissionHandler,
-    ImplPermissionPromptCallback, ImplProcessMessage, ImplRenderHandler,
-    ImplRequestHandler, JsdialogCallback,
-    JsdialogHandler, JsdialogType, KeyEvent, KeyEventType, LifeSpanHandler,
-    LoadHandler, LogSeverity, MediaAccessCallback, MenuModel, MouseButtonType,
-    MouseEvent, PaintElementType, PermissionHandler, PermissionPromptCallback,
-    PermissionRequestResult, PointerType, ProcessId, ProcessMessage, Rect as CefRect,
-    RenderHandler, RequestHandler, ScreenInfo, Settings, TerminationStatus,
-    TouchEvent, TouchEventType, WindowInfo, WrapApp, WrapClient,
-    WrapContextMenuHandler, WrapDialogHandler, WrapDisplayHandler,
-    WrapJsdialogHandler, WrapLifeSpanHandler, WrapLoadHandler,
-    WrapPermissionHandler, WrapRenderHandler, WrapRequestHandler,
+    api_hash, browser_host_create_browser, execute_process, initialize, process_message_create,
+    shutdown, sys, wrap_app, wrap_client, wrap_context_menu_handler, wrap_dialog_handler,
+    wrap_display_handler, wrap_jsdialog_handler, wrap_life_span_handler, wrap_load_handler,
+    wrap_permission_handler, wrap_render_handler, wrap_request_handler, App, Browser,
+    BrowserSettings, CefString, CefStringList, CefStringUserfree, Client, CommandLine,
+    ContextMenuHandler, ContextMenuParams, CursorInfo, CursorType, DialogHandler, DisplayHandler,
+    FileDialogCallback, FileDialogMode, ImplApp, ImplBrowser, ImplBrowserHost, ImplClient,
+    ImplCommandLine, ImplContextMenuHandler, ImplDialogHandler, ImplDisplayHandler,
+    ImplFileDialogCallback, ImplFrame, ImplJsdialogHandler, ImplLifeSpanHandler, ImplListValue,
+    ImplLoadHandler, ImplMediaAccessCallback, ImplMenuModel, ImplPermissionHandler,
+    ImplPermissionPromptCallback, ImplProcessMessage, ImplRenderHandler, ImplRequestHandler,
+    JsdialogCallback, JsdialogHandler, JsdialogType, KeyEvent, KeyEventType, LifeSpanHandler,
+    LoadHandler, LogSeverity, MediaAccessCallback, MenuModel, MouseButtonType, MouseEvent,
+    PaintElementType, PermissionHandler, PermissionPromptCallback, PermissionRequestResult,
+    PointerType, ProcessId, ProcessMessage, Rect as CefRect, RenderHandler, RequestHandler,
+    ScreenInfo, Settings, TerminationStatus, TouchEvent, TouchEventType, WindowInfo, WrapApp,
+    WrapClient, WrapContextMenuHandler, WrapDialogHandler, WrapDisplayHandler, WrapJsdialogHandler,
+    WrapLifeSpanHandler, WrapLoadHandler, WrapPermissionHandler, WrapRenderHandler,
+    WrapRequestHandler,
+};
+use common::{
+    ev_console, ev_cursor, ev_eval, ev_message, ev_status, json_escape, Rect, Registry, ViewCore,
+    STATUS_RUNNING,
 };
 use downdraft_webui_common as common;
-use common::{
-    ev_console, ev_cursor, ev_eval, ev_message, ev_status, json_escape, Registry, Rect,
-    ViewCore, STATUS_RUNNING,
-};
 use std::ffi::{c_char, c_int, c_void, CStr};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
@@ -302,38 +298,71 @@ wrap_render_handler! {
 }
 
 fn cursor_css(t: CursorType) -> &'static str {
-    if t == CursorType::POINTER { "default" }
-    else if t == CursorType::HAND { "pointer" }
-    else if t == CursorType::IBEAM { "text" }
-    else if t == CursorType::CROSS { "crosshair" }
-    else if t == CursorType::WAIT { "wait" }
-    else if t == CursorType::HELP { "help" }
-    else if t == CursorType::EASTRESIZE { "e-resize" }
-    else if t == CursorType::NORTHRESIZE { "n-resize" }
-    else if t == CursorType::NORTHEASTRESIZE { "ne-resize" }
-    else if t == CursorType::NORTHWESTRESIZE { "nw-resize" }
-    else if t == CursorType::SOUTHRESIZE { "s-resize" }
-    else if t == CursorType::SOUTHEASTRESIZE { "se-resize" }
-    else if t == CursorType::SOUTHWESTRESIZE { "sw-resize" }
-    else if t == CursorType::WESTRESIZE { "w-resize" }
-    else if t == CursorType::NORTHSOUTHRESIZE { "ns-resize" }
-    else if t == CursorType::EASTWESTRESIZE { "ew-resize" }
-    else if t == CursorType::NORTHEASTSOUTHWESTRESIZE { "nesw-resize" }
-    else if t == CursorType::NORTHWESTSOUTHEASTRESIZE { "nwse-resize" }
-    else if t == CursorType::COLUMNRESIZE { "col-resize" }
-    else if t == CursorType::ROWRESIZE { "row-resize" }
-    else if t == CursorType::MOVE { "move" }
-    else if t == CursorType::VERTICALTEXT { "vertical-text" }
-    else if t == CursorType::CELL { "cell" }
-    else if t == CursorType::CONTEXTMENU { "context-menu" }
-    else if t == CursorType::ALIAS { "alias" }
-    else if t == CursorType::PROGRESS { "progress" }
-    else if t == CursorType::NODROP { "no-drop" }
-    else if t == CursorType::COPY { "copy" }
-    else if t == CursorType::NONE { "none" }
-    else if t == CursorType::NOTALLOWED { "not-allowed" }
-    else if t == CursorType::ZOOMIN { "zoom-in" }
-    else { "default" }
+    if t == CursorType::POINTER {
+        "default"
+    } else if t == CursorType::HAND {
+        "pointer"
+    } else if t == CursorType::IBEAM {
+        "text"
+    } else if t == CursorType::CROSS {
+        "crosshair"
+    } else if t == CursorType::WAIT {
+        "wait"
+    } else if t == CursorType::HELP {
+        "help"
+    } else if t == CursorType::EASTRESIZE {
+        "e-resize"
+    } else if t == CursorType::NORTHRESIZE {
+        "n-resize"
+    } else if t == CursorType::NORTHEASTRESIZE {
+        "ne-resize"
+    } else if t == CursorType::NORTHWESTRESIZE {
+        "nw-resize"
+    } else if t == CursorType::SOUTHRESIZE {
+        "s-resize"
+    } else if t == CursorType::SOUTHEASTRESIZE {
+        "se-resize"
+    } else if t == CursorType::SOUTHWESTRESIZE {
+        "sw-resize"
+    } else if t == CursorType::WESTRESIZE {
+        "w-resize"
+    } else if t == CursorType::NORTHSOUTHRESIZE {
+        "ns-resize"
+    } else if t == CursorType::EASTWESTRESIZE {
+        "ew-resize"
+    } else if t == CursorType::NORTHEASTSOUTHWESTRESIZE {
+        "nesw-resize"
+    } else if t == CursorType::NORTHWESTSOUTHEASTRESIZE {
+        "nwse-resize"
+    } else if t == CursorType::COLUMNRESIZE {
+        "col-resize"
+    } else if t == CursorType::ROWRESIZE {
+        "row-resize"
+    } else if t == CursorType::MOVE {
+        "move"
+    } else if t == CursorType::VERTICALTEXT {
+        "vertical-text"
+    } else if t == CursorType::CELL {
+        "cell"
+    } else if t == CursorType::CONTEXTMENU {
+        "context-menu"
+    } else if t == CursorType::ALIAS {
+        "alias"
+    } else if t == CursorType::PROGRESS {
+        "progress"
+    } else if t == CursorType::NODROP {
+        "no-drop"
+    } else if t == CursorType::COPY {
+        "copy"
+    } else if t == CursorType::NONE {
+        "none"
+    } else if t == CursorType::NOTALLOWED {
+        "not-allowed"
+    } else if t == CursorType::ZOOMIN {
+        "zoom-in"
+    } else {
+        "default"
+    }
 }
 
 wrap_display_handler! {
@@ -722,8 +751,16 @@ fn data_url(html: &str) -> String {
         let n = c.iter().fold(0u32, |a, &x| (a << 8) | x as u32) << (8 * (3 - c.len()));
         out.push(T[(n >> 18) as usize & 63] as char);
         out.push(T[(n >> 12) as usize & 63] as char);
-        out.push(if c.len() > 1 { T[(n >> 6) as usize & 63] as char } else { '=' });
-        out.push(if c.len() > 2 { T[n as usize & 63] as char } else { '=' });
+        out.push(if c.len() > 1 {
+            T[(n >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
+        out.push(if c.len() > 2 {
+            T[n as usize & 63] as char
+        } else {
+            '='
+        });
     }
     out
 }
@@ -755,11 +792,7 @@ fn spawn_browser(v: &View, url: &str) -> bool {
     // Async create — on_after_created delivers the Browser on the CEF UI
     // thread. Bound the wait so a wedged renderer/zygote can't hang the
     // caller forever.
-    let slot = v
-        .shared
-        .browser
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let slot = v.shared.browser.lock().unwrap_or_else(|e| e.into_inner());
     let (guard, _) = v
         .shared
         .created
@@ -779,7 +812,9 @@ fn browser_of(v: &View) -> Option<Browser> {
 /// Send a process message to the view's renderer.
 fn send_to_render(v: &View, name: &str, args: &[String]) {
     let Some(browser) = browser_of(v) else { return };
-    let Some(frame) = browser.main_frame() else { return };
+    let Some(frame) = browser.main_frame() else {
+        return;
+    };
     let mut msg = match process_message_create(Some(&cef_str(name))) {
         Some(m) => m,
         None => return,
@@ -879,7 +914,11 @@ fn ui_run<R: Send + 'static>(f: impl FnOnce() -> R + Send + 'static) -> Option<R
 #[no_mangle]
 pub extern "C" fn dd_webui_global_init(opts_json: *const c_char) -> c_int {
     let opts_jsonp = opts_json as usize;
-    ui_run(move || { let opts_json = opts_jsonp as *const c_char; dd_webui_global_init_impl(opts_json) }).unwrap_or(0)
+    ui_run(move || {
+        let opts_json = opts_jsonp as *const c_char;
+        dd_webui_global_init_impl(opts_json)
+    })
+    .unwrap_or(0)
 }
 
 fn dd_webui_global_init_impl(opts_json: *const c_char) -> c_int {
@@ -896,11 +935,7 @@ fn dd_webui_global_init_impl(opts_json: *const c_char) -> c_int {
             .map(|c| c.has_switch(Some(&cef_str("type"))) != 1)
             .unwrap_or(true);
         let mut app = BrowserApp::new();
-        let ret = execute_process(
-            Some(args.as_main_args()),
-            Some(&mut app),
-            ptr::null_mut(),
-        );
+        let ret = execute_process(Some(args.as_main_args()), Some(&mut app), ptr::null_mut());
         if !is_browser || ret != -1 {
             // We're a subprocess re-exec or CEF already ran the process —
             // bail; the helper bin owns subprocess flow.
@@ -937,8 +972,7 @@ fn dd_webui_global_init_impl(opts_json: *const c_char) -> c_int {
                 Some(4) => LogSeverity::FATAL,
                 _ => LogSeverity::WARNING,
             },
-            remote_debugging_port: opt_i64(&opts, "remoteDebugPort")
-                .unwrap_or(0) as c_int,
+            remote_debugging_port: opt_i64(&opts, "remoteDebugPort").unwrap_or(0) as c_int,
             ..Default::default()
         };
 
@@ -974,7 +1008,6 @@ fn dd_webui_global_init_impl(opts_json: *const c_char) -> c_int {
 
 #[no_mangle]
 pub extern "C" fn dd_webui_global_shutdown() {
-    
     let _ = ui_run(move || dd_webui_global_shutdown_impl());
 }
 
@@ -1002,9 +1035,21 @@ pub extern "C" fn dd_webui_version() -> *const c_char {
 /// "userAgent","maxCrashRetries"}. width/height are logical (CSS) px —
 /// the raster is w*scale × h*scale physical px.
 #[no_mangle]
-pub extern "C" fn dd_webui_create(opts_json: *const c_char, width: c_int, height: c_int, scale: f32) -> *mut c_void {
+pub extern "C" fn dd_webui_create(
+    opts_json: *const c_char,
+    width: c_int,
+    height: c_int,
+    scale: f32,
+) -> *mut c_void {
     let opts_jsonp = opts_json as usize;
-    ui_run(move || ({ let opts_json = opts_jsonp as *const c_char; dd_webui_create_impl(opts_json, width, height, scale) }) as usize).map(|p| p as *mut c_void).unwrap_or(std::ptr::null_mut())
+    ui_run(move || {
+        ({
+            let opts_json = opts_jsonp as *const c_char;
+            dd_webui_create_impl(opts_json, width, height, scale)
+        }) as usize
+    })
+    .map(|p| p as *mut c_void)
+    .unwrap_or(std::ptr::null_mut())
 }
 
 fn dd_webui_create_impl(
@@ -1065,7 +1110,10 @@ fn dd_webui_create_impl(
 #[no_mangle]
 pub extern "C" fn dd_webui_destroy(h: *mut c_void) {
     let hp = h as usize;
-    let _ = ui_run(move || { let h = hp as *mut c_void; dd_webui_destroy_impl(h) });
+    let _ = ui_run(move || {
+        let h = hp as *mut c_void;
+        dd_webui_destroy_impl(h)
+    });
 }
 
 fn dd_webui_destroy_impl(h: *mut c_void) {
@@ -1092,14 +1140,21 @@ fn dd_webui_destroy_impl(h: *mut c_void) {
 
 #[no_mangle]
 pub extern "C" fn dd_webui_load_url(h: *mut c_void, url: *const c_char) {
-    let hp = h as usize; let urlp = url as usize;
-    let _ = ui_run(move || { let h = hp as *mut c_void; let url = urlp as *const c_char; dd_webui_load_url_impl(h, url) });
+    let hp = h as usize;
+    let urlp = url as usize;
+    let _ = ui_run(move || {
+        let h = hp as *mut c_void;
+        let url = urlp as *const c_char;
+        dd_webui_load_url_impl(h, url)
+    });
 }
 
 fn dd_webui_load_url_impl(h: *mut c_void, url: *const c_char) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         with_view!(h, (), |v| {
-            let Some(url) = (unsafe { cstr(url) }) else { return };
+            let Some(url) = (unsafe { cstr(url) }) else {
+                return;
+            };
             *v.url.lock().unwrap_or_else(|e| e.into_inner()) = url.to_string();
             if let Some(f) = browser_of(v).and_then(|b| b.main_frame()) {
                 f.load_url(Some(&cef_str(url)));
@@ -1111,14 +1166,21 @@ fn dd_webui_load_url_impl(h: *mut c_void, url: *const c_char) {
 
 #[no_mangle]
 pub extern "C" fn dd_webui_set_content(h: *mut c_void, html: *const c_char) {
-    let hp = h as usize; let htmlp = html as usize;
-    let _ = ui_run(move || { let h = hp as *mut c_void; let html = htmlp as *const c_char; dd_webui_set_content_impl(h, html) });
+    let hp = h as usize;
+    let htmlp = html as usize;
+    let _ = ui_run(move || {
+        let h = hp as *mut c_void;
+        let html = htmlp as *const c_char;
+        dd_webui_set_content_impl(h, html)
+    });
 }
 
 fn dd_webui_set_content_impl(h: *mut c_void, html: *const c_char) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         with_view!(h, (), |v| {
-            let Some(html) = (unsafe { cstr(html) }) else { return };
+            let Some(html) = (unsafe { cstr(html) }) else {
+                return;
+            };
             let url = data_url(html);
             *v.url.lock().unwrap_or_else(|e| e.into_inner()) = url.clone();
             if let Some(f) = browser_of(v).and_then(|b| b.main_frame()) {
@@ -1132,7 +1194,10 @@ fn dd_webui_set_content_impl(h: *mut c_void, html: *const c_char) {
 #[no_mangle]
 pub extern "C" fn dd_webui_resize(h: *mut c_void, w: c_int, hgt: c_int, scale: f32) {
     let hp = h as usize;
-    let _ = ui_run(move || { let h = hp as *mut c_void; dd_webui_resize_impl(h, w, hgt, scale) });
+    let _ = ui_run(move || {
+        let h = hp as *mut c_void;
+        dd_webui_resize_impl(h, w, hgt, scale)
+    });
 }
 
 fn dd_webui_resize_impl(h: *mut c_void, w: c_int, hgt: c_int, scale: f32) {
@@ -1162,7 +1227,10 @@ fn dd_webui_resize_impl(h: *mut c_void, w: c_int, hgt: c_int, scale: f32) {
 #[no_mangle]
 pub extern "C" fn dd_webui_navigate(h: *mut c_void, op: c_int) {
     let hp = h as usize;
-    let _ = ui_run(move || { let h = hp as *mut c_void; dd_webui_navigate_impl(h, op) });
+    let _ = ui_run(move || {
+        let h = hp as *mut c_void;
+        dd_webui_navigate_impl(h, op)
+    });
 }
 
 fn dd_webui_navigate_impl(h: *mut c_void, op: c_int) {
@@ -1183,7 +1251,10 @@ fn dd_webui_navigate_impl(h: *mut c_void, op: c_int) {
 #[no_mangle]
 pub extern "C" fn dd_webui_set_zoom(h: *mut c_void, factor: f64) {
     let hp = h as usize;
-    let _ = ui_run(move || { let h = hp as *mut c_void; dd_webui_set_zoom_impl(h, factor) });
+    let _ = ui_run(move || {
+        let h = hp as *mut c_void;
+        dd_webui_set_zoom_impl(h, factor)
+    });
 }
 
 fn dd_webui_set_zoom_impl(h: *mut c_void, factor: f64) {
@@ -1203,7 +1274,10 @@ fn dd_webui_set_zoom_impl(h: *mut c_void, factor: f64) {
 #[no_mangle]
 pub extern "C" fn dd_webui_set_focus(h: *mut c_void, focused: c_int) {
     let hp = h as usize;
-    let _ = ui_run(move || { let h = hp as *mut c_void; dd_webui_set_focus_impl(h, focused) });
+    let _ = ui_run(move || {
+        let h = hp as *mut c_void;
+        dd_webui_set_focus_impl(h, focused)
+    });
 }
 
 fn dd_webui_set_focus_impl(h: *mut c_void, focused: c_int) {
@@ -1219,7 +1293,10 @@ fn dd_webui_set_focus_impl(h: *mut c_void, focused: c_int) {
 #[no_mangle]
 pub extern "C" fn dd_webui_set_interactive(h: *mut c_void, on: c_int) {
     let hp = h as usize;
-    let _ = ui_run(move || { let h = hp as *mut c_void; dd_webui_set_interactive_impl(h, on) });
+    let _ = ui_run(move || {
+        let h = hp as *mut c_void;
+        dd_webui_set_interactive_impl(h, on)
+    });
 }
 
 fn dd_webui_set_interactive_impl(h: *mut c_void, on: c_int) {
@@ -1238,14 +1315,21 @@ fn dd_webui_set_interactive_impl(h: *mut c_void, on: c_int) {
 /// req rides to the renderer as a string arg (CefListValue has no u64).
 #[no_mangle]
 pub extern "C" fn dd_webui_eval(h: *mut c_void, req: u64, js: *const c_char) {
-    let hp = h as usize; let jsp = js as usize;
-    let _ = ui_run(move || { let h = hp as *mut c_void; let js = jsp as *const c_char; dd_webui_eval_impl(h, req, js) });
+    let hp = h as usize;
+    let jsp = js as usize;
+    let _ = ui_run(move || {
+        let h = hp as *mut c_void;
+        let js = jsp as *const c_char;
+        dd_webui_eval_impl(h, req, js)
+    });
 }
 
 fn dd_webui_eval_impl(h: *mut c_void, req: u64, js: *const c_char) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         with_view!(h, (), |v| {
-            let Some(code) = (unsafe { cstr(js) }) else { return };
+            let Some(code) = (unsafe { cstr(js) }) else {
+                return;
+            };
             send_to_render(v, bridge::MSG_EVAL, &[req.to_string(), code.to_string()]);
             pump();
         });
@@ -1255,14 +1339,21 @@ fn dd_webui_eval_impl(h: *mut c_void, req: u64, js: *const c_char) {
 /// Deliver a JSON payload to the page's globalThis.downdraft dispatch.
 #[no_mangle]
 pub extern "C" fn dd_webui_post_message(h: *mut c_void, json: *const c_char) {
-    let hp = h as usize; let jsonp = json as usize;
-    let _ = ui_run(move || { let h = hp as *mut c_void; let json = jsonp as *const c_char; dd_webui_post_message_impl(h, json) });
+    let hp = h as usize;
+    let jsonp = json as usize;
+    let _ = ui_run(move || {
+        let h = hp as *mut c_void;
+        let json = jsonp as *const c_char;
+        dd_webui_post_message_impl(h, json)
+    });
 }
 
 fn dd_webui_post_message_impl(h: *mut c_void, json: *const c_char) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         with_view!(h, (), |v| {
-            let Some(json) = (unsafe { cstr(json) }) else { return };
+            let Some(json) = (unsafe { cstr(json) }) else {
+                return;
+            };
             send_to_render(v, bridge::MSG_POST, &[json.to_string()]);
             pump();
         });
@@ -1272,12 +1363,28 @@ fn dd_webui_post_message_impl(h: *mut c_void, json: *const c_char) {
 /// Drain queued events as one JSON array. (ptr,len) stay valid until the
 /// next call on this view. Returns event-batch presence (0 = empty).
 #[no_mangle]
-pub extern "C" fn dd_webui_poll_events(h: *mut c_void, out_ptr: *mut *const u8, out_len: *mut usize) -> c_int {
-    let hp = h as usize; let out_ptrp = out_ptr as usize; let out_lenp = out_len as usize;
-    ui_run(move || { let h = hp as *mut c_void; let out_ptr = out_ptrp as *mut *const u8; let out_len = out_lenp as *mut usize; dd_webui_poll_events_impl(h, out_ptr, out_len) }).unwrap_or(0)
+pub extern "C" fn dd_webui_poll_events(
+    h: *mut c_void,
+    out_ptr: *mut *const u8,
+    out_len: *mut usize,
+) -> c_int {
+    let hp = h as usize;
+    let out_ptrp = out_ptr as usize;
+    let out_lenp = out_len as usize;
+    ui_run(move || {
+        let h = hp as *mut c_void;
+        let out_ptr = out_ptrp as *mut *const u8;
+        let out_len = out_lenp as *mut usize;
+        dd_webui_poll_events_impl(h, out_ptr, out_len)
+    })
+    .unwrap_or(0)
 }
 
-fn dd_webui_poll_events_impl(h: *mut c_void, out_ptr: *mut *const u8, out_len: *mut usize) -> c_int {
+fn dd_webui_poll_events_impl(
+    h: *mut c_void,
+    out_ptr: *mut *const u8,
+    out_len: *mut usize,
+) -> c_int {
     ftry!(0, {
         unsafe {
             if !out_ptr.is_null() {
@@ -1336,7 +1443,10 @@ fn mouse_button(btn: c_int) -> MouseButtonType {
 #[no_mangle]
 pub extern "C" fn dd_webui_input_pointer(h: *mut c_void, t: c_int, x: f32, y: f32, btn: c_int) {
     let hp = h as usize;
-    let _ = ui_run(move || { let h = hp as *mut c_void; dd_webui_input_pointer_impl(h, t, x, y, btn) });
+    let _ = ui_run(move || {
+        let h = hp as *mut c_void;
+        dd_webui_input_pointer_impl(h, t, x, y, btn)
+    });
 }
 
 fn dd_webui_input_pointer_impl(h: *mut c_void, t: c_int, x: f32, y: f32, btn: c_int) {
@@ -1370,7 +1480,10 @@ fn dd_webui_input_pointer_impl(h: *mut c_void, t: c_int, x: f32, y: f32, btn: c_
 #[no_mangle]
 pub extern "C" fn dd_webui_input_wheel(h: *mut c_void, x: f32, y: f32, dx: f32, dy: f32) {
     let hp = h as usize;
-    let _ = ui_run(move || { let h = hp as *mut c_void; dd_webui_input_wheel_impl(h, x, y, dx, dy) });
+    let _ = ui_run(move || {
+        let h = hp as *mut c_void;
+        dd_webui_input_wheel_impl(h, x, y, dx, dy)
+    });
 }
 
 fn dd_webui_input_wheel_impl(h: *mut c_void, x: f32, y: f32, dx: f32, dy: f32) {
@@ -1433,7 +1546,10 @@ fn vkey_of(key: &str, code: &str) -> i32 {
     if c.is_ascii_alphanumeric() {
         return c.to_ascii_uppercase() as i32;
     }
-    if let Some(n) = code.strip_prefix("Numpad").and_then(|s| s.parse::<i32>().ok()) {
+    if let Some(n) = code
+        .strip_prefix("Numpad")
+        .and_then(|s| s.parse::<i32>().ok())
+    {
         return 0x60 + n;
     }
     0
@@ -1441,12 +1557,37 @@ fn vkey_of(key: &str, code: &str) -> i32 {
 
 /// t: 0=down 1=up. mods bitmask: 1=shift 2=ctrl 4=alt 8=meta.
 #[no_mangle]
-pub extern "C" fn dd_webui_input_key(h: *mut c_void, t: c_int, key: *const c_char, code: *const c_char, text: *const c_char, mods: c_int, repeat: c_int) {
-    let hp = h as usize; let keyp = key as usize; let codep = code as usize; let textp = text as usize;
-    let _ = ui_run(move || { let h = hp as *mut c_void; let key = keyp as *const c_char; let code = codep as *const c_char; let text = textp as *const c_char; dd_webui_input_key_impl(h, t, key, code, text, mods, repeat) });
+pub extern "C" fn dd_webui_input_key(
+    h: *mut c_void,
+    t: c_int,
+    key: *const c_char,
+    code: *const c_char,
+    text: *const c_char,
+    mods: c_int,
+    repeat: c_int,
+) {
+    let hp = h as usize;
+    let keyp = key as usize;
+    let codep = code as usize;
+    let textp = text as usize;
+    let _ = ui_run(move || {
+        let h = hp as *mut c_void;
+        let key = keyp as *const c_char;
+        let code = codep as *const c_char;
+        let text = textp as *const c_char;
+        dd_webui_input_key_impl(h, t, key, code, text, mods, repeat)
+    });
 }
 
-fn dd_webui_input_key_impl(h: *mut c_void, t: c_int, key: *const c_char, code: *const c_char, text: *const c_char, mods: c_int, _repeat: c_int) {
+fn dd_webui_input_key_impl(
+    h: *mut c_void,
+    t: c_int,
+    key: *const c_char,
+    code: *const c_char,
+    text: *const c_char,
+    mods: c_int,
+    _repeat: c_int,
+) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         with_view!(h, (), |v| {
             let Some(host) = browser_of(v).and_then(|b| b.host()) else {
@@ -1505,7 +1646,10 @@ fn dd_webui_input_key_impl(h: *mut c_void, t: c_int, key: *const c_char, code: *
 #[no_mangle]
 pub extern "C" fn dd_webui_input_touch(h: *mut c_void, t: c_int, id: c_int, x: f32, y: f32) {
     let hp = h as usize;
-    let _ = ui_run(move || { let h = hp as *mut c_void; dd_webui_input_touch_impl(h, t, id, x, y) });
+    let _ = ui_run(move || {
+        let h = hp as *mut c_void;
+        dd_webui_input_touch_impl(h, t, id, x, y)
+    });
 }
 
 fn dd_webui_input_touch_impl(h: *mut c_void, t: c_int, id: c_int, x: f32, y: f32) {
@@ -1540,8 +1684,13 @@ fn dd_webui_input_touch_impl(h: *mut c_void, t: c_int, id: c_int, x: f32, y: f32
 /// commits route as CHAR events so basic text entry works.
 #[no_mangle]
 pub extern "C" fn dd_webui_input_ime(h: *mut c_void, t: c_int, s: *const c_char) {
-    let hp = h as usize; let sp = s as usize;
-    let _ = ui_run(move || { let h = hp as *mut c_void; let s = sp as *const c_char; dd_webui_input_ime_impl(h, t, s) });
+    let hp = h as usize;
+    let sp = s as usize;
+    let _ = ui_run(move || {
+        let h = hp as *mut c_void;
+        let s = sp as *const c_char;
+        dd_webui_input_ime_impl(h, t, s)
+    });
 }
 
 fn dd_webui_input_ime_impl(h: *mut c_void, t: c_int, s: *const c_char) {
@@ -1553,7 +1702,9 @@ fn dd_webui_input_ime_impl(h: *mut c_void, t: c_int, s: *const c_char) {
             let Some(host) = browser_of(v).and_then(|b| b.host()) else {
                 return;
             };
-            let Some(text) = (unsafe { cstr(s) }) else { return };
+            let Some(text) = (unsafe { cstr(s) }) else {
+                return;
+            };
             for c in text.chars() {
                 let ch = c as u16;
                 host.send_key_event(Some(&KeyEvent {
@@ -1582,7 +1733,11 @@ fn dd_webui_input_ime_impl(h: *mut c_void, t: c_int, s: *const c_char) {
 #[no_mangle]
 pub extern "C" fn dd_webui_take_frame(h: *mut c_void) -> u64 {
     let hp = h as usize;
-    ui_run(move || { let h = hp as *mut c_void; dd_webui_take_frame_impl(h) }).unwrap_or(0)
+    ui_run(move || {
+        let h = hp as *mut c_void;
+        dd_webui_take_frame_impl(h)
+    })
+    .unwrap_or(0)
 }
 
 fn dd_webui_take_frame_impl(h: *mut c_void) -> u64 {
@@ -1604,7 +1759,11 @@ fn dd_webui_take_frame_impl(h: *mut c_void) -> u64 {
 #[no_mangle]
 pub extern "C" fn dd_webui_frame_rect(h: *mut c_void) -> u64 {
     let hp = h as usize;
-    ui_run(move || { let h = hp as *mut c_void; dd_webui_frame_rect_impl(h) }).unwrap_or(0)
+    ui_run(move || {
+        let h = hp as *mut c_void;
+        dd_webui_frame_rect_impl(h)
+    })
+    .unwrap_or(0)
 }
 
 fn dd_webui_frame_rect_impl(h: *mut c_void) -> u64 {
@@ -1623,7 +1782,11 @@ fn dd_webui_frame_rect_impl(h: *mut c_void) -> u64 {
 #[no_mangle]
 pub extern "C" fn dd_webui_frame_pending(h: *mut c_void) -> c_int {
     let hp = h as usize;
-    ui_run(move || { let h = hp as *mut c_void; dd_webui_frame_pending_impl(h) }).unwrap_or(0)
+    ui_run(move || {
+        let h = hp as *mut c_void;
+        dd_webui_frame_pending_impl(h)
+    })
+    .unwrap_or(0)
 }
 
 fn dd_webui_frame_pending_impl(h: *mut c_void) -> c_int {
@@ -1635,7 +1798,14 @@ fn dd_webui_frame_pending_impl(h: *mut c_void) -> c_int {
 #[no_mangle]
 pub extern "C" fn dd_webui_pixels(h: *mut c_void) -> *const u8 {
     let hp = h as usize;
-    ui_run(move || ({ let h = hp as *mut c_void; dd_webui_pixels_impl(h) }) as usize).map(|p| p as *const u8).unwrap_or(std::ptr::null())
+    ui_run(move || {
+        ({
+            let h = hp as *mut c_void;
+            dd_webui_pixels_impl(h)
+        }) as usize
+    })
+    .map(|p| p as *const u8)
+    .unwrap_or(std::ptr::null())
 }
 
 fn dd_webui_pixels_impl(h: *mut c_void) -> *const u8 {
@@ -1657,7 +1827,11 @@ fn dd_webui_pixels_impl(h: *mut c_void) -> *const u8 {
 #[no_mangle]
 pub extern "C" fn dd_webui_pixels_len(h: *mut c_void) -> usize {
     let hp = h as usize;
-    ui_run(move || { let h = hp as *mut c_void; dd_webui_pixels_len_impl(h) }).unwrap_or(0)
+    ui_run(move || {
+        let h = hp as *mut c_void;
+        dd_webui_pixels_len_impl(h)
+    })
+    .unwrap_or(0)
 }
 
 fn dd_webui_pixels_len_impl(h: *mut c_void) -> usize {
@@ -1668,8 +1842,16 @@ fn dd_webui_pixels_len_impl(h: *mut c_void) -> usize {
 
 #[no_mangle]
 pub extern "C" fn dd_webui_dimensions(h: *mut c_void, w: *mut u32, hgt: *mut u32) -> c_int {
-    let hp = h as usize; let wp = w as usize; let hgtp = hgt as usize;
-    ui_run(move || { let h = hp as *mut c_void; let w = wp as *mut u32; let hgt = hgtp as *mut u32; dd_webui_dimensions_impl(h, w, hgt) }).unwrap_or(0)
+    let hp = h as usize;
+    let wp = w as usize;
+    let hgtp = hgt as usize;
+    ui_run(move || {
+        let h = hp as *mut c_void;
+        let w = wp as *mut u32;
+        let hgt = hgtp as *mut u32;
+        dd_webui_dimensions_impl(h, w, hgt)
+    })
+    .unwrap_or(0)
 }
 
 fn dd_webui_dimensions_impl(h: *mut c_void, w: *mut u32, hgt: *mut u32) -> c_int {
@@ -1693,7 +1875,11 @@ fn dd_webui_dimensions_impl(h: *mut c_void, w: *mut u32, hgt: *mut u32) -> c_int
 #[no_mangle]
 pub extern "C" fn dd_webui_pixel_format(h: *mut c_void) -> u8 {
     let hp = h as usize;
-    ui_run(move || { let h = hp as *mut c_void; dd_webui_pixel_format_impl(h) }).unwrap_or(0)
+    ui_run(move || {
+        let h = hp as *mut c_void;
+        dd_webui_pixel_format_impl(h)
+    })
+    .unwrap_or(0)
 }
 
 fn dd_webui_pixel_format_impl(h: *mut c_void) -> u8 {
@@ -1709,7 +1895,11 @@ fn dd_webui_pixel_format_impl(h: *mut c_void) -> u8 {
 #[no_mangle]
 pub extern "C" fn dd_webui_buf_needed(h: *mut c_void) -> usize {
     let hp = h as usize;
-    ui_run(move || { let h = hp as *mut c_void; dd_webui_buf_needed_impl(h) }).unwrap_or(0)
+    ui_run(move || {
+        let h = hp as *mut c_void;
+        dd_webui_buf_needed_impl(h)
+    })
+    .unwrap_or(0)
 }
 
 fn dd_webui_buf_needed_impl(h: *mut c_void) -> usize {
@@ -1720,8 +1910,14 @@ fn dd_webui_buf_needed_impl(h: *mut c_void) -> usize {
 
 #[no_mangle]
 pub extern "C" fn dd_webui_bind_frame_buf(h: *mut c_void, ptr: *mut u8, len: usize) -> c_int {
-    let hp = h as usize; let ptrp = ptr as usize;
-    ui_run(move || { let h = hp as *mut c_void; let ptr = ptrp as *mut u8; dd_webui_bind_frame_buf_impl(h, ptr, len) }).unwrap_or(0)
+    let hp = h as usize;
+    let ptrp = ptr as usize;
+    ui_run(move || {
+        let h = hp as *mut c_void;
+        let ptr = ptrp as *mut u8;
+        dd_webui_bind_frame_buf_impl(h, ptr, len)
+    })
+    .unwrap_or(0)
 }
 
 fn dd_webui_bind_frame_buf_impl(h: *mut c_void, ptr: *mut u8, len: usize) -> c_int {
@@ -1736,7 +1932,11 @@ fn dd_webui_bind_frame_buf_impl(h: *mut c_void, ptr: *mut u8, len: usize) -> c_i
 #[no_mangle]
 pub extern "C" fn dd_webui_frame_into(h: *mut c_void) -> c_int {
     let hp = h as usize;
-    ui_run(move || { let h = hp as *mut c_void; dd_webui_frame_into_impl(h) }).unwrap_or(0)
+    ui_run(move || {
+        let h = hp as *mut c_void;
+        dd_webui_frame_into_impl(h)
+    })
+    .unwrap_or(0)
 }
 
 fn dd_webui_frame_into_impl(h: *mut c_void) -> c_int {
@@ -1748,7 +1948,11 @@ fn dd_webui_frame_into_impl(h: *mut c_void) -> c_int {
 #[no_mangle]
 pub extern "C" fn dd_webui_refresh_into(h: *mut c_void) -> c_int {
     let hp = h as usize;
-    ui_run(move || { let h = hp as *mut c_void; dd_webui_refresh_into_impl(h) }).unwrap_or(0)
+    ui_run(move || {
+        let h = hp as *mut c_void;
+        dd_webui_refresh_into_impl(h)
+    })
+    .unwrap_or(0)
 }
 
 fn dd_webui_refresh_into_impl(h: *mut c_void) -> c_int {
@@ -1765,7 +1969,11 @@ fn dd_webui_refresh_into_impl(h: *mut c_void) -> c_int {
 #[no_mangle]
 pub extern "C" fn dd_webui_hit_test(h: *mut c_void, x: f32, y: f32) -> c_int {
     let hp = h as usize;
-    ui_run(move || { let h = hp as *mut c_void; dd_webui_hit_test_impl(h, x, y) }).unwrap_or(0)
+    ui_run(move || {
+        let h = hp as *mut c_void;
+        dd_webui_hit_test_impl(h, x, y)
+    })
+    .unwrap_or(0)
 }
 
 fn dd_webui_hit_test_impl(h: *mut c_void, x: f32, y: f32) -> c_int {
@@ -1788,8 +1996,8 @@ fn dd_webui_hit_test_impl(h: *mut c_void, x: f32, y: f32) -> c_int {
             if !core.frame.painted() {
                 return 0;
             }
-            let px = &core.frame.pixels()
-                [(fy as usize * core.frame.w as usize + fx as usize) * 4..];
+            let px =
+                &core.frame.pixels()[(fy as usize * core.frame.w as usize + fx as usize) * 4..];
             (px.len() >= 4 && px[3] > 8) as c_int
         })
     })
@@ -1798,32 +2006,40 @@ fn dd_webui_hit_test_impl(h: *mut c_void, x: f32, y: f32) -> c_int {
 #[no_mangle]
 pub extern "C" fn dd_webui_status(h: *mut c_void) -> c_int {
     let hp = h as usize;
-    ui_run(move || { let h = hp as *mut c_void; dd_webui_status_impl(h) }).unwrap_or(0)
+    ui_run(move || {
+        let h = hp as *mut c_void;
+        dd_webui_status_impl(h)
+    })
+    .unwrap_or(0)
 }
 
 fn dd_webui_status_impl(h: *mut c_void) -> c_int {
-    ftry!(-1, {
-        with_view!(h, -1, |v| v.shared.lock().status)
-    })
+    ftry!(-1, { with_view!(h, -1, |v| v.shared.lock().status) })
 }
 
 #[no_mangle]
 pub extern "C" fn dd_webui_crash_count(h: *mut c_void) -> usize {
     let hp = h as usize;
-    ui_run(move || { let h = hp as *mut c_void; dd_webui_crash_count_impl(h) }).unwrap_or(0)
+    ui_run(move || {
+        let h = hp as *mut c_void;
+        dd_webui_crash_count_impl(h)
+    })
+    .unwrap_or(0)
 }
 
 fn dd_webui_crash_count_impl(h: *mut c_void) -> usize {
-    ftry!(0, {
-        with_view!(h, 0, |v| v.shared.lock().crash_count)
-    })
+    ftry!(0, { with_view!(h, 0, |v| v.shared.lock().crash_count) })
 }
 
 /// Respawn a crashed/failed browser under the same view. -1 = refused.
 #[no_mangle]
 pub extern "C" fn dd_webui_recover(h: *mut c_void) -> c_int {
     let hp = h as usize;
-    ui_run(move || { let h = hp as *mut c_void; dd_webui_recover_impl(h) }).unwrap_or(0)
+    ui_run(move || {
+        let h = hp as *mut c_void;
+        dd_webui_recover_impl(h)
+    })
+    .unwrap_or(0)
 }
 
 fn dd_webui_recover_impl(h: *mut c_void) -> c_int {
@@ -1855,7 +2071,10 @@ fn dd_webui_recover_impl(h: *mut c_void) -> c_int {
 #[no_mangle]
 pub extern "C" fn dd_webui_set_crash_policy(h: *mut c_void, max_retries: c_int) {
     let hp = h as usize;
-    let _ = ui_run(move || { let h = hp as *mut c_void; dd_webui_set_crash_policy_impl(h, max_retries) });
+    let _ = ui_run(move || {
+        let h = hp as *mut c_void;
+        dd_webui_set_crash_policy_impl(h, max_retries)
+    });
 }
 
 fn dd_webui_set_crash_policy_impl(h: *mut c_void, max_retries: c_int) {
@@ -1870,7 +2089,6 @@ fn dd_webui_set_crash_policy_impl(h: *mut c_void, max_retries: c_int) {
 /// its drain timer; frame pulls also pump implicitly.
 #[no_mangle]
 pub extern "C" fn dd_webui_pump_ms(t_ms: u64) {
-    
     let _ = ui_run(move || dd_webui_pump_ms_impl(t_ms));
 }
 

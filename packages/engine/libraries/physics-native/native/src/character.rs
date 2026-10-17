@@ -1,8 +1,8 @@
+use crate::world::{CharController, PhysicsWorld};
 use rapier3d::control::{
     CharacterAutostep, CharacterCollision, CharacterLength, KinematicCharacterController,
 };
 use rapier3d::prelude::*;
-use crate::world::{CharController, PhysicsWorld};
 
 // ── dd_char_create descriptor layout ─────────────────────────────────────
 // f: [offset, radius, halfHeight, maxSlope, minSlopeSlide, snapToGround,
@@ -13,12 +13,7 @@ pub const CHAR_I32_LEN: usize = 6;
 
 /// # Safety
 /// `f`/`i` must point to CHAR_F32_LEN / CHAR_I32_LEN elements.
-pub unsafe fn create(
-    realm: &mut PhysicsWorld,
-    ctrl_id: i32,
-    f: *const f32,
-    i: *const i32,
-) -> i32 {
+pub unsafe fn create(realm: &mut PhysicsWorld, ctrl_id: i32, f: *const f32, i: *const i32) -> i32 {
     let f = std::slice::from_raw_parts(f, CHAR_F32_LEN);
     let i = std::slice::from_raw_parts(i, CHAR_I32_LEN);
 

@@ -34,10 +34,28 @@ pub fn mods_from_bits(bits: u8) -> Modifiers {
 #[derive(Debug)]
 pub enum PendingInput {
     /// kind: 0=move 1=down 2=up 3=cancel
-    Pointer { kind: u8, x: f64, y: f64, button: u8, mods: u8 },
-    Wheel { dx: f64, dy: f64, x: f64, y: f64, mods: u8 },
+    Pointer {
+        kind: u8,
+        x: f64,
+        y: f64,
+        button: u8,
+        mods: u8,
+    },
+    Wheel {
+        dx: f64,
+        dy: f64,
+        x: f64,
+        y: f64,
+        mods: u8,
+    },
     /// pressed: true=keydown false=keyup
-    Key { pressed: bool, key: String, code: String, mods: u8, text: Option<String> },
+    Key {
+        pressed: bool,
+        key: String,
+        code: String,
+        mods: u8,
+        text: Option<String>,
+    },
     PointerLeave,
 }
 
@@ -73,7 +91,11 @@ impl PendingInput {
             location: Location::Standard,
             is_auto_repeating: false,
             is_composing: false,
-            state: if pressed { KeyState::Pressed } else { KeyState::Released },
+            state: if pressed {
+                KeyState::Pressed
+            } else {
+                KeyState::Released
+            },
             text: text.map(SmolStr::new),
         }
     }

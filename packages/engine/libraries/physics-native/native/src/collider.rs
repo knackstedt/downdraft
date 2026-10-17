@@ -1,6 +1,6 @@
+use crate::world::PhysicsWorld;
 use rapier3d::parry::utils::Array2;
 use rapier3d::prelude::*;
-use crate::world::PhysicsWorld;
 
 // ── dd_add_collider descriptor layout ────────────────────────────────────
 // meta (i32):
@@ -31,12 +31,7 @@ fn interaction_groups(packed: u32) -> InteractionGroups {
     )
 }
 
-fn build_collider(
-    meta: &[i32],
-    f: &[f32],
-    verts: &[f32],
-    indices: &[u32],
-) -> Option<Collider> {
+fn build_collider(meta: &[i32], f: &[f32], verts: &[f32], indices: &[u32]) -> Option<Collider> {
     let shape = meta[0];
     let mut builder = match shape {
         0 => ColliderBuilder::ball(f[0]),
@@ -222,7 +217,13 @@ pub fn remove_collider(realm: &mut PhysicsWorld, collider_id: i32) -> i32 {
     0
 }
 
-pub fn set_collider_position(realm: &mut PhysicsWorld, collider_id: i32, x: f32, y: f32, z: f32) -> i32 {
+pub fn set_collider_position(
+    realm: &mut PhysicsWorld,
+    collider_id: i32,
+    x: f32,
+    y: f32,
+    z: f32,
+) -> i32 {
     if let Some(&handle) = realm.collider_map.get(&collider_id) {
         if let Some(c) = realm.colliders.get_mut(handle) {
             c.set_translation(Vector::new(x, y, z));

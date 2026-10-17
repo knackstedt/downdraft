@@ -272,8 +272,7 @@ static CREATE_REQ: Mutex<Option<CreateReq>> = Mutex::new(None);
 /// flushes it at the deadline even on silent WMs, and JS additionally
 /// bounds the whole create via recv_timeout.
 #[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
-static CREATE_ACK: Mutex<Option<(mpsc::Sender<c_int>, std::time::Instant)>> =
-    Mutex::new(None);
+static CREATE_ACK: Mutex<Option<(mpsc::Sender<c_int>, std::time::Instant)>> = Mutex::new(None);
 
 /// How long to hold the create ack waiting for the initial window-event
 /// burst. Wayland's first configure lands in single-digit ms; the bound
@@ -509,9 +508,7 @@ fn flush_create_ack(el: &winit::event_loop::ActiveEventLoop, settle: bool) {
     let ack = {
         let mut slot = CREATE_ACK.lock().unwrap();
         match slot.as_ref() {
-            Some((_, deadline)) if settle || std::time::Instant::now() >= *deadline => {
-                slot.take()
-            }
+            Some((_, deadline)) if settle || std::time::Instant::now() >= *deadline => slot.take(),
             _ => None,
         }
     };
@@ -804,11 +801,7 @@ pub extern "C" fn dd_window_set_icon_file(path: *const c_char) -> c_int {
 /// one-shot reply so the call keeps its synchronous contract.
 #[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
 #[no_mangle]
-pub extern "C" fn dd_window_create(
-    title: *const c_char,
-    width: c_int,
-    height: c_int,
-) -> c_int {
+pub extern "C" fn dd_window_create(title: *const c_char, width: c_int, height: c_int) -> c_int {
     ffi!(2, {
         if CTX
             .lock()
@@ -851,11 +844,7 @@ pub extern "C" fn dd_window_create(
 
 #[cfg(target_os = "macos")]
 #[no_mangle]
-pub extern "C" fn dd_window_create(
-    title: *const c_char,
-    width: c_int,
-    height: c_int,
-) -> c_int {
+pub extern "C" fn dd_window_create(title: *const c_char, width: c_int, height: c_int) -> c_int {
     ffi!(2, {
         // C semantic: already-live window → 0. A destroyed window (CTX present
         // but window None) falls through and recreates on the kept EventLoop.
@@ -1178,7 +1167,11 @@ pub extern "C" fn dd_window_secondary_set_fullscreen(handle: c_int, enabled: c_i
 
 /// Physical inner size — same contract as dd_window_get_size.
 #[no_mangle]
-pub extern "C" fn dd_window_secondary_get_size(handle: c_int, w_out: *mut c_int, h_out: *mut c_int) {
+pub extern "C" fn dd_window_secondary_get_size(
+    handle: c_int,
+    w_out: *mut c_int,
+    h_out: *mut c_int,
+) {
     ffi!((), {
         let (mut w, mut h) = (0, 0);
         if let Some(win) = window_by_handle(handle.max(0) as u32) {
@@ -1654,7 +1647,10 @@ pub extern "C" fn dd_window_request_quit() {
 }
 
 #[no_mangle]
-pub extern "C" fn dd_window_show_message_box(title: *const c_char, message: *const c_char) -> c_int {
+pub extern "C" fn dd_window_show_message_box(
+    title: *const c_char,
+    message: *const c_char,
+) -> c_int {
     ffi!(-1, {
         let title = if title.is_null() {
             "Error".to_string()

@@ -62,8 +62,7 @@ pub extern "C" fn dd_sec_set(
     secret: *const c_char,
 ) -> i32 {
     unsafe {
-        let (Some(s), Some(a), Some(v)) =
-            (read_str(service), read_str(account), read_str(secret))
+        let (Some(s), Some(a), Some(v)) = (read_str(service), read_str(account), read_str(secret))
         else {
             return ERR_ARGS;
         };

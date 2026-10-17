@@ -27,7 +27,13 @@ fn main() {
         .into_iter()
         .flatten()
         .flatten()
-        .flat_map(|ver| fs::read_dir(ver.path()).ok().into_iter().flatten().flatten())
+        .flat_map(|ver| {
+            fs::read_dir(ver.path())
+                .ok()
+                .into_iter()
+                .flatten()
+                .flatten()
+        })
         .map(|e| e.path())
         .filter(|p| p.join("archive.json").exists())
         .max();
@@ -51,7 +57,10 @@ fn main() {
     // $ORIGIN rpath: the cdylib links libcef.so dynamically; the runtime
     // tree is staged beside it in dist/<plat>-<arch>/ and in packaged
     // output. Without this the loader only searches system paths.
-    if env::var("TARGET").map(|t| t.contains("linux")).unwrap_or(false) {
+    if env::var("TARGET")
+        .map(|t| t.contains("linux"))
+        .unwrap_or(false)
+    {
         println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN");
     }
 }

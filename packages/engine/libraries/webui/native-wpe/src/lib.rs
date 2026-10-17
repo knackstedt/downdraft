@@ -23,8 +23,8 @@
 #![allow(non_snake_case)]
 #![allow(non_camel_case_types)]
 
-use downdraft_webui_common as common;
 use common::{ev_console, ev_eval, ev_message, Rect, Registry, ViewCore};
+use downdraft_webui_common as common;
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::ptr;
@@ -523,8 +523,7 @@ extern "C" fn frame_displayed_tick(data: gpointer) -> c_int {
 #[cfg(target_os = "android")]
 fn alog(msg: &std::ffi::CStr) {
     unsafe extern "C" {
-        fn __android_log_write(prio: c_int, tag: *const c_char, text: *const c_char)
-            -> c_int;
+        fn __android_log_write(prio: c_int, tag: *const c_char, text: *const c_char) -> c_int;
     }
     unsafe {
         __android_log_write(4, c"WPE-DD".as_ptr(), msg.as_ptr());
@@ -573,30 +572,31 @@ mod wpe_thread {
                         .ok()
                         .and_then(|v| usize::from_str_radix(v.trim_start_matches("0x"), 16).ok())
                     {
-                        Some(vm_ptr) => match unsafe {
-                            jni::JavaVM::from_raw(vm_ptr as *mut jni::sys::JavaVM)
-                        } {
-                            Ok(vm) => match vm.attach_current_thread() {
-                                Ok(mut env) => {
-                                    match env.call_static_method(
-                                        "android/os/Looper",
-                                        "prepare",
-                                        "()V",
-                                        &[],
-                                    ) {
-                                        Ok(_) => crate::alog(c"wpe-dd: looper prepared"),
-                                        Err(e) => crate::alogf!(
-                                            "wpe-dd: Looper.prepare failed: {e:?}"
-                                        ),
+                        Some(vm_ptr) => {
+                            match unsafe { jni::JavaVM::from_raw(vm_ptr as *mut jni::sys::JavaVM) }
+                            {
+                                Ok(vm) => match vm.attach_current_thread() {
+                                    Ok(mut env) => {
+                                        match env.call_static_method(
+                                            "android/os/Looper",
+                                            "prepare",
+                                            "()V",
+                                            &[],
+                                        ) {
+                                            Ok(_) => crate::alog(c"wpe-dd: looper prepared"),
+                                            Err(e) => crate::alogf!(
+                                                "wpe-dd: Looper.prepare failed: {e:?}"
+                                            ),
+                                        }
+                                        // Stay attached — the worker IS this looper's
+                                        // thread for its whole lifetime.
+                                        std::mem::forget(env);
                                     }
-                                    // Stay attached — the worker IS this looper's
-                                    // thread for its whole lifetime.
-                                    std::mem::forget(env);
-                                }
-                                Err(e) => crate::alogf!("wpe-dd: attach failed: {e:?}"),
-                            },
-                            Err(e) => crate::alogf!("wpe-dd: JavaVM::from_raw failed: {e:?}"),
-                        },
+                                    Err(e) => crate::alogf!("wpe-dd: attach failed: {e:?}"),
+                                },
+                                Err(e) => crate::alogf!("wpe-dd: JavaVM::from_raw failed: {e:?}"),
+                            }
+                        }
                         None => crate::alog(c"wpe-dd: DD_ANDROID_JVM_PTR unset"),
                     }
                 }
@@ -769,10 +769,7 @@ extern "C" fn export_dmabuf_resource(data: gpointer, resource: gpointer) {
             }
         }
         if !dmabuf.buffer_resource.is_null() {
-            wpe_view_backend_exportable_fdo_dispatch_release_buffer(
-                exp,
-                dmabuf.buffer_resource,
-            );
+            wpe_view_backend_exportable_fdo_dispatch_release_buffer(exp, dmabuf.buffer_resource);
         }
         wpe_view_backend_exportable_fdo_dispatch_frame_complete(exp);
     }
@@ -798,12 +795,11 @@ extern "C" fn export_shm_buffer(data: gpointer, exported: gpointer) {
                 let bh = wl_shm_buffer_get_height(shm).max(0) as u32;
                 let mut core = shared.lock();
                 let (w, h) = (core.frame.w.min(bw), core.frame.h.min(bh));
-                let src = std::slice::from_raw_parts(
-                    pixels as *const u8,
-                    stride as usize * bh as usize,
-                );
+                let src =
+                    std::slice::from_raw_parts(pixels as *const u8, stride as usize * bh as usize);
                 if w > 0 && h > 0 {
-                    core.frame.write_rows(Rect::new(0, 0, w, h), src, stride as usize);
+                    core.frame
+                        .write_rows(Rect::new(0, 0, w, h), src, stride as usize);
                 }
             }
         }
@@ -967,10 +963,7 @@ extern "C" fn sc_on_complete(ctx: gpointer, stats: gpointer) {
         ASurfaceTransactionStats_getASurfaceControls(stats, &mut ctrls, &mut n);
         if !ctrls.is_null() {
             for i in 0..n {
-                let fd = ASurfaceTransactionStats_getPreviousReleaseFenceFd(
-                    stats,
-                    *ctrls.add(i),
-                );
+                let fd = ASurfaceTransactionStats_getPreviousReleaseFenceFd(stats, *ctrls.add(i));
                 if fence == -1 {
                     fence = fd;
                 } else if fd != -1 {
@@ -980,11 +973,7 @@ extern "C" fn sc_on_complete(ctx: gpointer, stats: gpointer) {
             ASurfaceTransactionStats_releaseASurfaceControls(ctrls);
         }
     }
-    let mut sc = ctx
-        .shared
-        .sc
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let mut sc = ctx.shared.sc.lock().unwrap_or_else(|e| e.into_inner());
     if !ctx.prev.is_null() {
         sc.pending.push_back((ctx.prev, fence));
     } else if fence >= 0 {
@@ -996,7 +985,11 @@ extern "C" fn sc_on_complete(ctx: gpointer, stats: gpointer) {
 /// sync_file fd signaled? poll() returns POLLIN once it fires.
 #[cfg(target_os = "android")]
 fn sc_fence_signaled(fd: c_int) -> bool {
-    let mut pfd = ScPollFd { fd, events: 0x1, revents: 0 }; // POLLIN
+    let mut pfd = ScPollFd {
+        fd,
+        events: 0x1,
+        revents: 0,
+    }; // POLLIN
     unsafe { poll(&mut pfd, 1, 0) > 0 && pfd.revents != 0 }
 }
 
@@ -1050,8 +1043,7 @@ extern "C" fn on_commit_buffer(data: gpointer, buffer: gpointer, fence: c_int) {
             AHardwareBuffer_describe(ahb, &mut desc);
             let mut vaddr: *mut c_void = ptr::null_mut();
             let lockrc = AHardwareBuffer_lock(ahb, AHB_CPU_READ, fence, ptr::null(), &mut vaddr);
-            if lockrc == 0 && !vaddr.is_null()
-            {
+            if lockrc == 0 && !vaddr.is_null() {
                 let mut core = shared.lock();
                 let (w, h) = (core.frame.w.min(desc.width), core.frame.h.min(desc.height));
                 let bpp = match desc.format {
@@ -1060,11 +1052,12 @@ extern "C" fn on_commit_buffer(data: gpointer, buffer: gpointer, fence: c_int) {
                 };
                 if bpp > 0 && w > 0 && h > 0 {
                     let row_bytes = desc.stride as usize * bpp;
-                    let src =
-                        std::slice::from_raw_parts(vaddr as *const u8, row_bytes * desc.height as usize);
+                    let src = std::slice::from_raw_parts(
+                        vaddr as *const u8,
+                        row_bytes * desc.height as usize,
+                    );
                     if desc.format == AHB_FMT_BGRA {
-                        core.frame
-                            .write_rows(Rect::new(0, 0, w, h), src, row_bytes);
+                        core.frame.write_rows(Rect::new(0, 0, w, h), src, row_bytes);
                     } else {
                         // RGBA/RGBX → BGRA: per-pixel byte swap into a
                         // scratch row buffer, then write_rows.
@@ -1177,38 +1170,45 @@ fn init_android_runtime() -> bool {
     // The attach + WKRuntime call runs on the dedicated WPE worker —
     // a plain pthread ART can attach (the 32 MiB JS thread fails
     // Thread::Attach's stack sanity check and aborts).
-    let res = wpe_thread::call(move || -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        use jni::objects::{JClass, JObject, JValue};
-        let vm = unsafe { jni::JavaVM::from_raw(vm_addr as *mut jni::sys::JavaVM) }?;
-        let mut env = vm.attach_current_thread()?;
-        let ctx_obj = std::mem::ManuallyDrop::new(unsafe {
-            JObject::from_raw(ctx_addr as jni::sys::jobject)
-        });
-        // context.getClassLoader().loadClass("org.wpewebkit.wpe.WKRuntime")
-        let loader = env
-            .call_method(&*ctx_obj, "getClassLoader", "()Ljava/lang/ClassLoader;", &[])?
-            .l()?;
-        let name = env.new_string("org.wpewebkit.wpe.WKRuntime")?;
-        let cls: JClass = env
-            .call_method(
-                loader,
-                "loadClass",
-                "(Ljava/lang/String;)Ljava/lang/Class;",
-                &[JValue::Object(&name)],
-            )?
-            .l()?
-            .into();
-        let rt = env
-            .call_static_method(cls, "getInstance", "()Lorg/wpewebkit/wpe/WKRuntime;", &[])?
-            .l()?;
-        env.call_method(
-            rt,
-            "initialize",
-            "(Landroid/content/Context;)V",
-            &[JValue::Object(&*ctx_obj)],
-        )?;
-        Ok(())
-    });
+    let res = wpe_thread::call(
+        move || -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            use jni::objects::{JClass, JObject, JValue};
+            let vm = unsafe { jni::JavaVM::from_raw(vm_addr as *mut jni::sys::JavaVM) }?;
+            let mut env = vm.attach_current_thread()?;
+            let ctx_obj = std::mem::ManuallyDrop::new(unsafe {
+                JObject::from_raw(ctx_addr as jni::sys::jobject)
+            });
+            // context.getClassLoader().loadClass("org.wpewebkit.wpe.WKRuntime")
+            let loader = env
+                .call_method(
+                    &*ctx_obj,
+                    "getClassLoader",
+                    "()Ljava/lang/ClassLoader;",
+                    &[],
+                )?
+                .l()?;
+            let name = env.new_string("org.wpewebkit.wpe.WKRuntime")?;
+            let cls: JClass = env
+                .call_method(
+                    loader,
+                    "loadClass",
+                    "(Ljava/lang/String;)Ljava/lang/Class;",
+                    &[JValue::Object(&name)],
+                )?
+                .l()?
+                .into();
+            let rt = env
+                .call_static_method(cls, "getInstance", "()Lorg/wpewebkit/wpe/WKRuntime;", &[])?
+                .l()?;
+            env.call_method(
+                rt,
+                "initialize",
+                "(Landroid/content/Context;)V",
+                &[JValue::Object(&*ctx_obj)],
+            )?;
+            Ok(())
+        },
+    );
     res.map(|r| r.is_ok()).unwrap_or(false)
 }
 
@@ -1247,7 +1247,6 @@ extern "C" fn on_load_changed(view: gpointer, event: c_int, data: gpointer) {
         }
     }
 }
-
 
 /// script-message-received::downdraft — page→host messages. The JSCValue is
 /// serialized to JSON so structured payloads round-trip intact. The shim's
@@ -1309,7 +1308,9 @@ extern "C" fn eval_ready(source: gpointer, result: gpointer, data: gpointer) {
             if err.is_null() {
                 "eval failed".to_string()
             } else {
-                let m = CStr::from_ptr((*err).message).to_string_lossy().into_owned();
+                let m = CStr::from_ptr((*err).message)
+                    .to_string_lossy()
+                    .into_owned();
                 g_error_free(err);
                 m
             }
@@ -1387,7 +1388,11 @@ fn keysym_of(key: &str, code: &str, text: Option<&str>) -> u32 {
                         0
                     }
                 }
-                _ => code.chars().last().map(|c| c.to_ascii_lowercase() as u32).unwrap_or(0),
+                _ => code
+                    .chars()
+                    .last()
+                    .map(|c| c.to_ascii_lowercase() as u32)
+                    .unwrap_or(0),
             }
         }
     }
@@ -1419,20 +1424,54 @@ fn hwcode_of(code: &str) -> u32 {
         _ => {
             // KeyA..KeyZ → 30..48 (not contiguous past P — use table).
             const KEY: &[(&str, u32)] = &[
-                ("KeyQ", 16), ("KeyW", 17), ("KeyE", 18), ("KeyR", 19), ("KeyT", 20),
-                ("KeyY", 21), ("KeyU", 22), ("KeyI", 23), ("KeyO", 24), ("KeyP", 25),
-                ("KeyA", 30), ("KeyS", 31), ("KeyD", 32), ("KeyF", 33), ("KeyG", 34),
-                ("KeyH", 35), ("KeyJ", 36), ("KeyK", 37), ("KeyL", 38),
-                ("KeyZ", 44), ("KeyX", 45), ("KeyC", 46), ("KeyV", 47), ("KeyB", 48),
-                ("KeyN", 49), ("KeyM", 50),
-                ("Digit1", 2), ("Digit2", 3), ("Digit3", 4), ("Digit4", 5),
-                ("Digit5", 6), ("Digit6", 7), ("Digit7", 8), ("Digit8", 9),
-                ("Digit9", 10), ("Digit0", 11),
+                ("KeyQ", 16),
+                ("KeyW", 17),
+                ("KeyE", 18),
+                ("KeyR", 19),
+                ("KeyT", 20),
+                ("KeyY", 21),
+                ("KeyU", 22),
+                ("KeyI", 23),
+                ("KeyO", 24),
+                ("KeyP", 25),
+                ("KeyA", 30),
+                ("KeyS", 31),
+                ("KeyD", 32),
+                ("KeyF", 33),
+                ("KeyG", 34),
+                ("KeyH", 35),
+                ("KeyJ", 36),
+                ("KeyK", 37),
+                ("KeyL", 38),
+                ("KeyZ", 44),
+                ("KeyX", 45),
+                ("KeyC", 46),
+                ("KeyV", 47),
+                ("KeyB", 48),
+                ("KeyN", 49),
+                ("KeyM", 50),
+                ("Digit1", 2),
+                ("Digit2", 3),
+                ("Digit3", 4),
+                ("Digit4", 5),
+                ("Digit5", 6),
+                ("Digit6", 7),
+                ("Digit7", 8),
+                ("Digit8", 9),
+                ("Digit9", 10),
+                ("Digit0", 11),
             ];
-            KEY.iter().find(|(c, _)| *c == code).map(|(_, n)| *n).unwrap_or(0)
+            KEY.iter()
+                .find(|(c, _)| *c == code)
+                .map(|(_, n)| *n)
+                .unwrap_or(0)
         }
     };
-    if evdev == 0 { 0 } else { evdev + 8 }
+    if evdev == 0 {
+        0
+    } else {
+        evdev + 8
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1454,8 +1493,7 @@ pub extern "C" fn dd_webui_global_init(opts_json: *const c_char) -> c_int {
             // touch never happens on an FFI caller's foreign stack (node's
             // koffi trampoline — see "Dedicated WebKit thread" above).
             let opts_jsonp = opts_json as usize;
-            let rc = ui_run(move || global_init_desktop(opts_jsonp as *const c_char))
-                .unwrap_or(-1);
+            let rc = ui_run(move || global_init_desktop(opts_jsonp as *const c_char)).unwrap_or(-1);
             if rc != 0 {
                 INITIALIZED.store(false, Ordering::Release);
                 return -1;
@@ -1496,7 +1534,10 @@ fn global_init_desktop(opts_json: *const c_char) -> c_int {
     // helper and aborts the whole process — fail init instead so the
     // host can pick another backend / fall back.
     const LIBEXEC_DIR: &str = "/usr/lib/x86_64-linux-gnu/wpe-webkit-2.0";
-    if !std::path::Path::new(LIBEXEC_DIR).join("WPEWebProcess").exists() {
+    if !std::path::Path::new(LIBEXEC_DIR)
+        .join("WPEWebProcess")
+        .exists()
+    {
         return -2;
     }
     if let Some(p) = opt_str(opts, "wpePrefix") {
@@ -1507,7 +1548,10 @@ fn global_init_desktop(opts_json: *const c_char) -> c_int {
             // to libWPEBackend-default.so, which doesn't exist).
             std::env::set_var(
                 "LD_LIBRARY_PATH",
-                format!("{p}/lib:{}", std::env::var("LD_LIBRARY_PATH").unwrap_or_default()),
+                format!(
+                    "{p}/lib:{}",
+                    std::env::var("LD_LIBRARY_PATH").unwrap_or_default()
+                ),
             );
             std::env::set_var(
                 "WPE_BACKEND_LIBRARY",
@@ -1562,21 +1606,14 @@ pub extern "C" fn dd_webui_create(
     width: c_int,
     height: c_int,
     scale: f32,
-) -> *mut c_void  {
+) -> *mut c_void {
     let opts_jsonp = opts_json as usize;
-    ui_run(move || {
-        create_impl(opts_jsonp as *const c_char, width, height, scale) as usize
-    })
-    .map(|p| p as *mut c_void)
-    .unwrap_or(std::ptr::null_mut())
+    ui_run(move || create_impl(opts_jsonp as *const c_char, width, height, scale) as usize)
+        .map(|p| p as *mut c_void)
+        .unwrap_or(std::ptr::null_mut())
 }
 
-fn create_impl(
-    opts_json: *const c_char,
-    width: c_int,
-    height: c_int,
-    scale: f32,
-) -> *mut c_void  {
+fn create_impl(opts_json: *const c_char, width: c_int, height: c_int, scale: f32) -> *mut c_void {
     ftry!(ptr::null_mut(), {
         if !INITIALIZED.load(Ordering::Acquire) {
             return ptr::null_mut();
@@ -1627,7 +1664,11 @@ fn create_impl(
                 } else {
                     wpe_view_backend_exportable_fdo_get_view_backend(exp)
                 };
-                (exp, wb, exportable_destroy_notify as extern "C" fn(gpointer))
+                (
+                    exp,
+                    wb,
+                    exportable_destroy_notify as extern "C" fn(gpointer),
+                )
             };
             #[cfg(target_os = "android")]
             let (exportable, wpe_backend, destroy_fn) = {
@@ -1635,11 +1676,7 @@ fn create_impl(
                 let wb = if exp.is_null() {
                     ptr::null_mut()
                 } else {
-                    WPEAndroidViewBackend_setCommitBufferHandler(
-                        exp,
-                        data,
-                        on_commit_buffer,
-                    );
+                    WPEAndroidViewBackend_setCommitBufferHandler(exp, data, on_commit_buffer);
                     WPEAndroidViewBackend_getWPEViewBackend(exp)
                 };
                 // Displayed presentation path: an ASurfaceControl child
@@ -1650,7 +1687,11 @@ fn create_impl(
                 // isn't up yet the tick retries; until then commits take
                 // the headless path (instant release + frameComplete).
                 sc_try_init(&shared);
-                (exp, wb, android_backend_destroy_notify as extern "C" fn(gpointer))
+                (
+                    exp,
+                    wb,
+                    android_backend_destroy_notify as extern "C" fn(gpointer),
+                )
             };
 
             if exportable.is_null() || wpe_backend.is_null() {
@@ -1693,7 +1734,12 @@ fn create_impl(
             if transparent {
                 webkit_web_view_set_background_color(
                     view,
-                    &WebKitColor { red: 0.0, green: 0.0, blue: 0.0, alpha: 0.0 },
+                    &WebKitColor {
+                        red: 0.0,
+                        green: 0.0,
+                        blue: 0.0,
+                        alpha: 0.0,
+                    },
                 );
             }
             let settings = webkit_settings_new();
@@ -1734,7 +1780,12 @@ fn create_impl(
             }
 
             connect(view, "load-changed", on_load_changed as gpointer, data);
-            connect(view, "web-process-terminated", on_web_process_terminated as gpointer, data);
+            connect(
+                view,
+                "web-process-terminated",
+                on_web_process_terminated as gpointer,
+                data,
+            );
 
             // Size + scale + activity state — without "visible" the
             // WebProcess may throttle repaints entirely (android WPE
@@ -1758,8 +1809,11 @@ fn create_impl(
             if let Some(ia) = opt_bool(opts, "interactive") {
                 v.shared.lock().interactive = ia;
             }
-            *v.url.lock().unwrap_or_else(|e| e.into_inner()) =
-                if html.is_empty() { url.clone() } else { String::new() };
+            *v.url.lock().unwrap_or_else(|e| e.into_inner()) = if html.is_empty() {
+                url.clone()
+            } else {
+                String::new()
+            };
             let handle = Box::into_raw(v) as *mut c_void;
             Registry::register(handle as usize);
 
@@ -1794,8 +1848,12 @@ fn destroy_impl(h: *mut c_void) {
         Registry::unregister(h as usize);
         let view = unsafe { Box::from_raw(v) };
         let webview = view.webview.swap(ptr::null_mut(), Ordering::AcqRel);
-        view.shared.exportable.store(ptr::null_mut(), Ordering::Release);
-        view.shared.backend.store(ptr::null_mut(), Ordering::Release);
+        view.shared
+            .exportable
+            .store(ptr::null_mut(), Ordering::Release);
+        view.shared
+            .backend
+            .store(ptr::null_mut(), Ordering::Release);
         #[cfg(target_os = "android")]
         {
             let mut sc = view.shared.sc.lock().unwrap_or_else(|e| e.into_inner());
@@ -1903,7 +1961,10 @@ fn resize_impl(h: *mut c_void, w: c_int, hgt: c_int, scale: f32) {
                     // Logical px — see create_impl; the buffer side still
                     // tracks physical pw/ph.
                     wpe_view_backend_dispatch_set_size(backend, w.max(1) as u32, hgt.max(1) as u32);
-                    wpe_view_backend_dispatch_set_device_scale_factor(backend, scale.clamp(0.05, 5.0));
+                    wpe_view_backend_dispatch_set_device_scale_factor(
+                        backend,
+                        scale.clamp(0.05, 5.0),
+                    );
                 }
             }
             v.shared
@@ -2049,9 +2110,7 @@ fn post_message_impl(h: *mut c_void, json: *const c_char) {
             if let Some(m) = unsafe { cstr(json) } {
                 // The payload is already JSON — embed it literally so the
                 // page receives the original structured value.
-                let code = format!(
-                    "window.__ddDispatch && window.__ddDispatch({m})"
-                );
+                let code = format!("window.__ddDispatch && window.__ddDispatch({m})");
                 let c = CString::new(code).unwrap();
                 let ctx = Box::into_raw(Box::new(EvalCtx {
                     shared: v.shared.clone(),
@@ -2082,16 +2141,19 @@ pub extern "C" fn dd_webui_poll_events(
     h: *mut c_void,
     out_ptr: *mut *const u8,
     out_len: *mut usize,
-) -> c_int  {
+) -> c_int {
     let (hp, out_ptrp, out_lenp) = (h as usize, out_ptr as usize, out_len as usize);
-    ui_run(move || poll_events_impl((hp as *mut c_void), (out_ptrp as *mut *const u8), (out_lenp as *mut usize))).unwrap_or(0)
+    ui_run(move || {
+        poll_events_impl(
+            (hp as *mut c_void),
+            (out_ptrp as *mut *const u8),
+            (out_lenp as *mut usize),
+        )
+    })
+    .unwrap_or(0)
 }
 
-fn poll_events_impl(
-    h: *mut c_void,
-    out_ptr: *mut *const u8,
-    out_len: *mut usize,
-) -> c_int  {
+fn poll_events_impl(h: *mut c_void, out_ptr: *mut *const u8, out_len: *mut usize) -> c_int {
     ftry!(0, {
         unsafe {
             if !out_ptr.is_null() {
@@ -2239,7 +2301,17 @@ pub extern "C" fn dd_webui_input_key(
     _repeat: c_int,
 ) {
     let (hp, keyp, codep, textp) = (h as usize, key as usize, code as usize, text as usize);
-    let _ = ui_run(move || input_key_impl((hp as *mut c_void), t, (keyp as *const c_char), (codep as *const c_char), (textp as *const c_char), mods, _repeat));
+    let _ = ui_run(move || {
+        input_key_impl(
+            (hp as *mut c_void),
+            t,
+            (keyp as *const c_char),
+            (codep as *const c_char),
+            (textp as *const c_char),
+            mods,
+            _repeat,
+        )
+    });
 }
 
 fn input_key_impl(
@@ -2262,10 +2334,7 @@ fn input_key_impl(
             let text_s = unsafe { cstr(text) };
             // Our mods (1=shift 2=ctrl 4=alt 8=meta) → wpe_input_modifier
             // (ctrl=1 shift=2 alt=4 meta=8).
-            let wm = (((mods & 2) >> 1)
-                | ((mods & 1) << 1)
-                | (mods & 4)
-                | (mods & 8)) as u32;
+            let wm = (((mods & 2) >> 1) | ((mods & 1) << 1) | (mods & 4) | (mods & 8)) as u32;
             let ev = WpeKeyboardEvent {
                 time: now_ms(),
                 key_code: keysym_of(key_s, code_s, text_s),
@@ -2361,12 +2430,12 @@ fn input_ime_impl(h: *mut c_void, t: c_int, s: *const c_char) {
 /// Dirty union as packed u64 (x<<48|y<<32|w<<16|h) — clears the pending
 /// flag. 0 = no new frame.
 #[no_mangle]
-pub extern "C" fn dd_webui_take_frame(h: *mut c_void) -> u64  {
+pub extern "C" fn dd_webui_take_frame(h: *mut c_void) -> u64 {
     let (hp) = (h as usize);
     ui_run(move || take_frame_impl((hp as *mut c_void))).unwrap_or(0)
 }
 
-fn take_frame_impl(h: *mut c_void) -> u64  {
+fn take_frame_impl(h: *mut c_void) -> u64 {
     ftry!(0, {
         pump();
         with_view!(h, 0, |v| {
@@ -2402,12 +2471,12 @@ fn frame_rect_impl(h: *mut c_void) -> u64 {
 }
 
 #[no_mangle]
-pub extern "C" fn dd_webui_frame_pending(h: *mut c_void) -> c_int  {
+pub extern "C" fn dd_webui_frame_pending(h: *mut c_void) -> c_int {
     let (hp) = (h as usize);
     ui_run(move || frame_pending_impl((hp as *mut c_void))).unwrap_or(0)
 }
 
-fn frame_pending_impl(h: *mut c_void) -> c_int  {
+fn frame_pending_impl(h: *mut c_void) -> c_int {
     ftry!(0, {
         pump();
         with_view!(h, 0, |v| v.shared.lock().frame.pending() as c_int)
@@ -2417,8 +2486,7 @@ fn frame_pending_impl(h: *mut c_void) -> c_int  {
 #[no_mangle]
 pub extern "C" fn dd_webui_pixels(h: *mut c_void) -> *const u8 {
     let hp = h as usize;
-    ui_run(move || pixels_impl(hp as *mut c_void) as usize)
-        .unwrap_or(0) as *const u8
+    ui_run(move || pixels_impl(hp as *mut c_void) as usize).unwrap_or(0) as *const u8
 }
 
 fn pixels_impl(h: *mut c_void) -> *const u8 {
@@ -2444,8 +2512,7 @@ fn pixels_len_impl(h: *mut c_void) -> usize {
 #[no_mangle]
 pub extern "C" fn dd_webui_dimensions(h: *mut c_void, w: *mut u32, hgt: *mut u32) -> c_int {
     let (hp, wp, hp2) = (h as usize, w as usize, hgt as usize);
-    ui_run(move || dimensions_impl(hp as *mut c_void, wp as *mut u32, hp2 as *mut u32))
-        .unwrap_or(0)
+    ui_run(move || dimensions_impl(hp as *mut c_void, wp as *mut u32, hp2 as *mut u32)).unwrap_or(0)
 }
 
 fn dimensions_impl(h: *mut c_void, w: *mut u32, hgt: *mut u32) -> c_int {
@@ -2498,8 +2565,7 @@ fn buf_needed_impl(h: *mut c_void) -> usize {
 #[no_mangle]
 pub extern "C" fn dd_webui_bind_frame_buf(h: *mut c_void, ptr: *mut u8, len: usize) -> c_int {
     let (hp, pp) = (h as usize, ptr as usize);
-    ui_run(move || bind_frame_buf_impl(hp as *mut c_void, pp as *mut u8, len))
-        .unwrap_or(-1)
+    ui_run(move || bind_frame_buf_impl(hp as *mut c_void, pp as *mut u8, len)).unwrap_or(-1)
 }
 
 fn bind_frame_buf_impl(h: *mut c_void, ptr: *mut u8, len: usize) -> c_int {
@@ -2512,12 +2578,12 @@ fn bind_frame_buf_impl(h: *mut c_void, ptr: *mut u8, len: usize) -> c_int {
 }
 
 #[no_mangle]
-pub extern "C" fn dd_webui_frame_into(h: *mut c_void) -> c_int  {
+pub extern "C" fn dd_webui_frame_into(h: *mut c_void) -> c_int {
     let (hp) = (h as usize);
     ui_run(move || frame_into_impl((hp as *mut c_void))).unwrap_or(-1)
 }
 
-fn frame_into_impl(h: *mut c_void) -> c_int  {
+fn frame_into_impl(h: *mut c_void) -> c_int {
     ftry!(-1, {
         pump();
         with_view!(h, -1, |v| v.shared.lock().frame.frame_into(false))
@@ -2525,12 +2591,12 @@ fn frame_into_impl(h: *mut c_void) -> c_int  {
 }
 
 #[no_mangle]
-pub extern "C" fn dd_webui_refresh_into(h: *mut c_void) -> c_int  {
+pub extern "C" fn dd_webui_refresh_into(h: *mut c_void) -> c_int {
     let (hp) = (h as usize);
     ui_run(move || refresh_into_impl((hp as *mut c_void))).unwrap_or(-1)
 }
 
-fn refresh_into_impl(h: *mut c_void) -> c_int  {
+fn refresh_into_impl(h: *mut c_void) -> c_int {
     ftry!(-1, {
         pump();
         with_view!(h, -1, |v| v.shared.lock().frame.frame_into(true))
@@ -2564,8 +2630,8 @@ fn hit_test_impl(h: *mut c_void, x: f32, y: f32) -> c_int {
             if !v.transparent {
                 return 1;
             }
-            let px = &core.frame.pixels()
-                [(fy as usize * core.frame.w as usize + fx as usize) * 4..];
+            let px =
+                &core.frame.pixels()[(fy as usize * core.frame.w as usize + fx as usize) * 4..];
             (px.len() >= 4 && px[3] > 8) as c_int
         })
     })
@@ -2578,9 +2644,7 @@ pub extern "C" fn dd_webui_status(h: *mut c_void) -> c_int {
 }
 
 fn status_impl(h: *mut c_void) -> c_int {
-    ftry!(-1, {
-        with_view!(h, -1, |v| v.shared.lock().status)
-    })
+    ftry!(-1, { with_view!(h, -1, |v| v.shared.lock().status) })
 }
 
 #[no_mangle]
@@ -2590,20 +2654,18 @@ pub extern "C" fn dd_webui_crash_count(h: *mut c_void) -> usize {
 }
 
 fn crash_count_impl(h: *mut c_void) -> usize {
-    ftry!(0, {
-        with_view!(h, 0, |v| v.shared.lock().crash_count)
-    })
+    ftry!(0, { with_view!(h, 0, |v| v.shared.lock().crash_count) })
 }
 
 /// Ask the backend to respawn a crashed/failed view — reloads the last
 /// URL (or the blank page) on the surviving WebKitWebView.
 #[no_mangle]
-pub extern "C" fn dd_webui_recover(h: *mut c_void) -> c_int  {
+pub extern "C" fn dd_webui_recover(h: *mut c_void) -> c_int {
     let (hp) = (h as usize);
     ui_run(move || recover_impl((hp as *mut c_void))).unwrap_or(-1)
 }
 
-fn recover_impl(h: *mut c_void) -> c_int  {
+fn recover_impl(h: *mut c_void) -> c_int {
     ftry!(-1, {
         with_view!(h, -1, |v| {
             let view = v.webview.load(Ordering::Acquire);

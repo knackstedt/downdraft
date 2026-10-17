@@ -1,5 +1,5 @@
-use rapier3d::prelude::*;
 use crate::world::PhysicsWorld;
+use rapier3d::prelude::*;
 
 // ── dd_create_joint descriptor layout ────────────────────────────────────
 // jtype: 0=fixed, 1=spherical ("cone-twist" in the JS API), 2=revolute,

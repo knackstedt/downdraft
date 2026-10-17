@@ -1,7 +1,7 @@
+use crate::world::PhysicsWorld;
 use rapier3d::parry::query::ShapeCastOptions;
 use rapier3d::prelude::*;
 use std::collections::HashSet;
-use crate::world::PhysicsWorld;
 
 fn ray_filter(realm: &PhysicsWorld, groups: u32, exclude_body: i32) -> QueryFilter<'static> {
     let mut filter = QueryFilter::default();
@@ -49,8 +49,7 @@ pub unsafe fn raycast(
     );
     let filter = ray_filter(realm, groups, exclude_body);
     let qp = realm.queries(filter);
-    let Some((handle, hit)) = qp.cast_ray_and_get_normal(&ray, max_distance, true)
-    else {
+    let Some((handle, hit)) = qp.cast_ray_and_get_normal(&ray, max_distance, true) else {
         return 0;
     };
     let o = std::slice::from_raw_parts_mut(out, 8);
@@ -154,8 +153,15 @@ pub unsafe fn get_contacts(
                 }
                 let (a, b) = pair.collider1.into_raw_parts();
                 let (c, d) = pair.collider2.into_raw_parts();
-                let (ka, kb) = if (a, b) <= (c, d) { ((a, b), (c, d)) } else { ((c, d), (a, b)) };
-                if !seen.insert((ka.0 as u32 | ((ka.1 as u32) << 16), kb.0 as u32 | ((kb.1 as u32) << 16))) {
+                let (ka, kb) = if (a, b) <= (c, d) {
+                    ((a, b), (c, d))
+                } else {
+                    ((c, d), (a, b))
+                };
+                if !seen.insert((
+                    ka.0 as u32 | ((ka.1 as u32) << 16),
+                    kb.0 as u32 | ((kb.1 as u32) << 16),
+                )) {
                     continue;
                 }
                 let Some(col2) = realm.colliders.get(pair.collider2) else {
@@ -211,11 +217,7 @@ pub unsafe fn get_contacts(
 ///
 /// # Safety
 /// `out_i` ≥ max*2 i32.
-pub unsafe fn get_intersections(
-    realm: &PhysicsWorld,
-    out_i: *mut i32,
-    max_pairs: usize,
-) -> i32 {
+pub unsafe fn get_intersections(realm: &PhysicsWorld, out_i: *mut i32, max_pairs: usize) -> i32 {
     let ii = std::slice::from_raw_parts_mut(out_i, max_pairs * 2);
     let mut seen: HashSet<(u32, u32)> = HashSet::new();
     let mut written = 0usize;
@@ -230,7 +232,11 @@ pub unsafe fn get_intersections(
                 }
                 let (a, _) = ca.into_raw_parts();
                 let (b, _) = cb.into_raw_parts();
-                let key = if a <= b { (a as u32, b as u32) } else { (b as u32, a as u32) };
+                let key = if a <= b {
+                    (a as u32, b as u32)
+                } else {
+                    (b as u32, a as u32)
+                };
                 if !seen.insert(key) {
                     continue;
                 }

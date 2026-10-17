@@ -1,11 +1,11 @@
 mod engine;
-mod source;
 mod mixer;
+mod source;
 
-use std::os::raw::{c_int, c_float};
+use engine::AudioEngine;
+use std::os::raw::{c_float, c_int};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::Mutex;
-use engine::AudioEngine;
 
 static AUDIO_STATE: Mutex<Option<AudioEngine>> = Mutex::new(None);
 
@@ -61,9 +61,7 @@ pub extern "C" fn dd_audio_load_buffer(
             return -1;
         }
 
-        let data = unsafe {
-            std::slice::from_raw_parts(data_ptr, data_len)
-        };
+        let data = unsafe { std::slice::from_raw_parts(data_ptr, data_len) };
 
         source::load_buffer(state, data, format)
     })
@@ -83,11 +81,7 @@ pub extern "C" fn dd_audio_unload_buffer(buffer_id: c_int) -> c_int {
 }
 
 #[no_mangle]
-pub extern "C" fn dd_audio_play(
-    buffer_id: c_int,
-    loop_sound: c_int,
-    volume: c_float,
-) -> c_int {
+pub extern "C" fn dd_audio_play(buffer_id: c_int, loop_sound: c_int, volume: c_float) -> c_int {
     ffi(|| {
         let mut state = AUDIO_STATE.lock().unwrap();
         let state = match state.as_mut() {

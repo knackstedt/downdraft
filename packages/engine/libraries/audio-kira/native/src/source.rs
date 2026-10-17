@@ -1,7 +1,7 @@
-use std::io::Cursor;
+use crate::engine::{amp_to_db, AudioEngine};
 use kira::sound::static_sound::{StaticSoundData, StaticSoundSettings};
 use kira::Tween;
-use crate::engine::{amp_to_db, AudioEngine};
+use std::io::Cursor;
 
 // `format` is retained for FFI stability — kira's symphonia probe
 // auto-detects the container (wav/ogg/mp3/flac) from the bytes.
@@ -23,8 +23,7 @@ pub fn play(engine: &mut AudioEngine, buffer_id: i32, loop_sound: i32, volume: f
         None => return -1,
     };
 
-    let mut settings = StaticSoundSettings::new()
-        .volume(amp_to_db(volume));
+    let mut settings = StaticSoundSettings::new().volume(amp_to_db(volume));
     if loop_sound != 0 {
         // `..` = the whole sound, looped indefinitely.
         settings = settings.loop_region(..);
