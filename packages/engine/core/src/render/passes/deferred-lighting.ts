@@ -258,6 +258,10 @@ export class DeferredLightingPass extends RenderPass {
     if (!this.shaderModule) {
       this.shaderModule = createValidatedShaderModule(this.device, { code: DEFERRED_SHADER, label: "DeferredLightingPass" });
     }
+    // Buffers below are recreated — drop the cached bind group so it can't
+    // return a group bound to the dead buffers.
+    this.bindGroup = null;
+    this.bgKey = [];
 
     this.cameraBuffer = this.device.createBuffer({
       size: 208,

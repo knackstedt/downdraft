@@ -1094,7 +1094,7 @@ export class GameRenderer implements CanvasResizeHandler {
       if (!gpuError && this.device && this.context) {
         const compositors = this.uiCompositorOrder.filter((c) => c.hasContent());
         const uiCanvasView = compositors.length > 0
-          ? this.getFrameSurfaceTexture()?.createView()
+          ? (this.frameSurfaceView ?? this.getFrameSurfaceTexture()?.createView())
           : undefined;
         if (uiCanvasView) {
           const uiEncoder = this.device.createCommandEncoder();
@@ -1479,7 +1479,7 @@ export class GameRenderer implements CanvasResizeHandler {
   protected renderScreenUiCompositors(): void {
     const compositors = this.uiCompositorOrder.filter((c) => c.hasContent());
     if (compositors.length === 0 || !this.device || !this.context) return;
-    const canvasView = this.getFrameSurfaceTexture()?.createView();
+    const canvasView = this.frameSurfaceView ?? this.getFrameSurfaceTexture()?.createView();
     if (!canvasView) return;
     const uiEncoder = this.device.createCommandEncoder();
     const uiPass = uiEncoder.beginRenderPass({
@@ -1632,6 +1632,13 @@ export class GameRenderer implements CanvasResizeHandler {
     this.telemetryCollector = null;
     this.scaleOffscreen?.destroy();
     this.scaleOffscreen = null;
+    // Pass buffers + transient render targets (HDR, GBuffer, shadow maps)
+    // are renderer-owned — release them rather than waiting for GC/device
+    // teardown.
+    for (const pass of this.frameGraph.getPasses()) {
+      try { pass.destroy(); } catch { /* teardown is best-effort */ }
+    }
+    this.frameGraph.destroy();
     this.device = null;
     for (const entry of this.depthTextures.values()) {
       entry.texture.destroy();
