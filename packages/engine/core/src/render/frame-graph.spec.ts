@@ -308,6 +308,64 @@ describe("FrameGraph", () => {
     });
   });
 
+  describe("Viewport dedup", () => {
+    // Custom-type passes so execute() is invoked directly (no encoder needed).
+    class CountingPass extends RenderPass {
+      name: string;
+      passType: PassType = PassType.Custom;
+      count = 0;
+      constructor(name: string, viewDependent = true) {
+        super();
+        this.name = name;
+        this.viewDependent = viewDependent;
+      }
+      setup(): void {}
+      execute(): void { this.count++; }
+      prepare(): void {}
+    }
+
+    const ctxFor = (isFirst: boolean) =>
+      ({ isFirstViewport: isFirst, isLastViewport: isFirst }) as unknown as import("./frame-graph").RenderContext;
+
+    it("runs a view-independent pass only on the first viewport", () => {
+      const fg = new FrameGraph();
+      const pass = new CountingPass("shadow", false);
+      fg.addPass(pass);
+      fg.compile(mockDevice(), 800, 600);
+
+      fg.execute(ctxFor(true));
+      fg.execute(ctxFor(false));
+      fg.execute(ctxFor(false));
+
+      expect(pass.count).toBe(1);
+    });
+
+    it("runs view-dependent passes on every viewport", () => {
+      const fg = new FrameGraph();
+      const pass = new CountingPass("opaque", true);
+      fg.addPass(pass);
+      fg.compile(mockDevice(), 800, 600);
+
+      fg.execute(ctxFor(true));
+      fg.execute(ctxFor(false));
+
+      expect(pass.count).toBe(2);
+    });
+
+    it("is opt-in per instance after construction", () => {
+      const fg = new FrameGraph();
+      const pass = new CountingPass("graph-compute");
+      pass.viewDependent = false;
+      fg.addPass(pass);
+      fg.compile(mockDevice(), 800, 600);
+
+      fg.execute(ctxFor(true));
+      fg.execute(ctxFor(false));
+
+      expect(pass.count).toBe(1);
+    });
+  });
+
   describe("Destroy", () => {
     it("should clean up transient resources", () => {
       const fg = new FrameGraph();

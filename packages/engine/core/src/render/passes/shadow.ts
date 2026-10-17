@@ -28,6 +28,9 @@ fn vs_main(input: VertexInput) -> @builtin(position) vec4<f32> {
 export class ShadowPass extends RenderPass {
   name = "shadow";
   passType = PassType.Custom;
+  // Renders a light-space shadow map — identical for every viewport, so the
+  // frame graph executes it only on the first viewport.
+  override viewDependent = false;
   shadowHandle: TextureHandle | null = null;
   private device: GPUDevice;
   private pipelines: Map<number, GPURenderPipeline> = new Map();

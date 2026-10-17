@@ -397,9 +397,13 @@ export class FrameGraph {
   execute(ctx: RenderContext): GPUCommandBuffer | undefined {
     if (!this.compiled) return undefined;
 
-    // Run passes sequentially on the shared encoder.
+    // Run passes sequentially on the shared encoder. View-independent passes
+    // execute once per frame — their output is identical across viewports, so
+    // re-running them per viewport duplicates GPU work (e.g. re-rasterizing a
+    // light-space shadow map).
     for (let i = 0; i < this.executionOrder.length; i++) {
       const entry = this.executionOrder[i];
+      if (!ctx.isFirstViewport && !entry.pass.viewDependent) continue;
       if (entry.pass.passType === PassType.Render) {
         this.executeRenderPass(ctx, entry, i);
       } else {

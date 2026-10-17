@@ -276,9 +276,15 @@ export class GameRenderer implements CanvasResizeHandler {
   // Depth texture cache (used when the graph does not own depth)
   // LRU: Map insertion order = access order (delete + re-set on access).
   // Numeric key packs (w,h) — a `${w}x${h}` string key allocated a fresh
-  // string per lookup per viewport per frame.
-  private depthTextures = new Map<number, GPUTexture>();
+  // string per lookup per viewport per frame. The view is cached alongside
+  // so same-size viewports don't pay a createView() FFI call per frame.
+  private depthTextures = new Map<number, { texture: GPUTexture; view: GPUTextureView }>();
   private depthTextureCacheSize: number;
+
+  // Per-frame swapchain view — all non-XR viewports share the frame's
+  // surface texture, so getCurrentTexture()/createView() run once per frame
+  // instead of once per viewport. undefined = not yet acquired this frame.
+  private frameSurfaceView: GPUTextureView | null | undefined;
 
   // Frame stats
   private frameDrawCalls = 0;
@@ -614,6 +620,14 @@ export class GameRenderer implements CanvasResizeHandler {
       // the dead device and must not be reused.
       this.frameGraph.invalidatePhysicalResources();
       this.graphCompiled = false;
+      // The depth-texture cache and per-frame surface view also hold
+      // dead-device resources — drop them (destroy() on a lost device is a
+      // no-op in wgpu, but clears the JS-side stale handles either way).
+      for (const entry of this.depthTextures.values()) {
+        try { entry.texture.destroy(); } catch { /* dead-device resource */ }
+      }
+      this.depthTextures.clear();
+      this.frameSurfaceView = undefined;
 
       // Rebuild the resolution-scale targets on the new device (the old
       // textures died with the previous device).
@@ -955,6 +969,7 @@ export class GameRenderer implements CanvasResizeHandler {
     // rather than crossing into wgpu individually.
     const frameCommandBuffers: GPUCommandBuffer[] = [];
     this.frameSubmitSink = frameCommandBuffers;
+    this.frameSurfaceView = undefined;
 
     // XR render target provider beginFrame hook
     if (this.renderTargetProvider && !gpuError) {
@@ -997,7 +1012,7 @@ export class GameRenderer implements CanvasResizeHandler {
 
       // Apply postprocessing
       if (offscreen && useOffscreen && offscreen.applyPostprocess) {
-        const canvasView = this.getSurfaceTexture()?.createView();
+        const canvasView = this.getFrameSurfaceView();
         if (canvasView) {
           const postEncoder = this.device!.createCommandEncoder();
           offscreen.applyPostprocess(postEncoder, canvasView, this.canvas.width, this.canvas.height);
@@ -1158,6 +1173,18 @@ export class GameRenderer implements CanvasResizeHandler {
   }
 
   /**
+   * The frame's swapchain color view, acquired once per frame — every
+   * non-XR viewport renders into the same surface texture, so per-viewport
+   * getCurrentTexture()+createView() was duplicated FFI/allocation work.
+   */
+  private getFrameSurfaceView(): GPUTextureView | null {
+    if (this.frameSurfaceView === undefined) {
+      this.frameSurfaceView = this.getSurfaceTexture()?.createView() ?? null;
+    }
+    return this.frameSurfaceView;
+  }
+
+  /**
    * The surface texture already acquired for the in-flight frame, or null
    * when nothing has acquired one yet. End-of-frame overlays (the UI
    * composite) use this so they join a frame rather than start one: on
@@ -1234,9 +1261,9 @@ export class GameRenderer implements CanvasResizeHandler {
       ? (offscreen.type === "pixelation"
         ? offscreen.getColorView()
         : offscreen.type === "postprocess"
-        ? (offscreen.getSceneColorView?.() ?? this.getSurfaceTexture()?.createView())
-        : this.getSurfaceTexture()?.createView())
-      : this.getSurfaceTexture()?.createView();
+        ? (offscreen.getSceneColorView?.() ?? this.getFrameSurfaceView())
+        : this.getFrameSurfaceView())
+      : this.getFrameSurfaceView();
     const __ctMs = performance.now() - __ctStart;
     // Swapchain couldn't produce a frame (native resize in flight, occluded
     // window, transient failure) — skip this viewport's GPU work; game
@@ -1354,28 +1381,29 @@ export class GameRenderer implements CanvasResizeHandler {
   private createDepthTexture(w: number, h: number): GPUTextureView {
     if (!this.device) throw new Error("No device");
     const key = w * 65536 + h;
-    let tex = this.depthTextures.get(key);
-    if (tex) {
+    let entry = this.depthTextures.get(key);
+    if (entry) {
       // LRU: move to most-recently-used by re-inserting.
       this.depthTextures.delete(key);
-      this.depthTextures.set(key, tex);
+      this.depthTextures.set(key, entry);
     } else {
-      tex = this.device.createTexture({
+      const texture = this.device.createTexture({
         size: [w, h],
         format: this.depthFormat,
         usage: GPUTextureUsage.RENDER_ATTACHMENT,
       });
-      this.depthTextures.set(key, tex);
+      entry = { texture, view: texture.createView() };
+      this.depthTextures.set(key, entry);
       // Evict oldest entries if over cap.
       while (this.depthTextures.size > this.depthTextureCacheSize) {
         const oldestKey = this.depthTextures.keys().next().value;
         if (oldestKey === undefined) break;
         const oldest = this.depthTextures.get(oldestKey);
         this.depthTextures.delete(oldestKey);
-        oldest?.destroy();
+        oldest?.texture.destroy();
       }
     }
-    return tex.createView();
+    return entry.view;
   }
 
   // --- UI ---
@@ -1605,8 +1633,8 @@ export class GameRenderer implements CanvasResizeHandler {
     this.scaleOffscreen?.destroy();
     this.scaleOffscreen = null;
     this.device = null;
-    for (const tex of this.depthTextures.values()) {
-      tex.destroy();
+    for (const entry of this.depthTextures.values()) {
+      entry.texture.destroy();
     }
     this.depthTextures.clear();
   }

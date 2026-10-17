@@ -1,5 +1,16 @@
 import { describe, expect, it, vi } from "bun:test";
+import { PassType } from "./frame-graph";
 import { GameRenderer } from "./game-renderer";
+import { RenderPass } from "./render-pass";
+
+// WebGPU usage flags are not available in the test environment — install the
+// full spec-valued maps (createDepthTexture et al. read these at runtime).
+(globalThis as unknown as Record<string, unknown>).GPUTextureUsage = {
+  COPY_SRC: 0x1, COPY_DST: 0x2, TEXTURE_BINDING: 0x4, STORAGE_BINDING: 0x8, RENDER_ATTACHMENT: 0x10,
+};
+(globalThis as unknown as Record<string, unknown>).GPUBufferUsage = {
+  MAP_READ: 0x1, MAP_WRITE: 0x2, COPY_SRC: 0x4, COPY_DST: 0x8, INDEX: 0x10, VERTEX: 0x20, UNIFORM: 0x40, STORAGE: 0x80,
+};
 
 function createMockCanvas(): HTMLCanvasElement {
   const canvas = {
@@ -213,5 +224,67 @@ describe("GameRenderer — one-shot rendering", () => {
     } finally {
       restore();
     }
+  });
+});
+
+describe("GameRenderer — per-viewport work dedup", () => {
+  class CountingPass extends RenderPass {
+    override passType = PassType.Custom;
+    count = 0;
+    constructor(name: string, viewDependent: boolean) {
+      super();
+      this.name = name;
+      this.viewDependent = viewDependent;
+    }
+    setup(): void {}
+    execute(): void { this.count++; }
+    prepare(): void {}
+  }
+
+  it("acquires the swapchain view once per frame and runs view-independent passes once", () => {
+    const renderer = new GameRenderer(createMockCanvas());
+    renderer.setViewportCount(2);
+
+    let acquireCount = 0;
+    let viewCount = 0;
+    const surfaceTex = { createView: () => { viewCount++; return {}; } };
+    (renderer as any).context = {
+      getCurrentTexture: () => { acquireCount++; return surfaceTex; },
+      present() {},
+    };
+    (renderer as any).device = {
+      queue: { submit() {} },
+      createCommandEncoder: () => ({ finish: () => ({}) }),
+      createTexture: () => ({ createView: () => ({}), destroy() {} }),
+    };
+    (renderer as any).gpuProfiler = {
+      beginFrame() {},
+      resolveGpuTimers() {},
+      readGpuTimers: () => Promise.resolve(),
+      hasUncapturedError: () => false,
+      getPassTimings: () => [],
+    };
+
+    renderer.setCallbacks({
+      onViewport: () => ({
+        camera: {
+          position: [0, 0, 5], target: [0, 0, 0], up: [0, 1, 0],
+          fov: 60, near: 0.1, far: 100, aspect: 1,
+        },
+        viewport: { x: 0, y: 0, w: 400, h: 600 },
+      }),
+    });
+
+    const shared = new CountingPass("shared", false);
+    const perView = new CountingPass("per-view", true);
+    (renderer as any).frameGraph.addPass(shared);
+    (renderer as any).frameGraph.addPass(perView);
+
+    renderer.renderOnce();
+
+    expect(acquireCount).toBe(1);
+    expect(viewCount).toBe(1);
+    expect(shared.count).toBe(1);
+    expect(perView.count).toBe(2);
   });
 });
