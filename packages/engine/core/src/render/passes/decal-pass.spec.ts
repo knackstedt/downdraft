@@ -186,6 +186,33 @@ describe("DecalPass", () => {
     expect(mockPass.drawIndexed).toHaveBeenCalledTimes(3);
   });
 
+  it("batches per-item uniforms into one writeBuffer with per-slot bind groups", () => {
+    const device = makeMockDevice();
+    const pass = new DecalPass(device, "bgra8unorm");
+    pass.prepare(device);
+    pass.setDepthTextureView({} as GPUTextureView);
+    pass.addItem(makeDecalItem(device));
+    pass.addItem(makeDecalItem(device));
+    pass.addItem(makeDecalItem(device));
+    const mockPass = makeMockPass();
+    const ctx = makeMockCtx(mockPass, device);
+    pass.execute(ctx);
+
+    // Per-item data lands in one writeBuffer to the decal buffer — the
+    // previous per-item writeBuffer collapsed to the last item's data under
+    // the engine's single-submit frame model.
+    const wbCalls = (device.queue.writeBuffer as ReturnType<typeof vi.fn>).mock.calls;
+    const decalBufferWrites = wbCalls.filter((c: unknown[]) =>
+      c[1] === 0 && c[2] instanceof Float32Array && c[2].length === 3 * 64);
+    expect(decalBufferWrites.length).toBe(1);
+
+    // Each item binds a distinct group (its 256B slot offset is baked in).
+    const group0Calls = mockPass.setBindGroup.mock.calls.filter((c: unknown[]) => c[0] === 0);
+    expect(group0Calls.length).toBe(3);
+    const groups = new Set(group0Calls.map((c: unknown[]) => c[1]));
+    expect(groups.size).toBe(3);
+  });
+
   it("should cache vertex/index buffers per mesh", () => {
     const device = makeMockDevice();
     const pass = new DecalPass(device, "bgra8unorm");

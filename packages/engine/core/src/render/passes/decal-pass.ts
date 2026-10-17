@@ -133,13 +133,22 @@ export class DecalPass extends RenderPass {
   hdrHandle: TextureHandle | null = null;
   depthHandle: TextureHandle | null = null;
 
+  /** Bytes per item slot in decalBuffer — bind-group resource offsets must
+   *  be 256-aligned (minUniformBufferOffsetAlignment). */
+  private static DECAL_SLOT_BYTES = 256;
+  private static DECAL_SLOT_FLOATS = DecalPass.DECAL_SLOT_BYTES / 4;
+
   private device: GPUDevice | null;
   private surfaceFormat: GPUTextureFormat;
   private shaderModule: GPUShaderModule | null = null;
   private pipeline: GPURenderPipeline | null = null;
   private cameraBuffer: GPUBuffer | null = null;
   private decalBuffer: GPUBuffer | null = null;
-  private bindGroup: GPUBindGroup | null = null;
+  /** Per-slot bind groups with the item's decalBuffer offset baked in —
+   *  same pattern as ModelRenderer.perSlotBindGroups. */
+  private decalBindGroups: GPUBindGroup[] = [];
+  private decalCapacity = 0;
+  private decalStaging = new Float32Array(0);
   private depthTextureView: GPUTextureView | null = null;
   private depthSampler: GPUSampler | null = null;
   private items: DecalItem[] = [];
@@ -192,11 +201,12 @@ export class DecalPass extends RenderPass {
       this._camView = DecalCameraUniforms.view(this._camBuf);
     }
     if (!this.decalBuffer && this.device) {
+      this.decalCapacity = 64;
       this.decalBuffer = this.device.createBuffer({
-        size: 192,
+        size: this.decalCapacity * DecalPass.DECAL_SLOT_BYTES,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
-      this._decalBuf = new Float32Array(48);
+      this._decalBuf = new Float32Array(DecalUniforms.floatCount);
       this._decalView = DecalUniforms.view(this._decalBuf);
     }
     if (!this.depthSampler && this.device) {
@@ -210,7 +220,8 @@ export class DecalPass extends RenderPass {
 
   setDepthTextureView(view: GPUTextureView): void {
     this.depthTextureView = view;
-    this.bindGroup = null; // rebuild bind group with new depth view
+    // Rebuild per-slot bind groups with the new depth view.
+    this.decalBindGroups = [];
   }
 
   addItem(item: DecalItem): void {
@@ -245,33 +256,63 @@ export class DecalPass extends RenderPass {
     // Set the bindless bind group once (@group(3)).
     if (this.bindlessBindGroup) tracked.setBindGroup(3, this.bindlessBindGroup);
 
-    // Create the per-pass bind group once (camera + decal + depth — no texture).
-    if (!this.bindGroup && this.depthSampler) {
-      this.bindGroup = this.device.createBindGroup({
-        layout: this.pipeline.getBindGroupLayout(0),
+    if (!this.depthSampler) return;
+    const itemCount = this.items.length;
+    this.ensureDecalCapacity(itemCount);
+    const group0Layout = this.pipeline.getBindGroupLayout(0);
+    for (let slot = this.decalBindGroups.length; slot < itemCount; slot++) {
+      this.decalBindGroups.push(this.device.createBindGroup({
+        layout: group0Layout,
         entries: [
           { binding: 0, resource: { buffer: this.cameraBuffer! } },
-          { binding: 1, resource: { buffer: this.decalBuffer! } },
+          { binding: 1, resource: { buffer: this.decalBuffer!, offset: slot * DecalPass.DECAL_SLOT_BYTES, size: DecalUniforms.floatCount * 4 } },
           { binding: 2, resource: this.depthTextureView! },
-          { binding: 3, resource: this.depthSampler! },
+          { binding: 3, resource: this.depthSampler },
         ],
-      });
+      }));
     }
-    tracked.setBindGroup(0, this.bindGroup!);
 
-    for (let _i9949 = 0, _it9949 = this.items, _n9949 = _it9949.length; _i9949 < _n9949; _i9949++) { const item = _it9949[_i9949];
+    // Stage every item's decal uniforms into 256B slots, then flush with ONE
+    // writeBuffer. A per-item writeBuffer to offset 0 previously collapsed
+    // under the frame's single submit — every decal read the last item's
+    // decalViewProj/materialIndex.
+    if (this.decalStaging.length < itemCount * DecalPass.DECAL_SLOT_FLOATS) {
+      this.decalStaging = new Float32Array(itemCount * DecalPass.DECAL_SLOT_FLOATS);
+    }
+    const staging = this.decalStaging;
+    for (let i = 0; i < itemCount; i++) {
+      const item = this.items[i];
       const dv = this._decalView!;
       dv.set("decalViewProj", item.decalViewProj as Float32Array);
       dv.set("invViewProj", ctx.viewProj as Float32Array);
       dv.set("position", [item.modelMatrix[12], item.modelMatrix[13], item.modelMatrix[14]]);
-      const matIdx = this.getOrCreateDecalMaterialIndex(item);
-      dv.setU32("materialIndex", matIdx);
-      this.device.queue.writeBuffer(this.decalBuffer!, 0, this._decalBuf! as unknown as BufferSource);
+      dv.setU32("materialIndex", this.getOrCreateDecalMaterialIndex(item));
+      staging.set(this._decalBuf!, i * DecalPass.DECAL_SLOT_FLOATS);
+    }
+    this.device.queue.writeBuffer(
+      this.decalBuffer!, 0,
+      staging.subarray(0, itemCount * DecalPass.DECAL_SLOT_FLOATS) as unknown as BufferSource,
+    );
 
+    for (let i = 0; i < itemCount; i++) {
+      const item = this.items[i];
+      tracked.setBindGroup(0, this.decalBindGroups[i]);
       tracked.setVertexBuffer(0, this.getVertexBuffer(item.mesh));
       tracked.setIndexBuffer(this.getIndexBuffer(item.mesh), item.mesh.indices instanceof Uint16Array ? "uint16" : "uint32");
       tracked.drawIndexed(item.mesh.indexCount);
-    };
+    }
+  }
+
+  /** Grow decalBuffer + per-slot bind groups when a frame exceeds capacity. */
+  private ensureDecalCapacity(items: number): void {
+    if (items <= this.decalCapacity || !this.device) return;
+    this.decalCapacity = Math.max(items, this.decalCapacity * 2);
+    this.decalBuffer?.destroy();
+    this.decalBuffer = this.device.createBuffer({
+      size: this.decalCapacity * DecalPass.DECAL_SLOT_BYTES,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    this.decalBindGroups = [];
   }
 
   /** Get or create a bindless material index for a decal item. */
