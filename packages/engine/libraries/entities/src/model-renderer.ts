@@ -86,6 +86,36 @@ export class ModelRenderer {
   private reusableUniformsU32 = new Uint32Array(this.reusableUniforms.buffer);
   private textureLoadVersion = new Map<string, number>();
 
+  // ── Batched uniform upload ──
+  // Per-mesh uniforms within one render()/renderMask()/renderDepth() call
+  // target a contiguous run of 256-byte slots, so all mesh writes are staged
+  // into this scratch and flushed with a single writeBuffer per call instead
+  // of one FFI crossing per mesh.
+  private stagingUniforms = new Float32Array(0);
+  private stagingUniformsU32 = new Uint32Array(this.stagingUniforms.buffer);
+
+  // ── CPU frustum culling ──
+  // Six clip planes (nx,ny,nz,d) extracted from the camera view-projection
+  // once per beginFrame; renderDepth() extracts the light's VP into the
+  // separate depthPlanes scratch instead.
+  private readonly frustumPlanes = new Float32Array(24);
+  private readonly depthPlanes = new Float32Array(24);
+  private frustumPlanesValid = false;
+  private frustumCullingEnabled = true;
+  /** Model-space AABB per node, computed at upload from the deformed vertex
+   *  stream. Skinned models are flagged — bind-pose bounds do not bound an
+   *  animated pose, so they are never culled. */
+  private modelBounds = new Map<string, {
+    min: [number, number, number];
+    max: [number, number, number];
+    skinned: boolean;
+  }>();
+  /** Scratch for the R*S rotation-scale matrix + world AABB — keeps the
+   *  per-node cull path allocation-free. */
+  private readonly cullRs = new Float32Array(9);
+  private readonly cullMin = new Float32Array(3);
+  private readonly cullMax = new Float32Array(3);
+
   // Skinning: a shared storage buffer of bone matrices (mat4 each), updated
   // per-frame via updateSkinMatrices/updateSkinMatricesFor. Bound at @group(1)
   // for skinned draws only. Each skinned nodeId owns a region of the buffer —
@@ -442,6 +472,11 @@ export class ModelRenderer {
 
     const resources: ModelGPUResources[] = [];
     let uniformOffset = this.nextUniformOffset;
+    // Union of post-deform vertex positions → the model-space AABB used by
+    // CPU frustum culling. surfaceOffset shifts verts along their normal, so
+    // bounds are computed after deform, from p.
+    let bMinX = Infinity, bMinY = Infinity, bMinZ = Infinity;
+    let bMaxX = -Infinity, bMaxY = -Infinity, bMaxZ = -Infinity;
 
     for (let i = 0; i < meshes.length && uniformOffset < ModelRenderer.MAX_MODELS; i++) {
       const mesh = meshes[i];
@@ -466,9 +501,15 @@ export class ModelRenderer {
           p[gA] = gCA + (p[gA] - gCA) * s;
           p[gB] = gCB + (p[gB] - gCB) * s;
         }
-        interleaved[v * stride] = p[0] - nx * sOff;
-        interleaved[v * stride + 1] = p[1] - ny * sOff;
-        interleaved[v * stride + 2] = p[2] - nz * sOff;
+        // Bound the STORED position (p - n*sOff) — surfaceOffset can push
+        // verts either direction along the normal.
+        const sx = p[0] - nx * sOff, sy = p[1] - ny * sOff, sz = p[2] - nz * sOff;
+        if (sx < bMinX) bMinX = sx; if (sx > bMaxX) bMaxX = sx;
+        if (sy < bMinY) bMinY = sy; if (sy > bMaxY) bMaxY = sy;
+        if (sz < bMinZ) bMinZ = sz; if (sz > bMaxZ) bMaxZ = sz;
+        interleaved[v * stride] = sx;
+        interleaved[v * stride + 1] = sy;
+        interleaved[v * stride + 2] = sz;
         interleaved[v * stride + 3] = nx;
         interleaved[v * stride + 4] = ny;
         interleaved[v * stride + 5] = nz;
@@ -567,6 +608,13 @@ export class ModelRenderer {
 
     this.nextUniformOffset = uniformOffset;
     this.modelResources.set(nodeId, resources);
+    if (resources.length > 0 && Number.isFinite(bMinX)) {
+      this.modelBounds.set(nodeId, {
+        min: [bMinX, bMinY, bMinZ],
+        max: [bMaxX, bMaxY, bMaxZ],
+        skinned: resources.some((r) => r.skinned),
+      });
+    }
 
     if (resources.length < meshes.length) {
       log.warn(
@@ -906,6 +954,7 @@ export class ModelRenderer {
       }
       this.nextUniformOffset = Math.max(0, this.nextUniformOffset - resources.length);
       this.modelResources.delete(nodeId);
+      this.modelBounds.delete(nodeId);
     }
     // Unregister all per-mesh textures + materials from the bindless managers.
     // Clean up any materialKey that starts with `${nodeId}:`.
@@ -984,6 +1033,8 @@ export class ModelRenderer {
 
     const newResources: ModelGPUResources[] = [];
     let uniformOffset = this.nextUniformOffset;
+    let bMinX = Infinity, bMinY = Infinity, bMinZ = Infinity;
+    let bMaxX = -Infinity, bMaxY = -Infinity, bMaxZ = -Infinity;
 
     for (let i = 0; i < meshes.length && uniformOffset < ModelRenderer.MAX_MODELS; i++) {
       const mesh = meshes[i];
@@ -1005,9 +1056,13 @@ export class ModelRenderer {
           p[gA] = gCA + (p[gA] - gCA) * s;
           p[gB] = gCB + (p[gB] - gCB) * s;
         }
-        interleaved[v * stride] = p[0] - nx * sOff;
-        interleaved[v * stride + 1] = p[1] - ny * sOff;
-        interleaved[v * stride + 2] = p[2] - nz * sOff;
+        const sx = p[0] - nx * sOff, sy = p[1] - ny * sOff, sz = p[2] - nz * sOff;
+        if (sx < bMinX) bMinX = sx; if (sx > bMaxX) bMaxX = sx;
+        if (sy < bMinY) bMinY = sy; if (sy > bMaxY) bMaxY = sy;
+        if (sz < bMinZ) bMinZ = sz; if (sz > bMaxZ) bMaxZ = sz;
+        interleaved[v * stride] = sx;
+        interleaved[v * stride + 1] = sy;
+        interleaved[v * stride + 2] = sz;
         interleaved[v * stride + 3] = nx;
         interleaved[v * stride + 4] = ny;
         interleaved[v * stride + 5] = nz;
@@ -1103,6 +1158,15 @@ export class ModelRenderer {
 
     this.nextUniformOffset = uniformOffset;
     this.modelResources.set(nodeId, newResources);
+    if (newResources.length > 0 && Number.isFinite(bMinX)) {
+      this.modelBounds.set(nodeId, {
+        min: [bMinX, bMinY, bMinZ],
+        max: [bMaxX, bMaxY, bMaxZ],
+        skinned: newResources.some((r) => r.skinned),
+      });
+    } else {
+      this.modelBounds.delete(nodeId);
+    }
     return newResources.length;
   }
 
@@ -1112,6 +1176,82 @@ export class ModelRenderer {
     this.bindlessBindGroupSetThisFrame = false;
     this.skinBindGroupSetThisFrame = false;
     this.frameLightingBgSetThisFrame = false;
+    this.extractFrustumPlanes(this.viewProjCache, this.frustumPlanes);
+    this.frustumPlanesValid = true;
+  }
+
+  /** Enable/disable CPU frustum culling (default on). */
+  setFrustumCullingEnabled(enabled: boolean): void {
+    this.frustumCullingEnabled = enabled;
+  }
+
+  /**
+   * Extract the six clip planes from a column-major view-projection matrix
+   * (Gribb–Hartmann) into `out` — allocation-free. Plane order matches
+   * Frustum.extractFromViewProj: left, right, bottom, top, near, far — with
+   * near = row2 and far = row3−row2 for wgpu's [0,1] clip-z.
+   */
+  private extractFrustumPlanes(m: ArrayLike<number>, out: Float32Array): void {
+    const plane = (idx: number, a: number, b: number, c: number, d: number) => {
+      const len = Math.hypot(a, b, c);
+      if (len < 1e-6) { out[idx + 3] = 1; return; } // degenerate row — never cull on it
+      out[idx] = a / len; out[idx + 1] = b / len; out[idx + 2] = c / len; out[idx + 3] = d / len;
+    };
+    // Row i of the column-major matrix is [m[i], m[4+i], m[8+i], m[12+i]].
+    plane(0,  m[3] + m[0], m[7] + m[4],  m[11] + m[8],   m[15] + m[12]);
+    plane(4,  m[3] - m[0], m[7] - m[4],  m[11] - m[8],   m[15] - m[12]);
+    plane(8,  m[3] + m[1], m[7] + m[5],  m[11] + m[9],   m[15] + m[13]);
+    plane(12, m[3] - m[1], m[7] - m[5],  m[11] - m[9],   m[15] - m[13]);
+    plane(16, m[2],        m[6],         m[10],          m[14]);
+    plane(20, m[3] - m[2], m[7] - m[6],  m[11] - m[10],  m[15] - m[14]);
+  }
+
+  /** Positive-vertex (p-vertex) test: false only when the AABB is entirely
+   *  behind any plane — conservative, never culls visible geometry. */
+  private aabbIntersectsPlanes(planes: Float32Array, min: Float32Array, max: Float32Array): boolean {
+    for (let i = 0; i < 24; i += 4) {
+      const nx = planes[i], ny = planes[i + 1], nz = planes[i + 2];
+      const px = nx >= 0 ? max[0] : min[0];
+      const py = ny >= 0 ? max[1] : min[1];
+      const pz = nz >= 0 ? max[2] : min[2];
+      if (nx * px + ny * py + nz * pz + planes[i + 3] < 0) return false;
+    }
+    return true;
+  }
+
+  /**
+   * World-transform the node's model-space AABB by TRS (Arvo's method —
+   * identical result to transforming all 8 corners) and frustum-test it.
+   * Returns true when bounds are unknown, the node is skinned, culling is
+   * disabled, or the frustum hasn't been extracted yet — all the cases where
+   * culling would be unsafe.
+   */
+  private nodeVisible(nodeId: string, position: [number, number, number], rotation: [number, number, number, number], scale: [number, number, number], planes: Float32Array): boolean {
+    if (!this.frustumCullingEnabled) return true;
+    const b = this.modelBounds.get(nodeId);
+    if (!b || b.skinned) return true;
+    const [qx, qy, qz, qw] = rotation;
+    const xx = qx * qx, yy = qy * qy, zz = qz * qz;
+    const xy = qx * qy, xz = qx * qz, yz = qy * qz;
+    const wx = qw * qx, wy = qw * qy, wz = qw * qz;
+    // L[j*3+i] = R[j][i] * scale[i] — world row j gets model axis i's scaled
+    // column contribution.
+    const L = this.cullRs;
+    L[0] = (1 - 2 * (yy + zz)) * scale[0]; L[1] = (2 * (xy - wz)) * scale[1]; L[2] = (2 * (xz + wy)) * scale[2];
+    L[3] = (2 * (xy + wz)) * scale[0];     L[4] = (1 - 2 * (xx + zz)) * scale[1]; L[5] = (2 * (yz - wx)) * scale[2];
+    L[6] = (2 * (xz - wy)) * scale[0];     L[7] = (2 * (yz + wx)) * scale[1];     L[8] = (1 - 2 * (xx + yy)) * scale[2];
+    const bMin = b.min, bMax = b.max;
+    const mn = this.cullMin, mx = this.cullMax;
+    for (let j = 0; j < 3; j++) {
+      let lo = position[j], hi = position[j];
+      for (let i = 0; i < 3; i++) {
+        const a = L[j * 3 + i] * bMin[i];
+        const c = L[j * 3 + i] * bMax[i];
+        if (a < c) { lo += a; hi += c; } else { lo += c; hi += a; }
+      }
+      mn[j] = lo; mx[j] = hi;
+    }
+    return this.aabbIntersectsPlanes(planes, mn, mx);
   }
 
   /**
@@ -1255,6 +1395,16 @@ export class ModelRenderer {
     const resources = this.modelResources.get(nodeId);
     if (!resources || resources.length === 0) return;
 
+    const hasSkinned = resources.some((r) => r.skinned);
+
+    // CPU frustum cull — whole-node early-out before any queue write or draw
+    // encoding. Skinned models are never culled: bind-pose bounds don't
+    // bound an animated pose.
+    if (!hasSkinned && this.frustumPlanesValid &&
+        !this.nodeVisible(nodeId, position, rotation, scale, this.frustumPlanes)) {
+      return;
+    }
+
     // For instance 0, use the original uniform offsets stored in resources.
     // For instance 1+, compute offsets from the allocated instance base.
     let instanceBaseOffset = 0; // in bytes, added to each mesh's uniformOffset
@@ -1288,68 +1438,84 @@ export class ModelRenderer {
     // Set the skin-matrix bind group once per frame (group 1) when any skinned
     // mesh is drawn. The skin matrix buffer is updated per-frame by the caller
     // via updateSkinMatrices().
-    const hasSkinned = resources.some((r) => r.skinned);
     if (hasSkinned && this.skinBindGroup && !this.skinBindGroupSetThisFrame) {
       passEncoder.setBindGroup(1, this.skinBindGroup);
       this.skinBindGroupSetThisFrame = true;
     }
 
+    // Stage all per-mesh uniform blocks, then flush with ONE writeBuffer —
+    // the slots are contiguous (mesh0 + r*UNIFORM_SIZE), so a single FFI
+    // crossing covers the whole node. Only materialIndex varies per mesh;
+    // every other field is filled once here.
+    const meshCount = resources.length;
+    const needFloats = meshCount * 64;
+    if (this.stagingUniforms.length < needFloats) {
+      this.stagingUniforms = new Float32Array(needFloats);
+      this.stagingUniformsU32 = new Uint32Array(this.stagingUniforms.buffer);
+    }
+    const staging = this.stagingUniforms;
+    const stagingU32 = this.stagingUniformsU32;
+
+    const uniforms = this.reusableUniforms;
+    for (let i = 0; i < 16; i++) uniforms[i] = this.viewProjCache[i];
+    uniforms[16] = this.cameraPosCache[0];
+    uniforms[17] = this.cameraPosCache[1];
+    uniforms[18] = this.cameraPosCache[2];
+    uniforms[19] = performance.now() / 1000;
+    uniforms[20] = position[0];
+    uniforms[21] = position[1];
+    uniforms[22] = position[2];
+    // uniforms[23] = padding (vec3<f32> alignment in WGSL uniform layout)
+    uniforms[24] = scale[0];
+    uniforms[25] = scale[1];
+    uniforms[26] = scale[2];
+    // uniforms[27] = padding (vec4<f32> alignment in WGSL uniform layout)
+    uniforms[28] = rotation[0];
+    uniforms[29] = rotation[1];
+    uniforms[30] = rotation[2];
+    uniforms[31] = rotation[3];
+    // Light state at float slots 33-35 (the former _pad3/_pad4/_pad5 slots):
+    //   33: lightDir.x, 34: lightDir.y, 35: lightDir.z
+    //   36: ambient, 37: intensity
+    uniforms[33] = this.lightDirCache[0];
+    uniforms[34] = this.lightDirCache[1];
+    uniforms[35] = this.lightDirCache[2];
+    uniforms[36] = this.lightAmbientCache;
+    uniforms[37] = this.lightIntensityCache;
+    // highlight flag (float slot 38 — the former _pad6). Written as a float
+    // so the WGSL `highlight: f32` field reads the correct bit pattern.
+    uniforms[38] = highlight;
+    // Outline params (slots 39-42) — unused by fs_main but written so the
+    // same uniform buffer works for the outline pipeline (vs_outline /
+    // fs_outline). Defaults: 0 width, black color.
+    uniforms[39] = 0.0;
+    uniforms[40] = 0.0; uniforms[41] = 0.0; uniforms[42] = 0.0;
+    // boneBase (u32, slot 44) — index of this node's bone region inside the
+    // shared skinMatrices storage buffer. Only read by vs_skinned.
+    this.reusableUniformsU32[44] =
+      this.skinBaseByNode.get(nodeId)
+      ?? this.skinBaseByNode.get(ModelRenderer.DEFAULT_SKIN_NODE)
+      ?? 0;
+
+    for (let r = 0; r < meshCount; r++) {
+      staging.set(uniforms, r * 64);
+      // materialIndex (u32) at float slot 32 — write via the Uint32Array view
+      // so the shader reads the correct u32 bit pattern.
+      stagingU32[r * 64 + 32] = resources[r].materialIndex;
+    }
     const mesh0Offset = resources[0].uniformOffset;
-    for (let r = 0; r < resources.length; r++) {
+    this.device.queue.writeBuffer(
+      this.uniformBuffer,
+      instanceIndex === 0 ? mesh0Offset : instanceBaseOffset,
+      new Float32Array(staging.buffer, 0, needFloats) as Float32Array<ArrayBuffer>,
+    );
+
+    for (let r = 0; r < meshCount; r++) {
       const res = resources[r];
       // Compute the uniform offset for this instance + mesh.
       const uniformOffset = instanceIndex === 0
         ? res.uniformOffset
         : instanceBaseOffset + (res.uniformOffset - mesh0Offset);
-      const uniforms = this.reusableUniforms;
-      for (let i = 0; i < 16; i++) uniforms[i] = this.viewProjCache[i];
-      uniforms[16] = this.cameraPosCache[0];
-      uniforms[17] = this.cameraPosCache[1];
-      uniforms[18] = this.cameraPosCache[2];
-      uniforms[19] = performance.now() / 1000;
-      uniforms[20] = position[0];
-      uniforms[21] = position[1];
-      uniforms[22] = position[2];
-      // uniforms[23] = padding (vec3<f32> alignment in WGSL uniform layout)
-      uniforms[24] = scale[0];
-      uniforms[25] = scale[1];
-      uniforms[26] = scale[2];
-      // uniforms[27] = padding (vec4<f32> alignment in WGSL uniform layout)
-      uniforms[28] = rotation[0];
-      uniforms[29] = rotation[1];
-      uniforms[30] = rotation[2];
-      uniforms[31] = rotation[3];
-      // materialIndex (u32) at float slot 32 — write via Uint32Array view so
-      // the shader reads the correct u32 bit pattern (not a float reinterpretation).
-      this.reusableUniformsU32[32] = res.materialIndex;
-      // Light state at float slots 33-35 (the former _pad3/_pad4/_pad5 slots):
-      //   33: lightDir.x, 34: lightDir.y, 35: lightDir.z
-      //   36: ambient, 37: intensity
-      uniforms[33] = this.lightDirCache[0];
-      uniforms[34] = this.lightDirCache[1];
-      uniforms[35] = this.lightDirCache[2];
-      uniforms[36] = this.lightAmbientCache;
-      uniforms[37] = this.lightIntensityCache;
-      // highlight flag (float slot 38 — the former _pad6). Written as a float
-      // so the WGSL `highlight: f32` field reads the correct bit pattern.
-      uniforms[38] = highlight;
-      // Outline params (slots 39-42) — unused by fs_main but written so the
-      // same uniform buffer works for the outline pipeline (vs_outline /
-      // fs_outline). Defaults: 0 width, black color.
-      uniforms[39] = 0.0;
-      uniforms[40] = 0.0; uniforms[41] = 0.0; uniforms[42] = 0.0;
-      // boneBase (u32, slot 44) — index of this node's bone region inside the
-      // shared skinMatrices storage buffer. Only read by vs_skinned.
-      this.reusableUniformsU32[44] =
-        this.skinBaseByNode.get(nodeId)
-        ?? this.skinBaseByNode.get(ModelRenderer.DEFAULT_SKIN_NODE)
-        ?? 0;
-
-      this.device.queue.writeBuffer(
-        this.uniformBuffer,
-        uniformOffset,
-        uniforms as Float32Array<ArrayBuffer>,
-      );
 
       // Select the skinned pipeline + skin vertex buffer for skinned meshes,
       // otherwise the standard non-skinned pipeline.
@@ -1392,6 +1558,11 @@ export class ModelRenderer {
     const resources = this.modelResources.get(nodeId);
     if (!resources || resources.length === 0) return;
 
+    if (!resources.some((r) => r.skinned) && this.frustumPlanesValid &&
+        !this.nodeVisible(nodeId, position, rotation, scale, this.frustumPlanes)) {
+      return;
+    }
+
     if (this.bindlessBindGroup && !this.bindlessBindGroupSetThisFrame) {
       passEncoder.setBindGroup(3, this.bindlessBindGroup);
       this.bindlessBindGroupSetThisFrame = true;
@@ -1405,33 +1576,45 @@ export class ModelRenderer {
     if (maskFrameLightBg) passEncoder.setBindGroup(2, maskFrameLightBg);
     if (this.bindlessBindGroup) passEncoder.setBindGroup(3, this.bindlessBindGroup);
 
-    for (let r = 0; r < resources.length; r++) {
+    const meshCount = resources.length;
+    const needFloats = meshCount * 64;
+    if (this.stagingUniforms.length < needFloats) {
+      this.stagingUniforms = new Float32Array(needFloats);
+      this.stagingUniformsU32 = new Uint32Array(this.stagingUniforms.buffer);
+    }
+    const staging = this.stagingUniforms;
+    const stagingU32 = this.stagingUniformsU32;
+
+    const uniforms = this.reusableUniforms;
+    for (let i = 0; i < 16; i++) uniforms[i] = this.viewProjCache[i];
+    uniforms[16] = this.cameraPosCache[0];
+    uniforms[17] = this.cameraPosCache[1];
+    uniforms[18] = this.cameraPosCache[2];
+    uniforms[19] = performance.now() / 1000;
+    uniforms[20] = position[0];
+    uniforms[21] = position[1];
+    uniforms[22] = position[2];
+    uniforms[24] = scale[0];
+    uniforms[25] = scale[1];
+    uniforms[26] = scale[2];
+    uniforms[28] = rotation[0];
+    uniforms[29] = rotation[1];
+    uniforms[30] = rotation[2];
+    uniforms[31] = rotation[3];
+    // Remaining fields not read by fs_mask.
+    for (let r = 0; r < meshCount; r++) {
+      staging.set(uniforms, r * 64);
+      stagingU32[r * 64 + 32] = resources[r].materialIndex;
+    }
+    this.device.queue.writeBuffer(
+      this.uniformBuffer,
+      resources[0].uniformOffset,
+      new Float32Array(staging.buffer, 0, needFloats) as Float32Array<ArrayBuffer>,
+    );
+
+    for (let r = 0; r < meshCount; r++) {
       const res = resources[r];
       const uniformOffset = res.uniformOffset;
-      const uniforms = this.reusableUniforms;
-      for (let i = 0; i < 16; i++) uniforms[i] = this.viewProjCache[i];
-      uniforms[16] = this.cameraPosCache[0];
-      uniforms[17] = this.cameraPosCache[1];
-      uniforms[18] = this.cameraPosCache[2];
-      uniforms[19] = performance.now() / 1000;
-      uniforms[20] = position[0];
-      uniforms[21] = position[1];
-      uniforms[22] = position[2];
-      uniforms[24] = scale[0];
-      uniforms[25] = scale[1];
-      uniforms[26] = scale[2];
-      uniforms[28] = rotation[0];
-      uniforms[29] = rotation[1];
-      uniforms[30] = rotation[2];
-      uniforms[31] = rotation[3];
-      this.reusableUniformsU32[32] = res.materialIndex;
-      // Remaining fields not read by fs_mask.
-      this.device.queue.writeBuffer(
-        this.uniformBuffer,
-        uniformOffset,
-        uniforms as Float32Array<ArrayBuffer>,
-      );
-
       passEncoder.setPipeline(this.maskPipeline);
       passEncoder.setBindGroup(0, this.bindGroup, [uniformOffset]);
       passEncoder.setVertexBuffer(0, res.vertexBuffer);
@@ -1461,32 +1644,51 @@ export class ModelRenderer {
     const resources = this.modelResources.get(nodeId);
     if (!resources || resources.length === 0) return;
 
+    // Cull against the LIGHT's frustum — separate scratch so interleaved
+    // render()/renderDepth() calls don't clobber the camera planes.
+    this.extractFrustumPlanes(viewProj, this.depthPlanes);
+    if (!resources.some((r) => r.skinned) &&
+        !this.nodeVisible(nodeId, position, rotation, scale, this.depthPlanes)) {
+      return;
+    }
+
+    const meshCount = resources.length;
+    const needFloats = meshCount * 64;
+    if (this.stagingUniforms.length < needFloats) {
+      this.stagingUniforms = new Float32Array(needFloats);
+      this.stagingUniformsU32 = new Uint32Array(this.stagingUniforms.buffer);
+    }
+    const staging = this.stagingUniforms;
+    const stagingU32 = this.stagingUniformsU32;
+
     const uniforms = this.reusableUniforms;
-    for (let r = 0; r < resources.length; r++) {
+    // viewProj (light VP) replaces the camera viewProj for shadow rendering.
+    for (let i = 0; i < 16; i++) uniforms[i] = viewProj[i];
+    // cameraPos + time not read by the vertex shader, but zero for safety.
+    uniforms[16] = 0; uniforms[17] = 0; uniforms[18] = 0; uniforms[19] = 0;
+    uniforms[20] = position[0];
+    uniforms[21] = position[1];
+    uniforms[22] = position[2];
+    uniforms[24] = scale[0];
+    uniforms[25] = scale[1];
+    uniforms[26] = scale[2];
+    uniforms[28] = rotation[0];
+    uniforms[29] = rotation[1];
+    uniforms[30] = rotation[2];
+    uniforms[31] = rotation[3];
+    for (let r = 0; r < meshCount; r++) {
+      staging.set(uniforms, r * 64);
+      stagingU32[r * 64 + 32] = resources[r].materialIndex;
+    }
+    this.device.queue.writeBuffer(
+      this.uniformBuffer,
+      resources[0].uniformOffset,
+      new Float32Array(staging.buffer, 0, needFloats) as Float32Array<ArrayBuffer>,
+    );
+
+    for (let r = 0; r < meshCount; r++) {
       const res = resources[r];
       const uniformOffset = res.uniformOffset;
-      // viewProj (light VP) replaces the camera viewProj for shadow rendering.
-      for (let i = 0; i < 16; i++) uniforms[i] = viewProj[i];
-      // cameraPos + time not read by the vertex shader, but zero for safety.
-      uniforms[16] = 0; uniforms[17] = 0; uniforms[18] = 0; uniforms[19] = 0;
-      uniforms[20] = position[0];
-      uniforms[21] = position[1];
-      uniforms[22] = position[2];
-      uniforms[24] = scale[0];
-      uniforms[25] = scale[1];
-      uniforms[26] = scale[2];
-      uniforms[28] = rotation[0];
-      uniforms[29] = rotation[1];
-      uniforms[30] = rotation[2];
-      uniforms[31] = rotation[3];
-      this.reusableUniformsU32[32] = res.materialIndex;
-
-      this.device.queue.writeBuffer(
-        this.uniformBuffer,
-        uniformOffset,
-        uniforms as Float32Array<ArrayBuffer>,
-      );
-
       passEncoder.setPipeline(this.depthPipeline);
       passEncoder.setBindGroup(0, this.bindGroup, [uniformOffset]);
       passEncoder.setVertexBuffer(0, res.vertexBuffer);
@@ -1508,6 +1710,10 @@ export class ModelRenderer {
     const res = this.modelResources.get(nodeId)?.[meshIndex];
     if (!res) return;
     this.device.queue.writeBuffer(res.vertexBuffer, 0, interleaved as Float32Array<ArrayBuffer>);
+    // CPU deformation changed the mesh — recomputing exact bounds would need
+    // the full model; conservatively drop the node's bounds so it is never
+    // culled (a stale box could wrongly cull a grown mesh).
+    this.modelBounds.delete(nodeId);
   }
 
   /**
