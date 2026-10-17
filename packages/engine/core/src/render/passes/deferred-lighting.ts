@@ -445,9 +445,12 @@ export class DeferredLightingPass extends RenderPass {
     // Update camera and lighting uniforms. Light data + light viewProj are
     // identical across viewports — write them once on the first viewport.
     this.updateCamera(ctx.viewProj, ctx.prevViewProj, ctx.invViewProj, ctx.cameraPos);
+    // Light state is view-independent — write on the first viewport only.
+    // ctx.lightData/lightViewProj are consumer-populated fields; guard so a
+    // pass registered without light wiring doesn't throw on null.
     if (!(ctx.viewportIdx > 0)) {
-      this.updateLightViewProj(ctx.lightViewProj);
-      this.updateLights(ctx.lightData);
+      if (ctx.lightViewProj) this.updateLightViewProj(ctx.lightViewProj);
+      if (ctx.lightData) this.updateLights(ctx.lightData);
     }
 
     if (!bindGroup) return;

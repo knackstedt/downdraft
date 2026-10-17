@@ -484,8 +484,8 @@ export class ClusterLightingPass extends RenderPass {
     // Light data + light viewProj are identical across viewports — write
     // them once on the first viewport.
     if (!(ctx.viewportIdx > 0)) {
-      this.updateLightViewProj(ctx.lightViewProj);
-      this.updateLights(ctx.lightData);
+      if (ctx.lightViewProj) this.updateLightViewProj(ctx.lightViewProj);
+      if (ctx.lightData) this.updateLights(ctx.lightData);
     }
 
     if (!this.clusterBindGroup) {

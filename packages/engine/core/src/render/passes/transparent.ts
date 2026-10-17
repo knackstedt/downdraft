@@ -336,7 +336,8 @@ export class TransparentPass extends RenderPass {
 
     this.setCameraViewProj(ctx.viewProj, ctx.cameraPos);
     // Light state is identical across viewports — write once on the first.
-    if (!(ctx.viewportIdx > 0)) this.setLightData(ctx.lightData);
+    // ctx.lightData is consumer-populated; skip rather than throw on null.
+    if (!(ctx.viewportIdx > 0) && ctx.lightData) this.setLightData(ctx.lightData);
 
     this.renderItems.sort((a, b) => b.distance - a.distance);
 
